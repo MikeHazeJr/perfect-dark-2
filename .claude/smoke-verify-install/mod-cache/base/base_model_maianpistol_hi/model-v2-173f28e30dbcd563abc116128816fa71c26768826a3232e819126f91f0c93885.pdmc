@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_maianpistol_hi",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_maianpistol_hi.pdmesh::model.obj",
+  "source_size": 60665,
+  "source_sha256": "173f28e30dbcd563abc116128816fa71c26768826a3232e819126f91f0c93885",
+  "validation": "format=obj vertices=942 triangles=314",
+  "normalized": "$S/mod-cache/base/base_model_maianpistol_hi/model-v2-173f28e30dbcd563abc116128816fa71c26768826a3232e819126f91f0c93885.pdmodel.json",
+  "vertex_count": 942,
+  "triangle_count": 314,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import csv
 import fnmatch
+import hashlib
 import json
 import re
 import struct
@@ -92,7 +93,7 @@ ROOT_METADATA = {
 }
 
 SCENARIO_GRAPH_CACHE_KIND = (
-    "pdscenario_scene_glb_clean_public_v77_standalone_backfill_collision_obj_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_quip_shuffle_graph_portals"
+    "pdscenario_scene_glb_clean_public_v82_standalone_backfill_collision_obj_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_quip_shuffle_graph_portals_navhashes"
 )
 
 FORBIDDEN_COMMON_EXACT = {
@@ -1586,6 +1587,15 @@ def read_tsv_rows(label: str, entry_name: str, text: str) -> tuple[list[list[str
         return [], [f"{label} has unreadable TSV table {entry_name}: {exc}"]
 
 
+def count_tsv_data_rows(label: str, entry_name: str, text: str) -> tuple[int, list[str]]:
+    rows, errors = read_tsv_rows(label, entry_name, text)
+    if errors:
+        return 0, errors
+    if not rows:
+        return 0, [f"{label} {entry_name} must contain a header"]
+    return sum(1 for row in rows[1:] if any(cell.strip() for cell in row)), []
+
+
 def validate_objectives_tsv_schema(label: str, entry_name: str, text: str,
                                    expected_header: list[str]) -> list[str]:
     rows, errors = read_tsv_rows(label, entry_name, text)
@@ -2009,6 +2019,97 @@ def validate_archive_bytes(data: bytes, label: str, ext: str,
                         result.errors.append(
                             f"{label} navigation/paths.tsv must use the definitive path source header"
                         )
+                if "navigation.ini" in name_set:
+                    navigation_ini_text = zf.read("navigation.ini").decode(
+                        "utf-8", errors="replace"
+                    )
+                    for required_line, description in {
+                        "supports_walk = true": "walk",
+                        "supports_jump = true": "jump",
+                        "supports_drop = true": "drop",
+                        "supports_wall = true": "wall",
+                        "supports_ceiling = true": "ceiling",
+                    }.items():
+                        if required_line not in navigation_ini_text:
+                            result.errors.append(
+                                f"{label} navigation.ini must declare {description} capability support"
+                            )
+                if "_meta/generated-navmesh.json" in name_set:
+                    navmesh_text = zf.read("_meta/generated-navmesh.json").decode(
+                        "utf-8", errors="replace"
+                    )
+                    try:
+                        navmesh = json.loads(navmesh_text)
+                    except json.JSONDecodeError as exc:
+                        result.errors.append(
+                            f"{label} _meta/generated-navmesh.json is not valid JSON: {exc.msg}"
+                        )
+                        navmesh = {}
+                    expected_capabilities = ["walk", "jump", "drop", "wall", "ceiling"]
+                    if navmesh.get("capabilities") != expected_capabilities:
+                        result.errors.append(
+                            f"{label} _meta/generated-navmesh.json must declare movement capabilities walk,jump,drop,wall,ceiling"
+                        )
+                    source_counts = navmesh.get("source_counts")
+                    if not isinstance(source_counts, dict):
+                        result.errors.append(
+                            f"{label} _meta/generated-navmesh.json must declare source_counts"
+                        )
+                    else:
+                        for source_name, count_key in {
+                            "pads.tsv": "pads",
+                            "volumes.tsv": "volumes",
+                            "navigation/waypoints.tsv": "waypoints",
+                            "navigation/waygroups.tsv": "waygroups",
+                            "navigation/covers.tsv": "covers",
+                            "navigation/paths.tsv": "paths",
+                        }.items():
+                            if source_name not in name_set:
+                                result.errors.append(
+                                    f"{label} _meta/generated-navmesh.json source_counts requires {source_name}"
+                                )
+                                continue
+                            row_count, row_errors = count_tsv_data_rows(
+                                label,
+                                source_name,
+                                zf.read(source_name).decode("utf-8", errors="replace"),
+                            )
+                            result.errors.extend(row_errors)
+                            if source_counts.get(count_key) != row_count:
+                                result.errors.append(
+                                    f"{label} _meta/generated-navmesh.json source_counts.{count_key} must match {source_name} rows"
+                                )
+                    source_hashes = navmesh.get("source_hashes")
+                    if not isinstance(source_hashes, dict):
+                        result.errors.append(
+                            f"{label} _meta/generated-navmesh.json must declare source_hashes"
+                        )
+                    else:
+                        for source_name in [
+                            "scene.glb",
+                            "collision.obj",
+                            "navigation.ini",
+                            "portals.tsv",
+                            "pads.tsv",
+                            "spawns.tsv",
+                            "volumes.tsv",
+                            "navigation/waypoints.tsv",
+                            "navigation/waygroups.tsv",
+                            "navigation/covers.tsv",
+                            "navigation/paths.tsv",
+                        ]:
+                            if source_name not in name_set:
+                                result.errors.append(
+                                    f"{label} _meta/generated-navmesh.json source_hashes requires {source_name}"
+                                )
+                                continue
+                            source_hash = hashlib.sha256(
+                                zf.read(source_name)
+                            ).hexdigest()
+                            if source_hashes.get(source_name) != source_hash:
+                                result.errors.append(
+                                    f"{label} _meta/generated-navmesh.json source_hashes.{source_name} must match public source bytes"
+                                )
                 if "level.graph.json" in name_set:
                     graph_text = zf.read("level.graph.json").decode(
                         "utf-8", errors="replace"
@@ -2770,6 +2871,7 @@ def validate_archive_bytes(data: bytes, label: str, ext: str,
                             ("scenario.ai.lists", "scenario.ai.condition.if_player_auto_walk_finished"),
                             ("scenario.ai.lists", "scenario.ai.condition.if_obj_in_room"),
                             ("setup.tables", "scenario.ai.condition.if_obj_in_room"),
+                            ("scenario.pads", "scenario.ai.condition.if_obj_in_room"),
                             ("source.scene", "scenario.ai.condition.if_obj_in_room"),
                             ("scenario.ai.lists", "scenario.ai.condition.if_player_looking_at_object"),
                             ("setup.tables", "scenario.ai.condition.if_player_looking_at_object"),

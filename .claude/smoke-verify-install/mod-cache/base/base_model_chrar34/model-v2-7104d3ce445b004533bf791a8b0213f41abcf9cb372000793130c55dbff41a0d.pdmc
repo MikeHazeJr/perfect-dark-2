@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_chrar34",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_chrar34.pdmesh::model.obj",
+  "source_size": 20006,
+  "source_sha256": "7104d3ce445b004533bf791a8b0213f41abcf9cb372000793130c55dbff41a0d",
+  "validation": "format=obj vertices=306 triangles=102",
+  "normalized": "$S/mod-cache/base/base_model_chrar34/model-v2-7104d3ce445b004533bf791a8b0213f41abcf9cb372000793130c55dbff41a0d.pdmodel.json",
+  "vertex_count": 306,
+  "triangle_count": 102,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

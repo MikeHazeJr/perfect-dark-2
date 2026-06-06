@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_table_btv",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_table_btv.pdmesh::model.obj",
+  "source_size": 11259,
+  "source_sha256": "9e5474e04c50f86d33cb39820af7a6c88c067b68cf012c2f9eb3bab5634c4b60",
+  "validation": "format=obj vertices=168 triangles=56",
+  "normalized": "$S/mod-cache/base/base_model_table_btv/model-v2-9e5474e04c50f86d33cb39820af7a6c88c067b68cf012c2f9eb3bab5634c4b60.pdmodel.json",
+  "vertex_count": 168,
+  "triangle_count": 56,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

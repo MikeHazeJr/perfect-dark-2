@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 1,
+  "asset_id": "base:model_fanroof_eq",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_fanroof_eq.pdmesh::model.obj",
+  "source_size": 4022,
+  "source_sha256": "3b113c45068423780ab4d29c160b01ccfbcb0f67abab4b0b06f207f29f1fd9c3",
+  "validation": "format=obj vertices=60 triangles=20",
+  "normalized": "$S/mod-cache/base/base_model_fanroof_eq/model-v1-3b113c45068423780ab4d29c160b01ccfbcb0f67abab4b0b06f207f29f1fd9c3.pdmodel.json",
+  "vertex_count": 60,
+  "triangle_count": 20,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_accessdoordn_pq",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_accessdoordn_pq.pdmesh::model.obj",
+  "source_size": 4625,
+  "source_sha256": "492e23711426d0e69ace5f59b4dbdd04a611ed03ae2bdc028d1be864be06abb7",
+  "validation": "format=obj vertices=66 triangles=22",
+  "normalized": "$S/mod-cache/base/base_model_accessdoordn_pq/model-v2-492e23711426d0e69ace5f59b4dbdd04a611ed03ae2bdc028d1be864be06abb7.pdmodel.json",
+  "vertex_count": 66,
+  "triangle_count": 22,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:stewardess",
+  "mod_id": "base",
+  "kind": "body",
+  "source": "data/ntsc-final/bodies/base_stewardess.pdbody::mesh.pdmesh::model.obj",
+  "source_size": 133192,
+  "source_sha256": "392c47b94ccdd713334498db58713a1a730def2c97fe2d4aef9fd67909b76860",
+  "validation": "format=obj vertices=1965 triangles=655",
+  "normalized": "$S/mod-cache/base/base_stewardess/body-v2-392c47b94ccdd713334498db58713a1a730def2c97fe2d4aef9fd67909b76860.pdmodel.json",
+  "vertex_count": 1965,
+  "triangle_count": 655,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

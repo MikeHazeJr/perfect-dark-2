@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_secguard_bs",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_secguard_bs.pdmesh::model.obj",
+  "source_size": 138753,
+  "source_sha256": "93776b83df626d7c130bac7a18a8483b173c2faa3fe0dead1bd8ed51c892799b",
+  "validation": "format=obj vertices=2040 triangles=680",
+  "normalized": "$S/mod-cache/base/base_model_secguard_bs/model-v2-93776b83df626d7c130bac7a18a8483b173c2faa3fe0dead1bd8ed51c892799b.pdmodel.json",
+  "vertex_count": 2040,
+  "triangle_count": 680,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

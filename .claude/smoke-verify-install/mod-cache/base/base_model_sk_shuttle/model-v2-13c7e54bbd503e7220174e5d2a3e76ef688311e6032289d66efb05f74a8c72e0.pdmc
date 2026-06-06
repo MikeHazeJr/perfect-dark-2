@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_sk_shuttle",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_sk_shuttle.pdmesh::model.obj",
+  "source_size": 259166,
+  "source_sha256": "13c7e54bbd503e7220174e5d2a3e76ef688311e6032289d66efb05f74a8c72e0",
+  "validation": "format=obj vertices=3639 triangles=1213",
+  "normalized": "$S/mod-cache/base/base_model_sk_shuttle/model-v2-13c7e54bbd503e7220174e5d2a3e76ef688311e6032289d66efb05f74a8c72e0.pdmodel.json",
+  "vertex_count": 3639,
+  "triangle_count": 1213,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

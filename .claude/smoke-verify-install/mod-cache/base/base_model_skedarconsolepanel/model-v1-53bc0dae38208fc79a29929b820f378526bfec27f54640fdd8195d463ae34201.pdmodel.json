@@ -1,0 +1,23 @@
+{
+  "schema": "pd2.modasset.model.v1",
+  "compiler_version": 1,
+  "asset_id": "base:model_skedarconsolepanel",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_skedarconsolepanel.pdmesh::model.obj",
+  "source_sha256": "53bc0dae38208fc79a29929b820f378526bfec27f54640fdd8195d463ae34201",
+  "runtime_boundary": "modeldef",
+  "vertex_count": 6,
+  "triangle_count": 2,
+  "vertices": [
+    [21692.9805, -2816.92139, 27682.5469],
+    [21692.9805, -2253.92139, 27682.5469],
+    [20892.9805, -2253.92139, 27682.5469],
+    [21692.9805, -2816.92139, 27682.5469],
+    [20892.9805, -2253.92139, 27682.5469],
+    [20892.9805, -2822.92139, 27682.5469]
+  ],
+  "triangles": [
+    [0, 1, 2],
+    [3, 4, 5]
+  ]
+}

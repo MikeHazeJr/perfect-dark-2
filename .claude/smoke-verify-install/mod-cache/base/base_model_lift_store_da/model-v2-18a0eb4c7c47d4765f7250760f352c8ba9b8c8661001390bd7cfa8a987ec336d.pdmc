@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_lift_store_da",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_lift_store_da.pdmesh::model.obj",
+  "source_size": 3582,
+  "source_sha256": "18a0eb4c7c47d4765f7250760f352c8ba9b8c8661001390bd7cfa8a987ec336d",
+  "validation": "format=obj vertices=48 triangles=16",
+  "normalized": "$S/mod-cache/base/base_model_lift_store_da/model-v2-18a0eb4c7c47d4765f7250760f352c8ba9b8c8661001390bd7cfa8a987ec336d.pdmodel.json",
+  "vertex_count": 48,
+  "triangle_count": 16,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

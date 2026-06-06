@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_pcgunlod_lo",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_pcgunlod_lo.pdmesh::model.obj",
+  "source_size": 36648,
+  "source_sha256": "bf61b8d91ac6c1056f8402de3474c6b3f6bcdc5c1fdd79a832ec0c21dfc2e78b",
+  "validation": "format=obj vertices=564 triangles=188",
+  "normalized": "$S/mod-cache/base/base_model_pcgunlod_lo/model-v2-bf61b8d91ac6c1056f8402de3474c6b3f6bcdc5c1fdd79a832ec0c21dfc2e78b.pdmodel.json",
+  "vertex_count": 564,
+  "triangle_count": 188,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

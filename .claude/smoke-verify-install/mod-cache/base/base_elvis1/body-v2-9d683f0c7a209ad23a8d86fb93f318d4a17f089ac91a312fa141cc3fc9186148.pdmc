@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:elvis1",
+  "mod_id": "base",
+  "kind": "body",
+  "source": "data/ntsc-final/bodies/base_elvis1.pdbody::mesh.pdmesh::model.obj",
+  "source_size": 134170,
+  "source_sha256": "9d683f0c7a209ad23a8d86fb93f318d4a17f089ac91a312fa141cc3fc9186148",
+  "validation": "format=obj vertices=1977 triangles=659",
+  "normalized": "$S/mod-cache/base/base_elvis1/body-v2-9d683f0c7a209ad23a8d86fb93f318d4a17f089ac91a312fa141cc3fc9186148.pdmodel.json",
+  "vertex_count": 1977,
+  "triangle_count": 659,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

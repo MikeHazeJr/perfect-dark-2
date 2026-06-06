@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_chrmauler",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_chrmauler.pdmesh::model.obj",
+  "source_size": 10043,
+  "source_sha256": "6ba766f1c501aa8e577197d63cbc41204eef71e186dddf0d33ea7fa7b7c05b85",
+  "validation": "format=obj vertices=156 triangles=52",
+  "normalized": "$S/mod-cache/base/base_model_chrmauler/model-v2-6ba766f1c501aa8e577197d63cbc41204eef71e186dddf0d33ea7fa7b7c05b85.pdmodel.json",
+  "vertex_count": 156,
+  "triangle_count": 52,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

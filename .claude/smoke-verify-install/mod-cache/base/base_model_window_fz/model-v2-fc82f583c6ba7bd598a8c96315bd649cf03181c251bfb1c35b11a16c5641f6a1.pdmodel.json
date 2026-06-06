@@ -1,0 +1,36 @@
+{
+  "schema": "pd2.modasset.model.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_window_fz",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_window_fz.pdmesh::model.obj",
+  "source_sha256": "fc82f583c6ba7bd598a8c96315bd649cf03181c251bfb1c35b11a16c5641f6a1",
+  "runtime_boundary": "modeldef",
+  "vertex_count": 6,
+  "texcoord_count": 6,
+  "triangle_count": 2,
+  "vertices": [
+    [8750, -14917.333, 10916.667],
+    [5000, -14917.333, 10916.667],
+    [5000, -12750.333, 10916.667],
+    [8750, -14917.333, 10916.667],
+    [5000, -12750.333, 10916.667],
+    [8750, -12750.333, 10916.667]
+  ],
+  "texcoords": [
+    [0, 1],
+    [0, 1],
+    [0, 1],
+    [0, 1],
+    [0, 1],
+    [0, 1]
+  ],
+  "triangles": [
+    [0, 1, 2],
+    [3, 4, 5]
+  ],
+  "triangle_texcoords": [
+    [0, 1, 2],
+    [3, 4, 5]
+  ]
+}

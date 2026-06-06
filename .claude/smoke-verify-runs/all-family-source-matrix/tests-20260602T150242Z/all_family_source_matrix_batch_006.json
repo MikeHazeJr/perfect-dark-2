@@ -1,0 +1,121 @@
+{
+  "scenario_name": "all_family_source_matrix_batch_006",
+  "description": "c3844 runtime matrix smoke: source-only catalog load batch 6 for extracted non-Scenario public typed archives.",
+  "tags": [
+    "modding",
+    "pdxxx",
+    "source-gate",
+    "source-matrix",
+    "all-family",
+    "c3844",
+    "smoke",
+    "pillar:modding"
+  ],
+  "paths_of_interest": [
+    "port/src/main.c",
+    "port/src/asset_source_debug.c",
+    "port/src/assetcatalog_load.c",
+    "tools/smoke-verify/run-all-family-source-matrix.ps1",
+    "tools/smoke-verify/fixtures/all_family_source_pd.ini"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 180,
+  "install_state": "clean",
+  "fixtures": [
+    {
+      "src": "tools/smoke-verify/fixtures/all_family_source_pd.ini",
+      "dst": "pd.ini"
+    },
+    {
+      "src": "tools/smoke-verify/fixtures/no_mods_enabled.json",
+      "dst": "mods-enabled.json"
+    }
+  ],
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--portable",
+    "--debug-load-catalog-assets-source-only",
+    "--debug-load-catalog-assets",
+    "head=base:head_griffey,head=base:head_jamie,head=base:head_joel,head=base:head_jon,head=base:head_jonathan,head=base:head_jones,head=base:head_julianne,head=base:head_keith,head=base:head_ken,head=base:head_laura,head=base:head_leslie_s,head=base:head_maian_s,head=base:head_mark2,head=base:head_matt_c,head=base:head_moto,head=base:head_mrblonde,head=base:head_munton,head=base:head_murchie,head=base:head_neil2,head=base:head_peer_s"
+  ],
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait",
+      "comment": "catalog bootstrap extracts and walks base typed archives before source-only typed-load requests fire."
+    },
+    {
+      "at_ms": 35000,
+      "type": "exit",
+      "comment": "exit after all requested typed assets have loaded or emitted source-only failures."
+    }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=all_family_source_matrix_batch_006",
+      "BOOT: --debug-load-catalog-assets request type=head id='base:head_griffey' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=head id='base:head_griffey' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=head id='base:head_jamie' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=head id='base:head_jamie' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=head id='base:head_joel' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=head id='base:head_joel' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=head id='base:head_jon' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=head id='base:head_jon' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=head id='base:head_jonathan' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=head id='base:head_jonathan' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=head id='base:head_jones' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=head id='base:head_jones' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=head id='base:head_julianne' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=head id='base:head_julianne' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=head id='base:head_keith' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=head id='base:head_keith' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=head id='base:head_ken' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=head id='base:head_ken' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=head id='base:head_laura' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=head id='base:head_laura' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=head id='base:head_leslie_s' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=head id='base:head_leslie_s' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=head id='base:head_maian_s' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=head id='base:head_maian_s' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=head id='base:head_mark2' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=head id='base:head_mark2' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=head id='base:head_matt_c' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=head id='base:head_matt_c' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=head id='base:head_moto' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=head id='base:head_moto' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=head id='base:head_mrblonde' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=head id='base:head_mrblonde' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=head id='base:head_munton' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=head id='base:head_munton' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=head id='base:head_murchie' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=head id='base:head_murchie' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=head id='base:head_neil2' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=head id='base:head_neil2' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=head id='base:head_peer_s' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=head id='base:head_peer_s' result=OK",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "ASSET\\.SOURCE_ONLY",
+      "has no public FileProvider source",
+      "result=FAIL",
+      "result=MISSING",
+      "RomProvider:filenum",
+      "refusing fallback"
+    ],
+    "required_counts": [
+      {
+        "pattern": "BOOT: --debug-load-catalog-assets result type=.* result=OK",
+        "min": 20,
+        "max": 20
+      }
+    ]
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:head_julianne",
+  "mod_id": "base",
+  "kind": "head",
+  "source": "data/ntsc-final/heads/base_head_julianne.pdhead::mesh.pdmesh::model.obj",
+  "source_size": 42542,
+  "source_sha256": "c088ff5c2ae403c0aad4237a1a314731e860300655f9e61e5c7b07aa85d4b6cd",
+  "validation": "format=obj vertices=645 triangles=215",
+  "normalized": "$S/mod-cache/base/base_head_julianne/head-v2-c088ff5c2ae403c0aad4237a1a314731e860300655f9e61e5c7b07aa85d4b6cd.pdmodel.json",
+  "vertex_count": 645,
+  "triangle_count": 215,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

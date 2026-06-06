@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 1,
+  "asset_id": "base:model_ccilabtech",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_ccilabtech.pdmesh::model.obj",
+  "source_size": 148438,
+  "source_sha256": "21a4d745eddfcad40e680b9b93731cc988e25ca172c493cec55f0e88dec9086b",
+  "validation": "format=obj vertices=2175 triangles=725",
+  "normalized": "$S/mod-cache/base/base_model_ccilabtech/model-v1-21a4d745eddfcad40e680b9b93731cc988e25ca172c493cec55f0e88dec9086b.pdmodel.json",
+  "vertex_count": 2175,
+  "triangle_count": 725,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

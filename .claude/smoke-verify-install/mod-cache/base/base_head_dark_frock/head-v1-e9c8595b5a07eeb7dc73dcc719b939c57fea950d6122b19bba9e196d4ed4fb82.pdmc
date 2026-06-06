@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 1,
+  "asset_id": "base:head_dark_frock",
+  "mod_id": "base",
+  "kind": "head",
+  "source": "data/ntsc-final/heads/base_head_dark_frock.pdhead::mesh.pdmesh::model.obj",
+  "source_size": 70339,
+  "source_sha256": "e9c8595b5a07eeb7dc73dcc719b939c57fea950d6122b19bba9e196d4ed4fb82",
+  "validation": "format=obj vertices=1080 triangles=360",
+  "normalized": "$S/mod-cache/base/base_head_dark_frock/head-v1-e9c8595b5a07eeb7dc73dcc719b939c57fea950d6122b19bba9e196d4ed4fb82.pdmodel.json",
+  "vertex_count": 1080,
+  "triangle_count": 360,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

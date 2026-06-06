@@ -37,6 +37,7 @@
 #include "system.h"
 #include "assetcatalog.h"
 #include "assetload.h"
+#include "asset_source_debug.h"
 
 #define TITLE_ASPECT (videoGetAspect())
 
@@ -156,6 +157,13 @@ static s32 titleGetLoadedModelSize(s32 modelnum)
 	}
 
 	if (!assetHandleIsNull(modelresult.handle)) {
+		assetSourceDebugFatalHandleFallback(ASSET_MODEL,
+			"title model size",
+			modelresult.entry ? modelresult.entry->id : NULL,
+			modelresult.handle);
+		if (assetSourceDebugHandleRequiresPublicFileSource(ASSET_MODEL, modelresult.handle)) {
+			return 0;
+		}
 		return assetLoadGetLoadedSize(modelresult.handle);
 	}
 

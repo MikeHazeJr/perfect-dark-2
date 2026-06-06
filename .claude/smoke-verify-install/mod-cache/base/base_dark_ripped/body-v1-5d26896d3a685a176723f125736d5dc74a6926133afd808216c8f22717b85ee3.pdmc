@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 1,
+  "asset_id": "base:dark_ripped",
+  "mod_id": "base",
+  "kind": "body",
+  "source": "data/ntsc-final/bodies/base_dark_ripped.pdbody::mesh.pdmesh::model.obj",
+  "source_size": 191479,
+  "source_sha256": "5d26896d3a685a176723f125736d5dc74a6926133afd808216c8f22717b85ee3",
+  "validation": "format=obj vertices=2808 triangles=936",
+  "normalized": "$S/mod-cache/base/base_dark_ripped/body-v1-5d26896d3a685a176723f125736d5dc74a6926133afd808216c8f22717b85ee3.pdmodel.json",
+  "vertex_count": 2808,
+  "triangle_count": 936,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

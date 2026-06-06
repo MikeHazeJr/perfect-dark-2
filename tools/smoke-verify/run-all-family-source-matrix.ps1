@@ -29,6 +29,7 @@ param(
 
     [int] $BatchSize = 20,
     [int] $Timeout = 180,
+    [string] $Install = "",
     [string] $SourceBinary = "",
     [string] $SourceRom = "",
     [switch] $KeepGeneratedTests
@@ -192,26 +193,13 @@ function Split-IntoBatches {
 
     $batches = @()
     $current = @()
-    $currentLen = 0
 
     foreach ($entry in $Entries) {
-        $token = "{0}={1}" -f $entry.RequestType, $entry.Id
-        if ($token.Length -gt 1900) {
-            throw "Single debug-load token is too long: $token"
-        }
-
-        $nextLen = $currentLen
-        if ($current.Count -gt 0) { $nextLen += 1 }
-        $nextLen += $token.Length
-
-        if ($current.Count -ge $BatchSize -or ($current.Count -gt 0 -and $nextLen -gt 1900)) {
+        if ($current.Count -ge $BatchSize) {
             $batches += ,@($current)
             $current = @()
-            $currentLen = 0
         }
 
-        if ($current.Count -gt 0) { $currentLen += 1 }
-        $currentLen += $token.Length
         $current += $entry
     }
 
@@ -229,21 +217,23 @@ function New-AllFamilyMatrixTest {
     )
 
     $testName = "all_family_source_matrix_batch_{0:000}" -f $BatchIndex
+    $assetListPath = Join-Path $OutDir "$testName.assets.txt"
     $tokens = @()
     $requiredLines = @("SMOKE: scenario=$testName")
 
     foreach ($entry in $Entries) {
         $tokens += ("{0}={1}" -f $entry.RequestType, $entry.Id)
-        $idRegex = [regex]::Escape($entry.Id)
-        $typeRegex = [regex]::Escape($entry.ResultType)
-        $requiredLines += ("BOOT: --debug-load-catalog-assets request type={0} id='{1}' source_only=1" -f $typeRegex, $idRegex)
-        $requiredLines += ("BOOT: --debug-load-catalog-assets result type={0} id='{1}' result=OK" -f $typeRegex, $idRegex)
     }
+    $requiredLines += ("BOOT: --debug-load-catalog-assets-file loaded {0} line\(s\) from" -f $Entries.Count)
     $requiredLines += "SMOKE: result=scripted_exit"
+    $tokens | Set-Content -LiteralPath $assetListPath -Encoding ASCII
+    $exitAtMs = [Math]::Max(35000, [Math]::Min(300000, 35000 + ($Entries.Count * 20)))
 
     $definition = [ordered]@{
         scenario_name = $testName
-        description = "c3844 runtime matrix smoke: source-only catalog load batch $BatchIndex for extracted non-Scenario public typed archives."
+        BugId = "B-509"
+        category = "modding"
+        description = "c3844 runtime matrix smoke: source-only catalog load batch $BatchIndex for extracted non-Scenario public typed archives. Missing debug-load request/result blocks are B-509 harness observability failures."
         tags = @("modding", "pdxxx", "source-gate", "source-matrix", "all-family", "c3844", "smoke", "pillar:modding")
         paths_of_interest = @(
             "port/src/main.c",
@@ -266,8 +256,8 @@ function New-AllFamilyMatrixTest {
             "--no-net",
             "--portable",
             "--debug-load-catalog-assets-source-only",
-            "--debug-load-catalog-assets",
-            ($tokens -join ",")
+            "--debug-load-catalog-assets-file",
+            $assetListPath
         )
         input_sequence = @(
             [ordered]@{
@@ -276,7 +266,7 @@ function New-AllFamilyMatrixTest {
                 comment = "catalog bootstrap extracts and walks base typed archives before source-only typed-load requests fire."
             },
             [ordered]@{
-                at_ms = 35000
+                at_ms = $exitAtMs
                 type = "exit"
                 comment = "exit after all requested typed assets have loaded or emitted source-only failures."
             }
@@ -290,12 +280,20 @@ function New-AllFamilyMatrixTest {
                 "SMOKE: result=timeout",
                 "ASSET\.SOURCE_ONLY",
                 "has no public FileProvider source",
+                "--debug-load-catalog-assets invalid token",
+                "--debug-load-catalog-assets token '.*' missing type=id form",
+                "--debug-load-catalog-assets argument too long",
                 "result=FAIL",
                 "result=MISSING",
                 "RomProvider:filenum",
                 "refusing fallback"
             )
             required_counts = @(
+                [ordered]@{
+                    pattern = "BOOT: --debug-load-catalog-assets request type=.* source_only=1"
+                    min = $Entries.Count
+                    max = $Entries.Count
+                },
                 [ordered]@{
                     pattern = "BOOT: --debug-load-catalog-assets result type=.* result=OK"
                     min = $Entries.Count
@@ -306,7 +304,8 @@ function New-AllFamilyMatrixTest {
     }
 
     $path = Join-Path $OutDir "$testName.json"
-    $definition | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $path -Encoding UTF8
+    $json = $definition | ConvertTo-Json -Depth 12
+    [System.IO.File]::WriteAllText($path, $json, (New-Object System.Text.UTF8Encoding($false)))
     return $path
 }
 
@@ -329,7 +328,31 @@ for ($i = 0; $i -lt $batches.Count; $i++) {
     [void](New-AllFamilyMatrixTest -Entries $batches[$i] -BatchIndex ($i + 1) -OutDir $GeneratedTestsDir)
 }
 
+$manifestPath = Join-Path $RunRoot ("all-family-source-matrix-manifest-{0}.json" -f (Split-Path -Leaf $GeneratedTestsDir))
+$batchManifests = @()
+for ($i = 0; $i -lt $batches.Count; $i++) {
+    $batchEntries = @($batches[$i])
+    $batchManifests += [ordered]@{
+        batch = $i + 1
+        count = $batchEntries.Count
+        asset_list_file = (Join-Path $GeneratedTestsDir ("all_family_source_matrix_batch_{0:000}.assets.txt" -f ($i + 1)))
+        catalog_ids = @($batchEntries | ForEach-Object { $_.Id })
+    }
+}
+$matrixManifest = [ordered]@{
+    generated_tests_dir = $GeneratedTestsDir
+    selected_count = $selected.Count
+    archive_count = $archives.Count
+    batch_count = $batches.Count
+    batch_size = $BatchSize
+    source_binary = $SourceBinary
+    source_rom = $SourceRom
+    batches = $batchManifests
+}
+$matrixManifest | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $manifestPath -Encoding UTF8
+
 Write-Host ("All-family source matrix selected {0} of {1} non-Scenario archives into {2} batch(es)." -f $selected.Count, $archives.Count, $batches.Count) -ForegroundColor Cyan
+Write-Host ("  manifest: {0}" -f $manifestPath) -ForegroundColor Gray
 foreach ($group in ($selected | Group-Object Family | Sort-Object Name)) {
     Write-Host ("  - {0}: {1}" -f $group.Name, $group.Count) -ForegroundColor Gray
 }
@@ -341,6 +364,9 @@ $runnerArgs = @(
     "-TestsDir", $GeneratedTestsDir,
     "-Timeout", $Timeout
 )
+if ($Install) {
+    $runnerArgs += @("-Install", $Install)
+}
 if ($SourceBinary) {
     $runnerArgs += @("-SourceBinary", $SourceBinary)
 }
@@ -350,6 +376,10 @@ if ($SourceRom) {
 
 & powershell.exe @runnerArgs
 $rc = $LASTEXITCODE
+if ($rc -ne 0) {
+    Write-Host ("All-family source matrix failed; generated batch manifest retained at {0}" -f $manifestPath) -ForegroundColor Yellow
+    Write-Host "If request/result counts are zero for a batch, treat it as B-509 harness observability before reclassifying any asset family as failed." -ForegroundColor Yellow
+}
 
 if (-not $KeepGeneratedTests) {
     Remove-Item -LiteralPath $GeneratedTestsDir -Recurse -Force -ErrorAction SilentlyContinue

@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:dark_negotiator",
+  "mod_id": "base",
+  "kind": "body",
+  "source": "data/ntsc-final/bodies/base_dark_negotiator.pdbody::mesh.pdmesh::model.obj",
+  "source_size": 180675,
+  "source_sha256": "358c615f840e461bc86e9dd09fccc07577a0d5ae849f865460f9a1b9358e2ad1",
+  "validation": "format=obj vertices=2655 triangles=885",
+  "normalized": "$S/mod-cache/base/base_dark_negotiator/body-v2-358c615f840e461bc86e9dd09fccc07577a0d5ae849f865460f9a1b9358e2ad1.pdmodel.json",
+  "vertex_count": 2655,
+  "triangle_count": 885,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

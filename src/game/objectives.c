@@ -195,7 +195,8 @@ static s32 objectivePropHeldByMissionPlayer(struct prop *prop)
 				g_Vars.players[i] == g_Vars.coop)) {
 			setCurrentPlayerNum(i);
 
-			if (invHasProp(prop)) {
+			if (g_Vars.currentplayer && g_Vars.currentplayer->prop &&
+					invHasProp(prop)) {
 				held = true;
 				break;
 			}

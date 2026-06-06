@@ -1,0 +1,19 @@
+{
+  "schema": "pd2.modasset.model.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_sk_fl_noshad_mr",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_sk_fl_noshad_mr.pdmesh::model.obj",
+  "source_sha256": "f3443d2a0a8d194775930efb4c5add675c7f2ffe82d4e8b3188ccbce77adb6e5",
+  "runtime_boundary": "modeldef",
+  "vertex_count": 3,
+  "triangle_count": 1,
+  "vertices": [
+    [-34500.3164, -333.333313, 107739.172],
+    [-36821.3164, -333.333313, 101268.172],
+    [-36821.3164, -333.333313, 105651.172]
+  ],
+  "triangles": [
+    [0, 1, 2]
+  ]
+}

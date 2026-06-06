@@ -444,6 +444,7 @@ TEST_CASE("temporary ROM model fallbacks stay explicit and allowlisted", "[catal
 	const std::string menu = readTextFile("src/game/menu.c");
 	const std::string title = readTextFile("src/game/title.c");
 	const std::string modelcatalog = readTextFile("port/src/modelcatalog.c");
+	const std::string setuputils = readTextFile("src/game/setuputils.c");
 
 	REQUIRE(bondgun.find("temporary ROM fallback") == std::string::npos);
 	REQUIRE(bondgun.find("assetLoadRomToAddr(player->gunctrl.loadfilenum") == std::string::npos);
@@ -451,13 +452,30 @@ TEST_CASE("temporary ROM model fallbacks stay explicit and allowlisted", "[catal
 	REQUIRE(player.find("temporary ROM fallback") == std::string::npos);
 	REQUIRE(player.find("modeldefLoad((u16)wfn") == std::string::npos);
 	REQUIRE(player.find("fileGetLoadedSize(wfn)") == std::string::npos);
+	REQUIRE(player.find("player chrbody weapon modeldef") != std::string::npos);
+	REQUIRE(player.find("assetSourceDebugFatalHandleFallback(ASSET_MODEL") != std::string::npos);
 	REQUIRE(menu.find("temporary ROM fallback") == std::string::npos);
 	REQUIRE(menu.find("modeldefLoad((u16)source_filenum") == std::string::npos);
 	REQUIRE(menu.find("fileGetInflatedSize(source_filenum, LOADTYPE_MODEL)") == std::string::npos);
+	REQUIRE(menu.find("menuModelHandlePassesSourceOnlyCheck(ASSET_BODY") != std::string::npos);
+	REQUIRE(menu.find("menuModelHandlePassesSourceOnlyCheck(ASSET_HEAD") != std::string::npos);
+	REQUIRE(menu.find("menuModelHandlePassesSourceOnlyCheck(ASSET_MODEL") != std::string::npos);
 	REQUIRE(title.find("temporary ROM fallback") == std::string::npos);
 	REQUIRE(title.find("return modeldefLoad((u16)modelresult.filenum") == std::string::npos);
+	REQUIRE(title.find("title model size") != std::string::npos);
+	REQUIRE(title.find("assetSourceDebugFatalHandleFallback(ASSET_MODEL") != std::string::npos);
+	REQUIRE(modelcatalog.find("catalogValidatePassesSourceOnlyCheck") != std::string::npos);
+	REQUIRE(modelcatalog.find("modelcatalog body validation modeldef") != std::string::npos);
+	REQUIRE(modelcatalog.find("modelcatalog head validation modeldef") != std::string::npos);
+	REQUIRE(modelcatalog.find("catalogValidateSourceMissing(handle, filenum)") >
+	        modelcatalog.find("catalogValidatePassesSourceOnlyCheck(index, ce->category, filenum, handle)"));
 	REQUIRE(modelcatalog.find("temporary ROM fallback") == std::string::npos);
 	REQUIRE(modelcatalog.find("modeldefLoadToNew(filenum)") == std::string::npos);
+	REQUIRE(setuputils.find("setupModelHandlePassesSourceOnlyCheck(modelnum, model_id, model_handle)") <
+	        setuputils.find("modeldefLoadToNewFromHandle(model_handle, source_filenum)"));
+	REQUIRE(setuputils.find("setup modeldef") != std::string::npos);
+	REQUIRE(setuputils.find("assetSourceDebugFatalHandleFallback(ASSET_MODEL") !=
+	        std::string::npos);
 
 	INFO("temporary ROM fallback wording outside allowlist:\n" << joinLines(violations));
 	REQUIRE(violations.empty());
@@ -507,6 +525,243 @@ TEST_CASE("weapon and prop model files populate provider handles", "[catalog][pr
 	REQUIRE(distrib.find("catalogSetPrimaryFile(e, path)") != std::string::npos);
 }
 
+TEST_CASE("Forge runtime model spawns enforce source-only family handles", "[catalog][provider][static]")
+{
+	const std::string forge = readTextFile("port/src/forge/forge_runtime.c");
+	const std::string guard = readTextFile("tools/asset_native_source_guard.py");
+
+	REQUIRE(forge.find("#include \"asset_source_debug.h\"") != std::string::npos);
+	REQUIRE(forge.find("s_forgeModelHandlePassesSourceOnlyCheck") != std::string::npos);
+	REQUIRE(forge.find("assetSourceDebugFatalHandleFallback(type, context, catalog_id, handle)") !=
+	        std::string::npos);
+	REQUIRE(forge.find("assetSourceDebugHandleRequiresPublicFileSource(type, handle)") !=
+	        std::string::npos);
+	REQUIRE(forge.find("s_forgeModelHandlePassesSourceOnlyCheck(ASSET_PROP, o->catalog_id") <
+	        forge.find("modeldefLoadToNewFromHandle(pr.handle, pr.filenum)"));
+	REQUIRE(forge.find("s_forgeModelHandlePassesSourceOnlyCheck(ASSET_WEAPON") <
+	        forge.find("modeldefLoadToNewFromHandle(wr.handle, wr.filenum)"));
+	REQUIRE(forge.find("forge door modeldef") != std::string::npos);
+	REQUIRE(forge.find("forge weapon pad modeldef") != std::string::npos);
+	REQUIRE(forge.find("forge prop modeldef") != std::string::npos);
+	REQUIRE(guard.find("scan_forge_runtime_source_only_guards(root)") !=
+	        std::string::npos);
+	REQUIRE(guard.find("FORGE_RUNTIME_SOURCE_ONLY_ERROR") !=
+	        std::string::npos);
+}
+
+TEST_CASE("setup modeldef loads enforce source-only model handles", "[catalog][provider][static]")
+{
+	const std::string setuputils = readTextFile("src/game/setuputils.c");
+	const std::string guard = readTextFile("tools/asset_native_source_guard.py");
+
+	REQUIRE(setuputils.find("#include \"asset_source_debug.h\"") != std::string::npos);
+	REQUIRE(setuputils.find("setupModelHandlePassesSourceOnlyCheck") != std::string::npos);
+	REQUIRE(setuputils.find("assetSourceDebugFatalHandleFallback(ASSET_MODEL") !=
+	        std::string::npos);
+	REQUIRE(setuputils.find("assetSourceDebugHandleRequiresPublicFileSource(ASSET_MODEL, handle)") !=
+	        std::string::npos);
+	REQUIRE(setuputils.find("setup modeldef") != std::string::npos);
+	REQUIRE(setuputils.find("setupModelHandlePassesSourceOnlyCheck(modelnum, model_id, model_handle)") <
+	        setuputils.find("modeldefLoadToNewFromHandle(model_handle, source_filenum)"));
+	REQUIRE(guard.find("scan_setup_modeldef_source_only_guard(root)") !=
+	        std::string::npos);
+	REQUIRE(guard.find("SETUP_MODELDEF_SOURCE_ONLY_ERROR") !=
+	        std::string::npos);
+}
+
+TEST_CASE("body and head managers enforce source-only family handles before modeldef fallback", "[catalog][provider][static]")
+{
+	const std::string bodyMgr = readTextFile("port/src/catalog_mgr_bodies.c");
+	const std::string headMgr = readTextFile("port/src/catalog_mgr_heads.c");
+	const std::string guard = readTextFile("tools/asset_native_source_guard.py");
+
+	REQUIRE(bodyMgr.find("#include \"asset_source_debug.h\"") != std::string::npos);
+	REQUIRE(bodyMgr.find("catalogManagerBodyModeldefPassesSourceOnlyCheck") !=
+	        std::string::npos);
+	REQUIRE(bodyMgr.find("assetSourceDebugFatalHandleFallback(ASSET_BODY") !=
+	        std::string::npos);
+	REQUIRE(bodyMgr.find("assetSourceDebugHandleRequiresPublicFileSource(ASSET_BODY, handle)") !=
+	        std::string::npos);
+	REQUIRE(bodyMgr.find("body manager modeldef fallback") != std::string::npos);
+	REQUIRE(bodyMgr.find("catalogManagerBodyModeldefPassesSourceOnlyCheck(bodynum, id") <
+	        bodyMgr.find("modeldefLoadToNewFromHandle(handle"));
+
+	REQUIRE(headMgr.find("#include \"asset_source_debug.h\"") != std::string::npos);
+	REQUIRE(headMgr.find("catalogManagerHeadModeldefPassesSourceOnlyCheck") !=
+	        std::string::npos);
+	REQUIRE(headMgr.find("assetSourceDebugFatalHandleFallback(ASSET_HEAD") !=
+	        std::string::npos);
+	REQUIRE(headMgr.find("assetSourceDebugHandleRequiresPublicFileSource(ASSET_HEAD, handle)") !=
+	        std::string::npos);
+	REQUIRE(headMgr.find("head manager modeldef fallback") != std::string::npos);
+	REQUIRE(headMgr.find("catalogManagerHeadModeldefPassesSourceOnlyCheck(headnum, id") <
+	        headMgr.find("modeldefLoadToNewFromHandle(handle"));
+
+	REQUIRE(guard.find("scan_character_manager_modeldef_source_only_guards(root)") !=
+	        std::string::npos);
+	REQUIRE(guard.find("CHARACTER_MANAGER_MODELDEF_SOURCE_ONLY_ERROR") !=
+	        std::string::npos);
+}
+
+TEST_CASE("music sequencer enforces source-only audio before legacy fallback", "[catalog][provider][static]")
+{
+	const std::string load = readTextFile("port/src/assetcatalog_load.c");
+	const std::string loadH = readTextFile("port/include/assetcatalog_load.h");
+	const std::string mod = readTextFile("port/src/mod.c");
+	const std::string snd = readTextFile("src/lib/snd.c");
+	const std::string guard = readTextFile("tools/asset_native_source_guard.py");
+	const std::string modSequenceLoad = functionBlock(mod, "void *modSequenceLoad");
+
+	REQUIRE(loadH.find("catalogResolveMusicSequence") != std::string::npos);
+	REQUIRE(loadH.find("Public .pdsong track audio is routed through the streaming music path") !=
+	        std::string::npos);
+	REQUIRE(loadH.find("Public sequence.mid, sequence.tsv, and music.ini sources are") !=
+	        std::string::npos);
+	REQUIRE(load.find("CatalogResolveResult catalogResolveMusicSequence") !=
+	        std::string::npos);
+	REQUIRE(load.find("e->ext.audio.category != AUDIO_CAT_MUSIC") !=
+	        std::string::npos);
+	REQUIRE(load.find("e->ext.audio.sound_id != tracknum") !=
+	        std::string::npos);
+	REQUIRE(load.find("r.path = entryGetFilePath(entry)") != std::string::npos);
+	REQUIRE(load.find("r.is_mod_override = 1") != std::string::npos);
+	REQUIRE(load.find("assetSourceDebugIsEnabledFor(ASSET_AUDIO)") !=
+	        std::string::npos);
+	REQUIRE(load.find("r.source_only_blocked = 1") != std::string::npos);
+
+	REQUIRE(mod.find("catalogResolveMusicSequence((s32)num)") !=
+	        std::string::npos);
+	REQUIRE(mod.find("modSequencePlayAudioSource(u16 num)") !=
+	        std::string::npos);
+	REQUIRE(mod.find("modSequencePathHasAudioExtension(r.path)") !=
+	        std::string::npos);
+	REQUIRE(mod.find("modMusicPlay(r.path)") != std::string::npos);
+	REQUIRE(mod.find("modMusicIsPlaying()") != std::string::npos);
+	REQUIRE(mod.find("modSequenceCompilePublicSource") != std::string::npos);
+	REQUIRE(mod.find("modSequenceSiblingPath(r->path, \"sequence.mid\"") !=
+	        std::string::npos);
+	REQUIRE(mod.find("modSequenceSiblingPath(r->path, \"sequence.tsv\"") !=
+	        std::string::npos);
+	REQUIRE(mod.find("fsFileSize(mid_path) <= 0") != std::string::npos);
+	REQUIRE(mod.find("modSequenceLoadEventsTsv") != std::string::npos);
+	REQUIRE(mod.find("modSequenceBuildAlcBuffer") != std::string::npos);
+	REQUIRE(mod.find("modSequencePutBe32(data + 64, division)") !=
+	        std::string::npos);
+	REQUIRE(mod.find("AL_CMIDI_LOOPSTART_CODE") != std::string::npos);
+	REQUIRE(mod.find("AL_CMIDI_LOOPEND_CODE") != std::string::npos);
+	REQUIRE(mod.find("streaming playback failed") != std::string::npos);
+	REQUIRE(mod.find("ASSET.SOURCE_ONLY: music sequence") !=
+	        std::string::npos);
+	REQUIRE(mod.find("sequencer-native public source compile failed") !=
+	        std::string::npos);
+	REQUIRE(modSequenceLoad.find("catalogResolveMusicSequence((s32)num)") <
+	        modSequenceLoad.find("modSequenceCompilePublicSource(&r, num, outSize)"));
+	REQUIRE(modSequenceLoad.find("modSequenceCompilePublicSource(&r, num, outSize)") <
+	        modSequenceLoad.find("r.source_only_blocked"));
+	REQUIRE(modSequenceLoad.find("modSequenceCompilePublicSource(&r, num, outSize)") <
+	        modSequenceLoad.find("fsFileSize(MOD_SEQUENCES_DIR \"/\")"));
+	REQUIRE(mod.find("modSequenceSiblingPath(r->path, \"sequence.mid\"") <
+	        mod.find("fsFileSize(mid_path) <= 0"));
+	REQUIRE(mod.find("fsFileSize(mid_path) <= 0") <
+	        mod.find("modSequenceLoadEventsTsv(tsv_path, tracks, &event_count)"));
+	REQUIRE(snd.find("modSequencePlayAudioSource(seq->tracknum)") !=
+	        std::string::npos);
+	REQUIRE(snd.find("modSequencePlayAudioSource(seq->tracknum)") <
+	        snd.find("modSequenceLoad(seq->tracknum, &extlen)"));
+
+	REQUIRE(guard.find("scan_music_sequence_source_only_guard(root)") !=
+	        std::string::npos);
+	REQUIRE(guard.find("MUSIC_SEQUENCE_SOURCE_ONLY_ERROR") !=
+	        std::string::npos);
+}
+
+TEST_CASE("MP3 file use enforces source-only audio before ROM fallback", "[catalog][provider][static]")
+{
+	const std::string snd = readTextFile("src/lib/snd.c");
+	const std::string propsnd = readTextFile("src/game/propsnd.c");
+	const std::string guard = readTextFile("tools/asset_native_source_guard.py");
+	const std::string snd_start_mp3 = functionBlock(snd, "void sndStartMp3(s16");
+	const std::string snd_mp3_resolve =
+		functionBlock(snd, "static s32 sndMp3ResolveSourceOrFallback");
+
+	REQUIRE(snd.find("#include \"asset_source_debug.h\"") !=
+	        std::string::npos);
+	REQUIRE(snd.find("#include \"fs.h\"") != std::string::npos);
+	REQUIRE(snd.find("#include \"romextract.h\"") != std::string::npos);
+	REQUIRE(snd.find("static void *g_SndMp3SourceBytes = NULL") !=
+	        std::string::npos);
+	REQUIRE(snd.find("static void sndMp3FreeSourceBuffer(void)") !=
+	        std::string::npos);
+	REQUIRE(snd.find("static s32 sndMp3LoadPublicSourceFile") !=
+	        std::string::npos);
+	REQUIRE(snd.find("static s32 sndMp3ResolveSourceOrFallback") !=
+	        std::string::npos);
+	REQUIRE(snd.find("romExtractRelPathForFilenum(filenum, relpath") !=
+	        std::string::npos);
+	REQUIRE(snd.find("fsFileLoad(relpath, &size)") != std::string::npos);
+	REQUIRE(snd.find("g_SndMp3SourceBytes = bytes") != std::string::npos);
+	REQUIRE(snd.find("assetSourceDebugIsEnabledFor(ASSET_AUDIO)") !=
+	        std::string::npos);
+	REQUIRE(snd.find("ASSET.SOURCE_ONLY: MP3 file") !=
+	        std::string::npos);
+	REQUIRE(snd.find("refusing ROM/static playback fallback") !=
+	        std::string::npos);
+	REQUIRE(snd_start_mp3.find("sndMp3ResolveSourceOrFallback((s32)sp20.id") <
+	        snd_start_mp3.find("mp3PlayFile(g_SndCurMp3.romaddr, g_SndCurMp3.romsize)"));
+	REQUIRE(snd_mp3_resolve.find("assetSourceDebugIsEnabledFor(ASSET_AUDIO)") <
+	        snd_mp3_resolve.find("fileGetRomAddress(filenum)"));
+	REQUIRE(snd_mp3_resolve.find("assetSourceDebugIsEnabledFor(ASSET_AUDIO)") <
+	        snd_mp3_resolve.find("fileGetRomSize(filenum)"));
+	REQUIRE(propsnd.find("#include \"asset_source_debug.h\"") !=
+	        std::string::npos);
+	REQUIRE(propsnd.find("#include \"fs.h\"") != std::string::npos);
+	REQUIRE(propsnd.find("#include \"romextract.h\"") != std::string::npos);
+	REQUIRE(propsnd.find("static s32 psMp3DurationGetSourceOrFallbackSize") !=
+	        std::string::npos);
+	REQUIRE(propsnd.find("romExtractRelPathForFilenum(filenum, relpath") !=
+	        std::string::npos);
+	REQUIRE(propsnd.find("fsFileSize(relpath)") != std::string::npos);
+	REQUIRE(propsnd.find("assetSourceDebugIsEnabledFor(ASSET_AUDIO)") !=
+	        std::string::npos);
+	REQUIRE(propsnd.find("ASSET.SOURCE_ONLY: MP3 file") !=
+	        std::string::npos);
+	REQUIRE(propsnd.find("refusing ROM/static") !=
+	        std::string::npos);
+	REQUIRE(propsnd.find("psMp3DurationGetSourceOrFallbackSize((s32)soundnum.id)") !=
+	        std::string::npos);
+	REQUIRE(propsnd.find("assetSourceDebugIsEnabledFor(ASSET_AUDIO)") <
+	        propsnd.find("fileGetRomSize(filenum)"));
+	REQUIRE(propsnd.find("fileGetRomSize(soundnum.id)") == std::string::npos);
+
+	REQUIRE(guard.find("scan_mp3_audio_source_only_guard(root)") !=
+	        std::string::npos);
+	REQUIRE(guard.find("MP3_AUDIO_SOURCE_ONLY_ERROR") !=
+	        std::string::npos);
+	REQUIRE(guard.find("MP3_DURATION_SOURCE_ONLY_ERROR") !=
+	        std::string::npos);
+}
+
+TEST_CASE("file-source sound playback failure refuses source-only ROM fallback", "[catalog][provider][static]")
+{
+	const std::string snd = readTextFile("src/lib/snd.c");
+	const std::string guard = readTextFile("tools/asset_native_source_guard.py");
+
+	REQUIRE(snd.find("audioPlayFileSound(r.path, volume, pan)") !=
+	        std::string::npos);
+	REQUIRE(snd.find("ASSET.SOURCE_ONLY: sound %d maps to public file source") !=
+	        std::string::npos);
+	REQUIRE(snd.find("but file playback failed; refusing ROM/static fallback") !=
+	        std::string::npos);
+	REQUIRE(snd.find("assetSourceDebugIsEnabledFor(ASSET_AUDIO)",
+		snd.find("audioPlayFileSound(r.path, volume, pan)")) <
+	        snd.find("MOD: sound %d catalog override failed (%s), falling back to ROM"));
+
+	REQUIRE(guard.find("scan_sound_file_source_only_guard(root)") !=
+	        std::string::npos);
+	REQUIRE(guard.find("SOUND_FILE_SOURCE_ONLY_ERROR") !=
+	        std::string::npos);
+}
+
 TEST_CASE("base first-person hand model files populate provider handles", "[catalog][provider][static]")
 {
 	const std::string baseExtended = readTextFile("port/src/assetcatalog_base_extended.c");
@@ -521,6 +776,9 @@ TEST_CASE("base first-person hand model files populate provider handles", "[cata
 	REQUIRE(baseExtended.find("e->source_filenum = handfilenum") != std::string::npos);
 	REQUIRE(baseExtended.find("catalogBindPrimaryFromDiskOrRom(e, e->source_filenum)") != std::string::npos);
 	REQUIRE(bondgun.find("catalogHandleByModelSourceFilenum(ASSET_NONE, filenum)") != std::string::npos);
+	REQUIRE(bondgun.find("bgunQueuedLoadPassesSourceOnlyCheck") != std::string::npos);
+	REQUIRE(bondgun.find("assetSourceDebugFatalHandleFallback(ASSET_MODEL") != std::string::npos);
+	REQUIRE(bondgun.find("weapon model load-to-addr") != std::string::npos);
 }
 
 TEST_CASE("base menu hudpiece model has a catalog provider handle", "[catalog][provider][static]")
@@ -537,7 +795,7 @@ TEST_CASE("base menu hudpiece model has a catalog provider handle", "[catalog][p
 	REQUIRE(baseExtended.find("weapon/menu-pipeline model files") != std::string::npos);
 	REQUIRE(meshExtractor.find("catalogReadableModelIdForFile((s32)FILE_GHUDPIECE, \"menu\", \"menu\"") != std::string::npos);
 	REQUIRE(meshExtractor.find("(u16)FILE_GHUDPIECE, \"menu\"") != std::string::npos);
-	REQUIRE(meshExtractor.find("pdmesh_model_obj_mtx_v11_skeleton_allmodels_menuhud") != std::string::npos);
+	REQUIRE(meshExtractor.find("pdmesh_model_obj_mtx_v12_materials_allmodels_menuhud") != std::string::npos);
 	REQUIRE(menu.find("MENUMODELPARAMS_SET_FILENUM(FILE_GHUDPIECE)") != std::string::npos);
 }
 
@@ -844,6 +1102,13 @@ TEST_CASE("typed catalog metadata lifecycle uses runtime activation", "[catalog]
 	const std::string catalogLoad = readTextFile("port/src/assetcatalog_load.c");
 
 	REQUIRE(catalogLoad.find("s_catalogLoadEntryMetadataPayload") != std::string::npos);
+	REQUIRE(catalogLoad.find("s_catalogPreloadBundledMetadataPayload") != std::string::npos);
+	REQUIRE(catalogLoad.find("assetSourceDebugEntryRequiresPublicFileSource(entry)") <
+	        catalogLoad.find("return s_catalogLoadEntryMetadataPayload(entry)"));
+	REQUIRE(catalogLoad.find("s_catalogPreloadBundledMetadataPayload(mutable_entry)") !=
+	        std::string::npos);
+	REQUIRE(catalogLoad.find("(void)s_catalogLoadEntryMetadataPayload(mutable_entry)") ==
+	        std::string::npos);
 	REQUIRE(catalogLoad.find("s_catalogTypeUsesMetadataRuntimePayload") != std::string::npos);
 	REQUIRE(catalogLoad.find("type == ASSET_MAP") != std::string::npos);
 	REQUIRE(catalogLoad.find("type == ASSET_CHARACTER") != std::string::npos);
@@ -869,12 +1134,25 @@ TEST_CASE("typed catalog metadata lifecycle uses runtime activation", "[catalog]
 TEST_CASE("typed catalog texture lifecycle activates texture payloads", "[catalog][provider][static]")
 {
 	const std::string catalogLoad = readTextFile("port/src/assetcatalog_load.c");
+	const std::string catalog = readTextFile("port/src/assetcatalog.c");
+	const std::string scanner = readTextFile("port/src/assetcatalog_scanner.c");
+	const std::string mod = readTextFile("port/src/mod.c");
+	const std::string source = readTextFile("port/src/mod_texture_source.c");
+	const std::string tex = readTextFile("src/game/texdecompress.c");
 
 	REQUIRE(catalogLoad.find("s_catalogLoadEntryTexturePayload") != std::string::npos);
 	REQUIRE(catalogLoad.find("entry->type == ASSET_TEXTURE") != std::string::npos);
 	REQUIRE(catalogLoad.find("texture payload has no provider handle") != std::string::npos);
 	REQUIRE(catalogLoad.find("texture payload failed to load from") == std::string::npos);
 	REQUIRE(catalogLoad.find("activated texture payload") != std::string::npos);
+	REQUIRE(catalog.find("entry->source_texnum = texture_id") != std::string::npos);
+	REQUIRE(scanner.find("e->source_texnum = e->ext.texture.texture_id") != std::string::npos);
+	REQUIRE(source.find("stbi_load_from_memory") != std::string::npos);
+	REQUIRE(source.find("g_NotLoadMod && (!entry || !entry->bundled)") != std::string::npos);
+	REQUIRE(tex.find("texLoadPublicRgba32Source") != std::string::npos);
+	REQUIRE(tex.find("tex->gbiformat = G_IM_FMT_RGBA") != std::string::npos);
+	REQUIRE(tex.find("tex->depth = G_IM_SIZ_32b") != std::string::npos);
+	REQUIRE(mod.find("skipping legacy compressed texture loader") != std::string::npos);
 }
 
 TEST_CASE("raw RomProvider handles stay inside catalog provider internals", "[catalog][provider][static]")

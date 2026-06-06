@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_explosivebrick_hi",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_explosivebrick_hi.pdmesh::model.obj",
+  "source_size": 6269,
+  "source_sha256": "6567203747d2c630fa68ec5b78c88dd6520defe436fe3878828490f400a67095",
+  "validation": "format=obj vertices=96 triangles=32",
+  "normalized": "$S/mod-cache/base/base_model_explosivebrick_hi/model-v2-6567203747d2c630fa68ec5b78c88dd6520defe436fe3878828490f400a67095.pdmodel.json",
+  "vertex_count": 96,
+  "triangle_count": 32,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

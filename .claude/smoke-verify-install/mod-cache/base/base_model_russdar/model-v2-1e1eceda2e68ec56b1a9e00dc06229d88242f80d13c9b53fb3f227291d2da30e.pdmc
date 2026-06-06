@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_russdar",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_russdar.pdmesh::model.obj",
+  "source_size": 19775,
+  "source_sha256": "1e1eceda2e68ec56b1a9e00dc06229d88242f80d13c9b53fb3f227291d2da30e",
+  "validation": "format=obj vertices=312 triangles=104",
+  "normalized": "$S/mod-cache/base/base_model_russdar/model-v2-1e1eceda2e68ec56b1a9e00dc06229d88242f80d13c9b53fb3f227291d2da30e.pdmodel.json",
+  "vertex_count": 312,
+  "triangle_count": 104,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

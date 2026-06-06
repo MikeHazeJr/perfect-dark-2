@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 1,
+  "asset_id": "base:model_groundgun",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_groundgun.pdmesh::model.obj",
+  "source_size": 20107,
+  "source_sha256": "2f9e4ac74b654e1abc33de7df252ead5c7b20586f6befb0f5c1d6fd8a4d51a24",
+  "validation": "format=obj vertices=294 triangles=98",
+  "normalized": "$S/mod-cache/base/base_model_groundgun/model-v1-2f9e4ac74b654e1abc33de7df252ead5c7b20586f6befb0f5c1d6fd8a4d51a24.pdmodel.json",
+  "vertex_count": 294,
+  "triangle_count": 98,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

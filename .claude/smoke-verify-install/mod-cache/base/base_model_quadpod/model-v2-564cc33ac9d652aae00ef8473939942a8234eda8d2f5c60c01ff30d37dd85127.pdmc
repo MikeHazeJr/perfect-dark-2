@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_quadpod",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_quadpod.pdmesh::model.obj",
+  "source_size": 12427,
+  "source_sha256": "564cc33ac9d652aae00ef8473939942a8234eda8d2f5c60c01ff30d37dd85127",
+  "validation": "format=obj vertices=186 triangles=62",
+  "normalized": "$S/mod-cache/base/base_model_quadpod/model-v2-564cc33ac9d652aae00ef8473939942a8234eda8d2f5c60c01ff30d37dd85127.pdmodel.json",
+  "vertex_count": 186,
+  "triangle_count": 62,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

@@ -94,6 +94,14 @@ u32 func0f000920(s32 portalnum1, s32 portalnum2)
 		s32 upper = (portalnum1 > portalnum2) ? portalnum1 : portalnum2;
 		s32 lower = (portalnum1 < portalnum2) ? portalnum1 : portalnum2;
 
+		if (var80061430 == NULL
+				|| upper < 0
+				|| lower < 0
+				|| upper >= g_NumPortals
+				|| var80061430[upper] == NULL) {
+			return 0xffffffff;
+		}
+
 		return var80061430[upper][lower];
 	}
 
@@ -903,6 +911,12 @@ void func0f002a98(void)
 	}
 
 	var80061420 = NULL;
+	var80061428 = NULL;
+	var8006142c = NULL;
+	var80061430 = NULL;
+	var80061434 = NULL;
+	var80061438 = NULL;
+	g_NumPortals = 0;
 
 }
 
@@ -1942,6 +1956,8 @@ void func0f0056f4(s32 roomnum1, struct coord *pos1, s32 roomnum2, struct coord *
 	f32 dist;
 
 	if (!var80061444
+			|| var80061430 == NULL
+			|| g_NumPortals <= 0
 			|| PLAYERCOUNT() >= 3
 			|| roomnum1 == roomnum2
 			|| roomnum1 == -1
@@ -2006,6 +2022,11 @@ void func0f0059fc(s32 roomnum1, struct coord *pos1, s32 roomnum2, struct coord *
 	f32 dist;
 
 	*result = 32767;
+
+	if (var80061430 == NULL || g_NumPortals <= 0) {
+		*result = coordsGetDistance(pos1, pos2);
+		return;
+	}
 
 	if (roomnum1 == roomnum2) {
 		*result = coordsGetDistance(pos1, pos2);

@@ -1,0 +1,121 @@
+{
+  "scenario_name": "all_family_source_matrix_batch_020",
+  "description": "c3844 runtime matrix smoke: source-only catalog load batch 20 for extracted non-Scenario public typed archives.",
+  "tags": [
+    "modding",
+    "pdxxx",
+    "source-gate",
+    "source-matrix",
+    "all-family",
+    "c3844",
+    "smoke",
+    "pillar:modding"
+  ],
+  "paths_of_interest": [
+    "port/src/main.c",
+    "port/src/asset_source_debug.c",
+    "port/src/assetcatalog_load.c",
+    "tools/smoke-verify/run-all-family-source-matrix.ps1",
+    "tools/smoke-verify/fixtures/all_family_source_pd.ini"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 180,
+  "install_state": "clean",
+  "fixtures": [
+    {
+      "src": "tools/smoke-verify/fixtures/all_family_source_pd.ini",
+      "dst": "pd.ini"
+    },
+    {
+      "src": "tools/smoke-verify/fixtures/no_mods_enabled.json",
+      "dst": "mods-enabled.json"
+    }
+  ],
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--portable",
+    "--debug-load-catalog-assets-source-only",
+    "--debug-load-catalog-assets",
+    "animation=base:animation_character_yo,animation=base:animation_character_z,animation=base:animation_cower_01f5,animation=base:animation_cower_0229,animation=base:animation_cut_ame_intro_banner1_01,animation=base:animation_cut_ame_intro_banner1_02,animation=base:animation_cut_ame_intro_banner1_03,animation=base:animation_cut_ame_intro_banner1_04,animation=base:animation_cut_ame_intro_banner1_05,animation=base:animation_cut_ame_intro_banner2_01,animation=base:animation_cut_ame_intro_banner2_02,animation=base:animation_cut_ame_intro_banner2_03,animation=base:animation_cut_ame_intro_banner2_04,animation=base:animation_cut_ame_intro_banner2_05,animation=base:animation_cut_ame_intro_cam_01,animation=base:animation_cut_ame_intro_cam_02,animation=base:animation_cut_ame_intro_cam_03,animation=base:animation_cut_ame_intro_cam_04,animation=base:animation_cut_ame_intro_cam_05,animation=base:animation_cut_ame_intro_cam_06"
+  ],
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait",
+      "comment": "catalog bootstrap extracts and walks base typed archives before source-only typed-load requests fire."
+    },
+    {
+      "at_ms": 35000,
+      "type": "exit",
+      "comment": "exit after all requested typed assets have loaded or emitted source-only failures."
+    }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=all_family_source_matrix_batch_020",
+      "BOOT: --debug-load-catalog-assets request type=animation id='base:animation_character_yo' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=animation id='base:animation_character_yo' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=animation id='base:animation_character_z' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=animation id='base:animation_character_z' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=animation id='base:animation_cower_01f5' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=animation id='base:animation_cower_01f5' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=animation id='base:animation_cower_0229' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=animation id='base:animation_cower_0229' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=animation id='base:animation_cut_ame_intro_banner1_01' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=animation id='base:animation_cut_ame_intro_banner1_01' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=animation id='base:animation_cut_ame_intro_banner1_02' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=animation id='base:animation_cut_ame_intro_banner1_02' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=animation id='base:animation_cut_ame_intro_banner1_03' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=animation id='base:animation_cut_ame_intro_banner1_03' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=animation id='base:animation_cut_ame_intro_banner1_04' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=animation id='base:animation_cut_ame_intro_banner1_04' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=animation id='base:animation_cut_ame_intro_banner1_05' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=animation id='base:animation_cut_ame_intro_banner1_05' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=animation id='base:animation_cut_ame_intro_banner2_01' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=animation id='base:animation_cut_ame_intro_banner2_01' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=animation id='base:animation_cut_ame_intro_banner2_02' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=animation id='base:animation_cut_ame_intro_banner2_02' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=animation id='base:animation_cut_ame_intro_banner2_03' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=animation id='base:animation_cut_ame_intro_banner2_03' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=animation id='base:animation_cut_ame_intro_banner2_04' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=animation id='base:animation_cut_ame_intro_banner2_04' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=animation id='base:animation_cut_ame_intro_banner2_05' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=animation id='base:animation_cut_ame_intro_banner2_05' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=animation id='base:animation_cut_ame_intro_cam_01' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=animation id='base:animation_cut_ame_intro_cam_01' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=animation id='base:animation_cut_ame_intro_cam_02' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=animation id='base:animation_cut_ame_intro_cam_02' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=animation id='base:animation_cut_ame_intro_cam_03' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=animation id='base:animation_cut_ame_intro_cam_03' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=animation id='base:animation_cut_ame_intro_cam_04' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=animation id='base:animation_cut_ame_intro_cam_04' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=animation id='base:animation_cut_ame_intro_cam_05' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=animation id='base:animation_cut_ame_intro_cam_05' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=animation id='base:animation_cut_ame_intro_cam_06' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=animation id='base:animation_cut_ame_intro_cam_06' result=OK",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "ASSET\\.SOURCE_ONLY",
+      "has no public FileProvider source",
+      "result=FAIL",
+      "result=MISSING",
+      "RomProvider:filenum",
+      "refusing fallback"
+    ],
+    "required_counts": [
+      {
+        "pattern": "BOOT: --debug-load-catalog-assets result type=.* result=OK",
+        "min": 20,
+        "max": 20
+      }
+    ]
+  }
+}

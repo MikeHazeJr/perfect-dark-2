@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_door1atri_g5",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_door1atri_g5.pdmesh::model.obj",
+  "source_size": 1754,
+  "source_sha256": "ada13de25dbc3c4168439cdb1f94fb7f978c5467af2470595b209ecb6a79a36c",
+  "validation": "format=obj vertices=24 triangles=8",
+  "normalized": "$S/mod-cache/base/base_model_door1atri_g5/model-v2-ada13de25dbc3c4168439cdb1f94fb7f978c5467af2470595b209ecb6a79a36c.pdmodel.json",
+  "vertex_count": 24,
+  "triangle_count": 8,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

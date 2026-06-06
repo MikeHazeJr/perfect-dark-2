@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:head_moto",
+  "mod_id": "base",
+  "kind": "head",
+  "source": "data/ntsc-final/heads/base_head_moto.pdhead::mesh.pdmesh::model.obj",
+  "source_size": 43108,
+  "source_sha256": "cbae518f162ebbd5d51979363197c20b0baa6c944847dcc198d4884b6975e1e5",
+  "validation": "format=obj vertices=657 triangles=219",
+  "normalized": "$S/mod-cache/base/base_head_moto/head-v2-cbae518f162ebbd5d51979363197c20b0baa6c944847dcc198d4884b6975e1e5.pdmodel.json",
+  "vertex_count": 657,
+  "triangle_count": 219,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

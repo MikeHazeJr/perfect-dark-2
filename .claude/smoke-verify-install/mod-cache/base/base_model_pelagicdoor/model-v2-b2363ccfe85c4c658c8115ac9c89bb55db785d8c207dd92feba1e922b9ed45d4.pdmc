@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_pelagicdoor",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_pelagicdoor.pdmesh::model.obj",
+  "source_size": 35135,
+  "source_sha256": "b2363ccfe85c4c658c8115ac9c89bb55db785d8c207dd92feba1e922b9ed45d4",
+  "validation": "format=obj vertices=522 triangles=174",
+  "normalized": "$S/mod-cache/base/base_model_pelagicdoor/model-v2-b2363ccfe85c4c658c8115ac9c89bb55db785d8c207dd92feba1e922b9ed45d4.pdmodel.json",
+  "vertex_count": 522,
+  "triangle_count": 174,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

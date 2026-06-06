@@ -36,6 +36,7 @@
 #include "modelcatalog.h"
 #include "modmgr.h"
 #include "assetcatalog.h"
+#include "asset_source_debug.h"
 /* BYOR completion (2026-05-03): catalog reads come from authoring tables. */
 #include "headdata_authored.h"
 #include "bodydata_authored.h"
@@ -214,6 +215,32 @@ static s32 catalogValidateSourceMissing(asset_data_handle_t handle, u16 filenum)
 	}
 
 	return 1;
+}
+
+static asset_type_e catalogValidateAssetTypeForCategory(u8 category)
+{
+	return category == MODELCAT_HEAD ? ASSET_HEAD : ASSET_BODY;
+}
+
+static s32 catalogValidatePassesSourceOnlyCheck(s32 index, u8 category,
+	u16 filenum, asset_data_handle_t handle)
+{
+	asset_type_e type = catalogValidateAssetTypeForCategory(category);
+	const char *context = type == ASSET_HEAD
+		? "modelcatalog head validation modeldef"
+		: "modelcatalog body validation modeldef";
+	const char *id = catalogIdBySourceHandle(type, handle);
+
+	assetSourceDebugFatalHandleFallback(type, context, id, handle);
+
+	if (!assetSourceDebugHandleRequiresPublicFileSource(type, handle)) {
+		return 1;
+	}
+
+	sysLogPrintf(LOG_WARNING,
+		"CATALOG: [%3d] file 0x%04x -- source-only %s validation refused non-public model handle",
+		index, filenum, type == ASSET_HEAD ? "head" : "body");
+	return 0;
 }
 
 /* ========================================================================
@@ -466,6 +493,11 @@ static void catalogValidateOne(s32 index)
 	 * (populated by catalogInit from authoring tables). */
 	u16 filenum = ce->filenum;
 	asset_data_handle_t handle = catalogValidateResolveHandle(index, ce->category, filenum);
+
+	if (!catalogValidatePassesSourceOnlyCheck(index, ce->category, filenum, handle)) {
+		ce->status = MODELSTATUS_MISSING;
+		return;
+	}
 
 	/* Quick pre-check: if the file doesn't exist in ROM data, mark it
 	 * MISSING immediately. This avoids the overhead of VEH setup/teardown

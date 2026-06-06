@@ -1,0 +1,48 @@
+{
+  "scenario_name": "scenario_defense_rom_compare",
+  "description": "temporary comparison: boot Defense without Scenario source-only",
+  "tags": [
+    "tmp"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 60,
+  "install_state": "clean",
+  "fixtures": [
+    {
+      "src": "tools/smoke-verify/fixtures/no_mods_enabled.json",
+      "dst": "mods-enabled.json"
+    }
+  ],
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--portable",
+    "--boot-stage",
+    "0x2d"
+  ],
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait",
+      "comment": "boot defense"
+    },
+    {
+      "at_ms": 45000,
+      "type": "exit",
+      "comment": "exit before timeout"
+    }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=scenario_defense_rom_compare",
+      "LOAD: lv\\.c entering stage load sequence for stagenum=0x0*2d"
+    ],
+    "forbidden_patterns": [
+      "FATAL: ",
+      "ACCESS_VIOLATION",
+      "SMOKE: result=timeout"
+    ]
+  }
+}

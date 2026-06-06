@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_lasdoor",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_lasdoor.pdmesh::model.obj",
+  "source_size": 470,
+  "source_sha256": "f2f72281496529064b6d413c2a351d4d6a2c237d7136a173ea33da30d0e78df0",
+  "validation": "format=obj vertices=6 triangles=2",
+  "normalized": "$S/mod-cache/base/base_model_lasdoor/model-v2-f2f72281496529064b6d413c2a351d4d6a2c237d7136a173ea33da30d0e78df0.pdmodel.json",
+  "vertex_count": 6,
+  "triangle_count": 2,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

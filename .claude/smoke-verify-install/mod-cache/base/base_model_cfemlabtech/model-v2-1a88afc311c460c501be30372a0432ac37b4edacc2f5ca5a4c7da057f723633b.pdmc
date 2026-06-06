@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_cfemlabtech",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_cfemlabtech.pdmesh::model.obj",
+  "source_size": 170249,
+  "source_sha256": "1a88afc311c460c501be30372a0432ac37b4edacc2f5ca5a4c7da057f723633b",
+  "validation": "format=obj vertices=2505 triangles=835",
+  "normalized": "$S/mod-cache/base/base_model_cfemlabtech/model-v2-1a88afc311c460c501be30372a0432ac37b4edacc2f5ca5a4c7da057f723633b.pdmodel.json",
+  "vertex_count": 2505,
+  "triangle_count": 835,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

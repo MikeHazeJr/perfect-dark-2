@@ -1,0 +1,131 @@
+{
+  "scenario_name": "all_family_source_matrix_batch_102",
+  "BugId": "B-509",
+  "category": "modding",
+  "description": "c3844 runtime matrix smoke: source-only catalog load batch 102 for extracted non-Scenario public typed archives. Missing debug-load request/result blocks are B-509 harness observability failures.",
+  "tags": [
+    "modding",
+    "pdxxx",
+    "source-gate",
+    "source-matrix",
+    "all-family",
+    "c3844",
+    "smoke",
+    "pillar:modding"
+  ],
+  "paths_of_interest": [
+    "port/src/main.c",
+    "port/src/asset_source_debug.c",
+    "port/src/assetcatalog_load.c",
+    "tools/smoke-verify/run-all-family-source-matrix.ps1",
+    "tools/smoke-verify/fixtures/all_family_source_pd.ini"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 180,
+  "install_state": "clean",
+  "fixtures": [
+    {
+      "src": "tools/smoke-verify/fixtures/all_family_source_pd.ini",
+      "dst": "pd.ini"
+    },
+    {
+      "src": "tools/smoke-verify/fixtures/no_mods_enabled.json",
+      "dst": "mods-enabled.json"
+    }
+  ],
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--portable",
+    "--debug-load-catalog-assets-source-only",
+    "--debug-load-catalog-assets",
+    "model=base:model_rocketlod_lo,model=base:model_roofgun_azn,model=base:model_roofgun,model=base:model_rope,model=base:model_rubble1,model=base:model_rubble2,model=base:model_rubble3,model=base:model_rubble4,model=base:model_ruinbridge,model=base:model_russdar_hi,model=base:model_russdar_lo,model=base:model_russdar,model=base:model_safeitem_hi,model=base:model_safeitem_lo,model=base:model_safeitem,model=base:model_saucerinside,model=base:model_secguard_bs,model=base:model_secretdoor_ft,model=base:model_secretdoor2_fu,model=base:model_secretindoor"
+  ],
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait",
+      "comment": "catalog bootstrap extracts and walks base typed archives before source-only typed-load requests fire."
+    },
+    {
+      "at_ms": 35000,
+      "type": "exit",
+      "comment": "exit after all requested typed assets have loaded or emitted source-only failures."
+    }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=all_family_source_matrix_batch_102",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_rocketlod_lo' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_rocketlod_lo' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_roofgun_azn' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_roofgun_azn' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_roofgun' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_roofgun' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_rope' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_rope' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_rubble1' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_rubble1' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_rubble2' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_rubble2' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_rubble3' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_rubble3' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_rubble4' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_rubble4' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_ruinbridge' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_ruinbridge' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_russdar_hi' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_russdar_hi' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_russdar_lo' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_russdar_lo' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_russdar' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_russdar' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_safeitem_hi' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_safeitem_hi' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_safeitem_lo' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_safeitem_lo' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_safeitem' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_safeitem' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_saucerinside' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_saucerinside' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_secguard_bs' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_secguard_bs' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_secretdoor_ft' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_secretdoor_ft' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_secretdoor2_fu' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_secretdoor2_fu' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_secretindoor' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_secretindoor' result=OK",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "ASSET\\.SOURCE_ONLY",
+      "has no public FileProvider source",
+      "--debug-load-catalog-assets invalid token",
+      "--debug-load-catalog-assets token '.*' missing type=id form",
+      "--debug-load-catalog-assets argument too long",
+      "result=FAIL",
+      "result=MISSING",
+      "RomProvider:filenum",
+      "refusing fallback"
+    ],
+    "required_counts": [
+      {
+        "pattern": "BOOT: --debug-load-catalog-assets request type=.* source_only=1",
+        "min": 20,
+        "max": 20
+      },
+      {
+        "pattern": "BOOT: --debug-load-catalog-assets result type=.* result=OK",
+        "min": 20,
+        "max": 20
+      }
+    ]
+  }
+}

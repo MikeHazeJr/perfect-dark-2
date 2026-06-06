@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 1,
+  "asset_id": "base:model_cheadelvis_gogs",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_cheadelvis_gogs.pdmesh::model.obj",
+  "source_size": 69994,
+  "source_sha256": "cbdd33e32666199e799d8c70943a625deb270081292719aaa7451fdcde9b34da",
+  "validation": "format=obj vertices=1059 triangles=353",
+  "normalized": "$S/mod-cache/base/base_model_cheadelvis_gogs/model-v1-cbdd33e32666199e799d8c70943a625deb270081292719aaa7451fdcde9b34da.pdmodel.json",
+  "vertex_count": 1059,
+  "triangle_count": 353,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

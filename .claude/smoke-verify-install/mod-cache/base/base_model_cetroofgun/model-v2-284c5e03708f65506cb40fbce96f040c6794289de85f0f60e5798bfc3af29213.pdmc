@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_cetroofgun",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_cetroofgun.pdmesh::model.obj",
+  "source_size": 21329,
+  "source_sha256": "284c5e03708f65506cb40fbce96f040c6794289de85f0f60e5798bfc3af29213",
+  "validation": "format=obj vertices=300 triangles=100",
+  "normalized": "$S/mod-cache/base/base_model_cetroofgun/model-v2-284c5e03708f65506cb40fbce96f040c6794289de85f0f60e5798bfc3af29213.pdmodel.json",
+  "vertex_count": 300,
+  "triangle_count": 100,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

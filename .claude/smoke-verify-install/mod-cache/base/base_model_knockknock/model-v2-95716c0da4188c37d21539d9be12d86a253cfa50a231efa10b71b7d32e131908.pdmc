@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_knockknock",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_knockknock.pdmesh::model.obj",
+  "source_size": 12328,
+  "source_sha256": "95716c0da4188c37d21539d9be12d86a253cfa50a231efa10b71b7d32e131908",
+  "validation": "format=obj vertices=186 triangles=62",
+  "normalized": "$S/mod-cache/base/base_model_knockknock/model-v2-95716c0da4188c37d21539d9be12d86a253cfa50a231efa10b71b7d32e131908.pdmodel.json",
+  "vertex_count": 186,
+  "triangle_count": 62,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

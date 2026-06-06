@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:head_shaun",
+  "mod_id": "base",
+  "kind": "head",
+  "source": "data/ntsc-final/heads/base_head_shaun.pdhead::mesh.pdmesh::model.obj",
+  "source_size": 33176,
+  "source_sha256": "07ac093ea8083d5b0892481326d08d652fd723a98dbc5470bab84b3eb5653c9e",
+  "validation": "format=obj vertices=507 triangles=169",
+  "normalized": "$S/mod-cache/base/base_head_shaun/head-v2-07ac093ea8083d5b0892481326d08d652fd723a98dbc5470bab84b3eb5653c9e.pdmodel.json",
+  "vertex_count": 507,
+  "triangle_count": 169,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

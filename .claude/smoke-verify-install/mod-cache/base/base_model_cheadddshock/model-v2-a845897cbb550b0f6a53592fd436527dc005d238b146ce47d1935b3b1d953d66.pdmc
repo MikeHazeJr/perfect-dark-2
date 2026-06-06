@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_cheadddshock",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_cheadddshock.pdmesh::model.obj",
+  "source_size": 34516,
+  "source_sha256": "a845897cbb550b0f6a53592fd436527dc005d238b146ce47d1935b3b1d953d66",
+  "validation": "format=obj vertices=531 triangles=177",
+  "normalized": "$S/mod-cache/base/base_model_cheadddshock/model-v2-a845897cbb550b0f6a53592fd436527dc005d238b146ce47d1935b3b1d953d66.pdmodel.json",
+  "vertex_count": 531,
+  "triangle_count": 177,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

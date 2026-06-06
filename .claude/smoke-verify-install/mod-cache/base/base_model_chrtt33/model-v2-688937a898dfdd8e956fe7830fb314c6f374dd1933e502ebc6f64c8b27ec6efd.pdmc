@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_chrtt33",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_chrtt33.pdmesh::model.obj",
+  "source_size": 4426,
+  "source_sha256": "688937a898dfdd8e956fe7830fb314c6f374dd1933e502ebc6f64c8b27ec6efd",
+  "validation": "format=obj vertices=69 triangles=23",
+  "normalized": "$S/mod-cache/base/base_model_chrtt33/model-v2-688937a898dfdd8e956fe7830fb314c6f374dd1933e502ebc6f64c8b27ec6efd.pdmodel.json",
+  "vertex_count": 69,
+  "triangle_count": 23,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

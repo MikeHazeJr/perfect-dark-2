@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_a51board",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_a51board.pdmesh::model.obj",
+  "source_size": 9857,
+  "source_sha256": "d4bfaa1e655001cf71b43958d9b19f45c21639269a44479f3d5c206b468e2428",
+  "validation": "format=obj vertices=141 triangles=47",
+  "normalized": "$S/mod-cache/base/base_model_a51board/model-v2-d4bfaa1e655001cf71b43958d9b19f45c21639269a44479f3d5c206b468e2428.pdmodel.json",
+  "vertex_count": 141,
+  "triangle_count": 47,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

@@ -1,0 +1,10 @@
+{
+  "schema": "pd2.asset.source-handles.v1",
+  "handles": [
+    {
+      "path": "stagetable",
+      "index": 25,
+      "symbol": "defense"
+    }
+  ]
+}

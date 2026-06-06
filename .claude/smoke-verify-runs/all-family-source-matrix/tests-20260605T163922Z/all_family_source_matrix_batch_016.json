@@ -1,0 +1,131 @@
+{
+  "scenario_name": "all_family_source_matrix_batch_016",
+  "BugId": "B-509",
+  "category": "modding",
+  "description": "c3844 runtime matrix smoke: source-only catalog load batch 16 for extracted non-Scenario public typed archives. Missing debug-load request/result blocks are B-509 harness observability failures.",
+  "tags": [
+    "modding",
+    "pdxxx",
+    "source-gate",
+    "source-matrix",
+    "all-family",
+    "c3844",
+    "smoke",
+    "pillar:modding"
+  ],
+  "paths_of_interest": [
+    "port/src/main.c",
+    "port/src/asset_source_debug.c",
+    "port/src/assetcatalog_load.c",
+    "tools/smoke-verify/run-all-family-source-matrix.ps1",
+    "tools/smoke-verify/fixtures/all_family_source_pd.ini"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 180,
+  "install_state": "clean",
+  "fixtures": [
+    {
+      "src": "tools/smoke-verify/fixtures/all_family_source_pd.ini",
+      "dst": "pd.ini"
+    },
+    {
+      "src": "tools/smoke-verify/fixtures/no_mods_enabled.json",
+      "dst": "mods-enabled.json"
+    }
+  ],
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--portable",
+    "--debug-load-catalog-assets-source-only",
+    "--debug-load-catalog-assets",
+    "animation=base:animation_character_uo,animation=base:animation_character_ut,animation=base:animation_character_uu,animation=base:animation_character_uv,animation=base:animation_character_uw,animation=base:animation_character_ux,animation=base:animation_character_uy,animation=base:animation_character_v,animation=base:animation_character_va,animation=base:animation_character_vc,animation=base:animation_character_ve,animation=base:animation_character_vf,animation=base:animation_character_vh,animation=base:animation_character_vk,animation=base:animation_character_vl,animation=base:animation_character_vm,animation=base:animation_character_vn,animation=base:animation_character_vo,animation=base:animation_character_vp,animation=base:animation_character_vq"
+  ],
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait",
+      "comment": "catalog bootstrap extracts and walks base typed archives before source-only typed-load requests fire."
+    },
+    {
+      "at_ms": 35000,
+      "type": "exit",
+      "comment": "exit after all requested typed assets have loaded or emitted source-only failures."
+    }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=all_family_source_matrix_batch_016",
+      "BOOT: --debug-load-catalog-assets request type=animation id='base:animation_character_uo' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=animation id='base:animation_character_uo' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=animation id='base:animation_character_ut' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=animation id='base:animation_character_ut' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=animation id='base:animation_character_uu' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=animation id='base:animation_character_uu' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=animation id='base:animation_character_uv' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=animation id='base:animation_character_uv' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=animation id='base:animation_character_uw' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=animation id='base:animation_character_uw' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=animation id='base:animation_character_ux' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=animation id='base:animation_character_ux' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=animation id='base:animation_character_uy' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=animation id='base:animation_character_uy' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=animation id='base:animation_character_v' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=animation id='base:animation_character_v' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=animation id='base:animation_character_va' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=animation id='base:animation_character_va' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=animation id='base:animation_character_vc' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=animation id='base:animation_character_vc' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=animation id='base:animation_character_ve' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=animation id='base:animation_character_ve' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=animation id='base:animation_character_vf' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=animation id='base:animation_character_vf' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=animation id='base:animation_character_vh' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=animation id='base:animation_character_vh' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=animation id='base:animation_character_vk' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=animation id='base:animation_character_vk' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=animation id='base:animation_character_vl' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=animation id='base:animation_character_vl' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=animation id='base:animation_character_vm' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=animation id='base:animation_character_vm' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=animation id='base:animation_character_vn' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=animation id='base:animation_character_vn' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=animation id='base:animation_character_vo' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=animation id='base:animation_character_vo' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=animation id='base:animation_character_vp' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=animation id='base:animation_character_vp' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=animation id='base:animation_character_vq' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=animation id='base:animation_character_vq' result=OK",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "ASSET\\.SOURCE_ONLY",
+      "has no public FileProvider source",
+      "--debug-load-catalog-assets invalid token",
+      "--debug-load-catalog-assets token '.*' missing type=id form",
+      "--debug-load-catalog-assets argument too long",
+      "result=FAIL",
+      "result=MISSING",
+      "RomProvider:filenum",
+      "refusing fallback"
+    ],
+    "required_counts": [
+      {
+        "pattern": "BOOT: --debug-load-catalog-assets request type=.* source_only=1",
+        "min": 20,
+        "max": 20
+      },
+      {
+        "pattern": "BOOT: --debug-load-catalog-assets result type=.* result=OK",
+        "min": 20,
+        "max": 20
+      }
+    ]
+  }
+}

@@ -30,6 +30,7 @@
 #include "assetcatalog.h"
 #include "assetcatalog_load.h"
 #include "assetprovider.h"
+#include "asset_source_debug.h"
 #include "catalog_mgr_bodies.h"
 #include "catalog_mgr_bodies_pure.h"
 #include "loader_pool.h"  /* Catalog Gate 3 Bodies F12: pool-backed source when active */
@@ -188,6 +189,24 @@ const body_data_t *catalogManagerGetBodyById(const char *catalog_id)
  * after F3.
  * ======================================================================== */
 
+#if !defined(PD_SERVER)
+static s32 catalogManagerBodyModeldefPassesSourceOnlyCheck(s32 bodynum,
+	const char *id, asset_data_handle_t handle)
+{
+	assetSourceDebugFatalHandleFallback(ASSET_BODY,
+		"body manager modeldef fallback", id, handle);
+
+	if (!assetSourceDebugHandleRequiresPublicFileSource(ASSET_BODY, handle)) {
+		return 1;
+	}
+
+	sysLogPrintf(LOG_WARNING,
+		"CATALOG.MGR.BODY.MISS: source-only body '%s' bodynum=%d refused non-public model handle",
+		id ? id : "(null)", bodynum);
+	return 0;
+}
+#endif
+
 struct modeldef *catalogManagerGetBodyModeldef(s32 bodynum)
 {
 #if defined(PD_SERVER)
@@ -223,9 +242,17 @@ struct modeldef *catalogManagerGetBodyModeldef(s32 bodynum)
 			return NULL;
 		}
 
-		s_Bodies[bodynum].modeldef = modeldefLoadToNewFromHandle(
-			catalogGetBodyHandle(bodynum),
-			(u16)fallback_filenum);
+		{
+			asset_data_handle_t handle = catalogGetBodyHandle(bodynum);
+
+			if (!catalogManagerBodyModeldefPassesSourceOnlyCheck(bodynum, id,
+					handle)) {
+				return NULL;
+			}
+
+			s_Bodies[bodynum].modeldef = modeldefLoadToNewFromHandle(handle,
+				(u16)fallback_filenum);
+		}
 	}
 	return s_Bodies[bodynum].modeldef;
 #endif

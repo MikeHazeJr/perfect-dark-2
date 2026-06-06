@@ -1,14 +1,16 @@
 {
-  "solo.distance_units": 7828,
-  "items.picked_up": 81,
-  "items.weapons_picked_up": 80,
-  "deaths.total": 2,
-  "deaths.mode.combat": 2,
-  "deaths.by_bot": 2,
+  "solo.distance_units": 36598420,
+  "items.picked_up": 252,
+  "items.weapons_picked_up": 196,
+  "deaths.total": 10,
+  "deaths.mode.combat": 10,
+  "deaths.by_bot": 3,
   "kills.total": 3,
   "kills.mode.combat": 3,
   "kills.vs_bot": 3,
   "kills.weapon.dy357lx": 3,
-  "solo.mission_failures": 109,
-  "solo.time_played_seconds": 672
+  "solo.mission_failures": 301,
+  "solo.time_played_seconds": 1873,
+  "deaths.suicide": 7,
+  "mp.distance_units": 658541
 }

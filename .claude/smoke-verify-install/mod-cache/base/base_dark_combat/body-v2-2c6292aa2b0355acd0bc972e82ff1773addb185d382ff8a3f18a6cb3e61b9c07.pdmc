@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:dark_combat",
+  "mod_id": "base",
+  "kind": "body",
+  "source": "data/ntsc-final/bodies/base_dark_combat.pdbody::mesh.pdmesh::model.obj",
+  "source_size": 121794,
+  "source_sha256": "2c6292aa2b0355acd0bc972e82ff1773addb185d382ff8a3f18a6cb3e61b9c07",
+  "validation": "format=obj vertices=1803 triangles=601",
+  "normalized": "$S/mod-cache/base/base_dark_combat/body-v2-2c6292aa2b0355acd0bc972e82ff1773addb185d382ff8a3f18a6cb3e61b9c07.pdmodel.json",
+  "vertex_count": 1803,
+  "triangle_count": 601,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

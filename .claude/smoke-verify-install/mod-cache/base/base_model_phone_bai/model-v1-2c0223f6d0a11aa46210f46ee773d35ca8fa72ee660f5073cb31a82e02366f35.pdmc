@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 1,
+  "asset_id": "base:model_phone_bai",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_phone_bai.pdmesh::model.obj",
+  "source_size": 2658,
+  "source_sha256": "2c0223f6d0a11aa46210f46ee773d35ca8fa72ee660f5073cb31a82e02366f35",
+  "validation": "format=obj vertices=42 triangles=14",
+  "normalized": "$S/mod-cache/base/base_model_phone_bai/model-v1-2c0223f6d0a11aa46210f46ee773d35ca8fa72ee660f5073cb31a82e02366f35.pdmodel.json",
+  "vertex_count": 42,
+  "triangle_count": 14,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

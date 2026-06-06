@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 1,
+  "asset_id": "base:model_lab_sector2top_fg",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_lab_sector2top_fg.pdmesh::model.obj",
+  "source_size": 9830,
+  "source_sha256": "bf31234b10b1f1c74ed591d09c0b2a0038faf1f801e4b95cb205355baf5a19fb",
+  "validation": "format=obj vertices=144 triangles=48",
+  "normalized": "$S/mod-cache/base/base_model_lab_sector2top_fg/model-v1-bf31234b10b1f1c74ed591d09c0b2a0038faf1f801e4b95cb205355baf5a19fb.pdmodel.json",
+  "vertex_count": 144,
+  "triangle_count": 48,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

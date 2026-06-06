@@ -1,0 +1,131 @@
+{
+  "scenario_name": "all_family_source_matrix_batch_313",
+  "BugId": "B-509",
+  "category": "modding",
+  "description": "c3844 runtime matrix smoke: source-only catalog load batch 313 for extracted non-Scenario public typed archives. Missing debug-load request/result blocks are B-509 harness observability failures.",
+  "tags": [
+    "modding",
+    "pdxxx",
+    "source-gate",
+    "source-matrix",
+    "all-family",
+    "c3844",
+    "smoke",
+    "pillar:modding"
+  ],
+  "paths_of_interest": [
+    "port/src/main.c",
+    "port/src/asset_source_debug.c",
+    "port/src/assetcatalog_load.c",
+    "tools/smoke-verify/run-all-family-source-matrix.ps1",
+    "tools/smoke-verify/fixtures/all_family_source_pd.ini"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 180,
+  "install_state": "clean",
+  "fixtures": [
+    {
+      "src": "tools/smoke-verify/fixtures/all_family_source_pd.ini",
+      "dst": "pd.ini"
+    },
+    {
+      "src": "tools/smoke-verify/fixtures/no_mods_enabled.json",
+      "dst": "mods-enabled.json"
+    }
+  ],
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--portable",
+    "--debug-load-catalog-assets-source-only",
+    "--debug-load-catalog-assets",
+    "texture=base:texture_unlabeled_dmf,texture=base:texture_unlabeled_dmg,texture=base:texture_unlabeled_dmh,texture=base:texture_unlabeled_dmi,texture=base:texture_unlabeled_dmj,texture=base:texture_unlabeled_dmk,texture=base:texture_unlabeled_dml,texture=base:texture_unlabeled_dmm,texture=base:texture_unlabeled_dmn,texture=base:texture_unlabeled_dmo,texture=base:texture_unlabeled_dmp,texture=base:texture_unlabeled_dmq,texture=base:texture_unlabeled_dmr,texture=base:texture_unlabeled_dms,texture=base:texture_unlabeled_dmt,texture=base:texture_unlabeled_dmu,texture=base:texture_unlabeled_dmv,texture=base:texture_unlabeled_dmw,texture=base:texture_unlabeled_dmx,texture=base:texture_unlabeled_dmy"
+  ],
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait",
+      "comment": "catalog bootstrap extracts and walks base typed archives before source-only typed-load requests fire."
+    },
+    {
+      "at_ms": 35000,
+      "type": "exit",
+      "comment": "exit after all requested typed assets have loaded or emitted source-only failures."
+    }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=all_family_source_matrix_batch_313",
+      "BOOT: --debug-load-catalog-assets request type=texture id='base:texture_unlabeled_dmf' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=texture id='base:texture_unlabeled_dmf' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=texture id='base:texture_unlabeled_dmg' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=texture id='base:texture_unlabeled_dmg' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=texture id='base:texture_unlabeled_dmh' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=texture id='base:texture_unlabeled_dmh' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=texture id='base:texture_unlabeled_dmi' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=texture id='base:texture_unlabeled_dmi' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=texture id='base:texture_unlabeled_dmj' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=texture id='base:texture_unlabeled_dmj' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=texture id='base:texture_unlabeled_dmk' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=texture id='base:texture_unlabeled_dmk' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=texture id='base:texture_unlabeled_dml' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=texture id='base:texture_unlabeled_dml' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=texture id='base:texture_unlabeled_dmm' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=texture id='base:texture_unlabeled_dmm' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=texture id='base:texture_unlabeled_dmn' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=texture id='base:texture_unlabeled_dmn' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=texture id='base:texture_unlabeled_dmo' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=texture id='base:texture_unlabeled_dmo' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=texture id='base:texture_unlabeled_dmp' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=texture id='base:texture_unlabeled_dmp' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=texture id='base:texture_unlabeled_dmq' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=texture id='base:texture_unlabeled_dmq' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=texture id='base:texture_unlabeled_dmr' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=texture id='base:texture_unlabeled_dmr' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=texture id='base:texture_unlabeled_dms' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=texture id='base:texture_unlabeled_dms' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=texture id='base:texture_unlabeled_dmt' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=texture id='base:texture_unlabeled_dmt' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=texture id='base:texture_unlabeled_dmu' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=texture id='base:texture_unlabeled_dmu' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=texture id='base:texture_unlabeled_dmv' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=texture id='base:texture_unlabeled_dmv' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=texture id='base:texture_unlabeled_dmw' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=texture id='base:texture_unlabeled_dmw' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=texture id='base:texture_unlabeled_dmx' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=texture id='base:texture_unlabeled_dmx' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=texture id='base:texture_unlabeled_dmy' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=texture id='base:texture_unlabeled_dmy' result=OK",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "ASSET\\.SOURCE_ONLY",
+      "has no public FileProvider source",
+      "--debug-load-catalog-assets invalid token",
+      "--debug-load-catalog-assets token '.*' missing type=id form",
+      "--debug-load-catalog-assets argument too long",
+      "result=FAIL",
+      "result=MISSING",
+      "RomProvider:filenum",
+      "refusing fallback"
+    ],
+    "required_counts": [
+      {
+        "pattern": "BOOT: --debug-load-catalog-assets request type=.* source_only=1",
+        "min": 20,
+        "max": 20
+      },
+      {
+        "pattern": "BOOT: --debug-load-catalog-assets result type=.* result=OK",
+        "min": 20,
+        "max": 20
+      }
+    ]
+  }
+}

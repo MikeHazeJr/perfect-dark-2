@@ -1,0 +1,131 @@
+{
+  "scenario_name": "all_family_source_matrix_batch_188",
+  "BugId": "B-509",
+  "category": "modding",
+  "description": "c3844 runtime matrix smoke: source-only catalog load batch 188 for extracted non-Scenario public typed archives. Missing debug-load request/result blocks are B-509 harness observability failures.",
+  "tags": [
+    "modding",
+    "pdxxx",
+    "source-gate",
+    "source-matrix",
+    "all-family",
+    "c3844",
+    "smoke",
+    "pillar:modding"
+  ],
+  "paths_of_interest": [
+    "port/src/main.c",
+    "port/src/asset_source_debug.c",
+    "port/src/assetcatalog_load.c",
+    "tools/smoke-verify/run-all-family-source-matrix.ps1",
+    "tools/smoke-verify/fixtures/all_family_source_pd.ini"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 180,
+  "install_state": "clean",
+  "fixtures": [
+    {
+      "src": "tools/smoke-verify/fixtures/all_family_source_pd.ini",
+      "dst": "pd.ini"
+    },
+    {
+      "src": "tools/smoke-verify/fixtures/no_mods_enabled.json",
+      "dst": "mods-enabled.json"
+    }
+  ],
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--portable",
+    "--debug-load-catalog-assets-source-only",
+    "--debug-load-catalog-assets",
+    "song=base:song_sequence_ce,song=base:song_sequence_cf,song=base:song_sequence_cg,song=base:song_sequence_ch,song=base:song_sequence_ci,song=base:song_sequence_cj,song=base:song_sequence_ck,song=base:song_sequence_cl,song=base:song_sequence_cm,song=base:song_sequence_cn,song=base:song_sequence_co,song=base:song_sequence_cp,song=base:song_sequence_cq,song=base:song_sequence_cr,song=base:song_sequence_cs,song=base:song_sequence_ct,song=base:song_sequence_cu,song=base:song_sequence_cv,song=base:song_sequence_cw,song=base:song_sequence_cx"
+  ],
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait",
+      "comment": "catalog bootstrap extracts and walks base typed archives before source-only typed-load requests fire."
+    },
+    {
+      "at_ms": 35000,
+      "type": "exit",
+      "comment": "exit after all requested typed assets have loaded or emitted source-only failures."
+    }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=all_family_source_matrix_batch_188",
+      "BOOT: --debug-load-catalog-assets request type=audio id='base:song_sequence_ce' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=audio id='base:song_sequence_ce' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=audio id='base:song_sequence_cf' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=audio id='base:song_sequence_cf' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=audio id='base:song_sequence_cg' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=audio id='base:song_sequence_cg' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=audio id='base:song_sequence_ch' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=audio id='base:song_sequence_ch' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=audio id='base:song_sequence_ci' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=audio id='base:song_sequence_ci' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=audio id='base:song_sequence_cj' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=audio id='base:song_sequence_cj' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=audio id='base:song_sequence_ck' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=audio id='base:song_sequence_ck' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=audio id='base:song_sequence_cl' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=audio id='base:song_sequence_cl' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=audio id='base:song_sequence_cm' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=audio id='base:song_sequence_cm' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=audio id='base:song_sequence_cn' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=audio id='base:song_sequence_cn' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=audio id='base:song_sequence_co' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=audio id='base:song_sequence_co' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=audio id='base:song_sequence_cp' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=audio id='base:song_sequence_cp' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=audio id='base:song_sequence_cq' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=audio id='base:song_sequence_cq' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=audio id='base:song_sequence_cr' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=audio id='base:song_sequence_cr' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=audio id='base:song_sequence_cs' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=audio id='base:song_sequence_cs' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=audio id='base:song_sequence_ct' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=audio id='base:song_sequence_ct' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=audio id='base:song_sequence_cu' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=audio id='base:song_sequence_cu' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=audio id='base:song_sequence_cv' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=audio id='base:song_sequence_cv' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=audio id='base:song_sequence_cw' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=audio id='base:song_sequence_cw' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=audio id='base:song_sequence_cx' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=audio id='base:song_sequence_cx' result=OK",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "ASSET\\.SOURCE_ONLY",
+      "has no public FileProvider source",
+      "--debug-load-catalog-assets invalid token",
+      "--debug-load-catalog-assets token '.*' missing type=id form",
+      "--debug-load-catalog-assets argument too long",
+      "result=FAIL",
+      "result=MISSING",
+      "RomProvider:filenum",
+      "refusing fallback"
+    ],
+    "required_counts": [
+      {
+        "pattern": "BOOT: --debug-load-catalog-assets request type=.* source_only=1",
+        "min": 20,
+        "max": 20
+      },
+      {
+        "pattern": "BOOT: --debug-load-catalog-assets result type=.* result=OK",
+        "min": 20,
+        "max": 20
+      }
+    ]
+  }
+}

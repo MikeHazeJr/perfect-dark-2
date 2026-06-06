@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 1,
+  "asset_id": "base:model_bafta",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_bafta.pdmesh::model.obj",
+  "source_size": 4776,
+  "source_sha256": "9c90595ea5f7789a2479016d16b4b592a24c215ce3e85a8b43a86b0397f8522f",
+  "validation": "format=obj vertices=75 triangles=25",
+  "normalized": "$S/mod-cache/base/base_model_bafta/model-v1-9c90595ea5f7789a2479016d16b4b592a24c215ce3e85a8b43a86b0397f8522f.pdmodel.json",
+  "vertex_count": 75,
+  "triangle_count": 25,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

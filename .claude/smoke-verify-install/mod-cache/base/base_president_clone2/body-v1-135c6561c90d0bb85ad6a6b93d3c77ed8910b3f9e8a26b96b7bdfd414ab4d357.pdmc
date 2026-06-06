@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 1,
+  "asset_id": "base:president_clone2",
+  "mod_id": "base",
+  "kind": "body",
+  "source": "data/ntsc-final/bodies/base_president_clone2.pdbody::mesh.pdmesh::model.obj",
+  "source_size": 116556,
+  "source_sha256": "135c6561c90d0bb85ad6a6b93d3c77ed8910b3f9e8a26b96b7bdfd414ab4d357",
+  "validation": "format=obj vertices=1719 triangles=573",
+  "normalized": "$S/mod-cache/base/base_president_clone2/body-v1-135c6561c90d0bb85ad6a6b93d3c77ed8910b3f9e8a26b96b7bdfd414ab4d357.pdmodel.json",
+  "vertex_count": 1719,
+  "triangle_count": 573,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

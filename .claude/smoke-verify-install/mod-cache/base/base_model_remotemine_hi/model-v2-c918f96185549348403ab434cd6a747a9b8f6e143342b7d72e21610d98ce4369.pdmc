@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_remotemine_hi",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_remotemine_hi.pdmesh::model.obj",
+  "source_size": 24473,
+  "source_sha256": "c918f96185549348403ab434cd6a747a9b8f6e143342b7d72e21610d98ce4369",
+  "validation": "format=obj vertices=375 triangles=125",
+  "normalized": "$S/mod-cache/base/base_model_remotemine_hi/model-v2-c918f96185549348403ab434cd6a747a9b8f6e143342b7d72e21610d98ce4369.pdmodel.json",
+  "vertex_count": 375,
+  "triangle_count": 125,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

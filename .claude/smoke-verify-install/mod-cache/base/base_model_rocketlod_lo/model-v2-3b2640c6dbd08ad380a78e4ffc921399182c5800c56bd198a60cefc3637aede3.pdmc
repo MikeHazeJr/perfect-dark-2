@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_rocketlod_lo",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_rocketlod_lo.pdmesh::model.obj",
+  "source_size": 46480,
+  "source_sha256": "3b2640c6dbd08ad380a78e4ffc921399182c5800c56bd198a60cefc3637aede3",
+  "validation": "format=obj vertices=720 triangles=240",
+  "normalized": "$S/mod-cache/base/base_model_rocketlod_lo/model-v2-3b2640c6dbd08ad380a78e4ffc921399182c5800c56bd198a60cefc3637aede3.pdmodel.json",
+  "vertex_count": 720,
+  "triangle_count": 240,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

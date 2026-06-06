@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_chrnightsight",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_chrnightsight.pdmesh::model.obj",
+  "source_size": 4621,
+  "source_sha256": "caacd8e57fc4a37c740936b24de32730fd8f6a733b2baf754829c2588f7f9dbd",
+  "validation": "format=obj vertices=72 triangles=24",
+  "normalized": "$S/mod-cache/base/base_model_chrnightsight/model-v2-caacd8e57fc4a37c740936b24de32730fd8f6a733b2baf754829c2588f7f9dbd.pdmodel.json",
+  "vertex_count": 72,
+  "triangle_count": 24,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

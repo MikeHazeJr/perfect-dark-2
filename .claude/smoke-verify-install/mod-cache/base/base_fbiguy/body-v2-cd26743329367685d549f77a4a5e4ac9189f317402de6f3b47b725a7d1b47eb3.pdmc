@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:fbiguy",
+  "mod_id": "base",
+  "kind": "body",
+  "source": "data/ntsc-final/bodies/base_fbiguy.pdbody::mesh.pdmesh::model.obj",
+  "source_size": 139930,
+  "source_sha256": "cd26743329367685d549f77a4a5e4ac9189f317402de6f3b47b725a7d1b47eb3",
+  "validation": "format=obj vertices=2052 triangles=684",
+  "normalized": "$S/mod-cache/base/base_fbiguy/body-v2-cd26743329367685d549f77a4a5e4ac9189f317402de6f3b47b725a7d1b47eb3.pdmodel.json",
+  "vertex_count": 2052,
+  "triangle_count": 684,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

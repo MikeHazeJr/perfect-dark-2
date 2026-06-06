@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_blastshield",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_blastshield.pdmesh::model.obj",
+  "source_size": 16037,
+  "source_sha256": "8b8a8352a2a449cc6437c00c37538954fec0d9cd9d0e03273109debb4e36539f",
+  "validation": "format=obj vertices=252 triangles=84",
+  "normalized": "$S/mod-cache/base/base_model_blastshield/model-v2-8b8a8352a2a449cc6437c00c37538954fec0d9cd9d0e03273109debb4e36539f.pdmodel.json",
+  "vertex_count": 252,
+  "triangle_count": 84,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

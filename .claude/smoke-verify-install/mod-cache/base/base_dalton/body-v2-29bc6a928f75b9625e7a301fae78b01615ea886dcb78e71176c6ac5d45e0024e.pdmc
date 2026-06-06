@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:dalton",
+  "mod_id": "base",
+  "kind": "body",
+  "source": "data/ntsc-final/bodies/base_dalton.pdbody::mesh.pdmesh::model.obj",
+  "source_size": 125164,
+  "source_sha256": "29bc6a928f75b9625e7a301fae78b01615ea886dcb78e71176c6ac5d45e0024e",
+  "validation": "format=obj vertices=1833 triangles=611",
+  "normalized": "$S/mod-cache/base/base_dalton/body-v2-29bc6a928f75b9625e7a301fae78b01615ea886dcb78e71176c6ac5d45e0024e.pdmodel.json",
+  "vertex_count": 1833,
+  "triangle_count": 611,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

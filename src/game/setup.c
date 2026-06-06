@@ -2624,6 +2624,10 @@ void setupCreateProps(s32 stagenum)
 
 						prop = obj->prop;
 
+						if (prop == NULL) {
+							break;
+						}
+
 						car->speed = 0;
 						car->speedaim = 0;
 						car->turnrot60 = 0;
@@ -2903,9 +2907,11 @@ void setupCreateProps(s32 stagenum)
 						if (gun1 && gun2
 								&& gun1->base.type == OBJTYPE_WEAPON
 								&& gun2->base.type == OBJTYPE_WEAPON) {
-							scenarioSourceSetupGraphRecordBehaviorLink(
-								OBJTYPE_LINKGUNS, index,
-								gun1index, gun2index, -1, -1, -1);
+							if (!scenarioSourceSetupGraphRecordBehaviorLink(
+									OBJTYPE_LINKGUNS, index,
+									gun1index, gun2index, -1, -1, -1)) {
+								break;
+							}
 							propweaponSetDual(gun1, gun2);
 						}
 					}
@@ -2921,10 +2927,12 @@ void setupCreateProps(s32 stagenum)
 						struct defaultobj *lift = setupGetObjByCmdIndex(liftindex);
 
 						if (door && door->prop && lift && lift->prop) {
-							scenarioSourceSetupGraphRecordBehaviorLink(
-								OBJTYPE_LINKLIFTDOOR, index,
-								doorindex, liftindex, -1,
-								link->stopnum, -1);
+							if (!scenarioSourceSetupGraphRecordBehaviorLink(
+									OBJTYPE_LINKLIFTDOOR, index,
+									doorindex, liftindex, -1,
+									link->stopnum, -1)) {
+								break;
+							}
 							link->door = door->prop;
 							link->lift = lift->prop;
 
@@ -2950,9 +2958,11 @@ void setupCreateProps(s32 stagenum)
 						if (item && item->prop
 								&& safe && safe->prop && safe->type == OBJTYPE_SAFE
 								&& door && door->prop && door->type == OBJTYPE_DOOR) {
-							scenarioSourceSetupGraphRecordBehaviorLink(
-								OBJTYPE_SAFEITEM, index,
-								itemindex, safeindex, doorindex, -1, -1);
+							if (!scenarioSourceSetupGraphRecordBehaviorLink(
+									OBJTYPE_SAFEITEM, index,
+									itemindex, safeindex, doorindex, -1, -1)) {
+								break;
+							}
 							link->item = item;
 							link->safe = (struct safeobj *)safe;
 							link->door = (struct doorobj *)door;
@@ -2976,9 +2986,11 @@ void setupCreateProps(s32 stagenum)
 
 						if (door && door->prop && lock && lock->prop
 								&& door->type == OBJTYPE_DOOR) {
-							scenarioSourceSetupGraphRecordBehaviorLink(
-								OBJTYPE_PADLOCKEDDOOR, index,
-								doorindex, lockindex, -1, -1, -1);
+							if (!scenarioSourceSetupGraphRecordBehaviorLink(
+									OBJTYPE_PADLOCKEDDOOR, index,
+									doorindex, lockindex, -1, -1, -1)) {
+								break;
+							}
 							link->door = (struct doorobj *)door;
 							link->lock = lock;
 
@@ -3013,9 +3025,11 @@ void setupCreateProps(s32 stagenum)
 						if (trigger && trigger->prop
 								&& (unexpoffset == 0 || (unexp && unexp->prop))
 								&& (expoffset == 0 || (exp && exp->prop))) {
-							scenarioSourceSetupGraphRecordBehaviorLink(
-								OBJTYPE_CONDITIONALSCENERY, index,
-								triggerindex, unexpindex, expindex, -1, -1);
+							if (!scenarioSourceSetupGraphRecordBehaviorLink(
+									OBJTYPE_CONDITIONALSCENERY, index,
+									triggerindex, unexpindex, expindex, -1, -1)) {
+								break;
+							}
 							link->trigger = trigger;
 							link->unexp = unexp;
 							link->exp = exp;
@@ -3054,11 +3068,13 @@ void setupCreateProps(s32 stagenum)
 						struct defaultobj *blocker = setupGetObjByCmdIndex(blockerindex);
 
 						if (blocker && blocker->prop) {
-							scenarioSourceSetupGraphRecordBehaviorLink(
-								OBJTYPE_BLOCKEDPATH, index,
-								blockerindex, -1, -1,
-								blockedpath->waypoint1,
-								blockedpath->waypoint2);
+							if (!scenarioSourceSetupGraphRecordBehaviorLink(
+									OBJTYPE_BLOCKEDPATH, index,
+									blockerindex, -1, -1,
+									blockedpath->waypoint1,
+									blockedpath->waypoint2)) {
+								break;
+							}
 							blockedpath->blocker = blocker;
 
 							setupCreateBlockedPath(blockedpath);

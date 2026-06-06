@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_hand_ddbio_hand",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_hand_ddbio_hand.pdmesh::model.obj",
+  "source_size": 94156,
+  "source_sha256": "bf0ca10b6614dd09f64ffdb31df639e268bb58bccc0b976aa73a0abcff2e600d",
+  "validation": "format=obj vertices=1398 triangles=466",
+  "normalized": "$S/mod-cache/base/base_model_hand_ddbio_hand/model-v2-bf0ca10b6614dd09f64ffdb31df639e268bb58bccc0b976aa73a0abcff2e600d.pdmodel.json",
+  "vertex_count": 1398,
+  "triangle_count": 466,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

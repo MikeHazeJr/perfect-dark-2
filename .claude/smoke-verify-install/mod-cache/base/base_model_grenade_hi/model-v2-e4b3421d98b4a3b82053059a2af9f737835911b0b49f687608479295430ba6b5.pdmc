@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_grenade_hi",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_grenade_hi.pdmesh::model.obj",
+  "source_size": 61823,
+  "source_sha256": "e4b3421d98b4a3b82053059a2af9f737835911b0b49f687608479295430ba6b5",
+  "validation": "format=obj vertices=972 triangles=324",
+  "normalized": "$S/mod-cache/base/base_model_grenade_hi/model-v2-e4b3421d98b4a3b82053059a2af9f737835911b0b49f687608479295430ba6b5.pdmodel.json",
+  "vertex_count": 972,
+  "triangle_count": 324,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

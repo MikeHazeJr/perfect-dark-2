@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_cable_car",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_cable_car.pdmesh::model.obj",
+  "source_size": 88432,
+  "source_sha256": "a4ef51f2612fa2d392e2922ab9e5c87e90912bee428e059287083ffb65db6813",
+  "validation": "format=obj vertices=1260 triangles=420",
+  "normalized": "$S/mod-cache/base/base_model_cable_car/model-v2-a4ef51f2612fa2d392e2922ab9e5c87e90912bee428e059287083ffb65db6813.pdmodel.json",
+  "vertex_count": 1260,
+  "triangle_count": 420,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

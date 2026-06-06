@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_horiz_door_secret_cw",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_horiz_door_secret_cw.pdmesh::model.obj",
+  "source_size": 3188,
+  "source_sha256": "a5f57680c69985436e2a688f0423e0d9dc0aa0fcbad48e2a9ad5e6375e932bcd",
+  "validation": "format=obj vertices=42 triangles=14",
+  "normalized": "$S/mod-cache/base/base_model_horiz_door_secret_cw/model-v2-a5f57680c69985436e2a688f0423e0d9dc0aa0fcbad48e2a9ad5e6375e932bcd.pdmodel.json",
+  "vertex_count": 42,
+  "triangle_count": 14,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

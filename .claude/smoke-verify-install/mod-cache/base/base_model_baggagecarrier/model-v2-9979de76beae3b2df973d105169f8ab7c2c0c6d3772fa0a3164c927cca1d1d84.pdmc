@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_baggagecarrier",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_baggagecarrier.pdmesh::model.obj",
+  "source_size": 2635,
+  "source_sha256": "9979de76beae3b2df973d105169f8ab7c2c0c6d3772fa0a3164c927cca1d1d84",
+  "validation": "format=obj vertices=36 triangles=12",
+  "normalized": "$S/mod-cache/base/base_model_baggagecarrier/model-v2-9979de76beae3b2df973d105169f8ab7c2c0c6d3772fa0a3164c927cca1d1d84.pdmodel.json",
+  "vertex_count": 36,
+  "triangle_count": 12,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

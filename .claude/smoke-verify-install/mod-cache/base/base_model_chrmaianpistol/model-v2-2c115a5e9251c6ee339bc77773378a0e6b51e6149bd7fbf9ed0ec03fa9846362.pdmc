@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_chrmaianpistol",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_chrmaianpistol.pdmesh::model.obj",
+  "source_size": 9707,
+  "source_sha256": "2c115a5e9251c6ee339bc77773378a0e6b51e6149bd7fbf9ed0ec03fa9846362",
+  "validation": "format=obj vertices=150 triangles=50",
+  "normalized": "$S/mod-cache/base/base_model_chrmaianpistol/model-v2-2c115a5e9251c6ee339bc77773378a0e6b51e6149bd7fbf9ed0ec03fa9846362.pdmodel.json",
+  "vertex_count": 150,
+  "triangle_count": 50,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

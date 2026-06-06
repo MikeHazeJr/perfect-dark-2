@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_cnsa_lackey",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_cnsa_lackey.pdmesh::model.obj",
+  "source_size": 136490,
+  "source_sha256": "1edb9377da22baf7efe85994a1a0d1ee35dcc8df3a115a294c22a28767a18b7c",
+  "validation": "format=obj vertices=2007 triangles=669",
+  "normalized": "$S/mod-cache/base/base_model_cnsa_lackey/model-v2-1edb9377da22baf7efe85994a1a0d1ee35dcc8df3a115a294c22a28767a18b7c.pdmodel.json",
+  "vertex_count": 2007,
+  "triangle_count": 669,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

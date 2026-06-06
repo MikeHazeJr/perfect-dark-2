@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 1,
+  "asset_id": "base:model_cminiskedar",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_cminiskedar.pdmesh::model.obj",
+  "source_size": 156052,
+  "source_sha256": "ff7b45dec86c9d409da7090bafdb8144008b7f252e164efb79919c073f35b6a0",
+  "validation": "format=obj vertices=2286 triangles=762",
+  "normalized": "$S/mod-cache/base/base_model_cminiskedar/model-v1-ff7b45dec86c9d409da7090bafdb8144008b7f252e164efb79919c073f35b6a0.pdmodel.json",
+  "vertex_count": 2286,
+  "triangle_count": 762,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

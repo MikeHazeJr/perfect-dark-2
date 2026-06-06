@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_officedoor_fn",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_officedoor_fn.pdmesh::model.obj",
+  "source_size": 8084,
+  "source_sha256": "929472f826c91c4abaa78f93a6a3de8ac5b3f019af2e6964ee025f7c750420fb",
+  "validation": "format=obj vertices=120 triangles=40",
+  "normalized": "$S/mod-cache/base/base_model_officedoor_fn/model-v2-929472f826c91c4abaa78f93a6a3de8ac5b3f019af2e6964ee025f7c750420fb.pdmodel.json",
+  "vertex_count": 120,
+  "triangle_count": 40,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

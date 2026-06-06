@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 1,
+  "asset_id": "base:model_hand_jowetsuit_hand",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_hand_jowetsuit_hand.pdmesh::model.obj",
+  "source_size": 94355,
+  "source_sha256": "e57468db368d104ed05fbc361a2ae9e4f26d21df52c60764612f088a3412bf77",
+  "validation": "format=obj vertices=1398 triangles=466",
+  "normalized": "$S/mod-cache/base/base_model_hand_jowetsuit_hand/model-v1-e57468db368d104ed05fbc361a2ae9e4f26d21df52c60764612f088a3412bf77.pdmodel.json",
+  "vertex_count": 1398,
+  "triangle_count": 466,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

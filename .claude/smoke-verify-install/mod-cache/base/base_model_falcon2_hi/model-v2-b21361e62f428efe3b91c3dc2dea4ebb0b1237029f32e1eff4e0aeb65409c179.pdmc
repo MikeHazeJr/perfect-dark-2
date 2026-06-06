@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_falcon2_hi",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_falcon2_hi.pdmesh::model.obj",
+  "source_size": 80436,
+  "source_sha256": "b21361e62f428efe3b91c3dc2dea4ebb0b1237029f32e1eff4e0aeb65409c179",
+  "validation": "format=obj vertices=1266 triangles=422",
+  "normalized": "$S/mod-cache/base/base_model_falcon2_hi/model-v2-b21361e62f428efe3b91c3dc2dea4ebb0b1237029f32e1eff4e0aeb65409c179.pdmodel.json",
+  "vertex_count": 1266,
+  "triangle_count": 422,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

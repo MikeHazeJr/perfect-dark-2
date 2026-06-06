@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:head_davec",
+  "mod_id": "base",
+  "kind": "head",
+  "source": "data/ntsc-final/heads/base_head_davec.pdhead::mesh.pdmesh::model.obj",
+  "source_size": 46739,
+  "source_sha256": "7fdc50837999a9efa9a531261c0ed864383f7a72e86dac62926b35e0a32359b9",
+  "validation": "format=obj vertices=714 triangles=238",
+  "normalized": "$S/mod-cache/base/base_head_davec/head-v2-7fdc50837999a9efa9a531261c0ed864383f7a72e86dac62926b35e0a32359b9.pdmodel.json",
+  "vertex_count": 714,
+  "triangle_count": 238,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

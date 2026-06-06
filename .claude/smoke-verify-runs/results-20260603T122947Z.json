@@ -1,0 +1,34 @@
+﻿{
+    "Name":  "scenario_source_matrix_test_ash",
+    "Category":  "scenario",
+    "BugId":  null,
+    "RegressionFor":  null,
+    "Passed":  false,
+    "ExitCode":  0,
+    "ElapsedSeconds":  76.5493798,
+    "InstallDir":  "C:\\Users\\mikeh\\Perfect-Dark-2\\perfect_dark-mike\\.claude\\smoke-verify-install",
+    "AssertionsTotal":  108,
+    "AssertionsMet":  103,
+    "Failures":  [
+                     {
+                         "Kind":  "required_line_missing",
+                         "Pattern":  "SCENARIO\\.SOURCE: skipped legacy dynamic-light precompute \u0027base:scenario_test_ash\u0027 rooms=\\d+ portals=\\d+ source=scene\\.glb"
+                     },
+                     {
+                         "Kind":  "required_line_missing",
+                         "Pattern":  "SCENARIO\\.GRAPH: table refs \u0027base:scenario_test_ash\u0027 portals=.*base_scenario_test_ash\\.pdscenario::portals\\.tsv pads=.*base_scenario_test_ash\\.pdscenario::pads\\.tsv spawns=.*base_scenario_test_ash\\.pdscenario::spawns\\.tsv setup=.*base_scenario_test_ash\\.pdscenario::setup\\.fields\\.tsv ai=.*base_scenario_test_ash\\.pdscenario::ai/ailists\\.tsv objects=.*base_scenario_test_ash\\.pdscenario::objects\\.tsv volumes=.*base_scenario_test_ash\\.pdscenario::volumes\\.tsv objectives=.*base_scenario_test_ash\\.pdscenario::objectives\\.tsv waypoints=.*base_scenario_test_ash\\.pdscenario::navigation/waypoints\\.tsv waygroups=.*base_scenario_test_ash\\.pdscenario::navigation/waygroups\\.tsv covers=.*base_scenario_test_ash\\.pdscenario::navigation/covers\\.tsv paths=.*base_scenario_test_ash\\.pdscenario::navigation/paths\\.tsv"
+                     },
+                     {
+                         "Kind":  "required_line_missing",
+                         "Pattern":  "SCENARIO\\.GRAPH: navigation generate source \u0027.*base_scenario_test_ash\\.pdscenario::navigation\\.ini\u0027 cache=.*base_scenario_test_ash\\.pdscenario::_meta/generated-navmesh\\.json nodes=1 source_counts=pads:\\d+,volumes:\\d+,waypoints:\\d+,waygroups:\\d+,covers:\\d+,paths:\\d+ source_hashes=sha256 capabilities=walk,jump,drop,wall,ceiling backend=graph\\.navigation\\.generate\\+navigation\\.ini\\+generated-navmesh\\.json"
+                     },
+                     {
+                         "Kind":  "required_line_missing",
+                         "Pattern":  "SCENARIO\\.SOURCE: compiled navigation tables waypoints \u0027.*base_scenario_test_ash\\.pdscenario::navigation/waypoints\\.tsv\u0027, waygroups \u0027.*base_scenario_test_ash\\.pdscenario::navigation/waygroups\\.tsv\u0027, covers \u0027.*base_scenario_test_ash\\.pdscenario::navigation/covers\\.tsv\u0027 as \\d+ waypoints, \\d+ waygroups, \\d+ covers backend=source\\.navigation\\.tables\\+navigation/waypoints\\.tsv\\+navigation/waygroups\\.tsv\\+navigation/covers\\.tsv"
+                     },
+                     {
+                         "Kind":  "required_line_missing",
+                         "Pattern":  "SCENARIO\\.SOURCE: generated deterministic navigation tables from public pads\\.tsv \u0027.*base_scenario_test_ash\\.pdscenario::pads\\.tsv\u0027 through empty waypoint, waygroup, and cover sources as \\d+ waypoints, \\d+ waygroups, \\d+ covers backend=source\\.navigation\\.generated\\+pads\\.tsv\\+navigation/waypoints\\.tsv\\+navigation/waygroups\\.tsv\\+navigation/covers\\.tsv"
+                     }
+                 ]
+}

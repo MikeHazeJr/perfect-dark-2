@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:trent",
+  "mod_id": "base",
+  "kind": "body",
+  "source": "data/ntsc-final/bodies/base_trent.pdbody::mesh.pdmesh::model.obj",
+  "source_size": 192356,
+  "source_sha256": "1e57dcb9fb42c3a331ea39b700d6b73c9d770bb601e83ca1e2ac0f1494d8a642",
+  "validation": "format=obj vertices=2817 triangles=939",
+  "normalized": "$S/mod-cache/base/base_trent/body-v2-1e57dcb9fb42c3a331ea39b700d6b73c9d770bb601e83ca1e2ac0f1494d8a642.pdmodel.json",
+  "vertex_count": 2817,
+  "triangle_count": 939,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

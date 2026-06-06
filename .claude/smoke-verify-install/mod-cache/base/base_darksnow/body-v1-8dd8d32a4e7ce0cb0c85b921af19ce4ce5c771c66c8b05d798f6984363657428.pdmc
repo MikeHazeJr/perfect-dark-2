@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 1,
+  "asset_id": "base:darksnow",
+  "mod_id": "base",
+  "kind": "body",
+  "source": "data/ntsc-final/bodies/base_darksnow.pdbody::mesh.pdmesh::model.obj",
+  "source_size": 126660,
+  "source_sha256": "8dd8d32a4e7ce0cb0c85b921af19ce4ce5c771c66c8b05d798f6984363657428",
+  "validation": "format=obj vertices=1869 triangles=623",
+  "normalized": "$S/mod-cache/base/base_darksnow/body-v1-8dd8d32a4e7ce0cb0c85b921af19ce4ce5c771c66c8b05d798f6984363657428.pdmodel.json",
+  "vertex_count": 1869,
+  "triangle_count": 623,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

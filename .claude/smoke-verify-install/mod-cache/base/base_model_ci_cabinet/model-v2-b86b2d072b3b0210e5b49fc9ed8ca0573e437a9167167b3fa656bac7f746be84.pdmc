@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_ci_cabinet",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_ci_cabinet.pdmesh::model.obj",
+  "source_size": 12651,
+  "source_sha256": "b86b2d072b3b0210e5b49fc9ed8ca0573e437a9167167b3fa656bac7f746be84",
+  "validation": "format=obj vertices=198 triangles=66",
+  "normalized": "$S/mod-cache/base/base_model_ci_cabinet/model-v2-b86b2d072b3b0210e5b49fc9ed8ca0573e437a9167167b3fa656bac7f746be84.pdmodel.json",
+  "vertex_count": 198,
+  "triangle_count": 66,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

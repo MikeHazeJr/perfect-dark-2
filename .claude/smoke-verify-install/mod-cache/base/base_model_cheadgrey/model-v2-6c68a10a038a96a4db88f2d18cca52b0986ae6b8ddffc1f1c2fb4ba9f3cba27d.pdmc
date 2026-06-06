@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_cheadgrey",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_cheadgrey.pdmesh::model.obj",
+  "source_size": 38311,
+  "source_sha256": "6c68a10a038a96a4db88f2d18cca52b0986ae6b8ddffc1f1c2fb4ba9f3cba27d",
+  "validation": "format=obj vertices=579 triangles=193",
+  "normalized": "$S/mod-cache/base/base_model_cheadgrey/model-v2-6c68a10a038a96a4db88f2d18cca52b0986ae6b8ddffc1f1c2fb4ba9f3cba27d.pdmodel.json",
+  "vertex_count": 579,
+  "triangle_count": 193,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

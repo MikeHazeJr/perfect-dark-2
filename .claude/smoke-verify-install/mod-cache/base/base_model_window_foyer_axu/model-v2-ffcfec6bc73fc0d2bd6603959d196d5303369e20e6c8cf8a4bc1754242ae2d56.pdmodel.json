@@ -1,0 +1,23 @@
+{
+  "schema": "pd2.modasset.model.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_window_foyer_axu",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_window_foyer_axu.pdmesh::model.obj",
+  "source_sha256": "ffcfec6bc73fc0d2bd6603959d196d5303369e20e6c8cf8a4bc1754242ae2d56",
+  "runtime_boundary": "modeldef",
+  "vertex_count": 6,
+  "triangle_count": 2,
+  "vertices": [
+    [-7249.79834, -84917.1953, 2833.33325],
+    [-7249.79834, -85833.1953, 2833.33325],
+    [-4919.79834, -84280.1953, 2833.33325],
+    [-7249.79834, -84917.1953, 2833.33325],
+    [-4919.79834, -84280.1953, 2833.33325],
+    [-4919.79834, -83363.1953, 2833.33325]
+  ],
+  "triangles": [
+    [0, 1, 2],
+    [3, 4, 5]
+  ]
+}

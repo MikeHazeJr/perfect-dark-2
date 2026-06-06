@@ -33,6 +33,7 @@
 
 #include "system.h"
 #include "assetcatalog.h"
+#include "asset_source_debug.h"
 
 #include "game/botmgr.h"
 #include "game/prop.h"
@@ -83,6 +84,22 @@ static s32                s_prop_count;
 
 static struct doorobj *s_door_pool;
 static s32             s_door_count;
+
+static s32 s_forgeModelHandlePassesSourceOnlyCheck(asset_type_e type,
+        const char *catalog_id, const char *context, asset_data_handle_t handle)
+{
+    assetSourceDebugFatalHandleFallback(type, context, catalog_id, handle);
+
+    if (!assetSourceDebugHandleRequiresPublicFileSource(type, handle)) {
+        return 1;
+    }
+
+    sysLogPrintf(LOG_WARNING,
+            "GRID.RUNTIME: source-only %s '%s' refused non-public model handle",
+            assetSourceDebugTypeLabel(type),
+            catalog_id ? catalog_id : "(null)");
+    return 0;
+}
 
 /* Zone runtime: per-zone state for player intersection checks. */
 #define FORGE_ZONE_RT_MAX 128
@@ -357,6 +374,11 @@ static void s_spawn_door(const forge_object_t *o)
         return;
     }
 
+    if (!s_forgeModelHandlePassesSourceOnlyCheck(ASSET_PROP, o->catalog_id,
+            "forge door modeldef", pr.handle)) {
+        return;
+    }
+
     struct modeldef *modeldef = modeldefLoadToNewFromHandle(pr.handle, pr.filenum);
     if (!modeldef) {
         sysLogPrintf(LOG_WARNING,
@@ -529,6 +551,11 @@ static void s_spawn_weapon_pad(const forge_object_t *o)
 
     weapon->weaponnum = (s32)wr.weapon_num;
 
+    if (!s_forgeModelHandlePassesSourceOnlyCheck(ASSET_WEAPON,
+            o->props.weapon.weapon_id, "forge weapon pad modeldef", wr.handle)) {
+        return;
+    }
+
     struct modeldef *modeldef = modeldefLoadToNewFromHandle(wr.handle, wr.filenum);
     if (!modeldef) {
         sysLogPrintf(LOG_WARNING,
@@ -603,6 +630,11 @@ static void s_spawn_prop(const forge_object_t *o)
         sysLogPrintf(LOG_WARNING,
                 "GRID.RUNTIME: prop uid=%u -- cannot resolve '%s'",
                 o->uid, o->catalog_id);
+        return;
+    }
+
+    if (!s_forgeModelHandlePassesSourceOnlyCheck(ASSET_PROP, o->catalog_id,
+            "forge prop modeldef", pr.handle)) {
         return;
     }
 

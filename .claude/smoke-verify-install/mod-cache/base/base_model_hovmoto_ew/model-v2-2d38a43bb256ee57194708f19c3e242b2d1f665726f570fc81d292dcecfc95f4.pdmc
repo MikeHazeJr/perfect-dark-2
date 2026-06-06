@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_hovmoto_ew",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_hovmoto_ew.pdmesh::model.obj",
+  "source_size": 9530,
+  "source_sha256": "2d38a43bb256ee57194708f19c3e242b2d1f665726f570fc81d292dcecfc95f4",
+  "validation": "format=obj vertices=150 triangles=50",
+  "normalized": "$S/mod-cache/base/base_model_hovmoto_ew/model-v2-2d38a43bb256ee57194708f19c3e242b2d1f665726f570fc81d292dcecfc95f4.pdmodel.json",
+  "vertex_count": 150,
+  "triangle_count": 50,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

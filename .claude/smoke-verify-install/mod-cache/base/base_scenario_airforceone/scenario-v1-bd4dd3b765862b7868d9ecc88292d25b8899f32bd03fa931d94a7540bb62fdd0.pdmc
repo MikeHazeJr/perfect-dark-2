@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 1,
+  "asset_id": "base:scenario_airforceone",
+  "mod_id": "base",
+  "kind": "scenario",
+  "source": "data/ntsc-final/scenarios/base_scenario_airforceone.pdscenario::scene.glb",
+  "source_size": 1074392,
+  "source_sha256": "bd4dd3b765862b7868d9ecc88292d25b8899f32bd03fa931d94a7540bb62fdd0",
+  "validation": "format=glb vertices=30117 triangles=10039",
+  "normalized": "$S/mod-cache/base/base_scenario_airforceone/scenario-v1-bd4dd3b765862b7868d9ecc88292d25b8899f32bd03fa931d94a7540bb62fdd0.pdmesh.json",
+  "vertex_count": 30117,
+  "triangle_count": 10039,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

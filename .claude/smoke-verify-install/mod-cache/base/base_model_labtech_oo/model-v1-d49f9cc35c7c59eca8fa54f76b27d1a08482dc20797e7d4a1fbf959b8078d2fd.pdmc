@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 1,
+  "asset_id": "base:model_labtech_oo",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_labtech_oo.pdmesh::model.obj",
+  "source_size": 141501,
+  "source_sha256": "d49f9cc35c7c59eca8fa54f76b27d1a08482dc20797e7d4a1fbf959b8078d2fd",
+  "validation": "format=obj vertices=2079 triangles=693",
+  "normalized": "$S/mod-cache/base/base_model_labtech_oo/model-v1-d49f9cc35c7c59eca8fa54f76b27d1a08482dc20797e7d4a1fbf959b8078d2fd.pdmodel.json",
+  "vertex_count": 2079,
+  "triangle_count": 693,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

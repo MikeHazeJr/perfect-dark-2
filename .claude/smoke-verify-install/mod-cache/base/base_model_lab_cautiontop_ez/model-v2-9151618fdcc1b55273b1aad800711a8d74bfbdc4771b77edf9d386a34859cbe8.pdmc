@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_lab_cautiontop_ez",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_lab_cautiontop_ez.pdmesh::model.obj",
+  "source_size": 9830,
+  "source_sha256": "9151618fdcc1b55273b1aad800711a8d74bfbdc4771b77edf9d386a34859cbe8",
+  "validation": "format=obj vertices=144 triangles=48",
+  "normalized": "$S/mod-cache/base/base_model_lab_cautiontop_ez/model-v2-9151618fdcc1b55273b1aad800711a8d74bfbdc4771b77edf9d386a34859cbe8.pdmodel.json",
+  "vertex_count": 144,
+  "triangle_count": 48,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

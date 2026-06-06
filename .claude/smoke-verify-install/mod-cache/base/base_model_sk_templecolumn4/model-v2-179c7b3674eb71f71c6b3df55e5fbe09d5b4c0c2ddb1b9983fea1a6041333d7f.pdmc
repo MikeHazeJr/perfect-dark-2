@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_sk_templecolumn4",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_sk_templecolumn4.pdmesh::model.obj",
+  "source_size": 18015,
+  "source_sha256": "179c7b3674eb71f71c6b3df55e5fbe09d5b4c0c2ddb1b9983fea1a6041333d7f",
+  "validation": "format=obj vertices=246 triangles=82",
+  "normalized": "$S/mod-cache/base/base_model_sk_templecolumn4/model-v2-179c7b3674eb71f71c6b3df55e5fbe09d5b4c0c2ddb1b9983fea1a6041333d7f.pdmodel.json",
+  "vertex_count": 246,
+  "triangle_count": 82,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

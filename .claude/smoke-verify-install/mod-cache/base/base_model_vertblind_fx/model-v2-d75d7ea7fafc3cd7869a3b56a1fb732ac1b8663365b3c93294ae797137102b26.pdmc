@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_vertblind_fx",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_vertblind_fx.pdmesh::model.obj",
+  "source_size": 912,
+  "source_sha256": "d75d7ea7fafc3cd7869a3b56a1fb732ac1b8663365b3c93294ae797137102b26",
+  "validation": "format=obj vertices=12 triangles=4",
+  "normalized": "$S/mod-cache/base/base_model_vertblind_fx/model-v2-d75d7ea7fafc3cd7869a3b56a1fb732ac1b8663365b3c93294ae797137102b26.pdmodel.json",
+  "vertex_count": 12,
+  "triangle_count": 4,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

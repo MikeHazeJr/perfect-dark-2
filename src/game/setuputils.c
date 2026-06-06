@@ -13,6 +13,7 @@
 #include "types.h"
 #include "platform.h"
 #include "assetcatalog.h"
+#include "asset_source_debug.h"
 #include "net/netmanifest.h"
 #include "system.h"
 #include "model_rodata_guard.h" /* S483b: load-time rodata-tree validator */
@@ -261,6 +262,21 @@ static void setupValidateModeldefRodata(s32 modelnum, struct modeldef *modeldef,
 	}
 }
 
+static s32 setupModelHandlePassesSourceOnlyCheck(s32 modelnum, const char *model_id, asset_data_handle_t handle)
+{
+	assetSourceDebugFatalHandleFallback(ASSET_MODEL,
+			"setup modeldef", model_id, handle);
+
+	if (!assetSourceDebugHandleRequiresPublicFileSource(ASSET_MODEL, handle)) {
+		return true;
+	}
+
+	sysLogPrintf(LOG_WARNING,
+			"SETUP.MODELDEF: source-only model '%s' modelnum=%d refused non-public model handle",
+			model_id ? model_id : "(null)", modelnum);
+	return false;
+}
+
 bool setupLoadModeldef(s32 modelnum)
 {
 	s32 source_filenum;
@@ -289,6 +305,9 @@ bool setupLoadModeldef(s32 modelnum)
 
 		model_handle = model_result.handle;
 		source_filenum = model_result.filenum;
+		if (!setupModelHandlePassesSourceOnlyCheck(modelnum, model_id, model_handle)) {
+			return false;
+		}
 		g_ModelStates[modelnum].modeldef =
 			modeldefLoadToNewFromHandle(model_handle, source_filenum);
 

@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 1,
+  "asset_id": "base:model_rarelogo",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_rarelogo.pdmesh::model.obj",
+  "source_size": 92584,
+  "source_sha256": "bafb259b9e7fc843cabf6085808f4d016e27632ad9da5b2500ee0dc032d6a315",
+  "validation": "format=obj vertices=1419 triangles=473",
+  "normalized": "$S/mod-cache/base/base_model_rarelogo/model-v1-bafb259b9e7fc843cabf6085808f4d016e27632ad9da5b2500ee0dc032d6a315.pdmodel.json",
+  "vertex_count": 1419,
+  "triangle_count": 473,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

@@ -1,0 +1,131 @@
+{
+  "scenario_name": "all_family_source_matrix_batch_097",
+  "BugId": "B-509",
+  "category": "modding",
+  "description": "c3844 runtime matrix smoke: source-only catalog load batch 97 for extracted non-Scenario public typed archives. Missing debug-load request/result blocks are B-509 harness observability failures.",
+  "tags": [
+    "modding",
+    "pdxxx",
+    "source-gate",
+    "source-matrix",
+    "all-family",
+    "c3844",
+    "smoke",
+    "pillar:modding"
+  ],
+  "paths_of_interest": [
+    "port/src/main.c",
+    "port/src/asset_source_debug.c",
+    "port/src/assetcatalog_load.c",
+    "tools/smoke-verify/run-all-family-source-matrix.ps1",
+    "tools/smoke-verify/fixtures/all_family_source_pd.ini"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 180,
+  "install_state": "clean",
+  "fixtures": [
+    {
+      "src": "tools/smoke-verify/fixtures/all_family_source_pd.ini",
+      "dst": "pd.ini"
+    },
+    {
+      "src": "tools/smoke-verify/fixtures/no_mods_enabled.json",
+      "dst": "mods-enabled.json"
+    }
+  ],
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--portable",
+    "--debug-load-catalog-assets-source-only",
+    "--debug-load-catalog-assets",
+    "model=base:model_knife_hi,model=base:model_knifelod_lo,model=base:model_knockknock,model=base:model_lab_caution_ey,model=base:model_lab_cautiontop_ez,model=base:model_lab_chair,model=base:model_lab_container,model=base:model_lab_door_bs_fa,model=base:model_lab_door_sec_fb,model=base:model_lab_door_wind_fc,model=base:model_lab_doortop_qa,model=base:model_lab_hazard_fd,model=base:model_lab_mainframe,model=base:model_lab_microscope,model=base:model_lab_restricted_fe,model=base:model_lab_sector2bot_ff,model=base:model_lab_sector2top_fg,model=base:model_lab_sector3_fh,model=base:model_lab_sector3top_fi,model=base:model_lab_sector3wind_fj"
+  ],
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait",
+      "comment": "catalog bootstrap extracts and walks base typed archives before source-only typed-load requests fire."
+    },
+    {
+      "at_ms": 35000,
+      "type": "exit",
+      "comment": "exit after all requested typed assets have loaded or emitted source-only failures."
+    }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=all_family_source_matrix_batch_097",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_knife_hi' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_knife_hi' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_knifelod_lo' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_knifelod_lo' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_knockknock' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_knockknock' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_lab_caution_ey' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_lab_caution_ey' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_lab_cautiontop_ez' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_lab_cautiontop_ez' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_lab_chair' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_lab_chair' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_lab_container' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_lab_container' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_lab_door_bs_fa' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_lab_door_bs_fa' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_lab_door_sec_fb' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_lab_door_sec_fb' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_lab_door_wind_fc' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_lab_door_wind_fc' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_lab_doortop_qa' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_lab_doortop_qa' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_lab_hazard_fd' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_lab_hazard_fd' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_lab_mainframe' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_lab_mainframe' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_lab_microscope' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_lab_microscope' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_lab_restricted_fe' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_lab_restricted_fe' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_lab_sector2bot_ff' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_lab_sector2bot_ff' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_lab_sector2top_fg' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_lab_sector2top_fg' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_lab_sector3_fh' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_lab_sector3_fh' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_lab_sector3top_fi' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_lab_sector3top_fi' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_lab_sector3wind_fj' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_lab_sector3wind_fj' result=OK",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "ASSET\\.SOURCE_ONLY",
+      "has no public FileProvider source",
+      "--debug-load-catalog-assets invalid token",
+      "--debug-load-catalog-assets token '.*' missing type=id form",
+      "--debug-load-catalog-assets argument too long",
+      "result=FAIL",
+      "result=MISSING",
+      "RomProvider:filenum",
+      "refusing fallback"
+    ],
+    "required_counts": [
+      {
+        "pattern": "BOOT: --debug-load-catalog-assets request type=.* source_only=1",
+        "min": 20,
+        "max": 20
+      },
+      {
+        "pattern": "BOOT: --debug-load-catalog-assets result type=.* result=OK",
+        "min": 20,
+        "max": 20
+      }
+    ]
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:darklab",
+  "mod_id": "base",
+  "kind": "body",
+  "source": "data/ntsc-final/bodies/base_darklab.pdbody::mesh.pdmesh::model.obj",
+  "source_size": 125509,
+  "source_sha256": "0c2e90c4ed967a9ec481fa439304a0e84993a9ff6ef3408a42e9819c6e22e799",
+  "validation": "format=obj vertices=1854 triangles=618",
+  "normalized": "$S/mod-cache/base/base_darklab/body-v2-0c2e90c4ed967a9ec481fa439304a0e84993a9ff6ef3408a42e9819c6e22e799.pdmodel.json",
+  "vertex_count": 1854,
+  "triangle_count": 618,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

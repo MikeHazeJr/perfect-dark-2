@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_grate_pl",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_grate_pl.pdmesh::model.obj",
+  "source_size": 2476,
+  "source_sha256": "53c73a36de37aaccd1a9b31401613a9a2ee1aef27c9235d9395189841373319c",
+  "validation": "format=obj vertices=36 triangles=12",
+  "normalized": "$S/mod-cache/base/base_model_grate_pl/model-v2-53c73a36de37aaccd1a9b31401613a9a2ee1aef27c9235d9395189841373319c.pdmodel.json",
+  "vertex_count": 36,
+  "triangle_count": 12,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

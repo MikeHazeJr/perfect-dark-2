@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:scenario_extra9",
+  "mod_id": "base",
+  "kind": "scenario",
+  "source": "data/ntsc-final/scenarios/base_scenario_extra9.pdscenario::scene.glb",
+  "source_size": 319508,
+  "source_sha256": "ee94bd9137dfb14fec452700e12e4633f9667e79fe6af90167a011dceb6a4f4f",
+  "validation": "format=glb vertices=7749 triangles=2583",
+  "normalized": "$S/mod-cache/base/base_scenario_extra9/scenario-v2-ee94bd9137dfb14fec452700e12e4633f9667e79fe6af90167a011dceb6a4f4f.pdmesh.json",
+  "vertex_count": 7749,
+  "triangle_count": 2583,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

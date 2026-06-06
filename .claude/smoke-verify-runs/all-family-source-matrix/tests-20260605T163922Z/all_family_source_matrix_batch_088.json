@@ -1,0 +1,131 @@
+{
+  "scenario_name": "all_family_source_matrix_batch_088",
+  "BugId": "B-509",
+  "category": "modding",
+  "description": "c3844 runtime matrix smoke: source-only catalog load batch 88 for extracted non-Scenario public typed archives. Missing debug-load request/result blocks are B-509 harness observability failures.",
+  "tags": [
+    "modding",
+    "pdxxx",
+    "source-gate",
+    "source-matrix",
+    "all-family",
+    "c3844",
+    "smoke",
+    "pillar:modding"
+  ],
+  "paths_of_interest": [
+    "port/src/main.c",
+    "port/src/asset_source_debug.c",
+    "port/src/assetcatalog_load.c",
+    "tools/smoke-verify/run-all-family-source-matrix.ps1",
+    "tools/smoke-verify/fixtures/all_family_source_pd.ini"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 180,
+  "install_state": "clean",
+  "fixtures": [
+    {
+      "src": "tools/smoke-verify/fixtures/all_family_source_pd.ini",
+      "dst": "pd.ini"
+    },
+    {
+      "src": "tools/smoke-verify/fixtures/no_mods_enabled.json",
+      "dst": "mods-enabled.json"
+    }
+  ],
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--portable",
+    "--debug-load-catalog-assets-source-only",
+    "--debug-load-catalog-assets",
+    "model=base:model_corehatch,model=base:model_coverall,model=base:model_cpelagic_guard,model=base:model_cpilotaf1,model=base:model_cpres_security,model=base:model_cpresident_clone,model=base:model_cpresident,model=base:model_crate1_cp_variant_ag,model=base:model_crate1_cp_variant_g,model=base:model_crate1_cp_variant_h,model=base:model_crate1_cp_variant_i,model=base:model_crate1_cp_variant_j,model=base:model_crate1_cp_variant_k,model=base:model_crate1_cp_variant_l,model=base:model_crate1_cp_variant_m,model=base:model_crate1_cp_variant_n,model=base:model_crate1_cp_variant_nk,model=base:model_crate1_cp_variant_o,model=base:model_crate1_cp_variant_p,model=base:model_crate1_cp"
+  ],
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait",
+      "comment": "catalog bootstrap extracts and walks base typed archives before source-only typed-load requests fire."
+    },
+    {
+      "at_ms": 35000,
+      "type": "exit",
+      "comment": "exit after all requested typed assets have loaded or emitted source-only failures."
+    }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=all_family_source_matrix_batch_088",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_corehatch' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_corehatch' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_coverall' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_coverall' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_cpelagic_guard' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_cpelagic_guard' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_cpilotaf1' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_cpilotaf1' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_cpres_security' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_cpres_security' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_cpresident_clone' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_cpresident_clone' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_cpresident' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_cpresident' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_crate1_cp_variant_ag' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_crate1_cp_variant_ag' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_crate1_cp_variant_g' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_crate1_cp_variant_g' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_crate1_cp_variant_h' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_crate1_cp_variant_h' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_crate1_cp_variant_i' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_crate1_cp_variant_i' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_crate1_cp_variant_j' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_crate1_cp_variant_j' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_crate1_cp_variant_k' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_crate1_cp_variant_k' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_crate1_cp_variant_l' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_crate1_cp_variant_l' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_crate1_cp_variant_m' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_crate1_cp_variant_m' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_crate1_cp_variant_n' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_crate1_cp_variant_n' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_crate1_cp_variant_nk' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_crate1_cp_variant_nk' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_crate1_cp_variant_o' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_crate1_cp_variant_o' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_crate1_cp_variant_p' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_crate1_cp_variant_p' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_crate1_cp' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_crate1_cp' result=OK",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "ASSET\\.SOURCE_ONLY",
+      "has no public FileProvider source",
+      "--debug-load-catalog-assets invalid token",
+      "--debug-load-catalog-assets token '.*' missing type=id form",
+      "--debug-load-catalog-assets argument too long",
+      "result=FAIL",
+      "result=MISSING",
+      "RomProvider:filenum",
+      "refusing fallback"
+    ],
+    "required_counts": [
+      {
+        "pattern": "BOOT: --debug-load-catalog-assets request type=.* source_only=1",
+        "min": 20,
+        "max": 20
+      },
+      {
+        "pattern": "BOOT: --debug-load-catalog-assets result type=.* result=OK",
+        "min": 20,
+        "max": 20
+      }
+    ]
+  }
+}

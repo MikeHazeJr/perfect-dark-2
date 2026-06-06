@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_sktnl_unexp1",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_sktnl_unexp1.pdmesh::model.obj",
+  "source_size": 4361,
+  "source_sha256": "3eb3e2174c7e34d21b30744e4d71031c3516b9a03ccd7989a085de9fcd5ec493",
+  "validation": "format=obj vertices=60 triangles=20",
+  "normalized": "$S/mod-cache/base/base_model_sktnl_unexp1/model-v2-3eb3e2174c7e34d21b30744e4d71031c3516b9a03ccd7989a085de9fcd5ec493.pdmodel.json",
+  "vertex_count": 60,
+  "triangle_count": 20,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

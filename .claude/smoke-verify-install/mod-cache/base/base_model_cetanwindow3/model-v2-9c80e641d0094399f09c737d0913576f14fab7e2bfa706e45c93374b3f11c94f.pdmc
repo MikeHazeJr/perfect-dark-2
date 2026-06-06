@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_cetanwindow3",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_cetanwindow3.pdmesh::model.obj",
+  "source_size": 494,
+  "source_sha256": "9c80e641d0094399f09c737d0913576f14fab7e2bfa706e45c93374b3f11c94f",
+  "validation": "format=obj vertices=6 triangles=2",
+  "normalized": "$S/mod-cache/base/base_model_cetanwindow3/model-v2-9c80e641d0094399f09c737d0913576f14fab7e2bfa706e45c93374b3f11c94f.pdmodel.json",
+  "vertex_count": 6,
+  "triangle_count": 2,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_hovbike",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_hovbike.pdmesh::model.obj",
+  "source_size": 52015,
+  "source_sha256": "b7502d10f875ac51b05b2a086747b24b66b491fcb5cfdacd25a412d4b0b820a7",
+  "validation": "format=obj vertices=771 triangles=257",
+  "normalized": "$S/mod-cache/base/base_model_hovbike/model-v2-b7502d10f875ac51b05b2a086747b24b66b491fcb5cfdacd25a412d4b0b820a7.pdmodel.json",
+  "vertex_count": 771,
+  "triangle_count": 257,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

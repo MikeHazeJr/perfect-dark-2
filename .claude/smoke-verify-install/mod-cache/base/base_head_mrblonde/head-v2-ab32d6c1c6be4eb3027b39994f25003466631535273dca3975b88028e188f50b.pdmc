@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:head_mrblonde",
+  "mod_id": "base",
+  "kind": "head",
+  "source": "data/ntsc-final/heads/base_head_mrblonde.pdhead::mesh.pdmesh::model.obj",
+  "source_size": 50879,
+  "source_sha256": "ab32d6c1c6be4eb3027b39994f25003466631535273dca3975b88028e188f50b",
+  "validation": "format=obj vertices=780 triangles=260",
+  "normalized": "$S/mod-cache/base/base_head_mrblonde/head-v2-ab32d6c1c6be4eb3027b39994f25003466631535273dca3975b88028e188f50b.pdmodel.json",
+  "vertex_count": 780,
+  "triangle_count": 260,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

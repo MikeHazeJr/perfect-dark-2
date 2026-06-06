@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_policecar",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_policecar.pdmesh::model.obj",
+  "source_size": 51961,
+  "source_sha256": "dc8733c715256c69bb57d029b55476e208e53273a74b16fd345b1231b50bfd0c",
+  "validation": "format=obj vertices=771 triangles=257",
+  "normalized": "$S/mod-cache/base/base_model_policecar/model-v2-dc8733c715256c69bb57d029b55476e208e53273a74b16fd345b1231b50bfd0c.pdmodel.json",
+  "vertex_count": 771,
+  "triangle_count": 257,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

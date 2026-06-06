@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:head_ross",
+  "mod_id": "base",
+  "kind": "head",
+  "source": "data/ntsc-final/heads/base_head_ross.pdhead::mesh.pdmesh::model.obj",
+  "source_size": 33796,
+  "source_sha256": "0725dc1b1877a58ac468a226393653ea037857ef5c2111baa61ce22f290c3953",
+  "validation": "format=obj vertices=519 triangles=173",
+  "normalized": "$S/mod-cache/base/base_head_ross/head-v2-0725dc1b1877a58ac468a226393653ea037857ef5c2111baa61ce22f290c3953.pdmodel.json",
+  "vertex_count": 519,
+  "triangle_count": 173,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

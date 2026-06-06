@@ -1,6 +1,7 @@
 #include <ultra64.h>
 #include "constants.h"
 #include "memsizes.h"
+#include "asset_source_debug.h"
 #include "assetcatalog.h" /* Catalog-owned asset identity and source handles */
 #include "assetcatalog_load.h"
 #include "assetload.h"    /* Provider-aware asset load bridge */
@@ -4385,6 +4386,22 @@ static bool bgunQueuedLoadCanUseHandle(struct player *player)
 	return !assetHandleIsNull(player->gunctrl.loadhandle);
 }
 
+static bool bgunQueuedLoadPassesSourceOnlyCheck(struct player *player, const char *context)
+{
+	const char *model_id;
+
+	if (!bgunQueuedLoadCanUseHandle(player)) {
+		return false;
+	}
+
+	model_id = catalogIdBySourceHandle(ASSET_MODEL, player->gunctrl.loadhandle);
+	assetSourceDebugFatalHandleFallback(ASSET_MODEL, context, model_id,
+		player->gunctrl.loadhandle);
+
+	return !assetSourceDebugHandleRequiresPublicFileSource(ASSET_MODEL,
+		player->gunctrl.loadhandle);
+}
+
 static const char *bgunQueuedModelSourcePath(struct player *player)
 {
 	if (!bgunQueuedLoadCanUseHandle(player)) {
@@ -4496,7 +4513,7 @@ static void bgunFailQueuedModelLoad(struct player *player)
  */
 static s32 bgunQueuedGetInflatedSize(struct player *player)
 {
-	if (bgunQueuedLoadCanUseHandle(player)) {
+	if (bgunQueuedLoadPassesSourceOnlyCheck(player, "weapon model inflated-size")) {
 		return assetLoadGetInflatedSize(player->gunctrl.loadhandle, LOADTYPE_MODEL);
 	}
 	return 0;
@@ -4504,7 +4521,7 @@ static s32 bgunQueuedGetInflatedSize(struct player *player)
 
 static s32 bgunQueuedGetLoadedSize(struct player *player)
 {
-	if (bgunQueuedLoadCanUseHandle(player)) {
+	if (bgunQueuedLoadPassesSourceOnlyCheck(player, "weapon model loaded-size")) {
 		return assetLoadGetLoadedSize(player->gunctrl.loadhandle);
 	}
 	return 0;
@@ -4512,7 +4529,7 @@ static s32 bgunQueuedGetLoadedSize(struct player *player)
 
 static struct modeldef *bgunQueuedLoadToAddr(struct player *player, void *ptr, u32 loadsize)
 {
-	if (bgunQueuedLoadCanUseHandle(player)) {
+	if (bgunQueuedLoadPassesSourceOnlyCheck(player, "weapon model load-to-addr")) {
 		return assetLoadToAddr(player->gunctrl.loadhandle, FILELOADMETHOD_EXTRAMEM, ptr, loadsize);
 	}
 	return NULL;

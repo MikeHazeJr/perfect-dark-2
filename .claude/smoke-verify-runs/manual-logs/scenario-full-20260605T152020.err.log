@@ -1,0 +1,9 @@
+Copy-Item : The process cannot access the file 
+'C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike\.claude\smoke-verify-install\PerfectDark.exe' because it is being 
+used by another process.
+At C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike\tools\smoke-verify\lib\Install-Harness.ps1:305 char:9
++         Copy-Item -LiteralPath $bin -Destination $destBin -Force
++         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (:) [Copy-Item], IOException
+    + FullyQualifiedErrorId : System.IO.IOException,Microsoft.PowerShell.Commands.CopyItemCommand
+ 

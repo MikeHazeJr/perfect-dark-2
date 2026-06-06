@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_cheadleslie_s",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_cheadleslie_s.pdmesh::model.obj",
+  "source_size": 37294,
+  "source_sha256": "4dfc24aa4cfe7742e3230c6ab6c7223caa77929f9536d0f9f146928153b393b3",
+  "validation": "format=obj vertices=570 triangles=190",
+  "normalized": "$S/mod-cache/base/base_model_cheadleslie_s/model-v2-4dfc24aa4cfe7742e3230c6ab6c7223caa77929f9536d0f9f146928153b393b3.pdmodel.json",
+  "vertex_count": 570,
+  "triangle_count": 190,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

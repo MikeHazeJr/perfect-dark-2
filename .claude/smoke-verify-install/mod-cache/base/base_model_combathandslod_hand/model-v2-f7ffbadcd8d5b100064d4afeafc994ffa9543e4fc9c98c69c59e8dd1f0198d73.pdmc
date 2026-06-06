@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_combathandslod_hand",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_combathandslod_hand.pdmesh::model.obj",
+  "source_size": 96713,
+  "source_sha256": "f7ffbadcd8d5b100064d4afeafc994ffa9543e4fc9c98c69c59e8dd1f0198d73",
+  "validation": "format=obj vertices=1434 triangles=478",
+  "normalized": "$S/mod-cache/base/base_model_combathandslod_hand/model-v2-f7ffbadcd8d5b100064d4afeafc994ffa9543e4fc9c98c69c59e8dd1f0198d73.pdmodel.json",
+  "vertex_count": 1434,
+  "triangle_count": 478,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

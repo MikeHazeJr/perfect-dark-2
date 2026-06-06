@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_ci_lounger",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_ci_lounger.pdmesh::model.obj",
+  "source_size": 14130,
+  "source_sha256": "4b18507d02c8b17fc033af064e62b3afded0bd4b2111585cffc8fdc82c0b3ee8",
+  "validation": "format=obj vertices=222 triangles=74",
+  "normalized": "$S/mod-cache/base/base_model_ci_lounger/model-v2-4b18507d02c8b17fc033af064e62b3afded0bd4b2111585cffc8fdc82c0b3ee8.pdmodel.json",
+  "vertex_count": 222,
+  "triangle_count": 74,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

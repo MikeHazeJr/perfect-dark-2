@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_limo",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_limo.pdmesh::model.obj",
+  "source_size": 64737,
+  "source_sha256": "822b00c8752c7292212f248f0a180f3e900ae83b127b8d669ce872a1d65152e7",
+  "validation": "format=obj vertices=942 triangles=314",
+  "normalized": "$S/mod-cache/base/base_model_limo/model-v2-822b00c8752c7292212f248f0a180f3e900ae83b127b8d669ce872a1d65152e7.pdmodel.json",
+  "vertex_count": 942,
+  "triangle_count": 314,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

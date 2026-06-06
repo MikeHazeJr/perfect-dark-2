@@ -2966,6 +2966,8 @@ TEST_CASE("external models maps and animations compile from standard sources",
 	REQUIRE(compiler_h.find("modAssetCompilerBuildObjColmesh") != std::string::npos);
 	REQUIRE(compiler_h.find("modAssetCompilerBuildModeldef") != std::string::npos);
 	REQUIRE(compiler_h.find("modAssetCompilerFreeModeldef") != std::string::npos);
+	REQUIRE(compiler_h.find("modAssetCompilerSetGeneratedModeldefRenderAudit") != std::string::npos);
+	REQUIRE(compiler_h.find("modAssetCompilerTraceGeneratedModeldefRender") != std::string::npos);
 	REQUIRE(compiler_h.find("modAssetCompilerBuildAnimationClip") != std::string::npos);
 	REQUIRE(compiler_h.find("modAssetCompilerFreeAnimationClip") != std::string::npos);
 	REQUIRE(compiler_h.find(".bin suffix") != std::string::npos);
@@ -2976,6 +2978,15 @@ TEST_CASE("external models maps and animations compile from standard sources",
 	REQUIRE(compiler.find("endsWithNoCase(path, \".obj\")") != std::string::npos);
 	REQUIRE(compiler.find("parseObjSource") != std::string::npos);
 	REQUIRE(compiler.find("parseObjFaceLine") != std::string::npos);
+	REQUIRE(compiler.find("parseObjTexcoordLine") != std::string::npos);
+	REQUIRE(compiler.find("resolveObjIndex(raw_texcoord, texcoord_count") != std::string::npos);
+	REQUIRE(compiler.find("usemtl") != std::string::npos);
+	REQUIRE(compiler.find("generatedModeldefLoadMaterialMetadata") != std::string::npos);
+	REQUIRE(compiler.find("pd_texture_catalog") != std::string::npos);
+	REQUIRE(compiler.find("while (*src && isspace((u8)*src))") != std::string::npos);
+	REQUIRE(compiler.find("texLoadFromGdl") != std::string::npos);
+	REQUIRE(compiler.find("\\\"texcoord_count\\\"") != std::string::npos);
+	REQUIRE(compiler.find("\\\"triangle_texcoords\\\"") != std::string::npos);
 	REQUIRE(compiler.find("writeObjMeshJson") != std::string::npos);
 	REQUIRE(compiler.find("validateObjSource") != std::string::npos);
 	REQUIRE(compiler.find("validateGltfSource") != std::string::npos);
@@ -3007,9 +3018,22 @@ TEST_CASE("external models maps and animations compile from standard sources",
 	REQUIRE(compiler.find("runtime_boundary\\\": \\\"animtableentry") != std::string::npos);
 	REQUIRE(compiler.find("meshAddTriangle(out_mesh") != std::string::npos);
 	REQUIRE(compiler.find("buildGeneratedModeldefFromMesh") != std::string::npos);
+	REQUIRE(compiler.find("generatedModeldefRegister(owner)") != std::string::npos);
+	REQUIRE(compiler.find("generatedModeldefUnregister(owner)") != std::string::npos);
+	REQUIRE(compiler.find("MODASSET.RENDER: generated source modeldef rendered") != std::string::npos);
 	REQUIRE(compiler.find("MODELNODETYPE_POSITION") != std::string::npos);
 	REQUIRE(compiler.find("MODELNODETYPE_DL") != std::string::npos);
 	REQUIRE(compiler.find("gSPMatrix(gdl++") != std::string::npos);
+	REQUIRE(compiler.find("gSPTexture(gdl++, 0, 0, 0, 0, 0)") != std::string::npos);
+	REQUIRE(compiler.find("dst->s = clampToS16(texcoord->u * 32.0f)") != std::string::npos);
+	REQUIRE(compiler.find("dst->t = clampToS16((1.0f - texcoord->v) * 32.0f)") != std::string::npos);
+	REQUIRE(compiler.find("uv_vertices=%d") != std::string::npos);
+	REQUIRE(compiler.find("gSPClearGeometryMode(gdl++") != std::string::npos);
+	REQUIRE(compiler.find("G_LIGHTING | G_TEXTURE_GEN | G_TEXTURE_GEN_LINEAR | G_CULL_BOTH") != std::string::npos);
+	REQUIRE(compiler.find("gSPSetGeometryMode(gdl++, G_SHADE | G_SHADING_SMOOTH)") != std::string::npos);
+	REQUIRE(compiler.find("gDPSetCombineMode(gdl++, G_CC_SHADE, G_CC_SHADE)") != std::string::npos);
+	REQUIRE(compiler.find("G_NOOP") != std::string::npos);
+	REQUIRE(compiler.find("textured_materials=%d") != std::string::npos);
 	REQUIRE(compiler.find("gSPVertex(gdl++") != std::string::npos);
 	REQUIRE(compiler.find("gSP1Triangle(gdl++") != std::string::npos);
 
@@ -3032,6 +3056,34 @@ TEST_CASE("external models maps and animations compile from standard sources",
 	REQUIRE(load.find("modAssetCompilerFreeModeldef") != std::string::npos);
 	REQUIRE(load.find("modAssetCompilerFreeAnimationClip") != std::string::npos);
 	REQUIRE(load.find("external %s source ready via private cache") != std::string::npos);
+
+	std::string main_c = readFile("port/src/main.c");
+	REQUIRE(main_c.find("--debug-generated-mesh-render-audit") != std::string::npos);
+	REQUIRE(main_c.find("modAssetCompilerSetGeneratedModeldefRenderAudit(1)") != std::string::npos);
+	REQUIRE(main_c.find("--debug-force-first-person") != std::string::npos);
+	REQUIRE(main_c.find("bootDebugForceFirstPersonPreRenderTick") != std::string::npos);
+	REQUIRE(main_c.find("player0f0b9a20()") != std::string::npos);
+	REQUIRE(main_c.find("bgunEquipWeapon2(HAND_RIGHT, queued_weapon)") != std::string::npos);
+	REQUIRE(main_c.find("playerSetCameraMode(CAMERAMODE_DEFAULT)") != std::string::npos);
+
+	std::string pdmain_c = readFile("port/src/pdmain.c");
+	REQUIRE(pdmain_c.find("bootDebugForceFirstPersonPreRenderTick") != std::string::npos);
+
+	std::string model_c = readFile("src/lib/model.c");
+	REQUIRE(model_c.find("#include \"modasset_compiler.h\"") != std::string::npos);
+	REQUIRE(model_c.find("modAssetCompilerTraceGeneratedModeldefRender(model->definition, node)") != std::string::npos);
+
+	std::string weapon_smoke = readFile("tools/smoke-verify/tests/weapon_match_source_gate_smoke.json");
+	REQUIRE(weapon_smoke.find("--debug-generated-mesh-render-audit") != std::string::npos);
+	REQUIRE(weapon_smoke.find("--debug-force-first-person") != std::string::npos);
+	REQUIRE(weapon_smoke.find("MODELDEF\\\\.SOURCE: loaded catalog model source type=23 filenum=843 id=base:model_chrdy357") != std::string::npos);
+	REQUIRE(weapon_smoke.find("texcoords=[1-9]\\\\d* uv_vertices=[1-9]\\\\d* materials=[1-9]\\\\d* textured_materials=[1-9]\\\\d* material_switches=[1-9]\\\\d* tris=262") != std::string::npos);
+	REQUIRE(weapon_smoke.find("BONDGUN\\\\.SOURCE: loaded catalog model source filenum=890 id=base:model_dy357_hi") != std::string::npos);
+	REQUIRE(weapon_smoke.find("tris=404") != std::string::npos);
+	REQUIRE(weapon_smoke.find("MODASSET\\\\.RENDER: generated source modeldef rendered id=base:model_dy357_hi") != std::string::npos);
+	REQUIRE(weapon_smoke.find("LOG\\\\.WPN\\\\.DIAG: playerRenderHud branch=fp_render cameramode=0") != std::string::npos);
+	REQUIRE(weapon_smoke.find("LOG\\\\.WPN\\\\.DIAG: bgunRender enter player=0") != std::string::npos);
+	REQUIRE(weapon_smoke.find("gunctrl_wpn=8 switchto=-1") != std::string::npos);
 
 	std::string mod = readFile("port/src/mod.c");
 	REQUIRE(mod.find("modAnimationLoadCatalogClip") != std::string::npos);
@@ -3379,7 +3431,7 @@ TEST_CASE("modder examples are zip-openable typed pdxxx asset archives",
 	REQUIRE(mission.find("catalog_id = example:tri_mission") != std::string::npos);
 	REQUIRE(mission.find("mission_graph_file = mission.graph.json") != std::string::npos);
 	REQUIRE(mission.find("scenario_archive = dependencies/assets/scenarios/tri_scenario.pdscenario") != std::string::npos);
-	REQUIRE(mission.find("scenario_graph_cache = pdscenario_scene_glb_clean_public_v77_standalone_backfill_collision_obj_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_quip_shuffle_graph_portals") != std::string::npos);
+	REQUIRE(mission.find("scenario_graph_cache = pdscenario_scene_glb_clean_public_v82_standalone_backfill_collision_obj_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_quip_shuffle_graph_portals_navhashes") != std::string::npos);
 	REQUIRE(mission.find("objectives_file = objectives.tsv") != std::string::npos);
 
 	const std::string gamemode = readArchiveEntryText(gamemodeArchivePath.c_str(), "gamemode.ini");
@@ -5181,9 +5233,9 @@ TEST_CASE("base mesh extractor emits standard obj geometry payloads",
 
 	REQUIRE(mesh.find("s_buildModelObj") != std::string::npos);
 	REQUIRE(mesh.find("s_exportGdlToObj") != std::string::npos);
-	REQUIRE(mesh.find("ROMEXTRACT_PDMESH_OBJ_EXPORT_VERSION_LABEL \"model_obj_mtx_v9_skeleton\"") !=
+	REQUIRE(mesh.find("ROMEXTRACT_PDMESH_OBJ_EXPORT_VERSION_LABEL \"model_obj_mtx_v10_materials\"") !=
 	        std::string::npos);
-	REQUIRE(mesh.find("ROMEXTRACT_PDMESH_FAST_CACHE_KIND \"pdmesh_model_obj_mtx_v11_skeleton_allmodels_menuhud\"") !=
+	REQUIRE(mesh.find("ROMEXTRACT_PDMESH_FAST_CACHE_KIND \"pdmesh_model_obj_mtx_v12_materials_allmodels_menuhud\"") !=
 	        std::string::npos);
 	REQUIRE(mesh.find("catalogReadableModelIdForFile((s32)FILE_GHUDPIECE, \"menu\", \"menu\"") !=
 	        std::string::npos);
@@ -5218,6 +5270,11 @@ TEST_CASE("base mesh extractor emits standard obj geometry payloads",
 	REQUIRE(mesh.find("G_MTX") != std::string::npos);
 	REQUIRE(mesh.find("G_POPMTX") != std::string::npos);
 	REQUIRE(mesh.find("s_objApplyMtxCommand") != std::string::npos);
+	REQUIRE(mesh.find("G_NOOP") != std::string::npos);
+	REQUIRE(mesh.find("s_objEnsureTextureMaterial") != std::string::npos);
+	REQUIRE(mesh.find("catalogReadableTextureId") != std::string::npos);
+	REQUIRE(mesh.find("pd_texture_catalog = %s") != std::string::npos);
+	REQUIRE(mesh.find("usemtl %s") != std::string::npos);
 	REQUIRE(mesh.find("SPSEGMENT_MODEL_MTX") != std::string::npos);
 	REQUIRE(mesh.find("s_objBuildDefaultModelMatrices") != std::string::npos);
 	REQUIRE(mesh.find("ROMEXTRACT_PDMESH_NODE_DEPTH_CAP") != std::string::npos);
@@ -5253,6 +5310,8 @@ TEST_CASE("base mesh extractor emits standard obj geometry payloads",
 	REQUIRE(mesh.find("geometry_file = model.obj") != std::string::npos);
 	REQUIRE(mesh.find("material_file = model.mtl") != std::string::npos);
 	REQUIRE(mesh.find("model_matrix_reference_count = %u") != std::string::npos);
+	REQUIRE(mesh.find("material_count = %u") != std::string::npos);
+	REQUIRE(mesh.find("\\\"textured_material_count\\\": %u") != std::string::npos);
 	REQUIRE(mesh.find("s_existingArchiveHasEntry(dst_rel, \"model.obj\")") !=
 	        std::string::npos);
 	REQUIRE(mesh.find("s_existingArchiveEntryContains(dst_rel, \"export_version.txt\"") !=
@@ -5287,6 +5346,8 @@ TEST_CASE("base mesh extractor emits standard obj geometry payloads",
 	        std::string::npos);
 	REQUIRE(mesh.find("s_buildModelObj((const u8 *)src_bytes") ==
 	        std::string::npos);
+	REQUIRE(mesh.find("const char mtl_buf[]") == std::string::npos);
+	REQUIRE(mesh.find("map_Kd") == std::string::npos);
 	REQUIRE(mesh.find("OBJ export produced no triangles") !=
 	        std::string::npos);
 	REQUIRE(mesh.find("return -1;") != std::string::npos);

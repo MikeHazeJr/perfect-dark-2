@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_sniperlod_lo",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_sniperlod_lo.pdmesh::model.obj",
+  "source_size": 43807,
+  "source_sha256": "3510f31052d4c183a6266120b7108181399222f5ca656744680faf587be6187d",
+  "validation": "format=obj vertices=669 triangles=223",
+  "normalized": "$S/mod-cache/base/base_model_sniperlod_lo/model-v2-3510f31052d4c183a6266120b7108181399222f5ca656744680faf587be6187d.pdmodel.json",
+  "vertex_count": 669,
+  "triangle_count": 223,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

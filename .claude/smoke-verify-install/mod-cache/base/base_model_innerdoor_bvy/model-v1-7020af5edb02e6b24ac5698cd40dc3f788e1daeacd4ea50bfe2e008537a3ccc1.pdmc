@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 1,
+  "asset_id": "base:model_innerdoor_bvy",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_innerdoor_bvy.pdmesh::model.obj",
+  "source_size": 7335,
+  "source_sha256": "7020af5edb02e6b24ac5698cd40dc3f788e1daeacd4ea50bfe2e008537a3ccc1",
+  "validation": "format=obj vertices=108 triangles=36",
+  "normalized": "$S/mod-cache/base/base_model_innerdoor_bvy/model-v1-7020af5edb02e6b24ac5698cd40dc3f788e1daeacd4ea50bfe2e008537a3ccc1.pdmodel.json",
+  "vertex_count": 108,
+  "triangle_count": 36,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

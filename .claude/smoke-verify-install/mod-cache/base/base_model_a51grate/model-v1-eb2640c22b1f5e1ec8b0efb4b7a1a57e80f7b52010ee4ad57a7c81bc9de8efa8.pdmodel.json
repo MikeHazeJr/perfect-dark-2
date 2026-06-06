@@ -1,0 +1,23 @@
+{
+  "schema": "pd2.modasset.model.v1",
+  "compiler_version": 1,
+  "asset_id": "base:model_a51grate",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_a51grate.pdmesh::model.obj",
+  "source_sha256": "eb2640c22b1f5e1ec8b0efb4b7a1a57e80f7b52010ee4ad57a7c81bc9de8efa8",
+  "runtime_boundary": "modeldef",
+  "vertex_count": 6,
+  "triangle_count": 2,
+  "vertices": [
+    [624.946411, 425.77124, -92.5188599],
+    [-541.053589, 425.77124, -92.5188599],
+    [-541.053589, 425.77124, -1175.5188],
+    [624.946411, 425.77124, -92.5188599],
+    [-541.053589, 425.77124, -1175.5188],
+    [624.946411, 425.77124, -1175.5188]
+  ],
+  "triangles": [
+    [0, 1, 2],
+    [3, 4, 5]
+  ]
+}

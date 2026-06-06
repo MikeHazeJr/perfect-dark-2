@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_cheadgriffey",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_cheadgriffey.pdmesh::model.obj",
+  "source_size": 42519,
+  "source_sha256": "2ff8c15f800ce07f8f019d5d005200a6bd23a5e8e13f7a02ea4cc60528331ee8",
+  "validation": "format=obj vertices=651 triangles=217",
+  "normalized": "$S/mod-cache/base/base_model_cheadgriffey/model-v2-2ff8c15f800ce07f8f019d5d005200a6bd23a5e8e13f7a02ea4cc60528331ee8.pdmodel.json",
+  "vertex_count": 651,
+  "triangle_count": 217,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

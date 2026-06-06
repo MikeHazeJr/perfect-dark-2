@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_ac_exp_ei",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_ac_exp_ei.pdmesh::model.obj",
+  "source_size": 3445,
+  "source_sha256": "7254b2abb376d91fa0c13966c0ca4a5f547fa061abd1b573456f05618d9d95b0",
+  "validation": "format=obj vertices=48 triangles=16",
+  "normalized": "$S/mod-cache/base/base_model_ac_exp_ei/model-v2-7254b2abb376d91fa0c13966c0ca4a5f547fa061abd1b573456f05618d9d95b0.pdmodel.json",
+  "vertex_count": 48,
+  "triangle_count": 16,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

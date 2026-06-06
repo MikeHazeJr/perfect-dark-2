@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:head_winner",
+  "mod_id": "base",
+  "kind": "head",
+  "source": "data/ntsc-final/heads/base_head_winner.pdhead::mesh.pdmesh::model.obj",
+  "source_size": 50567,
+  "source_sha256": "7a500a1577932daff462b145e2eecab3b9ed95fe2d5775e0f3a61a80c738e3a1",
+  "validation": "format=obj vertices=774 triangles=258",
+  "normalized": "$S/mod-cache/base/base_head_winner/head-v2-7a500a1577932daff462b145e2eecab3b9ed95fe2d5775e0f3a61a80c738e3a1.pdmodel.json",
+  "vertex_count": 774,
+  "triangle_count": 258,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

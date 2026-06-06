@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 1,
+  "asset_id": "base:model_g5_escdoordown",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_g5_escdoordown.pdmesh::model.obj",
+  "source_size": 1333,
+  "source_sha256": "4ca872f9966de880a7420d4437a71f0eeb3095709daf049320707c2674876ecf",
+  "validation": "format=obj vertices=18 triangles=6",
+  "normalized": "$S/mod-cache/base/base_model_g5_escdoordown/model-v1-4ca872f9966de880a7420d4437a71f0eeb3095709daf049320707c2674876ecf.pdmodel.json",
+  "vertex_count": 18,
+  "triangle_count": 6,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

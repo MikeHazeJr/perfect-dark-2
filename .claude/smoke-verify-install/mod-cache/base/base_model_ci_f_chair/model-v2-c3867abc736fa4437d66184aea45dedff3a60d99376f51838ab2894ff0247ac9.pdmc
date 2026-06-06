@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_ci_f_chair",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_ci_f_chair.pdmesh::model.obj",
+  "source_size": 17526,
+  "source_sha256": "c3867abc736fa4437d66184aea45dedff3a60d99376f51838ab2894ff0247ac9",
+  "validation": "format=obj vertices=282 triangles=94",
+  "normalized": "$S/mod-cache/base/base_model_ci_f_chair/model-v2-c3867abc736fa4437d66184aea45dedff3a60d99376f51838ab2894ff0247ac9.pdmodel.json",
+  "vertex_count": 282,
+  "triangle_count": 94,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

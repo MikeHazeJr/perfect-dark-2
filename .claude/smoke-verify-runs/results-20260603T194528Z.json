@@ -1,0 +1,22 @@
+﻿{
+    "Name":  "scenario_source_matrix_chicago",
+    "Category":  "scenario",
+    "BugId":  null,
+    "RegressionFor":  null,
+    "Passed":  false,
+    "ExitCode":  0,
+    "ElapsedSeconds":  76.435205299999993,
+    "InstallDir":  "C:\\Users\\mikeh\\Perfect-Dark-2\\perfect_dark-mike\\.claude\\smoke-verify-install",
+    "AssertionsTotal":  124,
+    "AssertionsMet":  122,
+    "Failures":  [
+                     {
+                         "Kind":  "required_line_missing",
+                         "Pattern":  "SCENARIO\\.GRAPH: AI condition if_stage_id_less_than stage_id=base:chicago current_stage_id=base:chicago label=\\d+ branch=\\d+ source=.*base_scenario_chicago\\.pdscenario::ai/ailists\\.tsv backend=graph\\.ai\\.condition\\.mission_global\\+ai/ailists\\.tsv\\+mission\\.graph\\.json"
+                     },
+                     {
+                         "Kind":  "required_line_missing",
+                         "Pattern":  "SCENARIO\\.GRAPH: AI condition if_stage_id_greater_than stage_id=base:chicago current_stage_id=base:chicago label=\\d+ branch=\\d+ source=.*base_scenario_chicago\\.pdscenario::ai/ailists\\.tsv backend=graph\\.ai\\.condition\\.mission_global\\+ai/ailists\\.tsv\\+mission\\.graph\\.json"
+                     }
+                 ]
+}

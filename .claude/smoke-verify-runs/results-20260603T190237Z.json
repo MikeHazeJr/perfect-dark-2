@@ -1,0 +1,15 @@
+﻿{
+    "Name":  "scenario_source_matrix_skedarruins",
+    "Category":  "scenario",
+    "BugId":  null,
+    "RegressionFor":  null,
+    "Passed":  true,
+    "ExitCode":  0,
+    "ElapsedSeconds":  77.193142999999992,
+    "InstallDir":  "C:\\Users\\mikeh\\Perfect-Dark-2\\perfect_dark-mike\\.claude\\smoke-verify-install",
+    "AssertionsTotal":  117,
+    "AssertionsMet":  117,
+    "Failures":  [
+
+                 ]
+}

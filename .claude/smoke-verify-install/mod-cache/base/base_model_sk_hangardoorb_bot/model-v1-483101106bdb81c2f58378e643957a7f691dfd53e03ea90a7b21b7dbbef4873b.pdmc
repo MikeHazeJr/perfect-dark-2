@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 1,
+  "asset_id": "base:model_sk_hangardoorb_bot",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_sk_hangardoorb_bot.pdmesh::model.obj",
+  "source_size": 6446,
+  "source_sha256": "483101106bdb81c2f58378e643957a7f691dfd53e03ea90a7b21b7dbbef4873b",
+  "validation": "format=obj vertices=96 triangles=32",
+  "normalized": "$S/mod-cache/base/base_model_sk_hangardoorb_bot/model-v1-483101106bdb81c2f58378e643957a7f691dfd53e03ea90a7b21b7dbbef4873b.pdmodel.json",
+  "vertex_count": 96,
+  "triangle_count": 32,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

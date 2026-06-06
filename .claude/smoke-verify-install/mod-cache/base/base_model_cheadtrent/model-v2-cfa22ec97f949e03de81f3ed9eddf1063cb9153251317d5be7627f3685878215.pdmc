@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_cheadtrent",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_cheadtrent.pdmesh::model.obj",
+  "source_size": 46336,
+  "source_sha256": "cfa22ec97f949e03de81f3ed9eddf1063cb9153251317d5be7627f3685878215",
+  "validation": "format=obj vertices=708 triangles=236",
+  "normalized": "$S/mod-cache/base/base_model_cheadtrent/model-v2-cfa22ec97f949e03de81f3ed9eddf1063cb9153251317d5be7627f3685878215.pdmodel.json",
+  "vertex_count": 708,
+  "triangle_count": 236,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

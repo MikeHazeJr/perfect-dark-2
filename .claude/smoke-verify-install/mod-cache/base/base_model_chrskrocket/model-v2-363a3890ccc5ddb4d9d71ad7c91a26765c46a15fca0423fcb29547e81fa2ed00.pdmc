@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_chrskrocket",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_chrskrocket.pdmesh::model.obj",
+  "source_size": 11470,
+  "source_sha256": "363a3890ccc5ddb4d9d71ad7c91a26765c46a15fca0423fcb29547e81fa2ed00",
+  "validation": "format=obj vertices=174 triangles=58",
+  "normalized": "$S/mod-cache/base/base_model_chrskrocket/model-v2-363a3890ccc5ddb4d9d71ad7c91a26765c46a15fca0423fcb29547e81fa2ed00.pdmodel.json",
+  "vertex_count": 174,
+  "triangle_count": 58,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

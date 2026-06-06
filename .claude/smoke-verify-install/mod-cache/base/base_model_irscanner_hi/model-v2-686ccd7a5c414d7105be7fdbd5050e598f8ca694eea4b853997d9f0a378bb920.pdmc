@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_irscanner_hi",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_irscanner_hi.pdmesh::model.obj",
+  "source_size": 4786,
+  "source_sha256": "686ccd7a5c414d7105be7fdbd5050e598f8ca694eea4b853997d9f0a378bb920",
+  "validation": "format=obj vertices=72 triangles=24",
+  "normalized": "$S/mod-cache/base/base_model_irscanner_hi/model-v2-686ccd7a5c414d7105be7fdbd5050e598f8ca694eea4b853997d9f0a378bb920.pdmodel.json",
+  "vertex_count": 72,
+  "triangle_count": 24,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

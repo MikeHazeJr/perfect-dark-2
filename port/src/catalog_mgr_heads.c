@@ -31,6 +31,7 @@
 #include "assetcatalog.h"
 #include "assetcatalog_load.h"
 #include "assetprovider.h"
+#include "asset_source_debug.h"
 #include "catalog_mgr_heads.h"
 #include "catalog_mgr_heads_pure.h"
 #include "loader_pool.h"  /* Catalog Gate 3 F12: pool-backed source when active */
@@ -196,6 +197,24 @@ const head_data_t *catalogManagerGetHeadById(const char *catalog_id)
  * manager pool slot.
  * ======================================================================== */
 
+#if !defined(PD_SERVER)
+static s32 catalogManagerHeadModeldefPassesSourceOnlyCheck(s32 headnum,
+	const char *id, asset_data_handle_t handle)
+{
+	assetSourceDebugFatalHandleFallback(ASSET_HEAD,
+		"head manager modeldef fallback", id, handle);
+
+	if (!assetSourceDebugHandleRequiresPublicFileSource(ASSET_HEAD, handle)) {
+		return 1;
+	}
+
+	sysLogPrintf(LOG_WARNING,
+		"CATALOG.MGR.HEAD.MISS: source-only head '%s' headnum=%d refused non-public model handle",
+		id ? id : "(null)", headnum);
+	return 0;
+}
+#endif
+
 struct modeldef *catalogManagerGetHeadModeldef(s32 headnum)
 {
 #if defined(PD_SERVER)
@@ -234,9 +253,17 @@ struct modeldef *catalogManagerGetHeadModeldef(s32 headnum)
 			}
 		}
 
-		s_Heads[headnum].modeldef = modeldefLoadToNewFromHandle(
-			catalogGetHeadHandle(headnum),
-			(u16)filenum);
+		{
+			asset_data_handle_t handle = catalogGetHeadHandle(headnum);
+
+			if (!catalogManagerHeadModeldefPassesSourceOnlyCheck(headnum, id,
+					handle)) {
+				return NULL;
+			}
+
+			s_Heads[headnum].modeldef = modeldefLoadToNewFromHandle(handle,
+				(u16)filenum);
+		}
 	}
 	return s_Heads[headnum].modeldef;
 #endif

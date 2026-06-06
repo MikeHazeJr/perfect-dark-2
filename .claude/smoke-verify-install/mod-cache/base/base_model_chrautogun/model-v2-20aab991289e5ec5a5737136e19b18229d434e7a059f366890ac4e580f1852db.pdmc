@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_chrautogun",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_chrautogun.pdmesh::model.obj",
+  "source_size": 14689,
+  "source_sha256": "20aab991289e5ec5a5737136e19b18229d434e7a059f366890ac4e580f1852db",
+  "validation": "format=obj vertices=216 triangles=72",
+  "normalized": "$S/mod-cache/base/base_model_chrautogun/model-v2-20aab991289e5ec5a5737136e19b18229d434e7a059f366890ac4e580f1852db.pdmodel.json",
+  "vertex_count": 216,
+  "triangle_count": 72,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

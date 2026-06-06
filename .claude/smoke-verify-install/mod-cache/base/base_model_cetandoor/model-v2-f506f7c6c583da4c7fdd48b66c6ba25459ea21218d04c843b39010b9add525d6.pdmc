@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_cetandoor",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_cetandoor.pdmesh::model.obj",
+  "source_size": 3173,
+  "source_sha256": "f506f7c6c583da4c7fdd48b66c6ba25459ea21218d04c843b39010b9add525d6",
+  "validation": "format=obj vertices=42 triangles=14",
+  "normalized": "$S/mod-cache/base/base_model_cetandoor/model-v2-f506f7c6c583da4c7fdd48b66c6ba25459ea21218d04c843b39010b9add525d6.pdmodel.json",
+  "vertex_count": 42,
+  "triangle_count": 14,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

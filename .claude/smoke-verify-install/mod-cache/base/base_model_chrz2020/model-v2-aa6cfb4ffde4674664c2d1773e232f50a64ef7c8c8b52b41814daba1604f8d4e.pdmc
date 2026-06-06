@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_chrz2020",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_chrz2020.pdmesh::model.obj",
+  "source_size": 12763,
+  "source_sha256": "aa6cfb4ffde4674664c2d1773e232f50a64ef7c8c8b52b41814daba1604f8d4e",
+  "validation": "format=obj vertices=195 triangles=65",
+  "normalized": "$S/mod-cache/base/base_model_chrz2020/model-v2-aa6cfb4ffde4674664c2d1773e232f50a64ef7c8c8b52b41814daba1604f8d4e.pdmodel.json",
+  "vertex_count": 195,
+  "triangle_count": 65,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

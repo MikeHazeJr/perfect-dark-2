@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_dysuperdragonlod_lo",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_dysuperdragonlod_lo.pdmesh::model.obj",
+  "source_size": 40382,
+  "source_sha256": "b182408c104a7cb9747602b49037b2b472f342c33e91f7d20e1c322f323eda5e",
+  "validation": "format=obj vertices=612 triangles=204",
+  "normalized": "$S/mod-cache/base/base_model_dysuperdragonlod_lo/model-v2-b182408c104a7cb9747602b49037b2b472f342c33e91f7d20e1c322f323eda5e.pdmodel.json",
+  "vertex_count": 612,
+  "triangle_count": 204,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

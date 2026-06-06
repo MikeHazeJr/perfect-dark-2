@@ -84,6 +84,7 @@
 #include "assetcatalog.h"
 #include "assetload.h"
 #include "assetcatalog_load.h"
+#include "asset_source_debug.h"
 #include "assetprovider.h"
 #include "actionmap.h"
 #include "scene.h"
@@ -153,6 +154,21 @@ struct vimode g_ViModes[] = {
 	{ 400,             300,              400,             1,                VIMODE_HI, 300,              0,  300, 0,  300, 0   }, // unused
 #endif
 };
+
+static void playerFatalSourceOnlyCharacterAssetFailure(asset_type_e type,
+		const char *asset_id, s32 runtime_index, const char *context)
+{
+	if (!assetSourceDebugIsEnabledFor(type)) {
+		return;
+	}
+
+	sysFatalError("ASSET.SOURCE_ONLY: %s '%s' %s failed for runtime index %d; "
+	              "refusing player fallback/substitution.",
+	              assetSourceDebugTypeLabel(type),
+	              asset_id && asset_id[0] ? asset_id : "?",
+	              context && context[0] ? context : "player chrbody modeldef",
+	              runtime_index);
+}
 
 s32 g_ViRes = VIRES_LO;
 bool g_HiResEnabled = false;
@@ -2704,11 +2720,15 @@ void playerTickChrBody(void)
 			}
 
 			body_filenum_1p = bodyresult.filenum;
+			assetSourceDebugFatalHandleFallback(ASSET_BODY,
+				"player chrbody body modeldef", bodyid, bodyresult.handle);
 			body_file_source = (bodyresult.handle.provider == fileProvider());
 
 			if (headid && catalogResolveHead(headid, &headresult)) {
 				havehead = 1;
 				head_filenum_1p = headresult.filenum;
+				assetSourceDebugFatalHandleFallback(ASSET_HEAD,
+					"player chrbody head modeldef", headid, headresult.handle);
 				head_file_source = (headresult.handle.provider == fileProvider());
 			}
 
@@ -2717,6 +2737,12 @@ void playerTickChrBody(void)
 					weapon_filenum_1p = weapon_model_result.filenum;
 					weapon_handle = weapon_model_result.handle;
 					weapon_model_id_1p = weapon_model_result.entry ? weapon_model_result.entry->id : NULL;
+					assetSourceDebugFatalHandleFallback(ASSET_MODEL,
+						"player chrbody weapon modeldef", weapon_model_id_1p, weapon_handle);
+					if (assetSourceDebugHandleRequiresPublicFileSource(ASSET_MODEL, weapon_handle)) {
+						g_Vars.currentplayer->haschrbody = false;
+						return;
+					}
 					weapon_model_file_source_1p = (weapon_model_result.handle.provider == fileProvider());
 				}
 			}
@@ -2751,6 +2777,8 @@ void playerTickChrBody(void)
 
 			if (bodymodeldef == NULL) {
 				// Body model failed to load -- player will be invisible but won't crash
+				playerFatalSourceOnlyCharacterAssetFailure(ASSET_BODY, bodyid,
+					bodynum, "player chrbody body modeldef");
 				sysLogPrintf(LOG_WARNING, "PLAYER: bodymodeldef NULL for bodynum=%d filenum=0x%04x",
 					bodynum, body_filenum_1p);
 				return;
@@ -2771,6 +2799,8 @@ void playerTickChrBody(void)
 						offset1 = ALIGN64(assetLoadGetLoadedSize(headresult.handle) + offset1);
 					}
 				} else {
+					playerFatalSourceOnlyCharacterAssetFailure(ASSET_HEAD, headid,
+						headnum, "player chrbody head modeldef");
 					sysLogPrintf(LOG_WARNING, "PLAYER: headmodeldef NULL for headnum=%d filenum=0x%04x",
 						headnum, head_filenum_1p);
 				}
@@ -2822,6 +2852,8 @@ void playerTickChrBody(void)
 				|| (!public_source_generated_body && bodymodeldef->skel == NULL)
 				|| (!public_source_generated_body && bodymodeldef->numparts <= 0)
 				|| bodymodeldef->numparts > 500) {
+				playerFatalSourceOnlyCharacterAssetFailure(ASSET_BODY, multi_body_id,
+					bodynum, "multiplayer body modeldef");
 				sysLogPrintf(LOG_WARNING, "PLAYER: bodymodeldef bad (multi) for bodynum=%d filenum=0x%04x, trying BODY_DARK_COMBAT",
 					bodynum, catalogGetBodyFilenumByIndex(bodynum)); /* SA-5a */
 				bodynum = BODY_DARK_COMBAT;
@@ -2849,6 +2881,9 @@ void playerTickChrBody(void)
 		/* If body failed to load (corrupt modeldef, missing file, etc.),
 		 * try falling back to default combat body before giving up. */
 		if (g_Vars.currentplayer->model00d4 == NULL) {
+			playerFatalSourceOnlyCharacterAssetFailure(ASSET_BODY,
+				catalogBodyIdByBodynum(bodynum), bodynum,
+				"player chrbody body instantiation");
 			sysLogPrintf(LOG_WARNING, "PLAYER: body0f02ce8c returned NULL for bodynum=%d, trying fallback BODY_DARK_COMBAT", bodynum);
 			bodynum = BODY_DARK_COMBAT;
 			headnum = HEAD_DARK_COMBAT;

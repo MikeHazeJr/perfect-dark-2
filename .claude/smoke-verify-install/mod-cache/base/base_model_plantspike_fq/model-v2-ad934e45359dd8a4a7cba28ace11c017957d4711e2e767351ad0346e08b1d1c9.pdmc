@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_plantspike_fq",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_plantspike_fq.pdmesh::model.obj",
+  "source_size": 5714,
+  "source_sha256": "ad934e45359dd8a4a7cba28ace11c017957d4711e2e767351ad0346e08b1d1c9",
+  "validation": "format=obj vertices=84 triangles=28",
+  "normalized": "$S/mod-cache/base/base_model_plantspike_fq/model-v2-ad934e45359dd8a4a7cba28ace11c017957d4711e2e767351ad0346e08b1d1c9.pdmodel.json",
+  "vertex_count": 84,
+  "triangle_count": 28,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

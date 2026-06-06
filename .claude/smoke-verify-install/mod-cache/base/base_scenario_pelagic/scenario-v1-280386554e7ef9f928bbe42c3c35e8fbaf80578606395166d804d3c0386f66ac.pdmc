@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 1,
+  "asset_id": "base:scenario_pelagic",
+  "mod_id": "base",
+  "kind": "scenario",
+  "source": "data/ntsc-final/scenarios/base_scenario_pelagic.pdscenario::scene.glb",
+  "source_size": 1647004,
+  "source_sha256": "280386554e7ef9f928bbe42c3c35e8fbaf80578606395166d804d3c0386f66ac",
+  "validation": "format=glb vertices=44682 triangles=14894",
+  "normalized": "$S/mod-cache/base/base_scenario_pelagic/scenario-v1-280386554e7ef9f928bbe42c3c35e8fbaf80578606395166d804d3c0386f66ac.pdmesh.json",
+  "vertex_count": 44682,
+  "triangle_count": 14894,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

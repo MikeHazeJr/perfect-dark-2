@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 1,
+  "asset_id": "base:model_aivillawindmill",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_aivillawindmill.pdmesh::model.obj",
+  "source_size": 47887,
+  "source_sha256": "598f0501fd46917811ab7ab363f325e034a3247a88b47ef5337bfdd7eb2085ac",
+  "validation": "format=obj vertices=675 triangles=225",
+  "normalized": "$S/mod-cache/base/base_model_aivillawindmill/model-v1-598f0501fd46917811ab7ab363f325e034a3247a88b47ef5337bfdd7eb2085ac.pdmodel.json",
+  "vertex_count": 675,
+  "triangle_count": 225,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

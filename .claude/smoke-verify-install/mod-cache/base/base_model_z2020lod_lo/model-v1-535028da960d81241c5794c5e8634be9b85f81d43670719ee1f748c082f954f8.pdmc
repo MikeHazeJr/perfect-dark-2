@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 1,
+  "asset_id": "base:model_z2020lod_lo",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_z2020lod_lo.pdmesh::model.obj",
+  "source_size": 45034,
+  "source_sha256": "535028da960d81241c5794c5e8634be9b85f81d43670719ee1f748c082f954f8",
+  "validation": "format=obj vertices=690 triangles=230",
+  "normalized": "$S/mod-cache/base/base_model_z2020lod_lo/model-v1-535028da960d81241c5794c5e8634be9b85f81d43670719ee1f748c082f954f8.pdmodel.json",
+  "vertex_count": 690,
+  "triangle_count": 230,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

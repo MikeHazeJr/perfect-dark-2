@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_window_foyer_axu",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_window_foyer_axu.pdmesh::model.obj",
+  "source_size": 497,
+  "source_sha256": "28d3c507bfbb19b41dfbbf96633b4bdab0a8b53f01dff658075addb326baf99c",
+  "validation": "format=obj vertices=6 triangles=2",
+  "normalized": "$S/mod-cache/base/base_model_window_foyer_axu/model-v2-28d3c507bfbb19b41dfbbf96633b4bdab0a8b53f01dff658075addb326baf99c.pdmodel.json",
+  "vertex_count": 6,
+  "triangle_count": 2,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

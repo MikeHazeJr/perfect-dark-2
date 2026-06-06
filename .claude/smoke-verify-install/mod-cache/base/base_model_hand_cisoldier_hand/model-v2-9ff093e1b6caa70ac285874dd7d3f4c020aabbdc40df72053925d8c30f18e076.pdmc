@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_hand_cisoldier_hand",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_hand_cisoldier_hand.pdmesh::model.obj",
+  "source_size": 94146,
+  "source_sha256": "9ff093e1b6caa70ac285874dd7d3f4c020aabbdc40df72053925d8c30f18e076",
+  "validation": "format=obj vertices=1398 triangles=466",
+  "normalized": "$S/mod-cache/base/base_model_hand_cisoldier_hand/model-v2-9ff093e1b6caa70ac285874dd7d3f4c020aabbdc40df72053925d8c30f18e076.pdmodel.json",
+  "vertex_count": 1398,
+  "triangle_count": 466,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

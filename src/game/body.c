@@ -28,6 +28,7 @@
 #include "types.h"
 #include "assetcatalog.h"
 #include "assetcatalog_load.h"
+#include "asset_source_debug.h"
 #include "catalog_mgr_heads.h"  /* Catalog Gate 3 F5: catalogManagerHeadIsModeldefLoaded */
 #include "net/netmanifest.h"
 
@@ -164,6 +165,21 @@ u32 bodyGetRace(s32 bodynum)
 
 #define BODY_TINY_MODE_ENEMY_MULTIPLIER 3
 #define BODY_TINY_MODE_ENEMY_SCALE 0.4f
+
+static void bodyFatalSourceOnlyCharacterAssetFailure(asset_type_e type,
+		const char *asset_id, s32 runtime_index, const char *context)
+{
+	if (!assetSourceDebugIsEnabledFor(type)) {
+		return;
+	}
+
+	sysFatalError("ASSET.SOURCE_ONLY: %s '%s' %s failed for runtime index %d; "
+	              "refusing body fallback/substitution.",
+	              assetSourceDebugTypeLabel(type),
+	              asset_id && asset_id[0] ? asset_id : "?",
+	              context && context[0] ? context : "body modeldef",
+	              runtime_index);
+}
 
 static bool bodyTinyModeCheatActive(void)
 {
@@ -368,15 +384,18 @@ struct model *body0f02ce8c(s32 bodynum, s32 headnum, struct modeldef *bodymodeld
 		scale *= 0.8f;
 	}
 
+	body_source_id = catalogBodyIdByBodynum(bodynum);
+
 	if (bodymodeldef == NULL) {
 		bodymodeldef = catalogGetBodyModeldef(bodynum); /* SA-5f */
 		if (!bodymodeldef) {
+			bodyFatalSourceOnlyCharacterAssetFailure(ASSET_BODY, body_source_id,
+				bodynum, "body modeldef load");
 			sysLogPrintf(LOG_ERROR, "CATALOG_CRITICAL: body0f02ce8c bodynum=%d filenum=%d -- "
 				"model not in catalog", bodynum, catalogGetBodyFilenumByIndex(bodynum));
 		}
 	}
 
-	body_source_id = catalogBodyIdByBodynum(bodynum);
 	public_source_generated_modeldef = (bodymodeldef != NULL
 		&& bodymodeldef->rootnode != NULL
 		&& bodymodeldef->numparts == 0
@@ -394,6 +413,8 @@ struct model *body0f02ce8c(s32 bodynum, s32 headnum, struct modeldef *bodymodeld
 		|| (!public_source_generated_modeldef && bodymodeldef->skel == NULL)
 		|| (!public_source_generated_modeldef && bodymodeldef->numparts <= 0)
 		|| bodymodeldef->numparts > 500) {
+		bodyFatalSourceOnlyCharacterAssetFailure(ASSET_BODY, body_source_id,
+			bodynum, "body modeldef validation");
 		sysLogPrintf(LOG_WARNING, "body0f02ce8c: truly invalid bodymodeldef for bodynum %d (file 0x%04x) "
 		             "ptr=%p skel=%p root=%p parts=%d -- skipping",
 		             bodynum, catalogGetBodyFilenumByIndex(bodynum), /* SA-5f */
@@ -454,6 +475,9 @@ struct model *body0f02ce8c(s32 bodynum, s32 headnum, struct modeldef *bodymodeld
 					 * (where the cache lives from F3 onward). */
 					s32 head_needs_offset = !catalogManagerHeadIsModeldefLoaded(headnum);
 					if (!catalogGetHeadModeldefChecked(headnum, &headmodeldef)) { /* SA-5f */
+						bodyFatalSourceOnlyCharacterAssetFailure(ASSET_HEAD,
+							catalogHeadIdByHeadnum(headnum), headnum,
+							"head modeldef load");
 						headmodeldef = NULL;
 					}
 					if (head_needs_offset && headmodeldef != NULL) {
@@ -467,6 +491,9 @@ struct model *body0f02ce8c(s32 bodynum, s32 headnum, struct modeldef *bodymodeld
 						modelAllocateRwData(headmodeldef);
 						bodymodeldef->rwdatalen += headmodeldef->rwdatalen;
 					} else {
+						bodyFatalSourceOnlyCharacterAssetFailure(ASSET_HEAD,
+							catalogHeadIdByHeadnum(headnum), headnum,
+							"head merge");
 						sysLogPrintf(LOG_WARNING,
 							"body0f02ce8c: headmodeldef NULL for headnum %d (bodynum %d) -- skipping head merge",
 							headnum, bodynum);

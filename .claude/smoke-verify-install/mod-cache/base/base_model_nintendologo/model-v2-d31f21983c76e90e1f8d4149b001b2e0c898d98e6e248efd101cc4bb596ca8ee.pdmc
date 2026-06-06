@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_nintendologo",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_nintendologo.pdmesh::model.obj",
+  "source_size": 205771,
+  "source_sha256": "d31f21983c76e90e1f8d4149b001b2e0c898d98e6e248efd101cc4bb596ca8ee",
+  "validation": "format=obj vertices=3054 triangles=1018",
+  "normalized": "$S/mod-cache/base/base_model_nintendologo/model-v2-d31f21983c76e90e1f8d4149b001b2e0c898d98e6e248efd101cc4bb596ca8ee.pdmodel.json",
+  "vertex_count": 3054,
+  "triangle_count": 1018,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_skpuzzleobject",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_skpuzzleobject.pdmesh::model.obj",
+  "source_size": 1961,
+  "source_sha256": "8a6a7566bcbe4891f24b8636921e882e9214034431fe625718144386d28827dc",
+  "validation": "format=obj vertices=30 triangles=10",
+  "normalized": "$S/mod-cache/base/base_model_skpuzzleobject/model-v2-8a6a7566bcbe4891f24b8636921e882e9214034431fe625718144386d28827dc.pdmodel.json",
+  "vertex_count": 30,
+  "triangle_count": 10,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

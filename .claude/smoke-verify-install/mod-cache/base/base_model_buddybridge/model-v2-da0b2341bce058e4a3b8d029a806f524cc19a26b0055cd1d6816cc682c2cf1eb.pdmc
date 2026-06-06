@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_buddybridge",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_buddybridge.pdmesh::model.obj",
+  "source_size": 3474,
+  "source_sha256": "da0b2341bce058e4a3b8d029a806f524cc19a26b0055cd1d6816cc682c2cf1eb",
+  "validation": "format=obj vertices=48 triangles=16",
+  "normalized": "$S/mod-cache/base/base_model_buddybridge/model-v2-da0b2341bce058e4a3b8d029a806f524cc19a26b0055cd1d6816cc682c2cf1eb.pdmodel.json",
+  "vertex_count": 48,
+  "triangle_count": 16,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

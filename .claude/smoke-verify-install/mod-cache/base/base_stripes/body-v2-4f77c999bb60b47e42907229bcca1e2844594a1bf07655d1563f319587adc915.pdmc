@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:stripes",
+  "mod_id": "base",
+  "kind": "body",
+  "source": "data/ntsc-final/bodies/base_stripes.pdbody::mesh.pdmesh::model.obj",
+  "source_size": 153971,
+  "source_sha256": "4f77c999bb60b47e42907229bcca1e2844594a1bf07655d1563f319587adc915",
+  "validation": "format=obj vertices=2262 triangles=754",
+  "normalized": "$S/mod-cache/base/base_stripes/body-v2-4f77c999bb60b47e42907229bcca1e2844594a1bf07655d1563f319587adc915.pdmodel.json",
+  "vertex_count": 2262,
+  "triangle_count": 754,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

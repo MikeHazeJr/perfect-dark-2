@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_ci_sofa",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_ci_sofa.pdmesh::model.obj",
+  "source_size": 35432,
+  "source_sha256": "06731710729702457703088915c6b4a4774680ab1bad9456c13b8fabbb228ede",
+  "validation": "format=obj vertices=531 triangles=177",
+  "normalized": "$S/mod-cache/base/base_model_ci_sofa/model-v2-06731710729702457703088915c6b4a4774680ab1bad9456c13b8fabbb228ede.pdmodel.json",
+  "vertex_count": 531,
+  "triangle_count": 177,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

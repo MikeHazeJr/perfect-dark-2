@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_cmp150_hi",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_cmp150_hi.pdmesh::model.obj",
+  "source_size": 44737,
+  "source_sha256": "c9aa5e03125406ae308d74b17f5488210cfa0f423465a173a66df3151ccc9955",
+  "validation": "format=obj vertices=696 triangles=232",
+  "normalized": "$S/mod-cache/base/base_model_cmp150_hi/model-v2-c9aa5e03125406ae308d74b17f5488210cfa0f423465a173a66df3151ccc9955.pdmodel.json",
+  "vertex_count": 696,
+  "triangle_count": 232,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

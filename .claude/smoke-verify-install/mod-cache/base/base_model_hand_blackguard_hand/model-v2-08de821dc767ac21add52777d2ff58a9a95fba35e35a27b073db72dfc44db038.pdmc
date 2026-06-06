@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_hand_blackguard_hand",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_hand_blackguard_hand.pdmesh::model.obj",
+  "source_size": 94249,
+  "source_sha256": "08de821dc767ac21add52777d2ff58a9a95fba35e35a27b073db72dfc44db038",
+  "validation": "format=obj vertices=1398 triangles=466",
+  "normalized": "$S/mod-cache/base/base_model_hand_blackguard_hand/model-v2-08de821dc767ac21add52777d2ff58a9a95fba35e35a27b073db72dfc44db038.pdmodel.json",
+  "vertex_count": 1398,
+  "triangle_count": 466,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

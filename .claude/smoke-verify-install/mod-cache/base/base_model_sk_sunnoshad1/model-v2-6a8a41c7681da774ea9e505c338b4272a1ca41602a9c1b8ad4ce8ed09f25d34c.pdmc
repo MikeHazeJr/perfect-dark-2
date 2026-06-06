@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_sk_sunnoshad1",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_sk_sunnoshad1.pdmesh::model.obj",
+  "source_size": 2823,
+  "source_sha256": "6a8a41c7681da774ea9e505c338b4272a1ca41602a9c1b8ad4ce8ed09f25d34c",
+  "validation": "format=obj vertices=39 triangles=13",
+  "normalized": "$S/mod-cache/base/base_model_sk_sunnoshad1/model-v2-6a8a41c7681da774ea9e505c338b4272a1ca41602a9c1b8ad4ce8ed09f25d34c.pdmodel.json",
+  "vertex_count": 39,
+  "triangle_count": 13,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

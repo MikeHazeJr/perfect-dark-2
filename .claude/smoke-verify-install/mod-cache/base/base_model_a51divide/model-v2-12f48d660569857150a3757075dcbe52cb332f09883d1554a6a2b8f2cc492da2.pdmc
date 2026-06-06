@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_a51divide",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_a51divide.pdmesh::model.obj",
+  "source_size": 4563,
+  "source_sha256": "12f48d660569857150a3757075dcbe52cb332f09883d1554a6a2b8f2cc492da2",
+  "validation": "format=obj vertices=72 triangles=24",
+  "normalized": "$S/mod-cache/base/base_model_a51divide/model-v2-12f48d660569857150a3757075dcbe52cb332f09883d1554a6a2b8f2cc492da2.pdmodel.json",
+  "vertex_count": 72,
+  "triangle_count": 24,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

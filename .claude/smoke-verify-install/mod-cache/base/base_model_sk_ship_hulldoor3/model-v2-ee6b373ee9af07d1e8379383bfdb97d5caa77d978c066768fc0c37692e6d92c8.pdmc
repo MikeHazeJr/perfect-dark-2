@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_sk_ship_hulldoor3",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_sk_ship_hulldoor3.pdmesh::model.obj",
+  "source_size": 3579,
+  "source_sha256": "ee6b373ee9af07d1e8379383bfdb97d5caa77d978c066768fc0c37692e6d92c8",
+  "validation": "format=obj vertices=51 triangles=17",
+  "normalized": "$S/mod-cache/base/base_model_sk_ship_hulldoor3/model-v2-ee6b373ee9af07d1e8379383bfdb97d5caa77d978c066768fc0c37692e6d92c8.pdmodel.json",
+  "vertex_count": 51,
+  "triangle_count": 17,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:head_silke",
+  "mod_id": "base",
+  "kind": "head",
+  "source": "data/ntsc-final/heads/base_head_silke.pdhead::mesh.pdmesh::model.obj",
+  "source_size": 41017,
+  "source_sha256": "0a57ace805a82704d65e387d031fca9853ce5bf990b75803faa94947bbe102cd",
+  "validation": "format=obj vertices=624 triangles=208",
+  "normalized": "$S/mod-cache/base/base_head_silke/head-v2-0a57ace805a82704d65e387d031fca9853ce5bf990b75803faa94947bbe102cd.pdmodel.json",
+  "vertex_count": 624,
+  "triangle_count": 208,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

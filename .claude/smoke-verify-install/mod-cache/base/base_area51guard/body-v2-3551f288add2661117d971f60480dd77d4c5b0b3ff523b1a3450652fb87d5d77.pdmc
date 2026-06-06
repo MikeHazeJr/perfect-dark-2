@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:area51guard",
+  "mod_id": "base",
+  "kind": "body",
+  "source": "data/ntsc-final/bodies/base_area51guard.pdbody::mesh.pdmesh::model.obj",
+  "source_size": 137786,
+  "source_sha256": "3551f288add2661117d971f60480dd77d4c5b0b3ff523b1a3450652fb87d5d77",
+  "validation": "format=obj vertices=2019 triangles=673",
+  "normalized": "$S/mod-cache/base/base_area51guard/body-v2-3551f288add2661117d971f60480dd77d4c5b0b3ff523b1a3450652fb87d5d77.pdmodel.json",
+  "vertex_count": 2019,
+  "triangle_count": 673,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

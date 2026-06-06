@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 1,
+  "asset_id": "base:model_liftr_fm",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_liftr_fm.pdmesh::model.obj",
+  "source_size": 8843,
+  "source_sha256": "b858714c11707e58e1d2d8da83d7b57e08ba9900aac809a8886df11a795c38d9",
+  "validation": "format=obj vertices=126 triangles=42",
+  "normalized": "$S/mod-cache/base/base_model_liftr_fm/model-v1-b858714c11707e58e1d2d8da83d7b57e08ba9900aac809a8886df11a795c38d9.pdmodel.json",
+  "vertex_count": 126,
+  "triangle_count": 42,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

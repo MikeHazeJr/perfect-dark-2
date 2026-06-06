@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 1,
+  "asset_id": "base:model_sk_fl_shad_mr",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_sk_fl_shad_mr.pdmesh::model.obj",
+  "source_size": 311,
+  "source_sha256": "fdd604bda428f807b33f3f7de518e3bfe4d685778d6bcbcbd99ddb3aa6428611",
+  "validation": "format=obj vertices=3 triangles=1",
+  "normalized": "$S/mod-cache/base/base_model_sk_fl_shad_mr/model-v1-fdd604bda428f807b33f3f7de518e3bfe4d685778d6bcbcbd99ddb3aa6428611.pdmodel.json",
+  "vertex_count": 3,
+  "triangle_count": 1,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

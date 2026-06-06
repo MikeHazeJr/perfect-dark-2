@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_hudpiece_menu",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_hudpiece_menu.pdmesh::model.obj",
+  "source_size": 43823,
+  "source_sha256": "10b5aa9368c5eace2436509221a8e4795a9eabf9a499d1e713c6b22736fbe851",
+  "validation": "format=obj vertices=678 triangles=226",
+  "normalized": "$S/mod-cache/base/base_model_hudpiece_menu/model-v2-10b5aa9368c5eace2436509221a8e4795a9eabf9a499d1e713c6b22736fbe851.pdmodel.json",
+  "vertex_count": 678,
+  "triangle_count": 226,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_cheadanka",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_cheadanka.pdmesh::model.obj",
+  "source_size": 35565,
+  "source_sha256": "e6fc2eb27ccd4ac764049bd923036a59182312831b4f999487d841d9affd324e",
+  "validation": "format=obj vertices=546 triangles=182",
+  "normalized": "$S/mod-cache/base/base_model_cheadanka/model-v2-e6fc2eb27ccd4ac764049bd923036a59182312831b4f999487d841d9affd324e.pdmodel.json",
+  "vertex_count": 546,
+  "triangle_count": 182,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

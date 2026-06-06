@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:cassandra",
+  "mod_id": "base",
+  "kind": "body",
+  "source": "data/ntsc-final/bodies/base_cassandra.pdbody::mesh.pdmesh::model.obj",
+  "source_size": 197775,
+  "source_sha256": "35fe3767fe8d839f383a2011123becc319763980f24e73353ab534f27ecc6155",
+  "validation": "format=obj vertices=2895 triangles=965",
+  "normalized": "$S/mod-cache/base/base_cassandra/body-v2-35fe3767fe8d839f383a2011123becc319763980f24e73353ab534f27ecc6155.pdmodel.json",
+  "vertex_count": 2895,
+  "triangle_count": 965,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

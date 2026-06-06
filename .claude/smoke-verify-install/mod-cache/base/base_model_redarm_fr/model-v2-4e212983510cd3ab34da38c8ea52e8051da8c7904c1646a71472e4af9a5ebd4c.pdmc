@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_redarm_fr",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_redarm_fr.pdmesh::model.obj",
+  "source_size": 7463,
+  "source_sha256": "4e212983510cd3ab34da38c8ea52e8051da8c7904c1646a71472e4af9a5ebd4c",
+  "validation": "format=obj vertices=117 triangles=39",
+  "normalized": "$S/mod-cache/base/base_model_redarm_fr/model-v2-4e212983510cd3ab34da38c8ea52e8051da8c7904c1646a71472e4af9a5ebd4c.pdmodel.json",
+  "vertex_count": 117,
+  "triangle_count": 39,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

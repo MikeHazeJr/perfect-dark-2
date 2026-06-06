@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_lab_sector3wind_fj",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_lab_sector3wind_fj.pdmesh::model.obj",
+  "source_size": 17020,
+  "source_sha256": "93991958f5f8ea0cc914c9893d6cf574ccd77ab4125616665aaf43e61d803d9d",
+  "validation": "format=obj vertices=258 triangles=86",
+  "normalized": "$S/mod-cache/base/base_model_lab_sector3wind_fj/model-v2-93991958f5f8ea0cc914c9893d6cf574ccd77ab4125616665aaf43e61d803d9d.pdmodel.json",
+  "vertex_count": 258,
+  "triangle_count": 86,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

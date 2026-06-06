@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:mrblonde",
+  "mod_id": "base",
+  "kind": "body",
+  "source": "data/ntsc-final/bodies/base_mrblonde.pdbody::mesh.pdmesh::model.obj",
+  "source_size": 213376,
+  "source_sha256": "b7d9791043dbb9138d9f60f70c8b9c8ec2219da56b5e4a4ebb5dba1313527f61",
+  "validation": "format=obj vertices=3117 triangles=1039",
+  "normalized": "$S/mod-cache/base/base_mrblonde/body-v2-b7d9791043dbb9138d9f60f70c8b9c8ec2219da56b5e4a4ebb5dba1313527f61.pdmodel.json",
+  "vertex_count": 3117,
+  "triangle_count": 1039,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:head_biotech",
+  "mod_id": "base",
+  "kind": "head",
+  "source": "data/ntsc-final/heads/base_head_biotech.pdhead::mesh.pdmesh::model.obj",
+  "source_size": 39877,
+  "source_sha256": "ac665ed62e661aeed849b5705c189ba4c25970209181953b7fa6754395bc634c",
+  "validation": "format=obj vertices=609 triangles=203",
+  "normalized": "$S/mod-cache/base/base_head_biotech/head-v2-ac665ed62e661aeed849b5705c189ba4c25970209181953b7fa6754395bc634c.pdmodel.json",
+  "vertex_count": 609,
+  "triangle_count": 203,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

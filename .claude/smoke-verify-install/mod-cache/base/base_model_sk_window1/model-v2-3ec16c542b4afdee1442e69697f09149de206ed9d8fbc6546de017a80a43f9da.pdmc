@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_sk_window1",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_sk_window1.pdmesh::model.obj",
+  "source_size": 467,
+  "source_sha256": "3ec16c542b4afdee1442e69697f09149de206ed9d8fbc6546de017a80a43f9da",
+  "validation": "format=obj vertices=6 triangles=2",
+  "normalized": "$S/mod-cache/base/base_model_sk_window1/model-v2-3ec16c542b4afdee1442e69697f09149de206ed9d8fbc6546de017a80a43f9da.pdmodel.json",
+  "vertex_count": 6,
+  "triangle_count": 2,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 1,
+  "asset_id": "base:model_hovtruck_ex",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_hovtruck_ex.pdmesh::model.obj",
+  "source_size": 11910,
+  "source_sha256": "15979204a67ed3292629bf3d73c7e09bcc3fade8a29184c9223b145fd9ab2c84",
+  "validation": "format=obj vertices=180 triangles=60",
+  "normalized": "$S/mod-cache/base/base_model_hovtruck_ex/model-v1-15979204a67ed3292629bf3d73c7e09bcc3fade8a29184c9223b145fd9ab2c84.pdmodel.json",
+  "vertex_count": 180,
+  "triangle_count": 60,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

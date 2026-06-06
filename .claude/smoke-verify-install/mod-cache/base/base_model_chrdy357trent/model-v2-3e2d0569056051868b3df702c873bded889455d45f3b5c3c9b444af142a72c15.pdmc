@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_chrdy357trent",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_chrdy357trent.pdmesh::model.obj",
+  "source_size": 9820,
+  "source_sha256": "3e2d0569056051868b3df702c873bded889455d45f3b5c3c9b444af142a72c15",
+  "validation": "format=obj vertices=150 triangles=50",
+  "normalized": "$S/mod-cache/base/base_model_chrdy357trent/model-v2-3e2d0569056051868b3df702c873bded889455d45f3b5c3c9b444af142a72c15.pdmodel.json",
+  "vertex_count": 150,
+  "triangle_count": 50,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

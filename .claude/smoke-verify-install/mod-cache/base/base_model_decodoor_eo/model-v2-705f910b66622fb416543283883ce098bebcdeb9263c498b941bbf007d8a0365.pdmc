@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_decodoor_eo",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_decodoor_eo.pdmesh::model.obj",
+  "source_size": 6684,
+  "source_sha256": "705f910b66622fb416543283883ce098bebcdeb9263c498b941bbf007d8a0365",
+  "validation": "format=obj vertices=102 triangles=34",
+  "normalized": "$S/mod-cache/base/base_model_decodoor_eo/model-v2-705f910b66622fb416543283883ce098bebcdeb9263c498b941bbf007d8a0365.pdmodel.json",
+  "vertex_count": 102,
+  "triangle_count": 34,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

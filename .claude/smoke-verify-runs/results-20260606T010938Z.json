@@ -1,0 +1,22 @@
+{
+  "Name": "scenario_source_matrix_rescue",
+  "Category": "scenario",
+  "BugId": null,
+  "RegressionFor": null,
+  "Passed": false,
+  "ExitCode": 0,
+  "ElapsedSeconds": 60.7209901,
+  "InstallDir": "C:\\Users\\mikeh\\Perfect-Dark-2\\perfect_dark-mike\\.claude\\smoke-verify-install",
+  "AssertionsTotal": 153,
+  "AssertionsMet": 151,
+  "Failures": [
+    {
+      "Kind": "required_line_missing",
+      "Pattern": "SCENARIO\\.GRAPH: AI action close_door tag=\\d+ object_rows=\\d+ applied=\\d+ source=.*base_scenario_rescue\\.pdscenario::ai/ailists\\.tsv objects=.*base_scenario_rescue\\.pdscenario::objects\\.tsv backend=graph\\.ai\\.action\\.door\\+objects\\.tsv"
+    },
+    {
+      "Kind": "required_line_missing",
+      "Pattern": "SCENARIO\\.GRAPH: AI action chr_kill chr=\\d+ chr_rows=\\d+ target_chr=-?\\d+ applied=\\d+ source=.*base_scenario_rescue\\.pdscenario::ai/ailists\\.tsv backend=graph\\.ai\\.action\\.character_inventory\\+ai/ailists\\.tsv"
+    }
+  ]
+}

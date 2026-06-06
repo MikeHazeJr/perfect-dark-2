@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_dr_caroll_door_bleft",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_dr_caroll_door_bleft.pdmesh::model.obj",
+  "source_size": 12208,
+  "source_sha256": "d232e7bb89915cda68cd7fc51464c6785d0f89d553604c3034a4af91130342fe",
+  "validation": "format=obj vertices=174 triangles=58",
+  "normalized": "$S/mod-cache/base/base_model_dr_caroll_door_bleft/model-v2-d232e7bb89915cda68cd7fc51464c6785d0f89d553604c3034a4af91130342fe.pdmodel.json",
+  "vertex_count": 174,
+  "triangle_count": 58,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 1,
+  "asset_id": "base:model_nbomblod_lo",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_nbomblod_lo.pdmesh::model.obj",
+  "source_size": 19177,
+  "source_sha256": "be6cedb756ba4427ff735bc5d06f0a670d97d3ac310819d2efa3cd1d2e4e667e",
+  "validation": "format=obj vertices=300 triangles=100",
+  "normalized": "$S/mod-cache/base/base_model_nbomblod_lo/model-v1-be6cedb756ba4427ff735bc5d06f0a670d97d3ac310819d2efa3cd1d2e4e667e.pdmodel.json",
+  "vertex_count": 300,
+  "triangle_count": 100,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

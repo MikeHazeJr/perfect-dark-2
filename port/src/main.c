@@ -61,6 +61,7 @@
 #include "assetcatalog_load.h"
 #include "assetcatalog_cache.h"
 #include "asset_source_debug.h"
+#include "modasset_compiler.h"
 #include "loader_pool.h"
 #include "loader_walker.h"
 #include "catalog_mgr_heads.h"
@@ -68,6 +69,8 @@
 #include "catalog_mgr_arenas.h"
 #include "game/stagetable.h"
 #include "game/chr.h"
+#include "game/bondgun.h"
+#include "game/player.h"
 
 /* Engine Phase 2: thread pool + progress channel + boot overlay UI. */
 #include "boot_pool.h"
@@ -175,6 +178,12 @@ extern s32 g_StageNum;
  *       parsed as integers via strtol with float coercion for x/y/z;
  *       room is s16 / RoomNum).  One-shot per boot.
  *
+ *   --debug-force-first-person
+ *       Pre-render smoke hook: after the gameplay stage is loaded, holds
+ *       player 0 in CAMERAMODE_DEFAULT for a short window so first-person
+ *       weapon render diagnostics can prove generated source meshes reach
+ *       bgunRender. Inert unless passed on argv.
+ *
  *   --launch-load-agent <name>
  *       Post-saveInit hook: invokes saveLoadAgent(name) on the first
  *       frame after stage load (g_Vars.lvframenum >= 4) to read the
@@ -266,6 +275,10 @@ static f32         g_BootSpawnAtX = 0.0f;
 static f32         g_BootSpawnAtY = 0.0f;
 static f32         g_BootSpawnAtZ = 0.0f;
 static s32         g_BootSpawnAtRoom = 0;
+static bool        g_BootDebugForceFirstPerson = false;
+static s32         g_BootDebugForceFirstPersonPending = 0;
+static s32         g_BootDebugForceFirstPersonFrames = 0;
+static const s32   k_BootDebugForceFirstPersonFrames = 900;
 
 /* c115 (2026-05-14): deferred launch-scenario state. Worker delta's
  * iter-2 re-run showed that calling testScenarioLaunch synchronously
@@ -647,25 +660,40 @@ static s32 bootResolveDifficulty(const char *name)
 }
 
 /* Try to resolve a stage identifier (catalog ID like "base:defection" OR
- * hex like "0x21") into a stagenum.  Returns -1 on failure. */
+ * "base:scenario_chicago", decimal like "38", or hex like "0x26") into a
+ * stagenum. Returns -1 on failure. */
 static s32 bootResolveStageIdToNum(const char *id)
 {
 	if (!id || !id[0]) {
 		return -1;
 	}
+
 	/* Hex / decimal numeric form. */
-	if (id[0] == '0' && (id[1] == 'x' || id[1] == 'X')) {
+	if (isdigit((unsigned char)id[0])) {
 		char *endp = NULL;
-		long v = strtol(id, &endp, 16);
-		if (endp && endp != id && v > 0 && v < 0x100) {
+		int base = (id[0] == '0' && (id[1] == 'x' || id[1] == 'X')) ? 16 : 10;
+		long v = strtol(id, &endp, base);
+		if (endp && endp != id && *endp == '\0' && v > 0 && v < 0x100) {
 			return (s32)v;
 		}
 	}
-	/* Catalog ID. */
-	catalog_stage_result_t sresult;
-	if (catalogResolveStage(id, &sresult)) {
-		return sresult.stagenum;
+
+	/* Catalog ID. Scenario archives are source-owned stage content, so their
+	 * catalog ID must be accepted directly instead of requiring callers to
+	 * bridge through a legacy numeric stage argument. */
+	const asset_entry_t *entry = assetCatalogResolve(id);
+	if (entry) {
+		if (entry->type == ASSET_MAP && entry->ext.map.stagenum > 0) {
+			return entry->ext.map.stagenum;
+		}
+		if (entry->type == ASSET_SCENARIO && entry->ext.scenario.stagenum > 0) {
+			return entry->ext.scenario.stagenum;
+		}
+		if (entry->type == ASSET_ARENA && entry->ext.arena.stagenum > 0) {
+			return entry->ext.arena.stagenum;
+		}
 	}
+
 	return -1;
 }
 
@@ -919,6 +947,20 @@ static void bootApplyDebugSpawnAt(const char *arg)
 	sysLogPrintf(LOG_NOTE,
 		"BOOT: --debug-spawn-at armed: pos=(%f,%f,%f) room=%d",
 		g_BootSpawnAtX, g_BootSpawnAtY, g_BootSpawnAtZ, g_BootSpawnAtRoom);
+}
+
+/* B-769 (2026-06-06): Arm a smoke-only camera override. The actual
+ * camera write runs after lvTickPlayer and before lvRender so the
+ * first-person weapon render path cannot be overwritten by MP swirl or
+ * other per-frame tick logic before playerRenderHud runs. */
+static void bootApplyDebugForceFirstPerson(void)
+{
+	if (!g_BootDebugForceFirstPerson) {
+		return;
+	}
+	g_BootDebugForceFirstPersonPending = 1;
+	sysLogPrintf(LOG_NOTE,
+		"BOOT: --debug-force-first-person armed (will hold player 0 in default camera before render)");
 }
 
 /* c118 (2026-05-15): Arm the --launch-load-agent one-shot. Captures
@@ -1201,10 +1243,61 @@ static void bootEnsureUiArchivesReadyForCliSourceLoads(void)
 }
 
 static const char *g_BootDebugLoadCatalogAssetsArg = NULL;
+static const char *g_BootDebugLoadCatalogAssetsFileArg = NULL;
 static s32 g_BootDebugLoadCatalogAssetsSourceOnly = 0;
 static s32 g_BootDebugLoadCatalogAssetsPending = 0;
 
-static void bootApplyDebugLoadCatalogAssets(const char *arg, s32 force_source_only)
+static void bootApplyDebugLoadCatalogAssetToken(char *token,
+	s32 force_source_only)
+{
+	char *eq;
+	char *type_name;
+	char *asset_id;
+	asset_type_e type;
+	asset_type_e prior_source_only;
+	s32 loaded;
+
+	token = bootTrimArgToken(token);
+	if (*token == '\0' || *token == '#') {
+		return;
+	}
+
+	eq = strchr(token, '=');
+	if (!eq) {
+		sysLogPrintf(LOG_WARNING,
+			"BOOT: --debug-load-catalog-assets token '%s' missing type=id form",
+			token);
+		return;
+	}
+
+	*eq = '\0';
+	type_name = bootTrimArgToken(token);
+	asset_id = bootTrimArgToken(eq + 1);
+	type = bootDebugParseAssetType(type_name);
+
+	if (type == ASSET_NONE || !asset_id[0]) {
+		sysLogPrintf(LOG_WARNING,
+			"BOOT: --debug-load-catalog-assets invalid token type='%s' id='%s'",
+			type_name, asset_id);
+		return;
+	}
+
+	sysLogPrintf(LOG_NOTE,
+		"BOOT: --debug-load-catalog-assets request type=%s id='%s' source_only=%d",
+		bootDebugAssetTypeName(type), asset_id, force_source_only ? 1 : 0);
+	prior_source_only = assetSourceDebugOnlyType();
+	if (force_source_only) {
+		assetSourceDebugSetOnlyType(type);
+	}
+	loaded = catalogLoadTypedAsset(type, asset_id);
+	if (force_source_only) {
+		assetSourceDebugSetOnlyType(prior_source_only);
+	}
+	bootDebugLogTypedPayload(type, asset_id, loaded);
+}
+
+static void bootApplyDebugLoadCatalogAssets(const char *arg,
+	s32 force_source_only)
 {
 	char buf[2048];
 	char *cursor;
@@ -1226,71 +1319,75 @@ static void bootApplyDebugLoadCatalogAssets(const char *arg, s32 force_source_on
 	cursor = buf;
 	while (cursor && *cursor) {
 		char *next = strchr(cursor, ',');
-		char *eq;
-		char *type_name;
-		char *asset_id;
-		asset_type_e type;
-		asset_type_e prior_source_only;
-		s32 loaded;
 
 		if (next) {
 			*next++ = '\0';
 		}
 
-		cursor = bootTrimArgToken(cursor);
-		if (*cursor == '\0') {
-			cursor = next;
-			continue;
-		}
-
-		eq = strchr(cursor, '=');
-		if (!eq) {
-			sysLogPrintf(LOG_WARNING,
-				"BOOT: --debug-load-catalog-assets token '%s' missing type=id form",
-				cursor);
-			cursor = next;
-			continue;
-		}
-
-		*eq = '\0';
-		type_name = bootTrimArgToken(cursor);
-		asset_id = bootTrimArgToken(eq + 1);
-		type = bootDebugParseAssetType(type_name);
-
-		if (type == ASSET_NONE || !asset_id[0]) {
-			sysLogPrintf(LOG_WARNING,
-				"BOOT: --debug-load-catalog-assets invalid token type='%s' id='%s'",
-				type_name, asset_id);
-			cursor = next;
-			continue;
-		}
-
-		sysLogPrintf(LOG_NOTE,
-			"BOOT: --debug-load-catalog-assets request type=%s id='%s' source_only=%d",
-			bootDebugAssetTypeName(type), asset_id, force_source_only ? 1 : 0);
-		prior_source_only = assetSourceDebugOnlyType();
-		if (force_source_only) {
-			assetSourceDebugSetOnlyType(type);
-		}
-		loaded = catalogLoadTypedAsset(type, asset_id);
-		if (force_source_only) {
-			assetSourceDebugSetOnlyType(prior_source_only);
-		}
-		bootDebugLogTypedPayload(type, asset_id, loaded);
-
+		bootApplyDebugLoadCatalogAssetToken(cursor, force_source_only);
 		cursor = next;
 	}
+}
+
+static void bootApplyDebugLoadCatalogAssetsFile(const char *path,
+	s32 force_source_only)
+{
+	FILE *f;
+	char line[1024];
+	char full_path[FS_MAXPATH + 1];
+	s32 count = 0;
+	s32 first_line = 1;
+
+	if (!path || !path[0]) {
+		return;
+	}
+
+	f = fopen(path, "rb");
+	if (!f) {
+		f = fsFileOpenRead(path);
+	}
+	if (!f) {
+		sysLogPrintf(LOG_WARNING,
+			"BOOT: --debug-load-catalog-assets-file could not open '%s'",
+			path);
+		return;
+	}
+
+	while (fgets(line, sizeof(line), f)) {
+		size_t len = strlen(line);
+		if (first_line && len >= 3 &&
+				(u8)line[0] == 0xef && (u8)line[1] == 0xbb &&
+				(u8)line[2] == 0xbf) {
+			memmove(line, line + 3, len - 2);
+			len -= 3;
+		}
+		first_line = 0;
+		while (len > 0 && (line[len - 1] == '\n' ||
+				line[len - 1] == '\r')) {
+			line[--len] = '\0';
+		}
+		bootApplyDebugLoadCatalogAssetToken(line, force_source_only);
+		count++;
+	}
+	fclose(f);
+
+	sysLogPrintf(LOG_NOTE,
+		"BOOT: --debug-load-catalog-assets-file loaded %d line(s) from '%s'",
+		count, fsFullPath(path, full_path, sizeof(full_path)));
 }
 
 static void bootArmDebugLoadCatalogAssets(void)
 {
 	const char *arg = sysArgGetString("--debug-load-catalog-assets");
+	const char *file_arg =
+		sysArgGetString("--debug-load-catalog-assets-file");
 
-	if (!arg || !arg[0]) {
+	if ((!arg || !arg[0]) && (!file_arg || !file_arg[0])) {
 		return;
 	}
 
 	g_BootDebugLoadCatalogAssetsArg = arg;
+	g_BootDebugLoadCatalogAssetsFileArg = file_arg;
 	g_BootDebugLoadCatalogAssetsSourceOnly =
 		sysArgCheck("--debug-load-catalog-assets-source-only");
 	g_BootDebugLoadCatalogAssetsPending = 1;
@@ -1306,6 +1403,8 @@ s32 bootApplyDeferredDebugLoadCatalogAssets(void)
 	bootEnsureUiArchivesReadyForCliSourceLoads();
 	bootApplyDebugLoadCatalogAssets(g_BootDebugLoadCatalogAssetsArg,
 		g_BootDebugLoadCatalogAssetsSourceOnly);
+	bootApplyDebugLoadCatalogAssetsFile(g_BootDebugLoadCatalogAssetsFileArg,
+		g_BootDebugLoadCatalogAssetsSourceOnly);
 	return 1;
 }
 
@@ -1313,6 +1412,9 @@ s32 bootApplyDeferredDebugLoadCatalogAssets(void)
  * initialised. */
 static void bootApplyCliFastPaths(void)
 {
+	if (sysArgCheck("--debug-generated-mesh-render-audit")) {
+		modAssetCompilerSetGeneratedModeldefRenderAudit(1);
+	}
 	bootApplyMainMenu();
 	bootApplyLaunchScenario();
 	bootApplyLaunchMission();
@@ -1320,6 +1422,7 @@ static void bootApplyCliFastPaths(void)
 	bootApplyDebugMpOptions();
 	bootApplyDebugMountBike();
 	bootApplyDebugSpawnAt(sysArgGetString("--debug-spawn-at"));
+	bootApplyDebugForceFirstPerson();
 	bootApplyLaunchLoadAgent(sysArgGetString("--launch-load-agent"));
 	bootApplyListenBind(sysArgGetString("--listen-bind"));
 	bootApplyConnectHost(sysArgGetString("--connect-host"));
@@ -1506,6 +1609,72 @@ s32 bootDebugSpawnAtTick(void)
 		g_BootSpawnAtX, g_BootSpawnAtY, g_BootSpawnAtZ, g_BootSpawnAtRoom);
 
 	g_BootSpawnAtPending = 0;
+	return 1;
+}
+
+s32 bootDebugForceFirstPersonPreRenderTick(void)
+{
+	if (!g_BootDebugForceFirstPersonPending) {
+		return 0;
+	}
+	if (g_Vars.lvframenum < 4) {
+		return 0;
+	}
+	if (g_BootLaunchMpArena && g_Vars.stagenum == STAGE_CITRAINING) {
+		return 0;
+	}
+	if (!g_Vars.players[0] || !g_Vars.players[0]->prop || !g_Vars.players[0]->prop->chr) {
+		return 0;
+	}
+
+	setCurrentPlayerNum(0);
+	if (!g_Vars.currentplayer) {
+		return 0;
+	}
+
+	s32 before = (s32)g_Vars.currentplayer->cameramode;
+	s32 before_tickmode = (s32)g_Vars.tickmode;
+	s32 before_movemode = (s32)g_Vars.currentplayer->bondmovemode;
+	s32 queued_weapon = (s32)g_Vars.currentplayer->gunctrl.switchtoweaponnum;
+
+	if (g_BootDebugForceFirstPersonFrames <= 0
+			&& (g_Vars.tickmode != TICKMODE_NORMAL
+				|| g_Vars.currentplayer->bondmovemode != MOVEMODE_WALK)) {
+		player0f0b9a20();
+		if (queued_weapon >= 0) {
+			bgunEquipWeapon2(HAND_LEFT, WEAPON_NONE);
+			bgunEquipWeapon2(HAND_RIGHT, queued_weapon);
+			sysLogPrintf(LOG_NOTE,
+				"BOOT: --debug-force-first-person restored queued weapon=%d after normal-mode release",
+				queued_weapon);
+		}
+	}
+	playerSetCameraMode(CAMERAMODE_DEFAULT);
+
+	if (g_BootDebugForceFirstPersonFrames <= 0) {
+		g_BootDebugForceFirstPersonFrames = k_BootDebugForceFirstPersonFrames;
+		sysLogPrintf(LOG_NOTE,
+			"BOOT: --debug-force-first-person active: stagenum=0x%02x frame=%d before=%d after=%d frames=%d tickmode=%d->%d movemode=%d->%d",
+			(u32)g_Vars.stagenum,
+			(s32)g_Vars.lvframenum,
+			before,
+			(s32)g_Vars.currentplayer->cameramode,
+			g_BootDebugForceFirstPersonFrames,
+			before_tickmode,
+			(s32)g_Vars.tickmode,
+			before_movemode,
+			(s32)g_Vars.currentplayer->bondmovemode);
+	} else {
+		g_BootDebugForceFirstPersonFrames--;
+		if (g_BootDebugForceFirstPersonFrames == 0) {
+			g_BootDebugForceFirstPersonPending = 0;
+			sysLogPrintf(LOG_NOTE,
+				"BOOT: --debug-force-first-person consumed: stagenum=0x%02x frame=%d",
+				(u32)g_Vars.stagenum,
+				(s32)g_Vars.lvframenum);
+		}
+	}
+
 	return 1;
 }
 
@@ -1790,6 +1959,7 @@ int main(int argc, const char **argv)
 	g_BootLaunchDifficulty = sysArgGetString("--difficulty");
 	g_BootLaunchMpArena    = sysArgGetString("--launch-mp-room");
 	g_BootMountBike        = sysArgCheck("--debug-mount-bike") ? true : false;
+	g_BootDebugForceFirstPerson = sysArgCheck("--debug-force-first-person") ? true : false;
 
 	/* Mike directive 2026-05-18: end-to-end CS smoke infra. */
 	g_BootDebugAutoStartMatch = sysArgCheck("--debug-auto-start-match") ? true : false;
@@ -1976,7 +2146,18 @@ int main(int argc, const char **argv)
 
 	g_SndDisabled = sysArgCheck("--no-sound");
 
-	g_StageNum = sysArgGetInt("--boot-stage", STAGE_TITLE);
+	const char *bootStageArg = sysArgGetString("--boot-stage");
+	if (bootStageArg && bootStageArg[0]) {
+		g_StageNum = bootResolveStageIdToNum(bootStageArg);
+		if (g_StageNum < 0) {
+			sysLogPrintf(LOG_WARNING,
+				"BOOT: --boot-stage '%s' unresolved (try 0xNN, decimal, or base:* catalog ID)",
+				bootStageArg);
+			g_StageNum = STAGE_TITLE;
+		}
+	} else {
+		g_StageNum = STAGE_TITLE;
+	}
 
 	g_FileAutoSelect = sysArgGetInt("--profile", -1);
 

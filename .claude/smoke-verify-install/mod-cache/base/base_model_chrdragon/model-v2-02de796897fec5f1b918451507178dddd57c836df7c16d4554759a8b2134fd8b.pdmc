@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_chrdragon",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_chrdragon.pdmesh::model.obj",
+  "source_size": 12123,
+  "source_sha256": "02de796897fec5f1b918451507178dddd57c836df7c16d4554759a8b2134fd8b",
+  "validation": "format=obj vertices=183 triangles=61",
+  "normalized": "$S/mod-cache/base/base_model_chrdragon/model-v2-02de796897fec5f1b918451507178dddd57c836df7c16d4554759a8b2134fd8b.pdmodel.json",
+  "vertex_count": 183,
+  "triangle_count": 61,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

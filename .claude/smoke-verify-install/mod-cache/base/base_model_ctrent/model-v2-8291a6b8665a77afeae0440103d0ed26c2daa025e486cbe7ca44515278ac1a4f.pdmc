@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_ctrent",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_ctrent.pdmesh::model.obj",
+  "source_size": 192356,
+  "source_sha256": "8291a6b8665a77afeae0440103d0ed26c2daa025e486cbe7ca44515278ac1a4f",
+  "validation": "format=obj vertices=2817 triangles=939",
+  "normalized": "$S/mod-cache/base/base_model_ctrent/model-v2-8291a6b8665a77afeae0440103d0ed26c2daa025e486cbe7ca44515278ac1a4f.pdmodel.json",
+  "vertex_count": 2817,
+  "triangle_count": 939,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

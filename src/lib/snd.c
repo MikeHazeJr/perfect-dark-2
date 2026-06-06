@@ -23,7 +23,10 @@
 #include "lib/speaker.h"
 #include "data.h"
 #include "types.h"
+#include "asset_source_debug.h"
 #include "system.h"
+#include "fs.h"
+#include "romextract.h"
 #include "assetcatalog_load.h"
 #include "audio.h"
 #include "preprocess.h"
@@ -67,6 +70,9 @@ uintptr_t *g_ALSoundRomOffsets;
 s32 g_SndMaxFxBusses;
 u32 var80094eac;
 struct curmp3 g_SndCurMp3;
+static void *g_SndMp3SourceBytes = NULL;
+static u32 g_SndMp3SourceSize = 0;
+static void sndMp3FreeSourceBuffer(void);
 struct seqinstance g_SeqInstances[3];
 ALHeap g_SndHeap;
 u32 var80095200;
@@ -1684,6 +1690,7 @@ bool sndStopMp3(s16 arg0)
 
 		g_SndCurMp3.playing = false;
 		g_SndCurMp3.responsetimer240 = -1;
+		sndMp3FreeSourceBuffer();
 	}
 
 	return true;
@@ -1719,6 +1726,10 @@ bool seqPlay(struct seqinstance *seq, s32 tracknum)
 
 	if (g_SeqRomAddrs[seq->tracknum] < 0x10000) {
 		return false;
+	}
+
+	if (modSequencePlayAudioSource(seq->tracknum)) {
+		return true;
 	}
 
 	// try to load external replacement, which can be either compressed or not
@@ -1949,6 +1960,7 @@ void sndTick(void)
 			}
 
 			g_SndCurMp3.playing = false;
+			sndMp3FreeSourceBuffer();
 			return;
 		}
 
@@ -2266,6 +2278,13 @@ struct sndstate *sndStart(s32 arg0, s16 sound, struct sndstate **handle, s32 vol
 				}
 				return NULL;
 			}
+			if (assetSourceDebugIsEnabledFor(ASSET_AUDIO)) {
+				const asset_entry_t *entry = assetCatalogGetByIndex(r.catalog_id);
+				sysFatalError("ASSET.SOURCE_ONLY: sound %d maps to public file source '%s' "
+				              "but file playback failed; refusing ROM/static fallback.",
+				              (s32)sp40.id, entry ? entry->id : "?");
+				return NULL;
+			}
 			sysLogPrintf(LOG_WARNING, "MOD: sound %d catalog override failed (%s), falling back to ROM",
 			             (s32)sp40.id, r.path);
 		} else if (r.catalog_id >= 0) {
@@ -2310,6 +2329,66 @@ const char var70053c10[] = "Snd_Play_Mpeg : SYSTEM IS DISABLED\n";
 const char var70053c34[] = "Snd_Play_Mpeg  : Lib called -> Adr=%x\n";
 const char var70053c5c[] = "Snd_Play_Mpeg  : Chunk size -> Adr=%x\n";
 
+static void sndMp3FreeSourceBuffer(void)
+{
+	if (g_SndMp3SourceBytes) {
+		sysMemFree(g_SndMp3SourceBytes);
+		g_SndMp3SourceBytes = NULL;
+		g_SndMp3SourceSize = 0;
+	}
+}
+
+static s32 sndMp3LoadPublicSourceFile(s32 filenum, uintptr_t *outaddr, u32 *outsize)
+{
+	char relpath[FS_MAXPATH + 1];
+	u32 size = 0;
+	void *bytes;
+
+	if (!outaddr || !outsize) {
+		return 0;
+	}
+
+	if (romExtractRelPathForFilenum(filenum, relpath, (s32)sizeof(relpath)) <= 0) {
+		return 0;
+	}
+
+	bytes = fsFileLoad(relpath, &size);
+	if (!bytes || size == 0) {
+		if (bytes) {
+			sysMemFree(bytes);
+		}
+		return 0;
+	}
+
+	sndMp3FreeSourceBuffer();
+	g_SndMp3SourceBytes = bytes;
+	g_SndMp3SourceSize = size;
+	*outaddr = (uintptr_t)g_SndMp3SourceBytes;
+	*outsize = g_SndMp3SourceSize;
+	sysLogPrintf(LOG_NOTE, "CATALOG: MP3 file %d -> public source \"%s\" (%u bytes)",
+	             filenum, relpath, g_SndMp3SourceSize);
+	return 1;
+}
+
+static s32 sndMp3ResolveSourceOrFallback(s32 filenum, uintptr_t *outaddr, u32 *outsize)
+{
+	if (sndMp3LoadPublicSourceFile(filenum, outaddr, outsize)) {
+		return 1;
+	}
+
+	if (assetSourceDebugIsEnabledFor(ASSET_AUDIO)) {
+		sysFatalError("ASSET.SOURCE_ONLY: MP3 file %d has no readable public "
+		              "extracted source; refusing ROM/static playback fallback.",
+		              filenum);
+		return 0;
+	}
+
+	sndMp3FreeSourceBuffer();
+	*outaddr = fileGetRomAddress(filenum);
+	*outsize = fileGetRomSize(filenum);
+	return 1;
+}
+
 void sndStartMp3(s16 soundnum, s32 volume, s32 pan, s32 responseflags)
 {
 	union soundnumhack sp24;
@@ -2349,8 +2428,10 @@ void sndStartMp3(s16 soundnum, s32 volume, s32 pan, s32 responseflags)
 
 			volume = volume * snd0000e9dc() / AL_VOL_FULL;
 
-			g_SndCurMp3.romaddr = fileGetRomAddress(sp20.id);
-			g_SndCurMp3.romsize = fileGetRomSize(sp20.id);
+			if (!sndMp3ResolveSourceOrFallback((s32)sp20.id,
+					&g_SndCurMp3.romaddr, &g_SndCurMp3.romsize)) {
+				return;
+			}
 
 			func00037f08(volume, true);
 			func00037f5c(pan, true);

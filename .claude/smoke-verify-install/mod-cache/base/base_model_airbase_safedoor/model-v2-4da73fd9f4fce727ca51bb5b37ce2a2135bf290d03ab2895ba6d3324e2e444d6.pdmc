@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_airbase_safedoor",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_airbase_safedoor.pdmesh::model.obj",
+  "source_size": 6164,
+  "source_sha256": "4da73fd9f4fce727ca51bb5b37ce2a2135bf290d03ab2895ba6d3324e2e444d6",
+  "validation": "format=obj vertices=84 triangles=28",
+  "normalized": "$S/mod-cache/base/base_model_airbase_safedoor/model-v2-4da73fd9f4fce727ca51bb5b37ce2a2135bf290d03ab2895ba6d3324e2e444d6.pdmodel.json",
+  "vertex_count": 84,
+  "triangle_count": 28,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 1,
+  "asset_id": "base:model_cidoor1",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_cidoor1.pdmesh::model.obj",
+  "source_size": 24790,
+  "source_sha256": "29514057112b05a7339b164cdfb66e9d12170432b7f351b69e41ed4a4c983a44",
+  "validation": "format=obj vertices=366 triangles=122",
+  "normalized": "$S/mod-cache/base/base_model_cidoor1/model-v1-29514057112b05a7339b164cdfb66e9d12170432b7f351b69e41ed4a4c983a44.pdmodel.json",
+  "vertex_count": 366,
+  "triangle_count": 122,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

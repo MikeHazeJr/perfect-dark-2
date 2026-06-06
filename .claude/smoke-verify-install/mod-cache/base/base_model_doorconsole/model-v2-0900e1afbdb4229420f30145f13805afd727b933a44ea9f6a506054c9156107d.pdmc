@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_doorconsole",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_doorconsole.pdmesh::model.obj",
+  "source_size": 9913,
+  "source_sha256": "0900e1afbdb4229420f30145f13805afd727b933a44ea9f6a506054c9156107d",
+  "validation": "format=obj vertices=150 triangles=50",
+  "normalized": "$S/mod-cache/base/base_model_doorconsole/model-v2-0900e1afbdb4229420f30145f13805afd727b933a44ea9f6a506054c9156107d.pdmodel.json",
+  "vertex_count": 150,
+  "triangle_count": 50,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

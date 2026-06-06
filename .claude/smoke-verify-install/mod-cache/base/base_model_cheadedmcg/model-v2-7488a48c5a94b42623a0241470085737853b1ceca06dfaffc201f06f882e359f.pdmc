@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_cheadedmcg",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_cheadedmcg.pdmesh::model.obj",
+  "source_size": 34780,
+  "source_sha256": "7488a48c5a94b42623a0241470085737853b1ceca06dfaffc201f06f882e359f",
+  "validation": "format=obj vertices=531 triangles=177",
+  "normalized": "$S/mod-cache/base/base_model_cheadedmcg/model-v2-7488a48c5a94b42623a0241470085737853b1ceca06dfaffc201f06f882e359f.pdmodel.json",
+  "vertex_count": 531,
+  "triangle_count": 177,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

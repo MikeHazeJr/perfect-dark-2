@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_instfrontdoor",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_instfrontdoor.pdmesh::model.obj",
+  "source_size": 7447,
+  "source_sha256": "5cef35779fa312a6949a3dffdd99fd75fb4c4bae386726a56074e23d22ef567c",
+  "validation": "format=obj vertices=114 triangles=38",
+  "normalized": "$S/mod-cache/base/base_model_instfrontdoor/model-v2-5cef35779fa312a6949a3dffdd99fd75fb4c4bae386726a56074e23d22ef567c.pdmodel.json",
+  "vertex_count": 114,
+  "triangle_count": 38,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

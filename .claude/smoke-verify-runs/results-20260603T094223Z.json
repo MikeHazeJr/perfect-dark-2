@@ -1,0 +1,33 @@
+﻿{
+    "Name":  "scenario_generated_nav_path_order",
+    "Category":  "scenario",
+    "BugId":  null,
+    "RegressionFor":  null,
+    "Passed":  false,
+    "ExitCode":  0,
+    "ElapsedSeconds":  76.4910361,
+    "InstallDir":  "C:\\Users\\mikeh\\Perfect-Dark-2\\perfect_dark-mike\\.claude\\smoke-verify-install",
+    "AssertionsTotal":  17,
+    "AssertionsMet":  13,
+    "Failures":  [
+                     {
+                         "Kind":  "required_line_missing",
+                         "Pattern":  "SCENARIO\\.GRAPH: navigation generate source \u0027.*base_scenario_test_ash\\.pdscenario::navigation\\.ini\u0027 cache=.*base_scenario_test_ash\\.pdscenario::_meta/generated-navmesh\\.json nodes=1 source_counts=pads:2,volumes:0,waypoints:0,waygroups:0,covers:0,paths:1 source_hashes=sha256 backend=graph\\.navigation\\.generate\\+navigation\\.ini\\+generated-navmesh\\.json"
+                     },
+                     {
+                         "Kind":  "required_line_missing",
+                         "Pattern":  "SCENARIO\\.SOURCE: generated deterministic navigation tables from public pads\\.tsv \u0027.*base_scenario_test_ash\\.pdscenario::pads\\.tsv\u0027 and navigation/paths\\.tsv \u0027.*base_scenario_test_ash\\.pdscenario::navigation/paths\\.tsv\u0027 through empty waypoint, waygroup, and cover sources as 2 waypoints, 1 waygroups, 2 covers backend=source\\.navigation\\.generated\\+pads\\.tsv\\+navigation/paths\\.tsv\\+navigation/waypoints\\.tsv\\+navigation/waygroups\\.tsv\\+navigation/covers\\.tsv"
+                     },
+                     {
+                         "Kind":  "required_line_missing",
+                         "Pattern":  "SCENARIO\\.SOURCE: compiled pads\\.tsv \u0027.*base_scenario_test_ash\\.pdscenario::pads\\.tsv\u0027 for stage \u0027.*\u0027 as 2 pads, 2 waypoints, 1 waygroups, 2 covers \\(\\d+ bytes\\)"
+                     },
+                     {
+                         "Kind":  "required_count_out_of_range",
+                         "Pattern":  "SCENARIO\\.SOURCE: generated deterministic navigation tables from public pads\\.tsv .*navigation/paths\\.tsv",
+                         "Count":  0,
+                         "Min":  1,
+                         "Max":  1
+                     }
+                 ]
+}

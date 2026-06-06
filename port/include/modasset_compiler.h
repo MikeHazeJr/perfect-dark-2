@@ -23,6 +23,7 @@ extern "C" {
 
 struct colmesh;
 struct modeldef;
+struct modelnode;
 struct animtableentry;
 struct skeleton;
 
@@ -99,6 +100,11 @@ s32 modAssetCompilerBuildModeldef(const asset_entry_t *entry,
                                   struct modeldef **out_modeldef);
 
 void modAssetCompilerFreeModeldef(struct modeldef *modeldef);
+
+void modAssetCompilerSetGeneratedModeldefRenderAudit(s32 enabled);
+void modAssetCompilerTraceGeneratedModeldefRender(
+	const struct modeldef *modeldef,
+	const struct modelnode *node);
 
 const char *modAssetCompilerSkeletonSymbolForPointer(
 	const struct skeleton *skeleton);

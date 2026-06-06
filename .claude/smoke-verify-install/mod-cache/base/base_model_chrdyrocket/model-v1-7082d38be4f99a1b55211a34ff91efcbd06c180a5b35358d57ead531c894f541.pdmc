@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 1,
+  "asset_id": "base:model_chrdyrocket",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_chrdyrocket.pdmesh::model.obj",
+  "source_size": 11807,
+  "source_sha256": "7082d38be4f99a1b55211a34ff91efcbd06c180a5b35358d57ead531c894f541",
+  "validation": "format=obj vertices=180 triangles=60",
+  "normalized": "$S/mod-cache/base/base_model_chrdyrocket/model-v1-7082d38be4f99a1b55211a34ff91efcbd06c180a5b35358d57ead531c894f541.pdmodel.json",
+  "vertex_count": 180,
+  "triangle_count": 60,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

@@ -64,6 +64,10 @@
 #include "../../src/lib/naudio/n_sndp.h"
 #include "lib/snd.h"
 #include "scenario_source_runtime.h"
+#include "langmanifest.h"
+#include "romdata.h"
+#include "romextract.h"
+#include "sha256.h"
 #include "bss.h"
 #include "data.h"
 
@@ -71,6 +75,10 @@
 		((soundnum) == SFX_M2_STOP_MOVING \
 		|| (soundnum) == SFX_M1_STOP_DODGING \
 		|| (soundnum) == SFX_F_STAND_STILL)
+
+#define SCENARIO_SOURCE_SPAWNED_CHR_MAX 512
+#define SCENARIO_SOURCE_SETUP_CHR_REF_MAX 2048
+#define SCENARIO_SOURCE_SETUP_RECORD_REF_MAX 4096
 
 extern s16 g_GuardQuipBank[][4];
 extern s16 g_SpecialQuipBank[][4];
@@ -81,6 +89,7 @@ extern s16 g_CiMainQuips[][3];
 extern s16 g_CiGreetingQuips[][3];
 extern s16 g_CiAnnoyedQuips[][3];
 extern s16 g_CiThanksQuips[];
+extern struct animtablerow g_SpecialDieAnims[];
 
 typedef struct scenario_source_pad_row {
 	s32 room;
@@ -130,6 +139,7 @@ typedef struct scenario_source_path_row {
 	s32 id;
 	u32 flags;
 	s32 *pads;
+	u32 *pad_segments;
 	s32 pad_count;
 } scenario_source_path_row_t;
 
@@ -266,12 +276,36 @@ typedef struct scenario_source_match {
 	const asset_entry_t *fallback;
 } scenario_source_match_t;
 
+typedef struct scenario_nav_source_counts {
+	s32 pads;
+	s32 volumes;
+	s32 waypoints;
+	s32 waygroups;
+	s32 covers;
+	s32 paths;
+} scenario_nav_source_counts_t;
+
+typedef struct scenario_nav_source_hashes {
+	char scene[SHA256_HEX_SIZE];
+	char collision[SHA256_HEX_SIZE];
+	char navigation_ini[SHA256_HEX_SIZE];
+	char portals[SHA256_HEX_SIZE];
+	char pads[SHA256_HEX_SIZE];
+	char spawns[SHA256_HEX_SIZE];
+	char volumes[SHA256_HEX_SIZE];
+	char waypoints[SHA256_HEX_SIZE];
+	char waygroups[SHA256_HEX_SIZE];
+	char covers[SHA256_HEX_SIZE];
+	char paths[SHA256_HEX_SIZE];
+} scenario_nav_source_hashes_t;
+
 typedef struct scenario_source_graph_state {
 	char scenario_id[CATALOG_ID_LEN];
 	char level_graph_path[FS_MAXPATH + 1];
 	char mission_id[CATALOG_ID_LEN];
 	char mission_graph_path[FS_MAXPATH + 1];
 	char mission_objectives_path[FS_MAXPATH + 1];
+	char portals_path[FS_MAXPATH + 1];
 	char pads_path[FS_MAXPATH + 1];
 	char spawns_path[FS_MAXPATH + 1];
 	char objects_path[FS_MAXPATH + 1];
@@ -283,14 +317,27 @@ typedef struct scenario_source_graph_state {
 	char waygroups_path[FS_MAXPATH + 1];
 	char covers_path[FS_MAXPATH + 1];
 	char paths_path[FS_MAXPATH + 1];
+	char navigation_ini_path[FS_MAXPATH + 1];
+	char navmesh_cache_path[FS_MAXPATH + 1];
+	scenario_nav_source_counts_t nav_source_counts;
+	scenario_nav_source_hashes_t nav_source_hashes;
 	u32 level_graph_size;
 	u32 mission_graph_size;
 	scenario_source_setup_link_t *setup_links;
 	s32 setup_link_count;
 	scenario_source_volume_row_t *level_volumes;
 	s32 level_volume_count;
+	s32 source_setup_chr_count;
+	s32 source_setup_chr_ref_count;
+	s32 source_setup_chr_refs[SCENARIO_SOURCE_SETUP_CHR_REF_MAX];
+	s32 source_setup_record_count;
+	s32 source_setup_record_ref_count;
+	s32 source_setup_record_refs[SCENARIO_SOURCE_SETUP_RECORD_REF_MAX];
+	struct chrdata *source_spawned_chrs[SCENARIO_SOURCE_SPAWNED_CHR_MAX];
+	s32 source_spawned_chr_count;
 	s32 level_volume_node_count;
 	s32 level_pad_node_count;
+	s32 level_navigation_generate_node_count;
 	s32 level_global_settings_node_count;
 	s32 level_ai_list_node_count;
 	s32 level_ai_stop_node_count;
@@ -728,7 +775,7 @@ typedef struct scenario_source_graph_state {
 	s32 mission_objective_check_logged;
 	s32 mission_objective_state_logged;
 	s32 mission_objective_object_state_logged;
-	s32 setup_link_logged;
+	u32 setup_link_logged_mask;
 	s32 ai_action_stop_logged;
 	s32 ai_action_kneel_logged;
 	s32 ai_action_surrender_logged;
@@ -4002,6 +4049,112 @@ static s32 s_setupParseFieldsTsv(char *text,
 	return table->error[0] == '\0';
 }
 
+static void s_activeGraphSetSourceSetupChrRefs(
+	const scenario_source_setup_table_t *table)
+{
+	s32 i;
+
+	s_ActiveScenarioGraphs.source_setup_chr_count = 0;
+	s_ActiveScenarioGraphs.source_setup_chr_ref_count = 0;
+	s_ActiveScenarioGraphs.source_setup_record_count = 0;
+	s_ActiveScenarioGraphs.source_setup_record_ref_count = 0;
+
+	if (!table || !table->records) {
+		return;
+	}
+
+	for (i = 0; i < table->count; i++) {
+		const scenario_source_setup_record_t *record = &table->records[i];
+
+		s_ActiveScenarioGraphs.source_setup_record_count++;
+		if (record->order >= 0 &&
+				s_ActiveScenarioGraphs.source_setup_record_ref_count <
+					SCENARIO_SOURCE_SETUP_RECORD_REF_MAX) {
+			s_ActiveScenarioGraphs.source_setup_record_refs[
+				s_ActiveScenarioGraphs.source_setup_record_ref_count++] =
+				record->order;
+		}
+
+		if (record->type == OBJTYPE_CHR && record->bytes) {
+			const struct packedchr *packed =
+				(const struct packedchr *)record->bytes;
+
+			s_ActiveScenarioGraphs.source_setup_chr_count++;
+			if (packed->chrnum >= 0 &&
+					s_ActiveScenarioGraphs.source_setup_chr_ref_count <
+						SCENARIO_SOURCE_SETUP_CHR_REF_MAX) {
+				s_ActiveScenarioGraphs.source_setup_chr_refs[
+					s_ActiveScenarioGraphs.source_setup_chr_ref_count++] =
+					packed->chrnum;
+			}
+		}
+	}
+}
+
+static s32 s_sourceSetupContainsChrnum(s32 chrnum)
+{
+	s32 i;
+
+	if (chrnum < 0) {
+		return 0;
+	}
+
+	for (i = 0; i < s_ActiveScenarioGraphs.source_setup_chr_ref_count; i++) {
+		if (s_ActiveScenarioGraphs.source_setup_chr_refs[i] == chrnum) {
+			return 1;
+		}
+	}
+
+	return 0;
+}
+
+static s32 s_sourceSetupContainsRecordOrder(s32 order)
+{
+	s32 i;
+
+	if (order < 0) {
+		return 0;
+	}
+
+	for (i = 0; i < s_ActiveScenarioGraphs.source_setup_record_ref_count; i++) {
+		if (s_ActiveScenarioGraphs.source_setup_record_refs[i] == order) {
+			return 1;
+		}
+	}
+
+	return 0;
+}
+
+static s32 s_setupWriteVehicleAilistRef(
+	scenario_source_setup_record_t *record, s32 list_id)
+{
+	uintptr_t value = (uintptr_t)(u32)list_id;
+	u32 offset;
+
+	if (!record) {
+		return 0;
+	}
+
+	switch (record->type) {
+	case OBJTYPE_TRUCK:
+		offset = (u32)offsetof(struct truckobj, ailist);
+		break;
+	case OBJTYPE_HELI:
+		offset = (u32)offsetof(struct heliobj, ailist);
+		break;
+	case OBJTYPE_HOVERCAR:
+		offset = (u32)offsetof(struct hovercarobj, ailist);
+		break;
+	case OBJTYPE_CHOPPER:
+		offset = (u32)offsetof(struct chopperobj, ailist);
+		break;
+	default:
+		return 0;
+	}
+
+	return s_setupWriteRaw(record, offset, &value, sizeof(value));
+}
+
 static s32 s_setupApplyObjectsSummary(char *text,
 	scenario_source_setup_table_t *table)
 {
@@ -4126,6 +4279,15 @@ static s32 s_setupApplyObjectsSummary(char *text,
 					(u32)offsetof(struct packedchr, ailistnum), ivalue)) {
 				return 0;
 			}
+		} else if (ailist_ref && ailist_ref[0]
+				&& (record->type == OBJTYPE_TRUCK ||
+					record->type == OBJTYPE_HELI ||
+					record->type == OBJTYPE_HOVERCAR ||
+					record->type == OBJTYPE_CHOPPER)) {
+			ivalue = s_parseIndexedRef(ailist_ref);
+			if (!s_setupWriteVehicleAilistRef(record, ivalue)) {
+				return 0;
+			}
 		}
 
 		if (flags && flags[0] && s_parseU32Value(flags, &uvalue)) {
@@ -4184,6 +4346,24 @@ static int s_setupCompareRecords(const void *a, const void *b)
 		return 1;
 	}
 	return strcmp(ra->id, rb->id);
+}
+
+static s32 s_countPathRowsWithFlag(const scenario_source_path_table_t *table,
+	u32 flag)
+{
+	s32 count = 0;
+
+	if (!table || !table->rows) {
+		return 0;
+	}
+
+	for (s32 i = 0; i < table->count; i++) {
+		if (table->rows[i].flags & flag) {
+			count++;
+		}
+	}
+
+	return count;
 }
 
 static u8 *s_setupBuildStageBlock(scenario_source_setup_table_t *table,
@@ -4395,7 +4575,21 @@ static void s_setupClearBehaviorLinks(void)
 	free(s_ActiveScenarioGraphs.setup_links);
 	s_ActiveScenarioGraphs.setup_links = NULL;
 	s_ActiveScenarioGraphs.setup_link_count = 0;
-	s_ActiveScenarioGraphs.setup_link_logged = 0;
+	s_ActiveScenarioGraphs.setup_link_logged_mask = 0;
+}
+
+static u32 s_setupBehaviorLinkLogBit(u8 type)
+{
+	switch (type) {
+	case OBJTYPE_LINKGUNS:           return 1u << 0;
+	case OBJTYPE_LINKLIFTDOOR:       return 1u << 1;
+	case OBJTYPE_SAFEITEM:           return 1u << 2;
+	case OBJTYPE_PADLOCKEDDOOR:      return 1u << 3;
+	case OBJTYPE_CONDITIONALSCENERY: return 1u << 4;
+	case OBJTYPE_BLOCKEDPATH:        return 1u << 5;
+	}
+
+	return 0;
 }
 
 static s32 s_setupFillBehaviorLink(
@@ -4488,6 +4682,127 @@ static s32 s_setupFillBehaviorLink(
 	}
 }
 
+static const scenario_source_setup_record_t *s_setupFindRecordByOrder(
+	const scenario_source_setup_table_t *table, s32 order)
+{
+	if (!table) {
+		return NULL;
+	}
+
+	for (s32 i = 0; i < table->count; i++) {
+		if (table->records[i].order == order) {
+			return &table->records[i];
+		}
+	}
+
+	return NULL;
+}
+
+static s32 s_setupValidateBehaviorLinkTarget(
+	const scenario_source_setup_table_t *table,
+	const scenario_source_setup_link_t *link, const char *source_path,
+	const char *field, s32 target_order, s32 optional, s32 expected_type)
+{
+	const scenario_source_setup_record_t *target;
+
+	if (target_order < 0) {
+		if (optional) {
+			return 1;
+		}
+		sysLogPrintf(LOG_ERROR,
+			"SCENARIO.GRAPH: invalid setup behavior link source '%s' record=%s kind=%s target=%s order=%d is missing",
+			source_path ? source_path : "?",
+			link ? link->record_id : "?",
+			link ? link->kind : "?",
+			field ? field : "?",
+			target_order);
+		return 0;
+	}
+
+	target = s_setupFindRecordByOrder(table, target_order);
+	if (!target) {
+		sysLogPrintf(LOG_ERROR,
+			"SCENARIO.GRAPH: invalid setup behavior link source '%s' record=%s kind=%s target=%s order=%d is not a public setup.fields.tsv row",
+			source_path ? source_path : "?",
+			link ? link->record_id : "?",
+			link ? link->kind : "?",
+			field ? field : "?",
+			target_order);
+		return 0;
+	}
+
+	if (expected_type >= 0 && target->type != (u8)expected_type) {
+		sysLogPrintf(LOG_ERROR,
+			"SCENARIO.GRAPH: invalid setup behavior link source '%s' record=%s kind=%s target=%s order=%d is source type %u, expected source type %u",
+			source_path ? source_path : "?",
+			link ? link->record_id : "?",
+			link ? link->kind : "?",
+			field ? field : "?",
+			target_order,
+			(unsigned)target->type,
+			(unsigned)expected_type);
+		return 0;
+	}
+
+	return 1;
+}
+
+static s32 s_setupValidateBehaviorLinkSourceTargets(
+	const scenario_source_setup_table_t *table,
+	const scenario_source_setup_link_t *link, const char *source_path)
+{
+	if (!table || !link) {
+		return 0;
+	}
+
+	switch (link->type) {
+	case OBJTYPE_LINKGUNS:
+		return s_setupValidateBehaviorLinkTarget(table, link, source_path,
+				"linked_guns.weapon_1", link->target[0], 0,
+				OBJTYPE_WEAPON) &&
+			s_setupValidateBehaviorLinkTarget(table, link, source_path,
+				"linked_guns.weapon_2", link->target[1], 0,
+				OBJTYPE_WEAPON);
+	case OBJTYPE_LINKLIFTDOOR:
+		return s_setupValidateBehaviorLinkTarget(table, link, source_path,
+				"lift_door_link.door", link->target[0], 0,
+				OBJTYPE_DOOR) &&
+			s_setupValidateBehaviorLinkTarget(table, link, source_path,
+				"lift_door_link.lift", link->target[1], 0,
+				OBJTYPE_LIFT);
+	case OBJTYPE_SAFEITEM:
+		return s_setupValidateBehaviorLinkTarget(table, link, source_path,
+				"safe_item.item", link->target[0], 0, -1) &&
+			s_setupValidateBehaviorLinkTarget(table, link, source_path,
+				"safe_item.safe", link->target[1], 0,
+				OBJTYPE_SAFE) &&
+			s_setupValidateBehaviorLinkTarget(table, link, source_path,
+				"safe_item.door", link->target[2], 0,
+				OBJTYPE_DOOR);
+	case OBJTYPE_PADLOCKEDDOOR:
+		return s_setupValidateBehaviorLinkTarget(table, link, source_path,
+				"padlocked_door.door", link->target[0], 0,
+				OBJTYPE_DOOR) &&
+			s_setupValidateBehaviorLinkTarget(table, link, source_path,
+				"padlocked_door.lock", link->target[1], 0, -1);
+	case OBJTYPE_CONDITIONALSCENERY:
+		return s_setupValidateBehaviorLinkTarget(table, link, source_path,
+				"conditional_scenery.trigger", link->target[0], 0,
+				-1) &&
+			s_setupValidateBehaviorLinkTarget(table, link, source_path,
+				"conditional_scenery.unexploded", link->target[1],
+				1, -1) &&
+			s_setupValidateBehaviorLinkTarget(table, link, source_path,
+				"conditional_scenery.exploded", link->target[2],
+				1, -1);
+	case OBJTYPE_BLOCKEDPATH:
+		return s_setupValidateBehaviorLinkTarget(table, link, source_path,
+			"blocked_path.blocker", link->target[0], 0, -1);
+	default:
+		return 1;
+	}
+}
+
 static s32 s_setupCollectBehaviorLinkSource(
 	const asset_entry_t *scenario, const char *source_path,
 	const scenario_source_setup_table_t *table)
@@ -4533,6 +4848,12 @@ static s32 s_setupCollectBehaviorLinkSource(
 				"SCENARIO.GRAPH: invalid setup behavior link source '%s' record=%s kind=%s",
 				source_path ? source_path : active_path,
 				record->id, record->kind);
+			s_setupClearBehaviorLinks();
+			return 0;
+		}
+		if (!s_setupValidateBehaviorLinkSourceTargets(table,
+				&s_ActiveScenarioGraphs.setup_links[index],
+				source_path ? source_path : active_path)) {
 			s_setupClearBehaviorLinks();
 			return 0;
 		}
@@ -4588,6 +4909,186 @@ static void s_freeSegmentList(scenario_source_segment_list_t *list)
 	}
 	list->values = NULL;
 	list->count = 0;
+}
+
+static s32 s_segmentListAppendUnique(scenario_source_segment_list_t *list,
+	u32 value)
+{
+	u32 *grown;
+	s32 i;
+
+	if (!list) {
+		return 0;
+	}
+	for (i = 0; i < list->count; i++) {
+		if (list->values[i] == value) {
+			return 1;
+		}
+	}
+
+	grown = realloc(list->values,
+		(size_t)(list->count + 1) * sizeof(*list->values));
+	if (!grown) {
+		return 0;
+	}
+	list->values = grown;
+	list->values[list->count++] = value;
+	return 1;
+}
+
+static s32 s_segmentListAppendOrMerge(scenario_source_segment_list_t *list,
+	u32 value)
+{
+	u32 id = value & SCENARIO_SEGMENT_ID_MASK;
+	u32 flags = value & ~SCENARIO_SEGMENT_ID_MASK;
+	u32 *grown;
+	s32 i;
+
+	if (!list) {
+		return 0;
+	}
+	for (i = 0; i < list->count; i++) {
+		if ((list->values[i] & SCENARIO_SEGMENT_ID_MASK) == id) {
+			list->values[i] |= flags;
+			return 1;
+		}
+	}
+
+	grown = realloc(list->values,
+		(size_t)(list->count + 1) * sizeof(*list->values));
+	if (!grown) {
+		return 0;
+	}
+	list->values = grown;
+	list->values[list->count++] = value;
+	return 1;
+}
+
+static u32 s_reverseSegmentFlags(u32 flags)
+{
+	u32 reverse = flags & ~(SCENARIO_SEGMENT_FLAG_OUTWARD |
+		SCENARIO_SEGMENT_FLAG_INWARD);
+	if (flags & SCENARIO_SEGMENT_FLAG_OUTWARD) {
+		reverse |= SCENARIO_SEGMENT_FLAG_INWARD;
+	}
+	if (flags & SCENARIO_SEGMENT_FLAG_INWARD) {
+		reverse |= SCENARIO_SEGMENT_FLAG_OUTWARD;
+	}
+	return reverse;
+}
+
+static s32 s_generatedNavigationAddEdge(scenario_source_navigation_t *nav,
+	s32 a, s32 b, u32 flags)
+{
+	if (!nav || a < 0 || b < 0 || a >= nav->waypoint_count ||
+			b >= nav->waypoint_count || a == b) {
+		return 1;
+	}
+	flags &= SCENARIO_SEGMENT_FLAG_OUTWARD | SCENARIO_SEGMENT_FLAG_INWARD;
+	return s_segmentListAppendOrMerge(&nav->waypoints[a].neighbours,
+			((u32)b & SCENARIO_SEGMENT_ID_MASK) | flags) &&
+		s_segmentListAppendOrMerge(&nav->waypoints[b].neighbours,
+			((u32)a & SCENARIO_SEGMENT_ID_MASK) |
+			s_reverseSegmentFlags(flags));
+}
+
+static s32 s_generateNavigationWaygroupsFromEdges(
+	scenario_source_navigation_t *nav)
+{
+	s32 *group_ids;
+	s32 *queue;
+	s32 *group_counts;
+	s32 group_count;
+	s32 i;
+
+	if (!nav || !nav->waypoints || nav->waypoint_count <= 0) {
+		return 0;
+	}
+
+	group_ids = malloc((size_t)nav->waypoint_count * sizeof(*group_ids));
+	queue = malloc((size_t)nav->waypoint_count * sizeof(*queue));
+	group_counts = calloc((size_t)nav->waypoint_count,
+		sizeof(*group_counts));
+	if (!group_ids || !queue || !group_counts) {
+		free(group_ids);
+		free(queue);
+		free(group_counts);
+		return 0;
+	}
+	for (i = 0; i < nav->waypoint_count; i++) {
+		group_ids[i] = -1;
+	}
+
+	group_count = 0;
+	for (i = 0; i < nav->waypoint_count; i++) {
+		s32 head;
+		s32 tail;
+
+		if (group_ids[i] >= 0) {
+			continue;
+		}
+		head = 0;
+		tail = 0;
+		queue[tail++] = i;
+		group_ids[i] = group_count;
+		while (head < tail) {
+			s32 waypoint = queue[head++];
+			s32 j;
+
+			group_counts[group_count]++;
+			for (j = 0; j < nav->waypoints[waypoint].neighbours.count; j++) {
+				s32 neighbour =
+					(s32)(nav->waypoints[waypoint].neighbours.values[j] &
+						SCENARIO_SEGMENT_ID_MASK);
+				if (neighbour < 0 || neighbour >= nav->waypoint_count) {
+					free(group_ids);
+					free(queue);
+					free(group_counts);
+					return 0;
+				}
+				if (group_ids[neighbour] < 0) {
+					group_ids[neighbour] = group_count;
+					queue[tail++] = neighbour;
+				}
+			}
+		}
+		group_count++;
+	}
+
+	nav->waygroups = calloc((size_t)group_count, sizeof(*nav->waygroups));
+	if (!nav->waygroups) {
+		free(group_ids);
+		free(queue);
+		free(group_counts);
+		return 0;
+	}
+	nav->waygroup_count = group_count;
+	for (i = 0; i < group_count; i++) {
+		nav->waygroups[i].step = 0;
+		nav->waygroups[i].waypoints.values =
+			malloc((size_t)group_counts[i] *
+				sizeof(*nav->waygroups[i].waypoints.values));
+		if (!nav->waygroups[i].waypoints.values) {
+			free(group_ids);
+			free(queue);
+			free(group_counts);
+			return 0;
+		}
+		nav->waygroups[i].waypoints.count = group_counts[i];
+		group_counts[i] = 0;
+	}
+	for (i = 0; i < nav->waypoint_count; i++) {
+		s32 group = group_ids[i];
+		s32 cursor = group_counts[group]++;
+
+		nav->waypoints[i].groupnum = group;
+		nav->waygroups[group].waypoints.values[cursor] = (u32)i;
+	}
+
+	free(group_ids);
+	free(queue);
+	free(group_counts);
+	return 1;
 }
 
 static s32 s_parseSegmentList(char *field, const char *prefix,
@@ -4672,6 +5173,7 @@ static void s_freePathTable(scenario_source_path_table_t *table)
 	if (table->rows) {
 		for (s32 i = 0; i < table->count; i++) {
 			free(table->rows[i].pads);
+			free(table->rows[i].pad_segments);
 		}
 		free(table->rows);
 	}
@@ -4679,17 +5181,19 @@ static void s_freePathTable(scenario_source_path_table_t *table)
 }
 
 static s32 s_parsePathPadList(char *field, s32 **out_pads,
-	s32 *out_count)
+	u32 **out_segments, s32 *out_count)
 {
 	s32 capacity;
 	s32 count;
 	s32 *pads;
+	u32 *segments;
 	char *cursor;
 
-	if (!out_pads || !out_count) {
+	if (!out_pads || !out_segments || !out_count) {
 		return 0;
 	}
 	*out_pads = NULL;
+	*out_segments = NULL;
 	*out_count = 0;
 
 	if (!field || !field[0]) {
@@ -4699,7 +5203,10 @@ static s32 s_parsePathPadList(char *field, s32 **out_pads,
 	capacity = 8;
 	count = 0;
 	pads = (s32 *)malloc((size_t)capacity * sizeof(*pads));
-	if (!pads) {
+	segments = (u32 *)malloc((size_t)capacity * sizeof(*segments));
+	if (!pads || !segments) {
+		free(pads);
+		free(segments);
 		return 0;
 	}
 
@@ -4708,6 +5215,7 @@ static s32 s_parsePathPadList(char *field, s32 **out_pads,
 		char *token = cursor;
 		char *end = cursor;
 		s32 padnum;
+		u32 segment;
 
 		while (*end && *end != ';' && *end != ',') {
 			end++;
@@ -4723,31 +5231,46 @@ static s32 s_parsePathPadList(char *field, s32 **out_pads,
 		if (!token[0]) {
 			continue;
 		}
-		padnum = s_parseIndexedRef(token);
-		if (padnum < 0 || !s_startsWith(token, "pad_")) {
+		if (!s_parseSegmentToken(token, "pad_", &segment)) {
 			free(pads);
+			free(segments);
 			return 0;
 		}
+		padnum = (s32)(segment & SCENARIO_SEGMENT_ID_MASK);
 		if (count >= capacity) {
 			s32 *grown;
+			u32 *grown_segments;
 			capacity *= 2;
 			grown = (s32 *)realloc(pads,
 				(size_t)capacity * sizeof(*pads));
-			if (!grown) {
+			grown_segments = (u32 *)realloc(segments,
+				(size_t)capacity * sizeof(*segments));
+			if (!grown || !grown_segments) {
+				if (grown) {
+					pads = grown;
+				}
+				if (grown_segments) {
+					segments = grown_segments;
+				}
 				free(pads);
+				free(segments);
 				return 0;
 			}
 			pads = grown;
+			segments = grown_segments;
 		}
 		pads[count++] = padnum;
+		segments[count - 1] = segment;
 	}
 
 	if (count <= 0) {
 		free(pads);
+		free(segments);
 		return 0;
 	}
 
 	*out_pads = pads;
+	*out_segments = segments;
 	*out_count = count;
 	return 1;
 }
@@ -4759,7 +5282,8 @@ static s32 s_pathAppendRow(scenario_source_path_table_t *table,
 	s32 new_capacity;
 
 	if (!table || !row || row->id < 0 || row->id > 0xff ||
-			row->flags > 0xffu || !row->pads || row->pad_count <= 0) {
+			row->flags > 0xffu || !row->pads || !row->pad_segments ||
+			row->pad_count <= 0) {
 		return 0;
 	}
 
@@ -4813,8 +5337,9 @@ static s32 s_loadPathSourceRows(char *text,
 				!s_parseU32Value(flags, &parsed_flags) ||
 				parsed_flags > 0xffu ||
 				!s_parsePathPadList(pads, &row.pads,
-				&row.pad_count)) {
+				&row.pad_segments, &row.pad_count)) {
 			free(row.pads);
+			free(row.pad_segments);
 			s_pathTableSetError(table, "bad path row '%s'", path_ref);
 			return 0;
 		}
@@ -4822,6 +5347,7 @@ static s32 s_loadPathSourceRows(char *text,
 
 		if (!s_pathAppendRow(table, &row)) {
 			free(row.pads);
+			free(row.pad_segments);
 			return 0;
 		}
 	}
@@ -5585,6 +6111,246 @@ static void s_freeNavigation(scenario_source_navigation_t *nav)
 	memset(nav, 0, sizeof(*nav));
 }
 
+static s32 s_generateNavigationTablesFromPads(
+	const scenario_source_pad_row_t *pads, s32 pad_count,
+	const scenario_source_path_table_t *path_table,
+	scenario_source_navigation_t *nav)
+{
+	s32 i;
+	s32 *pad_order;
+	s32 *pad_to_waypoint;
+	u8 *seen_pads;
+	s32 ordered_count;
+
+	if (!nav || pad_count < 0 || (!pads && pad_count > 0) ||
+			pad_count > (s32)SCENARIO_SEGMENT_ID_MASK + 1) {
+		return 0;
+	}
+
+	s_freeNavigation(nav);
+	if (pad_count == 0) {
+		return 1;
+	}
+
+	pad_order = malloc((size_t)pad_count * sizeof(*pad_order));
+	pad_to_waypoint = malloc((size_t)pad_count * sizeof(*pad_to_waypoint));
+	seen_pads = calloc((size_t)pad_count, sizeof(*seen_pads));
+	if (!pad_order || !pad_to_waypoint || !seen_pads) {
+		free(pad_order);
+		free(pad_to_waypoint);
+		free(seen_pads);
+		return 0;
+	}
+
+	ordered_count = 0;
+	if (path_table && path_table->count > 0) {
+		for (i = 0; i < path_table->count; i++) {
+			s32 j;
+			const scenario_source_path_row_t *path = &path_table->rows[i];
+			for (j = 0; j < path->pad_count; j++) {
+				s32 padnum = path->pads[j];
+				if (padnum < 0 || padnum >= pad_count) {
+					free(pad_order);
+					free(pad_to_waypoint);
+					free(seen_pads);
+					return 0;
+				}
+				if (!seen_pads[padnum]) {
+					seen_pads[padnum] = 1;
+					pad_order[ordered_count++] = padnum;
+				}
+			}
+		}
+	}
+	for (i = 0; i < pad_count; i++) {
+		if (!seen_pads[i]) {
+			pad_order[ordered_count++] = i;
+		}
+	}
+	free(seen_pads);
+	if (ordered_count != pad_count) {
+		free(pad_order);
+		free(pad_to_waypoint);
+		return 0;
+	}
+
+	nav->waypoints = calloc((size_t)pad_count, sizeof(*nav->waypoints));
+	nav->covers = calloc((size_t)pad_count, sizeof(*nav->covers));
+	if (!nav->waypoints || !nav->covers) {
+		free(pad_order);
+		free(pad_to_waypoint);
+		s_freeNavigation(nav);
+		return 0;
+	}
+
+	nav->waypoint_count = pad_count;
+	nav->cover_count = pad_count;
+
+	for (i = 0; i < pad_count; i++) {
+		s32 padnum = pad_order[i];
+
+		pad_to_waypoint[padnum] = i;
+		nav->waypoints[i].padnum = padnum;
+		nav->waypoints[i].groupnum = 0;
+		nav->waypoints[i].step = 0;
+
+		nav->covers[i].pos[0] = pads[padnum].pos[0];
+		nav->covers[i].pos[1] = pads[padnum].pos[1];
+		nav->covers[i].pos[2] = pads[padnum].pos[2];
+		nav->covers[i].look[0] = pads[padnum].look[0];
+		nav->covers[i].look[1] = pads[padnum].look[1];
+		nav->covers[i].look[2] = pads[padnum].look[2];
+		nav->covers[i].flags = 0;
+	}
+
+	if (path_table && path_table->count > 0) {
+		for (i = 0; i < path_table->count; i++) {
+			s32 j;
+			const scenario_source_path_row_t *path = &path_table->rows[i];
+			for (j = 1; j < path->pad_count; j++) {
+				s32 a = pad_to_waypoint[path->pads[j - 1]];
+				s32 b = pad_to_waypoint[path->pads[j]];
+				u32 segment_flags = path->pad_segments
+					? (path->pad_segments[j - 1] &
+						(SCENARIO_SEGMENT_FLAG_OUTWARD |
+							SCENARIO_SEGMENT_FLAG_INWARD))
+					: 0;
+				if (!s_generatedNavigationAddEdge(nav, a, b,
+						segment_flags)) {
+					free(pad_order);
+					free(pad_to_waypoint);
+					s_freeNavigation(nav);
+					return 0;
+				}
+			}
+			if ((path->flags & PATHFLAG_CIRCULAR) && path->pad_count > 2) {
+				s32 a = pad_to_waypoint[path->pads[path->pad_count - 1]];
+				s32 b = pad_to_waypoint[path->pads[0]];
+				u32 segment_flags = path->pad_segments
+					? (path->pad_segments[path->pad_count - 1] &
+						(SCENARIO_SEGMENT_FLAG_OUTWARD |
+							SCENARIO_SEGMENT_FLAG_INWARD))
+					: 0;
+				if (!s_generatedNavigationAddEdge(nav, a, b,
+						segment_flags)) {
+					free(pad_order);
+					free(pad_to_waypoint);
+					s_freeNavigation(nav);
+					return 0;
+				}
+			}
+		}
+	} else {
+		for (i = 1; i < pad_count; i++) {
+			if (!s_generatedNavigationAddEdge(nav, i - 1, i, 0)) {
+				free(pad_order);
+				free(pad_to_waypoint);
+				s_freeNavigation(nav);
+				return 0;
+			}
+		}
+	}
+
+	if (!s_generateNavigationWaygroupsFromEdges(nav)) {
+		free(pad_order);
+		free(pad_to_waypoint);
+		s_freeNavigation(nav);
+		return 0;
+	}
+
+	free(pad_order);
+	free(pad_to_waypoint);
+	return 1;
+}
+
+static s32 s_countNavigationDirectionalSegments(
+	const scenario_source_navigation_t *nav)
+{
+	s32 i;
+	s32 count;
+
+	if (!nav || !nav->waypoints) {
+		return 0;
+	}
+	count = 0;
+	for (i = 0; i < nav->waypoint_count; i++) {
+		for (s32 j = 0; j < nav->waypoints[i].neighbours.count; j++) {
+			if (nav->waypoints[i].neighbours.values[j] &
+					(SCENARIO_SEGMENT_FLAG_OUTWARD |
+						SCENARIO_SEGMENT_FLAG_INWARD)) {
+				count++;
+			}
+		}
+	}
+	return count;
+}
+
+static s32 s_countNavigationWaypointEdges(
+	const scenario_source_navigation_t *nav)
+{
+	s32 i;
+	s32 refs;
+
+	if (!nav || !nav->waypoints) {
+		return 0;
+	}
+	refs = 0;
+	for (i = 0; i < nav->waypoint_count; i++) {
+		refs += nav->waypoints[i].neighbours.count;
+	}
+	return refs / 2;
+}
+
+static s32 s_countNavigationWaypointNeighbourRefs(
+	const scenario_source_navigation_t *nav)
+{
+	s32 i;
+	s32 refs;
+
+	if (!nav || !nav->waypoints) {
+		return 0;
+	}
+	refs = 0;
+	for (i = 0; i < nav->waypoint_count; i++) {
+		refs += nav->waypoints[i].neighbours.count;
+	}
+	return refs;
+}
+
+static s32 s_countNavigationWaygroupNeighbourRefs(
+	const scenario_source_navigation_t *nav)
+{
+	s32 i;
+	s32 refs;
+
+	if (!nav || !nav->waygroups) {
+		return 0;
+	}
+	refs = 0;
+	for (i = 0; i < nav->waygroup_count; i++) {
+		refs += nav->waygroups[i].neighbours.count;
+	}
+	return refs;
+}
+
+static s32 s_countNavigationBranchWaypoints(
+	const scenario_source_navigation_t *nav)
+{
+	s32 i;
+	s32 count;
+
+	if (!nav || !nav->waypoints) {
+		return 0;
+	}
+	count = 0;
+	for (i = 0; i < nav->waypoint_count; i++) {
+		if (nav->waypoints[i].neighbours.count > 2) {
+			count++;
+		}
+	}
+	return count;
+}
+
 static s32 s_parseWaypointsTsv(char *text, scenario_source_navigation_t *nav)
 {
 	scenario_source_waypoint_row_t *rows;
@@ -6180,6 +6946,269 @@ static char *s_loadGraphText(const char *path, u32 *out_size)
 		*out_size = size;
 	}
 	return text;
+}
+
+static void s_hashSourceTextHex(const char *text, u32 size,
+	char out_hash[SHA256_HEX_SIZE])
+{
+	u8 digest[SHA256_DIGEST_SIZE];
+
+	if (!out_hash) {
+		return;
+	}
+	out_hash[0] = '\0';
+	if (!text) {
+		return;
+	}
+
+	sha256Hash(text, (size_t)size, digest);
+	sha256ToHex(digest, out_hash);
+}
+
+static s32 s_hashSourceFileHex(const char *path,
+	char out_hash[SHA256_HEX_SIZE])
+{
+	u8 digest[SHA256_DIGEST_SIZE];
+	u8 *data;
+	u32 size;
+
+	if (out_hash) {
+		out_hash[0] = '\0';
+	}
+	if (!path || !path[0] || !out_hash) {
+		return 0;
+	}
+
+	size = 0;
+	data = (u8 *)fsFileLoad(path, &size);
+	if (!data || size == 0) {
+		if (data) {
+			free(data);
+		}
+		return 0;
+	}
+
+	sha256Hash(data, (size_t)size, digest);
+	sha256ToHex(digest, out_hash);
+	free(data);
+	return 1;
+}
+
+static s32 s_countAndHashSourceTsvRows(const char *path, s32 *out_rows,
+	char out_hash[SHA256_HEX_SIZE])
+{
+	char *text;
+	char *cursor;
+	char *line;
+	s32 rows;
+	s32 header;
+	u32 text_size;
+
+	if (out_rows) {
+		*out_rows = 0;
+	}
+	if (out_hash) {
+		out_hash[0] = '\0';
+	}
+	if (!path || !path[0] || !out_rows || !out_hash) {
+		return 0;
+	}
+
+	text_size = 0;
+	text = s_loadGraphText(path, &text_size);
+	if (!text) {
+		return 0;
+	}
+	s_hashSourceTextHex(text, text_size, out_hash);
+
+	cursor = text;
+	rows = 0;
+	header = 1;
+	while ((line = s_nextLine(&cursor)) != NULL) {
+		if (!line[0]) {
+			continue;
+		}
+		if (header) {
+			header = 0;
+			continue;
+		}
+		rows++;
+	}
+
+	free(text);
+	*out_rows = rows;
+	return 1;
+}
+
+static s32 s_bindNavigationGenerateSource(const asset_entry_t *scenario,
+	const char *graph_text, const char *graph_path, char *nav_ini_out,
+	size_t nav_ini_out_n, char *nav_cache_out, size_t nav_cache_out_n,
+	const char *portals_path, const char *pads_path,
+	const char *spawns_path, const char *volumes_path,
+	const char *waypoints_path, const char *waygroups_path,
+	const char *covers_path, const char *paths_path,
+	scenario_nav_source_counts_t *counts_out,
+	scenario_nav_source_hashes_t *hashes_out)
+{
+	char *nav_text;
+	char *cache_text;
+	char scene_path[FS_MAXPATH + 1];
+	char collision_path[FS_MAXPATH + 1];
+	scenario_nav_source_counts_t counts;
+	scenario_nav_source_hashes_t hashes;
+	char expected_counts[256];
+	char expected_hashes[1280];
+	u32 nav_size;
+	s32 rows_ignored;
+
+	if (!graph_text || !graph_path || !nav_ini_out || !nav_cache_out ||
+			!counts_out || !hashes_out) {
+		return 0;
+	}
+
+	nav_ini_out[0] = '\0';
+	nav_cache_out[0] = '\0';
+	scene_path[0] = '\0';
+	collision_path[0] = '\0';
+	memset(&counts, 0, sizeof(counts));
+	memset(&hashes, 0, sizeof(hashes));
+	rows_ignored = 0;
+	if (!strstr(graph_text, "\"id\": \"navigation.generate\"") ||
+			!strstr(graph_text,
+				"\"kind\": \"scenario.navigation.generate\"") ||
+			!strstr(graph_text, "\"source\": \"navigation.ini\"") ||
+			!strstr(graph_text,
+				"\"cache\": \"_meta/generated-navmesh.json\"")) {
+		s_graphFailure(ASSET_SCENARIO,
+			scenario && scenario->id[0] ? scenario->id : "?",
+			graph_path, "missing navigation.generate source/cache binding");
+		return 0;
+	}
+
+	if (!s_scenarioMemberPath(scenario, "scene.glb", scene_path,
+			sizeof(scene_path)) ||
+			!s_scenarioMemberPath(scenario, "collision.obj",
+			collision_path, sizeof(collision_path)) ||
+			!s_scenarioMemberPath(scenario, "navigation.ini", nav_ini_out,
+			nav_ini_out_n) ||
+			!s_scenarioMemberPath(scenario, "_meta/generated-navmesh.json",
+			nav_cache_out, nav_cache_out_n)) {
+		s_graphFailure(ASSET_SCENARIO,
+			scenario && scenario->id[0] ? scenario->id : "?",
+			graph_path, "invalid navigation.generate member paths");
+		return 0;
+	}
+
+	if (!s_hashSourceFileHex(scene_path, hashes.scene) ||
+			!s_hashSourceFileHex(collision_path, hashes.collision)) {
+		s_graphFailure(ASSET_SCENARIO,
+			scenario && scenario->id[0] ? scenario->id : "?",
+			graph_path, "navigation surface/collision source hash load failed");
+		return 0;
+	}
+
+	nav_size = 0;
+	nav_text = s_loadGraphText(nav_ini_out, &nav_size);
+	if (!nav_text) {
+		s_graphFailure(ASSET_SCENARIO,
+			scenario && scenario->id[0] ? scenario->id : "?",
+			nav_ini_out, "navigation.generate source load failed");
+		return 0;
+	}
+	s_hashSourceTextHex(nav_text, nav_size, hashes.navigation_ini);
+	if (!strstr(nav_text, "generator = deterministic.surface_graph.v1") ||
+			!strstr(nav_text, "source = scene.glb") ||
+			!strstr(nav_text, "collision_source = collision.obj") ||
+			!strstr(nav_text, "supports_walk = true") ||
+			!strstr(nav_text, "supports_jump = true") ||
+			!strstr(nav_text, "supports_drop = true") ||
+			!strstr(nav_text, "supports_wall = true") ||
+			!strstr(nav_text, "supports_ceiling = true") ||
+			!strstr(nav_text,
+				"generated_cache = _meta/generated-navmesh.json")) {
+		free(nav_text);
+		s_graphFailure(ASSET_SCENARIO,
+			scenario && scenario->id[0] ? scenario->id : "?",
+			nav_ini_out,
+			"navigation.ini missing deterministic nav generation contract");
+		return 0;
+	}
+	free(nav_text);
+
+	if (!s_countAndHashSourceTsvRows(portals_path, &rows_ignored,
+				hashes.portals) ||
+			!s_countAndHashSourceTsvRows(pads_path, &counts.pads,
+				hashes.pads) ||
+			!s_countAndHashSourceTsvRows(spawns_path, &rows_ignored,
+				hashes.spawns) ||
+			!s_countAndHashSourceTsvRows(volumes_path, &counts.volumes,
+				hashes.volumes) ||
+			!s_countAndHashSourceTsvRows(waypoints_path, &counts.waypoints,
+				hashes.waypoints) ||
+			!s_countAndHashSourceTsvRows(waygroups_path, &counts.waygroups,
+				hashes.waygroups) ||
+			!s_countAndHashSourceTsvRows(covers_path, &counts.covers,
+				hashes.covers) ||
+			!s_countAndHashSourceTsvRows(paths_path, &counts.paths,
+				hashes.paths)) {
+		s_graphFailure(ASSET_SCENARIO,
+			scenario && scenario->id[0] ? scenario->id : "?",
+			graph_path, "navigation source table hash/count load failed");
+		return 0;
+	}
+
+	cache_text = s_loadGraphText(nav_cache_out, NULL);
+	if (!cache_text) {
+		s_graphFailure(ASSET_SCENARIO,
+			scenario && scenario->id[0] ? scenario->id : "?",
+			nav_cache_out, "generated navmesh cache metadata load failed");
+		return 0;
+	}
+	if (!strstr(cache_text, "\"schema\": \"pd2.generated.navmesh.v1\"") ||
+			!strstr(cache_text,
+				"\"generator\": \"deterministic.surface_graph.v1\"") ||
+			!strstr(cache_text,
+				"\"capabilities\": [\"walk\", \"jump\", \"drop\", \"wall\", \"ceiling\"]") ||
+			!strstr(cache_text, "\"cache_only\": true")) {
+		free(cache_text);
+		s_graphFailure(ASSET_SCENARIO,
+			scenario && scenario->id[0] ? scenario->id : "?",
+			nav_cache_out,
+			"generated navmesh metadata missing deterministic cache contract");
+		return 0;
+	}
+
+	snprintf(expected_counts, sizeof(expected_counts),
+		"\"source_counts\": { \"pads\": %d, \"volumes\": %d, \"waypoints\": %d, \"waygroups\": %d, \"covers\": %d, \"paths\": %d }",
+		counts.pads, counts.volumes, counts.waypoints,
+		counts.waygroups, counts.covers, counts.paths);
+	if (!strstr(cache_text, expected_counts)) {
+		free(cache_text);
+		s_graphFailure(ASSET_SCENARIO,
+			scenario && scenario->id[0] ? scenario->id : "?",
+			nav_cache_out,
+			"generated navmesh metadata source counts mismatch public navigation tables");
+		return 0;
+	}
+
+	snprintf(expected_hashes, sizeof(expected_hashes),
+		"\"source_hashes\": { \"scene.glb\": \"%s\", \"collision.obj\": \"%s\", \"navigation.ini\": \"%s\", \"portals.tsv\": \"%s\", \"pads.tsv\": \"%s\", \"spawns.tsv\": \"%s\", \"volumes.tsv\": \"%s\", \"navigation/waypoints.tsv\": \"%s\", \"navigation/waygroups.tsv\": \"%s\", \"navigation/covers.tsv\": \"%s\", \"navigation/paths.tsv\": \"%s\" }",
+		hashes.scene, hashes.collision, hashes.navigation_ini,
+		hashes.portals, hashes.pads, hashes.spawns, hashes.volumes,
+		hashes.waypoints, hashes.waygroups, hashes.covers, hashes.paths);
+	if (!strstr(cache_text, expected_hashes)) {
+		free(cache_text);
+		s_graphFailure(ASSET_SCENARIO,
+			scenario && scenario->id[0] ? scenario->id : "?",
+			nav_cache_out,
+			"generated navmesh metadata source hashes mismatch public navigation inputs");
+		return 0;
+	}
+
+	free(cache_text);
+	*counts_out = counts;
+	*hashes_out = hashes;
+	return 1;
 }
 
 static s32 s_missionGraphMemberPath(const asset_entry_t *mission,
@@ -6784,6 +7813,7 @@ s32 scenarioSourceActivateGraphsForStage(const catalog_stage_result_t *stage,
 	s32 level_volume_count;
 	s32 level_volume_node_count;
 	s32 level_pad_node_count;
+	s32 level_navigation_generate_node_count;
 	s32 level_global_settings_node_count;
 	s32 level_ai_list_node_count;
 	s32 level_ai_stop_node_count;
@@ -7259,6 +8289,8 @@ s32 scenarioSourceActivateGraphsForStage(const catalog_stage_result_t *stage,
 		"\"kind\": \"scenario.trigger.volume.source\"");
 	level_pad_node_count = s_countTextOccurrences(text,
 		"\"kind\": \"scenario.pads.source\"");
+	level_navigation_generate_node_count = s_countTextOccurrences(text,
+		"\"kind\": \"scenario.navigation.generate\"");
 	level_global_settings_node_count = s_countTextOccurrences(text,
 		"\"kind\": \"scenario.global.settings.source\"");
 	level_ai_list_node_count = s_countTextOccurrences(text,
@@ -8247,6 +9279,12 @@ s32 scenarioSourceActivateGraphsForStage(const catalog_stage_result_t *stage,
 		free(text);
 		return 0;
 	}
+	if (level_navigation_generate_node_count != 1) {
+		s_graphFailure(ASSET_SCENARIO, scenario->id, graph_path,
+			"missing executable navigation generate source node");
+		free(text);
+		return 0;
+	}
 	if (level_ai_list_node_count != 1) {
 		s_graphFailure(ASSET_SCENARIO, scenario->id, graph_path,
 			"missing executable AI list source node");
@@ -9018,7 +10056,10 @@ s32 scenarioSourceActivateGraphsForStage(const catalog_stage_result_t *stage,
 		sizeof(s_ActiveScenarioGraphs.scenario_id), scenario->id);
 	s_copyString(s_ActiveScenarioGraphs.level_graph_path,
 		sizeof(s_ActiveScenarioGraphs.level_graph_path), graph_path);
-	if (!s_bindLevelGraphTablePath(scenario, text, graph_path, "pads",
+	if (!s_bindLevelGraphTablePath(scenario, text, graph_path, "portals",
+			s_ActiveScenarioGraphs.portals_path,
+			sizeof(s_ActiveScenarioGraphs.portals_path)) ||
+			!s_bindLevelGraphTablePath(scenario, text, graph_path, "pads",
 			s_ActiveScenarioGraphs.pads_path,
 			sizeof(s_ActiveScenarioGraphs.pads_path)) ||
 			!s_bindLevelGraphTablePath(scenario, text, graph_path, "spawns",
@@ -9055,6 +10096,25 @@ s32 scenarioSourceActivateGraphsForStage(const catalog_stage_result_t *stage,
 		free(text);
 		return 0;
 	}
+	if (!s_bindNavigationGenerateSource(scenario, text, graph_path,
+			s_ActiveScenarioGraphs.navigation_ini_path,
+			sizeof(s_ActiveScenarioGraphs.navigation_ini_path),
+			s_ActiveScenarioGraphs.navmesh_cache_path,
+			sizeof(s_ActiveScenarioGraphs.navmesh_cache_path),
+			s_ActiveScenarioGraphs.portals_path,
+			s_ActiveScenarioGraphs.pads_path,
+			s_ActiveScenarioGraphs.spawns_path,
+			s_ActiveScenarioGraphs.volumes_path,
+			s_ActiveScenarioGraphs.waypoints_path,
+			s_ActiveScenarioGraphs.waygroups_path,
+			s_ActiveScenarioGraphs.covers_path,
+			s_ActiveScenarioGraphs.paths_path,
+			&s_ActiveScenarioGraphs.nav_source_counts,
+			&s_ActiveScenarioGraphs.nav_source_hashes)) {
+		s_resetActiveScenarioGraphs();
+		free(text);
+		return 0;
+	}
 	level_volume_count = 0;
 	if (!s_loadLevelVolumeSourceRows(s_ActiveScenarioGraphs.volumes_path,
 			&level_volume_rows, &level_volume_count)) {
@@ -9080,6 +10140,8 @@ s32 scenarioSourceActivateGraphsForStage(const catalog_stage_result_t *stage,
 		level_volume_node_count;
 	s_ActiveScenarioGraphs.level_pad_node_count =
 		level_pad_node_count;
+	s_ActiveScenarioGraphs.level_navigation_generate_node_count =
+		level_navigation_generate_node_count;
 	s_ActiveScenarioGraphs.level_global_settings_node_count =
 		level_global_settings_node_count;
 	s_ActiveScenarioGraphs.level_ai_list_node_count =
@@ -9938,8 +11000,9 @@ s32 scenarioSourceActivateGraphsForStage(const catalog_stage_result_t *stage,
 		"SCENARIO.GRAPH: activated level graph '%s' path=%s bytes=%u stage='%s'",
 		scenario->id, graph_path, (unsigned)text_size, stageid);
 	sysLogPrintf(LOG_NOTE,
-		"SCENARIO.GRAPH: table refs '%s' pads=%s spawns=%s setup=%s ai=%s objects=%s volumes=%s objectives=%s waypoints=%s waygroups=%s covers=%s paths=%s",
+		"SCENARIO.GRAPH: table refs '%s' portals=%s pads=%s spawns=%s setup=%s ai=%s objects=%s volumes=%s objectives=%s waypoints=%s waygroups=%s covers=%s paths=%s",
 		scenario->id,
+		s_ActiveScenarioGraphs.portals_path,
 		s_ActiveScenarioGraphs.pads_path,
 		s_ActiveScenarioGraphs.spawns_path,
 		s_ActiveScenarioGraphs.setup_fields_path,
@@ -9966,6 +11029,17 @@ s32 scenarioSourceActivateGraphsForStage(const catalog_stage_result_t *stage,
 		"SCENARIO.GRAPH: pad source '%s' nodes=%d backend=graph.pads+pads.tsv",
 		s_ActiveScenarioGraphs.pads_path,
 		s_ActiveScenarioGraphs.level_pad_node_count);
+	sysLogPrintf(LOG_NOTE,
+		"SCENARIO.GRAPH: navigation generate source '%s' cache=%s nodes=%d source_counts=pads:%d,volumes:%d,waypoints:%d,waygroups:%d,covers:%d,paths:%d source_hashes=sha256 capabilities=walk,jump,drop,wall,ceiling backend=graph.navigation.generate+navigation.ini+generated-navmesh.json",
+		s_ActiveScenarioGraphs.navigation_ini_path,
+		s_ActiveScenarioGraphs.navmesh_cache_path,
+		s_ActiveScenarioGraphs.level_navigation_generate_node_count,
+		s_ActiveScenarioGraphs.nav_source_counts.pads,
+		s_ActiveScenarioGraphs.nav_source_counts.volumes,
+		s_ActiveScenarioGraphs.nav_source_counts.waypoints,
+		s_ActiveScenarioGraphs.nav_source_counts.waygroups,
+		s_ActiveScenarioGraphs.nav_source_counts.covers,
+		s_ActiveScenarioGraphs.nav_source_counts.paths);
 	sysLogPrintf(LOG_NOTE,
 		"SCENARIO.GRAPH: trigger volume nodes '%s' nodes=%d rows=%d backend=graph.trigger.volumes+level.graph.nodes+volumes.tsv",
 		s_ActiveScenarioGraphs.level_graph_path,
@@ -10503,7 +11577,7 @@ s32 scenarioSourceActivateGraphsForStage(const catalog_stage_result_t *stage,
 		s_ActiveScenarioGraphs.level_ai_player_auto_walk_node_count,
 		s_ActiveScenarioGraphs.level_ai_if_player_auto_walk_finished_node_count);
 	sysLogPrintf(LOG_NOTE,
-		"SCENARIO.GRAPH: AI object-room conditions '%s' if_obj_in_room=%d backend=graph.ai.condition.object_room+ai/ailists.tsv+objects.tsv+scene.glb",
+		"SCENARIO.GRAPH: AI object-room conditions '%s' if_obj_in_room=%d backend=graph.ai.condition.object_room+ai/ailists.tsv+objects.tsv+pads.tsv+scene.glb",
 		s_ActiveScenarioGraphs.level_graph_path,
 		s_ActiveScenarioGraphs.level_ai_if_obj_in_room_node_count);
 	sysLogPrintf(LOG_NOTE,
@@ -10768,6 +11842,1543 @@ static s32 s_aiGraphRuntimeFailure(const char *action, const char *reason)
 	return 1;
 }
 
+static s32 s_countRuntimePaths(void)
+{
+	s32 count = 0;
+
+	if (!g_StageSetup.paths) {
+		return 0;
+	}
+
+	while (count <= 0xff && g_StageSetup.paths[count].pads) {
+		count++;
+	}
+
+	return count;
+}
+
+static s32 s_countRuntimePads(void)
+{
+	if (!g_PadsFile || !g_StageSetup.padfiledata ||
+			g_PadsFile->numpads <= 0) {
+		return 0;
+	}
+
+	return g_PadsFile->numpads;
+}
+
+static s32 s_countRuntimeCovers(void)
+{
+	if (!g_PadsFile || !g_StageSetup.padfiledata ||
+			!g_StageSetup.cover || g_PadsFile->numcovers <= 0) {
+		return 0;
+	}
+
+	return g_PadsFile->numcovers;
+}
+
+static s32 s_countRuntimeSetupObjectRows(void)
+{
+	struct defaultobj *obj = (struct defaultobj *)g_StageSetup.props;
+	s32 count = 0;
+
+	if (!obj) {
+		return 0;
+	}
+
+	while (obj->type != OBJTYPE_END && count <= 0x3fff) {
+		obj = (struct defaultobj *)((u32 *)obj +
+			setupGetCmdLength((u32 *)obj));
+		count++;
+	}
+
+	return count;
+}
+
+static s32 s_countRuntimeSetupChrRows(void)
+{
+	struct defaultobj *obj = (struct defaultobj *)g_StageSetup.props;
+	s32 count = 0;
+	s32 row_count = 0;
+
+	if (!obj) {
+		return 0;
+	}
+
+	while (obj->type != OBJTYPE_END && count <= 0x3fff) {
+		if (obj->type == OBJTYPE_CHR) {
+			row_count++;
+		}
+		obj = (struct defaultobj *)((u32 *)obj +
+			setupGetCmdLength((u32 *)obj));
+		count++;
+	}
+
+	return row_count;
+}
+
+static s32 s_runtimeSetupContainsObjectRow(const struct defaultobj *needle)
+{
+	struct defaultobj *obj = (struct defaultobj *)g_StageSetup.props;
+	s32 count = 0;
+
+	if (!needle || !obj) {
+		return 0;
+	}
+
+	while (obj->type != OBJTYPE_END && count <= 0x3fff) {
+		if (obj == needle) {
+			return 1;
+		}
+		obj = (struct defaultobj *)((u32 *)obj +
+			setupGetCmdLength((u32 *)obj));
+		count++;
+	}
+
+	return 0;
+}
+
+static s32 s_runtimeSetupContainsChrnum(s32 chrnum)
+{
+	struct defaultobj *obj = (struct defaultobj *)g_StageSetup.props;
+	s32 count = 0;
+
+	if (!obj) {
+		return 0;
+	}
+
+	while (obj->type != OBJTYPE_END && count <= 0x3fff) {
+		if (obj->type == OBJTYPE_CHR) {
+			struct packedchr *packed = (struct packedchr *)obj;
+			if (packed->chrnum == chrnum) {
+				return 1;
+			}
+		}
+		obj = (struct defaultobj *)((u32 *)obj +
+			setupGetCmdLength((u32 *)obj));
+		count++;
+	}
+
+	return 0;
+}
+
+static s32 s_aiGraphRuntimeSetupCharacterSourceIsActive(void)
+{
+	return s_ActiveScenarioGraphs.setup_fields_path[0] &&
+		s_ActiveScenarioGraphs.spawns_path[0];
+}
+
+static s32 s_countSourceBackedMpParticipantChrs(void);
+
+static s32 s_aiGraphRequireRuntimeSetupCharacterSource(const char *action)
+{
+	if (!s_aiGraphRuntimeSetupCharacterSourceIsActive()) {
+		return s_aiGraphRuntimeFailure(action,
+			"missing setup.fields.tsv or spawns.tsv source");
+	}
+
+	return 1;
+}
+
+static s32 s_aiGraphTryCountRuntimeSetupChrRowsFromSource(s32 *out_chr_count)
+{
+	s32 chr_count;
+
+	if (out_chr_count) {
+		*out_chr_count = 0;
+	}
+	if (!s_aiGraphRuntimeSetupCharacterSourceIsActive()) {
+		return 0;
+	}
+
+	chr_count = s_ActiveScenarioGraphs.source_setup_chr_count;
+	if (chr_count <= 0) {
+		chr_count = s_countRuntimeSetupChrRows();
+	}
+	chr_count +=
+		s_countSourceBackedMpParticipantChrs();
+	if (out_chr_count) {
+		*out_chr_count = chr_count;
+	}
+	return 1;
+}
+
+static s32 s_aiGraphSetupSourceContainsChrnum(s32 chrnum)
+{
+	return s_sourceSetupContainsChrnum(chrnum) ||
+		s_runtimeSetupContainsChrnum(chrnum);
+}
+
+static s32 s_aiGraphCountRuntimeSetupChrRowsFromSource(const char *action,
+	s32 *out_chr_count)
+{
+	if (out_chr_count) {
+		*out_chr_count = 0;
+	}
+	if (!s_aiGraphRequireRuntimeSetupCharacterSource(action)) {
+		return 0;
+	}
+
+	return s_aiGraphTryCountRuntimeSetupChrRowsFromSource(out_chr_count);
+}
+
+static s32 s_aiGraphRegisterSourceSpawnedChr(const char *action,
+	struct prop *prop)
+{
+	struct chrdata *chr;
+	s32 i;
+
+	if (!prop || prop->type != PROPTYPE_CHR || !prop->chr) {
+		return 1;
+	}
+
+	chr = prop->chr;
+	for (i = 0; i < s_ActiveScenarioGraphs.source_spawned_chr_count; i++) {
+		if (s_ActiveScenarioGraphs.source_spawned_chrs[i] == chr) {
+			return 1;
+		}
+	}
+
+	if (s_ActiveScenarioGraphs.source_spawned_chr_count >=
+			SCENARIO_SOURCE_SPAWNED_CHR_MAX) {
+		return s_aiGraphRuntimeFailure(action,
+			"source-spawned character provenance table is full");
+	}
+
+	s_ActiveScenarioGraphs.source_spawned_chrs[
+		s_ActiveScenarioGraphs.source_spawned_chr_count++] = chr;
+	return 1;
+}
+
+static s32 s_aiGraphRuntimeChrIsSourceSpawned(const struct chrdata *chr)
+{
+	s32 i;
+
+	if (!chr || !chr->prop || chr->prop->chr != chr) {
+		return 0;
+	}
+
+	for (i = 0; i < s_ActiveScenarioGraphs.source_spawned_chr_count; i++) {
+		if (s_ActiveScenarioGraphs.source_spawned_chrs[i] == chr) {
+			return 1;
+		}
+	}
+
+	if (s_ActiveScenarioGraphs.level_graph_active &&
+			strcmp(s_ActiveScenarioGraphs.level_global_settings_kind,
+				"mp") == 0 &&
+			s_ActiveScenarioGraphs.ai_lists_path[0] &&
+			g_Vars.normmplayerisrunning && g_MpNumChrs > 0) {
+		for (i = 0; i < g_MpNumChrs && i < MAX_MPCHRS; i++) {
+			if (g_MpAllChrPtrs[i] == chr) {
+				return 1;
+			}
+		}
+	}
+
+	return 0;
+}
+
+static s32 s_countSourceBackedMpParticipantChrs(void)
+{
+	s32 i;
+	s32 count = 0;
+
+	if (!s_ActiveScenarioGraphs.level_graph_active ||
+			strcmp(s_ActiveScenarioGraphs.level_global_settings_kind,
+				"mp") != 0 ||
+			!s_ActiveScenarioGraphs.ai_lists_path[0] ||
+			!g_Vars.normmplayerisrunning || g_MpNumChrs <= 0) {
+		return 0;
+	}
+
+	for (i = 0; i < g_MpNumChrs && i < MAX_MPCHRS; i++) {
+		struct chrdata *chr = g_MpAllChrPtrs[i];
+		if (chr && chr->prop && chr->prop->chr == chr) {
+			count++;
+		}
+	}
+
+	return count;
+}
+
+static s32 s_aiGraphChrIdIsRuntimeSelector(s32 chr_id)
+{
+	switch (chr_id) {
+	case CHR_P1P2_OPPOSITE:
+	case CHR_P1P2:
+	case CHR_ANTI:
+	case CHR_COOP:
+	case CHR_TARGET:
+	case CHR_BOND:
+	case CHR_CLONE:
+	case CHR_SEESHOT:
+	case CHR_SEEDIE:
+	case CHR_PRESET:
+	case CHR_SELF:
+		return 1;
+	default:
+		return 0;
+	}
+}
+
+static s32 s_countRuntimeSetupTags(void)
+{
+	struct tag *tag = g_TagsLinkedList;
+	s32 count = 0;
+
+	while (tag && count <= 0x3fff) {
+		count++;
+		tag = tag->next;
+	}
+
+	return count;
+}
+
+static s32 s_countRuntimeWaypoints(void)
+{
+	s32 count = 0;
+
+	if (!g_StageSetup.waypoints) {
+		return 0;
+	}
+
+	while (count <= 0xffff && g_StageSetup.waypoints[count].padnum >= 0) {
+		count++;
+	}
+
+	return count;
+}
+
+static s32 s_countRuntimeWaygroups(void)
+{
+	s32 count = 0;
+
+	if (!g_StageSetup.waygroups) {
+		return 0;
+	}
+
+	while (count <= 0xffff &&
+			(g_StageSetup.waygroups[count].waypoints ||
+				g_StageSetup.waygroups[count].neighbours)) {
+		count++;
+	}
+
+	return count;
+}
+
+static s32 s_aiGraphRequireRuntimePad(const char *action, s32 pad_id,
+	s32 *out_pad_count);
+
+static struct path *s_aiGraphFindRuntimePath(const char *action,
+	s32 path_id, s32 *out_path_count)
+{
+	struct path *path;
+	s32 path_count;
+	char reason[96];
+
+	if (out_path_count) {
+		*out_path_count = 0;
+	}
+	if (!s_ActiveScenarioGraphs.paths_path[0]) {
+		s_aiGraphRuntimeFailure(action,
+			"missing navigation/paths.tsv source");
+		return NULL;
+	}
+
+	path_count = s_countRuntimePaths();
+	if (out_path_count) {
+		*out_path_count = path_count;
+	}
+
+	if (path_id < 0 || path_id > 0xff) {
+		snprintf(reason, sizeof(reason), "invalid navigation path id %d",
+			path_id);
+		s_aiGraphRuntimeFailure(action, reason);
+		return NULL;
+	}
+	if (path_count <= 0) {
+		s_aiGraphRuntimeFailure(action,
+			"missing source-derived runtime path table");
+		return NULL;
+	}
+
+	path = pathFindById((u32)path_id);
+	if (!path) {
+		snprintf(reason, sizeof(reason), "missing navigation path id %d",
+			path_id);
+		s_aiGraphRuntimeFailure(action, reason);
+		return NULL;
+	}
+
+	return path;
+}
+
+static s32 s_aiGraphResolveOptionalRuntimePath(const char *action,
+	s32 path_id, s32 *out_path_count, struct path **out_path)
+{
+	struct path *path;
+	s32 path_count;
+	char reason[96];
+
+	if (out_path_count) {
+		*out_path_count = 0;
+	}
+	if (out_path) {
+		*out_path = NULL;
+	}
+	if (!s_ActiveScenarioGraphs.paths_path[0]) {
+		s_aiGraphRuntimeFailure(action,
+			"missing navigation/paths.tsv source");
+		return 0;
+	}
+
+	path_count = s_countRuntimePaths();
+	if (out_path_count) {
+		*out_path_count = path_count;
+	}
+
+	if (path_id < 0 || path_id > 0xff) {
+		snprintf(reason, sizeof(reason), "invalid navigation path id %d",
+			path_id);
+		s_aiGraphRuntimeFailure(action, reason);
+		return 0;
+	}
+	if (path_count <= 0) {
+		s_aiGraphRuntimeFailure(action,
+			"missing source-derived runtime path table");
+		return 0;
+	}
+
+	path = pathFindById((u32)path_id);
+	if (!path) {
+		return 1;
+	}
+
+	if (out_path) {
+		*out_path = path;
+	}
+	return 1;
+}
+
+static s32 s_aiGraphRequireRuntimePathPointer(const char *action,
+	const struct path *path, s32 *out_path_count)
+{
+	s32 path_count;
+	s32 i;
+
+	if (out_path_count) {
+		*out_path_count = 0;
+	}
+
+	if (!path) {
+		return s_aiGraphRuntimeFailure(action, "missing runtime path");
+	}
+	if (!s_ActiveScenarioGraphs.paths_path[0]) {
+		return s_aiGraphRuntimeFailure(action,
+			"missing navigation/paths.tsv source");
+	}
+
+	path_count = s_countRuntimePaths();
+	if (out_path_count) {
+		*out_path_count = path_count;
+	}
+
+	if (path_count <= 0) {
+		return s_aiGraphRuntimeFailure(action,
+			"missing source-derived runtime path table");
+	}
+
+	for (i = 0; i < path_count; i++) {
+		if (&g_StageSetup.paths[i] == path) {
+			return 1;
+		}
+	}
+
+	return s_aiGraphRuntimeFailure(action,
+		"runtime path pointer is not source-derived");
+}
+
+static s32 s_aiGraphRequireRuntimePathPads(const char *action,
+	const struct path *path, s32 *out_pad_count)
+{
+	s32 i;
+	s32 pad_count = 0;
+	char reason[128];
+
+	if (!path) {
+		return s_aiGraphRuntimeFailure(action, "missing runtime path");
+	}
+	if (!s_ActiveScenarioGraphs.pads_path[0]) {
+		return s_aiGraphRuntimeFailure(action,
+			"missing pads.tsv source for navigation path pads");
+	}
+	if (!path->pads || path->len == 0) {
+		snprintf(reason, sizeof(reason),
+			"navigation path id %d has no source pad sequence",
+			path->id);
+		return s_aiGraphRuntimeFailure(action, reason);
+	}
+
+	for (i = 0; i < path->len; i++) {
+		if (!s_aiGraphRequireRuntimePad(action, path->pads[i],
+				&pad_count)) {
+			return 0;
+		}
+	}
+
+	if (out_pad_count) {
+		*out_pad_count = pad_count;
+	}
+
+	return 1;
+}
+
+static s32 s_aiGraphRequireRuntimePad(const char *action, s32 pad_id,
+	s32 *out_pad_count)
+{
+	s32 pad_count;
+	char reason[96];
+
+	if (out_pad_count) {
+		*out_pad_count = 0;
+	}
+	if (!s_ActiveScenarioGraphs.pads_path[0]) {
+		s_aiGraphRuntimeFailure(action, "missing pads.tsv source");
+		return 0;
+	}
+
+	pad_count = s_countRuntimePads();
+	if (out_pad_count) {
+		*out_pad_count = pad_count;
+	}
+
+	if (pad_id < 0) {
+		snprintf(reason, sizeof(reason), "invalid pad id %d", pad_id);
+		s_aiGraphRuntimeFailure(action, reason);
+		return 0;
+	}
+	if (pad_count <= 0) {
+		s_aiGraphRuntimeFailure(action,
+			"missing source-derived runtime pad table");
+		return 0;
+	}
+	if (pad_id >= pad_count) {
+		snprintf(reason, sizeof(reason),
+			"missing runtime pad id %d (pad rows=%d)", pad_id,
+			pad_count);
+		s_aiGraphRuntimeFailure(action, reason);
+		return 0;
+	}
+
+	return 1;
+}
+
+static s32 s_aiGraphRequireRuntimeObjectTag(const char *action,
+	s32 tag_id, s32 *out_object_count)
+{
+	s32 object_count;
+	struct tag *tag;
+	char reason[128];
+
+	if (out_object_count) {
+		*out_object_count = 0;
+	}
+	if (!s_ActiveScenarioGraphs.objects_path[0]) {
+		s_aiGraphRuntimeFailure(action, "missing objects.tsv source");
+		return 0;
+	}
+
+	object_count = s_countRuntimeSetupObjectRows();
+	if (out_object_count) {
+		*out_object_count = object_count;
+	}
+
+	if (tag_id < 0) {
+		snprintf(reason, sizeof(reason), "invalid setup object tag %d",
+			tag_id);
+		s_aiGraphRuntimeFailure(action, reason);
+		return 0;
+	}
+	if (object_count <= 0) {
+		s_aiGraphRuntimeFailure(action,
+			"missing source-derived runtime setup object table");
+		return 0;
+	}
+
+	tag = tagFindById(tag_id);
+	if (!tag || setupGetCmdIndexByTag(tag) < 0) {
+		snprintf(reason, sizeof(reason),
+			"missing runtime setup object tag %d (object rows=%d)",
+			tag_id, object_count);
+		s_aiGraphRuntimeFailure(action, reason);
+		return 0;
+	}
+	if (!s_runtimeSetupContainsObjectRow(tag->obj)) {
+		snprintf(reason, sizeof(reason),
+			"runtime setup object tag %d does not point at a source row",
+			tag_id);
+		s_aiGraphRuntimeFailure(action, reason);
+		return 0;
+	}
+
+	return 1;
+}
+
+static s32 s_aiGraphResolveOptionalRuntimeObjectTag(const char *action,
+	s32 tag_id, s32 *out_object_count, struct defaultobj **out_obj)
+{
+	s32 object_count;
+	struct tag *tag;
+	char reason[128];
+
+	if (out_object_count) {
+		*out_object_count = 0;
+	}
+	if (out_obj) {
+		*out_obj = NULL;
+	}
+	if (!s_ActiveScenarioGraphs.objects_path[0]) {
+		s_aiGraphRuntimeFailure(action, "missing objects.tsv source");
+		return 0;
+	}
+
+	object_count = s_countRuntimeSetupObjectRows();
+	if (out_object_count) {
+		*out_object_count = object_count;
+	}
+
+	if (tag_id < 0) {
+		snprintf(reason, sizeof(reason), "invalid setup object tag %d",
+			tag_id);
+		s_aiGraphRuntimeFailure(action, reason);
+		return 0;
+	}
+	if (object_count <= 0 &&
+			s_ActiveScenarioGraphs.source_setup_record_count <= 0) {
+		s_aiGraphRuntimeFailure(action,
+			"missing source-derived runtime setup object table");
+		return 0;
+	}
+
+	tag = tagFindById(tag_id);
+	if (!tag || setupGetCmdIndexByTag(tag) < 0) {
+		if (s_sourceSetupContainsRecordOrder(tag_id)) {
+			return 1;
+		}
+		snprintf(reason, sizeof(reason),
+			"missing runtime setup object tag %d (object rows=%d)",
+			tag_id, object_count);
+		s_aiGraphRuntimeFailure(action, reason);
+		return 0;
+	}
+	if (!s_runtimeSetupContainsObjectRow(tag->obj)) {
+		if (s_sourceSetupContainsRecordOrder(tag_id)) {
+			return 1;
+		}
+		snprintf(reason, sizeof(reason),
+			"runtime setup object tag %d does not point at a source row",
+			tag_id);
+		s_aiGraphRuntimeFailure(action, reason);
+		return 0;
+	}
+
+	if (out_obj) {
+		*out_obj = tag->obj;
+	}
+	return 1;
+}
+
+static s32 s_aiGraphRequireRuntimeSetupTag(const char *action,
+	s32 tag_id, s32 *out_tag_count)
+{
+	struct tag *tag;
+	char reason[128];
+	s32 tag_count;
+
+	if (out_tag_count) {
+		*out_tag_count = 0;
+	}
+	if (!s_ActiveScenarioGraphs.setup_fields_path[0]) {
+		s_aiGraphRuntimeFailure(action, "missing setup.fields.tsv source");
+		return 0;
+	}
+
+	tag_count = s_countRuntimeSetupTags();
+	if (out_tag_count) {
+		*out_tag_count = tag_count;
+	}
+	if (tag_id < 0) {
+		snprintf(reason, sizeof(reason), "invalid setup tag %d", tag_id);
+		s_aiGraphRuntimeFailure(action, reason);
+		return 0;
+	}
+	if (tag_count <= 0) {
+		s_aiGraphRuntimeFailure(action,
+			"missing source-derived runtime setup tag table");
+		return 0;
+	}
+
+	tag = tagFindById(tag_id);
+	if (!tag || setupGetCmdIndexByTag(tag) < 0) {
+		snprintf(reason, sizeof(reason),
+			"missing runtime setup tag %d (setup tags=%d)",
+			tag_id, tag_count);
+		s_aiGraphRuntimeFailure(action, reason);
+		return 0;
+	}
+
+	return 1;
+}
+
+static s32 s_aiGraphRequireRuntimeObjectTagType(const char *action,
+	s32 tag_id, u8 required_type, s32 *out_object_count)
+{
+	struct tag *tag;
+	struct defaultobj *obj;
+	char reason[160];
+
+	if (!s_aiGraphRequireRuntimeObjectTag(action, tag_id,
+			out_object_count)) {
+		return 0;
+	}
+
+	tag = tagFindById(tag_id);
+	obj = tag ? tag->obj : NULL;
+	if (!obj || obj->type != required_type) {
+		snprintf(reason, sizeof(reason),
+			"runtime setup object tag %d is source type %u, expected source type %u",
+			tag_id, obj ? (unsigned)obj->type : 0xffu,
+			(unsigned)required_type);
+		s_aiGraphRuntimeFailure(action, reason);
+		return 0;
+	}
+
+	return 1;
+}
+
+static s32 s_aiGraphRequireRuntimeCharacterRefFromBase(const char *action,
+	struct chrdata *basechr, s32 chr_id, s32 *out_chr_count,
+	struct chrdata **out_chr)
+{
+	struct chrdata *chr = NULL;
+	s32 chr_count = 0;
+	char reason[160];
+
+	if (out_chr_count) {
+		*out_chr_count = 0;
+	}
+	if (out_chr) {
+		*out_chr = NULL;
+	}
+
+	if (chr_id < 0) {
+		snprintf(reason, sizeof(reason), "invalid character id %d",
+			chr_id);
+		s_aiGraphRuntimeFailure(action, reason);
+		return 0;
+	}
+
+	chr = chrFindById(basechr, chr_id);
+	if (!chr || !chr->prop) {
+		if (s_aiGraphChrIdIsRuntimeSelector(chr_id)) {
+			return 1;
+		}
+		if (s_aiGraphCountRuntimeSetupChrRowsFromSource(action,
+				&chr_count)) {
+			if (out_chr_count) {
+				*out_chr_count = chr_count;
+			}
+			if (s_sourceSetupContainsChrnum(chr_id)) {
+				return 1;
+			}
+		}
+		snprintf(reason, sizeof(reason),
+			"missing runtime character id %d (character rows=%d)",
+			chr_id, chr_count);
+		s_aiGraphRuntimeFailure(action, reason);
+		return 0;
+	}
+
+	if (chr->prop->type == PROPTYPE_PLAYER) {
+		if (out_chr) {
+			*out_chr = chr;
+		}
+		return 1;
+	}
+
+	if (s_aiGraphChrIdIsRuntimeSelector(chr_id) &&
+			chr->prop->type == PROPTYPE_CHR) {
+		if (out_chr) {
+			*out_chr = chr;
+		}
+		return 1;
+	}
+
+	if (s_aiGraphRuntimeChrIsSourceSpawned(chr)) {
+		if (out_chr) {
+			*out_chr = chr;
+		}
+		return 1;
+	}
+
+	if (!s_aiGraphCountRuntimeSetupChrRowsFromSource(action,
+			&chr_count)) {
+		return 0;
+	}
+	if (out_chr_count) {
+		*out_chr_count = chr_count;
+	}
+
+	if (chr_count <= 0) {
+		s_aiGraphRuntimeFailure(action,
+			"missing source-derived runtime setup character table");
+		return 0;
+	}
+	if (chr->prop->type != PROPTYPE_CHR ||
+			!s_aiGraphSetupSourceContainsChrnum(chr->chrnum)) {
+		snprintf(reason, sizeof(reason),
+			"runtime character id %d does not point at a source character row",
+			chr_id);
+		s_aiGraphRuntimeFailure(action, reason);
+		return 0;
+	}
+
+	if (out_chr) {
+		*out_chr = chr;
+	}
+	return 1;
+}
+
+static s32 s_aiGraphResolveRuntimeCharacterRefOrSelector(const char *action,
+	struct chrdata *basechr, s32 chr_id, s32 *out_chr_count,
+	struct chrdata **out_chr, s32 *out_selector)
+{
+	struct chrdata *chr = NULL;
+	s32 chr_count = 0;
+	s32 selector;
+	char reason[160];
+
+	selector = s_aiGraphChrIdIsRuntimeSelector(chr_id);
+
+	if (out_chr_count) {
+		*out_chr_count = 0;
+	}
+	if (out_chr) {
+		*out_chr = NULL;
+	}
+	if (out_selector) {
+		*out_selector = selector;
+	}
+
+	if (chr_id < 0) {
+		snprintf(reason, sizeof(reason), "invalid character id %d",
+			chr_id);
+		s_aiGraphRuntimeFailure(action, reason);
+		return 0;
+	}
+
+	chr = chrFindById(basechr, chr_id);
+	if (!chr || !chr->prop) {
+		if (selector) {
+			return 1;
+		}
+		if (s_aiGraphCountRuntimeSetupChrRowsFromSource(action,
+				&chr_count)) {
+			if (out_chr_count) {
+				*out_chr_count = chr_count;
+			}
+			if (s_sourceSetupContainsChrnum(chr_id)) {
+				return 1;
+			}
+		}
+		snprintf(reason, sizeof(reason),
+			"missing runtime character id %d (character rows=%d)",
+			chr_id, chr_count);
+		s_aiGraphRuntimeFailure(action, reason);
+		return 0;
+	}
+
+	if (chr->prop->type == PROPTYPE_PLAYER) {
+		if (out_chr) {
+			*out_chr = chr;
+		}
+		return 1;
+	}
+
+	if (selector && chr->prop->type == PROPTYPE_CHR) {
+		if (out_chr) {
+			*out_chr = chr;
+		}
+		return 1;
+	}
+
+	if (s_aiGraphRuntimeChrIsSourceSpawned(chr)) {
+		if (out_chr) {
+			*out_chr = chr;
+		}
+		return 1;
+	}
+
+	if (!s_aiGraphCountRuntimeSetupChrRowsFromSource(action,
+			&chr_count)) {
+		return 0;
+	}
+	if (out_chr_count) {
+		*out_chr_count = chr_count;
+	}
+
+	if (chr_count <= 0) {
+		s_aiGraphRuntimeFailure(action,
+			"missing source-derived runtime setup character table");
+		return 0;
+	}
+	if (chr->prop->type != PROPTYPE_CHR ||
+			!s_aiGraphSetupSourceContainsChrnum(chr->chrnum)) {
+		snprintf(reason, sizeof(reason),
+			"runtime character id %d does not point at a source character row",
+			chr_id);
+		s_aiGraphRuntimeFailure(action, reason);
+		return 0;
+	}
+
+	if (out_chr) {
+		*out_chr = chr;
+	}
+	return 1;
+}
+
+static s32 s_aiGraphResolveOptionalRuntimeCharacterRefOrSelector(
+	const char *action, struct chrdata *basechr, s32 chr_id,
+	s32 *out_chr_count, struct chrdata **out_chr, s32 *out_selector)
+{
+	struct chrdata *chr = NULL;
+	s32 chr_count = 0;
+	s32 selector;
+	char reason[160];
+
+	selector = s_aiGraphChrIdIsRuntimeSelector(chr_id);
+
+	if (out_chr_count) {
+		*out_chr_count = 0;
+	}
+	if (out_chr) {
+		*out_chr = NULL;
+	}
+	if (out_selector) {
+		*out_selector = selector;
+	}
+
+	if (chr_id < 0) {
+		snprintf(reason, sizeof(reason), "invalid character id %d",
+			chr_id);
+		s_aiGraphRuntimeFailure(action, reason);
+		return 0;
+	}
+
+	chr = chrFindById(basechr, chr_id);
+	if (!chr || !chr->prop) {
+		if (s_aiGraphTryCountRuntimeSetupChrRowsFromSource(&chr_count) &&
+				out_chr_count) {
+			*out_chr_count = chr_count;
+		}
+		return 1;
+	}
+
+	if (chr->prop->type == PROPTYPE_PLAYER || (selector &&
+			chr->prop->type == PROPTYPE_CHR) ||
+			s_aiGraphRuntimeChrIsSourceSpawned(chr)) {
+		if (out_chr) {
+			*out_chr = chr;
+		}
+		return 1;
+	}
+
+	if (!s_aiGraphCountRuntimeSetupChrRowsFromSource(action,
+			&chr_count)) {
+		return 0;
+	}
+	if (out_chr_count) {
+		*out_chr_count = chr_count;
+	}
+	if (chr_count <= 0 || chr->prop->type != PROPTYPE_CHR ||
+			!s_aiGraphSetupSourceContainsChrnum(chr->chrnum)) {
+		snprintf(reason, sizeof(reason),
+			"runtime character id %d does not point at a source character row",
+			chr_id);
+		s_aiGraphRuntimeFailure(action, reason);
+		return 0;
+	}
+
+	if (out_chr) {
+		*out_chr = chr;
+	}
+	return 1;
+}
+
+static s32 s_aiGraphRuntimeCharacterRefLooksSourceBacked(struct chrdata *basechr,
+	s32 chr_id, s32 *out_chr_count, struct chrdata **out_chr)
+{
+	struct chrdata *chr = NULL;
+	s32 chr_count = 0;
+
+	if (out_chr_count) {
+		*out_chr_count = 0;
+	}
+	if (out_chr) {
+		*out_chr = NULL;
+	}
+	if (chr_id < 0) {
+		return 0;
+	}
+
+	chr = chrFindById(basechr, chr_id);
+	if (!chr || !chr->prop) {
+		return 0;
+	}
+	if (chr->prop->type == PROPTYPE_PLAYER ||
+			(s_aiGraphChrIdIsRuntimeSelector(chr_id) &&
+				chr->prop->type == PROPTYPE_CHR) ||
+			s_aiGraphRuntimeChrIsSourceSpawned(chr) ||
+			(s_aiGraphTryCountRuntimeSetupChrRowsFromSource(&chr_count) &&
+				chr_count > 0 &&
+				chr->prop->type == PROPTYPE_CHR &&
+				s_aiGraphSetupSourceContainsChrnum(chr->chrnum))) {
+		if (out_chr_count) {
+			*out_chr_count = chr_count;
+		}
+		if (out_chr) {
+			*out_chr = chr;
+		}
+		return 1;
+	}
+
+	return 0;
+}
+
+static s32 s_aiGraphRuntimeCharacterPointerLooksSourceBacked(
+	struct chrdata *chr, s32 *out_chr_count, s32 *out_chrnum)
+{
+	s32 chr_count = 0;
+
+	if (out_chr_count) {
+		*out_chr_count = 0;
+	}
+	if (out_chrnum) {
+		*out_chrnum = chr ? chr->chrnum : -1;
+	}
+	if (!chr || !chr->prop) {
+		return 0;
+	}
+	if (chr->prop->type == PROPTYPE_PLAYER ||
+			s_aiGraphRuntimeChrIsSourceSpawned(chr) ||
+			(s_aiGraphTryCountRuntimeSetupChrRowsFromSource(&chr_count) &&
+				chr_count > 0 &&
+				chr->prop->type == PROPTYPE_CHR &&
+				s_aiGraphSetupSourceContainsChrnum(chr->chrnum))) {
+		if (out_chr_count) {
+			*out_chr_count = chr_count;
+		}
+		return 1;
+	}
+
+	return 0;
+}
+
+static s32 s_aiGraphRequireRuntimeCharacterRef(const char *action,
+	s32 chr_id, s32 *out_chr_count, struct chrdata **out_chr)
+{
+	return s_aiGraphRequireRuntimeCharacterRefFromBase(action,
+		g_Vars.chrdata, chr_id, out_chr_count, out_chr);
+}
+
+static s32 s_aiGraphRequireRuntimeCharacterPointer(const char *action,
+	struct chrdata *chr, s32 *out_chr_count, s32 *out_chrnum)
+{
+	s32 chr_count = 0;
+
+	if (out_chr_count) {
+		*out_chr_count = 0;
+	}
+	if (out_chrnum) {
+		*out_chrnum = chr ? chr->chrnum : -1;
+	}
+	if (!chr || !chr->prop) {
+		return s_aiGraphRuntimeFailure(action, "missing runtime character");
+	}
+	if (chr->prop->type == PROPTYPE_PLAYER) {
+		return 1;
+	}
+	if (s_aiGraphRuntimeChrIsSourceSpawned(chr)) {
+		return 1;
+	}
+	if (!s_aiGraphCountRuntimeSetupChrRowsFromSource(action,
+			&chr_count)) {
+		return 0;
+	}
+	if (out_chr_count) {
+		*out_chr_count = chr_count;
+	}
+	if (chr_count <= 0) {
+		return s_aiGraphRuntimeFailure(action,
+			"missing source-derived runtime setup character table");
+	}
+	if (chr->prop->type != PROPTYPE_CHR ||
+			!s_aiGraphSetupSourceContainsChrnum(chr->chrnum)) {
+		return s_aiGraphRuntimeFailure(action,
+			"runtime character pointer is not source-derived");
+	}
+	return 1;
+}
+
+static s32 s_aiGraphRequireOptionalRuntimeCharacterPointer(const char *action,
+	struct chrdata *chr, s32 *out_chr_count, s32 *out_chrnum)
+{
+	if (out_chr_count) {
+		*out_chr_count = 0;
+	}
+	if (out_chrnum) {
+		*out_chrnum = chr ? chr->chrnum : -1;
+	}
+	if (!chr || !chr->prop) {
+		s_aiGraphTryCountRuntimeSetupChrRowsFromSource(out_chr_count);
+		return 1;
+	}
+	return s_aiGraphRequireRuntimeCharacterPointer(action, chr,
+		out_chr_count, out_chrnum);
+}
+
+static s32 s_aiGraphRequireOptionalLiveRuntimeCharacterPointer(
+	const char *action, struct chrdata *chr, s32 *out_chr_count,
+	s32 *out_chrnum)
+{
+	if (out_chr_count) {
+		*out_chr_count = 0;
+	}
+	if (out_chrnum) {
+		*out_chrnum = chr && chr->prop ? chr->chrnum : -1;
+	}
+	if (!chr || !chr->prop) {
+		return 1;
+	}
+	return s_aiGraphRequireRuntimeCharacterPointer(action, chr,
+		out_chr_count, out_chrnum);
+}
+
+static s32 s_aiGraphRequireRuntimeCharacterStatePointer(const char *action,
+	struct chrdata *chr, s32 *out_chr_count, s32 *out_chrnum)
+{
+	s32 chr_count = 0;
+
+	if (out_chr_count) {
+		*out_chr_count = 0;
+	}
+	if (out_chrnum) {
+		*out_chrnum = chr ? chr->chrnum : -1;
+	}
+	if (!chr) {
+		return s_aiGraphRuntimeFailure(action, "missing runtime character");
+	}
+	if (chr->prop && chr->prop->type == PROPTYPE_PLAYER) {
+		return 1;
+	}
+	if (s_aiGraphRuntimeChrIsSourceSpawned(chr)) {
+		return 1;
+	}
+	if (s_aiGraphTryCountRuntimeSetupChrRowsFromSource(&chr_count)) {
+		if (out_chr_count) {
+			*out_chr_count = chr_count;
+		}
+		if (chr_count > 0 &&
+				s_aiGraphSetupSourceContainsChrnum(chr->chrnum)) {
+			return 1;
+		}
+	}
+	if (s_ActiveScenarioGraphs.level_graph_active &&
+			s_ActiveScenarioGraphs.ai_lists_path[0]) {
+		return 1;
+	}
+	if (!s_aiGraphRequireRuntimeSetupCharacterSource(action)) {
+		return 0;
+	}
+	if (chr_count <= 0) {
+		return s_aiGraphRuntimeFailure(action,
+			"missing source-derived runtime setup character table");
+	}
+	return s_aiGraphRuntimeFailure(action,
+		"runtime character state pointer is not source-derived");
+}
+
+static s32 s_aiGraphRequireOptionalRuntimeCharacterStatePointer(
+	const char *action, struct chrdata *chr, s32 *out_chr_count,
+	s32 *out_chrnum)
+{
+	if (out_chr_count) {
+		*out_chr_count = 0;
+	}
+	if (out_chrnum) {
+		*out_chrnum = chr ? chr->chrnum : -1;
+	}
+	if (!chr) {
+		return 1;
+	}
+	return s_aiGraphRequireRuntimeCharacterStatePointer(action, chr,
+		out_chr_count, out_chrnum);
+}
+
+static s32 s_aiGraphRequireRuntimePlayerPointer(const char *action,
+	struct player *player, const char *label)
+{
+	char reason[96];
+
+	if (!player) {
+		snprintf(reason, sizeof(reason),
+			"missing %s player state", label);
+		return s_aiGraphRuntimeFailure(action, reason);
+	}
+	if (player->prop && player->prop->type != PROPTYPE_PLAYER) {
+		snprintf(reason, sizeof(reason),
+			"%s player prop is not a player actor", label);
+		return s_aiGraphRuntimeFailure(action, reason);
+	}
+	return 1;
+}
+
+static s32 s_aiGraphRequireRuntimePlayerSlot(const char *action,
+	s32 playernum, struct player **out_player)
+{
+	struct player *player = NULL;
+	char reason[96];
+
+	if (out_player) {
+		*out_player = NULL;
+	}
+	if (playernum < 0 || playernum >= MAX_PLAYERS) {
+		snprintf(reason, sizeof(reason),
+			"player slot %d is outside runtime player table", playernum);
+		return s_aiGraphRuntimeFailure(action, reason);
+	}
+	player = g_Vars.players[playernum];
+	if (!s_aiGraphRequireRuntimePlayerPointer(action, player,
+			"runtime")) {
+		return 0;
+	}
+	if (out_player) {
+		*out_player = player;
+	}
+	return 1;
+}
+
+static s32 s_aiGraphRequireRuntimeObjectTagAnyType(const char *action,
+	s32 tag_id, const u8 *required_types, s32 required_type_count,
+	s32 *out_object_count)
+{
+	struct tag *tag;
+	struct defaultobj *obj;
+	char expected[96];
+	char reason[192];
+	s32 offset = 0;
+
+	if (!s_aiGraphRequireRuntimeObjectTag(action, tag_id,
+			out_object_count)) {
+		return 0;
+	}
+
+	tag = tagFindById(tag_id);
+	obj = tag ? tag->obj : NULL;
+	if (obj && required_types && required_type_count > 0) {
+		for (s32 i = 0; i < required_type_count; i++) {
+			if (obj->type == required_types[i]) {
+				return 1;
+			}
+		}
+	}
+
+	expected[0] = '\0';
+	if (required_types && required_type_count > 0) {
+		for (s32 i = 0; i < required_type_count; i++) {
+			int written = snprintf(expected + offset,
+				sizeof(expected) - (size_t)offset, "%s%u",
+				i > 0 ? "," : "", (unsigned)required_types[i]);
+			if (written < 0) {
+				break;
+			}
+			offset += written;
+			if ((size_t)offset >= sizeof(expected)) {
+				offset = (s32)sizeof(expected) - 1;
+				expected[offset] = '\0';
+				break;
+			}
+		}
+	}
+	if (!expected[0]) {
+		snprintf(expected, sizeof(expected), "none");
+	}
+
+	snprintf(reason, sizeof(reason),
+		"runtime setup object tag %d is source type %u, expected one of source types %s",
+		tag_id, obj ? (unsigned)obj->type : 0xffu, expected);
+	s_aiGraphRuntimeFailure(action, reason);
+	return 0;
+}
+
+static s32 s_aiGraphRequireRuntimePadTable(const char *action,
+	s32 *out_pad_count)
+{
+	s32 pad_count;
+
+	if (out_pad_count) {
+		*out_pad_count = 0;
+	}
+	if (!s_ActiveScenarioGraphs.pads_path[0]) {
+		s_aiGraphRuntimeFailure(action, "missing pads.tsv source");
+		return 0;
+	}
+
+	pad_count = s_countRuntimePads();
+	if (out_pad_count) {
+		*out_pad_count = pad_count;
+	}
+
+	if (pad_count <= 0) {
+		s_aiGraphRuntimeFailure(action,
+			"missing source-derived runtime pad table");
+		return 0;
+	}
+
+	return 1;
+}
+
+static s32 s_aiGraphRequireRuntimeLiftNumber(const char *action, s32 liftnum,
+	s32 *out_pad_id, s32 *out_pad_count)
+{
+	s32 pad_count;
+	s32 i;
+	char reason[96];
+
+	if (out_pad_id) {
+		*out_pad_id = -1;
+	}
+
+	if (!s_aiGraphRequireRuntimePadTable(action, &pad_count)) {
+		if (out_pad_count) {
+			*out_pad_count = pad_count;
+		}
+		return 0;
+	}
+	if (out_pad_count) {
+		*out_pad_count = pad_count;
+	}
+
+	if (liftnum <= 0 || liftnum > ARRAYCOUNT(g_Lifts)) {
+		snprintf(reason, sizeof(reason), "invalid lift number %d",
+			liftnum);
+		s_aiGraphRuntimeFailure(action, reason);
+		return 0;
+	}
+
+	for (i = 0; i < pad_count; i++) {
+		struct pad pad;
+		padUnpack(i, PADFIELD_LIFT, &pad);
+		if (pad.liftnum == liftnum) {
+			if (out_pad_id) {
+				*out_pad_id = i;
+			}
+			return 1;
+		}
+	}
+
+	snprintf(reason, sizeof(reason),
+		"missing runtime lift number %d in source pad rows", liftnum);
+	s_aiGraphRuntimeFailure(action, reason);
+	return 0;
+}
+
+static s32 s_aiGraphRequireRuntimeCoverTable(const char *action,
+	s32 *out_cover_count)
+{
+	s32 cover_count;
+
+	if (out_cover_count) {
+		*out_cover_count = 0;
+	}
+	if (!s_ActiveScenarioGraphs.covers_path[0]) {
+		s_aiGraphRuntimeFailure(action,
+			"missing navigation/covers.tsv source");
+		return 0;
+	}
+
+	cover_count = s_countRuntimeCovers();
+	if (out_cover_count) {
+		*out_cover_count = cover_count;
+	}
+
+	if (cover_count <= 0) {
+		s_aiGraphRuntimeFailure(action,
+			"missing source-derived runtime cover table");
+		return 0;
+	}
+
+	return 1;
+}
+
+static s32 s_aiGraphRequireRuntimeNavigationTables(const char *action,
+	s32 *out_pad_count, s32 *out_waypoint_count, s32 *out_waygroup_count)
+{
+	s32 pad_count;
+	s32 waypoint_count;
+	s32 waygroup_count;
+
+	if (out_pad_count) {
+		*out_pad_count = 0;
+	}
+	if (out_waypoint_count) {
+		*out_waypoint_count = 0;
+	}
+	if (out_waygroup_count) {
+		*out_waygroup_count = 0;
+	}
+
+	if (!s_ActiveScenarioGraphs.pads_path[0]) {
+		s_aiGraphRuntimeFailure(action, "missing pads.tsv source");
+		return 0;
+	}
+	if (!s_ActiveScenarioGraphs.waypoints_path[0]) {
+		s_aiGraphRuntimeFailure(action,
+			"missing navigation/waypoints.tsv source");
+		return 0;
+	}
+	if (!s_ActiveScenarioGraphs.waygroups_path[0]) {
+		s_aiGraphRuntimeFailure(action,
+			"missing navigation/waygroups.tsv source");
+		return 0;
+	}
+
+	pad_count = s_countRuntimePads();
+	waypoint_count = s_countRuntimeWaypoints();
+	waygroup_count = s_countRuntimeWaygroups();
+	if (out_pad_count) {
+		*out_pad_count = pad_count;
+	}
+	if (out_waypoint_count) {
+		*out_waypoint_count = waypoint_count;
+	}
+	if (out_waygroup_count) {
+		*out_waygroup_count = waygroup_count;
+	}
+
+	if (pad_count <= 0) {
+		s_aiGraphRuntimeFailure(action,
+			"missing source-derived runtime pad table");
+		return 0;
+	}
+	if (waypoint_count <= 0) {
+		s_aiGraphRuntimeFailure(action,
+			"missing source-derived runtime waypoint table");
+		return 0;
+	}
+	if (waygroup_count <= 0) {
+		s_aiGraphRuntimeFailure(action,
+			"missing source-derived runtime waygroup table");
+		return 0;
+	}
+
+	return 1;
+}
+
+static s32 s_aiGraphValidateRuntimeCoverIndex(const char *action,
+	s32 cover_id, s32 cover_count)
+{
+	char reason[96];
+
+	if (cover_id < 0) {
+		return 1;
+	}
+	if (cover_id >= cover_count) {
+		snprintf(reason, sizeof(reason),
+			"missing runtime cover id %d (cover rows=%d)",
+			cover_id, cover_count);
+		s_aiGraphRuntimeFailure(action, reason);
+		return 0;
+	}
+
+	return 1;
+}
+
+static const asset_entry_t *s_aiGraphFindLangCatalogEntryForBank(s32 bank)
+{
+	const asset_entry_t *best = NULL;
+	s32 best_score = -1;
+	s32 count;
+
+	if (bank <= 0 || bank >= LANG_MANIFEST_MAX_BANKS) {
+		return NULL;
+	}
+
+	count = assetCatalogGetCount();
+	for (s32 i = 0; i < count; i++) {
+		const asset_entry_t *entry = assetCatalogGetByIndex(i);
+		s32 score;
+
+		if (!entry || !entry->occupied || !entry->id[0] ||
+				entry->type != ASSET_LANG || !entry->enabled ||
+				entry->ext.lang.bank_id != bank ||
+				!entry->ext.lang.strings_file[0]) {
+			continue;
+		}
+
+		score = entry->bundled ? 1 : 2;
+		if (score >= best_score) {
+			best = entry;
+			best_score = score;
+		}
+	}
+
+	return best;
+}
+
+static const char *s_aiGraphResolveLangTextCatalogId(const char *action,
+	s32 text_id, const char *role)
+{
+	const asset_entry_t *entry;
+	s32 bank;
+	s32 text_index;
+	char reason[160];
+
+	if (text_id < 0) {
+		return "none";
+	}
+
+	bank = text_id >> 9;
+	text_index = text_id & 0x1ff;
+	if (bank <= 0 || bank >= LANG_MANIFEST_MAX_BANKS) {
+		snprintf(reason, sizeof(reason),
+			"invalid %s language text id %d (bank %d)",
+			role, text_id, bank);
+		s_aiGraphRuntimeFailure(action, reason);
+		return NULL;
+	}
+
+	entry = s_aiGraphFindLangCatalogEntryForBank(bank);
+	if (!entry) {
+		snprintf(reason, sizeof(reason),
+			"unresolved %s language catalog id for text %d bank %d index %d",
+			role, text_id, bank, text_index);
+		s_aiGraphRuntimeFailure(action, reason);
+		return NULL;
+	}
+
+	if (!langIsBankLoaded(bank) && !langManifestLoadBankFromCatalog(bank)) {
+		snprintf(reason, sizeof(reason),
+			"failed to load %s language bank %d from public .pdlang source",
+			role, bank);
+		s_aiGraphRuntimeFailure(action, reason);
+		return NULL;
+	}
+
+	return entry->id;
+}
+
 static void s_aiGraphApplyBranch(s32 branch_taken, s32 label,
 	s32 false_offset);
 
@@ -10804,11 +13415,13 @@ static s32 s_aiGraphRequireBasicMotionNode(const char *action,
 	if (node_count != 1) {
 		snprintf(reason, sizeof(reason),
 			"missing scenario.ai.action.%s node", action);
-		return s_aiGraphRuntimeFailure(action, reason);
+		s_aiGraphRuntimeFailure(action, reason);
+		return -1;
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing ai/ailists.tsv source");
+		return -1;
 	}
 	return 1;
 }
@@ -10824,13 +13437,214 @@ static s32 s_aiGraphRequireAnimationNode(const char *action,
 	if (node_count != 1) {
 		snprintf(reason, sizeof(reason),
 			"missing scenario.ai.action.%s node", action);
-		return s_aiGraphRuntimeFailure(action, reason);
+		s_aiGraphRuntimeFailure(action, reason);
+		return -1;
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing ai/ailists.tsv source");
+		return -1;
 	}
 	return 1;
+}
+
+static const char *s_aiGraphResolveAnimationCatalogId(const char *action,
+	s32 anim_id, const char *role)
+{
+	CatalogResolveResult result;
+	const asset_entry_t *entry;
+	char reason[128];
+
+	result = catalogResolveAnim(anim_id);
+	if (result.catalog_id >= 0) {
+		entry = assetCatalogGetByIndex(result.catalog_id);
+		if (entry && entry->id[0]) {
+			return entry->id;
+		}
+	}
+	snprintf(reason, sizeof(reason),
+		"unresolved %s animation catalog id for runtime animation %d",
+		role, anim_id);
+	s_aiGraphRuntimeFailure(action, reason);
+	return NULL;
+}
+
+static s32 s_aiGraphResolveSpecialDeathAnimationCatalogIds(
+	const char *action, s32 specialdie, const char **out_anim_id,
+	const char **out_alt_anim_id, const char **out_chair_fallback_anim_id)
+{
+	const char *anim_id = "none";
+	const char *alt_anim_id = "none";
+	const char *chair_fallback_anim_id = "none";
+	char reason[128];
+
+	if (out_anim_id) {
+		*out_anim_id = "none";
+	}
+	if (out_alt_anim_id) {
+		*out_alt_anim_id = "none";
+	}
+	if (out_chair_fallback_anim_id) {
+		*out_chair_fallback_anim_id = "none";
+	}
+
+	if (specialdie == SPECIALDIE_NONE) {
+		return 1;
+	}
+	if (specialdie < SPECIALDIE_FALLBACK || specialdie > SPECIALDIE_ONCHAIR) {
+		snprintf(reason, sizeof(reason),
+			"invalid special death animation mode %d", specialdie);
+		return s_aiGraphRuntimeFailure(action, reason);
+	}
+
+	if (specialdie == SPECIALDIE_ONCHAIR) {
+		anim_id = s_aiGraphResolveAnimationCatalogId(action,
+			g_SpecialDieAnims[SPECIALDIE_ONCHAIR].animnum,
+			"special death chair");
+		alt_anim_id = s_aiGraphResolveAnimationCatalogId(action,
+			g_SpecialDieAnims[SPECIALDIE_ONCHAIR + 1].animnum,
+			"special death chair alternate");
+		chair_fallback_anim_id = s_aiGraphResolveAnimationCatalogId(action,
+			g_SpecialDieAnims[SPECIALDIE_ONCHAIR - 1].animnum,
+			"special death chair fallback");
+		if (!anim_id || !alt_anim_id || !chair_fallback_anim_id) {
+			return 0;
+		}
+	} else {
+		anim_id = s_aiGraphResolveAnimationCatalogId(action,
+			g_SpecialDieAnims[specialdie - 1].animnum,
+			"special death");
+		if (!anim_id) {
+			return 0;
+		}
+	}
+
+	if (out_anim_id) {
+		*out_anim_id = anim_id;
+	}
+	if (out_alt_anim_id) {
+		*out_alt_anim_id = alt_anim_id;
+	}
+	if (out_chair_fallback_anim_id) {
+		*out_chair_fallback_anim_id = chair_fallback_anim_id;
+	}
+	return 1;
+}
+
+static const char *s_aiGraphResolveBodyCatalogId(const char *action,
+	s32 bodynum, const char *role)
+{
+	const char *body_id = catalogBodyIdByBodynum(bodynum);
+	char reason[128];
+
+	if (body_id && body_id[0]) {
+		return body_id;
+	}
+
+	snprintf(reason, sizeof(reason),
+		"unresolved %s body catalog id for runtime body %d",
+		role ? role : "body", bodynum);
+	s_aiGraphRuntimeFailure(action, reason);
+	return NULL;
+}
+
+static const char *s_aiGraphResolveHeadCatalogId(const char *action,
+	s32 headnum, const char *role)
+{
+	const char *head_id;
+	char reason[128];
+
+	if (headnum == HEAD_RANDOM) {
+		return "random";
+	}
+	if (headnum == HEAD_RANDOM_GENDER) {
+		return "random_gender";
+	}
+
+	head_id = catalogHeadIdByHeadnum(headnum);
+	if (head_id && head_id[0]) {
+		return head_id;
+	}
+
+	snprintf(reason, sizeof(reason),
+		"unresolved %s head catalog id for runtime head %d",
+		role ? role : "head", headnum);
+	s_aiGraphRuntimeFailure(action, reason);
+	return NULL;
+}
+
+static const char *s_aiGraphResolveModelCatalogId(const char *action,
+	s32 modelnum, const char *role)
+{
+	const char *model_id = catalogModelIdByModelnum(modelnum);
+	char reason[128];
+
+	if (model_id && model_id[0]) {
+		return model_id;
+	}
+
+	snprintf(reason, sizeof(reason),
+		"unresolved %s model catalog id for runtime model %d",
+		role ? role : "model", modelnum);
+	s_aiGraphRuntimeFailure(action, reason);
+	return NULL;
+}
+
+static const char *s_aiGraphResolveWeaponCatalogId(const char *action,
+	s32 weaponnum, const char *role)
+{
+	const char *weapon_id;
+	char reason[128];
+
+	if (weaponnum < 0 || weaponnum == 0xff || weaponnum == WEAPON_NONE) {
+		return "none";
+	}
+
+	weapon_id = catalogWeaponIdByRuntimeWeaponNum(weaponnum);
+	if (weapon_id && weapon_id[0]) {
+		return weapon_id;
+	}
+
+	snprintf(reason, sizeof(reason),
+		"unresolved %s weapon catalog id for runtime weapon %d",
+		role ? role : "weapon", weaponnum);
+	s_aiGraphRuntimeFailure(action, reason);
+	return NULL;
+}
+
+static s32 s_aiGraphWeaponHasNoModelSentinel(s32 weaponnum)
+{
+	return weaponnum < 0 || weaponnum == 0xff ||
+		weaponnum == WEAPON_NONE || weaponnum == WEAPON_UNARMED;
+}
+
+static s32 s_aiGraphWeaponModelNumOrNone(s32 weaponnum)
+{
+	if (s_aiGraphWeaponHasNoModelSentinel(weaponnum)) {
+		return -1;
+	}
+
+	return playermgrGetModelOfWeapon(weaponnum);
+}
+
+static const char *s_aiGraphResolveWeaponModelCatalogId(const char *action,
+	s32 weaponnum, s32 modelnum, const char *role)
+{
+	char reason[128];
+
+	if (s_aiGraphWeaponHasNoModelSentinel(weaponnum)) {
+		return "none";
+	}
+
+	if (modelnum < 0) {
+		snprintf(reason, sizeof(reason),
+			"unresolved %s model for runtime weapon %d",
+			role ? role : "weapon", weaponnum);
+		s_aiGraphRuntimeFailure(action, reason);
+		return NULL;
+	}
+
+	return s_aiGraphResolveModelCatalogId(action, modelnum, role);
 }
 
 static s32 s_aiGraphRequireRandomControlNode(const char *kind,
@@ -10873,26 +13687,51 @@ static s32 s_aiGraphRequireDebugNoOpNode(const char *action,
 	return 1;
 }
 
+static s32 s_aiGraphRequireRuntimeVehicleObjectPointer(const char *action,
+	const struct defaultobj *obj, s32 expected_type_a,
+	s32 expected_type_b, s32 *out_object_count, s32 *out_source_type);
+
 s32 scenarioSourceAiGraphExecuteStop(struct chrdata *chr,
 	struct chopperobj *hovercar)
 {
+	s32 chr_count = 0;
+	s32 source_chr = -1;
+	s32 vehicle_count = 0;
+	s32 source_vehicle_type = -1;
+
 	if (!s_aiGraphRequireBasicMotionNode("stop",
 			s_ActiveScenarioGraphs.level_ai_stop_node_count)) {
+		return 0;
+	}
+	if (!s_aiGraphRequireOptionalRuntimeCharacterStatePointer("stop", chr,
+			&chr_count, &source_chr)) {
 		return 0;
 	}
 
 	if (chr) {
 		chrTryStop(chr);
 	} else if (hovercar) {
+		if (!s_aiGraphRequireRuntimeVehicleObjectPointer(
+				"stop", &hovercar->base,
+				OBJTYPE_CHOPPER, OBJTYPE_HOVERCAR,
+				&vehicle_count, &source_vehicle_type)) {
+			return 1;
+		}
 		chopperStop(hovercar);
 	}
 	g_Vars.aioffset += 2;
 
 	if (!s_ActiveScenarioGraphs.ai_action_stop_logged) {
+		const char *backend = vehicle_count > 0
+			? "graph.ai.action.basic_motion+ai/ailists.tsv+objects.tsv"
+			: "graph.ai.action.basic_motion+ai/ailists.tsv";
+		const char *objects_path = vehicle_count > 0
+			? s_ActiveScenarioGraphs.objects_path : "";
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action stop chr=%d hovercar=%d source=%s backend=graph.ai.action.basic_motion+ai/ailists.tsv",
-			chr ? 1 : 0, hovercar ? 1 : 0,
-			s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI action stop chr=%d chr_rows=%d source_chr=%d hovercar=%d vehicle_rows=%d source_vehicle_type=%d source=%s objects=%s backend=%s",
+			chr ? 1 : 0, chr_count, source_chr, hovercar ? 1 : 0,
+			vehicle_count, source_vehicle_type,
+			s_ActiveScenarioGraphs.ai_lists_path, objects_path, backend);
 		s_ActiveScenarioGraphs.ai_action_stop_logged = 1;
 	}
 	return 1;
@@ -10900,8 +13739,15 @@ s32 scenarioSourceAiGraphExecuteStop(struct chrdata *chr,
 
 s32 scenarioSourceAiGraphExecuteKneel(struct chrdata *chr)
 {
+	s32 chr_count = 0;
+	s32 source_chr = -1;
+
 	if (!s_aiGraphRequireBasicMotionNode("kneel",
 			s_ActiveScenarioGraphs.level_ai_kneel_node_count)) {
+		return 0;
+	}
+	if (!s_aiGraphRequireOptionalRuntimeCharacterStatePointer("kneel", chr,
+			&chr_count, &source_chr)) {
 		return 0;
 	}
 
@@ -10910,8 +13756,9 @@ s32 scenarioSourceAiGraphExecuteKneel(struct chrdata *chr)
 
 	if (!s_ActiveScenarioGraphs.ai_action_kneel_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action kneel chr=%d source=%s backend=graph.ai.action.basic_motion+ai/ailists.tsv",
-			chr ? 1 : 0, s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI action kneel chr=%d chr_rows=%d source_chr=%d source=%s backend=graph.ai.action.basic_motion+ai/ailists.tsv",
+			chr ? 1 : 0, chr_count, source_chr,
+			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_kneel_logged = 1;
 	}
 	return 1;
@@ -10939,8 +13786,15 @@ static s32 s_aiGraphRequireCharacterLifecycleNode(const char *action,
 
 s32 scenarioSourceAiGraphExecuteSurrender(struct chrdata *chr)
 {
+	s32 chr_count = 0;
+	s32 source_chr = -1;
+
 	if (!s_aiGraphRequireCharacterLifecycleNode("surrender",
 			s_ActiveScenarioGraphs.level_ai_surrender_node_count)) {
+		return 0;
+	}
+	if (!s_aiGraphRequireOptionalRuntimeCharacterStatePointer("surrender", chr,
+			&chr_count, &source_chr)) {
 		return 0;
 	}
 
@@ -10949,8 +13803,9 @@ s32 scenarioSourceAiGraphExecuteSurrender(struct chrdata *chr)
 
 	if (!s_ActiveScenarioGraphs.ai_action_surrender_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action surrender chr=%d source=%s backend=graph.ai.action.character_lifecycle+ai/ailists.tsv",
-			chr ? 1 : 0, s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI action surrender chr=%d chr_rows=%d source_chr=%d source=%s backend=graph.ai.action.character_lifecycle+ai/ailists.tsv",
+			chr ? 1 : 0, chr_count, source_chr,
+			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_surrender_logged = 1;
 	}
 	return 1;
@@ -10958,8 +13813,15 @@ s32 scenarioSourceAiGraphExecuteSurrender(struct chrdata *chr)
 
 s32 scenarioSourceAiGraphExecuteFadeOut(struct chrdata *chr)
 {
+	s32 chr_count = 0;
+	s32 source_chr = -1;
+
 	if (!s_aiGraphRequireCharacterLifecycleNode("fade_out",
 			s_ActiveScenarioGraphs.level_ai_fade_out_node_count)) {
+		return 0;
+	}
+	if (!s_aiGraphRequireOptionalRuntimeCharacterStatePointer("fade_out", chr,
+			&chr_count, &source_chr)) {
 		return 0;
 	}
 
@@ -10968,8 +13830,9 @@ s32 scenarioSourceAiGraphExecuteFadeOut(struct chrdata *chr)
 
 	if (!s_ActiveScenarioGraphs.ai_action_fade_out_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action fade_out chr=%d source=%s backend=graph.ai.action.character_lifecycle+ai/ailists.tsv",
-			chr ? 1 : 0, s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI action fade_out chr=%d chr_rows=%d source_chr=%d source=%s backend=graph.ai.action.character_lifecycle+ai/ailists.tsv",
+			chr ? 1 : 0, chr_count, source_chr,
+			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_fade_out_logged = 1;
 	}
 	return 1;
@@ -10977,15 +13840,19 @@ s32 scenarioSourceAiGraphExecuteFadeOut(struct chrdata *chr)
 
 s32 scenarioSourceAiGraphExecuteRemoveChr(struct chrdata *basechr, s32 chrnum)
 {
-	struct chrdata *chr;
+	struct chrdata *chr = NULL;
 	s32 applied;
+	s32 chr_count = 0;
 
 	if (!s_aiGraphRequireCharacterLifecycleNode("remove_chr",
 			s_ActiveScenarioGraphs.level_ai_remove_chr_node_count)) {
 		return 0;
 	}
 
-	chr = chrFindById(basechr, chrnum);
+	if (!s_aiGraphResolveOptionalRuntimeCharacterRefOrSelector(
+			"remove_chr", basechr, chrnum, &chr_count, &chr, NULL)) {
+		return 1;
+	}
 	applied = chr && chr->prop;
 	if (applied) {
 		chr->hidden |= 0x20;
@@ -10994,8 +13861,9 @@ s32 scenarioSourceAiGraphExecuteRemoveChr(struct chrdata *basechr, s32 chrnum)
 
 	if (!s_ActiveScenarioGraphs.ai_action_remove_chr_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action remove_chr chr=%d applied=%d source=%s backend=graph.ai.action.character_lifecycle+ai/ailists.tsv",
-			chrnum, applied, s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI action remove_chr chr=%d chr_rows=%d target_chr=%d applied=%d source=%s backend=graph.ai.action.character_lifecycle+ai/ailists.tsv",
+			chrnum, chr_count, chr ? chr->chrnum : -1, applied,
+			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_remove_chr_logged = 1;
 	}
 	return 1;
@@ -11023,7 +13891,7 @@ static s32 s_aiGraphRequireCombatNode(const char *kind, const char *action,
 
 static s32 s_aiGraphExecuteCombatTry(const char *action, s32 node_count,
 	struct chrdata *chr, s32 label, s32 false_offset, s32 result,
-	s32 *logged)
+	s32 chr_count, s32 source_chr, s32 *logged)
 {
 	if (!s_aiGraphRequireCombatNode("action", action, node_count)) {
 		return 0;
@@ -11031,8 +13899,8 @@ static s32 s_aiGraphExecuteCombatTry(const char *action, s32 node_count,
 	s_aiGraphApplyBranch(result, label, false_offset);
 	if (logged && !*logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action %s chr=%d label=%d result=%d source=%s backend=graph.ai.action.combat+ai/ailists.tsv",
-			action, chr ? 1 : 0, label, result,
+			"SCENARIO.GRAPH: AI action %s chr=%d chr_rows=%d source_chr=%d label=%d result=%d source=%s backend=graph.ai.action.combat+ai/ailists.tsv",
+			action, chr ? 1 : 0, chr_count, source_chr, label, result,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		*logged = 1;
 	}
@@ -11042,84 +13910,120 @@ static s32 s_aiGraphExecuteCombatTry(const char *action, s32 node_count,
 s32 scenarioSourceAiGraphExecuteTrySidestep(struct chrdata *chr, s32 label)
 {
 	s32 result;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
 
 	if (!s_ActiveScenarioGraphs.level_graph_active) {
 		return 0;
 	}
+	if (!s_aiGraphRequireOptionalRuntimeCharacterPointer("try_sidestep",
+			chr, &chr_count, &source_chr)) {
+		return 1;
+	}
 	result = chr && chrTrySidestep(chr);
 	return s_aiGraphExecuteCombatTry("try_sidestep",
 		s_ActiveScenarioGraphs.level_ai_try_sidestep_node_count,
-		chr, label, 3, result,
+		chr, label, 3, result, chr_count, source_chr,
 		&s_ActiveScenarioGraphs.ai_action_try_sidestep_logged);
 }
 
 s32 scenarioSourceAiGraphExecuteTryJumpOut(struct chrdata *chr, s32 label)
 {
 	s32 result;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
 
 	if (!s_ActiveScenarioGraphs.level_graph_active) {
 		return 0;
 	}
+	if (!s_aiGraphRequireOptionalRuntimeCharacterPointer("try_jump_out",
+			chr, &chr_count, &source_chr)) {
+		return 1;
+	}
 	result = chr && chrTryJumpOut(chr);
 	return s_aiGraphExecuteCombatTry("try_jump_out",
 		s_ActiveScenarioGraphs.level_ai_try_jump_out_node_count,
-		chr, label, 3, result,
+		chr, label, 3, result, chr_count, source_chr,
 		&s_ActiveScenarioGraphs.ai_action_try_jump_out_logged);
 }
 
 s32 scenarioSourceAiGraphExecuteTryRunSideways(struct chrdata *chr, s32 label)
 {
 	s32 result;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
 
 	if (!s_ActiveScenarioGraphs.level_graph_active) {
 		return 0;
 	}
+	if (!s_aiGraphRequireOptionalRuntimeCharacterPointer("try_run_sideways",
+			chr, &chr_count, &source_chr)) {
+		return 1;
+	}
 	result = chr && chrTryRunSideways(chr);
 	return s_aiGraphExecuteCombatTry("try_run_sideways",
 		s_ActiveScenarioGraphs.level_ai_try_run_sideways_node_count,
-		chr, label, 3, result,
+		chr, label, 3, result, chr_count, source_chr,
 		&s_ActiveScenarioGraphs.ai_action_try_run_sideways_logged);
 }
 
 s32 scenarioSourceAiGraphExecuteTryAttackWalk(struct chrdata *chr, s32 label)
 {
 	s32 result;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
 
 	if (!s_ActiveScenarioGraphs.level_graph_active) {
 		return 0;
 	}
+	if (!s_aiGraphRequireOptionalRuntimeCharacterPointer("try_attack_walk",
+			chr, &chr_count, &source_chr)) {
+		return 1;
+	}
 	result = chr && chrTryAttackWalk(chr);
 	return s_aiGraphExecuteCombatTry("try_attack_walk",
 		s_ActiveScenarioGraphs.level_ai_try_attack_walk_node_count,
-		chr, label, 3, result,
+		chr, label, 3, result, chr_count, source_chr,
 		&s_ActiveScenarioGraphs.ai_action_try_attack_walk_logged);
 }
 
 s32 scenarioSourceAiGraphExecuteTryAttackRun(struct chrdata *chr, s32 label)
 {
 	s32 result;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
 
 	if (!s_ActiveScenarioGraphs.level_graph_active) {
 		return 0;
 	}
+	if (!s_aiGraphRequireOptionalRuntimeCharacterPointer("try_attack_run",
+			chr, &chr_count, &source_chr)) {
+		return 1;
+	}
 	result = chr && chrTryAttackRun(chr);
 	return s_aiGraphExecuteCombatTry("try_attack_run",
 		s_ActiveScenarioGraphs.level_ai_try_attack_run_node_count,
-		chr, label, 3, result,
+		chr, label, 3, result, chr_count, source_chr,
 		&s_ActiveScenarioGraphs.ai_action_try_attack_run_logged);
 }
 
 s32 scenarioSourceAiGraphExecuteTryAttackRoll(struct chrdata *chr, s32 label)
 {
 	s32 result;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
 
 	if (!s_ActiveScenarioGraphs.level_graph_active) {
 		return 0;
 	}
+	if (!s_aiGraphRequireOptionalRuntimeCharacterPointer("try_attack_roll",
+			chr, &chr_count, &source_chr)) {
+		return 1;
+	}
 	result = chr && chrTryAttackRoll(chr);
 	return s_aiGraphExecuteCombatTry("try_attack_roll",
 		s_ActiveScenarioGraphs.level_ai_try_attack_roll_node_count,
-		chr, label, 3, result,
+		chr, label, 3, result, chr_count, source_chr,
 		&s_ActiveScenarioGraphs.ai_action_try_attack_roll_logged);
 }
 
@@ -11127,14 +14031,20 @@ s32 scenarioSourceAiGraphExecuteTryAttackStand(struct chrdata *chr,
 	u32 thingtype, u32 thingid, s32 label)
 {
 	s32 result;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
 
 	if (!s_ActiveScenarioGraphs.level_graph_active) {
 		return 0;
 	}
+	if (!s_aiGraphRequireOptionalRuntimeCharacterPointer("try_attack_stand",
+			chr, &chr_count, &source_chr)) {
+		return 1;
+	}
 	result = chr && chrTryAttackStand(chr, thingtype, thingid);
 	return s_aiGraphExecuteCombatTry("try_attack_stand",
 		s_ActiveScenarioGraphs.level_ai_try_attack_stand_node_count,
-		chr, label, 7, result,
+		chr, label, 7, result, chr_count, source_chr,
 		&s_ActiveScenarioGraphs.ai_action_try_attack_stand_logged);
 }
 
@@ -11142,14 +14052,20 @@ s32 scenarioSourceAiGraphExecuteTryAttackKneel(struct chrdata *chr,
 	u32 thingtype, u32 thingid, s32 label)
 {
 	s32 result;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
 
 	if (!s_ActiveScenarioGraphs.level_graph_active) {
 		return 0;
 	}
+	if (!s_aiGraphRequireOptionalRuntimeCharacterPointer("try_attack_kneel",
+			chr, &chr_count, &source_chr)) {
+		return 1;
+	}
 	result = chr && chrTryAttackKneel(chr, thingtype, thingid);
 	return s_aiGraphExecuteCombatTry("try_attack_kneel",
 		s_ActiveScenarioGraphs.level_ai_try_attack_kneel_node_count,
-		chr, label, 7, result,
+		chr, label, 7, result, chr_count, source_chr,
 		&s_ActiveScenarioGraphs.ai_action_try_attack_kneel_logged);
 }
 
@@ -11157,24 +14073,36 @@ s32 scenarioSourceAiGraphExecuteTryAttackLie(struct chrdata *chr,
 	u32 thingtype, u32 thingid, s32 label)
 {
 	s32 result;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
 
 	if (!s_ActiveScenarioGraphs.level_graph_active) {
 		return 0;
 	}
+	if (!s_aiGraphRequireOptionalRuntimeCharacterPointer("try_attack_lie",
+			chr, &chr_count, &source_chr)) {
+		return 1;
+	}
 	result = chr && chrTryAttackLie(chr, thingtype, thingid);
 	return s_aiGraphExecuteCombatTry("try_attack_lie",
 		s_ActiveScenarioGraphs.level_ai_try_attack_lie_node_count,
-		chr, label, 7, result,
+		chr, label, 7, result, chr_count, source_chr,
 		&s_ActiveScenarioGraphs.ai_action_try_attack_lie_logged);
 }
 
 s32 scenarioSourceAiGraphExecuteIfAttackLocked(struct chrdata *chr, s32 label)
 {
 	s32 result;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
 
 	if (!s_aiGraphRequireCombatNode("condition", "if_attack_locked",
 			s_ActiveScenarioGraphs.level_ai_if_attack_locked_node_count)) {
 		return 0;
+	}
+	if (!s_aiGraphRequireOptionalRuntimeCharacterPointer("if_attack_locked",
+			chr, &chr_count, &source_chr)) {
+		return 1;
 	}
 	result = chr && chr->actiontype == ACT_ATTACK &&
 		!chr->act_attack.reaim &&
@@ -11182,8 +14110,9 @@ s32 scenarioSourceAiGraphExecuteIfAttackLocked(struct chrdata *chr, s32 label)
 	s_aiGraphApplyBranch(result, label, 3);
 	if (!s_ActiveScenarioGraphs.ai_condition_if_attack_locked_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_attack_locked label=%d result=%d source=%s backend=graph.ai.action.combat+ai/ailists.tsv",
-			label, result, s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI condition if_attack_locked chr_rows=%d source_chr=%d label=%d result=%d source=%s backend=graph.ai.action.combat+ai/ailists.tsv",
+			chr_count, source_chr, label, result,
+			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_condition_if_attack_locked_logged = 1;
 	}
 	return 1;
@@ -11192,17 +14121,24 @@ s32 scenarioSourceAiGraphExecuteIfAttackLocked(struct chrdata *chr, s32 label)
 s32 scenarioSourceAiGraphExecuteIfAttacking(struct chrdata *chr, s32 label)
 {
 	s32 result;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
 
 	if (!s_aiGraphRequireCombatNode("condition", "if_attacking",
 			s_ActiveScenarioGraphs.level_ai_if_attacking_node_count)) {
 		return 0;
 	}
+	if (!s_aiGraphRequireOptionalRuntimeCharacterPointer("if_attacking",
+			chr, &chr_count, &source_chr)) {
+		return 1;
+	}
 	result = chr && chr->actiontype == ACT_ATTACK;
 	s_aiGraphApplyBranch(result, label, 3);
 	if (!s_ActiveScenarioGraphs.ai_condition_if_attacking_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_attacking label=%d result=%d source=%s backend=graph.ai.action.combat+ai/ailists.tsv",
-			label, result, s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI condition if_attacking chr_rows=%d source_chr=%d label=%d result=%d source=%s backend=graph.ai.action.combat+ai/ailists.tsv",
+			chr_count, source_chr, label, result,
+			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_condition_if_attacking_logged = 1;
 	}
 	return 1;
@@ -11212,6 +14148,10 @@ s32 scenarioSourceAiGraphExecuteTryModifyAttack(struct chrdata *chr,
 	struct chopperobj *hovercar, u32 thingtype, u32 thingid, s32 label)
 {
 	s32 result;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
+	s32 vehicle_count = 0;
+	s32 source_vehicle_type = -1;
 
 	if (!s_ActiveScenarioGraphs.level_graph_active) {
 		return 0;
@@ -11220,14 +14160,32 @@ s32 scenarioSourceAiGraphExecuteTryModifyAttack(struct chrdata *chr,
 			s_ActiveScenarioGraphs.level_ai_try_modify_attack_node_count)) {
 		return 1;
 	}
-	result = (chr && chrTryModifyAttack(chr, thingtype, thingid)) ||
-		(hovercar && chopperAttack(hovercar));
+	if (!s_aiGraphRequireOptionalRuntimeCharacterPointer("try_modify_attack",
+			chr, &chr_count, &source_chr)) {
+		return 1;
+	}
+	result = chr && chrTryModifyAttack(chr, thingtype, thingid);
+	if (!result && hovercar) {
+		if (!s_aiGraphRequireRuntimeVehicleObjectPointer(
+				"try_modify_attack", &hovercar->base,
+				OBJTYPE_CHOPPER, OBJTYPE_HOVERCAR,
+				&vehicle_count, &source_vehicle_type)) {
+			return 1;
+		}
+		result = chopperAttack(hovercar);
+	}
 	s_aiGraphApplyBranch(result, label, 7);
 	if (!s_ActiveScenarioGraphs.ai_action_try_modify_attack_logged) {
+		const char *backend = vehicle_count > 0
+			? "graph.ai.action.combat+ai/ailists.tsv+objects.tsv"
+			: "graph.ai.action.combat+ai/ailists.tsv";
+		const char *objects_path = vehicle_count > 0
+			? s_ActiveScenarioGraphs.objects_path : "";
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action try_modify_attack chr=%d hovercar=%d label=%d result=%d source=%s backend=graph.ai.action.combat+ai/ailists.tsv",
-			chr ? 1 : 0, hovercar ? 1 : 0, label, result,
-			s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI action try_modify_attack chr=%d chr_rows=%d source_chr=%d hovercar=%d vehicle_rows=%d source_vehicle_type=%d label=%d result=%d source=%s objects=%s backend=%s",
+			chr ? 1 : 0, chr_count, source_chr, hovercar ? 1 : 0,
+			vehicle_count, source_vehicle_type, label, result,
+			s_ActiveScenarioGraphs.ai_lists_path, objects_path, backend);
 		s_ActiveScenarioGraphs.ai_action_try_modify_attack_logged = 1;
 	}
 	return 1;
@@ -11237,6 +14195,8 @@ s32 scenarioSourceAiGraphExecuteFaceEntity(struct chrdata *chr,
 	u32 thingtype, u32 thingid, s32 label)
 {
 	s32 result;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
 
 	if (!s_ActiveScenarioGraphs.level_graph_active) {
 		return 0;
@@ -11245,13 +14205,18 @@ s32 scenarioSourceAiGraphExecuteFaceEntity(struct chrdata *chr,
 			s_ActiveScenarioGraphs.level_ai_face_entity_node_count)) {
 		return 1;
 	}
+	if (!s_aiGraphRequireOptionalRuntimeCharacterPointer("face_entity",
+			chr, &chr_count, &source_chr)) {
+		return 1;
+	}
 	result = chr && chrFaceEntity(chr, thingtype, thingid);
 	s_aiGraphApplyBranch(result, label, 7);
 	if (!s_ActiveScenarioGraphs.ai_action_face_entity_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action face_entity chr=%d type=%u id=%u label=%d result=%d source=%s backend=graph.ai.action.combat+ai/ailists.tsv",
-			chr ? 1 : 0, (unsigned)thingtype, (unsigned)thingid,
-			label, result, s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI action face_entity chr=%d chr_rows=%d source_chr=%d type=%u id=%u label=%d result=%d source=%s backend=graph.ai.action.combat+ai/ailists.tsv",
+			chr ? 1 : 0, chr_count, source_chr, (unsigned)thingtype,
+			(unsigned)thingid, label, result,
+			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_face_entity_logged = 1;
 	}
 	return 1;
@@ -11260,10 +14225,11 @@ s32 scenarioSourceAiGraphExecuteFaceEntity(struct chrdata *chr,
 s32 scenarioSourceAiGraphExecuteApplyGsetDamage(struct chrdata *basechr,
 	s32 chrnum, s32 hitpart, const struct gset *gset)
 {
-	struct chrdata *chr;
+	struct chrdata *chr = NULL;
 	struct coord pos = { 0, 0, 0 };
 	f32 damage;
 	s32 applied;
+	s32 chr_count = 0;
 
 	if (!s_ActiveScenarioGraphs.level_graph_active) {
 		return 0;
@@ -11272,7 +14238,11 @@ s32 scenarioSourceAiGraphExecuteApplyGsetDamage(struct chrdata *basechr,
 			s_ActiveScenarioGraphs.level_ai_apply_gset_damage_node_count)) {
 		return 1;
 	}
-	chr = chrFindById(basechr, chrnum);
+	if (!s_aiGraphRequireRuntimeCharacterRefFromBase(
+			"apply_gset_damage", basechr, chrnum, &chr_count,
+			&chr)) {
+		return 1;
+	}
 	applied = chr && chr->prop && gset;
 	if (applied) {
 		struct gset *runtime_gset = (struct gset *)gset;
@@ -11283,8 +14253,8 @@ s32 scenarioSourceAiGraphExecuteApplyGsetDamage(struct chrdata *basechr,
 	g_Vars.aioffset += 8;
 	if (!s_ActiveScenarioGraphs.ai_action_apply_gset_damage_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action apply_gset_damage chr=%d hitpart=%d applied=%d source=%s backend=graph.ai.action.combat+ai/ailists.tsv",
-			chrnum, hitpart, applied,
+			"SCENARIO.GRAPH: AI action apply_gset_damage chr=%d chr_rows=%d target_chr=%d hitpart=%d applied=%d source=%s backend=graph.ai.action.combat+ai/ailists.tsv",
+			chrnum, chr_count, chr ? chr->chrnum : -1, hitpart, applied,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_apply_gset_damage_logged = 1;
 	}
@@ -11294,13 +14264,15 @@ s32 scenarioSourceAiGraphExecuteApplyGsetDamage(struct chrdata *basechr,
 s32 scenarioSourceAiGraphExecuteChrDamageChr(struct chrdata *basechr,
 	s32 attacker_chrnum, s32 victim_chrnum, s32 hitpart)
 {
-	struct chrdata *chr1;
-	struct chrdata *chr2;
+	struct chrdata *chr1 = NULL;
+	struct chrdata *chr2 = NULL;
 	struct prop *prop;
 	struct coord vector = { 0, 0, 0 };
 	struct weaponobj *weapon;
 	f32 damage;
 	s32 applied;
+	s32 attacker_chr_count = 0;
+	s32 victim_chr_count = 0;
 
 	if (!s_ActiveScenarioGraphs.level_graph_active) {
 		return 0;
@@ -11309,8 +14281,16 @@ s32 scenarioSourceAiGraphExecuteChrDamageChr(struct chrdata *basechr,
 			s_ActiveScenarioGraphs.level_ai_chr_damage_chr_node_count)) {
 		return 1;
 	}
-	chr1 = chrFindById(basechr, attacker_chrnum);
-	chr2 = chrFindById(basechr, victim_chrnum);
+	if (!s_aiGraphRequireRuntimeCharacterRefFromBase(
+			"chr_damage_chr", basechr, attacker_chrnum,
+			&attacker_chr_count, &chr1)) {
+		return 1;
+	}
+	if (!s_aiGraphRequireRuntimeCharacterRefFromBase(
+			"chr_damage_chr", basechr, victim_chrnum,
+			&victim_chr_count, &chr2)) {
+		return 1;
+	}
 	applied = 0;
 	if (chr1 && chr2 && chr1->prop && chr2->prop) {
 		prop = chrGetHeldUsableProp(chr1, HAND_RIGHT);
@@ -11332,8 +14312,10 @@ s32 scenarioSourceAiGraphExecuteChrDamageChr(struct chrdata *basechr,
 	g_Vars.aioffset += 5;
 	if (!s_ActiveScenarioGraphs.ai_action_chr_damage_chr_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action chr_damage_chr attacker=%d victim=%d hitpart=%d applied=%d source=%s backend=graph.ai.action.combat+ai/ailists.tsv",
-			attacker_chrnum, victim_chrnum, hitpart, applied,
+			"SCENARIO.GRAPH: AI action chr_damage_chr attacker=%d attacker_chr_rows=%d source_attacker_chr=%d victim=%d victim_chr_rows=%d source_victim_chr=%d hitpart=%d applied=%d source=%s backend=graph.ai.action.combat+ai/ailists.tsv",
+			attacker_chrnum, attacker_chr_count, chr1 ? chr1->chrnum : -1,
+			victim_chrnum, victim_chr_count, chr2 ? chr2->chrnum : -1,
+			hitpart, applied,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_chr_damage_chr_logged = 1;
 	}
@@ -11344,6 +14326,8 @@ s32 scenarioSourceAiGraphExecuteConsiderGrenadeThrow(struct chrdata *chr,
 	u32 thingtype, u32 thingid, s32 label)
 {
 	s32 result;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
 
 	if (!s_ActiveScenarioGraphs.level_graph_active) {
 		return 0;
@@ -11352,13 +14336,18 @@ s32 scenarioSourceAiGraphExecuteConsiderGrenadeThrow(struct chrdata *chr,
 			s_ActiveScenarioGraphs.level_ai_consider_grenade_throw_node_count)) {
 		return 1;
 	}
+	if (!s_aiGraphRequireOptionalRuntimeCharacterPointer(
+			"consider_grenade_throw", chr, &chr_count, &source_chr)) {
+		return 1;
+	}
 	result = chr && chrConsiderGrenadeThrow(chr, thingtype, thingid);
 	s_aiGraphApplyBranch(result, label, 7);
 	if (!s_ActiveScenarioGraphs.ai_condition_consider_grenade_throw_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition consider_grenade_throw chr=%d type=%u id=%u label=%d result=%d source=%s backend=graph.ai.action.combat+ai/ailists.tsv",
-			chr ? 1 : 0, (unsigned)thingtype, (unsigned)thingid,
-			label, result, s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI condition consider_grenade_throw chr=%d chr_rows=%d source_chr=%d type=%u id=%u label=%d result=%d source=%s backend=graph.ai.action.combat+ai/ailists.tsv",
+			chr ? 1 : 0, chr_count, source_chr, (unsigned)thingtype,
+			(unsigned)thingid, label, result,
+			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_condition_consider_grenade_throw_logged = 1;
 	}
 	return 1;
@@ -11368,6 +14357,10 @@ s32 scenarioSourceAiGraphExecuteDropItem(struct chrdata *chr,
 	u32 modelnum, u32 weaponnum, s32 label)
 {
 	s32 result;
+	const char *model_id;
+	const char *weapon_id;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
 
 	if (!s_ActiveScenarioGraphs.level_graph_active) {
 		return 0;
@@ -11376,13 +14369,25 @@ s32 scenarioSourceAiGraphExecuteDropItem(struct chrdata *chr,
 			s_ActiveScenarioGraphs.level_ai_drop_item_node_count)) {
 		return 1;
 	}
+	if (!s_aiGraphRequireOptionalRuntimeCharacterPointer("drop_item",
+			chr, &chr_count, &source_chr)) {
+		return 1;
+	}
+	model_id = s_aiGraphResolveModelCatalogId("drop_item",
+		(s32)modelnum, "dropped item");
+	weapon_id = s_aiGraphResolveWeaponCatalogId("drop_item",
+		(s32)weaponnum, "dropped item");
+	if (!model_id || !weapon_id) {
+		return 1;
+	}
 	result = chr && chrDropItem(chr, modelnum, weaponnum);
 	s_aiGraphApplyBranch(result, label, 6);
 	if (!s_ActiveScenarioGraphs.ai_action_drop_item_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action drop_item chr=%d model=%u weapon=%u label=%d result=%d source=%s backend=graph.ai.action.combat+ai/ailists.tsv",
-			chr ? 1 : 0, (unsigned)modelnum, (unsigned)weaponnum,
-			label, result, s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI action drop_item chr=%d chr_rows=%d source_chr=%d model_id=%s weapon_id=%s label=%d result=%d source=%s backend=graph.ai.action.combat+ai/ailists.tsv",
+			chr ? 1 : 0, chr_count, source_chr, model_id, weapon_id, label,
+			result,
+			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_drop_item_logged = 1;
 	}
 	return 1;
@@ -11410,7 +14415,8 @@ static s32 s_aiGraphRequireTargetMovementNode(const char *action,
 
 static s32 s_aiGraphExecuteTargetMovementTry(const char *action,
 	s32 node_count, struct chrdata *chr, s32 label, s32 false_offset,
-	s32 result, s32 chrnum, s32 *logged)
+	s32 result, s32 target_chrnum, s32 chr_count, s32 source_chr,
+	s32 target_chr_count, s32 resolved_target_chr, s32 *logged)
 {
 	s32 required;
 
@@ -11427,8 +14433,9 @@ static s32 s_aiGraphExecuteTargetMovementTry(const char *action,
 	s_aiGraphApplyBranch(result, label, false_offset);
 	if (logged && !*logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action %s chr=%d target_chr=%d label=%d result=%d source=%s backend=graph.ai.action.target_movement+ai/ailists.tsv",
-			action, chr ? 1 : 0, chrnum, label, result,
+			"SCENARIO.GRAPH: AI action %s chr=%d chr_rows=%d source_chr=%d target_chr=%d target_chr_rows=%d resolved_target_chr=%d label=%d result=%d source=%s backend=graph.ai.action.target_movement+ai/ailists.tsv",
+			action, chr ? 1 : 0, chr_count, source_chr, target_chrnum,
+			target_chr_count, resolved_target_chr, label, result,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		*logged = 1;
 	}
@@ -11439,14 +14446,26 @@ s32 scenarioSourceAiGraphExecuteTryRunFromTarget(struct chrdata *chr,
 	s32 label)
 {
 	s32 result;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
+	s32 required;
 
 	if (!s_ActiveScenarioGraphs.level_graph_active) {
 		return 0;
 	}
+	required = s_aiGraphRequireTargetMovementNode("try_run_from_target",
+		s_ActiveScenarioGraphs.level_ai_try_run_from_target_node_count);
+	if (required <= 0) {
+		return required < 0 ? 1 : 0;
+	}
+	if (!s_aiGraphRequireOptionalRuntimeCharacterPointer(
+			"try_run_from_target", chr, &chr_count, &source_chr)) {
+		return 1;
+	}
 	result = chr && chrTryRunFromTarget(chr);
 	return s_aiGraphExecuteTargetMovementTry("try_run_from_target",
 		s_ActiveScenarioGraphs.level_ai_try_run_from_target_node_count,
-		chr, label, 3, result, -1,
+		chr, label, 3, result, -1, chr_count, source_chr, 0, -1,
 		&s_ActiveScenarioGraphs.ai_action_try_run_from_target_logged);
 }
 
@@ -11455,13 +14474,25 @@ static s32 s_aiGraphExecuteTryToTargetProp(const char *action,
 	s32 *logged)
 {
 	s32 result;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
+	s32 required;
 
 	if (!s_ActiveScenarioGraphs.level_graph_active) {
 		return 0;
 	}
+	required = s_aiGraphRequireTargetMovementNode(action, node_count);
+	if (required <= 0) {
+		return required < 0 ? 1 : 0;
+	}
+	if (!s_aiGraphRequireOptionalRuntimeCharacterStatePointer(action, chr,
+			&chr_count, &source_chr)) {
+		return 1;
+	}
 	result = chr && chrGoToTarget(chr, speed);
 	return s_aiGraphExecuteTargetMovementTry(action, node_count,
-		chr, label, 3, result, -1, logged);
+		chr, label, 3, result, -1, chr_count, source_chr, 0, -1,
+		logged);
 }
 
 s32 scenarioSourceAiGraphExecuteTryJogToTargetProp(struct chrdata *chr,
@@ -11495,14 +14526,26 @@ s32 scenarioSourceAiGraphExecuteTryGoToCoverProp(struct chrdata *chr,
 	s32 label)
 {
 	s32 result;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
+	s32 required;
 
 	if (!s_ActiveScenarioGraphs.level_graph_active) {
 		return 0;
 	}
+	required = s_aiGraphRequireTargetMovementNode("try_go_to_cover_prop",
+		s_ActiveScenarioGraphs.level_ai_try_go_to_cover_prop_node_count);
+	if (required <= 0) {
+		return required < 0 ? 1 : 0;
+	}
+	if (!s_aiGraphRequireOptionalRuntimeCharacterPointer("try_go_to_cover_prop",
+			chr, &chr_count, &source_chr)) {
+		return 1;
+	}
 	result = chr && chrGoToCoverProp(chr);
 	return s_aiGraphExecuteTargetMovementTry("try_go_to_cover_prop",
 		s_ActiveScenarioGraphs.level_ai_try_go_to_cover_prop_node_count,
-		chr, label, 3, result, -1,
+		chr, label, 3, result, -1, chr_count, source_chr, 0, -1,
 		&s_ActiveScenarioGraphs.ai_action_try_go_to_cover_prop_logged);
 }
 
@@ -11510,13 +14553,33 @@ static s32 s_aiGraphExecuteTryToChr(const char *action, s32 node_count,
 	struct chrdata *chr, s32 chrnum, s32 label, u32 speed, s32 *logged)
 {
 	s32 result;
+	struct chrdata *target_chr = NULL;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
+	s32 target_chr_count = 0;
+	s32 resolved_target_chr = -1;
+	s32 required;
 
 	if (!s_ActiveScenarioGraphs.level_graph_active) {
 		return 0;
 	}
+	required = s_aiGraphRequireTargetMovementNode(action, node_count);
+	if (required <= 0) {
+		return required < 0 ? 1 : 0;
+	}
+	if (!s_aiGraphRequireOptionalRuntimeCharacterPointer(action, chr,
+			&chr_count, &source_chr)) {
+		return 1;
+	}
+	if (chr && !s_aiGraphRequireRuntimeCharacterRefFromBase(action,
+			chr, chrnum, &target_chr_count, &target_chr)) {
+		return 1;
+	}
+	resolved_target_chr = target_chr ? target_chr->chrnum : -1;
 	result = chr && chrGoToChr(chr, chrnum, speed);
 	return s_aiGraphExecuteTargetMovementTry(action, node_count,
-		chr, label, 4, result, chrnum, logged);
+		chr, label, 4, result, chrnum, chr_count, source_chr,
+		target_chr_count, resolved_target_chr, logged);
 }
 
 s32 scenarioSourceAiGraphExecuteTryJogToChr(struct chrdata *chr,
@@ -11569,7 +14632,8 @@ static s32 s_aiGraphRequirePerceptionAlarmNode(const char *kind,
 
 static s32 s_aiGraphExecutePerceptionAlarmBranch(const char *kind,
 	const char *name, s32 node_count, s32 label, s32 false_offset,
-	s32 branch_taken, s32 value, s32 *logged)
+	s32 branch_taken, s32 value, s32 chr_count, s32 source_chr,
+	s32 *logged)
 {
 	s32 required;
 
@@ -11586,10 +14650,27 @@ static s32 s_aiGraphExecutePerceptionAlarmBranch(const char *kind,
 	s_aiGraphApplyBranch(branch_taken, label, false_offset);
 	if (logged && !*logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI %s %s value=%d label=%d result=%d source=%s backend=graph.ai.condition.perception_alarm+ai/ailists.tsv",
-			kind, name, value, label, branch_taken,
+			"SCENARIO.GRAPH: AI %s %s chr_rows=%d source_chr=%d value=%d label=%d result=%d source=%s backend=graph.ai.condition.perception_alarm+ai/ailists.tsv",
+			kind, name, chr_count, source_chr, value, label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		*logged = 1;
+	}
+	return 1;
+}
+
+static s32 s_aiGraphRequirePerceptionAlarmActor(const char *kind,
+	const char *name, s32 node_count, struct chrdata *chr,
+	s32 *chr_count, s32 *source_chr)
+{
+	s32 required;
+
+	required = s_aiGraphRequirePerceptionAlarmNode(kind, name, node_count);
+	if (required <= 0) {
+		return required;
+	}
+	if (!s_aiGraphRequireOptionalRuntimeCharacterStatePointer(name, chr,
+			chr_count, source_chr)) {
+		return -1;
 	}
 	return 1;
 }
@@ -11597,16 +14678,47 @@ static s32 s_aiGraphExecutePerceptionAlarmBranch(const char *kind,
 s32 scenarioSourceAiGraphExecuteIfCanHearAlarm(struct chrdata *chr,
 	s32 label)
 {
+	s32 chr_count = 0;
+	s32 source_chr = -1;
+	s32 branch_taken;
+	s32 required;
+
+	if (!s_ActiveScenarioGraphs.level_graph_active) {
+		return 0;
+	}
+	required = s_aiGraphRequirePerceptionAlarmActor("condition",
+		"if_can_hear_alarm",
+		s_ActiveScenarioGraphs.level_ai_if_can_hear_alarm_node_count,
+		chr, &chr_count, &source_chr);
+	if (required <= 0) {
+		return required < 0 ? 1 : 0;
+	}
+	branch_taken = chr && chrCanHearAlarm(chr);
 	return s_aiGraphExecutePerceptionAlarmBranch("condition",
 		"if_can_hear_alarm",
 		s_ActiveScenarioGraphs.level_ai_if_can_hear_alarm_node_count,
-		label, 3, chrCanHearAlarm(chr), 0,
+		label, 3, branch_taken, 0, chr_count, source_chr,
 		&s_ActiveScenarioGraphs.ai_condition_if_can_hear_alarm_logged);
 }
 
 s32 scenarioSourceAiGraphExecuteIfPatrolling(struct chrdata *chr, s32 label)
 {
-	s32 branch_taken = chr &&
+	s32 branch_taken;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
+	s32 required;
+
+	if (!s_ActiveScenarioGraphs.level_graph_active) {
+		return 0;
+	}
+	required = s_aiGraphRequirePerceptionAlarmActor("condition",
+		"if_patrolling",
+		s_ActiveScenarioGraphs.level_ai_if_patrolling_node_count,
+		chr, &chr_count, &source_chr);
+	if (required <= 0) {
+		return required < 0 ? 1 : 0;
+	}
+	branch_taken = chr &&
 		(chr->actiontype == ACT_PATROL ||
 			(chr->actiontype == ACT_GOPOS &&
 				(chr->act_gopos.flags & GOPOSFLAG_FORPATHSTART)));
@@ -11614,7 +14726,7 @@ s32 scenarioSourceAiGraphExecuteIfPatrolling(struct chrdata *chr, s32 label)
 	return s_aiGraphExecutePerceptionAlarmBranch("condition",
 		"if_patrolling",
 		s_ActiveScenarioGraphs.level_ai_if_patrolling_node_count,
-		label, 3, branch_taken, 0,
+		label, 3, branch_taken, 0, chr_count, source_chr,
 		&s_ActiveScenarioGraphs.ai_condition_if_patrolling_logged);
 }
 
@@ -11623,7 +14735,7 @@ s32 scenarioSourceAiGraphExecuteIfAlarmActive(s32 label)
 	return s_aiGraphExecutePerceptionAlarmBranch("condition",
 		"if_alarm_active",
 		s_ActiveScenarioGraphs.level_ai_if_alarm_active_node_count,
-		label, 3, alarmIsActive(), 0,
+		label, 3, alarmIsActive(), 0, 0, -1,
 		&s_ActiveScenarioGraphs.ai_condition_if_alarm_active_logged);
 }
 
@@ -11632,88 +14744,237 @@ s32 scenarioSourceAiGraphExecuteIfGasActive(s32 label)
 	return s_aiGraphExecutePerceptionAlarmBranch("condition",
 		"if_gas_active",
 		s_ActiveScenarioGraphs.level_ai_if_gas_active_node_count,
-		label, 3, gasIsActive(), 0,
+		label, 3, gasIsActive(), 0, 0, -1,
 		&s_ActiveScenarioGraphs.ai_condition_if_gas_active_logged);
 }
 
 s32 scenarioSourceAiGraphExecuteIfHearsTarget(struct chrdata *chr, s32 label)
 {
+	s32 chr_count = 0;
+	s32 source_chr = -1;
+	s32 branch_taken;
+	s32 required;
+
+	if (!s_ActiveScenarioGraphs.level_graph_active) {
+		return 0;
+	}
+	required = s_aiGraphRequirePerceptionAlarmActor("condition",
+		"if_hears_target",
+		s_ActiveScenarioGraphs.level_ai_if_hears_target_node_count,
+		chr, &chr_count, &source_chr);
+	if (required <= 0) {
+		return required < 0 ? 1 : 0;
+	}
+	branch_taken = chr && chrIsHearingTarget(chr);
 	return s_aiGraphExecutePerceptionAlarmBranch("condition",
 		"if_hears_target",
 		s_ActiveScenarioGraphs.level_ai_if_hears_target_node_count,
-		label, 3, chr && chrIsHearingTarget(chr), 0,
+		label, 3, branch_taken, 0, chr_count, source_chr,
 		&s_ActiveScenarioGraphs.ai_condition_if_hears_target_logged);
 }
 
 s32 scenarioSourceAiGraphExecuteIfSawInjury(struct chrdata *chr,
 	s32 value, s32 label)
 {
+	s32 chr_count = 0;
+	s32 source_chr = -1;
+	s32 branch_taken;
+	s32 required;
+
+	if (!s_ActiveScenarioGraphs.level_graph_active) {
+		return 0;
+	}
+	required = s_aiGraphRequirePerceptionAlarmActor("condition",
+		"if_saw_injury",
+		s_ActiveScenarioGraphs.level_ai_if_saw_injury_node_count,
+		chr, &chr_count, &source_chr);
+	if (required <= 0) {
+		return required < 0 ? 1 : 0;
+	}
+	branch_taken = chr && chrSawInjury(chr, (u8)value);
 	return s_aiGraphExecutePerceptionAlarmBranch("condition",
 		"if_saw_injury",
 		s_ActiveScenarioGraphs.level_ai_if_saw_injury_node_count,
-		label, 4, chr && chrSawInjury(chr, (u8)value), value,
+		label, 4, branch_taken, value, chr_count, source_chr,
 		&s_ActiveScenarioGraphs.ai_condition_if_saw_injury_logged);
 }
 
 s32 scenarioSourceAiGraphExecuteIfSawDeath(struct chrdata *chr,
 	s32 value, s32 label)
 {
+	s32 chr_count = 0;
+	s32 source_chr = -1;
+	s32 branch_taken;
+	s32 required;
+
+	if (!s_ActiveScenarioGraphs.level_graph_active) {
+		return 0;
+	}
+	required = s_aiGraphRequirePerceptionAlarmActor("condition",
+		"if_saw_death",
+		s_ActiveScenarioGraphs.level_ai_if_saw_death_node_count,
+		chr, &chr_count, &source_chr);
+	if (required <= 0) {
+		return required < 0 ? 1 : 0;
+	}
+	branch_taken = chr && chrSawDeath(chr, (u8)value);
 	return s_aiGraphExecutePerceptionAlarmBranch("condition",
 		"if_saw_death",
 		s_ActiveScenarioGraphs.level_ai_if_saw_death_node_count,
-		label, 4, chr && chrSawDeath(chr, (u8)value), value,
+		label, 4, branch_taken, value, chr_count, source_chr,
 		&s_ActiveScenarioGraphs.ai_condition_if_saw_death_logged);
 }
 
 s32 scenarioSourceAiGraphExecuteIfLosToTarget(struct chrdata *chr,
 	struct chopperobj *hovercar, s32 label)
 {
-	s32 branch_taken = (chr && chrHasLosToTarget(chr)) ||
-		(hovercar && chopperCheckTargetInFov(hovercar, 64) &&
-			chopperCheckTargetInSight(hovercar));
+	s32 branch_taken;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
+	s32 vehicle_count = 0;
+	s32 source_vehicle_type = -1;
+	s32 required;
 
-	return s_aiGraphExecutePerceptionAlarmBranch("condition",
+	if (!s_ActiveScenarioGraphs.level_graph_active) {
+		return 0;
+	}
+	required = s_aiGraphRequirePerceptionAlarmActor("condition",
 		"if_los_to_target",
 		s_ActiveScenarioGraphs.level_ai_if_los_to_target_node_count,
-		label, 3, branch_taken, hovercar ? 1 : 0,
-		&s_ActiveScenarioGraphs.ai_condition_if_los_to_target_logged);
+		chr, &chr_count, &source_chr);
+	if (required <= 0) {
+		return required < 0 ? 1 : 0;
+	}
+	branch_taken = chr && chrHasLosToTarget(chr);
+	if (!branch_taken && hovercar) {
+		if (!s_aiGraphRequireRuntimeVehicleObjectPointer(
+				"if_los_to_target", &hovercar->base,
+				OBJTYPE_CHOPPER, OBJTYPE_HOVERCAR,
+				&vehicle_count, &source_vehicle_type)) {
+			return 1;
+		}
+		branch_taken = chopperCheckTargetInFov(hovercar, 64) &&
+			chopperCheckTargetInSight(hovercar);
+	}
+	s_aiGraphApplyBranch(branch_taken, label, 3);
+	if (!s_ActiveScenarioGraphs.ai_condition_if_los_to_target_logged) {
+		const char *backend = vehicle_count > 0
+			? "graph.ai.condition.perception_alarm+ai/ailists.tsv+objects.tsv"
+			: "graph.ai.condition.perception_alarm+ai/ailists.tsv";
+		const char *objects_path = vehicle_count > 0
+			? s_ActiveScenarioGraphs.objects_path : "";
+		sysLogPrintf(LOG_NOTE,
+			"SCENARIO.GRAPH: AI condition if_los_to_target chr_rows=%d source_chr=%d vehicle_rows=%d source_vehicle_type=%d value=%d label=%d result=%d source=%s objects=%s backend=%s",
+			chr_count, source_chr, vehicle_count, source_vehicle_type,
+			hovercar ? 1 : 0, label, branch_taken,
+			s_ActiveScenarioGraphs.ai_lists_path, objects_path, backend);
+		s_ActiveScenarioGraphs.ai_condition_if_los_to_target_logged = 1;
+	}
+	return 1;
 }
 
 s32 scenarioSourceAiGraphExecuteIfLosToAttackTarget(struct chrdata *chr,
 	struct chopperobj *hovercar, s32 label)
 {
-	s32 branch_taken = (chr && chr->prop &&
-			chrHasLosToAttackTarget(chr, &chr->prop->pos,
-				chr->prop->rooms, true)) ||
-		(hovercar && chopperCheckTargetInFov(hovercar, 64) &&
-			chopperCheckTargetInSight(hovercar));
+	s32 branch_taken;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
+	s32 vehicle_count = 0;
+	s32 source_vehicle_type = -1;
+	s32 required;
 
-	return s_aiGraphExecutePerceptionAlarmBranch("condition",
+	if (!s_ActiveScenarioGraphs.level_graph_active) {
+		return 0;
+	}
+	required = s_aiGraphRequirePerceptionAlarmActor("condition",
 		"if_los_to_attack_target",
 		s_ActiveScenarioGraphs.level_ai_if_los_to_attack_target_node_count,
-		label, 3, branch_taken, hovercar ? 1 : 0,
-		&s_ActiveScenarioGraphs.ai_condition_if_los_to_attack_target_logged);
+		chr, &chr_count, &source_chr);
+	if (required <= 0) {
+		return required < 0 ? 1 : 0;
+	}
+	branch_taken = chr && chr->prop &&
+		chrHasLosToAttackTarget(chr, &chr->prop->pos,
+			chr->prop->rooms, true);
+	if (!branch_taken && hovercar) {
+		if (!s_aiGraphRequireRuntimeVehicleObjectPointer(
+				"if_los_to_attack_target", &hovercar->base,
+				OBJTYPE_CHOPPER, OBJTYPE_HOVERCAR,
+				&vehicle_count, &source_vehicle_type)) {
+			return 1;
+		}
+		branch_taken = chopperCheckTargetInFov(hovercar, 64) &&
+			chopperCheckTargetInSight(hovercar);
+	}
+	s_aiGraphApplyBranch(branch_taken, label, 3);
+	if (!s_ActiveScenarioGraphs
+			.ai_condition_if_los_to_attack_target_logged) {
+		const char *backend = vehicle_count > 0
+			? "graph.ai.condition.perception_alarm+ai/ailists.tsv+objects.tsv"
+			: "graph.ai.condition.perception_alarm+ai/ailists.tsv";
+		const char *objects_path = vehicle_count > 0
+			? s_ActiveScenarioGraphs.objects_path : "";
+		sysLogPrintf(LOG_NOTE,
+			"SCENARIO.GRAPH: AI condition if_los_to_attack_target chr_rows=%d source_chr=%d vehicle_rows=%d source_vehicle_type=%d value=%d label=%d result=%d source=%s objects=%s backend=%s",
+			chr_count, source_chr, vehicle_count, source_vehicle_type,
+			hovercar ? 1 : 0, label, branch_taken,
+			s_ActiveScenarioGraphs.ai_lists_path, objects_path, backend);
+		s_ActiveScenarioGraphs
+			.ai_condition_if_los_to_attack_target_logged = 1;
+	}
+	return 1;
 }
 
 s32 scenarioSourceAiGraphExecuteIfTargetNearlyInSight(struct chrdata *chr,
 	u32 distance, s32 label)
 {
+	s32 chr_count = 0;
+	s32 source_chr = -1;
+	s32 branch_taken;
+	s32 required;
+
+	if (!s_ActiveScenarioGraphs.level_graph_active) {
+		return 0;
+	}
+	required = s_aiGraphRequirePerceptionAlarmActor("condition",
+		"if_target_nearly_in_sight",
+		s_ActiveScenarioGraphs.level_ai_if_target_nearly_in_sight_node_count,
+		chr, &chr_count, &source_chr);
+	if (required <= 0) {
+		return required < 0 ? 1 : 0;
+	}
+	branch_taken = chr && chrIsTargetNearlyInSight(chr, distance);
 	return s_aiGraphExecutePerceptionAlarmBranch("condition",
 		"if_target_nearly_in_sight",
 		s_ActiveScenarioGraphs.level_ai_if_target_nearly_in_sight_node_count,
-		label, 7, chr && chrIsTargetNearlyInSight(chr, distance),
-		(s32)distance,
+		label, 7, branch_taken, (s32)distance, chr_count, source_chr,
 		&s_ActiveScenarioGraphs.ai_condition_if_target_nearly_in_sight_logged);
 }
 
 s32 scenarioSourceAiGraphExecuteIfNearlyInTargetsSight(struct chrdata *chr,
 	u32 distance, s32 label)
 {
+	s32 chr_count = 0;
+	s32 source_chr = -1;
+	s32 branch_taken;
+	s32 required;
+
+	if (!s_ActiveScenarioGraphs.level_graph_active) {
+		return 0;
+	}
+	required = s_aiGraphRequirePerceptionAlarmActor("condition",
+		"if_nearly_in_targets_sight",
+		s_ActiveScenarioGraphs
+			.level_ai_if_nearly_in_targets_sight_node_count,
+		chr, &chr_count, &source_chr);
+	if (required <= 0) {
+		return required < 0 ? 1 : 0;
+	}
+	branch_taken = chr && chrIsNearlyInTargetsSight(chr, distance);
 	return s_aiGraphExecutePerceptionAlarmBranch("condition",
 		"if_nearly_in_targets_sight",
 		s_ActiveScenarioGraphs.level_ai_if_nearly_in_targets_sight_node_count,
-		label, 7, chr && chrIsNearlyInTargetsSight(chr, distance),
-		(s32)distance,
+		label, 7, branch_taken, (s32)distance, chr_count, source_chr,
 		&s_ActiveScenarioGraphs.ai_condition_if_nearly_in_targets_sight_logged);
 }
 
@@ -11721,7 +14982,13 @@ s32 scenarioSourceAiGraphExecuteSetPadPresetToPadOnRouteToTarget(
 	struct chrdata *chr, s32 label)
 {
 	s32 required;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
 	s32 branch_taken;
+	s32 pad_count = 0;
+	s32 waypoint_count = 0;
+	s32 waygroup_count = 0;
+	s32 selected_pad = -1;
 
 	if (!s_ActiveScenarioGraphs.level_graph_active) {
 		return 0;
@@ -11737,20 +15004,44 @@ s32 scenarioSourceAiGraphExecuteSetPadPresetToPadOnRouteToTarget(
 		return 0;
 	}
 	if (!s_ActiveScenarioGraphs.pads_path[0] ||
+			!s_ActiveScenarioGraphs.waypoints_path[0] ||
+			!s_ActiveScenarioGraphs.waygroups_path[0] ||
 			!s_ActiveScenarioGraphs.paths_path[0]) {
 		s_aiGraphRuntimeFailure("set_pad_preset_to_pad_on_route_to_target",
-			"missing pads.tsv or navigation/paths.tsv source");
+			"missing pads.tsv or navigation source");
+		return 1;
+	}
+	if (!s_aiGraphRequireRuntimeNavigationTables(
+			"set_pad_preset_to_pad_on_route_to_target", &pad_count,
+			&waypoint_count, &waygroup_count)) {
+		return 1;
+	}
+	if (!s_aiGraphRequireOptionalRuntimeCharacterPointer(
+			"set_pad_preset_to_pad_on_route_to_target", chr,
+			&chr_count, &source_chr)) {
 		return 1;
 	}
 	branch_taken = chr && chr->prop && chrGetTargetProp(chr) &&
 		chrSetPadPresetToPadOnRouteToTarget(chr);
+	if (branch_taken) {
+		selected_pad = chr->padpreset1;
+		if (!s_aiGraphRequireRuntimePad(
+				"set_pad_preset_to_pad_on_route_to_target",
+				selected_pad, &pad_count)) {
+			return 1;
+		}
+	}
 	s_aiGraphApplyBranch(branch_taken, label, 3);
 	if (!s_ActiveScenarioGraphs
 			.ai_action_set_pad_preset_to_pad_on_route_to_target_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action set_pad_preset_to_pad_on_route_to_target label=%d result=%d source=%s pads=%s paths=%s backend=graph.ai.condition.perception_alarm+ai/ailists.tsv+pads.tsv+navigation/paths.tsv",
-			label, branch_taken, s_ActiveScenarioGraphs.ai_lists_path,
+			"SCENARIO.GRAPH: AI action set_pad_preset_to_pad_on_route_to_target chr_rows=%d source_chr=%d label=%d pad=%d found=%d pad_rows=%d waypoint_rows=%d waygroup_rows=%d result=%d source=%s pads=%s waypoints=%s waygroups=%s paths=%s backend=graph.ai.condition.perception_alarm+ai/ailists.tsv+pads.tsv+navigation/paths.tsv",
+			chr_count, source_chr, label, selected_pad, branch_taken ? 1 : 0, pad_count,
+			waypoint_count, waygroup_count, branch_taken,
+			s_ActiveScenarioGraphs.ai_lists_path,
 			s_ActiveScenarioGraphs.pads_path,
+			s_ActiveScenarioGraphs.waypoints_path,
+			s_ActiveScenarioGraphs.waygroups_path,
 			s_ActiveScenarioGraphs.paths_path);
 		s_ActiveScenarioGraphs
 			.ai_action_set_pad_preset_to_pad_on_route_to_target_logged = 1;
@@ -11761,26 +15052,251 @@ s32 scenarioSourceAiGraphExecuteSetPadPresetToPadOnRouteToTarget(
 s32 scenarioSourceAiGraphExecuteIfSawTargetRecently(struct chrdata *chr,
 	s32 label)
 {
+	s32 chr_count = 0;
+	s32 source_chr = -1;
+	s32 branch_taken;
+	s32 required;
+
+	if (!s_ActiveScenarioGraphs.level_graph_active) {
+		return 0;
+	}
+	required = s_aiGraphRequirePerceptionAlarmActor("condition",
+		"if_saw_target_recently",
+		s_ActiveScenarioGraphs.level_ai_if_saw_target_recently_node_count,
+		chr, &chr_count, &source_chr);
+	if (required <= 0) {
+		return required < 0 ? 1 : 0;
+	}
+	branch_taken = chr && chrSawTargetRecently(chr);
 	return s_aiGraphExecutePerceptionAlarmBranch("condition",
 		"if_saw_target_recently",
 		s_ActiveScenarioGraphs.level_ai_if_saw_target_recently_node_count,
-		label, 3, chr && chrSawTargetRecently(chr), 0,
+		label, 3, branch_taken, 0, chr_count, source_chr,
 		&s_ActiveScenarioGraphs.ai_condition_if_saw_target_recently_logged);
 }
 
 s32 scenarioSourceAiGraphExecuteIfHeardTargetRecently(struct chrdata *chr,
 	s32 label)
 {
+	s32 chr_count = 0;
+	s32 source_chr = -1;
+	s32 branch_taken;
+	s32 required;
+
+	if (!s_ActiveScenarioGraphs.level_graph_active) {
+		return 0;
+	}
+	required = s_aiGraphRequirePerceptionAlarmActor("condition",
+		"if_heard_target_recently",
+		s_ActiveScenarioGraphs.level_ai_if_heard_target_recently_node_count,
+		chr, &chr_count, &source_chr);
+	if (required <= 0) {
+		return required < 0 ? 1 : 0;
+	}
+	branch_taken = chr && chrHeardTargetRecently(chr);
 	return s_aiGraphExecutePerceptionAlarmBranch("condition",
 		"if_heard_target_recently",
 		s_ActiveScenarioGraphs.level_ai_if_heard_target_recently_node_count,
-		label, 3, chr && chrHeardTargetRecently(chr), 0,
+		label, 3, branch_taken, 0, chr_count, source_chr,
 		&s_ActiveScenarioGraphs.ai_condition_if_heard_target_recently_logged);
 }
 
 static s32 s_aiGraphExecuteSpatialPerceptionBranch(const char *name,
 	s32 node_count, s32 label, s32 false_offset, s32 branch_taken,
-	s32 value, s32 require_pads, s32 require_objects, s32 *logged)
+	s32 value, s32 require_pads, s32 require_objects, s32 chr_count,
+	s32 source_chr, s32 *logged)
+{
+	s32 required;
+
+	if (!s_ActiveScenarioGraphs.level_graph_active) {
+		return 0;
+	}
+	required = s_aiGraphRequirePerceptionAlarmNode("condition", name,
+		node_count);
+	if (required < 0) {
+		return -1;
+	}
+	if (!required) {
+		return 0;
+	}
+	if (require_pads && !s_ActiveScenarioGraphs.pads_path[0]) {
+		s_aiGraphRuntimeFailure(name, "missing pads.tsv source");
+		return -1;
+	}
+	if (require_objects && !s_ActiveScenarioGraphs.objects_path[0]) {
+		s_aiGraphRuntimeFailure(name, "missing objects.tsv source");
+		return 1;
+	}
+	s_aiGraphApplyBranch(branch_taken, label, false_offset);
+	if (logged && !*logged) {
+		sysLogPrintf(LOG_NOTE,
+			"SCENARIO.GRAPH: AI condition %s chr_rows=%d source_chr=%d value=%d label=%d result=%d source=%s backend=graph.ai.condition.spatial_perception+ai/ailists.tsv",
+			name, chr_count, source_chr, value, label, branch_taken,
+			s_ActiveScenarioGraphs.ai_lists_path);
+		*logged = 1;
+	}
+	return 1;
+}
+
+static s32 s_aiGraphRequireSpatialPerceptionActor(const char *name,
+	s32 node_count, struct chrdata *chr, s32 require_pads,
+	s32 require_objects, s32 *chr_count, s32 *source_chr)
+{
+	s32 required;
+
+	required = s_aiGraphRequirePerceptionAlarmNode("condition", name,
+		node_count);
+	if (required <= 0) {
+		return required;
+	}
+	if (require_pads && !s_ActiveScenarioGraphs.pads_path[0]) {
+		s_aiGraphRuntimeFailure(name, "missing pads.tsv source");
+		return -1;
+	}
+	if (require_objects && !s_ActiveScenarioGraphs.objects_path[0]) {
+		s_aiGraphRuntimeFailure(name, "missing objects.tsv source");
+		return -1;
+	}
+	if (!s_aiGraphRequireOptionalRuntimeCharacterPointer(name, chr,
+			chr_count, source_chr)) {
+		return -1;
+	}
+	return 1;
+}
+
+static s32 s_aiGraphExecuteDistancePerceptionBranch(const char *name,
+	s32 node_count, s32 label, s32 false_offset, s32 branch_taken,
+	s32 value, s32 require_pads, s32 chr_count, s32 source_chr,
+	s32 *logged)
+{
+	s32 required;
+
+	if (!s_ActiveScenarioGraphs.level_graph_active) {
+		return 0;
+	}
+	required = s_aiGraphRequirePerceptionAlarmNode("condition", name,
+		node_count);
+	if (required < 0) {
+		return 1;
+	}
+	if (!required) {
+		return 0;
+	}
+	if (require_pads && !s_ActiveScenarioGraphs.pads_path[0]) {
+		s_aiGraphRuntimeFailure(name, "missing pads.tsv source");
+		return 1;
+	}
+	s_aiGraphApplyBranch(branch_taken, label, false_offset);
+	if (logged && !*logged) {
+		sysLogPrintf(LOG_NOTE,
+			"SCENARIO.GRAPH: AI condition %s value=%d chr_rows=%d source_chr=%d label=%d result=%d source=%s backend=graph.ai.condition.distance_perception+ai/ailists.tsv",
+			name, value, chr_count, source_chr, label, branch_taken,
+			s_ActiveScenarioGraphs.ai_lists_path);
+		*logged = 1;
+	}
+	return 1;
+}
+
+static s32 s_aiGraphRequireDistancePerceptionActor(const char *name,
+	s32 node_count, struct chrdata *chr, s32 require_pads,
+	s32 *chr_count, s32 *source_chr)
+{
+	s32 required;
+
+	required = s_aiGraphRequirePerceptionAlarmNode("condition", name,
+		node_count);
+	if (required <= 0) {
+		return required;
+	}
+	if (require_pads && !s_ActiveScenarioGraphs.pads_path[0]) {
+		s_aiGraphRuntimeFailure(name, "missing pads.tsv source");
+		return -1;
+	}
+	if (!s_aiGraphRequireOptionalRuntimeCharacterPointer(name, chr,
+			chr_count, source_chr)) {
+		return -1;
+	}
+	return 1;
+}
+
+static s32 s_aiGraphRequirePadDistancePerceptionSource(const char *name,
+	s32 node_count, s32 label, s32 false_offset)
+{
+	s32 required;
+
+	required = s_aiGraphRequirePerceptionAlarmNode("condition", name,
+		node_count);
+	if (required < 0) {
+		return -1;
+	}
+	if (!required) {
+		return 0;
+	}
+	if (!s_ActiveScenarioGraphs.pads_path[0]) {
+		s_aiGraphRuntimeFailure(name, "missing pads.tsv source");
+		s_aiGraphApplyBranch(0, label, false_offset);
+		return -1;
+	}
+	return 1;
+}
+
+static s32 s_aiGraphPreparePadDistancePerceptionBranch(const char *name,
+	s32 node_count, struct chrdata *chr, s32 padnum, s32 label,
+	s32 false_offset, s32 *out_resolved_pad, s32 *out_pad_count,
+	s32 *out_chr_count, s32 *out_source_chr)
+{
+	s32 required;
+	s32 resolved_pad = padnum;
+
+	if (!s_ActiveScenarioGraphs.level_graph_active) {
+		return 0;
+	}
+	required = s_aiGraphRequirePadDistancePerceptionSource(name, node_count,
+		label, false_offset);
+	if (required <= 0) {
+		return required;
+	}
+	if (!s_aiGraphRequireOptionalRuntimeCharacterPointer(name, chr,
+			out_chr_count, out_source_chr)) {
+		s_aiGraphApplyBranch(0, label, false_offset);
+		return -1;
+	}
+	if (padnum == PAD_PRESET) {
+		if (!chr) {
+			s_aiGraphRuntimeFailure(name,
+				"missing chr for PAD_PRESET resolution");
+			s_aiGraphApplyBranch(0, label, false_offset);
+			return -1;
+		}
+		resolved_pad = chrResolvePadId(chr, padnum);
+	}
+	if (out_resolved_pad) {
+		*out_resolved_pad = resolved_pad;
+	}
+	if (!s_aiGraphRequireRuntimePad(name, resolved_pad, out_pad_count)) {
+		s_aiGraphApplyBranch(0, label, false_offset);
+		return -1;
+	}
+	return 1;
+}
+
+static void s_aiGraphLogPadDistancePerceptionBranch(const char *name,
+	s32 value, s32 padnum, s32 pad_count, s32 chr_count, s32 source_chr,
+	s32 label, s32 branch_taken, s32 *logged)
+{
+	if (logged && !*logged) {
+		sysLogPrintf(LOG_NOTE,
+			"SCENARIO.GRAPH: AI condition %s value=%d pad=%d found=1 pad_rows=%d chr_rows=%d source_chr=%d label=%d result=%d source=%s pads=%s backend=graph.ai.condition.distance_perception+ai/ailists.tsv+pads.tsv",
+			name, value, padnum, pad_count, chr_count, source_chr,
+			label, branch_taken,
+			s_ActiveScenarioGraphs.ai_lists_path,
+			s_ActiveScenarioGraphs.pads_path);
+		*logged = 1;
+	}
+}
+
+static s32 s_aiGraphPrepareRoomObjectWeaponBranch(const char *name,
+	s32 node_count, s32 require_pads, s32 require_objects)
 {
 	s32 required;
 
@@ -11801,47 +15317,95 @@ static s32 s_aiGraphExecuteSpatialPerceptionBranch(const char *name,
 	}
 	if (require_objects && !s_ActiveScenarioGraphs.objects_path[0]) {
 		s_aiGraphRuntimeFailure(name, "missing objects.tsv source");
-		return 1;
-	}
-	s_aiGraphApplyBranch(branch_taken, label, false_offset);
-	if (logged && !*logged) {
-		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition %s value=%d label=%d result=%d source=%s backend=graph.ai.condition.spatial_perception+ai/ailists.tsv",
-			name, value, label, branch_taken,
-			s_ActiveScenarioGraphs.ai_lists_path);
-		*logged = 1;
+		return -1;
 	}
 	return 1;
 }
 
-static s32 s_aiGraphExecuteDistancePerceptionBranch(const char *name,
-	s32 node_count, s32 label, s32 false_offset, s32 branch_taken,
-	s32 value, s32 require_pads, s32 *logged)
+static void s_aiGraphLogRoomObjectWeaponBranch(const char *name, s32 value,
+	s32 label, s32 branch_taken, s32 *logged)
 {
-	s32 required;
-
-	if (!s_ActiveScenarioGraphs.level_graph_active) {
-		return 0;
-	}
-	required = s_aiGraphRequirePerceptionAlarmNode("condition", name,
-		node_count);
-	if (required < 0) {
-		return 1;
-	}
-	if (!required) {
-		return 0;
-	}
-	if (require_pads && !s_ActiveScenarioGraphs.pads_path[0]) {
-		s_aiGraphRuntimeFailure(name, "missing pads.tsv source");
-		return 1;
-	}
-	s_aiGraphApplyBranch(branch_taken, label, false_offset);
 	if (logged && !*logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition %s value=%d label=%d result=%d source=%s backend=graph.ai.condition.distance_perception+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI condition %s value=%d label=%d result=%d source=%s backend=graph.ai.condition.room_object_weapon+ai/ailists.tsv",
 			name, value, label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		*logged = 1;
+	}
+}
+
+static void s_aiGraphLogRoomObjectWeaponBranchWeapon(const char *name,
+	const char *weapon_id, s32 label, s32 branch_taken, s32 *logged)
+{
+	if (logged && !*logged) {
+		sysLogPrintf(LOG_NOTE,
+			"SCENARIO.GRAPH: AI condition %s weapon_id=%s label=%d result=%d source=%s backend=graph.ai.condition.room_object_weapon+ai/ailists.tsv",
+			name, weapon_id, label, branch_taken,
+			s_ActiveScenarioGraphs.ai_lists_path);
+		*logged = 1;
+	}
+}
+
+static void s_aiGraphLogRoomObjectWeaponBranchWeaponObject(
+	const char *name, s32 tag_id, s32 object_count,
+	const char *weapon_id, s32 label, s32 branch_taken, s32 *logged)
+{
+	if (logged && !*logged) {
+		sysLogPrintf(LOG_NOTE,
+			"SCENARIO.GRAPH: AI condition %s tag=%d object_rows=%d weapon_id=%s label=%d result=%d source=%s objects=%s backend=graph.ai.condition.room_object_weapon+ai/ailists.tsv+objects.tsv",
+			name, tag_id, object_count, weapon_id, label, branch_taken,
+			s_ActiveScenarioGraphs.ai_lists_path,
+			s_ActiveScenarioGraphs.objects_path);
+		*logged = 1;
+	}
+}
+
+static s32 s_aiGraphRequireCurrentGunProp(const char *action,
+	struct prop *prop, const char **out_model_id, const char **out_weapon_id)
+{
+	struct weaponobj *weapon;
+	const char *model_id;
+	const char *weapon_id;
+	char reason[128];
+
+	if (out_model_id) {
+		*out_model_id = "none";
+	}
+	if (out_weapon_id) {
+		*out_weapon_id = "none";
+	}
+
+	if (!prop) {
+		return s_aiGraphRuntimeFailure(action, "missing current gun prop");
+	}
+	if (prop->type != PROPTYPE_WEAPON || !prop->weapon) {
+		snprintf(reason, sizeof(reason),
+			"current gun prop is type %d without weapon payload",
+			prop->type);
+		return s_aiGraphRuntimeFailure(action, reason);
+	}
+
+	weapon = prop->weapon;
+	if (weapon->weaponnum <= WEAPON_NONE || weapon->weaponnum == 0xff) {
+		snprintf(reason, sizeof(reason),
+			"current gun prop has invalid runtime weapon %d",
+			weapon->weaponnum);
+		return s_aiGraphRuntimeFailure(action, reason);
+	}
+
+	model_id = s_aiGraphResolveModelCatalogId(action,
+		weapon->base.modelnum, "current gun");
+	weapon_id = s_aiGraphResolveWeaponCatalogId(action,
+		weapon->weaponnum, "current gun");
+	if (!model_id || !weapon_id) {
+		return 0;
+	}
+
+	if (out_model_id) {
+		*out_model_id = model_id;
+	}
+	if (out_weapon_id) {
+		*out_weapon_id = weapon_id;
 	}
 	return 1;
 }
@@ -11850,35 +15414,16 @@ static s32 s_aiGraphExecuteRoomObjectWeaponBranch(const char *name,
 	s32 node_count, s32 label, s32 false_offset, s32 branch_taken,
 	s32 value, s32 require_pads, s32 require_objects, s32 *logged)
 {
-	s32 required;
+	s32 prepared;
 
-	if (!s_ActiveScenarioGraphs.level_graph_active) {
-		return 0;
-	}
-	required = s_aiGraphRequirePerceptionAlarmNode("condition", name,
-		node_count);
-	if (required < 0) {
-		return 1;
-	}
-	if (!required) {
-		return 0;
-	}
-	if (require_pads && !s_ActiveScenarioGraphs.pads_path[0]) {
-		s_aiGraphRuntimeFailure(name, "missing pads.tsv source");
-		return 1;
-	}
-	if (require_objects && !s_ActiveScenarioGraphs.objects_path[0]) {
-		s_aiGraphRuntimeFailure(name, "missing objects.tsv source");
-		return 1;
+	prepared = s_aiGraphPrepareRoomObjectWeaponBranch(name, node_count,
+		require_pads, require_objects);
+	if (prepared <= 0) {
+		return prepared < 0 ? 1 : 0;
 	}
 	s_aiGraphApplyBranch(branch_taken, label, false_offset);
-	if (logged && !*logged) {
-		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition %s value=%d label=%d result=%d source=%s backend=graph.ai.condition.room_object_weapon+ai/ailists.tsv",
-			name, value, label, branch_taken,
-			s_ActiveScenarioGraphs.ai_lists_path);
-		*logged = 1;
-	}
+	s_aiGraphLogRoomObjectWeaponBranch(name, value, label, branch_taken,
+		logged);
 	return 1;
 }
 
@@ -11935,86 +15480,245 @@ static s32 s_aiGraphChrSeesSuspiciousItem(struct chrdata *chr)
 s32 scenarioSourceAiGraphExecuteIfLosToChr(struct chrdata *basechr,
 	s32 chrnum, s32 label)
 {
-	struct chrdata *chr = chrFindById(basechr, chrnum);
-	s32 branch_taken = chr && chr->prop &&
+	struct chrdata *chr = NULL;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
+	s32 branch_taken;
+	s32 required;
+
+	if (!s_ActiveScenarioGraphs.level_graph_active) {
+		return 0;
+	}
+	required = s_aiGraphRequireSpatialPerceptionActor("if_los_to_chr",
+		s_ActiveScenarioGraphs.level_ai_if_los_to_chr_node_count,
+		basechr, 0, 0, &chr_count, &source_chr);
+	if (required <= 0) {
+		return required < 0 ? 1 : 0;
+	}
+	if (!s_aiGraphRequireRuntimeCharacterRefFromBase("if_los_to_chr",
+			basechr, chrnum, NULL, &chr)) {
+		return 1;
+	}
+	branch_taken = basechr && chr && chr->prop &&
 		chrHasLosToPos(basechr, &chr->prop->pos, chr->prop->rooms);
 
 	return s_aiGraphExecuteSpatialPerceptionBranch("if_los_to_chr",
 		s_ActiveScenarioGraphs.level_ai_if_los_to_chr_node_count,
-		label, 4, branch_taken, chrnum, 0, 0,
+		label, 4, branch_taken, chrnum, 0, 0, chr_count, source_chr,
 		&s_ActiveScenarioGraphs.ai_condition_if_los_to_chr_logged);
 }
 
 s32 scenarioSourceAiGraphExecuteIfNeverBeenOnScreen(struct chrdata *chr,
 	s32 label)
 {
+	s32 chr_count = 0;
+	s32 source_chr = -1;
+	s32 branch_taken;
+	s32 required;
+
+	if (!s_ActiveScenarioGraphs.level_graph_active) {
+		return 0;
+	}
+	required = s_aiGraphRequireSpatialPerceptionActor(
+		"if_never_been_on_screen",
+		s_ActiveScenarioGraphs
+			.level_ai_if_never_been_on_screen_node_count,
+		chr, 0, 0, &chr_count, &source_chr);
+	if (required <= 0) {
+		return required < 0 ? 1 : 0;
+	}
+	branch_taken = chr && ((chr->chrflags & CHRCFLAG_EVERONSCREEN) == 0);
 	return s_aiGraphExecuteSpatialPerceptionBranch("if_never_been_on_screen",
 		s_ActiveScenarioGraphs.level_ai_if_never_been_on_screen_node_count,
-		label, 3, chr && ((chr->chrflags & CHRCFLAG_EVERONSCREEN) == 0),
-		0, 0, 0,
+		label, 3, branch_taken, 0, 0, 0, chr_count, source_chr,
 		&s_ActiveScenarioGraphs.ai_condition_if_never_been_on_screen_logged);
 }
 
 s32 scenarioSourceAiGraphExecuteIfOnScreen(struct chrdata *chr, s32 label)
 {
-	s32 branch_taken = chr && chr->prop &&
+	s32 chr_count = 0;
+	s32 source_chr = -1;
+	s32 branch_taken;
+	s32 required;
+
+	if (!s_ActiveScenarioGraphs.level_graph_active) {
+		return 0;
+	}
+	required = s_aiGraphRequireSpatialPerceptionActor("if_on_screen",
+		s_ActiveScenarioGraphs.level_ai_if_on_screen_node_count,
+		chr, 0, 0, &chr_count, &source_chr);
+	if (required <= 0) {
+		return required < 0 ? 1 : 0;
+	}
+	branch_taken = chr && chr->prop &&
 		(chr->prop->flags & (PROPFLAG_ONTHISSCREENTHISTICK |
 			PROPFLAG_ONANYSCREENTHISTICK |
 			PROPFLAG_ONANYSCREENPREVTICK));
-
 	return s_aiGraphExecuteSpatialPerceptionBranch("if_on_screen",
 		s_ActiveScenarioGraphs.level_ai_if_on_screen_node_count,
-		label, 3, branch_taken, 0, 0, 0,
+		label, 3, branch_taken, 0, 0, 0, chr_count, source_chr,
 		&s_ActiveScenarioGraphs.ai_condition_if_on_screen_logged);
 }
 
 s32 scenarioSourceAiGraphExecuteIfChrInOnScreenRoom(struct chrdata *basechr,
 	s32 chrnum, s32 label)
 {
-	struct chrdata *chr = chrFindById(basechr, chrnum);
+	struct chrdata *chr = NULL;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
+	s32 required;
+
+	if (!s_ActiveScenarioGraphs.level_graph_active) {
+		return 0;
+	}
+	required = s_aiGraphRequireSpatialPerceptionActor(
+		"if_chr_in_on_screen_room",
+		s_ActiveScenarioGraphs
+			.level_ai_if_chr_in_on_screen_room_node_count,
+		NULL, 0, 0, &chr_count, &source_chr);
+	if (required <= 0) {
+		return required < 0 ? 1 : 0;
+	}
+	if (!s_aiGraphRequireRuntimeCharacterRefFromBase(
+			"if_chr_in_on_screen_room", basechr, chrnum, &chr_count,
+			&chr)) {
+		return 1;
+	}
+	source_chr = chr ? chr->chrnum : -1;
 
 	return s_aiGraphExecuteSpatialPerceptionBranch(
 		"if_chr_in_on_screen_room",
 		s_ActiveScenarioGraphs.level_ai_if_chr_in_on_screen_room_node_count,
 		label, 4, s_aiGraphChrInOnScreenRoom(chr), chrnum, 0, 0,
+		chr_count, source_chr,
 		&s_ActiveScenarioGraphs.ai_condition_if_chr_in_on_screen_room_logged);
 }
 
 s32 scenarioSourceAiGraphExecuteIfRoomIsOnScreen(struct chrdata *chr,
 	s32 pad, s32 label)
 {
-	s32 room_id = chrGetPadRoom(chr, pad);
+	s32 required;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
+	s32 pad_count = 0;
+	s32 room_id;
+	s32 branch;
 
-	return s_aiGraphExecuteSpatialPerceptionBranch("if_room_is_on_screen",
-		s_ActiveScenarioGraphs.level_ai_if_room_is_on_screen_node_count,
-		label, 5, room_id >= 0 && bgRoomIsOnscreen(room_id), pad, 1, 0,
-		&s_ActiveScenarioGraphs.ai_condition_if_room_is_on_screen_logged);
+	if (!s_ActiveScenarioGraphs.level_graph_active) {
+		return 0;
+	}
+	required = s_aiGraphRequirePerceptionAlarmNode("condition",
+		"if_room_is_on_screen",
+		s_ActiveScenarioGraphs.level_ai_if_room_is_on_screen_node_count);
+	if (required < 0) {
+		return -1;
+	}
+	if (!required) {
+		return 0;
+	}
+	if (!s_ActiveScenarioGraphs.pads_path[0]) {
+		s_aiGraphRuntimeFailure("if_room_is_on_screen",
+			"missing pads.tsv source");
+		s_aiGraphApplyBranch(0, label, 5);
+		return 1;
+	}
+	if (!s_aiGraphRequireOptionalRuntimeCharacterPointer(
+			"if_room_is_on_screen", chr, &chr_count, &source_chr)) {
+		s_aiGraphApplyBranch(0, label, 5);
+		return 1;
+	}
+	if (!s_aiGraphRequireRuntimePad("if_room_is_on_screen", pad,
+			&pad_count)) {
+		s_aiGraphApplyBranch(0, label, 5);
+		return 1;
+	}
+
+	room_id = chr ? chrGetPadRoom(chr, pad) : -1;
+	branch = room_id >= 0 && bgRoomIsOnscreen(room_id);
+	s_aiGraphApplyBranch(branch, label, 5);
+	if (!s_ActiveScenarioGraphs.ai_condition_if_room_is_on_screen_logged) {
+		sysLogPrintf(LOG_NOTE,
+			"SCENARIO.GRAPH: AI condition if_room_is_on_screen chr_rows=%d source_chr=%d pad=%d found=1 pad_rows=%d room=%d label=%d result=%d source=%s pads=%s backend=graph.ai.condition.spatial_perception+ai/ailists.tsv+pads.tsv",
+			chr_count, source_chr, pad, pad_count, room_id, label, branch,
+			s_ActiveScenarioGraphs.ai_lists_path,
+			s_ActiveScenarioGraphs.pads_path);
+		s_ActiveScenarioGraphs.ai_condition_if_room_is_on_screen_logged = 1;
+	}
+	return 1;
 }
 
 s32 scenarioSourceAiGraphExecuteIfTargetAimingAtMe(struct chrdata *chr,
 	s32 label)
 {
+	s32 chr_count = 0;
+	s32 source_chr = -1;
+	s32 branch_taken;
+	s32 required;
+
+	if (!s_ActiveScenarioGraphs.level_graph_active) {
+		return 0;
+	}
+	required = s_aiGraphRequireSpatialPerceptionActor(
+		"if_target_aiming_at_me",
+		s_ActiveScenarioGraphs.level_ai_if_target_aiming_at_me_node_count,
+		chr, 0, 0, &chr_count, &source_chr);
+	if (required <= 0) {
+		return required < 0 ? 1 : 0;
+	}
+	branch_taken = chr && chrIsTargetAimingAtMe(chr);
 	return s_aiGraphExecuteSpatialPerceptionBranch("if_target_aiming_at_me",
 		s_ActiveScenarioGraphs.level_ai_if_target_aiming_at_me_node_count,
-		label, 3, chr && chrIsTargetAimingAtMe(chr), 0, 0, 0,
+		label, 3, branch_taken, 0, 0, 0, chr_count, source_chr,
 		&s_ActiveScenarioGraphs.ai_condition_if_target_aiming_at_me_logged);
 }
 
 s32 scenarioSourceAiGraphExecuteIfNearMiss(struct chrdata *chr, s32 label)
 {
+	s32 chr_count = 0;
+	s32 source_chr = -1;
+	s32 branch_taken;
+	s32 required;
+
+	if (!s_ActiveScenarioGraphs.level_graph_active) {
+		return 0;
+	}
+	required = s_aiGraphRequireSpatialPerceptionActor("if_near_miss",
+		s_ActiveScenarioGraphs.level_ai_if_near_miss_node_count,
+		chr, 0, 0, &chr_count, &source_chr);
+	if (required <= 0) {
+		return required < 0 ? 1 : 0;
+	}
+	branch_taken = chr && chrResetNearMiss(chr);
 	return s_aiGraphExecuteSpatialPerceptionBranch("if_near_miss",
 		s_ActiveScenarioGraphs.level_ai_if_near_miss_node_count,
-		label, 3, chr && chrResetNearMiss(chr), 0, 0, 0,
+		label, 3, branch_taken, 0, 0, 0, chr_count, source_chr,
 		&s_ActiveScenarioGraphs.ai_condition_if_near_miss_logged);
 }
 
 s32 scenarioSourceAiGraphExecuteIfSeesSuspiciousItem(struct chrdata *chr,
 	s32 label)
 {
+	s32 chr_count = 0;
+	s32 source_chr = -1;
+	s32 branch_taken;
+	s32 required;
+
+	if (!s_ActiveScenarioGraphs.level_graph_active) {
+		return 0;
+	}
+	required = s_aiGraphRequireSpatialPerceptionActor(
+		"if_sees_suspicious_item",
+		s_ActiveScenarioGraphs
+			.level_ai_if_sees_suspicious_item_node_count,
+		chr, 0, 1, &chr_count, &source_chr);
+	if (required <= 0) {
+		return required < 0 ? 1 : 0;
+	}
+	branch_taken = s_aiGraphChrSeesSuspiciousItem(chr);
 	return s_aiGraphExecuteSpatialPerceptionBranch(
 		"if_sees_suspicious_item",
 		s_ActiveScenarioGraphs.level_ai_if_sees_suspicious_item_node_count,
-		label, 3, s_aiGraphChrSeesSuspiciousItem(chr), 0, 0, 1,
+		label, 3, branch_taken, 0, 0, 1, chr_count, source_chr,
 		&s_ActiveScenarioGraphs.ai_condition_if_sees_suspicious_item_logged);
 }
 
@@ -12022,6 +15726,20 @@ s32 scenarioSourceAiGraphExecuteIfCheckFovWithTarget(struct chrdata *chr,
 	s32 angle, s32 use_x, s32 invert_yvisang, s32 label)
 {
 	s32 branch_taken;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
+	s32 required;
+
+	if (!s_ActiveScenarioGraphs.level_graph_active) {
+		return 0;
+	}
+	required = s_aiGraphRequireSpatialPerceptionActor(
+		"if_check_fov_with_target",
+		s_ActiveScenarioGraphs.level_ai_if_check_fov_with_target_node_count,
+		chr, 0, 0, &chr_count, &source_chr);
+	if (required <= 0) {
+		return required < 0 ? 1 : 0;
+	}
 
 	if (!invert_yvisang) {
 		if (use_x) {
@@ -12037,32 +15755,60 @@ s32 scenarioSourceAiGraphExecuteIfCheckFovWithTarget(struct chrdata *chr,
 	return s_aiGraphExecuteSpatialPerceptionBranch(
 		"if_check_fov_with_target",
 		s_ActiveScenarioGraphs.level_ai_if_check_fov_with_target_node_count,
-		label, 6, branch_taken, angle, 0, 0,
+		label, 6, branch_taken, angle, 0, 0, chr_count, source_chr,
 		&s_ActiveScenarioGraphs.ai_condition_if_check_fov_with_target_logged);
 }
 
 s32 scenarioSourceAiGraphExecuteIfTargetInFovLeft(struct chrdata *chr,
 	s32 angle, s32 label)
 {
-	s32 branch_taken = chr &&
-		chrGetAngleToTarget(chr) < angle * M_BADTAU * 0.00390625f;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
+	s32 branch_taken;
+	s32 required;
 
+	if (!s_ActiveScenarioGraphs.level_graph_active) {
+		return 0;
+	}
+	required = s_aiGraphRequireSpatialPerceptionActor(
+		"if_target_in_fov_left",
+		s_ActiveScenarioGraphs.level_ai_if_target_in_fov_left_node_count,
+		chr, 0, 0, &chr_count, &source_chr);
+	if (required <= 0) {
+		return required < 0 ? 1 : 0;
+	}
+	branch_taken = chr &&
+		chrGetAngleToTarget(chr) < angle * M_BADTAU * 0.00390625f;
 	return s_aiGraphExecuteSpatialPerceptionBranch("if_target_in_fov_left",
 		s_ActiveScenarioGraphs.level_ai_if_target_in_fov_left_node_count,
-		label, 4, branch_taken, angle, 0, 0,
+		label, 4, branch_taken, angle, 0, 0, chr_count, source_chr,
 		&s_ActiveScenarioGraphs.ai_condition_if_target_in_fov_left_logged);
 }
 
 s32 scenarioSourceAiGraphExecuteIfTargetOutOfFovLeft(struct chrdata *chr,
 	s32 angle, s32 label)
 {
-	s32 branch_taken = chr &&
-		chrGetAngleToTarget(chr) > angle * M_BADTAU * 0.00390625f;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
+	s32 branch_taken;
+	s32 required;
 
+	if (!s_ActiveScenarioGraphs.level_graph_active) {
+		return 0;
+	}
+	required = s_aiGraphRequireSpatialPerceptionActor(
+		"if_target_out_of_fov_left",
+		s_ActiveScenarioGraphs.level_ai_if_target_out_of_fov_left_node_count,
+		chr, 0, 0, &chr_count, &source_chr);
+	if (required <= 0) {
+		return required < 0 ? 1 : 0;
+	}
+	branch_taken = chr &&
+		chrGetAngleToTarget(chr) > angle * M_BADTAU * 0.00390625f;
 	return s_aiGraphExecuteSpatialPerceptionBranch(
 		"if_target_out_of_fov_left",
 		s_ActiveScenarioGraphs.level_ai_if_target_out_of_fov_left_node_count,
-		label, 4, branch_taken, angle, 0, 0,
+		label, 4, branch_taken, angle, 0, 0, chr_count, source_chr,
 		&s_ActiveScenarioGraphs
 			.ai_condition_if_target_out_of_fov_left_logged);
 }
@@ -12070,30 +15816,77 @@ s32 scenarioSourceAiGraphExecuteIfTargetOutOfFovLeft(struct chrdata *chr,
 s32 scenarioSourceAiGraphExecuteIfTargetInFov(struct chrdata *chr,
 	s32 angle, s32 label)
 {
+	s32 chr_count = 0;
+	s32 source_chr = -1;
+	s32 branch_taken;
+	s32 required;
+
+	if (!s_ActiveScenarioGraphs.level_graph_active) {
+		return 0;
+	}
+	required = s_aiGraphRequireSpatialPerceptionActor("if_target_in_fov",
+		s_ActiveScenarioGraphs.level_ai_if_target_in_fov_node_count,
+		chr, 0, 0, &chr_count, &source_chr);
+	if (required <= 0) {
+		return required < 0 ? 1 : 0;
+	}
+	branch_taken = chr && chrIsTargetInFov(chr, angle, 0);
 	return s_aiGraphExecuteSpatialPerceptionBranch("if_target_in_fov",
 		s_ActiveScenarioGraphs.level_ai_if_target_in_fov_node_count,
-		label, 4, chr && chrIsTargetInFov(chr, angle, 0), angle, 0, 0,
+		label, 4, branch_taken, angle, 0, 0, chr_count, source_chr,
 		&s_ActiveScenarioGraphs.ai_condition_if_target_in_fov_logged);
 }
 
 s32 scenarioSourceAiGraphExecuteIfTargetOutOfFov(struct chrdata *chr,
 	s32 angle, s32 label)
 {
+	s32 chr_count = 0;
+	s32 source_chr = -1;
+	s32 branch_taken;
+	s32 required;
+
+	if (!s_ActiveScenarioGraphs.level_graph_active) {
+		return 0;
+	}
+	required = s_aiGraphRequireSpatialPerceptionActor("if_target_out_of_fov",
+		s_ActiveScenarioGraphs.level_ai_if_target_out_of_fov_node_count,
+		chr, 0, 0, &chr_count, &source_chr);
+	if (required <= 0) {
+		return required < 0 ? 1 : 0;
+	}
+	branch_taken = chr && !chrIsTargetInFov(chr, angle, 0);
 	return s_aiGraphExecuteSpatialPerceptionBranch("if_target_out_of_fov",
 		s_ActiveScenarioGraphs.level_ai_if_target_out_of_fov_node_count,
-		label, 4, chr && !chrIsTargetInFov(chr, angle, 0), angle, 0, 0,
+		label, 4, branch_taken, angle, 0, 0, chr_count, source_chr,
 		&s_ActiveScenarioGraphs.ai_condition_if_target_out_of_fov_logged);
 }
 
 s32 scenarioSourceAiGraphExecuteIfDistanceToTargetLessThan(
 	struct chrdata *chr, f32 distance, s32 label)
 {
+	s32 chr_count = 0;
+	s32 source_chr = -1;
+	s32 branch_taken;
+	s32 required;
+
+	if (!s_ActiveScenarioGraphs.level_graph_active) {
+		return 0;
+	}
+	required = s_aiGraphRequireSpatialPerceptionActor(
+		"if_distance_to_target_less_than",
+		s_ActiveScenarioGraphs
+			.level_ai_if_distance_to_target_less_than_node_count,
+		chr, 0, 0, &chr_count, &source_chr);
+	if (required <= 0) {
+		return required < 0 ? 1 : 0;
+	}
+	branch_taken = chr && chrGetDistanceToTarget(chr) < distance;
 	return s_aiGraphExecuteSpatialPerceptionBranch(
 		"if_distance_to_target_less_than",
 		s_ActiveScenarioGraphs
 			.level_ai_if_distance_to_target_less_than_node_count,
-		label, 5, chr && chrGetDistanceToTarget(chr) < distance,
-		(s32)distance, 0, 0,
+		label, 5, branch_taken, (s32)distance, 0, 0, chr_count,
+		source_chr,
 		&s_ActiveScenarioGraphs
 			.ai_condition_if_distance_to_target_less_than_logged);
 }
@@ -12101,12 +15894,29 @@ s32 scenarioSourceAiGraphExecuteIfDistanceToTargetLessThan(
 s32 scenarioSourceAiGraphExecuteIfDistanceToTargetGreaterThan(
 	struct chrdata *chr, f32 distance, s32 label)
 {
+	s32 chr_count = 0;
+	s32 source_chr = -1;
+	s32 branch_taken;
+	s32 required;
+
+	if (!s_ActiveScenarioGraphs.level_graph_active) {
+		return 0;
+	}
+	required = s_aiGraphRequireSpatialPerceptionActor(
+		"if_distance_to_target_greater_than",
+		s_ActiveScenarioGraphs
+			.level_ai_if_distance_to_target_greater_than_node_count,
+		chr, 0, 0, &chr_count, &source_chr);
+	if (required <= 0) {
+		return required < 0 ? 1 : 0;
+	}
+	branch_taken = chr && chrGetDistanceToTarget(chr) > distance;
 	return s_aiGraphExecuteSpatialPerceptionBranch(
 		"if_distance_to_target_greater_than",
 		s_ActiveScenarioGraphs
 			.level_ai_if_distance_to_target_greater_than_node_count,
-		label, 5, chr && chrGetDistanceToTarget(chr) > distance,
-		(s32)distance, 0, 0,
+		label, 5, branch_taken, (s32)distance, 0, 0, chr_count,
+		source_chr,
 		&s_ActiveScenarioGraphs
 			.ai_condition_if_distance_to_target_greater_than_logged);
 }
@@ -12114,44 +15924,129 @@ s32 scenarioSourceAiGraphExecuteIfDistanceToTargetGreaterThan(
 s32 scenarioSourceAiGraphExecuteIfChrDistanceToPadLessThan(
 	struct chrdata *basechr, s32 chrnum, f32 distance, s32 padnum, s32 label)
 {
-	struct chrdata *chr = basechr ? chrFindById(basechr, chrnum) : NULL;
-	s32 branch = chr && padnum < 9000 &&
-		chrGetDistanceToPad(chr, padnum) < distance;
+	struct chrdata *chr = NULL;
+	s32 pad_count = 0;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
+	s32 resolved_pad = padnum;
+	s32 source_ready;
+	s32 prepared;
+	s32 branch;
 
-	return s_aiGraphExecuteDistancePerceptionBranch(
+	if (!s_ActiveScenarioGraphs.level_graph_active) {
+		return 0;
+	}
+	source_ready = s_aiGraphRequirePadDistancePerceptionSource(
 		"if_chr_distance_to_pad_less_than",
 		s_ActiveScenarioGraphs
 			.level_ai_if_chr_distance_to_pad_less_than_node_count,
-		label, 8, branch, chrnum, 1,
+		label, 8);
+	if (source_ready <= 0) {
+		return source_ready < 0 ? 1 : 0;
+	}
+	if (!s_aiGraphResolveOptionalRuntimeCharacterRefOrSelector(
+			"if_chr_distance_to_pad_less_than", basechr, chrnum,
+			&chr_count, &chr, NULL)) {
+		return 1;
+	}
+	source_chr = chr ? chr->chrnum : -1;
+	prepared = s_aiGraphPreparePadDistancePerceptionBranch(
+		"if_chr_distance_to_pad_less_than",
+		s_ActiveScenarioGraphs
+			.level_ai_if_chr_distance_to_pad_less_than_node_count,
+		chr, padnum, label, 8, &resolved_pad, &pad_count,
+		&chr_count, &source_chr);
+	if (prepared <= 0) {
+		return prepared < 0 ? 1 : 0;
+	}
+	branch = chr && chrGetDistanceToPad(chr, resolved_pad) < distance;
+	s_aiGraphApplyBranch(branch, label, 8);
+	s_aiGraphLogPadDistancePerceptionBranch(
+		"if_chr_distance_to_pad_less_than", chrnum, resolved_pad, pad_count,
+		chr_count, source_chr, label, branch,
 		&s_ActiveScenarioGraphs
 			.ai_condition_if_chr_distance_to_pad_less_than_logged);
+	return 1;
 }
 
 s32 scenarioSourceAiGraphExecuteIfChrDistanceToPadGreaterThan(
 	struct chrdata *basechr, s32 chrnum, f32 distance, s32 padnum, s32 label)
 {
-	struct chrdata *chr = basechr ? chrFindById(basechr, chrnum) : NULL;
-	s32 branch = chr && padnum < 9000 &&
-		chrGetDistanceToPad(chr, padnum) > distance;
+	struct chrdata *chr = NULL;
+	s32 pad_count = 0;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
+	s32 resolved_pad = padnum;
+	s32 source_ready;
+	s32 prepared;
+	s32 branch;
 
-	return s_aiGraphExecuteDistancePerceptionBranch(
+	if (!s_ActiveScenarioGraphs.level_graph_active) {
+		return 0;
+	}
+	source_ready = s_aiGraphRequirePadDistancePerceptionSource(
 		"if_chr_distance_to_pad_greater_than",
 		s_ActiveScenarioGraphs
 			.level_ai_if_chr_distance_to_pad_greater_than_node_count,
-		label, 8, branch, chrnum, 1,
+		label, 8);
+	if (source_ready <= 0) {
+		return source_ready < 0 ? 1 : 0;
+	}
+	if (!s_aiGraphRequireRuntimeCharacterRefFromBase(
+			"if_chr_distance_to_pad_greater_than", basechr,
+			chrnum, &chr_count, &chr)) {
+		return 1;
+	}
+	source_chr = chr ? chr->chrnum : -1;
+	prepared = s_aiGraphPreparePadDistancePerceptionBranch(
+		"if_chr_distance_to_pad_greater_than",
+		s_ActiveScenarioGraphs
+			.level_ai_if_chr_distance_to_pad_greater_than_node_count,
+		chr, padnum, label, 8, &resolved_pad, &pad_count,
+		&chr_count, &source_chr);
+	if (prepared <= 0) {
+		return prepared < 0 ? 1 : 0;
+	}
+	branch = chr && chrGetDistanceToPad(chr, resolved_pad) > distance;
+	s_aiGraphApplyBranch(branch, label, 8);
+	s_aiGraphLogPadDistancePerceptionBranch(
+		"if_chr_distance_to_pad_greater_than", chrnum, resolved_pad,
+		pad_count, chr_count, source_chr, label, branch,
 		&s_ActiveScenarioGraphs
 			.ai_condition_if_chr_distance_to_pad_greater_than_logged);
+	return 1;
 }
 
 s32 scenarioSourceAiGraphExecuteIfDistanceToChrLessThan(
 	struct chrdata *chr, s32 chrnum, f32 distance, s32 label)
 {
+	s32 chr_count = 0;
+	s32 source_chr = -1;
+	s32 branch;
+	s32 required;
+
+	if (!s_ActiveScenarioGraphs.level_graph_active) {
+		return 0;
+	}
+	required = s_aiGraphRequireDistancePerceptionActor(
+		"if_distance_to_chr_less_than",
+		s_ActiveScenarioGraphs
+			.level_ai_if_distance_to_chr_less_than_node_count,
+		chr, 0, &chr_count, &source_chr);
+	if (required <= 0) {
+		return required < 0 ? 1 : 0;
+	}
+	if (chr && !s_aiGraphRequireRuntimeCharacterRefFromBase(
+			"if_distance_to_chr_less_than", chr, chrnum, NULL,
+			NULL)) {
+		return 1;
+	}
+	branch = chr && chrGetDistanceToChr(chr, chrnum) < distance;
 	return s_aiGraphExecuteDistancePerceptionBranch(
 		"if_distance_to_chr_less_than",
 		s_ActiveScenarioGraphs
 			.level_ai_if_distance_to_chr_less_than_node_count,
-		label, 6, chr && chrGetDistanceToChr(chr, chrnum) < distance,
-		chrnum, 0,
+		label, 6, branch, chrnum, 0, chr_count, source_chr,
 		&s_ActiveScenarioGraphs
 			.ai_condition_if_distance_to_chr_less_than_logged);
 }
@@ -12159,12 +16054,33 @@ s32 scenarioSourceAiGraphExecuteIfDistanceToChrLessThan(
 s32 scenarioSourceAiGraphExecuteIfDistanceToChrGreaterThan(
 	struct chrdata *chr, s32 chrnum, f32 distance, s32 label)
 {
+	s32 chr_count = 0;
+	s32 source_chr = -1;
+	s32 branch;
+	s32 required;
+
+	if (!s_ActiveScenarioGraphs.level_graph_active) {
+		return 0;
+	}
+	required = s_aiGraphRequireDistancePerceptionActor(
+		"if_distance_to_chr_greater_than",
+		s_ActiveScenarioGraphs
+			.level_ai_if_distance_to_chr_greater_than_node_count,
+		chr, 0, &chr_count, &source_chr);
+	if (required <= 0) {
+		return required < 0 ? 1 : 0;
+	}
+	if (chr && !s_aiGraphRequireRuntimeCharacterRefFromBase(
+			"if_distance_to_chr_greater_than", chr, chrnum, NULL,
+			NULL)) {
+		return 1;
+	}
+	branch = chr && chrGetDistanceToChr(chr, chrnum) > distance;
 	return s_aiGraphExecuteDistancePerceptionBranch(
 		"if_distance_to_chr_greater_than",
 		s_ActiveScenarioGraphs
 			.level_ai_if_distance_to_chr_greater_than_node_count,
-		label, 6, chr && chrGetDistanceToChr(chr, chrnum) > distance,
-		chrnum, 0,
+		label, 6, branch, chrnum, 0, chr_count, source_chr,
 		&s_ActiveScenarioGraphs
 			.ai_condition_if_distance_to_chr_greater_than_logged);
 }
@@ -12172,45 +16088,117 @@ s32 scenarioSourceAiGraphExecuteIfDistanceToChrGreaterThan(
 s32 scenarioSourceAiGraphExecuteIfAnyChrNearSelf(struct chrdata *chr,
 	f32 distance, s32 label)
 {
+	s32 chr_count = 0;
+	s32 source_chr = -1;
+	s32 branch;
+	s32 required;
+
+	if (!s_ActiveScenarioGraphs.level_graph_active) {
+		return 0;
+	}
+	required = s_aiGraphRequireDistancePerceptionActor(
+		"if_any_chr_near_self",
+		s_ActiveScenarioGraphs.level_ai_if_any_chr_near_self_node_count,
+		chr, 0, &chr_count, &source_chr);
+	if (required <= 0) {
+		return required < 0 ? 1 : 0;
+	}
+	branch = chr && chrSetChrPresetToAnyChrNearSelf(chr, distance);
 	return s_aiGraphExecuteDistancePerceptionBranch("if_any_chr_near_self",
 		s_ActiveScenarioGraphs.level_ai_if_any_chr_near_self_node_count,
-		label, 5, chr && chrSetChrPresetToAnyChrNearSelf(chr, distance),
-		(s32)distance, 0,
+		label, 5, branch, (s32)distance, 0, chr_count, source_chr,
 		&s_ActiveScenarioGraphs.ai_condition_if_any_chr_near_self_logged);
 }
 
 s32 scenarioSourceAiGraphExecuteIfDistanceFromTargetToPadLessThan(
 	struct chrdata *chr, f32 distance, s32 padnum, s32 label)
 {
-	return s_aiGraphExecuteDistancePerceptionBranch(
+	s32 pad_count = 0;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
+	s32 resolved_pad = padnum;
+	s32 prepared;
+	s32 branch;
+
+	prepared = s_aiGraphPreparePadDistancePerceptionBranch(
 		"if_distance_from_target_to_pad_less_than",
 		s_ActiveScenarioGraphs
 			.level_ai_if_distance_from_target_to_pad_less_than_node_count,
-		label, 7, chr && chrGetDistanceFromTargetToPad(chr, padnum) < distance,
-		padnum, 1,
+		chr, padnum, label, 7, &resolved_pad, &pad_count,
+		&chr_count, &source_chr);
+	if (prepared <= 0) {
+		return prepared < 0 ? 1 : 0;
+	}
+	branch = chr && chrGetDistanceFromTargetToPad(chr, resolved_pad) < distance;
+	s_aiGraphApplyBranch(branch, label, 7);
+	s_aiGraphLogPadDistancePerceptionBranch(
+		"if_distance_from_target_to_pad_less_than", (s32)distance,
+		resolved_pad, pad_count, chr_count, source_chr, label, branch,
 		&s_ActiveScenarioGraphs
 			.ai_condition_if_distance_from_target_to_pad_less_than_logged);
+	return 1;
 }
 
 s32 scenarioSourceAiGraphExecuteIfDistanceFromTargetToPadGreaterThan(
 	struct chrdata *chr, f32 distance, s32 padnum, s32 label)
 {
-	return s_aiGraphExecuteDistancePerceptionBranch(
+	s32 pad_count = 0;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
+	s32 resolved_pad = padnum;
+	s32 prepared;
+	s32 branch;
+
+	prepared = s_aiGraphPreparePadDistancePerceptionBranch(
 		"if_distance_from_target_to_pad_greater_than",
 		s_ActiveScenarioGraphs
 			.level_ai_if_distance_from_target_to_pad_greater_than_node_count,
-		label, 7, chr && chrGetDistanceFromTargetToPad(chr, padnum) > distance,
-		padnum, 1,
+		chr, padnum, label, 7, &resolved_pad, &pad_count,
+		&chr_count, &source_chr);
+	if (prepared <= 0) {
+		return prepared < 0 ? 1 : 0;
+	}
+	branch = chr && chrGetDistanceFromTargetToPad(chr, resolved_pad) > distance;
+	s_aiGraphApplyBranch(branch, label, 7);
+	s_aiGraphLogPadDistancePerceptionBranch(
+		"if_distance_from_target_to_pad_greater_than", (s32)distance,
+		resolved_pad, pad_count, chr_count, source_chr, label, branch,
 		&s_ActiveScenarioGraphs
 			.ai_condition_if_distance_from_target_to_pad_greater_than_logged);
+	return 1;
 }
 
 s32 scenarioSourceAiGraphExecuteIfChrInRoom(struct chrdata *basechr,
 	s32 chrnum, s32 room_type, s32 padnum, s32 label)
 {
-	struct chrdata *chr = basechr ? chrFindById(basechr, chrnum) : NULL;
-	s32 room = chrGetPadRoom(basechr, padnum);
+	struct chrdata *chr = NULL;
+	s32 pad_count = 0;
+	s32 room = -1;
 	s32 branch = 0;
+	s32 checked_players = 0;
+	s32 prepared;
+
+	prepared = s_aiGraphPrepareRoomObjectWeaponBranch("if_chr_in_room",
+		s_ActiveScenarioGraphs.level_ai_if_chr_in_room_node_count, 1, 0);
+	if (prepared <= 0) {
+		return prepared < 0 ? 1 : 0;
+	}
+	if (!s_aiGraphRequireRuntimeCharacterRefFromBase("if_chr_in_room",
+			basechr, chrnum, NULL, &chr)) {
+		return 1;
+	}
+	if (room_type != 1) {
+		if (!s_aiGraphRequireRuntimePad("if_chr_in_room", padnum,
+				&pad_count)) {
+			s_aiGraphApplyBranch(0, label, 7);
+			return 1;
+		}
+		room = chrGetPadRoom(basechr, padnum);
+	} else if (!s_aiGraphRequireRuntimePadTable("if_chr_in_room",
+			&pad_count)) {
+		s_aiGraphApplyBranch(0, label, 7);
+		return 1;
+	}
 
 	if (room_type == 0) {
 		branch = room >= 0 && chr && chr->prop && chr->prop->rooms[0] == room;
@@ -12221,69 +16209,176 @@ s32 scenarioSourceAiGraphExecuteIfChrInRoom(struct chrdata *basechr,
 			stageGetIndex(g_Vars.stagenum) == STAGEINDEX_G5BUILDING) {
 		s32 i;
 		for (i = 0; i < PLAYERCOUNT(); i++) {
-			if (g_Vars.players[i] && g_Vars.players[i]->eyespy &&
-					g_Vars.players[i]->eyespy->prop &&
+			struct player *player = NULL;
+			if (!s_aiGraphRequireRuntimePlayerSlot("if_chr_in_room",
+					i, &player)) {
+				return 1;
+			}
+			checked_players++;
+			if (player->eyespy && player->eyespy->prop &&
+					player->eyespy->prop->chr &&
 					chrGetDistanceToPad(
-						g_Vars.players[i]->eyespy->prop->chr,
-						padnum) < 150.0f) {
+						player->eyespy->prop->chr, padnum) <
+					150.0f) {
 				branch = 1;
 				break;
 			}
 		}
 	}
-	return s_aiGraphExecuteRoomObjectWeaponBranch("if_chr_in_room",
-		s_ActiveScenarioGraphs.level_ai_if_chr_in_room_node_count,
-		label, 7, branch, chrnum, 1, 0,
-		&s_ActiveScenarioGraphs.ai_condition_if_chr_in_room_logged);
+	s_aiGraphApplyBranch(branch, label, 7);
+	if (!s_ActiveScenarioGraphs.ai_condition_if_chr_in_room_logged) {
+		sysLogPrintf(LOG_NOTE,
+			"SCENARIO.GRAPH: AI condition if_chr_in_room chr=%d room_type=%d pad=%d found=%d pad_rows=%d checked_players=%d room=%d label=%d result=%d source=%s pads=%s backend=graph.ai.condition.room_object_weapon+ai/ailists.tsv+pads.tsv",
+			chrnum, room_type, padnum, room_type != 1, pad_count,
+			checked_players, room, label, branch,
+			s_ActiveScenarioGraphs.ai_lists_path,
+			s_ActiveScenarioGraphs.pads_path);
+		s_ActiveScenarioGraphs.ai_condition_if_chr_in_room_logged = 1;
+	}
+	return 1;
 }
 
 s32 scenarioSourceAiGraphExecuteIfTargetInRoom(struct chrdata *chr,
 	s32 padnum, s32 label)
 {
 	struct prop *prop = chrGetTargetProp(chr);
-	s32 room = chrGetPadRoom(chr, padnum);
-	s32 branch = room >= 0 && prop && room == prop->rooms[0];
+	s32 pad_count = 0;
+	s32 room;
+	s32 branch;
+	s32 prepared;
 
-	return s_aiGraphExecuteRoomObjectWeaponBranch("if_target_in_room",
-		s_ActiveScenarioGraphs.level_ai_if_target_in_room_node_count,
-		label, 5, branch, padnum, 1, 0,
-		&s_ActiveScenarioGraphs.ai_condition_if_target_in_room_logged);
+	prepared = s_aiGraphPrepareRoomObjectWeaponBranch("if_target_in_room",
+		s_ActiveScenarioGraphs.level_ai_if_target_in_room_node_count, 1, 0);
+	if (prepared <= 0) {
+		return prepared < 0 ? 1 : 0;
+	}
+	if (!s_aiGraphRequireRuntimePad("if_target_in_room", padnum,
+			&pad_count)) {
+		s_aiGraphApplyBranch(0, label, 5);
+		return 1;
+	}
+	room = chrGetPadRoom(chr, padnum);
+	branch = room >= 0 && prop && room == prop->rooms[0];
+	s_aiGraphApplyBranch(branch, label, 5);
+	if (!s_ActiveScenarioGraphs.ai_condition_if_target_in_room_logged) {
+		sysLogPrintf(LOG_NOTE,
+			"SCENARIO.GRAPH: AI condition if_target_in_room pad=%d found=1 pad_rows=%d room=%d label=%d result=%d source=%s pads=%s backend=graph.ai.condition.room_object_weapon+ai/ailists.tsv+pads.tsv",
+			padnum, pad_count, room, label, branch,
+			s_ActiveScenarioGraphs.ai_lists_path,
+			s_ActiveScenarioGraphs.pads_path);
+		s_ActiveScenarioGraphs.ai_condition_if_target_in_room_logged = 1;
+	}
+	return 1;
 }
 
 s32 scenarioSourceAiGraphExecuteIfChrHasObject(struct chrdata *basechr,
 	s32 chrnum, s32 tag_id, s32 label)
 {
-	struct defaultobj *obj = objFindByTagId(tag_id);
-	struct chrdata *chr = basechr ? chrFindById(basechr, chrnum) : NULL;
+	struct defaultobj *obj;
+	struct chrdata *chr = NULL;
+	s32 object_count = 0;
+	s32 chr_count = 0;
+	s32 target_chrnum = -1;
+	s32 player_checked = 0;
+	s32 prepared;
 	s32 branch = 0;
 
+	prepared = s_aiGraphPrepareRoomObjectWeaponBranch("if_chr_has_object",
+		s_ActiveScenarioGraphs.level_ai_if_chr_has_object_node_count,
+		0, 1);
+	if (prepared <= 0) {
+		return prepared < 0 ? 1 : 0;
+	}
+	if (!s_aiGraphRequireRuntimeObjectTag("if_chr_has_object", tag_id,
+			&object_count)) {
+		s_aiGraphApplyBranch(0, label, 5);
+		return 1;
+	}
+	if (!s_aiGraphResolveRuntimeCharacterRefOrSelector("if_chr_has_object",
+			basechr, chrnum, &chr_count, &chr, NULL)) {
+		return 1;
+	}
+	target_chrnum = chr ? chr->chrnum : -1;
+	obj = objFindByTagId(tag_id);
 	if (obj && obj->prop && chr && chr->prop &&
 			chr->prop->type == PROPTYPE_PLAYER) {
 		s32 prevplayernum = g_Vars.currentplayernum;
-		setCurrentPlayerNum(playermgrGetPlayerNumByProp(chr->prop));
+		u32 playernum = playermgrGetPlayerNumByProp(chr->prop);
+		if (!s_aiGraphRequireRuntimePlayerSlot("if_chr_has_object",
+				(s32)playernum, NULL)) {
+			return 1;
+		}
+		player_checked = 1;
+		setCurrentPlayerNum(playernum);
 		branch = invHasProp(obj->prop);
 		setCurrentPlayerNum(prevplayernum);
 	}
-	return s_aiGraphExecuteRoomObjectWeaponBranch("if_chr_has_object",
-		s_ActiveScenarioGraphs.level_ai_if_chr_has_object_node_count,
-		label, 5, branch, tag_id, 0, 1,
-		&s_ActiveScenarioGraphs.ai_condition_if_chr_has_object_logged);
+	s_aiGraphApplyBranch(branch, label, 5);
+	if (!s_ActiveScenarioGraphs.ai_condition_if_chr_has_object_logged) {
+		sysLogPrintf(LOG_NOTE,
+			"SCENARIO.GRAPH: AI condition if_chr_has_object chr=%d chr_rows=%d target_chr=%d player_checked=%d tag=%d object_rows=%d label=%d result=%d source=%s objects=%s backend=graph.ai.condition.room_object_weapon+ai/ailists.tsv+objects.tsv",
+			chrnum, chr_count, target_chrnum, player_checked, tag_id,
+			object_count, label, branch,
+			s_ActiveScenarioGraphs.ai_lists_path,
+			s_ActiveScenarioGraphs.objects_path);
+		s_ActiveScenarioGraphs.ai_condition_if_chr_has_object_logged = 1;
+	}
+	return 1;
 }
 
 s32 scenarioSourceAiGraphExecuteIfWeaponThrown(s32 weaponnum, s32 label)
 {
-	return s_aiGraphExecuteRoomObjectWeaponBranch("if_weapon_thrown",
+	const char *weapon_id;
+	s32 prepared;
+	s32 branch;
+
+	prepared = s_aiGraphPrepareRoomObjectWeaponBranch("if_weapon_thrown",
 		s_ActiveScenarioGraphs.level_ai_if_weapon_thrown_node_count,
-		label, 4, weaponFindLanded(weaponnum) ? 1 : 0, weaponnum, 0, 0,
+		0, 0);
+	if (prepared <= 0) {
+		return prepared < 0 ? 1 : 0;
+	}
+	weapon_id = s_aiGraphResolveWeaponCatalogId("if_weapon_thrown",
+		weaponnum, "thrown");
+	if (!weapon_id) {
+		return 1;
+	}
+	branch = weaponFindLanded(weaponnum) ? 1 : 0;
+	s_aiGraphApplyBranch(branch, label, 4);
+	s_aiGraphLogRoomObjectWeaponBranchWeapon("if_weapon_thrown",
+		weapon_id, label, branch,
 		&s_ActiveScenarioGraphs.ai_condition_if_weapon_thrown_logged);
+	return 1;
 }
 
 s32 scenarioSourceAiGraphExecuteIfWeaponThrownOnObject(s32 weaponnum,
 	s32 tag_id, s32 label)
 {
-	struct defaultobj *obj = objFindByTagId(tag_id);
+	struct defaultobj *obj;
+	const char *weapon_id;
+	s32 object_count = 0;
+	s32 prepared;
 	s32 branch = 0;
 
+	prepared = s_aiGraphPrepareRoomObjectWeaponBranch(
+		"if_weapon_thrown_on_object",
+		s_ActiveScenarioGraphs
+			.level_ai_if_weapon_thrown_on_object_node_count,
+		0, 1);
+	if (prepared <= 0) {
+		return prepared < 0 ? 1 : 0;
+	}
+	if (!s_aiGraphRequireRuntimeObjectTag("if_weapon_thrown_on_object",
+			tag_id, &object_count)) {
+		s_aiGraphApplyBranch(0, label, 5);
+		return 1;
+	}
+	weapon_id = s_aiGraphResolveWeaponCatalogId(
+		"if_weapon_thrown_on_object", weaponnum, "thrown");
+	if (!weapon_id) {
+		return 1;
+	}
+	obj = objFindByTagId(tag_id);
 	if (obj && obj->prop) {
 		struct prop *prop = obj->prop->child;
 
@@ -12297,43 +16392,90 @@ s32 scenarioSourceAiGraphExecuteIfWeaponThrownOnObject(s32 weaponnum,
 			prop = prop->next;
 		}
 	}
-	return s_aiGraphExecuteRoomObjectWeaponBranch(
-		"if_weapon_thrown_on_object",
-		s_ActiveScenarioGraphs
-			.level_ai_if_weapon_thrown_on_object_node_count,
-		label, 5, branch, tag_id, 0, 1,
+	s_aiGraphApplyBranch(branch, label, 5);
+	s_aiGraphLogRoomObjectWeaponBranchWeaponObject(
+		"if_weapon_thrown_on_object", tag_id, object_count, weapon_id,
+		label, branch,
 		&s_ActiveScenarioGraphs
 			.ai_condition_if_weapon_thrown_on_object_logged);
+	return 1;
 }
 
 s32 scenarioSourceAiGraphExecuteIfChrHasWeaponEquipped(
 	struct chrdata *basechr, s32 chrnum, s32 weaponnum, s32 label)
 {
-	struct chrdata *chr = basechr ? chrFindById(basechr, chrnum) : NULL;
+	struct chrdata *chr = NULL;
+	const char *weapon_id;
+	s32 chr_count = 0;
+	s32 target_chrnum = -1;
+	s32 player_checked = 0;
+	s32 prepared;
 	s32 branch = 0;
 
-	if (chr && chr->prop && chr->prop->type == PROPTYPE_PLAYER) {
-		u32 prevplayernum = g_Vars.currentplayernum;
-		setCurrentPlayerNum(playermgrGetPlayerNumByProp(chr->prop));
-		branch = bgunGetWeaponNum(HAND_RIGHT) == weaponnum;
-		setCurrentPlayerNum(prevplayernum);
-	}
-	return s_aiGraphExecuteRoomObjectWeaponBranch(
+	prepared = s_aiGraphPrepareRoomObjectWeaponBranch(
 		"if_chr_has_weapon_equipped",
 		s_ActiveScenarioGraphs
 			.level_ai_if_chr_has_weapon_equipped_node_count,
-		label, 5, branch, weaponnum, 0, 0,
-		&s_ActiveScenarioGraphs
-			.ai_condition_if_chr_has_weapon_equipped_logged);
+		0, 0);
+	if (prepared <= 0) {
+		return prepared < 0 ? 1 : 0;
+	}
+	weapon_id = s_aiGraphResolveWeaponCatalogId(
+		"if_chr_has_weapon_equipped", weaponnum, "equipped");
+	if (!weapon_id) {
+		return 1;
+	}
+	if (!s_aiGraphResolveRuntimeCharacterRefOrSelector(
+			"if_chr_has_weapon_equipped", basechr, chrnum, &chr_count,
+			&chr, NULL)) {
+		return 1;
+	}
+	target_chrnum = chr ? chr->chrnum : -1;
+	if (chr && chr->prop && chr->prop->type == PROPTYPE_PLAYER) {
+		u32 prevplayernum = g_Vars.currentplayernum;
+		u32 playernum = playermgrGetPlayerNumByProp(chr->prop);
+		if (!s_aiGraphRequireRuntimePlayerSlot(
+				"if_chr_has_weapon_equipped",
+				(s32)playernum, NULL)) {
+			return 1;
+		}
+		player_checked = 1;
+		setCurrentPlayerNum(playernum);
+		branch = bgunGetWeaponNum(HAND_RIGHT) == weaponnum;
+		setCurrentPlayerNum(prevplayernum);
+	}
+	s_aiGraphApplyBranch(branch, label, 5);
+	if (!s_ActiveScenarioGraphs.ai_condition_if_chr_has_weapon_equipped_logged) {
+		sysLogPrintf(LOG_NOTE,
+			"SCENARIO.GRAPH: AI condition if_chr_has_weapon_equipped chr=%d chr_rows=%d target_chr=%d player_checked=%d weapon_id=%s label=%d result=%d source=%s backend=graph.ai.condition.room_object_weapon+ai/ailists.tsv",
+			chrnum, chr_count, target_chrnum, player_checked, weapon_id,
+			label, branch, s_ActiveScenarioGraphs.ai_lists_path);
+		s_ActiveScenarioGraphs
+			.ai_condition_if_chr_has_weapon_equipped_logged = 1;
+	}
+	return 1;
 }
 
 s32 scenarioSourceAiGraphExecuteIfGunUnclaimed(struct chrdata *chr,
 	s32 tag_id, s32 mode, s32 label)
 {
+	s32 prepared;
 	s32 branch = 0;
 
+	prepared = s_aiGraphPrepareRoomObjectWeaponBranch("if_gun_unclaimed",
+		s_ActiveScenarioGraphs.level_ai_if_gun_unclaimed_node_count,
+		0, mode == 0);
+	if (prepared <= 0) {
+		return prepared < 0 ? 1 : 0;
+	}
 	if (mode == 0) {
-		struct defaultobj *obj = objFindByTagId(tag_id);
+		struct defaultobj *obj;
+		if (!s_aiGraphRequireRuntimeObjectTag("if_gun_unclaimed",
+				tag_id, NULL)) {
+			s_aiGraphApplyBranch(0, label, 5);
+			return 1;
+		}
+		obj = objFindByTagId(tag_id);
 		branch = obj && obj->prop;
 	} else if (chr) {
 		struct prop *prop = chr->gunprop;
@@ -12341,27 +16483,47 @@ s32 scenarioSourceAiGraphExecuteIfGunUnclaimed(struct chrdata *chr,
 		if (prop && prop->weapon && prop->parent == NULL &&
 				prop->type == PROPTYPE_WEAPON) {
 			struct weaponobj *weapon = prop->weapon;
+			if (!s_aiGraphRequireCurrentGunProp("if_gun_unclaimed",
+					prop, NULL, NULL)) {
+				return 1;
+			}
 			if (weapon->base.prop) {
 				weapon->base.flags |= OBJFLAG_FORCENOBOUNCE;
 				branch = 1;
 			}
 		}
 	}
-	return s_aiGraphExecuteRoomObjectWeaponBranch("if_gun_unclaimed",
-		s_ActiveScenarioGraphs.level_ai_if_gun_unclaimed_node_count,
-		label, 5, branch, tag_id, 0, mode == 0,
+	s_aiGraphApplyBranch(branch, label, 5);
+	s_aiGraphLogRoomObjectWeaponBranch("if_gun_unclaimed", tag_id,
+		label, branch,
 		&s_ActiveScenarioGraphs.ai_condition_if_gun_unclaimed_logged);
+	return 1;
 }
 
 s32 scenarioSourceAiGraphExecuteIfObjectHealthy(s32 tag_id, s32 label)
 {
-	struct defaultobj *obj = objFindByTagId(tag_id);
-	s32 branch = obj && obj->prop && objIsHealthy(obj);
+	struct defaultobj *obj;
+	s32 prepared;
+	s32 branch = 0;
 
-	return s_aiGraphExecuteRoomObjectWeaponBranch("if_object_healthy",
+	prepared = s_aiGraphPrepareRoomObjectWeaponBranch("if_object_healthy",
 		s_ActiveScenarioGraphs.level_ai_if_object_healthy_node_count,
-		label, 4, branch, tag_id, 0, 1,
+		0, 1);
+	if (prepared <= 0) {
+		return prepared < 0 ? 1 : 0;
+	}
+	if (!s_aiGraphRequireRuntimeObjectTag("if_object_healthy", tag_id,
+			NULL)) {
+		s_aiGraphApplyBranch(0, label, 4);
+		return 1;
+	}
+	obj = objFindByTagId(tag_id);
+	branch = obj && obj->prop && objIsHealthy(obj);
+	s_aiGraphApplyBranch(branch, label, 4);
+	s_aiGraphLogRoomObjectWeaponBranch("if_object_healthy", tag_id,
+		label, branch,
 		&s_ActiveScenarioGraphs.ai_condition_if_object_healthy_logged);
+	return 1;
 }
 
 static s32 s_aiGraphRequireObjectInteractionNode(const char *action,
@@ -12396,12 +16558,22 @@ s32 scenarioSourceAiGraphExecuteIfChrActivatedObject(s32 chrnum,
 	s32 tag_id, s32 label)
 {
 	struct defaultobj *obj;
+	struct chrdata *chr = NULL;
+	struct player *bond = g_Vars.bond;
+	struct player *coop = g_Vars.coop;
+	s32 object_count = 0;
+	s32 chr_count = 0;
+	s32 player_checked = 0;
 	s32 branch = 0;
 
 	if (!s_aiGraphRequireObjectInteractionNode("if_chr_activated_object",
 			s_ActiveScenarioGraphs
 				.level_ai_if_chr_activated_object_node_count, 0)) {
 		return 0;
+	}
+	if (!s_aiGraphRequireRuntimeObjectTag("if_chr_activated_object",
+			tag_id, &object_count)) {
+		return 1;
 	}
 	obj = objFindByTagId(tag_id);
 	if (obj && obj->prop) {
@@ -12413,15 +16585,32 @@ s32 scenarioSourceAiGraphExecuteIfChrActivatedObject(s32 chrnum,
 					OBJHFLAG_ACTIVATED_BY_COOP);
 			}
 		} else {
-			struct chrdata *chr = chrFindById(g_Vars.chrdata, chrnum);
-
+			if (!s_aiGraphRequireRuntimeCharacterRef(
+					"if_chr_activated_object", chrnum,
+					&chr_count, &chr)) {
+				return 1;
+			}
 			if (chr && chr->prop) {
-				if (chr->prop == g_Vars.bond->prop &&
+				if (!s_aiGraphRequireRuntimePlayerPointer(
+						"if_chr_activated_object", bond,
+						"Bond")) {
+					return 1;
+				}
+				player_checked = 1;
+				if (g_Vars.coopplayernum >= 0) {
+					if (!s_aiGraphRequireRuntimePlayerPointer(
+							"if_chr_activated_object", coop,
+							"Co-op")) {
+						return 1;
+					}
+					player_checked = 2;
+				}
+				if (chr->prop == bond->prop &&
 						(obj->hidden & OBJHFLAG_ACTIVATED_BY_BOND)) {
 					branch = 1;
 					obj->hidden &= ~OBJHFLAG_ACTIVATED_BY_BOND;
 				} else if (g_Vars.coopplayernum >= 0 &&
-						chr->prop == g_Vars.coop->prop &&
+						chr->prop == coop->prop &&
 						(obj->hidden & OBJHFLAG_ACTIVATED_BY_COOP)) {
 					branch = 1;
 					obj->hidden &= ~OBJHFLAG_ACTIVATED_BY_COOP;
@@ -12432,8 +16621,9 @@ s32 scenarioSourceAiGraphExecuteIfChrActivatedObject(s32 chrnum,
 	s_aiGraphApplyBranch(branch, label, 5);
 	if (!s_ActiveScenarioGraphs.ai_condition_if_chr_activated_object_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_chr_activated_object chr=%d tag=%d result=%d source=%s objects=%s backend=graph.ai.action.object_interaction+ai/ailists.tsv+objects.tsv",
-			chrnum, tag_id, branch,
+			"SCENARIO.GRAPH: AI condition if_chr_activated_object chr=%d chr_rows=%d target_chr=%d player_checked=%d tag=%d object_rows=%d result=%d source=%s objects=%s backend=graph.ai.action.object_interaction+ai/ailists.tsv+objects.tsv",
+			chrnum, chr_count, chr ? chr->chrnum : -1,
+			player_checked, tag_id, object_count, branch,
 			s_ActiveScenarioGraphs.ai_lists_path,
 			s_ActiveScenarioGraphs.objects_path);
 		s_ActiveScenarioGraphs.ai_condition_if_chr_activated_object_logged = 1;
@@ -12444,11 +16634,18 @@ s32 scenarioSourceAiGraphExecuteIfChrActivatedObject(s32 chrnum,
 s32 scenarioSourceAiGraphExecuteObjInteract(s32 tag_id)
 {
 	struct defaultobj *obj;
+	s32 object_count = 0;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
 	s32 applied = 0;
 
 	if (!s_aiGraphRequireObjectInteractionNode("obj_interact",
 			s_ActiveScenarioGraphs.level_ai_obj_interact_node_count, 0)) {
 		return 0;
+	}
+	if (!s_aiGraphRequireRuntimeObjectTag("obj_interact", tag_id,
+			&object_count)) {
+		return 1;
 	}
 	obj = objFindByTagId(tag_id);
 	if (obj && obj->prop) {
@@ -12463,8 +16660,8 @@ s32 scenarioSourceAiGraphExecuteObjInteract(s32 tag_id)
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_obj_interact_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action obj_interact tag=%d applied=%d source=%s objects=%s backend=graph.ai.action.object_interaction+ai/ailists.tsv+objects.tsv",
-			tag_id, applied, s_ActiveScenarioGraphs.ai_lists_path,
+			"SCENARIO.GRAPH: AI action obj_interact tag=%d object_rows=%d applied=%d source=%s objects=%s backend=graph.ai.action.object_interaction+ai/ailists.tsv+objects.tsv",
+			tag_id, object_count, applied, s_ActiveScenarioGraphs.ai_lists_path,
 			s_ActiveScenarioGraphs.objects_path);
 		s_ActiveScenarioGraphs.ai_action_obj_interact_logged = 1;
 	}
@@ -12474,11 +16671,16 @@ s32 scenarioSourceAiGraphExecuteObjInteract(s32 tag_id)
 s32 scenarioSourceAiGraphExecuteDestroyObject(s32 tag_id)
 {
 	struct defaultobj *obj;
+	s32 object_count = 0;
 	s32 applied = 0;
 
 	if (!s_aiGraphRequireObjectInteractionNode("destroy_object",
 			s_ActiveScenarioGraphs.level_ai_destroy_object_node_count, 0)) {
 		return 0;
+	}
+	if (!s_aiGraphRequireRuntimeObjectTag("destroy_object", tag_id,
+			&object_count)) {
+		return 1;
 	}
 	obj = objFindByTagId(tag_id);
 	if (obj && obj->prop && objGetDestroyedLevel(obj) == 0) {
@@ -12490,6 +16692,11 @@ s32 scenarioSourceAiGraphExecuteDestroyObject(s32 tag_id)
 			explosionCreateSimple(entity->prop, &entity->prop->pos,
 				entity->prop->rooms, EXPLOSIONTYPE_LAPTOP, 0);
 			smokeCreateAtProp(entity->prop, SMOKETYPE_UFO);
+		} else if (obj->flags & OBJFLAG_01000000) {
+			obj->damage = 0;
+			obj->hidden |= OBJHFLAG_DELETING;
+			obj->hidden2 |= OBJH2FLAG_DESTROYED;
+			objectiveRecordObjectState(obj);
 		} else {
 			f32 damage = ((obj->maxdamage - obj->damage) + 1) /
 				250.0f;
@@ -12500,8 +16707,8 @@ s32 scenarioSourceAiGraphExecuteDestroyObject(s32 tag_id)
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_destroy_object_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action destroy_object tag=%d applied=%d source=%s objects=%s backend=graph.ai.action.object_interaction+ai/ailists.tsv+objects.tsv",
-			tag_id, applied, s_ActiveScenarioGraphs.ai_lists_path,
+			"SCENARIO.GRAPH: AI action destroy_object tag=%d object_rows=%d applied=%d source=%s objects=%s backend=graph.ai.action.object_interaction+ai/ailists.tsv+objects.tsv",
+			tag_id, object_count, applied, s_ActiveScenarioGraphs.ai_lists_path,
 			s_ActiveScenarioGraphs.objects_path);
 		s_ActiveScenarioGraphs.ai_action_destroy_object_logged = 1;
 	}
@@ -12511,6 +16718,9 @@ s32 scenarioSourceAiGraphExecuteDestroyObject(s32 tag_id)
 s32 scenarioSourceAiGraphExecuteDropObjectFromChr(s32 tag_id)
 {
 	struct defaultobj *obj;
+	s32 object_count = 0;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
 	s32 applied = 0;
 
 	if (!s_aiGraphRequireObjectInteractionNode("drop_object_from_chr",
@@ -12518,18 +16728,28 @@ s32 scenarioSourceAiGraphExecuteDropObjectFromChr(s32 tag_id)
 				.level_ai_drop_object_from_chr_node_count, 0)) {
 		return 0;
 	}
+	if (!s_aiGraphRequireRuntimeObjectTag("drop_object_from_chr", tag_id,
+			&object_count)) {
+		return 1;
+	}
 	obj = objFindByTagId(tag_id);
 	if (obj && obj->prop && obj->prop->parent &&
 			obj->prop->parent->type == PROPTYPE_CHR) {
 		struct chrdata *chr = obj->prop->parent->chr;
+		if (!s_aiGraphRequireRuntimeCharacterPointer(
+				"drop_object_from_chr", chr, &chr_count,
+				&source_chr)) {
+			return 1;
+		}
 		objSetDropped(obj->prop, DROPTYPE_SURRENDER);
 		chr->hidden |= CHRHFLAG_DROPPINGITEM;
 		applied = 1;
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_drop_object_from_chr_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action drop_object_from_chr tag=%d applied=%d source=%s objects=%s backend=graph.ai.action.object_interaction+ai/ailists.tsv+objects.tsv",
-			tag_id, applied, s_ActiveScenarioGraphs.ai_lists_path,
+			"SCENARIO.GRAPH: AI action drop_object_from_chr tag=%d object_rows=%d chr_rows=%d source_chr=%d applied=%d source=%s objects=%s backend=graph.ai.action.object_interaction+ai/ailists.tsv+objects.tsv",
+			tag_id, object_count, chr_count, source_chr, applied,
+			s_ActiveScenarioGraphs.ai_lists_path,
 			s_ActiveScenarioGraphs.objects_path);
 		s_ActiveScenarioGraphs.ai_action_drop_object_from_chr_logged = 1;
 	}
@@ -12541,20 +16761,25 @@ s32 scenarioSourceAiGraphExecuteChrDropItems(struct chrdata *basechr,
 {
 	struct chrdata *chr;
 	s32 applied = 0;
+	s32 chr_count = 0;
 
 	if (!s_aiGraphRequireObjectInteractionNode("chr_drop_items",
 			s_ActiveScenarioGraphs.level_ai_chr_drop_items_node_count, 0)) {
 		return 0;
 	}
-	chr = basechr ? chrFindById(basechr, chrnum) : NULL;
+	if (!s_aiGraphRequireRuntimeCharacterRefFromBase("chr_drop_items",
+			basechr, chrnum, &chr_count, &chr)) {
+		return 1;
+	}
 	if (chr && chr->prop) {
 		chrDropConcealedItems(chr);
 		applied = 1;
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_chr_drop_items_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action chr_drop_items chr=%d applied=%d source=%s objects=%s backend=graph.ai.action.object_interaction+ai/ailists.tsv+objects.tsv",
-			chrnum, applied, s_ActiveScenarioGraphs.ai_lists_path,
+			"SCENARIO.GRAPH: AI action chr_drop_items chr=%d chr_rows=%d target_chr=%d applied=%d source=%s objects=%s backend=graph.ai.action.object_interaction+ai/ailists.tsv+objects.tsv",
+			chrnum, chr_count, chr ? chr->chrnum : -1, applied,
+			s_ActiveScenarioGraphs.ai_lists_path,
 			s_ActiveScenarioGraphs.objects_path);
 		s_ActiveScenarioGraphs.ai_action_chr_drop_items_logged = 1;
 	}
@@ -12566,16 +16791,26 @@ s32 scenarioSourceAiGraphExecuteChrDropWeapon(struct chrdata *basechr,
 {
 	struct chrdata *chr;
 	s32 applied = 0;
+	s32 chr_count = 0;
+	s32 player_checked = 0;
 
 	if (!s_aiGraphRequireObjectInteractionNode("chr_drop_weapon",
 			s_ActiveScenarioGraphs.level_ai_chr_drop_weapon_node_count, 0)) {
 		return 0;
 	}
-	chr = basechr ? chrFindById(basechr, chrnum) : NULL;
+	if (!s_aiGraphRequireRuntimeCharacterRefFromBase("chr_drop_weapon",
+			basechr, chrnum, &chr_count, &chr)) {
+		return 1;
+	}
 	if (chr && chr->prop && chr->prop->type == PROPTYPE_PLAYER) {
 		u32 prevplayernum = g_Vars.currentplayernum;
 		u32 playernum = playermgrGetPlayerNumByProp(chr->prop);
 		u32 weaponnum;
+		if (!s_aiGraphRequireRuntimePlayerSlot("chr_drop_weapon",
+				(s32)playernum, NULL)) {
+			return 1;
+		}
+		player_checked = 1;
 		setCurrentPlayerNum(playernum);
 		weaponnum = bgunGetWeaponNum(HAND_RIGHT);
 		invRemoveItemByNum(weaponnum);
@@ -12596,8 +16831,10 @@ s32 scenarioSourceAiGraphExecuteChrDropWeapon(struct chrdata *basechr,
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_chr_drop_weapon_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action chr_drop_weapon chr=%d applied=%d source=%s objects=%s backend=graph.ai.action.object_interaction+ai/ailists.tsv+objects.tsv",
-			chrnum, applied, s_ActiveScenarioGraphs.ai_lists_path,
+			"SCENARIO.GRAPH: AI action chr_drop_weapon chr=%d chr_rows=%d target_chr=%d player_checked=%d applied=%d source=%s objects=%s backend=graph.ai.action.object_interaction+ai/ailists.tsv+objects.tsv",
+			chrnum, chr_count, chr ? chr->chrnum : -1, player_checked,
+			applied,
+			s_ActiveScenarioGraphs.ai_lists_path,
 			s_ActiveScenarioGraphs.objects_path);
 		s_ActiveScenarioGraphs.ai_action_chr_drop_weapon_logged = 1;
 	}
@@ -12609,20 +16846,34 @@ s32 scenarioSourceAiGraphExecuteGiveObjectToChr(struct chrdata *basechr,
 {
 	struct defaultobj *obj;
 	struct chrdata *chr;
+	s32 object_count = 0;
+	s32 chr_count = 0;
 	s32 applied = 0;
+	s32 player_checked = 0;
 
 	if (!s_aiGraphRequireObjectInteractionNode("give_object_to_chr",
 			s_ActiveScenarioGraphs.level_ai_give_object_to_chr_node_count, 0)) {
 		return 0;
 	}
-	obj = objFindByTagId(tag_id);
-	chr = basechr ? chrFindById(basechr, chrnum) : NULL;
+	if (!s_aiGraphResolveOptionalRuntimeObjectTag("give_object_to_chr",
+			tag_id, &object_count, &obj)) {
+		return 1;
+	}
+	if (!s_aiGraphResolveRuntimeCharacterRefOrSelector("give_object_to_chr",
+			basechr, chrnum, &chr_count, &chr, NULL)) {
+		return 1;
+	}
 	if (obj && obj->prop && chr && chr->prop) {
 		if (chr->prop->type == PROPTYPE_PLAYER) {
 			u32 something;
 			u32 prevplayernum = g_Vars.currentplayernum;
 			struct defaultobj *obj2 = obj->prop->obj;
 			u32 playernum = playermgrGetPlayerNumByProp(chr->prop);
+			if (!s_aiGraphRequireRuntimePlayerSlot("give_object_to_chr",
+					(s32)playernum, NULL)) {
+				return 1;
+			}
+			player_checked = 1;
 			setCurrentPlayerNum(playernum);
 
 #if VERSION >= VERSION_NTSC_1_0
@@ -12656,8 +16907,9 @@ s32 scenarioSourceAiGraphExecuteGiveObjectToChr(struct chrdata *basechr,
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_give_object_to_chr_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action give_object_to_chr tag=%d chr=%d applied=%d source=%s objects=%s backend=graph.ai.action.object_interaction+ai/ailists.tsv+objects.tsv",
-			tag_id, chrnum, applied,
+			"SCENARIO.GRAPH: AI action give_object_to_chr tag=%d chr=%d chr_rows=%d target_chr=%d player_checked=%d object_rows=%d applied=%d source=%s objects=%s backend=graph.ai.action.object_interaction+ai/ailists.tsv+objects.tsv",
+			tag_id, chrnum, chr_count, chr ? chr->chrnum : -1,
+			player_checked, object_count, applied,
 			s_ActiveScenarioGraphs.ai_lists_path,
 			s_ActiveScenarioGraphs.objects_path);
 		s_ActiveScenarioGraphs.ai_action_give_object_to_chr_logged = 1;
@@ -12669,10 +16921,20 @@ s32 scenarioSourceAiGraphExecuteObjectMoveToPad(s32 tag_id, s32 padnum)
 {
 	struct defaultobj *obj;
 	s32 applied = 0;
+	s32 object_count = 0;
+	s32 pad_count = 0;
 
 	if (!s_aiGraphRequireObjectInteractionNode("object_move_to_pad",
 			s_ActiveScenarioGraphs.level_ai_object_move_to_pad_node_count, 1)) {
 		return 0;
+	}
+	if (!s_aiGraphRequireRuntimePad("object_move_to_pad", padnum,
+			&pad_count)) {
+		return 1;
+	}
+	if (!s_aiGraphRequireRuntimeObjectTag("object_move_to_pad", tag_id,
+			&object_count)) {
+		return 1;
 	}
 	obj = objFindByTagId(tag_id);
 	if (obj && obj->prop) {
@@ -12696,8 +16958,8 @@ s32 scenarioSourceAiGraphExecuteObjectMoveToPad(s32 tag_id, s32 padnum)
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_object_move_to_pad_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action object_move_to_pad tag=%d pad=%d applied=%d source=%s objects=%s pads=%s backend=graph.ai.action.object_interaction+ai/ailists.tsv+objects.tsv+pads.tsv",
-			tag_id, padnum, applied,
+			"SCENARIO.GRAPH: AI action object_move_to_pad tag=%d object_rows=%d pad=%d found=1 pad_rows=%d applied=%d source=%s objects=%s pads=%s backend=graph.ai.action.object_interaction+ai/ailists.tsv+objects.tsv+pads.tsv",
+			tag_id, object_count, padnum, pad_count, applied,
 			s_ActiveScenarioGraphs.ai_lists_path,
 			s_ActiveScenarioGraphs.objects_path,
 			s_ActiveScenarioGraphs.pads_path);
@@ -12713,13 +16975,26 @@ s32 scenarioSourceAiGraphExecuteChrDoAnimation(struct chrdata *basechr,
 	struct chrdata *chr;
 	f32 fstartframe;
 	f32 fendframe;
+	const char *anim_catalog_id;
+	s32 chr_count = 0;
+	s32 player_checked = 0;
+	struct player *player = NULL;
 
 	if (!s_aiGraphRequireAnimationNode("chr_do_animation",
 			s_ActiveScenarioGraphs.level_ai_chr_do_animation_node_count)) {
 		return 0;
 	}
+	anim_catalog_id = s_aiGraphResolveAnimationCatalogId("chr_do_animation",
+		anim_id, "character");
+	if (!anim_catalog_id) {
+		return 1;
+	}
 
-	chr = basechr ? chrFindById(basechr, target_chr) : NULL;
+	if (!s_aiGraphRequireRuntimeCharacterRefFromBase(
+			"chr_do_animation", basechr, target_chr, &chr_count,
+			&chr)) {
+		return 1;
+	}
 
 	if (startframe == 0xffff) {
 		fstartframe = 0;
@@ -12737,6 +17012,16 @@ s32 scenarioSourceAiGraphExecuteChrDoAnimation(struct chrdata *basechr,
 
 	if (chr && chr->model) {
 		f32 speed = 1.0f / (s32)speed_divisor;
+
+		if (startframe == 0xfffe && chr->prop &&
+				chr->prop->type == PROPTYPE_PLAYER) {
+			u32 playernum = playermgrGetPlayerNumByProp(chr->prop);
+			if (!s_aiGraphRequireRuntimePlayerSlot(
+					"chr_do_animation", (s32)playernum, &player)) {
+				return 1;
+			}
+			player_checked = 1;
+		}
 
 		if (playerCurrentCutsceneInProgress()) {
 			if (startframe != 0xfffe) {
@@ -12756,9 +17041,7 @@ s32 scenarioSourceAiGraphExecuteChrDoAnimation(struct chrdata *basechr,
 		if (startframe == 0xfffe) {
 			chr0f0220ec(chr, 1, true);
 
-			if (chr->prop->type == PROPTYPE_PLAYER) {
-				u32 playernum = playermgrGetPlayerNumByProp(chr->prop);
-				struct player *player = g_Vars.players[playernum];
+			if (player) {
 				player->vv_ground = chr->ground;
 				player->vv_manground = chr->ground;
 			}
@@ -12769,8 +17052,9 @@ s32 scenarioSourceAiGraphExecuteChrDoAnimation(struct chrdata *basechr,
 
 	if (!s_ActiveScenarioGraphs.ai_action_chr_do_animation_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action chr_do_animation chr=%d anim=%u target=%d source=%s backend=graph.ai.action.animation+ai/ailists.tsv",
-			chr ? 1 : 0, (unsigned)anim_id, target_chr,
+			"SCENARIO.GRAPH: AI action chr_do_animation chr=%d chr_rows=%d target_chr=%d player_checked=%d anim_id=%s target=%d source=%s backend=graph.ai.action.animation+ai/ailists.tsv",
+			chr ? 1 : 0, chr_count, chr ? chr->chrnum : -1,
+			player_checked, anim_catalog_id, target_chr,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_chr_do_animation_logged = 1;
 	}
@@ -12779,8 +17063,15 @@ s32 scenarioSourceAiGraphExecuteChrDoAnimation(struct chrdata *basechr,
 
 s32 scenarioSourceAiGraphExecuteBeSurprisedOneHand(struct chrdata *chr)
 {
+	s32 chr_count = 0;
+	s32 source_chr = -1;
+
 	if (!s_aiGraphRequireAnimationNode("be_surprised_one_hand",
 			s_ActiveScenarioGraphs.level_ai_be_surprised_one_hand_node_count)) {
+		return 0;
+	}
+	if (!s_aiGraphRequireOptionalRuntimeCharacterPointer(
+			"be_surprised_one_hand", chr, &chr_count, &source_chr)) {
 		return 0;
 	}
 
@@ -12789,8 +17080,9 @@ s32 scenarioSourceAiGraphExecuteBeSurprisedOneHand(struct chrdata *chr)
 
 	if (!s_ActiveScenarioGraphs.ai_action_be_surprised_one_hand_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action be_surprised_one_hand chr=%d source=%s backend=graph.ai.action.animation+ai/ailists.tsv",
-			chr ? 1 : 0, s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI action be_surprised_one_hand chr=%d chr_rows=%d source_chr=%d source=%s backend=graph.ai.action.animation+ai/ailists.tsv",
+			chr ? 1 : 0, chr_count, source_chr,
+			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_be_surprised_one_hand_logged = 1;
 	}
 	return 1;
@@ -12798,8 +17090,15 @@ s32 scenarioSourceAiGraphExecuteBeSurprisedOneHand(struct chrdata *chr)
 
 s32 scenarioSourceAiGraphExecuteBeSurprisedLookAround(struct chrdata *chr)
 {
+	s32 chr_count = 0;
+	s32 source_chr = -1;
+
 	if (!s_aiGraphRequireAnimationNode("be_surprised_look_around",
 			s_ActiveScenarioGraphs.level_ai_be_surprised_look_around_node_count)) {
+		return 0;
+	}
+	if (!s_aiGraphRequireOptionalRuntimeCharacterPointer(
+			"be_surprised_look_around", chr, &chr_count, &source_chr)) {
 		return 0;
 	}
 
@@ -12808,8 +17107,9 @@ s32 scenarioSourceAiGraphExecuteBeSurprisedLookAround(struct chrdata *chr)
 
 	if (!s_ActiveScenarioGraphs.ai_action_be_surprised_look_around_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action be_surprised_look_around chr=%d source=%s backend=graph.ai.action.animation+ai/ailists.tsv",
-			chr ? 1 : 0, s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI action be_surprised_look_around chr=%d chr_rows=%d source_chr=%d source=%s backend=graph.ai.action.animation+ai/ailists.tsv",
+			chr ? 1 : 0, chr_count, source_chr,
+			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_be_surprised_look_around_logged = 1;
 	}
 	return 1;
@@ -12817,8 +17117,15 @@ s32 scenarioSourceAiGraphExecuteBeSurprisedLookAround(struct chrdata *chr)
 
 s32 scenarioSourceAiGraphExecuteBeSurprisedSurrender(struct chrdata *chr)
 {
+	s32 chr_count = 0;
+	s32 source_chr = -1;
+
 	if (!s_aiGraphRequireAnimationNode("be_surprised_surrender",
 			s_ActiveScenarioGraphs.level_ai_be_surprised_surrender_node_count)) {
+		return 0;
+	}
+	if (!s_aiGraphRequireOptionalRuntimeCharacterPointer(
+			"be_surprised_surrender", chr, &chr_count, &source_chr)) {
 		return 0;
 	}
 
@@ -12827,8 +17134,9 @@ s32 scenarioSourceAiGraphExecuteBeSurprisedSurrender(struct chrdata *chr)
 
 	if (!s_ActiveScenarioGraphs.ai_action_be_surprised_surrender_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action be_surprised_surrender chr=%d source=%s backend=graph.ai.action.animation+ai/ailists.tsv",
-			chr ? 1 : 0, s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI action be_surprised_surrender chr=%d chr_rows=%d source_chr=%d source=%s backend=graph.ai.action.animation+ai/ailists.tsv",
+			chr ? 1 : 0, chr_count, source_chr,
+			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_be_surprised_surrender_logged = 1;
 	}
 	return 1;
@@ -12836,13 +17144,16 @@ s32 scenarioSourceAiGraphExecuteBeSurprisedSurrender(struct chrdata *chr)
 
 s32 scenarioSourceAiGraphExecuteRandom(struct chrdata *chr)
 {
+	s32 chr_count = 0;
+	s32 source_chr = -1;
+
 	if (!s_aiGraphRequireRandomControlNode("action", "random",
 			s_ActiveScenarioGraphs.level_ai_random_node_count)) {
 		return 0;
 	}
-	if (!chr) {
-		return s_aiGraphRuntimeFailure("random",
-			"missing chrdata for random state");
+	if (!s_aiGraphRequireRuntimeCharacterStatePointer("random", chr,
+			&chr_count, &source_chr)) {
+		return 1;
 	}
 
 	chr->random = rngRandom() & 0xff;
@@ -12850,8 +17161,9 @@ s32 scenarioSourceAiGraphExecuteRandom(struct chrdata *chr)
 
 	if (!s_ActiveScenarioGraphs.ai_action_random_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action random value=%u source=%s backend=graph.ai.control.random+ai/ailists.tsv",
-			(unsigned)chr->random, s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI action random chr_rows=%d source_chr=%d value=%u source=%s backend=graph.ai.control.random+ai/ailists.tsv",
+			chr_count, source_chr, (unsigned)chr->random,
+			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_random_logged = 1;
 	}
 	return 1;
@@ -12861,12 +17173,19 @@ s32 scenarioSourceAiGraphExecuteIfRandomLessThan(struct chrdata *chr,
 	struct chopperobj *hovercar, s32 threshold, s32 label)
 {
 	s32 branch_taken;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
 
 	if (!s_aiGraphRequireRandomControlNode("condition",
 			"if_random_less_than",
 			s_ActiveScenarioGraphs
 				.level_ai_if_random_less_than_node_count)) {
 		return 0;
+	}
+	if (!s_aiGraphRequireOptionalRuntimeCharacterStatePointer(
+			"if_random_less_than", chr, &chr_count,
+			&source_chr)) {
+		return 1;
 	}
 
 	branch_taken = (chr && chr->random < threshold) ||
@@ -12875,8 +17194,8 @@ s32 scenarioSourceAiGraphExecuteIfRandomLessThan(struct chrdata *chr,
 
 	if (!s_ActiveScenarioGraphs.ai_condition_if_random_less_than_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_random_less_than threshold=%d label=%d branch=%d source=%s backend=graph.ai.control.random+ai/ailists.tsv",
-			threshold, label, branch_taken,
+			"SCENARIO.GRAPH: AI condition if_random_less_than chr_rows=%d source_chr=%d threshold=%d label=%d branch=%d source=%s backend=graph.ai.control.random+ai/ailists.tsv",
+			chr_count, source_chr, threshold, label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_condition_if_random_less_than_logged = 1;
 	}
@@ -12887,12 +17206,19 @@ s32 scenarioSourceAiGraphExecuteIfRandomGreaterThan(struct chrdata *chr,
 	struct chopperobj *hovercar, s32 threshold, s32 label)
 {
 	s32 branch_taken;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
 
 	if (!s_aiGraphRequireRandomControlNode("condition",
 			"if_random_greater_than",
 			s_ActiveScenarioGraphs
 				.level_ai_if_random_greater_than_node_count)) {
 		return 0;
+	}
+	if (!s_aiGraphRequireOptionalRuntimeCharacterStatePointer(
+			"if_random_greater_than", chr, &chr_count,
+			&source_chr)) {
+		return 1;
 	}
 
 	branch_taken = (chr && chr->random > threshold) ||
@@ -12901,8 +17227,8 @@ s32 scenarioSourceAiGraphExecuteIfRandomGreaterThan(struct chrdata *chr,
 
 	if (!s_ActiveScenarioGraphs.ai_condition_if_random_greater_than_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_random_greater_than threshold=%d label=%d branch=%d source=%s backend=graph.ai.control.random+ai/ailists.tsv",
-			threshold, label, branch_taken,
+			"SCENARIO.GRAPH: AI condition if_random_greater_than chr_rows=%d source_chr=%d threshold=%d label=%d branch=%d source=%s backend=graph.ai.control.random+ai/ailists.tsv",
+			chr_count, source_chr, threshold, label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_condition_if_random_greater_than_logged = 1;
 	}
@@ -12961,7 +17287,8 @@ s32 scenarioSourceAiGraphExecuteNoOp(const char *opcode_name, s32 len)
 s32 scenarioSourceAiGraphExecuteSetList(s32 target_preset, u16 list_id)
 {
 	u8 *ailist;
-	struct chrdata *chr;
+	struct chrdata *chr = NULL;
+	s32 chr_count = 0;
 
 	if (!s_aiGraphRequireListControlNode("set_list",
 			s_ActiveScenarioGraphs.level_ai_set_list_node_count)) {
@@ -12973,7 +17300,11 @@ s32 scenarioSourceAiGraphExecuteSetList(s32 target_preset, u16 list_id)
 		g_Vars.ailist = ailist;
 		g_Vars.aioffset = 0;
 	} else {
-		chr = chrFindById(g_Vars.chrdata, target_preset);
+		if (!s_aiGraphResolveOptionalRuntimeCharacterRefOrSelector(
+				"set_list", g_Vars.chrdata, target_preset,
+				&chr_count, &chr, NULL)) {
+			return 1;
+		}
 		if (chr) {
 			chr->ailist = ailist;
 			chr->aioffset = 0;
@@ -12984,8 +17315,9 @@ s32 scenarioSourceAiGraphExecuteSetList(s32 target_preset, u16 list_id)
 
 	if (!s_ActiveScenarioGraphs.ai_action_set_list_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action set_list target=%d list=%u source=%s backend=graph.ai.action.list_control+ai/ailists.tsv",
-			target_preset, (unsigned)list_id,
+			"SCENARIO.GRAPH: AI action set_list target=%d chr_rows=%d target_chr=%d list=%u source=%s backend=graph.ai.action.list_control+ai/ailists.tsv",
+			target_preset, chr_count, chr ? chr->chrnum : -1,
+			(unsigned)list_id,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_set_list_logged = 1;
 	}
@@ -12994,36 +17326,77 @@ s32 scenarioSourceAiGraphExecuteSetList(s32 target_preset, u16 list_id)
 
 s32 scenarioSourceAiGraphExecuteSetReturnList(s32 target_preset, u16 list_id)
 {
-	struct chrdata *chr;
+	struct chrdata *active_chr = g_Vars.chrdata;
+	struct truckobj *truck = g_Vars.truck;
+	struct heliobj *heli = g_Vars.heli;
+	struct chopperobj *hovercar = g_Vars.hovercar;
+	struct chrdata *chr = NULL;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
+	s32 vehicle_count = 0;
+	s32 source_vehicle_type = -1;
 
 	if (!s_aiGraphRequireListControlNode("set_return_list",
 			s_ActiveScenarioGraphs.level_ai_set_return_list_node_count)) {
 		return 0;
 	}
 
-	if (g_Vars.chrdata) {
+	if (active_chr) {
 		if (target_preset == CHR_SELF) {
-			g_Vars.chrdata->aireturnlist = list_id;
+			if (!s_aiGraphRequireOptionalRuntimeCharacterPointer(
+					"set_return_list", active_chr,
+					&chr_count, &source_chr)) {
+				return 1;
+			}
+			if (active_chr->prop) {
+				active_chr->aireturnlist = list_id;
+				chr = active_chr;
+			}
 		} else {
-			chr = chrFindById(g_Vars.chrdata, target_preset);
-			if (chr) {
+			if (!s_aiGraphResolveOptionalRuntimeCharacterRefOrSelector(
+					"set_return_list", active_chr,
+					target_preset, &chr_count, &chr, NULL)) {
+				return 1;
+			}
+			source_chr = chr ? chr->chrnum : -1;
+			if (chr && chr->prop) {
 				chr->aireturnlist = list_id;
 			}
 		}
-	} else if (g_Vars.truck) {
-		g_Vars.truck->aireturnlist = list_id;
-	} else if (g_Vars.heli) {
-		g_Vars.heli->aireturnlist = list_id;
-	} else if (g_Vars.hovercar) {
-		g_Vars.hovercar->aireturnlist = list_id;
+	} else if (truck) {
+		if (!s_aiGraphRequireRuntimeVehicleObjectPointer(
+				"set_return_list", &truck->base,
+				OBJTYPE_TRUCK, -1, &vehicle_count,
+				&source_vehicle_type)) {
+			return 1;
+		}
+		truck->aireturnlist = list_id;
+	} else if (heli) {
+		if (!s_aiGraphRequireRuntimeVehicleObjectPointer(
+				"set_return_list", &heli->base,
+				OBJTYPE_HELI, -1, &vehicle_count,
+				&source_vehicle_type)) {
+			return 1;
+		}
+		heli->aireturnlist = list_id;
+	} else if (hovercar) {
+		if (!s_aiGraphRequireRuntimeVehicleObjectPointer(
+				"set_return_list", &hovercar->base,
+				OBJTYPE_HOVERCAR, OBJTYPE_CHOPPER, &vehicle_count,
+				&source_vehicle_type)) {
+			return 1;
+		}
+		hovercar->aireturnlist = list_id;
 	}
 
 	g_Vars.aioffset += 5;
 	if (!s_ActiveScenarioGraphs.ai_action_set_return_list_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action set_return_list target=%d list=%u source=%s backend=graph.ai.action.list_control+ai/ailists.tsv",
-			target_preset, (unsigned)list_id,
-			s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI action set_return_list target=%d chr_rows=%d source_chr=%d target_chr=%d vehicle_rows=%d source_vehicle_type=%d list=%u source=%s objects=%s backend=graph.ai.action.list_control+ai/ailists.tsv+objects.tsv",
+			target_preset, chr_count, source_chr, chr ? chr->chrnum : -1,
+			vehicle_count, source_vehicle_type, (unsigned)list_id,
+			s_ActiveScenarioGraphs.ai_lists_path,
+			s_ActiveScenarioGraphs.objects_path);
 		s_ActiveScenarioGraphs.ai_action_set_return_list_logged = 1;
 	}
 	return 1;
@@ -13031,18 +17404,28 @@ s32 scenarioSourceAiGraphExecuteSetReturnList(s32 target_preset, u16 list_id)
 
 s32 scenarioSourceAiGraphExecuteSetShotList(u16 list_id)
 {
+	struct chrdata *chr = g_Vars.chrdata;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
+	s32 applied = 0;
+
 	if (!s_aiGraphRequireListControlNode("set_shot_list",
 			s_ActiveScenarioGraphs.level_ai_set_shot_list_node_count)) {
 		return 0;
 	}
-	if (g_Vars.chrdata) {
-		g_Vars.chrdata->aishotlist = list_id;
+	if (chr) {
+		if (!s_aiGraphRequireRuntimeCharacterStatePointer("set_shot_list",
+				chr, &chr_count, &source_chr)) {
+			return 1;
+		}
+		chr->aishotlist = list_id;
+		applied = 1;
 	}
 	g_Vars.aioffset += 4;
 	if (!s_ActiveScenarioGraphs.ai_action_set_shot_list_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action set_shot_list list=%u applied=%d source=%s backend=graph.ai.action.list_control+ai/ailists.tsv",
-			(unsigned)list_id, g_Vars.chrdata ? 1 : 0,
+			"SCENARIO.GRAPH: AI action set_shot_list chr_rows=%d source_chr=%d list=%u applied=%d source=%s backend=graph.ai.action.list_control+ai/ailists.tsv",
+			chr_count, source_chr, (unsigned)list_id, applied,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_set_shot_list_logged = 1;
 	}
@@ -13051,48 +17434,92 @@ s32 scenarioSourceAiGraphExecuteSetShotList(u16 list_id)
 
 s32 scenarioSourceAiGraphExecuteReturnList(void)
 {
+	struct chrdata *chr = g_Vars.chrdata;
+	struct truckobj *truck = g_Vars.truck;
+	struct heliobj *heli = g_Vars.heli;
+	struct chopperobj *hovercar = g_Vars.hovercar;
 	u16 list_id = 0;
 	u8 *ailist = NULL;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
+	s32 vehicle_count = 0;
+	s32 source_vehicle_type = -1;
 
 	if (!s_aiGraphRequireListControlNode("return_list",
 			s_ActiveScenarioGraphs.level_ai_return_list_node_count)) {
 		return 0;
 	}
-	if (g_Vars.chrdata) {
-		list_id = g_Vars.chrdata->aireturnlist;
-	} else if (g_Vars.truck) {
-		list_id = (u16)g_Vars.truck->aireturnlist;
-	} else if (g_Vars.heli) {
-		list_id = (u16)g_Vars.heli->aireturnlist;
-	} else if (g_Vars.hovercar) {
-		list_id = (u16)g_Vars.hovercar->aireturnlist;
+	if (chr) {
+		if (!s_aiGraphRequireRuntimeCharacterStatePointer("return_list",
+				chr, &chr_count, &source_chr)) {
+			return 1;
+		}
+		list_id = chr->aireturnlist;
+	} else if (truck) {
+		if (!s_aiGraphRequireRuntimeVehicleObjectPointer(
+				"return_list", &truck->base, OBJTYPE_TRUCK,
+				-1, &vehicle_count, &source_vehicle_type)) {
+			return 1;
+		}
+		list_id = (u16)truck->aireturnlist;
+	} else if (heli) {
+		if (!s_aiGraphRequireRuntimeVehicleObjectPointer(
+				"return_list", &heli->base, OBJTYPE_HELI,
+				-1, &vehicle_count, &source_vehicle_type)) {
+			return 1;
+		}
+		list_id = (u16)heli->aireturnlist;
+	} else if (hovercar) {
+		if (!s_aiGraphRequireRuntimeVehicleObjectPointer(
+				"return_list", &hovercar->base,
+				OBJTYPE_HOVERCAR, OBJTYPE_CHOPPER, &vehicle_count,
+				&source_vehicle_type)) {
+			return 1;
+		}
+		list_id = (u16)hovercar->aireturnlist;
 	}
 	ailist = ailistFindById(list_id);
 	g_Vars.ailist = ailist;
 	g_Vars.aioffset = 0;
 	if (!s_ActiveScenarioGraphs.ai_action_return_list_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action return_list list=%u source=%s backend=graph.ai.action.list_control+ai/ailists.tsv",
-			(unsigned)list_id, s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI action return_list chr_rows=%d source_chr=%d vehicle_rows=%d source_vehicle_type=%d list=%u source=%s objects=%s backend=graph.ai.action.list_control+ai/ailists.tsv+objects.tsv",
+			chr_count, source_chr, vehicle_count, source_vehicle_type,
+			(unsigned)list_id,
+			s_ActiveScenarioGraphs.ai_lists_path,
+			s_ActiveScenarioGraphs.objects_path);
 		s_ActiveScenarioGraphs.ai_action_return_list_logged = 1;
 	}
 	return 1;
 }
 
 static s32 s_aiGraphExecuteSetChrListField(const char *action,
-	s32 node_count, s16 *field, u16 list_id, s32 *logged)
+	s32 node_count, struct chrdata *chr, size_t field_offset, u16 list_id,
+	s32 *logged)
 {
+	s32 chr_count = 0;
+	s32 source_chr = -1;
+	s32 applied = 0;
+
 	if (!s_aiGraphRequireListControlNode(action, node_count)) {
 		return 0;
 	}
-	if (field) {
+	if (chr) {
+		s16 *field;
+
+		if (!s_aiGraphRequireRuntimeCharacterStatePointer(action, chr,
+				&chr_count, &source_chr)) {
+			return 1;
+		}
+		field = (s16 *)((u8 *)chr + field_offset);
 		*field = (s16)list_id;
+		applied = 1;
 	}
 	g_Vars.aioffset += 4;
 	if (logged && !*logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action %s list=%u applied=%d source=%s backend=graph.ai.action.list_control+ai/ailists.tsv",
-			action, (unsigned)list_id, field ? 1 : 0,
+			"SCENARIO.GRAPH: AI action %s chr_rows=%d source_chr=%d list=%u applied=%d source=%s backend=graph.ai.action.list_control+ai/ailists.tsv",
+			action, chr_count, source_chr, (unsigned)list_id, applied,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		*logged = 1;
 	}
@@ -13103,7 +17530,7 @@ s32 scenarioSourceAiGraphExecuteSetPunchDodgeList(u16 list_id)
 {
 	return s_aiGraphExecuteSetChrListField("set_punch_dodge_list",
 		s_ActiveScenarioGraphs.level_ai_set_punch_dodge_list_node_count,
-		g_Vars.chrdata ? &g_Vars.chrdata->aipunchdodgelist : NULL,
+		g_Vars.chrdata, offsetof(struct chrdata, aipunchdodgelist),
 		list_id, &s_ActiveScenarioGraphs.ai_action_set_punch_dodge_list_logged);
 }
 
@@ -13111,7 +17538,7 @@ s32 scenarioSourceAiGraphExecuteSetShootingAtMeList(u16 list_id)
 {
 	return s_aiGraphExecuteSetChrListField("set_shooting_at_me_list",
 		s_ActiveScenarioGraphs.level_ai_set_shooting_at_me_list_node_count,
-		g_Vars.chrdata ? &g_Vars.chrdata->aishootingatmelist : NULL,
+		g_Vars.chrdata, offsetof(struct chrdata, aishootingatmelist),
 		list_id,
 		&s_ActiveScenarioGraphs.ai_action_set_shooting_at_me_list_logged);
 }
@@ -13120,7 +17547,7 @@ s32 scenarioSourceAiGraphExecuteSetDarkRoomList(u16 list_id)
 {
 	return s_aiGraphExecuteSetChrListField("set_dark_room_list",
 		s_ActiveScenarioGraphs.level_ai_set_dark_room_list_node_count,
-		g_Vars.chrdata ? &g_Vars.chrdata->aidarkroomlist : NULL,
+		g_Vars.chrdata, offsetof(struct chrdata, aidarkroomlist),
 		list_id, &s_ActiveScenarioGraphs.ai_action_set_dark_room_list_logged);
 }
 
@@ -13128,13 +17555,17 @@ s32 scenarioSourceAiGraphExecuteSetPlayerDeadList(u16 list_id)
 {
 	return s_aiGraphExecuteSetChrListField("set_player_dead_list",
 		s_ActiveScenarioGraphs.level_ai_set_player_dead_list_node_count,
-		g_Vars.chrdata ? &g_Vars.chrdata->aiplayerdeadlist : NULL,
+		g_Vars.chrdata, offsetof(struct chrdata, aiplayerdeadlist),
 		list_id, &s_ActiveScenarioGraphs.ai_action_set_player_dead_list_logged);
 }
 
 s32 scenarioSourceAiGraphExecuteTryStartAlarm(struct chrdata *chr,
 	s32 pad_id, s32 label)
 {
+	s32 chr_count = 0;
+	s32 pad_count = 0;
+	s32 source_chr = -1;
+
 	if (!s_ActiveScenarioGraphs.level_graph_active) {
 		return 0;
 	}
@@ -13153,6 +17584,15 @@ s32 scenarioSourceAiGraphExecuteTryStartAlarm(struct chrdata *chr,
 		return s_aiGraphRuntimeFailure("try_start_alarm",
 			"missing pads.tsv source");
 	}
+	if (!s_aiGraphRequireRuntimePad("try_start_alarm", pad_id,
+			&pad_count)) {
+		g_Vars.aioffset += 5;
+		return 1;
+	}
+	if (!s_aiGraphRequireRuntimeCharacterPointer("try_start_alarm", chr,
+			&chr_count, &source_chr)) {
+		return 0;
+	}
 
 	if (chrTryStartAlarm(chr, pad_id)) {
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist,
@@ -13163,8 +17603,9 @@ s32 scenarioSourceAiGraphExecuteTryStartAlarm(struct chrdata *chr,
 
 	if (!s_ActiveScenarioGraphs.ai_action_try_start_alarm_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action try_start_alarm pad=%d label=%d source=%s backend=graph.ai.action.try_start_alarm+pads.tsv",
-			pad_id, label, s_ActiveScenarioGraphs.pads_path);
+			"SCENARIO.GRAPH: AI action try_start_alarm chr_rows=%d source_chr=%d pad=%d found=1 pad_rows=%d label=%d source=%s backend=graph.ai.action.try_start_alarm+pads.tsv",
+			chr_count, source_chr, pad_id, pad_count, label,
+			s_ActiveScenarioGraphs.pads_path);
 		s_ActiveScenarioGraphs.ai_action_try_start_alarm_logged = 1;
 	}
 	return 1;
@@ -13221,6 +17662,10 @@ s32 scenarioSourceAiGraphExecuteDeactivateAlarm(void)
 static s32 s_aiGraphExecuteGoToPad(struct chrdata *chr, s32 pad,
 	u32 goposflags, const char *action, const char *backend, s32 *logged)
 {
+	s32 chr_count = 0;
+	s32 pad_count = 0;
+	s32 source_chr = -1;
+
 	if (!s_ActiveScenarioGraphs.level_graph_active) {
 		return 0;
 	}
@@ -13230,11 +17675,19 @@ static s32 s_aiGraphExecuteGoToPad(struct chrdata *chr, s32 pad,
 	if (!s_ActiveScenarioGraphs.pads_path[0]) {
 		return s_aiGraphRuntimeFailure(action, "missing pads.tsv source");
 	}
+	if (!s_aiGraphRequireRuntimePad(action, pad, &pad_count)) {
+		return 1;
+	}
+	if (!s_aiGraphRequireRuntimeCharacterPointer(action, chr, &chr_count,
+			&source_chr)) {
+		return 0;
+	}
 	chrGoToPad(chr, pad, goposflags);
 	if (logged && !*logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action %s pad=%d source=%s %s",
-			action, pad, s_ActiveScenarioGraphs.pads_path, backend);
+			"SCENARIO.GRAPH: AI action %s chr_rows=%d source_chr=%d pad=%d found=1 pad_rows=%d source=%s %s",
+			action, chr_count, source_chr, pad, pad_count,
+			s_ActiveScenarioGraphs.pads_path, backend);
 		*logged = 1;
 	}
 	return 1;
@@ -13267,6 +17720,10 @@ s32 scenarioSourceAiGraphExecuteGoToPadPreset(struct chrdata *chr, s32 speed_cod
 	}
 	if (!chr) {
 		return s_aiGraphRuntimeFailure("go_to_pad_preset", "missing chr");
+	}
+	if (!s_aiGraphRequireRuntimeCharacterPointer("go_to_pad_preset", chr,
+			NULL, NULL)) {
+		return 0;
 	}
 
 	switch (speed_code) {
@@ -13317,6 +17774,12 @@ s32 scenarioSourceAiGraphExecuteRunToPad(struct chrdata *chr, s32 pad)
 
 s32 scenarioSourceAiGraphExecuteSetPath(struct chrdata *chr, s32 path_id)
 {
+	s32 chr_count = 0;
+	struct path *path;
+	s32 path_count = 0;
+	s32 pad_count = 0;
+	s32 source_chr = -1;
+
 	if (!s_ActiveScenarioGraphs.level_graph_active) {
 		return 0;
 	}
@@ -13331,11 +17794,27 @@ s32 scenarioSourceAiGraphExecuteSetPath(struct chrdata *chr, s32 path_id)
 		return s_aiGraphRuntimeFailure("set_path",
 			"missing navigation/paths.tsv source");
 	}
+	if (!s_aiGraphResolveOptionalRuntimePath("set_path", path_id,
+			&path_count, &path)) {
+		return 1;
+	}
+	if (!path) {
+		return 1;
+	}
+	if (!s_aiGraphRequireRuntimePathPads("set_path", path, &pad_count)) {
+		return 1;
+	}
+	if (!s_aiGraphRequireRuntimeCharacterPointer("set_path", chr,
+			&chr_count, &source_chr)) {
+		return 0;
+	}
 	chrSetPath(chr, (u32)path_id);
 	if (!s_ActiveScenarioGraphs.ai_action_set_path_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action set_path path=%d source=%s backend=graph.ai.action.set_path+navigation/paths.tsv",
-			path_id, s_ActiveScenarioGraphs.paths_path);
+			"SCENARIO.GRAPH: AI action set_path chr_rows=%d source_chr=%d path=%d found=1 path_rows=%d source=%s path_pads=%u pad_rows=%d backend=graph.ai.action.set_path+navigation/paths.tsv+pads.tsv",
+			chr_count, source_chr, path->id, path_count,
+			s_ActiveScenarioGraphs.paths_path, (unsigned)path->len,
+			pad_count);
 		s_ActiveScenarioGraphs.ai_action_set_path_logged = 1;
 	}
 	return 1;
@@ -13343,6 +17822,12 @@ s32 scenarioSourceAiGraphExecuteSetPath(struct chrdata *chr, s32 path_id)
 
 s32 scenarioSourceAiGraphExecuteStartPatrol(struct chrdata *chr)
 {
+	s32 chr_count = 0;
+	struct path *path;
+	s32 path_count = 0;
+	s32 pad_count = 0;
+	s32 source_chr = -1;
+
 	if (!s_ActiveScenarioGraphs.level_graph_active) {
 		return 0;
 	}
@@ -13357,11 +17842,28 @@ s32 scenarioSourceAiGraphExecuteStartPatrol(struct chrdata *chr)
 		return s_aiGraphRuntimeFailure("start_patrol",
 			"missing navigation/paths.tsv source");
 	}
+	if (!s_aiGraphRequireRuntimeCharacterPointer("start_patrol", chr,
+			&chr_count, &source_chr)) {
+		return 0;
+	}
+	if (chr->path < 0) {
+		return 1;
+	}
+	path = s_aiGraphFindRuntimePath("start_patrol", chr->path, &path_count);
+	if (!path) {
+		return 1;
+	}
+	if (!s_aiGraphRequireRuntimePathPads("start_patrol", path,
+			&pad_count)) {
+		return 1;
+	}
 	chrTryStartPatrol(chr);
 	if (!s_ActiveScenarioGraphs.ai_action_start_patrol_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action start_patrol path=%u source=%s backend=graph.ai.action.start_patrol+navigation/paths.tsv",
-			(unsigned)chr->path, s_ActiveScenarioGraphs.paths_path);
+			"SCENARIO.GRAPH: AI action start_patrol chr_rows=%d source_chr=%d path=%u found=1 path_rows=%d source=%s path_pads=%u pad_rows=%d backend=graph.ai.action.start_patrol+navigation/paths.tsv+pads.tsv",
+			chr_count, source_chr, (unsigned)path->id, path_count,
+			s_ActiveScenarioGraphs.paths_path, (unsigned)path->len,
+			pad_count);
 		s_ActiveScenarioGraphs.ai_action_start_patrol_logged = 1;
 	}
 	return 1;
@@ -13369,6 +17871,10 @@ s32 scenarioSourceAiGraphExecuteStartPatrol(struct chrdata *chr)
 
 s32 scenarioSourceAiGraphExecuteSetPadPreset(struct chrdata *chr, s32 pad)
 {
+	s32 chr_count = 0;
+	s32 pad_count = 0;
+	s32 source_chr = -1;
+
 	if (!s_ActiveScenarioGraphs.level_graph_active) {
 		return 0;
 	}
@@ -13383,11 +17889,19 @@ s32 scenarioSourceAiGraphExecuteSetPadPreset(struct chrdata *chr, s32 pad)
 		return s_aiGraphRuntimeFailure("set_pad_preset",
 			"missing pads.tsv source");
 	}
+	if (!s_aiGraphRequireRuntimePad("set_pad_preset", pad, &pad_count)) {
+		return 1;
+	}
+	if (!s_aiGraphRequireRuntimeCharacterPointer("set_pad_preset", chr,
+			&chr_count, &source_chr)) {
+		return 0;
+	}
 	chrSetPadPreset(chr, pad);
 	if (!s_ActiveScenarioGraphs.ai_action_set_pad_preset_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action set_pad_preset pad=%d source=%s backend=graph.ai.action.set_pad_preset+pads.tsv",
-			pad, s_ActiveScenarioGraphs.pads_path);
+			"SCENARIO.GRAPH: AI action set_pad_preset chr_rows=%d source_chr=%d pad=%d found=1 pad_rows=%d source=%s backend=graph.ai.action.set_pad_preset+pads.tsv",
+			chr_count, source_chr, pad, pad_count,
+			s_ActiveScenarioGraphs.pads_path);
 		s_ActiveScenarioGraphs.ai_action_set_pad_preset_logged = 1;
 	}
 	return 1;
@@ -13396,6 +17910,10 @@ s32 scenarioSourceAiGraphExecuteSetPadPreset(struct chrdata *chr, s32 pad)
 s32 scenarioSourceAiGraphExecuteChrSetPadPreset(struct chrdata *basechr,
 	s32 chrnum, s32 pad)
 {
+	struct chrdata *chr = NULL;
+	s32 chr_count = 0;
+	s32 pad_count = 0;
+
 	if (!s_ActiveScenarioGraphs.level_graph_active) {
 		return 0;
 	}
@@ -13407,11 +17925,20 @@ s32 scenarioSourceAiGraphExecuteChrSetPadPreset(struct chrdata *basechr,
 		return s_aiGraphRuntimeFailure("chr_set_pad_preset",
 			"missing pads.tsv source");
 	}
-	chrSetPadPresetByChrnum(basechr, chrnum, pad);
+	if (!s_aiGraphRequireRuntimePad("chr_set_pad_preset", pad,
+			&pad_count)) {
+		return 1;
+	}
+	if (!s_aiGraphRequireRuntimeCharacterRefFromBase(
+			"chr_set_pad_preset", basechr, chrnum, &chr_count, &chr)) {
+		return 1;
+	}
+	chr->padpreset1 = chrResolvePadId(basechr, pad);
 	if (!s_ActiveScenarioGraphs.ai_action_chr_set_pad_preset_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action chr_set_pad_preset chr=%d pad=%d source=%s backend=graph.ai.action.chr_set_pad_preset+pads.tsv",
-			chrnum, pad, s_ActiveScenarioGraphs.pads_path);
+			"SCENARIO.GRAPH: AI action chr_set_pad_preset chr=%d chr_rows=%d target_chr=%d pad=%d found=1 pad_rows=%d source=%s backend=graph.ai.action.chr_set_pad_preset+pads.tsv",
+			chrnum, chr_count, chr ? chr->chrnum : -1, pad, pad_count,
+			s_ActiveScenarioGraphs.pads_path);
 		s_ActiveScenarioGraphs.ai_action_chr_set_pad_preset_logged = 1;
 	}
 	return 1;
@@ -13422,6 +17949,10 @@ s32 scenarioSourceAiGraphExecuteChrCopyPadPreset(struct chrdata *basechr,
 {
 	struct chrdata *chrsrc;
 	struct chrdata *chrdst;
+	s32 copied_pad;
+	s32 chr_count = 0;
+	s32 pad_count = 0;
+	s32 pad_found = 0;
 
 	if (!s_ActiveScenarioGraphs.level_graph_active) {
 		return 0;
@@ -13430,19 +17961,40 @@ s32 scenarioSourceAiGraphExecuteChrCopyPadPreset(struct chrdata *basechr,
 		return s_aiGraphRuntimeFailure("chr_copy_pad_preset",
 			"missing scenario.ai.action.chr_copy_pad_preset node");
 	}
-	chrsrc = chrFindById(basechr, src_chrnum);
-	chrdst = chrFindById(basechr, dst_chrnum);
-	if (!chrsrc || !chrdst) {
+	if (!s_ActiveScenarioGraphs.pads_path[0]) {
 		return s_aiGraphRuntimeFailure("chr_copy_pad_preset",
-			"missing source or destination chr");
+			"missing pads.tsv source");
 	}
-	chrdst->padpreset1 = chrsrc->padpreset1;
+	if (!s_aiGraphRequireRuntimeCharacterRefFromBase(
+			"chr_copy_pad_preset", basechr, src_chrnum, &chr_count,
+			&chrsrc) ||
+			!s_aiGraphRequireRuntimeCharacterRefFromBase(
+			"chr_copy_pad_preset", basechr, dst_chrnum, &chr_count,
+			&chrdst)) {
+		return 1;
+	}
+	copied_pad = chrsrc->padpreset1;
+	if (copied_pad >= 0) {
+		if (!s_aiGraphRequireRuntimePad("chr_copy_pad_preset",
+				copied_pad, &pad_count)) {
+			return 1;
+		}
+		pad_found = 1;
+	} else if (!s_aiGraphRequireRuntimePadTable("chr_copy_pad_preset",
+			&pad_count)) {
+		return 1;
+	}
+	chrdst->padpreset1 = copied_pad;
 	if (!s_ActiveScenarioGraphs.ai_action_chr_copy_pad_preset_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action chr_copy_pad_preset src_chr=%d dst_chr=%d pad=%d source=%s backend=graph.ai.action.chr_copy_pad_preset+chrstate",
-			src_chrnum, dst_chrnum, chrdst->padpreset1,
+			"SCENARIO.GRAPH: AI action chr_copy_pad_preset src_chr=%d dst_chr=%d chr_rows=%d source_chr=%d target_chr=%d pad=%d found=%d pad_rows=%d source=%s pads=%s backend=graph.ai.action.chr_copy_pad_preset+chrstate+pads.tsv",
+			src_chrnum, dst_chrnum, chr_count,
+			chrsrc ? chrsrc->chrnum : -1,
+			chrdst ? chrdst->chrnum : -1,
+			copied_pad, pad_found, pad_count,
 			s_ActiveScenarioGraphs.ai_lists_path[0]
-				? s_ActiveScenarioGraphs.ai_lists_path : "(missing)");
+				? s_ActiveScenarioGraphs.ai_lists_path : "(missing)",
+			s_ActiveScenarioGraphs.pads_path);
 		s_ActiveScenarioGraphs.ai_action_chr_copy_pad_preset_logged = 1;
 	}
 	return 1;
@@ -13451,6 +18003,9 @@ s32 scenarioSourceAiGraphExecuteChrCopyPadPreset(struct chrdata *basechr,
 s32 scenarioSourceAiGraphExecuteSetChrPreset(struct chrdata *chr,
 	s32 chrpreset)
 {
+	s32 chr_count = 0;
+	s32 target_chr = -1;
+
 	if (!s_ActiveScenarioGraphs.level_graph_active) {
 		return 0;
 	}
@@ -13465,11 +18020,18 @@ s32 scenarioSourceAiGraphExecuteSetChrPreset(struct chrdata *chr,
 		return s_aiGraphRuntimeFailure("set_chr_preset",
 			"missing ai/ailists.tsv source");
 	}
-	chrSetChrPreset(chr, chrpreset);
+	if (!s_aiGraphRequireOptionalRuntimeCharacterPointer("set_chr_preset", chr,
+			&chr_count, &target_chr)) {
+		return 1;
+	}
+	if (chr && chr->prop) {
+		chrSetChrPreset(chr, chrpreset);
+	}
 	if (!s_ActiveScenarioGraphs.ai_action_set_chr_preset_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action set_chr_preset chrpreset=%d source=%s backend=graph.ai.action.set_chr_preset+ai/ailists.tsv",
-			chrpreset, s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI action set_chr_preset chr_rows=%d target_chr=%d chrpreset=%d source=%s backend=graph.ai.action.set_chr_preset+ai/ailists.tsv",
+			chr_count, target_chr, chrpreset,
+			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_set_chr_preset_logged = 1;
 	}
 	return 1;
@@ -13478,6 +18040,9 @@ s32 scenarioSourceAiGraphExecuteSetChrPreset(struct chrdata *chr,
 s32 scenarioSourceAiGraphExecuteSetChrTarget(struct chrdata *basechr,
 	s32 chrnum, s32 chrpreset)
 {
+	struct chrdata *chr = NULL;
+	s32 chr_count = 0;
+
 	if (!s_ActiveScenarioGraphs.level_graph_active) {
 		return 0;
 	}
@@ -13489,11 +18054,16 @@ s32 scenarioSourceAiGraphExecuteSetChrTarget(struct chrdata *basechr,
 		return s_aiGraphRuntimeFailure("set_chr_target",
 			"missing ai/ailists.tsv source");
 	}
-	chrSetChrPresetByChrnum(basechr, chrnum, chrpreset);
+	if (!s_aiGraphRequireRuntimeCharacterRefFromBase("set_chr_target",
+			basechr, chrnum, &chr_count, &chr)) {
+		return 1;
+	}
+	chrSetChrPreset(chr, chrpreset);
 	if (!s_ActiveScenarioGraphs.ai_action_set_chr_target_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action set_chr_target chr=%d chrpreset=%d source=%s backend=graph.ai.action.set_chr_target+ai/ailists.tsv",
-			chrnum, chrpreset, s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI action set_chr_target chr=%d chr_rows=%d target_chr=%d chrpreset=%d source=%s backend=graph.ai.action.set_chr_target+ai/ailists.tsv",
+			chrnum, chr_count, chr ? chr->chrnum : -1, chrpreset,
+			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_set_chr_target_logged = 1;
 	}
 	return 1;
@@ -13502,6 +18072,9 @@ s32 scenarioSourceAiGraphExecuteSetChrTarget(struct chrdata *basechr,
 s32 scenarioSourceAiGraphExecuteSetAction(struct chrdata *chr,
 	s32 action, s32 clear_orders)
 {
+	s32 chr_count = 0;
+	s32 target_chr = -1;
+
 	if (!s_ActiveScenarioGraphs.level_graph_active) {
 		return 0;
 	}
@@ -13516,14 +18089,19 @@ s32 scenarioSourceAiGraphExecuteSetAction(struct chrdata *chr,
 		return s_aiGraphRuntimeFailure("set_action",
 			"missing ai/ailists.tsv source");
 	}
+	if (!s_aiGraphRequireRuntimeCharacterStatePointer("set_action", chr,
+			&chr_count, &target_chr)) {
+		return 1;
+	}
 	chr->myaction = (u8)action;
 	if (clear_orders) {
 		chr->orders = 0;
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_set_action_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action set_action action=%d clear_orders=%d source=%s backend=graph.ai.action.set_action+ai/ailists.tsv",
-			action, clear_orders ? 1 : 0, s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI action set_action chr_rows=%d target_chr=%d action=%d clear_orders=%d source=%s backend=graph.ai.action.set_action+ai/ailists.tsv",
+			chr_count, target_chr, action, clear_orders ? 1 : 0,
+			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_set_action_logged = 1;
 	}
 	return 1;
@@ -13535,6 +18113,9 @@ s32 scenarioSourceAiGraphExecuteSetTeamOrders(struct chrdata *chr,
 	struct chrnumaction *chraction;
 	struct chrnumaction chractions[50];
 	s32 chrcount;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
+	s32 checked_chrs = 0;
 	s32 num;
 	s16 *chrnums;
 
@@ -13555,6 +18136,10 @@ s32 scenarioSourceAiGraphExecuteSetTeamOrders(struct chrdata *chr,
 	if (out_follow_label) {
 		*out_follow_label = 0;
 	}
+	if (!s_aiGraphRequireRuntimeCharacterPointer("set_team_orders", chr,
+			&chr_count, &source_chr)) {
+		return 1;
+	}
 
 	chrcount = 1;
 	chrnums = squadronGetChrIds(chr->squadron);
@@ -13567,6 +18152,14 @@ s32 scenarioSourceAiGraphExecuteSetTeamOrders(struct chrdata *chr,
 	if (chrnums) {
 		while (*chrnums != -2) {
 			struct chrdata *target = chrFindByLiteralId(*chrnums);
+
+			if (target) {
+				if (!s_aiGraphRequireRuntimeCharacterPointer(
+						"set_team_orders", target, &chr_count, NULL)) {
+					return 1;
+				}
+				checked_chrs++;
+			}
 
 			if (target && target->model
 					&& !chrIsDead(target)
@@ -13604,6 +18197,11 @@ s32 scenarioSourceAiGraphExecuteSetTeamOrders(struct chrdata *chr,
 				chraction++;
 				continue;
 			}
+			if (!s_aiGraphRequireRuntimeCharacterPointer(
+					"set_team_orders", target, &chr_count, NULL)) {
+				return 1;
+			}
+			checked_chrs++;
 
 			switch (chractions[0].myaction) {
 			case MA_COVERGOTO:
@@ -13644,8 +18242,8 @@ s32 scenarioSourceAiGraphExecuteSetTeamOrders(struct chrdata *chr,
 				break;
 			case MA_DODGE:
 				if (!chrIsInTargetsFovX(target, 30) &&
-						chrHasFlagById(target, CHR_SELF,
-							CHRFLAG0_CAN_BACKOFF, BANK_0)) {
+						chrHasFlag(target, CHRFLAG0_CAN_BACKOFF,
+							BANK_0)) {
 					target->orders = MA_WITHDRAW;
 				} else {
 					target->orders = MA_SHOOTING;
@@ -13655,16 +18253,16 @@ s32 scenarioSourceAiGraphExecuteSetTeamOrders(struct chrdata *chr,
 			case MA_GRENADE:
 				if (num < 2) {
 					target->orders = MA_WAITING;
-				} else if (chrHasFlagById(target, CHR_SELF,
-						CHRFLAG0_CAN_BACKOFF, BANK_0)) {
+				} else if (chrHasFlag(target, CHRFLAG0_CAN_BACKOFF,
+						BANK_0)) {
 					target->orders = MA_WITHDRAW;
 				}
 				num++;
 				break;
 			case MA_WAITSEEN:
 				if (chrIsInTargetsFovX(target, 30) &&
-						chrHasFlagById(target, CHR_SELF,
-							CHRFLAG0_CAN_BACKOFF, BANK_0)) {
+						chrHasFlag(target, CHRFLAG0_CAN_BACKOFF,
+							BANK_0)) {
 					target->orders = MA_WITHDRAW;
 				} else {
 					target->orders = MA_SHOOTING;
@@ -13672,8 +18270,7 @@ s32 scenarioSourceAiGraphExecuteSetTeamOrders(struct chrdata *chr,
 				num++;
 				break;
 			case MA_WITHDRAW:
-				if (chrHasFlagById(target, CHR_SELF,
-						CHRFLAG0_CAN_BACKOFF, BANK_0)) {
+				if (chrHasFlag(target, CHRFLAG0_CAN_BACKOFF, BANK_0)) {
 					target->orders = MA_WITHDRAW;
 				}
 				break;
@@ -13691,8 +18288,9 @@ s32 scenarioSourceAiGraphExecuteSetTeamOrders(struct chrdata *chr,
 
 	if (!s_ActiveScenarioGraphs.ai_action_set_team_orders_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action set_team_orders action=%d chrs=%d follow_label=%d source=%s backend=graph.ai.action.set_team_orders+ai/ailists.tsv",
-			chr->myaction, chrcount, out_follow_label ? *out_follow_label : 0,
+			"SCENARIO.GRAPH: AI action set_team_orders chr_rows=%d source_chr=%d action=%d chrs=%d checked=%d follow_label=%d source=%s backend=graph.ai.action.set_team_orders+ai/ailists.tsv",
+			chr_count, source_chr, chr->myaction, chrcount, checked_chrs,
+			out_follow_label ? *out_follow_label : 0,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_set_team_orders_logged = 1;
 	}
@@ -13702,6 +18300,11 @@ s32 scenarioSourceAiGraphExecuteSetTeamOrders(struct chrdata *chr,
 s32 scenarioSourceAiGraphExecuteRetreat(struct chrdata *chr,
 	s32 speed, s32 operation)
 {
+	s32 cover_count = 0;
+	s32 assigned_cover = -1;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
+
 	if (!s_ActiveScenarioGraphs.level_graph_active) {
 		return 0;
 	}
@@ -13716,6 +18319,10 @@ s32 scenarioSourceAiGraphExecuteRetreat(struct chrdata *chr,
 		return s_aiGraphRuntimeFailure("retreat",
 			"missing ai/ailists.tsv source");
 	}
+	if (!s_aiGraphRequireRuntimeCharacterPointer("retreat", chr,
+			&chr_count, &source_chr)) {
+		return 1;
+	}
 
 	if (operation == 0) {
 		chrRunFromPos(chr, speed, (speed & 0x10) ? 400.0f : 10000.0f,
@@ -13728,18 +18335,33 @@ s32 scenarioSourceAiGraphExecuteRetreat(struct chrdata *chr,
 		}
 		chrRunFromPos(chr, speed, 10000, &target->pos);
 	} else {
-		chrAssignCoverByCriteria(chr,
+		if (!s_ActiveScenarioGraphs.covers_path[0]) {
+			return s_aiGraphRuntimeFailure("retreat",
+				"missing navigation/covers.tsv source");
+		}
+		if (!s_aiGraphRequireRuntimeCoverTable("retreat",
+				&cover_count)) {
+			return 1;
+		}
+		assigned_cover = chrAssignCoverByCriteria(chr,
 			COVERCRITERIA_FURTHEREST |
 			COVERCRITERIA_DISTTOTARGET |
 			COVERCRITERIA_ONLYNEIGHBOURINGROOMS |
 			COVERCRITERIA_ROOMSFROMME, 0);
+		if (!s_aiGraphValidateRuntimeCoverIndex("retreat",
+				assigned_cover, cover_count)) {
+			return 1;
+		}
 		chrGoToCover(chr, speed);
 	}
 
 	if (!s_ActiveScenarioGraphs.ai_action_retreat_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action retreat speed=%d operation=%d source=%s backend=graph.ai.action.retreat+ai/ailists.tsv",
-			speed, operation, s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI action retreat chr_rows=%d source_chr=%d speed=%d operation=%d assigned=%d cover_rows=%d source=%s covers=%s backend=graph.ai.action.retreat+ai/ailists.tsv+navigation/covers.tsv",
+			chr_count, source_chr, speed, operation, assigned_cover,
+			cover_count,
+			s_ActiveScenarioGraphs.ai_lists_path,
+			s_ActiveScenarioGraphs.covers_path);
 		s_ActiveScenarioGraphs.ai_action_retreat_logged = 1;
 	}
 	return 1;
@@ -13750,6 +18372,9 @@ static s32 s_aiGraphExecuteFindCoverByCriteria(struct chrdata *chr,
 	const char *backend, s32 *logged, s32 *out_assigned)
 {
 	s32 assigned;
+	s32 cover_count = 0;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
 
 	if (!s_ActiveScenarioGraphs.level_graph_active) {
 		return 0;
@@ -13765,16 +18390,27 @@ static s32 s_aiGraphExecuteFindCoverByCriteria(struct chrdata *chr,
 		return s_aiGraphRuntimeFailure(action,
 			"missing navigation/covers.tsv source");
 	}
+	if (!s_aiGraphRequireRuntimeCharacterPointer(action, chr, &chr_count,
+			&source_chr)) {
+		return 1;
+	}
+	if (!s_aiGraphRequireRuntimeCoverTable(action, &cover_count)) {
+		return 1;
+	}
 
 	assigned = chrAssignCoverByCriteria(chr, criteria, refdist);
+	if (!s_aiGraphValidateRuntimeCoverIndex(action, assigned,
+			cover_count)) {
+		return 1;
+	}
 	if (out_assigned) {
 		*out_assigned = assigned != -1;
 	}
 	if (logged && !*logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action %s criteria=0x%04x refdist=%d assigned=%d source=%s %s",
-			action, (unsigned)criteria, refdist, assigned,
-			s_ActiveScenarioGraphs.covers_path, backend);
+			"SCENARIO.GRAPH: AI action %s chr_rows=%d source_chr=%d criteria=0x%04x refdist=%d assigned=%d cover_rows=%d source=%s %s",
+			action, chr_count, source_chr, (unsigned)criteria, refdist, assigned,
+			cover_count, s_ActiveScenarioGraphs.covers_path, backend);
 		*logged = 1;
 	}
 	return 1;
@@ -13815,6 +18451,11 @@ s32 scenarioSourceAiGraphExecuteFindCoverOutsideDist(struct chrdata *chr,
 
 s32 scenarioSourceAiGraphExecuteGoToCover(struct chrdata *chr, s32 speed)
 {
+	s32 cover_count = 0;
+	s32 moved_cover;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
+
 	if (!s_ActiveScenarioGraphs.level_graph_active) {
 		return 0;
 	}
@@ -13829,12 +18470,22 @@ s32 scenarioSourceAiGraphExecuteGoToCover(struct chrdata *chr, s32 speed)
 		return s_aiGraphRuntimeFailure("go_to_cover",
 			"missing navigation/covers.tsv source");
 	}
+	if (!s_aiGraphRequireRuntimeCharacterPointer("go_to_cover", chr,
+			&chr_count, &source_chr)) {
+		return 1;
+	}
+	if (!s_aiGraphRequireRuntimeCoverTable("go_to_cover", &cover_count) ||
+			!s_aiGraphValidateRuntimeCoverIndex("go_to_cover",
+				chr->cover, cover_count)) {
+		return 1;
+	}
 
-	chrGoToCover(chr, speed);
+	moved_cover = chrGoToCover(chr, speed);
 	if (!s_ActiveScenarioGraphs.ai_action_go_to_cover_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action go_to_cover speed=%d source=%s backend=graph.ai.action.go_to_cover+navigation/covers.tsv",
-			speed, s_ActiveScenarioGraphs.covers_path);
+			"SCENARIO.GRAPH: AI action go_to_cover chr_rows=%d source_chr=%d speed=%d cover=%d moved_cover=%d cover_rows=%d source=%s backend=graph.ai.action.go_to_cover+navigation/covers.tsv",
+			chr_count, source_chr, speed, chr->cover, moved_cover, cover_count,
+			s_ActiveScenarioGraphs.covers_path);
 		s_ActiveScenarioGraphs.ai_action_go_to_cover_logged = 1;
 	}
 	return 1;
@@ -13844,6 +18495,9 @@ s32 scenarioSourceAiGraphExecuteCheckCoverOutOfSight(struct chrdata *chr,
 	s32 *out_out_of_sight)
 {
 	s32 out_of_sight;
+	s32 cover_count = 0;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
 
 	if (!s_ActiveScenarioGraphs.level_graph_active) {
 		return 0;
@@ -13860,6 +18514,17 @@ s32 scenarioSourceAiGraphExecuteCheckCoverOutOfSight(struct chrdata *chr,
 		return s_aiGraphRuntimeFailure("check_cover_out_of_sight",
 			"missing navigation/covers.tsv source");
 	}
+	if (!s_aiGraphRequireRuntimeCharacterPointer("check_cover_out_of_sight",
+			chr, &chr_count, &source_chr)) {
+		return 1;
+	}
+	if (!s_aiGraphRequireRuntimeCoverTable("check_cover_out_of_sight",
+			&cover_count) ||
+			!s_aiGraphValidateRuntimeCoverIndex(
+				"check_cover_out_of_sight", chr->cover,
+				cover_count)) {
+		return 1;
+	}
 
 	out_of_sight = chrCheckCoverOutOfSight(chr, chr->cover, false) ? 1 : 0;
 	if (out_out_of_sight) {
@@ -13867,8 +18532,9 @@ s32 scenarioSourceAiGraphExecuteCheckCoverOutOfSight(struct chrdata *chr,
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_check_cover_out_of_sight_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action check_cover_out_of_sight cover=%d out_of_sight=%d source=%s backend=graph.ai.action.check_cover_out_of_sight+navigation/covers.tsv",
-			chr->cover, out_of_sight, s_ActiveScenarioGraphs.covers_path);
+			"SCENARIO.GRAPH: AI action check_cover_out_of_sight chr_rows=%d source_chr=%d cover=%d out_of_sight=%d cover_rows=%d source=%s backend=graph.ai.action.check_cover_out_of_sight+navigation/covers.tsv",
+			chr_count, source_chr, chr->cover, out_of_sight, cover_count,
+			s_ActiveScenarioGraphs.covers_path);
 		s_ActiveScenarioGraphs.ai_action_check_cover_out_of_sight_logged = 1;
 	}
 	return 1;
@@ -13879,6 +18545,8 @@ s32 scenarioSourceAiGraphExecuteOrbitTarget(struct chrdata *chr,
 {
 	struct prop *target;
 	struct coord pos;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
 
 	if (!s_ActiveScenarioGraphs.level_graph_active) {
 		return 0;
@@ -13894,6 +18562,10 @@ s32 scenarioSourceAiGraphExecuteOrbitTarget(struct chrdata *chr,
 		return s_aiGraphRuntimeFailure("orbit_target",
 			"missing ai/ailists.tsv source");
 	}
+	if (!s_aiGraphRequireRuntimeCharacterPointer("orbit_target", chr,
+			&chr_count, &source_chr)) {
+		return 1;
+	}
 	target = chrGetTargetProp(chr);
 	if (!target) {
 		return s_aiGraphRuntimeFailure("orbit_target",
@@ -13903,8 +18575,8 @@ s32 scenarioSourceAiGraphExecuteOrbitTarget(struct chrdata *chr,
 	chr0f04c874(chr, angle, &pos, (u8)try_alternate, (u8)speed);
 	if (!s_ActiveScenarioGraphs.ai_action_orbit_target_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action orbit_target angle=%u alternate=%d speed=%d source=%s backend=graph.ai.action.orbit_target+ai/ailists.tsv",
-			(unsigned)angle, try_alternate ? 1 : 0, speed,
+			"SCENARIO.GRAPH: AI action orbit_target chr_rows=%d source_chr=%d angle=%u alternate=%d speed=%d source=%s backend=graph.ai.action.orbit_target+ai/ailists.tsv",
+			chr_count, source_chr, (unsigned)angle, try_alternate ? 1 : 0, speed,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_orbit_target_logged = 1;
 	}
@@ -13917,6 +18589,9 @@ s32 scenarioSourceAiGraphExecuteSetChrPresetToUnalertedTeammate(
 {
 	f32 closest_distance;
 	s16 candidate_chrnum;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
+	s32 checked_chrs = 0;
 	s16 *chrnums;
 
 	if (!s_ActiveScenarioGraphs.level_graph_active) {
@@ -13937,6 +18612,11 @@ s32 scenarioSourceAiGraphExecuteSetChrPresetToUnalertedTeammate(
 	if (out_follow_label) {
 		*out_follow_label = 0;
 	}
+	if (!s_aiGraphRequireRuntimeCharacterPointer(
+			"set_chr_preset_to_unalerted_teammate", chr, &chr_count,
+			&source_chr)) {
+		return 1;
+	}
 
 	closest_distance = 30999.9f;
 	candidate_chrnum = -1;
@@ -13949,6 +18629,15 @@ s32 scenarioSourceAiGraphExecuteSetChrPresetToUnalertedTeammate(
 	if (chrnums && require_far == 0) {
 		for (; *chrnums != -2; chrnums++) {
 			struct chrdata *target = chrFindByLiteralId(*chrnums);
+
+			if (target) {
+				if (!s_aiGraphRequireRuntimeCharacterPointer(
+						"set_chr_preset_to_unalerted_teammate",
+						target, &chr_count, NULL)) {
+					return 1;
+				}
+				checked_chrs++;
+			}
 
 			if (!target || !target->model ||
 					chrIsDead(target) ||
@@ -13987,8 +18676,9 @@ s32 scenarioSourceAiGraphExecuteSetChrPresetToUnalertedTeammate(
 
 	if (!s_ActiveScenarioGraphs.ai_action_set_chr_preset_to_unalerted_teammate_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action set_chr_preset_to_unalerted_teammate candidate=%d distance_units=%d require_far=%d source=%s backend=graph.ai.action.set_chr_preset_to_unalerted_teammate+ai/ailists.tsv",
-			candidate_chrnum, distance_units, require_far ? 1 : 0,
+			"SCENARIO.GRAPH: AI action set_chr_preset_to_unalerted_teammate chr_rows=%d source_chr=%d checked=%d candidate=%d distance_units=%d require_far=%d source=%s backend=graph.ai.action.set_chr_preset_to_unalerted_teammate+ai/ailists.tsv",
+			chr_count, source_chr, checked_chrs, candidate_chrnum,
+			distance_units, require_far ? 1 : 0,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_set_chr_preset_to_unalerted_teammate_logged = 1;
 	}
@@ -13998,6 +18688,9 @@ s32 scenarioSourceAiGraphExecuteSetChrPresetToUnalertedTeammate(
 s32 scenarioSourceAiGraphExecuteSetSquadron(struct chrdata *chr,
 	s32 squadron)
 {
+	s32 chr_count = 0;
+	s32 source_chr = -1;
+
 	if (!s_ActiveScenarioGraphs.level_graph_active) {
 		return 0;
 	}
@@ -14012,11 +18705,16 @@ s32 scenarioSourceAiGraphExecuteSetSquadron(struct chrdata *chr,
 		return s_aiGraphRuntimeFailure("set_squadron",
 			"missing ai/ailists.tsv source");
 	}
+	if (!s_aiGraphRequireRuntimeCharacterPointer("set_squadron", chr,
+			&chr_count, &source_chr)) {
+		return 1;
+	}
 	chr->squadron = (u8)squadron;
 	if (!s_ActiveScenarioGraphs.ai_action_set_squadron_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action set_squadron squadron=%d source=%s backend=graph.ai.action.set_squadron+ai/ailists.tsv",
-			squadron, s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI action set_squadron chr_rows=%d source_chr=%d squadron=%d source=%s backend=graph.ai.action.set_squadron+ai/ailists.tsv",
+			chr_count, source_chr, squadron,
+			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_set_squadron_logged = 1;
 	}
 	return 1;
@@ -14026,6 +18724,9 @@ s32 scenarioSourceAiGraphExecuteFaceCover(struct chrdata *chr,
 	s32 *out_faced)
 {
 	s32 faced;
+	s32 cover_count = 0;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
 
 	if (!s_ActiveScenarioGraphs.level_graph_active) {
 		return 0;
@@ -14041,14 +18742,24 @@ s32 scenarioSourceAiGraphExecuteFaceCover(struct chrdata *chr,
 		return s_aiGraphRuntimeFailure("face_cover",
 			"missing navigation/covers.tsv source");
 	}
+	if (!s_aiGraphRequireRuntimeCharacterPointer("face_cover", chr,
+			&chr_count, &source_chr)) {
+		return 1;
+	}
+	if (!s_aiGraphRequireRuntimeCoverTable("face_cover", &cover_count) ||
+			!s_aiGraphValidateRuntimeCoverIndex("face_cover",
+				chr->cover, cover_count)) {
+		return 1;
+	}
 	faced = chrFaceCover(chr) ? 1 : 0;
 	if (out_faced) {
 		*out_faced = faced;
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_face_cover_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action face_cover faced=%d source=%s backend=graph.ai.action.face_cover+navigation/covers.tsv",
-			faced, s_ActiveScenarioGraphs.covers_path);
+			"SCENARIO.GRAPH: AI action face_cover chr_rows=%d source_chr=%d cover=%d faced=%d cover_rows=%d source=%s backend=graph.ai.action.face_cover+navigation/covers.tsv",
+			chr_count, source_chr, chr->cover, faced, cover_count,
+			s_ActiveScenarioGraphs.covers_path);
 		s_ActiveScenarioGraphs.ai_action_face_cover_logged = 1;
 	}
 	return 1;
@@ -14058,6 +18769,9 @@ s32 scenarioSourceAiGraphExecuteDangerCover(struct chrdata *chr)
 {
 	s32 assigned;
 	s32 moved;
+	s32 cover_count = 0;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
 
 	if (!s_ActiveScenarioGraphs.level_graph_active) {
 		return 0;
@@ -14073,12 +18787,23 @@ s32 scenarioSourceAiGraphExecuteDangerCover(struct chrdata *chr)
 		return s_aiGraphRuntimeFailure("danger_cover",
 			"missing navigation/covers.tsv source");
 	}
+	if (!s_aiGraphRequireRuntimeCharacterPointer("danger_cover", chr,
+			&chr_count, &source_chr)) {
+		return 1;
+	}
+	if (!s_aiGraphRequireRuntimeCoverTable("danger_cover", &cover_count)) {
+		return 1;
+	}
 
 	assigned = -1;
 	moved = 0;
 	if (func0f03aca0(chr, 400, true) == 0) {
 		assigned = chrAssignCoverAwayFromDanger(chr, 1000, 12000);
 		if (assigned != -1) {
+			if (!s_aiGraphValidateRuntimeCoverIndex("danger_cover",
+					assigned, cover_count)) {
+				return 1;
+			}
 			chrGoToCover(chr, GOPOSFLAG_RUN);
 			moved = 1;
 		}
@@ -14086,8 +18811,9 @@ s32 scenarioSourceAiGraphExecuteDangerCover(struct chrdata *chr)
 
 	if (!s_ActiveScenarioGraphs.ai_action_danger_cover_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action danger_cover assigned=%d moved=%d source=%s backend=graph.ai.action.danger_cover+navigation/covers.tsv",
-			assigned, moved, s_ActiveScenarioGraphs.covers_path);
+			"SCENARIO.GRAPH: AI action danger_cover chr_rows=%d source_chr=%d assigned=%d moved=%d cover_rows=%d source=%s backend=graph.ai.action.danger_cover+navigation/covers.tsv",
+			chr_count, source_chr, assigned, moved, cover_count,
+			s_ActiveScenarioGraphs.covers_path);
 		s_ActiveScenarioGraphs.ai_action_danger_cover_logged = 1;
 	}
 	return 1;
@@ -14096,6 +18822,9 @@ s32 scenarioSourceAiGraphExecuteDangerCover(struct chrdata *chr)
 s32 scenarioSourceAiGraphExecuteReleaseCover(struct chrdata *chr)
 {
 	s32 released = 0;
+	s32 cover_count = 0;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
 
 	if (!s_ActiveScenarioGraphs.level_graph_active) {
 		return 0;
@@ -14111,6 +18840,18 @@ s32 scenarioSourceAiGraphExecuteReleaseCover(struct chrdata *chr)
 		return s_aiGraphRuntimeFailure("release_cover",
 			"missing navigation/covers.tsv source");
 	}
+	if (!s_aiGraphRequireRuntimeCharacterPointer("release_cover", chr,
+			&chr_count, &source_chr)) {
+		g_Vars.aioffset += 2;
+		return 1;
+	}
+	if (!s_aiGraphRequireRuntimeCoverTable("release_cover",
+			&cover_count) ||
+			!s_aiGraphValidateRuntimeCoverIndex("release_cover",
+				chr->cover, cover_count)) {
+		g_Vars.aioffset += 2;
+		return 1;
+	}
 
 	if (chr->cover >= 0) {
 		coverSetInUse(chr->cover, 0);
@@ -14119,8 +18860,9 @@ s32 scenarioSourceAiGraphExecuteReleaseCover(struct chrdata *chr)
 	g_Vars.aioffset += 2;
 	if (!s_ActiveScenarioGraphs.ai_action_release_cover_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action release_cover cover=%d released=%d source=%s backend=graph.ai.action.release_cover+navigation/covers.tsv",
-			chr->cover, released, s_ActiveScenarioGraphs.covers_path);
+			"SCENARIO.GRAPH: AI action release_cover chr_rows=%d source_chr=%d cover=%d released=%d cover_rows=%d source=%s backend=graph.ai.action.release_cover+navigation/covers.tsv",
+			chr_count, source_chr, chr->cover, released, cover_count,
+			s_ActiveScenarioGraphs.covers_path);
 		s_ActiveScenarioGraphs.ai_action_release_cover_logged = 1;
 	}
 	return 1;
@@ -14174,12 +18916,16 @@ s32 scenarioSourceAiGraphExecuteRebuildSquadrons(void)
 
 static s32 s_aiGraphRequireCharacterConditionNode(const char *condition,
 	s32 node_count);
+static s32 s_aiGraphRequireCharacterConditionActor(const char *, s32,
+	struct chrdata *, s32 *, s32 *);
 
 s32 scenarioSourceAiGraphExecuteChrSetListening(struct chrdata *basechr,
 	s32 chrnum, s32 listening)
 {
 	struct chrdata *chr;
 	s32 applied;
+	s32 chr_count = 0;
+	s32 target_chrnum = -1;
 
 	if (!s_ActiveScenarioGraphs.level_graph_active) {
 		return 0;
@@ -14196,7 +18942,11 @@ s32 scenarioSourceAiGraphExecuteChrSetListening(struct chrdata *basechr,
 		return s_aiGraphRuntimeFailure("chr_set_listening",
 			"missing ai/ailists.tsv source");
 	}
-	chr = chrFindById(basechr, chrnum);
+	if (!s_aiGraphRequireRuntimeCharacterRefFromBase("chr_set_listening",
+			basechr, chrnum, &chr_count, &chr)) {
+		return 1;
+	}
+	target_chrnum = chr ? chr->chrnum : -1;
 	applied = 0;
 	if (chr && chr->listening == 0) {
 		chr->listening = (u8)listening;
@@ -14204,8 +18954,8 @@ s32 scenarioSourceAiGraphExecuteChrSetListening(struct chrdata *basechr,
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_chr_set_listening_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action chr_set_listening chr=%d value=%d applied=%d source=%s backend=graph.ai.action.chr_set_listening+ai/ailists.tsv",
-			chrnum, listening, applied,
+			"SCENARIO.GRAPH: AI action chr_set_listening chr=%d chr_rows=%d target_chr=%d value=%d applied=%d source=%s backend=graph.ai.action.chr_set_listening+ai/ailists.tsv",
+			chrnum, chr_count, target_chrnum, listening, applied,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_chr_set_listening_logged = 1;
 	}
@@ -14215,6 +18965,8 @@ s32 scenarioSourceAiGraphExecuteChrSetListening(struct chrdata *basechr,
 s32 scenarioSourceAiGraphExecuteIfChrNotTalking(s32 chrnum, s32 label)
 {
 	struct chrdata *chr;
+	s32 chr_count = 0;
+	s32 target_chrnum = -1;
 	s32 branch_taken;
 
 	if (!s_aiGraphRequireCharacterConditionNode("if_chr_not_talking",
@@ -14223,12 +18975,18 @@ s32 scenarioSourceAiGraphExecuteIfChrNotTalking(s32 chrnum, s32 label)
 		return 0;
 	}
 	chr = chrFindByLiteralId(chrnum);
+	if (chr) {
+		if (!s_aiGraphRequireRuntimeCharacterPointer("if_chr_not_talking",
+				chr, &chr_count, &target_chrnum)) {
+			return 1;
+		}
+	}
 	branch_taken = chr && chr->propsoundcount == 0;
 	s_aiGraphApplyBranch(branch_taken, label, 4);
 	if (!s_ActiveScenarioGraphs.ai_condition_if_chr_not_talking_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_chr_not_talking chr=%d label=%d branch=%d source=%s backend=graph.ai.condition.intent_status+ai/ailists.tsv",
-			chrnum, label, branch_taken,
+			"SCENARIO.GRAPH: AI condition if_chr_not_talking chr=%d chr_rows=%d target_chr=%d label=%d branch=%d source=%s backend=graph.ai.condition.intent_status+ai/ailists.tsv",
+			chrnum, chr_count, target_chrnum, label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_condition_if_chr_not_talking_logged = 1;
 	}
@@ -14239,17 +18997,21 @@ s32 scenarioSourceAiGraphExecuteIfOrders(struct chrdata *chr, s32 order,
 	s32 label)
 {
 	s32 branch_taken;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
 
-	if (!s_aiGraphRequireCharacterConditionNode("if_orders",
-			s_ActiveScenarioGraphs.level_ai_if_orders_node_count)) {
+	if (!s_aiGraphRequireCharacterConditionActor("if_orders",
+			s_ActiveScenarioGraphs.level_ai_if_orders_node_count,
+			chr, &chr_count, &source_chr)) {
 		return 0;
 	}
-	branch_taken = chr && chr->orders == order;
+	branch_taken = chr && chr->prop && chr->orders == order;
 	s_aiGraphApplyBranch(branch_taken, label, 5);
 	if (!s_ActiveScenarioGraphs.ai_condition_if_orders_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_orders order=%d current=%d label=%d branch=%d source=%s backend=graph.ai.condition.intent_status+ai/ailists.tsv",
-			order, chr ? chr->orders : -1, label, branch_taken,
+			"SCENARIO.GRAPH: AI condition if_orders chr_rows=%d source_chr=%d order=%d current=%d label=%d branch=%d source=%s backend=graph.ai.condition.intent_status+ai/ailists.tsv",
+			chr_count, source_chr, order,
+			chr && chr->prop ? chr->orders : -1, label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_condition_if_orders_logged = 1;
 	}
@@ -14259,17 +19021,21 @@ s32 scenarioSourceAiGraphExecuteIfOrders(struct chrdata *chr, s32 order,
 s32 scenarioSourceAiGraphExecuteIfHasOrders(struct chrdata *chr, s32 label)
 {
 	s32 branch_taken;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
 
-	if (!s_aiGraphRequireCharacterConditionNode("if_has_orders",
-			s_ActiveScenarioGraphs.level_ai_if_has_orders_node_count)) {
+	if (!s_aiGraphRequireCharacterConditionActor("if_has_orders",
+			s_ActiveScenarioGraphs.level_ai_if_has_orders_node_count,
+			chr, &chr_count, &source_chr)) {
 		return 0;
 	}
-	branch_taken = chr && chr->orders;
+	branch_taken = chr && chr->prop && chr->orders;
 	s_aiGraphApplyBranch(branch_taken, label, 3);
 	if (!s_ActiveScenarioGraphs.ai_condition_if_has_orders_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_has_orders current=%d label=%d branch=%d source=%s backend=graph.ai.condition.intent_status+ai/ailists.tsv",
-			chr ? chr->orders : 0, label, branch_taken,
+			"SCENARIO.GRAPH: AI condition if_has_orders chr_rows=%d source_chr=%d current=%d label=%d branch=%d source=%s backend=graph.ai.condition.intent_status+ai/ailists.tsv",
+			chr_count, source_chr,
+			chr && chr->prop ? chr->orders : -1, label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_condition_if_has_orders_logged = 1;
 	}
@@ -14280,6 +19046,9 @@ s32 scenarioSourceAiGraphExecuteIfChrInSquadronDoingAction(
 	struct chrdata *chr, s32 action, s32 label)
 {
 	s16 *chrnums;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
+	s32 checked_chrs = 0;
 	s32 branch_taken;
 
 	if (!s_aiGraphRequireCharacterConditionNode(
@@ -14290,10 +19059,23 @@ s32 scenarioSourceAiGraphExecuteIfChrInSquadronDoingAction(
 	}
 	branch_taken = 0;
 	if (chr) {
+		if (!s_aiGraphRequireRuntimeCharacterPointer(
+				"if_chr_in_squadron_doing_action", chr, &chr_count,
+				&source_chr)) {
+			return 1;
+		}
 		chrnums = squadronGetChrIds(chr->squadron);
 		if (chrnums) {
 			for (; *chrnums != -2; chrnums++) {
 				struct chrdata *other = chrFindByLiteralId(*chrnums);
+				if (other) {
+					if (!s_aiGraphRequireRuntimeCharacterPointer(
+							"if_chr_in_squadron_doing_action",
+							other, &chr_count, NULL)) {
+						return 1;
+					}
+					checked_chrs++;
+				}
 				if (other && other->model && !chrIsDead(other) &&
 						other->actiontype != ACT_DEAD &&
 						chrCompareTeams(chr, other, COMPARE_FRIENDS) &&
@@ -14310,8 +19092,8 @@ s32 scenarioSourceAiGraphExecuteIfChrInSquadronDoingAction(
 	if (!s_ActiveScenarioGraphs
 			.ai_condition_if_chr_in_squadron_doing_action_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_chr_in_squadron_doing_action action=%d label=%d branch=%d source=%s backend=graph.ai.condition.intent_status+ai/ailists.tsv",
-			action, label, branch_taken,
+			"SCENARIO.GRAPH: AI condition if_chr_in_squadron_doing_action chr_rows=%d source_chr=%d checked=%d action=%d label=%d branch=%d source=%s backend=graph.ai.condition.intent_status+ai/ailists.tsv",
+			chr_count, source_chr, checked_chrs, action, label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs
 			.ai_condition_if_chr_in_squadron_doing_action_logged = 1;
@@ -14323,6 +19105,8 @@ s32 scenarioSourceAiGraphExecuteIfChrListening(struct chrdata *basechr,
 	s32 chrnum, s32 listening, s32 check_convtalk, s32 label)
 {
 	struct chrdata *chr;
+	s32 chr_count = 0;
+	s32 target_chrnum = -1;
 	s32 branch_taken;
 
 	if (!s_aiGraphRequireCharacterConditionNode("if_chr_listening",
@@ -14330,17 +19114,27 @@ s32 scenarioSourceAiGraphExecuteIfChrListening(struct chrdata *basechr,
 				.level_ai_if_chr_listening_node_count)) {
 		return 0;
 	}
-	chr = chrFindById(basechr, chrnum);
 	if (!check_convtalk) {
+		if (!s_aiGraphRequireRuntimeCharacterRefFromBase(
+				"if_chr_listening", basechr, chrnum,
+				&chr_count, &chr)) {
+			return 1;
+		}
+		target_chrnum = chr ? chr->chrnum : -1;
 		branch_taken = chr && chr->listening == listening;
 	} else {
+		if (!s_aiGraphCountRuntimeSetupChrRowsFromSource(
+				"if_chr_listening", &chr_count)) {
+			return 1;
+		}
 		branch_taken = basechr && basechr->convtalk == 0;
 	}
 	s_aiGraphApplyBranch(branch_taken, label, 6);
 	if (!s_ActiveScenarioGraphs.ai_condition_if_chr_listening_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_chr_listening chr=%d listening=%d check_convtalk=%d label=%d branch=%d source=%s backend=graph.ai.condition.intent_status+ai/ailists.tsv",
-			chrnum, listening, check_convtalk, label, branch_taken,
+			"SCENARIO.GRAPH: AI condition if_chr_listening chr=%d chr_rows=%d target_chr=%d listening=%d check_convtalk=%d label=%d branch=%d source=%s backend=graph.ai.condition.intent_status+ai/ailists.tsv",
+			chrnum, chr_count, target_chrnum, listening, check_convtalk,
+			label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_condition_if_chr_listening_logged = 1;
 	}
@@ -14351,18 +19145,23 @@ s32 scenarioSourceAiGraphExecuteIfNotListening(struct chrdata *chr,
 	s32 label)
 {
 	s32 branch_taken;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
 
-	if (!s_aiGraphRequireCharacterConditionNode("if_not_listening",
+	if (!s_aiGraphRequireCharacterConditionActor("if_not_listening",
 			s_ActiveScenarioGraphs
-				.level_ai_if_not_listening_node_count)) {
+				.level_ai_if_not_listening_node_count,
+			chr, &chr_count, &source_chr)) {
 		return 0;
 	}
-	branch_taken = chr && chr->listening == 0;
+	branch_taken = chr && chr->prop && chr->listening == 0;
 	s_aiGraphApplyBranch(branch_taken, label, 3);
 	if (!s_ActiveScenarioGraphs.ai_condition_if_not_listening_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_not_listening label=%d branch=%d source=%s backend=graph.ai.condition.intent_status+ai/ailists.tsv",
-			label, branch_taken, s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI condition if_not_listening chr_rows=%d source_chr=%d current=%d label=%d branch=%d source=%s backend=graph.ai.condition.intent_status+ai/ailists.tsv",
+			chr_count, source_chr,
+			chr && chr->prop ? chr->listening : -1, label, branch_taken,
+			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_condition_if_not_listening_logged = 1;
 	}
 	return 1;
@@ -14372,6 +19171,8 @@ s32 scenarioSourceAiGraphExecuteIfChrInjuredTarget(struct chrdata *basechr,
 	s32 chrnum, s32 label)
 {
 	struct chrdata *chr;
+	s32 chr_count = 0;
+	s32 target_chrnum = -1;
 	s32 branch_taken;
 
 	if (!s_aiGraphRequireCharacterConditionNode("if_chr_injured_target",
@@ -14379,7 +19180,12 @@ s32 scenarioSourceAiGraphExecuteIfChrInjuredTarget(struct chrdata *basechr,
 				.level_ai_if_chr_injured_target_node_count)) {
 		return 0;
 	}
-	chr = chrFindById(basechr, chrnum);
+	if (!s_aiGraphRequireRuntimeCharacterRefFromBase(
+			"if_chr_injured_target", basechr, chrnum,
+			&chr_count, &chr)) {
+		return 1;
+	}
+	target_chrnum = chr ? chr->chrnum : -1;
 	branch_taken = chr && (chr->chrflags & CHRCFLAG_INJUREDTARGET);
 	if (branch_taken) {
 		chr->chrflags &= ~CHRCFLAG_INJUREDTARGET;
@@ -14387,8 +19193,8 @@ s32 scenarioSourceAiGraphExecuteIfChrInjuredTarget(struct chrdata *basechr,
 	s_aiGraphApplyBranch(branch_taken, label, 4);
 	if (!s_ActiveScenarioGraphs.ai_condition_if_chr_injured_target_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_chr_injured_target chr=%d label=%d branch=%d source=%s backend=graph.ai.condition.intent_status+ai/ailists.tsv",
-			chrnum, label, branch_taken,
+			"SCENARIO.GRAPH: AI condition if_chr_injured_target chr=%d chr_rows=%d target_chr=%d label=%d branch=%d source=%s backend=graph.ai.condition.intent_status+ai/ailists.tsv",
+			chrnum, chr_count, target_chrnum, label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_condition_if_chr_injured_target_logged = 1;
 	}
@@ -14399,17 +19205,21 @@ s32 scenarioSourceAiGraphExecuteIfAction(struct chrdata *chr, s32 action,
 	s32 label)
 {
 	s32 branch_taken;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
 
-	if (!s_aiGraphRequireCharacterConditionNode("if_action",
-			s_ActiveScenarioGraphs.level_ai_if_action_node_count)) {
+	if (!s_aiGraphRequireCharacterConditionActor("if_action",
+			s_ActiveScenarioGraphs.level_ai_if_action_node_count,
+			chr, &chr_count, &source_chr)) {
 		return 0;
 	}
-	branch_taken = chr && chr->myaction == action;
+	branch_taken = chr && chr->prop && chr->myaction == action;
 	s_aiGraphApplyBranch(branch_taken, label, 4);
 	if (!s_ActiveScenarioGraphs.ai_condition_if_action_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_action action=%d current=%d label=%d branch=%d source=%s backend=graph.ai.condition.intent_status+ai/ailists.tsv",
-			action, chr ? chr->myaction : -1, label, branch_taken,
+			"SCENARIO.GRAPH: AI condition if_action chr_rows=%d source_chr=%d action=%d current=%d label=%d branch=%d source=%s backend=graph.ai.condition.intent_status+ai/ailists.tsv",
+			chr_count, source_chr, action,
+			chr && chr->prop ? chr->myaction : -1, label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_condition_if_action_logged = 1;
 	}
@@ -14421,8 +19231,11 @@ s32 scenarioSourceAiGraphExecuteIfChrAmmoQuantityLessThan(
 	s32 label)
 {
 	struct chrdata *chr;
+	s32 chr_count = 0;
+	s32 target_chrnum = -1;
 	s32 ammo_count;
 	s32 branch_taken;
+	s32 player_checked = 0;
 
 	if (!s_aiGraphRequireCharacterConditionNode(
 			"if_chr_ammo_quantity_less_than",
@@ -14430,12 +19243,23 @@ s32 scenarioSourceAiGraphExecuteIfChrAmmoQuantityLessThan(
 				.level_ai_if_chr_ammo_quantity_less_than_node_count)) {
 		return 0;
 	}
-	chr = chrFindById(basechr, chrnum);
+	if (!s_aiGraphRequireRuntimeCharacterRefFromBase(
+			"if_chr_ammo_quantity_less_than", basechr, chrnum,
+			&chr_count, &chr)) {
+		return 1;
+	}
+	target_chrnum = chr ? chr->chrnum : -1;
 	ammo_count = 0;
 	branch_taken = 0;
 	if (chr && chr->prop && chr->prop->type == PROPTYPE_PLAYER) {
 		u32 prevplayernum = g_Vars.currentplayernum;
 		u32 playernum = playermgrGetPlayerNumByProp(chr->prop);
+		if (!s_aiGraphRequireRuntimePlayerSlot(
+				"if_chr_ammo_quantity_less_than",
+				(s32)playernum, NULL)) {
+			return 1;
+		}
+		player_checked = 1;
 		setCurrentPlayerNum(playernum);
 		ammo_count = bgunGetAmmoCount(ammo_type);
 		branch_taken = ammo_count < quantity;
@@ -14445,8 +19269,9 @@ s32 scenarioSourceAiGraphExecuteIfChrAmmoQuantityLessThan(
 	if (!s_ActiveScenarioGraphs
 			.ai_condition_if_chr_ammo_quantity_less_than_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_chr_ammo_quantity_less_than chr=%d ammo_type=%d quantity=%d current=%d label=%d branch=%d source=%s backend=graph.ai.condition.intent_status+ai/ailists.tsv",
-			chrnum, ammo_type, quantity, ammo_count, label, branch_taken,
+			"SCENARIO.GRAPH: AI condition if_chr_ammo_quantity_less_than chr=%d chr_rows=%d target_chr=%d player_checked=%d ammo_type=%d quantity=%d current=%d label=%d branch=%d source=%s backend=graph.ai.condition.intent_status+ai/ailists.tsv",
+			chrnum, chr_count, target_chrnum, player_checked, ammo_type,
+			quantity, ammo_count, label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs
 			.ai_condition_if_chr_ammo_quantity_less_than_logged = 1;
@@ -14458,33 +19283,53 @@ s32 scenarioSourceAiGraphExecuteIfChrTarget(struct chrdata *basechr,
 	s32 chrnum, s32 target_chrnum, s32 require_any_target, s32 label)
 {
 	struct chrdata *chr;
+	s32 chr_count = 0;
+	s32 target_chr_count = 0;
+	s32 resolved_chrnum = -1;
+	s32 resolved_target_chrnum = -1;
 	s32 branch_taken;
 
 	if (!s_aiGraphRequireCharacterConditionNode("if_chr_target",
 			s_ActiveScenarioGraphs.level_ai_if_chr_target_node_count)) {
 		return 0;
 	}
-	chr = chrFindById(basechr, chrnum);
+	if (!s_aiGraphRequireRuntimeCharacterRefFromBase("if_chr_target",
+			basechr, chrnum, &chr_count, &chr)) {
+		return 1;
+	}
+	resolved_chrnum = chr ? chr->chrnum : -1;
 	branch_taken = 0;
 	if (chr && chr->prop && chr->prop->type == PROPTYPE_PLAYER) {
 		/* Original command intentionally ignores player chrs. */
 	} else if (chrnum != CHR_BOND) {
 		if (require_any_target == 0) {
-			struct chrdata *target = chrFindById(basechr, target_chrnum);
+			struct chrdata *target;
+			if (!s_aiGraphRequireRuntimeCharacterRefFromBase(
+					"if_chr_target", basechr, target_chrnum,
+					&target_chr_count, &target)) {
+				return 1;
+			}
+			resolved_target_chrnum = target ? target->chrnum : -1;
 			if (chr && target && target->prop &&
 					chrGetTargetProp(chr) == target->prop) {
 				branch_taken = 1;
 			}
 		} else if (chr && chr->target != -1 && chr->prop) {
+			if (!s_aiGraphCountRuntimeSetupChrRowsFromSource(
+					"if_chr_target", &target_chr_count)) {
+				return 1;
+			}
 			branch_taken = 1;
 		}
 	}
 	s_aiGraphApplyBranch(branch_taken, label, 6);
 	if (!s_ActiveScenarioGraphs.ai_condition_if_chr_target_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_chr_target chr=%d target_chr=%d any=%d label=%d branch=%d source=%s backend=graph.ai.condition.intent_status+ai/ailists.tsv",
-			chrnum, target_chrnum, require_any_target, label,
-			branch_taken, s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI condition if_chr_target chr=%d chr_rows=%d resolved_chr=%d target_chr=%d target_chr_rows=%d resolved_target_chr=%d any=%d label=%d branch=%d source=%s backend=graph.ai.condition.intent_status+ai/ailists.tsv",
+			chrnum, chr_count, resolved_chrnum, target_chrnum,
+			target_chr_count, resolved_target_chrnum,
+			require_any_target, label, branch_taken,
+			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_condition_if_chr_target_logged = 1;
 	}
 	return 1;
@@ -14494,6 +19339,8 @@ s32 scenarioSourceAiGraphExecuteIfCompareChrPresetsTeam(
 	struct chrdata *chr, s32 comparison, s32 label)
 {
 	struct chrdata *preset_chr;
+	s32 chr_count = 0;
+	s32 preset_chrnum = -1;
 	s32 branch_taken;
 
 	if (!s_aiGraphRequireCharacterConditionNode(
@@ -14502,19 +19349,29 @@ s32 scenarioSourceAiGraphExecuteIfCompareChrPresetsTeam(
 				.level_ai_if_compare_chr_presets_team_node_count)) {
 		return 0;
 	}
-	preset_chr = chrFindById(chr, CHR_PRESET);
-	if (!preset_chr || (!preset_chr->model &&
-			preset_chr->prop->type != PROPTYPE_PLAYER)) {
-		chrSetChrPreset(chr, CHR_BOND);
-		preset_chr = chrFindById(chr, CHR_PRESET);
+	if (!chr) {
+		return s_aiGraphRuntimeFailure("if_compare_chr_presets_team",
+			"missing base chr");
 	}
+	if (!s_aiGraphRuntimeCharacterRefLooksSourceBacked(chr, CHR_PRESET,
+			&chr_count, &preset_chr) ||
+			(!preset_chr->model &&
+				preset_chr->prop->type != PROPTYPE_PLAYER)) {
+		chrSetChrPreset(chr, CHR_BOND);
+	}
+	if (!s_aiGraphRequireRuntimeCharacterRefFromBase(
+			"if_compare_chr_presets_team", chr, CHR_PRESET,
+			&chr_count, &preset_chr)) {
+		return 1;
+	}
+	preset_chrnum = preset_chr ? preset_chr->chrnum : -1;
 	branch_taken = preset_chr && chrCompareTeams(preset_chr, chr, comparison);
 	s_aiGraphApplyBranch(branch_taken, label, 4);
 	if (!s_ActiveScenarioGraphs
 			.ai_condition_if_compare_chr_presets_team_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_compare_chr_presets_team comparison=%d label=%d branch=%d source=%s backend=graph.ai.condition.intent_status+ai/ailists.tsv",
-			comparison, label, branch_taken,
+			"SCENARIO.GRAPH: AI condition if_compare_chr_presets_team chr_rows=%d preset_chr=%d comparison=%d label=%d branch=%d source=%s backend=graph.ai.condition.intent_status+ai/ailists.tsv",
+			chr_count, preset_chrnum, comparison, label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs
 			.ai_condition_if_compare_chr_presets_team_logged = 1;
@@ -14526,19 +19383,25 @@ s32 scenarioSourceAiGraphExecuteIfHuman(struct chrdata *basechr,
 	s32 chrnum, s32 label)
 {
 	struct chrdata *chr;
+	s32 chr_count = 0;
+	s32 target_chrnum = -1;
 	s32 branch_taken;
 
 	if (!s_aiGraphRequireCharacterConditionNode("if_human",
 			s_ActiveScenarioGraphs.level_ai_if_human_node_count)) {
 		return 0;
 	}
-	chr = chrFindById(basechr, chrnum);
+	if (!s_aiGraphRequireRuntimeCharacterRefFromBase("if_human",
+			basechr, chrnum, &chr_count, &chr)) {
+		return 1;
+	}
+	target_chrnum = chr ? chr->chrnum : -1;
 	branch_taken = chr && chr->prop && CHRRACE(chr) == RACE_HUMAN;
 	s_aiGraphApplyBranch(branch_taken, label, 4);
 	if (!s_ActiveScenarioGraphs.ai_condition_if_human_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_human chr=%d label=%d branch=%d source=%s backend=graph.ai.condition.intent_status+ai/ailists.tsv",
-			chrnum, label, branch_taken,
+			"SCENARIO.GRAPH: AI condition if_human chr=%d chr_rows=%d target_chr=%d label=%d branch=%d source=%s backend=graph.ai.condition.intent_status+ai/ailists.tsv",
+			chrnum, chr_count, target_chrnum, label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_condition_if_human_logged = 1;
 	}
@@ -14549,19 +19412,25 @@ s32 scenarioSourceAiGraphExecuteIfSkedar(struct chrdata *basechr,
 	s32 chrnum, s32 label)
 {
 	struct chrdata *chr;
+	s32 chr_count = 0;
+	s32 target_chrnum = -1;
 	s32 branch_taken;
 
 	if (!s_aiGraphRequireCharacterConditionNode("if_skedar",
 			s_ActiveScenarioGraphs.level_ai_if_skedar_node_count)) {
 		return 0;
 	}
-	chr = chrFindById(basechr, chrnum);
+	if (!s_aiGraphRequireRuntimeCharacterRefFromBase("if_skedar",
+			basechr, chrnum, &chr_count, &chr)) {
+		return 1;
+	}
+	target_chrnum = chr ? chr->chrnum : -1;
 	branch_taken = chr && chr->prop && CHRRACE(chr) == RACE_SKEDAR;
 	s_aiGraphApplyBranch(branch_taken, label, 4);
 	if (!s_ActiveScenarioGraphs.ai_condition_if_skedar_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_skedar chr=%d label=%d branch=%d source=%s backend=graph.ai.condition.intent_status+ai/ailists.tsv",
-			chrnum, label, branch_taken,
+			"SCENARIO.GRAPH: AI condition if_skedar chr=%d chr_rows=%d target_chr=%d label=%d branch=%d source=%s backend=graph.ai.condition.intent_status+ai/ailists.tsv",
+			chrnum, chr_count, target_chrnum, label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_condition_if_skedar_logged = 1;
 	}
@@ -14600,6 +19469,8 @@ s32 scenarioSourceAiGraphExecuteIfPropPresetIsBlockingSightToTarget(
 	struct chrdata *chr, s32 label)
 {
 	s32 required;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
 	s32 branch_taken;
 
 	required = s_aiGraphRequirePropPresetTargetNode("condition",
@@ -14610,13 +19481,19 @@ s32 scenarioSourceAiGraphExecuteIfPropPresetIsBlockingSightToTarget(
 	if (required <= 0) {
 		return required < 0 ? 1 : 0;
 	}
+	if (chr && !s_aiGraphRequireRuntimeCharacterPointer(
+			"if_prop_preset_blocking_sight_to_target", chr,
+			&chr_count, &source_chr)) {
+		return 1;
+	}
 	branch_taken = chr && chrIsPropPresetBlockingSightToTarget(chr);
 	s_aiGraphApplyBranch(branch_taken, label, 3);
 	if (!s_ActiveScenarioGraphs
 			.ai_condition_if_prop_preset_blocking_sight_to_target_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_prop_preset_blocking_sight_to_target label=%d branch=%d source=%s objects=%s backend=graph.ai.condition.prop_target+ai/ailists.tsv+objects.tsv",
-			label, branch_taken, s_ActiveScenarioGraphs.ai_lists_path,
+			"SCENARIO.GRAPH: AI condition if_prop_preset_blocking_sight_to_target chr_rows=%d source_chr=%d label=%d branch=%d source=%s objects=%s backend=graph.ai.condition.prop_target+ai/ailists.tsv+objects.tsv",
+			chr_count, source_chr, label, branch_taken,
+			s_ActiveScenarioGraphs.ai_lists_path,
 			s_ActiveScenarioGraphs.objects_path);
 		s_ActiveScenarioGraphs
 			.ai_condition_if_prop_preset_blocking_sight_to_target_logged = 1;
@@ -14627,6 +19504,8 @@ s32 scenarioSourceAiGraphExecuteIfPropPresetIsBlockingSightToTarget(
 s32 scenarioSourceAiGraphExecuteRemoveObjectAtPropPreset(struct chrdata *chr)
 {
 	s32 required;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
 	s32 cleared = 0;
 
 	required = s_aiGraphRequirePropPresetTargetNode("action",
@@ -14635,6 +19514,11 @@ s32 scenarioSourceAiGraphExecuteRemoveObjectAtPropPreset(struct chrdata *chr)
 		1, 0);
 	if (required <= 0) {
 		return required < 0 ? 1 : 0;
+	}
+	if (chr && !s_aiGraphRequireRuntimeCharacterPointer(
+			"remove_object_at_prop_preset", chr, &chr_count,
+			&source_chr)) {
+		return 1;
 	}
 	if (chr && chr->proppreset1 >= 0) {
 		struct prop *prop = &g_Vars.props[chr->proppreset1];
@@ -14646,8 +19530,9 @@ s32 scenarioSourceAiGraphExecuteRemoveObjectAtPropPreset(struct chrdata *chr)
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_remove_object_at_prop_preset_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action remove_object_at_prop_preset cleared=%d source=%s objects=%s backend=graph.ai.action.prop_target+ai/ailists.tsv+objects.tsv",
-			cleared, s_ActiveScenarioGraphs.ai_lists_path,
+			"SCENARIO.GRAPH: AI action remove_object_at_prop_preset chr_rows=%d source_chr=%d cleared=%d source=%s objects=%s backend=graph.ai.action.prop_target+ai/ailists.tsv+objects.tsv",
+			chr_count, source_chr, cleared,
+			s_ActiveScenarioGraphs.ai_lists_path,
 			s_ActiveScenarioGraphs.objects_path);
 		s_ActiveScenarioGraphs.ai_action_remove_object_at_prop_preset_logged = 1;
 	}
@@ -14658,6 +19543,8 @@ s32 scenarioSourceAiGraphExecuteIfPropPresetHeightLessThan(
 	struct chrdata *chr, f32 value, s32 label)
 {
 	s32 required;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
 	s32 branch_taken = 0;
 	f32 height = 0.0f;
 
@@ -14668,6 +19555,11 @@ s32 scenarioSourceAiGraphExecuteIfPropPresetHeightLessThan(
 		1, 0);
 	if (required <= 0) {
 		return required < 0 ? 1 : 0;
+	}
+	if (chr && !s_aiGraphRequireRuntimeCharacterPointer(
+			"if_prop_preset_height_less_than", chr, &chr_count,
+			&source_chr)) {
+		return 1;
 	}
 	if (chr && chr->proppreset1 >= 0) {
 		struct prop *prop = &g_Vars.props[chr->proppreset1];
@@ -14682,8 +19574,9 @@ s32 scenarioSourceAiGraphExecuteIfPropPresetHeightLessThan(
 	if (!s_ActiveScenarioGraphs
 			.ai_condition_if_prop_preset_height_less_than_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_prop_preset_height_less_than value=%.3f height=%.3f label=%d branch=%d source=%s objects=%s backend=graph.ai.condition.prop_target+ai/ailists.tsv+objects.tsv",
-			(double)value, (double)height, label, branch_taken,
+			"SCENARIO.GRAPH: AI condition if_prop_preset_height_less_than chr_rows=%d source_chr=%d value=%.3f height=%.3f label=%d branch=%d source=%s objects=%s backend=graph.ai.condition.prop_target+ai/ailists.tsv+objects.tsv",
+			chr_count, source_chr, (double)value, (double)height,
+			label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path,
 			s_ActiveScenarioGraphs.objects_path);
 		s_ActiveScenarioGraphs
@@ -14696,6 +19589,13 @@ s32 scenarioSourceAiGraphExecuteSetTarget(struct chrdata *chr,
 	struct chopperobj *hovercar, s32 chrnum, s32 mode, s32 flags)
 {
 	s32 required;
+	struct chrdata *target_chr = NULL;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
+	s32 target_chr_count = 0;
+	s32 resolved_chrnum = -1;
+	s32 vehicle_count = 0;
+	s32 source_vehicle_type = -1;
 	s16 newtarget = -1;
 	s32 applied = 0;
 
@@ -14705,16 +19605,40 @@ s32 scenarioSourceAiGraphExecuteSetTarget(struct chrdata *chr,
 		return required < 0 ? 1 : 0;
 	}
 	if (chr) {
+		if (!s_aiGraphRequireOptionalRuntimeCharacterStatePointer("set_target", chr,
+				&chr_count, &source_chr)) {
+			return 1;
+		}
+		if (!chr->prop) {
+			goto log_result;
+		}
 		if (flags != 0) {
 			s_aiGraphRuntimeFailure("set_target",
 				"unsupported legacy set_target flags");
 			return 1;
 		}
 		if (mode == 0) {
+			if (!s_aiGraphResolveOptionalRuntimeCharacterRefOrSelector(
+					"set_target", chr, chrnum,
+					&target_chr_count, &target_chr, NULL)) {
+				return 1;
+			}
+			resolved_chrnum = target_chr ? target_chr->chrnum : -1;
+			if (!target_chr) {
+				goto log_result;
+			}
 			newtarget = propGetIndexByChrId(chr, chrnum);
 		} else {
-			struct chrdata *target = chrFindById(chr, chrnum);
-			newtarget = target ? target->target : -1;
+			if (!s_aiGraphResolveOptionalRuntimeCharacterRefOrSelector(
+					"set_target", chr, chrnum,
+					&target_chr_count, &target_chr, NULL)) {
+				return 1;
+			}
+			resolved_chrnum = target_chr ? target_chr->chrnum : -1;
+			if (!target_chr) {
+				goto log_result;
+			}
+			newtarget = target_chr ? target_chr->target : -1;
 		}
 		if (newtarget != chr->target) {
 			chr->lastvisibletarget60 = 0;
@@ -14726,14 +19650,32 @@ s32 scenarioSourceAiGraphExecuteSetTarget(struct chrdata *chr,
 			applied = 1;
 		}
 	} else if (hovercar) {
+		if (!s_aiGraphCountRuntimeSetupChrRowsFromSource("set_target",
+				&chr_count)) {
+			return 1;
+		}
+		if (!s_aiGraphRequireRuntimeVehicleObjectPointer(
+				"set_target", &hovercar->base,
+				OBJTYPE_CHOPPER, OBJTYPE_HOVERCAR,
+				&vehicle_count, &source_vehicle_type)) {
+			return 1;
+		}
 		chopperSetTarget(hovercar, chrnum);
 		applied = 1;
 	}
+log_result:
 	if (!s_ActiveScenarioGraphs.ai_action_set_target_logged) {
+		const char *backend = vehicle_count > 0
+			? "graph.ai.action.prop_target+ai/ailists.tsv+objects.tsv"
+			: "graph.ai.action.prop_target+ai/ailists.tsv";
+		const char *objects_path = vehicle_count > 0
+			? s_ActiveScenarioGraphs.objects_path : "";
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action set_target chr=%d mode=%d flags=%d target=%d applied=%d source=%s backend=graph.ai.action.prop_target+ai/ailists.tsv",
-			chrnum, mode, flags, newtarget, applied,
-			s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI action set_target chr_rows=%d source_chr=%d target_chr_rows=%d target_chr=%d resolved_target_chr=%d vehicle_rows=%d source_vehicle_type=%d mode=%d flags=%d target=%d applied=%d source=%s objects=%s backend=%s",
+			chr_count, source_chr, target_chr_count, chrnum,
+			resolved_chrnum, vehicle_count, source_vehicle_type, mode,
+			flags, newtarget, applied, s_ActiveScenarioGraphs.ai_lists_path,
+			objects_path, backend);
 		s_ActiveScenarioGraphs.ai_action_set_target_logged = 1;
 	}
 	return 1;
@@ -14743,6 +19685,8 @@ s32 scenarioSourceAiGraphExecuteIfPresetsTargetIsNotMyTarget(
 	struct chrdata *chr, s32 label)
 {
 	s32 required;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
 	s32 preset_target = -1;
 	s32 branch_taken;
 
@@ -14754,6 +19698,11 @@ s32 scenarioSourceAiGraphExecuteIfPresetsTargetIsNotMyTarget(
 	if (required <= 0) {
 		return required < 0 ? 1 : 0;
 	}
+	if (chr && !s_aiGraphRequireRuntimeCharacterPointer(
+			"if_presets_target_is_not_my_target", chr, &chr_count,
+			&source_chr)) {
+		return 1;
+	}
 	if (chr && chr->chrpreset1 != -1) {
 		preset_target = propGetIndexByChrId(chr, chr->chrpreset1);
 	}
@@ -14762,8 +19711,9 @@ s32 scenarioSourceAiGraphExecuteIfPresetsTargetIsNotMyTarget(
 	if (!s_ActiveScenarioGraphs
 			.ai_condition_if_presets_target_is_not_my_target_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_presets_target_is_not_my_target preset_target=%d target=%d label=%d branch=%d source=%s backend=graph.ai.condition.prop_target+ai/ailists.tsv",
-			preset_target, chr ? chr->target : -1, label, branch_taken,
+			"SCENARIO.GRAPH: AI condition if_presets_target_is_not_my_target chr_rows=%d source_chr=%d preset_target=%d target=%d label=%d branch=%d source=%s backend=graph.ai.condition.prop_target+ai/ailists.tsv",
+			chr_count, source_chr, preset_target,
+			chr ? chr->target : -1, label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs
 			.ai_condition_if_presets_target_is_not_my_target_logged = 1;
@@ -14775,6 +19725,8 @@ s32 scenarioSourceAiGraphExecuteSetChrPresetToChrNearSelf(
 	struct chrdata *chr, s32 preset, f32 distance, s32 label)
 {
 	s32 required;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
 	s32 branch_taken;
 
 	required = s_aiGraphRequirePropPresetTargetNode("action",
@@ -14785,13 +19737,19 @@ s32 scenarioSourceAiGraphExecuteSetChrPresetToChrNearSelf(
 	if (required <= 0) {
 		return required < 0 ? 1 : 0;
 	}
+	if (chr && !s_aiGraphRequireRuntimeCharacterPointer(
+			"set_chr_preset_to_chr_near_self", chr, &chr_count,
+			&source_chr)) {
+		return 1;
+	}
 	branch_taken = chr && chrSetChrPresetToChrNearSelf(preset, chr, distance);
 	s_aiGraphApplyBranch(branch_taken, label, 6);
 	if (!s_ActiveScenarioGraphs
 			.ai_action_set_chr_preset_to_chr_near_self_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action set_chr_preset_to_chr_near_self preset=%d distance=%.3f label=%d branch=%d source=%s backend=graph.ai.action.prop_target+ai/ailists.tsv",
-			preset, (double)distance, label, branch_taken,
+			"SCENARIO.GRAPH: AI action set_chr_preset_to_chr_near_self chr_rows=%d source_chr=%d preset=%d distance=%.3f label=%d branch=%d source=%s backend=graph.ai.action.prop_target+ai/ailists.tsv",
+			chr_count, source_chr, preset, (double)distance, label,
+			branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs
 			.ai_action_set_chr_preset_to_chr_near_self_logged = 1;
@@ -14804,6 +19762,9 @@ s32 scenarioSourceAiGraphExecuteSetChrPresetToChrNearPad(
 {
 	s32 required;
 	s32 branch_taken;
+	s32 pad_count = 0;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
 
 	required = s_aiGraphRequirePropPresetTargetNode("action",
 		"set_chr_preset_to_chr_near_pad",
@@ -14813,14 +19774,24 @@ s32 scenarioSourceAiGraphExecuteSetChrPresetToChrNearPad(
 	if (required <= 0) {
 		return required < 0 ? 1 : 0;
 	}
+	if (!s_aiGraphRequireRuntimePad("set_chr_preset_to_chr_near_pad",
+			padnum, &pad_count)) {
+		return 1;
+	}
+	if (chr && !s_aiGraphRequireRuntimeCharacterPointer(
+			"set_chr_preset_to_chr_near_pad", chr, &chr_count,
+			&source_chr)) {
+		return 1;
+	}
 	branch_taken = chr &&
 		chrSetChrPresetToChrNearPad(preset, chr, distance, padnum);
 	s_aiGraphApplyBranch(branch_taken, label, 8);
 	if (!s_ActiveScenarioGraphs
 			.ai_action_set_chr_preset_to_chr_near_pad_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action set_chr_preset_to_chr_near_pad preset=%d distance=%.3f pad=%d label=%d branch=%d source=%s pads=%s backend=graph.ai.action.prop_target+ai/ailists.tsv+pads.tsv",
-			preset, (double)distance, padnum, label, branch_taken,
+			"SCENARIO.GRAPH: AI action set_chr_preset_to_chr_near_pad chr_rows=%d source_chr=%d preset=%d distance=%.3f pad=%d found=1 pad_rows=%d label=%d branch=%d source=%s pads=%s backend=graph.ai.action.prop_target+ai/ailists.tsv+pads.tsv",
+			chr_count, source_chr, preset, (double)distance, padnum,
+			pad_count, label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path,
 			s_ActiveScenarioGraphs.pads_path);
 		s_ActiveScenarioGraphs
@@ -14857,10 +19828,116 @@ static s32 s_aiGraphRequireVehicleInvestigationNode(const char *kind,
 	return 1;
 }
 
+static s32 s_aiGraphRequireRuntimeChopperPointer(const char *action,
+	const struct chopperobj *hovercar, s32 *out_object_count,
+	s32 *out_source_type)
+{
+	const struct defaultobj *obj;
+	s32 object_count = 0;
+	char reason[160];
+
+	if (out_object_count) {
+		*out_object_count = 0;
+	}
+	if (out_source_type) {
+		*out_source_type = -1;
+	}
+
+	if (!hovercar) {
+		return 1;
+	}
+
+	obj = &hovercar->base;
+	if (out_source_type) {
+		*out_source_type = obj->type;
+	}
+	if (!s_ActiveScenarioGraphs.objects_path[0]) {
+		return s_aiGraphRuntimeFailure(action,
+			"missing objects.tsv source for vehicle weapon state");
+	}
+	object_count = s_countRuntimeSetupObjectRows();
+	if (out_object_count) {
+		*out_object_count = object_count;
+	}
+	if (object_count <= 0) {
+		return s_aiGraphRuntimeFailure(action,
+			"missing source-derived runtime setup object table");
+	}
+	if (!s_runtimeSetupContainsObjectRow(obj)) {
+		return s_aiGraphRuntimeFailure(action,
+			"runtime chopper pointer is not source-derived");
+	}
+	if (obj->type != OBJTYPE_CHOPPER) {
+		snprintf(reason, sizeof(reason),
+			"runtime vehicle pointer is source type %u, expected source type %u for chopper weapon state",
+			(unsigned)obj->type, (unsigned)OBJTYPE_CHOPPER);
+		return s_aiGraphRuntimeFailure(action, reason);
+	}
+
+	return 1;
+}
+
+static s32 s_aiGraphRequireRuntimeVehicleObjectPointer(const char *action,
+	const struct defaultobj *obj, s32 expected_type_a,
+	s32 expected_type_b, s32 *out_object_count, s32 *out_source_type)
+{
+	s32 object_count = 0;
+	char reason[192];
+
+	if (out_object_count) {
+		*out_object_count = 0;
+	}
+	if (out_source_type) {
+		*out_source_type = -1;
+	}
+
+	if (!obj) {
+		return 1;
+	}
+
+	if (out_source_type) {
+		*out_source_type = obj->type;
+	}
+	if (!s_ActiveScenarioGraphs.objects_path[0]) {
+		return s_aiGraphRuntimeFailure(action,
+			"missing objects.tsv source for vehicle state");
+	}
+	object_count = s_countRuntimeSetupObjectRows();
+	if (out_object_count) {
+		*out_object_count = object_count;
+	}
+	if (object_count <= 0) {
+		return s_aiGraphRuntimeFailure(action,
+			"missing source-derived runtime setup object table");
+	}
+	if (!s_runtimeSetupContainsObjectRow(obj)) {
+		return s_aiGraphRuntimeFailure(action,
+			"runtime vehicle pointer is not source-derived");
+	}
+	if (obj->type != expected_type_a &&
+			(expected_type_b < 0 || obj->type != expected_type_b)) {
+		if (expected_type_b >= 0) {
+			snprintf(reason, sizeof(reason),
+				"runtime vehicle pointer is source type %u, expected source vehicle type %d or %d",
+				(unsigned)obj->type, expected_type_a,
+				expected_type_b);
+		} else {
+			snprintf(reason, sizeof(reason),
+				"runtime vehicle pointer is source type %u, expected source vehicle type %d",
+				(unsigned)obj->type, expected_type_a);
+		}
+		return s_aiGraphRuntimeFailure(action, reason);
+	}
+
+	return 1;
+}
+
 s32 scenarioSourceAiGraphExecuteIfDangerousObjectNearby(struct chrdata *chr,
 	s32 flags, s32 label)
 {
 	s32 required;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
 	s32 branch_taken;
 
 	required = s_aiGraphRequireVehicleInvestigationNode("condition",
@@ -14871,13 +19948,18 @@ s32 scenarioSourceAiGraphExecuteIfDangerousObjectNearby(struct chrdata *chr,
 	if (required <= 0) {
 		return required < 0 ? 1 : 0;
 	}
+	if (chr && !s_aiGraphRequireRuntimeCharacterPointer(
+			"if_dangerous_object_nearby", chr, &chr_count,
+			&source_chr)) {
+		return 1;
+	}
 	branch_taken = chr && chrDetectDangerousObject(chr, flags);
 	s_aiGraphApplyBranch(branch_taken, label, 4);
 	if (!s_ActiveScenarioGraphs
 			.ai_condition_if_dangerous_object_nearby_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_dangerous_object_nearby flags=%d label=%d branch=%d source=%s objects=%s backend=graph.ai.condition.vehicle_investigation+ai/ailists.tsv+objects.tsv",
-			flags, label, branch_taken,
+			"SCENARIO.GRAPH: AI condition if_dangerous_object_nearby chr_rows=%d source_chr=%d flags=%d label=%d branch=%d source=%s objects=%s backend=graph.ai.condition.vehicle_investigation+ai/ailists.tsv+objects.tsv",
+			chr_count, source_chr, flags, label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path,
 			s_ActiveScenarioGraphs.objects_path);
 		s_ActiveScenarioGraphs
@@ -14890,6 +19972,8 @@ s32 scenarioSourceAiGraphExecuteIfHeliWeaponsArmed(
 	struct chopperobj *hovercar, s32 label)
 {
 	s32 required;
+	s32 vehicle_count = 0;
+	s32 source_vehicle_type = -1;
 	s32 branch_taken;
 
 	required = s_aiGraphRequireVehicleInvestigationNode("condition",
@@ -14899,12 +19983,18 @@ s32 scenarioSourceAiGraphExecuteIfHeliWeaponsArmed(
 	if (required <= 0) {
 		return required < 0 ? 1 : 0;
 	}
+	if (!s_aiGraphRequireRuntimeChopperPointer("if_heli_weapons_armed",
+			hovercar, &vehicle_count, &source_vehicle_type)) {
+		return 1;
+	}
 	branch_taken = hovercar && hovercar->weaponsarmed;
 	s_aiGraphApplyBranch(branch_taken, label, 3);
 	if (!s_ActiveScenarioGraphs.ai_condition_if_heli_weapons_armed_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_heli_weapons_armed label=%d branch=%d source=%s backend=graph.ai.condition.vehicle_investigation+ai/ailists.tsv",
-			label, branch_taken, s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI condition if_heli_weapons_armed vehicle_rows=%d source_vehicle_type=%d label=%d branch=%d source=%s objects=%s backend=graph.ai.condition.vehicle_investigation+ai/ailists.tsv+objects.tsv",
+			vehicle_count, source_vehicle_type, label, branch_taken,
+			s_ActiveScenarioGraphs.ai_lists_path,
+			s_ActiveScenarioGraphs.objects_path);
 		s_ActiveScenarioGraphs.ai_condition_if_heli_weapons_armed_logged = 1;
 	}
 	return 1;
@@ -14915,6 +20005,14 @@ s32 scenarioSourceAiGraphExecuteIfHoverbotNextStep(
 {
 	s32 required;
 	s32 branch_taken;
+	s32 path_count = 0;
+	s32 pad_count = 0;
+	s32 path_id = -1;
+	s32 path_pads = 0;
+	s32 nextstep = -1;
+	s32 vehicle_count = 0;
+	s32 source_vehicle_type = -1;
+	char reason[96];
 
 	required = s_aiGraphRequireVehicleInvestigationNode("condition",
 		"if_hoverbot_next_step",
@@ -14923,32 +20021,72 @@ s32 scenarioSourceAiGraphExecuteIfHoverbotNextStep(
 	if (required <= 0) {
 		return required < 0 ? 1 : 0;
 	}
+	if (hovercar) {
+		if (!s_aiGraphRequireRuntimeVehicleObjectPointer(
+				"if_hoverbot_next_step", &hovercar->base,
+				OBJTYPE_HOVERCAR, OBJTYPE_CHOPPER,
+				&vehicle_count, &source_vehicle_type)) {
+			return 1;
+		}
+		if (!s_aiGraphRequireRuntimePathPointer("if_hoverbot_next_step",
+				hovercar->path, &path_count) ||
+				!s_aiGraphRequireRuntimePathPads(
+					"if_hoverbot_next_step",
+					hovercar->path, &pad_count)) {
+			return 1;
+		}
+		if (hovercar->nextstep < 0 ||
+				hovercar->nextstep >= hovercar->path->len) {
+			snprintf(reason, sizeof(reason),
+				"hoverbot nextstep %d outside path id %d length %u",
+				hovercar->nextstep, hovercar->path->id,
+				(unsigned)hovercar->path->len);
+			return s_aiGraphRuntimeFailure("if_hoverbot_next_step",
+				reason);
+		}
+		path_id = hovercar->path->id;
+		path_pads = hovercar->path->len;
+		nextstep = hovercar->nextstep;
+	}
 	branch_taken = hovercar &&
 		((hovercar->nextstep > value && comparison == 1) ||
 			(hovercar->nextstep < value && comparison == 0));
 	s_aiGraphApplyBranch(branch_taken, label, 5);
-	if (!s_ActiveScenarioGraphs.ai_condition_if_hoverbot_next_step_logged) {
+	if (hovercar &&
+			!s_ActiveScenarioGraphs
+				.ai_condition_if_hoverbot_next_step_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_hoverbot_next_step comparison=%d value=%d nextstep=%d label=%d branch=%d source=%s backend=graph.ai.condition.vehicle_investigation+ai/ailists.tsv",
-			comparison, value, hovercar ? hovercar->nextstep : -1, label,
-			branch_taken, s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI condition if_hoverbot_next_step vehicle_rows=%d source_vehicle_type=%d comparison=%d value=%d path=%d path_rows=%d path_pads=%d pad_rows=%d nextstep=%d label=%d branch=%d source=%s objects=%s backend=graph.ai.condition.vehicle_investigation+ai/ailists.tsv+objects.tsv+navigation/paths.tsv+pads.tsv",
+			vehicle_count, source_vehicle_type,
+			comparison, value, path_id, path_count, path_pads,
+			pad_count, nextstep, label, branch_taken,
+			s_ActiveScenarioGraphs.ai_lists_path,
+			s_ActiveScenarioGraphs.objects_path);
 		s_ActiveScenarioGraphs.ai_condition_if_hoverbot_next_step_logged = 1;
 	}
 	return 1;
 }
 
-static void s_aiGraphCopyTagPlacement(s32 tag_id, s32 pc_id)
+static s32 s_aiGraphCopyTagPlacementChecked(const char *action,
+	s32 dst_tag_id, s32 src_tag_id, s32 *out_tag_count)
 {
-	struct tag *tag = tagFindById(tag_id);
-	struct tag *pc = tagFindById(pc_id);
+	struct tag *dst;
+	struct tag *src;
 
-	if (!tag || !pc) {
-		s_aiGraphRuntimeFailure("shuffle_investigation_terminals",
-			"missing setup tag source");
-		return;
+	if (!s_aiGraphRequireRuntimeSetupTag(action, dst_tag_id,
+			out_tag_count) ||
+			!s_aiGraphRequireRuntimeSetupTag(action, src_tag_id,
+				out_tag_count)) {
+		return 1;
 	}
-	tag->cmdoffset = pc->cmdoffset;
-	tag->obj = pc->obj;
+	dst = tagFindById(dst_tag_id);
+	src = tagFindById(src_tag_id);
+	if (!dst || !src) {
+		return s_aiGraphRuntimeFailure(action, "missing setup tag source");
+	}
+	dst->cmdoffset = src->cmdoffset;
+	dst->obj = src->obj;
+	return 0;
 }
 
 s32 scenarioSourceAiGraphExecuteShuffleInvestigationTerminals(s32 goodtag_id,
@@ -14960,6 +20098,7 @@ s32 scenarioSourceAiGraphExecuteShuffleInvestigationTerminals(s32 goodtag_id,
 	u8 rand2;
 	s32 good_pc;
 	s32 bad_pc;
+	s32 setup_tag_count = 0;
 
 	required = s_aiGraphRequireVehicleInvestigationNode("action",
 		"shuffle_investigation_terminals",
@@ -14968,6 +20107,25 @@ s32 scenarioSourceAiGraphExecuteShuffleInvestigationTerminals(s32 goodtag_id,
 		1, 0);
 	if (required <= 0) {
 		return required < 0 ? 1 : 0;
+	}
+	if (!s_aiGraphRequireRuntimeSetupTag("shuffle_investigation_terminals",
+			goodtag_id, &setup_tag_count) ||
+			!s_aiGraphRequireRuntimeSetupTag(
+				"shuffle_investigation_terminals",
+				badtag_id, &setup_tag_count) ||
+			!s_aiGraphRequireRuntimeSetupTag(
+				"shuffle_investigation_terminals",
+				pc1_id, &setup_tag_count) ||
+			!s_aiGraphRequireRuntimeSetupTag(
+				"shuffle_investigation_terminals",
+				pc2_id, &setup_tag_count) ||
+			!s_aiGraphRequireRuntimeSetupTag(
+				"shuffle_investigation_terminals",
+				pc3_id, &setup_tag_count) ||
+			!s_aiGraphRequireRuntimeSetupTag(
+				"shuffle_investigation_terminals",
+				pc4_id, &setup_tag_count)) {
+		return 1;
 	}
 	if (enabled == 0) {
 		rand1 = rngRandom() % 3;
@@ -14981,15 +20139,22 @@ s32 scenarioSourceAiGraphExecuteShuffleInvestigationTerminals(s32 goodtag_id,
 		}
 		bad_pc = rand2 == 0 ? pc1_id : rand2 == 1 ? pc2_id :
 			rand2 == 2 ? pc3_id : pc4_id;
-		s_aiGraphCopyTagPlacement(goodtag_id, good_pc);
-		s_aiGraphCopyTagPlacement(badtag_id, bad_pc);
+		if (s_aiGraphCopyTagPlacementChecked(
+					"shuffle_investigation_terminals",
+					goodtag_id, good_pc, &setup_tag_count) ||
+				s_aiGraphCopyTagPlacementChecked(
+					"shuffle_investigation_terminals",
+					badtag_id, bad_pc, &setup_tag_count)) {
+			return 1;
+		}
 	}
 	g_Vars.aioffset += 9;
 	if (!s_ActiveScenarioGraphs
 			.ai_action_shuffle_investigation_terminals_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action shuffle_investigation_terminals enabled=%d source=%s objects=%s backend=graph.ai.action.vehicle_investigation+ai/ailists.tsv+objects.tsv",
-			enabled, s_ActiveScenarioGraphs.ai_lists_path,
+			"SCENARIO.GRAPH: AI action shuffle_investigation_terminals enabled=%d setup_tags=%d source=%s objects=%s backend=graph.ai.action.vehicle_investigation+ai/ailists.tsv+objects.tsv",
+			enabled, setup_tag_count,
+			s_ActiveScenarioGraphs.ai_lists_path,
 			s_ActiveScenarioGraphs.objects_path);
 		s_ActiveScenarioGraphs
 			.ai_action_shuffle_investigation_terminals_logged = 1;
@@ -15003,6 +20168,9 @@ s32 scenarioSourceAiGraphExecuteSetPadPresetToInvestigationTerminal(
 	s32 required;
 	struct defaultobj *obj;
 	s32 applied = 0;
+	s32 selected_pad = -1;
+	s32 pad_count = 0;
+	s32 object_count = 0;
 	s32 i;
 
 	required = s_aiGraphRequireVehicleInvestigationNode("action",
@@ -15013,11 +20181,23 @@ s32 scenarioSourceAiGraphExecuteSetPadPresetToInvestigationTerminal(
 	if (required <= 0) {
 		return required < 0 ? 1 : 0;
 	}
+	if (!s_aiGraphRequireRuntimeObjectTag(
+			"set_pad_preset_to_investigation_terminal",
+			tag_id, &object_count)) {
+		return 1;
+	}
 	obj = objFindByTagId(tag_id);
 	if (obj) {
 		for (i = 0; i + 1 < pad_map_count; i += 2) {
 			if (obj->pad == pad_map[i]) {
-				chrSetPadPreset(chr, pad_map[i + 1]);
+				selected_pad = pad_map[i + 1];
+				if (!s_aiGraphRequireRuntimePad(
+						"set_pad_preset_to_investigation_terminal",
+						selected_pad, &pad_count)) {
+					g_Vars.aioffset += 4;
+					return 1;
+				}
+				chrSetPadPreset(chr, selected_pad);
 				applied = 1;
 			}
 		}
@@ -15026,8 +20206,10 @@ s32 scenarioSourceAiGraphExecuteSetPadPresetToInvestigationTerminal(
 	if (!s_ActiveScenarioGraphs
 			.ai_action_set_pad_preset_to_investigation_terminal_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action set_pad_preset_to_investigation_terminal tag=%d applied=%d source=%s objects=%s pads=%s backend=graph.ai.action.vehicle_investigation+ai/ailists.tsv+objects.tsv+pads.tsv",
-			tag_id, applied, s_ActiveScenarioGraphs.ai_lists_path,
+			"SCENARIO.GRAPH: AI action set_pad_preset_to_investigation_terminal tag=%d object_rows=%d pad=%d found=%d pad_rows=%d applied=%d source=%s objects=%s pads=%s backend=graph.ai.action.vehicle_investigation+ai/ailists.tsv+objects.tsv+pads.tsv",
+			tag_id, object_count, selected_pad, applied ? 1 : 0,
+			pad_count, applied,
+			s_ActiveScenarioGraphs.ai_lists_path,
 			s_ActiveScenarioGraphs.objects_path,
 			s_ActiveScenarioGraphs.pads_path);
 		s_ActiveScenarioGraphs
@@ -15041,6 +20223,8 @@ s32 scenarioSourceAiGraphExecuteHeliSetWeaponsArmed(
 {
 	s32 required;
 	const char *name = armed ? "heli_arm_weapons" : "heli_unarm_weapons";
+	s32 vehicle_count = 0;
+	s32 source_vehicle_type = -1;
 	s32 *logged = armed
 		? &s_ActiveScenarioGraphs.ai_action_heli_arm_weapons_logged
 		: &s_ActiveScenarioGraphs.ai_action_heli_unarm_weapons_logged;
@@ -15052,14 +20236,20 @@ s32 scenarioSourceAiGraphExecuteHeliSetWeaponsArmed(
 	if (required <= 0) {
 		return required < 0 ? 1 : 0;
 	}
+	if (!s_aiGraphRequireRuntimeChopperPointer(name, hovercar,
+			&vehicle_count, &source_vehicle_type)) {
+		return 1;
+	}
 	if (hovercar) {
 		chopperSetArmed(hovercar, armed);
 	}
 	g_Vars.aioffset += 2;
 	if (!*logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action %s armed=%d source=%s backend=graph.ai.action.vehicle_investigation+ai/ailists.tsv",
-			name, armed, s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI action %s vehicle_rows=%d source_vehicle_type=%d armed=%d source=%s objects=%s backend=graph.ai.action.vehicle_investigation+ai/ailists.tsv+objects.tsv",
+			name, vehicle_count, source_vehicle_type, armed,
+			s_ActiveScenarioGraphs.ai_lists_path,
+			s_ActiveScenarioGraphs.objects_path);
 		*logged = 1;
 	}
 	return 1;
@@ -15086,16 +20276,37 @@ static s32 s_aiGraphRequireSafetyDetectionNode(const char *name,
 	return 1;
 }
 
-static s32 s_aiGraphSafety2Score(struct chrdata *chr, s32 *out_nearby)
+static s32 s_aiGraphSafety2Score(struct chrdata *chr, s32 *out_nearby,
+	s32 *out_chr_count, s32 *out_source_chr, s32 *out_checked_chrs,
+	s32 *out_score)
 {
 	s16 *chrnums;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
+	s32 checked_chrs = 0;
 	s32 score = 6;
 	s32 numnearby = 0;
 
+	if (out_chr_count) {
+		*out_chr_count = 0;
+	}
+	if (out_source_chr) {
+		*out_source_chr = -1;
+	}
+	if (out_checked_chrs) {
+		*out_checked_chrs = 0;
+	}
+	if (out_score) {
+		*out_score = 0;
+	}
 	if (!chr || !out_nearby) {
 		if (out_nearby) {
 			*out_nearby = 0;
 		}
+		return 1;
+	}
+	if (!s_aiGraphRequireRuntimeCharacterPointer("if_safety2_less_than",
+			chr, &chr_count, &source_chr)) {
 		return 0;
 	}
 	if (chrGetNumArghs(chr) > 0) {
@@ -15137,16 +20348,26 @@ static s32 s_aiGraphSafety2Score(struct chrdata *chr, s32 *out_nearby)
 		break;
 	}
 	chrnums = teamGetChrIds(chr->team);
-	for (; *chrnums != -2; chrnums++) {
-		struct chrdata *nearby = chrFindByLiteralId(*chrnums);
+	if (chrnums) {
+		for (; *chrnums != -2; chrnums++) {
+			struct chrdata *nearby = chrFindByLiteralId(*chrnums);
 
-		if (nearby && nearby->model && !chrIsDead(nearby) &&
-				nearby->actiontype != ACT_DEAD &&
-				nearby->alertness > 100 &&
-				chr->squadron == nearby->squadron &&
-				chr->chrnum != nearby->chrnum &&
-				chrGetDistanceToChr(chr, nearby->chrnum) < 3500) {
-			numnearby++;
+			if (nearby) {
+				if (!s_aiGraphRequireRuntimeCharacterPointer(
+						"if_safety2_less_than", nearby,
+						&chr_count, NULL)) {
+					return 0;
+				}
+				checked_chrs++;
+			}
+			if (nearby && nearby->model && !chrIsDead(nearby) &&
+					nearby->actiontype != ACT_DEAD &&
+					nearby->alertness > 100 &&
+					chr->squadron == nearby->squadron &&
+					chr->chrnum != nearby->chrnum &&
+					chrGetDistanceToChr(chr, nearby->chrnum) < 3500) {
+				numnearby++;
+			}
 		}
 	}
 	if (numnearby == 0) {
@@ -15158,7 +20379,19 @@ static s32 s_aiGraphSafety2Score(struct chrdata *chr, s32 *out_nearby)
 		score = 3;
 	}
 	*out_nearby = numnearby;
-	return score;
+	if (out_chr_count) {
+		*out_chr_count = chr_count;
+	}
+	if (out_source_chr) {
+		*out_source_chr = source_chr;
+	}
+	if (out_checked_chrs) {
+		*out_checked_chrs = checked_chrs;
+	}
+	if (out_score) {
+		*out_score = score;
+	}
+	return 1;
 }
 
 s32 scenarioSourceAiGraphExecuteIfSafety2LessThan(struct chrdata *chr,
@@ -15167,6 +20400,9 @@ s32 scenarioSourceAiGraphExecuteIfSafety2LessThan(struct chrdata *chr,
 	s32 required;
 	s32 nearby;
 	s32 score;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
+	s32 checked_chrs = 0;
 	s32 branch_taken;
 
 	required = s_aiGraphRequireSafetyDetectionNode("if_safety2_less_than",
@@ -15174,13 +20410,17 @@ s32 scenarioSourceAiGraphExecuteIfSafety2LessThan(struct chrdata *chr,
 	if (required <= 0) {
 		return required < 0 ? 1 : 0;
 	}
-	score = s_aiGraphSafety2Score(chr, &nearby);
+	if (!s_aiGraphSafety2Score(chr, &nearby, &chr_count, &source_chr,
+			&checked_chrs, &score)) {
+		return 1;
+	}
 	branch_taken = chr && score < threshold;
 	s_aiGraphApplyBranch(branch_taken, label, 4);
 	if (!s_ActiveScenarioGraphs.ai_condition_if_safety2_less_than_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_safety2_less_than threshold=%d score=%d nearby=%d label=%d branch=%d source=%s backend=graph.ai.condition.safety_detection+ai/ailists.tsv",
-			threshold, score, nearby, label, branch_taken,
+			"SCENARIO.GRAPH: AI condition if_safety2_less_than chr_rows=%d source_chr=%d checked=%d threshold=%d score=%d nearby=%d label=%d branch=%d source=%s backend=graph.ai.condition.safety_detection+ai/ailists.tsv",
+			chr_count, source_chr, checked_chrs, threshold, score, nearby,
+			label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_condition_if_safety2_less_than_logged = 1;
 	}
@@ -15192,6 +20432,7 @@ s32 scenarioSourceAiGraphExecuteIfPlayerUsingCmpOrAr34(s32 label)
 	s32 required;
 	s32 weaponnum;
 	s32 branch_taken;
+	const char *weapon_id;
 
 	required = s_aiGraphRequireSafetyDetectionNode(
 		"if_player_using_cmp_or_ar34",
@@ -15201,13 +20442,18 @@ s32 scenarioSourceAiGraphExecuteIfPlayerUsingCmpOrAr34(s32 label)
 		return required < 0 ? 1 : 0;
 	}
 	weaponnum = bgunGetWeaponNum(HAND_RIGHT);
+	weapon_id = s_aiGraphResolveWeaponCatalogId(
+		"if_player_using_cmp_or_ar34", weaponnum, "current player");
+	if (!weapon_id) {
+		return 1;
+	}
 	branch_taken = weaponnum == WEAPON_CMP150 || weaponnum == WEAPON_AR34;
 	s_aiGraphApplyBranch(branch_taken, label, 3);
 	if (!s_ActiveScenarioGraphs
 			.ai_condition_if_player_using_cmp_or_ar34_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_player_using_cmp_or_ar34 weapon=%d label=%d branch=%d source=%s backend=graph.ai.condition.safety_detection+ai/ailists.tsv",
-			weaponnum, label, branch_taken,
+			"SCENARIO.GRAPH: AI condition if_player_using_cmp_or_ar34 weapon_id=%s label=%d branch=%d source=%s backend=graph.ai.condition.safety_detection+ai/ailists.tsv",
+			weapon_id, label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs
 			.ai_condition_if_player_using_cmp_or_ar34_logged = 1;
@@ -15225,6 +20471,9 @@ s32 scenarioSourceAiGraphExecuteDetectEnemyOnSameFloor(struct chrdata *chr,
 	f32 y;
 	s16 *chrnums;
 	s16 newtarget = -1;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
+	s32 checked_chrs = 0;
 	s32 branch_taken;
 
 	required = s_aiGraphRequireSafetyDetectionNode(
@@ -15234,8 +20483,25 @@ s32 scenarioSourceAiGraphExecuteDetectEnemyOnSameFloor(struct chrdata *chr,
 	if (required <= 0) {
 		return required < 0 ? 1 : 0;
 	}
-	if (!chr || !chr->prop) {
+	if (!chr) {
 		s_aiGraphApplyBranch(0, label, 3);
+		return 1;
+	}
+	if (!s_aiGraphRuntimeCharacterPointerLooksSourceBacked(chr,
+			&chr_count, &source_chr)) {
+		s_aiGraphTryCountRuntimeSetupChrRowsFromSource(&chr_count);
+		source_chr = -1;
+		s_aiGraphApplyBranch(0, label, 3);
+		if (!s_ActiveScenarioGraphs
+				.ai_condition_detect_enemy_on_same_floor_logged) {
+			sysLogPrintf(LOG_NOTE,
+				"SCENARIO.GRAPH: AI condition detect_enemy_on_same_floor chr_rows=%d source_chr=%d checked=%d scan=%.3f target=%d label=%d branch=%d source=%s backend=graph.ai.condition.safety_detection+ai/ailists.tsv",
+				chr_count, source_chr, checked_chrs, 0.0,
+				newtarget, label, 0,
+				s_ActiveScenarioGraphs.ai_lists_path);
+			s_ActiveScenarioGraphs
+				.ai_condition_detect_enemy_on_same_floor_logged = 1;
+		}
 		return 1;
 	}
 	if (chr->teamscandist == 0) {
@@ -15247,40 +20513,53 @@ s32 scenarioSourceAiGraphExecuteDetectEnemyOnSameFloor(struct chrdata *chr,
 	}
 	y = chr->prop->pos.y;
 	chrnums = teamGetChrIds(1);
-	while (team < 8) {
-		struct chrdata *candidate = chrFindByLiteralId(*chrnums);
+	if (chrnums) {
+		while (team < 8) {
+			if (*chrnums != -2) {
+				struct chrdata *candidate = chrFindByLiteralId(*chrnums);
+				s32 candidate_source_backed = 0;
 
-		if (*chrnums != -2) {
-			if (candidate && candidate->prop &&
-					candidate->team != TEAM_NONCOMBAT &&
-					!chrIsDead(candidate) &&
-					candidate->actiontype != ACT_DEAD &&
-					candidate->actiontype != ACT_DRUGGEDKO &&
-					candidate->actiontype != ACT_DRUGGEDDROP &&
-					candidate->actiontype != ACT_DRUGGEDCOMINGUP &&
-					chrCompareTeams(chr, candidate, COMPARE_ENEMIES) &&
-					(candidate->hidden & CHRHFLAG_CLOAKED) == 0 &&
-					(candidate->chrflags & CHRCFLAG_HIDDEN) == 0 &&
-					(candidate->hidden & CHRHFLAG_ANTINONINTERACTABLE) == 0 &&
-					y - candidate->prop->pos.y > -200 &&
-					y - candidate->prop->pos.y < 200 &&
-					((chr->hidden & CHRHFLAG_PSYCHOSISED) == 0 ||
-						(candidate->hidden & CHRHFLAG_ANTINONINTERACTABLE) == 0 ||
-						(candidate->hidden & CHRHFLAG_DONTSHOOTME)) &&
-					chr->chrnum != candidate->chrnum) {
-				f32 distance = chrGetDistanceToChr(chr, candidate->chrnum);
-
-				if (distance < closestdist &&
-						(distance < scandist ||
-							stageGetIndex(g_Vars.stagenum) == STAGEINDEX_MAIANSOS)) {
-					closestdist = distance;
-					newtarget = candidate->chrnum;
+				if (candidate &&
+						s_aiGraphRuntimeCharacterPointerLooksSourceBacked(
+							candidate, NULL, NULL)) {
+					candidate_source_backed = 1;
+					checked_chrs++;
 				}
+				if (candidate_source_backed && candidate->prop &&
+						candidate->team != TEAM_NONCOMBAT &&
+						!chrIsDead(candidate) &&
+						candidate->actiontype != ACT_DEAD &&
+						candidate->actiontype != ACT_DRUGGEDKO &&
+						candidate->actiontype != ACT_DRUGGEDDROP &&
+						candidate->actiontype != ACT_DRUGGEDCOMINGUP &&
+						chrCompareTeams(chr, candidate, COMPARE_ENEMIES) &&
+						(candidate->hidden & CHRHFLAG_CLOAKED) == 0 &&
+						(candidate->chrflags & CHRCFLAG_HIDDEN) == 0 &&
+						(candidate->hidden &
+							CHRHFLAG_ANTINONINTERACTABLE) == 0 &&
+						y - candidate->prop->pos.y > -200 &&
+						y - candidate->prop->pos.y < 200 &&
+						((chr->hidden & CHRHFLAG_PSYCHOSISED) == 0 ||
+							(candidate->hidden &
+								CHRHFLAG_ANTINONINTERACTABLE) == 0 ||
+							(candidate->hidden & CHRHFLAG_DONTSHOOTME)) &&
+						chr->chrnum != candidate->chrnum) {
+					f32 distance = chrGetDistanceToChr(chr,
+						candidate->chrnum);
+
+					if (distance < closestdist &&
+							(distance < scandist ||
+								stageGetIndex(g_Vars.stagenum) ==
+									STAGEINDEX_MAIANSOS)) {
+						closestdist = distance;
+						newtarget = candidate->chrnum;
+					}
+				}
+				chrnums++;
+			} else {
+				chrnums++;
+				team++;
 			}
-			chrnums++;
-		} else {
-			chrnums++;
-			team++;
 		}
 	}
 	branch_taken = newtarget != -1;
@@ -15291,8 +20570,9 @@ s32 scenarioSourceAiGraphExecuteDetectEnemyOnSameFloor(struct chrdata *chr,
 	if (!s_ActiveScenarioGraphs
 			.ai_condition_detect_enemy_on_same_floor_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition detect_enemy_on_same_floor scan=%.3f target=%d label=%d branch=%d source=%s backend=graph.ai.condition.safety_detection+ai/ailists.tsv",
-			(double)scandist, newtarget, label, branch_taken,
+			"SCENARIO.GRAPH: AI condition detect_enemy_on_same_floor chr_rows=%d source_chr=%d checked=%d scan=%.3f target=%d label=%d branch=%d source=%s backend=graph.ai.condition.safety_detection+ai/ailists.tsv",
+			chr_count, source_chr, checked_chrs, (double)scandist,
+			newtarget, label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs
 			.ai_condition_detect_enemy_on_same_floor_logged = 1;
@@ -15309,6 +20589,9 @@ s32 scenarioSourceAiGraphExecuteDetectEnemy(struct chrdata *chr,
 	f32 closestdist = 10000000;
 	f32 maxdist = maxdist_raw * 10.0f;
 	s16 closesttarg = -1;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
+	s32 checked_chrs = 0;
 	s32 branch_taken;
 
 	required = s_aiGraphRequireSafetyDetectionNode("detect_enemy",
@@ -15320,57 +20603,83 @@ s32 scenarioSourceAiGraphExecuteDetectEnemy(struct chrdata *chr,
 		s_aiGraphApplyBranch(0, label, 4);
 		return 1;
 	}
+	if (!s_aiGraphRuntimeCharacterPointerLooksSourceBacked(chr,
+			&chr_count, &source_chr)) {
+		s_aiGraphTryCountRuntimeSetupChrRowsFromSource(&chr_count);
+		source_chr = -1;
+		s_aiGraphApplyBranch(0, label, 4);
+		if (!s_ActiveScenarioGraphs.ai_condition_detect_enemy_logged) {
+			sysLogPrintf(LOG_NOTE,
+				"SCENARIO.GRAPH: AI condition detect_enemy chr_rows=%d source_chr=%d checked=%d maxdist=%.3f target=%d label=%d branch=%d source=%s backend=graph.ai.condition.safety_detection+ai/ailists.tsv",
+				chr_count, source_chr, checked_chrs, (double)maxdist,
+				closesttarg, label, 0,
+				s_ActiveScenarioGraphs.ai_lists_path);
+			s_ActiveScenarioGraphs.ai_condition_detect_enemy_logged = 1;
+		}
+		return 1;
+	}
 	chrnums = teamGetChrIds(1);
-	do {
-		u8 teamvalue = (1 << team);
+	if (chrnums) {
+		do {
+			u8 teamvalue = (1 << team);
 
-		while (*chrnums != -2 && chr->team != teamvalue) {
-			struct chrdata *candidate = chrFindByLiteralId(*chrnums);
+			while (*chrnums != -2 && chr->team != teamvalue) {
+				struct chrdata *candidate = chrFindByLiteralId(*chrnums);
+				s32 candidate_source_backed = 0;
 
-			if (candidate && candidate->prop && !chrIsDead(candidate) &&
-					candidate->actiontype != ACT_DEAD &&
-					candidate->actiontype != ACT_DIE &&
-					candidate->actiontype != ACT_DRUGGEDKO &&
-					candidate->actiontype != ACT_DRUGGEDDROP &&
-					candidate->actiontype != ACT_DRUGGEDCOMINGUP &&
-					chrCompareTeams(chr, candidate, COMPARE_ENEMIES) &&
-					candidate != chr &&
-					(candidate->hidden & CHRHFLAG_CLOAKED) == 0 &&
-					(candidate->chrflags & CHRCFLAG_HIDDEN) == 0 &&
-					(candidate->hidden & CHRHFLAG_DISGUISED) == 0 &&
-					candidate->team != TEAM_NONCOMBAT &&
-					((chr->hidden & CHRHFLAG_PSYCHOSISED) == 0 ||
-						(candidate->hidden & CHRHFLAG_ANTINONINTERACTABLE) == 0 ||
-						(candidate->hidden & CHRHFLAG_DONTSHOOTME))) {
-				f32 distance = chrGetDistanceToChr(chr, candidate->chrnum);
+				if (candidate &&
+						s_aiGraphRuntimeCharacterPointerLooksSourceBacked(
+							candidate, NULL, NULL)) {
+					candidate_source_backed = 1;
+					checked_chrs++;
+				}
+				if (candidate_source_backed && candidate->prop && !chrIsDead(candidate) &&
+						candidate->actiontype != ACT_DEAD &&
+						candidate->actiontype != ACT_DIE &&
+						candidate->actiontype != ACT_DRUGGEDKO &&
+						candidate->actiontype != ACT_DRUGGEDDROP &&
+						candidate->actiontype != ACT_DRUGGEDCOMINGUP &&
+						chrCompareTeams(chr, candidate, COMPARE_ENEMIES) &&
+						candidate != chr &&
+						(candidate->hidden & CHRHFLAG_CLOAKED) == 0 &&
+						(candidate->chrflags & CHRCFLAG_HIDDEN) == 0 &&
+						(candidate->hidden & CHRHFLAG_DISGUISED) == 0 &&
+						candidate->team != TEAM_NONCOMBAT &&
+						((chr->hidden & CHRHFLAG_PSYCHOSISED) == 0 ||
+							(candidate->hidden &
+								CHRHFLAG_ANTINONINTERACTABLE) == 0 ||
+							(candidate->hidden & CHRHFLAG_DONTSHOOTME))) {
+					f32 distance = chrGetDistanceToChr(chr,
+						candidate->chrnum);
 
-				if (distance < maxdist && distance != 0 &&
-						distance < closestdist &&
-						chrHasLosToProp(chr, candidate->prop) &&
-						(candidate->chrflags & CHRCFLAG_HIDDEN) == 0) {
-					if (chr->yvisang == 0) {
-						closestdist = distance;
-						closesttarg = candidate->chrnum;
-					} else {
-						s16 prevtarget = chr->target;
-						chr->target = propGetIndexByChrId(chr,
-							candidate->chrnum);
-						if (chrIsVerticalAngleToTargetWithin(chr,
-								chr->yvisang)) {
+					if (distance < maxdist && distance != 0 &&
+							distance < closestdist &&
+							chrHasLosToProp(chr, candidate->prop) &&
+							(candidate->chrflags & CHRCFLAG_HIDDEN) == 0) {
+						if (chr->yvisang == 0) {
 							closestdist = distance;
 							closesttarg = candidate->chrnum;
+						} else {
+							s16 prevtarget = chr->target;
+							chr->target = propGetIndexByChrId(chr,
+								candidate->chrnum);
+							if (chrIsVerticalAngleToTargetWithin(chr,
+									chr->yvisang)) {
+								closestdist = distance;
+								closesttarg = candidate->chrnum;
+							}
+							chr->target = prevtarget;
 						}
-						chr->target = prevtarget;
 					}
 				}
+				chrnums++;
+			}
+			if (*chrnums == -2) {
+				team++;
 			}
 			chrnums++;
-		}
-		if (*chrnums == -2) {
-			team++;
-		}
-		chrnums++;
-	} while (team < 8);
+		} while (team < 8);
+	}
 	branch_taken = closesttarg != -1;
 	if (branch_taken) {
 		chr->target = propGetIndexByChrId(chr, closesttarg);
@@ -15378,8 +20687,9 @@ s32 scenarioSourceAiGraphExecuteDetectEnemy(struct chrdata *chr,
 	s_aiGraphApplyBranch(branch_taken, label, 4);
 	if (!s_ActiveScenarioGraphs.ai_condition_detect_enemy_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition detect_enemy maxdist=%.3f target=%d label=%d branch=%d source=%s backend=graph.ai.condition.safety_detection+ai/ailists.tsv",
-			(double)maxdist, closesttarg, label, branch_taken,
+			"SCENARIO.GRAPH: AI condition detect_enemy chr_rows=%d source_chr=%d checked=%d maxdist=%.3f target=%d label=%d branch=%d source=%s backend=graph.ai.condition.safety_detection+ai/ailists.tsv",
+			chr_count, source_chr, checked_chrs, (double)maxdist,
+			closesttarg, label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_condition_detect_enemy_logged = 1;
 	}
@@ -15393,6 +20703,9 @@ s32 scenarioSourceAiGraphExecuteIfSafetyLessThan(struct chrdata *chr,
 	s16 *chrnums;
 	s32 safety = 6;
 	s32 numnearby = 0;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
+	s32 checked_chrs = 0;
 	s32 branch_taken;
 
 	required = s_aiGraphRequireSafetyDetectionNode("if_safety_less_than",
@@ -15401,18 +20714,32 @@ s32 scenarioSourceAiGraphExecuteIfSafetyLessThan(struct chrdata *chr,
 		return required < 0 ? 1 : 0;
 	}
 	if (chr) {
+		if (!s_aiGraphRequireRuntimeCharacterPointer("if_safety_less_than",
+				chr, &chr_count, &source_chr)) {
+			return 1;
+		}
 		if (chrGetNumArghs(chr) > 0) {
 			safety--;
 		}
 		chrnums = teamGetChrIds(chr->team);
-		for (; *chrnums != -2; chrnums++) {
-			struct chrdata *nearby = chrFindByLiteralId(*chrnums);
+		if (chrnums) {
+			for (; *chrnums != -2; chrnums++) {
+				struct chrdata *nearby = chrFindByLiteralId(*chrnums);
 
-			if (nearby && nearby->model && !chrIsDead(nearby) &&
-					nearby->actiontype != ACT_DEAD &&
-					chr->chrnum != nearby->chrnum &&
-					chrGetDistanceToChr(chr, nearby->chrnum) < 3500) {
-				numnearby++;
+				if (nearby) {
+					if (!s_aiGraphRequireRuntimeCharacterPointer(
+							"if_safety_less_than", nearby,
+							&chr_count, NULL)) {
+						return 1;
+					}
+					checked_chrs++;
+				}
+				if (nearby && nearby->model && !chrIsDead(nearby) &&
+						nearby->actiontype != ACT_DEAD &&
+						chr->chrnum != nearby->chrnum &&
+						chrGetDistanceToChr(chr, nearby->chrnum) < 3500) {
+					numnearby++;
+				}
 			}
 		}
 		if (numnearby == 0) {
@@ -15425,8 +20752,9 @@ s32 scenarioSourceAiGraphExecuteIfSafetyLessThan(struct chrdata *chr,
 	s_aiGraphApplyBranch(branch_taken, label, 4);
 	if (!s_ActiveScenarioGraphs.ai_condition_if_safety_less_than_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_safety_less_than threshold=%d safety=%d nearby=%d label=%d branch=%d source=%s backend=graph.ai.condition.safety_detection+ai/ailists.tsv",
-			threshold, safety, numnearby, label, branch_taken,
+			"SCENARIO.GRAPH: AI condition if_safety_less_than chr_rows=%d source_chr=%d checked=%d threshold=%d safety=%d nearby=%d label=%d branch=%d source=%s backend=graph.ai.condition.safety_detection+ai/ailists.tsv",
+			chr_count, source_chr, checked_chrs, threshold, safety,
+			numnearby, label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_condition_if_safety_less_than_logged = 1;
 	}
@@ -15438,6 +20766,9 @@ s32 scenarioSourceAiGraphExecuteIfTargetMovingSlowly(struct chrdata *basechr,
 {
 	s32 required;
 	struct chrdata *chr;
+	s32 chr_count = 0;
+	s32 target_chrnum = -1;
+	s32 player_checked = 0;
 	s32 delta = 0;
 	s32 absdelta;
 	s32 branch_taken;
@@ -15447,7 +20778,20 @@ s32 scenarioSourceAiGraphExecuteIfTargetMovingSlowly(struct chrdata *basechr,
 	if (required <= 0) {
 		return required < 0 ? 1 : 0;
 	}
-	chr = chrnum == 0 ? basechr : chrFindById(basechr, chrnum);
+	if (chrnum == 0) {
+		chr = basechr;
+		if (!s_aiGraphRequireRuntimeCharacterPointer(
+				"if_target_moving_slowly", chr, &chr_count,
+				&target_chrnum)) {
+			return 1;
+		}
+	} else if (!s_aiGraphRequireRuntimeCharacterRefFromBase(
+			"if_target_moving_slowly", basechr, chrnum,
+			&chr_count, &chr)) {
+		return 1;
+	} else {
+		target_chrnum = chr ? chr->chrnum : -1;
+	}
 	if (chr) {
 		delta = chrGetDistanceLostToTargetInLastSecond(chr);
 	}
@@ -15457,8 +20801,8 @@ s32 scenarioSourceAiGraphExecuteIfTargetMovingSlowly(struct chrdata *basechr,
 	if (!s_ActiveScenarioGraphs
 			.ai_condition_if_target_moving_slowly_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_target_moving_slowly chr=%d delta=%d label=%d branch=%d source=%s backend=graph.ai.condition.safety_detection+ai/ailists.tsv",
-			chrnum, delta, label, branch_taken,
+			"SCENARIO.GRAPH: AI condition if_target_moving_slowly chr=%d chr_rows=%d target_chr=%d delta=%d label=%d branch=%d source=%s backend=graph.ai.condition.safety_detection+ai/ailists.tsv",
+			chrnum, chr_count, target_chrnum, delta, label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs
 			.ai_condition_if_target_moving_slowly_logged = 1;
@@ -15547,6 +20891,8 @@ static s32 s_aiGraphRequireMiscBranchNode(const char *name, s32 node_count)
 s32 scenarioSourceAiGraphExecuteIfSquadronIsDead(s32 squadron, s32 label)
 {
 	s32 required;
+	s32 chr_count = 0;
+	s32 checked_chrs = 0;
 	bool anyalive = true;
 	s16 *chrnums;
 	s32 branch_taken;
@@ -15561,6 +20907,13 @@ s32 scenarioSourceAiGraphExecuteIfSquadronIsDead(s32 squadron, s32 label)
 		while (*chrnums != -2) {
 			struct chrdata *chr = chrFindByLiteralId(*chrnums);
 
+			if (chr) {
+				if (!s_aiGraphRequireRuntimeCharacterPointer(
+						"if_squadron_is_dead", chr, &chr_count, NULL)) {
+					return 1;
+				}
+				checked_chrs++;
+			}
 			if (chr && chr->model) {
 				anyalive = false;
 				if (!chrIsDead(chr) && chr->actiontype != ACT_DEAD) {
@@ -15574,8 +20927,8 @@ s32 scenarioSourceAiGraphExecuteIfSquadronIsDead(s32 squadron, s32 label)
 	s_aiGraphApplyBranch(branch_taken, label, 4);
 	if (!s_ActiveScenarioGraphs.ai_condition_if_squadron_is_dead_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_squadron_is_dead squadron=%d alive=%d label=%d branch=%d source=%s backend=graph.ai.condition.misc_branch+ai/ailists.tsv",
-			squadron, anyalive, label, branch_taken,
+			"SCENARIO.GRAPH: AI condition if_squadron_is_dead chr_rows=%d checked=%d squadron=%d alive=%d label=%d branch=%d source=%s backend=graph.ai.condition.misc_branch+ai/ailists.tsv",
+			chr_count, checked_chrs, squadron, anyalive, label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_condition_if_squadron_is_dead_logged = 1;
 	}
@@ -15605,6 +20958,8 @@ s32 scenarioSourceAiGraphExecuteIfNumChrsInSquadronGreaterThan(s32 threshold,
 	s32 squadron, s32 label)
 {
 	s32 required;
+	s32 chr_count = 0;
+	s32 checked_chrs = 0;
 	s32 count = 0;
 	s16 *chrnums;
 	s32 branch_taken;
@@ -15621,6 +20976,14 @@ s32 scenarioSourceAiGraphExecuteIfNumChrsInSquadronGreaterThan(s32 threshold,
 		while (*chrnums != -2) {
 			struct chrdata *chr = chrFindByLiteralId(*chrnums);
 
+			if (chr) {
+				if (!s_aiGraphRequireRuntimeCharacterPointer(
+						"if_num_chrs_in_squadron_greater_than",
+						chr, &chr_count, NULL)) {
+					return 1;
+				}
+				checked_chrs++;
+			}
 			if (chr && chr->prop && chrIsDead(chr) == false &&
 					chr->actiontype != ACT_DEAD &&
 					chr->actiontype != ACT_DRUGGEDKO &&
@@ -15636,8 +20999,9 @@ s32 scenarioSourceAiGraphExecuteIfNumChrsInSquadronGreaterThan(s32 threshold,
 	if (!s_ActiveScenarioGraphs
 			.ai_condition_if_num_chrs_in_squadron_greater_than_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_num_chrs_in_squadron_greater_than threshold=%d squadron=%d count=%d label=%d branch=%d source=%s backend=graph.ai.condition.misc_branch+ai/ailists.tsv",
-			threshold, squadron, count, label, branch_taken,
+			"SCENARIO.GRAPH: AI condition if_num_chrs_in_squadron_greater_than chr_rows=%d checked=%d threshold=%d squadron=%d count=%d label=%d branch=%d source=%s backend=graph.ai.condition.misc_branch+ai/ailists.tsv",
+			chr_count, checked_chrs, threshold, squadron, count, label,
+			branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs
 			.ai_condition_if_num_chrs_in_squadron_greater_than_logged = 1;
@@ -15650,18 +21014,41 @@ s32 scenarioSourceAiGraphExecuteIfNaturalAnim(struct chrdata *chr,
 {
 	s32 required;
 	s32 branch_taken;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
+	const char *anim_catalog_id;
+	const char *current_anim_catalog_id = "none";
 
 	required = s_aiGraphRequireMiscBranchNode("if_natural_anim",
 		s_ActiveScenarioGraphs.level_ai_if_natural_anim_node_count);
 	if (required <= 0) {
 		return required < 0 ? 1 : 0;
 	}
+	anim_catalog_id = s_aiGraphResolveAnimationCatalogId("if_natural_anim",
+		anim, "natural");
+	if (!anim_catalog_id) {
+		s_aiGraphApplyBranch(0, label, 4);
+		return 1;
+	}
+	if (!s_aiGraphRequireOptionalRuntimeCharacterPointer("if_natural_anim",
+			chr, &chr_count, &source_chr)) {
+		return 1;
+	}
+	if (chr && chr->naturalanim >= 0) {
+		current_anim_catalog_id = s_aiGraphResolveAnimationCatalogId(
+			"if_natural_anim", chr->naturalanim, "current_natural");
+		if (!current_anim_catalog_id) {
+			s_aiGraphApplyBranch(0, label, 4);
+			return 1;
+		}
+	}
 	branch_taken = chr && chr->naturalanim == anim;
 	s_aiGraphApplyBranch(branch_taken, label, 4);
 	if (!s_ActiveScenarioGraphs.ai_condition_if_natural_anim_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_natural_anim anim=%d current=%d label=%d branch=%d source=%s backend=graph.ai.condition.misc_branch+ai/ailists.tsv",
-			anim, chr ? chr->naturalanim : -1, label, branch_taken,
+			"SCENARIO.GRAPH: AI condition if_natural_anim chr_rows=%d source_chr=%d anim_id=%s current_anim_id=%s label=%d branch=%d source=%s backend=graph.ai.condition.misc_branch+ai/ailists.tsv",
+			chr_count, source_chr, anim_catalog_id,
+			current_anim_catalog_id, label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_condition_if_natural_anim_logged = 1;
 	}
@@ -15672,16 +21059,29 @@ s32 scenarioSourceAiGraphExecuteIfY(struct chrdata *basechr, s32 chrnum,
 	s32 cutoff_y, s32 comparison, s32 label)
 {
 	s32 required;
+	struct chopperobj *hovercar = g_Vars.hovercar;
 	struct chrdata *chr = NULL;
+	s32 chr_count = 0;
+	s32 target_chrnum = -1;
+	s32 vehicle_count = 0;
+	s32 source_vehicle_type = -1;
 	s32 branch_taken;
+	const char *backend;
 
 	required = s_aiGraphRequireMiscBranchNode("if_y",
 		s_ActiveScenarioGraphs.level_ai_if_y_node_count);
 	if (required <= 0) {
 		return required < 0 ? 1 : 0;
 	}
-	if (chrnum == CHR_TARGET && g_Vars.hovercar) {
-		struct chopperobj *chopper = chopperFromHovercar(g_Vars.hovercar);
+	if (chrnum == CHR_TARGET && hovercar) {
+		struct chopperobj *chopper;
+
+		if (!s_aiGraphRequireRuntimeVehicleObjectPointer("if_y",
+				&hovercar->base, OBJTYPE_HOVERCAR, OBJTYPE_CHOPPER,
+				&vehicle_count, &source_vehicle_type)) {
+			return 1;
+		}
+		chopper = chopperFromHovercar(hovercar);
 
 		if (chopper) {
 			struct prop *target = chopperGetTargetProp(chopper);
@@ -15691,19 +21091,32 @@ s32 scenarioSourceAiGraphExecuteIfY(struct chrdata *basechr, s32 chrnum,
 				chr = target->chr;
 			}
 		}
+		if (chr && !s_aiGraphRequireOptionalLiveRuntimeCharacterPointer("if_y",
+				chr, &chr_count, &target_chrnum)) {
+			return 1;
+		}
+	} else if (!s_aiGraphResolveOptionalRuntimeCharacterRefOrSelector("if_y",
+			basechr, chrnum, &chr_count, &chr, NULL)) {
+		return 1;
 	} else {
-		chr = chrFindById(basechr, chrnum);
+		target_chrnum = chr ? chr->chrnum : -1;
 	}
 	branch_taken = chr && chr->prop &&
 		((chr->prop->pos.y < cutoff_y && comparison == 0) ||
 			(chr->prop->pos.y > cutoff_y && comparison == 1));
+	backend = vehicle_count > 0
+		? "graph.ai.condition.misc_branch+ai/ailists.tsv+objects.tsv"
+		: "graph.ai.condition.misc_branch+ai/ailists.tsv";
 	s_aiGraphApplyBranch(branch_taken, label, 7);
 	if (!s_ActiveScenarioGraphs.ai_condition_if_y_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_y chr=%d y=%.3f cutoff=%d comparison=%d label=%d branch=%d source=%s backend=graph.ai.condition.misc_branch+ai/ailists.tsv",
-			chrnum, chr && chr->prop ? (double)chr->prop->pos.y : 0.0,
+			"SCENARIO.GRAPH: AI condition if_y chr=%d chr_rows=%d target_chr=%d vehicle_rows=%d source_vehicle_type=%d y=%.3f cutoff=%d comparison=%d label=%d branch=%d source=%s objects=%s backend=%s",
+			chrnum, chr_count, target_chrnum, vehicle_count,
+			source_vehicle_type,
+			chr && chr->prop ? (double)chr->prop->pos.y : 0.0,
 			cutoff_y, comparison, label, branch_taken,
-			s_ActiveScenarioGraphs.ai_lists_path);
+			s_ActiveScenarioGraphs.ai_lists_path,
+			s_ActiveScenarioGraphs.objects_path, backend);
 		s_ActiveScenarioGraphs.ai_condition_if_y_logged = 1;
 	}
 	return 1;
@@ -15714,11 +21127,17 @@ s32 scenarioSourceAiGraphExecuteIfSoundTimer(struct chrdata *chr,
 {
 	s32 required;
 	s32 branch_taken;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
 
 	required = s_aiGraphRequireMiscBranchNode("if_sound_timer",
 		s_ActiveScenarioGraphs.level_ai_if_sound_timer_node_count);
 	if (required <= 0) {
 		return required < 0 ? 1 : 0;
+	}
+	if (!s_aiGraphRequireOptionalRuntimeCharacterPointer("if_sound_timer",
+			chr, &chr_count, &source_chr)) {
+		return 1;
 	}
 	branch_taken = chr &&
 		((chr->soundtimer > ticks_value && comparison == 0) ||
@@ -15726,9 +21145,10 @@ s32 scenarioSourceAiGraphExecuteIfSoundTimer(struct chrdata *chr,
 	s_aiGraphApplyBranch(branch_taken, label, 6);
 	if (!s_ActiveScenarioGraphs.ai_condition_if_sound_timer_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_sound_timer value=%d timer=%d comparison=%d label=%d branch=%d source=%s backend=graph.ai.condition.misc_branch+ai/ailists.tsv",
-			ticks_value, chr ? chr->soundtimer : -1, comparison, label,
-			branch_taken, s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI condition if_sound_timer chr_rows=%d source_chr=%d value=%d timer=%d comparison=%d label=%d branch=%d source=%s backend=graph.ai.condition.misc_branch+ai/ailists.tsv",
+			chr_count, source_chr, ticks_value,
+			chr ? chr->soundtimer : -1, comparison, label, branch_taken,
+			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_condition_if_sound_timer_logged = 1;
 	}
 	return 1;
@@ -15741,6 +21161,8 @@ s32 scenarioSourceAiGraphExecuteIfTargetYDifferenceLessThan(struct chrdata *chr,
 	struct prop *prop;
 	f32 diff = 0;
 	s32 branch_taken;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
 
 	required = s_aiGraphRequireMiscBranchNode(
 		"if_target_y_difference_less_than",
@@ -15748,6 +21170,11 @@ s32 scenarioSourceAiGraphExecuteIfTargetYDifferenceLessThan(struct chrdata *chr,
 			.level_ai_if_target_y_difference_less_than_node_count);
 	if (required <= 0) {
 		return required < 0 ? 1 : 0;
+	}
+	if (!s_aiGraphRequireOptionalRuntimeCharacterPointer(
+			"if_target_y_difference_less_than", chr, &chr_count,
+			&source_chr)) {
+		return 1;
 	}
 	prop = chr ? chrGetTargetProp(chr) : NULL;
 	if (chr && chr->prop && prop) {
@@ -15761,8 +21188,8 @@ s32 scenarioSourceAiGraphExecuteIfTargetYDifferenceLessThan(struct chrdata *chr,
 	if (!s_ActiveScenarioGraphs
 			.ai_condition_if_target_y_difference_less_than_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_target_y_difference_less_than threshold=%d diff=%.3f label=%d branch=%d source=%s backend=graph.ai.condition.misc_branch+ai/ailists.tsv",
-			threshold, (double)diff, label, branch_taken,
+			"SCENARIO.GRAPH: AI condition if_target_y_difference_less_than chr_rows=%d source_chr=%d threshold=%d diff=%.3f label=%d branch=%d source=%s backend=graph.ai.condition.misc_branch+ai/ailists.tsv",
+			chr_count, source_chr, threshold, (double)diff, label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs
 			.ai_condition_if_target_y_difference_less_than_logged = 1;
@@ -15804,16 +21231,28 @@ s32 scenarioSourceAiGraphExecuteChrExplosions(struct chrdata *basechr,
 {
 	s32 required;
 	struct chrdata *chr;
+	s32 chr_count = 0;
+	s32 target_chrnum = -1;
+	s32 player_checked = 0;
 
 	required = s_aiGraphRequireMiscEffectNode("chr_explosions",
 		s_ActiveScenarioGraphs.level_ai_chr_explosions_node_count, 0, 0);
 	if (required <= 0) {
 		return required < 0 ? 1 : 0;
 	}
-	chr = chrFindById(basechr, chrnum);
+	if (!s_aiGraphRequireRuntimeCharacterRefFromBase("chr_explosions",
+			basechr, chrnum, &chr_count, &chr)) {
+		return 1;
+	}
+	target_chrnum = chr ? chr->chrnum : -1;
 	if (chr && chr->prop && chr->prop->type == PROPTYPE_PLAYER) {
 		u32 prevplayernum = g_Vars.currentplayernum;
 		u32 playernum = playermgrGetPlayerNumByProp(chr->prop);
+		if (!s_aiGraphRequireRuntimePlayerSlot("chr_explosions",
+				(s32)playernum, NULL)) {
+			return 1;
+		}
+		player_checked = 1;
 		setCurrentPlayerNum(playernum);
 		playerSurroundWithExplosions(0);
 		setCurrentPlayerNum(prevplayernum);
@@ -15821,8 +21260,9 @@ s32 scenarioSourceAiGraphExecuteChrExplosions(struct chrdata *basechr,
 	g_Vars.aioffset += 3;
 	if (!s_ActiveScenarioGraphs.ai_action_chr_explosions_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action chr_explosions chr=%d source=%s backend=graph.ai.action.misc_effect+ai/ailists.tsv",
-			chrnum, s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI action chr_explosions chr=%d chr_rows=%d target_chr=%d player_checked=%d source=%s backend=graph.ai.action.misc_effect+ai/ailists.tsv",
+			chrnum, chr_count, target_chrnum, player_checked,
+			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_chr_explosions_logged = 1;
 	}
 	return 1;
@@ -15851,20 +21291,33 @@ s32 scenarioSourceAiGraphExecuteSetTintedGlassEnabled(s32 enabled)
 
 s32 scenarioSourceAiGraphExecuteHovercopterFireRocket(s32 side)
 {
+	struct chopperobj *hovercar = g_Vars.hovercar;
 	s32 required;
+	s32 vehicle_count = 0;
+	s32 source_vehicle_type = -1;
 
 	required = s_aiGraphRequireMiscEffectNode("hovercopter_fire_rocket",
 		s_ActiveScenarioGraphs
-			.level_ai_hovercopter_fire_rocket_node_count, 0, 0);
+			.level_ai_hovercopter_fire_rocket_node_count, 1, 0);
 	if (required <= 0) {
 		return required < 0 ? 1 : 0;
 	}
-	chopperFireRocket(g_Vars.hovercar, side);
+	if (hovercar) {
+		if (!s_aiGraphRequireRuntimeVehicleObjectPointer(
+				"hovercopter_fire_rocket", &hovercar->base,
+				OBJTYPE_CHOPPER, -1, &vehicle_count,
+				&source_vehicle_type)) {
+			return 1;
+		}
+		chopperFireRocket(hovercar, side);
+	}
 	g_Vars.aioffset += 3;
 	if (!s_ActiveScenarioGraphs.ai_action_hovercopter_fire_rocket_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action hovercopter_fire_rocket side=%d source=%s backend=graph.ai.action.misc_effect+ai/ailists.tsv",
-			side, s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI action hovercopter_fire_rocket vehicle_rows=%d source_vehicle_type=%d side=%d source=%s objects=%s backend=graph.ai.action.misc_effect+ai/ailists.tsv+objects.tsv",
+			vehicle_count, source_vehicle_type, side,
+			s_ActiveScenarioGraphs.ai_lists_path,
+			s_ActiveScenarioGraphs.objects_path);
 		s_ActiveScenarioGraphs.ai_action_hovercopter_fire_rocket_logged = 1;
 	}
 	return 1;
@@ -15875,6 +21328,8 @@ s32 scenarioSourceAiGraphExecuteChrAdjustMotionBlur(struct chrdata *basechr,
 {
 	s32 required;
 	struct chrdata *chr;
+	s32 chr_count = 0;
+	s32 target_chrnum = -1;
 
 	required = s_aiGraphRequireMiscEffectNode("chr_adjust_motion_blur",
 		s_ActiveScenarioGraphs.level_ai_chr_adjust_motion_blur_node_count,
@@ -15882,7 +21337,12 @@ s32 scenarioSourceAiGraphExecuteChrAdjustMotionBlur(struct chrdata *basechr,
 	if (required <= 0) {
 		return required < 0 ? 1 : 0;
 	}
-	chr = chrFindById(basechr, chrnum);
+	if (!s_aiGraphRequireRuntimeCharacterRefFromBase(
+			"chr_adjust_motion_blur", basechr, chrnum,
+			&chr_count, &chr)) {
+		return 1;
+	}
+	target_chrnum = chr ? chr->chrnum : -1;
 	if (chr) {
 		if (mode == 0) {
 			chr->blurdrugamount -= TICKS(amount);
@@ -15893,8 +21353,9 @@ s32 scenarioSourceAiGraphExecuteChrAdjustMotionBlur(struct chrdata *basechr,
 	g_Vars.aioffset += 5;
 	if (!s_ActiveScenarioGraphs.ai_action_chr_adjust_motion_blur_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action chr_adjust_motion_blur chr=%d amount=%d mode=%d source=%s backend=graph.ai.action.misc_effect+ai/ailists.tsv",
-			chrnum, amount, mode, s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI action chr_adjust_motion_blur chr=%d chr_rows=%d target_chr=%d amount=%d mode=%d source=%s backend=graph.ai.action.misc_effect+ai/ailists.tsv",
+			chrnum, chr_count, target_chrnum, amount, mode,
+			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_chr_adjust_motion_blur_logged = 1;
 	}
 	return 1;
@@ -15905,18 +21366,24 @@ s32 scenarioSourceAiGraphExecutePunchOrKick(struct chrdata *chr, s32 reverse,
 {
 	s32 required;
 	s32 branch_taken;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
 
 	required = s_aiGraphRequireMiscEffectNode("punch_or_kick",
 		s_ActiveScenarioGraphs.level_ai_punch_or_kick_node_count, 0, 0);
 	if (required <= 0) {
 		return required < 0 ? 1 : 0;
 	}
+	if (!s_aiGraphRequireOptionalRuntimeCharacterPointer("punch_or_kick",
+			chr, &chr_count, &source_chr)) {
+		return 1;
+	}
 	branch_taken = chr && chrTryPunch(chr, reverse);
 	s_aiGraphApplyBranch(branch_taken, label, 4);
 	if (!s_ActiveScenarioGraphs.ai_action_punch_or_kick_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action punch_or_kick reverse=%d label=%d branch=%d source=%s backend=graph.ai.action.misc_effect+ai/ailists.tsv",
-			reverse, label, branch_taken,
+			"SCENARIO.GRAPH: AI action punch_or_kick chr_rows=%d source_chr=%d reverse=%d label=%d branch=%d source=%s backend=graph.ai.action.misc_effect+ai/ailists.tsv",
+			chr_count, source_chr, reverse, label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_punch_or_kick_logged = 1;
 	}
@@ -15929,6 +21396,11 @@ s32 scenarioSourceAiGraphExecuteSetTargetToEyespyIfInSight(
 	s32 required;
 	s16 prevtarget;
 	s32 branch_taken = 0;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
+	s32 target_chr_count = 0;
+	s32 source_target_chr = -1;
+	s32 player_checked = 0;
 
 	required = s_aiGraphRequireMiscEffectNode(
 		"set_target_to_eyespy_if_in_sight",
@@ -15937,11 +21409,30 @@ s32 scenarioSourceAiGraphExecuteSetTargetToEyespyIfInSight(
 	if (required <= 0) {
 		return required < 0 ? 1 : 0;
 	}
-	if (chr) {
-		struct eyespy *eyespy = g_Vars.players[chr->p1p2]->eyespy;
+	if (!s_aiGraphRequireOptionalRuntimeCharacterPointer(
+			"set_target_to_eyespy_if_in_sight", chr, &chr_count,
+			&source_chr)) {
+		return 1;
+	}
+	if (chr && chr->prop && chr->prop->type == PROPTYPE_PLAYER) {
+		struct player *player = NULL;
+		struct eyespy *eyespy;
+		if (!s_aiGraphRequireRuntimePlayerSlot(
+				"set_target_to_eyespy_if_in_sight",
+				chr->p1p2, &player)) {
+			return 1;
+		}
+		player_checked = 1;
+		eyespy = player->eyespy;
 		prevtarget = chr->target;
-		if (eyespy) {
+		if (eyespy && eyespy->prop && eyespy->prop->chr) {
 			struct chrdata *targetchr = eyespy->prop->chr;
+			if (!s_aiGraphRequireOptionalRuntimeCharacterPointer(
+					"set_target_to_eyespy_if_in_sight",
+					targetchr, &target_chr_count,
+					&source_target_chr)) {
+				return 1;
+			}
 			chr->target = propGetIndexByChrId(chr, targetchr->chrnum);
 			if (chrCheckCanSeeTarget(chr)) {
 				branch_taken = 1;
@@ -15954,8 +21445,10 @@ s32 scenarioSourceAiGraphExecuteSetTargetToEyespyIfInSight(
 	if (!s_ActiveScenarioGraphs
 			.ai_action_set_target_to_eyespy_if_in_sight_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action set_target_to_eyespy_if_in_sight label=%d branch=%d source=%s backend=graph.ai.action.misc_effect+ai/ailists.tsv",
-			label, branch_taken, s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI action set_target_to_eyespy_if_in_sight chr_rows=%d source_chr=%d player_checked=%d target_chr_rows=%d source_target_chr=%d label=%d branch=%d source=%s backend=graph.ai.action.misc_effect+ai/ailists.tsv",
+			chr_count, source_chr, player_checked, target_chr_count,
+			source_target_chr, label, branch_taken,
+			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs
 			.ai_action_set_target_to_eyespy_if_in_sight_logged = 1;
 	}
@@ -15967,6 +21460,8 @@ s32 scenarioSourceAiGraphExecuteMiniSkedarTryPounce(struct chrdata *chr,
 {
 	s32 required;
 	s32 branch_taken;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
 
 	required = s_aiGraphRequireMiscEffectNode("mini_skedar_try_pounce",
 		s_ActiveScenarioGraphs.level_ai_mini_skedar_try_pounce_node_count,
@@ -15974,12 +21469,17 @@ s32 scenarioSourceAiGraphExecuteMiniSkedarTryPounce(struct chrdata *chr,
 	if (required <= 0) {
 		return required < 0 ? 1 : 0;
 	}
+	if (!s_aiGraphRequireOptionalRuntimeCharacterPointer(
+			"mini_skedar_try_pounce", chr, &chr_count, &source_chr)) {
+		return 1;
+	}
 	branch_taken = chr && chrTrySkJump(chr, chr->pouncebits, arg0, arg1,
 		arg2);
 	s_aiGraphApplyBranch(branch_taken, label, 7);
 	if (!s_ActiveScenarioGraphs.ai_action_mini_skedar_try_pounce_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action mini_skedar_try_pounce arg0=%d arg1=%d arg2=%d label=%d branch=%d source=%s backend=graph.ai.action.misc_effect+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action mini_skedar_try_pounce chr_rows=%d source_chr=%d pouncebits=%d arg0=%d arg1=%d arg2=%d label=%d branch=%d source=%s backend=graph.ai.action.misc_effect+ai/ailists.tsv",
+			chr_count, source_chr, chr ? chr->pouncebits : -1,
 			arg0, arg1, arg2, label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_mini_skedar_try_pounce_logged = 1;
@@ -15994,6 +21494,8 @@ s32 scenarioSourceAiGraphExecuteIfObjectDistanceToPadLessThan(
 	struct defaultobj *obj;
 	struct pad pad;
 	s32 branch_taken = 0;
+	s32 pad_count = 0;
+	s32 object_count = 0;
 
 	required = s_aiGraphRequireMiscEffectNode(
 		"if_object_distance_to_pad_less_than",
@@ -16002,29 +21504,40 @@ s32 scenarioSourceAiGraphExecuteIfObjectDistanceToPadLessThan(
 	if (required <= 0) {
 		return required < 0 ? 1 : 0;
 	}
+	pad_id = chrResolvePadId(chr, pad_id);
+	if (!s_aiGraphRequireRuntimePad("if_object_distance_to_pad_less_than",
+			pad_id, &pad_count)) {
+		s_aiGraphApplyBranch(0, label, 8);
+		return 1;
+	}
+	if (!s_aiGraphRequireRuntimeObjectTag(
+			"if_object_distance_to_pad_less_than", tag_id,
+			&object_count)) {
+		s_aiGraphApplyBranch(0, label, 8);
+		return 1;
+	}
 	obj = objFindByTagId(tag_id);
 	if (obj && obj->prop) {
-		pad_id = chrResolvePadId(chr, pad_id);
-		if (pad_id >= 0) {
-			f32 xdiff;
-			f32 ydiff;
-			f32 zdiff;
-			padUnpack(pad_id, PADFIELD_POS, &pad);
-			xdiff = obj->prop->pos.x - pad.pos.x;
-			ydiff = obj->prop->pos.y - pad.pos.y;
-			zdiff = obj->prop->pos.z - pad.pos.z;
-			branch_taken = ydiff < 200 && ydiff > -200 &&
-				xdiff < distance && xdiff > -distance &&
-				zdiff < distance && zdiff > -distance;
-		}
+		f32 xdiff;
+		f32 ydiff;
+		f32 zdiff;
+		padUnpack(pad_id, PADFIELD_POS, &pad);
+		xdiff = obj->prop->pos.x - pad.pos.x;
+		ydiff = obj->prop->pos.y - pad.pos.y;
+		zdiff = obj->prop->pos.z - pad.pos.z;
+		branch_taken = ydiff < 200 && ydiff > -200 &&
+			xdiff < distance && xdiff > -distance &&
+			zdiff < distance && zdiff > -distance;
 	}
 	s_aiGraphApplyBranch(branch_taken, label, 8);
 	if (!s_ActiveScenarioGraphs
 			.ai_condition_if_object_distance_to_pad_less_than_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_object_distance_to_pad_less_than tag=%d pad=%d distance=%.3f label=%d branch=%d source=%s backend=graph.ai.action.misc_effect+ai/ailists.tsv+objects.tsv+pads.tsv",
-			tag_id, pad_id, (double)distance, label, branch_taken,
-			s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI condition if_object_distance_to_pad_less_than tag=%d object_rows=%d pad=%d found=1 pad_rows=%d distance=%.3f label=%d branch=%d source=%s objects=%s pads=%s backend=graph.ai.action.misc_effect+ai/ailists.tsv+objects.tsv+pads.tsv",
+			tag_id, object_count, pad_id, pad_count, (double)distance,
+			label, branch_taken, s_ActiveScenarioGraphs.ai_lists_path,
+			s_ActiveScenarioGraphs.objects_path,
+			s_ActiveScenarioGraphs.pads_path);
 		s_ActiveScenarioGraphs
 			.ai_condition_if_object_distance_to_pad_less_than_logged = 1;
 	}
@@ -16034,17 +21547,28 @@ s32 scenarioSourceAiGraphExecuteIfObjectDistanceToPadLessThan(
 s32 scenarioSourceAiGraphExecuteAvoid(struct chrdata *chr)
 {
 	s32 required;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
+	s32 applied = 0;
 
 	required = s_aiGraphRequireMiscEffectNode("avoid",
 		s_ActiveScenarioGraphs.level_ai_avoid_node_count, 0, 0);
 	if (required <= 0) {
 		return required < 0 ? 1 : 0;
 	}
-	chrAvoid(chr);
+	if (!s_aiGraphRequireOptionalRuntimeCharacterPointer("avoid", chr,
+			&chr_count, &source_chr)) {
+		return 1;
+	}
+	if (chr) {
+		chrAvoid(chr);
+		applied = 1;
+	}
 	g_Vars.aioffset += 2;
 	if (!s_ActiveScenarioGraphs.ai_action_avoid_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action avoid source=%s backend=graph.ai.action.misc_effect+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action avoid chr_rows=%d source_chr=%d applied=%d source=%s backend=graph.ai.action.misc_effect+ai/ailists.tsv",
+			chr_count, source_chr, applied,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_avoid_logged = 1;
 	}
@@ -16100,21 +21624,28 @@ s32 scenarioSourceAiGraphExecuteChrEmitSparks(struct chrdata *basechr,
 {
 	s32 required;
 	struct chrdata *chr;
+	s32 chr_count = 0;
+	s32 target_chrnum = -1;
 
 	required = s_aiGraphRequireMiscEffectNode("chr_emit_sparks",
 		s_ActiveScenarioGraphs.level_ai_chr_emit_sparks_node_count, 0, 0);
 	if (required <= 0) {
 		return required < 0 ? 1 : 0;
 	}
-	chr = chrFindById(basechr, chrnum);
+	if (!s_aiGraphRequireRuntimeCharacterRefFromBase("chr_emit_sparks",
+			basechr, chrnum, &chr_count, &chr)) {
+		return 1;
+	}
+	target_chrnum = chr ? chr->chrnum : -1;
 	if (chr) {
 		chrDrCarollEmitSparks(chr);
 	}
 	g_Vars.aioffset += 3;
 	if (!s_ActiveScenarioGraphs.ai_action_chr_emit_sparks_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action chr_emit_sparks chr=%d source=%s backend=graph.ai.action.misc_effect+ai/ailists.tsv",
-			chrnum, s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI action chr_emit_sparks chr=%d chr_rows=%d target_chr=%d source=%s backend=graph.ai.action.misc_effect+ai/ailists.tsv",
+			chrnum, chr_count, target_chrnum,
+			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_chr_emit_sparks_logged = 1;
 	}
 	return 1;
@@ -16125,6 +21656,8 @@ s32 scenarioSourceAiGraphExecuteSetDrCarollImages(struct chrdata *basechr,
 {
 	s32 required;
 	struct chrdata *drcaroll;
+	s32 chr_count = 0;
+	s32 target_chrnum = -1;
 
 	required = s_aiGraphRequireMiscEffectNode("set_dr_caroll_images",
 		s_ActiveScenarioGraphs.level_ai_set_dr_caroll_images_node_count,
@@ -16132,7 +21665,12 @@ s32 scenarioSourceAiGraphExecuteSetDrCarollImages(struct chrdata *basechr,
 	if (required <= 0) {
 		return required < 0 ? 1 : 0;
 	}
-	drcaroll = chrFindById(basechr, chrnum);
+	if (!s_aiGraphRequireRuntimeCharacterRefFromBase(
+			"set_dr_caroll_images", basechr, chrnum,
+			&chr_count, &drcaroll)) {
+		return 1;
+	}
+	target_chrnum = drcaroll ? drcaroll->chrnum : -1;
 	if (drcaroll) {
 		if (left_image == 7) {
 			if ((g_Vars.lvframenum % 4) == 2) {
@@ -16157,8 +21695,8 @@ s32 scenarioSourceAiGraphExecuteSetDrCarollImages(struct chrdata *basechr,
 	g_Vars.aioffset += 5;
 	if (!s_ActiveScenarioGraphs.ai_action_set_dr_caroll_images_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action set_dr_caroll_images chr=%d right=%d left=%d source=%s backend=graph.ai.action.misc_effect+ai/ailists.tsv",
-			chrnum, right_image, left_image,
+			"SCENARIO.GRAPH: AI action set_dr_caroll_images chr=%d chr_rows=%d target_chr=%d right=%d left=%d source=%s backend=graph.ai.action.misc_effect+ai/ailists.tsv",
+			chrnum, chr_count, target_chrnum, right_image, left_image,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_set_dr_caroll_images_logged = 1;
 	}
@@ -16213,6 +21751,116 @@ static void s_aiGraphPlayQuipSound(struct chrdata *chr, s16 audioid)
 	}
 }
 
+static s32 s_aiGraphNormalizeAudioRuntimeId(s32 audio_id)
+{
+	union soundnumhack ref;
+	ref.packed = (s16)audio_id;
+
+	if (ref.hasconfig && ref.confignum < (u32)g_NumAudioRussMappings) {
+		union soundnumhack mapped;
+		mapped.packed = g_AudioRussMappings[ref.confignum].soundnum;
+		return (s32)mapped.id;
+	}
+
+	return (s32)ref.id;
+}
+
+static s32 s_aiGraphResolveMp3FileNum(s32 audio_id, s32 *out_file_num)
+{
+	union soundnumhack ref;
+
+	if (out_file_num) {
+		*out_file_num = -1;
+	}
+
+	ref.packed = (s16)audio_id;
+	if (ref.hasconfig && ref.confignum < (u32)g_NumAudioRussMappings) {
+		union soundnumhack mapped;
+		mapped.packed = g_AudioRussMappings[ref.confignum].soundnum;
+		if (mapped.mp3priority != 0) {
+			if (out_file_num) {
+				*out_file_num = (s32)mapped.id;
+			}
+			return 1;
+		}
+		return 0;
+	}
+
+	if (ref.mp3priority != 0) {
+		if (out_file_num) {
+			*out_file_num = (s32)ref.id;
+		}
+		return 1;
+	}
+
+	return 0;
+}
+
+static const char *s_aiGraphResolveAudioCatalogId(const char *action,
+	s32 audio_id, const char *role)
+{
+	CatalogResolveResult result;
+	const asset_entry_t *entry;
+	s32 leaf_id = s_aiGraphNormalizeAudioRuntimeId(audio_id);
+	char reason[128];
+
+	result = catalogResolveSound(leaf_id);
+	if (result.catalog_id >= 0) {
+		entry = assetCatalogGetByIndex(result.catalog_id);
+		if (entry && entry->id[0]) {
+			return entry->id;
+		}
+	}
+
+	snprintf(reason, sizeof(reason),
+		"unresolved %s audio catalog id for runtime audio %d leaf %d",
+		role, audio_id, leaf_id);
+	s_aiGraphRuntimeFailure(action, reason);
+	return NULL;
+}
+
+static const char *s_aiGraphResolveSpeechAudioSourceId(const char *action,
+	s32 audio_id, const char *role, char *out_id, size_t out_id_size)
+{
+	s32 file_num = -1;
+	char rel_path[FS_MAXPATH + 1];
+	const char *file_name;
+	char reason[192];
+
+	if (!s_aiGraphResolveMp3FileNum(audio_id, &file_num)) {
+		return s_aiGraphResolveAudioCatalogId(action, audio_id, role);
+	}
+
+	if (!out_id || out_id_size == 0) {
+		return NULL;
+	}
+	out_id[0] = '\0';
+
+	if (romExtractRelPathForFilenum(file_num, rel_path,
+			(s32)sizeof(rel_path)) <= 0) {
+		snprintf(reason, sizeof(reason),
+			"unresolved %s speech file source for runtime audio %d file %d",
+			role, audio_id, file_num);
+		s_aiGraphRuntimeFailure(action, reason);
+		return NULL;
+	}
+	if (fsFileSize(rel_path) <= 0) {
+		snprintf(reason, sizeof(reason),
+			"missing %s speech file source for runtime audio %d file %d path %s",
+			role, audio_id, file_num, rel_path);
+		s_aiGraphRuntimeFailure(action, reason);
+		return NULL;
+	}
+
+	file_name = romdataFileGetName(file_num);
+	if (file_name && file_name[0]) {
+		snprintf(out_id, out_id_size, "file:%s", file_name);
+	} else {
+		snprintf(out_id, out_id_size, "file:%d", file_num);
+	}
+	return out_id;
+}
+
 s32 scenarioSourceAiGraphExecuteSayQuip(struct chrdata *basechr, s32 chr_id,
 	s32 row_arg, s32 probability_arg, s32 sound_gap, s32 nearby_mode,
 	s32 quip_flags, s32 text_index, s32 colour)
@@ -16229,6 +21877,7 @@ s32 scenarioSourceAiGraphExecuteSayQuip(struct chrdata *basechr, s32 chr_id,
 	s16 *bank;
 	char *text;
 	struct chrdata *chr;
+	struct chrdata *active_chr = g_Vars.chrdata;
 	u32 prevplayernum;
 	u32 playernum;
 	s32 row;
@@ -16238,87 +21887,130 @@ s32 scenarioSourceAiGraphExecuteSayQuip(struct chrdata *basechr, s32 chr_id,
 	u8 headshotted = 0;
 #endif
 	struct chrdata *loopchr;
+	const char *audio_catalog_id = "none";
+	const char *text_catalog_id = "none";
+	s32 selected_text_id = -1;
+	s32 chr_count = 0;
+	s32 target_chrnum = -1;
+	s32 source_chr = -1;
+	s32 checked_chrs = 0;
+	s32 player_checked = 0;
 
 	required = s_aiGraphRequireQuipShuffleNode("say_quip",
 		s_ActiveScenarioGraphs.level_ai_say_quip_node_count, 0);
 	if (required <= 0) {
 		return required < 0 ? 1 : 0;
 	}
-	chr = chrFindById(basechr, chr_id);
+	if (!s_aiGraphRequireRuntimeCharacterRefFromBase("say_quip",
+			basechr, chr_id, &chr_count, &chr)) {
+		return 1;
+	}
+	target_chrnum = chr ? chr->chrnum : -1;
+	if (!s_aiGraphRequireRuntimeCharacterStatePointer("say_quip",
+			active_chr, &chr_count, &source_chr)) {
+		return 1;
+	}
 	prevplayernum = g_Vars.currentplayernum;
 	row = row_arg;
 #ifdef __sgi
-	headshotted = (g_Vars.chrdata->hidden2 & CHRH2FLAG_HEADSHOTTED);
+	headshotted = (active_chr->hidden2 & CHRH2FLAG_HEADSHOTTED);
 #endif
 
-	if (CHRRACE(g_Vars.chrdata) == RACE_SKEDAR) {
+	if (CHRRACE(active_chr) == RACE_SKEDAR) {
 		bank = (s16 *)g_SkedarQuipBank;
 		if (row > 5) {
 			row = 0;
 		}
-	} else if (g_Vars.chrdata->headnum == HEAD_MAIAN_S) {
+	} else if (active_chr->headnum == HEAD_MAIAN_S) {
 		bank = (s16 *)g_MaianQuipBank;
 		if (row > 2) {
 			row = rngRandom() % 2;
 		}
 	} else if (quip_flags == 0) {
-		if (g_Vars.chrdata->voicebox > 3) {
-			g_Vars.chrdata->voicebox = 3;
+		if (active_chr->voicebox > 3) {
+			active_chr->voicebox = 3;
 		}
-		bank = (s16 *)g_GuardQuipBank[g_Vars.chrdata->voicebox * 41];
+		bank = (s16 *)g_GuardQuipBank[active_chr->voicebox * 41];
 	} else {
 		bank = (s16 *)g_SpecialQuipBank;
 	}
 
 	if (!row && !probability_arg && !nearby_mode) {
-		g_Vars.chrdata->soundtimer = 0;
+		active_chr->soundtimer = 0;
 		g_Vars.aioffset += 10;
 		return 1;
 	}
 
-	chrnums = teamGetChrIds(g_Vars.chrdata->team);
+	chrnums = teamGetChrIds(active_chr->team);
 	numnearbychrs = 0;
 	issomeonetalking = false;
 	probability = probability_arg;
 
-	if ((g_Vars.chrdata->headnum == HEAD_ELVIS ||
-				g_Vars.chrdata->headnum == HEAD_THEKING ||
-				g_Vars.chrdata->headnum == HEAD_ELVIS_GOGS ||
-				g_Vars.chrdata->headnum == HEAD_JONATHAN) &&
+	if ((active_chr->headnum == HEAD_ELVIS ||
+				active_chr->headnum == HEAD_THEKING ||
+				active_chr->headnum == HEAD_ELVIS_GOGS ||
+				active_chr->headnum == HEAD_JONATHAN) &&
 			bank != (s16 *)g_SpecialQuipBank) {
 		probability = 0;
 	}
 
 	if (chr && chr->prop && chr->prop->type == PROPTYPE_PLAYER) {
+		struct player *player = NULL;
 		playernum = playermgrGetPlayerNumByProp(chr->prop);
-		if (g_Vars.coopplayernum >= 0 && g_Vars.players[playernum]->isdead) {
-			playernum = playernum == g_Vars.bondplayernum
+		if (!s_aiGraphRequireRuntimePlayerSlot("say_quip",
+				(s32)playernum, &player)) {
+			setCurrentPlayerNum(prevplayernum);
+			return 1;
+		}
+		player_checked++;
+		if (g_Vars.coopplayernum >= 0 && player->isdead) {
+			s32 alternate_playernum = playernum == g_Vars.bondplayernum
 				? g_Vars.coopplayernum : g_Vars.bondplayernum;
+			if (!s_aiGraphRequireRuntimePlayerSlot("say_quip",
+					alternate_playernum, NULL)) {
+				setCurrentPlayerNum(prevplayernum);
+				return 1;
+			}
+			player_checked++;
+			playernum = (u32)alternate_playernum;
 		}
 		setCurrentPlayerNum(playernum);
 	}
 
-	if (g_Vars.chrdata->soundgap == 0 ||
-			g_Vars.chrdata->soundgap * TICKS(60) <
-			g_Vars.chrdata->soundtimer) {
+	if (active_chr->soundgap == 0 ||
+			active_chr->soundgap * TICKS(60) <
+			active_chr->soundtimer) {
 		if (probability > (s32)(rngRandom() % 256)) {
-			while (*chrnums != -2) {
-				loopchr = chrFindByLiteralId(*chrnums);
-				if (loopchr && loopchr->model &&
-						!chrIsDead(loopchr) &&
-						loopchr->actiontype != ACT_DEAD &&
-						g_Vars.chrdata->squadron == loopchr->squadron &&
-						loopchr->alertness >= 100 &&
-						g_Vars.chrdata->chrnum != loopchr->chrnum &&
-						chrGetDistanceToChr(g_Vars.chrdata,
-							loopchr->chrnum) < 7000) {
-					numnearbychrs++;
-					if (loopchr->soundtimer < TICKS(60) &&
-							nearby_mode != 0 && nearby_mode != 255) {
-						issomeonetalking = true;
+			if (chrnums) {
+				while (*chrnums != -2) {
+					loopchr = chrFindByLiteralId(*chrnums);
+					if (loopchr) {
+						if (!s_aiGraphRequireRuntimeCharacterStatePointer(
+								"say_quip", loopchr, &chr_count,
+								NULL)) {
+							setCurrentPlayerNum(prevplayernum);
+							return 1;
+						}
+						checked_chrs++;
 					}
+					if (loopchr && loopchr->model &&
+							!chrIsDead(loopchr) &&
+							loopchr->actiontype != ACT_DEAD &&
+							active_chr->squadron ==
+								loopchr->squadron &&
+							loopchr->alertness >= 100 &&
+							active_chr->chrnum != loopchr->chrnum &&
+							chrGetDistanceToChr(active_chr,
+								loopchr->chrnum) < 7000) {
+						numnearbychrs++;
+						if (loopchr->soundtimer < TICKS(60) &&
+								nearby_mode != 0 &&
+								nearby_mode != 255) {
+							issomeonetalking = true;
+						}
+					}
+					chrnums++;
 				}
-				chrnums++;
 			}
 
 			if (!issomeonetalking &&
@@ -16330,31 +22022,52 @@ s32 scenarioSourceAiGraphExecuteSayQuip(struct chrdata *basechr, s32 chr_id,
 				if ((quip_flags & 0x80) == 0) {
 					audioid = rowptr[1 + column];
 				} else {
-					audioid = rowptr[1 + g_Vars.chrdata->tude];
+					audioid = rowptr[1 + active_chr->tude];
 				}
 
 				if (audioWasNotPlayedRecently(audioid) ||
-						CHRRACE(g_Vars.chrdata) == RACE_SKEDAR) {
-					audioMarkAsRecentlyPlayed(audioid);
+						CHRRACE(active_chr) == RACE_SKEDAR) {
 					if (audioid == SFX_M1_CHOKING && !headshotted) {
 						audioid = SFX_M1_WHY_ME;
 					}
-					g_Vars.chrdata->soundtimer = 0;
-					g_Vars.chrdata->soundgap = sound_gap;
-					g_Vars.chrdata->propsoundcount++;
-					s_aiGraphPlayQuipSound(g_Vars.chrdata, audioid);
+					audio_catalog_id = s_aiGraphResolveAudioCatalogId(
+						"say_quip", audioid, "quip");
+					if (!audio_catalog_id) {
+						setCurrentPlayerNum(prevplayernum);
+						return 1;
+					}
+					audioMarkAsRecentlyPlayed(audioid);
+					active_chr->soundtimer = 0;
+					active_chr->soundgap = sound_gap;
+					active_chr->propsoundcount++;
+					s_aiGraphPlayQuipSound(active_chr, audioid);
 					if (text_index && (quip_flags & 0x80) == 0) {
 						if (column > 2) {
 							column = 2;
 						}
-						text = langGet(g_QuipTexts[text_index - 1][1 + column]);
+						selected_text_id =
+							g_QuipTexts[text_index - 1][1 + column];
+						text_catalog_id = s_aiGraphResolveLangTextCatalogId(
+							"say_quip", selected_text_id, "quip text");
+						if (!text_catalog_id) {
+							setCurrentPlayerNum(prevplayernum);
+							return 1;
+						}
+						text = langGet(selected_text_id);
 						if (!sndIsFiltered(audioid)) {
 							hudmsgCreateWithColour(text,
 								HUDMSGTYPE_INGAMESUBTITLE, colour);
 						}
 					} else if (text_index) {
-						text = langGet(g_QuipTexts[text_index - 1]
-							[1 + g_Vars.chrdata->tude]);
+						selected_text_id = g_QuipTexts[text_index - 1]
+							[1 + active_chr->tude];
+						text_catalog_id = s_aiGraphResolveLangTextCatalogId(
+							"say_quip", selected_text_id, "quip text");
+						if (!text_catalog_id) {
+							setCurrentPlayerNum(prevplayernum);
+							return 1;
+						}
+						text = langGet(selected_text_id);
 						if (!sndIsFiltered(audioid)) {
 							hudmsgCreateWithColour(text,
 								HUDMSGTYPE_INGAMESUBTITLE, colour);
@@ -16370,25 +22083,38 @@ s32 scenarioSourceAiGraphExecuteSayQuip(struct chrdata *basechr, s32 chr_id,
 						}
 					}
 					if (audioid) {
-						audioMarkAsRecentlyPlayed(audioid);
 						if (audioid == SFX_M1_CHOKING && !headshotted) {
 							audioid = SFX_M1_WHY_ME;
 						}
-						g_Vars.chrdata->soundtimer = 0;
-						g_Vars.chrdata->soundgap = sound_gap;
-						g_Vars.chrdata->propsoundcount++;
-						s_aiGraphPlayQuipSound(g_Vars.chrdata, audioid);
+						audio_catalog_id = s_aiGraphResolveAudioCatalogId(
+							"say_quip", audioid, "quip");
+						if (!audio_catalog_id) {
+							setCurrentPlayerNum(prevplayernum);
+							return 1;
+						}
+						audioMarkAsRecentlyPlayed(audioid);
+						active_chr->soundtimer = 0;
+						active_chr->soundgap = sound_gap;
+						active_chr->propsoundcount++;
+						s_aiGraphPlayQuipSound(active_chr, audioid);
 						if (text_index) {
-							text = langGet(g_QuipTexts[text_index - 1][i]);
+							selected_text_id = g_QuipTexts[text_index - 1][i];
+							text_catalog_id = s_aiGraphResolveLangTextCatalogId(
+								"say_quip", selected_text_id, "quip text");
+							if (!text_catalog_id) {
+								setCurrentPlayerNum(prevplayernum);
+								return 1;
+							}
+							text = langGet(selected_text_id);
 							if (!sndIsFiltered(audioid)) {
 								hudmsgCreateWithColour(text,
 									HUDMSGTYPE_INGAMESUBTITLE, colour);
 							}
 						}
 					} else {
-						g_Vars.chrdata->soundtimer = 0;
-						g_Vars.chrdata->soundgap = sound_gap;
-						chrUnsetFlags(g_Vars.chrdata,
+						active_chr->soundtimer = 0;
+						active_chr->soundgap = sound_gap;
+						chrUnsetFlags(active_chr,
 							CHRFLAG1_TALKINGTODISGUISE, BANK_1);
 					}
 				}
@@ -16400,9 +22126,10 @@ s32 scenarioSourceAiGraphExecuteSayQuip(struct chrdata *basechr, s32 chr_id,
 	g_Vars.aioffset += 10;
 	if (!s_ActiveScenarioGraphs.ai_action_say_quip_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action say_quip chr=%d row=%d text=%d source=%s backend=graph.ai.action.quip_shuffle+ai/ailists.tsv",
-			chr_id, row_arg, text_index,
-			s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI action say_quip chr=%d chr_rows=%d target_chr=%d source_chr=%d checked=%d player_checked=%d row=%d audio_id=%s text_id=%s source=%s backend=graph.ai.action.quip_shuffle+ai/ailists.tsv+audio+lang",
+			chr_id, chr_count, target_chrnum, source_chr, checked_chrs,
+			player_checked, row_arg, audio_catalog_id,
+			text_catalog_id, s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_say_quip_logged = 1;
 	}
 	return 1;
@@ -16413,54 +22140,48 @@ s32 scenarioSourceAiGraphExecuteSayCiStaffQuip(struct chrdata *chr,
 {
 	s32 required;
 	s16 quip = 0;
+	const char *audio_catalog_id = "none";
+	s32 chr_count = 0;
+	s32 target_chrnum = -1;
 
 	required = s_aiGraphRequireQuipShuffleNode("say_ci_staff_quip",
 		s_ActiveScenarioGraphs.level_ai_say_ci_staff_quip_node_count, 0);
 	if (required <= 0) {
 		return required < 0 ? 1 : 0;
 	}
-	if (!chr) {
-		return s_aiGraphRuntimeFailure("say_ci_staff_quip", "missing chr");
+	if (!s_aiGraphRequireRuntimeCharacterPointer("say_ci_staff_quip",
+			chr, &chr_count, &target_chrnum)) {
+		return 1;
 	}
 	if (quip_type == CIQUIP_GREETING) {
 		quip = g_CiGreetingQuips[chr->morale][rngRandom() % 3];
-		psPlayFromProp((s8)channel, quip, 0, chr->prop, PSTYPE_CHRTALK, 0);
 	}
 	if (quip_type == CIQUIP_MAIN) {
 		quip = g_CiMainQuips[chr->morale][rngRandom() % 3];
-		psPlayFromProp((s8)channel, quip, 0, chr->prop, PSTYPE_CHRTALK, 0);
 	}
 	if (quip_type == CIQUIP_ANNOYED) {
 		quip = g_CiAnnoyedQuips[chr->morale][rngRandom() % 3];
-		psPlayFromProp((s8)channel, quip, 0, chr->prop, PSTYPE_CHRTALK, 0);
 	}
 	if (quip_type == CIQUIP_THANKS) {
 		quip = g_CiThanksQuips[chr->morale];
+	}
+	if (quip) {
+		audio_catalog_id = s_aiGraphResolveAudioCatalogId(
+			"say_ci_staff_quip", quip, "CI staff quip");
+		if (!audio_catalog_id) {
+			return 1;
+		}
 		psPlayFromProp((s8)channel, quip, 0, chr->prop, PSTYPE_CHRTALK, 0);
 	}
 	g_Vars.aioffset += 4;
 	if (!s_ActiveScenarioGraphs.ai_action_say_ci_staff_quip_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action say_ci_staff_quip type=%d channel=%d quip=%d source=%s backend=graph.ai.action.quip_shuffle+ai/ailists.tsv",
-			quip_type, channel, quip,
+			"SCENARIO.GRAPH: AI action say_ci_staff_quip chr_rows=%d target_chr=%d type=%d channel=%d audio_id=%s source=%s backend=graph.ai.action.quip_shuffle+ai/ailists.tsv+audio",
+			chr_count, target_chrnum, quip_type, channel, audio_catalog_id,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_say_ci_staff_quip_logged = 1;
 	}
 	return 1;
-}
-
-static s32 s_aiGraphCopyTagPlacementChecked(const char *action,
-	s32 dst_tag_id, s32 src_tag_id)
-{
-	struct tag *dst = tagFindById(dst_tag_id);
-	struct tag *src = tagFindById(src_tag_id);
-
-	if (!dst || !src) {
-		return s_aiGraphRuntimeFailure(action, "missing setup tag source");
-	}
-	dst->cmdoffset = src->cmdoffset;
-	dst->obj = src->obj;
-	return 0;
 }
 
 s32 scenarioSourceAiGraphExecuteShuffleRuinsPillars(const u8 *cmd)
@@ -16471,6 +22192,7 @@ s32 scenarioSourceAiGraphExecuteShuffleRuinsPillars(const u8 *cmd)
 	u8 marked3index;
 	u8 pillars[5];
 	u8 mines[5];
+	s32 setup_tag_count = 0;
 
 	required = s_aiGraphRequireQuipShuffleNode("shuffle_ruins_pillars",
 		s_ActiveScenarioGraphs.level_ai_shuffle_ruins_pillars_node_count,
@@ -16498,26 +22220,27 @@ s32 scenarioSourceAiGraphExecuteShuffleRuinsPillars(const u8 *cmd)
 		marked3index = rngRandom() % 5;
 	}
 	if (s_aiGraphCopyTagPlacementChecked("shuffle_ruins_pillars",
-			cmd[2], pillars[marked1index]) ||
+			cmd[2], pillars[marked1index], &setup_tag_count) ||
 			s_aiGraphCopyTagPlacementChecked("shuffle_ruins_pillars",
-				cmd[10], mines[marked1index]) ||
+				cmd[10], mines[marked1index], &setup_tag_count) ||
 			s_aiGraphCopyTagPlacementChecked("shuffle_ruins_pillars",
-				cmd[3], pillars[marked2index]) ||
+				cmd[3], pillars[marked2index], &setup_tag_count) ||
 			s_aiGraphCopyTagPlacementChecked("shuffle_ruins_pillars",
-				cmd[11], mines[marked2index]) ||
+				cmd[11], mines[marked2index], &setup_tag_count) ||
 			s_aiGraphCopyTagPlacementChecked("shuffle_ruins_pillars",
-				cmd[4], pillars[marked3index]) ||
+				cmd[4], pillars[marked3index], &setup_tag_count) ||
 			s_aiGraphCopyTagPlacementChecked("shuffle_ruins_pillars",
-				cmd[12], mines[marked3index])) {
+				cmd[12], mines[marked3index], &setup_tag_count)) {
 		g_Vars.aioffset += 18;
 		return 1;
 	}
 	g_Vars.aioffset += 18;
 	if (!s_ActiveScenarioGraphs.ai_action_shuffle_ruins_pillars_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action shuffle_ruins_pillars choices=%u/%u/%u source=%s objects=%s backend=graph.ai.action.quip_shuffle+ai/ailists.tsv+objects.tsv",
+			"SCENARIO.GRAPH: AI action shuffle_ruins_pillars choices=%u/%u/%u setup_tags=%d source=%s objects=%s backend=graph.ai.action.quip_shuffle+ai/ailists.tsv+objects.tsv",
 			(unsigned)marked1index, (unsigned)marked2index,
-			(unsigned)marked3index, s_ActiveScenarioGraphs.ai_lists_path,
+			(unsigned)marked3index, setup_tag_count,
+			s_ActiveScenarioGraphs.ai_lists_path,
 			s_ActiveScenarioGraphs.objects_path);
 		s_ActiveScenarioGraphs.ai_action_shuffle_ruins_pillars_logged = 1;
 	}
@@ -16531,6 +22254,7 @@ s32 scenarioSourceAiGraphExecuteShufflePelagicSwitches(void)
 	u8 i;
 	u8 j;
 	u8 index;
+	s32 setup_tag_count = 0;
 
 	required = s_aiGraphRequireQuipShuffleNode("shuffle_pelagic_switches",
 		s_ActiveScenarioGraphs
@@ -16543,7 +22267,8 @@ s32 scenarioSourceAiGraphExecuteShufflePelagicSwitches(void)
 		index = rngRandom() & 7;
 		if (buttonsdone[index] == 0) {
 			if (s_aiGraphCopyTagPlacementChecked(
-					"shuffle_pelagic_switches", i, index)) {
+					"shuffle_pelagic_switches", i, index,
+					&setup_tag_count)) {
 				g_Vars.aioffset += 2;
 				return 1;
 			}
@@ -16551,7 +22276,8 @@ s32 scenarioSourceAiGraphExecuteShufflePelagicSwitches(void)
 		} else {
 			for (j = 0; buttonsdone[j]; j++);
 			if (s_aiGraphCopyTagPlacementChecked(
-					"shuffle_pelagic_switches", i, j)) {
+					"shuffle_pelagic_switches", i, j,
+					&setup_tag_count)) {
 				g_Vars.aioffset += 2;
 				return 1;
 			}
@@ -16561,8 +22287,8 @@ s32 scenarioSourceAiGraphExecuteShufflePelagicSwitches(void)
 	g_Vars.aioffset += 2;
 	if (!s_ActiveScenarioGraphs.ai_action_shuffle_pelagic_switches_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action shuffle_pelagic_switches source=%s objects=%s backend=graph.ai.action.quip_shuffle+ai/ailists.tsv+objects.tsv",
-			s_ActiveScenarioGraphs.ai_lists_path,
+			"SCENARIO.GRAPH: AI action shuffle_pelagic_switches setup_tags=%d source=%s objects=%s backend=graph.ai.action.quip_shuffle+ai/ailists.tsv+objects.tsv",
+			setup_tag_count, s_ActiveScenarioGraphs.ai_lists_path,
 			s_ActiveScenarioGraphs.objects_path);
 		s_ActiveScenarioGraphs.ai_action_shuffle_pelagic_switches_logged = 1;
 	}
@@ -16572,6 +22298,9 @@ s32 scenarioSourceAiGraphExecuteShufflePelagicSwitches(void)
 s32 scenarioSourceAiGraphExecuteTryAttackAmount(struct chrdata *chr,
 	s32 arg0, s32 arg1)
 {
+	s32 chr_count = 0;
+	s32 source_chr = -1;
+
 	if (!s_ActiveScenarioGraphs.level_graph_active) {
 		return 0;
 	}
@@ -16586,38 +22315,78 @@ s32 scenarioSourceAiGraphExecuteTryAttackAmount(struct chrdata *chr,
 		return s_aiGraphRuntimeFailure("try_attack_amount",
 			"missing ai/ailists.tsv source");
 	}
+	if (!s_aiGraphRequireRuntimeCharacterPointer("try_attack_amount",
+			chr, &chr_count, &source_chr)) {
+		return 1;
+	}
 	chrTryAttackAmount(chr, 512, 0, arg0, arg1);
 	g_Vars.aioffset += 4;
 	if (!s_ActiveScenarioGraphs.ai_action_try_attack_amount_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action try_attack_amount arg0=%d arg1=%d source=%s backend=graph.ai.action.orders+ai/ailists.tsv",
-			arg0, arg1, s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI action try_attack_amount chr_rows=%d source_chr=%d arg0=%d arg1=%d source=%s backend=graph.ai.action.orders+ai/ailists.tsv",
+			chr_count, source_chr, arg0, arg1,
+			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_try_attack_amount_logged = 1;
+	}
+	return 1;
+}
+
+static s32 s_aiGraphRequireActiveCharacterAction(const char *action,
+	s32 node_count, struct chrdata *chr, s32 *out_chr_count,
+	s32 *out_source_chr)
+{
+	char reason[128];
+
+	if (!s_ActiveScenarioGraphs.level_graph_active) {
+		return 0;
+	}
+	if (node_count != 1) {
+		snprintf(reason, sizeof(reason),
+			"missing scenario.ai.action.%s node", action);
+		s_aiGraphRuntimeFailure(action, reason);
+		return -1;
+	}
+	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
+		s_aiGraphRuntimeFailure(action, "missing ai/ailists.tsv source");
+		return -1;
+	}
+	if (!chr || !chr->prop) {
+		if (!s_aiGraphCountRuntimeSetupChrRowsFromSource(action,
+				out_chr_count)) {
+			return -1;
+		}
+		if (out_source_chr) {
+			*out_source_chr = chr ? chr->chrnum : -1;
+		}
+		return 1;
+	}
+	if (!s_aiGraphRequireRuntimeCharacterStatePointer(action, chr,
+			out_chr_count, out_source_chr)) {
+		return -1;
 	}
 	return 1;
 }
 
 s32 scenarioSourceAiGraphExecuteSetMorale(struct chrdata *chr, s32 morale)
 {
-	if (!s_ActiveScenarioGraphs.level_graph_active) {
-		return 0;
+	s32 required;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
+
+	required = s_aiGraphRequireActiveCharacterAction("set_morale",
+		s_ActiveScenarioGraphs.level_ai_set_morale_node_count, chr,
+		&chr_count, &source_chr);
+	if (required <= 0) {
+		return required < 0 ? 1 : 0;
 	}
-	if (s_ActiveScenarioGraphs.level_ai_set_morale_node_count != 1) {
-		return s_aiGraphRuntimeFailure("set_morale",
-			"missing scenario.ai.action.set_morale node");
+	if (chr && chr->prop) {
+		chr->morale = (u8)morale;
 	}
-	if (!chr) {
-		return s_aiGraphRuntimeFailure("set_morale", "missing chr");
-	}
-	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
-		return s_aiGraphRuntimeFailure("set_morale",
-			"missing ai/ailists.tsv source");
-	}
-	chr->morale = (u8)morale;
 	if (!s_ActiveScenarioGraphs.ai_action_set_morale_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action set_morale value=%d source=%s backend=graph.ai.action.set_morale+ai/ailists.tsv",
-			morale, s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI action set_morale chr_rows=%d source_chr=%d value=%d source=%s backend=graph.ai.action.set_morale+ai/ailists.tsv",
+			chr_count, source_chr, morale,
+			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_set_morale_logged = 1;
 	}
 	return 1;
@@ -16625,25 +22394,24 @@ s32 scenarioSourceAiGraphExecuteSetMorale(struct chrdata *chr, s32 morale)
 
 s32 scenarioSourceAiGraphExecuteAddMorale(struct chrdata *chr, s32 amount)
 {
-	if (!s_ActiveScenarioGraphs.level_graph_active) {
-		return 0;
+	s32 required;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
+
+	required = s_aiGraphRequireActiveCharacterAction("add_morale",
+		s_ActiveScenarioGraphs.level_ai_add_morale_node_count, chr,
+		&chr_count, &source_chr);
+	if (required <= 0) {
+		return required < 0 ? 1 : 0;
 	}
-	if (s_ActiveScenarioGraphs.level_ai_add_morale_node_count != 1) {
-		return s_aiGraphRuntimeFailure("add_morale",
-			"missing scenario.ai.action.add_morale node");
+	if (chr && chr->prop) {
+		incrementByte(&chr->morale, (u8)amount);
 	}
-	if (!chr) {
-		return s_aiGraphRuntimeFailure("add_morale", "missing chr");
-	}
-	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
-		return s_aiGraphRuntimeFailure("add_morale",
-			"missing ai/ailists.tsv source");
-	}
-	incrementByte(&chr->morale, (u8)amount);
 	if (!s_ActiveScenarioGraphs.ai_action_add_morale_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action add_morale amount=%d source=%s backend=graph.ai.action.add_morale+ai/ailists.tsv",
-			amount, s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI action add_morale chr_rows=%d source_chr=%d amount=%d source=%s backend=graph.ai.action.add_morale+ai/ailists.tsv",
+			chr_count, source_chr, amount,
+			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_add_morale_logged = 1;
 	}
 	return 1;
@@ -16653,6 +22421,8 @@ s32 scenarioSourceAiGraphExecuteChrAddMorale(struct chrdata *basechr,
 	s32 amount, s32 chrnum)
 {
 	struct chrdata *chr;
+	s32 chr_count = 0;
+	s32 target_chrnum = -1;
 
 	if (!s_ActiveScenarioGraphs.level_graph_active) {
 		return 0;
@@ -16668,16 +22438,17 @@ s32 scenarioSourceAiGraphExecuteChrAddMorale(struct chrdata *basechr,
 		return s_aiGraphRuntimeFailure("chr_add_morale",
 			"missing ai/ailists.tsv source");
 	}
-	chr = chrFindById(basechr, chrnum);
-	if (!chr) {
-		return s_aiGraphRuntimeFailure("chr_add_morale",
-			"missing target chr");
+	if (!s_aiGraphRequireRuntimeCharacterRefFromBase("chr_add_morale",
+			basechr, chrnum, &chr_count, &chr)) {
+		return 0;
 	}
+	target_chrnum = chr ? chr->chrnum : -1;
 	incrementByte(&chr->morale, (u8)amount);
 	if (!s_ActiveScenarioGraphs.ai_action_chr_add_morale_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action chr_add_morale chr=%d amount=%d source=%s backend=graph.ai.action.chr_add_morale+ai/ailists.tsv",
-			chrnum, amount, s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI action chr_add_morale chr=%d chr_rows=%d target_chr=%d amount=%d source=%s backend=graph.ai.action.chr_add_morale+ai/ailists.tsv",
+			chrnum, chr_count, target_chrnum, amount,
+			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_chr_add_morale_logged = 1;
 	}
 	return 1;
@@ -16686,25 +22457,24 @@ s32 scenarioSourceAiGraphExecuteChrAddMorale(struct chrdata *basechr,
 s32 scenarioSourceAiGraphExecuteSubtractMorale(struct chrdata *chr,
 	s32 amount)
 {
-	if (!s_ActiveScenarioGraphs.level_graph_active) {
-		return 0;
+	s32 required;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
+
+	required = s_aiGraphRequireActiveCharacterAction("subtract_morale",
+		s_ActiveScenarioGraphs.level_ai_subtract_morale_node_count, chr,
+		&chr_count, &source_chr);
+	if (required <= 0) {
+		return required < 0 ? 1 : 0;
 	}
-	if (s_ActiveScenarioGraphs.level_ai_subtract_morale_node_count != 1) {
-		return s_aiGraphRuntimeFailure("subtract_morale",
-			"missing scenario.ai.action.subtract_morale node");
+	if (chr && chr->prop) {
+		decrementByte(&chr->morale, (u8)amount);
 	}
-	if (!chr) {
-		return s_aiGraphRuntimeFailure("subtract_morale", "missing chr");
-	}
-	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
-		return s_aiGraphRuntimeFailure("subtract_morale",
-			"missing ai/ailists.tsv source");
-	}
-	decrementByte(&chr->morale, (u8)amount);
 	if (!s_ActiveScenarioGraphs.ai_action_subtract_morale_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action subtract_morale amount=%d source=%s backend=graph.ai.action.subtract_morale+ai/ailists.tsv",
-			amount, s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI action subtract_morale chr_rows=%d source_chr=%d amount=%d source=%s backend=graph.ai.action.subtract_morale+ai/ailists.tsv",
+			chr_count, source_chr, amount,
+			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_subtract_morale_logged = 1;
 	}
 	return 1;
@@ -16713,25 +22483,24 @@ s32 scenarioSourceAiGraphExecuteSubtractMorale(struct chrdata *chr,
 s32 scenarioSourceAiGraphExecuteSetAlertness(struct chrdata *chr,
 	s32 alertness)
 {
-	if (!s_ActiveScenarioGraphs.level_graph_active) {
-		return 0;
+	s32 required;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
+
+	required = s_aiGraphRequireActiveCharacterAction("set_alertness",
+		s_ActiveScenarioGraphs.level_ai_set_alertness_node_count, chr,
+		&chr_count, &source_chr);
+	if (required <= 0) {
+		return required < 0 ? 1 : 0;
 	}
-	if (s_ActiveScenarioGraphs.level_ai_set_alertness_node_count != 1) {
-		return s_aiGraphRuntimeFailure("set_alertness",
-			"missing scenario.ai.action.set_alertness node");
+	if (chr && chr->prop) {
+		chr->alertness = (u8)alertness;
 	}
-	if (!chr) {
-		return s_aiGraphRuntimeFailure("set_alertness", "missing chr");
-	}
-	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
-		return s_aiGraphRuntimeFailure("set_alertness",
-			"missing ai/ailists.tsv source");
-	}
-	chr->alertness = (u8)alertness;
 	if (!s_ActiveScenarioGraphs.ai_action_set_alertness_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action set_alertness value=%d source=%s backend=graph.ai.action.set_alertness+ai/ailists.tsv",
-			alertness, s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI action set_alertness chr_rows=%d source_chr=%d value=%d source=%s backend=graph.ai.action.set_alertness+ai/ailists.tsv",
+			chr_count, source_chr, alertness,
+			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_set_alertness_logged = 1;
 	}
 	return 1;
@@ -16740,25 +22509,24 @@ s32 scenarioSourceAiGraphExecuteSetAlertness(struct chrdata *chr,
 s32 scenarioSourceAiGraphExecuteAddAlertness(struct chrdata *chr,
 	s32 amount)
 {
-	if (!s_ActiveScenarioGraphs.level_graph_active) {
-		return 0;
+	s32 required;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
+
+	required = s_aiGraphRequireActiveCharacterAction("add_alertness",
+		s_ActiveScenarioGraphs.level_ai_add_alertness_node_count, chr,
+		&chr_count, &source_chr);
+	if (required <= 0) {
+		return required < 0 ? 1 : 0;
 	}
-	if (s_ActiveScenarioGraphs.level_ai_add_alertness_node_count != 1) {
-		return s_aiGraphRuntimeFailure("add_alertness",
-			"missing scenario.ai.action.add_alertness node");
+	if (chr && chr->prop) {
+		incrementByte(&chr->alertness, (u8)amount);
 	}
-	if (!chr) {
-		return s_aiGraphRuntimeFailure("add_alertness", "missing chr");
-	}
-	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
-		return s_aiGraphRuntimeFailure("add_alertness",
-			"missing ai/ailists.tsv source");
-	}
-	incrementByte(&chr->alertness, (u8)amount);
 	if (!s_ActiveScenarioGraphs.ai_action_add_alertness_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action add_alertness amount=%d source=%s backend=graph.ai.action.add_alertness+ai/ailists.tsv",
-			amount, s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI action add_alertness chr_rows=%d source_chr=%d amount=%d source=%s backend=graph.ai.action.add_alertness+ai/ailists.tsv",
+			chr_count, source_chr, amount,
+			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_add_alertness_logged = 1;
 	}
 	return 1;
@@ -16768,6 +22536,8 @@ s32 scenarioSourceAiGraphExecuteChrAddAlertness(struct chrdata *basechr,
 	s32 amount, s32 chrnum)
 {
 	struct chrdata *chr;
+	s32 chr_count = 0;
+	s32 target_chrnum = -1;
 
 	if (!s_ActiveScenarioGraphs.level_graph_active) {
 		return 0;
@@ -16784,14 +22554,19 @@ s32 scenarioSourceAiGraphExecuteChrAddAlertness(struct chrdata *basechr,
 		return s_aiGraphRuntimeFailure("chr_add_alertness",
 			"missing ai/ailists.tsv source");
 	}
-	chr = chrFindById(basechr, chrnum);
+	if (!s_aiGraphRequireRuntimeCharacterRefFromBase("chr_add_alertness",
+			basechr, chrnum, &chr_count, &chr)) {
+		return 0;
+	}
+	target_chrnum = chr ? chr->chrnum : -1;
 	if (chr && chr->prop) {
 		incrementByte(&chr->alertness, (u8)amount);
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_chr_add_alertness_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action chr_add_alertness chr=%d amount=%d applied=%d source=%s backend=graph.ai.action.chr_add_alertness+ai/ailists.tsv",
-			chrnum, amount, chr && chr->prop ? 1 : 0,
+			"SCENARIO.GRAPH: AI action chr_add_alertness chr=%d chr_rows=%d target_chr=%d amount=%d applied=%d source=%s backend=graph.ai.action.chr_add_alertness+ai/ailists.tsv",
+			chrnum, chr_count, target_chrnum, amount,
+			chr && chr->prop ? 1 : 0,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_chr_add_alertness_logged = 1;
 	}
@@ -16802,6 +22577,9 @@ s32 scenarioSourceAiGraphExecuteIncreaseSquadronAlertness(
 	struct chrdata *chr, s32 amount)
 {
 	s16 *chrnums;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
+	s32 checked_chrs = 0;
 	s32 affected;
 
 	if (!s_ActiveScenarioGraphs.level_graph_active) {
@@ -16819,30 +22597,47 @@ s32 scenarioSourceAiGraphExecuteIncreaseSquadronAlertness(
 		return s_aiGraphRuntimeFailure("increase_squadron_alertness",
 			"missing ai/ailists.tsv source");
 	}
+	if (!s_aiGraphRequireRuntimeCharacterPointer(
+			"increase_squadron_alertness", chr, &chr_count, &source_chr)) {
+		return 1;
+	}
 
 	affected = 0;
 	chrnums = teamGetChrIds(chr->team);
 
-	for (; *chrnums != -2; chrnums++) {
-		struct chrdata *target = chrFindByLiteralId(*chrnums);
+	if (chrnums) {
+		for (; *chrnums != -2; chrnums++) {
+			struct chrdata *target = chrFindByLiteralId(*chrnums);
 
-		if (target &&
-				target->model &&
-				!chrIsDead(target) &&
-				target->actiontype != ACT_DEAD &&
-				(chr->squadron == target->squadron || chr->squadron == 255) &&
-				chr->chrnum != target->chrnum &&
-				(chrGetDistanceToChr(chr, target->chrnum) < 1000 ||
-					chrHasFlag(chr, CHRFLAG0_SQUADALERTANYDIST, BANK_0))) {
-			incrementByte(&target->alertness, (u8)amount);
-			affected++;
+			if (target) {
+				if (!s_aiGraphRequireRuntimeCharacterPointer(
+						"increase_squadron_alertness",
+						target, &chr_count, NULL)) {
+					return 1;
+				}
+				checked_chrs++;
+			}
+			if (target &&
+					target->model &&
+					!chrIsDead(target) &&
+					target->actiontype != ACT_DEAD &&
+					(chr->squadron == target->squadron ||
+						chr->squadron == 255) &&
+					chr->chrnum != target->chrnum &&
+					(chrGetDistanceToChr(chr, target->chrnum) < 1000 ||
+						chrHasFlag(chr, CHRFLAG0_SQUADALERTANYDIST,
+							BANK_0))) {
+				incrementByte(&target->alertness, (u8)amount);
+				affected++;
+			}
 		}
 	}
 
 	if (!s_ActiveScenarioGraphs.ai_action_increase_squadron_alertness_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action increase_squadron_alertness amount=%d affected=%d source=%s backend=graph.ai.action.increase_squadron_alertness+ai/ailists.tsv",
-			amount, affected, s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI action increase_squadron_alertness chr_rows=%d source_chr=%d checked=%d amount=%d affected=%d source=%s backend=graph.ai.action.increase_squadron_alertness+ai/ailists.tsv",
+			chr_count, source_chr, checked_chrs, amount, affected,
+			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_increase_squadron_alertness_logged = 1;
 	}
 	return 1;
@@ -16851,25 +22646,24 @@ s32 scenarioSourceAiGraphExecuteIncreaseSquadronAlertness(
 s32 scenarioSourceAiGraphExecuteSubtractAlertness(struct chrdata *chr,
 	s32 amount)
 {
-	if (!s_ActiveScenarioGraphs.level_graph_active) {
-		return 0;
+	s32 required;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
+
+	required = s_aiGraphRequireActiveCharacterAction("subtract_alertness",
+		s_ActiveScenarioGraphs.level_ai_subtract_alertness_node_count, chr,
+		&chr_count, &source_chr);
+	if (required <= 0) {
+		return required < 0 ? 1 : 0;
 	}
-	if (s_ActiveScenarioGraphs.level_ai_subtract_alertness_node_count != 1) {
-		return s_aiGraphRuntimeFailure("subtract_alertness",
-			"missing scenario.ai.action.subtract_alertness node");
+	if (chr && chr->prop) {
+		decrementByte(&chr->alertness, (u8)amount);
 	}
-	if (!chr) {
-		return s_aiGraphRuntimeFailure("subtract_alertness", "missing chr");
-	}
-	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
-		return s_aiGraphRuntimeFailure("subtract_alertness",
-			"missing ai/ailists.tsv source");
-	}
-	decrementByte(&chr->alertness, (u8)amount);
 	if (!s_ActiveScenarioGraphs.ai_action_subtract_alertness_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action subtract_alertness amount=%d source=%s backend=graph.ai.action.subtract_alertness+ai/ailists.tsv",
-			amount, s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI action subtract_alertness chr_rows=%d source_chr=%d amount=%d source=%s backend=graph.ai.action.subtract_alertness+ai/ailists.tsv",
+			chr_count, source_chr, amount,
+			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_subtract_alertness_logged = 1;
 	}
 	return 1;
@@ -16878,25 +22672,24 @@ s32 scenarioSourceAiGraphExecuteSubtractAlertness(struct chrdata *chr,
 s32 scenarioSourceAiGraphExecuteSetHearDistance(struct chrdata *chr,
 	f32 distance)
 {
-	if (!s_ActiveScenarioGraphs.level_graph_active) {
-		return 0;
+	s32 required;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
+
+	required = s_aiGraphRequireActiveCharacterAction("set_hear_distance",
+		s_ActiveScenarioGraphs.level_ai_set_hear_distance_node_count, chr,
+		&chr_count, &source_chr);
+	if (required <= 0) {
+		return required < 0 ? 1 : 0;
 	}
-	if (s_ActiveScenarioGraphs.level_ai_set_hear_distance_node_count != 1) {
-		return s_aiGraphRuntimeFailure("set_hear_distance",
-			"missing scenario.ai.action.set_hear_distance node");
+	if (chr && chr->prop) {
+		chr->hearingscale = distance;
 	}
-	if (!chr) {
-		return s_aiGraphRuntimeFailure("set_hear_distance", "missing chr");
-	}
-	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
-		return s_aiGraphRuntimeFailure("set_hear_distance",
-			"missing ai/ailists.tsv source");
-	}
-	chr->hearingscale = distance;
 	if (!s_ActiveScenarioGraphs.ai_action_set_hear_distance_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action set_hear_distance value=%.3f source=%s backend=graph.ai.action.set_hear_distance+ai/ailists.tsv",
-			distance, s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI action set_hear_distance chr_rows=%d source_chr=%d value=%.3f source=%s backend=graph.ai.action.set_hear_distance+ai/ailists.tsv",
+			chr_count, source_chr, distance,
+			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_set_hear_distance_logged = 1;
 	}
 	return 1;
@@ -16905,31 +22698,27 @@ s32 scenarioSourceAiGraphExecuteSetHearDistance(struct chrdata *chr,
 s32 scenarioSourceAiGraphExecuteSetViewDistance(struct chrdata *chr,
 	s32 distance)
 {
+	s32 required;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
 	s32 applied;
 
-	if (!s_ActiveScenarioGraphs.level_graph_active) {
-		return 0;
-	}
-	if (s_ActiveScenarioGraphs.level_ai_set_view_distance_node_count != 1) {
-		return s_aiGraphRuntimeFailure("set_view_distance",
-			"missing scenario.ai.action.set_view_distance node");
-	}
-	if (!chr) {
-		return s_aiGraphRuntimeFailure("set_view_distance", "missing chr");
-	}
-	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
-		return s_aiGraphRuntimeFailure("set_view_distance",
-			"missing ai/ailists.tsv source");
+	required = s_aiGraphRequireActiveCharacterAction("set_view_distance",
+		s_ActiveScenarioGraphs.level_ai_set_view_distance_node_count, chr,
+		&chr_count, &source_chr);
+	if (required <= 0) {
+		return required < 0 ? 1 : 0;
 	}
 	applied = 0;
-	if (!cheatIsActive(CHEAT_PERFECTDARKNESS)) {
+	if (chr && chr->prop && !cheatIsActive(CHEAT_PERFECTDARKNESS)) {
 		chr->visionrange = (u8)distance;
 		applied = 1;
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_set_view_distance_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action set_view_distance value=%d applied=%d source=%s backend=graph.ai.action.set_view_distance+ai/ailists.tsv",
-			distance, applied, s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI action set_view_distance chr_rows=%d source_chr=%d value=%d applied=%d source=%s backend=graph.ai.action.set_view_distance+ai/ailists.tsv",
+			chr_count, source_chr, distance, applied,
+			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_set_view_distance_logged = 1;
 	}
 	return 1;
@@ -16938,26 +22727,26 @@ s32 scenarioSourceAiGraphExecuteSetViewDistance(struct chrdata *chr,
 s32 scenarioSourceAiGraphExecuteSetGrenadeProbability(struct chrdata *chr,
 	s32 probability)
 {
-	if (!s_ActiveScenarioGraphs.level_graph_active) {
-		return 0;
+	s32 required;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
+
+	required = s_aiGraphRequireActiveCharacterAction(
+		"set_grenade_probability",
+		s_ActiveScenarioGraphs
+			.level_ai_set_grenade_probability_node_count, chr,
+		&chr_count, &source_chr);
+	if (required <= 0) {
+		return required < 0 ? 1 : 0;
 	}
-	if (s_ActiveScenarioGraphs.level_ai_set_grenade_probability_node_count != 1) {
-		return s_aiGraphRuntimeFailure("set_grenade_probability",
-			"missing scenario.ai.action.set_grenade_probability node");
+	if (chr && chr->prop) {
+		chr->grenadeprob = (u8)probability;
 	}
-	if (!chr) {
-		return s_aiGraphRuntimeFailure("set_grenade_probability",
-			"missing chr");
-	}
-	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
-		return s_aiGraphRuntimeFailure("set_grenade_probability",
-			"missing ai/ailists.tsv source");
-	}
-	chr->grenadeprob = (u8)probability;
 	if (!s_ActiveScenarioGraphs.ai_action_set_grenade_probability_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action set_grenade_probability value=%d source=%s backend=graph.ai.action.set_grenade_probability+ai/ailists.tsv",
-			probability, s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI action set_grenade_probability chr_rows=%d source_chr=%d value=%d source=%s backend=graph.ai.action.set_grenade_probability+ai/ailists.tsv",
+			chr_count, source_chr, probability,
+			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_set_grenade_probability_logged = 1;
 	}
 	return 1;
@@ -16965,26 +22754,25 @@ s32 scenarioSourceAiGraphExecuteSetGrenadeProbability(struct chrdata *chr,
 
 s32 scenarioSourceAiGraphExecuteSetChrNum(struct chrdata *chr, s32 chrnum)
 {
-	if (!s_ActiveScenarioGraphs.level_graph_active) {
-		return 0;
+	s32 required;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
+
+	required = s_aiGraphRequireActiveCharacterAction("set_chr_num",
+		s_ActiveScenarioGraphs.level_ai_set_chr_num_node_count, chr,
+		&chr_count, &source_chr);
+	if (required <= 0) {
+		return required < 0 ? 1 : 0;
 	}
-	if (s_ActiveScenarioGraphs.level_ai_set_chr_num_node_count != 1) {
-		return s_aiGraphRuntimeFailure("set_chr_num",
-			"missing scenario.ai.action.set_chr_num node");
+	if (chr && chr->prop) {
+		chrSetChrnum(chr, chrnum);
+		chr->chrnum = (s16)chrnum;
 	}
-	if (!chr) {
-		return s_aiGraphRuntimeFailure("set_chr_num", "missing chr");
-	}
-	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
-		return s_aiGraphRuntimeFailure("set_chr_num",
-			"missing ai/ailists.tsv source");
-	}
-	chrSetChrnum(chr, chrnum);
-	chr->chrnum = (s16)chrnum;
 	if (!s_ActiveScenarioGraphs.ai_action_set_chr_num_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action set_chr_num value=%d source=%s backend=graph.ai.action.set_chr_num+ai/ailists.tsv",
-			chrnum, s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI action set_chr_num chr_rows=%d source_chr=%d value=%d source=%s backend=graph.ai.action.set_chr_num+ai/ailists.tsv",
+			chr_count, source_chr, chrnum,
+			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_set_chr_num_logged = 1;
 	}
 	return 1;
@@ -16995,6 +22783,10 @@ s32 scenarioSourceAiGraphExecuteSetMaxDamage(struct chrdata *basechr,
 {
 	struct chrdata *chr;
 	s32 applied;
+	s32 chr_count = 0;
+	s32 target_chrnum = -1;
+	s32 vehicle_count = 0;
+	s32 source_vehicle_type = -1;
 
 	if (!s_ActiveScenarioGraphs.level_graph_active) {
 		return 0;
@@ -17013,10 +22805,21 @@ s32 scenarioSourceAiGraphExecuteSetMaxDamage(struct chrdata *basechr,
 	}
 	applied = 0;
 	if (hovercar) {
+		if (!s_aiGraphRequireRuntimeVehicleObjectPointer(
+				"set_max_damage", &hovercar->base,
+				OBJTYPE_CHOPPER, OBJTYPE_HOVERCAR, &vehicle_count,
+				&source_vehicle_type)) {
+			return 1;
+		}
 		chopperSetMaxDamage(hovercar, maxdamage);
 		applied = 1;
 	} else {
-		chr = chrFindById(basechr, chrnum);
+		if (!s_aiGraphRequireRuntimeCharacterRefFromBase(
+				"set_max_damage", basechr, chrnum,
+				&chr_count, &chr)) {
+			return 0;
+		}
+		target_chrnum = chr ? chr->chrnum : -1;
 		if (chr && chr->prop && !chrIsDead(chr) &&
 				chr->actiontype != ACT_DEAD &&
 				chr->actiontype != ACT_DIE &&
@@ -17029,8 +22832,11 @@ s32 scenarioSourceAiGraphExecuteSetMaxDamage(struct chrdata *basechr,
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_set_max_damage_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action set_max_damage chr=%d value=%.3f applied=%d source=%s backend=graph.ai.action.set_max_damage+ai/ailists.tsv",
-			chrnum, maxdamage, applied, s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI action set_max_damage chr=%d chr_rows=%d target_chr=%d vehicle_rows=%d source_vehicle_type=%d value=%.3f applied=%d source=%s objects=%s backend=graph.ai.action.set_max_damage+ai/ailists.tsv+objects.tsv",
+			chrnum, chr_count, target_chrnum, vehicle_count,
+			source_vehicle_type, maxdamage, applied,
+			s_ActiveScenarioGraphs.ai_lists_path,
+			s_ActiveScenarioGraphs.objects_path);
 		s_ActiveScenarioGraphs.ai_action_set_max_damage_logged = 1;
 	}
 	return 1;
@@ -17038,25 +22844,24 @@ s32 scenarioSourceAiGraphExecuteSetMaxDamage(struct chrdata *basechr,
 
 s32 scenarioSourceAiGraphExecuteAddHealth(struct chrdata *chr, f32 amount)
 {
-	if (!s_ActiveScenarioGraphs.level_graph_active) {
-		return 0;
+	s32 required;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
+
+	required = s_aiGraphRequireActiveCharacterAction("add_health",
+		s_ActiveScenarioGraphs.level_ai_add_health_node_count, chr,
+		&chr_count, &source_chr);
+	if (required <= 0) {
+		return required < 0 ? 1 : 0;
 	}
-	if (s_ActiveScenarioGraphs.level_ai_add_health_node_count != 1) {
-		return s_aiGraphRuntimeFailure("add_health",
-			"missing scenario.ai.action.add_health node");
+	if (chr && chr->prop) {
+		chrAddHealth(chr, amount);
 	}
-	if (!chr) {
-		return s_aiGraphRuntimeFailure("add_health", "missing chr");
-	}
-	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
-		return s_aiGraphRuntimeFailure("add_health",
-			"missing ai/ailists.tsv source");
-	}
-	chrAddHealth(chr, amount);
 	if (!s_ActiveScenarioGraphs.ai_action_add_health_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action add_health amount=%.3f source=%s backend=graph.ai.action.add_health+ai/ailists.tsv",
-			amount, s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI action add_health chr_rows=%d source_chr=%d amount=%.3f source=%s backend=graph.ai.action.add_health+ai/ailists.tsv",
+			chr_count, source_chr, amount,
+			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_add_health_logged = 1;
 	}
 	return 1;
@@ -17064,28 +22869,27 @@ s32 scenarioSourceAiGraphExecuteAddHealth(struct chrdata *chr, f32 amount)
 
 s32 scenarioSourceAiGraphExecuteSetShield(struct chrdata *chr, f32 amount)
 {
-	if (!s_ActiveScenarioGraphs.level_graph_active) {
-		return 0;
+	s32 required;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
+
+	required = s_aiGraphRequireActiveCharacterAction("set_shield",
+		s_ActiveScenarioGraphs.level_ai_set_shield_node_count, chr,
+		&chr_count, &source_chr);
+	if (required <= 0) {
+		return required < 0 ? 1 : 0;
 	}
-	if (s_ActiveScenarioGraphs.level_ai_set_shield_node_count != 1) {
-		return s_aiGraphRuntimeFailure("set_shield",
-			"missing scenario.ai.action.set_shield node");
-	}
-	if (!chr) {
-		return s_aiGraphRuntimeFailure("set_shield", "missing chr");
-	}
-	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
-		return s_aiGraphRuntimeFailure("set_shield",
-			"missing ai/ailists.tsv source");
-	}
-	if (cheatIsActive(CHEAT_ENEMYSHIELDS)) {
+	if (chr && chr->prop && cheatIsActive(CHEAT_ENEMYSHIELDS)) {
 		amount = amount < 8 ? 8 : amount;
 	}
-	chrSetShield(chr, amount);
+	if (chr && chr->prop) {
+		chrSetShield(chr, amount);
+	}
 	if (!s_ActiveScenarioGraphs.ai_action_set_shield_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action set_shield value=%.3f source=%s backend=graph.ai.action.set_shield+ai/ailists.tsv",
-			amount, s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI action set_shield chr_rows=%d source_chr=%d value=%.3f source=%s backend=graph.ai.action.set_shield+ai/ailists.tsv",
+			chr_count, source_chr, amount,
+			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_set_shield_logged = 1;
 	}
 	return 1;
@@ -17094,25 +22898,24 @@ s32 scenarioSourceAiGraphExecuteSetShield(struct chrdata *chr, f32 amount)
 s32 scenarioSourceAiGraphExecuteSetReactionSpeed(struct chrdata *chr,
 	s32 speed)
 {
-	if (!s_ActiveScenarioGraphs.level_graph_active) {
-		return 0;
+	s32 required;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
+
+	required = s_aiGraphRequireActiveCharacterAction("set_reaction_speed",
+		s_ActiveScenarioGraphs.level_ai_set_reaction_speed_node_count,
+		chr, &chr_count, &source_chr);
+	if (required <= 0) {
+		return required < 0 ? 1 : 0;
 	}
-	if (s_ActiveScenarioGraphs.level_ai_set_reaction_speed_node_count != 1) {
-		return s_aiGraphRuntimeFailure("set_reaction_speed",
-			"missing scenario.ai.action.set_reaction_speed node");
+	if (chr && chr->prop) {
+		chr->speedrating = (s8)speed;
 	}
-	if (!chr) {
-		return s_aiGraphRuntimeFailure("set_reaction_speed", "missing chr");
-	}
-	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
-		return s_aiGraphRuntimeFailure("set_reaction_speed",
-			"missing ai/ailists.tsv source");
-	}
-	chr->speedrating = (s8)speed;
 	if (!s_ActiveScenarioGraphs.ai_action_set_reaction_speed_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action set_reaction_speed value=%d source=%s backend=graph.ai.action.set_reaction_speed+ai/ailists.tsv",
-			speed, s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI action set_reaction_speed chr_rows=%d source_chr=%d value=%d source=%s backend=graph.ai.action.set_reaction_speed+ai/ailists.tsv",
+			chr_count, source_chr, speed,
+			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_set_reaction_speed_logged = 1;
 	}
 	return 1;
@@ -17121,25 +22924,24 @@ s32 scenarioSourceAiGraphExecuteSetReactionSpeed(struct chrdata *chr,
 s32 scenarioSourceAiGraphExecuteSetRecoverySpeed(struct chrdata *chr,
 	s32 speed)
 {
-	if (!s_ActiveScenarioGraphs.level_graph_active) {
-		return 0;
+	s32 required;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
+
+	required = s_aiGraphRequireActiveCharacterAction("set_recovery_speed",
+		s_ActiveScenarioGraphs.level_ai_set_recovery_speed_node_count,
+		chr, &chr_count, &source_chr);
+	if (required <= 0) {
+		return required < 0 ? 1 : 0;
 	}
-	if (s_ActiveScenarioGraphs.level_ai_set_recovery_speed_node_count != 1) {
-		return s_aiGraphRuntimeFailure("set_recovery_speed",
-			"missing scenario.ai.action.set_recovery_speed node");
+	if (chr && chr->prop) {
+		chr->arghrating = (s8)speed;
 	}
-	if (!chr) {
-		return s_aiGraphRuntimeFailure("set_recovery_speed", "missing chr");
-	}
-	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
-		return s_aiGraphRuntimeFailure("set_recovery_speed",
-			"missing ai/ailists.tsv source");
-	}
-	chr->arghrating = (s8)speed;
 	if (!s_ActiveScenarioGraphs.ai_action_set_recovery_speed_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action set_recovery_speed value=%d source=%s backend=graph.ai.action.set_recovery_speed+ai/ailists.tsv",
-			speed, s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI action set_recovery_speed chr_rows=%d source_chr=%d value=%d source=%s backend=graph.ai.action.set_recovery_speed+ai/ailists.tsv",
+			chr_count, source_chr, speed,
+			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_set_recovery_speed_logged = 1;
 	}
 	return 1;
@@ -17148,25 +22950,24 @@ s32 scenarioSourceAiGraphExecuteSetRecoverySpeed(struct chrdata *chr,
 s32 scenarioSourceAiGraphExecuteSetAccuracy(struct chrdata *chr,
 	s32 accuracy)
 {
-	if (!s_ActiveScenarioGraphs.level_graph_active) {
-		return 0;
+	s32 required;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
+
+	required = s_aiGraphRequireActiveCharacterAction("set_accuracy",
+		s_ActiveScenarioGraphs.level_ai_set_accuracy_node_count, chr,
+		&chr_count, &source_chr);
+	if (required <= 0) {
+		return required < 0 ? 1 : 0;
 	}
-	if (s_ActiveScenarioGraphs.level_ai_set_accuracy_node_count != 1) {
-		return s_aiGraphRuntimeFailure("set_accuracy",
-			"missing scenario.ai.action.set_accuracy node");
+	if (chr && chr->prop) {
+		chr->accuracyrating = (s8)accuracy;
 	}
-	if (!chr) {
-		return s_aiGraphRuntimeFailure("set_accuracy", "missing chr");
-	}
-	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
-		return s_aiGraphRuntimeFailure("set_accuracy",
-			"missing ai/ailists.tsv source");
-	}
-	chr->accuracyrating = (s8)accuracy;
 	if (!s_ActiveScenarioGraphs.ai_action_set_accuracy_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action set_accuracy value=%d source=%s backend=graph.ai.action.set_accuracy+ai/ailists.tsv",
-			accuracy, s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI action set_accuracy chr_rows=%d source_chr=%d value=%d source=%s backend=graph.ai.action.set_accuracy+ai/ailists.tsv",
+			chr_count, source_chr, accuracy,
+			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_set_accuracy_logged = 1;
 	}
 	return 1;
@@ -17175,32 +22976,31 @@ s32 scenarioSourceAiGraphExecuteSetAccuracy(struct chrdata *chr,
 s32 scenarioSourceAiGraphExecuteSetDodgeRating(struct chrdata *chr,
 	s32 mode, s32 rating)
 {
-	if (!s_ActiveScenarioGraphs.level_graph_active) {
-		return 0;
+	s32 required;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
+
+	required = s_aiGraphRequireActiveCharacterAction("set_dodge_rating",
+		s_ActiveScenarioGraphs.level_ai_set_dodge_rating_node_count,
+		chr, &chr_count, &source_chr);
+	if (required <= 0) {
+		return required < 0 ? 1 : 0;
 	}
-	if (s_ActiveScenarioGraphs.level_ai_set_dodge_rating_node_count != 1) {
-		return s_aiGraphRuntimeFailure("set_dodge_rating",
-			"missing scenario.ai.action.set_dodge_rating node");
-	}
-	if (!chr) {
-		return s_aiGraphRuntimeFailure("set_dodge_rating", "missing chr");
-	}
-	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
-		return s_aiGraphRuntimeFailure("set_dodge_rating",
-			"missing ai/ailists.tsv source");
-	}
-	if (mode == 0) {
-		chr->dodgerating = (s8)rating;
-	} else if (mode == 1) {
-		chr->maxdodgerating = (s8)rating;
-	} else {
-		chr->dodgerating = (s8)rating;
-		chr->maxdodgerating = (s8)rating;
+	if (chr && chr->prop) {
+		if (mode == 0) {
+			chr->dodgerating = (s8)rating;
+		} else if (mode == 1) {
+			chr->maxdodgerating = (s8)rating;
+		} else {
+			chr->dodgerating = (s8)rating;
+			chr->maxdodgerating = (s8)rating;
+		}
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_set_dodge_rating_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action set_dodge_rating mode=%d value=%d source=%s backend=graph.ai.action.set_dodge_rating+ai/ailists.tsv",
-			mode, rating, s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI action set_dodge_rating chr_rows=%d source_chr=%d mode=%d value=%d source=%s backend=graph.ai.action.set_dodge_rating+ai/ailists.tsv",
+			chr_count, source_chr, mode, rating,
+			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_set_dodge_rating_logged = 1;
 	}
 	return 1;
@@ -17209,26 +23009,26 @@ s32 scenarioSourceAiGraphExecuteSetDodgeRating(struct chrdata *chr,
 s32 scenarioSourceAiGraphExecuteSetUnarmedDodgeRating(struct chrdata *chr,
 	s32 rating)
 {
-	if (!s_ActiveScenarioGraphs.level_graph_active) {
-		return 0;
+	s32 required;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
+
+	required = s_aiGraphRequireActiveCharacterAction(
+		"set_unarmed_dodge_rating",
+		s_ActiveScenarioGraphs
+			.level_ai_set_unarmed_dodge_rating_node_count, chr,
+		&chr_count, &source_chr);
+	if (required <= 0) {
+		return required < 0 ? 1 : 0;
 	}
-	if (s_ActiveScenarioGraphs.level_ai_set_unarmed_dodge_rating_node_count != 1) {
-		return s_aiGraphRuntimeFailure("set_unarmed_dodge_rating",
-			"missing scenario.ai.action.set_unarmed_dodge_rating node");
+	if (chr && chr->prop) {
+		chr->unarmeddodgerating = (s8)rating;
 	}
-	if (!chr) {
-		return s_aiGraphRuntimeFailure("set_unarmed_dodge_rating",
-			"missing chr");
-	}
-	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
-		return s_aiGraphRuntimeFailure("set_unarmed_dodge_rating",
-			"missing ai/ailists.tsv source");
-	}
-	chr->unarmeddodgerating = (s8)rating;
 	if (!s_ActiveScenarioGraphs.ai_action_set_unarmed_dodge_rating_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action set_unarmed_dodge_rating value=%d source=%s backend=graph.ai.action.set_unarmed_dodge_rating+ai/ailists.tsv",
-			rating, s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI action set_unarmed_dodge_rating chr_rows=%d source_chr=%d value=%d source=%s backend=graph.ai.action.set_unarmed_dodge_rating+ai/ailists.tsv",
+			chr_count, source_chr, rating,
+			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_set_unarmed_dodge_rating_logged = 1;
 	}
 	return 1;
@@ -17237,25 +23037,23 @@ s32 scenarioSourceAiGraphExecuteSetUnarmedDodgeRating(struct chrdata *chr,
 s32 scenarioSourceAiGraphExecuteSetFlag(struct chrdata *chr,
 	u32 flags, u8 bank)
 {
-	if (!s_ActiveScenarioGraphs.level_graph_active) {
-		return 0;
+	s32 required;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
+
+	required = s_aiGraphRequireActiveCharacterAction("set_flag",
+		s_ActiveScenarioGraphs.level_ai_set_flag_node_count, chr,
+		&chr_count, &source_chr);
+	if (required <= 0) {
+		return required < 0 ? 1 : 0;
 	}
-	if (s_ActiveScenarioGraphs.level_ai_set_flag_node_count != 1) {
-		return s_aiGraphRuntimeFailure("set_flag",
-			"missing scenario.ai.action.set_flag node");
+	if (chr && chr->prop) {
+		chrSetFlags(chr, flags, bank);
 	}
-	if (!chr) {
-		return s_aiGraphRuntimeFailure("set_flag", "missing chr");
-	}
-	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
-		return s_aiGraphRuntimeFailure("set_flag",
-			"missing ai/ailists.tsv source");
-	}
-	chrSetFlags(chr, flags, bank);
 	if (!s_ActiveScenarioGraphs.ai_action_set_flag_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action set_flag flags=0x%08x bank=%u source=%s backend=graph.ai.action.set_flag+ai/ailists.tsv",
-			flags, (unsigned)bank,
+			"SCENARIO.GRAPH: AI action set_flag chr_rows=%d source_chr=%d flags=0x%08x bank=%u source=%s backend=graph.ai.action.set_flag+ai/ailists.tsv",
+			chr_count, source_chr, flags, (unsigned)bank,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_set_flag_logged = 1;
 	}
@@ -17265,25 +23063,23 @@ s32 scenarioSourceAiGraphExecuteSetFlag(struct chrdata *chr,
 s32 scenarioSourceAiGraphExecuteUnsetFlag(struct chrdata *chr,
 	u32 flags, u8 bank)
 {
-	if (!s_ActiveScenarioGraphs.level_graph_active) {
-		return 0;
+	s32 required;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
+
+	required = s_aiGraphRequireActiveCharacterAction("unset_flag",
+		s_ActiveScenarioGraphs.level_ai_unset_flag_node_count, chr,
+		&chr_count, &source_chr);
+	if (required <= 0) {
+		return required < 0 ? 1 : 0;
 	}
-	if (s_ActiveScenarioGraphs.level_ai_unset_flag_node_count != 1) {
-		return s_aiGraphRuntimeFailure("unset_flag",
-			"missing scenario.ai.action.unset_flag node");
+	if (chr && chr->prop) {
+		chrUnsetFlags(chr, flags, bank);
 	}
-	if (!chr) {
-		return s_aiGraphRuntimeFailure("unset_flag", "missing chr");
-	}
-	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
-		return s_aiGraphRuntimeFailure("unset_flag",
-			"missing ai/ailists.tsv source");
-	}
-	chrUnsetFlags(chr, flags, bank);
 	if (!s_ActiveScenarioGraphs.ai_action_unset_flag_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action unset_flag flags=0x%08x bank=%u source=%s backend=graph.ai.action.unset_flag+ai/ailists.tsv",
-			flags, (unsigned)bank,
+			"SCENARIO.GRAPH: AI action unset_flag chr_rows=%d source_chr=%d flags=0x%08x bank=%u source=%s backend=graph.ai.action.unset_flag+ai/ailists.tsv",
+			chr_count, source_chr, flags, (unsigned)bank,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_unset_flag_logged = 1;
 	}
@@ -17293,24 +23089,19 @@ s32 scenarioSourceAiGraphExecuteUnsetFlag(struct chrdata *chr,
 s32 scenarioSourceAiGraphExecuteIfHasFlag(struct chrdata *chr,
 	u32 flags, u8 bank, s32 invert, s32 label)
 {
+	s32 required;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
 	s32 result;
 
-	if (!s_ActiveScenarioGraphs.level_graph_active) {
-		return 0;
+	required = s_aiGraphRequireActiveCharacterAction("if_has_flag",
+		s_ActiveScenarioGraphs.level_ai_if_has_flag_node_count, chr,
+		&chr_count, &source_chr);
+	if (required <= 0) {
+		return required < 0 ? 1 : 0;
 	}
-	if (s_ActiveScenarioGraphs.level_ai_if_has_flag_node_count != 1) {
-		return s_aiGraphRuntimeFailure("if_has_flag",
-			"missing scenario.ai.action.if_has_flag node");
-	}
-	if (!chr) {
-		return s_aiGraphRuntimeFailure("if_has_flag", "missing chr");
-	}
-	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
-		return s_aiGraphRuntimeFailure("if_has_flag",
-			"missing ai/ailists.tsv source");
-	}
-	result = chrHasFlag(chr, flags, bank) ? 1 : 0;
-	if (invert) {
+	result = chr && chr->prop && chrHasFlag(chr, flags, bank) ? 1 : 0;
+	if (chr && chr->prop && invert) {
 		result = !result;
 	}
 	if (result) {
@@ -17321,8 +23112,8 @@ s32 scenarioSourceAiGraphExecuteIfHasFlag(struct chrdata *chr,
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_if_has_flag_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action if_has_flag flags=0x%08x bank=%u invert=%d result=%d source=%s backend=graph.ai.action.if_has_flag+ai/ailists.tsv",
-			flags, (unsigned)bank, invert, result,
+			"SCENARIO.GRAPH: AI action if_has_flag chr_rows=%d source_chr=%d flags=0x%08x bank=%u invert=%d result=%d source=%s backend=graph.ai.action.if_has_flag+ai/ailists.tsv",
+			chr_count, source_chr, flags, (unsigned)bank, invert, result,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_if_has_flag_logged = 1;
 	}
@@ -17332,6 +23123,10 @@ s32 scenarioSourceAiGraphExecuteIfHasFlag(struct chrdata *chr,
 s32 scenarioSourceAiGraphExecuteChrSetFlag(struct chrdata *basechr,
 	s32 chrnum, u32 flags, u8 bank)
 {
+	struct chrdata *chr = NULL;
+	s32 chr_count = 0;
+	s32 target_chrnum = -1;
+
 	if (!s_ActiveScenarioGraphs.level_graph_active) {
 		return 0;
 	}
@@ -17347,11 +23142,18 @@ s32 scenarioSourceAiGraphExecuteChrSetFlag(struct chrdata *basechr,
 		return s_aiGraphRuntimeFailure("chr_set_flag",
 			"missing ai/ailists.tsv source");
 	}
-	chrSetFlagsById(basechr, chrnum, flags, bank);
+	if (!s_aiGraphRequireRuntimeCharacterRefFromBase("chr_set_flag",
+			basechr, chrnum, &chr_count, &chr)) {
+		return 1;
+	}
+	target_chrnum = chr ? chr->chrnum : -1;
+	if (chr) {
+		chrSetFlags(chr, flags, bank);
+	}
 	if (!s_ActiveScenarioGraphs.ai_action_chr_set_flag_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action chr_set_flag chr=%d flags=0x%08x bank=%u source=%s backend=graph.ai.action.chr_set_flag+ai/ailists.tsv",
-			chrnum, flags, (unsigned)bank,
+			"SCENARIO.GRAPH: AI action chr_set_flag chr=%d chr_rows=%d target_chr=%d flags=0x%08x bank=%u source=%s backend=graph.ai.action.chr_set_flag+ai/ailists.tsv",
+			chrnum, chr_count, target_chrnum, flags, (unsigned)bank,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_chr_set_flag_logged = 1;
 	}
@@ -17361,6 +23163,10 @@ s32 scenarioSourceAiGraphExecuteChrSetFlag(struct chrdata *basechr,
 s32 scenarioSourceAiGraphExecuteChrUnsetFlag(struct chrdata *basechr,
 	s32 chrnum, u32 flags, u8 bank)
 {
+	struct chrdata *chr = NULL;
+	s32 chr_count = 0;
+	s32 target_chrnum = -1;
+
 	if (!s_ActiveScenarioGraphs.level_graph_active) {
 		return 0;
 	}
@@ -17376,11 +23182,18 @@ s32 scenarioSourceAiGraphExecuteChrUnsetFlag(struct chrdata *basechr,
 		return s_aiGraphRuntimeFailure("chr_unset_flag",
 			"missing ai/ailists.tsv source");
 	}
-	chrUnsetFlagsById(basechr, chrnum, flags, bank);
+	if (!s_aiGraphRequireRuntimeCharacterRefFromBase("chr_unset_flag",
+			basechr, chrnum, &chr_count, &chr)) {
+		return 1;
+	}
+	target_chrnum = chr ? chr->chrnum : -1;
+	if (chr) {
+		chrUnsetFlags(chr, flags, bank);
+	}
 	if (!s_ActiveScenarioGraphs.ai_action_chr_unset_flag_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action chr_unset_flag chr=%d flags=0x%08x bank=%u source=%s backend=graph.ai.action.chr_unset_flag+ai/ailists.tsv",
-			chrnum, flags, (unsigned)bank,
+			"SCENARIO.GRAPH: AI action chr_unset_flag chr=%d chr_rows=%d target_chr=%d flags=0x%08x bank=%u source=%s backend=graph.ai.action.chr_unset_flag+ai/ailists.tsv",
+			chrnum, chr_count, target_chrnum, flags, (unsigned)bank,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_chr_unset_flag_logged = 1;
 	}
@@ -17390,7 +23203,10 @@ s32 scenarioSourceAiGraphExecuteChrUnsetFlag(struct chrdata *basechr,
 s32 scenarioSourceAiGraphExecuteIfChrHasFlag(struct chrdata *basechr,
 	s32 chrnum, u32 flags, u8 bank, s32 label)
 {
+	struct chrdata *chr = NULL;
+	s32 chr_count = 0;
 	s32 result;
+	s32 target_chrnum = -1;
 
 	if (!s_ActiveScenarioGraphs.level_graph_active) {
 		return 0;
@@ -17407,7 +23223,12 @@ s32 scenarioSourceAiGraphExecuteIfChrHasFlag(struct chrdata *basechr,
 		return s_aiGraphRuntimeFailure("if_chr_has_flag",
 			"missing ai/ailists.tsv source");
 	}
-	result = chrHasFlagById(basechr, chrnum, flags, bank) ? 1 : 0;
+	if (!s_aiGraphRequireRuntimeCharacterRefFromBase("if_chr_has_flag",
+			basechr, chrnum, &chr_count, &chr)) {
+		return 1;
+	}
+	target_chrnum = chr ? chr->chrnum : -1;
+	result = chr && chrHasFlag(chr, flags, bank) ? 1 : 0;
 	if (result) {
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist,
 			g_Vars.aioffset, label);
@@ -17416,8 +23237,8 @@ s32 scenarioSourceAiGraphExecuteIfChrHasFlag(struct chrdata *basechr,
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_if_chr_has_flag_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action if_chr_has_flag chr=%d flags=0x%08x bank=%u result=%d source=%s backend=graph.ai.action.if_chr_has_flag+ai/ailists.tsv",
-			chrnum, flags, (unsigned)bank, result,
+			"SCENARIO.GRAPH: AI action if_chr_has_flag chr=%d chr_rows=%d target_chr=%d flags=0x%08x bank=%u result=%d source=%s backend=graph.ai.action.if_chr_has_flag+ai/ailists.tsv",
+			chrnum, chr_count, target_chrnum, flags, (unsigned)bank, result,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_if_chr_has_flag_logged = 1;
 	}
@@ -17507,6 +23328,9 @@ s32 scenarioSourceAiGraphExecuteIfStageFlagEq(u32 flags, s32 expected,
 
 s32 scenarioSourceAiGraphExecuteSetChrflag(struct chrdata *chr, u32 flags)
 {
+	s32 chr_count = 0;
+	s32 target_chrnum = -1;
+
 	if (!s_ActiveScenarioGraphs.level_graph_active) {
 		return 0;
 	}
@@ -17521,11 +23345,16 @@ s32 scenarioSourceAiGraphExecuteSetChrflag(struct chrdata *chr, u32 flags)
 		return s_aiGraphRuntimeFailure("set_chrflag",
 			"missing ai/ailists.tsv source");
 	}
+	if (!s_aiGraphRequireRuntimeCharacterStatePointer("set_chrflag", chr,
+			&chr_count, &target_chrnum)) {
+		return 0;
+	}
 	chr->chrflags |= flags;
 	if (!s_ActiveScenarioGraphs.ai_action_set_chrflag_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action set_chrflag flags=0x%08x source=%s backend=graph.ai.action.set_chrflag+ai/ailists.tsv",
-			flags, s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI action set_chrflag chr_rows=%d target_chr=%d flags=0x%08x source=%s backend=graph.ai.action.set_chrflag+ai/ailists.tsv",
+			chr_count, target_chrnum, flags,
+			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_set_chrflag_logged = 1;
 	}
 	return 1;
@@ -17533,6 +23362,9 @@ s32 scenarioSourceAiGraphExecuteSetChrflag(struct chrdata *chr, u32 flags)
 
 s32 scenarioSourceAiGraphExecuteUnsetChrflag(struct chrdata *chr, u32 flags)
 {
+	s32 chr_count = 0;
+	s32 target_chrnum = -1;
+
 	if (!s_ActiveScenarioGraphs.level_graph_active) {
 		return 0;
 	}
@@ -17547,11 +23379,16 @@ s32 scenarioSourceAiGraphExecuteUnsetChrflag(struct chrdata *chr, u32 flags)
 		return s_aiGraphRuntimeFailure("unset_chrflag",
 			"missing ai/ailists.tsv source");
 	}
+	if (!s_aiGraphRequireRuntimeCharacterStatePointer("unset_chrflag", chr,
+			&chr_count, &target_chrnum)) {
+		return 0;
+	}
 	chr->chrflags &= ~flags;
 	if (!s_ActiveScenarioGraphs.ai_action_unset_chrflag_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action unset_chrflag flags=0x%08x source=%s backend=graph.ai.action.unset_chrflag+ai/ailists.tsv",
-			flags, s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI action unset_chrflag chr_rows=%d target_chr=%d flags=0x%08x source=%s backend=graph.ai.action.unset_chrflag+ai/ailists.tsv",
+			chr_count, target_chrnum, flags,
+			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_unset_chrflag_logged = 1;
 	}
 	return 1;
@@ -17561,6 +23398,8 @@ s32 scenarioSourceAiGraphExecuteIfHasChrflag(struct chrdata *chr,
 	u32 flags, s32 label)
 {
 	s32 result;
+	s32 chr_count = 0;
+	s32 target_chrnum = -1;
 
 	if (!s_ActiveScenarioGraphs.level_graph_active) {
 		return 0;
@@ -17576,6 +23415,10 @@ s32 scenarioSourceAiGraphExecuteIfHasChrflag(struct chrdata *chr,
 		return s_aiGraphRuntimeFailure("if_has_chrflag",
 			"missing ai/ailists.tsv source");
 	}
+	if (!s_aiGraphRequireRuntimeCharacterStatePointer("if_has_chrflag", chr,
+			&chr_count, &target_chrnum)) {
+		return 0;
+	}
 	result = ((chr->chrflags & flags) == flags);
 	if (result) {
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist,
@@ -17585,27 +23428,22 @@ s32 scenarioSourceAiGraphExecuteIfHasChrflag(struct chrdata *chr,
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_if_has_chrflag_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action if_has_chrflag flags=0x%08x result=%d source=%s backend=graph.ai.action.if_has_chrflag+ai/ailists.tsv",
-			flags, result, s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI action if_has_chrflag chr_rows=%d target_chr=%d flags=0x%08x result=%d source=%s backend=graph.ai.action.if_has_chrflag+ai/ailists.tsv",
+			chr_count, target_chrnum, flags, result,
+			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_if_has_chrflag_logged = 1;
 	}
 	return 1;
-}
-
-static struct chrdata *s_aiGraphFindChrById(struct chrdata *basechr,
-	s32 chrnum, const char *action)
-{
-	if (!basechr) {
-		s_aiGraphRuntimeFailure(action, "missing base chr");
-		return NULL;
-	}
-	return chrFindById(basechr, chrnum);
 }
 
 s32 scenarioSourceAiGraphExecuteChrSetChrflag(struct chrdata *basechr,
 	s32 chrnum, u32 flags)
 {
 	struct chrdata *chr;
+	s32 chr_count = 0;
+	s32 target_chrnum = -1;
+	s32 selector = 0;
+	s32 applied = 0;
 
 	if (!s_ActiveScenarioGraphs.level_graph_active) {
 		return 0;
@@ -17618,14 +23456,20 @@ s32 scenarioSourceAiGraphExecuteChrSetChrflag(struct chrdata *basechr,
 		return s_aiGraphRuntimeFailure("chr_set_chrflag",
 			"missing ai/ailists.tsv source");
 	}
-	chr = s_aiGraphFindChrById(basechr, chrnum, "chr_set_chrflag");
+	if (!s_aiGraphResolveOptionalRuntimeCharacterRefOrSelector("chr_set_chrflag",
+			basechr, chrnum, &chr_count, &chr, &selector)) {
+		return 0;
+	}
+	target_chrnum = chr ? chr->chrnum : -1;
 	if (chr) {
 		chr->chrflags |= flags;
+		applied = 1;
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_chr_set_chrflag_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action chr_set_chrflag chr=%d flags=0x%08x applied=%d source=%s backend=graph.ai.action.chr_set_chrflag+ai/ailists.tsv",
-			chrnum, flags, chr ? 1 : 0, s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI action chr_set_chrflag chr=%d chr_rows=%d target_chr=%d selector=%d flags=0x%08x applied=%d source=%s backend=graph.ai.action.chr_set_chrflag+ai/ailists.tsv",
+			chrnum, chr_count, target_chrnum, selector, flags, applied,
+			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_chr_set_chrflag_logged = 1;
 	}
 	return 1;
@@ -17635,6 +23479,10 @@ s32 scenarioSourceAiGraphExecuteChrUnsetChrflag(struct chrdata *basechr,
 	s32 chrnum, u32 flags)
 {
 	struct chrdata *chr;
+	s32 chr_count = 0;
+	s32 target_chrnum = -1;
+	s32 selector = 0;
+	s32 applied = 0;
 
 	if (!s_ActiveScenarioGraphs.level_graph_active) {
 		return 0;
@@ -17647,14 +23495,20 @@ s32 scenarioSourceAiGraphExecuteChrUnsetChrflag(struct chrdata *basechr,
 		return s_aiGraphRuntimeFailure("chr_unset_chrflag",
 			"missing ai/ailists.tsv source");
 	}
-	chr = s_aiGraphFindChrById(basechr, chrnum, "chr_unset_chrflag");
+	if (!s_aiGraphResolveOptionalRuntimeCharacterRefOrSelector("chr_unset_chrflag",
+			basechr, chrnum, &chr_count, &chr, &selector)) {
+		return 0;
+	}
+	target_chrnum = chr ? chr->chrnum : -1;
 	if (chr) {
 		chr->chrflags &= ~flags;
+		applied = 1;
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_chr_unset_chrflag_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action chr_unset_chrflag chr=%d flags=0x%08x applied=%d source=%s backend=graph.ai.action.chr_unset_chrflag+ai/ailists.tsv",
-			chrnum, flags, chr ? 1 : 0, s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI action chr_unset_chrflag chr=%d chr_rows=%d target_chr=%d selector=%d flags=0x%08x applied=%d source=%s backend=graph.ai.action.chr_unset_chrflag+ai/ailists.tsv",
+			chrnum, chr_count, target_chrnum, selector, flags, applied,
+			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_chr_unset_chrflag_logged = 1;
 	}
 	return 1;
@@ -17665,6 +23519,9 @@ s32 scenarioSourceAiGraphExecuteIfChrHasChrflag(struct chrdata *basechr,
 {
 	struct chrdata *chr;
 	s32 result;
+	s32 chr_count = 0;
+	s32 target_chrnum = -1;
+	s32 selector = 0;
 
 	if (!s_ActiveScenarioGraphs.level_graph_active) {
 		return 0;
@@ -17677,8 +23534,13 @@ s32 scenarioSourceAiGraphExecuteIfChrHasChrflag(struct chrdata *basechr,
 		return s_aiGraphRuntimeFailure("if_chr_has_chrflag",
 			"missing ai/ailists.tsv source");
 	}
-	chr = s_aiGraphFindChrById(basechr, chrnum, "if_chr_has_chrflag");
-	result = chr && (chr->chrflags & flags) == flags;
+	if (!s_aiGraphResolveOptionalRuntimeCharacterRefOrSelector(
+			"if_chr_has_chrflag", basechr, chrnum, &chr_count,
+			&chr, &selector)) {
+		return 0;
+	}
+	target_chrnum = chr ? chr->chrnum : -1;
+	result = chr ? ((chr->chrflags & flags) == flags) : 0;
 	if (result) {
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist,
 			g_Vars.aioffset, label);
@@ -17687,8 +23549,9 @@ s32 scenarioSourceAiGraphExecuteIfChrHasChrflag(struct chrdata *basechr,
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_if_chr_has_chrflag_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action if_chr_has_chrflag chr=%d flags=0x%08x result=%d source=%s backend=graph.ai.action.if_chr_has_chrflag+ai/ailists.tsv",
-			chrnum, flags, result, s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI action if_chr_has_chrflag chr=%d chr_rows=%d target_chr=%d selector=%d flags=0x%08x result=%d source=%s backend=graph.ai.action.if_chr_has_chrflag+ai/ailists.tsv",
+			chrnum, chr_count, target_chrnum, selector, flags, result,
+			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_if_chr_has_chrflag_logged = 1;
 	}
 	return 1;
@@ -17698,6 +23561,10 @@ s32 scenarioSourceAiGraphExecuteChrSetHiddenFlag(struct chrdata *basechr,
 	s32 chrnum, u32 flags)
 {
 	struct chrdata *chr;
+	s32 chr_count = 0;
+	s32 target_chrnum = -1;
+	s32 selector = 0;
+	s32 applied = 0;
 
 	if (!s_ActiveScenarioGraphs.level_graph_active) {
 		return 0;
@@ -17710,14 +23577,21 @@ s32 scenarioSourceAiGraphExecuteChrSetHiddenFlag(struct chrdata *basechr,
 		return s_aiGraphRuntimeFailure("chr_set_hidden_flag",
 			"missing ai/ailists.tsv source");
 	}
-	chr = s_aiGraphFindChrById(basechr, chrnum, "chr_set_hidden_flag");
+	if (!s_aiGraphResolveOptionalRuntimeCharacterRefOrSelector(
+			"chr_set_hidden_flag", basechr, chrnum, &chr_count,
+			&chr, &selector)) {
+		return 0;
+	}
+	target_chrnum = chr ? chr->chrnum : -1;
 	if (chr) {
 		chr->hidden |= flags;
+		applied = 1;
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_chr_set_hidden_flag_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action chr_set_hidden_flag chr=%d flags=0x%08x applied=%d source=%s backend=graph.ai.action.chr_set_hidden_flag+ai/ailists.tsv",
-			chrnum, flags, chr ? 1 : 0, s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI action chr_set_hidden_flag chr=%d chr_rows=%d target_chr=%d selector=%d flags=0x%08x applied=%d source=%s backend=graph.ai.action.chr_set_hidden_flag+ai/ailists.tsv",
+			chrnum, chr_count, target_chrnum, selector, flags, applied,
+			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_chr_set_hidden_flag_logged = 1;
 	}
 	return 1;
@@ -17727,6 +23601,10 @@ s32 scenarioSourceAiGraphExecuteChrUnsetHiddenFlag(struct chrdata *basechr,
 	s32 chrnum, u32 flags)
 {
 	struct chrdata *chr;
+	s32 chr_count = 0;
+	s32 target_chrnum = -1;
+	s32 selector = 0;
+	s32 applied = 0;
 
 	if (!s_ActiveScenarioGraphs.level_graph_active) {
 		return 0;
@@ -17739,14 +23617,21 @@ s32 scenarioSourceAiGraphExecuteChrUnsetHiddenFlag(struct chrdata *basechr,
 		return s_aiGraphRuntimeFailure("chr_unset_hidden_flag",
 			"missing ai/ailists.tsv source");
 	}
-	chr = s_aiGraphFindChrById(basechr, chrnum, "chr_unset_hidden_flag");
+	if (!s_aiGraphResolveOptionalRuntimeCharacterRefOrSelector(
+			"chr_unset_hidden_flag", basechr, chrnum,
+			&chr_count, &chr, &selector)) {
+		return 0;
+	}
+	target_chrnum = chr ? chr->chrnum : -1;
 	if (chr) {
 		chr->hidden &= ~flags;
+		applied = 1;
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_chr_unset_hidden_flag_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action chr_unset_hidden_flag chr=%d flags=0x%08x applied=%d source=%s backend=graph.ai.action.chr_unset_hidden_flag+ai/ailists.tsv",
-			chrnum, flags, chr ? 1 : 0, s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI action chr_unset_hidden_flag chr=%d chr_rows=%d target_chr=%d selector=%d flags=0x%08x applied=%d source=%s backend=graph.ai.action.chr_unset_hidden_flag+ai/ailists.tsv",
+			chrnum, chr_count, target_chrnum, selector, flags, applied,
+			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_chr_unset_hidden_flag_logged = 1;
 	}
 	return 1;
@@ -17757,6 +23642,9 @@ s32 scenarioSourceAiGraphExecuteIfChrHasHiddenFlag(struct chrdata *basechr,
 {
 	struct chrdata *chr;
 	s32 result;
+	s32 chr_count = 0;
+	s32 target_chrnum = -1;
+	s32 selector = 0;
 
 	if (!s_ActiveScenarioGraphs.level_graph_active) {
 		return 0;
@@ -17769,9 +23657,13 @@ s32 scenarioSourceAiGraphExecuteIfChrHasHiddenFlag(struct chrdata *basechr,
 		return s_aiGraphRuntimeFailure("if_chr_has_hidden_flag",
 			"missing ai/ailists.tsv source");
 	}
-	chr = s_aiGraphFindChrById(basechr, chrnum,
-		"if_chr_has_hidden_flag");
-	result = chr && (chr->hidden & flags) == flags;
+	if (!s_aiGraphResolveOptionalRuntimeCharacterRefOrSelector(
+			"if_chr_has_hidden_flag", basechr, chrnum,
+			&chr_count, &chr, &selector)) {
+		return 0;
+	}
+	target_chrnum = chr ? chr->chrnum : -1;
+	result = chr ? ((chr->hidden & flags) == flags) : 0;
 	if (result) {
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist,
 			g_Vars.aioffset, label);
@@ -17780,8 +23672,9 @@ s32 scenarioSourceAiGraphExecuteIfChrHasHiddenFlag(struct chrdata *basechr,
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_if_chr_has_hidden_flag_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action if_chr_has_hidden_flag chr=%d flags=0x%08x result=%d source=%s backend=graph.ai.action.if_chr_has_hidden_flag+ai/ailists.tsv",
-			chrnum, flags, result, s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI action if_chr_has_hidden_flag chr=%d chr_rows=%d target_chr=%d selector=%d flags=0x%08x result=%d source=%s backend=graph.ai.action.if_chr_has_hidden_flag+ai/ailists.tsv",
+			chrnum, chr_count, target_chrnum, selector, flags, result,
+			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_if_chr_has_hidden_flag_logged = 1;
 	}
 	return 1;
@@ -17808,6 +23701,7 @@ s32 scenarioSourceAiGraphExecuteSetObjFlag(s32 tag_id, u32 flags, s32 bank)
 {
 	struct defaultobj *obj;
 	u32 *target;
+	s32 object_count = 0;
 
 	if (!s_ActiveScenarioGraphs.level_graph_active) {
 		return 0;
@@ -17821,15 +23715,19 @@ s32 scenarioSourceAiGraphExecuteSetObjFlag(s32 tag_id, u32 flags, s32 bank)
 		return s_aiGraphRuntimeFailure("set_obj_flag",
 			"missing ai/ailists.tsv or objects.tsv source");
 	}
-	obj = objFindByTagId(tag_id);
+	if (!s_aiGraphResolveOptionalRuntimeObjectTag("set_obj_flag", tag_id,
+			&object_count, &obj)) {
+		return 1;
+	}
 	target = s_aiGraphObjectFlagBank(obj, bank);
 	if (target && obj->prop) {
 		*target |= flags;
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_set_obj_flag_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action set_obj_flag tag=%d bank=%d flags=0x%08x applied=%d source=%s objects=%s backend=graph.ai.action.set_obj_flag+objects.tsv",
-			tag_id, bank, flags, target && obj && obj->prop ? 1 : 0,
+			"SCENARIO.GRAPH: AI action set_obj_flag tag=%d object_rows=%d bank=%d flags=0x%08x applied=%d source=%s objects=%s backend=graph.ai.action.set_obj_flag+objects.tsv",
+			tag_id, object_count, bank, flags,
+			target && obj && obj->prop ? 1 : 0,
 			s_ActiveScenarioGraphs.ai_lists_path,
 			s_ActiveScenarioGraphs.objects_path);
 		s_ActiveScenarioGraphs.ai_action_set_obj_flag_logged = 1;
@@ -17841,6 +23739,7 @@ s32 scenarioSourceAiGraphExecuteUnsetObjFlag(s32 tag_id, u32 flags, s32 bank)
 {
 	struct defaultobj *obj;
 	u32 *target;
+	s32 object_count = 0;
 
 	if (!s_ActiveScenarioGraphs.level_graph_active) {
 		return 0;
@@ -17854,15 +23753,19 @@ s32 scenarioSourceAiGraphExecuteUnsetObjFlag(s32 tag_id, u32 flags, s32 bank)
 		return s_aiGraphRuntimeFailure("unset_obj_flag",
 			"missing ai/ailists.tsv or objects.tsv source");
 	}
-	obj = objFindByTagId(tag_id);
+	if (!s_aiGraphResolveOptionalRuntimeObjectTag("unset_obj_flag", tag_id,
+			&object_count, &obj)) {
+		return 1;
+	}
 	target = s_aiGraphObjectFlagBank(obj, bank);
 	if (target && obj->prop) {
 		*target &= ~flags;
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_unset_obj_flag_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action unset_obj_flag tag=%d bank=%d flags=0x%08x applied=%d source=%s objects=%s backend=graph.ai.action.unset_obj_flag+objects.tsv",
-			tag_id, bank, flags, target && obj && obj->prop ? 1 : 0,
+			"SCENARIO.GRAPH: AI action unset_obj_flag tag=%d object_rows=%d bank=%d flags=0x%08x applied=%d source=%s objects=%s backend=graph.ai.action.unset_obj_flag+objects.tsv",
+			tag_id, object_count, bank, flags,
+			target && obj && obj->prop ? 1 : 0,
 			s_ActiveScenarioGraphs.ai_lists_path,
 			s_ActiveScenarioGraphs.objects_path);
 		s_ActiveScenarioGraphs.ai_action_unset_obj_flag_logged = 1;
@@ -17875,6 +23778,7 @@ s32 scenarioSourceAiGraphExecuteIfObjHasFlag(s32 tag_id, u32 flags, s32 bank,
 {
 	struct defaultobj *obj;
 	u32 *target;
+	s32 object_count = 0;
 	s32 result;
 
 	if (!s_ActiveScenarioGraphs.level_graph_active) {
@@ -17889,7 +23793,10 @@ s32 scenarioSourceAiGraphExecuteIfObjHasFlag(s32 tag_id, u32 flags, s32 bank,
 		return s_aiGraphRuntimeFailure("if_obj_has_flag",
 			"missing ai/ailists.tsv or objects.tsv source");
 	}
-	obj = objFindByTagId(tag_id);
+	if (!s_aiGraphResolveOptionalRuntimeObjectTag("if_obj_has_flag", tag_id,
+			&object_count, &obj)) {
+		return 1;
+	}
 	target = s_aiGraphObjectFlagBank(obj, bank);
 	result = target && obj->prop && ((*target & flags) == flags);
 	if (result) {
@@ -17900,8 +23807,8 @@ s32 scenarioSourceAiGraphExecuteIfObjHasFlag(s32 tag_id, u32 flags, s32 bank,
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_if_obj_has_flag_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action if_obj_has_flag tag=%d bank=%d flags=0x%08x result=%d source=%s objects=%s backend=graph.ai.action.if_obj_has_flag+objects.tsv",
-			tag_id, bank, flags, result,
+			"SCENARIO.GRAPH: AI action if_obj_has_flag tag=%d object_rows=%d bank=%d flags=0x%08x result=%d source=%s objects=%s backend=graph.ai.action.if_obj_has_flag+objects.tsv",
+			tag_id, object_count, bank, flags, result,
 			s_ActiveScenarioGraphs.ai_lists_path,
 			s_ActiveScenarioGraphs.objects_path);
 		s_ActiveScenarioGraphs.ai_action_if_obj_has_flag_logged = 1;
@@ -17931,11 +23838,16 @@ static s32 s_aiGraphRequireDoorNode(const char *action, s32 node_count)
 s32 scenarioSourceAiGraphExecuteOpenDoor(s32 tag_id)
 {
 	struct defaultobj *obj;
+	s32 object_count = 0;
 	s32 applied = 0;
 
 	if (!s_aiGraphRequireDoorNode("open_door",
 			s_ActiveScenarioGraphs.level_ai_open_door_node_count)) {
 		return 0;
+	}
+	if (!s_aiGraphRequireRuntimeObjectTagType("open_door", tag_id,
+			OBJTYPE_DOOR, &object_count)) {
+		return 1;
 	}
 	obj = objFindByTagId(tag_id);
 	if (obj && obj->prop && obj->prop->type == PROPTYPE_DOOR) {
@@ -17946,8 +23858,8 @@ s32 scenarioSourceAiGraphExecuteOpenDoor(s32 tag_id)
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_open_door_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action open_door tag=%d applied=%d source=%s objects=%s backend=graph.ai.action.door+objects.tsv",
-			tag_id, applied, s_ActiveScenarioGraphs.ai_lists_path,
+			"SCENARIO.GRAPH: AI action open_door tag=%d object_rows=%d applied=%d source=%s objects=%s backend=graph.ai.action.door+objects.tsv",
+			tag_id, object_count, applied, s_ActiveScenarioGraphs.ai_lists_path,
 			s_ActiveScenarioGraphs.objects_path);
 		s_ActiveScenarioGraphs.ai_action_open_door_logged = 1;
 	}
@@ -17957,11 +23869,16 @@ s32 scenarioSourceAiGraphExecuteOpenDoor(s32 tag_id)
 s32 scenarioSourceAiGraphExecuteCloseDoor(s32 tag_id)
 {
 	struct defaultobj *obj;
+	s32 object_count = 0;
 	s32 applied = 0;
 
 	if (!s_aiGraphRequireDoorNode("close_door",
 			s_ActiveScenarioGraphs.level_ai_close_door_node_count)) {
 		return 0;
+	}
+	if (!s_aiGraphRequireRuntimeObjectTagType("close_door", tag_id,
+			OBJTYPE_DOOR, &object_count)) {
+		return 1;
 	}
 	obj = objFindByTagId(tag_id);
 	if (obj && obj->prop && obj->prop->type == PROPTYPE_DOOR) {
@@ -17970,8 +23887,8 @@ s32 scenarioSourceAiGraphExecuteCloseDoor(s32 tag_id)
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_close_door_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action close_door tag=%d applied=%d source=%s objects=%s backend=graph.ai.action.door+objects.tsv",
-			tag_id, applied, s_ActiveScenarioGraphs.ai_lists_path,
+			"SCENARIO.GRAPH: AI action close_door tag=%d object_rows=%d applied=%d source=%s objects=%s backend=graph.ai.action.door+objects.tsv",
+			tag_id, object_count, applied, s_ActiveScenarioGraphs.ai_lists_path,
 			s_ActiveScenarioGraphs.objects_path);
 		s_ActiveScenarioGraphs.ai_action_close_door_logged = 1;
 	}
@@ -17982,11 +23899,16 @@ s32 scenarioSourceAiGraphExecuteIfDoorState(s32 tag_id, u32 states, s32 label)
 {
 	struct defaultobj *obj;
 	struct doorobj *door;
+	s32 object_count = 0;
 	s32 result = 0;
 
 	if (!s_aiGraphRequireDoorNode("if_door_state",
 			s_ActiveScenarioGraphs.level_ai_if_door_state_node_count)) {
 		return 0;
+	}
+	if (!s_aiGraphRequireRuntimeObjectTagType("if_door_state", tag_id,
+			OBJTYPE_DOOR, &object_count)) {
+		return 1;
 	}
 	obj = objFindByTagId(tag_id);
 	if (obj && obj->prop && obj->type == OBJTYPE_DOOR) {
@@ -18012,8 +23934,8 @@ s32 scenarioSourceAiGraphExecuteIfDoorState(s32 tag_id, u32 states, s32 label)
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_if_door_state_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action if_door_state tag=%d states=0x%02x result=%d source=%s objects=%s backend=graph.ai.action.door+objects.tsv",
-			tag_id, (unsigned)states, result,
+			"SCENARIO.GRAPH: AI action if_door_state tag=%d object_rows=%d states=0x%02x result=%d source=%s objects=%s backend=graph.ai.action.door+objects.tsv",
+			tag_id, object_count, (unsigned)states, result,
 			s_ActiveScenarioGraphs.ai_lists_path,
 			s_ActiveScenarioGraphs.objects_path);
 		s_ActiveScenarioGraphs.ai_action_if_door_state_logged = 1;
@@ -18024,11 +23946,16 @@ s32 scenarioSourceAiGraphExecuteIfDoorState(s32 tag_id, u32 states, s32 label)
 s32 scenarioSourceAiGraphExecuteIfObjectIsDoor(s32 tag_id, s32 label)
 {
 	struct defaultobj *obj;
+	s32 object_count = 0;
 	s32 result;
 
 	if (!s_aiGraphRequireDoorNode("if_object_is_door",
 			s_ActiveScenarioGraphs.level_ai_if_object_is_door_node_count)) {
 		return 0;
+	}
+	if (!s_aiGraphRequireRuntimeObjectTag("if_object_is_door", tag_id,
+			&object_count)) {
+		return 1;
 	}
 	obj = objFindByTagId(tag_id);
 	result = obj && obj->prop && obj->type == OBJTYPE_DOOR &&
@@ -18041,8 +23968,8 @@ s32 scenarioSourceAiGraphExecuteIfObjectIsDoor(s32 tag_id, s32 label)
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_if_object_is_door_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action if_object_is_door tag=%d result=%d source=%s objects=%s backend=graph.ai.action.door+objects.tsv",
-			tag_id, result, s_ActiveScenarioGraphs.ai_lists_path,
+			"SCENARIO.GRAPH: AI action if_object_is_door tag=%d object_rows=%d result=%d source=%s objects=%s backend=graph.ai.action.door+objects.tsv",
+			tag_id, object_count, result, s_ActiveScenarioGraphs.ai_lists_path,
 			s_ActiveScenarioGraphs.objects_path);
 		s_ActiveScenarioGraphs.ai_action_if_object_is_door_logged = 1;
 	}
@@ -18052,11 +23979,16 @@ s32 scenarioSourceAiGraphExecuteIfObjectIsDoor(s32 tag_id, s32 label)
 s32 scenarioSourceAiGraphExecuteLockDoor(s32 tag_id, u32 bits)
 {
 	struct defaultobj *obj;
+	s32 object_count = 0;
 	s32 applied = 0;
 
 	if (!s_aiGraphRequireDoorNode("lock_door",
 			s_ActiveScenarioGraphs.level_ai_lock_door_node_count)) {
 		return 0;
+	}
+	if (!s_aiGraphRequireRuntimeObjectTagType("lock_door", tag_id,
+			OBJTYPE_DOOR, &object_count)) {
+		return 1;
 	}
 	obj = objFindByTagId(tag_id);
 	if (obj && obj->prop && obj->prop->type == PROPTYPE_DOOR) {
@@ -18065,8 +23997,8 @@ s32 scenarioSourceAiGraphExecuteLockDoor(s32 tag_id, u32 bits)
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_lock_door_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action lock_door tag=%d bits=0x%02x applied=%d source=%s objects=%s backend=graph.ai.action.door+objects.tsv",
-			tag_id, (unsigned)bits, applied,
+			"SCENARIO.GRAPH: AI action lock_door tag=%d object_rows=%d bits=0x%02x applied=%d source=%s objects=%s backend=graph.ai.action.door+objects.tsv",
+			tag_id, object_count, (unsigned)bits, applied,
 			s_ActiveScenarioGraphs.ai_lists_path,
 			s_ActiveScenarioGraphs.objects_path);
 		s_ActiveScenarioGraphs.ai_action_lock_door_logged = 1;
@@ -18077,11 +24009,16 @@ s32 scenarioSourceAiGraphExecuteLockDoor(s32 tag_id, u32 bits)
 s32 scenarioSourceAiGraphExecuteUnlockDoor(s32 tag_id, u32 bits)
 {
 	struct defaultobj *obj;
+	s32 object_count = 0;
 	s32 applied = 0;
 
 	if (!s_aiGraphRequireDoorNode("unlock_door",
 			s_ActiveScenarioGraphs.level_ai_unlock_door_node_count)) {
 		return 0;
+	}
+	if (!s_aiGraphRequireRuntimeObjectTagType("unlock_door", tag_id,
+			OBJTYPE_DOOR, &object_count)) {
+		return 1;
 	}
 	obj = objFindByTagId(tag_id);
 	if (obj && obj->prop && obj->prop->type == PROPTYPE_DOOR) {
@@ -18090,8 +24027,8 @@ s32 scenarioSourceAiGraphExecuteUnlockDoor(s32 tag_id, u32 bits)
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_unlock_door_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action unlock_door tag=%d bits=0x%02x applied=%d source=%s objects=%s backend=graph.ai.action.door+objects.tsv",
-			tag_id, (unsigned)bits, applied,
+			"SCENARIO.GRAPH: AI action unlock_door tag=%d object_rows=%d bits=0x%02x applied=%d source=%s objects=%s backend=graph.ai.action.door+objects.tsv",
+			tag_id, object_count, (unsigned)bits, applied,
 			s_ActiveScenarioGraphs.ai_lists_path,
 			s_ActiveScenarioGraphs.objects_path);
 		s_ActiveScenarioGraphs.ai_action_unlock_door_logged = 1;
@@ -18102,11 +24039,16 @@ s32 scenarioSourceAiGraphExecuteUnlockDoor(s32 tag_id, u32 bits)
 s32 scenarioSourceAiGraphExecuteIfDoorLocked(s32 tag_id, u32 bits, s32 label)
 {
 	struct defaultobj *obj;
+	s32 object_count = 0;
 	s32 result = 0;
 
 	if (!s_aiGraphRequireDoorNode("if_door_locked",
 			s_ActiveScenarioGraphs.level_ai_if_door_locked_node_count)) {
 		return 0;
+	}
+	if (!s_aiGraphRequireRuntimeObjectTagType("if_door_locked", tag_id,
+			OBJTYPE_DOOR, &object_count)) {
+		return 1;
 	}
 	obj = objFindByTagId(tag_id);
 	if (obj && obj->prop && obj->prop->type == PROPTYPE_DOOR) {
@@ -18120,8 +24062,8 @@ s32 scenarioSourceAiGraphExecuteIfDoorLocked(s32 tag_id, u32 bits, s32 label)
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_if_door_locked_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action if_door_locked tag=%d bits=0x%02x result=%d source=%s objects=%s backend=graph.ai.action.door+objects.tsv",
-			tag_id, (unsigned)bits, result,
+			"SCENARIO.GRAPH: AI action if_door_locked tag=%d object_rows=%d bits=0x%02x result=%d source=%s objects=%s backend=graph.ai.action.door+objects.tsv",
+			tag_id, object_count, (unsigned)bits, result,
 			s_ActiveScenarioGraphs.ai_lists_path,
 			s_ActiveScenarioGraphs.objects_path);
 		s_ActiveScenarioGraphs.ai_action_if_door_locked_logged = 1;
@@ -18149,19 +24091,98 @@ static s32 s_aiGraphRequireLiftNode(const char *action, s32 node_count)
 	return 1;
 }
 
+static s32 s_aiGraphRequireLiftStopPad(const char *action,
+	struct liftobj *lift, s32 stopnum, s32 *out_pad_id,
+	s32 *out_pad_count)
+{
+	s32 pad_id;
+	char reason[96];
+
+	if (out_pad_id) {
+		*out_pad_id = -1;
+	}
+
+	if (stopnum < 0 || stopnum >= ARRAYCOUNT(lift->pads)) {
+		snprintf(reason, sizeof(reason), "invalid lift stop %d",
+			stopnum);
+		s_aiGraphRuntimeFailure(action, reason);
+		return 0;
+	}
+
+	pad_id = lift->pads[stopnum];
+	if (!s_aiGraphRequireRuntimePad(action, pad_id, out_pad_count)) {
+		return 0;
+	}
+
+	if (out_pad_id) {
+		*out_pad_id = pad_id;
+	}
+	return 1;
+}
+
+static s32 s_aiGraphRequireLiftMotionPads(const char *action,
+	struct liftobj *lift, s32 stopnum, s32 *out_stop_pad,
+	s32 *out_pad_count)
+{
+	s32 pad_count = 0;
+
+	if (!s_aiGraphRequireLiftStopPad(action, lift, stopnum, out_stop_pad,
+			&pad_count)) {
+		if (out_pad_count) {
+			*out_pad_count = pad_count;
+		}
+		return 0;
+	}
+	if (!s_aiGraphRequireLiftStopPad(action, lift, lift->levelcur, NULL,
+			&pad_count)) {
+		if (out_pad_count) {
+			*out_pad_count = pad_count;
+		}
+		return 0;
+	}
+	if (!s_aiGraphRequireLiftStopPad(action, lift, lift->levelaim, NULL,
+			&pad_count)) {
+		if (out_pad_count) {
+			*out_pad_count = pad_count;
+		}
+		return 0;
+	}
+
+	if (out_pad_count) {
+		*out_pad_count = pad_count;
+	}
+	return 1;
+}
+
 s32 scenarioSourceAiGraphExecuteIfLiftStationary(s32 tag_id, s32 label)
 {
 	struct defaultobj *obj;
 	s32 result = 0;
+	s32 pad_id = -1;
+	s32 pad_count = 0;
+	s32 object_count = 0;
+	s32 found = 0;
 
 	if (!s_aiGraphRequireLiftNode("if_lift_stationary",
 			s_ActiveScenarioGraphs.level_ai_if_lift_stationary_node_count)) {
 		return 0;
 	}
+	if (!s_aiGraphRequireRuntimeObjectTagType("if_lift_stationary",
+			tag_id, OBJTYPE_LIFT, &object_count)) {
+		return 1;
+	}
 	obj = objFindByTagId(tag_id);
 	if (obj && obj->prop && obj->type == OBJTYPE_LIFT) {
 		struct liftobj *lift = (struct liftobj *)obj;
+		if (!s_aiGraphRequireLiftStopPad("if_lift_stationary", lift,
+				lift->levelcur, &pad_id, &pad_count)) {
+			return 1;
+		}
+		found = 1;
 		result = (obj->flags & OBJFLAG_DEACTIVATED) || lift->dist == 0;
+	} else if (!s_aiGraphRequireRuntimePadTable("if_lift_stationary",
+			&pad_count)) {
+		return 1;
 	}
 	if (result) {
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist,
@@ -18171,8 +24192,9 @@ s32 scenarioSourceAiGraphExecuteIfLiftStationary(s32 tag_id, s32 label)
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_if_lift_stationary_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action if_lift_stationary tag=%d result=%d source=%s objects=%s pads=%s backend=graph.ai.action.lift+objects.tsv+pads.tsv",
-			tag_id, result, s_ActiveScenarioGraphs.ai_lists_path,
+			"SCENARIO.GRAPH: AI action if_lift_stationary tag=%d object_rows=%d pad=%d found=%d pad_rows=%d result=%d source=%s objects=%s pads=%s backend=graph.ai.action.lift+objects.tsv+pads.tsv",
+			tag_id, object_count, pad_id, found, pad_count, result,
+			s_ActiveScenarioGraphs.ai_lists_path,
 			s_ActiveScenarioGraphs.objects_path,
 			s_ActiveScenarioGraphs.pads_path);
 		s_ActiveScenarioGraphs.ai_action_if_lift_stationary_logged = 1;
@@ -18184,20 +24206,39 @@ s32 scenarioSourceAiGraphExecuteLiftGoToStop(s32 tag_id, s32 stopnum)
 {
 	struct defaultobj *obj;
 	s32 applied = 0;
+	s32 object_count = 0;
+	s32 pad_id = -1;
+	s32 pad_count = 0;
+	s32 found = 0;
 
 	if (!s_aiGraphRequireLiftNode("lift_go_to_stop",
 			s_ActiveScenarioGraphs.level_ai_lift_go_to_stop_node_count)) {
 		return 0;
 	}
+	if (!s_aiGraphRequireRuntimeObjectTagType("lift_go_to_stop",
+			tag_id, OBJTYPE_LIFT, &object_count)) {
+		return 1;
+	}
 	obj = objFindByTagId(tag_id);
 	if (obj && obj->prop && obj->type == OBJTYPE_LIFT) {
-		liftGoToStop((struct liftobj *)obj, stopnum);
+		struct liftobj *lift = (struct liftobj *)obj;
+		if (!s_aiGraphRequireLiftMotionPads("lift_go_to_stop", lift,
+				stopnum, &pad_id, &pad_count)) {
+			return 1;
+		}
+		found = 1;
+		liftGoToStop(lift, stopnum);
 		applied = 1;
+	} else if (!s_aiGraphRequireRuntimePadTable("lift_go_to_stop",
+			&pad_count)) {
+		return 1;
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_lift_go_to_stop_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action lift_go_to_stop tag=%d stop=%d applied=%d source=%s objects=%s pads=%s backend=graph.ai.action.lift+objects.tsv+pads.tsv",
-			tag_id, stopnum, applied, s_ActiveScenarioGraphs.ai_lists_path,
+			"SCENARIO.GRAPH: AI action lift_go_to_stop tag=%d object_rows=%d stop=%d pad=%d found=%d pad_rows=%d applied=%d source=%s objects=%s pads=%s backend=graph.ai.action.lift+objects.tsv+pads.tsv",
+			tag_id, object_count, stopnum, pad_id, found, pad_count,
+			applied,
+			s_ActiveScenarioGraphs.ai_lists_path,
 			s_ActiveScenarioGraphs.objects_path,
 			s_ActiveScenarioGraphs.pads_path);
 		s_ActiveScenarioGraphs.ai_action_lift_go_to_stop_logged = 1;
@@ -18210,15 +24251,31 @@ s32 scenarioSourceAiGraphExecuteIfLiftAtStop(s32 tag_id, s32 stopnum,
 {
 	struct defaultobj *obj;
 	s32 result = 0;
+	s32 pad_id = -1;
+	s32 pad_count = 0;
+	s32 object_count = 0;
+	s32 found = 0;
 
 	if (!s_aiGraphRequireLiftNode("if_lift_at_stop",
 			s_ActiveScenarioGraphs.level_ai_if_lift_at_stop_node_count)) {
 		return 0;
 	}
+	if (!s_aiGraphRequireRuntimeObjectTagType("if_lift_at_stop",
+			tag_id, OBJTYPE_LIFT, &object_count)) {
+		return 1;
+	}
 	obj = objFindByTagId(tag_id);
 	if (obj && obj->prop && obj->type == OBJTYPE_LIFT) {
 		struct liftobj *lift = (struct liftobj *)obj;
+		if (!s_aiGraphRequireLiftMotionPads("if_lift_at_stop", lift,
+				stopnum, &pad_id, &pad_count)) {
+			return 1;
+		}
+		found = 1;
 		result = lift->levelcur == stopnum && lift->dist == 0;
+	} else if (!s_aiGraphRequireRuntimePadTable("if_lift_at_stop",
+			&pad_count)) {
+		return 1;
 	}
 	if (result) {
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist,
@@ -18228,8 +24285,10 @@ s32 scenarioSourceAiGraphExecuteIfLiftAtStop(s32 tag_id, s32 stopnum,
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_if_lift_at_stop_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action if_lift_at_stop tag=%d stop=%d result=%d source=%s objects=%s pads=%s backend=graph.ai.action.lift+objects.tsv+pads.tsv",
-			tag_id, stopnum, result, s_ActiveScenarioGraphs.ai_lists_path,
+			"SCENARIO.GRAPH: AI action if_lift_at_stop tag=%d object_rows=%d stop=%d pad=%d found=%d pad_rows=%d result=%d source=%s objects=%s pads=%s backend=graph.ai.action.lift+objects.tsv+pads.tsv",
+			tag_id, object_count, stopnum, pad_id, found, pad_count,
+			result,
+			s_ActiveScenarioGraphs.ai_lists_path,
 			s_ActiveScenarioGraphs.objects_path,
 			s_ActiveScenarioGraphs.pads_path);
 		s_ActiveScenarioGraphs.ai_action_if_lift_at_stop_logged = 1;
@@ -18241,10 +24300,21 @@ s32 scenarioSourceAiGraphExecuteActivateLift(s32 liftnum, s32 tag_id)
 {
 	struct defaultobj *obj;
 	s32 applied = 0;
+	s32 pad_id = -1;
+	s32 pad_count = 0;
+	s32 object_count = 0;
 
 	if (!s_aiGraphRequireLiftNode("activate_lift",
 			s_ActiveScenarioGraphs.level_ai_activate_lift_node_count)) {
 		return 0;
+	}
+	if (!s_aiGraphRequireRuntimeLiftNumber("activate_lift", liftnum,
+			&pad_id, &pad_count)) {
+		return 1;
+	}
+	if (!s_aiGraphRequireRuntimeObjectTagType("activate_lift", tag_id,
+			OBJTYPE_LIFT, &object_count)) {
+		return 1;
 	}
 	obj = objFindByTagId(tag_id);
 	if (obj && obj->prop) {
@@ -18253,8 +24323,9 @@ s32 scenarioSourceAiGraphExecuteActivateLift(s32 liftnum, s32 tag_id)
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_activate_lift_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action activate_lift liftnum=%d tag=%d applied=%d source=%s objects=%s pads=%s backend=graph.ai.action.lift+objects.tsv+pads.tsv",
-			liftnum, tag_id, applied, s_ActiveScenarioGraphs.ai_lists_path,
+			"SCENARIO.GRAPH: AI action activate_lift liftnum=%d pad=%d found=1 pad_rows=%d tag=%d object_rows=%d applied=%d source=%s objects=%s pads=%s backend=graph.ai.action.lift+objects.tsv+pads.tsv",
+			liftnum, pad_id, pad_count, tag_id, object_count, applied,
+			s_ActiveScenarioGraphs.ai_lists_path,
 			s_ActiveScenarioGraphs.objects_path,
 			s_ActiveScenarioGraphs.pads_path);
 		s_ActiveScenarioGraphs.ai_action_activate_lift_logged = 1;
@@ -18265,12 +24336,22 @@ s32 scenarioSourceAiGraphExecuteActivateLift(s32 liftnum, s32 tag_id)
 s32 scenarioSourceAiGraphExecuteIfUsingLift(struct chrdata *chr, s32 label)
 {
 	s32 result;
+	s32 pad_count = 0;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
 
 	if (!s_aiGraphRequireLiftNode("if_using_lift",
 			s_ActiveScenarioGraphs.level_ai_if_using_lift_node_count)) {
 		return 0;
 	}
-	result = chr && chrIsUsingLift(chr);
+	if (!s_aiGraphRequireRuntimePadTable("if_using_lift", &pad_count)) {
+		return 1;
+	}
+	if (!s_aiGraphRequireOptionalLiveRuntimeCharacterPointer("if_using_lift",
+			chr, &chr_count, &source_chr)) {
+		return 1;
+	}
+	result = chr && chr->prop && chrIsUsingLift(chr);
 	if (result) {
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist,
 			g_Vars.aioffset, label);
@@ -18279,8 +24360,9 @@ s32 scenarioSourceAiGraphExecuteIfUsingLift(struct chrdata *chr, s32 label)
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_if_using_lift_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action if_using_lift result=%d source=%s objects=%s pads=%s backend=graph.ai.action.lift+objects.tsv+pads.tsv",
-			result, s_ActiveScenarioGraphs.ai_lists_path,
+			"SCENARIO.GRAPH: AI action if_using_lift pad_rows=%d chr_rows=%d source_chr=%d result=%d source=%s objects=%s pads=%s backend=graph.ai.action.lift+objects.tsv+pads.tsv",
+			pad_count, chr_count, source_chr, result,
+			s_ActiveScenarioGraphs.ai_lists_path,
 			s_ActiveScenarioGraphs.objects_path,
 			s_ActiveScenarioGraphs.pads_path);
 		s_ActiveScenarioGraphs.ai_action_if_using_lift_logged = 1;
@@ -18395,6 +24477,9 @@ s32 scenarioSourceAiGraphExecuteSetLights(struct chrdata *chr, s32 padnum,
 	s32 operation, s32 arg1, s32 arg2, s32 duration)
 {
 	s32 roomnum;
+	s32 pad_count = 0;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
 
 	if (!s_ActiveScenarioGraphs.level_graph_active) {
 		return 0;
@@ -18408,7 +24493,14 @@ s32 scenarioSourceAiGraphExecuteSetLights(struct chrdata *chr, s32 padnum,
 		return s_aiGraphRuntimeFailure("set_lights",
 			"missing ai/ailists.tsv or pads.tsv source");
 	}
-	roomnum = chrGetPadRoom(chr, padnum);
+	if (!s_aiGraphRequireRuntimePad("set_lights", padnum, &pad_count)) {
+		return 1;
+	}
+	if (!s_aiGraphRequireOptionalLiveRuntimeCharacterPointer("set_lights",
+			chr, &chr_count, &source_chr)) {
+		return 1;
+	}
+	roomnum = chr && chr->prop ? chrGetPadRoom(chr, padnum) : -1;
 	if (roomnum >= 0) {
 		switch (operation) {
 		case LIGHTOP_TURNOFF:
@@ -18425,16 +24517,83 @@ s32 scenarioSourceAiGraphExecuteSetLights(struct chrdata *chr, s32 padnum,
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_set_lights_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action set_lights pad=%d room=%d op=%d source=%s pads=%s backend=graph.ai.action.lighting+pads.tsv",
-			padnum, roomnum, operation, s_ActiveScenarioGraphs.ai_lists_path,
+			"SCENARIO.GRAPH: AI action set_lights pad=%d found=1 pad_rows=%d chr_rows=%d source_chr=%d room=%d op=%d source=%s pads=%s backend=graph.ai.action.lighting+pads.tsv",
+			padnum, pad_count, chr_count, source_chr, roomnum, operation,
+			s_ActiveScenarioGraphs.ai_lists_path,
 			s_ActiveScenarioGraphs.pads_path);
 		s_ActiveScenarioGraphs.ai_action_set_lights_logged = 1;
 	}
 	return 1;
 }
 
+static s32 s_aiGraphRequireRuntimeSceneRooms(const char *action,
+	s32 *out_room_count)
+{
+	if (out_room_count) {
+		*out_room_count = 0;
+	}
+	if (!g_Rooms || g_Vars.roomcount <= 1) {
+		return s_aiGraphRuntimeFailure(action,
+			"missing source-built scene room table");
+	}
+	if (out_room_count) {
+		*out_room_count = g_Vars.roomcount;
+	}
+	return 1;
+}
+
+static s32 s_aiGraphResolveRuntimeSceneRoom(const char *action,
+	s32 roomnum, s32 *out_room_count, s32 *out_room_available)
+{
+	if (out_room_available) {
+		*out_room_available = 0;
+	}
+	if (!s_aiGraphRequireRuntimeSceneRooms(action, out_room_count)) {
+		return 0;
+	}
+	if (roomnum > 0 && roomnum < g_Vars.roomcount) {
+		if (out_room_available) {
+			*out_room_available = 1;
+		}
+	}
+	return 1;
+}
+
+static s32 s_aiGraphResolveRuntimePortal(const char *action, s32 portalnum,
+	s32 *out_portal_count, s32 *out_portal_available)
+{
+	if (out_portal_count) {
+		*out_portal_count = 0;
+	}
+	if (out_portal_available) {
+		*out_portal_available = 0;
+	}
+	if (!s_ActiveScenarioGraphs.portals_path[0]) {
+		return s_aiGraphRuntimeFailure(action,
+			"missing portals.tsv source");
+	}
+	if (!g_BgPortals) {
+		return s_aiGraphRuntimeFailure(action,
+			"missing source-built portal table");
+	}
+	if (out_portal_count) {
+		*out_portal_count = g_BgNumPortalCameraCacheItems > 0
+			? g_BgNumPortalCameraCacheItems : 0;
+	}
+	if (portalnum >= 0 &&
+			portalnum < g_BgNumPortalCameraCacheItems) {
+		if (out_portal_available) {
+			*out_portal_available = 1;
+		}
+	}
+	return 1;
+}
+
 s32 scenarioSourceAiGraphExecuteSetRoomFlag(s32 roomnum, s32 flag)
 {
+	s32 room_count = 0;
+	s32 room_available = 0;
+
 	if (!s_ActiveScenarioGraphs.level_graph_active) {
 		return 0;
 	}
@@ -18446,11 +24605,18 @@ s32 scenarioSourceAiGraphExecuteSetRoomFlag(s32 roomnum, s32 flag)
 		return s_aiGraphRuntimeFailure("set_room_flag",
 			"missing ai/ailists.tsv source");
 	}
-	g_Rooms[roomnum].flags |= flag;
+	if (!s_aiGraphResolveRuntimeSceneRoom("set_room_flag", roomnum,
+			&room_count, &room_available)) {
+		return 1;
+	}
+	if (room_available) {
+		g_Rooms[roomnum].flags |= flag;
+	}
 	if (!s_ActiveScenarioGraphs.ai_action_set_room_flag_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action set_room_flag room=%d flag=0x%04x source=%s scene=scene.glb backend=graph.ai.action.room_flags+ai/ailists.tsv+scene.glb",
-			roomnum, (u32)(flag & 0xffff), s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI action set_room_flag room=%d room_rows=%d flag=0x%04x source=%s scene=scene.glb backend=graph.ai.action.room_flags+ai/ailists.tsv+scene.glb",
+			roomnum, room_count, (u32)(flag & 0xffff),
+			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_set_room_flag_logged = 1;
 	}
 	return 1;
@@ -18459,6 +24625,12 @@ s32 scenarioSourceAiGraphExecuteSetRoomFlag(s32 roomnum, s32 flag)
 s32 scenarioSourceAiGraphExecuteShowCutsceneChrs(s32 show)
 {
 	s32 i;
+	s32 slot_count;
+	s32 chr_count = 0;
+	s32 checked_chrs = 0;
+	s32 applied = 0;
+	s32 source_chr = -1;
+	struct chrdata *chr;
 
 	if (!s_ActiveScenarioGraphs.level_graph_active) {
 		return 0;
@@ -18471,28 +24643,64 @@ s32 scenarioSourceAiGraphExecuteShowCutsceneChrs(s32 show)
 		return s_aiGraphRuntimeFailure("show_cutscene_chrs",
 			"missing ai/ailists.tsv source");
 	}
-	if (show) {
-		for (i = chrsGetNumSlots() - 1; i >= 0; i--) {
-			if (g_ChrSlots[i].chrnum >= 0 && g_ChrSlots[i].prop &&
-					(g_ChrSlots[i].hidden2 & CHRH2FLAG_HIDDENFORCUTSCENE)) {
-				g_ChrSlots[i].hidden2 &= ~CHRH2FLAG_HIDDENFORCUTSCENE;
-				g_ChrSlots[i].chrflags &= ~CHRCFLAG_HIDDEN;
+	if (!s_aiGraphCountRuntimeSetupChrRowsFromSource(
+			"show_cutscene_chrs", &chr_count)) {
+		return 1;
+	}
+
+	slot_count = chrsGetNumSlots();
+	if (slot_count > 0) {
+		struct chrdata *checked_chr_slots[slot_count];
+
+		if (show) {
+			for (i = slot_count - 1; i >= 0; i--) {
+				chr = &g_ChrSlots[i];
+				if (chr->chrnum >= 0 && chr->prop &&
+						(chr->hidden2 &
+							CHRH2FLAG_HIDDENFORCUTSCENE)) {
+					if (!s_aiGraphRequireRuntimeCharacterPointer(
+							"show_cutscene_chrs", chr,
+							&chr_count, &source_chr)) {
+						return 1;
+					}
+					checked_chr_slots[checked_chrs++] = chr;
+				}
 			}
-		}
-	} else {
-		for (i = chrsGetNumSlots() - 1; i >= 0; i--) {
-			if (g_ChrSlots[i].chrnum >= 0 && g_ChrSlots[i].prop &&
-					(g_ChrSlots[i].chrflags &
-						(CHRCFLAG_UNPLAYABLE | CHRCFLAG_HIDDEN)) == 0) {
-				g_ChrSlots[i].hidden2 |= CHRH2FLAG_HIDDENFORCUTSCENE;
-				g_ChrSlots[i].chrflags |= CHRCFLAG_HIDDEN;
+			for (i = 0; i < checked_chrs; i++) {
+				chr = checked_chr_slots[i];
+				chr->hidden2 &=
+					~CHRH2FLAG_HIDDENFORCUTSCENE;
+				chr->chrflags &= ~CHRCFLAG_HIDDEN;
+				applied++;
+			}
+		} else {
+			for (i = slot_count - 1; i >= 0; i--) {
+				chr = &g_ChrSlots[i];
+				if (chr->chrnum >= 0 && chr->prop &&
+						(chr->chrflags &
+							(CHRCFLAG_UNPLAYABLE |
+								CHRCFLAG_HIDDEN)) == 0) {
+					if (!s_aiGraphRequireRuntimeCharacterPointer(
+							"show_cutscene_chrs", chr,
+							&chr_count, &source_chr)) {
+						return 1;
+					}
+					checked_chr_slots[checked_chrs++] = chr;
+				}
+			}
+			for (i = 0; i < checked_chrs; i++) {
+				chr = checked_chr_slots[i];
+				chr->hidden2 |= CHRH2FLAG_HIDDENFORCUTSCENE;
+				chr->chrflags |= CHRCFLAG_HIDDEN;
+				applied++;
 			}
 		}
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_show_cutscene_chrs_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action show_cutscene_chrs show=%d source=%s backend=graph.ai.action.cutscene_visibility+ai/ailists.tsv",
-			show ? 1 : 0, s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI action show_cutscene_chrs show=%d chr_rows=%d checked_chrs=%d applied=%d source=%s backend=graph.ai.action.cutscene_visibility+ai/ailists.tsv",
+			show ? 1 : 0, chr_count, checked_chrs, applied,
+			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_show_cutscene_chrs_logged = 1;
 	}
 	return 1;
@@ -18502,6 +24710,8 @@ s32 scenarioSourceAiGraphExecuteConfigureEnvironment(s32 roomnum,
 	s32 command, s32 value)
 {
 	s32 i;
+	s32 room_count = 0;
+	s32 room_available = 0;
 
 	if (!s_ActiveScenarioGraphs.level_graph_active) {
 		return 0;
@@ -18532,24 +24742,52 @@ s32 scenarioSourceAiGraphExecuteConfigureEnvironment(s32 roomnum,
 		var8006ae28 = value;
 		break;
 	case AIENVCMD_ROOM_SETAMBIENT:
-		g_Rooms[roomnum].flags &= ~ROOMFLAG_PLAYAMBIENTTRACK;
-		if (value) {
-			g_Rooms[roomnum].flags |= ROOMFLAG_PLAYAMBIENTTRACK;
+		if (!s_aiGraphResolveRuntimeSceneRoom("configure_environment",
+				roomnum, &room_count, &room_available)) {
+			return 1;
+		}
+		if (room_available) {
+			g_Rooms[roomnum].flags &= ~ROOMFLAG_PLAYAMBIENTTRACK;
+			if (value) {
+				g_Rooms[roomnum].flags |= ROOMFLAG_PLAYAMBIENTTRACK;
+			}
 		}
 		break;
 	case AIENVCMD_ROOM_SETOUTDOORS:
-		g_Rooms[roomnum].flags &= ~ROOMFLAG_OUTDOORS;
-		if (value) {
-			g_Rooms[roomnum].flags |= ROOMFLAG_OUTDOORS;
+		if (!s_aiGraphResolveRuntimeSceneRoom("configure_environment",
+				roomnum, &room_count, &room_available)) {
+			return 1;
+		}
+		if (room_available) {
+			g_Rooms[roomnum].flags &= ~ROOMFLAG_OUTDOORS;
+			if (value) {
+				g_Rooms[roomnum].flags |= ROOMFLAG_OUTDOORS;
+			}
 		}
 		break;
 	case AIENVCMD_07:
-		g_Rooms[roomnum].unk4e_04 = value;
+		if (!s_aiGraphResolveRuntimeSceneRoom("configure_environment",
+				roomnum, &room_count, &room_available)) {
+			return 1;
+		}
+		if (room_available) {
+			g_Rooms[roomnum].unk4e_04 = value;
+		}
 		break;
 	case AIENVCMD_08:
-		g_Rooms[roomnum].unk4d = value;
+		if (!s_aiGraphResolveRuntimeSceneRoom("configure_environment",
+				roomnum, &room_count, &room_available)) {
+			return 1;
+		}
+		if (room_available) {
+			g_Rooms[roomnum].unk4d = value;
+		}
 		break;
 	case AIENVCMD_SETAMBIENT:
+		if (!s_aiGraphRequireRuntimeSceneRooms("configure_environment",
+				&room_count)) {
+			return 1;
+		}
 		for (i = 1; i < g_Vars.roomcount; i++) {
 			if (value) {
 				g_Rooms[i].flags |= ROOMFLAG_PLAYAMBIENTTRACK;
@@ -18565,7 +24803,13 @@ s32 scenarioSourceAiGraphExecuteConfigureEnvironment(s32 roomnum,
 		musicTickEvents();
 		break;
 	case AIENVCMD_ROOM_SETFAULTYLIGHTS:
-		roomSetLightsFaulty(roomnum, value);
+		if (!s_aiGraphResolveRuntimeSceneRoom("configure_environment",
+				roomnum, &room_count, &room_available)) {
+			return 1;
+		}
+		if (room_available) {
+			roomSetLightsFaulty(roomnum, value);
+		}
 		break;
 	case AIENVCMD_STOPNOSEDIVE:
 		sndStopNosedive();
@@ -18580,8 +24824,8 @@ s32 scenarioSourceAiGraphExecuteConfigureEnvironment(s32 roomnum,
 
 	if (!s_ActiveScenarioGraphs.ai_action_configure_environment_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action configure_environment room=%d command=0x%02x value=%d source=%s backend=graph.ai.action.environment+ai/ailists.tsv+scenario.ini+scene.glb",
-			roomnum, (u32)(command & 0xff), value,
+			"SCENARIO.GRAPH: AI action configure_environment room=%d room_rows=%d command=0x%02x value=%d source=%s backend=graph.ai.action.environment+ai/ailists.tsv+scenario.ini+scene.glb",
+			roomnum, room_count, (u32)(command & 0xff), value,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_configure_environment_logged = 1;
 	}
@@ -18593,6 +24837,8 @@ s32 scenarioSourceAiGraphExecuteIfDistanceToTarget2(struct chrdata *chr,
 {
 	f32 actual;
 	s32 matched;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
 	const char *action;
 
 	if (!s_ActiveScenarioGraphs.level_graph_active) {
@@ -18618,8 +24864,9 @@ s32 scenarioSourceAiGraphExecuteIfDistanceToTarget2(struct chrdata *chr,
 		return s_aiGraphRuntimeFailure(action,
 			"missing ai/ailists.tsv source");
 	}
-	if (!chr) {
-		return s_aiGraphRuntimeFailure(action, "missing chr");
+	if (!s_aiGraphRequireRuntimeCharacterPointer(action, chr,
+			&chr_count, &source_chr)) {
+		return 1;
 	}
 
 	actual = chrGetDistanceToTarget2(chr);
@@ -18634,8 +24881,9 @@ s32 scenarioSourceAiGraphExecuteIfDistanceToTarget2(struct chrdata *chr,
 
 	if (!s_ActiveScenarioGraphs.ai_action_if_distance_to_target2_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition %s actual=%.2f threshold=%.2f label=%d source=%s backend=graph.ai.condition.target_distance+ai/ailists.tsv",
-			action, (double)actual, (double)distance, label,
+			"SCENARIO.GRAPH: AI condition %s chr_rows=%d source_chr=%d actual=%.2f threshold=%.2f label=%d source=%s backend=graph.ai.condition.target_distance+ai/ailists.tsv",
+			action, chr_count, source_chr, (double)actual,
+			(double)distance, label,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_if_distance_to_target2_logged = 1;
 	}
@@ -18666,6 +24914,13 @@ s32 scenarioSourceAiGraphExecuteSpeak(struct chrdata *basechr, s32 chrnum,
 	s32 playernum;
 	u32 channelnum;
 	char *text;
+	const char *audio_source_id;
+	char audio_source_id_buf[FS_MAXPATH + 32];
+	const char *text_catalog_id;
+	s32 chr_count = 0;
+	s32 target_chrnum = -1;
+	s32 target_selector = 0;
+	s32 player_checked = 0;
 	s32 ready = s_aiAudioGraphReady("speak",
 		s_ActiveScenarioGraphs.level_ai_speak_node_count,
 		"missing scenario.ai.action.speak node");
@@ -18673,12 +24928,36 @@ s32 scenarioSourceAiGraphExecuteSpeak(struct chrdata *basechr, s32 chrnum,
 	if (ready != 1) {
 		return ready;
 	}
-	chr = chrFindById(basechr, chrnum);
+	audio_source_id = s_aiGraphResolveSpeechAudioSourceId("speak", audio_id,
+		"speech", audio_source_id_buf, sizeof(audio_source_id_buf));
+	if (!audio_source_id) {
+		return 1;
+	}
+	text_catalog_id = s_aiGraphResolveLangTextCatalogId("speak", text_id,
+		"speech text");
+	if (!text_catalog_id) {
+		return 1;
+	}
+	if (!s_aiGraphResolveRuntimeCharacterRefOrSelector("speak", basechr,
+			chrnum, &chr_count, &chr, &target_selector)) {
+		return 1;
+	}
+	if (chr) {
+		target_chrnum = chr->chrnum;
+	}
 	prevplayernum = g_Vars.currentplayernum;
 	playernum = prevplayernum;
 	text = text_id >= 0 ? langGet(text_id) : NULL;
 	if (chr && chr->prop && chr->prop->type == PROPTYPE_PLAYER) {
 		playernum = playermgrGetPlayerNumByProp(chr->prop);
+		if (!s_aiGraphRequireRuntimePlayerSlot("speak",
+				playernum, NULL)) {
+			return 1;
+		}
+		player_checked = 1;
+	} else if (!s_aiGraphRequireRuntimePlayerSlot("speak",
+			playernum, NULL)) {
+		return 1;
 	}
 	setCurrentPlayerNum(playernum);
 	if (text && chrnum != CHR_P1P2) {
@@ -18699,8 +24978,9 @@ s32 scenarioSourceAiGraphExecuteSpeak(struct chrdata *basechr, s32 chrnum,
 	g_Vars.aioffset += 9;
 	if (!s_ActiveScenarioGraphs.ai_action_speak_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action speak chr=%d text=%d audio=%d channel=%d source=%s backend=graph.ai.action.audio+ai/ailists.tsv",
-			chrnum, text_id, audio_id, channel,
+			"SCENARIO.GRAPH: AI action speak chr=%d chr_rows=%d target_chr=%d target_selector=%d player_checked=%d text_id=%s audio_id=%s channel=%d source=%s backend=graph.ai.action.audio+ai/ailists.tsv+lang",
+			chrnum, chr_count, target_chrnum, target_selector,
+			player_checked, text_catalog_id, audio_source_id, channel,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_speak_logged = 1;
 	}
@@ -18709,18 +24989,25 @@ s32 scenarioSourceAiGraphExecuteSpeak(struct chrdata *basechr, s32 chrnum,
 
 s32 scenarioSourceAiGraphExecutePlaySound(s8 channel, s16 audio_id)
 {
+	const char *audio_catalog_id;
+	char audio_source_id[64];
 	s32 ready = s_aiAudioGraphReady("play_sound",
 		s_ActiveScenarioGraphs.level_ai_play_sound_node_count,
 		"missing scenario.ai.action.play_sound node");
 	if (ready != 1) {
 		return ready;
 	}
+	audio_catalog_id = s_aiGraphResolveSpeechAudioSourceId("play_sound",
+		audio_id, "sound", audio_source_id, sizeof(audio_source_id));
+	if (!audio_catalog_id) {
+		return 1;
+	}
 	psPlayFromProp(channel, audio_id, 0, NULL, PSTYPE_NONE, 0);
 	g_Vars.aioffset += 5;
 	if (!s_ActiveScenarioGraphs.ai_action_play_sound_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action play_sound channel=%d audio=%d source=%s backend=graph.ai.action.audio+ai/ailists.tsv",
-			channel, audio_id, s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI action play_sound channel=%d audio_id=%s source=%s backend=graph.ai.action.audio+ai/ailists.tsv",
+			channel, audio_catalog_id, s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_play_sound_logged = 1;
 	}
 	return 1;
@@ -18728,18 +25015,25 @@ s32 scenarioSourceAiGraphExecutePlaySound(s8 channel, s16 audio_id)
 
 s32 scenarioSourceAiGraphExecuteAssignSound(s8 channel, s16 audio_id)
 {
+	const char *audio_catalog_id;
+	char audio_source_id[64];
 	s32 ready = s_aiAudioGraphReady("assign_sound",
 		s_ActiveScenarioGraphs.level_ai_assign_sound_node_count,
 		"missing scenario.ai.action.assign_sound node");
 	if (ready != 1) {
 		return ready;
 	}
+	audio_catalog_id = s_aiGraphResolveSpeechAudioSourceId("assign_sound",
+		audio_id, "assigned", audio_source_id, sizeof(audio_source_id));
+	if (!audio_catalog_id) {
+		return 1;
+	}
 	psPlayFromProp(channel, audio_id, -1, NULL, PSTYPE_MARKER, 0);
 	g_Vars.aioffset += 5;
 	if (!s_ActiveScenarioGraphs.ai_action_assign_sound_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action assign_sound channel=%d audio=%d source=%s backend=graph.ai.action.audio+ai/ailists.tsv",
-			channel, audio_id, s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI action assign_sound channel=%d audio_id=%s source=%s backend=graph.ai.action.audio+ai/ailists.tsv",
+			channel, audio_catalog_id, s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_assign_sound_logged = 1;
 	}
 	return 1;
@@ -18842,11 +25136,16 @@ s32 scenarioSourceAiGraphExecuteSetObjectSoundPlaying(s8 channel, s32 tag_id,
 {
 	struct defaultobj *obj;
 	s32 applied;
+	s32 object_count = 0;
 	s32 ready = s_aiAudioGraphReady("set_object_sound_playing",
 		s_ActiveScenarioGraphs.level_ai_set_object_sound_playing_node_count,
 		"missing scenario.ai.action.set_object_sound_playing node");
 	if (ready != 1) {
 		return ready;
+	}
+	if (!s_aiGraphRequireRuntimeObjectTag("set_object_sound_playing",
+			tag_id, &object_count)) {
+		return 1;
 	}
 	obj = objFindByTagId(tag_id);
 	applied = obj && obj->prop;
@@ -18857,9 +25156,10 @@ s32 scenarioSourceAiGraphExecuteSetObjectSoundPlaying(s8 channel, s32 tag_id,
 	g_Vars.aioffset += 6;
 	if (!s_ActiveScenarioGraphs.ai_action_set_object_sound_playing_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action set_object_sound_playing tag=%d channel=%d timer=%u applied=%d source=%s backend=graph.ai.action.audio+ai/ailists.tsv",
-			tag_id, channel, volchangetimer60, applied,
-			s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI action set_object_sound_playing tag=%d object_rows=%d channel=%d timer=%u applied=%d source=%s objects=%s backend=graph.ai.action.audio+ai/ailists.tsv+objects.tsv",
+			tag_id, object_count, channel, volchangetimer60, applied,
+			s_ActiveScenarioGraphs.ai_lists_path,
+			s_ActiveScenarioGraphs.objects_path);
 		s_ActiveScenarioGraphs.ai_action_set_object_sound_playing_logged = 1;
 	}
 	return 1;
@@ -18871,11 +25171,16 @@ s32 scenarioSourceAiGraphExecutePlayRepeatingSoundFromObject(s8 channel,
 	struct defaultobj *obj;
 	s32 applied;
 	s32 timer = volchangetimer60 == 0 ? -1 : volchangetimer60;
+	s32 object_count = 0;
 	s32 ready = s_aiAudioGraphReady("play_repeating_sound_from_object",
 		s_ActiveScenarioGraphs.level_ai_play_repeating_sound_from_object_node_count,
 		"missing scenario.ai.action.play_repeating_sound_from_object node");
 	if (ready != 1) {
 		return ready;
+	}
+	if (!s_aiGraphRequireRuntimeObjectTag("play_repeating_sound_from_object",
+			tag_id, &object_count)) {
+		return 1;
 	}
 	obj = objFindByTagId(tag_id);
 	applied = obj && obj->prop;
@@ -18887,9 +25192,10 @@ s32 scenarioSourceAiGraphExecutePlayRepeatingSoundFromObject(s8 channel,
 	if (!s_ActiveScenarioGraphs
 			.ai_action_play_repeating_sound_from_object_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action play_repeating_sound_from_object tag=%d channel=%d timer=%d dist2=%u dist3=%u applied=%d source=%s backend=graph.ai.action.audio+ai/ailists.tsv",
-			tag_id, channel, timer, dist2, dist3, applied,
-			s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI action play_repeating_sound_from_object tag=%d object_rows=%d channel=%d timer=%d dist2=%u dist3=%u applied=%d source=%s objects=%s backend=graph.ai.action.audio+ai/ailists.tsv+objects.tsv",
+			tag_id, object_count, channel, timer, dist2, dist3, applied,
+			s_ActiveScenarioGraphs.ai_lists_path,
+			s_ActiveScenarioGraphs.objects_path);
 		s_ActiveScenarioGraphs
 			.ai_action_play_repeating_sound_from_object_logged = 1;
 	}
@@ -18900,6 +25206,8 @@ s32 scenarioSourceAiGraphExecutePlaySoundFromEntity(s8 channel, s32 entity_id,
 	u16 volchangetimer60, u16 dist2, u16 dist3, s32 entity_is_chr)
 {
 	struct prop *prop = NULL;
+	s32 object_count = 0;
+	s32 chr_count = 0;
 	s32 ready = s_aiAudioGraphReady("play_sound_from_entity",
 		s_ActiveScenarioGraphs.level_ai_play_sound_from_entity_node_count,
 		"missing scenario.ai.action.play_sound_from_entity node");
@@ -18907,12 +25215,21 @@ s32 scenarioSourceAiGraphExecutePlaySoundFromEntity(s8 channel, s32 entity_id,
 		return ready;
 	}
 	if (entity_is_chr == 0) {
-		struct defaultobj *obj = objFindByTagId(entity_id);
+		struct defaultobj *obj;
+		if (!s_aiGraphRequireRuntimeObjectTag("play_sound_from_entity",
+				entity_id, &object_count)) {
+			return 1;
+		}
+		obj = objFindByTagId(entity_id);
 		if (obj) {
 			prop = obj->prop;
 		}
 	} else {
-		struct chrdata *chr = chrFindById(g_Vars.chrdata, entity_id);
+		struct chrdata *chr;
+		if (!s_aiGraphRequireRuntimeCharacterRef("play_sound_from_entity",
+				entity_id, &chr_count, &chr)) {
+			return 1;
+		}
 		if (chr) {
 			prop = chr->prop;
 		}
@@ -18924,9 +25241,11 @@ s32 scenarioSourceAiGraphExecutePlaySoundFromEntity(s8 channel, s32 entity_id,
 	g_Vars.aioffset += 11;
 	if (!s_ActiveScenarioGraphs.ai_action_play_sound_from_entity_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action play_sound_from_entity entity=%d is_chr=%d channel=%d timer=%u dist2=%u dist3=%u applied=%d source=%s backend=graph.ai.action.audio+ai/ailists.tsv",
-			entity_id, entity_is_chr, channel, volchangetimer60,
-			dist2, dist3, prop != NULL, s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI action play_sound_from_entity entity=%d object_rows=%d chr_rows=%d is_chr=%d channel=%d timer=%u dist2=%u dist3=%u applied=%d source=%s objects=%s backend=graph.ai.action.audio+ai/ailists.tsv+objects.tsv",
+			entity_id, object_count, chr_count, entity_is_chr, channel,
+			volchangetimer60, dist2, dist3, prop != NULL,
+			s_ActiveScenarioGraphs.ai_lists_path,
+			s_ActiveScenarioGraphs.objects_path);
 		s_ActiveScenarioGraphs.ai_action_play_sound_from_entity_logged = 1;
 	}
 	return 1;
@@ -18935,19 +25254,38 @@ s32 scenarioSourceAiGraphExecutePlaySoundFromEntity(s8 channel, s32 entity_id,
 s32 scenarioSourceAiGraphExecutePlayRepeatingSoundFromPad(s16 padnum,
 	s16 sound)
 {
+	const char *audio_catalog_id;
+	char audio_source_id[64];
+	s32 pad_count = 0;
 	s32 ready = s_aiAudioGraphReady("play_repeating_sound_from_pad",
 		s_ActiveScenarioGraphs.level_ai_play_repeating_sound_from_pad_node_count,
 		"missing scenario.ai.action.play_repeating_sound_from_pad node");
 	if (ready != 1) {
 		return ready;
 	}
+	if (!s_ActiveScenarioGraphs.pads_path[0]) {
+		return s_aiGraphRuntimeFailure("play_repeating_sound_from_pad",
+			"missing pads.tsv source");
+	}
+	if (!s_aiGraphRequireRuntimePad("play_repeating_sound_from_pad",
+			padnum, &pad_count)) {
+		return 1;
+	}
+	audio_catalog_id = s_aiGraphResolveSpeechAudioSourceId(
+		"play_repeating_sound_from_pad", sound, "pad",
+		audio_source_id, sizeof(audio_source_id));
+	if (!audio_catalog_id) {
+		return 1;
+	}
 	psCreate(0, NULL, sound, padnum, -1, PSFLAG_REPEATING, 0,
 		PSTYPE_NONE, 0, -1, 0, -1, -1, -1, -1);
 	g_Vars.aioffset += 7;
 	if (!s_ActiveScenarioGraphs.ai_action_play_repeating_sound_from_pad_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action play_repeating_sound_from_pad pad=%d sound=%d source=%s backend=graph.ai.action.audio+ai/ailists.tsv",
-			padnum, sound, s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI action play_repeating_sound_from_pad pad=%d found=1 pad_rows=%d audio_id=%s source=%s pads=%s backend=graph.ai.action.audio+ai/ailists.tsv+pads.tsv",
+			padnum, pad_count, audio_catalog_id,
+			s_ActiveScenarioGraphs.ai_lists_path,
+			s_ActiveScenarioGraphs.pads_path);
 		s_ActiveScenarioGraphs.ai_action_play_repeating_sound_from_pad_logged = 1;
 	}
 	return 1;
@@ -18989,6 +25327,9 @@ s32 scenarioSourceAiGraphExecutePlaySoundFromProp(s32 channel, s16 audio_id,
 {
 	struct defaultobj *obj;
 	s32 applied;
+	s32 object_count = 0;
+	const char *audio_catalog_id;
+	char audio_source_id[64];
 
 	if (!s_ActiveScenarioGraphs.level_graph_active) {
 		return 0;
@@ -19001,6 +25342,16 @@ s32 scenarioSourceAiGraphExecutePlaySoundFromProp(s32 channel, s16 audio_id,
 		return s_aiGraphRuntimeFailure("play_sound_from_prop",
 			"missing ai/ailists.tsv source");
 	}
+	if (!s_aiGraphRequireRuntimeObjectTag("play_sound_from_prop",
+			tag_id, &object_count)) {
+		return 1;
+	}
+	audio_catalog_id = s_aiGraphResolveSpeechAudioSourceId(
+		"play_sound_from_prop", audio_id, "prop",
+		audio_source_id, sizeof(audio_source_id));
+	if (!audio_catalog_id) {
+		return 1;
+	}
 	obj = objFindByTagId(tag_id);
 	applied = obj && obj->prop;
 	if (applied) {
@@ -19008,16 +25359,60 @@ s32 scenarioSourceAiGraphExecutePlaySoundFromProp(s32 channel, s16 audio_id,
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_play_sound_from_prop_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action play_sound_from_prop tag=%d channel=%d audio=%d volume=%d type=%d flags=0x%04x applied=%d source=%s backend=graph.ai.action.audio+ai/ailists.tsv",
-			tag_id, channel, audio_id, volume, type, flags, applied,
-			s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI action play_sound_from_prop tag=%d object_rows=%d channel=%d audio_id=%s volume=%d type=%d flags=0x%04x applied=%d source=%s objects=%s backend=graph.ai.action.audio+ai/ailists.tsv+objects.tsv",
+			tag_id, object_count, channel, audio_catalog_id, volume, type, flags,
+			applied, s_ActiveScenarioGraphs.ai_lists_path,
+			s_ActiveScenarioGraphs.objects_path);
 		s_ActiveScenarioGraphs.ai_action_play_sound_from_prop_logged = 1;
 	}
 	return 1;
 }
 
+typedef struct scenario_music_catalog_match {
+	s32 tracknum;
+	const char *catalog_id;
+} scenario_music_catalog_match_t;
+
+static void s_aiGraphMatchMusicCatalogId(const asset_entry_t *entry,
+	void *userdata)
+{
+	scenario_music_catalog_match_t *match =
+		(scenario_music_catalog_match_t *)userdata;
+
+	if (!entry || !match || match->catalog_id) {
+		return;
+	}
+	if (entry->type != ASSET_AUDIO ||
+			entry->ext.audio.category != AUDIO_CAT_MUSIC) {
+		return;
+	}
+	if (entry->ext.audio.sound_id == match->tracknum && entry->id[0]) {
+		match->catalog_id = entry->id;
+	}
+}
+
+static const char *s_aiGraphResolveMusicCatalogId(const char *action,
+	s32 tracknum, const char *role)
+{
+	scenario_music_catalog_match_t match = { tracknum, NULL };
+	char reason[128];
+
+	assetCatalogIterateByType(ASSET_AUDIO, s_aiGraphMatchMusicCatalogId,
+		&match);
+	if (match.catalog_id) {
+		return match.catalog_id;
+	}
+	snprintf(reason, sizeof(reason),
+		"unresolved %s music catalog id for runtime track %d",
+		role, tracknum);
+	s_aiGraphRuntimeFailure(action, reason);
+	return NULL;
+}
+
 s32 scenarioSourceAiGraphExecutePlayTemporaryPrimaryTrack(s32 tracknum)
 {
+	const char *track_id;
+
 	if (!s_ActiveScenarioGraphs.level_graph_active) {
 		return 0;
 	}
@@ -19029,12 +25424,17 @@ s32 scenarioSourceAiGraphExecutePlayTemporaryPrimaryTrack(s32 tracknum)
 		return s_aiGraphRuntimeFailure("play_temporary_primary_track",
 			"missing ai/ailists.tsv source");
 	}
+	track_id = s_aiGraphResolveMusicCatalogId("play_temporary_primary_track",
+		tracknum, "temporary primary track");
+	if (!track_id) {
+		return 1;
+	}
 	musicStartTemporaryPrimary(tracknum);
 	g_Vars.aioffset += 3;
 	if (!s_ActiveScenarioGraphs.ai_action_play_temporary_primary_track_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action play_temporary_primary_track track=%d source=%s backend=graph.ai.action.audio+ai/ailists.tsv",
-			tracknum, s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI action play_temporary_primary_track track_id=%s source=%s backend=graph.ai.action.audio+ai/ailists.tsv",
+			track_id, s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_play_temporary_primary_track_logged = 1;
 	}
 	return 1;
@@ -19056,8 +25456,8 @@ static s32 s_aiMusicTrackGraphReady(const char *action, s32 node_count,
 	return 1;
 }
 
-s32 scenarioSourceAiGraphExecutePlayXTrack(s32 reason, s32 tracknum,
-	s32 volume)
+s32 scenarioSourceAiGraphExecutePlayXTrack(s32 reason, s32 minsecs,
+	s32 maxsecs)
 {
 	s32 ready = s_aiMusicTrackGraphReady("play_x_track",
 		s_ActiveScenarioGraphs.level_ai_play_x_track_node_count,
@@ -19066,12 +25466,12 @@ s32 scenarioSourceAiGraphExecutePlayXTrack(s32 reason, s32 tracknum,
 	if (ready != 1) {
 		return ready;
 	}
-	musicSetXReason((s8)reason, tracknum, volume);
+	musicSetXReason((s8)reason, minsecs, maxsecs);
 	g_Vars.aioffset += 5;
 	if (!s_ActiveScenarioGraphs.ai_action_play_x_track_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action play_x_track reason=%d track=%d volume=%d source=%s backend=graph.ai.action.music_track+ai/ailists.tsv",
-			reason, tracknum, volume, s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI action play_x_track reason=%d minsecs=%d maxsecs=%d source=%s backend=graph.ai.action.music_track+ai/ailists.tsv",
+			reason, minsecs, maxsecs, s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_play_x_track_logged = 1;
 	}
 	return 1;
@@ -19102,9 +25502,15 @@ s32 scenarioSourceAiGraphExecutePlayTrackIsolated(s32 tracknum)
 	s32 ready = s_aiMusicTrackGraphReady("play_track_isolated",
 		s_ActiveScenarioGraphs.level_ai_play_track_isolated_node_count,
 		"missing scenario.ai.action.play_track_isolated node");
+	const char *track_id;
 
 	if (ready != 1) {
 		return ready;
+	}
+	track_id = s_aiGraphResolveMusicCatalogId("play_track_isolated",
+		tracknum, "isolated track");
+	if (!track_id) {
+		return 1;
 	}
 	if (tracknum == MUSIC_CI_TRAINING) {
 		u16 volume = optionsGetMusicVolume();
@@ -19116,8 +25522,8 @@ s32 scenarioSourceAiGraphExecutePlayTrackIsolated(s32 tracknum)
 	g_Vars.aioffset += 3;
 	if (!s_ActiveScenarioGraphs.ai_action_play_track_isolated_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action play_track_isolated track=%d source=%s backend=graph.ai.action.music_track+ai/ailists.tsv",
-			tracknum, s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI action play_track_isolated track_id=%s source=%s backend=graph.ai.action.music_track+ai/ailists.tsv",
+			track_id, s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_play_track_isolated_logged = 1;
 	}
 	return 1;
@@ -19148,16 +25554,22 @@ s32 scenarioSourceAiGraphExecutePlayCutsceneTrack(s32 tracknum)
 	s32 ready = s_aiMusicTrackGraphReady("play_cutscene_track",
 		s_ActiveScenarioGraphs.level_ai_play_cutscene_track_node_count,
 		"missing scenario.ai.action.play_cutscene_track node");
+	const char *track_id;
 
 	if (ready != 1) {
 		return ready;
+	}
+	track_id = s_aiGraphResolveMusicCatalogId("play_cutscene_track",
+		tracknum, "cutscene track");
+	if (!track_id) {
+		return 1;
 	}
 	musicStartCutscene(tracknum);
 	g_Vars.aioffset += 3;
 	if (!s_ActiveScenarioGraphs.ai_action_play_cutscene_track_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action play_cutscene_track track=%d source=%s backend=graph.ai.action.music_track+ai/ailists.tsv",
-			tracknum, s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI action play_cutscene_track track_id=%s source=%s backend=graph.ai.action.music_track+ai/ailists.tsv",
+			track_id, s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_play_cutscene_track_logged = 1;
 	}
 	return 1;
@@ -19188,16 +25600,22 @@ s32 scenarioSourceAiGraphExecutePlayTemporaryTrack(s32 tracknum)
 	s32 ready = s_aiMusicTrackGraphReady("play_temporary_track",
 		s_ActiveScenarioGraphs.level_ai_play_temporary_track_node_count,
 		"missing scenario.ai.action.play_temporary_track node");
+	const char *track_id;
 
 	if (ready != 1) {
 		return ready;
+	}
+	track_id = s_aiGraphResolveMusicCatalogId("play_temporary_track",
+		tracknum, "temporary ambient track");
+	if (!track_id) {
+		return 1;
 	}
 	musicStartTemporaryAmbient(tracknum);
 	g_Vars.aioffset += 3;
 	if (!s_ActiveScenarioGraphs.ai_action_play_temporary_track_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action play_temporary_track track=%d source=%s backend=graph.ai.action.music_track+ai/ailists.tsv",
-			tracknum, s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI action play_temporary_track track_id=%s source=%s backend=graph.ai.action.music_track+ai/ailists.tsv",
+			track_id, s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_play_temporary_track_logged = 1;
 	}
 	return 1;
@@ -19239,14 +25657,34 @@ static s32 s_aiPlayerWeaponStateGraphReady(const char *action,
 	return 1;
 }
 
-static struct chrdata *s_aiFindPlayerChr(struct chrdata *basechr, s32 chrnum)
+static s32 s_aiGraphResolvePlayerChr(const char *action,
+	struct chrdata *basechr, s32 chrnum, s32 *out_chr_count,
+	s32 *out_target_chrnum, struct chrdata **out_player_chr)
 {
-	struct chrdata *chr = chrFindById(basechr, chrnum);
+	struct chrdata *chr = NULL;
 
-	if (chr && chr->prop && chr->prop->type == PROPTYPE_PLAYER) {
-		return chr;
+	if (out_chr_count) {
+		*out_chr_count = 0;
 	}
-	return NULL;
+	if (out_target_chrnum) {
+		*out_target_chrnum = -1;
+	}
+	if (out_player_chr) {
+		*out_player_chr = NULL;
+	}
+	if (!s_aiGraphResolveRuntimeCharacterRefOrSelector(action, basechr,
+			chrnum, out_chr_count, &chr, NULL)) {
+		return 0;
+	}
+	if (chr && out_target_chrnum) {
+		*out_target_chrnum = chr->chrnum;
+	}
+	if (chr && chr->prop && chr->prop->type == PROPTYPE_PLAYER) {
+		if (out_player_chr) {
+			*out_player_chr = chr;
+		}
+	}
+	return 1;
 }
 
 s32 scenarioSourceAiGraphExecuteChrDrawWeapon(struct chrdata *basechr,
@@ -19254,16 +25692,33 @@ s32 scenarioSourceAiGraphExecuteChrDrawWeapon(struct chrdata *basechr,
 {
 	struct chrdata *chr;
 	s32 applied = 0;
+	s32 chr_count = 0;
+	s32 player_checked = 0;
+	s32 target_chrnum = -1;
+	const char *weapon_id;
 
 	if (!s_aiPlayerWeaponStateGraphReady("chr_draw_weapon",
 			s_ActiveScenarioGraphs.level_ai_chr_draw_weapon_node_count,
 			"missing scenario.ai.action.chr_draw_weapon node")) {
 		return 0;
 	}
-	chr = s_aiFindPlayerChr(basechr, chrnum);
+	weapon_id = s_aiGraphResolveWeaponCatalogId("chr_draw_weapon",
+		weaponnum, "draw");
+	if (!weapon_id) {
+		return 1;
+	}
+	if (!s_aiGraphResolvePlayerChr("chr_draw_weapon", basechr, chrnum,
+			&chr_count, &target_chrnum, &chr)) {
+		return 1;
+	}
 	if (chr) {
 		u32 prevplayernum = g_Vars.currentplayernum;
 		u32 playernum = playermgrGetPlayerNumByProp(chr->prop);
+		if (!s_aiGraphRequireRuntimePlayerSlot("chr_draw_weapon",
+				(s32)playernum, NULL)) {
+			return 1;
+		}
+		player_checked = 1;
 		setCurrentPlayerNum(playernum);
 		bgunEquipWeapon2(0, (s8)weaponnum);
 		bgunEquipWeapon2(1, 0);
@@ -19273,8 +25728,10 @@ s32 scenarioSourceAiGraphExecuteChrDrawWeapon(struct chrdata *basechr,
 	g_Vars.aioffset += 4;
 	if (!s_ActiveScenarioGraphs.ai_action_chr_draw_weapon_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action chr_draw_weapon chr=%d weapon=%d applied=%d source=%s backend=graph.ai.action.player_weapon_state+ai/ailists.tsv",
-			chrnum, weaponnum, applied, s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI action chr_draw_weapon chr=%d chr_rows=%d target_chr=%d player_checked=%d weapon_id=%s applied=%d source=%s backend=graph.ai.action.player_weapon_state+ai/ailists.tsv",
+			chrnum, chr_count, target_chrnum, player_checked,
+			weapon_id, applied,
+			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_chr_draw_weapon_logged = 1;
 	}
 	return 1;
@@ -19285,16 +25742,34 @@ s32 scenarioSourceAiGraphExecuteChrDrawWeaponInCutscene(
 {
 	struct chrdata *chr;
 	s32 applied = 0;
+	s32 chr_count = 0;
+	s32 player_checked = 0;
+	s32 target_chrnum = -1;
+	const char *weapon_id;
 
 	if (!s_aiPlayerWeaponStateGraphReady("chr_draw_weapon_in_cutscene",
 			s_ActiveScenarioGraphs.level_ai_chr_draw_weapon_in_cutscene_node_count,
 			"missing scenario.ai.action.chr_draw_weapon_in_cutscene node")) {
 		return 0;
 	}
-	chr = s_aiFindPlayerChr(basechr, chrnum);
+	weapon_id = s_aiGraphResolveWeaponCatalogId(
+		"chr_draw_weapon_in_cutscene", weaponnum, "cutscene draw");
+	if (!weapon_id) {
+		return 1;
+	}
+	if (!s_aiGraphResolvePlayerChr("chr_draw_weapon_in_cutscene",
+			basechr, chrnum, &chr_count, &target_chrnum, &chr)) {
+		return 1;
+	}
 	if (chr) {
 		u32 prevplayernum = g_Vars.currentplayernum;
 		u32 playernum = playermgrGetPlayerNumByProp(chr->prop);
+		if (!s_aiGraphRequireRuntimePlayerSlot(
+				"chr_draw_weapon_in_cutscene", (s32)playernum,
+				NULL)) {
+			return 1;
+		}
+		player_checked = 1;
 		setCurrentPlayerNum(playernum);
 		bgunEquipWeapon((s8)weaponnum);
 		setCurrentPlayerNum(prevplayernum);
@@ -19303,8 +25778,10 @@ s32 scenarioSourceAiGraphExecuteChrDrawWeaponInCutscene(
 	g_Vars.aioffset += 4;
 	if (!s_ActiveScenarioGraphs.ai_action_chr_draw_weapon_in_cutscene_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action chr_draw_weapon_in_cutscene chr=%d weapon=%d applied=%d source=%s backend=graph.ai.action.player_weapon_state+ai/ailists.tsv",
-			chrnum, weaponnum, applied, s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI action chr_draw_weapon_in_cutscene chr=%d chr_rows=%d target_chr=%d player_checked=%d weapon_id=%s applied=%d source=%s backend=graph.ai.action.player_weapon_state+ai/ailists.tsv",
+			chrnum, chr_count, target_chrnum, player_checked,
+			weapon_id, applied,
+			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_chr_draw_weapon_in_cutscene_logged = 1;
 	}
 	return 1;
@@ -19314,29 +25791,42 @@ s32 scenarioSourceAiGraphExecuteSetPlayerForceSpeed(struct chrdata *basechr,
 	s32 chrnum, s32 speed_x, s32 speed_z)
 {
 	struct chrdata *chr;
+	struct player *player = NULL;
 	s32 applied = 0;
+	s32 chr_count = 0;
+	s32 target_chrnum = -1;
+	s32 player_checked = 0;
 
 	if (!s_aiPlayerWeaponStateGraphReady("set_player_force_speed",
 			s_ActiveScenarioGraphs.level_ai_set_player_force_speed_node_count,
 			"missing scenario.ai.action.set_player_force_speed node")) {
 		return 0;
 	}
-	chr = s_aiFindPlayerChr(basechr, chrnum);
+	if (!s_aiGraphResolvePlayerChr("set_player_force_speed", basechr,
+			chrnum, &chr_count, &target_chrnum, &chr)) {
+		return 1;
+	}
 	if (chr) {
 		u32 prevplayernum = g_Vars.currentplayernum;
 		u32 playernum = playermgrGetPlayerNumByProp(chr->prop);
+		if (!s_aiGraphRequireRuntimePlayerSlot("set_player_force_speed",
+				(s32)playernum, &player)) {
+			return 1;
+		}
+		player_checked = 1;
 		setCurrentPlayerNum(playernum);
-		g_Vars.currentplayer->bondforcespeed.x = (s8)speed_x;
-		g_Vars.currentplayer->bondforcespeed.y = 0;
-		g_Vars.currentplayer->bondforcespeed.z = (s8)speed_z;
+		player->bondforcespeed.x = (s8)speed_x;
+		player->bondforcespeed.y = 0;
+		player->bondforcespeed.z = (s8)speed_z;
 		setCurrentPlayerNum(prevplayernum);
 		applied = 1;
 	}
 	g_Vars.aioffset += 5;
 	if (!s_ActiveScenarioGraphs.ai_action_set_player_force_speed_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action set_player_force_speed chr=%d x=%d z=%d applied=%d source=%s backend=graph.ai.action.player_weapon_state+ai/ailists.tsv",
-			chrnum, speed_x, speed_z, applied,
+			"SCENARIO.GRAPH: AI action set_player_force_speed chr=%d chr_rows=%d target_chr=%d player_checked=%d x=%d z=%d applied=%d source=%s backend=graph.ai.action.player_weapon_state+ai/ailists.tsv",
+			chrnum, chr_count, target_chrnum, player_checked,
+			speed_x, speed_z, applied,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_set_player_force_speed_logged = 1;
 	}
@@ -19348,16 +25838,27 @@ s32 scenarioSourceAiGraphExecuteChrSetInvincible(struct chrdata *basechr,
 {
 	struct chrdata *chr;
 	s32 applied = 0;
+	s32 chr_count = 0;
+	s32 player_checked = 0;
+	s32 target_chrnum = -1;
 
 	if (!s_aiPlayerWeaponStateGraphReady("chr_set_invincible",
 			s_ActiveScenarioGraphs.level_ai_chr_set_invincible_node_count,
 			"missing scenario.ai.action.chr_set_invincible node")) {
 		return 0;
 	}
-	chr = s_aiFindPlayerChr(basechr, chrnum);
+	if (!s_aiGraphResolvePlayerChr("chr_set_invincible", basechr,
+			chrnum, &chr_count, &target_chrnum, &chr)) {
+		return 1;
+	}
 	if (chr) {
 		u32 prevplayernum = g_Vars.currentplayernum;
 		u32 playernum = playermgrGetPlayerNumByProp(chr->prop);
+		if (!s_aiGraphRequireRuntimePlayerSlot("chr_set_invincible",
+				(s32)playernum, NULL)) {
+			return 1;
+		}
+		player_checked = 1;
 		setCurrentPlayerNum(playernum);
 		g_PlayerInvincible = true;
 		setCurrentPlayerNum(prevplayernum);
@@ -19366,8 +25867,9 @@ s32 scenarioSourceAiGraphExecuteChrSetInvincible(struct chrdata *basechr,
 	g_Vars.aioffset += 3;
 	if (!s_ActiveScenarioGraphs.ai_action_chr_set_invincible_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action chr_set_invincible chr=%d applied=%d source=%s backend=graph.ai.action.player_weapon_state+ai/ailists.tsv",
-			chrnum, applied, s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI action chr_set_invincible chr=%d chr_rows=%d target_chr=%d player_checked=%d applied=%d source=%s backend=graph.ai.action.player_weapon_state+ai/ailists.tsv",
+			chrnum, chr_count, target_chrnum, player_checked, applied,
+			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_chr_set_invincible_logged = 1;
 	}
 	return 1;
@@ -19378,16 +25880,27 @@ s32 scenarioSourceAiGraphExecuteIfPlayerIsInvincible(struct chrdata *basechr,
 {
 	struct chrdata *chr;
 	s32 pass = 0;
+	s32 chr_count = 0;
+	s32 player_checked = 0;
+	s32 target_chrnum = -1;
 
 	if (!s_aiPlayerWeaponStateGraphReady("if_player_is_invincible",
 			s_ActiveScenarioGraphs.level_ai_if_player_is_invincible_node_count,
 			"missing scenario.ai.condition.if_player_is_invincible node")) {
 		return 0;
 	}
-	chr = s_aiFindPlayerChr(basechr, chrnum);
+	if (!s_aiGraphResolvePlayerChr("if_player_is_invincible", basechr,
+			chrnum, &chr_count, &target_chrnum, &chr)) {
+		return 1;
+	}
 	if (chr) {
 		u32 prevplayernum = g_Vars.currentplayernum;
 		u32 playernum = playermgrGetPlayerNumByProp(chr->prop);
+		if (!s_aiGraphRequireRuntimePlayerSlot("if_player_is_invincible",
+				(s32)playernum, NULL)) {
+			return 1;
+		}
+		player_checked = 1;
 		setCurrentPlayerNum(playernum);
 		pass = g_PlayerInvincible ? 1 : 0;
 		setCurrentPlayerNum(prevplayernum);
@@ -19400,8 +25913,9 @@ s32 scenarioSourceAiGraphExecuteIfPlayerIsInvincible(struct chrdata *basechr,
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_if_player_is_invincible_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_player_is_invincible chr=%d label=%d result=%d source=%s backend=graph.ai.action.player_weapon_state+ai/ailists.tsv",
-			chrnum, label, pass, s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI condition if_player_is_invincible chr=%d chr_rows=%d target_chr=%d player_checked=%d label=%d result=%d source=%s backend=graph.ai.action.player_weapon_state+ai/ailists.tsv",
+			chrnum, chr_count, target_chrnum, player_checked, label, pass,
+			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_if_player_is_invincible_logged = 1;
 	}
 	return 1;
@@ -19412,13 +25926,26 @@ s32 scenarioSourceAiGraphExecuteIfChrHasNoGun(struct chrdata *basechr,
 {
 	struct chrdata *chr;
 	s32 pass;
+	s32 chr_count = 0;
+	s32 target_chrnum = -1;
+	const char *gun_model_id = "none";
+	const char *gun_weapon_id = "none";
 
 	if (!s_aiPlayerWeaponStateGraphReady("if_chr_has_no_gun",
 			s_ActiveScenarioGraphs.level_ai_if_chr_has_no_gun_node_count,
 			"missing scenario.ai.condition.if_chr_has_no_gun node")) {
 		return 0;
 	}
-	chr = chrFindById(basechr, chrnum);
+	if (!s_aiGraphRequireRuntimeCharacterRefFromBase("if_chr_has_no_gun",
+			basechr, chrnum, &chr_count, &chr)) {
+		return 1;
+	}
+	target_chrnum = chr ? chr->chrnum : -1;
+	if (chr && chr->gunprop &&
+			!s_aiGraphRequireCurrentGunProp("if_chr_has_no_gun",
+				chr->gunprop, &gun_model_id, &gun_weapon_id)) {
+		return 1;
+	}
 	pass = chr && chr->model && chr->gunprop == NULL;
 	if (pass) {
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist,
@@ -19428,8 +25955,10 @@ s32 scenarioSourceAiGraphExecuteIfChrHasNoGun(struct chrdata *basechr,
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_if_chr_has_no_gun_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_chr_has_no_gun chr=%d label=%d result=%d source=%s backend=graph.ai.action.player_weapon_state+ai/ailists.tsv",
-			chrnum, label, pass, s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI condition if_chr_has_no_gun chr=%d chr_rows=%d target_chr=%d gun_model_id=%s weapon_id=%s label=%d result=%d source=%s backend=graph.ai.action.player_weapon_state+ai/ailists.tsv",
+			chrnum, chr_count, target_chrnum, gun_model_id,
+			gun_weapon_id, label, pass,
+			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_if_chr_has_no_gun_logged = 1;
 	}
 	return 1;
@@ -19440,13 +25969,26 @@ s32 scenarioSourceAiGraphExecuteChrDeleteWeapon(struct chrdata *basechr,
 {
 	struct chrdata *chr;
 	s32 applied = 0;
+	s32 chr_count = 0;
+	s32 player_checked = 0;
+	s32 target_chrnum = -1;
+	const char *weapon_id;
 
 	if (!s_aiPlayerWeaponStateGraphReady("chr_delete_weapon",
 			s_ActiveScenarioGraphs.level_ai_chr_delete_weapon_node_count,
 			"missing scenario.ai.action.chr_delete_weapon node")) {
 		return 0;
 	}
-	chr = chrFindById(basechr, chrnum);
+	weapon_id = s_aiGraphResolveWeaponCatalogId("chr_delete_weapon",
+		weaponnum, "delete");
+	if (!weapon_id) {
+		return 1;
+	}
+	if (!s_aiGraphRequireRuntimeCharacterRefFromBase("chr_delete_weapon",
+			basechr, chrnum, &chr_count, &chr)) {
+		return 1;
+	}
+	target_chrnum = chr ? chr->chrnum : -1;
 	if (chr) {
 		weaponDeleteFromChr(chr, weaponnum);
 		applied = 1;
@@ -19454,8 +25996,8 @@ s32 scenarioSourceAiGraphExecuteChrDeleteWeapon(struct chrdata *basechr,
 	g_Vars.aioffset += 4;
 	if (!s_ActiveScenarioGraphs.ai_action_chr_delete_weapon_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action chr_delete_weapon chr=%d weapon=%d applied=%d source=%s backend=graph.ai.action.player_weapon_state+ai/ailists.tsv",
-			chrnum, weaponnum, applied,
+			"SCENARIO.GRAPH: AI action chr_delete_weapon chr=%d chr_rows=%d target_chr=%d weapon_id=%s applied=%d source=%s backend=graph.ai.action.player_weapon_state+ai/ailists.tsv",
+			chrnum, chr_count, target_chrnum, weapon_id, applied,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_chr_delete_weapon_logged = 1;
 	}
@@ -19467,6 +26009,8 @@ s32 scenarioSourceAiGraphExecuteIfTriggerShotList(struct chrdata *basechr,
 {
 	struct chrdata *chr;
 	s32 branch_taken = 0;
+	s32 chr_count = 0;
+	s32 target_chrnum = -1;
 
 	if (!s_aiPlayerWeaponStateGraphReady("if_trigger_shot_list",
 			s_ActiveScenarioGraphs
@@ -19474,7 +26018,12 @@ s32 scenarioSourceAiGraphExecuteIfTriggerShotList(struct chrdata *basechr,
 			"missing scenario.ai.condition.if_trigger_shot_list node")) {
 		return 0;
 	}
-	chr = chrFindById(basechr, chrnum);
+	if (!s_aiGraphRequireRuntimeCharacterRefFromBase(
+			"if_trigger_shot_list", basechr, chrnum, &chr_count,
+			&chr)) {
+		return 1;
+	}
+	target_chrnum = chr ? chr->chrnum : -1;
 	if (chr && (chr->chrflags & CHRCFLAG_TRIGGERSHOTLIST)) {
 		chr->chrflags &= ~CHRCFLAG_TRIGGERSHOTLIST;
 		branch_taken = 1;
@@ -19487,8 +26036,8 @@ s32 scenarioSourceAiGraphExecuteIfTriggerShotList(struct chrdata *basechr,
 	}
 	if (!s_ActiveScenarioGraphs.ai_condition_if_trigger_shot_list_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_trigger_shot_list chr=%d label=%d branch=%d source=%s backend=graph.ai.action.player_weapon_state+ai/ailists.tsv",
-			chrnum, label, branch_taken,
+			"SCENARIO.GRAPH: AI condition if_trigger_shot_list chr=%d chr_rows=%d target_chr=%d label=%d branch=%d source=%s backend=graph.ai.action.player_weapon_state+ai/ailists.tsv",
+			chrnum, chr_count, target_chrnum, label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_condition_if_trigger_shot_list_logged = 1;
 	}
@@ -19556,6 +26105,8 @@ s32 scenarioSourceAiGraphExecuteEndCutscene(void)
 
 s32 scenarioSourceAiGraphExecuteWarpJoToPad(s32 pad_id)
 {
+	s32 pad_count = 0;
+
 	if (!s_aiPlayerCutsceneGraphReady("warp_jo_to_pad",
 			s_ActiveScenarioGraphs.level_ai_warp_jo_to_pad_node_count,
 			"missing scenario.ai.action.warp_jo_to_pad node")) {
@@ -19565,12 +26116,16 @@ s32 scenarioSourceAiGraphExecuteWarpJoToPad(s32 pad_id)
 		return s_aiGraphRuntimeFailure("warp_jo_to_pad",
 			"missing pads.tsv source");
 	}
+	if (!s_aiGraphRequireRuntimePad("warp_jo_to_pad", pad_id,
+			&pad_count)) {
+		return 1;
+	}
 	playerPrepareWarpType1((s16)pad_id);
 	g_Vars.aioffset += 4;
 	if (!s_ActiveScenarioGraphs.ai_action_warp_jo_to_pad_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action warp_jo_to_pad pad=%d source=%s pads=%s backend=graph.ai.action.player_cutscene+ai/ailists.tsv+pads.tsv",
-			pad_id, s_ActiveScenarioGraphs.ai_lists_path,
+			"SCENARIO.GRAPH: AI action warp_jo_to_pad pad=%d found=1 pad_rows=%d source=%s pads=%s backend=graph.ai.action.player_cutscene+ai/ailists.tsv+pads.tsv",
+			pad_id, pad_count, s_ActiveScenarioGraphs.ai_lists_path,
 			s_ActiveScenarioGraphs.pads_path);
 		s_ActiveScenarioGraphs.ai_action_warp_jo_to_pad_logged = 1;
 	}
@@ -19579,18 +26134,40 @@ s32 scenarioSourceAiGraphExecuteWarpJoToPad(s32 pad_id)
 
 s32 scenarioSourceAiGraphExecuteSetCameraAnimation(s32 anim_id)
 {
+	struct player *player = g_Vars.currentplayer;
+	struct chrdata *active_chr = g_Vars.chrdata;
+	const char *anim_catalog_id;
+	s32 chr_count = 0;
+	s32 player_checked = 0;
+	s32 source_chr = -1;
+
 	if (!s_aiPlayerCutsceneGraphReady("set_camera_animation",
 			s_ActiveScenarioGraphs.level_ai_set_camera_animation_node_count,
 			"missing scenario.ai.action.set_camera_animation node")) {
 		return 0;
 	}
+	if (!s_aiGraphRequireRuntimePlayerPointer("set_camera_animation",
+			player, "current")) {
+		return 1;
+	}
+	player_checked = 1;
+	anim_catalog_id = s_aiGraphResolveAnimationCatalogId(
+		"set_camera_animation", anim_id, "camera");
+	if (!anim_catalog_id) {
+		return 1;
+	}
+	if (!s_aiGraphRequireRuntimeCharacterStatePointer("set_camera_animation",
+			active_chr, &chr_count, &source_chr)) {
+		return 1;
+	}
 	playerStartCutscene((s16)anim_id);
-	if (g_Vars.currentplayer->haschrbody == false) {
-		g_Vars.chrdata->sleep = -1;
+	if (player->haschrbody == false) {
+		active_chr->sleep = -1;
 		if (!s_ActiveScenarioGraphs.ai_action_set_camera_animation_logged) {
 			sysLogPrintf(LOG_NOTE,
-				"SCENARIO.GRAPH: AI action set_camera_animation anim=%d yielded=1 source=%s backend=graph.ai.action.player_cutscene+ai/ailists.tsv",
-				anim_id, s_ActiveScenarioGraphs.ai_lists_path);
+				"SCENARIO.GRAPH: AI action set_camera_animation anim_id=%s player_checked=%d chr_rows=%d source_chr=%d yielded=1 source=%s backend=graph.ai.action.player_cutscene+ai/ailists.tsv",
+				anim_catalog_id, player_checked, chr_count, source_chr,
+				s_ActiveScenarioGraphs.ai_lists_path);
 			s_ActiveScenarioGraphs.ai_action_set_camera_animation_logged = 1;
 		}
 		return 2;
@@ -19598,8 +26175,9 @@ s32 scenarioSourceAiGraphExecuteSetCameraAnimation(s32 anim_id)
 	g_Vars.aioffset += 4;
 	if (!s_ActiveScenarioGraphs.ai_action_set_camera_animation_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action set_camera_animation anim=%d yielded=0 source=%s backend=graph.ai.action.player_cutscene+ai/ailists.tsv",
-			anim_id, s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI action set_camera_animation anim_id=%s player_checked=%d chr_rows=%d source_chr=%d yielded=0 source=%s backend=graph.ai.action.player_cutscene+ai/ailists.tsv",
+			anim_catalog_id, player_checked, chr_count, source_chr,
+			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_set_camera_animation_logged = 1;
 	}
 	return 1;
@@ -19679,6 +26257,7 @@ s32 scenarioSourceAiGraphExecuteWarpJoToTag(s32 tag_id, s32 arg0, s32 arg1)
 {
 	struct tag *tag;
 	s32 applied = 0;
+	s32 setup_tag_count = 0;
 
 	if (!s_aiPlayerCutsceneGraphReady("warp_jo_to_tag",
 			s_ActiveScenarioGraphs.level_ai_warp_jo_to_tag_node_count,
@@ -19688,6 +26267,10 @@ s32 scenarioSourceAiGraphExecuteWarpJoToTag(s32 tag_id, s32 arg0, s32 arg1)
 	if (!s_ActiveScenarioGraphs.objects_path[0]) {
 		return s_aiGraphRuntimeFailure("warp_jo_to_tag",
 			"missing objects.tsv source");
+	}
+	if (!s_aiGraphRequireRuntimeSetupTag("warp_jo_to_tag", tag_id,
+			&setup_tag_count)) {
+		return 1;
 	}
 	tag = tagFindById(tag_id);
 	if (tag) {
@@ -19704,8 +26287,8 @@ s32 scenarioSourceAiGraphExecuteWarpJoToTag(s32 tag_id, s32 arg0, s32 arg1)
 	g_Vars.aioffset += 7;
 	if (!s_ActiveScenarioGraphs.ai_action_warp_jo_to_tag_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action warp_jo_to_tag tag=%d arg0=%d arg1=%d applied=%d source=%s objects=%s backend=graph.ai.action.player_cutscene+ai/ailists.tsv+objects.tsv",
-			tag_id, arg0, arg1, applied,
+			"SCENARIO.GRAPH: AI action warp_jo_to_tag tag=%d setup_tags=%d arg0=%d arg1=%d applied=%d source=%s objects=%s backend=graph.ai.action.player_cutscene+ai/ailists.tsv+objects.tsv",
+			tag_id, setup_tag_count, arg0, arg1, applied,
 			s_ActiveScenarioGraphs.ai_lists_path,
 			s_ActiveScenarioGraphs.objects_path);
 		s_ActiveScenarioGraphs.ai_action_warp_jo_to_tag_logged = 1;
@@ -19718,16 +26301,27 @@ s32 scenarioSourceAiGraphExecuteRevokeControl(struct chrdata *basechr,
 {
 	struct chrdata *chr;
 	s32 applied = 0;
+	s32 chr_count = 0;
+	s32 player_checked = 0;
+	s32 target_chrnum = -1;
 
 	if (!s_aiPlayerCutsceneGraphReady("revoke_control",
 			s_ActiveScenarioGraphs.level_ai_revoke_control_node_count,
 			"missing scenario.ai.action.revoke_control node")) {
 		return 0;
 	}
-	chr = chrFindById(basechr, chrnum);
-	if (chr && chr->prop && chr->prop->type == PROPTYPE_PLAYER) {
+	if (!s_aiGraphResolvePlayerChr("revoke_control", basechr, chrnum,
+			&chr_count, &target_chrnum, &chr)) {
+		return 1;
+	}
+	if (chr) {
 		u32 prevplayernum = g_Vars.currentplayernum;
 		u32 playernum = playermgrGetPlayerNumByProp(chr->prop);
+		if (!s_aiGraphRequireRuntimePlayerSlot("revoke_control",
+				(s32)playernum, NULL)) {
+			return 1;
+		}
+		player_checked = 1;
 		setCurrentPlayerNum(playernum);
 		bgunSetSightVisible(GUNSIGHTREASON_NOCONTROL, false);
 		bgunSetGunAmmoVisible(GUNAMMOREASON_NOCONTROL, false);
@@ -19738,15 +26332,16 @@ s32 scenarioSourceAiGraphExecuteRevokeControl(struct chrdata *basechr,
 			countdownTimerSetVisible(COUNTDOWNTIMERREASON_NOCONTROL,
 				false);
 		}
-		g_PlayersWithControl[g_Vars.currentplayernum] = false;
+		g_PlayersWithControl[playernum] = false;
 		setCurrentPlayerNum(prevplayernum);
 		applied = 1;
 	}
 	g_Vars.aioffset += 4;
 	if (!s_ActiveScenarioGraphs.ai_action_revoke_control_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action revoke_control chr=%d flags=0x%02x applied=%d source=%s backend=graph.ai.action.player_cutscene+ai/ailists.tsv",
-			chrnum, flags, applied, s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI action revoke_control chr=%d chr_rows=%d target_chr=%d player_checked=%d flags=0x%02x applied=%d source=%s backend=graph.ai.action.player_cutscene+ai/ailists.tsv",
+			chrnum, chr_count, target_chrnum, player_checked, flags, applied,
+			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_revoke_control_logged = 1;
 	}
 	return 1;
@@ -19757,29 +26352,42 @@ s32 scenarioSourceAiGraphExecuteGrantControl(struct chrdata *basechr,
 {
 	struct chrdata *chr;
 	s32 applied = 0;
+	s32 chr_count = 0;
+	s32 player_checked = 0;
+	s32 target_chrnum = -1;
 
 	if (!s_aiPlayerCutsceneGraphReady("grant_control",
 			s_ActiveScenarioGraphs.level_ai_grant_control_node_count,
 			"missing scenario.ai.action.grant_control node")) {
 		return 0;
 	}
-	chr = chrFindById(basechr, chrnum);
-	if (chr && chr->prop && chr->prop->type == PROPTYPE_PLAYER) {
+	if (!s_aiGraphResolvePlayerChr("grant_control", basechr, chrnum,
+			&chr_count, &target_chrnum, &chr)) {
+		return 1;
+	}
+	if (chr) {
 		u32 prevplayernum = g_Vars.currentplayernum;
-		setCurrentPlayerNum(playermgrGetPlayerNumByProp(chr->prop));
+		u32 playernum = playermgrGetPlayerNumByProp(chr->prop);
+		if (!s_aiGraphRequireRuntimePlayerSlot("grant_control",
+				(s32)playernum, NULL)) {
+			return 1;
+		}
+		player_checked = 1;
+		setCurrentPlayerNum(playernum);
 		bgunSetSightVisible(GUNSIGHTREASON_NOCONTROL, true);
 		bgunSetGunAmmoVisible(GUNAMMOREASON_NOCONTROL, true);
 		hudmsgsSetOn(HUDMSGREASON_NOCONTROL);
 		countdownTimerSetVisible(COUNTDOWNTIMERREASON_NOCONTROL, true);
-		g_PlayersWithControl[g_Vars.currentplayernum] = true;
+		g_PlayersWithControl[playernum] = true;
 		setCurrentPlayerNum(prevplayernum);
 		applied = 1;
 	}
 	g_Vars.aioffset += 3;
 	if (!s_ActiveScenarioGraphs.ai_action_grant_control_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action grant_control chr=%d applied=%d source=%s backend=graph.ai.action.player_cutscene+ai/ailists.tsv",
-			chrnum, applied, s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI action grant_control chr=%d chr_rows=%d target_chr=%d player_checked=%d applied=%d source=%s backend=graph.ai.action.player_cutscene+ai/ailists.tsv",
+			chrnum, chr_count, target_chrnum, player_checked, applied,
+			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_grant_control_logged = 1;
 	}
 	return 1;
@@ -19790,16 +26398,27 @@ s32 scenarioSourceAiGraphExecutePlayerFadeIn(struct chrdata *basechr,
 {
 	struct chrdata *chr;
 	s32 applied = 0;
+	s32 chr_count = 0;
+	s32 player_checked = 0;
+	s32 target_chrnum = -1;
 
 	if (!s_aiPlayerCutsceneGraphReady("player_fade_in",
 			s_ActiveScenarioGraphs.level_ai_player_fade_in_node_count,
 			"missing scenario.ai.action.player_fade_in node")) {
 		return 0;
 	}
-	chr = chrFindById(basechr, chrnum);
-	if (chr && chr->prop && chr->prop->type == PROPTYPE_PLAYER) {
+	if (!s_aiGraphResolvePlayerChr("player_fade_in", basechr, chrnum,
+			&chr_count, &target_chrnum, &chr)) {
+		return 1;
+	}
+	if (chr) {
 		u32 prevplayernum = g_Vars.currentplayernum;
 		u32 playernum = playermgrGetPlayerNumByProp(chr->prop);
+		if (!s_aiGraphRequireRuntimePlayerSlot("player_fade_in",
+				(s32)playernum, NULL)) {
+			return 1;
+		}
+		player_checked = 1;
 		setCurrentPlayerNum(playernum);
 		if (var8007074c != 2) {
 			playerSetFadeColour(0, 0, 0, 0);
@@ -19811,8 +26430,9 @@ s32 scenarioSourceAiGraphExecutePlayerFadeIn(struct chrdata *basechr,
 	g_Vars.aioffset += 3;
 	if (!s_ActiveScenarioGraphs.ai_action_player_fade_in_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action player_fade_in chr=%d applied=%d source=%s backend=graph.ai.action.player_cutscene+ai/ailists.tsv",
-			chrnum, applied, s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI action player_fade_in chr=%d chr_rows=%d target_chr=%d player_checked=%d applied=%d source=%s backend=graph.ai.action.player_cutscene+ai/ailists.tsv",
+			chrnum, chr_count, target_chrnum, player_checked, applied,
+			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_player_fade_in_logged = 1;
 	}
 	return 1;
@@ -19823,6 +26443,7 @@ s32 scenarioSourceAiGraphExecutePlayersFadeOut(void)
 	s32 playernum;
 	u32 prevplayernum;
 	s32 applied = 0;
+	s32 checked_players = 0;
 
 	if (!s_aiPlayerCutsceneGraphReady("players_fade_out",
 			s_ActiveScenarioGraphs.level_ai_players_fade_out_node_count,
@@ -19831,6 +26452,12 @@ s32 scenarioSourceAiGraphExecutePlayersFadeOut(void)
 	}
 	prevplayernum = g_Vars.currentplayernum;
 	for (playernum = 0; playernum < PLAYERCOUNT(); playernum++) {
+		if (!s_aiGraphRequireRuntimePlayerSlot("players_fade_out",
+				playernum, NULL)) {
+			setCurrentPlayerNum(prevplayernum);
+			return 1;
+		}
+		checked_players++;
 		setCurrentPlayerNum(playernum);
 		if (var8007074c != 2) {
 			playerSetFadeColour(0, 0, 0, 1);
@@ -19842,8 +26469,8 @@ s32 scenarioSourceAiGraphExecutePlayersFadeOut(void)
 	g_Vars.aioffset += 3;
 	if (!s_ActiveScenarioGraphs.ai_action_players_fade_out_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action players_fade_out applied=%d source=%s backend=graph.ai.action.player_cutscene+ai/ailists.tsv",
-			applied, s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI action players_fade_out checked_players=%d applied=%d source=%s backend=graph.ai.action.player_cutscene+ai/ailists.tsv",
+			checked_players, applied, s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_players_fade_out_logged = 1;
 	}
 	return 1;
@@ -19853,17 +26480,29 @@ s32 scenarioSourceAiGraphExecuteIfColourFadeComplete(struct chrdata *basechr,
 	s32 chrnum, s32 label)
 {
 	struct chrdata *chr;
+	struct player *player = NULL;
 	s32 pass = 0;
+	s32 chr_count = 0;
+	s32 target_chrnum = -1;
+	s32 player_checked = 0;
 
 	if (!s_aiPlayerCutsceneGraphReady("if_colour_fade_complete",
 			s_ActiveScenarioGraphs.level_ai_if_colour_fade_complete_node_count,
 			"missing scenario.ai.condition.if_colour_fade_complete node")) {
 		return 0;
 	}
-	chr = chrFindById(basechr, chrnum);
-	if (chr && chr->prop && chr->prop->type == PROPTYPE_PLAYER) {
+	if (!s_aiGraphResolvePlayerChr("if_colour_fade_complete", basechr,
+			chrnum, &chr_count, &target_chrnum, &chr)) {
+		return 1;
+	}
+	if (chr) {
 		u32 playernum = playermgrGetPlayerNumByProp(chr->prop);
-		pass = g_Vars.players[playernum]->colourfadetimemax60 < 0;
+		if (!s_aiGraphRequireRuntimePlayerSlot("if_colour_fade_complete",
+				(s32)playernum, &player)) {
+			return 1;
+		}
+		player_checked = 1;
+		pass = player->colourfadetimemax60 < 0;
 	}
 	if (pass) {
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist,
@@ -19873,8 +26512,9 @@ s32 scenarioSourceAiGraphExecuteIfColourFadeComplete(struct chrdata *basechr,
 	}
 	if (!s_ActiveScenarioGraphs.ai_condition_if_colour_fade_complete_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_colour_fade_complete chr=%d label=%d branch=%d source=%s backend=graph.ai.action.player_cutscene+ai/ailists.tsv",
-			chrnum, label, pass, s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI condition if_colour_fade_complete chr=%d chr_rows=%d target_chr=%d player_checked=%d label=%d branch=%d source=%s backend=graph.ai.action.player_cutscene+ai/ailists.tsv",
+			chrnum, chr_count, target_chrnum, player_checked, label, pass,
+			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_condition_if_colour_fade_complete_logged = 1;
 	}
 	return 1;
@@ -19883,6 +26523,8 @@ s32 scenarioSourceAiGraphExecuteIfColourFadeComplete(struct chrdata *basechr,
 s32 scenarioSourceAiGraphExecutePrepareWarpOrbit(s32 range, s32 height1,
 	s32 rotangle, s32 padnum, s32 height2, s32 posangle)
 {
+	s32 pad_count = 0;
+
 	if (!s_aiPlayerCutsceneGraphReady("prepare_warp_orbit",
 			s_ActiveScenarioGraphs.level_ai_prepare_warp_orbit_node_count,
 			"missing scenario.ai.action.prepare_warp_orbit node")) {
@@ -19892,13 +26534,18 @@ s32 scenarioSourceAiGraphExecutePrepareWarpOrbit(s32 range, s32 height1,
 		return s_aiGraphRuntimeFailure("prepare_warp_orbit",
 			"missing pads.tsv source");
 	}
+	if (!s_aiGraphRequireRuntimePad("prepare_warp_orbit", padnum,
+			&pad_count)) {
+		return 1;
+	}
 	playerPrepareWarpType3(posangle * M_BADTAU / 65536,
 		rotangle * M_BADTAU / 65536, range, height1, height2, padnum);
 	g_Vars.aioffset += 14;
 	if (!s_ActiveScenarioGraphs.ai_action_prepare_warp_orbit_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action prepare_warp_orbit pad=%d range=%d source=%s pads=%s backend=graph.ai.action.player_cutscene+ai/ailists.tsv+pads.tsv",
-			padnum, range, s_ActiveScenarioGraphs.ai_lists_path,
+			"SCENARIO.GRAPH: AI action prepare_warp_orbit pad=%d found=1 pad_rows=%d range=%d source=%s pads=%s backend=graph.ai.action.player_cutscene+ai/ailists.tsv+pads.tsv",
+			padnum, pad_count, range,
+			s_ActiveScenarioGraphs.ai_lists_path,
 			s_ActiveScenarioGraphs.pads_path);
 		s_ActiveScenarioGraphs.ai_action_prepare_warp_orbit_logged = 1;
 	}
@@ -19971,6 +26618,9 @@ s32 scenarioSourceAiGraphExecuteSpawnChrAtPad(struct chrdata *basechr,
 	u8 *ailist;
 	struct prop *prop;
 	s32 pass = 0;
+	s32 pad_count = 0;
+	const char *body_id;
+	const char *head_id;
 
 	if (!s_aiSetupSpawnGraphReady("spawn_chr_at_pad",
 			s_ActiveScenarioGraphs.level_ai_spawn_chr_at_pad_node_count,
@@ -19981,10 +26631,24 @@ s32 scenarioSourceAiGraphExecuteSpawnChrAtPad(struct chrdata *basechr,
 		return s_aiGraphRuntimeFailure("spawn_chr_at_pad",
 			"missing pads.tsv source");
 	}
+	if (!s_aiGraphRequireRuntimePad("spawn_chr_at_pad", pad, &pad_count)) {
+		return 1;
+	}
+	body_id = s_aiGraphResolveBodyCatalogId("spawn_chr_at_pad",
+		body, "spawn");
+	head_id = s_aiGraphResolveHeadCatalogId("spawn_chr_at_pad",
+		head, "spawn");
+	if (!body_id || !head_id) {
+		return 1;
+	}
 	ailist = ailistFindById(ailistid);
 	prop = chrSpawnAtPad(basechr, body, (s8)head, pad, ailist,
 		spawnflags);
 	pass = prop != NULL;
+	if (pass && !s_aiGraphRegisterSourceSpawnedChr("spawn_chr_at_pad",
+			prop)) {
+		return 0;
+	}
 	if (pass) {
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist,
 			g_Vars.aioffset, label);
@@ -19993,8 +26657,8 @@ s32 scenarioSourceAiGraphExecuteSpawnChrAtPad(struct chrdata *basechr,
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_spawn_chr_at_pad_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action spawn_chr_at_pad body=%d head=%d pad=%d ailist=%u pass=%d source=%s pads=%s backend=graph.ai.action.setup_spawn+ai/ailists.tsv+pads.tsv",
-			body, head, pad, ailistid, pass,
+			"SCENARIO.GRAPH: AI action spawn_chr_at_pad body_id=%s head_id=%s pad=%d found=1 pad_rows=%d ailist=%u pass=%d source=%s pads=%s backend=graph.ai.action.setup_spawn+ai/ailists.tsv+pads.tsv",
+			body_id, head_id, pad, pad_count, ailistid, pass,
 			s_ActiveScenarioGraphs.ai_lists_path,
 			s_ActiveScenarioGraphs.pads_path);
 		s_ActiveScenarioGraphs.ai_action_spawn_chr_at_pad_logged = 1;
@@ -20009,16 +26673,35 @@ s32 scenarioSourceAiGraphExecuteSpawnChrAtChr(struct chrdata *basechr,
 	u8 *ailist;
 	struct prop *prop;
 	s32 pass = 0;
+	const char *body_id;
+	const char *head_id;
+	s32 chr_count = 0;
+	struct chrdata *target_chr = NULL;
 
 	if (!s_aiSetupSpawnGraphReady("spawn_chr_at_chr",
 			s_ActiveScenarioGraphs.level_ai_spawn_chr_at_chr_node_count,
 			"missing scenario.ai.action.spawn_chr_at_chr node")) {
 		return 0;
 	}
+	body_id = s_aiGraphResolveBodyCatalogId("spawn_chr_at_chr",
+		body, "spawn");
+	head_id = s_aiGraphResolveHeadCatalogId("spawn_chr_at_chr",
+		head, "spawn");
+	if (!body_id || !head_id) {
+		return 1;
+	}
+	if (!s_aiGraphRequireRuntimeCharacterRefFromBase("spawn_chr_at_chr",
+			basechr, chrnum, &chr_count, &target_chr)) {
+		return 1;
+	}
 	ailist = ailistFindById(ailistid);
 	prop = chrSpawnAtChr(basechr, body, (s8)head, chrnum, ailist,
 		spawnflags);
 	pass = prop != NULL;
+	if (pass && !s_aiGraphRegisterSourceSpawnedChr("spawn_chr_at_chr",
+			prop)) {
+		return 0;
+	}
 	if (pass) {
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist,
 			g_Vars.aioffset, label);
@@ -20027,8 +26710,9 @@ s32 scenarioSourceAiGraphExecuteSpawnChrAtChr(struct chrdata *basechr,
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_spawn_chr_at_chr_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action spawn_chr_at_chr body=%d head=%d chr=%d ailist=%u pass=%d source=%s backend=graph.ai.action.setup_spawn+ai/ailists.tsv",
-			body, head, chrnum, ailistid, pass,
+			"SCENARIO.GRAPH: AI action spawn_chr_at_chr body_id=%s head_id=%s chr=%d chr_rows=%d target_chr=%d ailist=%u pass=%d source=%s backend=graph.ai.action.setup_spawn+ai/ailists.tsv",
+			body_id, head_id, chrnum, chr_count,
+			target_chr ? target_chr->chrnum : -1, ailistid, pass,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_spawn_chr_at_chr_logged = 1;
 	}
@@ -20039,20 +26723,36 @@ s32 scenarioSourceAiGraphExecuteTryEquipWeapon(u32 model, s32 weaponnum,
 	u32 flags, s32 label)
 {
 	struct prop *prop = NULL;
+	struct chrdata *active_chr = g_Vars.chrdata;
 	u32 applied_flags = flags;
+	const char *model_id;
+	const char *weapon_id;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
 
 	if (!s_aiSetupSpawnGraphReady("try_equip_weapon",
 			s_ActiveScenarioGraphs.level_ai_try_equip_weapon_node_count,
 			"missing scenario.ai.action.try_equip_weapon node")) {
 		return 0;
 	}
-	if (g_Vars.chrdata && g_Vars.chrdata->prop && g_Vars.chrdata->model) {
+	model_id = s_aiGraphResolveModelCatalogId("try_equip_weapon",
+		(s32)model, "weapon model");
+	weapon_id = s_aiGraphResolveWeaponCatalogId("try_equip_weapon",
+		weaponnum, "equipped");
+	if (!model_id || !weapon_id) {
+		return 1;
+	}
+	if (!s_aiGraphRequireOptionalLiveRuntimeCharacterPointer("try_equip_weapon",
+			active_chr, &chr_count, &source_chr)) {
+		return 1;
+	}
+	if (active_chr && active_chr->prop && active_chr->model) {
 #if VERSION < VERSION_NTSC_1_0
 		if (cheatIsActive(CHEAT_MARQUIS) && g_Vars.stagenum != STAGE_MBR) {
 			if (g_Vars.stagenum == STAGE_INVESTIGATION &&
 					lvGetDifficulty() == DIFF_PA &&
 					weaponnum == WEAPON_K7AVENGER) {
-				prop = chrGiveWeapon(g_Vars.chrdata, model,
+				prop = chrGiveWeapon(active_chr, model,
 					weaponnum, applied_flags);
 			}
 		}
@@ -20060,17 +26760,17 @@ s32 scenarioSourceAiGraphExecuteTryEquipWeapon(u32 model, s32 weaponnum,
 		if (cheatIsActive(CHEAT_MARQUIS)) {
 			applied_flags &= ~OBJFLAG_WEAPON_LEFTHANDED;
 			applied_flags |= OBJFLAG_WEAPON_AICANNOTUSE;
-			prop = chrGiveWeapon(g_Vars.chrdata, model, weaponnum,
+			prop = chrGiveWeapon(active_chr, model, weaponnum,
 				applied_flags);
 		}
 #else
 		if (cheatIsActive(CHEAT_MARQUIS)) {
-			if (g_Vars.chrdata->bodynum != BODY_CASSANDRA ||
+			if (active_chr->bodynum != BODY_CASSANDRA ||
 					mainGetStageNum() != STAGE_MBR) {
 				applied_flags &= ~OBJFLAG_WEAPON_LEFTHANDED;
 				applied_flags |= OBJFLAG_WEAPON_AICANNOTUSE;
 			}
-			prop = chrGiveWeapon(g_Vars.chrdata, model, weaponnum,
+			prop = chrGiveWeapon(active_chr, model, weaponnum,
 				applied_flags);
 		}
 #endif
@@ -20107,29 +26807,29 @@ s32 scenarioSourceAiGraphExecuteTryEquipWeapon(u32 model, s32 weaponnum,
 			case WEAPON_TIMEDMINE:
 			case WEAPON_PROXIMITYMINE:
 			case WEAPON_REMOTEMINE:
-				prop = chrGiveWeapon(g_Vars.chrdata,
+				prop = chrGiveWeapon(active_chr,
 					MODEL_CHRDYROCKET, WEAPON_ROCKETLAUNCHER,
 					applied_flags);
 				break;
 			case WEAPON_K7AVENGER:
 				if (g_Vars.stagenum == STAGE_INVESTIGATION &&
 						lvGetDifficulty() == DIFF_PA) {
-					prop = chrGiveWeapon(g_Vars.chrdata, model,
+					prop = chrGiveWeapon(active_chr, model,
 						weaponnum, applied_flags);
 				} else {
-					prop = chrGiveWeapon(g_Vars.chrdata,
+					prop = chrGiveWeapon(active_chr,
 						MODEL_CHRDYROCKET,
 						WEAPON_ROCKETLAUNCHER,
 						applied_flags);
 				}
 				break;
 			default:
-				prop = chrGiveWeapon(g_Vars.chrdata, model, weaponnum,
+				prop = chrGiveWeapon(active_chr, model, weaponnum,
 					applied_flags);
 				break;
 			}
 		} else {
-			prop = chrGiveWeapon(g_Vars.chrdata, model, weaponnum,
+			prop = chrGiveWeapon(active_chr, model, weaponnum,
 				applied_flags);
 		}
 	}
@@ -20141,8 +26841,9 @@ s32 scenarioSourceAiGraphExecuteTryEquipWeapon(u32 model, s32 weaponnum,
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_try_equip_weapon_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action try_equip_weapon model=%u weapon=%d flags=0x%08x pass=%d source=%s backend=graph.ai.action.setup_spawn+ai/ailists.tsv",
-			model, weaponnum, applied_flags, prop != NULL,
+			"SCENARIO.GRAPH: AI action try_equip_weapon model_id=%s weapon_id=%s chr_rows=%d source_chr=%d flags=0x%08x pass=%d source=%s backend=graph.ai.action.setup_spawn+ai/ailists.tsv",
+			model_id, weapon_id, chr_count, source_chr,
+			applied_flags, prop != NULL,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_try_equip_weapon_logged = 1;
 	}
@@ -20153,14 +26854,27 @@ s32 scenarioSourceAiGraphExecuteTryEquipHat(u32 modelnum, u32 flags,
 	s32 label)
 {
 	struct prop *prop = NULL;
+	struct chrdata *active_chr = g_Vars.chrdata;
+	const char *model_id;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
 
 	if (!s_aiSetupSpawnGraphReady("try_equip_hat",
 			s_ActiveScenarioGraphs.level_ai_try_equip_hat_node_count,
 			"missing scenario.ai.action.try_equip_hat node")) {
 		return 0;
 	}
-	if (g_Vars.chrdata && g_Vars.chrdata->prop && g_Vars.chrdata->model) {
-		prop = hatCreateForChr(g_Vars.chrdata, modelnum, flags);
+	model_id = s_aiGraphResolveModelCatalogId("try_equip_hat",
+		(s32)modelnum, "hat");
+	if (!model_id) {
+		return 1;
+	}
+	if (!s_aiGraphRequireOptionalLiveRuntimeCharacterPointer("try_equip_hat",
+			active_chr, &chr_count, &source_chr)) {
+		return 1;
+	}
+	if (active_chr && active_chr->prop && active_chr->model) {
+		prop = hatCreateForChr(active_chr, modelnum, flags);
 	}
 	if (prop) {
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist,
@@ -20170,8 +26884,8 @@ s32 scenarioSourceAiGraphExecuteTryEquipHat(u32 modelnum, u32 flags,
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_try_equip_hat_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action try_equip_hat model=%u flags=0x%08x pass=%d source=%s backend=graph.ai.action.setup_spawn+ai/ailists.tsv",
-			modelnum, flags, prop != NULL,
+			"SCENARIO.GRAPH: AI action try_equip_hat model_id=%s chr_rows=%d source_chr=%d flags=0x%08x pass=%d source=%s backend=graph.ai.action.setup_spawn+ai/ailists.tsv",
+			model_id, chr_count, source_chr, flags, prop != NULL,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_try_equip_hat_logged = 1;
 	}
@@ -20181,8 +26895,13 @@ s32 scenarioSourceAiGraphExecuteTryEquipHat(u32 modelnum, u32 flags,
 s32 scenarioSourceAiGraphExecuteSetObjImage(s32 tag_id, s32 slot,
 	s32 image)
 {
+	const u8 monitor_types[] = {
+		OBJTYPE_SINGLEMONITOR,
+		OBJTYPE_MULTIMONITOR,
+	};
 	struct defaultobj *obj;
 	s32 applied = 0;
+	s32 object_count = 0;
 
 	if (!s_aiSetupSpawnGraphReady("set_obj_image",
 			s_ActiveScenarioGraphs.level_ai_set_obj_image_node_count,
@@ -20192,6 +26911,11 @@ s32 scenarioSourceAiGraphExecuteSetObjImage(s32 tag_id, s32 slot,
 	if (!s_ActiveScenarioGraphs.objects_path[0]) {
 		return s_aiGraphRuntimeFailure("set_obj_image",
 			"missing objects.tsv source");
+	}
+	if (!s_aiGraphRequireRuntimeObjectTagAnyType("set_obj_image",
+			tag_id, monitor_types, ARRAYCOUNT(monitor_types),
+			&object_count)) {
+		return 1;
 	}
 	obj = objFindByTagId(tag_id);
 	if (obj && obj->prop) {
@@ -20210,8 +26934,8 @@ s32 scenarioSourceAiGraphExecuteSetObjImage(s32 tag_id, s32 slot,
 	g_Vars.aioffset += 5;
 	if (!s_ActiveScenarioGraphs.ai_action_set_obj_image_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action set_obj_image tag=%d slot=%d image=%d applied=%d source=%s objects=%s backend=graph.ai.action.setup_spawn+ai/ailists.tsv+objects.tsv",
-			tag_id, slot, image, applied,
+			"SCENARIO.GRAPH: AI action set_obj_image tag=%d object_rows=%d slot=%d image_index=%d applied=%d source=%s objects=%s backend=graph.ai.action.setup_spawn+ai/ailists.tsv+objects.tsv",
+			tag_id, object_count, slot, image, applied,
 			s_ActiveScenarioGraphs.ai_lists_path,
 			s_ActiveScenarioGraphs.objects_path);
 		s_ActiveScenarioGraphs.ai_action_set_obj_image_logged = 1;
@@ -20223,9 +26947,15 @@ s32 scenarioSourceAiGraphExecuteObjectDoAnimation(s32 anim_id, s32 tag_id,
 	s32 speed_divisor, s32 startframe)
 {
 	struct defaultobj *obj = NULL;
+	struct chrdata *active_chr = g_Vars.chrdata;
 	f32 speed;
 	f32 fstartframe;
 	s32 applied = 0;
+	s32 object_count = 0;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
+	s32 resolved_tag_id = tag_id;
+	const char *anim_catalog_id;
 
 	if (!s_aiSetupSpawnGraphReady("object_do_animation",
 			s_ActiveScenarioGraphs.level_ai_object_do_animation_node_count,
@@ -20235,6 +26965,11 @@ s32 scenarioSourceAiGraphExecuteObjectDoAnimation(s32 anim_id, s32 tag_id,
 	if (!s_ActiveScenarioGraphs.objects_path[0]) {
 		return s_aiGraphRuntimeFailure("object_do_animation",
 			"missing objects.tsv source");
+	}
+	anim_catalog_id = s_aiGraphResolveAnimationCatalogId(
+		"object_do_animation", anim_id, "object");
+	if (!anim_catalog_id) {
+		return 1;
 	}
 	if (startframe == 0xffff) {
 		fstartframe = 0;
@@ -20247,10 +26982,26 @@ s32 scenarioSourceAiGraphExecuteObjectDoAnimation(s32 anim_id, s32 tag_id,
 		fstartframe = startframe;
 	}
 	if (tag_id == 255) {
-		if (g_Vars.chrdata && g_Vars.chrdata->myspecial >= 0) {
-			obj = objFindByTagId(g_Vars.chrdata->myspecial);
+		if (active_chr) {
+			if (!s_aiGraphRequireRuntimeCharacterStatePointer(
+					"object_do_animation", active_chr,
+					&chr_count, &source_chr)) {
+				return 1;
+			}
+		}
+		if (active_chr && active_chr->myspecial >= 0) {
+			resolved_tag_id = active_chr->myspecial;
+			if (!s_aiGraphRequireRuntimeObjectTag("object_do_animation",
+					resolved_tag_id, &object_count)) {
+				return 1;
+			}
+			obj = objFindByTagId(resolved_tag_id);
 		}
 	} else {
+		if (!s_aiGraphRequireRuntimeObjectTag("object_do_animation",
+				tag_id, &object_count)) {
+			return 1;
+		}
 		obj = objFindByTagId(tag_id);
 	}
 	if (obj && obj->prop) {
@@ -20285,8 +27036,9 @@ s32 scenarioSourceAiGraphExecuteObjectDoAnimation(s32 anim_id, s32 tag_id,
 	g_Vars.aioffset += 8;
 	if (!s_ActiveScenarioGraphs.ai_action_object_do_animation_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action object_do_animation anim=%d tag=%d speed_divisor=%d startframe=%d applied=%d source=%s objects=%s backend=graph.ai.action.setup_spawn+ai/ailists.tsv+objects.tsv",
-			anim_id, tag_id, speed_divisor, startframe, applied,
+			"SCENARIO.GRAPH: AI action object_do_animation anim_id=%s tag=%d resolved_tag=%d object_rows=%d chr_rows=%d source_chr=%d speed_divisor=%d startframe=%d applied=%d source=%s objects=%s backend=graph.ai.action.setup_spawn+ai/ailists.tsv+objects.tsv",
+			anim_catalog_id, tag_id, resolved_tag_id, object_count,
+			chr_count, source_chr, speed_divisor, startframe, applied,
 			s_ActiveScenarioGraphs.ai_lists_path,
 			s_ActiveScenarioGraphs.objects_path);
 		s_ActiveScenarioGraphs.ai_action_object_do_animation_logged = 1;
@@ -20298,6 +27050,7 @@ s32 scenarioSourceAiGraphExecuteSetDoorOpen(s32 tag_id)
 {
 	struct defaultobj *obj;
 	s32 applied = 0;
+	s32 object_count = 0;
 
 	if (!s_aiSetupSpawnGraphReady("set_door_open",
 			s_ActiveScenarioGraphs.level_ai_set_door_open_node_count,
@@ -20307,6 +27060,10 @@ s32 scenarioSourceAiGraphExecuteSetDoorOpen(s32 tag_id)
 	if (!s_ActiveScenarioGraphs.objects_path[0]) {
 		return s_aiGraphRuntimeFailure("set_door_open",
 			"missing objects.tsv source");
+	}
+	if (!s_aiGraphRequireRuntimeObjectTagType("set_door_open", tag_id,
+			OBJTYPE_DOOR, &object_count)) {
+		return 1;
 	}
 	obj = objFindByTagId(tag_id);
 	if (obj && obj->prop) {
@@ -20323,8 +27080,9 @@ s32 scenarioSourceAiGraphExecuteSetDoorOpen(s32 tag_id)
 	g_Vars.aioffset += 3;
 	if (!s_ActiveScenarioGraphs.ai_action_set_door_open_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action set_door_open tag=%d applied=%d source=%s objects=%s backend=graph.ai.action.setup_spawn+ai/ailists.tsv+objects.tsv",
-			tag_id, applied, s_ActiveScenarioGraphs.ai_lists_path,
+			"SCENARIO.GRAPH: AI action set_door_open tag=%d object_rows=%d applied=%d source=%s objects=%s backend=graph.ai.action.setup_spawn+ai/ailists.tsv+objects.tsv",
+			tag_id, object_count, applied,
+			s_ActiveScenarioGraphs.ai_lists_path,
 			s_ActiveScenarioGraphs.objects_path);
 		s_ActiveScenarioGraphs.ai_action_set_door_open_logged = 1;
 	}
@@ -20362,25 +27120,96 @@ s32 scenarioSourceAiGraphExecuteDuplicateChr(struct chrdata *basechr,
 	struct weaponobj *srcweapon1 = NULL;
 	struct weaponobj *cloneweapon0 = NULL;
 	struct weaponobj *cloneweapon1 = NULL;
+	const char *body_id = "none";
+	const char *weapon0_model_id = "none";
+	const char *weapon0_id = "none";
+	const char *weapon1_model_id = "none";
+	const char *weapon1_id = "none";
+	const char *hat_model_id = "none";
 	s32 pass = 0;
+	s32 copied_pad = -1;
+	s32 pad_count = 0;
+	s32 pad_found = 0;
+	s32 chr_count = 0;
 
 	if (!s_aiEntityLifecycleGraphReady("duplicate_chr",
 			s_ActiveScenarioGraphs.level_ai_duplicate_chr_node_count,
 			"missing scenario.ai.action.duplicate_chr node")) {
 		return 0;
 	}
+	if (!s_ActiveScenarioGraphs.pads_path[0]) {
+		return s_aiGraphRuntimeFailure("duplicate_chr",
+			"missing pads.tsv source");
+	}
 	ailist = ailistFindById(ailistid);
-	chr = chrFindById(basechr, chrnum);
-	if (chr && (chr->chrflags & CHRCFLAG_CLONEABLE)) {
+	if (!s_aiGraphRequireRuntimeCharacterRefFromBase("duplicate_chr",
+			basechr, chrnum, &chr_count, &chr)) {
+		return 1;
+	}
+	if (chr->chrflags & CHRCFLAG_CLONEABLE) {
+		copied_pad = chr->padpreset1;
+		if (copied_pad >= 0) {
+			if (!s_aiGraphRequireRuntimePad("duplicate_chr",
+					copied_pad, &pad_count)) {
+				return 1;
+			}
+			pad_found = 1;
+		} else if (!s_aiGraphRequireRuntimePadTable(
+				"duplicate_chr", &pad_count)) {
+			return 1;
+		}
+		body_id = s_aiGraphResolveBodyCatalogId("duplicate_chr",
+			chr->bodynum, "clone");
+		if (!body_id) {
+			return 1;
+		}
+		srcweapon0prop = chrGetHeldProp(chr, 0);
+		if (srcweapon0prop) {
+			srcweapon0 = srcweapon0prop->weapon;
+			if (srcweapon0) {
+				weapon0_model_id = s_aiGraphResolveModelCatalogId(
+					"duplicate_chr", srcweapon0->base.modelnum,
+					"right hand weapon model");
+				weapon0_id = s_aiGraphResolveWeaponCatalogId(
+					"duplicate_chr", srcweapon0->weaponnum,
+					"right hand weapon");
+				if (!weapon0_model_id || !weapon0_id) {
+					return 1;
+				}
+			}
+		}
+		srcweapon1prop = chrGetHeldProp(chr, 1);
+		if (srcweapon1prop) {
+			srcweapon1 = srcweapon1prop->weapon;
+			if (srcweapon1) {
+				weapon1_model_id = s_aiGraphResolveModelCatalogId(
+					"duplicate_chr", srcweapon1->base.modelnum,
+					"left hand weapon model");
+				weapon1_id = s_aiGraphResolveWeaponCatalogId(
+					"duplicate_chr", srcweapon1->weaponnum,
+					"left hand weapon");
+				if (!weapon1_model_id || !weapon1_id) {
+					return 1;
+				}
+			}
+		}
+		if (chr->weapons_held[2]) {
+			struct defaultobj *obj = chr->weapons_held[2]->obj;
+			if (obj) {
+				hat_model_id = s_aiGraphResolveModelCatalogId(
+					"duplicate_chr", obj->modelnum, "hat");
+				if (!hat_model_id) {
+					return 1;
+				}
+			}
+		}
 		cloneprop = chrSpawnAtChr(basechr, chr->bodynum, -1,
 			chr->chrnum, ailist, spawnflags);
 		if (cloneprop) {
 			clone = cloneprop->chr;
 			chrSetChrnum(clone, chrsGetNextUnusedChrnum());
 			chr->chrdup = clone->chrnum;
-			srcweapon0prop = chrGetHeldProp(chr, 0);
-			if (srcweapon0prop) {
-				srcweapon0 = srcweapon0prop->weapon;
+			if (srcweapon0) {
 				cloneweapon0prop = chrGiveWeapon(clone,
 					srcweapon0->base.modelnum,
 					srcweapon0->weaponnum, 0);
@@ -20388,9 +27217,7 @@ s32 scenarioSourceAiGraphExecuteDuplicateChr(struct chrdata *basechr,
 					cloneweapon0 = cloneweapon0prop->weapon;
 				}
 			}
-			srcweapon1prop = chrGetHeldProp(chr, 1);
-			if (srcweapon1prop) {
-				srcweapon1 = srcweapon1prop->weapon;
+			if (srcweapon1) {
 				cloneweapon1prop = chrGiveWeapon(clone,
 					srcweapon1->base.modelnum,
 					srcweapon1->weaponnum,
@@ -20407,11 +27234,13 @@ s32 scenarioSourceAiGraphExecuteDuplicateChr(struct chrdata *basechr,
 			}
 			if (chr->weapons_held[2]) {
 				struct defaultobj *obj = chr->weapons_held[2]->obj;
-				hatCreateForChr(clone, obj->modelnum, 0);
+				if (obj) {
+					hatCreateForChr(clone, obj->modelnum, 0);
+				}
 			}
 			clone->flags = chr->flags;
 			clone->flags2 = chr->flags2;
-			clone->padpreset1 = chr->padpreset1;
+			clone->padpreset1 = copied_pad;
 			if (g_Vars.normmplayerisrunning == false &&
 					g_MissionConfig.iscoop &&
 					g_Vars.numaibuddies > 0) {
@@ -20436,8 +27265,13 @@ s32 scenarioSourceAiGraphExecuteDuplicateChr(struct chrdata *basechr,
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_duplicate_chr_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action duplicate_chr chr=%d ailist=%u pass=%d source=%s backend=graph.ai.action.entity_lifecycle+ai/ailists.tsv",
-			chrnum, ailistid, pass, s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI action duplicate_chr chr=%d chr_rows=%d source_chr=%d body_id=%s weapon0_model_id=%s weapon0_id=%s weapon1_model_id=%s weapon1_id=%s hat_model_id=%s ailist=%u pad=%d found=%d pad_rows=%d pass=%d source=%s pads=%s backend=graph.ai.action.entity_lifecycle+ai/ailists.tsv+pads.tsv",
+			chrnum, chr_count, chr ? chr->chrnum : -1,
+			body_id, weapon0_model_id, weapon0_id,
+			weapon1_model_id, weapon1_id, hat_model_id,
+			ailistid, copied_pad, pad_found, pad_count, pass,
+			s_ActiveScenarioGraphs.ai_lists_path,
+			s_ActiveScenarioGraphs.pads_path);
 		s_ActiveScenarioGraphs.ai_action_duplicate_chr_logged = 1;
 	}
 	return 1;
@@ -20445,15 +27279,19 @@ s32 scenarioSourceAiGraphExecuteDuplicateChr(struct chrdata *basechr,
 
 s32 scenarioSourceAiGraphExecuteEnableChr(struct chrdata *basechr, s32 chrnum)
 {
-	struct chrdata *chr;
+	struct chrdata *chr = NULL;
 	s32 applied = 0;
+	s32 chr_count = 0;
 
 	if (!s_aiEntityLifecycleGraphReady("enable_chr",
 			s_ActiveScenarioGraphs.level_ai_enable_chr_node_count,
 			"missing scenario.ai.action.enable_chr node")) {
 		return 0;
 	}
-	chr = chrFindById(basechr, chrnum);
+	if (!s_aiGraphRequireRuntimeCharacterRefFromBase("enable_chr",
+			basechr, chrnum, &chr_count, &chr)) {
+		return 1;
+	}
 	if (chr && chr->prop && chr->model) {
 		propActivate(chr->prop);
 		propEnable(chr->prop);
@@ -20463,8 +27301,9 @@ s32 scenarioSourceAiGraphExecuteEnableChr(struct chrdata *basechr, s32 chrnum)
 	g_Vars.aioffset += 3;
 	if (!s_ActiveScenarioGraphs.ai_action_enable_chr_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action enable_chr chr=%d applied=%d source=%s backend=graph.ai.action.entity_lifecycle+ai/ailists.tsv",
-			chrnum, applied, s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI action enable_chr chr=%d chr_rows=%d target_chr=%d applied=%d source=%s backend=graph.ai.action.entity_lifecycle+ai/ailists.tsv",
+			chrnum, chr_count, chr ? chr->chrnum : -1, applied,
+			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_enable_chr_logged = 1;
 	}
 	return 1;
@@ -20474,13 +27313,17 @@ s32 scenarioSourceAiGraphExecuteDisableChr(struct chrdata *basechr, s32 chrnum)
 {
 	struct chrdata *chr;
 	s32 applied = 0;
+	s32 chr_count = 0;
 
 	if (!s_aiEntityLifecycleGraphReady("disable_chr",
 			s_ActiveScenarioGraphs.level_ai_disable_chr_node_count,
 			"missing scenario.ai.action.disable_chr node")) {
 		return 0;
 	}
-	chr = chrFindById(basechr, chrnum);
+	if (!s_aiGraphResolveOptionalRuntimeCharacterRefOrSelector("disable_chr",
+			basechr, chrnum, &chr_count, &chr, NULL)) {
+		return 1;
+	}
 	if (chr && chr->prop && chr->model) {
 		propDeregisterRooms(chr->prop);
 		propDelist(chr->prop);
@@ -20490,8 +27333,9 @@ s32 scenarioSourceAiGraphExecuteDisableChr(struct chrdata *basechr, s32 chrnum)
 	g_Vars.aioffset += 3;
 	if (!s_ActiveScenarioGraphs.ai_action_disable_chr_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action disable_chr chr=%d applied=%d source=%s backend=graph.ai.action.entity_lifecycle+ai/ailists.tsv",
-			chrnum, applied, s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI action disable_chr chr=%d chr_rows=%d target_chr=%d applied=%d source=%s backend=graph.ai.action.entity_lifecycle+ai/ailists.tsv",
+			chrnum, chr_count, chr ? chr->chrnum : -1, applied,
+			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_disable_chr_logged = 1;
 	}
 	return 1;
@@ -20500,7 +27344,11 @@ s32 scenarioSourceAiGraphExecuteDisableChr(struct chrdata *basechr, s32 chrnum)
 s32 scenarioSourceAiGraphExecuteEnableObj(s32 tag_id)
 {
 	struct defaultobj *obj;
+	struct player *current_player = g_Vars.currentplayer;
+	struct player *player = NULL;
 	s32 applied = 0;
+	s32 object_count = 0;
+	s32 player_checked = 0;
 
 	if (!s_aiEntityLifecycleGraphReady("enable_obj",
 			s_ActiveScenarioGraphs.level_ai_enable_obj_node_count,
@@ -20511,14 +27359,30 @@ s32 scenarioSourceAiGraphExecuteEnableObj(s32 tag_id)
 		return s_aiGraphRuntimeFailure("enable_obj",
 			"missing objects.tsv source");
 	}
+	if (!s_aiGraphRequireRuntimeObjectTag("enable_obj", tag_id,
+			&object_count)) {
+		return 1;
+	}
 	obj = objFindByTagId(tag_id);
 	if (obj && obj->prop && obj->model) {
-		propActivate(obj->prop);
-		propEnable(obj->prop);
-		if (g_Vars.currentplayer->eyespy == NULL &&
-				obj->type == OBJTYPE_WEAPON) {
+		if (obj->type == OBJTYPE_WEAPON) {
 			struct weaponobj *weapon = (struct weaponobj *)obj;
 			if (weapon->weaponnum == WEAPON_EYESPY) {
+				if (!s_aiGraphRequireRuntimePlayerPointer(
+						"enable_obj", current_player,
+						"current")) {
+					return 1;
+				}
+				player = current_player;
+				player_checked = 1;
+			}
+		}
+		propActivate(obj->prop);
+		propEnable(obj->prop);
+		if (player_checked && obj->type == OBJTYPE_WEAPON) {
+			struct weaponobj *weapon = (struct weaponobj *)obj;
+			if (weapon->weaponnum == WEAPON_EYESPY &&
+					player && player->eyespy == NULL) {
 				playerInitEyespy();
 			}
 		}
@@ -20527,8 +27391,9 @@ s32 scenarioSourceAiGraphExecuteEnableObj(s32 tag_id)
 	g_Vars.aioffset += 3;
 	if (!s_ActiveScenarioGraphs.ai_action_enable_obj_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action enable_obj tag=%d applied=%d source=%s objects=%s backend=graph.ai.action.entity_lifecycle+ai/ailists.tsv+objects.tsv",
-			tag_id, applied, s_ActiveScenarioGraphs.ai_lists_path,
+			"SCENARIO.GRAPH: AI action enable_obj tag=%d object_rows=%d player_checked=%d applied=%d source=%s objects=%s backend=graph.ai.action.entity_lifecycle+ai/ailists.tsv+objects.tsv",
+			tag_id, object_count, player_checked, applied,
+			s_ActiveScenarioGraphs.ai_lists_path,
 			s_ActiveScenarioGraphs.objects_path);
 		s_ActiveScenarioGraphs.ai_action_enable_obj_logged = 1;
 	}
@@ -20539,6 +27404,7 @@ s32 scenarioSourceAiGraphExecuteDisableObj(s32 tag_id)
 {
 	struct defaultobj *obj;
 	s32 applied = 0;
+	s32 object_count = 0;
 
 	if (!s_aiEntityLifecycleGraphReady("disable_obj",
 			s_ActiveScenarioGraphs.level_ai_disable_obj_node_count,
@@ -20548,6 +27414,10 @@ s32 scenarioSourceAiGraphExecuteDisableObj(s32 tag_id)
 	if (!s_ActiveScenarioGraphs.objects_path[0]) {
 		return s_aiGraphRuntimeFailure("disable_obj",
 			"missing objects.tsv source");
+	}
+	if (!s_aiGraphRequireRuntimeObjectTag("disable_obj", tag_id,
+			&object_count)) {
+		return 1;
 	}
 	obj = objFindByTagId(tag_id);
 	if (obj && obj->prop && obj->model) {
@@ -20572,8 +27442,9 @@ s32 scenarioSourceAiGraphExecuteDisableObj(s32 tag_id)
 	g_Vars.aioffset += 3;
 	if (!s_ActiveScenarioGraphs.ai_action_disable_obj_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action disable_obj tag=%d applied=%d source=%s objects=%s backend=graph.ai.action.entity_lifecycle+ai/ailists.tsv+objects.tsv",
-			tag_id, applied, s_ActiveScenarioGraphs.ai_lists_path,
+			"SCENARIO.GRAPH: AI action disable_obj tag=%d object_rows=%d applied=%d source=%s objects=%s backend=graph.ai.action.entity_lifecycle+ai/ailists.tsv+objects.tsv",
+			tag_id, object_count, applied,
+			s_ActiveScenarioGraphs.ai_lists_path,
 			s_ActiveScenarioGraphs.objects_path);
 		s_ActiveScenarioGraphs.ai_action_disable_obj_logged = 1;
 	}
@@ -20583,8 +27454,13 @@ s32 scenarioSourceAiGraphExecuteDisableObj(s32 tag_id)
 s32 scenarioSourceAiGraphExecuteChrMoveToPad(struct chrdata *basechr,
 	s32 chrnum, s32 pad_or_chr, s32 mode, s32 label)
 {
-	struct chrdata *chr;
+	struct chrdata *chr = NULL;
 	s32 pass = 0;
+	s32 pad_count = 0;
+	s32 chr_count = 0;
+	s32 mode88_chr_count = 0;
+	s32 mode88_target_chr = -1;
+	s32 resolved_pad = -1;
 	f32 theta;
 	struct pad pad;
 	RoomNum rooms[2];
@@ -20598,11 +27474,21 @@ s32 scenarioSourceAiGraphExecuteChrMoveToPad(struct chrdata *basechr,
 		return s_aiGraphRuntimeFailure("chr_move_to_pad",
 			"missing pads.tsv source");
 	}
-	chr = chrFindById(basechr, chrnum);
+	if (!s_aiGraphRequireRuntimeCharacterRefFromBase("chr_move_to_pad",
+			basechr, chrnum, &chr_count, &chr)) {
+		return 1;
+	}
 	if (chr && chr->prop) {
 #if VERSION >= VERSION_NTSC_1_0
 		if (mode == 88) {
-			struct chrdata *chr2 = chrFindById(basechr, pad_or_chr & 0xff);
+			struct chrdata *chr2 = NULL;
+			s32 target_operand = pad_or_chr & 0xff;
+			mode88_target_chr = target_operand;
+			if (!s_aiGraphRequireRuntimeCharacterRefFromBase(
+					"chr_move_to_pad", basechr, target_operand,
+					&mode88_chr_count, &chr2)) {
+				goto apply_branch;
+			}
 			if (chr2 && chr2->prop) {
 				theta = chrGetInverseTheta(chr2);
 				pass = chrMoveToPos(chr, &chr2->prop->pos,
@@ -20612,7 +27498,9 @@ s32 scenarioSourceAiGraphExecuteChrMoveToPad(struct chrdata *basechr,
 #endif
 		{
 			s32 padnum = chrResolvePadId(chr, pad_or_chr);
-			if (padnum >= 0) {
+			resolved_pad = padnum;
+			if (s_aiGraphRequireRuntimePad("chr_move_to_pad", padnum,
+					&pad_count)) {
 				padUnpack(padnum, PADFIELD_POS | PADFIELD_LOOK |
 					PADFIELD_ROOM, &pad);
 				theta = atan2f(pad.look.x, pad.look.z);
@@ -20623,6 +27511,7 @@ s32 scenarioSourceAiGraphExecuteChrMoveToPad(struct chrdata *basechr,
 			}
 		}
 	}
+apply_branch:
 	if (pass) {
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist,
 			g_Vars.aioffset, label);
@@ -20631,8 +27520,10 @@ s32 scenarioSourceAiGraphExecuteChrMoveToPad(struct chrdata *basechr,
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_chr_move_to_pad_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action chr_move_to_pad chr=%d operand=%d mode=%d pass=%d source=%s pads=%s backend=graph.ai.action.entity_lifecycle+ai/ailists.tsv+pads.tsv",
-			chrnum, pad_or_chr, mode, pass,
+			"SCENARIO.GRAPH: AI action chr_move_to_pad chr=%d chr_rows=%d target_chr=%d operand=%d mode88_chr=%d mode88_chr_rows=%d resolved_pad=%d mode=%d pass=%d pad_rows=%d source=%s pads=%s backend=graph.ai.action.entity_lifecycle+ai/ailists.tsv+pads.tsv",
+			chrnum, chr_count, chr ? chr->chrnum : -1, pad_or_chr,
+			mode88_target_chr, mode88_chr_count, resolved_pad, mode,
+			pass, pad_count,
 			s_ActiveScenarioGraphs.ai_lists_path,
 			s_ActiveScenarioGraphs.pads_path);
 		s_ActiveScenarioGraphs.ai_action_chr_move_to_pad_logged = 1;
@@ -20645,35 +27536,56 @@ s32 scenarioSourceAiGraphExecuteChrSetTeam(struct chrdata *basechr,
 {
 	u32 playernum;
 	s32 applied = 0;
+	s32 chr_count = 0;
+	s32 target_chrnum = -1;
+	s32 checked_players = 0;
 
 	if (!s_aiEntityLifecycleGraphReady("chr_set_team",
 			s_ActiveScenarioGraphs.level_ai_chr_set_team_node_count,
 			"missing scenario.ai.action.chr_set_team node")) {
 		return 0;
 	}
-	if (chrnum == CHR_ANTI && g_Vars.antiplayernum >= 0) {
-		for (playernum = 0; playernum < PLAYERCOUNT(); playernum++) {
-			struct player *player = g_Vars.players[playernum];
-			if (player && PLAYER_IS_ANTI(player)) {
-				struct chrdata *chr = player->prop->chr;
-				if (chr) {
+	if (chrnum == CHR_ANTI) {
+		if (!s_aiGraphCountRuntimeSetupChrRowsFromSource(
+				"chr_set_team", &chr_count)) {
+			return 1;
+		}
+		if (g_Vars.antiplayernum >= 0) {
+			for (playernum = 0; playernum < PLAYERCOUNT(); playernum++) {
+				struct player *player = NULL;
+				if (!s_aiGraphRequireRuntimePlayerSlot("chr_set_team",
+						(s32)playernum, &player)) {
+					return 1;
+				}
+				checked_players++;
+				if (PLAYER_IS_ANTI(player) && player->prop &&
+						player->prop->chr) {
+					struct chrdata *chr = player->prop->chr;
 					chr->team = team;
+					target_chrnum = chr->chrnum;
 					applied++;
 				}
 			}
 		}
 	} else {
-		struct chrdata *chr = chrFindById(basechr, chrnum);
+		struct chrdata *chr;
+		if (!s_aiGraphRequireRuntimeCharacterRefFromBase("chr_set_team",
+				basechr, chrnum, &chr_count, &chr)) {
+			return 1;
+		}
 		if (chr) {
 			chr->team = team;
+			target_chrnum = chr->chrnum;
 			applied = 1;
 		}
 	}
 	g_Vars.aioffset += 4;
 	if (!s_ActiveScenarioGraphs.ai_action_chr_set_team_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action chr_set_team chr=%d team=%d applied=%d source=%s backend=graph.ai.action.entity_lifecycle+ai/ailists.tsv",
-			chrnum, team, applied, s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI action chr_set_team chr=%d chr_rows=%d target_chr=%d checked_players=%d team=%d applied=%d source=%s backend=graph.ai.action.entity_lifecycle+ai/ailists.tsv",
+			chrnum, chr_count, target_chrnum, checked_players, team,
+			applied,
+			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_chr_set_team_logged = 1;
 	}
 	return 1;
@@ -20685,13 +27597,18 @@ s32 scenarioSourceAiGraphExecuteDamageChrByAmount(struct chrdata *basechr,
 	struct coord coord = {0, 0, 0};
 	struct chrdata *chr;
 	s32 applied = 0;
+	s32 chr_count = 0;
 
 	if (!s_aiEntityLifecycleGraphReady("damage_chr_by_amount",
 			s_ActiveScenarioGraphs.level_ai_damage_chr_by_amount_node_count,
 			"missing scenario.ai.action.damage_chr_by_amount node")) {
 		return 0;
 	}
-	chr = chrFindById(basechr, chrnum);
+	if (!s_aiGraphRequireRuntimeCharacterRefFromBase(
+			"damage_chr_by_amount", basechr, chrnum, &chr_count,
+			&chr)) {
+		return 1;
+	}
 	if (chr && chr->prop) {
 		if (mode == 2) {
 			struct gset gset = {WEAPON_COMBATKNIFE, 0, 0, FUNC_POISON};
@@ -20709,8 +27626,8 @@ s32 scenarioSourceAiGraphExecuteDamageChrByAmount(struct chrdata *basechr,
 	g_Vars.aioffset += 5;
 	if (!s_ActiveScenarioGraphs.ai_action_damage_chr_by_amount_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action damage_chr_by_amount chr=%d amount=%d mode=%d applied=%d source=%s backend=graph.ai.action.entity_lifecycle+ai/ailists.tsv",
-			chrnum, amount, mode, applied,
+			"SCENARIO.GRAPH: AI action damage_chr_by_amount chr=%d chr_rows=%d target_chr=%d amount=%d mode=%d applied=%d source=%s backend=graph.ai.action.entity_lifecycle+ai/ailists.tsv",
+			chrnum, chr_count, chr ? chr->chrnum : -1, amount, mode, applied,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_damage_chr_by_amount_logged = 1;
 	}
@@ -20727,6 +27644,8 @@ s32 scenarioSourceAiGraphExecuteDoPresetAnimation(struct chrdata *chr,
 		ANIM_TALKING_0233, ANIM_TALKING_0234, ANIM_028D,
 	};
 	s32 applied = 0;
+	s32 selected_anim = -1;
+	const char *anim_catalog_id = "none";
 
 	if (!s_aiEntityLifecycleGraphReady("do_preset_animation",
 			s_ActiveScenarioGraphs.level_ai_do_preset_animation_node_count,
@@ -20735,31 +27654,37 @@ s32 scenarioSourceAiGraphExecuteDoPresetAnimation(struct chrdata *chr,
 	}
 	if (chr) {
 		if (preset == 255) {
-			chrTryStartAnim(chr, anims[7 + (rngRandom() % 8)], 0, -1,
-				0, 15, 0.5);
+			selected_anim = anims[7 + (rngRandom() % 8)];
 		} else if (preset == 254) {
 			struct prop *prop0 = chrGetHeldProp(chr, 1);
 			struct prop *prop1 = chrGetHeldProp(chr, 0);
 			if (weaponIsOneHanded(prop0) || weaponIsOneHanded(prop1)) {
-				chrTryStartAnim(chr, ANIM_FIX_GUN_JAM_EASY, 0, -1,
-					0, 5, 0.5);
+				selected_anim = ANIM_FIX_GUN_JAM_EASY;
 			} else {
-				chrTryStartAnim(chr, ANIM_FIX_GUN_JAM_HARD, 0, -1,
-					0, 5, 0.5);
+				selected_anim = ANIM_FIX_GUN_JAM_HARD;
 			}
 		} else if (preset == 3) {
-			chrTryStartAnim(chr, anims[3 + (rngRandom() & 1)], 0, -1,
-				0, 15, 0.5);
+			selected_anim = anims[3 + (rngRandom() & 1)];
 		} else if (preset >= 0 && preset < (s32)(sizeof(anims) / sizeof(anims[0]))) {
-			chrTryStartAnim(chr, anims[preset], 0, -1, 0, 15, 0.5);
+			selected_anim = anims[preset];
+		}
+		if (selected_anim >= 0) {
+			anim_catalog_id = s_aiGraphResolveAnimationCatalogId(
+				"do_preset_animation", selected_anim, "preset");
+			if (!anim_catalog_id) {
+				return 1;
+			}
+			chrTryStartAnim(chr, selected_anim, 0, -1, 0,
+				preset == 254 ? 5 : 15, 0.5);
 		}
 		applied = 1;
 	}
 	g_Vars.aioffset += 3;
 	if (!s_ActiveScenarioGraphs.ai_action_do_preset_animation_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action do_preset_animation preset=%d applied=%d source=%s backend=graph.ai.action.entity_lifecycle+ai/ailists.tsv",
-			preset, applied, s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI action do_preset_animation preset=%d anim_id=%s applied=%d source=%s backend=graph.ai.action.entity_lifecycle+ai/ailists.tsv",
+			preset, anim_catalog_id, applied,
+			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_do_preset_animation_logged = 1;
 	}
 	return 1;
@@ -20768,18 +27693,32 @@ s32 scenarioSourceAiGraphExecuteDoPresetAnimation(struct chrdata *chr,
 s32 scenarioSourceAiGraphExecuteIfPlayerChrPortalDistanceLessThan(
 	struct chrdata *chr, s32 label)
 {
+	struct player *player = g_Vars.currentplayer;
 	f32 distance = 3000;
 	s32 branch = 0;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
+	s32 player_checked = 0;
 
 	if (!s_aiEntityLifecycleGraphReady("if_player_chr_portal_distance_less_than",
 			s_ActiveScenarioGraphs.level_ai_if_player_chr_portal_distance_less_than_node_count,
 			"missing scenario.ai.condition.if_player_chr_portal_distance_less_than node")) {
 		return 0;
 	}
-	if (chr && chr->prop && g_Vars.currentplayer &&
-			g_Vars.currentplayer->prop) {
-		func0f0056f4(g_Vars.currentplayer->prop->rooms[0],
-			&g_Vars.currentplayer->prop->pos, chr->prop->rooms[0],
+	if (!s_aiGraphRequireOptionalRuntimeCharacterPointer(
+			"if_player_chr_portal_distance_less_than", chr,
+			&chr_count, &source_chr)) {
+		return 1;
+	}
+	if (!s_aiGraphRequireRuntimePlayerPointer(
+			"if_player_chr_portal_distance_less_than", player,
+			"current")) {
+		return 1;
+	}
+	player_checked = 1;
+	if (chr && chr->prop && player->prop) {
+		func0f0056f4(player->prop->rooms[0],
+			&player->prop->pos, chr->prop->rooms[0],
 			&chr->prop->pos, 0, &distance, 0);
 		branch = distance < 3000;
 	}
@@ -20791,8 +27730,9 @@ s32 scenarioSourceAiGraphExecuteIfPlayerChrPortalDistanceLessThan(
 	}
 	if (!s_ActiveScenarioGraphs.ai_condition_if_player_chr_portal_distance_less_than_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_player_chr_portal_distance_less_than label=%d branch=%d distance=%.2f source=%s backend=graph.ai.action.entity_lifecycle+ai/ailists.tsv",
-			label, branch, distance, s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI condition if_player_chr_portal_distance_less_than chr_rows=%d source_chr=%d player_checked=%d label=%d branch=%d distance=%.2f source=%s backend=graph.ai.action.entity_lifecycle+ai/ailists.tsv",
+			chr_count, source_chr, player_checked, label, branch, distance,
+			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_condition_if_player_chr_portal_distance_less_than_logged = 1;
 	}
 	return 1;
@@ -20802,11 +27742,18 @@ s32 scenarioSourceAiGraphExecuteIfChrRepositionValid(struct chrdata *chr,
 	s32 label)
 {
 	s32 branch = 0;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
 
 	if (!s_aiEntityLifecycleGraphReady("if_chr_reposition_valid",
 			s_ActiveScenarioGraphs.level_ai_if_chr_reposition_valid_node_count,
 			"missing scenario.ai.condition.if_chr_reposition_valid node")) {
 		return 0;
+	}
+	if (!s_aiGraphRequireOptionalRuntimeCharacterPointer(
+			"if_chr_reposition_valid", chr, &chr_count,
+			&source_chr)) {
+		return 1;
 	}
 	if (chr && chr->prop &&
 			chr0f01f264(chr, &chr->prop->pos, chr->prop->rooms,
@@ -20821,8 +27768,9 @@ s32 scenarioSourceAiGraphExecuteIfChrRepositionValid(struct chrdata *chr,
 	}
 	if (!s_ActiveScenarioGraphs.ai_condition_if_chr_reposition_valid_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_chr_reposition_valid label=%d branch=%d source=%s backend=graph.ai.action.entity_lifecycle+ai/ailists.tsv",
-			label, branch, s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI condition if_chr_reposition_valid chr_rows=%d source_chr=%d label=%d branch=%d source=%s backend=graph.ai.action.entity_lifecycle+ai/ailists.tsv",
+			chr_count, source_chr, label, branch,
+			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_condition_if_chr_reposition_valid_logged = 1;
 	}
 	return 1;
@@ -20858,15 +27806,23 @@ s32 scenarioSourceAiGraphExecuteDoGunCommand(struct chrdata *chr,
 	struct weaponobj *weapon;
 	s32 branch_taken = 0;
 	s32 moved_to_gun = 0;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
+	const char *gun_model_id = "none";
+	const char *gun_weapon_id = "none";
 
 	if (!s_aiGunInteractionGraphReady("do_gun_command",
 			s_ActiveScenarioGraphs.level_ai_do_gun_command_node_count,
 			"missing scenario.ai.action.do_gun_command node")) {
 		return 0;
 	}
-	if (!chr || !chr->gunprop || !chr->gunprop->weapon) {
-		return s_aiGraphRuntimeFailure("do_gun_command",
-			"missing current chr gun prop");
+	if (!s_aiGraphRequireRuntimeCharacterPointer("do_gun_command", chr,
+			&chr_count, &source_chr)) {
+		return 1;
+	}
+	if (!s_aiGraphRequireCurrentGunProp("do_gun_command",
+			chr->gunprop, &gun_model_id, &gun_weapon_id)) {
+		return 1;
 	}
 	weapon = chr->gunprop->weapon;
 	if (mode == 0 || ((weapon->base.hidden & OBJHFLAG_PROJECTILE) == 0 &&
@@ -20883,8 +27839,9 @@ s32 scenarioSourceAiGraphExecuteDoGunCommand(struct chrdata *chr,
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_do_gun_command_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action do_gun_command mode=%d label=%d branch=%d moved=%d source=%s objects=%s backend=graph.ai.action.gun_interaction+ai/ailists.tsv+objects.tsv+scene.glb",
-			mode, label, branch_taken, moved_to_gun,
+			"SCENARIO.GRAPH: AI action do_gun_command chr_rows=%d source_chr=%d mode=%d gun_model_id=%s weapon_id=%s label=%d branch=%d moved=%d source=%s objects=%s backend=graph.ai.action.gun_interaction+ai/ailists.tsv+objects.tsv+scene.glb",
+			chr_count, source_chr, mode, gun_model_id, gun_weapon_id,
+			label, branch_taken, moved_to_gun,
 			s_ActiveScenarioGraphs.ai_lists_path,
 			s_ActiveScenarioGraphs.objects_path);
 		s_ActiveScenarioGraphs.ai_action_do_gun_command_logged = 1;
@@ -20899,16 +27856,33 @@ s32 scenarioSourceAiGraphExecuteIfDistanceToGunLessThan(struct chrdata *chr,
 	f32 ydiff = 0;
 	f32 zdiff = 0;
 	s32 pass;
+	s32 gun_valid = 0;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
+	const char *gun_model_id = "none";
+	const char *gun_weapon_id = "none";
 
 	if (!s_aiGunInteractionGraphReady("if_distance_to_gun_less_than",
 			s_ActiveScenarioGraphs.level_ai_if_distance_to_gun_less_than_node_count,
 			"missing scenario.ai.condition.if_distance_to_gun_less_than node")) {
 		return 0;
 	}
-	if (chr && chr->gunprop && chr->prop) {
-		xdiff = chr->prop->pos.x - chr->gunprop->pos.x;
-		ydiff = chr->prop->pos.y - chr->gunprop->pos.y;
-		zdiff = chr->prop->pos.z - chr->gunprop->pos.z;
+	if (!s_aiGraphRequireOptionalRuntimeCharacterPointer(
+			"if_distance_to_gun_less_than", chr, &chr_count,
+			&source_chr)) {
+		return 1;
+	}
+	if (chr && chr->gunprop) {
+		if (!s_aiGraphRequireCurrentGunProp("if_distance_to_gun_less_than",
+				chr->gunprop, &gun_model_id, &gun_weapon_id)) {
+			return 1;
+		}
+		gun_valid = 1;
+		if (chr->prop) {
+			xdiff = chr->prop->pos.x - chr->gunprop->pos.x;
+			ydiff = chr->prop->pos.y - chr->gunprop->pos.y;
+			zdiff = chr->prop->pos.z - chr->gunprop->pos.z;
+		}
 	}
 	pass = ydiff < 200 && ydiff > -200 &&
 		xdiff < distance && xdiff > -distance &&
@@ -20920,10 +27894,12 @@ s32 scenarioSourceAiGraphExecuteIfDistanceToGunLessThan(struct chrdata *chr,
 		g_Vars.aioffset += 5;
 	}
 	if (!s_ActiveScenarioGraphs
-			.ai_action_if_distance_to_gun_less_than_logged) {
+			.ai_action_if_distance_to_gun_less_than_logged &&
+			gun_valid) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_distance_to_gun_less_than distance=%.2f label=%d result=%d source=%s objects=%s backend=graph.ai.action.gun_interaction+ai/ailists.tsv+objects.tsv+scene.glb",
-			(double)distance, label, pass,
+			"SCENARIO.GRAPH: AI condition if_distance_to_gun_less_than chr_rows=%d source_chr=%d distance=%.2f gun_model_id=%s weapon_id=%s label=%d result=%d source=%s objects=%s backend=graph.ai.action.gun_interaction+ai/ailists.tsv+objects.tsv+scene.glb",
+			chr_count, source_chr, (double)distance, gun_model_id,
+			gun_weapon_id, label, pass,
 			s_ActiveScenarioGraphs.ai_lists_path,
 			s_ActiveScenarioGraphs.objects_path);
 		s_ActiveScenarioGraphs.ai_action_if_distance_to_gun_less_than_logged = 1;
@@ -20935,16 +27911,25 @@ s32 scenarioSourceAiGraphExecuteRecoverGun(struct chrdata *chr, s32 label)
 {
 	struct prop *prop;
 	s32 recovered = 0;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
+	const char *gun_model_id = "none";
+	const char *gun_weapon_id = "none";
 
 	if (!s_aiGunInteractionGraphReady("recover_gun",
 			s_ActiveScenarioGraphs.level_ai_recover_gun_node_count,
 			"missing scenario.ai.action.recover_gun node")) {
 		return 0;
 	}
-	if (!chr) {
-		return s_aiGraphRuntimeFailure("recover_gun", "missing chr");
+	if (!s_aiGraphRequireRuntimeCharacterPointer("recover_gun", chr,
+			&chr_count, &source_chr)) {
+		return 1;
 	}
 	prop = chr->gunprop;
+	if (prop && !s_aiGraphRequireCurrentGunProp("recover_gun",
+			prop, &gun_model_id, &gun_weapon_id)) {
+		return 1;
+	}
 	chr->gunprop = NULL;
 	if (prop && prop->obj && prop->parent == NULL &&
 			prop->type == PROPTYPE_WEAPON) {
@@ -20956,10 +27941,12 @@ s32 scenarioSourceAiGraphExecuteRecoverGun(struct chrdata *chr, s32 label)
 	}
 	g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist,
 		g_Vars.aioffset, label);
-	if (!s_ActiveScenarioGraphs.ai_action_recover_gun_logged) {
+	if (!s_ActiveScenarioGraphs.ai_action_recover_gun_logged && prop) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action recover_gun label=%d recovered=%d source=%s objects=%s backend=graph.ai.action.gun_interaction+ai/ailists.tsv+objects.tsv+scene.glb",
-			label, recovered, s_ActiveScenarioGraphs.ai_lists_path,
+			"SCENARIO.GRAPH: AI action recover_gun chr_rows=%d source_chr=%d gun_model_id=%s weapon_id=%s label=%d recovered=%d source=%s objects=%s backend=graph.ai.action.gun_interaction+ai/ailists.tsv+objects.tsv+scene.glb",
+			chr_count, source_chr, gun_model_id, gun_weapon_id, label,
+			recovered,
+			s_ActiveScenarioGraphs.ai_lists_path,
 			s_ActiveScenarioGraphs.objects_path);
 		s_ActiveScenarioGraphs.ai_action_recover_gun_logged = 1;
 	}
@@ -20971,6 +27958,10 @@ s32 scenarioSourceAiGraphExecuteChrCopyProperties(struct chrdata *basechr,
 {
 	struct chrdata *src;
 	s32 copied = 0;
+	s32 copied_pad = -1;
+	s32 pad_count = 0;
+	s32 pad_found = 0;
+	s32 chr_count = 0;
 
 	if (!s_ActiveScenarioGraphs.level_graph_active) {
 		return 0;
@@ -20983,15 +27974,35 @@ s32 scenarioSourceAiGraphExecuteChrCopyProperties(struct chrdata *basechr,
 		return s_aiGraphRuntimeFailure("chr_copy_properties",
 			"missing ai/ailists.tsv source");
 	}
+	if (!s_ActiveScenarioGraphs.pads_path[0]) {
+		return s_aiGraphRuntimeFailure("chr_copy_properties",
+			"missing pads.tsv source");
+	}
 	if (!basechr) {
 		return s_aiGraphRuntimeFailure("chr_copy_properties",
 			"missing destination chr");
 	}
-	src = chrFindById(basechr, src_chrnum);
+	if (!s_aiGraphRequireRuntimeCharacterRefFromBase(
+			"chr_copy_properties", basechr, src_chrnum, &chr_count,
+			&src)) {
+		return 1;
+	}
 	if (src && src->model) {
+		copied_pad = src->padpreset1;
+		if (copied_pad >= 0) {
+			if (!s_aiGraphRequireRuntimePad(
+					"chr_copy_properties", copied_pad,
+					&pad_count)) {
+				return 1;
+			}
+			pad_found = 1;
+		} else if (!s_aiGraphRequireRuntimePadTable(
+				"chr_copy_properties", &pad_count)) {
+			return 1;
+		}
 		basechr->hearingscale = src->hearingscale;
 		basechr->visionrange = src->visionrange;
-		basechr->padpreset1 = src->padpreset1;
+		basechr->padpreset1 = copied_pad;
 		basechr->chrpreset1 = src->chrpreset1;
 		basechr->flags = src->flags;
 		basechr->flags2 = src->flags2;
@@ -21009,9 +28020,11 @@ s32 scenarioSourceAiGraphExecuteChrCopyProperties(struct chrdata *basechr,
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_chr_copy_properties_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action chr_copy_properties src_chr=%d label=%d copied=%d source=%s backend=graph.ai.action.character_property+ai/ailists.tsv",
-			src_chrnum, label, copied,
-			s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI action chr_copy_properties src_chr=%d chr_rows=%d source_chr=%d label=%d pad=%d found=%d pad_rows=%d copied=%d source=%s pads=%s backend=graph.ai.action.character_property+ai/ailists.tsv+pads.tsv",
+			src_chrnum, chr_count, src ? src->chrnum : -1, label,
+			copied_pad, pad_found, pad_count, copied,
+			s_ActiveScenarioGraphs.ai_lists_path,
+			s_ActiveScenarioGraphs.pads_path);
 		s_ActiveScenarioGraphs.ai_action_chr_copy_properties_logged = 1;
 	}
 	return 1;
@@ -21023,6 +28036,9 @@ s32 scenarioSourceAiGraphExecutePlayerAutoWalk(struct chrdata *basechr,
 {
 	struct chrdata *chr;
 	s32 applied = 0;
+	s32 pad_count = 0;
+	s32 chr_count = 0;
+	s32 player_checked = 0;
 
 	if (!s_ActiveScenarioGraphs.level_graph_active) {
 		return 0;
@@ -21036,10 +28052,22 @@ s32 scenarioSourceAiGraphExecutePlayerAutoWalk(struct chrdata *basechr,
 		return s_aiGraphRuntimeFailure("player_auto_walk",
 			"missing ai/ailists.tsv or pads.tsv source");
 	}
-	chr = chrFindById(basechr, chrnum);
+	if (!s_aiGraphRequireRuntimePad("player_auto_walk", pad_id,
+			&pad_count)) {
+		return 1;
+	}
+	if (!s_aiGraphRequireRuntimeCharacterRefFromBase("player_auto_walk",
+			basechr, chrnum, &chr_count, &chr)) {
+		return 1;
+	}
 	if (chr && chr->prop && chr->prop->type == PROPTYPE_PLAYER) {
 		u32 prevplayernum = g_Vars.currentplayernum;
 		u32 playernum = playermgrGetPlayerNumByProp(chr->prop);
+		if (!s_aiGraphRequireRuntimePlayerSlot("player_auto_walk",
+				(s32)playernum, NULL)) {
+			return 1;
+		}
+		player_checked = 1;
 		setCurrentPlayerNum(playernum);
 		playerAutoWalk((s16)pad_id, (u8)walkspeed, (u8)turnspeed,
 			(u8)lookup, (u8)dist);
@@ -21049,8 +28077,9 @@ s32 scenarioSourceAiGraphExecutePlayerAutoWalk(struct chrdata *basechr,
 	g_Vars.aioffset += 9;
 	if (!s_ActiveScenarioGraphs.ai_action_player_auto_walk_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action player_auto_walk chr=%d pad=%d applied=%d source=%s pads=%s backend=graph.ai.action.player_navigation+ai/ailists.tsv+pads.tsv",
-			chrnum, pad_id, applied,
+			"SCENARIO.GRAPH: AI action player_auto_walk chr=%d chr_rows=%d target_chr=%d player_checked=%d pad=%d found=1 pad_rows=%d applied=%d source=%s pads=%s backend=graph.ai.action.player_navigation+ai/ailists.tsv+pads.tsv",
+			chrnum, chr_count, chr ? chr->chrnum : -1,
+			player_checked, pad_id, pad_count, applied,
 			s_ActiveScenarioGraphs.ai_lists_path,
 			s_ActiveScenarioGraphs.pads_path);
 		s_ActiveScenarioGraphs.ai_action_player_auto_walk_logged = 1;
@@ -21063,6 +28092,8 @@ s32 scenarioSourceAiGraphExecuteIfPlayerAutoWalkFinished(struct chrdata *basechr
 {
 	struct chrdata *chr;
 	s32 walking = 0;
+	s32 chr_count = 0;
+	s32 player_checked = 0;
 
 	if (!s_ActiveScenarioGraphs.level_graph_active) {
 		return 0;
@@ -21075,10 +28106,20 @@ s32 scenarioSourceAiGraphExecuteIfPlayerAutoWalkFinished(struct chrdata *basechr
 		return s_aiGraphRuntimeFailure("if_player_auto_walk_finished",
 			"missing ai/ailists.tsv source");
 	}
-	chr = chrFindById(basechr, chrnum);
+	if (!s_aiGraphRequireRuntimeCharacterRefFromBase(
+			"if_player_auto_walk_finished", basechr, chrnum,
+			&chr_count, &chr)) {
+		return 1;
+	}
 	if (chr && chr->prop && chr->prop->type == PROPTYPE_PLAYER) {
 		u32 prevplayernum = g_Vars.currentplayernum;
 		u32 playernum = playermgrGetPlayerNumByProp(chr->prop);
+		if (!s_aiGraphRequireRuntimePlayerSlot(
+				"if_player_auto_walk_finished",
+				(s32)playernum, NULL)) {
+			return 1;
+		}
+		player_checked = 1;
 		setCurrentPlayerNum(playernum);
 		if (g_Vars.tickmode == TICKMODE_AUTOWALK) {
 			walking = 1;
@@ -21093,8 +28134,9 @@ s32 scenarioSourceAiGraphExecuteIfPlayerAutoWalkFinished(struct chrdata *basechr
 	}
 	if (!s_ActiveScenarioGraphs.ai_condition_if_player_auto_walk_finished_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_player_auto_walk_finished chr=%d label=%d walking=%d source=%s backend=graph.ai.action.player_navigation+ai/ailists.tsv+pads.tsv",
-			chrnum, label, walking,
+			"SCENARIO.GRAPH: AI condition if_player_auto_walk_finished chr=%d chr_rows=%d target_chr=%d player_checked=%d label=%d walking=%d source=%s backend=graph.ai.action.player_navigation+ai/ailists.tsv+pads.tsv",
+			chrnum, chr_count, chr ? chr->chrnum : -1,
+			player_checked, label, walking,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_condition_if_player_auto_walk_finished_logged = 1;
 	}
@@ -21107,6 +28149,8 @@ s32 scenarioSourceAiGraphExecuteIfObjInRoom(struct chrdata *basechr,
 	struct defaultobj *obj;
 	s32 resolved_room;
 	s32 pass;
+	s32 object_count = 0;
+	s32 pad_count = 0;
 
 	if (!s_ActiveScenarioGraphs.level_graph_active) {
 		return 0;
@@ -21123,6 +28167,20 @@ s32 scenarioSourceAiGraphExecuteIfObjInRoom(struct chrdata *basechr,
 		return s_aiGraphRuntimeFailure("if_obj_in_room",
 			"missing objects.tsv source");
 	}
+	if (!s_ActiveScenarioGraphs.pads_path[0]) {
+		return s_aiGraphRuntimeFailure("if_obj_in_room",
+			"missing pads.tsv source");
+	}
+	if (!s_aiGraphRequireRuntimeObjectTag("if_obj_in_room", tag_id,
+			&object_count)) {
+		s_aiGraphApplyBranch(0, label, 6);
+		return 1;
+	}
+	if (!s_aiGraphRequireRuntimePad("if_obj_in_room", room_id,
+			&pad_count)) {
+		s_aiGraphApplyBranch(0, label, 6);
+		return 1;
+	}
 	obj = objFindByTagId(tag_id);
 	resolved_room = chrGetPadRoom(basechr, room_id);
 	pass = resolved_room >= 0 && obj && obj->prop &&
@@ -21135,10 +28193,12 @@ s32 scenarioSourceAiGraphExecuteIfObjInRoom(struct chrdata *basechr,
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_if_obj_in_room_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_obj_in_room tag=%d room=%d resolved_room=%d label=%d result=%d source=%s objects=%s backend=graph.ai.condition.object_room+ai/ailists.tsv+objects.tsv+scene.glb",
-			tag_id, room_id, resolved_room, label, pass,
+			"SCENARIO.GRAPH: AI condition if_obj_in_room tag=%d object_rows=%d pad=%d found=1 pad_rows=%d resolved_room=%d label=%d result=%d source=%s objects=%s pads=%s backend=graph.ai.condition.object_room+ai/ailists.tsv+objects.tsv+pads.tsv+scene.glb",
+			tag_id, object_count, room_id, pad_count, resolved_room,
+			label, pass,
 			s_ActiveScenarioGraphs.ai_lists_path,
-			s_ActiveScenarioGraphs.objects_path);
+			s_ActiveScenarioGraphs.objects_path,
+			s_ActiveScenarioGraphs.pads_path);
 		s_ActiveScenarioGraphs.ai_action_if_obj_in_room_logged = 1;
 	}
 	return 1;
@@ -21173,22 +28233,39 @@ s32 scenarioSourceAiGraphExecuteIfPlayerLookingAtObject(
 {
 	struct defaultobj *obj;
 	struct chrdata *chr;
+	struct player *player = NULL;
 	s32 pass = 0;
+	s32 object_count = 0;
+	s32 chr_count = 0;
+	s32 target_chrnum = -1;
+	s32 player_checked = 0;
 
 	if (!s_aiGraphRequirePerceptionNode("if_player_looking_at_object",
 			s_ActiveScenarioGraphs.level_ai_if_player_looking_at_object_node_count,
 			1)) {
 		return s_ActiveScenarioGraphs.level_graph_active ? 1 : 0;
 	}
+	if (!s_aiGraphRequireRuntimeObjectTag("if_player_looking_at_object",
+			tag_id, &object_count)) {
+		s_aiGraphApplyBranch(0, label, 5);
+		return 1;
+	}
 	obj = objFindByTagId(tag_id);
-	chr = chrFindById(basechr, chrnum);
-	if (chr && chr->prop && chr->prop->type == PROPTYPE_PLAYER &&
-			obj && obj->prop) {
-		u32 prevplayernum = g_Vars.currentplayernum;
+	if (!s_aiGraphResolvePlayerChr("if_player_looking_at_object",
+			basechr, chrnum, &chr_count, &target_chrnum, &chr)) {
+		s_aiGraphApplyBranch(0, label, 5);
+		return 1;
+	}
+	if (chr && obj && obj->prop) {
 		u32 playernum = playermgrGetPlayerNumByProp(chr->prop);
-		setCurrentPlayerNum(playernum);
-		pass = g_Vars.currentplayer->lookingatprop.prop == obj->prop;
-		setCurrentPlayerNum(prevplayernum);
+		if (!s_aiGraphRequireRuntimePlayerSlot(
+				"if_player_looking_at_object", (s32)playernum,
+				&player)) {
+			s_aiGraphApplyBranch(0, label, 5);
+			return 1;
+		}
+		player_checked = 1;
+		pass = player->lookingatprop.prop == obj->prop;
 	}
 	if (pass) {
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist,
@@ -21198,8 +28275,9 @@ s32 scenarioSourceAiGraphExecuteIfPlayerLookingAtObject(
 	}
 	if (!s_ActiveScenarioGraphs.ai_condition_if_player_looking_at_object_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_player_looking_at_object chr=%d tag=%d label=%d result=%d source=%s objects=%s backend=graph.ai.condition.perception+ai/ailists.tsv+objects.tsv+scene.glb",
-			chrnum, tag_id, label, pass,
+			"SCENARIO.GRAPH: AI condition if_player_looking_at_object chr=%d chr_rows=%d target_chr=%d player_checked=%d tag=%d object_rows=%d label=%d result=%d source=%s objects=%s backend=graph.ai.condition.perception+ai/ailists.tsv+objects.tsv+scene.glb",
+			chrnum, chr_count, target_chrnum, player_checked, tag_id,
+			object_count, label, pass,
 			s_ActiveScenarioGraphs.ai_lists_path,
 			s_ActiveScenarioGraphs.objects_path);
 		s_ActiveScenarioGraphs.ai_condition_if_player_looking_at_object_logged = 1;
@@ -21240,6 +28318,7 @@ s32 scenarioSourceAiGraphExecuteChrKill(struct chrdata *basechr, s32 chrnum)
 {
 	struct chrdata *chr;
 	s32 applied;
+	s32 chr_count = 0;
 
 	if (!s_ActiveScenarioGraphs.level_graph_active) {
 		return 0;
@@ -21252,7 +28331,10 @@ s32 scenarioSourceAiGraphExecuteChrKill(struct chrdata *basechr, s32 chrnum)
 		return s_aiGraphRuntimeFailure("chr_kill",
 			"missing ai/ailists.tsv source");
 	}
-	chr = chrFindById(basechr, chrnum);
+	if (!s_aiGraphRequireRuntimeCharacterRefFromBase("chr_kill",
+			basechr, chrnum, &chr_count, &chr)) {
+		return 1;
+	}
 	applied = chr != NULL;
 	if (chr) {
 		chr->actiontype = ACT_DEAD;
@@ -21268,8 +28350,9 @@ s32 scenarioSourceAiGraphExecuteChrKill(struct chrdata *basechr, s32 chrnum)
 	g_Vars.aioffset += 3;
 	if (!s_ActiveScenarioGraphs.ai_action_chr_kill_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action chr_kill chr=%d applied=%d source=%s backend=graph.ai.action.character_inventory+ai/ailists.tsv",
-			chrnum, applied, s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI action chr_kill chr=%d chr_rows=%d target_chr=%d applied=%d source=%s backend=graph.ai.action.character_inventory+ai/ailists.tsv",
+			chrnum, chr_count, chr ? chr->chrnum : -1, applied,
+			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_chr_kill_logged = 1;
 	}
 	return 1;
@@ -21291,13 +28374,17 @@ s32 scenarioSourceAiGraphExecuteRemoveWeaponFromInventory(s32 weaponnum)
 		return s_aiGraphRuntimeFailure("remove_weapon_from_inventory",
 			"missing ai/ailists.tsv source");
 	}
-	weapon_id = catalogWeaponIdByRuntimeWeaponNum(weaponnum);
+	weapon_id = s_aiGraphResolveWeaponCatalogId(
+		"remove_weapon_from_inventory", weaponnum, "inventory");
+	if (!weapon_id) {
+		return 1;
+	}
 	invRemoveItemByNum(weaponnum);
 	g_Vars.aioffset += 3;
 	if (!s_ActiveScenarioGraphs.ai_action_remove_weapon_from_inventory_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action remove_weapon_from_inventory weapon=%s source=%s backend=graph.ai.action.character_inventory+ai/ailists.tsv",
-			weapon_id ? weapon_id : "<unmapped>",
+			"SCENARIO.GRAPH: AI action remove_weapon_from_inventory weapon_id=%s source=%s backend=graph.ai.action.character_inventory+ai/ailists.tsv",
+			weapon_id,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_remove_weapon_from_inventory_logged = 1;
 	}
@@ -21309,6 +28396,7 @@ s32 scenarioSourceAiGraphExecuteClearInventory(void)
 	u32 prevplayernum;
 	s32 playernum;
 	s32 cleared = 0;
+	s32 checked_players = 0;
 
 	if (!s_ActiveScenarioGraphs.level_graph_active) {
 		return 0;
@@ -21323,12 +28411,19 @@ s32 scenarioSourceAiGraphExecuteClearInventory(void)
 	}
 	prevplayernum = g_Vars.currentplayernum;
 	for (playernum = 0; playernum < PLAYERCOUNT(); playernum++) {
+		struct player *player = NULL;
+		if (!s_aiGraphRequireRuntimePlayerSlot("clear_inventory",
+				playernum, &player)) {
+			setCurrentPlayerNum(prevplayernum);
+			return 1;
+		}
+		checked_players++;
 		setCurrentPlayerNum(playernum);
-		if (g_Vars.currentplayer == g_Vars.bond ||
-				g_Vars.currentplayer == g_Vars.coop) {
+		if (playernum == g_Vars.bondplayernum ||
+				playernum == g_Vars.coopplayernum) {
 			invClear();
 #if VERSION >= VERSION_NTSC_1_0
-			g_Vars.currentplayer->devicesactive = 0;
+			player->devicesactive = 0;
 #endif
 			invGiveSingleWeapon(WEAPON_UNARMED);
 			bgunEquipWeapon(WEAPON_UNARMED);
@@ -21339,8 +28434,8 @@ s32 scenarioSourceAiGraphExecuteClearInventory(void)
 	g_Vars.aioffset += 3;
 	if (!s_ActiveScenarioGraphs.ai_action_clear_inventory_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action clear_inventory players=%d source=%s backend=graph.ai.action.character_inventory+ai/ailists.tsv",
-			cleared, s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI action clear_inventory checked_players=%d players=%d source=%s backend=graph.ai.action.character_inventory+ai/ailists.tsv",
+			checked_players, cleared, s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_clear_inventory_logged = 1;
 	}
 	return 1;
@@ -21376,6 +28471,9 @@ s32 scenarioSourceAiGraphExecuteChrGrabObject(struct chrdata *basechr,
 	struct defaultobj *obj;
 	struct chrdata *chr;
 	s32 grabbed = 0;
+	s32 object_count = 0;
+	s32 chr_count = 0;
+	s32 player_checked = 0;
 
 	if (!s_ActiveScenarioGraphs.level_graph_active) {
 		return 0;
@@ -21389,16 +28487,29 @@ s32 scenarioSourceAiGraphExecuteChrGrabObject(struct chrdata *basechr,
 		return s_aiGraphRuntimeFailure("chr_grab_object",
 			"missing ai/ailists.tsv or objects.tsv source");
 	}
+	if (!s_aiGraphRequireRuntimeObjectTag("chr_grab_object", tag_id,
+			&object_count)) {
+		return 1;
+	}
+	if (!s_aiGraphRequireRuntimeCharacterRefFromBase("chr_grab_object",
+			basechr, chrnum, &chr_count, &chr)) {
+		return 1;
+	}
 	obj = objFindByTagId(tag_id);
-	chr = chrFindById(basechr, chrnum);
 	if (chr && chr->prop && chr->prop->type == PROPTYPE_PLAYER &&
 			obj && obj->prop) {
+		struct player *player = NULL;
 		u32 prevplayernum = g_Vars.currentplayernum;
 		u32 playernum = playermgrGetPlayerNumByProp(chr->prop);
+		if (!s_aiGraphRequireRuntimePlayerSlot("chr_grab_object",
+				(s32)playernum, &player)) {
+			return 1;
+		}
+		player_checked = 1;
 		setCurrentPlayerNum(playernum);
-		if (g_Vars.currentplayer->bondmovemode == MOVEMODE_WALK &&
+		if (player->bondmovemode == MOVEMODE_WALK &&
 				bmoveGetCrouchPos() == CROUCHPOS_STAND &&
-				g_Vars.currentplayer->crouchoffset == 0) {
+				player->crouchoffset == 0) {
 			bmoveGrabProp(obj->prop);
 			grabbed = 1;
 		}
@@ -21407,8 +28518,10 @@ s32 scenarioSourceAiGraphExecuteChrGrabObject(struct chrdata *basechr,
 	g_Vars.aioffset += 4;
 	if (!s_ActiveScenarioGraphs.ai_action_chr_grab_object_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action chr_grab_object chr=%d tag=%d grabbed=%d source=%s objects=%s backend=graph.ai.action.character_inventory+ai/ailists.tsv+objects.tsv",
-			chrnum, tag_id, grabbed, s_ActiveScenarioGraphs.ai_lists_path,
+			"SCENARIO.GRAPH: AI action chr_grab_object chr=%d chr_rows=%d target_chr=%d player_checked=%d tag=%d object_rows=%d grabbed=%d source=%s objects=%s backend=graph.ai.action.character_inventory+ai/ailists.tsv+objects.tsv",
+			chrnum, chr_count, chr ? chr->chrnum : -1,
+			player_checked, tag_id, object_count, grabbed,
+			s_ActiveScenarioGraphs.ai_lists_path,
 			s_ActiveScenarioGraphs.objects_path);
 		s_ActiveScenarioGraphs.ai_action_chr_grab_object_logged = 1;
 	}
@@ -21418,8 +28531,12 @@ s32 scenarioSourceAiGraphExecuteChrGrabObject(struct chrdata *basechr,
 s32 scenarioSourceAiGraphExecuteToggleP1P2(struct chrdata *basechr,
 	s32 chrnum)
 {
-	struct chrdata *chr;
+	struct chrdata *chr = NULL;
+	struct player *bond = g_Vars.bond;
+	struct player *coop = g_Vars.coop;
 	s32 applied = 0;
+	s32 chr_count = 0;
+	s32 player_checked = 0;
 
 	if (!s_ActiveScenarioGraphs.level_graph_active) {
 		return 0;
@@ -21433,13 +28550,24 @@ s32 scenarioSourceAiGraphExecuteToggleP1P2(struct chrdata *basechr,
 			"missing ai/ailists.tsv source");
 	}
 	if (g_Vars.coopplayernum >= 0) {
-		chr = chrFindById(basechr, chrnum);
+		if (!s_aiGraphRequireRuntimePlayerPointer("toggle_p1p2",
+				bond, "Bond") ||
+				!s_aiGraphRequireRuntimePlayerPointer(
+					"toggle_p1p2", coop, "Co-op")) {
+			return 1;
+		}
+		player_checked = 2;
+		if (!s_aiGraphRequireRuntimeCharacterRefFromBase(
+				"toggle_p1p2", basechr, chrnum, &chr_count,
+				&chr)) {
+			return 1;
+		}
 		if (chr) {
 			if (chr->p1p2 == g_Vars.bondplayernum &&
-					!g_Vars.coop->isdead) {
+					!coop->isdead) {
 				chr->p1p2 = g_Vars.coopplayernum;
 				applied = 1;
-			} else if (!g_Vars.bond->isdead) {
+			} else if (!bond->isdead) {
 				chr->p1p2 = g_Vars.bondplayernum;
 				applied = 1;
 			}
@@ -21448,8 +28576,10 @@ s32 scenarioSourceAiGraphExecuteToggleP1P2(struct chrdata *basechr,
 	g_Vars.aioffset += 3;
 	if (!s_ActiveScenarioGraphs.ai_action_toggle_p1p2_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action toggle_p1p2 chr=%d applied=%d source=%s backend=graph.ai.action.player_state+ai/ailists.tsv",
-			chrnum, applied, s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI action toggle_p1p2 chr=%d chr_rows=%d target_chr=%d player_checked=%d applied=%d source=%s backend=graph.ai.action.player_state+ai/ailists.tsv",
+			chrnum, chr_count, chr ? chr->chrnum : -1,
+			player_checked, applied,
+			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_toggle_p1p2_logged = 1;
 	}
 	return 1;
@@ -21458,9 +28588,12 @@ s32 scenarioSourceAiGraphExecuteToggleP1P2(struct chrdata *basechr,
 s32 scenarioSourceAiGraphExecuteChrSetP1P2(struct chrdata *basechr,
 	s32 chrnum, s32 target_chrnum)
 {
-	struct chrdata *chr1;
-	struct chrdata *chr2;
+	struct chrdata *chr1 = NULL;
+	struct chrdata *chr2 = NULL;
 	s32 applied = 0;
+	s32 chr_count1 = 0;
+	s32 chr_count2 = 0;
+	s32 player_checked = 0;
 
 	if (!s_ActiveScenarioGraphs.level_graph_active) {
 		return 0;
@@ -21474,13 +28607,27 @@ s32 scenarioSourceAiGraphExecuteChrSetP1P2(struct chrdata *basechr,
 			"missing ai/ailists.tsv source");
 	}
 	if (g_Vars.coopplayernum >= 0) {
-		chr1 = chrFindById(basechr, chrnum);
-		chr2 = chrFindById(basechr, target_chrnum);
+		struct player *player = NULL;
+		if (!s_aiGraphRequireRuntimeCharacterRefFromBase(
+				"chr_set_p1p2", basechr, chrnum, &chr_count1,
+				&chr1)) {
+			return 1;
+		}
+		if (!s_aiGraphRequireRuntimeCharacterRefFromBase(
+				"chr_set_p1p2", basechr, target_chrnum,
+				&chr_count2, &chr2)) {
+			return 1;
+		}
 		if (chr1 && chr2 && chr2->prop &&
 				chr2->prop->type == PROPTYPE_PLAYER) {
 			u32 playernum = playermgrGetPlayerNumByProp(chr2->prop);
-			if (!g_Vars.players[playernum]->isdead) {
-				if (chr2->prop == g_Vars.coop->prop) {
+			if (!s_aiGraphRequireRuntimePlayerSlot("chr_set_p1p2",
+					playernum, &player)) {
+				return 1;
+			}
+			player_checked = 1;
+			if (!player->isdead) {
+				if ((s32)playernum == g_Vars.coopplayernum) {
 					chr1->p1p2 = g_Vars.coopplayernum;
 				} else {
 					chr1->p1p2 = g_Vars.bondplayernum;
@@ -21492,8 +28639,10 @@ s32 scenarioSourceAiGraphExecuteChrSetP1P2(struct chrdata *basechr,
 	g_Vars.aioffset += 4;
 	if (!s_ActiveScenarioGraphs.ai_action_chr_set_p1p2_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action chr_set_p1p2 chr=%d target_chr=%d applied=%d source=%s backend=graph.ai.action.player_state+ai/ailists.tsv",
-			chrnum, target_chrnum, applied,
+			"SCENARIO.GRAPH: AI action chr_set_p1p2 chr=%d chr_rows=%d source_chr=%d target_chr=%d target_chr_rows=%d resolved_target_chr=%d player_checked=%d applied=%d source=%s backend=graph.ai.action.player_state+ai/ailists.tsv",
+			chrnum, chr_count1, chr1 ? chr1->chrnum : -1,
+			target_chrnum, chr_count2, chr2 ? chr2->chrnum : -1,
+			player_checked, applied,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_chr_set_p1p2_logged = 1;
 	}
@@ -21505,6 +28654,7 @@ s32 scenarioSourceAiGraphExecuteChrSetCloaked(struct chrdata *basechr,
 {
 	struct chrdata *chr;
 	s32 applied = 0;
+	s32 chr_count = 0;
 
 	if (!s_ActiveScenarioGraphs.level_graph_active) {
 		return 0;
@@ -21517,7 +28667,10 @@ s32 scenarioSourceAiGraphExecuteChrSetCloaked(struct chrdata *basechr,
 		return s_aiGraphRuntimeFailure("chr_set_cloaked",
 			"missing ai/ailists.tsv source");
 	}
-	chr = chrFindById(basechr, chrnum);
+	if (!s_aiGraphRequireRuntimeCharacterRefFromBase("chr_set_cloaked",
+			basechr, chrnum, &chr_count, &chr)) {
+		return 1;
+	}
 	if (chr && chr->prop && !chrIsDead(chr)) {
 		if (cloaked) {
 			chrCloak(chr, timer);
@@ -21529,8 +28682,8 @@ s32 scenarioSourceAiGraphExecuteChrSetCloaked(struct chrdata *basechr,
 	g_Vars.aioffset += 5;
 	if (!s_ActiveScenarioGraphs.ai_action_chr_set_cloaked_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action chr_set_cloaked chr=%d cloaked=%d timer=%d applied=%d source=%s backend=graph.ai.action.player_state+ai/ailists.tsv",
-			chrnum, cloaked != 0, timer, applied,
+			"SCENARIO.GRAPH: AI action chr_set_cloaked chr=%d chr_rows=%d target_chr=%d cloaked=%d timer=%d applied=%d source=%s backend=graph.ai.action.player_state+ai/ailists.tsv",
+			chrnum, chr_count, chr ? chr->chrnum : -1, cloaked != 0, timer, applied,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_chr_set_cloaked_logged = 1;
 	}
@@ -21541,6 +28694,7 @@ s32 scenarioSourceAiGraphExecuteSetAutogunTargetTeam(s32 tag_id, s32 team)
 {
 	struct defaultobj *obj;
 	s32 applied = 0;
+	s32 object_count = 0;
 
 	if (!s_ActiveScenarioGraphs.level_graph_active) {
 		return 0;
@@ -21555,6 +28709,10 @@ s32 scenarioSourceAiGraphExecuteSetAutogunTargetTeam(s32 tag_id, s32 team)
 		return s_aiGraphRuntimeFailure("set_autogun_target_team",
 			"missing ai/ailists.tsv or objects.tsv source");
 	}
+	if (!s_aiGraphRequireRuntimeObjectTagType("set_autogun_target_team",
+			tag_id, OBJTYPE_AUTOGUN, &object_count)) {
+		return 1;
+	}
 	obj = objFindByTagId(tag_id);
 	if (obj && obj->prop && obj->type == OBJTYPE_AUTOGUN) {
 		struct autogunobj *autogun = (struct autogunobj *)obj;
@@ -21565,8 +28723,9 @@ s32 scenarioSourceAiGraphExecuteSetAutogunTargetTeam(s32 tag_id, s32 team)
 	g_Vars.aioffset += 4;
 	if (!s_ActiveScenarioGraphs.ai_action_set_autogun_target_team_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action set_autogun_target_team tag=%d team=%d applied=%d source=%s objects=%s backend=graph.ai.action.player_state+ai/ailists.tsv+objects.tsv",
-			tag_id, team, applied, s_ActiveScenarioGraphs.ai_lists_path,
+			"SCENARIO.GRAPH: AI action set_autogun_target_team tag=%d object_rows=%d team=%d applied=%d source=%s objects=%s backend=graph.ai.action.player_state+ai/ailists.tsv+objects.tsv",
+			tag_id, object_count, team, applied,
+			s_ActiveScenarioGraphs.ai_lists_path,
 			s_ActiveScenarioGraphs.objects_path);
 		s_ActiveScenarioGraphs
 			.ai_action_set_autogun_target_team_logged = 1;
@@ -21592,6 +28751,27 @@ static s32 s_aiGraphRequireCharacterConditionNode(const char *condition,
 			"missing ai/ailists.tsv source");
 	}
 	return 1;
+}
+
+static s32 s_aiGraphRequireCharacterConditionActor(const char *condition,
+	s32 node_count, struct chrdata *chr, s32 *out_chr_count,
+	s32 *out_source_chr)
+{
+	if (!s_aiGraphRequireCharacterConditionNode(condition, node_count)) {
+		return 0;
+	}
+	if (!s_aiGraphCountRuntimeSetupChrRowsFromSource(condition,
+			out_chr_count)) {
+		return 0;
+	}
+	if (out_source_chr) {
+		*out_source_chr = chr && chr->prop ? chr->chrnum : -1;
+	}
+	if (!chr || !chr->prop) {
+		return 1;
+	}
+	return s_aiGraphRequireOptionalRuntimeCharacterPointer(condition, chr,
+		out_chr_count, out_source_chr);
 }
 
 static s32 s_aiGraphRequireMissionGlobalConditionNode(const char *condition,
@@ -21628,17 +28808,22 @@ static void s_aiGraphApplyBranch(s32 branch_taken, s32 label,
 s32 scenarioSourceAiGraphExecuteIfIdle(struct chrdata *chr, s32 label)
 {
 	s32 branch_taken;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
 
-	if (!s_aiGraphRequireCharacterConditionNode("if_idle",
-			s_ActiveScenarioGraphs.level_ai_if_idle_node_count)) {
+	if (!s_aiGraphRequireCharacterConditionActor("if_idle",
+			s_ActiveScenarioGraphs.level_ai_if_idle_node_count,
+			chr, &chr_count, &source_chr)) {
 		return 0;
 	}
-	branch_taken = chr && chr->actiontype == ACT_ANIM;
+	branch_taken = chr && chr->prop && chr->actiontype == ACT_ANIM;
 	s_aiGraphApplyBranch(branch_taken, label, 3);
 	if (!s_ActiveScenarioGraphs.ai_condition_if_idle_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_idle actiontype=%d label=%d branch=%d source=%s backend=graph.ai.condition.lifecycle+ai/ailists.tsv",
-			chr ? chr->actiontype : -1, label, branch_taken,
+			"SCENARIO.GRAPH: AI condition if_idle chr_rows=%d source_chr=%d actiontype=%d label=%d branch=%d source=%s backend=graph.ai.condition.lifecycle+ai/ailists.tsv",
+			chr_count, source_chr,
+			chr && chr->prop ? chr->actiontype : -1, label,
+			branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_condition_if_idle_logged = 1;
 	}
@@ -21648,17 +28833,21 @@ s32 scenarioSourceAiGraphExecuteIfIdle(struct chrdata *chr, s32 label)
 s32 scenarioSourceAiGraphExecuteIfStopped(struct chrdata *chr, s32 label)
 {
 	s32 branch_taken;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
 
-	if (!s_aiGraphRequireCharacterConditionNode("if_stopped",
-			s_ActiveScenarioGraphs.level_ai_if_stopped_node_count)) {
+	if (!s_aiGraphRequireCharacterConditionActor("if_stopped",
+			s_ActiveScenarioGraphs.level_ai_if_stopped_node_count,
+			chr, &chr_count, &source_chr)) {
 		return 0;
 	}
-	branch_taken = chr && chrIsStopped(chr);
+	branch_taken = chr && chr->prop && chrIsStopped(chr);
 	s_aiGraphApplyBranch(branch_taken, label, 3);
 	if (!s_ActiveScenarioGraphs.ai_condition_if_stopped_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_stopped label=%d branch=%d source=%s backend=graph.ai.condition.lifecycle+ai/ailists.tsv",
-			label, branch_taken, s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI condition if_stopped chr_rows=%d source_chr=%d label=%d branch=%d source=%s backend=graph.ai.condition.lifecycle+ai/ailists.tsv",
+			chr_count, source_chr, label, branch_taken,
+			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_condition_if_stopped_logged = 1;
 	}
 	return 1;
@@ -21668,21 +28857,27 @@ s32 scenarioSourceAiGraphExecuteIfChrDead(struct chrdata *basechr,
 	s32 chrnum, s32 label)
 {
 	struct chrdata *chr;
+	s32 chr_count = 0;
+	s32 target_chrnum = -1;
 	s32 branch_taken;
 
 	if (!s_aiGraphRequireCharacterConditionNode("if_chr_dead",
 			s_ActiveScenarioGraphs.level_ai_if_chr_dead_node_count)) {
 		return 0;
 	}
-	chr = chrFindById(basechr, chrnum);
+	if (!s_aiGraphRequireRuntimeCharacterRefFromBase("if_chr_dead",
+			basechr, chrnum, &chr_count, &chr)) {
+		return 1;
+	}
+	target_chrnum = chr ? chr->chrnum : -1;
 	branch_taken = (!chr || !chr->prop ||
 		chr->prop->type != PROPTYPE_PLAYER) &&
 		(!chr || !chr->model || chrIsDead(chr));
 	s_aiGraphApplyBranch(branch_taken, label, 4);
 	if (!s_ActiveScenarioGraphs.ai_condition_if_chr_dead_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_chr_dead chr=%d label=%d branch=%d source=%s backend=graph.ai.condition.lifecycle+ai/ailists.tsv",
-			chrnum, label, branch_taken,
+			"SCENARIO.GRAPH: AI condition if_chr_dead chr=%d chr_rows=%d target_chr=%d label=%d branch=%d source=%s backend=graph.ai.condition.lifecycle+ai/ailists.tsv",
+			chrnum, chr_count, target_chrnum, label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_condition_if_chr_dead_logged = 1;
 	}
@@ -21693,7 +28888,10 @@ s32 scenarioSourceAiGraphExecuteIfChrDeathAnimationFinished(
 	struct chrdata *basechr, s32 chrnum, s32 label)
 {
 	struct chrdata *chr;
+	s32 chr_count = 0;
+	s32 target_chrnum = -1;
 	s32 branch_taken;
+	s32 player_checked = 0;
 
 	if (!s_aiGraphRequireCharacterConditionNode(
 			"if_chr_death_animation_finished",
@@ -21701,12 +28899,24 @@ s32 scenarioSourceAiGraphExecuteIfChrDeathAnimationFinished(
 				.level_ai_if_chr_death_animation_finished_node_count)) {
 		return 0;
 	}
-	chr = chrFindById(basechr, chrnum);
+	if (!s_aiGraphResolveOptionalRuntimeCharacterRefOrSelector(
+			"if_chr_death_animation_finished", basechr, chrnum,
+			&chr_count, &chr, NULL)) {
+		return 1;
+	}
+	target_chrnum = chr ? chr->chrnum : -1;
 	if (!chr || !chr->prop) {
 		branch_taken = 1;
 	} else if (chr->prop->type == PROPTYPE_PLAYER) {
+		struct player *player = NULL;
 		u32 playernum = playermgrGetPlayerNumByProp(chr->prop);
-		branch_taken = g_Vars.players[playernum]->isdead;
+		if (!s_aiGraphRequireRuntimePlayerSlot(
+				"if_chr_death_animation_finished",
+				(s32)playernum, &player)) {
+			return 1;
+		}
+		player_checked = 1;
+		branch_taken = player->isdead;
 	} else {
 		branch_taken = chr->actiontype == ACT_DEAD;
 	}
@@ -21714,9 +28924,9 @@ s32 scenarioSourceAiGraphExecuteIfChrDeathAnimationFinished(
 	if (!s_ActiveScenarioGraphs
 			.ai_condition_if_chr_death_animation_finished_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_chr_death_animation_finished chr=%d label=%d branch=%d source=%s backend=graph.ai.condition.lifecycle+ai/ailists.tsv",
-			chrnum, label, branch_taken,
-			s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI condition if_chr_death_animation_finished chr=%d chr_rows=%d target_chr=%d player_checked=%d label=%d branch=%d source=%s backend=graph.ai.condition.lifecycle+ai/ailists.tsv",
+			chrnum, chr_count, target_chrnum, player_checked, label,
+			branch_taken, s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs
 			.ai_condition_if_chr_death_animation_finished_logged = 1;
 	}
@@ -21727,6 +28937,8 @@ s32 scenarioSourceAiGraphExecuteIfChrKnockedOut(struct chrdata *basechr,
 	s32 chrnum, s32 label)
 {
 	struct chrdata *chr;
+	s32 chr_count = 0;
+	s32 target_chrnum = -1;
 	s32 branch_taken;
 
 	if (!s_aiGraphRequireCharacterConditionNode("if_chr_knocked_out",
@@ -21734,7 +28946,11 @@ s32 scenarioSourceAiGraphExecuteIfChrKnockedOut(struct chrdata *basechr,
 				.level_ai_if_chr_knocked_out_node_count)) {
 		return 0;
 	}
-	chr = chrFindById(basechr, chrnum);
+	if (!s_aiGraphRequireRuntimeCharacterRefFromBase("if_chr_knocked_out",
+			basechr, chrnum, &chr_count, &chr)) {
+		return 1;
+	}
+	target_chrnum = chr ? chr->chrnum : -1;
 	branch_taken = (!chr || !chr->prop ||
 		chr->prop->type != PROPTYPE_PLAYER) &&
 		(!chr || !chr->model || chr->actiontype == ACT_DRUGGEDKO ||
@@ -21743,8 +28959,8 @@ s32 scenarioSourceAiGraphExecuteIfChrKnockedOut(struct chrdata *basechr,
 	s_aiGraphApplyBranch(branch_taken, label, 4);
 	if (!s_ActiveScenarioGraphs.ai_condition_if_chr_knocked_out_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_chr_knocked_out chr=%d label=%d branch=%d source=%s backend=graph.ai.condition.lifecycle+ai/ailists.tsv",
-			chrnum, label, branch_taken,
+			"SCENARIO.GRAPH: AI condition if_chr_knocked_out chr=%d chr_rows=%d target_chr=%d label=%d branch=%d source=%s backend=graph.ai.condition.lifecycle+ai/ailists.tsv",
+			chrnum, chr_count, target_chrnum, label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_condition_if_chr_knocked_out_logged = 1;
 	}
@@ -21755,18 +28971,22 @@ s32 scenarioSourceAiGraphExecuteIfCanSeeTarget(struct chrdata *chr,
 	s32 label)
 {
 	s32 branch_taken;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
 
-	if (!s_aiGraphRequireCharacterConditionNode("if_can_see_target",
+	if (!s_aiGraphRequireCharacterConditionActor("if_can_see_target",
 			s_ActiveScenarioGraphs
-				.level_ai_if_can_see_target_node_count)) {
+				.level_ai_if_can_see_target_node_count,
+			chr, &chr_count, &source_chr)) {
 		return 0;
 	}
-	branch_taken = chr && chrCheckCanSeeTarget(chr);
+	branch_taken = chr && chr->prop && chrCheckCanSeeTarget(chr);
 	s_aiGraphApplyBranch(branch_taken, label, 3);
 	if (!s_ActiveScenarioGraphs.ai_condition_if_can_see_target_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_can_see_target label=%d branch=%d source=%s backend=graph.ai.condition.lifecycle+ai/ailists.tsv",
-			label, branch_taken, s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI condition if_can_see_target chr_rows=%d source_chr=%d label=%d branch=%d source=%s backend=graph.ai.condition.lifecycle+ai/ailists.tsv",
+			chr_count, source_chr, label, branch_taken,
+			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_condition_if_can_see_target_logged = 1;
 	}
 	return 1;
@@ -21777,20 +28997,23 @@ s32 scenarioSourceAiGraphExecuteIfNumArghsLessThan(struct chrdata *chr,
 {
 	s32 current;
 	s32 branch_taken;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
 
-	if (!s_aiGraphRequireCharacterConditionNode("if_num_arghs_less_than",
+	if (!s_aiGraphRequireCharacterConditionActor("if_num_arghs_less_than",
 			s_ActiveScenarioGraphs
-				.level_ai_if_num_arghs_less_than_node_count)) {
+				.level_ai_if_num_arghs_less_than_node_count,
+			chr, &chr_count, &source_chr)) {
 		return 0;
 	}
-	current = chrGetNumArghs(chr);
-	branch_taken = current < threshold;
+	current = chr && chr->prop ? chrGetNumArghs(chr) : 0;
+	branch_taken = chr && chr->prop && current < threshold;
 	s_aiGraphApplyBranch(branch_taken, label, 4);
 	if (!s_ActiveScenarioGraphs
 			.ai_condition_if_num_arghs_less_than_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_num_arghs_less_than threshold=%d current=%d label=%d branch=%d source=%s backend=graph.ai.condition.character_state+ai/ailists.tsv",
-			threshold, current, label, branch_taken,
+			"SCENARIO.GRAPH: AI condition if_num_arghs_less_than chr_rows=%d source_chr=%d threshold=%d current=%d label=%d branch=%d source=%s backend=graph.ai.condition.character_state+ai/ailists.tsv",
+			chr_count, source_chr, threshold, current, label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs
 			.ai_condition_if_num_arghs_less_than_logged = 1;
@@ -21803,20 +29026,23 @@ s32 scenarioSourceAiGraphExecuteIfNumArghsGreaterThan(struct chrdata *chr,
 {
 	s32 current;
 	s32 branch_taken;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
 
-	if (!s_aiGraphRequireCharacterConditionNode("if_num_arghs_greater_than",
+	if (!s_aiGraphRequireCharacterConditionActor("if_num_arghs_greater_than",
 			s_ActiveScenarioGraphs
-				.level_ai_if_num_arghs_greater_than_node_count)) {
+				.level_ai_if_num_arghs_greater_than_node_count,
+			chr, &chr_count, &source_chr)) {
 		return 0;
 	}
-	current = chrGetNumArghs(chr);
-	branch_taken = current > threshold;
+	current = chr && chr->prop ? chrGetNumArghs(chr) : 0;
+	branch_taken = chr && chr->prop && current > threshold;
 	s_aiGraphApplyBranch(branch_taken, label, 4);
 	if (!s_ActiveScenarioGraphs
 			.ai_condition_if_num_arghs_greater_than_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_num_arghs_greater_than threshold=%d current=%d label=%d branch=%d source=%s backend=graph.ai.condition.character_state+ai/ailists.tsv",
-			threshold, current, label, branch_taken,
+			"SCENARIO.GRAPH: AI condition if_num_arghs_greater_than chr_rows=%d source_chr=%d threshold=%d current=%d label=%d branch=%d source=%s backend=graph.ai.condition.character_state+ai/ailists.tsv",
+			chr_count, source_chr, threshold, current, label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs
 			.ai_condition_if_num_arghs_greater_than_logged = 1;
@@ -21829,21 +29055,24 @@ s32 scenarioSourceAiGraphExecuteIfNumCloseArghsLessThan(struct chrdata *chr,
 {
 	s32 current;
 	s32 branch_taken;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
 
-	if (!s_aiGraphRequireCharacterConditionNode(
+	if (!s_aiGraphRequireCharacterConditionActor(
 			"if_num_close_arghs_less_than",
 			s_ActiveScenarioGraphs
-				.level_ai_if_num_close_arghs_less_than_node_count)) {
+				.level_ai_if_num_close_arghs_less_than_node_count,
+			chr, &chr_count, &source_chr)) {
 		return 0;
 	}
-	current = chrGetNumCloseArghs(chr);
-	branch_taken = current < threshold;
+	current = chr && chr->prop ? chrGetNumCloseArghs(chr) : 0;
+	branch_taken = chr && chr->prop && current < threshold;
 	s_aiGraphApplyBranch(branch_taken, label, 4);
 	if (!s_ActiveScenarioGraphs
 			.ai_condition_if_num_close_arghs_less_than_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_num_close_arghs_less_than threshold=%d current=%d label=%d branch=%d source=%s backend=graph.ai.condition.character_state+ai/ailists.tsv",
-			threshold, current, label, branch_taken,
+			"SCENARIO.GRAPH: AI condition if_num_close_arghs_less_than chr_rows=%d source_chr=%d threshold=%d current=%d label=%d branch=%d source=%s backend=graph.ai.condition.character_state+ai/ailists.tsv",
+			chr_count, source_chr, threshold, current, label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs
 			.ai_condition_if_num_close_arghs_less_than_logged = 1;
@@ -21856,21 +29085,24 @@ s32 scenarioSourceAiGraphExecuteIfNumCloseArghsGreaterThan(struct chrdata *chr,
 {
 	s32 current;
 	s32 branch_taken;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
 
-	if (!s_aiGraphRequireCharacterConditionNode(
+	if (!s_aiGraphRequireCharacterConditionActor(
 			"if_num_close_arghs_greater_than",
 			s_ActiveScenarioGraphs
-				.level_ai_if_num_close_arghs_greater_than_node_count)) {
+				.level_ai_if_num_close_arghs_greater_than_node_count,
+			chr, &chr_count, &source_chr)) {
 		return 0;
 	}
-	current = chrGetNumCloseArghs(chr);
-	branch_taken = current > threshold;
+	current = chr && chr->prop ? chrGetNumCloseArghs(chr) : 0;
+	branch_taken = chr && chr->prop && current > threshold;
 	s_aiGraphApplyBranch(branch_taken, label, 4);
 	if (!s_ActiveScenarioGraphs
 			.ai_condition_if_num_close_arghs_greater_than_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_num_close_arghs_greater_than threshold=%d current=%d label=%d branch=%d source=%s backend=graph.ai.condition.character_state+ai/ailists.tsv",
-			threshold, current, label, branch_taken,
+			"SCENARIO.GRAPH: AI condition if_num_close_arghs_greater_than chr_rows=%d source_chr=%d threshold=%d current=%d label=%d branch=%d source=%s backend=graph.ai.condition.character_state+ai/ailists.tsv",
+			chr_count, source_chr, threshold, current, label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs
 			.ai_condition_if_num_close_arghs_greater_than_logged = 1;
@@ -21878,17 +29110,43 @@ s32 scenarioSourceAiGraphExecuteIfNumCloseArghsGreaterThan(struct chrdata *chr,
 	return 1;
 }
 
-static s32 s_aiGraphChrHealthComparison(struct chrdata *basechr,
-	s32 chrnum, f32 value, s32 greater_than, f32 *current_out)
+static s32 s_aiGraphChrHealthComparison(const char *action,
+	struct chrdata *basechr, s32 chrnum, f32 value, s32 greater_than,
+	f32 *current_out, s32 *out_chr_count, s32 *out_target_chrnum,
+	s32 *out_player_checked, s32 *out_branch_taken)
 {
-	struct chrdata *chr = chrFindById(basechr, chrnum);
+	struct chrdata *chr;
+	s32 chr_count = 0;
+	s32 player_checked = 0;
 	f32 current = 0.0f;
 	s32 pass = 0;
 
+	if (out_chr_count) {
+		*out_chr_count = 0;
+	}
+	if (out_target_chrnum) {
+		*out_target_chrnum = -1;
+	}
+	if (out_player_checked) {
+		*out_player_checked = 0;
+	}
+	if (out_branch_taken) {
+		*out_branch_taken = 0;
+	}
+	if (!s_aiGraphRequireRuntimeCharacterRefFromBase(action, basechr,
+			chrnum, &chr_count, &chr)) {
+		return 0;
+	}
 	if (chr && chr->prop) {
 		if (chr->prop->type == PROPTYPE_PLAYER) {
+			struct player *player = NULL;
 			u32 playernum = playermgrGetPlayerNumByProp(chr->prop);
-			current = g_Vars.players[playernum]->bondhealth * 8.0f;
+			if (!s_aiGraphRequireRuntimePlayerSlot(action,
+					(s32)playernum, &player)) {
+				return 0;
+			}
+			player_checked = 1;
+			current = player->bondhealth * 8.0f;
 		} else {
 			current = chr->maxdamage - chr->damage;
 		}
@@ -21897,13 +29155,28 @@ static s32 s_aiGraphChrHealthComparison(struct chrdata *basechr,
 	if (current_out) {
 		*current_out = current;
 	}
-	return pass;
+	if (out_chr_count) {
+		*out_chr_count = chr_count;
+	}
+	if (out_target_chrnum) {
+		*out_target_chrnum = chr ? chr->chrnum : -1;
+	}
+	if (out_player_checked) {
+		*out_player_checked = player_checked;
+	}
+	if (out_branch_taken) {
+		*out_branch_taken = pass;
+	}
+	return 1;
 }
 
 s32 scenarioSourceAiGraphExecuteIfChrHealthGreaterThan(struct chrdata *basechr,
 	s32 chrnum, f32 value, s32 label)
 {
 	f32 current;
+	s32 chr_count = 0;
+	s32 target_chrnum = -1;
+	s32 player_checked = 0;
 	s32 branch_taken;
 
 	if (!s_aiGraphRequireCharacterConditionNode("if_chr_health_greater_than",
@@ -21911,14 +29184,18 @@ s32 scenarioSourceAiGraphExecuteIfChrHealthGreaterThan(struct chrdata *basechr,
 				.level_ai_if_chr_health_greater_than_node_count)) {
 		return 0;
 	}
-	branch_taken = s_aiGraphChrHealthComparison(basechr, chrnum, value, 1,
-		&current);
+	if (!s_aiGraphChrHealthComparison("if_chr_health_greater_than",
+			basechr, chrnum, value, 1, &current, &chr_count,
+			&target_chrnum, &player_checked, &branch_taken)) {
+		return 1;
+	}
 	s_aiGraphApplyBranch(branch_taken, label, 5);
 	if (!s_ActiveScenarioGraphs
 			.ai_condition_if_chr_health_greater_than_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_chr_health_greater_than chr=%d value=%.3f current=%.3f label=%d branch=%d source=%s backend=graph.ai.condition.character_state+ai/ailists.tsv",
-			chrnum, (double)value, (double)current, label, branch_taken,
+			"SCENARIO.GRAPH: AI condition if_chr_health_greater_than chr=%d chr_rows=%d target_chr=%d player_checked=%d value=%.3f current=%.3f label=%d branch=%d source=%s backend=graph.ai.condition.character_state+ai/ailists.tsv",
+			chrnum, chr_count, target_chrnum, player_checked,
+			(double)value, (double)current, label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs
 			.ai_condition_if_chr_health_greater_than_logged = 1;
@@ -21930,6 +29207,9 @@ s32 scenarioSourceAiGraphExecuteIfChrHealthLessThan(struct chrdata *basechr,
 	s32 chrnum, f32 value, s32 label)
 {
 	f32 current;
+	s32 chr_count = 0;
+	s32 target_chrnum = -1;
+	s32 player_checked = 0;
 	s32 branch_taken;
 
 	if (!s_aiGraphRequireCharacterConditionNode("if_chr_health_less_than",
@@ -21937,14 +29217,18 @@ s32 scenarioSourceAiGraphExecuteIfChrHealthLessThan(struct chrdata *basechr,
 				.level_ai_if_chr_health_less_than_node_count)) {
 		return 0;
 	}
-	branch_taken = s_aiGraphChrHealthComparison(basechr, chrnum, value, 0,
-		&current);
+	if (!s_aiGraphChrHealthComparison("if_chr_health_less_than",
+			basechr, chrnum, value, 0, &current, &chr_count,
+			&target_chrnum, &player_checked, &branch_taken)) {
+		return 1;
+	}
 	s_aiGraphApplyBranch(branch_taken, label, 5);
 	if (!s_ActiveScenarioGraphs
 			.ai_condition_if_chr_health_less_than_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_chr_health_less_than chr=%d value=%.3f current=%.3f label=%d branch=%d source=%s backend=graph.ai.condition.character_state+ai/ailists.tsv",
-			chrnum, (double)value, (double)current, label, branch_taken,
+			"SCENARIO.GRAPH: AI condition if_chr_health_less_than chr=%d chr_rows=%d target_chr=%d player_checked=%d value=%.3f current=%.3f label=%d branch=%d source=%s backend=graph.ai.condition.character_state+ai/ailists.tsv",
+			chrnum, chr_count, target_chrnum, player_checked,
+			(double)value, (double)current, label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs
 			.ai_condition_if_chr_health_less_than_logged = 1;
@@ -21957,6 +29241,8 @@ s32 scenarioSourceAiGraphExecuteIfChrShieldLessThan(struct chrdata *basechr,
 {
 	struct chrdata *chr;
 	f32 current = 0.0f;
+	s32 chr_count = 0;
+	s32 target_chrnum = -1;
 	s32 branch_taken;
 
 	if (!s_aiGraphRequireCharacterConditionNode("if_chr_shield_less_than",
@@ -21964,7 +29250,12 @@ s32 scenarioSourceAiGraphExecuteIfChrShieldLessThan(struct chrdata *basechr,
 				.level_ai_if_chr_shield_less_than_node_count)) {
 		return 0;
 	}
-	chr = chrFindById(basechr, chrnum);
+	if (!s_aiGraphRequireRuntimeCharacterRefFromBase(
+			"if_chr_shield_less_than", basechr, chrnum,
+			&chr_count, &chr)) {
+		return 1;
+	}
+	target_chrnum = chr ? chr->chrnum : -1;
 	if (chr) {
 		current = chrGetShield(chr);
 	}
@@ -21973,8 +29264,9 @@ s32 scenarioSourceAiGraphExecuteIfChrShieldLessThan(struct chrdata *basechr,
 	if (!s_ActiveScenarioGraphs
 			.ai_condition_if_chr_shield_less_than_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_chr_shield_less_than chr=%d value=%.3f current=%.3f label=%d branch=%d source=%s backend=graph.ai.condition.character_state+ai/ailists.tsv",
-			chrnum, (double)value, (double)current, label, branch_taken,
+			"SCENARIO.GRAPH: AI condition if_chr_shield_less_than chr=%d chr_rows=%d target_chr=%d value=%.3f current=%.3f label=%d branch=%d source=%s backend=graph.ai.condition.character_state+ai/ailists.tsv",
+			chrnum, chr_count, target_chrnum, (double)value,
+			(double)current, label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs
 			.ai_condition_if_chr_shield_less_than_logged = 1;
@@ -21987,6 +29279,8 @@ s32 scenarioSourceAiGraphExecuteIfChrShieldGreaterThan(struct chrdata *basechr,
 {
 	struct chrdata *chr;
 	f32 current = 0.0f;
+	s32 chr_count = 0;
+	s32 target_chrnum = -1;
 	s32 branch_taken;
 
 	if (!s_aiGraphRequireCharacterConditionNode("if_chr_shield_greater_than",
@@ -21994,7 +29288,12 @@ s32 scenarioSourceAiGraphExecuteIfChrShieldGreaterThan(struct chrdata *basechr,
 				.level_ai_if_chr_shield_greater_than_node_count)) {
 		return 0;
 	}
-	chr = chrFindById(basechr, chrnum);
+	if (!s_aiGraphRequireRuntimeCharacterRefFromBase(
+			"if_chr_shield_greater_than", basechr, chrnum,
+			&chr_count, &chr)) {
+		return 1;
+	}
+	target_chrnum = chr ? chr->chrnum : -1;
 	if (chr) {
 		current = chrGetShield(chr);
 	}
@@ -22003,8 +29302,9 @@ s32 scenarioSourceAiGraphExecuteIfChrShieldGreaterThan(struct chrdata *basechr,
 	if (!s_ActiveScenarioGraphs
 			.ai_condition_if_chr_shield_greater_than_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_chr_shield_greater_than chr=%d value=%.3f current=%.3f label=%d branch=%d source=%s backend=graph.ai.condition.character_state+ai/ailists.tsv",
-			chrnum, (double)value, (double)current, label, branch_taken,
+			"SCENARIO.GRAPH: AI condition if_chr_shield_greater_than chr=%d chr_rows=%d target_chr=%d value=%.3f current=%.3f label=%d branch=%d source=%s backend=graph.ai.condition.character_state+ai/ailists.tsv",
+			chrnum, chr_count, target_chrnum, (double)value,
+			(double)current, label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs
 			.ai_condition_if_chr_shield_greater_than_logged = 1;
@@ -22016,13 +29316,19 @@ s32 scenarioSourceAiGraphExecuteIfInjured(struct chrdata *basechr,
 	s32 chrnum, s32 label)
 {
 	struct chrdata *chr;
+	s32 chr_count = 0;
+	s32 target_chrnum = -1;
 	s32 branch_taken;
 
 	if (!s_aiGraphRequireCharacterConditionNode("if_injured",
 			s_ActiveScenarioGraphs.level_ai_if_injured_node_count)) {
 		return 0;
 	}
-	chr = chrFindById(basechr, chrnum);
+	if (!s_aiGraphRequireRuntimeCharacterRefFromBase("if_injured",
+			basechr, chrnum, &chr_count, &chr)) {
+		return 1;
+	}
+	target_chrnum = chr ? chr->chrnum : -1;
 	branch_taken = chr && (chr->chrflags & CHRCFLAG_JUST_INJURED);
 	if (branch_taken) {
 		chr->chrflags &= ~CHRCFLAG_JUST_INJURED;
@@ -22030,8 +29336,8 @@ s32 scenarioSourceAiGraphExecuteIfInjured(struct chrdata *basechr,
 	s_aiGraphApplyBranch(branch_taken, label, 4);
 	if (!s_ActiveScenarioGraphs.ai_condition_if_injured_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_injured chr=%d label=%d branch=%d source=%s backend=graph.ai.condition.character_state+ai/ailists.tsv",
-			chrnum, label, branch_taken,
+			"SCENARIO.GRAPH: AI condition if_injured chr=%d chr_rows=%d target_chr=%d label=%d branch=%d source=%s backend=graph.ai.condition.character_state+ai/ailists.tsv",
+			chrnum, chr_count, target_chrnum, label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_condition_if_injured_logged = 1;
 	}
@@ -22042,6 +29348,8 @@ s32 scenarioSourceAiGraphExecuteIfShieldDamaged(struct chrdata *basechr,
 	s32 chrnum, s32 label)
 {
 	struct chrdata *chr;
+	s32 chr_count = 0;
+	s32 target_chrnum = -1;
 	s32 branch_taken;
 
 	if (!s_aiGraphRequireCharacterConditionNode("if_shield_damaged",
@@ -22049,7 +29357,11 @@ s32 scenarioSourceAiGraphExecuteIfShieldDamaged(struct chrdata *basechr,
 				.level_ai_if_shield_damaged_node_count)) {
 		return 0;
 	}
-	chr = chrFindById(basechr, chrnum);
+	if (!s_aiGraphRequireRuntimeCharacterRefFromBase("if_shield_damaged",
+			basechr, chrnum, &chr_count, &chr)) {
+		return 1;
+	}
+	target_chrnum = chr ? chr->chrnum : -1;
 	branch_taken = chr && (chr->chrflags & CHRCFLAG_SHIELDDAMAGED);
 	if (branch_taken) {
 		chr->chrflags &= ~CHRCFLAG_SHIELDDAMAGED;
@@ -22058,8 +29370,8 @@ s32 scenarioSourceAiGraphExecuteIfShieldDamaged(struct chrdata *basechr,
 	if (!s_ActiveScenarioGraphs
 			.ai_condition_if_shield_damaged_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_shield_damaged chr=%d label=%d branch=%d source=%s backend=graph.ai.condition.character_state+ai/ailists.tsv",
-			chrnum, label, branch_taken,
+			"SCENARIO.GRAPH: AI condition if_shield_damaged chr=%d chr_rows=%d target_chr=%d label=%d branch=%d source=%s backend=graph.ai.condition.character_state+ai/ailists.tsv",
+			chrnum, chr_count, target_chrnum, label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs
 			.ai_condition_if_shield_damaged_logged = 1;
@@ -22072,20 +29384,23 @@ s32 scenarioSourceAiGraphExecuteIfMoraleLessThan(struct chrdata *chr,
 {
 	s32 current;
 	s32 branch_taken;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
 
-	if (!s_aiGraphRequireCharacterConditionNode("if_morale_less_than",
+	if (!s_aiGraphRequireCharacterConditionActor("if_morale_less_than",
 			s_ActiveScenarioGraphs
-				.level_ai_if_morale_less_than_node_count)) {
+				.level_ai_if_morale_less_than_node_count,
+			chr, &chr_count, &source_chr)) {
 		return 0;
 	}
-	current = chr ? chr->morale : 0;
-	branch_taken = chr && current < threshold;
+	current = chr && chr->prop ? chr->morale : 0;
+	branch_taken = chr && chr->prop && current < threshold;
 	s_aiGraphApplyBranch(branch_taken, label, 4);
 	if (!s_ActiveScenarioGraphs
 			.ai_condition_if_morale_less_than_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_morale_less_than threshold=%d current=%d label=%d branch=%d source=%s backend=graph.ai.condition.character_state+ai/ailists.tsv",
-			threshold, current, label, branch_taken,
+			"SCENARIO.GRAPH: AI condition if_morale_less_than chr_rows=%d source_chr=%d threshold=%d current=%d label=%d branch=%d source=%s backend=graph.ai.condition.character_state+ai/ailists.tsv",
+			chr_count, source_chr, threshold, current, label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_condition_if_morale_less_than_logged = 1;
 	}
@@ -22098,22 +29413,25 @@ s32 scenarioSourceAiGraphExecuteIfMoraleLessThanRandom(struct chrdata *chr,
 	s32 morale;
 	s32 random;
 	s32 branch_taken;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
 
-	if (!s_aiGraphRequireCharacterConditionNode(
+	if (!s_aiGraphRequireCharacterConditionActor(
 			"if_morale_less_than_random",
 			s_ActiveScenarioGraphs
-				.level_ai_if_morale_less_than_random_node_count)) {
+				.level_ai_if_morale_less_than_random_node_count,
+			chr, &chr_count, &source_chr)) {
 		return 0;
 	}
-	morale = chr ? chr->morale : 0;
-	random = chr ? chr->random : 0;
-	branch_taken = chr && morale < random;
+	morale = chr && chr->prop ? chr->morale : 0;
+	random = chr && chr->prop ? chr->random : 0;
+	branch_taken = chr && chr->prop && morale < random;
 	s_aiGraphApplyBranch(branch_taken, label, 3);
 	if (!s_ActiveScenarioGraphs
 			.ai_condition_if_morale_less_than_random_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_morale_less_than_random morale=%d random=%d label=%d branch=%d source=%s backend=graph.ai.condition.character_state+ai/ailists.tsv",
-			morale, random, label, branch_taken,
+			"SCENARIO.GRAPH: AI condition if_morale_less_than_random chr_rows=%d source_chr=%d morale=%d random=%d label=%d branch=%d source=%s backend=graph.ai.condition.character_state+ai/ailists.tsv",
+			chr_count, source_chr, morale, random, label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs
 			.ai_condition_if_morale_less_than_random_logged = 1;
@@ -22126,19 +29444,24 @@ s32 scenarioSourceAiGraphExecuteIfAlertness(struct chrdata *chr,
 {
 	s32 current;
 	s32 branch_taken;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
 
-	if (!s_aiGraphRequireCharacterConditionNode("if_alertness",
-			s_ActiveScenarioGraphs.level_ai_if_alertness_node_count)) {
+	if (!s_aiGraphRequireCharacterConditionActor("if_alertness",
+			s_ActiveScenarioGraphs.level_ai_if_alertness_node_count,
+			chr, &chr_count, &source_chr)) {
 		return 0;
 	}
-	current = chr ? chr->alertness : 0;
-	branch_taken = chr && ((current < threshold && comparison_mode == 0) ||
+	current = chr && chr->prop ? chr->alertness : 0;
+	branch_taken = chr && chr->prop &&
+		((current < threshold && comparison_mode == 0) ||
 		(threshold < current && comparison_mode == 1));
 	s_aiGraphApplyBranch(branch_taken, label, 5);
 	if (!s_ActiveScenarioGraphs.ai_condition_if_alertness_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_alertness threshold=%d mode=%d current=%d label=%d branch=%d source=%s backend=graph.ai.condition.character_state+ai/ailists.tsv",
-			threshold, comparison_mode, current, label, branch_taken,
+			"SCENARIO.GRAPH: AI condition if_alertness chr_rows=%d source_chr=%d threshold=%d mode=%d current=%d label=%d branch=%d source=%s backend=graph.ai.condition.character_state+ai/ailists.tsv",
+			chr_count, source_chr, threshold, comparison_mode, current,
+			label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_condition_if_alertness_logged = 1;
 	}
@@ -22150,6 +29473,8 @@ s32 scenarioSourceAiGraphExecuteIfChrAlertnessLessThan(
 {
 	struct chrdata *chr;
 	s32 current = 0;
+	s32 chr_count = 0;
+	s32 target_chrnum = -1;
 	s32 branch_taken;
 
 	if (!s_aiGraphRequireCharacterConditionNode(
@@ -22158,7 +29483,12 @@ s32 scenarioSourceAiGraphExecuteIfChrAlertnessLessThan(
 				.level_ai_if_chr_alertness_less_than_node_count)) {
 		return 0;
 	}
-	chr = chrFindById(basechr, chrnum);
+	if (!s_aiGraphRequireRuntimeCharacterRefFromBase(
+			"if_chr_alertness_less_than", basechr, chrnum,
+			&chr_count, &chr)) {
+		return 1;
+	}
+	target_chrnum = chr ? chr->chrnum : -1;
 	if (chr) {
 		current = chr->alertness;
 	}
@@ -22167,8 +29497,9 @@ s32 scenarioSourceAiGraphExecuteIfChrAlertnessLessThan(
 	if (!s_ActiveScenarioGraphs
 			.ai_condition_if_chr_alertness_less_than_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_chr_alertness_less_than chr=%d threshold=%d current=%d label=%d branch=%d source=%s backend=graph.ai.condition.character_state+ai/ailists.tsv",
-			chrnum, threshold, current, label, branch_taken,
+			"SCENARIO.GRAPH: AI condition if_chr_alertness_less_than chr=%d chr_rows=%d target_chr=%d threshold=%d current=%d label=%d branch=%d source=%s backend=graph.ai.condition.character_state+ai/ailists.tsv",
+			chrnum, chr_count, target_chrnum, threshold, current, label,
+			branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs
 			.ai_condition_if_chr_alertness_less_than_logged = 1;
@@ -22182,22 +29513,25 @@ s32 scenarioSourceAiGraphExecuteIfAlertnessLessThanRandom(struct chrdata *chr,
 	s32 alertness;
 	s32 random;
 	s32 branch_taken;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
 
-	if (!s_aiGraphRequireCharacterConditionNode(
+	if (!s_aiGraphRequireCharacterConditionActor(
 			"if_alertness_less_than_random",
 			s_ActiveScenarioGraphs
-				.level_ai_if_alertness_less_than_random_node_count)) {
+				.level_ai_if_alertness_less_than_random_node_count,
+			chr, &chr_count, &source_chr)) {
 		return 0;
 	}
-	alertness = chr ? chr->alertness : 0;
-	random = chr ? chr->random : 0;
-	branch_taken = chr && alertness < random;
+	alertness = chr && chr->prop ? chr->alertness : 0;
+	random = chr && chr->prop ? chr->random : 0;
+	branch_taken = chr && chr->prop && alertness < random;
 	s_aiGraphApplyBranch(branch_taken, label, 3);
 	if (!s_ActiveScenarioGraphs
 			.ai_condition_if_alertness_less_than_random_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_alertness_less_than_random alertness=%d random=%d label=%d branch=%d source=%s backend=graph.ai.condition.character_state+ai/ailists.tsv",
-			alertness, random, label, branch_taken,
+			"SCENARIO.GRAPH: AI condition if_alertness_less_than_random chr_rows=%d source_chr=%d alertness=%d random=%d label=%d branch=%d source=%s backend=graph.ai.condition.character_state+ai/ailists.tsv",
+			chr_count, source_chr, alertness, random, label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs
 			.ai_condition_if_alertness_less_than_random_logged = 1;
@@ -22394,10 +29728,27 @@ s32 scenarioSourceAiGraphExecuteIfStageTimerGreaterThan(f32 seconds,
 	return 1;
 }
 
+static const char *s_aiGraphResolveStageCatalogId(const char *condition,
+	s32 stagenum, const char *role)
+{
+	const char *stage_id = catalogStageIdByStagenum(stagenum);
+	char reason[96];
+
+	if (stage_id && stage_id[0]) {
+		return stage_id;
+	}
+
+	snprintf(reason, sizeof(reason), "unresolved %s stage catalog id", role);
+	s_aiGraphRuntimeFailure(condition, reason);
+	return NULL;
+}
+
 s32 scenarioSourceAiGraphExecuteIfStageIdLessThan(s32 stagenum, s32 label)
 {
 	s32 current;
 	s32 branch_taken;
+	const char *stage_id;
+	const char *current_stage_id;
 
 	if (!s_aiGraphRequireMissionGlobalConditionNode(
 			"if_stage_id_less_than",
@@ -22406,13 +29757,21 @@ s32 scenarioSourceAiGraphExecuteIfStageIdLessThan(s32 stagenum, s32 label)
 		return 0;
 	}
 	current = mainGetStageNum();
+	stage_id = s_aiGraphResolveStageCatalogId("if_stage_id_less_than",
+		stagenum, "target");
+	current_stage_id = s_aiGraphResolveStageCatalogId(
+		"if_stage_id_less_than", current, "current");
+	if (!stage_id || !current_stage_id) {
+		s_aiGraphApplyBranch(0, label, 4);
+		return 1;
+	}
 	branch_taken = stagenum > current;
 	s_aiGraphApplyBranch(branch_taken, label, 4);
 	if (!s_ActiveScenarioGraphs
 			.ai_condition_if_stage_id_less_than_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_stage_id_less_than stagenum=%d current=%d label=%d branch=%d source=%s backend=graph.ai.condition.mission_global+ai/ailists.tsv+mission.graph.json",
-			stagenum, current, label, branch_taken,
+			"SCENARIO.GRAPH: AI condition if_stage_id_less_than stage_id=%s current_stage_id=%s label=%d branch=%d source=%s backend=graph.ai.condition.mission_global+ai/ailists.tsv+mission.graph.json",
+			stage_id, current_stage_id, label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs
 			.ai_condition_if_stage_id_less_than_logged = 1;
@@ -22424,6 +29783,8 @@ s32 scenarioSourceAiGraphExecuteIfStageIdGreaterThan(s32 stagenum, s32 label)
 {
 	s32 current;
 	s32 branch_taken;
+	const char *stage_id;
+	const char *current_stage_id;
 
 	if (!s_aiGraphRequireMissionGlobalConditionNode(
 			"if_stage_id_greater_than",
@@ -22432,13 +29793,21 @@ s32 scenarioSourceAiGraphExecuteIfStageIdGreaterThan(s32 stagenum, s32 label)
 		return 0;
 	}
 	current = mainGetStageNum();
+	stage_id = s_aiGraphResolveStageCatalogId("if_stage_id_greater_than",
+		stagenum, "target");
+	current_stage_id = s_aiGraphResolveStageCatalogId(
+		"if_stage_id_greater_than", current, "current");
+	if (!stage_id || !current_stage_id) {
+		s_aiGraphApplyBranch(0, label, 4);
+		return 1;
+	}
 	branch_taken = current > stagenum;
 	s_aiGraphApplyBranch(branch_taken, label, 4);
 	if (!s_ActiveScenarioGraphs
 			.ai_condition_if_stage_id_greater_than_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_stage_id_greater_than stagenum=%d current=%d label=%d branch=%d source=%s backend=graph.ai.condition.mission_global+ai/ailists.tsv+mission.graph.json",
-			stagenum, current, label, branch_taken,
+			"SCENARIO.GRAPH: AI condition if_stage_id_greater_than stage_id=%s current_stage_id=%s label=%d branch=%d source=%s backend=graph.ai.condition.mission_global+ai/ailists.tsv+mission.graph.json",
+			stage_id, current_stage_id, label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs
 			.ai_condition_if_stage_id_greater_than_logged = 1;
@@ -22464,9 +29833,10 @@ static s32 s_aiGraphRequireQuadrantPresetNode(const char *action,
 			"missing ai/ailists.tsv source");
 	}
 	if (!s_ActiveScenarioGraphs.pads_path[0] ||
-			!s_ActiveScenarioGraphs.waypoints_path[0]) {
+			!s_ActiveScenarioGraphs.waypoints_path[0] ||
+			!s_ActiveScenarioGraphs.waygroups_path[0]) {
 		return s_aiGraphRuntimeFailure(action,
-			"missing pads.tsv or navigation/waypoints.tsv source");
+			"missing pads.tsv or navigation waypoint/waygroup source");
 	}
 	return 1;
 }
@@ -22475,6 +29845,10 @@ s32 scenarioSourceAiGraphExecuteIfWaypointWithinQuadrant(struct chrdata *chr,
 	s32 quadrant, s32 label)
 {
 	s32 branch_taken;
+	s32 pad_count = 0;
+	s32 waypoint_count = 0;
+	s32 waygroup_count = 0;
+	s32 selected_pad = -1;
 
 	if (!s_aiGraphRequireQuadrantPresetNode(
 			"condition.if_waypoint_within_quadrant",
@@ -22482,20 +29856,37 @@ s32 scenarioSourceAiGraphExecuteIfWaypointWithinQuadrant(struct chrdata *chr,
 				.level_ai_if_waypoint_within_quadrant_node_count)) {
 		return 0;
 	}
+	if (!s_aiGraphRequireRuntimeNavigationTables(
+			"condition.if_waypoint_within_quadrant",
+			&pad_count, &waypoint_count, &waygroup_count)) {
+		s_aiGraphApplyBranch(0, label, 4);
+		return 1;
+	}
 	branch_taken = chr && chr->prop &&
 		((quadrant != QUADRANT_TOWARDSTARGET &&
 				quadrant != QUADRANT_AWAYFROMTARGET) ||
 			chrGetTargetProp(chr)) &&
 		func0f04a4ec(chr, (u8)quadrant);
+	if (branch_taken) {
+		selected_pad = chr->padpreset1;
+		if (!s_aiGraphRequireRuntimePad(
+				"if_waypoint_within_quadrant",
+				selected_pad, &pad_count)) {
+			return 1;
+		}
+	}
 	s_aiGraphApplyBranch(branch_taken, label, 4);
 	if (!s_ActiveScenarioGraphs
 			.ai_condition_if_waypoint_within_quadrant_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_waypoint_within_quadrant quadrant=%d label=%d result=%d source=%s pads=%s waypoints=%s backend=graph.ai.action.quadrant_preset+ai/ailists.tsv+pads.tsv+navigation.generate",
-			quadrant, label, branch_taken,
+			"SCENARIO.GRAPH: AI condition if_waypoint_within_quadrant quadrant=%d label=%d pad=%d found=%d result=%d pad_rows=%d waypoint_rows=%d waygroup_rows=%d source=%s pads=%s waypoints=%s waygroups=%s backend=graph.ai.action.quadrant_preset+ai/ailists.tsv+pads.tsv+navigation.generate",
+			quadrant, label, selected_pad, branch_taken ? 1 : 0,
+			branch_taken,
+			pad_count, waypoint_count, waygroup_count,
 			s_ActiveScenarioGraphs.ai_lists_path,
 			s_ActiveScenarioGraphs.pads_path,
-			s_ActiveScenarioGraphs.waypoints_path);
+			s_ActiveScenarioGraphs.waypoints_path,
+			s_ActiveScenarioGraphs.waygroups_path);
 		s_ActiveScenarioGraphs
 			.ai_condition_if_waypoint_within_quadrant_logged = 1;
 	}
@@ -22506,6 +29897,10 @@ s32 scenarioSourceAiGraphExecuteSetPadPresetToTargetQuadrant(
 	struct chrdata *chr, s32 quadrant, s32 label)
 {
 	s32 branch_taken;
+	s32 pad_count = 0;
+	s32 waypoint_count = 0;
+	s32 waygroup_count = 0;
+	s32 selected_pad = -1;
 
 	if (!s_aiGraphRequireQuadrantPresetNode(
 			"action.set_pad_preset_to_target_quadrant",
@@ -22513,18 +29908,35 @@ s32 scenarioSourceAiGraphExecuteSetPadPresetToTargetQuadrant(
 				.level_ai_set_pad_preset_to_target_quadrant_node_count)) {
 		return 0;
 	}
+	if (!s_aiGraphRequireRuntimeNavigationTables(
+			"action.set_pad_preset_to_target_quadrant",
+			&pad_count, &waypoint_count, &waygroup_count)) {
+		s_aiGraphApplyBranch(0, label, 4);
+		return 1;
+	}
 	branch_taken = chr && chr->prop && chrGetTargetProp(chr) &&
 		chrSetPadPresetToWaypointWithinTargetQuadrant(chr,
 			(u8)quadrant);
+	if (branch_taken) {
+		selected_pad = chr->padpreset1;
+		if (!s_aiGraphRequireRuntimePad(
+				"set_pad_preset_to_target_quadrant",
+				selected_pad, &pad_count)) {
+			return 1;
+		}
+	}
 	s_aiGraphApplyBranch(branch_taken, label, 4);
 	if (!s_ActiveScenarioGraphs
 			.ai_action_set_pad_preset_to_target_quadrant_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action set_pad_preset_to_target_quadrant quadrant=%d label=%d result=%d source=%s pads=%s waypoints=%s backend=graph.ai.action.quadrant_preset+ai/ailists.tsv+pads.tsv+navigation.generate",
-			quadrant, label, branch_taken,
+			"SCENARIO.GRAPH: AI action set_pad_preset_to_target_quadrant quadrant=%d label=%d pad=%d found=%d result=%d pad_rows=%d waypoint_rows=%d waygroup_rows=%d source=%s pads=%s waypoints=%s waygroups=%s backend=graph.ai.action.quadrant_preset+ai/ailists.tsv+pads.tsv+navigation.generate",
+			quadrant, label, selected_pad, branch_taken ? 1 : 0,
+			branch_taken,
+			pad_count, waypoint_count, waygroup_count,
 			s_ActiveScenarioGraphs.ai_lists_path,
 			s_ActiveScenarioGraphs.pads_path,
-			s_ActiveScenarioGraphs.waypoints_path);
+			s_ActiveScenarioGraphs.waypoints_path,
+			s_ActiveScenarioGraphs.waygroups_path);
 		s_ActiveScenarioGraphs
 			.ai_action_set_pad_preset_to_target_quadrant_logged = 1;
 	}
@@ -22613,6 +30025,8 @@ s32 scenarioSourceAiGraphExecuteIfNumKnockedOutChrs(s32 count,
 
 s32 scenarioSourceAiGraphExecuteKillBond(void)
 {
+	struct player *bond = g_Vars.bond;
+
 	if (!s_ActiveScenarioGraphs.level_graph_active) {
 		return 0;
 	}
@@ -22628,15 +30042,15 @@ s32 scenarioSourceAiGraphExecuteKillBond(void)
 		return s_aiGraphRuntimeFailure("kill_bond",
 			"missing mission.graph.json source");
 	}
-	if (!g_Vars.bond) {
-		return s_aiGraphRuntimeFailure("kill_bond",
-			"missing Bond player state");
+	if (!s_aiGraphRequireRuntimePlayerPointer("kill_bond", bond,
+			"Bond")) {
+		return 1;
 	}
-	g_Vars.bond->isdead = true;
+	bond->isdead = true;
 	g_Vars.aioffset += 2;
 	if (!s_ActiveScenarioGraphs.ai_action_kill_bond_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action kill_bond applied=1 source=%s mission=%s backend=graph.ai.action.mission_global+ai/ailists.tsv+mission.graph.json",
+			"SCENARIO.GRAPH: AI action kill_bond player_checked=1 applied=1 source=%s mission=%s backend=graph.ai.action.mission_global+ai/ailists.tsv+mission.graph.json",
 			s_ActiveScenarioGraphs.ai_lists_path,
 			s_ActiveScenarioGraphs.mission_graph_path);
 		s_ActiveScenarioGraphs.ai_action_kill_bond_logged = 1;
@@ -22648,19 +30062,15 @@ s32 scenarioSourceAiGraphExecuteIfPouncebitsEq(struct chrdata *chr,
 	s32 pouncebits, s32 label)
 {
 	s32 branch_taken;
+	s32 chr_count = 0;
+	s32 source_chr = -1;
 
-	if (!s_ActiveScenarioGraphs.level_graph_active) {
+	if (!s_aiGraphRequireCharacterConditionActor("if_pouncebits_eq",
+			s_ActiveScenarioGraphs.level_ai_if_pouncebits_eq_node_count,
+			chr, &chr_count, &source_chr)) {
 		return 0;
 	}
-	if (s_ActiveScenarioGraphs.level_ai_if_pouncebits_eq_node_count != 1) {
-		return s_aiGraphRuntimeFailure("if_pouncebits_eq",
-			"missing scenario.ai.condition.if_pouncebits_eq node");
-	}
-	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
-		return s_aiGraphRuntimeFailure("if_pouncebits_eq",
-			"missing ai/ailists.tsv source");
-	}
-	branch_taken = chr && chr->pouncebits == pouncebits;
+	branch_taken = chr && chr->prop && chr->pouncebits == pouncebits;
 	if (branch_taken) {
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist,
 			g_Vars.aioffset, label);
@@ -22669,9 +30079,10 @@ s32 scenarioSourceAiGraphExecuteIfPouncebitsEq(struct chrdata *chr,
 	}
 	if (!s_ActiveScenarioGraphs.ai_condition_if_pouncebits_eq_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_pouncebits_eq value=%d current=%d label=%d branch=%d source=%s backend=graph.ai.condition.state_device+ai/ailists.tsv",
-			pouncebits, chr ? chr->pouncebits : -1, label,
-			branch_taken, s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI condition if_pouncebits_eq chr_rows=%d source_chr=%d value=%d current=%d label=%d branch=%d source=%s backend=graph.ai.condition.state_device+ai/ailists.tsv",
+			chr_count, source_chr, pouncebits,
+			chr && chr->prop ? chr->pouncebits : -1, label, branch_taken,
+			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_condition_if_pouncebits_eq_logged = 1;
 	}
 	return 1;
@@ -22720,8 +30131,10 @@ s32 scenarioSourceAiGraphExecuteIfPlayerUsingDevice(struct chrdata *basechr,
 	struct chrdata *chr;
 	struct prop *prop;
 	u32 prevplayernum;
+	s32 chr_count = 0;
 	s32 playernum = -1;
 	s32 branch_taken = 0;
+	s32 player_checked = 0;
 
 	if (!s_ActiveScenarioGraphs.level_graph_active) {
 		return 0;
@@ -22734,11 +30147,20 @@ s32 scenarioSourceAiGraphExecuteIfPlayerUsingDevice(struct chrdata *basechr,
 		return s_aiGraphRuntimeFailure("if_player_using_device",
 			"missing ai/ailists.tsv source");
 	}
-	chr = chrFindById(basechr, chrnum);
+	if (!s_aiGraphRequireRuntimeCharacterRefFromBase(
+			"if_player_using_device", basechr, chrnum,
+			&chr_count, &chr)) {
+		return 1;
+	}
 	prop = chr ? chr->prop : NULL;
 	prevplayernum = g_Vars.currentplayernum;
 	if (prop && prop->type == PROPTYPE_PLAYER) {
 		playernum = playermgrGetPlayerNumByProp(prop);
+		if (!s_aiGraphRequireRuntimePlayerSlot("if_player_using_device",
+				playernum, NULL)) {
+			return 1;
+		}
+		player_checked = 1;
 		setCurrentPlayerNum(playernum);
 		branch_taken = currentPlayerGetDeviceState(devicenum) ==
 			DEVICESTATE_ACTIVE;
@@ -22753,8 +30175,9 @@ s32 scenarioSourceAiGraphExecuteIfPlayerUsingDevice(struct chrdata *basechr,
 	if (!s_ActiveScenarioGraphs
 			.ai_condition_if_player_using_device_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_player_using_device chr=%d player=%d device=%d label=%d branch=%d source=%s backend=graph.ai.condition.state_device+ai/ailists.tsv",
-			chrnum, playernum, devicenum, label, branch_taken,
+			"SCENARIO.GRAPH: AI condition if_player_using_device chr=%d chr_rows=%d target_chr=%d player=%d player_checked=%d device=%d label=%d branch=%d source=%s backend=graph.ai.condition.state_device+ai/ailists.tsv",
+			chrnum, chr_count, chr ? chr->chrnum : -1, playernum,
+			player_checked, devicenum, label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs
 			.ai_condition_if_player_using_device_logged = 1;
@@ -22787,8 +30210,13 @@ s32 scenarioSourceAiGraphExecuteChrBeginOrEndTeleport(struct chrdata *basechr,
 	s32 chrnum, s32 pad_id)
 {
 	struct chrdata *chr;
+	struct player *player = NULL;
+	const char *sound_id = "none";
 	u32 prevplayernum;
+	s32 chr_count = 0;
 	s32 playernum = -1;
+	s32 pad_count = 0;
+	s32 player_checked = 0;
 
 	if (!s_ActiveScenarioGraphs.level_graph_active) {
 		return 0;
@@ -22802,20 +30230,45 @@ s32 scenarioSourceAiGraphExecuteChrBeginOrEndTeleport(struct chrdata *basechr,
 		return s_aiGraphRuntimeFailure("chr_begin_or_end_teleport",
 			"missing ai/ailists.tsv source");
 	}
-	chr = chrFindById(basechr, chrnum);
+	if (!s_aiGraphRequireRuntimeCharacterRefFromBase(
+			"chr_begin_or_end_teleport", basechr, chrnum,
+			&chr_count, &chr)) {
+		return 1;
+	}
+	if (pad_id != 0) {
+		if (!s_ActiveScenarioGraphs.pads_path[0]) {
+			return s_aiGraphRuntimeFailure("chr_begin_or_end_teleport",
+				"missing pads.tsv source");
+		}
+		if (!s_aiGraphRequireRuntimePad("chr_begin_or_end_teleport",
+				pad_id, &pad_count)) {
+			return 1;
+		}
+		sound_id = s_aiGraphResolveAudioCatalogId(
+			"chr_begin_or_end_teleport", SFX_RELOAD_FARSIGHT,
+			"teleport start");
+		if (!sound_id) {
+			return 1;
+		}
+	}
 	prevplayernum = g_Vars.currentplayernum;
 	if (chr && chr->prop && chr->prop->type == PROPTYPE_PLAYER) {
 		playernum = playermgrGetPlayerNumByProp(chr->prop);
-		setCurrentPlayerNum(playernum);
 	}
+	if (!s_aiGraphRequireRuntimePlayerSlot("chr_begin_or_end_teleport",
+			playernum, &player)) {
+		return 1;
+	}
+	player_checked = 1;
+	setCurrentPlayerNum(playernum);
 	if (pad_id == 0) {
-		g_Vars.currentplayer->teleportstate = TELEPORTSTATE_EXITING;
-		g_Vars.currentplayer->teleporttime = 0;
+		player->teleportstate = TELEPORTSTATE_EXITING;
+		player->teleporttime = 0;
 	} else {
-		g_Vars.currentplayer->teleporttime = 0;
-		g_Vars.currentplayer->teleportstate = TELEPORTSTATE_PREENTER;
-		g_Vars.currentplayer->teleportpad = pad_id;
-		g_Vars.currentplayer->teleportcamerapad = 0;
+		player->teleporttime = 0;
+		player->teleportstate = TELEPORTSTATE_PREENTER;
+		player->teleportpad = pad_id;
+		player->teleportcamerapad = 0;
 		s_aiGraphPlayTeleportSound(SFX_RELOAD_FARSIGHT);
 	}
 	g_Vars.aioffset += 5;
@@ -22823,9 +30276,12 @@ s32 scenarioSourceAiGraphExecuteChrBeginOrEndTeleport(struct chrdata *basechr,
 	if (!s_ActiveScenarioGraphs
 			.ai_action_chr_begin_or_end_teleport_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action chr_begin_or_end_teleport chr=%d player=%d pad=%d source=%s backend=graph.ai.action.teleport_cutscene_weapon+ai/ailists.tsv",
-			chrnum, playernum, pad_id,
-			s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI action chr_begin_or_end_teleport chr=%d chr_rows=%d target_chr=%d player=%d player_checked=%d pad=%d found=%d pad_rows=%d sound_id=%s source=%s pads=%s backend=graph.ai.action.teleport_cutscene_weapon+ai/ailists.tsv+pads.tsv+audio",
+			chrnum, chr_count, chr ? chr->chrnum : -1, playernum,
+			player_checked, pad_id, pad_id != 0, pad_count, sound_id,
+			s_ActiveScenarioGraphs.ai_lists_path,
+			s_ActiveScenarioGraphs.pads_path[0]
+				? s_ActiveScenarioGraphs.pads_path : "(not-required)");
 		s_ActiveScenarioGraphs
 			.ai_action_chr_begin_or_end_teleport_logged = 1;
 	}
@@ -22836,9 +30292,13 @@ s32 scenarioSourceAiGraphExecuteIfChrTeleportFullWhite(struct chrdata *basechr,
 	s32 chrnum, s32 label)
 {
 	struct chrdata *chr;
+	struct player *player = NULL;
+	const char *sound_id = "none";
 	u32 prevplayernum;
+	s32 chr_count = 0;
 	s32 playernum = -1;
 	s32 branch_taken;
+	s32 player_checked = 0;
 
 	if (!s_ActiveScenarioGraphs.level_graph_active) {
 		return 0;
@@ -22852,18 +30312,34 @@ s32 scenarioSourceAiGraphExecuteIfChrTeleportFullWhite(struct chrdata *basechr,
 		return s_aiGraphRuntimeFailure("if_chr_teleport_full_white",
 			"missing ai/ailists.tsv source");
 	}
-	chr = chrFindById(basechr, chrnum);
+	if (!s_aiGraphRequireRuntimeCharacterRefFromBase(
+			"if_chr_teleport_full_white", basechr, chrnum,
+			&chr_count, &chr)) {
+		return 1;
+	}
 	prevplayernum = g_Vars.currentplayernum;
 	if (chr && chr->prop && chr->prop->type == PROPTYPE_PLAYER) {
 		playernum = playermgrGetPlayerNumByProp(chr->prop);
-		setCurrentPlayerNum(playernum);
 	}
-	if (g_Vars.currentplayer->teleportstate < TELEPORTSTATE_WHITE) {
+	if (!s_aiGraphRequireRuntimePlayerSlot("if_chr_teleport_full_white",
+			playernum, &player)) {
+		return 1;
+	}
+	player_checked = 1;
+	setCurrentPlayerNum(playernum);
+	if (player->teleportstate < TELEPORTSTATE_WHITE) {
 		g_Vars.aioffset += 4;
 		branch_taken = 0;
 	} else {
+		sound_id = s_aiGraphResolveAudioCatalogId(
+			"if_chr_teleport_full_white", SFX_FIRE_SHOTGUN,
+			"teleport complete");
+		if (!sound_id) {
+			setCurrentPlayerNum(prevplayernum);
+			return 1;
+		}
 		s_aiGraphPlayTeleportSound(SFX_FIRE_SHOTGUN);
-		g_Vars.currentplayer->teleportstate = TELEPORTSTATE_WHITE;
+		player->teleportstate = TELEPORTSTATE_WHITE;
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist,
 			g_Vars.aioffset, label);
 		branch_taken = 1;
@@ -22872,8 +30348,9 @@ s32 scenarioSourceAiGraphExecuteIfChrTeleportFullWhite(struct chrdata *basechr,
 	if (!s_ActiveScenarioGraphs
 			.ai_condition_if_chr_teleport_full_white_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_chr_teleport_full_white chr=%d player=%d label=%d branch=%d source=%s backend=graph.ai.action.teleport_cutscene_weapon+ai/ailists.tsv",
-			chrnum, playernum, label, branch_taken,
+			"SCENARIO.GRAPH: AI condition if_chr_teleport_full_white chr=%d chr_rows=%d target_chr=%d player=%d player_checked=%d label=%d branch=%d sound_id=%s source=%s backend=graph.ai.action.teleport_cutscene_weapon+ai/ailists.tsv+audio",
+			chrnum, chr_count, chr ? chr->chrnum : -1, playernum,
+			player_checked, label, branch_taken, sound_id,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs
 			.ai_condition_if_chr_teleport_full_white_logged = 1;
@@ -22885,8 +30362,13 @@ s32 scenarioSourceAiGraphExecuteChrSetCutsceneWeapon(struct chrdata *basechr,
 	s32 chrnum, s32 weaponnum, s32 fallback_weaponnum)
 {
 	struct chrdata *chr;
-	s32 model_id;
-	s32 fallback_model_id;
+	const char *weapon_id;
+	const char *fallback_weapon_id;
+	const char *model_id;
+	const char *fallback_model_id;
+	s32 modelnum;
+	s32 fallback_modelnum;
+	s32 chr_count = 0;
 	s32 applied = 0;
 
 	if (!s_ActiveScenarioGraphs.level_graph_active) {
@@ -22901,9 +30383,29 @@ s32 scenarioSourceAiGraphExecuteChrSetCutsceneWeapon(struct chrdata *basechr,
 		return s_aiGraphRuntimeFailure("chr_set_cutscene_weapon",
 			"missing ai/ailists.tsv source");
 	}
-	chr = chrFindById(basechr, chrnum);
-	model_id = playermgrGetModelOfWeapon(weaponnum);
-	fallback_model_id = playermgrGetModelOfWeapon(fallback_weaponnum);
+	if (!s_aiGraphRequireRuntimeCharacterRefFromBase(
+			"chr_set_cutscene_weapon", basechr, chrnum,
+			&chr_count, &chr)) {
+		return 1;
+	}
+	weapon_id = s_aiGraphResolveWeaponCatalogId("chr_set_cutscene_weapon",
+		weaponnum, "weapon");
+	fallback_weapon_id =
+		s_aiGraphResolveWeaponCatalogId("chr_set_cutscene_weapon",
+			fallback_weaponnum, "fallback_weapon");
+	if (!weapon_id || !fallback_weapon_id) {
+		return 0;
+	}
+	modelnum = s_aiGraphWeaponModelNumOrNone(weaponnum);
+	fallback_modelnum = s_aiGraphWeaponModelNumOrNone(fallback_weaponnum);
+	model_id = s_aiGraphResolveWeaponModelCatalogId(
+		"chr_set_cutscene_weapon", weaponnum, modelnum, "weapon");
+	fallback_model_id = s_aiGraphResolveWeaponModelCatalogId(
+		"chr_set_cutscene_weapon", fallback_weaponnum,
+		fallback_modelnum, "fallback_weapon");
+	if (!model_id || !fallback_model_id) {
+		return 0;
+	}
 	if (chr) {
 		if (weaponnum == 0xff) {
 			if (fallback_weaponnum == 0xff) {
@@ -22933,8 +30435,8 @@ s32 scenarioSourceAiGraphExecuteChrSetCutsceneWeapon(struct chrdata *basechr,
 				}
 			} else if (chr->weapons_held[0] == NULL &&
 					chr->weapons_held[1] == NULL &&
-					fallback_model_id >= 0) {
-				weaponCreateForChr(chr, fallback_model_id,
+					fallback_modelnum >= 0) {
+				weaponCreateForChr(chr, fallback_modelnum,
 					fallback_weaponnum, 0, NULL, NULL);
 				applied = 1;
 			}
@@ -22943,12 +30445,12 @@ s32 scenarioSourceAiGraphExecuteChrSetCutsceneWeapon(struct chrdata *basechr,
 			weaponDeleteFromChr(chr, HAND_RIGHT);
 			applied = 1;
 
-			if (model_id >= 0) {
-				weaponCreateForChr(chr, model_id, weaponnum,
+			if (modelnum >= 0) {
+				weaponCreateForChr(chr, modelnum, weaponnum,
 					0, NULL, NULL);
 			}
-			if (fallback_model_id >= 0) {
-				weaponCreateForChr(chr, fallback_model_id,
+			if (fallback_modelnum >= 0) {
+				weaponCreateForChr(chr, fallback_modelnum,
 					fallback_weaponnum, OBJFLAG_WEAPON_LEFTHANDED,
 					NULL, NULL);
 			}
@@ -22958,8 +30460,9 @@ s32 scenarioSourceAiGraphExecuteChrSetCutsceneWeapon(struct chrdata *basechr,
 	if (!s_ActiveScenarioGraphs
 			.ai_action_chr_set_cutscene_weapon_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action chr_set_cutscene_weapon chr=%d weapon=%d fallback_weapon=%d applied=%d source=%s backend=graph.ai.action.teleport_cutscene_weapon+ai/ailists.tsv",
-			chrnum, weaponnum, fallback_weaponnum, applied,
+			"SCENARIO.GRAPH: AI action chr_set_cutscene_weapon chr=%d chr_rows=%d target_chr=%d weapon_id=%s model_id=%s fallback_weapon_id=%s fallback_model_id=%s applied=%d source=%s backend=graph.ai.action.teleport_cutscene_weapon+ai/ailists.tsv",
+			chrnum, chr_count, chr ? chr->chrnum : -1, weapon_id,
+			model_id, fallback_weapon_id, fallback_model_id, applied,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs
 			.ai_action_chr_set_cutscene_weapon_logged = 1;
@@ -23037,6 +30540,7 @@ s32 scenarioSourceAiGraphExecuteSetChrHudpieceVisible(struct chrdata *basechr,
 	s32 chrnum, s32 visible)
 {
 	struct chrdata *chr;
+	s32 chr_count = 0;
 	s32 applied = 0;
 
 	if (!s_aiGraphRequireCutscenePresentationNode("set_chr_hudpiece_visible",
@@ -23044,15 +30548,20 @@ s32 scenarioSourceAiGraphExecuteSetChrHudpieceVisible(struct chrdata *basechr,
 				.level_ai_set_chr_hudpiece_visible_node_count)) {
 		return 0;
 	}
-	chr = chrFindById(basechr, chrnum);
+	if (!s_aiGraphRequireRuntimeCharacterRefFromBase(
+			"set_chr_hudpiece_visible", basechr, chrnum,
+			&chr_count, &chr)) {
+		return 1;
+	}
 	if (chr && chr->prop && chr->model) {
 		chrSetHudpieceVisible(chr, visible != 0);
 		applied = 1;
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_set_chr_hudpiece_visible_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action set_chr_hudpiece_visible chr=%d visible=%d applied=%d source=%s backend=graph.ai.action.cutscene_presentation+ai/ailists.tsv",
-			chrnum, visible != 0, applied,
+			"SCENARIO.GRAPH: AI action set_chr_hudpiece_visible chr=%d chr_rows=%d target_chr=%d visible=%d applied=%d source=%s backend=graph.ai.action.cutscene_presentation+ai/ailists.tsv",
+			chrnum, chr_count, chr ? chr->chrnum : -1,
+			visible != 0, applied,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_set_chr_hudpiece_visible_logged = 1;
 	}
@@ -23081,6 +30590,7 @@ s32 scenarioSourceAiGraphExecuteChrSetFiringInCutscene(struct chrdata *basechr,
 	struct chrdata *chr;
 	struct coord from = {0, 0, 0};
 	struct coord to = {0, 0, 0};
+	s32 chr_count = 0;
 	s32 applied = 0;
 
 	if (!s_aiGraphRequireCutscenePresentationNode(
@@ -23089,7 +30599,11 @@ s32 scenarioSourceAiGraphExecuteChrSetFiringInCutscene(struct chrdata *basechr,
 				.level_ai_chr_set_firing_in_cutscene_node_count)) {
 		return 0;
 	}
-	chr = chrFindById(basechr, chrnum);
+	if (!s_aiGraphRequireRuntimeCharacterRefFromBase(
+			"chr_set_firing_in_cutscene", basechr, chrnum,
+			&chr_count, &chr)) {
+		return 1;
+	}
 	if (chr && chr->weapons_held[HAND_RIGHT]) {
 		if (firing) {
 			chrSetFiring(chr, HAND_RIGHT, true);
@@ -23102,8 +30616,9 @@ s32 scenarioSourceAiGraphExecuteChrSetFiringInCutscene(struct chrdata *basechr,
 	if (!s_ActiveScenarioGraphs
 			.ai_action_chr_set_firing_in_cutscene_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action chr_set_firing_in_cutscene chr=%d firing=%d applied=%d source=%s backend=graph.ai.action.cutscene_presentation+ai/ailists.tsv",
-			chrnum, firing != 0, applied,
+			"SCENARIO.GRAPH: AI action chr_set_firing_in_cutscene chr=%d chr_rows=%d target_chr=%d firing=%d applied=%d source=%s backend=graph.ai.action.cutscene_presentation+ai/ailists.tsv",
+			chrnum, chr_count, chr ? chr->chrnum : -1,
+			firing != 0, applied,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs
 			.ai_action_chr_set_firing_in_cutscene_logged = 1;
@@ -23113,15 +30628,26 @@ s32 scenarioSourceAiGraphExecuteChrSetFiringInCutscene(struct chrdata *basechr,
 
 s32 scenarioSourceAiGraphExecuteSetPortalFlag(s32 portalnum, s32 flags)
 {
+	s32 portal_count = 0;
+	s32 portal_available = 0;
+
 	if (!s_aiGraphRequireCutscenePresentationNode("set_portal_flag",
 			s_ActiveScenarioGraphs.level_ai_set_portal_flag_node_count)) {
 		return 0;
 	}
-	g_BgPortals[portalnum].flags |= flags;
+	if (!s_aiGraphResolveRuntimePortal("set_portal_flag", portalnum,
+			&portal_count, &portal_available)) {
+		return 1;
+	}
+	if (portal_available) {
+		g_BgPortals[portalnum].flags |= flags;
+	}
 	if (!s_ActiveScenarioGraphs.ai_action_set_portal_flag_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action set_portal_flag portal=%d flags=0x%02x source=%s scene=scene.glb backend=graph.ai.action.cutscene_presentation+ai/ailists.tsv+scene.glb",
-			portalnum, flags & 0xff, s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI action set_portal_flag portal=%d found=%d portal_rows=%d flags=0x%02x source=%s portals=%s scene=scene.glb backend=graph.ai.action.cutscene_presentation+ai/ailists.tsv+portals.tsv+scene.glb",
+			portalnum, portal_available, portal_count, flags & 0xff,
+			s_ActiveScenarioGraphs.ai_lists_path,
+			s_ActiveScenarioGraphs.portals_path);
 		s_ActiveScenarioGraphs.ai_action_set_portal_flag_logged = 1;
 	}
 	return 1;
@@ -23205,6 +30731,8 @@ s32 scenarioSourceAiGraphExecuteIfChrSameFloorDistanceToPadLessThan(
 	struct chrdata *chr;
 	f32 actual;
 	s32 branch_taken;
+	s32 chr_count = 0;
+	s32 pad_count = 0;
 
 	if (!s_ActiveScenarioGraphs.level_graph_active) {
 		return 0;
@@ -23221,10 +30749,19 @@ s32 scenarioSourceAiGraphExecuteIfChrSameFloorDistanceToPadLessThan(
 			"if_chr_same_floor_distance_to_pad_less_than",
 			"missing ai/ailists.tsv or pads.tsv source");
 	}
-	chr = chrFindById(basechr, chrnum);
-	actual = chr ? chrGetSameFloorDistanceToPad(chr, padnum & 0xffffffff)
-		: -1.0f;
-	branch_taken = chr && actual < distance;
+	if (!s_aiGraphRequireRuntimePad(
+			"if_chr_same_floor_distance_to_pad_less_than",
+			padnum, &pad_count)) {
+		s_aiGraphApplyBranch(0, label, 8);
+		return 1;
+	}
+	if (!s_aiGraphRequireRuntimeCharacterRefFromBase(
+			"if_chr_same_floor_distance_to_pad_less_than",
+			basechr, chrnum, &chr_count, &chr)) {
+		return 1;
+	}
+	actual = chrGetSameFloorDistanceToPad(chr, padnum & 0xffffffff);
+	branch_taken = actual < distance;
 	if (branch_taken) {
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist,
 			g_Vars.aioffset, label);
@@ -23234,9 +30771,11 @@ s32 scenarioSourceAiGraphExecuteIfChrSameFloorDistanceToPadLessThan(
 	if (!s_ActiveScenarioGraphs
 			.ai_action_if_chr_same_floor_distance_to_pad_less_than_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_chr_same_floor_distance_to_pad_less_than chr=%d pad=%d actual=%.2f threshold=%.2f branch=%d label=%d source=%s pads=%s backend=graph.ai.action.pad_reference+ai/ailists.tsv+pads.tsv",
-			chrnum, padnum, (double)actual, (double)distance,
-			branch_taken, label, s_ActiveScenarioGraphs.ai_lists_path,
+			"SCENARIO.GRAPH: AI condition if_chr_same_floor_distance_to_pad_less_than chr=%d chr_rows=%d target_chr=%d pad=%d found=1 pad_rows=%d actual=%.2f threshold=%.2f branch=%d label=%d source=%s pads=%s backend=graph.ai.action.pad_reference+ai/ailists.tsv+pads.tsv",
+			chrnum, chr_count, chr ? chr->chrnum : -1, padnum,
+			pad_count, (double)actual, (double)distance, branch_taken,
+			label,
+			s_ActiveScenarioGraphs.ai_lists_path,
 			s_ActiveScenarioGraphs.pads_path);
 		s_ActiveScenarioGraphs
 			.ai_action_if_chr_same_floor_distance_to_pad_less_than_logged = 1;
@@ -23247,7 +30786,9 @@ s32 scenarioSourceAiGraphExecuteIfChrSameFloorDistanceToPadLessThan(
 s32 scenarioSourceAiGraphExecuteRemoveReferencesToChr(struct chrdata *chr)
 {
 	s32 applied;
+	s32 chr_count = 0;
 	s32 prop_index;
+	s32 source_chr = -1;
 
 	if (!s_ActiveScenarioGraphs.level_graph_active) {
 		return 0;
@@ -23261,6 +30802,10 @@ s32 scenarioSourceAiGraphExecuteRemoveReferencesToChr(struct chrdata *chr)
 		return s_aiGraphRuntimeFailure("remove_references_to_chr",
 			"missing ai/ailists.tsv source");
 	}
+	if (!s_aiGraphRequireOptionalRuntimeCharacterPointer(
+			"remove_references_to_chr", chr, &chr_count, &source_chr)) {
+		return 1;
+	}
 	applied = chr && chr->prop;
 	prop_index = -1;
 	if (applied) {
@@ -23270,8 +30815,9 @@ s32 scenarioSourceAiGraphExecuteRemoveReferencesToChr(struct chrdata *chr)
 	g_Vars.aioffset += 2;
 	if (!s_ActiveScenarioGraphs.ai_action_remove_references_to_chr_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action remove_references_to_chr prop=%d applied=%d source=%s backend=graph.ai.action.pad_reference+ai/ailists.tsv",
-			prop_index, applied, s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI action remove_references_to_chr prop=%d applied=%d chr_rows=%d source_chr=%d source=%s backend=graph.ai.action.pad_reference+ai/ailists.tsv",
+			prop_index, applied, chr_count, source_chr,
+			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_remove_references_to_chr_logged = 1;
 	}
 	return 1;
@@ -23300,19 +30846,23 @@ s32 scenarioSourceAiGraphExecuteChrToggleModelPart(struct chrdata *basechr,
 	s32 chrnum, s32 partnum)
 {
 	struct chrdata *chr;
+	s32 chr_count = 0;
 
 	if (!s_aiGraphRequireModelPartNode("chr_toggle_model_part",
 			s_ActiveScenarioGraphs.level_ai_chr_toggle_model_part_node_count)) {
 		return 0;
 	}
-	chr = chrFindById(basechr, chrnum);
-	if (chr) {
-		chrToggleModelPart(chr, partnum);
+	if (!s_aiGraphRequireRuntimeCharacterRefFromBase(
+			"chr_toggle_model_part", basechr, chrnum,
+			&chr_count, &chr)) {
+		return 1;
 	}
+	chrToggleModelPart(chr, partnum);
 	if (!s_ActiveScenarioGraphs.ai_action_chr_toggle_model_part_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action chr_toggle_model_part chr=%d part=%d source=%s objects=%s backend=graph.ai.action.model_part+ai/ailists.tsv+objects.tsv",
-			chrnum, partnum, s_ActiveScenarioGraphs.ai_lists_path,
+			"SCENARIO.GRAPH: AI action chr_toggle_model_part chr=%d chr_rows=%d target_chr=%d part=%d source=%s objects=%s backend=graph.ai.action.model_part+ai/ailists.tsv+objects.tsv",
+			chrnum, chr_count, chr ? chr->chrnum : -1, partnum,
+			s_ActiveScenarioGraphs.ai_lists_path,
 			s_ActiveScenarioGraphs.objects_path);
 		s_ActiveScenarioGraphs.ai_action_chr_toggle_model_part_logged = 1;
 	}
@@ -23323,10 +30873,15 @@ s32 scenarioSourceAiGraphExecuteObjSetModelPartVisible(s32 tag_id,
 	s32 partnum, s32 visible)
 {
 	struct defaultobj *obj;
+	s32 object_count = 0;
 
 	if (!s_aiGraphRequireModelPartNode("obj_set_model_part_visible",
 			s_ActiveScenarioGraphs.level_ai_obj_set_model_part_visible_node_count)) {
 		return 0;
+	}
+	if (!s_aiGraphRequireRuntimeObjectTag("obj_set_model_part_visible",
+			tag_id, &object_count)) {
+		return 1;
 	}
 	obj = objFindByTagId(tag_id);
 	if (obj && obj->prop) {
@@ -23334,8 +30889,8 @@ s32 scenarioSourceAiGraphExecuteObjSetModelPartVisible(s32 tag_id,
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_obj_set_model_part_visible_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action obj_set_model_part_visible tag=%d part=%d visible=%d source=%s objects=%s backend=graph.ai.action.model_part+ai/ailists.tsv+objects.tsv",
-			tag_id, partnum, visible != 0,
+			"SCENARIO.GRAPH: AI action obj_set_model_part_visible tag=%d object_rows=%d part=%d visible=%d source=%s objects=%s backend=graph.ai.action.model_part+ai/ailists.tsv+objects.tsv",
+			tag_id, object_count, partnum, visible != 0,
 			s_ActiveScenarioGraphs.ai_lists_path,
 			s_ActiveScenarioGraphs.objects_path);
 		s_ActiveScenarioGraphs.ai_action_obj_set_model_part_visible_logged = 1;
@@ -23366,11 +30921,16 @@ s32 scenarioSourceAiGraphExecuteIfObjHealthLessThan(s32 tag_id,
 	s32 damage, s32 label)
 {
 	struct defaultobj *obj;
+	s32 object_count = 0;
 	s32 result = 0;
 
 	if (!s_aiGraphRequireObjectHealthNode("if_obj_health_less_than",
 			s_ActiveScenarioGraphs.level_ai_if_obj_health_less_than_node_count)) {
 		return 0;
+	}
+	if (!s_aiGraphRequireRuntimeObjectTag("if_obj_health_less_than",
+			tag_id, &object_count)) {
+		return 1;
 	}
 	obj = objFindByTagId(tag_id);
 	if (obj && obj->prop && obj->damage < damage) {
@@ -23382,8 +30942,9 @@ s32 scenarioSourceAiGraphExecuteIfObjHealthLessThan(s32 tag_id,
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_if_obj_health_less_than_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action if_obj_health_less_than tag=%d damage=%d result=%d source=%s objects=%s backend=graph.ai.action.object_health+ai/ailists.tsv+objects.tsv",
-			tag_id, damage, result, s_ActiveScenarioGraphs.ai_lists_path,
+			"SCENARIO.GRAPH: AI action if_obj_health_less_than tag=%d object_rows=%d damage=%d result=%d source=%s objects=%s backend=graph.ai.action.object_health+ai/ailists.tsv+objects.tsv",
+			tag_id, object_count, damage, result,
+			s_ActiveScenarioGraphs.ai_lists_path,
 			s_ActiveScenarioGraphs.objects_path);
 		s_ActiveScenarioGraphs.ai_action_if_obj_health_less_than_logged = 1;
 	}
@@ -23393,10 +30954,15 @@ s32 scenarioSourceAiGraphExecuteIfObjHealthLessThan(s32 tag_id,
 s32 scenarioSourceAiGraphExecuteSetObjHealth(s32 tag_id, s32 damage)
 {
 	struct defaultobj *obj;
+	s32 object_count = 0;
 
 	if (!s_aiGraphRequireObjectHealthNode("set_obj_health",
 			s_ActiveScenarioGraphs.level_ai_set_obj_health_node_count)) {
 		return 0;
+	}
+	if (!s_aiGraphRequireRuntimeObjectTag("set_obj_health", tag_id,
+			&object_count)) {
+		return 1;
 	}
 	obj = objFindByTagId(tag_id);
 	if (obj && obj->prop) {
@@ -23404,8 +30970,9 @@ s32 scenarioSourceAiGraphExecuteSetObjHealth(s32 tag_id, s32 damage)
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_set_obj_health_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action set_obj_health tag=%d damage=%d source=%s objects=%s backend=graph.ai.action.object_health+ai/ailists.tsv+objects.tsv",
-			tag_id, damage, s_ActiveScenarioGraphs.ai_lists_path,
+			"SCENARIO.GRAPH: AI action set_obj_health tag=%d object_rows=%d damage=%d source=%s objects=%s backend=graph.ai.action.object_health+ai/ailists.tsv+objects.tsv",
+			tag_id, object_count, damage,
+			s_ActiveScenarioGraphs.ai_lists_path,
 			s_ActiveScenarioGraphs.objects_path);
 		s_ActiveScenarioGraphs.ai_action_set_obj_health_logged = 1;
 	}
@@ -23416,6 +30983,10 @@ s32 scenarioSourceAiGraphExecuteSetChrSpecialDeathAnimation(
 	struct chrdata *basechr, s32 chrnum, s32 animation)
 {
 	struct chrdata *chr;
+	const char *anim_id = "none";
+	const char *alt_anim_id = "none";
+	const char *chair_fallback_anim_id = "none";
+	s32 chr_count = 0;
 
 	if (!s_ActiveScenarioGraphs.level_graph_active) {
 		return 0;
@@ -23428,14 +30999,23 @@ s32 scenarioSourceAiGraphExecuteSetChrSpecialDeathAnimation(
 		return s_aiGraphRuntimeFailure("set_chr_special_death_animation",
 			"missing ai/ailists.tsv source");
 	}
-	chr = chrFindById(basechr, chrnum);
-	if (chr) {
-		chr->specialdie = animation;
+	if (!s_aiGraphRequireRuntimeCharacterRefFromBase(
+			"set_chr_special_death_animation", basechr, chrnum,
+			&chr_count, &chr)) {
+		return 1;
 	}
+	if (!s_aiGraphResolveSpecialDeathAnimationCatalogIds(
+			"set_chr_special_death_animation", animation,
+			&anim_id, &alt_anim_id, &chair_fallback_anim_id)) {
+		return 1;
+	}
+	chr->specialdie = animation;
 	if (!s_ActiveScenarioGraphs.ai_action_set_chr_special_death_animation_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action set_chr_special_death_animation chr=%d animation=%d source=%s backend=graph.ai.action.special_death+ai/ailists.tsv",
-			chrnum, animation, s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI action set_chr_special_death_animation chr=%d chr_rows=%d target_chr=%d specialdie=%d anim_id=%s alt_anim_id=%s chair_fallback_anim_id=%s source=%s backend=graph.ai.action.special_death+ai/ailists.tsv",
+			chrnum, chr_count, chr ? chr->chrnum : -1, animation,
+			anim_id, alt_anim_id, chair_fallback_anim_id,
+			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_set_chr_special_death_animation_logged = 1;
 	}
 	return 1;
@@ -23444,6 +31024,10 @@ s32 scenarioSourceAiGraphExecuteSetChrSpecialDeathAnimation(
 s32 scenarioSourceAiGraphExecuteSetRoomToSearch(struct chrdata *chr)
 {
 	struct chrdata *target;
+	s32 chr_count = 0;
+	s32 chrnum = -1;
+	s32 target_chrnum = -1;
+	s32 target_selector = 0;
 	s32 room = -1;
 
 	if (!s_ActiveScenarioGraphs.level_graph_active) {
@@ -23457,15 +31041,24 @@ s32 scenarioSourceAiGraphExecuteSetRoomToSearch(struct chrdata *chr)
 		return s_aiGraphRuntimeFailure("set_room_to_search",
 			"missing ai/ailists.tsv source");
 	}
-	target = chrFindById(chr, CHR_TARGET);
+	if (!s_aiGraphRequireRuntimeCharacterPointer("set_room_to_search", chr,
+			&chr_count, &chrnum)) {
+		return 1;
+	}
+	if (!s_aiGraphResolveRuntimeCharacterRefOrSelector("set_room_to_search",
+			chr, CHR_TARGET, &chr_count, &target, &target_selector)) {
+		return 1;
+	}
 	if (chr && target && target->prop) {
+		target_chrnum = target->chrnum;
 		room = target->prop->rooms[0];
 		chr->roomtosearch = room;
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_set_room_to_search_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action set_room_to_search room=%d source=%s scene=scene.glb backend=graph.ai.action.room_search+ai/ailists.tsv+scene.glb",
-			room, s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI action set_room_to_search chr_rows=%d chr=%d target_chr=%d target_selector=%d room=%d source=%s scene=scene.glb backend=graph.ai.action.room_search+ai/ailists.tsv+scene.glb",
+			chr_count, chrnum, target_chrnum,
+			target_selector, room, s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_set_room_to_search_logged = 1;
 	}
 	return 1;
@@ -23474,6 +31067,11 @@ s32 scenarioSourceAiGraphExecuteSetRoomToSearch(struct chrdata *chr)
 s32 scenarioSourceAiGraphExecuteRestartTimer(struct chrdata *chr,
 	struct chopperobj *hovercar)
 {
+	s32 chr_count = 0;
+	s32 target_chrnum = -1;
+	s32 vehicle_count = 0;
+	s32 source_vehicle_type = -1;
+
 	if (!s_ActiveScenarioGraphs.level_graph_active) {
 		return 0;
 	}
@@ -23486,16 +31084,33 @@ s32 scenarioSourceAiGraphExecuteRestartTimer(struct chrdata *chr,
 			"missing ai/ailists.tsv source");
 	}
 	if (chr) {
+		if (!s_aiGraphRequireRuntimeCharacterStatePointer("restart_timer", chr,
+				&chr_count, &target_chrnum)) {
+			return 1;
+		}
 		chrRestartTimer(chr);
 	} else if (hovercar) {
+		if (!s_aiGraphRequireRuntimeVehicleObjectPointer(
+				"restart_timer", &hovercar->base,
+				OBJTYPE_CHOPPER, OBJTYPE_HOVERCAR,
+				&vehicle_count, &source_vehicle_type)) {
+			return 1;
+		}
 		chopperRestartTimer(hovercar);
 	}
 	g_Vars.aioffset += 2;
 	if (!s_ActiveScenarioGraphs.ai_action_restart_timer_logged) {
+		const char *backend = vehicle_count > 0
+			? "graph.ai.action.restart_timer+ai/ailists.tsv+objects.tsv"
+			: "graph.ai.action.restart_timer+ai/ailists.tsv";
+		const char *objects_path = vehicle_count > 0
+			? s_ActiveScenarioGraphs.objects_path : "";
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action restart_timer target=%s source=%s backend=graph.ai.action.restart_timer+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action restart_timer target=%s chr_rows=%d target_chr=%d vehicle_rows=%d source_vehicle_type=%d source=%s objects=%s backend=%s",
 			chr ? "chr" : (hovercar ? "hovercar" : "none"),
-			s_ActiveScenarioGraphs.ai_lists_path);
+			chr_count, target_chrnum, vehicle_count,
+			source_vehicle_type, s_ActiveScenarioGraphs.ai_lists_path,
+			objects_path, backend);
 		s_ActiveScenarioGraphs.ai_action_restart_timer_logged = 1;
 	}
 	return 1;
@@ -23503,6 +31118,9 @@ s32 scenarioSourceAiGraphExecuteRestartTimer(struct chrdata *chr,
 
 s32 scenarioSourceAiGraphExecuteResetTimer(struct chrdata *chr)
 {
+	s32 chr_count = 0;
+	s32 target_chrnum = -1;
+
 	if (!s_ActiveScenarioGraphs.level_graph_active) {
 		return 0;
 	}
@@ -23517,12 +31135,16 @@ s32 scenarioSourceAiGraphExecuteResetTimer(struct chrdata *chr)
 		return s_aiGraphRuntimeFailure("reset_timer",
 			"missing ai/ailists.tsv source");
 	}
+	if (!s_aiGraphRequireRuntimeCharacterStatePointer("reset_timer", chr,
+			&chr_count, &target_chrnum)) {
+		return 1;
+	}
 	chr->timer60 = 0;
 	g_Vars.aioffset += 2;
 	if (!s_ActiveScenarioGraphs.ai_action_reset_timer_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action reset_timer source=%s backend=graph.ai.action.reset_timer+ai/ailists.tsv",
-			s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI action reset_timer chr_rows=%d target_chr=%d source=%s backend=graph.ai.action.reset_timer+ai/ailists.tsv",
+			chr_count, target_chrnum, s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_reset_timer_logged = 1;
 	}
 	return 1;
@@ -23530,6 +31152,9 @@ s32 scenarioSourceAiGraphExecuteResetTimer(struct chrdata *chr)
 
 s32 scenarioSourceAiGraphExecutePauseTimer(struct chrdata *chr)
 {
+	s32 chr_count = 0;
+	s32 target_chrnum = -1;
+
 	if (!s_ActiveScenarioGraphs.level_graph_active) {
 		return 0;
 	}
@@ -23544,12 +31169,16 @@ s32 scenarioSourceAiGraphExecutePauseTimer(struct chrdata *chr)
 		return s_aiGraphRuntimeFailure("pause_timer",
 			"missing ai/ailists.tsv source");
 	}
+	if (!s_aiGraphRequireRuntimeCharacterStatePointer("pause_timer", chr,
+			&chr_count, &target_chrnum)) {
+		return 1;
+	}
 	chr->hidden &= ~CHRHFLAG_TIMER_RUNNING;
 	g_Vars.aioffset += 2;
 	if (!s_ActiveScenarioGraphs.ai_action_pause_timer_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action pause_timer source=%s backend=graph.ai.action.pause_timer+ai/ailists.tsv",
-			s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI action pause_timer chr_rows=%d target_chr=%d source=%s backend=graph.ai.action.pause_timer+ai/ailists.tsv",
+			chr_count, target_chrnum, s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_pause_timer_logged = 1;
 	}
 	return 1;
@@ -23557,6 +31186,9 @@ s32 scenarioSourceAiGraphExecutePauseTimer(struct chrdata *chr)
 
 s32 scenarioSourceAiGraphExecuteResumeTimer(struct chrdata *chr)
 {
+	s32 chr_count = 0;
+	s32 target_chrnum = -1;
+
 	if (!s_ActiveScenarioGraphs.level_graph_active) {
 		return 0;
 	}
@@ -23571,12 +31203,16 @@ s32 scenarioSourceAiGraphExecuteResumeTimer(struct chrdata *chr)
 		return s_aiGraphRuntimeFailure("resume_timer",
 			"missing ai/ailists.tsv source");
 	}
+	if (!s_aiGraphRequireRuntimeCharacterStatePointer("resume_timer", chr,
+			&chr_count, &target_chrnum)) {
+		return 1;
+	}
 	chr->hidden |= CHRHFLAG_TIMER_RUNNING;
 	g_Vars.aioffset += 2;
 	if (!s_ActiveScenarioGraphs.ai_action_resume_timer_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action resume_timer source=%s backend=graph.ai.action.resume_timer+ai/ailists.tsv",
-			s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI action resume_timer chr_rows=%d target_chr=%d source=%s backend=graph.ai.action.resume_timer+ai/ailists.tsv",
+			chr_count, target_chrnum, s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_resume_timer_logged = 1;
 	}
 	return 1;
@@ -23584,6 +31220,8 @@ s32 scenarioSourceAiGraphExecuteResumeTimer(struct chrdata *chr)
 
 s32 scenarioSourceAiGraphExecuteIfTimerStopped(struct chrdata *chr, s32 label)
 {
+	s32 chr_count = 0;
+	s32 target_chrnum = -1;
 	s32 result;
 
 	if (!s_ActiveScenarioGraphs.level_graph_active) {
@@ -23600,6 +31238,10 @@ s32 scenarioSourceAiGraphExecuteIfTimerStopped(struct chrdata *chr, s32 label)
 		return s_aiGraphRuntimeFailure("if_timer_stopped",
 			"missing ai/ailists.tsv source");
 	}
+	if (!s_aiGraphRequireRuntimeCharacterStatePointer("if_timer_stopped", chr,
+			&chr_count, &target_chrnum)) {
+		return 1;
+	}
 	result = (chr->hidden & CHRHFLAG_TIMER_RUNNING) == 0;
 	if (result) {
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist,
@@ -23609,8 +31251,9 @@ s32 scenarioSourceAiGraphExecuteIfTimerStopped(struct chrdata *chr, s32 label)
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_if_timer_stopped_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action if_timer_stopped result=%d source=%s backend=graph.ai.action.if_timer_stopped+ai/ailists.tsv",
-			result, s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI action if_timer_stopped chr_rows=%d target_chr=%d result=%d source=%s backend=graph.ai.action.if_timer_stopped+ai/ailists.tsv",
+			chr_count, target_chrnum, result,
+			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_if_timer_stopped_logged = 1;
 	}
 	return 1;
@@ -23619,6 +31262,8 @@ s32 scenarioSourceAiGraphExecuteIfTimerStopped(struct chrdata *chr, s32 label)
 s32 scenarioSourceAiGraphExecuteIfTimerGreaterThanRandom(struct chrdata *chr,
 	s32 label)
 {
+	s32 chr_count = 0;
+	s32 target_chrnum = -1;
 	f32 timer;
 	s32 result;
 
@@ -23637,6 +31282,11 @@ s32 scenarioSourceAiGraphExecuteIfTimerGreaterThanRandom(struct chrdata *chr,
 		return s_aiGraphRuntimeFailure("if_timer_greater_than_random",
 			"missing ai/ailists.tsv source");
 	}
+	if (!s_aiGraphRequireRuntimeCharacterStatePointer(
+			"if_timer_greater_than_random", chr, &chr_count,
+			&target_chrnum)) {
+		return 1;
+	}
 	timer = chrGetTimer(chr);
 	result = chr->random < timer;
 	if (result) {
@@ -23647,8 +31297,9 @@ s32 scenarioSourceAiGraphExecuteIfTimerGreaterThanRandom(struct chrdata *chr,
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_if_timer_greater_than_random_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action if_timer_greater_than_random timer=%f random=%u result=%d source=%s backend=graph.ai.action.if_timer_greater_than_random+ai/ailists.tsv",
-			timer, chr->random, result, s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI action if_timer_greater_than_random chr_rows=%d target_chr=%d timer=%f random=%u result=%d source=%s backend=graph.ai.action.if_timer_greater_than_random+ai/ailists.tsv",
+			chr_count, target_chrnum, timer, chr->random, result,
+			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_if_timer_greater_than_random_logged = 1;
 	}
 	return 1;
@@ -23657,6 +31308,12 @@ s32 scenarioSourceAiGraphExecuteIfTimerGreaterThanRandom(struct chrdata *chr,
 s32 scenarioSourceAiGraphExecuteIfTimerLessThan(struct chrdata *chr,
 	struct chopperobj *hovercar, f32 value, s32 label)
 {
+	f32 chr_timer = 0.0f;
+	f32 hovercar_timer = 0.0f;
+	s32 chr_count = 0;
+	s32 target_chrnum = -1;
+	s32 vehicle_count = 0;
+	s32 source_vehicle_type = -1;
 	s32 result;
 
 	if (!s_ActiveScenarioGraphs.level_graph_active) {
@@ -23670,8 +31327,25 @@ s32 scenarioSourceAiGraphExecuteIfTimerLessThan(struct chrdata *chr,
 		return s_aiGraphRuntimeFailure("if_timer_less_than",
 			"missing ai/ailists.tsv source");
 	}
-	result = (chr && chrGetTimer(chr) < value) ||
-		(hovercar && chopperGetTimer(hovercar) < value);
+	if (chr) {
+		if (!s_aiGraphRequireRuntimeCharacterStatePointer(
+				"if_timer_less_than", chr, &chr_count,
+				&target_chrnum)) {
+			return 1;
+		}
+		chr_timer = chrGetTimer(chr);
+	}
+	if (hovercar) {
+		if (!s_aiGraphRequireRuntimeVehicleObjectPointer(
+				"if_timer_less_than", &hovercar->base,
+				OBJTYPE_CHOPPER, OBJTYPE_HOVERCAR,
+				&vehicle_count, &source_vehicle_type)) {
+			return 1;
+		}
+		hovercar_timer = chopperGetTimer(hovercar);
+	}
+	result = (chr && chr_timer < value) ||
+		(hovercar && hovercar_timer < value);
 	if (result) {
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist,
 			g_Vars.aioffset, label);
@@ -23679,9 +31353,17 @@ s32 scenarioSourceAiGraphExecuteIfTimerLessThan(struct chrdata *chr,
 		g_Vars.aioffset += 6;
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_if_timer_less_than_logged) {
+		const char *backend = vehicle_count > 0
+			? "graph.ai.action.if_timer_less_than+ai/ailists.tsv+objects.tsv"
+			: "graph.ai.action.if_timer_less_than+ai/ailists.tsv";
+		const char *objects_path = vehicle_count > 0
+			? s_ActiveScenarioGraphs.objects_path : "";
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action if_timer_less_than value=%f result=%d source=%s backend=graph.ai.action.if_timer_less_than+ai/ailists.tsv",
-			value, result, s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI action if_timer_less_than value=%f result=%d target=%s chr_rows=%d target_chr=%d vehicle_rows=%d source_vehicle_type=%d source=%s objects=%s backend=%s",
+			value, result, chr ? "chr" : (hovercar ? "hovercar" : "none"),
+			chr_count, target_chrnum, vehicle_count,
+			source_vehicle_type, s_ActiveScenarioGraphs.ai_lists_path,
+			objects_path, backend);
 		s_ActiveScenarioGraphs.ai_action_if_timer_less_than_logged = 1;
 	}
 	return 1;
@@ -23690,6 +31372,12 @@ s32 scenarioSourceAiGraphExecuteIfTimerLessThan(struct chrdata *chr,
 s32 scenarioSourceAiGraphExecuteIfTimerGreaterThan(struct chrdata *chr,
 	struct chopperobj *hovercar, f32 value, s32 label)
 {
+	f32 chr_timer = 0.0f;
+	f32 hovercar_timer = 0.0f;
+	s32 chr_count = 0;
+	s32 target_chrnum = -1;
+	s32 vehicle_count = 0;
+	s32 source_vehicle_type = -1;
 	s32 result;
 
 	if (!s_ActiveScenarioGraphs.level_graph_active) {
@@ -23704,13 +31392,24 @@ s32 scenarioSourceAiGraphExecuteIfTimerGreaterThan(struct chrdata *chr,
 			"missing ai/ailists.tsv source");
 	}
 	if (chr) {
-		chrGetTimer(chr);
+		if (!s_aiGraphRequireRuntimeCharacterStatePointer(
+				"if_timer_greater_than", chr, &chr_count,
+				&target_chrnum)) {
+			return 1;
+		}
+		chr_timer = chrGetTimer(chr);
 	}
 	if (hovercar) {
-		chopperGetTimer(hovercar);
+		if (!s_aiGraphRequireRuntimeVehicleObjectPointer(
+				"if_timer_greater_than", &hovercar->base,
+				OBJTYPE_CHOPPER, OBJTYPE_HOVERCAR,
+				&vehicle_count, &source_vehicle_type)) {
+			return 1;
+		}
+		hovercar_timer = chopperGetTimer(hovercar);
 	}
-	result = (chr && chrGetTimer(chr) > value) ||
-		(hovercar && chopperGetTimer(hovercar) > value);
+	result = (chr && chr_timer > value) ||
+		(hovercar && hovercar_timer > value);
 	if (result) {
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist,
 			g_Vars.aioffset, label);
@@ -23718,9 +31417,17 @@ s32 scenarioSourceAiGraphExecuteIfTimerGreaterThan(struct chrdata *chr,
 		g_Vars.aioffset += 6;
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_if_timer_greater_than_logged) {
+		const char *backend = vehicle_count > 0
+			? "graph.ai.action.if_timer_greater_than+ai/ailists.tsv+objects.tsv"
+			: "graph.ai.action.if_timer_greater_than+ai/ailists.tsv";
+		const char *objects_path = vehicle_count > 0
+			? s_ActiveScenarioGraphs.objects_path : "";
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action if_timer_greater_than value=%f result=%d source=%s backend=graph.ai.action.if_timer_greater_than+ai/ailists.tsv",
-			value, result, s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI action if_timer_greater_than value=%f result=%d target=%s chr_rows=%d target_chr=%d vehicle_rows=%d source_vehicle_type=%d source=%s objects=%s backend=%s",
+			value, result, chr ? "chr" : (hovercar ? "hovercar" : "none"),
+			chr_count, target_chrnum, vehicle_count,
+			source_vehicle_type, s_ActiveScenarioGraphs.ai_lists_path,
+			objects_path, backend);
 		s_ActiveScenarioGraphs.ai_action_if_timer_greater_than_logged = 1;
 	}
 	return 1;
@@ -24067,31 +31774,89 @@ static s32 s_aiGraphRequireHudNode(const char *action, s32 node_count)
 	return 1;
 }
 
-static s32 s_aiGraphHudPlayerForChr(struct chrdata *basechr, s32 chrnum)
+static s32 s_aiGraphHudPlayerForChr(const char *action,
+	struct chrdata *basechr, s32 chrnum, s32 *out_chr_count,
+	s32 *out_target_chr, s32 *out_playernum, s32 *out_player_checked)
 {
-	struct chrdata *chr = chrFindById(basechr, chrnum);
+	struct chrdata *chr = NULL;
+	s32 chr_count = 0;
+	s32 playernum = -1;
+	s32 player_checked = 0;
+
+	if (out_chr_count) {
+		*out_chr_count = 0;
+	}
+	if (out_target_chr) {
+		*out_target_chr = -1;
+	}
+	if (out_playernum) {
+		*out_playernum = playernum;
+	}
+	if (out_player_checked) {
+		*out_player_checked = 0;
+	}
+
+	if (!s_aiGraphRequireRuntimeCharacterRefFromBase(action, basechr,
+			chrnum, &chr_count, &chr)) {
+		return 0;
+	}
 
 	if (chr && chr->prop && (chr->prop->type & 0xff) == PROPTYPE_PLAYER) {
-		return playermgrGetPlayerNumByProp(chr->prop);
+		playernum = playermgrGetPlayerNumByProp(chr->prop);
+		if (!s_aiGraphRequireRuntimePlayerSlot(action, playernum,
+				NULL)) {
+			return 0;
+		}
+		player_checked = 1;
+	} else {
+		playernum = g_Vars.currentplayernum;
+		if (!s_aiGraphRequireRuntimePlayerSlot(action, playernum,
+				NULL)) {
+			return 0;
+		}
 	}
-	return g_Vars.currentplayernum;
+	if (out_chr_count) {
+		*out_chr_count = chr_count;
+	}
+	if (out_target_chr) {
+		*out_target_chr = chr ? chr->chrnum : -1;
+	}
+	if (out_playernum) {
+		*out_playernum = playernum;
+	}
+	if (out_player_checked) {
+		*out_player_checked = player_checked;
+	}
+	return 1;
 }
 
 s32 scenarioSourceAiGraphExecuteShowHudmsg(struct chrdata *basechr,
 	s32 chrnum, u16 text_id)
 {
 	s32 prevplayernum;
-	s32 playernum;
+	s32 playernum = -1;
+	s32 chr_count = 0;
+	s32 target_chr = -1;
+	s32 player_checked = 0;
 	char *text;
+	const char *text_catalog_id;
 
 	if (!s_aiGraphRequireHudNode("show_hudmsg",
 			s_ActiveScenarioGraphs.level_ai_show_hudmsg_node_count)) {
 		return 0;
 	}
+	if (!s_aiGraphHudPlayerForChr("show_hudmsg", basechr, chrnum,
+			&chr_count, &target_chr, &playernum, &player_checked)) {
+		return 1;
+	}
 
+	text_catalog_id = s_aiGraphResolveLangTextCatalogId("show_hudmsg",
+		text_id, "HUD text");
+	if (!text_catalog_id) {
+		return 1;
+	}
 	text = langGet(text_id);
 	prevplayernum = g_Vars.currentplayernum;
-	playernum = s_aiGraphHudPlayerForChr(basechr, chrnum);
 	setCurrentPlayerNum(playernum);
 	hudmsgCreate(text, HUDMSGTYPE_DEFAULT);
 	setCurrentPlayerNum(prevplayernum);
@@ -24099,8 +31864,9 @@ s32 scenarioSourceAiGraphExecuteShowHudmsg(struct chrdata *basechr,
 
 	if (!s_ActiveScenarioGraphs.ai_action_show_hudmsg_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action show_hudmsg chr=%d text=%u player=%d source=%s backend=graph.ai.action.hud+ai/ailists.tsv",
-			chrnum, (unsigned)text_id, playernum,
+			"SCENARIO.GRAPH: AI action show_hudmsg chr=%d chr_rows=%d target_chr=%d player_checked=%d text_id=%s player=%d source=%s backend=graph.ai.action.hud+ai/ailists.tsv+lang",
+			chrnum, chr_count, target_chr, player_checked,
+			text_catalog_id, playernum,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_show_hudmsg_logged = 1;
 	}
@@ -24111,6 +31877,7 @@ s32 scenarioSourceAiGraphExecuteShowHudmsgMiddle(s32 mode, s32 colour,
 	u16 text_id)
 {
 	char *text;
+	const char *text_catalog_id = "none";
 
 	if (!s_aiGraphRequireHudNode("show_hudmsg_middle",
 			s_ActiveScenarioGraphs.level_ai_show_hudmsg_middle_node_count)) {
@@ -24118,9 +31885,19 @@ s32 scenarioSourceAiGraphExecuteShowHudmsgMiddle(s32 mode, s32 colour,
 	}
 
 	if (mode == 0) {
+		text_catalog_id = s_aiGraphResolveLangTextCatalogId(
+			"show_hudmsg_middle", text_id, "HUD text");
+		if (!text_catalog_id) {
+			return 1;
+		}
 		text = langGet(text_id);
 		hudmsgCreateWithColour(text, HUDMSGTYPE_7, colour);
 	} else if (mode == 1) {
+		text_catalog_id = s_aiGraphResolveLangTextCatalogId(
+			"show_hudmsg_middle", text_id, "HUD text");
+		if (!text_catalog_id) {
+			return 1;
+		}
 		text = langGet(text_id);
 		hudmsgCreateWithColour(text, HUDMSGTYPE_8, colour);
 	} else {
@@ -24130,8 +31907,8 @@ s32 scenarioSourceAiGraphExecuteShowHudmsgMiddle(s32 mode, s32 colour,
 
 	if (!s_ActiveScenarioGraphs.ai_action_show_hudmsg_middle_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action show_hudmsg_middle mode=%d colour=%d text=%u source=%s backend=graph.ai.action.hud+ai/ailists.tsv",
-			mode, colour, (unsigned)text_id,
+			"SCENARIO.GRAPH: AI action show_hudmsg_middle mode=%d colour=%d text_id=%s source=%s backend=graph.ai.action.hud+ai/ailists.tsv+lang",
+			mode, colour, text_catalog_id,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_show_hudmsg_middle_logged = 1;
 	}
@@ -24142,17 +31919,30 @@ s32 scenarioSourceAiGraphExecuteShowHudmsgTopMiddle(struct chrdata *basechr,
 	s32 chrnum, u16 text_id, s32 colour)
 {
 	s32 prevplayernum;
-	s32 playernum;
+	s32 playernum = -1;
+	s32 chr_count = 0;
+	s32 target_chr = -1;
+	s32 player_checked = 0;
 	char *text;
+	const char *text_catalog_id;
 
 	if (!s_aiGraphRequireHudNode("show_hudmsg_top_middle",
 			s_ActiveScenarioGraphs.level_ai_show_hudmsg_top_middle_node_count)) {
 		return 0;
 	}
+	if (!s_aiGraphHudPlayerForChr("show_hudmsg_top_middle", basechr,
+			chrnum, &chr_count, &target_chr, &playernum,
+			&player_checked)) {
+		return 1;
+	}
 
+	text_catalog_id = s_aiGraphResolveLangTextCatalogId(
+		"show_hudmsg_top_middle", text_id, "HUD text");
+	if (!text_catalog_id) {
+		return 1;
+	}
 	text = langGet(text_id);
 	prevplayernum = g_Vars.currentplayernum;
-	playernum = s_aiGraphHudPlayerForChr(basechr, chrnum);
 	setCurrentPlayerNum(playernum);
 	hudmsgCreateWithColour(text, HUDMSGTYPE_INGAMESUBTITLE, colour);
 	setCurrentPlayerNum(prevplayernum);
@@ -24160,8 +31950,9 @@ s32 scenarioSourceAiGraphExecuteShowHudmsgTopMiddle(struct chrdata *basechr,
 
 	if (!s_ActiveScenarioGraphs.ai_action_show_hudmsg_top_middle_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action show_hudmsg_top_middle chr=%d text=%u colour=%d player=%d source=%s backend=graph.ai.action.hud+ai/ailists.tsv",
-			chrnum, (unsigned)text_id, colour, playernum,
+			"SCENARIO.GRAPH: AI action show_hudmsg_top_middle chr=%d chr_rows=%d target_chr=%d player_checked=%d text_id=%s colour=%d player=%d source=%s backend=graph.ai.action.hud+ai/ailists.tsv+lang",
+			chrnum, chr_count, target_chr, player_checked,
+			text_catalog_id, colour, playernum,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_show_hudmsg_top_middle_logged = 1;
 	}
@@ -24194,6 +31985,14 @@ static s32 s_aiGraphRequireVehicleNode(const char *action, s32 node_count,
 s32 scenarioSourceAiGraphExecuteHovercarBeginPath(s32 path_id)
 {
 	struct path *path;
+	struct truckobj *truck = g_Vars.truck;
+	struct chopperobj *hovercar = g_Vars.hovercar;
+	s32 path_count = 0;
+	s32 pad_count = 0;
+	s32 truck_object_count = 0;
+	s32 hovercar_object_count = 0;
+	s32 truck_source_type = -1;
+	s32 hovercar_source_type = -1;
 
 	if (!s_aiGraphRequireVehicleNode("hovercar_begin_path",
 			s_ActiveScenarioGraphs.level_ai_hovercar_begin_path_node_count,
@@ -24201,21 +32000,39 @@ s32 scenarioSourceAiGraphExecuteHovercarBeginPath(s32 path_id)
 		return 0;
 	}
 
-	path = pathFindById(path_id);
-	if (!path && (g_Vars.truck || g_Vars.hovercar)) {
+	path = s_aiGraphFindRuntimePath("hovercar_begin_path", path_id,
+		&path_count);
+	if (!path) {
 		g_Vars.aioffset += 3;
-		return s_aiGraphRuntimeFailure("hovercar_begin_path",
-			"missing navigation path id");
+		return 1;
 	}
-	if (g_Vars.truck) {
-		g_Vars.truck->path = path;
-		g_Vars.truck->nextstep = 0;
+	if (!s_aiGraphRequireRuntimePathPads("hovercar_begin_path", path,
+			&pad_count)) {
+		g_Vars.aioffset += 3;
+		return 1;
 	}
-	if (g_Vars.hovercar) {
-		struct chopperobj *chopper = chopperFromHovercar(g_Vars.hovercar);
-		g_Vars.hovercar->path = path;
-		g_Vars.hovercar->nextstep = 0;
-		g_Vars.hovercar->path->flags |= PATHFLAG_INUSE;
+	if (truck) {
+		if (!s_aiGraphRequireRuntimeVehicleObjectPointer(
+				"hovercar_begin_path", &truck->base,
+				OBJTYPE_TRUCK, -1, &truck_object_count,
+				&truck_source_type)) {
+			return 1;
+		}
+		truck->path = path;
+		truck->nextstep = 0;
+	}
+	if (hovercar) {
+		struct chopperobj *chopper;
+		if (!s_aiGraphRequireRuntimeVehicleObjectPointer(
+				"hovercar_begin_path", &hovercar->base,
+				OBJTYPE_HOVERCAR, OBJTYPE_CHOPPER,
+				&hovercar_object_count, &hovercar_source_type)) {
+			return 1;
+		}
+		chopper = chopperFromHovercar(hovercar);
+		hovercar->path = path;
+		hovercar->nextstep = 0;
+		hovercar->path->flags |= PATHFLAG_INUSE;
 
 		if (chopper) {
 			chopper->targetvisible = false;
@@ -24242,15 +32059,21 @@ s32 scenarioSourceAiGraphExecuteHovercarBeginPath(s32 path_id)
 			chopper->weaponsarmed = true;
 			chopper->base.flags |= OBJFLAG_CHOPPER_INIT;
 		} else {
-			g_Vars.hovercar->weaponsarmed = false;
+			hovercar->weaponsarmed = false;
 		}
 	}
 	g_Vars.aioffset += 3;
 
 	if (!s_ActiveScenarioGraphs.ai_action_hovercar_begin_path_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action hovercar_begin_path path=%d found=%d source=%s backend=graph.ai.action.vehicle+navigation/paths.tsv",
-			path_id, path ? 1 : 0, s_ActiveScenarioGraphs.paths_path);
+			"SCENARIO.GRAPH: AI action hovercar_begin_path path=%d found=1 vehicle_rows=%d truck_type=%d hovercar_type=%d path_rows=%d source=%s objects=%s path_pads=%u pad_rows=%d backend=graph.ai.action.vehicle+objects.tsv+navigation/paths.tsv+pads.tsv",
+			path->id,
+			truck_object_count > hovercar_object_count
+				? truck_object_count : hovercar_object_count,
+			truck_source_type, hovercar_source_type, path_count,
+			s_ActiveScenarioGraphs.paths_path,
+			s_ActiveScenarioGraphs.objects_path,
+			(unsigned)path->len, pad_count);
 		s_ActiveScenarioGraphs.ai_action_hovercar_begin_path_logged = 1;
 	}
 	return 1;
@@ -24258,26 +32081,49 @@ s32 scenarioSourceAiGraphExecuteHovercarBeginPath(s32 path_id)
 
 s32 scenarioSourceAiGraphExecuteSetVehicleSpeed(f32 speedaim, f32 speedtime)
 {
+	struct truckobj *truck = g_Vars.truck;
+	struct chopperobj *hovercar = g_Vars.hovercar;
+	s32 truck_object_count = 0;
+	s32 hovercar_object_count = 0;
+	s32 truck_source_type = -1;
+	s32 hovercar_source_type = -1;
+
 	if (!s_aiGraphRequireVehicleNode("set_vehicle_speed",
 			s_ActiveScenarioGraphs.level_ai_set_vehicle_speed_node_count,
 			0)) {
 		return 0;
 	}
 
-	if (g_Vars.truck) {
-		g_Vars.truck->speedaim = speedaim;
-		g_Vars.truck->speedtime60 = speedtime;
+	if (truck) {
+		if (!s_aiGraphRequireRuntimeVehicleObjectPointer(
+				"set_vehicle_speed", &truck->base,
+				OBJTYPE_TRUCK, -1, &truck_object_count,
+				&truck_source_type)) {
+			return 1;
+		}
+		truck->speedaim = speedaim;
+		truck->speedtime60 = speedtime;
 	}
-	if (g_Vars.hovercar) {
-		g_Vars.hovercar->speedaim = speedaim;
-		g_Vars.hovercar->speedtime60 = speedtime;
+	if (hovercar) {
+		if (!s_aiGraphRequireRuntimeVehicleObjectPointer(
+				"set_vehicle_speed", &hovercar->base,
+				OBJTYPE_HOVERCAR, OBJTYPE_CHOPPER,
+				&hovercar_object_count, &hovercar_source_type)) {
+			return 1;
+		}
+		hovercar->speedaim = speedaim;
+		hovercar->speedtime60 = speedtime;
 	}
 	g_Vars.aioffset += 6;
 
 	if (!s_ActiveScenarioGraphs.ai_action_set_vehicle_speed_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action set_vehicle_speed speedaim=%.3f speedtime=%.3f source=%s backend=graph.ai.action.vehicle+ai/ailists.tsv",
-			speedaim, speedtime, s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI action set_vehicle_speed vehicle_rows=%d truck_type=%d hovercar_type=%d speedaim=%.3f speedtime=%.3f source=%s objects=%s backend=graph.ai.action.vehicle+ai/ailists.tsv+objects.tsv",
+			truck_object_count > hovercar_object_count
+				? truck_object_count : hovercar_object_count,
+			truck_source_type, hovercar_source_type, speedaim,
+			speedtime, s_ActiveScenarioGraphs.ai_lists_path,
+			s_ActiveScenarioGraphs.objects_path);
 		s_ActiveScenarioGraphs.ai_action_set_vehicle_speed_logged = 1;
 	}
 	return 1;
@@ -24285,22 +32131,34 @@ s32 scenarioSourceAiGraphExecuteSetVehicleSpeed(f32 speedaim, f32 speedtime)
 
 s32 scenarioSourceAiGraphExecuteSetRotorSpeed(f32 speedaim, f32 speedtime)
 {
+	struct heliobj *heli = g_Vars.heli;
+	s32 vehicle_count = 0;
+	s32 source_vehicle_type = -1;
+
 	if (!s_aiGraphRequireVehicleNode("set_rotor_speed",
 			s_ActiveScenarioGraphs.level_ai_set_rotor_speed_node_count,
 			0)) {
 		return 0;
 	}
 
-	if (g_Vars.heli) {
-		g_Vars.heli->rotoryspeedaim = speedaim;
-		g_Vars.heli->rotoryspeedtime = speedtime;
+	if (heli) {
+		if (!s_aiGraphRequireRuntimeVehicleObjectPointer(
+				"set_rotor_speed", &heli->base,
+				OBJTYPE_HELI, -1, &vehicle_count,
+				&source_vehicle_type)) {
+			return 1;
+		}
+		heli->rotoryspeedaim = speedaim;
+		heli->rotoryspeedtime = speedtime;
 	}
 	g_Vars.aioffset += 6;
 
 	if (!s_ActiveScenarioGraphs.ai_action_set_rotor_speed_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action set_rotor_speed speedaim=%.3f speedtime=%.3f source=%s backend=graph.ai.action.vehicle+ai/ailists.tsv",
-			speedaim, speedtime, s_ActiveScenarioGraphs.ai_lists_path);
+			"SCENARIO.GRAPH: AI action set_rotor_speed vehicle_rows=%d source_vehicle_type=%d speedaim=%.3f speedtime=%.3f source=%s objects=%s backend=graph.ai.action.vehicle+ai/ailists.tsv+objects.tsv",
+			vehicle_count, source_vehicle_type, speedaim, speedtime,
+			s_ActiveScenarioGraphs.ai_lists_path,
+			s_ActiveScenarioGraphs.objects_path);
 		s_ActiveScenarioGraphs.ai_action_set_rotor_speed_logged = 1;
 	}
 	return 1;
@@ -24920,10 +32778,44 @@ static s32 s_setupGraphRuntimeFailure(u8 type, s32 record_index,
 	return 0;
 }
 
+static s32 s_setupGraphValidateBlockedPathWaypoints(u8 type,
+	s32 record_index, s32 waypoint1, s32 waypoint2)
+{
+	s32 waypoint_count;
+	char reason[128];
+
+	if (type != OBJTYPE_BLOCKEDPATH) {
+		return 1;
+	}
+	if (!s_ActiveScenarioGraphs.waypoints_path[0]) {
+		return s_setupGraphRuntimeFailure(type, record_index,
+			"missing navigation/waypoints.tsv source");
+	}
+	waypoint_count = s_countRuntimeWaypoints();
+	if (waypoint_count <= 0) {
+		return s_setupGraphRuntimeFailure(type, record_index,
+			"missing source-derived runtime waypoint table");
+	}
+	if (waypoint1 < 0 || waypoint1 >= waypoint_count) {
+		snprintf(reason, sizeof(reason),
+			"blocked_path waypoint_1 %d does not point at a source row (waypoint rows=%d)",
+			waypoint1, waypoint_count);
+		return s_setupGraphRuntimeFailure(type, record_index, reason);
+	}
+	if (waypoint2 < 0 || waypoint2 >= waypoint_count) {
+		snprintf(reason, sizeof(reason),
+			"blocked_path waypoint_2 %d does not point at a source row (waypoint rows=%d)",
+			waypoint2, waypoint_count);
+		return s_setupGraphRuntimeFailure(type, record_index, reason);
+	}
+	return 1;
+}
+
 s32 scenarioSourceSetupGraphRecordBehaviorLink(u8 type, s32 record_index,
 	s32 target0, s32 target1, s32 target2, s32 aux0, s32 aux1)
 {
 	const char *kind = s_setupBehaviorLinkKindForType(type);
+	u32 log_bit = s_setupBehaviorLinkLogBit(type);
 	s32 targets[3];
 	s32 aux[2];
 
@@ -24945,6 +32837,11 @@ s32 scenarioSourceSetupGraphRecordBehaviorLink(u8 type, s32 record_index,
 	aux[0] = aux0;
 	aux[1] = aux1;
 
+	if (!s_setupGraphValidateBlockedPathWaypoints(type, record_index,
+			aux[0], aux[1])) {
+		return 0;
+	}
+
 	for (s32 i = 0; i < s_ActiveScenarioGraphs.setup_link_count; i++) {
 		scenario_source_setup_link_t *link =
 			&s_ActiveScenarioGraphs.setup_links[i];
@@ -24958,13 +32855,15 @@ s32 scenarioSourceSetupGraphRecordBehaviorLink(u8 type, s32 record_index,
 		}
 
 		link->matched = 1;
-		if (!s_ActiveScenarioGraphs.setup_link_logged) {
+		if (log_bit != 0 &&
+				!(s_ActiveScenarioGraphs.setup_link_logged_mask &
+					log_bit)) {
 			sysLogPrintf(LOG_NOTE,
 				"SCENARIO.GRAPH: setup behavior link registered from graph source '%s' record=%d kind=%s backend=graph.setup.links+setup.fields.tsv",
 				s_ActiveScenarioGraphs.setup_fields_path,
 				record_index,
 				kind);
-			s_ActiveScenarioGraphs.setup_link_logged = 1;
+			s_ActiveScenarioGraphs.setup_link_logged_mask |= log_bit;
 		}
 		return 1;
 	}
@@ -24974,71 +32873,176 @@ s32 scenarioSourceSetupGraphRecordBehaviorLink(u8 type, s32 record_index,
 }
 
 static s32 s_loadNavigationTables(const asset_entry_t *scenario,
+                                  const scenario_source_pad_row_t *pads,
+                                  s32 pad_count,
+                                  const char *pads_path,
                                   scenario_source_navigation_t *nav)
 {
-	char path[FS_MAXPATH + 1];
+	char waypoints_path[FS_MAXPATH + 1];
+	char waygroups_path[FS_MAXPATH + 1];
+	char covers_path[FS_MAXPATH + 1];
+	char paths_path[FS_MAXPATH + 1];
+	scenario_source_path_table_t path_table;
 	char *text;
 	u32 text_size;
+	s32 path_table_loaded;
 
 	if (!scenario || !nav) {
 		return 0;
 	}
 
 	memset(nav, 0, sizeof(*nav));
+	memset(&path_table, 0, sizeof(path_table));
+	paths_path[0] = '\0';
+	path_table_loaded = 0;
 
 	if (s_activeGraphPathForScenario(scenario,
-			s_ActiveScenarioGraphs.waypoints_path, path, sizeof(path))
+			s_ActiveScenarioGraphs.waypoints_path, waypoints_path,
+			sizeof(waypoints_path))
 			|| s_scenarioMemberPath(scenario, "navigation/waypoints.tsv",
-			path, sizeof(path))) {
-		text = s_loadOptionalText(path, &text_size);
-		if (text) {
-			if (!s_parseWaypointsTsv(text, nav)) {
-				sysLogPrintf(LOG_ERROR,
-					"SCENARIO.SOURCE: invalid public navigation table '%s'",
-					path);
-				free(text);
-				s_freeNavigation(nav);
-				return 0;
-			}
-			free(text);
-		}
+			waypoints_path, sizeof(waypoints_path))) {
+		text = s_loadOptionalText(waypoints_path, &text_size);
+	} else {
+		text = NULL;
+		waypoints_path[0] = '\0';
 	}
+	if (!text) {
+		sysLogPrintf(LOG_ERROR,
+			"SCENARIO.SOURCE: missing public navigation table 'navigation/waypoints.tsv' for '%s'",
+			scenario->id);
+		s_freeNavigation(nav);
+		return 0;
+	}
+	if (!s_parseWaypointsTsv(text, nav)) {
+		sysLogPrintf(LOG_ERROR,
+			"SCENARIO.SOURCE: invalid public navigation table '%s'",
+			waypoints_path);
+		free(text);
+		s_freeNavigation(nav);
+		return 0;
+	}
+	free(text);
 
 	if (s_activeGraphPathForScenario(scenario,
-			s_ActiveScenarioGraphs.waygroups_path, path, sizeof(path))
+			s_ActiveScenarioGraphs.waygroups_path, waygroups_path,
+			sizeof(waygroups_path))
 			|| s_scenarioMemberPath(scenario, "navigation/waygroups.tsv",
-			path, sizeof(path))) {
-		text = s_loadOptionalText(path, &text_size);
-		if (text) {
-			if (!s_parseWaygroupsTsv(text, nav)) {
-				sysLogPrintf(LOG_ERROR,
-					"SCENARIO.SOURCE: invalid public navigation table '%s'",
-					path);
-				free(text);
-				s_freeNavigation(nav);
-				return 0;
-			}
-			free(text);
-		}
+			waygroups_path, sizeof(waygroups_path))) {
+		text = s_loadOptionalText(waygroups_path, &text_size);
+	} else {
+		text = NULL;
+		waygroups_path[0] = '\0';
 	}
+	if (!text) {
+		sysLogPrintf(LOG_ERROR,
+			"SCENARIO.SOURCE: missing public navigation table 'navigation/waygroups.tsv' for '%s'",
+			scenario->id);
+		s_freeNavigation(nav);
+		return 0;
+	}
+	if (!s_parseWaygroupsTsv(text, nav)) {
+		sysLogPrintf(LOG_ERROR,
+			"SCENARIO.SOURCE: invalid public navigation table '%s'",
+			waygroups_path);
+		free(text);
+		s_freeNavigation(nav);
+		return 0;
+	}
+	free(text);
 
 	if (s_activeGraphPathForScenario(scenario,
-			s_ActiveScenarioGraphs.covers_path, path, sizeof(path))
+			s_ActiveScenarioGraphs.covers_path, covers_path,
+			sizeof(covers_path))
 			|| s_scenarioMemberPath(scenario, "navigation/covers.tsv",
-			path, sizeof(path))) {
-		text = s_loadOptionalText(path, &text_size);
-		if (text) {
-			if (!s_parseCoversTsv(text, nav)) {
-				sysLogPrintf(LOG_ERROR,
-					"SCENARIO.SOURCE: invalid public navigation table '%s'",
-					path);
-				free(text);
-				s_freeNavigation(nav);
-				return 0;
-			}
-			free(text);
-		}
+			covers_path, sizeof(covers_path))) {
+		text = s_loadOptionalText(covers_path, &text_size);
+	} else {
+		text = NULL;
+		covers_path[0] = '\0';
 	}
+	if (!text) {
+		sysLogPrintf(LOG_ERROR,
+			"SCENARIO.SOURCE: missing public navigation table 'navigation/covers.tsv' for '%s'",
+			scenario->id);
+		s_freeNavigation(nav);
+		return 0;
+	}
+	if (!s_parseCoversTsv(text, nav)) {
+		sysLogPrintf(LOG_ERROR,
+			"SCENARIO.SOURCE: invalid public navigation table '%s'",
+			covers_path);
+		free(text);
+		s_freeNavigation(nav);
+		return 0;
+	}
+	free(text);
+
+	if (nav->waypoint_count == 0 && nav->waygroup_count == 0 &&
+			nav->cover_count == 0) {
+		if (s_activeGraphPathForScenario(scenario,
+				s_ActiveScenarioGraphs.paths_path, paths_path,
+				sizeof(paths_path))
+				|| s_scenarioMemberPath(scenario, "navigation/paths.tsv",
+				paths_path, sizeof(paths_path))) {
+			text = s_loadOptionalText(paths_path, &text_size);
+			if (text) {
+				if (!s_loadPathSourceRows(text, &path_table)) {
+					sysLogPrintf(LOG_ERROR,
+						"SCENARIO.SOURCE: invalid public navigation path table '%s'",
+						paths_path);
+					free(text);
+					s_freeNavigation(nav);
+					s_freePathTable(&path_table);
+					return 0;
+				}
+				path_table_loaded = 1;
+				free(text);
+			}
+		} else {
+			paths_path[0] = '\0';
+		}
+
+		if (!s_generateNavigationTablesFromPads(pads, pad_count,
+				path_table_loaded ? &path_table : NULL, nav)) {
+			sysLogPrintf(LOG_ERROR,
+				"SCENARIO.SOURCE: could not generate deterministic public navigation tables from pads.tsv for '%s'",
+				scenario->id);
+			s_freeNavigation(nav);
+			s_freePathTable(&path_table);
+			return 0;
+		}
+		if (path_table_loaded && path_table.count > 0) {
+			s32 directional_segments =
+				s_countNavigationDirectionalSegments(nav);
+			sysLogPrintf(LOG_NOTE,
+				"SCENARIO.SOURCE: generated deterministic navigation tables from public pads.tsv '%s' and navigation/paths.tsv '%s' through empty waypoint, waygroup, and cover sources as %d waypoints, %d waygroups, %d covers, %d path edges, %d branch waypoints backend=source.navigation.generated+pads.tsv+navigation/paths.tsv+navigation/waypoints.tsv+navigation/waygroups.tsv+navigation/covers.tsv",
+				(pads_path && pads_path[0]) ? pads_path : "pads.tsv",
+				paths_path,
+				nav->waypoint_count, nav->waygroup_count,
+				nav->cover_count,
+				s_countNavigationWaypointEdges(nav),
+				s_countNavigationBranchWaypoints(nav));
+			if (directional_segments > 0) {
+				sysLogPrintf(LOG_NOTE,
+					"SCENARIO.SOURCE: generated directional path segments from public navigation/paths.tsv '%s' as %d flagged neighbour refs backend=source.navigation.generated+navigation/paths.tsv+waypoint-segment-flags",
+					paths_path, directional_segments);
+			}
+		} else {
+			sysLogPrintf(LOG_NOTE,
+				"SCENARIO.SOURCE: generated deterministic navigation tables from public pads.tsv '%s' through empty waypoint, waygroup, and cover sources as %d waypoints, %d waygroups, %d covers backend=source.navigation.generated+pads.tsv+navigation/waypoints.tsv+navigation/waygroups.tsv+navigation/covers.tsv",
+				(pads_path && pads_path[0]) ? pads_path : "pads.tsv",
+				nav->waypoint_count, nav->waygroup_count,
+				nav->cover_count);
+		}
+		s_freePathTable(&path_table);
+	}
+
+	sysLogPrintf(LOG_NOTE,
+		"SCENARIO.SOURCE: compiled navigation tables waypoints '%s', waygroups '%s', covers '%s' as %d waypoints, %d waygroups, %d covers, waypoint_neighbour_refs=%d, waygroup_neighbour_refs=%d backend=source.navigation.tables+navigation/waypoints.tsv+navigation/waygroups.tsv+navigation/covers.tsv",
+		waypoints_path, waygroups_path, covers_path,
+		nav->waypoint_count, nav->waygroup_count, nav->cover_count,
+		s_countNavigationWaypointNeighbourRefs(nav),
+		s_countNavigationWaygroupNeighbourRefs(nav));
 
 	return 1;
 }
@@ -25316,11 +33320,19 @@ u8 *scenarioSourceLoadSetupForStage(const catalog_stage_result_t *stage,
 	stageid = (stage && stage->entry && stage->entry->id[0])
 		? stage->entry->id : "?";
 	if (setup_data) {
+		s_activeGraphSetSourceSetupChrRefs(&table);
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.SOURCE: compiled setup.fields.tsv '%s', spawns.tsv '%s', navigation/paths.tsv '%s', and ai/ailists.tsv '%s' for stage '%s' as %d setup records, %d spawns, %d paths, %d AI lists (%d bytes)",
+			"SCENARIO.SOURCE: compiled setup.fields.tsv '%s', spawns.tsv '%s', navigation/paths.tsv '%s', and ai/ailists.tsv '%s' for stage '%s' as %d setup records, %d spawns, %d paths, %d AI lists (%d bytes) path_flags=circular:%d,flying:%d",
 			setup_path, spawns_path, paths_path, ai_lists_path, stageid,
 			table.count, spawn_table.count, path_table.count, ai_table.count,
-			out_size ? *out_size : 0);
+			out_size ? *out_size : 0,
+			s_countPathRowsWithFlag(&path_table, PATHFLAG_CIRCULAR),
+			s_countPathRowsWithFlag(&path_table, PATHFLAG_FLYING));
+	} else {
+		s_ActiveScenarioGraphs.source_setup_chr_count = 0;
+		s_ActiveScenarioGraphs.source_setup_chr_ref_count = 0;
+		s_ActiveScenarioGraphs.source_setup_record_count = 0;
+		s_ActiveScenarioGraphs.source_setup_record_ref_count = 0;
 	}
 
 	s_setupFreeTable(&table);
@@ -25655,7 +33667,7 @@ u8 *scenarioSourceLoadPadsForStage(const catalog_stage_result_t *stage,
 		return NULL;
 	}
 
-	if (!s_loadNavigationTables(scenario, &nav)) {
+	if (!s_loadNavigationTables(scenario, rows, row_count, pads_path, &nav)) {
 		if (rows) {
 			free(rows);
 		}

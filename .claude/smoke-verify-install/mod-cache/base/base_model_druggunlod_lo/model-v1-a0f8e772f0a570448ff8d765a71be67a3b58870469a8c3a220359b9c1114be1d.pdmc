@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 1,
+  "asset_id": "base:model_druggunlod_lo",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_druggunlod_lo.pdmesh::model.obj",
+  "source_size": 33780,
+  "source_sha256": "a0f8e772f0a570448ff8d765a71be67a3b58870469a8c3a220359b9c1114be1d",
+  "validation": "format=obj vertices=531 triangles=177",
+  "normalized": "$S/mod-cache/base/base_model_druggunlod_lo/model-v1-a0f8e772f0a570448ff8d765a71be67a3b58870469a8c3a220359b9c1114be1d.pdmodel.json",
+  "vertex_count": 531,
+  "triangle_count": 177,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 1,
+  "asset_id": "base:model_ctheking",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_ctheking.pdmesh::model.obj",
+  "source_size": 134170,
+  "source_sha256": "22f12fd1920b91ff1f9f5bd1e66a140c0a5f2d8e5ef1188de948f97d76b3c3f8",
+  "validation": "format=obj vertices=1977 triangles=659",
+  "normalized": "$S/mod-cache/base/base_model_ctheking/model-v1-22f12fd1920b91ff1f9f5bd1e66a140c0a5f2d8e5ef1188de948f97d76b3c3f8.pdmodel.json",
+  "vertex_count": 1977,
+  "triangle_count": 659,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

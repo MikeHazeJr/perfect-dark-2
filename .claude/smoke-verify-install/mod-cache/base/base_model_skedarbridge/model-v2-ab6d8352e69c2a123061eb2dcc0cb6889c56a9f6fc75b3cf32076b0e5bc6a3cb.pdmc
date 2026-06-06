@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_skedarbridge",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_skedarbridge.pdmesh::model.obj",
+  "source_size": 1324,
+  "source_sha256": "ab6d8352e69c2a123061eb2dcc0cb6889c56a9f6fc75b3cf32076b0e5bc6a3cb",
+  "validation": "format=obj vertices=18 triangles=6",
+  "normalized": "$S/mod-cache/base/base_model_skedarbridge/model-v2-ab6d8352e69c2a123061eb2dcc0cb6889c56a9f6fc75b3cf32076b0e5bc6a3cb.pdmodel.json",
+  "vertex_count": 18,
+  "triangle_count": 6,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

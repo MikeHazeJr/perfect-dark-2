@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_chrskminigun",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_chrskminigun.pdmesh::model.obj",
+  "source_size": 15079,
+  "source_sha256": "ada9f35aeaa5b4d3ec504c9277c620ff01e12f3bb91cae9800b84d9e5d3200ba",
+  "validation": "format=obj vertices=225 triangles=75",
+  "normalized": "$S/mod-cache/base/base_model_chrskminigun/model-v2-ada9f35aeaa5b4d3ec504c9277c620ff01e12f3bb91cae9800b84d9e5d3200ba.pdmodel.json",
+  "vertex_count": 225,
+  "triangle_count": 75,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

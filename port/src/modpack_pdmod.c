@@ -391,6 +391,7 @@ static const char *packerSidecarTemplate(const char *leaf)
 			"generator = deterministic.surface_graph.v1\n"
 			"supports_walk = true\n"
 			"supports_jump = true\n"
+			"supports_drop = true\n"
 			"supports_wall = true\n"
 			"supports_ceiling = true\n";
 	}

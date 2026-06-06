@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_crossbow_hi",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_crossbow_hi.pdmesh::model.obj",
+  "source_size": 65265,
+  "source_sha256": "05f3236400650738c3625a3ea42a6f1315fa6f97e92f986ea84eec33396f686a",
+  "validation": "format=obj vertices=1029 triangles=343",
+  "normalized": "$S/mod-cache/base/base_model_crossbow_hi/model-v2-05f3236400650738c3625a3ea42a6f1315fa6f97e92f986ea84eec33396f686a.pdmodel.json",
+  "vertex_count": 1029,
+  "triangle_count": 343,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_leegun1_hi",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_leegun1_hi.pdmesh::model.obj",
+  "source_size": 57584,
+  "source_sha256": "6f7b936b1ba0c109b32e2307e3f01e02fcd04d1752375ee285860c4dbc1f1083",
+  "validation": "format=obj vertices=870 triangles=290",
+  "normalized": "$S/mod-cache/base/base_model_leegun1_hi/model-v2-6f7b936b1ba0c109b32e2307e3f01e02fcd04d1752375ee285860c4dbc1f1083.pdmodel.json",
+  "vertex_count": 870,
+  "triangle_count": 290,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

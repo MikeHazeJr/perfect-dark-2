@@ -1,0 +1,131 @@
+{
+  "scenario_name": "all_family_source_matrix_batch_057",
+  "BugId": "B-509",
+  "category": "modding",
+  "description": "c3844 runtime matrix smoke: source-only catalog load batch 57 for extracted non-Scenario public typed archives. Missing debug-load request/result blocks are B-509 harness observability failures.",
+  "tags": [
+    "modding",
+    "pdxxx",
+    "source-gate",
+    "source-matrix",
+    "all-family",
+    "c3844",
+    "smoke",
+    "pillar:modding"
+  ],
+  "paths_of_interest": [
+    "port/src/main.c",
+    "port/src/asset_source_debug.c",
+    "port/src/assetcatalog_load.c",
+    "tools/smoke-verify/run-all-family-source-matrix.ps1",
+    "tools/smoke-verify/fixtures/all_family_source_pd.ini"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 180,
+  "install_state": "clean",
+  "fixtures": [
+    {
+      "src": "tools/smoke-verify/fixtures/all_family_source_pd.ini",
+      "dst": "pd.ini"
+    },
+    {
+      "src": "tools/smoke-verify/fixtures/no_mods_enabled.json",
+      "dst": "mods-enabled.json"
+    }
+  ],
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--portable",
+    "--debug-load-catalog-assets-source-only",
+    "--debug-load-catalog-assets",
+    "body=base:dalton,body=base:dark_af1,body=base:dark_combat,body=base:dark_frock,body=base:dark_leather,body=base:dark_negotiator,body=base:dark_ripped,body=base:dark_trench,body=base:darkaqualung,body=base:darklab,body=base:darksnow,body=base:darkwet,body=base:dd_guard,body=base:dd_labtech,body=base:dd_secguard,body=base:dd_shock_inf,body=base:ddshock,body=base:ddsniper,body=base:djbond,body=base:drcaroll"
+  ],
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait",
+      "comment": "catalog bootstrap extracts and walks base typed archives before source-only typed-load requests fire."
+    },
+    {
+      "at_ms": 35000,
+      "type": "exit",
+      "comment": "exit after all requested typed assets have loaded or emitted source-only failures."
+    }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=all_family_source_matrix_batch_057",
+      "BOOT: --debug-load-catalog-assets request type=body id='base:dalton' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=body id='base:dalton' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=body id='base:dark_af1' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=body id='base:dark_af1' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=body id='base:dark_combat' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=body id='base:dark_combat' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=body id='base:dark_frock' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=body id='base:dark_frock' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=body id='base:dark_leather' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=body id='base:dark_leather' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=body id='base:dark_negotiator' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=body id='base:dark_negotiator' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=body id='base:dark_ripped' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=body id='base:dark_ripped' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=body id='base:dark_trench' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=body id='base:dark_trench' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=body id='base:darkaqualung' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=body id='base:darkaqualung' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=body id='base:darklab' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=body id='base:darklab' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=body id='base:darksnow' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=body id='base:darksnow' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=body id='base:darkwet' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=body id='base:darkwet' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=body id='base:dd_guard' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=body id='base:dd_guard' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=body id='base:dd_labtech' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=body id='base:dd_labtech' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=body id='base:dd_secguard' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=body id='base:dd_secguard' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=body id='base:dd_shock_inf' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=body id='base:dd_shock_inf' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=body id='base:ddshock' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=body id='base:ddshock' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=body id='base:ddsniper' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=body id='base:ddsniper' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=body id='base:djbond' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=body id='base:djbond' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=body id='base:drcaroll' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=body id='base:drcaroll' result=OK",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "ASSET\\.SOURCE_ONLY",
+      "has no public FileProvider source",
+      "--debug-load-catalog-assets invalid token",
+      "--debug-load-catalog-assets token '.*' missing type=id form",
+      "--debug-load-catalog-assets argument too long",
+      "result=FAIL",
+      "result=MISSING",
+      "RomProvider:filenum",
+      "refusing fallback"
+    ],
+    "required_counts": [
+      {
+        "pattern": "BOOT: --debug-load-catalog-assets request type=.* source_only=1",
+        "min": 20,
+        "max": 20
+      },
+      {
+        "pattern": "BOOT: --debug-load-catalog-assets result type=.* result=OK",
+        "min": 20,
+        "max": 20
+      }
+    ]
+  }
+}

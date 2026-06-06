@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_dr_caroll_door_main",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_dr_caroll_door_main.pdmesh::model.obj",
+  "source_size": 10181,
+  "source_sha256": "d7cf51b67c187b7b790c9e4d1905fc6640c6a976591ce02b02f5b80fc384a123",
+  "validation": "format=obj vertices=150 triangles=50",
+  "normalized": "$S/mod-cache/base/base_model_dr_caroll_door_main/model-v2-d7cf51b67c187b7b790c9e4d1905fc6640c6a976591ce02b02f5b80fc384a123.pdmodel.json",
+  "vertex_count": 150,
+  "triangle_count": 50,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

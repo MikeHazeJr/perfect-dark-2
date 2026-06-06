@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_newvilladoor",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_newvilladoor.pdmesh::model.obj",
+  "source_size": 4562,
+  "source_sha256": "01c264cfb08b3eb0a3c6ebed87e8667bbb28bfedc75c2ff5de406705188d891b",
+  "validation": "format=obj vertices=66 triangles=22",
+  "normalized": "$S/mod-cache/base/base_model_newvilladoor/model-v2-01c264cfb08b3eb0a3c6ebed87e8667bbb28bfedc75c2ff5de406705188d891b.pdmodel.json",
+  "vertex_count": 66,
+  "triangle_count": 22,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

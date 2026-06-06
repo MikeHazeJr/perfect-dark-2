@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 1,
+  "asset_id": "base:model_labcoat",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_labcoat.pdmesh::model.obj",
+  "source_size": 17843,
+  "source_sha256": "962a42dd838d269dc255ee730d1c19d4d5b94728952d8ee827f39cadf72524d9",
+  "validation": "format=obj vertices=270 triangles=90",
+  "normalized": "$S/mod-cache/base/base_model_labcoat/model-v1-962a42dd838d269dc255ee730d1c19d4d5b94728952d8ee827f39cadf72524d9.pdmodel.json",
+  "vertex_count": 270,
+  "triangle_count": 90,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

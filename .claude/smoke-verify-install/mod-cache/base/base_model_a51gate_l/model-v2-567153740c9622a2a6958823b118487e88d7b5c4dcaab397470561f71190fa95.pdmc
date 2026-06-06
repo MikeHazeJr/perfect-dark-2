@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_a51gate_l",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_a51gate_l.pdmesh::model.obj",
+  "source_size": 15012,
+  "source_sha256": "567153740c9622a2a6958823b118487e88d7b5c4dcaab397470561f71190fa95",
+  "validation": "format=obj vertices=213 triangles=71",
+  "normalized": "$S/mod-cache/base/base_model_a51gate_l/model-v2-567153740c9622a2a6958823b118487e88d7b5c4dcaab397470561f71190fa95.pdmodel.json",
+  "vertex_count": 213,
+  "triangle_count": 71,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

@@ -1,5 +1,6 @@
 #include <ultra64.h>
 #include "constants.h"
+#include "asset_source_debug.h"
 #include "game/chraicommands.h"
 #include "game/dlights.h"
 #include "game/propsnd.h"
@@ -16,6 +17,9 @@
 #include "lib/lib_317f0.h"
 #include "data.h"
 #include "types.h"
+#include "system.h"
+#include "fs.h"
+#include "romextract.h"
 
 struct pschannel *g_PsChannels = NULL;
 
@@ -1521,6 +1525,29 @@ void ps0f095270(void)
  * All MP3 files are 24 kilobits per second
  * so this is just math based on the filesize.
  */
+static s32 psMp3DurationGetSourceOrFallbackSize(s32 filenum)
+{
+	char relpath[FS_MAXPATH + 1];
+	s32 size;
+
+	if (romExtractRelPathForFilenum(filenum, relpath, (s32)sizeof(relpath)) > 0) {
+		size = fsFileSize(relpath);
+		if (size > 0) {
+			return size;
+		}
+	}
+
+	if (assetSourceDebugIsEnabledFor(ASSET_AUDIO)) {
+		sysFatalError("ASSET.SOURCE_ONLY: MP3 file %d has no readable public "
+		              "extracted source for duration; refusing ROM/static "
+		              "file-size fallback.",
+		              filenum);
+		return 0;
+	}
+
+	return fileGetRomSize(filenum);
+}
+
 s32 psGetDuration60(s32 channelnum)
 {
 	struct pschannel *channel = &g_PsChannels[channelnum];
@@ -1531,7 +1558,7 @@ s32 psGetDuration60(s32 channelnum)
 		union soundnumhack soundnum;
 		soundnum.packed = channel->soundnum26;
 
-		return fileGetRomSize(soundnum.id) * 60 / (1024 * 24 / 8);
+		return psMp3DurationGetSourceOrFallbackSize((s32)soundnum.id) * 60 / (1024 * 24 / 8);
 	}
 
 	return -1;

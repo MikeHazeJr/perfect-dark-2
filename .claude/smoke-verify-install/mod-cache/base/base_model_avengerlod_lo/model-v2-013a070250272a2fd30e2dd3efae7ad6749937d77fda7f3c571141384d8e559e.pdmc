@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_avengerlod_lo",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_avengerlod_lo.pdmesh::model.obj",
+  "source_size": 35347,
+  "source_sha256": "013a070250272a2fd30e2dd3efae7ad6749937d77fda7f3c571141384d8e559e",
+  "validation": "format=obj vertices=555 triangles=185",
+  "normalized": "$S/mod-cache/base/base_model_avengerlod_lo/model-v2-013a070250272a2fd30e2dd3efae7ad6749937d77fda7f3c571141384d8e559e.pdmodel.json",
+  "vertex_count": 555,
+  "triangle_count": 185,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

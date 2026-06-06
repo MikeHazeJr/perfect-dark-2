@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 1,
+  "asset_id": "base:model_testgun_lo",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_testgun_lo.pdmesh::model.obj",
+  "source_size": 61823,
+  "source_sha256": "8aee380acf155fb3e681f07ed5818afb9c0e6ad728dc15777b86d7df67dd850d",
+  "validation": "format=obj vertices=972 triangles=324",
+  "normalized": "$S/mod-cache/base/base_model_testgun_lo/model-v1-8aee380acf155fb3e681f07ed5818afb9c0e6ad728dc15777b86d7df67dd850d.pdmodel.json",
+  "vertex_count": 972,
+  "triangle_count": 324,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

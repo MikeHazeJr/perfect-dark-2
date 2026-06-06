@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_cjonathon",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_cjonathon.pdmesh::model.obj",
+  "source_size": 91765,
+  "source_sha256": "766e00f7b8df57de4b4ba65c55a22e74d51e01fd7be4bdfdb5b35791efcde23c",
+  "validation": "format=obj vertices=1359 triangles=453",
+  "normalized": "$S/mod-cache/base/base_model_cjonathon/model-v2-766e00f7b8df57de4b4ba65c55a22e74d51e01fd7be4bdfdb5b35791efcde23c.pdmodel.json",
+  "vertex_count": 1359,
+  "triangle_count": 453,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

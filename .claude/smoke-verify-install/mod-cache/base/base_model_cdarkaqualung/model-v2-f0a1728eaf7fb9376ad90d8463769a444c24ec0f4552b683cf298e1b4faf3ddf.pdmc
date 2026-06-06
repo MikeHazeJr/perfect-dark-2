@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_cdarkaqualung",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_cdarkaqualung.pdmesh::model.obj",
+  "source_size": 162702,
+  "source_sha256": "f0a1728eaf7fb9376ad90d8463769a444c24ec0f4552b683cf298e1b4faf3ddf",
+  "validation": "format=obj vertices=2397 triangles=799",
+  "normalized": "$S/mod-cache/base/base_model_cdarkaqualung/model-v2-f0a1728eaf7fb9376ad90d8463769a444c24ec0f4552b683cf298e1b4faf3ddf.pdmodel.json",
+  "vertex_count": 2397,
+  "triangle_count": 799,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

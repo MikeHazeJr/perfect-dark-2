@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 1,
+  "asset_id": "base:model_al_docklift",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_al_docklift.pdmesh::model.obj",
+  "source_size": 5005,
+  "source_sha256": "1d14acad146f5f3ee31019be0116459e2c40af2b0b0b263b39540f50a9a689ad",
+  "validation": "format=obj vertices=72 triangles=24",
+  "normalized": "$S/mod-cache/base/base_model_al_docklift/model-v1-1d14acad146f5f3ee31019be0116459e2c40af2b0b0b263b39540f50a9a689ad.pdmodel.json",
+  "vertex_count": 72,
+  "triangle_count": 24,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

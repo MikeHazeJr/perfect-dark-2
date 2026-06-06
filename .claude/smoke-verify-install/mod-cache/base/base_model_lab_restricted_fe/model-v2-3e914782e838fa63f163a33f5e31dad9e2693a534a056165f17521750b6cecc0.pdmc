@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_lab_restricted_fe",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_lab_restricted_fe.pdmesh::model.obj",
+  "source_size": 9852,
+  "source_sha256": "3e914782e838fa63f163a33f5e31dad9e2693a534a056165f17521750b6cecc0",
+  "validation": "format=obj vertices=144 triangles=48",
+  "normalized": "$S/mod-cache/base/base_model_lab_restricted_fe/model-v2-3e914782e838fa63f163a33f5e31dad9e2693a534a056165f17521750b6cecc0.pdmodel.json",
+  "vertex_count": 144,
+  "triangle_count": 48,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

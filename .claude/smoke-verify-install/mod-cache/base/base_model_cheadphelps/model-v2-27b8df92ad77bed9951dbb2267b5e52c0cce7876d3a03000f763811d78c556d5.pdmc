@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_cheadphelps",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_cheadphelps.pdmesh::model.obj",
+  "source_size": 37556,
+  "source_sha256": "27b8df92ad77bed9951dbb2267b5e52c0cce7876d3a03000f763811d78c556d5",
+  "validation": "format=obj vertices=573 triangles=191",
+  "normalized": "$S/mod-cache/base/base_model_cheadphelps/model-v2-27b8df92ad77bed9951dbb2267b5e52c0cce7876d3a03000f763811d78c556d5.pdmodel.json",
+  "vertex_count": 573,
+  "triangle_count": 191,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

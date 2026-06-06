@@ -1,0 +1,121 @@
+{
+  "scenario_name": "all_family_source_matrix_batch_012",
+  "description": "c3844 runtime matrix smoke: source-only catalog load batch 12 for extracted non-Scenario public typed archives.",
+  "tags": [
+    "modding",
+    "pdxxx",
+    "source-gate",
+    "source-matrix",
+    "all-family",
+    "c3844",
+    "smoke",
+    "pillar:modding"
+  ],
+  "paths_of_interest": [
+    "port/src/main.c",
+    "port/src/asset_source_debug.c",
+    "port/src/assetcatalog_load.c",
+    "tools/smoke-verify/run-all-family-source-matrix.ps1",
+    "tools/smoke-verify/fixtures/all_family_source_pd.ini"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 180,
+  "install_state": "clean",
+  "fixtures": [
+    {
+      "src": "tools/smoke-verify/fixtures/all_family_source_pd.ini",
+      "dst": "pd.ini"
+    },
+    {
+      "src": "tools/smoke-verify/fixtures/no_mods_enabled.json",
+      "dst": "mods-enabled.json"
+    }
+  ],
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--portable",
+    "--debug-load-catalog-assets-source-only",
+    "--debug-load-catalog-assets",
+    "weapon=base:ar34,weapon=base:autosurgeon,weapon=base:backupdisk,weapon=base:bolt,weapon=base:briefcase,weapon=base:briefcase2,weapon=base:callisto,weapon=base:camspy,weapon=base:choppergun,weapon=base:cloakingdevice,weapon=base:cmp150,weapon=base:combatboost,weapon=base:combatknife,weapon=base:commsrider,weapon=base:crossbow,weapon=base:cyclone,weapon=base:datauplink,weapon=base:devastator,weapon=base:disguise40,weapon=base:disguise41"
+  ],
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait",
+      "comment": "catalog bootstrap extracts and walks base typed archives before source-only typed-load requests fire."
+    },
+    {
+      "at_ms": 35000,
+      "type": "exit",
+      "comment": "exit after all requested typed assets have loaded or emitted source-only failures."
+    }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=all_family_source_matrix_batch_012",
+      "BOOT: --debug-load-catalog-assets request type=weapon id='base:ar34' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=weapon id='base:ar34' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=weapon id='base:autosurgeon' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=weapon id='base:autosurgeon' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=weapon id='base:backupdisk' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=weapon id='base:backupdisk' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=weapon id='base:bolt' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=weapon id='base:bolt' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=weapon id='base:briefcase' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=weapon id='base:briefcase' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=weapon id='base:briefcase2' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=weapon id='base:briefcase2' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=weapon id='base:callisto' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=weapon id='base:callisto' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=weapon id='base:camspy' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=weapon id='base:camspy' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=weapon id='base:choppergun' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=weapon id='base:choppergun' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=weapon id='base:cloakingdevice' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=weapon id='base:cloakingdevice' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=weapon id='base:cmp150' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=weapon id='base:cmp150' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=weapon id='base:combatboost' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=weapon id='base:combatboost' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=weapon id='base:combatknife' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=weapon id='base:combatknife' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=weapon id='base:commsrider' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=weapon id='base:commsrider' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=weapon id='base:crossbow' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=weapon id='base:crossbow' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=weapon id='base:cyclone' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=weapon id='base:cyclone' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=weapon id='base:datauplink' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=weapon id='base:datauplink' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=weapon id='base:devastator' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=weapon id='base:devastator' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=weapon id='base:disguise40' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=weapon id='base:disguise40' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=weapon id='base:disguise41' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=weapon id='base:disguise41' result=OK",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "ASSET\\.SOURCE_ONLY",
+      "has no public FileProvider source",
+      "result=FAIL",
+      "result=MISSING",
+      "RomProvider:filenum",
+      "refusing fallback"
+    ],
+    "required_counts": [
+      {
+        "pattern": "BOOT: --debug-load-catalog-assets result type=.* result=OK",
+        "min": 20,
+        "max": 20
+      }
+    ]
+  }
+}

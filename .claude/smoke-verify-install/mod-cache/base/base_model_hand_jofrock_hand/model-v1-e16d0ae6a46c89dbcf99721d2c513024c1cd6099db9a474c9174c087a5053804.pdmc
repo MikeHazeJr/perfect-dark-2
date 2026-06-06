@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 1,
+  "asset_id": "base:model_hand_jofrock_hand",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_hand_jofrock_hand.pdmesh::model.obj",
+  "source_size": 97124,
+  "source_sha256": "e16d0ae6a46c89dbcf99721d2c513024c1cd6099db9a474c9174c087a5053804",
+  "validation": "format=obj vertices=1440 triangles=480",
+  "normalized": "$S/mod-cache/base/base_model_hand_jofrock_hand/model-v1-e16d0ae6a46c89dbcf99721d2c513024c1cd6099db9a474c9174c087a5053804.pdmodel.json",
+  "vertex_count": 1440,
+  "triangle_count": 480,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_chrbug_lo",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_chrbug_lo.pdmesh::model.obj",
+  "source_size": 37930,
+  "source_sha256": "fab5b3132d53b96bd6b1bd46cb1568d4d47be81b62d66f722dcbfcc4428ef12d",
+  "validation": "format=obj vertices=582 triangles=194",
+  "normalized": "$S/mod-cache/base/base_model_chrbug_lo/model-v2-fab5b3132d53b96bd6b1bd46cb1568d4d47be81b62d66f722dcbfcc4428ef12d.pdmodel.json",
+  "vertex_count": 582,
+  "triangle_count": 194,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

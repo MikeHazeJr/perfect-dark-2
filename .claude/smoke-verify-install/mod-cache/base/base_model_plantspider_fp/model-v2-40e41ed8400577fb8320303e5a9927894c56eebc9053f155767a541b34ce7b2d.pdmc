@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_plantspider_fp",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_plantspider_fp.pdmesh::model.obj",
+  "source_size": 5375,
+  "source_sha256": "40e41ed8400577fb8320303e5a9927894c56eebc9053f155767a541b34ce7b2d",
+  "validation": "format=obj vertices=78 triangles=26",
+  "normalized": "$S/mod-cache/base/base_model_plantspider_fp/model-v2-40e41ed8400577fb8320303e5a9927894c56eebc9053f155767a541b34ce7b2d.pdmodel.json",
+  "vertex_count": 78,
+  "triangle_count": 26,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

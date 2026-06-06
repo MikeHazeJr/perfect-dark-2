@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_villastool",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_villastool.pdmesh::model.obj",
+  "source_size": 20914,
+  "source_sha256": "4bce4ab4bc96be8f76ae61b1e90135263b0a124076e894ef57b568048f1e01f9",
+  "validation": "format=obj vertices=324 triangles=108",
+  "normalized": "$S/mod-cache/base/base_model_villastool/model-v2-4bce4ab4bc96be8f76ae61b1e90135263b0a124076e894ef57b568048f1e01f9.pdmodel.json",
+  "vertex_count": 324,
+  "triangle_count": 108,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_mayansmglod_lo",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_mayansmglod_lo.pdmesh::model.obj",
+  "source_size": 35566,
+  "source_sha256": "4706070d8ced470b71f1f218e9fef0246fb8e6bf9665b93c5a958662ced1bda2",
+  "validation": "format=obj vertices=540 triangles=180",
+  "normalized": "$S/mod-cache/base/base_model_mayansmglod_lo/model-v2-4706070d8ced470b71f1f218e9fef0246fb8e6bf9665b93c5a958662ced1bda2.pdmodel.json",
+  "vertex_count": 540,
+  "triangle_count": 180,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

@@ -10,6 +10,7 @@ shape as the top-level samples.
 from __future__ import annotations
 
 import zipfile
+import hashlib
 import json
 from collections.abc import Iterable
 from pathlib import Path
@@ -18,7 +19,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1] / "examples" / "modding" / "typed-pdxxx-basic"
 ZIP_TIME = (1980, 1, 1, 0, 0, 0)
 SCENARIO_GRAPH_CACHE_KIND = (
-    "pdscenario_scene_glb_clean_public_v77_standalone_backfill_collision_obj_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_quip_shuffle_graph_portals"
+    "pdscenario_scene_glb_clean_public_v82_standalone_backfill_collision_obj_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_quip_shuffle_graph_portals_navhashes"
 )
 
 
@@ -57,6 +58,19 @@ def manifest(kind: str, catalog_id: str) -> str:
     )
 
 
+def count_tsv_data_rows(text: str | bytes) -> int:
+    if isinstance(text, bytes):
+        text = text.decode("utf-8", errors="replace")
+    lines = [line for line in text.splitlines() if line.strip()]
+    return max(0, len(lines) - 1)
+
+
+def sha256_hex(text: str | bytes) -> str:
+    if isinstance(text, str):
+        text = text.encode("utf-8")
+    return hashlib.sha256(text).hexdigest()
+
+
 def update_animation(rel: str, catalog_id: str, name: str, category: str) -> None:
     animation = read_entry(rel, "animation.gltf")
     write_archive(rel, [
@@ -86,7 +100,6 @@ def update_scenario() -> bytes:
         "objects.tsv": read_entry(rel, "objects.tsv"),
         "objectives.tsv": read_entry(rel, "objectives.tsv"),
         "_meta/generated-collision.json": read_entry(rel, "_meta/generated-collision.json"),
-        "_meta/generated-navmesh.json": read_entry(rel, "_meta/generated-navmesh.json"),
     }
     collision_obj = (
         "# Perfect Dark 2 example collision override\n"
@@ -104,6 +117,7 @@ def update_scenario() -> bytes:
         "generator = deterministic.surface_graph.v1\n"
         "supports_walk = true\n"
         "supports_jump = true\n"
+        "supports_drop = true\n"
         "supports_wall = true\n"
         "supports_ceiling = true\n"
         "pads_file = pads.tsv\n"
@@ -126,6 +140,19 @@ def update_scenario() -> bytes:
     paths_tsv = (
         "path_ref\tflags\tpads\n"
         "path_0000\t0x00\tpad_0000\n"
+    )
+    navmesh_meta_json = (
+        "{\n"
+        "  \"schema\": \"pd2.generated.navmesh.v1\",\n"
+        "  \"scenario\": \"example:tri_scenario\",\n"
+        "  \"derived_from\": \"scene.glb\",\n"
+        "  \"inputs\": [\"scene.glb\", \"collision.obj\", \"navigation.ini\", \"portals.tsv\", \"pads.tsv\", \"spawns.tsv\", \"volumes.tsv\", \"navigation/waypoints.tsv\", \"navigation/waygroups.tsv\", \"navigation/covers.tsv\", \"navigation/paths.tsv\"],\n"
+        "  \"generator\": \"deterministic.surface_graph.v1\",\n"
+        "  \"capabilities\": [\"walk\", \"jump\", \"drop\", \"wall\", \"ceiling\"],\n"
+        f"  \"source_counts\": {{ \"pads\": {count_tsv_data_rows(kept['pads.tsv'])}, \"volumes\": {count_tsv_data_rows(kept['volumes.tsv'])}, \"waypoints\": {count_tsv_data_rows(waypoints_tsv)}, \"waygroups\": {count_tsv_data_rows(waygroups_tsv)}, \"covers\": {count_tsv_data_rows(covers_tsv)}, \"paths\": {count_tsv_data_rows(paths_tsv)} }},\n"
+        f"  \"source_hashes\": {{ \"scene.glb\": \"{sha256_hex(kept['scene.glb'])}\", \"collision.obj\": \"{sha256_hex(collision_obj)}\", \"navigation.ini\": \"{sha256_hex(navigation_ini)}\", \"portals.tsv\": \"{sha256_hex(portals_tsv)}\", \"pads.tsv\": \"{sha256_hex(kept['pads.tsv'])}\", \"spawns.tsv\": \"{sha256_hex(kept['spawns.tsv'])}\", \"volumes.tsv\": \"{sha256_hex(kept['volumes.tsv'])}\", \"navigation/waypoints.tsv\": \"{sha256_hex(waypoints_tsv)}\", \"navigation/waygroups.tsv\": \"{sha256_hex(waygroups_tsv)}\", \"navigation/covers.tsv\": \"{sha256_hex(covers_tsv)}\", \"navigation/paths.tsv\": \"{sha256_hex(paths_tsv)}\" }},\n"
+        "  \"cache_only\": true\n"
+        "}\n"
     )
     setup_fields_tsv = (
         "record_id\tkind\tfield\ttype\tvalue\tcatalog_id\tref_record_id\n"
@@ -431,7 +458,7 @@ def update_scenario() -> bytes:
         "    { \"id\": \"scenario.ai.action.chr_copy_properties\", \"kind\": \"scenario.ai.action.chr_copy_properties\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.properties\", \"opcode\": \"0x0173\" },\n"
         "    { \"id\": \"scenario.ai.action.player_auto_walk\", \"kind\": \"scenario.ai.action.player_auto_walk\", \"source\": \"ai/ailists.tsv\", \"pads\": \"pads.tsv\", \"target\": \"player.autowalk\", \"opcode\": \"0x0177\" },\n"
         "    { \"id\": \"scenario.ai.condition.if_player_auto_walk_finished\", \"kind\": \"scenario.ai.condition.if_player_auto_walk_finished\", \"source\": \"ai/ailists.tsv\", \"target\": \"player.autowalk\", \"opcode\": \"0x0178\" },\n"
-        "    { \"id\": \"scenario.ai.condition.if_obj_in_room\", \"kind\": \"scenario.ai.condition.if_obj_in_room\", \"source\": \"ai/ailists.tsv\", \"objects\": \"objects.tsv\", \"scene\": \"scene.glb\", \"target\": \"object.room\", \"opcode\": \"0x00ef\" },\n"
+        "    { \"id\": \"scenario.ai.condition.if_obj_in_room\", \"kind\": \"scenario.ai.condition.if_obj_in_room\", \"source\": \"ai/ailists.tsv\", \"objects\": \"objects.tsv\", \"pads\": \"pads.tsv\", \"scene\": \"scene.glb\", \"target\": \"object.room\", \"opcode\": \"0x00ef\" },\n"
         "    { \"id\": \"scenario.ai.condition.if_player_looking_at_object\", \"kind\": \"scenario.ai.condition.if_player_looking_at_object\", \"source\": \"ai/ailists.tsv\", \"objects\": \"objects.tsv\", \"scene\": \"scene.glb\", \"target\": \"player.view.object\", \"opcode\": \"0x0181\" },\n"
         "    { \"id\": \"scenario.ai.condition.if_target_is_player\", \"kind\": \"scenario.ai.condition.if_target_is_player\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.target.type\", \"opcode\": \"0x0183\" },\n"
         "    { \"id\": \"scenario.ai.action.chr_kill\", \"kind\": \"scenario.ai.action.chr_kill\", \"source\": \"ai/ailists.tsv\", \"target\": \"character.state\", \"opcode\": \"0x01db\" },\n"
@@ -902,6 +929,7 @@ def update_scenario() -> bytes:
         "    { \"from\": \"scenario.ai.lists\", \"to\": \"scenario.ai.condition.if_player_auto_walk_finished\" },\n"
         "    { \"from\": \"scenario.ai.lists\", \"to\": \"scenario.ai.condition.if_obj_in_room\" },\n"
         "    { \"from\": \"setup.tables\", \"to\": \"scenario.ai.condition.if_obj_in_room\" },\n"
+        "    { \"from\": \"scenario.pads\", \"to\": \"scenario.ai.condition.if_obj_in_room\" },\n"
         "    { \"from\": \"source.scene\", \"to\": \"scenario.ai.condition.if_obj_in_room\" },\n"
         "    { \"from\": \"scenario.ai.lists\", \"to\": \"scenario.ai.condition.if_player_looking_at_object\" },\n"
         "    { \"from\": \"setup.tables\", \"to\": \"scenario.ai.condition.if_player_looking_at_object\" },\n"
@@ -1216,7 +1244,7 @@ def update_scenario() -> bytes:
         ("navigation.ini", navigation_ini),
         ("level.graph.json", level_graph_json),
         ("_meta/generated-collision.json", kept["_meta/generated-collision.json"]),
-        ("_meta/generated-navmesh.json", kept["_meta/generated-navmesh.json"]),
+        ("_meta/generated-navmesh.json", navmesh_meta_json),
         ("_meta/manifest.json", scenario_manifest),
     ])
     return read_archive(rel)

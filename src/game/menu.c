@@ -67,6 +67,7 @@
 extern s32 pdguiIsActive(void);
 #include "assetcatalog.h"
 #include "assetload.h"
+#include "asset_source_debug.h"
 #include "menupool.h"
 #define BLUR_OFS 10
 
@@ -1974,6 +1975,13 @@ static bool menuResolveModelHandleByFilenum(s32 source_filenum, asset_data_handl
 	return !assetHandleIsNull(*handle);
 }
 
+static bool menuModelHandlePassesSourceOnlyCheck(asset_type_e type, const char *context,
+	const char *asset_id, asset_data_handle_t handle)
+{
+	assetSourceDebugFatalHandleFallback(type, context, asset_id, handle);
+	return !assetSourceDebugHandleRequiresPublicFileSource(type, handle);
+}
+
 void menuUnsetModel(struct menumodel *menumodel)
 {
 	if (menumodel->curparams == 0x4fac5ace) {
@@ -2125,6 +2133,15 @@ Gfx *menuRenderModel(Gfx *gdl, struct menumodel *menumodel, s32 modeltype)
 					}
 
 					bodyfilenum = (u16)bodyresult.filenum;
+					if (!menuModelHandlePassesSourceOnlyCheck(ASSET_BODY,
+							"menu body preview modeldef", bodyid, bodyresult.handle)) {
+						menumodel->bodymodeldef = NULL;
+						menumodel->headmodeldef = NULL;
+						menumodel->curparams = menumodel->newparams;
+						menumodel->newparams = 0;
+						menuClearCurrentModelHandles(menumodel);
+						return gdl;
+					}
 					totalfilelen = assetLoadGetInflatedSize(bodyresult.handle, LOADTYPE_MODEL);
 					if (totalfilelen <= 0) {
 						/* Model file missing or empty -- skip this body entirely */
@@ -2147,6 +2164,15 @@ Gfx *menuRenderModel(Gfx *gdl, struct menumodel *menumodel, s32 modeltype)
 						havehead = headid && catalogResolveHead(headid, &headresult);
 						if (havehead) {
 							headfilenum = (u16)headresult.filenum;
+							if (!menuModelHandlePassesSourceOnlyCheck(ASSET_HEAD,
+									"menu head preview modeldef", headid, headresult.handle)) {
+								menumodel->bodymodeldef = NULL;
+								menumodel->headmodeldef = NULL;
+								menumodel->curparams = menumodel->newparams;
+								menumodel->newparams = 0;
+								menuClearCurrentModelHandles(menumodel);
+								return gdl;
+							}
 							totalfilelen += ALIGN64(assetLoadGetInflatedSize(headresult.handle, LOADTYPE_MODEL));
 						} else {
 							headnum = -1;
@@ -2230,6 +2256,17 @@ Gfx *menuRenderModel(Gfx *gdl, struct menumodel *menumodel, s32 modeltype)
 					}
 
 					if (has_handle) {
+						if (!menuModelHandlePassesSourceOnlyCheck(ASSET_MODEL,
+								"menu raw model preview",
+								catalogIdBySourceHandle(ASSET_MODEL, modelhandle),
+								modelhandle)) {
+							menumodel->bodymodeldef = NULL;
+							menumodel->headmodeldef = NULL;
+							menumodel->curparams = menumodel->newparams;
+							menumodel->newparams = 0;
+							menuClearCurrentModelHandles(menumodel);
+							return gdl;
+						}
 						totalfilelen = ALIGN64(assetLoadGetInflatedSize(modelhandle, LOADTYPE_MODEL)) + 0x4000;
 					} else {
 						sysLogPrintf(LOG_WARNING,

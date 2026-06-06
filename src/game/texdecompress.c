@@ -2150,6 +2150,88 @@ void texLoadFromDisplayList(Gfx *gdl, struct texpool *pool, s32 arg2)
 
 extern u8 EXT_SEG _texturesdataSegmentRomStart;
 
+static struct tex *texLoadPublicRgba32Source(
+	texnum_t texturenum,
+	struct texpool *pool,
+	u8 usingsharedpool,
+	const mod_texture_rgba32_source_t *source)
+{
+	struct tex *tex;
+	struct tex *tail = NULL;
+	u32 needed;
+	u8 *ptr;
+
+	if (!pool || !source || !source->pixels || source->data_size <= 0) {
+		return NULL;
+	}
+
+	needed = ALIGN16((u32)sizeof(struct tex) + 8u + (u32)source->data_size);
+
+	if (usingsharedpool) {
+		u32 freebytes = mempGetPoolFree(MEMPOOL_STAGE, MEMBANK_ONBOARD)
+			+ mempGetPoolFree(MEMPOOL_STAGE, MEMBANK_EXPANSION);
+		if (freebytes < needed) {
+			return NULL;
+		}
+
+		tail = pool->rightpos;
+		while (tail) {
+			if (tail->next == 0) {
+				break;
+			}
+			tail = (struct tex *)PHYS_TO_K0(tail->next);
+		}
+
+		ptr = mempAllocFromRight(needed, MEMPOOL_STAGE);
+		if (!ptr) {
+			return NULL;
+		}
+
+		tex = (struct tex *)ptr;
+		ptr += sizeof(struct tex);
+		*(s16 *)ptr = (s16)texturenum;
+		ptr += 8;
+	} else {
+		if ((u32)texGetPoolFreeBytes(pool) < needed) {
+			return NULL;
+		}
+
+		*(s16 *)pool->leftpos = (s16)texturenum;
+		pool->leftpos += 8;
+		pool->rightpos--;
+		tex = pool->rightpos;
+		ptr = pool->leftpos;
+	}
+
+	tex->texturenum = texturenum;
+	tex->data = ptr;
+	tex->width = (u8)source->width;
+	tex->height = (u8)source->height;
+	tex->unk0a = 0;
+	tex->numlods = 1;
+	tex->gbiformat = G_IM_FMT_RGBA;
+	tex->depth = G_IM_SIZ_32b;
+	tex->lutmodeindex = G_TT_NONE >> G_MDSFT_TEXTLUT;
+	tex->hasloddata = false;
+	tex->unk0c_03 = false;
+	tex->next = 0;
+	bcopy(source->pixels, tex->data, source->data_size);
+
+	if (usingsharedpool) {
+		pool->rightpos = tex;
+		if (tail != NULL) {
+			tail->next = (uintptr_t)tex;
+		} else {
+			pool->head = tex;
+		}
+		pool->start = (u8 *)tex;
+	} else {
+		pool->leftpos += source->data_size;
+	}
+
+	return tex;
+}
+
 /**
  * Load and decompress a texture from ROM.
  *
@@ -2221,7 +2303,29 @@ void texLoad(texnum_t *updateword, struct texpool *pool, bool unusedarg)
 		tex = texFindInPool(g_TexNumToLoad, pool);
 
 		if (tex == NULL) {
+			mod_texture_rgba32_source_t source;
+			s32 source_result;
+
 			if (g_TexNumToLoad >= NUM_TEXTURES) {
+				return;
+			}
+
+			source_result = modTextureLoadRgba32Source((u16)g_TexNumToLoad, &source);
+			if (source_result > 0) {
+				tex = texLoadPublicRgba32Source((texnum_t)g_TexNumToLoad,
+					pool, usingsharedpool, &source);
+				modTextureFreeRgba32Source(&source);
+
+				if (tex != NULL) {
+					*updateword = osVirtualToPhysical(tex->data);
+					return;
+				}
+
+				*updateword = osVirtualToPhysical(pool->start);
+				return;
+			}
+			if (source_result < 0) {
+				*updateword = osVirtualToPhysical(pool->start);
 				return;
 			}
 

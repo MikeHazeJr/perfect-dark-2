@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_keypadlock",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_keypadlock.pdmesh::model.obj",
+  "source_size": 8816,
+  "source_sha256": "217999d724e4aaa97d7fcb3a234f65faafc0fd10b7e6d0da1894b056783b7b08",
+  "validation": "format=obj vertices=144 triangles=48",
+  "normalized": "$S/mod-cache/base/base_model_keypadlock/model-v2-217999d724e4aaa97d7fcb3a234f65faafc0fd10b7e6d0da1894b056783b7b08.pdmodel.json",
+  "vertex_count": 144,
+  "triangle_count": 48,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

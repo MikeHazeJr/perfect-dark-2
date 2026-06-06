@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_hovercrate1",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_hovercrate1.pdmesh::model.obj",
+  "source_size": 15102,
+  "source_sha256": "48ba3264a4c82fea1bde333b208b5c8e52a376dc40ea58a16918f61a01449afa",
+  "validation": "format=obj vertices=234 triangles=78",
+  "normalized": "$S/mod-cache/base/base_model_hovercrate1/model-v2-48ba3264a4c82fea1bde333b208b5c8e52a376dc40ea58a16918f61a01449afa.pdmodel.json",
+  "vertex_count": 234,
+  "triangle_count": 78,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

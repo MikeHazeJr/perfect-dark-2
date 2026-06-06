@@ -65,6 +65,7 @@
 #include "romdata.h"
 #include "romextract.h"
 #include "romextract_pd.h"
+#include "sha256.h"
 #include "system.h"
 #include "memsizes.h"
 #include "game/stagetable.h"
@@ -82,8 +83,8 @@
 #define PDSCENARIO_BG_VISUAL_EXPORT_VERSION "bg_visual_scene_glb_v7_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound"
 #define PDSCENARIO_BG_VISUAL_EXPORT_VERSION_FILE \
 	PDSCENARIO_BG_VISUAL_EXPORT_VERSION "\n"
-#define ROMEXTRACT_PDARENA_FAST_CACHE_KIND "pdarena_clean_public_v6_pdscenario_v77"
-#define ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND "pdscenario_scene_glb_clean_public_v77_standalone_backfill_collision_obj_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_quip_shuffle_graph_portals"
+#define ROMEXTRACT_PDARENA_FAST_CACHE_KIND "pdarena_clean_public_v6_pdscenario_v82"
+#define ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND "pdscenario_scene_glb_clean_public_v82_standalone_backfill_collision_obj_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_quip_shuffle_graph_portals_navhashes"
 
 /* Convert "base:arena_mp_skedar" -> "base_arena_mp_skedar". */
 static void s_idToFilename(const char *id, char *out, size_t n)
@@ -370,6 +371,40 @@ static s32 s_textbufAppendf(pdscenario_textbuf_t *b, const char *fmt, ...)
 	if (wrote != need) return -1;
 	b->len += (u32)need;
 	return 0;
+}
+
+static void s_textbufSha256Hex(const pdscenario_textbuf_t *b,
+	char out[SHA256_HEX_SIZE])
+{
+	u8 digest[SHA256_DIGEST_SIZE];
+
+	if (!out) {
+		return;
+	}
+	out[0] = '\0';
+	if (!b || !b->data) {
+		return;
+	}
+
+	sha256Hash(b->data, (size_t)b->len, digest);
+	sha256ToHex(digest, out);
+}
+
+static void s_bytesSha256Hex(const u8 *data, u32 len,
+	char out[SHA256_HEX_SIZE])
+{
+	u8 digest[SHA256_DIGEST_SIZE];
+
+	if (!out) {
+		return;
+	}
+	out[0] = '\0';
+	if (!data || len == 0) {
+		return;
+	}
+
+	sha256Hash(data, (size_t)len, digest);
+	sha256ToHex(digest, out);
 }
 
 static s32 s_binbufReserve(pdscenario_binbuf_t *b, u32 extra)
@@ -3385,11 +3420,34 @@ static s32 s_buildScenarioSourceFiles(const char *scenario_id,
                                       u32 waygroup_count,
                                       u32 cover_count,
                                       u32 path_count,
+                                      const u8 *scene_glb,
+                                      u32 scene_glb_size,
+                                      const pdscenario_textbuf_t *collision_obj,
+                                      const pdscenario_textbuf_t *portals_tsv,
+                                      const pdscenario_textbuf_t *pads_tsv,
+                                      const pdscenario_textbuf_t *spawns_tsv,
+                                      const pdscenario_textbuf_t *volumes_tsv,
+                                      const pdscenario_textbuf_t *waypoints_tsv,
+                                      const pdscenario_textbuf_t *waygroups_tsv,
+                                      const pdscenario_textbuf_t *covers_tsv,
+                                      const pdscenario_textbuf_t *paths_tsv,
                                       pdscenario_textbuf_t *navigation_ini,
                                       pdscenario_textbuf_t *level_graph_json,
                                       pdscenario_textbuf_t *collision_meta_json,
                                       pdscenario_textbuf_t *navmesh_meta_json)
 {
+	char scene_hash[SHA256_HEX_SIZE];
+	char collision_hash[SHA256_HEX_SIZE];
+	char navigation_hash[SHA256_HEX_SIZE];
+	char portals_hash[SHA256_HEX_SIZE];
+	char pads_hash[SHA256_HEX_SIZE];
+	char spawns_hash[SHA256_HEX_SIZE];
+	char volumes_hash[SHA256_HEX_SIZE];
+	char waypoints_hash[SHA256_HEX_SIZE];
+	char waygroups_hash[SHA256_HEX_SIZE];
+	char covers_hash[SHA256_HEX_SIZE];
+	char paths_hash[SHA256_HEX_SIZE];
+
 	if (!scenario_id || !navigation_ini || !level_graph_json ||
 			!collision_meta_json || !navmesh_meta_json) {
 		return -1;
@@ -3402,6 +3460,7 @@ static s32 s_buildScenarioSourceFiles(const char *scenario_id,
 			"generator = deterministic.surface_graph.v1\n"
 			"supports_walk = true\n"
 			"supports_jump = true\n"
+			"supports_drop = true\n"
 			"supports_wall = true\n"
 			"supports_ceiling = true\n"
 			"portals_file = portals.tsv\n"
@@ -3709,7 +3768,7 @@ static s32 s_buildScenarioSourceFiles(const char *scenario_id,
 			"    { \"id\": \"scenario.ai.action.chr_copy_properties\", \"kind\": \"scenario.ai.action.chr_copy_properties\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.properties\", \"opcode\": \"0x0173\" },\n"
 			"    { \"id\": \"scenario.ai.action.player_auto_walk\", \"kind\": \"scenario.ai.action.player_auto_walk\", \"source\": \"ai/ailists.tsv\", \"pads\": \"pads.tsv\", \"target\": \"player.autowalk\", \"opcode\": \"0x0177\" },\n"
 			"    { \"id\": \"scenario.ai.condition.if_player_auto_walk_finished\", \"kind\": \"scenario.ai.condition.if_player_auto_walk_finished\", \"source\": \"ai/ailists.tsv\", \"target\": \"player.autowalk\", \"opcode\": \"0x0178\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_obj_in_room\", \"kind\": \"scenario.ai.condition.if_obj_in_room\", \"source\": \"ai/ailists.tsv\", \"objects\": \"objects.tsv\", \"scene\": \"scene.glb\", \"target\": \"object.room\", \"opcode\": \"0x00ef\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_obj_in_room\", \"kind\": \"scenario.ai.condition.if_obj_in_room\", \"source\": \"ai/ailists.tsv\", \"objects\": \"objects.tsv\", \"pads\": \"pads.tsv\", \"scene\": \"scene.glb\", \"target\": \"object.room\", \"opcode\": \"0x00ef\" },\n"
 			"    { \"id\": \"scenario.ai.condition.if_player_looking_at_object\", \"kind\": \"scenario.ai.condition.if_player_looking_at_object\", \"source\": \"ai/ailists.tsv\", \"objects\": \"objects.tsv\", \"scene\": \"scene.glb\", \"target\": \"player.view.object\", \"opcode\": \"0x0181\" },\n"
 			"    { \"id\": \"scenario.ai.condition.if_target_is_player\", \"kind\": \"scenario.ai.condition.if_target_is_player\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.target.type\", \"opcode\": \"0x0183\" },\n"
 			"    { \"id\": \"scenario.ai.action.chr_kill\", \"kind\": \"scenario.ai.action.chr_kill\", \"source\": \"ai/ailists.tsv\", \"target\": \"character.state\", \"opcode\": \"0x01db\" },\n"
@@ -4198,6 +4257,7 @@ static s32 s_buildScenarioSourceFiles(const char *scenario_id,
 			"    { \"from\": \"scenario.ai.lists\", \"to\": \"scenario.ai.condition.if_player_auto_walk_finished\" },\n"
 			"    { \"from\": \"scenario.ai.lists\", \"to\": \"scenario.ai.condition.if_obj_in_room\" },\n"
 			"    { \"from\": \"setup.tables\", \"to\": \"scenario.ai.condition.if_obj_in_room\" },\n"
+			"    { \"from\": \"scenario.pads\", \"to\": \"scenario.ai.condition.if_obj_in_room\" },\n"
 			"    { \"from\": \"source.scene\", \"to\": \"scenario.ai.condition.if_obj_in_room\" },\n"
 			"    { \"from\": \"scenario.ai.lists\", \"to\": \"scenario.ai.condition.if_player_looking_at_object\" },\n"
 			"    { \"from\": \"setup.tables\", \"to\": \"scenario.ai.condition.if_player_looking_at_object\" },\n"
@@ -4477,17 +4537,36 @@ static s32 s_buildScenarioSourceFiles(const char *scenario_id,
 		return -1;
 	}
 
+	s_bytesSha256Hex(scene_glb, scene_glb_size, scene_hash);
+	s_textbufSha256Hex(collision_obj, collision_hash);
+	s_textbufSha256Hex(navigation_ini, navigation_hash);
+	s_textbufSha256Hex(portals_tsv, portals_hash);
+	s_textbufSha256Hex(pads_tsv, pads_hash);
+	s_textbufSha256Hex(spawns_tsv, spawns_hash);
+	s_textbufSha256Hex(volumes_tsv, volumes_hash);
+	s_textbufSha256Hex(waypoints_tsv, waypoints_hash);
+	s_textbufSha256Hex(waygroups_tsv, waygroups_hash);
+	s_textbufSha256Hex(covers_tsv, covers_hash);
+	s_textbufSha256Hex(paths_tsv, paths_hash);
+
 	if (s_textbufAppendf(navmesh_meta_json,
 			"{\n"
 			"  \"schema\": \"pd2.generated.navmesh.v1\",\n"
 			"  \"scenario\": \"%s\",\n"
 			"  \"derived_from\": \"scene.glb\",\n"
-			"  \"inputs\": [\"navigation.ini\", \"pads.tsv\", \"spawns.tsv\", \"volumes.tsv\", \"navigation/waypoints.tsv\", \"navigation/waygroups.tsv\", \"navigation/covers.tsv\", \"navigation/paths.tsv\"],\n"
+			"  \"inputs\": [\"scene.glb\", \"collision.obj\", \"navigation.ini\", \"portals.tsv\", \"pads.tsv\", \"spawns.tsv\", \"volumes.tsv\", \"navigation/waypoints.tsv\", \"navigation/waygroups.tsv\", \"navigation/covers.tsv\", \"navigation/paths.tsv\"],\n"
 			"  \"generator\": \"deterministic.surface_graph.v1\",\n"
 			"  \"capabilities\": [\"walk\", \"jump\", \"drop\", \"wall\", \"ceiling\"],\n"
+			"  \"source_counts\": { \"pads\": %u, \"volumes\": %u, \"waypoints\": %u, \"waygroups\": %u, \"covers\": %u, \"paths\": %u },\n"
+			"  \"source_hashes\": { \"scene.glb\": \"%s\", \"collision.obj\": \"%s\", \"navigation.ini\": \"%s\", \"portals.tsv\": \"%s\", \"pads.tsv\": \"%s\", \"spawns.tsv\": \"%s\", \"volumes.tsv\": \"%s\", \"navigation/waypoints.tsv\": \"%s\", \"navigation/waygroups.tsv\": \"%s\", \"navigation/covers.tsv\": \"%s\", \"navigation/paths.tsv\": \"%s\" },\n"
 			"  \"cache_only\": true\n"
 			"}\n",
-			scenario_id) != 0) {
+			scenario_id, (unsigned)pad_count, (unsigned)pad_count,
+			(unsigned)waypoint_count, (unsigned)waygroup_count,
+			(unsigned)cover_count, (unsigned)path_count,
+			scene_hash, collision_hash, navigation_hash, portals_hash,
+			pads_hash, spawns_hash, volumes_hash, waypoints_hash,
+			waygroups_hash, covers_hash, paths_hash) != 0) {
 		return -1;
 	}
 
@@ -6303,6 +6382,148 @@ static s32 s_existingArchiveHasEntryPrefix(const char *relpath,
 	return 0;
 }
 
+static s32 s_existingArchiveTextContains(const char *text, u32 size,
+                                         const char *needle)
+{
+	if (!text || !needle || !needle[0]) return 0;
+	u32 needle_len = (u32)strlen(needle);
+	if (needle_len == 0 || size < needle_len) return 0;
+	for (u32 i = 0; i <= size - needle_len; i++) {
+		if (memcmp(text + i, needle, needle_len) == 0) return 1;
+	}
+	return 0;
+}
+
+static u32 s_countExistingArchiveTsvDataRows(const char *text, u32 size)
+{
+	if (!text || size == 0) return 0;
+	u32 rows = 0;
+	u32 line_index = 0;
+	s32 has_data = 0;
+	for (u32 i = 0; i <= size; i++) {
+		char ch = (i < size) ? text[i] : '\n';
+		if (ch == '\n') {
+			if (line_index > 0 && has_data) rows++;
+			line_index++;
+			has_data = 0;
+		} else if (ch != '\r' &&
+		           !isspace((unsigned char)ch)) {
+			has_data = 1;
+		}
+	}
+	return rows;
+}
+
+static s32 s_existingPdscenarioNavmeshMetadataMatches(
+	mod_archive_t *arc, const char *entry, const char *count_key,
+	const char *navmesh_text, u32 navmesh_size)
+{
+	s32 idx = modArchiveFindEntry(arc, entry);
+	if (idx < 0) return 0;
+
+	u32 size = 0;
+	char *bytes = (char *)modArchiveExtractAlloc(arc, idx, &size);
+	if (!bytes) return 0;
+
+	u32 row_count = s_countExistingArchiveTsvDataRows(bytes, size);
+	char hash[SHA256_HEX_SIZE];
+	s_bytesSha256Hex((const u8 *)bytes, size, hash);
+	free(bytes);
+
+	char needle[256];
+	snprintf(needle, sizeof(needle), "\"%s\": %u", count_key,
+		(unsigned)row_count);
+	if (!s_existingArchiveTextContains(navmesh_text, navmesh_size, needle)) {
+		return 0;
+	}
+
+	snprintf(needle, sizeof(needle), "\"%s\": \"%s\"", entry, hash);
+	return s_existingArchiveTextContains(navmesh_text, navmesh_size, needle);
+}
+
+static s32 s_existingPdscenarioGeneratedNavmeshIsCurrent(const char *relpath)
+{
+	static const struct {
+		const char *entry;
+		const char *count_key;
+	} k_counted_sources[] = {
+		{ "pads.tsv", "pads" },
+		{ "volumes.tsv", "volumes" },
+		{ "navigation/waypoints.tsv", "waypoints" },
+		{ "navigation/waygroups.tsv", "waygroups" },
+		{ "navigation/covers.tsv", "covers" },
+		{ "navigation/paths.tsv", "paths" },
+	};
+	static const char *k_hashed_only_sources[] = {
+		"scene.glb",
+		"collision.obj",
+		"navigation.ini",
+		"portals.tsv",
+		"spawns.tsv",
+	};
+
+	char full_buf[FS_MAXPATH + 1];
+	const char *full = fsFullPath(relpath, full_buf, sizeof(full_buf));
+	if (!full || !full[0]) return 0;
+
+	mod_archive_t *arc = modArchiveOpen(full);
+	if (!arc) return 0;
+
+	s32 nav_idx = modArchiveFindEntry(arc, "_meta/generated-navmesh.json");
+	if (nav_idx < 0) {
+		modArchiveClose(arc);
+		return 0;
+	}
+
+	u32 navmesh_size = 0;
+	char *navmesh = (char *)modArchiveExtractAlloc(arc, nav_idx,
+		&navmesh_size);
+	if (!navmesh || navmesh_size == 0) {
+		if (navmesh) free(navmesh);
+		modArchiveClose(arc);
+		return 0;
+	}
+
+	s32 ok = s_existingArchiveTextContains(navmesh, navmesh_size,
+		"\"source_counts\": {") &&
+		s_existingArchiveTextContains(navmesh, navmesh_size,
+			"\"source_hashes\": {");
+
+	for (u32 i = 0; ok && i < sizeof(k_counted_sources) /
+			sizeof(k_counted_sources[0]); i++) {
+		ok = s_existingPdscenarioNavmeshMetadataMatches(arc,
+			k_counted_sources[i].entry, k_counted_sources[i].count_key,
+			navmesh, navmesh_size);
+	}
+
+	for (u32 i = 0; ok && i < sizeof(k_hashed_only_sources) /
+			sizeof(k_hashed_only_sources[0]); i++) {
+		const char *entry = k_hashed_only_sources[i];
+		s32 idx = modArchiveFindEntry(arc, entry);
+		if (idx < 0) {
+			ok = 0;
+			break;
+		}
+		u32 size = 0;
+		char *bytes = (char *)modArchiveExtractAlloc(arc, idx, &size);
+		if (!bytes) {
+			ok = 0;
+			break;
+		}
+		char hash[SHA256_HEX_SIZE];
+		s_bytesSha256Hex((const u8 *)bytes, size, hash);
+		free(bytes);
+
+		char needle[256];
+		snprintf(needle, sizeof(needle), "\"%s\": \"%s\"", entry, hash);
+		ok = s_existingArchiveTextContains(navmesh, navmesh_size, needle);
+	}
+
+	free(navmesh);
+	modArchiveClose(arc);
+	return ok;
+}
+
 static void s_scenarioArchiveRelPath(const char *out_dir, const char *scenario_id,
                                      char *out, size_t out_size)
 {
@@ -7256,7 +7477,8 @@ static s32 s_existingPdscenarioArchiveIsClean(const char *relpath)
 		s_existingArchiveEntryContains(relpath, "level.graph.json",
 			"scenario.ai.action.chr_copy_pad_preset") &&
 		s_existingArchiveHasEntry(relpath, "_meta/generated-collision.json") &&
-		s_existingArchiveHasEntry(relpath, "_meta/generated-navmesh.json");
+		s_existingArchiveHasEntry(relpath, "_meta/generated-navmesh.json") &&
+		s_existingPdscenarioGeneratedNavmeshIsCurrent(relpath);
 }
 
 static s32 s_pdarenaOutputsCleanForFastCache(const char *arenas_dir,
@@ -7717,6 +7939,9 @@ static s32 s_emitOnePdscenarioSpec(const pdscenario_emit_spec_t *spec,
 			portal_count, pad_count, object_count, objective_count,
 			ai_list_count,
 			waypoint_count, waygroup_count, cover_count, path_count,
+			bg_scene.scene_glb, bg_scene.scene_glb_size, &rooms_obj,
+			&portals_tsv, &pads_tsv, &spawns_tsv, &volumes_tsv,
+			&waypoints_tsv, &waygroups_tsv, &covers_tsv, &paths_tsv,
 			&navigation_ini,
 			&level_graph_json, &collision_meta_json,
 			&navmesh_meta_json) != 0) {

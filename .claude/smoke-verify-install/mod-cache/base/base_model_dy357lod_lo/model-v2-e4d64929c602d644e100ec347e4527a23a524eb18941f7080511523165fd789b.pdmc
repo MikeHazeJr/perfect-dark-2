@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_dy357lod_lo",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_dy357lod_lo.pdmesh::model.obj",
+  "source_size": 38822,
+  "source_sha256": "e4d64929c602d644e100ec347e4527a23a524eb18941f7080511523165fd789b",
+  "validation": "format=obj vertices=603 triangles=201",
+  "normalized": "$S/mod-cache/base/base_model_dy357lod_lo/model-v2-e4d64929c602d644e100ec347e4527a23a524eb18941f7080511523165fd789b.pdmodel.json",
+  "vertex_count": 603,
+  "triangle_count": 201,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

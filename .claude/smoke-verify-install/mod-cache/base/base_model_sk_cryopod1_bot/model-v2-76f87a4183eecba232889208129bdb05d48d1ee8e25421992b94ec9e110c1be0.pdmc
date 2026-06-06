@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_sk_cryopod1_bot",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_sk_cryopod1_bot.pdmesh::model.obj",
+  "source_size": 7537,
+  "source_sha256": "76f87a4183eecba232889208129bdb05d48d1ee8e25421992b94ec9e110c1be0",
+  "validation": "format=obj vertices=114 triangles=38",
+  "normalized": "$S/mod-cache/base/base_model_sk_cryopod1_bot/model-v2-76f87a4183eecba232889208129bdb05d48d1ee8e25421992b94ec9e110c1be0.pdmodel.json",
+  "vertex_count": 114,
+  "triangle_count": 38,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

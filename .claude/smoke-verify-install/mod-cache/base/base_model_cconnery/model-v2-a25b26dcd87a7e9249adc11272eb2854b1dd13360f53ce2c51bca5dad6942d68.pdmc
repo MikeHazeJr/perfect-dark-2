@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_cconnery",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_cconnery.pdmesh::model.obj",
+  "source_size": 125267,
+  "source_sha256": "a25b26dcd87a7e9249adc11272eb2854b1dd13360f53ce2c51bca5dad6942d68",
+  "validation": "format=obj vertices=1833 triangles=611",
+  "normalized": "$S/mod-cache/base/base_model_cconnery/model-v2-a25b26dcd87a7e9249adc11272eb2854b1dd13360f53ce2c51bca5dad6942d68.pdmodel.json",
+  "vertex_count": 1833,
+  "triangle_count": 611,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

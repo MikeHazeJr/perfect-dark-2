@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 1,
+  "asset_id": "base:model_cdjbond",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_cdjbond.pdmesh::model.obj",
+  "source_size": 126756,
+  "source_sha256": "35327d34000e5ff5b0198ee2cfc6834d3d0fe8495f1d66f77227ec8a60f334c1",
+  "validation": "format=obj vertices=1857 triangles=619",
+  "normalized": "$S/mod-cache/base/base_model_cdjbond/model-v1-35327d34000e5ff5b0198ee2cfc6834d3d0fe8495f1d66f77227ec8a60f334c1.pdmodel.json",
+  "vertex_count": 1857,
+  "triangle_count": 619,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

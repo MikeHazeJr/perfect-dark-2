@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 1,
+  "asset_id": "base:femlabtech",
+  "mod_id": "base",
+  "kind": "body",
+  "source": "data/ntsc-final/bodies/base_femlabtech.pdbody::mesh.pdmesh::model.obj",
+  "source_size": 170249,
+  "source_sha256": "5e2d787546aec80853aee737f9ab88eb0db2be1a2e22eb399265c64ede33bfbe",
+  "validation": "format=obj vertices=2505 triangles=835",
+  "normalized": "$S/mod-cache/base/base_femlabtech/body-v1-5e2d787546aec80853aee737f9ab88eb0db2be1a2e22eb399265c64ede33bfbe.pdmodel.json",
+  "vertex_count": 2505,
+  "triangle_count": 835,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

@@ -1,0 +1,19 @@
+{
+  "generated_tests_dir": "C:\\Users\\mikeh\\Perfect-Dark-2\\perfect_dark-mike\\.claude\\smoke-verify-runs\\all-family-source-matrix\\tests-20260606T033422Z",
+  "selected_count": 1,
+  "archive_count": 7529,
+  "batch_count": 1,
+  "batch_size": 1,
+  "source_binary": "Build\\PerfectDark.exe",
+  "source_rom": "",
+  "batches": [
+    {
+      "batch": 1,
+      "count": 1,
+      "asset_list_file": "C:\\Users\\mikeh\\Perfect-Dark-2\\perfect_dark-mike\\.claude\\smoke-verify-runs\\all-family-source-matrix\\tests-20260606T033422Z\\all_family_source_matrix_batch_001.assets.txt",
+      "catalog_ids": [
+        "base:model_dy357_hi"
+      ]
+    }
+  ]
+}

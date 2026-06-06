@@ -1,0 +1,22 @@
+﻿{
+    "Name":  "scenario_source_matrix_citraining",
+    "Category":  "scenario",
+    "BugId":  null,
+    "RegressionFor":  null,
+    "Passed":  false,
+    "ExitCode":  0,
+    "ElapsedSeconds":  76.33759049999999,
+    "InstallDir":  "C:\\Users\\mikeh\\Perfect-Dark-2\\perfect_dark-mike\\.claude\\smoke-verify-install",
+    "AssertionsTotal":  160,
+    "AssertionsMet":  158,
+    "Failures":  [
+                     {
+                         "Kind":  "required_line_missing",
+                         "Pattern":  "SCENARIO\\.GRAPH: AI condition if_chr_activated_object chr=\\d+ tag=\\d+ result=\\d+ source=.*base_scenario_citraining\\.pdscenario::ai/ailists\\.tsv objects=.*base_scenario_citraining\\.pdscenario::objects\\.tsv backend=graph\\.ai\\.action\\.object_interaction\\+ai/ailists\\.tsv\\+objects\\.tsv"
+                     },
+                     {
+                         "Kind":  "required_line_missing",
+                         "Pattern":  "SCENARIO\\.GRAPH: AI action if_obj_has_flag tag=\\d+ bank=\\d+ flags=0x[0-9a-fA-F]+ result=\\d+ source=.*base_scenario_citraining\\.pdscenario::ai/ailists\\.tsv objects=.*base_scenario_citraining\\.pdscenario::objects\\.tsv backend=graph\\.ai\\.action\\.if_obj_has_flag\\+objects\\.tsv"
+                     }
+                 ]
+}

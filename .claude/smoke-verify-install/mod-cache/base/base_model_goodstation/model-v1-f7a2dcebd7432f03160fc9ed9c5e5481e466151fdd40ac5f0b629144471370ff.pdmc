@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 1,
+  "asset_id": "base:model_goodstation",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_goodstation.pdmesh::model.obj",
+  "source_size": 18902,
+  "source_sha256": "f7a2dcebd7432f03160fc9ed9c5e5481e466151fdd40ac5f0b629144471370ff",
+  "validation": "format=obj vertices=288 triangles=96",
+  "normalized": "$S/mod-cache/base/base_model_goodstation/model-v1-f7a2dcebd7432f03160fc9ed9c5e5481e466151fdd40ac5f0b629144471370ff.pdmodel.json",
+  "vertex_count": 288,
+  "triangle_count": 96,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

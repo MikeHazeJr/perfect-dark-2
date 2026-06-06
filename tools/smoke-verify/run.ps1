@@ -1153,12 +1153,12 @@ Write-Host "  -------" -ForegroundColor Cyan
 $passCount = 0
 $failCount = 0
 foreach ($r in $results) {
-    $tag = if ($r.Passed) { "PASS" } else { "FAIL" }
+    $resultLabel = if ($r.Passed) { "PASS" } else { "FAIL" }
     $color = if ($r.Passed) { "Green" } else { "Red" }
     $bugSuffix = ""
     if ($r.BugId) { $bugSuffix = " [{0}]" -f $r.BugId }
     Write-Host ("  [{0}] {1}{2} ({3:N1}s) assertions={4}/{5}" -f `
-        $tag, $r.Name, $bugSuffix, $r.ElapsedSeconds, $r.AssertionsMet, $r.AssertionsTotal) -ForegroundColor $color
+        $resultLabel, $r.Name, $bugSuffix, $r.ElapsedSeconds, $r.AssertionsMet, $r.AssertionsTotal) -ForegroundColor $color
     if ($r.Passed) { $passCount++ } else { $failCount++ }
 }
 

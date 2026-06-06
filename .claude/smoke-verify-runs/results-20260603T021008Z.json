@@ -1,0 +1,36 @@
+﻿{
+    "Name":  "all_family_source_matrix_batch_001",
+    "Category":  "scenario",
+    "BugId":  null,
+    "RegressionFor":  null,
+    "Passed":  false,
+    "ExitCode":  0,
+    "ElapsedSeconds":  36.415402199999996,
+    "InstallDir":  "C:\\Users\\mikeh\\Perfect-Dark-2\\perfect_dark-mike\\.claude\\smoke-verify-install",
+    "AssertionsTotal":  16,
+    "AssertionsMet":  12,
+    "Failures":  [
+                     {
+                         "Kind":  "required_line_missing",
+                         "Pattern":  "BOOT: --debug-load-catalog-assets request type=audio id=\u0027base:sfx_alarm_2\u0027 source_only=1"
+                     },
+                     {
+                         "Kind":  "required_line_missing",
+                         "Pattern":  "BOOT: --debug-load-catalog-assets result type=audio id=\u0027base:sfx_alarm_2\u0027 result=OK"
+                     },
+                     {
+                         "Kind":  "required_count_out_of_range",
+                         "Pattern":  "BOOT: --debug-load-catalog-assets request type=.* source_only=1",
+                         "Count":  0,
+                         "Min":  1,
+                         "Max":  1
+                     },
+                     {
+                         "Kind":  "required_count_out_of_range",
+                         "Pattern":  "BOOT: --debug-load-catalog-assets result type=.* result=OK",
+                         "Count":  0,
+                         "Min":  1,
+                         "Max":  1
+                     }
+                 ]
+}

@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_misc_irspecs",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_misc_irspecs.pdmesh::model.obj",
+  "source_size": 4621,
+  "source_sha256": "81eda4ab93e236169c46b7d74aef9af0dc4e53233cd269193666245d7ac84be3",
+  "validation": "format=obj vertices=72 triangles=24",
+  "normalized": "$S/mod-cache/base/base_model_misc_irspecs/model-v2-81eda4ab93e236169c46b7d74aef9af0dc4e53233cd269193666245d7ac84be3.pdmodel.json",
+  "vertex_count": 72,
+  "triangle_count": 24,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

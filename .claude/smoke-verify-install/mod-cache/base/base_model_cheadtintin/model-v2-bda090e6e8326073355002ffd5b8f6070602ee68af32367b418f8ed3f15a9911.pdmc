@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_cheadtintin",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_cheadtintin.pdmesh::model.obj",
+  "source_size": 41895,
+  "source_sha256": "bda090e6e8326073355002ffd5b8f6070602ee68af32367b418f8ed3f15a9911",
+  "validation": "format=obj vertices=639 triangles=213",
+  "normalized": "$S/mod-cache/base/base_model_cheadtintin/model-v2-bda090e6e8326073355002ffd5b8f6070602ee68af32367b418f8ed3f15a9911.pdmodel.json",
+  "vertex_count": 639,
+  "triangle_count": 213,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

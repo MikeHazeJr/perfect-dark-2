@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_chrbriefcase",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_chrbriefcase.pdmesh::model.obj",
+  "source_size": 4341,
+  "source_sha256": "5810882061db529d30c3a74e4463e921c6dc784f6a05fe9fbd74b108bf55fa76",
+  "validation": "format=obj vertices=66 triangles=22",
+  "normalized": "$S/mod-cache/base/base_model_chrbriefcase/model-v2-5810882061db529d30c3a74e4463e921c6dc784f6a05fe9fbd74b108bf55fa76.pdmodel.json",
+  "vertex_count": 66,
+  "triangle_count": 22,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

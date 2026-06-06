@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_ddjumpship",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_ddjumpship.pdmesh::model.obj",
+  "source_size": 97671,
+  "source_sha256": "cc9d0ca63680a2e0af505bcef761a78133a3f45d7f0f53f7e058d169293fd005",
+  "validation": "format=obj vertices=1407 triangles=469",
+  "normalized": "$S/mod-cache/base/base_model_ddjumpship/model-v2-cc9d0ca63680a2e0af505bcef761a78133a3f45d7f0f53f7e058d169293fd005.pdmodel.json",
+  "vertex_count": 1407,
+  "triangle_count": 469,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

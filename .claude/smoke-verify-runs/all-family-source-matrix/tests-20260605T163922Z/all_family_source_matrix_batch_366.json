@@ -1,0 +1,131 @@
+{
+  "scenario_name": "all_family_source_matrix_batch_366",
+  "BugId": "B-509",
+  "category": "modding",
+  "description": "c3844 runtime matrix smoke: source-only catalog load batch 366 for extracted non-Scenario public typed archives. Missing debug-load request/result blocks are B-509 harness observability failures.",
+  "tags": [
+    "modding",
+    "pdxxx",
+    "source-gate",
+    "source-matrix",
+    "all-family",
+    "c3844",
+    "smoke",
+    "pillar:modding"
+  ],
+  "paths_of_interest": [
+    "port/src/main.c",
+    "port/src/asset_source_debug.c",
+    "port/src/assetcatalog_load.c",
+    "tools/smoke-verify/run-all-family-source-matrix.ps1",
+    "tools/smoke-verify/fixtures/all_family_source_pd.ini"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 180,
+  "install_state": "clean",
+  "fixtures": [
+    {
+      "src": "tools/smoke-verify/fixtures/all_family_source_pd.ini",
+      "dst": "pd.ini"
+    },
+    {
+      "src": "tools/smoke-verify/fixtures/no_mods_enabled.json",
+      "dst": "mods-enabled.json"
+    }
+  ],
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--portable",
+    "--debug-load-catalog-assets-source-only",
+    "--debug-load-catalog-assets",
+    "texture=base:texture_unlabeled_zx,texture=base:texture_unlabeled_zy,texture=base:texture_unlabeled_zz,theme=base:theme_blackgold,theme=base:theme_blue,theme=base:theme_green,theme=base:theme_grey,theme=base:theme_red,theme=base:theme_silver,theme=base:theme_white,ui=base:ui_bg_alt,ui=base:ui_bg_haze,ui=base:ui_chrome_frame,ui=base:ui_deco,ui=base:ui_dot_tile,ui=base:ui_grad_bar,ui=base:ui_icon_a,ui=base:ui_icon_b,ui=base:ui_icon_c,ui=base:ui_mirror_tile"
+  ],
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait",
+      "comment": "catalog bootstrap extracts and walks base typed archives before source-only typed-load requests fire."
+    },
+    {
+      "at_ms": 35000,
+      "type": "exit",
+      "comment": "exit after all requested typed assets have loaded or emitted source-only failures."
+    }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=all_family_source_matrix_batch_366",
+      "BOOT: --debug-load-catalog-assets request type=texture id='base:texture_unlabeled_zx' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=texture id='base:texture_unlabeled_zx' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=texture id='base:texture_unlabeled_zy' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=texture id='base:texture_unlabeled_zy' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=texture id='base:texture_unlabeled_zz' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=texture id='base:texture_unlabeled_zz' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=theme id='base:theme_blackgold' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=theme id='base:theme_blackgold' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=theme id='base:theme_blue' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=theme id='base:theme_blue' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=theme id='base:theme_green' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=theme id='base:theme_green' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=theme id='base:theme_grey' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=theme id='base:theme_grey' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=theme id='base:theme_red' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=theme id='base:theme_red' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=theme id='base:theme_silver' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=theme id='base:theme_silver' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=theme id='base:theme_white' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=theme id='base:theme_white' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=ui id='base:ui_bg_alt' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=ui id='base:ui_bg_alt' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=ui id='base:ui_bg_haze' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=ui id='base:ui_bg_haze' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=ui id='base:ui_chrome_frame' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=ui id='base:ui_chrome_frame' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=ui id='base:ui_deco' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=ui id='base:ui_deco' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=ui id='base:ui_dot_tile' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=ui id='base:ui_dot_tile' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=ui id='base:ui_grad_bar' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=ui id='base:ui_grad_bar' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=ui id='base:ui_icon_a' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=ui id='base:ui_icon_a' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=ui id='base:ui_icon_b' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=ui id='base:ui_icon_b' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=ui id='base:ui_icon_c' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=ui id='base:ui_icon_c' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=ui id='base:ui_mirror_tile' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=ui id='base:ui_mirror_tile' result=OK",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "ASSET\\.SOURCE_ONLY",
+      "has no public FileProvider source",
+      "--debug-load-catalog-assets invalid token",
+      "--debug-load-catalog-assets token '.*' missing type=id form",
+      "--debug-load-catalog-assets argument too long",
+      "result=FAIL",
+      "result=MISSING",
+      "RomProvider:filenum",
+      "refusing fallback"
+    ],
+    "required_counts": [
+      {
+        "pattern": "BOOT: --debug-load-catalog-assets request type=.* source_only=1",
+        "min": 20,
+        "max": 20
+      },
+      {
+        "pattern": "BOOT: --debug-load-catalog-assets result type=.* result=OK",
+        "min": 20,
+        "max": 20
+      }
+    ]
+  }
+}

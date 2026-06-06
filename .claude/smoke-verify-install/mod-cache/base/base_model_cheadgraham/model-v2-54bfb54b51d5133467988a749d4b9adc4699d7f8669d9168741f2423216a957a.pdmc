@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_cheadgraham",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_cheadgraham.pdmesh::model.obj",
+  "source_size": 32361,
+  "source_sha256": "54bfb54b51d5133467988a749d4b9adc4699d7f8669d9168741f2423216a957a",
+  "validation": "format=obj vertices=495 triangles=165",
+  "normalized": "$S/mod-cache/base/base_model_cheadgraham/model-v2-54bfb54b51d5133467988a749d4b9adc4699d7f8669d9168741f2423216a957a.pdmodel.json",
+  "vertex_count": 495,
+  "triangle_count": 165,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

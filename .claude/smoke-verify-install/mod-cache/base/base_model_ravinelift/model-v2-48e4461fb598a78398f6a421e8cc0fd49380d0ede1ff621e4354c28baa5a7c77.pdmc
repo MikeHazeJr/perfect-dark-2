@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_ravinelift",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_ravinelift.pdmesh::model.obj",
+  "source_size": 2611,
+  "source_sha256": "48e4461fb598a78398f6a421e8cc0fd49380d0ede1ff621e4354c28baa5a7c77",
+  "validation": "format=obj vertices=36 triangles=12",
+  "normalized": "$S/mod-cache/base/base_model_ravinelift/model-v2-48e4461fb598a78398f6a421e8cc0fd49380d0ede1ff621e4354c28baa5a7c77.pdmodel.json",
+  "vertex_count": 36,
+  "triangle_count": 12,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

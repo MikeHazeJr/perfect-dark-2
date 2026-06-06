@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_cddsniper",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_cddsniper.pdmesh::model.obj",
+  "source_size": 170096,
+  "source_sha256": "7c9f6163bc7c8ba7464f86f7d0d990f3725baa39e3836ec62a7b337d175027ac",
+  "validation": "format=obj vertices=2493 triangles=831",
+  "normalized": "$S/mod-cache/base/base_model_cddsniper/model-v2-7c9f6163bc7c8ba7464f86f7d0d990f3725baa39e3836ec62a7b337d175027ac.pdmodel.json",
+  "vertex_count": 2493,
+  "triangle_count": 831,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

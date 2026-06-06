@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:ciaguy",
+  "mod_id": "base",
+  "kind": "body",
+  "source": "data/ntsc-final/bodies/base_ciaguy.pdbody::mesh.pdmesh::model.obj",
+  "source_size": 145690,
+  "source_sha256": "cbf88ded434bd1bec82feeb7c14e16556b980ef2a8adfc3ae20ae193bf277699",
+  "validation": "format=obj vertices=2133 triangles=711",
+  "normalized": "$S/mod-cache/base/base_ciaguy/body-v2-cbf88ded434bd1bec82feeb7c14e16556b980ef2a8adfc3ae20ae193bf277699.pdmodel.json",
+  "vertex_count": 2133,
+  "triangle_count": 711,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

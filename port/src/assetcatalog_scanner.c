@@ -1654,6 +1654,9 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 
 	case ASSET_TEXTURE:
 		e->ext.texture.texture_id = iniGetInt(ini, "texture_id", -1);
+		if (e->ext.texture.texture_id >= 0) {
+			e->source_texnum = e->ext.texture.texture_id;
+		}
 		e->ext.texture.width = iniGetInt(ini, "width", 0);
 		e->ext.texture.height = iniGetInt(ini, "height", 0);
 		e->ext.texture.format = iniGetInt(ini, "format", 0);

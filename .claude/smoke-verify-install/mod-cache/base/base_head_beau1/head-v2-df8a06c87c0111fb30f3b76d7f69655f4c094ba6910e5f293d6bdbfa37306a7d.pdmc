@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:head_beau1",
+  "mod_id": "base",
+  "kind": "head",
+  "source": "data/ntsc-final/heads/base_head_beau1.pdhead::mesh.pdmesh::model.obj",
+  "source_size": 43814,
+  "source_sha256": "df8a06c87c0111fb30f3b76d7f69655f4c094ba6910e5f293d6bdbfa37306a7d",
+  "validation": "format=obj vertices=666 triangles=222",
+  "normalized": "$S/mod-cache/base/base_head_beau1/head-v2-df8a06c87c0111fb30f3b76d7f69655f4c094ba6910e5f293d6bdbfa37306a7d.pdmodel.json",
+  "vertex_count": 666,
+  "triangle_count": 222,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

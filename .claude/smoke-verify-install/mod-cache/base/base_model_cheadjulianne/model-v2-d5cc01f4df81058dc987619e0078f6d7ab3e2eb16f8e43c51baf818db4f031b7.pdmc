@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_cheadjulianne",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_cheadjulianne.pdmesh::model.obj",
+  "source_size": 42542,
+  "source_sha256": "d5cc01f4df81058dc987619e0078f6d7ab3e2eb16f8e43c51baf818db4f031b7",
+  "validation": "format=obj vertices=645 triangles=215",
+  "normalized": "$S/mod-cache/base/base_model_cheadjulianne/model-v2-d5cc01f4df81058dc987619e0078f6d7ab3e2eb16f8e43c51baf818db4f031b7.pdmodel.json",
+  "vertex_count": 645,
+  "triangle_count": 215,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

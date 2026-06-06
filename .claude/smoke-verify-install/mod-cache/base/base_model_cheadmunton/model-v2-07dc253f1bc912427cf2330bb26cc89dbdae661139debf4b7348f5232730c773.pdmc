@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_cheadmunton",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_cheadmunton.pdmesh::model.obj",
+  "source_size": 42004,
+  "source_sha256": "07dc253f1bc912427cf2330bb26cc89dbdae661139debf4b7348f5232730c773",
+  "validation": "format=obj vertices=639 triangles=213",
+  "normalized": "$S/mod-cache/base/base_model_cheadmunton/model-v2-07dc253f1bc912427cf2330bb26cc89dbdae661139debf4b7348f5232730c773.pdmodel.json",
+  "vertex_count": 639,
+  "triangle_count": 213,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

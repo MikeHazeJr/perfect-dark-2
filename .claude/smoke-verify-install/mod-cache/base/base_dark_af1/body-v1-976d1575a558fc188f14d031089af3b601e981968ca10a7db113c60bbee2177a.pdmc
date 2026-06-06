@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 1,
+  "asset_id": "base:dark_af1",
+  "mod_id": "base",
+  "kind": "body",
+  "source": "data/ntsc-final/bodies/base_dark_af1.pdbody::mesh.pdmesh::model.obj",
+  "source_size": 169565,
+  "source_sha256": "976d1575a558fc188f14d031089af3b601e981968ca10a7db113c60bbee2177a",
+  "validation": "format=obj vertices=2490 triangles=830",
+  "normalized": "$S/mod-cache/base/base_dark_af1/body-v1-976d1575a558fc188f14d031089af3b601e981968ca10a7db113c60bbee2177a.pdmodel.json",
+  "vertex_count": 2490,
+  "triangle_count": 830,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

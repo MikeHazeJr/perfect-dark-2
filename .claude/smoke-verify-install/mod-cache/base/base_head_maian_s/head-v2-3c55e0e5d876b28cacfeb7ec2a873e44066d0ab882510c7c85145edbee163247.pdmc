@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:head_maian_s",
+  "mod_id": "base",
+  "kind": "head",
+  "source": "data/ntsc-final/heads/base_head_maian_s.pdhead::mesh.pdmesh::model.obj",
+  "source_size": 53685,
+  "source_sha256": "3c55e0e5d876b28cacfeb7ec2a873e44066d0ab882510c7c85145edbee163247",
+  "validation": "format=obj vertices=813 triangles=271",
+  "normalized": "$S/mod-cache/base/base_head_maian_s/head-v2-3c55e0e5d876b28cacfeb7ec2a873e44066d0ab882510c7c85145edbee163247.pdmodel.json",
+  "vertex_count": 813,
+  "triangle_count": 271,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

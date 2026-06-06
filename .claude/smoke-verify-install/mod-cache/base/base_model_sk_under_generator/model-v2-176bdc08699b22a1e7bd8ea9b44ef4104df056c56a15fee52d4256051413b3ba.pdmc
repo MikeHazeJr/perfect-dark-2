@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_sk_under_generator",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_sk_under_generator.pdmesh::model.obj",
+  "source_size": 19030,
+  "source_sha256": "176bdc08699b22a1e7bd8ea9b44ef4104df056c56a15fee52d4256051413b3ba",
+  "validation": "format=obj vertices=276 triangles=92",
+  "normalized": "$S/mod-cache/base/base_model_sk_under_generator/model-v2-176bdc08699b22a1e7bd8ea9b44ef4104df056c56a15fee52d4256051413b3ba.pdmodel.json",
+  "vertex_count": 276,
+  "triangle_count": 92,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

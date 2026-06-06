@@ -63,7 +63,7 @@ static s32 s_register(const char *manifest, size_t manifest_len,
     asset_entry_t *e = (asset_entry_t *)assetCatalogResolve(id);
     if (e == NULL) {
         e = assetCatalogRegisterAnimation(
-            id, /* anim_id: */ 0,
+            id, /* anim_id: */ -1,
             /* name: */ "",
             (s32)frame_count,
             target_body[0] ? target_body : NULL);
@@ -82,6 +82,7 @@ static s32 s_register(const char *manifest, size_t manifest_len,
         loaderWalkerMarkBaseArchiveEntry(e);
         if (source_index >= 0) {
             e->ext.anim.anim_id = (s32)source_index;
+            e->source_animnum = (s32)source_index;
             e->runtime_index = (s32)source_index;
         }
         if (loaderWalkerArchiveMemberPath(file_path, source_member,

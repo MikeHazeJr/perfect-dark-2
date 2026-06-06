@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_alaskadoor_out",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_alaskadoor_out.pdmesh::model.obj",
+  "source_size": 11794,
+  "source_sha256": "84ce6294700b96968e551e8f4f2854ffab54377326b4101951017566b649cc00",
+  "validation": "format=obj vertices=177 triangles=59",
+  "normalized": "$S/mod-cache/base/base_model_alaskadoor_out/model-v2-84ce6294700b96968e551e8f4f2854ffab54377326b4101951017566b649cc00.pdmodel.json",
+  "vertex_count": 177,
+  "triangle_count": 59,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

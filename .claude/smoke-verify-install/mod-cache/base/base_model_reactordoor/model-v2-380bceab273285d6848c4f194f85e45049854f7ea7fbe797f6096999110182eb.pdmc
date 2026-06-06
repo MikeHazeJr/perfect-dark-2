@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_reactordoor",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_reactordoor.pdmesh::model.obj",
+  "source_size": 5794,
+  "source_sha256": "380bceab273285d6848c4f194f85e45049854f7ea7fbe797f6096999110182eb",
+  "validation": "format=obj vertices=90 triangles=30",
+  "normalized": "$S/mod-cache/base/base_model_reactordoor/model-v2-380bceab273285d6848c4f194f85e45049854f7ea7fbe797f6096999110182eb.pdmodel.json",
+  "vertex_count": 90,
+  "triangle_count": 30,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

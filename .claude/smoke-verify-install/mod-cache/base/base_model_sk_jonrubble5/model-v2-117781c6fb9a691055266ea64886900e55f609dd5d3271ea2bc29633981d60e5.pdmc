@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_sk_jonrubble5",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_sk_jonrubble5.pdmesh::model.obj",
+  "source_size": 2470,
+  "source_sha256": "117781c6fb9a691055266ea64886900e55f609dd5d3271ea2bc29633981d60e5",
+  "validation": "format=obj vertices=36 triangles=12",
+  "normalized": "$S/mod-cache/base/base_model_sk_jonrubble5/model-v2-117781c6fb9a691055266ea64886900e55f609dd5d3271ea2bc29633981d60e5.pdmodel.json",
+  "vertex_count": 36,
+  "triangle_count": 12,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

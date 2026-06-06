@@ -1,0 +1,13 @@
+{
+  "schema": "pd2.generated.collision.v1",
+  "scenario": "base:scenario_defense",
+  "derived_from": "collision.obj",
+  "override": "collision.obj",
+  "generator": "deterministic.collision_obj.v1",
+  "policy": {
+    "default_collidable": true,
+    "material_tags": true,
+    "node_tags": true,
+    "fallback_when_missing_override": false
+  }
+}

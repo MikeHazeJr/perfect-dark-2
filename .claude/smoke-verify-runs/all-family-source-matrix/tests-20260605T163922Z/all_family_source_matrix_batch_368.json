@@ -1,0 +1,131 @@
+{
+  "scenario_name": "all_family_source_matrix_batch_368",
+  "BugId": "B-509",
+  "category": "modding",
+  "description": "c3844 runtime matrix smoke: source-only catalog load batch 368 for extracted non-Scenario public typed archives. Missing debug-load request/result blocks are B-509 harness observability failures.",
+  "tags": [
+    "modding",
+    "pdxxx",
+    "source-gate",
+    "source-matrix",
+    "all-family",
+    "c3844",
+    "smoke",
+    "pillar:modding"
+  ],
+  "paths_of_interest": [
+    "port/src/main.c",
+    "port/src/asset_source_debug.c",
+    "port/src/assetcatalog_load.c",
+    "tools/smoke-verify/run-all-family-source-matrix.ps1",
+    "tools/smoke-verify/fixtures/all_family_source_pd.ini"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 180,
+  "install_state": "clean",
+  "fixtures": [
+    {
+      "src": "tools/smoke-verify/fixtures/all_family_source_pd.ini",
+      "dst": "pd.ini"
+    },
+    {
+      "src": "tools/smoke-verify/fixtures/no_mods_enabled.json",
+      "dst": "mods-enabled.json"
+    }
+  ],
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--portable",
+    "--debug-load-catalog-assets-source-only",
+    "--debug-load-catalog-assets",
+    "voice=base:voice_line_aap,voice=base:voice_line_aaw,voice=base:voice_line_aax,voice=base:voice_line_abh,voice=base:voice_line_abi,voice=base:voice_line_ach,voice=base:voice_line_aci,voice=base:voice_line_acj,voice=base:voice_line_ack,voice=base:voice_line_acl,voice=base:voice_line_acm,voice=base:voice_line_aco,voice=base:voice_line_acr,voice=base:voice_line_acy,voice=base:voice_line_adf,voice=base:voice_line_adg,voice=base:voice_line_adh,voice=base:voice_line_adi,voice=base:voice_line_adj,voice=base:voice_line_adl"
+  ],
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait",
+      "comment": "catalog bootstrap extracts and walks base typed archives before source-only typed-load requests fire."
+    },
+    {
+      "at_ms": 35000,
+      "type": "exit",
+      "comment": "exit after all requested typed assets have loaded or emitted source-only failures."
+    }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=all_family_source_matrix_batch_368",
+      "BOOT: --debug-load-catalog-assets request type=audio id='base:voice_line_aap' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=audio id='base:voice_line_aap' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=audio id='base:voice_line_aaw' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=audio id='base:voice_line_aaw' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=audio id='base:voice_line_aax' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=audio id='base:voice_line_aax' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=audio id='base:voice_line_abh' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=audio id='base:voice_line_abh' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=audio id='base:voice_line_abi' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=audio id='base:voice_line_abi' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=audio id='base:voice_line_ach' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=audio id='base:voice_line_ach' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=audio id='base:voice_line_aci' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=audio id='base:voice_line_aci' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=audio id='base:voice_line_acj' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=audio id='base:voice_line_acj' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=audio id='base:voice_line_ack' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=audio id='base:voice_line_ack' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=audio id='base:voice_line_acl' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=audio id='base:voice_line_acl' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=audio id='base:voice_line_acm' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=audio id='base:voice_line_acm' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=audio id='base:voice_line_aco' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=audio id='base:voice_line_aco' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=audio id='base:voice_line_acr' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=audio id='base:voice_line_acr' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=audio id='base:voice_line_acy' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=audio id='base:voice_line_acy' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=audio id='base:voice_line_adf' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=audio id='base:voice_line_adf' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=audio id='base:voice_line_adg' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=audio id='base:voice_line_adg' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=audio id='base:voice_line_adh' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=audio id='base:voice_line_adh' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=audio id='base:voice_line_adi' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=audio id='base:voice_line_adi' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=audio id='base:voice_line_adj' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=audio id='base:voice_line_adj' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=audio id='base:voice_line_adl' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=audio id='base:voice_line_adl' result=OK",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "ASSET\\.SOURCE_ONLY",
+      "has no public FileProvider source",
+      "--debug-load-catalog-assets invalid token",
+      "--debug-load-catalog-assets token '.*' missing type=id form",
+      "--debug-load-catalog-assets argument too long",
+      "result=FAIL",
+      "result=MISSING",
+      "RomProvider:filenum",
+      "refusing fallback"
+    ],
+    "required_counts": [
+      {
+        "pattern": "BOOT: --debug-load-catalog-assets request type=.* source_only=1",
+        "min": 20,
+        "max": 20
+      },
+      {
+        "pattern": "BOOT: --debug-load-catalog-assets result type=.* result=OK",
+        "min": 20,
+        "max": 20
+      }
+    ]
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_shotgun_hi",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_shotgun_hi.pdmesh::model.obj",
+  "source_size": 98697,
+  "source_sha256": "d76c1a0d4e5816a2f40e1f7d707430d45831dbb83ab4eff1b8142af37f5fa355",
+  "validation": "format=obj vertices=1485 triangles=495",
+  "normalized": "$S/mod-cache/base/base_model_shotgun_hi/model-v2-d76c1a0d4e5816a2f40e1f7d707430d45831dbb83ab4eff1b8142af37f5fa355.pdmodel.json",
+  "vertex_count": 1485,
+  "triangle_count": 495,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

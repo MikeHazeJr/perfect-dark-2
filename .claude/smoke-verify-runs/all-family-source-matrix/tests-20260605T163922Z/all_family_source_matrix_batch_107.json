@@ -1,0 +1,131 @@
+{
+  "scenario_name": "all_family_source_matrix_batch_107",
+  "BugId": "B-509",
+  "category": "modding",
+  "description": "c3844 runtime matrix smoke: source-only catalog load batch 107 for extracted non-Scenario public typed archives. Missing debug-load request/result blocks are B-509 harness observability failures.",
+  "tags": [
+    "modding",
+    "pdxxx",
+    "source-gate",
+    "source-matrix",
+    "all-family",
+    "c3844",
+    "smoke",
+    "pillar:modding"
+  ],
+  "paths_of_interest": [
+    "port/src/main.c",
+    "port/src/asset_source_debug.c",
+    "port/src/assetcatalog_load.c",
+    "tools/smoke-verify/run-all-family-source-matrix.ps1",
+    "tools/smoke-verify/fixtures/all_family_source_pd.ini"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 180,
+  "install_state": "clean",
+  "fixtures": [
+    {
+      "src": "tools/smoke-verify/fixtures/all_family_source_pd.ini",
+      "dst": "pd.ini"
+    },
+    {
+      "src": "tools/smoke-verify/fixtures/no_mods_enabled.json",
+      "dst": "mods-enabled.json"
+    }
+  ],
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--portable",
+    "--debug-load-catalog-assets-source-only",
+    "--debug-load-catalog-assets",
+    "model=base:model_stonedesk_fw,model=base:model_submarine,model=base:model_suitcase,model=base:model_table_btv,model=base:model_target,model=base:model_targetamp_hi,model=base:model_targetamp_lo,model=base:model_targetamp,model=base:model_taxicab,model=base:model_tdoor,model=base:model_testerbot,model=base:model_testgun_hi,model=base:model_testgun_lo,model=base:model_testobj,model=base:model_thumbprintscanner,model=base:model_timedmine_hi,model=base:model_timedmine_lo,model=base:model_toilet_bag,model=base:model_ttb_box,model=base:model_turret_aiq"
+  ],
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait",
+      "comment": "catalog bootstrap extracts and walks base typed archives before source-only typed-load requests fire."
+    },
+    {
+      "at_ms": 35000,
+      "type": "exit",
+      "comment": "exit after all requested typed assets have loaded or emitted source-only failures."
+    }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=all_family_source_matrix_batch_107",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_stonedesk_fw' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_stonedesk_fw' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_submarine' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_submarine' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_suitcase' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_suitcase' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_table_btv' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_table_btv' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_target' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_target' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_targetamp_hi' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_targetamp_hi' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_targetamp_lo' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_targetamp_lo' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_targetamp' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_targetamp' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_taxicab' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_taxicab' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_tdoor' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_tdoor' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_testerbot' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_testerbot' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_testgun_hi' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_testgun_hi' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_testgun_lo' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_testgun_lo' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_testobj' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_testobj' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_thumbprintscanner' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_thumbprintscanner' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_timedmine_hi' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_timedmine_hi' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_timedmine_lo' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_timedmine_lo' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_toilet_bag' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_toilet_bag' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_ttb_box' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_ttb_box' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_turret_aiq' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_turret_aiq' result=OK",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "ASSET\\.SOURCE_ONLY",
+      "has no public FileProvider source",
+      "--debug-load-catalog-assets invalid token",
+      "--debug-load-catalog-assets token '.*' missing type=id form",
+      "--debug-load-catalog-assets argument too long",
+      "result=FAIL",
+      "result=MISSING",
+      "RomProvider:filenum",
+      "refusing fallback"
+    ],
+    "required_counts": [
+      {
+        "pattern": "BOOT: --debug-load-catalog-assets request type=.* source_only=1",
+        "min": 20,
+        "max": 20
+      },
+      {
+        "pattern": "BOOT: --debug-load-catalog-assets result type=.* result=OK",
+        "min": 20,
+        "max": 20
+      }
+    ]
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_rope",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_rope.pdmesh::model.obj",
+  "source_size": 40537,
+  "source_sha256": "89be8033c40ff78ce69e1b53ba210bc7fe0b5103b80e87aac8b287c4af45f171",
+  "validation": "format=obj vertices=618 triangles=206",
+  "normalized": "$S/mod-cache/base/base_model_rope/model-v2-89be8033c40ff78ce69e1b53ba210bc7fe0b5103b80e87aac8b287c4af45f171.pdmodel.json",
+  "vertex_count": 618,
+  "triangle_count": 206,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

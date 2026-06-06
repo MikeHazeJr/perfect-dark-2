@@ -1112,6 +1112,7 @@ asset_entry_t *assetCatalogRegisterAnimation(const char *id, s32 anim_id,
     asset_entry_t *entry = s_registerLocked(id, ASSET_ANIMATION);
     if (entry) {
         entry->ext.anim.anim_id = anim_id;
+        entry->source_animnum = anim_id;
         if (name != NULL) {
             strncpy(entry->ext.anim.name, name, 63);
             entry->ext.anim.name[63] = '\0';
@@ -1134,6 +1135,9 @@ asset_entry_t *assetCatalogRegisterTexture(const char *id, s32 texture_id,
     asset_entry_t *entry = s_registerLocked(id, ASSET_TEXTURE);
     if (entry) {
         entry->ext.texture.texture_id = texture_id;
+        if (texture_id >= 0) {
+            entry->source_texnum = texture_id;
+        }
         entry->ext.texture.width = width;
         entry->ext.texture.height = height;
         entry->ext.texture.format = format;

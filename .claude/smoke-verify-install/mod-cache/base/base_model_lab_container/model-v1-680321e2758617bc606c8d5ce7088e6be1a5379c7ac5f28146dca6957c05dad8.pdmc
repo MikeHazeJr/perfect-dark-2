@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 1,
+  "asset_id": "base:model_lab_container",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_lab_container.pdmesh::model.obj",
+  "source_size": 8011,
+  "source_sha256": "680321e2758617bc606c8d5ce7088e6be1a5379c7ac5f28146dca6957c05dad8",
+  "validation": "format=obj vertices=120 triangles=40",
+  "normalized": "$S/mod-cache/base/base_model_lab_container/model-v1-680321e2758617bc606c8d5ce7088e6be1a5379c7ac5f28146dca6957c05dad8.pdmodel.json",
+  "vertex_count": 120,
+  "triangle_count": 40,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

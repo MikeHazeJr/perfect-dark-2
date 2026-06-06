@@ -5,6 +5,7 @@
 
 #include "catch.hpp"
 
+#include <cstring>
 #include <fstream>
 #include <sstream>
 #include <string>
@@ -42,6 +43,30 @@ std::string functionBlock(const std::string &text, const std::string &name)
 		}
 	}
 	return "";
+}
+
+void requireTokenOrder(const std::string &text, const char *first,
+	const char *second)
+{
+	const size_t first_pos = text.find(first);
+	const size_t second_pos = text.find(second);
+	INFO("Expected '" << first << "' before '" << second << "'");
+	REQUIRE(first_pos != std::string::npos);
+	REQUIRE(second_pos != std::string::npos);
+	REQUIRE(first_pos < second_pos);
+}
+
+size_t countOccurrences(const std::string &text, const char *needle)
+{
+	size_t count = 0;
+	size_t pos = 0;
+
+	while ((pos = text.find(needle, pos)) != std::string::npos) {
+		count++;
+		pos += strlen(needle);
+	}
+
+	return count;
 }
 
 }
@@ -122,6 +147,373 @@ TEST_CASE("asset native-source guard is tracked by tests and source docs",
 	REQUIRE(guard.find("c3842-s7") != std::string::npos);
 	REQUIRE(guard.find("c3842-s8") != std::string::npos);
 	REQUIRE(guard.find("c3842-s9") != std::string::npos);
+	REQUIRE(guard.find("SCENARIO_RUNTIME_COUNT_RULES") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scan_scenario_runtime_count_guards") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scenario runtime row counts must stay behind source-checked helper boundaries") !=
+	        std::string::npos);
+	REQUIRE(guard.find("SCENARIO_PADFILE_GLOBAL_SOURCE_PROVEN_FUNCTIONS") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scan_scenario_padfile_global_guards") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scenario padfile globals must stay inside source-gated runtime count helpers") !=
+	        std::string::npos);
+	REQUIRE(guard.find("SCENARIO_STAGE_SETUP_GLOBAL_SOURCE_PROVEN_FUNCTIONS") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scan_scenario_stage_setup_global_guards") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scenario g_StageSetup access must stay inside source-gated runtime table helpers") !=
+	        std::string::npos);
+	REQUIRE(guard.find("SCENARIO_SETUP_TAG_GLOBAL_SOURCE_PROVEN_FUNCTIONS") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scan_scenario_setup_tag_global_guards") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scenario setup tag globals must stay inside source-gated runtime setup tag helpers") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scan_scenario_setup_behavior_link_source_guards") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scenario setup behavior links must validate source record targets before runtime registration") !=
+	        std::string::npos);
+	REQUIRE(guard.find("SCENARIO_SOURCE_WIDE_PAD_CACHE_SOURCE_PROVEN_FUNCTIONS") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scan_scenario_source_wide_pad_cache_guards") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scenario source wide pad offset cache must stay inside source padfile helpers") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scan_scenario_player_state_access_guards") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scenario player state access must stay behind runtime player proof helpers") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scan_scenario_current_player_number_guards") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scenario current-player-number reads must stay behind runtime player-slot proof helpers") !=
+	        std::string::npos);
+	REQUIRE(guard.find("s_aiGraphResolveRuntimeCharacterRefOrSelector") !=
+	        std::string::npos);
+	REQUIRE(guard.find("SCENARIO_ACTIVE_CHARACTER_POINTER_SOURCE_PROVEN_FUNCTIONS") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scan_scenario_active_character_pointer_guards") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scenario active-character pointer reads must stay behind source-aware proof helpers") !=
+	        std::string::npos);
+	REQUIRE(guard.find("SCENARIO_VEHICLE_MOTION_SOURCE_PROVEN_FUNCTIONS") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scenarioSourceAiGraphExecuteHovercopterFireRocket") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scan_scenario_vehicle_motion_global_guards") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scenario vehicle motion access must stay behind runtime vehicle proof helpers") !=
+	        std::string::npos);
+	REQUIRE(guard.find("SCENARIO_MISC_BRANCH_VEHICLE_SOURCE_PROVEN_FUNCTIONS") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scan_scenario_misc_branch_vehicle_guards") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scenario misc-branch vehicle access must stay behind runtime vehicle proof helpers") !=
+	        std::string::npos);
+	REQUIRE(guard.find("SCENARIO_PROP_TARGET_VEHICLE_SOURCE_PROVEN_FUNCTIONS") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scenarioSourceAiGraphExecuteSetTarget") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scan_scenario_prop_target_vehicle_guards") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scenario prop-target vehicle access must stay behind runtime vehicle proof helpers") !=
+	        std::string::npos);
+	REQUIRE(guard.find("SCENARIO_TIMER_VEHICLE_SOURCE_PROVEN_FUNCTIONS") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scan_scenario_timer_vehicle_guards") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scenario timer vehicle access must stay behind runtime vehicle proof helpers") !=
+	        std::string::npos);
+	REQUIRE(guard.find("SCENARIO_HOVERCAR_BRANCH_SOURCE_PROVEN_FUNCTIONS") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scan_scenario_hovercar_branch_guards") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scenario hovercar branch access must stay behind runtime vehicle proof helpers") !=
+	        std::string::npos);
+	REQUIRE(guard.find("SCENARIO_PROP_INDEX_SOURCE_PROVEN_FUNCTIONS") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scan_scenario_prop_index_guards") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scenario prop-index derivation must stay behind runtime character proof helpers") !=
+	        std::string::npos);
+	REQUIRE(guard.find("SCENARIO_PROP_PRESET_INDEX_SOURCE_PROVEN_FUNCTIONS") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scan_scenario_prop_preset_index_guards") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scenario prop-preset index access must stay behind object-source and character proof helpers") !=
+	        std::string::npos);
+	REQUIRE(guard.find("SCENARIO_ROOM_PROP_SCAN_SOURCE_PROVEN_FUNCTIONS") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scan_scenario_room_prop_scan_guards") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scenario room-prop scans must stay behind spatial object-source and character proof helpers") !=
+	        std::string::npos);
+	REQUIRE(guard.find("SCENARIO_SCENE_ROOM_TABLE_SOURCE_PROVEN_FUNCTIONS") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scan_scenario_scene_room_table_guards") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scenario room table mutations must stay behind source-built scene room proof helpers") !=
+	        std::string::npos);
+	REQUIRE(guard.find("SCENARIO_SCENE_ROOM_GLOBAL_SOURCE_PROVEN_FUNCTIONS") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scan_scenario_scene_room_global_guards") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scenario room table globals must stay behind source-built scene room proof helpers") !=
+	        std::string::npos);
+	REQUIRE(guard.find("g_Rooms\\b(?!\\s*\\[)|\\bg_Vars\\s*\\.\\s*roomcount") !=
+	        std::string::npos);
+	REQUIRE(guard.find("SCENARIO_PORTAL_TABLE_SOURCE_PROVEN_FUNCTIONS") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scan_scenario_portal_table_guards") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scenario portal table mutations must stay behind source-built portals.tsv proof helpers") !=
+	        std::string::npos);
+	REQUIRE(guard.find("SCENARIO_PORTAL_GLOBAL_SOURCE_PROVEN_FUNCTIONS") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scan_scenario_portal_global_guards") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scenario portal globals must stay behind source-built portals.tsv proof helpers") !=
+	        std::string::npos);
+	REQUIRE(guard.find("SCENARIO_MISSION_MUSIC_MODE_GLOBAL_SOURCE_PROVEN_FUNCTIONS") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scan_scenario_mission_music_mode_global_guards") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scenario mission/music mode globals must stay behind graph source proof") !=
+	        std::string::npos);
+	REQUIRE(guard.find("g_Vars\\s*\\.\\s*(?:normmplayerisrunning|numaibuddies)") !=
+	        std::string::npos);
+	REQUIRE(guard.find("SCENARIO_PLAYER_INVINCIBILITY_SOURCE_PROVEN_FUNCTIONS") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scan_scenario_player_invincibility_guards") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scenario player invincibility global access must stay behind player-slot proof") !=
+	        std::string::npos);
+	REQUIRE(guard.find("SCENARIO_ENVIRONMENT_GLOBAL_SOURCE_PROVEN_FUNCTIONS") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scan_scenario_environment_global_guards") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scenario environment globals must stay behind graph source proof") !=
+	        std::string::npos);
+	REQUIRE(guard.find("SCENARIO_CUTSCENE_FRAME_OVERRUN_SOURCE_PROVEN_FUNCTIONS") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scan_scenario_cutscene_frame_overrun_guards") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scenario cutscene frame-overrun timing must stay behind animation source proof") !=
+	        std::string::npos);
+	REQUIRE(guard.find("SCENARIO_TELEPORT_SOUND_PRIORITY_SOURCE_PROVEN_FUNCTIONS") !=
+	        std::string::npos);
+	REQUIRE(guard.find("SCENARIO_TELEPORT_SOUND_PRIORITY_CALLER_PROOF_TOKENS") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scan_scenario_teleport_sound_priority_guards") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scenario teleport sound priority must stay behind catalog audio proof") !=
+	        std::string::npos);
+	REQUIRE(guard.find("SCENARIO_LIFT_NUMBER_SOURCE_PROVEN_FUNCTIONS") !=
+	        std::string::npos);
+	REQUIRE(guard.find("SCENARIO_LIFT_NUMBER_CALLER_PROOF_TOKENS") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scan_scenario_lift_number_guards") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scenario lift-number table access must stay behind public pad-source proof") !=
+	        std::string::npos);
+	REQUIRE(guard.find("SCENARIO_AUTOCUT_SOURCE_PROVEN_FUNCTIONS") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scan_scenario_autocut_global_guards") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scenario autocut globals must stay behind graph source proof") !=
+	        std::string::npos);
+	REQUIRE(guard.find("SCENARIO_FRAME_STATE_SOURCE_PROVEN_FUNCTIONS") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scan_scenario_frame_state_guards") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scenario frame-state globals must stay behind graph source proof") !=
+	        std::string::npos);
+	REQUIRE(guard.find("SCENARIO_KILL_COUNT_SOURCE_PROVEN_FUNCTIONS") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scan_scenario_kill_count_guards") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scenario kill-count global reads must stay behind mission/global source proof") !=
+	        std::string::npos);
+	REQUIRE(guard.find("SCENARIO_STAGE_NUM_SOURCE_PROVEN_FUNCTIONS") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scan_scenario_stage_number_guards") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scenario stage-number globals must stay behind source-proven special-case handlers") !=
+	        std::string::npos);
+	REQUIRE(guard.find("g_Vars\\s*\\.\\s*stagenum") !=
+	        std::string::npos);
+	REQUIRE(guard.find("SCENARIO_PLAYER_AUTOWALK_STATE_SOURCE_PROVEN_FUNCTIONS") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scan_scenario_player_autowalk_state_guards") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scenario player autowalk state reads must stay behind player-slot proof") !=
+	        std::string::npos);
+	REQUIRE(guard.find("g_Vars\\s*\\.\\s*tickmode") !=
+	        std::string::npos);
+	REQUIRE(guard.find("SCENARIO_ANTI_PLAYER_GLOBAL_SOURCE_PROVEN_FUNCTIONS") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scan_scenario_anti_player_global_guards") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scenario Anti-player global reads must stay behind chr_set_team source proof") !=
+	        std::string::npos);
+	REQUIRE(guard.find("g_Vars\\s*\\.\\s*antiplayernum") !=
+	        std::string::npos);
+	REQUIRE(guard.find("SCENARIO_PLAYER_CONTROL_SOURCE_PROVEN_FUNCTIONS") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scan_scenario_player_control_guards") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scenario player-control table writes must stay behind runtime player-slot proof helpers") !=
+	        std::string::npos);
+	REQUIRE(guard.find("SCENARIO_AUDIO_ALIAS_SOURCE_PROVEN_FUNCTIONS") !=
+	        std::string::npos);
+	REQUIRE(guard.find("SCENARIO_AUDIO_CATALOG_RESOLVER_PROOF_TOKENS") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scan_scenario_audio_alias_guards") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scenario audio alias mappings and counts must stay behind catalog audio resolution proof") !=
+	        std::string::npos);
+	REQUIRE(guard.find("g_NumAudioRussMappings") != std::string::npos);
+	REQUIRE(guard.find("SCENARIO_SPECIAL_DEATH_ANIM_SOURCE_PROVEN_FUNCTIONS") !=
+	        std::string::npos);
+	REQUIRE(guard.find("SCENARIO_SPECIAL_DEATH_ANIM_ASSIGNMENT_PROOF_TOKENS") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scan_scenario_special_death_animation_guards") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scenario special-death animation table reads must stay behind animation catalog proof") !=
+	        std::string::npos);
+	REQUIRE(guard.find("SCENARIO_QUIP_ASSET_TABLE_SOURCE_PROVEN_FUNCTIONS") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scan_scenario_quip_asset_table_guards") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scenario quip asset tables and bank pointers must stay behind character and catalog proof") !=
+	        std::string::npos);
+	REQUIRE(guard.find("g_(?:Guard|Special|Skedar|Maian)QuipBank\\b") !=
+	        std::string::npos);
+	REQUIRE(guard.find("SCENARIO_CHR_FIND_SOURCE_PROVEN_FUNCTIONS") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scan_scenario_chr_find_guards") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scenario chrFindById access must stay inside source-aware character-reference helpers") !=
+	        std::string::npos);
+	REQUIRE(guard.find("SCENARIO_LITERAL_CHR_FIND_SOURCE_PROVEN_FUNCTIONS") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scan_scenario_literal_chr_find_guards") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scenario chrFindByLiteralId access must stay behind runtime character proof helpers") !=
+	        std::string::npos);
+	REQUIRE(guard.find("SCENARIO_PROP_TARGET_INDEX_SOURCE_PROVEN_FUNCTIONS") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scan_scenario_prop_target_index_guards") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scenario prop-target index derivation must stay behind runtime character proof helpers") !=
+	        std::string::npos);
+	REQUIRE(guard.find("SCENARIO_LIST_CONTROL_SOURCE_PROVEN_FUNCTIONS") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scan_scenario_list_control_global_guards") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scenario list-control access must stay behind runtime actor proof helpers") !=
+	        std::string::npos);
+	REQUIRE(guard.find("SCENARIO_QUIP_SOURCE_PROVEN_FUNCTIONS") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scan_scenario_quip_global_guards") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scenario quip access must stay behind runtime character proof helpers") !=
+	        std::string::npos);
+	REQUIRE(guard.find("SCENARIO_CHARACTER_STATE_SOURCE_PROVEN_FUNCTIONS") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scan_scenario_character_state_global_guards") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scenario character-state access must stay behind runtime character proof helpers") !=
+	        std::string::npos);
+	REQUIRE(guard.find("SCENARIO_SETUP_EQUIPMENT_SOURCE_PROVEN_FUNCTIONS") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scenarioSourceAiGraphExecuteTryEquipWeapon") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scenarioSourceAiGraphExecuteTryEquipHat") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scenarioSourceAiGraphExecuteObjectDoAnimation") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scan_scenario_setup_equipment_global_guards") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scenario setup/equipment access must stay behind runtime character proof helpers") !=
+	        std::string::npos);
+	REQUIRE(guard.find("SCENARIO_CUTSCENE_VISIBILITY_SOURCE_PROVEN_FUNCTIONS") !=
+	        std::string::npos);
+	REQUIRE(guard.find(
+		        "SCENARIO_CUTSCENE_VISIBILITY_SLOT_SCAN_SOURCE_PROVEN_FUNCTIONS") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scenarioSourceAiGraphExecuteShowCutsceneChrs") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scan_scenario_cutscene_visibility_slot_guards") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scenario cutscene visibility writes must use source-proven character slot pointers") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scenario cutscene visibility slot scans must preflight source-proven character slots") !=
+	        std::string::npos);
+	REQUIRE(guard.find("SCENARIO_MISSION_GLOBAL_PLAYER_SOURCE_PROVEN_FUNCTIONS") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scenarioSourceAiGraphExecuteKillBond") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scan_scenario_mission_global_player_guards") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scenario mission-global player writes must use source-proven local player pointers") !=
+	        std::string::npos);
+	REQUIRE(guard.find("SCENARIO_PLAYER_GLOBAL_SOURCE_PROVEN_FUNCTIONS") !=
+	        std::string::npos);
+	REQUIRE(guard.find(
+		        "SCENARIO_PLAYER_GLOBAL_POINTER_SOURCE_PROVEN_FUNCTIONS") !=
+	        std::string::npos);
+	REQUIRE(guard.find(
+		        "SCENARIO_PLAYER_IDENTITY_GLOBAL_SOURCE_PROVEN_FUNCTIONS") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scenarioSourceAiGraphExecuteIfChrActivatedObject") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scenarioSourceAiGraphExecuteToggleP1P2") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scenarioSourceAiGraphExecuteClearInventory") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scan_scenario_player_identity_global_guards") !=
+	        std::string::npos);
+	REQUIRE(guard.find("g_Vars\\s*\\.\\s*(?:bondplayernum|coopplayernum)") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scenario Bond/Co-op player-number globals must stay behind source/player proof") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scan_scenario_player_global_guards") !=
+	        std::string::npos);
+	REQUIRE(guard.find("g_Vars\\.(?:bond|coop)\\b(?!\\s*->)") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scenario player-global access must use source-proven local player pointers") !=
+	        std::string::npos);
+	REQUIRE(guard.find("SCENARIO_AI_INTERPRETER_GLOBALS") !=
+	        std::string::npos);
+	REQUIRE(guard.find("\"g_Vars.aioffset\"") != std::string::npos);
+	REQUIRE(guard.find("\"g_Vars.ailist\"") != std::string::npos);
+	REQUIRE(guard.find("SCENARIO_RUNTIME_GLOBAL_MAX_COUNTS") !=
+	        std::string::npos);
+	REQUIRE(guard.find("\"g_Vars.currentplayernum\": 27") !=
+	        std::string::npos);
+	REQUIRE(guard.find("\"g_Vars.chrdata\": 14") != std::string::npos);
+	REQUIRE(guard.find("scan_scenario_runtime_global_inventory") !=
+	        std::string::npos);
+	REQUIRE(guard.find("errors.extend(scan_scenario_runtime_global_inventory(root))") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scenario runtime globals must be inventoried by source-boundary guards or interpreter exceptions") !=
+	        std::string::npos);
+	REQUIRE(guard.find("SCENARIO_RUNTIME_EXTERNAL_GLOBAL_MAX_COUNTS") !=
+	        std::string::npos);
+	REQUIRE(guard.find("\"g_Rooms\": 10") != std::string::npos);
+	REQUIRE(guard.find("\"g_NumAudioRussMappings\": 2") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scan_scenario_runtime_external_global_inventory") !=
+	        std::string::npos);
+	REQUIRE(guard.find("errors.extend(scan_scenario_runtime_external_global_inventory(root))") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scenario runtime external globals must be inventoried by source-boundary guards") !=
+	        std::string::npos);
+	REQUIRE(guard.find("\"ailistFindById\"") != std::string::npos);
+	REQUIRE(guard.find("scenario runtime setup/path/AI-list lookups must stay behind source-checked helper boundaries") !=
+	        std::string::npos);
 
 	const std::string conformance =
 		readTextFile("tools/asset_archive_conformance.py");
@@ -221,12 +613,273 @@ TEST_CASE("runtime ROM fallback is tracked as an asset-chain failure",
 	REQUIRE(kanban.find("\"id\": \"c3844-s1\"") != std::string::npos);
 }
 
+TEST_CASE("scenario object-backed room object weapon predicates validate source before runtime tags",
+          "[modding][pdxxx][c3844][static]") {
+	const std::string scenario_runtime =
+		readTextFile("port/src/scenario_source_runtime.c");
+	const char *functions[] = {
+		"scenarioSourceAiGraphExecuteIfChrHasObject",
+		"scenarioSourceAiGraphExecuteIfWeaponThrownOnObject",
+		"scenarioSourceAiGraphExecuteIfGunUnclaimed",
+		"scenarioSourceAiGraphExecuteIfObjectHealthy",
+	};
+
+	REQUIRE(scenario_runtime.find("s_aiGraphPrepareRoomObjectWeaponBranch") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("s_aiGraphLogRoomObjectWeaponBranch") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("s_aiGraphLogRoomObjectWeaponBranchWeapon") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI condition %s weapon_id=%s label=%d result=%d") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI condition %s tag=%d object_rows=%d weapon_id=%s") !=
+	        std::string::npos);
+
+	for (const char *function : functions) {
+		const std::string block = functionBlock(scenario_runtime, function);
+		INFO(function);
+		REQUIRE(!block.empty());
+		requireTokenOrder(block,
+			"s_aiGraphPrepareRoomObjectWeaponBranch",
+			"s_aiGraphRequireRuntimeObjectTag");
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimeObjectTag",
+			"objFindByTagId");
+	}
+
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteIfWeaponThrown");
+		REQUIRE(!block.empty());
+		REQUIRE(block.find("s_aiGraphResolveWeaponCatalogId") !=
+		        std::string::npos);
+		REQUIRE(block.find("s_aiGraphLogRoomObjectWeaponBranchWeapon") !=
+		        std::string::npos);
+		requireTokenOrder(block,
+			"s_aiGraphPrepareRoomObjectWeaponBranch",
+			"s_aiGraphResolveWeaponCatalogId");
+		requireTokenOrder(block,
+			"s_aiGraphResolveWeaponCatalogId",
+			"weaponFindLanded");
+	}
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteIfWeaponThrownOnObject");
+		REQUIRE(!block.empty());
+		REQUIRE(block.find("s_aiGraphResolveWeaponCatalogId") !=
+		        std::string::npos);
+		REQUIRE(block.find("s_aiGraphLogRoomObjectWeaponBranchWeaponObject") !=
+		        std::string::npos);
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimeObjectTag",
+			"s_aiGraphResolveWeaponCatalogId");
+		requireTokenOrder(block,
+			"s_aiGraphResolveWeaponCatalogId",
+			"objFindByTagId");
+	}
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteIfChrHasWeaponEquipped");
+		REQUIRE(!block.empty());
+		REQUIRE(block.find("s_aiGraphResolveWeaponCatalogId") !=
+		        std::string::npos);
+		REQUIRE(block.find("player_checked=%d") !=
+		        std::string::npos);
+		requireTokenOrder(block,
+			"s_aiGraphPrepareRoomObjectWeaponBranch",
+			"s_aiGraphResolveWeaponCatalogId");
+		requireTokenOrder(block,
+			"s_aiGraphResolveWeaponCatalogId",
+			"s_aiGraphResolveRuntimeCharacterRefOrSelector");
+		requireTokenOrder(block,
+			"s_aiGraphResolveRuntimeCharacterRefOrSelector",
+			"s_aiGraphRequireRuntimePlayerSlot");
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimePlayerSlot",
+			"bgunGetWeaponNum");
+	}
+}
+
+TEST_CASE("scenario door graph actions validate source object type before runtime door access",
+          "[modding][pdxxx][c3844][static]") {
+	const std::string scenario_runtime =
+		readTextFile("port/src/scenario_source_runtime.c");
+	const char *door_functions[] = {
+		"scenarioSourceAiGraphExecuteOpenDoor",
+		"scenarioSourceAiGraphExecuteCloseDoor",
+		"scenarioSourceAiGraphExecuteIfDoorState",
+		"scenarioSourceAiGraphExecuteLockDoor",
+		"scenarioSourceAiGraphExecuteUnlockDoor",
+		"scenarioSourceAiGraphExecuteIfDoorLocked",
+		"scenarioSourceAiGraphExecuteSetDoorOpen",
+	};
+
+	REQUIRE(scenario_runtime.find("s_aiGraphRequireRuntimeObjectTagType") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("expected source type %u") !=
+	        std::string::npos);
+
+	for (const char *function : door_functions) {
+		const std::string block = functionBlock(scenario_runtime, function);
+		INFO(function);
+		REQUIRE(!block.empty());
+		REQUIRE(block.find("s_aiGraphRequireRuntimeObjectTagType") !=
+		        std::string::npos);
+		REQUIRE(block.find("OBJTYPE_DOOR") != std::string::npos);
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimeObjectTagType",
+			"objFindByTagId");
+	}
+
+	const std::string predicate =
+		functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteIfObjectIsDoor");
+	REQUIRE(!predicate.empty());
+	REQUIRE(predicate.find("s_aiGraphRequireRuntimeObjectTagType") ==
+	        std::string::npos);
+	REQUIRE(predicate.find("obj->type == OBJTYPE_DOOR") !=
+	        std::string::npos);
+}
+
+TEST_CASE("scenario class-owned object graph actions validate source object types",
+          "[modding][pdxxx][c3844][static]") {
+	const std::string scenario_runtime =
+		readTextFile("port/src/scenario_source_runtime.c");
+	const char *lift_functions[] = {
+		"scenarioSourceAiGraphExecuteIfLiftStationary",
+		"scenarioSourceAiGraphExecuteLiftGoToStop",
+		"scenarioSourceAiGraphExecuteIfLiftAtStop",
+		"scenarioSourceAiGraphExecuteActivateLift",
+	};
+
+	REQUIRE(scenario_runtime.find("s_aiGraphRequireRuntimeObjectTagAnyType") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("expected one of source types %s") !=
+	        std::string::npos);
+
+	for (const char *function : lift_functions) {
+		const std::string block = functionBlock(scenario_runtime, function);
+		INFO(function);
+		REQUIRE(!block.empty());
+		REQUIRE(block.find("s_aiGraphRequireRuntimeObjectTagType") !=
+		        std::string::npos);
+		REQUIRE(block.find("OBJTYPE_LIFT") != std::string::npos);
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimeObjectTagType",
+			"objFindByTagId");
+	}
+
+	const std::string image =
+		functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteSetObjImage");
+	REQUIRE(!image.empty());
+	REQUIRE(image.find("s_aiGraphRequireRuntimeObjectTagAnyType") !=
+	        std::string::npos);
+	REQUIRE(image.find("OBJTYPE_SINGLEMONITOR") != std::string::npos);
+	REQUIRE(image.find("OBJTYPE_MULTIMONITOR") != std::string::npos);
+	requireTokenOrder(image,
+		"s_aiGraphRequireRuntimeObjectTagAnyType",
+		"objFindByTagId");
+
+	const std::string autogun =
+		functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteSetAutogunTargetTeam");
+	REQUIRE(!autogun.empty());
+	REQUIRE(autogun.find("s_aiGraphRequireRuntimeObjectTagType") !=
+	        std::string::npos);
+	REQUIRE(autogun.find("OBJTYPE_AUTOGUN") != std::string::npos);
+	requireTokenOrder(autogun,
+		"s_aiGraphRequireRuntimeObjectTagType",
+		"objFindByTagId");
+}
+
+TEST_CASE("scenario setup tag actions validate source setup tag table",
+          "[modding][pdxxx][c3844][static]") {
+	const std::string scenario_runtime =
+		readTextFile("port/src/scenario_source_runtime.c");
+	REQUIRE(scenario_runtime.find("s_aiGraphRequireRuntimeSetupTag") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("missing source-derived runtime setup tag table") !=
+	        std::string::npos);
+	REQUIRE(countOccurrences(scenario_runtime,
+		        "if (!s_ActiveScenarioGraphs.setup_fields_path[0]) {\n"
+		        "\t\ts_aiGraphRuntimeFailure(action, \"missing setup.fields.tsv source\");\n"
+		        "\t\treturn 0;\n"
+		        "\t}\n\n"
+		        "\ttag_count = s_countRuntimeSetupTags();") >= 1);
+	{
+		const std::string count_tags =
+			functionBlock(scenario_runtime, "s_countRuntimeSetupTags");
+		REQUIRE(!count_tags.empty());
+		REQUIRE(count_tags.find("struct tag *tag = g_TagsLinkedList;") !=
+		        std::string::npos);
+		REQUIRE(count_tags.find("tag = tag->next;") !=
+		        std::string::npos);
+		REQUIRE(count_tags.find("return count;") != std::string::npos);
+	}
+	const std::string investigation =
+		functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteShuffleInvestigationTerminals");
+
+	REQUIRE(!investigation.empty());
+	REQUIRE(investigation.find("s_aiGraphRequireRuntimeSetupTag") !=
+	        std::string::npos);
+	REQUIRE(investigation.find("OBJTYPE_TAG") == std::string::npos);
+	REQUIRE(investigation.find("setup_tags=%d") != std::string::npos);
+	REQUIRE(investigation.find("s_aiGraphCopyTagPlacementChecked") !=
+	        std::string::npos);
+	requireTokenOrder(investigation,
+		"s_aiGraphRequireRuntimeSetupTag",
+		"s_aiGraphCopyTagPlacementChecked");
+	REQUIRE(scenario_runtime.find("static s32 s_aiGraphCopyTagPlacement(") ==
+	        std::string::npos);
+
+	const std::string checked_helper =
+		functionBlock(scenario_runtime, "s_aiGraphCopyTagPlacementChecked");
+	REQUIRE(!checked_helper.empty());
+	REQUIRE(checked_helper.find("s_aiGraphRequireRuntimeSetupTag") !=
+	        std::string::npos);
+	REQUIRE(checked_helper.find("OBJTYPE_TAG") == std::string::npos);
+	requireTokenOrder(checked_helper,
+		"s_aiGraphRequireRuntimeSetupTag",
+		"tagFindById");
+
+	for (const char *function : {
+		     "scenarioSourceAiGraphExecuteShuffleRuinsPillars",
+		     "scenarioSourceAiGraphExecuteShufflePelagicSwitches",
+	     }) {
+		const std::string block = functionBlock(scenario_runtime, function);
+		INFO(function);
+		REQUIRE(!block.empty());
+		REQUIRE(block.find("s_aiGraphCopyTagPlacementChecked") !=
+		        std::string::npos);
+		REQUIRE(block.find("setup_tags=%d") != std::string::npos);
+	}
+
+	const std::string warp =
+		functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteWarpJoToTag");
+	REQUIRE(!warp.empty());
+	REQUIRE(warp.find("s_aiGraphRequireRuntimeSetupTag") !=
+	        std::string::npos);
+	REQUIRE(warp.find("OBJTYPE_TAG") == std::string::npos);
+	REQUIRE(warp.find("setup_tags=%d") != std::string::npos);
+	requireTokenOrder(warp,
+		"s_aiGraphRequireRuntimeSetupTag",
+		"tagFindById");
+}
+
 TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
           "[modding][pdxxx][c3844][scenario][source_gate][static]") {
 	const std::string header = readTextFile("port/include/asset_source_debug.h");
 	const std::string debug = readTextFile("port/src/asset_source_debug.c");
 	const std::string setup = readTextFile("src/game/setup.c");
+	const std::string propobj_runtime = readTextFile("src/game/propobj.c");
+	const std::string early_objectives_runtime =
+		readTextFile("src/game/objectives.c");
+	const std::string constants = readTextFile("src/include/constants.h");
 	const std::string bg_runtime = readTextFile("src/game/bg.c");
+	const std::string dlights_runtime = readTextFile("src/game/dlights.c");
 	const std::string scene_renderer =
 		readTextFile("port/fast3d/scenario_scene_renderer.cpp");
 	const std::string scene_renderer_h =
@@ -300,6 +953,22 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 	        std::string::npos);
 	REQUIRE(setup.find("scenarioSourceLoadPadsForStage(&stage") !=
 	        std::string::npos);
+	REQUIRE(setup.find("prop = obj->prop;\n\n\t\t\t\t\t\tif (prop == NULL)") !=
+	        std::string::npos);
+	REQUIRE(constants.find("#define MODELNODETYPE_TYPE19       0x19") !=
+	        std::string::npos);
+	REQUIRE(propobj_runtime.find("modelGetType19PartRodata") !=
+	        std::string::npos);
+	REQUIRE(propobj_runtime.find("(node->type & 0xff) == MODELNODETYPE_TYPE19") !=
+	        std::string::npos);
+	REQUIRE(propobj_runtime.find("modelGetType19PartRodata(modeldef, MODELPART_BASIC_0065)") !=
+	        std::string::npos);
+	REQUIRE(propobj_runtime.find("modelGetType19PartRodata(modeldef, MODELPART_BASIC_0066)") !=
+	        std::string::npos);
+	REQUIRE(propobj_runtime.find("union modelrodata *floorPart = modelGetPartRodata(modeldef, MODELPART_BASIC_0065)") ==
+	        std::string::npos);
+	REQUIRE(early_objectives_runtime.find("g_Vars.currentplayer && g_Vars.currentplayer->prop &&") !=
+	        std::string::npos);
 	REQUIRE(bg_runtime.find("#include \"asset_source_debug.h\"") !=
 	        std::string::npos);
 	REQUIRE(bg_runtime.find("#include \"scenario_scene_renderer.h\"") !=
@@ -339,6 +1008,10 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 	REQUIRE(scenario_runtime.find("catalogGetLoadedColmesh(scenario->id)") !=
 	        std::string::npos);
 	REQUIRE(scenario_runtime.find("SCENARIO.SOURCE: validated background scene source") !=
+	        std::string::npos);
+	REQUIRE(bg_runtime.find("SCENARIO.SOURCE: background renderer using native scene source") !=
+	        std::string::npos);
+	REQUIRE(bg_runtime.find("SCENARIO.SOURCE: built native background room tables") !=
 	        std::string::npos);
 	REQUIRE(scenario_runtime.find("native BG renderer still pending") ==
 	        std::string::npos);
@@ -390,9 +1063,135 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 	        std::string::npos);
 	REQUIRE(scenario_runtime.find("s_parseWaypointsTsv") !=
 	        std::string::npos);
+	REQUIRE(scenario_runtime.find("s_generateNavigationTablesFromPads") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("const scenario_source_path_table_t *path_table") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("path_table && path_table->count > 0") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("u32 *pad_segments") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("s_parsePathPadList(pads, &row.pads") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("&row.pad_segments") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("pad_order[ordered_count++] = padnum") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("s_generatedNavigationAddEdge(nav, a, b,") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("s_segmentListAppendOrMerge") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("s_reverseSegmentFlags") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("SCENARIO_SEGMENT_FLAG_OUTWARD") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("SCENARIO_SEGMENT_FLAG_INWARD") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("SCENARIO_SEGMENT_ID_MASK)") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("path->pads[j - 1]") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("path->pad_segments[j - 1]") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("path->flags & PATHFLAG_CIRCULAR") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("path->pads[path->pad_count - 1]") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("path->pad_segments[path->pad_count - 1]") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("branch waypoints backend=source.navigation.generated") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("s_countNavigationDirectionalSegments") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("s_countNavigationWaypointNeighbourRefs") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("s_countNavigationWaygroupNeighbourRefs") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("generated directional path segments from public navigation/paths.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("s_generateNavigationWaygroupsFromEdges(nav)") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("group_ids[neighbour] = group_count") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("nav->waypoints[i].padnum = padnum") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("nav->covers[i].pos[0] = pads[padnum].pos[0]") !=
+	        std::string::npos);
 	REQUIRE(scenario_runtime.find("navigation/waypoints.tsv") !=
 	        std::string::npos);
 	REQUIRE(scenario_runtime.find("navigation/paths.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("missing public navigation table 'navigation/waypoints.tsv'") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("missing public navigation table 'navigation/waygroups.tsv'") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("missing public navigation table 'navigation/covers.tsv'") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("SCENARIO.SOURCE: compiled navigation tables") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("waypoint_neighbour_refs=%d") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("waygroup_neighbour_refs=%d") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=source.navigation.tables+navigation/waypoints.tsv+navigation/waygroups.tsv+navigation/covers.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("SCENARIO.SOURCE: generated deterministic navigation tables from public pads.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=source.navigation.generated+pads.tsv+navigation/waypoints.tsv+navigation/waygroups.tsv+navigation/covers.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("s_loadPathSourceRows(text, &path_table)") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("s_countPathRowsWithFlag(&path_table, PATHFLAG_CIRCULAR)") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("s_countPathRowsWithFlag(&path_table, PATHFLAG_FLYING)") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("path_flags=circular:%d,flying:%d") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=source.navigation.generated+pads.tsv+navigation/paths.tsv+navigation/waypoints.tsv+navigation/waygroups.tsv+navigation/covers.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("s_bindNavigationGenerateSource") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("s_countAndHashSourceTsvRows") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("s_hashSourceTextHex") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("s_hashSourceFileHex") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("nav_source_counts") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("nav_source_hashes") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("portals_path") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("\\\"portals.tsv\\\": \\\"%s\\\"") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("level_navigation_generate_node_count") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("supports_walk = true") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("supports_jump = true") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("supports_drop = true") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("supports_wall = true") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("supports_ceiling = true") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("source_counts=pads:%d,volumes:%d,waypoints:%d,waygroups:%d,covers:%d,paths:%d") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("source_hashes=sha256") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("capabilities=walk,jump,drop,wall,ceiling") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.navigation.generate+navigation.ini+generated-navmesh.json") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("navigation.ini missing deterministic nav generation contract") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("generated navmesh metadata missing deterministic cache contract") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("generated navmesh metadata source counts mismatch public navigation tables") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("generated navmesh metadata source hashes mismatch public navigation inputs") !=
 	        std::string::npos);
 	REQUIRE(scenario_runtime.find("s_loadPathSourceRows") !=
 	        std::string::npos);
@@ -413,6 +1212,40 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 	        std::string::npos);
 	REQUIRE(scenario_runtime.find("exceeding u16 pad offsets") ==
 	        std::string::npos);
+	{
+		const std::string clear_wide_offsets =
+			functionBlock(scenario_runtime, "s_clearSourceWidePadOffsets");
+		const std::string get_wide_offsets =
+			functionBlock(scenario_runtime, "scenarioSourcePadsGetWideOffsets");
+		const std::string build_padfile =
+			functionBlock(scenario_runtime, "s_buildPadfile");
+		REQUIRE(!clear_wide_offsets.empty());
+		REQUIRE(!get_wide_offsets.empty());
+		REQUIRE(!build_padfile.empty());
+		REQUIRE(clear_wide_offsets.find("g_SourceWidePadFile = NULL;") !=
+		        std::string::npos);
+		REQUIRE(clear_wide_offsets.find("g_SourceWidePadOffsets = NULL;") !=
+		        std::string::npos);
+		REQUIRE(clear_wide_offsets.find("g_SourceWidePadOffsetCount = 0;") !=
+		        std::string::npos);
+		REQUIRE(get_wide_offsets.find("padfiledata == g_SourceWidePadFile") !=
+		        std::string::npos);
+		REQUIRE(get_wide_offsets.find(
+			        "g_SourceWidePadOffsets && g_SourceWidePadOffsetCount >= 0") !=
+		        std::string::npos);
+		REQUIRE(get_wide_offsets.find("*out_count = g_SourceWidePadOffsetCount;") !=
+		        std::string::npos);
+		REQUIRE(get_wide_offsets.find("return g_SourceWidePadOffsets;") !=
+		        std::string::npos);
+		REQUIRE(build_padfile.find("if (wide_offsets)") !=
+		        std::string::npos);
+		REQUIRE(build_padfile.find("g_SourceWidePadFile = buf;") !=
+		        std::string::npos);
+		REQUIRE(build_padfile.find("g_SourceWidePadOffsets = wide_offsets;") !=
+		        std::string::npos);
+		REQUIRE(build_padfile.find("g_SourceWidePadOffsetCount = row_count;") !=
+		        std::string::npos);
+	}
 	REQUIRE(pad_runtime_h.find("padGetPackedOffset") != std::string::npos);
 	REQUIRE(pad_runtime.find("g_PadOffsets32") != std::string::npos);
 	REQUIRE(pad_runtime.find("return g_PadOffsets ? g_PadOffsets[padnum] : 0") !=
@@ -439,6 +1272,48 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 	        std::string::npos);
 	REQUIRE(bg_runtime.find("SCENARIO.SOURCE: built native portal tables") !=
 	        std::string::npos);
+	{
+		const std::string bg_source_tables =
+			functionBlock(bg_runtime, "bgBuildScenarioSourceTables");
+		REQUIRE(bg_source_tables.find("if (g_BgLightsFileData)") !=
+		        std::string::npos);
+		REQUIRE(bg_source_tables.find("func0f001c0c();") !=
+		        std::string::npos);
+		REQUIRE(bg_source_tables.find("skipped legacy dynamic-light precompute") !=
+		        std::string::npos);
+	}
+	{
+		const std::string portal_distance =
+			functionBlock(dlights_runtime, "func0f000920");
+		const std::string light_reset =
+			functionBlock(dlights_runtime, "func0f002a98");
+		const std::string sound_distance =
+			functionBlock(dlights_runtime, "func0f0056f4");
+		const std::string portal_range =
+			functionBlock(dlights_runtime, "func0f0059fc");
+		REQUIRE(portal_distance.find("var80061430 == NULL") !=
+		        std::string::npos);
+		REQUIRE(portal_distance.find("upper >= g_NumPortals") !=
+		        std::string::npos);
+		REQUIRE(portal_distance.find("var80061430[upper] == NULL") !=
+		        std::string::npos);
+		REQUIRE(portal_distance.find("return 0xffffffff") !=
+		        std::string::npos);
+		REQUIRE(light_reset.find("var80061430 = NULL") !=
+		        std::string::npos);
+		REQUIRE(light_reset.find("g_NumPortals = 0") !=
+		        std::string::npos);
+		REQUIRE(sound_distance.find("var80061430 == NULL") !=
+		        std::string::npos);
+		REQUIRE(sound_distance.find("g_NumPortals <= 0") !=
+		        std::string::npos);
+		REQUIRE(portal_range.find("var80061430 == NULL") !=
+		        std::string::npos);
+		REQUIRE(portal_range.find("g_NumPortals <= 0") !=
+		        std::string::npos);
+		REQUIRE(portal_range.find("coordsGetDistance(pos1, pos2)") !=
+		        std::string::npos);
+	}
 	REQUIRE(scenario_runtime_h.find("scenarioSourceLoadSetupForStage") !=
 	        std::string::npos);
 	REQUIRE(scenario_runtime_h.find("scenarioSourceActivateGraphsForStage") !=
@@ -632,6 +1507,43 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 	        std::string::npos);
 	REQUIRE(scenario_runtime.find("backend=graph.ai.action.basic_motion+ai/ailists.tsv") !=
 	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI action stop chr=%d chr_rows=%d source_chr=%d hovercar=%d vehicle_rows=%d source_vehicle_type=%d") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI action kneel chr=%d chr_rows=%d source_chr=%d") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI action surrender chr=%d chr_rows=%d source_chr=%d") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI action fade_out chr=%d chr_rows=%d source_chr=%d") !=
+	        std::string::npos);
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteStop");
+		REQUIRE(!block.empty());
+		REQUIRE(block.find("objects=%s backend=%s") !=
+		        std::string::npos);
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimeVehicleObjectPointer(",
+			"chopperStop(hovercar)");
+	}
+	{
+		const char *actions[][2] = {
+			{"scenarioSourceAiGraphExecuteStop", "chrTryStop("},
+			{"scenarioSourceAiGraphExecuteKneel", "chrTryKneel("},
+			{"scenarioSourceAiGraphExecuteSurrender", "chrTrySurrender("},
+			{"scenarioSourceAiGraphExecuteFadeOut", "chrFadeOut("},
+		};
+
+		for (const auto &action : actions) {
+			const std::string block = functionBlock(scenario_runtime,
+				action[0]);
+			REQUIRE(!block.empty());
+			REQUIRE(block.find("chr_rows=%d source_chr=%d") !=
+			        std::string::npos);
+			requireTokenOrder(block,
+				"s_aiGraphRequireOptionalRuntimeCharacterStatePointer(",
+				action[1]);
+		}
+	}
 	REQUIRE(scenario_runtime.find("backend=graph.ai.action.combat+ai/ailists.tsv") !=
 	        std::string::npos);
 	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteFaceEntity") !=
@@ -685,6 +1597,12 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteIfNearlyInTargetsSight") !=
 	        std::string::npos);
 	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteSetPadPresetToPadOnRouteToTarget") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("s_aiGraphRequireRuntimeNavigationTables(\n\t\t\t\"set_pad_preset_to_pad_on_route_to_target\"") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("s_aiGraphRequireRuntimePad(\n\t\t\t\t\"set_pad_preset_to_pad_on_route_to_target\"") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI action set_pad_preset_to_pad_on_route_to_target chr_rows=%d source_chr=%d label=%d pad=%d found=%d pad_rows=%d waypoint_rows=%d waygroup_rows=%d") !=
 	        std::string::npos);
 	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteIfSawTargetRecently") !=
 	        std::string::npos);
@@ -826,16 +1744,285 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 	     }) {
 		REQUIRE(scenario_runtime.find(symbol) != std::string::npos);
 	}
+	{
+		const std::string destroy_object =
+			functionBlock(scenario_runtime,
+				"scenarioSourceAiGraphExecuteDestroyObject");
+		REQUIRE(destroy_object.find("OBJFLAG_01000000") !=
+		        std::string::npos);
+		REQUIRE(destroy_object.find("OBJHFLAG_DELETING") !=
+		        std::string::npos);
+		REQUIRE(destroy_object.find("OBJH2FLAG_DESTROYED") !=
+		        std::string::npos);
+		REQUIRE(destroy_object.find("objectiveRecordObjectState(obj)") !=
+		        std::string::npos);
+	}
+	{
+		const std::string set_door_open = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteSetDoorOpen");
+		REQUIRE(!set_door_open.empty());
+		requireTokenOrder(set_door_open,
+			"s_aiSetupSpawnGraphReady(\"set_door_open\"",
+			"s_aiGraphRequireRuntimeObjectTagType(\"set_door_open\"");
+		requireTokenOrder(set_door_open,
+			"s_aiGraphRequireRuntimeObjectTagType(\"set_door_open\"",
+			"obj = objFindByTagId(tag_id)");
+		requireTokenOrder(set_door_open,
+			"obj = objFindByTagId(tag_id)",
+			"door->lastopen60 = g_Vars.lvframe60");
+		requireTokenOrder(set_door_open,
+			"door->lastopen60 = g_Vars.lvframe60",
+			"AI action set_door_open tag=%d object_rows=%d applied=%d");
+	}
 	REQUIRE(scenario_runtime.find("backend=graph.ai.condition.spatial_perception+ai/ailists.tsv") !=
 	        std::string::npos);
 	REQUIRE(scenario_runtime.find("backend=graph.ai.condition.distance_perception+ai/ailists.tsv") !=
 	        std::string::npos);
 	REQUIRE(scenario_runtime.find("backend=graph.ai.condition.room_object_weapon+ai/ailists.tsv") !=
 	        std::string::npos);
+	REQUIRE(scenario_runtime.find(
+		        "backend=graph.ai.condition.spatial_perception+ai/ailists.tsv+pads.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find(
+		        "backend=graph.ai.condition.room_object_weapon+ai/ailists.tsv+pads.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find(
+		        "AI condition if_room_is_on_screen chr_rows=%d source_chr=%d pad=%d found=1 pad_rows=%d") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find(
+		        "AI condition if_chr_in_room chr=%d room_type=%d pad=%d found=%d pad_rows=%d") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find(
+		        "AI condition if_target_in_room pad=%d found=1 pad_rows=%d") !=
+	        std::string::npos);
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteIfRoomIsOnScreen");
+		REQUIRE(!block.empty());
+		REQUIRE(block.find(
+			        "s_aiGraphRequireRuntimePad(\"if_room_is_on_screen\"") !=
+		        std::string::npos);
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimePad(\"if_room_is_on_screen\"",
+			"chrGetPadRoom(chr, pad)");
+	}
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteIfChrInRoom");
+		REQUIRE(!block.empty());
+		REQUIRE(block.find("s_aiGraphRequireRuntimePad(\"if_chr_in_room\"") !=
+		        std::string::npos);
+		REQUIRE(block.find("g_Vars.players[i]->eyespy") ==
+		        std::string::npos);
+		REQUIRE(block.find(
+			        "AI condition if_chr_in_room chr=%d room_type=%d pad=%d found=%d pad_rows=%d checked_players=%d") !=
+		        std::string::npos);
+		REQUIRE(block.find("stageGetIndex(g_Vars.stagenum) == STAGEINDEX_G5BUILDING") !=
+		        std::string::npos);
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimePad(\"if_chr_in_room\"",
+			"chrGetPadRoom(basechr, padnum)");
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimePad(\"if_chr_in_room\"",
+			"stageGetIndex(g_Vars.stagenum) == STAGEINDEX_G5BUILDING");
+		requireTokenOrder(block,
+			"stageGetIndex(g_Vars.stagenum) == STAGEINDEX_G5BUILDING",
+			"s_aiGraphRequireRuntimePlayerSlot(\"if_chr_in_room\"");
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimePlayerSlot(\"if_chr_in_room\"",
+			"player->eyespy");
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimePlayerSlot(\"if_chr_in_room\"",
+			"chrGetDistanceToPad(");
+	}
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteIfTargetInRoom");
+		REQUIRE(!block.empty());
+		REQUIRE(block.find(
+			        "s_aiGraphRequireRuntimePad(\"if_target_in_room\"") !=
+		        std::string::npos);
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimePad(\"if_target_in_room\"",
+			"chrGetPadRoom(chr, padnum)");
+	}
 	REQUIRE(scenario_runtime.find("backend=graph.ai.action.object_interaction+ai/ailists.tsv+objects.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("s_aiGraphRequireRuntimeObjectTag") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("s_countRuntimeSetupObjectRows") !=
+	        std::string::npos);
+	REQUIRE(countOccurrences(scenario_runtime,
+		        "if (!s_ActiveScenarioGraphs.objects_path[0]) {\n"
+		        "\t\ts_aiGraphRuntimeFailure(action, \"missing objects.tsv source\");\n"
+		        "\t\treturn 0;\n"
+		        "\t}\n\n"
+		        "\tobject_count = s_countRuntimeSetupObjectRows();") >= 1);
+	REQUIRE(scenario_runtime.find("missing source-derived runtime setup object table") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("runtime setup object tag %d does not point at a source row") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("s_aiGraphRequireRuntimePad(\"object_move_to_pad\"") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI action object_move_to_pad tag=%d object_rows=%d pad=%d found=1 pad_rows=%d") !=
 	        std::string::npos);
 	REQUIRE(scenario_runtime.find("backend=graph.ai.action.quadrant_preset+ai/ailists.tsv+pads.tsv+navigation.generate") !=
 	        std::string::npos);
+	REQUIRE(scenario_runtime.find("s_aiGraphRequireRuntimeNavigationTables") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("s_countRuntimeWaypoints") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("s_countRuntimeWaygroups") !=
+	        std::string::npos);
+	{
+		const std::string count_paths =
+			functionBlock(scenario_runtime, "s_countRuntimePaths");
+		const std::string count_pads =
+			functionBlock(scenario_runtime, "s_countRuntimePads");
+		const std::string count_covers =
+			functionBlock(scenario_runtime, "s_countRuntimeCovers");
+		const std::string count_objects =
+			functionBlock(scenario_runtime, "s_countRuntimeSetupObjectRows");
+		const std::string count_chrs =
+			functionBlock(scenario_runtime, "s_countRuntimeSetupChrRows");
+		const std::string source_chr_refs =
+			functionBlock(scenario_runtime, "s_activeGraphSetSourceSetupChrRefs");
+		const std::string contains_source_record =
+			functionBlock(scenario_runtime, "s_sourceSetupContainsRecordOrder");
+		const std::string contains_object =
+			functionBlock(scenario_runtime, "s_runtimeSetupContainsObjectRow");
+		const std::string contains_chr =
+			functionBlock(scenario_runtime, "s_runtimeSetupContainsChrnum");
+		const std::string contains_source_chr =
+			functionBlock(scenario_runtime, "s_aiGraphSetupSourceContainsChrnum");
+		const std::string count_waypoints =
+			functionBlock(scenario_runtime, "s_countRuntimeWaypoints");
+		const std::string count_waygroups =
+			functionBlock(scenario_runtime, "s_countRuntimeWaygroups");
+		REQUIRE(!count_paths.empty());
+		REQUIRE(!count_pads.empty());
+		REQUIRE(!count_covers.empty());
+		REQUIRE(!count_objects.empty());
+		REQUIRE(!count_chrs.empty());
+		REQUIRE(!source_chr_refs.empty());
+		REQUIRE(!contains_source_record.empty());
+		REQUIRE(!contains_object.empty());
+		REQUIRE(!contains_chr.empty());
+		REQUIRE(!contains_source_chr.empty());
+		REQUIRE(!count_waypoints.empty());
+		REQUIRE(!count_waygroups.empty());
+		REQUIRE(count_paths.find("if (!g_StageSetup.paths)") !=
+		        std::string::npos);
+		REQUIRE(count_paths.find("g_StageSetup.paths[count].pads") !=
+		        std::string::npos);
+		REQUIRE(count_pads.find("!g_StageSetup.padfiledata") !=
+		        std::string::npos);
+		REQUIRE(count_pads.find("g_PadsFile->numpads <= 0") !=
+		        std::string::npos);
+		REQUIRE(count_pads.find("return g_PadsFile->numpads;") !=
+		        std::string::npos);
+		REQUIRE(count_covers.find("!g_StageSetup.padfiledata") !=
+		        std::string::npos);
+		REQUIRE(count_covers.find("!g_StageSetup.cover") !=
+		        std::string::npos);
+		REQUIRE(count_covers.find("g_PadsFile->numcovers <= 0") !=
+		        std::string::npos);
+		REQUIRE(count_covers.find("return g_PadsFile->numcovers;") !=
+		        std::string::npos);
+		REQUIRE(count_objects.find("g_StageSetup.props") !=
+		        std::string::npos);
+		REQUIRE(count_objects.find("obj->type != OBJTYPE_END") !=
+		        std::string::npos);
+		REQUIRE(count_chrs.find("g_StageSetup.props") !=
+		        std::string::npos);
+		REQUIRE(count_chrs.find("obj->type == OBJTYPE_CHR") !=
+		        std::string::npos);
+		REQUIRE(source_chr_refs.find("source_setup_chr_count++") !=
+		        std::string::npos);
+		REQUIRE(source_chr_refs.find("source_setup_chr_refs") !=
+		        std::string::npos);
+		REQUIRE(source_chr_refs.find("source_setup_record_count++") !=
+		        std::string::npos);
+		REQUIRE(source_chr_refs.find("source_setup_record_refs") !=
+		        std::string::npos);
+		REQUIRE(contains_source_record.find("source_setup_record_refs") !=
+		        std::string::npos);
+		REQUIRE(contains_object.find("g_StageSetup.props") !=
+		        std::string::npos);
+		REQUIRE(contains_object.find("if (obj == needle)") !=
+		        std::string::npos);
+		REQUIRE(contains_chr.find("g_StageSetup.props") !=
+		        std::string::npos);
+		REQUIRE(contains_chr.find("packed->chrnum == chrnum") !=
+		        std::string::npos);
+		REQUIRE(contains_source_chr.find("s_sourceSetupContainsChrnum(chrnum)") !=
+		        std::string::npos);
+		REQUIRE(contains_source_chr.find("s_runtimeSetupContainsChrnum(chrnum)") !=
+		        std::string::npos);
+		REQUIRE(count_waypoints.find("if (!g_StageSetup.waypoints)") !=
+		        std::string::npos);
+		REQUIRE(count_waypoints.find(
+			        "g_StageSetup.waypoints[count].padnum >= 0") !=
+		        std::string::npos);
+		REQUIRE(count_waygroups.find("if (!g_StageSetup.waygroups)") !=
+		        std::string::npos);
+		REQUIRE(count_waygroups.find("g_StageSetup.waygroups[count].waypoints") !=
+		        std::string::npos);
+		REQUIRE(count_waygroups.find("g_StageSetup.waygroups[count].neighbours") !=
+		        std::string::npos);
+	}
+	REQUIRE(scenario_runtime.find("missing source-derived runtime waypoint table") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("missing source-derived runtime waygroup table") !=
+	        std::string::npos);
+	{
+		const std::string nav_tables =
+			functionBlock(scenario_runtime,
+				"s_aiGraphRequireRuntimeNavigationTables");
+		REQUIRE(!nav_tables.empty());
+		requireTokenOrder(nav_tables,
+			"missing pads.tsv source", "s_countRuntimePads()");
+		requireTokenOrder(nav_tables,
+			"missing navigation/waypoints.tsv source",
+			"s_countRuntimeWaypoints()");
+		requireTokenOrder(nav_tables,
+			"missing navigation/waygroups.tsv source",
+			"s_countRuntimeWaygroups()");
+	}
+	REQUIRE(scenario_runtime.find("pad_rows=%d waypoint_rows=%d waygroup_rows=%d") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI condition if_waypoint_within_quadrant quadrant=%d label=%d pad=%d found=%d result=%d pad_rows=%d waypoint_rows=%d waygroup_rows=%d") !=
+	        std::string::npos);
+	{
+		const std::string quadrant_condition =
+			functionBlock(scenario_runtime,
+				"scenarioSourceAiGraphExecuteIfWaypointWithinQuadrant");
+		REQUIRE(!quadrant_condition.empty());
+		REQUIRE(quadrant_condition.find("s_aiGraphRequireRuntimePad(\n\t\t\t\t\"if_waypoint_within_quadrant\"") !=
+		        std::string::npos);
+		requireTokenOrder(quadrant_condition,
+			"func0f04a4ec(chr, (u8)quadrant)",
+			"s_aiGraphRequireRuntimePad(");
+		requireTokenOrder(quadrant_condition,
+			"s_aiGraphRequireRuntimePad(",
+			"s_aiGraphApplyBranch(branch_taken, label, 4)");
+	}
+	REQUIRE(scenario_runtime.find("AI action set_pad_preset_to_target_quadrant quadrant=%d label=%d pad=%d found=%d result=%d pad_rows=%d waypoint_rows=%d waygroup_rows=%d") !=
+	        std::string::npos);
+	{
+		const std::string quadrant_block =
+			functionBlock(scenario_runtime,
+				"scenarioSourceAiGraphExecuteSetPadPresetToTargetQuadrant");
+		REQUIRE(!quadrant_block.empty());
+		REQUIRE(quadrant_block.find("s_aiGraphRequireRuntimePad(\n\t\t\t\t\"set_pad_preset_to_target_quadrant\"") !=
+		        std::string::npos);
+		requireTokenOrder(quadrant_block,
+			"chrSetPadPresetToWaypointWithinTargetQuadrant",
+			"s_aiGraphRequireRuntimePad(");
+		requireTokenOrder(quadrant_block,
+			"s_aiGraphRequireRuntimePad(",
+			"s_aiGraphApplyBranch(branch_taken, label, 4)");
+	}
 	REQUIRE(scenario_runtime.find("backend=graph.ai.action.player_weapon_state+ai/ailists.tsv") !=
 	        std::string::npos);
 	REQUIRE(scenario_runtime.find("backend=graph.ai.action.player_cutscene+ai/ailists.tsv") !=
@@ -860,6 +2047,617 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 	        std::string::npos);
 	REQUIRE(scenario_runtime.find("backend=graph.ai.action.animation+ai/ailists.tsv") !=
 	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI action chr_do_animation chr=%d chr_rows=%d target_chr=%d player_checked=%d anim_id=%s target=%d") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI action be_surprised_one_hand chr=%d chr_rows=%d source_chr=%d") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI action be_surprised_look_around chr=%d chr_rows=%d source_chr=%d") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI action be_surprised_surrender chr=%d chr_rows=%d source_chr=%d") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI action set_list target=%d chr_rows=%d target_chr=%d list=%u") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI action set_return_list target=%d chr_rows=%d source_chr=%d target_chr=%d vehicle_rows=%d source_vehicle_type=%d list=%u") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("s_countSourceBackedMpParticipantChrs") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("level_global_settings_kind,\n\t\t\t\t\"mp\"") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("g_Vars.normmplayerisrunning && g_MpNumChrs > 0") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("g_MpAllChrPtrs[i] == chr") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("chr_count = s_ActiveScenarioGraphs.source_setup_chr_count") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("chr_count +=\n\t\ts_countSourceBackedMpParticipantChrs()") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI action set_shot_list chr_rows=%d source_chr=%d list=%u applied=%d") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI action return_list chr_rows=%d source_chr=%d vehicle_rows=%d source_vehicle_type=%d list=%u") !=
+	        std::string::npos);
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteChrDoAnimation");
+		REQUIRE(!block.empty());
+		REQUIRE(block.find("chrFindById(") == std::string::npos);
+		REQUIRE(block.find("s_aiGraphRequireRuntimeCharacterRefFromBase(") !=
+		        std::string::npos);
+		REQUIRE(block.find("player_checked=%d") != std::string::npos);
+		REQUIRE(block.find("g_Vars.players[playernum]") ==
+		        std::string::npos);
+		requireTokenOrder(block,
+			"s_aiGraphResolveAnimationCatalogId(\"chr_do_animation\"",
+			"g_CutsceneFrameOverrun240 * speed * 0.25f");
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimeCharacterRefFromBase(",
+			"g_CutsceneFrameOverrun240 * speed * 0.25f");
+		requireTokenOrder(block,
+			"playerCurrentCutsceneInProgress()",
+			"g_CutsceneFrameOverrun240 * speed * 0.25f");
+		requireTokenOrder(block,
+			"g_CutsceneFrameOverrun240 * speed * 0.25f",
+			"AI action chr_do_animation chr=%d chr_rows=%d target_chr=%d player_checked=%d anim_id=%s");
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimeCharacterRefFromBase(",
+			"s_aiGraphRequireRuntimePlayerSlot(");
+		requireTokenOrder(block,
+			"playermgrGetPlayerNumByProp",
+			"s_aiGraphRequireRuntimePlayerSlot(");
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimePlayerSlot(",
+			"chrTryStartAnim(");
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimePlayerSlot(",
+			"player->vv_ground");
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimePlayerSlot(",
+			"player->vv_manground");
+	}
+	{
+		const char *actions[][2] = {
+			{"scenarioSourceAiGraphExecuteBeSurprisedOneHand",
+				"chrTrySurprisedOneHand("},
+			{"scenarioSourceAiGraphExecuteBeSurprisedLookAround",
+				"chrTrySurprisedLookAround("},
+			{"scenarioSourceAiGraphExecuteBeSurprisedSurrender",
+				"chrTrySurprisedSurrender("},
+		};
+
+		for (const auto &action : actions) {
+			const std::string block = functionBlock(scenario_runtime,
+				action[0]);
+			REQUIRE(!block.empty());
+			REQUIRE(block.find("chr_rows=%d source_chr=%d") !=
+			        std::string::npos);
+			requireTokenOrder(block,
+				"s_aiGraphRequireOptionalRuntimeCharacterPointer(",
+				action[1]);
+		}
+	}
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteSetList");
+		REQUIRE(!block.empty());
+		REQUIRE(block.find("chrFindById(") == std::string::npos);
+		REQUIRE(block.find("ailistFindById(list_id)") !=
+		        std::string::npos);
+		REQUIRE(block.find("target_preset & 0xff") != std::string::npos);
+		REQUIRE(block.find("s_aiGraphResolveOptionalRuntimeCharacterRefOrSelector(") !=
+		        std::string::npos);
+		requireTokenOrder(block,
+			"s_aiGraphRequireListControlNode(\"set_list\"",
+			"ailistFindById(list_id)");
+		requireTokenOrder(block,
+			"s_aiGraphResolveOptionalRuntimeCharacterRefOrSelector(",
+			"chr->ailist = ailist");
+	}
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteSetReturnList");
+		REQUIRE(!block.empty());
+		REQUIRE(block.find("chrFindById(") == std::string::npos);
+		REQUIRE(block.find("target_preset == CHR_SELF") !=
+		        std::string::npos);
+		REQUIRE(block.find("s_aiGraphRequireOptionalRuntimeCharacterPointer(") !=
+		        std::string::npos);
+		REQUIRE(block.find("s_aiGraphResolveOptionalRuntimeCharacterRefOrSelector(") !=
+		        std::string::npos);
+		REQUIRE(block.find("g_Vars.chrdata->") == std::string::npos);
+		REQUIRE(block.find("g_Vars.truck->") == std::string::npos);
+		REQUIRE(block.find("g_Vars.heli->") == std::string::npos);
+		REQUIRE(block.find("g_Vars.hovercar->") == std::string::npos);
+		requireTokenOrder(block,
+			"s_aiGraphRequireOptionalRuntimeCharacterPointer(",
+			"active_chr->aireturnlist = list_id");
+		requireTokenOrder(block,
+			"s_aiGraphResolveOptionalRuntimeCharacterRefOrSelector(",
+			"if (chr && chr->prop) {\n\t\t\t\tchr->aireturnlist = list_id");
+		requireTokenOrder(block,
+			"OBJTYPE_TRUCK, -1, &vehicle_count",
+			"truck->aireturnlist = list_id");
+		requireTokenOrder(block,
+			"OBJTYPE_HELI, -1, &vehicle_count",
+			"heli->aireturnlist = list_id");
+		requireTokenOrder(block,
+			"OBJTYPE_HOVERCAR, OBJTYPE_CHOPPER, &vehicle_count",
+			"hovercar->aireturnlist = list_id");
+	}
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteReturnList");
+		REQUIRE(!block.empty());
+		REQUIRE(block.find("ailistFindById(list_id)") !=
+		        std::string::npos);
+		REQUIRE(block.find("g_Vars.chrdata->") == std::string::npos);
+		REQUIRE(block.find("g_Vars.truck->") == std::string::npos);
+		REQUIRE(block.find("g_Vars.heli->") == std::string::npos);
+		REQUIRE(block.find("g_Vars.hovercar->") == std::string::npos);
+		requireTokenOrder(block,
+			"s_aiGraphRequireListControlNode(\"return_list\"",
+			"ailistFindById(list_id)");
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimeCharacterStatePointer(\"return_list\"",
+			"list_id = chr->aireturnlist");
+		requireTokenOrder(block,
+			"OBJTYPE_TRUCK,",
+			"list_id = (u16)truck->aireturnlist");
+		requireTokenOrder(block,
+			"OBJTYPE_HELI,",
+			"list_id = (u16)heli->aireturnlist");
+		requireTokenOrder(block,
+			"OBJTYPE_HOVERCAR, OBJTYPE_CHOPPER",
+			"list_id = (u16)hovercar->aireturnlist");
+	}
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteSetShotList");
+		REQUIRE(!block.empty());
+		REQUIRE(block.find("g_Vars.chrdata->") == std::string::npos);
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimeCharacterStatePointer(\"set_shot_list\"",
+			"chr->aishotlist = list_id");
+	}
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"static s32 s_aiGraphExecuteSetChrListField");
+		REQUIRE(!block.empty());
+		REQUIRE(block.find("s16 *field, u16 list_id") ==
+		        std::string::npos);
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimeCharacterStatePointer(action, chr",
+			"field = (s16 *)((u8 *)chr + field_offset)");
+		requireTokenOrder(block,
+			"field = (s16 *)((u8 *)chr + field_offset)",
+			"*field = (s16)list_id");
+	}
+	for (const char *fn : {
+		     "scenarioSourceAiGraphExecuteSetPunchDodgeList",
+		     "scenarioSourceAiGraphExecuteSetShootingAtMeList",
+		     "scenarioSourceAiGraphExecuteSetDarkRoomList",
+		     "scenarioSourceAiGraphExecuteSetPlayerDeadList",
+	     }) {
+		const std::string block = functionBlock(scenario_runtime, fn);
+		REQUIRE(!block.empty());
+		REQUIRE(block.find("&g_Vars.chrdata->") == std::string::npos);
+		REQUIRE(block.find("offsetof(struct chrdata") !=
+		        std::string::npos);
+	}
+	REQUIRE(scenario_runtime.find("AI action chr_set_listening chr=%d chr_rows=%d target_chr=%d value=%d applied=%d") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI condition if_chr_listening chr=%d chr_rows=%d target_chr=%d listening=%d check_convtalk=%d") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI condition if_chr_injured_target chr=%d chr_rows=%d target_chr=%d") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI condition if_chr_ammo_quantity_less_than chr=%d chr_rows=%d target_chr=%d player_checked=%d ammo_type=%d") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI condition if_chr_target chr=%d chr_rows=%d resolved_chr=%d target_chr=%d target_chr_rows=%d resolved_target_chr=%d") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI condition if_compare_chr_presets_team chr_rows=%d preset_chr=%d comparison=%d") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI condition if_human chr=%d chr_rows=%d target_chr=%d") !=
+	        std::string::npos);
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteIfChrAmmoQuantityLessThan");
+		REQUIRE(!block.empty());
+		REQUIRE(block.find("player_checked=%d") != std::string::npos);
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimeCharacterRefFromBase(",
+			"s_aiGraphRequireRuntimePlayerSlot(");
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimePlayerSlot(",
+			"setCurrentPlayerNum(playernum)");
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimePlayerSlot(",
+			"bgunGetAmmoCount(");
+	}
+	REQUIRE(scenario_runtime.find("AI condition if_skedar chr=%d chr_rows=%d target_chr=%d") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI condition if_prop_preset_blocking_sight_to_target chr_rows=%d source_chr=%d") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI action remove_object_at_prop_preset chr_rows=%d source_chr=%d cleared=%d") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI condition if_prop_preset_height_less_than chr_rows=%d source_chr=%d value=%.3f height=%.3f") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI action set_target chr_rows=%d source_chr=%d target_chr_rows=%d target_chr=%d resolved_target_chr=%d vehicle_rows=%d source_vehicle_type=%d") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI condition if_presets_target_is_not_my_target chr_rows=%d source_chr=%d preset_target=%d target=%d") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI action set_chr_preset_to_chr_near_self chr_rows=%d source_chr=%d preset=%d") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI action set_chr_preset_to_chr_near_pad chr_rows=%d source_chr=%d preset=%d") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI condition if_dangerous_object_nearby chr_rows=%d source_chr=%d flags=%d") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI condition if_heli_weapons_armed vehicle_rows=%d source_vehicle_type=%d") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI action %s vehicle_rows=%d source_vehicle_type=%d armed=%d") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI action hovercar_begin_path path=%d found=1 vehicle_rows=%d truck_type=%d hovercar_type=%d") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI action set_vehicle_speed vehicle_rows=%d truck_type=%d hovercar_type=%d") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI action set_rotor_speed vehicle_rows=%d source_vehicle_type=%d") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("missing objects.tsv source for vehicle weapon state") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("runtime chopper pointer is not source-derived") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("expected source type %u for chopper weapon state") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("missing objects.tsv source for vehicle state") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("runtime vehicle pointer is not source-derived") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("expected source vehicle type") !=
+	        std::string::npos);
+	for (const char *symbol : {
+		     "scenarioSourceAiGraphExecuteChrSetListening",
+		     "scenarioSourceAiGraphExecuteIfChrListening",
+		     "scenarioSourceAiGraphExecuteIfChrInjuredTarget",
+		     "scenarioSourceAiGraphExecuteIfChrAmmoQuantityLessThan",
+		     "scenarioSourceAiGraphExecuteIfChrTarget",
+		     "scenarioSourceAiGraphExecuteIfCompareChrPresetsTeam",
+		     "scenarioSourceAiGraphExecuteIfHuman",
+		     "scenarioSourceAiGraphExecuteIfSkedar",
+	     }) {
+		const std::string block = functionBlock(scenario_runtime, symbol);
+		REQUIRE(!block.empty());
+		REQUIRE(block.find("chrFindById(") == std::string::npos);
+		REQUIRE(block.find("s_aiGraphRequireRuntimeCharacterRefFromBase(") !=
+		        std::string::npos);
+	}
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteIfPropPresetIsBlockingSightToTarget");
+		REQUIRE(!block.empty());
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimeCharacterPointer(",
+			"chrIsPropPresetBlockingSightToTarget(chr)");
+	}
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteRemoveObjectAtPropPreset");
+		REQUIRE(!block.empty());
+		REQUIRE(block.find("objects=%s backend=graph.ai.action.prop_target+ai/ailists.tsv+objects.tsv") !=
+		        std::string::npos);
+		requireTokenOrder(block,
+			"s_aiGraphRequirePropPresetTargetNode(",
+			"struct prop *prop = &g_Vars.props[chr->proppreset1];");
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimeCharacterPointer(",
+			"chr->proppreset1 >= 0");
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimeCharacterPointer(",
+			"struct prop *prop = &g_Vars.props[chr->proppreset1];");
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimeCharacterPointer(",
+			"chr->proppreset1 = -1");
+	}
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteIfPropPresetHeightLessThan");
+		REQUIRE(!block.empty());
+		REQUIRE(block.find("objects=%s backend=graph.ai.condition.prop_target+ai/ailists.tsv+objects.tsv") !=
+		        std::string::npos);
+		requireTokenOrder(block,
+			"s_aiGraphRequirePropPresetTargetNode(",
+			"struct prop *prop = &g_Vars.props[chr->proppreset1];");
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimeCharacterPointer(",
+			"chr->proppreset1 >= 0");
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimeCharacterPointer(",
+			"struct prop *prop = &g_Vars.props[chr->proppreset1];");
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimeCharacterPointer(",
+			"propGetBbox(prop");
+	}
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteSetTarget");
+		REQUIRE(!block.empty());
+		requireTokenOrder(block,
+			"s_aiGraphRequireOptionalRuntimeCharacterStatePointer(\"set_target\"",
+			"s_aiGraphResolveOptionalRuntimeCharacterRefOrSelector(");
+		requireTokenOrder(block,
+			"s_aiGraphRequireOptionalRuntimeCharacterStatePointer(\"set_target\"",
+			"if (newtarget != chr->target)");
+		requireTokenOrder(block,
+			"s_aiGraphRequireOptionalRuntimeCharacterStatePointer(\"set_target\"",
+			"goto log_result;");
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimeVehicleObjectPointer(\n\t\t\t\t\"set_target\", &hovercar->base",
+			"chopperSetTarget(hovercar, chrnum)");
+		REQUIRE(block.find("vehicle_rows=%d source_vehicle_type=%d") !=
+		        std::string::npos);
+		REQUIRE(block.find("objects=%s backend=%s") !=
+		        std::string::npos);
+	}
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteIfPresetsTargetIsNotMyTarget");
+		REQUIRE(!block.empty());
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimeCharacterPointer(",
+			"chr->chrpreset1 != -1");
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimeCharacterPointer(",
+			"branch_taken = chr && chr->target");
+	}
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteSetChrPresetToChrNearSelf");
+		REQUIRE(!block.empty());
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimeCharacterPointer(",
+			"chrSetChrPresetToChrNearSelf");
+	}
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteSetChrPresetToChrNearPad");
+		REQUIRE(!block.empty());
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimePad(",
+			"s_aiGraphRequireRuntimeCharacterPointer(");
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimeCharacterPointer(",
+			"chrSetChrPresetToChrNearPad");
+	}
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteIfDangerousObjectNearby");
+		REQUIRE(!block.empty());
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimeCharacterPointer(",
+			"chrDetectDangerousObject(chr");
+	}
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteChrSetListening");
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimeCharacterRefFromBase(",
+			"chr->listening = (u8)listening");
+	}
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteIfChrListening");
+		REQUIRE(block.find("if (!check_convtalk)") != std::string::npos);
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimeCharacterRefFromBase(",
+			"chr->listening == listening");
+	}
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteIfChrInjuredTarget");
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimeCharacterRefFromBase(",
+			"chr->chrflags &= ~CHRCFLAG_INJUREDTARGET");
+	}
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteIfChrAmmoQuantityLessThan");
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimeCharacterRefFromBase(",
+			"playermgrGetPlayerNumByProp");
+	}
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteIfChrTarget");
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimeCharacterRefFromBase(",
+			"chrGetTargetProp(chr)");
+	}
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteIfCompareChrPresetsTeam");
+		REQUIRE(block.find("chrSetChrPreset(chr, CHR_BOND)") !=
+		        std::string::npos);
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimeCharacterRefFromBase(",
+			"chrCompareTeams(preset_chr, chr, comparison)");
+	}
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteIfHuman");
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimeCharacterRefFromBase(",
+			"CHRRACE(chr) == RACE_HUMAN");
+	}
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteIfSkedar");
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimeCharacterRefFromBase(",
+			"CHRRACE(chr) == RACE_SKEDAR");
+	}
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteSetTarget");
+		requireTokenOrder(block,
+			"s_aiGraphResolveOptionalRuntimeCharacterRefOrSelector(",
+			"if (!target_chr)");
+		requireTokenOrder(block,
+			"if (!target_chr)",
+			"propGetIndexByChrId(chr, chrnum)");
+		REQUIRE(block.find("newtarget = target_chr ? target_chr->target : -1") !=
+		        std::string::npos);
+		REQUIRE(block.find("chopperSetTarget(hovercar, chrnum)") !=
+		        std::string::npos);
+	}
+	REQUIRE(scenario_runtime.find("s_aiGraphRequireRuntimeCharacterPointer") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI condition if_target_moving_slowly chr=%d chr_rows=%d target_chr=%d delta=%d") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI condition if_y chr=%d chr_rows=%d target_chr=%d vehicle_rows=%d source_vehicle_type=%d y=%.3f") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI action chr_explosions chr=%d chr_rows=%d target_chr=%d player_checked=%d") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI action chr_adjust_motion_blur chr=%d chr_rows=%d target_chr=%d amount=%d mode=%d") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI action chr_emit_sparks chr=%d chr_rows=%d target_chr=%d") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI action set_dr_caroll_images chr=%d chr_rows=%d target_chr=%d right=%d left=%d") !=
+	        std::string::npos);
+	for (const char *symbol : {
+		     "scenarioSourceAiGraphExecuteIfTargetMovingSlowly",
+		     "scenarioSourceAiGraphExecuteIfY",
+		     "scenarioSourceAiGraphExecuteChrExplosions",
+		     "scenarioSourceAiGraphExecuteChrAdjustMotionBlur",
+		     "scenarioSourceAiGraphExecuteChrEmitSparks",
+		     "scenarioSourceAiGraphExecuteSetDrCarollImages",
+	     }) {
+		const std::string block = functionBlock(scenario_runtime, symbol);
+		REQUIRE(!block.empty());
+		REQUIRE(block.find("chrFindById(") == std::string::npos);
+	}
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteSetDrCarollImages");
+		REQUIRE(!block.empty());
+		requireTokenOrder(block,
+			"s_aiGraphRequireMiscEffectNode(\"set_dr_caroll_images\"",
+			"s_aiGraphRequireRuntimeCharacterRefFromBase(");
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimeCharacterRefFromBase(",
+			"g_Vars.lvframenum % 4");
+		requireTokenOrder(block,
+			"g_Vars.lvframenum % 4",
+			"AI action set_dr_caroll_images chr=%d chr_rows=%d target_chr=%d");
+	}
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteIfY");
+		REQUIRE(!block.empty());
+		REQUIRE(block.find("struct chopperobj *hovercar = g_Vars.hovercar;") !=
+		        std::string::npos);
+		REQUIRE(block.find("g_Vars.hovercar->") == std::string::npos);
+		REQUIRE(block.find("chopperFromHovercar(g_Vars.hovercar)") ==
+		        std::string::npos);
+		REQUIRE(block.find("vehicle_rows=%d source_vehicle_type=%d") !=
+		        std::string::npos);
+		REQUIRE(block.find("objects=%s backend=%s") != std::string::npos);
+		requireTokenOrder(block,
+			"struct chopperobj *hovercar = g_Vars.hovercar;",
+			"s_aiGraphRequireRuntimeVehicleObjectPointer(\"if_y\"");
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimeVehicleObjectPointer(\"if_y\"",
+			"chopperFromHovercar(hovercar)");
+		requireTokenOrder(block,
+			"chopperFromHovercar(hovercar)",
+			"chopperGetTargetProp(chopper)");
+	}
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteIfTargetMovingSlowly");
+		REQUIRE(block.find("s_aiGraphRequireRuntimeCharacterPointer(") !=
+		        std::string::npos);
+		REQUIRE(block.find("s_aiGraphRequireRuntimeCharacterRefFromBase(") !=
+		        std::string::npos);
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimeCharacterRefFromBase(",
+			"chrGetDistanceLostToTargetInLastSecond(chr)");
+	}
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteIfY");
+		REQUIRE(block.find("s_aiGraphResolveOptionalRuntimeCharacterRefOrSelector(\"if_y\"") !=
+		        std::string::npos);
+		requireTokenOrder(block,
+			"s_aiGraphResolveOptionalRuntimeCharacterRefOrSelector(\"if_y\"",
+			"chr->prop->pos.y");
+	}
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteChrExplosions");
+		REQUIRE(block.find("s_aiGraphRequireRuntimeCharacterRefFromBase(") !=
+		        std::string::npos);
+		REQUIRE(block.find("s_aiGraphRequireRuntimePlayerSlot(\"chr_explosions\"") !=
+		        std::string::npos);
+		REQUIRE(block.find("player_checked=%d") != std::string::npos);
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimeCharacterRefFromBase(",
+			"playermgrGetPlayerNumByProp");
+		requireTokenOrder(block,
+			"playermgrGetPlayerNumByProp",
+			"s_aiGraphRequireRuntimePlayerSlot(\"chr_explosions\"");
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimePlayerSlot(\"chr_explosions\"",
+			"setCurrentPlayerNum(playernum)");
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimePlayerSlot(\"chr_explosions\"",
+			"playerSurroundWithExplosions");
+	}
+	{
+		const std::string misc_effect_helper = functionBlock(scenario_runtime,
+			"s_aiGraphRequireMiscEffectNode");
+		REQUIRE(!misc_effect_helper.empty());
+		REQUIRE(misc_effect_helper.find("missing ai/ailists.tsv source") !=
+		        std::string::npos);
+		const std::string set_tinted_glass = functionBlock(
+			scenario_runtime,
+			"scenarioSourceAiGraphExecuteSetTintedGlassEnabled");
+		REQUIRE(!set_tinted_glass.empty());
+		REQUIRE(set_tinted_glass.find(
+			        "AI action set_tinted_glass_enabled enabled=%d") !=
+		        std::string::npos);
+		requireTokenOrder(set_tinted_glass,
+			"s_aiGraphRequireMiscEffectNode(\"set_tinted_glass_enabled\"",
+			"g_TintedGlassEnabled = enabled");
+		requireTokenOrder(set_tinted_glass,
+			"g_TintedGlassEnabled = enabled",
+			"AI action set_tinted_glass_enabled enabled=%d");
+	}
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteChrAdjustMotionBlur");
+		REQUIRE(block.find("s_aiGraphRequireRuntimeCharacterRefFromBase(") !=
+		        std::string::npos);
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimeCharacterRefFromBase(",
+			"chr->blurdrugamount");
+	}
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteChrEmitSparks");
+		REQUIRE(block.find("s_aiGraphRequireRuntimeCharacterRefFromBase(") !=
+		        std::string::npos);
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimeCharacterRefFromBase(",
+			"chrDrCarollEmitSparks(chr)");
+	}
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteSetDrCarollImages");
+		REQUIRE(block.find("s_aiGraphRequireRuntimeCharacterRefFromBase(") !=
+		        std::string::npos);
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimeCharacterRefFromBase(",
+			"drcaroll->drcarollimage_left");
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimeCharacterRefFromBase(",
+			"drcaroll->drcarollimage_right");
+	}
 	REQUIRE(scenario_runtime.find("SCENARIO.GRAPH: pad source") !=
 	        std::string::npos);
 	REQUIRE(scenario_runtime.find("backend=graph.pads+pads.tsv") !=
@@ -883,6 +2681,8 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 	REQUIRE(scenario_runtime.find("backend=graph.ai.action.walk_to_pad+pads.tsv") !=
 	        std::string::npos);
 	REQUIRE(scenario_runtime.find("backend=graph.ai.action.run_to_pad+pads.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI action %s chr_rows=%d source_chr=%d pad=%d found=1 pad_rows=%d") !=
 	        std::string::npos);
 	REQUIRE(scenario_runtime.find("SCENARIO.GRAPH: path source") !=
 	        std::string::npos);
@@ -1088,8 +2888,320 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 		     "scenario.ai.action.do_preset_animation",
 		     "scenario.ai.condition.if_player_chr_portal_distance_less_than",
 		     "scenario.ai.condition.if_chr_reposition_valid",
-	     }) {
+	}) {
 		REQUIRE(scenario_runtime.find(node) != std::string::npos);
+	}
+	REQUIRE(scenario_runtime.find(
+		        "AI action prepare_warp_orbit pad=%d found=1 pad_rows=%d") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find(
+		        "AI action set_camera_animation anim_id=%s player_checked=%d chr_rows=%d source_chr=%d yielded=1") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find(
+		        "AI action set_camera_animation anim_id=%s player_checked=%d chr_rows=%d source_chr=%d yielded=0") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find(
+		        "AI action players_fade_out checked_players=%d applied=%d") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find(
+		        "AI action player_fade_in chr=%d chr_rows=%d target_chr=%d player_checked=%d") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find(
+		        "AI action revoke_control chr=%d chr_rows=%d target_chr=%d player_checked=%d") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find(
+		        "AI action grant_control chr=%d chr_rows=%d target_chr=%d player_checked=%d") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find(
+		        "AI condition if_colour_fade_complete chr=%d chr_rows=%d target_chr=%d player_checked=%d") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find(
+		        "AI action enable_obj tag=%d object_rows=%d player_checked=%d applied=%d") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find(
+		        "AI action clear_inventory checked_players=%d players=%d") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find(
+		        "AI action kill_bond player_checked=1 applied=1") !=
+	        std::string::npos);
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteIfCutsceneButtonPressed");
+		REQUIRE(!block.empty());
+		REQUIRE(block.find("g_Vars.stagenum == STAGE_CITRAINING") !=
+		        std::string::npos);
+		requireTokenOrder(block,
+			"s_aiPlayerCutsceneGraphReady(\"if_cutscene_button_pressed\"",
+			"g_Vars.stagenum == STAGE_CITRAINING");
+		requireTokenOrder(block,
+			"playerAnyCutsceneSkipRequested()",
+			"g_Vars.stagenum == STAGE_CITRAINING");
+	}
+	{
+		const std::string end_level = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteEndLevel");
+		REQUIRE(!end_level.empty());
+		requireTokenOrder(end_level,
+			"s_aiPlayerCutsceneGraphReady(\"end_level\"",
+			"if (g_Vars.autocutplaying)");
+		requireTokenOrder(end_level,
+			"if (g_Vars.autocutplaying)",
+			"g_Vars.autocutfinished = true");
+		requireTokenOrder(end_level,
+			"g_Vars.autocutfinished = true",
+			"AI action end_level autocut=%d");
+	}
+	{
+		const std::string disable_obj = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteDisableObj");
+		REQUIRE(!disable_obj.empty());
+		requireTokenOrder(disable_obj,
+			"s_aiEntityLifecycleGraphReady(\"disable_obj\"",
+			"s_aiGraphRequireRuntimeObjectTag(\"disable_obj\"");
+		requireTokenOrder(disable_obj,
+			"s_aiGraphRequireRuntimeObjectTag(\"disable_obj\"",
+			"obj = objFindByTagId(tag_id)");
+		requireTokenOrder(disable_obj,
+			"obj = objFindByTagId(tag_id)",
+			"if (g_Vars.autocutplaying &&");
+		requireTokenOrder(disable_obj,
+			"if (g_Vars.autocutplaying &&",
+			"AI action disable_obj tag=%d object_rows=%d applied=%d");
+	}
+	{
+		const std::string player_pointer = functionBlock(
+			scenario_runtime,
+			"s_aiGraphRequireRuntimePlayerPointer");
+		REQUIRE(!player_pointer.empty());
+		REQUIRE(player_pointer.find("missing %s player state") !=
+		        std::string::npos);
+		REQUIRE(player_pointer.find("PROPTYPE_PLAYER") !=
+		        std::string::npos);
+	}
+	{
+		const std::string set_camera_animation = functionBlock(
+			scenario_runtime,
+			"scenarioSourceAiGraphExecuteSetCameraAnimation");
+		REQUIRE(!set_camera_animation.empty());
+		REQUIRE(set_camera_animation.find("g_Vars.currentplayer->haschrbody") ==
+		        std::string::npos);
+		REQUIRE(set_camera_animation.find(
+			        "s_aiGraphRequireRuntimePlayerPointer(\"set_camera_animation\"") !=
+		        std::string::npos);
+		REQUIRE(set_camera_animation.find("player, \"current\"") !=
+		        std::string::npos);
+		REQUIRE(set_camera_animation.find(
+			        "s_aiGraphRequireRuntimeCharacterStatePointer(\"set_camera_animation\"") !=
+		        std::string::npos);
+		REQUIRE(set_camera_animation.find("g_Vars.chrdata->sleep") ==
+		        std::string::npos);
+		REQUIRE(set_camera_animation.find(
+			        "struct chrdata *active_chr = g_Vars.chrdata;") !=
+		        std::string::npos);
+		requireTokenOrder(set_camera_animation,
+			"s_aiGraphRequireRuntimePlayerPointer(\"set_camera_animation\"",
+			"s_aiGraphRequireRuntimeCharacterStatePointer(\"set_camera_animation\"");
+		requireTokenOrder(set_camera_animation,
+			"s_aiGraphRequireRuntimeCharacterStatePointer(\"set_camera_animation\"",
+			"playerStartCutscene(");
+		requireTokenOrder(set_camera_animation,
+			"s_aiGraphRequireRuntimeCharacterStatePointer(\"set_camera_animation\"",
+			"active_chr->sleep = -1");
+	}
+	{
+		const std::string players_fade_out = functionBlock(
+			scenario_runtime,
+			"scenarioSourceAiGraphExecutePlayersFadeOut");
+		REQUIRE(!players_fade_out.empty());
+		requireTokenOrder(players_fade_out,
+			"s_aiGraphRequireRuntimePlayerSlot(\"players_fade_out\"",
+			"playerSetFadeColour(");
+		requireTokenOrder(players_fade_out,
+			"s_aiGraphRequireRuntimePlayerSlot(\"players_fade_out\"",
+			"playerSetFadeFrac(");
+	}
+	{
+		const std::string player_fade_in = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecutePlayerFadeIn");
+		REQUIRE(!player_fade_in.empty());
+		requireTokenOrder(player_fade_in,
+			"s_aiGraphResolvePlayerChr(\"player_fade_in\"",
+			"s_aiGraphRequireRuntimePlayerSlot(\"player_fade_in\"");
+		requireTokenOrder(player_fade_in,
+			"s_aiGraphRequireRuntimePlayerSlot(\"player_fade_in\"",
+			"setCurrentPlayerNum(playernum)");
+		requireTokenOrder(player_fade_in,
+			"s_aiGraphRequireRuntimePlayerSlot(\"player_fade_in\"",
+			"playerSetFadeColour(");
+		requireTokenOrder(player_fade_in,
+			"s_aiGraphRequireRuntimePlayerSlot(\"player_fade_in\"",
+			"playerSetFadeFrac(");
+	}
+	{
+		const std::string revoke_control = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteRevokeControl");
+		REQUIRE(!revoke_control.empty());
+		REQUIRE(revoke_control.find("g_PlayersWithControl[g_Vars.currentplayernum]") ==
+		        std::string::npos);
+		requireTokenOrder(revoke_control,
+			"s_aiGraphResolvePlayerChr(\"revoke_control\"",
+			"s_aiGraphRequireRuntimePlayerSlot(\"revoke_control\"");
+		requireTokenOrder(revoke_control,
+			"s_aiGraphRequireRuntimePlayerSlot(\"revoke_control\"",
+			"setCurrentPlayerNum(playernum)");
+		requireTokenOrder(revoke_control,
+			"s_aiGraphRequireRuntimePlayerSlot(\"revoke_control\"",
+			"g_PlayersWithControl[playernum] = false");
+	}
+	{
+		const std::string grant_control = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteGrantControl");
+		REQUIRE(!grant_control.empty());
+		REQUIRE(grant_control.find("g_PlayersWithControl[g_Vars.currentplayernum]") ==
+		        std::string::npos);
+		requireTokenOrder(grant_control,
+			"s_aiGraphResolvePlayerChr(\"grant_control\"",
+			"s_aiGraphRequireRuntimePlayerSlot(\"grant_control\"");
+		requireTokenOrder(grant_control,
+			"s_aiGraphRequireRuntimePlayerSlot(\"grant_control\"",
+			"setCurrentPlayerNum(playernum)");
+		requireTokenOrder(grant_control,
+			"s_aiGraphRequireRuntimePlayerSlot(\"grant_control\"",
+			"g_PlayersWithControl[playernum] = true");
+	}
+	{
+		const std::string if_colour_fade_complete = functionBlock(
+			scenario_runtime,
+			"scenarioSourceAiGraphExecuteIfColourFadeComplete");
+		REQUIRE(!if_colour_fade_complete.empty());
+		REQUIRE(if_colour_fade_complete.find(
+			        "g_Vars.players[playernum]->colourfadetimemax60") ==
+		        std::string::npos);
+		requireTokenOrder(if_colour_fade_complete,
+			"s_aiGraphResolvePlayerChr(\"if_colour_fade_complete\"",
+			"s_aiGraphRequireRuntimePlayerSlot(\"if_colour_fade_complete\"");
+		requireTokenOrder(if_colour_fade_complete,
+			"s_aiGraphRequireRuntimePlayerSlot(\"if_colour_fade_complete\"",
+			"player->colourfadetimemax60");
+	}
+	{
+		const std::string enable_obj = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteEnableObj");
+		REQUIRE(!enable_obj.empty());
+		REQUIRE(enable_obj.find("g_Vars.currentplayer->eyespy") ==
+		        std::string::npos);
+		REQUIRE(enable_obj.find(
+			        "struct player *current_player = g_Vars.currentplayer;") !=
+		        std::string::npos);
+		REQUIRE(enable_obj.find("\n\t\t\t\tplayer = g_Vars.currentplayer;") ==
+		        std::string::npos);
+		requireTokenOrder(enable_obj,
+			"s_aiGraphRequireRuntimeObjectTag(\"enable_obj\"",
+			"s_aiGraphRequireRuntimePlayerPointer(");
+		requireTokenOrder(enable_obj,
+			"s_aiGraphRequireRuntimePlayerPointer(",
+			"player = current_player");
+		requireTokenOrder(enable_obj,
+			"player = current_player",
+			"propActivate(");
+		requireTokenOrder(enable_obj,
+			"player = current_player",
+			"player->eyespy");
+		requireTokenOrder(enable_obj,
+			"player->eyespy",
+			"playerInitEyespy(");
+	}
+	{
+		const std::string prepare_warp_orbit = functionBlock(
+			scenario_runtime, "scenarioSourceAiGraphExecutePrepareWarpOrbit");
+		REQUIRE(!prepare_warp_orbit.empty());
+		requireTokenOrder(prepare_warp_orbit,
+			"s_aiGraphRequireRuntimePad(\"prepare_warp_orbit\"",
+			"playerPrepareWarpType3");
+	}
+	REQUIRE(scenario_runtime.find(
+		        "AI action chr_begin_or_end_teleport chr=%d chr_rows=%d target_chr=%d player=%d player_checked=%d pad=%d found=%d pad_rows=%d sound_id=%s") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find(
+		        "backend=graph.ai.action.teleport_cutscene_weapon+ai/ailists.tsv+pads.tsv+audio") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find(
+		        "AI condition if_chr_teleport_full_white chr=%d chr_rows=%d target_chr=%d player=%d player_checked=%d label=%d branch=%d sound_id=%s") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find(
+		        "backend=graph.ai.action.teleport_cutscene_weapon+ai/ailists.tsv+audio") !=
+	        std::string::npos);
+	{
+		const std::string teleport_sound = functionBlock(
+			scenario_runtime, "s_aiGraphPlayTeleportSound");
+		REQUIRE(!teleport_sound.empty());
+		requireTokenOrder(teleport_sound,
+			"osGetThreadPri(0)",
+			"osGetThreadPri(&g_AudioManager.thread)");
+		requireTokenOrder(teleport_sound,
+			"osGetThreadPri(&g_AudioManager.thread)",
+			"osSetThreadPri(0, audiopri + 1)");
+		requireTokenOrder(teleport_sound,
+			"osSetThreadPri(0, audiopri + 1)",
+			"sndStart(var80095200, soundnum");
+		requireTokenOrder(teleport_sound,
+			"sndStart(var80095200, soundnum",
+			"osSetThreadPri(0, mainpri)");
+	}
+	{
+		const std::string chr_begin_or_end_teleport = functionBlock(
+			scenario_runtime,
+			"scenarioSourceAiGraphExecuteChrBeginOrEndTeleport");
+		REQUIRE(!chr_begin_or_end_teleport.empty());
+		REQUIRE(chr_begin_or_end_teleport.find(
+			        "chrFindById(basechr, chrnum);") ==
+		        std::string::npos);
+		REQUIRE(chr_begin_or_end_teleport.find(
+			        "s_aiGraphRequireRuntimeCharacterRefFromBase(") !=
+		        std::string::npos);
+		REQUIRE(chr_begin_or_end_teleport.find(
+			        "g_Vars.currentplayer->teleport") == std::string::npos);
+		REQUIRE(chr_begin_or_end_teleport.find(
+			        "pad_count = s_countRuntimePads();") ==
+		        std::string::npos);
+		requireTokenOrder(chr_begin_or_end_teleport,
+			"s_aiGraphRequireRuntimePad(\"chr_begin_or_end_teleport\"",
+			"s_aiGraphResolveAudioCatalogId(");
+		requireTokenOrder(chr_begin_or_end_teleport,
+			"s_aiGraphRequireRuntimeCharacterRefFromBase(",
+			"s_aiGraphRequireRuntimePlayerSlot(\"chr_begin_or_end_teleport\"");
+		requireTokenOrder(chr_begin_or_end_teleport,
+			"s_aiGraphRequireRuntimePlayerSlot(\"chr_begin_or_end_teleport\"",
+			"player->teleportpad = pad_id");
+		requireTokenOrder(chr_begin_or_end_teleport,
+			"s_aiGraphResolveAudioCatalogId(",
+			"s_aiGraphPlayTeleportSound(SFX_RELOAD_FARSIGHT)");
+		requireTokenOrder(chr_begin_or_end_teleport,
+			"s_aiGraphPlayTeleportSound(SFX_RELOAD_FARSIGHT)",
+			"sound_id=%s");
+	}
+	{
+		const std::string if_chr_teleport_full_white = functionBlock(
+			scenario_runtime,
+			"scenarioSourceAiGraphExecuteIfChrTeleportFullWhite");
+		REQUIRE(!if_chr_teleport_full_white.empty());
+		REQUIRE(if_chr_teleport_full_white.find(
+			        "chrFindById(basechr, chrnum);") ==
+		        std::string::npos);
+		REQUIRE(if_chr_teleport_full_white.find(
+			        "g_Vars.currentplayer->teleport") == std::string::npos);
+		requireTokenOrder(if_chr_teleport_full_white,
+			"s_aiGraphRequireRuntimeCharacterRefFromBase(",
+			"s_aiGraphRequireRuntimePlayerSlot(\"if_chr_teleport_full_white\"");
+		requireTokenOrder(if_chr_teleport_full_white,
+			"s_aiGraphRequireRuntimePlayerSlot(\"if_chr_teleport_full_white\"",
+			"player->teleportstate");
+		requireTokenOrder(if_chr_teleport_full_white,
+			"s_aiGraphResolveAudioCatalogId(",
+			"s_aiGraphPlayTeleportSound(SFX_FIRE_SHOTGUN)");
+		requireTokenOrder(if_chr_teleport_full_white,
+			"s_aiGraphPlayTeleportSound(SFX_FIRE_SHOTGUN)",
+			"sound_id=%s");
 	}
 	REQUIRE(scenario_runtime.find("scenario.ai.action.do_gun_command") !=
 	        std::string::npos);
@@ -1109,6 +3221,38 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 	        std::string::npos);
 	REQUIRE(scenario_runtime.find("scenario.ai.action.clear_inventory") !=
 	        std::string::npos);
+	{
+		const std::string clear_inventory = functionBlock(
+			scenario_runtime,
+			"scenarioSourceAiGraphExecuteClearInventory");
+		REQUIRE(!clear_inventory.empty());
+		requireTokenOrder(clear_inventory,
+			"s_aiGraphRequireRuntimePlayerSlot(\"clear_inventory\"",
+			"invClear(");
+		requireTokenOrder(clear_inventory,
+			"s_aiGraphRequireRuntimePlayerSlot(\"clear_inventory\"",
+			"player->devicesactive = 0");
+		REQUIRE(clear_inventory.find(
+				"g_Vars.currentplayer->devicesactive = 0") ==
+			std::string::npos);
+		REQUIRE(clear_inventory.find("player == g_Vars.bond") ==
+		        std::string::npos);
+		REQUIRE(clear_inventory.find("player == g_Vars.coop") ==
+		        std::string::npos);
+		REQUIRE(clear_inventory.find("playernum == g_Vars.bondplayernum") !=
+		        std::string::npos);
+		REQUIRE(clear_inventory.find("playernum == g_Vars.coopplayernum") !=
+		        std::string::npos);
+		requireTokenOrder(clear_inventory,
+			"s_aiGraphRequireRuntimePlayerSlot(\"clear_inventory\"",
+			"playernum == g_Vars.bondplayernum");
+		requireTokenOrder(clear_inventory,
+			"setCurrentPlayerNum(playernum)",
+			"playernum == g_Vars.bondplayernum");
+		requireTokenOrder(clear_inventory,
+			"s_aiGraphRequireRuntimePlayerSlot(\"clear_inventory\"",
+			"bgunEquipWeapon(WEAPON_UNARMED)");
+	}
 	REQUIRE(scenario_runtime.find("scenario.ai.action.release_object") !=
 	        std::string::npos);
 	REQUIRE(scenario_runtime.find("scenario.ai.action.chr_grab_object") !=
@@ -1139,6 +3283,901 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 	        std::string::npos);
 	REQUIRE(scenario_runtime.find("scenario.ai.condition.if_stage_id_greater_than") !=
 	        std::string::npos);
+	const std::string stage_id_helper =
+		functionBlock(scenario_runtime, "s_aiGraphResolveStageCatalogId");
+	REQUIRE(stage_id_helper.find("catalogStageIdByStagenum") !=
+	        std::string::npos);
+	REQUIRE(stage_id_helper.find("s_aiGraphRuntimeFailure") !=
+	        std::string::npos);
+	for (const char *fn : {
+		     "scenarioSourceAiGraphExecuteIfStageIdLessThan",
+		     "scenarioSourceAiGraphExecuteIfStageIdGreaterThan",
+	     }) {
+		const std::string block = functionBlock(scenario_runtime, fn);
+		REQUIRE(block.find("s_aiGraphResolveStageCatalogId") !=
+		        std::string::npos);
+		REQUIRE(block.find("stage_id=%s current_stage_id=%s") !=
+		        std::string::npos);
+		REQUIRE(block.find("stagenum=%d current=%d") ==
+		        std::string::npos);
+	}
+	const std::string weapon_id_helper =
+		functionBlock(scenario_runtime, "s_aiGraphResolveWeaponCatalogId");
+	REQUIRE(weapon_id_helper.find("catalogWeaponIdByRuntimeWeaponNum") !=
+	        std::string::npos);
+	REQUIRE(weapon_id_helper.find("s_aiGraphRuntimeFailure") !=
+	        std::string::npos);
+	REQUIRE(weapon_id_helper.find("WEAPON_NONE") != std::string::npos);
+	const std::string body_id_helper =
+		functionBlock(scenario_runtime, "s_aiGraphResolveBodyCatalogId");
+	REQUIRE(body_id_helper.find("catalogBodyIdByBodynum") !=
+	        std::string::npos);
+	REQUIRE(body_id_helper.find("s_aiGraphRuntimeFailure") !=
+	        std::string::npos);
+	const std::string head_id_helper =
+		functionBlock(scenario_runtime, "s_aiGraphResolveHeadCatalogId");
+	REQUIRE(head_id_helper.find("catalogHeadIdByHeadnum") !=
+	        std::string::npos);
+	REQUIRE(head_id_helper.find("HEAD_RANDOM") != std::string::npos);
+	REQUIRE(head_id_helper.find("HEAD_RANDOM_GENDER") !=
+	        std::string::npos);
+	REQUIRE(head_id_helper.find("s_aiGraphRuntimeFailure") !=
+	        std::string::npos);
+	const std::string model_id_helper =
+		functionBlock(scenario_runtime, "s_aiGraphResolveModelCatalogId");
+	REQUIRE(model_id_helper.find("catalogModelIdByModelnum") !=
+	        std::string::npos);
+	REQUIRE(model_id_helper.find("s_aiGraphRuntimeFailure") !=
+	        std::string::npos);
+	const std::string weapon_modelnum_helper =
+		functionBlock(scenario_runtime, "s_aiGraphWeaponModelNumOrNone");
+	REQUIRE(weapon_modelnum_helper.find("s_aiGraphWeaponHasNoModelSentinel") !=
+	        std::string::npos);
+	REQUIRE(weapon_modelnum_helper.find("playermgrGetModelOfWeapon") !=
+	        std::string::npos);
+	requireTokenOrder(weapon_modelnum_helper,
+		"s_aiGraphWeaponHasNoModelSentinel",
+		"playermgrGetModelOfWeapon");
+	const std::string weapon_model_sentinel_helper =
+		functionBlock(scenario_runtime, "s_aiGraphWeaponHasNoModelSentinel");
+	REQUIRE(weapon_model_sentinel_helper.find("weaponnum == 0xff") !=
+	        std::string::npos);
+	REQUIRE(weapon_model_sentinel_helper.find("WEAPON_NONE") !=
+	        std::string::npos);
+	REQUIRE(weapon_model_sentinel_helper.find("WEAPON_UNARMED") !=
+	        std::string::npos);
+	const std::string weapon_model_id_helper =
+		functionBlock(scenario_runtime, "s_aiGraphResolveWeaponModelCatalogId");
+	REQUIRE(weapon_model_id_helper.find("s_aiGraphResolveModelCatalogId") !=
+	        std::string::npos);
+	REQUIRE(weapon_model_id_helper.find("s_aiGraphWeaponHasNoModelSentinel") !=
+	        std::string::npos);
+	REQUIRE(weapon_model_id_helper.find("weaponnum == 0xff") ==
+	        std::string::npos);
+	REQUIRE(weapon_model_id_helper.find("s_aiGraphRuntimeFailure") !=
+	        std::string::npos);
+	const std::string cutscene_weapon_block = functionBlock(
+		scenario_runtime, "scenarioSourceAiGraphExecuteChrSetCutsceneWeapon");
+	REQUIRE(cutscene_weapon_block.find("s_aiGraphResolveWeaponCatalogId") !=
+	        std::string::npos);
+	REQUIRE(cutscene_weapon_block.find("s_aiGraphResolveWeaponModelCatalogId") !=
+	        std::string::npos);
+	REQUIRE(cutscene_weapon_block.find("s_aiGraphWeaponModelNumOrNone") !=
+	        std::string::npos);
+	REQUIRE(cutscene_weapon_block.find("playermgrGetModelOfWeapon") ==
+	        std::string::npos);
+	REQUIRE(cutscene_weapon_block.find("chrFindById(basechr, chrnum);") ==
+	        std::string::npos);
+	REQUIRE(cutscene_weapon_block.find(
+		        "s_aiGraphRequireRuntimeCharacterRefFromBase(") !=
+	        std::string::npos);
+	REQUIRE(cutscene_weapon_block.find(
+			"chr_rows=%d target_chr=%d weapon_id=%s model_id=%s fallback_weapon_id=%s fallback_model_id=%s") !=
+	        std::string::npos);
+	REQUIRE(cutscene_weapon_block.find("weapon=%d fallback_weapon=%d") ==
+	        std::string::npos);
+	requireTokenOrder(cutscene_weapon_block,
+		"s_aiGraphRequireRuntimeCharacterRefFromBase(",
+		"s_aiGraphResolveWeaponCatalogId");
+	requireTokenOrder(cutscene_weapon_block,
+		"s_aiGraphResolveWeaponCatalogId",
+		"s_aiGraphResolveWeaponModelCatalogId");
+	requireTokenOrder(cutscene_weapon_block,
+		"s_aiGraphResolveWeaponModelCatalogId",
+		"weaponCreateForChr");
+	for (const char *fn : {
+		     "scenarioSourceAiGraphExecuteChrDrawWeapon",
+		     "scenarioSourceAiGraphExecuteChrDrawWeaponInCutscene",
+		     "scenarioSourceAiGraphExecuteChrDeleteWeapon",
+		     "scenarioSourceAiGraphExecuteRemoveWeaponFromInventory",
+		     "scenarioSourceAiGraphExecuteIfPlayerUsingCmpOrAr34",
+	     }) {
+		const std::string block = functionBlock(scenario_runtime, fn);
+		REQUIRE(block.find("s_aiGraphResolveWeaponCatalogId") !=
+		        std::string::npos);
+		REQUIRE(block.find("weapon_id=%s") != std::string::npos);
+		REQUIRE(block.find("weapon=%d") == std::string::npos);
+	}
+	const std::string drop_item_block =
+		functionBlock(scenario_runtime, "scenarioSourceAiGraphExecuteDropItem");
+	REQUIRE(drop_item_block.find("s_aiGraphResolveModelCatalogId") !=
+	        std::string::npos);
+	REQUIRE(drop_item_block.find("s_aiGraphResolveWeaponCatalogId") !=
+	        std::string::npos);
+	REQUIRE(drop_item_block.find("model_id=%s weapon_id=%s") !=
+	        std::string::npos);
+	REQUIRE(drop_item_block.find("model=%u weapon=%u") ==
+	        std::string::npos);
+	for (const char *fn : {
+		     "scenarioSourceAiGraphExecuteSpawnChrAtPad",
+		     "scenarioSourceAiGraphExecuteSpawnChrAtChr",
+	     }) {
+		const std::string block = functionBlock(scenario_runtime, fn);
+		REQUIRE(block.find("s_aiGraphResolveBodyCatalogId") !=
+		        std::string::npos);
+		REQUIRE(block.find("s_aiGraphResolveHeadCatalogId") !=
+		        std::string::npos);
+		REQUIRE(block.find("s_aiGraphRegisterSourceSpawnedChr(") !=
+		        std::string::npos);
+		REQUIRE(block.find("body_id=%s head_id=%s") !=
+		        std::string::npos);
+		REQUIRE(block.find("body=%d head=%d") == std::string::npos);
+	}
+	{
+		const std::string spawn_at_pad =
+			functionBlock(scenario_runtime,
+				"scenarioSourceAiGraphExecuteSpawnChrAtPad");
+		REQUIRE(!spawn_at_pad.empty());
+		REQUIRE(spawn_at_pad.find("ailistFindById(ailistid)") !=
+		        std::string::npos);
+		requireTokenOrder(spawn_at_pad,
+			"s_aiSetupSpawnGraphReady(\"spawn_chr_at_pad\"",
+			"ailistFindById(ailistid)");
+		requireTokenOrder(spawn_at_pad,
+			"ailistFindById(ailistid)",
+			"chrSpawnAtPad(");
+		requireTokenOrder(spawn_at_pad,
+			"chrSpawnAtPad(",
+			"s_aiGraphRegisterSourceSpawnedChr(\"spawn_chr_at_pad\"");
+		requireTokenOrder(spawn_at_pad,
+			"s_aiGraphRegisterSourceSpawnedChr(\"spawn_chr_at_pad\"",
+			"g_Vars.aioffset = chraiGoToLabel");
+	}
+	{
+		const std::string spawn_at_chr =
+			functionBlock(scenario_runtime,
+				"scenarioSourceAiGraphExecuteSpawnChrAtChr");
+		REQUIRE(!spawn_at_chr.empty());
+		REQUIRE(spawn_at_chr.find("ailistFindById(ailistid)") !=
+		        std::string::npos);
+		requireTokenOrder(spawn_at_chr,
+			"s_aiSetupSpawnGraphReady(\"spawn_chr_at_chr\"",
+			"ailistFindById(ailistid)");
+		requireTokenOrder(spawn_at_chr,
+			"ailistFindById(ailistid)",
+			"chrSpawnAtChr(");
+		requireTokenOrder(spawn_at_chr,
+			"chrSpawnAtChr(",
+			"s_aiGraphRegisterSourceSpawnedChr(\"spawn_chr_at_chr\"");
+		requireTokenOrder(spawn_at_chr,
+			"s_aiGraphRegisterSourceSpawnedChr(\"spawn_chr_at_chr\"",
+			"g_Vars.aioffset = chraiGoToLabel");
+	}
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteSpawnChrAtChr");
+		REQUIRE(!block.empty());
+		REQUIRE(block.find("s_aiGraphRequireRuntimeCharacterRefFromBase(\"spawn_chr_at_chr\"") !=
+		        std::string::npos);
+		REQUIRE(block.find("chr_rows=%d target_chr=%d") !=
+		        std::string::npos);
+		requireTokenOrder(block,
+			"s_aiGraphResolveHeadCatalogId(\"spawn_chr_at_chr\"",
+			"s_aiGraphRequireRuntimeCharacterRefFromBase(");
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimeCharacterRefFromBase(",
+			"chrSpawnAtChr");
+	}
+	const std::string try_equip_weapon_block =
+		functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteTryEquipWeapon");
+	REQUIRE(try_equip_weapon_block.find("s_aiGraphResolveModelCatalogId") !=
+	        std::string::npos);
+	REQUIRE(try_equip_weapon_block.find("s_aiGraphResolveWeaponCatalogId") !=
+	        std::string::npos);
+	REQUIRE(try_equip_weapon_block.find("model_id=%s weapon_id=%s") !=
+	        std::string::npos);
+	REQUIRE(try_equip_weapon_block.find("g_Vars.chrdata->") ==
+	        std::string::npos);
+	REQUIRE(try_equip_weapon_block.find(
+		        "struct chrdata *active_chr = g_Vars.chrdata;") !=
+	        std::string::npos);
+	REQUIRE(try_equip_weapon_block.find(
+		        "s_aiGraphRequireOptionalLiveRuntimeCharacterPointer(\"try_equip_weapon\"") !=
+	        std::string::npos);
+	REQUIRE(try_equip_weapon_block.find("chrGiveWeapon(active_chr") !=
+	        std::string::npos);
+	REQUIRE(try_equip_weapon_block.find("g_Vars.stagenum") !=
+	        std::string::npos);
+	REQUIRE(try_equip_weapon_block.find("chr_rows=%d source_chr=%d") !=
+	        std::string::npos);
+	requireTokenOrder(try_equip_weapon_block,
+		"s_aiGraphResolveWeaponCatalogId",
+		"s_aiGraphRequireOptionalLiveRuntimeCharacterPointer(\"try_equip_weapon\"");
+	requireTokenOrder(try_equip_weapon_block,
+		"s_aiGraphRequireOptionalLiveRuntimeCharacterPointer(\"try_equip_weapon\"",
+		"chrGiveWeapon(active_chr");
+	requireTokenOrder(try_equip_weapon_block,
+		"s_aiGraphRequireOptionalLiveRuntimeCharacterPointer(\"try_equip_weapon\"",
+		"g_Vars.stagenum");
+	requireTokenOrder(try_equip_weapon_block,
+		"g_Vars.stagenum",
+		"chrGiveWeapon(active_chr");
+	REQUIRE(try_equip_weapon_block.find("model=%u weapon=%d") ==
+	        std::string::npos);
+	const std::string try_equip_hat_block =
+		functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteTryEquipHat");
+	REQUIRE(try_equip_hat_block.find("s_aiGraphResolveModelCatalogId") !=
+	        std::string::npos);
+	REQUIRE(try_equip_hat_block.find("model_id=%s") !=
+	        std::string::npos);
+	REQUIRE(try_equip_hat_block.find("g_Vars.chrdata->") ==
+	        std::string::npos);
+	REQUIRE(try_equip_hat_block.find(
+		        "struct chrdata *active_chr = g_Vars.chrdata;") !=
+	        std::string::npos);
+	REQUIRE(try_equip_hat_block.find(
+		        "s_aiGraphRequireOptionalLiveRuntimeCharacterPointer(\"try_equip_hat\"") !=
+	        std::string::npos);
+	REQUIRE(try_equip_hat_block.find("hatCreateForChr(active_chr") !=
+	        std::string::npos);
+	REQUIRE(try_equip_hat_block.find("chr_rows=%d source_chr=%d") !=
+	        std::string::npos);
+	requireTokenOrder(try_equip_hat_block,
+		"s_aiGraphResolveModelCatalogId",
+		"s_aiGraphRequireOptionalLiveRuntimeCharacterPointer(\"try_equip_hat\"");
+	requireTokenOrder(try_equip_hat_block,
+		"s_aiGraphRequireOptionalLiveRuntimeCharacterPointer(\"try_equip_hat\"",
+		"hatCreateForChr(active_chr");
+	REQUIRE(try_equip_hat_block.find("model=%u") == std::string::npos);
+	const std::string set_obj_image_block =
+		functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteSetObjImage");
+	REQUIRE(set_obj_image_block.find("image_index=%d") !=
+	        std::string::npos);
+	REQUIRE(set_obj_image_block.find("image=%d") == std::string::npos);
+	const std::string object_do_animation_block =
+		functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteObjectDoAnimation");
+	REQUIRE(!object_do_animation_block.empty());
+	REQUIRE(object_do_animation_block.find("g_Vars.chrdata->") ==
+	        std::string::npos);
+	REQUIRE(object_do_animation_block.find(
+		        "struct chrdata *active_chr = g_Vars.chrdata;") !=
+	        std::string::npos);
+	REQUIRE(object_do_animation_block.find(
+		        "s_aiGraphRequireRuntimeCharacterStatePointer(\n\t\t\t\t\t\"object_do_animation\"") !=
+	        std::string::npos);
+	REQUIRE(object_do_animation_block.find("resolved_tag_id = active_chr->myspecial;") !=
+	        std::string::npos);
+	REQUIRE(object_do_animation_block.find("chr_rows=%d source_chr=%d") !=
+	        std::string::npos);
+	requireTokenOrder(object_do_animation_block,
+		"tag_id == 255",
+		"s_aiGraphRequireRuntimeCharacterStatePointer(");
+	requireTokenOrder(object_do_animation_block,
+		"s_aiGraphRequireRuntimeCharacterStatePointer(",
+		"resolved_tag_id = active_chr->myspecial");
+	requireTokenOrder(object_do_animation_block,
+		"\"object_do_animation\", anim_id, \"object\"",
+		"g_CutsceneFrameOverrun240 * speed *");
+	requireTokenOrder(object_do_animation_block,
+		"s_aiGraphRequireRuntimeObjectTag(\"object_do_animation\"",
+		"g_CutsceneFrameOverrun240 * speed *");
+	requireTokenOrder(object_do_animation_block,
+		"playerCurrentCutsceneInProgress()",
+		"g_CutsceneFrameOverrun240 * speed *");
+	requireTokenOrder(object_do_animation_block,
+		"g_CutsceneFrameOverrun240 * speed *",
+		"AI action object_do_animation anim_id=%s tag=%d resolved_tag=%d object_rows=%d chr_rows=%d");
+	const std::string audio_id_helper =
+		functionBlock(scenario_runtime,
+			"static const char *s_aiGraphResolveAudioCatalogId");
+	REQUIRE(audio_id_helper.find("s_aiGraphNormalizeAudioRuntimeId") !=
+	        std::string::npos);
+	REQUIRE(audio_id_helper.find("catalogResolveSound") != std::string::npos);
+	REQUIRE(audio_id_helper.find("assetCatalogGetByIndex") !=
+	        std::string::npos);
+	REQUIRE(audio_id_helper.find("s_aiGraphRuntimeFailure") !=
+	        std::string::npos);
+	requireTokenOrder(audio_id_helper,
+		"s_aiGraphNormalizeAudioRuntimeId(audio_id)",
+		"catalogResolveSound(leaf_id)");
+	const std::string audio_normalize_helper =
+		functionBlock(scenario_runtime,
+			"static s32 s_aiGraphNormalizeAudioRuntimeId");
+	REQUIRE(audio_normalize_helper.find("union soundnumhack") !=
+	        std::string::npos);
+	REQUIRE(audio_normalize_helper.find("g_AudioRussMappings") !=
+	        std::string::npos);
+	REQUIRE(audio_normalize_helper.find("g_NumAudioRussMappings") !=
+	        std::string::npos);
+	REQUIRE(audio_normalize_helper.find(
+		        "ref.hasconfig && ref.confignum < (u32)g_NumAudioRussMappings") !=
+	        std::string::npos);
+	requireTokenOrder(audio_normalize_helper,
+		"ref.hasconfig && ref.confignum < (u32)g_NumAudioRussMappings",
+		"g_AudioRussMappings[ref.confignum].soundnum");
+	const std::string mp3_file_helper =
+		functionBlock(scenario_runtime,
+			"static s32 s_aiGraphResolveMp3FileNum");
+	REQUIRE(mp3_file_helper.find("ref.mp3priority != 0") !=
+	        std::string::npos);
+	REQUIRE(mp3_file_helper.find("mapped.mp3priority != 0") !=
+	        std::string::npos);
+	REQUIRE(mp3_file_helper.find(
+		        "g_AudioRussMappings[ref.confignum].soundnum") !=
+	        std::string::npos);
+	const std::string speech_audio_helper =
+		functionBlock(scenario_runtime,
+			"static const char *s_aiGraphResolveSpeechAudioSourceId");
+	REQUIRE(speech_audio_helper.find("s_aiGraphResolveMp3FileNum") !=
+	        std::string::npos);
+	REQUIRE(speech_audio_helper.find("s_aiGraphResolveAudioCatalogId") !=
+	        std::string::npos);
+	REQUIRE(speech_audio_helper.find("romExtractRelPathForFilenum") !=
+	        std::string::npos);
+	REQUIRE(speech_audio_helper.find("fsFileSize(rel_path) <= 0") !=
+	        std::string::npos);
+	REQUIRE(speech_audio_helper.find("romdataFileGetName(file_num)") !=
+	        std::string::npos);
+	requireTokenOrder(speech_audio_helper,
+		"romExtractRelPathForFilenum(file_num",
+		"fsFileSize(rel_path) <= 0");
+	requireTokenOrder(speech_audio_helper,
+		"fsFileSize(rel_path) <= 0",
+		"romdataFileGetName(file_num)");
+	const std::string audio_source_guard =
+		readTextFile("tools/asset_native_source_guard.py");
+	REQUIRE(audio_source_guard.find("SCENARIO_AUDIO_SOURCE_METADATA_ERROR") !=
+	        std::string::npos);
+	REQUIRE(audio_source_guard.find(
+		        "scan_scenario_audio_source_metadata_guards") !=
+	        std::string::npos);
+	REQUIRE(audio_source_guard.find(
+		        "romExtractRelPathForFilenum|romdataFileGetName") !=
+	        std::string::npos);
+	REQUIRE(audio_source_guard.find(
+		        "scenario ROM audio metadata helpers must stay behind extracted speech source proof") !=
+	        std::string::npos);
+	const std::string lang_text_helper =
+		functionBlock(scenario_runtime,
+			"static const char *s_aiGraphResolveLangTextCatalogId");
+	const std::string lang_catalog_helper =
+		functionBlock(scenario_runtime,
+			"static const asset_entry_t *s_aiGraphFindLangCatalogEntryForBank");
+	REQUIRE(lang_catalog_helper.find("ASSET_LANG") != std::string::npos);
+	REQUIRE(lang_catalog_helper.find("LANG_MANIFEST_MAX_BANKS") !=
+	        std::string::npos);
+	REQUIRE(lang_catalog_helper.find("ext.lang.bank_id") != std::string::npos);
+	REQUIRE(lang_catalog_helper.find("ext.lang.strings_file") !=
+	        std::string::npos);
+	REQUIRE(lang_catalog_helper.find("entry->id[0]") != std::string::npos);
+	REQUIRE(lang_text_helper.find("s_aiGraphFindLangCatalogEntryForBank") !=
+	        std::string::npos);
+	REQUIRE(lang_text_helper.find("LANG_MANIFEST_MAX_BANKS") !=
+	        std::string::npos);
+	REQUIRE(lang_text_helper.find("langManifestLoadBankFromCatalog") !=
+	        std::string::npos);
+	REQUIRE(lang_text_helper.find("public .pdlang source") !=
+	        std::string::npos);
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteSpeak");
+		REQUIRE(block.find("s_aiGraphResolveSpeechAudioSourceId") !=
+		        std::string::npos);
+		REQUIRE(block.find("audio_id=%s") != std::string::npos);
+		REQUIRE(block.find("audio=%d") == std::string::npos);
+		REQUIRE(block.find("sound=%d") == std::string::npos);
+	}
+	for (const char *fn : {
+		     "scenarioSourceAiGraphExecutePlaySound",
+		     "scenarioSourceAiGraphExecuteAssignSound",
+		     "scenarioSourceAiGraphExecutePlaySoundFromProp",
+	     }) {
+		const std::string block = functionBlock(scenario_runtime, fn);
+		REQUIRE(block.find("s_aiGraphResolveSpeechAudioSourceId") !=
+		        std::string::npos);
+		REQUIRE(block.find("audio_id=%s") != std::string::npos);
+		REQUIRE(block.find("audio=%d") == std::string::npos);
+		REQUIRE(block.find("sound=%d") == std::string::npos);
+	}
+	const std::string repeat_pad_sound_block =
+		functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecutePlayRepeatingSoundFromPad");
+	REQUIRE(repeat_pad_sound_block.find("s_aiGraphResolveSpeechAudioSourceId") !=
+	        std::string::npos);
+	REQUIRE(repeat_pad_sound_block.find(
+		        "s_aiGraphRequireRuntimePad(\"play_repeating_sound_from_pad\"") !=
+	        std::string::npos);
+	REQUIRE(repeat_pad_sound_block.find("audio_id=%s") !=
+	        std::string::npos);
+	REQUIRE(repeat_pad_sound_block.find("pad=%d found=1 pad_rows=%d") !=
+	        std::string::npos);
+	REQUIRE(repeat_pad_sound_block.find(
+		        "backend=graph.ai.action.audio+ai/ailists.tsv+pads.tsv") !=
+	        std::string::npos);
+	REQUIRE(repeat_pad_sound_block.find("audio=%d") == std::string::npos);
+	REQUIRE(repeat_pad_sound_block.find("sound=%d") == std::string::npos);
+	requireTokenOrder(repeat_pad_sound_block,
+		"s_aiGraphRequireRuntimePad(\"play_repeating_sound_from_pad\"",
+		"psCreate(0, NULL, sound, padnum");
+	const std::string near_pad_target_block =
+		functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteSetChrPresetToChrNearPad");
+	REQUIRE(near_pad_target_block.find(
+		        "s_aiGraphRequireRuntimePad(\"set_chr_preset_to_chr_near_pad\"") !=
+	        std::string::npos);
+	REQUIRE(near_pad_target_block.find(
+		        "pad=%d found=1 pad_rows=%d") != std::string::npos);
+	REQUIRE(near_pad_target_block.find(
+		        "backend=graph.ai.action.prop_target+ai/ailists.tsv+pads.tsv") !=
+	        std::string::npos);
+	requireTokenOrder(near_pad_target_block,
+		"s_aiGraphRequireRuntimePad(\"set_chr_preset_to_chr_near_pad\"",
+		"chrSetChrPresetToChrNearPad(preset, chr, distance, padnum)");
+	const std::string speak_block =
+		functionBlock(scenario_runtime, "scenarioSourceAiGraphExecuteSpeak");
+	REQUIRE(speak_block.find("s_aiGraphResolveSpeechAudioSourceId") !=
+	        std::string::npos);
+	REQUIRE(speak_block.find("s_aiGraphResolveLangTextCatalogId") !=
+	        std::string::npos);
+	requireTokenOrder(speak_block,
+		"s_aiGraphResolveSpeechAudioSourceId(\"speak\"",
+		"s_aiGraphResolveLangTextCatalogId(\"speak\"");
+	REQUIRE(speak_block.find(
+		        "s_aiGraphResolveRuntimeCharacterRefOrSelector(\"speak\"") !=
+	        std::string::npos);
+	REQUIRE(speak_block.find("s_aiGraphRequireRuntimePlayerSlot(\"speak\"") !=
+	        std::string::npos);
+	REQUIRE(speak_block.find("chrFindById(basechr, chrnum)") ==
+	        std::string::npos);
+	REQUIRE(speak_block.find(
+		        "chr_rows=%d target_chr=%d target_selector=%d player_checked=%d text_id=%s audio_id=%s") !=
+	        std::string::npos);
+	REQUIRE(speak_block.find("player_checked=%d") != std::string::npos);
+	REQUIRE(speak_block.find("text_id=%s audio_id=%s") !=
+	        std::string::npos);
+	REQUIRE(speak_block.find("text=%d audio_id=%s") ==
+	        std::string::npos);
+	requireTokenOrder(speak_block,
+		"s_aiGraphResolveRuntimeCharacterRefOrSelector(\"speak\"",
+		"s_aiGraphRequireRuntimePlayerSlot(\"speak\"");
+	requireTokenOrder(speak_block,
+		"s_aiGraphRequireRuntimePlayerSlot(\"speak\"",
+		"setCurrentPlayerNum(playernum)");
+	for (const char *fn : {
+		     "scenarioSourceAiGraphExecuteShowHudmsg",
+		     "scenarioSourceAiGraphExecuteShowHudmsgMiddle",
+		     "scenarioSourceAiGraphExecuteShowHudmsgTopMiddle",
+	     }) {
+		const std::string block = functionBlock(scenario_runtime, fn);
+		REQUIRE(block.find("s_aiGraphResolveLangTextCatalogId") !=
+		        std::string::npos);
+		REQUIRE(block.find("text_id=%s") != std::string::npos);
+		REQUIRE(block.find("text=%u") == std::string::npos);
+	}
+	{
+		const std::string helper = functionBlock(scenario_runtime,
+			"s_aiGraphHudPlayerForChr");
+		REQUIRE(!helper.empty());
+		REQUIRE(helper.find("chrFindById(basechr, chrnum)") ==
+		        std::string::npos);
+		REQUIRE(helper.find("s_aiGraphRequireRuntimeCharacterRefFromBase") !=
+		        std::string::npos);
+		REQUIRE(helper.find("playermgrGetPlayerNumByProp") !=
+		        std::string::npos);
+		REQUIRE(helper.find("s32 playernum = g_Vars.currentplayernum") ==
+		        std::string::npos);
+		REQUIRE(helper.find("playernum = g_Vars.currentplayernum;") !=
+		        std::string::npos);
+		REQUIRE(helper.find("s_aiGraphRequireRuntimePlayerSlot(action") !=
+		        std::string::npos);
+		requireTokenOrder(helper,
+			"s_aiGraphRequireRuntimeCharacterRefFromBase",
+			"playernum = g_Vars.currentplayernum;");
+		const size_t fallback_player_pos =
+			helper.find("playernum = g_Vars.currentplayernum;");
+		REQUIRE(fallback_player_pos != std::string::npos);
+		REQUIRE(helper.find("s_aiGraphRequireRuntimePlayerSlot(action",
+			fallback_player_pos) != std::string::npos);
+		for (const char *fn : {
+			     "scenarioSourceAiGraphExecuteShowHudmsg",
+			     "scenarioSourceAiGraphExecuteShowHudmsgTopMiddle",
+		     }) {
+			const std::string block = functionBlock(scenario_runtime, fn);
+			REQUIRE(!block.empty());
+			REQUIRE(block.find("s32 playernum = g_Vars.currentplayernum") ==
+			        std::string::npos);
+			REQUIRE(block.find("chr_rows=%d target_chr=%d player_checked=%d") !=
+			        std::string::npos);
+			REQUIRE(block.find("player_checked=%d") != std::string::npos);
+			requireTokenOrder(block,
+				"s_aiGraphHudPlayerForChr(",
+				"setCurrentPlayerNum(playernum)");
+		}
+	}
+	const std::string say_quip_block =
+		functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteSayQuip");
+	REQUIRE(say_quip_block.find("s_aiGraphResolveAudioCatalogId") !=
+	        std::string::npos);
+	REQUIRE(say_quip_block.find("s_aiGraphResolveLangTextCatalogId") !=
+	        std::string::npos);
+	REQUIRE(say_quip_block.find("g_GuardQuipBank") !=
+	        std::string::npos);
+	REQUIRE(say_quip_block.find("g_QuipTexts") !=
+	        std::string::npos);
+	REQUIRE(say_quip_block.find("chr_rows=%d target_chr=%d source_chr=%d checked=%d player_checked=%d") !=
+	        std::string::npos);
+	REQUIRE(say_quip_block.find("text=%d") == std::string::npos);
+	REQUIRE(say_quip_block.find("g_Vars.players[playernum]->isdead") ==
+	        std::string::npos);
+	REQUIRE(say_quip_block.find("g_Vars.chrdata->") ==
+	        std::string::npos);
+	REQUIRE(say_quip_block.find("struct chrdata *active_chr = g_Vars.chrdata") !=
+	        std::string::npos);
+	REQUIRE(say_quip_block.find("chrFindById(basechr") ==
+	        std::string::npos);
+	REQUIRE(say_quip_block.find(
+		        "s_aiGraphRequireRuntimeCharacterRefFromBase(\"say_quip\"") !=
+	        std::string::npos);
+	REQUIRE(say_quip_block.find(
+		        "s_aiGraphRequireRuntimeCharacterStatePointer(\"say_quip\"") !=
+	        std::string::npos);
+	REQUIRE(countOccurrences(say_quip_block,
+		"s_aiGraphRequireRuntimeCharacterStatePointer(") >= 2);
+	requireTokenOrder(say_quip_block,
+		"s_aiGraphRequireRuntimeCharacterRefFromBase(\"say_quip\"",
+		"s_aiGraphRequireRuntimeCharacterStatePointer(\"say_quip\"");
+	requireTokenOrder(say_quip_block,
+		"s_aiGraphRequireRuntimeCharacterStatePointer(\"say_quip\"",
+		"CHRRACE(active_chr)");
+	requireTokenOrder(say_quip_block,
+		"s_aiGraphRequireRuntimeCharacterStatePointer(\"say_quip\"",
+		"g_GuardQuipBank");
+	requireTokenOrder(say_quip_block,
+		"s_aiGraphRequireRuntimeCharacterStatePointer(\"say_quip\"",
+		"active_chr->soundtimer");
+	requireTokenOrder(say_quip_block,
+		"\"say_quip\", loopchr",
+		"loopchr && loopchr->model");
+	requireTokenOrder(say_quip_block,
+		"s_aiGraphRequireRuntimeCharacterRefFromBase(\"say_quip\"",
+		"playermgrGetPlayerNumByProp(chr->prop)");
+	requireTokenOrder(say_quip_block,
+		"playermgrGetPlayerNumByProp(chr->prop)",
+		"s_aiGraphRequireRuntimePlayerSlot(\"say_quip\"");
+	requireTokenOrder(say_quip_block,
+		"s_aiGraphRequireRuntimePlayerSlot(\"say_quip\"",
+		"player->isdead");
+	requireTokenOrder(say_quip_block,
+		"s_aiGraphRequireRuntimePlayerSlot(\"say_quip\"",
+		"g_Vars.coopplayernum >= 0");
+	requireTokenOrder(say_quip_block,
+		"g_Vars.coopplayernum >= 0 && player->isdead",
+		"alternate_playernum = playernum == g_Vars.bondplayernum");
+	requireTokenOrder(say_quip_block,
+		"alternate_playernum = playernum == g_Vars.bondplayernum",
+		"playernum = (u32)alternate_playernum");
+	const std::string ci_quip_block =
+		functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteSayCiStaffQuip");
+	REQUIRE(ci_quip_block.find("s_aiGraphResolveAudioCatalogId") !=
+	        std::string::npos);
+	REQUIRE(ci_quip_block.find("g_CiGreetingQuips") !=
+	        std::string::npos);
+	REQUIRE(ci_quip_block.find("chr_rows=%d target_chr=%d type=%d channel=%d audio_id=%s") !=
+	        std::string::npos);
+	REQUIRE(ci_quip_block.find("s_aiGraphRequireRuntimeCharacterPointer(") !=
+	        std::string::npos);
+	REQUIRE(ci_quip_block.find("quip=%d") == std::string::npos);
+	requireTokenOrder(ci_quip_block,
+		"s_aiGraphRequireRuntimeCharacterPointer(",
+		"g_CiGreetingQuips[chr->morale]");
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteIfChrNotTalking");
+		REQUIRE(!block.empty());
+		REQUIRE(block.find("AI condition if_chr_not_talking chr=%d chr_rows=%d target_chr=%d") !=
+		        std::string::npos);
+		REQUIRE(block.find("s_aiGraphRequireRuntimeCharacterPointer(") !=
+		        std::string::npos);
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimeCharacterPointer(",
+			"chr->propsoundcount");
+	}
+	for (const char *fn : {
+		     "scenarioSourceAiGraphExecuteChrAddMorale",
+		     "scenarioSourceAiGraphExecuteChrAddAlertness",
+	     }) {
+		const std::string block = functionBlock(scenario_runtime, fn);
+		REQUIRE(!block.empty());
+		REQUIRE(block.find("chrFindById(basechr, chrnum)") ==
+		        std::string::npos);
+		REQUIRE(block.find("s_aiGraphRequireRuntimeCharacterRefFromBase(") !=
+		        std::string::npos);
+		REQUIRE(block.find("chr_rows=%d target_chr=%d") !=
+		        std::string::npos);
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimeCharacterRefFromBase(",
+			"incrementByte(&chr->");
+	}
+	const std::string max_damage_block =
+		functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteSetMaxDamage");
+	REQUIRE(!max_damage_block.empty());
+	REQUIRE(max_damage_block.find("chrFindById(basechr, chrnum)") ==
+	        std::string::npos);
+	REQUIRE(max_damage_block.find("s_aiGraphRequireRuntimeCharacterRefFromBase(") !=
+	        std::string::npos);
+	REQUIRE(max_damage_block.find("chr_rows=%d target_chr=%d vehicle_rows=%d source_vehicle_type=%d value=%.3f") !=
+	        std::string::npos);
+	requireTokenOrder(max_damage_block,
+		"s_aiGraphRequireRuntimeCharacterRefFromBase(",
+		"chrSetMaxDamage(chr, maxdamage)");
+	REQUIRE(scenario_runtime.find("s_aiGraphFindChrById(") ==
+	        std::string::npos);
+	for (const char *fn : {
+		     "s_aiGraphRequireRuntimeCharacterRefFromBase",
+		     "s_aiGraphResolveRuntimeCharacterRefOrSelector",
+		     "s_aiGraphRuntimeCharacterRefLooksSourceBacked",
+		     "s_aiGraphRequireRuntimeCharacterPointer",
+	     }) {
+		const std::string block = functionBlock(scenario_runtime, fn);
+		REQUIRE(!block.empty());
+		REQUIRE(block.find("s_aiGraphRuntimeChrIsSourceSpawned(") !=
+		        std::string::npos);
+	}
+	for (const char *fn : {
+		     "scenarioSourceAiGraphExecuteSetChrflag",
+		     "scenarioSourceAiGraphExecuteUnsetChrflag",
+		     "scenarioSourceAiGraphExecuteIfHasChrflag",
+	     }) {
+		const std::string block = functionBlock(scenario_runtime, fn);
+		REQUIRE(!block.empty());
+		REQUIRE(block.find("s_aiGraphRequireRuntimeCharacterStatePointer(") !=
+		        std::string::npos);
+		REQUIRE(block.find("chr_rows=%d target_chr=%d") !=
+		        std::string::npos);
+	}
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteSetChrflag");
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimeCharacterStatePointer(",
+			"chr->chrflags |= flags");
+	}
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteUnsetChrflag");
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimeCharacterStatePointer(",
+			"chr->chrflags &= ~flags");
+	}
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteIfHasChrflag");
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimeCharacterStatePointer(",
+			"result = ((chr->chrflags & flags) == flags)");
+	}
+	for (const char *fn : {
+		     "scenarioSourceAiGraphExecuteChrSetChrflag",
+		     "scenarioSourceAiGraphExecuteChrUnsetChrflag",
+		     "scenarioSourceAiGraphExecuteIfChrHasChrflag",
+		     "scenarioSourceAiGraphExecuteChrSetHiddenFlag",
+		     "scenarioSourceAiGraphExecuteChrUnsetHiddenFlag",
+		     "scenarioSourceAiGraphExecuteIfChrHasHiddenFlag",
+	     }) {
+		const std::string block = functionBlock(scenario_runtime, fn);
+		REQUIRE(!block.empty());
+		REQUIRE(block.find("chrFindById(basechr, chrnum)") ==
+		        std::string::npos);
+		REQUIRE(block.find("s_aiGraphRequireRuntimeCharacterRefFromBase(") ==
+		        std::string::npos);
+		REQUIRE(block.find("s_aiGraphResolveOptionalRuntimeCharacterRefOrSelector(") !=
+		        std::string::npos);
+		REQUIRE(block.find("chr_rows=%d target_chr=%d selector=%d") !=
+		        std::string::npos);
+	}
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"s_aiGraphResolveRuntimeCharacterRefOrSelector");
+		REQUIRE(!block.empty());
+		REQUIRE(block.find("s_aiGraphChrIdIsRuntimeSelector(chr_id)") !=
+		        std::string::npos);
+		REQUIRE(block.find("if (selector)") != std::string::npos);
+		REQUIRE(block.find("\"missing runtime character id %d") !=
+		        std::string::npos);
+		requireTokenOrder(block,
+			"if (selector)",
+			"\"missing runtime character id %d");
+	}
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"s_aiGraphResolveOptionalRuntimeCharacterRefOrSelector");
+		REQUIRE(!block.empty());
+		REQUIRE(block.find("s_aiGraphChrIdIsRuntimeSelector(chr_id)") !=
+		        std::string::npos);
+		REQUIRE(block.find("if (!chr || !chr->prop)") !=
+		        std::string::npos);
+		REQUIRE(block.find("return 1;") != std::string::npos);
+		REQUIRE(block.find("runtime character id %d does not point at a source character row") !=
+		        std::string::npos);
+		requireTokenOrder(block,
+			"if (!chr || !chr->prop)",
+			"return 1;");
+		requireTokenOrder(block,
+			"s_aiGraphCountRuntimeSetupChrRowsFromSource(action",
+			"runtime character id %d does not point at a source character row");
+	}
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteChrSetChrflag");
+		requireTokenOrder(block,
+			"s_aiGraphResolveOptionalRuntimeCharacterRefOrSelector(",
+			"if (chr) {\n\t\tchr->chrflags |= flags");
+	}
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteChrUnsetChrflag");
+		requireTokenOrder(block,
+			"s_aiGraphResolveOptionalRuntimeCharacterRefOrSelector(",
+			"if (chr) {\n\t\tchr->chrflags &= ~flags");
+	}
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteIfChrHasChrflag");
+		requireTokenOrder(block,
+			"s_aiGraphResolveOptionalRuntimeCharacterRefOrSelector(",
+			"result = chr ? ((chr->chrflags & flags) == flags) : 0");
+	}
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteChrSetHiddenFlag");
+		requireTokenOrder(block,
+			"s_aiGraphResolveOptionalRuntimeCharacterRefOrSelector(",
+			"if (chr) {\n\t\tchr->hidden |= flags");
+	}
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteChrUnsetHiddenFlag");
+		requireTokenOrder(block,
+			"s_aiGraphResolveOptionalRuntimeCharacterRefOrSelector(",
+			"if (chr) {\n\t\tchr->hidden &= ~flags");
+	}
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteIfChrHasHiddenFlag");
+		requireTokenOrder(block,
+			"s_aiGraphResolveOptionalRuntimeCharacterRefOrSelector(",
+			"result = chr ? ((chr->hidden & flags) == flags) : 0");
+	}
+	const std::string music_id_helper =
+		functionBlock(scenario_runtime, "s_aiGraphResolveMusicCatalogId");
+	const std::string music_match_helper =
+		functionBlock(scenario_runtime, "s_aiGraphMatchMusicCatalogId");
+	REQUIRE(music_id_helper.find("assetCatalogIterateByType") !=
+	        std::string::npos);
+	REQUIRE(music_id_helper.find("ASSET_AUDIO") != std::string::npos);
+	REQUIRE(music_match_helper.find("AUDIO_CAT_MUSIC") != std::string::npos);
+	REQUIRE(music_match_helper.find("ext.audio.sound_id") !=
+	        std::string::npos);
+	REQUIRE(music_id_helper.find("s_aiGraphRuntimeFailure") !=
+	        std::string::npos);
+	for (const char *fn : {
+		     "scenarioSourceAiGraphExecutePlayTemporaryPrimaryTrack",
+		     "scenarioSourceAiGraphExecutePlayTrackIsolated",
+		     "scenarioSourceAiGraphExecutePlayCutsceneTrack",
+		     "scenarioSourceAiGraphExecutePlayTemporaryTrack",
+	     }) {
+		const std::string block = functionBlock(scenario_runtime, fn);
+		REQUIRE(block.find("s_aiGraphResolveMusicCatalogId") !=
+		        std::string::npos);
+		REQUIRE(block.find("track_id=%s") != std::string::npos);
+		REQUIRE(block.find("track=%d") == std::string::npos);
+	}
+	const std::string play_x_track_block =
+		functionBlock(scenario_runtime, "scenarioSourceAiGraphExecutePlayXTrack");
+	REQUIRE(play_x_track_block.find("minsecs=%d maxsecs=%d") !=
+	        std::string::npos);
+	REQUIRE(play_x_track_block.find("track=%d") == std::string::npos);
+	const std::string anim_id_helper =
+		functionBlock(scenario_runtime, "s_aiGraphResolveAnimationCatalogId");
+	const std::string catalog_register_anim =
+		functionBlock(readTextFile("port/src/assetcatalog.c"),
+			"assetCatalogRegisterAnimation");
+	const std::string walker_anim =
+		readTextFile("port/src/loader_walker_anim.c");
+	REQUIRE(catalog_register_anim.find("entry->source_animnum = anim_id") !=
+	        std::string::npos);
+	REQUIRE(walker_anim.find("id, /* anim_id: */ -1") !=
+	        std::string::npos);
+	REQUIRE(walker_anim.find("e->source_animnum = (s32)source_index") !=
+	        std::string::npos);
+	REQUIRE(anim_id_helper.find("catalogResolveAnim") != std::string::npos);
+	REQUIRE(anim_id_helper.find("assetCatalogGetByIndex") !=
+	        std::string::npos);
+	REQUIRE(anim_id_helper.find("s_aiGraphRuntimeFailure") !=
+	        std::string::npos);
+	const std::string special_death_anim_helper =
+		functionBlock(scenario_runtime,
+			"s_aiGraphResolveSpecialDeathAnimationCatalogIds");
+	REQUIRE(special_death_anim_helper.find("SPECIALDIE_NONE") !=
+	        std::string::npos);
+	REQUIRE(special_death_anim_helper.find("SPECIALDIE_ONCHAIR") !=
+	        std::string::npos);
+	REQUIRE(special_death_anim_helper.find("g_SpecialDieAnims") !=
+	        std::string::npos);
+	REQUIRE(special_death_anim_helper.find("s_aiGraphResolveAnimationCatalogId") !=
+	        std::string::npos);
+	REQUIRE(special_death_anim_helper.find("invalid special death animation mode %d") !=
+	        std::string::npos);
+	requireTokenOrder(special_death_anim_helper,
+		"specialdie < SPECIALDIE_FALLBACK || specialdie > SPECIALDIE_ONCHAIR",
+		"g_SpecialDieAnims[specialdie - 1].animnum");
+	for (const char *fn : {
+		     "scenarioSourceAiGraphExecuteChrDoAnimation",
+		     "scenarioSourceAiGraphExecuteSetCameraAnimation",
+		     "scenarioSourceAiGraphExecuteObjectDoAnimation",
+		     "scenarioSourceAiGraphExecuteDoPresetAnimation",
+	     }) {
+		const std::string block = functionBlock(scenario_runtime, fn);
+		REQUIRE(block.find("s_aiGraphResolveAnimationCatalogId") !=
+		        std::string::npos);
+		REQUIRE(block.find("anim_id=%s") != std::string::npos);
+		REQUIRE(block.find("anim=%d") == std::string::npos);
+		REQUIRE(block.find("anim=%u") == std::string::npos);
+	}
+	const std::string preset_anim_block =
+		functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteDoPresetAnimation");
+	REQUIRE(preset_anim_block.find("selected_anim") != std::string::npos);
+	requireTokenOrder(preset_anim_block,
+		"s_aiGraphResolveAnimationCatalogId",
+		"chrTryStartAnim");
+	REQUIRE(preset_anim_block.find(
+			"preset=%d anim_id=%s applied=%d") != std::string::npos);
+	REQUIRE(preset_anim_block.find(
+			"preset=%d applied=%d source=%s") == std::string::npos);
+	const std::string natural_anim_block =
+		functionBlock(scenario_runtime, "scenarioSourceAiGraphExecuteIfNaturalAnim");
+	REQUIRE(natural_anim_block.find("s_aiGraphResolveAnimationCatalogId") !=
+	        std::string::npos);
+	REQUIRE(natural_anim_block.find("anim_id=%s current_anim_id=%s") !=
+	        std::string::npos);
+	REQUIRE(natural_anim_block.find("anim=%d current=%d") ==
+	        std::string::npos);
+	const std::string special_death_block =
+		functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteSetChrSpecialDeathAnimation");
+	REQUIRE(special_death_block.find(
+			"s_aiGraphResolveSpecialDeathAnimationCatalogIds") !=
+	        std::string::npos);
+	REQUIRE(special_death_block.find(
+			"chr_rows=%d target_chr=%d specialdie=%d anim_id=%s alt_anim_id=%s chair_fallback_anim_id=%s") !=
+	        std::string::npos);
+	REQUIRE(special_death_block.find("chrFindById(basechr, chrnum);") ==
+	        std::string::npos);
+	REQUIRE(special_death_block.find("animation=%d") == std::string::npos);
+	requireTokenOrder(special_death_block,
+		"s_aiGraphRequireRuntimeCharacterRefFromBase(",
+		"s_aiGraphResolveSpecialDeathAnimationCatalogIds");
+	requireTokenOrder(special_death_block,
+		"s_aiGraphResolveSpecialDeathAnimationCatalogIds",
+		"chr->specialdie = animation");
 	REQUIRE(scenario_runtime.find("scenario.ai.condition.if_num_players_less_than") !=
 	        std::string::npos);
 	REQUIRE(scenario_runtime.find("scenario.ai.condition.if_kill_count_greater_than") !=
@@ -1147,6 +4186,32 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 	        std::string::npos);
 	REQUIRE(scenario_runtime.find("scenario.ai.action.kill_bond") !=
 	        std::string::npos);
+	{
+		const std::string kill_count = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteIfKillCountGreaterThan");
+		REQUIRE(!kill_count.empty());
+		REQUIRE(kill_count.find(
+			        "AI condition if_kill_count_greater_than kill_count=%d current=%d") !=
+		        std::string::npos);
+		requireTokenOrder(kill_count,
+			"s_aiGraphRequireMissionGlobalConditionNode(",
+			"branch_taken = g_Vars.killcount > kill_count");
+		requireTokenOrder(kill_count,
+			"branch_taken = g_Vars.killcount > kill_count",
+			"AI condition if_kill_count_greater_than kill_count=%d current=%d");
+	}
+	{
+		const std::string kill_bond = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteKillBond");
+		REQUIRE(!kill_bond.empty());
+		REQUIRE(kill_bond.find("g_Vars.bond->isdead = true") ==
+		        std::string::npos);
+		REQUIRE(kill_bond.find("struct player *bond = g_Vars.bond;") !=
+		        std::string::npos);
+		requireTokenOrder(kill_bond,
+			"s_aiGraphRequireRuntimePlayerPointer(\"kill_bond\"",
+			"bond->isdead = true");
+	}
 	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteKillBond") !=
 	        std::string::npos);
 	REQUIRE(scenario_runtime.find("backend=graph.ai.action.mission_global+ai/ailists.tsv+mission.graph.json") !=
@@ -1199,6 +4264,77 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 	        std::string::npos);
 	REQUIRE(scenario_runtime.find("backend=graph.ai.condition.lifecycle+ai/ailists.tsv") !=
 	        std::string::npos);
+	for (const char *fn : {
+		     "scenarioSourceAiGraphExecuteIfChrDead",
+		     "scenarioSourceAiGraphExecuteIfChrKnockedOut",
+		     "scenarioSourceAiGraphExecuteIfChrShieldLessThan",
+		     "scenarioSourceAiGraphExecuteIfChrShieldGreaterThan",
+		     "scenarioSourceAiGraphExecuteIfInjured",
+		     "scenarioSourceAiGraphExecuteIfShieldDamaged",
+		     "scenarioSourceAiGraphExecuteIfChrAlertnessLessThan",
+	     }) {
+		const std::string block = functionBlock(scenario_runtime, fn);
+		REQUIRE(!block.empty());
+		REQUIRE(block.find("chrFindById(basechr, chrnum)") ==
+		        std::string::npos);
+		REQUIRE(block.find("s_aiGraphRequireRuntimeCharacterRefFromBase(") !=
+		        std::string::npos);
+	}
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteIfChrDeathAnimationFinished");
+		REQUIRE(!block.empty());
+		REQUIRE(block.find("s_aiGraphResolveOptionalRuntimeCharacterRefOrSelector(") !=
+		        std::string::npos);
+		REQUIRE(block.find("AI condition if_chr_death_animation_finished chr=%d chr_rows=%d target_chr=%d player_checked=%d") !=
+		        std::string::npos);
+		REQUIRE(block.find("g_Vars.players[playernum]->isdead") ==
+		        std::string::npos);
+		requireTokenOrder(block,
+			"playermgrGetPlayerNumByProp(chr->prop)",
+			"s_aiGraphRequireRuntimePlayerSlot(");
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimePlayerSlot(",
+			"player->isdead");
+	}
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"s_aiGraphChrHealthComparison");
+		REQUIRE(!block.empty());
+		REQUIRE(block.find("chrFindById(basechr, chrnum)") ==
+		        std::string::npos);
+		REQUIRE(block.find("g_Vars.players[playernum]->bondhealth") ==
+		        std::string::npos);
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimeCharacterRefFromBase(",
+			"s_aiGraphRequireRuntimePlayerSlot(");
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimePlayerSlot(",
+			"player->bondhealth");
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimeCharacterRefFromBase(",
+			"chr->maxdamage - chr->damage");
+	}
+	REQUIRE(scenario_runtime.find("AI condition if_chr_dead chr=%d chr_rows=%d target_chr=%d label=%d branch=%d") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI condition if_chr_death_animation_finished chr=%d chr_rows=%d target_chr=%d player_checked=%d label=%d branch=%d") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI condition if_chr_knocked_out chr=%d chr_rows=%d target_chr=%d label=%d branch=%d") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI condition if_chr_health_greater_than chr=%d chr_rows=%d target_chr=%d player_checked=%d value=%.3f current=%.3f label=%d branch=%d") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI condition if_chr_health_less_than chr=%d chr_rows=%d target_chr=%d player_checked=%d value=%.3f current=%.3f label=%d branch=%d") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI condition if_chr_shield_less_than chr=%d chr_rows=%d target_chr=%d value=%.3f current=%.3f label=%d branch=%d") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI condition if_chr_shield_greater_than chr=%d chr_rows=%d target_chr=%d value=%.3f current=%.3f label=%d branch=%d") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI condition if_injured chr=%d chr_rows=%d target_chr=%d label=%d branch=%d") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI condition if_shield_damaged chr=%d chr_rows=%d target_chr=%d label=%d branch=%d") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI condition if_chr_alertness_less_than chr=%d chr_rows=%d target_chr=%d threshold=%d current=%d label=%d branch=%d") !=
+	        std::string::npos);
 	REQUIRE(scenario_runtime.find("scenario.ai.condition.if_pouncebits_eq") !=
 	        std::string::npos);
 	REQUIRE(scenario_runtime.find("scenario.ai.condition.if_training_pc_holographed") !=
@@ -1207,6 +4343,24 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 	        std::string::npos);
 	REQUIRE(scenario_runtime.find("backend=graph.ai.condition.state_device+ai/ailists.tsv") !=
 	        std::string::npos);
+	REQUIRE(scenario_runtime.find(
+		        "AI condition if_player_using_device chr=%d chr_rows=%d target_chr=%d player=%d player_checked=%d device=%d label=%d branch=%d") !=
+	        std::string::npos);
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteIfPlayerUsingDevice");
+		REQUIRE(!block.empty());
+		REQUIRE(block.find("chrFindById(basechr, chrnum);") ==
+		        std::string::npos);
+		REQUIRE(block.find("chr_rows=%d target_chr=%d") !=
+		        std::string::npos);
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimeCharacterRefFromBase(",
+			"s_aiGraphRequireRuntimePlayerSlot(\"if_player_using_device\"");
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimePlayerSlot(\"if_player_using_device\"",
+			"currentPlayerGetDeviceState(devicenum)");
+	}
 	REQUIRE(scenario_runtime.find("scenario.ai.action.chr_begin_or_end_teleport") !=
 	        std::string::npos);
 	REQUIRE(scenario_runtime.find("scenario.ai.condition.if_chr_teleport_full_white") !=
@@ -1223,13 +4377,85 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 	        std::string::npos);
 	REQUIRE(scenario_runtime.find("scenario.ai.action.chr_set_firing_in_cutscene") !=
 	        std::string::npos);
+	for (const char *fn : {
+		     "scenarioSourceAiGraphExecuteSetChrHudpieceVisible",
+		     "scenarioSourceAiGraphExecuteChrSetFiringInCutscene",
+	     }) {
+		const std::string block = functionBlock(scenario_runtime, fn);
+		REQUIRE(!block.empty());
+		REQUIRE(block.find("chrFindById(basechr, chrnum);") ==
+		        std::string::npos);
+		REQUIRE(block.find("chr_rows=%d target_chr=%d") !=
+		        std::string::npos);
+		REQUIRE(block.find("s_aiGraphRequireRuntimeCharacterRefFromBase(") !=
+		        std::string::npos);
+	}
 	REQUIRE(scenario_runtime.find("scenario.ai.action.set_portal_flag") !=
 	        std::string::npos);
+	{
+		const std::string helper = functionBlock(scenario_runtime,
+			"s_aiGraphResolveRuntimePortal");
+		REQUIRE(!helper.empty());
+		REQUIRE(helper.find("missing portals.tsv source") !=
+		        std::string::npos);
+		REQUIRE(helper.find("missing source-built portal table") !=
+		        std::string::npos);
+		REQUIRE(helper.find("if (!g_BgPortals)") !=
+		        std::string::npos);
+		REQUIRE(helper.find("g_BgNumPortalCameraCacheItems > 0") !=
+		        std::string::npos);
+		REQUIRE(helper.find("portalnum >= 0") != std::string::npos);
+		REQUIRE(helper.find("portalnum < g_BgNumPortalCameraCacheItems") !=
+		        std::string::npos);
+	}
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteSetPortalFlag");
+		REQUIRE(!block.empty());
+		REQUIRE(block.find("AI action set_portal_flag portal=%d found=%d portal_rows=%d") !=
+		        std::string::npos);
+		REQUIRE(block.find("portals=%s scene=scene.glb backend=graph.ai.action.cutscene_presentation+ai/ailists.tsv+portals.tsv+scene.glb") !=
+		        std::string::npos);
+		requireTokenOrder(block,
+			"s_aiGraphResolveRuntimePortal(\"set_portal_flag\"",
+			"if (portal_available)");
+		requireTokenOrder(block,
+			"if (portal_available)",
+			"g_BgPortals[portalnum].flags |= flags");
+	}
 	REQUIRE(scenario_runtime.find("scenario.ai.condition.if_music_event_queue_is_empty") !=
 	        std::string::npos);
 	REQUIRE(scenario_runtime.find("scenario.ai.condition.if_coop_mode") !=
 	        std::string::npos);
+	{
+		const std::string queue_block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteIfMusicEventQueueIsEmpty");
+		REQUIRE(!queue_block.empty());
+		REQUIRE(queue_block.find("AI condition if_music_event_queue_is_empty queue=%d waited=%d branch=%d label=%d") !=
+		        std::string::npos);
+		requireTokenOrder(queue_block,
+			"missing ai/ailists.tsv source",
+			"g_MusicEventQueueLength && !waited");
+		requireTokenOrder(queue_block,
+			"missing ai/ailists.tsv source",
+			"g_MusicEventQueueLength, waited");
+	}
+	{
+		const std::string coop_block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteIfCoopMode");
+		REQUIRE(!coop_block.empty());
+		REQUIRE(coop_block.find("AI condition if_coop_mode coop=%d normmp=%d branch=%d label=%d") !=
+		        std::string::npos);
+		requireTokenOrder(coop_block,
+			"missing ai/ailists.tsv source",
+			"g_Vars.normmplayerisrunning");
+		requireTokenOrder(coop_block,
+			"missing ai/ailists.tsv source",
+			"g_MissionConfig.iscoop");
+	}
 	REQUIRE(scenario_runtime.find("scenario.ai.condition.if_chr_same_floor_distance_to_pad_less_than") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI condition if_chr_same_floor_distance_to_pad_less_than chr=%d chr_rows=%d target_chr=%d pad=%d found=1 pad_rows=%d") !=
 	        std::string::npos);
 	REQUIRE(scenario_runtime.find("scenario.ai.action.remove_references_to_chr") !=
 	        std::string::npos);
@@ -1271,16 +4497,1431 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 	        std::string::npos);
 	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteRecoverGun") !=
 	        std::string::npos);
+	REQUIRE(scenario_runtime.find("s_aiGraphRequireCurrentGunProp") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("current gun prop has invalid runtime weapon %d") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("current gun prop is type %d without weapon payload") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI condition if_chr_has_no_gun chr=%d chr_rows=%d target_chr=%d gun_model_id=%s weapon_id=%s") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI action chr_draw_weapon chr=%d chr_rows=%d target_chr=%d player_checked=%d weapon_id=%s") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI action chr_draw_weapon_in_cutscene chr=%d chr_rows=%d target_chr=%d player_checked=%d weapon_id=%s") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI action set_player_force_speed chr=%d chr_rows=%d target_chr=%d player_checked=%d") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI action chr_set_invincible chr=%d chr_rows=%d target_chr=%d player_checked=%d") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI condition if_player_is_invincible chr=%d chr_rows=%d target_chr=%d player_checked=%d") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI action do_gun_command chr_rows=%d source_chr=%d mode=%d gun_model_id=%s weapon_id=%s") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI condition if_distance_to_gun_less_than chr_rows=%d source_chr=%d distance=%.2f gun_model_id=%s weapon_id=%s") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI action recover_gun chr_rows=%d source_chr=%d gun_model_id=%s weapon_id=%s") !=
+	        std::string::npos);
+	{
+		const std::string helper = functionBlock(scenario_runtime,
+			"s_aiGraphResolvePlayerChr");
+		REQUIRE(!helper.empty());
+		REQUIRE(helper.find("chrFindById(basechr, chrnum)") ==
+		        std::string::npos);
+		REQUIRE(helper.find("s_aiGraphResolveRuntimeCharacterRefOrSelector") !=
+		        std::string::npos);
+		REQUIRE(helper.find("s_aiGraphRequireRuntimeCharacterRefFromBase") ==
+		        std::string::npos);
+		REQUIRE(helper.find("PROPTYPE_PLAYER") != std::string::npos);
+	}
+	for (const char *fn : {
+		     "scenarioSourceAiGraphExecuteChrDrawWeapon",
+		     "scenarioSourceAiGraphExecuteChrDrawWeaponInCutscene",
+		     "scenarioSourceAiGraphExecuteSetPlayerForceSpeed",
+		     "scenarioSourceAiGraphExecuteChrSetInvincible",
+		     "scenarioSourceAiGraphExecuteIfPlayerIsInvincible",
+	     }) {
+		const std::string block = functionBlock(scenario_runtime, fn);
+		REQUIRE(!block.empty());
+		REQUIRE(block.find("chrFindById(basechr, chrnum)") ==
+		        std::string::npos);
+		REQUIRE(block.find("s_aiGraphResolvePlayerChr(") !=
+		        std::string::npos);
+		REQUIRE(block.find("chr_rows=%d target_chr=%d") !=
+		        std::string::npos);
+	}
+	for (const char *fn : {
+		     "scenarioSourceAiGraphExecuteChrDrawWeapon",
+		     "scenarioSourceAiGraphExecuteChrDrawWeaponInCutscene",
+		     "scenarioSourceAiGraphExecuteSetPlayerForceSpeed",
+		     "scenarioSourceAiGraphExecuteChrSetInvincible",
+		     "scenarioSourceAiGraphExecuteIfPlayerIsInvincible",
+	     }) {
+		const std::string block = functionBlock(scenario_runtime, fn);
+		REQUIRE(block.find("player_checked=%d") != std::string::npos);
+		requireTokenOrder(block,
+			"s_aiGraphResolvePlayerChr(",
+			"s_aiGraphRequireRuntimePlayerSlot(");
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimePlayerSlot(",
+			"setCurrentPlayerNum(playernum)");
+	}
+	{
+		const std::string chr_set_invincible = functionBlock(
+			scenario_runtime,
+			"scenarioSourceAiGraphExecuteChrSetInvincible");
+		REQUIRE(!chr_set_invincible.empty());
+		REQUIRE(chr_set_invincible.find(
+			        "AI action chr_set_invincible chr=%d chr_rows=%d target_chr=%d player_checked=%d") !=
+		        std::string::npos);
+		requireTokenOrder(chr_set_invincible,
+			"missing scenario.ai.action.chr_set_invincible node",
+			"g_PlayerInvincible = true");
+		requireTokenOrder(chr_set_invincible,
+			"s_aiGraphResolvePlayerChr(\"chr_set_invincible\"",
+			"g_PlayerInvincible = true");
+		requireTokenOrder(chr_set_invincible,
+			"s_aiGraphRequireRuntimePlayerSlot(\"chr_set_invincible\"",
+			"g_PlayerInvincible = true");
+	}
+	{
+		const std::string if_player_is_invincible = functionBlock(
+			scenario_runtime,
+			"scenarioSourceAiGraphExecuteIfPlayerIsInvincible");
+		REQUIRE(!if_player_is_invincible.empty());
+		REQUIRE(if_player_is_invincible.find(
+			        "AI condition if_player_is_invincible chr=%d chr_rows=%d target_chr=%d player_checked=%d") !=
+		        std::string::npos);
+		requireTokenOrder(if_player_is_invincible,
+			"missing scenario.ai.condition.if_player_is_invincible node",
+			"pass = g_PlayerInvincible ? 1 : 0");
+		requireTokenOrder(if_player_is_invincible,
+			"s_aiGraphResolvePlayerChr(\"if_player_is_invincible\"",
+			"pass = g_PlayerInvincible ? 1 : 0");
+		requireTokenOrder(if_player_is_invincible,
+			"s_aiGraphRequireRuntimePlayerSlot(\"if_player_is_invincible\"",
+			"pass = g_PlayerInvincible ? 1 : 0");
+	}
+	{
+		const std::string set_player_force_speed = functionBlock(
+			scenario_runtime,
+			"scenarioSourceAiGraphExecuteSetPlayerForceSpeed");
+		REQUIRE(set_player_force_speed.find(
+			        "g_Vars.currentplayer->bondforcespeed") ==
+		        std::string::npos);
+		requireTokenOrder(set_player_force_speed,
+			"s_aiGraphRequireRuntimePlayerSlot(\"set_player_force_speed\"",
+			"player->bondforcespeed.x");
+	}
+	for (const char *fn : {
+		     "scenarioSourceAiGraphExecuteIfChrHasNoGun",
+		     "scenarioSourceAiGraphExecuteChrDeleteWeapon",
+		     "scenarioSourceAiGraphExecuteIfTriggerShotList",
+	     }) {
+		const std::string block = functionBlock(scenario_runtime, fn);
+		REQUIRE(!block.empty());
+		REQUIRE(block.find("chrFindById(basechr, chrnum)") ==
+		        std::string::npos);
+		REQUIRE(block.find("s_aiGraphRequireRuntimeCharacterRefFromBase(") !=
+		        std::string::npos);
+		REQUIRE(block.find("chr_rows=%d target_chr=%d") !=
+		        std::string::npos);
+	}
+	{
+		const std::string if_gun_unclaimed =
+			functionBlock(scenario_runtime,
+				"scenarioSourceAiGraphExecuteIfGunUnclaimed");
+		REQUIRE(!if_gun_unclaimed.empty());
+		requireTokenOrder(if_gun_unclaimed,
+			"s_aiGraphRequireCurrentGunProp(\"if_gun_unclaimed\"",
+			"weapon->base.flags |= OBJFLAG_FORCENOBOUNCE");
+	}
+	{
+		const std::string if_chr_has_no_gun =
+			functionBlock(scenario_runtime,
+				"scenarioSourceAiGraphExecuteIfChrHasNoGun");
+		REQUIRE(!if_chr_has_no_gun.empty());
+		requireTokenOrder(if_chr_has_no_gun,
+			"s_aiGraphRequireCurrentGunProp(\"if_chr_has_no_gun\"",
+			"pass = chr && chr->model && chr->gunprop == NULL");
+		requireTokenOrder(if_chr_has_no_gun,
+			"s_aiGraphRequireCurrentGunProp(\"if_chr_has_no_gun\"",
+			"s_ActiveScenarioGraphs.ai_action_if_chr_has_no_gun_logged");
+	}
+	{
+		const std::string do_gun_command =
+			functionBlock(scenario_runtime,
+				"scenarioSourceAiGraphExecuteDoGunCommand");
+		REQUIRE(!do_gun_command.empty());
+		requireTokenOrder(do_gun_command,
+			"s_aiGraphRequireRuntimeCharacterPointer(\"do_gun_command\"",
+			"s_aiGraphRequireCurrentGunProp(\"do_gun_command\"");
+		requireTokenOrder(do_gun_command,
+			"s_aiGraphRequireRuntimeCharacterPointer(\"do_gun_command\"",
+			"chrGoToProp(chr, chr->gunprop, GOPOSFLAG_JOG)");
+		requireTokenOrder(do_gun_command,
+			"s_aiGraphRequireCurrentGunProp(\"do_gun_command\"",
+			"chrGoToProp(chr, chr->gunprop, GOPOSFLAG_JOG)");
+	}
+	{
+		const std::string distance_to_gun =
+			functionBlock(scenario_runtime,
+				"scenarioSourceAiGraphExecuteIfDistanceToGunLessThan");
+		REQUIRE(!distance_to_gun.empty());
+		requireTokenOrder(distance_to_gun,
+			"s_aiGraphRequireOptionalRuntimeCharacterPointer(",
+			"s_aiGraphRequireCurrentGunProp(\"if_distance_to_gun_less_than\"");
+		requireTokenOrder(distance_to_gun,
+			"s_aiGraphRequireOptionalRuntimeCharacterPointer(",
+			"xdiff = chr->prop->pos.x - chr->gunprop->pos.x");
+		requireTokenOrder(distance_to_gun,
+			"s_aiGraphRequireCurrentGunProp(\"if_distance_to_gun_less_than\"",
+			"xdiff = chr->prop->pos.x - chr->gunprop->pos.x");
+	}
+	{
+		const std::string recover_gun =
+			functionBlock(scenario_runtime,
+				"scenarioSourceAiGraphExecuteRecoverGun");
+		REQUIRE(!recover_gun.empty());
+		requireTokenOrder(recover_gun,
+			"s_aiGraphRequireRuntimeCharacterPointer(\"recover_gun\"",
+			"prop = chr->gunprop");
+		requireTokenOrder(recover_gun,
+			"s_aiGraphRequireRuntimeCharacterPointer(\"recover_gun\"",
+			"chr->gunprop = NULL");
+		requireTokenOrder(recover_gun,
+			"s_aiGraphRequireCurrentGunProp(\"recover_gun\"",
+			"chr->gunprop = NULL");
+		requireTokenOrder(recover_gun,
+			"s_aiGraphRequireCurrentGunProp(\"recover_gun\"",
+			"chrEquipWeapon(prop->weapon, chr)");
+	}
 	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteChrCopyProperties") !=
 	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI action duplicate_chr chr=%d chr_rows=%d source_chr=%d body_id=%s weapon0_model_id=%s weapon0_id=%s weapon1_model_id=%s weapon1_id=%s hat_model_id=%s ailist=%u pad=%d found=%d pad_rows=%d pass=%d") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI action chr_copy_properties src_chr=%d chr_rows=%d source_chr=%d label=%d pad=%d found=%d pad_rows=%d copied=%d") !=
+	        std::string::npos);
+	const std::string enable_chr_block = functionBlock(scenario_runtime,
+		"scenarioSourceAiGraphExecuteEnableChr");
+	REQUIRE(!enable_chr_block.empty());
+	REQUIRE(enable_chr_block.find("s_aiGraphRequireRuntimeCharacterRefFromBase(") !=
+	        std::string::npos);
+	REQUIRE(enable_chr_block.find("chr_rows=%d target_chr=%d") !=
+	        std::string::npos);
+	const std::string disable_chr_block = functionBlock(scenario_runtime,
+		"scenarioSourceAiGraphExecuteDisableChr");
+	REQUIRE(!disable_chr_block.empty());
+	REQUIRE(disable_chr_block.find("s_aiGraphResolveOptionalRuntimeCharacterRefOrSelector(") !=
+	        std::string::npos);
+	REQUIRE(disable_chr_block.find("chr_rows=%d target_chr=%d") !=
+	        std::string::npos);
+	{
+		const std::string enable_chr = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteEnableChr");
+		REQUIRE(enable_chr.find(
+			        "s_aiGraphRequireRuntimeCharacterRefFromBase(\"enable_chr\"") !=
+		        std::string::npos);
+		requireTokenOrder(enable_chr,
+			"s_aiGraphRequireRuntimeCharacterRefFromBase(",
+			"propActivate(chr->prop)");
+	}
+	{
+		const std::string disable_chr = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteDisableChr");
+		REQUIRE(disable_chr.find(
+			        "s_aiGraphResolveOptionalRuntimeCharacterRefOrSelector(\"disable_chr\"") !=
+		        std::string::npos);
+		requireTokenOrder(disable_chr,
+			"s_aiGraphResolveOptionalRuntimeCharacterRefOrSelector(",
+			"propDeregisterRooms(chr->prop)");
+	}
+	{
+		const std::string duplicate_chr =
+			functionBlock(scenario_runtime,
+				"scenarioSourceAiGraphExecuteDuplicateChr");
+		REQUIRE(!duplicate_chr.empty());
+		REQUIRE(duplicate_chr.find("ailistFindById(ailistid)") !=
+		        std::string::npos);
+		REQUIRE(duplicate_chr.find(
+			        "s_aiGraphRequireRuntimeCharacterRefFromBase(\"duplicate_chr\"") !=
+		        std::string::npos);
+		REQUIRE(duplicate_chr.find("chr_rows=%d source_chr=%d") !=
+		        std::string::npos);
+		REQUIRE(duplicate_chr.find("s_aiGraphRequireRuntimePad(\"duplicate_chr\"") !=
+		        std::string::npos);
+		REQUIRE(duplicate_chr.find("s_aiGraphRequireRuntimePadTable(\n\t\t\t\t\"duplicate_chr\"") !=
+		        std::string::npos);
+		REQUIRE(duplicate_chr.find("s_aiGraphResolveBodyCatalogId(\"duplicate_chr\"") !=
+		        std::string::npos);
+		REQUIRE(duplicate_chr.find("s_aiGraphResolveModelCatalogId(\n\t\t\t\t\t\"duplicate_chr\"") !=
+		        std::string::npos);
+		REQUIRE(duplicate_chr.find("s_aiGraphResolveWeaponCatalogId(\n\t\t\t\t\t\"duplicate_chr\"") !=
+		        std::string::npos);
+		REQUIRE(duplicate_chr.find("body_id=%s weapon0_model_id=%s weapon0_id=%s") !=
+		        std::string::npos);
+		requireTokenOrder(duplicate_chr,
+			"s_aiEntityLifecycleGraphReady(\"duplicate_chr\"",
+			"ailistFindById(ailistid)");
+		requireTokenOrder(duplicate_chr,
+			"ailistFindById(ailistid)",
+			"s_aiGraphRequireRuntimeCharacterRefFromBase(\"duplicate_chr\"");
+		requireTokenOrder(duplicate_chr,
+			"s_aiGraphRequireRuntimeCharacterRefFromBase(",
+			"copied_pad = chr->padpreset1");
+		requireTokenOrder(duplicate_chr,
+			"copied_pad = chr->padpreset1",
+			"s_aiGraphRequireRuntimePad(\"duplicate_chr\"");
+		requireTokenOrder(duplicate_chr,
+			"s_aiGraphRequireRuntimePad(\"duplicate_chr\"",
+			"s_aiGraphResolveBodyCatalogId(\"duplicate_chr\"");
+		requireTokenOrder(duplicate_chr,
+			"s_aiGraphResolveBodyCatalogId(\"duplicate_chr\"",
+			"cloneprop = chrSpawnAtChr");
+		requireTokenOrder(duplicate_chr,
+			"s_aiGraphResolveModelCatalogId(",
+			"cloneprop = chrSpawnAtChr");
+		requireTokenOrder(duplicate_chr,
+			"s_aiGraphResolveWeaponCatalogId(",
+			"cloneprop = chrSpawnAtChr");
+		requireTokenOrder(duplicate_chr,
+			"cloneprop = chrSpawnAtChr",
+			"clone->padpreset1 = copied_pad");
+		requireTokenOrder(duplicate_chr,
+			"missing scenario.ai.action.duplicate_chr node",
+			"g_MissionConfig.iscoop");
+		requireTokenOrder(duplicate_chr,
+			"missing pads.tsv source",
+			"g_MissionConfig.iscoop");
+		requireTokenOrder(duplicate_chr,
+			"s_aiGraphRequireRuntimeCharacterRefFromBase(\"duplicate_chr\"",
+			"g_MissionConfig.iscoop");
+		requireTokenOrder(duplicate_chr,
+			"s_aiGraphResolveBodyCatalogId(\"duplicate_chr\"",
+			"g_MissionConfig.iscoop");
+		requireTokenOrder(duplicate_chr,
+			"missing scenario.ai.action.duplicate_chr node",
+			"g_Vars.normmplayerisrunning");
+		requireTokenOrder(duplicate_chr,
+			"missing pads.tsv source",
+			"g_Vars.normmplayerisrunning");
+		requireTokenOrder(duplicate_chr,
+			"s_aiGraphRequireRuntimeCharacterRefFromBase(\"duplicate_chr\"",
+			"g_Vars.normmplayerisrunning");
+		requireTokenOrder(duplicate_chr,
+			"s_aiGraphResolveBodyCatalogId(\"duplicate_chr\"",
+			"g_Vars.normmplayerisrunning");
+		requireTokenOrder(duplicate_chr,
+			"s_aiGraphResolveBodyCatalogId(\"duplicate_chr\"",
+			"g_Vars.numaibuddies");
+		REQUIRE(duplicate_chr.find(
+			        "AI action duplicate_chr chr=%d chr_rows=%d source_chr=%d") !=
+		        std::string::npos);
+	}
+	{
+		const std::string copy_properties =
+			functionBlock(scenario_runtime,
+				"scenarioSourceAiGraphExecuteChrCopyProperties");
+		REQUIRE(!copy_properties.empty());
+		REQUIRE(copy_properties.find(
+			        "s_aiGraphRequireRuntimeCharacterRefFromBase(\n\t\t\t\"chr_copy_properties\"") !=
+		        std::string::npos);
+		REQUIRE(copy_properties.find("chr_rows=%d source_chr=%d") !=
+		        std::string::npos);
+		REQUIRE(copy_properties.find("s_aiGraphRequireRuntimePad(\n\t\t\t\t\t\"chr_copy_properties\"") !=
+		        std::string::npos);
+		REQUIRE(copy_properties.find("s_aiGraphRequireRuntimePadTable(\n\t\t\t\t\"chr_copy_properties\"") !=
+		        std::string::npos);
+		requireTokenOrder(copy_properties,
+			"s_aiGraphRequireRuntimeCharacterRefFromBase(",
+			"copied_pad = src->padpreset1");
+		requireTokenOrder(copy_properties,
+			"copied_pad = src->padpreset1",
+			"s_aiGraphRequireRuntimePad(");
+		requireTokenOrder(copy_properties,
+			"s_aiGraphRequireRuntimePad(",
+			"basechr->hearingscale = src->hearingscale");
+		requireTokenOrder(copy_properties,
+			"basechr->hearingscale = src->hearingscale",
+			"basechr->padpreset1 = copied_pad");
+	}
 	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecutePlayerAutoWalk") !=
 	        std::string::npos);
+	REQUIRE(scenario_runtime.find("s_aiGraphRequireRuntimePad(\"player_auto_walk\"") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI action player_auto_walk chr=%d chr_rows=%d target_chr=%d player_checked=%d pad=%d found=1 pad_rows=%d") !=
+	        std::string::npos);
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecutePlayerAutoWalk");
+		REQUIRE(!block.empty());
+		REQUIRE(block.find("chr = chrFindById(basechr, chrnum);") ==
+		        std::string::npos);
+		REQUIRE(block.find("s_aiGraphRequireRuntimeCharacterRefFromBase(\"player_auto_walk\"") !=
+		        std::string::npos);
+		REQUIRE(block.find("s_aiGraphRequireRuntimePlayerSlot(\"player_auto_walk\"") !=
+		        std::string::npos);
+		REQUIRE(block.find("player_checked=%d") != std::string::npos);
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimePad(\"player_auto_walk\"",
+			"s_aiGraphRequireRuntimeCharacterRefFromBase(\"player_auto_walk\"");
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimeCharacterRefFromBase(\"player_auto_walk\"",
+			"s_aiGraphRequireRuntimePlayerSlot(\"player_auto_walk\"");
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimePlayerSlot(\"player_auto_walk\"",
+			"setCurrentPlayerNum(playernum)");
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimePlayerSlot(\"player_auto_walk\"",
+			"playerAutoWalk(");
+	}
+	REQUIRE(scenario_runtime.find("s_aiGraphRequireRuntimePad(\"chr_move_to_pad\"") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI action chr_move_to_pad chr=%d chr_rows=%d target_chr=%d operand=%d mode88_chr=%d mode88_chr_rows=%d resolved_pad=%d mode=%d pass=%d pad_rows=%d") !=
+	        std::string::npos);
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteChrMoveToPad");
+		REQUIRE(!block.empty());
+		REQUIRE(block.find("chrFindById(basechr, chrnum)") ==
+		        std::string::npos);
+		REQUIRE(block.find("chrFindById(basechr, pad_or_chr") ==
+		        std::string::npos);
+		REQUIRE(block.find("s_aiGraphRequireRuntimeCharacterRefFromBase(\"chr_move_to_pad\"") !=
+		        std::string::npos);
+		REQUIRE(block.find("s32 pad_count = s_countRuntimePads();") ==
+		        std::string::npos);
+		REQUIRE(block.find("mode88_target_chr = target_operand") !=
+		        std::string::npos);
+		REQUIRE(block.find("&mode88_chr_count, &chr2") !=
+		        std::string::npos);
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimeCharacterRefFromBase(\"chr_move_to_pad\"",
+			"chrResolvePadId");
+		requireTokenOrder(block,
+			"&mode88_chr_count, &chr2",
+			"chrGetInverseTheta");
+	}
+	REQUIRE(scenario_runtime.find("AI action warp_jo_to_pad pad=%d found=1 pad_rows=%d") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI action spawn_chr_at_pad body_id=%s head_id=%s pad=%d found=1 pad_rows=%d") !=
+	        std::string::npos);
+	for (const char *fn : {
+		     "scenarioSourceAiGraphExecuteRevokeControl",
+		     "scenarioSourceAiGraphExecuteGrantControl",
+		     "scenarioSourceAiGraphExecutePlayerFadeIn",
+		     "scenarioSourceAiGraphExecuteIfColourFadeComplete",
+	     }) {
+		const std::string block = functionBlock(scenario_runtime, fn);
+		REQUIRE(!block.empty());
+		REQUIRE(block.find("chrFindById(basechr, chrnum)") ==
+		        std::string::npos);
+		REQUIRE(block.find("s_aiGraphResolvePlayerChr(") !=
+		        std::string::npos);
+		REQUIRE(block.find("chr_rows=%d target_chr=%d") !=
+		        std::string::npos);
+	}
 	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteIfPlayerAutoWalkFinished") !=
 	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI condition if_player_auto_walk_finished chr=%d chr_rows=%d target_chr=%d player_checked=%d label=%d walking=%d") !=
+	        std::string::npos);
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteIfPlayerAutoWalkFinished");
+		REQUIRE(!block.empty());
+		REQUIRE(block.find("chr = chrFindById(basechr, chrnum);") ==
+		        std::string::npos);
+		REQUIRE(block.find("s_aiGraphRequireRuntimeCharacterRefFromBase(") !=
+		        std::string::npos);
+		REQUIRE(block.find("s_aiGraphRequireRuntimePlayerSlot(") !=
+		        std::string::npos);
+		REQUIRE(block.find("player_checked=%d") != std::string::npos);
+		requireTokenOrder(block,
+			"missing ai/ailists.tsv source",
+			"g_Vars.tickmode == TICKMODE_AUTOWALK");
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimeCharacterRefFromBase(",
+			"s_aiGraphRequireRuntimePlayerSlot(");
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimePlayerSlot(",
+			"setCurrentPlayerNum(playernum)");
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimePlayerSlot(",
+			"g_Vars.tickmode == TICKMODE_AUTOWALK");
+		requireTokenOrder(block,
+			"setCurrentPlayerNum(playernum)",
+			"g_Vars.tickmode == TICKMODE_AUTOWALK");
+	}
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteRemoveChr");
+		REQUIRE(!block.empty());
+		REQUIRE(block.find("s_aiGraphResolveOptionalRuntimeCharacterRefOrSelector(") !=
+		        std::string::npos);
+		REQUIRE(block.find("s_aiGraphRequireRuntimeCharacterRefFromBase(") ==
+		        std::string::npos);
+		REQUIRE(block.find("chrFindById(basechr") == std::string::npos);
+	}
+	for (const char *fn : {
+		     "scenarioSourceAiGraphExecuteApplyGsetDamage",
+		     "scenarioSourceAiGraphExecuteChrDamageChr",
+	     }) {
+		const std::string block = functionBlock(scenario_runtime, fn);
+		REQUIRE(!block.empty());
+		REQUIRE(block.find("s_aiGraphRequireRuntimeCharacterRefFromBase(") !=
+		        std::string::npos);
+		REQUIRE(block.find("chrFindById(basechr") == std::string::npos);
+	}
+	REQUIRE(scenario_runtime.find("AI action remove_chr chr=%d chr_rows=%d target_chr=%d applied=%d") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI action apply_gset_damage chr=%d chr_rows=%d target_chr=%d hitpart=%d applied=%d") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI action chr_damage_chr attacker=%d attacker_chr_rows=%d source_attacker_chr=%d victim=%d victim_chr_rows=%d source_victim_chr=%d hitpart=%d applied=%d") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("s_aiGraphRequireOptionalRuntimeCharacterPointer") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI action %s chr=%d chr_rows=%d source_chr=%d label=%d result=%d") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI condition if_attack_locked chr_rows=%d source_chr=%d label=%d result=%d") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI condition if_attacking chr_rows=%d source_chr=%d label=%d result=%d") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("s_aiGraphRequireCharacterConditionActor") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI condition if_idle chr_rows=%d source_chr=%d actiontype=%d") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI condition if_num_arghs_less_than chr_rows=%d source_chr=%d") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI condition if_morale_less_than chr_rows=%d source_chr=%d") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI condition if_alertness_less_than_random chr_rows=%d source_chr=%d") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI action random chr_rows=%d source_chr=%d value=%u") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI condition if_pouncebits_eq chr_rows=%d source_chr=%d") !=
+	        std::string::npos);
+	{
+		const std::string helper = functionBlock(scenario_runtime,
+			"static s32 s_aiGraphRequireCharacterConditionActor(const char *condition");
+		REQUIRE(!helper.empty());
+		requireTokenOrder(helper,
+			"s_aiGraphRequireCharacterConditionNode(",
+			"s_aiGraphRequireOptionalRuntimeCharacterPointer(");
+	}
+	struct ActiveStateGuardCase {
+		const char *fn;
+		const char *live_read;
+	};
+	const ActiveStateGuardCase active_state_guard_cases[] = {
+		{ "scenarioSourceAiGraphExecuteIfIdle", "chr->actiontype == ACT_ANIM" },
+		{ "scenarioSourceAiGraphExecuteIfStopped", "chrIsStopped(chr)" },
+		{ "scenarioSourceAiGraphExecuteIfCanSeeTarget", "chrCheckCanSeeTarget(chr)" },
+		{ "scenarioSourceAiGraphExecuteIfNumArghsLessThan", "chrGetNumArghs(chr)" },
+		{ "scenarioSourceAiGraphExecuteIfNumArghsGreaterThan", "chrGetNumArghs(chr)" },
+		{ "scenarioSourceAiGraphExecuteIfNumCloseArghsLessThan", "chrGetNumCloseArghs(chr)" },
+		{ "scenarioSourceAiGraphExecuteIfNumCloseArghsGreaterThan", "chrGetNumCloseArghs(chr)" },
+		{ "scenarioSourceAiGraphExecuteIfMoraleLessThan", "chr && chr->prop ? chr->morale : 0" },
+		{ "scenarioSourceAiGraphExecuteIfMoraleLessThanRandom", "chr && chr->prop ? chr->morale : 0" },
+		{ "scenarioSourceAiGraphExecuteIfAlertness", "chr && chr->prop ? chr->alertness : 0" },
+		{ "scenarioSourceAiGraphExecuteIfAlertnessLessThanRandom", "chr && chr->prop ? chr->alertness : 0" },
+		{ "scenarioSourceAiGraphExecuteIfPouncebitsEq", "chr->pouncebits == pouncebits" },
+	};
+	for (const ActiveStateGuardCase &entry : active_state_guard_cases) {
+		const std::string block = functionBlock(scenario_runtime, entry.fn);
+		REQUIRE(!block.empty());
+		REQUIRE(block.find("s_aiGraphRequireCharacterConditionActor(") !=
+		        std::string::npos);
+		requireTokenOrder(block,
+			"s_aiGraphRequireCharacterConditionActor(",
+			entry.live_read);
+	}
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteRandom");
+		REQUIRE(!block.empty());
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimeCharacterStatePointer(\"random\"",
+			"chr->random = rngRandom() & 0xff");
+	}
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteIfRandomLessThan");
+		REQUIRE(!block.empty());
+		requireTokenOrder(block,
+			"s_aiGraphRequireOptionalRuntimeCharacterStatePointer(",
+			"branch_taken = (chr && chr->random < threshold)");
+	}
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteIfRandomGreaterThan");
+		REQUIRE(!block.empty());
+		requireTokenOrder(block,
+			"s_aiGraphRequireOptionalRuntimeCharacterStatePointer(",
+			"branch_taken = (chr && chr->random > threshold)");
+	}
+	REQUIRE(scenario_runtime.find("AI action try_modify_attack chr=%d chr_rows=%d source_chr=%d hovercar=%d vehicle_rows=%d source_vehicle_type=%d label=%d result=%d") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI action face_entity chr=%d chr_rows=%d source_chr=%d type=%u id=%u label=%d result=%d") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI condition consider_grenade_throw chr=%d chr_rows=%d source_chr=%d type=%u id=%u label=%d result=%d") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI action drop_item chr=%d chr_rows=%d source_chr=%d model_id=%s weapon_id=%s label=%d result=%d") !=
+	        std::string::npos);
+	struct CombatGuardCase {
+		const char *fn;
+		const char *live_call;
+	};
+	const CombatGuardCase combat_guard_cases[] = {
+		{ "scenarioSourceAiGraphExecuteTrySidestep", "chrTrySidestep(chr)" },
+		{ "scenarioSourceAiGraphExecuteTryJumpOut", "chrTryJumpOut(chr)" },
+		{ "scenarioSourceAiGraphExecuteTryRunSideways", "chrTryRunSideways(chr)" },
+		{ "scenarioSourceAiGraphExecuteTryAttackWalk", "chrTryAttackWalk(chr)" },
+		{ "scenarioSourceAiGraphExecuteTryAttackRun", "chrTryAttackRun(chr)" },
+		{ "scenarioSourceAiGraphExecuteTryAttackRoll", "chrTryAttackRoll(chr)" },
+		{ "scenarioSourceAiGraphExecuteTryAttackStand", "chrTryAttackStand(chr" },
+		{ "scenarioSourceAiGraphExecuteTryAttackKneel", "chrTryAttackKneel(chr" },
+		{ "scenarioSourceAiGraphExecuteTryAttackLie", "chrTryAttackLie(chr" },
+		{ "scenarioSourceAiGraphExecuteTryModifyAttack", "chrTryModifyAttack(chr" },
+		{ "scenarioSourceAiGraphExecuteFaceEntity", "chrFaceEntity(chr" },
+		{ "scenarioSourceAiGraphExecuteConsiderGrenadeThrow", "chrConsiderGrenadeThrow(chr" },
+		{ "scenarioSourceAiGraphExecuteDropItem", "chrDropItem(chr" },
+	};
+	for (const CombatGuardCase &entry : combat_guard_cases) {
+		const std::string block = functionBlock(scenario_runtime, entry.fn);
+		REQUIRE(!block.empty());
+		REQUIRE(block.find("s_aiGraphRequireOptionalRuntimeCharacterPointer(") !=
+		        std::string::npos);
+		requireTokenOrder(block,
+			"s_aiGraphRequireOptionalRuntimeCharacterPointer(",
+			entry.live_call);
+	}
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteTryModifyAttack");
+		REQUIRE(!block.empty());
+		REQUIRE(block.find("objects=%s backend=%s") !=
+		        std::string::npos);
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimeVehicleObjectPointer(",
+			"chopperAttack(hovercar)");
+	}
+	for (const char *fn : {
+		     "scenarioSourceAiGraphExecuteIfAttackLocked",
+		     "scenarioSourceAiGraphExecuteIfAttacking",
+	     }) {
+		const std::string block = functionBlock(scenario_runtime, fn);
+		REQUIRE(!block.empty());
+		REQUIRE(block.find("s_aiGraphRequireOptionalRuntimeCharacterPointer(") !=
+		        std::string::npos);
+		requireTokenOrder(block,
+			"s_aiGraphRequireOptionalRuntimeCharacterPointer(",
+			"chr->actiontype");
+	}
+	REQUIRE(scenario_runtime.find("AI action %s chr=%d chr_rows=%d source_chr=%d target_chr=%d target_chr_rows=%d resolved_target_chr=%d") !=
+	        std::string::npos);
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteTryRunFromTarget");
+		REQUIRE(!block.empty());
+		requireTokenOrder(block,
+			"s_aiGraphRequireTargetMovementNode(\"try_run_from_target\"",
+			"s_aiGraphRequireOptionalRuntimeCharacterPointer(");
+		requireTokenOrder(block,
+			"s_aiGraphRequireOptionalRuntimeCharacterPointer(",
+			"chrTryRunFromTarget(chr)");
+	}
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"s_aiGraphExecuteTryToTargetProp");
+		REQUIRE(!block.empty());
+		requireTokenOrder(block,
+			"s_aiGraphRequireTargetMovementNode(action",
+			"s_aiGraphRequireOptionalRuntimeCharacterStatePointer(");
+		requireTokenOrder(block,
+			"s_aiGraphRequireOptionalRuntimeCharacterStatePointer(",
+			"chrGoToTarget(chr");
+	}
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteTryGoToCoverProp");
+		REQUIRE(!block.empty());
+		requireTokenOrder(block,
+			"s_aiGraphRequireTargetMovementNode(\"try_go_to_cover_prop\"",
+			"s_aiGraphRequireOptionalRuntimeCharacterPointer(");
+		requireTokenOrder(block,
+			"s_aiGraphRequireOptionalRuntimeCharacterPointer(",
+			"chrGoToCoverProp(chr)");
+	}
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"s_aiGraphExecuteTryToChr");
+		REQUIRE(!block.empty());
+		requireTokenOrder(block,
+			"s_aiGraphRequireTargetMovementNode(action",
+			"s_aiGraphRequireOptionalRuntimeCharacterPointer(");
+		requireTokenOrder(block,
+			"s_aiGraphRequireOptionalRuntimeCharacterPointer(",
+			"s_aiGraphRequireRuntimeCharacterRefFromBase(action");
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimeCharacterRefFromBase(action",
+			"chrGoToChr(chr");
+	}
+	for (const char *helper_name : {
+		     "s_aiGraphRequireRuntimeCharacterRefFromBase",
+		     "s_aiGraphResolveRuntimeCharacterRefOrSelector",
+		     "s_aiGraphRuntimeCharacterRefLooksSourceBacked",
+	     }) {
+		const std::string helper = functionBlock(scenario_runtime,
+			helper_name);
+		REQUIRE(!helper.empty());
+		REQUIRE(helper.find("chr = chrFindById(basechr, chr_id);") !=
+		        std::string::npos);
+		REQUIRE(helper.find("s_aiGraphRuntimeChrIsSourceSpawned(chr)") !=
+		        std::string::npos);
+		REQUIRE(helper.find("s_aiGraphSetupSourceContainsChrnum(chr->chrnum)") !=
+		        std::string::npos);
+	}
+	REQUIRE(scenario_runtime.find("AI %s %s chr_rows=%d source_chr=%d value=%d label=%d result=%d") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI action set_pad_preset_to_pad_on_route_to_target chr_rows=%d source_chr=%d") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI condition %s chr_rows=%d source_chr=%d value=%d label=%d result=%d") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI condition if_room_is_on_screen chr_rows=%d source_chr=%d pad=%d") !=
+	        std::string::npos);
+	{
+		const std::string helper = functionBlock(scenario_runtime,
+			"s_aiGraphRequirePerceptionAlarmActor");
+		REQUIRE(!helper.empty());
+		requireTokenOrder(helper,
+			"s_aiGraphRequirePerceptionAlarmNode(",
+			"s_aiGraphRequireOptionalRuntimeCharacterStatePointer(");
+	}
+	{
+		const std::string helper = functionBlock(scenario_runtime,
+			"s_aiGraphRequireSpatialPerceptionActor");
+		REQUIRE(!helper.empty());
+		requireTokenOrder(helper,
+			"s_aiGraphRequirePerceptionAlarmNode(",
+			"s_aiGraphRequireOptionalRuntimeCharacterPointer(");
+	}
+	struct PerceptionAlarmGuardCase {
+		const char *fn;
+		const char *live_read;
+	};
+	const PerceptionAlarmGuardCase perception_alarm_guard_cases[] = {
+		{ "scenarioSourceAiGraphExecuteIfCanHearAlarm", "chrCanHearAlarm(chr)" },
+		{ "scenarioSourceAiGraphExecuteIfPatrolling", "chr->actiontype" },
+		{ "scenarioSourceAiGraphExecuteIfHearsTarget", "chrIsHearingTarget(chr)" },
+		{ "scenarioSourceAiGraphExecuteIfSawInjury", "chrSawInjury(chr" },
+		{ "scenarioSourceAiGraphExecuteIfSawDeath", "chrSawDeath(chr" },
+		{ "scenarioSourceAiGraphExecuteIfLosToTarget", "chrHasLosToTarget(chr)" },
+		{ "scenarioSourceAiGraphExecuteIfLosToAttackTarget", "chrHasLosToAttackTarget(chr" },
+		{ "scenarioSourceAiGraphExecuteIfTargetNearlyInSight", "chrIsTargetNearlyInSight(chr" },
+		{ "scenarioSourceAiGraphExecuteIfNearlyInTargetsSight", "chrIsNearlyInTargetsSight(chr" },
+		{ "scenarioSourceAiGraphExecuteIfSawTargetRecently", "chrSawTargetRecently(chr)" },
+		{ "scenarioSourceAiGraphExecuteIfHeardTargetRecently", "chrHeardTargetRecently(chr)" },
+	};
+	for (const PerceptionAlarmGuardCase &entry : perception_alarm_guard_cases) {
+		const std::string block = functionBlock(scenario_runtime, entry.fn);
+		REQUIRE(!block.empty());
+		REQUIRE(block.find("s_aiGraphRequirePerceptionAlarmActor(") !=
+		        std::string::npos);
+		requireTokenOrder(block,
+			"s_aiGraphRequirePerceptionAlarmActor(",
+			entry.live_read);
+	}
+	for (const char *fn : {
+		     "scenarioSourceAiGraphExecuteIfLosToTarget",
+		     "scenarioSourceAiGraphExecuteIfLosToAttackTarget",
+	     }) {
+		const std::string block = functionBlock(scenario_runtime, fn);
+		REQUIRE(!block.empty());
+		REQUIRE(block.find("vehicle_rows=%d source_vehicle_type=%d") !=
+		        std::string::npos);
+		REQUIRE(block.find("objects=%s backend=%s") !=
+		        std::string::npos);
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimeVehicleObjectPointer(",
+			"chopperCheckTargetInFov(hovercar, 64)");
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimeVehicleObjectPointer(",
+			"chopperCheckTargetInSight(hovercar)");
+	}
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteSetPadPresetToPadOnRouteToTarget");
+		REQUIRE(!block.empty());
+		requireTokenOrder(block,
+			"s_aiGraphRequirePerceptionAlarmNode(\"action\"",
+			"s_aiGraphRequireOptionalRuntimeCharacterPointer(");
+		requireTokenOrder(block,
+			"s_aiGraphRequireOptionalRuntimeCharacterPointer(",
+			"chrGetTargetProp(chr)");
+		requireTokenOrder(block,
+			"s_aiGraphRequireOptionalRuntimeCharacterPointer(",
+			"chrSetPadPresetToPadOnRouteToTarget(chr)");
+	}
+	struct SpatialPerceptionGuardCase {
+		const char *fn;
+		const char *live_read;
+	};
+	const SpatialPerceptionGuardCase spatial_perception_guard_cases[] = {
+		{ "scenarioSourceAiGraphExecuteIfLosToChr", "chrHasLosToPos(basechr" },
+		{ "scenarioSourceAiGraphExecuteIfNeverBeenOnScreen", "chr->chrflags" },
+		{ "scenarioSourceAiGraphExecuteIfOnScreen", "chr->prop->flags" },
+		{ "scenarioSourceAiGraphExecuteIfChrInOnScreenRoom", "s_aiGraphChrInOnScreenRoom(chr)" },
+		{ "scenarioSourceAiGraphExecuteIfRoomIsOnScreen", "chrGetPadRoom(chr, pad)" },
+		{ "scenarioSourceAiGraphExecuteIfTargetAimingAtMe", "chrIsTargetAimingAtMe(chr)" },
+		{ "scenarioSourceAiGraphExecuteIfNearMiss", "chrResetNearMiss(chr)" },
+		{ "scenarioSourceAiGraphExecuteIfSeesSuspiciousItem", "s_aiGraphChrSeesSuspiciousItem(chr)" },
+		{ "scenarioSourceAiGraphExecuteIfCheckFovWithTarget", "chrIsInTargetsFovX(chr" },
+		{ "scenarioSourceAiGraphExecuteIfTargetInFovLeft", "chrGetAngleToTarget(chr)" },
+		{ "scenarioSourceAiGraphExecuteIfTargetOutOfFovLeft", "chrGetAngleToTarget(chr)" },
+		{ "scenarioSourceAiGraphExecuteIfTargetInFov(", "chrIsTargetInFov(chr" },
+		{ "scenarioSourceAiGraphExecuteIfTargetOutOfFov(", "chrIsTargetInFov(chr" },
+		{ "scenarioSourceAiGraphExecuteIfDistanceToTargetLessThan", "chrGetDistanceToTarget(chr)" },
+		{ "scenarioSourceAiGraphExecuteIfDistanceToTargetGreaterThan", "chrGetDistanceToTarget(chr)" },
+	};
+	for (const SpatialPerceptionGuardCase &entry :
+			spatial_perception_guard_cases) {
+		const std::string block = functionBlock(scenario_runtime, entry.fn);
+		REQUIRE(!block.empty());
+		if (std::string(entry.fn) ==
+				"scenarioSourceAiGraphExecuteIfRoomIsOnScreen") {
+			REQUIRE(block.find(
+				        "s_aiGraphRequireOptionalRuntimeCharacterPointer(") !=
+			        std::string::npos);
+			requireTokenOrder(block,
+				"s_aiGraphRequireOptionalRuntimeCharacterPointer(",
+				entry.live_read);
+		} else {
+			REQUIRE(block.find("s_aiGraphRequireSpatialPerceptionActor(") !=
+			        std::string::npos);
+			requireTokenOrder(block,
+				"s_aiGraphRequireSpatialPerceptionActor(",
+				entry.live_read);
+		}
+	}
+	{
+		const std::string helper = functionBlock(scenario_runtime,
+			"s_aiGraphChrSeesSuspiciousItem");
+		REQUIRE(!helper.empty());
+		REQUIRE(helper.find("roomGetProps(chr->prop->rooms") !=
+		        std::string::npos);
+		REQUIRE(helper.find("struct prop *prop = &g_Vars.props[*ptr];") !=
+		        std::string::npos);
+		REQUIRE(helper.find("chrHasLosToProp(chr, prop)") !=
+		        std::string::npos);
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteIfSeesSuspiciousItem");
+		REQUIRE(!block.empty());
+		REQUIRE(block.find("chr, 0, 1, &chr_count, &source_chr") !=
+		        std::string::npos);
+		requireTokenOrder(block,
+			"s_aiGraphRequireSpatialPerceptionActor(",
+			"s_aiGraphChrSeesSuspiciousItem(chr)");
+		requireTokenOrder(block,
+			"chr, 0, 1, &chr_count, &source_chr",
+			"s_aiGraphChrSeesSuspiciousItem(chr)");
+	}
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteIfLosToChr");
+		requireTokenOrder(block,
+			"s_aiGraphRequireSpatialPerceptionActor(",
+			"s_aiGraphRequireRuntimeCharacterRefFromBase(");
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimeCharacterRefFromBase(",
+			"chrHasLosToPos(basechr");
+	}
+	{
+		const std::string helper = functionBlock(scenario_runtime,
+			"s_aiGraphPreparePadDistancePerceptionBranch");
+		REQUIRE(!helper.empty());
+		requireTokenOrder(helper,
+			"s_aiGraphRequirePadDistancePerceptionSource(",
+			"s_aiGraphRequireOptionalRuntimeCharacterPointer(");
+		requireTokenOrder(helper,
+			"s_aiGraphRequireOptionalRuntimeCharacterPointer(",
+			"chrResolvePadId(chr, padnum)");
+	}
+	struct DistancePerceptionGuardCase {
+		const char *fn;
+		const char *guard;
+		const char *live_read;
+	};
+	const DistancePerceptionGuardCase distance_perception_guard_cases[] = {
+		{ "scenarioSourceAiGraphExecuteIfChrDistanceToPadLessThan",
+			"s_aiGraphRequirePadDistancePerceptionSource(",
+			"chrGetDistanceToPad(chr, resolved_pad)" },
+		{ "scenarioSourceAiGraphExecuteIfChrDistanceToPadGreaterThan",
+			"s_aiGraphRequirePadDistancePerceptionSource(",
+			"chrGetDistanceToPad(chr, resolved_pad)" },
+		{ "scenarioSourceAiGraphExecuteIfDistanceToChrLessThan",
+			"s_aiGraphRequireDistancePerceptionActor(",
+			"chrGetDistanceToChr(chr, chrnum)" },
+		{ "scenarioSourceAiGraphExecuteIfDistanceToChrGreaterThan",
+			"s_aiGraphRequireDistancePerceptionActor(",
+			"chrGetDistanceToChr(chr, chrnum)" },
+		{ "scenarioSourceAiGraphExecuteIfAnyChrNearSelf",
+			"s_aiGraphRequireDistancePerceptionActor(",
+			"chrSetChrPresetToAnyChrNearSelf(chr, distance)" },
+		{ "scenarioSourceAiGraphExecuteIfDistanceFromTargetToPadLessThan",
+			"s_aiGraphPreparePadDistancePerceptionBranch(",
+			"chrGetDistanceFromTargetToPad(chr, resolved_pad)" },
+		{ "scenarioSourceAiGraphExecuteIfDistanceFromTargetToPadGreaterThan",
+			"s_aiGraphPreparePadDistancePerceptionBranch(",
+			"chrGetDistanceFromTargetToPad(chr, resolved_pad)" },
+	};
+	for (const DistancePerceptionGuardCase &entry :
+			distance_perception_guard_cases) {
+		const std::string block = functionBlock(scenario_runtime, entry.fn);
+		REQUIRE(!block.empty());
+		REQUIRE(block.find(entry.guard) != std::string::npos);
+		requireTokenOrder(block, entry.guard, entry.live_read);
+	}
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteIfChrDistanceToPadLessThan");
+		requireTokenOrder(block,
+			"s_aiGraphRequirePadDistancePerceptionSource(",
+			"s_aiGraphResolveOptionalRuntimeCharacterRefOrSelector(");
+		requireTokenOrder(block,
+			"s_aiGraphResolveOptionalRuntimeCharacterRefOrSelector(",
+			"s_aiGraphPreparePadDistancePerceptionBranch(");
+	}
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteIfChrDistanceToPadGreaterThan");
+		requireTokenOrder(block,
+			"s_aiGraphRequirePadDistancePerceptionSource(",
+			"s_aiGraphRequireRuntimeCharacterRefFromBase(");
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimeCharacterRefFromBase(",
+			"s_aiGraphPreparePadDistancePerceptionBranch(");
+	}
+	for (const char *fn : {
+		     "scenarioSourceAiGraphExecuteIfDistanceToChrLessThan",
+		     "scenarioSourceAiGraphExecuteIfDistanceToChrGreaterThan",
+	     }) {
+		const std::string block = functionBlock(scenario_runtime, fn);
+		requireTokenOrder(block,
+			"s_aiGraphRequireDistancePerceptionActor(",
+			"s_aiGraphRequireRuntimeCharacterRefFromBase(");
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimeCharacterRefFromBase(",
+			"chrGetDistanceToChr(chr, chrnum)");
+	}
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteRemoveChr");
+		requireTokenOrder(block,
+			"s_aiGraphResolveOptionalRuntimeCharacterRefOrSelector(",
+			"chr->hidden |= 0x20");
+		REQUIRE(block.find("applied = chr && chr->prop") !=
+		        std::string::npos);
+	}
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteApplyGsetDamage");
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimeCharacterRefFromBase(",
+			"chrDamageByImpact(");
+	}
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteChrDamageChr");
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimeCharacterRefFromBase(",
+			"chrGetHeldUsableProp(");
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimeCharacterRefFromBase(",
+			"chrDamageByImpact(");
+	}
+	for (const char *fn : {
+		     "scenarioSourceAiGraphExecuteIfLosToChr",
+		     "scenarioSourceAiGraphExecuteIfChrInOnScreenRoom",
+		     "scenarioSourceAiGraphExecuteIfChrDistanceToPadGreaterThan",
+		     "scenarioSourceAiGraphExecuteIfChrInRoom",
+		     "scenarioSourceAiGraphExecuteChrDropItems",
+		     "scenarioSourceAiGraphExecuteChrDropWeapon",
+	     }) {
+		const std::string block = functionBlock(scenario_runtime, fn);
+		REQUIRE(!block.empty());
+		REQUIRE(block.find("s_aiGraphRequireRuntimeCharacterRefFromBase(") !=
+		        std::string::npos);
+		REQUIRE(block.find("chrFindById(") == std::string::npos);
+	}
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteIfChrHasObject");
+		REQUIRE(!block.empty());
+		REQUIRE(block.find("s_aiGraphResolveRuntimeCharacterRefOrSelector(") !=
+		        std::string::npos);
+		REQUIRE(block.find("s_aiGraphRequireRuntimeObjectTag(") !=
+		        std::string::npos);
+		REQUIRE(block.find("s_aiGraphResolveOptionalRuntimeObjectTag(") ==
+		        std::string::npos);
+		REQUIRE(block.find("s_aiGraphRequireRuntimeCharacterRefFromBase(") ==
+		        std::string::npos);
+		REQUIRE(block.find("chrFindById(") == std::string::npos);
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimeObjectTag(",
+			"objFindByTagId(tag_id)");
+	}
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteIfChrHasWeaponEquipped");
+		REQUIRE(!block.empty());
+		REQUIRE(block.find("s_aiGraphResolveRuntimeCharacterRefOrSelector(") !=
+		        std::string::npos);
+		REQUIRE(block.find("s_aiGraphResolveOptionalRuntimeObjectTag(") ==
+		        std::string::npos);
+		REQUIRE(block.find("s_aiGraphRequireRuntimeCharacterRefFromBase(") ==
+		        std::string::npos);
+		REQUIRE(block.find("chrFindById(") == std::string::npos);
+		REQUIRE(block.find("objFindByTagId(tag_id)") == std::string::npos);
+	}
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteGiveObjectToChr");
+		REQUIRE(!block.empty());
+		REQUIRE(block.find("s_aiGraphResolveRuntimeCharacterRefOrSelector(") !=
+		        std::string::npos);
+		REQUIRE(block.find("s_aiGraphRequireRuntimeCharacterRefFromBase(") ==
+		        std::string::npos);
+		REQUIRE(block.find("chrFindById(") == std::string::npos);
+	}
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteIfChrActivatedObject");
+		REQUIRE(!block.empty());
+		REQUIRE(block.find("s_aiGraphRequireRuntimeCharacterRef(") !=
+		        std::string::npos);
+		REQUIRE(block.find("chrFindById(") == std::string::npos);
+		REQUIRE(block.find("chrnum == CHR_ANY") != std::string::npos);
+		REQUIRE(block.find("struct player *bond = g_Vars.bond;") !=
+		        std::string::npos);
+		REQUIRE(block.find("struct player *coop = g_Vars.coop;") !=
+		        std::string::npos);
+		REQUIRE(block.find("g_Vars.bond->prop") == std::string::npos);
+		REQUIRE(block.find("g_Vars.coop->prop") == std::string::npos);
+		REQUIRE(block.find("player_checked=%d") != std::string::npos);
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimeCharacterRef(",
+			"s_aiGraphRequireRuntimePlayerPointer(");
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimeCharacterRef(",
+			"g_Vars.coopplayernum >= 0");
+		requireTokenOrder(block,
+			"g_Vars.coopplayernum >= 0",
+			"\"if_chr_activated_object\", coop");
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimePlayerPointer(",
+			"chr->prop == bond->prop");
+		requireTokenOrder(block,
+			"\"if_chr_activated_object\", coop",
+			"chr->prop == coop->prop");
+	}
+	REQUIRE(scenario_runtime.find("AI condition if_chr_activated_object chr=%d chr_rows=%d target_chr=%d player_checked=%d tag=%d object_rows=%d result=%d") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI condition if_chr_has_object chr=%d chr_rows=%d target_chr=%d player_checked=%d tag=%d object_rows=%d") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI condition if_chr_has_weapon_equipped chr=%d chr_rows=%d target_chr=%d player_checked=%d weapon_id=%s") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI action drop_object_from_chr tag=%d object_rows=%d chr_rows=%d source_chr=%d applied=%d") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI action chr_drop_items chr=%d chr_rows=%d target_chr=%d applied=%d") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI action chr_drop_weapon chr=%d chr_rows=%d target_chr=%d player_checked=%d applied=%d") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI action give_object_to_chr tag=%d chr=%d chr_rows=%d target_chr=%d player_checked=%d object_rows=%d applied=%d") !=
+	        std::string::npos);
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteIfChrHasObject");
+		REQUIRE(!block.empty());
+		REQUIRE(block.find("player_checked=%d") != std::string::npos);
+		REQUIRE(block.find("s_aiGraphRequireRuntimeCharacterRefFromBase(") ==
+		        std::string::npos);
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimeObjectTag(",
+			"s_aiGraphResolveRuntimeCharacterRefOrSelector(");
+		requireTokenOrder(block,
+			"s_aiGraphResolveRuntimeCharacterRefOrSelector(",
+			"objFindByTagId(tag_id)");
+		requireTokenOrder(block,
+			"s_aiGraphResolveRuntimeCharacterRefOrSelector(",
+			"s_aiGraphRequireRuntimePlayerSlot(");
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimePlayerSlot(",
+			"setCurrentPlayerNum(playernum)");
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimePlayerSlot(",
+			"invHasProp(");
+	}
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteIfChrHasWeaponEquipped");
+		REQUIRE(!block.empty());
+		REQUIRE(block.find("player_checked=%d") != std::string::npos);
+		REQUIRE(block.find("s_aiGraphRequireRuntimeCharacterRefFromBase(") ==
+		        std::string::npos);
+		requireTokenOrder(block,
+			"s_aiGraphResolveWeaponCatalogId(",
+			"s_aiGraphResolveRuntimeCharacterRefOrSelector(");
+		requireTokenOrder(block,
+			"s_aiGraphResolveRuntimeCharacterRefOrSelector(",
+			"s_aiGraphRequireRuntimePlayerSlot(");
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimePlayerSlot(",
+			"setCurrentPlayerNum(playernum)");
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimePlayerSlot(",
+			"bgunGetWeaponNum(");
+	}
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteDropObjectFromChr");
+		REQUIRE(!block.empty());
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimeObjectTag(",
+			"s_aiGraphRequireRuntimeCharacterPointer(");
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimeCharacterPointer(",
+			"objSetDropped(obj->prop, DROPTYPE_SURRENDER)");
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimeCharacterPointer(",
+			"chr->hidden |= CHRHFLAG_DROPPINGITEM");
+	}
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteGiveObjectToChr");
+		requireTokenOrder(block,
+			"s_aiGraphResolveOptionalRuntimeObjectTag(",
+			"s_aiGraphResolveRuntimeCharacterRefOrSelector(");
+		requireTokenOrder(block,
+			"s_aiGraphResolveRuntimeCharacterRefOrSelector(",
+			"if (obj && obj->prop && chr && chr->prop)");
+	}
+	for (const char *fn : {
+		     "scenarioSourceAiGraphExecuteChrSetTeam",
+		     "scenarioSourceAiGraphExecuteDamageChrByAmount",
+		     "scenarioSourceAiGraphExecuteChrKill",
+		     "scenarioSourceAiGraphExecuteChrGrabObject",
+		     "scenarioSourceAiGraphExecuteToggleP1P2",
+		     "scenarioSourceAiGraphExecuteChrSetP1P2",
+		     "scenarioSourceAiGraphExecuteChrSetCloaked",
+	     }) {
+		const std::string block = functionBlock(scenario_runtime, fn);
+		REQUIRE(!block.empty());
+		REQUIRE(block.find("s_aiGraphRequireRuntimeCharacterRefFromBase(") !=
+		        std::string::npos);
+	}
+	{
+		const std::string chr_source_guard = functionBlock(scenario_runtime,
+			"s_aiGraphRequireRuntimeSetupCharacterSource");
+		REQUIRE(!chr_source_guard.empty());
+		REQUIRE(chr_source_guard.find(
+			        "missing setup.fields.tsv or spawns.tsv source") !=
+		        std::string::npos);
+
+		const std::string chr_count_guard = functionBlock(scenario_runtime,
+			"s_aiGraphCountRuntimeSetupChrRowsFromSource");
+		REQUIRE(!chr_count_guard.empty());
+		requireTokenOrder(chr_count_guard,
+			"s_aiGraphRequireRuntimeSetupCharacterSource(action)",
+			"s_aiGraphTryCountRuntimeSetupChrRowsFromSource(out_chr_count)");
+
+		const std::string chr_try_count_guard = functionBlock(scenario_runtime,
+			"s_aiGraphTryCountRuntimeSetupChrRowsFromSource");
+		REQUIRE(!chr_try_count_guard.empty());
+		requireTokenOrder(chr_try_count_guard,
+			"s_aiGraphRuntimeSetupCharacterSourceIsActive()",
+			"s_ActiveScenarioGraphs.source_setup_chr_count");
+
+		const std::string selector_block = functionBlock(scenario_runtime,
+			"s_aiGraphChrIdIsRuntimeSelector");
+		REQUIRE(!selector_block.empty());
+		REQUIRE(selector_block.find("case CHR_SELF:") != std::string::npos);
+		REQUIRE(selector_block.find("case CHR_TARGET:") != std::string::npos);
+		REQUIRE(selector_block.find("case CHR_P1P2:") != std::string::npos);
+
+		const std::string guard_block = functionBlock(scenario_runtime,
+			"s_aiGraphRequireRuntimeCharacterRefFromBase");
+		REQUIRE(!guard_block.empty());
+		REQUIRE(guard_block.find("s_aiGraphChrIdIsRuntimeSelector(chr_id)") !=
+		        std::string::npos);
+		requireTokenOrder(guard_block,
+			"s_aiGraphChrIdIsRuntimeSelector(chr_id)",
+			"return 1;");
+		requireTokenOrder(guard_block,
+			"s_aiGraphChrIdIsRuntimeSelector(chr_id)",
+			"s_aiGraphSetupSourceContainsChrnum(chr->chrnum)");
+		requireTokenOrder(guard_block,
+			"s_aiGraphCountRuntimeSetupChrRowsFromSource(action",
+			"s_aiGraphSetupSourceContainsChrnum(chr->chrnum)");
+	}
+	REQUIRE(scenario_runtime.find("AI action chr_set_team chr=%d chr_rows=%d target_chr=%d checked_players=%d team=%d applied=%d") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI action damage_chr_by_amount chr=%d chr_rows=%d target_chr=%d amount=%d mode=%d applied=%d") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI action chr_kill chr=%d chr_rows=%d target_chr=%d applied=%d") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI action chr_grab_object chr=%d chr_rows=%d target_chr=%d player_checked=%d tag=%d object_rows=%d grabbed=%d") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI action toggle_p1p2 chr=%d chr_rows=%d target_chr=%d player_checked=%d applied=%d") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI action chr_set_p1p2 chr=%d chr_rows=%d source_chr=%d target_chr=%d target_chr_rows=%d resolved_target_chr=%d player_checked=%d applied=%d") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI action chr_set_cloaked chr=%d chr_rows=%d target_chr=%d cloaked=%d timer=%d applied=%d") !=
+	        std::string::npos);
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteToggleP1P2");
+		REQUIRE(!block.empty());
+		requireTokenOrder(block,
+			"missing ai/ailists.tsv source",
+			"g_Vars.coopplayernum >= 0");
+		requireTokenOrder(block,
+			"g_Vars.coopplayernum >= 0",
+			"s_aiGraphRequireRuntimePlayerPointer(\"toggle_p1p2\"");
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimeCharacterRefFromBase(",
+			"chr->p1p2 == g_Vars.bondplayernum");
+		requireTokenOrder(block,
+			"\"toggle_p1p2\", coop",
+			"chr->p1p2 = g_Vars.coopplayernum");
+	}
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteChrSetP1P2");
+		REQUIRE(!block.empty());
+		requireTokenOrder(block,
+			"missing ai/ailists.tsv source",
+			"g_Vars.coopplayernum >= 0");
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimePlayerSlot(\"chr_set_p1p2\"",
+			"(s32)playernum == g_Vars.coopplayernum");
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimePlayerSlot(\"chr_set_p1p2\"",
+			"chr1->p1p2 = g_Vars.bondplayernum");
+	}
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteChrSetTeam");
+		REQUIRE(block.find("chrFindById(basechr, chrnum)") ==
+		        std::string::npos);
+		REQUIRE(block.find("chrnum == CHR_ANTI") != std::string::npos);
+		REQUIRE(block.find("g_Vars.antiplayernum >= 0") !=
+		        std::string::npos);
+		REQUIRE(block.find("g_Vars.players[playernum]") ==
+		        std::string::npos);
+		REQUIRE(block.find("checked_players=%d") != std::string::npos);
+		requireTokenOrder(block,
+			"s_aiEntityLifecycleGraphReady(\"chr_set_team\"",
+			"g_Vars.antiplayernum >= 0");
+		requireTokenOrder(block,
+			"s_aiGraphCountRuntimeSetupChrRowsFromSource(",
+			"g_Vars.antiplayernum >= 0");
+		requireTokenOrder(block,
+			"g_Vars.antiplayernum >= 0",
+			"s_aiGraphRequireRuntimePlayerSlot(\"chr_set_team\"");
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimePlayerSlot(\"chr_set_team\"",
+			"PLAYER_IS_ANTI(player)");
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimePlayerSlot(\"chr_set_team\"",
+			"player->prop->chr");
+	}
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteIfPlayerChrPortalDistanceLessThan");
+		REQUIRE(!block.empty());
+		REQUIRE(block.find("g_Vars.currentplayer->prop") ==
+		        std::string::npos);
+		REQUIRE(block.find("g_Vars.currentplayer &&") ==
+		        std::string::npos);
+		REQUIRE(block.find("AI condition if_player_chr_portal_distance_less_than chr_rows=%d source_chr=%d player_checked=%d") !=
+		        std::string::npos);
+		requireTokenOrder(block,
+			"s_aiGraphRequireOptionalRuntimeCharacterPointer(",
+			"s_aiGraphRequireRuntimePlayerPointer(");
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimePlayerPointer(",
+			"func0f0056f4(");
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimePlayerPointer(",
+			"player->prop->rooms[0]");
+	}
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteDamageChrByAmount");
+		REQUIRE(block.find("chr = chrFindById(basechr, chrnum);") ==
+		        std::string::npos);
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimeCharacterRefFromBase(",
+			"chrDamageByMisc(");
+	}
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteChrKill");
+		REQUIRE(block.find("chr = chrFindById(basechr, chrnum);") ==
+		        std::string::npos);
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimeCharacterRefFromBase(",
+			"chr->actiontype = ACT_DEAD");
+	}
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteChrGrabObject");
+		REQUIRE(block.find("chr = chrFindById(basechr, chrnum);") ==
+		        std::string::npos);
+		REQUIRE(block.find("g_Vars.currentplayer->bondmovemode") ==
+		        std::string::npos);
+		REQUIRE(block.find("g_Vars.currentplayer->crouchoffset") ==
+		        std::string::npos);
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimeObjectTag(",
+			"s_aiGraphRequireRuntimeCharacterRefFromBase(");
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimeCharacterRefFromBase(",
+			"s_aiGraphRequireRuntimePlayerSlot(\"chr_grab_object\"");
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimePlayerSlot(\"chr_grab_object\"",
+			"player->bondmovemode");
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimePlayerSlot(\"chr_grab_object\"",
+			"player->crouchoffset");
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimePlayerSlot(\"chr_grab_object\"",
+			"bmoveGrabProp(obj->prop)");
+	}
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteToggleP1P2");
+		REQUIRE(block.find("chr = chrFindById(basechr, chrnum);") ==
+		        std::string::npos);
+		REQUIRE(block.find("struct player *bond = g_Vars.bond;") !=
+		        std::string::npos);
+		REQUIRE(block.find("struct player *coop = g_Vars.coop;") !=
+		        std::string::npos);
+		REQUIRE(block.find("g_Vars.coop->isdead") ==
+		        std::string::npos);
+		REQUIRE(block.find("g_Vars.bond->isdead") ==
+		        std::string::npos);
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimePlayerPointer(\"toggle_p1p2\"",
+			"coop->isdead");
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimePlayerPointer(\"toggle_p1p2\"",
+			"bond->isdead");
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimeCharacterRefFromBase(",
+			"chr->p1p2 =");
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimePlayerPointer(\"toggle_p1p2\"",
+			"chr->p1p2 =");
+	}
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteChrSetP1P2");
+		REQUIRE(block.find("chrFindById(basechr") ==
+		        std::string::npos);
+		REQUIRE(block.find("g_Vars.players[playernum]->isdead") ==
+		        std::string::npos);
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimePlayerSlot(\"chr_set_p1p2\"",
+			"player->isdead");
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimeCharacterRefFromBase(",
+			"chr1->p1p2 =");
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimePlayerSlot(\"chr_set_p1p2\"",
+			"chr1->p1p2 =");
+	}
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteChrSetCloaked");
+		REQUIRE(block.find("chr = chrFindById(basechr, chrnum);") ==
+		        std::string::npos);
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimeCharacterRefFromBase(",
+			"chrCloak(chr, timer)");
+	}
 	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteIfObjInRoom") !=
 	        std::string::npos);
 	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteIfPlayerLookingAtObject") !=
 	        std::string::npos);
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteIfPlayerLookingAtObject");
+		REQUIRE(!block.empty());
+		REQUIRE(block.find("chrFindById(basechr, chrnum)") ==
+		        std::string::npos);
+		REQUIRE(block.find("s_aiGraphResolvePlayerChr(") !=
+		        std::string::npos);
+		REQUIRE(block.find("chr_rows=%d target_chr=%d player_checked=%d tag=%d object_rows=%d") !=
+		        std::string::npos);
+		REQUIRE(block.find("g_Vars.currentplayer->lookingatprop.prop") ==
+		        std::string::npos);
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimeObjectTag(",
+			"s_aiGraphResolvePlayerChr(");
+		requireTokenOrder(block,
+			"s_aiGraphResolvePlayerChr(",
+			"s_aiGraphRequireRuntimePlayerSlot(");
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimePlayerSlot(",
+			"player->lookingatprop.prop");
+	}
+	for (const char *fn : {
+		     "scenarioSourceAiGraphExecuteChrDropWeapon",
+	     }) {
+		const std::string block = functionBlock(scenario_runtime, fn);
+		REQUIRE(!block.empty());
+		REQUIRE(block.find("player_checked=%d") != std::string::npos);
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimeCharacterRefFromBase(",
+			"s_aiGraphRequireRuntimePlayerSlot(");
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimePlayerSlot(",
+			"setCurrentPlayerNum(playernum)");
+	}
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteGiveObjectToChr");
+		REQUIRE(!block.empty());
+		REQUIRE(block.find("player_checked=%d") != std::string::npos);
+		requireTokenOrder(block,
+			"s_aiGraphResolveRuntimeCharacterRefOrSelector(",
+			"s_aiGraphRequireRuntimePlayerSlot(");
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimePlayerSlot(",
+			"setCurrentPlayerNum(playernum)");
+	}
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteChrDropWeapon");
+		REQUIRE(!block.empty());
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimePlayerSlot(\"chr_drop_weapon\"",
+			"bgunGetWeaponNum(");
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimePlayerSlot(\"chr_drop_weapon\"",
+			"invRemoveItemByNum(");
+	}
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteGiveObjectToChr");
+		REQUIRE(!block.empty());
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimePlayerSlot(\"give_object_to_chr\"",
+			"propPickupByPlayer(");
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimePlayerSlot(\"give_object_to_chr\"",
+			"propExecuteTickOperation(");
+	}
 	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteIfTargetIsPlayer") !=
 	        std::string::npos);
 	REQUIRE(scenario_runtime.find("backend=graph.ai.action.player_weapon_state+ai/ailists.tsv") !=
@@ -1291,8 +5932,21 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 	        std::string::npos);
 	REQUIRE(scenario_runtime.find("backend=graph.ai.action.player_navigation+ai/ailists.tsv+pads.tsv") !=
 	        std::string::npos);
-	REQUIRE(scenario_runtime.find("backend=graph.ai.condition.object_room+ai/ailists.tsv+objects.tsv+scene.glb") !=
+	REQUIRE(scenario_runtime.find("backend=graph.ai.condition.object_room+ai/ailists.tsv+objects.tsv+pads.tsv+scene.glb") !=
 	        std::string::npos);
+	REQUIRE(scenario_runtime.find(
+		        "AI condition if_obj_in_room tag=%d object_rows=%d pad=%d found=1 pad_rows=%d") !=
+	        std::string::npos);
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteIfObjInRoom");
+		REQUIRE(!block.empty());
+		REQUIRE(block.find("s_aiGraphRequireRuntimePad(\"if_obj_in_room\"") !=
+		        std::string::npos);
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimePad(\"if_obj_in_room\"",
+			"chrGetPadRoom(basechr, room_id)");
+	}
 	REQUIRE(scenario_runtime.find("backend=graph.ai.condition.perception+ai/ailists.tsv+objects.tsv+scene.glb") !=
 	        std::string::npos);
 	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteConfigureEnvironment") !=
@@ -1303,6 +5957,16 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 	        std::string::npos);
 	REQUIRE(scenario_runtime.find("backend=graph.ai.condition.target_distance+ai/ailists.tsv") !=
 	        std::string::npos);
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteIfDistanceToTarget2");
+		REQUIRE(!block.empty());
+		REQUIRE(block.find("AI condition %s chr_rows=%d source_chr=%d actual=%.2f") !=
+		        std::string::npos);
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimeCharacterPointer(action, chr",
+			"chrGetDistanceToTarget2(chr)");
+	}
 	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteSpeak") !=
 	        std::string::npos);
 	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecutePlaySound") !=
@@ -1323,6 +5987,29 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 	        std::string::npos);
 	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecutePlaySoundFromEntity") !=
 	        std::string::npos);
+	{
+		const std::string helper = functionBlock(scenario_runtime,
+			"s_aiGraphRequireRuntimeCharacterRefFromBase");
+		REQUIRE(!helper.empty());
+		REQUIRE(helper.find("chrFindById(basechr, chr_id)") !=
+		        std::string::npos);
+		REQUIRE(helper.find("chr->prop->type == PROPTYPE_PLAYER") !=
+		        std::string::npos);
+		REQUIRE(helper.find("s_aiGraphSetupSourceContainsChrnum(chr->chrnum)") !=
+		        std::string::npos);
+		REQUIRE(scenario_runtime.find(
+			        "return s_aiGraphRequireRuntimeCharacterRefFromBase(action,\n\t\tg_Vars.chrdata") !=
+		        std::string::npos);
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecutePlaySoundFromEntity");
+		REQUIRE(!block.empty());
+		REQUIRE(block.find("chrFindById(g_Vars.chrdata, entity_id)") ==
+		        std::string::npos);
+		REQUIRE(block.find("chr_rows=%d") != std::string::npos);
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimeCharacterRef(\"play_sound_from_entity\"",
+			"psModify(channel, -1, -1, prop");
+	}
 	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecutePlayRepeatingSoundFromPad") !=
 	        std::string::npos);
 	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteIfObjectSoundVolumeLessThan") !=
@@ -1393,6 +6080,46 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 	        std::string::npos);
 	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteRemoveReferencesToChr") !=
 	        std::string::npos);
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteIfChrSameFloorDistanceToPadLessThan");
+		REQUIRE(!block.empty());
+		REQUIRE(block.find("chrFindById(basechr, chrnum);") ==
+		        std::string::npos);
+		REQUIRE(block.find("chr_rows=%d target_chr=%d") !=
+		        std::string::npos);
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimePad(",
+			"s_aiGraphRequireRuntimeCharacterRefFromBase(");
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimeCharacterRefFromBase(",
+			"chrGetSameFloorDistanceToPad");
+	}
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteRemoveReferencesToChr");
+		REQUIRE(!block.empty());
+		REQUIRE(block.find("chr_rows=%d source_chr=%d") !=
+		        std::string::npos);
+		requireTokenOrder(block,
+			"s_aiGraphRequireOptionalRuntimeCharacterPointer(",
+			"prop_index = (s32)(chr->prop - g_Vars.props);");
+		requireTokenOrder(block,
+			"prop_index = (s32)(chr->prop - g_Vars.props);",
+			"chrClearReferences(prop_index)");
+	}
+	REQUIRE(scenario_runtime.find("s_aiGraphPreparePadDistancePerceptionBranch") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("padnum == PAD_PRESET") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("chrResolvePadId(chr, padnum)") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("missing chr for PAD_PRESET resolution") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("s_aiGraphLogPadDistancePerceptionBranch") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI condition %s value=%d pad=%d found=1 pad_rows=%d chr_rows=%d source_chr=%d") !=
+	        std::string::npos);
 	REQUIRE(scenario_runtime.find("backend=graph.ai.action.pad_reference+ai/ailists.tsv+pads.tsv") !=
 	        std::string::npos);
 	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteOpenDoor") !=
@@ -1401,10 +6128,62 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 	        std::string::npos);
 	REQUIRE(scenario_runtime.find("backend=graph.ai.action.door+objects.tsv") !=
 	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI action open_door tag=%d object_rows=%d") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI action if_door_locked tag=%d object_rows=%d") !=
+	        std::string::npos);
 	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteLiftGoToStop") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("s_aiGraphRequireRuntimeLiftNumber") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("s_aiGraphRequireLiftMotionPads") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI action activate_lift liftnum=%d pad=%d found=1 pad_rows=%d tag=%d object_rows=%d") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI action lift_go_to_stop tag=%d object_rows=%d stop=%d pad=%d found=%d pad_rows=%d") !=
 	        std::string::npos);
 	REQUIRE(scenario_runtime.find("backend=graph.ai.action.lift+objects.tsv+pads.tsv") !=
 	        std::string::npos);
+	{
+		const std::string lift_number = functionBlock(scenario_runtime,
+			"s_aiGraphRequireRuntimeLiftNumber");
+		REQUIRE(!lift_number.empty());
+		REQUIRE(lift_number.find("ARRAYCOUNT(g_Lifts)") !=
+		        std::string::npos);
+		requireTokenOrder(lift_number,
+			"s_aiGraphRequireRuntimePadTable(action, &pad_count)",
+			"ARRAYCOUNT(g_Lifts)");
+		requireTokenOrder(lift_number,
+			"ARRAYCOUNT(g_Lifts)",
+			"padUnpack(i, PADFIELD_LIFT, &pad)");
+		requireTokenOrder(lift_number,
+			"padUnpack(i, PADFIELD_LIFT, &pad)",
+			"pad.liftnum == liftnum");
+	}
+	{
+		const std::string activate_lift = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteActivateLift");
+		REQUIRE(!activate_lift.empty());
+		requireTokenOrder(activate_lift,
+			"s_aiGraphRequireLiftNode(\"activate_lift\"",
+			"s_aiGraphRequireRuntimeLiftNumber(\"activate_lift\"");
+		requireTokenOrder(activate_lift,
+			"s_aiGraphRequireRuntimeLiftNumber(\"activate_lift\"",
+			"s_aiGraphRequireRuntimeObjectTagType(\"activate_lift\"");
+		requireTokenOrder(activate_lift,
+			"s_aiGraphRequireRuntimeObjectTagType(\"activate_lift\"",
+			"liftActivate(obj->prop, (u8)liftnum)");
+	}
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteIfUsingLift");
+		REQUIRE(!block.empty());
+		REQUIRE(block.find("AI action if_using_lift pad_rows=%d chr_rows=%d source_chr=%d") !=
+		        std::string::npos);
+		requireTokenOrder(block,
+			"s_aiGraphRequireOptionalLiveRuntimeCharacterPointer(\"if_using_lift\"",
+			"chr && chr->prop && chrIsUsingLift(chr)");
+	}
 	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteConfigureRain") !=
 	        std::string::npos);
 	REQUIRE(scenario_runtime.find("backend=graph.ai.action.weather+ai/ailists.tsv+scenario.ini") !=
@@ -1415,25 +6194,180 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 	        std::string::npos);
 	REQUIRE(scenario_runtime.find("backend=graph.ai.action.sky+ai/ailists.tsv") !=
 	        std::string::npos);
+	{
+		const std::string sky_helper = functionBlock(scenario_runtime,
+			"s_aiGraphRequireSkyNode");
+		REQUIRE(!sky_helper.empty());
+		REQUIRE(sky_helper.find("missing ai/ailists.tsv source") !=
+		        std::string::npos);
+		const std::string set_wind_speed = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteSetWindSpeed");
+		REQUIRE(!set_wind_speed.empty());
+		REQUIRE(set_wind_speed.find(
+			        "AI action set_wind_speed speed=%d value=%.3f") !=
+		        std::string::npos);
+		requireTokenOrder(set_wind_speed,
+			"s_aiGraphRequireSkyNode(\"set_wind_speed\"",
+			"g_SkyWindSpeed = 0.1f * speed");
+		requireTokenOrder(set_wind_speed,
+			"g_SkyWindSpeed = 0.1f * speed",
+			"AI action set_wind_speed speed=%d value=%.3f");
+	}
 	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteSetLights") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("s_aiGraphRequireRuntimePad(\"set_lights\"") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI action set_lights pad=%d found=1 pad_rows=%d") !=
 	        std::string::npos);
 	REQUIRE(scenario_runtime.find("backend=graph.ai.action.lighting+ai/ailists.tsv+pads.tsv") !=
 	        std::string::npos);
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteSetLights");
+		REQUIRE(!block.empty());
+		REQUIRE(block.find("AI action set_lights pad=%d found=1 pad_rows=%d chr_rows=%d source_chr=%d") !=
+		        std::string::npos);
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimePad(\"set_lights\"",
+			"s_aiGraphRequireOptionalLiveRuntimeCharacterPointer(\"set_lights\"");
+		requireTokenOrder(block,
+			"s_aiGraphRequireOptionalLiveRuntimeCharacterPointer(\"set_lights\"",
+			"roomnum = chr && chr->prop ? chrGetPadRoom(chr, padnum) : -1");
+	}
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"s_aiGraphRequireOptionalLiveRuntimeCharacterPointer");
+		REQUIRE(!block.empty());
+		REQUIRE(block.find("*out_chrnum = chr && chr->prop ? chr->chrnum : -1") !=
+		        std::string::npos);
+		requireTokenOrder(block,
+			"if (!chr || !chr->prop)",
+			"s_aiGraphRequireRuntimeCharacterPointer(action, chr");
+	}
 	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteSetRoomFlag") !=
 	        std::string::npos);
 	REQUIRE(scenario_runtime.find("backend=graph.ai.action.room_flags+ai/ailists.tsv+scene.glb") !=
 	        std::string::npos);
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"s_aiGraphRequireRuntimeSceneRooms");
+		REQUIRE(!block.empty());
+		REQUIRE(block.find("if (!g_Rooms || g_Vars.roomcount <= 1)") !=
+		        std::string::npos);
+		REQUIRE(block.find("*out_room_count = g_Vars.roomcount;") !=
+		        std::string::npos);
+		REQUIRE(block.find("missing source-built scene room table") !=
+		        std::string::npos);
+	}
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteSetRoomFlag");
+		REQUIRE(!block.empty());
+		REQUIRE(block.find("AI action set_room_flag room=%d room_rows=%d") !=
+		        std::string::npos);
+		requireTokenOrder(block,
+			"s_aiGraphResolveRuntimeSceneRoom(\"set_room_flag\"",
+			"if (room_available)");
+		requireTokenOrder(block,
+			"if (room_available)",
+			"g_Rooms[roomnum].flags |= flag");
+	}
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"s_aiGraphResolveRuntimeSceneRoom");
+		REQUIRE(!block.empty());
+		REQUIRE(block.find("if (roomnum > 0 && roomnum < g_Vars.roomcount)") !=
+		        std::string::npos);
+		REQUIRE(block.find("s_aiGraphRuntimeFailure(action") ==
+		        std::string::npos);
+	}
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteConfigureEnvironment");
+		REQUIRE(!block.empty());
+		REQUIRE(block.find("AI action configure_environment room=%d room_rows=%d") !=
+		        std::string::npos);
+		requireTokenOrder(block,
+			"s_aiGraphResolveRuntimeSceneRoom(\"configure_environment\"",
+			"if (room_available)");
+		requireTokenOrder(block,
+			"if (room_available)",
+			"g_Rooms[roomnum].flags &= ~ROOMFLAG_PLAYAMBIENTTRACK");
+		requireTokenOrder(block,
+			"s_aiGraphResolveRuntimeSceneRoom(\"configure_environment\"",
+			"g_Rooms[roomnum].flags &= ~ROOMFLAG_OUTDOORS");
+		requireTokenOrder(block,
+			"s_aiGraphResolveRuntimeSceneRoom(\"configure_environment\"",
+			"g_Rooms[roomnum].unk4e_04 = value");
+		requireTokenOrder(block,
+			"s_aiGraphResolveRuntimeSceneRoom(\"configure_environment\"",
+			"g_Rooms[roomnum].unk4d = value");
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimeSceneRooms(\"configure_environment\"",
+			"for (i = 1; i < g_Vars.roomcount; i++)");
+		requireTokenOrder(block,
+			"s_aiGraphResolveRuntimeSceneRoom(\"configure_environment\"",
+			"roomSetLightsFaulty(roomnum, value)");
+	}
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteShowCutsceneChrs");
+		REQUIRE(!block.empty());
+		REQUIRE(block.find("AI action show_cutscene_chrs show=%d chr_rows=%d checked_chrs=%d applied=%d") !=
+		        std::string::npos);
+		REQUIRE(block.find("g_ChrSlots[i].hidden2 &=") ==
+		        std::string::npos);
+		REQUIRE(block.find("g_ChrSlots[i].hidden2 |=") ==
+		        std::string::npos);
+		REQUIRE(block.find("g_ChrSlots[i].chrflags &=") ==
+		        std::string::npos);
+		REQUIRE(block.find("g_ChrSlots[i].chrflags |=") ==
+		        std::string::npos);
+		REQUIRE(block.find("struct chrdata *checked_chr_slots[slot_count];") !=
+		        std::string::npos);
+		requireTokenOrder(block,
+			"s_aiGraphCountRuntimeSetupChrRowsFromSource(",
+			"slot_count = chrsGetNumSlots();");
+		requireTokenOrder(block,
+			"slot_count = chrsGetNumSlots();",
+			"chr = &g_ChrSlots[i];");
+		requireTokenOrder(block,
+			"\"show_cutscene_chrs\", chr",
+			"checked_chr_slots[checked_chrs++] = chr");
+		requireTokenOrder(block,
+			"chr = checked_chr_slots[i];",
+			"chr->hidden2 &=");
+		requireTokenOrder(block,
+			"chr = checked_chr_slots[i];",
+			"chr->hidden2 |= CHRH2FLAG_HIDDENFORCUTSCENE");
+	}
 	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteChrToggleModelPart") !=
 	        std::string::npos);
 	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteObjSetModelPartVisible") !=
 	        std::string::npos);
 	REQUIRE(scenario_runtime.find("backend=graph.ai.action.model_part+ai/ailists.tsv+objects.tsv") !=
 	        std::string::npos);
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteChrToggleModelPart");
+		REQUIRE(!block.empty());
+		REQUIRE(block.find("chrFindById(basechr, chrnum);") ==
+		        std::string::npos);
+		REQUIRE(block.find("chr_rows=%d target_chr=%d") !=
+		        std::string::npos);
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimeCharacterRefFromBase(",
+			"chrToggleModelPart");
+	}
+	REQUIRE(scenario_runtime.find("AI action obj_set_model_part_visible tag=%d object_rows=%d") !=
+	        std::string::npos);
 	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteIfObjHealthLessThan") !=
 	        std::string::npos);
 	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteSetObjHealth") !=
 	        std::string::npos);
 	REQUIRE(scenario_runtime.find("backend=graph.ai.action.object_health+ai/ailists.tsv+objects.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI action set_obj_health tag=%d object_rows=%d") !=
 	        std::string::npos);
 	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteSetChrSpecialDeathAnimation") !=
 	        std::string::npos);
@@ -1443,6 +6377,26 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 	        std::string::npos);
 	REQUIRE(scenario_runtime.find("backend=graph.ai.action.room_search+ai/ailists.tsv+scene.glb") !=
 	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI action set_room_to_search chr_rows=%d chr=%d target_chr=%d target_selector=%d room=%d") !=
+	        std::string::npos);
+	{
+		const std::string set_room_to_search =
+			functionBlock(scenario_runtime,
+				"scenarioSourceAiGraphExecuteSetRoomToSearch");
+		REQUIRE(!set_room_to_search.empty());
+		REQUIRE(set_room_to_search.find(
+			"s_aiGraphRequireRuntimeCharacterPointer(\"set_room_to_search\"") !=
+		        std::string::npos);
+		REQUIRE(set_room_to_search.find(
+			"s_aiGraphResolveRuntimeCharacterRefOrSelector(\"set_room_to_search\"") !=
+		        std::string::npos);
+		requireTokenOrder(set_room_to_search,
+			"s_aiGraphRequireRuntimeCharacterPointer(\"set_room_to_search\"",
+			"s_aiGraphResolveRuntimeCharacterRefOrSelector(\"set_room_to_search\"");
+		requireTokenOrder(set_room_to_search,
+			"s_aiGraphResolveRuntimeCharacterRefOrSelector(\"set_room_to_search\"",
+			"chr->roomtosearch = room");
+	}
 	REQUIRE(scenario_runtime.find("scenario.ai.action.set_savefile_flag") !=
 	        std::string::npos);
 	REQUIRE(scenario_runtime.find("scenario.ai.action.unset_savefile_flag") !=
@@ -1487,6 +6441,109 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 	        std::string::npos);
 	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteSetCountdownTimerValue") !=
 	        std::string::npos);
+	REQUIRE(scenario_runtime.find("s_aiGraphRequireRuntimeCharacterStatePointer") !=
+	        std::string::npos);
+	struct TimerCharacterPointerPin {
+		const char *fn;
+		const char *guard;
+		const char *use;
+	};
+	const TimerCharacterPointerPin timer_character_pointer_pins[] = {
+		     {
+			     "scenarioSourceAiGraphExecuteRestartTimer",
+			     "s_aiGraphRequireRuntimeCharacterStatePointer(\"restart_timer\"",
+			     "chrRestartTimer(chr)",
+		     },
+		     {
+			     "scenarioSourceAiGraphExecuteResetTimer",
+			     "s_aiGraphRequireRuntimeCharacterStatePointer(\"reset_timer\"",
+			     "chr->timer60 = 0",
+		     },
+		     {
+			     "scenarioSourceAiGraphExecutePauseTimer",
+			     "s_aiGraphRequireRuntimeCharacterStatePointer(\"pause_timer\"",
+			     "chr->hidden &= ~CHRHFLAG_TIMER_RUNNING",
+		     },
+		     {
+			     "scenarioSourceAiGraphExecuteResumeTimer",
+			     "s_aiGraphRequireRuntimeCharacterStatePointer(\"resume_timer\"",
+			     "chr->hidden |= CHRHFLAG_TIMER_RUNNING",
+		     },
+		     {
+			     "scenarioSourceAiGraphExecuteIfTimerStopped",
+			     "s_aiGraphRequireRuntimeCharacterStatePointer(\"if_timer_stopped\"",
+			     "result = (chr->hidden & CHRHFLAG_TIMER_RUNNING) == 0",
+		     },
+		     {
+			     "scenarioSourceAiGraphExecuteIfTimerGreaterThanRandom",
+			     "s_aiGraphRequireRuntimeCharacterStatePointer(",
+			     "timer = chrGetTimer(chr)",
+		     },
+		     {
+			     "scenarioSourceAiGraphExecuteIfTimerLessThan",
+			     "s_aiGraphRequireRuntimeCharacterStatePointer(",
+			     "chr_timer = chrGetTimer(chr)",
+		     },
+		     {
+			     "scenarioSourceAiGraphExecuteIfTimerGreaterThan(",
+			     "s_aiGraphRequireRuntimeCharacterStatePointer(",
+			     "chr_timer = chrGetTimer(chr)",
+		     },
+	     };
+	for (const TimerCharacterPointerPin &pin :
+			timer_character_pointer_pins) {
+		const std::string block = functionBlock(scenario_runtime, pin.fn);
+		REQUIRE(!block.empty());
+		REQUIRE(block.find(pin.guard) != std::string::npos);
+		requireTokenOrder(block, pin.guard, pin.use);
+	}
+	struct TimerVehiclePointerPin {
+		const char *fn;
+		const char *guard_arg;
+		const char *use;
+	};
+	const TimerVehiclePointerPin timer_vehicle_pointer_pins[] = {
+		     {
+			     "scenarioSourceAiGraphExecuteRestartTimer",
+			     "\"restart_timer\", &hovercar->base",
+			     "chopperRestartTimer(hovercar)",
+		     },
+		     {
+			     "scenarioSourceAiGraphExecuteIfTimerLessThan",
+			     "\"if_timer_less_than\", &hovercar->base",
+			     "chopperGetTimer(hovercar)",
+		     },
+		     {
+			     "scenarioSourceAiGraphExecuteIfTimerGreaterThan(",
+			     "\"if_timer_greater_than\", &hovercar->base",
+			     "chopperGetTimer(hovercar)",
+		     },
+	     };
+	for (const TimerVehiclePointerPin &pin : timer_vehicle_pointer_pins) {
+		const std::string block = functionBlock(scenario_runtime, pin.fn);
+		REQUIRE(!block.empty());
+		REQUIRE(block.find(pin.guard_arg) != std::string::npos);
+		REQUIRE(block.find("OBJTYPE_CHOPPER, OBJTYPE_HOVERCAR") !=
+		        std::string::npos);
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimeVehicleObjectPointer(", pin.use);
+	}
+	REQUIRE(scenario_runtime.find("AI action restart_timer target=%s chr_rows=%d target_chr=%d vehicle_rows=%d source_vehicle_type=%d") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI action reset_timer chr_rows=%d target_chr=%d") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI action pause_timer chr_rows=%d target_chr=%d") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI action resume_timer chr_rows=%d target_chr=%d") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI action if_timer_stopped chr_rows=%d target_chr=%d result=%d") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI action if_timer_greater_than_random chr_rows=%d target_chr=%d") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI action if_timer_less_than value=%f result=%d target=%s chr_rows=%d target_chr=%d vehicle_rows=%d source_vehicle_type=%d") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI action if_timer_greater_than value=%f result=%d target=%s chr_rows=%d target_chr=%d vehicle_rows=%d source_vehicle_type=%d") !=
+	        std::string::npos);
 	REQUIRE(scenario_runtime.find("scenario.ai.action.show_hudmsg") !=
 	        std::string::npos);
 	REQUIRE(scenario_runtime.find("scenario.ai.action.show_hudmsg_middle") !=
@@ -1509,11 +6566,157 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 	        std::string::npos);
 	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteHovercarBeginPath") !=
 	        std::string::npos);
+	REQUIRE(scenario_runtime.find("s_aiGraphFindRuntimePath(\"hovercar_begin_path\"") !=
+	        std::string::npos);
+	{
+		const std::string find_runtime_path =
+			functionBlock(scenario_runtime, "s_aiGraphFindRuntimePath");
+		REQUIRE(!find_runtime_path.empty());
+		requireTokenOrder(find_runtime_path,
+			"missing navigation/paths.tsv source",
+			"s_countRuntimePaths()");
+		requireTokenOrder(find_runtime_path,
+			"missing navigation/paths.tsv source", "pathFindById");
+	}
+	REQUIRE(scenario_runtime.find("s_aiGraphRequireRuntimePathPointer") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("s_aiGraphRequireRuntimePathPads") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("runtime path pointer is not source-derived") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("navigation path id %d has no source pad sequence") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("missing pads.tsv source for navigation path pads") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI action hovercar_begin_path path=%d found=1 vehicle_rows=%d truck_type=%d hovercar_type=%d path_rows=%d source=%s") !=
+	        std::string::npos);
+	{
+		const std::string hovercar_begin_path = functionBlock(
+			scenario_runtime, "scenarioSourceAiGraphExecuteHovercarBeginPath");
+		REQUIRE(!hovercar_begin_path.empty());
+		REQUIRE(hovercar_begin_path.find("g_Vars.truck->") ==
+		        std::string::npos);
+		REQUIRE(hovercar_begin_path.find("g_Vars.hovercar->") ==
+		        std::string::npos);
+		requireTokenOrder(hovercar_begin_path,
+			"s_aiGraphFindRuntimePath(\"hovercar_begin_path\"",
+			"s_aiGraphRequireRuntimePathPads(\"hovercar_begin_path\"");
+		requireTokenOrder(hovercar_begin_path,
+			"s_aiGraphRequireRuntimePathPads(\"hovercar_begin_path\"",
+			"s_aiGraphRequireRuntimeVehicleObjectPointer(");
+		requireTokenOrder(hovercar_begin_path,
+			"s_aiGraphRequireRuntimeVehicleObjectPointer(",
+			"truck->path = path");
+		requireTokenOrder(hovercar_begin_path,
+			"s_aiGraphRequireRuntimeVehicleObjectPointer(",
+			"chopperFromHovercar(hovercar)");
+		requireTokenOrder(hovercar_begin_path,
+			"s_aiGraphRequireRuntimeVehicleObjectPointer(",
+			"hovercar->path = path");
+	}
+	REQUIRE(scenario_runtime.find("AI condition if_hoverbot_next_step vehicle_rows=%d source_vehicle_type=%d comparison=%d value=%d path=%d path_rows=%d path_pads=%d pad_rows=%d nextstep=%d") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.condition.vehicle_investigation+ai/ailists.tsv+objects.tsv+navigation/paths.tsv+pads.tsv") !=
+	        std::string::npos);
+	{
+		const std::string hoverbot_next_step = functionBlock(
+			scenario_runtime, "scenarioSourceAiGraphExecuteIfHoverbotNextStep");
+		REQUIRE(!hoverbot_next_step.empty());
+		requireTokenOrder(hoverbot_next_step,
+			"s_aiGraphRequireRuntimeVehicleObjectPointer(",
+			"s_aiGraphRequireRuntimePathPointer(\"if_hoverbot_next_step\"");
+		requireTokenOrder(hoverbot_next_step,
+			"s_aiGraphRequireRuntimePathPointer(\"if_hoverbot_next_step\"",
+			"s_aiGraphRequireRuntimePathPads(");
+		requireTokenOrder(hoverbot_next_step,
+			"s_aiGraphRequireRuntimePathPads(",
+			"hovercar->nextstep < 0");
+		requireTokenOrder(hoverbot_next_step,
+			"hovercar->nextstep < 0",
+			"branch_taken = hovercar &&");
+	}
+	{
+		const std::string path_pointer =
+			functionBlock(scenario_runtime,
+				"s_aiGraphRequireRuntimePathPointer");
+		REQUIRE(!path_pointer.empty());
+		requireTokenOrder(path_pointer,
+			"missing navigation/paths.tsv source",
+			"s_countRuntimePaths()");
+		REQUIRE(path_pointer.find("if (&g_StageSetup.paths[i] == path)") !=
+		        std::string::npos);
+	}
+	{
+		const std::string heli_armed = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteIfHeliWeaponsArmed");
+		REQUIRE(!heli_armed.empty());
+		requireTokenOrder(heli_armed,
+			"s_aiGraphRequireRuntimeChopperPointer(\"if_heli_weapons_armed\"",
+			"branch_taken = hovercar && hovercar->weaponsarmed");
+	}
+	{
+		const std::string heli_set_armed = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteHeliSetWeaponsArmed");
+		REQUIRE(!heli_set_armed.empty());
+		requireTokenOrder(heli_set_armed,
+			"s_aiGraphRequireRuntimeChopperPointer(name, hovercar",
+			"chopperSetArmed(hovercar, armed)");
+	}
+	{
+		const std::string chopper_pointer = functionBlock(scenario_runtime,
+			"s_aiGraphRequireRuntimeChopperPointer");
+		REQUIRE(!chopper_pointer.empty());
+		requireTokenOrder(chopper_pointer,
+			"missing objects.tsv source for vehicle weapon state",
+			"s_countRuntimeSetupObjectRows()");
+
+		const size_t vehicle_pointer_pos = scenario_runtime.rfind(
+			"static s32 s_aiGraphRequireRuntimeVehicleObjectPointer");
+		REQUIRE(vehicle_pointer_pos != std::string::npos);
+		const std::string vehicle_pointer = functionBlock(
+			scenario_runtime.substr(vehicle_pointer_pos),
+			"s_aiGraphRequireRuntimeVehicleObjectPointer");
+		REQUIRE(!vehicle_pointer.empty());
+		requireTokenOrder(vehicle_pointer,
+			"missing objects.tsv source for vehicle state",
+			"s_countRuntimeSetupObjectRows()");
+	}
+	REQUIRE(scenario_runtime.find("AI condition if_object_distance_to_pad_less_than tag=%d object_rows=%d pad=%d found=1 pad_rows=%d") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("\"set_pad_preset_to_investigation_terminal\",\n\t\t\t\t\t\tselected_pad") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI action set_pad_preset_to_investigation_terminal tag=%d object_rows=%d pad=%d found=%d pad_rows=%d") !=
+	        std::string::npos);
 	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteSetVehicleSpeed") !=
 	        std::string::npos);
 	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteSetRotorSpeed") !=
 	        std::string::npos);
-	REQUIRE(scenario_runtime.find("chopperFromHovercar(g_Vars.hovercar)") !=
+	{
+		const std::string set_vehicle_speed = functionBlock(
+			scenario_runtime, "scenarioSourceAiGraphExecuteSetVehicleSpeed");
+		REQUIRE(!set_vehicle_speed.empty());
+		REQUIRE(set_vehicle_speed.find("g_Vars.truck->") ==
+		        std::string::npos);
+		REQUIRE(set_vehicle_speed.find("g_Vars.hovercar->") ==
+		        std::string::npos);
+		requireTokenOrder(set_vehicle_speed,
+			"s_aiGraphRequireRuntimeVehicleObjectPointer(",
+			"truck->speedaim = speedaim");
+		requireTokenOrder(set_vehicle_speed,
+			"s_aiGraphRequireRuntimeVehicleObjectPointer(",
+			"hovercar->speedaim = speedaim");
+	}
+	{
+		const std::string set_rotor_speed = functionBlock(
+			scenario_runtime, "scenarioSourceAiGraphExecuteSetRotorSpeed");
+		REQUIRE(!set_rotor_speed.empty());
+		REQUIRE(set_rotor_speed.find("g_Vars.heli->") ==
+		        std::string::npos);
+		requireTokenOrder(set_rotor_speed,
+			"s_aiGraphRequireRuntimeVehicleObjectPointer(",
+			"heli->rotoryspeedaim = speedaim");
+	}
+	REQUIRE(scenario_runtime.find("chopperFromHovercar(hovercar)") !=
 	        std::string::npos);
 	REQUIRE(scenario_runtime.find("PATHFLAG_INUSE") !=
 	        std::string::npos);
@@ -1583,6 +6786,284 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 		     "scenario.ai.condition.if_target_y_difference_less_than",
 	     }) {
 		REQUIRE(scenario_runtime.find(kind) != std::string::npos);
+	}
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteIfNaturalAnim");
+		REQUIRE(!block.empty());
+		REQUIRE(block.find("AI condition if_natural_anim chr_rows=%d source_chr=%d") !=
+		        std::string::npos);
+		requireTokenOrder(block,
+			"s_aiGraphRequireOptionalRuntimeCharacterPointer(\"if_natural_anim\"",
+			"chr && chr->naturalanim >= 0");
+		requireTokenOrder(block,
+			"s_aiGraphRequireOptionalRuntimeCharacterPointer(\"if_natural_anim\"",
+			"chr && chr->naturalanim == anim");
+	}
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteIfSoundTimer");
+		REQUIRE(!block.empty());
+		REQUIRE(block.find("AI condition if_sound_timer chr_rows=%d source_chr=%d") !=
+		        std::string::npos);
+		requireTokenOrder(block,
+			"s_aiGraphRequireOptionalRuntimeCharacterPointer(\"if_sound_timer\"",
+			"chr->soundtimer > ticks_value");
+	}
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteIfTargetYDifferenceLessThan");
+		REQUIRE(!block.empty());
+		REQUIRE(block.find("AI condition if_target_y_difference_less_than chr_rows=%d source_chr=%d") !=
+		        std::string::npos);
+		requireTokenOrder(block,
+			"s_aiGraphRequireOptionalRuntimeCharacterPointer(\n\t\t\t\"if_target_y_difference_less_than\"",
+			"prop = chr ? chrGetTargetProp(chr) : NULL");
+		requireTokenOrder(block,
+			"s_aiGraphRequireOptionalRuntimeCharacterPointer(\n\t\t\t\"if_target_y_difference_less_than\"",
+			"prop->pos.y - chr->prop->pos.y");
+	}
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteHovercopterFireRocket");
+		REQUIRE(!block.empty());
+		REQUIRE(block.find("AI action hovercopter_fire_rocket vehicle_rows=%d source_vehicle_type=%d") !=
+		        std::string::npos);
+		REQUIRE(block.find("g_Vars.hovercar->") == std::string::npos);
+		REQUIRE(block.find("chopperFireRocket(g_Vars.hovercar, side)") ==
+		        std::string::npos);
+		REQUIRE(block.find("struct chopperobj *hovercar = g_Vars.hovercar;") !=
+		        std::string::npos);
+		requireTokenOrder(block,
+			"struct chopperobj *hovercar = g_Vars.hovercar;",
+			"s_aiGraphRequireRuntimeVehicleObjectPointer(");
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimeVehicleObjectPointer(",
+			"chopperFireRocket(hovercar, side)");
+	}
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecutePunchOrKick");
+		REQUIRE(!block.empty());
+		REQUIRE(block.find("AI action punch_or_kick chr_rows=%d source_chr=%d") !=
+		        std::string::npos);
+		requireTokenOrder(block,
+			"s_aiGraphRequireOptionalRuntimeCharacterPointer(\"punch_or_kick\"",
+			"chrTryPunch(chr, reverse)");
+	}
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteSetTargetToEyespyIfInSight");
+		REQUIRE(!block.empty());
+		REQUIRE(block.find("AI action set_target_to_eyespy_if_in_sight chr_rows=%d source_chr=%d player_checked=%d target_chr_rows=%d source_target_chr=%d") !=
+		        std::string::npos);
+		REQUIRE(block.find("g_Vars.players[chr->p1p2]->eyespy") ==
+		        std::string::npos);
+		requireTokenOrder(block,
+			"s_aiGraphRequireOptionalRuntimeCharacterPointer(\n\t\t\t\"set_target_to_eyespy_if_in_sight\"",
+			"s_aiGraphRequireRuntimePlayerSlot(");
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimePlayerSlot(",
+			"eyespy = player->eyespy");
+		requireTokenOrder(block,
+			"targetchr, &target_chr_count",
+			"propGetIndexByChrId(chr, targetchr->chrnum)");
+	}
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteMiniSkedarTryPounce");
+		REQUIRE(!block.empty());
+		REQUIRE(block.find("AI action mini_skedar_try_pounce chr_rows=%d source_chr=%d") !=
+		        std::string::npos);
+		requireTokenOrder(block,
+			"s_aiGraphRequireOptionalRuntimeCharacterPointer(\n\t\t\t\"mini_skedar_try_pounce\"",
+			"chrTrySkJump(chr, chr->pouncebits");
+	}
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteAvoid");
+		REQUIRE(!block.empty());
+		REQUIRE(block.find("AI action avoid chr_rows=%d source_chr=%d applied=%d") !=
+		        std::string::npos);
+		requireTokenOrder(block,
+			"s_aiGraphRequireOptionalRuntimeCharacterPointer(\"avoid\"",
+			"chrAvoid(chr)");
+	}
+	{
+		const std::string helper = functionBlock(scenario_runtime,
+			"s_aiGraphSafety2Score");
+		REQUIRE(!helper.empty());
+		REQUIRE(helper.find("AI condition if_safety2_less_than chr_rows=%d source_chr=%d checked=%d") ==
+		        std::string::npos);
+		REQUIRE(countOccurrences(helper,
+			"s_aiGraphRequireRuntimeCharacterPointer(") >= 2);
+		requireTokenOrder(helper,
+			"s_aiGraphRequireRuntimeCharacterPointer(\"if_safety2_less_than\"",
+			"chrGetNumArghs(chr)");
+		requireTokenOrder(helper,
+			"\"if_safety2_less_than\", nearby",
+			"nearby && nearby->model");
+	}
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteIfSafety2LessThan");
+		REQUIRE(!block.empty());
+		REQUIRE(block.find("AI condition if_safety2_less_than chr_rows=%d source_chr=%d checked=%d") !=
+		        std::string::npos);
+	}
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteDetectEnemyOnSameFloor");
+		REQUIRE(!block.empty());
+		REQUIRE(block.find("AI condition detect_enemy_on_same_floor chr_rows=%d source_chr=%d checked=%d") !=
+		        std::string::npos);
+		REQUIRE(block.find("s_aiGraphRuntimeCharacterPointerLooksSourceBacked(") !=
+		        std::string::npos);
+		REQUIRE(block.find("stageGetIndex(g_Vars.stagenum) ==") !=
+		        std::string::npos);
+		REQUIRE(block.find("STAGEINDEX_MAIANSOS") !=
+		        std::string::npos);
+		requireTokenOrder(block,
+			"s_aiGraphRuntimeCharacterPointerLooksSourceBacked(chr",
+			"chr->teamscandist");
+		requireTokenOrder(block,
+			"s_aiGraphRuntimeCharacterPointerLooksSourceBacked(chr",
+			"stageGetIndex(g_Vars.stagenum) ==");
+		requireTokenOrder(block,
+			"s_aiGraphRuntimeCharacterPointerLooksSourceBacked(",
+			"candidate_source_backed && candidate->prop");
+	}
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteDetectEnemy(struct chrdata");
+		REQUIRE(!block.empty());
+		REQUIRE(block.find("AI condition detect_enemy chr_rows=%d source_chr=%d checked=%d") !=
+		        std::string::npos);
+		REQUIRE(block.find("s_aiGraphRuntimeCharacterPointerLooksSourceBacked(") !=
+		        std::string::npos);
+		requireTokenOrder(block,
+			"s_aiGraphRuntimeCharacterPointerLooksSourceBacked(chr",
+			"chrnums = teamGetChrIds(1)");
+		requireTokenOrder(block,
+			"s_aiGraphRuntimeCharacterPointerLooksSourceBacked(",
+			"candidate_source_backed && candidate->prop");
+	}
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteIfSafetyLessThan");
+		REQUIRE(!block.empty());
+		REQUIRE(block.find("AI condition if_safety_less_than chr_rows=%d source_chr=%d checked=%d") !=
+		        std::string::npos);
+		REQUIRE(countOccurrences(block,
+			"s_aiGraphRequireRuntimeCharacterPointer(") >= 2);
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimeCharacterPointer(\"if_safety_less_than\"",
+			"chrGetNumArghs(chr)");
+		requireTokenOrder(block,
+			"\"if_safety_less_than\", nearby",
+			"nearby && nearby->model");
+	}
+	{
+		const std::string guard =
+			readTextFile("tools/asset_native_source_guard.py");
+		const char *literal_scan_functions[] = {
+			"scenarioSourceAiGraphExecuteSetTeamOrders",
+			"scenarioSourceAiGraphExecuteSetChrPresetToUnalertedTeammate",
+			"scenarioSourceAiGraphExecuteIfChrNotTalking",
+			"scenarioSourceAiGraphExecuteIfChrInSquadronDoingAction",
+			"s_aiGraphSafety2Score",
+			"scenarioSourceAiGraphExecuteDetectEnemyOnSameFloor",
+			"scenarioSourceAiGraphExecuteDetectEnemy",
+			"scenarioSourceAiGraphExecuteIfSafetyLessThan",
+			"scenarioSourceAiGraphExecuteIfSquadronIsDead",
+			"scenarioSourceAiGraphExecuteIfNumChrsInSquadronGreaterThan",
+			"scenarioSourceAiGraphExecuteSayQuip",
+			"scenarioSourceAiGraphExecuteIncreaseSquadronAlertness",
+		};
+		for (const char *fn : literal_scan_functions) {
+			INFO(fn);
+			REQUIRE(guard.find(fn) != std::string::npos);
+		}
+		REQUIRE(scenario_runtime.find("chrFindByLiteralId(") !=
+		        std::string::npos);
+	}
+	{
+		struct LiteralScanGuardCase {
+			const char *fn;
+			const char *log_token;
+		};
+		const LiteralScanGuardCase cases[] = {
+			{
+				"scenarioSourceAiGraphExecuteSetTeamOrders",
+				"AI action set_team_orders chr_rows=%d source_chr=%d action=%d chrs=%d checked=%d",
+			},
+			{
+				"scenarioSourceAiGraphExecuteIfChrNotTalking",
+				"AI condition if_chr_not_talking chr=%d chr_rows=%d target_chr=%d",
+			},
+			{
+				"s_aiGraphSafety2Score",
+				"out_checked_chrs",
+			},
+			{
+				"scenarioSourceAiGraphExecuteIfSquadronIsDead",
+				"AI condition if_squadron_is_dead chr_rows=%d checked=%d",
+			},
+			{
+				"scenarioSourceAiGraphExecuteSayQuip",
+				"AI action say_quip chr=%d chr_rows=%d target_chr=%d source_chr=%d checked=%d",
+			},
+			{
+				"scenarioSourceAiGraphExecuteIncreaseSquadronAlertness",
+				"AI action increase_squadron_alertness chr_rows=%d source_chr=%d checked=%d",
+			},
+		};
+		for (const LiteralScanGuardCase &entry : cases) {
+			const std::string block = functionBlock(scenario_runtime,
+				entry.fn);
+			INFO(entry.fn);
+			REQUIRE(!block.empty());
+			REQUIRE(block.find(entry.log_token) != std::string::npos);
+			REQUIRE(countOccurrences(block, "chrFindByLiteralId(") >= 1);
+			REQUIRE(countOccurrences(block,
+				        "s_aiGraphRequireRuntimeCharacterPointer(") +
+				        countOccurrences(block,
+					        "s_aiGraphRequireRuntimeCharacterStatePointer(") >=
+			        countOccurrences(block, "chrFindByLiteralId("));
+		}
+	}
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteIfChrNotTalking");
+		REQUIRE(!block.empty());
+		requireTokenOrder(block,
+			"chr = chrFindByLiteralId(chrnum);",
+			"s_aiGraphRequireRuntimeCharacterPointer(\"if_chr_not_talking\"");
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimeCharacterPointer(\"if_chr_not_talking\"",
+			"branch_taken = chr && chr->propsoundcount == 0;");
+	}
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteSayQuip");
+		REQUIRE(!block.empty());
+		requireTokenOrder(block,
+			"loopchr = chrFindByLiteralId(*chrnums);",
+			"\"say_quip\", loopchr");
+		requireTokenOrder(block,
+			"\"say_quip\", loopchr",
+			"loopchr && loopchr->model");
+	}
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteIncreaseSquadronAlertness");
+		REQUIRE(!block.empty());
+		requireTokenOrder(block,
+			"struct chrdata *target = chrFindByLiteralId(*chrnums);",
+			"target, &chr_count, NULL");
+		requireTokenOrder(block,
+			"target, &chr_count, NULL",
+			"target &&\n\t\t\t\t\ttarget->model");
 	}
 	REQUIRE(scenario_runtime.find("scenario.ai.action.try_attack_amount") !=
 	        std::string::npos);
@@ -1664,6 +7145,35 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 	        std::string::npos);
 	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteCheckCoverOutOfSight") !=
 	        std::string::npos);
+	REQUIRE(scenario_runtime.find("s_aiGraphRequireRuntimeCoverTable") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("s_aiGraphValidateRuntimeCoverIndex") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("missing source-derived runtime cover table") !=
+	        std::string::npos);
+	{
+		const std::string cover_table =
+			functionBlock(scenario_runtime,
+				"s_aiGraphRequireRuntimeCoverTable");
+		REQUIRE(!cover_table.empty());
+		requireTokenOrder(cover_table,
+			"missing navigation/covers.tsv source",
+			"s_countRuntimeCovers()");
+	}
+	REQUIRE(scenario_runtime.find("missing runtime cover id %d (cover rows=%d)") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("retreat chr_rows=%d source_chr=%d speed=%d operation=%d assigned=%d cover_rows=%d") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("chr_rows=%d source_chr=%d criteria=0x%04x refdist=%d assigned=%d cover_rows=%d source=%s") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("go_to_cover chr_rows=%d source_chr=%d speed=%d cover=%d moved_cover=%d cover_rows=%d") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("check_cover_out_of_sight chr_rows=%d source_chr=%d cover=%d out_of_sight=%d cover_rows=%d") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("orbit_target chr_rows=%d source_chr=%d angle=%u alternate=%d speed=%d") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("set_squadron chr_rows=%d source_chr=%d squadron=%d") !=
+	        std::string::npos);
 	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteOrbitTarget") !=
 	        std::string::npos);
 	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteSetChrPresetToUnalertedTeammate") !=
@@ -1674,6 +7184,147 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 	        std::string::npos);
 	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteDangerCover") !=
 	        std::string::npos);
+	REQUIRE(scenario_runtime.find("face_cover chr_rows=%d source_chr=%d cover=%d faced=%d cover_rows=%d") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("danger_cover chr_rows=%d source_chr=%d assigned=%d moved=%d cover_rows=%d") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("release_cover chr_rows=%d source_chr=%d cover=%d released=%d cover_rows=%d") !=
+	        std::string::npos);
+	{
+		const std::string retreat =
+			functionBlock(scenario_runtime,
+				"scenarioSourceAiGraphExecuteRetreat");
+		REQUIRE(!retreat.empty());
+		REQUIRE(retreat.find("assigned_cover = chrAssignCoverByCriteria") !=
+		        std::string::npos);
+		REQUIRE(retreat.find("s_aiGraphValidateRuntimeCoverIndex(\"retreat\"") !=
+		        std::string::npos);
+		requireTokenOrder(retreat,
+			"s_aiGraphRequireRuntimeCharacterPointer(\"retreat\"",
+			"chrRunFromPos(chr, speed");
+		requireTokenOrder(retreat,
+			"s_aiGraphRequireRuntimeCharacterPointer(\"retreat\"",
+			"chrGetTargetProp(chr)");
+		requireTokenOrder(retreat,
+			"s_aiGraphRequireRuntimeCharacterPointer(\"retreat\"",
+			"assigned_cover = chrAssignCoverByCriteria");
+		requireTokenOrder(retreat,
+			"assigned_cover = chrAssignCoverByCriteria",
+			"s_aiGraphValidateRuntimeCoverIndex(\"retreat\"");
+		requireTokenOrder(retreat,
+			"s_aiGraphValidateRuntimeCoverIndex(\"retreat\"",
+			"chrGoToCover(chr, speed)");
+	}
+	{
+		const std::string find_cover =
+			functionBlock(scenario_runtime,
+				"s_aiGraphExecuteFindCoverByCriteria");
+		REQUIRE(!find_cover.empty());
+		REQUIRE(find_cover.find("assigned = chrAssignCoverByCriteria") !=
+		        std::string::npos);
+		REQUIRE(find_cover.find("s_aiGraphValidateRuntimeCoverIndex(action, assigned") !=
+		        std::string::npos);
+		requireTokenOrder(find_cover,
+			"s_aiGraphRequireRuntimeCharacterPointer(action, chr",
+			"assigned = chrAssignCoverByCriteria");
+		requireTokenOrder(find_cover,
+			"assigned = chrAssignCoverByCriteria",
+			"s_aiGraphValidateRuntimeCoverIndex(action, assigned");
+		requireTokenOrder(find_cover,
+			"s_aiGraphValidateRuntimeCoverIndex(action, assigned",
+			"if (out_assigned)");
+	}
+	{
+		const std::string go_to_cover =
+			functionBlock(scenario_runtime,
+				"scenarioSourceAiGraphExecuteGoToCover");
+		REQUIRE(!go_to_cover.empty());
+		requireTokenOrder(go_to_cover,
+			"s_aiGraphRequireRuntimeCharacterPointer(\"go_to_cover\"",
+			"s_aiGraphValidateRuntimeCoverIndex(\"go_to_cover\"");
+		requireTokenOrder(go_to_cover,
+			"s_aiGraphRequireRuntimeCharacterPointer(\"go_to_cover\"",
+			"moved_cover = chrGoToCover(chr, speed)");
+	}
+	{
+		const std::string check_cover =
+			functionBlock(scenario_runtime,
+				"scenarioSourceAiGraphExecuteCheckCoverOutOfSight");
+		REQUIRE(!check_cover.empty());
+		requireTokenOrder(check_cover,
+			"s_aiGraphRequireRuntimeCharacterPointer(\"check_cover_out_of_sight\"",
+			"s_aiGraphValidateRuntimeCoverIndex(");
+		requireTokenOrder(check_cover,
+			"s_aiGraphRequireRuntimeCharacterPointer(\"check_cover_out_of_sight\"",
+			"out_of_sight = chrCheckCoverOutOfSight");
+	}
+	{
+		const std::string orbit =
+			functionBlock(scenario_runtime,
+				"scenarioSourceAiGraphExecuteOrbitTarget");
+		REQUIRE(!orbit.empty());
+		requireTokenOrder(orbit,
+			"s_aiGraphRequireRuntimeCharacterPointer(\"orbit_target\"",
+			"target = chrGetTargetProp(chr)");
+		requireTokenOrder(orbit,
+			"s_aiGraphRequireRuntimeCharacterPointer(\"orbit_target\"",
+			"chr0f04c874(chr, angle");
+	}
+	{
+		const std::string set_squadron =
+			functionBlock(scenario_runtime,
+				"scenarioSourceAiGraphExecuteSetSquadron");
+		REQUIRE(!set_squadron.empty());
+		requireTokenOrder(set_squadron,
+			"s_aiGraphRequireRuntimeCharacterPointer(\"set_squadron\"",
+			"chr->squadron = (u8)squadron");
+	}
+	{
+		const std::string face_cover =
+			functionBlock(scenario_runtime,
+				"scenarioSourceAiGraphExecuteFaceCover");
+		REQUIRE(!face_cover.empty());
+		requireTokenOrder(face_cover,
+			"s_aiGraphRequireRuntimeCharacterPointer(\"face_cover\"",
+			"s_aiGraphValidateRuntimeCoverIndex(\"face_cover\"");
+		requireTokenOrder(face_cover,
+			"s_aiGraphRequireRuntimeCharacterPointer(\"face_cover\"",
+			"faced = chrFaceCover(chr)");
+	}
+	{
+		const std::string danger =
+			functionBlock(scenario_runtime,
+				"scenarioSourceAiGraphExecuteDangerCover");
+		REQUIRE(!danger.empty());
+		REQUIRE(danger.find("assigned = chrAssignCoverAwayFromDanger") !=
+		        std::string::npos);
+		REQUIRE(danger.find("s_aiGraphValidateRuntimeCoverIndex(\"danger_cover\"") !=
+		        std::string::npos);
+		requireTokenOrder(danger,
+			"s_aiGraphRequireRuntimeCharacterPointer(\"danger_cover\"",
+			"func0f03aca0(chr");
+		requireTokenOrder(danger,
+			"s_aiGraphRequireRuntimeCharacterPointer(\"danger_cover\"",
+			"assigned = chrAssignCoverAwayFromDanger");
+		requireTokenOrder(danger,
+			"assigned = chrAssignCoverAwayFromDanger",
+			"s_aiGraphValidateRuntimeCoverIndex(\"danger_cover\"");
+		requireTokenOrder(danger,
+			"s_aiGraphValidateRuntimeCoverIndex(\"danger_cover\"",
+			"chrGoToCover(chr, GOPOSFLAG_RUN)");
+	}
+	{
+		const std::string release_cover =
+			functionBlock(scenario_runtime,
+				"scenarioSourceAiGraphExecuteReleaseCover");
+		REQUIRE(!release_cover.empty());
+		requireTokenOrder(release_cover,
+			"s_aiGraphRequireRuntimeCharacterPointer(\"release_cover\"",
+			"s_aiGraphValidateRuntimeCoverIndex(\"release_cover\"");
+		requireTokenOrder(release_cover,
+			"s_aiGraphRequireRuntimeCharacterPointer(\"release_cover\"",
+			"if (chr->cover >= 0)");
+	}
 	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteRebuildTeams") !=
 	        std::string::npos);
 	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteRebuildSquadrons") !=
@@ -1698,16 +7349,176 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 	        std::string::npos);
 	REQUIRE(scenario_runtime.find("backend=graph.ai.action.start_patrol+navigation/paths.tsv") !=
 	        std::string::npos);
+	REQUIRE(scenario_runtime.find("s_aiGraphResolveOptionalRuntimePath(\"set_path\"") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("s_aiGraphFindRuntimePath(\"start_patrol\"") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("missing source-derived runtime path table") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("missing navigation path id %d") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("missing source-derived runtime pad table") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("missing runtime pad id %d (pad rows=%d)") !=
+	        std::string::npos);
+	REQUIRE(countOccurrences(scenario_runtime,
+		        "if (!s_ActiveScenarioGraphs.pads_path[0]) {\n"
+		        "\t\ts_aiGraphRuntimeFailure(action, \"missing pads.tsv source\");\n"
+		        "\t\treturn 0;\n"
+		        "\t}\n\n"
+		        "\tpad_count = s_countRuntimePads();") >= 2);
+	REQUIRE(scenario_runtime.find("AI action set_path chr_rows=%d source_chr=%d path=%d found=1 path_rows=%d source=%s") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI action start_patrol chr_rows=%d source_chr=%d path=%u found=1 path_rows=%d source=%s") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("path_pads=%u pad_rows=%d backend=graph.ai.action.set_path+navigation/paths.tsv+pads.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("path_pads=%u pad_rows=%d backend=graph.ai.action.start_patrol+navigation/paths.tsv+pads.tsv") !=
+	        std::string::npos);
+	{
+		const std::string set_path = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteSetPath");
+		const std::string start_patrol = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteStartPatrol");
+		REQUIRE(!set_path.empty());
+		REQUIRE(!start_patrol.empty());
+		requireTokenOrder(set_path,
+			"s_aiGraphResolveOptionalRuntimePath(\"set_path\"",
+			"s_aiGraphRequireRuntimePathPads(\"set_path\"");
+		requireTokenOrder(set_path,
+			"s_aiGraphRequireRuntimePathPads(\"set_path\"",
+			"s_aiGraphRequireRuntimeCharacterPointer(\"set_path\"");
+		requireTokenOrder(set_path,
+			"s_aiGraphRequireRuntimeCharacterPointer(\"set_path\"",
+			"chrSetPath(chr, (u32)path_id)");
+		requireTokenOrder(start_patrol,
+			"s_aiGraphRequireRuntimeCharacterPointer(\"start_patrol\"",
+			"if (chr->path < 0)");
+		requireTokenOrder(start_patrol,
+			"if (chr->path < 0)",
+			"s_aiGraphFindRuntimePath(\"start_patrol\"");
+		requireTokenOrder(start_patrol,
+			"s_aiGraphFindRuntimePath(\"start_patrol\"",
+			"s_aiGraphRequireRuntimePathPads(\"start_patrol\"");
+		requireTokenOrder(start_patrol,
+			"s_aiGraphRequireRuntimePathPads(\"start_patrol\"",
+			"chrTryStartPatrol(chr)");
+	}
 	REQUIRE(scenario_runtime.find("backend=graph.ai.action.set_pad_preset+pads.tsv") !=
 	        std::string::npos);
 	REQUIRE(scenario_runtime.find("backend=graph.ai.action.chr_set_pad_preset+pads.tsv") !=
 	        std::string::npos);
-	REQUIRE(scenario_runtime.find("backend=graph.ai.action.chr_copy_pad_preset+chrstate") !=
+	REQUIRE(scenario_runtime.find("s_aiGraphRequireRuntimePad(\"try_start_alarm\"") !=
 	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI action set_pad_preset chr_rows=%d source_chr=%d pad=%d found=1 pad_rows=%d") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI action chr_set_pad_preset chr=%d chr_rows=%d target_chr=%d pad=%d found=1 pad_rows=%d") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI action try_start_alarm chr_rows=%d source_chr=%d pad=%d found=1 pad_rows=%d") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI action chr_copy_pad_preset src_chr=%d dst_chr=%d chr_rows=%d source_chr=%d target_chr=%d pad=%d found=%d pad_rows=%d") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.action.chr_copy_pad_preset+chrstate+pads.tsv") !=
+	        std::string::npos);
+	{
+		const std::string try_alarm = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteTryStartAlarm");
+		const std::string go_to_pad = functionBlock(scenario_runtime,
+			"s_aiGraphExecuteGoToPad");
+		const std::string go_to_pad_preset = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteGoToPadPreset");
+		const std::string set_pad_preset = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteSetPadPreset(struct chrdata *chr");
+		const std::string chr_set_pad_preset =
+			functionBlock(scenario_runtime,
+				"scenarioSourceAiGraphExecuteChrSetPadPreset");
+		const std::string copy_preset =
+			functionBlock(scenario_runtime,
+				"scenarioSourceAiGraphExecuteChrCopyPadPreset");
+		REQUIRE(!try_alarm.empty());
+		REQUIRE(!go_to_pad.empty());
+		REQUIRE(!go_to_pad_preset.empty());
+		REQUIRE(!set_pad_preset.empty());
+		REQUIRE(!chr_set_pad_preset.empty());
+		REQUIRE(!copy_preset.empty());
+		requireTokenOrder(try_alarm,
+			"s_aiGraphRequireRuntimePad(\"try_start_alarm\"",
+			"s_aiGraphRequireRuntimeCharacterPointer(\"try_start_alarm\"");
+		requireTokenOrder(try_alarm,
+			"s_aiGraphRequireRuntimeCharacterPointer(\"try_start_alarm\"",
+			"chrTryStartAlarm(chr, pad_id)");
+		requireTokenOrder(go_to_pad,
+			"s_aiGraphRequireRuntimePad(action, pad",
+			"s_aiGraphRequireRuntimeCharacterPointer(action, chr");
+		requireTokenOrder(go_to_pad,
+			"s_aiGraphRequireRuntimeCharacterPointer(action, chr",
+			"chrGoToPad(chr, pad, goposflags)");
+		requireTokenOrder(go_to_pad_preset,
+			"s_aiGraphRequireRuntimeCharacterPointer(\"go_to_pad_preset\"",
+			"chr->padpreset1");
+		requireTokenOrder(set_pad_preset,
+			"s_aiGraphRequireRuntimePad(\"set_pad_preset\"",
+			"s_aiGraphRequireRuntimeCharacterPointer(\"set_pad_preset\"");
+		requireTokenOrder(set_pad_preset,
+			"s_aiGraphRequireRuntimeCharacterPointer(\"set_pad_preset\"",
+			"chrSetPadPreset(chr, pad)");
+		REQUIRE(chr_set_pad_preset.find("chrSetPadPresetByChrnum(") ==
+		        std::string::npos);
+		requireTokenOrder(chr_set_pad_preset,
+			"s_aiGraphRequireRuntimePad(\"chr_set_pad_preset\"",
+			"s_aiGraphRequireRuntimeCharacterRefFromBase(");
+		requireTokenOrder(chr_set_pad_preset,
+			"s_aiGraphRequireRuntimeCharacterRefFromBase(",
+			"chr->padpreset1 = chrResolvePadId(basechr, pad)");
+		REQUIRE(copy_preset.find("missing pads.tsv source") !=
+		        std::string::npos);
+		REQUIRE(copy_preset.find("s_aiGraphRequireRuntimeCharacterRefFromBase(\n\t\t\t\"chr_copy_pad_preset\"") !=
+		        std::string::npos);
+		REQUIRE(copy_preset.find("chr_rows=%d source_chr=%d target_chr=%d") !=
+		        std::string::npos);
+		REQUIRE(copy_preset.find("s_aiGraphRequireRuntimePad(\"chr_copy_pad_preset\"") !=
+		        std::string::npos);
+		REQUIRE(copy_preset.find("s_aiGraphRequireRuntimePadTable(\"chr_copy_pad_preset\"") !=
+		        std::string::npos);
+		requireTokenOrder(copy_preset,
+			"s_aiGraphRequireRuntimeCharacterRefFromBase(",
+			"copied_pad = chrsrc->padpreset1");
+		requireTokenOrder(copy_preset,
+			"copied_pad = chrsrc->padpreset1",
+			"s_aiGraphRequireRuntimePad(\"chr_copy_pad_preset\"");
+		requireTokenOrder(copy_preset,
+			"s_aiGraphRequireRuntimePad(\"chr_copy_pad_preset\"",
+			"chrdst->padpreset1 = copied_pad");
+	}
 	REQUIRE(scenario_runtime.find("backend=graph.ai.action.set_chr_preset+ai/ailists.tsv") !=
 	        std::string::npos);
 	REQUIRE(scenario_runtime.find("backend=graph.ai.action.set_chr_target+ai/ailists.tsv") !=
 	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI action set_chr_preset chr_rows=%d target_chr=%d chrpreset=%d") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI action set_chr_target chr=%d chr_rows=%d target_chr=%d chrpreset=%d") !=
+	        std::string::npos);
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteSetChrPreset");
+		REQUIRE(!block.empty());
+		REQUIRE(block.find("s_aiGraphRequireOptionalRuntimeCharacterPointer(") !=
+		        std::string::npos);
+		requireTokenOrder(block,
+			"s_aiGraphRequireOptionalRuntimeCharacterPointer(",
+			"chrSetChrPreset(chr, chrpreset)");
+	}
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteSetChrTarget");
+		REQUIRE(block.find("s_aiGraphRequireRuntimeCharacterRefFromBase(") !=
+		        std::string::npos);
+		REQUIRE(block.find("chrSetChrPresetByChrnum(") ==
+		        std::string::npos);
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimeCharacterRefFromBase(",
+			"chrSetChrPreset(chr, chrpreset)");
+	}
 	REQUIRE(scenario_runtime.find("backend=graph.ai.action.set_morale+ai/ailists.tsv") !=
 	        std::string::npos);
 	REQUIRE(scenario_runtime.find("backend=graph.ai.action.add_morale+ai/ailists.tsv") !=
@@ -1750,6 +7561,115 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 	        std::string::npos);
 	REQUIRE(scenario_runtime.find("backend=graph.ai.action.set_unarmed_dodge_rating+ai/ailists.tsv") !=
 	        std::string::npos);
+	for (const char *proof : {
+		     "AI action set_morale chr_rows=%d source_chr=%d value=%d",
+		     "AI action add_morale chr_rows=%d source_chr=%d amount=%d",
+		     "AI action subtract_morale chr_rows=%d source_chr=%d amount=%d",
+		     "AI action set_alertness chr_rows=%d source_chr=%d value=%d",
+		     "AI action add_alertness chr_rows=%d source_chr=%d amount=%d",
+		     "AI action subtract_alertness chr_rows=%d source_chr=%d amount=%d",
+		     "AI action set_hear_distance chr_rows=%d source_chr=%d value=%.3f",
+		     "AI action set_view_distance chr_rows=%d source_chr=%d value=%d applied=%d",
+		     "AI action set_grenade_probability chr_rows=%d source_chr=%d value=%d",
+		     "AI action set_chr_num chr_rows=%d source_chr=%d value=%d",
+		     "AI action set_max_damage chr=%d chr_rows=%d target_chr=%d vehicle_rows=%d source_vehicle_type=%d",
+		     "AI action add_health chr_rows=%d source_chr=%d amount=%.3f",
+		     "AI action set_shield chr_rows=%d source_chr=%d value=%.3f",
+		     "AI action set_reaction_speed chr_rows=%d source_chr=%d value=%d",
+		     "AI action set_recovery_speed chr_rows=%d source_chr=%d value=%d",
+		     "AI action set_accuracy chr_rows=%d source_chr=%d value=%d",
+		     "AI action set_dodge_rating chr_rows=%d source_chr=%d mode=%d value=%d",
+		     "AI action set_unarmed_dodge_rating chr_rows=%d source_chr=%d value=%d",
+		     "AI action set_flag chr_rows=%d source_chr=%d flags=0x%08x bank=%u",
+		     "AI action unset_flag chr_rows=%d source_chr=%d flags=0x%08x bank=%u",
+		     "AI action if_has_flag chr_rows=%d source_chr=%d flags=0x%08x bank=%u",
+		     "AI action chr_set_flag chr=%d chr_rows=%d target_chr=%d flags=0x%08x bank=%u",
+		     "AI action chr_unset_flag chr=%d chr_rows=%d target_chr=%d flags=0x%08x bank=%u",
+		     "AI action if_chr_has_flag chr=%d chr_rows=%d target_chr=%d flags=0x%08x bank=%u",
+	     }) {
+		REQUIRE(scenario_runtime.find(proof) != std::string::npos);
+	}
+	{
+		const char *mutations[][2] = {
+			{"scenarioSourceAiGraphExecuteSetMorale",
+				"chr->morale = (u8)morale"},
+			{"scenarioSourceAiGraphExecuteAddMorale",
+				"incrementByte(&chr->morale"},
+			{"scenarioSourceAiGraphExecuteSubtractMorale",
+				"decrementByte(&chr->morale"},
+			{"scenarioSourceAiGraphExecuteSetAlertness",
+				"chr->alertness = (u8)alertness"},
+			{"scenarioSourceAiGraphExecuteAddAlertness",
+				"incrementByte(&chr->alertness"},
+			{"scenarioSourceAiGraphExecuteSubtractAlertness",
+				"decrementByte(&chr->alertness"},
+			{"scenarioSourceAiGraphExecuteSetHearDistance",
+				"chr->hearingscale = distance"},
+			{"scenarioSourceAiGraphExecuteSetViewDistance",
+				"chr->visionrange = (u8)distance"},
+			{"scenarioSourceAiGraphExecuteSetGrenadeProbability",
+				"chr->grenadeprob = (u8)probability"},
+			{"scenarioSourceAiGraphExecuteSetChrNum",
+				"chrSetChrnum(chr, chrnum)"},
+			{"scenarioSourceAiGraphExecuteAddHealth",
+				"chrAddHealth(chr, amount)"},
+			{"scenarioSourceAiGraphExecuteSetShield",
+				"chrSetShield(chr, amount)"},
+			{"scenarioSourceAiGraphExecuteSetReactionSpeed",
+				"chr->speedrating = (s8)speed"},
+			{"scenarioSourceAiGraphExecuteSetRecoverySpeed",
+				"chr->arghrating = (s8)speed"},
+			{"scenarioSourceAiGraphExecuteSetAccuracy",
+				"chr->accuracyrating = (s8)accuracy"},
+			{"scenarioSourceAiGraphExecuteSetDodgeRating",
+				"chr->dodgerating = (s8)rating"},
+			{"scenarioSourceAiGraphExecuteSetUnarmedDodgeRating",
+				"chr->unarmeddodgerating = (s8)rating"},
+			{"scenarioSourceAiGraphExecuteSetFlag",
+				"chrSetFlags(chr, flags, bank)"},
+			{"scenarioSourceAiGraphExecuteUnsetFlag",
+				"chrUnsetFlags(chr, flags, bank)"},
+			{"scenarioSourceAiGraphExecuteIfHasFlag",
+				"chrHasFlag(chr, flags, bank)"},
+		};
+
+		for (const auto &mutation : mutations) {
+			const std::string block = functionBlock(scenario_runtime,
+				mutation[0]);
+			REQUIRE(!block.empty());
+			requireTokenOrder(block,
+				"s_aiGraphRequireActiveCharacterAction(",
+				mutation[1]);
+		}
+	}
+	{
+		const char *mutations[][3] = {
+			{"scenarioSourceAiGraphExecuteChrSetFlag",
+				"chrSetFlagsById(", "chrSetFlags(chr, flags, bank)"},
+			{"scenarioSourceAiGraphExecuteChrUnsetFlag",
+				"chrUnsetFlagsById(", "chrUnsetFlags(chr, flags, bank)"},
+			{"scenarioSourceAiGraphExecuteIfChrHasFlag",
+				"chrHasFlagById(", "chrHasFlag(chr, flags, bank)"},
+		};
+
+		for (const auto &mutation : mutations) {
+			const std::string block = functionBlock(scenario_runtime,
+				mutation[0]);
+			REQUIRE(!block.empty());
+			REQUIRE(block.find(mutation[1]) == std::string::npos);
+			requireTokenOrder(block,
+				"s_aiGraphRequireRuntimeCharacterRefFromBase(",
+				mutation[2]);
+		}
+	}
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteSetMaxDamage");
+		REQUIRE(!block.empty());
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimeVehicleObjectPointer(",
+			"chopperSetMaxDamage(hovercar, maxdamage)");
+	}
 	REQUIRE(scenario_runtime.find("backend=graph.ai.action.set_flag+ai/ailists.tsv") !=
 	        std::string::npos);
 	REQUIRE(scenario_runtime.find("backend=graph.ai.action.unset_flag+ai/ailists.tsv") !=
@@ -1772,8 +7692,39 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 	        std::string::npos);
 	REQUIRE(scenario_runtime.find("backend=graph.ai.action.chr_set_hidden_flag+ai/ailists.tsv") !=
 	        std::string::npos);
+	for (const char *fn : {
+		     "scenarioSourceAiGraphExecuteSetChrflag",
+		     "scenarioSourceAiGraphExecuteUnsetChrflag",
+		     "scenarioSourceAiGraphExecuteIfHasChrflag",
+	     }) {
+		const std::string block = functionBlock(scenario_runtime, fn);
+		REQUIRE(!block.empty());
+		REQUIRE(block.find("s_aiGraphRequireRuntimeCharacterStatePointer(") !=
+		        std::string::npos);
+		REQUIRE(block.find("s_aiGraphRequireRuntimeCharacterPointer(") ==
+		        std::string::npos);
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimeCharacterStatePointer(",
+			"chr->chrflags");
+	}
 	REQUIRE(scenario_runtime.find("backend=graph.ai.action.set_obj_flag+objects.tsv") !=
 	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI action set_obj_flag tag=%d object_rows=%d") !=
+	        std::string::npos);
+	for (const char *fn : {
+		     "scenarioSourceAiGraphExecuteSetObjFlag",
+		     "scenarioSourceAiGraphExecuteUnsetObjFlag",
+		     "scenarioSourceAiGraphExecuteIfObjHasFlag",
+	     }) {
+		const std::string block = functionBlock(scenario_runtime, fn);
+		REQUIRE(!block.empty());
+		REQUIRE(block.find("s_aiGraphResolveOptionalRuntimeObjectTag(") !=
+		        std::string::npos);
+		REQUIRE(block.find("objFindByTagId(tag_id)") == std::string::npos);
+		requireTokenOrder(block,
+			"s_aiGraphResolveOptionalRuntimeObjectTag(",
+			"s_aiGraphObjectFlagBank(obj, bank)");
+	}
 	REQUIRE(scenario_runtime.find("backend=graph.ai.action.chr_object_flags+ai/ailists.tsv") !=
 	        std::string::npos);
 	REQUIRE(scenario_runtime.find("backend=graph.ai.action.set_savefile_flag+ai/ailists.tsv") !=
@@ -1786,8 +7737,49 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 	        std::string::npos);
 	REQUIRE(scenario_runtime.find("backend=graph.ai.action.set_action+ai/ailists.tsv") !=
 	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI action set_action chr_rows=%d target_chr=%d action=%d clear_orders=%d") !=
+	        std::string::npos);
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteSetAction");
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimeCharacterStatePointer(",
+			"chr->myaction = (u8)action");
+	}
 	REQUIRE(scenario_runtime.find("backend=graph.ai.action.set_team_orders+ai/ailists.tsv") !=
 	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI action set_team_orders chr_rows=%d source_chr=%d action=%d chrs=%d checked=%d") !=
+	        std::string::npos);
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteSetTeamOrders");
+		REQUIRE(!block.empty());
+		REQUIRE(countOccurrences(block,
+			"s_aiGraphRequireRuntimeCharacterPointer(") >= 3);
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimeCharacterPointer(\"set_team_orders\", chr,",
+			"chrnums = squadronGetChrIds(chr->squadron)");
+		requireTokenOrder(block,
+			"\"set_team_orders\", target, &chr_count, NULL",
+			"target && target->model");
+		requireTokenOrder(block,
+			"\"set_team_orders\", target, &chr_count, NULL",
+			"target->orders = MA_SHOOTING");
+		REQUIRE(block.find("chrHasFlagById(") == std::string::npos);
+		requireTokenOrder(block,
+			"\"set_team_orders\", target, &chr_count, NULL",
+			"chrHasFlag(target, CHRFLAG0_CAN_BACKOFF");
+	}
+	REQUIRE(scenario_runtime.find("AI action try_attack_amount chr_rows=%d source_chr=%d arg0=%d arg1=%d") !=
+	        std::string::npos);
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteTryAttackAmount");
+		REQUIRE(!block.empty());
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimeCharacterPointer(\"try_attack_amount\"",
+			"chrTryAttackAmount(chr, 512, 0, arg0, arg1)");
+	}
 	REQUIRE(scenario_runtime.find("backend=graph.ai.action.retreat+ai/ailists.tsv") !=
 	        std::string::npos);
 	REQUIRE(scenario_runtime.find("backend=graph.ai.action.find_cover+navigation/covers.tsv") !=
@@ -1804,6 +7796,129 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 	        std::string::npos);
 	REQUIRE(scenario_runtime.find("backend=graph.ai.action.set_chr_preset_to_unalerted_teammate+ai/ailists.tsv") !=
 	        std::string::npos);
+	REQUIRE(scenario_runtime.find("AI action set_chr_preset_to_unalerted_teammate chr_rows=%d source_chr=%d checked=%d candidate=%d") !=
+	        std::string::npos);
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteSetChrPresetToUnalertedTeammate");
+		REQUIRE(!block.empty());
+		REQUIRE(countOccurrences(block,
+			"s_aiGraphRequireRuntimeCharacterPointer(") >= 2);
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimeCharacterPointer(",
+			"chrnums = teamGetChrIds(chr->team)");
+		requireTokenOrder(block,
+			"\"set_chr_preset_to_unalerted_teammate\",\n\t\t\t\t\t\ttarget",
+			"!target || !target->model");
+		requireTokenOrder(block,
+			"\"set_chr_preset_to_unalerted_teammate\",\n\t\t\t\t\t\ttarget",
+			"chrSetChrPreset(chr, candidate_chrnum)");
+	}
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteIfOrders");
+		REQUIRE(!block.empty());
+		REQUIRE(block.find("AI condition if_orders chr_rows=%d source_chr=%d") !=
+		        std::string::npos);
+		requireTokenOrder(block,
+			"s_aiGraphRequireCharacterConditionActor(\"if_orders\"",
+			"chr && chr->prop && chr->orders == order");
+		requireTokenOrder(block,
+			"s_aiGraphRequireCharacterConditionActor(\"if_orders\"",
+			"chr && chr->prop ? chr->orders : -1");
+	}
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteIfHasOrders");
+		REQUIRE(!block.empty());
+		REQUIRE(block.find("AI condition if_has_orders chr_rows=%d source_chr=%d") !=
+		        std::string::npos);
+		requireTokenOrder(block,
+			"s_aiGraphRequireCharacterConditionActor(\"if_has_orders\"",
+			"chr && chr->prop && chr->orders");
+		requireTokenOrder(block,
+			"s_aiGraphRequireCharacterConditionActor(\"if_has_orders\"",
+			"chr && chr->prop ? chr->orders : -1");
+	}
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteIfNotListening");
+		REQUIRE(!block.empty());
+		REQUIRE(block.find("AI condition if_not_listening chr_rows=%d source_chr=%d") !=
+		        std::string::npos);
+		requireTokenOrder(block,
+			"s_aiGraphRequireCharacterConditionActor(\"if_not_listening\"",
+			"chr && chr->prop && chr->listening == 0");
+		requireTokenOrder(block,
+			"s_aiGraphRequireCharacterConditionActor(\"if_not_listening\"",
+			"chr && chr->prop ? chr->listening : -1");
+	}
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteIfAction");
+		REQUIRE(!block.empty());
+		REQUIRE(block.find("AI condition if_action chr_rows=%d source_chr=%d") !=
+		        std::string::npos);
+		requireTokenOrder(block,
+			"s_aiGraphRequireCharacterConditionActor(\"if_action\"",
+			"chr && chr->prop && chr->myaction == action");
+		requireTokenOrder(block,
+			"s_aiGraphRequireCharacterConditionActor(\"if_action\"",
+			"chr && chr->prop ? chr->myaction : -1");
+	}
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteIfChrInSquadronDoingAction");
+		REQUIRE(!block.empty());
+		REQUIRE(block.find("AI condition if_chr_in_squadron_doing_action chr_rows=%d source_chr=%d checked=%d") !=
+		        std::string::npos);
+		REQUIRE(countOccurrences(block,
+			"s_aiGraphRequireRuntimeCharacterPointer(") >= 2);
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimeCharacterPointer(",
+			"chrnums = squadronGetChrIds(chr->squadron)");
+		requireTokenOrder(block,
+			"\"if_chr_in_squadron_doing_action\",\n\t\t\t\t\t\t\tother",
+			"other && other->model");
+	}
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteIfSquadronIsDead");
+		REQUIRE(!block.empty());
+		REQUIRE(block.find("AI condition if_squadron_is_dead chr_rows=%d checked=%d") !=
+		        std::string::npos);
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimeCharacterPointer(",
+			"chr && chr->model");
+	}
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteIfNumChrsInSquadronGreaterThan");
+		REQUIRE(!block.empty());
+		REQUIRE(block.find("AI condition if_num_chrs_in_squadron_greater_than chr_rows=%d checked=%d") !=
+		        std::string::npos);
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimeCharacterPointer(",
+			"chr && chr->prop");
+	}
+	{
+		const std::string block = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteIncreaseSquadronAlertness");
+		REQUIRE(!block.empty());
+		REQUIRE(block.find("AI action increase_squadron_alertness chr_rows=%d source_chr=%d checked=%d") !=
+		        std::string::npos);
+		REQUIRE(countOccurrences(block,
+			"s_aiGraphRequireRuntimeCharacterPointer(") >= 2);
+		requireTokenOrder(block,
+			"s_aiGraphRequireRuntimeCharacterPointer(",
+			"chrnums = teamGetChrIds(chr->team)");
+		requireTokenOrder(block,
+			"\"increase_squadron_alertness\",\n\t\t\t\t\t\ttarget",
+			"target->model");
+		requireTokenOrder(block,
+			"\"increase_squadron_alertness\",\n\t\t\t\t\t\ttarget",
+			"incrementByte(&target->alertness");
+	}
 	REQUIRE(scenario_runtime.find("backend=graph.ai.action.set_squadron+ai/ailists.tsv") !=
 	        std::string::npos);
 	REQUIRE(scenario_runtime.find("backend=graph.ai.action.face_cover+navigation/covers.tsv") !=
@@ -2766,6 +8881,10 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 	        std::string::npos);
 	REQUIRE(scenario_extractor.find("scenario.ai.condition.if_obj_in_room") !=
 	        std::string::npos);
+	REQUIRE(scenario_extractor.find("\\\"objects\\\": \\\"objects.tsv\\\", \\\"pads\\\": \\\"pads.tsv\\\", \\\"scene\\\": \\\"scene.glb\\\", \\\"target\\\": \\\"object.room\\\"") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("\\\"from\\\": \\\"scenario.pads\\\", \\\"to\\\": \\\"scenario.ai.condition.if_obj_in_room\\\"") !=
+	        std::string::npos);
 	REQUIRE(scenario_extractor.find("scenario.ai.condition.if_player_looking_at_object") !=
 	        std::string::npos);
 	REQUIRE(scenario_extractor.find("scenario.ai.condition.if_target_is_player") !=
@@ -3070,6 +9189,48 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 	        std::string::npos);
 	REQUIRE(scenario_runtime.find("refusing legacy-only setup behavior") !=
 	        std::string::npos);
+	REQUIRE(scenario_runtime.find("setup_link_logged_mask") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("s_setupBehaviorLinkLogBit") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("s_setupGraphValidateBlockedPathWaypoints") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("s_setupFindRecordByOrder") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("s_setupValidateBehaviorLinkSourceTargets") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("s_setupValidateBehaviorLinkTarget") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("is not a public setup.fields.tsv row") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("expected source type %u") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("\"linked_guns.weapon_1\"") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("\"linked_guns.weapon_2\"") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("\"lift_door_link.door\"") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("\"lift_door_link.lift\"") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("\"safe_item.safe\"") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("\"safe_item.door\"") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("\"padlocked_door.door\"") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("\"conditional_scenery.trigger\"") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("\"conditional_scenery.unexploded\"") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("\"conditional_scenery.exploded\"") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("\"blocked_path.blocker\"") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("blocked_path waypoint_1 %d does not point at a source row") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("blocked_path waypoint_2 %d does not point at a source row") !=
+	        std::string::npos);
 	REQUIRE(scenario_runtime.find("backend=graph.setup.links+setup.fields.tsv") !=
 	        std::string::npos);
 	REQUIRE(scenario_runtime.find("s_bindLevelGraphTablePath") !=
@@ -3084,6 +9245,30 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 	        std::string::npos);
 	REQUIRE(scenario_runtime.find("s_ActiveScenarioGraphs.setup_fields_path") !=
 	        std::string::npos);
+	{
+		const std::string behavior_link =
+			functionBlock(scenario_runtime,
+				"scenarioSourceSetupGraphRecordBehaviorLink");
+		REQUIRE(!behavior_link.empty());
+		REQUIRE(behavior_link.find(
+				"s_setupGraphValidateBlockedPathWaypoints") !=
+		        std::string::npos);
+		requireTokenOrder(behavior_link,
+			"s_setupGraphValidateBlockedPathWaypoints",
+			"s_setupBehaviorLinkTargetsMatch");
+	}
+	{
+		const std::string collect_links =
+			functionBlock(scenario_runtime,
+				"s_setupCollectBehaviorLinkSource");
+		REQUIRE(!collect_links.empty());
+		requireTokenOrder(collect_links,
+			"s_setupFillBehaviorLink",
+			"s_setupValidateBehaviorLinkSourceTargets");
+		requireTokenOrder(collect_links,
+			"s_setupValidateBehaviorLinkSourceTargets",
+			"s_ActiveScenarioGraphs.setup_link_count = count");
+	}
 	REQUIRE(scenario_runtime.find("MISSION.GRAPH: activated mission graph") !=
 	        std::string::npos);
 	REQUIRE(scenario_runtime_h.find("scenarioSourceObjectiveGraphRecordCheck") !=
@@ -3236,7 +9421,7 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 	        std::string::npos);
 	REQUIRE(lv_runtime.find("scenarioSourceMissionGraphRecordPhase(\"active\", \"lvTick.start\")") !=
 	        std::string::npos);
-	REQUIRE(meta_extractor.find("PDMETA_FAST_CACHE_KIND \"pdmeta_table_backed_v8_pdscenario_v77\"") !=
+	REQUIRE(meta_extractor.find("PDMETA_FAST_CACHE_KIND \"pdmeta_table_backed_v8_pdscenario_v82\"") !=
 	        std::string::npos);
 	REQUIRE(meta_extractor.find("PDMETA_SCENARIO_DEP_CACHE_KIND") !=
 	        std::string::npos);
@@ -3986,18 +10171,34 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 	        std::string::npos);
 	REQUIRE(scenario_runtime.find("offsetof(struct textoverride, objoffset)") !=
 	        std::string::npos);
-	REQUIRE(setup.find("scenarioSourceSetupGraphRecordBehaviorLink(") !=
+	const std::string setup_create_props = functionBlock(setup, "setupCreateProps");
+	REQUIRE(!setup_create_props.empty());
+	REQUIRE(setup_create_props.find("scenarioSourceSetupGraphRecordBehaviorLink(") !=
 	        std::string::npos);
-	REQUIRE(setup.find("OBJTYPE_LINKGUNS, index") != std::string::npos);
-	REQUIRE(setup.find("OBJTYPE_LINKLIFTDOOR, index") !=
+	REQUIRE(setup_create_props.find("OBJTYPE_LINKGUNS, index") != std::string::npos);
+	REQUIRE(setup_create_props.find("OBJTYPE_LINKLIFTDOOR, index") !=
 	        std::string::npos);
-	REQUIRE(setup.find("OBJTYPE_SAFEITEM, index") != std::string::npos);
-	REQUIRE(setup.find("OBJTYPE_PADLOCKEDDOOR, index") !=
+	REQUIRE(setup_create_props.find("OBJTYPE_SAFEITEM, index") != std::string::npos);
+	REQUIRE(setup_create_props.find("OBJTYPE_PADLOCKEDDOOR, index") !=
 	        std::string::npos);
-	REQUIRE(setup.find("OBJTYPE_CONDITIONALSCENERY, index") !=
+	REQUIRE(setup_create_props.find("OBJTYPE_CONDITIONALSCENERY, index") !=
 	        std::string::npos);
-	REQUIRE(setup.find("OBJTYPE_BLOCKEDPATH, index") !=
+	REQUIRE(setup_create_props.find("OBJTYPE_BLOCKEDPATH, index") !=
 	        std::string::npos);
+	REQUIRE(countOccurrences(setup_create_props,
+			"if (!scenarioSourceSetupGraphRecordBehaviorLink(") >= 6);
+	requireTokenOrder(setup_create_props, "OBJTYPE_LINKGUNS, index",
+		"propweaponSetDual");
+	requireTokenOrder(setup_create_props, "OBJTYPE_LINKLIFTDOOR, index",
+		"setupCreateLiftDoor(link)");
+	requireTokenOrder(setup_create_props, "OBJTYPE_SAFEITEM, index",
+		"setupCreateSafeItem(link)");
+	requireTokenOrder(setup_create_props, "OBJTYPE_PADLOCKEDDOOR, index",
+		"setupCreatePadlockedDoor(link)");
+	requireTokenOrder(setup_create_props, "OBJTYPE_CONDITIONALSCENERY, index",
+		"setupCreateConditionalScenery(link)");
+	requireTokenOrder(setup_create_props, "OBJTYPE_BLOCKEDPATH, index",
+		"setupCreateBlockedPath(blockedpath)");
 	REQUIRE(catalog_api.find("Extractors run before catalogBuildRuntimeCaches()") !=
 	        std::string::npos);
 	REQUIRE(catalog_api.find("assetCatalogGetByIndex(i)") !=
@@ -4018,7 +10219,7 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 	        std::string::npos);
 	REQUIRE(mesh_walker.find("catalogSetPrimaryFile(e, source_path)") !=
 	        std::string::npos);
-	REQUIRE(mesh_extractor.find("pdmesh_model_obj_mtx_v11_skeleton_allmodels_menuhud") !=
+	REQUIRE(mesh_extractor.find("pdmesh_model_obj_mtx_v12_materials_allmodels_menuhud") !=
 	        std::string::npos);
 	REQUIRE(mesh_extractor.find("catalogReadableModelIdForFile((s32)FILE_GHUDPIECE, \"menu\", \"menu\"") !=
 	        std::string::npos);
@@ -4271,27 +10472,68 @@ TEST_CASE("Scenario source matrix runner keeps stage smokes source-only and sequ
           "[modding][pdxxx][c3844][scenario][smoke][static]") {
 	const std::string matrix =
 		readTextFile("tools/smoke-verify/run-scenario-source-matrix.ps1");
+	const std::string main = readTextFile("port/src/main.c");
+	const std::string playerreset = readTextFile("src/game/playerreset.c");
 
 	REQUIRE(matrix.find("AssetSourceOnlyType=30") != std::string::npos);
 	REQUIRE(matrix.find("intentionally sequential") != std::string::npos);
 	REQUIRE(matrix.find("Build\\data\\ntsc-final\\scenarios") != std::string::npos);
 	REQUIRE(matrix.find("_meta/manifest.json") != std::string::npos);
-	REQUIRE(matrix.find("stagenum") != std::string::npos);
-	REQUIRE(matrix.find("$stageHexRegex = (\"0x0*{0:x}\"") !=
+	REQUIRE(matrix.find("ScenarioCatalogId = $id") != std::string::npos);
+	REQUIRE(matrix.find("ArenaCatalogId = ($id -replace '^base:scenario_', 'base:arena_')") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("[string] $Install = \"\"") != std::string::npos);
+	REQUIRE(matrix.find("$runnerArgs += @(\"-Install\", $Install)") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("IsMultiplayer = ($kind -eq \"mp\")") != std::string::npos);
+	REQUIRE(matrix.find("AiCommandRows = $aiCommandRows") != std::string::npos);
+	REQUIRE(matrix.find("StageNumHex = (\"0x{0:x}\" -f $stagenum)") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("LegacyBootStage") == std::string::npos);
+	REQUIRE(matrix.find("$Entry.ScenarioCatalogId") != std::string::npos);
+	REQUIRE(matrix.find("Scenario manifest lacks catalog id") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("LOAD: lv\\.c entering stage load sequence\",") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("$stageHexRegex = (\"0x0*{0:x}\"") ==
 	        std::string::npos);
 	REQUIRE(matrix.find("--boot-stage") != std::string::npos);
+	REQUIRE(matrix.find("--launch-mp-room") != std::string::npos);
+	REQUIRE(matrix.find("base:combat") != std::string::npos);
+	REQUIRE(matrix.find("--debug-auto-start-match") != std::string::npos);
+	REQUIRE(matrix.find("direct match start should bind MP arena") != std::string::npos);
+	REQUIRE(matrix.find("BOOT: --launch-mp-room direct match start") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("MATCHSTART\\.DIAG: entry stage_id='{0}'") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("MATCHSETUP: stage '{0}'.*stagenum={1}") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("if ([int]$Entry.AiCommandRows -eq 0)") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("^SCENARIO\\\\\\.GRAPH: AI (?!list source)") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("$Entry.LegacyBootStageHex") == std::string::npos);
 	REQUIRE(matrix.find("tools/smoke-verify/run.ps1") != std::string::npos);
 	REQUIRE(matrix.find("-TestsDir") != std::string::npos);
+	REQUIRE(matrix.find("System.Text.UTF8Encoding($false)") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("[System.IO.File]::WriteAllText") !=
+	        std::string::npos);
 	REQUIRE(matrix.find("base:scenario_chicago") != std::string::npos);
 	REQUIRE(matrix.find("base:scenario_citraining") != std::string::npos);
 	REQUIRE(matrix.find("base:scenario_airbase") != std::string::npos);
 	REQUIRE(matrix.find("base:scenario_test_ash") != std::string::npos);
 	REQUIRE(matrix.find("base:scenario_extra25") != std::string::npos);
 	REQUIRE(matrix.find("base:scenario_extra26") != std::string::npos);
-	REQUIRE(readTextFile("port/src/main.c").find("g_StageNum > STAGE_EXTRA26") !=
+	REQUIRE(main.find("sysArgGetString(\"--boot-stage\")") != std::string::npos);
+	REQUIRE(main.find("sysArgGetInt(\"--boot-stage\", STAGE_TITLE)") ==
 	        std::string::npos);
-	REQUIRE(readTextFile("port/src/main.c").find("g_StageNum > 0x5d") ==
+	REQUIRE(main.find("bootResolveStageIdToNum(bootStageArg)") !=
 	        std::string::npos);
+	REQUIRE(main.find("entry->type == ASSET_SCENARIO") != std::string::npos);
+	REQUIRE(main.find("entry->ext.scenario.stagenum") != std::string::npos);
+	REQUIRE(main.find("g_StageNum > STAGE_EXTRA26") != std::string::npos);
+	REQUIRE(main.find("g_StageNum > 0x5d") == std::string::npos);
 	REQUIRE(matrix.find("SCENARIO\\.SOURCE: added scene colmesh") !=
 	        std::string::npos);
 	REQUIRE(matrix.find("SCENARIO\\.SOURCE: compiled portals\\.tsv") !=
@@ -4301,12 +10543,616 @@ TEST_CASE("Scenario source matrix runner keeps stage smokes source-only and sequ
 	REQUIRE(matrix.find("SCENARIO\\.GRAPH: activated level graph") !=
 	        std::string::npos);
 	REQUIRE(matrix.find("SCENARIO\\.GRAPH: table refs") != std::string::npos);
+	REQUIRE(matrix.find("portals=.*{1}::portals\\.tsv") != std::string::npos);
+	REQUIRE(matrix.find("SCENARIO\\.GRAPH: global settings source") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("backend=graph\\.global\\.settings\\+level\\.graph\\.nodes") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("SCENARIO\\.GRAPH: volume source") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("backend=graph\\.trigger\\.volumes\\+volumes\\.tsv") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("SCENARIO\\.GRAPH: pad source") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("backend=graph\\.pads\\+pads\\.tsv") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("source_counts=pads:\\d+,volumes:\\d+,waypoints:\\d+,waygroups:\\d+,covers:\\d+,paths:\\d+") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("source_hashes=sha256") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("capabilities=walk,jump,drop,wall,ceiling") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("backend=graph\\.navigation\\.generate\\+navigation\\.ini\\+generated-navmesh\\.json") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("SCENARIO\\.GRAPH: trigger volume nodes") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("backend=graph\\.trigger\\.volumes\\+level\\.graph\\.nodes\\+volumes\\.tsv") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("SCENARIO\\.GRAPH: AI list source") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("backend=graph\\.ai\\.lists\\+ai/ailists\\.tsv") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("SCENARIO\\.GRAPH: AI basic/lifecycle actions") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("stop=1 kneel=1 surrender=1 fade_out=1 remove_chr=1") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("backend=graph\\.ai\\.action\\.character_lifecycle\\+ai/ailists\\.tsv") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("SCENARIO\\.GRAPH: AI combat actions") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("sidestep=1 jump_out=1 run_sideways=1 attack_walk=1") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("consider_grenade_throw=1 drop_item=1") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("backend=graph\\.ai\\.action\\.combat\\+ai/ailists\\.tsv") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("SCENARIO\\.GRAPH: AI target movement actions") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("run_from_target=1 jog_to_target_prop=1 walk_to_target_prop=1") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("backend=graph\\.ai\\.action\\.target_movement\\+ai/ailists\\.tsv") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("SCENARIO\\.GRAPH: AI perception/alarm actions") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("hear_alarm=1 patrolling=1 alarm_active=1 gas_active=1") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("backend=graph\\.ai\\.condition\\.perception_alarm\\+ai/ailists\\.tsv") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("SCENARIO\\.GRAPH: AI spatial perception conditions") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("los_chr=1 never_screen=1 on_screen=1 chr_room_screen=1") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("backend=graph\\.ai\\.condition\\.spatial_perception\\+ai/ailists\\.tsv") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("SCENARIO\\.GRAPH: AI distance perception conditions") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("chr_pad_lt=1 chr_pad_gt=1 dist_chr_lt=1 dist_chr_gt=1") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("backend=graph\\.ai\\.condition\\.distance_perception\\+ai/ailists\\.tsv") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("SCENARIO\\.GRAPH: AI room/object/weapon conditions") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("chr_room=1 target_room=1 chr_object=1 weapon_thrown=1") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("backend=graph\\.ai\\.condition\\.room_object_weapon\\+ai/ailists\\.tsv") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("SCENARIO\\.GRAPH: AI object interaction actions") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("activated=1 interact=1 destroy=1 drop_object=1") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("backend=graph\\.ai\\.action\\.object_interaction\\+ai/ailists\\.tsv\\+objects\\.tsv\\+pads\\.tsv") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("SCENARIO\\.GRAPH: AI animation actions") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("chr_do_animation=1 surprise_one_hand=1 surprise_look_around=1 surprise_surrender=1") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("backend=graph\\.ai\\.action\\.animation\\+ai/ailists\\.tsv") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("SCENARIO\\.GRAPH: AI random control") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("random=1 less_than=1 greater_than=1") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("backend=graph\\.ai\\.control\\.random\\+ai/ailists\\.tsv") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("SCENARIO\\.GRAPH: AI debug/no-op actions") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("print=1 noop=1") != std::string::npos);
+	REQUIRE(matrix.find("backend=graph\\.ai\\.action\\.debug_noop\\+ai/ailists\\.tsv") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("SCENARIO\\.GRAPH: AI list-control actions") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("set_list=1 set_return_list=1 set_shot_list=1 return_list=1") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("backend=graph\\.ai\\.action\\.list_control\\+ai/ailists\\.tsv") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("SCENARIO\\.GRAPH: AI pad actions") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("walk_to_pad=1 run_to_pad=1") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("SCENARIO\\.GRAPH: AI pad movement actions") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("jog_to_pad=1 go_to_pad_preset=1") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("backend=graph\\.ai\\.action\\.pad\\+pads\\.tsv") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("SCENARIO\\.GRAPH: AI pad-preset actions") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("set_pad_preset=1 chr_set_pad_preset=1 chr_copy_pad_preset=1") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("backend=graph\\.ai\\.action\\.pad_preset\\+pads\\.tsv") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("SCENARIO\\.GRAPH: AI chr-preset actions") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("set_chr_preset=1 set_chr_target=1") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("backend=graph\\.ai\\.action\\.chr_preset\\+ai/ailists\\.tsv") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("SCENARIO\\.GRAPH: AI morale/alertness actions") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("set_morale=1 add_morale=1 chr_add_morale=1 subtract_morale=1") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("backend=graph\\.ai\\.action\\.state\\+ai/ailists\\.tsv") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("SCENARIO\\.GRAPH: AI character conditions") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("if_num_arghs_less_than=1 if_num_arghs_greater_than=1") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("backend=graph\\.ai\\.condition\\.character_state\\+ai/ailists\\.tsv") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("SCENARIO\\.GRAPH: AI lifecycle/perception conditions") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("if_idle=1 if_stopped=1 if_chr_dead=1") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("backend=graph\\.ai\\.condition\\.lifecycle\\+ai/ailists\\.tsv") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("SCENARIO\\.GRAPH: AI tuning actions") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("set_hear_distance=1 set_view_distance=1 set_grenade_probability=1") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("backend=graph\\.ai\\.action\\.tuning\\+ai/ailists\\.tsv") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("SCENARIO\\.GRAPH: AI action/order actions") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("set_action=1 set_team_orders=1 retreat=1") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("backend=graph\\.ai\\.action\\.orders\\+ai/ailists\\.tsv") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("SCENARIO\\.GRAPH: AI intent/status conditions") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("not_talking=1 orders=1 has_orders=1 squadron_action=1") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("backend=graph\\.ai\\.condition\\.intent_status\\+ai/ailists\\.tsv") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("SCENARIO\\.GRAPH: path source") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("backend=graph\\.navigation\\.paths\\+navigation/paths\\.tsv") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("SCENARIO\\.GRAPH: AI mission/global actions") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("if_objective_complete=1 if_objective_failed=1 if_all_objectives_complete=1") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("kill_bond=1 backend=graph\\.ai\\.action\\.mission_global\\+ai/ailists\\.tsv\\+mission\\.graph\\.json") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("SCENARIO\\.GRAPH: AI path actions") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("set_path=1 start_patrol=1") != std::string::npos);
+	REQUIRE(matrix.find("backend=graph\\.ai\\.action\\.path\\+navigation/paths\\.tsv") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("AI action set_path chr_rows=\\d+ source_chr=-?\\d+ path=\\d+ found=1 path_rows=\\d+") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("AI action start_patrol chr_rows=\\d+ source_chr=-?\\d+ path=\\d+ found=1 path_rows=\\d+") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("SCENARIO\\.GRAPH: AI cover actions") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("find_cover=1 find_cover_within_dist=1 find_cover_outside_dist=1") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("backend=graph\\.ai\\.action\\.cover\\+navigation/covers\\.tsv") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("SCENARIO\\.GRAPH: AI player navigation actions") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("player_auto_walk=1 if_player_auto_walk_finished=1") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("backend=graph\\.ai\\.action\\.player_navigation\\+ai/ailists\\.tsv\\+pads\\.tsv") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("SCENARIO\\.GRAPH: AI quadrant pad-preset actions") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("waypoint_quadrant=1 target_quadrant=1") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("backend=graph\\.ai\\.action\\.quadrant_preset\\+ai/ailists\\.tsv\\+pads\\.tsv\\+navigation\\.generate") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("SCENARIO\\.GRAPH: AI vehicle motion actions") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("hovercar_begin_path=1 set_vehicle_speed=1 set_rotor_speed=1") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("backend=graph\\.ai\\.action\\.vehicle\\+navigation/paths\\.tsv") !=
+	        std::string::npos);
+	for (const char *label : {
+		     "SCENARIO\\.GRAPH: AI vehicle/investigation actions",
+		     "SCENARIO\\.GRAPH: AI safety/detection conditions",
+		     "SCENARIO\\.GRAPH: AI misc branch conditions",
+		     "SCENARIO\\.GRAPH: AI misc effect actions",
+		     "SCENARIO\\.GRAPH: AI quip/setup shuffle actions",
+		     "SCENARIO\\.GRAPH: AI team maintenance actions",
+		     "SCENARIO\\.GRAPH: AI alarm actions",
+		     "SCENARIO\\.GRAPH: AI flag actions",
+		     "SCENARIO\\.GRAPH: AI chr/object flag actions",
+		     "SCENARIO\\.GRAPH: AI door actions",
+		     "SCENARIO\\.GRAPH: AI lift actions",
+		     "SCENARIO\\.GRAPH: AI weather actions",
+		     "SCENARIO\\.GRAPH: AI sky actions",
+		     "SCENARIO\\.GRAPH: AI lighting actions",
+		     "SCENARIO\\.GRAPH: AI room-flag actions",
+		     "SCENARIO\\.GRAPH: AI cutscene visibility actions",
+		     "SCENARIO\\.GRAPH: AI environment actions",
+		     "SCENARIO\\.GRAPH: AI target-distance conditions",
+		     "SCENARIO\\.GRAPH: AI audio actions",
+		     "SCENARIO\\.GRAPH: AI music track actions",
+		     "SCENARIO\\.GRAPH: AI player weapon-state actions",
+		     "SCENARIO\\.GRAPH: AI player cutscene/warp actions",
+		     "SCENARIO\\.GRAPH: AI setup/spawn/equipment actions",
+		     "SCENARIO\\.GRAPH: AI entity lifecycle/motion actions",
+		     "SCENARIO\\.GRAPH: AI gun interaction actions",
+		     "SCENARIO\\.GRAPH: AI character property actions",
+		     "SCENARIO\\.GRAPH: AI object-room conditions",
+		     "SCENARIO\\.GRAPH: AI perception conditions",
+		     "SCENARIO\\.GRAPH: AI character/inventory actions",
+		     "SCENARIO\\.GRAPH: AI player-state actions",
+		     "SCENARIO\\.GRAPH: AI state/device conditions",
+		     "SCENARIO\\.GRAPH: AI teleport/cutscene weapon actions",
+		     "SCENARIO\\.GRAPH: AI cutscene presentation actions",
+		     "SCENARIO\\.GRAPH: AI music/mode conditions",
+		     "SCENARIO\\.GRAPH: AI pad/reference actions",
+		     "SCENARIO\\.GRAPH: AI model-part actions",
+		     "SCENARIO\\.GRAPH: AI object-health actions",
+		     "SCENARIO\\.GRAPH: AI special-death actions",
+		     "SCENARIO\\.GRAPH: AI room-search actions",
+		     "SCENARIO\\.GRAPH: AI savefile flag actions",
+		     "SCENARIO\\.GRAPH: AI timer/countdown actions",
+		     "SCENARIO\\.GRAPH: AI HUD message actions",
+	     }) {
+		REQUIRE(matrix.find(label) != std::string::npos);
+	}
+	for (const char *proof : {
+		     "danger_object=1 heli_armed=1 hoverbot_next_step=1",
+		     "safety2=1 player_cmp_ar34=1 detect_same_floor=1",
+		     "squadron_dead=1 if_true=1 squadron_count=1",
+		     "chr_explosions=1 tinted_glass=1 rocket=1",
+		     "say_quip=1 ci_staff_quip=1 ruins_pillars=1",
+		     "set_chr_preset_to_unalerted_teammate=1 rebuild_teams=1 rebuild_squadrons=1",
+		     "try_start_alarm=1 activate_alarm=1 deactivate_alarm=1",
+		     "set_flag=1 unset_flag=1 if_has_flag=1",
+		     "set_chrflag=1 unset_chrflag=1 if_has_chrflag=1",
+		     "open_door=1 close_door=1 if_door_state=1",
+		     "if_lift_stationary=1 lift_go_to_stop=1 if_lift_at_stop=1",
+		     "configure_rain=1 configure_snow=1",
+		     "switch_to_alt_sky=1 set_wind_speed=1",
+		     "set_lights=1",
+		     "set_room_flag=1",
+		     "show_cutscene_chrs=1",
+		     "configure_environment=1",
+		     "if_distance_to_target2_less_than=1 if_distance_to_target2_greater_than=1",
+		     "speak=1 play_sound=1 assign_sound=1",
+		     "play_x_track=1 stop_x_track=1 play_track_isolated=1",
+		     "chr_draw_weapon=1 chr_draw_weapon_in_cutscene=1 set_player_force_speed=1",
+		     "end_level=1 end_cutscene=1 warp_jo_to_pad=1",
+		     "spawn_chr_at_pad=1 spawn_chr_at_chr=1 try_equip_weapon=1",
+		     "duplicate_chr=1 enable_chr=1 disable_chr=1",
+		     "do_gun_command=1 if_distance_to_gun_less_than=1 recover_gun=1",
+		     "chr_copy_properties=1",
+		     "if_obj_in_room=1",
+		     "if_player_looking_at_object=1 if_target_is_player=1",
+		     "chr_kill=1 remove_weapon_from_inventory=1 clear_inventory=1",
+		     "toggle_p1p2=1 chr_set_p1p2=1 chr_set_cloaked=1",
+		     "if_pouncebits_eq=1 if_training_pc_holographed=1 if_player_using_device=1",
+		     "chr_begin_or_end_teleport=1 if_chr_teleport_full_white=1 chr_set_cutscene_weapon=1",
+		     "fade_screen=1 if_fade_complete=1 set_chr_hudpiece_visible=1",
+		     "if_music_event_queue_is_empty=1 if_coop_mode=1",
+		     "if_chr_same_floor_distance_to_pad_less_than=1 remove_references_to_chr=1",
+		     "chr_toggle_model_part=1 obj_set_model_part_visible=1",
+		     "if_obj_health_less_than=1 set_obj_health=1",
+		     "set_chr_special_death_animation=1",
+		     "set_room_to_search=1",
+		     "set_savefile_flag=1 unset_savefile_flag=1 if_savefile_flag_set=1",
+		     "restart_timer=1 reset_timer=1 pause_timer=1",
+		     "show_hudmsg=1 show_hudmsg_middle=1 show_hudmsg_top_middle=1",
+	     }) {
+		REQUIRE(matrix.find(proof) != std::string::npos);
+	}
+	for (const char *backend : {
+		     "backend=graph\\.ai\\.action\\.vehicle_investigation\\+ai/ailists\\.tsv\\+objects\\.tsv\\+pads\\.tsv",
+		     "backend=graph\\.ai\\.condition\\.safety_detection\\+ai/ailists\\.tsv",
+		     "backend=graph\\.ai\\.condition\\.misc_branch\\+ai/ailists\\.tsv",
+		     "backend=graph\\.ai\\.action\\.misc_effect\\+ai/ailists\\.tsv",
+		     "backend=graph\\.ai\\.action\\.quip_shuffle\\+ai/ailists\\.tsv\\+objects\\.tsv",
+		     "backend=graph\\.ai\\.action\\.team\\+ai/ailists\\.tsv",
+		     "backend=graph\\.ai\\.action\\.alarm\\+ai/ailists\\.tsv",
+		     "backend=graph\\.ai\\.action\\.flags\\+ai/ailists\\.tsv",
+		     "backend=graph\\.ai\\.action\\.chr_object_flags\\+ai/ailists\\.tsv",
+		     "backend=graph\\.ai\\.action\\.door\\+objects\\.tsv",
+		     "backend=graph\\.ai\\.action\\.lift\\+objects\\.tsv\\+pads\\.tsv",
+		     "backend=graph\\.ai\\.action\\.weather\\+ai/ailists\\.tsv\\+scenario\\.ini",
+		     "backend=graph\\.ai\\.action\\.sky\\+ai/ailists\\.tsv",
+		     "backend=graph\\.ai\\.action\\.lighting\\+ai/ailists\\.tsv\\+pads\\.tsv",
+		     "backend=graph\\.ai\\.action\\.room_flags\\+ai/ailists\\.tsv\\+scene\\.glb",
+		     "backend=graph\\.ai\\.action\\.cutscene_visibility\\+ai/ailists\\.tsv",
+		     "backend=graph\\.ai\\.action\\.environment\\+ai/ailists\\.tsv\\+scenario\\.ini\\+scene\\.glb",
+		     "backend=graph\\.ai\\.condition\\.target_distance\\+ai/ailists\\.tsv",
+		     "backend=graph\\.ai\\.action\\.audio\\+ai/ailists\\.tsv",
+		     "backend=graph\\.ai\\.action\\.music_track\\+ai/ailists\\.tsv",
+		     "backend=graph\\.ai\\.action\\.player_weapon_state\\+ai/ailists\\.tsv",
+		     "backend=graph\\.ai\\.action\\.player_cutscene\\+ai/ailists\\.tsv\\+pads\\.tsv\\+objects\\.tsv",
+		     "backend=graph\\.ai\\.action\\.setup_spawn\\+ai/ailists\\.tsv\\+pads\\.tsv\\+objects\\.tsv",
+		     "backend=graph\\.ai\\.action\\.entity_lifecycle\\+ai/ailists\\.tsv\\+pads\\.tsv\\+objects\\.tsv",
+		     "backend=graph\\.ai\\.action\\.gun_interaction\\+ai/ailists\\.tsv\\+objects\\.tsv\\+scene\\.glb",
+		     "backend=graph\\.ai\\.action\\.character_property\\+ai/ailists\\.tsv",
+		     "backend=graph\\.ai\\.condition\\.object_room\\+ai/ailists\\.tsv\\+objects\\.tsv\\+pads\\.tsv\\+scene\\.glb",
+		     "backend=graph\\.ai\\.condition\\.perception\\+ai/ailists\\.tsv\\+objects\\.tsv\\+scene\\.glb",
+		     "backend=graph\\.ai\\.action\\.character_inventory\\+ai/ailists\\.tsv\\+objects\\.tsv",
+		     "backend=graph\\.ai\\.action\\.player_state\\+ai/ailists\\.tsv\\+objects\\.tsv",
+		     "backend=graph\\.ai\\.condition\\.state_device\\+ai/ailists\\.tsv",
+		     "backend=graph\\.ai\\.action\\.teleport_cutscene_weapon\\+ai/ailists\\.tsv",
+		     "backend=graph\\.ai\\.action\\.cutscene_presentation\\+ai/ailists\\.tsv\\+scene\\.glb",
+		     "backend=graph\\.ai\\.condition\\.music_mode\\+ai/ailists\\.tsv",
+		     "backend=graph\\.ai\\.action\\.pad_reference\\+ai/ailists\\.tsv\\+pads\\.tsv",
+		     "backend=graph\\.ai\\.action\\.model_part\\+ai/ailists\\.tsv\\+objects\\.tsv",
+		     "backend=graph\\.ai\\.action\\.object_health\\+ai/ailists\\.tsv\\+objects\\.tsv",
+		     "backend=graph\\.ai\\.action\\.special_death\\+ai/ailists\\.tsv",
+		     "backend=graph\\.ai\\.action\\.room_search\\+ai/ailists\\.tsv\\+scene\\.glb",
+		     "backend=graph\\.ai\\.action\\.savefile_flags\\+ai/ailists\\.tsv",
+		     "backend=graph\\.ai\\.action\\.timer\\+ai/ailists\\.tsv",
+		     "backend=graph\\.ai\\.action\\.hud\\+ai/ailists\\.tsv",
+	     }) {
+		REQUIRE(matrix.find(backend) != std::string::npos);
+	}
+	REQUIRE(matrix.find("SCENARIO\\.SOURCE: compiled setup\\.fields\\.tsv") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("path_flags=circular:\\d+,flying:\\d+") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("Count-TsvDataRows") != std::string::npos);
+	REQUIRE(matrix.find("RequiresGeneratedNavigation") != std::string::npos);
+	REQUIRE(matrix.find("NavigationPathRows") != std::string::npos);
+	REQUIRE(matrix.find("$MissionDir = Join-Path $ProjectRoot \"Build\\data\\ntsc-final\\missions\"") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("HasMissionGraph") != std::string::npos);
+	REQUIRE(matrix.find("MissionArchiveName") != std::string::npos);
+	REQUIRE(matrix.find("Get-MissionObjectiveSummary") != std::string::npos);
+	REQUIRE(matrix.find("MissionObjectiveRows") != std::string::npos);
+	REQUIRE(matrix.find("MissionObjectiveCriteriaRows") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("MissionHasMissionFlagCriteria") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("MissionHasObjectStateCriteria") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("Get-ScenarioSetupSummary") != std::string::npos);
+	REQUIRE(matrix.find("SetupBehaviorLinkRows") != std::string::npos);
+	REQUIRE(matrix.find("SetupBehaviorLinkKinds") != std::string::npos);
+	REQUIRE(matrix.find("SCENARIO\\.GRAPH: setup behavior link source") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("SCENARIO\\.GRAPH: setup behavior link registered from graph source") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("[regex]::Escape($kind)") != std::string::npos);
+	REQUIRE(matrix.find("kind={1}") != std::string::npos);
+	REQUIRE(matrix.find("kind=[a-z_]+") == std::string::npos);
+	REQUIRE(matrix.find("$Entry.Id -eq \"base:scenario_citraining\"") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("$Entry.Id -eq \"base:scenario_rescue\"") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("$Entry.Id -eq \"base:scenario_extra16\"") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("$Entry.Id -eq \"base:scenario_duel\"") !=
+	        std::string::npos);
+	for (const char *extra16_live_proof : {
+		     "AI action object_move_to_pad tag=\\d+ object_rows=\\d+ pad=\\d+ found=1 pad_rows=\\d+",
+		     "AI action activate_lift liftnum=\\d+ pad=\\d+ found=1 pad_rows=\\d+ tag=\\d+ object_rows=\\d+",
+		     "AI action set_lights pad=\\d+ found=1 pad_rows=\\d+ chr_rows=\\d+ source_chr=-?\\d+",
+		     "AI condition if_chr_distance_to_pad_less_than value=\\d+ pad=\\d+ found=1 pad_rows=\\d+",
+		     "AI condition if_chr_in_room chr=\\d+ room_type=\\d+ pad=\\d+ found=1 pad_rows=\\d+",
+		     "AI action try_jog_to_target_prop chr=\\d+ chr_rows=\\d+ source_chr=-?\\d+ target_chr=-?\\d+",
+		     "AI action try_run_to_target_prop chr=\\d+ chr_rows=\\d+ source_chr=-?\\d+ target_chr=-?\\d+",
+	}) {
+		REQUIRE(matrix.find(extra16_live_proof) != std::string::npos);
+	}
+	for (const char *duel_live_proof : {
+		     "AI action player_auto_walk chr=\\d+ chr_rows=\\d+ target_chr=-?\\d+ player_checked=\\d+ pad=\\d+ found=1 pad_rows=\\d+ applied=\\d+",
+		     "AI condition if_player_auto_walk_finished chr=\\d+ chr_rows=\\d+ target_chr=-?\\d+ player_checked=\\d+ label=\\d+ walking=\\d+",
+	     }) {
+		REQUIRE(matrix.find(duel_live_proof) != std::string::npos);
+	}
+	for (const char *rescue_live_proof : {
+		     "AI action run_to_pad chr_rows=\\d+ source_chr=-?\\d+ pad=\\d+ found=1 pad_rows=\\d+",
+		     "AI action give_object_to_chr tag=\\d+ chr=\\d+ chr_rows=\\d+ target_chr=-?\\d+ player_checked=\\d+ object_rows=\\d+ applied=\\d+",
+		     "AI action object_do_animation anim_id=[^ ]+ tag=\\d+ resolved_tag=\\d+ object_rows=\\d+ chr_rows=\\d+",
+		     "AI action lock_door tag=\\d+ object_rows=\\d+ bits=0x[0-9a-fA-F]+ applied=\\d+",
+		     "AI action open_door tag=\\d+ object_rows=\\d+ applied=\\d+",
+		     "AI action set_lights pad=\\d+ found=1 pad_rows=\\d+ chr_rows=\\d+ source_chr=-?\\d+",
+		     "AI action configure_environment room=\\d+ room_rows=\\d+ command=0x[0-9a-fA-F]+ value=\\d+",
+		     "AI action set_max_damage chr=\\d+ chr_rows=\\d+ target_chr=-?\\d+ vehicle_rows=\\d+ source_vehicle_type=-?\\d+",
+		     "AI action set_shot_list chr_rows=\\d+ source_chr=-?\\d+ list=\\d+ applied=\\d+",
+		     "AI action speak chr=\\d+ chr_rows=\\d+ target_chr=-?\\d+ target_selector=\\d+ player_checked=\\d+ text_id=[^ ]+ audio_id=[^ ]+",
+		     "AI action assign_sound channel=\\d+ audio_id=[^ ]+",
+		     "AI action set_object_sound_playing tag=\\d+ object_rows=\\d+ channel=\\d+ timer=\\d+ applied=\\d+",
+	     }) {
+		REQUIRE(matrix.find(rescue_live_proof) != std::string::npos);
+	}
+	REQUIRE(matrix.find("if_stage_id_(less_than|greater_than) stagenum=") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("AI action chr_set_cutscene_weapon chr=\\d+ weapon=") !=
+	        std::string::npos);
+	for (const char *forbidden_audio_proof : {
+		     "AI action speak chr=\\d+ text=\\d+ audio=",
+		     "AI action play_sound channel=\\d+ audio=",
+		     "AI action assign_sound channel=\\d+ audio=",
+		     "AI action play_sound_from_prop .* audio=",
+		     "AI action play_repeating_sound_from_pad .* sound=",
+	     }) {
+		REQUIRE(matrix.find(forbidden_audio_proof) != std::string::npos);
+	}
+	for (const char *forbidden_music_proof : {
+		     "AI action play_temporary_primary_track track=",
+		     "AI action play_x_track reason=\\d+ track=",
+		     "AI action play_track_isolated track=",
+		     "AI action play_cutscene_track track=",
+		     "AI action play_temporary_track track=",
+	     }) {
+		REQUIRE(matrix.find(forbidden_music_proof) != std::string::npos);
+	}
+	REQUIRE(matrix.find("AI action play_cutscene_track track_id=[^ ]+") !=
+	        std::string::npos);
+	for (const char *forbidden_animation_proof : {
+		     "AI action set_camera_animation anim=",
+		     "AI action chr_do_animation chr=\\d+ anim=",
+		     "AI action object_do_animation anim=",
+		     "AI action do_preset_animation preset=\\d+ applied=",
+		     "AI condition if_natural_anim anim=",
+	     }) {
+		REQUIRE(matrix.find(forbidden_animation_proof) !=
+		        std::string::npos);
+	}
+	REQUIRE(matrix.find("AI action set_camera_animation anim_id=[^ ]+") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("AI action chr_do_animation chr=\\d+ chr_rows=\\d+ target_chr=-?\\d+ player_checked=\\d+ anim_id=[^ ]+") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("does not deterministically execute every savefile/text/preset branch") !=
+	        std::string::npos);
+	for (const char *forbidden_asset_proof : {
+		     "AI action drop_item chr=\\d+ model=",
+		     "AI condition if_player_using_cmp_or_ar34 weapon=",
+		     "AI action chr_draw_weapon chr=\\d+ weapon=",
+		     "AI action chr_draw_weapon_in_cutscene chr=\\d+ weapon=",
+		     "AI action chr_delete_weapon chr=\\d+ weapon=",
+		     "AI action spawn_chr_at_pad body=",
+		     "AI action spawn_chr_at_chr body=",
+		     "AI action try_equip_weapon model=",
+		     "AI action try_equip_hat model=",
+		     "AI action set_obj_image .* image=",
+		     "AI action remove_weapon_from_inventory weapon=",
+	     }) {
+		REQUIRE(matrix.find(forbidden_asset_proof) !=
+		        std::string::npos);
+	}
+	for (const char *runtime_proof : {
+		     "SCENARIO\\.GRAPH: AI action set_list",
+		     "SCENARIO\\.GRAPH: AI action chr_move_to_pad",
+		     "SCENARIO\\.GRAPH: AI action set_obj_flag",
+		     "SCENARIO\\.GRAPH: AI condition if_in_cutscene",
+		     "SCENARIO\\.GRAPH: AI action end_cutscene",
+		     "SCENARIO\\.GRAPH: AI condition if_chr_distance_to_pad_less_than",
+		     "SCENARIO\\.GRAPH: AI condition if_chr_activated_object",
+		     "SCENARIO\\.GRAPH: AI condition if_can_see_target",
+		     "SCENARIO\\.GRAPH: AI action random",
+		     "SCENARIO\\.GRAPH: AI condition if_random_greater_than",
+		     "SCENARIO\\.GRAPH: AI condition if_obj_in_room",
+		     "SCENARIO\\.GRAPH: AI condition if_los_to_target",
+		     "SCENARIO\\.GRAPH: AI action if_obj_has_flag",
+		     "SCENARIO\\.GRAPH: AI action set_autogun_target_team",
+		     "SCENARIO\\.GRAPH: AI action configure_environment",
+		     "SCENARIO\\.GRAPH: AI action stop",
+		     "SCENARIO\\.GRAPH: AI action face_entity",
+		     "SCENARIO\\.GRAPH: AI action return_list",
+		     "SCENARIO\\.GRAPH: AI action play_sound",
+		     "SCENARIO\\.GRAPH: AI action toggle_p1p2",
+		     "SCENARIO\\.GRAPH: AI action set_passive_mode",
+		     "SCENARIO\\.GRAPH: AI action chr_set_chrflag",
+		     "SCENARIO\\.GRAPH: AI action set_camera_animation",
+		     "SCENARIO\\.GRAPH: AI action play_cutscene_track",
+		     "SCENARIO\\.GRAPH: AI action chr_do_animation",
+		     "SCENARIO\\.GRAPH: AI action restart_timer",
+		     "SCENARIO\\.GRAPH: AI action fade_screen",
+		     "SCENARIO\\.GRAPH: AI action if_savefile_flag_unset",
+		     "SCENARIO\\.GRAPH: AI action disable_obj",
+		     "SCENARIO\\.GRAPH: AI action set_obj_image",
+		     "SCENARIO\\.GRAPH: AI action unset_obj_flag",
+		     "SCENARIO\\.GRAPH: AI action activate_lift",
+		     "SCENARIO\\.GRAPH: AI action set_lights",
+		     "SCENARIO\\.GRAPH: AI action set_morale",
+		     "SCENARIO\\.GRAPH: AI action if_timer_greater_than",
+		     "SCENARIO\\.GRAPH: AI action chr_set_team",
+		     "SCENARIO\\.GRAPH: AI action if_stage_flag_eq",
+		     "SCENARIO\\.GRAPH: AI action deactivate_alarm",
+		     "SCENARIO\\.GRAPH: AI action if_savefile_flag_set",
+		     "SCENARIO\\.GRAPH: AI action if_chr_has_hidden_flag",
+		     "SCENARIO\\.GRAPH: AI action reorient_for_cutscene_stop",
+		     "SCENARIO\\.GRAPH: AI action chr_unset_chrflag",
+		     "SCENARIO\\.GRAPH: AI action chr_set_hidden_flag",
+		     "SCENARIO\\.GRAPH: AI action print",
+		     "SCENARIO\\.GRAPH: AI action set_chrflag",
+		     "SCENARIO\\.GRAPH: AI action set_return_list",
+		     "SCENARIO\\.GRAPH: AI action if_has_flag",
+	}) {
+		REQUIRE(matrix.find(runtime_proof) != std::string::npos);
+	}
+	REQUIRE(matrix.find("resolved_pad=\\d+ mode=\\d+ pass=\\d+ pad_rows=\\d+") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("go_to_pad_preset chr_rows=\\d+ source_chr=-?\\d+ pad=\\d+ found=1 pad_rows=\\d+") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("spawn_chr_at_pad body_id=[^ ]+ head_id=[^ ]+ pad=\\d+ found=1 pad_rows=\\d+") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("set_obj_image tag=\\d+ object_rows=\\d+ slot=\\d+ image_index=\\d+") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("activate_lift liftnum=\\d+ pad=\\d+ found=1 pad_rows=\\d+ tag=\\d+ object_rows=\\d+") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("set_lights pad=\\d+ found=1 pad_rows=\\d+ chr_rows=\\d+ source_chr=-?\\d+ room=-?\\d+") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("if_chr_distance_to_pad_less_than value=\\d+ pad=\\d+ found=1 pad_rows=\\d+") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("SCENARIO\\.SOURCE: compiled scene tiles") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("SCENARIO\\.SOURCE: validated background scene source") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("SCENARIO\\.SOURCE: background renderer using native scene source") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("SCENARIO\\.SOURCE: skipped legacy dynamic-light precompute") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("SCENARIO\\.SOURCE: built native background room tables") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("navigation/paths\\.tsv '.*{0}::navigation/paths\\.tsv'") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("\\d+ paths, \\d+ AI lists") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("SCENARIO\\.SOURCE: compiled navigation tables") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("Count-TsvListRefs") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("Count-GeneratedPathWaypointNeighbourRefs") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("NavigationWaypointNeighbourRefs") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("NavigationWaygroupNeighbourRefs") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("NavigationRuntimeWaypointNeighbourRefs") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("NavigationRuntimeWaygroupNeighbourRefs") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("runtimeWaypointNeighbourRefs = Count-GeneratedPathWaypointNeighbourRefs") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("waypoint_neighbour_refs={1}") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("waygroup_neighbour_refs={2}") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("SCENARIO\\.SOURCE: generated deterministic navigation tables from public pads\\.tsv") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("backend=source\\.navigation\\.generated\\+pads\\.tsv\\+navigation/waypoints\\.tsv\\+navigation/waygroups\\.tsv\\+navigation/covers\\.tsv") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("backend=source\\.navigation\\.generated\\+pads\\.tsv\\+navigation/paths\\.tsv\\+navigation/waypoints\\.tsv\\+navigation/waygroups\\.tsv\\+navigation/covers\\.tsv") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("MISSION\\.GRAPH: activated mission graph") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("MISSION\\.GRAPH: objective runtime source") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("MISSION\\.GRAPH: objective insert matched graph source") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("MISSION\\.GRAPH: objective criteria evaluated from graph source") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("MISSION\\.GRAPH: objective check routed through graph source") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("MISSION\\.GRAPH: mission flags updated in graph runtime") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("MISSION\\.GRAPH: objective object state updated from graph source") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("MISSION\\.GRAPH: phase source") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("phase=load reason=mission\\.graph\\.activate") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("phase=active reason=lvTick\\.start") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("navigation/waypoints\\.tsv', waygroups") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("backend=source\\.navigation\\.tables\\+navigation/waypoints\\.tsv\\+navigation/waygroups\\.tsv\\+navigation/covers\\.tsv") !=
+	        std::string::npos);
 	REQUIRE(matrix.find("SCENARIO\\.SOURCE: compiled pads\\.tsv") !=
 	        std::string::npos);
 	REQUIRE(matrix.find("ASSET\\.SOURCE_ONLY") != std::string::npos);
 	REQUIRE(matrix.find("RomProvider:filenum") != std::string::npos);
 	REQUIRE(matrix.find("refusing fallback") != std::string::npos);
+	REQUIRE(matrix.find("SPAWN\\.INIT: cdFindGroundInfoAtCyl sentinel") !=
+	        std::string::npos);
 	REQUIRE(matrix.find("GROUNDSNAP: ignoring invalid chr->ground") !=
+	        std::string::npos);
+	REQUIRE(playerreset.find("playerResetFindPublicPadFallback") !=
+	        std::string::npos);
+	REQUIRE(playerreset.find("SPAWN: no intro spawn rows; using grounded public pad") !=
+	        std::string::npos);
+	REQUIRE(playerreset.find("SPAWN.INIT: source-authored spawn Y used because no floor hit") !=
 	        std::string::npos);
 }
 
@@ -4332,6 +11178,237 @@ TEST_CASE("Scenario source accepts explicit empty public pads and portals",
 	        std::string::npos);
 }
 
+TEST_CASE("Scenario source derives navigation runtime rows from empty public nav tables",
+          "[modding][pdxxx][c3844][scenario][navigation][static]") {
+	const std::string runtime =
+		readTextFile("port/src/scenario_source_runtime.c");
+	const std::string examples =
+		readTextFile("tools/build_typed_pdxxx_examples.py");
+	const std::string fixture_builder =
+		readTextFile("tools/smoke-verify/build_generated_nav_fixture.py");
+	const std::string fixture_runner =
+		readTextFile("tools/smoke-verify/run-scenario-generated-nav-fixture.ps1");
+
+	REQUIRE(runtime.find("s_generateNavigationTablesFromPads") !=
+	        std::string::npos);
+	REQUIRE(runtime.find("nav->waypoint_count == 0 && nav->waygroup_count == 0") !=
+	        std::string::npos);
+	REQUIRE(runtime.find("nav->cover_count == 0") != std::string::npos);
+	REQUIRE(runtime.find("pad_count < 0 || (!pads && pad_count > 0)") !=
+	        std::string::npos);
+	REQUIRE(runtime.find("if (pad_count == 0)") != std::string::npos);
+	REQUIRE(runtime.find("pad_count <= 0 || !nav") == std::string::npos);
+	REQUIRE(runtime.find("const scenario_source_path_table_t *path_table") !=
+	        std::string::npos);
+	REQUIRE(runtime.find("path_table && path_table->count > 0") !=
+	        std::string::npos);
+	REQUIRE(runtime.find("pad_order[ordered_count++] = padnum") !=
+	        std::string::npos);
+	REQUIRE(runtime.find("pad_to_waypoint[padnum] = i") !=
+	        std::string::npos);
+	REQUIRE(runtime.find("s_generatedNavigationAddEdge(nav, a, b,") !=
+	        std::string::npos);
+	REQUIRE(runtime.find("path->pads[j - 1]") !=
+	        std::string::npos);
+	REQUIRE(runtime.find("path->flags & PATHFLAG_CIRCULAR") !=
+	        std::string::npos);
+	REQUIRE(runtime.find("path->pads[path->pad_count - 1]") !=
+	        std::string::npos);
+	REQUIRE(runtime.find("s_countNavigationBranchWaypoints(nav)") !=
+	        std::string::npos);
+	REQUIRE(runtime.find("s_generateNavigationWaygroupsFromEdges(nav)") !=
+	        std::string::npos);
+	REQUIRE(runtime.find("group_ids[neighbour] = group_count") !=
+	        std::string::npos);
+	REQUIRE(runtime.find("s_loadPathSourceRows(text, &path_table)") !=
+	        std::string::npos);
+	REQUIRE(runtime.find("s_countPathRowsWithFlag(&path_table, PATHFLAG_CIRCULAR)") !=
+	        std::string::npos);
+	REQUIRE(runtime.find("s_countPathRowsWithFlag(&path_table, PATHFLAG_FLYING)") !=
+	        std::string::npos);
+	REQUIRE(runtime.find("path_flags=circular:%d,flying:%d") !=
+	        std::string::npos);
+	REQUIRE(runtime.find("nav->waypoints[i].padnum = padnum") !=
+	        std::string::npos);
+	REQUIRE(runtime.find("nav->waypoints[i].groupnum = group") !=
+	        std::string::npos);
+	REQUIRE(runtime.find("nav->waygroups[group].waypoints.values[cursor] = (u32)i") !=
+	        std::string::npos);
+	REQUIRE(runtime.find("nav->covers[i].look[0] = pads[padnum].look[0]") !=
+	        std::string::npos);
+	REQUIRE(runtime.find("SCENARIO.SOURCE: generated deterministic navigation tables from public pads.tsv") !=
+	        std::string::npos);
+	REQUIRE(runtime.find("backend=source.navigation.generated+pads.tsv+navigation/waypoints.tsv+navigation/waygroups.tsv+navigation/covers.tsv") !=
+	        std::string::npos);
+	REQUIRE(runtime.find("backend=source.navigation.generated+pads.tsv+navigation/paths.tsv+navigation/waypoints.tsv+navigation/waygroups.tsv+navigation/covers.tsv") !=
+	        std::string::npos);
+	REQUIRE(runtime.find("s_buildPadfile(rows, row_count, &nav") >
+	        runtime.find("s_loadNavigationTables(scenario, rows, row_count, pads_path, &nav)"));
+
+	REQUIRE(examples.find("waypoint_id\\tpad_ref\\tgroup_ref\\tstep\\tneighbours\\n") !=
+	        std::string::npos);
+	REQUIRE(examples.find("waygroup_id\\tstep\\twaypoints\\tneighbours\\n") !=
+	        std::string::npos);
+	REQUIRE(examples.find("cover_id\\tflags\\tpos_x\\tpos_y\\tpos_z\\tlook_x\\tlook_y\\tlook_z\\n") !=
+	        std::string::npos);
+	REQUIRE(examples.find("paths_tsv = (") != std::string::npos);
+	REQUIRE(examples.find("path_0000\\t0x00\\tpad_0000") !=
+	        std::string::npos);
+	REQUIRE(examples.find("\"pads.tsv\": read_entry(rel, \"pads.tsv\")") !=
+	        std::string::npos);
+	REQUIRE(examples.find("count_tsv_data_rows(kept['pads.tsv'])") !=
+	        std::string::npos);
+
+	REQUIRE(fixture_builder.find("path_0000\\t0x01\\tpad_0000,pad_0001,pad_0002") !=
+	        std::string::npos);
+	REQUIRE(fixture_builder.find("path_0001\\t0x02\\tpad_0001|outward,pad_0003") !=
+	        std::string::npos);
+	REQUIRE(fixture_builder.find("path_0002\\t0x00\\tpad_0004") !=
+	        std::string::npos);
+	REQUIRE(fixture_builder.find("pad_0000\\troom_0001") !=
+	        std::string::npos);
+	REQUIRE(fixture_builder.find("setup_0001\\thover_car\\tpad_0001\\tbase:model_hovcop_eu") !=
+	        std::string::npos);
+	REQUIRE(fixture_builder.find("ailist_1026\\t\"") !=
+	        std::string::npos);
+	REQUIRE(fixture_builder.find("\"0x00000000\\t0x00000000\\t0x00000000") !=
+	        std::string::npos);
+	REQUIRE(fixture_builder.find("set_pad_preset_to_target_quadrant\\t0x01,0x01") !=
+	        std::string::npos);
+	REQUIRE(fixture_builder.find("set_pad_preset_to_pad_on_route_to_target\\t0x03") !=
+	        std::string::npos);
+	REQUIRE(fixture_builder.find("find_cover\\t0x80,0x85,0x04") !=
+	        std::string::npos);
+	REQUIRE(fixture_builder.find("go_to_cover\\t0x11") !=
+	        std::string::npos);
+	REQUIRE(fixture_builder.find("release_cover\\t\\t\\t\\t\\t") !=
+	        std::string::npos);
+	REQUIRE(fixture_builder.find("ailist_1026\\t0x0402") !=
+	        std::string::npos);
+	REQUIRE(fixture_builder.find("hovercar_begin_path\\t0x00") !=
+	        std::string::npos);
+	REQUIRE(fixture_builder.find("set_vehicle_speed\\t0x0f,0x00,0x00,0x3c") !=
+	        std::string::npos);
+	REQUIRE(fixture_builder.find("manifest[\"ai_list_count\"] = 2") !=
+	        std::string::npos);
+	REQUIRE(fixture_builder.find("manifest[\"ai_command_count\"] = 23") !=
+	        std::string::npos);
+	REQUIRE(fixture_builder.find("manifest[\"object_count\"] = 2") !=
+	        std::string::npos);
+	REQUIRE(fixture_builder.find("\"source_counts\": {{ \"pads\": {counts[\"pads\"]}") !=
+	        std::string::npos);
+	REQUIRE(fixture_builder.find("\"source_hashes\": {{ \"scene.glb\":") !=
+	        std::string::npos);
+	REQUIRE(fixture_runner.find("base_scenario_test_ash.pdscenario") !=
+	        std::string::npos);
+	REQUIRE(fixture_runner.find("scenario_generated_nav_fixture.pdmod") !=
+	        std::string::npos);
+	REQUIRE(fixture_runner.find("packed_fixtures") !=
+	        std::string::npos);
+	REQUIRE(fixture_runner.find("@(\"scenario_generated_nav_fixture\")") !=
+	        std::string::npos);
+	REQUIRE(fixture_runner.find("source_counts=pads:5,volumes:0,waypoints:0,waygroups:0,covers:0,paths:3") !=
+	        std::string::npos);
+	REQUIRE(fixture_runner.find("capabilities=walk,jump,drop,wall,ceiling") !=
+	        std::string::npos);
+	REQUIRE(fixture_runner.find("as 5 waypoints, 2 waygroups, 5 covers, 4 path edges, 1 branch waypoints") !=
+	        std::string::npos);
+	REQUIRE(fixture_runner.find("path_flags=circular:1,flying:1") !=
+	        std::string::npos);
+	REQUIRE(fixture_runner.find("generated directional path segments") !=
+	        std::string::npos);
+	REQUIRE(fixture_runner.find("2 flagged neighbour refs") !=
+	        std::string::npos);
+	REQUIRE(fixture_runner.find("waypoint_neighbour_refs=8") !=
+	        std::string::npos);
+	REQUIRE(fixture_runner.find("waygroup_neighbour_refs=0") !=
+	        std::string::npos);
+	REQUIRE(fixture_runner.find("as 2 setup records, \\d+ spawns, 3 paths, 2 AI lists") !=
+	        std::string::npos);
+	REQUIRE(fixture_runner.find("AI action set_pad_preset_to_target_quadrant quadrant=1") !=
+	        std::string::npos);
+	REQUIRE(fixture_runner.find("AI action set_pad_preset_to_pad_on_route_to_target") !=
+	        std::string::npos);
+	REQUIRE(fixture_runner.find("AI action hovercar_begin_path path=0 found=1 vehicle_rows=[1-9]") !=
+	        std::string::npos);
+	REQUIRE(fixture_runner.find("AI action set_vehicle_speed vehicle_rows=[1-9]") !=
+	        std::string::npos);
+	REQUIRE(fixture_runner.find("AI action find_cover chr_rows=") !=
+	        std::string::npos);
+	REQUIRE(fixture_runner.find("AI action find_cover_within_dist chr_rows=") !=
+	        std::string::npos);
+	REQUIRE(fixture_runner.find("AI action find_cover_outside_dist chr_rows=") !=
+	        std::string::npos);
+	REQUIRE(fixture_runner.find("AI action go_to_cover chr_rows=") !=
+	        std::string::npos);
+	REQUIRE(fixture_runner.find("AI action check_cover_out_of_sight chr_rows=") !=
+	        std::string::npos);
+	REQUIRE(fixture_runner.find("AI action face_cover chr_rows=") !=
+	        std::string::npos);
+	REQUIRE(fixture_runner.find("AI action danger_cover chr_rows=") !=
+	        std::string::npos);
+	REQUIRE(fixture_runner.find("AI action release_cover chr_rows=") !=
+	        std::string::npos);
+	REQUIRE(fixture_runner.find("backend=source\\.navigation\\.generated\\+pads\\.tsv\\+navigation/paths\\.tsv") !=
+	        std::string::npos);
+}
+
+TEST_CASE("Scenario source binds objects.tsv vehicle AI list refs into live vehicle setup",
+          "[modding][pdxxx][c3844][scenario][setup][vehicle][static]") {
+	const std::string runtime =
+		readTextFile("port/src/scenario_source_runtime.c");
+	const std::string setup = readTextFile("src/game/setup.c");
+
+	REQUIRE(setup.find("SETUP.DEBUG") == std::string::npos);
+	REQUIRE(setup.find("car->ailist = ailistFindById((uintptr_t)car->ailist)") !=
+	        std::string::npos);
+
+	const std::string write_vehicle_ailist =
+		functionBlock(runtime, "s_setupWriteVehicleAilistRef");
+	REQUIRE(!write_vehicle_ailist.empty());
+	REQUIRE(write_vehicle_ailist.find("uintptr_t value = (uintptr_t)(u32)list_id") !=
+	        std::string::npos);
+	REQUIRE(write_vehicle_ailist.find("case OBJTYPE_TRUCK:") !=
+	        std::string::npos);
+	REQUIRE(write_vehicle_ailist.find("offsetof(struct truckobj, ailist)") !=
+	        std::string::npos);
+	REQUIRE(write_vehicle_ailist.find("case OBJTYPE_HELI:") !=
+	        std::string::npos);
+	REQUIRE(write_vehicle_ailist.find("offsetof(struct heliobj, ailist)") !=
+	        std::string::npos);
+	REQUIRE(write_vehicle_ailist.find("case OBJTYPE_HOVERCAR:") !=
+	        std::string::npos);
+	REQUIRE(write_vehicle_ailist.find("offsetof(struct hovercarobj, ailist)") !=
+	        std::string::npos);
+	REQUIRE(write_vehicle_ailist.find("case OBJTYPE_CHOPPER:") !=
+	        std::string::npos);
+	REQUIRE(write_vehicle_ailist.find("offsetof(struct chopperobj, ailist)") !=
+	        std::string::npos);
+	REQUIRE(write_vehicle_ailist.find("s_setupWriteRaw(record, offset, &value, sizeof(value))") !=
+	        std::string::npos);
+
+	const std::string apply_objects =
+		functionBlock(runtime, "s_setupApplyObjectsSummary");
+	REQUIRE(!apply_objects.empty());
+	REQUIRE(apply_objects.find("record->type == OBJTYPE_CHR") !=
+	        std::string::npos);
+	REQUIRE(apply_objects.find("offsetof(struct packedchr, ailistnum)") !=
+	        std::string::npos);
+	REQUIRE(apply_objects.find("record->type == OBJTYPE_TRUCK ||") !=
+	        std::string::npos);
+	REQUIRE(apply_objects.find("record->type == OBJTYPE_HELI ||") !=
+	        std::string::npos);
+	REQUIRE(apply_objects.find("record->type == OBJTYPE_HOVERCAR ||") !=
+	        std::string::npos);
+	REQUIRE(apply_objects.find("record->type == OBJTYPE_CHOPPER") !=
+	        std::string::npos);
+	REQUIRE(apply_objects.find("s_setupWriteVehicleAilistRef(record, ivalue)") !=
+	        std::string::npos);
+	requireTokenOrder(apply_objects,
+		"offsetof(struct packedchr, ailistnum)",
+		"s_setupWriteVehicleAilistRef(record, ivalue)");
+}
+
 TEST_CASE("Settings Debug can force one asset family to public file source",
           "[modding][pdxxx][c3842][debug][source_gate][static]") {
 	const std::string header = readTextFile("port/include/asset_source_debug.h");
@@ -4342,9 +11419,11 @@ TEST_CASE("Settings Debug can force one asset family to public file source",
 	const std::string romdata = readTextFile("port/src/romdata.c");
 	const std::string mod = readTextFile("port/src/mod.c");
 	const std::string snd = readTextFile("src/lib/snd.c");
+	const std::string propsnd = readTextFile("src/game/propsnd.c");
 	const std::string main_c = readTextFile("port/src/main.c");
 	const std::string pdgui_theme = readTextFile("port/fast3d/pdgui_theme.cpp");
 	const std::string loader_ui = readTextFile("port/src/loader_walker_ui.c");
+	const std::string smoke_run = readTextFile("tools/smoke-verify/run.ps1");
 	const std::string all_family_smoke =
 		readTextFile("tools/smoke-verify/tests/all_family_source_gate_smoke.json");
 	const std::string all_family_matrix =
@@ -4362,18 +11441,126 @@ TEST_CASE("Settings Debug can force one asset family to public file source",
 	        std::string::npos);
 
 	REQUIRE(load_h.find("source_only_blocked") != std::string::npos);
+	REQUIRE(load_h.find("catalogResolveMusicSequence") != std::string::npos);
 	REQUIRE(load.find("assetSourceDebugEntryRequiresPublicFileSource(e)") !=
 	        std::string::npos);
 	REQUIRE(load.find("r->source_only_blocked = 1") != std::string::npos);
 	REQUIRE(load.find("assetSourceDebugEntryRequiresPublicFileSource(entry)") !=
+	        std::string::npos);
+	REQUIRE(load.find("CatalogResolveResult catalogResolveMusicSequence") !=
+	        std::string::npos);
+	REQUIRE(load.find("e->ext.audio.category != AUDIO_CAT_MUSIC") !=
+	        std::string::npos);
+	REQUIRE(load.find("e->ext.audio.sound_id != tracknum") !=
+	        std::string::npos);
+	REQUIRE(load.find("r.path = entryGetFilePath(entry)") != std::string::npos);
+	REQUIRE(load.find("r.is_mod_override = 1") != std::string::npos);
+	REQUIRE(load.find("assetSourceDebugIsEnabledFor(ASSET_AUDIO)") !=
 	        std::string::npos);
 	REQUIRE(load.find("refusing fallback") != std::string::npos);
 
 	REQUIRE(romdata.find("r.source_only_blocked") != std::string::npos);
 	REQUIRE(romdata.find("ASSET.SOURCE_ONLY: file") != std::string::npos);
 	REQUIRE(romdata.find("ROM/static fallback.") != std::string::npos);
+	const std::string mod_sequence_load = functionBlock(mod, "void *modSequenceLoad");
 	REQUIRE(mod.find("r.source_only_blocked") != std::string::npos);
+	REQUIRE(mod.find("catalogResolveMusicSequence((s32)num)") !=
+	        std::string::npos);
+	REQUIRE(mod.find("modSequencePlayAudioSource(u16 num)") !=
+	        std::string::npos);
+	REQUIRE(mod.find("modSequencePathHasAudioExtension(r.path)") !=
+	        std::string::npos);
+	REQUIRE(mod.find("modMusicPlay(r.path)") != std::string::npos);
+	REQUIRE(mod.find("modMusicIsPlaying()") != std::string::npos);
+	REQUIRE(mod.find("modSequenceCompilePublicSource") != std::string::npos);
+	REQUIRE(mod.find("modSequenceSiblingPath(r->path, \"sequence.mid\"") !=
+	        std::string::npos);
+	REQUIRE(mod.find("modSequenceSiblingPath(r->path, \"sequence.tsv\"") !=
+	        std::string::npos);
+	REQUIRE(mod.find("fsFileSize(mid_path) <= 0") != std::string::npos);
+	REQUIRE(mod.find("modSequenceLoadEventsTsv") != std::string::npos);
+	REQUIRE(mod.find("modSequenceBuildAlcBuffer") != std::string::npos);
+	REQUIRE(mod.find("modSequencePutBe32(data + 64, division)") !=
+	        std::string::npos);
+	REQUIRE(mod.find("AL_CMIDI_LOOPSTART_CODE") != std::string::npos);
+	REQUIRE(mod.find("AL_CMIDI_LOOPEND_CODE") != std::string::npos);
+	REQUIRE(mod.find("streaming playback failed") != std::string::npos);
+	REQUIRE(mod.find("ASSET.SOURCE_ONLY: music sequence") !=
+	        std::string::npos);
+	REQUIRE(mod.find("sequencer-native public source compile failed") !=
+	        std::string::npos);
+	REQUIRE(mod_sequence_load.find("catalogResolveMusicSequence((s32)num)") <
+	        mod_sequence_load.find("modSequenceCompilePublicSource(&r, num, outSize)"));
+	REQUIRE(mod_sequence_load.find("modSequenceCompilePublicSource(&r, num, outSize)") <
+	        mod_sequence_load.find("r.source_only_blocked"));
+	REQUIRE(mod_sequence_load.find("modSequenceCompilePublicSource(&r, num, outSize)") <
+	        mod_sequence_load.find("fsFileSize(MOD_SEQUENCES_DIR \"/\")"));
+	REQUIRE(mod.find("modSequenceSiblingPath(r->path, \"sequence.mid\"") <
+	        mod.find("fsFileSize(mid_path) <= 0"));
+	REQUIRE(mod.find("fsFileSize(mid_path) <= 0") <
+	        mod.find("modSequenceLoadEventsTsv(tsv_path, tracks, &event_count)"));
+	REQUIRE(snd.find("modSequencePlayAudioSource(seq->tracknum)") !=
+	        std::string::npos);
+	REQUIRE(snd.find("modSequencePlayAudioSource(seq->tracknum)") <
+	        snd.find("modSequenceLoad(seq->tracknum, &extlen)"));
 	REQUIRE(snd.find("r.source_only_blocked") != std::string::npos);
+	REQUIRE(snd.find("audioPlayFileSound(r.path, volume, pan)") !=
+	        std::string::npos);
+	REQUIRE(snd.find("ASSET.SOURCE_ONLY: sound %d maps to public file source") !=
+	        std::string::npos);
+	REQUIRE(snd.find("but file playback failed; refusing ROM/static fallback") !=
+	        std::string::npos);
+	REQUIRE(snd.find("assetSourceDebugIsEnabledFor(ASSET_AUDIO)",
+		snd.find("audioPlayFileSound(r.path, volume, pan)")) <
+	        snd.find("MOD: sound %d catalog override failed (%s), falling back to ROM"));
+	const std::string snd_start_mp3 = functionBlock(snd, "void sndStartMp3(s16");
+	const std::string snd_mp3_resolve =
+		functionBlock(snd, "static s32 sndMp3ResolveSourceOrFallback");
+	REQUIRE(snd.find("#include \"asset_source_debug.h\"") !=
+	        std::string::npos);
+	REQUIRE(snd.find("#include \"fs.h\"") != std::string::npos);
+	REQUIRE(snd.find("#include \"romextract.h\"") != std::string::npos);
+	REQUIRE(snd.find("static void *g_SndMp3SourceBytes = NULL") !=
+	        std::string::npos);
+	REQUIRE(snd.find("sndMp3FreeSourceBuffer()") != std::string::npos);
+	REQUIRE(snd.find("sndMp3LoadPublicSourceFile") != std::string::npos);
+	REQUIRE(snd.find("sndMp3ResolveSourceOrFallback") != std::string::npos);
+	REQUIRE(snd.find("romExtractRelPathForFilenum(filenum, relpath") !=
+	        std::string::npos);
+	REQUIRE(snd.find("fsFileLoad(relpath, &size)") != std::string::npos);
+	REQUIRE(snd.find("g_SndMp3SourceBytes = bytes") != std::string::npos);
+	REQUIRE(snd.find("assetSourceDebugIsEnabledFor(ASSET_AUDIO)") !=
+	        std::string::npos);
+	REQUIRE(snd.find("ASSET.SOURCE_ONLY: MP3 file") !=
+	        std::string::npos);
+	REQUIRE(snd.find("refusing ROM/static playback fallback") !=
+	        std::string::npos);
+	REQUIRE(snd_start_mp3.find("sndMp3ResolveSourceOrFallback((s32)sp20.id") <
+	        snd_start_mp3.find("mp3PlayFile(g_SndCurMp3.romaddr, g_SndCurMp3.romsize)"));
+	REQUIRE(snd_mp3_resolve.find("assetSourceDebugIsEnabledFor(ASSET_AUDIO)") <
+	        snd_mp3_resolve.find("fileGetRomAddress(filenum)"));
+	REQUIRE(snd_mp3_resolve.find("assetSourceDebugIsEnabledFor(ASSET_AUDIO)") <
+	        snd_mp3_resolve.find("fileGetRomSize(filenum)"));
+	REQUIRE(propsnd.find("#include \"asset_source_debug.h\"") !=
+	        std::string::npos);
+	REQUIRE(propsnd.find("#include \"fs.h\"") != std::string::npos);
+	REQUIRE(propsnd.find("#include \"romextract.h\"") != std::string::npos);
+	REQUIRE(propsnd.find("psMp3DurationGetSourceOrFallbackSize") !=
+	        std::string::npos);
+	REQUIRE(propsnd.find("romExtractRelPathForFilenum(filenum, relpath") !=
+	        std::string::npos);
+	REQUIRE(propsnd.find("fsFileSize(relpath)") != std::string::npos);
+	REQUIRE(propsnd.find("assetSourceDebugIsEnabledFor(ASSET_AUDIO)") !=
+	        std::string::npos);
+	REQUIRE(propsnd.find("ASSET.SOURCE_ONLY: MP3 file") !=
+	        std::string::npos);
+	REQUIRE(propsnd.find("refusing ROM/static") !=
+	        std::string::npos);
+	REQUIRE(propsnd.find("psMp3DurationGetSourceOrFallbackSize((s32)soundnum.id)") !=
+	        std::string::npos);
+	REQUIRE(propsnd.find("assetSourceDebugIsEnabledFor(ASSET_AUDIO)") <
+	        propsnd.find("fileGetRomSize(filenum)"));
+	REQUIRE(propsnd.find("fileGetRomSize(soundnum.id)") == std::string::npos);
 	REQUIRE(main_c.find("strcmp(s, \"voice\") == 0") != std::string::npos);
 	REQUIRE(main_c.find("strcmp(s, \"song\") == 0") != std::string::npos);
 	REQUIRE(main_c.find("strcmp(s, \"music\") == 0") != std::string::npos);
@@ -4387,6 +11574,10 @@ TEST_CASE("Settings Debug can force one asset family to public file source",
 	REQUIRE(loader_ui.find("catalogSetPrimaryFile(e, source_path)") !=
 	        std::string::npos);
 	REQUIRE(main_c.find("bootArmDebugLoadCatalogAssets") != std::string::npos);
+	REQUIRE(main_c.find("--debug-load-catalog-assets-file") !=
+	        std::string::npos);
+	REQUIRE(main_c.find("bootApplyDebugLoadCatalogAssetsFile") !=
+	        std::string::npos);
 	REQUIRE(main_c.find("g_BootDebugLoadCatalogAssetsPending = 1") !=
 	        std::string::npos);
 	REQUIRE(main_c.find("s32 bootApplyDeferredDebugLoadCatalogAssets(void)") !=
@@ -4404,6 +11595,8 @@ TEST_CASE("Settings Debug can force one asset family to public file source",
 			"s32 bootApplyDeferredDebugLoadCatalogAssets");
 		REQUIRE(deferred.find("bootEnsureUiArchivesReadyForCliSourceLoads();") <
 		        deferred.find("bootApplyDebugLoadCatalogAssets("));
+		REQUIRE(deferred.find("bootApplyDebugLoadCatalogAssets(") <
+		        deferred.find("bootApplyDebugLoadCatalogAssetsFile("));
 	}
 	{
 		const std::string theme_check = functionBlock(pdgui_theme,
@@ -4447,10 +11640,32 @@ TEST_CASE("Settings Debug can force one asset family to public file source",
 	REQUIRE(all_family_matrix.find("Result = \"audio\";") != std::string::npos);
 	REQUIRE(all_family_matrix.find("--debug-load-catalog-assets-source-only") !=
 	        std::string::npos);
+	REQUIRE(all_family_matrix.find("--debug-load-catalog-assets-file") !=
+	        std::string::npos);
+	REQUIRE(all_family_matrix.find(".assets.txt") != std::string::npos);
+	REQUIRE(all_family_matrix.find("BugId = \"B-509\"") !=
+	        std::string::npos);
+	REQUIRE(all_family_matrix.find("all-family-source-matrix-manifest") !=
+	        std::string::npos);
+	REQUIRE(all_family_matrix.find("asset_list_file") !=
+	        std::string::npos);
+	REQUIRE(all_family_matrix.find("debug_load_argument") ==
+	        std::string::npos);
+	REQUIRE(all_family_matrix.find("Missing debug-load request/result blocks are B-509") !=
+	        std::string::npos);
+	REQUIRE(all_family_matrix.find("BOOT: --debug-load-catalog-assets request type=.* source_only=1") !=
+	        std::string::npos);
 	REQUIRE(all_family_matrix.find("BOOT: --debug-load-catalog-assets result type=") !=
+	        std::string::npos);
+	REQUIRE(all_family_matrix.find("--debug-load-catalog-assets invalid token") !=
+	        std::string::npos);
+	REQUIRE(all_family_matrix.find("--debug-load-catalog-assets token '.*' missing type=id form") !=
 	        std::string::npos);
 	REQUIRE(all_family_matrix.find("RomProvider:filenum") != std::string::npos);
 	REQUIRE(all_family_matrix.find("refusing fallback") != std::string::npos);
+	REQUIRE(smoke_run.find("$resultLabel = if ($r.Passed)") !=
+	        std::string::npos);
+	REQUIRE(smoke_run.find("$tag = if ($r.Passed)") == std::string::npos);
 
 	REQUIRE(mainmenu.find("Asset Source Gate") != std::string::npos);
 	REQUIRE(mainmenu.find("assetSourceDebugOnlyType()") != std::string::npos);
@@ -4525,10 +11740,16 @@ TEST_CASE("universal extracted archive walkers bind public source members",
 	const std::string meta_walker = readTextFile("port/src/loader_walker_meta.c");
 	const std::string provider = readTextFile("port/src/assetprovider_file.c");
 	const std::string player = readTextFile("src/game/player.c");
+	const std::string menu = readTextFile("src/game/menu.c");
+	const std::string title = readTextFile("src/game/title.c");
+	const std::string modelcatalog = readTextFile("port/src/modelcatalog.c");
+	const std::string forge_runtime = readTextFile("port/src/forge/forge_runtime.c");
+	const std::string setuputils = readTextFile("src/game/setuputils.c");
 	const std::string body_runtime = readTextFile("src/game/body.c");
 	const std::string chraction = readTextFile("src/game/chraction.c");
 	const std::string modeldef = readTextFile("src/game/modeldef.c");
 	const std::string setup = readTextFile("src/game/setup.c");
+	const std::string guard = readTextFile("tools/asset_native_source_guard.py");
 	const std::string body_mgr = readTextFile("port/src/catalog_mgr_bodies.c");
 	const std::string head_mgr = readTextFile("port/src/catalog_mgr_heads.c");
 
@@ -4548,6 +11769,12 @@ TEST_CASE("universal extracted archive walkers bind public source members",
 	        std::string::npos);
 	REQUIRE(load.find("type == ASSET_ANIMATION || type == ASSET_SCENARIO") !=
 	        std::string::npos);
+	REQUIRE(load.find("static s32 s_catalogPreloadBundledMetadataPayload(asset_entry_t *entry)") !=
+	        std::string::npos);
+	REQUIRE(load.find("s_catalogPreloadBundledMetadataPayload(mutable_entry)") !=
+	        std::string::npos);
+	REQUIRE(load.find("bundled metadata preload") <
+	        load.find("return s_catalogLoadEntryMetadataPayload(entry)"));
 	REQUIRE(load.find("s_catalogLoadEntryModelPayload(entry, handle)") !=
 	        std::string::npos);
 	const std::string modelPayloadBlock =
@@ -4662,9 +11889,45 @@ TEST_CASE("universal extracted archive walkers bind public source members",
 	        std::string::npos);
 	REQUIRE(head_mgr.find("s_Heads[headnum].modeldef = catalogGetLoadedModeldef(id)") !=
 	        std::string::npos);
+	REQUIRE(body_mgr.find("#include \"asset_source_debug.h\"") !=
+	        std::string::npos);
+	REQUIRE(body_mgr.find("catalogManagerBodyModeldefPassesSourceOnlyCheck") !=
+	        std::string::npos);
+	REQUIRE(body_mgr.find("body manager modeldef fallback") !=
+	        std::string::npos);
+	REQUIRE(body_mgr.find("assetSourceDebugFatalHandleFallback(ASSET_BODY") !=
+	        std::string::npos);
+	REQUIRE(body_mgr.find("assetSourceDebugHandleRequiresPublicFileSource(ASSET_BODY, handle)") !=
+	        std::string::npos);
+	REQUIRE(body_mgr.find("catalogManagerBodyModeldefPassesSourceOnlyCheck(bodynum, id") <
+	        body_mgr.find("modeldefLoadToNewFromHandle(handle"));
+	REQUIRE(head_mgr.find("#include \"asset_source_debug.h\"") !=
+	        std::string::npos);
+	REQUIRE(head_mgr.find("catalogManagerHeadModeldefPassesSourceOnlyCheck") !=
+	        std::string::npos);
+	REQUIRE(head_mgr.find("head manager modeldef fallback") !=
+	        std::string::npos);
+	REQUIRE(head_mgr.find("assetSourceDebugFatalHandleFallback(ASSET_HEAD") !=
+	        std::string::npos);
+	REQUIRE(head_mgr.find("assetSourceDebugHandleRequiresPublicFileSource(ASSET_HEAD, handle)") !=
+	        std::string::npos);
+	REQUIRE(head_mgr.find("catalogManagerHeadModeldefPassesSourceOnlyCheck(headnum, id") <
+	        head_mgr.find("modeldefLoadToNewFromHandle(handle"));
 	REQUIRE(player.find("bodyresult.handle.provider == fileProvider()") !=
 	        std::string::npos);
 	REQUIRE(player.find("headresult.handle.provider == fileProvider()") !=
+	        std::string::npos);
+	REQUIRE(player.find("#include \"asset_source_debug.h\"") !=
+	        std::string::npos);
+	REQUIRE(player.find("assetSourceDebugFatalHandleFallback(ASSET_BODY") !=
+	        std::string::npos);
+	REQUIRE(player.find("assetSourceDebugFatalHandleFallback(ASSET_HEAD") !=
+	        std::string::npos);
+	REQUIRE(player.find("playerFatalSourceOnlyCharacterAssetFailure(ASSET_BODY") !=
+	        std::string::npos);
+	REQUIRE(player.find("playerFatalSourceOnlyCharacterAssetFailure(ASSET_HEAD") !=
+	        std::string::npos);
+	REQUIRE(player.find("refusing player fallback/substitution") !=
 	        std::string::npos);
 	REQUIRE(player.find("catalogGetBodyModeldef(bodynum)") !=
 	        std::string::npos);
@@ -4675,10 +11938,78 @@ TEST_CASE("universal extracted archive walkers bind public source members",
 	REQUIRE(player.find("catalogGetLoadedModeldef(multi_body_id) == bodymodeldef") !=
 	        std::string::npos);
 	REQUIRE(player.find("weapon_model_file_source_1p") != std::string::npos);
+	REQUIRE(player.find("player chrbody weapon modeldef") !=
+	        std::string::npos);
+	REQUIRE(player.find("assetSourceDebugFatalHandleFallback(ASSET_MODEL") !=
+	        std::string::npos);
+	REQUIRE(player.find("assetSourceDebugHandleRequiresPublicFileSource(ASSET_MODEL, weapon_handle)") !=
+	        std::string::npos);
 	REQUIRE(player.find("catalogLoadTypedAsset(ASSET_MODEL, weapon_model_id_1p)") !=
 	        std::string::npos);
+	REQUIRE(menu.find("#include \"asset_source_debug.h\"") !=
+	        std::string::npos);
+	REQUIRE(menu.find("menuModelHandlePassesSourceOnlyCheck") !=
+	        std::string::npos);
+	REQUIRE(menu.find("menu body preview modeldef") !=
+	        std::string::npos);
+	REQUIRE(menu.find("menu head preview modeldef") !=
+	        std::string::npos);
+	REQUIRE(menu.find("menu raw model preview") !=
+	        std::string::npos);
+	REQUIRE(menu.find("menuModelHandlePassesSourceOnlyCheck(ASSET_BODY") !=
+	        std::string::npos);
+	REQUIRE(menu.find("menuModelHandlePassesSourceOnlyCheck(ASSET_HEAD") !=
+	        std::string::npos);
+	REQUIRE(menu.find("menuModelHandlePassesSourceOnlyCheck(ASSET_MODEL") !=
+	        std::string::npos);
+	REQUIRE(title.find("#include \"asset_source_debug.h\"") !=
+	        std::string::npos);
+	REQUIRE(title.find("title model size") !=
+	        std::string::npos);
+	REQUIRE(title.find("assetSourceDebugFatalHandleFallback(ASSET_MODEL") !=
+	        std::string::npos);
+	REQUIRE(title.find("assetSourceDebugHandleRequiresPublicFileSource(ASSET_MODEL, modelresult.handle)") !=
+	        std::string::npos);
+	REQUIRE(modelcatalog.find("#include \"asset_source_debug.h\"") !=
+	        std::string::npos);
+	REQUIRE(modelcatalog.find("catalogValidatePassesSourceOnlyCheck") !=
+	        std::string::npos);
+	REQUIRE(modelcatalog.find("modelcatalog body validation modeldef") !=
+	        std::string::npos);
+	REQUIRE(modelcatalog.find("modelcatalog head validation modeldef") !=
+	        std::string::npos);
+	REQUIRE(modelcatalog.find("assetSourceDebugFatalHandleFallback(type, context, id, handle)") !=
+	        std::string::npos);
+	REQUIRE(modelcatalog.find("catalogValidateSourceMissing(handle, filenum)") >
+	        modelcatalog.find("catalogValidatePassesSourceOnlyCheck(index, ce->category, filenum, handle)"));
+	REQUIRE(forge_runtime.find("#include \"asset_source_debug.h\"") !=
+	        std::string::npos);
+	REQUIRE(forge_runtime.find("s_forgeModelHandlePassesSourceOnlyCheck") !=
+	        std::string::npos);
+	REQUIRE(forge_runtime.find("forge door modeldef") !=
+	        std::string::npos);
+	REQUIRE(forge_runtime.find("forge weapon pad modeldef") !=
+	        std::string::npos);
+	REQUIRE(forge_runtime.find("forge prop modeldef") !=
+	        std::string::npos);
+	REQUIRE(forge_runtime.find("assetSourceDebugFatalHandleFallback(type, context, catalog_id, handle)") !=
+	        std::string::npos);
+	REQUIRE(setuputils.find("#include \"asset_source_debug.h\"") !=
+	        std::string::npos);
+	REQUIRE(setuputils.find("setupModelHandlePassesSourceOnlyCheck") !=
+	        std::string::npos);
+	REQUIRE(setuputils.find("setup modeldef") !=
+	        std::string::npos);
+	REQUIRE(setuputils.find("assetSourceDebugFatalHandleFallback(ASSET_MODEL") !=
+	        std::string::npos);
+	REQUIRE(setuputils.find("assetSourceDebugHandleRequiresPublicFileSource(ASSET_MODEL, handle)") !=
+	        std::string::npos);
+	REQUIRE(setuputils.find("setupModelHandlePassesSourceOnlyCheck(modelnum, model_id, model_handle)") <
+	        setuputils.find("modeldefLoadToNewFromHandle(model_handle, source_filenum)"));
 	const std::string bondgun = readTextFile("src/game/bondgun.c");
 	REQUIRE(bondgun.find("#include \"assetcatalog.h\"") !=
+	        std::string::npos);
+	REQUIRE(bondgun.find("#include \"asset_source_debug.h\"") !=
 	        std::string::npos);
 	REQUIRE(bondgun.find("#include \"modasset_compiler.h\"") !=
 	        std::string::npos);
@@ -4687,6 +12018,18 @@ TEST_CASE("universal extracted archive walkers bind public source members",
 	REQUIRE(bondgun.find("catalogHandleByModelSourceFilenum(ASSET_NONE, filenum)") !=
 	        std::string::npos);
 	REQUIRE(bondgun.find("fileProviderHandle") == std::string::npos);
+	REQUIRE(bondgun.find("bgunQueuedLoadPassesSourceOnlyCheck") !=
+	        std::string::npos);
+	REQUIRE(bondgun.find("assetSourceDebugFatalHandleFallback(ASSET_MODEL") !=
+	        std::string::npos);
+	REQUIRE(bondgun.find("assetSourceDebugHandleRequiresPublicFileSource(ASSET_MODEL") !=
+	        std::string::npos);
+	REQUIRE(bondgun.find("weapon model inflated-size") !=
+	        std::string::npos);
+	REQUIRE(bondgun.find("weapon model loaded-size") !=
+	        std::string::npos);
+	REQUIRE(bondgun.find("weapon model load-to-addr") !=
+	        std::string::npos);
 	REQUIRE(bondgun.find("modAssetCompilerIsExternalSource(bgunQueuedModelSourcePath(player))") !=
 	        std::string::npos);
 	REQUIRE(bondgun.find("catalogIdBySourceHandle(ASSET_MODEL, player->gunctrl.loadhandle)") !=
@@ -4696,6 +12039,56 @@ TEST_CASE("universal extracted archive walkers bind public source members",
 	REQUIRE(bondgun.find("catalogGetLoadedModeldef(model_id)") !=
 	        std::string::npos);
 	REQUIRE(bondgun.find("BONDGUN.SOURCE: loaded catalog model source") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scan_bondgun_model_source_only_guards") !=
+	        std::string::npos);
+	REQUIRE(guard.find("BONDGUN_MODEL_SOURCE_ONLY_ERROR") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scan_model_handle_source_only_guards") !=
+	        std::string::npos);
+	REQUIRE(guard.find("MODEL_HANDLE_SOURCE_ONLY_ERROR") !=
+	        std::string::npos);
+	REQUIRE(guard.find("menu raw model preview") !=
+	        std::string::npos);
+	REQUIRE(guard.find("title model size") !=
+	        std::string::npos);
+	REQUIRE(guard.find("player chrbody weapon modeldef") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scan_modelcatalog_source_only_guards") !=
+	        std::string::npos);
+	REQUIRE(guard.find("MODELCATALOG_SOURCE_ONLY_ERROR") !=
+	        std::string::npos);
+	REQUIRE(guard.find("modelcatalog body validation modeldef") !=
+	        std::string::npos);
+	REQUIRE(guard.find("source-only check must precede catalogValidateSourceMissing") !=
+	        std::string::npos);
+	REQUIRE(guard.find("CATALOG_METADATA_PRELOAD_SOURCE_ONLY_ERROR") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scan_catalog_metadata_preload_source_only_guard(root)") !=
+	        std::string::npos);
+	REQUIRE(guard.find("catalog bundled metadata preloads must enforce source-only public sources") !=
+	        std::string::npos);
+	REQUIRE(guard.find("FORGE_RUNTIME_SOURCE_ONLY_ERROR") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scan_forge_runtime_source_only_guards(root)") !=
+	        std::string::npos);
+	REQUIRE(guard.find("Forge runtime model spawns must enforce source-only public family handles") !=
+	        std::string::npos);
+	REQUIRE(guard.find("SETUP_MODELDEF_SOURCE_ONLY_ERROR") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scan_setup_modeldef_source_only_guard(root)") !=
+	        std::string::npos);
+	REQUIRE(guard.find("setup modeldef loads must enforce source-only public model handles") !=
+	        std::string::npos);
+	REQUIRE(guard.find("CHARACTER_MANAGER_MODELDEF_SOURCE_ONLY_ERROR") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scan_character_manager_modeldef_source_only_guards(root)") !=
+	        std::string::npos);
+	REQUIRE(guard.find("body/head manager modeldef fallbacks must enforce source-only public") !=
+	        std::string::npos);
+	REQUIRE(guard.find("weapon model load-to-addr") !=
+	        std::string::npos);
+	REQUIRE(guard.find("assetSourceDebugFatalHandleFallback(ASSET_MODEL") !=
 	        std::string::npos);
 	REQUIRE(modeldef.find("#include \"assetcatalog.h\"") !=
 	        std::string::npos);
@@ -4731,6 +12124,14 @@ TEST_CASE("universal extracted archive walkers bind public source members",
 	REQUIRE(body_runtime.find("public_source_static_modeldef") !=
 	        std::string::npos);
 	REQUIRE(body_runtime.find("public_source_generated_modeldef") !=
+	        std::string::npos);
+	REQUIRE(body_runtime.find("#include \"asset_source_debug.h\"") !=
+	        std::string::npos);
+	REQUIRE(body_runtime.find("bodyFatalSourceOnlyCharacterAssetFailure(ASSET_BODY") !=
+	        std::string::npos);
+	REQUIRE(body_runtime.find("bodyFatalSourceOnlyCharacterAssetFailure(ASSET_HEAD") !=
+	        std::string::npos);
+	REQUIRE(body_runtime.find("refusing body fallback/substitution") !=
 	        std::string::npos);
 	REQUIRE(body_runtime.find("catalogGetLoadedModeldef(body_source_id) == bodymodeldef") !=
 	        std::string::npos);
@@ -5097,7 +12498,7 @@ TEST_CASE("c3843 remaining base asset families emit clean native archives",
 	REQUIRE(meta.find("s_emitEffect") != std::string::npos);
 	REQUIRE(meta.find("s_emitProp") != std::string::npos);
 	REQUIRE(meta.find("s_emitVehicle") != std::string::npos);
-	REQUIRE(meta.find("PDMETA_FAST_CACHE_KIND \"pdmeta_table_backed_v8_pdscenario_v77\"") !=
+	REQUIRE(meta.find("PDMETA_FAST_CACHE_KIND \"pdmeta_table_backed_v8_pdscenario_v82\"") !=
 	        std::string::npos);
 	REQUIRE(meta.find("texture.png") != std::string::npos);
 	REQUIRE(meta.find("material.json") != std::string::npos);
@@ -5125,13 +12526,30 @@ TEST_CASE("c3843 remaining base asset families emit clean native archives",
 	REQUIRE(meta.find("\"element_type = %d") == std::string::npos);
 	REQUIRE(meta.find("\"effect_type = %d") == std::string::npos);
 	REQUIRE(meta.find("\"prop_type = %d") == std::string::npos);
-	REQUIRE(arena.find("ROMEXTRACT_PDARENA_FAST_CACHE_KIND \"pdarena_clean_public_v6_pdscenario_v77\"") !=
+	REQUIRE(arena.find("ROMEXTRACT_PDARENA_FAST_CACHE_KIND \"pdarena_clean_public_v6_pdscenario_v82\"") !=
 	        std::string::npos);
-	REQUIRE(arena.find("ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND \"pdscenario_scene_glb_clean_public_v77_standalone_backfill_collision_obj_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_quip_shuffle_graph_portals\"") !=
+	REQUIRE(arena.find("ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND \"pdscenario_scene_glb_clean_public_v82_standalone_backfill_collision_obj_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_quip_shuffle_graph_portals_navhashes\"") !=
+	        std::string::npos);
+	REQUIRE(arena.find("supports_drop = true") != std::string::npos);
+	REQUIRE(arena.find("\\\"source_counts\\\": { \\\"pads\\\": %u, \\\"volumes\\\": %u, \\\"waypoints\\\": %u, \\\"waygroups\\\": %u, \\\"covers\\\": %u, \\\"paths\\\": %u }") !=
+	        std::string::npos);
+	REQUIRE(arena.find("\\\"source_hashes\\\": { \\\"scene.glb\\\": \\\"%s\\\", \\\"collision.obj\\\": \\\"%s\\\", \\\"navigation.ini\\\": \\\"%s\\\", \\\"portals.tsv\\\": \\\"%s\\\", \\\"pads.tsv\\\": \\\"%s\\\", \\\"spawns.tsv\\\": \\\"%s\\\", \\\"volumes.tsv\\\": \\\"%s\\\"") !=
 	        std::string::npos);
 	REQUIRE(arena.find("assetArchiveWriterAddPublicMem(&asset_writer, \"portals.tsv\"") !=
 	        std::string::npos);
 	REQUIRE(arena.find("s_existingArchiveHasEntry(relpath, \"portals.tsv\")") !=
+	        std::string::npos);
+	REQUIRE(arena.find("s_existingPdscenarioGeneratedNavmeshIsCurrent(relpath)") !=
+	        std::string::npos);
+	REQUIRE(arena.find("s_existingPdscenarioNavmeshMetadataMatches") !=
+	        std::string::npos);
+	REQUIRE(arena.find("\"_meta/generated-navmesh.json\"") !=
+	        std::string::npos);
+	REQUIRE(arena.find("\\\"source_counts\\\": {") !=
+	        std::string::npos);
+	REQUIRE(arena.find("\\\"source_hashes\\\": {") !=
+	        std::string::npos);
+	REQUIRE(arena.find("\"navigation/paths.tsv\", \"paths\"") !=
 	        std::string::npos);
 	REQUIRE(arena.find("\"scenario.portals.source\"") !=
 	        std::string::npos);
@@ -5153,6 +12571,18 @@ TEST_CASE("c3843 remaining base asset families emit clean native archives",
 	REQUIRE(arena.find("scenario_graph_cache = \" ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND") !=
 	        std::string::npos);
 	REQUIRE(conformance.find("SCENARIO_GRAPH_CACHE_KIND") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("_meta/generated-navmesh.json must declare source_counts") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("source_counts.{count_key} must match") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("_meta/generated-navmesh.json must declare source_hashes") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("source_hashes.{source_name} must match public source bytes") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("navigation.ini must declare {description} capability support") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("_meta/generated-navmesh.json must declare movement capabilities walk,jump,drop,wall,ceiling") !=
 	        std::string::npos);
 	REQUIRE(conformance.find("arena.ini must declare scenario_graph_cache") !=
 	        std::string::npos);
@@ -5195,6 +12625,37 @@ TEST_CASE("c3843 remaining base asset families emit clean native archives",
 	REQUIRE(guard.find("scan_generated_scenario_texture_contracts") !=
 	        std::string::npos);
 	REQUIRE(guard.find("scan_ai_command_graph_coverage") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scan_scenario_runtime_count_guards") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scan_scenario_runtime_lookup_guards") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scan_scenario_player_state_access_guards") !=
+	        std::string::npos);
+	REQUIRE(guard.find("SCENARIO_RUNTIME_LOOKUP_RULES") !=
+	        std::string::npos);
+	REQUIRE(guard.find(
+		        "SCENARIO_CURRENT_PLAYER_POINTER_SOURCE_PROVEN_FUNCTIONS") !=
+	        std::string::npos);
+	REQUIRE(guard.find("\"objFindByTagId\"") !=
+	        std::string::npos);
+	REQUIRE(guard.find("\"tagFindById\"") !=
+	        std::string::npos);
+	REQUIRE(guard.find("\"pathFindById\"") !=
+	        std::string::npos);
+	REQUIRE(guard.find("g_Vars\\.currentplayer\\s*->") !=
+	        std::string::npos);
+	REQUIRE(guard.find("g_Vars\\.currentplayer\\b(?!\\s*->)") !=
+	        std::string::npos);
+	REQUIRE(guard.find("s_aiGraphRequireRuntimePlayerSlot") !=
+	        std::string::npos);
+	REQUIRE(guard.find("\"s_countRuntimePads\"") !=
+	        std::string::npos);
+	REQUIRE(guard.find("s_aiGraphTryCountRuntimeSetupChrRowsFromSource") !=
+	        std::string::npos);
+	REQUIRE(guard.find("s_aiGraphRuntimeSetupCharacterSourceIsActive()") !=
+	        std::string::npos);
+	REQUIRE(guard.find("s_setupGraphValidateBlockedPathWaypoints") !=
 	        std::string::npos);
 	REQUIRE(guard.find("AI_INTERPRETER_ONLY_FUNCTIONS") !=
 	        std::string::npos);

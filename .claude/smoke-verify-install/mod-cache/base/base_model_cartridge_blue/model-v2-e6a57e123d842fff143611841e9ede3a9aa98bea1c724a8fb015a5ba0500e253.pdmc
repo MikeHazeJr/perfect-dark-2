@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_cartridge_blue",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_cartridge_blue.pdmesh::model.obj",
+  "source_size": 8805,
+  "source_sha256": "e6a57e123d842fff143611841e9ede3a9aa98bea1c724a8fb015a5ba0500e253",
+  "validation": "format=obj vertices=144 triangles=48",
+  "normalized": "$S/mod-cache/base/base_model_cartridge_blue/model-v2-e6a57e123d842fff143611841e9ede3a9aa98bea1c724a8fb015a5ba0500e253.pdmodel.json",
+  "vertex_count": 144,
+  "triangle_count": 48,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

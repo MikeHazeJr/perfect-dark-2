@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:maian_soldier",
+  "mod_id": "base",
+  "kind": "body",
+  "source": "data/ntsc-final/bodies/base_maian_soldier.pdbody::mesh.pdmesh::model.obj",
+  "source_size": 99151,
+  "source_sha256": "1bb1375a8571d8438e0c2bf9c8546fa4787b1cdc2049eae4412cd7019063196e",
+  "validation": "format=obj vertices=1473 triangles=491",
+  "normalized": "$S/mod-cache/base/base_maian_soldier/body-v2-1bb1375a8571d8438e0c2bf9c8546fa4787b1cdc2049eae4412cd7019063196e.pdmodel.json",
+  "vertex_count": 1473,
+  "triangle_count": 491,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

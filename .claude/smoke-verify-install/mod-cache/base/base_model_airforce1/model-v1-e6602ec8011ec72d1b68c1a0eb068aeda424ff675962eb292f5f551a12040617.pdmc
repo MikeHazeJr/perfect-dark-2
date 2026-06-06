@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 1,
+  "asset_id": "base:model_airforce1",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_airforce1.pdmesh::model.obj",
+  "source_size": 219779,
+  "source_sha256": "e6602ec8011ec72d1b68c1a0eb068aeda424ff675962eb292f5f551a12040617",
+  "validation": "format=obj vertices=3105 triangles=1035",
+  "normalized": "$S/mod-cache/base/base_model_airforce1/model-v1-e6602ec8011ec72d1b68c1a0eb068aeda424ff675962eb292f5f551a12040617.pdmodel.json",
+  "vertex_count": 3105,
+  "triangle_count": 1035,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

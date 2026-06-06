@@ -1,0 +1,15 @@
+﻿{
+    "Name":  "scenario_generated_nav_path_order",
+    "Category":  "scenario",
+    "BugId":  null,
+    "RegressionFor":  null,
+    "Passed":  true,
+    "ExitCode":  0,
+    "ElapsedSeconds":  76.417312,
+    "InstallDir":  "C:\\Users\\mikeh\\Perfect-Dark-2\\perfect_dark-mike\\.claude\\smoke-verify-install",
+    "AssertionsTotal":  22,
+    "AssertionsMet":  22,
+    "Failures":  [
+
+                 ]
+}

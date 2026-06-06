@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_chrgrenade",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_chrgrenade.pdmesh::model.obj",
+  "source_size": 7007,
+  "source_sha256": "7de99bb60cbda53712a35536565e1e188a6a911015d10648e9fde88a0fb5cbfe",
+  "validation": "format=obj vertices=108 triangles=36",
+  "normalized": "$S/mod-cache/base/base_model_chrgrenade/model-v2-7de99bb60cbda53712a35536565e1e188a6a911015d10648e9fde88a0fb5cbfe.pdmodel.json",
+  "vertex_count": 108,
+  "triangle_count": 36,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

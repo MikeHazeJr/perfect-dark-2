@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_plantrubber_fo",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_plantrubber_fo.pdmesh::model.obj",
+  "source_size": 17120,
+  "source_sha256": "80b0e55940d13f841b3ca861dc9387d18aeb8fc06a90d0252b0a94efcf77b08a",
+  "validation": "format=obj vertices=252 triangles=84",
+  "normalized": "$S/mod-cache/base/base_model_plantrubber_fo/model-v2-80b0e55940d13f841b3ca861dc9387d18aeb8fc06a90d0252b0a94efcf77b08a.pdmodel.json",
+  "vertex_count": 252,
+  "triangle_count": 84,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

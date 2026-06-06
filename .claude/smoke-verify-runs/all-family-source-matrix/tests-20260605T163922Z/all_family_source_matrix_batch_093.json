@@ -1,0 +1,131 @@
+{
+  "scenario_name": "all_family_source_matrix_batch_093",
+  "BugId": "B-509",
+  "category": "modding",
+  "description": "c3844 runtime matrix smoke: source-only catalog load batch 93 for extracted non-Scenario public typed archives. Missing debug-load request/result blocks are B-509 harness observability failures.",
+  "tags": [
+    "modding",
+    "pdxxx",
+    "source-gate",
+    "source-matrix",
+    "all-family",
+    "c3844",
+    "smoke",
+    "pillar:modding"
+  ],
+  "paths_of_interest": [
+    "port/src/main.c",
+    "port/src/asset_source_debug.c",
+    "port/src/assetcatalog_load.c",
+    "tools/smoke-verify/run-all-family-source-matrix.ps1",
+    "tools/smoke-verify/fixtures/all_family_source_pd.ini"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 180,
+  "install_state": "clean",
+  "fixtures": [
+    {
+      "src": "tools/smoke-verify/fixtures/all_family_source_pd.ini",
+      "dst": "pd.ini"
+    },
+    {
+      "src": "tools/smoke-verify/fixtures/no_mods_enabled.json",
+      "dst": "mods-enabled.json"
+    }
+  ],
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--portable",
+    "--debug-load-catalog-assets-source-only",
+    "--debug-load-catalog-assets",
+    "model=base:model_fanwall_er,model=base:model_flag,model=base:model_g5_alarm,model=base:model_g5_chair,model=base:model_g5_chair2,model=base:model_g5_escdoordown,model=base:model_g5_escdoordownboom,model=base:model_g5_escdoorup,model=base:model_g5_escdoorupboom,model=base:model_g5_laser_switch,model=base:model_g5_mainframe,model=base:model_g5bigchair,model=base:model_g5carliftdoor,model=base:model_g5dumpster,model=base:model_g5generator,model=base:model_g5safedoor,model=base:model_g5smallchair,model=base:model_glass_floor,model=base:model_goodpc,model=base:model_goodstation"
+  ],
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait",
+      "comment": "catalog bootstrap extracts and walks base typed archives before source-only typed-load requests fire."
+    },
+    {
+      "at_ms": 35000,
+      "type": "exit",
+      "comment": "exit after all requested typed assets have loaded or emitted source-only failures."
+    }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=all_family_source_matrix_batch_093",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_fanwall_er' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_fanwall_er' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_flag' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_flag' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_g5_alarm' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_g5_alarm' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_g5_chair' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_g5_chair' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_g5_chair2' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_g5_chair2' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_g5_escdoordown' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_g5_escdoordown' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_g5_escdoordownboom' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_g5_escdoordownboom' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_g5_escdoorup' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_g5_escdoorup' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_g5_escdoorupboom' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_g5_escdoorupboom' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_g5_laser_switch' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_g5_laser_switch' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_g5_mainframe' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_g5_mainframe' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_g5bigchair' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_g5bigchair' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_g5carliftdoor' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_g5carliftdoor' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_g5dumpster' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_g5dumpster' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_g5generator' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_g5generator' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_g5safedoor' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_g5safedoor' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_g5smallchair' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_g5smallchair' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_glass_floor' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_glass_floor' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_goodpc' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_goodpc' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_goodstation' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_goodstation' result=OK",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "ASSET\\.SOURCE_ONLY",
+      "has no public FileProvider source",
+      "--debug-load-catalog-assets invalid token",
+      "--debug-load-catalog-assets token '.*' missing type=id form",
+      "--debug-load-catalog-assets argument too long",
+      "result=FAIL",
+      "result=MISSING",
+      "RomProvider:filenum",
+      "refusing fallback"
+    ],
+    "required_counts": [
+      {
+        "pattern": "BOOT: --debug-load-catalog-assets request type=.* source_only=1",
+        "min": 20,
+        "max": 20
+      },
+      {
+        "pattern": "BOOT: --debug-load-catalog-assets result type=.* result=OK",
+        "min": 20,
+        "max": 20
+      }
+    ]
+  }
+}

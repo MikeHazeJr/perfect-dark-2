@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_targetamp",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_targetamp.pdmesh::model.obj",
+  "source_size": 37732,
+  "source_sha256": "43b564e6a0a4f193cc06b8b6b33e35251d9e34d0869aec2cc0369251ebb9cea2",
+  "validation": "format=obj vertices=582 triangles=194",
+  "normalized": "$S/mod-cache/base/base_model_targetamp/model-v2-43b564e6a0a4f193cc06b8b6b33e35251d9e34d0869aec2cc0369251ebb9cea2.pdmodel.json",
+  "vertex_count": 582,
+  "triangle_count": 194,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

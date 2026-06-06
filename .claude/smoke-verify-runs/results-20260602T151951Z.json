@@ -1,0 +1,62 @@
+﻿[
+    {
+        "Name":  "all_family_source_matrix_batch_001",
+        "Category":  "scenario",
+        "BugId":  null,
+        "RegressionFor":  null,
+        "Passed":  true,
+        "ExitCode":  0,
+        "ElapsedSeconds":  36.261894399999996,
+        "InstallDir":  "C:\\Users\\mikeh\\Perfect-Dark-2\\perfect_dark-mike\\.claude\\smoke-verify-install",
+        "AssertionsTotal":  53,
+        "AssertionsMet":  53,
+        "Failures":  [
+
+                     ]
+    },
+    {
+        "Name":  "all_family_source_matrix_batch_002",
+        "Category":  "scenario",
+        "BugId":  null,
+        "RegressionFor":  null,
+        "Passed":  true,
+        "ExitCode":  0,
+        "ElapsedSeconds":  36.3273794,
+        "InstallDir":  "C:\\Users\\mikeh\\Perfect-Dark-2\\perfect_dark-mike\\.claude\\smoke-verify-install",
+        "AssertionsTotal":  53,
+        "AssertionsMet":  53,
+        "Failures":  [
+
+                     ]
+    },
+    {
+        "Name":  "all_family_source_matrix_batch_003",
+        "Category":  "scenario",
+        "BugId":  null,
+        "RegressionFor":  null,
+        "Passed":  true,
+        "ExitCode":  0,
+        "ElapsedSeconds":  36.998467999999995,
+        "InstallDir":  "C:\\Users\\mikeh\\Perfect-Dark-2\\perfect_dark-mike\\.claude\\smoke-verify-install",
+        "AssertionsTotal":  53,
+        "AssertionsMet":  53,
+        "Failures":  [
+
+                     ]
+    },
+    {
+        "Name":  "all_family_source_matrix_batch_004",
+        "Category":  "scenario",
+        "BugId":  null,
+        "RegressionFor":  null,
+        "Passed":  true,
+        "ExitCode":  0,
+        "ElapsedSeconds":  36.2272082,
+        "InstallDir":  "C:\\Users\\mikeh\\Perfect-Dark-2\\perfect_dark-mike\\.claude\\smoke-verify-install",
+        "AssertionsTotal":  29,
+        "AssertionsMet":  29,
+        "Failures":  [
+
+                     ]
+    }
+]

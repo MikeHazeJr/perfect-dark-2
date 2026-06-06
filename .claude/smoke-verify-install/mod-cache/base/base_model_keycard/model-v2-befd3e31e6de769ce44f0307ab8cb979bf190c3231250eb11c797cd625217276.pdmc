@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_keycard",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_keycard.pdmesh::model.obj",
+  "source_size": 5457,
+  "source_sha256": "befd3e31e6de769ce44f0307ab8cb979bf190c3231250eb11c797cd625217276",
+  "validation": "format=obj vertices=84 triangles=28",
+  "normalized": "$S/mod-cache/base/base_model_keycard/model-v2-befd3e31e6de769ce44f0307ab8cb979bf190c3231250eb11c797cd625217276.pdmodel.json",
+  "vertex_count": 84,
+  "triangle_count": 28,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

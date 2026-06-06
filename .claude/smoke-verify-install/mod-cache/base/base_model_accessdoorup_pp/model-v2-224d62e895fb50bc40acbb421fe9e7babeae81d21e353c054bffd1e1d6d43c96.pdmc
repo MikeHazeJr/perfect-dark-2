@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_accessdoorup_pp",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_accessdoorup_pp.pdmesh::model.obj",
+  "source_size": 19298,
+  "source_sha256": "224d62e895fb50bc40acbb421fe9e7babeae81d21e353c054bffd1e1d6d43c96",
+  "validation": "format=obj vertices=282 triangles=94",
+  "normalized": "$S/mod-cache/base/base_model_accessdoorup_pp/model-v2-224d62e895fb50bc40acbb421fe9e7babeae81d21e353c054bffd1e1d6d43c96.pdmodel.json",
+  "vertex_count": 282,
+  "triangle_count": 94,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

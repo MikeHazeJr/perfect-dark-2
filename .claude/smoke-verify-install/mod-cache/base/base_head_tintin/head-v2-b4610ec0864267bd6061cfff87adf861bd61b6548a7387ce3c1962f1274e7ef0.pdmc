@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:head_tintin",
+  "mod_id": "base",
+  "kind": "head",
+  "source": "data/ntsc-final/heads/base_head_tintin.pdhead::mesh.pdmesh::model.obj",
+  "source_size": 42637,
+  "source_sha256": "b4610ec0864267bd6061cfff87adf861bd61b6548a7387ce3c1962f1274e7ef0",
+  "validation": "format=obj vertices=639 triangles=213",
+  "normalized": "$S/mod-cache/base/base_head_tintin/head-v2-b4610ec0864267bd6061cfff87adf861bd61b6548a7387ce3c1962f1274e7ef0.pdmodel.json",
+  "vertex_count": 639,
+  "triangle_count": 213,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

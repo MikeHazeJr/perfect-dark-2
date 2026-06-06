@@ -1,0 +1,22 @@
+{
+  "Name": "weapon_match_source_gate_smoke",
+  "Category": "scenario",
+  "BugId": null,
+  "RegressionFor": null,
+  "Passed": false,
+  "ExitCode": 0,
+  "ElapsedSeconds": 39.4117588,
+  "InstallDir": "C:\\Users\\mikeh\\Perfect-Dark-2\\perfect_dark-mike\\.claude\\smoke-verify-install",
+  "AssertionsTotal": 42,
+  "AssertionsMet": 40,
+  "Failures": [
+    {
+      "Kind": "required_line_missing",
+      "Pattern": "LOG\\.WPN\\.DIAG: bgunRender enter player=0 .* R_gunmodel_def=(?:0x)?0*[1-9a-fA-F][0-9a-fA-F]*"
+    },
+    {
+      "Kind": "required_line_missing",
+      "Pattern": "MODASSET\\.RENDER: generated source modeldef rendered id=base:model_chrdy357 source=.*base_model_chrdy357\\.pdmesh::model\\.obj"
+    }
+  ]
+}

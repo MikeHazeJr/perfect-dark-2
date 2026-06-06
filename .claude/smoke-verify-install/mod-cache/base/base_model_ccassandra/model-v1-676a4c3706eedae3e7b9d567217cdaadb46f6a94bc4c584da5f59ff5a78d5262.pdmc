@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 1,
+  "asset_id": "base:model_ccassandra",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_ccassandra.pdmesh::model.obj",
+  "source_size": 197775,
+  "source_sha256": "676a4c3706eedae3e7b9d567217cdaadb46f6a94bc4c584da5f59ff5a78d5262",
+  "validation": "format=obj vertices=2895 triangles=965",
+  "normalized": "$S/mod-cache/base/base_model_ccassandra/model-v1-676a4c3706eedae3e7b9d567217cdaadb46f6a94bc4c584da5f59ff5a78d5262.pdmodel.json",
+  "vertex_count": 2895,
+  "triangle_count": 965,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

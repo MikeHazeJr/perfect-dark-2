@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_chrremotemine",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_chrremotemine.pdmesh::model.obj",
+  "source_size": 13820,
+  "source_sha256": "4325dc04703b9175623e038bb9032dbe06b2093369830213d31b77a5a670730d",
+  "validation": "format=obj vertices=210 triangles=70",
+  "normalized": "$S/mod-cache/base/base_model_chrremotemine/model-v2-4325dc04703b9175623e038bb9032dbe06b2093369830213d31b77a5a670730d.pdmodel.json",
+  "vertex_count": 210,
+  "triangle_count": 70,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

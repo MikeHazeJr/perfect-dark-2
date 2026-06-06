@@ -78,6 +78,7 @@ extern u8 **g_AnimReplacements;
 static s32 s_catalogTypeUsesMetadataRuntimePayload(asset_type_e type);
 static s32 s_catalogTypePreloadsBundledMetadataPayload(asset_type_e type);
 static s32 s_catalogLoadEntryMetadataPayload(asset_entry_t *entry);
+static s32 s_catalogPreloadBundledMetadataPayload(asset_entry_t *entry);
 
 /* ========================================================================
  * Initialization
@@ -138,7 +139,7 @@ void catalogLoadInit(void)
                 && s_catalogTypePreloadsBundledMetadataPayload(e->type)) {
             asset_entry_t *mutable_entry = assetCatalogGetMutable(e->id);
             if (mutable_entry && mutable_entry->load_state < ASSET_STATE_ACTIVE) {
-                (void)s_catalogLoadEntryMetadataPayload(mutable_entry);
+                (void)s_catalogPreloadBundledMetadataPayload(mutable_entry);
             }
         }
     }
@@ -373,6 +374,46 @@ CatalogResolveResult catalogResolveSound(s32 soundnum)
     }
     s_catalogApplySourceOnlyDebug(&r, e);
     return r;
+}
+
+CatalogResolveResult catalogResolveMusicSequence(s32 tracknum)
+{
+    CatalogResolveResult r = { NULL, -1, 0, 0 };
+
+    if (!s_Initialized || tracknum < 0) {
+        return r;
+    }
+
+    for (s32 i = 0; i < assetCatalogGetPoolSize(); i++) {
+        const asset_entry_t *e = assetCatalogGetByIndex(i);
+        if (!e || !e->enabled || e->type != ASSET_AUDIO) {
+            continue;
+        }
+        if (e->ext.audio.category != AUDIO_CAT_MUSIC) {
+            continue;
+        }
+        if (e->ext.audio.sound_id != tracknum) {
+            continue;
+        }
+
+        r.catalog_id = i;
+    }
+
+    if (r.catalog_id < 0) {
+        return r;
+    }
+
+	const asset_entry_t *entry = assetCatalogGetByIndex(r.catalog_id);
+	if (entry) {
+		r.path = entryGetFilePath(entry);
+		if (r.path) {
+			r.is_mod_override = 1;
+		}
+		if (assetSourceDebugIsEnabledFor(ASSET_AUDIO)) {
+			r.source_only_blocked = 1;
+		}
+	}
+	return r;
 }
 
 /* ========================================================================
@@ -653,6 +694,18 @@ static s32 s_catalogTypeCanUseObjColmeshPayload(asset_type_e type)
 static s32 s_catalogTypeUsesWeaponGraphRuntime(asset_type_e type)
 {
     return type == ASSET_PROJECTILE || type == ASSET_ENTITY;
+}
+
+static s32 s_catalogPreloadBundledMetadataPayload(asset_entry_t *entry)
+{
+    if (assetSourceDebugEntryRequiresPublicFileSource(entry)) {
+        sysLogPrintf(LOG_WARNING,
+                     "ASSET.SOURCE_ONLY: bundled metadata preload for typed '%s' %s has no public FileProvider source; refusing activation",
+                     entry->id, assetSourceDebugTypeLabel(entry->type));
+        return 0;
+    }
+
+    return s_catalogLoadEntryMetadataPayload(entry);
 }
 
 static s32 s_catalogActivateWeaponGraphRuntime(asset_entry_t *entry,

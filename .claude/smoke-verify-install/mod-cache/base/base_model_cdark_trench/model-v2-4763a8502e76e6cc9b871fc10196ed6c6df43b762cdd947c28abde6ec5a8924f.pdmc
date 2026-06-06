@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_cdark_trench",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_cdark_trench.pdmesh::model.obj",
+  "source_size": 205944,
+  "source_sha256": "4763a8502e76e6cc9b871fc10196ed6c6df43b762cdd947c28abde6ec5a8924f",
+  "validation": "format=obj vertices=3012 triangles=1004",
+  "normalized": "$S/mod-cache/base/base_model_cdark_trench/model-v2-4763a8502e76e6cc9b871fc10196ed6c6df43b762cdd947c28abde6ec5a8924f.pdmodel.json",
+  "vertex_count": 3012,
+  "triangle_count": 1004,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

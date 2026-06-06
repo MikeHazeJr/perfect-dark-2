@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 1,
+  "asset_id": "base:model_chravenger",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_chravenger.pdmesh::model.obj",
+  "source_size": 12972,
+  "source_sha256": "480ef0a2e4e5203a9ced0159bdaf39ddccc49c933c67804efbdbb8deb076c307",
+  "validation": "format=obj vertices=201 triangles=67",
+  "normalized": "$S/mod-cache/base/base_model_chravenger/model-v1-480ef0a2e4e5203a9ced0159bdaf39ddccc49c933c67804efbdbb8deb076c307.pdmodel.json",
+  "vertex_count": 201,
+  "triangle_count": 67,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

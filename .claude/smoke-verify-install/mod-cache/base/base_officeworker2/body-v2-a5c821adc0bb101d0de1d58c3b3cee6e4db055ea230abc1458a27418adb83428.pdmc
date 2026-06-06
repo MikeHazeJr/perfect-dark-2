@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:officeworker2",
+  "mod_id": "base",
+  "kind": "body",
+  "source": "data/ntsc-final/bodies/base_officeworker2.pdbody::mesh.pdmesh::model.obj",
+  "source_size": 139905,
+  "source_sha256": "a5c821adc0bb101d0de1d58c3b3cee6e4db055ea230abc1458a27418adb83428",
+  "validation": "format=obj vertices=2055 triangles=685",
+  "normalized": "$S/mod-cache/base/base_officeworker2/body-v2-a5c821adc0bb101d0de1d58c3b3cee6e4db055ea230abc1458a27418adb83428.pdmodel.json",
+  "vertex_count": 2055,
+  "triangle_count": 685,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_wirefence",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_wirefence.pdmesh::model.obj",
+  "source_size": 10904,
+  "source_sha256": "27a9caa638bd9fe7f26739af87b49b4a9365064cc3923f9a3ab7a71b9a4ac06b",
+  "validation": "format=obj vertices=156 triangles=52",
+  "normalized": "$S/mod-cache/base/base_model_wirefence/model-v2-27a9caa638bd9fe7f26739af87b49b4a9365064cc3923f9a3ab7a71b9a4ac06b.pdmodel.json",
+  "vertex_count": 156,
+  "triangle_count": 52,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

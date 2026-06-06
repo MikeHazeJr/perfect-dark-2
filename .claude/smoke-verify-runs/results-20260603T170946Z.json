@@ -1,0 +1,15 @@
+﻿{
+    "Name":  "scenario_source_matrix_citraining",
+    "Category":  "scenario",
+    "BugId":  null,
+    "RegressionFor":  null,
+    "Passed":  true,
+    "ExitCode":  0,
+    "ElapsedSeconds":  146.5134649,
+    "InstallDir":  "C:\\Users\\mikeh\\Perfect-Dark-2\\perfect_dark-mike\\.claude\\smoke-verify-install",
+    "AssertionsTotal":  160,
+    "AssertionsMet":  160,
+    "Failures":  [
+
+                 ]
+}

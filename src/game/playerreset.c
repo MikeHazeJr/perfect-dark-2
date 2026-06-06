@@ -112,6 +112,102 @@ void playerInitEyespy(void)
 	}
 }
 
+static f32 playerResetWallProbeAngle(const struct coord *pos, RoomNum *rooms)
+{
+	static const f32 dirX[8] = {0.0f, 0.707f, 1.0f, 0.707f, 0.0f, -0.707f, -1.0f, -0.707f};
+	static const f32 dirZ[8] = {1.0f, 0.707f, 0.0f, -0.707f, -1.0f, -0.707f, 0.0f, 0.707f};
+	f32 wallX = 0.0f;
+	f32 wallZ = 0.0f;
+	s32 wallCount = 0;
+	s32 dir;
+
+	for (dir = 0; dir < 8; dir++) {
+		struct coord probe;
+		probe.x = pos->x + dirX[dir] * 200.0f;
+		probe.y = pos->y;
+		probe.z = pos->z + dirZ[dir] * 200.0f;
+
+		if (cdExamCylMove01((struct coord *)pos, &probe, 30, rooms, CDTYPE_BG, false, 0, 0) == CDRESULT_COLLISION) {
+			wallX += dirX[dir];
+			wallZ += dirZ[dir];
+			wallCount++;
+		}
+	}
+
+	if (wallCount > 0) {
+		return atan2f(wallX, -wallZ);
+	}
+
+	return 0.0f;
+}
+
+static bool playerResetGroundIsValid(f32 groundy)
+{
+	const f32 GROUNDY_BOUND = 100000.0f;
+
+	return groundy >= -GROUNDY_BOUND && groundy <= GROUNDY_BOUND;
+}
+
+static bool playerResetFindPublicPadFallback(struct coord *pos, RoomNum *rooms, f32 *turnanglerad)
+{
+	struct pad firstpad;
+	s32 firstpadnum = -1;
+	s32 maxpads;
+	s32 pi;
+
+	if (g_PadsFile == NULL) {
+		return false;
+	}
+
+	maxpads = g_PadsFile->numpads;
+
+	for (pi = 0; pi < maxpads; pi++) {
+		struct pad probePad;
+		RoomNum prooms[2];
+		f32 groundy;
+
+		padUnpack(pi, PADFIELD_POS | PADFIELD_ROOM, &probePad);
+
+		if (probePad.room < 0) {
+			continue;
+		}
+
+		if (firstpadnum < 0) {
+			firstpadnum = pi;
+			firstpad = probePad;
+		}
+
+		prooms[0] = probePad.room;
+		prooms[1] = -1;
+		groundy = cdFindGroundInfoAtCyl(&probePad.pos, 30, prooms,
+				NULL, NULL, NULL, NULL, NULL, NULL);
+
+		if (playerResetGroundIsValid(groundy)) {
+			*pos = probePad.pos;
+			rooms[0] = probePad.room;
+			rooms[1] = -1;
+			*turnanglerad = playerResetWallProbeAngle(pos, rooms);
+			sysLogPrintf(LOG_NOTE,
+				"SPAWN: no intro spawn rows; using grounded public pad %d (room=%d, ground=%.0f, angle=%.1f)",
+				pi, (s32)probePad.room, groundy, *turnanglerad);
+			return true;
+		}
+	}
+
+	if (firstpadnum >= 0) {
+		*pos = firstpad.pos;
+		rooms[0] = firstpad.room;
+		rooms[1] = -1;
+		*turnanglerad = playerResetWallProbeAngle(pos, rooms);
+		sysLogPrintf(LOG_NOTE,
+			"SPAWN: no intro spawn rows; using first public pad %d with authored Y (room=%d, angle=%.1f)",
+			firstpadnum, (s32)firstpad.room, *turnanglerad);
+		return true;
+	}
+
+	return false;
+}
+
 struct cmd32 {
 	s32 type;
 	s32 param1;
@@ -135,6 +231,7 @@ void playerReset(void)
 	struct chrdata *chr;
 	s32 bodynum;
 	s32 headnum;
+	bool spawnYAuthoritative = false;
 
 	func0f18e558();
 
@@ -657,8 +754,10 @@ void playerReset(void)
 	if (g_NumSpawnPoints > 0) {
 		if (g_Vars.coopplayernum >= 0) {
 			turnanglerad = M_BADTAU - scenarioChooseSpawnLocation(30, &pos, rooms, g_Vars.currentplayer->prop);
+			spawnYAuthoritative = true;
 		} else if (g_Vars.antiplayernum >= 0) {
 			turnanglerad = M_BADTAU - scenarioChooseSpawnLocation(30, &pos, rooms, g_Vars.currentplayer->prop);
+			spawnYAuthoritative = true;
 		} else if (g_Vars.mplayerisrunning && spawnPoolIsReady() && g_Vars.lvframe60 == 0) {
 			/* Initial MP placement is owned by mpOrchestrateMatchStartSpawns()
 			 * (Hungarian + team anchors + relax).  Use a stable temp point
@@ -690,7 +789,10 @@ void playerReset(void)
 			}
 
 			turnanglerad = M_BADTAU - scenarioChooseSpawnLocation(30, &pos, rooms, g_Vars.currentplayer->prop);
+			spawnYAuthoritative = true;
 		}
+	} else if (playerResetFindPublicPadFallback(&pos, rooms, &turnanglerad)) {
+		spawnYAuthoritative = true;
 	} else if (g_Vars.mplayerisrunning) {
 		// PC: Mod stages may have setup files with no valid intro data, leaving
 		// g_NumSpawnPoints at 0. Without a spawn location, rooms[] is uninitialized
@@ -720,35 +822,8 @@ void playerReset(void)
 		rooms[0] = fallbackpad.room;
 		rooms[1] = -1;
 
-		// Probe 8 compass directions to find walls, accumulate a wall vector,
-		// then face the opposite direction so the player doesn't spawn staring
-		// at a wall. Each probe tests for wall collision at 200 units out.
-		{
-			static const f32 dirX[8] = {0.0f, 0.707f, 1.0f, 0.707f, 0.0f, -0.707f, -1.0f, -0.707f};
-			static const f32 dirZ[8] = {1.0f, 0.707f, 0.0f, -0.707f, -1.0f, -0.707f, 0.0f, 0.707f};
-			f32 wallX = 0, wallZ = 0;
-			s32 wallCount = 0;
-			s32 dir;
-
-			for (dir = 0; dir < 8; dir++) {
-				struct coord probe;
-				probe.x = pos.x + dirX[dir] * 200.0f;
-				probe.y = pos.y;
-				probe.z = pos.z + dirZ[dir] * 200.0f;
-
-				if (cdExamCylMove01(&pos, &probe, 30, rooms, CDTYPE_BG, false, 0, 0) == CDRESULT_COLLISION) {
-					wallX += dirX[dir];
-					wallZ += dirZ[dir];
-					wallCount++;
-				}
-			}
-
-			if (wallCount > 0) {
-				// Face away from the average wall direction
-				turnanglerad = atan2f(wallX, -wallZ);
-			}
-			// else turnanglerad stays 0 — no walls nearby, any direction is fine
-		}
+		turnanglerad = playerResetWallProbeAngle(&pos, rooms);
+		spawnYAuthoritative = true;
 
 		sysLogPrintf(LOG_WARNING, "LOAD: no spawn points from intro data, using pad %d fallback (room=%d, angle=%.1f)", fallbackpadnum, fallbackpad.room, turnanglerad);
 	}
@@ -781,12 +856,17 @@ void playerReset(void)
 			0, 0);
 
 	{
-		const f32 GROUNDY_BOUND = 100000.0f;
-		if (groundy < -GROUNDY_BOUND || groundy > GROUNDY_BOUND) {
-			sysLogPrintf(LOG_WARNING,
-				"SPAWN.INIT: cdFindGroundInfoAtCyl sentinel groundy=%g "
-				"at spawn pos=(%.0f,%.0f,%.0f) room=%d; using spawn Y",
-				groundy, pos.x, pos.y, pos.z, rooms[0]);
+		if (!playerResetGroundIsValid(groundy)) {
+			if (spawnYAuthoritative) {
+				sysLogPrintf(LOG_NOTE,
+					"SPAWN.INIT: source-authored spawn Y used because no floor hit at pos=(%.0f,%.0f,%.0f) room=%d",
+					pos.x, pos.y, pos.z, rooms[0]);
+			} else {
+				sysLogPrintf(LOG_WARNING,
+					"SPAWN.INIT: cdFindGroundInfoAtCyl sentinel groundy=%g "
+					"at spawn pos=(%.0f,%.0f,%.0f) room=%d; using spawn Y",
+					groundy, pos.x, pos.y, pos.z, rooms[0]);
+			}
 			groundy = pos.y;
 		}
 	}

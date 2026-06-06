@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_cheadsecretary",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_cheadsecretary.pdmesh::model.obj",
+  "source_size": 45388,
+  "source_sha256": "639bf6d22d1e1ae9f87c975a6ac6e0d793613e09297a24abd2de22d0ca24ea73",
+  "validation": "format=obj vertices=696 triangles=232",
+  "normalized": "$S/mod-cache/base/base_model_cheadsecretary/model-v2-639bf6d22d1e1ae9f87c975a6ac6e0d793613e09297a24abd2de22d0ca24ea73.pdmodel.json",
+  "vertex_count": 696,
+  "triangle_count": 232,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_multi_ammo_crate",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_multi_ammo_crate.pdmesh::model.obj",
+  "source_size": 3192,
+  "source_sha256": "30a3da3967323f5c35c65bf7daef53c838cbf2c1aa4b8c1dfea0cbfe30f394cb",
+  "validation": "format=obj vertices=48 triangles=16",
+  "normalized": "$S/mod-cache/base/base_model_multi_ammo_crate/model-v2-30a3da3967323f5c35c65bf7daef53c838cbf2c1aa4b8c1dfea0cbfe30f394cb.pdmodel.json",
+  "vertex_count": 48,
+  "triangle_count": 16,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

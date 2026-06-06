@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_lamp_baf",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_lamp_baf.pdmesh::model.obj",
+  "source_size": 16208,
+  "source_sha256": "c38b62025db1f73815b2d47f9910f7299a684a13919b2beda4b12195faee883d",
+  "validation": "format=obj vertices=258 triangles=86",
+  "normalized": "$S/mod-cache/base/base_model_lamp_baf/model-v2-c38b62025db1f73815b2d47f9910f7299a684a13919b2beda4b12195faee883d.pdmodel.json",
+  "vertex_count": 258,
+  "triangle_count": 86,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

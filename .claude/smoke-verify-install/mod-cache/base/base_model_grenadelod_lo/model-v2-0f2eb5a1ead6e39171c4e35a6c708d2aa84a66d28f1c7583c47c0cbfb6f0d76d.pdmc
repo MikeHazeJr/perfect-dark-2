@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_grenadelod_lo",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_grenadelod_lo.pdmesh::model.obj",
+  "source_size": 19177,
+  "source_sha256": "0f2eb5a1ead6e39171c4e35a6c708d2aa84a66d28f1c7583c47c0cbfb6f0d76d",
+  "validation": "format=obj vertices=300 triangles=100",
+  "normalized": "$S/mod-cache/base/base_model_grenadelod_lo/model-v2-0f2eb5a1ead6e39171c4e35a6c708d2aa84a66d28f1c7583c47c0cbfb6f0d76d.pdmodel.json",
+  "vertex_count": 300,
+  "triangle_count": 100,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

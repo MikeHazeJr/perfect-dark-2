@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:ddshock",
+  "mod_id": "base",
+  "kind": "body",
+  "source": "data/ntsc-final/bodies/base_ddshock.pdbody::mesh.pdmesh::model.obj",
+  "source_size": 141231,
+  "source_sha256": "793682c9011efbd4c513a53103a8a6a50630a87a9995e75e28a88fd9261023e0",
+  "validation": "format=obj vertices=2067 triangles=689",
+  "normalized": "$S/mod-cache/base/base_ddshock/body-v2-793682c9011efbd4c513a53103a8a6a50630a87a9995e75e28a88fd9261023e0.pdmodel.json",
+  "vertex_count": 2067,
+  "triangle_count": 689,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

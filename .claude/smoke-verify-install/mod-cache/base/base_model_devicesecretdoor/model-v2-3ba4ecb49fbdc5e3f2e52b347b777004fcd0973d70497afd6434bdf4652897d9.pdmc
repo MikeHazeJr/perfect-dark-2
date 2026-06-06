@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_devicesecretdoor",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_devicesecretdoor.pdmesh::model.obj",
+  "source_size": 3062,
+  "source_sha256": "3ba4ecb49fbdc5e3f2e52b347b777004fcd0973d70497afd6434bdf4652897d9",
+  "validation": "format=obj vertices=42 triangles=14",
+  "normalized": "$S/mod-cache/base/base_model_devicesecretdoor/model-v2-3ba4ecb49fbdc5e3f2e52b347b777004fcd0973d70497afd6434bdf4652897d9.pdmodel.json",
+  "vertex_count": 42,
+  "triangle_count": 14,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

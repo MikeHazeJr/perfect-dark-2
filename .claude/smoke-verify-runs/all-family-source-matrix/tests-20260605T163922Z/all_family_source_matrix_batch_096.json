@@ -1,0 +1,131 @@
+{
+  "scenario_name": "all_family_source_matrix_batch_096",
+  "BugId": "B-509",
+  "category": "modding",
+  "description": "c3844 runtime matrix smoke: source-only catalog load batch 96 for extracted non-Scenario public typed archives. Missing debug-load request/result blocks are B-509 harness observability failures.",
+  "tags": [
+    "modding",
+    "pdxxx",
+    "source-gate",
+    "source-matrix",
+    "all-family",
+    "c3844",
+    "smoke",
+    "pillar:modding"
+  ],
+  "paths_of_interest": [
+    "port/src/main.c",
+    "port/src/asset_source_debug.c",
+    "port/src/assetcatalog_load.c",
+    "tools/smoke-verify/run-all-family-source-matrix.ps1",
+    "tools/smoke-verify/fixtures/all_family_source_pd.ini"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 180,
+  "install_state": "clean",
+  "fixtures": [
+    {
+      "src": "tools/smoke-verify/fixtures/all_family_source_pd.ini",
+      "dst": "pd.ini"
+    },
+    {
+      "src": "tools/smoke-verify/fixtures/no_mods_enabled.json",
+      "dst": "mods-enabled.json"
+    }
+  ],
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--portable",
+    "--debug-load-catalog-assets-source-only",
+    "--debug-load-catalog-assets",
+    "model=base:model_hovcar_et,model=base:model_hovcop_eu,model=base:model_hoverbed,model=base:model_hovercopter_ev,model=base:model_hovercrate1,model=base:model_hovmoto_ew,model=base:model_hovtruck_ex,model=base:model_hudpiece_menu,model=base:model_innerdoor_bvy,model=base:model_instfrontdoor,model=base:model_irscanner_hi,model=base:model_irscanner_lo,model=base:model_isotope,model=base:model_isotopeexperiment,model=base:model_k7avenger_hi,model=base:model_keycard_hi,model=base:model_keycard_lo,model=base:model_keycard,model=base:model_keypadlock,model=base:model_kingsceptre"
+  ],
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait",
+      "comment": "catalog bootstrap extracts and walks base typed archives before source-only typed-load requests fire."
+    },
+    {
+      "at_ms": 35000,
+      "type": "exit",
+      "comment": "exit after all requested typed assets have loaded or emitted source-only failures."
+    }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=all_family_source_matrix_batch_096",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_hovcar_et' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_hovcar_et' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_hovcop_eu' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_hovcop_eu' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_hoverbed' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_hoverbed' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_hovercopter_ev' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_hovercopter_ev' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_hovercrate1' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_hovercrate1' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_hovmoto_ew' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_hovmoto_ew' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_hovtruck_ex' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_hovtruck_ex' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_hudpiece_menu' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_hudpiece_menu' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_innerdoor_bvy' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_innerdoor_bvy' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_instfrontdoor' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_instfrontdoor' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_irscanner_hi' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_irscanner_hi' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_irscanner_lo' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_irscanner_lo' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_isotope' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_isotope' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_isotopeexperiment' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_isotopeexperiment' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_k7avenger_hi' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_k7avenger_hi' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_keycard_hi' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_keycard_hi' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_keycard_lo' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_keycard_lo' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_keycard' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_keycard' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_keypadlock' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_keypadlock' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_kingsceptre' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_kingsceptre' result=OK",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "ASSET\\.SOURCE_ONLY",
+      "has no public FileProvider source",
+      "--debug-load-catalog-assets invalid token",
+      "--debug-load-catalog-assets token '.*' missing type=id form",
+      "--debug-load-catalog-assets argument too long",
+      "result=FAIL",
+      "result=MISSING",
+      "RomProvider:filenum",
+      "refusing fallback"
+    ],
+    "required_counts": [
+      {
+        "pattern": "BOOT: --debug-load-catalog-assets request type=.* source_only=1",
+        "min": 20,
+        "max": 20
+      },
+      {
+        "pattern": "BOOT: --debug-load-catalog-assets result type=.* result=OK",
+        "min": 20,
+        "max": 20
+      }
+    ]
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:head_duncan2",
+  "mod_id": "base",
+  "kind": "head",
+  "source": "data/ntsc-final/heads/base_head_duncan2.pdhead::mesh.pdmesh::model.obj",
+  "source_size": 34781,
+  "source_sha256": "d4c87b0287923f907a8e0d6e9ee6e38b61fb39545ccba9d76ab11454f111d263",
+  "validation": "format=obj vertices=531 triangles=177",
+  "normalized": "$S/mod-cache/base/base_head_duncan2/head-v2-d4c87b0287923f907a8e0d6e9ee6e38b61fb39545ccba9d76ab11454f111d263.pdmodel.json",
+  "vertex_count": 531,
+  "triangle_count": 177,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

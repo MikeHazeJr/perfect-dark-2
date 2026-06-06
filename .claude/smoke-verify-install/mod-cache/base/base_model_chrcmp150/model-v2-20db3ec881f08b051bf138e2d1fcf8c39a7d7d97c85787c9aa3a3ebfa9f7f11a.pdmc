@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_chrcmp150",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_chrcmp150.pdmesh::model.obj",
+  "source_size": 10552,
+  "source_sha256": "20db3ec881f08b051bf138e2d1fcf8c39a7d7d97c85787c9aa3a3ebfa9f7f11a",
+  "validation": "format=obj vertices=159 triangles=53",
+  "normalized": "$S/mod-cache/base/base_model_chrcmp150/model-v2-20db3ec881f08b051bf138e2d1fcf8c39a7d7d97c85787c9aa3a3ebfa9f7f11a.pdmodel.json",
+  "vertex_count": 159,
+  "triangle_count": 53,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

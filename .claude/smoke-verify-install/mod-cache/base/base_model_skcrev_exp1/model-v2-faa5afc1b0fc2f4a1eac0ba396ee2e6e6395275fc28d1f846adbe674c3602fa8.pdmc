@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_skcrev_exp1",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_skcrev_exp1.pdmesh::model.obj",
+  "source_size": 4136,
+  "source_sha256": "faa5afc1b0fc2f4a1eac0ba396ee2e6e6395275fc28d1f846adbe674c3602fa8",
+  "validation": "format=obj vertices=57 triangles=19",
+  "normalized": "$S/mod-cache/base/base_model_skcrev_exp1/model-v2-faa5afc1b0fc2f4a1eac0ba396ee2e6e6395275fc28d1f846adbe674c3602fa8.pdmodel.json",
+  "vertex_count": 57,
+  "triangle_count": 19,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

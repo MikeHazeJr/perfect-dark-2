@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_sk_pillarleft",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_sk_pillarleft.pdmesh::model.obj",
+  "source_size": 17662,
+  "source_sha256": "116ae64020261f7c05bc93a8fc57667cc7fbbd860fe1e7d899da80845bfe551b",
+  "validation": "format=obj vertices=240 triangles=80",
+  "normalized": "$S/mod-cache/base/base_model_sk_pillarleft/model-v2-116ae64020261f7c05bc93a8fc57667cc7fbbd860fe1e7d899da80845bfe551b.pdmodel.json",
+  "vertex_count": 240,
+  "triangle_count": 80,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_ar34lod_lo",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_ar34lod_lo.pdmesh::model.obj",
+  "source_size": 31589,
+  "source_sha256": "ada7cd1d9adc238fedb389cecfb19b794beb37369edc810170c6a8bcfeb05ca3",
+  "validation": "format=obj vertices=483 triangles=161",
+  "normalized": "$S/mod-cache/base/base_model_ar34lod_lo/model-v2-ada7cd1d9adc238fedb389cecfb19b794beb37369edc810170c6a8bcfeb05ca3.pdmodel.json",
+  "vertex_count": 483,
+  "triangle_count": 161,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:steward",
+  "mod_id": "base",
+  "kind": "body",
+  "source": "data/ntsc-final/bodies/base_steward.pdbody::mesh.pdmesh::model.obj",
+  "source_size": 141928,
+  "source_sha256": "b1c2a28a037796c78321a19317349c67299f977aee60b99060cf69cef2c7ebcd",
+  "validation": "format=obj vertices=2097 triangles=699",
+  "normalized": "$S/mod-cache/base/base_steward/body-v2-b1c2a28a037796c78321a19317349c67299f977aee60b99060cf69cef2c7ebcd.pdmodel.json",
+  "vertex_count": 2097,
+  "triangle_count": 699,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

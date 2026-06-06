@@ -1,0 +1,361 @@
+record_id	kind	pad_ref	model_catalog_id	weapon_catalog_id	secondary_weapon_catalog_id	body_catalog_id	head_catalog_id	ailist_ref	flags	flags2	flags3
+setup_0000	briefing										
+setup_0001	briefing										
+setup_0002	briefing										
+setup_0003	briefing										
+setup_0004	objective_begin										
+setup_0005	objective_complete_flags										
+setup_0006	objective_complete_flags										
+setup_0007	objective_complete_flags										
+setup_0008	objective_fail_flags										
+setup_0009	objective_fail_flags										
+setup_0010	objective_end										
+setup_0011	objective_begin										
+setup_0012	objective_complete_flags										
+setup_0013	objective_fail_flags										
+setup_0014	objective_end										
+setup_0015	objective_begin										
+setup_0016	objective_collect_object										
+setup_0017	objective_fail_flags										
+setup_0018	objective_end										
+setup_0019	objective_begin										
+setup_0020	objective_complete_flags										
+setup_0021	objective_end										
+setup_0022	objective_begin										
+setup_0023	objective_complete_flags										
+setup_0024	objective_fail_flags										
+setup_0025	objective_fail_flags										
+setup_0026	objective_end										
+setup_0027	tag										
+setup_0028	tag										
+setup_0029	door	pad_0342	base:model_cidoor1_ref						0x00000400	0x20000000	0x00000000
+setup_0030	door	pad_0343	base:model_cidoor1_ref						0x00000400	0x20000000	0x00000000
+setup_0031	tag										
+setup_0032	tag										
+setup_0033	door	pad_0344	base:model_cidoor1_ref						0x00000400	0x00000000	0x00000000
+setup_0034	door	pad_0345	base:model_cidoor1_ref						0x00000400	0x00000000	0x00000000
+setup_0035	door	pad_0347	base:model_cidoor1_ref						0x00000400	0x00000000	0x00000000
+setup_0036	door	pad_0348	base:model_cidoor1_ref						0x00000400	0x00000000	0x00000000
+setup_0037	tag										
+setup_0038	door	pad_0346	base:model_cidoor1_ref						0x00000400	0x00000000	0x00000000
+setup_0039	tag										
+setup_0040	door	pad_0349	base:model_cidoor1_ref						0x00000400	0x00000000	0x00000000
+setup_0041	tag										
+setup_0042	door	pad_0358	base:model_ch_shutter1						0x10000400	0x20000000	0x00000000
+setup_0043	door	pad_0359	base:model_ch_shutter1						0x10000400	0x20000000	0x00000000
+setup_0044	prop	pad_0530	base:model_ci_sofa						0x000005e1	0x00004100	0x00000001
+setup_0045	prop	pad_0531	base:model_ci_sofa						0x000005e1	0x00004100	0x00000001
+setup_0046	prop	pad_0532	base:model_ci_sofa						0x000005e1	0x00004100	0x00000001
+setup_0047	prop	pad_0533	base:model_ci_sofa						0x000005e1	0x00004100	0x00000001
+setup_0048	prop	pad_0534	base:model_ci_sofa						0x000005e1	0x00004100	0x00000001
+setup_0049	prop	pad_0535	base:model_ci_sofa						0x000005e1	0x00004100	0x00000001
+setup_0050	prop	pad_0536	base:model_ci_sofa						0x000005e1	0x00004100	0x00000001
+setup_0051	prop	pad_0537	base:model_ci_sofa						0x000005e1	0x00004100	0x00000001
+setup_0052	glass	pad_0415	base:model_window						0x04000b62	0x00000000	0x00000000
+setup_0053	glass	pad_0414	base:model_window						0x04000b62	0x00000000	0x00000000
+setup_0054	glass	pad_0413	base:model_window						0x04000b62	0x00000000	0x00000000
+setup_0055	glass	pad_0412	base:model_window						0x04000b62	0x00000000	0x00000000
+setup_0056	glass	pad_0416	base:model_window						0x04000b62	0x00000000	0x00000000
+setup_0057	glass	pad_0417	base:model_window						0x04000b62	0x00000000	0x00000000
+setup_0058	glass	pad_0418	base:model_window						0x04000b62	0x00000000	0x00000000
+setup_0059	glass	pad_0419	base:model_window						0x04000b62	0x00000000	0x00000000
+setup_0060	glass	pad_0420	base:model_window						0x04000b62	0x00000000	0x00000000
+setup_0061	glass	pad_0421	base:model_window						0x04000b62	0x00000000	0x00000000
+setup_0062	glass	pad_0422	base:model_window						0x04000b62	0x00000000	0x00000000
+setup_0063	glass	pad_0423	base:model_window						0x04000b62	0x00000000	0x00000000
+setup_0064	glass	pad_0452	base:model_window						0x04020b62	0x00000000	0x00000000
+setup_0065	glass	pad_0453	base:model_window						0x04020b62	0x00000000	0x00000000
+setup_0066	glass	pad_0454	base:model_window						0x04020b62	0x00000000	0x00000000
+setup_0067	glass	pad_0455	base:model_window						0x04020b62	0x00000000	0x00000000
+setup_0068	glass	pad_0424	base:model_window						0x04020b62	0x00100000	0x00000000
+setup_0069	glass	pad_0425	base:model_window						0x04020b62	0x00100000	0x00000000
+setup_0070	glass	pad_0426	base:model_window						0x04020b62	0x00100000	0x00000000
+setup_0071	glass	pad_0427	base:model_window						0x04020b62	0x00100000	0x00000000
+setup_0072	glass	pad_0428	base:model_window						0x04020b62	0x00100000	0x00000000
+setup_0073	glass	pad_0429	base:model_window						0x04020b62	0x00100000	0x00000000
+setup_0074	glass	pad_0430	base:model_window						0x04020b62	0x00100000	0x00000000
+setup_0075	glass	pad_0431	base:model_window						0x04020b62	0x00100000	0x00000000
+setup_0076	glass	pad_0465	base:model_window						0x04000362	0x00104000	0x00000000
+setup_0077	tag										
+setup_0078	tag										
+setup_0079	tag										
+setup_0080	tag										
+setup_0081	tag										
+setup_0082	lift	pad_0403	base:model_ci_lift						0x035204e8	0x00304300	0x00000000
+setup_0083	door	pad_0350	base:model_liftdoor_fl						0x04000400	0x00000000	0x00000000
+setup_0084	door	pad_0351	base:model_liftdoor_fl						0x04000400	0x00000000	0x00000000
+setup_0085	door	pad_0352	base:model_liftdoor_fl						0x04000400	0x00000000	0x00000000
+setup_0086	door	pad_0353	base:model_liftdoor_fl						0x04000400	0x00000000	0x00000000
+setup_0087	lift_door_link										
+setup_0088	lift_door_link										
+setup_0089	lift_door_link										
+setup_0090	lift_door_link										
+setup_0091	tag										
+setup_0092	tag										
+setup_0093	tag										
+setup_0094	tag										
+setup_0095	tag										
+setup_0096	lift	pad_0405	base:model_ci_lift						0x035204e8	0x00304300	0x00000000
+setup_0097	door	pad_0356	base:model_liftdoor_fl						0x04000400	0x00000000	0x00000000
+setup_0098	door	pad_0357	base:model_liftdoor_fl						0x04000400	0x00000000	0x00000000
+setup_0099	door	pad_0354	base:model_liftdoor_fl						0x04000400	0x00000000	0x00000000
+setup_0100	door	pad_0355	base:model_liftdoor_fl						0x04000400	0x00000000	0x00000000
+setup_0101	lift_door_link										
+setup_0102	lift_door_link										
+setup_0103	lift_door_link										
+setup_0104	lift_door_link										
+setup_0105	tag										
+setup_0106	prop	pad_0539	base:model_chair_en						0x000005e1	0x00000000	0x00000001
+setup_0107	prop	pad_0538	base:model_desk_ep						0x000005e1	0x00004000	0x00000000
+setup_0108	tag										
+setup_0109	prop	pad_0540	base:model_goodpc						0x000004e1	0x00000001	0x00010000
+setup_0110	tag										
+setup_0111	prop	pad_0543	base:model_chair_en						0x000005e1	0x00000000	0x00000001
+setup_0112	prop	pad_0541	base:model_desk_ep						0x000005e1	0x00004000	0x00000001
+setup_0113	prop	pad_0542	base:model_goodpc						0x000004e1	0x00000000	0x00000000
+setup_0114	tag										
+setup_0115	prop	pad_0544	base:model_chair_en						0x000005e1	0x00000000	0x00000001
+setup_0116	prop	pad_0546	base:model_desk_ep						0x000005e1	0x00004000	0x00000001
+setup_0117	prop	pad_0545	base:model_goodpc						0x000004e1	0x00000000	0x00000000
+setup_0118	character_spawn	pad_0250				base:cilabtech	base:head_christ	ailist_1045	0x00000000	0x00300000	
+setup_0119	weapon_pickup	pad_0002	base:model_chrfalcon2	base:falcon2					0x00004000	0x00000000	0x00000000
+setup_0120	character_spawn	pad_0019				base:cilabtech	base:head_beau1	ailist_1046	0x48000000	0x00300000	
+setup_0121	weapon_pickup	pad_0007	base:model_chrfalcon2	base:falcon2					0x00004000	0x00000000	0x00000000
+setup_0122	character_spawn	pad_0259				base:cifemtech	base:head_secretary	ailist_1051	0x00000000	0x00200000	
+setup_0123	character_spawn	pad_0267				base:cifemtech	base:head_secretary	ailist_1068	0x00000000	0x00200000	
+setup_0124	character_spawn	pad_0253				base:cilabtech	base:head_russ	ailist_1069	0x48000000	0x00200000	
+setup_0125	character_spawn	pad_0268				base:cilabtech	base:head_mark2	ailist_1076	0x00000000	0x00200001	
+setup_0126	character_spawn	pad_0247				base:cifemtech	base:head_secretary	ailist_1077	0x00000000	0x00200001	
+setup_0127	character_spawn	pad_0251				base:cilabtech	base:head_brian	ailist_0000	0x00012000	0x00300000	
+setup_0128	weapon_pickup	pad_0005	base:model_chrfalcon2	base:falcon2					0x00004000	0x00000000	0x00000000
+setup_0129	character_spawn	pad_0322				base:carreveningsuit	base:head_carrington	ailist_0000	0x00012000	0x00301000	
+setup_0130	character_spawn	pad_0307				base:ddshock		ailist_1025	0x80092000	0x00301000	
+setup_0131	weapon_pickup	pad_0012	base:model_chravenger	base:k7avenger					0x00004000	0x00000000	0x00000000
+setup_0132	character_spawn	pad_0308				base:ddshock		ailist_1028	0x80092000	0x00301000	
+setup_0133	weapon_pickup	pad_0013	base:model_chravenger	base:k7avenger					0x00004000	0x00000000	0x00000000
+setup_0134	character_spawn	pad_0309				base:ddshock		ailist_1028	0x80092000	0x00301000	
+setup_0135	weapon_pickup	pad_0014	base:model_chravenger	base:k7avenger					0x00004000	0x00000000	0x00000000
+setup_0136	character_spawn	pad_0311				base:ddshock		ailist_1031	0x80092000	0x00301000	
+setup_0137	weapon_pickup	pad_0016	base:model_chravenger	base:k7avenger					0x00004000	0x00000000	0x00000000
+setup_0138	character_spawn	pad_0313				base:ddshock		ailist_1037	0x80092000	0x00301000	
+setup_0139	weapon_pickup	pad_0018	base:model_chravenger	base:k7avenger					0x00004000	0x00000000	0x00000000
+setup_0140	character_spawn	pad_0058				base:ddshock		ailist_1034	0x80092000	0x00301000	
+setup_0141	weapon_pickup	pad_0019	base:model_chravenger	base:k7avenger					0x00004000	0x00000000	0x00000000
+setup_0142	character_spawn	pad_0316				base:cisoldier		ailist_0000	0x80012000	0xc0300000	
+setup_0143	weapon_pickup	pad_0021	base:model_chrar34	base:ar34					0x00004000	0x00000000	0x00000000
+setup_0144	character_spawn	pad_0317				base:cisoldier		ailist_0000	0x80012000	0xc0300000	
+setup_0145	weapon_pickup	pad_0022	base:model_chrar34	base:ar34					0x00004000	0x00000000	0x00000000
+setup_0146	character_spawn	pad_0318				base:cisoldier		ailist_0000	0x80012000	0xc0300000	
+setup_0147	weapon_pickup	pad_0023	base:model_chrar34	base:ar34					0x00004000	0x00000000	0x00000000
+setup_0148	character_spawn	pad_0319				base:cisoldier		ailist_0000	0x80012000	0xc0300000	
+setup_0149	weapon_pickup	pad_0024	base:model_chrar34	base:ar34					0x00004000	0x00000000	0x00000000
+setup_0150	character_spawn	pad_0323				base:cisoldier		ailist_0000	0x80012000	0xc0300000	
+setup_0151	weapon_pickup	pad_0027	base:model_chrar34	base:ar34					0x00004000	0x00000000	0x00000000
+setup_0152	character_spawn	pad_0324				base:cisoldier		ailist_0000	0x80012000	0xc0300000	
+setup_0153	weapon_pickup	pad_0028	base:model_chrar34	base:ar34					0x00004000	0x00000000	0x00000000
+setup_0154	character_spawn	pad_0325				base:cisoldier		ailist_0000	0x80012000	0xc0300000	
+setup_0155	weapon_pickup	pad_0029	base:model_chrar34	base:ar34					0x00004000	0x00000000	0x00000000
+setup_0156	character_spawn	pad_0326				base:cisoldier		ailist_0000	0x80012000	0x80300000	
+setup_0157	weapon_pickup	pad_0030	base:model_chrar34	base:ar34					0x00004000	0x00000000	0x00000000
+setup_0158	character_spawn	pad_0320				base:cisoldier		ailist_0000	0x80012000	0xc0300000	
+setup_0159	weapon_pickup	pad_0025	base:model_chrar34	base:ar34					0x00004000	0x00000000	0x00000000
+setup_0160	character_spawn	pad_0321				base:cisoldier		ailist_0000	0x80012000	0xc0300000	
+setup_0161	weapon_pickup	pad_0026	base:model_chrar34	base:ar34					0x00004000	0x00000000	0x00000000
+setup_0162	character_spawn	pad_0331				base:ddshock		ailist_1059	0x00092000	0x00300000	
+setup_0163	weapon_pickup	pad_0031	base:model_chravenger	base:k7avenger					0x00004000	0x00000000	0x00000000
+setup_0164	character_spawn	pad_0332				base:ddshock		ailist_1059	0x00092000	0x00300000	
+setup_0165	weapon_pickup	pad_0032	base:model_chravenger	base:k7avenger					0x00004000	0x00000000	0x00000000
+setup_0166	character_spawn	pad_0333				base:ddshock		ailist_1059	0x00092000	0x00300000	
+setup_0167	weapon_pickup	pad_0033	base:model_chravenger	base:k7avenger					0x00004000	0x00000000	0x00000000
+setup_0168	character_spawn	pad_0334				base:ddshock		ailist_1059	0x00092000	0x00300000	
+setup_0169	weapon_pickup	pad_0034	base:model_chravenger	base:k7avenger					0x00004000	0x00000000	0x00000000
+setup_0170	character_spawn	pad_0335				base:ddshock		ailist_1059	0x00092000	0x00300000	
+setup_0171	weapon_pickup	pad_0035	base:model_chravenger	base:k7avenger					0x00004000	0x00000000	0x00000000
+setup_0172	character_spawn	pad_0336				base:ddshock		ailist_1071	0x00092000	0x00300000	
+setup_0173	weapon_pickup	pad_0036	base:model_chravenger	base:k7avenger					0x00004000	0x00000000	0x00000000
+setup_0174	character_spawn	pad_0337				base:ddshock		ailist_1073	0x00092000	0x00300000	
+setup_0175	weapon_pickup	pad_0037	base:model_chravenger	base:k7avenger					0x00004000	0x00000000	0x00000000
+setup_0176	character_spawn	pad_0338				base:ddshock		ailist_1081	0x00010000	0x00300000	
+setup_0177	weapon_pickup	pad_0038	base:model_chravenger	base:k7avenger					0x00004000	0x00000000	0x00000000
+setup_0178	character_spawn	pad_0339				base:ddshock		ailist_1079	0x00010000	0x00300000	
+setup_0179	weapon_pickup	pad_0039	base:model_chravenger	base:k7avenger					0x00004000	0x00000000	0x00000000
+setup_0180	character_spawn	pad_0083				base:ddshock		ailist_1040	0x00010000	0x00300000	
+setup_0181	weapon_pickup	pad_0020	base:model_chravenger	base:k7avenger					0x00004000	0x00000000	0x00000000
+setup_0182	character_spawn	pad_0328				base:mrblonde	base:head_mrblonde	ailist_0009	0xc0092000	0x00300000	
+setup_0183	weapon_pickup	pad_0040	base:model_chrmauler	base:mauler					0x00004000	0x00000000	0x00000000
+setup_0184	character_spawn	pad_0329				base:mrblonde	base:head_mrblonde	ailist_0009	0xc0092000	0x00300000	
+setup_0185	weapon_pickup	pad_0041	base:model_chrmauler	base:mauler					0x00004000	0x00000000	0x00000000
+setup_0186	character_spawn	pad_0330				base:mrblonde	base:head_mrblonde	ailist_0009	0xc0092000	0x00300000	
+setup_0187	weapon_pickup	pad_0042	base:model_chrmauler	base:mauler					0x00004000	0x00000000	0x00000000
+setup_0188	character_spawn	pad_0340				base:mrblonde	base:head_mrblonde	ailist_0009	0xc0092000	0x00300000	
+setup_0189	weapon_pickup	pad_0043	base:model_chrmauler	base:mauler					0x00004000	0x00000000	0x00000000
+setup_0190	character_spawn	pad_0341				base:mrblonde	base:head_mrblonde	ailist_0009	0xc0092000	0x00300000	
+setup_0191	weapon_pickup	pad_0044	base:model_chrmauler	base:mauler					0x00004000	0x00000000	0x00000000
+setup_0192	character_spawn	pad_0327				base:mrblonde	base:head_mrblonde	ailist_0009	0xc0092000	0x00300000	
+setup_0193	weapon_pickup	pad_0045	base:model_chrmauler	base:mauler					0x00004000	0x00000000	0x00000000
+setup_0194	character_spawn	pad_0255				base:mrblonde	base:head_mrblonde	ailist_0000	0x00092000	0x00301000	
+setup_0195	weapon_pickup	pad_0048	base:model_chrmauler	base:mauler					0x00004000	0x00000000	0x00000000
+setup_0196	character_spawn	pad_0256				base:skedar		ailist_0045	0x00092000	0x00301000	
+setup_0197	weapon_pickup	pad_0049	base:model_chrmauler	base:mauler					0x00004000	0x00000000	0x00000000
+setup_0198	character_spawn	pad_0257				base:skedar		ailist_0045	0x00092000	0x00301000	
+setup_0199	weapon_pickup	pad_0050	base:model_chrmauler	base:mauler					0x00004000	0x00000000	0x00000000
+setup_0200	character_spawn	pad_0258				base:skedar		ailist_0000	0x00092000	0x00301000	
+setup_0201	weapon_pickup	pad_0051	base:model_chrmauler	base:mauler					0x00004000	0x00000000	0x00000000
+setup_0202	character_spawn	pad_0058				base:skedar		ailist_0033	0x00092000	0x40300000	
+setup_0203	weapon_pickup	pad_0052	base:model_chrmauler	base:mauler					0x00004000	0x00000000	0x00000000
+setup_0204	character_spawn	pad_0081				base:cisoldier	base:head_jonathan	ailist_1066	0x00012000	0xc0300000	
+setup_0205	weapon_pickup	pad_0056	base:model_chrdy357	base:dy357					0x00004000	0x00000000	0x00000000
+setup_0206	tag										
+setup_0207	autogun	pad_0565	base:model_ci_roofgun						0x00000004	0x00002001	0x00000000
+setup_0208	tag										
+setup_0209	autogun	pad_0564	base:model_ci_roofgun						0x00000004	0x00002001	0x00000000
+setup_0210	tag										
+setup_0211	autogun	pad_0563	base:model_ci_roofgun						0x00000004	0x00002001	0x00000000
+setup_0212	tag										
+setup_0213	multi_monitor	pad_0566	base:model_cihub						0x00000002	0x00000001	0x00010000
+setup_0214	tag										
+setup_0215	multi_monitor	pad_0567	base:model_cihub						0x00000002	0x00000001	0x00010000
+setup_0216	tag										
+setup_0217	multi_monitor	pad_0568	base:model_cihub						0x00000002	0x00000001	0x00010000
+setup_0218	tag										
+setup_0219	prop		base:model_dropship						0x00021501	0x00000000	0x00000000
+setup_0220	tag										
+setup_0221	prop		base:model_crate1_cp_variant_ag						0x00021501	0x00000000	0x00000000
+setup_0222	tag										
+setup_0223	prop		base:model_crate1_cp_variant_ag						0x00021501	0x00000000	0x00000000
+setup_0224	tag										
+setup_0225	prop		base:model_crate1_cp_variant_ag						0x00021501	0x00000000	0x00000000
+setup_0226	tag										
+setup_0227	prop		base:model_crate1_cp_variant_ag						0x00021501	0x00000000	0x00000000
+setup_0228	tag										
+setup_0229	prop		base:model_crate1_cp_variant_ag						0x00021501	0x00000000	0x00000000
+setup_0230	tag										
+setup_0231	prop		base:model_crate1_cp_variant_ag						0x00021501	0x00000000	0x00000000
+setup_0232	tag										
+setup_0233	prop		base:model_crate1_cp_variant_ag						0x00021501	0x00000000	0x00000000
+setup_0234	tag										
+setup_0235	prop		base:model_crate1_cp_variant_ag						0x00021501	0x00000000	0x00000000
+setup_0236	tag										
+setup_0237	prop		base:model_lasercut						0x00021501	0x00000000	0x00000000
+setup_0238	tag										
+setup_0239	prop		base:model_lasercut						0x00021501	0x00000000	0x00000000
+setup_0240	tag										
+setup_0241	prop		base:model_lasercut						0x00021501	0x00000000	0x00000000
+setup_0242	tag										
+setup_0243	prop		base:model_knockknock						0x00021501	0x00000000	0x00000000
+setup_0244	tag										
+setup_0245	prop		base:model_knockknock						0x00021501	0x00000000	0x00000000
+setup_0246	tag										
+setup_0247	weapon_pickup	pad_0282	base:model_chrrcp120	base:rcp120					0x00100008	0x00000000	0x20400000
+setup_0248	tag										
+setup_0249	prop	pad_0271	base:model_sensitiveinfo						0x000204e8	0x00000000	0x00000000
+setup_0250	rename_object										
+setup_0251	tag										
+setup_0252	weapon_pickup		base:model_chrdatathief						0x00000001	0x00000000	0x00000000
+setup_0253	rename_object										
+setup_0254	tag										
+setup_0255	weapon_pickup		base:model_chrdatathief						0x00000001	0x00000000	0x00000000
+setup_0256	rename_object										
+setup_0257	door	pad_0399	base:model_instfrontdoor						0x10000600	0x00000000	0x00000000
+setup_0258	door	pad_0400	base:model_instfrontdoor						0x10000600	0x00000000	0x00000000
+setup_0259	door	pad_0360	base:model_door2_g5						0x10000000	0x00000000	0x00000000
+setup_0260	door	pad_0361	base:model_door2_g5						0x10000000	0x00000000	0x00000000
+setup_0261	door	pad_0362	base:model_door2_g5						0x10000000	0x00000000	0x00000000
+setup_0262	door	pad_0363	base:model_door2_g5						0x10000000	0x00000000	0x00000000
+setup_0263	door	pad_0364	base:model_door2_g5						0x10000000	0x00000000	0x00000000
+setup_0264	door	pad_0365	base:model_door2_g5						0x10000000	0x00000000	0x00000000
+setup_0265	door	pad_0366	base:model_door2_g5						0x10000000	0x00000000	0x00000000
+setup_0266	door	pad_0367	base:model_door2_g5						0x10000000	0x00000000	0x00000000
+setup_0267	door	pad_0368	base:model_door2_g5						0x10000000	0x00000000	0x00000000
+setup_0268	door	pad_0369	base:model_door2_g5						0x10000000	0x00000000	0x00000000
+setup_0269	door	pad_0370	base:model_door2_g5						0x10000000	0x00000000	0x00000000
+setup_0270	door	pad_0371	base:model_door2_g5						0x10000000	0x00000000	0x00000000
+setup_0271	door	pad_0372	base:model_door2_g5						0x10000000	0x00000000	0x00000000
+setup_0272	door	pad_0373	base:model_door2_g5						0x10000000	0x00000000	0x00000000
+setup_0273	door	pad_0374	base:model_door2_g5						0x10000000	0x00000000	0x00000000
+setup_0274	door	pad_0375	base:model_door2_g5						0x10000000	0x00000000	0x00000000
+setup_0275	door	pad_0376	base:model_door2_g5						0x10000000	0x00000000	0x00000000
+setup_0276	door	pad_0377	base:model_door2_g5						0x10000000	0x00000000	0x00000000
+setup_0277	door	pad_0379	base:model_door2_g5						0x10000000	0x00000000	0x00000000
+setup_0278	door	pad_0380	base:model_door2_g5						0x10000000	0x00000000	0x00000000
+setup_0279	door	pad_0381	base:model_door2_g5						0x10000000	0x00000000	0x00000000
+setup_0280	door	pad_0382	base:model_door2_g5						0x10000000	0x00000000	0x00000000
+setup_0281	door	pad_0383	base:model_door2_g5						0x10000000	0x00000000	0x00000000
+setup_0282	door	pad_0384	base:model_door2_g5						0x10000000	0x00000000	0x00000000
+setup_0283	door	pad_0385	base:model_ch_shutter1						0x00000400	0x20000000	0x00000000
+setup_0284	door	pad_0386	base:model_ch_shutter1						0x00000400	0x20000000	0x00000000
+setup_0285	door	pad_0387	base:model_door2_g5						0x10000000	0x00000000	0x00000000
+setup_0286	door	pad_0388	base:model_door2_g5						0x10000000	0x00000000	0x00000000
+setup_0287	glass	pad_0439	base:model_window_fz						0x04000b62	0x00100000	0x00000000
+setup_0288	glass	pad_0440	base:model_window_fz						0x04000b62	0x00100000	0x00000000
+setup_0289	glass	pad_0441	base:model_window_fz						0x04000b62	0x00100000	0x00000000
+setup_0290	glass	pad_0442	base:model_window_fz						0x04000b62	0x00100000	0x00000000
+setup_0291	glass	pad_0443	base:model_window_fz						0x04000b62	0x00100000	0x00000000
+setup_0292	glass	pad_0444	base:model_window_fz						0x04000b62	0x00100000	0x00000000
+setup_0293	glass	pad_0445	base:model_window_fz						0x04000b62	0x00100000	0x00000000
+setup_0294	glass	pad_0446	base:model_window_fz						0x04000b62	0x00100000	0x00000000
+setup_0295	glass	pad_0447	base:model_window_fz						0x04000b62	0x00100000	0x00000000
+setup_0296	glass	pad_0451	base:model_window_fz						0x04000b62	0x00100000	0x00000000
+setup_0297	tag										
+setup_0298	prop	pad_0603	base:model_airbase_safedoor						0x000205e8	0x00200002	0x00000000
+setup_0299	prop	pad_0594	base:model_barrel						0x00000501	0x00000000	0x00000000
+setup_0300	prop	pad_0595	base:model_barrel						0x00000501	0x00000000	0x00000000
+setup_0301	prop	pad_0596	base:model_barrel						0x00000501	0x00000000	0x00000000
+setup_0302	prop	pad_0597	base:model_barrel						0x00000501	0x00000000	0x00000000
+setup_0303	prop	pad_0598	base:model_barrel						0x00000501	0x00000000	0x00000000
+setup_0304	prop	pad_0599	base:model_barrel						0x00000501	0x00000000	0x00000000
+setup_0305	prop	pad_0600	base:model_barrel						0x00000501	0x00000000	0x00000000
+setup_0306	prop	pad_0601	base:model_barrel						0x00000501	0x00000000	0x00000000
+setup_0307	prop	pad_0602	base:model_barrel						0x00000501	0x00000000	0x00000000
+setup_0308	prop	pad_0470	base:model_crate1_cp_variant_ag						0x00020501	0x00000000	0x00000000
+setup_0309	prop	pad_0481	base:model_crate1_cp_variant_ag						0x00020501	0x00000000	0x00000000
+setup_0310	prop	pad_0482	base:model_crate1_cp_variant_ag						0x00020501	0x00000000	0x00000000
+setup_0311	prop	pad_0485	base:model_crate1_cp_variant_ag						0x00020501	0x00000000	0x00000000
+setup_0312	prop	pad_0486	base:model_crate1_cp_variant_ag						0x00020501	0x00000000	0x00000000
+setup_0313	prop	pad_0488	base:model_crate1_cp_variant_ag						0x00020501	0x00000000	0x00000000
+setup_0314	prop	pad_0489	base:model_crate1_cp_variant_ag						0x00020501	0x00000000	0x00000000
+setup_0315	prop	pad_0490	base:model_crate1_cp_variant_ag						0x00020501	0x00000000	0x00000000
+setup_0316	prop	pad_0491	base:model_crate1_cp_variant_ag						0x00020501	0x00000000	0x00000000
+setup_0317	prop	pad_0492	base:model_crate1_cp_variant_ag						0x00020501	0x00000000	0x00000000
+setup_0318	prop	pad_0493	base:model_crate1_cp_variant_ag						0x00020501	0x00000000	0x00000000
+setup_0319	prop	pad_0494	base:model_crate1_cp_variant_ag						0x00020501	0x00000000	0x00000000
+setup_0320	prop	pad_0495	base:model_crate1_cp_variant_ag						0x00020501	0x00000000	0x00000000
+setup_0321	prop	pad_0496	base:model_crate1_cp_variant_ag						0x00020501	0x00000000	0x00000000
+setup_0322	prop	pad_0497	base:model_crate1_cp_variant_ag						0x00020501	0x00000000	0x00000000
+setup_0323	prop	pad_0499	base:model_crate1_cp_variant_ag						0x00020501	0x00000000	0x00000000
+setup_0324	prop	pad_0500	base:model_crate1_cp_variant_ag						0x00020501	0x00000000	0x00000000
+setup_0325	prop	pad_0501	base:model_crate1_cp_variant_ag						0x00020501	0x00000000	0x00000000
+setup_0326	prop	pad_0502	base:model_crate1_cp_variant_ag						0x00020501	0x00000000	0x00000000
+setup_0327	prop	pad_0503	base:model_crate1_cp_variant_ag						0x00020501	0x00000000	0x00000000
+setup_0328	prop	pad_0506	base:model_crate1_cp_variant_ag						0x00020501	0x00000000	0x00000000
+setup_0329	prop	pad_0507	base:model_crate1_cp_variant_ag						0x00020501	0x00000000	0x00000000
+setup_0330	prop	pad_0508	base:model_crate1_cp_variant_ag						0x00020501	0x00000000	0x00000000
+setup_0331	prop	pad_0509	base:model_crate1_cp_variant_ag						0x00020501	0x00000000	0x00000000
+setup_0332	prop	pad_0510	base:model_crate1_cp_variant_ag						0x00020501	0x00000000	0x00000000
+setup_0333	prop	pad_0512	base:model_crate1_cp_variant_ag						0x00020501	0x00000000	0x00000000
+setup_0334	prop	pad_0513	base:model_crate1_cp_variant_ag						0x00020501	0x00000000	0x00000000
+setup_0335	prop	pad_0514	base:model_crate1_cp_variant_ag						0x00020501	0x00000000	0x00000000
+setup_0336	prop	pad_0516	base:model_crate1_cp_variant_ag						0x00020501	0x00000000	0x00000000
+setup_0337	tag										
+setup_0338	prop		base:model_sk_shuttle						0x00021501	0x00006001	0x00010000
+setup_0339	glass	pad_0456	base:model_window_fz						0x04000b62	0x00304000	0x00000000
+setup_0340	glass	pad_0457	base:model_window_fz						0x04000b62	0x00304000	0x00000000
+setup_0341	glass	pad_0458	base:model_window_fz						0x04000b62	0x00304000	0x00000000
+setup_0342	glass	pad_0459	base:model_window_fz						0x04000b62	0x00304000	0x00000000
+setup_0343	glass	pad_0460	base:model_window_fz						0x04000b62	0x00304000	0x00000000
+setup_0344	glass	pad_0461	base:model_window_fz						0x04000b62	0x00304000	0x00000000
+setup_0345	tag										
+setup_0346	glass	pad_0462	base:model_window_fz						0x04000b62	0x00304000	0x00000000
+setup_0347	glass	pad_0463	base:model_window_fz						0x04000b62	0x00304000	0x00000000
+setup_0348	tag										
+setup_0349	glass	pad_0464	base:model_window_fz						0x04000b62	0x00304000	0x00000000
+setup_0350	door	pad_0389	base:model_grate_pl						0x04000400	0x00000000	0x00000000
+setup_0351	door	pad_0390	base:model_devicesecretdoor						0x36000400	0x00000000	0x00000000
+setup_0352	door	pad_0391	base:model_grate_pl						0x04000400	0x00000000	0x00000000
+setup_0353	door	pad_0392	base:model_carringtonsecretdoor						0x16000400	0x00000000	0x00000000
+setup_0354	tag										
+setup_0355	shield	pad_0648	base:model_chrshield						0x00000001	0x000000e0	0x00000000
+setup_0356	tag										
+setup_0357	shield	pad_0146	base:model_chrshield						0x00000001	0x000000c0	0x00000000
+setup_0358	tag										
+setup_0359	weapon_pickup		base:model_chrdevastator	base:devastator					0x20000000	0x00000000	0x00000000

@@ -1,0 +1,124 @@
+{
+  "scenario_name": "scenario_generated_nav_path_order",
+  "description": "c3844 runtime smoke: boot a Test Ash-derived .pdmod fixture whose header-only nav tables must generate runtime nav rows, path edges, segment flags, and waygroups from public pads.tsv plus navigation/paths.tsv.",
+  "tags": [
+    "modding",
+    "pdxxx",
+    "scenario",
+    "source-gate",
+    "navigation",
+    "generated-nav",
+    "c3844",
+    "smoke",
+    "pillar:modding"
+  ],
+  "paths_of_interest": [
+    "port/src/scenario_source_runtime.c",
+    "tools/smoke-verify/build_generated_nav_fixture.py",
+    "tools/smoke-verify/run-scenario-generated-nav-fixture.ps1"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 90,
+  "install_state": "clean",
+  "fixtures": [
+    {
+      "src": "tools/smoke-verify/fixtures/archive_walker_source_pd.ini",
+      "dst": "pd.ini"
+    },
+    {
+      "src": ".claude\\smoke-verify-runs\\scenario-generated-nav-fixture\\assets-20260605T072732Z\\fixtures\\mods-enabled.json",
+      "dst": "mods-enabled.json"
+    }
+  ],
+  "packed_fixtures": [
+    {
+      "src": ".claude\\smoke-verify-runs\\scenario-generated-nav-fixture\\assets-20260605T072732Z\\scenario_generated_nav_fixture",
+      "dst": "mods/scenario_generated_nav_fixture.pdmod"
+    }
+  ],
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--portable",
+    "--boot-stage",
+    "0x2e"
+  ],
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait",
+      "comment": "direct Test Ash stage load should consume the staged fixture archive and generate nav from public pads plus paths."
+    },
+    {
+      "at_ms": 75000,
+      "type": "exit",
+      "comment": "scripted exit after generated navigation and padfile compilation have logged."
+    }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=scenario_generated_nav_path_order",
+      "modmgr: loading mod 'scenario_generated_nav_fixture'",
+      "LOAD: lv\\.c entering stage load sequence for stagenum=0x2e",
+      "SCENARIO\\.GRAPH: navigation generate source '.*base_scenario_test_ash\\.pdscenario::navigation\\.ini' cache=.*base_scenario_test_ash\\.pdscenario::_meta/generated-navmesh\\.json nodes=1 source_counts=pads:5,volumes:0,waypoints:0,waygroups:0,covers:0,paths:3 source_hashes=sha256 capabilities=walk,jump,drop,wall,ceiling backend=graph\\.navigation\\.generate\\+navigation\\.ini\\+generated-navmesh\\.json",
+      "SCENARIO\\.SOURCE: generated deterministic navigation tables from public pads\\.tsv '.*base_scenario_test_ash\\.pdscenario::pads\\.tsv' and navigation/paths\\.tsv '.*base_scenario_test_ash\\.pdscenario::navigation/paths\\.tsv' through empty waypoint, waygroup, and cover sources as 5 waypoints, 2 waygroups, 5 covers, 4 path edges, 1 branch waypoints backend=source\\.navigation\\.generated\\+pads\\.tsv\\+navigation/paths\\.tsv\\+navigation/waypoints\\.tsv\\+navigation/waygroups\\.tsv\\+navigation/covers\\.tsv",
+      "SCENARIO\\.SOURCE: generated directional path segments from public navigation/paths\\.tsv '.*base_scenario_test_ash\\.pdscenario::navigation/paths\\.tsv' as 2 flagged neighbour refs backend=source\\.navigation\\.generated\\+navigation/paths\\.tsv\\+waypoint-segment-flags",
+      "SCENARIO\\.SOURCE: compiled setup\\.fields\\.tsv '.*base_scenario_test_ash\\.pdscenario::setup\\.fields\\.tsv', spawns\\.tsv '.*base_scenario_test_ash\\.pdscenario::spawns\\.tsv', navigation/paths\\.tsv '.*base_scenario_test_ash\\.pdscenario::navigation/paths\\.tsv', and ai/ailists\\.tsv '.*base_scenario_test_ash\\.pdscenario::ai/ailists\\.tsv' for stage '.*' as 1 setup records, \\d+ spawns, 3 paths, 1 AI lists \\(\\d+ bytes\\) path_flags=circular:1,flying:1",
+      "SCENARIO\\.SOURCE: compiled navigation tables waypoints '.*base_scenario_test_ash\\.pdscenario::navigation/waypoints\\.tsv', waygroups '.*base_scenario_test_ash\\.pdscenario::navigation/waygroups\\.tsv', covers '.*base_scenario_test_ash\\.pdscenario::navigation/covers\\.tsv' as 5 waypoints, 2 waygroups, 5 covers, waypoint_neighbour_refs=8, waygroup_neighbour_refs=0 backend=source\\.navigation\\.tables\\+navigation/waypoints\\.tsv\\+navigation/waygroups\\.tsv\\+navigation/covers\\.tsv",
+      "SCENARIO\\.SOURCE: compiled pads\\.tsv '.*base_scenario_test_ash\\.pdscenario::pads\\.tsv' for stage '.*' as 5 pads, 5 waypoints, 2 waygroups, 5 covers \\(\\d+ bytes\\)",
+      "SCENARIO\\.GRAPH: AI condition if_waypoint_within_quadrant quadrant=1 label=255 pad=-1 found=0 result=0 pad_rows=5 waypoint_rows=5 waygroup_rows=2 source=.*base_scenario_test_ash\\.pdscenario::ai/ailists\\.tsv pads=.*base_scenario_test_ash\\.pdscenario::pads\\.tsv waypoints=.*base_scenario_test_ash\\.pdscenario::navigation/waypoints\\.tsv waygroups=.*base_scenario_test_ash\\.pdscenario::navigation/waygroups\\.tsv backend=graph\\.ai\\.action\\.quadrant_preset\\+ai/ailists\\.tsv\\+pads\\.tsv\\+navigation\\.generate",
+      "SCENARIO\\.GRAPH: AI action set_pad_preset_to_target_quadrant quadrant=1 label=255 pad=-1 found=0 result=0 pad_rows=5 waypoint_rows=5 waygroup_rows=2 source=.*base_scenario_test_ash\\.pdscenario::ai/ailists\\.tsv pads=.*base_scenario_test_ash\\.pdscenario::pads\\.tsv waypoints=.*base_scenario_test_ash\\.pdscenario::navigation/waypoints\\.tsv waygroups=.*base_scenario_test_ash\\.pdscenario::navigation/waygroups\\.tsv backend=graph\\.ai\\.action\\.quadrant_preset\\+ai/ailists\\.tsv\\+pads\\.tsv\\+navigation\\.generate",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "ASSET\\.SOURCE_ONLY",
+      "RomProvider:filenum",
+      "refusing fallback",
+      "SETUP: failed to load pads",
+      "SETUP\\.PADS: invalid waypoint"
+    ],
+    "required_counts": [
+      {
+        "pattern": "SCENARIO\\.SOURCE: generated deterministic navigation tables from public pads\\.tsv .*navigation/paths\\.tsv",
+        "min": 1,
+        "max": 1
+      },
+      {
+        "pattern": "SCENARIO\\.SOURCE: generated directional path segments from public navigation/paths\\.tsv .*2 flagged neighbour refs",
+        "min": 1,
+        "max": 1
+      },
+      {
+        "pattern": "SCENARIO\\.SOURCE: compiled setup\\.fields\\.tsv .*1 setup records.*1 AI lists.*path_flags=circular:1,flying:1",
+        "min": 1,
+        "max": 1
+      },
+      {
+        "pattern": "SCENARIO\\.SOURCE: compiled navigation tables waypoints '.*base_scenario_test_ash\\.pdscenario::navigation/waypoints\\.tsv'.*waypoint_neighbour_refs=8, waygroup_neighbour_refs=0",
+        "min": 1,
+        "max": 1
+      },
+      {
+        "pattern": "SCENARIO\\.SOURCE: compiled pads\\.tsv '.*base_scenario_test_ash\\.pdscenario::pads\\.tsv'",
+        "min": 1,
+        "max": 1
+      },
+      {
+        "pattern": "SCENARIO\\.GRAPH: AI condition if_waypoint_within_quadrant quadrant=1",
+        "min": 1,
+        "max": 1
+      },
+      {
+        "pattern": "SCENARIO\\.GRAPH: AI action set_pad_preset_to_target_quadrant quadrant=1",
+        "min": 1,
+        "max": 1
+      }
+    ]
+  }
+}

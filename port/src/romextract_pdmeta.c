@@ -26,9 +26,9 @@
 #include "romextract_pd.h"
 #include "system.h"
 
-#define PDMETA_FAST_CACHE_KIND "pdmeta_table_backed_v8_pdscenario_v77"
+#define PDMETA_FAST_CACHE_KIND "pdmeta_table_backed_v8_pdscenario_v82"
 #define PDMETA_SCENARIO_DEP_CACHE_KIND \
-	"pdscenario_scene_glb_clean_public_v77_standalone_backfill_collision_obj_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_quip_shuffle_graph_portals"
+	"pdscenario_scene_glb_clean_public_v82_standalone_backfill_collision_obj_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_quip_shuffle_graph_portals_navhashes"
 
 #define PDMETA_MAX_MISSION_OBJECTIVE_ROWS 512
 

@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 1,
+  "asset_id": "base:model_cheadken",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_cheadken.pdmesh::model.obj",
+  "source_size": 30349,
+  "source_sha256": "8c28a1473687083a8c97d50af4ae3f2577f5f40f928c39541c200d428cacdde2",
+  "validation": "format=obj vertices=465 triangles=155",
+  "normalized": "$S/mod-cache/base/base_model_cheadken/model-v1-8c28a1473687083a8c97d50af4ae3f2577f5f40f928c39541c200d428cacdde2.pdmodel.json",
+  "vertex_count": 465,
+  "triangle_count": 155,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

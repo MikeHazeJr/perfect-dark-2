@@ -1,0 +1,26 @@
+{
+  "Name": "weapon_match_source_gate_smoke",
+  "Category": "scenario",
+  "BugId": null,
+  "RegressionFor": null,
+  "Passed": false,
+  "ExitCode": 0,
+  "ElapsedSeconds": 39.608737,
+  "InstallDir": "C:\\Users\\mikeh\\Perfect-Dark-2\\perfect_dark-mike\\.claude\\smoke-verify-install",
+  "AssertionsTotal": 36,
+  "AssertionsMet": 33,
+  "Failures": [
+    {
+      "Kind": "required_line_missing",
+      "Pattern": "BONDGUN\\.SOURCE: loaded catalog model source filenum=890 id=base:model_dy357_hi"
+    },
+    {
+      "Kind": "required_line_missing",
+      "Pattern": "MODASSET\\.RENDER: generated source modeldef rendered id=base:model_dy357_hi source=.*base_model_dy357_hi\\.pdmesh::model\\.obj.*tris=404"
+    },
+    {
+      "Kind": "required_line_missing",
+      "Pattern": "BONDGUN\\.SOURCE: loaded catalog model source filenum=89 id=base:model_cartridge_rifle"
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_cmaian_soldier",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_cmaian_soldier.pdmesh::model.obj",
+  "source_size": 99151,
+  "source_sha256": "d4e3f52576bfc483f5c4e0440dd4c4f17c0bbd2f79881cba7198a2bad0261095",
+  "validation": "format=obj vertices=1473 triangles=491",
+  "normalized": "$S/mod-cache/base/base_model_cmaian_soldier/model-v2-d4e3f52576bfc483f5c4e0440dd4c4f17c0bbd2f79881cba7198a2bad0261095.pdmodel.json",
+  "vertex_count": 1473,
+  "triangle_count": 491,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:fem_guard",
+  "mod_id": "base",
+  "kind": "body",
+  "source": "data/ntsc-final/bodies/base_fem_guard.pdbody::mesh.pdmesh::model.obj",
+  "source_size": 147450,
+  "source_sha256": "5a00b5aaa9d75cf51dc0e7c03201bb61dcb5b338a09658f0b8abc5676eed3a3d",
+  "validation": "format=obj vertices=2160 triangles=720",
+  "normalized": "$S/mod-cache/base/base_fem_guard/body-v2-5a00b5aaa9d75cf51dc0e7c03201bb61dcb5b338a09658f0b8abc5676eed3a3d.pdmodel.json",
+  "vertex_count": 2160,
+  "triangle_count": 720,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

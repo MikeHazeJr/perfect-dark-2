@@ -1,0 +1,23 @@
+{
+  "schema": "pd2.modasset.model.v1",
+  "compiler_version": 1,
+  "asset_id": "base:model_lasercut",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_lasercut.pdmesh::model.obj",
+  "source_sha256": "e9222aaba153235510b96973a675aa67aecb028c094eb9fde875625df679271e",
+  "runtime_boundary": "modeldef",
+  "vertex_count": 6,
+  "triangle_count": 2,
+  "vertices": [
+    [0, 25, 0],
+    [0, 25, 2000],
+    [0, -25, 2000],
+    [0, 25, 0],
+    [0, -25, 2000],
+    [0, -25, 0]
+  ],
+  "triangles": [
+    [0, 1, 2],
+    [3, 4, 5]
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 1,
+  "asset_id": "base:model_horiz_door_top_cx",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_horiz_door_top_cx.pdmesh::model.obj",
+  "source_size": 8329,
+  "source_sha256": "22be6f58e87c47d1e8b09ffdcd029b58411bf5367ef0f69f54c57ad363e506f4",
+  "validation": "format=obj vertices=114 triangles=38",
+  "normalized": "$S/mod-cache/base/base_model_horiz_door_top_cx/model-v1-22be6f58e87c47d1e8b09ffdcd029b58411bf5367ef0f69f54c57ad363e506f4.pdmodel.json",
+  "vertex_count": 114,
+  "triangle_count": 38,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

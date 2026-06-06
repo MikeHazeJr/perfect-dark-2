@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:scenario_villa",
+  "mod_id": "base",
+  "kind": "scenario",
+  "source": "data/ntsc-final/scenarios/base_scenario_villa.pdscenario::scene.glb",
+  "source_size": 1491852,
+  "source_sha256": "71145960e8c799609d544aa74600cc6160bb5023461d89f28972e612630e6d34",
+  "validation": "format=glb vertices=39180 triangles=13060",
+  "normalized": "$S/mod-cache/base/base_scenario_villa/scenario-v2-71145960e8c799609d544aa74600cc6160bb5023461d89f28972e612630e6d34.pdmesh.json",
+  "vertex_count": 39180,
+  "triangle_count": 13060,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

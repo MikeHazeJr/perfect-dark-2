@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_chrdatathief",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_chrdatathief.pdmesh::model.obj",
+  "source_size": 26160,
+  "source_sha256": "404c8b01ac3a932e6abec9dfc2c16d9244ae9da40e0472036ee8840911d8c8a0",
+  "validation": "format=obj vertices=402 triangles=134",
+  "normalized": "$S/mod-cache/base/base_model_chrdatathief/model-v2-404c8b01ac3a932e6abec9dfc2c16d9244ae9da40e0472036ee8840911d8c8a0.pdmodel.json",
+  "vertex_count": 402,
+  "triangle_count": 134,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

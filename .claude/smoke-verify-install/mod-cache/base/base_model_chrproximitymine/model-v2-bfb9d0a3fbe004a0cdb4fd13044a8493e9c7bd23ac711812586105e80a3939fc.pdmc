@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_chrproximitymine",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_chrproximitymine.pdmesh::model.obj",
+  "source_size": 13814,
+  "source_sha256": "bfb9d0a3fbe004a0cdb4fd13044a8493e9c7bd23ac711812586105e80a3939fc",
+  "validation": "format=obj vertices=210 triangles=70",
+  "normalized": "$S/mod-cache/base/base_model_chrproximitymine/model-v2-bfb9d0a3fbe004a0cdb4fd13044a8493e9c7bd23ac711812586105e80a3939fc.pdmodel.json",
+  "vertex_count": 210,
+  "triangle_count": 70,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

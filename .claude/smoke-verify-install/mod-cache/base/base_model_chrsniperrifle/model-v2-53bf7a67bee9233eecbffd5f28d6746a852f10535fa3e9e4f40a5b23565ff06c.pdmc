@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_chrsniperrifle",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_chrsniperrifle.pdmesh::model.obj",
+  "source_size": 10736,
+  "source_sha256": "53bf7a67bee9233eecbffd5f28d6746a852f10535fa3e9e4f40a5b23565ff06c",
+  "validation": "format=obj vertices=165 triangles=55",
+  "normalized": "$S/mod-cache/base/base_model_chrsniperrifle/model-v2-53bf7a67bee9233eecbffd5f28d6746a852f10535fa3e9e4f40a5b23565ff06c.pdmodel.json",
+  "vertex_count": 165,
+  "triangle_count": 55,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

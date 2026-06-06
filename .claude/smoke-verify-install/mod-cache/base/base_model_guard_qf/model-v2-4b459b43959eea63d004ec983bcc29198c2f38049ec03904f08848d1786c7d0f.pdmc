@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_guard_qf",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_guard_qf.pdmesh::model.obj",
+  "source_size": 142302,
+  "source_sha256": "4b459b43959eea63d004ec983bcc29198c2f38049ec03904f08848d1786c7d0f",
+  "validation": "format=obj vertices=2091 triangles=697",
+  "normalized": "$S/mod-cache/base/base_model_guard_qf/model-v2-4b459b43959eea63d004ec983bcc29198c2f38049ec03904f08848d1786c7d0f.pdmodel.json",
+  "vertex_count": 2091,
+  "triangle_count": 697,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_cheadscott_h",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_cheadscott_h.pdmesh::model.obj",
+  "source_size": 34755,
+  "source_sha256": "582f83460d5093ccff7a2d17036ab69312f611397b4d75661e762552d7f5472f",
+  "validation": "format=obj vertices=531 triangles=177",
+  "normalized": "$S/mod-cache/base/base_model_cheadscott_h/model-v2-582f83460d5093ccff7a2d17036ab69312f611397b4d75661e762552d7f5472f.pdmodel.json",
+  "vertex_count": 531,
+  "triangle_count": 177,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

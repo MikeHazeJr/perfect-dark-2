@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_rubble3",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_rubble3.pdmesh::model.obj",
+  "source_size": 2404,
+  "source_sha256": "27096b3894908559c3bdf66d1e7314d2033e39ade3ae3a3dca301c4247b7db2b",
+  "validation": "format=obj vertices=36 triangles=12",
+  "normalized": "$S/mod-cache/base/base_model_rubble3/model-v2-27096b3894908559c3bdf66d1e7314d2033e39ade3ae3a3dca301c4247b7db2b.pdmodel.json",
+  "vertex_count": 36,
+  "triangle_count": 12,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

@@ -1,0 +1,213 @@
+﻿{
+    "Name":  "scenario_generated_nav_path_order",
+    "Category":  "scenario",
+    "BugId":  null,
+    "RegressionFor":  null,
+    "Passed":  false,
+    "ExitCode":  -1073741819,
+    "ElapsedSeconds":  29.8301101,
+    "InstallDir":  "C:\\Users\\mikeh\\Perfect-Dark-2\\perfect_dark-mike\\.claude\\smoke-verify-install",
+    "AssertionsTotal":  50,
+    "AssertionsMet":  13,
+    "Failures":  [
+                     {
+                         "Kind":  "required_line_missing",
+                         "Pattern":  "SCENARIO\\.GRAPH: navigation generate source \u0027.*base_scenario_test_ash\\.pdscenario::navigation\\.ini\u0027 cache=.*base_scenario_test_ash\\.pdscenario::_meta/generated-navmesh\\.json nodes=1 source_counts=pads:5,volumes:0,waypoints:0,waygroups:0,covers:0,paths:3 source_hashes=sha256 capabilities=walk,jump,drop,wall,ceiling backend=graph\\.navigation\\.generate\\+navigation\\.ini\\+generated-navmesh\\.json"
+                     },
+                     {
+                         "Kind":  "required_line_missing",
+                         "Pattern":  "SCENARIO\\.SOURCE: generated deterministic navigation tables from public pads\\.tsv \u0027.*base_scenario_test_ash\\.pdscenario::pads\\.tsv\u0027 and navigation/paths\\.tsv \u0027.*base_scenario_test_ash\\.pdscenario::navigation/paths\\.tsv\u0027 through empty waypoint, waygroup, and cover sources as 5 waypoints, 2 waygroups, 5 covers, 4 path edges, 1 branch waypoints backend=source\\.navigation\\.generated\\+pads\\.tsv\\+navigation/paths\\.tsv\\+navigation/waypoints\\.tsv\\+navigation/waygroups\\.tsv\\+navigation/covers\\.tsv"
+                     },
+                     {
+                         "Kind":  "required_line_missing",
+                         "Pattern":  "SCENARIO\\.SOURCE: generated directional path segments from public navigation/paths\\.tsv \u0027.*base_scenario_test_ash\\.pdscenario::navigation/paths\\.tsv\u0027 as 2 flagged neighbour refs backend=source\\.navigation\\.generated\\+navigation/paths\\.tsv\\+waypoint-segment-flags"
+                     },
+                     {
+                         "Kind":  "required_line_missing",
+                         "Pattern":  "SCENARIO\\.SOURCE: compiled setup\\.fields\\.tsv \u0027.*base_scenario_test_ash\\.pdscenario::setup\\.fields\\.tsv\u0027, spawns\\.tsv \u0027.*base_scenario_test_ash\\.pdscenario::spawns\\.tsv\u0027, navigation/paths\\.tsv \u0027.*base_scenario_test_ash\\.pdscenario::navigation/paths\\.tsv\u0027, and ai/ailists\\.tsv \u0027.*base_scenario_test_ash\\.pdscenario::ai/ailists\\.tsv\u0027 for stage \u0027.*\u0027 as 2 setup records, \\d+ spawns, 3 paths, 1 AI lists \\(\\d+ bytes\\) path_flags=circular:1,flying:1"
+                     },
+                     {
+                         "Kind":  "required_line_missing",
+                         "Pattern":  "SCENARIO\\.SOURCE: compiled navigation tables waypoints \u0027.*base_scenario_test_ash\\.pdscenario::navigation/waypoints\\.tsv\u0027, waygroups \u0027.*base_scenario_test_ash\\.pdscenario::navigation/waygroups\\.tsv\u0027, covers \u0027.*base_scenario_test_ash\\.pdscenario::navigation/covers\\.tsv\u0027 as 5 waypoints, 2 waygroups, 5 covers, waypoint_neighbour_refs=8, waygroup_neighbour_refs=0 backend=source\\.navigation\\.tables\\+navigation/waypoints\\.tsv\\+navigation/waygroups\\.tsv\\+navigation/covers\\.tsv"
+                     },
+                     {
+                         "Kind":  "required_line_missing",
+                         "Pattern":  "SCENARIO\\.SOURCE: compiled pads\\.tsv \u0027.*base_scenario_test_ash\\.pdscenario::pads\\.tsv\u0027 for stage \u0027.*\u0027 as 5 pads, 5 waypoints, 2 waygroups, 5 covers \\(\\d+ bytes\\)"
+                     },
+                     {
+                         "Kind":  "required_line_missing",
+                         "Pattern":  "SCENARIO\\.GRAPH: AI condition if_waypoint_within_quadrant quadrant=1 label=2 pad=-?\\d+ found=\\d result=\\d pad_rows=5 waypoint_rows=5 waygroup_rows=2 source=.*base_scenario_test_ash\\.pdscenario::ai/ailists\\.tsv pads=.*base_scenario_test_ash\\.pdscenario::pads\\.tsv waypoints=.*base_scenario_test_ash\\.pdscenario::navigation/waypoints\\.tsv waygroups=.*base_scenario_test_ash\\.pdscenario::navigation/waygroups\\.tsv backend=graph\\.ai\\.action\\.quadrant_preset\\+ai/ailists\\.tsv\\+pads\\.tsv\\+navigation\\.generate"
+                     },
+                     {
+                         "Kind":  "required_line_missing",
+                         "Pattern":  "SCENARIO\\.GRAPH: AI action set_pad_preset_to_target_quadrant quadrant=1 label=1 pad=-?\\d+ found=\\d result=\\d pad_rows=5 waypoint_rows=5 waygroup_rows=2 source=.*base_scenario_test_ash\\.pdscenario::ai/ailists\\.tsv pads=.*base_scenario_test_ash\\.pdscenario::pads\\.tsv waypoints=.*base_scenario_test_ash\\.pdscenario::navigation/waypoints\\.tsv waygroups=.*base_scenario_test_ash\\.pdscenario::navigation/waygroups\\.tsv backend=graph\\.ai\\.action\\.quadrant_preset\\+ai/ailists\\.tsv\\+pads\\.tsv\\+navigation\\.generate"
+                     },
+                     {
+                         "Kind":  "required_line_missing",
+                         "Pattern":  "SCENARIO\\.GRAPH: AI action set_pad_preset_to_pad_on_route_to_target chr_rows=\\d+ source_chr=-?\\d+ label=3 pad=-?\\d+ found=\\d pad_rows=5 waypoint_rows=5 waygroup_rows=2 result=\\d source=.*base_scenario_test_ash\\.pdscenario::ai/ailists\\.tsv pads=.*base_scenario_test_ash\\.pdscenario::pads\\.tsv waypoints=.*base_scenario_test_ash\\.pdscenario::navigation/waypoints\\.tsv waygroups=.*base_scenario_test_ash\\.pdscenario::navigation/waygroups\\.tsv paths=.*base_scenario_test_ash\\.pdscenario::navigation/paths\\.tsv backend=graph\\.ai\\.condition\\.perception_alarm\\+ai/ailists\\.tsv\\+pads\\.tsv\\+navigation/paths\\.tsv"
+                     },
+                     {
+                         "Kind":  "required_line_missing",
+                         "Pattern":  "SCENARIO\\.GRAPH: AI action hovercar_begin_path path=0 found=1 vehicle_rows=[1-9]\\d* truck_type=-?\\d+ hovercar_type=\\d+ path_rows=3 source=.*base_scenario_test_ash\\.pdscenario::navigation/paths\\.tsv objects=.*base_scenario_test_ash\\.pdscenario::objects\\.tsv path_pads=3 pad_rows=5 backend=graph\\.ai\\.action\\.vehicle\\+objects\\.tsv\\+navigation/paths\\.tsv\\+pads\\.tsv"
+                     },
+                     {
+                         "Kind":  "required_line_missing",
+                         "Pattern":  "SCENARIO\\.GRAPH: AI action set_vehicle_speed vehicle_rows=[1-9]\\d* truck_type=-?\\d+ hovercar_type=\\d+ speedaim=[0-9.]+ speedtime=60\\.000 source=.*base_scenario_test_ash\\.pdscenario::ai/ailists\\.tsv objects=.*base_scenario_test_ash\\.pdscenario::objects\\.tsv backend=graph\\.ai\\.action\\.vehicle\\+ai/ailists\\.tsv\\+objects\\.tsv"
+                     },
+                     {
+                         "Kind":  "required_line_missing",
+                         "Pattern":  "SCENARIO\\.GRAPH: AI action find_cover chr_rows=\\d+ source_chr=-?\\d+ criteria=0x8085 refdist=0 assigned=-?\\d+ cover_rows=5 source=.*base_scenario_test_ash\\.pdscenario::navigation/covers\\.tsv backend=graph\\.ai\\.action\\.find_cover\\+navigation/covers\\.tsv"
+                     },
+                     {
+                         "Kind":  "required_line_missing",
+                         "Pattern":  "SCENARIO\\.GRAPH: AI action find_cover_within_dist chr_rows=\\d+ source_chr=-?\\d+ criteria=0x8085 refdist=0 assigned=-?\\d+ cover_rows=5 source=.*base_scenario_test_ash\\.pdscenario::navigation/covers\\.tsv backend=graph\\.ai\\.action\\.find_cover_within_dist\\+navigation/covers\\.tsv"
+                     },
+                     {
+                         "Kind":  "required_line_missing",
+                         "Pattern":  "SCENARIO\\.GRAPH: AI action find_cover_outside_dist chr_rows=\\d+ source_chr=-?\\d+ criteria=0x8085 refdist=0 assigned=-?\\d+ cover_rows=5 source=.*base_scenario_test_ash\\.pdscenario::navigation/covers\\.tsv backend=graph\\.ai\\.action\\.find_cover_outside_dist\\+navigation/covers\\.tsv"
+                     },
+                     {
+                         "Kind":  "required_line_missing",
+                         "Pattern":  "SCENARIO\\.GRAPH: AI action go_to_cover chr_rows=\\d+ source_chr=-?\\d+ speed=17 cover=\\d+ moved_cover=\\d+ cover_rows=5 source=.*base_scenario_test_ash\\.pdscenario::navigation/covers\\.tsv backend=graph\\.ai\\.action\\.go_to_cover\\+navigation/covers\\.tsv"
+                     },
+                     {
+                         "Kind":  "required_line_missing",
+                         "Pattern":  "SCENARIO\\.GRAPH: AI action check_cover_out_of_sight chr_rows=\\d+ source_chr=-?\\d+ cover=\\d+ out_of_sight=\\d+ cover_rows=5 source=.*base_scenario_test_ash\\.pdscenario::navigation/covers\\.tsv backend=graph\\.ai\\.action\\.check_cover_out_of_sight\\+navigation/covers\\.tsv"
+                     },
+                     {
+                         "Kind":  "required_line_missing",
+                         "Pattern":  "SCENARIO\\.GRAPH: AI action face_cover chr_rows=\\d+ source_chr=-?\\d+ cover=\\d+ faced=\\d+ cover_rows=5 source=.*base_scenario_test_ash\\.pdscenario::navigation/covers\\.tsv backend=graph\\.ai\\.action\\.face_cover\\+navigation/covers\\.tsv"
+                     },
+                     {
+                         "Kind":  "required_line_missing",
+                         "Pattern":  "SCENARIO\\.GRAPH: AI action danger_cover chr_rows=\\d+ source_chr=-?\\d+ assigned=-?\\d+ moved=\\d+ cover_rows=5 source=.*base_scenario_test_ash\\.pdscenario::navigation/covers\\.tsv backend=graph\\.ai\\.action\\.danger_cover\\+navigation/covers\\.tsv"
+                     },
+                     {
+                         "Kind":  "required_line_missing",
+                         "Pattern":  "SCENARIO\\.GRAPH: AI action release_cover chr_rows=\\d+ source_chr=-?\\d+ cover=\\d+ released=1 cover_rows=5 source=.*base_scenario_test_ash\\.pdscenario::navigation/covers\\.tsv backend=graph\\.ai\\.action\\.release_cover\\+navigation/covers\\.tsv"
+                     },
+                     {
+                         "Kind":  "required_line_missing",
+                         "Pattern":  "SMOKE: result=scripted_exit"
+                     },
+                     {
+                         "Kind":  "required_count_out_of_range",
+                         "Pattern":  "SCENARIO\\.SOURCE: generated deterministic navigation tables from public pads\\.tsv .*navigation/paths\\.tsv",
+                         "Count":  0,
+                         "Min":  1,
+                         "Max":  1
+                     },
+                     {
+                         "Kind":  "required_count_out_of_range",
+                         "Pattern":  "SCENARIO\\.SOURCE: generated directional path segments from public navigation/paths\\.tsv .*2 flagged neighbour refs",
+                         "Count":  0,
+                         "Min":  1,
+                         "Max":  1
+                     },
+                     {
+                         "Kind":  "required_count_out_of_range",
+                         "Pattern":  "SCENARIO\\.SOURCE: compiled setup\\.fields\\.tsv .*2 setup records.*1 AI lists.*path_flags=circular:1,flying:1",
+                         "Count":  0,
+                         "Min":  1,
+                         "Max":  1
+                     },
+                     {
+                         "Kind":  "required_count_out_of_range",
+                         "Pattern":  "SCENARIO\\.SOURCE: compiled navigation tables waypoints \u0027.*base_scenario_test_ash\\.pdscenario::navigation/waypoints\\.tsv\u0027.*waypoint_neighbour_refs=8, waygroup_neighbour_refs=0",
+                         "Count":  0,
+                         "Min":  1,
+                         "Max":  1
+                     },
+                     {
+                         "Kind":  "required_count_out_of_range",
+                         "Pattern":  "SCENARIO\\.GRAPH: AI condition if_waypoint_within_quadrant quadrant=1",
+                         "Count":  0,
+                         "Min":  1,
+                         "Max":  1
+                     },
+                     {
+                         "Kind":  "required_count_out_of_range",
+                         "Pattern":  "SCENARIO\\.GRAPH: AI action set_pad_preset_to_target_quadrant quadrant=1",
+                         "Count":  0,
+                         "Min":  1,
+                         "Max":  1
+                     },
+                     {
+                         "Kind":  "required_count_out_of_range",
+                         "Pattern":  "SCENARIO\\.GRAPH: AI action set_pad_preset_to_pad_on_route_to_target",
+                         "Count":  0,
+                         "Min":  1,
+                         "Max":  1
+                     },
+                     {
+                         "Kind":  "required_count_out_of_range",
+                         "Pattern":  "SCENARIO\\.GRAPH: AI action hovercar_begin_path path=0 found=1 vehicle_rows=[1-9]",
+                         "Count":  0,
+                         "Min":  1,
+                         "Max":  1
+                     },
+                     {
+                         "Kind":  "required_count_out_of_range",
+                         "Pattern":  "SCENARIO\\.GRAPH: AI action set_vehicle_speed vehicle_rows=[1-9]",
+                         "Count":  0,
+                         "Min":  1,
+                         "Max":  1
+                     },
+                     {
+                         "Kind":  "required_count_out_of_range",
+                         "Pattern":  "SCENARIO\\.GRAPH: AI action find_cover chr_rows=",
+                         "Count":  0,
+                         "Min":  1,
+                         "Max":  1
+                     },
+                     {
+                         "Kind":  "required_count_out_of_range",
+                         "Pattern":  "SCENARIO\\.GRAPH: AI action find_cover_within_dist chr_rows=",
+                         "Count":  0,
+                         "Min":  1,
+                         "Max":  1
+                     },
+                     {
+                         "Kind":  "required_count_out_of_range",
+                         "Pattern":  "SCENARIO\\.GRAPH: AI action find_cover_outside_dist chr_rows=",
+                         "Count":  0,
+                         "Min":  1,
+                         "Max":  1
+                     },
+                     {
+                         "Kind":  "required_count_out_of_range",
+                         "Pattern":  "SCENARIO\\.GRAPH: AI action go_to_cover chr_rows=",
+                         "Count":  0,
+                         "Min":  1,
+                         "Max":  1
+                     },
+                     {
+                         "Kind":  "required_count_out_of_range",
+                         "Pattern":  "SCENARIO\\.GRAPH: AI action check_cover_out_of_sight chr_rows=",
+                         "Count":  0,
+                         "Min":  1,
+                         "Max":  1
+                     },
+                     {
+                         "Kind":  "required_count_out_of_range",
+                         "Pattern":  "SCENARIO\\.GRAPH: AI action face_cover chr_rows=",
+                         "Count":  0,
+                         "Min":  1,
+                         "Max":  1
+                     },
+                     {
+                         "Kind":  "required_count_out_of_range",
+                         "Pattern":  "SCENARIO\\.GRAPH: AI action danger_cover chr_rows=",
+                         "Count":  0,
+                         "Min":  1,
+                         "Max":  1
+                     },
+                     {
+                         "Kind":  "required_count_out_of_range",
+                         "Pattern":  "SCENARIO\\.GRAPH: AI action release_cover chr_rows=",
+                         "Count":  0,
+                         "Min":  1,
+                         "Max":  1
+                     }
+                 ]
+}

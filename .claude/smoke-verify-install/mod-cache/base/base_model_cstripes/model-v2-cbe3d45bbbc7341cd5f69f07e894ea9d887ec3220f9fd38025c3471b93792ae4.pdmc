@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_cstripes",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_cstripes.pdmesh::model.obj",
+  "source_size": 153971,
+  "source_sha256": "cbe3d45bbbc7341cd5f69f07e894ea9d887ec3220f9fd38025c3471b93792ae4",
+  "validation": "format=obj vertices=2262 triangles=754",
+  "normalized": "$S/mod-cache/base/base_model_cstripes/model-v2-cbe3d45bbbc7341cd5f69f07e894ea9d887ec3220f9fd38025c3471b93792ae4.pdmodel.json",
+  "vertex_count": 2262,
+  "triangle_count": 754,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

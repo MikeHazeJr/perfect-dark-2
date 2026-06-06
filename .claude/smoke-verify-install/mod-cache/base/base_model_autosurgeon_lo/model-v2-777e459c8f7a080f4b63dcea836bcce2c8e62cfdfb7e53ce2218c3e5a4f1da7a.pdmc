@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_autosurgeon_lo",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_autosurgeon_lo.pdmesh::model.obj",
+  "source_size": 35459,
+  "source_sha256": "777e459c8f7a080f4b63dcea836bcce2c8e62cfdfb7e53ce2218c3e5a4f1da7a",
+  "validation": "format=obj vertices=537 triangles=179",
+  "normalized": "$S/mod-cache/base/base_model_autosurgeon_lo/model-v2-777e459c8f7a080f4b63dcea836bcce2c8e62cfdfb7e53ce2218c3e5a4f1da7a.pdmodel.json",
+  "vertex_count": 537,
+  "triangle_count": 179,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

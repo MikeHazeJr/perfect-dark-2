@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_cv_f_bed",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_cv_f_bed.pdmesh::model.obj",
+  "source_size": 18834,
+  "source_sha256": "9c4cb3595933bedeae600320584cff4a0876878e22d8e3bf135a4f6160f2faf4",
+  "validation": "format=obj vertices=294 triangles=98",
+  "normalized": "$S/mod-cache/base/base_model_cv_f_bed/model-v2-9c4cb3595933bedeae600320584cff4a0876878e22d8e3bf135a4f6160f2faf4.pdmodel.json",
+  "vertex_count": 294,
+  "triangle_count": 98,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

@@ -1,0 +1,131 @@
+{
+  "scenario_name": "all_family_source_matrix_batch_078",
+  "BugId": "B-509",
+  "category": "modding",
+  "description": "c3844 runtime matrix smoke: source-only catalog load batch 78 for extracted non-Scenario public typed archives. Missing debug-load request/result blocks are B-509 harness observability failures.",
+  "tags": [
+    "modding",
+    "pdxxx",
+    "source-gate",
+    "source-matrix",
+    "all-family",
+    "c3844",
+    "smoke",
+    "pillar:modding"
+  ],
+  "paths_of_interest": [
+    "port/src/main.c",
+    "port/src/asset_source_debug.c",
+    "port/src/assetcatalog_load.c",
+    "tools/smoke-verify/run-all-family-source-matrix.ps1",
+    "tools/smoke-verify/fixtures/all_family_source_pd.ini"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 180,
+  "install_state": "clean",
+  "fixtures": [
+    {
+      "src": "tools/smoke-verify/fixtures/all_family_source_pd.ini",
+      "dst": "pd.ini"
+    },
+    {
+      "src": "tools/smoke-verify/fixtures/no_mods_enabled.json",
+      "dst": "mods-enabled.json"
+    }
+  ],
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--portable",
+    "--debug-load-catalog-assets-source-only",
+    "--debug-load-catalog-assets",
+    "model=base:model_cetanwindow2,model=base:model_cetanwindow3,model=base:model_cetroofgun,model=base:model_ceyespy_hi,model=base:model_ceyespy_lo,model=base:model_ceyespy,model=base:model_cfbiguy,model=base:model_cfem_guard,model=base:model_cfemlabtech,model=base:model_cg5_guard,model=base:model_cg5_swat_guard,model=base:model_ch_shutter1,model=base:model_chair_en,model=base:model_chamber,model=base:model_chead_vd,model=base:model_cheadalex,model=base:model_cheadandy_r,model=base:model_cheadanka,model=base:model_cheadbeau,model=base:model_cheadben_r"
+  ],
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait",
+      "comment": "catalog bootstrap extracts and walks base typed archives before source-only typed-load requests fire."
+    },
+    {
+      "at_ms": 35000,
+      "type": "exit",
+      "comment": "exit after all requested typed assets have loaded or emitted source-only failures."
+    }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=all_family_source_matrix_batch_078",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_cetanwindow2' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_cetanwindow2' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_cetanwindow3' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_cetanwindow3' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_cetroofgun' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_cetroofgun' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_ceyespy_hi' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_ceyespy_hi' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_ceyespy_lo' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_ceyespy_lo' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_ceyespy' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_ceyespy' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_cfbiguy' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_cfbiguy' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_cfem_guard' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_cfem_guard' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_cfemlabtech' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_cfemlabtech' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_cg5_guard' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_cg5_guard' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_cg5_swat_guard' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_cg5_swat_guard' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_ch_shutter1' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_ch_shutter1' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_chair_en' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_chair_en' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_chamber' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_chamber' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_chead_vd' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_chead_vd' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_cheadalex' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_cheadalex' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_cheadandy_r' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_cheadandy_r' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_cheadanka' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_cheadanka' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_cheadbeau' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_cheadbeau' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_cheadben_r' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_cheadben_r' result=OK",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "ASSET\\.SOURCE_ONLY",
+      "has no public FileProvider source",
+      "--debug-load-catalog-assets invalid token",
+      "--debug-load-catalog-assets token '.*' missing type=id form",
+      "--debug-load-catalog-assets argument too long",
+      "result=FAIL",
+      "result=MISSING",
+      "RomProvider:filenum",
+      "refusing fallback"
+    ],
+    "required_counts": [
+      {
+        "pattern": "BOOT: --debug-load-catalog-assets request type=.* source_only=1",
+        "min": 20,
+        "max": 20
+      },
+      {
+        "pattern": "BOOT: --debug-load-catalog-assets result type=.* result=OK",
+        "min": 20,
+        "max": 20
+      }
+    ]
+  }
+}

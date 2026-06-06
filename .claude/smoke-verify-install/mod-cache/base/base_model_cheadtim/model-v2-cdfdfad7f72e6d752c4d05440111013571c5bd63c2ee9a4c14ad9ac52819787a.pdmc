@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_cheadtim",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_cheadtim.pdmesh::model.obj",
+  "source_size": 35110,
+  "source_sha256": "cdfdfad7f72e6d752c4d05440111013571c5bd63c2ee9a4c14ad9ac52819787a",
+  "validation": "format=obj vertices=537 triangles=179",
+  "normalized": "$S/mod-cache/base/base_model_cheadtim/model-v2-cdfdfad7f72e6d752c4d05440111013571c5bd63c2ee9a4c14ad9ac52819787a.pdmodel.json",
+  "vertex_count": 537,
+  "triangle_count": 179,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

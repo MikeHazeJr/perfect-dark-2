@@ -1,0 +1,18 @@
+﻿{
+    "Name":  "scenario_source_matrix_attackship",
+    "Category":  "scenario",
+    "BugId":  null,
+    "RegressionFor":  null,
+    "Passed":  false,
+    "ExitCode":  0,
+    "ElapsedSeconds":  106.8532063,
+    "InstallDir":  "C:\\Users\\mikeh\\Perfect-Dark-2\\perfect_dark-mike\\.claude\\smoke-verify-install",
+    "AssertionsTotal":  117,
+    "AssertionsMet":  116,
+    "Failures":  [
+                     {
+                         "Kind":  "required_line_missing",
+                         "Pattern":  "MISSION\\.GRAPH: phase transition from graph source \u0027.*base_mission_attackship\\.pdmission::mission\\.graph\\.json\u0027 phase=(active|failed|complete) reason=objectives\\.check backend=graph\\.mission\\.phase"
+                     }
+                 ]
+}

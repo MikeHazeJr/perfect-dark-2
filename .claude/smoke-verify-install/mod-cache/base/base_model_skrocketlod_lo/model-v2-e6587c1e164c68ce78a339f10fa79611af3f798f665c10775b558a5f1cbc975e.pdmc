@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_skrocketlod_lo",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_skrocketlod_lo.pdmesh::model.obj",
+  "source_size": 37330,
+  "source_sha256": "e6587c1e164c68ce78a339f10fa79611af3f798f665c10775b558a5f1cbc975e",
+  "validation": "format=obj vertices=576 triangles=192",
+  "normalized": "$S/mod-cache/base/base_model_skrocketlod_lo/model-v2-e6587c1e164c68ce78a339f10fa79611af3f798f665c10775b558a5f1cbc975e.pdmodel.json",
+  "vertex_count": 576,
+  "triangle_count": 192,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

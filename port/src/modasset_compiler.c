@@ -16,7 +16,9 @@
 
 #include "constants.h"
 #include "types.h"
+#include "assetcatalog.h"
 #include "data.h"
+#include "game/tex.h"
 #include "gbiex.h"
 #include "lib/meshcollision.h"
 #include "lib/model.h"
@@ -249,17 +251,48 @@ typedef struct obj_vertex {
 	s32 roomnum;
 } obj_vertex_t;
 
+typedef struct obj_texcoord {
+	f32 u;
+	f32 v;
+} obj_texcoord_t;
+
+typedef struct obj_material {
+	char name[64];
+	char texture_catalog_id[CATALOG_ID_LEN];
+	char secondary_texture_catalog_id[CATALOG_ID_LEN];
+	s32 texture_num;
+	s32 secondary_texture_num;
+	s32 subcmd;
+	s32 smode;
+	s32 tmode;
+	s32 offset;
+	s32 shifts;
+	s32 shiftt;
+	s32 min;
+	s32 flag;
+} obj_material_t;
+
 typedef struct obj_triangle {
 	s32 a;
 	s32 b;
 	s32 c;
+	s32 ta;
+	s32 tb;
+	s32 tc;
 	s32 roomnum;
+	s32 material_index;
 } obj_triangle_t;
 
 typedef struct obj_mesh {
 	obj_vertex_t *vertices;
 	s32 vertex_count;
 	s32 vertex_capacity;
+	obj_texcoord_t *texcoords;
+	s32 texcoord_count;
+	s32 texcoord_capacity;
+	obj_material_t *materials;
+	s32 material_count;
+	s32 material_capacity;
 	obj_triangle_t *triangles;
 	s32 triangle_count;
 	s32 triangle_capacity;
@@ -272,6 +305,8 @@ static void objMeshFree(obj_mesh_t *mesh)
 		return;
 	}
 	free(mesh->vertices);
+	free(mesh->texcoords);
+	free(mesh->materials);
 	free(mesh->triangles);
 	memset(mesh, 0, sizeof(*mesh));
 }
@@ -313,6 +348,66 @@ static s32 objMeshGrowVertices(obj_mesh_t *mesh, s32 needed)
 	return 1;
 }
 
+static s32 objMeshGrowTexcoords(obj_mesh_t *mesh, s32 needed)
+{
+	s32 newcap;
+	obj_texcoord_t *newptr;
+
+	if (mesh->texcoord_count + needed <= mesh->texcoord_capacity) {
+		return 1;
+	}
+
+	newcap = mesh->texcoord_capacity * 2;
+	if (newcap < mesh->texcoord_count + needed) {
+		newcap = mesh->texcoord_count + needed;
+	}
+	if (newcap < 64) {
+		newcap = 64;
+	}
+
+	newptr = realloc(mesh->texcoords,
+		(size_t)newcap * sizeof(*mesh->texcoords));
+	if (!newptr) {
+		objMeshSetError(mesh, 0, "texcoord_alloc_failed");
+		return 0;
+	}
+
+	mesh->texcoords = newptr;
+	mesh->texcoord_capacity = newcap;
+	return 1;
+}
+
+static s32 objMeshGrowMaterials(obj_mesh_t *mesh, s32 needed)
+{
+	s32 newcap;
+	obj_material_t *newptr;
+
+	if (mesh->material_count + needed <= mesh->material_capacity) {
+		return 1;
+	}
+
+	newcap = mesh->material_capacity * 2;
+	if (newcap < mesh->material_count + needed) {
+		newcap = mesh->material_count + needed;
+	}
+	if (newcap < 8) {
+		newcap = 8;
+	}
+
+	newptr = realloc(mesh->materials,
+		(size_t)newcap * sizeof(*mesh->materials));
+	if (!newptr) {
+		objMeshSetError(mesh, 0, "material_alloc_failed");
+		return 0;
+	}
+
+	memset(newptr + mesh->material_capacity, 0,
+		(size_t)(newcap - mesh->material_capacity) * sizeof(*newptr));
+	mesh->materials = newptr;
+	mesh->material_capacity = newcap;
+	return 1;
+}
+
 static s32 objMeshGrowTriangles(obj_mesh_t *mesh, s32 needed)
 {
 	s32 newcap;
@@ -341,6 +436,69 @@ static s32 objMeshGrowTriangles(obj_mesh_t *mesh, s32 needed)
 	return 1;
 }
 
+static void copyObjToken(char *dst, size_t dst_n, const char *src)
+{
+	size_t len = 0;
+
+	if (!dst || dst_n == 0) {
+		return;
+	}
+	dst[0] = '\0';
+	if (!src) {
+		return;
+	}
+	while (*src && isspace((u8)*src)) {
+		src++;
+	}
+	while (src[len] && !isspace((u8)src[len]) && src[len] != '#') {
+		len++;
+	}
+	while (len > 0 && (src[len - 1] == ' ' || src[len - 1] == '\t')) {
+		len--;
+	}
+	if (len >= dst_n) {
+		len = dst_n - 1;
+	}
+	memcpy(dst, src, len);
+	dst[len] = '\0';
+}
+
+static s32 objMeshEnsureMaterial(obj_mesh_t *mesh, const char *name)
+{
+	char material_name[64];
+
+	if (!mesh) {
+		return -1;
+	}
+
+	copyObjToken(material_name, sizeof(material_name),
+		name && name[0] ? name : "pd_default");
+	if (!material_name[0]) {
+		strncpy(material_name, "pd_default", sizeof(material_name) - 1);
+		material_name[sizeof(material_name) - 1] = '\0';
+	}
+
+	for (s32 i = 0; i < mesh->material_count; i++) {
+		if (strcmp(mesh->materials[i].name, material_name) == 0) {
+			return i;
+		}
+	}
+
+	if (!objMeshGrowMaterials(mesh, 1)) {
+		return -1;
+	}
+
+	obj_material_t *material = &mesh->materials[mesh->material_count];
+	memset(material, 0, sizeof(*material));
+	strncpy(material->name, material_name, sizeof(material->name) - 1);
+	material->name[sizeof(material->name) - 1] = '\0';
+	material->texture_num = -1;
+	material->secondary_texture_num = -1;
+	material->subcmd = -1;
+	mesh->material_count++;
+	return mesh->material_count - 1;
+}
+
 static s32 objMeshAddVertex(obj_mesh_t *mesh, f32 x, f32 y, f32 z, s32 roomnum)
 {
 	obj_vertex_t *v;
@@ -357,7 +515,23 @@ static s32 objMeshAddVertex(obj_mesh_t *mesh, f32 x, f32 y, f32 z, s32 roomnum)
 	return 1;
 }
 
-static s32 objMeshAddTriangle(obj_mesh_t *mesh, s32 a, s32 b, s32 c, s32 roomnum)
+static s32 objMeshAddTexcoord(obj_mesh_t *mesh, f32 u, f32 v)
+{
+	obj_texcoord_t *tc;
+
+	if (!objMeshGrowTexcoords(mesh, 1)) {
+		return 0;
+	}
+
+	tc = &mesh->texcoords[mesh->texcoord_count++];
+	tc->u = u;
+	tc->v = v;
+	return 1;
+}
+
+static s32 objMeshAddTriangleWithTexcoords(obj_mesh_t *mesh,
+	s32 a, s32 b, s32 c, s32 ta, s32 tb, s32 tc, s32 roomnum,
+	s32 material_index)
 {
 	obj_triangle_t *tri;
 
@@ -369,7 +543,11 @@ static s32 objMeshAddTriangle(obj_mesh_t *mesh, s32 a, s32 b, s32 c, s32 roomnum
 	tri->a = a;
 	tri->b = b;
 	tri->c = c;
+	tri->ta = ta;
+	tri->tb = tb;
+	tri->tc = tc;
 	tri->roomnum = roomnum > 0 ? roomnum : 0;
+	tri->material_index = material_index >= 0 ? material_index : -1;
 	if (a >= 0 && b >= 0 && c >= 0
 			&& a < mesh->vertex_count
 			&& b < mesh->vertex_count
@@ -382,6 +560,12 @@ static s32 objMeshAddTriangle(obj_mesh_t *mesh, s32 a, s32 b, s32 c, s32 roomnum
 		}
 	}
 	return 1;
+}
+
+static s32 objMeshAddTriangle(obj_mesh_t *mesh, s32 a, s32 b, s32 c, s32 roomnum)
+{
+	return objMeshAddTriangleWithTexcoords(mesh, a, b, c, -1, -1, -1,
+		roomnum, -1);
 }
 
 static char *skipSpaces(char *p);
@@ -439,31 +623,69 @@ static s32 parseObjFloat(char **cursor, f32 *out)
 	return 1;
 }
 
-static s32 parseObjIndexToken(char **cursor, s32 vertex_count, s32 *out_index)
+static s32 resolveObjIndex(long raw, s32 count, s32 *out_index)
 {
-	char *p;
-	char *end;
-	long raw;
 	s32 index;
 
-	if (!cursor || !*cursor || !out_index) {
-		return 0;
-	}
-
-	p = skipSpaces(*cursor);
-	raw = strtol(p, &end, 10);
-	if (end == p || raw == 0) {
+	if (!out_index || raw == 0 || count <= 0) {
 		return 0;
 	}
 
 	if (raw > 0) {
 		index = (s32)raw - 1;
 	} else {
-		index = vertex_count + (s32)raw;
+		index = count + (s32)raw;
 	}
 
-	if (index < 0 || index >= vertex_count) {
+	if (index < 0 || index >= count) {
 		return 0;
+	}
+
+	*out_index = index;
+	return 1;
+}
+
+static s32 parseObjIndexToken(char **cursor, s32 vertex_count,
+	s32 texcoord_count, s32 *out_index, s32 *out_texcoord)
+{
+	char *p;
+	char *end;
+	long raw;
+	s32 index = -1;
+	s32 texcoord = -1;
+
+	if (!cursor || !*cursor || !out_index || !out_texcoord) {
+		return 0;
+	}
+
+	p = skipSpaces(*cursor);
+	raw = strtol(p, &end, 10);
+	if (end == p || !resolveObjIndex(raw, vertex_count, &index)) {
+		return 0;
+	}
+
+	if (*end == '/') {
+		char *tex_start = end + 1;
+
+		if (*tex_start != '/' && *tex_start != '\0'
+				&& !isspace((u8)*tex_start)) {
+			long raw_texcoord;
+			char *tex_end;
+
+			raw_texcoord = strtol(tex_start, &tex_end, 10);
+			if (tex_end == tex_start
+					|| !resolveObjIndex(raw_texcoord, texcoord_count,
+						&texcoord)) {
+				return 0;
+			}
+			end = tex_end;
+		} else {
+			end = tex_start;
+		}
+	}
+
+	if (*end == '/') {
+		end++;
 	}
 
 	while (*end && !isspace((u8)*end)) {
@@ -471,6 +693,7 @@ static s32 parseObjIndexToken(char **cursor, s32 vertex_count, s32 *out_index)
 	}
 
 	*out_index = index;
+	*out_texcoord = texcoord;
 	*cursor = end;
 	return 1;
 }
@@ -493,15 +716,31 @@ static s32 parseObjVertexLine(char *line, obj_mesh_t *mesh, s32 line_no,
 	return objMeshAddVertex(mesh, x, y, z, current_room);
 }
 
+static s32 parseObjTexcoordLine(char *line, obj_mesh_t *mesh, s32 line_no)
+{
+	f32 u;
+	f32 v;
+	char *p = line + 2;
+
+	if (!parseObjFloat(&p, &u) || !parseObjFloat(&p, &v)) {
+		objMeshSetError(mesh, line_no, "invalid_texcoord");
+		return 0;
+	}
+
+	return objMeshAddTexcoord(mesh, u, v);
+}
+
 static s32 parseObjFaceLine(char *line, obj_mesh_t *mesh, s32 line_no,
-	s32 current_room)
+	s32 current_room, s32 current_material)
 {
 	char *p = line + 1;
 	s32 indices[128];
+	s32 texcoords[128];
 	s32 count = 0;
 
 	while (1) {
 		s32 index;
+		s32 texcoord;
 
 		p = skipSpaces(p);
 		if (!p || *p == '\0' || *p == '#') {
@@ -513,12 +752,14 @@ static s32 parseObjFaceLine(char *line, obj_mesh_t *mesh, s32 line_no,
 			return 0;
 		}
 
-		if (!parseObjIndexToken(&p, mesh->vertex_count, &index)) {
+		if (!parseObjIndexToken(&p, mesh->vertex_count,
+				mesh->texcoord_count, &index, &texcoord)) {
 			objMeshSetError(mesh, line_no, "invalid_face_index");
 			return 0;
 		}
 
 		indices[count++] = index;
+		texcoords[count - 1] = texcoord;
 	}
 
 	if (count < 3) {
@@ -527,8 +768,10 @@ static s32 parseObjFaceLine(char *line, obj_mesh_t *mesh, s32 line_no,
 	}
 
 	for (s32 i = 2; i < count; i++) {
-		if (!objMeshAddTriangle(mesh, indices[0], indices[i - 1], indices[i],
-				current_room)) {
+		if (!objMeshAddTriangleWithTexcoords(mesh,
+				indices[0], indices[i - 1], indices[i],
+				texcoords[0], texcoords[i - 1], texcoords[i],
+				current_room, current_material)) {
 			return 0;
 		}
 	}
@@ -543,6 +786,7 @@ static s32 parseObjSource(const u8 *data, u32 size, obj_mesh_t *mesh)
 	s32 line_no = 1;
 	s32 ok = 1;
 	s32 current_room = 0;
+	s32 current_material = -1;
 
 	if (!data || size == 0 || !mesh) {
 		return 0;
@@ -557,6 +801,7 @@ static s32 parseObjSource(const u8 *data, u32 size, obj_mesh_t *mesh)
 
 	memcpy(text, data, size);
 	text[size] = '\0';
+	current_material = objMeshEnsureMaterial(mesh, "pd_default");
 
 	line = text;
 	while (line && *line) {
@@ -577,12 +822,21 @@ static s32 parseObjSource(const u8 *data, u32 size, obj_mesh_t *mesh)
 		}
 
 		p = skipSpaces(line);
-		if (*p == 'v' && isspace((u8)p[1])) {
+		if (*p == 'v' && p[1] == 't' && isspace((u8)p[2])) {
+			ok = parseObjTexcoordLine(p, mesh, line_no);
+		} else if (*p == 'v' && isspace((u8)p[1])) {
 			ok = parseObjVertexLine(p, mesh, line_no, current_room);
 		} else if (*p == 'f' && isspace((u8)p[1])) {
-			ok = parseObjFaceLine(p, mesh, line_no, current_room);
+			ok = parseObjFaceLine(p, mesh, line_no, current_room,
+				current_material);
 		} else if ((*p == 'g' || *p == 'o') && isspace((u8)p[1])) {
 			current_room = parseObjRoomName(p);
+		} else if (strncmp(p, "usemtl", 6) == 0 && isspace((u8)p[6])) {
+			char *name = skipSpaces(p + 6);
+			current_material = objMeshEnsureMaterial(mesh, name);
+			if (current_material < 0) {
+				ok = 0;
+			}
 		}
 
 		if (!ok) {
@@ -2576,8 +2830,9 @@ static s32 validateObjSource(const u8 *data, u32 size,
 
 	if (summary && summary_len > 0) {
 		if (ok) {
-			snprintf(summary, summary_len, "format=obj vertices=%d triangles=%d",
-				mesh.vertex_count, mesh.triangle_count);
+			snprintf(summary, summary_len,
+				"format=obj vertices=%d texcoords=%d triangles=%d",
+				mesh.vertex_count, mesh.texcoord_count, mesh.triangle_count);
 		} else {
 			snprintf(summary, summary_len, "format=obj invalid %s",
 				mesh.error[0] ? mesh.error : "parse_failed");
@@ -2756,6 +3011,7 @@ static s32 writeObjMeshJson(const char *path, const asset_entry_t *entry,
 	fprintf(f, "\",\n");
 	fprintf(f, "  \"source_sha256\": \"%s\",\n", source_sha256 ? source_sha256 : "");
 	fprintf(f, "  \"vertex_count\": %d,\n", mesh->vertex_count);
+	fprintf(f, "  \"texcoord_count\": %d,\n", mesh->texcoord_count);
 	fprintf(f, "  \"triangle_count\": %d,\n", mesh->triangle_count);
 	fprintf(f, "  \"vertices\": [\n");
 	for (s32 i = 0; i < mesh->vertex_count; i++) {
@@ -2764,11 +3020,26 @@ static s32 writeObjMeshJson(const char *path, const asset_entry_t *entry,
 			v->x, v->y, v->z, i + 1 == mesh->vertex_count ? "" : ",");
 	}
 	fprintf(f, "  ],\n");
+	fprintf(f, "  \"texcoords\": [\n");
+	for (s32 i = 0; i < mesh->texcoord_count; i++) {
+		const obj_texcoord_t *tc = &mesh->texcoords[i];
+		fprintf(f, "    [%.9g, %.9g]%s\n",
+			tc->u, tc->v, i + 1 == mesh->texcoord_count ? "" : ",");
+	}
+	fprintf(f, "  ],\n");
 	fprintf(f, "  \"triangles\": [\n");
 	for (s32 i = 0; i < mesh->triangle_count; i++) {
 		const obj_triangle_t *tri = &mesh->triangles[i];
 		fprintf(f, "    [%d, %d, %d]%s\n",
 			tri->a, tri->b, tri->c, i + 1 == mesh->triangle_count ? "" : ",");
+	}
+	fprintf(f, "  ],\n");
+	fprintf(f, "  \"triangle_texcoords\": [\n");
+	for (s32 i = 0; i < mesh->triangle_count; i++) {
+		const obj_triangle_t *tri = &mesh->triangles[i];
+		fprintf(f, "    [%d, %d, %d]%s\n",
+			tri->ta, tri->tb, tri->tc,
+			i + 1 == mesh->triangle_count ? "" : ",");
 	}
 	fprintf(f, "  ]\n");
 	fprintf(f, "}\n");
@@ -2806,6 +3077,7 @@ static s32 writeModelMeshJson(const char *path, const asset_entry_t *entry,
 	fprintf(f, "  \"source_sha256\": \"%s\",\n", source_sha256 ? source_sha256 : "");
 	fprintf(f, "  \"runtime_boundary\": \"modeldef\",\n");
 	fprintf(f, "  \"vertex_count\": %d,\n", mesh->vertex_count);
+	fprintf(f, "  \"texcoord_count\": %d,\n", mesh->texcoord_count);
 	fprintf(f, "  \"triangle_count\": %d,\n", mesh->triangle_count);
 	fprintf(f, "  \"vertices\": [\n");
 	for (s32 i = 0; i < mesh->vertex_count; i++) {
@@ -2814,11 +3086,26 @@ static s32 writeModelMeshJson(const char *path, const asset_entry_t *entry,
 			v->x, v->y, v->z, i + 1 == mesh->vertex_count ? "" : ",");
 	}
 	fprintf(f, "  ],\n");
+	fprintf(f, "  \"texcoords\": [\n");
+	for (s32 i = 0; i < mesh->texcoord_count; i++) {
+		const obj_texcoord_t *tc = &mesh->texcoords[i];
+		fprintf(f, "    [%.9g, %.9g]%s\n",
+			tc->u, tc->v, i + 1 == mesh->texcoord_count ? "" : ",");
+	}
+	fprintf(f, "  ],\n");
 	fprintf(f, "  \"triangles\": [\n");
 	for (s32 i = 0; i < mesh->triangle_count; i++) {
 		const obj_triangle_t *tri = &mesh->triangles[i];
 		fprintf(f, "    [%d, %d, %d]%s\n",
 			tri->a, tri->b, tri->c, i + 1 == mesh->triangle_count ? "" : ",");
+	}
+	fprintf(f, "  ],\n");
+	fprintf(f, "  \"triangle_texcoords\": [\n");
+	for (s32 i = 0; i < mesh->triangle_count; i++) {
+		const obj_triangle_t *tri = &mesh->triangles[i];
+		fprintf(f, "    [%d, %d, %d]%s\n",
+			tri->ta, tri->tb, tri->tc,
+			i + 1 == mesh->triangle_count ? "" : ",");
 	}
 	fprintf(f, "  ]\n");
 	fprintf(f, "}\n");
@@ -3262,6 +3549,7 @@ s32 modAssetCompilerEnsureCache(const asset_entry_t *entry,
 
 typedef struct generated_modeldef {
 	struct modeldef def;
+	struct generated_modeldef *next;
 	struct modelnode root_node;
 	struct modelnode bbox_node;
 	struct modelnode toggle_node;
@@ -3294,7 +3582,85 @@ typedef struct generated_modeldef {
 	Col *colours;
 	Gfx *gdl;
 	s32 triangle_count;
+	s32 vertex_count;
+	s32 render_audit_logged;
+	char catalog_id[CATALOG_ID_LEN];
+	char source_path[FS_MAXPATH + 1];
 } generated_modeldef_t;
+
+static generated_modeldef_t *s_GeneratedModeldefs = NULL;
+static s32 s_GeneratedModeldefRenderAuditEnabled = 0;
+
+static void generatedModeldefRegister(generated_modeldef_t *owner)
+{
+	if (!owner) {
+		return;
+	}
+	owner->next = s_GeneratedModeldefs;
+	s_GeneratedModeldefs = owner;
+}
+
+static void generatedModeldefUnregister(generated_modeldef_t *owner)
+{
+	generated_modeldef_t **cursor = &s_GeneratedModeldefs;
+
+	while (*cursor) {
+		if (*cursor == owner) {
+			*cursor = owner->next;
+			owner->next = NULL;
+			return;
+		}
+		cursor = &(*cursor)->next;
+	}
+}
+
+static generated_modeldef_t *generatedModeldefOwner(
+	const struct modeldef *modeldef)
+{
+	generated_modeldef_t *owner = s_GeneratedModeldefs;
+
+	while (owner) {
+		if (&owner->def == modeldef) {
+			return owner;
+		}
+		owner = owner->next;
+	}
+
+	return NULL;
+}
+
+void modAssetCompilerSetGeneratedModeldefRenderAudit(s32 enabled)
+{
+	s_GeneratedModeldefRenderAuditEnabled = enabled ? 1 : 0;
+}
+
+void modAssetCompilerTraceGeneratedModeldefRender(
+	const struct modeldef *modeldef,
+	const struct modelnode *node)
+{
+	generated_modeldef_t *owner;
+
+	if (!s_GeneratedModeldefRenderAuditEnabled) {
+		return;
+	}
+
+	owner = generatedModeldefOwner(modeldef);
+	if (!owner || owner->render_audit_logged) {
+		return;
+	}
+
+	owner->render_audit_logged = 1;
+	sysLogPrintf(LOG_NOTE,
+		"MODASSET.RENDER: generated source modeldef rendered id=%s source=%s modeldef=%p node=%p vertices=%d tris=%d skeleton=%s",
+		owner->catalog_id[0] ? owner->catalog_id : "(unknown)",
+		owner->source_path[0] ? owner->source_path : "(unknown)",
+		(void *)&owner->def,
+		(void *)node,
+		owner->vertex_count,
+		owner->triangle_count,
+		modAssetCompilerSkeletonSymbolForPointer(owner->def.skel) ?
+			modAssetCompilerSkeletonSymbolForPointer(owner->def.skel) : "(none)");
+}
 
 static s16 clampToS16(f32 value)
 {
@@ -3311,13 +3677,89 @@ static s16 clampToS16(f32 value)
 	return (s16)rounded;
 }
 
-static void fillGeneratedVertex(Vtx *dst, const obj_vertex_t *src)
+static const obj_texcoord_t *objMeshTexcoord(const obj_mesh_t *mesh,
+                                             s32 index)
+{
+	if (!mesh || index < 0 || index >= mesh->texcoord_count) {
+		return NULL;
+	}
+	return &mesh->texcoords[index];
+}
+
+static const obj_material_t *objMeshTriangleMaterial(const obj_mesh_t *mesh,
+                                                     const obj_triangle_t *tri)
+{
+	if (!mesh || !tri || tri->material_index < 0
+			|| tri->material_index >= mesh->material_count) {
+		return NULL;
+	}
+	return &mesh->materials[tri->material_index];
+}
+
+static s32 objMaterialHasTexture(const obj_material_t *material)
+{
+	return material && material->texture_num >= 0;
+}
+
+static void emitGeneratedTextureMarker(Gfx **gdlptr,
+                                       const obj_material_t *material)
+{
+	Gfx *gdl;
+	u32 w0;
+	u32 w1;
+	s32 subcmd;
+
+	if (!gdlptr || !*gdlptr || !objMaterialHasTexture(material)) {
+		return;
+	}
+
+	gdl = *gdlptr;
+	subcmd = material->subcmd >= 0 ? material->subcmd : 0;
+	w0 = ((u32)G_NOOP << 24)
+		| (((u32)material->smode & 3u) << 22)
+		| (((u32)material->tmode & 3u) << 20)
+		| (((u32)material->offset & 3u) << 18)
+		| (((u32)material->shifts & 0x0fu) << 14)
+		| (((u32)material->shiftt & 0x0fu) << 10)
+		| (material->flag ? 0x200u : 0u)
+		| ((u32)subcmd & 7u);
+	w1 = (((u32)material->min & 0xffu) << 24)
+		| (((u32)(material->secondary_texture_num >= 0
+				? material->secondary_texture_num : 0) & 0xfffu) << 12)
+		| ((u32)material->texture_num & 0xfffu);
+
+	gdl->words.w0 = w0;
+	gdl->words.w1 = w1;
+	gdl++;
+	*gdlptr = gdl;
+}
+
+static void emitGeneratedUntexturedState(Gfx **gdlptr)
+{
+	Gfx *gdl;
+
+	if (!gdlptr || !*gdlptr) {
+		return;
+	}
+
+	gdl = *gdlptr;
+	gSPTexture(gdl++, 0, 0, 0, G_TX_RENDERTILE, G_OFF);
+	gDPSetCombineMode(gdl++, G_CC_SHADE, G_CC_SHADE);
+	*gdlptr = gdl;
+}
+
+static void fillGeneratedVertex(Vtx *dst, const obj_vertex_t *src,
+                                const obj_texcoord_t *texcoord)
 {
 	memset(dst, 0, sizeof(*dst));
 	dst->x = clampToS16(src->x);
 	dst->y = clampToS16(src->y);
 	dst->z = clampToS16(src->z);
 	dst->colour = 0;
+	if (texcoord) {
+		dst->s = clampToS16(texcoord->u * 32.0f);
+		dst->t = clampToS16((1.0f - texcoord->v) * 32.0f);
+	}
 }
 
 static s32 generatedModeldefNeedsChrRoot(const asset_entry_t *entry)
@@ -3630,6 +4072,196 @@ static s32 generatedModeldefReadStringValue(const char *text,
 	return 1;
 }
 
+static obj_material_t *objMeshFindMaterial(obj_mesh_t *mesh, const char *name)
+{
+	char material_name[64];
+
+	if (!mesh || !name || !name[0]) {
+		return NULL;
+	}
+
+	copyObjToken(material_name, sizeof(material_name), name);
+	if (!material_name[0]) {
+		return NULL;
+	}
+
+	for (s32 i = 0; i < mesh->material_count; i++) {
+		if (strcmp(mesh->materials[i].name, material_name) == 0) {
+			return &mesh->materials[i];
+		}
+	}
+
+	return NULL;
+}
+
+static s32 parseObjMaterialInt(const char *text, s32 *out)
+{
+	char *end;
+	long value;
+
+	if (!text || !out) {
+		return 0;
+	}
+
+	while (*text == ' ' || *text == '\t' || *text == '=') {
+		text++;
+	}
+
+	value = strtol(text, &end, 0);
+	if (end == text) {
+		return 0;
+	}
+
+	*out = (s32)value;
+	return 1;
+}
+
+static void objMaterialSetTextureCatalog(obj_material_t *material,
+                                         const char *catalog_id,
+                                         s32 secondary)
+{
+	const asset_entry_t *entry;
+	s32 texture_num;
+	char id[CATALOG_ID_LEN];
+
+	if (!material || !catalog_id) {
+		return;
+	}
+
+	copyObjToken(id, sizeof(id), catalog_id);
+	if (!id[0]) {
+		return;
+	}
+
+	entry = assetCatalogResolve(id);
+	if (!entry || entry->type != ASSET_TEXTURE) {
+		sysLogPrintf(LOG_WARNING,
+			"MODASSET.COMPILER: material '%s' references unknown texture catalog id '%s'",
+			material->name, id);
+		return;
+	}
+	texture_num = entry->source_texnum >= 0 ?
+		entry->source_texnum : entry->ext.texture.texture_id;
+	if (texture_num < 0) {
+		sysLogPrintf(LOG_WARNING,
+			"MODASSET.COMPILER: material '%s' references texture catalog id '%s' without a texture table id",
+			material->name, id);
+		return;
+	}
+
+	if (secondary) {
+		strncpy(material->secondary_texture_catalog_id, id,
+			sizeof(material->secondary_texture_catalog_id) - 1);
+		material->secondary_texture_catalog_id[
+			sizeof(material->secondary_texture_catalog_id) - 1] = '\0';
+		material->secondary_texture_num = texture_num;
+	} else {
+		strncpy(material->texture_catalog_id, id,
+			sizeof(material->texture_catalog_id) - 1);
+		material->texture_catalog_id[
+			sizeof(material->texture_catalog_id) - 1] = '\0';
+		material->texture_num = texture_num;
+	}
+}
+
+static void generatedModeldefLoadMaterialMetadata(const char *source_path,
+                                                  obj_mesh_t *mesh)
+{
+	char mtl_path[FS_MAXPATH + 1];
+	u32 size = 0;
+	char *text;
+	char *line;
+	obj_material_t *current = NULL;
+
+	if (!mesh || !source_path || !source_path[0]) {
+		return;
+	}
+	if (!generatedModeldefMetadataPath(source_path, "model.mtl",
+			mtl_path, sizeof(mtl_path))) {
+		return;
+	}
+
+	text = (char *)fsFileLoad(mtl_path, &size);
+	if (!text || size == 0) {
+		if (text) {
+			free(text);
+		}
+		return;
+	}
+
+	char *copy = malloc((size_t)size + 1);
+	if (!copy) {
+		free(text);
+		return;
+	}
+	memcpy(copy, text, size);
+	copy[size] = '\0';
+	free(text);
+
+	line = copy;
+	while (line && *line) {
+		char *end = line;
+		char *next = NULL;
+		char *p;
+
+		while (*end && *end != '\n' && *end != '\r') {
+			end++;
+		}
+		if (*end) {
+			char sep = *end;
+			*end = '\0';
+			next = end + 1;
+			if (sep == '\r' && *next == '\n') {
+				next++;
+			}
+		}
+
+		p = skipSpaces(line);
+		if (strncmp(p, "newmtl", 6) == 0 && isspace((u8)p[6])) {
+			current = objMeshFindMaterial(mesh, skipSpaces(p + 6));
+		} else if (current && strncmp(p, "pd_texture_catalog", 18) == 0) {
+			char *value = strchr(p, '=');
+			if (value) {
+				objMaterialSetTextureCatalog(current, value + 1, 0);
+			}
+		} else if (current &&
+				strncmp(p, "pd_secondary_texture_catalog", 28) == 0) {
+			char *value = strchr(p, '=');
+			if (value) {
+				objMaterialSetTextureCatalog(current, value + 1, 1);
+			}
+		} else if (current && strncmp(p, "pd_texture_subcmd", 17) == 0) {
+			char *value = strchr(p, '=');
+			if (value) parseObjMaterialInt(value + 1, &current->subcmd);
+		} else if (current && strncmp(p, "pd_texture_smode", 16) == 0) {
+			char *value = strchr(p, '=');
+			if (value) parseObjMaterialInt(value + 1, &current->smode);
+		} else if (current && strncmp(p, "pd_texture_tmode", 16) == 0) {
+			char *value = strchr(p, '=');
+			if (value) parseObjMaterialInt(value + 1, &current->tmode);
+		} else if (current && strncmp(p, "pd_texture_offset", 17) == 0) {
+			char *value = strchr(p, '=');
+			if (value) parseObjMaterialInt(value + 1, &current->offset);
+		} else if (current && strncmp(p, "pd_texture_shifts", 17) == 0) {
+			char *value = strchr(p, '=');
+			if (value) parseObjMaterialInt(value + 1, &current->shifts);
+		} else if (current && strncmp(p, "pd_texture_shiftt", 17) == 0) {
+			char *value = strchr(p, '=');
+			if (value) parseObjMaterialInt(value + 1, &current->shiftt);
+		} else if (current && strncmp(p, "pd_texture_min", 14) == 0) {
+			char *value = strchr(p, '=');
+			if (value) parseObjMaterialInt(value + 1, &current->min);
+		} else if (current && strncmp(p, "pd_texture_flag", 15) == 0) {
+			char *value = strchr(p, '=');
+			if (value) parseObjMaterialInt(value + 1, &current->flag);
+		}
+
+		line = next;
+	}
+
+	free(copy);
+}
+
 static struct skeleton *generatedModeldefSkeletonFromMetadata(
 	const char *source_path)
 {
@@ -3681,12 +4313,17 @@ static s32 buildGeneratedModeldefFromMesh(const asset_entry_t *entry,
                                           struct modeldef **out_modeldef)
 {
 	generated_modeldef_t *owner;
+	Gfx *source_gdl;
 	Gfx *gdl;
 	s32 vtx_count;
-	s32 gdl_count;
+	s32 source_gdl_count;
+	s32 output_gdl_count;
 	size_t vertex_bytes;
 	size_t vertex_colour_bytes;
 	s32 chr_root;
+	s32 uv_vertex_count = 0;
+	s32 textured_material_count = 0;
+	s32 material_switch_count = 0;
 	struct skeleton *skeleton;
 
 	if (out_modeldef) {
@@ -3704,7 +4341,26 @@ static s32 buildGeneratedModeldefFromMesh(const asset_entry_t *entry,
 		return -1;
 	}
 
-	gdl_count = mesh->triangle_count * 2 + 3;
+	for (s32 i = 0; i < mesh->material_count; i++) {
+		if (objMaterialHasTexture(&mesh->materials[i])) {
+			textured_material_count++;
+		}
+	}
+
+	for (s32 i = 0, last_material = -2; i < mesh->triangle_count; i++) {
+		const obj_triangle_t *tri = &mesh->triangles[i];
+		if (tri->material_index != last_material) {
+			material_switch_count++;
+			last_material = tri->material_index;
+		}
+	}
+
+	source_gdl_count = mesh->triangle_count * 2 + 7
+		+ material_switch_count * 3;
+	output_gdl_count = source_gdl_count
+		+ material_switch_count * 512
+		+ textured_material_count * 256
+		+ 4096;
 	owner = calloc(1, sizeof(*owner));
 	if (!owner) {
 		return -1;
@@ -3714,13 +4370,25 @@ static s32 buildGeneratedModeldefFromMesh(const asset_entry_t *entry,
 	vertex_colour_bytes = (size_t)ALIGN8(vertex_bytes) + sizeof(*owner->colours);
 	owner->vertices = calloc(1, vertex_colour_bytes);
 	owner->colours = (Col *)((u8 *)owner->vertices + ALIGN8(vertex_bytes));
-	owner->gdl = calloc((size_t)gdl_count, sizeof(*owner->gdl));
-	if (!owner->vertices || !owner->colours || !owner->gdl) {
+	source_gdl = calloc((size_t)source_gdl_count, sizeof(*source_gdl));
+	owner->gdl = calloc((size_t)output_gdl_count, sizeof(*owner->gdl));
+	if (!owner->vertices || !owner->colours || !source_gdl || !owner->gdl) {
+		free(source_gdl);
 		modAssetCompilerFreeModeldef(&owner->def);
 		return -1;
 	}
 
 	owner->triangle_count = mesh->triangle_count;
+	owner->vertex_count = vtx_count;
+	if (entry && entry->id[0]) {
+		strncpy(owner->catalog_id, entry->id, sizeof(owner->catalog_id) - 1);
+		owner->catalog_id[sizeof(owner->catalog_id) - 1] = '\0';
+	}
+	if (source_path && source_path[0]) {
+		strncpy(owner->source_path, source_path,
+			sizeof(owner->source_path) - 1);
+		owner->source_path[sizeof(owner->source_path) - 1] = '\0';
+	}
 	owner->colours[0].r = 0xff;
 	owner->colours[0].g = 0xff;
 	owner->colours[0].b = 0xff;
@@ -3728,21 +4396,71 @@ static s32 buildGeneratedModeldefFromMesh(const asset_entry_t *entry,
 
 	for (s32 i = 0; i < mesh->triangle_count; i++) {
 		const obj_triangle_t *tri = &mesh->triangles[i];
-		fillGeneratedVertex(&owner->vertices[i * 3 + 0], &mesh->vertices[tri->a]);
-		fillGeneratedVertex(&owner->vertices[i * 3 + 1], &mesh->vertices[tri->b]);
-		fillGeneratedVertex(&owner->vertices[i * 3 + 2], &mesh->vertices[tri->c]);
+		const obj_texcoord_t *ta = objMeshTexcoord(mesh, tri->ta);
+		const obj_texcoord_t *tb = objMeshTexcoord(mesh, tri->tb);
+		const obj_texcoord_t *tc = objMeshTexcoord(mesh, tri->tc);
+		uv_vertex_count += ta ? 1 : 0;
+		uv_vertex_count += tb ? 1 : 0;
+		uv_vertex_count += tc ? 1 : 0;
+		fillGeneratedVertex(&owner->vertices[i * 3 + 0],
+			&mesh->vertices[tri->a], ta);
+		fillGeneratedVertex(&owner->vertices[i * 3 + 1],
+			&mesh->vertices[tri->b], tb);
+		fillGeneratedVertex(&owner->vertices[i * 3 + 2],
+			&mesh->vertices[tri->c], tc);
 	}
 
-	gdl = owner->gdl;
+	gdl = source_gdl;
 	gSPMatrix(gdl++, SEGADDR(SPSEGMENT_MODEL_MTX << 24),
 		G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW);
 	gSPColor(gdl++, SEGADDR(SPSEGMENT_MODEL_COL2 << 24), 1);
-	for (s32 i = 0; i < mesh->triangle_count; i++) {
+	gSPTexture(gdl++, 0, 0, 0, 0, 0);
+	gSPClearGeometryMode(gdl++,
+		G_LIGHTING | G_TEXTURE_GEN | G_TEXTURE_GEN_LINEAR | G_CULL_BOTH);
+	gSPSetGeometryMode(gdl++, G_SHADE | G_SHADING_SMOOTH);
+	gDPSetCombineMode(gdl++, G_CC_SHADE, G_CC_SHADE);
+	for (s32 i = 0, last_material = -2, last_textured = 0;
+			i < mesh->triangle_count; i++) {
+		const obj_triangle_t *tri = &mesh->triangles[i];
+		const obj_material_t *material =
+			objMeshTriangleMaterial(mesh, tri);
 		uintptr_t offset = (uintptr_t)(i * 3 * (s32)sizeof(Vtx));
+		if (tri->material_index != last_material) {
+			if (objMaterialHasTexture(material)) {
+				emitGeneratedTextureMarker(&gdl, material);
+				last_textured = 1;
+			} else if (last_textured) {
+				emitGeneratedUntexturedState(&gdl);
+				last_textured = 0;
+			}
+			last_material = tri->material_index;
+		}
 		gSPVertex(gdl++, SEGADDR((SPSEGMENT_MODEL_VTX << 24) | offset), 3, 0);
 		gSP1Triangle(gdl++, 0, 1, 2, 0);
 	}
 	gSPEndDisplayList(gdl++);
+	{
+		s32 source_bytes = (s32)((uintptr_t)gdl - (uintptr_t)source_gdl);
+		if (textured_material_count > 0) {
+			s32 output_bytes = texLoadFromGdl(source_gdl, source_bytes,
+				owner->gdl, NULL, (u8 *)owner->vertices);
+			if (output_bytes <= 0 ||
+					output_bytes > output_gdl_count * (s32)sizeof(Gfx)) {
+				sysLogPrintf(LOG_WARNING,
+					"MODASSET.COMPILER: texture expansion overflow for generated modeldef '%s' source=%s output_bytes=%d capacity=%d",
+					entry ? entry->id : "(unknown)",
+					source_path ? source_path : "(null)",
+					output_bytes,
+					output_gdl_count * (s32)sizeof(Gfx));
+				free(source_gdl);
+				modAssetCompilerFreeModeldef(&owner->def);
+				return -1;
+			}
+		} else {
+			memcpy(owner->gdl, source_gdl, (size_t)source_bytes);
+		}
+		free(source_gdl);
+	}
 
 	chr_root = generatedModeldefNeedsChrRoot(entry);
 	skeleton = chr_root ? &g_SkelChr :
@@ -3795,13 +4513,16 @@ static s32 buildGeneratedModeldefFromMesh(const asset_entry_t *entry,
 	generatedModeldefConfigureCctvParts(owner, mesh);
 	generatedModeldefConfigureWindowedDoorParts(owner);
 	owner->def.rwdatalen = modelCalculateRwDataIndexes(owner->def.rootnode);
+	generatedModeldefRegister(owner);
 
 	*out_modeldef = &owner->def;
 	sysLogPrintf(LOG_NOTE,
-		"MODASSET.COMPILER: built generated modeldef '%s' source=%s vertices=%d tris=%d rwdatalen=%d skeleton=%s",
+		"MODASSET.COMPILER: built generated modeldef '%s' source=%s vertices=%d texcoords=%d uv_vertices=%d materials=%d textured_materials=%d material_switches=%d tris=%d rwdatalen=%d skeleton=%s",
 		entry ? entry->id : "(unknown)",
 		source_path ? source_path : "(null)",
-		vtx_count, mesh->triangle_count, owner->def.rwdatalen,
+		vtx_count, mesh->texcoord_count, uv_vertex_count,
+		mesh->material_count, textured_material_count,
+		material_switch_count, mesh->triangle_count, owner->def.rwdatalen,
 		modAssetCompilerSkeletonSymbolForPointer(owner->def.skel) ?
 			modAssetCompilerSkeletonSymbolForPointer(owner->def.skel) : "(none)");
 	return 1;
@@ -3851,6 +4572,7 @@ s32 modAssetCompilerBuildModeldef(const asset_entry_t *entry,
 		return -1;
 	}
 
+	generatedModeldefLoadMaterialMetadata(source_path, &mesh);
 	rc = buildGeneratedModeldefFromMesh(entry, source_path, &mesh, out_modeldef);
 	objMeshFree(&mesh);
 	return rc;
@@ -3865,6 +4587,7 @@ void modAssetCompilerFreeModeldef(struct modeldef *modeldef)
 	}
 
 	owner = (generated_modeldef_t *)modeldef;
+	generatedModeldefUnregister(owner);
 	free(owner->vertices);
 	free(owner->gdl);
 	free(owner);

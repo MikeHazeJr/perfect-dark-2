@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:scenario_deepsea",
+  "mod_id": "base",
+  "kind": "scenario",
+  "source": "data/ntsc-final/scenarios/base_scenario_deepsea.pdscenario::scene.glb",
+  "source_size": 2001752,
+  "source_sha256": "9f321f3c77736586ee4b63590f61690b2e72c316f149f2772122114880374382",
+  "validation": "format=glb vertices=53664 triangles=17888",
+  "normalized": "$S/mod-cache/base/base_scenario_deepsea/scenario-v2-9f321f3c77736586ee4b63590f61690b2e72c316f149f2772122114880374382.pdmesh.json",
+  "vertex_count": 53664,
+  "triangle_count": 17888,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

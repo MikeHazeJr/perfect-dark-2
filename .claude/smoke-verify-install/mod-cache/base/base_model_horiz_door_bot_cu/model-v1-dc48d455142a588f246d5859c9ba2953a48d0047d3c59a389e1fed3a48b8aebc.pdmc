@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 1,
+  "asset_id": "base:model_horiz_door_bot_cu",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_horiz_door_bot_cu.pdmesh::model.obj",
+  "source_size": 8330,
+  "source_sha256": "dc48d455142a588f246d5859c9ba2953a48d0047d3c59a389e1fed3a48b8aebc",
+  "validation": "format=obj vertices=114 triangles=38",
+  "normalized": "$S/mod-cache/base/base_model_horiz_door_bot_cu/model-v1-dc48d455142a588f246d5859c9ba2953a48d0047d3c59a389e1fed3a48b8aebc.pdmodel.json",
+  "vertex_count": 114,
+  "triangle_count": 38,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

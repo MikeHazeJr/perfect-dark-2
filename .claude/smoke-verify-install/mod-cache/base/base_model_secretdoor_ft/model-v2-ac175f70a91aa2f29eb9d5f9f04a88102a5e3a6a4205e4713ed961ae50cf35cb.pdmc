@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_secretdoor_ft",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_secretdoor_ft.pdmesh::model.obj",
+  "source_size": 3092,
+  "source_sha256": "ac175f70a91aa2f29eb9d5f9f04a88102a5e3a6a4205e4713ed961ae50cf35cb",
+  "validation": "format=obj vertices=42 triangles=14",
+  "normalized": "$S/mod-cache/base/base_model_secretdoor_ft/model-v2-ac175f70a91aa2f29eb9d5f9f04a88102a5e3a6a4205e4713ed961ae50cf35cb.pdmodel.json",
+  "vertex_count": 42,
+  "triangle_count": 14,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

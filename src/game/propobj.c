@@ -90,6 +90,17 @@ extern void statIncrement(const char *key, u64 amount);
 
 void rng2SetSeed(u32 seed);
 
+static union modelrodata *modelGetType19PartRodata(struct modeldef *modeldef, s32 partnum)
+{
+	struct modelnode *node = modelGetPart(modeldef, partnum);
+
+	if (node != NULL && (node->type & 0xff) == MODELNODETYPE_TYPE19) {
+		return node->rodata;
+	}
+
+	return NULL;
+}
+
 struct weaponobj *g_Proxies[MAX_PROXIES];
 f32 g_GasReleaseTimerMax240;
 bool g_GasEnableDamage;
@@ -2318,11 +2329,11 @@ struct prop *objInit(struct defaultobj *obj, struct modeldef *modeldef, struct p
 
 		obj->model = model;
 
-		if (modelGetPartRodata(modeldef, MODELPART_BASIC_0065)) {
+		if (modelGetType19PartRodata(modeldef, MODELPART_BASIC_0065)) {
 			obj->geocount++;
 		}
 
-		if (modelGetPartRodata(modeldef, MODELPART_BASIC_0066)) {
+		if (modelGetType19PartRodata(modeldef, MODELPART_BASIC_0066)) {
 			obj->geocount++;
 		}
 
@@ -2352,7 +2363,7 @@ struct prop *objInit(struct defaultobj *obj, struct modeldef *modeldef, struct p
 		 * same allocation. The tile uses the top face (ymax) of the
 		 * bounding box, flagged GEOFLAG_FLOOR1|GEOFLAG_FLOOR2. */
 		bool needAutoFloor = false;
-		union modelrodata *floorPart = modelGetPartRodata(modeldef, MODELPART_BASIC_0065);
+		union modelrodata *floorPart = modelGetType19PartRodata(modeldef, MODELPART_BASIC_0065);
 		bool hasFloorCoverage = false;
 
 		/* Tighten auto-floor gate: an existing MODELPART_BASIC_0065 doesn't

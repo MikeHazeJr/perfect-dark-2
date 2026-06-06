@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:nsa_lackey",
+  "mod_id": "base",
+  "kind": "body",
+  "source": "data/ntsc-final/bodies/base_nsa_lackey.pdbody::mesh.pdmesh::model.obj",
+  "source_size": 136490,
+  "source_sha256": "c6cf348ac1f158079e4a418cb3a60a8caebeeb9f5ade8b5df3f10e207d3ca367",
+  "validation": "format=obj vertices=2007 triangles=669",
+  "normalized": "$S/mod-cache/base/base_nsa_lackey/body-v2-c6cf348ac1f158079e4a418cb3a60a8caebeeb9f5ade8b5df3f10e207d3ca367.pdmodel.json",
+  "vertex_count": 2007,
+  "triangle_count": 669,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

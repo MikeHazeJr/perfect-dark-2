@@ -863,6 +863,14 @@ void mainTick(void)
 				}
 			}
 
+			/* B-769 smoke hook: force first-person after per-player tick
+			 * logic and before render so the generated source mesh audit
+			 * can prove first-person weapon modeldefs reach bgunRender. */
+			{
+				extern s32 bootDebugForceFirstPersonPreRenderTick(void);
+				(void)bootDebugForceFirstPersonPreRenderTick();
+			}
+
 			/* B-193 diagnostic: first-render snapshot after a stage change.
 			 * Armed by mainLoop's transition block; cleared here so it fires
 			 * once per transition. Dumps the state that matters for the "CI

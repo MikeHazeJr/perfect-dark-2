@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_magseclod_lo",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_magseclod_lo.pdmesh::model.obj",
+  "source_size": 42069,
+  "source_sha256": "173fc0a983814b2d648c254305512106f07f8201dd5a1157fa9319e5dda73efc",
+  "validation": "format=obj vertices=636 triangles=212",
+  "normalized": "$S/mod-cache/base/base_model_magseclod_lo/model-v2-173fc0a983814b2d648c254305512106f07f8201dd5a1157fa9319e5dda73efc.pdmodel.json",
+  "vertex_count": 636,
+  "triangle_count": 212,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

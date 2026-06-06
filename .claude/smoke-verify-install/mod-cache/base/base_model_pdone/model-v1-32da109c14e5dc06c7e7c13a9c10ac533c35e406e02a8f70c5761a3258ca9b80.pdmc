@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 1,
+  "asset_id": "base:model_pdone",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_pdone.pdmesh::model.obj",
+  "source_size": 122050,
+  "source_sha256": "32da109c14e5dc06c7e7c13a9c10ac533c35e406e02a8f70c5761a3258ca9b80",
+  "validation": "format=obj vertices=1833 triangles=611",
+  "normalized": "$S/mod-cache/base/base_model_pdone/model-v1-32da109c14e5dc06c7e7c13a9c10ac533c35e406e02a8f70c5761a3258ca9b80.pdmodel.json",
+  "vertex_count": 1833,
+  "triangle_count": 611,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

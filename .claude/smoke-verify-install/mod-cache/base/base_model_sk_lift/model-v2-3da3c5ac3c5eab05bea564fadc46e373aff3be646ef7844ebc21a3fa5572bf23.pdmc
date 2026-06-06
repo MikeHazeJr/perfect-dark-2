@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_sk_lift",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_sk_lift.pdmesh::model.obj",
+  "source_size": 4483,
+  "source_sha256": "3da3c5ac3c5eab05bea564fadc46e373aff3be646ef7844ebc21a3fa5572bf23",
+  "validation": "format=obj vertices=60 triangles=20",
+  "normalized": "$S/mod-cache/base/base_model_sk_lift/model-v2-3da3c5ac3c5eab05bea564fadc46e373aff3be646ef7844ebc21a3fa5572bf23.pdmodel.json",
+  "vertex_count": 60,
+  "triangle_count": 20,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

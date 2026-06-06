@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 1,
+  "asset_id": "base:model_cheadpresident",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_cheadpresident.pdmesh::model.obj",
+  "source_size": 50041,
+  "source_sha256": "d7e0b4cc7a91afe243ec5ccce9d2386c17a312e19adb43931ce7d9ab00e80abf",
+  "validation": "format=obj vertices=765 triangles=255",
+  "normalized": "$S/mod-cache/base/base_model_cheadpresident/model-v1-d7e0b4cc7a91afe243ec5ccce9d2386c17a312e19adb43931ce7d9ab00e80abf.pdmodel.json",
+  "vertex_count": 765,
+  "triangle_count": 255,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

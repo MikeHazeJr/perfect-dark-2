@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_ccarrington",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_ccarrington.pdmesh::model.obj",
+  "source_size": 166585,
+  "source_sha256": "bbea3d7371ab6f4aaa3bd140b600cc1d02f1745fbf77f5001f552d3e129c5e8d",
+  "validation": "format=obj vertices=2439 triangles=813",
+  "normalized": "$S/mod-cache/base/base_model_ccarrington/model-v2-bbea3d7371ab6f4aaa3bd140b600cc1d02f1745fbf77f5001f552d3e129c5e8d.pdmodel.json",
+  "vertex_count": 2439,
+  "triangle_count": 813,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

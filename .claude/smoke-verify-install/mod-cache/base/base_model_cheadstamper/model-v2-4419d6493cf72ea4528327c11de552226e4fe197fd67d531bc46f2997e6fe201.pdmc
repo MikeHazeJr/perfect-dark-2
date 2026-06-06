@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_cheadstamper",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_cheadstamper.pdmesh::model.obj",
+  "source_size": 37205,
+  "source_sha256": "4419d6493cf72ea4528327c11de552226e4fe197fd67d531bc46f2997e6fe201",
+  "validation": "format=obj vertices=567 triangles=189",
+  "normalized": "$S/mod-cache/base/base_model_cheadstamper/model-v2-4419d6493cf72ea4528327c11de552226e4fe197fd67d531bc46f2997e6fe201.pdmodel.json",
+  "vertex_count": 567,
+  "triangle_count": 189,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

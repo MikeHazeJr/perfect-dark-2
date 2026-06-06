@@ -1,0 +1,9 @@
+{
+  "schema": "pd2.asset.provenance.v1",
+  "tool": "romextract_pdarena",
+  "family": "scenario",
+  "id": "base:scenario_defense",
+  "source_path": "stagetable",
+  "source_index": 25,
+  "source_symbol": "defense"
+}

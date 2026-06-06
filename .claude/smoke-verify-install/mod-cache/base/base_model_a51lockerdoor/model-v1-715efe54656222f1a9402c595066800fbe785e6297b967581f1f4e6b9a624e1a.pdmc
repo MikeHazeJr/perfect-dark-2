@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 1,
+  "asset_id": "base:model_a51lockerdoor",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_a51lockerdoor.pdmesh::model.obj",
+  "source_size": 2515,
+  "source_sha256": "715efe54656222f1a9402c595066800fbe785e6297b967581f1f4e6b9a624e1a",
+  "validation": "format=obj vertices=36 triangles=12",
+  "normalized": "$S/mod-cache/base/base_model_a51lockerdoor/model-v1-715efe54656222f1a9402c595066800fbe785e6297b967581f1f4e6b9a624e1a.pdmodel.json",
+  "vertex_count": 36,
+  "triangle_count": 12,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

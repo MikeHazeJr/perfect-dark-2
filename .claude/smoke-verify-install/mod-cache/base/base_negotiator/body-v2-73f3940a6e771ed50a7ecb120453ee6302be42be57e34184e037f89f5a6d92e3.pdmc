@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:negotiator",
+  "mod_id": "base",
+  "kind": "body",
+  "source": "data/ntsc-final/bodies/base_negotiator.pdbody::mesh.pdmesh::model.obj",
+  "source_size": 133378,
+  "source_sha256": "73f3940a6e771ed50a7ecb120453ee6302be42be57e34184e037f89f5a6d92e3",
+  "validation": "format=obj vertices=1965 triangles=655",
+  "normalized": "$S/mod-cache/base/base_negotiator/body-v2-73f3940a6e771ed50a7ecb120453ee6302be42be57e34184e037f89f5a6d92e3.pdmodel.json",
+  "vertex_count": 1965,
+  "triangle_count": 655,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

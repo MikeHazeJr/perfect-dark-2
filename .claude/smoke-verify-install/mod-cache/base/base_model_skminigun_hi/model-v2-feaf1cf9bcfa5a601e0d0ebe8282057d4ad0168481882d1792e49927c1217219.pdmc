@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_skminigun_hi",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_skminigun_hi.pdmesh::model.obj",
+  "source_size": 96613,
+  "source_sha256": "feaf1cf9bcfa5a601e0d0ebe8282057d4ad0168481882d1792e49927c1217219",
+  "validation": "format=obj vertices=1455 triangles=485",
+  "normalized": "$S/mod-cache/base/base_model_skminigun_hi/model-v2-feaf1cf9bcfa5a601e0d0ebe8282057d4ad0168481882d1792e49927c1217219.pdmodel.json",
+  "vertex_count": 1455,
+  "triangle_count": 485,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

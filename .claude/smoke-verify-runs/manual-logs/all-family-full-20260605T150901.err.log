@@ -1,0 +1,7 @@
+UPDATER: Checking for pending update at: C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike\.claude\smoke-verify-install\pd.update.zip
+UPDATER: Current exe path: C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike\.claude\smoke-verify-install\PerfectDark.exe
+UPDATER: No pending update found (file does not exist)
+[00:00.00] WARNING: Maximum number of configuration entries exceeded: 512
+[00:00.28] WARNING: GL: using core profile or ES, watch out for errors
+[00:00.60] ERROR: SMOKE: test file 'C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike\.claude\smoke-verify-runs\all-family-source-matrix\tests-20260605T190902Z\all_family_source_matrix_batch_001.json' size 2367667 out of range
+[00:00.62] ERROR: SMOKE: failed to read test file

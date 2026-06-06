@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 1,
+  "asset_id": "base:model_cheadalex",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_cheadalex.pdmesh::model.obj",
+  "source_size": 37260,
+  "source_sha256": "5d809a0246a643e41fc4abd3ffde19d79a3aa096c0b4a5c5c2d22200c770f241",
+  "validation": "format=obj vertices=567 triangles=189",
+  "normalized": "$S/mod-cache/base/base_model_cheadalex/model-v1-5d809a0246a643e41fc4abd3ffde19d79a3aa096c0b4a5c5c2d22200c770f241.pdmodel.json",
+  "vertex_count": 567,
+  "triangle_count": 189,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

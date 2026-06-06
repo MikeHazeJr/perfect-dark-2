@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_cheadruss",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_cheadruss.pdmesh::model.obj",
+  "source_size": 39601,
+  "source_sha256": "ffb69c90fa9a14e7099c707279c9b76fc4c7e8bed4e31c9d9332bfc5bba3184d",
+  "validation": "format=obj vertices=603 triangles=201",
+  "normalized": "$S/mod-cache/base/base_model_cheadruss/model-v2-ffb69c90fa9a14e7099c707279c9b76fc4c7e8bed4e31c9d9332bfc5bba3184d.pdmodel.json",
+  "vertex_count": 603,
+  "triangle_count": 201,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

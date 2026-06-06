@@ -1,0 +1,23 @@
+{
+  "schema": "pd2.modasset.model.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_window",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_window.pdmesh::model.obj",
+  "source_sha256": "2cd4d330412554d4f61f0f188e73bf94533cc188a8a440826507f7d1b282d21e",
+  "runtime_boundary": "modeldef",
+  "vertex_count": 6,
+  "triangle_count": 2,
+  "vertices": [
+    [809.977051, 1999.60779, 0.000899999985],
+    [179.97702, 1999.60779, 0.000899999985],
+    [179.97702, 1432.60779, 0.000899999985],
+    [809.977051, 1999.60779, 0.000899999985],
+    [179.97702, 1432.60779, 0.000899999985],
+    [809.977051, 1432.60779, 0.000899999985]
+  ],
+  "triangles": [
+    [0, 1, 2],
+    [3, 4, 5]
+  ]
+}

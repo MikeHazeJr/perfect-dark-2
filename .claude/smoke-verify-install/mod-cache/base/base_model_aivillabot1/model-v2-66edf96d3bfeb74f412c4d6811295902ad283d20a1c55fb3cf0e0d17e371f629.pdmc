@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_aivillabot1",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_aivillabot1.pdmesh::model.obj",
+  "source_size": 6377,
+  "source_sha256": "66edf96d3bfeb74f412c4d6811295902ad283d20a1c55fb3cf0e0d17e371f629",
+  "validation": "format=obj vertices=96 triangles=32",
+  "normalized": "$S/mod-cache/base/base_model_aivillabot1/model-v2-66edf96d3bfeb74f412c4d6811295902ad283d20a1c55fb3cf0e0d17e371f629.pdmodel.json",
+  "vertex_count": 96,
+  "triangle_count": 32,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 1,
+  "asset_id": "base:head_alex",
+  "mod_id": "base",
+  "kind": "head",
+  "source": "data/ntsc-final/heads/base_head_alex.pdhead::mesh.pdmesh::model.obj",
+  "source_size": 37260,
+  "source_sha256": "984b7d6c5bad2a7185c816157f14a377ad8992f2512802f5f30eb3075f1f2b5d",
+  "validation": "format=obj vertices=567 triangles=189",
+  "normalized": "$S/mod-cache/base/base_head_alex/head-v1-984b7d6c5bad2a7185c816157f14a377ad8992f2512802f5f30eb3075f1f2b5d.pdmodel.json",
+  "vertex_count": 567,
+  "triangle_count": 189,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_tvscreen",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_tvscreen.pdmesh::model.obj",
+  "source_size": 455,
+  "source_sha256": "118eef2048a87790b07603d2a5a0bc10ba18b8381564239ff5041b6361c00ca4",
+  "validation": "format=obj vertices=6 triangles=2",
+  "normalized": "$S/mod-cache/base/base_model_tvscreen/model-v2-118eef2048a87790b07603d2a5a0bc10ba18b8381564239ff5041b6361c00ca4.pdmodel.json",
+  "vertex_count": 6,
+  "triangle_count": 2,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

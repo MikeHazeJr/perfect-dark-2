@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:darkwet",
+  "mod_id": "base",
+  "kind": "body",
+  "source": "data/ntsc-final/bodies/base_darkwet.pdbody::mesh.pdmesh::model.obj",
+  "source_size": 121932,
+  "source_sha256": "f2d7964d6b3f0b7e7e18bd8c420f865b1831170cb068223d6d2a36c571e449c1",
+  "validation": "format=obj vertices=1800 triangles=600",
+  "normalized": "$S/mod-cache/base/base_darkwet/body-v2-f2d7964d6b3f0b7e7e18bd8c420f865b1831170cb068223d6d2a36c571e449c1.pdmodel.json",
+  "vertex_count": 1800,
+  "triangle_count": 600,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

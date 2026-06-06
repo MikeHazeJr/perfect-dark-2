@@ -1,0 +1,23 @@
+{
+  "schema": "pd2.modasset.model.v1",
+  "compiler_version": 1,
+  "asset_id": "base:model_cetanwindow1",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_cetanwindow1.pdmesh::model.obj",
+  "source_sha256": "f7c33bfd14d371da84b92e9c0cac70c1f7a265d6ef2f3d01c5b152714b17d1d4",
+  "runtime_boundary": "modeldef",
+  "vertex_count": 6,
+  "triangle_count": 2,
+  "vertices": [
+    [56921.75, -23003.4844, 0.00552400015],
+    [56921.75, -26000.4844, 0.00552400015],
+    [56007.75, -26000.4844, 0.00552400015],
+    [56921.75, -23003.4844, 0.00552400015],
+    [56007.75, -26000.4844, 0.00552400015],
+    [56007.75, -23003.4844, 0.00552400015]
+  ],
+  "triangles": [
+    [0, 1, 2],
+    [3, 4, 5]
+  ]
+}

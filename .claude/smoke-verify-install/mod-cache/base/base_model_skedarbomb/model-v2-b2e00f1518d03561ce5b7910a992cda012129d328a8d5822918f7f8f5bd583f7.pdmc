@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_skedarbomb",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_skedarbomb.pdmesh::model.obj",
+  "source_size": 23573,
+  "source_sha256": "b2e00f1518d03561ce5b7910a992cda012129d328a8d5822918f7f8f5bd583f7",
+  "validation": "format=obj vertices=360 triangles=120",
+  "normalized": "$S/mod-cache/base/base_model_skedarbomb/model-v2-b2e00f1518d03561ce5b7910a992cda012129d328a8d5822918f7f8f5bd583f7.pdmodel.json",
+  "vertex_count": 360,
+  "triangle_count": 120,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

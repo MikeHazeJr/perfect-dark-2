@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 1,
+  "asset_id": "base:head_anka",
+  "mod_id": "base",
+  "kind": "head",
+  "source": "data/ntsc-final/heads/base_head_anka.pdhead::mesh.pdmesh::model.obj",
+  "source_size": 35565,
+  "source_sha256": "e605d341d71bdd2f5558db4f099f7c0fb1d7437d88e9efb56cf030dadf18b6da",
+  "validation": "format=obj vertices=546 triangles=182",
+  "normalized": "$S/mod-cache/base/base_head_anka/head-v1-e605d341d71bdd2f5558db4f099f7c0fb1d7437d88e9efb56cf030dadf18b6da.pdmodel.json",
+  "vertex_count": 546,
+  "triangle_count": 182,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

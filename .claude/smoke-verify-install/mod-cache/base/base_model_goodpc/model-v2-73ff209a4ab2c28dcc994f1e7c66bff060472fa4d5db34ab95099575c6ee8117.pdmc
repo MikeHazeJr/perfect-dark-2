@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_goodpc",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_goodpc.pdmesh::model.obj",
+  "source_size": 10058,
+  "source_sha256": "73ff209a4ab2c28dcc994f1e7c66bff060472fa4d5db34ab95099575c6ee8117",
+  "validation": "format=obj vertices=150 triangles=50",
+  "normalized": "$S/mod-cache/base/base_model_goodpc/model-v2-73ff209a4ab2c28dcc994f1e7c66bff060472fa4d5db34ab95099575c6ee8117.pdmodel.json",
+  "vertex_count": 150,
+  "triangle_count": 50,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

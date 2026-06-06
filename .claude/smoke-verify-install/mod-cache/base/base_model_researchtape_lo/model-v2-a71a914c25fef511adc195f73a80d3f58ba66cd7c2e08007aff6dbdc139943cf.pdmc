@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_researchtape_lo",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_researchtape_lo.pdmesh::model.obj",
+  "source_size": 5305,
+  "source_sha256": "a71a914c25fef511adc195f73a80d3f58ba66cd7c2e08007aff6dbdc139943cf",
+  "validation": "format=obj vertices=84 triangles=28",
+  "normalized": "$S/mod-cache/base/base_model_researchtape_lo/model-v2-a71a914c25fef511adc195f73a80d3f58ba66cd7c2e08007aff6dbdc139943cf.pdmodel.json",
+  "vertex_count": 84,
+  "triangle_count": 28,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

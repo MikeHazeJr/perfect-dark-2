@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 1,
+  "asset_id": "base:model_lift_thinwall_db",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_lift_thinwall_db.pdmesh::model.obj",
+  "source_size": 4078,
+  "source_sha256": "8c60dbf025909ca12ef49d048a0026c6184a19bc46c4c33180cda5c6984b7307",
+  "validation": "format=obj vertices=54 triangles=18",
+  "normalized": "$S/mod-cache/base/base_model_lift_thinwall_db/model-v1-8c60dbf025909ca12ef49d048a0026c6184a19bc46c4c33180cda5c6984b7307.pdmodel.json",
+  "vertex_count": 54,
+  "triangle_count": 18,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

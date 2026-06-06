@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_sk_sunshad2",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_sk_sunshad2.pdmesh::model.obj",
+  "source_size": 1761,
+  "source_sha256": "d7ac40c3420a013e4491a5cf016c26e3c3a48e3580c22adbf11c06b5758128de",
+  "validation": "format=obj vertices=24 triangles=8",
+  "normalized": "$S/mod-cache/base/base_model_sk_sunshad2/model-v2-d7ac40c3420a013e4491a5cf016c26e3c3a48e3580c22adbf11c06b5758128de.pdmodel.json",
+  "vertex_count": 24,
+  "triangle_count": 8,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

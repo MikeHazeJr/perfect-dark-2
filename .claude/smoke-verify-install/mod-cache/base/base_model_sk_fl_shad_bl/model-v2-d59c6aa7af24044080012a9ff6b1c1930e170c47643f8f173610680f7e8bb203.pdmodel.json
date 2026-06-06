@@ -1,0 +1,23 @@
+{
+  "schema": "pd2.modasset.model.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_sk_fl_shad_bl",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_sk_fl_shad_bl.pdmesh::model.obj",
+  "source_sha256": "d59c6aa7af24044080012a9ff6b1c1930e170c47643f8f173610680f7e8bb203",
+  "runtime_boundary": "modeldef",
+  "vertex_count": 6,
+  "triangle_count": 2,
+  "vertices": [
+    [-34500.3359, -333.333313, 108155.672],
+    [-34036.3359, -333.333313, 108781.672],
+    [-30917.334, -333.333313, 105024.672],
+    [-34500.3359, -333.333313, 108155.672],
+    [-34500.3359, -333.333313, 108781.672],
+    [-34036.3359, -333.333313, 108781.672]
+  ],
+  "triangles": [
+    [0, 1, 2],
+    [3, 4, 5]
+  ]
+}

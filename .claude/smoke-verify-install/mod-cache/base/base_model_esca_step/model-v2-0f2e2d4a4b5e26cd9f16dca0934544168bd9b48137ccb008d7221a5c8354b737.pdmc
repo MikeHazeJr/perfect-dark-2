@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_esca_step",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_esca_step.pdmesh::model.obj",
+  "source_size": 837,
+  "source_sha256": "0f2e2d4a4b5e26cd9f16dca0934544168bd9b48137ccb008d7221a5c8354b737",
+  "validation": "format=obj vertices=12 triangles=4",
+  "normalized": "$S/mod-cache/base/base_model_esca_step/model-v2-0f2e2d4a4b5e26cd9f16dca0934544168bd9b48137ccb008d7221a5c8354b737.pdmodel.json",
+  "vertex_count": 12,
+  "triangle_count": 4,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

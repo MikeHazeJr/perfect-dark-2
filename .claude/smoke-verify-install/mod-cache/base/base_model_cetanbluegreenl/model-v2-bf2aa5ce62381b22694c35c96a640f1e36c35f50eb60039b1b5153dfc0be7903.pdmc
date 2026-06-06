@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_cetanbluegreenl",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_cetanbluegreenl.pdmesh::model.obj",
+  "source_size": 7929,
+  "source_sha256": "bf2aa5ce62381b22694c35c96a640f1e36c35f50eb60039b1b5153dfc0be7903",
+  "validation": "format=obj vertices=120 triangles=40",
+  "normalized": "$S/mod-cache/base/base_model_cetanbluegreenl/model-v2-bf2aa5ce62381b22694c35c96a640f1e36c35f50eb60039b1b5153dfc0be7903.pdmodel.json",
+  "vertex_count": 120,
+  "triangle_count": 40,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

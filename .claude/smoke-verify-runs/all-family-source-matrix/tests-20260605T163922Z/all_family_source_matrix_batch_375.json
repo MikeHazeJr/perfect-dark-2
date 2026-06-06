@@ -1,0 +1,131 @@
+{
+  "scenario_name": "all_family_source_matrix_batch_375",
+  "BugId": "B-509",
+  "category": "modding",
+  "description": "c3844 runtime matrix smoke: source-only catalog load batch 375 for extracted non-Scenario public typed archives. Missing debug-load request/result blocks are B-509 harness observability failures.",
+  "tags": [
+    "modding",
+    "pdxxx",
+    "source-gate",
+    "source-matrix",
+    "all-family",
+    "c3844",
+    "smoke",
+    "pillar:modding"
+  ],
+  "paths_of_interest": [
+    "port/src/main.c",
+    "port/src/asset_source_debug.c",
+    "port/src/assetcatalog_load.c",
+    "tools/smoke-verify/run-all-family-source-matrix.ps1",
+    "tools/smoke-verify/fixtures/all_family_source_pd.ini"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 180,
+  "install_state": "clean",
+  "fixtures": [
+    {
+      "src": "tools/smoke-verify/fixtures/all_family_source_pd.ini",
+      "dst": "pd.ini"
+    },
+    {
+      "src": "tools/smoke-verify/fixtures/no_mods_enabled.json",
+      "dst": "mods-enabled.json"
+    }
+  ],
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--portable",
+    "--debug-load-catalog-assets-source-only",
+    "--debug-load-catalog-assets",
+    "weapon=base:homingrocket,weapon=base:horizonscanner,weapon=base:irscanner,weapon=base:k7avenger,weapon=base:keycard_slot62,weapon=base:keycard_slot63,weapon=base:keycard_slot64,weapon=base:keycard_slot65,weapon=base:keycard_slot66,weapon=base:keycard_slot67,weapon=base:keycard_slot68,weapon=base:keycard,weapon=base:laptopgun,weapon=base:laser,weapon=base:magsec,weapon=base:mauler,weapon=base:nbomb,weapon=base:necklace,weapon=base:nightvision,weapon=base:nothing"
+  ],
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait",
+      "comment": "catalog bootstrap extracts and walks base typed archives before source-only typed-load requests fire."
+    },
+    {
+      "at_ms": 35000,
+      "type": "exit",
+      "comment": "exit after all requested typed assets have loaded or emitted source-only failures."
+    }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=all_family_source_matrix_batch_375",
+      "BOOT: --debug-load-catalog-assets request type=weapon id='base:homingrocket' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=weapon id='base:homingrocket' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=weapon id='base:horizonscanner' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=weapon id='base:horizonscanner' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=weapon id='base:irscanner' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=weapon id='base:irscanner' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=weapon id='base:k7avenger' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=weapon id='base:k7avenger' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=weapon id='base:keycard_slot62' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=weapon id='base:keycard_slot62' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=weapon id='base:keycard_slot63' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=weapon id='base:keycard_slot63' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=weapon id='base:keycard_slot64' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=weapon id='base:keycard_slot64' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=weapon id='base:keycard_slot65' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=weapon id='base:keycard_slot65' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=weapon id='base:keycard_slot66' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=weapon id='base:keycard_slot66' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=weapon id='base:keycard_slot67' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=weapon id='base:keycard_slot67' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=weapon id='base:keycard_slot68' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=weapon id='base:keycard_slot68' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=weapon id='base:keycard' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=weapon id='base:keycard' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=weapon id='base:laptopgun' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=weapon id='base:laptopgun' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=weapon id='base:laser' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=weapon id='base:laser' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=weapon id='base:magsec' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=weapon id='base:magsec' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=weapon id='base:mauler' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=weapon id='base:mauler' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=weapon id='base:nbomb' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=weapon id='base:nbomb' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=weapon id='base:necklace' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=weapon id='base:necklace' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=weapon id='base:nightvision' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=weapon id='base:nightvision' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=weapon id='base:nothing' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=weapon id='base:nothing' result=OK",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "ASSET\\.SOURCE_ONLY",
+      "has no public FileProvider source",
+      "--debug-load-catalog-assets invalid token",
+      "--debug-load-catalog-assets token '.*' missing type=id form",
+      "--debug-load-catalog-assets argument too long",
+      "result=FAIL",
+      "result=MISSING",
+      "RomProvider:filenum",
+      "refusing fallback"
+    ],
+    "required_counts": [
+      {
+        "pattern": "BOOT: --debug-load-catalog-assets request type=.* source_only=1",
+        "min": 20,
+        "max": 20
+      },
+      {
+        "pattern": "BOOT: --debug-load-catalog-assets result type=.* result=OK",
+        "min": 20,
+        "max": 20
+      }
+    ]
+  }
+}

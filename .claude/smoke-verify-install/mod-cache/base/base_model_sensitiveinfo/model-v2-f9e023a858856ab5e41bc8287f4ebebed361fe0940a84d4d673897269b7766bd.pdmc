@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_sensitiveinfo",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_sensitiveinfo.pdmesh::model.obj",
+  "source_size": 53040,
+  "source_sha256": "f9e023a858856ab5e41bc8287f4ebebed361fe0940a84d4d673897269b7766bd",
+  "validation": "format=obj vertices=834 triangles=278",
+  "normalized": "$S/mod-cache/base/base_model_sensitiveinfo/model-v2-f9e023a858856ab5e41bc8287f4ebebed361fe0940a84d4d673897269b7766bd.pdmodel.json",
+  "vertex_count": 834,
+  "triangle_count": 278,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

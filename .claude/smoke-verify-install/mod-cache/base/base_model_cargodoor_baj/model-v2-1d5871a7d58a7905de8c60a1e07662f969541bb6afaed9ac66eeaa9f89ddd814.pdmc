@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_cargodoor_baj",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_cargodoor_baj.pdmesh::model.obj",
+  "source_size": 4079,
+  "source_sha256": "1d5871a7d58a7905de8c60a1e07662f969541bb6afaed9ac66eeaa9f89ddd814",
+  "validation": "format=obj vertices=60 triangles=20",
+  "normalized": "$S/mod-cache/base/base_model_cargodoor_baj/model-v2-1d5871a7d58a7905de8c60a1e07662f969541bb6afaed9ac66eeaa9f89ddd814.pdmodel.json",
+  "vertex_count": 60,
+  "triangle_count": 20,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

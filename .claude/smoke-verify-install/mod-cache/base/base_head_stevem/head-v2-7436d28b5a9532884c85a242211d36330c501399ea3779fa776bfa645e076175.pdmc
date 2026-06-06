@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:head_stevem",
+  "mod_id": "base",
+  "kind": "head",
+  "source": "data/ntsc-final/heads/base_head_stevem.pdhead::mesh.pdmesh::model.obj",
+  "source_size": 41806,
+  "source_sha256": "7436d28b5a9532884c85a242211d36330c501399ea3779fa776bfa645e076175",
+  "validation": "format=obj vertices=624 triangles=208",
+  "normalized": "$S/mod-cache/base/base_head_stevem/head-v2-7436d28b5a9532884c85a242211d36330c501399ea3779fa776bfa645e076175.pdmodel.json",
+  "vertex_count": 624,
+  "triangle_count": 208,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

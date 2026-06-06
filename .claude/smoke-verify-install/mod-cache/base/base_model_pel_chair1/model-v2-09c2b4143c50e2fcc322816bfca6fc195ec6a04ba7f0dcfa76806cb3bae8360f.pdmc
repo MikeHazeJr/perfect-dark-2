@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_pel_chair1",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_pel_chair1.pdmesh::model.obj",
+  "source_size": 22986,
+  "source_sha256": "09c2b4143c50e2fcc322816bfca6fc195ec6a04ba7f0dcfa76806cb3bae8360f",
+  "validation": "format=obj vertices=372 triangles=124",
+  "normalized": "$S/mod-cache/base/base_model_pel_chair1/model-v2-09c2b4143c50e2fcc322816bfca6fc195ec6a04ba7f0dcfa76806cb3bae8360f.pdmodel.json",
+  "vertex_count": 372,
+  "triangle_count": 124,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

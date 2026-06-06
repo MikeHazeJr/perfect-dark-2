@@ -467,8 +467,8 @@ s32 scenarioSourceAiGraphExecuteIfObjectSoundVolumeLessThan(s8 channel,
 s32 scenarioSourceAiGraphExecutePlaySoundFromProp(s32 channel, s16 audio_id,
 	s32 volume, s32 tag_id, s16 type, u16 flags);
 s32 scenarioSourceAiGraphExecutePlayTemporaryPrimaryTrack(s32 tracknum);
-s32 scenarioSourceAiGraphExecutePlayXTrack(s32 reason, s32 tracknum,
-	s32 volume);
+s32 scenarioSourceAiGraphExecutePlayXTrack(s32 reason, s32 minsecs,
+	s32 maxsecs);
 s32 scenarioSourceAiGraphExecuteStopXTrack(s32 reason);
 s32 scenarioSourceAiGraphExecutePlayTrackIsolated(s32 tracknum);
 s32 scenarioSourceAiGraphExecutePlayDefaultTracks(void);

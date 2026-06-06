@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_a51wastebin",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_a51wastebin.pdmesh::model.obj",
+  "source_size": 5033,
+  "source_sha256": "85b1d84934c6a117b4063f5234e61ebc30852ffbed9287d04fd0756b1825b582",
+  "validation": "format=obj vertices=78 triangles=26",
+  "normalized": "$S/mod-cache/base/base_model_a51wastebin/model-v2-85b1d84934c6a117b4063f5234e61ebc30852ffbed9287d04fd0756b1825b582.pdmodel.json",
+  "vertex_count": 78,
+  "triangle_count": 26,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

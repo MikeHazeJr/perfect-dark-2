@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_sk_drone_gun",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_sk_drone_gun.pdmesh::model.obj",
+  "source_size": 9309,
+  "source_sha256": "29ab6ed32d0af01df2d1764f5dc94f74506097c5a429bcd68a099b1a92a8ec31",
+  "validation": "format=obj vertices=144 triangles=48",
+  "normalized": "$S/mod-cache/base/base_model_sk_drone_gun/model-v2-29ab6ed32d0af01df2d1764f5dc94f74506097c5a429bcd68a099b1a92a8ec31.pdmodel.json",
+  "vertex_count": 144,
+  "triangle_count": 48,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

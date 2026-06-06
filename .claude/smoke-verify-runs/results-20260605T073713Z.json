@@ -1,0 +1,36 @@
+﻿{
+    "Name":  "scenario_generated_nav_path_order",
+    "Category":  "scenario",
+    "BugId":  null,
+    "RegressionFor":  null,
+    "Passed":  false,
+    "ExitCode":  0,
+    "ElapsedSeconds":  76.3201954,
+    "InstallDir":  "C:\\Users\\mikeh\\Perfect-Dark-2\\perfect_dark-mike\\.claude\\smoke-verify-install",
+    "AssertionsTotal":  28,
+    "AssertionsMet":  24,
+    "Failures":  [
+                     {
+                         "Kind":  "required_line_missing",
+                         "Pattern":  "SCENARIO\\.GRAPH: AI condition if_waypoint_within_quadrant quadrant=1 label=255 pad=-1 found=0 result=0 pad_rows=5 waypoint_rows=5 waygroup_rows=2 source=.*base_scenario_test_ash\\.pdscenario::ai/ailists\\.tsv pads=.*base_scenario_test_ash\\.pdscenario::pads\\.tsv waypoints=.*base_scenario_test_ash\\.pdscenario::navigation/waypoints\\.tsv waygroups=.*base_scenario_test_ash\\.pdscenario::navigation/waygroups\\.tsv backend=graph\\.ai\\.action\\.quadrant_preset\\+ai/ailists\\.tsv\\+pads\\.tsv\\+navigation\\.generate"
+                     },
+                     {
+                         "Kind":  "required_line_missing",
+                         "Pattern":  "SCENARIO\\.GRAPH: AI action set_pad_preset_to_target_quadrant quadrant=1 label=255 pad=-1 found=0 result=0 pad_rows=5 waypoint_rows=5 waygroup_rows=2 source=.*base_scenario_test_ash\\.pdscenario::ai/ailists\\.tsv pads=.*base_scenario_test_ash\\.pdscenario::pads\\.tsv waypoints=.*base_scenario_test_ash\\.pdscenario::navigation/waypoints\\.tsv waygroups=.*base_scenario_test_ash\\.pdscenario::navigation/waygroups\\.tsv backend=graph\\.ai\\.action\\.quadrant_preset\\+ai/ailists\\.tsv\\+pads\\.tsv\\+navigation\\.generate"
+                     },
+                     {
+                         "Kind":  "required_count_out_of_range",
+                         "Pattern":  "SCENARIO\\.GRAPH: AI condition if_waypoint_within_quadrant quadrant=1",
+                         "Count":  0,
+                         "Min":  1,
+                         "Max":  1
+                     },
+                     {
+                         "Kind":  "required_count_out_of_range",
+                         "Pattern":  "SCENARIO\\.GRAPH: AI action set_pad_preset_to_target_quadrant quadrant=1",
+                         "Count":  0,
+                         "Min":  1,
+                         "Max":  1
+                     }
+                 ]
+}

@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 1,
+  "asset_id": "base:model_cv_lamp",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_cv_lamp.pdmesh::model.obj",
+  "source_size": 6017,
+  "source_sha256": "5e38776ade690cd455cc6c9e372b9b2ed5c176d7ef696810baa2b167bf92c818",
+  "validation": "format=obj vertices=96 triangles=32",
+  "normalized": "$S/mod-cache/base/base_model_cv_lamp/model-v1-5e38776ade690cd455cc6c9e372b9b2ed5c176d7ef696810baa2b167bf92c818.pdmodel.json",
+  "vertex_count": 96,
+  "triangle_count": 32,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

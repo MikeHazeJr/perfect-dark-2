@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_carringtonsecretdoor",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_carringtonsecretdoor.pdmesh::model.obj",
+  "source_size": 3053,
+  "source_sha256": "9cd8053316694d65f4f1d43802b905568ae5d550a70e266412e7df01d3d783ca",
+  "validation": "format=obj vertices=42 triangles=14",
+  "normalized": "$S/mod-cache/base/base_model_carringtonsecretdoor/model-v2-9cd8053316694d65f4f1d43802b905568ae5d550a70e266412e7df01d3d783ca.pdmodel.json",
+  "vertex_count": 42,
+  "triangle_count": 14,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

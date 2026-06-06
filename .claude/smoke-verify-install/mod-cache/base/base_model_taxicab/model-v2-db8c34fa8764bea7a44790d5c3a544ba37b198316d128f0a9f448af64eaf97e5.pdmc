@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_taxicab",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_taxicab.pdmesh::model.obj",
+  "source_size": 54041,
+  "source_sha256": "db8c34fa8764bea7a44790d5c3a544ba37b198316d128f0a9f448af64eaf97e5",
+  "validation": "format=obj vertices=786 triangles=262",
+  "normalized": "$S/mod-cache/base/base_model_taxicab/model-v2-db8c34fa8764bea7a44790d5c3a544ba37b198316d128f0a9f448af64eaf97e5.pdmodel.json",
+  "vertex_count": 786,
+  "triangle_count": 262,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

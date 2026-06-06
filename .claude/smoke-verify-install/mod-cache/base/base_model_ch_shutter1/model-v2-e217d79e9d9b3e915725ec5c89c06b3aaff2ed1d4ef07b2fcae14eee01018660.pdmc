@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_ch_shutter1",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_ch_shutter1.pdmesh::model.obj",
+  "source_size": 1646,
+  "source_sha256": "e217d79e9d9b3e915725ec5c89c06b3aaff2ed1d4ef07b2fcae14eee01018660",
+  "validation": "format=obj vertices=24 triangles=8",
+  "normalized": "$S/mod-cache/base/base_model_ch_shutter1/model-v2-e217d79e9d9b3e915725ec5c89c06b3aaff2ed1d4ef07b2fcae14eee01018660.pdmodel.json",
+  "vertex_count": 24,
+  "triangle_count": 8,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

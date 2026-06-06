@@ -1,0 +1,131 @@
+{
+  "scenario_name": "all_family_source_matrix_batch_133",
+  "BugId": "B-509",
+  "category": "modding",
+  "description": "c3844 runtime matrix smoke: source-only catalog load batch 133 for extracted non-Scenario public typed archives. Missing debug-load request/result blocks are B-509 harness observability failures.",
+  "tags": [
+    "modding",
+    "pdxxx",
+    "source-gate",
+    "source-matrix",
+    "all-family",
+    "c3844",
+    "smoke",
+    "pillar:modding"
+  ],
+  "paths_of_interest": [
+    "port/src/main.c",
+    "port/src/asset_source_debug.c",
+    "port/src/assetcatalog_load.c",
+    "tools/smoke-verify/run-all-family-source-matrix.ps1",
+    "tools/smoke-verify/fixtures/all_family_source_pd.ini"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 180,
+  "install_state": "clean",
+  "fixtures": [
+    {
+      "src": "tools/smoke-verify/fixtures/all_family_source_pd.ini",
+      "dst": "pd.ini"
+    },
+    {
+      "src": "tools/smoke-verify/fixtures/no_mods_enabled.json",
+      "dst": "mods-enabled.json"
+    }
+  ],
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--portable",
+    "--debug-load-catalog-assets-source-only",
+    "--debug-load-catalog-assets",
+    "sfx=base:sfx_unlabeled_agk,sfx=base:sfx_unlabeled_agl,sfx=base:sfx_unlabeled_agm,sfx=base:sfx_unlabeled_agn,sfx=base:sfx_unlabeled_ago,sfx=base:sfx_unlabeled_agp,sfx=base:sfx_unlabeled_agq,sfx=base:sfx_unlabeled_agr,sfx=base:sfx_unlabeled_ags,sfx=base:sfx_unlabeled_agt,sfx=base:sfx_unlabeled_agu,sfx=base:sfx_unlabeled_agv,sfx=base:sfx_unlabeled_agw,sfx=base:sfx_unlabeled_agx,sfx=base:sfx_unlabeled_agy,sfx=base:sfx_unlabeled_agz,sfx=base:sfx_unlabeled_ah,sfx=base:sfx_unlabeled_aha,sfx=base:sfx_unlabeled_ahb,sfx=base:sfx_unlabeled_ahc"
+  ],
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait",
+      "comment": "catalog bootstrap extracts and walks base typed archives before source-only typed-load requests fire."
+    },
+    {
+      "at_ms": 35000,
+      "type": "exit",
+      "comment": "exit after all requested typed assets have loaded or emitted source-only failures."
+    }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=all_family_source_matrix_batch_133",
+      "BOOT: --debug-load-catalog-assets request type=audio id='base:sfx_unlabeled_agk' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=audio id='base:sfx_unlabeled_agk' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=audio id='base:sfx_unlabeled_agl' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=audio id='base:sfx_unlabeled_agl' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=audio id='base:sfx_unlabeled_agm' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=audio id='base:sfx_unlabeled_agm' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=audio id='base:sfx_unlabeled_agn' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=audio id='base:sfx_unlabeled_agn' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=audio id='base:sfx_unlabeled_ago' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=audio id='base:sfx_unlabeled_ago' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=audio id='base:sfx_unlabeled_agp' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=audio id='base:sfx_unlabeled_agp' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=audio id='base:sfx_unlabeled_agq' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=audio id='base:sfx_unlabeled_agq' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=audio id='base:sfx_unlabeled_agr' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=audio id='base:sfx_unlabeled_agr' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=audio id='base:sfx_unlabeled_ags' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=audio id='base:sfx_unlabeled_ags' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=audio id='base:sfx_unlabeled_agt' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=audio id='base:sfx_unlabeled_agt' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=audio id='base:sfx_unlabeled_agu' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=audio id='base:sfx_unlabeled_agu' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=audio id='base:sfx_unlabeled_agv' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=audio id='base:sfx_unlabeled_agv' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=audio id='base:sfx_unlabeled_agw' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=audio id='base:sfx_unlabeled_agw' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=audio id='base:sfx_unlabeled_agx' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=audio id='base:sfx_unlabeled_agx' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=audio id='base:sfx_unlabeled_agy' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=audio id='base:sfx_unlabeled_agy' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=audio id='base:sfx_unlabeled_agz' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=audio id='base:sfx_unlabeled_agz' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=audio id='base:sfx_unlabeled_ah' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=audio id='base:sfx_unlabeled_ah' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=audio id='base:sfx_unlabeled_aha' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=audio id='base:sfx_unlabeled_aha' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=audio id='base:sfx_unlabeled_ahb' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=audio id='base:sfx_unlabeled_ahb' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=audio id='base:sfx_unlabeled_ahc' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=audio id='base:sfx_unlabeled_ahc' result=OK",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "ASSET\\.SOURCE_ONLY",
+      "has no public FileProvider source",
+      "--debug-load-catalog-assets invalid token",
+      "--debug-load-catalog-assets token '.*' missing type=id form",
+      "--debug-load-catalog-assets argument too long",
+      "result=FAIL",
+      "result=MISSING",
+      "RomProvider:filenum",
+      "refusing fallback"
+    ],
+    "required_counts": [
+      {
+        "pattern": "BOOT: --debug-load-catalog-assets request type=.* source_only=1",
+        "min": 20,
+        "max": 20
+      },
+      {
+        "pattern": "BOOT: --debug-load-catalog-assets result type=.* result=OK",
+        "min": 20,
+        "max": 20
+      }
+    ]
+  }
+}

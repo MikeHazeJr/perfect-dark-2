@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_dr_nonref_bxe",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_dr_nonref_bxe.pdmesh::model.obj",
+  "source_size": 7203,
+  "source_sha256": "2bd4a499ada717985c35843c0b6492b494112c112e3569536a87ee4d9aa689a7",
+  "validation": "format=obj vertices=108 triangles=36",
+  "normalized": "$S/mod-cache/base/base_model_dr_nonref_bxe/model-v2-2bd4a499ada717985c35843c0b6492b494112c112e3569536a87ee4d9aa689a7.pdmodel.json",
+  "vertex_count": 108,
+  "triangle_count": 36,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

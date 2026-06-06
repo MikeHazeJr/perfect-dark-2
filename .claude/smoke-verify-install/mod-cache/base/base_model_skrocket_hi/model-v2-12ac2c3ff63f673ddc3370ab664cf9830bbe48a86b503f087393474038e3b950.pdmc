@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_skrocket_hi",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_skrocket_hi.pdmesh::model.obj",
+  "source_size": 84392,
+  "source_sha256": "12ac2c3ff63f673ddc3370ab664cf9830bbe48a86b503f087393474038e3b950",
+  "validation": "format=obj vertices=1278 triangles=426",
+  "normalized": "$S/mod-cache/base/base_model_skrocket_hi/model-v2-12ac2c3ff63f673ddc3370ab664cf9830bbe48a86b503f087393474038e3b950.pdmodel.json",
+  "vertex_count": 1278,
+  "triangle_count": 426,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

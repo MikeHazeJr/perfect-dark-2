@@ -1,0 +1,131 @@
+{
+  "scenario_name": "all_family_source_matrix_batch_119",
+  "BugId": "B-509",
+  "category": "modding",
+  "description": "c3844 runtime matrix smoke: source-only catalog load batch 119 for extracted non-Scenario public typed archives. Missing debug-load request/result blocks are B-509 harness observability failures.",
+  "tags": [
+    "modding",
+    "pdxxx",
+    "source-gate",
+    "source-matrix",
+    "all-family",
+    "c3844",
+    "smoke",
+    "pillar:modding"
+  ],
+  "paths_of_interest": [
+    "port/src/main.c",
+    "port/src/asset_source_debug.c",
+    "port/src/assetcatalog_load.c",
+    "tools/smoke-verify/run-all-family-source-matrix.ps1",
+    "tools/smoke-verify/fixtures/all_family_source_pd.ini"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 180,
+  "install_state": "clean",
+  "fixtures": [
+    {
+      "src": "tools/smoke-verify/fixtures/all_family_source_pd.ini",
+      "dst": "pd.ini"
+    },
+    {
+      "src": "tools/smoke-verify/fixtures/no_mods_enabled.json",
+      "dst": "mods-enabled.json"
+    }
+  ],
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--portable",
+    "--debug-load-catalog-assets-source-only",
+    "--debug-load-catalog-assets",
+    "sfx=base:sfx_m0_my_gun,sfx=base:sfx_m0_one_for_the_morgue,sfx=base:sfx_m0_ow,sfx=base:sfx_m0_rest_in_peace,sfx=base:sfx_m0_retreat,sfx=base:sfx_m0_she_got_me,sfx=base:sfx_m0_shes_a_tricky_one,sfx=base:sfx_m0_surrender_now,sfx=base:sfx_m0_surround_her,sfx=base:sfx_m0_take_cover_028d,sfx=base:sfx_m0_take_cover,sfx=base:sfx_m0_take_that,sfx=base:sfx_m0_taking_damage,sfx=base:sfx_m0_trigger_the_alarm,sfx=base:sfx_m0_waste_her,sfx=base:sfx_m0_watch_my_back,sfx=base:sfx_m0_weve_got_problems,sfx=base:sfx_m0_weve_got_trouble,sfx=base:sfx_m0_what_the,sfx=base:sfx_m0_whats_that_noise"
+  ],
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait",
+      "comment": "catalog bootstrap extracts and walks base typed archives before source-only typed-load requests fire."
+    },
+    {
+      "at_ms": 35000,
+      "type": "exit",
+      "comment": "exit after all requested typed assets have loaded or emitted source-only failures."
+    }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=all_family_source_matrix_batch_119",
+      "BOOT: --debug-load-catalog-assets request type=audio id='base:sfx_m0_my_gun' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=audio id='base:sfx_m0_my_gun' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=audio id='base:sfx_m0_one_for_the_morgue' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=audio id='base:sfx_m0_one_for_the_morgue' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=audio id='base:sfx_m0_ow' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=audio id='base:sfx_m0_ow' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=audio id='base:sfx_m0_rest_in_peace' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=audio id='base:sfx_m0_rest_in_peace' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=audio id='base:sfx_m0_retreat' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=audio id='base:sfx_m0_retreat' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=audio id='base:sfx_m0_she_got_me' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=audio id='base:sfx_m0_she_got_me' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=audio id='base:sfx_m0_shes_a_tricky_one' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=audio id='base:sfx_m0_shes_a_tricky_one' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=audio id='base:sfx_m0_surrender_now' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=audio id='base:sfx_m0_surrender_now' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=audio id='base:sfx_m0_surround_her' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=audio id='base:sfx_m0_surround_her' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=audio id='base:sfx_m0_take_cover_028d' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=audio id='base:sfx_m0_take_cover_028d' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=audio id='base:sfx_m0_take_cover' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=audio id='base:sfx_m0_take_cover' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=audio id='base:sfx_m0_take_that' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=audio id='base:sfx_m0_take_that' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=audio id='base:sfx_m0_taking_damage' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=audio id='base:sfx_m0_taking_damage' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=audio id='base:sfx_m0_trigger_the_alarm' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=audio id='base:sfx_m0_trigger_the_alarm' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=audio id='base:sfx_m0_waste_her' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=audio id='base:sfx_m0_waste_her' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=audio id='base:sfx_m0_watch_my_back' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=audio id='base:sfx_m0_watch_my_back' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=audio id='base:sfx_m0_weve_got_problems' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=audio id='base:sfx_m0_weve_got_problems' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=audio id='base:sfx_m0_weve_got_trouble' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=audio id='base:sfx_m0_weve_got_trouble' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=audio id='base:sfx_m0_what_the' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=audio id='base:sfx_m0_what_the' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=audio id='base:sfx_m0_whats_that_noise' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=audio id='base:sfx_m0_whats_that_noise' result=OK",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "ASSET\\.SOURCE_ONLY",
+      "has no public FileProvider source",
+      "--debug-load-catalog-assets invalid token",
+      "--debug-load-catalog-assets token '.*' missing type=id form",
+      "--debug-load-catalog-assets argument too long",
+      "result=FAIL",
+      "result=MISSING",
+      "RomProvider:filenum",
+      "refusing fallback"
+    ],
+    "required_counts": [
+      {
+        "pattern": "BOOT: --debug-load-catalog-assets request type=.* source_only=1",
+        "min": 20,
+        "max": 20
+      },
+      {
+        "pattern": "BOOT: --debug-load-catalog-assets result type=.* result=OK",
+        "min": 20,
+        "max": 20
+      }
+    ]
+  }
+}

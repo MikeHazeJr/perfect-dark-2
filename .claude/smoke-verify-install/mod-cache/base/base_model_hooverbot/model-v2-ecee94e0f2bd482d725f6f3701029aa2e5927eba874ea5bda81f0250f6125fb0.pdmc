@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_hooverbot",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_hooverbot.pdmesh::model.obj",
+  "source_size": 4152,
+  "source_sha256": "ecee94e0f2bd482d725f6f3701029aa2e5927eba874ea5bda81f0250f6125fb0",
+  "validation": "format=obj vertices=66 triangles=22",
+  "normalized": "$S/mod-cache/base/base_model_hooverbot/model-v2-ecee94e0f2bd482d725f6f3701029aa2e5927eba874ea5bda81f0250f6125fb0.pdmodel.json",
+  "vertex_count": 66,
+  "triangle_count": 22,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

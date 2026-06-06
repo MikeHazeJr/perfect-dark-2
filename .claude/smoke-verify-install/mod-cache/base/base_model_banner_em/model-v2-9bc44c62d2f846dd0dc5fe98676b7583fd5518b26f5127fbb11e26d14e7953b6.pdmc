@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_banner_em",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_banner_em.pdmesh::model.obj",
+  "source_size": 3927,
+  "source_sha256": "9bc44c62d2f846dd0dc5fe98676b7583fd5518b26f5127fbb11e26d14e7953b6",
+  "validation": "format=obj vertices=60 triangles=20",
+  "normalized": "$S/mod-cache/base/base_model_banner_em/model-v2-9bc44c62d2f846dd0dc5fe98676b7583fd5518b26f5127fbb11e26d14e7953b6.pdmodel.json",
+  "vertex_count": 60,
+  "triangle_count": 20,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

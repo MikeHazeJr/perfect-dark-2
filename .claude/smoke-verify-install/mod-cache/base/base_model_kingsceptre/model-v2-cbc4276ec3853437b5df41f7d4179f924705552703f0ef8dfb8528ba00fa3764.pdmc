@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_kingsceptre",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_kingsceptre.pdmesh::model.obj",
+  "source_size": 18391,
+  "source_sha256": "cbc4276ec3853437b5df41f7d4179f924705552703f0ef8dfb8528ba00fa3764",
+  "validation": "format=obj vertices=276 triangles=92",
+  "normalized": "$S/mod-cache/base/base_model_kingsceptre/model-v2-cbc4276ec3853437b5df41f7d4179f924705552703f0ef8dfb8528ba00fa3764.pdmodel.json",
+  "vertex_count": 276,
+  "triangle_count": 92,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

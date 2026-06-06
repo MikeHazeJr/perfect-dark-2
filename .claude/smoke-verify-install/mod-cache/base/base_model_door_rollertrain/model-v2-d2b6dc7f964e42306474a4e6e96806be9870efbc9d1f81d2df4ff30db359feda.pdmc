@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_door_rollertrain",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_door_rollertrain.pdmesh::model.obj",
+  "source_size": 1252,
+  "source_sha256": "d2b6dc7f964e42306474a4e6e96806be9870efbc9d1f81d2df4ff30db359feda",
+  "validation": "format=obj vertices=18 triangles=6",
+  "normalized": "$S/mod-cache/base/base_model_door_rollertrain/model-v2-d2b6dc7f964e42306474a4e6e96806be9870efbc9d1f81d2df4ff30db359feda.pdmodel.json",
+  "vertex_count": 18,
+  "triangle_count": 6,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

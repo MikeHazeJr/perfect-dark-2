@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:connery",
+  "mod_id": "base",
+  "kind": "body",
+  "source": "data/ntsc-final/bodies/base_connery.pdbody::mesh.pdmesh::model.obj",
+  "source_size": 125267,
+  "source_sha256": "21cf5a78df0dec5a0b9f5eb22be933f2e37fa1acab786ea49eb3c071ff4ee833",
+  "validation": "format=obj vertices=1833 triangles=611",
+  "normalized": "$S/mod-cache/base/base_connery/body-v2-21cf5a78df0dec5a0b9f5eb22be933f2e37fa1acab786ea49eb3c071ff4ee833.pdmodel.json",
+  "vertex_count": 1833,
+  "triangle_count": 611,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

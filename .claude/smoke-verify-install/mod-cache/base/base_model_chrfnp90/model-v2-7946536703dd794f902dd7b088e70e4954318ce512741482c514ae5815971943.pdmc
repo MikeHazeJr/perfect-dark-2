@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_chrfnp90",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_chrfnp90.pdmesh::model.obj",
+  "source_size": 11779,
+  "source_sha256": "7946536703dd794f902dd7b088e70e4954318ce512741482c514ae5815971943",
+  "validation": "format=obj vertices=177 triangles=59",
+  "normalized": "$S/mod-cache/base/base_model_chrfnp90/model-v2-7946536703dd794f902dd7b088e70e4954318ce512741482c514ae5815971943.pdmodel.json",
+  "vertex_count": 177,
+  "triangle_count": 59,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

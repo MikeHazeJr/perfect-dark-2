@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:alaskan_guard",
+  "mod_id": "base",
+  "kind": "body",
+  "source": "data/ntsc-final/bodies/base_alaskan_guard.pdbody::mesh.pdmesh::model.obj",
+  "source_size": 137977,
+  "source_sha256": "82b178d8b6a932cb396b1ea3aa3e0c531c44338f599fd06714f05b5b1c8ff8f2",
+  "validation": "format=obj vertices=2025 triangles=675",
+  "normalized": "$S/mod-cache/base/base_alaskan_guard/body-v2-82b178d8b6a932cb396b1ea3aa3e0c531c44338f599fd06714f05b5b1c8ff8f2.pdmodel.json",
+  "vertex_count": 2025,
+  "triangle_count": 675,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

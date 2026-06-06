@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_cmoore",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_cmoore.pdmesh::model.obj",
+  "source_size": 125191,
+  "source_sha256": "c5db345218bec3e27515147047d86500279d1f48d6dbea5928483a16b19b8da7",
+  "validation": "format=obj vertices=1833 triangles=611",
+  "normalized": "$S/mod-cache/base/base_model_cmoore/model-v2-c5db345218bec3e27515147047d86500279d1f48d6dbea5928483a16b19b8da7.pdmodel.json",
+  "vertex_count": 1833,
+  "triangle_count": 611,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

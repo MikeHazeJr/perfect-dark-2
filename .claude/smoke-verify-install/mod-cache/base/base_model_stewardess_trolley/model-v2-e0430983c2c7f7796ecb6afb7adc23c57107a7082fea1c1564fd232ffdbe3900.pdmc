@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_stewardess_trolley",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_stewardess_trolley.pdmesh::model.obj",
+  "source_size": 16325,
+  "source_sha256": "e0430983c2c7f7796ecb6afb7adc23c57107a7082fea1c1564fd232ffdbe3900",
+  "validation": "format=obj vertices=249 triangles=83",
+  "normalized": "$S/mod-cache/base/base_model_stewardess_trolley/model-v2-e0430983c2c7f7796ecb6afb7adc23c57107a7082fea1c1564fd232ffdbe3900.pdmodel.json",
+  "vertex_count": 249,
+  "triangle_count": 83,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

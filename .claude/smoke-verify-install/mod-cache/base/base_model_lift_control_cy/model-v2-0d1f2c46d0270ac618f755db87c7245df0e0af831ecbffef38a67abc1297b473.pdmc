@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_lift_control_cy",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_lift_control_cy.pdmesh::model.obj",
+  "source_size": 11389,
+  "source_sha256": "0d1f2c46d0270ac618f755db87c7245df0e0af831ecbffef38a67abc1297b473",
+  "validation": "format=obj vertices=156 triangles=52",
+  "normalized": "$S/mod-cache/base/base_model_lift_control_cy/model-v2-0d1f2c46d0270ac618f755db87c7245df0e0af831ecbffef38a67abc1297b473.pdmodel.json",
+  "vertex_count": 156,
+  "triangle_count": 52,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

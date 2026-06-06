@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_vert_door_st_dh",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_vert_door_st_dh.pdmesh::model.obj",
+  "source_size": 9401,
+  "source_sha256": "fc23aae9c31c9b17ef1190dffa854ed03ba611a1f135369e90f9cde0195a96ff",
+  "validation": "format=obj vertices=126 triangles=42",
+  "normalized": "$S/mod-cache/base/base_model_vert_door_st_dh/model-v2-fc23aae9c31c9b17ef1190dffa854ed03ba611a1f135369e90f9cde0195a96ff.pdmodel.json",
+  "vertex_count": 126,
+  "triangle_count": 42,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

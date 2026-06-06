@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_labdoor_pz",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_labdoor_pz.pdmesh::model.obj",
+  "source_size": 14235,
+  "source_sha256": "6d684e01237d6d8b3b9af98e301feabc623269ac91d3a58fb8c4b01931ac5281",
+  "validation": "format=obj vertices=216 triangles=72",
+  "normalized": "$S/mod-cache/base/base_model_labdoor_pz/model-v2-6d684e01237d6d8b3b9af98e301feabc623269ac91d3a58fb8c4b01931ac5281.pdmodel.json",
+  "vertex_count": 216,
+  "triangle_count": 72,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

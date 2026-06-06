@@ -1,0 +1,131 @@
+{
+  "scenario_name": "all_family_source_matrix_batch_084",
+  "BugId": "B-509",
+  "category": "modding",
+  "description": "c3844 runtime matrix smoke: source-only catalog load batch 84 for extracted non-Scenario public typed archives. Missing debug-load request/result blocks are B-509 harness observability failures.",
+  "tags": [
+    "modding",
+    "pdxxx",
+    "source-gate",
+    "source-matrix",
+    "all-family",
+    "c3844",
+    "smoke",
+    "pillar:modding"
+  ],
+  "paths_of_interest": [
+    "port/src/main.c",
+    "port/src/asset_source_debug.c",
+    "port/src/assetcatalog_load.c",
+    "tools/smoke-verify/run-all-family-source-matrix.ps1",
+    "tools/smoke-verify/fixtures/all_family_source_pd.ini"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 180,
+  "install_state": "clean",
+  "fixtures": [
+    {
+      "src": "tools/smoke-verify/fixtures/all_family_source_pd.ini",
+      "dst": "pd.ini"
+    },
+    {
+      "src": "tools/smoke-verify/fixtures/no_mods_enabled.json",
+      "dst": "mods-enabled.json"
+    }
+  ],
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--portable",
+    "--debug-load-catalog-assets-source-only",
+    "--debug-load-catalog-assets",
+    "model=base:model_chrdyrocket,model=base:model_chrdyrocketmis,model=base:model_chrecmmine,model=base:model_chreyespy,model=base:model_chrfalcon2,model=base:model_chrfalcon2scope,model=base:model_chrfalcon2sil,model=base:model_chrflashbang,model=base:model_chrfnp90,model=base:model_chrgrenade,model=base:model_chrkalash,model=base:model_chrknife,model=base:model_chrlaser,model=base:model_chrleegun1,model=base:model_chrlumphammer_variant_oz,model=base:model_chrlumphammer,model=base:model_chrm16,model=base:model_chrmaianpistol,model=base:model_chrmaiansmg,model=base:model_chrmauler"
+  ],
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait",
+      "comment": "catalog bootstrap extracts and walks base typed archives before source-only typed-load requests fire."
+    },
+    {
+      "at_ms": 35000,
+      "type": "exit",
+      "comment": "exit after all requested typed assets have loaded or emitted source-only failures."
+    }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=all_family_source_matrix_batch_084",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_chrdyrocket' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_chrdyrocket' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_chrdyrocketmis' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_chrdyrocketmis' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_chrecmmine' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_chrecmmine' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_chreyespy' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_chreyespy' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_chrfalcon2' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_chrfalcon2' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_chrfalcon2scope' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_chrfalcon2scope' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_chrfalcon2sil' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_chrfalcon2sil' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_chrflashbang' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_chrflashbang' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_chrfnp90' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_chrfnp90' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_chrgrenade' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_chrgrenade' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_chrkalash' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_chrkalash' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_chrknife' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_chrknife' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_chrlaser' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_chrlaser' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_chrleegun1' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_chrleegun1' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_chrlumphammer_variant_oz' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_chrlumphammer_variant_oz' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_chrlumphammer' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_chrlumphammer' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_chrm16' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_chrm16' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_chrmaianpistol' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_chrmaianpistol' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_chrmaiansmg' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_chrmaiansmg' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_chrmauler' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_chrmauler' result=OK",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "ASSET\\.SOURCE_ONLY",
+      "has no public FileProvider source",
+      "--debug-load-catalog-assets invalid token",
+      "--debug-load-catalog-assets token '.*' missing type=id form",
+      "--debug-load-catalog-assets argument too long",
+      "result=FAIL",
+      "result=MISSING",
+      "RomProvider:filenum",
+      "refusing fallback"
+    ],
+    "required_counts": [
+      {
+        "pattern": "BOOT: --debug-load-catalog-assets request type=.* source_only=1",
+        "min": 20,
+        "max": 20
+      },
+      {
+        "pattern": "BOOT: --debug-load-catalog-assets result type=.* result=OK",
+        "min": 20,
+        "max": 20
+      }
+    ]
+  }
+}

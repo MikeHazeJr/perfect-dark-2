@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:theking",
+  "mod_id": "base",
+  "kind": "body",
+  "source": "data/ntsc-final/bodies/base_theking.pdbody::mesh.pdmesh::model.obj",
+  "source_size": 134170,
+  "source_sha256": "a0ae5993f088cafdc0375a716d826c6a06b2948deb7a9af4513662c05e6a4bb8",
+  "validation": "format=obj vertices=1977 triangles=659",
+  "normalized": "$S/mod-cache/base/base_theking/body-v2-a0ae5993f088cafdc0375a716d826c6a06b2948deb7a9af4513662c05e6a4bb8.pdmodel.json",
+  "vertex_count": 1977,
+  "triangle_count": 659,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

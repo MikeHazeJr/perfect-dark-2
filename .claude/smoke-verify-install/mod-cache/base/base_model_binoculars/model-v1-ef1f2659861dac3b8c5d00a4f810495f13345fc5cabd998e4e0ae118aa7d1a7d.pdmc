@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 1,
+  "asset_id": "base:model_binoculars",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_binoculars.pdmesh::model.obj",
+  "source_size": 19517,
+  "source_sha256": "ef1f2659861dac3b8c5d00a4f810495f13345fc5cabd998e4e0ae118aa7d1a7d",
+  "validation": "format=obj vertices=300 triangles=100",
+  "normalized": "$S/mod-cache/base/base_model_binoculars/model-v1-ef1f2659861dac3b8c5d00a4f810495f13345fc5cabd998e4e0ae118aa7d1a7d.pdmodel.json",
+  "vertex_count": 300,
+  "triangle_count": 100,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

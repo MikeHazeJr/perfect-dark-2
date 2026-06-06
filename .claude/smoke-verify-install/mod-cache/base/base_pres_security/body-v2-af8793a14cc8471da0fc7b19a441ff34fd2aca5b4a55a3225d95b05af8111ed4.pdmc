@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:pres_security",
+  "mod_id": "base",
+  "kind": "body",
+  "source": "data/ntsc-final/bodies/base_pres_security.pdbody::mesh.pdmesh::model.obj",
+  "source_size": 136308,
+  "source_sha256": "af8793a14cc8471da0fc7b19a441ff34fd2aca5b4a55a3225d95b05af8111ed4",
+  "validation": "format=obj vertices=2004 triangles=668",
+  "normalized": "$S/mod-cache/base/base_pres_security/body-v2-af8793a14cc8471da0fc7b19a441ff34fd2aca5b4a55a3225d95b05af8111ed4.pdmodel.json",
+  "vertex_count": 2004,
+  "triangle_count": 668,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_chrmaiansmg",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_chrmaiansmg.pdmesh::model.obj",
+  "source_size": 9248,
+  "source_sha256": "61de742ffc1f3cc743a982aa014efb06b4932c8861f43bed3ce86621bf67b5a0",
+  "validation": "format=obj vertices=141 triangles=47",
+  "normalized": "$S/mod-cache/base/base_model_chrmaiansmg/model-v2-61de742ffc1f3cc743a982aa014efb06b4932c8861f43bed3ce86621bf67b5a0.pdmodel.json",
+  "vertex_count": 141,
+  "triangle_count": 47,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

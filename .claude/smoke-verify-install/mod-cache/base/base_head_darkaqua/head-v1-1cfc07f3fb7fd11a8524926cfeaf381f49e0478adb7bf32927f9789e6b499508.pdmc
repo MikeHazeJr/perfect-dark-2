@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 1,
+  "asset_id": "base:head_darkaqua",
+  "mod_id": "base",
+  "kind": "head",
+  "source": "data/ntsc-final/heads/base_head_darkaqua.pdhead::mesh.pdmesh::model.obj",
+  "source_size": 65533,
+  "source_sha256": "1cfc07f3fb7fd11a8524926cfeaf381f49e0478adb7bf32927f9789e6b499508",
+  "validation": "format=obj vertices=1011 triangles=337",
+  "normalized": "$S/mod-cache/base/base_head_darkaqua/head-v1-1cfc07f3fb7fd11a8524926cfeaf381f49e0478adb7bf32927f9789e6b499508.pdmodel.json",
+  "vertex_count": 1011,
+  "triangle_count": 337,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

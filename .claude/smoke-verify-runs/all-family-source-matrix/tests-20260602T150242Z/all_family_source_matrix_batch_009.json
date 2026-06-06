@@ -1,0 +1,121 @@
+{
+  "scenario_name": "all_family_source_matrix_batch_009",
+  "description": "c3844 runtime matrix smoke: source-only catalog load batch 9 for extracted non-Scenario public typed archives.",
+  "tags": [
+    "modding",
+    "pdxxx",
+    "source-gate",
+    "source-matrix",
+    "all-family",
+    "c3844",
+    "smoke",
+    "pillar:modding"
+  ],
+  "paths_of_interest": [
+    "port/src/main.c",
+    "port/src/asset_source_debug.c",
+    "port/src/assetcatalog_load.c",
+    "tools/smoke-verify/run-all-family-source-matrix.ps1",
+    "tools/smoke-verify/fixtures/all_family_source_pd.ini"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 180,
+  "install_state": "clean",
+  "fixtures": [
+    {
+      "src": "tools/smoke-verify/fixtures/all_family_source_pd.ini",
+      "dst": "pd.ini"
+    },
+    {
+      "src": "tools/smoke-verify/fixtures/no_mods_enabled.json",
+      "dst": "mods-enabled.json"
+    }
+  ],
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--portable",
+    "--debug-load-catalog-assets-source-only",
+    "--debug-load-catalog-assets",
+    "lang=base:lang_cave_en,lang=base:lang_crad_en,lang=base:lang_cryp_en,lang=base:lang_dam_en,lang=base:lang_depo_en,lang=base:lang_dest_en,lang=base:lang_dish_en,lang=base:lang_ear_en,lang=base:lang_eld_en,lang=base:lang_gun_en,lang=base:lang_imp_en,lang=base:lang_jun_en,lang=base:lang_lam_en,lang=base:lang_lee_en,lang=base:lang_len_en,lang=base:lang_lip_en,lang=base:lang_lue_en,lang=base:lang_misc_en,lang=base:lang_mp1_en,lang=base:lang_mp10_en"
+  ],
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait",
+      "comment": "catalog bootstrap extracts and walks base typed archives before source-only typed-load requests fire."
+    },
+    {
+      "at_ms": 35000,
+      "type": "exit",
+      "comment": "exit after all requested typed assets have loaded or emitted source-only failures."
+    }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=all_family_source_matrix_batch_009",
+      "BOOT: --debug-load-catalog-assets request type=lang id='base:lang_cave_en' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=lang id='base:lang_cave_en' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=lang id='base:lang_crad_en' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=lang id='base:lang_crad_en' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=lang id='base:lang_cryp_en' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=lang id='base:lang_cryp_en' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=lang id='base:lang_dam_en' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=lang id='base:lang_dam_en' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=lang id='base:lang_depo_en' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=lang id='base:lang_depo_en' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=lang id='base:lang_dest_en' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=lang id='base:lang_dest_en' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=lang id='base:lang_dish_en' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=lang id='base:lang_dish_en' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=lang id='base:lang_ear_en' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=lang id='base:lang_ear_en' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=lang id='base:lang_eld_en' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=lang id='base:lang_eld_en' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=lang id='base:lang_gun_en' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=lang id='base:lang_gun_en' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=lang id='base:lang_imp_en' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=lang id='base:lang_imp_en' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=lang id='base:lang_jun_en' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=lang id='base:lang_jun_en' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=lang id='base:lang_lam_en' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=lang id='base:lang_lam_en' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=lang id='base:lang_lee_en' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=lang id='base:lang_lee_en' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=lang id='base:lang_len_en' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=lang id='base:lang_len_en' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=lang id='base:lang_lip_en' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=lang id='base:lang_lip_en' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=lang id='base:lang_lue_en' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=lang id='base:lang_lue_en' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=lang id='base:lang_misc_en' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=lang id='base:lang_misc_en' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=lang id='base:lang_mp1_en' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=lang id='base:lang_mp1_en' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=lang id='base:lang_mp10_en' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=lang id='base:lang_mp10_en' result=OK",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "ASSET\\.SOURCE_ONLY",
+      "has no public FileProvider source",
+      "result=FAIL",
+      "result=MISSING",
+      "RomProvider:filenum",
+      "refusing fallback"
+    ],
+    "required_counts": [
+      {
+        "pattern": "BOOT: --debug-load-catalog-assets result type=.* result=OK",
+        "min": 20,
+        "max": 20
+      }
+    ]
+  }
+}

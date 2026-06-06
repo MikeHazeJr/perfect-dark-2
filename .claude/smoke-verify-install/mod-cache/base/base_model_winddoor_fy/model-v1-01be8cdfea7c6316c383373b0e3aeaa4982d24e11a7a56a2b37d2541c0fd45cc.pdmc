@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 1,
+  "asset_id": "base:model_winddoor_fy",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_winddoor_fy.pdmesh::model.obj",
+  "source_size": 6778,
+  "source_sha256": "01be8cdfea7c6316c383373b0e3aeaa4982d24e11a7a56a2b37d2541c0fd45cc",
+  "validation": "format=obj vertices=102 triangles=34",
+  "normalized": "$S/mod-cache/base/base_model_winddoor_fy/model-v1-01be8cdfea7c6316c383373b0e3aeaa4982d24e11a7a56a2b37d2541c0fd45cc.pdmodel.json",
+  "vertex_count": 102,
+  "triangle_count": 34,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

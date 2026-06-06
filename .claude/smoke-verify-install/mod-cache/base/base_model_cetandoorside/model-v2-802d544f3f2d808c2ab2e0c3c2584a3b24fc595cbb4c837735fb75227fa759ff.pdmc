@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_cetandoorside",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_cetandoorside.pdmesh::model.obj",
+  "source_size": 3152,
+  "source_sha256": "802d544f3f2d808c2ab2e0c3c2584a3b24fc595cbb4c837735fb75227fa759ff",
+  "validation": "format=obj vertices=42 triangles=14",
+  "normalized": "$S/mod-cache/base/base_model_cetandoorside/model-v2-802d544f3f2d808c2ab2e0c3c2584a3b24fc595cbb4c837735fb75227fa759ff.pdmodel.json",
+  "vertex_count": 42,
+  "triangle_count": 14,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

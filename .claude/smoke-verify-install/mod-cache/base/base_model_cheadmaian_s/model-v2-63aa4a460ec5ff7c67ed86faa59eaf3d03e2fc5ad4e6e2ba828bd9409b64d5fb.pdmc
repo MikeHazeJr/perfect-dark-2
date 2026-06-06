@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_cheadmaian_s",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_cheadmaian_s.pdmesh::model.obj",
+  "source_size": 53685,
+  "source_sha256": "63aa4a460ec5ff7c67ed86faa59eaf3d03e2fc5ad4e6e2ba828bd9409b64d5fb",
+  "validation": "format=obj vertices=813 triangles=271",
+  "normalized": "$S/mod-cache/base/base_model_cheadmaian_s/model-v2-63aa4a460ec5ff7c67ed86faa59eaf3d03e2fc5ad4e6e2ba828bd9409b64d5fb.pdmodel.json",
+  "vertex_count": 813,
+  "triangle_count": 271,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

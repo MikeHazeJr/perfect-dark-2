@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_calaskan_guard",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_calaskan_guard.pdmesh::model.obj",
+  "source_size": 137977,
+  "source_sha256": "888b907caa59b39f4173a74d74bb9f1e428aed355131c4f698bffa3a9780ba6b",
+  "validation": "format=obj vertices=2025 triangles=675",
+  "normalized": "$S/mod-cache/base/base_model_calaskan_guard/model-v2-888b907caa59b39f4173a74d74bb9f1e428aed355131c4f698bffa3a9780ba6b.pdmodel.json",
+  "vertex_count": 2025,
+  "triangle_count": 675,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

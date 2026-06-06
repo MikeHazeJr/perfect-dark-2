@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 1,
+  "asset_id": "base:model_cheaddark_combat",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_cheaddark_combat.pdmesh::model.obj",
+  "source_size": 62720,
+  "source_sha256": "2d50dd01d2cfdd7c8fb6c11a13df3fc6ce28be48c3a117fdcebb92281e40a3aa",
+  "validation": "format=obj vertices=966 triangles=322",
+  "normalized": "$S/mod-cache/base/base_model_cheaddark_combat/model-v1-2d50dd01d2cfdd7c8fb6c11a13df3fc6ce28be48c3a117fdcebb92281e40a3aa.pdmodel.json",
+  "vertex_count": 966,
+  "triangle_count": 322,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

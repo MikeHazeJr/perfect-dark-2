@@ -1,0 +1,131 @@
+{
+  "scenario_name": "all_family_source_matrix_batch_087",
+  "BugId": "B-509",
+  "category": "modding",
+  "description": "c3844 runtime matrix smoke: source-only catalog load batch 87 for extracted non-Scenario public typed archives. Missing debug-load request/result blocks are B-509 harness observability failures.",
+  "tags": [
+    "modding",
+    "pdxxx",
+    "source-gate",
+    "source-matrix",
+    "all-family",
+    "c3844",
+    "smoke",
+    "pillar:modding"
+  ],
+  "paths_of_interest": [
+    "port/src/main.c",
+    "port/src/asset_source_debug.c",
+    "port/src/assetcatalog_load.c",
+    "tools/smoke-verify/run-all-family-source-matrix.ps1",
+    "tools/smoke-verify/fixtures/all_family_source_pd.ini"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 180,
+  "install_state": "clean",
+  "fixtures": [
+    {
+      "src": "tools/smoke-verify/fixtures/all_family_source_pd.ini",
+      "dst": "pd.ini"
+    },
+    {
+      "src": "tools/smoke-verify/fixtures/no_mods_enabled.json",
+      "dst": "mods-enabled.json"
+    }
+  ],
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--portable",
+    "--debug-load-catalog-assets-source-only",
+    "--debug-load-catalog-assets",
+    "model=base:model_cidoor1,model=base:model_cihub,model=base:model_cjonathon,model=base:model_clabtech,model=base:model_cmaian_soldier,model=base:model_cminiskedar,model=base:model_cmoore,model=base:model_cmp150_hi,model=base:model_cmp150lod_lo,model=base:model_cmrblonde,model=base:model_cnegotiator,model=base:model_cnsa_lackey,model=base:model_cofficeworker,model=base:model_cofficeworker2,model=base:model_combathandslod_hand,model=base:model_combathandslod_hi,model=base:model_combathandslod_lo,model=base:model_comhub,model=base:model_commsuplink_hi,model=base:model_commsuplink_lo"
+  ],
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait",
+      "comment": "catalog bootstrap extracts and walks base typed archives before source-only typed-load requests fire."
+    },
+    {
+      "at_ms": 35000,
+      "type": "exit",
+      "comment": "exit after all requested typed assets have loaded or emitted source-only failures."
+    }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=all_family_source_matrix_batch_087",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_cidoor1' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_cidoor1' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_cihub' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_cihub' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_cjonathon' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_cjonathon' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_clabtech' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_clabtech' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_cmaian_soldier' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_cmaian_soldier' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_cminiskedar' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_cminiskedar' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_cmoore' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_cmoore' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_cmp150_hi' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_cmp150_hi' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_cmp150lod_lo' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_cmp150lod_lo' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_cmrblonde' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_cmrblonde' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_cnegotiator' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_cnegotiator' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_cnsa_lackey' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_cnsa_lackey' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_cofficeworker' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_cofficeworker' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_cofficeworker2' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_cofficeworker2' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_combathandslod_hand' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_combathandslod_hand' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_combathandslod_hi' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_combathandslod_hi' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_combathandslod_lo' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_combathandslod_lo' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_comhub' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_comhub' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_commsuplink_hi' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_commsuplink_hi' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_commsuplink_lo' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_commsuplink_lo' result=OK",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "ASSET\\.SOURCE_ONLY",
+      "has no public FileProvider source",
+      "--debug-load-catalog-assets invalid token",
+      "--debug-load-catalog-assets token '.*' missing type=id form",
+      "--debug-load-catalog-assets argument too long",
+      "result=FAIL",
+      "result=MISSING",
+      "RomProvider:filenum",
+      "refusing fallback"
+    ],
+    "required_counts": [
+      {
+        "pattern": "BOOT: --debug-load-catalog-assets request type=.* source_only=1",
+        "min": 20,
+        "max": 20
+      },
+      {
+        "pattern": "BOOT: --debug-load-catalog-assets result type=.* result=OK",
+        "min": 20,
+        "max": 20
+      }
+    ]
+  }
+}

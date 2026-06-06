@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_horiz_door_gl_cv",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_horiz_door_gl_cv.pdmesh::model.obj",
+  "source_size": 7889,
+  "source_sha256": "f1e24c23284c6b0d13583e43f5d6337ecbd0a88497b97a0ac0a4e78b6e1130c5",
+  "validation": "format=obj vertices=108 triangles=36",
+  "normalized": "$S/mod-cache/base/base_model_horiz_door_gl_cv/model-v2-f1e24c23284c6b0d13583e43f5d6337ecbd0a88497b97a0ac0a4e78b6e1130c5.pdmodel.json",
+  "vertex_count": 108,
+  "triangle_count": 36,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_shuttledoor",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_shuttledoor.pdmesh::model.obj",
+  "source_size": 4929,
+  "source_sha256": "12da5400391e18747c9c0fa243e43d519a1b6599c82b9ceae01bc6cc88ab3269",
+  "validation": "format=obj vertices=66 triangles=22",
+  "normalized": "$S/mod-cache/base/base_model_shuttledoor/model-v2-12da5400391e18747c9c0fa243e43d519a1b6599c82b9ceae01bc6cc88ab3269.pdmodel.json",
+  "vertex_count": 66,
+  "triangle_count": 22,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_sk_pillarright",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_sk_pillarright.pdmesh::model.obj",
+  "source_size": 17902,
+  "source_sha256": "05ac44e838e6b9b063999fe7aaba9ed3fc33da947e5f74bd1c05345c3b0182f2",
+  "validation": "format=obj vertices=240 triangles=80",
+  "normalized": "$S/mod-cache/base/base_model_sk_pillarright/model-v2-05ac44e838e6b9b063999fe7aaba9ed3fc33da947e5f74bd1c05345c3b0182f2.pdmodel.json",
+  "vertex_count": 240,
+  "triangle_count": 80,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

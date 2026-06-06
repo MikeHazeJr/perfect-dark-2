@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_door4a_g5",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_door4a_g5.pdmesh::model.obj",
+  "source_size": 10803,
+  "source_sha256": "dfa56eac9f397fbb264d8043dc7dfaae4bdc950286f08d3d4dbd6ad2c79a8159",
+  "validation": "format=obj vertices=159 triangles=53",
+  "normalized": "$S/mod-cache/base/base_model_door4a_g5/model-v2-dfa56eac9f397fbb264d8043dc7dfaae4bdc950286f08d3d4dbd6ad2c79a8159.pdmodel.json",
+  "vertex_count": 159,
+  "triangle_count": 53,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

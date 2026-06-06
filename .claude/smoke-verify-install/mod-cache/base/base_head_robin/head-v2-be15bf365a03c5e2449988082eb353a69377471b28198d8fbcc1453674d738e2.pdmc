@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:head_robin",
+  "mod_id": "base",
+  "kind": "head",
+  "source": "data/ntsc-final/heads/base_head_robin.pdhead::mesh.pdmesh::model.obj",
+  "source_size": 35865,
+  "source_sha256": "be15bf365a03c5e2449988082eb353a69377471b28198d8fbcc1453674d738e2",
+  "validation": "format=obj vertices=549 triangles=183",
+  "normalized": "$S/mod-cache/base/base_head_robin/head-v2-be15bf365a03c5e2449988082eb353a69377471b28198d8fbcc1453674d738e2.pdmodel.json",
+  "vertex_count": 549,
+  "triangle_count": 183,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_pilotchair_afd",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_pilotchair_afd.pdmesh::model.obj",
+  "source_size": 8737,
+  "source_sha256": "d6c3a30a01fe1478fb72c6bb799f4ceb967215ae2836d2ab4f2fc8403c883824",
+  "validation": "format=obj vertices=120 triangles=40",
+  "normalized": "$S/mod-cache/base/base_model_pilotchair_afd/model-v2-d6c3a30a01fe1478fb72c6bb799f4ceb967215ae2836d2ab4f2fc8403c883824.pdmodel.json",
+  "vertex_count": 120,
+  "triangle_count": 40,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

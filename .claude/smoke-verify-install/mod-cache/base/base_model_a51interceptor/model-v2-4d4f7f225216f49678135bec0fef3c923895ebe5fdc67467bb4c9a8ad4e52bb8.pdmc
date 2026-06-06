@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_a51interceptor",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_a51interceptor.pdmesh::model.obj",
+  "source_size": 45561,
+  "source_sha256": "4d4f7f225216f49678135bec0fef3c923895ebe5fdc67467bb4c9a8ad4e52bb8",
+  "validation": "format=obj vertices=705 triangles=235",
+  "normalized": "$S/mod-cache/base/base_model_a51interceptor/model-v2-4d4f7f225216f49678135bec0fef3c923895ebe5fdc67467bb4c9a8ad4e52bb8.pdmodel.json",
+  "vertex_count": 705,
+  "triangle_count": 235,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_sk_fl_noshad_bl",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_sk_fl_noshad_bl.pdmesh::model.obj",
+  "source_size": 523,
+  "source_sha256": "71bcf16eeb6ce3974c2c3cfd949cedcd200d1e52c1df5d8b5d078437b4fcdd1d",
+  "validation": "format=obj vertices=6 triangles=2",
+  "normalized": "$S/mod-cache/base/base_model_sk_fl_noshad_bl/model-v2-71bcf16eeb6ce3974c2c3cfd949cedcd200d1e52c1df5d8b5d078437b4fcdd1d.pdmodel.json",
+  "vertex_count": 6,
+  "triangle_count": 2,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

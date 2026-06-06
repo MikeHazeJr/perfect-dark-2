@@ -1,0 +1,131 @@
+{
+  "scenario_name": "all_family_source_matrix_batch_091",
+  "BugId": "B-509",
+  "category": "modding",
+  "description": "c3844 runtime matrix smoke: source-only catalog load batch 91 for extracted non-Scenario public typed archives. Missing debug-load request/result blocks are B-509 harness observability failures.",
+  "tags": [
+    "modding",
+    "pdxxx",
+    "source-gate",
+    "source-matrix",
+    "all-family",
+    "c3844",
+    "smoke",
+    "pillar:modding"
+  ],
+  "paths_of_interest": [
+    "port/src/main.c",
+    "port/src/asset_source_debug.c",
+    "port/src/assetcatalog_load.c",
+    "tools/smoke-verify/run-all-family-source-matrix.ps1",
+    "tools/smoke-verify/fixtures/all_family_source_pd.ini"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 180,
+  "install_state": "clean",
+  "fixtures": [
+    {
+      "src": "tools/smoke-verify/fixtures/all_family_source_pd.ini",
+      "dst": "pd.ini"
+    },
+    {
+      "src": "tools/smoke-verify/fixtures/no_mods_enabled.json",
+      "dst": "mods-enabled.json"
+    }
+  ],
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--portable",
+    "--debug-load-catalog-assets-source-only",
+    "--debug-load-catalog-assets",
+    "model=base:model_doorconsole,model=base:model_dr_caroll_door_base,model=base:model_dr_caroll_door_bleft,model=base:model_dr_caroll_door_bmain,model=base:model_dr_caroll_door_bright,model=base:model_dr_caroll_door_left,model=base:model_dr_caroll_door_main,model=base:model_dr_caroll_door_right,model=base:model_dr_caroll_door,model=base:model_dr_nonref_bxe,model=base:model_dropship,model=base:model_druggun_hi,model=base:model_druggunlod_lo,model=base:model_dumpster,model=base:model_dy357_hi,model=base:model_dy357lod_lo,model=base:model_dy357trent_hi,model=base:model_dy357trentlod_lo,model=base:model_dydevastator_hi,model=base:model_dydragon_hi"
+  ],
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait",
+      "comment": "catalog bootstrap extracts and walks base typed archives before source-only typed-load requests fire."
+    },
+    {
+      "at_ms": 35000,
+      "type": "exit",
+      "comment": "exit after all requested typed assets have loaded or emitted source-only failures."
+    }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=all_family_source_matrix_batch_091",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_doorconsole' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_doorconsole' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_dr_caroll_door_base' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_dr_caroll_door_base' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_dr_caroll_door_bleft' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_dr_caroll_door_bleft' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_dr_caroll_door_bmain' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_dr_caroll_door_bmain' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_dr_caroll_door_bright' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_dr_caroll_door_bright' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_dr_caroll_door_left' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_dr_caroll_door_left' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_dr_caroll_door_main' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_dr_caroll_door_main' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_dr_caroll_door_right' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_dr_caroll_door_right' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_dr_caroll_door' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_dr_caroll_door' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_dr_nonref_bxe' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_dr_nonref_bxe' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_dropship' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_dropship' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_druggun_hi' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_druggun_hi' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_druggunlod_lo' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_druggunlod_lo' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_dumpster' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_dumpster' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_dy357_hi' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_dy357_hi' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_dy357lod_lo' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_dy357lod_lo' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_dy357trent_hi' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_dy357trent_hi' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_dy357trentlod_lo' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_dy357trentlod_lo' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_dydevastator_hi' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_dydevastator_hi' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=model id='base:model_dydragon_hi' source_only=1",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_dydragon_hi' result=OK",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "ASSET\\.SOURCE_ONLY",
+      "has no public FileProvider source",
+      "--debug-load-catalog-assets invalid token",
+      "--debug-load-catalog-assets token '.*' missing type=id form",
+      "--debug-load-catalog-assets argument too long",
+      "result=FAIL",
+      "result=MISSING",
+      "RomProvider:filenum",
+      "refusing fallback"
+    ],
+    "required_counts": [
+      {
+        "pattern": "BOOT: --debug-load-catalog-assets request type=.* source_only=1",
+        "min": 20,
+        "max": 20
+      },
+      {
+        "pattern": "BOOT: --debug-load-catalog-assets result type=.* result=OK",
+        "min": 20,
+        "max": 20
+      }
+    ]
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 1,
+  "asset_id": "base:model_dropship",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_dropship.pdmesh::model.obj",
+  "source_size": 190806,
+  "source_sha256": "84e38d65083f74cc77f5b2eb895ed04b7b47ff9d9b2db5bcb47c5c4f4720e0b5",
+  "validation": "format=obj vertices=2691 triangles=897",
+  "normalized": "$S/mod-cache/base/base_model_dropship/model-v1-84e38d65083f74cc77f5b2eb895ed04b7b47ff9d9b2db5bcb47c5c4f4720e0b5.pdmodel.json",
+  "vertex_count": 2691,
+  "triangle_count": 897,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

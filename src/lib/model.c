@@ -19,6 +19,7 @@
 #include "lib/model.h"
 #include "data.h"
 #include "types.h"
+#include "modasset_compiler.h"
 #include "model_rodata_guard.h" /* S483b: per-tick rodata-validity guard */
 #include "game/surface_loco.h"  /* S594h-B Slice 2: chr root tilt to surface up */
 
@@ -3348,6 +3349,7 @@ void modelRenderNodeDl(struct modelrenderdata *renderdata, struct model *model, 
 		union modelrwdata *rwdata = modelGetNodeRwData(model, node);
 
 		if (rwdata->dl.gdl) {
+			modAssetCompilerTraceGeneratedModeldefRender(model->definition, node);
 			gSPSegment(renderdata->gdl++, SPSEGMENT_MODEL_COL1, osVirtualToPhysical(rodata->dl.colours));
 
 			if (renderdata->cullmode) {

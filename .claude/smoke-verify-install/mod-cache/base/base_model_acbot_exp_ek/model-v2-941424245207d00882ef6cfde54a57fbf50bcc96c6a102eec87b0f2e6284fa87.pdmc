@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_acbot_exp_ek",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_acbot_exp_ek.pdmesh::model.obj",
+  "source_size": 10539,
+  "source_sha256": "941424245207d00882ef6cfde54a57fbf50bcc96c6a102eec87b0f2e6284fa87",
+  "validation": "format=obj vertices=144 triangles=48",
+  "normalized": "$S/mod-cache/base/base_model_acbot_exp_ek/model-v2-941424245207d00882ef6cfde54a57fbf50bcc96c6a102eec87b0f2e6284fa87.pdmodel.json",
+  "vertex_count": 144,
+  "triangle_count": 48,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

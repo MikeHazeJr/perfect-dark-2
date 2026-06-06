@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:a51trooper",
+  "mod_id": "base",
+  "kind": "body",
+  "source": "data/ntsc-final/bodies/base_a51trooper.pdbody::mesh.pdmesh::model.obj",
+  "source_size": 130737,
+  "source_sha256": "d65a2b3816ccf2a22fd9697285bc3e5fd5bc333cd56fe26a71389d56c83659df",
+  "validation": "format=obj vertices=1923 triangles=641",
+  "normalized": "$S/mod-cache/base/base_a51trooper/body-v2-d65a2b3816ccf2a22fd9697285bc3e5fd5bc333cd56fe26a71389d56c83659df.pdmodel.json",
+  "vertex_count": 1923,
+  "triangle_count": 641,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

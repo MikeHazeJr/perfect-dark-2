@@ -1,0 +1,66 @@
+{
+  "Name": "weapon_match_source_gate_smoke",
+  "Category": "scenario",
+  "BugId": null,
+  "RegressionFor": null,
+  "Passed": false,
+  "ExitCode": -1073741819,
+  "ElapsedSeconds": 29.7678541,
+  "InstallDir": "C:\\Users\\mikeh\\Perfect-Dark-2\\perfect_dark-mike\\.claude\\smoke-verify-install",
+  "AssertionsTotal": 43,
+  "AssertionsMet": 30,
+  "Failures": [
+    {
+      "Kind": "required_line_missing",
+      "Pattern": "MODELDEF\\.SOURCE: loaded catalog model source type=23 filenum=843 id=base:model_chrdy357"
+    },
+    {
+      "Kind": "required_line_missing",
+      "Pattern": "MODELDEF\\.SOURCE: loaded catalog model source type=23 filenum=253 id=base:model_taxicab"
+    },
+    {
+      "Kind": "required_line_missing",
+      "Pattern": "MODASSET\\.COMPILER: built generated modeldef 'base:model_taxicab' source=.*base_model_taxicab\\.pdmesh::model\\.obj.*texcoords=[1-9]\\d* uv_vertices=[1-9]\\d* materials=[1-9]\\d* textured_materials=[1-9]\\d* material_switches=[1-9]\\d* tris=262"
+    },
+    {
+      "Kind": "required_line_missing",
+      "Pattern": "BONDGUN\\.SOURCE: loaded catalog model source filenum=890 id=base:model_dy357_hi path=.*base_model_dy357_hi\\.pdmesh::model\\.obj"
+    },
+    {
+      "Kind": "required_line_missing",
+      "Pattern": "MODASSET\\.COMPILER: built generated modeldef 'base:model_dy357_hi' source=.*base_model_dy357_hi\\.pdmesh::model\\.obj.*texcoords=[1-9]\\d* uv_vertices=[1-9]\\d* materials=[1-9]\\d* textured_materials=[1-9]\\d* material_switches=[1-9]\\d* tris=404"
+    },
+    {
+      "Kind": "required_line_missing",
+      "Pattern": "MODASSET\\.RENDER: generated source modeldef rendered id=base:model_dy357_hi source=.*base_model_dy357_hi\\.pdmesh::model\\.obj.*tris=404"
+    },
+    {
+      "Kind": "required_line_missing",
+      "Pattern": "BOOT: --debug-force-first-person active: stagenum=0x1d frame=\\d+ before=\\d+ after=0 frames=900"
+    },
+    {
+      "Kind": "required_line_missing",
+      "Pattern": "LOG\\.WPN\\.DIAG: playerRenderHud branch=fp_render cameramode=0"
+    },
+    {
+      "Kind": "required_line_missing",
+      "Pattern": "LOG\\.WPN\\.DIAG: bgunRender enter player=0 .* R\\(wpn=8 visible=1 inuse=1 .* gunctrl_wpn=8 switchto=-1 .* R_gunmodel_def=(?:0x)?0*[1-9a-fA-F][0-9a-fA-F]*"
+    },
+    {
+      "Kind": "required_line_missing",
+      "Pattern": "SPAWN\\.WEAPON: player=0 weapon=8 shortname=19540 name=19468 primary_name=19541 secondary_name=19550"
+    },
+    {
+      "Kind": "required_line_missing",
+      "Pattern": "SPAWN: player 0 spawned with weapon 8 \\(DY357\\)"
+    },
+    {
+      "Kind": "required_line_missing",
+      "Pattern": "LOAD: lv\\.c entering stage load sequence for stagenum=0x1d"
+    },
+    {
+      "Kind": "required_line_missing",
+      "Pattern": "SMOKE: result=scripted_exit"
+    }
+  ]
+}

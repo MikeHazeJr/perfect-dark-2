@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_prescapsule",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_prescapsule.pdmesh::model.obj",
+  "source_size": 35434,
+  "source_sha256": "49bc4bf5d2ff6b9cd10a218561a32604426c36a0832b08822b8b8aa2e622bf2d",
+  "validation": "format=obj vertices=513 triangles=171",
+  "normalized": "$S/mod-cache/base/base_model_prescapsule/model-v2-49bc4bf5d2ff6b9cd10a218561a32604426c36a0832b08822b8b8aa2e622bf2d.pdmodel.json",
+  "vertex_count": 513,
+  "triangle_count": 171,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_hovcab_es",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_hovcab_es.pdmesh::model.obj",
+  "source_size": 10830,
+  "source_sha256": "e5224f5680c6b6e8b5f16f8b677b66a49d5de5f7e6fca4f86aa1094022d895dd",
+  "validation": "format=obj vertices=168 triangles=56",
+  "normalized": "$S/mod-cache/base/base_model_hovcab_es/model-v2-e5224f5680c6b6e8b5f16f8b677b66a49d5de5f7e6fca4f86aa1094022d895dd.pdmodel.json",
+  "vertex_count": 168,
+  "triangle_count": 56,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

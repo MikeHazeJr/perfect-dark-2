@@ -63,9 +63,9 @@
 #define ROMEXTRACT_PDMESH_MODEL_VMA 0x05000000u
 #define ROMEXTRACT_PDMESH_MTX_STACK_CAP 11
 #define ROMEXTRACT_PDMESH_NODE_DEPTH_CAP 2048
-#define ROMEXTRACT_PDMESH_OBJ_EXPORT_VERSION_LABEL "model_obj_mtx_v9_skeleton"
+#define ROMEXTRACT_PDMESH_OBJ_EXPORT_VERSION_LABEL "model_obj_mtx_v10_materials"
 #define ROMEXTRACT_PDMESH_OBJ_EXPORT_VERSION ROMEXTRACT_PDMESH_OBJ_EXPORT_VERSION_LABEL "\n"
-#define ROMEXTRACT_PDMESH_FAST_CACHE_KIND "pdmesh_model_obj_mtx_v11_skeleton_allmodels_menuhud"
+#define ROMEXTRACT_PDMESH_FAST_CACHE_KIND "pdmesh_model_obj_mtx_v12_materials_allmodels_menuhud"
 extern u16 g_CartFileNums[];
 static u16 s_SeenFilenums[ROMEXTRACT_PDMESH_SEEN_CAP];
 static s32 s_SeenCount;
@@ -194,12 +194,32 @@ static s32 s_textbufAppendf(pdmesh_textbuf_t *b, const char *fmt, ...)
 }
 
 typedef struct {
+	char name[64];
+	char texture_catalog_id[128];
+	char secondary_texture_catalog_id[128];
+	s32 texnum;
+	s32 texnum2;
+	s32 subcmd;
+	s32 smode;
+	s32 tmode;
+	s32 offset;
+	s32 shifts;
+	s32 shiftt;
+	s32 min;
+	s32 flag;
+	u32 w0;
+	u32 w1;
+	u32 triangle_count;
+} pdmesh_obj_material_t;
+
+typedef struct {
 	const u8       *base;
 	u32             size;
 	struct modeldef *modeldef;
 	u16             source_filenum;
 	s32             static_gun_model;
 	pdmesh_textbuf_t *obj;
+	pdmesh_textbuf_t *mtl;
 	u32             next_index;
 	u32             triangle_count;
 	u32             gdl_count;
@@ -218,6 +238,12 @@ typedef struct {
 	s32             model_matrix_count;
 	f32             mtx_stack[ROMEXTRACT_PDMESH_MTX_STACK_CAP][4][4];
 	s32             mtx_stack_size;
+	pdmesh_obj_material_t *materials;
+	u32             material_count;
+	u32             material_cap;
+	s32             current_material;
+	s32             emitted_material;
+	u32             material_switch_count;
 } pdmesh_obj_export_t;
 
 typedef struct {
@@ -235,6 +261,9 @@ typedef struct {
 	u32 mtx_bad_addr_count;
 	u32 transformed_vertex_count;
 	char skeleton_symbol[64];
+	u32 material_count;
+	u32 textured_material_count;
+	u32 material_switch_count;
 } pdmesh_obj_stats_t;
 
 static s32 s_ptrInModel(const pdmesh_obj_export_t *ctx, const void *ptr,
@@ -703,6 +732,218 @@ static void s_objApplyMtxCommand(pdmesh_obj_export_t *ctx,
 	}
 }
 
+static void s_objMaterialNameFromCatalog(const char *catalog_id, u32 ordinal,
+                                         char *out, size_t out_n)
+{
+	char alpha[24];
+	char slug[48];
+	size_t j = 0;
+
+	if (!out || out_n == 0) {
+		return;
+	}
+
+	out[0] = '\0';
+	catalogReadableAlphaOrdinal((s32)ordinal, alpha, sizeof(alpha));
+
+	if (catalog_id) {
+		for (size_t i = 0; catalog_id[i] && j + 1 < sizeof(slug); i++) {
+			u8 c = (u8)catalog_id[i];
+			if (isalnum(c)) {
+				slug[j++] = (char)tolower(c);
+			} else if (j > 0 && slug[j - 1] != '_') {
+				slug[j++] = '_';
+			}
+		}
+	}
+	while (j > 0 && slug[j - 1] == '_') {
+		j--;
+	}
+	slug[j] = '\0';
+
+	snprintf(out, out_n, "mat_%s_%s", alpha, slug[0] ? slug : "texture");
+}
+
+static s32 s_objReserveMaterials(pdmesh_obj_export_t *ctx, u32 add)
+{
+	pdmesh_obj_material_t *p;
+	u32 need;
+	u32 cap;
+
+	if (!ctx || add > 0xffffffffu - ctx->material_count) {
+		return -1;
+	}
+
+	need = ctx->material_count + add;
+	if (need <= ctx->material_cap) {
+		return 0;
+	}
+
+	cap = ctx->material_cap ? ctx->material_cap : 8;
+	while (cap < need) {
+		if (cap > 0x80000000u) {
+			return -1;
+		}
+		cap *= 2;
+	}
+
+	p = (pdmesh_obj_material_t *)realloc(ctx->materials,
+		(size_t)cap * sizeof(*ctx->materials));
+	if (!p) {
+		return -1;
+	}
+
+	memset(p + ctx->material_cap, 0,
+		(size_t)(cap - ctx->material_cap) * sizeof(*p));
+	ctx->materials = p;
+	ctx->material_cap = cap;
+	return 0;
+}
+
+static s32 s_objEnsureDefaultMaterial(pdmesh_obj_export_t *ctx)
+{
+	if (!ctx) {
+		return -1;
+	}
+
+	for (u32 i = 0; i < ctx->material_count; i++) {
+		if (strcmp(ctx->materials[i].name, "pd_default") == 0) {
+			return (s32)i;
+		}
+	}
+
+	if (s_objReserveMaterials(ctx, 1) != 0) {
+		return -1;
+	}
+
+	pdmesh_obj_material_t *m = &ctx->materials[ctx->material_count];
+	memset(m, 0, sizeof(*m));
+	strncpy(m->name, "pd_default", sizeof(m->name) - 1);
+	m->name[sizeof(m->name) - 1] = '\0';
+	m->texnum = -1;
+	m->texnum2 = -1;
+	m->subcmd = -1;
+	ctx->material_count++;
+	return (s32)(ctx->material_count - 1u);
+}
+
+static s32 s_objEnsureTextureMaterial(pdmesh_obj_export_t *ctx, s32 texnum,
+                                      s32 texnum2, s32 subcmd,
+                                      u32 w0, u32 w1)
+{
+	s32 smode = (s32)((w0 >> 22) & 3u);
+	s32 tmode = (s32)((w0 >> 20) & 3u);
+	s32 offset = (s32)((w0 >> 18) & 3u);
+	s32 shifts = (s32)((w0 >> 14) & 0x0fu);
+	s32 shiftt = (s32)((w0 >> 10) & 0x0fu);
+	s32 min = (s32)((w1 >> 24) & 0xffu);
+	s32 flag = (w0 & 0x200u) ? 1 : 0;
+
+	if (!ctx || texnum < 0 || texnum >= NUM_TEXTURES) {
+		return -1;
+	}
+
+	for (u32 i = 0; i < ctx->material_count; i++) {
+		pdmesh_obj_material_t *m = &ctx->materials[i];
+		if (m->texnum == texnum && m->texnum2 == texnum2 &&
+		    m->subcmd == subcmd && m->w0 == w0 && m->w1 == w1) {
+			return (s32)i;
+		}
+	}
+
+	if (s_objReserveMaterials(ctx, 1) != 0) {
+		return -1;
+	}
+
+	pdmesh_obj_material_t *m = &ctx->materials[ctx->material_count];
+	memset(m, 0, sizeof(*m));
+	m->texnum = texnum;
+	m->texnum2 = texnum2;
+	m->subcmd = subcmd;
+	m->smode = smode;
+	m->tmode = tmode;
+	m->offset = offset;
+	m->shifts = shifts;
+	m->shiftt = shiftt;
+	m->min = min;
+	m->flag = flag;
+	m->w0 = w0;
+	m->w1 = w1;
+
+	catalogReadableTextureId(texnum, m->texture_catalog_id,
+		sizeof(m->texture_catalog_id));
+	if (texnum2 >= 0 && texnum2 < NUM_TEXTURES) {
+		catalogReadableTextureId(texnum2, m->secondary_texture_catalog_id,
+			sizeof(m->secondary_texture_catalog_id));
+	}
+	s_objMaterialNameFromCatalog(m->texture_catalog_id,
+		ctx->material_count, m->name, sizeof(m->name));
+
+	ctx->material_count++;
+	return (s32)(ctx->material_count - 1u);
+}
+
+static s32 s_objFinalizeMaterials(pdmesh_obj_export_t *ctx)
+{
+	if (!ctx || !ctx->mtl) {
+		return -1;
+	}
+	if (ctx->material_count == 0 &&
+			s_objEnsureDefaultMaterial(ctx) < 0) {
+		return -1;
+	}
+
+	if (s_textbufAppend(ctx->mtl,
+			"# Perfect Dark 2 base model material export\n") != 0) {
+		return -1;
+	}
+
+	for (u32 i = 0; i < ctx->material_count; i++) {
+		const pdmesh_obj_material_t *m = &ctx->materials[i];
+		if (s_textbufAppendf(ctx->mtl,
+				"\nnewmtl %s\n"
+				"Kd 1.000000 1.000000 1.000000\n"
+				"Ka 0.150000 0.150000 0.150000\n"
+				"Ks 0.000000 0.000000 0.000000\n"
+				"d 1.000000\n",
+				m->name) != 0) {
+			return -1;
+		}
+
+		if (m->texture_catalog_id[0]) {
+			if (s_textbufAppendf(ctx->mtl,
+					"pd_texture_catalog = %s\n"
+					"pd_texture_subcmd = %d\n"
+					"pd_texture_smode = %d\n"
+					"pd_texture_tmode = %d\n"
+					"pd_texture_offset = %d\n"
+					"pd_texture_shifts = %d\n"
+					"pd_texture_shiftt = %d\n"
+					"pd_texture_min = %d\n"
+					"pd_texture_flag = %d\n",
+					m->texture_catalog_id,
+					m->subcmd,
+					m->smode,
+					m->tmode,
+					m->offset,
+					m->shifts,
+					m->shiftt,
+					m->min,
+					m->flag) != 0) {
+				return -1;
+			}
+			if (m->secondary_texture_catalog_id[0] &&
+					s_textbufAppendf(ctx->mtl,
+						"pd_secondary_texture_catalog = %s\n",
+						m->secondary_texture_catalog_id) != 0) {
+				return -1;
+			}
+		}
+	}
+
+	return 0;
+}
+
 static s32 s_objEmitTri(pdmesh_obj_export_t *ctx,
                         const Vtx *a, const Vtx *b, const Vtx *c)
 {
@@ -718,6 +959,23 @@ static s32 s_objEmitTri(pdmesh_obj_export_t *ctx,
 	u32 i0 = ctx->next_index++;
 	u32 i1 = ctx->next_index++;
 	u32 i2 = ctx->next_index++;
+	s32 material_index = ctx->current_material;
+	if (material_index < 0 ||
+			(u32)material_index >= ctx->material_count) {
+		material_index = s_objEnsureDefaultMaterial(ctx);
+		if (material_index < 0) {
+			return -1;
+		}
+		ctx->current_material = material_index;
+	}
+	if (ctx->emitted_material != material_index) {
+		const pdmesh_obj_material_t *m = &ctx->materials[material_index];
+		if (s_textbufAppendf(ctx->obj, "usemtl %s\n", m->name) != 0) {
+			return -1;
+		}
+		ctx->emitted_material = material_index;
+		ctx->material_switch_count++;
+	}
 	if (s_textbufAppendf(ctx->obj,
 			"v %.6f %.6f %.6f\n"
 			"v %.6f %.6f %.6f\n"
@@ -738,6 +996,7 @@ static s32 s_objEmitTri(pdmesh_obj_export_t *ctx,
 		return -1;
 	}
 	ctx->triangle_count++;
+	ctx->materials[material_index].triangle_count++;
 	ctx->transformed_vertex_count += 3;
 	return 0;
 }
@@ -762,6 +1021,24 @@ static s32 s_exportGdlToObj(pdmesh_obj_export_t *ctx, Gfx *raw_gdl,
 		u8 cmd = (u8)((w0 >> 24) & 0xff);
 
 		if (cmd == (u8)G_ENDDL) break;
+
+		if (cmd == (u8)G_NOOP) {
+			s32 texnum = (s32)(w1 & 0xfffu);
+			s32 texnum2 = -1;
+			s32 subcmd = (s32)gdl[cmdidx].unkc0.subcmd;
+			if (subcmd == 1) {
+				texnum2 = (s32)((w1 >> 12) & 0xfffu);
+			}
+			if (texnum >= 0 && texnum < NUM_TEXTURES) {
+				s32 mat = s_objEnsureTextureMaterial(ctx, texnum,
+					(texnum2 >= 0 && texnum2 < NUM_TEXTURES) ? texnum2 : -1,
+					subcmd, w0, w1);
+				if (mat >= 0) {
+					ctx->current_material = mat;
+				}
+			}
+			continue;
+		}
 
 		if (cmd == (u8)G_DL) {
 			Gfx *child = (Gfx *)(((uintptr_t)w1) & ~(uintptr_t)1);
@@ -989,9 +1266,10 @@ static s32 s_modeldefOffsetsLookPromotable(const struct modeldef *modeldef,
 static s32 s_buildModelObj(const u8 *src, u32 src_size,
                            u32 loadtype, u16 source_filenum,
                            pdmesh_textbuf_t *obj,
+                           pdmesh_textbuf_t *mtl,
                            pdmesh_obj_stats_t *out_stats)
 {
-	if (!src || src_size < sizeof(struct modeldef)) return -1;
+	if (!src || src_size < sizeof(struct modeldef) || !obj || !mtl) return -1;
 
 	u8 *copy = (u8 *)malloc(src_size);
 	if (!copy) return -1;
@@ -1012,8 +1290,7 @@ static s32 s_buildModelObj(const u8 *src, u32 src_size,
 
 	if (s_textbufAppend(obj,
 			"# Perfect Dark 2 base model export\n"
-			"mtllib model.mtl\n"
-			"usemtl pd_default\n") != 0) {
+			"mtllib model.mtl\n") != 0) {
 		free(copy);
 		return -1;
 	}
@@ -1026,7 +1303,14 @@ static s32 s_buildModelObj(const u8 *src, u32 src_size,
 	ctx.source_filenum = source_filenum;
 	ctx.static_gun_model = loadtype == LOADTYPE_GUN;
 	ctx.obj = obj;
+	ctx.mtl = mtl;
 	ctx.next_index = 1;
+	ctx.current_material = s_objEnsureDefaultMaterial(&ctx);
+	ctx.emitted_material = -1;
+	if (ctx.current_material < 0) {
+		free(copy);
+		return -1;
+	}
 	ctx.mtx_stack_size = 1;
 	s_objMtxIdentity(ctx.mtx_stack[0]);
 	if (modeldef->nummatrices > 0) {
@@ -1034,6 +1318,7 @@ static s32 s_buildModelObj(const u8 *src, u32 src_size,
 			sizeof(*ctx.model_matrices);
 		ctx.model_matrices = (f32 (*)[4][4])malloc(matrix_bytes);
 		if (!ctx.model_matrices) {
+			free(ctx.materials);
 			free(copy);
 			return -1;
 		}
@@ -1048,11 +1333,19 @@ static s32 s_buildModelObj(const u8 *src, u32 src_size,
 	if (modeldef->rootnode &&
 			s_exportNodeObj(&ctx, modeldef->rootnode, 0) != 0) {
 		if (ctx.model_matrices) free(ctx.model_matrices);
+		free(ctx.materials);
+		free(copy);
+		return -1;
+	}
+	if (s_objFinalizeMaterials(&ctx) != 0) {
+		if (ctx.model_matrices) free(ctx.model_matrices);
+		free(ctx.materials);
 		free(copy);
 		return -1;
 	}
 
 	if (out_stats) {
+		memset(out_stats, 0, sizeof(*out_stats));
 		out_stats->triangle_count = ctx.triangle_count;
 		out_stats->gdl_count = ctx.gdl_count;
 		out_stats->vtx_cmd_count = ctx.vtx_cmd_count;
@@ -1066,6 +1359,13 @@ static s32 s_buildModelObj(const u8 *src, u32 src_size,
 		out_stats->mtx_model_ref_count = ctx.mtx_model_ref_count;
 		out_stats->mtx_bad_addr_count = ctx.mtx_bad_addr_count;
 		out_stats->transformed_vertex_count = ctx.transformed_vertex_count;
+		out_stats->material_count = ctx.material_count;
+		out_stats->material_switch_count = ctx.material_switch_count;
+		for (u32 i = 0; i < ctx.material_count; i++) {
+			if (ctx.materials[i].texture_catalog_id[0]) {
+				out_stats->textured_material_count++;
+			}
+		}
 		const char *skeleton_symbol =
 			modAssetCompilerSkeletonSymbolForPointer(modeldef->skel);
 		if (skeleton_symbol) {
@@ -1076,6 +1376,7 @@ static s32 s_buildModelObj(const u8 *src, u32 src_size,
 		}
 	}
 	if (ctx.model_matrices) free(ctx.model_matrices);
+	free(ctx.materials);
 	free(copy);
 	return 0;
 }
@@ -1278,14 +1579,17 @@ static s32 s_emitOneMesh(u16 filenum, const char *hint_suffix,
 	}
 
 	pdmesh_textbuf_t obj_buf;
+	pdmesh_textbuf_t mtl_buf;
 	memset(&obj_buf, 0, sizeof(obj_buf));
+	memset(&mtl_buf, 0, sizeof(mtl_buf));
 	pdmesh_obj_stats_t stats;
 	memset(&stats, 0, sizeof(stats));
 	if (s_buildModelObj((const u8 *)model_bytes, model_size, loadtype,
-	                    filenum, &obj_buf, &stats) != 0 ||
+	                    filenum, &obj_buf, &mtl_buf, &stats) != 0 ||
 	    stats.triangle_count == 0) {
 		sysMemFree(model_bytes);
 		s_textbufFree(&obj_buf);
+		s_textbufFree(&mtl_buf);
 		sysLogPrintf(LOG_WARNING,
 			"romextract pdmesh: OBJ export produced no triangles for filenum=0x%04x (rel=\"%s\", gdls=%u vtxcmds=%u vtxslots=%u mtxcmds=%u mtxrefs=%u tricmds=%u triattempts=%u trimiss=%u badvtxaddr=%u badmtxaddr=%u)",
 			(unsigned)filenum, src_rel, (unsigned)stats.gdl_count,
@@ -1299,25 +1603,20 @@ static s32 s_emitOneMesh(u16 filenum, const char *hint_suffix,
 		return -1;
 	}
 	sysLogPrintf(LOG_NOTE,
-		"romextract pdmesh: exported filenum=0x%04x loadtype=%u tris=%u gdls=%u mtxcmds=%u mtxrefs=%u",
+		"romextract pdmesh: exported filenum=0x%04x loadtype=%u tris=%u gdls=%u materials=%u textured_materials=%u material_switches=%u mtxcmds=%u mtxrefs=%u",
 		(unsigned)filenum, (unsigned)loadtype,
 		(unsigned)stats.triangle_count, (unsigned)stats.gdl_count,
+		(unsigned)stats.material_count,
+		(unsigned)stats.textured_material_count,
+		(unsigned)stats.material_switch_count,
 		(unsigned)stats.mtx_cmd_count,
 		(unsigned)stats.mtx_model_ref_count);
 	sysMemFree(model_bytes);
 
-	const char mtl_buf[] =
-		"newmtl pd_default\n"
-		"Kd 0.8 0.8 0.8\n"
-		"Ka 0.2 0.2 0.2\n"
-		"Ks 0.0 0.0 0.0\n"
-		"d 1.0\n";
-	const u32 mtl_len = (u32)(sizeof(mtl_buf) - 1);
-
 	const char *sym_for_provenance = loaderEnumNameForFileEnum(filenum);
 
 	/* Build _meta/manifest.json text in memory. */
-	char manifest_buf[1280];
+	char manifest_buf[1536];
 	int manifest_len = snprintf(manifest_buf, sizeof(manifest_buf),
 		"{\n"
 		"  \"pd_kind\": \"mesh\",\n"
@@ -1331,6 +1630,9 @@ static s32 s_emitOneMesh(u16 filenum, const char *hint_suffix,
 		"  \"geometry\": \"model.obj\",\n"
 		"  \"material\": \"model.mtl\",\n"
 		"  \"triangle_count\": %u,\n"
+		"  \"material_count\": %u,\n"
+		"  \"textured_material_count\": %u,\n"
+		"  \"material_switch_count\": %u,\n"
 		"  \"display_list_count\": %u,\n"
 		"  \"matrix_command_count\": %u,\n"
 		"  \"model_matrix_reference_count\": %u\n"
@@ -1340,18 +1642,22 @@ static s32 s_emitOneMesh(u16 filenum, const char *hint_suffix,
 		stats.skeleton_symbol,
 		ROMEXTRACT_PDMESH_OBJ_EXPORT_VERSION_LABEL,
 		(unsigned)stats.triangle_count,
+		(unsigned)stats.material_count,
+		(unsigned)stats.textured_material_count,
+		(unsigned)stats.material_switch_count,
 		(unsigned)stats.gdl_count,
 		(unsigned)stats.mtx_cmd_count,
 		(unsigned)stats.mtx_model_ref_count);
 	if (manifest_len <= 0 || (size_t)manifest_len >= sizeof(manifest_buf)) {
 		s_textbufFree(&obj_buf);
+		s_textbufFree(&mtl_buf);
 		sysLoudFailf("EXTRACT.PDMESH",
 			"manifest.json snprintf truncated for filenum=0x%04x",
 			(unsigned)filenum);
 		return -1;
 	}
 
-	char ini_buf[896];
+	char ini_buf[1024];
 	int ini_len = snprintf(ini_buf, sizeof(ini_buf),
 		"[model]\n"
 		"catalog_id = %s\n"
@@ -1363,6 +1669,9 @@ static s32 s_emitOneMesh(u16 filenum, const char *hint_suffix,
 		"material_file = model.mtl\n"
 		"skeleton_symbol = %s\n"
 		"triangle_count = %u\n"
+		"material_count = %u\n"
+		"textured_material_count = %u\n"
+		"material_switch_count = %u\n"
 		"display_list_count = %u\n"
 		"matrix_command_count = %u\n"
 		"model_matrix_reference_count = %u\n"
@@ -1371,12 +1680,16 @@ static s32 s_emitOneMesh(u16 filenum, const char *hint_suffix,
 		ROMEXTRACT_PDMESH_OBJ_EXPORT_VERSION_LABEL,
 		stats.skeleton_symbol,
 		(unsigned)stats.triangle_count,
+		(unsigned)stats.material_count,
+		(unsigned)stats.textured_material_count,
+		(unsigned)stats.material_switch_count,
 		(unsigned)stats.gdl_count,
 		(unsigned)stats.mtx_cmd_count,
 		(unsigned)stats.mtx_model_ref_count,
 		sym_for_provenance ? sym_for_provenance : "");
 	if (ini_len <= 0 || (size_t)ini_len >= sizeof(ini_buf)) {
 		s_textbufFree(&obj_buf);
+		s_textbufFree(&mtl_buf);
 		sysLoudFailf("EXTRACT.PDMESH",
 			"mesh.ini snprintf truncated for filenum=0x%04x",
 			(unsigned)filenum);
@@ -1388,6 +1701,7 @@ static s32 s_emitOneMesh(u16 filenum, const char *hint_suffix,
 	const char *dst_full = fsFullPath(dst_rel, dst_full_buf, sizeof(dst_full_buf));
 	if (!dst_full || !dst_full[0]) {
 		s_textbufFree(&obj_buf);
+		s_textbufFree(&mtl_buf);
 		sysLoudFailf("EXTRACT.PDMESH",
 			"fsFullPath failed for \"%s\"", dst_rel);
 		return -1;
@@ -1395,6 +1709,7 @@ static s32 s_emitOneMesh(u16 filenum, const char *hint_suffix,
 	mod_archive_writer_t *aw = modArchiveBegin(dst_full);
 	if (!aw) {
 		s_textbufFree(&obj_buf);
+		s_textbufFree(&mtl_buf);
 		sysLoudFailf("EXTRACT.PDMESH",
 			"modArchiveBegin failed for \"%s\"", dst_full);
 		return -1;
@@ -1407,6 +1722,7 @@ static s32 s_emitOneMesh(u16 filenum, const char *hint_suffix,
 			"assetArchiveWriterInit failed for \"%s\"", dst_full);
 		modArchiveAbort(aw);
 		s_textbufFree(&obj_buf);
+		s_textbufFree(&mtl_buf);
 		return -1;
 	}
 	assetArchiveWriterSetProvenance(&asset_writer, "romextract_pdmesh",
@@ -1418,6 +1734,7 @@ static s32 s_emitOneMesh(u16 filenum, const char *hint_suffix,
 			"AddFileMem mesh.ini failed for \"%s\"", dst_full);
 		modArchiveAbort(aw);
 		s_textbufFree(&obj_buf);
+		s_textbufFree(&mtl_buf);
 		return -1;
 	}
 	if (assetArchiveWriterAddManifestJson(&asset_writer,
@@ -1426,6 +1743,7 @@ static s32 s_emitOneMesh(u16 filenum, const char *hint_suffix,
 			"AddFileMem _meta/manifest.json failed for \"%s\"", dst_full);
 		modArchiveAbort(aw);
 		s_textbufFree(&obj_buf);
+		s_textbufFree(&mtl_buf);
 		return -1;
 	}
 
@@ -1437,6 +1755,7 @@ static s32 s_emitOneMesh(u16 filenum, const char *hint_suffix,
 			"AddFileMem export_version.txt failed for \"%s\"", dst_full);
 		modArchiveAbort(aw);
 		s_textbufFree(&obj_buf);
+		s_textbufFree(&mtl_buf);
 		return -1;
 	}
 
@@ -1446,15 +1765,17 @@ static s32 s_emitOneMesh(u16 filenum, const char *hint_suffix,
 			"AddFileMem model.obj failed for \"%s\"", dst_full);
 		modArchiveAbort(aw);
 		s_textbufFree(&obj_buf);
+		s_textbufFree(&mtl_buf);
 		return -1;
 	}
 
 	if (assetArchiveWriterAddPublicMem(&asset_writer, "model.mtl",
-			mtl_buf, mtl_len, "material") != MODARCHIVE_OK) {
+			mtl_buf.data, mtl_buf.len, "material") != MODARCHIVE_OK) {
 		sysLoudFailf("EXTRACT.PDMESH",
 			"AddFileMem model.mtl failed for \"%s\"", dst_full);
 		modArchiveAbort(aw);
 		s_textbufFree(&obj_buf);
+		s_textbufFree(&mtl_buf);
 		return -1;
 	}
 
@@ -1463,16 +1784,19 @@ static s32 s_emitOneMesh(u16 filenum, const char *hint_suffix,
 			"assetArchiveWriterFinishMetadata failed for \"%s\"", dst_full);
 		modArchiveAbort(aw);
 		s_textbufFree(&obj_buf);
+		s_textbufFree(&mtl_buf);
 		return -1;
 	}
 
 	if (modArchiveFinish(aw) != 0) {
 		s_textbufFree(&obj_buf);
+		s_textbufFree(&mtl_buf);
 		sysLoudFailf("EXTRACT.PDMESH",
 			"modArchiveFinish failed for \"%s\"", dst_full);
 		return -1;
 	}
 	s_textbufFree(&obj_buf);
+	s_textbufFree(&mtl_buf);
 	return 1;
 }
 

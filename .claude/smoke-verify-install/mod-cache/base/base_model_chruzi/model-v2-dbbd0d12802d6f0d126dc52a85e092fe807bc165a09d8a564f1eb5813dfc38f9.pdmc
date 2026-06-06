@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_chruzi",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_chruzi.pdmesh::model.obj",
+  "source_size": 7970,
+  "source_sha256": "dbbd0d12802d6f0d126dc52a85e092fe807bc165a09d8a564f1eb5813dfc38f9",
+  "validation": "format=obj vertices=126 triangles=42",
+  "normalized": "$S/mod-cache/base/base_model_chruzi/model-v2-dbbd0d12802d6f0d126dc52a85e092fe807bc165a09d8a564f1eb5813dfc38f9.pdmodel.json",
+  "vertex_count": 126,
+  "triangle_count": 42,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

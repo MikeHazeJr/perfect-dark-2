@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 1,
+  "asset_id": "base:model_crate2_cq",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_crate2_cq.pdmesh::model.obj",
+  "source_size": 2335,
+  "source_sha256": "a41cf19313fddf1bae53f87275d1d525fbe6fc6caf9eb7217c5329deaed0d476",
+  "validation": "format=obj vertices=36 triangles=12",
+  "normalized": "$S/mod-cache/base/base_model_crate2_cq/model-v1-a41cf19313fddf1bae53f87275d1d525fbe6fc6caf9eb7217c5329deaed0d476.pdmodel.json",
+  "vertex_count": 36,
+  "triangle_count": 12,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

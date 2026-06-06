@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_stonedesk_fw",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_stonedesk_fw.pdmesh::model.obj",
+  "source_size": 12294,
+  "source_sha256": "cc62c937b2c1fee30107a4f3a41ff91db6b3880bd2bd7e064bfcdbae921eee0d",
+  "validation": "format=obj vertices=180 triangles=60",
+  "normalized": "$S/mod-cache/base/base_model_stonedesk_fw/model-v2-cc62c937b2c1fee30107a4f3a41ff91db6b3880bd2bd7e064bfcdbae921eee0d.pdmodel.json",
+  "vertex_count": 180,
+  "triangle_count": 60,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

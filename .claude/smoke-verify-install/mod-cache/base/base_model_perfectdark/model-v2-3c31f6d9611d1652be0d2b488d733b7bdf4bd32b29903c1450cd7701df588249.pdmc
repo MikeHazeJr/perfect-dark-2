@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_perfectdark",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_perfectdark.pdmesh::model.obj",
+  "source_size": 142196,
+  "source_sha256": "3c31f6d9611d1652be0d2b488d733b7bdf4bd32b29903c1450cd7701df588249",
+  "validation": "format=obj vertices=2118 triangles=706",
+  "normalized": "$S/mod-cache/base/base_model_perfectdark/model-v2-3c31f6d9611d1652be0d2b488d733b7bdf4bd32b29903c1450cd7701df588249.pdmodel.json",
+  "vertex_count": 2118,
+  "triangle_count": 706,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

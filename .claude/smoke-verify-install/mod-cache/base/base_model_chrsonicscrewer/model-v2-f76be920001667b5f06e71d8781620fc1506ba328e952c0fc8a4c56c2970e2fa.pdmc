@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_chrsonicscrewer",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_chrsonicscrewer.pdmesh::model.obj",
+  "source_size": 14208,
+  "source_sha256": "f76be920001667b5f06e71d8781620fc1506ba328e952c0fc8a4c56c2970e2fa",
+  "validation": "format=obj vertices=222 triangles=74",
+  "normalized": "$S/mod-cache/base/base_model_chrsonicscrewer/model-v2-f76be920001667b5f06e71d8781620fc1506ba328e952c0fc8a4c56c2970e2fa.pdmodel.json",
+  "vertex_count": 222,
+  "triangle_count": 74,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

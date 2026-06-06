@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_dydevastator_hi",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_dydevastator_hi.pdmesh::model.obj",
+  "source_size": 80218,
+  "source_sha256": "2520a99e7826059ba136828e45f6aae10c085e04a6449cee6e980d0e209e4315",
+  "validation": "format=obj vertices=1224 triangles=408",
+  "normalized": "$S/mod-cache/base/base_model_dydevastator_hi/model-v2-2520a99e7826059ba136828e45f6aae10c085e04a6449cee6e980d0e209e4315.pdmodel.json",
+  "vertex_count": 1224,
+  "triangle_count": 408,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

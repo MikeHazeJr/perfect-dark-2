@@ -1,5 +1,1749 @@
 # Session Log (Active)
 
+## 2026-06-06 - B-769 public texture source loading for source meshes
+
+Continued the B-769 mesh render investigation after the first mesh/material fix exposed the adjacent texture-family failure: enabling public `.pdtexture` texnum overrides routed `texture.png` bytes into `texLoad()`'s legacy compressed texture decoder.
+
+Added a public image texture path that resolves catalog texture hits, keeps `g_NotLoadMod` suppression for optional non-bundled replacements while allowing bundled base archive source, decodes PNG/TGA/JPG/BMP bytes from FileProvider paths, and writes aligned RGBA32 runtime texture-pool data with a normal `struct tex` header. Texture catalog registration and scanner rows now populate `source_texnum`, and the legacy compressed texture replacement loader refuses public image paths instead of treating them as compressed ROM texture data.
+
+Updated the catalog/provider static coverage, modding pillar, tasks, and release notes.
+
+Verification passed `python tools\asset_native_source_guard.py`, isolated `b769tex` `tests` build, focused `.\devtools\run-pd-tests.ps1 -Session b769tex -Scope catalog-provider -NoBuild` with 11,074 assertions / 33 cases, isolated `b769tex` `all` build, `weapon_match_source_gate_smoke` 43/43, and `all_family_source_gate_smoke` 36/36 from the isolated binary. The weapon match log shows public `.pdtexture::texture.png` entries loading as RGBA32 runtime textures before the first-person DY357 source mesh renders.
+
+Current state: the public texture-source crash is closed for source-built meshes. B-769 remains open only for broader prop/title/body/head render proof and fuller original model hierarchy parity.
+
+## 2026-06-05 - B-768 .pdsong sequence source playback and modelcatalog handle lookup
+
+Continued `c3844-s5` after B-767 by closing the remaining named non-Scenario audio gap before returning to Scenario-last parity/nav.
+
+The live tree already had the start of source-native sequence support: `catalogResolveMusicSequence()` exposed `.pdsong` FileProvider paths, `seqPlay()` tried public track audio first, and `modSequenceLoad()` compiled editable sequence events before legacy fallback. Tightened that path so sequence-only `.pdsong` rows now prove `sequence.mid`, `sequence.tsv`, and `music.ini` together before compiling `sequence.tsv` into the compact ALC sequence buffer used by the existing sequencer. In `ASSET_AUDIO` source-only mode, a missing public sequence member or failed compile fatals before the legacy `sequences/%04x.bin` or ROM sequence fallback.
+
+While broadening verification to `[catalog][provider][static]`, found a current-tree provider-boundary regression in `modelcatalog.c`: `catalogValidatePassesSourceOnlyCheck()` used `catalogIdBySourceFilenum(type, filenum)` directly for diagnostics. Replaced it with `catalogIdBySourceHandle(type, handle)` so the lookup stays catalog-owned and handle-based, matching the reverse-lookup contract.
+
+Updated `scan_music_sequence_source_only_guard()`, `scan_modelcatalog_source_only_guards()`, the c3844/c3842 static tests, the catalog-provider static test, the modding pillar, tasks, and release notes.
+
+Verification passed `python -m py_compile tools\asset_native_source_guard.py`, `python tools\asset_native_source_guard.py`, scoped diff checks, focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842],[catalog][provider][static]` tests with 18,677 assertions / 58 cases, isolated `c3844songseq` `all` build, and all 119 `.pdsong` archives in the non-Scenario source matrix across 6 batches at `.claude\smoke-verify-runs\results-20260605T153900Z.json`.
+
+Current state: `.pdsong` sequence playback is now source-native through the public sequence source pair. c3844 remains open for Scenario-last vehicle path, cover commands, route-to-target pad preset, broader Scenario parity, and any further family-owned runtime fallback gaps found by audit.
+
+## 2026-06-05 - B-767 MP3 public-source playback and duration
+
+Continued `c3844-s5` after B-766 with the remaining tractable non-Scenario audio gap: packed MP3 speech playback and duration sizing.
+
+Confirmed the PC MP3 path can consume memory-backed data: the audio DMA bridge copies from the supplied address, and the final mixer receives the MP3 pointer and size directly. The missing piece was lifetime ownership for source-loaded MP3 bytes.
+
+Added `sndMp3LoadPublicSourceFile()` and `sndMp3ResolveSourceOrFallback()` in `src/lib/snd.c`. Packed MP3 file numbers now resolve through `romExtractRelPathForFilenum()`, load extracted public bytes with `fsFileLoad()`, pass that buffer to `mp3PlayFile()`, and free it on `sndStopMp3()`, replacement, or natural completion. In `ASSET_AUDIO` source-only mode, missing extracted source fatals before any ROM/static address or size read.
+
+Updated `psGetDuration60()` in `src/game/propsnd.c` to use `psMp3DurationGetSourceOrFallbackSize()`, which checks the extracted public file path with `fsFileSize()` before allowing ROM file-size fallback outside source-only mode.
+
+Extended `scan_mp3_audio_source_only_guard()` and static c3844/c3842 tests to pin source path resolution, source buffer ownership, source-first playback ordering, source-first duration sizing, and source-only fatal ordering before ROM fallback.
+
+Verification passed `python tools\asset_native_source_guard.py`, `python -m py_compile tools\asset_native_source_guard.py`, Kanban JSON validation, isolated `c3844mp3src` `all` client/updater build, isolated `c3844mp3src` `tests` build, and focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` tests with 7,610 assertions / 25 cases.
+
+Current state: MP3 public-source playback/duration is closed. c3844 remains open for Scenario-last vehicle path, cover commands, route-to-target pad preset, broader Scenario parity, sequence-native `.pdsong` MIDI/TSV playback, and any further family-owned runtime fallback gaps found by audit.
+
+## 2026-06-05 - B-766 .pdsong track-audio source playback
+
+Continued `c3844-s5` after B-765 by checking the remaining non-Scenario music/audio runtime boundary before returning to Scenario-last work.
+
+Found that `.pdsong` public stream tracks had a native path available but were not connected to normal music startup. The archive format permits `track.wav`, `track.ogg`, and `track.mp3`, and the port already streams those formats through `modMusicPlay()`, but `seqPlay()` still went straight to legacy sequence replacement / ROM sequence loading.
+
+Updated `catalogResolveMusicSequence()` to expose the catalog FileProvider path for music rows, added `modSequencePlayAudioSource()` for streamable public track-audio paths, and made `seqPlay()` call it before `modSequenceLoad()`. If a public audio-track source fails while `ASSET_AUDIO` source-only mode is active, the runtime now fatals instead of falling through to legacy sequence or ROM/static bytes.
+
+Sequence-only public `.pdsong::sequence.mid` / `sequence.tsv` remained guarded in this slice. B-768 later added the sequencer-native public-source route.
+
+Extended `scan_music_sequence_source_only_guard()` and the static c3844/c3842 tests to pin FileProvider path exposure, stream-first ordering, and the source-only fatal on stream-load failure. Also added the missing `system.h` include in `propsnd.c` after the isolated client log exposed the previous MP3-duration guard's undeclared `sysFatalError`.
+
+Verification passed `python tools\asset_native_source_guard.py`, `python -m py_compile tools\asset_native_source_guard.py`, Kanban JSON validation, isolated `c3844song` `all` client/updater build, isolated `c3844song` `tests` build, and focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` tests with 7,595 assertions / 25 cases.
+
+Current state: this closes source-native `.pdsong` track-audio playback for public WAV/OGG/MP3 sources, not full c3844 completion. Remaining work stays Scenario-last unless another non-Scenario gap appears: vehicle path, cover commands, route-to-target pad preset, broader Scenario parity, MP3 public-source playback, sequence-native `.pdsong` MIDI/TSV playback, and any further family-owned runtime fallback gaps found by audit.
+
+## 2026-06-05 - B-765 File-source sound fallback guard
+
+Continued `c3844-s5` after B-764 by checking whether public file-source SFX/voice playback could still fall back to ROM/static sound data.
+
+Found a source-chain bypass in `sndStart()`. Public `.pdsfx` / `.pdvoice` FileProvider entries route through `audioPlayFileSound(r.path, volume, pan)`, which loads source WAV bytes and queues PCM through SDL. If that file playback failed, the code logged a warning and continued into the legacy ROM/static sound path.
+
+Added an `ASSET_AUDIO` source-only fatal immediately after `audioPlayFileSound()` failure and before the warning fallback. In source-only audio verification, a bad public source file now fails loudly instead of hiding the failure behind ROM/static playback.
+
+Added `scan_sound_file_source_only_guard()` to `tools/asset_native_source_guard.py` and static pins in `tests/test_asset_native_source_contract.cpp` plus `tests/test_catalog_provider_static.cpp` so the source-only refusal must stay between the file playback attempt and the legacy fallback warning.
+
+Verification passed `python tools\asset_native_source_guard.py`, `python -m py_compile tools\asset_native_source_guard.py tools\smoke-verify\build_generated_nav_fixture.py`, scoped diff check, isolated `c3844sndfile` `all` build, and focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` tests with 7,586 assertions / 25 cases. The isolated build directory was removed.
+
+Current state: this closes another non-Scenario audio-family runtime fallback gap, not full c3844 completion. Remaining work stays Scenario-last unless another non-Scenario gap appears: vehicle path, cover commands, route-to-target pad preset, broader Scenario parity, source-native `.pdsong` and MP3 public-source playback, and any further family-owned runtime fallback gaps found by audit.
+
+## 2026-06-05 - B-764 MP3 duration source-only guard
+
+Continued `c3844-s5` after B-763 with another direct ROM/provider audit pass before returning to Scenario-last route work.
+
+Found the adjacent MP3 duration source-chain bypass. `sndStartMp3()` now refuses ROM/static MP3 playback in source-only audio mode, but prop-sound duration estimates still decoded the packed MP3 file number in `psGetDuration60()` and calculated duration from `fileGetRomSize(soundnum.id)`.
+
+Added `psMp3DurationFilePassesSourceOnlyCheck()` in `src/game/propsnd.c`. In `ASSET_AUDIO` source-only mode, `psGetDuration60()` now fails loudly before the raw MP3 file-size query. This remains a guard, not final public MP3 duration/playback support.
+
+Extended `scan_mp3_audio_source_only_guard()` in `tools/asset_native_source_guard.py` and static pins in `tests/test_asset_native_source_contract.cpp` plus `tests/test_catalog_provider_static.cpp` so both MP3 playback and MP3 duration size queries must stay behind source-only audio checks.
+
+Verification passed `python tools\asset_native_source_guard.py`, `python -m py_compile tools\asset_native_source_guard.py tools\smoke-verify\build_generated_nav_fixture.py`, scoped diff check, isolated `c3844mp3dur` `all` build, and focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` tests with 7,582 assertions / 25 cases. The isolated build directory was removed.
+
+Current state: this closes another non-Scenario audio-family runtime fallback gap, not full c3844 completion. Remaining work stays Scenario-last unless another non-Scenario gap appears: vehicle path, cover commands, route-to-target pad preset, broader Scenario parity, source-native `.pdsong` and MP3 public-source playback, and any further family-owned runtime fallback gaps found by audit.
+
+## 2026-06-05 - B-763 MP3 audio source-only guard
+
+Continued `c3844-s5` after B-762 by auditing the remaining audio runtime path before returning to Scenario-last route work.
+
+Found an MP3 speech source-chain bypass. `sndStart()` already resolves normal sound handles through `catalogResolveSound()` and records source-only blocked leaf sounds, but packed MP3 references enter `sndStartMp3()`. That path decoded a file number and immediately called `fileGetRomAddress()`, `fileGetRomSize()`, and `mp3PlayFile()`, so source-only audio verification could still pass by reading ROM/static MP3 bytes.
+
+Added `sndMp3FilePassesSourceOnlyCheck()` in `src/lib/snd.c`. In `ASSET_AUDIO` source-only mode, `sndStartMp3()` now fails loudly before any ROM/static MP3 file address, size, or playback call. This is intentionally a guard, not a source-native decoder path: public MP3 source playback remains owned by the audio path before c3844 can be called complete.
+
+Added `scan_mp3_audio_source_only_guard()` to `tools/asset_native_source_guard.py` and static pins in `tests/test_asset_native_source_contract.cpp` plus `tests/test_catalog_provider_static.cpp` so the MP3 source-only check must stay before `fileGetRomAddress()`, `fileGetRomSize()`, and `mp3PlayFile()`.
+
+Verification passed `python tools\asset_native_source_guard.py`, `python -m py_compile tools\asset_native_source_guard.py tools\smoke-verify\build_generated_nav_fixture.py`, scoped diff check, isolated `c3844mp3` `all` build, and focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` tests with 7,575 assertions / 25 cases. The isolated build directory was removed.
+
+Current state: this closes another non-Scenario audio-family runtime fallback gap, not full c3844 completion. Remaining work stays Scenario-last unless another non-Scenario gap appears: vehicle path, cover commands, route-to-target pad preset, broader Scenario parity, source-native `.pdsong` and MP3 public-source playback, and any further family-owned runtime fallback gaps found by audit.
+
+## 2026-06-05 - B-762 Music sequence source-only guard
+
+Continued `c3844-s5` after B-761 by checking remaining non-Scenario asset-family fallback paths before returning to Scenario-last route work.
+
+Found a sequenced-music source-chain bypass. `seqPlay()` asked `modSequenceLoad()` for a replacement, but `modSequenceLoad()` only checked the legacy `sequences/%04x.bin` folder. When that missed, `seqPlay()` fell back to ROM sequence bytes even when the current music track had an `ASSET_AUDIO` / `AUDIO_CAT_MUSIC` catalog row and audio source-only verification was active.
+
+Added `catalogResolveMusicSequence()` in `port/src/assetcatalog_load.c` and declared it in `port/include/assetcatalog_load.h`. The resolver maps music track numbers through enabled `ASSET_AUDIO` entries with `AUDIO_CAT_MUSIC` and matching `ext.audio.sound_id`.
+
+Updated `port/src/mod.c` so `modSequenceLoad()` calls the resolver before checking the legacy sequence folder. In `ASSET_AUDIO` source-only mode, cataloged music sequences now fail loudly with an explicit source-chain message instead of loading legacy sequence files or ROM/static data. This is intentionally a guard, not a native MIDI sequencer implementation: public `.pdsong` payloads are currently `sequence.mid` / `sequence.tsv`, so runtime source-native playback remains owned by the audio/music path before c3844 can be called complete.
+
+Added `scan_music_sequence_source_only_guard()` to `tools/asset_native_source_guard.py` and static pins in `tests/test_asset_native_source_contract.cpp` plus `tests/test_catalog_provider_static.cpp` so the resolver and `modSequenceLoad()` source-only check must stay before legacy sequence fallback.
+
+Verification passed `python tools\asset_native_source_guard.py`, `python -m py_compile tools\asset_native_source_guard.py tools\smoke-verify\build_generated_nav_fixture.py`, scoped diff check, isolated `c3844seq` `all` build, and focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` tests with 7,568 assertions / 25 cases. The isolated build directory was removed.
+
+Current state: this closes another non-Scenario family-owned runtime fallback gap, not full c3844 completion. Remaining work stays Scenario-last unless another non-Scenario gap appears: vehicle path, cover commands, route-to-target pad preset, broader Scenario parity, and eventual source-native public `.pdsong` playback rather than ROM sequence fallback.
+
+## 2026-06-05 - B-761 Body/head manager modeldef source-only guard
+
+Continued `c3844-s5` after B-760 by checking for remaining non-Scenario runtime fallback paths before taking more Scenario-last live-route work.
+
+Found and closed a body/head manager fallback bypass. `catalogManagerGetBodyModeldef()` and `catalogManagerGetHeadModeldef()` tried `catalogLoadTypedAsset()` first, but if public source conversion failed they could still fall through to `modeldefLoadToNewFromHandle()` with the body/head handle. That path bypassed the selected-family source-only refusal and relied only on modeldef loading to catch ROM/static fallback.
+
+Added `catalogManagerBodyModeldefPassesSourceOnlyCheck()` in `port/src/catalog_mgr_bodies.c` and `catalogManagerHeadModeldefPassesSourceOnlyCheck()` in `port/src/catalog_mgr_heads.c`. The managers now call `assetSourceDebugFatalHandleFallback(ASSET_BODY/ASSET_HEAD, ...)` and refuse non-public handles before fallback modeldef loading.
+
+Added `scan_character_manager_modeldef_source_only_guards()` to `tools/asset_native_source_guard.py` and static pins in `tests/test_asset_native_source_contract.cpp` plus `tests/test_catalog_provider_static.cpp` so the checks must stay before the direct manager modeldef loads.
+
+Verification passed `python tools\asset_native_source_guard.py`, `python -m py_compile tools\asset_native_source_guard.py tools\smoke-verify\build_generated_nav_fixture.py`, scoped diff check, isolated `c3844mgr` `all` build, and focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` tests with 7,559 assertions / 25 cases. The isolated build directory was removed.
+
+Current state: this closes another non-Scenario family-owned runtime source-chain bypass, not full c3844 completion. Remaining work stays Scenario-last unless another non-Scenario fallback gap appears: vehicle path, cover commands, route-to-target pad preset, broader Scenario parity, and any further family-owned runtime fallback gaps found by audit.
+
+## 2026-06-05 - B-760 Generated-nav live quadrant proof
+
+Returned to Scenario-last nav behavior after B-759. The generated-nav fixture already proved that public `pads.tsv` plus `navigation/paths.tsv` can generate waypoint, waygroup, cover, and path-edge runtime tables, but the live quadrant AI commands were still only activation/source-proven.
+
+Extended `tools/smoke-verify/build_generated_nav_fixture.py` so the Test Ash-derived `.pdmod` fixture now includes one public `character_spawn`, matching public `setup.fields.tsv` character defaults, and a stage-local public AI list using id `0x0401`. The list includes explicit label commands so the live AI VM routes through `set_pad_preset_to_target_quadrant`, `if_waypoint_within_quadrant`, and then exits normally instead of resolving a global list or jumping to a missing label.
+
+Updated `tools/smoke-verify/run-scenario-generated-nav-fixture.ps1` to require live logs for both quadrant commands tied to public `.pdscenario::ai/ailists.tsv`, `pads.tsv`, `navigation/waypoints.tsv`, and `navigation/waygroups.tsv`.
+
+Verification passed `python tools\asset_native_source_guard.py`, `python -m py_compile tools\smoke-verify\build_generated_nav_fixture.py tools\asset_native_source_guard.py`, scoped diff check, isolated `c3844navlive` `all` build, generated-nav fixture 28/28 at `.claude\smoke-verify-runs\results-20260605T075711Z.json`, and focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` tests with 7,544 assertions / 25 cases.
+
+Current state: generated-nav quadrant live proof is closed. c3844 remains open for remaining Scenario-last live-route gaps, especially vehicle path, cover commands, and route-to-target pad preset, plus any further family-owned runtime fallback gaps found by audit.
+
+## 2026-06-05 - B-759 Setup modeldef source-only guard
+
+Continued `c3844-s5` after B-758 by re-auditing direct modeldef load callsites before returning to Scenario-last work. The next concrete non-Scenario path was `setupLoadModeldef()` in `src/game/setuputils.c`, the shared runtime loader for normal prop, weapon, hat, and projectile modeldefs.
+
+Found and closed the setup modeldef bypass. `setupLoadModeldef()` resolves catalog model rows and then called `modeldefLoadToNewFromHandle()` directly. That still hit the modeldef RomProvider refusal, but source-only verification also needs to reject non-public FileProvider/raw handles before the modeldef loader treats the handle as usable source.
+
+Added `setupModelHandlePassesSourceOnlyCheck()` in `src/game/setuputils.c`. The setup loader now calls `assetSourceDebugFatalHandleFallback(ASSET_MODEL, "setup modeldef", ...)` and refuses source-only non-public model handles before `modeldefLoadToNewFromHandle()`.
+
+Added `scan_setup_modeldef_source_only_guard()` to `tools/asset_native_source_guard.py` and static pins in `tests/test_asset_native_source_contract.cpp` plus `tests/test_catalog_provider_static.cpp` so the setup check must stay before the direct modeldef load.
+
+Verification passed `python tools\asset_native_source_guard.py`, `python -m py_compile tools\asset_native_source_guard.py`, scoped diff check, isolated `c3844setupmdl` `all` build, and focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` tests with 7,544 assertions / 25 cases.
+
+Current state: this closes another non-Scenario runtime source-chain bypass, not the full c3844 tail. Remaining current-state audit should continue to treat Scenario parity/nav as last, while checking any newly surfaced non-Scenario side paths before promoting completion.
+
+## 2026-06-05 - B-758 Forge runtime model spawn source-only guard
+
+Continued `c3844-s5` after B-757 by re-auditing non-Scenario runtime fallback surfaces before taking more Scenario-last work. Body/head manager fallback flows are protected by the typed lifecycle gate plus `modeldefLoadFromHandle()`'s RomProvider refusal, but Forge runtime spawning had a separate shape.
+
+Found and closed a Forge playtest bypass. `s_spawn_door()`, `s_spawn_prop()`, and `s_spawn_weapon_pad()` resolve `ASSET_PROP` or `ASSET_WEAPON` catalog entries, then call `modeldefLoadToNewFromHandle()` directly for the resolved model handle. That bypasses `s_catalogLoadEntry()`'s source-only family refusal and relies only on the modeldef RomProvider refusal, which is too narrow for source-only checks that also reject non-public FileProvider/raw sources.
+
+Added `s_forgeModelHandlePassesSourceOnlyCheck()` in `port/src/forge/forge_runtime.c`. Forge prop/door spawns now check `ASSET_PROP` handles and weapon-pad spawns check `ASSET_WEAPON` handles with `assetSourceDebugFatalHandleFallback()` before modeldef loading. This keeps Forge playtest runtime aligned with the public typed-family source gate instead of treating modeldef loading as only a model-family concern.
+
+Added `scan_forge_runtime_source_only_guards()` to `tools/asset_native_source_guard.py` and static pins in `tests/test_asset_native_source_contract.cpp` plus `tests/test_catalog_provider_static.cpp` so the Forge checks must stay before each `modeldefLoadToNewFromHandle()` call.
+
+Verification passed `python tools\asset_native_source_guard.py`, `python -m py_compile tools\asset_native_source_guard.py`, scoped diff check, isolated `c3844forge` `all` build, and focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` tests with 7,534 assertions / 25 cases.
+
+Current state: this closes another non-Scenario family-owned runtime source-chain bypass, not the full c3844 tail. Remaining current-state audit should continue to treat Scenario parity/nav as last, while checking any newly surfaced non-Scenario side paths before promoting completion.
+
+## 2026-06-05 - B-757 Bundled metadata preload source-only guard
+
+Continued `c3844-s5` after B-756 with another audit pass over non-Scenario direct provider and runtime activation surfaces. The remaining direct byte-load surfaces were either generic provider internals, already-guarded model callsites, catalog lifecycle helpers behind the entry-level source-only gate, or Scenario setup/bg/tile paths that stay in the Scenario-last lane.
+
+Found and closed one non-Scenario catalog initialization bypass. Bundled FileProvider metadata entries can be preloaded during `catalogLoadInit()` for metadata/runtime asset families. That path called `s_catalogLoadEntryMetadataPayload()` directly, outside `s_catalogLoadEntry()`'s `assetSourceDebugEntryRequiresPublicFileSource()` refusal, so a source-only selected family could be marked runtime-active before proving public editable source.
+
+Added `s_catalogPreloadBundledMetadataPayload()` in `port/src/assetcatalog_load.c`. Catalog init now routes bundled metadata preload through that helper, which refuses activation when the selected source-only family lacks public FileProvider source before calling `s_catalogLoadEntryMetadataPayload()`.
+
+Added `scan_catalog_metadata_preload_source_only_guard()` to `tools/asset_native_source_guard.py` and static pins in `tests/test_asset_native_source_contract.cpp` plus `tests/test_catalog_provider_static.cpp` so catalog init must keep using the guarded preload helper and the source-only check must stay before metadata activation.
+
+Verification passed `python tools\asset_native_source_guard.py`, `python -m py_compile tools\asset_native_source_guard.py`, scoped diff check, isolated `c3844preload` `all` build, and focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` tests with 7,524 assertions / 25 cases.
+
+Current state: this closes another non-Scenario metadata/runtime activation bypass, not the full c3844 tail. The remaining direct-load audit now points back to Scenario-last parity/nav closure plus any further family-owned fallback gaps found by continued review.
+
+## 2026-06-05 - B-756 Body/head modelcatalog source-only guard
+
+Continued `c3844-s5` after B-755 by auditing remaining non-Scenario direct provider size/load surfaces. Catalog lifecycle loading already has entry-level `assetSourceDebugEntryRequiresPublicFileSource()` coverage, and Scenario setup/pad/tile fallbacks are guarded by the Scenario source boundary. The next concrete non-Scenario gap was `port/src/modelcatalog.c`.
+
+Closed the body/head startup-validation bypass. `catalogValidateEntry()` resolved a body/head model handle and then called `catalogValidateSourceMissing()`, which queried `assetLoadGetInflatedSize()` before `modeldefLoadFromHandle()` could refuse a ROM handle. Added `catalogValidatePassesSourceOnlyCheck()` so body/head validation calls `assetSourceDebugFatalHandleFallback()` and stops before that provider-size query when source-only validation requires public file source.
+
+Added `scan_modelcatalog_source_only_guards()` to `tools/asset_native_source_guard.py` and static pins in `tests/test_asset_native_source_contract.cpp` plus `tests/test_catalog_provider_static.cpp` so the source-only check must stay before `catalogValidateSourceMissing()`.
+
+Verification passed `python tools\asset_native_source_guard.py`, `python -m py_compile tools\asset_native_source_guard.py`, isolated `c3844modelcat` `all` build, focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` tests with 7,518 assertions / 25 cases, scoped diff check with only the known Kanban line-ending warning, Kanban JSON parse, and session-build cleanup.
+
+Current state: this closes another non-Scenario body/head runtime fallback bypass, not the full c3844 tail. Remaining work is Scenario-last parity/nav closure and any additional family-owned runtime fallback gaps surfaced by audit.
+
+## 2026-06-05 - B-755 Menu/title/player model-handle source-only guard
+
+Continued `c3844-s5` after B-754 with Mike's direction to keep remaining non-Scenario asset-type issues ahead of Scenario route work when they do not interfere. The next audit pass found the same model-family shape outside `bondgun`: menu body/head/raw model preview, player first-person weapon model sizing, and title loaded-size queries could call provider size APIs before `modeldefLoadFromHandle()` reached its ROM-refusal boundary.
+
+Closed that model-size class. `src/game/menu.c` now includes `asset_source_debug.h` and routes body, head, and raw model preview handles through `menuModelHandlePassesSourceOnlyCheck()` before direct `assetLoadGetInflatedSize()` calls. `src/game/player.c` now checks the resolved first-person weapon model handle with `assetSourceDebugFatalHandleFallback(ASSET_MODEL, "player chrbody weapon modeldef", ...)` before sizing, and `src/game/title.c` checks title model handles before `assetLoadGetLoadedSize()`.
+
+Added `scan_model_handle_source_only_guards()` to `tools/asset_native_source_guard.py`, alongside static pins in `tests/test_asset_native_source_contract.cpp` and `tests/test_catalog_provider_static.cpp`, so the direct model size callsites cannot drift back outside source-only proof.
+
+Verification passed `python tools\asset_native_source_guard.py`, `python -m py_compile tools\asset_native_source_guard.py`, isolated `c3844modelguard` `all` build, focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` tests with 7,507 assertions / 25 cases, scoped diff check with only the known Kanban line-ending warning, Kanban JSON parse, and session-build cleanup.
+
+Current state: this closes another non-Scenario model-family runtime fallback bypass, not the full c3844 tail. Remaining work is Scenario-last parity/nav closure and any additional family-owned runtime fallback gaps surfaced by audit.
+
+## 2026-06-05 - B-754 Held weapon model stream source-only guard
+
+Continued `c3844-s5` after B-753 with Mike's direction to resolve remaining non-Scenario asset-type issues before spending more time on Scenario route proof, where possible. The audit confirmed that `scenario_source_runtime.c` only has the newly guarded speech-audio ROM metadata helpers left in direct ROM-metadata use, so the next useful non-Scenario surface was the model runtime path.
+
+Closed a fallback bypass in queued held weapon model streaming. `modeldefLoadFromHandle()` already refuses `RomProvider` model handles before modeldef loading, but `bondgun` queued gun/hand/cartridge model loading owns direct streaming helpers for inflated size, loaded size, and load-to-address. Those helpers accepted any catalog handle returned by `catalogHandleByModelSourceFilenum()`, which could bypass the modeldef ROM-refusal boundary when source-only model verification is active.
+
+Added `bgunQueuedLoadPassesSourceOnlyCheck()` in `src/game/bondgun.c`. Each direct queued model stream helper now calls `assetSourceDebugFatalHandleFallback(ASSET_MODEL, ...)` before `assetLoadGetInflatedSize()`, `assetLoadGetLoadedSize()`, or `assetLoadToAddr()`. Added `scan_bondgun_model_source_only_guards()` to `tools/asset_native_source_guard.py` and static pins in `tests/test_asset_native_source_contract.cpp` plus `tests/test_catalog_provider_static.cpp`.
+
+Verification passed `python tools\asset_native_source_guard.py`, `python -m py_compile tools\asset_native_source_guard.py`, scoped diff check with only the known Kanban line-ending warning, isolated `c3844bgun` `all` build, and focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` tests with 7,485 assertions / 25 cases. The isolated build directory was removed.
+
+Current state: this closes a non-Scenario model-family runtime fallback bypass, not the full c3844 tail. Remaining work is Scenario-last parity/nav closure and any additional family-owned runtime fallback gaps surfaced by audit.
+
+## 2026-06-05 - B-753 Scenario speech audio metadata guard
+
+Continued `c3844-s5` after B-752 by checking whether any non-Scenario asset-family work still needed priority before further Scenario tail work. The live context and source matrix state still show exhaustive non-Scenario source-only archive coverage, while Scenario remains open for broader parity/runtime fallback and nav behavior completeness. `AI_GRAPH_PENDING_FUNCTIONS` is empty in the current native-source guard, and retained smoke logs still show only activation summaries for `hovercar_begin_path`, quadrant commands, and cover commands rather than stable executed lines.
+
+Closed a small runtime-fallback hardening gap in the Scenario speech audio path. `s_aiGraphResolveSpeechAudioSourceId()` already resolved MP3 speech operands through public source by calling `romExtractRelPathForFilenum()`, checking `fsFileSize(rel_path)`, and only then using `romdataFileGetName()` for readable `file:*` identity. That ordering was pinned by tests, but a future Scenario graph path could still call those ROM metadata helpers elsewhere without a native-source guard failure.
+
+Added `scan_scenario_audio_source_metadata_guards()` to `tools/asset_native_source_guard.py`. The scanner rejects `romExtractRelPathForFilenum()` and `romdataFileGetName()` in Scenario graph runtime unless they stay inside `s_aiGraphResolveSpeechAudioSourceId()` behind MP3 resolution, extracted source path proof, source file existence proof, and the final `return out_id` path. Static coverage pins the scanner, error text, helper call shape, and source-before-ROM-name ordering.
+
+Verification passed `python tools\asset_native_source_guard.py`, `python -m py_compile tools\asset_native_source_guard.py`, scoped diff check, isolated `c3844audmeta` tests build after rerunning the slow clean build with `-BuildTimeoutSeconds 180`, and focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` with 7,473 assertions / 25 cases. The first default-watchdog test build timed out after 60 seconds while still compiling and with no compiler errors in the recent logs.
+
+Current state: this closes one Scenario runtime-fallback guard gap, not the full c3844 tail. Remaining work is broader Scenario source-only/parity validation, family-owned runtime fallback closure, and stable live routes for vehicle/quadrant/cover nav behavior if such routes can be found.
+
+## 2026-06-05 - B-752 Duel live player-autowalk matrix proof
+
+Continued `c3844-s5` after B-751 by searching for a stable live route for the remaining Scenario nav behavior gaps. First checked the public `.pdscenario::ai/ailists.tsv` archives and found that current extracted Scenario AI rows expose player-autowalk opcodes in Duel/Extra16/Extraction, quadrant opcodes in Airbase/Chicago/Pelagic/Skedar Ruins, and hovercar-path opcodes in Airbase/Investigation/Extra16, while cover opcodes are not present as live public Scenario AI rows in the base archives.
+
+The first Airbase diagnostic smoke was run without an exact current `SourceBinary` and failed by falling through into CI Training; the shared `Build\PerfectDark.exe` was stale from 2026-06-01. Rebuilt an isolated current client with session `c3844probe` and reran retained candidates against that binary. Airbase passed 150/150 and Skedar Ruins passed 148/148, but both still only emitted activation summaries for vehicle, quadrant, cover, and player-navigation families in their smoke windows. Duel passed 136/136 and emitted stable live `player_auto_walk` plus `if_player_auto_walk_finished` lines tied to public `.pdscenario::ai/ailists.tsv` and public `pads.tsv`.
+
+Updated `tools/smoke-verify/run-scenario-source-matrix.ps1` with a Duel-specific live player-autowalk assertion block. Static coverage in `tests/test_asset_native_source_contract.cpp` pins the Duel block and the live proof patterns so the matrix cannot drift back to activation-only coverage for this route.
+
+Verification passed `python tools\asset_native_source_guard.py`, PowerShell parser check, scoped diff check with only line-ending warnings for the edited PowerShell runner/Kanban JSON, isolated `c3844probe` client/tests builds, focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` with 7,465 assertions / 25 cases, and updated Duel Scenario matrix 138/138 at `.claude\smoke-verify-runs\results-20260605T055410Z.json` against the exact isolated `SourceBinary`.
+
+Current state: Duel closes the stable live `player_auto_walk` retained-route gap; `hovercar_begin_path`, quadrant commands, and live cover commands still need stable executing routes before they can be promoted to live assertions. c3844 remains open for broader Scenario parity and source-derived nav behavior completeness.
+
+## 2026-06-05 - B-751 Extra16 live route matrix tightening
+
+Continued `c3844-s5` after B-750 by checking whether the retained Airbase/Extra16 route summaries could be promoted to live runtime proof. Targeted Airbase and Extra16 reruns passed, but neither stage emitted live `player_auto_walk`, `if_player_auto_walk_finished`, `hovercar_begin_path`, `set_vehicle_speed`, or `set_rotor_speed` action lines in the retained smoke window; they only emitted the existing graph activation summaries for those families.
+
+Extra16 did consistently emit stable public-source live proof for object movement, lift activation, lighting, character-to-pad distance, room/pad checks, and target-prop movement. Updated `tools/smoke-verify/run-scenario-source-matrix.ps1` so Extra16 now requires live `object_move_to_pad`, `activate_lift`, `set_lights`, `if_chr_distance_to_pad_less_than`, `if_chr_in_room`, `try_jog_to_target_prop`, and `try_run_to_target_prop` lines tied to public `.pdscenario::ai/ailists.tsv`, `objects.tsv`, and `pads.tsv` where needed. Static coverage in `tests/test_asset_native_source_contract.cpp` pins the Extra16-specific live proof block.
+
+Verification: isolated `c3844navlive` client build passed; targeted Airbase Scenario matrix passed 150/150 as a baseline at `.claude\smoke-verify-runs\results-20260605T051753Z.json`; isolated `c3844navlive` tests build passed; focused Scenario source matrix runner contract passed with 439 assertions / 1 case; `python tools\asset_native_source_guard.py` passed; updated Extra16 Scenario matrix passed 146/146 at `.claude\smoke-verify-runs\results-20260605T052510Z.json` against the exact isolated `SourceBinary`.
+
+Current state: Extra16 is now a stronger retained live-runtime proof stage, but `player_auto_walk` and vehicle-motion actions still need a stable executing route before the matrix can assert live proof for them. c3844 remains open for broader Scenario parity and source-derived nav behavior completeness.
+
+## 2026-06-05 - B-748 Rescue live AI retained-route proof
+
+Continued `c3844-s5` after B-747 by checking whether any retained Scenario route was already producing stable live public-source proof that the matrix did not require. Rescue naturally emits a broad intro route with path, pad, object, door, lighting, environment, tuning, list-control, speech/audio, object-sound, and character-inventory actions, but the matrix was still only requiring activation-time summaries for most of that stage.
+
+Updated `tools/smoke-verify/run-scenario-source-matrix.ps1` with a Rescue-specific live assertion block. The retained Rescue matrix now requires live `set_path` / `start_patrol` proof through public `navigation/paths.tsv` plus `pads.tsv`, `run_to_pad` through public `pads.tsv`, object and door actions through public `objects.tsv`, `set_lights` through public `pads.tsv`, environment proof through `scenario.ini` plus `scene.glb`, speech/audio proof through catalog ids instead of numeric operands, object-sound state through public `objects.tsv`, and `chr_kill` through public `ai/ailists.tsv`. Static coverage in `tests/test_asset_native_source_contract.cpp` pins the Rescue route block and representative regex shapes.
+
+Verification: `python tools\asset_native_source_guard.py` passed; the Scenario matrix PowerShell parser check passed; scoped diff check passed with only the known line-ending warning for the edited PowerShell runner; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 7,414 assertions / 25 cases; isolated `c3844rescueproof` tests and client builds passed; targeted Rescue Scenario matrix passed 153/153 at `.claude\smoke-verify-runs\results-20260605T033024Z.json` against the exact isolated `SourceBinary`. An earlier Rescue rerun without `-SourceBinary` stayed at Agent Select and missed all stage-load assertions; that is a harness/source-binary selection issue, not a source-chain failure.
+
+Current state: Rescue now complements CI Training as a retained live-runtime proof stage, especially for source-backed path/pad/object/door/audio/inventory execution that was previously visible only in logs. c3844 remains open for broader Scenario source-only/parity validation, remaining special setup semantics, and nav behaviors that still lack stable live routes such as `hovercar_begin_path`, `player_auto_walk`, route-to-target pad preset, quadrant commands, and live cover commands.
+
+Parent context mirror sync still needs a writable parent workspace; this sandbox denies writes outside `perfect_dark-mike`, so canonical `context/` files in this checkout are current and parent mirror copies may be stale until synced from a permitted context.
+
+## 2026-06-05 - B-747 Scenario setup-link source targets and selector parity
+
+Continued `c3844-s5` after B-746 by checking the gap between per-kind setup-link proof and actual target safety. The prior matrix could prove that a retained stage authored and registered each setup behavior-link kind, but the collector did not independently prove every link target row before committing the source link table.
+
+Added source-target validation to `scenario_source_runtime.c` in `s_setupCollectBehaviorLinkSource()`. Each setup behavior link now validates its authored target orders against public `setup.fields.tsv` immediately after `s_setupFillBehaviorLink()` and before `setup_link_count` is committed. Linked guns require weapon rows, lift-door links require door/lift rows, safe-item links require safe/door rows plus a public item row, padlocked doors require a door plus public lock row, conditional scenery validates trigger and optional exploded/unexploded rows, and blocked paths validate their blocker row. `tools/asset_native_source_guard.py` now scans this setup behavior-link source-target proof so target validation cannot drift after runtime registration. Static coverage pins the helper names, field names, type checks, and fill-before-validate-before-commit ordering.
+
+The Rescue retained matrix then exposed a runtime-selector parity issue after setup-link registration succeeded. `CHR_COOP` is a valid source-authored selector but can have no live character in solo Rescue. `give_object_to_chr`, `if_chr_has_object`, and `if_chr_has_weapon_equipped` now use the selector-aware character helper so absent selectors no-op or branch false instead of aborting source-only runtime. Non-selector numeric character operands still require source-backed runtime character rows and remain hard source-chain failures. The current-player-number guard was updated to treat that selector-aware resolver as source proof before player-slot switching.
+
+Verification: `python tools\asset_native_source_guard.py` passed; `python -m py_compile tools\asset_native_source_guard.py` passed; scoped diff check passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 7,399 assertions / 25 cases; isolated `c3844linksrc2` client build passed; the earlier CI Training setup-link validation matrix passed 185/185 at `.claude\smoke-verify-runs\results-20260605T030103Z.json`; Rescue Scenario matrix passed 137/137 at `.claude\smoke-verify-runs\results-20260605T031315Z.json`. c3844 remains open for broader Scenario source-only/parity validation, remaining special setup semantics, and source-derived nav behavior completeness.
+
+Parent context mirror sync still needs a writable parent workspace; this sandbox denies writes outside `perfect_dark-mike`, so canonical `context/` files in this checkout are current and parent mirror copies may be stale until synced from a permitted context.
+
+## 2026-06-04 - B-746 Scenario setup-link per-kind matrix proof
+
+Continued `c3844-s5` after B-745 by moving from direct lookup guards to the remaining special setup proof surface. The retained Scenario source matrix counted setup behavior-link rows and required one live registration line, but the registration assertion used `kind=[a-z_]+`, while runtime suppressed every setup-link registration after the first one. That meant a stage authoring multiple link kinds could prove only the first observed kind and still satisfy the matrix.
+
+Updated `scenario_source_runtime.c` so setup-link registration proof is tracked per kind with `setup_link_logged_mask` and `s_setupBehaviorLinkLogBit()`. Updated `tools/smoke-verify/run-scenario-source-matrix.ps1` so `Get-ScenarioSetupSummary` records `SetupBehaviorLinkKinds` from public `setup.fields.tsv`, carries those kinds into matrix entries, and emits exact `kind=<name>` registration assertions for retained setup-link smoke stages. The targeted CI Training rerun also exposed stale retained-route expectations: eleven executed AI action assertions still matched older logs, while `set_savefile_flag`, `show_hudmsg_middle`, `speak`, and `do_preset_animation` remain non-deterministic in this route. The matrix now requires the current source-resolved fields for the executed lines and leaves those four families covered by common graph activation source assertions until a stable live route is identified. Static coverage in `tests/test_asset_native_source_contract.cpp` now pins the per-kind runtime mask, the matrix `SetupBehaviorLinkKinds` surface, exact-kind escaping, removal of the old generic `kind=[a-z_]+` proof shape, and the retained-route caveat.
+
+Verification: `python tools\asset_native_source_guard.py` passed; `python -m py_compile tools\asset_native_source_guard.py` passed; Kanban JSON parse passed; scoped diff check passed with only line-ending warnings for `tools/kanban/state.json` and the edited PowerShell matrix runner; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 7,368 assertions / 25 cases; isolated `c3844linkkind` client build passed and produced `PerfectDark.exe` with clean stderr; targeted CI Training Scenario matrix passed 185/185 at `.claude\smoke-verify-runs\results-20260605T023428Z.json`. The isolated build directories were removed. No full 87-Scenario matrix rerun was done in this slice.
+
+Parent context mirror sync remains blocked by the workspace sandbox: writes to `C:\Users\mikeh\Perfect-Dark-2\tasks-current.md` and `C:\Users\mikeh\Perfect-Dark-2\session-log.md` are denied. Canonical `context/` files in this checkout are current.
+
+Current state: retained setup-link smokes can no longer satisfy a stage's special setup proof with an unrelated generic behavior-link kind. Broader Scenario cleanup remains open for remaining special setup semantics, source-only/parity validation, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-745 Scenario AI-list lookup guard
+
+Continued `c3844-s5` after B-744 by moving from global inventories to direct runtime helper calls. The remaining clear lookup family was `ailistFindById()`: it resolves legacy runtime AI list IDs and could bypass public-source proof if a future Scenario graph handler called it directly outside the existing list-control, spawn, or duplicate-character paths.
+
+Extended `SCENARIO_RUNTIME_LOOKUP_RULES` in `tools/asset_native_source_guard.py` to include `ailistFindById()`. The guard now allows only `set_list`, `return_list`, `spawn_chr_at_pad`, `spawn_chr_at_chr`, and `duplicate_chr`, and only when their graph/source gates run before the lookup. The shared lookup error text now covers setup, path, and AI-list lookups. Static coverage in `tests/test_asset_native_source_contract.cpp` pins the new guard string plus each current proof-before-lookup order.
+
+Verification: `python tools\asset_native_source_guard.py` passed; `python -m py_compile tools\asset_native_source_guard.py` passed; scoped diff check passed with only the known Kanban line-ending warning; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 7,366 assertions / 25 cases. The isolated `c3844ailook` test build directory was removed. No client build or Scenario smoke was rerun because this slice changed only guard/test coverage, not runtime behavior.
+
+Parent context mirror sync remains blocked by the workspace sandbox: parent `tasks-current.md` and `session-log.md` exist, but writes to `C:\Users\mikeh\Perfect-Dark-2\` are denied. Canonical `context/` files in this checkout are current.
+
+Current state: Scenario AI-list runtime lookups are now structurally limited to public `ai/ailists.tsv` source-proven handlers, complementing the broader setup/path lookup guard and the B-740/B-744 global inventories. Broader Scenario cleanup remains open for remaining special setup semantics, source-only/parity validation, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-744 Scenario external-global inventory guard
+
+Continued `c3844-s5` after B-743 by adding a broad guard for the class of companion-surface gaps closed in B-741 through B-743. B-740 capped `g_Vars.*` fields, but non-`g_Vars` runtime globals such as room tables, padfile tables, portal tables, quip/audio tables, and source-cache globals only had specialized scanners. A new global name could still appear in `scenario_source_runtime.c` without first being forced through an explicit audit.
+
+Added `SCENARIO_RUNTIME_EXTERNAL_GLOBAL_MAX_COUNTS` and `scan_scenario_runtime_external_global_inventory()` to `tools/asset_native_source_guard.py`. The scanner counts every direct `g_*` global name except `g_Vars`, which remains field-capped by the existing runtime-global inventory, and fails unknown or increased external global counts until the source-boundary rule is updated deliberately. Static coverage now pins the table, representative counts, scanner hook, main hook, and error text in `tests/test_asset_native_source_contract.cpp`.
+
+Verification: `python tools\asset_native_source_guard.py` passed; `python -m py_compile tools\asset_native_source_guard.py` passed; scoped diff check passed with only the known Kanban line-ending warning; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 7,335 assertions / 25 cases. The isolated `c3844extglob` test build directory was removed. No client build or Scenario smoke was rerun because this slice changed only guard/test coverage, not runtime behavior.
+
+Current state: Scenario graph runtime now has both field-level `g_Vars.*` inventory coverage and broad non-`g_Vars` `g_*` inventory coverage, on top of the specialized source-boundary scanners. Broader Scenario cleanup remains open for remaining special setup semantics, source-only/parity validation, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-743 Scenario scene-room global guard
+
+Continued `c3844-s5` after B-742 by checking the scene-room proof boundary. The existing room-table guard rejected unproven indexed `g_Rooms[]` mutations in `set_room_flag` and `configure_environment`, but the shared helper still read the `g_Rooms` pointer and `g_Vars.roomcount` under only the broad B-740 runtime-global inventory.
+
+Added `SCENARIO_SCENE_ROOM_GLOBAL_SOURCE_PROVEN_FUNCTIONS` and `scan_scenario_scene_room_global_guards()` to `tools/asset_native_source_guard.py`. The scanner rejects direct scene-room table pointer/count reads outside `s_aiGraphRequireRuntimeSceneRooms()`, `s_aiGraphResolveRuntimeSceneRoom()`, and the source-proven configure-environment all-room branch. Static coverage now pins the scanner hook, regex, helper body tokens, and error text in `tests/test_asset_native_source_contract.cpp`.
+
+Verification: `python tools\asset_native_source_guard.py` passed; `python -m py_compile tools\asset_native_source_guard.py` passed; scoped diff check passed with only the known Kanban line-ending warning; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 7,329 assertions / 25 cases. The isolated `c3844roomglob` test build directory was removed. No client build or Scenario smoke was rerun because this slice changed only guard/test coverage, not runtime behavior.
+
+Current state: Scenario scene-room table pointer/count reads are now structurally limited to source-built room helper boundaries, complementing the existing indexed `g_Rooms[]` mutation guard. Broader Scenario cleanup remains open for remaining special setup semantics, source-only/parity validation, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-742 Scenario quip bank pointer guard
+
+Continued `c3844-s5` after B-741 by checking the direct quip globals against the existing B-717 quip asset-table guard. The guard already rejected indexed quip table reads outside source-proven quip graph actions, but it did not scan bare bank pointer expressions such as `g_SkedarQuipBank`, `g_MaianQuipBank`, and `g_SpecialQuipBank` used when `say_quip` chooses the legacy bank before catalog-resolved audio/text proof.
+
+Widened `scan_scenario_quip_asset_table_guards()` in `tools/asset_native_source_guard.py` so `g_GuardQuipBank`, `g_SpecialQuipBank`, `g_SkedarQuipBank`, and `g_MaianQuipBank` are protected whether they are indexed or selected as table pointers. The scanner still requires the existing quip graph source, runtime-character proof, audio catalog resolution, language catalog resolution, and proof-log tokens before the action can use those legacy quip tables. Static coverage now pins the widened error text and bare-bank regex in `tests/test_asset_native_source_contract.cpp`.
+
+Verification: `python tools\asset_native_source_guard.py` passed; `python -m py_compile tools\asset_native_source_guard.py` passed; scoped diff check passed with only the known Kanban line-ending warning; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 7,321 assertions / 25 cases. The isolated `c3844quipbank` test build directory was removed. No client build or Scenario smoke was rerun because this slice changed only guard/test coverage, not runtime behavior.
+
+Current state: Scenario quip bank pointer selection is now guarded together with indexed quip table reads behind source-proven, character-proven, catalog-resolved quip actions. Broader Scenario cleanup remains open for remaining special setup semantics, source-only/parity validation, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-741 Scenario audio alias count guard
+
+Continued `c3844-s5` after B-740 by inventorying the remaining direct `g_*` globals in `scenario_source_runtime.c`. The existing B-715 audio alias guard structurally limited direct `g_AudioRussMappings[]` reads to `s_aiGraphNormalizeAudioRuntimeId()`, but its regex did not independently reject a future direct `g_NumAudioRussMappings` read outside that normalizer even though the count bounds the same legacy alias table before catalog audio resolution.
+
+Widened `scan_scenario_audio_alias_guards()` in `tools/asset_native_source_guard.py` so it scans both `g_AudioRussMappings[]` and `g_NumAudioRussMappings`. The guard still requires normalization through `s_aiGraphNormalizeAudioRuntimeId()` followed by `s_aiGraphResolveAudioCatalogId()` / `catalogResolveSound()` before Scenario graph audio proof can log or play catalog-resolved audio. Static coverage now pins the widened guard error text and count token in `tests/test_asset_native_source_contract.cpp`.
+
+Verification: `python tools\asset_native_source_guard.py` passed; `python -m py_compile tools\asset_native_source_guard.py` passed; scoped diff check passed with only the known Kanban line-ending warning; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 7,320 assertions / 25 cases. The isolated `c3844aliascnt` test build directory was removed. No client build or Scenario smoke was rerun because this slice changed only guard/test coverage, not runtime behavior.
+
+Current state: Scenario audio alias mapping and count access are now guarded together behind catalog-resolved audio normalization. Broader Scenario cleanup remains open for remaining special setup semantics, source-only/parity validation, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-740 Scenario runtime-global inventory guard
+
+Continued `c3844-s5` after B-739 by mapping the remaining direct `g_Vars.*` surface in `scenario_source_runtime.c`. The large remaining counts are `g_Vars.aioffset` and `g_Vars.ailist`, which are AI VM cursor/list and branch mechanics rather than public asset payload access. The smaller remaining runtime globals are each already covered by named source-boundary guard scanners from the recent c3844 audit sequence.
+
+Added `SCENARIO_AI_INTERPRETER_GLOBALS`, `SCENARIO_RUNTIME_GLOBAL_MAX_COUNTS`, and `scan_scenario_runtime_global_inventory()` to `tools/asset_native_source_guard.py`. The new scanner exempts only the interpreter cursor/list globals, rejects unknown non-interpreter `g_Vars.*` fields, and fails if any inventoried non-interpreter runtime global count grows above the audited ceiling without an explicit guard update. Static coverage pins the scanner hook, interpreter exceptions, current count ceilings, and error text in `tests/test_asset_native_source_contract.cpp`.
+
+Verification: `python tools\asset_native_source_guard.py` passed; `python -m py_compile tools\asset_native_source_guard.py` passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 7,319 assertions / 25 cases; the isolated `c3844globalinv` test build directory was removed. No client build or Scenario smoke was rerun because this slice changed only guard/test coverage, not runtime behavior.
+
+Current state: non-interpreter Scenario `g_Vars.*` access is now capped by the native-source guard inventory on top of the specialized proof-shape scanners. Broader Scenario cleanup remains open for remaining special setup semantics, source-only/parity validation, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-739 Scenario active-character pointer guard
+
+Continued `c3844-s5` after B-738 by auditing remaining direct `g_Vars.chrdata` pointer reads in `scenario_source_runtime.c`. The broad `aioffset` / `ailist` hits are AI VM cursor/branch mechanics, but `g_Vars.chrdata` still had a small set of active-character pointer reads that were conventionally protected by earlier proof slices rather than one structural scanner.
+
+Added `SCENARIO_ACTIVE_CHARACTER_POINTER_SOURCE_PROVEN_FUNCTIONS` and `scan_scenario_active_character_pointer_guards()` to `tools/asset_native_source_guard.py`. The scanner rejects direct active-character pointer reads outside the audited source-aware helpers/actions, pins the exact current read counts, and requires proof tokens for the character-reference wrapper, list-control active-character snapshots and list-field wrappers, `say_quip`, `set_camera_animation`, `try_equip_weapon`, `try_equip_hat`, and tag-255 `object_do_animation`. It complements the existing dereference scanners by guarding pointer acquisition itself.
+
+Static coverage now requires the new scanner hook and error text in `tests/test_asset_native_source_contract.cpp`. Verification: `python tools\asset_native_source_guard.py` passed; `python -m py_compile tools\asset_native_source_guard.py` passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 7,310 assertions / 25 cases; the isolated `c3844chrptr` test build directory was removed. No client build or Scenario smoke was rerun because this slice changed only guard/test coverage, not runtime behavior.
+
+Current state: active-character pointer reads are now structurally limited to audited source-aware proof helpers, while AI VM `aioffset` / `ailist` manipulation remains interpreter bookkeeping rather than public asset payload access. Broader Scenario cleanup remains open for remaining special setup semantics, source-only/parity validation, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-738 Scenario current-player-number route guard
+
+Continued `c3844-s5` after B-737 by auditing the remaining direct `g_Vars.currentplayernum` reads in `scenario_source_runtime.c`. The remaining surface was mostly save/restore snapshots around current-player switching after player-slot proof, but the audit found two fallback shapes that still needed structural coverage: `speak` kept the current player number when the target was not a player, and the HUD helper seeded HUD routing from the current player number without validating that slot.
+
+Added runtime slot validation to those fallbacks. `scenarioSourceAiGraphExecuteSpeak()` now validates the current-player fallback slot before speech current-player routing. `s_aiGraphHudPlayerForChr()` now centralizes the fallback read and validates it with `s_aiGraphRequireRuntimePlayerSlot()`, while `show_hudmsg` and `show_hudmsg_top_middle` initialize `playernum` to `-1` instead of reading `g_Vars.currentplayernum` directly.
+
+Added `scan_scenario_current_player_number_guards()` to `tools/asset_native_source_guard.py`. The scanner rejects direct `g_Vars.currentplayernum` reads outside proven Scenario graph save/restore switches and the HUD fallback helper, requires graph/source proof before save/restore snapshots, requires runtime player-slot proof before `setCurrentPlayerNum(playernum)`, and requires restore to `prevplayernum`. Static coverage pins the scanner hook, error text, HUD fallback proof ordering, and the removal of direct current-player-number seeding in HUD callers.
+
+Verification: `python tools\asset_native_source_guard.py` passed; `python -m py_compile tools\asset_native_source_guard.py` passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 7,307 assertions / 25 cases; isolated `c3844curplayerpd` client build produced `PerfectDark.exe` with only the known ccache probe warning. The isolated `c3844curplayer` and `c3844curplayerpd` build directories were removed. No Scenario smoke was rerun because this slice only adds slot validation to fallback paths already covered by source/static contracts.
+
+Current state: Scenario current-player-number reads are now structurally limited to source-proven switch save/restore patterns or validated HUD fallback routing. Broader Scenario cleanup remains open for remaining special setup semantics, source-only/parity validation, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-737 Scenario stage-number special-case guard
+
+Continued `c3844-s5` after B-736 by auditing the remaining direct `g_Vars.stagenum` reads in `scenario_source_runtime.c`. The six reads are all legacy parity exceptions inside source-proven graph handlers: G5 Eyespy room checks, Maians SOS same-floor enemy detection distance, CI Training cutscene skip handling, and Marquis/Enemy Rockets weapon equipment behavior.
+
+Added `SCENARIO_STAGE_NUM_SOURCE_PROVEN_FUNCTIONS` and `scan_scenario_stage_number_guards()` to `tools/asset_native_source_guard.py`. The scanner rejects direct stage-number reads outside those four handlers, verifies each exact read count, and requires the relevant graph/source proof tokens before the stage read plus special-case proof/log tokens to remain present. Focused static coverage pins the scanner hook, error text, regex, and proof-before-stage-read ordering for each special case.
+
+Verification: `python tools\asset_native_source_guard.py` passed; `python -m py_compile tools\asset_native_source_guard.py` passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 7,299 assertions / 25 cases; the isolated `c3844stageguard` test build directory was removed. No client build or Scenario smoke was rerun because this was guard/test-only and did not change runtime behavior.
+
+Current state: Scenario stage-number globals are now structurally limited to source-proven legacy parity exceptions. Broader Scenario cleanup remains open for remaining special setup semantics, source-only/parity validation, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-736 Scenario Bond/Co-op player identity guard
+
+Continued `c3844-s5` after B-735 by auditing remaining Bond/Co-op player-number globals in `scenario_source_runtime.c`. The live reads are limited to `if_chr_activated_object`, `say_quip`, `clear_inventory`, `toggle_p1p2`, and `chr_set_p1p2`; earlier slices had already put those handlers behind source graph checks, source-aware character/object proof, and player pointer or slot proof before identity-driven state use.
+
+Added `SCENARIO_PLAYER_IDENTITY_GLOBAL_SOURCE_PROVEN_FUNCTIONS` and `scan_scenario_player_identity_global_guards()` to `tools/asset_native_source_guard.py`. The scanner rejects direct `g_Vars.bondplayernum` / `g_Vars.coopplayernum` reads outside those five handlers, requires each current read sequence to stay exact, and verifies the surrounding source/player proof tokens remain present. Focused static coverage pins the scanner hook, regex, error text, and per-handler proof ordering.
+
+Verification: `python tools\asset_native_source_guard.py` passed; `python -m py_compile tools\asset_native_source_guard.py` passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 7,268 assertions / 25 cases; the isolated `c3844playerid` test build directory was removed. No client build or Scenario smoke was rerun because this was guard/test-only and did not change runtime behavior.
+
+Current state: Scenario Bond/Co-op player-number globals are now structurally limited to source/player-proven object activation, quip, clear-inventory, and P1/P2 ownership handlers. Broader Scenario cleanup remains open for remaining special setup semantics, source-only/parity validation, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-735 Scenario Anti-player global guard
+
+Continued `c3844-s5` after B-734 by auditing the remaining Anti-player global read in `scenario_source_runtime.c`. B-680 had already made the `CHR_ANTI` branch in `chr_set_team` validate every runtime player slot before `PLAYER_IS_ANTI()` and team mutation, but `g_Vars.antiplayernum` itself was only conventionally protected by the surrounding graph/source checks.
+
+Added `SCENARIO_ANTI_PLAYER_GLOBAL_SOURCE_PROVEN_FUNCTIONS` and `scan_scenario_anti_player_global_guards()` to `tools/asset_native_source_guard.py`. The scanner rejects direct `g_Vars.antiplayernum` reads outside `chr_set_team`, requires entity-lifecycle graph readiness and source-built character-row proof before the read, and requires runtime player-slot proof, Anti detection, and proof-log evidence to remain present afterward. Focused static coverage pins the scanner hook, error text, Anti-player regex, source proof before the global read, and player-slot proof before Anti mutation.
+
+Verification: `python tools\asset_native_source_guard.py` passed; `python -m py_compile tools\asset_native_source_guard.py` passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 7,219 assertions / 25 cases; the isolated `c3844antiguard` test build directory was removed. No client build or Scenario smoke was rerun because this was guard/test-only and did not change runtime behavior.
+
+Current state: Scenario Anti-player team global reads are now structurally limited to source-proven `chr_set_team` before player-slot-proven Anti mutation. Broader Scenario cleanup remains open for remaining special setup semantics, source-only/parity validation, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-734 Scenario player-autowalk state guard
+
+Continued `c3844-s5` after B-733 by auditing the remaining player-autowalk tick-state read in `scenario_source_runtime.c`. B-672 had already made `if_player_auto_walk_finished` prove public graph/source rows, source-resolve the target character, validate the derived runtime player slot, and switch current player before reading `g_Vars.tickmode`.
+
+Added `SCENARIO_PLAYER_AUTOWALK_STATE_SOURCE_PROVEN_FUNCTIONS` and `scan_scenario_player_autowalk_state_guards()` to `tools/asset_native_source_guard.py`. The scanner rejects direct `g_Vars.tickmode` reads outside `if_player_auto_walk_finished` and requires graph/source proof, character proof, player-slot proof, current-player switching, and proof-log evidence to stay present. Focused static coverage pins the scanner hook, error text, tickmode regex, and proof-before-tickmode ordering.
+
+Verification: `python tools\asset_native_source_guard.py` passed; `python -m py_compile tools\asset_native_source_guard.py` passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 7,205 assertions / 25 cases; the isolated `c3844tickguard` test build directory was removed. No client build or Scenario smoke was rerun because this was guard/test-only and did not change runtime behavior.
+
+Current state: Scenario player-autowalk tickmode reads are now structurally limited to a source-proven, player-slot-proven autowalk condition path. Broader Scenario cleanup remains open for remaining special setup semantics, source-only/parity validation, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-733 Scenario runtime-mode global guard
+
+Continued `c3844-s5` after B-732 by auditing the remaining co-op/runtime-mode reads in `scenario_source_runtime.c`. `duplicate_chr` reads `g_Vars.normmplayerisrunning` and `g_Vars.numaibuddies` only after duplicate graph/source proof, public pad proof, character proof, and body catalog proof; `if_coop_mode` reads `g_Vars.normmplayerisrunning` only after condition graph/source proof and `ai/ailists.tsv` proof.
+
+Extended the existing mission/music-mode scanner in `tools/asset_native_source_guard.py` so it also rejects direct `g_Vars.normmplayerisrunning` and `g_Vars.numaibuddies` reads outside those source-proven graph handlers. Focused static coverage pins the widened scanner regex and proof-before-runtime-mode-read ordering for both `duplicate_chr` and `if_coop_mode`.
+
+Verification: `python tools\asset_native_source_guard.py` passed; `python -m py_compile tools\asset_native_source_guard.py` passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 7,195 assertions / 25 cases; the isolated `c3844modeguard` test build directory was removed. No client build or Scenario smoke was rerun because this was guard/test-only and did not change runtime behavior.
+
+Current state: Scenario runtime-mode globals in duplicate/co-op mode graph paths are now covered by the structural mission/music-mode native-source guard. Broader Scenario cleanup remains open for remaining special setup semantics, source-only/parity validation, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-732 Scenario kill-count guard
+
+Continued `c3844-s5` after B-731 by auditing direct kill-count state in `scenario_source_runtime.c`. The only live read is `if_kill_count_greater_than`, which already routes through `s_aiGraphRequireMissionGlobalConditionNode()` before comparing `g_Vars.killcount` and logging current kill count.
+
+Added `SCENARIO_KILL_COUNT_SOURCE_PROVEN_FUNCTIONS` and `scan_scenario_kill_count_guards()` to `tools/asset_native_source_guard.py`. The scanner rejects direct `g_Vars.killcount` reads outside the mission/global graph condition and requires mission/global source proof before the read. Focused static coverage pins the scanner hook, error text, proof-before-count ordering, and proof-log evidence.
+
+Verification: `python tools\asset_native_source_guard.py` passed; `python -m py_compile tools\asset_native_source_guard.py` passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 7,176 assertions / 25 cases; the isolated `c3844killguard` test build directory was removed. No client build or Scenario smoke was rerun because this was guard/test-only and did not change runtime behavior.
+
+Current state: Scenario kill-count checks are now structurally limited to mission/global graph source proof. Broader Scenario cleanup remains open for remaining special setup semantics, source-only/parity validation, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-731 Scenario frame-state guard
+
+Continued `c3844-s5` after B-730 by auditing direct frame-state globals in `scenario_source_runtime.c`. `set_dr_caroll_images` already proves the misc-effect graph node and target character source before reading `g_Vars.lvframenum` for Dr. Caroll image cycling, and `set_door_open` already proves setup-spawn graph source plus public `objects.tsv` door source before writing `door->lastopen60 = g_Vars.lvframe60`.
+
+Added `SCENARIO_FRAME_STATE_SOURCE_PROVEN_FUNCTIONS` and `scan_scenario_frame_state_guards()` to `tools/asset_native_source_guard.py`. The scanner rejects direct `g_Vars.lvframenum` / `g_Vars.lvframe60` access outside the two allowlisted graph actions and requires graph/source proof before the access. Focused static coverage pins the scanner hook, error text, Dr. Caroll proof-before-frame ordering, and `set_door_open` object-source-before-frame timestamp ordering.
+
+Verification: `python tools\asset_native_source_guard.py` passed; `python -m py_compile tools\asset_native_source_guard.py` passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 7,165 assertions / 25 cases; the isolated `c3844frameguard` test build directory was removed. No client build or Scenario smoke was rerun because this was guard/test-only and did not change runtime behavior.
+
+Current state: Scenario frame-state reads are now structurally limited to graph/source-proven Dr. Caroll image and door timestamp paths. Broader Scenario cleanup remains open for remaining special setup semantics, source-only/parity validation, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-730 Scenario autocut global guard
+
+Continued `c3844-s5` after B-729 by auditing direct autocut state access in `scenario_source_runtime.c`. `end_level` already routes through `s_aiPlayerCutsceneGraphReady()` before reading `g_Vars.autocutplaying` or writing `g_Vars.autocutfinished`, and the Air Force One `disable_obj` exception already proves entity-lifecycle graph source plus public `objects.tsv` object rows before reading `g_Vars.autocutplaying`.
+
+Added `SCENARIO_AUTOCUT_SOURCE_PROVEN_FUNCTIONS` and `scan_scenario_autocut_global_guards()` to `tools/asset_native_source_guard.py`. The scanner rejects direct autocut global access outside `end_level` and the Air Force One `disable_obj` exception, requires graph/source proof before the access, and requires proof-log evidence to stay present. Focused static coverage pins the scanner hook, error text, `end_level` proof-before-autocut ordering, and `disable_obj` object-source-before-autocut ordering.
+
+Verification: `python tools\asset_native_source_guard.py` passed; `python -m py_compile tools\asset_native_source_guard.py` passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 7,139 assertions / 25 cases; the isolated `c3844autocut` test build directory was removed. No client build or Scenario smoke was rerun because this was guard/test-only and did not change runtime behavior.
+
+Current state: Scenario autocut state is now structurally limited to graph-proven player-cutscene/object-lifecycle paths. Broader Scenario cleanup remains open for remaining special setup semantics, source-only/parity validation, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-729 Scenario lift-number guard
+
+Continued `c3844-s5` after B-728 by auditing the remaining unguarded `g_Lifts` access in `scenario_source_runtime.c`. The only direct use is the bounds check inside `s_aiGraphRequireRuntimeLiftNumber()`, and that helper already requires the source-built public `pads.tsv` runtime table before checking the lift number and scanning pad rows for a matching lift.
+
+Added `SCENARIO_LIFT_NUMBER_SOURCE_PROVEN_FUNCTIONS`, caller proof tokens, and `scan_scenario_lift_number_guards()` to `tools/asset_native_source_guard.py`. The scanner rejects direct `g_Lifts` access outside `s_aiGraphRequireRuntimeLiftNumber()`, requires public pad-source proof before the bounds check, and only allows the lift-number helper from `activate_lift` with graph node proof, object-source proof, live `liftActivate()`, and proof-log evidence in order. Focused static coverage pins the scanner hook, error text, helper proof order, and `activate_lift` proof-before-activation order.
+
+Verification: `python tools\asset_native_source_guard.py` passed; `python -m py_compile tools\asset_native_source_guard.py` passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 7,113 assertions / 25 cases; the isolated `c3844liftguard` test build directory was removed. No client build or Scenario smoke was rerun because this was guard/test-only and did not change runtime behavior.
+
+Current state: Scenario lift-number bounds checks are now structurally limited to public pad-source validation before live lift activation. Broader Scenario cleanup remains open for remaining special setup semantics, source-only/parity validation, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-728 Scenario teleport sound priority guard
+
+Continued `c3844-s5` after B-727 by auditing teleport fade sound playback in `scenario_source_runtime.c`. `chr_begin_or_end_teleport` and `if_chr_teleport_full_white` already resolve the legacy parity SFX through `s_aiGraphResolveAudioCatalogId()` before calling the shared teleport sound helper, but the helper's `g_AudioManager.thread` priority access and its allowed callers were not structurally native-source guarded.
+
+Added `SCENARIO_TELEPORT_SOUND_PRIORITY_SOURCE_PROVEN_FUNCTIONS`, caller proof tokens, and `scan_scenario_teleport_sound_priority_guards()` to `tools/asset_native_source_guard.py`. The scanner rejects direct `g_AudioManager` access outside `s_aiGraphPlayTeleportSound()`, requires the helper to retain its priority/sound-start shape, and only allows calls from the two teleport graph handlers after catalog audio proof. Focused static coverage pins the scanner hook, error text, helper priority ordering, and catalog-resolution-before-playback order for both teleport handlers.
+
+Verification: `python tools\asset_native_source_guard.py` passed; `python -m py_compile tools\asset_native_source_guard.py` passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 7,088 assertions / 25 cases; the isolated `c3844teleaudio` test build directory was removed. No client build or Scenario smoke was rerun because this was guard/test-only and did not change runtime behavior.
+
+Current state: Scenario teleport sound priority changes are now structurally limited to catalog-proven teleport graph playback. Broader Scenario cleanup remains open for remaining special setup semantics, source-only/parity validation, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-727 Scenario cutscene frame-overrun guard
+
+Continued `c3844-s5` after B-726 by auditing direct cutscene frame-overrun reads in `scenario_source_runtime.c`. `chr_do_animation` and `object_do_animation` already resolve animation catalog IDs and prove their source-backed character/object targets before reading `g_CutsceneFrameOverrun240`, but the boundary was not structurally native-source guarded.
+
+Added `SCENARIO_CUTSCENE_FRAME_OVERRUN_SOURCE_PROVEN_FUNCTIONS` and `scan_scenario_cutscene_frame_overrun_guards()` to `tools/asset_native_source_guard.py`. The scanner rejects direct `g_CutsceneFrameOverrun240` reads outside the two animation handlers, requires animation graph/catalog source proof plus target proof before the timing read, and requires proof-log evidence after it. Focused static coverage pins the scanner hook, error text, and proof-before-timing-read order for both `chr_do_animation` and `object_do_animation`.
+
+Verification: `python tools\asset_native_source_guard.py` passed; `python -m py_compile tools\asset_native_source_guard.py` passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 7,062 assertions / 25 cases; the isolated `c3844cutoverrun` test build directory was removed. No client build or Scenario smoke was rerun because this was guard/test-only and did not change runtime behavior.
+
+Current state: Scenario cutscene frame-overrun timing is now structurally limited to animation handlers that prove public graph/animation source and their live targets first. Broader Scenario cleanup remains open for remaining special setup semantics, source-only/parity validation, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-726 Scenario environment global guard
+
+Continued `c3844-s5` after B-725 by auditing direct Scenario environment global access in `scenario_source_runtime.c`. `set_wind_speed` and `set_tinted_glass_enabled` already require active public graph source before writing `g_SkyWindSpeed` and `g_TintedGlassEnabled`, but the boundary was not structurally native-source guarded.
+
+Added `SCENARIO_ENVIRONMENT_GLOBAL_SOURCE_PROVEN_FUNCTIONS`, helper proof tokens, and `scan_scenario_environment_global_guards()` to `tools/asset_native_source_guard.py`. The scanner rejects direct wind-speed or tinted-glass global access outside the allowlisted graph handlers, requires the sky/misc-effect source helpers to retain their AI-list source checks, and requires proof-log evidence to remain present after the writes. Focused static coverage pins the scanner hook, error text, helper source checks, and proof-before-global-write order for both handlers.
+
+Verification: `python tools\asset_native_source_guard.py` passed; `python -m py_compile tools\asset_native_source_guard.py` passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 7,035 assertions / 25 cases; the isolated `c3844envguard` test build directory was removed. No client build or Scenario smoke was rerun because this was guard/test-only and did not change runtime behavior. Parent context mirror sync succeeded for `..\tasks-current.md` and `..\session-log.md`.
+
+Current state: Scenario wind-speed and tinted-glass globals are now structurally limited to graph-source environment handlers. Broader Scenario cleanup remains open for remaining special setup semantics, source-only/parity validation, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-725 Scenario player invincibility global guard
+
+Continued `c3844-s5` after B-724 by auditing direct player invincibility global access in `scenario_source_runtime.c`. `chr_set_invincible` and `if_player_is_invincible` already resolved the Scenario player character and validated the derived runtime player slot before switching current player and touching `g_PlayerInvincible`, but the boundary was only static-test covered, not structurally native-source guarded.
+
+Added `SCENARIO_PLAYER_INVINCIBILITY_SOURCE_PROVEN_FUNCTIONS` and `scan_scenario_player_invincibility_guards()` to `tools/asset_native_source_guard.py`. The scanner rejects direct `g_PlayerInvincible` reads/writes outside `chr_set_invincible` and `if_player_is_invincible`, requires public graph/source and player-slot proof before those accesses, and requires proof-log evidence to stay present. Focused static coverage pins the scanner hook, error text, and proof-before-access order for both handlers.
+
+Verification: `python tools\asset_native_source_guard.py` passed; `python -m py_compile tools\asset_native_source_guard.py` passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 7,012 assertions / 25 cases; the isolated `c3844invguard` test build directory was removed. No client build or Scenario smoke was rerun because this was guard/test-only and did not change runtime behavior. Parent context mirror sync remains blocked by sandbox permissions for `..\tasks-current.md` and `..\session-log.md`.
+
+Current state: Scenario player invincibility global access is now structurally limited to source-proven player-slot handlers. Broader Scenario cleanup remains open for remaining special setup semantics, source-only/parity validation, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-724 Scenario mission/music mode global guard
+
+Continued `c3844-s5` after B-723 by auditing the remaining direct mission/music global reads in `scenario_source_runtime.c`. The reads are legitimate graph-runtime state only when they stay inside source-proven graph handlers: `duplicate_chr` uses `g_MissionConfig.iscoop` after proving the public duplicate-character graph action, pads source, the source-backed character, and cloned asset IDs; `if_music_event_queue_is_empty` and `if_coop_mode` read mission/music state after their public graph condition and AI-list source checks.
+
+Added `SCENARIO_MISSION_MUSIC_MODE_GLOBAL_SOURCE_PROVEN_FUNCTIONS` and `scan_scenario_mission_music_mode_global_guards()` to `tools/asset_native_source_guard.py`. The scanner rejects direct `g_MissionConfig.iscoop` and `g_MusicEventQueueLength` reads outside the allowlisted graph handlers, requires source/node proof tokens before those reads, and requires proof-log evidence to stay present. Focused static coverage pins the scanner hook, error text, `duplicate_chr` source proof before co-op mode access, and the music/mode condition bodies.
+
+Verification: `python tools\asset_native_source_guard.py` passed; `python -m py_compile tools\asset_native_source_guard.py` passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 6,995 assertions / 25 cases; the isolated `c3844missionmode` test build directory was removed. No client build or Scenario smoke was rerun because this was guard/test-only and did not change runtime behavior. Parent context mirror sync remains blocked by sandbox permissions for `..\tasks-current.md` and `..\session-log.md`.
+
+Current state: Scenario mission/music mode global reads are now structurally limited to source-proven graph handlers. Broader Scenario cleanup remains open for remaining special setup semantics, source-only/parity validation, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-723 Scenario portal global guard
+
+Continued `c3844-s5` after B-722 by extending Scenario portal guard coverage from table mutation to resolver-level portal table pointer/count reads. `s_aiGraphResolveRuntimePortal()` already required public `portals.tsv` source and a source-built portal table before reporting portal rows or availability, but the native-source guard only rejected raw `g_BgPortals[portalnum]` mutation.
+
+Added `SCENARIO_PORTAL_GLOBAL_SOURCE_PROVEN_FUNCTIONS` and `scan_scenario_portal_global_guards()` to `tools/asset_native_source_guard.py`. The scanner rejects direct `g_BgPortals` pointer reads and `g_BgNumPortalCameraCacheItems` count reads outside `s_aiGraphResolveRuntimePortal()` with `portals.tsv` proof, the source-built table check, and count/bounds tokens. Existing `scan_scenario_portal_table_guards()` still owns direct `g_BgPortals[portalnum]` mutation. Focused static coverage pins the scanner hook, error text, and resolver body.
+
+Verification: `python tools\asset_native_source_guard.py` passed; `python -m py_compile tools\asset_native_source_guard.py` passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 6,966 assertions / 25 cases; the isolated `c3844portalglobal` test build directory was removed. No client build or Scenario smoke was rerun because this was guard/test-only and did not change runtime behavior. Parent context mirror sync remains blocked by sandbox permissions for `..\tasks-current.md` and `..\session-log.md`.
+
+Current state: Scenario portal pointer/count reads are now structurally limited to the public `portals.tsv` proof helper, while portal mutation remains behind the existing source-built table guard. Broader Scenario cleanup remains open for remaining special setup semantics, source-only/parity validation, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-722 Scenario source wide-pad cache guard
+
+Continued `c3844-s5` after B-721 by auditing the source-owned wide-pad offset cache in `scenario_source_runtime.c`. The cache is not a ROM fallback; it exists so large public `pads.tsv` tables can compile to native runtime padfiles with 32-bit offsets instead of truncating into legacy `u16` offsets.
+
+Added `SCENARIO_SOURCE_WIDE_PAD_CACHE_SOURCE_PROVEN_FUNCTIONS` and `scan_scenario_source_wide_pad_cache_guards()` to `tools/asset_native_source_guard.py`. The scanner rejects direct `g_SourceWidePadFile`, `g_SourceWidePadOffsets`, and `g_SourceWidePadOffsetCount` access outside `s_clearSourceWidePadOffsets()`, `scenarioSourcePadsGetWideOffsets()`, and `s_buildPadfile()`, and it ignores the file-scope static declarations so only real access sites are policed. Focused static coverage pins the scanner hook, error text, and the clear/get/build helper bodies.
+
+Verification: `python tools\asset_native_source_guard.py` passed; `python -m py_compile tools\asset_native_source_guard.py` passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 6,961 assertions / 25 cases; the isolated `c3844widepadguard` test build directory was removed. No client build or Scenario smoke was rerun because this was guard/test-only and did not change runtime behavior. Parent context mirror sync remains blocked by sandbox permissions for `..\tasks-current.md` and `..\session-log.md`.
+
+Current state: Scenario source wide-pad offset cache access is now structurally limited to source padfile plumbing. Broader Scenario cleanup remains open for remaining special setup semantics, source-only/parity validation, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-721 Scenario setup-tag global guard
+
+Continued `c3844-s5` after B-720 by auditing the last direct setup-tag global read in `scenario_source_runtime.c`. `s_countRuntimeSetupTags()` already runs behind public `setup.fields.tsv` source proof through `SCENARIO_RUNTIME_COUNT_RULES`, but the native-source guard did not yet make `g_TagsLinkedList` access structural.
+
+Added `SCENARIO_SETUP_TAG_GLOBAL_SOURCE_PROVEN_FUNCTIONS` and `scan_scenario_setup_tag_global_guards()` to `tools/asset_native_source_guard.py`. The scanner rejects direct `g_TagsLinkedList` reads outside `s_countRuntimeSetupTags()`, requires the helper to retain its linked-list count proof tokens, and requires it to remain listed in the runtime count source-proof rules. Focused static coverage pins the scanner hook, error text, and helper body.
+
+Verification: `python tools\asset_native_source_guard.py` passed; `python -m py_compile tools\asset_native_source_guard.py` passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 6,944 assertions / 25 cases; the isolated `c3844setuptag` test build directory was removed. No client build or Scenario smoke was rerun because this was guard/test-only and did not change runtime behavior. Parent context mirror sync remains blocked by sandbox permissions for `..\tasks-current.md` and `..\session-log.md`.
+
+Current state: Scenario setup-tag linked-list access is now structurally limited to the source-gated setup-tag count helper. Broader Scenario cleanup remains open for remaining special setup semantics, source-only/parity validation, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-720 Scenario g_StageSetup table guard
+
+Continued `c3844-s5` after B-719 by auditing direct `g_StageSetup` reads in `scenario_source_runtime.c`. The remaining reads are legitimate only as source-derived runtime table helpers: path/pad/cover/setup/waypoint/waygroup counts, setup object/character membership checks, and path-pointer validation. No graph action should read those runtime tables directly.
+
+Added `SCENARIO_STAGE_SETUP_GLOBAL_SOURCE_PROVEN_FUNCTIONS` and `scan_scenario_stage_setup_global_guards()` to `tools/asset_native_source_guard.py`. The scanner inventories every `g_StageSetup.*` field read, allowlists only the source-aware helper bodies, requires their expected proof tokens, requires count helpers to remain listed in `SCENARIO_RUNTIME_COUNT_RULES`, and requires `s_aiGraphRequireRuntimePathPointer()` to stay under the paths count rule. Focused static coverage pins the scanner hook, error text, helper bodies, and the direct `g_StageSetup.paths` membership check in path-pointer validation.
+
+Verification: `python tools\asset_native_source_guard.py` passed; `python -m py_compile tools\asset_native_source_guard.py` passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 6,937 assertions / 25 cases; the isolated `c3844stagesetup` test build directory was removed. No client build or Scenario smoke was rerun because this was guard/test-only and did not change runtime behavior. Parent context mirror sync remains blocked by sandbox permissions for `..\tasks-current.md` and `..\session-log.md`.
+
+Current state: Scenario `g_StageSetup` runtime table access is now structurally limited to source-gated helper boundaries. Broader Scenario cleanup remains open for remaining special setup semantics, source-only/parity validation, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-719 Scenario padfile count global guard
+
+Continued `c3844-s5` after B-718 by auditing the remaining direct `g_PadsFile->numpads` / `g_PadsFile->numcovers` reads in `scenario_source_runtime.c`. Runtime behavior was already source-gated through `s_countRuntimePads()` / `s_countRuntimeCovers()` and the callers covered by `SCENARIO_RUNTIME_COUNT_RULES`, but the native-source guard did not yet make that boundary structural.
+
+Added `SCENARIO_PADFILE_GLOBAL_SOURCE_PROVEN_FUNCTIONS` and `scan_scenario_padfile_global_guards()` to `tools/asset_native_source_guard.py`. The scanner rejects direct `g_PadsFile->...` field access outside the count helpers, requires each helper to retain its nonpositive-count and return proof tokens, and requires both helpers to remain listed in the runtime count source-proof rules. Focused static coverage pins the scanner hook, error text, helper bodies, and count proof tokens.
+
+Verification: `python tools\asset_native_source_guard.py` passed; `python -m py_compile tools\asset_native_source_guard.py` passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 6,908 assertions / 25 cases; the isolated `c3844padfile` test build directory was removed. No client build or Scenario smoke was rerun because this was guard/test-only and did not change runtime behavior. Parent context mirror sync remains blocked by sandbox permissions for `..\tasks-current.md` and `..\session-log.md`.
+
+Current state: Scenario padfile count globals are now structurally limited to source-gated runtime count helpers. Broader Scenario cleanup remains open for remaining special setup semantics, source-only/parity validation, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-718 Scenario cutscene slot scan guard
+
+Continued `c3844-s5` after B-717 by auditing the remaining direct `g_ChrSlots[]` reads in `scenario_source_runtime.c`. B-652/B-697 already made runtime behavior source-aligned: `show_cutscene_chrs` requires public `ai/ailists.tsv`, counts source-backed character rows, scans live slots only to preflight candidates through `s_aiGraphRequireRuntimeCharacterPointer()`, collects proven local pointers, and mutates visibility flags through those locals.
+
+Extended `scan_scenario_cutscene_visibility_slot_guards()` with `SCENARIO_CUTSCENE_VISIBILITY_SLOT_SCAN_SOURCE_PROVEN_FUNCTIONS`. The scanner now rejects direct `g_ChrSlots[]` scans outside `show_cutscene_chrs`, requires the source-row count and slot-count setup before scanning, and requires each slot scan to prove the candidate with `s_aiGraphRequireRuntimeCharacterPointer()` before it can be collected for mutation. Existing direct slot-write rejection remains intact. Focused static coverage pins the scanner hook, error text, and source-row proof before `g_ChrSlots[]` scanning.
+
+Verification: `python tools\asset_native_source_guard.py` passed; `python -m py_compile tools\asset_native_source_guard.py` passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 6,899 assertions / 25 cases; the isolated `c3844slotscan` test build directory was removed. No client build or Scenario smoke was rerun because this was guard/test-only and did not change runtime behavior. Parent context mirror sync remains blocked by sandbox permissions for `..\tasks-current.md` and `..\session-log.md`.
+
+Current state: Scenario cutscene visibility slot scans are now structurally limited to source-proven preflight before local-pointer visibility mutation. Broader Scenario cleanup remains open for remaining special setup semantics, source-only/parity validation, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-717 Scenario quip asset table guard
+
+Continued `c3844-s5` after B-716 by auditing direct legacy quip table reads in `scenario_source_runtime.c`. Runtime behavior was already source-aligned from B-596/B-620/B-631/B-660/B-693: `say_quip` and `say_ci_staff_quip` validate graph source and character pointers before selecting quip rows, then resolve selected audio/text ids through catalog helpers and log catalog IDs instead of numeric proof.
+
+Added `SCENARIO_QUIP_ASSET_TABLE_SOURCE_PROVEN_FUNCTIONS` and `scan_scenario_quip_asset_table_guards()` to `tools/asset_native_source_guard.py`. The scanner rejects direct `g_GuardQuipBank[]`, `g_SpecialQuipBank[]`, `g_SkedarQuipBank[]`, `g_MaianQuipBank[]`, `g_QuipTexts[]`, and CI staff quip table access outside `say_quip` / `say_ci_staff_quip`, requires graph-source and character proof before quip-bank access, and requires audio/text catalog proof tokens to stay present. Focused static coverage pins the scanner hook, error text, and source/character proof before quip-bank access.
+
+Verification: `python tools\asset_native_source_guard.py` passed; `python -m py_compile tools\asset_native_source_guard.py` passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 6,891 assertions / 25 cases; the isolated `c3844quipasset` test build directory was removed. No client build or Scenario smoke was rerun because this was guard/test-only and did not change runtime behavior. Parent context mirror sync remains blocked by sandbox permissions for `..\tasks-current.md` and `..\session-log.md`.
+
+Current state: Scenario quip asset table reads are now structurally limited to character-proven, catalog-resolved quip graph actions. Broader Scenario cleanup remains open for remaining special setup semantics, source-only/parity validation, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-716 Scenario special-death animation guard
+
+Continued `c3844-s5` after B-715 by auditing direct `g_SpecialDieAnims[]` reads in `scenario_source_runtime.c`. Runtime behavior was already source-aligned from B-595: explicit special-death modes resolve the concrete animation rows through `s_aiGraphResolveAnimationCatalogId()` / `catalogResolveAnim()` before `chr->specialdie` assignment, while `SPECIALDIE_NONE` remains the no-asset sentinel and invalid modes fail the source graph path.
+
+Added `SCENARIO_SPECIAL_DEATH_ANIM_SOURCE_PROVEN_FUNCTIONS`, `SCENARIO_SPECIAL_DEATH_ANIM_ASSIGNMENT_PROOF_TOKENS`, and `scan_scenario_special_death_animation_guards()` to `tools/asset_native_source_guard.py`. The scanner rejects direct `g_SpecialDieAnims[]` access outside `s_aiGraphResolveSpecialDeathAnimationCatalogIds()`, requires the special-death mode range check and animation catalog resolver calls to stay present, and requires `set_chr_special_death_animation` to prove the character and resolve animation catalog IDs before assigning the legacy mode. Focused static coverage pins the scanner hook, error text, and range-check-before-table-read order.
+
+Verification: `python tools\asset_native_source_guard.py` passed; `python -m py_compile tools\asset_native_source_guard.py` passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 6,882 assertions / 25 cases; the isolated `c3844deathguard` test build directory was removed. No client build or Scenario smoke was rerun because this was guard/test-only and did not change runtime behavior. Parent context mirror sync remains blocked by sandbox permissions for `..\tasks-current.md` and `..\session-log.md`.
+
+Current state: Scenario special-death animation table reads are now structurally limited to the animation catalog proof helper. Broader Scenario cleanup remains open for remaining special setup semantics, source-only/parity validation, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-715 Scenario audio alias guard
+
+Continued `c3844-s5` after B-714 by auditing the remaining direct audio alias mapping read in `scenario_source_runtime.c`. Runtime behavior was already source-aligned from B-576: Scenario graph audio operands normalize legacy configured aliases through `g_AudioRussMappings[]`, then resolve the leaf runtime sound through `catalogResolveSound()` / `assetCatalogGetByIndex()` so graph logs and live actions use catalog IDs instead of raw numeric audio proof.
+
+Added `SCENARIO_AUDIO_ALIAS_SOURCE_PROVEN_FUNCTIONS`, `SCENARIO_AUDIO_CATALOG_RESOLVER_PROOF_TOKENS`, and `scan_scenario_audio_alias_guards()` to `tools/asset_native_source_guard.py`. The scanner rejects direct `g_AudioRussMappings[]` access outside `s_aiGraphNormalizeAudioRuntimeId()`, requires the alias-table bounds proof before the read, and requires `s_aiGraphResolveAudioCatalogId()` to normalize before catalog resolution and preserve the runtime failure path. Focused static coverage pins the scanner hook, error text, and normalize-before-catalog order.
+
+Verification: `python tools\asset_native_source_guard.py` passed; `python -m py_compile tools\asset_native_source_guard.py` passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 6,875 assertions / 25 cases; the isolated `c3844audioalias` test build directory was removed. No client build or Scenario smoke was rerun because this was guard/test-only and did not change runtime behavior. Parent context mirror sync remains blocked by sandbox permissions for `..\tasks-current.md` and `..\session-log.md`.
+
+Current state: Scenario audio alias mapping is now structurally limited to catalog-resolved audio graph paths. Broader Scenario cleanup remains open for remaining special setup semantics, source-only/parity validation, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-714 Scenario player-control table guard
+
+Continued `c3844-s5` after B-713 by auditing direct `g_PlayersWithControl[]` writes in `scenario_source_runtime.c`. Runtime behavior was already source-proven from B-668: `revoke_control` and `grant_control` resolve the Scenario player character, validate the derived runtime player slot, then write `g_PlayersWithControl[playernum]`. The remaining gap was structural: the native-source guard did not yet reject future player-control table writes that bypassed that proof shape.
+
+Added `SCENARIO_PLAYER_CONTROL_SOURCE_PROVEN_FUNCTIONS` and `scan_scenario_player_control_guards()` to `tools/asset_native_source_guard.py`. The scanner rejects any direct `g_PlayersWithControl[]` access outside `revoke_control` / `grant_control`, requires player-character resolution and runtime player-slot proof before the write, and rejects the old `g_PlayersWithControl[g_Vars.currentplayernum]` indexing shape. Focused static coverage pins the scanner hook and error text.
+
+Verification: `python tools\asset_native_source_guard.py` passed; `python -m py_compile tools\asset_native_source_guard.py` passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 6,864 assertions / 25 cases; the isolated `c3844pctl` test build directory was removed. No client build or Scenario smoke was rerun because this was guard/test-only and did not change runtime code.
+
+Current state: Scenario player-control table writes are now structurally limited to source-proven player-slot graph paths. Broader Scenario cleanup remains open for remaining special setup semantics, source-only/parity validation, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-713 Scenario room/portal table guard
+
+Continued `c3844-s5` after B-712 by auditing direct room and portal runtime table mutations in `scenario_source_runtime.c`. Room flag and environment paths already proved source-built scene room tables before `g_Rooms[]` writes, but the native-source guard did not enforce that boundary. `set_portal_flag` had a clearer gap: it proved the cutscene graph node, then wrote `g_BgPortals[portalnum]` without proving the active public `portals.tsv` runtime table or bounds.
+
+Added `s_aiGraphResolveRuntimePortal()` and routed `set_portal_flag` through it. Portal flag mutation now requires active `portals.tsv` source, a source-built portal table, and an in-bounds runtime portal row before touching `g_BgPortals[portalnum]`; sparse or empty public portal refs remain no-op parity outcomes instead of raw table writes. Added `SCENARIO_SCENE_ROOM_TABLE_SOURCE_PROVEN_FUNCTIONS`, `SCENARIO_PORTAL_TABLE_SOURCE_PROVEN_FUNCTIONS`, `scan_scenario_scene_room_table_guards()`, and `scan_scenario_portal_table_guards()` so future direct `g_Rooms[]` or `g_BgPortals[]` access in Scenario graph runtime fails the native-source guard unless it stays behind the source proof helper shape.
+
+Verification: `python tools\asset_native_source_guard.py` passed; `python -m py_compile tools\asset_native_source_guard.py` passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 6,861 assertions / 25 cases; isolated `c3844portalpd` client build passed after rerunning with wrapper target `client`; isolated `c3844portal` and `c3844portalpd` build directories were removed. No Scenario smoke was rerun because this was narrow source-proof/bounds hardening for a graph path already source-matrix covered at the module level. Parent context mirror remains blocked: parent `context\...` copies are still absent from this workspace view and writes to existing parent `tasks-current.md` / `session-log.md` are denied by the sandbox.
+
+Current state: Scenario room and portal runtime table mutations are now structurally tied to public scene/portal source proof. Broader Scenario cleanup remains open for remaining special setup semantics, source-only/parity validation, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-712 Scenario literal character scan guard
+
+Continued `c3844-s5` after B-711 by auditing direct `chrFindByLiteralId()` use in `scenario_source_runtime.c`. The remaining callsites are squad/team literal-character scans in source-backed AI graph handlers, and current runtime code already proves returned characters before live state reads, but the native-source guard did not yet enforce that post-lookup proof shape.
+
+Added `SCENARIO_LITERAL_CHR_FIND_SOURCE_PROVEN_FUNCTIONS` and `scan_scenario_literal_chr_find_guards()` to `tools/asset_native_source_guard.py`. The scanner rejects literal-id character scans outside the allowlisted source-proven handlers, requires each scan window to call `s_aiGraphRequireRuntimeCharacterPointer()` before the next literal-id scan, and requires checked/log evidence to stay present for team orders, squadron predicates, safety/detection predicates, quip scans, and alertness updates. Focused static coverage pins the scanner hook, allowlist, and representative proof-before-use ordering.
+
+Verification: `python tools\asset_native_source_guard.py` passed; `python -m py_compile tools\asset_native_source_guard.py` passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 6,841 assertions / 25 cases; the isolated `c3844literal` test build directory was removed. No client build or Scenario smoke was rerun because this was guard/test-only and did not change runtime code. Parent context mirror remains blocked: parent `context\...` copies are still absent from this workspace view and writes to existing parent `tasks-current.md` / `session-log.md` are denied by the sandbox.
+
+Current state: Scenario literal-character squad/team scans are now structurally limited to source-proven handlers and must prove returned character pointers before live state use. Broader Scenario cleanup remains open for remaining special setup semantics, source-only/parity validation, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-711 Scenario character lookup guard
+
+Continued `c3844-s5` after B-710 by auditing the direct `chrFindById()` inventory in `scenario_source_runtime.c`. The runtime file only calls `chrFindById()` from the shared source-aware character-reference helpers, but that boundary was not yet enforced by the native-source guard.
+
+Added `SCENARIO_CHR_FIND_SOURCE_PROVEN_FUNCTIONS` and `scan_scenario_chr_find_guards()` to `tools/asset_native_source_guard.py`. The scanner rejects direct `chrFindById()` calls outside `s_aiGraphRequireRuntimeCharacterRefFromBase()`, `s_aiGraphResolveRuntimeCharacterRefOrSelector()`, and `s_aiGraphRuntimeCharacterRefLooksSourceBacked()`, and requires those helpers to keep source-spawn/source-row proof tokens such as `s_aiGraphRuntimeChrIsSourceSpawned()` and `s_runtimeSetupContainsChrnum()`. Focused static coverage now pins the scanner and allowed helper bodies.
+
+Verification: `python tools\asset_native_source_guard.py` passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 6,779 assertions / 25 cases; the isolated `c3844chrfind` test build directory was removed. No client build or Scenario smoke was rerun because this was guard/test-only and did not change runtime code. Parent context mirror remains blocked: parent `context\...` copies are still absent from this workspace view and writes to existing parent `tasks-current.md` / `session-log.md` are denied by the sandbox.
+
+Current state: direct Scenario character id lookup is now structurally limited to the source-aware character-reference helpers. Broader Scenario cleanup remains open for remaining special setup semantics, source-only/parity validation, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-710 Scenario suspicious-item room-prop scan guard
+
+Continued `c3844-s5` after B-709 by auditing the final direct runtime prop-table read pattern in `scenario_source_runtime.c`. `s_aiGraphChrSeesSuspiciousItem()` scans prop ids returned by `roomGetProps()` and reads `g_Vars.props[*ptr]`. The current caller already required the spatial perception graph node, public `objects.tsv`, and active-character proof before that helper call, but the helper/caller relationship was not yet enforced by the native-source guard.
+
+Added `SCENARIO_ROOM_PROP_SCAN_SOURCE_PROVEN_FUNCTIONS`, `SCENARIO_ROOM_PROP_SCAN_CALLERS`, and `scan_scenario_room_prop_scan_guards()` to `tools/asset_native_source_guard.py`. The scanner rejects direct `g_Vars.props[*ptr]` scans outside the suspicious-item helper, rejects unallowlisted callers of that helper, and requires the `chr, 0, 1` object-source proof shape before invocation. Focused static coverage now pins the scanner, helper body, and caller proof ordering.
+
+Verification: `python tools\asset_native_source_guard.py` passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 6,764 assertions / 25 cases; the isolated `c3844roomprop` test build directory was removed. No client build or Scenario smoke was rerun because this was guard/test-only and did not change runtime code. Parent context mirror remains blocked: parent `context\...` copies are still absent from this workspace view and writes to existing parent `tasks-current.md` / `session-log.md` are denied by the sandbox.
+
+Current state: Scenario suspicious-item room-prop scanning is now structurally limited to the source-proven spatial object/character graph path. Broader Scenario cleanup remains open for remaining special setup semantics, source-only/parity validation, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-709 Scenario prop-preset index guard
+
+Continued `c3844-s5` after B-708 by auditing the remaining direct runtime prop-table reads in `scenario_source_runtime.c`. The two direct prop-preset reads, `remove_object_at_prop_preset` and `if_prop_preset_height_less_than`, already required the public prop-target graph node, public `objects.tsv`, and active-character proof before indexing `g_Vars.props[chr->proppreset1]`, but that invariant was only covered by local static tests and was not yet enforced by the native-source guard.
+
+Added `SCENARIO_PROP_PRESET_INDEX_SOURCE_PROVEN_FUNCTIONS`, `SCENARIO_PROP_PRESET_INDEX_REQUIRED_TOKENS`, and `scan_scenario_prop_preset_index_guards()` to `tools/asset_native_source_guard.py`. The scanner rejects unallowlisted `g_Vars.props[chr->proppreset1]` access and rejects proof-after-read ordering in the two source-proven prop-target handlers. Focused static coverage now pins the new scanner plus the runtime proof-before-table-read shape.
+
+Verification: `python tools\asset_native_source_guard.py` passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 6,749 assertions / 25 cases; the isolated `c3844presetidx` test build directory was removed. No client build or Scenario smoke was rerun because this was guard/test-only and did not change runtime code. Parent context mirror remains blocked: parent `context\...` copies are still absent from this workspace view and writes to existing parent `tasks-current.md` / `session-log.md` are denied by the sandbox.
+
+Current state: Scenario prop-preset runtime prop-table reads are now structurally limited to source-proven object/character graph handlers. Broader Scenario cleanup remains open for remaining special setup semantics, source-only/parity validation, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-708 Scenario prop-target index guard
+
+Continued `c3844-s5` after B-707 by auditing the remaining `propGetIndexByChrId()` callsites in `scenario_source_runtime.c`. The runtime callsites were already behind active actor and target/candidate proof from prior slices, but the native-source guard did not yet make that invariant structural.
+
+Added `SCENARIO_PROP_TARGET_INDEX_SOURCE_PROVEN_FUNCTIONS`, `SCENARIO_PROP_TARGET_INDEX_REQUIRED_TOKENS`, and `scan_scenario_prop_target_index_guards()` to `tools/asset_native_source_guard.py`. The scanner rejects any unallowlisted `propGetIndexByChrId()` call and rejects proof-after-call ordering in `set_target`, `if_presets_target_is_not_my_target`, `detect_enemy_on_same_floor`, `detect_enemy`, and `set_target_to_eyespy_if_in_sight`. Focused static coverage now pins the B-707 prop-index scanner plus this new prop-target-index scanner in the Codex hook test.
+
+Verification: `python tools\asset_native_source_guard.py` passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 6,732 assertions / 25 cases; the isolated `c3844targidx` test build directory was removed. No client build or Scenario smoke was rerun because this was guard/test-only and did not change runtime code. Parent context mirror remains blocked: parent `context\...` copies are still absent from this workspace view and writes to existing parent `tasks-current.md` / `session-log.md` are denied by the sandbox.
+
+Current state: Scenario target-index derivation through `propGetIndexByChrId()` is now structurally limited to source-proven graph handlers. Broader Scenario cleanup remains open for remaining special setup semantics, source-only/parity validation, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-707 Scenario remove_references_to_chr prop-index guard
+
+Continued `c3844-s5` after B-706 by auditing direct runtime prop-index derivations in `scenario_source_runtime.c`. The clear remaining action-owned gap was `remove_references_to_chr`: it required the public AI graph node and `ai/ailists.tsv`, but then converted `chr->prop` into a `g_Vars.props` index and called `chrClearReferences(prop_index)` before proving that the current character pointer was source-derived.
+
+Carried the character proof through that action. `remove_references_to_chr` now validates any non-null current character with `s_aiGraphRequireOptionalRuntimeCharacterPointer("remove_references_to_chr", ...)` before deriving `chr->prop - g_Vars.props` or clearing references. Its proof log now includes `chr_rows` / `source_chr`. Added `SCENARIO_PROP_INDEX_SOURCE_PROVEN_FUNCTIONS`, `SCENARIO_PROP_INDEX_REQUIRED_TOKENS`, and `scan_scenario_prop_index_guards()` so future live prop-index derivation fails the native-source guard unless it stays behind the character proof.
+
+Verification: `python tools\asset_native_source_guard.py` passed; scoped `git diff --check` passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 6,726 assertions / 25 cases; isolated `c3844prop` client build passed with `PerfectDark.exe` size 70,333,532 bytes and empty build stderr; Extra25 Scenario source matrix passed 140/140 at `.claude\smoke-verify-runs\results-20260604T213528Z.json` against that exact isolated `SourceBinary`. Extra25 proved the pad/reference graph coverage line for `remove_references_to_chr` but did not naturally execute the action body, so this action remains static/guard/build covered plus source-only boot-smoked until a stable live route is identified. The isolated session build directory was removed. Parent context mirror remains blocked: parent `context\...` copies were not present from this workspace view, existing parent `tasks-current.md` and `session-log.md` writes are denied by the sandbox, and no parent modding pillar mirror is visible.
+
+Current state: Scenario `remove_references_to_chr` prop-index derivation now stays behind a source-proven current character pointer. Broader Scenario cleanup remains open for remaining special setup semantics, source-only/parity validation, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-706 Scenario hovercar branch helper guard
+
+Continued `c3844-s5` after B-705 by auditing the remaining direct `chopper*(hovercar)` helper calls in `scenario_source_runtime.c`. The only unguarded matches were the hovercar branches in `stop`, `try_modify_attack`, `if_los_to_target`, and `if_los_to_attack_target`. Their character paths already proved live character source, but those hovercar branches could still call `chopperStop(hovercar)`, `chopperAttack(hovercar)`, `chopperCheckTargetInFov(hovercar, 64)`, or `chopperCheckTargetInSight(hovercar)` without proving that the vehicle object came from public Scenario `objects.tsv`.
+
+Carried vehicle proof through those hovercar helper branches. Each branch now validates `hovercar->base` with `s_aiGraphRequireRuntimeVehicleObjectPointer(..., OBJTYPE_CHOPPER, OBJTYPE_HOVERCAR, ...)` immediately before the old chopper helper would run, preserving character short-circuit behavior. Proof logs now carry `vehicle_rows` / `source_vehicle_type` and only report the `objects.tsv` backend when that branch required vehicle source. Added `SCENARIO_HOVERCAR_BRANCH_SOURCE_PROVEN_FUNCTIONS` plus `scan_scenario_hovercar_branch_guards()` so unproven hovercar helper calls or proof-after-use becomes a native-source guard failure.
+
+Verification: `python tools\asset_native_source_guard.py` passed; scoped `git diff --check` passed with only the existing Scenario matrix script line-ending warning; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 6,718 assertions / 25 cases; isolated `c3844hov` client build passed with `PerfectDark.exe` size 70,332,508 bytes and empty build stderr; Extra25 Scenario source matrix passed 140/140 at `.claude\smoke-verify-runs\results-20260604T212201Z.json` against that exact isolated `SourceBinary`. Extra25 emitted live `stop` proof through the character branch (`vehicle_rows=0`), not the hovercar helper branches, so the hovercar branches are static/guard/build covered plus source-only boot-smoked until stable live hovercar branch routes are identified. The isolated session build directory was removed. Parent context mirror failed: parent `context\...` copies were not present from this workspace view, existing parent `tasks-current.md` and `session-log.md` writes were denied by the sandbox, and no parent modding pillar mirror was visible.
+
+Current state: Scenario hovercar stop/attack/LOS helper access now stays behind source-proven local vehicle pointers. Broader Scenario cleanup remains open for remaining special setup semantics, source-only/parity validation, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-705 Scenario hovercar timer guard
+
+Continued `c3844-s5` after B-704 by auditing the adjacent timer graph handlers in `scenario_source_runtime.c`. Character timer paths already proved active character state, but the hovercar branches in `restart_timer`, `if_timer_less_than`, and `if_timer_greater_than` still accepted a live hovercar/chopper pointer and called `chopperRestartTimer(hovercar)` or `chopperGetTimer(hovercar)` without proving that vehicle object came from public Scenario `objects.tsv`.
+
+Carried vehicle proof through those hovercar timer branches. Each hovercar branch now validates `hovercar->base` with `s_aiGraphRequireRuntimeVehicleObjectPointer(..., OBJTYPE_CHOPPER, OBJTYPE_HOVERCAR, ...)` before the chopper timer helper, logs `vehicle_rows` / `source_vehicle_type`, and only reports the `objects.tsv` backend when that branch required vehicle source. Added `SCENARIO_TIMER_VEHICLE_SOURCE_PROVEN_FUNCTIONS` plus `scan_scenario_timer_vehicle_guards()` so unproven hovercar timer reads/mutation or proof-after-use becomes a native-source guard failure.
+
+Verification: `python tools\asset_native_source_guard.py` passed; scoped `git diff --check` passed with only the existing Scenario matrix script line-ending warning; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 6,687 assertions / 25 cases; isolated `c3844timveh` client build passed with `PerfectDark.exe` size 70,333,020 bytes and only the known ccache probe warning in the build-log scan; Extra25 Scenario source matrix passed 140/140 at `.claude\smoke-verify-runs\results-20260604T210623Z.json` against that exact isolated `SourceBinary`. Extra25 emitted live `restart_timer` / `if_timer_greater_than` proofs through character branches (`vehicle_rows=0`), not hovercar timer branches, so the hovercar branches are static/guard/build covered plus source-only boot-smoked until a stable live hovercar timer route is identified. Parent context mirror failed: parent `context\...` copies were not present from this workspace view, existing parent `tasks-current.md` and `session-log.md` writes were denied by the sandbox, and no parent modding pillar mirror was visible.
+
+Current state: Scenario hovercar timer access now stays behind source-proven local vehicle pointers. Broader Scenario cleanup remains open for remaining special setup semantics, source-only/parity validation, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-704 Scenario hovercar set_target guard
+
+Continued `c3844-s5` after B-703 by auditing the remaining hovercar target mutation path in `scenario_source_runtime.c`. `scenarioSourceAiGraphExecuteSetTarget()` already required public Scenario graph source and proved the normal character target path through runtime character helpers, but the no-active-character hovercar branch counted setup character rows and then called `chopperSetTarget(hovercar, chrnum)` without first proving that the hovercar/chopper object came from public `objects.tsv`.
+
+Carried vehicle proof through the hovercar mutation branch. `set_target` now validates the hovercar/chopper object with `s_aiGraphRequireRuntimeVehicleObjectPointer("set_target", ...)` before `chopperSetTarget(hovercar, chrnum)`, logs `vehicle_rows` / `source_vehicle_type`, and only reports the `objects.tsv` backend when that branch actually required vehicle source. Added `SCENARIO_PROP_TARGET_VEHICLE_SOURCE_PROVEN_FUNCTIONS` plus `scan_scenario_prop_target_vehicle_guards()` so unproven hovercar target mutation or proof-after-use becomes a native-source guard failure. The legacy `chrnum` target operand remains unchanged for parity.
+
+Verification: `python tools\asset_native_source_guard.py` passed; scoped `git diff --check` passed with only the existing Kanban JSON line-ending warning; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 6,666 assertions / 25 cases; isolated `c3844settargetveh` client build passed with `PerfectDark.exe` size 70,338,652 bytes and only the known ccache probe warning in the build-log scan; Extra25 Scenario source matrix passed 140/140 at `.claude\smoke-verify-runs\results-20260604T204750Z.json` against that exact isolated `SourceBinary`. The Extra25 route emitted a live `set_target` proof through the character branch (`vehicle_rows=0`), not the hovercar mutation branch, so the hovercar branch is static/guard/build covered plus source-only boot-smoked until a stable live hovercar `set_target` route is identified. Parent context mirror failed because writes outside the repo were denied by the workspace sandbox.
+
+Current state: Scenario hovercar target mutations in `set_target` now stay behind source-proven local vehicle pointers. Broader Scenario cleanup remains open for remaining special setup semantics, source-only/parity validation, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-703 Scenario hovercar target pointer guard
+
+Continued `c3844-s5` after B-702 by auditing raw active actor and vehicle pointer snapshots in `scenario_source_runtime.c`. The direct field-deref surfaces were already clean for `g_Vars.chrdata->`, `g_Vars.truck->`, `g_Vars.heli->`, and `g_Vars.hovercar->`, but `if_y` could still read `g_Vars.hovercar` and call `chopperFromHovercar()` to derive a target character before proving that vehicle object came from public Scenario source.
+
+Carried the hovercar proof through a local pointer. `scenarioSourceAiGraphExecuteIfY()` now snapshots `struct chopperobj *hovercar = g_Vars.hovercar`, validates the hovercar/chopper object through `s_aiGraphRequireRuntimeVehicleObjectPointer("if_y", ...)` against public `objects.tsv` before `chopperFromHovercar(hovercar)`, and logs `vehicle_rows` / `source_vehicle_type` when that branch is active. Added `SCENARIO_MISC_BRANCH_VEHICLE_SOURCE_PROVEN_FUNCTIONS` plus `scan_scenario_misc_branch_vehicle_guards()` so direct `chopperFromHovercar(g_Vars.hovercar)` and missing proof tokens become native-source guard failures.
+
+Verification: `python tools\asset_native_source_guard.py` passed; scoped `git diff --check` passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 6,657 assertions / 25 cases; isolated `c3844ifyveh` client build passed with `PerfectDark.exe` size 70,330,972 bytes and only the known ccache probe warning in the build-log scan; Extra25 Scenario source matrix passed 140/140 at `.claude\smoke-verify-runs\results-20260604T203445Z.json` against that exact isolated `SourceBinary`. The Extra25 route did not emit a live `if_y` condition line, so this slice is static/guard/build covered plus source-only boot-smoked until a stable live `if_y` route is identified. Parent context mirror failed because writes outside the repo were denied by the workspace sandbox.
+
+Current state: Scenario hovercar target reads in `if_y` now stay behind source-proven local vehicle pointers. Broader Scenario cleanup remains open for remaining special setup semantics, source-only/parity validation, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-702 Scenario Bond/Co-op pointer snapshot guard
+
+Continued `c3844-s5` after B-701 by tightening the remaining raw Bond/Co-op player-global surface. B-699 already rejected direct `g_Vars.bond->` / `g_Vars.coop->` field reads in source-proven graph handlers, but exact raw pointer reads such as `g_Vars.bond` and `g_Vars.coop` were not structurally guarded yet.
+
+Removed the one avoidable raw comparison from `clear_inventory`: the action now uses the already-validated `playernum` identity against `g_Vars.bondplayernum` / `g_Vars.coopplayernum` before inventory clearing, while still carrying device clearing through the proven `player` slot pointer. Added `SCENARIO_PLAYER_GLOBAL_POINTER_SOURCE_PROVEN_FUNCTIONS` and extended `scan_scenario_player_global_guards()` so raw Bond/Co-op pointer reads are limited to the known local-pointer handlers, reject unexpected read shapes, and require the matching runtime-player proof tokens.
+
+Verification: `python tools\asset_native_source_guard.py` passed; scoped `git diff --check` passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 6,639 assertions / 25 cases; isolated `c3844pgptr` client build passed with `PerfectDark.exe` size 70,328,412 bytes and only the known ccache probe warning in the build-log scan; Extra25 Scenario source matrix passed 140/140 at `.claude\smoke-verify-runs\results-20260604T202051Z.json` against that exact isolated `SourceBinary`. Parent context mirror failed because writes outside the repo were denied by the workspace sandbox.
+
+Current state: Scenario Bond/Co-op pointer reads are now native-source guarded. Broader Scenario cleanup remains open for remaining special setup semantics, source-only/parity validation, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-701 Scenario current-player pointer snapshot guard
+
+Continued `c3844-s5` after B-700 by tightening the direct current-player inventory beyond field dereferences. The previous guard rejected `g_Vars.currentplayer->` access in Scenario graph runtime, but raw `g_Vars.currentplayer` pointer snapshots could still be introduced without a durable source-proof rule.
+
+Added `SCENARIO_CURRENT_PLAYER_POINTER_SOURCE_PROVEN_FUNCTIONS` and extended `scan_scenario_player_state_access_guards()` in `tools/asset_native_source_guard.py`. The scanner now rejects direct current-player pointer snapshots outside allowlisted source-proven handlers, rejects repeated snapshots inside those handlers, and requires the matching `s_aiGraphRequireRuntimePlayerPointer()` proof tokens. `enable_obj` now snapshots `struct player *current_player = g_Vars.currentplayer`, proves that local pointer, and assigns `player = current_player` before Eyespy initialization rather than assigning from the global after proof. Static coverage pins both the scanner and runtime pointer-carry shape.
+
+Verification: `python tools\asset_native_source_guard.py` passed; scoped `git diff --check` passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 6,633 assertions / 25 cases; isolated `c3844curplayer` client build passed with `PerfectDark.exe` size 70,334,044 bytes and only the known ccache probe warning in the build-log scan; Extra25 Scenario source matrix passed 140/140 at `.claude\smoke-verify-runs\results-20260604T200740Z.json` against that exact isolated `SourceBinary`. Parent context mirror failed because writes outside the repo were denied by the workspace sandbox.
+
+Current state: Scenario current-player pointer snapshots are now native-source guarded. Broader Scenario cleanup remains open for remaining special setup semantics, source-only/parity validation, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-700 Scenario runtime lookup guard
+
+Continued `c3844-s5` after B-699 by auditing the direct runtime lookup surface left in `scenario_source_runtime.c`. The remaining `pathFindById()`, `tagFindById()`, and `objFindByTagId()` callsites already pass through source-proof helpers, but that inventory was not yet protected by the native-source guard.
+
+Added `SCENARIO_RUNTIME_LOOKUP_RULES` and `scan_scenario_runtime_lookup_guards()` to `tools/asset_native_source_guard.py`. The scanner rejects direct runtime setup/path lookup calls outside allowlisted helper/action boundaries, and also rejects calls that appear before the required public-source proof tokens such as `objects.tsv`, `setup.fields.tsv`, `navigation/paths.tsv`, or the shared runtime object/setup/path validator calls. Static coverage now pins the lookup scanner and its direct lookup API inventory.
+
+Verification: `python tools\asset_native_source_guard.py` passed; scoped `git diff --check` passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 6,631 assertions / 25 cases; isolated `c3844lookup` client build passed with `PerfectDark.exe` confirmation and only the known ccache probe warning in the build-log scan; Extra25 Scenario source matrix passed 140/140 at `.claude\smoke-verify-runs\results-20260604T195442Z.json` against that exact isolated `SourceBinary`. Parent context mirror failed because writes outside the repo were denied by the workspace sandbox.
+
+Current state: direct Scenario setup/path runtime lookups are now native-source guarded. Broader Scenario cleanup remains open for remaining special setup semantics, source-only/parity validation, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-699 Scenario player-global local pointer guard
+
+Continued `c3844-s5` after B-698 by closing the remaining direct Bond/Co-op field reads in source-proven Scenario graph handlers. `if_chr_activated_object` already proved the public `objects.tsv` tag and target character source, but compared target character props against `g_Vars.bond->prop` and `g_Vars.coop->prop` directly. `toggle_p1p2` already required Bond and Co-op player state, but then read `g_Vars.coop->isdead` and `g_Vars.bond->isdead` directly after that proof.
+
+Carried player proof through local pointers. `if_chr_activated_object` now snapshots local Bond/Co-op player pointers, validates them before object-activation prop comparisons, and logs `player_checked`. `toggle_p1p2` now validates local Bond/Co-op pointers and reads `coop->isdead` / `bond->isdead` through those locals before ownership mutation. Added `scan_scenario_player_global_guards()` so these source-proven handlers cannot reintroduce direct `g_Vars.bond->` / `g_Vars.coop->` field access.
+
+Verification: `python tools\asset_native_source_guard.py` passed; scoped `git diff --check` passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 6,631 assertions / 25 cases; isolated `c3844pglobal` client build passed with `PerfectDark.exe` confirmation and only the known ccache probe warning in the build-log scan; Extra25 Scenario source matrix passed 140/140 at `.claude\smoke-verify-runs\results-20260604T194330Z.json` against that exact isolated `SourceBinary`.
+
+Current state: object-activation and P1/P2 ownership graph paths now keep Bond/Co-op player field access behind source-proven local player pointers. Broader Scenario cleanup remains open for remaining special setup semantics, source-only/parity validation, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-698 Scenario mission-global local player guard
+
+Continued `c3844-s5` after B-697 by closing the mission/global version of the same proof-loss pattern. `kill_bond` already required the public `ai/ailists.tsv` and `mission.graph.json` sources and validated `g_Vars.bond` through the runtime player pointer guard, but then returned to direct `g_Vars.bond->isdead` mutation after that proof.
+
+Carried the player proof through a local pointer. The action now snapshots `struct player *bond = g_Vars.bond`, validates that local pointer with `s_aiGraphRequireRuntimePlayerPointer("kill_bond", bond, "Bond")`, and applies the death-state mutation through `bond->isdead`. Added `scan_scenario_mission_global_player_guards()` so this source-proven action cannot reintroduce the direct `g_Vars.bond->isdead` write shape. Static tests pin the guard inventory, local pointer, and proof-before-mutation ordering.
+
+Verification: `python tools\asset_native_source_guard.py` passed; scoped `git diff --check` passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 6,610 assertions / 25 cases; isolated `c3844killbond` client build passed with `PerfectDark.exe` confirmation and a clean build-log scan; Extra25 Scenario source matrix passed 140/140 at `.claude\smoke-verify-runs\results-20260604T193111Z.json` against that exact isolated `SourceBinary`.
+
+Current state: mission-global `kill_bond` player mutation now stays behind a source-proven local player pointer. Broader Scenario cleanup remains open for remaining special setup semantics, source-only/parity validation, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-697 Scenario cutscene visibility local slot guard
+
+Continued `c3844-s5` after B-696 by closing the remaining cutscene character-slot visibility write shape. B-652 already made `show_cutscene_chrs` preflight every affected slot through the runtime character pointer guard before mutation, but the second pass still returned to direct `g_ChrSlots[i].hidden2` / `g_ChrSlots[i].chrflags` writes.
+
+Kept the all-candidate preflight and carried proof through local pointers. The action now stores every validated `chrdata` slot pointer in a temporary list and applies `CHRH2FLAG_HIDDENFORCUTSCENE` / `CHRCFLAG_HIDDEN` mutations through those locals only after all candidates prove valid. Added `scan_scenario_cutscene_visibility_slot_guards()` so this source-proven path cannot reintroduce direct `g_ChrSlots[...]` visibility writes. Static tests pin the guard, the collected-slot shape, and proof-before-collection ordering.
+
+Verification: `python tools\asset_native_source_guard.py` passed; scoped `git diff --check` passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 6,604 assertions / 25 cases; isolated `c3844cutslot` client build passed with `PerfectDark.exe` confirmation and a clean build-log scan; Extra25 Scenario source matrix passed 140/140 at `.claude\smoke-verify-runs\results-20260604T191639Z.json` against that exact isolated `SourceBinary`.
+
+Current state: cutscene visibility slot writes now stay behind source-proven local character pointers. Broader Scenario cleanup remains open for remaining special setup semantics, source-only/parity validation, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-696 Scenario setup/equipment active-character global guard
+
+Continued `c3844-s5` after B-695 by reducing the remaining setup/equipment active-character global surface. `try_equip_weapon` and `try_equip_hat` already resolved public model and weapon catalog IDs before live equipment work, and `object_do_animation` already resolved animation/object source, but those paths still read active character state through direct `g_Vars.chrdata->` dereferences after graph/source checks.
+
+Carried the active character proof through those action bodies. `try_equip_weapon` and `try_equip_hat` now snapshot `g_Vars.chrdata`, validate optional live active characters through `s_aiGraphRequireOptionalLiveRuntimeCharacterPointer()`, and pass the local `active_chr` pointer to `chrGiveWeapon()` / `hatCreateForChr()`. The `object_do_animation` tag-255 branch now validates the local character-state pointer through `s_aiGraphRequireRuntimeCharacterStatePointer()` before reading `active_chr->myspecial`. Added `scan_scenario_setup_equipment_global_guards()` so these source-proven setup/equipment paths cannot reintroduce raw `g_Vars.chrdata->` dereferences. Static tests pin the local-pointer shape and proof-before-use ordering.
+
+Verification: `python tools\asset_native_source_guard.py` passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 6,592 assertions / 25 cases; isolated `c3844equipguard` client build passed with `PerfectDark.exe` confirmation and clean build-log scan except the known ccache probe warning; Extra25 Scenario source matrix passed 140/140 at `.claude\smoke-verify-runs\results-20260604T190257Z.json` against that exact isolated `SourceBinary`.
+
+Current state: setup/equipment active-character global access is now source-guarded. Broader Scenario cleanup remains open for cutscene character-slot visibility, remaining special setup semantics, source-only/parity validation, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-695 Scenario camera sleep global guard
+
+Continued `c3844-s5` after B-694 by reducing the remaining direct active-character state global in Scenario camera-cutscene routing. `set_camera_animation` already proved current-player state and active character state before cutscene side effects, but the no-character-body yield branch still wrote `g_Vars.chrdata->sleep` after that proof.
+
+Carried the proven character-state pointer through the action. `set_camera_animation` now snapshots `g_Vars.chrdata` as `active_chr`, validates it through `s_aiGraphRequireRuntimeCharacterStatePointer()`, and writes `active_chr->sleep = -1` after proof. Added `scan_scenario_character_state_global_guards()` so the source-proven camera action cannot reintroduce raw `g_Vars.chrdata->` dereferences. Static tests pin the local-pointer shape and proof-before-sleep ordering.
+
+Verification: `python tools\asset_native_source_guard.py` passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 6,552 assertions / 25 cases; isolated `c3844camerasleep` client build passed with `PerfectDark.exe` confirmation and clean build-log scan except the known ccache probe warning; Extra25 Scenario source matrix passed 140/140 at `.claude\smoke-verify-runs\results-20260604T184948Z.json` against that exact isolated `SourceBinary`.
+
+Current state: camera sleep source proof now carries through the action body instead of returning to the direct active-character global after validation. Broader Scenario cleanup remains open for cutscene character-slot visibility, setup/equipment special handling, source-only/parity validation, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-694 Scenario hovercopter-fire global guard
+
+Continued `c3844-s5` after B-693 by reducing the remaining direct vehicle-global surface in Scenario hovercopter fire routing. `hovercopter_fire_rocket` already proved the active chopper object against public Scenario `objects.tsv`, but it then called `chopperFireRocket(g_Vars.hovercar, side)` after that proof.
+
+Carried the proven vehicle pointer through the action. `hovercopter_fire_rocket` now snapshots `g_Vars.hovercar`, validates `&hovercar->base` through `s_aiGraphRequireRuntimeVehicleObjectPointer()`, and calls `chopperFireRocket(hovercar, side)` through that local proven pointer. The vehicle-global native-source guard inventory now includes this action, so direct `g_Vars.hovercar->` dereferences in the source-proven fire path are rejected. Static tests pin the local-pointer shape and proof-before-fire ordering.
+
+Verification: `python tools\asset_native_source_guard.py` passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 6,547 assertions / 25 cases; isolated `c3844hoverfire` client build passed with `PerfectDark.exe` confirmation and clean build-log scan except the known ccache probe warning; Extra25 Scenario source matrix passed 140/140 at `.claude\smoke-verify-runs\results-20260604T184207Z.json` against that exact isolated `SourceBinary`.
+
+Current state: hovercopter fire source proof now carries through the action body instead of returning to the direct global after validation. Broader Scenario cleanup remains open for cutscene character-slot visibility, camera sleep, setup/equipment special handling, source-only/parity validation, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-693 Scenario quip global guard
+
+Continued `c3844-s5` after B-692 by reducing the remaining direct active-character global surface in Scenario quip routing. `say_quip` already proved the target character and active character against public Scenario source, but it then continued reading and mutating quip state through `g_Vars.chrdata->...` throughout the action body.
+
+Carried the proven active character pointer through the quip action. `say_quip` now snapshots `g_Vars.chrdata`, validates it through `s_aiGraphRequireRuntimeCharacterPointer()`, and uses the local pointer for quip bank selection, sound timer/gap state, squadron/nearby checks, tude-based audio/text choice, sound playback, and disguise-talking flag cleanup. Added `scan_scenario_quip_global_guards()` so source-proven quip handlers cannot reintroduce raw `g_Vars.chrdata->` dereferences. Static tests pin the guard and the local-pointer ordering.
+
+Verification: `python tools\asset_native_source_guard.py` passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 6,540 assertions / 25 cases; isolated `c3844quipguard` client build passed with `PerfectDark.exe` confirmation and clean build-log scan except the known ccache probe warning; Extra25 Scenario source matrix passed 140/140 at `.claude\smoke-verify-runs\results-20260604T183216Z.json` against that exact isolated `SourceBinary`.
+
+Current state: quip source proof now carries through the action body instead of falling back to direct active-character globals after validation. Broader Scenario cleanup remains open for hovercopter fire, cutscene character-slot visibility, camera sleep, remaining setup/equipment special handling, source-only/parity validation, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-692 Scenario list-control global guard
+
+Continued `c3844-s5` after B-691 by reducing the remaining direct actor-global surface in Scenario list-control actions. `set_return_list`, `set_shot_list`, and `return_list` already proved active characters or vehicles against public Scenario source, but their action bodies still read or wrote list state through `g_Vars.chrdata`, `g_Vars.truck`, `g_Vars.heli`, or `g_Vars.hovercar` directly after that proof.
+
+Carried the proven actor pointers through each action body. The three handlers now snapshot the active character/vehicle pointer, validate it through the existing runtime character or vehicle proof helpers, and then read or mutate `aireturnlist` / `aishotlist` through the local pointer. Added `scan_scenario_list_control_global_guards()` so those source-proven list-control handlers cannot reintroduce raw actor-global field dereferences. Static tests pin the guard and the local-pointer ordering.
+
+Verification: `python tools\asset_native_source_guard.py` passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 6,532 assertions / 25 cases; isolated `c3844listguard` client build passed with `PerfectDark.exe` confirmation and clean build-log scan except the known ccache probe warning; Extra25 Scenario source matrix passed 140/140 at `.claude\smoke-verify-runs\results-20260604T182131Z.json` against that exact isolated `SourceBinary`.
+
+Current state: list-control source proof now carries through the action body instead of falling back to direct globals after validation. Broader Scenario cleanup remains open for the other actor-global clusters, remaining special setup semantics, source-only/parity validation, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-691 Scenario vehicle-motion global guard
+
+Continued `c3844-s5` after B-690 by reducing the remaining live actor-global surface in Scenario vehicle-motion actions. `hovercar_begin_path`, `set_vehicle_speed`, and `set_rotor_speed` already proved active vehicles against public `objects.tsv` setup rows, but their action bodies still dereferenced `g_Vars.truck`, `g_Vars.hovercar`, or `g_Vars.heli` directly after that proof.
+
+Carried the proven vehicle pointer through each action body. The three handlers now snapshot the active vehicle pointer, validate it through `s_aiGraphRequireRuntimeVehicleObjectPointer()`, and then mutate path, speed, chopper-init, or rotor state through the local pointer. Added `scan_scenario_vehicle_motion_global_guards()` so those three source-proven motion handlers cannot reintroduce raw vehicle-global dereferences. Static tests pin the guard and the local-pointer ordering.
+
+Verification: `python tools\asset_native_source_guard.py` passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 6,520 assertions / 25 cases; isolated `c3844vehmotion` client build passed with `PerfectDark.exe` confirmation and clean build-log scan except the known ccache probe warning; Extra25 Scenario source matrix passed 140/140 at `.claude\smoke-verify-runs\results-20260604T180929Z.json` against that exact isolated `SourceBinary`.
+
+Current state: vehicle-motion source proof now carries through the action body instead of falling back to direct globals after validation. Broader Scenario cleanup remains open for the other actor-global clusters, remaining special setup semantics, source-only/parity validation, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-690 Scenario player-state access guard
+
+Continued `c3844-s5` after B-689 by turning the direct player/current-player cleanup into a guard-level invariant. The current runtime scan is clean: the only direct `g_Vars.players[...]` access in `scenario_source_runtime.c` is inside `s_aiGraphRequireRuntimePlayerSlot()`, and direct `g_Vars.currentplayer->` dereferences are absent from the Scenario graph runtime.
+
+Added `scan_scenario_player_state_access_guards()` to `tools/asset_native_source_guard.py`. It rejects direct current-player dereferences and any direct player-table index outside the shared runtime player-slot proof helper. The helper exception also has to retain `MAX_PLAYERS` bounds proof before the table index and `s_aiGraphRequireRuntimePlayerPointer(action, player)` proof after the pointer is fetched. Static coverage pins the scanner, error text, current-player regex, and slot-helper exception.
+
+Verification: `python tools\asset_native_source_guard.py` passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 6,512 assertions / 25 cases. No Scenario runtime matrix was rerun because this slice changed only the guard and static tests, not runtime behavior.
+
+Current state: the native-source guard now enforces both Scenario runtime row-count source proof and direct player-state proof-helper boundaries. c3844 remains open for Scenario source-only/parity validation, remaining special setup semantics, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-689 Scenario runtime row-count guard
+
+Continued `c3844-s5` after B-688 by turning the manual runtime row-count audit into a native-source guard. The guard now scans `port/src/scenario_source_runtime.c` for direct `s_countRuntime*()` table counts and rejects any new call that is outside an allowlisted helper boundary or appears before the matching public-source proof token.
+
+Tightened the runtime helper shape while adding the guard. `s_aiGraphTryCountRuntimeSetupChrRowsFromSource()` now owns non-logging setup-character row counts behind the active public `setup.fields.tsv` plus `spawns.tsv` predicate. `s_aiGraphCountRuntimeSetupChrRowsFromSource()` keeps the logging source-required path and delegates to the try-count helper after proof succeeds. The guard parser was updated to recognize pointer-return C helpers so pointer-return graph helpers do not get folded into the previous function block.
+
+Verification: `python tools\asset_native_source_guard.py` passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 6,510 assertions / 25 cases; isolated `c3844rowguard` client build passed with `PerfectDark.exe` confirmation and clean build-log scan except the known ccache probe warning; Extra25 Scenario source matrix passed 140/140 at `.claude\smoke-verify-runs\results-20260604T174907Z.json` against that exact isolated `SourceBinary`.
+
+Current state: the native-source guard now enforces the helper/source-proof boundary for direct Scenario runtime row counts. c3844 remains open for Scenario source-only/parity validation, remaining special setup semantics, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-688 Scenario logging-only pad-count source hardening
+
+Continued `c3844-s5` after B-687 by auditing the remaining direct runtime row-count calls. Two pad paths were using `s_countRuntimePads()` only to populate proof-log diagnostics before public pad source had been proven: the general `chr_move_to_pad` path and the exit-teleport branch where `pad_id=0` means no pad operand is required.
+
+Removed those logging-only runtime counts. `scenarioSourceAiGraphExecuteChrMoveToPad()` now initializes `pad_count` to zero and only lets `s_aiGraphRequireRuntimePad()` populate it for real pad operands after public `pads.tsv` proof. `scenarioSourceAiGraphExecuteChrBeginOrEndTeleport()` no longer counts runtime pads for the `pad_id=0` exit branch; it preserves the existing `(not-required)` source path and zero diagnostics instead of touching runtime pad rows.
+
+Verification: `python tools\asset_native_source_guard.py` passed; scoped diff check passed with only the known Kanban line-ending warning; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 6,503 assertions / 25 cases; isolated `c3844padlog` client build passed with `PerfectDark.exe` confirmation and clean build-log scan except the known ccache probe warning; Extra25 Scenario source matrix passed 140/140 at `.claude\smoke-verify-runs\results-20260604T173345Z.json` against that exact isolated `SourceBinary`.
+
+Current state: the remaining direct runtime row-count scan now shows expected helper/source-guarded sites plus the blocked-path waypoint helper, which already checks public `navigation/waypoints.tsv` before counting. c3844 remains open for Scenario source-only/parity validation, remaining special setup semantics, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-687 Scenario character/vehicle row-source helper hardening
+
+Continued `c3844-s5` after B-686 by auditing the remaining reusable runtime row-count helpers. Character validators could still count runtime setup character rows before proving public character setup source was active, and vehicle pointer validators could still count setup object rows before proving public object source.
+
+Moved those source invariants into shared boundaries. `s_aiGraphCountRuntimeSetupChrRowsFromSource()` now centralizes setup-character row counts behind public `setup.fields.tsv` plus `spawns.tsv` proof; character ref/pointer/state helpers and logging-only character count paths route through that guard or count only behind an explicit active-source predicate. Explicit player actors, graph source-spawned characters, selectors, and graph-owned implicit AI state retain their existing semantics. `s_aiGraphRequireRuntimeChopperPointer()` and `s_aiGraphRequireRuntimeVehicleObjectPointer()` now clear output counts first and require public `objects.tsv` before runtime setup object counts.
+
+Verification: `python tools\asset_native_source_guard.py` passed; scoped diff check passed with only the known Kanban line-ending warning; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 6,501 assertions / 25 cases; isolated `c3844chrrows` client build passed with `PerfectDark.exe` confirmation and clean build-log scan except the known ccache probe warning; Extra25 Scenario source matrix passed 140/140 at `.claude\smoke-verify-runs\results-20260604T172625Z.json` against that exact isolated `SourceBinary`.
+
+Current state: path, pad, object-tag, setup-tag, cover/navigation, character setup-row, and vehicle setup-object helper-level source proof now blocks runtime table access before source-derived runtime data is counted. c3844 remains open for Scenario source-only/parity validation, remaining special setup semantics, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-686 Scenario cover/navigation table helper hardening
+
+Continued `c3844-s5` after B-685 by auditing the shared cover and quadrant/route navigation table helpers. Their callers already had local public-source checks, but the helpers themselves could still count runtime cover, pad, waypoint, or waygroup rows before proving the relevant public navigation sources were active.
+
+Moved those source invariants into the shared helpers. `s_aiGraphRequireRuntimeCoverTable()` now clears its output count, requires `s_ActiveScenarioGraphs.covers_path`, and fails with `missing navigation/covers.tsv source` before `s_countRuntimeCovers()`. `s_aiGraphRequireRuntimeNavigationTables()` now clears all output counts and requires public `pads.tsv`, `navigation/waypoints.tsv`, and `navigation/waygroups.tsv` before runtime table counts. Static coverage pins source-before-count ordering.
+
+Verification: `python tools\asset_native_source_guard.py` passed; scoped diff check passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 6,483 assertions / 25 cases; isolated `c3844navtables` client build passed with `PerfectDark.exe` confirmation and clean build-log scan; Extra25 Scenario source matrix passed 140/140 at `.claude\smoke-verify-runs\results-20260604T171009Z.json` against that exact isolated `SourceBinary`.
+
+Current state: path, pad, object-tag, setup-tag, cover, and navigation helper-level source proof now blocks runtime table access before source-derived runtime data is counted. c3844 remains open for Scenario source-only/parity validation, remaining special setup semantics, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-685 Scenario path-table source helper hardening
+
+Continued `c3844-s5` after B-684 by revisiting path helper ordering. B-681 already proved `navigation/paths.tsv` before `pathFindById()`, but `s_aiGraphFindRuntimePath()` and `s_aiGraphRequireRuntimePathPointer()` could still count runtime path rows before proving that public path source was active.
+
+Moved the source invariant ahead of runtime path counts. Both helpers now clear output path counts first, require `s_ActiveScenarioGraphs.paths_path`, and only then call `s_countRuntimePaths()`. Static coverage pins source-before-count ordering for both helpers.
+
+Verification: `python tools\asset_native_source_guard.py` passed; scoped diff check passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 6,469 assertions / 25 cases; isolated `c3844pathcount` client build passed with `PerfectDark.exe` confirmation and clean build-log scan; Extra25 Scenario source matrix passed 140/140 at `.claude\smoke-verify-runs\results-20260604T170341Z.json` against that exact isolated `SourceBinary`.
+
+Current state: path, pad, object-tag, and setup-tag helper-level source proof now blocks runtime table access before source-derived runtime data is counted. c3844 remains open for Scenario source-only/parity validation, remaining special setup semantics, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-684 Scenario setup-tag source helper hardening
+
+Continued `c3844-s5` after B-683 by auditing shared setup-tag source proof. Setup placement graph actions already validated source-built setup tag membership, but the shared `s_aiGraphRequireRuntimeSetupTag()` helper could still count runtime setup tags without first proving that public `setup.fields.tsv` source was active.
+
+Moved the source invariant into the setup-tag helper. It now clears the output count first, requires `s_ActiveScenarioGraphs.setup_fields_path`, and fails with `missing setup.fields.tsv source` before `s_countRuntimeSetupTags()` can run. Static coverage pins that guard-before-runtime-count pattern.
+
+Verification: `python tools\asset_native_source_guard.py` passed; scoped diff check passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 6,462 assertions / 25 cases; isolated `c3844setuptagsrc` client build passed with `PerfectDark.exe` confirmation and clean build-log scan; Extra25 Scenario source matrix passed 140/140 at `.claude\smoke-verify-runs\results-20260604T165642Z.json` against that exact isolated `SourceBinary`.
+
+Current state: path, pad, object-tag, and setup-tag helper-level source proof are now owned by shared validators. c3844 remains open for Scenario source-only/parity validation, remaining special setup semantics, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-683 Scenario object-tag source helper hardening
+
+Continued `c3844-s5` after B-682 by auditing shared object-tag source proof. Several graph actions already reported `objects.tsv` in their source chain, but the shared `s_aiGraphRequireRuntimeObjectTag()` helper could still consult runtime setup object rows without first proving that public object source was active.
+
+Moved the source invariant into the object-tag helper. It now clears the output count first, requires `s_ActiveScenarioGraphs.objects_path`, and fails with `missing objects.tsv source` before `s_countRuntimeSetupObjectRows()` can run. Static coverage pins that guard-before-runtime-count pattern.
+
+Verification: `python tools\asset_native_source_guard.py` passed; scoped diff check passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 6,461 assertions / 25 cases; isolated `c3844objsrc` client build passed with `PerfectDark.exe` confirmation and clean build-log scan; Extra25 Scenario source matrix passed 140/140 at `.claude\smoke-verify-runs\results-20260604T164940Z.json` against that exact isolated `SourceBinary`.
+
+Current state: path, pad, and object-tag helper-level source proof are now owned by shared validators. c3844 remains open for Scenario source-only/parity validation, remaining special setup semantics, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-682 Scenario pad-source helper hardening
+
+Continued `c3844-s5` after B-681 by applying the same helper-boundary source proof to pads. Most graph callers already checked public `pads.tsv`, but `s_aiGraphRequireRuntimePad()` and `s_aiGraphRequireRuntimePadTable()` could still consult runtime pad data without first proving that public pad source was bound.
+
+Moved the invariant into both pad helpers. They now set the output pad count to zero, require `s_ActiveScenarioGraphs.pads_path`, and fail with `missing pads.tsv source` before calling `s_countRuntimePads()`. Static coverage pins the exact guard-before-runtime-count pattern in both helpers.
+
+Verification: `python tools\asset_native_source_guard.py` passed; scoped diff check passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 6,460 assertions / 25 cases; isolated `c3844padsrc` client build passed with `PerfectDark.exe` confirmation and clean build-log scan; Extra25 Scenario source matrix passed 140/140 at `.claude\smoke-verify-runs\results-20260604T163928Z.json` against that exact isolated `SourceBinary`.
+
+Current state: path and pad helper-level source proof is now owned by the shared validators. c3844 remains open for Scenario source-only/parity validation, remaining special setup semantics, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-681 Scenario path-source helper hardening
+
+Continued `c3844-s5` after B-680 by switching audit categories from direct player state to source-derived navigation/path validation. `set_path`, `start_patrol`, and `hovercar_begin_path` already checked `navigation/paths.tsv` before resolving runtime paths, but the reusable `s_aiGraphFindRuntimePath()` helper itself did not enforce that public path-source binding before `pathFindById()`.
+
+Moved the invariant into the helper. `s_aiGraphFindRuntimePath()` now fails with `missing navigation/paths.tsv source` before runtime path lookup can run, which keeps future graph path actions from accidentally reusing the helper without public `navigation/paths.tsv` proof. Static coverage now extracts the helper block and pins the source check before `pathFindById()`.
+
+Verification: `python tools\asset_native_source_guard.py` passed; scoped diff check passed; helper proof scan passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 6,459 assertions / 25 cases; isolated `c3844navpath` client build passed with `PerfectDark.exe` confirmation and clean build-log scan; Extra25 Scenario source matrix passed 140/140 at `.claude\smoke-verify-runs\results-20260604T163037Z.json` against that exact isolated `SourceBinary`.
+
+Current state: the direct player read audit remains clean except for the shared slot helper, and path-source lookup proof is now helper-owned. c3844 remains open for Scenario source-only/parity validation, remaining special setup semantics, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-680 Scenario Anti-player team player-slot validation
+
+Continued `c3844-s5` after B-679. The final direct player-table read outside the shared runtime-player-slot helper was in `chr_set_team` for `CHR_ANTI`: the normal branch already proved target character source, but the Anti branch still read `g_Vars.players[playernum]` directly before Anti detection and `player->prop->chr` team mutation.
+
+Carried proven player slots through the Anti branch. `chr_set_team` now validates every `PLAYERCOUNT()` slot with `s_aiGraphRequireRuntimePlayerSlot("chr_set_team", ...)`, uses the proven `player` pointer for `PLAYER_IS_ANTI()`, requires `player->prop->chr` before writing `chr->team`, and logs `checked_players`. Static coverage rejects direct `g_Vars.players[playernum]` access in the graph path and pins slot proof before Anti detection and team mutation.
+
+Verification: `python tools\asset_native_source_guard.py` passed; scoped diff check passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 6,455 assertions / 25 cases; isolated `c3844antiteam` client build passed with `PerfectDark.exe` confirmation and clean build-log scan; Extra25 Scenario source matrix passed 140/140 at `.claude\smoke-verify-runs\results-20260604T161949Z.json` against that exact isolated `SourceBinary`.
+
+Current state: the scoped direct player read audit in `scenario_source_runtime.c` now leaves only the shared `s_aiGraphRequireRuntimePlayerSlot` helper. c3844 remains open for Scenario source-only/parity validation, remaining special setup semantics, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-679 Scenario G5 Eyespy room-condition player validation
+
+Continued `c3844-s5` after B-678. The remaining direct player-table gap was in the G5 Building `room_type == 2` branch of `if_chr_in_room`: the condition already proved graph readiness, the requested Scenario character, and public pad source, but still walked `g_Vars.players[i]->eyespy` directly before the Eyespy distance check.
+
+Carried proven player slots through that Eyespy branch. The loop now validates each `PLAYERCOUNT()` slot with `s_aiGraphRequireRuntimePlayerSlot("if_chr_in_room", i, &player)`, reads `player->eyespy` through the proven pointer, requires a live Eyespy character before `chrGetDistanceToPad()`, and logs `checked_players`. Static coverage rejects direct `g_Vars.players[i]->eyespy` access and pins player proof before Eyespy reads and distance checks.
+
+Verification: `python tools\asset_native_source_guard.py` passed; scoped diff check passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 6,447 assertions / 25 cases; isolated `c3844eyespyroom` client build passed with `PerfectDark.exe` confirmation and clean build-log scan; Extra25 Scenario source matrix passed 140/140 at `.claude\smoke-verify-runs\results-20260604T161242Z.json` against that exact isolated `SourceBinary`.
+
+Current state: c3844 remains open for Scenario source-only/parity validation, remaining special setup semantics, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-678 Scenario portal-distance current-player validation
+
+Continued `c3844-s5` after B-677. The next direct current-player gap was in `if_player_chr_portal_distance_less_than`: the condition already proved graph readiness and the optional Scenario character pointer, but still read current-player prop, room, and position data directly before portal-distance calculation.
+
+Carried a proven current-player pointer through the distance helper. The condition now validates `g_Vars.currentplayer` with `s_aiGraphRequireRuntimePlayerPointer("if_player_chr_portal_distance_less_than", ...)`, uses `player->prop` for room/position inputs, preserves the existing no-live-prop false branch, and logs `player_checked`. Static coverage rejects direct `g_Vars.currentplayer->prop` access and pins character proof, player proof, and `func0f0056f4()` ordering.
+
+Verification: `python tools\asset_native_source_guard.py` passed; scoped diff check passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 6,439 assertions / 25 cases; isolated `c3844portal` client build passed with `PerfectDark.exe` confirmation and clean build-log scan; Extra25 Scenario source matrix passed 140/140 at `.claude\smoke-verify-runs\results-20260604T160324Z.json` against that exact isolated `SourceBinary`.
+
+Current state: c3844 remains open for Scenario source-only/parity validation, remaining special setup semantics, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-677 Scenario clear-inventory device-state validation
+
+Continued `c3844-s5` after B-676. The next direct current-player gap was in `clear_inventory`: the graph action already required public `ai/ailists.tsv`, validated each runtime player slot, and used the proven `player` pointer for Bond/Co-op eligibility, but the NTSC device reset still wrote through `g_Vars.currentplayer` after switching current player.
+
+Carried the proven player pointer through the device reset. `clear_inventory` now writes `player->devicesactive = 0` while preserving current-player switching for `invClear()`, unarmed weapon grant, and equip helper parity. Static coverage rejects the old direct `g_Vars.currentplayer->devicesactive = 0` assignment and pins slot proof before the inventory/device/weapon side effects.
+
+Verification: `python tools\asset_native_source_guard.py` passed; scoped diff check passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 6,426 assertions / 25 cases; isolated `c3844clearinv` client build passed with `PerfectDark.exe` confirmation and clean build-log scan; Extra25 Scenario source matrix passed 140/140 at `.claude\smoke-verify-runs\results-20260604T155243Z.json` against that exact isolated `SourceBinary`.
+
+Current state: c3844 remains open for Scenario source-only/parity validation, remaining special setup semantics, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-676 Scenario grab-object player-state validation
+
+Continued `c3844-s5` after B-675. The next player-object propagation gap was in `chr_grab_object`: the action already proved public object source, resolved the Scenario character source, and validated the derived player slot before current-player switching and `bmoveGrabProp()`, but the pre-grab movement/crouch checks still read direct current-player state after the switch.
+
+Carried the proven player pointer through the movement/crouch checks. `chr_grab_object` now reads `player->bondmovemode` and `player->crouchoffset` through the validated slot pointer while preserving the legacy current-player switch and `bmoveGetCrouchPos()` helper behavior. Static coverage rejects the old direct `g_Vars.currentplayer->bondmovemode` and `g_Vars.currentplayer->crouchoffset` reads and pins slot proof before both state reads and the grab helper.
+
+Verification: `python tools\asset_native_source_guard.py` passed; scoped diff check passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 6,425 assertions / 25 cases; isolated `c3844grabslot` client build passed with `PerfectDark.exe` confirmation and clean build-log scan; Extra25 Scenario source matrix passed 140/140 at `.claude\smoke-verify-runs\results-20260604T154501Z.json` against that exact isolated `SourceBinary`.
+
+Current state: c3844 remains open for Scenario source-only/parity validation, remaining special setup semantics, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-675 Scenario Eyespy enable-object current-player validation
+
+Continued `c3844-s5` after B-674. The next narrow propagation gap was in `enable_obj`: the Eyespy branch already proved public object source and validated the current-player pointer before activating an Eyespy weapon object, but the later initialization check still read `g_Vars.currentplayer->eyespy` directly.
+
+Carried the proven player pointer through the Eyespy branch. `enable_obj` now stores the validated current player and checks `player->eyespy` before `playerInitEyespy()`. Static coverage rejects the old direct `g_Vars.currentplayer->eyespy` read and pins object proof, player proof, stored pointer use, activation, Eyespy read, and initialization ordering.
+
+Verification: `python tools\asset_native_source_guard.py` passed; scoped diff check passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 6,417 assertions / 25 cases; isolated `c3844enableobj` client build passed with `PerfectDark.exe` confirmation and clean build-log scan; Extra25 Scenario source matrix passed 140/140 at `.claude\smoke-verify-runs\results-20260604T153756Z.json` against that exact isolated `SourceBinary`.
+
+Current state: c3844 remains open for Scenario source-only/parity validation, remaining special setup semantics, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-674 Scenario animation player-ground slot validation
+
+Continued `c3844-s5` after B-673. The next propagation gap was in `chr_do_animation`: the action already proved public animation graph/source rows, resolved the animation through catalog IDs, and validated the target Scenario character, but its `startframe == 0xfffe` player branch still derived a player slot and wrote player ground state without proving that runtime slot.
+
+Added runtime-player-slot preflight to the player-ground branch. `chr_do_animation` now validates the derived player slot through `s_aiGraphRequireRuntimePlayerSlot("chr_do_animation", ...)` before `chrTryStartAnim()`, `chr0f0220ec()`, or `player->vv_ground` / `player->vv_manground` writes, uses the proven `player` pointer, and logs `player_checked`. Static coverage rejects the old direct `g_Vars.players[playernum]` read and pins character proof, slot proof, animation side effects, and player-ground writes in order. The retained Scenario matrix regex now requires the stronger proof log shape.
+
+Verification: scoped diff check passed; `python tools\asset_native_source_guard.py` passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 6,410 assertions / 25 cases; isolated `c3844animslot` client build passed with `PerfectDark.exe` confirmation and clean build-log scan; Extra25 Scenario source matrix passed 140/140 at `.claude\smoke-verify-runs\results-20260604T152829Z.json` against that exact isolated `SourceBinary`.
+
+Current state: c3844 remains open for Scenario source-only/parity validation, remaining special setup semantics, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-673 Scenario misc/audio/HUD player-slot validation
+
+Continued `c3844-s5` after B-672. The next propagation gap was in player-facing misc/audio/HUD paths: `chr_explosions`, `speak`, `show_hudmsg`, and `show_hudmsg_top_middle` already proved public graph/source rows and resolved the Scenario character target, but each could derive a player slot and switch current player before explosion, speech, or HUD routing.
+
+Added runtime-player-slot proof to the misc action, speech action, and shared HUD player helper. These paths now validate the derived slot through `s_aiGraphRequireRuntimePlayerSlot()` after character/source proof and before `setCurrentPlayerNum(playernum)`, `playerSurroundWithExplosions()`, speech current-player routing, or `hudmsgCreate*()`. Proof logs carry `player_checked`, and static coverage pins character/source proof, slot proof, and the affected state access in that order.
+
+Verification: scoped diff check passed; `python tools\asset_native_source_guard.py` passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 6,396 assertions / 25 cases; isolated `c3844hudslot` client build passed with `PerfectDark.exe` confirmation and clean build-log scan; Extra25 Scenario source matrix passed 140/140 at `.claude\smoke-verify-runs\results-20260604T152050Z.json` against that exact isolated `SourceBinary`.
+
+Current state: c3844 remains open for Scenario source-only/parity validation, remaining special setup semantics, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-672 Scenario player-autowalk player-slot validation
+
+Continued `c3844-s5` after B-671. The next propagation gap was in player-navigation autowalk: `player_auto_walk` and `if_player_auto_walk_finished` already proved public graph/source rows and resolved the Scenario player character, and `player_auto_walk` already proved the public `pads.tsv` row, but both still derived a player slot and switched current player before autowalk state access.
+
+Added runtime-player-slot proof to both autowalk paths. The graph helpers now validate `playernum` through `s_aiGraphRequireRuntimePlayerSlot()` after pad/character-source proof and before `setCurrentPlayerNum(playernum)`, `playerAutoWalk()`, or `g_Vars.tickmode` reads. Proof logs now carry `player_checked`, and static coverage pins pad proof, character proof, slot proof, and the affected state access in that order.
+
+Verification: scoped diff check passed; `python tools\asset_native_source_guard.py` passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 6,371 assertions / 25 cases; isolated `c3844autowalkslot` client build passed with `PerfectDark.exe` confirmation and clean build-log scan; Extra25 Scenario source matrix passed 140/140 at `.claude\smoke-verify-runs\results-20260604T150856Z.json` against that exact isolated `SourceBinary`.
+
+Current state: c3844 remains open for Scenario source-only/parity validation, remaining special setup semantics, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-671 Scenario room/object weapon-condition player-slot validation
+
+Continued `c3844-s5` after B-670. The next propagation gap was in room/object weapon predicates: `if_chr_has_object` and `if_chr_has_weapon_equipped` already proved public graph/source rows and resolved the Scenario player character, but they still derived a player slot and switched current player before inventory or right-hand weapon-state reads.
+
+Added runtime-player-slot proof to both predicates. The graph helpers now validate `playernum` through `s_aiGraphRequireRuntimePlayerSlot()` after object/weapon and character-source proof and before `setCurrentPlayerNum(playernum)`, `invHasProp()`, or `bgunGetWeaponNum()`. Proof logs now carry `player_checked`, and static coverage pins object/weapon source proof, character proof, slot proof, and the affected reads in that order.
+
+Verification: scoped diff check passed; `python tools\asset_native_source_guard.py` passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 6,355 assertions / 25 cases; isolated `c3844roomslot` client build passed with `PerfectDark.exe` confirmation and clean build-log scan; Extra25 Scenario source matrix passed 140/140 at `.claude\smoke-verify-runs\results-20260604T150135Z.json` against that exact isolated `SourceBinary`.
+
+Current state: c3844 remains open for Scenario source-only/parity validation, remaining special setup semantics, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-670 Scenario inventory/ammo player-slot validation
+
+Continued `c3844-s5` after B-669. The next propagation gap was in inventory/ammo graph paths: `chr_drop_weapon`, `give_object_to_chr`, and `if_chr_ammo_quantity_less_than` already proved public graph/source rows and resolved the Scenario player character, but they still derived a player slot and switched current player before inventory, pickup/reparent, or ammo state access.
+
+Added runtime-player-slot proof to all three paths. The graph helpers now validate `playernum` through `s_aiGraphRequireRuntimePlayerSlot()` after character-source proof and before `setCurrentPlayerNum(playernum)`, `bgunGetWeaponNum()`, `invRemoveItemByNum()`, `propPickupByPlayer()`, `propExecuteTickOperation()`, or `bgunGetAmmoCount()`. Proof logs now carry `player_checked`, and static coverage pins slot proof before the affected helpers and reads.
+
+Verification: scoped diff check passed; `python tools\asset_native_source_guard.py` passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 6,322 assertions / 25 cases; isolated `c3844invslot` client build passed with `PerfectDark.exe` confirmation and clean build-log scan; Extra25 Scenario source matrix passed 140/140 at `.claude\smoke-verify-runs\results-20260604T145136Z.json` against that exact isolated `SourceBinary`.
+
+Current state: c3844 remains open for Scenario source-only/parity validation, remaining special setup semantics, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-669 Scenario fade/invincibility player-slot validation
+
+Continued `c3844-s5` after B-668. The next adjacent gap was in player fade and invincibility graph paths: `player_fade_in`, `chr_set_invincible`, and `if_player_is_invincible` already proved public graph source and resolved the Scenario player character, but still switched current player and touched fade/invincibility state without proving the derived runtime player slot.
+
+Added runtime-player-slot proof to all three paths. Each path now validates `playernum` through `s_aiGraphRequireRuntimePlayerSlot()` before current-player switching, `playerSetFadeColour()`, `playerSetFadeFrac()`, `g_PlayerInvincible` mutation, or invincibility reads. Proof logs now carry `player_checked`, and static coverage pins slot proof before the side effects.
+
+Verification: scoped diff check passed; `python tools\asset_native_source_guard.py` passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 6,281 assertions / 25 cases; isolated `c3844fadeinv` client build passed with `PerfectDark.exe` confirmation and clean build-log scan; Extra25 Scenario source matrix passed 140/140 at `.claude\smoke-verify-runs\results-20260604T144208Z.json` against that exact isolated `SourceBinary`.
+
+Current state: c3844 remains open for Scenario source-only/parity validation, remaining special setup semantics, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-668 Scenario player-control slot validation
+
+Continued `c3844-s5` after B-667. The next propagation gap was in the player-control paths: `revoke_control` and `grant_control` already proved public player-cutscene graph source and resolved the Scenario player character, but they still switched current player and wrote `g_PlayersWithControl[g_Vars.currentplayernum]` without proving the derived runtime player slot.
+
+Added runtime-player-slot proof before player-control side effects. Both actions now validate the derived slot through `s_aiGraphRequireRuntimePlayerSlot()`, switch current player only after proof, write `g_PlayersWithControl[playernum]`, and log `player_checked`. Static coverage rejects the old current-player-indexed control write and pins slot proof before current-player switching and control mutation.
+
+Verification: scoped diff check passed; `python tools\asset_native_source_guard.py` passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 6,243 assertions / 25 cases; isolated `c3844control` client build passed with `PerfectDark.exe` confirmation and clean build-log scan; Extra25 Scenario source matrix passed 140/140 at `.claude\smoke-verify-runs\results-20260604T143326Z.json` against that exact isolated `SourceBinary`.
+
+Current state: c3844 remains open for Scenario source-only/parity validation, remaining special setup semantics, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-667 Scenario camera current-player validation
+
+Continued `c3844-s5` after B-666. The next propagation gap was in `set_camera_animation`: B-656 had already added active character-state proof before cutscene side effects, but the current-player side still only did a raw null check before reading `g_Vars.currentplayer->haschrbody`.
+
+Added shared current-player pointer proof before camera-cutscene state use. `set_camera_animation` now validates `g_Vars.currentplayer` through `s_aiGraphRequireRuntimePlayerPointer("set_camera_animation", player, "current")`, preserves pre-body execution by allowing a null player prop through the helper, reads `player->haschrbody` through the proven pointer, and logs `player_checked`. Static coverage rejects direct `g_Vars.currentplayer->haschrbody` access and pins player-pointer proof before active character-state proof and cutscene side effects.
+
+Verification: scoped diff check passed; `python tools\asset_native_source_guard.py` passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 6,219 assertions / 25 cases after fixing the stale inline-error-string expectation; isolated `c3844camplayer` client build passed with `PerfectDark.exe` confirmation and clean build-log scan; Extra25 Scenario source matrix passed 140/140 at `.claude\smoke-verify-runs\results-20260604T142621Z.json` against that exact isolated `SourceBinary`.
+
+Current state: c3844 remains open for Scenario source-only/parity validation, remaining special setup semantics, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-666 Scenario device-state player-slot validation
+
+Continued `c3844-s5` after B-665. The next propagation gap was `if_player_using_device`: it already proved the public graph condition, `ai/ailists.tsv`, and the target character through the base-aware source-character guard, but player targets still derived a player number, switched current player, and read device state without proving the runtime player slot.
+
+Added runtime-player-slot proof before current-player switching and `currentPlayerGetDeviceState(devicenum)`. The condition now suppresses legacy fallback on slot proof failure and logs `player_checked`. Static coverage requires the updated proof field and pins player-slot proof before the device-state read.
+
+Verification: scoped diff check passed; `python tools\asset_native_source_guard.py` passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 6,214 assertions / 25 cases; isolated `c3844devslot` client build passed with `PerfectDark.exe` confirmation and clean build-log scan; Extra25 Scenario source matrix passed 140/140 at `.claude\smoke-verify-runs\results-20260604T141901Z.json` against that exact isolated `SourceBinary`.
+
+Current state: c3844 remains open for Scenario source-only/parity validation, remaining special setup semantics, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-665 Scenario teleport player-state validation
+
+Continued `c3844-s5` after B-664. The next propagation gap was in the teleport/cutscene player-state band. `chr_begin_or_end_teleport` and `if_chr_teleport_full_white` already proved public graph source and resolved their target character through the base-aware source-character guard, with pad/audio proof where applicable, but they still switched current player and touched `g_Vars.currentplayer->teleport*` without proving the derived runtime player slot.
+
+Added runtime-player-slot proof to both teleport paths. The action and condition now validate the derived slot through `s_aiGraphRequireRuntimePlayerSlot()` before current-player switching, use the proven `player` pointer for teleport state reads/writes, and report `player_checked`. Static coverage rejects the old direct current-player teleport state access and pins player-slot proof before `player->teleport*`.
+
+Verification: scoped diff check passed; `python tools\asset_native_source_guard.py` passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 6,210 assertions / 25 cases; isolated `c3844telepslot` client build passed with `PerfectDark.exe` confirmation and clean build-log scan; Extra25 Scenario source matrix passed 140/140 at `.claude\smoke-verify-runs\results-20260604T141035Z.json` against that exact isolated `SourceBinary`.
+
+Current state: c3844 remains open for Scenario source-only/parity validation, remaining special setup semantics, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-664 Scenario health-condition player-slot validation
+
+Continued `c3844-s5` after B-663. The next propagation gap was in character health conditions. `if_chr_health_greater_than` and `if_chr_health_less_than` already proved their public graph nodes and resolved target characters through the base-aware source-character guard, but player targets still derived a player slot and read `g_Vars.players[playernum]->bondhealth` directly.
+
+Added runtime-player-slot proof inside the shared health comparison helper. Player-character targets now validate the derived slot through `s_aiGraphRequireRuntimePlayerSlot()` before reading health, then use the proven `player->bondhealth` pointer path. Proof logs now carry `player_checked`, and static coverage rejects the old direct player-table health read.
+
+Verification: scoped diff check passed; `python tools\asset_native_source_guard.py` passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 6,202 assertions / 25 cases; isolated `c3844healthslot` client build passed with `PerfectDark.exe` confirmation and clean build-log scan; Extra25 Scenario source matrix passed 140/140 at `.claude\smoke-verify-runs\results-20260604T140239Z.json` against that exact isolated `SourceBinary`.
+
+Current state: c3844 remains open for Scenario source-only/parity validation, remaining special setup semantics, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-663 Scenario player-object slot validation
+
+Continued `c3844-s5` after B-662. The next propagation gap was in adjacent player/object interaction paths. `if_player_looking_at_object` proved the public graph source, `objects.tsv`, and the Scenario player character, but then switched current player and read `g_Vars.currentplayer->lookingatprop` without proving the derived player slot. `chr_grab_object` proved the object tag and target character, but then switched current player and called movement/grab helpers after player-character proof only.
+
+Added runtime-player-slot proof to both paths. `if_player_looking_at_object` validates the derived slot and reads `player->lookingatprop` through the proven pointer, removing the current-player switch entirely for that read. `chr_grab_object` validates the slot before `setCurrentPlayerNum(playernum)`, crouch/move checks, and `bmoveGrabProp()`. Proof logs now carry `player_checked`.
+
+Verification: scoped diff check passed; `python tools\asset_native_source_guard.py` passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 6,195 assertions / 25 cases; isolated `c3844objplayer` client build passed with `PerfectDark.exe` confirmation and clean build-log scan; Extra25 Scenario source matrix passed 140/140 at `.claude\smoke-verify-runs\results-20260604T135427Z.json` against that exact isolated `SourceBinary`.
+
+Current state: c3844 remains open for Scenario source-only/parity validation, remaining special setup semantics, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-662 Scenario player-weapon slot validation
+
+Continued `c3844-s5` after B-661. The next propagation gap was in the player-weapon-state band. `chr_draw_weapon`, `chr_draw_weapon_in_cutscene`, and `set_player_force_speed` proved their graph nodes, resolved catalog weapon IDs where applicable, and resolved the Scenario player character through `s_aiGraphResolvePlayerChr()`, but each then derived a player slot and switched current player or wrote player movement state without proving that runtime slot.
+
+Added runtime-player-slot proof to all three actions. `chr_draw_weapon` and `chr_draw_weapon_in_cutscene` validate the slot before `setCurrentPlayerNum(playernum)` and weapon equip helpers. `set_player_force_speed` validates the slot, keeps current-player switching for existing side-effect shape, and writes `bondforcespeed` through the proven `player` pointer instead of `g_Vars.currentplayer`. Proof logs now carry `player_checked`.
+
+Verification: scoped diff check passed; `python tools\asset_native_source_guard.py` passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 6,185 assertions / 25 cases; isolated `c3844wpnslot` client build passed with `PerfectDark.exe` confirmation and clean build-log scan; Extra25 Scenario source matrix passed 140/140 at `.claude\smoke-verify-runs\results-20260604T134659Z.json` against that exact isolated `SourceBinary`.
+
+Current state: c3844 remains open for Scenario source-only/parity validation, remaining special setup semantics, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-661 Scenario colour-fade player-state validation
+
+Continued `c3844-s5` after B-660. The next propagation gap was a direct player-table read in the player-cutscene band. `if_colour_fade_complete` proved the public graph node and resolved the Scenario player character through `s_aiGraphResolvePlayerChr()`, but still derived a player slot and read `g_Vars.players[playernum]->colourfadetimemax60` directly.
+
+Added runtime-player-slot proof before the fade-timer read. The condition now validates the resolved slot through `s_aiGraphRequireRuntimePlayerSlot("if_colour_fade_complete", ...)`, reads `player->colourfadetimemax60` only after that proof, and logs `player_checked`. Static coverage rejects the old direct fade-timer access and pins player-slot proof before the live timer read.
+
+Verification: scoped diff check passed; `python tools\asset_native_source_guard.py` passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 6,157 assertions / 25 cases; isolated `c3844fadechk` client build passed with `PerfectDark.exe` confirmation and clean build-log scan; Extra25 Scenario source matrix passed 140/140 at `.claude\smoke-verify-runs\results-20260604T133850Z.json` against that exact isolated `SourceBinary`.
+
+Current state: c3844 remains open for Scenario source-only/parity validation, remaining special setup semantics, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-660 Scenario quip/death player-state validation
+
+Continued `c3844-s5` after B-659. The next propagation gap was direct player-table death reads outside the already-fixed Eyespy and P1/P2 ownership paths. `say_quip` proved source character operands, active speaker state, nearby teammate characters, audio IDs, and language text IDs, but still read `g_Vars.players[playernum]->isdead` while choosing whether to route quips away from a dead player. `if_chr_death_animation_finished` also proved the character operand first, but the player-target branch read player death state without validating the runtime player slot.
+
+Added runtime-player-slot proof to both paths. `say_quip` now validates the speaking player slot before the dead-player read and validates the alternate Bond/Co-op slot before switching current player. `if_chr_death_animation_finished` now validates player targets before reading `player->isdead`. Proof logs carry `player_checked`, and static coverage rejects the old direct `g_Vars.players[playernum]->isdead` read in both graph paths.
+
+Verification: scoped diff check passed; `python tools\asset_native_source_guard.py` passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 6,148 assertions / 25 cases; isolated `c3844quipplayer` client build passed with `PerfectDark.exe` confirmation after the first client compile caught and fixed a missing local declaration; Extra25 Scenario source matrix passed 140/140 at `.claude\smoke-verify-runs\results-20260604T132903Z.json` against that exact isolated `SourceBinary`.
+
+Current state: c3844 remains open for Scenario source-only/parity validation, remaining special setup semantics, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-659 Scenario Eyespy target player-state validation
+
+Continued `c3844-s5` after B-658. The next propagation gap was in the misc branch/effect Eyespy target-selection path. `set_target_to_eyespy_if_in_sight` already proved the active player character before using `p1p2` / `target`, and it proved the Eyespy target character before using the target `chrnum`, but it still read `g_Vars.players[chr->p1p2]->eyespy` after character proof only.
+
+Added runtime-player-slot proof before the Eyespy state read. The action now validates `chr->p1p2` through `s_aiGraphRequireRuntimePlayerSlot()` and reads `player->eyespy` only after that slot resolves to valid player state. The proof log now carries `player_checked`, and static coverage rejects the old direct `g_Vars.players[chr->p1p2]->eyespy` access.
+
+Verification: scoped diff check passed; `python tools\asset_native_source_guard.py` passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 6,132 assertions / 25 cases; isolated `c3844eyespyguard` client build passed and produced `PerfectDark.exe`; Extra25 Scenario source matrix passed 140/140 at `.claude\smoke-verify-runs\results-20260604T131731Z.json` against that exact isolated `SourceBinary`.
+
+Current state: c3844 remains open for Scenario source-only/parity validation, remaining special setup semantics, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-658 Scenario P1/P2 player-state validation
+
+Continued `c3844-s5` after B-657. The next propagation gap was in P1/P2 ownership graph actions. `toggle_p1p2` already proved the target character, but in co-op it still read `g_Vars.coop->isdead` and `g_Vars.bond->isdead` before toggling `chr->p1p2` without proving those player structs. `chr_set_p1p2` also proved character refs first, but then read `g_Vars.players[playernum]->isdead` and compared against `g_Vars.coop->prop` before ownership assignment.
+
+Added player-state proof to both paths. `toggle_p1p2` now validates Bond and Co-op runtime player pointers before death-state reads or ownership mutation. `chr_set_p1p2` now resolves the target player slot from the target prop, validates that player slot before reading `player->isdead`, and uses `playernum == g_Vars.coopplayernum` instead of a direct `g_Vars.coop->prop` read. Proof logs now carry `player_checked`.
+
+Verification: `python tools\asset_native_source_guard.py` passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 6,128 assertions / 25 cases; isolated `c3844p1p2guard` client build passed and produced `PerfectDark.exe`; Extra25 Scenario source matrix passed 140/140 at `.claude\smoke-verify-runs\results-20260604T130757Z.json` against that exact isolated `SourceBinary`.
+
+Current state: c3844 remains open for Scenario source-only/parity validation, remaining special setup semantics, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-657 Scenario global player-state validation
+
+Continued `c3844-s5` after B-656. The next source-proof gap was in global player-side graph actions: `players_fade_out` iterated player slots and called fade helpers after only graph-node proof, `clear_inventory` cleared inventory/devices/equipped weapons after only `ai/ailists.tsv` proof, `kill_bond` only checked `g_Vars.bond` for non-null before marking the player dead, and the Eyespy branch of `enable_obj` read current-player Eyespy state after only object-tag proof.
+
+Added a shared runtime-player guard that validates player pointers and rejects non-player props before player side effects. `players_fade_out` and `clear_inventory` now validate each slot before switching current player and mutating fade/inventory state, `kill_bond` validates Bond player state before `isdead` mutation, and `enable_obj` preflights current-player state before activating an Eyespy weapon object or calling `playerInitEyespy()`. Proof logs now carry `checked_players` or `player_checked`.
+
+Verification: `python tools\asset_native_source_guard.py` passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 6,110 assertions / 25 cases; isolated `c3844plyrguard` client build passed and produced `PerfectDark.exe`; Extra25 Scenario source matrix passed 140/140 at `.claude\smoke-verify-runs\results-20260604T130118Z.json` against that exact isolated `SourceBinary`.
+
+Current state: c3844 remains open for Scenario source-only/parity validation, remaining special setup semantics, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-656 Scenario camera-cutscene active state validation
+
+Continued `c3844-s5` after B-655. The next source-proof gap was in the player-cutscene band: `set_camera_animation` proved the public graph node, resolved the camera animation through catalog IDs, and checked current-player state, but still started the cutscene and could write `g_Vars.chrdata->sleep = -1` before proving the active character state was source-owned.
+
+Added `s_aiGraphRequireRuntimeCharacterStatePointer()` before both `playerStartCutscene()` and the sleep-state write. This deliberately validates graph-owned/source-backed character state rather than requiring a live character body prop, because Extra25 can run the action before the player has a body. Proof logs now carry `chr_rows` / `source_chr` for both yielded and non-yielded paths, and static coverage pins the state guard before both side effects.
+
+Verification: the first attempt used the stricter live-character pointer guard and Extra25 failed 136/140 with `missing runtime character`, which exposed the pre-body execution case. After switching to the state guard, `python tools\asset_native_source_guard.py` passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 6,072 assertions / 25 cases; isolated `c3844camproof` client build passed and produced `PerfectDark.exe`; Extra25 Scenario source matrix passed 140/140 at `.claude\smoke-verify-runs\results-20260604T125050Z.json` against that exact isolated `SourceBinary`.
+
+Current state: c3844 remains open for Scenario source-only/parity validation, remaining special setup semantics, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-655 Scenario drop-object parent character source validation
+
+Continued `c3844-s5` after B-654. The next source-proof gap was in the object-interaction band: `drop_object_from_chr` proved the public object tag and `objects.tsv` row before `objFindByTagId()`, but when the object was parented to a character it still called `objSetDropped()` and set `CHRHFLAG_DROPPINGITEM` on the parent `chrdata` pointer without proving that character came from public Scenario source or graph-owned spawn paths.
+
+Added runtime-character pointer proof before both dropped-object side effects. A stale/non-source parent character now fails through the Scenario source-runtime path instead of mutating live character state, and the proof log carries `chr_rows` / `source_chr` beside `object_rows`. Static coverage pins object-tag proof before character proof and character proof before `objSetDropped()` plus the hidden-flag mutation.
+
+Verification: scoped diff check passed; `python tools\asset_native_source_guard.py` passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 6,061 assertions / 25 cases; isolated `c3844dropchr` client build passed and produced `PerfectDark.exe`; Extra25 Scenario source matrix passed 140/140 at `.claude\smoke-verify-runs\results-20260604T123842Z.json` against that exact isolated `SourceBinary`. Extra25 proves object-interaction graph-module activation but does not naturally execute this patched drop branch, so direct proof is static/source-contract coverage plus the broader source-only matrix pass.
+
+Current state: c3844 remains open for Scenario source-only/parity validation, remaining special setup semantics, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-654 Scenario active list-control character source validation
+
+Continued `c3844-s5` after B-653. The next source-proof gap was in active-character list control. `set_return_list` already validated vehicle return-list state, but the `CHR_SELF` branch still wrote `g_Vars.chrdata->aireturnlist` without proving the active character. `return_list` read that same active character list field before source proof. `set_shot_list` and the shared punch-dodge / shooting-at-me / dark-room / player-dead list setters also passed active character field addresses into a helper before the helper could validate the actor.
+
+Added active-character proof before every live active list read or mutation in those paths. The shared list-field helper now receives the `chrdata` pointer and a field offset, validates the character pointer first, then computes and writes the field. Proof logs now carry `chr_rows` / `source_chr` for the active list-control paths, and the retained Scenario matrix patterns expect those fields for return-list proof.
+
+Verification: scoped diff check passed; `python tools\asset_native_source_guard.py` passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 6,050 assertions / 25 cases after the initial wrapper invocation was corrected from `-Tags` to `-Selector`; isolated `c3844listproof` client build passed and produced `PerfectDark.exe`; Extra25 Scenario source matrix passed 140/140 at `.claude\smoke-verify-runs\results-20260604T122902Z.json` against that exact isolated `SourceBinary`. CI Training reached scripted exit with no list-control source-only fatal, logged the new `set_list` / `set_return_list` / `return_list` `chr_rows` proof lines, and improved to 172/189 after the stale `set_list` regex update, but still fails 17 pre-existing retained-route assertions at `.claude\smoke-verify-runs\results-20260604T122721Z.json`.
+
+Current state: c3844 remains open for Scenario source-only/parity validation, remaining special setup semantics, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-653 Scenario room-mutation and inactive-lighting source validation
+
+Continued `c3844-s5` after B-652. The next source-proof gap was in room mutations: `set_room_flag` and room-scoped `configure_environment` proved graph source and `ai/ailists.tsv`, but then touched `g_Rooms[roomnum]` or called `roomSetLightsFaulty(roomnum, ...)` without first proving the source-built scene room table and requested room range.
+
+Added scene room-table proof before every room mutation. Missing source-built room tables remain source-chain failures. Sparse public room refs are handled as source-authored no-ops when the generated source scene has no corresponding runtime room row, preventing `g_Rooms[]` out-of-bounds writes and keeping tiny geometry stages like Extra25 source-only clean. All-room environment mutations still prove the table before looping runtime rooms. I also hardened the B-651 lighting path so inactive/non-prop active actors keep `room=-1` no-op behavior while live actors still prove source ancestry before `chrGetPadRoom()`.
+
+Verification: scoped diff check passed; `python tools\asset_native_source_guard.py` passed; Scenario matrix parser check passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 6,019 assertions / 25 cases; isolated `c3844roomproof` client build passed; Extra25 Scenario source matrix passed 140/140 at `.claude\smoke-verify-runs\results-20260604T120857Z.json` against that exact isolated `SourceBinary`. CI Training now reaches scripted exit without the earlier `set_lights` source-only fatal, but still fails unrelated retained-route assertions at `.claude\smoke-verify-runs\results-20260604T120123Z.json`.
+
+Current state: c3844 remains open for Scenario source-only/parity validation, remaining special setup semantics, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-652 Scenario cutscene visibility character-slot source validation
+
+Continued `c3844-s5` after B-651. The next source-proof gap was in `show_cutscene_chrs`: the action proved the public graph node and `ai/ailists.tsv`, but then walked `g_ChrSlots[]` and mutated `CHRH2FLAG_HIDDENFORCUTSCENE` / `CHRCFLAG_HIDDEN` for every affected live slot without proving those character slots came from public Scenario source or graph-owned spawn paths.
+
+Added a two-pass preflight. The first pass validates every slot that would be changed with the runtime character pointer guard, accepting source setup rows, source-spawned characters, and explicit player actors. Only after all affected slots prove valid does the second pass apply the visibility flag mutation. Proof logs now carry `chr_rows`, `checked_chrs`, and `applied`, and static coverage pins character proof before both show and hide mutations.
+
+Verification: scoped diff check passed; `python tools\asset_native_source_guard.py` passed; Scenario matrix parser check passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 5,980 assertions / 25 cases; isolated `c3844cutvis` client build passed and produced `PerfectDark.exe`; Extra25 Scenario source matrix passed 140/140 at `.claude\smoke-verify-runs\results-20260604T114228Z.json` against that exact isolated `SourceBinary`. Extra25 proves cutscene-visibility graph-module activation but did not naturally execute every patched visibility branch, so direct proof is static/source-contract coverage plus the broader source-only matrix pass.
+
+Current state: c3844 remains open for Scenario source-only/parity validation, remaining special setup semantics, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-651 Scenario lift/lighting/target-distance active-actor source validation
+
+Continued `c3844-s5` after B-650. The next source-proof gap was in the lift/lighting/target-distance band: `if_using_lift` proved lift graph source and source-built pad tables, `set_lights` proved public `pads.tsv`, and `if_distance_to_target2_less_than` / `if_distance_to_target2_greater_than` proved graph condition source, but each still passed the active `chrdata` pointer into live helpers before proving that actor came from public Scenario source.
+
+Added optional runtime-character pointer proof before `chrIsUsingLift()` and `chrGetPadRoom()`, preserving null actors as the existing false/no-room behavior. Added required runtime-character proof before `chrGetDistanceToTarget2()`. Proof logs now carry `chr_rows` / `source_chr` beside the existing pad, room, and distance evidence, and static coverage pins pad proof before actor proof where applicable plus actor proof before every live helper.
+
+Verification: scoped diff check passed; `python tools\asset_native_source_guard.py` passed; Scenario matrix parser check passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 5,972 assertions / 25 cases; isolated `c3844liftdist` client build passed and produced `PerfectDark.exe`; Extra25 Scenario source matrix passed 140/140 at `.claude\smoke-verify-runs\results-20260604T113305Z.json` against that exact isolated `SourceBinary`. Extra25 proves the graph module activation but did not naturally execute every patched live path, so direct proof is static/source-contract coverage plus the broader source-only matrix pass.
+
+Current state: c3844 remains open for Scenario source-only/parity validation, remaining special setup semantics, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-650 Scenario misc branch/effect actor and vehicle source validation
+
+Continued `c3844-s5` after B-649. The next source-proof gap was in the misc branch/effect cluster: `if_natural_anim`, `if_sound_timer`, `if_target_y_difference_less_than`, `punch_or_kick`, `set_target_to_eyespy_if_in_sight`, `mini_skedar_try_pounce`, and `avoid` proved graph source but still read or acted on active `chrdata` state before proving that live actor pointer came from public Scenario source. `hovercopter_fire_rocket` also called into live hovercar/chopper state after graph proof only, without proving the vehicle object row came from public `objects.tsv`.
+
+Added optional runtime-character pointer proof before natural-animation/current-animation reads, sound-timer reads, target-height comparisons, melee/pounce helper calls, eyespy target rewrites, and `chrAvoid()`. The eyespy path now proves the active player actor before reading `p1p2`/`target`, checks the eyespy prop/chr before dereference, and proves the target character before using its `chrnum`. `hovercopter_fire_rocket` now requires `objects.tsv` and validates `g_Vars.hovercar->base` as a source-built `OBJTYPE_CHOPPER` row before `chopperFireRocket()`. Proof logs carry `chr_rows`, `source_chr`, target character rows, or `vehicle_rows` / `source_vehicle_type` as applicable.
+
+Verification: scoped diff check passed; `python tools\asset_native_source_guard.py` passed; Scenario matrix parser check passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 5,954 assertions / 25 cases; isolated `c3844miscact` client build passed after correcting the hovercar-base guard call and confirming `PerfectDark.exe` existed; Extra25 Scenario source matrix passed 140/140 at `.claude\smoke-verify-runs\results-20260604T112320Z.json` against that exact isolated `SourceBinary`. Extra25 proves misc-branch graph-module activation but did not naturally execute every patched live path, so direct proof is static/source-contract coverage plus the broader source-only matrix pass.
+
+Current state: c3844 remains open for Scenario source-only/parity validation, remaining special setup semantics, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-649 Scenario intent/status active-actor source validation
+
+Continued `c3844-s5` after B-648. I first checked `increase_squadron_alertness`; that path already validates the active actor and every non-null team target before live reads/mutation, and static coverage already pins that contract. The next real gap was the active intent/status quartet: `if_orders`, `if_has_orders`, `if_not_listening`, and `if_action` proved their graph condition node and public `ai/ailists.tsv`, but still read `chr->orders`, `chr->listening`, or `chr->myaction` before proving the active actor pointer came from public Scenario source.
+
+Reused the shared `s_aiGraphRequireCharacterConditionActor()` path for those four conditions. Each predicate now validates any non-null active actor before live state reads, preserves null/no-prop actors as false/no-stale-read outcomes, and logs `chr_rows` / `source_chr` beside the current live value and branch result. Static coverage pins actor proof before each live field read and anchors the helper-definition check so the new forward declaration cannot confuse the parser.
+
+Verification: scoped diff check passed; `python tools\asset_native_source_guard.py` passed; Scenario matrix parser check passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 5,905 assertions / 25 cases; isolated `c3844intent` client build passed and produced `PerfectDark.exe`; Extra25 Scenario source matrix passed 140/140 at `.claude\smoke-verify-runs\results-20260604T111107Z.json` against that exact isolated `SourceBinary`. The retained Extra25 window proves the intent/status graph module activation, but does not naturally execute all four patched branch paths, so direct proof is static/source-contract coverage plus the broader source-only matrix pass.
+
+Current state: c3844 remains open for Scenario source-only/parity validation, remaining special setup semantics, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-648 Scenario order/action actor source validation
+
+Continued `c3844-s5` after B-647. The next source-proof gap was in the orders/action band: `set_team_orders` already validated active and team-list characters before team/order state reads, but its CAN_BACKOFF branches still read flags through `chrHasFlagById(target, CHR_SELF, ...)` after the target was already proven. `try_attack_amount` proved graph source and `ai/ailists.tsv`, but still called `chrTryAttackAmount()` before proving the active actor pointer came from public Scenario source.
+
+Converted the `set_team_orders` CAN_BACKOFF checks to direct `chrHasFlag(target, ...)` reads on the already source-proven team target, removing the hidden self-ID helper lookup from the graph executor. `try_attack_amount` now requires `s_aiGraphRequireRuntimeCharacterPointer()` before `chrTryAttackAmount()`, suppressing legacy fallback on source failures and logging `chr_rows` / `source_chr` beside its operands. Static coverage rejects `chrHasFlagById()` in the `set_team_orders` graph block and pins actor proof before `chrTryAttackAmount()`.
+
+Verification: scoped diff check passed; `python tools\asset_native_source_guard.py` passed; Scenario matrix parser check passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 5,873 assertions / 25 cases; isolated `c3844orders` client build passed and produced `PerfectDark.exe`; Extra25 Scenario source matrix passed 140/140 at `.claude\smoke-verify-runs\results-20260604T105950Z.json` against that exact isolated `SourceBinary`. The retained Extra25 window proves the order/action graph module activation, but does not naturally execute these two live action paths, so direct proof is static/source-contract coverage plus the broader source-only matrix pass.
+
+Current state: c3844 remains open for Scenario source-only/parity validation, remaining special setup semantics, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-647 Scenario explicit-character flag source validation
+
+Continued `c3844-s5` after B-646. The next source-proof gap was the explicit-character flag trio: `chr_set_flag`, `chr_unset_flag`, and `if_chr_has_flag` proved graph source and public `ai/ailists.tsv`, but still reached through `chrSetFlagsById()`, `chrUnsetFlagsById()`, and `chrHasFlagById()` before proving the target character came from public Scenario source.
+
+Replaced the hidden ID-helper path with explicit base-aware source-character resolution. Active graph execution now requires the graph node plus `ai/ailists.tsv`, resolves the target with `s_aiGraphRequireRuntimeCharacterRefFromBase()`, suppresses legacy fallback on source failures, and then applies `chrSetFlags()`, `chrUnsetFlags()`, or `chrHasFlag()` directly to the proven `chrdata` pointer. Proof logs now carry `chr_rows` and `target_chr` beside the flag bank/value fields, and static coverage rejects the old ID helpers inside these graph executors while pinning source proof before live flag access.
+
+Verification: scoped diff check passed; `python tools\asset_native_source_guard.py` passed; Scenario matrix parser check passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 5,864 assertions / 25 cases; isolated `c3844expflags` client build passed and produced `PerfectDark.exe`; Extra25 Scenario source matrix passed 140/140 at `.claude\smoke-verify-runs\results-20260604T104933Z.json` against that exact isolated `SourceBinary`. The extra25 runtime window did not naturally execute these three explicit flag actions, so the direct proof for them is static/source-contract coverage plus the broader source-only matrix pass.
+
+Current state: c3844 remains open for Scenario source-only/parity validation, remaining special setup semantics, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-646 Scenario active-character flag source validation
+
+Continued `c3844-s5` after B-645. The next source-proof gap was the adjacent direct active-character flag trio: `set_flag`, `unset_flag`, and `if_has_flag` proved graph source and public `ai/ailists.tsv`, but still wrote or read active character flag state before proving the active `chrdata` pointer was source-backed.
+
+Reused the active-character action preflight for direct flag operations. These paths now require the graph node and `ai/ailists.tsv`, validate live active actors before `chrSetFlags()`, `chrUnsetFlags()`, or `chrHasFlag()`, and preserve null or stale no-prop active actors as graph-authored no-op/false outcomes that suppress legacy fallback without touching stale flag state. Proof logs carry `chr_rows` and `source_chr` beside the existing flag bank/value fields, and static coverage pins source proof before live flag access.
+
+Verification: scoped diff check passed with only the known Scenario matrix line-ending warning; `python tools\asset_native_source_guard.py` passed; Scenario matrix parser check passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 5,846 assertions / 25 cases; isolated `c3844flagsactor` client build passed and produced `PerfectDark.exe`; Extra25 Scenario source matrix passed 140/140 at `.claude\smoke-verify-runs\results-20260604T104000Z.json` against that exact isolated `SourceBinary`.
+
+Current state: c3844 remains open for Scenario source-only/parity validation, remaining special setup semantics, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-645 Scenario active-character tuning source validation
+
+Continued `c3844-s5` after B-644. The next source-proof gap was the direct active-character tuning band: morale, alertness, perception distance, grenade probability, chrnum, health, shield, reaction/recovery speed, accuracy, and dodge-rating actions proved graph source, but could still mutate an already-passed active `chrdata` pointer before proving that pointer came from public Scenario source. The hovercar/chopper branch of `set_max_damage` also still called `chopperSetMaxDamage()` without proving the live vehicle pointer came from public `objects.tsv`.
+
+Added a shared active-character tuning preflight. These actions now require the public graph node and `ai/ailists.tsv`, validate live active actors before mutation, and preserve null or stale no-prop active actors as graph-authored no-ops that suppress legacy fallback while still logging public-source evidence. `set_max_damage` now proves live chopper/hovercar pointers against source-built setup object rows before vehicle max-damage mutation. Proof logs carry `chr_rows`, `source_chr`, `vehicle_rows`, and `source_vehicle_type` where applicable, and static coverage pins proof before mutation.
+
+Verification: scoped diff check passed with only the known Scenario matrix line-ending warning; `python tools\asset_native_source_guard.py` passed; Scenario matrix parser check passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 5,831 assertions / 25 cases; isolated `c3844tuningactor` client build passed and produced `PerfectDark.exe`; Extra25 Scenario source matrix passed 140/140 at `.claude\smoke-verify-runs\results-20260604T102916Z.json` against that exact isolated `SourceBinary`.
+
+Current state: c3844 remains open for Scenario source-only/parity validation, remaining special setup semantics, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-644 Scenario vehicle list-control source validation
+
+Continued `c3844-s5` after B-643. The next source-proof gap was the adjacent vehicle list-control band: `set_return_list` and `return_list` proved graph/list source, but vehicle branches still touched `g_Vars.truck`, `g_Vars.heli`, or `g_Vars.hovercar` `aireturnlist` state before proving those vehicle pointers belonged to source-built setup object rows.
+
+Reused the shared vehicle object pointer guard for return-list state. Active truck, heli, hovercar, and chopper pointers now require public `objects.tsv`, must map to a row in `g_StageSetup.props`, and must match the expected source object type before live return-list reads or mutation. Proof logs carry `vehicle_rows`, `source_vehicle_type`, `ai/ailists.tsv`, and `objects.tsv` evidence. Static coverage pins the guard before truck/heli/hovercar `aireturnlist` mutation and before truck/heli/hovercar return-list reads.
+
+Verification: scoped diff check passed; `python tools\asset_native_source_guard.py` passed; Scenario matrix parser check passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 5,741 assertions / 25 cases; isolated `c3844vehlist` client build passed and produced `PerfectDark.exe`; Extra25 Scenario source matrix passed 140/140 at `.claude\smoke-verify-runs\results-20260604T100455Z.json` against that exact isolated `SourceBinary`.
+
+Current state: c3844 remains open for Scenario source-only/parity validation, remaining special setup semantics, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-643 Scenario vehicle-motion source validation
+
+Continued `c3844-s5` after B-642. The next source-proof gap was the sibling vehicle motion band: `hovercar_begin_path`, `set_vehicle_speed`, `set_rotor_speed`, and `if_hoverbot_next_step` proved graph/path/pad source where applicable, but still touched live `g_Vars.truck`, `g_Vars.hovercar`, or `g_Vars.heli` fields before proving those vehicle pointers belonged to source-built setup object rows.
+
+Added a shared vehicle object pointer guard. Active truck, hovercar, chopper, and heli pointers now require public `objects.tsv`, must map to a row in `g_StageSetup.props`, and must match the expected source object type before path assignment, speed/rotor mutation, chopper initialization, or hoverbot path-state reads. Proof logs carry `vehicle_rows`, truck/hovercar/source type fields, and `objects.tsv` evidence. Static coverage pins the guard before `chopperFromHovercar()`, before truck/hovercar path and speed mutations, before heli rotor mutation, and before hoverbot path-state reads.
+
+Verification: scoped diff check passed; `python tools\asset_native_source_guard.py` passed; Scenario matrix parser check passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 5,721 assertions / 25 cases; isolated `c3844vehmotion` client build passed and produced `PerfectDark.exe`; Extra25 Scenario source matrix passed 140/140 at `.claude\smoke-verify-runs\results-20260604T095326Z.json` against that exact isolated `SourceBinary`.
+
+Current state: c3844 remains open for Scenario source-only/parity validation, remaining special setup semantics, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-642 Scenario chopper weapon-state source validation
+
+Continued `c3844-s5` after B-641. The next source-proof gap was the B-477 vehicle/investigation weapon-state band: `if_heli_weapons_armed`, `heli_arm_weapons`, and `heli_unarm_weapons` proved the public AI graph nodes, but still read `hovercar->weaponsarmed` or called `chopperSetArmed()` before proving that the non-null vehicle pointer belonged to a source-built setup object row.
+
+Added a shared runtime chopper pointer guard. When a vehicle pointer exists, it now requires public `objects.tsv`, checks the pointer's `defaultobj` row against `g_StageSetup.props`, and requires `OBJTYPE_CHOPPER` before armed-state reads or mutation. Proof logs carry `vehicle_rows` and `source_vehicle_type` beside `objects.tsv` source evidence, and static coverage pins the guard before `hovercar->weaponsarmed` and before `chopperSetArmed()`.
+
+Verification: scoped diff check passed with only known line-ending warnings; Scenario matrix parser check passed; `python tools\asset_native_source_guard.py` passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 5,695 assertions / 25 cases; isolated `c3844vehweapon` client build passed and produced `PerfectDark.exe`; Extra25 Scenario source matrix passed 140/140 at `.claude\smoke-verify-runs\results-20260604T093932Z.json` against that exact isolated `SourceBinary`.
+
+Current state: c3844 remains open for Scenario source-only/parity validation, remaining special setup semantics, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-641 Scenario prop-preset/target active-actor source validation
+
+Continued `c3844-s5` after B-640. The next source-proof gap was the prop-preset/target band: graph-backed prop-preset checks/removal, target assignment/comparison, near-character preset selection, and dangerous-object detection proved graph/object/pad/target source where applicable, but still could read `chr->proppreset1`, `chr->target`, or `chr->chrpreset1`, mutate target state, or call target/near-character/danger helpers before proving the active actor pointer came from public Scenario source.
+
+Added runtime-character pointer proof before prop-preset blocking/height checks, prop-preset object removal, target assignment and target comparison, near-self/near-pad preset selection, and dangerous-object detection. `set_chr_preset_to_chr_near_pad` keeps public `pads.tsv` proof before actor proof and before the live helper. Proof logs now carry `chr_rows` and `source_chr` beside target/object/pad proof, and static coverage pins actor proof before the legacy reads/helpers.
+
+Verification: scoped diff check passed with only known line-ending warnings; Scenario matrix parser check passed; `python tools\asset_native_source_guard.py` passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 5,682 assertions / 25 cases; isolated `c3844proptarget` client build passed and produced `PerfectDark.exe`; Extra25 Scenario source matrix passed 140/140 at `.claude\smoke-verify-runs\results-20260604T092850Z.json` against that exact isolated `SourceBinary`.
+
+Current state: c3844 remains open for Scenario source-only/parity validation, remaining special setup semantics, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-640 Scenario cover/retreat active-actor source validation
+
+Continued `c3844-s5` after B-639. The next source-proof gap was the cover/retreat band: `retreat`, `find_cover*`, `go_to_cover`, `check_cover_out_of_sight`, `orbit_target`, `set_squadron`, `face_cover`, `danger_cover`, and `release_cover` proved graph/source presence and cover rows, but still read or mutated live active character state before proving that actor pointer came from public Scenario source.
+
+Added runtime-character pointer proof before retreat run-from/target reads, cover assignment/go/check/face/release helpers, cover index reads, orbit-target target reads, and `set_squadron` mutation. Proof logs now carry `chr_rows` and `source_chr` beside cover proof, and static coverage pins the actor guard before the legacy helpers and before `chr->cover` / `chr->squadron` reads.
+
+Verification: scoped diff check passed with only known line-ending warnings; Scenario matrix parser check passed; `python tools\asset_native_source_guard.py` passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 5,628 assertions / 25 cases; isolated `c3844coveractor` client build passed and produced `PerfectDark.exe`; Extra25 Scenario source matrix passed 140/140 at `.claude\smoke-verify-runs\results-20260604T091451Z.json` against that exact isolated `SourceBinary`.
+
+Current state: c3844 remains open for Scenario source-only/parity validation, remaining special setup semantics, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-639 Scenario pad/path active-actor source validation
+
+Continued `c3844-s5` after B-638. The next source-proof gap was the pad/path action cluster: `try_start_alarm`, go-to-pad actions, `go_to_pad_preset`, `set_path`, `start_patrol`, `set_pad_preset`, and `chr_set_pad_preset` validated public pad/path rows but still accepted or read live character pointers before proving those actors were source-backed.
+
+Added runtime-character pointer proof before alarm, movement, path, patrol, and pad-preset helper calls. `go_to_pad_preset` now proves the active actor before reading `chr->padpreset1`, `start_patrol` proves it before reading `chr->path`, and `chr_set_pad_preset` now resolves/proves its target character explicitly instead of hiding the lookup inside `chrSetPadPresetByChrnum()`. The base-character pad-resolution behavior is preserved. Proof logs now carry `chr_rows`, `source_chr`, or `target_chr` beside pad/path proof.
+
+Verification: scoped diff check passed with only the known Scenario matrix line-ending warning; `python tools\asset_native_source_guard.py` passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 5,569 assertions / 25 cases; isolated `c3844padactor` client build passed and produced `PerfectDark.exe`; Extra25 Scenario source matrix passed 140/140 at `.claude\smoke-verify-runs\results-20260604T090319Z.json` against that exact isolated `SourceBinary`.
+
+Current state: c3844 remains open for Scenario source-only/parity validation, remaining special setup semantics, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-638 Scenario basic-motion/surprise active-actor source validation
+
+Continued `c3844-s5` after B-637. The next source-proof gap was the older basic-motion and animation-surprise action cluster: `stop`, `kneel`, `surrender`, `fade_out`, `be_surprised_one_hand`, `be_surprised_look_around`, and `be_surprised_surrender` proved graph/source presence but could call live character action helpers before proving a non-null active actor pointer was source-backed.
+
+Added optional runtime-character pointer validation before `chrTryStop()`, `chrTryKneel()`, `chrTrySurrender()`, `chrFadeOut()`, and the `chrTrySurprised*()` helpers. Null active actor behavior is preserved, and `stop` still supports the hovercar-only branch. Proof logs now carry `chr_rows` and `source_chr` for the active actor.
+
+Verification: scoped diff check passed with only the known Scenario matrix line-ending warning; `python tools\asset_native_source_guard.py` passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 5,530 assertions / 25 cases; isolated `c3844motionactor` client build passed and produced `PerfectDark.exe`; Extra25 Scenario source matrix passed 140/140 at `.claude\smoke-verify-runs\results-20260604T085039Z.json` against that exact isolated `SourceBinary`.
+
+Current state: c3844 remains open for Scenario source-only/parity validation, remaining special setup semantics, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-637 Scenario active-state/gun actor source validation
+
+Continued `c3844-s5` after B-636. The next source-proof gap was the adjacent active-actor state cluster: graph-backed `random`, simple lifecycle/character-state predicates, pouncebits, entity-lifecycle portal-distance/reposition checks, and current-gun interaction paths could read or mutate live active actor state before proving that the actor pointer came from public Scenario source.
+
+Added `s_aiGraphRequireCharacterConditionActor()` and moved active-actor proof ahead of action/actiontype/random/morale/alertness/pouncebits/position/gun-prop reads. Simple condition predicates now preserve null and stale no-prop actors as the existing false/no-actor branch without reading stale character state. Current-gun actions now prove the actor before reading `chr->gunprop`, then prove the gun object before movement, distance reads, clearing `chr->gunprop`, or `chrEquipWeapon()`. Proof logs carry `chr_rows` and `source_chr`.
+
+Verification: scoped diff check passed with only the known Scenario matrix line-ending warning; `python tools\asset_native_source_guard.py` passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 5,488 assertions / 25 cases; isolated `c3844actstate` client build passed and produced `PerfectDark.exe`; Extra25 Scenario source matrix passed 140/140 at `.claude\smoke-verify-runs\results-20260604T083734Z.json` against that exact isolated `SourceBinary`.
+
+Current state: c3844 remains open for Scenario source-only/parity validation, remaining special setup semantics, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-636 Scenario distance-perception active-actor source validation
+
+Continued `c3844-s5` after B-635. The next source-proof gap was the adjacent distance-perception graph cluster: character-to-pad, character-to-character, any-character-near-self, and target-to-pad predicates could reach live distance helpers or `PAD_PRESET` resolution before proving the active actor and related public source rows.
+
+Added distance-perception actor/source preflight helpers. Character-to-pad predicates now validate graph and `pads.tsv` source before explicit character proof, then validate the active actor before `chrResolvePadId()` and `chrGetDistanceToPad()`. Distance-to-character predicates now prove the active actor and explicit target before `chrGetDistanceToChr()`. Any-near-self and target-to-pad paths now prove active actors before live helper calls. Proof logs carry `chr_rows` and `source_chr`.
+
+Verification: scoped diff check passed; `python tools\asset_native_source_guard.py` passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 5,387 assertions / 25 cases; isolated `c3844distance` client build passed and produced `PerfectDark.exe`; Extra25 Scenario source matrix passed 140/140 at `.claude\smoke-verify-runs\results-20260604T081658Z.json` against that exact isolated `SourceBinary`.
+
+Current state: c3844 remains open for Scenario source-only/parity validation, remaining special setup semantics, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-635 Scenario spatial-perception active-actor source validation
+
+Continued `c3844-s5` after B-634. The next source-proof gap was the adjacent spatial-perception graph cluster: LOS-to-character, never/on-screen checks, on-screen room checks, target-aiming, near-miss, suspicious-item scans, FOV predicates, and distance-to-target predicates could compute branch results from active `chr` state before proving the graph source and the live actor pointer.
+
+Added `s_aiGraphRequireSpatialPerceptionActor()`, which validates the graph node and public `ai/ailists.tsv` source before applying the optional runtime-character pointer guard. The affected spatial-perception paths now call that preflight before `chrHasLosToPos()`, screen flag/room reads, `chrIsTargetAimingAtMe()`, `chrResetNearMiss()`, suspicious-item room scans, FOV helpers, and `chrGetDistanceToTarget()`. `if_los_to_chr` now proves the active actor first and then proves the explicit target character before LOS reads; `if_room_is_on_screen` now proves the actor before deriving the room from the pad. Proof logs carry `chr_rows` and `source_chr`.
+
+Verification: scoped diff check passed; `python tools\asset_native_source_guard.py` passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 5,321 assertions / 25 cases; isolated `c3844spatial` client build passed and produced `PerfectDark.exe`; Extra25 Scenario source matrix passed 140/140 at `.claude\smoke-verify-runs\results-20260604T080427Z.json` against that exact isolated `SourceBinary`.
+
+Current state: c3844 remains open for Scenario source-only/parity validation, remaining special setup semantics, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-634 Scenario perception/alarm active-actor source validation
+
+Continued `c3844-s5` after B-633. The next source-proof gap was the older B-464 perception/alarm graph cluster: alarm/hearing predicates, patrol-state checks, saw-injury/death checks, LOS-to-target checks, near-sight checks, recent-target memory, and route-to-target pad-preset selection computed live branch results before proving any non-null active actor pointer came from public Scenario source.
+
+Added `s_aiGraphRequirePerceptionAlarmActor()`, which validates the graph node and public `ai/ailists.tsv` source before applying the optional runtime-character pointer guard. The affected perception/alarm paths now call that preflight before `chrCanHearAlarm()`, `chrIsHearingTarget()`, `chrSawInjury()`, `chrSawDeath()`, `chrHasLosToTarget()`, `chrHasLosToAttackTarget()`, near-sight helpers, recent-target helpers, and `chrSetPadPresetToPadOnRouteToTarget()`. Hovercar-only and null-actor false branches keep their existing behavior. Proof logs carry `chr_rows` and `source_chr`.
+
+Verification: scoped diff check passed; `python tools\asset_native_source_guard.py` passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 5,234 assertions / 25 cases; isolated `c3844percalarm` client build passed and produced `PerfectDark.exe`; Extra25 Scenario source matrix passed 140/140 at `.claude\smoke-verify-runs\results-20260604T075024Z.json` against that exact isolated `SourceBinary`.
+
+Current state: c3844 remains open for Scenario source-only/parity validation, remaining special setup semantics, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-633 Scenario target-movement active-actor and target-character source validation
+
+Continued `c3844-s5` after B-632. The next source-proof gap was the target-movement graph cluster: `try_run_from_target`, target-prop jog/walk/run, `try_go_to_cover_prop`, and character jog/walk/run commands could call live movement helpers before proving the active actor was source-backed. The `try_*_to_chr` commands also hid their explicit target-character lookup inside `chrGoToChr()`.
+
+The target-movement paths now validate the graph node and public `ai/ailists.tsv` source before character proof, validate any non-null active actor with `s_aiGraphRequireOptionalRuntimeCharacterPointer()` before `chrTryRunFromTarget()`, `chrGoToTarget()`, `chrGoToCoverProp()`, or `chrGoToChr()`, and resolve/prove explicit `*_to_chr` target characters before calling `chrGoToChr()`. The helper failure path now reports the source-chain failure and returns a handled failure sentinel so callers do not continue down the normal branch path. Proof logs carry `chr_rows`, `source_chr`, `target_chr_rows`, and `resolved_target_chr`.
+
+Verification: scoped diff check passed; `python tools\asset_native_source_guard.py` passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 5,163 assertions / 25 cases; isolated `c3844targetmove` client build passed and produced `PerfectDark.exe`; Extra25 Scenario source matrix passed 140/140 at `.claude\smoke-verify-runs\results-20260604T073633Z.json` against that exact isolated `SourceBinary`.
+
+Current state: c3844 remains open for Scenario source-only/parity validation, remaining special setup semantics, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-632 Scenario combat active-actor source validation
+
+Continued `c3844-s5` after B-631. The next source-proof gap was the combat graph cluster that receives an already-resolved active `chr`: combat try helpers, attack predicates, `try_modify_attack`, `face_entity`, `consider_grenade_throw`, and `drop_item` could read attack state or call live combat helpers before proving the non-null actor pointer came from public Scenario source.
+
+Added `s_aiGraphRequireOptionalRuntimeCharacterPointer()` and applied it before `chrTrySidestep()`, `chrTryJumpOut()`, `chrTryRunSideways()`, `chrTryAttack*()`, `chrTryModifyAttack()`, `chrFaceEntity()`, `chrConsiderGrenadeThrow()`, `chrDropItem()`, and direct `chr->actiontype` reads. Null active actors and hovercar-only branches keep their existing no-character behavior, but any non-null actor now produces source-row evidence. Proof logs carry `chr_rows` and `source_chr`.
+
+Verification: scoped diff check passed; `python tools\asset_native_source_guard.py` passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 5,131 assertions / 25 cases; isolated `c3844combatactor` client build passed and produced `PerfectDark.exe`; Extra25 Scenario source matrix passed 140/140 at `.claude\smoke-verify-runs\results-20260604T072603Z.json` against that exact isolated `SourceBinary`.
+
+Current state: c3844 remains open for Scenario source-only/parity validation, remaining special setup semantics, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-631 Scenario communication/quip character source validation
+
+Continued `c3844-s5` after B-630. The next communication/quip cluster had two live-character gaps: `if_chr_not_talking` resolved a literal character id and read `propsoundcount` before proving the pointer was source-backed, and `say_quip` read active-speaker race/voice/team/sound fields plus nearby teammate model/death/action/squadron/alertness/soundtimer state before proving those live characters came from public Scenario source.
+
+`if_chr_not_talking` now validates the non-null literal character pointer before the talking-state branch. `say_quip` validates the active speaker before race/voice/team/sound access, validates every non-null nearby teammate before live nearby-state reads, and preserves empty team-list behavior. Proof logs now carry `chr_rows`, `target_chr`, `source_chr`, and checked nearby counts so runtime evidence shows both the actor and nearby scan were source-proven.
+
+Verification: scoped diff check passed; `python tools\asset_native_source_guard.py` passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 5,048 assertions / 25 cases; isolated `c3844quipchr2` client build passed and produced `PerfectDark.exe`; Extra25 Scenario source matrix passed 140/140 at `.claude\smoke-verify-runs\results-20260604T071220Z.json` against that exact isolated `SourceBinary`.
+
+Current state: c3844 remains open for Scenario source-only/parity validation, remaining special setup semantics, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-630 Scenario safety/detection team-scan source validation
+
+Continued `c3844-s5` after B-629. The next remaining list-walk cluster was safety/detection: `if_safety2_less_than`, `detect_enemy_on_same_floor`, `detect_enemy`, and `if_safety_less_than` scan team lists, skip null entries, then inspect nearby/enemy character state or assign a detected target before proving non-null candidates came from public Scenario source.
+
+The safety/detection graph paths now validate the active actor before using team, squadron, position, or target state, and validate every non-null team-list candidate before model/death/action/alertness/position/visibility/team reads. The detection scans also tolerate missing team-list pointers as an empty scan rather than dereferencing them. Proof logs now carry `chr_rows`, `source_chr`, and checked candidate counts.
+
+Verification: scoped diff check passed; `python tools\asset_native_source_guard.py` passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 5,032 assertions / 25 cases; isolated `c3844safetychr` client build passed and produced `PerfectDark.exe`; Extra25 Scenario source matrix passed 140/140 at `.claude\smoke-verify-runs\results-20260604T070230Z.json` against that exact isolated `SourceBinary`.
+
+Current state: c3844 remains open for Scenario source-only/parity validation, remaining special setup semantics, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-629 Scenario squadron/team literal-id loop source validation
+
+Continued `c3844-s5` after B-628. The next handoff target was the squadron/team literal-id loops: `set_team_orders`, `set_chr_preset_to_unalerted_teammate`, `if_chr_in_squadron_doing_action`, `if_squadron_is_dead`, `if_num_chrs_in_squadron_greater_than`, and `increase_squadron_alertness` all consumed runtime character ids from team/squadron lists, skipped null/stale entries, then read or mutated live `chrdata` state without proving non-null pointers came from public Scenario source.
+
+The graph paths now validate the active actor before using its team/squadron where applicable, then validate every non-null teammate/squadmate pointer returned by `chrFindByLiteralId()` before model/death/action/team/order reads or order/alertness mutation. Proof logs carry `chr_rows`, `source_chr` where applicable, and checked character counts so the runtime evidence shows how many live characters were source-proven.
+
+Verification: scoped diff check passed; `python tools\asset_native_source_guard.py` passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 4,994 assertions / 25 cases; isolated `c3844squadchr` client build passed and produced `PerfectDark.exe`; Extra25 Scenario source matrix passed 140/140 at `.claude\smoke-verify-runs\results-20260604T064945Z.json` against that exact isolated `SourceBinary`.
+
+Current state: c3844 remains open for Scenario source-only/parity validation, remaining special setup semantics, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-628 Scenario order/preset character state source validation
+
+Continued `c3844-s5` after B-627. The adjacent order/preset block had a smaller source-proof gap before the larger squadron/team literal-id loops: `set_chr_preset` and `set_action` mutated an already-resolved character pointer after graph/source preflight but before proving the actor was source-backed, and `set_chr_target` delegated its target lookup to `chrSetChrPresetByChrnum()`.
+
+`set_chr_preset` and `set_action` now use `s_aiGraphRequireRuntimeCharacterPointer()` before preset/action/order field mutation. `set_chr_target` now resolves the target through `s_aiGraphRequireRuntimeCharacterRefFromBase()` and applies `chrSetChrPreset()` directly, so the source proof happens before the live mutation instead of being hidden behind the legacy helper. Proof logs carry `chr_rows` and resolved `target_chr` for these actions.
+
+Verification: scoped diff check passed; `python tools\asset_native_source_guard.py` passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 4,939 assertions / 25 cases; isolated `c3844ordchr` client build passed and produced `PerfectDark.exe`; Extra25 Scenario source matrix passed 140/140 at `.claude\smoke-verify-runs\results-20260604T063808Z.json` against that exact isolated `SourceBinary`.
+
+Current state: c3844 remains open for Scenario source-only/parity validation, remaining special setup semantics, and full source-derived nav behavior completeness. The next direct lookup audit should move into the multi-character squadron/team literal-id loops.
+
+## 2026-06-04 - B-627 Scenario chr_move_to_pad character-target source validation
+
+Continued `c3844-s5` after B-626. The next direct lookup called out in the handoff was `chr_move_to_pad`: it still looked up the moving actor directly before pad resolution, and the NTSC mode-88 branch directly looked up the character whose position and rooms become the movement target.
+
+`chr_move_to_pad` now validates the moving actor through `s_aiGraphRequireRuntimeCharacterRefFromBase()` before `chrResolvePadId()` or `chrMoveToPos()`. Mode 88 now preserves the legacy `pad_or_chr & 0xff` operand behavior but proves that target through the same source-character guard before `chrGetInverseTheta()` or `chr2->prop` position/room reads. Proof logs now carry moving character rows, resolved target character, mode-88 target rows, resolved pad, mode, pass state, and source pad rows.
+
+Verification: scoped diff check passed; `python tools\asset_native_source_guard.py` passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 4,921 assertions / 25 cases; isolated `c3844movepad` client build passed and produced `PerfectDark.exe`; Extra25 Scenario source matrix passed 140/140 at `.claude\smoke-verify-runs\results-20260604T062820Z.json` against that exact isolated `SourceBinary`.
+
+Current state: c3844 remains open for Scenario source-only/parity validation, remaining special setup semantics, and full source-derived nav behavior completeness. The next direct lookup audit should continue after the entity-lifecycle movement block.
+
+## 2026-06-04 - B-626 Scenario player/speech/cutscene character source validation
+
+Continued `c3844-s5` after B-625. The next direct lookup band still resolved character operands before speech player-context routing, player weapon/current-player state changes, cutscene control/fade state, and a player-looking-at-object condition.
+
+`speak` now resolves its character operand through the selector-aware source helper before switching current player context for subtitles/audio proof, preserving runtime selector behavior for `CHR_P1P2`/`CHR_TARGET` while requiring normal numeric character refs to come from source-backed rows. Player weapon-state actions now use `s_aiGraphResolvePlayerChr()` before equipping weapons, force-speed writes, invincibility writes/reads, no-gun current-gun checks, weapon deletion, or trigger-shot-list flag consumption. Player cutscene-control/fade actions and `if_player_looking_at_object` use the same resolver before touching player HUD/control/fade/perception state. Proof logs now carry `chr_rows` and resolved `target_chr` beside existing text/audio/weapon/object/action fields.
+
+Verification: scoped diff check passed; `python tools\asset_native_source_guard.py` passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 4,909 assertions / 25 cases; isolated `c3844playerchr` client build passed and produced `PerfectDark.exe`; Extra25 Scenario source matrix passed 140/140 at `.claude\smoke-verify-runs\results-20260604T061643Z.json` against that exact isolated `SourceBinary`.
+
+Current state: c3844 remains open for Scenario source-only/parity validation, remaining special setup semantics, and full source-derived nav behavior completeness. The next direct lookup audit should handle `chr_move_to_pad`, especially the mode-88 branch that targets another character instead of a pad.
+
+## 2026-06-04 - B-625 Scenario room/timer character-state source validation
+
+Continued `c3844-s5` after B-624. The next already-resolved character-state cluster still used live pointers before room-search assignment and timer state reads/writes.
+
+`set_room_to_search` now proves the active character pointer with the stricter prop-backed guard, resolves `CHR_TARGET` through the selector-aware source helper instead of direct target lookup, and logs `chr_rows`, current character, target character, selector state, and selected room before marking the action proved. Timer actions now use a narrower character-state guard before `chrRestartTimer`, timer field mutation, hidden timer-flag mutation, and `chrGetTimer()` reads. That guard accepts setup-backed rows, source-spawned characters, explicit player actors, and public graph-owned implicit AI character state when the active `ai/ailists.tsv` source is present; this preserves Extra25 cutscene timer parity without falling back to legacy-only behavior. Proof logs now carry `chr_rows` and resolved timer target character ids for restart/reset/pause/resume and timer predicates.
+
+Verification: scoped diff check passed; `python tools\asset_native_source_guard.py` passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 4,847 assertions / 25 cases; isolated `c3844roomtimer` client build passed and produced `PerfectDark.exe`; Extra25 Scenario source matrix passed 140/140 at `.claude\smoke-verify-runs\results-20260604T060254Z.json` against that exact isolated `SourceBinary`.
+
+Current state: c3844 remains open for Scenario source-only/parity validation, remaining special setup semantics, and full source-derived nav behavior completeness. The next direct lookup audit should continue after the room/timer cluster, with remaining player weapon/cutscene/control and vehicle/action groups that still consume explicit character state.
+
+## 2026-06-04 - B-624 Scenario HUD/model/death character source validation
+
+Continued `c3844-s5` after B-623. The next direct lookup cluster still resolved explicit `chrnum` operands before same-floor distance reads, model-part mutation, special-death assignment, and HUD player routing.
+
+`if_chr_same_floor_distance_to_pad_less_than`, `chr_toggle_model_part`, `set_chr_special_death_animation`, `show_hudmsg`, and `show_hudmsg_top_middle` now validate character operands through the base-aware source-character guard before live state access. The existing pad/object/animation/language source proof remains in place; this slice adds the missing character-source proof beside it. Proof logs now carry `chr_rows` and resolved `target_chr` next to pad, model-part, death-animation, and HUD fields.
+
+Verification: scoped diff check passed; `python tools\asset_native_source_guard.py` passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 4,788 assertions / 25 cases; isolated `c3844chrhud` client build passed with a clean error log and produced `PerfectDark.exe`; Extra25 Scenario source matrix passed 140/140 at `.claude\smoke-verify-runs\results-20260604T054348Z.json` against that exact isolated `SourceBinary`.
+
+Current state: c3844 remains open for Scenario source-only/parity validation, remaining special setup semantics, and full source-derived nav behavior completeness. The next direct lookup audit should continue after the HUD/model/death cluster, including room-search and later timer/countdown/vehicle/action groups that still consume already-resolved or explicit character state.
+
+## 2026-06-04 - B-623 Scenario cutscene/teleport character source validation
+
+Continued `c3844-s5` after B-622. The next direct lookup cluster after the flag block still resolved explicit `chrnum` operands directly in player-device, teleport, and cutscene presentation paths.
+
+`if_player_using_device`, `chr_begin_or_end_teleport`, `if_chr_teleport_full_white`, `chr_set_cutscene_weapon`, `set_chr_hudpiece_visible`, and `chr_set_firing_in_cutscene` now validate character operands through the base-aware source-character guard before reading player device/teleport state or mutating cutscene weapon, HUD-piece, or firing state. The earlier pad/audio/weapon catalog proof remains in place; this slice adds the missing character-source proof beside it. Proof logs now carry `chr_rows` and resolved `target_chr` alongside the existing player, pad, weapon, and applied/result fields.
+
+Verification: scoped diff check passed; `python tools\asset_native_source_guard.py` passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 4,755 assertions / 25 cases; isolated `c3844cutchr` client build passed and produced `PerfectDark.exe`; Extra25 Scenario source matrix passed 140/140 at `.claude\smoke-verify-runs\results-20260604T053303Z.json` against that exact isolated `SourceBinary`.
+
+Current state: c3844 remains open for Scenario source-only/parity validation, remaining special setup semantics, and full source-derived nav behavior completeness. The next direct lookup audit should continue after the cutscene/teleport presentation cluster, including same-floor distance, model-part, special-death, and later HUD/message paths.
+
+## 2026-06-04 - B-622 Scenario character flag source validation
+
+Continued `c3844-s5` after B-621. The chrflag and hidden-flag cluster still had two source-chain gaps: explicit `chrnum` flag actions did not distinguish source-authored runtime selectors from missing authored character rows, and direct `set_chrflag` could reject a character spawned earlier by public Scenario graph source because it was not a setup row.
+
+These graph paths now validate direct character pointers before flag mutation or branch reads, validate explicit `chrnum` operands through a selector-aware source-character helper, and track successful `spawn_chr_at_pad` / `spawn_chr_at_chr` results as source-spawned character provenance in the active graph state. Normal numeric non-player refs still must resolve to source-built setup character rows; unresolved recognized engine-owned selectors are accepted as source-valid no-ops or false branches instead of legacy-only failures. Proof logs carry `chr_rows`, target character ids, selector state, and applied/result state.
+
+Verification: scoped diff check passed; `python tools\asset_native_source_guard.py` passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 4,730 assertions / 25 cases; isolated `c3844chrflags` client build passed with a clean error log and produced `PerfectDark.exe`; Extra25 Scenario source matrix passed 140/140 at `.claude\smoke-verify-runs\results-20260604T052019Z.json` against that exact isolated `SourceBinary`.
+
+Current state: c3844 remains open for Scenario source-only/parity validation, remaining special setup semantics, and full source-derived nav behavior completeness. The next direct lookup audit should continue after the flag cluster.
+
+## 2026-06-04 - B-621 Scenario stat-mutation character source validation
+
+Continued `c3844-s5` after B-620. `chr_add_morale`, `chr_add_alertness`, and the character branch of `set_max_damage` still used direct character lookup before mutating live morale, alertness, or max-damage state.
+
+These graph paths now validate character operands through the base-aware source-character guard before live state mutation. `set_max_damage` preserves the hovercar branch while requiring source-backed character rows for character targets. Proof logs now carry `chr_rows` and resolved target character ids alongside the existing amount/value/applied fields.
+
+Verification: scoped diff check passed; `python tools\asset_native_source_guard.py` passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 4,632 assertions / 25 cases; isolated `c3844stats` client build passed with a clean error log and produced `PerfectDark.exe`; Extra25 Scenario source matrix passed 140/140 at `.claude\smoke-verify-runs\results-20260604T045740Z.json` against that exact isolated `SourceBinary`.
+
+Current state: c3844 remains open for Scenario source-only/parity validation, remaining special setup semantics, and full source-derived nav behavior completeness. The next direct character lookup cluster begins after the stat-mutation block, including remaining flag/condition helpers and later action groups.
+
+## 2026-06-04 - B-620 Scenario quip/misc-effect character source validation
+
+Continued `c3844-s5` after B-619. `chr_emit_sparks`, `set_dr_caroll_images`, and `say_quip` still used direct character lookup before live spark effects, Dr. Caroll image mutation, or current-player quip switching. `say_ci_staff_quip` also consumed an already-resolved character pointer for morale/audio state without proving it was source-backed.
+
+These graph paths now validate character operands before live effect, image, current-player, morale, or quip-audio work. Explicit id operands use the base-aware source-character guard, and the CI staff quip path uses the pointer guard for the already-resolved actor. Proof logs carry `chr_rows` and resolved target character ids.
+
+Verification: scoped diff check passed; `python tools\asset_native_source_guard.py` passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 4,611 assertions / 25 cases; isolated `c3844quipchr` client build passed with a clean build log and produced `PerfectDark.exe`; Extra25 Scenario source matrix passed 140/140 at `.claude\smoke-verify-runs\results-20260604T044742Z.json` against that exact isolated `SourceBinary`.
+
+Current state: c3844 remains open for Scenario source-only/parity validation, remaining special setup semantics, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-619 Scenario safety/misc-effect character source validation
+
+Continued `c3844-s5` after B-618. `if_target_moving_slowly`, `if_y`, `chr_explosions`, and `chr_adjust_motion_blur` still used direct character lookup before live movement/Y reads or effect mutation.
+
+These graph paths now validate character operands before reading target movement deltas, reading Y-position state, switching current-player context for explosion effects, or mutating `blurdrugamount`. `if_y` also validates already-resolved hovercar target character pointers through a new source-character pointer guard before reading position. Proof logs now carry `chr_rows` and resolved target character ids.
+
+Verification: scoped diff check passed; `python tools\asset_native_source_guard.py` passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 4,585 assertions / 25 cases; isolated `c3844motionfx` client build passed with a clean build log and produced `PerfectDark.exe`; Extra25 Scenario source matrix passed 140/140 at `.claude\smoke-verify-runs\results-20260604T043740Z.json` against that exact isolated `SourceBinary`.
+
+Current state: c3844 remains open for Scenario source-only/parity validation, remaining special setup semantics, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-618 Scenario preset-team fallback source validation
+
+Continued `c3844-s5` after B-617. `if_compare_chr_presets_team` still used direct `CHR_PRESET` lookup before comparing teams, with a legacy fallback that rewrites an invalid preset to `CHR_BOND`.
+
+The fallback remains, but the final preset character used by `chrCompareTeams()` now must pass the source-character guard. A no-failure probe decides whether the legacy fallback should run; the final comparison still fails loudly if the resulting preset character is not source-backed or engine-owned. Proof logs now carry `chr_rows` and resolved `preset_chr`.
+
+Verification: scoped diff check passed; `python tools\asset_native_source_guard.py` passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 4,554 assertions / 25 cases; isolated `c3844presetteam` client build passed with a clean build log and produced `PerfectDark.exe`; Extra25 Scenario source matrix passed 140/140 at `.claude\smoke-verify-runs\results-20260604T042941Z.json` against that exact isolated `SourceBinary`.
+
+Current state: c3844 remains open for Scenario source-only/parity validation, remaining special setup semantics, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-617 Scenario intent/target character source validation
+
+Continued `c3844-s5` after B-616. `chr_set_listening`, `if_chr_listening`, `if_chr_injured_target`, `if_chr_ammo_quantity_less_than`, `if_chr_target`, `if_human`, `if_skedar`, and `set_target` still used direct character lookup before live state reads or mutation.
+
+These graph paths now validate character operands through the source-character guard before listening mutation, one-shot injured-target flag consumption, player-ammo reads, target-prop comparisons, race checks, or `target` assignment. `if_chr_listening` preserves the conversation-talk-only branch, and `set_target` preserves the hovercar branch while reporting source row counts. Proof logs now carry `chr_rows`, resolved character ids, and target-character row counts where applicable.
+
+Verification: scoped diff check passed; `python tools\asset_native_source_guard.py` passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 4,546 assertions / 25 cases; isolated `c3844intenttarget` client build passed with a clean build log and produced `PerfectDark.exe`; Extra25 Scenario source matrix passed 140/140 at `.claude\smoke-verify-runs\results-20260604T042225Z.json` against that exact isolated `SourceBinary`.
+
+Current state: c3844 remains open for Scenario source-only/parity validation, remaining special setup semantics, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-616 Scenario animation/list-control target source validation
+
+Continued `c3844-s5` after B-615. `chr_do_animation`, `set_list`, and `set_return_list` still used direct character lookup for explicit targets before starting animations or mutating AI-list / return-list state.
+
+These graph paths now validate explicit character targets through the source-character guard before live target mutation. `set_list` preserves the `CHR_SELF` current-list branch, and `set_return_list` preserves `CHR_SELF` plus existing truck/heli/hovercar return-list branches. Proof logs now carry `chr_rows` and resolved target character ids next to animation/list operands.
+
+Verification: scoped diff check passed; `python tools\asset_native_source_guard.py` passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 4,487 assertions / 25 cases; isolated `c3844animlist` client build passed with a clean build log and produced `PerfectDark.exe`; Extra25 Scenario source matrix passed 140/140 at `.claude\smoke-verify-runs\results-20260604T041220Z.json` against that exact isolated `SourceBinary`.
+
+Current state: c3844 remains open for Scenario source-only/parity validation, remaining special setup semantics, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-615 Scenario character object/perception source validation
+
+Continued `c3844-s5` after B-614. `if_los_to_chr`, `if_chr_in_on_screen_room`, character-to-pad distance predicates, `if_chr_in_room`, `if_chr_has_object`, `if_chr_has_weapon_equipped`, explicit-character `if_chr_activated_object`, `chr_drop_items`, `chr_drop_weapon`, and `give_object_to_chr` still resolved character operands with direct `chrFindById(...)` calls before reading live props, rooms, player inventory, held weapons, or mutating object parenting/drop state.
+
+These graph paths now validate character operands through the base-aware source-character guard before live reads or mutation. `if_chr_activated_object` preserves `CHR_ANY` as the existing no-specific-character sentinel and validates explicit character operands only. Proof logs for activation/drop/transfer paths now carry `chr_rows`, `target_chr`, and object row counts where applicable.
+
+Verification: scoped diff check passed with expected line-ending warnings only; `python tools\asset_native_source_guard.py` passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 4,464 assertions / 25 cases; isolated `c3844chrobj` client build passed with a clean build log and produced `PerfectDark.exe`; Extra25 Scenario source matrix passed 140/140 at `.claude\smoke-verify-runs\results-20260604T040342Z.json` against that exact isolated `SourceBinary`.
+
+Current state: c3844 remains open for Scenario source-only/parity validation, remaining special setup semantics, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-614 Scenario character combat mutation source validation
+
+Continued `c3844-s5` after B-613. `remove_chr`, `apply_gset_damage`, and `chr_damage_chr` still resolved target, attacker, or victim characters with direct `chrFindById(basechr, ...)` calls before hiding characters, applying gset damage, reading held weapons, computing impact vectors, or damaging a victim.
+
+These graph paths now validate character operands through `s_aiGraphRequireRuntimeCharacterRefFromBase()` before live mutation or state reads. This preserves base-character semantics, explicit player actors, and source-authored runtime selectors such as `CHR_SELF` while requiring normal numeric non-player operands to map to source-built `OBJTYPE_CHR` setup rows. Proof logs now carry `chr_rows`, `target_chr`, and attacker/victim source character ids.
+
+Verification: scoped diff check passed with expected line-ending warnings only; `python tools\asset_native_source_guard.py` passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 4,414 assertions / 25 cases; isolated `c3844chrdmg` client build passed with a clean build log and produced `PerfectDark.exe`; Extra25 Scenario source matrix passed 140/140 at `.claude\smoke-verify-runs\results-20260604T035509Z.json` against that exact isolated `SourceBinary`.
+
+Current state: c3844 remains open for Scenario source-only/parity validation, remaining special setup semantics, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-613 Scenario character condition source validation
+
+Continued `c3844-s5` after B-612. `if_chr_dead`, `if_chr_death_animation_finished`, `if_chr_knocked_out`, `if_chr_health_greater_than`, `if_chr_health_less_than`, `if_chr_shield_less_than`, `if_chr_shield_greater_than`, `if_injured`, `if_shield_damaged`, and `if_chr_alertness_less_than` still resolved target characters with direct `chrFindById(basechr, ...)` calls before reading lifecycle, health, shield, one-shot injury/shield flags, or alertness state.
+
+These graph paths now validate character operands through `s_aiGraphRequireRuntimeCharacterRefFromBase()` before state reads or branch decisions. This preserves base-character semantics, explicit player actors, and source-authored runtime selectors such as `CHR_SELF` while requiring normal numeric non-player operands to map to source-built `OBJTYPE_CHR` setup rows. Proof logs now carry `chr_rows` and `target_chr` alongside existing condition values.
+
+Verification: scoped diff check passed with expected line-ending warnings only; `python tools\asset_native_source_guard.py` passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 4,390 assertions / 25 cases; isolated `c3844chrcond` client build passed with a clean build log and produced `PerfectDark.exe`; Extra25 Scenario source matrix passed 140/140 at `.claude\smoke-verify-runs\results-20260604T034715Z.json` against that exact isolated `SourceBinary`.
+
+Current state: c3844 remains open for Scenario source-only/parity validation, remaining special setup semantics, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-612 Scenario character state/player-state source validation
+
+Continued `c3844-s5` after B-611. `chr_set_team`, `damage_chr_by_amount`, `chr_kill`, `chr_grab_object`, `toggle_p1p2`, `chr_set_p1p2`, and `chr_set_cloaked` still used direct `chrFindById(basechr, ...)` lookups before live character/team/damage/death/grab/P1P2/cloak state mutation.
+
+These graph paths now validate character operands through `s_aiGraphRequireRuntimeCharacterRefFromBase()` before live mutation. This preserves base-character semantics, keeps explicit player actors valid as engine-owned actors, and allows source-authored runtime selectors such as `CHR_SELF` to resolve through live graph state while requiring normal numeric non-player operands to map to source-built `OBJTYPE_CHR` setup rows. `chr_set_team` preserves its special `CHR_ANTI` player-owned branch while reporting source row counts in proof. Logs now carry `chr_rows` plus resolved target/source character ids.
+
+Verification: scoped diff check passed with expected line-ending warnings only; `python tools\asset_native_source_guard.py` passed; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` passed with 4,351 assertions / 25 cases; isolated `c3844chrstate` client build passed with a clean build log and produced `PerfectDark.exe`; Extra25 Scenario source matrix passed 140/140 at `.claude\smoke-verify-runs\results-20260604T033437Z.json` against that exact isolated `SourceBinary`.
+
+Current state: c3844 remains open for Scenario source-only/parity validation, remaining special setup semantics, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-611 Scenario player autowalk character source validation
+
+Continued `c3844-s5` after B-610. `player_auto_walk` already validated its requested pad against public `pads.tsv`, but it still resolved the character operand with `chrFindById(basechr, chrnum)` immediately before switching current-player state and calling `playerAutoWalk()`. `if_player_auto_walk_finished` also resolved the character directly before reading player autowalk tickmode.
+
+Both graph paths now validate the character operand through `s_aiGraphRequireRuntimeCharacterRefFromBase()` before player autowalk state mutation or state checks. This preserves base-character semantics, keeps explicit player actors valid as engine-owned actors, and requires non-player character operands to map to source-built `OBJTYPE_CHR` setup rows. Proof logs now carry `chr_rows` and `target_chr` beside existing pad/autowalk proof.
+
+Verification: scoped diff check PASS; `python tools\asset_native_source_guard.py` PASS; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` PASS with 4,292 assertions / 25 cases; isolated `c3844autowalkchr` client build PASS; Extra25 Scenario source matrix PASS 140/140 at `.claude\smoke-verify-runs\results-20260604T031300Z.json` against the exact isolated `SourceBinary`.
+
+Current state: c3844 remains open for Scenario source-only/parity validation, remaining special setup semantics, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-610 Scenario character pad-preset copy source validation
+
+Continued `c3844-s5` after B-609. `chr_copy_pad_preset` had copied-pad source validation, but it still resolved source and destination characters with direct `chrFindById(basechr, ...)` calls before reading `chrsrc->padpreset1` and mutating `chrdst->padpreset1`.
+
+The action now validates both operands through `s_aiGraphRequireRuntimeCharacterRefFromBase("chr_copy_pad_preset", ...)` before the copied-pad read and destination mutation. This preserves base-character semantics, keeps explicit player props valid as engine-owned actors, and requires non-player source/target characters to map to source-built `OBJTYPE_CHR` setup rows. Proof logs now carry `chr_rows`, `source_chr`, and `target_chr` beside pad proof.
+
+Verification: scoped diff check PASS; `python tools\asset_native_source_guard.py` PASS; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` PASS with 4,276 assertions / 25 cases; isolated `c3844copypadchr` client build PASS; Extra25 Scenario source matrix PASS 140/140 at `.claude\smoke-verify-runs\results-20260604T030137Z.json` against the exact isolated `SourceBinary`.
+
+Current state: c3844 remains open for Scenario source-only/parity validation, remaining special setup semantics, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-609 Scenario character property-copy source validation
+
+Continued `c3844-s5` after B-608. `chr_copy_properties` had copied-pad validation, but it still resolved the source character with `chrFindById(basechr, src_chrnum)` and copied live character state without proving the source character came from public Scenario setup source.
+
+The action now uses `s_aiGraphRequireRuntimeCharacterRefFromBase("chr_copy_properties", ...)` before copied-pad reads or property-copy mutation. This preserves base-character semantics, keeps explicit player props valid as engine-owned actors, and requires non-player source characters to map to source-built `OBJTYPE_CHR` setup rows. Proof logs now carry `chr_rows` and `source_chr`.
+
+Verification: scoped diff check PASS; `python tools\asset_native_source_guard.py` PASS; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` PASS with 4,271 assertions / 25 cases; isolated `c3844copychrsource` client build PASS; Extra25 Scenario source matrix PASS 140/140 at `.claude\smoke-verify-runs\results-20260604T025158Z.json` against the exact isolated `SourceBinary`.
+
+Current state: c3844 remains open for Scenario source-only/parity validation, remaining special setup semantics, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-608 Scenario character lifecycle source validation
+
+Continued `c3844-s5` after B-607. `enable_chr` and `disable_chr` still resolved target characters with `chrFindById(basechr, chrnum)` and then mutated prop lifecycle state without proving those targets came from public Scenario setup source.
+
+Both actions now use `s_aiGraphRequireRuntimeCharacterRefFromBase()` before live prop lifecycle mutation. `enable_chr` validates before `propActivate()` / `propEnable()`, and `disable_chr` validates before room deregistration, delisting, and prop disable. Proof logs now carry `chr_rows` and `target_chr`.
+
+Verification: scoped diff check PASS; `python tools\asset_native_source_guard.py` PASS; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` PASS with 4,266 assertions / 25 cases; isolated `c3844chrlifecycle` client build PASS; Extra25 Scenario source matrix PASS 140/140 at `.claude\smoke-verify-runs\results-20260604T024445Z.json` against the exact isolated `SourceBinary`.
+
+Current state: c3844 remains open for Scenario source-only/parity validation, remaining special setup semantics, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-607 Scenario duplicate-character source validation
+
+Continued `c3844-s5` after B-606. `duplicate_chr` had already gained copied-pad validation and cloned body/weapon/hat catalog proof, but it still resolved the source character with `chrFindById(basechr, chrnum)` and read/copied that live character state before proving the character came from public Scenario setup source.
+
+Reused the base-aware character-reference guard from B-606. `duplicate_chr` now validates the source character before reading `padpreset1`, cloned body/equipment operands, or calling `chrSpawnAtChr()`. The proof log now carries `chr_rows` and `source_chr` alongside pad and asset proof.
+
+Verification: scoped diff check PASS; `python tools\asset_native_source_guard.py` PASS; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` PASS with 4,252 assertions / 25 cases; isolated `c3844dupechrsrc` client build PASS; Extra25 Scenario source matrix PASS 140/140 at `.claude\smoke-verify-runs\results-20260604T023614Z.json` against the exact isolated `SourceBinary`.
+
+Current state: c3844 remains open for Scenario source-only/parity validation, remaining special setup semantics, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-606 Scenario spawn-at-character source validation
+
+Continued `c3844-s5` after B-605. `spawn_chr_at_chr` already resolved body/head operands through catalog IDs, but the live spawn still passed `chrnum` directly into `chrSpawnAtChr()` without proving that target character came from public Scenario setup source.
+
+Generalized the character-reference guard into `s_aiGraphRequireRuntimeCharacterRefFromBase()` so paths that resolve through a supplied `basechr` keep their legacy semantics. The previous `s_aiGraphRequireRuntimeCharacterRef()` wrapper still uses `g_Vars.chrdata` for `play_sound_from_entity`. `spawn_chr_at_chr` now requires the source-built character-row proof before `chrSpawnAtChr()` and logs `chr_rows` plus resolved `target_chr` next to body/head catalog IDs.
+
+Verification: scoped diff check PASS; `python tools\asset_native_source_guard.py` PASS; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` PASS with 4,247 assertions / 25 cases; isolated `c3844spawnchr` client build PASS; Extra25 Scenario source matrix PASS 140/140 at `.claude\smoke-verify-runs\results-20260604T022639Z.json` against the exact isolated `SourceBinary`.
+
+Current state: c3844 remains open for Scenario source-only/parity validation, remaining special setup semantics, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-605 Scenario character-entity audio source validation
+
+Continued `c3844-s5` after B-604. `play_sound_from_entity` already validated object entities through source-built setup object rows, but the character branch still resolved `chrFindById(g_Vars.chrdata, entity_id)` directly and then bound positional sound to the resulting prop.
+
+Added source-row counting and matching for `OBJTYPE_CHR` setup rows plus `s_aiGraphRequireRuntimeCharacterRef()`. The action now accepts explicit player props as engine-owned actors, but non-player characters must map back to a source-built character row by resolved `chrnum` before `psModify()` can use the prop. The proof log now carries `chr_rows` next to `object_rows`.
+
+Verification: scoped diff check PASS; `python tools\asset_native_source_guard.py` PASS; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` PASS with 4,236 assertions / 25 cases; isolated `c3844chrentity` client build PASS; Extra25 Scenario source matrix PASS 140/140 at `.claude\smoke-verify-runs\results-20260604T021248Z.json` against the exact isolated `SourceBinary`.
+
+Current state: c3844 remains open for Scenario source-only/parity validation, remaining special setup semantics, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-604 Scenario cutscene weapon model sentinel hardening
+
+Continued `c3844-s5` after B-603. The new cutscene-weapon model catalog proof still called `playermgrGetModelOfWeapon()` before classifying no-weapon sentinels as `model_id=none`; `0xff` is a legacy cutscene-weapon sentinel and is not explicitly handled by that model helper.
+
+Added `s_aiGraphWeaponHasNoModelSentinel()` and `s_aiGraphWeaponModelNumOrNone()` so `0xff`, `WEAPON_NONE`, `WEAPON_UNARMED`, and negative sentinels return `-1` before any legacy model lookup. Real weapons still flow through `playermgrGetModelOfWeapon()`, then through catalog model proof before `weaponCreateForChr()`.
+
+Verification: scoped diff check PASS; `python tools\asset_native_source_guard.py` PASS; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` PASS with 4,227 assertions / 25 cases; isolated `c3844cutmodelsent` client build PASS; Extra25 Scenario source matrix PASS 140/140 at `.claude\smoke-verify-runs\results-20260604T020129Z.json` against the exact isolated `SourceBinary`.
+
+Current state: c3844 remains open for Scenario source-only/parity validation, remaining special setup semantics, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-603 Scenario cutscene weapon model catalog validation
+
+Continued `c3844-s5` after B-602. The active `chr_set_cutscene_weapon` graph path resolved real weapon operands to catalog IDs, but then derived model numbers with `playermgrGetModelOfWeapon()` and passed those model assets to `weaponCreateForChr()` without model catalog proof.
+
+`chr_set_cutscene_weapon` now resolves real derived weapon models through `s_aiGraphResolveWeaponModelCatalogId()` before object creation, preserves no-asset sentinel behavior as `model_id=none`, and logs `model_id` / `fallback_model_id` alongside `weapon_id` / `fallback_weapon_id`.
+
+Verification: scoped diff check PASS; Scenario matrix PowerShell parser check PASS; `python tools\asset_native_source_guard.py` PASS; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` PASS with 4,216 assertions / 25 cases; isolated `c3844cutmodel` client build PASS; Extra25 Scenario source matrix PASS 140/140 at `.claude\smoke-verify-runs\results-20260604T015024Z.json` against the exact isolated `SourceBinary`.
+
+Current state: c3844 remains open for Scenario source-only/parity validation, remaining special setup semantics, and full source-derived nav behavior completeness. No retained smoke currently executes a live non-sentinel cutscene-weapon proof line, so this slice is static/build-covered plus source-only boot-smoked until a stable route is identified.
+
+## 2026-06-04 - B-602 Scenario teleport sound catalog validation
+
+Continued `c3844-s5` after B-601. The remaining hardcoded teleport audio path used `s_aiGraphPlayTeleportSound()` to call `sndStart()` with legacy SFX constants from active Scenario graph execution without proving public audio catalog source.
+
+`chr_begin_or_end_teleport` and `if_chr_teleport_full_white` now resolve their teleport fade SFX through `s_aiGraphResolveAudioCatalogId()` before playback, log `sound_id=<catalog-id>` for sound branches, and preserve `sound_id=none` for branches that do not play audio.
+
+Verification: scoped diff check PASS; `python tools\asset_native_source_guard.py` PASS; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` PASS with 4,206 assertions / 25 cases; isolated `c3844teleaudio` client build PASS; Extra25 Scenario source matrix PASS 139/139 at `.claude\smoke-verify-runs\results-20260604T013915Z.json` against the exact isolated `SourceBinary`.
+
+Current state: c3844 remains open for Scenario source-only/parity validation, remaining special setup semantics, and full source-derived nav behavior completeness. No retained smoke currently executes the live teleport fade proof line, so this slice is static/build-covered plus source-only boot-smoked until a stable teleport route is identified.
+
+## 2026-06-02 - B-509 all-family source matrix observability
+
+Hardened `run-all-family-source-matrix.ps1` so each generated batch has exact request/result count assertions, invalid debug-load token forbids, `BugId = "B-509"`, and a retained manifest containing `debug_load_argument` plus catalog IDs.
+
+Fixed shared smoke summary labels in `run.ps1` by avoiding the `$Tag` parameter collision; summaries now print `[PASS]` / `[FAIL]`.
+
+Verification: PowerShell parser PASS for both smoke scripts; native-source guard PASS; focused source-gate static test PASS with 142 assertions / 1 case; isolated `c3844b509client` client build PASS; exact-client `base:sfx_alarm_2` all-family matrix PASS 19/19 with manifest `all-family-source-matrix-manifest-tests-20260603T021424Z.json`.
+
+Current state: B-509 is fixed. Non-Scenario archive runtime source-matrix coverage remains exhaustive; c3844 remaining work is Scenario source-only/parity validation, nav behavior completeness, and Scenario runtime fallback closure.
+
 ## 2026-06-02 - B-508 non-Scenario source matrix runner
 
 Continued `c3844-s3` without moving into remaining Scenario parity first. The current gap was that `all_family_source_gate_smoke` was representative: it proved every non-Scenario public archive family at least once, but not every extracted archive instance.
@@ -14530,3 +16274,760 @@ After AI-list source works, continue module-by-module graph execution parity for
 - Generated special modeldefs now use ABI-contiguous part tables, source-built `SKEL_AUTOGUN` modeldefs reconstruct `MODELPART_AUTOGUN_0001/0002`, and `MODASSET_COMPILER_VERSION` is bumped to 2 so stale generated model caches are invalidated.
 - Verification: `python tools\asset_native_source_guard.py` PASS; isolated `c3844b511autogun3` all-target build PASS; isolated `c3844b511tests3` test build PASS; focused c3844/runtime/catalog tests PASS; Defense source-only matrix PASS 22/22 against the exact rebuilt client with no access violation.
 - Current state: B-511 is fixed. c3844 remains open for broader Scenario source-only/parity validation, nav behavior completeness, and full Scenario runtime fallback closure; do not call the full Scenario cutover complete yet.
+
+## 2026-06-02 - B-512/B-513 representative Scenario runtime crash closure
+
+- Continued c3844 Scenario work only where it blocked proving representative source-only runtime coverage. The first four-stage run showed Air Force One, Defection, and Investigation still reaching 22/22 source assertions and then crashing; Defense already passed after B-511.
+- Fixed B-512 by type-checking generated model parts before reading type-specific auto floor/wall rodata. `MODELNODETYPE_TYPE19` now names the node type, `objInit()` uses `modelGetType19PartRodata()` for BASIC_0065/BASIC_0066 auto geocount/floor checks, and hovercar setup no longer dereferences a NULL prop if object creation fails.
+- Fixed B-513 by guarding objective graph held-object seeding before it calls `invHasProp()`. `tagsReset()` can seed objective graph state before the current player prop/inventory attachment is ready, so `objectivePropHeldByMissionPlayer()` now requires both `g_Vars.currentplayer` and `g_Vars.currentplayer->prop`.
+- Verification: isolated `c3844scen` client build PASS; isolated `c3844scen` test build PASS; focused `[modding][pdxxx][c3844]` PASS with 2,723 assertions / 13 cases; `python tools\asset_native_source_guard.py` PASS; Defection source-only matrix PASS 22/22; representative Scenario matrix for `base:scenario_defection`, `base:scenario_airforceone`, `base:scenario_defense`, and `base:scenario_investigation` PASS 88/88 against `.claude\session-builds\c3844scen\PerfectDark.exe` with results at `.claude\smoke-verify-runs\results-20260603T025541Z.json`.
+- Current state: B-512 and B-513 are fixed. This is representative Scenario runtime crash closure, not full c3844 closure; remaining Scenario work is the full matrix/exhaustive source-only runtime fallback closure, broader source-only/parity validation, and nav behavior completeness.
+
+## 2026-06-03 - B-514/B-515/B-516 Scenario Villa and War source matrix closure
+
+- Continued the broader Scenario source-only matrix after the representative B-512/B-513 pass. The campaign chunks for Attack Ship, Crash Site, Deep Sea, Escape, Extraction, G5 Building, Infiltration, MBR, Pelagic, Rescue, Retaking, and Skedar Ruins passed source-only matrix coverage.
+- Fixed the Villa source-only hang by skipping legacy dynamic-light precompute when a source-built Scenario background has no `g_BgLightsFileData`. Source Scenario lighting now logs that it skipped the legacy precompute path instead of entering the large legacy transfer-table walk.
+- Fixed two War source-only crash windows: graph `destroy_object` now handles embedded setup objects by marking them deleting/destroyed instead of applying normal weapon damage, and dynamic-light reset clears stale legacy transfer-table pointers so quip/sound distance uses direct coordinate distance when no table exists.
+- Verification: isolated `c3844scenfull` client build PASS; isolated `c3844scenfull` test build PASS; focused `[modding][pdxxx][c3844]` PASS with 2,742 assertions / 13 cases; `python tools\asset_native_source_guard.py` PASS; War-only source matrix PASS 22/22; combined Duel/Stage24/Stage28/Stage2B/Villa/War matrix PASS 132/132 with results at `.claude\smoke-verify-runs\results-20260603T043812Z.json`.
+- Current state: c3844 Scenario coverage is substantially broader, but still not complete. Remaining Scenario work is the rest of the archive matrix, broader source-only/parity validation, and nav behavior completeness; do not call Scenario parity or the full asset migration complete yet.
+
+## 2026-06-03 - Scenario source matrix all-archive coverage
+
+- Built an exact current isolated client in session `c3844scenrem` and used it to finish the remaining Scenario source-only matrix archives.
+- The remaining 34 MP/test Scenario archives passed in five retained batches: `results-20260603T045616Z.json`, `results-20260603T050746Z.json`, `results-20260603T052247Z.json`, `results-20260603T053601Z.json`, and `results-20260603T054918Z.json`.
+- Final evidence audit: current `Build\data\ntsc-final\scenarios` has 87 `.pdscenario` archives, retained passed `scenario_source_matrix_*` results cover all 87 names, and the remaining list is empty.
+- Observation: several MP/test stages still log `SPAWN.INIT: cdFindGroundInfoAtCyl sentinel groundy=... using spawn Y`. The matrix does not classify this as source fallback, but it stays relevant to the broader nav behavior completeness work.
+- Current state: c3844 now has exhaustive Scenario source-matrix smoke coverage plus exhaustive non-Scenario source-matrix coverage. The card remains open for broader Scenario source-only/parity validation and nav behavior completeness; do not call Scenario parity or the full asset migration complete yet.
+
+## 2026-06-03 - B-517 Scenario spawn-ground warning closure
+
+- Closed the known MP/test `SPAWN.INIT` raw ground-sentinel warning class after the all-archive Scenario matrix pass.
+- `playerReset()` now uses a public-pad fallback for source-only Scenario boots with no intro spawn rows, preferring a pad whose public source position has a valid floor hit. If a tiny/test stage has an authored spawn pad outside the small public collision plane, startup logs that the source-authored spawn Y is being used instead of warning about the raw `cdFindGroundInfoAtCyl` sentinel.
+- The Scenario source matrix now forbids `SPAWN.INIT: cdFindGroundInfoAtCyl sentinel`, so future regressions fail the smoke instead of becoming context-only observations.
+- Verification: isolated `c3844spawn` client build PASS; isolated `c3844spawntests` test build PASS; focused `[modding][pdxxx][c3844]` PASS with 2,747 assertions / 13 cases; `python tools\asset_native_source_guard.py` PASS; targeted warning-stage matrix reruns PASS at `results-20260603T061938Z.json`, `results-20260603T062231Z.json`, and `results-20260603T062524Z.json`.
+- Current state: the known spawn-ground warning tail is closed, but c3844 remains open for broader Scenario source-only/parity validation beyond the smoke matrix. Do not call Scenario parity or the full asset migration complete yet.
+
+## 2026-06-03 - c3844 Kanban evidence sync
+
+- Synced `tools/kanban/state.json` for c3844/c3844-s3 with the current B-507 through B-517 evidence already recorded in context: non-Scenario matrix coverage is exhaustive for all 7,529 current non-Scenario archives, Scenario matrix coverage is exhaustive for all 87 current `.pdscenario` archives, and the B-517 raw spawn-ground warning class is closed.
+- Marked the `c3844-s3-global-scenario-source-only` subtask done because the forced global Scenario source-only matrix now covers all 87 current `.pdscenario` archives. The top-level card remains active for broader Scenario source-only/parity validation and source-derived nav behavior completeness beyond the smoke matrix.
+- Verification: `python -m json.tool tools\kanban\state.json` PASS.
+
+## 2026-06-03 - c3844 Scenario-last slice alignment
+
+- Moved `c3844-s3` to done in the live Kanban state because the family-owned source-matrix conversion evidence is now exhaustive for every current non-Scenario archive and every current `.pdscenario` archive.
+- Activated `c3844-s5` as the remaining Scenario-last slice. The open work is no longer another public asset-family fallback inventory pass; it is broader Scenario source-only/parity validation and source-derived nav behavior completeness beyond the smoke matrix.
+- Mirrored the same state into `x_card_task_context.cards.c3844`: stale active `c3844-s1` fallback-inventory notes are now done, and the card workspace has an active `c3844-s5` Scenario parity/nav item.
+- Verification: `python -m json.tool tools\kanban\state.json` PASS.
+
+## 2026-06-03 - B-518 Scenario navigation source/cache binding
+
+- Continued the Scenario-last `c3844-s5` closure without reopening non-Scenario work. The runtime now validates the executable `navigation.generate` source node during Scenario graph activation, loads public `.pdscenario::navigation.ini`, checks the deterministic movement-capability contract, and loads cache-only `.pdscenario::_meta/generated-navmesh.json` as source-derived metadata.
+- The Scenario source matrix now requires the runtime proof line `backend=graph.navigation.generate+navigation.ini+generated-navmesh.json`, so a Scenario smoke cannot pass by merely carrying nav metadata in the archive.
+- Verification: isolated `c3844nav` client build PASS; isolated `c3844nav` test build PASS; focused `[modding][pdxxx][c3844]` PASS with 2,753 assertions / 13 cases; Chicago Scenario source matrix PASS 24/24 at `.claude\smoke-verify-runs\results-20260603T065201Z.json`.
+- Current state: B-518 is a narrow Scenario nav-binding closure. c3844 remains open for broader Scenario source-only/parity validation and full source-derived nav behavior completeness; do not call Scenario parity or the full asset migration complete yet.
+
+## 2026-06-03 - B-519 Scenario nav cache source-count validation
+
+- Strengthened the Scenario `navigation.generate` source/cache proof. Extraction now emits `supports_drop = true` in `navigation.ini`, writes `_meta/generated-navmesh.json` with source row counts for public pads, volumes, waypoints, waygroups, covers, and paths, and bumps Scenario/parent metadata cache markers to v78 so stale nested archives cannot preserve old nav metadata.
+- Runtime graph activation now counts the bound public TSV rows and refuses `navigation.generate` if the generated navmesh metadata counts do not match those source tables. Strict archive conformance performs the same source-count comparison, and the Scenario matrix requires a `source_counts=...` runtime proof line.
+- Regenerated checked-in typed examples so `tri_scenario.pdscenario`, `tri_arena.pdarena`, and `tri_mission.pdmission` carry v78 Scenario graph-cache metadata and nav source counts.
+- Verification: isolated `c3844navcounts` all build PASS; isolated `c3844navcounts` test build PASS; focused `[modding][pdxxx][c3844]` PASS with 2,759 assertions / 13 cases; focused `[modding][pdxxx][c3842]` PASS with 264 assertions / 7 cases; `python tools\asset_native_source_guard.py` PASS; Chicago Scenario source matrix PASS 24/24 at `.claude\smoke-verify-runs\results-20260603T070957Z.json`.
+- Current state: B-519 closes stale/mismatched nav-cache metadata proof, not full deterministic PC movement nav generation. c3844 remains open for broader Scenario source-only/parity validation and full source-derived nav behavior completeness.
+
+## 2026-06-03 - B-520 Scenario nav cache source-hash validation
+
+- Strengthened the Scenario `navigation.generate` cache proof again. `_meta/generated-navmesh.json` now carries `source_hashes` for `navigation.ini`, `pads.tsv`, `spawns.tsv`, `volumes.tsv`, `navigation/waypoints.tsv`, `navigation/waygroups.tsv`, `navigation/covers.tsv`, and `navigation/paths.tsv`, with Scenario/parent metadata cache markers bumped to v79 so old v78 outputs regenerate.
+- Runtime graph activation hashes those public source members before accepting `navigation.generate` and refuses generated navmesh metadata whose hashes do not match the public archive inputs. Strict archive conformance performs the same SHA-256 comparison against archive member bytes, and the Scenario matrix requires `source_hashes=sha256` in the navigation proof line.
+- Regenerated checked-in typed examples so `tri_scenario.pdscenario`, `tri_arena.pdarena`, and `tri_mission.pdmission` carry v79 Scenario graph-cache metadata and nav source hashes.
+- Verification: Python tool compile PASS; checked-in example regeneration PASS; regenerated example nav hashes verified against archive member bytes; `python tools\asset_native_source_guard.py` PASS; isolated `c3844navhash` all build PASS; isolated `c3844navhash` test build PASS; focused `[modding][pdxxx][c3844]` PASS with 2,764 assertions / 13 cases; focused `[modding][pdxxx][c3842]` PASS with 264 assertions / 7 cases; Chicago Scenario source matrix PASS 24/24 at `.claude\smoke-verify-runs\results-20260603T073039Z.json` with the runtime proof line `source_counts=... source_hashes=sha256 backend=graph.navigation.generate+navigation.ini+generated-navmesh.json`.
+- Current state: B-520 closes same-row-count stale nav-cache metadata gaps, not full deterministic PC movement nav behavior generation. c3844 remains open for broader Scenario source-only/parity validation and full source-derived nav behavior completeness.
+
+## 2026-06-03 - B-521 Scenario nav portal source-hash binding
+
+- Closed a B-520 audit gap: `navigation.ini` already declared `portals_file = portals.tsv`, but `_meta/generated-navmesh.json` did not list or hash the public portal table as a generated-navmesh input.
+- Runtime Scenario graph activation now binds the `portals` table ref from `level.graph.json`, hashes `.pdscenario::portals.tsv`, and requires generated-navmesh `source_hashes` to include the exact portal-table SHA-256 before accepting `navigation.generate`.
+- Extraction and typed examples now emit `portals.tsv` in generated-navmesh `inputs` and `source_hashes`; strict conformance checks the portal hash against archive member bytes; Scenario/parent cache markers moved to v80 so old v79 nav metadata regenerates.
+- Verification: Python tool compile PASS; checked-in example regeneration PASS; regenerated `tri_scenario.pdscenario` portal hash verified against archive member bytes and parent mission/arena examples verified with v80 Scenario cache markers; `python tools\asset_native_source_guard.py` PASS; Kanban JSON parse PASS; isolated `c3844navportal` all build PASS; isolated `c3844navportal` test build PASS; focused `[modding][pdxxx][c3844]` PASS with 2,767 assertions / 13 cases; focused `[modding][pdxxx][c3842]` PASS with 264 assertions / 7 cases; Chicago Scenario source matrix PASS 24/24 at `.claude\smoke-verify-runs\results-20260603T075059Z.json` after the table-ref assertion was updated to require `portals.tsv`.
+- Current state: this closes the portal input gap in source-hashed nav cache metadata, not full deterministic PC movement nav behavior generation. c3844 remains open for broader Scenario source-only/parity validation and full source-derived nav behavior completeness.
+
+## 2026-06-03 - B-522 Scenario nav surface/collision source-hash binding
+
+- Closed the next generated-navmesh cache gap after B-521: `navigation.ini` declares `source = scene.glb` and `collision_source = collision.obj`, and `_meta/generated-navmesh.json` is derived from the surface graph, but the nav cache hashes did not include either public source file.
+- Runtime Scenario graph activation now hashes `.pdscenario::scene.glb` as raw bytes and `.pdscenario::collision.obj` before accepting `navigation.generate`, and generated-navmesh `source_hashes` must include exact SHA-256 values for both members.
+- Extraction and typed examples now emit `scene.glb` and `collision.obj` in generated-navmesh `inputs` and `source_hashes`; strict conformance checks both hashes against archive member bytes; Scenario/parent cache markers moved to v81 so old v80 nav metadata regenerates.
+- Verification: Python tool compile PASS; checked-in example regeneration PASS; regenerated `tri_scenario.pdscenario` `scene.glb`, `collision.obj`, and `portals.tsv` hashes verified against archive member bytes, and parent mission/arena examples verified with v81 Scenario cache markers; `python tools\asset_native_source_guard.py` PASS; Kanban JSON parse PASS; isolated `c3844navsurf` all build PASS; isolated `c3844navsurf` test build PASS; focused `[modding][pdxxx][c3844]` PASS with 2,768 assertions / 13 cases; focused `[modding][pdxxx][c3842]` PASS with 264 assertions / 7 cases; Chicago Scenario source matrix PASS 24/24 at `.claude\smoke-verify-runs\results-20260603T080326Z.json`.
+- Current state: this closes stale nav-cache metadata for surface/collision edits, not full deterministic PC movement nav behavior generation. c3844 remains open for broader Scenario source-only/parity validation and full source-derived nav behavior completeness.
+
+## 2026-06-03 - B-523 Scenario navigation path-source smoke proof
+
+- Tightened the Scenario source matrix so source-only stage loads must prove the public `.pdscenario::navigation/paths.tsv` path-source node with `backend=graph.navigation.paths+navigation/paths.tsv`, not just the generated nav cache and pad compile lines.
+- Static coverage now pins the path-source requirement in `tools/smoke-verify/run-scenario-source-matrix.ps1`.
+- Verification: Kanban JSON parse PASS; PowerShell parser check for `tools/smoke-verify/run-scenario-source-matrix.ps1` PASS; `python tools\asset_native_source_guard.py` PASS; scoped diff check PASS with only line-ending warnings; isolated `c3844pathsrc` all build PASS; isolated `c3844pathsrc` test build PASS; focused `[modding][pdxxx][c3844]` PASS with 2,770 assertions / 13 cases; focused `[modding][pdxxx][c3842]` PASS with 264 assertions / 7 cases; Chicago Scenario source matrix PASS 25/25 at `.claude\smoke-verify-runs\results-20260603T081610Z.json`, with the runtime line `SCENARIO.GRAPH: path source ... base_scenario_chicago.pdscenario::navigation/paths.tsv ... backend=graph.navigation.paths+navigation/paths.tsv`.
+- Current state: B-523 closes a Scenario path-source smoke observability gap, not full deterministic PC movement nav generation. c3844 remains open for broader Scenario source-only/parity validation and full source-derived nav behavior completeness.
+
+## 2026-06-03 - B-524 Scenario setup path-table consumption smoke proof
+
+- Tightened the Scenario source matrix again so source-only stage loads must show public `setup.fields.tsv`, `spawns.tsv`, `navigation/paths.tsv`, and `ai/ailists.tsv` compiled together into runtime setup data with a path count.
+- This closes the observability gap between the B-523 graph path-source proof and actual source setup consumption.
+- Verification: Kanban JSON parse PASS; PowerShell parser check for `tools/smoke-verify/run-scenario-source-matrix.ps1` PASS; `python tools\asset_native_source_guard.py` PASS; scoped diff check PASS with only line-ending warnings; isolated `c3844setupnav` all build PASS; isolated `c3844setupnav` test build PASS; focused `[modding][pdxxx][c3844]` PASS with 2,773 assertions / 13 cases; focused `[modding][pdxxx][c3842]` PASS with 264 assertions / 7 cases; Chicago Scenario source matrix PASS 26/26 at `.claude\smoke-verify-runs\results-20260603T082542Z.json`.
+- Runtime proof: Chicago logged `SCENARIO.SOURCE: compiled setup.fields.tsv ... navigation/paths.tsv ... as 201 setup records, 1 spawns, 14 paths, 72 AI lists (30500 bytes)`.
+- Current state: B-524 closes setup path-source smoke observability. c3844 remains open for broader Scenario source-only/parity validation and full source-derived nav behavior completeness.
+
+## 2026-06-03 - B-525 Scenario navigation table runtime strictness/proof
+
+- Tightened source padfile compilation so public `navigation/waypoints.tsv`, `navigation/waygroups.tsv`, and `navigation/covers.tsv` are required runtime Scenario source. Missing files now fail the source compile instead of silently producing zero navigation tables.
+- Added a runtime proof line that logs the three public navigation table paths plus waypoint/waygroup/cover counts, and added that line to the Scenario source matrix requirements.
+- Verification: Kanban JSON parse PASS; PowerShell parser check for `tools/smoke-verify/run-scenario-source-matrix.ps1` PASS; `python tools\asset_native_source_guard.py` PASS; scoped diff check PASS with only line-ending warnings; isolated `c3844navtables` all build PASS; isolated `c3844navtables` test build PASS; focused `[modding][pdxxx][c3844]` PASS with 2,781 assertions / 13 cases; focused `[modding][pdxxx][c3842]` PASS with 264 assertions / 7 cases; Chicago Scenario source matrix PASS 27/27 at `.claude\smoke-verify-runs\results-20260603T083633Z.json`.
+- Runtime proof: Chicago logged public nav table source as 153 waypoints, 21 waygroups, and 88 covers from `.pdscenario::navigation/waypoints.tsv`, `navigation/waygroups.tsv`, and `navigation/covers.tsv`.
+- Current state: B-525 closes missing-nav-table fallback and nav-table source observability for padfile compilation. c3844 remains open for broader Scenario source-only/parity validation and full source-derived nav behavior completeness.
+
+## 2026-06-03 - B-526 Scenario nav behavior graph proof
+
+- Tightened the Scenario source matrix so source-only stage loads must prove source-bound nav behavior graph surfaces at activation, not only generic nav cache/table consumption.
+- Required runtime proof now covers AI path actions through `navigation/paths.tsv`, cover actions through `navigation/covers.tsv`, player-navigation actions through `ai/ailists.tsv+pads.tsv`, quadrant pad-preset actions through `ai/ailists.tsv+pads.tsv+navigation.generate`, and vehicle motion actions through `navigation/paths.tsv`.
+- Verification: PowerShell parser check for `tools/smoke-verify/run-scenario-source-matrix.ps1` PASS; Kanban JSON parse PASS; `python tools\asset_native_source_guard.py` PASS; scoped diff check PASS with only line-ending warnings; isolated `c3844navbeh` all build PASS; isolated `c3844navbeh` test build PASS; focused `[modding][pdxxx][c3844]` PASS with 2,796 assertions / 13 cases; focused `[modding][pdxxx][c3842]` PASS with 264 assertions / 7 cases; Chicago Scenario source matrix PASS 32/32 at `.claude\smoke-verify-runs\results-20260603T084744Z.json`.
+- Runtime proof: Chicago logged `AI path actions`, `AI cover actions`, `AI player navigation actions`, `AI quadrant pad-preset actions`, and `AI vehicle motion actions` from `base_scenario_chicago.pdscenario::level.graph.json` with each required nav behavior node count equal to 1.
+- Current state: B-526 closes a Scenario nav behavior graph-activation proof gap. c3844 remains open for broader Scenario source-only/parity validation and full source-derived nav behavior completeness.
+
+## 2026-06-03 - B-527 Scenario empty-nav deterministic generation
+
+- Closed the runtime gap where public `navigation/waypoints.tsv`, `navigation/waygroups.tsv`, and `navigation/covers.tsv` could be present and intentionally header-only, but padfile compilation accepted zero runtime navigation rows instead of honoring the deterministic-generation contract.
+- Source padfile compilation now detects that all three public nav source tables are empty and derives runtime nav tables from public `pads.tsv`: one waypoint per pad, one waygroup containing those waypoint ids, sequential waypoint neighbours, and cover records copied from each pad's public position/look vectors.
+- Explicit decoded nav rows remain authoritative. Extracted base scenarios with public waypoint/group/cover data keep compiling those rows directly; the generated branch only runs when all three public nav tables are header-only.
+- Verification: `python tools\asset_native_source_guard.py` PASS; Kanban JSON parse PASS; scoped diff check PASS; isolated `c3844navgen` all build PASS; isolated `c3844navgen` test build PASS; focused `[modding][pdxxx][c3844]` PASS with 2,819 assertions / 14 cases; focused `[modding][pdxxx][c3842]` PASS with 264 assertions / 7 cases; Chicago Scenario source matrix PASS 32/32 at `.claude\smoke-verify-runs\results-20260603T090101Z.json`.
+- Current state: B-527 closes the header-only public nav table runtime-generation gap. c3844 remains open for broader Scenario source-only/parity validation and full source-derived nav behavior completeness.
+
+## 2026-06-03 - B-528 Scenario zero-pad empty-nav preservation
+
+- Followed up B-527 after auditing the real `base_scenario_test_ash.pdscenario` shape: public `pads.tsv`, `navigation/waypoints.tsv`, `navigation/waygroups.tsv`, `navigation/covers.tsv`, and `navigation/paths.tsv` are all header-only.
+- The deterministic nav generator now accepts `pad_count == 0` as a valid empty public source case. It leaves runtime waypoint/group/cover counts at zero instead of treating the authored source as invalid.
+- Test Ash runtime proof: `SCENARIO.SOURCE: generated deterministic navigation tables from public pads.tsv ... as 0 waypoints, 0 waygroups, 0 covers backend=source.navigation.generated+pads.tsv+navigation/waypoints.tsv+navigation/waygroups.tsv+navigation/covers.tsv`, followed by `compiled pads.tsv ... as 0 pads, 0 waypoints, 0 waygroups, 0 covers`.
+- Verification: `python tools\asset_native_source_guard.py` PASS; scoped diff check PASS; isolated `c3844navempty` all build PASS; isolated `c3844navempty` test build PASS; focused `[modding][pdxxx][c3844]` PASS with 2,822 assertions / 14 cases; focused `[modding][pdxxx][c3842]` PASS with 264 assertions / 7 cases; Test Ash Scenario matrix PASS 32/32 at `.claude\smoke-verify-runs\results-20260603T091029Z.json`.
+- Current state: B-528 closes the zero-pad form of header-only public navigation generation. c3844 remains open for broader Scenario source-only/parity validation and full source-derived nav behavior completeness.
+
+## 2026-06-03 - B-529 Scenario generated-nav path ordering
+
+- Followed up B-527/B-528 by binding the deterministic nav generator to public `navigation/paths.tsv` when path rows exist. Header-only waypoint/waygroup/cover tables still trigger generation, but generated waypoint/cover order now follows first-seen public path pad references before appending pads not referenced by any path.
+- Explicit decoded waypoint/waygroup/cover rows remain authoritative; the path-order branch only runs for generated navigation. Header-only zero-pad cases still compile to an empty source-owned nav set.
+- Verification: `python tools\asset_native_source_guard.py` PASS; Kanban JSON parse PASS; scoped diff check PASS; isolated `c3844navpath` all build PASS; isolated `c3844navpath` test build PASS; focused `[modding][pdxxx][c3844]` PASS with 2,834 assertions / 14 cases; focused `[modding][pdxxx][c3842]` PASS with 264 assertions / 7 cases; Test Ash Scenario matrix PASS 32/32 at `.claude\smoke-verify-runs\results-20260603T092415Z.json`; Chicago Scenario matrix PASS 32/32 at `.claude\smoke-verify-runs\results-20260603T092544Z.json`.
+- Current state: B-529 closes the path-source ordering gap for generated public navigation rows. c3844 remains open for broader Scenario source-only/parity validation and full source-derived nav behavior completeness.
+
+## 2026-06-03 - B-530 Scenario generated-nav nonzero fixture smoke/cache guard
+
+- Added `tools/smoke-verify/build_generated_nav_fixture.py` and `tools/smoke-verify/run-scenario-generated-nav-fixture.ps1`. The runner builds an enabled `.pdmod` fixture that overrides Test Ash with two public pads, header-only waypoint/waygroup/cover sources, and one public `navigation/paths.tsv` row ordering generation as `pad_0001,pad_0000`.
+- The focused smoke now proves the runtime consumes the enabled public `.pdscenario` source, validates generated-nav source counts/hashes, generates 2 waypoints / 1 waygroup / 2 covers from public source, and logs the path-ordered generated backend line instead of relying on the zero-pad Test Ash matrix form.
+- Tightened Scenario extraction fast-cache cleanliness so existing `.pdscenario` archives must have `_meta/generated-navmesh.json` source counts and SHA-256 hashes matching public source members before extraction can skip regeneration.
+- Verification: fixture generation PASS; fixture archive conformance PASS; `python tools\asset_native_source_guard.py` PASS; scoped diff check PASS; isolated `c3844navproof` all build PASS; isolated `c3844navproof` test build PASS; focused `[modding][pdxxx][c3844]` PASS with 2,845 assertions / 14 cases; focused `[modding][pdxxx][c3842]` PASS with 264 assertions / 7 cases; generated-nav fixture smoke PASS 18/18 at `.claude\smoke-verify-runs\results-20260603T100335Z.json`.
+- Current state: B-530 closes the nonzero generated-nav runtime fixture proof and stale extractor fast-cache gap. c3844 remains open for broader Scenario source-only/parity validation and full source-derived nav behavior completeness.
+
+## 2026-06-03 - B-531 Scenario generated-nav path-edge topology
+
+- Followed up B-529/B-530 after auditing the generated nav branch: public `navigation/paths.tsv` affected pad order, but generated waypoint neighbours were still a generic chain through that order.
+- Generated navigation now builds undirected waypoint neighbour edges from each adjacent pad pair in every public path row. The deterministic chain fallback remains only when no path rows are present, and explicit decoded waypoint/waygroup/cover source rows remain authoritative.
+- The focused fixture now uses four public pads and two branching public path rows, then requires runtime proof of 4 waypoints / 1 waygroup / 4 covers, 3 path edges, and 1 branch waypoint. That branch proof would fail if generation ignored path topology and used the generic chain.
+- Verification: fixture generation PASS; fixture archive conformance PASS; `python tools\asset_native_source_guard.py` PASS; isolated `c3844navedges` all build PASS; isolated `c3844navedges` test build PASS; focused `[modding][pdxxx][c3844]` PASS with 2,854 assertions / 14 cases; focused `[modding][pdxxx][c3842]` PASS with 264 assertions / 7 cases; generated-nav fixture smoke PASS 18/18 at `.claude\smoke-verify-runs\results-20260603T102018Z.json`.
+- Current state: B-531 closes generated path-edge topology for header-only public navigation rows. c3844 remains open for broader Scenario source-only/parity validation and full source-derived nav behavior completeness.
+
+## 2026-06-03 - B-532 Scenario generated-nav component waygroups
+
+- Followed up B-531 after auditing generated waygroup output: path-derived neighbours were source-owned, but all generated waypoints still landed in one hard-coded waygroup.
+- Generated navigation now derives waygroups from connected components of the generated waypoint edge graph. Disconnected public path components become separate runtime waygroups; the no-path fallback still creates a single connected chain, and explicit decoded waypoint/waygroup/cover rows remain authoritative.
+- The focused fixture now uses five public pads and three public path rows, including one singleton disconnected component. The runtime smoke requires 5 waypoints / 2 waygroups / 5 covers, 3 path edges, and 1 branch waypoint from the enabled `.pdmod` override.
+- Verification: fixture generation PASS; fixture archive conformance PASS; `python tools\asset_native_source_guard.py` PASS; isolated `c3844navgroups` all build PASS; isolated `c3844navgroups` test build PASS; focused `[modding][pdxxx][c3844]` PASS with 2,858 assertions / 14 cases; focused `[modding][pdxxx][c3842]` PASS with 264 assertions / 7 cases; generated-nav fixture smoke PASS 18/18 at `.claude\smoke-verify-runs\results-20260603T102929Z.json`.
+- Current state: B-532 closes connected-component waygroup generation for header-only public navigation rows. c3844 remains open for broader Scenario source-only/parity validation and full source-derived nav behavior completeness.
+
+## 2026-06-03 - B-533 Scenario generated-nav circular path closure
+
+- Followed up B-531/B-532 after auditing generated path topology flags: public setup path flags were parsed and compiled, but `PATHFLAG_CIRCULAR` did not yet close the generated waypoint loop.
+- Generated navigation now adds a final-pad to first-pad edge for public circular path rows with more than two pads. Explicit decoded waypoint/waygroup/cover rows remain authoritative, and non-circular path rows keep their adjacent-pair topology.
+- The focused fixture now marks `path_0000` circular and requires runtime proof of 5 waypoints / 2 waygroups / 5 covers, 4 path edges, and 1 branch waypoint from the enabled `.pdmod` override.
+- Verification: fixture generation PASS; fixture archive conformance PASS; `python tools\asset_native_source_guard.py` PASS; isolated `c3844navcircle` all build PASS; isolated `c3844navcircle` test build PASS; focused `[modding][pdxxx][c3844]` PASS with 2,862 assertions / 14 cases; focused `[modding][pdxxx][c3842]` PASS with 264 assertions / 7 cases; generated-nav fixture smoke PASS 18/18 at `.claude\smoke-verify-runs\results-20260603T103934Z.json`.
+- Current state: B-533 closes circular path edge generation for header-only public navigation rows. c3844 remains open for broader Scenario source-only/parity validation and full source-derived nav behavior completeness.
+
+## 2026-06-03 - B-534 Scenario setup path-flag proof
+
+- Followed up B-533 after checking legacy path flag consumers: `PATHFLAG_FLYING` drives hovercar path selection, and `PATHFLAG_CIRCULAR` drives patrol/vehicle loop behavior. Source setup already copied public path flags into runtime `struct path`, but the source-only proof only logged path count.
+- Source setup compilation now reports `path_flags=circular:<n>,flying:<n>` after runtime setup data is built, using the same public `navigation/paths.tsv` table that feeds `g_StageSetup.paths`.
+- The focused generated-nav fixture now marks `path_0000` circular and `path_0001` flying, then requires the Test Ash source-only boot to log `path_flags=circular:1,flying:1`.
+- Verification: fixture generation PASS; fixture archive conformance PASS; `python tools\asset_native_source_guard.py` PASS; isolated `c3844pathflags` all build PASS; isolated `c3844pathflags` test build PASS; focused `[modding][pdxxx][c3844]` PASS with 2,869 assertions / 14 cases; focused `[modding][pdxxx][c3842]` PASS with 264 assertions / 7 cases; generated-nav fixture smoke PASS 20/20 at `.claude\smoke-verify-runs\results-20260603T105145Z.json`.
+- Current state: B-534 closes path-flag observability for source-compiled Scenario setup. c3844 remains open for broader Scenario source-only/parity validation and full source-derived nav behavior completeness.
+
+## 2026-06-03 - B-535 Scenario generated-nav directional segment flags
+
+- Followed up B-534 by auditing waypoint segment consumers: route discovery masks waypoint ids but honors `WPSEGFLAG_OUTWARDSONLY` / `WPSEGFLAG_INWARDSONLY`, so generated header-only navigation also needs to preserve directional segment metadata from public source.
+- Public `navigation/paths.tsv` pad tokens now accept `|outward` / `|inward`; runtime setup path rows keep plain pad ids, while generated waypoint neighbours receive the directional flags and reciprocal links swap outward/inward.
+- The focused generated-nav fixture now marks a public path token directional and requires Test Ash source-only boot to log `2 flagged neighbour refs` from `navigation/paths.tsv`.
+- Verification: native-source guard PASS; Python fixture builder compile PASS; fixture generation PASS; fixture archive conformance PASS; Kanban JSON parse PASS; PowerShell parser check for `run-scenario-generated-nav-fixture.ps1` PASS; scoped diff check PASS with the existing `context/tasks.md` line-ending warning; isolated `c3844segflags` all build PASS; isolated `c3844segflags` test build PASS; focused `[modding][pdxxx][c3844]` PASS with 2,883 assertions / 14 cases; focused `[modding][pdxxx][c3842]` PASS with 264 assertions / 7 cases; generated-nav fixture smoke PASS 22/22 at `.claude\smoke-verify-runs\results-20260603T110826Z.json`.
+- Current state: B-535 closes generated directional waypoint segment preservation for header-only public navigation. c3844 remains open for broader Scenario source-only/parity validation and full source-derived nav behavior completeness.
+
+## 2026-06-03 - B-536 Scenario generated-nav movement capability proof
+
+- Closed the proof gap where runtime already validated the PC movement navigation capability contract, but strict archive conformance and source-only smokes did not require that contract to be visible.
+- Strict `.pdscenario` conformance now rejects public `navigation.ini` files missing any walk/jump/drop/wall/ceiling support flag, and rejects `_meta/generated-navmesh.json` unless its capabilities list exactly declares `walk,jump,drop,wall,ceiling`.
+- The Scenario matrix and focused generated-nav fixture now both require the navigation-generate runtime proof line to include `source_hashes=sha256 capabilities=walk,jump,drop,wall,ceiling backend=graph.navigation.generate+navigation.ini+generated-navmesh.json`.
+- Verification: Python compile for `tools\asset_archive_conformance.py` and `tools\smoke-verify\build_generated_nav_fixture.py` PASS; PowerShell parser checks for `run-scenario-source-matrix.ps1` and `run-scenario-generated-nav-fixture.ps1` PASS; fixture archive conformance PASS; `python tools\asset_native_source_guard.py` PASS; isolated `c3844navcaps` all build PASS; isolated `c3844navcaps` test build PASS; focused `[modding][pdxxx][c3844]` PASS with 2,890 assertions / 14 cases; focused `[modding][pdxxx][c3842]` PASS with 264 assertions / 7 cases; generated-nav fixture smoke PASS 22/22 at `.claude\smoke-verify-runs\results-20260603T111922Z.json`; Test Ash Scenario source matrix PASS 32/32 at `.claude\smoke-verify-runs\results-20260603T112050Z.json`.
+- Full strict conformance over the shared `Build\data\ntsc-final\scenarios` directory was intentionally not recorded as a pass because stale preexisting generated archives there still need regeneration and are now rejected by the stricter generated-nav contract.
+- Current state: B-536 closes generated-nav movement capability proof for Scenario source smokes and strict archive checks. c3844 remains open for broader Scenario source-only/parity validation and full source-derived nav behavior completeness.
+
+## 2026-06-03 - B-537 Scenario trigger/global graph matrix proof
+
+- Followed up the c3844-s5 sweep after confirming the retained Scenario matrix required scene/collision/portal/pad/nav proof but did not require the already-emitted trigger/global graph activation surfaces.
+- The Scenario source matrix now requires `SCENARIO.GRAPH: trigger volume nodes ... backend=graph.trigger.volumes+level.graph.nodes+volumes.tsv` for every generated stage boot.
+- The same matrix now requires `SCENARIO.GRAPH: AI mission/global actions ... backend=graph.ai.action.mission_global+ai/ailists.tsv+mission.graph.json`, including the objective, difficulty, timer, stage, player-count, kill-count, knocked-out-count, and kill_bond nodes.
+- Verification: PowerShell parser check for `tools\smoke-verify\run-scenario-source-matrix.ps1` PASS; `python tools\asset_native_source_guard.py` PASS; isolated `c3844trigglobal` all build PASS; isolated `c3844trigglobal` test build PASS; focused `[modding][pdxxx][c3844]` PASS with 2,895 assertions / 14 cases; focused `[modding][pdxxx][c3842]` PASS with 264 assertions / 7 cases; Test Ash Scenario source matrix PASS 34/34 at `.claude\smoke-verify-runs\results-20260603T112917Z.json`.
+- Current state: B-537 closes a trigger/global graph observability gap in the retained Scenario matrix. c3844 remains open for broader Scenario source-only/parity validation and full source-derived nav behavior completeness.
+
+## 2026-06-03 - B-538 Scenario graph-source surface matrix proof
+
+- Followed up B-537 after confirming runtime graph activation already logged global settings, volume source, pad source, and AI list source lines, but the retained Scenario matrix did not require them.
+- The Scenario source matrix now requires `SCENARIO.GRAPH: global settings source ... backend=graph.global.settings+level.graph.nodes`, `volume source ... backend=graph.trigger.volumes+volumes.tsv`, `pad source ... backend=graph.pads+pads.tsv`, and `AI list source ... backend=graph.ai.lists+ai/ailists.tsv` for every generated source-only stage boot.
+- Verification: PowerShell parser check for `tools\smoke-verify\run-scenario-source-matrix.ps1` PASS; `python tools\asset_native_source_guard.py` PASS; isolated `c3844graphsrc` all build PASS; isolated `c3844graphsrc` test build PASS; focused `[modding][pdxxx][c3844]` PASS with 2,903 assertions / 14 cases; focused `[modding][pdxxx][c3842]` PASS with 264 assertions / 7 cases; Test Ash Scenario source matrix PASS 38/38 at `.claude\smoke-verify-runs\results-20260603T113939Z.json`.
+- Current state: B-538 closes another retained Scenario matrix observability gap for graph source-table activation surfaces. c3844 remains open for broader Scenario source-only/parity validation and full source-derived nav behavior completeness.
+
+## 2026-06-03 - B-539 Scenario core AI graph matrix proof
+
+- Followed up B-538 after auditing the remaining Scenario graph activation logs: the retained matrix still did not require broad core AI graph modules even though runtime activation emitted them from public `ai/ailists.tsv`.
+- The Scenario source matrix now requires basic/lifecycle, combat, target movement, perception/alarm, spatial perception, distance perception, room/object/weapon, object interaction, animation, random control, debug/no-op, and list-control graph activation proof lines.
+- Verification: PowerShell parser check for `tools\smoke-verify\run-scenario-source-matrix.ps1` PASS; `python tools\asset_native_source_guard.py` PASS; isolated `c3844aicore` all build PASS; isolated `c3844aicore` test build PASS; focused `[modding][pdxxx][c3844]` PASS with 2,940 assertions / 14 cases; focused `[modding][pdxxx][c3842]` PASS with 264 assertions / 7 cases; Test Ash Scenario source matrix PASS 50/50 at `.claude\smoke-verify-runs\results-20260603T115207Z.json`.
+- Current state: B-539 is a retained Scenario matrix proof expansion for core AI behavior activation. c3844 remains open for broader Scenario source-only/parity validation and full source-derived nav behavior completeness.
+
+## 2026-06-03 - B-540 Scenario AI state/order matrix proof
+
+- Followed up B-539 after comparing the latest Test Ash source-only log against retained assertions: runtime already emitted pad, preset, state, tuning, order, and intent/status graph modules from public source, but the matrix did not require them.
+- The Scenario source matrix now requires pad and pad-movement actions, pad/character preset actions, morale/alertness state actions, character-state conditions, lifecycle/perception conditions, tuning actions, action/order actions, and intent/status conditions.
+- Verification: PowerShell parser check for `tools\smoke-verify\run-scenario-source-matrix.ps1` PASS; `python tools\asset_native_source_guard.py` PASS; isolated `c3844aistate` all build PASS; isolated `c3844aistate` test build PASS; focused `[modding][pdxxx][c3844]` PASS with 2,969 assertions / 14 cases; focused `[modding][pdxxx][c3842]` PASS with 264 assertions / 7 cases; Test Ash Scenario source matrix PASS 60/60 at `.claude\smoke-verify-runs\results-20260603T120634Z.json`.
+- Current state: B-540 is another retained Scenario matrix proof expansion for AI graph activation. c3844 remains open for broader Scenario source-only/parity validation and full source-derived nav behavior completeness.
+
+## 2026-06-03 - B-541 Scenario late AI graph matrix proof
+
+- Followed up B-540 by comparing the same Test Ash source-only graph log against the retained matrix. Runtime already emitted the remaining late AI graph module proof lines from public Scenario source, but the matrix could still pass without requiring them.
+- The Scenario source matrix now requires vehicle/investigation, safety/detection, misc branch/effect, quip/setup shuffle, team, alarm/flag, door/lift, environment/audio/music/player/object/inventory/state/timer/HUD, and other late utility AI graph activation modules from public `ai/ailists.tsv` plus their public operand sources.
+- Verification: PowerShell parser check for `tools\smoke-verify\run-scenario-source-matrix.ps1` PASS; `python tools\asset_native_source_guard.py` PASS; Kanban JSON parse PASS; isolated `c3844ailate` all build PASS; isolated `c3844ailate` test build PASS; focused `[modding][pdxxx][c3844]` PASS with 3,097 assertions / 14 cases; focused `[modding][pdxxx][c3842]` PASS with 264 assertions / 7 cases; Test Ash Scenario source matrix PASS 102/102 at `.claude\smoke-verify-runs\results-20260603T122213Z.json`.
+- Current state: B-541 is a retained Scenario matrix proof expansion for the late AI activation band. c3844 remains open for broader Scenario source-only/parity validation and full source-derived nav behavior completeness.
+
+## 2026-06-03 - B-542 Scenario background and generated-nav matrix proof
+
+- Followed up B-541 by comparing the latest Test Ash Scenario source log against retained assertions. The matrix still did not require native `scene.glb` background validation/renderer/room-table proof, and Test Ash's header-only generated navigation line was runtime-only evidence.
+- The Scenario source matrix now requires native background validation, renderer activation, dynamic-light skip, native room-table build, and scene tile compilation proof for every generated stage smoke. It also reads public navigation TSV row counts from each `.pdscenario` archive and conditionally requires the generated deterministic navigation proof only when waypoint, waygroup, and cover tables are header-only.
+- Verification: PowerShell parser check for `tools\smoke-verify\run-scenario-source-matrix.ps1` PASS; `python tools\asset_native_source_guard.py` PASS; Kanban JSON parse PASS; isolated `c3844bgmatrix` all build PASS; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` via `.\devtools\run-pd-tests.ps1` PASS with 3,374 assertions / 21 cases; Test Ash Scenario source matrix PASS 108/108 at `.claude\smoke-verify-runs\results-20260603T123300Z.json`.
+- Current state: B-542 is retained Scenario matrix proof coverage only. c3844 remains open for broader Scenario source-only/parity validation and full source-derived nav behavior completeness.
+
+## 2026-06-03 - B-543 Campaign mission graph matrix proof
+
+- Followed up B-542 by checking a campaign Scenario boot. Chicago emitted public mission graph startup/source lines, but the retained Scenario matrix could still pass without requiring them.
+- The Scenario source matrix now detects matching public `base_mission_<slug>.pdmission` archives and adds campaign-only assertions for mission graph activation, public `objectives.tsv` binding, mission phase source, and load/active phase transitions. Test, MP, firing range, and other non-campaign scenarios do not get mission-only assertions.
+- Verification: PowerShell parser check for `tools\smoke-verify\run-scenario-source-matrix.ps1` PASS; `python tools\asset_native_source_guard.py` PASS; Kanban JSON parse PASS; isolated `c3844mission` all build PASS; Chicago Scenario source matrix PASS 112/112 at `.claude\smoke-verify-runs\results-20260603T124421Z.json`.
+- Current state: B-543 is retained campaign mission graph source/phase startup proof only. c3844 remains open for deeper objective/phase behavior parity and full source-derived nav behavior completeness.
+
+## 2026-06-03 - B-544 Campaign mission objective runtime matrix proof
+
+- Followed up B-543 by checking the next campaign gap: retained smokes proved mission graph startup, but could still pass without proving runtime objective insert, criteria evaluation, objective checks, mission flags, or object-state tracking routed through public mission objective source.
+- The Scenario source matrix now reads each matching public `.pdmission::objectives.tsv`, records objective row counts plus mission-flag/object-state criteria flags, and adds campaign-only runtime assertions from that public source shape. Object-state proof is required only for missions whose public objective rows use object-backed criteria.
+- Verification: PowerShell parser check for `tools\smoke-verify\run-scenario-source-matrix.ps1` PASS; `python tools\asset_native_source_guard.py` PASS; Kanban JSON parse PASS; isolated `c3844objrt` all build PASS; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` PASS with 3,392 assertions / 21 cases; Attack Ship Scenario source matrix PASS 116/116 at `.claude\smoke-verify-runs\results-20260603T130209Z.json`; Chicago Scenario source matrix PASS 117/117 at `.claude\smoke-verify-runs\results-20260603T130411Z.json`.
+- Current state: B-544 is retained campaign objective runtime source proof. c3844 remains open for broader Scenario source-only/parity validation and full source-derived nav behavior completeness.
+
+## 2026-06-03 - B-545 Scenario setup behavior link matrix proof
+
+- Followed up B-544 by checking the next retained Scenario proof gap: setup behavior links were already graph-source guarded at runtime, but the Scenario matrix could still pass without proving public `setup.fields.tsv` link-source loading or live graph-owned registration.
+- The Scenario source matrix now reads each public `.pdscenario::setup.fields.tsv`, counts setup behavior link rows for `linked_guns`, `lift_door_link`, `safe_item`, `padlocked_door`, `conditional_scenery`, and `blocked_path`, and conditionally requires both setup-link source and registration proof when those public rows exist.
+- Verification: PowerShell parser check for `tools\smoke-verify\run-scenario-source-matrix.ps1` PASS; `python tools\asset_native_source_guard.py` PASS; Kanban JSON parse PASS; scoped diff check PASS with line-ending warnings only; isolated `c3844setuplink` all build PASS; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` PASS with 3,396 assertions / 21 cases; CI Training Scenario source matrix PASS 109/109 at `.claude\smoke-verify-runs\results-20260603T131421Z.json`.
+- Current state: B-545 is retained setup behavior link source/register proof only. c3844 remains open for broader Scenario source-only/parity validation and full source-derived nav behavior completeness.
+
+## 2026-06-03 - B-546 Scenario setup path-flag matrix proof
+
+- Followed up B-545 by checking B-534's path-flag proof: runtime setup compilation logged public `navigation/paths.tsv` circular/flying counts, but the retained Scenario matrix only required the older setup compile line without those counts.
+- The Scenario source matrix now requires `path_flags=circular:<n>,flying:<n>` on every generated source setup compile proof line, so retained stage smokes prove public path flags survived into runtime setup data.
+- Verification: PowerShell parser check for `tools\smoke-verify\run-scenario-source-matrix.ps1` PASS; `python tools\asset_native_source_guard.py` PASS; Kanban JSON parse PASS; isolated `c3844pathmatrix` all build PASS; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` PASS with 3,397 assertions / 21 cases; CI Training Scenario source matrix PASS 109/109 at `.claude\smoke-verify-runs\results-20260603T132747Z.json`.
+- Current state: B-546 promotes setup path-flag proof from focused fixture evidence into the retained Scenario matrix. c3844 remains open for broader Scenario source-only/parity validation and full source-derived nav behavior completeness.
+
+## 2026-06-03 - B-547 CI Training live AI runtime action matrix proof
+
+- Followed up B-546 by using the fresh CI Training source-only log to distinguish activation proof from live runtime execution proof. CI Training naturally emits dozens of AI action/condition lines from public `.pdscenario::ai/ailists.tsv` during the existing smoke window.
+- The Scenario source matrix now adds CI Training-specific assertions for live list-control, pad movement, object flag mutation, cutscene/player flow, savefile flag, HUD message, and speech/audio actions. Pad and object actions also prove their public operand tables (`pads.tsv`, `objects.tsv`) are used by live runtime execution.
+- Verification: PowerShell parser check for `tools\smoke-verify\run-scenario-source-matrix.ps1` PASS; `python tools\asset_native_source_guard.py` PASS; Kanban JSON parse PASS; isolated `c3844airuntime` all build PASS; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` PASS with 3,406 assertions / 21 cases; CI Training Scenario source matrix PASS 117/117 at `.claude\smoke-verify-runs\results-20260603T133508Z.json`.
+- Current state: B-547 closes a retained Scenario proof gap for live AI runtime execution from public source. c3844 remains open for broader Scenario source-only/parity validation and full source-derived nav behavior completeness.
+
+## 2026-06-03 - B-548 CI Training live AI condition matrix proof
+
+- Followed up B-547 by checking the same CI Training source-only log for live branch/condition paths. The retained matrix now proved several live AI actions, but could still pass without proving live perception, random, object-room, or object-activation condition execution from public source.
+- The Scenario source matrix now adds CI Training-specific assertions for live distance perception, object activation, can-see-target, random value/branch, object-room, and LOS condition lines. Object-backed conditions also require public `objects.tsv` provenance, and object-room checks retain the `scene.glb` operand provenance.
+- Verification: PowerShell parser check for `tools\smoke-verify\run-scenario-source-matrix.ps1` PASS; `python tools\asset_native_source_guard.py` PASS; Kanban JSON parse PASS; isolated `c3844aicond` all build PASS; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` PASS with 3,413 assertions / 21 cases; CI Training Scenario source matrix PASS 124/124 at `.claude\smoke-verify-runs\results-20260603T134321Z.json`.
+- Current state: B-548 closes another retained Scenario proof gap for live AI condition execution from public source. c3844 remains open for broader Scenario source-only/parity validation and full source-derived nav behavior completeness.
+
+## 2026-06-03 - B-549 CI Training expanded live AI action matrix proof
+
+- Followed up B-548 by checking the same CI Training source-only log for additional stable live action paths that were still only proven by activation-time summaries.
+- The Scenario source matrix now adds CI Training-specific assertions for live object flag reads, autogun target-team state, environment configuration, basic motion stop, combat face-entity, return-list, play-sound, player toggle, passive mode, and preset animation actions. Object/environment paths retain public `objects.tsv`, `scenario.ini`, and `scene.glb` operand provenance where needed.
+- Verification: PowerShell parser check for `tools\smoke-verify\run-scenario-source-matrix.ps1` PASS; `python tools\asset_native_source_guard.py` PASS; Kanban JSON parse PASS; isolated `c3844aiact2` all build PASS; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` PASS with 3,423 assertions / 21 cases; CI Training Scenario source matrix PASS 134/134 at `.claude\smoke-verify-runs\results-20260603T135107Z.json`.
+- Current state: B-549 closes another retained Scenario proof gap for live AI action execution from public source. c3844 remains open for broader Scenario source-only/parity validation and full source-derived nav behavior completeness.
+
+## 2026-06-03 - B-550 CI Training early live AI action matrix proof
+
+- Followed up B-549 by comparing the current CI Training source-only log against retained live-action assertions. The log still had stable early cutscene/timer/setup/lift/lighting/state action lines from public source that the matrix did not require.
+- The Scenario source matrix now adds CI Training-specific assertions for live character flag writes/checks, camera animation, cutscene music track, character animation, timer restart/compare, fade screen, savefile set/unset checks, object disable/unset flag, setup object image, lift activation, pad-backed lighting, morale, team assignment, stage flag checks, and alarm deactivation.
+- Verification: PowerShell parser check for `tools\smoke-verify\run-scenario-source-matrix.ps1` PASS; scoped diff check PASS with the existing line-ending notice only; isolated `c3844aiact3` all build PASS; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` PASS with 3,442 assertions / 21 cases; CI Training Scenario source matrix PASS 153/153 at `.claude\smoke-verify-runs\results-20260603T140202Z.json`.
+- Current state: B-550 closes another retained Scenario proof gap for live AI action execution from public source. c3844 remains open for broader Scenario source-only/parity validation and full source-derived nav behavior completeness.
+
+## 2026-06-03 - B-551 CI Training remaining live AI action matrix proof
+
+- Followed up B-550 by comparing the current CI Training source-only log against retained live-action assertions. The log still had stable cutscene reorient, character flag unset, hidden flag set, debug print, self flag set, return-list setup, and flag-branch action lines from public source that the matrix did not require.
+- The Scenario source matrix now adds CI Training-specific assertions for those remaining live action lines from public `.pdscenario::ai/ailists.tsv`, including the list-control, player-cutscene, character-flag, debug/no-op, and flag-branch backends.
+- Verification: PowerShell parser check for `tools\smoke-verify\run-scenario-source-matrix.ps1` PASS; scoped diff check PASS with the existing line-ending notice only; isolated `c3844aiact4` all build PASS; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` PASS with 3,449 assertions / 21 cases; CI Training Scenario source matrix PASS 160/160 at `.claude\smoke-verify-runs\results-20260603T141424Z.json`.
+- Current state: B-551 closes another retained Scenario proof gap for live AI action execution from public source. c3844 remains open for broader Scenario source-only/parity validation and full source-derived nav behavior completeness.
+
+## 2026-06-03 - B-552 Scenario explicit navigation neighbour matrix proof
+
+- Followed up the Scenario-last nav proof sweep by checking extracted public `navigation/waygroups.tsv` data; 63 current Scenario archives carry non-empty waygroup neighbour lists, including CI Training.
+- Runtime Scenario padfile compilation now logs exact waypoint and waygroup neighbour-reference counts preserved from explicit public `navigation/waypoints.tsv` and `navigation/waygroups.tsv`; the Scenario source matrix reads those TSV columns directly and requires the client log to match the source counts. CI Training proves 610 public waypoint neighbour refs and 102 public waygroup neighbour refs.
+- Verification: PowerShell parser check for `tools\smoke-verify\run-scenario-source-matrix.ps1` PASS; scoped diff check PASS with the existing line-ending notice only; `python tools\asset_native_source_guard.py` PASS; isolated `c3844navrefs` all build PASS; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` PASS with 3,458 assertions / 21 cases; CI Training Scenario source matrix PASS 160/160 at `.claude\smoke-verify-runs\results-20260603T143039Z.json`; generated-nav fixture PASS 22/22 at `.claude\smoke-verify-runs\results-20260603T143219Z.json`.
+- Current state: B-552 closes the retained explicit navigation-neighbour count proof gap. c3844 remains open for broader Scenario source-only/parity validation and full source-derived nav behavior completeness.
+
+## 2026-06-03 - B-553 Scenario generated-nav padfile-neighbour fixture proof
+
+- Followed up B-552 by checking the focused generated-nav fixture. It already asserted the generation summary for 4 public path edges and 2 directional refs, but it did not require the final compiled navigation-table proof line.
+- The generated-nav fixture now requires `waypoint_neighbour_refs=8` and `waygroup_neighbour_refs=0` on the final `SCENARIO.SOURCE: compiled navigation tables...` log line, proving generated path edges from public `navigation/paths.tsv` survive into runtime padfile neighbour refs.
+- Verification: PowerShell parser check for `tools\smoke-verify\run-scenario-generated-nav-fixture.ps1` PASS; scoped diff check PASS; `python tools\asset_native_source_guard.py` PASS; isolated `c3844navpad` all build PASS; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` PASS with 3,460 assertions / 21 cases; generated-nav fixture PASS 24/24 at `.claude\smoke-verify-runs\results-20260603T144137Z.json`.
+- Current state: B-553 closes the generated-nav padfile-neighbour proof gap. c3844 remains open for broader Scenario source-only/parity validation and full source-derived nav behavior completeness.
+
+## 2026-06-03 - B-554 Scenario generated-nav matrix runtime-neighbour proof
+
+- Followed up B-553 by checking the retained Scenario source matrix. The focused fixture now proved generated public path edges at the final padfile boundary, but the matrix still counted only explicit waypoint/waygroup TSV neighbour columns; header-only generated-nav stages needed source-derived runtime path-edge counts.
+- The Scenario source matrix now derives expected final waypoint neighbour refs from public `navigation/paths.tsv` when waypoint/waygroup/cover tables are header-only, counting unique adjacent path edges plus circular closure to match runtime. Decoded navigation archives still use exact public waypoint/waygroup neighbour-list counts.
+- Verification: PowerShell parser check for `tools\smoke-verify\run-scenario-source-matrix.ps1` PASS; scoped diff check PASS; `python tools\asset_native_source_guard.py` PASS; isolated `c3844navmatrix` all build PASS; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` PASS with 3,464 assertions / 21 cases; generated-nav fixture PASS 24/24 at `.claude\smoke-verify-runs\results-20260603T145448Z.json`; Test Ash Scenario source matrix PASS 108/108 at `.claude\smoke-verify-runs\results-20260603T145617Z.json`.
+- Current state: B-554 closes the retained matrix proof gap for generated public path-edge neighbour counts at the runtime padfile boundary. c3844 remains open for broader Scenario source-only/parity validation and full source-derived nav behavior completeness.
+
+## 2026-06-03 - B-555 Scenario AI path action runtime path-id proof
+
+- Followed up B-554 by auditing the live Scenario path-action path. `scenarioSourceAiGraphExecuteSetPath()` only stored a numeric path id, and `scenarioSourceAiGraphExecuteStartPatrol()` attempted patrol later, so the log could prove `navigation/paths.tsv` was present without proving the requested id existed in the source-built runtime path table.
+- Graph-backed `set_path` and `start_patrol` now validate the requested id against `g_StageSetup.paths` before accepting the command, fail loudly for missing source-derived path tables or missing public path ids, and log `found=1 path_rows=<n>` on successful live execution.
+- The Scenario source matrix now requires live path-action proof for Chicago and Extra17, the stages that naturally execute those path commands during source-only boot, while leaving activation-only path graph proof in place for every generated Scenario smoke.
+- Verification: PowerShell parser check for `tools\smoke-verify\run-scenario-source-matrix.ps1` PASS; scoped diff check PASS; `python tools\asset_native_source_guard.py` PASS; isolated `c3844pathproof` all build PASS; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` PASS with 3,472 assertions / 21 cases; Chicago Scenario source matrix PASS 121/121 at `.claude\smoke-verify-runs\results-20260603T151100Z.json`, with log proof `set_path path=0 found=1 path_rows=14` and `start_patrol path=0 found=1 path_rows=14` from public `navigation/paths.tsv`.
+- Current state: B-555 closes the retained runtime path-id proof gap for live Scenario AI path commands. c3844 remains open for broader Scenario source-only/parity validation and full source-derived nav behavior completeness.
+
+## 2026-06-03 - B-556 Scenario vehicle path action source path-id validation
+
+- Followed up B-555 by checking the vehicle path action surface. `scenarioSourceAiGraphExecuteHovercarBeginPath()` already called `pathFindById()`, but only treated a missing path id as failure when a truck or hovercar object was live, and its proof line did not report source-built path row count.
+- `hovercar_begin_path` now uses the shared source-built runtime path-table validator, refuses missing ids through the graph path, advances the AI command when the refusal is handled by source-only graph behavior, and logs `found=1 path_rows=<n>` when the requested public path row resolves.
+- Verification: PowerShell parser check for `tools\smoke-verify\run-scenario-source-matrix.ps1` PASS; scoped diff check PASS; `python tools\asset_native_source_guard.py` PASS; isolated `c3844vehpath` all build PASS; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` PASS with 3,474 assertions / 21 cases.
+- Current state: B-556 closes the implementation/static proof gap for vehicle path id validation. No retained smoke currently executes live `hovercar_begin_path`, so the matrix keeps activation-time vehicle path proof until a stable live vehicle-path stage is identified. c3844 remains open for broader Scenario source-only/parity validation and full source-derived nav behavior completeness.
+
+## 2026-06-03 - B-557 Scenario player autowalk source pad-id validation
+
+- Followed up B-556 by checking the player-navigation graph surface. `scenarioSourceAiGraphExecutePlayerAutoWalk()` required public `ai/ailists.tsv` and `pads.tsv`, but still accepted the numeric pad id without proving it resolved in the active source-built runtime padfile before storing it into player autowalk state.
+- Added a shared runtime pad-table validator beside the path validator. `player_auto_walk` now refuses negative ids, missing source-derived pad tables, and out-of-range pad ids through the graph source path, and logs `found=1 pad_rows=<n>` when the requested public `pads.tsv` row resolves.
+- Verification: scoped diff check PASS; `python tools\asset_native_source_guard.py` PASS; isolated `c3844padwalk` client build PASS; isolated `c3844padwalk` tests build PASS; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` PASS with 3,478 assertions / 21 cases; CI Training Scenario source matrix PASS 160/160 at `.claude\smoke-verify-runs\results-20260603T152910Z.json`.
+- Current state: B-557 closes the implementation/static proof gap for player autowalk pad-id validation. No retained smoke currently executes live `player_auto_walk`; CI Training retains activation-time player-navigation graph proof until a stable live autowalk stage is identified. c3844 remains open for broader Scenario source-only/parity validation and full source-derived nav behavior completeness.
+
+## 2026-06-03 - B-558 Scenario cover action source cover-row validation
+
+- Followed up B-557 by checking the cover-action graph surface. Cover search and cover movement/sight/facing/release commands required public `navigation/covers.tsv`, but several paths could still enter legacy cover helpers without first proving that the active runtime cover table was built from Scenario source.
+- Added a shared runtime cover-table validator beside the path and pad validators. Graph-backed cover search, `go_to_cover`, `check_cover_out_of_sight`, `face_cover`, `danger_cover`, `release_cover`, and retreat cover branches now require source-derived cover rows, validate current/assigned cover ids before helper dereferences where needed, and log `cover_rows=<n>` diagnostics tied to public `navigation/covers.tsv`.
+- Verification: scoped diff check PASS; conflict scan PASS; `python tools\asset_native_source_guard.py` PASS; isolated `c3844coverrows` all build PASS with clean captured logs; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` PASS with 3,488 assertions / 21 cases; CI Training Scenario source matrix PASS 160/160 at `.claude\smoke-verify-runs\results-20260603T154437Z.json`.
+- Current state: B-558 closes the implementation/static proof gap for cover-row validation. CI Training did not execute a live cover command during the retained smoke window, so retained live cover proof remains pending until a stable cover-action stage is identified. c3844 remains open for broader Scenario source-only/parity validation and full source-derived nav behavior completeness.
+
+## 2026-06-03 - B-559 Scenario quadrant pad-preset source nav-row validation
+
+- Followed up B-558 by checking the quadrant pad-preset graph surface. The graph required public `ai/ailists.tsv`, `pads.tsv`, and navigation source, but live execution could still call waypoint/quadrant helpers without first proving that active runtime pad, waypoint, and waygroup tables were source-built.
+- Added shared runtime waypoint and waygroup counters beside the existing path/pad/cover validators. Graph-backed `if_waypoint_within_quadrant` and `set_pad_preset_to_target_quadrant` now require source-derived pad, waypoint, and waygroup rows before calling navigation helpers, advance through the graph path as a false branch when validation fails, and log `pad_rows=<n> waypoint_rows=<n> waygroup_rows=<n>` diagnostics tied to public Scenario source.
+- Verification: scoped diff check PASS; conflict scan PASS; `python tools\asset_native_source_guard.py` PASS; isolated `c3844quadrows` all build PASS; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` PASS with 3,494 assertions / 21 cases; CI Training Scenario source matrix PASS 160/160 at `.claude\smoke-verify-runs\results-20260603T155910Z.json`.
+- Current state: B-559 closes the implementation/static proof gap for quadrant pad-preset nav-row validation. CI Training logged activation-time quadrant proof but did not execute a live quadrant command during the retained smoke window, so retained live quadrant proof remains pending until a stable quadrant-command stage is identified. c3844 remains open for broader Scenario source-only/parity validation and full source-derived nav behavior completeness.
+
+## 2026-06-03 - B-560 Scenario live pad-backed action source pad-row validation
+
+- Followed up B-559 by checking retained-live CI Training pad-backed action logs. `chr_move_to_pad` and `set_lights` proved public `pads.tsv` provenance, but their logs did not prove the numeric pad operands resolved in the active source-built runtime pad table before calling pad movement or room-light helpers.
+- `chr_move_to_pad` now validates the resolved pad id with the shared runtime pad-table validator before unpacking the pad and moving the character. `set_lights` validates its pad before room lookup. Both live logs now include `pad_rows=<n>`, and the CI Training matrix requires those row counts.
+- Verification: scoped diff check PASS with the existing matrix script line-ending warning; PowerShell parser check for `tools\smoke-verify\run-scenario-source-matrix.ps1` PASS; conflict scan PASS; `python tools\asset_native_source_guard.py` PASS; isolated `c3844padlive` all build PASS; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` PASS with 3,500 assertions / 21 cases; CI Training Scenario source matrix PASS 160/160 at `.claude\smoke-verify-runs\results-20260603T160907Z.json`.
+- Current state: B-560 closes a retained live pad-backed runtime proof gap. The smoke log proves `set_lights pad=7 found=1 pad_rows=650` and `chr_move_to_pad chr=253 operand=83 resolved_pad=83 mode=1 pass=1 pad_rows=650` from public `base_scenario_citraining.pdscenario::pads.tsv`. c3844 remains open for broader Scenario source-only/parity validation and full source-derived nav behavior completeness.
+
+## 2026-06-03 - B-561 Scenario pad-backed distance predicate source pad-row validation
+
+- Followed up B-560 by checking live CI Training distance-predicate logs. `if_chr_distance_to_pad_less_than` executed from public `ai/ailists.tsv`, but the generic distance helper only proved AI-list source and did not prove the pad operand existed in the active source-built runtime pad table.
+- Added a pad-distance perception helper that validates public-source runtime pad ids before any pad distance helper runs. Graph-backed character-to-pad and target-to-pad distance predicates now fail through the source graph path instead of falling back to legacy data, and successful logs include `pad=<n> found=1 pad_rows=<n>` plus public `pads.tsv` provenance.
+- Verification: scoped diff check PASS with the existing matrix script line-ending warning; PowerShell parser check for `tools\smoke-verify\run-scenario-source-matrix.ps1` PASS; conflict scan PASS; `python tools\asset_native_source_guard.py` PASS; isolated `c3844paddist` all build PASS; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` PASS with 3,504 assertions / 21 cases; CI Training Scenario source matrix PASS 160/160 at `.claude\smoke-verify-runs\results-20260603T162035Z.json`.
+- Current state: B-561 closes a retained live distance-predicate runtime proof gap. The smoke log proves `if_chr_distance_to_pad_less_than value=248 pad=321 found=1 pad_rows=650` from public `base_scenario_citraining.pdscenario::pads.tsv`. c3844 remains open for broader Scenario source-only/parity validation and full source-derived nav behavior completeness.
+
+## 2026-06-03 - B-562 Scenario pad preset/spawn source pad-row validation
+
+- Followed up B-561 by auditing remaining graph commands that advertised public `pads.tsv` provenance while still letting numeric pad operands reach pad helpers without proving they resolved in the active source-built runtime pad table.
+- Shared go-to-pad movement, `set_pad_preset`, `chr_set_pad_preset`, `if_object_distance_to_pad_less_than`, `warp_jo_to_pad`, `spawn_chr_at_pad`, and `if_chr_same_floor_distance_to_pad_less_than` now validate requested runtime pad ids against source-built pads before calling pad helpers, fail through the source graph path instead of falling back to legacy data, and log `found=1 pad_rows=<n>` diagnostics tied to public `pads.tsv`.
+- The retained Scenario matrix now requires Extra25 live proof for `go_to_pad_preset` and `spawn_chr_at_pad`, the two covered commands that naturally execute in a stable source-only stage smoke. Other covered commands remain implementation/static proof until a stable live stage is identified.
+- Verification: PowerShell parser check for `tools\smoke-verify\run-scenario-source-matrix.ps1` PASS; scoped diff check PASS with the existing matrix line-ending warning; conflict scan PASS; `python tools\asset_native_source_guard.py` PASS; isolated `c3844padpreset` all build PASS; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` PASS with 3,513 assertions / 21 cases; Extra25 Scenario source matrix PASS 111/111 at `.claude\smoke-verify-runs\results-20260603T163349Z.json`.
+- Current state: B-562 closes another pad-row validation slice. The smoke log proves `go_to_pad_preset pad=124 found=1 pad_rows=338` and `spawn_chr_at_pad body=87 head=41 pad=83 found=1 pad_rows=338` from public `base_scenario_extra25.pdscenario::pads.tsv`. c3844 remains open for broader Scenario source-only/parity validation and full source-derived nav behavior completeness.
+
+## 2026-06-03 - B-563 Scenario direct pad operand source pad-row validation
+
+- Followed up B-562 by auditing direct pad operands that still reached runtime helpers after only proving public `pads.tsv` was present: object-to-pad movement, alarm start pads, and Investigation terminal preset pads.
+- `object_move_to_pad` now validates its pad id before `padUnpack()`, `try_start_alarm` validates its alarm pad before `chrTryStartAlarm()`, and `set_pad_preset_to_investigation_terminal` validates the selected destination pad before `chrSetPadPreset()`. Their logs now carry source pad-row proof where applicable.
+- The first Extra16 retained smoke exposed a related parity gap in the B-561 distance helper: `PAD_PRESET` is the legacy sentinel `9000`, so validating the raw operand rejected a valid source-owned preset path. The shared pad-distance predicate preparation now resolves `PAD_PRESET` through `chrResolvePadId()` before validating the final runtime pad row.
+- The Scenario matrix now requires live Extra16 proof for `object_move_to_pad`. Its setup-link assertion was also narrowed: any stage with setup link rows still proves the public link source table, while live setup-link registration is required only on stages that naturally register links during the retained smoke path.
+- Verification: PowerShell parser check for `tools\smoke-verify\run-scenario-source-matrix.ps1` PASS; scoped diff check PASS with the existing matrix line-ending warning; conflict scan PASS; `python tools\asset_native_source_guard.py` PASS; isolated `c3844objpad` all build PASS; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` PASS with 3,522 assertions / 21 cases; Extra16 Scenario source matrix PASS 109/109 at `.claude\smoke-verify-runs\results-20260603T165519Z.json`.
+- Current state: B-563 closes the direct pad operand slice and the `PAD_PRESET` distance-resolution gap. The smoke log proves `object_move_to_pad tag=20 pad=15 found=1 pad_rows=607` and `if_distance_from_target_to_pad_less_than value=200 pad=68 found=1 pad_rows=607` from public `base_scenario_extra16.pdscenario::pads.tsv`. c3844 remains open for broader Scenario source-only/parity validation and full source-derived nav behavior completeness.
+
+## 2026-06-03 - B-564 Scenario lift action source pad-row validation
+
+- Followed up B-563 by auditing graph-backed lift commands. The lift graph proved public `ai/ailists.tsv`, `objects.tsv`, and `pads.tsv` paths, but `liftGoToStop()` could still unpack requested/current/aim lift pads and `activate_lift` could still register a lift number without proving the numeric operands resolved in the active source-built pad table.
+- Added lift-specific runtime validators beside the shared pad validator. `lift_go_to_stop` now validates requested/current/aim stop pads before calling `liftGoToStop()`, `if_lift_stationary` and `if_lift_at_stop` validate live lift stop pads before branching, `activate_lift` scans source-built pad rows for its lift number before calling `liftActivate()`, and `if_using_lift` proves the runtime pad table is present. Lift logs now include pad-row diagnostics tied to public `pads.tsv`.
+- The retained CI Training Scenario matrix now requires live `activate_lift` proof with `found=1 pad_rows=<n>`.
+- Verification: PowerShell parser check for `tools\smoke-verify\run-scenario-source-matrix.ps1` PASS; conflict scan PASS; `python tools\asset_native_source_guard.py` PASS; isolated `c3844liftrows` all build PASS; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` PASS with 3,527 assertions / 21 cases; CI Training Scenario source matrix PASS 160/160 at `.claude\smoke-verify-runs\results-20260603T170946Z.json`.
+- Current state: B-564 closes the lift-row validation slice. The smoke log proves `activate_lift liftnum=1 pad=28 found=1 pad_rows=650` from public `base_scenario_citraining.pdscenario::pads.tsv`. c3844 remains open for broader Scenario source-only/parity validation and full source-derived nav behavior completeness.
+
+## 2026-06-03 - B-565 Scenario route-to-target pad preset source nav-row validation
+
+- Followed up B-564 by auditing `set_pad_preset_to_pad_on_route_to_target`. The command required public `pads.tsv` and `navigation/paths.tsv` paths but the legacy helper uses waypoint/waygroup route finding internally, then mutates `chr->padpreset1` without proving the chosen runtime pad row was source-built.
+- The graph path now requires public waypoint/waygroup/path source paths, validates active source-built pad, waypoint, and waygroup rows before invoking `chrSetPadPresetToPadOnRouteToTarget()`, and validates the selected `chr->padpreset1` row after a successful route choice. The log now includes selected pad, `found`, `pad_rows`, `waypoint_rows`, and `waygroup_rows` diagnostics tied to public Scenario source.
+- Verification: `python tools\asset_native_source_guard.py` PASS; scoped diff/conflict checks PASS; isolated `c3844routepad` all build PASS after rerunning the slow clean build with `-BuildTimeoutSeconds 180`; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` PASS with 3,530 assertions / 21 cases; CI Training Scenario source matrix PASS 160/160 at `.claude\smoke-verify-runs\results-20260603T172136Z.json`.
+- Current state: B-565 closes the route-preset implementation/static proof gap. No retained smoke currently executes live `set_pad_preset_to_pad_on_route_to_target`, so retained live route-preset proof remains pending until a stable stage is identified. c3844 remains open for broader Scenario source-only/parity validation and full source-derived nav behavior completeness.
+
+## 2026-06-03 - B-566 Scenario object-tag source setup-row validation
+
+- Followed up B-565 by auditing object-backed graph paths that proved public `objects.tsv` was present but still used tag lookups without proving the requested tag resolved through the active source-built setup object table.
+- Added a shared runtime setup object-row validator over `g_StageSetup.props`. Graph-backed object interaction, object flag, door, object model-part, and object-health paths now validate requested tags before `objFindByTagId()` results are used, while preserving the existing branch/action behavior when the source tag is valid but the live object is currently inactive or gone. Runtime logs now include `object_rows=<n>` diagnostics tied to public `objects.tsv`.
+- The retained Scenario source matrix now requires the new `object_rows` proof for Extra16 `object_move_to_pad` and CI Training object activation/object flag paths.
+- Verification: PowerShell parser check for `tools\smoke-verify\run-scenario-source-matrix.ps1` PASS; `python tools\asset_native_source_guard.py` PASS; scoped diff/conflict checks PASS; isolated `c3844objrows` all build PASS; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` PASS with 3,539 assertions / 21 cases; Extra16 Scenario source matrix PASS 109/109 at `.claude\smoke-verify-runs\results-20260603T173438Z.json`; CI Training Scenario source matrix PASS 160/160 at `.claude\smoke-verify-runs\results-20260603T173805Z.json`.
+- Current state: B-566 closes the first object-tag source-row validation slice. c3844 remains open for broader Scenario source-only/parity validation and full source-derived nav behavior completeness.
+
+## 2026-06-03 - B-567 Scenario object-tag validation sweep
+
+- Followed up B-566 by auditing the remaining `objFindByTagId()` graph paths that still proved `objects.tsv` source presence but did not prove the requested object tag came from the active source-built setup object table.
+- Extended the shared runtime setup object-row validator to room/object/weapon predicates, Investigation terminal pad preset selection, object-to-pad distance, lift object tags, object-backed audio, setup image/animation/direct door-open actions, enable/disable object lifecycle, object-room/perception predicates, character inventory grab, and autogun target-team state.
+- Successful live logs now carry `object_rows=<n>` diagnostics tied to public `objects.tsv` for the newly retained CI Training proof paths. Branch predicates that fail validation take the false path; action paths fail through the source graph runtime failure path before live object lookup.
+- The retained CI Training Scenario matrix now requires `object_rows` proof for `if_obj_in_room`, `set_autogun_target_team`, `disable_obj`, `set_obj_image`, and `activate_lift`. Implementation/static coverage covers the other newly guarded paths until stable natural live smoke stages are identified.
+- Verification: PowerShell parser check for `tools\smoke-verify\run-scenario-source-matrix.ps1` PASS; `python tools\asset_native_source_guard.py` PASS; isolated `c3844objrows2` client build PASS after correcting duplicate/missing counter declarations; isolated `c3844objrows2` tests build PASS; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` PASS with 3,539 assertions / 21 cases; CI Training Scenario source matrix PASS 160/160 at `.claude\smoke-verify-runs\results-20260603T175840Z.json`.
+- Current state: B-567 closes the broader object-tag validation sweep for the clear object-backed graph paths audited in this slice. c3844 remains open for broader Scenario source-only/parity validation, any polymorphic/special object semantics that need separate treatment, and full source-derived nav behavior completeness.
+
+## 2026-06-03 - B-568 Scenario object-backed predicate source preflight ordering
+
+- Followed up B-567 by checking the top room/object/weapon predicate helpers. `if_chr_has_object`, `if_weapon_thrown_on_object`, `if_gun_unclaimed`, and `if_object_healthy` now validated runtime tags before proving the active graph node and public `objects.tsv` source path, so a malformed authored graph/source contract could surface first as a live object lookup symptom.
+- Split the shared room/object/weapon helper into a prepare phase and a log/apply phase. The affected object-backed predicates now call `s_aiGraphPrepareRoomObjectWeaponBranch()` before `s_aiGraphRequireRuntimeObjectTag()` and before any `objFindByTagId()` call, preserving inactive-graph behavior while making authored-source contract failures win.
+- Added static coverage that pins the ordering for all four predicates.
+- Verification: `python tools\asset_native_source_guard.py` PASS; isolated `c3844rowprep` tests build PASS; isolated `c3844rowprep` focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` PASS with 3,570 assertions / 22 cases; isolated `c3844rowprep` client build PASS; CI Training Scenario source matrix PASS 160/160 at `.claude\smoke-verify-runs\results-20260603T181316Z.json`.
+- Current state: B-568 closes the source-preflight ordering gap for object-backed room/object/weapon predicates. c3844 remains open for broader Scenario source-only/parity validation, any remaining polymorphic/special object semantics, and full source-derived nav behavior completeness.
+
+## 2026-06-03 - B-569 Scenario door object-type source validation
+
+- Followed up B-568 by auditing the door/action subset of object-backed graph paths. The prior object-row validator proved that a tag came from the active source-built setup table, but door-only commands could still treat any valid source object row as a door and rely on runtime `prop`/object class checks immediately before door-specific casts or mutations.
+- Added `s_aiGraphRequireRuntimeObjectTagType()`, which layers source object-type validation on top of the source setup-row validator. Door-only open/close, door-state, lock/unlock, locked-state, and setup-spawn direct-open actions now require `OBJTYPE_DOOR` before live `objFindByTagId()` access. `if_object_is_door` intentionally remains a broad object predicate and still branches false for non-door source rows.
+- Added static coverage that pins the type guard and `OBJTYPE_DOOR` requirement before live tag lookup for the door-only graph functions, and also pins that `if_object_is_door` does not use the door-only type guard.
+- Verification: `python tools\asset_native_source_guard.py` PASS; scoped diff check for changed runtime/test files PASS; isolated `c3844doortype` tests build PASS; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` PASS with 3,618 assertions / 23 cases; isolated `c3844doortype` client build PASS; CI Training Scenario source matrix PASS 160/160 at `.claude\smoke-verify-runs\results-20260603T182520Z.json`.
+- Current state: B-569 closes the door object-type validation slice. c3844 remains open for broader Scenario source-only/parity validation, any remaining polymorphic/special object semantics, and full source-derived nav behavior completeness.
+
+## 2026-06-03 - B-570 Scenario class-owned object source-type validation
+
+- Followed up B-569 by auditing the remaining clear class-owned object graph actions. Lift commands, monitor image updates, and autogun targeting all proved the tag belonged to the source-built setup table, but still relied on runtime object class checks immediately before lift, monitor, or autogun-specific access.
+- Added a multi-type source object guard for commands that accept more than one concrete class. Lift object actions now require `OBJTYPE_LIFT`, `set_obj_image` requires either `OBJTYPE_SINGLEMONITOR` or `OBJTYPE_MULTIMONITOR`, and `set_autogun_target_team` requires `OBJTYPE_AUTOGUN` before live `objFindByTagId()` access. Generic interaction and explicit type-test predicates remain broad.
+- Added static coverage that pins those source-class guards before live tag lookup for lift, monitor image, and autogun graph functions.
+- Verification: `python tools\asset_native_source_guard.py` PASS; scoped diff check for changed runtime/test files PASS; isolated `c3844classtype` tests build PASS; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` PASS with 3,658 assertions / 24 cases; isolated `c3844classtype` client build PASS; CI Training Scenario source matrix PASS 160/160 at `.claude\smoke-verify-runs\results-20260603T183435Z.json`.
+- Current state: B-570 closes the remaining clear class-owned object-type validation slice found in this pass. c3844 remains open for broader Scenario source-only/parity validation, any remaining polymorphic/special object semantics, and full source-derived nav behavior completeness.
+
+## 2026-06-03 - B-571 Scenario setup-tag placement source validation
+
+- Followed up B-570 by auditing tag-placement graph actions. Investigation terminal, Skedar Ruins pillar, Pelagic switch, and warp-to-tag paths used setup tags directly through `tagFindById()`/placement copy without first proving the tag id existed in the active source-built setup tag table.
+- Added a setup-tag runtime validator over `g_TagsLinkedList`. The affected placement actions now validate requested setup tag ids before live tag lookup or copy access, and logs include `setup_tags=<n>` diagnostics tied to the source-built runtime setup table. An initial over-narrow `OBJTYPE_TAG` check was removed because these placement tags can point at non-`OBJTYPE_TAG` setup rows; table membership is the correct source contract.
+- Verification: scoped diff check PASS; `python tools\asset_native_source_guard.py` PASS; isolated `c3844tagtype` tests build PASS; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` PASS with 3,689 assertions / 25 cases; isolated `c3844tagtype` client build PASS with binary sanity checks for `setup_tags` and no stale `expected source type 22`; Investigation Scenario source matrix PASS 118/118 at `.claude\smoke-verify-runs\results-20260603T185839Z.json`; Pelagic PASS 117/117 at `.claude\smoke-verify-runs\results-20260603T190009Z.json`; Skedar Ruins PASS 117/117 at `.claude\smoke-verify-runs\results-20260603T190237Z.json`.
+- Current state: B-571 closes setup-tag placement validation for the known natural live-placement stages. c3844 remains open for broader Scenario source-only/parity validation, any remaining polymorphic/special setup semantics, and full source-derived nav behavior completeness.
+
+## 2026-06-03 - B-572 Scenario guarded setup-tag placement helper consolidation
+
+- Followed up B-571 by auditing for helper-level regressions after the setup-tag validator landed. Investigation terminal shuffling still had an old raw placement-copy helper shape that depended on caller prevalidation instead of carrying the source setup-tag check with the copy operation.
+- Consolidated setup-tag placement copying behind `s_aiGraphCopyTagPlacementChecked()`. Investigation terminal shuffling now uses the checked helper for both good and bad terminal copies, matching Skedar Ruins and Pelagic, and the raw `s_aiGraphCopyTagPlacement()` helper is gone.
+- Added static coverage that rejects reintroducing `static s32 s_aiGraphCopyTagPlacement(` and pins the checked helper before Investigation placement copies. A structural scan found no unguarded `s_aiGraph*/scenarioSourceAiGraph*` tag-lookup helpers remaining.
+- Verification: build-log error scans PASS; scoped diff check PASS; `python tools\asset_native_source_guard.py` PASS; isolated `c3844tagcopy` tests build PASS; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` PASS with 3,689 assertions / 25 cases; isolated `c3844tagcopy` client build PASS; Investigation Scenario source matrix PASS 118/118 at `.claude\smoke-verify-runs\results-20260603T191340Z.json`.
+- Current state: B-572 closes the guarded setup-tag placement-copy helper cleanup. c3844 remains open for broader Scenario source-only/parity validation, any remaining polymorphic/special setup semantics, and full source-derived nav behavior completeness.
+
+## 2026-06-03 - B-573 Scenario source matrix catalog-id proof cleanup
+
+- Followed up B-572 by auditing the Scenario source matrix proof boundary. The matrix still treated `_meta/manifest.json` `stagenum` and a numeric stage-load log as part of the healthy source-only proof, even though public source identity should stay anchored to catalog ids and archive-member paths.
+- Updated `tools/smoke-verify/run-scenario-source-matrix.ps1` so entries expose `ScenarioCatalogId` for source identity and isolate the legacy numeric boot bridge as `LegacyBootStage` / `LegacyBootStageHex`. The client still receives `--boot-stage` until that boot path accepts catalog identity directly, but generated assertions no longer require a numeric `stagenum` match to prove source use.
+- Updated static coverage to require the catalog-id-first matrix shape, require the explicit legacy bridge naming, and reject the old `$stageHexRegex` proof.
+- Verification: PowerShell parser check PASS; scoped diff check PASS; `python tools\asset_native_source_guard.py` PASS; isolated `c3844stageproof` tests build PASS; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` PASS with 3,692 assertions / 25 cases; isolated `c3844stageproof` client build PASS; initial shared-install Chicago matrix run failed on stale binary proof lines, rerun with fresh isolated `SourceBinary` PASS 121/121 at `.claude\smoke-verify-runs\results-20260603T193046Z.json`.
+- Current state: B-573 closes the retained matrix identity/proof cleanup. c3844 remains open for broader Scenario source-only/parity validation, any remaining polymorphic/special setup semantics, and full source-derived nav behavior completeness.
+
+## 2026-06-03 - B-574 Scenario stage-ID condition catalog proof
+
+- Followed up B-573 by auditing the Scenario AI stage-ID condition logs. The source matrix identity proof was catalog-id-first, but live `if_stage_id_less_than` and `if_stage_id_greater_than` still logged numeric `stagenum/current` values as their condition proof.
+- Added a catalog resolver for those graph conditions. The active graph path now resolves both the compared stage and current stage through `catalogStageIdByStagenum()` before logging `stage_id` and `current_stage_id`; unresolved catalog IDs fail the graph path and branch false instead of presenting numeric stage identity as healthy proof.
+- Updated static coverage to pin the resolver, catalog lookup, and new log fields, and updated the Scenario matrix to forbid the old `if_stage_id_* stagenum=` proof shape without requiring a brittle live condition line.
+- Verification: PowerShell parser check PASS; scoped diff check PASS; `python tools\asset_native_source_guard.py` PASS; isolated `c3844stageidlog` tests build PASS; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` PASS with 3,701 assertions / 25 cases; isolated `c3844stageidlog` client build PASS; first Chicago matrix attempt exposed the live condition line was not stable in the smoke window, so required live assertions were removed; Chicago Scenario source matrix then PASS 122/122 at `.claude\smoke-verify-runs\results-20260603T194836Z.json` with the exact isolated `SourceBinary`.
+- Current state: B-574 closes the stage-ID predicate log identity cleanup. c3844 remains open for broader Scenario source-only/parity validation, any remaining polymorphic/special setup semantics, and full source-derived nav behavior completeness.
+
+## 2026-06-03 - B-575 Scenario cutscene-weapon catalog proof
+
+- Followed up B-574 by auditing live Scenario cutscene-weapon proof. `chr_set_cutscene_weapon` still logged numeric `weapon` / `fallback_weapon` operands even though real weapon identity must be catalog-id-first at public proof boundaries.
+- Added `s_aiGraphResolveWeaponCatalogId()` and changed `scenarioSourceAiGraphExecuteChrSetCutsceneWeapon()` so real weapon operands resolve through `catalogWeaponIdByRuntimeWeaponNum()` before proof logging. Legacy no-weapon sentinels continue to preserve parity and log as `none`; unresolved real weapon IDs fail the graph path.
+- Updated static coverage to pin the resolver and new `weapon_id` / `fallback_weapon_id` fields, and updated the retained Scenario matrix to forbid reintroducing `chr_set_cutscene_weapon chr=<n> weapon=` numeric proof lines.
+- Verification: PowerShell parser check PASS; scoped diff check PASS; `python tools\asset_native_source_guard.py` PASS; isolated `c3844cutwpn` tests build PASS; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` PASS with 3,708 assertions / 25 cases; isolated `c3844cutwpn` client build PASS; Chicago Scenario source matrix PASS 123/123 at `.claude\smoke-verify-runs\results-20260603T200045Z.json`, with live proof `weapon_id=none fallback_weapon_id=none` and no old numeric line.
+- Current state: B-575 closes the cutscene-weapon proof identity cleanup. c3844 remains open for broader Scenario source-only/parity validation, any remaining polymorphic/special setup semantics, and full source-derived nav behavior completeness.
+
+## 2026-06-03 - B-576 Scenario SFX/voice audio catalog proof
+
+- Followed up B-575 by auditing live Scenario SFX/voice proof. Graph-backed audio actions still logged numeric runtime operands such as `audio=-32583`, `audio=1131`, and `sound=<n>` even though public proof should identify catalog assets.
+- Added a Scenario audio catalog resolver that normalizes high-bit audio config aliases through `g_AudioRussMappings`, resolves the leaf sound slot through `catalogResolveSound()`, and fails the active graph path if a real runtime audio operand cannot produce a catalog ID. Playback still receives the original legacy operand for parity.
+- Converted `speak`, `play_sound`, `assign_sound`, `play_repeating_sound_from_pad`, and `play_sound_from_prop` proof logs to `audio_id=<catalog id>`. Music track logs remain numeric for a later song-slot cleanup slice.
+- Updated static coverage and the retained Scenario matrix so the converted actions require catalog-id proof and forbid the old numeric `audio=` / `sound=` proof fields.
+- Verification: PowerShell parser check PASS; scoped diff check PASS; `python tools\asset_native_source_guard.py` PASS; isolated `c3844audioid` tests build PASS; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` PASS with 3,740 assertions / 25 cases; isolated `c3844audioid` client build PASS; Chicago Scenario source matrix PASS 128/128 at `.claude\smoke-verify-runs\results-20260603T201355Z.json`, with live `audio_id=base:*` proof for `play_sound_from_prop`, `assign_sound`, `speak`, and `play_sound`, and no old numeric audio/sound proof lines.
+- Current state: B-576 closes SFX/voice audio proof identity cleanup. c3844 remains open for Scenario source-only/parity validation, remaining special setup semantics, and full source-derived nav behavior completeness.
+
+## 2026-06-03 - B-577 Scenario music-track catalog proof
+
+- Followed up B-576 by auditing live Scenario music proof. Graph-backed track actions still logged numeric runtime operands such as `track=47`, even though public proof should identify the catalogued `.pdsong`/music row.
+- Added a Scenario music catalog resolver that scans enabled `ASSET_AUDIO` catalog rows, requires `AUDIO_CAT_MUSIC`, and matches the live `MUSIC_*` runtime operand against `ext.audio.sound_id`. Unresolved real music operands fail the active graph path instead of presenting numeric track proof.
+- Converted `play_temporary_primary_track`, `play_track_isolated`, `play_cutscene_track`, and `play_temporary_track` proof logs to `track_id=<catalog id>` while preserving legacy playback operands for parity. `play_x_track` is not a music asset operand; its log now labels the command arguments as `minsecs` / `maxsecs` instead of `track` / `volume`.
+- Updated static coverage and the retained Scenario matrix so converted music track actions require catalog-id proof and forbid the old numeric `track=` proof fields.
+- Verification: PowerShell parser check PASS; scoped diff check PASS; `python tools\asset_native_source_guard.py` PASS; isolated `c3844musicid` tests build PASS; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` PASS with 3,765 assertions / 25 cases; isolated `c3844musicid` client build PASS; Chicago Scenario source matrix PASS 133/133 at `.claude\smoke-verify-runs\results-20260603T202711Z.json`, with live `play_cutscene_track track_id=base:song_sequence_av` proof and no old numeric music proof lines.
+- Current state: B-577 closes music-track proof identity cleanup. c3844 remains open for Scenario source-only/parity validation, remaining special setup semantics, and full source-derived nav behavior completeness.
+
+## 2026-06-03 - B-578 Scenario animation catalog proof
+
+- Followed up B-577 by auditing direct Scenario animation proof. `chr_do_animation`, `set_camera_animation`, `object_do_animation`, and `if_natural_anim` still logged numeric runtime animation operands, even though public proof should identify catalogued `.pdanim` assets.
+- Added `s_aiGraphResolveAnimationCatalogId()` so those graph-backed paths resolve real operands through `catalogResolveAnim()` before proof logging. Playback still receives the legacy runtime animation operand for parity; unresolved real animation operands fail the active graph path.
+- The first Chicago rerun exposed a real catalog source-chain gap for runtime animation 207. Fixed base animation reverse-indexing by having `assetCatalogRegisterAnimation()` populate `source_animnum`, and changed the animation archive walker to register `-1` until it has a public source index before setting `source_animnum` / `runtime_index`.
+- Updated static coverage and the retained Scenario matrix so converted animation actions require catalog-id proof and forbid the old numeric `anim=` proof fields.
+- Verification: PowerShell parser check PASS; scoped diff check PASS; `python tools\asset_native_source_guard.py` PASS; isolated `c3844animid` tests build PASS; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` PASS with 3,794 assertions / 25 cases; isolated `c3844animid` client build PASS; Chicago Scenario source matrix PASS 137/137 at `.claude\smoke-verify-runs\results-20260603T204205Z.json`, with live `set_camera_animation`, `object_do_animation`, and `chr_do_animation` proof logging catalog IDs and no old numeric animation proof lines.
+- Current state: B-578 closes direct Scenario animation proof identity cleanup and the base animation reverse-index gap it exposed. c3844 remains open for Scenario source-only/parity validation, remaining special setup semantics, and full source-derived nav behavior completeness.
+
+## 2026-06-03 - B-579 Scenario body/head/model/weapon catalog proof
+
+- Followed up B-578 by auditing Scenario graph logs for remaining asset-like numeric identity proof. Spawn body/head, drop-item model/weapon, player weapon-state, inventory weapon removal, and setup equipment paths still logged runtime body/head/model/weapon values even though public proof should identify catalogued assets.
+- Added shared body, head, model, and weapon catalog resolvers for active Scenario graph proof. Real operands now fail the graph path if they cannot resolve to a catalog ID; `HEAD_RANDOM` and `HEAD_RANDOM_GENDER` remain explicit non-asset sentinels. Gameplay calls still receive the original legacy runtime operands for parity.
+- Converted the affected proof logs to `body_id`, `head_id`, `model_id`, and `weapon_id`. `set_obj_image` now logs `image_index` because the monitor-screen image operand is not currently a typed asset catalog reference.
+- Updated static coverage and the retained Scenario matrix so converted actions require catalog-id proof and forbid the old numeric `body=`, `head=`, `model=`, `weapon=`, and monitor `image=` proof fields.
+- Verification: PowerShell parser check PASS; scoped diff check PASS with only the existing matrix line-ending warning; `python tools\asset_native_source_guard.py` PASS; isolated `c3844assetid` tests build PASS; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` PASS with 3,850 assertions / 25 cases; isolated `c3844assetid` client build PASS; Extra25 Scenario source matrix PASS 138/138 at `.claude\smoke-verify-runs\results-20260603T210410Z.json`, with live `spawn_chr_at_pad body_id=base:elvis1 head_id=base:head_maian_s` proof. CI Training rerun proved the changed `set_obj_image image_index=18` line and no old numeric asset proof matches, but the full CI Training matrix still failed 183/187 on four older live action lines that did not fire within the smoke window.
+- Current state: B-579 closes the next Scenario asset-identity proof band for body/head/model/weapon operands. c3844 remains open for Scenario source-only/parity validation, remaining special setup semantics, and full source-derived nav behavior completeness.
+
+## 2026-06-03 - B-580 Body/head source-only player fallback hardening
+
+- Followed up B-579 by auditing runtime body/head fallback paths after the Scenario graph proof cleanup. `playerTickChrBody()` and `body0f02ce8c()` could still hide body/head source-chain failures by substituting `BODY_DARK_COMBAT`, skipping a missing head merge, or returning a partially allocated player body.
+- Added source-only fatal guards to the player/body character model paths. Normal gameplay keeps the existing resilience behavior, but when `ASSET_BODY` or `ASSET_HEAD` source-only verification is active the failure now exits through the `ASSET.SOURCE_ONLY` fatal path before fallback/substitution can hide the missing public source chain.
+- Added direct handle fallback checks for first-person body/head loads and static contract coverage that pins the player/body source-only helpers, body/head fatal calls, and direct `assetSourceDebugFatalHandleFallback()` usage.
+- Verification: scoped diff check PASS with only existing line-ending warnings; `python tools\asset_native_source_guard.py` PASS; isolated `c3844bodyhard` tests build PASS; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` PASS with 3,860 assertions / 25 cases; isolated `c3844bodyhard` client build PASS; focused body/head all-family source matrix PASS for all 152 extracted `.pdbody`/`.pdhead` archives across 4 batches at `.claude\smoke-verify-runs\results-20260603T212452Z.json`. The first body/head smoke used the wrong executable path; the second reached batch 6 but hit the tool timeout because extraction/log output was huge; the final larger-batch rerun passed.
+- Current state: B-580 closes the body/head source-only fallback hardening found by the post-B-579 audit. c3844 remains open for Scenario source-only/parity validation, remaining special setup semantics, and full source-derived nav behavior completeness.
+
+## 2026-06-03 - B-581 Scenario catalog-ID boot-stage bridge removal
+
+- Followed up B-580 by auditing the Scenario source matrix identity path left by B-573. The generated smoke definitions were catalog-id-first in proof, but still translated `_meta/manifest.json` `stagenum` into a numeric `--boot-stage` argument before the client could load the public `.pdscenario`.
+- Updated the client boot resolver so `--boot-stage` accepts decimal/hex stage numbers plus map, arena, and `.pdscenario` catalog IDs. Scenario IDs resolve through the catalog entry's `ext.scenario.stagenum`, so source-only smokes no longer need a numeric bridge to reach the right runtime stage.
+- Updated `tools/smoke-verify/run-scenario-source-matrix.ps1` so `StageNum*` is only filtering/display metadata and generated tests pass `$Entry.ScenarioCatalogId` directly to `--boot-stage`. Static coverage now rejects `LegacyBootStage*`, pins the catalog-ID resolver path, and preserves the Extra25/Extra26 boundary guard.
+- Verification: PowerShell parser check PASS; scoped diff check PASS with only the existing matrix line-ending warning; `python tools\asset_native_source_guard.py` PASS; isolated `c3844bootid` tests build PASS; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` PASS with 3,867 assertions / 25 cases; isolated `c3844bootid` client build PASS; Extra25 Scenario source matrix PASS 138/138 at `.claude\smoke-verify-runs\results-20260603T213757Z.json` using `--boot-stage base:scenario_extra25` against the exact isolated `SourceBinary`.
+- Current state: B-581 removes the temporary Scenario numeric boot bridge. c3844 remains open for Scenario source-only/parity validation, remaining special setup semantics, and full source-derived nav behavior completeness.
+
+## 2026-06-03 - B-582 Scenario chr_copy_pad_preset source-pad validation
+
+- Followed up B-581 by auditing remaining Scenario graph live-proof gaps around pad-preset mutation. `scenarioSourceAiGraphExecuteChrCopyPadPreset()` still copied `chrsrc->padpreset1` directly into `chrdst->padpreset1` and logged only chr-state proof, so the operation did not prove that a real copied pad came from the active source-built `pads.tsv` runtime table.
+- Added source-pad validation to the active graph path. The helper now requires a public `pads.tsv` binding, validates non-negative copied pads through `s_aiGraphRequireRuntimePad("chr_copy_pad_preset", ...)` before destination mutation, and permits the legacy negative no-pad sentinel only after `s_aiGraphRequireRuntimePadTable("chr_copy_pad_preset", ...)` proves the source-built pad table exists.
+- Updated proof logging and static coverage so `chr_copy_pad_preset` reports `pad`, `found`, `pad_rows`, and `backend=graph.ai.action.chr_copy_pad_preset+chrstate+pads.tsv`, and tests pin validation before `chrdst->padpreset1` assignment.
+- Verification: scoped diff check PASS; `python tools\asset_native_source_guard.py` PASS; isolated `c3844copypad` tests build PASS; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` PASS with 3,878 assertions / 25 cases; isolated `c3844copypad` client build PASS; Extra25 Scenario source matrix PASS 138/138 at `.claude\smoke-verify-runs\results-20260603T214910Z.json` using `--boot-stage base:scenario_extra25` against the exact isolated `SourceBinary`.
+- Current state: B-582 closes the copied-pad-preset source-row validation gap found in the Scenario-last audit. c3844 remains open for Scenario source-only/parity validation, remaining special setup semantics, and full source-derived nav behavior completeness.
+
+## 2026-06-03 - B-583 Scenario selected-cover source-row validation
+
+- Followed up B-582 by auditing the cover-selection paths that B-558 left static/build-covered. `retreat`, shared `find_cover*`, and `danger_cover` required the source-built cover table before calling legacy cover selectors, but did not revalidate the selected cover id returned by `chrAssignCoverByCriteria()` or `chrAssignCoverAwayFromDanger()` before movement, output state, or proof logging.
+- Added post-selection source-row validation for those selector paths. Any non-negative selected cover id now runs through `s_aiGraphValidateRuntimeCoverIndex()` before `chrGoToCover()` or success proof. The `-1` no-cover sentinel remains valid so failed selection keeps parity without pretending a real source row exists.
+- Updated `retreat` proof to include `assigned=<cover>` beside `cover_rows`, and added static coverage that pins selector-before-validation-before-movement ordering for `retreat`, `s_aiGraphExecuteFindCoverByCriteria()`, and `danger_cover`.
+- Verification: scoped diff check PASS; `python tools\asset_native_source_guard.py` PASS; isolated `c3844coverpick` tests build PASS; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` PASS with 3,906 assertions / 25 cases; isolated `c3844coverpick` client build PASS; Extra25 Scenario source matrix PASS 138/138 at `.claude\smoke-verify-runs\results-20260603T220100Z.json` using `--boot-stage base:scenario_extra25` against the exact isolated `SourceBinary`.
+- Current state: B-583 closes the selected-cover source-row postcondition gap found in the Scenario-last audit. No retained smoke currently executes these cover selectors live, so this remains static/build-covered plus source-only boot-smoked until a stable cover-action stage is identified. c3844 remains open for Scenario source-only/parity validation, remaining special setup semantics, and full source-derived nav behavior completeness.
+
+## 2026-06-03 - B-584 Scenario quadrant selected-pad source-row validation
+
+- Followed up B-583 by auditing the quadrant pad-preset path from B-559. `set_pad_preset_to_target_quadrant` already required source-built pad, waypoint, and waygroup tables before calling `chrSetPadPresetToWaypointWithinTargetQuadrant()`, but a successful helper result was applied as a branch without revalidating the selected `chr->padpreset1` row.
+- Added post-selection source-pad validation. When the legacy helper succeeds, the graph path captures `chr->padpreset1`, validates it through `s_aiGraphRequireRuntimePad("set_pad_preset_to_target_quadrant", ...)`, and only then applies the branch. Failed validation now exits through the source graph failure path instead of presenting success proof.
+- Updated proof logging to carry `pad`, `found`, `pad_rows`, `waypoint_rows`, and `waygroup_rows`, and added static coverage that pins helper-before-validation-before-branch ordering.
+- Verification: scoped diff check PASS; `python tools\asset_native_source_guard.py` PASS; isolated `c3844quadpick` tests build PASS; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` PASS with 3,915 assertions / 25 cases; isolated `c3844quadpick` client build PASS; Extra25 Scenario source matrix PASS 138/138 at `.claude\smoke-verify-runs\results-20260603T221009Z.json` using `--boot-stage base:scenario_extra25` against the exact isolated `SourceBinary`.
+- Current state: B-584 closes the quadrant selected-pad postcondition gap found in the Scenario-last audit. No retained smoke currently executes this quadrant action live, so this remains static/build-covered plus source-only boot-smoked until a stable quadrant-command stage is identified. c3844 remains open for Scenario source-only/parity validation, remaining special setup semantics, and full source-derived nav behavior completeness.
+
+## 2026-06-03 - B-585 Scenario waypoint-quadrant condition selected-pad validation
+
+- Followed up B-584 by auditing the sibling `if_waypoint_within_quadrant` condition path. It also calls a legacy helper that writes `chr->padpreset1` on success, but only proved pad/waypoint/waygroup table availability before the helper and did not revalidate the selected pad before applying the branch.
+- Added post-selection source-pad validation to the condition. When `func0f04a4ec()` succeeds, the graph path captures `chr->padpreset1`, validates it through `s_aiGraphRequireRuntimePad("if_waypoint_within_quadrant", ...)`, and only then applies the branch. Failed validation exits through the source graph failure path instead of presenting success proof.
+- Updated proof logging to carry `pad`, `found`, `pad_rows`, `waypoint_rows`, and `waygroup_rows`, and added static coverage that pins helper-before-validation-before-branch ordering.
+- Verification: scoped diff check PASS; `python tools\asset_native_source_guard.py` PASS; isolated `c3844quadcond` tests build PASS; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` PASS with 3,924 assertions / 25 cases; isolated `c3844quadcond` client build PASS; Extra25 Scenario source matrix PASS 138/138 at `.claude\smoke-verify-runs\results-20260603T221644Z.json` using `--boot-stage base:scenario_extra25` against the exact isolated `SourceBinary`.
+- Current state: B-585 closes the waypoint-quadrant condition selected-pad postcondition gap found in the Scenario-last audit. No retained smoke currently executes this quadrant condition live, so this remains static/build-covered plus source-only boot-smoked until a stable quadrant-command stage is identified. c3844 remains open for Scenario source-only/parity validation, remaining special setup semantics, and full source-derived nav behavior completeness.
+
+## 2026-06-03 - B-586 Scenario character-copy padpreset validation
+
+- Followed up B-585 with a propagation scan for remaining direct `padpreset1` copies. `duplicate_chr` copied the source character pad preset into the clone, and `chr_copy_properties` copied the source character pad preset into the destination character, while both paths only proved AI graph source.
+- Added copied-pad source validation to both paths. They now require public `pads.tsv`, validate any non-negative copied pad through `s_aiGraphRequireRuntimePad(...)`, allow the negative no-pad sentinel only after `s_aiGraphRequireRuntimePadTable(...)`, and perform validation before clone spawn or destination character mutation.
+- Updated proof logging to carry `pad`, `found`, and `pad_rows`, and added static coverage that pins validation-before-mutation ordering for both copied-pad paths.
+- Verification: scoped diff check PASS; `python tools\asset_native_source_guard.py` PASS; isolated `c3844charpad` tests build PASS; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` PASS with 3,950 assertions / 25 cases; isolated `c3844charpad` client build PASS; Extra25 Scenario source matrix PASS 138/138 at `.claude\smoke-verify-runs\results-20260603T222542Z.json` using `--boot-stage base:scenario_extra25` against the exact isolated `SourceBinary`.
+- Current state: B-586 closes the remaining direct character `padpreset1` copy gap found in this propagation pass. No retained smoke currently executes these copied-property paths live, so this remains static/build-covered plus source-only boot-smoked until a stable character-copy stage is identified. c3844 remains open for Scenario source-only/parity validation, remaining special setup semantics, and full source-derived nav behavior completeness.
+
+## 2026-06-03 - B-587 Scenario duplicate_chr cloned-asset catalog proof
+
+- Followed up B-586 by auditing the rest of `duplicate_chr` after copied-pad validation. The graph path still cloned the source character body and copied held weapon/hat model numbers through raw runtime ids before proving those asset references had public catalog identities.
+- Added cloned-asset catalog validation to the active graph path. `duplicate_chr` now resolves the source body through `s_aiGraphResolveBodyCatalogId(...)`, resolves any copied right/left held weapon model and weapon operands through model/weapon catalog IDs, resolves copied hat models through the model catalog, and performs those checks before `chrSpawnAtChr(...)`, `chrGiveWeapon(...)`, or `hatCreateForChr(...)`.
+- Updated proof logging to carry `body_id`, `weapon0_model_id`, `weapon0_id`, `weapon1_model_id`, `weapon1_id`, and `hat_model_id` while preserving legacy gameplay operands for parity. Static coverage pins asset-resolution-before-clone ordering.
+- Verification: scoped diff check PASS; `python tools\asset_native_source_guard.py` PASS; isolated `c3844dupeasset` tests build PASS; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` PASS with 3,963 assertions / 25 cases; isolated `c3844dupeasset` client build PASS; Extra25 Scenario source matrix PASS 138/138 at `.claude\smoke-verify-runs\results-20260603T223444Z.json` using `--boot-stage base:scenario_extra25` against the exact isolated `SourceBinary`.
+- Current state: B-587 closes the duplicate-character cloned-asset catalog-proof gap found in this propagation pass. No retained smoke currently executes `duplicate_chr` live, so this remains static/build-covered plus source-only boot-smoked until a stable duplicate-character stage is identified. c3844 remains open for Scenario source-only/parity validation, remaining special setup semantics, and full source-derived nav behavior completeness.
+
+## 2026-06-03 - B-588 Scenario weapon-predicate catalog proof
+
+- Followed up B-587 with a propagation scan for remaining raw weapon proof and preflight-order gaps. The room/object/weapon predicate helpers still logged weapon operands as generic numeric `value=%d`, and `if_chr_has_weapon_equipped` compared the live player weapon before graph/source preflight.
+- Added weapon catalog validation to the affected predicate paths. `if_weapon_thrown`, `if_weapon_thrown_on_object`, and `if_chr_has_weapon_equipped` now run graph/source preflight first, resolve real weapon operands through `s_aiGraphResolveWeaponCatalogId(...)`, and only then call `weaponFindLanded(...)`, scan object child weapons, or read `bgunGetWeaponNum(...)`.
+- Updated proof logging to use `weapon_id=%s`; the object-backed thrown-weapon condition also logs `tag` and `object_rows`. Static coverage pins preflight/resolution-before-live-check ordering for all three paths.
+- Verification: scoped diff check PASS; `python tools\asset_native_source_guard.py` PASS; isolated `c3844weapred` tests build PASS; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` PASS with 3,993 assertions / 25 cases; isolated `c3844weapred` client build PASS; Extra25 Scenario source matrix PASS 138/138 at `.claude\smoke-verify-runs\results-20260603T224351Z.json` using `--boot-stage base:scenario_extra25` against the exact isolated `SourceBinary`.
+- Current state: B-588 closes the weapon-predicate catalog-proof and preflight-order gap found in this propagation pass. No retained smoke currently executes these weapon predicate paths live, so this remains static/build-covered plus source-only boot-smoked until a stable weapon-predicate stage is identified. c3844 remains open for Scenario source-only/parity validation, remaining special setup semantics, and full source-derived nav behavior completeness.
+
+## 2026-06-03 - B-589 Scenario blocked-path setup-link waypoint validation
+
+- Followed up B-588 by auditing remaining special setup semantics. `blocked_path` setup behavior links already proved that runtime target values matched public `setup.fields.tsv`, but their `waypoint_1` / `waypoint_2` aux refs were accepted without proving they indexed the active source-built `navigation/waypoints.tsv` runtime table.
+- Added blocked-path waypoint validation to setup behavior-link registration. `scenarioSourceSetupGraphRecordBehaviorLink()` now validates `OBJTYPE_BLOCKEDPATH` aux refs through `s_setupGraphValidateBlockedPathWaypoints(...)`, requiring a public waypoints source path, a source-derived runtime waypoint table, and in-range waypoint rows before the live link can be accepted or added to `g_BlockedPaths`.
+- Static coverage pins blocked-path waypoint validation before behavior-link target matching. Invalid refs now fail through the source graph runtime-failure path, which is fatal in Scenario source-only mode instead of letting `objSetBlockedPathUnblocked()` index unchecked waypoint ids later.
+- Verification: scoped diff check PASS; `python tools\asset_native_source_guard.py` PASS; isolated `c3844blockwp` tests build PASS; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` PASS with 4,001 assertions / 25 cases; isolated `c3844blockwp` client build PASS; Extra25 Scenario source matrix PASS 138/138 at `.claude\smoke-verify-runs\results-20260603T225237Z.json` using `--boot-stage base:scenario_extra25` against the exact isolated `SourceBinary`.
+- Current state: B-589 closes the blocked-path setup-link waypoint source-row validation gap found in this special-setup pass. No retained smoke currently executes a live blocked-path setup link, so this remains static/build-covered plus source-only boot-smoked until a stable blocked-path stage is identified. c3844 remains open for Scenario source-only/parity validation, remaining special setup semantics, and full source-derived nav behavior completeness.
+
+## 2026-06-03 - B-590 Scenario setup-link failure gate
+
+- Followed up B-589 by auditing whether setup-link source failures actually stopped live registration. `scenarioSourceSetupGraphRecordBehaviorLink()` returned failure for missing/mismatched public setup-link source or blocked-path waypoint source-row failures, but `setupCreateProps()` ignored the return value.
+- Added a hard registration gate for every setup-link case. Linked guns, lift-door links, safe-item links, padlocked doors, conditional scenery, and blocked paths now stop before `propweaponSetDual()` or `setupCreate*()` link helpers when the graph/setup source link cannot be proven.
+- Static coverage now scopes to `setupCreateProps()`, requires guarded `scenarioSourceSetupGraphRecordBehaviorLink()` calls, and pins each source-link call before the live registration helper.
+- Verification: scoped diff check PASS; `python tools\asset_native_source_guard.py` PASS; isolated `c3844linkgate` tests build PASS; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` PASS with 4,021 assertions / 25 cases; isolated `c3844linkgate` client build PASS; Extra25 Scenario source matrix PASS 138/138 at `.claude\smoke-verify-runs\results-20260603T230324Z.json` using `--boot-stage base:scenario_extra25` against the exact isolated `SourceBinary`.
+- Current state: B-590 closes the setup-link failure-gate gap found in this special-setup pass. Retained smoke coverage is still source-only boot coverage for this exact slice until stable link-specific live stages are identified. c3844 remains open for Scenario source-only/parity validation, remaining special setup semantics, and full source-derived nav behavior completeness.
+
+## 2026-06-03 - B-591 Scenario path-pad source sequence validation
+
+- Followed up B-590 by auditing source-derived nav behavior after path-id proof. `set_path`, `start_patrol`, and `hovercar_begin_path` validated that a public `navigation/paths.tsv` path id resolved, but accepted the path before proving it had a non-empty source pad sequence or that each path pad ref resolved in the active source-built `pads.tsv` runtime table.
+- Added `s_aiGraphRequireRuntimePathPads()` at the Scenario graph boundary. The graph path now requires `pads.tsv` source, rejects path rows with no pad sequence, validates every path pad through the runtime pad validator, and only then allows `chrSetPath()`, `chrTryStartPatrol()`, truck path assignment, hovercar path assignment, or `PATHFLAG_INUSE` mutation.
+- Static coverage pins path-pad validation after path-id lookup and before each live mutation. Runtime proof logs for path actions now carry `path_pads` and `pad_rows`, and the Scenario matrix requires those fields for retained live `set_path` / `start_patrol` proof.
+- Verification: `python tools\asset_native_source_guard.py` PASS; Scenario matrix PowerShell parser check PASS; isolated `c3844pathpads` tests build PASS; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` PASS with 4,050 assertions / 25 cases; isolated `c3844pathpads` client build PASS; Extra25 Scenario source matrix PASS 138/138 at `.claude\smoke-verify-runs\results-20260603T231517Z.json` using `--boot-stage base:scenario_extra25` against the exact isolated `SourceBinary`.
+- Current state: B-591 closes the path-pad source-sequence validation gap found in the nav behavior pass. Retained live `hovercar_begin_path` proof still waits on a stable vehicle-path stage, so c3844 remains open for Scenario source-only/parity validation, remaining special setup semantics, and full source-derived nav behavior completeness.
+
+## 2026-06-03 - B-592 Scenario hoverbot next-step path-state validation
+
+- Followed up B-591 by auditing the vehicle/investigation condition that reads `hovercar->nextstep`. `if_hoverbot_next_step` proved the public AI graph node, but when a hovercar existed it compared live vehicle step state without proving that `hovercar->path` belonged to the source-built runtime path table or that the step index was valid for that path.
+- Added `s_aiGraphRequireRuntimePathPointer()` and applied it to `if_hoverbot_next_step`. When a hovercar exists, the graph path now requires public `navigation/paths.tsv`, validates the current path pointer against `g_StageSetup.paths`, validates the path pad sequence through `s_aiGraphRequireRuntimePathPads()`, rejects out-of-range `nextstep`, and only then applies the branch comparison. Null hovercar still preserves the prior false-branch behavior.
+- Static coverage pins pointer validation, path-pad validation, and range validation before the live `nextstep` comparison. Live proof logging for the condition now carries `path_rows`, `path_pads`, and `pad_rows` with the public path/pad backend.
+- Verification: `python tools\asset_native_source_guard.py` PASS; scoped diff check PASS; isolated `c3844vehstep` tests build PASS; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` PASS with 4,064 assertions / 25 cases; isolated `c3844vehstep` client build PASS; Extra25 Scenario source matrix PASS 138/138 at `.claude\smoke-verify-runs\results-20260603T232513Z.json` using `--boot-stage base:scenario_extra25` against the exact isolated `SourceBinary`.
+- Current state: B-592 closes the hoverbot next-step current-path proof gap found in the nav behavior pass. No retained smoke currently executes live hoverbot next-step proof, so this is static/build-covered plus source-only boot-smoked until a stable vehicle-condition stage is identified. c3844 remains open for Scenario source-only/parity validation, remaining special setup semantics, and full source-derived nav behavior completeness.
+
+## 2026-06-03 - B-593 Scenario current-gun catalog-source validation
+
+- Followed up B-592 with a propagation scan for remaining direct `chr->gunprop` usage. `do_gun_command`, `if_distance_to_gun_less_than`, `recover_gun`, and the current-gun mode of `if_gun_unclaimed` proved graph activation but used the live gun prop and weapon payload before proving the current gun's model/weapon operands had public catalog source.
+- Added `s_aiGraphRequireCurrentGunProp()`. The helper requires a live weapon prop with a real runtime weapon, resolves the current gun model through `catalogModelIdByModelnum()`, resolves the current gun weapon through `catalogWeaponIdByRuntimeWeaponNum()`, and fails the active graph path on unresolved source chains.
+- Applied the guard before `chrGoToProp()`, gun-distance position reads, `OBJFLAG_FORCENOBOUNCE` mutation, clearing `chr->gunprop`, and `chrEquipWeapon()`. Live proof logs for `do_gun_command`, `if_distance_to_gun_less_than`, and `recover_gun` now carry `gun_model_id` and `weapon_id`.
+- Verification: scoped diff check PASS; `python tools\asset_native_source_guard.py` PASS; isolated `c3844gunprop` tests build PASS; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` PASS with 4,089 assertions / 25 cases; isolated `c3844gunprop` client build PASS; Extra25 Scenario source matrix PASS 138/138 at `.claude\smoke-verify-runs\results-20260603T233634Z.json` using `--boot-stage base:scenario_extra25` against the exact isolated `SourceBinary`.
+- Current state: B-593 closes the current-gun catalog-source proof gap found in the Scenario-last propagation pass. No retained smoke currently executes live gun-interaction proof, so this is static/build-covered plus source-only boot-smoked until a stable gun-interaction stage is identified. c3844 remains open for Scenario source-only/parity validation, remaining special setup semantics, and full source-derived nav behavior completeness.
+
+## 2026-06-03 - B-594 Scenario no-gun current-gun source validation
+
+- Followed up B-593 by auditing the sibling no-gun condition. `if_chr_has_no_gun` preserved the null-gun true branch, but any non-null `chr->gunprop` was silently treated as a false branch without proving the current gun prop and its weapon/model operands came from public catalog source.
+- Added current-gun validation to `scenarioSourceAiGraphExecuteIfChrHasNoGun()`. When a current gun prop exists, the graph path now calls `s_aiGraphRequireCurrentGunProp("if_chr_has_no_gun", ...)` before branch calculation or proof logging; the true no-gun path keeps `gun_model_id=none weapon_id=none`.
+- Static coverage pins the guard before `pass = chr && chr->model && chr->gunprop == NULL` and before the one-time `if_chr_has_no_gun` proof log. The log now carries `gun_model_id` and `weapon_id` so false-branch proof cannot hide an unresolved current-gun source chain.
+- Verification: scoped diff check PASS; `python tools\asset_native_source_guard.py` PASS; isolated `c3844nogun` tests build PASS; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` PASS with 4,097 assertions / 25 cases; isolated `c3844nogun` client build PASS; Extra25 Scenario source matrix PASS 138/138 at `.claude\smoke-verify-runs\results-20260603T234458Z.json` using `--boot-stage base:scenario_extra25` against the exact isolated `SourceBinary`.
+- Current state: B-594 closes the no-gun condition current-gun source-proof gap. No retained smoke currently executes the false current-gun branch live, so this is static/build-covered plus source-only boot-smoked until a stable no-gun/current-gun stage is identified. c3844 remains open for Scenario source-only/parity validation, remaining special setup semantics, and full source-derived nav behavior completeness.
+
+## 2026-06-03 - B-595 Scenario special-death catalog animation validation
+
+- Followed up B-594 by auditing `set_chr_special_death_animation`. The graph path preserved the legacy `specialdie` operand, but proof treated it as a numeric animation-like value and did not prove the concrete death animation rows behind explicit modes had public catalog source before `chr->specialdie` assignment.
+- Added `s_aiGraphResolveSpecialDeathAnimationCatalogIds()`. `SPECIALDIE_NONE` remains the no-asset sentinel, invalid modes fail through the source graph path, normal explicit modes resolve their `g_SpecialDieAnims` row through `catalogResolveAnim()`, and `SPECIALDIE_ONCHAIR` proves its primary, alternate, and chair fallback animation rows before assignment.
+- Updated proof logging to carry `specialdie`, `anim_id`, `alt_anim_id`, and `chair_fallback_anim_id`, and added static coverage that pins the helper, invalid-mode guard, validation-before-assignment ordering, and rejection of the old `animation=%d` proof field.
+- Verification: scoped diff check PASS; `python tools\asset_native_source_guard.py` PASS; isolated `c3844deathid` tests build PASS; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` PASS with 4,108 assertions / 25 cases; isolated `c3844deathid` client build PASS with `PerfectDark.exe` artifact/log sanity check; Extra25 Scenario source matrix PASS 138/138 at `.claude\smoke-verify-runs\results-20260604T000122Z.json` using `--boot-stage base:scenario_extra25` against the exact isolated `SourceBinary`.
+- Current state: B-595 closes the special-death catalog-animation proof gap. No retained smoke currently executes a live special-death assignment, so this is static/build-covered plus source-only boot-smoked until a stable special-death stage is identified. c3844 remains open for Scenario source-only/parity validation, remaining special setup semantics, and full source-derived nav behavior completeness.
+
+## 2026-06-03 - B-596 Scenario language-text catalog source validation
+
+- Followed up B-595 by auditing Scenario speech, quip, and HUD text proof. These paths still consumed legacy language text ids for parity, but their graph proof logged numeric `text=` operands and did not prove that the selected language bank came from public `.pdlang` catalog source before `langGet()` or display.
+- Added language-bank catalog resolution for graph text ids. The runtime now finds an enabled `ASSET_LANG` entry for the text id's bank, requires a public strings file, loads missing banks through `langManifestLoadBankFromCatalog()`, and fails unresolved real text ids through the source graph path instead of displaying unproven text.
+- Applied the guard to `speak`, `say_quip`, `show_hudmsg`, `show_hudmsg_middle`, and `show_hudmsg_top_middle`. Proof logs now use `text_id=<catalog-id>` or `none`; quip audio also resolves through the audio catalog before playback or recent-played mutation, including CI staff quips.
+- Static coverage pins the `.pdlang` helper split, audio/text helper use, new proof fields, and rejection of old numeric `text=` / `quip=` proof. The Scenario matrix required-line expectations were updated to the new `text_id`/`+lang` shape for the CI Training speech/HUD proof route while the old numeric text proof remains forbidden.
+- Verification: scoped diff check PASS; `python tools\asset_native_source_guard.py` PASS; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` PASS with 4,136 assertions / 25 cases; isolated `c3844langid` client build PASS with `PerfectDark.exe` artifact/log sanity check; Extra25 Scenario source matrix PASS 138/138 at `.claude\smoke-verify-runs\results-20260604T002453Z.json` using `--boot-stage base:scenario_extra25` against the exact isolated `SourceBinary`.
+- Caveat: a CI Training Scenario matrix attempt reached scripted exit but failed 4 route assertions because that retained route did not emit `set_savefile_flag`, `show_hudmsg_middle`, `speak`, or `do_preset_animation` proof in the run (`.claude\smoke-verify-runs\results-20260604T002227Z.json`). The produced log had no speech/HUD/quip text proof lines, so live text proof remains static/build-covered plus source-only boot-smoked until a stable text-action route is identified.
+- Current state: B-596 closes the language-text catalog-source proof gap found in the Scenario-last audit. c3844 remains open for Scenario source-only/parity validation, remaining special setup semantics, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-597 Scenario teleport/cutscene pad source validation
+
+- Followed up B-596 by auditing the remaining pad-backed player cutscene/teleport graph actions. `prepare_warp_orbit` proved only that public `pads.tsv` was bound before calling `playerPrepareWarpType3()`, and `chr_begin_or_end_teleport` wrote nonzero teleport pad state without proving the pad id came from the active source-built pad table.
+- Added source-pad validation before both live mutations. `prepare_warp_orbit` now validates `padnum` through `s_aiGraphRequireRuntimePad("prepare_warp_orbit", ...)` before warp-orbit setup, and `chr_begin_or_end_teleport` validates nonzero `pad_id` through `s_aiGraphRequireRuntimePad("chr_begin_or_end_teleport", ...)` before writing `g_Vars.currentplayer->teleportpad`. The zero teleport operand remains the exit-teleport sentinel.
+- Updated proof logging and static coverage so both paths carry `found`, `pad_rows`, and `+pads.tsv` backend evidence. Tests pin pad validation before `playerPrepareWarpType3()` and before `teleportpad` assignment.
+- Verification: scoped diff check PASS; `python tools\asset_native_source_guard.py` PASS; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` PASS with 4,147 assertions / 25 cases; isolated `c3844telepad` client build PASS; Extra25 Scenario source matrix PASS 138/138 at `.claude\smoke-verify-runs\results-20260604T003621Z.json` using `--boot-stage base:scenario_extra25` against the exact isolated `SourceBinary`.
+- Current state: B-597 closes the teleport/cutscene pad source-row validation gap found in the Scenario-last audit. No retained smoke currently executes live `chr_begin_or_end_teleport` proof, so that part remains static/build-covered plus source-only boot-smoked until a stable teleport stage is identified. c3844 remains open for Scenario source-only/parity validation, remaining special setup semantics, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-598 Scenario repeating pad-sound source validation
+
+- Followed up B-597 by auditing the remaining pad-backed audio graph action. `play_repeating_sound_from_pad` resolved the sound operand through the audio catalog but passed `padnum` directly into `psCreate(0, NULL, sound, padnum, ...)` without proving that the spatial sound anchor came from source-built `pads.tsv`.
+- Added source-pad validation before repeating sound creation. The graph path now requires a public `pads.tsv` binding and validates `padnum` through `s_aiGraphRequireRuntimePad("play_repeating_sound_from_pad", ...)` before audio resolution and `psCreate()`.
+- Updated proof logging and static coverage so the path carries `audio_id`, `pad`, `found`, `pad_rows`, and `+pads.tsv` backend evidence. Tests pin pad validation before `psCreate()` and reject old numeric `audio=` / `sound=` proof fields.
+- Verification: scoped diff check PASS; `python tools\asset_native_source_guard.py` PASS; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` PASS with 4,153 assertions / 25 cases; isolated `c3844audpad` client build PASS; Extra25 Scenario source matrix PASS 138/138 at `.claude\smoke-verify-runs\results-20260604T004556Z.json` using `--boot-stage base:scenario_extra25` against the exact isolated `SourceBinary`.
+- Current state: B-598 closes the repeating pad-sound source-row validation gap found in the Scenario-last audit. No retained smoke currently executes live `play_repeating_sound_from_pad` proof, so this remains static/build-covered plus source-only boot-smoked until a stable repeating-sound stage is identified. c3844 remains open for Scenario source-only/parity validation, remaining special setup semantics, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-599 Scenario near-pad target source validation
+
+- Followed up B-598 by auditing the remaining prop-target graph action with a direct pad operand. `set_chr_preset_to_chr_near_pad` required public `pads.tsv` at the graph node, but still passed `padnum` directly into `chrSetChrPresetToChrNearPad(preset, chr, distance, padnum)` without proving that the near-pad search anchor came from source-built runtime pad rows.
+- Added source-pad validation before near-pad target selection. The graph path now validates `padnum` through `s_aiGraphRequireRuntimePad("set_chr_preset_to_chr_near_pad", ...)` before `chrSetChrPresetToChrNearPad()` can run.
+- Updated proof logging and static coverage so the path carries `pad`, `found`, `pad_rows`, and `+pads.tsv` backend evidence. Tests pin pad validation before the live helper.
+- Verification: `python tools\asset_native_source_guard.py` PASS; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` PASS with 4,159 assertions / 25 cases; isolated `c3844nearpad` client build PASS; Extra25 Scenario source matrix PASS 138/138 at `.claude\smoke-verify-runs\results-20260604T005659Z.json` against the exact isolated `SourceBinary`.
+- Current state: B-599 closes the near-pad target source-row validation gap found in the Scenario-last audit. No retained smoke currently executes live `set_chr_preset_to_chr_near_pad` proof, so this remains static/build-covered plus source-only boot-smoked until a stable near-pad target stage is identified. c3844 remains open for Scenario source-only/parity validation, remaining special setup semantics, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-600 Scenario room-predicate pad source validation
+
+- Followed up B-599 by auditing room predicates that still derived rooms from direct pad operands. `if_room_is_on_screen`, `if_chr_in_room`, `if_target_in_room`, and `if_obj_in_room` now validate pad operands against the active source-built `pads.tsv` runtime table before `chrGetPadRoom()` can derive a room.
+- Updated object-room graph metadata, generated examples, conformance dependency checks, retained matrix expectations, and proof logging so object-room predicates declare `scenario.pads` and emit `+pads.tsv` backend evidence with `found`, `pad_rows`, and `pads=` source proof.
+- Static coverage pins validation before every affected `chrGetPadRoom()` call and checks the new proof strings for spatial-perception, room/object/weapon, and object-room predicate backends.
+- Verification: scoped diff/parser/JSON/py_compile checks PASS; `python tools\asset_native_source_guard.py` PASS after regenerating typed examples; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` PASS with 4,185 assertions / 25 cases; isolated `c3844roompad` client build PASS; Extra25 Scenario source matrix PASS 138/138 at `.claude\smoke-verify-runs\results-20260604T011014Z.json` against the exact isolated `SourceBinary`.
+- Caveat: CI Training reached scripted exit and proved the new pads-backed `if_obj_in_room` live line, but still failed the same four unrelated route assertions (`set_savefile_flag`, `show_hudmsg_middle`, `speak`, `do_preset_animation`) at `.claude\smoke-verify-runs\results-20260604T011213Z.json`.
+- Current state: B-600 closes the room-predicate pad source-row validation gap found in the Scenario-last audit. c3844 remains open for Scenario source-only/parity validation, remaining special setup semantics, and full source-derived nav behavior completeness.
+
+## 2026-06-04 - B-601 Scenario preset-animation catalog validation
+
+- Followed up B-600 by auditing the remaining preset animation graph path. `do_preset_animation` still selected hardcoded runtime animation numbers from legacy preset tables and logged only the numeric preset before playback.
+- The graph path now selects the legacy animation for parity, resolves the selected runtime animation through `s_aiGraphResolveAnimationCatalogId("do_preset_animation", ...)`, and only then calls `chrTryStartAnim()`. Presets that select no animation report `anim_id=none` without fabricating a source asset.
+- Static coverage pins catalog resolution before playback and checks the new `preset` plus `anim_id` proof. The Scenario matrix now requires `anim_id` for retained live proof and forbids the old numeric-only preset proof shape.
+- Verification: scoped diff check PASS; Scenario matrix PowerShell parser check PASS; `python tools\asset_native_source_guard.py` PASS; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` PASS with 4,197 assertions / 25 cases; isolated `c3844presetanim` client build PASS; Extra25 Scenario source matrix PASS 139/139 at `.claude\smoke-verify-runs\results-20260604T012340Z.json` against the exact isolated `SourceBinary`.
+- Caveat: CI Training reached scripted exit but still missed the same retained live route family, now failing `set_savefile_flag`, `show_hudmsg_middle`, `speak`, and the updated `do_preset_animation ... anim_id=...` assertion at `.claude\smoke-verify-runs\results-20260604T012544Z.json`.
+- Current state: B-601 closes the preset-animation catalog-source proof gap found in the Scenario-last audit. c3844 remains open for Scenario source-only/parity validation, remaining special setup semantics, and full source-derived nav behavior completeness.
+
+## 2026-06-05 - B-749/B-750 Scenario retained-route optional actor closure
+
+- Followed up the Rescue retained-route pass by fixing source-only failures where authored Scenario AI can legitimately reference no-live-actor selectors or optional runtime state. `set_target` now uses source-proven optional active/target character helpers and no-ops missing optional targets before `propGetIndexByChrId()`, while target-prop movement commands require optional active-character proof before `chrGoToTarget()`.
+- Preserved the earlier optional-selector hardening across object/inventory selectors, direct character flags, list/control/action state, MP3 speech resolution, and perception/alarm route setup. Normal numeric character refs remain strict source-row failures; only selector-aware optional paths may branch false or no-op when no live actor exists.
+- Expanded retained Scenario matrix assertions for stable stage routes: Airbase now proves perception/alarm `set_pad_route`, quadrant pad-preset, and vehicle motion; Extra16 proves player navigation and vehicle motion; Skedar Ruins proves quadrant pad-preset plus perception/alarm `set_pad_route`.
+- Verification: `python tools\asset_native_source_guard.py` PASS; `python -m py_compile tools\asset_native_source_guard.py` PASS; isolated `c3844routes` client build PASS; isolated `c3844routes` tests build PASS; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` PASS with 7,454 assertions / 25 cases; Skedar Ruins Scenario source matrix PASS 146/146 at `.claude\smoke-verify-runs\results-20260605T044335Z.json`; Airbase/Extra16/Skedar Ruins retained-route matrix PASS 150/150, 140/140, and 148/148 at `.claude\smoke-verify-runs\results-20260605T045118Z.json`.
+- Current state: B-749/B-750 closes the current Scenario-last retained-route blockers found in this pass. c3844 remains open only for broader Scenario parity and source-derived navigation behavior completeness, not for the optional actor route failures fixed here.
+
+## 2026-06-06 - c3844 Asset Pipeline runtime-source migration closeout
+
+- Finished the c3844 runtime-source closure pass. `.pdsong` sequence-only rows now prove public `sequence.mid`, compile public `sequence.tsv`, and refuse legacy sequence/ROM fallback in source-only mode. Catalog provider proof now uses source handles rather than raw source file numbers.
+- Closed the remaining Scenario runtime gaps found by the final matrix sweep: source setup character/record refs are retained, optional live character/object/path refs can no-op or branch false only after public source proof, MP participant characters count as source-backed, source vehicle ailist refs bind through setup data, and generated-nav/Scenario matrix proof now covers vehicle path, cover/route behavior, route-to-target pad preset, and broader source-derived navigation.
+- Switched both full matrix wrappers to the one-extraction method Mike requested. `run-scenario-source-matrix.ps1` and `run-all-family-source-matrix.ps1` accept `-Install` so tests reuse `.claude\smoke-verify-install`, and the non-Scenario matrix writes `type=id` lines to an asset-list file for `--debug-load-catalog-assets-file` instead of expanding thousands of IDs on the command line.
+- Verification passed: `python tools\asset_native_source_guard.py`; `python -m py_compile tools\asset_native_source_guard.py`; strict archive conformance over `.claude\smoke-verify-install\data\ntsc-final` (`root_archives=7616`, `checked_archives=8617`); full non-Scenario matrix as one file-backed batch (`7529/7529`, `.claude\smoke-verify-runs\results-20260606T030022Z.json`); focused c3842 (`519` assertions / `7` cases); focused c3844 (`7229` assertions / `19` cases); catalog-provider static (`11054` assertions / `33` cases).
+- Scenario verification: the all-87 run from the frozen install produced `85/87` because Defense and MP Temple crashed only on exit after all assertions passed (`.claude\smoke-verify-runs\results-20260606T025340Z.json`). Both residual entries passed cleanly on direct rerun (`.claude\smoke-verify-runs\results-20260606T025601Z.json`). No known c3844 runtime fallback remains; the retained caveat is the long all-up Scenario smoke harness exit-code artifact.
+
+## 2026-06-06 - B-769 mesh archive render parity gap
+
+- Investigated Mike's report that extracted archive meshes do not render properly in-game. Confirmed current `.pdmesh` source-only checks prove catalog FileProvider loading and generated modeldef creation, not rendered visual parity.
+- Focused `base:model_dy357_hi` source-only matrix passed 18/18 and built a generated modeldef from `.pdmesh::model.obj`; title-flow models also loaded through `.pdmesh::model.obj`. The generated modeldef path in `modasset_compiler.c` is lossy: one synthetic flat-triangle display-list node, no original texture/material configs, and no full model node/render-state parity.
+- Recorded B-769 as an open mesh render-parity bug. Next work should add visual/draw-call verification for representative `.pdmesh` assets and then fix the runtime importer/renderer path rather than treating source-load success as render success.
+
+## 2026-06-06 - B-769 source mesh render-state partial fix
+
+- Patched generated source-mesh modeldefs in `port/src/modasset_compiler.c` to stop inheriting the normal textured model render mode when the public `.pdmesh::model.obj` path has no real texture/material payload. Generated display lists now disable texture, clear inherited lighting/texture-gen/culling state, enable shaded vertex colors, and set `G_CC_SHADE` before emitting source triangles.
+- Added static coverage in `tests/test_mod_external_archive_static.cpp` so the generated modeldef path keeps the explicit shade-only render fallback alongside the existing matrix/vertex/triangle checks.
+- Verification passed: isolated `b769mesh` client build; isolated `b769mesh` test build; focused `[modding][pdmod][static][c3809]` with 663 assertions / 13 cases; `python tools\asset_native_source_guard.py`; focused `base:model_dy357_hi` all-family source matrix 18/18 at `.claude\smoke-verify-runs\results-20260606T035206Z.json` against the exact patched `PerfectDark.exe`.
+- Remaining B-769 gap: this fixes the bad no-texture render-state path, but it is not full visual parity. The archive still exports only stub materials, and there is no screenshot/pixel/draw-call smoke coverage yet for representative `.pdmesh` assets.
+
+## 2026-06-06 - B-769 generated mesh runtime draw proof
+
+- Added a generated source-model render audit flag. `--debug-generated-mesh-render-audit` enables a one-time `MODASSET.RENDER` log when a modeldef built from public mesh source reaches `modelRenderNodeDl()`, including catalog id, `.pdmesh::model.obj` source path, vertex/triangle counts, and skeleton.
+- Updated `weapon_match_source_gate_smoke` to prove the route it actually executes: the DY-357 match loads `base:model_chrdy357` from public `.pdmesh::model.obj`, and a visible Chicago world mesh (`base:model_taxicab`) renders through the generated source modeldef path with 262 source triangles. The scenario remains in `thirdperson_skip`, so it does not prove first-person `Gdy357Z` drawing.
+- Verification passed: `git diff --check` for the touched source/test/context files (line-ending warning only on existing context text); `python tools\asset_native_source_guard.py`; isolated `b769render` tests build; focused `[modding][pdmod][static][c3809]` with 678 assertions / 13 cases; `weapon_match_source_gate_smoke` PASS 36/36 at `.claude\smoke-verify-runs\results-20260606T041142Z.json`.
+- Remaining B-769 gap: source-built meshes now have a real draw-call proof and a safer no-texture render state, but full parity still needs material/texture/UV binding and original hierarchy preservation rather than the current one-node flat-triangle generated modeldef.
+
+## 2026-06-06 - B-769 source mesh UV preservation
+
+- Patched the OBJ source compiler so extracted `.pdmesh::model.obj` texture coordinates no longer get discarded on load. `parseObjSource()` now stores `vt` rows, parses `v/vt` face tokens, preserves per-corner texcoord indices through fan triangulation, and writes those coordinates back into generated runtime `Vtx.s/t` values using the inverse of the extractor's OBJ UV scaling.
+- Generated readable mesh/model caches now include `texcoord_count`, `texcoords`, and `triangle_texcoords`, and the generated modeldef build log reports `texcoords` plus `uv_vertices` so smokes can prove source UVs reached runtime model data. This remains a shade-only render fallback until material/texture config binding is restored.
+- Verification passed: scoped `git diff --check`; `python tools\asset_native_source_guard.py`; isolated `b769uv` client/updater build; isolated `b769uv` test build; focused `[modding][pdmod][static][c3809]` PASS with 686 assertions / 13 cases; focused `[modding][pdxxx][c3842]` PASS with 519 assertions / 7 cases; `weapon_match_source_gate_smoke` PASS 37/37 at `.claude\smoke-verify-runs\results-20260606T042604Z.json`, including `base:model_taxicab` with nonzero texcoord and UV-vertex counts before the render audit.
+- Remaining B-769 gap: this fixes extracted OBJ UV loss in the generated source-model path, but does not restore original material/texture configs, material-to-face binding, first-person weapon draw proof, or full original model hierarchy.
+
+## 2026-06-06 - B-769 first-person DY357 source mesh render proof
+
+- Added a smoke-only `--debug-force-first-person` boot route so the DY357 source-gated match can leave the startup cutscene, restore the queued DY357 after the transition to normal walk/tick mode, and hold the camera in the first-person render path before `lvRender()`.
+- Updated `weapon_match_source_gate_smoke` and static coverage to prove the path Mike called out: `base:model_dy357_hi` loads from `data/ntsc-final/meshes/base_model_dy357_hi.pdmesh::model.obj`, compiles with nonzero texcoords/UV vertices and 404 tris, reaches `MODASSET.RENDER`, and enters `bgunRender` as visible/in-use weapon 8 with a non-NULL generated gun modeldef.
+- Verification passed: `python tools\asset_native_source_guard.py`; isolated `b769fp` client/updater build; isolated `b769fp` test build; focused `[modding][pdmod][static][c3809]` PASS with 699 assertions / 13 cases; focused `[modding][pdxxx][c3842]` PASS with 519 assertions / 7 cases; `weapon_match_source_gate_smoke` PASS 43/43 at `.claude\smoke-verify-runs\results-20260606T045032Z.json`.
+- Remaining B-769 gap: first-person DY357 draw is now proven from public source, but material/texture config binding, material-to-face mapping, broader prop/title/body/head render proof, and original hierarchy parity remain open.
+
+## 2026-06-06 - B-769 source mesh material and texture binding
+
+- Fixed the remaining mesh-render defect behind Mike's report. `.pdmesh` extraction now preserves texture-marker boundaries into public `model.obj` `usemtl` switches and emits public `model.mtl` records with catalog texture IDs plus texture mode fields instead of a stub `pd_default` material. The generated modeldef compiler now loads sibling `model.mtl`, preserves material indices from OBJ faces, resolves catalog texture IDs to texture table IDs, emits generated texture markers, and expands them through `texLoadFromGdl()` so generated source meshes are no longer shade-only when the public mesh source carries texture metadata.
+- Kept texture-family override activation scoped. Globally assigning base texture rows to `source_texnum` exposed a separate public `.pdtexture` provider crash during body model texture expansion, so the mesh compiler now reads the catalog texture table ID directly for material markers without turning every base texture into a texnum override. That separate texture-provider path remains follow-up work outside this mesh-render fix.
+- Verification passed: `python tools\asset_native_source_guard.py`; isolated `b769mat` all-target build; isolated `b769mat` tests build; focused external archive/source guard/catalog tests all pass; and `weapon_match_source_gate_smoke` PASS 43/43 at `.claude\smoke-verify-runs\results-20260606T054051Z.json`. Runtime proof lines show `base:model_taxicab` built from public `.pdmesh::model.obj` with 786 texcoords, 19 materials, and 18 textured materials, while `base:model_dy357_hi` built with 1212 texcoords, 7 materials, 6 textured materials, reached `MODASSET.RENDER`, and was visible/in-use in first-person `bgunRender`.
+- Remaining B-769 scope: broader prop/title/body/head render proof and full original model hierarchy parity. The representative world and first-person weapon mesh material/UV/render path is now verified from public `.pdmesh` source.

@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_lift_hangar_cz",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_lift_hangar_cz.pdmesh::model.obj",
+  "source_size": 67147,
+  "source_sha256": "0ea31a4bf9ea9da0bc3b0dc86ddfba9f9fb87722b2c8b50b65601fb1a2298852",
+  "validation": "format=obj vertices=972 triangles=324",
+  "normalized": "$S/mod-cache/base/base_model_lift_hangar_cz/model-v2-0ea31a4bf9ea9da0bc3b0dc86ddfba9f9fb87722b2c8b50b65601fb1a2298852.pdmodel.json",
+  "vertex_count": 972,
+  "triangle_count": 324,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

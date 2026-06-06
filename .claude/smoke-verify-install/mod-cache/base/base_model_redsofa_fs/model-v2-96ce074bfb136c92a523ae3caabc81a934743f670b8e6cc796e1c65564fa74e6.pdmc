@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_redsofa_fs",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_redsofa_fs.pdmesh::model.obj",
+  "source_size": 8703,
+  "source_sha256": "96ce074bfb136c92a523ae3caabc81a934743f670b8e6cc796e1c65564fa74e6",
+  "validation": "format=obj vertices=135 triangles=45",
+  "normalized": "$S/mod-cache/base/base_model_redsofa_fs/model-v2-96ce074bfb136c92a523ae3caabc81a934743f670b8e6cc796e1c65564fa74e6.pdmodel.json",
+  "vertex_count": 135,
+  "triangle_count": 45,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

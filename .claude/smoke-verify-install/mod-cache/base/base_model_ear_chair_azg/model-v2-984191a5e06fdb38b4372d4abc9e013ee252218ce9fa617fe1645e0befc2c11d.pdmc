@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_ear_chair_azg",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_ear_chair_azg.pdmesh::model.obj",
+  "source_size": 21289,
+  "source_sha256": "984191a5e06fdb38b4372d4abc9e013ee252218ce9fa617fe1645e0befc2c11d",
+  "validation": "format=obj vertices=336 triangles=112",
+  "normalized": "$S/mod-cache/base/base_model_ear_chair_azg/model-v2-984191a5e06fdb38b4372d4abc9e013ee252218ce9fa617fe1645e0befc2c11d.pdmodel.json",
+  "vertex_count": 336,
+  "triangle_count": 112,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

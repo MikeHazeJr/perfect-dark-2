@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_testerbot",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_testerbot.pdmesh::model.obj",
+  "source_size": 11695,
+  "source_sha256": "2d03fc62b6a74bff9ef1d40fe3dbee7543b4268db63d110d051f46e92db869ef",
+  "validation": "format=obj vertices=180 triangles=60",
+  "normalized": "$S/mod-cache/base/base_model_testerbot/model-v2-2d03fc62b6a74bff9ef1d40fe3dbee7543b4268db63d110d051f46e92db869ef.pdmodel.json",
+  "vertex_count": 180,
+  "triangle_count": 60,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

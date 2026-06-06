@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:scenario_mp_g5building",
+  "mod_id": "base",
+  "kind": "scenario",
+  "source": "data/ntsc-final/scenarios/base_scenario_mp_g5building.pdscenario::scene.glb",
+  "source_size": 264856,
+  "source_sha256": "289e2a963c2dab3d4a435762d5b7af320edbbf28de3acc5a3bc94b82c4bccb6d",
+  "validation": "format=glb vertices=6894 triangles=2298",
+  "normalized": "$S/mod-cache/base/base_scenario_mp_g5building/scenario-v2-289e2a963c2dab3d4a435762d5b7af320edbbf28de3acc5a3bc94b82c4bccb6d.pdmesh.json",
+  "vertex_count": 6894,
+  "triangle_count": 2298,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

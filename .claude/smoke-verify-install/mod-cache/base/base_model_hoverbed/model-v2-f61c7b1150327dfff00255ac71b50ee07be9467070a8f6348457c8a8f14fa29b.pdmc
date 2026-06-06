@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_hoverbed",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_hoverbed.pdmesh::model.obj",
+  "source_size": 158253,
+  "source_sha256": "f61c7b1150327dfff00255ac71b50ee07be9467070a8f6348457c8a8f14fa29b",
+  "validation": "format=obj vertices=2313 triangles=771",
+  "normalized": "$S/mod-cache/base/base_model_hoverbed/model-v2-f61c7b1150327dfff00255ac71b50ee07be9467070a8f6348457c8a8f14fa29b.pdmodel.json",
+  "vertex_count": 2313,
+  "triangle_count": 771,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

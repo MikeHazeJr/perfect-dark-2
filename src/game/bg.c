@@ -1613,7 +1613,14 @@ static void bgBuildScenarioSourceTables(s32 stagenum)
 	var8007fc10 = 200;
 	wallhitReset();
 	func0f002a98();
-	func0f001c0c();
+	if (g_BgLightsFileData) {
+		func0f001c0c();
+	} else {
+		sysLogPrintf(LOG_NOTE,
+			"SCENARIO.SOURCE: skipped legacy dynamic-light precompute '%s' rooms=%d portals=%d source=scene.glb",
+			g_BgScenarioSourceId[0] ? g_BgScenarioSourceId : "?",
+			g_Vars.roomcount, g_BgNumPortalCameraCacheItems);
+	}
 
 	sysLogPrintf(LOG_NOTE,
 		"SCENARIO.SOURCE: built native background room tables '%s' rooms=%d tris=%d source=scene.glb",

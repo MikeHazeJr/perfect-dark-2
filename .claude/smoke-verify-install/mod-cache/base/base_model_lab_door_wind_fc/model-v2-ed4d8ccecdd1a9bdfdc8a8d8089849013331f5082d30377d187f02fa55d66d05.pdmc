@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_lab_door_wind_fc",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_lab_door_wind_fc.pdmesh::model.obj",
+  "source_size": 16740,
+  "source_sha256": "ed4d8ccecdd1a9bdfdc8a8d8089849013331f5082d30377d187f02fa55d66d05",
+  "validation": "format=obj vertices=258 triangles=86",
+  "normalized": "$S/mod-cache/base/base_model_lab_door_wind_fc/model-v2-ed4d8ccecdd1a9bdfdc8a8d8089849013331f5082d30377d187f02fa55d66d05.pdmodel.json",
+  "vertex_count": 258,
+  "triangle_count": 86,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

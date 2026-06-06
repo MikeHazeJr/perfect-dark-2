@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 1,
+  "asset_id": "base:model_chrdevastator",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_chrdevastator.pdmesh::model.obj",
+  "source_size": 10116,
+  "source_sha256": "1f98330caa4a32bf90f411d13b168d8a5e20741b07b71c9f8bc7c17ae390ecdb",
+  "validation": "format=obj vertices=153 triangles=51",
+  "normalized": "$S/mod-cache/base/base_model_chrdevastator/model-v1-1f98330caa4a32bf90f411d13b168d8a5e20741b07b71c9f8bc7c17ae390ecdb.pdmodel.json",
+  "vertex_count": 153,
+  "triangle_count": 51,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

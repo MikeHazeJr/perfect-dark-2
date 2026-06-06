@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_toilet_bag",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_toilet_bag.pdmesh::model.obj",
+  "source_size": 16935,
+  "source_sha256": "e11639ae31f0d2a927b5d78c7633938cb4954d166c03283bfafca81ad3172130",
+  "validation": "format=obj vertices=264 triangles=88",
+  "normalized": "$S/mod-cache/base/base_model_toilet_bag/model-v2-e11639ae31f0d2a927b5d78c7633938cb4954d166c03283bfafca81ad3172130.pdmodel.json",
+  "vertex_count": 264,
+  "triangle_count": 88,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

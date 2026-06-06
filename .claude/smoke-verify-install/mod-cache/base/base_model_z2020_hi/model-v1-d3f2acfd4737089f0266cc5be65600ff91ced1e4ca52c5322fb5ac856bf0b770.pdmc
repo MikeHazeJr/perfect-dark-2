@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 1,
+  "asset_id": "base:model_z2020_hi",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_z2020_hi.pdmesh::model.obj",
+  "source_size": 115752,
+  "source_sha256": "d3f2acfd4737089f0266cc5be65600ff91ced1e4ca52c5322fb5ac856bf0b770",
+  "validation": "format=obj vertices=1755 triangles=585",
+  "normalized": "$S/mod-cache/base/base_model_z2020_hi/model-v1-d3f2acfd4737089f0266cc5be65600ff91ced1e4ca52c5322fb5ac856bf0b770.pdmodel.json",
+  "vertex_count": 1755,
+  "triangle_count": 585,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

@@ -1,0 +1,40 @@
+﻿{
+    "Name":  "all_family_source_matrix_batch_001",
+    "Category":  "scenario",
+    "BugId":  null,
+    "RegressionFor":  null,
+    "Passed":  false,
+    "ExitCode":  2,
+    "ElapsedSeconds":  1.410709,
+    "InstallDir":  "C:\\Users\\mikeh\\Perfect-Dark-2\\perfect_dark-mike\\.claude\\smoke-verify-install",
+    "AssertionsTotal":  18,
+    "AssertionsMet":  13,
+    "Failures":  [
+                     {
+                         "Kind":  "required_line_missing",
+                         "Pattern":  "SMOKE: scenario=all_family_source_matrix_batch_001"
+                     },
+                     {
+                         "Kind":  "required_line_missing",
+                         "Pattern":  "BOOT: --debug-load-catalog-assets-file loaded 7529 line\\(s\\) from"
+                     },
+                     {
+                         "Kind":  "required_line_missing",
+                         "Pattern":  "SMOKE: result=scripted_exit"
+                     },
+                     {
+                         "Kind":  "required_count_out_of_range",
+                         "Pattern":  "BOOT: --debug-load-catalog-assets request type=.* source_only=1",
+                         "Count":  0,
+                         "Min":  7529,
+                         "Max":  7529
+                     },
+                     {
+                         "Kind":  "required_count_out_of_range",
+                         "Pattern":  "BOOT: --debug-load-catalog-assets result type=.* result=OK",
+                         "Count":  0,
+                         "Min":  7529,
+                         "Max":  7529
+                     }
+                 ]
+}

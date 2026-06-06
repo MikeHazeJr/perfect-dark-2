@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_cheadrobert",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_cheadrobert.pdmesh::model.obj",
+  "source_size": 33584,
+  "source_sha256": "de9e1b3d7015e83678d4ddc122828c78df06bbab024608929a5ade9d94cab82d",
+  "validation": "format=obj vertices=513 triangles=171",
+  "normalized": "$S/mod-cache/base/base_model_cheadrobert/model-v2-de9e1b3d7015e83678d4ddc122828c78df06bbab024608929a5ade9d94cab82d.pdmodel.json",
+  "vertex_count": 513,
+  "triangle_count": 171,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

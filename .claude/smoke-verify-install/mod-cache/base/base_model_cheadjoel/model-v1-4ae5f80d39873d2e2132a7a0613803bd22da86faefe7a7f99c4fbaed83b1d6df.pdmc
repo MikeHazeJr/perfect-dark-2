@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 1,
+  "asset_id": "base:model_cheadjoel",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_cheadjoel.pdmesh::model.obj",
+  "source_size": 36180,
+  "source_sha256": "4ae5f80d39873d2e2132a7a0613803bd22da86faefe7a7f99c4fbaed83b1d6df",
+  "validation": "format=obj vertices=555 triangles=185",
+  "normalized": "$S/mod-cache/base/base_model_cheadjoel/model-v1-4ae5f80d39873d2e2132a7a0613803bd22da86faefe7a7f99c4fbaed83b1d6df.pdmodel.json",
+  "vertex_count": 555,
+  "triangle_count": 185,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

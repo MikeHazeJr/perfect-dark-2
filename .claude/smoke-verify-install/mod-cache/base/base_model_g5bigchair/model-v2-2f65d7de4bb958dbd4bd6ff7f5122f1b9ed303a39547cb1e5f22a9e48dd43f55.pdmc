@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_g5bigchair",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_g5bigchair.pdmesh::model.obj",
+  "source_size": 43607,
+  "source_sha256": "2f65d7de4bb958dbd4bd6ff7f5122f1b9ed303a39547cb1e5f22a9e48dd43f55",
+  "validation": "format=obj vertices=627 triangles=209",
+  "normalized": "$S/mod-cache/base/base_model_g5bigchair/model-v2-2f65d7de4bb958dbd4bd6ff7f5122f1b9ed303a39547cb1e5f22a9e48dd43f55.pdmodel.json",
+  "vertex_count": 627,
+  "triangle_count": 209,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

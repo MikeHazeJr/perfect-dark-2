@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:darkaqualung",
+  "mod_id": "base",
+  "kind": "body",
+  "source": "data/ntsc-final/bodies/base_darkaqualung.pdbody::mesh.pdmesh::model.obj",
+  "source_size": 162702,
+  "source_sha256": "89858f58fefc92c9ce0c252c6a71a3ef6a29ac3da3dc23c8984237dbed26199c",
+  "validation": "format=obj vertices=2397 triangles=799",
+  "normalized": "$S/mod-cache/base/base_darkaqualung/body-v2-89858f58fefc92c9ce0c252c6a71a3ef6a29ac3da3dc23c8984237dbed26199c.pdmodel.json",
+  "vertex_count": 2397,
+  "triangle_count": 799,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

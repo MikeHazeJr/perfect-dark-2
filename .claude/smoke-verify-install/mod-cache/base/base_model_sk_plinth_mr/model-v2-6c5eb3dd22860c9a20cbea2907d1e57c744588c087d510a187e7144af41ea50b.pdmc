@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:model_sk_plinth_mr",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_sk_plinth_mr.pdmesh::model.obj",
+  "source_size": 1587,
+  "source_sha256": "6c5eb3dd22860c9a20cbea2907d1e57c744588c087d510a187e7144af41ea50b",
+  "validation": "format=obj vertices=21 triangles=7",
+  "normalized": "$S/mod-cache/base/base_model_sk_plinth_mr/model-v2-6c5eb3dd22860c9a20cbea2907d1e57c744588c087d510a187e7144af41ea50b.pdmodel.json",
+  "vertex_count": 21,
+  "triangle_count": 7,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}
