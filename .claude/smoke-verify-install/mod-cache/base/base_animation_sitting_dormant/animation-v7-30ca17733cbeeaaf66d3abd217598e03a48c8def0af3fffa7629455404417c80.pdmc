@@ -1,0 +1,14 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 7,
+  "asset_id": "base:animation_sitting_dormant",
+  "mod_id": "base",
+  "kind": "animation",
+  "source": "data/ntsc-final/animations/base_animation_sitting_dormant.pdanim::animation.gltf",
+  "source_size": 19787,
+  "source_sha256": "30ca17733cbeeaaf66d3abd217598e03a48c8def0af3fffa7629455404417c80",
+  "validation": "format=gltf animtableentry clips=1 frames=45 channels=15",
+  "normalized": "$S/mod-cache/base/base_animation_sitting_dormant/animation-v7-30ca17733cbeeaaf66d3abd217598e03a48c8def0af3fffa7629455404417c80.pdanimation.json",
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

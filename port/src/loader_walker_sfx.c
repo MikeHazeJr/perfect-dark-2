@@ -22,9 +22,21 @@ static s32 s_register(const char *manifest, size_t manifest_len,
     (void)pd_kind;
 
     s64 source_index = -1;
+    s64 key_min = 0;
+    s64 key_max = 127;
+    s64 key_base = 60;
+    s64 key_detune = 0;
+    s64 sample_pan = 64;
+    s64 sample_volume = 127;
     char source_member[128];
     char source_path[FS_MAXPATH + 1];
     loaderWalkerEnvelopeInt(manifest, manifest_len, "source_index", &source_index);
+    loaderWalkerEnvelopeInt(manifest, manifest_len, "key_min", &key_min);
+    loaderWalkerEnvelopeInt(manifest, manifest_len, "key_max", &key_max);
+    loaderWalkerEnvelopeInt(manifest, manifest_len, "key_base", &key_base);
+    loaderWalkerEnvelopeInt(manifest, manifest_len, "key_detune", &key_detune);
+    loaderWalkerEnvelopeInt(manifest, manifest_len, "sample_pan", &sample_pan);
+    loaderWalkerEnvelopeInt(manifest, manifest_len, "sample_volume", &sample_volume);
     if (!loaderWalkerEnvelopeStrCopy(manifest, manifest_len, "data",
                                      source_member, sizeof(source_member))) {
         strncpy(source_member, "sample.wav", sizeof(source_member) - 1);
@@ -40,6 +52,13 @@ static s32 s_register(const char *manifest, size_t manifest_len,
     if (e) {
         loaderWalkerMarkBaseArchiveEntry(e);
         e->source_soundnum = (s32)source_index;
+        e->ext.audio.has_keymap = 1;
+        e->ext.audio.key_min = (s32)key_min;
+        e->ext.audio.key_max = (s32)key_max;
+        e->ext.audio.key_base = (s32)key_base;
+        e->ext.audio.key_detune = (s32)key_detune;
+        e->ext.audio.sample_pan = (s32)sample_pan;
+        e->ext.audio.sample_volume = (s32)sample_volume;
         if (loaderWalkerArchiveMemberPath(file_path, source_member,
                                           source_path, sizeof(source_path))) {
             catalogSetPrimaryFile(e, source_path);

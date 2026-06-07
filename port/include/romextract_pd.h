@@ -64,7 +64,7 @@ s32 romExtractAllPdmesh(s32 force_rewrite);
  * Emit one .pdanim ZIP compound per registered weapon animation in the
  * loader pool.  Each archive carries category="weapon_animation" per
  * universality-pivot-schemas.md Section 2.6 plus animation.ini,
- * _meta/manifest.json, and opcodes.json.
+ * _meta/manifest.json, and commands.json.
  *
  * Returns: count of files newly written; -1 on infrastructure failure.
  */
@@ -162,8 +162,7 @@ s32 romExtractAllPdarena(s32 force_rewrite);
  * Compound layout per universality-pivot-schemas.md Section 2.6:
  *   animation.ini     editable descriptor
  *   _meta/manifest.json envelope + animation metadata + provenance
- *   header.tsv        editable header bytes
- *   frames.tsv        editable frame rows
+ *   animation.gltf    editable semantic animation channels
  *   _meta/*.sha256   source-file SHA-256 sidecars
  *
  * Catalog IDs derive from the loaderEnumNameForAnimEnum reverse

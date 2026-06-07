@@ -1,0 +1,18 @@
+{
+  "Name": "combat_sim_chicago_match_start",
+  "Category": "scenario",
+  "BugId": null,
+  "RegressionFor": null,
+  "Passed": false,
+  "ExitCode": -1073741819,
+  "ElapsedSeconds": 30.3135312,
+  "InstallDir": "C:\\Users\\mikeh\\Perfect-Dark-2\\perfect_dark-mike\\.claude\\smoke-verify-install",
+  "AssertionsTotal": 15,
+  "AssertionsMet": 14,
+  "Failures": [
+    {
+      "Kind": "required_line_missing",
+      "Pattern": "SMOKE: result=scripted_exit"
+    }
+  ]
+}

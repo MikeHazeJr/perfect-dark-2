@@ -9,6 +9,7 @@
 #include <PR/os_message.h>
 
 #include "lib/main.h"
+#include "lib/anim.h"
 #include "lib/mempc.h"
 #include "bss.h"
 #include "data.h"
@@ -1246,6 +1247,8 @@ static const char *g_BootDebugLoadCatalogAssetsArg = NULL;
 static const char *g_BootDebugLoadCatalogAssetsFileArg = NULL;
 static s32 g_BootDebugLoadCatalogAssetsSourceOnly = 0;
 static s32 g_BootDebugLoadCatalogAssetsPending = 0;
+static const char *g_BootDebugProbeAnimationSourceArg = NULL;
+static s32 g_BootDebugProbeAnimationSourceOnly = 0;
 
 static void bootApplyDebugLoadCatalogAssetToken(char *token,
 	s32 force_source_only)
@@ -1381,8 +1384,11 @@ static void bootArmDebugLoadCatalogAssets(void)
 	const char *arg = sysArgGetString("--debug-load-catalog-assets");
 	const char *file_arg =
 		sysArgGetString("--debug-load-catalog-assets-file");
+	const char *anim_probe =
+		sysArgGetString("--debug-probe-animation-source");
 
-	if ((!arg || !arg[0]) && (!file_arg || !file_arg[0])) {
+	if ((!arg || !arg[0]) && (!file_arg || !file_arg[0])
+			&& (!anim_probe || !anim_probe[0])) {
 		return;
 	}
 
@@ -1390,7 +1396,146 @@ static void bootArmDebugLoadCatalogAssets(void)
 	g_BootDebugLoadCatalogAssetsFileArg = file_arg;
 	g_BootDebugLoadCatalogAssetsSourceOnly =
 		sysArgCheck("--debug-load-catalog-assets-source-only");
+	g_BootDebugProbeAnimationSourceArg = anim_probe;
+	g_BootDebugProbeAnimationSourceOnly =
+		sysArgCheck("--debug-probe-animation-source-only")
+		|| g_BootDebugLoadCatalogAssetsSourceOnly;
 	g_BootDebugLoadCatalogAssetsPending = 1;
+}
+
+static f32 bootAbsF(f32 value)
+{
+	return value < 0.0f ? -value : value;
+}
+
+static s32 bootCoordIsDefault(const struct coord *rot,
+	const struct coord *translate, const struct coord *scale)
+{
+	const f32 eps = 0.0001f;
+	return bootAbsF(rot->x) < eps && bootAbsF(rot->y) < eps
+		&& bootAbsF(rot->z) < eps
+		&& bootAbsF(translate->x) < eps
+		&& bootAbsF(translate->y) < eps
+		&& bootAbsF(translate->z) < eps
+		&& bootAbsF(scale->x - 1.0f) < eps
+		&& bootAbsF(scale->y - 1.0f) < eps
+		&& bootAbsF(scale->z - 1.0f) < eps;
+}
+
+static s32 bootCoordChanged(const struct coord *rot0,
+	const struct coord *translate0, const struct coord *scale0,
+	const struct coord *rot1, const struct coord *translate1,
+	const struct coord *scale1)
+{
+	const f32 eps = 0.0001f;
+	return bootAbsF(rot0->x - rot1->x) > eps
+		|| bootAbsF(rot0->y - rot1->y) > eps
+		|| bootAbsF(rot0->z - rot1->z) > eps
+		|| bootAbsF(translate0->x - translate1->x) > eps
+		|| bootAbsF(translate0->y - translate1->y) > eps
+		|| bootAbsF(translate0->z - translate1->z) > eps
+		|| bootAbsF(scale0->x - scale1->x) > eps
+		|| bootAbsF(scale0->y - scale1->y) > eps
+		|| bootAbsF(scale0->z - scale1->z) > eps;
+}
+
+static void bootApplyDebugProbeAnimationSource(void)
+{
+	const char *asset_id = g_BootDebugProbeAnimationSourceArg;
+	asset_entry_t *entry;
+	const char *source_path;
+	s32 animnum;
+	s32 old_source_only;
+	s32 loaded;
+	u8 frame0;
+	u8 frame1;
+	s32 second_frame;
+	s32 non_default = 0;
+	s32 changed = 0;
+	s32 samples = 0;
+
+	if (!asset_id || !asset_id[0]) {
+		return;
+	}
+
+	sysLogPrintf(LOG_NOTE,
+		"BOOT: --debug-probe-animation-source request id='%s' source_only=%d",
+		asset_id, g_BootDebugProbeAnimationSourceOnly ? 1 : 0);
+
+	entry = assetCatalogGetMutable(asset_id);
+	if (!entry || entry->type != ASSET_ANIMATION) {
+		sysLogPrintf(LOG_WARNING,
+			"BOOT: --debug-probe-animation-source result id='%s' result=MISSING",
+			asset_id);
+		return;
+	}
+
+	animnum = entry->ext.anim.anim_id;
+	if (animnum < 0 || animnum >= g_NumAnimations || !g_Anims) {
+		sysLogPrintf(LOG_WARNING,
+			"BOOT: --debug-probe-animation-source result id='%s' result=INVALID_ANIM anim=%d",
+			asset_id, animnum);
+		return;
+	}
+
+	old_source_only = (s32)assetSourceDebugOnlyType();
+	if (g_BootDebugProbeAnimationSourceOnly) {
+		assetSourceDebugSetOnlyType(ASSET_ANIMATION);
+	}
+	source_path = catalogGetAnimOverride(animnum);
+
+	loaded = catalogLoadTypedAsset(ASSET_ANIMATION, asset_id);
+	if (!loaded) {
+		sysLogPrintf(LOG_WARNING,
+			"BOOT: --debug-probe-animation-source result id='%s' anim=%d result=LOAD_FAIL source=%s",
+			asset_id, animnum, source_path ? source_path : "(none)");
+		if (g_BootDebugProbeAnimationSourceOnly) {
+			assetSourceDebugSetOnlyType((asset_type_e)old_source_only);
+		}
+		return;
+	}
+
+	animLoadHeader((s16)animnum);
+	frame0 = animLoadFrame((s16)animnum, 0);
+	second_frame = g_Anims[animnum].numframes > 1 ? 1 : 0;
+	frame1 = animLoadFrame((s16)animnum, second_frame);
+
+	for (s32 part = 0; part < 128; part++) {
+		struct coord rot0;
+		struct coord translate0;
+		struct coord scale0;
+		struct coord rot1;
+		struct coord translate1;
+		struct coord scale1;
+
+		animGetRotTranslateScale(part, false, NULL, (s16)animnum,
+			frame0, &rot0, &translate0, &scale0);
+		animGetRotTranslateScale(part, false, NULL, (s16)animnum,
+			frame1, &rot1, &translate1, &scale1);
+		samples++;
+		if (!bootCoordIsDefault(&rot0, &translate0, &scale0)
+				|| !bootCoordIsDefault(&rot1, &translate1, &scale1)) {
+			non_default++;
+		}
+		if (bootCoordChanged(&rot0, &translate0, &scale0,
+				&rot1, &translate1, &scale1)) {
+			changed++;
+		}
+	}
+
+	sysLogPrintf(LOG_NOTE,
+		"BOOT: --debug-probe-animation-source result id='%s' anim=%d result=OK source=%s frames=%d bytes_per_frame=%d header_len=%d data=0x%x frame0_slot=%u frame1_slot=%u sampled_parts=%d non_default_parts=%d changed_parts=%d",
+		asset_id, animnum, source_path ? source_path : "(none)",
+		(s32)g_Anims[animnum].numframes,
+		(s32)g_Anims[animnum].bytesperframe,
+		(s32)g_Anims[animnum].headerlen,
+		(unsigned)g_Anims[animnum].data,
+		(unsigned)frame0, (unsigned)frame1,
+		samples, non_default, changed);
+
+	if (g_BootDebugProbeAnimationSourceOnly) {
+		assetSourceDebugSetOnlyType((asset_type_e)old_source_only);
+	}
 }
 
 s32 bootApplyDeferredDebugLoadCatalogAssets(void)
@@ -1405,6 +1550,7 @@ s32 bootApplyDeferredDebugLoadCatalogAssets(void)
 		g_BootDebugLoadCatalogAssetsSourceOnly);
 	bootApplyDebugLoadCatalogAssetsFile(g_BootDebugLoadCatalogAssetsFileArg,
 		g_BootDebugLoadCatalogAssetsSourceOnly);
+	bootApplyDebugProbeAnimationSource();
 	return 1;
 }
 

@@ -2960,6 +2960,7 @@ TEST_CASE("external models maps and animations compile from standard sources",
 	REQUIRE(compiler_h.find("MODASSET_COMPILER_VERSION") != std::string::npos);
 	REQUIRE(compiler_h.find("modasset_compiled_result_t") != std::string::npos);
 	REQUIRE(compiler_h.find("modAssetCompilerIsExternalSource") != std::string::npos);
+	REQUIRE(compiler_h.find("modAssetCompilerIsAnimationSource") != std::string::npos);
 	REQUIRE(compiler_h.find("modAssetCompilerCompileReadable") != std::string::npos);
 	REQUIRE(compiler_h.find("modAssetCompilerEnsureCache") != std::string::npos);
 	REQUIRE(compiler_h.find("modAssetCompilerBuildColmesh") != std::string::npos);
@@ -3019,7 +3020,10 @@ TEST_CASE("external models maps and animations compile from standard sources",
 	REQUIRE(compiler.find("meshAddTriangle(out_mesh") != std::string::npos);
 	REQUIRE(compiler.find("buildGeneratedModeldefFromMesh") != std::string::npos);
 	REQUIRE(compiler.find("generatedModeldefReadRenderStream") != std::string::npos);
-	REQUIRE(compiler.find("model.render.tsv") != std::string::npos);
+	REQUIRE(compiler.find("model.render.json") != std::string::npos);
+	REQUIRE(compiler.find("jsonObjectArray(root, \"commands\", &commands)") != std::string::npos);
+	REQUIRE(compiler.find("jsonObjectString(object, \"command\"") != std::string::npos);
+	REQUIRE(compiler.find("model.render.tsv") == std::string::npos);
 	REQUIRE(compiler.find("GENERATED_RENDER_OP_MTX") != std::string::npos);
 	REQUIRE(compiler.find("GENERATED_RENDER_OP_POP") != std::string::npos);
 	REQUIRE(compiler.find("generatedRenderStreamTriCount") != std::string::npos);
@@ -3042,6 +3046,11 @@ TEST_CASE("external models maps and animations compile from standard sources",
 	REQUIRE(compiler.find("textured_materials=%d") != std::string::npos);
 	REQUIRE(compiler.find("gSPVertex(gdl++") != std::string::npos);
 	REQUIRE(compiler.find("gSP1Triangle(gdl++") != std::string::npos);
+	REQUIRE(compiler.find("endsWithNoCase(path, \".gltf\")") != std::string::npos);
+	REQUIRE(compiler.find("endsWithNoCase(path, \".glb\")") != std::string::npos);
+	REQUIRE(compiler.find("buildAnimationClipFromTsv") == std::string::npos);
+	REQUIRE(compiler.find("animationSiblingPath(frames_path, \"header.tsv\"") ==
+	        std::string::npos);
 
 	std::string mesh_h = readFile("src/include/lib/meshcollision.h");
 	REQUIRE(mesh_h.find("void meshInit(struct colmesh *mesh)") != std::string::npos);
@@ -3049,7 +3058,7 @@ TEST_CASE("external models maps and animations compile from standard sources",
 
 	std::string load = readFile("port/src/assetcatalog_load.c");
 	REQUIRE(load.find("#include \"modasset_compiler.h\"") != std::string::npos);
-	REQUIRE(load.find("modAssetCompilerIsExternalSource(source_path)") != std::string::npos);
+	REQUIRE(load.find("modAssetCompilerIsAnimationSource(source_path)") != std::string::npos);
 	REQUIRE(load.find("modAssetCompilerCompileReadable(entry") != std::string::npos);
 	REQUIRE(load.find("modAssetCompilerBuildModeldef(entry") != std::string::npos);
 	REQUIRE(load.find("modAssetCompilerBuildColmesh(colmesh_source_path, mesh)") != std::string::npos);
@@ -3062,6 +3071,7 @@ TEST_CASE("external models maps and animations compile from standard sources",
 	REQUIRE(load.find("modAssetCompilerFreeModeldef") != std::string::npos);
 	REQUIRE(load.find("modAssetCompilerFreeAnimationClip") != std::string::npos);
 	REQUIRE(load.find("external %s source ready via private cache") != std::string::npos);
+	REQUIRE(load.find("modAssetCompilerIsExternalSource(source_path)") != std::string::npos);
 
 	std::string main_c = readFile("port/src/main.c");
 	REQUIRE(main_c.find("--debug-generated-mesh-render-audit") != std::string::npos);
@@ -3437,7 +3447,7 @@ TEST_CASE("modder examples are zip-openable typed pdxxx asset archives",
 	REQUIRE(mission.find("catalog_id = example:tri_mission") != std::string::npos);
 	REQUIRE(mission.find("mission_graph_file = mission.graph.json") != std::string::npos);
 	REQUIRE(mission.find("scenario_archive = dependencies/assets/scenarios/tri_scenario.pdscenario") != std::string::npos);
-	REQUIRE(mission.find("scenario_graph_cache = pdscenario_scene_glb_clean_public_v82_standalone_backfill_collision_obj_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_quip_shuffle_graph_portals_navhashes") != std::string::npos);
+	REQUIRE(mission.find("scenario_graph_cache = pdscenario_scene_glb_clean_public_v84_standalone_backfill_collision_obj_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_quip_shuffle_graph_portals_navhashes") != std::string::npos);
 	REQUIRE(mission.find("objectives_file = objectives.tsv") != std::string::npos);
 
 	const std::string gamemode = readArchiveEntryText(gamemodeArchivePath.c_str(), "gamemode.ini");
@@ -4508,7 +4518,7 @@ TEST_CASE("base scenario extractor emits standard map and text payloads",
 	REQUIRE(arena.find("texInflateNonZlib") != std::string::npos);
 	REQUIRE(arena.find("scene.glb") != std::string::npos);
 	REQUIRE(arena.find("stbi_write_png_to_mem") != std::string::npos);
-	REQUIRE(arena.find("bg_visual_scene_glb_v7_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound") != std::string::npos);
+	REQUIRE(arena.find("bg_visual_scene_glb_v9_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0") != std::string::npos);
 	REQUIRE(arena.find("s_existingArchiveEntryContains(relpath, \"scene.glb\",") !=
 	        std::string::npos);
 	REQUIRE(arena.find("PDSCENARIO_BG_VISUAL_EXPORT_VERSION)") !=
@@ -4518,6 +4528,7 @@ TEST_CASE("base scenario extractor emits standard map and text payloads",
 	REQUIRE(arena.find("s_bgMaterialGlbAuthorUv") != std::string::npos);
 	REQUIRE(arena.find("s_bgMaterialGlbUv") != std::string::npos);
 	REQUIRE(arena.find("\\\"TEXCOORD_1\\\":%u") != std::string::npos);
+	REQUIRE(arena.find("\\\"COLOR_0\\\":%u") != std::string::npos);
 	REQUIRE(arena.find("\\\"baseColorTexture\\\":{\\\"index\\\":%d,\\\"texCoord\\\":0}") !=
 	        std::string::npos);
 	REQUIRE(arena.find("s_bgGltfWrapMode") != std::string::npos);
@@ -4543,6 +4554,7 @@ TEST_CASE("base scenario extractor emits standard map and text payloads",
 	REQUIRE(conformance.find("TEXCOORD_0 range") != std::string::npos);
 	REQUIRE(conformance.find("DCC-authoring UV range") != std::string::npos);
 	REQUIRE(conformance.find("TEXCOORD_1 runtime UVs") != std::string::npos);
+	REQUIRE(conformance.find("COLOR_0 vertex colors") != std::string::npos);
 	REQUIRE(conformance.find("visible textures to TEXCOORD_0") !=
 	        std::string::npos);
 	REQUIRE(arena.find("mat_%03u_tex_%04x") != std::string::npos);
@@ -5073,10 +5085,15 @@ TEST_CASE("base audio extractors emit accessible wav payloads",
 	        std::string::npos);
 	REQUIRE(audio.find("s_existingArchiveHasEntry(dst_rel, \"sample.wav\")") !=
 	        std::string::npos);
+	REQUIRE(audio.find("s_existingArchiveEntryContains(dst_rel, \"_meta/manifest.json\"") !=
+	        std::string::npos);
 	REQUIRE(audio.find("file_path = sample.wav") != std::string::npos);
 	REQUIRE(audio.find("\\\"data\\\": \\\"sample.wav\\\"") !=
 	        std::string::npos);
 	REQUIRE(audio.find("source_format = %s") != std::string::npos);
+	REQUIRE(audio.find("key_base = %u") != std::string::npos);
+	REQUIRE(audio.find("\\\"key_base\\\": %u") != std::string::npos);
+	REQUIRE(audio.find("key_detune = %d") != std::string::npos);
 
 	REQUIRE(audio.find("modArchiveAddFileMem(aw, \"sample.bin\"") ==
 	        std::string::npos);
@@ -5149,7 +5166,7 @@ TEST_CASE("base font extractor emits editable bitmap font payloads",
 	        std::string::npos);
 }
 
-TEST_CASE("base song extractor emits midi and editable event payloads",
+TEST_CASE("base song extractor emits midi and semantic event payloads",
           "[modding][pdxxx][base][static][c3812]") {
 	const std::string song = readFile("port/src/romextract_pdsong.c");
 	REQUIRE(!song.empty());
@@ -5161,16 +5178,20 @@ TEST_CASE("base song extractor emits midi and editable event payloads",
 	REQUIRE(song.find("s_existingArchiveHasSongPayloads") !=
 	        std::string::npos);
 	REQUIRE(song.find("sequence.mid") != std::string::npos);
-	REQUIRE(song.find("sequence.tsv") != std::string::npos);
+	REQUIRE(song.find("sequence.json") != std::string::npos);
+	REQUIRE(song.find("song_sequence") != std::string::npos);
+	REQUIRE(song.find("\\\"events\\\": [") != std::string::npos);
+	REQUIRE(song.find("s_bytebufAppendJsonString") != std::string::npos);
 	REQUIRE(song.find("music_file = sequence.mid") != std::string::npos);
 	REQUIRE(song.find("midi_file = sequence.mid") != std::string::npos);
-	REQUIRE(song.find("events_file = sequence.tsv") != std::string::npos);
+	REQUIRE(song.find("events_file = sequence.json") != std::string::npos);
 	REQUIRE(song.find("assetArchiveWriterAddPublicMem(&asset_writer, \"sequence.mid\"") !=
 	        std::string::npos);
-	REQUIRE(song.find("assetArchiveWriterAddPublicMem(&asset_writer, \"sequence.tsv\"") !=
+	REQUIRE(song.find("assetArchiveWriterAddPublicMem(&asset_writer, \"sequence.json\"") !=
 	        std::string::npos);
 	REQUIRE(song.find("assetArchiveWriterFinishMetadata(&asset_writer)") !=
 	        std::string::npos);
+	REQUIRE(song.find("sequence.tsv") == std::string::npos);
 
 	REQUIRE(song.find("music_file = data.bin") == std::string::npos);
 	REQUIRE(song.find("\\\"data\\\": \\\"data.bin\\\"") == std::string::npos);
@@ -5178,26 +5199,32 @@ TEST_CASE("base song extractor emits midi and editable event payloads",
 	        std::string::npos);
 }
 
-TEST_CASE("base character animation extractor emits editable tsv payloads",
+TEST_CASE("base character animation extractor emits semantic gltf payloads",
           "[modding][pdxxx][base][static][c3812]") {
 	const std::string anim = readFile("port/src/romextract_pdanim_chr.c");
 	REQUIRE(!anim.empty());
 
-	REQUIRE(anim.find("s_buildHeaderTsv") != std::string::npos);
-	REQUIRE(anim.find("s_buildFramesTsv") != std::string::npos);
+	REQUIRE(anim.find("s_buildAnimationGltf") != std::string::npos);
+	REQUIRE(anim.find("s_decodePartFrame") != std::string::npos);
+	REQUIRE(anim.find("s_animDescriptorHeaderLen") != std::string::npos);
 	REQUIRE(anim.find("s_existingArchiveHasAnimPayloads") !=
 	        std::string::npos);
-	REQUIRE(anim.find("header.tsv") != std::string::npos);
-	REQUIRE(anim.find("frames.tsv") != std::string::npos);
-	REQUIRE(anim.find("header_file = header.tsv") != std::string::npos);
-	REQUIRE(anim.find("frames_file = frames.tsv") != std::string::npos);
-	REQUIRE(anim.find("assetArchiveWriterAddPublicMem(&asset_writer, \"header.tsv\"") !=
+	REQUIRE(anim.find("PDANIM_CHR_SCHEMA_VERSION 3") !=
 	        std::string::npos);
-	REQUIRE(anim.find("assetArchiveWriterAddPublicMem(&asset_writer, \"frames.tsv\"") !=
+	REQUIRE(anim.find("\\\"runtime_source\\\": \\\"animation.gltf\\\"") !=
+	        std::string::npos);
+	REQUIRE(anim.find("animation.gltf") != std::string::npos);
+	REQUIRE(anim.find("animation_file = animation.gltf") != std::string::npos);
+	REQUIRE(anim.find("assetArchiveWriterAddPublicMem(&asset_writer, \"animation.gltf\"") !=
 	        std::string::npos);
 	REQUIRE(anim.find("assetArchiveWriterFinishMetadata(&asset_writer)") !=
 	        std::string::npos);
+	REQUIRE(anim.find("\\\"pd_anim_flags\\\"") != std::string::npos);
+	REQUIRE(anim.find("\\\"pd_repeat_ranges\\\"") != std::string::npos);
+	REQUIRE(anim.find("\\\"pd_cut_skip_frames\\\"") != std::string::npos);
 
+	REQUIRE(anim.find("header.tsv") == std::string::npos);
+	REQUIRE(anim.find("frames.tsv") == std::string::npos);
 	REQUIRE(anim.find("frames_file = frames.bin") == std::string::npos);
 	REQUIRE(anim.find("\\\"frames\\\": \\\"frames.bin\\\"") ==
 	        std::string::npos);
@@ -5205,10 +5232,46 @@ TEST_CASE("base character animation extractor emits editable tsv payloads",
 	        std::string::npos);
 }
 
-TEST_CASE("base weapon animation extractor emits zip-openable opcode payloads",
+TEST_CASE("animation compiler reads full embedded gltf buffer uris",
+          "[modding][pdxxx][base][static][c3812][B-772]") {
+	const std::string compiler = readFile("port/src/modasset_compiler.c");
+	REQUIRE(!compiler.empty());
+
+	REQUIRE(compiler.find("jsonObjectStringAlloc") != std::string::npos);
+	REQUIRE(compiler.find("char uri[4096]") == std::string::npos);
+	REQUIRE(compiler.find("char uri[8192]") == std::string::npos);
+
+	const auto animationParser =
+		compiler.find("static s32 parseGltfTextAnimationClip");
+	REQUIRE(animationParser != std::string::npos);
+	const auto animationAlloc =
+		compiler.find("jsonObjectStringAlloc(buffer_object, \"uri\")",
+			animationParser);
+	REQUIRE(animationAlloc != std::string::npos);
+	const auto decode =
+		compiler.find("decodeGltfDataUri(uri, &bin_size)", animationAlloc);
+	REQUIRE(decode != std::string::npos);
+	const auto uriFree = compiler.find("free(uri)", decode);
+	REQUIRE(uriFree != std::string::npos);
+
+	REQUIRE(compiler.find("parseGltfAnimationNativeExtras") !=
+	        std::string::npos);
+	REQUIRE(compiler.find("pd_anim_flags") != std::string::npos);
+	REQUIRE(compiler.find("pd_repeat_ranges") != std::string::npos);
+	REQUIRE(compiler.find("pd_cut_skip_frames") != std::string::npos);
+	REQUIRE(compiler.find("ANIMFLAG_HASREPEATFRAMES") !=
+	        std::string::npos);
+	REQUIRE(compiler.find("ANIMFLAG_HASCUTSKIPFRAMES") !=
+	        std::string::npos);
+	REQUIRE(compiler.find("writeBe16(p, 0xffff)") != std::string::npos);
+}
+
+TEST_CASE("base weapon animation extractor emits zip-openable command payloads",
           "[modding][pdxxx][base][static][c3812]") {
 	const std::string anim = readFile("port/src/romextract_pdanim.c");
+	const std::string pool = readFile("port/src/loader_pool.c");
 	REQUIRE(!anim.empty());
+	REQUIRE(!pool.empty());
 
 	REQUIRE(anim.find("s_existingArchiveHasAnimPayloads") !=
 	        std::string::npos);
@@ -5217,15 +5280,26 @@ TEST_CASE("base weapon animation extractor emits zip-openable opcode payloads",
 	        std::string::npos);
 	REQUIRE(anim.find("assetArchiveWriterAddManifestJson(&asset_writer") !=
 	        std::string::npos);
-	REQUIRE(anim.find("assetArchiveWriterAddPublicMem(&asset_writer, \"opcodes.json\"") !=
+	REQUIRE(anim.find("assetArchiveWriterAddPublicMem(&asset_writer, \"commands.json\"") !=
 	        std::string::npos);
 	REQUIRE(anim.find("assetArchiveWriterFinishMetadata(&asset_writer)") !=
 	        std::string::npos);
 	REQUIRE(anim.find("category = weapon_animation") != std::string::npos);
+	REQUIRE(anim.find("source_format = weapon_animation_commands") != std::string::npos);
+	REQUIRE(anim.find("commands_file = commands.json") != std::string::npos);
+	REQUIRE(anim.find("\\\"commands\\\": [") != std::string::npos);
+	REQUIRE(anim.find("\\\"command\\\": ") != std::string::npos);
+	REQUIRE(anim.find("catalogReadableSfxId") != std::string::npos);
+	REQUIRE(anim.find("catalogReadableAnimationId") != std::string::npos);
 	REQUIRE(anim.find("\\\"category\\\": \\\"weapon_animation\\\"") !=
 	        std::string::npos);
+	REQUIRE(pool.find("decodeCommandObject") != std::string::npos);
+	REQUIRE(pool.find("jread_audio_catalog_or_enum") != std::string::npos);
+	REQUIRE(pool.find("s_resolveAnimationCatalogOrEnumName") != std::string::npos);
+	REQUIRE(pool.find("jstream_str_eq(&s->cur, \"commands\")") != std::string::npos);
 	REQUIRE(anim.find("fsFileOpenWrite(relpath)") == std::string::npos);
 	REQUIRE(anim.find("emits one JSON") == std::string::npos);
+	REQUIRE(anim.find("opcodes_file = opcodes.json") == std::string::npos);
 }
 
 TEST_CASE("base mesh extractor emits standard obj geometry payloads",
@@ -5239,9 +5313,9 @@ TEST_CASE("base mesh extractor emits standard obj geometry payloads",
 
 	REQUIRE(mesh.find("s_buildModelObj") != std::string::npos);
 	REQUIRE(mesh.find("s_exportGdlToObj") != std::string::npos);
-	REQUIRE(mesh.find("ROMEXTRACT_PDMESH_OBJ_EXPORT_VERSION_LABEL \"model_obj_mtx_v18_materials_hierarchy_parts_scale_faces_relations_raw_mtx_render_stream\"") !=
+	REQUIRE(mesh.find("ROMEXTRACT_PDMESH_OBJ_EXPORT_VERSION_LABEL \"model_obj_mtx_v19_materials_hierarchy_parts_scale_faces_relations_raw_mtx_render_commands_json\"") !=
 	        std::string::npos);
-	REQUIRE(mesh.find("ROMEXTRACT_PDMESH_FAST_CACHE_KIND \"pdmesh_model_obj_mtx_v20_materials_hierarchy_parts_scale_faces_relations_raw_mtx_render_stream_allmodels_menuhud\"") !=
+	REQUIRE(mesh.find("ROMEXTRACT_PDMESH_FAST_CACHE_KIND \"pdmesh_model_obj_mtx_v21_materials_hierarchy_parts_scale_faces_relations_raw_mtx_render_commands_json_allmodels_menuhud\"") !=
 	        std::string::npos);
 	REQUIRE(mesh.find("catalogReadableModelIdForFile((s32)FILE_GHUDPIECE, \"menu\", \"menu\"") !=
 	        std::string::npos);
@@ -5317,10 +5391,14 @@ TEST_CASE("base mesh extractor emits standard obj geometry payloads",
 	REQUIRE(mesh.find("model.nodes.tsv") != std::string::npos);
 	REQUIRE(mesh.find("model.parts.tsv") != std::string::npos);
 	REQUIRE(mesh.find("model.faces.tsv") != std::string::npos);
-	REQUIRE(mesh.find("model.render.tsv") != std::string::npos);
+	REQUIRE(mesh.find("model.render.json") != std::string::npos);
 	REQUIRE(mesh.find("s_objAppendRenderRow") != std::string::npos);
-	REQUIRE(mesh.find("\"group\\top\\tface\\tmatrix\\tparams\\tmaterial\\n\"") !=
+	REQUIRE(mesh.find("\\\"pd_kind\\\": \\\"mesh_render_commands\\\"") !=
 	        std::string::npos);
+	REQUIRE(mesh.find("\\\"face_index\\\": %d") != std::string::npos);
+	REQUIRE(mesh.find("\\\"matrix_flags\\\": %u") != std::string::npos);
+	REQUIRE(mesh.find("\\\"material_index\\\": %d") != std::string::npos);
+	REQUIRE(mesh.find("model.render.tsv") == std::string::npos);
 	REQUIRE(mesh.find("cmd == (u8)G_POPMTX && w1 != 0") == std::string::npos);
 	REQUIRE(mesh.find("distance_near") != std::string::npos);
 	REQUIRE(mesh.find("reorder_target_a") != std::string::npos);
@@ -5333,7 +5411,7 @@ TEST_CASE("base mesh extractor emits standard obj geometry payloads",
 	REQUIRE(mesh.find("hierarchy_file = model.nodes.tsv") != std::string::npos);
 	REQUIRE(mesh.find("parts_file = model.parts.tsv") != std::string::npos);
 	REQUIRE(mesh.find("faces_file = model.faces.tsv") != std::string::npos);
-	REQUIRE(mesh.find("render_stream_file = model.render.tsv") != std::string::npos);
+	REQUIRE(mesh.find("render_stream_file = model.render.json") != std::string::npos);
 	REQUIRE(mesh.find("model_scale = %.9g") != std::string::npos);
 	REQUIRE(mesh.find("\\\"model_scale\\\": %.9g") != std::string::npos);
 	REQUIRE(mesh.find("node_count = %u") != std::string::npos);
@@ -5358,7 +5436,7 @@ TEST_CASE("base mesh extractor emits standard obj geometry payloads",
 	        std::string::npos);
 	REQUIRE(mesh.find("assetArchiveWriterAddPublicMem(&asset_writer, \"model.faces.tsv\"") !=
 	        std::string::npos);
-	REQUIRE(mesh.find("assetArchiveWriterAddPublicMem(&asset_writer, \"model.render.tsv\"") !=
+	REQUIRE(mesh.find("assetArchiveWriterAddPublicMem(&asset_writer, \"model.render.json\"") !=
 	        std::string::npos);
 	REQUIRE(mesh.find("assetArchiveWriterFinishMetadata(&asset_writer)") !=
 	        std::string::npos);

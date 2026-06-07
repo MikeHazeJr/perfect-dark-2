@@ -1217,6 +1217,13 @@ asset_entry_t *assetCatalogRegisterAudio(const char *id, s32 sound_id,
         }
         entry->ext.audio.category = category;
         entry->ext.audio.duration_ms = duration_ms;
+        entry->ext.audio.has_keymap = 0;
+        entry->ext.audio.key_min = 0;
+        entry->ext.audio.key_max = 127;
+        entry->ext.audio.key_base = 60;
+        entry->ext.audio.key_detune = 0;
+        entry->ext.audio.sample_pan = 64;
+        entry->ext.audio.sample_volume = 127;
         if (file_path != NULL) {
             strncpy(entry->ext.audio.file_path, file_path, 127);
             entry->ext.audio.file_path[127] = '\0';

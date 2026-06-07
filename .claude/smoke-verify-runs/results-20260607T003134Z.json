@@ -1,0 +1,13 @@
+{
+  "Name": "base_animation_source_probe_smoke",
+  "Category": "scenario",
+  "BugId": null,
+  "RegressionFor": null,
+  "Passed": true,
+  "ExitCode": 0,
+  "ElapsedSeconds": 33.3844831,
+  "InstallDir": "C:\\Users\\mikeh\\Perfect-Dark-2\\perfect_dark-mike\\.claude\\smoke-verify-install",
+  "AssertionsTotal": 19,
+  "AssertionsMet": 19,
+  "Failures": []
+}

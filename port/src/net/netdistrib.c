@@ -1335,7 +1335,7 @@ static void populateExtFromIni(asset_entry_t *e, asset_type_e type, const char *
                 sizeof(e->ext.anim.target_body) - 1);
         {
             const char *af = iniGet(ini, "animation_file",
-                iniGet(ini, "file_path", ""));
+                iniGet(ini, "commands_file", iniGet(ini, "file_path", "")));
             if (af[0]) {
                 distribSetPrimaryFromFile(e, dirpath, af);
             }
@@ -1395,6 +1395,14 @@ static void populateExtFromIni(asset_entry_t *e, asset_type_e type, const char *
                 iniGet(ini, "kind",
                 iniGet(ini, "category", ""))), AUDIO_CAT_SFX);
         e->ext.audio.duration_ms = iniGetInt(ini, "duration_ms", 0);
+        e->ext.audio.has_keymap = iniGetInt(ini, "has_keymap",
+            iniGet(ini, "key_base", NULL) != NULL ? 1 : 0);
+        e->ext.audio.key_min = iniGetInt(ini, "key_min", 0);
+        e->ext.audio.key_max = iniGetInt(ini, "key_max", 127);
+        e->ext.audio.key_base = iniGetInt(ini, "key_base", 60);
+        e->ext.audio.key_detune = iniGetInt(ini, "key_detune", 0);
+        e->ext.audio.sample_pan = iniGetInt(ini, "sample_pan", 64);
+        e->ext.audio.sample_volume = iniGetInt(ini, "sample_volume", 127);
         strncpy(e->ext.audio.file_path, iniGet(ini, "file_path", ""),
                 sizeof(e->ext.audio.file_path) - 1);
         if (e->ext.audio.file_path[0]) {

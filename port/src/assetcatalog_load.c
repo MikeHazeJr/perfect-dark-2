@@ -651,7 +651,6 @@ static s32 s_catalogTypeUsesMetadataRuntimePayload(asset_type_e type)
     return type == ASSET_MAP
         || type == ASSET_WEAPON
         || type == ASSET_CHARACTER
-        || type == ASSET_ANIMATION
         || type == ASSET_TEXTURES
         || type == ASSET_SFX
         || type == ASSET_MUSIC
@@ -779,17 +778,20 @@ static s32 s_catalogLoadEntryAnimationPayload(asset_entry_t *entry)
     s32 compile_result;
     s32 clip_result;
 
-    if (!modAssetCompilerIsExternalSource(source_path)) {
+    if (!modAssetCompilerIsAnimationSource(source_path)) {
         return 0;
     }
 
-    compile_result = modAssetCompilerCompileReadable(entry, "animation",
-        source_path, &compiled);
-    if (compile_result < 0) {
-        sysLogPrintf(LOG_WARNING,
-                     "CATALOG.LIFECYCLE.ACTIVATE: '%s' external animation cache failed",
-                     entry->id);
-        return -1;
+    memset(&compiled, 0, sizeof(compiled));
+    if (modAssetCompilerIsExternalSource(source_path)) {
+        compile_result = modAssetCompilerCompileReadable(entry, "animation",
+            source_path, &compiled);
+        if (compile_result < 0) {
+            sysLogPrintf(LOG_WARNING,
+                         "CATALOG.LIFECYCLE.ACTIVATE: '%s' external animation cache failed",
+                         entry->id);
+            return -1;
+        }
     }
 
     clip_result = modAssetCompilerBuildAnimationClip(entry, source_path,
@@ -1047,6 +1049,13 @@ static s32 s_catalogLoadEntry(asset_entry_t *entry, asset_type_e expected_type)
         return 0;
     }
 
+    if (entry->type == ASSET_ANIMATION) {
+        s32 animation_payload = s_catalogLoadEntryAnimationPayload(entry);
+        if (animation_payload != 0) {
+            return animation_payload > 0;
+        }
+    }
+
     if ((entry->bundled || entry->ref_count == ASSET_REF_BUNDLED)
             && entry->source.primary.provider == fileProvider()
             && s_catalogTypeUsesMetadataRuntimePayload(entry->type)) {
@@ -1101,13 +1110,6 @@ static s32 s_catalogLoadEntry(asset_entry_t *entry, asset_type_e expected_type)
 
     if (entry->type == ASSET_LANG) {
         return s_catalogLoadEntryLangPayload(entry);
-    }
-
-    if (entry->type == ASSET_ANIMATION) {
-        s32 animation_payload = s_catalogLoadEntryAnimationPayload(entry);
-        if (animation_payload != 0) {
-            return animation_payload > 0;
-        }
     }
 
     if (s_catalogTypeUsesMetadataRuntimePayload(entry->type)) {

@@ -55,6 +55,10 @@ struct Vertex {
 	float z;
 	float u;
 	float v;
+	float r;
+	float g;
+	float b;
+	float a;
 };
 
 struct DrawGroup {
@@ -208,6 +212,24 @@ static bool readFloatVec3(const Accessor &a,
 	*x = readLeFloat(p);
 	*y = readLeFloat(p + 4);
 	*z = readLeFloat(p + 8);
+	return true;
+}
+
+static bool readFloatVec4(const Accessor &a,
+	const std::vector<BufferView> &views, const uint8_t *bin,
+	uint32_t bin_size, uint32_t index, float *x, float *y, float *z, float *w)
+{
+	uint32_t stride = 0;
+	const uint8_t *data = accessorData(a, views, bin, bin_size, &stride);
+	if (!data || a.component_type != 5126 || a.type != "VEC4"
+			|| index >= a.count) {
+		return false;
+	}
+	const uint8_t *p = data + stride * index;
+	*x = readLeFloat(p);
+	*y = readLeFloat(p + 4);
+	*z = readLeFloat(p + 8);
+	*w = readLeFloat(p + 12);
 	return true;
 }
 
@@ -371,6 +393,7 @@ static bool appendPrimitive(const crude_json::value &prim,
 	if (uv_i < 0) {
 		uv_i = findAttr("TEXCOORD_0");
 	}
+	int color_i = findAttr("COLOR_0");
 	if (pos_i < 0 || uv_i < 0 || (size_t)pos_i >= accessors.size()
 			|| (size_t)uv_i >= accessors.size()) {
 		return false;
@@ -378,7 +401,10 @@ static bool appendPrimitive(const crude_json::value &prim,
 
 	const Accessor &pos = accessors[(size_t)pos_i];
 	const Accessor &uv = accessors[(size_t)uv_i];
-	if (pos.count != uv.count) {
+	const Accessor *color =
+		(color_i >= 0 && (size_t)color_i < accessors.size())
+			? &accessors[(size_t)color_i] : nullptr;
+	if (pos.count != uv.count || (color && color->count != pos.count)) {
 		return false;
 	}
 
@@ -405,6 +431,11 @@ static bool appendPrimitive(const crude_json::value &prim,
 						&out.u, &out.v)) {
 				return false;
 			}
+			out.r = out.g = out.b = out.a = 1.0f;
+			if (color && !readFloatVec4(*color, views, bin, bin_size, idx,
+					&out.r, &out.g, &out.b, &out.a)) {
+				return false;
+			}
 			scene.vertices.push_back(out);
 		}
 	} else {
@@ -417,6 +448,11 @@ static bool appendPrimitive(const crude_json::value &prim,
 					&out.x, &out.y, &out.z)
 					|| !readFloatVec2(uv, views, bin, bin_size, i,
 						&out.u, &out.v)) {
+				return false;
+			}
+			out.r = out.g = out.b = out.a = 1.0f;
+			if (color && !readFloatVec4(*color, views, bin, bin_size, i,
+					&out.r, &out.g, &out.b, &out.a)) {
 				return false;
 			}
 			scene.vertices.push_back(out);
@@ -672,18 +708,22 @@ static void ensureShader(Scene &scene)
 		"uniform mat4 u_VP;\n"
 		"in vec3 a_Pos;\n"
 		"in vec2 a_Uv;\n"
+		"in vec4 a_Color;\n"
 		"out vec2 v_Uv;\n"
+		"out vec4 v_Color;\n"
 		"void main() {\n"
 		"  gl_Position = u_VP * vec4(a_Pos, 1.0);\n"
 		"  v_Uv = a_Uv;\n"
+		"  v_Color = a_Color;\n"
 		"}\n";
 	static const char *fs =
 		"#version 130\n"
 		"uniform sampler2D u_Tex;\n"
 		"in vec2 v_Uv;\n"
+		"in vec4 v_Color;\n"
 		"out vec4 fragColor;\n"
 		"void main() {\n"
-		"  fragColor = texture(u_Tex, v_Uv);\n"
+		"  fragColor = texture(u_Tex, v_Uv) * v_Color;\n"
 		"}\n";
 
 	GLuint vert = compileShader(GL_VERTEX_SHADER, vs);
@@ -693,6 +733,7 @@ static void ensureShader(Scene &scene)
 	glAttachShader(scene.shader, frag);
 	glBindAttribLocation(scene.shader, 0, "a_Pos");
 	glBindAttribLocation(scene.shader, 1, "a_Uv");
+	glBindAttribLocation(scene.shader, 2, "a_Color");
 	glLinkProgram(scene.shader);
 	glDeleteShader(vert);
 	glDeleteShader(frag);
@@ -745,6 +786,9 @@ static void ensureGpu(Scene &scene)
 	glEnableVertexAttribArray(1);
 	glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, sizeof(Vertex),
 		(void *)(3 * sizeof(float)));
+	glEnableVertexAttribArray(2);
+	glVertexAttribPointer(2, 4, GL_FLOAT, GL_FALSE, sizeof(Vertex),
+		(void *)(5 * sizeof(float)));
 	glBindVertexArray(0);
 	glBindBuffer(GL_ARRAY_BUFFER, 0);
 	glBindTexture(GL_TEXTURE_2D, 0);

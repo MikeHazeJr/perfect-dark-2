@@ -746,14 +746,16 @@ TEST_CASE("file-source sound playback failure refuses source-only ROM fallback",
 	const std::string snd = readTextFile("src/lib/snd.c");
 	const std::string guard = readTextFile("tools/asset_native_source_guard.py");
 
-	REQUIRE(snd.find("audioPlayFileSound(r.path, volume, pan)") !=
+	REQUIRE(snd.find("audioPlayFileSound(r.path, volume, pan, filepitch)") !=
+	        std::string::npos);
+	REQUIRE(snd.find("filepitch *= alCents2Ratio(cents)") !=
 	        std::string::npos);
 	REQUIRE(snd.find("ASSET.SOURCE_ONLY: sound %d maps to public file source") !=
 	        std::string::npos);
 	REQUIRE(snd.find("but file playback failed; refusing ROM/static fallback") !=
 	        std::string::npos);
 	REQUIRE(snd.find("assetSourceDebugIsEnabledFor(ASSET_AUDIO)",
-		snd.find("audioPlayFileSound(r.path, volume, pan)")) <
+		snd.find("audioPlayFileSound(r.path, volume, pan, filepitch)")) <
 	        snd.find("MOD: sound %d catalog override failed (%s), falling back to ROM"));
 
 	REQUIRE(guard.find("scan_sound_file_source_only_guard(root)") !=

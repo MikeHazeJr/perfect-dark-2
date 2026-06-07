@@ -712,7 +712,7 @@ static s32 validateTypedPdDescriptorFile(const char *srcFolder, const char *desc
 		"scene_file", "scene", "runtime_source_file",
 		"rooms_file", "rooms", "geometry_file", "geometry"
 	};
-	static const char *animationKeys[] = { "animation_file", "file_path" };
+	static const char *animationKeys[] = { "animation_file", "commands_file", "file_path" };
 	static const char *audioKeys[] = { "file_path" };
 	static const char *uiKeys[] = { "texture_file", "file_path", "texture" };
 	static const char *fontKeys[] = { "font_file", "glyphs_file", "file_path", "font" };
@@ -1129,7 +1129,7 @@ static s32 validateExternalFolderLayout(const char *srcFolder, const char *destP
 		"scene_file", "scene", "runtime_source_file",
 		"rooms_file", "rooms", "geometry_file", "geometry"
 	};
-	static const char *animationKeys[] = { "animation_file", "file_path" };
+	static const char *animationKeys[] = { "animation_file", "commands_file", "file_path" };
 	static const char *audioKeys[] = { "file_path" };
 	static const char *uiKeys[] = { "texture_file", "file_path", "texture" };
 	static const char *fontKeys[] = { "font_file", "glyphs_file", "file_path", "font" };

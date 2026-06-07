@@ -1012,6 +1012,10 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 	        std::string::npos);
 	REQUIRE(scene_renderer.find("findAttr(\"TEXCOORD_0\")") !=
 	        std::string::npos);
+	REQUIRE(scene_renderer.find("findAttr(\"COLOR_0\")") !=
+	        std::string::npos);
+	REQUIRE(scene_renderer.find("texture(u_Tex, v_Uv) * v_Color") !=
+	        std::string::npos);
 	REQUIRE(scene_renderer.find("buildViewMatrix(view, position, look, up)") !=
 	        std::string::npos);
 	REQUIRE(scene_renderer.find("buildProjectionMatrix(projection, fovy_degrees, aspect") !=
@@ -11500,10 +11504,10 @@ TEST_CASE("Settings Debug can force one asset family to public file source",
 	REQUIRE(mod.find("modSequenceCompilePublicSource") != std::string::npos);
 	REQUIRE(mod.find("modSequenceSiblingPath(r->path, \"sequence.mid\"") !=
 	        std::string::npos);
-	REQUIRE(mod.find("modSequenceSiblingPath(r->path, \"sequence.tsv\"") !=
+	REQUIRE(mod.find("modSequenceSiblingPath(r->path, \"sequence.json\"") !=
 	        std::string::npos);
 	REQUIRE(mod.find("fsFileSize(mid_path) <= 0") != std::string::npos);
-	REQUIRE(mod.find("modSequenceLoadEventsTsv") != std::string::npos);
+	REQUIRE(mod.find("modSequenceLoadEventsJson") != std::string::npos);
 	REQUIRE(mod.find("modSequenceBuildAlcBuffer") != std::string::npos);
 	REQUIRE(mod.find("modSequencePutBe32(data + 64, division)") !=
 	        std::string::npos);
@@ -11523,20 +11527,22 @@ TEST_CASE("Settings Debug can force one asset family to public file source",
 	REQUIRE(mod.find("modSequenceSiblingPath(r->path, \"sequence.mid\"") <
 	        mod.find("fsFileSize(mid_path) <= 0"));
 	REQUIRE(mod.find("fsFileSize(mid_path) <= 0") <
-	        mod.find("modSequenceLoadEventsTsv(tsv_path, tracks, &event_count)"));
+	        mod.find("modSequenceLoadEventsJson(json_path, tracks, &event_count)"));
 	REQUIRE(snd.find("modSequencePlayAudioSource(seq->tracknum)") !=
 	        std::string::npos);
 	REQUIRE(snd.find("modSequencePlayAudioSource(seq->tracknum)") <
 	        snd.find("modSequenceLoad(seq->tracknum, &extlen)"));
 	REQUIRE(snd.find("r.source_only_blocked") != std::string::npos);
-	REQUIRE(snd.find("audioPlayFileSound(r.path, volume, pan)") !=
+	REQUIRE(snd.find("audioPlayFileSound(r.path, volume, pan, filepitch)") !=
+	        std::string::npos);
+	REQUIRE(snd.find("filepitch *= alCents2Ratio(cents)") !=
 	        std::string::npos);
 	REQUIRE(snd.find("ASSET.SOURCE_ONLY: sound %d maps to public file source") !=
 	        std::string::npos);
 	REQUIRE(snd.find("but file playback failed; refusing ROM/static fallback") !=
 	        std::string::npos);
 	REQUIRE(snd.find("assetSourceDebugIsEnabledFor(ASSET_AUDIO)",
-		snd.find("audioPlayFileSound(r.path, volume, pan)")) <
+		snd.find("audioPlayFileSound(r.path, volume, pan, filepitch)")) <
 	        snd.find("MOD: sound %d catalog override failed (%s), falling back to ROM"));
 	const std::string snd_start_mp3 = functionBlock(snd, "void sndStartMp3(s16");
 	const std::string snd_mp3_resolve =
@@ -12166,7 +12172,7 @@ TEST_CASE("universal extracted archive walkers bind public source members",
 	        std::string::npos);
 	const std::string modasset_compiler = readTextFile("port/src/modasset_compiler.c");
 	const std::string modasset_compiler_h = readTextFile("port/include/modasset_compiler.h");
-	REQUIRE(modasset_compiler_h.find("#define MODASSET_COMPILER_VERSION 6") !=
+	REQUIRE(modasset_compiler_h.find("#define MODASSET_COMPILER_VERSION 7") !=
 	        std::string::npos);
 	REQUIRE(modasset_compiler.find("modAssetCompilerSkeletonForSymbol") !=
 	        std::string::npos);
@@ -12586,9 +12592,9 @@ TEST_CASE("c3843 remaining base asset families emit clean native archives",
 	REQUIRE(meta.find("\"element_type = %d") == std::string::npos);
 	REQUIRE(meta.find("\"effect_type = %d") == std::string::npos);
 	REQUIRE(meta.find("\"prop_type = %d") == std::string::npos);
-	REQUIRE(arena.find("ROMEXTRACT_PDARENA_FAST_CACHE_KIND \"pdarena_clean_public_v6_pdscenario_v82\"") !=
+	REQUIRE(arena.find("ROMEXTRACT_PDARENA_FAST_CACHE_KIND \"pdarena_clean_public_v8_pdscenario_v84\"") !=
 	        std::string::npos);
-	REQUIRE(arena.find("ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND \"pdscenario_scene_glb_clean_public_v82_standalone_backfill_collision_obj_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_quip_shuffle_graph_portals_navhashes\"") !=
+	REQUIRE(arena.find("ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND \"pdscenario_scene_glb_clean_public_v84_standalone_backfill_collision_obj_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_quip_shuffle_graph_portals_navhashes\"") !=
 	        std::string::npos);
 	REQUIRE(arena.find("supports_drop = true") != std::string::npos);
 	REQUIRE(arena.find("\\\"source_counts\\\": { \\\"pads\\\": %u, \\\"volumes\\\": %u, \\\"waypoints\\\": %u, \\\"waygroups\\\": %u, \\\"covers\\\": %u, \\\"paths\\\": %u }") !=
@@ -12621,7 +12627,7 @@ TEST_CASE("c3843 remaining base asset families emit clean native archives",
 	        std::string::npos);
 	REQUIRE(conformance.find("level.graph.json must bind portals table to portals.tsv") !=
 	        std::string::npos);
-	REQUIRE(arena.find("PDSCENARIO_BG_VISUAL_EXPORT_VERSION \"bg_visual_scene_glb_v7_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound\"") !=
+	REQUIRE(arena.find("PDSCENARIO_BG_VISUAL_EXPORT_VERSION \"bg_visual_scene_glb_v9_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0\"") !=
 	        std::string::npos);
 	REQUIRE(arena.find("s_existingArchiveEntryContains(relpath, \"scene.glb\",") !=
 	        std::string::npos);
@@ -12652,6 +12658,7 @@ TEST_CASE("c3843 remaining base asset families emit clean native archives",
 	REQUIRE(arena.find("s_bgMaterialUvScaleForGlb") != std::string::npos);
 	REQUIRE(arena.find("s_bgMaterialGlbAuthorUv") != std::string::npos);
 	REQUIRE(arena.find("\\\"TEXCOORD_1\\\":%u") != std::string::npos);
+	REQUIRE(arena.find("\\\"COLOR_0\\\":%u") != std::string::npos);
 	REQUIRE(arena.find("\\\"baseColorTexture\\\":{\\\"index\\\":%d,\\\"texCoord\\\":0}") !=
 	        std::string::npos);
 	REQUIRE(arena.find("s_bgGltfWrapMode") != std::string::npos);
@@ -12667,9 +12674,10 @@ TEST_CASE("c3843 remaining base asset families emit clean native archives",
 	REQUIRE(conformance.find("validate_scene_glb_texture_contract") !=
 	        std::string::npos);
 	REQUIRE(conformance.find("TEXCOORD_0 range") != std::string::npos);
-	REQUIRE(conformance.find("bg_visual_scene_glb_v7_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound") !=
+	REQUIRE(conformance.find("bg_visual_scene_glb_v9_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0") !=
 	        std::string::npos);
 	REQUIRE(conformance.find("TEXCOORD_1 runtime UVs") != std::string::npos);
+	REQUIRE(conformance.find("COLOR_0 vertex colors") != std::string::npos);
 	REQUIRE(conformance.find("DCC-authoring UV range") != std::string::npos);
 	REQUIRE(conformance.find("visible textures to TEXCOORD_0") !=
 	        std::string::npos);

@@ -1,0 +1,14 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 7,
+  "asset_id": "base:animation_running_onehandgun",
+  "mod_id": "base",
+  "kind": "animation",
+  "source": "data/ntsc-final/animations/base_animation_running_onehandgun.pdanim::animation.gltf",
+  "source_size": 13607,
+  "source_sha256": "0a9ad79e916b366abce1de0ccd2a4a4a756fda55c95fdc872a9dca59dce4d13d",
+  "validation": "format=gltf animtableentry clips=1 frames=26 channels=15",
+  "normalized": "$S/mod-cache/base/base_animation_running_onehandgun/animation-v7-0a9ad79e916b366abce1de0ccd2a4a4a756fda55c95fdc872a9dca59dce4d13d.pdanimation.json",
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

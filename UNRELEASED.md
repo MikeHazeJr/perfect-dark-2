@@ -16,13 +16,16 @@
 - Added one-install source matrix verification so Scenario and all-family asset checks can reuse a frozen extracted content set when extraction itself did not change.
 - Added file-backed non-Scenario asset matrix loading so thousands of source-only catalog IDs are read from a generated `type=id` list instead of the command line.
 - Completed the c3844 asset-pipeline runtime source migration sweep, closing the remaining Scenario vehicle path, route-to-target, cover/navigation, optional actor/object/path, MP participant, and setup-record source-proof gaps found by the final matrices.
-- Added source-native `.pdsong` sequence playback by proving public `sequence.mid` plus `sequence.tsv` before compiling the editable sequence source for the legacy sequencer.
+- Added source-native `.pdsong` sequence playback by proving public `sequence.mid` plus semantic `sequence.json` before compiling editable sequence source for the legacy sequencer.
 - Added source-native `.pdtexture` image loading so source-built meshes decode public texture archives into runtime RGBA32 texture data instead of falling back to ROM/static compressed texture bytes.
+- Added Scenario `scene.glb` room-shading payloads so public map geometry carries `COLOR_0` alongside authoring/runtime UVs and renders with archived room shade data instead of flat texture-only output.
+- Added semantic GLTF extraction for character/cutscene `.pdanim` archives so public animation source uses editable transform channels and repeat/cut-skip metadata instead of header/frame byte tables.
 - Preserved generated mesh relation nodes during extraction so distance, reorder, and headspot model hierarchy rows are no longer flattened into bogus position nodes.
 - Added a catalog-provider guard so body/head model catalog validation uses handle-based source IDs instead of raw source-filenum reverse lookup.
 - Added source-native MP3 speech playback and duration sizing from extracted public source files before ROM/static fallback.
 - Added source-native `.pdsong` track-audio playback for public `track.wav`, `track.ogg`, and `track.mp3` sources before legacy sequence fallback.
 - Added a native-source guard so file-source SFX/voice playback failures refuse ROM/static fallback in source-only audio verification.
+- Added native SFX/voice keymap extraction so public `.pdsfx` and `.pdvoice` WAV playback preserves original base pitch, sample volume, and pan.
 - Added a native-source guard so MP3 prop-sound duration estimates refuse ROM/static file-size fallback in source-only audio verification.
 - Added a native-source guard so MP3 speech playback refuses ROM/static file playback in source-only audio verification.
 - Added a native-source guard so sequenced music refuses ROM/static fallback in source-only audio verification until public `.pdsong` runtime playback is source-native.
@@ -438,7 +441,7 @@
 
 ## Fixed
 
-- Fixed source-built `.pdmesh` rendering by exporting and compiling public `model.render.tsv` streams, preserving matrix-stack, material, and triangle order instead of rebuilding meshes as flat synthetic display lists.
+- Fixed source-built `.pdmesh` rendering by exporting and compiling public `model.render.json` command source, preserving matrix-stack, material, and triangle order without exposing the render stream as TSV.
 - Fixed public `.pdmesh` source-built models so extracted OBJ UVs and material/texture catalog bindings reach generated runtime display lists, with smoke verification proving the textured DY357 first-person mesh loads, builds, and renders from public source.
 - Fixed Scenario source matrix validation so padded stage hex and stages that complete naturally before scripted exit do not produce false failures.
 - Fixed Scenario source-only loading for minimal stages with intentionally empty public `pads.tsv` or `portals.tsv`, so those files are treated as authoritative empty source instead of triggering ROM fallback.
@@ -542,6 +545,8 @@
 - Fixed a match-start crash when a saved `.pdweapon` mod was selected in Combat Simulator custom weapon slots.
 - Fixed jump collision follow-through so airborne horizontal movement is clamped against rendered wall, ceiling, and corner geometry before the player can clip into it.
 - Fixed generated scenario GLB texture export so Blender/3DS Max receive renderer-matched texture scaling, tile shifts, and per-material wrap, mirror, and clamp sampler modes.
+- Fixed extracted SFX/voice parity so `.pdsfx` and `.pdvoice` archives preserve native keymap pitch metadata and file-backed playback applies base pitch, gameplay pitch, sample volume, and sample pan instead of playing every public WAV at default speed.
+- Fixed weapon/inventory animation archives so `.pdanim` uses semantic `commands.json` source instead of public opcode or TSV-style tables, while the loader rebuilds native weapon animation commands from that editable source.
 - Fixed scenario parent archive regeneration so `.pdarena` and `.pdmission` archives cannot keep stale embedded `.pdscenario` graph source after a scenario graph/cache update; parent descriptors now declare `scenario_graph_cache` and strict conformance validates it.
 - Fixed more scenario AI graph parity: surrender, fade-out, remove-character, surprised-surrender, and kill-Bond actions now execute through public `.pdscenario` graph source backed by `ai/ailists.tsv` and mission graph source.
 - Fixed more scenario AI graph parity: face-entity, direct damage, character-to-character damage, grenade-decision, and drop-item behavior now execute through public `.pdscenario` graph source backed by `ai/ailists.tsv`.

@@ -1,0 +1,18 @@
+{
+  "schema": "pd2.modasset.animation.v1",
+  "compiler_version": 7,
+  "asset_id": "base:animation_running_twohandgun",
+  "kind": "animation",
+  "source": "data/ntsc-final/animations/base_animation_running_twohandgun.pdanim::animation.gltf",
+  "source_sha256": "81c7be9ef043fdc85d0a6ba55b8fb7430be3f41b3ed8e7f7964f80308b58a86f",
+  "runtime_boundary": "animtableentry",
+  "clip_name": "base:animation_running_twohandgun",
+  "animation_count": 1,
+  "channel_count": 15,
+  "sampler_count": 15,
+  "frame_count": 24,
+  "header_length": -1,
+  "bytes_per_frame": -1,
+  "transform_policy": "gltf_skeletal_channel_pack",
+  "packed_channels": ["translation", "rotation", "scale"]
+}

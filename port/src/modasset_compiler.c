@@ -994,6 +994,13 @@ typedef struct gltf_anim_channel {
 	s32 translation_base[3];
 } gltf_anim_channel_t;
 
+#define GLTF_ANIM_MAX_TAIL_VALUES 512
+
+typedef struct gltf_anim_repeat_range {
+	s16 repeattoframe;
+	s16 repeatfromframe;
+} gltf_anim_repeat_range_t;
+
 typedef struct gltf_animation_clip {
 	gltf_animation_info_t info;
 	gltf_anim_channel_t *channels;
@@ -1001,6 +1008,11 @@ typedef struct gltf_animation_clip {
 	s32 channel_count;
 	s32 part_count;
 	s32 frame_count;
+	s32 native_flags;
+	gltf_anim_repeat_range_t repeat_ranges[GLTF_ANIM_MAX_TAIL_VALUES];
+	s32 repeat_range_count;
+	s16 cut_skip_frames[GLTF_ANIM_MAX_TAIL_VALUES];
+	s32 cut_skip_count;
 } gltf_animation_clip_t;
 
 static const char *jsonSkipWs(const char *p, const char *end)
@@ -1224,6 +1236,47 @@ static s32 jsonObjectString(json_span_t object, const char *key,
 	return p < object.end && *p == '"';
 }
 
+static char *jsonObjectStringAlloc(json_span_t object, const char *key)
+{
+	const char *value = jsonFindKeyInSpan(object, key);
+	const char *p;
+	char *out;
+	size_t cap;
+	size_t written = 0;
+
+	if (!value) {
+		return NULL;
+	}
+
+	p = jsonSkipWs(value, object.end);
+	if (p >= object.end || *p != '"') {
+		return NULL;
+	}
+
+	p++;
+	cap = (size_t)(object.end - p) + 1u;
+	out = malloc(cap);
+	if (!out) {
+		return NULL;
+	}
+
+	while (p < object.end && *p != '"') {
+		char c = *p++;
+		if (c == '\\' && p < object.end) {
+			c = *p++;
+		}
+		out[written++] = c;
+	}
+
+	if (p >= object.end || *p != '"') {
+		free(out);
+		return NULL;
+	}
+
+	out[written] = '\0';
+	return out;
+}
+
 static s32 jsonArrayNextObject(json_span_t array, const char **cursor,
                                json_span_t *out)
 {
@@ -1271,6 +1324,40 @@ static s32 jsonArrayObjectCount(json_span_t array)
 	}
 
 	return count;
+}
+
+static s32 jsonArrayNextInt(json_span_t array, const char **cursor,
+                            s32 *out)
+{
+	const char *p;
+	char *endptr;
+	long parsed;
+
+	if (!cursor || !out) {
+		return 0;
+	}
+
+	p = *cursor ? *cursor : array.start;
+	while (p < array.end) {
+		p = jsonSkipWs(p, array.end);
+		if (p < array.end && *p == ',') {
+			p++;
+			continue;
+		}
+		if (p >= array.end) {
+			break;
+		}
+		parsed = strtol(p, &endptr, 10);
+		if (endptr == p) {
+			return 0;
+		}
+		*out = (s32)parsed;
+		*cursor = endptr;
+		return 1;
+	}
+
+	*cursor = array.end;
+	return 0;
 }
 
 static s32 base64Value(char c)
@@ -1666,6 +1753,12 @@ static void writeBe32(u8 *dst, u32 value)
 	dst[3] = (u8)(value & 0xff);
 }
 
+static void writeBe16(u8 *dst, u16 value)
+{
+	dst[0] = (u8)((value >> 8) & 0xff);
+	dst[1] = (u8)(value & 0xff);
+}
+
 static void writeBeFloat(u8 *dst, f32 value)
 {
 	u32 raw;
@@ -2059,7 +2152,7 @@ static s32 parseGltfTextMesh(const u8 *data, u32 size, obj_mesh_t *mesh)
 	json_span_t buffers_array;
 	json_span_t buffer_object;
 	const char *cursor = NULL;
-	char uri[4096];
+	char *uri = NULL;
 	u8 *bin;
 	u32 bin_size = 0;
 	s32 ok;
@@ -2080,13 +2173,14 @@ static s32 parseGltfTextMesh(const u8 *data, u32 size, obj_mesh_t *mesh)
 	root.end = json + size;
 	if (!jsonObjectArray(root, "buffers", &buffers_array)
 			|| !jsonArrayNextObject(buffers_array, &cursor, &buffer_object)
-			|| !jsonObjectString(buffer_object, "uri", uri, sizeof(uri))) {
+			|| !(uri = jsonObjectStringAlloc(buffer_object, "uri"))) {
 		free(json);
 		objMeshSetError(mesh, 0, "gltf_missing_embedded_buffer_uri");
 		return 0;
 	}
 
 	bin = decodeGltfDataUri(uri, &bin_size);
+	free(uri);
 	if (!bin || bin_size == 0) {
 		free(json);
 		if (bin) {
@@ -2438,6 +2532,52 @@ static s32 gltfAnimationChannelDuplicate(const gltf_animation_clip_t *clip,
 	return 0;
 }
 
+static void parseGltfAnimationNativeExtras(json_span_t root,
+                                           gltf_animation_clip_t *clip)
+{
+	json_span_t extras;
+	json_span_t repeat_array;
+	json_span_t skip_array;
+	const char *cursor;
+	json_span_t object;
+	s32 value;
+
+	if (!clip || !jsonObjectObject(root, "extras", &extras)) {
+		return;
+	}
+
+	if (jsonObjectInt(extras, "pd_anim_flags", &value)) {
+		clip->native_flags = value & 0xff;
+	}
+
+	if (jsonObjectArray(extras, "pd_repeat_ranges", &repeat_array)) {
+		cursor = NULL;
+		while (clip->repeat_range_count < GLTF_ANIM_MAX_TAIL_VALUES
+				&& jsonArrayNextObject(repeat_array, &cursor, &object)) {
+			s32 repeattoframe;
+			s32 repeatfromframe;
+			if (!jsonObjectInt(object, "repeat_to_frame", &repeattoframe)
+					|| !jsonObjectInt(object, "repeat_from_frame",
+						&repeatfromframe)) {
+				continue;
+			}
+			clip->repeat_ranges[clip->repeat_range_count].repeattoframe =
+				(s16)repeattoframe;
+			clip->repeat_ranges[clip->repeat_range_count].repeatfromframe =
+				(s16)repeatfromframe;
+			clip->repeat_range_count++;
+		}
+	}
+
+	if (jsonObjectArray(extras, "pd_cut_skip_frames", &skip_array)) {
+		cursor = NULL;
+		while (clip->cut_skip_count < GLTF_ANIM_MAX_TAIL_VALUES
+				&& jsonArrayNextInt(skip_array, &cursor, &value)) {
+			clip->cut_skip_frames[clip->cut_skip_count++] = (s16)value;
+		}
+	}
+}
+
 static s32 parseGltfAnimationClipFromJson(const char *json,
                                           u32 json_size,
                                           const u8 *bin,
@@ -2481,6 +2621,7 @@ static s32 parseGltfAnimationClipFromJson(const char *json,
 	if (text_gltf && !gltfValidateTextBuffersAreEmbedded(root, &clip->info)) {
 		return 0;
 	}
+	parseGltfAnimationNativeExtras(root, clip);
 
 	while (jsonArrayNextObject(animations_array, &cursor, &animation_object)) {
 		json_span_t local_channels;
@@ -2742,9 +2883,10 @@ static s32 parseGltfTextAnimationClip(const u8 *data,
 		const char *buffer_cursor = NULL;
 		if (jsonArrayNextObject(buffers_array, &buffer_cursor,
 				&buffer_object)) {
-			char uri[8192] = {0};
-			if (jsonObjectString(buffer_object, "uri", uri, sizeof(uri))) {
+			char *uri = jsonObjectStringAlloc(buffer_object, "uri");
+			if (uri) {
 				bin = decodeGltfDataUri(uri, &bin_size);
+				free(uri);
 			}
 		}
 	}
@@ -2871,6 +3013,12 @@ s32 modAssetCompilerIsExternalSource(const char *path)
 	return endsWithNoCase(path, ".gltf")
 		|| endsWithNoCase(path, ".glb")
 		|| endsWithNoCase(path, ".obj");
+}
+
+s32 modAssetCompilerIsAnimationSource(const char *path)
+{
+	return endsWithNoCase(path, ".gltf")
+		|| endsWithNoCase(path, ".glb");
 }
 
 static s32 bufferContains(const u8 *data, u32 size, const char *needle)
@@ -4652,29 +4800,6 @@ static s32 generatedRenderStreamGrow(generated_render_stream_t *stream,
 	return 1;
 }
 
-static s32 generatedSplitTabs(char *line, char **cols, s32 max_cols)
-{
-	s32 count = 0;
-	char *p = line;
-
-	if (!line || !cols || max_cols <= 0) {
-		return 0;
-	}
-
-	while (count < max_cols) {
-		char *tab;
-		cols[count++] = p;
-		tab = strchr(p, '\t');
-		if (!tab) {
-			break;
-		}
-		*tab = '\0';
-		p = tab + 1;
-	}
-
-	return count;
-}
-
 static s32 generatedRenderOpFromText(const char *op)
 {
 	if (!op) {
@@ -4695,14 +4820,17 @@ static s32 generatedModeldefReadRenderStream(const char *source_path,
 	u32 size = 0;
 	char *text;
 	char *copy;
-	char *line;
+	json_span_t root;
+	json_span_t commands;
+	const char *cursor = NULL;
+	json_span_t object;
 	s32 parsed_rows = 0;
 
 	if (!source_path || !mesh || !stream) {
 		return 0;
 	}
 	memset(stream, 0, sizeof(*stream));
-	if (!generatedModeldefMetadataPath(source_path, "model.render.tsv",
+	if (!generatedModeldefMetadataPath(source_path, "model.render.json",
 			render_path, sizeof(render_path))) {
 		return 0;
 	}
@@ -4724,94 +4852,76 @@ static s32 generatedModeldefReadRenderStream(const char *source_path,
 	copy[size] = '\0';
 	free(text);
 
-	line = copy;
-	while (line && *line) {
-		char *end = line;
-		char *next = NULL;
-		char *p;
+	root.start = copy;
+	root.end = copy + size;
+	if (!jsonObjectArray(root, "commands", &commands)) {
+		free(copy);
+		generatedRenderStreamFree(stream);
+		return -1;
+	}
 
-		while (*end && *end != '\n' && *end != '\r') {
-			end++;
+	while (jsonArrayNextObject(commands, &cursor, &object)) {
+		generated_render_row_t row;
+		char command[32];
+		s32 op;
+		s32 value;
+
+		memset(&row, 0, sizeof(row));
+		row.face = -1;
+		row.matrix = -1;
+		row.material = -1;
+
+		if (!jsonObjectString(object, "group", row.group,
+				sizeof(row.group)) ||
+				!jsonObjectString(object, "command", command,
+					sizeof(command))) {
+			free(copy);
+			generatedRenderStreamFree(stream);
+			return -1;
 		}
-		if (*end) {
-			char sep = *end;
-			*end = '\0';
-			next = end + 1;
-			if (sep == '\r' && *next == '\n') {
-				next++;
-			}
+		op = generatedRenderOpFromText(command);
+		if (!op) {
+			free(copy);
+			generatedRenderStreamFree(stream);
+			return -1;
 		}
-
-		p = skipSpaces(line);
-		if (*p && *p != '#' && strncmp(p, "group\t", 6) != 0) {
-			char *cols[6];
-			generated_render_row_t row;
-			char *endptr;
-			long face;
-			long matrix;
-			long params;
-			long material;
-			s32 op;
-
-			if (generatedSplitTabs(p, cols, 6) != 6) {
-				free(copy);
-				generatedRenderStreamFree(stream);
-				return -1;
-			}
-			op = generatedRenderOpFromText(cols[1]);
-			if (!op) {
-				free(copy);
-				generatedRenderStreamFree(stream);
-				return -1;
-			}
-			face = strtol(cols[2], &endptr, 10);
-			if (endptr == cols[2]) {
-				free(copy);
-				generatedRenderStreamFree(stream);
-				return -1;
-			}
-			matrix = strtol(cols[3], &endptr, 10);
-			if (endptr == cols[3]) {
-				free(copy);
-				generatedRenderStreamFree(stream);
-				return -1;
-			}
-			params = strtol(cols[4], &endptr, 0);
-			if (endptr == cols[4]) {
-				free(copy);
-				generatedRenderStreamFree(stream);
-				return -1;
-			}
-			material = strtol(cols[5], &endptr, 10);
-			if (endptr == cols[5]) {
-				free(copy);
-				generatedRenderStreamFree(stream);
-				return -1;
-			}
-			if (op == GENERATED_RENDER_OP_TRI &&
-					(face < 0 || face >= mesh->triangle_count)) {
-				free(copy);
-				generatedRenderStreamFree(stream);
-				return -1;
-			}
-			if (!generatedRenderStreamGrow(stream, 1)) {
-				free(copy);
-				generatedRenderStreamFree(stream);
-				return -1;
-			}
-			memset(&row, 0, sizeof(row));
-			strncpy(row.group, cols[0], sizeof(row.group) - 1);
-			row.group[sizeof(row.group) - 1] = '\0';
-			row.op = (u8)op;
-			row.face = (s32)face;
-			row.matrix = (s32)matrix;
-			row.params = (u8)params;
-			row.material = (s32)material;
-			stream->rows[stream->row_count++] = row;
-			parsed_rows++;
+		if (jsonObjectInt(object, "face_index", &value)) {
+			row.face = value;
 		}
-
-		line = next;
+		if (jsonObjectInt(object, "matrix_index", &value)) {
+			row.matrix = value;
+		}
+		if (jsonObjectInt(object, "matrix_flags", &value)) {
+			if (value < 0 || value > 255) {
+				free(copy);
+				generatedRenderStreamFree(stream);
+				return -1;
+			}
+			row.params = (u8)value;
+		}
+		if (jsonObjectInt(object, "material_index", &value)) {
+			row.material = value;
+		}
+		if (op == GENERATED_RENDER_OP_TRI &&
+				(row.face < 0 || row.face >= mesh->triangle_count)) {
+			free(copy);
+			generatedRenderStreamFree(stream);
+			return -1;
+		}
+		if (op == GENERATED_RENDER_OP_MATERIAL &&
+				(row.material < 0 || row.material >= mesh->material_count)) {
+			free(copy);
+			generatedRenderStreamFree(stream);
+			return -1;
+		}
+		if (!generatedRenderStreamGrow(stream, 1)) {
+			free(copy);
+			generatedRenderStreamFree(stream);
+			return -1;
+		}
+		row.op = (u8)op;
+		stream->rows[stream->row_count++] = row;
+		parsed_rows++;
 	}
 
 	free(copy);
@@ -6378,8 +6488,12 @@ static s32 gltfBuildAnimationClipPayload(gltf_animation_clip_t *clip,
 	s32 frame_count;
 	s32 part_count;
 	s32 header_len = 0;
+	s32 descriptor_header_len = 0;
+	s32 tail_len = 0;
 	s32 bits_per_frame = 0;
 	s32 bytes_per_frame;
+	s32 has_repeat_tail;
+	s32 has_cut_skip_tail;
 	s32 *translation_for_part = NULL;
 	s32 *rotation_for_part = NULL;
 	s32 *scale_for_part = NULL;
@@ -6399,21 +6513,50 @@ static s32 gltfBuildAnimationClipPayload(gltf_animation_clip_t *clip,
 		frame_count = 0xffff;
 	}
 
+	has_repeat_tail = (clip->native_flags & ANIMFLAG_HASREPEATFRAMES)
+		|| clip->repeat_range_count > 0;
+	has_cut_skip_tail = (clip->native_flags & ANIMFLAG_HASCUTSKIPFRAMES)
+		|| clip->cut_skip_count > 0;
+
 	if (clip->channel_count <= 0) {
-		data = malloc(1);
+		tail_len = (has_cut_skip_tail ? 2 + clip->cut_skip_count * 2 : 0)
+			+ (has_repeat_tail ? 2 + clip->repeat_range_count * 4 : 0);
+		data = calloc(1, (size_t)(1 + tail_len));
 		if (!data) {
 			return 0;
 		}
 		data[0] = 0;
+		header_len = 1 + tail_len;
+		u8 *tail = data + 1;
+		if (has_cut_skip_tail) {
+			writeBe16(tail, 0xffff);
+			tail += 2;
+			for (s32 i = 0; i < clip->cut_skip_count; i++) {
+				writeBe16(tail, (u16)clip->cut_skip_frames[i]);
+				tail += 2;
+			}
+		}
+		if (has_repeat_tail) {
+			writeBe16(tail, 0xffff);
+			tail += 2;
+			for (s32 i = 0; i < clip->repeat_range_count; i++) {
+				writeBe16(tail, (u16)clip->repeat_ranges[i].repeattoframe);
+				writeBe16(tail + 2,
+					(u16)clip->repeat_ranges[i].repeatfromframe);
+				tail += 4;
+			}
+		}
 		memset(out_entry, 0, sizeof(*out_entry));
 		out_entry->numframes = (u16)frame_count;
 		out_entry->bytesperframe = 0;
 		out_entry->data = 0xffffffff;
-		out_entry->headerlen = 1;
+		out_entry->headerlen = (u16)header_len;
 		out_entry->framelen = 16;
-		out_entry->flags = 0;
+		out_entry->flags = (u8)(clip->native_flags
+			| (has_repeat_tail ? ANIMFLAG_HASREPEATFRAMES : 0)
+			| (has_cut_skip_tail ? ANIMFLAG_HASCUTSKIPFRAMES : 0));
 		*out_data = data;
-		*out_data_size = 1;
+		*out_data_size = (u32)header_len;
 		return 1;
 	}
 
@@ -6470,6 +6613,10 @@ static s32 gltfBuildAnimationClipPayload(gltf_animation_clip_t *clip,
 			bits_per_frame += 96;
 		}
 	}
+	descriptor_header_len = header_len;
+	tail_len = (has_cut_skip_tail ? 2 + clip->cut_skip_count * 2 : 0)
+		+ (has_repeat_tail ? 2 + clip->repeat_range_count * 4 : 0);
+	header_len += tail_len;
 
 	bytes_per_frame = (bits_per_frame + 7) / 8;
 	if (header_len <= 0 || bytes_per_frame <= 0) {
@@ -6505,6 +6652,25 @@ static s32 gltfBuildAnimationClipPayload(gltf_animation_clip_t *clip,
 					writeBe32(p, (u32)channel->translation_base[axis]);
 					p += 4;
 				}
+			}
+		}
+		p = data + descriptor_header_len;
+		if (has_cut_skip_tail) {
+			writeBe16(p, 0xffff);
+			p += 2;
+			for (s32 i = 0; i < clip->cut_skip_count; i++) {
+				writeBe16(p, (u16)clip->cut_skip_frames[i]);
+				p += 2;
+			}
+		}
+		if (has_repeat_tail) {
+			writeBe16(p, 0xffff);
+			p += 2;
+			for (s32 i = 0; i < clip->repeat_range_count; i++) {
+				writeBe16(p, (u16)clip->repeat_ranges[i].repeattoframe);
+				writeBe16(p + 2,
+					(u16)clip->repeat_ranges[i].repeatfromframe);
+				p += 4;
 			}
 		}
 	}
@@ -6565,7 +6731,9 @@ static s32 gltfBuildAnimationClipPayload(gltf_animation_clip_t *clip,
 	out_entry->data = 0xffffffff;
 	out_entry->headerlen = (u16)header_len;
 	out_entry->framelen = 16;
-	out_entry->flags = 0;
+	out_entry->flags = (u8)(clip->native_flags
+		| (has_repeat_tail ? ANIMFLAG_HASREPEATFRAMES : 0)
+		| (has_cut_skip_tail ? ANIMFLAG_HASCUTSKIPFRAMES : 0));
 
 	*out_data = data;
 	*out_data_size = total_size;
@@ -6594,9 +6762,7 @@ s32 modAssetCompilerBuildAnimationClip(const asset_entry_t *entry,
 	s32 frame_count;
 	s32 ok;
 
-	if (!source_path || !source_path[0]
-			|| (!endsWithNoCase(source_path, ".gltf")
-				&& !endsWithNoCase(source_path, ".glb"))) {
+	if (!source_path || !source_path[0]) {
 		return 0;
 	}
 	if (!out_entry || !out_data || !out_data_size) {
@@ -6607,6 +6773,11 @@ s32 modAssetCompilerBuildAnimationClip(const asset_entry_t *entry,
 	*out_data_size = 0;
 	memset(out_entry, 0, sizeof(*out_entry));
 	memset(&clip, 0, sizeof(clip));
+
+	if (!endsWithNoCase(source_path, ".gltf")
+			&& !endsWithNoCase(source_path, ".glb")) {
+		return 0;
+	}
 
 	source_bytes = fsFileLoad(source_path, &source_size);
 	if (!source_bytes || source_size == 0) {

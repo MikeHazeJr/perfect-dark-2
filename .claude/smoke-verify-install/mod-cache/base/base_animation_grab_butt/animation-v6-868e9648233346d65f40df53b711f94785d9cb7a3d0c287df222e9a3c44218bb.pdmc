@@ -1,0 +1,14 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 6,
+  "asset_id": "base:animation_grab_butt",
+  "mod_id": "base",
+  "kind": "animation",
+  "source": "data/ntsc-final/animations/base_animation_grab_butt.pdanim::animation.gltf",
+  "source_size": 58215,
+  "source_sha256": "868e9648233346d65f40df53b711f94785d9cb7a3d0c287df222e9a3c44218bb",
+  "validation": "format=gltf animtableentry clips=1 frames=163 channels=15",
+  "normalized": "$S/mod-cache/base/base_animation_grab_butt/animation-v6-868e9648233346d65f40df53b711f94785d9cb7a3d0c287df222e9a3c44218bb.pdanimation.json",
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

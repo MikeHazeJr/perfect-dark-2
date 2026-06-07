@@ -29,7 +29,7 @@ u16 audioGetUiVolumeScaled(void);
  * pan:    0–127   (AL_PAN_CENTER = 64; 0 = full left, 127 = full right).
  * Returns 1 on success, 0 if the file could not be loaded or converted.
  * On failure the caller should fall back to the ROM sound path. */
-s32 audioPlayFileSound(const char *path, u16 volume, u8 pan);
+s32 audioPlayFileSound(const char *path, u16 volume, u8 pan, f32 pitch);
 
 /* Recompute and push composite volumes to the engine.
  * Called automatically by the setters, but can be called

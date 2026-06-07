@@ -624,6 +624,60 @@ static s32 jread_enum_or_int(jstream_t *s, jref_kind_t kind, s32 fallback,
 	return fallback;
 }
 
+static s32 s_resolveAudioCatalogOrEnumName(const char *name, s32 fallback,
+                                            const char *site)
+{
+	if (name != NULL && strchr(name, ':') != NULL) {
+		const asset_entry_t *e = assetCatalogResolve(name);
+		if (e != NULL && e->type == ASSET_AUDIO
+				&& e->ext.audio.category == AUDIO_CAT_SFX) {
+			return e->ext.audio.sound_id;
+		}
+		sysLogPrintf(LOG_WARNING,
+			"LOADER.POOL.WEAPON.RESOLVE_FAIL: %s audio_id=\"%s\"",
+			site ? site : "(?)", name ? name : "");
+		return fallback;
+	}
+	return loaderEnumResolveSfxEnum(name ? name : "", fallback);
+}
+
+static s32 s_resolveAnimationCatalogOrEnumName(const char *name, s32 fallback,
+                                                const char *site)
+{
+	if (name != NULL && strchr(name, ':') != NULL) {
+		const asset_entry_t *e = assetCatalogResolve(name);
+		if (e != NULL && e->type == ASSET_ANIMATION
+				&& e->ext.anim.anim_id >= 0) {
+			return e->ext.anim.anim_id;
+		}
+		sysLogPrintf(LOG_WARNING,
+			"LOADER.POOL.WEAPON.RESOLVE_FAIL: %s animation_id=\"%s\"",
+			site ? site : "(?)", name ? name : "");
+		return fallback;
+	}
+	return loaderEnumResolveAnimEnum(name ? name : "", fallback);
+}
+
+static s32 jread_audio_catalog_or_enum(jstream_t *s, s32 fallback,
+                                        const char *site)
+{
+	if (s->cur.kind == JT_NUMBER) {
+		return jread_int(s, fallback);
+	}
+	if (s->cur.kind == JT_STRING) {
+		char buf[64];
+		jstream_str_copy(&s->cur, buf, sizeof(buf));
+		jstream_advance(s);
+		return s_resolveAudioCatalogOrEnumName(buf, fallback, site);
+	}
+	if (s->cur.kind == JT_NULL) {
+		jstream_advance(s);
+		return fallback;
+	}
+	jstream_skip_value(s);
+	return fallback;
+}
+
 /* ------------------------------------------------------------------ */
 /* Opcode codec                                                       */
 /* ------------------------------------------------------------------ */
@@ -678,7 +732,7 @@ static s32 decodeOpcode(jstream_t *s, struct guncmd *out)
 		if (s->cur.kind == JT_COMMA) jstream_advance(s);
 		out->unk02 = (u16)jread_int(s, 0);
 		if (s->cur.kind == JT_COMMA) jstream_advance(s);
-		out->unk04 = (intptr_t)jread_enum_or_int(s, JREF_SFX, 0, "playsound.sound");
+		out->unk04 = (intptr_t)jread_audio_catalog_or_enum(s, 0, "playsound.sound");
 	} else if (strcmp(mnem, "include") == 0) {
 		out->type = GUNCMD_INCLUDE;
 		if (s->cur.kind == JT_COMMA) jstream_advance(s);
@@ -747,6 +801,131 @@ static s32 decodeOpcode(jstream_t *s, struct guncmd *out)
 	return 1;
 }
 
+static s32 decodeCommandObject(jstream_t *s, struct guncmd *out)
+{
+	if (s->cur.kind != JT_LBRACE) {
+		sysLogPrintf(LOG_WARNING,
+			"LOADER.POOL.WEAPON.SCAN_FAIL: command not an object");
+		jstream_skip_value(s);
+		return 0;
+	}
+	jstream_advance(s);
+	memset(out, 0, sizeof(*out));
+
+	char command[64] = {0};
+	char animation[64] = {0};
+	s32 slot = 0;
+	s32 part = 0;
+	s32 value = 0;
+	s32 ticks = 0;
+	s32 weight = 0;
+	s32 sound = 0;
+	s32 direction = 0;
+	s32 speed = 0;
+	s32 dont_loop = 0;
+	s32 goto_trigger = 0;
+
+	while (s->cur.kind != JT_RBRACE && s->cur.kind != JT_EOF) {
+		if (s->cur.kind != JT_STRING) { jstream_advance(s); continue; }
+		jtok_t key = s->cur;
+		jstream_advance(s);
+		if (s->cur.kind != JT_COLON) continue;
+		jstream_advance(s);
+
+		if (jstream_str_eq(&key, "command")) {
+			jread_string_buf(s, command, sizeof(command));
+		} else if (jstream_str_eq(&key, "animation")) {
+			jread_string_buf(s, animation, sizeof(animation));
+		} else if (jstream_str_eq(&key, "sound")
+				|| jstream_str_eq(&key, "sound_id")) {
+			sound = jread_audio_catalog_or_enum(s, 0, "command.sound");
+		} else if (jstream_str_eq(&key, "slot")) {
+			slot = jread_int(s, 0);
+		} else if (jstream_str_eq(&key, "part")) {
+			part = jread_int(s, 0);
+		} else if (jstream_str_eq(&key, "value")) {
+			value = jread_int(s, 0);
+		} else if (jstream_str_eq(&key, "ticks")) {
+			ticks = jread_int(s, 0);
+		} else if (jstream_str_eq(&key, "weight")) {
+			weight = jread_int(s, 0);
+		} else if (jstream_str_eq(&key, "direction")) {
+			direction = jread_int(s, 0);
+		} else if (jstream_str_eq(&key, "speed")) {
+			speed = jread_int(s, 0);
+		} else if (jstream_str_eq(&key, "dont_loop")) {
+			dont_loop = jread_int(s, 0);
+		} else if (jstream_str_eq(&key, "goto_trigger")) {
+			goto_trigger = jread_int(s, 0);
+		} else {
+			jstream_skip_value(s);
+		}
+		if (s->cur.kind == JT_COMMA) jstream_advance(s);
+	}
+	if (s->cur.kind == JT_RBRACE) jstream_advance(s);
+
+	if (strcmp(command, "end") == 0) {
+		out->type = GUNCMD_END;
+	} else if (strcmp(command, "show_part") == 0) {
+		out->type = GUNCMD_SHOWPART;
+		out->unk02 = (u16)part;
+		out->unk04 = (intptr_t)value;
+	} else if (strcmp(command, "hide_part") == 0) {
+		out->type = GUNCMD_HIDEPART;
+		out->unk02 = (u16)part;
+		out->unk04 = (intptr_t)value;
+	} else if (strcmp(command, "wait_for_trigger_release") == 0) {
+		out->type = GUNCMD_WAITFORZRELEASED;
+		out->unk02 = (u16)slot;
+	} else if (strcmp(command, "wait_ticks") == 0) {
+		out->type = GUNCMD_WAITTIME;
+		out->unk02 = (u16)slot;
+		out->unk04 = (intptr_t)ticks;
+	} else if (strcmp(command, "play_sound") == 0) {
+		out->type = GUNCMD_PLAYSOUND;
+		out->unk02 = (u16)slot;
+		out->unk04 = (intptr_t)sound;
+	} else if (strcmp(command, "include_animation") == 0) {
+		out->type = GUNCMD_INCLUDE;
+		out->unk01 = (u8)slot;
+		struct guncmd *resolved = resolveAnimByName(animation);
+		out->unk04 = (intptr_t)resolved;
+		if (resolved == NULL) {
+			registerAnimFixup(out, animation);
+		}
+	} else if (strcmp(command, "random_animation") == 0) {
+		out->type = GUNCMD_RANDOM;
+		out->unk02 = (u16)weight;
+		struct guncmd *resolved = resolveAnimByName(animation);
+		out->unk04 = (intptr_t)resolved;
+		if (resolved == NULL) {
+			registerAnimFixup(out, animation);
+		}
+	} else if (strcmp(command, "repeat_until_full") == 0) {
+		out->type = GUNCMD_REPEATUNTILFULL;
+		out->unk02 = (u16)slot;
+		out->unk04 = ((intptr_t)dont_loop << 16) | (goto_trigger & 0xFFFF);
+	} else if (strcmp(command, "popout_sack_of_pills") == 0) {
+		out->type = GUNCMD_POPOUTSACKOFPILLS;
+		out->unk02 = (u16)slot;
+	} else if (strcmp(command, "play_character_animation") == 0) {
+		out->type = GUNCMD_PLAYANIMATION;
+		out->unk02 = (u16)s_resolveAnimationCatalogOrEnumName(animation, 0,
+			"command.animation");
+		out->unk04 = ((intptr_t)direction << 16) | (speed & 0xFFFF);
+	} else if (strcmp(command, "set_sound_speed") == 0) {
+		out->type = GUNCMD_SETSOUNDSPEED;
+		out->unk02 = (u16)slot;
+		out->unk04 = (intptr_t)speed;
+	} else {
+		sysLogPrintf(LOG_WARNING,
+			"LOADER.POOL.WEAPON.RESOLVE_FAIL: unknown command=\"%s\"",
+			command);
+		return 0;
+	}
+	return 1;
+}
+
 /* Reverse of decodeOpcode: encode a struct guncmd back to a JSON-ish
  * representation used only by the F12 round-trip self-test. Returns
  * 1 on success and writes to `out_buf` (NUL-terminated). */
@@ -790,14 +969,15 @@ static void parseAnimation(jstream_t *s)
 
 	while (s->cur.kind != JT_RBRACE && s->cur.kind != JT_EOF) {
 		if (s->cur.kind != JT_STRING) { jstream_advance(s); continue; }
-		s32 is_id      = jstream_str_eq(&s->cur, "id");
-		s32 is_opcodes = jstream_str_eq(&s->cur, "opcodes");
+		s32 is_id       = jstream_str_eq(&s->cur, "id");
+		s32 is_commands = jstream_str_eq(&s->cur, "commands");
+		s32 is_opcodes  = jstream_str_eq(&s->cur, "opcodes");
 		jstream_advance(s);  /* consume key */
 		if (s->cur.kind != JT_COLON) continue;
 		jstream_advance(s);  /* consume : */
 		if (is_id) {
 			jread_string_buf(s, anim_name, sizeof(anim_name));
-		} else if (is_opcodes) {
+		} else if (is_commands || is_opcodes) {
 			if (s->cur.kind != JT_LBRACK) { jstream_skip_value(s); }
 			else {
 				jstream_advance(s);  /* consume [ */
@@ -814,7 +994,11 @@ static void parseAnimation(jstream_t *s)
 					}
 					struct guncmd *slot = &s_Guncmds[s_GuncmdsUsed];
 					s_GuncmdsUsed++;
-					decodeOpcode(s, slot);
+					if (is_commands) {
+						decodeCommandObject(s, slot);
+					} else {
+						decodeOpcode(s, slot);
+					}
 					if (s->cur.kind == JT_COMMA) jstream_advance(s);
 				}
 				cmds_count = s_GuncmdsUsed - reserved_start;

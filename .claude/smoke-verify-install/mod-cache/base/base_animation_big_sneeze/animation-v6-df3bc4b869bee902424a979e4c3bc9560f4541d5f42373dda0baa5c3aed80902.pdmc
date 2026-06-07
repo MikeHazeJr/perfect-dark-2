@@ -1,0 +1,14 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 6,
+  "asset_id": "base:animation_big_sneeze",
+  "mod_id": "base",
+  "kind": "animation",
+  "source": "data/ntsc-final/animations/base_animation_big_sneeze.pdanim::animation.gltf",
+  "source_size": 45199,
+  "source_sha256": "df3bc4b869bee902424a979e4c3bc9560f4541d5f42373dda0baa5c3aed80902",
+  "validation": "format=gltf animtableentry clips=1 frames=123 channels=15",
+  "normalized": "$S/mod-cache/base/base_animation_big_sneeze/animation-v6-df3bc4b869bee902424a979e4c3bc9560f4541d5f42373dda0baa5c3aed80902.pdanimation.json",
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

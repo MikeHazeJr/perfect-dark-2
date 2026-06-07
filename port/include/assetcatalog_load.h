@@ -109,8 +109,8 @@ CatalogResolveResult catalogResolveSound(s32 soundnum);
  * Resolve a sequenced music track number to a catalog decision.
  *
  * Public .pdsong track audio is routed through the streaming music path before
- * the sequencer. Public sequence.mid, sequence.tsv, and music.ini sources are
- * proven together before sequence.tsv is compiled to the compact ALC sequence
+ * the sequencer. Public sequence.mid, sequence.json, and music.ini sources are
+ * proven together before sequence.json is compiled to the compact ALC sequence
  * buffer that the existing sequencer consumes. Source-only audio mode still
  * refuses ROM sequence fallback if public-source compilation fails.
  */

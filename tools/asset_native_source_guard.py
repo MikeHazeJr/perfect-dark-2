@@ -2406,7 +2406,7 @@ def scan_music_sequence_source_only_guard(root: Path) -> list[str]:
                 [
                     "CatalogResolveResult catalogResolveMusicSequence(s32 tracknum)",
                     "Public .pdsong track audio is routed through the streaming music path",
-                    "Public sequence.mid, sequence.tsv, and music.ini sources are",
+                    "Public sequence.mid, sequence.json, and music.ini sources are",
                     "public-source compilation",
                 ],
             ),
@@ -2432,10 +2432,10 @@ def scan_music_sequence_source_only_guard(root: Path) -> list[str]:
                     "modMusicIsPlaying()",
                     "modSequenceCompilePublicSource",
                     "modSequenceSiblingPath(r->path, \"sequence.mid\"",
-                    "modSequenceSiblingPath(r->path, \"sequence.tsv\"",
+                    "modSequenceSiblingPath(r->path, \"sequence.json\"",
                     "modSequenceSiblingPath(r->path, \"music.ini\"",
                     "fsFileSize(mid_path) <= 0",
-                    "modSequenceLoadEventsTsv",
+                    "modSequenceLoadEventsJson",
                     "fsFileLoad(path, &size)",
                     "modSequenceBuildAlcBuffer",
                     "modSequencePutBe32(data + 64, division)",
@@ -2492,7 +2492,7 @@ def scan_music_sequence_source_only_guard(root: Path) -> list[str]:
               "port/src/mod.c",
               mod,
               "fsFileSize(mid_path) <= 0",
-              "modSequenceLoadEventsTsv(tsv_path, tracks, &event_count)",
+              "modSequenceLoadEventsJson(json_path, tracks, &event_count)",
           ),
           (
               "port/src/mod.c",
@@ -2562,7 +2562,8 @@ def scan_sound_file_source_only_guard(root: Path) -> list[str]:
         return [str(exc)]
 
     required = [
-        "audioPlayFileSound(r.path, volume, pan)",
+        "audioPlayFileSound(r.path, volume, pan, filepitch)",
+        "filepitch *= alCents2Ratio(cents)",
         "assetSourceDebugIsEnabledFor(ASSET_AUDIO)",
         "ASSET.SOURCE_ONLY: sound %d maps to public file source",
         "but file playback failed; refusing ROM/static fallback",
@@ -2580,7 +2581,7 @@ def scan_sound_file_source_only_guard(root: Path) -> list[str]:
         for name, start, end in iter_c_function_blocks(text)
     }
     block = blocks.get("sndStart", "")
-    play = "audioPlayFileSound(r.path, volume, pan)"
+    play = "audioPlayFileSound(r.path, volume, pan, filepitch)"
     before = "assetSourceDebugIsEnabledFor(ASSET_AUDIO)"
     after = "MOD: sound %d catalog override failed (%s), falling back to ROM"
     play_index = block.find(play)

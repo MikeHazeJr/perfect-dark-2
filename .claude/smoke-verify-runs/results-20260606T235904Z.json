@@ -1,0 +1,26 @@
+{
+  "Name": "base_animation_source_probe_smoke",
+  "Category": "scenario",
+  "BugId": null,
+  "RegressionFor": null,
+  "Passed": false,
+  "ExitCode": 0,
+  "ElapsedSeconds": 36.5765646,
+  "InstallDir": "C:\\Users\\mikeh\\Perfect-Dark-2\\perfect_dark-mike\\.claude\\smoke-verify-install",
+  "AssertionsTotal": 19,
+  "AssertionsMet": 16,
+  "Failures": [
+    {
+      "Kind": "required_line_missing",
+      "Pattern": "MODASSET\\.COMPILER: built animation clip 'base:animation_big_sneeze' source=.*base_animation_big_sneeze\\.pdanim::animation\\.gltf.*boundary=animtableentry"
+    },
+    {
+      "Kind": "required_line_missing",
+      "Pattern": "CATALOG\\.LIFECYCLE\\.ACTIVATE: activated animation clip 'base:animation_big_sneeze'.*generated=.*\\.pdanimation\\.json"
+    },
+    {
+      "Kind": "required_line_missing",
+      "Pattern": "BOOT: --debug-probe-animation-source result id='base:animation_big_sneeze' anim=\\d+ result=OK source=.*base_animation_big_sneeze\\.pdanim::animation\\.gltf frames=\\d+ bytes_per_frame=\\d+ header_len=\\d+ data=0xffffffff frame0_slot=\\d+ frame1_slot=\\d+ sampled_parts=128 non_default_parts=[1-9]\\d* changed_parts=[1-9]\\d*"
+    }
+  ]
+}

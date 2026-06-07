@@ -1,0 +1,18 @@
+{
+  "schema": "pd2.modasset.animation.v1",
+  "compiler_version": 6,
+  "asset_id": "base:animation_roll_head",
+  "kind": "animation",
+  "source": "data/ntsc-final/animations/base_animation_roll_head.pdanim::animation.gltf",
+  "source_sha256": "fd4691213826fb320fd50a0389f5727a78b169c49417b5ea7d72be7db4dcb08f",
+  "runtime_boundary": "animtableentry",
+  "clip_name": "base:animation_roll_head",
+  "animation_count": 1,
+  "channel_count": 15,
+  "sampler_count": 15,
+  "frame_count": 141,
+  "header_length": -1,
+  "bytes_per_frame": -1,
+  "transform_policy": "gltf_skeletal_channel_pack",
+  "packed_channels": ["translation", "rotation", "scale"]
+}

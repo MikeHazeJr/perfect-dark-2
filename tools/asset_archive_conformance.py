@@ -93,7 +93,7 @@ ROOT_METADATA = {
 }
 
 SCENARIO_GRAPH_CACHE_KIND = (
-    "pdscenario_scene_glb_clean_public_v82_standalone_backfill_collision_obj_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_quip_shuffle_graph_portals_navhashes"
+    "pdscenario_scene_glb_clean_public_v84_standalone_backfill_collision_obj_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_quip_shuffle_graph_portals_navhashes"
 )
 
 FORBIDDEN_COMMON_EXACT = {
@@ -576,19 +576,21 @@ SCHEMAS: dict[str, Schema] = {
             "model.nodes.tsv",
             "model.parts.tsv",
             "model.faces.tsv",
+            "model.render.json",
             "export_version.txt",
         ],
         allowed_globs=[
             "dependencies/assets/materials/*.pdmaterial",
             "dependencies/assets/textures/*.pdtexture",
         ],
+        forbidden=["model.render.tsv"],
     ),
     ".pdanim": schema(
         required=["animation.ini"],
         require_one_of=[
-            [["animation.gltf"], ["animation.glb"], ["header.tsv", "frames.tsv"], ["opcodes.json"]],
+            [["animation.gltf"], ["animation.glb"], ["commands.json"]],
         ],
-        allowed=["animation.ini", "animation.gltf", "animation.glb", "header.tsv", "frames.tsv", "opcodes.json", "events.tsv", "notifies.tsv"],
+        allowed=["animation.ini", "animation.gltf", "animation.glb", "commands.json"],
     ),
     ".pdsfx": schema(
         required=["sound.ini", "sample.wav"],
@@ -602,9 +604,9 @@ SCHEMAS: dict[str, Schema] = {
     ".pdsong": schema(
         required=["music.ini"],
         require_one_of=[
-            [["sequence.mid", "sequence.tsv"], ["track.wav"], ["track.ogg"], ["track.mp3"]],
+            [["sequence.mid", "sequence.json"], ["track.wav"], ["track.ogg"], ["track.mp3"]],
         ],
-        allowed=["music.ini", "sequence.mid", "sequence.tsv", "track.wav", "track.ogg", "track.mp3", "cues.tsv", "sections.tsv"],
+        allowed=["music.ini", "sequence.mid", "sequence.json", "track.wav", "track.ogg", "track.mp3", "cues.json", "sections.json"],
     ),
     ".pdui": schema(
         required=["ui.ini"],
@@ -879,6 +881,7 @@ OPTIONAL_PUBLIC_SLOT_CONTRACT: dict[str, dict[str, SlotJustification]] = {
         "model.nodes.tsv": slot("model hierarchy source", "mesh importer", "loads original node/matrix hierarchy for runtime modeldef reconstruction", "author-authored flat mesh sources may omit hierarchy metadata"),
         "model.parts.tsv": slot("model part-table source", "mesh importer", "loads original part-to-node lookup table for runtime modeldef reconstruction", "required when hierarchy metadata is present"),
         "model.faces.tsv": slot("model face-matrix source", "mesh importer", "loads original face-to-matrix bindings for runtime display-list reconstruction", "required when hierarchy metadata is present"),
+        "model.render.json": slot("semantic render command source", "mesh importer", "preserves original matrix, material, and triangle command order for runtime modeldef reconstruction", "author-authored flat mesh sources may omit original render commands"),
         "export_version.txt": slot("exporter provenance marker", "mesh extractor", "records source exporter revision for stale-cache detection", "validator treats archive as source-authored without exporter provenance"),
         "dependencies/assets/materials/*.pdmaterial": slot("mesh material dependencies", "mesh importer", DEPENDENCY_LOADER, "mesh uses material declarations inside the model source"),
         "dependencies/assets/textures/*.pdtexture": slot("mesh texture dependencies", "mesh importer", DEPENDENCY_LOADER, "mesh uses embedded/material-declared textures inside the model source"),
@@ -886,11 +889,7 @@ OPTIONAL_PUBLIC_SLOT_CONTRACT: dict[str, dict[str, SlotJustification]] = {
     ".pdanim": {
         "animation.gltf": slot("GLTF animation source", "animation importer", "loads animation curves as runtime source and cache seed", "another animation source slot must be present"),
         "animation.glb": slot("GLB animation source", "animation importer", "loads animation curves as runtime source and cache seed", "another animation source slot must be present"),
-        "header.tsv": slot("decoded animation header table", "animation importer", "loads legacy-compatible animation metadata from editable table", "another animation source slot must be present"),
-        "frames.tsv": slot("decoded animation frame table", "animation importer", "loads legacy-compatible animation frames from editable table", "another animation source slot must be present"),
-        "opcodes.json": slot("decoded animation opcode source", "animation importer", "loads legacy-compatible opcode animation source", "another animation source slot must be present"),
-        "events.tsv": slot("animation event markers", "animation importer", "loads authored event markers", "animation has no authored event markers"),
-        "notifies.tsv": slot("animation notify markers", "animation importer", "loads authored notify markers", "animation has no authored notify markers"),
+        "commands.json": slot("semantic weapon animation command source", "animation importer", "builds native weapon animation commands from editable source", "another animation source slot must be present"),
     },
     ".pdsfx": {
         "sample.ogg": slot("compressed sound source", "audio importer", "decodes standard audio into runtime sound cache", "sample.wav is authoritative"),
@@ -902,13 +901,13 @@ OPTIONAL_PUBLIC_SLOT_CONTRACT: dict[str, dict[str, SlotJustification]] = {
         "locales/*.ogg": slot("localized OGG voice samples", "voice importer", "loads locale-specific voice source", "default sample.wav is used"),
     },
     ".pdsong": {
-        "sequence.mid": slot("MIDI song source", "music importer", "loads authored sequence source", "track audio or sequence.tsv must supply playback source"),
-        "sequence.tsv": slot("decoded sequence table", "music importer", "loads editable sequence events", "track audio or sequence.mid must supply playback source"),
+        "sequence.mid": slot("MIDI song source", "music importer", "loads authored sequence source", "track audio or sequence.json must supply playback source"),
+        "sequence.json": slot("semantic sequence event source", "music importer", "loads editable named sequence events", "track audio or sequence.mid must supply playback source"),
         "track.wav": slot("WAV song source", "music importer", "loads direct audio track source", "sequence source or another track format must be present"),
         "track.ogg": slot("OGG song source", "music importer", "loads direct audio track source", "sequence source or another track format must be present"),
         "track.mp3": slot("MP3 song source", "music importer", "loads direct audio track source", "sequence source or another track format must be present"),
-        "cues.tsv": slot("music cue table", "music importer", "loads authored cue points", "song has no authored cue table"),
-        "sections.tsv": slot("music section table", "music importer", "loads authored section loop/transition data", "song has no authored section table"),
+        "cues.json": slot("music cue source", "music importer", "loads authored cue points", "song has no authored cue source"),
+        "sections.json": slot("music section source", "music importer", "loads authored section loop/transition data", "song has no authored section source"),
     },
     ".pdui": {
         "texture.png": slot("UI PNG source image", "UI importer", "loads standard image source into UI texture cache", "another UI texture source slot must be present"),
@@ -1267,7 +1266,7 @@ def validate_scene_glb_texture_contract(label: str, data: bytes,
     generator = asset.get("generator", "") if isinstance(asset, dict) else ""
     if (isinstance(generator, str)
             and generator.startswith("Perfect Dark 2 PDSCENARIO scene.glb exporter")
-            and "bg_visual_scene_glb_v7_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound" not in generator):
+            and "bg_visual_scene_glb_v9_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0" not in generator):
         errors.append(
             f"{label} scene.glb uses stale scenario GLB exporter stamp {generator!r}"
         )
@@ -1278,6 +1277,7 @@ def validate_scene_glb_texture_contract(label: str, data: bytes,
 
     texcoord_accessors: set[int] = set()
     runtime_texcoord_accessors: set[int] = set()
+    color_accessors: set[int] = set()
     meshes = gltf_json.get("meshes", [])
     if isinstance(meshes, list):
         for mesh in meshes:
@@ -1298,6 +1298,9 @@ def validate_scene_glb_texture_contract(label: str, data: bytes,
                 runtime_texcoord = attributes.get("TEXCOORD_1")
                 if isinstance(runtime_texcoord, int):
                     runtime_texcoord_accessors.add(runtime_texcoord)
+                color = attributes.get("COLOR_0")
+                if isinstance(color, int):
+                    color_accessors.add(color)
 
     if not texcoord_accessors:
         return
@@ -1326,6 +1329,11 @@ def validate_scene_glb_texture_contract(label: str, data: bytes,
         errors.append(
             f"{label} scene.glb is missing TEXCOORD_1 runtime UVs for "
             "renderer-parity texture repeats"
+        )
+    if generated_pd_scenario and not color_accessors:
+        errors.append(
+            f"{label} scene.glb is missing COLOR_0 vertex colors for "
+            "renderer-parity room shading"
         )
 
     if generated_pd_scenario:

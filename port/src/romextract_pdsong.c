@@ -10,7 +10,7 @@
  *   _meta/manifest.json envelope + sequence metadata + provenance
  *   _meta/*.json       shared inventory/provenance/validation/source handles
  *   sequence.mid      standard MIDI conversion of the compressed N64 sequence
- *   sequence.tsv      editable event listing for round-trip authoring
+ *   sequence.json     semantic event source for round-trip authoring
  *   _meta/*.sha256   public-file SHA-256 sidecars
  *
  * Catalog ID convention: base:song_sequence_<readable ordinal>. The 43 catalog-registered
@@ -120,7 +120,7 @@ static s32 s_existingArchiveHasSongPayloads(const char *relpath)
 	s32 ok = modArchiveFindEntry(arc, "music.ini") >= 0
 	      && modArchiveFindEntry(arc, "_meta/manifest.json") >= 0
 	      && modArchiveFindEntry(arc, "sequence.mid") >= 0
-	      && modArchiveFindEntry(arc, "sequence.tsv") >= 0;
+	      && modArchiveFindEntry(arc, "sequence.json") >= 0;
 	modArchiveClose(arc);
 	return ok;
 }
@@ -214,6 +214,29 @@ static s32 s_bytebufPrintf(pdsong_bytebuf_t *b, const char *fmt, ...)
 	if (wrote != need) return -1;
 	b->len += (u32)need;
 	return 0;
+}
+
+static s32 s_bytebufAppendJsonString(pdsong_bytebuf_t *b, const char *s)
+{
+	if (s_bytebufPutU8(b, '"') != 0) return -1;
+	for (; s && *s; s++) {
+		unsigned char c = (unsigned char)*s;
+		if (c == '"' || c == '\\') {
+			if (s_bytebufPutU8(b, '\\') != 0 ||
+			    s_bytebufPutU8(b, c) != 0) return -1;
+		} else if (c == '\n') {
+			if (s_bytebufAppend(b, "\\n", 2) != 0) return -1;
+		} else if (c == '\r') {
+			if (s_bytebufAppend(b, "\\r", 2) != 0) return -1;
+		} else if (c == '\t') {
+			if (s_bytebufAppend(b, "\\t", 2) != 0) return -1;
+		} else if (c < 0x20) {
+			if (s_bytebufPrintf(b, "\\u%04x", (unsigned)c) != 0) return -1;
+		} else {
+			if (s_bytebufPutU8(b, c) != 0) return -1;
+		}
+	}
+	return s_bytebufPutU8(b, '"');
 }
 
 typedef struct {
@@ -505,8 +528,21 @@ static const char *s_seqEventName(s32 type)
 	}
 }
 
+static const char *s_midiStatusName(u8 status)
+{
+	switch (status & 0xf0) {
+	case AL_MIDI_NoteOff: return "note_off";
+	case AL_MIDI_NoteOn: return "note_on";
+	case AL_MIDI_ControlChange: return "control_change";
+	case AL_MIDI_ProgramChange: return "program_change";
+	case AL_MIDI_ChannelPressure: return "channel_pressure";
+	case AL_MIDI_PitchBendChange: return "pitch_bend";
+	default: return status == AL_MIDI_Meta ? "meta" : "none";
+	}
+}
+
 static s32 s_exportSequence(const u8 *seq_src, u32 seq_len,
-                            pdsong_bytebuf_t *mid, pdsong_bytebuf_t *tsv,
+                            pdsong_bytebuf_t *mid, pdsong_bytebuf_t *json,
                             u32 *out_division, u32 *out_event_count,
                             s32 *out_loops)
 {
@@ -525,8 +561,13 @@ static s32 s_exportSequence(const u8 *seq_src, u32 seq_len,
 	pdsong_midi_vec_t midi_events;
 	memset(&midi_events, 0, sizeof(midi_events));
 
-	if (s_bytebufPrintf(tsv,
-			"tick\ttrack\ttype\tstatus\tchannel\tbyte1\tbyte2\tduration\ttempo_us\tloop_count\n") != 0) {
+	if (s_bytebufPrintf(json,
+			"{\n"
+			"  \"pd_kind\": \"song_sequence\",\n"
+			"  \"pd_schema_version\": 1,\n"
+			"  \"division\": %u,\n"
+			"  \"events\": [\n",
+			(unsigned)division) != 0) {
 		free(seq);
 		return -1;
 	}
@@ -582,12 +623,19 @@ static s32 s_exportSequence(const u8 *seq_src, u32 seq_len,
 			saw_loops = 1;
 		}
 
-		if (s_bytebufPrintf(tsv,
-				"%u\t%u\t%s\t0x%02x\t%u\t%u\t%u\t%u\t%u\t%u\n",
+		if (s_bytebufPrintf(json,
+				"%s    { \"tick\": %u, \"track\": %u, \"type\": ",
+				parsed_count > 1 ? ",\n" : "",
 				(unsigned)evt.tick,
-				(unsigned)evt.track,
-				s_seqEventName(evt.type),
-				(unsigned)evt.status,
+				(unsigned)evt.track) != 0 ||
+				s_bytebufAppendJsonString(json, s_seqEventName(evt.type)) != 0 ||
+				s_bytebufPrintf(json,
+				", \"status\": %u, \"status_name\": ",
+				(unsigned)evt.status) != 0 ||
+				s_bytebufAppendJsonString(json, s_midiStatusName(evt.status)) != 0 ||
+				s_bytebufPrintf(json,
+				", \"channel\": %u, \"byte1\": %u, \"byte2\": %u, "
+				"\"duration\": %u, \"tempo_us\": %u, \"loop_count\": %u }",
 				(unsigned)(evt.status & 0x0f),
 				(unsigned)evt.byte1,
 				(unsigned)evt.byte2,
@@ -600,6 +648,12 @@ static s32 s_exportSequence(const u8 *seq_src, u32 seq_len,
 		}
 
 		if (evt.type == AL_SEQ_END_EVT) break;
+	}
+
+	if (s_bytebufPrintf(json, "\n  ]\n}\n") != 0) {
+		s_midiVecFree(&midi_events);
+		free(seq);
+		return -1;
 	}
 
 	qsort(midi_events.items, midi_events.count, sizeof(midi_events.items[0]), s_midiEvtCmp);
@@ -651,7 +705,7 @@ static s32 s_emitOneSong(s32 slot_idx,
 	 * data is uncompressed. ziplen > 0 means zlib payload.
 	 *
 	 * We expose both lengths in the manifest for round-trip parity, but
-	 * authored contents are the converted sequence.mid/sequence.tsv pair. */
+	 * authored contents are the converted sequence.mid/sequence.json pair. */
 	const char *fmt_str = (entry->ziplen > 0) ? "N64_CMIDI_RZIP" : "N64_CMIDI";
 
 	/* The slice we extract is whichever length is on disk. PD writes
@@ -702,17 +756,17 @@ static s32 s_emitOneSong(s32 slot_idx,
 	}
 
 	pdsong_bytebuf_t mid_buf;
-	pdsong_bytebuf_t tsv_buf;
+	pdsong_bytebuf_t json_buf;
 	memset(&mid_buf, 0, sizeof(mid_buf));
-	memset(&tsv_buf, 0, sizeof(tsv_buf));
+	memset(&json_buf, 0, sizeof(json_buf));
 	u32 division = 0;
 	u32 event_count = 0;
 	s32 loops = 0;
-	if (s_exportSequence(seq_bytes, seq_len, &mid_buf, &tsv_buf,
+	if (s_exportSequence(seq_bytes, seq_len, &mid_buf, &json_buf,
 	                     &division, &event_count, &loops) != 0) {
 		free(seq_bytes);
 		s_bytebufFree(&mid_buf);
-		s_bytebufFree(&tsv_buf);
+		s_bytebufFree(&json_buf);
 		sysLoudFailf("EXTRACT.PDSONG",
 			"sequence export failed for slot=%d seq_len=%u",
 			slot_idx, (unsigned)seq_len);
@@ -729,7 +783,7 @@ static s32 s_emitOneSong(s32 slot_idx,
 		"  \"source_format\": \"%s\",\n"
 		"  \"format\": \"MIDI\",\n"
 		"  \"midi\": \"sequence.mid\",\n"
-		"  \"events\": \"sequence.tsv\",\n"
+		"  \"events\": \"sequence.json\",\n"
 		"  \"midi_size\": %u,\n"
 		"  \"events_size\": %u,\n"
 		"  \"division\": %u,\n"
@@ -742,7 +796,7 @@ static s32 s_emitOneSong(s32 slot_idx,
 		"}\n",
 		catalog_id, fmt_str,
 		(unsigned)mid_buf.len,
-		(unsigned)tsv_buf.len,
+		(unsigned)json_buf.len,
 		(unsigned)division,
 		(unsigned)event_count,
 		(unsigned)entry->binlen,
@@ -752,7 +806,7 @@ static s32 s_emitOneSong(s32 slot_idx,
 		(unsigned)entry->romaddr);
 	if (manifest_len <= 0 || (size_t)manifest_len >= sizeof(manifest_buf)) {
 		s_bytebufFree(&mid_buf);
-		s_bytebufFree(&tsv_buf);
+		s_bytebufFree(&json_buf);
 		sysLoudFailf("EXTRACT.PDSONG",
 			"manifest.json snprintf truncated for slot=%d", slot_idx);
 		return -1;
@@ -766,7 +820,7 @@ static s32 s_emitOneSong(s32 slot_idx,
 		"format = MIDI\n"
 		"music_file = sequence.mid\n"
 		"midi_file = sequence.mid\n"
-		"events_file = sequence.tsv\n"
+		"events_file = sequence.json\n"
 		"midi_size = %u\n"
 		"events_size = %u\n"
 		"division = %u\n"
@@ -778,7 +832,7 @@ static s32 s_emitOneSong(s32 slot_idx,
 		"source_offset = %u\n",
 		catalog_id, fmt_str,
 		(unsigned)mid_buf.len,
-		(unsigned)tsv_buf.len,
+		(unsigned)json_buf.len,
 		(unsigned)division,
 		(unsigned)event_count,
 		(unsigned)entry->binlen,
@@ -788,7 +842,7 @@ static s32 s_emitOneSong(s32 slot_idx,
 		(unsigned)entry->romaddr);
 	if (ini_len <= 0 || (size_t)ini_len >= sizeof(ini_buf)) {
 		s_bytebufFree(&mid_buf);
-		s_bytebufFree(&tsv_buf);
+		s_bytebufFree(&json_buf);
 		sysLoudFailf("EXTRACT.PDSONG",
 			"music.ini snprintf truncated for slot=%d", slot_idx);
 		return -1;
@@ -798,7 +852,7 @@ static s32 s_emitOneSong(s32 slot_idx,
 	const char *dst_full = fsFullPath(dst_rel, dst_full_buf, sizeof(dst_full_buf));
 	if (!dst_full || !dst_full[0]) {
 		s_bytebufFree(&mid_buf);
-		s_bytebufFree(&tsv_buf);
+		s_bytebufFree(&json_buf);
 		sysLoudFailf("EXTRACT.PDSONG",
 			"fsFullPath empty for \"%s\"", dst_rel);
 		return -1;
@@ -807,7 +861,7 @@ static s32 s_emitOneSong(s32 slot_idx,
 	mod_archive_writer_t *aw = modArchiveBegin(dst_full);
 	if (!aw) {
 		s_bytebufFree(&mid_buf);
-		s_bytebufFree(&tsv_buf);
+		s_bytebufFree(&json_buf);
 		sysLoudFailf("EXTRACT.PDSONG",
 			"modArchiveBegin failed for \"%s\"", dst_full);
 		return -1;
@@ -817,7 +871,7 @@ static s32 s_emitOneSong(s32 slot_idx,
 	if (assetArchiveWriterInit(&asset_writer, aw, "song", catalog_id) !=
 			MODARCHIVE_OK) {
 		s_bytebufFree(&mid_buf);
-		s_bytebufFree(&tsv_buf);
+		s_bytebufFree(&json_buf);
 		sysLoudFailf("EXTRACT.PDSONG",
 			"assetArchiveWriterInit failed for \"%s\"", dst_full);
 		modArchiveAbort(aw);
@@ -832,7 +886,7 @@ static s32 s_emitOneSong(s32 slot_idx,
 			"AddFileMem music.ini failed for \"%s\"", dst_full);
 		modArchiveAbort(aw);
 		s_bytebufFree(&mid_buf);
-		s_bytebufFree(&tsv_buf);
+		s_bytebufFree(&json_buf);
 		return -1;
 	}
 	if (assetArchiveWriterAddManifestJson(&asset_writer,
@@ -841,7 +895,7 @@ static s32 s_emitOneSong(s32 slot_idx,
 			"AddFileMem _meta/manifest.json failed for \"%s\"", dst_full);
 		modArchiveAbort(aw);
 		s_bytebufFree(&mid_buf);
-		s_bytebufFree(&tsv_buf);
+		s_bytebufFree(&json_buf);
 		return -1;
 	}
 
@@ -854,20 +908,20 @@ static s32 s_emitOneSong(s32 slot_idx,
 			dst_full, slot_idx, (unsigned)mid_buf.len);
 		modArchiveAbort(aw);
 		s_bytebufFree(&mid_buf);
-		s_bytebufFree(&tsv_buf);
+		s_bytebufFree(&json_buf);
 		return -1;
 	}
 
-	if (assetArchiveWriterAddPublicMem(&asset_writer, "sequence.tsv",
-			(const char *)tsv_buf.data, tsv_buf.len, "events") !=
+	if (assetArchiveWriterAddPublicMem(&asset_writer, "sequence.json",
+			(const char *)json_buf.data, json_buf.len, "events") !=
 			MODARCHIVE_OK) {
 		sysLoudFailf("EXTRACT.PDSONG",
-			"AddFileMem sequence.tsv failed for \"%s\" "
+			"AddFileMem sequence.json failed for \"%s\" "
 			"(slot=%d len=%u)",
-			dst_full, slot_idx, (unsigned)tsv_buf.len);
+			dst_full, slot_idx, (unsigned)json_buf.len);
 		modArchiveAbort(aw);
 		s_bytebufFree(&mid_buf);
-		s_bytebufFree(&tsv_buf);
+		s_bytebufFree(&json_buf);
 		return -1;
 	}
 
@@ -877,20 +931,20 @@ static s32 s_emitOneSong(s32 slot_idx,
 			dst_full, slot_idx);
 		modArchiveAbort(aw);
 		s_bytebufFree(&mid_buf);
-		s_bytebufFree(&tsv_buf);
+		s_bytebufFree(&json_buf);
 		return -1;
 	}
 
 	if (modArchiveFinish(aw) != 0) {
 		s_bytebufFree(&mid_buf);
-		s_bytebufFree(&tsv_buf);
+		s_bytebufFree(&json_buf);
 		sysLoudFailf("EXTRACT.PDSONG",
 			"modArchiveFinish failed for \"%s\"", dst_full);
 		return -1;
 	}
 
 	s_bytebufFree(&mid_buf);
-	s_bytebufFree(&tsv_buf);
+	s_bytebufFree(&json_buf);
 	return 1;
 }
 
@@ -995,7 +1049,7 @@ s32 romExtractAllPdsong(s32 force_rewrite)
 		return -1;
 	}
 
-	if (romExtractPdFastCacheCanSkip("pdsong", out_dir,
+	if (romExtractPdFastCacheCanSkip("pdsong_sequence_json_v1", out_dir,
 			".pdsong", force_rewrite)) {
 		bootProgressUpdate((s32)count, (s32)count);
 		sysLogPrintf(LOG_NOTE,
@@ -1032,7 +1086,7 @@ s32 romExtractAllPdsong(s32 force_rewrite)
 		written, skipped, failed, (unsigned)count, out_dir);
 
 	if (failed == 0) {
-		romExtractPdFastCacheWrite("pdsong", out_dir, ".pdsong");
+		romExtractPdFastCacheWrite("pdsong_sequence_json_v1", out_dir, ".pdsong");
 	}
 
 	return written;

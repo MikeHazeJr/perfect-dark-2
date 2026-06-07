@@ -1,0 +1,14 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 7,
+  "asset_id": "base:animation_two_gun_hold",
+  "mod_id": "base",
+  "kind": "animation",
+  "source": "data/ntsc-final/animations/base_animation_two_gun_hold.pdanim::animation.gltf",
+  "source_size": 58218,
+  "source_sha256": "7b2a7bdc344fb5fec3da9d96a081734ebf5fac6cd034e5abeb4f4f3f38027847",
+  "validation": "format=gltf animtableentry clips=1 frames=163 channels=15",
+  "normalized": "$S/mod-cache/base/base_animation_two_gun_hold/animation-v7-7b2a7bdc344fb5fec3da9d96a081734ebf5fac6cd034e5abeb4f4f3f38027847.pdanimation.json",
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

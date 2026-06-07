@@ -256,21 +256,174 @@ static s32 modSequenceParseDivision(const char *ini, u32 size, u32 *out_division
 	return found ? 0 : -1;
 }
 
-static s32 modSequenceParseU32(const char *s, u32 *out)
+typedef struct {
+	const char *start;
+	const char *end;
+} mod_json_span_t;
+
+static const char *modJsonSkipWs(const char *p, const char *end)
 {
+	if (!p) return NULL;
+	while (p < end && (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n')) {
+		p++;
+	}
+	return p;
+}
+
+static const char *modJsonSkipString(const char *p, const char *end)
+{
+	if (p >= end || *p != '"') return NULL;
+	p++;
+	while (p < end) {
+		if (*p == '\\') {
+			p += 2;
+		} else if (*p == '"') {
+			return p + 1;
+		} else {
+			p++;
+		}
+	}
+	return NULL;
+}
+
+static const char *modJsonFindMatching(const char *p, const char *end,
+		char open, char close)
+{
+	s32 depth = 0;
+	while (p < end) {
+		if (*p == '"') {
+			p = modJsonSkipString(p, end);
+			if (!p) return NULL;
+			continue;
+		}
+		if (*p == open) depth++;
+		if (*p == close) {
+			depth--;
+			if (depth == 0) return p + 1;
+		}
+		p++;
+	}
+	return NULL;
+}
+
+static const char *modJsonValueEnd(const char *p, const char *end)
+{
+	p = modJsonSkipWs(p, end);
+	if (!p || p >= end) return NULL;
+	if (*p == '"') return modJsonSkipString(p, end);
+	if (*p == '{') return modJsonFindMatching(p, end, '{', '}');
+	if (*p == '[') return modJsonFindMatching(p, end, '[', ']');
+	while (p < end && *p != ',' && *p != '}' && *p != ']') p++;
+	return p;
+}
+
+static const char *modJsonFindKey(mod_json_span_t object, const char *key)
+{
+	const char *p = modJsonSkipWs(object.start, object.end);
+	const size_t key_len = strlen(key);
+	if (p >= object.end || *p != '{') return NULL;
+	p++;
+	while (p < object.end) {
+		const char *key_start;
+		const char *key_end;
+		const char *value;
+		p = modJsonSkipWs(p, object.end);
+		if (p >= object.end || *p == '}') return NULL;
+		key_start = p + 1;
+		key_end = modJsonSkipString(p, object.end);
+		if (!key_end) return NULL;
+		p = modJsonSkipWs(key_end, object.end);
+		if (p >= object.end || *p != ':') return NULL;
+		value = modJsonSkipWs(p + 1, object.end);
+		if ((size_t)(key_end - key_start - 1) == key_len &&
+				strncmp(key_start, key, key_len) == 0) {
+			return value;
+		}
+		p = modJsonValueEnd(value, object.end);
+		if (!p) return NULL;
+		p = modJsonSkipWs(p, object.end);
+		if (p < object.end && *p == ',') p++;
+	}
+	return NULL;
+}
+
+static s32 modJsonReadArray(const char *value, const char *end,
+		mod_json_span_t *out)
+{
+	const char *p = modJsonSkipWs(value, end);
+	const char *m;
+	if (!p || p >= end || *p != '[') return 0;
+	m = modJsonFindMatching(p, end, '[', ']');
+	if (!m) return 0;
+	out->start = p;
+	out->end = m;
+	return 1;
+}
+
+static s32 modJsonObjectArray(mod_json_span_t object, const char *key,
+		mod_json_span_t *out)
+{
+	const char *value = modJsonFindKey(object, key);
+	return modJsonReadArray(value, object.end, out);
+}
+
+static s32 modJsonObjectU32(mod_json_span_t object, const char *key, u32 *out)
+{
+	const char *value = modJsonFindKey(object, key);
+	const char *end;
 	char *endp = NULL;
-	unsigned long value;
-
-	if (!s || !out || !s[0]) {
-		return -1;
+	unsigned long parsed;
+	if (!value || !out) return 0;
+	end = modJsonValueEnd(value, object.end);
+	if (!end) return 0;
+	value = modJsonSkipWs(value, end);
+	parsed = strtoul(value, &endp, 10);
+	if (endp == value || parsed > 0xfffffffful ||
+			modJsonSkipWs(endp, end) != end) {
+		return 0;
 	}
+	*out = (u32)parsed;
+	return 1;
+}
 
-	value = strtoul(s, &endp, 0);
-	if (endp == s || *endp != '\0' || value > 0xfffffffful) {
-		return -1;
+static s32 modJsonObjectString(mod_json_span_t object, const char *key,
+		char *out, size_t out_size)
+{
+	const char *value = modJsonFindKey(object, key);
+	const char *p;
+	size_t n = 0;
+	if (!value || !out || out_size == 0) return 0;
+	p = modJsonSkipWs(value, object.end);
+	if (p >= object.end || *p != '"') return 0;
+	p++;
+	while (p < object.end && *p != '"') {
+		char c = *p++;
+		if (c == '\\' && p < object.end) {
+			c = *p++;
+		}
+		if (n + 1 >= out_size) return 0;
+		out[n++] = c;
 	}
-	*out = (u32)value;
-	return 0;
+	if (p >= object.end || *p != '"') return 0;
+	out[n] = '\0';
+	return 1;
+}
+
+static s32 modJsonArrayNextObject(mod_json_span_t array, const char **cursor,
+		mod_json_span_t *out)
+{
+	const char *p = *cursor ? *cursor : array.start + 1;
+	p = modJsonSkipWs(p, array.end);
+	if (p < array.end && *p == ',') {
+		p = modJsonSkipWs(p + 1, array.end);
+	}
+	if (p >= array.end || *p == ']') return 0;
+	if (*p != '{') return 0;
+	out->start = p;
+	out->end = modJsonFindMatching(p, array.end, '{', '}');
+	if (!out->end) return 0;
+	*cursor = out->end;
+	return 1;
 }
 
 static s32 modSequenceTrackPush(mod_seq_track_t *track,
@@ -311,14 +464,16 @@ static void modSequenceTracksFree(mod_seq_track_t *tracks)
 	}
 }
 
-static s32 modSequenceLoadEventsTsv(const char *path,
+static s32 modSequenceLoadEventsJson(const char *path,
 		mod_seq_track_t *tracks, u32 *out_events)
 {
 	u32 size = 0;
 	char *text;
-	char *line;
-	char *save_line = NULL;
 	u32 events = 0;
+	mod_json_span_t root;
+	mod_json_span_t events_array;
+	mod_json_span_t object;
+	const char *cursor = NULL;
 
 	if (!path || !tracks || !out_events) {
 		return -1;
@@ -333,42 +488,34 @@ static s32 modSequenceLoadEventsTsv(const char *path,
 	}
 	text[size] = '\0';
 
-	for (line = strtok_r(text, "\r\n", &save_line); line; line = strtok_r(NULL, "\r\n", &save_line)) {
-		char *cols[10];
-		char *save_col = NULL;
-		char *field;
-		u32 col = 0;
+	root.start = text;
+	root.end = text + size;
+	if (!modJsonObjectArray(root, "events", &events_array)) {
+		sysMemFree(text);
+		return -1;
+	}
+
+	while (modJsonArrayNextObject(events_array, &cursor, &object)) {
 		u32 track_index = 0;
 		u32 value = 0;
 		mod_seq_event_t event;
 
 		memset(&event, 0, sizeof(event));
 
-		field = strtok_r(line, "\t", &save_col);
-		while (field && col < 10) {
-			cols[col++] = field;
-			field = strtok_r(NULL, "\t", &save_col);
-		}
-
-		if (col < 10 || strcmp(cols[0], "tick") == 0) {
-			continue;
-		}
-
-		if (modSequenceParseU32(cols[0], &event.tick) != 0 ||
-				modSequenceParseU32(cols[1], &track_index) != 0 ||
+		if (!modJsonObjectU32(object, "tick", &event.tick) ||
+				!modJsonObjectU32(object, "track", &track_index) ||
 				track_index >= 16 ||
-				modSequenceParseU32(cols[3], &value) != 0) {
+				!modJsonObjectString(object, "type", event.type, sizeof(event.type))) {
 			sysMemFree(text);
 			return -1;
 		}
-		event.status = (u8)value;
-		strncpy(event.type, cols[2], sizeof(event.type) - 1);
 
-		if (modSequenceParseU32(cols[5], &value) == 0) event.byte1 = (u8)value;
-		if (modSequenceParseU32(cols[6], &value) == 0) event.byte2 = (u8)value;
-		if (modSequenceParseU32(cols[7], &event.duration) != 0) event.duration = 0;
-		if (modSequenceParseU32(cols[8], &event.tempo_us) != 0) event.tempo_us = 0;
-		if (modSequenceParseU32(cols[9], &event.loop_count) != 0) event.loop_count = 0;
+		if (modJsonObjectU32(object, "status", &value)) event.status = (u8)value;
+		if (modJsonObjectU32(object, "byte1", &value)) event.byte1 = (u8)value;
+		if (modJsonObjectU32(object, "byte2", &value)) event.byte2 = (u8)value;
+		if (!modJsonObjectU32(object, "duration", &event.duration)) event.duration = 0;
+		if (!modJsonObjectU32(object, "tempo_us", &event.tempo_us)) event.tempo_us = 0;
+		if (!modJsonObjectU32(object, "loop_count", &event.loop_count)) event.loop_count = 0;
 
 		if (modSequenceTrackPush(&tracks[track_index], &event) != 0) {
 			sysMemFree(text);
@@ -548,7 +695,7 @@ static void *modSequenceCompilePublicSource(const CatalogResolveResult *r,
 		u16 num, u32 *out_size)
 {
 	char mid_path[FS_MAXPATH + 1];
-	char tsv_path[FS_MAXPATH + 1];
+	char json_path[FS_MAXPATH + 1];
 	char ini_path[FS_MAXPATH + 1];
 	u32 ini_size = 0;
 	char *ini;
@@ -566,7 +713,7 @@ static void *modSequenceCompilePublicSource(const CatalogResolveResult *r,
 	}
 
 	if (modSequenceSiblingPath(r->path, "sequence.mid", mid_path, sizeof(mid_path)) != 0 ||
-			modSequenceSiblingPath(r->path, "sequence.tsv", tsv_path, sizeof(tsv_path)) != 0 ||
+			modSequenceSiblingPath(r->path, "sequence.json", json_path, sizeof(json_path)) != 0 ||
 			modSequenceSiblingPath(r->path, "music.ini", ini_path, sizeof(ini_path)) != 0) {
 		return NULL;
 	}
@@ -585,7 +732,7 @@ static void *modSequenceCompilePublicSource(const CatalogResolveResult *r,
 	sysMemFree(ini);
 
 	memset(tracks, 0, sizeof(tracks));
-	if (modSequenceLoadEventsTsv(tsv_path, tracks, &event_count) != 0) {
+	if (modSequenceLoadEventsJson(json_path, tracks, &event_count) != 0) {
 		modSequenceTracksFree(tracks);
 		return NULL;
 	}
@@ -595,8 +742,8 @@ static void *modSequenceCompilePublicSource(const CatalogResolveResult *r,
 
 	if (compiled) {
 		sysLogPrintf(LOG_NOTE,
-		             "CATALOG: music sequence %d -> public sequence source mid=\"%s\" tsv=\"%s\" (%u events, %u bytes)",
-		             (s32)num, mid_path, tsv_path, event_count, *out_size);
+		             "CATALOG: music sequence %d -> public sequence source mid=\"%s\" events=\"%s\" (%u events, %u bytes)",
+		             (s32)num, mid_path, json_path, event_count, *out_size);
 	}
 
 	return compiled;
@@ -754,7 +901,7 @@ static void *modAnimationLoadCatalogClip(const CatalogResolveResult *r, u16 num)
 	const void *clip_data;
 
 	if (!r || r->catalog_id < 0 || !r->path
-			|| !modAssetCompilerIsExternalSource(r->path)) {
+			|| !modAssetCompilerIsAnimationSource(r->path)) {
 		return NULL;
 	}
 
@@ -799,7 +946,7 @@ void *modAnimationLoadData(u16 num)
 			return NULL;
 		}
 		if (r.is_mod_override && r.path) {
-			if (modAssetCompilerIsExternalSource(r.path)) {
+			if (modAssetCompilerIsAnimationSource(r.path)) {
 				void *clip = modAnimationLoadCatalogClip(&r, num);
 				if (clip) {
 					return clip;
@@ -839,7 +986,7 @@ void *modAnimationTryCatalogOverride(u16 num)
 	 * No legacy fallback, no sysFatalError — caller uses ROM DMA on NULL. */
 	const char *path = catalogGetAnimOverride((s32)num);
 	if (path) {
-		if (modAssetCompilerIsExternalSource(path)) {
+		if (modAssetCompilerIsAnimationSource(path)) {
 			CatalogResolveResult r = catalogResolveAnim((s32)num);
 			void *clip = modAnimationLoadCatalogClip(&r, num);
 			if (clip) {

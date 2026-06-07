@@ -320,6 +320,10 @@ typedef struct asset_entry {
             s32 anim_id;               /* animation table index */
             char name[64];             /* human-readable display name */
             s32 frame_count;           /* number of frames (0 = unknown) */
+            s32 bytes_per_frame;       /* native character-animation frame stride */
+            s32 header_len;            /* native character-animation header bytes */
+            s32 framelen;              /* native animtableentry framelen */
+            s32 flags;                 /* native animtableentry flags */
             char target_body[64];      /* body type this animation targets (empty = generic) */
         } anim;
         struct {
@@ -368,6 +372,13 @@ typedef struct asset_entry {
             s32 category;              /* AUDIO_CAT_SFX / AUDIO_CAT_MUSIC / AUDIO_CAT_VOICE */
             s32 duration_ms;           /* duration in milliseconds (0 = unknown) */
             char file_path[128];       /* path to audio file (empty = ROM-embedded) */
+            s32 has_keymap;            /* SFX/voice source carries native ALKeyMap fields */
+            s32 key_min;
+            s32 key_max;
+            s32 key_base;
+            s32 key_detune;
+            s32 sample_pan;
+            s32 sample_volume;
             /* MUSIC tracks only: solo stage whose best-time gates this track.
              * Mirrors g_MpTracks[].unlockstage. -1 = always unlocked
              * (mod tracks default here). SFX / VOICE entries leave at 0. */

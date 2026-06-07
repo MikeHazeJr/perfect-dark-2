@@ -2,7 +2,7 @@
  * modasset_compiler.h -- private runtime cache adapter for external mod assets.
  *
  * External-format .pdmod archives expose standard authoring files to modders
- * (GLTF/OBJ/INI/TSV/etc.). When the engine needs a native runtime payload, the
+ * (GLTF/OBJ/INI/JSON/etc.). When the engine needs a native runtime payload, the
  * conversion result belongs in this private cache layer, not back inside the
  * authored archive.
  */
@@ -18,7 +18,7 @@
 extern "C" {
 #endif
 
-#define MODASSET_COMPILER_VERSION 6
+#define MODASSET_COMPILER_VERSION 7
 #define MODASSET_SHA256_HEX_LEN 65
 
 struct colmesh;
@@ -43,6 +43,12 @@ typedef struct modasset_compiled_result {
  * before the legacy engine can consume them.
  */
 s32 modAssetCompilerIsExternalSource(const char *path);
+
+/**
+ * Returns true for animation authoring sources that can be rebuilt into the
+ * engine animation byte stream.
+ */
+s32 modAssetCompilerIsAnimationSource(const char *path);
 
 /**
  * Verify an external source file and write/update a private cache descriptor.

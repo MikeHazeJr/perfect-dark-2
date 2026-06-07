@@ -4,11 +4,10 @@
  *
  * Walks animation .pdanim files. The .pdanim kind is a ZIP compound
  * per Section 2.6:
- *   - weapon_animation: _meta/manifest.json carries gunscript opcodes for
- *     loaderPoolParseAnimationJson; opcodes.json is the editable source.
- *   - character_animation: _meta/manifest.json + header.tsv / frames.tsv;
- *     the catalog row carries enough envelope info for consumers; no
- *     pool payload (chr animation byte streams live in romextract segments).
+ *   - weapon_animation: _meta/manifest.json carries command source for
+ *     loaderPoolParseAnimationJson; commands.json is the editable source.
+ *   - character_animation: animation.gltf is the editable source; the
+ *     catalog row carries enough envelope info for consumers; no pool payload.
  *
  * The walker scaffold auto-detects the container by 2-byte file magic so
  * both shapes resolve to a manifest envelope through the same callback.
@@ -32,8 +31,16 @@ static s32 s_register(const char *manifest, size_t manifest_len,
 
     s64 frame_count = 0;
     s64 source_index = -1;
+    s64 bytes_per_frame = 0;
+    s64 header_len = 0;
+    s64 framelen = 0;
+    s64 flags = 0;
     loaderWalkerEnvelopeInt(manifest, manifest_len, "frame_count", &frame_count);
     loaderWalkerEnvelopeInt(manifest, manifest_len, "source_index", &source_index);
+    loaderWalkerEnvelopeInt(manifest, manifest_len, "bytes_per_frame", &bytes_per_frame);
+    loaderWalkerEnvelopeInt(manifest, manifest_len, "header_len", &header_len);
+    loaderWalkerEnvelopeInt(manifest, manifest_len, "framelen", &framelen);
+    loaderWalkerEnvelopeInt(manifest, manifest_len, "flags", &flags);
 
     char category[32];
     char target_body[64];
@@ -46,14 +53,16 @@ static s32 s_register(const char *manifest, size_t manifest_len,
     if (!loaderWalkerEnvelopeStrCopy(manifest, manifest_len, "animation",
                                      source_member, sizeof(source_member))) {
         if (strcmp(category, "weapon_animation") == 0) {
-            if (!loaderWalkerEnvelopeStrCopy(manifest, manifest_len, "opcodes",
-                                             source_member, sizeof(source_member))) {
-                strncpy(source_member, "opcodes.json", sizeof(source_member) - 1);
+            if (!loaderWalkerEnvelopeStrCopy(manifest, manifest_len, "command_source",
+                                             source_member, sizeof(source_member))
+                    && !loaderWalkerEnvelopeStrCopy(manifest, manifest_len, "commands_file",
+                                                    source_member, sizeof(source_member))) {
+                strncpy(source_member, "commands.json", sizeof(source_member) - 1);
                 source_member[sizeof(source_member) - 1] = '\0';
             }
-        } else if (!loaderWalkerEnvelopeStrCopy(manifest, manifest_len, "frames",
+        } else if (!loaderWalkerEnvelopeStrCopy(manifest, manifest_len, "runtime_source",
                                                 source_member, sizeof(source_member))) {
-            strncpy(source_member, "frames.tsv", sizeof(source_member) - 1);
+            strncpy(source_member, "animation.gltf", sizeof(source_member) - 1);
             source_member[sizeof(source_member) - 1] = '\0';
         }
     }
@@ -85,6 +94,11 @@ static s32 s_register(const char *manifest, size_t manifest_len,
             e->source_animnum = (s32)source_index;
             e->runtime_index = (s32)source_index;
         }
+        e->ext.anim.frame_count = (s32)frame_count;
+        e->ext.anim.bytes_per_frame = (s32)bytes_per_frame;
+        e->ext.anim.header_len = (s32)header_len;
+        e->ext.anim.framelen = (s32)framelen;
+        e->ext.anim.flags = (s32)flags;
         if (loaderWalkerArchiveMemberPath(file_path, source_member,
                                           source_path, sizeof(source_path))) {
             catalogSetPrimaryFile(e, source_path);
@@ -92,7 +106,7 @@ static s32 s_register(const char *manifest, size_t manifest_len,
     }
 
     /* Pool payload (Step 5): only weapon_animation envelopes carry the
-     * opcode array that loaderPoolParseAnimationJson expects. Character
+     * command array that loaderPoolParseAnimationJson expects. Character
      * animations are byte-stream-only and have no pool slot. */
     if (strcmp(category, "weapon_animation") == 0) {
         loaderPoolParseAnimationJson(manifest, manifest_len);

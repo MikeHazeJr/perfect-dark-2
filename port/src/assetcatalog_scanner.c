@@ -1023,6 +1023,7 @@ static void qualifyIniSourcePaths(ini_section_t *ini, const char *component_dir)
 		"file_path",
 		"theme_file",
 		"animation_file",
+		"commands_file",
 		"texture_file",
 		"texture",
 		"font_file",
@@ -1138,6 +1139,7 @@ static void qualifyTypedArchiveSourcePaths(ini_section_t *ini,
 		"midi_file",
 		"file_path",
 		"animation_file",
+		"commands_file",
 		"texture_file",
 		"texture",
 		"font_file",
@@ -1642,10 +1644,14 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 		}
 		strncpy(e->ext.anim.name, iniGet(ini, "name", ""), sizeof(e->ext.anim.name) - 1);
 		e->ext.anim.frame_count = iniGetInt(ini, "frame_count", 0);
+		e->ext.anim.bytes_per_frame = iniGetInt(ini, "bytes_per_frame", 0);
+		e->ext.anim.header_len = iniGetInt(ini, "header_len", 0);
+		e->ext.anim.framelen = iniGetInt(ini, "framelen", 0);
+		e->ext.anim.flags = iniGetInt(ini, "flags", 0);
 		strncpy(e->ext.anim.target_body, iniGet(ini, "target_body", ""), sizeof(e->ext.anim.target_body) - 1);
 		{
 			const char *af = iniGet(ini, "animation_file",
-				iniGet(ini, "file_path", ""));
+				iniGet(ini, "commands_file", iniGet(ini, "file_path", "")));
 			if (af[0]) {
 				catalogSetPrimaryFile(e, af);
 			}
@@ -1772,6 +1778,14 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 				iniGet(ini, "kind",
 				iniGet(ini, "category", ""))), AUDIO_CAT_SFX);
 		e->ext.audio.duration_ms = iniGetInt(ini, "duration_ms", 0);
+		e->ext.audio.has_keymap = iniGetInt(ini, "has_keymap",
+			iniGet(ini, "key_base", NULL) != NULL ? 1 : 0);
+		e->ext.audio.key_min = iniGetInt(ini, "key_min", 0);
+		e->ext.audio.key_max = iniGetInt(ini, "key_max", 127);
+		e->ext.audio.key_base = iniGetInt(ini, "key_base", 60);
+		e->ext.audio.key_detune = iniGetInt(ini, "key_detune", 0);
+		e->ext.audio.sample_pan = iniGetInt(ini, "sample_pan", 64);
+		e->ext.audio.sample_volume = iniGetInt(ini, "sample_volume", 127);
 		strncpy(e->ext.audio.file_path, iniGet(ini, "file_path", ""), sizeof(e->ext.audio.file_path) - 1);
 		if (e->ext.audio.file_path[0]) {
 			catalogSetPrimaryFile(e, e->ext.audio.file_path);
@@ -2700,6 +2714,7 @@ static void qualifyArchiveIniPaths(ini_section_t *ini, const char *component_dir
 		"ui_archive",
 		"audio_archive",
 		"animation_file",
+		"commands_file",
 		"texture_file",
 		"texture_archive",
 		"texture",

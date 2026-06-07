@@ -14,7 +14,7 @@
  *   model.nodes.tsv     original model node/matrix hierarchy
  *   model.parts.tsv     original model part table
  *   model.faces.tsv     original face-to-model-matrix bindings
- *   model.render.tsv    original render command stream by render node/group
+ *   model.render.json   original render command stream by render node/group
  *   _meta/*.sha256     public-file SHA-256 sidecars
  *
  * Reuses port/src/modarchive.c writer subset for ZIP atomic writes.
@@ -67,9 +67,9 @@
 #define ROMEXTRACT_PDMESH_MODEL_VMA 0x05000000u
 #define ROMEXTRACT_PDMESH_MTX_STACK_CAP 11
 #define ROMEXTRACT_PDMESH_NODE_DEPTH_CAP 2048
-#define ROMEXTRACT_PDMESH_OBJ_EXPORT_VERSION_LABEL "model_obj_mtx_v18_materials_hierarchy_parts_scale_faces_relations_raw_mtx_render_stream"
+#define ROMEXTRACT_PDMESH_OBJ_EXPORT_VERSION_LABEL "model_obj_mtx_v19_materials_hierarchy_parts_scale_faces_relations_raw_mtx_render_commands_json"
 #define ROMEXTRACT_PDMESH_OBJ_EXPORT_VERSION ROMEXTRACT_PDMESH_OBJ_EXPORT_VERSION_LABEL "\n"
-#define ROMEXTRACT_PDMESH_FAST_CACHE_KIND "pdmesh_model_obj_mtx_v20_materials_hierarchy_parts_scale_faces_relations_raw_mtx_render_stream_allmodels_menuhud"
+#define ROMEXTRACT_PDMESH_FAST_CACHE_KIND "pdmesh_model_obj_mtx_v21_materials_hierarchy_parts_scale_faces_relations_raw_mtx_render_commands_json_allmodels_menuhud"
 extern u16 g_CartFileNums[];
 static u16 s_SeenFilenums[ROMEXTRACT_PDMESH_SEEN_CAP];
 static s32 s_SeenCount;
@@ -816,6 +816,44 @@ static const char *s_objCurrentGroup(const pdmesh_obj_export_t *ctx)
 	return ctx && ctx->current_group[0] ? ctx->current_group : "default";
 }
 
+static s32 s_textbufAppendJsonString(pdmesh_textbuf_t *b, const char *text)
+{
+	if (s_textbufAppend(b, "\"") != 0) {
+		return -1;
+	}
+	if (text) {
+		for (const unsigned char *p = (const unsigned char *)text; *p; p++) {
+			switch (*p) {
+			case '\\':
+				if (s_textbufAppend(b, "\\\\") != 0) return -1;
+				break;
+			case '"':
+				if (s_textbufAppend(b, "\\\"") != 0) return -1;
+				break;
+			case '\n':
+				if (s_textbufAppend(b, "\\n") != 0) return -1;
+				break;
+			case '\r':
+				if (s_textbufAppend(b, "\\r") != 0) return -1;
+				break;
+			case '\t':
+				if (s_textbufAppend(b, "\\t") != 0) return -1;
+				break;
+			default:
+				if (*p < 0x20) {
+					if (s_textbufAppendf(b, "\\u%04x", (unsigned)*p) != 0) {
+						return -1;
+					}
+				} else if (s_textbufAppendf(b, "%c", *p) != 0) {
+					return -1;
+				}
+				break;
+			}
+		}
+	}
+	return s_textbufAppend(b, "\"");
+}
+
 static s32 s_objAppendRenderRow(pdmesh_obj_export_t *ctx,
                                 const char *op,
                                 s32 face,
@@ -826,9 +864,24 @@ static s32 s_objAppendRenderRow(pdmesh_obj_export_t *ctx,
 	if (!ctx || !ctx->render || !op) {
 		return 0;
 	}
-	if (s_textbufAppendf(ctx->render, "%s\t%s\t%d\t%d\t0x%02x\t%d\n",
-			s_objCurrentGroup(ctx), op, face, matrix,
-			(unsigned)parameters, material) != 0) {
+	if (ctx->render_cmd_count > 0 &&
+			s_textbufAppend(ctx->render, ",\n") != 0) {
+		return -1;
+	}
+	if (s_textbufAppend(ctx->render, "    { \"group\": ") != 0 ||
+			s_textbufAppendJsonString(ctx->render, s_objCurrentGroup(ctx)) != 0 ||
+			s_textbufAppend(ctx->render, ", \"command\": ") != 0 ||
+			s_textbufAppendJsonString(ctx->render, op) != 0 ||
+			s_textbufAppendf(ctx->render,
+				", \"face_index\": %d, \"matrix_index\": %d, "
+				"\"matrix_flags\": %u, \"matrix_mode\": { "
+				"\"projection\": %s, \"load\": %s, \"push\": %s }, "
+				"\"material_index\": %d }",
+				face, matrix, (unsigned)parameters,
+				(parameters & G_MTX_PROJECTION) ? "true" : "false",
+				(parameters & G_MTX_LOAD) ? "true" : "false",
+				(parameters & G_MTX_PUSH) ? "true" : "false",
+				material) != 0) {
 		return -1;
 	}
 	ctx->render_cmd_count++;
@@ -1848,7 +1901,10 @@ static s32 s_buildModelObj(const u8 *src, u32 src_size,
 		return -1;
 	}
 	if (s_textbufAppend(ctx.render,
-			"group\top\tface\tmatrix\tparams\tmaterial\n") != 0) {
+			"{\n"
+			"  \"pd_kind\": \"mesh_render_commands\",\n"
+			"  \"pd_schema_version\": 1,\n"
+			"  \"commands\": [\n") != 0) {
 		free(ctx.materials);
 		free(copy);
 		return -1;
@@ -1893,6 +1949,12 @@ static s32 s_buildModelObj(const u8 *src, u32 src_size,
 		return -1;
 	}
 	if (s_objFinalizeMaterials(&ctx) != 0) {
+		if (ctx.model_matrices) free(ctx.model_matrices);
+		free(ctx.materials);
+		free(copy);
+		return -1;
+	}
+	if (s_textbufAppend(ctx.render, "\n  ]\n}\n") != 0) {
 		if (ctx.model_matrices) free(ctx.model_matrices);
 		free(ctx.materials);
 		free(copy);
@@ -2204,7 +2266,7 @@ static s32 s_emitOneMesh(u16 filenum, const char *hint_suffix,
 		"  \"hierarchy\": \"model.nodes.tsv\",\n"
 		"  \"parts\": \"model.parts.tsv\",\n"
 		"  \"faces\": \"model.faces.tsv\",\n"
-		"  \"render_stream\": \"model.render.tsv\",\n"
+		"  \"render_stream\": \"model.render.json\",\n"
 		"  \"model_scale\": %.9g,\n"
 		"  \"triangle_count\": %u,\n"
 		"  \"node_count\": %u,\n"
@@ -2258,7 +2320,7 @@ static s32 s_emitOneMesh(u16 filenum, const char *hint_suffix,
 		"hierarchy_file = model.nodes.tsv\n"
 		"parts_file = model.parts.tsv\n"
 		"faces_file = model.faces.tsv\n"
-		"render_stream_file = model.render.tsv\n"
+		"render_stream_file = model.render.json\n"
 		"model_scale = %.9g\n"
 		"skeleton_symbol = %s\n"
 		"triangle_count = %u\n"
@@ -2457,11 +2519,11 @@ static s32 s_emitOneMesh(u16 filenum, const char *hint_suffix,
 		return -1;
 	}
 
-	if (assetArchiveWriterAddPublicMem(&asset_writer, "model.render.tsv",
+	if (assetArchiveWriterAddPublicMem(&asset_writer, "model.render.json",
 			render_buf.data, render_buf.len, "render_stream") !=
 			MODARCHIVE_OK) {
 		sysLoudFailf("EXTRACT.PDMESH",
-			"AddFileMem model.render.tsv failed for \"%s\"", dst_full);
+			"AddFileMem model.render.json failed for \"%s\"", dst_full);
 		modArchiveAbort(aw);
 		s_textbufFree(&obj_buf);
 		s_textbufFree(&mtl_buf);

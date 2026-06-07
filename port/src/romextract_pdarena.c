@@ -80,11 +80,11 @@
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "../external/stb_image_write.h"
 
-#define PDSCENARIO_BG_VISUAL_EXPORT_VERSION "bg_visual_scene_glb_v7_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound"
+#define PDSCENARIO_BG_VISUAL_EXPORT_VERSION "bg_visual_scene_glb_v9_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0"
 #define PDSCENARIO_BG_VISUAL_EXPORT_VERSION_FILE \
 	PDSCENARIO_BG_VISUAL_EXPORT_VERSION "\n"
-#define ROMEXTRACT_PDARENA_FAST_CACHE_KIND "pdarena_clean_public_v6_pdscenario_v82"
-#define ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND "pdscenario_scene_glb_clean_public_v82_standalone_backfill_collision_obj_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_quip_shuffle_graph_portals_navhashes"
+#define ROMEXTRACT_PDARENA_FAST_CACHE_KIND "pdarena_clean_public_v8_pdscenario_v84"
+#define ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND "pdscenario_scene_glb_clean_public_v84_standalone_backfill_collision_obj_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_quip_shuffle_graph_portals_navhashes"
 
 /* Convert "base:arena_mp_skedar" -> "base_arena_mp_skedar". */
 static void s_idToFilename(const char *id, char *out, size_t n)
@@ -239,6 +239,7 @@ typedef struct {
 typedef struct {
 	f32 x, y, z;
 	f32 u, v;
+	u8 r, g, b, a;
 	u16 roomnum;
 } pdscenario_visual_vertex_t;
 
@@ -4713,18 +4714,24 @@ static s32 s_bgMaterialReserveVertices(pdscenario_bgmaterial_t *m, u32 add)
 
 static s32 s_bgMaterialAddTri(pdscenario_bgmaterial_t *m,
                               f32 x0, f32 y0, f32 z0, f32 u0, f32 v0,
+                              Col c0,
                               f32 x1, f32 y1, f32 z1, f32 u1, f32 v1,
+                              Col c1,
                               f32 x2, f32 y2, f32 z2, f32 u2, f32 v2,
+                              Col c2,
                               u32 roomnum)
 {
 	if (!m || s_bgMaterialReserveVertices(m, 3) != 0) return -1;
 	u16 room = roomnum > 0xffffu ? 0xffffu : (u16)roomnum;
 	m->vertices[m->vertex_count++] =
-		(pdscenario_visual_vertex_t){ x0, y0, z0, u0, v0, room };
+		(pdscenario_visual_vertex_t){ x0, y0, z0, u0, v0,
+			c0.r, c0.g, c0.b, c0.a, room };
 	m->vertices[m->vertex_count++] =
-		(pdscenario_visual_vertex_t){ x1, y1, z1, u1, v1, room };
+		(pdscenario_visual_vertex_t){ x1, y1, z1, u1, v1,
+			c1.r, c1.g, c1.b, c1.a, room };
 	m->vertices[m->vertex_count++] =
-		(pdscenario_visual_vertex_t){ x2, y2, z2, u2, v2, room };
+		(pdscenario_visual_vertex_t){ x2, y2, z2, u2, v2,
+			c2.r, c2.g, c2.b, c2.a, room };
 	return 0;
 }
 
@@ -4799,6 +4806,7 @@ static s32 s_bgSceneInit(pdscenario_bgscene_t *scene)
 
 static s32 s_bgSceneAddTri(pdscenario_bgscene_t *scene, s32 material_index,
                            const Vtx *a, const Vtx *b, const Vtx *c,
+                           Col ca, Col cb, Col cc,
                            const struct coord *room_pos, u32 roomnum,
                            s32 s0, s32 t0, s32 s1, s32 t1, s32 s2, s32 t2)
 {
@@ -4851,9 +4859,9 @@ static s32 s_bgSceneAddTri(pdscenario_bgscene_t *scene, s32 material_index,
 		return -1;
 	}
 	if (s_bgMaterialAddTri(&scene->materials[material_index],
-			x0, y0, z0, u0, v0,
-			x1, y1, z1, u1, v1,
-			x2, y2, z2, u2, v2, roomnum) != 0) {
+			x0, y0, z0, u0, v0, ca,
+			x1, y1, z1, u1, v1, cb,
+			x2, y2, z2, u2, v2, cc, roomnum) != 0) {
 		return -1;
 	}
 
@@ -5275,10 +5283,12 @@ typedef struct {
 	u32 pos_view;
 	u32 uv_view;
 	u32 runtime_uv_view;
+	u32 color_view;
 	u32 room_view;
 	u32 pos_accessor;
 	u32 uv_accessor;
 	u32 runtime_uv_accessor;
+	u32 color_accessor;
 	u32 room_accessor;
 	u32 texture_index;
 	f32 min_x, min_y, min_z;
@@ -5521,6 +5531,21 @@ static s32 s_bgSceneBuildSceneGlb(pdscenario_bgscene_t *scene)
 			    s_binbufAppendF32(&bin, vt) != 0) goto fail;
 		}
 		if (s_binbufPad4(&bin) != 0) goto fail;
+		mr[i].color_view = view_count++;
+		mr[i].color_accessor = accessor_count++;
+		for (u32 v = 0; v < m->vertex_count; v++) {
+			if (s_binbufAppendF32(&bin,
+					(f32)m->vertices[v].r / 255.0f) != 0 ||
+			    s_binbufAppendF32(&bin,
+					(f32)m->vertices[v].g / 255.0f) != 0 ||
+			    s_binbufAppendF32(&bin,
+					(f32)m->vertices[v].b / 255.0f) != 0 ||
+			    s_binbufAppendF32(&bin,
+					(f32)m->vertices[v].a / 255.0f) != 0) {
+				goto fail;
+			}
+		}
+		if (s_binbufPad4(&bin) != 0) goto fail;
 		mr[i].room_view = view_count++;
 		mr[i].room_accessor = accessor_count++;
 		for (u32 v = 0; v < m->vertex_count; v++) {
@@ -5565,11 +5590,13 @@ static s32 s_bgSceneBuildSceneGlb(pdscenario_bgscene_t *scene)
 		if (s_textbufAppendf(&json,
 				"{\"attributes\":{\"POSITION\":%u,\"TEXCOORD_0\":%u,"
 				"\"TEXCOORD_1\":%u,"
+				"\"COLOR_0\":%u,"
 				"\"_PD_ROOM\":%u},"
 				"\"material\":%u,\"mode\":4}",
 				(unsigned)mr[i].pos_accessor,
 				(unsigned)mr[i].uv_accessor,
 				(unsigned)mr[i].runtime_uv_accessor,
+				(unsigned)mr[i].color_accessor,
 				(unsigned)mr[i].room_accessor,
 				(unsigned)i) != 0) goto fail_json;
 	}
@@ -5647,6 +5674,7 @@ static s32 s_bgSceneBuildSceneGlb(pdscenario_bgscene_t *scene)
 		if (m->vertex_count == 0) continue;
 		u32 pos_len = m->vertex_count * 12u;
 		u32 uv_len = m->vertex_count * 8u;
+		u32 color_len = m->vertex_count * 16u;
 		u32 room_len = m->vertex_count * 2u;
 		offset = (offset + 3u) & ~3u;
 		if (emitted_view++ && s_textbufAppend(&json, ",") != 0) goto fail_json;
@@ -5668,6 +5696,13 @@ static s32 s_bgSceneBuildSceneGlb(pdscenario_bgscene_t *scene)
 				"{\"buffer\":0,\"byteOffset\":%u,\"byteLength\":%u,\"target\":34962}",
 				(unsigned)offset, (unsigned)uv_len) != 0) goto fail_json;
 		offset += uv_len;
+		offset = (offset + 3u) & ~3u;
+		if (s_textbufAppend(&json, ",") != 0) goto fail_json;
+		emitted_view++;
+		if (s_textbufAppendf(&json,
+				"{\"buffer\":0,\"byteOffset\":%u,\"byteLength\":%u,\"target\":34962}",
+				(unsigned)offset, (unsigned)color_len) != 0) goto fail_json;
+		offset += color_len;
 		offset = (offset + 3u) & ~3u;
 		if (s_textbufAppend(&json, ",") != 0) goto fail_json;
 		emitted_view++;
@@ -5716,6 +5751,14 @@ static s32 s_bgSceneBuildSceneGlb(pdscenario_bgscene_t *scene)
 				"{\"bufferView\":%u,\"componentType\":5126,\"count\":%u,"
 				"\"type\":\"VEC2\"}",
 				(unsigned)mr[i].runtime_uv_view, (unsigned)m->vertex_count) != 0) {
+			goto fail_json;
+		}
+		if (s_textbufAppend(&json, ",") != 0) goto fail_json;
+		emitted_accessor++;
+		if (s_textbufAppendf(&json,
+				"{\"bufferView\":%u,\"componentType\":5126,\"count\":%u,"
+				"\"type\":\"VEC4\"}",
+				(unsigned)mr[i].color_view, (unsigned)m->vertex_count) != 0) {
 			goto fail_json;
 		}
 		if (s_textbufAppend(&json, ",") != 0) goto fail_json;
@@ -5835,6 +5878,7 @@ static s32 s_bgGdlCommand(const Gfx *cmd)
 static s32 s_exportBgTriByIndices(pdscenario_bgscene_t *scene,
                                   s32 material_index,
                                   const Vtx loaded[16],
+                                  const Col loaded_colours[16],
                                   const s32 loaded_s[16],
                                   const s32 loaded_t[16],
                                   const u8 valid[16],
@@ -5846,7 +5890,9 @@ static s32 s_exportBgTriByIndices(pdscenario_bgscene_t *scene,
 	if (!valid[a] || !valid[b] || !valid[c]) return 0;
 	if (a == b && b == c) return 0;
 	return s_bgSceneAddTri(scene, material_index,
-		&loaded[a], &loaded[b], &loaded[c], room_pos, roomnum,
+		&loaded[a], &loaded[b], &loaded[c],
+		loaded_colours[a], loaded_colours[b], loaded_colours[c],
+		room_pos, roomnum,
 		loaded_s[a], loaded_t[a], loaded_s[b], loaded_t[b],
 		loaded_s[c], loaded_t[c]);
 }
@@ -5854,16 +5900,24 @@ static s32 s_exportBgTriByIndices(pdscenario_bgscene_t *scene,
 static s32 s_exportBgGdl(pdscenario_bgscene_t *scene, Gfx *gdl,
                          const u8 *room_base, u32 room_size,
                          const Vtx *vertices, u32 vertex_span,
+                         const Col *colours, u32 colour_span,
                          const struct coord *room_pos,
                          u32 roomnum)
 {
 	if (!gdl || !vertices || !room_pos) return 0;
 	if (!s_rangeInBuffer(room_base, room_size, gdl, (u32)sizeof(Gfx))) return 0;
 	Vtx loaded[16];
+	Col loaded_colours[16];
 	s32 loaded_s[16];
 	s32 loaded_t[16];
 	u8 valid[16];
+	const Col white = { .r = 255, .g = 255, .b = 255, .a = 255 };
+	const Col *current_colours = colours;
+	u32 current_colour_count = colour_span;
 	memset(loaded, 0, sizeof(loaded));
+	for (u32 i = 0; i < 16u; i++) {
+		loaded_colours[i] = white;
+	}
 	memset(loaded_s, 0, sizeof(loaded_s));
 	memset(loaded_t, 0, sizeof(loaded_t));
 	memset(valid, 0, sizeof(valid));
@@ -5893,6 +5947,18 @@ static s32 s_exportBgGdl(pdscenario_bgscene_t *scene, Gfx *gdl,
 					subcmd, w0, w1);
 				if (next_mat >= 0) material_index = next_mat;
 			}
+		} else if (op == G_COL) {
+			u32 count = ((u32)cmd->words.w0 & 0xffffu) / (u32)sizeof(Col);
+			u32 off = (u32)(UNSEGADDR(cmd->words.w1) & 0x00ffffffu);
+			u32 colour_bytes = colour_span * (u32)sizeof(Col);
+			if (colours && off <= colour_bytes) {
+				u32 index = off / (u32)sizeof(Col);
+				current_colours = colours + index;
+				current_colour_count = colour_span - index;
+				if (count < current_colour_count) {
+					current_colour_count = count;
+				}
+			}
 		} else if (op == (u8)G_TEXTURE) {
 			u32 w1 = (u32)cmd->words.w1;
 			texture_scale_s = (u16)((w1 >> 16) & 0xffffu);
@@ -5910,6 +5976,13 @@ static s32 s_exportBgGdl(pdscenario_bgscene_t *scene, Gfx *gdl,
 			const Vtx *src = (const Vtx *)((const u8 *)vertices + off);
 			for (u32 v = 0; v < count; v++) {
 				loaded[dest + v] = src[v];
+				u32 colour_index = (u32)src[v].colour >> 2;
+				if (current_colours && colour_index < current_colour_count) {
+					loaded_colours[dest + v] =
+						current_colours[colour_index];
+				} else {
+					loaded_colours[dest + v] = white;
+				}
 				loaded_s[dest + v] =
 					((s32)src[v].s * (s32)texture_scale_s) >> 16;
 				loaded_t[dest + v] =
@@ -5922,7 +5995,7 @@ static s32 s_exportBgGdl(pdscenario_bgscene_t *scene, Gfx *gdl,
 			u32 b = ((w1 >> 8) & 0xffu) / 10u;
 			u32 c = (w1 & 0xffu) / 10u;
 			if (s_exportBgTriByIndices(scene, material_index, loaded,
-					loaded_s, loaded_t, valid, a, b, c,
+					loaded_colours, loaded_s, loaded_t, valid, a, b, c,
 					room_pos, roomnum) != 0) {
 				return -1;
 			}
@@ -5934,16 +6007,16 @@ static s32 s_exportBgGdl(pdscenario_bgscene_t *scene, Gfx *gdl,
 			u32 x3 = (w1 >> 16) & 0x0fu, y3 = (w1 >> 20) & 0x0fu, z3 = (w0 >> 8) & 0x0fu;
 			u32 x4 = (w1 >> 24) & 0x0fu, y4 = (w1 >> 28) & 0x0fu, z4 = (w0 >> 12) & 0x0fu;
 			if (s_exportBgTriByIndices(scene, material_index, loaded,
-					loaded_s, loaded_t, valid, x1, y1, z1,
+					loaded_colours, loaded_s, loaded_t, valid, x1, y1, z1,
 					room_pos, roomnum) != 0 ||
 			    s_exportBgTriByIndices(scene, material_index, loaded,
-					loaded_s, loaded_t, valid, x2, y2, z2,
+					loaded_colours, loaded_s, loaded_t, valid, x2, y2, z2,
 					room_pos, roomnum) != 0 ||
 			    s_exportBgTriByIndices(scene, material_index, loaded,
-					loaded_s, loaded_t, valid, x3, y3, z3,
+					loaded_colours, loaded_s, loaded_t, valid, x3, y3, z3,
 					room_pos, roomnum) != 0 ||
 			    s_exportBgTriByIndices(scene, material_index, loaded,
-					loaded_s, loaded_t, valid, x4, y4, z4,
+					loaded_colours, loaded_s, loaded_t, valid, x4, y4, z4,
 					room_pos, roomnum) != 0) {
 				return -1;
 			}
@@ -5972,8 +6045,16 @@ static s32 s_exportBgRoomBlocks(pdscenario_bgscene_t *scene,
 						(uintptr_t)block->vertices);
 				}
 				if (vertex_span > 0) {
+					u32 colour_span = 0;
+					if (block->colours &&
+							s_rangeInBuffer(room_base, room_size,
+								block->colours, (u32)sizeof(Col))) {
+						colour_span = (u32)(((uintptr_t)room_base + room_size -
+							(uintptr_t)block->colours) / sizeof(Col));
+					}
 					if (s_exportBgGdl(scene, block->gdl, room_base,
 							room_size, block->vertices, vertex_span,
+							block->colours, colour_span,
 							room_pos, roomnum) != 0) {
 						return -1;
 					}
@@ -6642,6 +6723,8 @@ static s32 s_existingPdscenarioArchiveIsClean(const char *relpath)
 			"\"texCoord\":0") &&
 		s_existingArchiveEntryContains(relpath, "scene.glb",
 			"\"TEXCOORD_1\"") &&
+		s_existingArchiveEntryContains(relpath, "scene.glb",
+			"\"COLOR_0\"") &&
 		s_existingArchiveEntryContains(relpath, "level.graph.json",
 			"scenario.global.settings.source") &&
 		s_existingArchiveEntryContains(relpath, "level.graph.json",

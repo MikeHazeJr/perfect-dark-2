@@ -447,7 +447,7 @@ u16 audioGetUiVolumeScaled(void)
  * pan:    0–127   (AL_PAN_CENTER = 64; 0 = full left, 127 = full right)
  * Returns 1 on success, 0 on any failure (caller falls back to ROM sound).
  * ======================================================================== */
-s32 audioPlayFileSound(const char *path, u16 volume, u8 pan)
+s32 audioPlayFileSound(const char *path, u16 volume, u8 pan, f32 pitch)
 {
     SDL_AudioSpec wavSpec;
     Uint8 *wavBuf = NULL;
@@ -471,10 +471,23 @@ s32 audioPlayFileSound(const char *path, u16 volume, u8 pan)
         }
     }
 
-    /* Convert to device format: 22050 Hz, AUDIO_S16SYS, 2-channel */
+    if (pitch <= 0.0f) {
+        pitch = 1.0f;
+    }
+
+    s32 pitchFreq = (s32)((f32)wavSpec.freq * pitch + 0.5f);
+    if (pitchFreq < 1000) {
+        pitchFreq = 1000;
+    } else if (pitchFreq > 192000) {
+        pitchFreq = 192000;
+    }
+
+    /* Convert to device format: 22050 Hz, AUDIO_S16SYS, 2-channel.
+     * Raising the declared source frequency shortens the converted stream,
+     * matching the native sound-player pitch behavior for file sources. */
     SDL_AudioCVT cvt;
     const int cvtResult = SDL_BuildAudioCVT(&cvt,
-        wavSpec.format, wavSpec.channels, wavSpec.freq,
+        wavSpec.format, wavSpec.channels, pitchFreq,
         AUDIO_S16SYS, 2, 22050);
 
     if (cvtResult < 0) {

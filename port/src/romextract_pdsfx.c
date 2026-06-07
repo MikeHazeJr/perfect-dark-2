@@ -411,6 +411,37 @@ static s32 s_existingArchiveHasEntry(const char *relpath, const char *entry)
 	return has_entry;
 }
 
+static s32 s_existingArchiveEntryContains(const char *relpath,
+                                          const char *entry,
+                                          const char *needle)
+{
+	char full_buf[FS_MAXPATH + 1];
+	const char *full = fsFullPath(relpath, full_buf, sizeof(full_buf));
+	if (!full || !full[0]) return 0;
+	mod_archive_t *arc = modArchiveOpen(full);
+	if (!arc) return 0;
+	s32 idx = modArchiveFindEntry(arc, entry);
+	if (idx < 0) {
+		modArchiveClose(arc);
+		return 0;
+	}
+	u32 size = 0;
+	char *data = (char *)modArchiveExtractAlloc(arc, idx, &size);
+	modArchiveClose(arc);
+	if (!data) return 0;
+	char *text = (char *)malloc((size_t)size + 1u);
+	if (!text) {
+		free(data);
+		return 0;
+	}
+	memcpy(text, data, size);
+	text[size] = '\0';
+	s32 contains = strstr(text, needle) != NULL;
+	free(text);
+	free(data);
+	return contains;
+}
+
 /* Emit one .pdsfx (or .pdvoice) ZIP for a given ALSound entry. Returns
  * 1 written, 0 skipped, -1 failed. */
 static s32 s_emitOneSound(s32 sfx_idx,
@@ -496,7 +527,9 @@ static s32 s_emitOneSound(s32 sfx_idx,
 	if (!force_rewrite && fsFileSize(dst_rel) > 0 &&
 	    s_existingArchiveHasEntry(dst_rel, descriptor_name) &&
 	    s_existingArchiveHasEntry(dst_rel, "_meta/manifest.json") &&
-	    s_existingArchiveHasEntry(dst_rel, "sample.wav")) return 0;
+	    s_existingArchiveHasEntry(dst_rel, "sample.wav") &&
+	    s_existingArchiveEntryContains(dst_rel, "_meta/manifest.json",
+			"\"key_base\"")) return 0;
 
 	u8 *wav_data = NULL;
 	u32 wav_size = 0;
@@ -519,6 +552,15 @@ static s32 s_emitOneSound(s32 sfx_idx,
 	const char *fmt_str = s_waveFormatString(wt->type);
 	const char *sym = loaderEnumNameForSfxEnum(sfx_idx);
 	const char *archive_format = "WAV_PCM16";
+	const ALKeyMap *keymap = NULL;
+	u32 keymap_off = s_offsetFromPointer(snd->keyMap);
+	if (keymap_off != 0 && keymap_off + sizeof(ALKeyMap) <= ctl_size) {
+		keymap = (const ALKeyMap *)(ctl_data + keymap_off);
+	}
+	u8 key_min = keymap ? keymap->keyMin : 0;
+	u8 key_max = keymap ? keymap->keyMax : 127;
+	u8 key_base = keymap ? keymap->keyBase : 60;
+	s8 key_detune = keymap ? keymap->detune : 0;
 
 	char manifest_buf[1536];
 	int manifest_len;
@@ -548,6 +590,10 @@ static s32 s_emitOneSound(s32 sfx_idx,
 			"  \"sound_flags\": %u,\n"
 			"  \"source_index\": %d,\n"
 			"  \"source_offset\": %u,\n"
+			"  \"key_min\": %u,\n"
+			"  \"key_max\": %u,\n"
+			"  \"key_base\": %u,\n"
+			"  \"key_detune\": %d,\n"
 			"  \"source_symbol\": \"%s\"\n"
 			"}\n",
 			pd_kind, catalog_id, archive_format, fmt_str,
@@ -562,6 +608,10 @@ static s32 s_emitOneSound(s32 sfx_idx,
 			(unsigned)snd->flags,
 			sfx_idx,
 			(unsigned)sample_off,
+			(unsigned)key_min,
+			(unsigned)key_max,
+			(unsigned)key_base,
+			(int)key_detune,
 			sym ? sym : "");
 	} else {
 		manifest_len = snprintf(manifest_buf, sizeof(manifest_buf),
@@ -585,6 +635,10 @@ static s32 s_emitOneSound(s32 sfx_idx,
 			"  \"sound_flags\": %u,\n"
 			"  \"source_index\": %d,\n"
 			"  \"source_offset\": %u,\n"
+			"  \"key_min\": %u,\n"
+			"  \"key_max\": %u,\n"
+			"  \"key_base\": %u,\n"
+			"  \"key_detune\": %d,\n"
 			"  \"source_symbol\": \"%s\"\n"
 			"}\n",
 			pd_kind, catalog_id, archive_format, fmt_str,
@@ -599,6 +653,10 @@ static s32 s_emitOneSound(s32 sfx_idx,
 			(unsigned)snd->flags,
 			sfx_idx,
 			(unsigned)sample_off,
+			(unsigned)key_min,
+			(unsigned)key_max,
+			(unsigned)key_base,
+			(int)key_detune,
 			sym ? sym : "");
 	}
 	if (manifest_len <= 0 || (size_t)manifest_len >= sizeof(manifest_buf)) {
@@ -625,6 +683,10 @@ static s32 s_emitOneSound(s32 sfx_idx,
 		"has_loop = %s\n"
 		"sample_pan = %u\n"
 		"sample_volume = %u\n"
+		"key_min = %u\n"
+		"key_max = %u\n"
+		"key_base = %u\n"
+		"key_detune = %d\n"
 		"sound_flags = %u\n"
 		"source_index = %d\n"
 		"source_offset = %u\n"
@@ -637,6 +699,10 @@ static s32 s_emitOneSound(s32 sfx_idx,
 		has_loop ? "true" : "false",
 		(unsigned)snd->samplePan,
 		(unsigned)snd->sampleVolume,
+		(unsigned)key_min,
+		(unsigned)key_max,
+		(unsigned)key_base,
+		(int)key_detune,
 		(unsigned)snd->flags,
 		sfx_idx,
 		(unsigned)sample_off,

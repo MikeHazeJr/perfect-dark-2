@@ -7,7 +7,7 @@
  *
  * Each .pdanim carries category="weapon_animation" per universality-
  * pivot-schemas.md Section 2.6. The archive carries animation.ini,
- * _meta/manifest.json, shared _meta metadata, and opcodes.json so
+ * _meta/manifest.json, shared _meta metadata, and commands.json so
  * weapon/inventory animations use the same editable compound-asset
  * contract as the other typed assets.
  *
@@ -31,16 +31,16 @@
 #include "constants.h"
 #include "fs.h"
 #include "loader_enum_reverse.h"
+#include "catalog_readable_ids.h"
 #include "asset_archive_writer.h"
 #include "modarchive.h"
 #include "romextract_pd.h"
 #include "system.h"
 #include "animdata_authored.h"
 
-/* Map struct guncmd::type to mnemonic + arg-format hint. Mirrors the
- * decoder in loader_pool.c::decodeOpcode so that round-trip parity
- * holds (Mike's Q-5 ruling: parity active during Step 1 to validate
- * the .pdweapon / .pdanim emit). */
+/* Map struct guncmd::type to command + arg-format hint. Mirrors the
+ * loader_pool.c decoder so that round-trip parity holds while public
+ * source exposes named commands instead of raw opcode rows. */
 typedef enum {
 	OPFMT_NONE,         /* no args (end) */
 	OPFMT_U16,          /* one u16 arg from unk02 */
@@ -53,21 +53,21 @@ typedef enum {
 	OPFMT_SETSPEED,     /* unk02, intptr unk04 */
 } opfmt_e;
 
-typedef struct { s32 type; const char *mnem; opfmt_e fmt; } opcode_meta_t;
+typedef struct { s32 type; const char *command; opfmt_e fmt; } opcode_meta_t;
 
 static const opcode_meta_t k_OpcodeMeta[] = {
 	{ GUNCMD_END,               "end",               OPFMT_NONE },
-	{ GUNCMD_SHOWPART,          "showpart",          OPFMT_U16_INT },
-	{ GUNCMD_HIDEPART,          "hidepart",          OPFMT_U16_INT },
-	{ GUNCMD_WAITFORZRELEASED,  "waitforzreleased",  OPFMT_U16 },
-	{ GUNCMD_WAITTIME,          "waittime",          OPFMT_U16_INT },
-	{ GUNCMD_PLAYSOUND,         "playsound",         OPFMT_U16_SFX },
-	{ GUNCMD_INCLUDE,           "include",           OPFMT_INCLUDE },
-	{ GUNCMD_RANDOM,            "random",            OPFMT_U16_ANIMNAME },
-	{ GUNCMD_REPEATUNTILFULL,   "repeatuntilfull",   OPFMT_REPEATFULL },
-	{ GUNCMD_POPOUTSACKOFPILLS, "popoutsackofpills", OPFMT_U16 },
-	{ GUNCMD_PLAYANIMATION,     "playanimation",     OPFMT_PLAYANIM },
-	{ GUNCMD_SETSOUNDSPEED,     "setsoundspeed",     OPFMT_SETSPEED },
+	{ GUNCMD_SHOWPART,          "show_part",          OPFMT_U16_INT },
+	{ GUNCMD_HIDEPART,          "hide_part",          OPFMT_U16_INT },
+	{ GUNCMD_WAITFORZRELEASED,  "wait_for_trigger_release", OPFMT_U16 },
+	{ GUNCMD_WAITTIME,          "wait_ticks",         OPFMT_U16_INT },
+	{ GUNCMD_PLAYSOUND,         "play_sound",         OPFMT_U16_SFX },
+	{ GUNCMD_INCLUDE,           "include_animation",  OPFMT_INCLUDE },
+	{ GUNCMD_RANDOM,            "random_animation",   OPFMT_U16_ANIMNAME },
+	{ GUNCMD_REPEATUNTILFULL,   "repeat_until_full",  OPFMT_REPEATFULL },
+	{ GUNCMD_POPOUTSACKOFPILLS, "popout_sack_of_pills", OPFMT_U16 },
+	{ GUNCMD_PLAYANIMATION,     "play_character_animation", OPFMT_PLAYANIM },
+	{ GUNCMD_SETSOUNDSPEED,     "set_sound_speed",    OPFMT_SETSPEED },
 };
 
 static const opcode_meta_t *s_lookupOpMeta(s32 type)
@@ -171,80 +171,86 @@ static s32 s_textbufAppendJsonString(pdanim_textbuf_t *b, const char *s)
 	return s_textbufAppend(b, "\"");
 }
 
-static s32 s_emitOpcode(pdanim_textbuf_t *out, const struct guncmd *cmd, s32 last)
+static s32 s_emitCommandObject(pdanim_textbuf_t *out, const struct guncmd *cmd, s32 last)
 {
 	const opcode_meta_t *m = s_lookupOpMeta(cmd->type);
-	const char *mnem = m ? m->mnem : "unknown";
+	const char *command = m ? m->command : "unknown";
 	opfmt_e fmt = m ? m->fmt : OPFMT_NONE;
 
-	if (s_textbufAppend(out, "    [") != 0) return -1;
-	if (s_textbufAppendJsonString(out, mnem) != 0) return -1;
+	if (s_textbufAppend(out, "    { \"command\": ") != 0) return -1;
+	if (s_textbufAppendJsonString(out, command) != 0) return -1;
 
 	switch (fmt) {
 	case OPFMT_NONE:
 		break;
 	case OPFMT_U16:
-		if (s_textbufAppendf(out, ", %u", (unsigned)cmd->unk02) != 0) return -1;
+		if (cmd->type == GUNCMD_WAITFORZRELEASED) {
+			if (s_textbufAppend(out, ", \"trigger\": \"z\"") != 0) return -1;
+			if (cmd->unk02 != 0
+					&& s_textbufAppendf(out, ", \"slot\": %u", (unsigned)cmd->unk02) != 0) return -1;
+		} else {
+			if (s_textbufAppendf(out, ", \"slot\": %u", (unsigned)cmd->unk02) != 0) return -1;
+		}
 		break;
 	case OPFMT_U16_INT:
-		if (s_textbufAppendf(out, ", %u, %lld",
-			(unsigned)cmd->unk02, (long long)cmd->unk04) != 0) return -1;
+		if (cmd->type == GUNCMD_WAITTIME) {
+			if (s_textbufAppendf(out, ", \"slot\": %u, \"ticks\": %lld",
+				(unsigned)cmd->unk02, (long long)cmd->unk04) != 0) return -1;
+		} else {
+			if (s_textbufAppendf(out, ", \"part\": %u, \"value\": %lld",
+				(unsigned)cmd->unk02, (long long)cmd->unk04) != 0) return -1;
+		}
 		break;
 	case OPFMT_U16_ANIMNAME: {
 		const char *aname = s_animNameForCmds(
 			(const struct guncmd *)(intptr_t)cmd->unk04);
-		if (s_textbufAppendf(out, ", %u, ", (unsigned)cmd->unk02) != 0) return -1;
+		if (s_textbufAppendf(out, ", \"weight\": %u, \"animation\": ", (unsigned)cmd->unk02) != 0) return -1;
 		if (s_textbufAppendJsonString(out, aname ? aname : "") != 0) return -1;
 		break;
 	}
 	case OPFMT_U16_SFX: {
-		const char *sname = loaderEnumNameForSfxEnum((s32)cmd->unk04);
-		if (s_textbufAppendf(out, ", %u, ", (unsigned)cmd->unk02) != 0) return -1;
-		if (sname) {
-			if (s_textbufAppendJsonString(out, sname) != 0) return -1;
-		} else if (s_textbufAppendf(out, "%lld", (long long)cmd->unk04) != 0) {
-			return -1;
-		}
+		char sound_id[64];
+		catalogReadableSfxId((s32)cmd->unk04, sound_id, sizeof(sound_id));
+		if (s_textbufAppendf(out, ", \"slot\": %u, \"sound\": ", (unsigned)cmd->unk02) != 0) return -1;
+		if (s_textbufAppendJsonString(out, sound_id) != 0) return -1;
 		break;
 	}
 	case OPFMT_PLAYANIM: {
-		const char *aname = loaderEnumNameForAnimEnum((s32)cmd->unk02);
+		char animation_id[64];
 		s32 direction = (s32)((cmd->unk04 >> 16) & 0xFFFF);
 		s32 speed     = (s32)(cmd->unk04 & 0xFFFF);
-		if (s_textbufAppend(out, ", ") != 0) return -1;
-		if (aname) {
-			if (s_textbufAppendJsonString(out, aname) != 0) return -1;
-		} else if (s_textbufAppendf(out, "%u", (unsigned)cmd->unk02) != 0) {
-			return -1;
-		}
-		if (s_textbufAppendf(out, ", %d, %d", direction, speed) != 0) return -1;
+		catalogReadableAnimationId((s32)cmd->unk02, "character", animation_id,
+			sizeof(animation_id));
+		if (s_textbufAppend(out, ", \"animation\": ") != 0) return -1;
+		if (s_textbufAppendJsonString(out, animation_id) != 0) return -1;
+		if (s_textbufAppendf(out, ", \"direction\": %d, \"speed\": %d", direction, speed) != 0) return -1;
 		break;
 	}
 	case OPFMT_REPEATFULL: {
 		s32 dontloop = (s32)((cmd->unk04 >> 16) & 0xFFFF);
 		s32 gototrigger = (s32)(cmd->unk04 & 0xFFFF);
-		if (s_textbufAppendf(out, ", %u, %d, %d",
+		if (s_textbufAppendf(out, ", \"slot\": %u, \"dont_loop\": %d, \"goto_trigger\": %d",
 			(unsigned)cmd->unk02, dontloop, gototrigger) != 0) return -1;
 		break;
 	}
 	case OPFMT_INCLUDE: {
 		const char *aname = s_animNameForCmds(
 			(const struct guncmd *)(intptr_t)cmd->unk04);
-		if (s_textbufAppendf(out, ", %u, ", (unsigned)cmd->unk01) != 0) return -1;
+		if (s_textbufAppendf(out, ", \"slot\": %u, \"animation\": ", (unsigned)cmd->unk01) != 0) return -1;
 		if (s_textbufAppendJsonString(out, aname ? aname : "") != 0) return -1;
 		break;
 	}
 	case OPFMT_SETSPEED:
-		if (s_textbufAppendf(out, ", %u, %lld",
+		if (s_textbufAppendf(out, ", \"slot\": %u, \"speed\": %lld",
 			(unsigned)cmd->unk02, (long long)cmd->unk04) != 0) return -1;
 		break;
 	}
 
-	return s_textbufAppend(out, last ? "]\n" : "],\n");
+	return s_textbufAppend(out, last ? " }\n" : " },\n");
 }
 
-/* Walk a guncmd[] array until GUNCMD_END to count opcodes. */
-static s32 s_countOpcodes(const struct guncmd *cmds)
+/* Walk a guncmd[] array until GUNCMD_END to count commands. */
+static s32 s_countCommands(const struct guncmd *cmds)
 {
 	s32 n = 0;
 	if (!cmds) return 0;
@@ -264,12 +270,12 @@ static s32 s_existingArchiveHasAnimPayloads(const char *relpath)
 	if (!arc) return 0;
 	s32 ok = modArchiveFindEntry(arc, "animation.ini") >= 0
 	      && modArchiveFindEntry(arc, "_meta/manifest.json") >= 0
-	      && modArchiveFindEntry(arc, "opcodes.json") >= 0;
+	      && modArchiveFindEntry(arc, "commands.json") >= 0;
 	modArchiveClose(arc);
 	return ok;
 }
 
-static s32 s_buildOpcodeJson(const char *catalog_id, const char *anim_name,
+static s32 s_buildCommandJson(const char *catalog_id, const char *anim_name,
                              const struct guncmd *cmds, s32 cmd_count,
                              s32 include_loader_envelope,
                              pdanim_textbuf_t *out)
@@ -277,20 +283,21 @@ static s32 s_buildOpcodeJson(const char *catalog_id, const char *anim_name,
 	if (s_textbufAppend(out, "{\n") != 0) return -1;
 	if (include_loader_envelope) {
 		if (s_textbufAppend(out, "  \"pd_kind\": \"animation\",\n") != 0) return -1;
-		if (s_textbufAppend(out, "  \"pd_schema_version\": 1,\n") != 0) return -1;
+		if (s_textbufAppend(out, "  \"pd_schema_version\": 2,\n") != 0) return -1;
 		if (s_textbufAppend(out, "  \"id\": ") != 0) return -1;
 		if (s_textbufAppendJsonString(out, catalog_id) != 0) return -1;
 		if (s_textbufAppend(out, ",\n") != 0) return -1;
 		if (s_textbufAppend(out, "  \"category\": \"weapon_animation\",\n") != 0) return -1;
+		if (s_textbufAppend(out, "  \"command_source\": \"commands.json\",\n") != 0) return -1;
 	}
-	if (s_textbufAppend(out, "  \"source_format\": \"gunscript_opcodes\",\n") != 0) return -1;
+	if (s_textbufAppend(out, "  \"source_format\": \"weapon_animation_commands\",\n") != 0) return -1;
 	if (s_textbufAppend(out, "  \"name\": ") != 0) return -1;
 	if (s_textbufAppendJsonString(out, anim_name) != 0) return -1;
 	if (s_textbufAppend(out, ",\n") != 0) return -1;
-	if (s_textbufAppendf(out, "  \"opcode_count\": %d,\n", cmd_count) != 0) return -1;
-	if (s_textbufAppend(out, "  \"opcodes\": [\n") != 0) return -1;
+	if (s_textbufAppendf(out, "  \"command_count\": %d,\n", cmd_count) != 0) return -1;
+	if (s_textbufAppend(out, "  \"commands\": [\n") != 0) return -1;
 	for (s32 i = 0; i < cmd_count; i++) {
-		if (s_emitOpcode(out, &cmds[i], i == cmd_count - 1) != 0) return -1;
+		if (s_emitCommandObject(out, &cmds[i], i == cmd_count - 1) != 0) return -1;
 	}
 	if (s_textbufAppend(out, "  ]\n") != 0) return -1;
 	return s_textbufAppend(out, "}\n");
@@ -303,7 +310,7 @@ static s32 s_emitOneAnim(s32 anim_idx, const char *out_dir, s32 force_rewrite)
 	if (!anim_name || !anim_name[0]) return 0;
 
 	const struct guncmd *cmds = g_AnimData[anim_idx].cmds;
-	s32 cmd_count = s_countOpcodes(cmds);
+	s32 cmd_count = s_countCommands(cmds);
 	if (!cmds || cmd_count <= 0) return 0;
 
 	/* Catalog ID convention: animation names already begin with
@@ -320,12 +327,12 @@ static s32 s_emitOneAnim(s32 anim_idx, const char *out_dir, s32 force_rewrite)
 	if (!force_rewrite && s_existingArchiveHasAnimPayloads(relpath)) return 0;
 
 	pdanim_textbuf_t manifest = {0};
-	pdanim_textbuf_t opcodes = {0};
+	pdanim_textbuf_t commands = {0};
 
-	if (s_buildOpcodeJson(catalog_id, anim_name, cmds, cmd_count, true, &manifest) != 0
-			|| s_buildOpcodeJson(catalog_id, anim_name, cmds, cmd_count, false, &opcodes) != 0) {
+	if (s_buildCommandJson(catalog_id, anim_name, cmds, cmd_count, true, &manifest) != 0
+			|| s_buildCommandJson(catalog_id, anim_name, cmds, cmd_count, false, &commands) != 0) {
 		s_textbufFree(&manifest);
-		s_textbufFree(&opcodes);
+		s_textbufFree(&commands);
 		sysLoudFailf("EXTRACT.PDANIM",
 			"JSON build failed for \"%s\"", relpath);
 		return -1;
@@ -336,15 +343,15 @@ static s32 s_emitOneAnim(s32 anim_idx, const char *out_dir, s32 force_rewrite)
 		"[animation]\n"
 		"catalog_id = %s\n"
 		"category = weapon_animation\n"
-		"source_format = gunscript_opcodes\n"
-		"opcodes_file = opcodes.json\n"
+		"source_format = weapon_animation_commands\n"
+		"commands_file = commands.json\n"
 		"manifest_file = _meta/manifest.json\n"
-		"opcode_count = %d\n"
+		"command_count = %d\n"
 		"source_index = %d\n",
 		catalog_id, cmd_count, anim_idx);
 	if (ini_len <= 0 || (size_t)ini_len >= sizeof(ini_buf)) {
 		s_textbufFree(&manifest);
-		s_textbufFree(&opcodes);
+		s_textbufFree(&commands);
 		sysLoudFailf("EXTRACT.PDANIM",
 			"animation.ini snprintf truncated for \"%s\"", relpath);
 		return -1;
@@ -354,7 +361,7 @@ static s32 s_emitOneAnim(s32 anim_idx, const char *out_dir, s32 force_rewrite)
 	const char *full = fsFullPath(relpath, full_buf, sizeof(full_buf));
 	if (!full || !full[0]) {
 		s_textbufFree(&manifest);
-		s_textbufFree(&opcodes);
+		s_textbufFree(&commands);
 		sysLoudFailf("EXTRACT.PDANIM",
 			"fsFullPath failed for \"%s\"", relpath);
 		return -1;
@@ -363,7 +370,7 @@ static s32 s_emitOneAnim(s32 anim_idx, const char *out_dir, s32 force_rewrite)
 	mod_archive_writer_t *aw = modArchiveBegin(full);
 	if (!aw) {
 		s_textbufFree(&manifest);
-		s_textbufFree(&opcodes);
+		s_textbufFree(&commands);
 		sysLoudFailf("EXTRACT.PDANIM",
 			"modArchiveBegin failed for \"%s\"", full);
 		return -1;
@@ -376,7 +383,7 @@ static s32 s_emitOneAnim(s32 anim_idx, const char *out_dir, s32 force_rewrite)
 			"assetArchiveWriterInit failed for \"%s\"", full);
 		modArchiveAbort(aw);
 		s_textbufFree(&manifest);
-		s_textbufFree(&opcodes);
+		s_textbufFree(&commands);
 		return -1;
 	}
 	assetArchiveWriterSetProvenance(&asset_writer, "romextract_pdanim",
@@ -388,7 +395,7 @@ static s32 s_emitOneAnim(s32 anim_idx, const char *out_dir, s32 force_rewrite)
 			"AddFileMem animation.ini failed for \"%s\"", full);
 		modArchiveAbort(aw);
 		s_textbufFree(&manifest);
-		s_textbufFree(&opcodes);
+		s_textbufFree(&commands);
 		return -1;
 	}
 	if (assetArchiveWriterAddManifestJson(&asset_writer,
@@ -397,16 +404,16 @@ static s32 s_emitOneAnim(s32 anim_idx, const char *out_dir, s32 force_rewrite)
 			"AddFileMem _meta/manifest.json failed for \"%s\"", full);
 		modArchiveAbort(aw);
 		s_textbufFree(&manifest);
-		s_textbufFree(&opcodes);
+		s_textbufFree(&commands);
 		return -1;
 	}
-	if (assetArchiveWriterAddPublicMem(&asset_writer, "opcodes.json",
-			opcodes.data, opcodes.len, "opcodes") != MODARCHIVE_OK) {
+	if (assetArchiveWriterAddPublicMem(&asset_writer, "commands.json",
+			commands.data, commands.len, "commands") != MODARCHIVE_OK) {
 		sysLoudFailf("EXTRACT.PDANIM",
-			"AddFileMem opcodes.json failed for \"%s\"", full);
+			"AddFileMem commands.json failed for \"%s\"", full);
 		modArchiveAbort(aw);
 		s_textbufFree(&manifest);
-		s_textbufFree(&opcodes);
+		s_textbufFree(&commands);
 		return -1;
 	}
 
@@ -415,20 +422,20 @@ static s32 s_emitOneAnim(s32 anim_idx, const char *out_dir, s32 force_rewrite)
 			"assetArchiveWriterFinishMetadata failed for \"%s\"", full);
 		modArchiveAbort(aw);
 		s_textbufFree(&manifest);
-		s_textbufFree(&opcodes);
+		s_textbufFree(&commands);
 		return -1;
 	}
 
 	if (modArchiveFinish(aw) != 0) {
 		s_textbufFree(&manifest);
-		s_textbufFree(&opcodes);
+		s_textbufFree(&commands);
 		sysLoudFailf("EXTRACT.PDANIM",
 			"modArchiveFinish failed for \"%s\"", full);
 		return -1;
 	}
 
 	s_textbufFree(&manifest);
-	s_textbufFree(&opcodes);
+	s_textbufFree(&commands);
 	return 1;
 }
 

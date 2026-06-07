@@ -1,0 +1,14 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 6,
+  "asset_id": "base:animation_yawn",
+  "mod_id": "base",
+  "kind": "animation",
+  "source": "data/ntsc-final/animations/base_animation_yawn.pdanim::animation.gltf",
+  "source_size": 97832,
+  "source_sha256": "003297a42811c8e30407a990620a66ceb09a8e663d9cdc08051b77eb205b9bdb",
+  "validation": "format=gltf animtableentry clips=1 frames=285 channels=15",
+  "normalized": "$S/mod-cache/base/base_animation_yawn/animation-v6-003297a42811c8e30407a990620a66ceb09a8e663d9cdc08051b77eb205b9bdb.pdanimation.json",
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}
