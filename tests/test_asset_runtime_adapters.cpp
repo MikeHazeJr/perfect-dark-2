@@ -158,9 +158,9 @@ TEST_CASE("asset runtime adapters bind C-3838 file-backed families",
 	std::strncpy(mission.ext.mission.scenario_archive,
 		"dependencies/assets/scenario/rescue.pdscenario",
 		sizeof(mission.ext.mission.scenario_archive) - 1);
-	std::strncpy(mission.ext.mission.objectives_file, "objectives.ini",
+	std::strncpy(mission.ext.mission.objectives_file, "objectives.json",
 		sizeof(mission.ext.mission.objectives_file) - 1);
-	std::strncpy(mission.ext.mission.briefing_file, "briefing.tsv",
+	std::strncpy(mission.ext.mission.briefing_file, "briefing.json",
 		sizeof(mission.ext.mission.briefing_file) - 1);
 	REQUIRE(assetRuntimeActivateCatalogEntry(&mission,
 		"mods/demo/missions/rescue.pdmission::mission.graph.json") == 1);

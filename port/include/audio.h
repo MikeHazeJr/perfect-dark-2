@@ -3,6 +3,8 @@
 
 #include <PR/ultratypes.h>
 
+struct sndstate;
+
 s32 audioInit(void);
 s32 audioGetBytesBuffered(void);
 s32 audioGetSamplesBuffered(void);
@@ -30,6 +32,15 @@ u16 audioGetUiVolumeScaled(void);
  * Returns 1 on success, 0 if the file could not be loaded or converted.
  * On failure the caller should fall back to the ROM sound path. */
 s32 audioPlayFileSound(const char *path, u16 volume, u8 pan, f32 pitch);
+struct sndstate *audioStartFileSound(const char *path, u16 volume, u8 pan,
+		f32 pitch, s32 has_loop, u32 loop_start_samples,
+		u32 loop_end_samples, u32 loop_count, s32 has_envelope,
+		u32 attack_time_us, u32 decay_time_us, u32 release_time_us,
+		s32 attack_volume, s32 decay_volume, struct sndstate **handle);
+s32 audioFileSoundOwnsHandle(const struct sndstate *handle);
+s32 audioFileSoundGetState(const struct sndstate *handle);
+void audioFileSoundStop(struct sndstate *handle);
+void audioFileSoundPostEvent(struct sndstate *handle, s16 type, s32 data);
 
 /* Recompute and push composite volumes to the engine.
  * Called automatically by the setters, but can be called

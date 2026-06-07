@@ -16,10 +16,10 @@ scene.glb
 collision.glb
 pads.tsv
 volumes.tsv
-spawns.tsv
+spawns.json
 objects.tsv
 setup.fields.tsv
-objectives.tsv
+objectives.json
 navigation.ini
 level.graph.json
 _meta/
@@ -28,7 +28,7 @@ _meta/
   generated-collision.json
   generated-navmesh.json
   validation.json
-  hashes.tsv
+  hashes.json
 ```
 
 `scene.glb` or `scene.gltf` is the primary level source. OBJ/MTL/TGA remains a transition/export fallback, but GLB/glTF is the target because common tools can open it directly while preserving hierarchy, materials, UVs, and texture bindings.
@@ -84,7 +84,7 @@ The raw `setup.tsv`, `mpsetup.tsv`, and `visual_segments.tsv` public outputs hav
 
 Reusable level-local behavior lives in `level.graph.json`. Campaign story flow, objective progression, cutscenes, checkpoints, unlocks, and mission phase logic belong in `.pdmission` graph assets that reference one or more `.pdscenario` archives.
 
-Implementation note, 2026-05-25: raw setup/mpsetup/visual word dumps are no longer public outputs. The extractor emits `objects.tsv` and `objectives.tsv` with named records and catalog-ID asset refs. 2026-05-28 follow-up: `setup.fields.tsv` is the named per-command field table for setup parity work, so `objects.tsv` remains the readable object index and no raw setup words re-enter the public archive. `level.graph.json` links scene, collision, navigation, and decoded setup/objective tables. `.pdmission` descriptors, scanner/distribution/runtime bindings, and examples now prefer `mission.graph.json`.
+Implementation note, 2026-05-25 through 2026-06-07: raw setup/mpsetup/visual word dumps are no longer public outputs. The extractor emits `objects.tsv` with named records and catalog-ID asset refs, `setup.fields.tsv` is the named per-command field table for setup parity work, B-780 moved Scenario objective records to semantic `objectives.json` with schema `pd2.scenario.objectives.v1`, and B-781 moved spawn rows to semantic `spawns.json` with schema `pd2.scenario.spawns.v1`. `level.graph.json` links scene, collision, navigation, and decoded setup/objective/spawn source. `.pdmission` descriptors, scanner/distribution/runtime bindings, and examples now prefer `mission.graph.json` and mission `objectives.json`.
 
 ## Runtime Parity
 

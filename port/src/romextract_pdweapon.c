@@ -43,8 +43,8 @@
 #include "weapondata_authored.h"
 #include "animdata_authored.h"
 
-#define PDWEAPON_DEPENDENCY_CLOSURE_MARKER "embedded.v13"
-#define PDWEAPON_FAST_CACHE_KIND "pdweapon_embedded_v13_clean_public"
+#define PDWEAPON_DEPENDENCY_CLOSURE_MARKER "embedded.v14"
+#define PDWEAPON_FAST_CACHE_KIND "pdweapon_embedded_v14_clean_public"
 #define PDWEAPON_MAX_ANIM_DEPS 128
 #define PDWEAPON_MAX_AUDIO_DEPS 128
 #define PDWEAPON_PRIMARY_GRAPH_ENTRY "behavior/primary.graph.json"
@@ -53,8 +53,8 @@
 #define PDWEAPON_SETTINGS_ENTRY "behavior/settings.json"
 #define PDWEAPON_VARIABLES_ENTRY "behavior/variables.json"
 #define PDWEAPON_NESTED_PAYLOADS_ENTRY "_meta/nested-payloads.json"
-#define PDWEAPON_ANIMATIONS_MANIFEST_ENTRY "bindings/animations.tsv"
-#define PDWEAPON_AUDIO_MANIFEST_ENTRY "bindings/audio.tsv"
+#define PDWEAPON_ANIMATIONS_MANIFEST_ENTRY "bindings/animations.json"
+#define PDWEAPON_AUDIO_MANIFEST_ENTRY "bindings/audio.json"
 #define PDWEAPON_DEP_MODELS "dependencies/assets/models"
 #define PDWEAPON_DEP_ANIMATIONS "dependencies/assets/animations"
 #define PDWEAPON_DEP_AUDIO "dependencies/assets/audio"
@@ -351,8 +351,6 @@ static s32 s_normalizeSfxCatalogIndex(s32 sfx)
 static void s_addAudioDep(pdweapon_audio_deps_t *deps, s32 sfx)
 {
 	if (!deps || sfx <= 0) return;
-	sfx = s_normalizeSfxCatalogIndex(sfx);
-	if (sfx <= 0) return;
 	for (s32 i = 0; i < deps->count; i++) {
 		if (deps->sfx[i] == sfx) return;
 	}
@@ -517,7 +515,18 @@ static s32 s_addProjectileModelDependency(asset_archive_writer_t *writer,
 
 static void s_sfxCatalogIdForWeapon(s32 sfx_idx, char *out, size_t out_n)
 {
-	catalogReadableSfxId(s_normalizeSfxCatalogIndex(sfx_idx), out, out_n);
+	catalogReadableSoundRefId(sfx_idx, out, out_n);
+}
+
+static void s_audioPhysicalCatalogIdForSfx(s32 sfx_idx, const char *ext,
+                                           char *out, size_t out_n)
+{
+	sfx_idx = s_normalizeSfxCatalogIndex(sfx_idx);
+	if (ext && strcmp(ext, ".pdvoice") == 0) {
+		catalogReadableVoiceId(sfx_idx, out, out_n);
+	} else {
+		catalogReadableSfxId(sfx_idx, out, out_n);
+	}
 }
 
 static s32 s_audioRelForSfx(s32 sfx_idx, char *out, size_t out_n,
@@ -555,6 +564,58 @@ static s32 s_audioRelForSfx(s32 sfx_idx, char *out, size_t out_n,
 	return 0;
 }
 
+static s32 s_audioDependencyInfoForSfx(s32 sfx_idx, char *out_src_rel,
+                                       size_t src_n, char *out_entry,
+                                       size_t entry_n, char *out_catalog_id,
+                                       size_t id_n, char *out_sample_id,
+                                       size_t sample_n, char *out_ext,
+                                       size_t ext_n)
+{
+	if (out_src_rel && src_n) out_src_rel[0] = '\0';
+	if (out_entry && entry_n) out_entry[0] = '\0';
+	if (out_catalog_id && id_n) out_catalog_id[0] = '\0';
+	if (out_sample_id && sample_n) out_sample_id[0] = '\0';
+	if (out_ext && ext_n) out_ext[0] = '\0';
+	if (sfx_idx <= 0) return 0;
+
+	char ref_id[128];
+	char slug[128];
+	s_sfxCatalogIdForWeapon(sfx_idx, ref_id, sizeof(ref_id));
+
+	union soundnumhack ref;
+	ref.packed = (s16)sfx_idx;
+	if (ref.hasconfig) {
+		char rel[FS_MAXPATH];
+		s_idToFilename(ref_id, slug, sizeof(slug));
+		snprintf(rel, sizeof(rel), "audio/sfx/%s.pdsfx", slug);
+		fsDataPathFor(rel, out_src_rel, src_n);
+		if (out_src_rel && out_src_rel[0] && fsFileSize(out_src_rel) > 0) {
+			snprintf(out_entry, entry_n, "%s/%s.pdsfx",
+				PDWEAPON_DEP_AUDIO, slug);
+			snprintf(out_catalog_id, id_n, "%s", ref_id);
+			snprintf(out_sample_id, sample_n, "%s", ref_id);
+			if (out_ext && ext_n) snprintf(out_ext, ext_n, ".pdsfx");
+			return 1;
+		}
+	}
+
+	char physical_ext[16];
+	if (!s_audioRelForSfx(sfx_idx, out_src_rel, src_n, physical_ext,
+			sizeof(physical_ext))) {
+		return 0;
+	}
+	char physical_id[128];
+	s_audioPhysicalCatalogIdForSfx(sfx_idx, physical_ext, physical_id,
+		sizeof(physical_id));
+	s_idToFilename(physical_id, slug, sizeof(slug));
+	snprintf(out_entry, entry_n, "%s/%s%s", PDWEAPON_DEP_AUDIO, slug,
+		physical_ext);
+	snprintf(out_catalog_id, id_n, "%s", ref_id);
+	snprintf(out_sample_id, sample_n, "%s", physical_id);
+	if (out_ext && ext_n) snprintf(out_ext, ext_n, "%s", physical_ext);
+	return 1;
+}
+
 static s32 s_addWeaponAnimationDependency(asset_archive_writer_t *writer,
                                           const char *catalog_id,
                                           const char *anim_name)
@@ -576,20 +637,15 @@ static s32 s_addWeaponAudioDependency(asset_archive_writer_t *writer,
                                       s32 sfx_idx)
 {
 	char src_rel[FS_MAXPATH];
+	char entry[FS_MAXPATH];
+	char ref_id[128];
+	char sample_id[128];
 	char ext[16];
-	if (!s_audioRelForSfx(sfx_idx, src_rel, sizeof(src_rel), ext, sizeof(ext))) {
+	if (!s_audioDependencyInfoForSfx(sfx_idx, src_rel, sizeof(src_rel),
+			entry, sizeof(entry), ref_id, sizeof(ref_id),
+			sample_id, sizeof(sample_id), ext, sizeof(ext))) {
 		return 0;
 	}
-	char id[128];
-	char slug[128];
-	s_sfxCatalogIdForWeapon(sfx_idx, id, sizeof(id));
-	if (strcmp(ext, ".pdvoice") == 0) {
-		catalogReadableVoiceId(s_normalizeSfxCatalogIndex(sfx_idx),
-			id, sizeof(id));
-	}
-	s_idToFilename(id, slug, sizeof(slug));
-	char entry[FS_MAXPATH];
-	snprintf(entry, sizeof(entry), "%s/%s%s", PDWEAPON_DEP_AUDIO, slug, ext);
 	return s_addArchiveFileDiskRel(writer, entry, src_rel, catalog_id, "audio");
 }
 
@@ -600,13 +656,20 @@ static s32 s_addDependencyManifests(asset_archive_writer_t *writer,
 	char anim_manifest[8192];
 	size_t len = 0;
 	len += snprintf(anim_manifest + len, sizeof(anim_manifest) - len,
-		"name\tarchive_entry\tcatalog_id\n");
+		"{\n  \"animations\": [\n");
 	for (s32 i = 0; i < anim_deps->count && len < sizeof(anim_manifest); i++) {
 		const char *name = anim_deps->names[i] ? anim_deps->names[i] : "";
 		len += snprintf(anim_manifest + len, sizeof(anim_manifest) - len,
-			"%s\t%s/%s.pdanim\tbase:%s\n", name,
-			PDWEAPON_DEP_ANIMATIONS, name, name);
+			"    {\n"
+			"      \"name\": \"%s\",\n"
+			"      \"archive_entry\": \"%s/%s.pdanim\",\n"
+			"      \"catalog_id\": \"base:%s\"\n"
+			"    }%s\n",
+			name, PDWEAPON_DEP_ANIMATIONS, name, name,
+			(i + 1 < anim_deps->count) ? "," : "");
 	}
+	len += snprintf(anim_manifest + len, sizeof(anim_manifest) - len,
+		"  ]\n}\n");
 	if (len >= sizeof(anim_manifest) ||
 			assetArchiveWriterAddPublicMem(writer,
 				PDWEAPON_ANIMATIONS_MANIFEST_ENTRY,
@@ -618,27 +681,33 @@ static s32 s_addDependencyManifests(asset_archive_writer_t *writer,
 	char audio_manifest[8192];
 	len = 0;
 	len += snprintf(audio_manifest + len, sizeof(audio_manifest) - len,
-		"sfx_index\tarchive_entry\tcatalog_id\n");
+		"{\n  \"audio\": [\n");
+	s32 emitted = 0;
 	for (s32 i = 0; i < audio_deps->count && len < sizeof(audio_manifest); i++) {
 		char src_rel[FS_MAXPATH];
+		char entry[FS_MAXPATH];
+		char ref_id[128];
+		char sample_id[128];
 		char ext[16];
-		if (!s_audioRelForSfx(audio_deps->sfx[i], src_rel, sizeof(src_rel),
+		if (!s_audioDependencyInfoForSfx(audio_deps->sfx[i],
+				src_rel, sizeof(src_rel), entry, sizeof(entry),
+				ref_id, sizeof(ref_id), sample_id, sizeof(sample_id),
 				ext, sizeof(ext))) {
 			continue;
 		}
-		char id[128];
-		char slug[128];
-		s_sfxCatalogIdForWeapon(audio_deps->sfx[i], id, sizeof(id));
-		if (strcmp(ext, ".pdvoice") == 0) {
-			catalogReadableVoiceId(
-				s_normalizeSfxCatalogIndex(audio_deps->sfx[i]),
-				id, sizeof(id));
-		}
-		s_idToFilename(id, slug, sizeof(slug));
 		len += snprintf(audio_manifest + len, sizeof(audio_manifest) - len,
-			"%d\t%s/%s%s\t%s\n", audio_deps->sfx[i],
-			PDWEAPON_DEP_AUDIO, slug, ext, id);
+			"%s"
+			"    {\n"
+			"      \"catalog_id\": \"%s\",\n"
+			"      \"archive_entry\": \"%s\",\n"
+			"      \"sample_catalog_id\": \"%s\"\n"
+			"    }\n",
+			emitted > 0 ? ",\n" : "",
+			ref_id, entry, sample_id);
+		emitted++;
 	}
+	len += snprintf(audio_manifest + len, sizeof(audio_manifest) - len,
+		"  ]\n}\n");
 	if (len >= sizeof(audio_manifest) ||
 			assetArchiveWriterAddPublicMem(writer,
 				PDWEAPON_AUDIO_MANIFEST_ENTRY,
@@ -1500,23 +1569,16 @@ static void s_emitWeaponManifestDependencies(jw_t *w,
 
 	for (s32 i = 0; i < audio_deps->count; i++) {
 		char src_rel[FS_MAXPATH];
+		char archive[FS_MAXPATH];
+		char id[128];
+		char sample_id[128];
 		char ext[16];
-		if (!s_audioRelForSfx(audio_deps->sfx[i], src_rel, sizeof(src_rel),
+		if (!s_audioDependencyInfoForSfx(audio_deps->sfx[i],
+				src_rel, sizeof(src_rel), archive, sizeof(archive),
+				id, sizeof(id), sample_id, sizeof(sample_id),
 				ext, sizeof(ext))) {
 			continue;
 		}
-		char id[128];
-		char slug[128];
-		s_sfxCatalogIdForWeapon(audio_deps->sfx[i], id, sizeof(id));
-		if (strcmp(ext, ".pdvoice") == 0) {
-			catalogReadableVoiceId(
-				s_normalizeSfxCatalogIndex(audio_deps->sfx[i]),
-				id, sizeof(id));
-		}
-		s_idToFilename(id, slug, sizeof(slug));
-		char archive[FS_MAXPATH];
-		snprintf(archive, sizeof(archive), "%s/%s%s",
-			PDWEAPON_DEP_AUDIO, slug, ext);
 		s_emitWeaponManifestDependencyRecord(w, "audio", "audio",
 			id, archive, "", &count);
 	}

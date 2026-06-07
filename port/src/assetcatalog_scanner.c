@@ -393,8 +393,8 @@ const char *modiniTemplateForKind(const char *kind)
 			"name = New Mission\n"
 			"; scenario_archive = dependencies/assets/scenario/mission.pdscenario\n"
 			"mission_graph_file = mission.graph.json\n"
-			"; objectives_file = objectives.tsv\n"
-			"; briefing_file = briefing.tsv\n";
+			"; objectives_file = objectives.json\n"
+			"; briefing_file = briefing.json\n";
 	}
 
 	if (strcmp(kind, "head") == 0) {
@@ -472,12 +472,13 @@ const char *modiniTemplateForKind(const char *kind)
 			"collision_fallback = override\n"
 			"\n"
 			"[setup]\n"
-			"pads_file = pads.tsv\n"
-			"spawns_file = spawns.tsv\n"
-			"volumes_file = volumes.tsv\n"
-			"objects_file = objects.tsv\n"
-			"setup_fields_file = setup.fields.tsv\n"
-			"objectives_file = objectives.tsv\n"
+			"pads_file = pads.json\n"
+			"spawns_file = spawns.json\n"
+			"volumes_file = volumes.json\n"
+			"objects_file = objects.json\n"
+			"setup_fields_file = setup.fields.json\n"
+			"ai_lists_file = ai/ailists.json\n"
+			"objectives_file = objectives.json\n"
 			"navigation_file = navigation.ini\n"
 			"level_graph_file = level.graph.json\n"
 			"; rooms_file = rooms.obj\n";
@@ -559,8 +560,9 @@ const char *modiniTemplateForKind(const char *kind)
 			"duration_ms = 0\n"
 			"\n"
 			"[source]\n"
-			"; Voice authoring uses WAV.\n"
+			"; Voice authoring supports WAV or MP3.\n"
 			"file_path = sample.wav\n"
+			"; file_path = sample.mp3\n"
 			"\n"
 			"[voice]\n"
 			"; actor = unknown\n"
@@ -655,10 +657,9 @@ const char *modiniTemplateForKind(const char *kind)
 			"; locale = en\n"
 			"\n"
 			"[source]\n"
-			"; strings.tsv is UTF-8 tab-separated text: index<TAB>text.\n"
-			"strings_file = strings.tsv\n"
-			"; The loader also accepts strings = strings.tsv for compatibility.\n"
-			"; strings = strings.tsv\n";
+			"; strings.json is editable JSON with indexed text entries.\n"
+			"strings_file = strings.json\n"
+			"; strings = strings.json\n";
 	}
 
 	return NULL;
@@ -1002,6 +1003,7 @@ static void qualifyIniSourcePaths(ini_section_t *ini, const char *component_dir)
 		"volumes_file",
 		"objects_file",
 		"setup_fields_file",
+		"ai_lists_file",
 		"setup_file",
 		"mpsetup_file",
 		"rooms_file",
@@ -1030,7 +1032,6 @@ static void qualifyIniSourcePaths(ini_section_t *ini, const char *component_dir)
 		"font",
 		"strings_file",
 		"strings",
-		"strings_tsv",
 		NULL
 	};
 
@@ -1119,6 +1120,7 @@ static void qualifyTypedArchiveSourcePaths(ini_section_t *ini,
 		"volumes_file",
 		"objects_file",
 		"setup_fields_file",
+		"ai_lists_file",
 		"setup_file",
 		"mpsetup_file",
 		"rooms_file",
@@ -1146,7 +1148,6 @@ static void qualifyTypedArchiveSourcePaths(ini_section_t *ini,
 		"font",
 		"strings_file",
 		"strings",
-		"strings_tsv",
 		NULL
 	};
 
@@ -1752,6 +1753,9 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 			strncpy(e->ext.scenario.setup_fields_file,
 				iniGet(ini, "setup_fields_file", ""),
 				sizeof(e->ext.scenario.setup_fields_file) - 1);
+			strncpy(e->ext.scenario.ai_lists_file,
+				iniGet(ini, "ai_lists_file", ""),
+				sizeof(e->ext.scenario.ai_lists_file) - 1);
 			strncpy(e->ext.scenario.objectives_file,
 				iniGet(ini, "objectives_file", ""),
 				sizeof(e->ext.scenario.objectives_file) - 1);
@@ -1784,8 +1788,37 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 		e->ext.audio.key_max = iniGetInt(ini, "key_max", 127);
 		e->ext.audio.key_base = iniGetInt(ini, "key_base", 60);
 		e->ext.audio.key_detune = iniGetInt(ini, "key_detune", 0);
+		e->ext.audio.velocity_min = iniGetInt(ini, "velocity_min", 0);
+		e->ext.audio.velocity_max = iniGetInt(ini, "velocity_max", 0);
 		e->ext.audio.sample_pan = iniGetInt(ini, "sample_pan", 64);
 		e->ext.audio.sample_volume = iniGetInt(ini, "sample_volume", 127);
+		e->ext.audio.loop_start_samples = (u32)iniGetInt(ini, "loop_start_samples", 0);
+		e->ext.audio.loop_end_samples = (u32)iniGetInt(ini, "loop_end_samples", 0);
+		e->ext.audio.loop_count = (u32)iniGetInt(ini, "loop_count", 0);
+		{
+			const char *has_loop = iniGet(ini, "has_loop", "0");
+			e->ext.audio.has_loop = iniGetInt(ini, "has_loop", 0)
+				|| strcmp(has_loop, "true") == 0
+				|| strcmp(has_loop, "yes") == 0
+				|| e->ext.audio.loop_end_samples > e->ext.audio.loop_start_samples
+				|| e->ext.audio.loop_count != 0;
+		}
+		e->ext.audio.attack_time_us = (u32)iniGetInt(ini, "attack_time_us", 0);
+		e->ext.audio.decay_time_us = (u32)iniGetInt(ini, "decay_time_us", 0);
+		e->ext.audio.release_time_us = (u32)iniGetInt(ini, "release_time_us", 0);
+		e->ext.audio.attack_volume = iniGetInt(ini, "attack_volume", 127);
+		e->ext.audio.decay_volume = iniGetInt(ini, "decay_volume", 127);
+		{
+			const char *has_envelope = iniGet(ini, "has_envelope", "0");
+			e->ext.audio.has_envelope = iniGetInt(ini, "has_envelope", 0)
+				|| strcmp(has_envelope, "true") == 0
+				|| strcmp(has_envelope, "yes") == 0
+				|| e->ext.audio.attack_time_us != 0
+				|| e->ext.audio.decay_time_us != 0
+				|| e->ext.audio.release_time_us != 0
+				|| e->ext.audio.attack_volume != 127
+				|| e->ext.audio.decay_volume != 127;
+		}
 		strncpy(e->ext.audio.file_path, iniGet(ini, "file_path", ""), sizeof(e->ext.audio.file_path) - 1);
 		if (e->ext.audio.file_path[0]) {
 			catalogSetPrimaryFile(e, e->ext.audio.file_path);
@@ -1866,8 +1899,7 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 		{
 			const char *sf = iniGet(ini, "strings_file",
 				iniGet(ini, "strings",
-				iniGet(ini, "strings_tsv",
-				iniGet(ini, "file_path", ""))));
+				iniGet(ini, "file_path", "")));
 			strncpy(e->ext.lang.strings_file, sf, sizeof(e->ext.lang.strings_file) - 1);
 			if (sf[0]) {
 				catalogSetPrimaryFile(e, sf);
@@ -2690,6 +2722,7 @@ static void qualifyArchiveIniPaths(ini_section_t *ini, const char *component_dir
 		"volumes_file",
 		"objects_file",
 		"setup_fields_file",
+		"ai_lists_file",
 		"setup_file",
 		"rooms_file",
 		"rooms",
@@ -2725,7 +2758,6 @@ static void qualifyArchiveIniPaths(ini_section_t *ini, const char *component_dir
 		"font",
 		"strings_file",
 		"strings",
-		"strings_tsv",
 		NULL
 	};
 

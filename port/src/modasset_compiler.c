@@ -1206,6 +1206,26 @@ static s32 jsonObjectInt(json_span_t object, const char *key, s32 *out)
 	return 1;
 }
 
+static s32 jsonObjectFloat(json_span_t object, const char *key, f32 *out)
+{
+	const char *value = jsonFindKeyInSpan(object, key);
+	char *endptr;
+	double parsed;
+
+	if (!value || !out) {
+		return 0;
+	}
+
+	value = jsonSkipWs(value, object.end);
+	parsed = strtod(value, &endptr);
+	if (endptr == value) {
+		return 0;
+	}
+
+	*out = (f32)parsed;
+	return 1;
+}
+
 static s32 jsonObjectString(json_span_t object, const char *key,
                             char *out, size_t out_len)
 {
@@ -3293,7 +3313,7 @@ static s32 writeModelMeshJson(const char *path, const asset_entry_t *entry,
 
 	fprintf(f, "{\n");
 	fprintf(f, "  \"schema\": \"pd2.modasset.model.v1\",\n");
-	fprintf(f, "  \"compiler_version\": %d,\n", MODASSET_COMPILER_VERSION);
+	fprintf(f, "  \"compiler_version\": %d,\n", MODASSET_COMPILER_MODELDEF_VERSION);
 	fprintf(f, "  \"asset_id\": \"");
 	jsonWriteEscaped(f, entry ? entry->id : "");
 	fprintf(f, "\",\n");
@@ -3568,7 +3588,7 @@ s32 modAssetCompilerCompileReadable(const asset_entry_t *entry,
 		snprintf(normalized_rel, sizeof(normalized_rel),
 			"%s/%s/%s/%s-v%d-%s.pdmodel.json",
 			cache_root, mod_part, asset_part, kind_part,
-			MODASSET_COMPILER_VERSION, digest_hex);
+			MODASSET_COMPILER_MODELDEF_VERSION, digest_hex);
 	} else if (strcmp(source_kind, "obj") == 0) {
 		snprintf(normalized_rel, sizeof(normalized_rel),
 			"%s/%s/%s/%s-v%d-%s.pdmesh.json",
@@ -3579,7 +3599,7 @@ s32 modAssetCompilerCompileReadable(const asset_entry_t *entry,
 		snprintf(normalized_rel, sizeof(normalized_rel),
 			"%s/%s/%s/%s-v%d-%s.pdmodel.json",
 			cache_root, mod_part, asset_part, kind_part,
-			MODASSET_COMPILER_VERSION, digest_hex);
+			MODASSET_COMPILER_MODELDEF_VERSION, digest_hex);
 	} else if ((strcmp(source_kind, "gltf") == 0 || strcmp(source_kind, "glb") == 0)
 			&& assetKindUsesGeneratedAnimationClip(asset_kind)) {
 		snprintf(normalized_rel, sizeof(normalized_rel),
@@ -4934,14 +4954,18 @@ static s32 generatedModeldefReadHierarchy(const char *source_path,
 	char hierarchy_path[FS_MAXPATH + 1];
 	u32 size = 0;
 	char *text;
-	char *line;
+	char *copy;
+	json_span_t root;
+	json_span_t nodes;
+	const char *cursor = NULL;
+	json_span_t object;
 	s32 parsed_rows = 0;
 
 	if (!source_path || !hierarchy) {
 		return 0;
 	}
 	memset(hierarchy, 0, sizeof(*hierarchy));
-	if (!generatedModeldefMetadataPath(source_path, "model.nodes.tsv",
+	if (!generatedModeldefMetadataPath(source_path, "model.nodes.json",
 			hierarchy_path, sizeof(hierarchy_path))) {
 		return 0;
 	}
@@ -4954,7 +4978,7 @@ static s32 generatedModeldefReadHierarchy(const char *source_path,
 		return 0;
 	}
 
-	char *copy = malloc((size_t)size + 1);
+	copy = malloc((size_t)size + 1);
 	if (!copy) {
 		free(text);
 		return -1;
@@ -4963,58 +4987,79 @@ static s32 generatedModeldefReadHierarchy(const char *source_path,
 	copy[size] = '\0';
 	free(text);
 
-	line = copy;
-	while (line && *line) {
-		char *end = line;
-		char *next = NULL;
-		char *p;
+	root.start = copy;
+	root.end = copy + size;
+	if (!jsonObjectArray(root, "nodes", &nodes)) {
+		free(copy);
+		generatedHierarchyFree(hierarchy);
+		return -1;
+	}
 
-		while (*end && *end != '\n' && *end != '\r') {
-			end++;
+	while (jsonArrayNextObject(nodes, &cursor, &object)) {
+		generated_hierarchy_row_t row;
+		json_span_t position;
+		json_span_t bounds;
+		json_span_t distance;
+		json_span_t reorder;
+		json_span_t pivot;
+		json_span_t axis;
+		memset(&row, 0, sizeof(row));
+		row.payload_index = -1;
+		if (!jsonObjectInt(object, "id", &row.id) ||
+				!jsonObjectInt(object, "parent", &row.parent) ||
+				!jsonObjectInt(object, "type", &row.type) ||
+				!jsonObjectInt(object, "partnum", &row.partnum) ||
+				!jsonObjectInt(object, "part", &row.part) ||
+				!jsonObjectInt(object, "mtx0", &row.mtx0) ||
+				!jsonObjectInt(object, "mtx1", &row.mtx1) ||
+				!jsonObjectInt(object, "mtx2", &row.mtx2) ||
+				!jsonObjectObject(object, "position", &position) ||
+				!jsonObjectFloat(position, "x", &row.pos_x) ||
+				!jsonObjectFloat(position, "y", &row.pos_y) ||
+				!jsonObjectFloat(position, "z", &row.pos_z) ||
+				!jsonObjectFloat(object, "drawdist", &row.drawdist) ||
+				!jsonObjectInt(object, "target", &row.target) ||
+				!jsonObjectString(object, "group", row.group,
+					sizeof(row.group)) ||
+				!jsonObjectInt(object, "render_mtx", &row.render_mtx) ||
+				!jsonObjectInt(object, "mcount", &row.mcount) ||
+				!jsonObjectInt(object, "hitpart", &row.hitpart) ||
+				!jsonObjectObject(object, "bounds", &bounds) ||
+				!jsonObjectFloat(bounds, "xmin", &row.xmin) ||
+				!jsonObjectFloat(bounds, "xmax", &row.xmax) ||
+				!jsonObjectFloat(bounds, "ymin", &row.ymin) ||
+				!jsonObjectFloat(bounds, "ymax", &row.ymax) ||
+				!jsonObjectFloat(bounds, "zmin", &row.zmin) ||
+				!jsonObjectFloat(bounds, "zmax", &row.zmax) ||
+				!jsonObjectObject(object, "distance", &distance) ||
+				!jsonObjectFloat(distance, "near", &row.distance_near) ||
+				!jsonObjectFloat(distance, "far", &row.distance_far) ||
+				!jsonObjectObject(object, "reorder", &reorder) ||
+				!jsonObjectObject(reorder, "pivot", &pivot) ||
+				!jsonObjectFloat(pivot, "x", &row.reorder_x) ||
+				!jsonObjectFloat(pivot, "y", &row.reorder_y) ||
+				!jsonObjectFloat(pivot, "z", &row.reorder_z) ||
+				!jsonObjectObject(reorder, "axis", &axis) ||
+				!jsonObjectFloat(axis, "x", &row.reorder_axis_x) ||
+				!jsonObjectFloat(axis, "y", &row.reorder_axis_y) ||
+				!jsonObjectFloat(axis, "z", &row.reorder_axis_z) ||
+				!jsonObjectInt(reorder, "target_a",
+					&row.reorder_target_a) ||
+				!jsonObjectInt(reorder, "target_b",
+					&row.reorder_target_b) ||
+				!jsonObjectInt(reorder, "side",
+					&row.reorder_side)) {
+			free(copy);
+			generatedHierarchyFree(hierarchy);
+			return -1;
 		}
-		if (*end) {
-			char sep = *end;
-			*end = '\0';
-			next = end + 1;
-			if (sep == '\r' && *next == '\n') {
-				next++;
-			}
+		if (!generatedHierarchyGrow(hierarchy, 1)) {
+			free(copy);
+			generatedHierarchyFree(hierarchy);
+			return -1;
 		}
-
-		p = skipSpaces(line);
-		if (*p && *p != '#' && strncmp(p, "id\t", 3) != 0) {
-			generated_hierarchy_row_t row;
-			memset(&row, 0, sizeof(row));
-			row.payload_index = -1;
-			if (sscanf(p,
-					"%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%f\t%f\t%f\t%f\t%d\t%63s\t%d\t%d\t%d\t%f\t%f\t%f\t%f\t%f\t%f\t%f\t%f\t%f\t%f\t%f\t%f\t%f\t%f\t%d\t%d\t%d",
-					&row.id, &row.parent, &row.type,
-					&row.partnum, &row.part, &row.mtx0,
-					&row.mtx1, &row.mtx2, &row.pos_x,
-					&row.pos_y, &row.pos_z, &row.drawdist,
-					&row.target, row.group, &row.render_mtx,
-					&row.mcount, &row.hitpart, &row.xmin,
-					&row.xmax, &row.ymin, &row.ymax,
-					&row.zmin, &row.zmax, &row.distance_near,
-					&row.distance_far, &row.reorder_x,
-					&row.reorder_y, &row.reorder_z,
-					&row.reorder_axis_x, &row.reorder_axis_y,
-					&row.reorder_axis_z, &row.reorder_target_a,
-					&row.reorder_target_b, &row.reorder_side) != 34) {
-				free(copy);
-				generatedHierarchyFree(hierarchy);
-				return -1;
-			}
-			if (!generatedHierarchyGrow(hierarchy, 1)) {
-				free(copy);
-				generatedHierarchyFree(hierarchy);
-				return -1;
-			}
-			hierarchy->rows[hierarchy->row_count++] = row;
-			parsed_rows++;
-		}
-
-		line = next;
+		hierarchy->rows[hierarchy->row_count++] = row;
+		parsed_rows++;
 	}
 
 	free(copy);
@@ -5490,7 +5535,10 @@ static s32 generatedModeldefReadParts(const char *source_path,
 	u32 size = 0;
 	char *text;
 	char *copy;
-	char *line;
+	json_span_t root;
+	json_span_t parts_array;
+	const char *cursor = NULL;
+	json_span_t object;
 	generated_part_entry_t *parts = NULL;
 	s32 part_count = 0;
 	s32 part_capacity = 0;
@@ -5505,7 +5553,7 @@ static s32 generatedModeldefReadParts(const char *source_path,
 			!out_parts || !out_part_count) {
 		return 0;
 	}
-	if (!generatedModeldefMetadataPath(source_path, "model.parts.tsv",
+	if (!generatedModeldefMetadataPath(source_path, "model.parts.json",
 			parts_path, sizeof(parts_path))) {
 		return 0;
 	}
@@ -5527,46 +5575,32 @@ static s32 generatedModeldefReadParts(const char *source_path,
 	copy[size] = '\0';
 	free(text);
 
-	line = copy;
-	while (line && *line) {
-		char *end = line;
-		char *next = NULL;
-		char *p;
+	root.start = copy;
+	root.end = copy + size;
+	if (!jsonObjectArray(root, "parts", &parts_array)) {
+		free(copy);
+		return -1;
+	}
 
-		while (*end && *end != '\n' && *end != '\r') {
-			end++;
+	while (jsonArrayNextObject(parts_array, &cursor, &object)) {
+		s32 partnum;
+		s32 node_id;
+		if (!jsonObjectInt(object, "partnum", &partnum) ||
+				!jsonObjectInt(object, "node", &node_id) ||
+				node_id < 0 || node_id >= node_count) {
+			free(parts);
+			free(copy);
+			return -1;
 		}
-		if (*end) {
-			char sep = *end;
-			*end = '\0';
-			next = end + 1;
-			if (sep == '\r' && *next == '\n') {
-				next++;
-			}
+		if (!generatedModeldefPartEntriesGrow(&parts, &part_capacity,
+				part_count + 1)) {
+			free(parts);
+			free(copy);
+			return -1;
 		}
-
-		p = skipSpaces(line);
-		if (*p && *p != '#' && strncmp(p, "partnum\t", 8) != 0) {
-			s32 partnum;
-			s32 node_id;
-			if (sscanf(p, "%d\t%d", &partnum, &node_id) != 2 ||
-					node_id < 0 || node_id >= node_count) {
-				free(parts);
-				free(copy);
-				return -1;
-			}
-			if (!generatedModeldefPartEntriesGrow(&parts, &part_capacity,
-					part_count + 1)) {
-				free(parts);
-				free(copy);
-				return -1;
-			}
-			parts[part_count].partnum = partnum;
-			parts[part_count].node = &nodes[node_id];
-			part_count++;
-		}
-
-		line = next;
+		parts[part_count].partnum = partnum;
+		parts[part_count].node = &nodes[node_id];
+		part_count++;
 	}
 
 	free(copy);
@@ -5582,14 +5616,17 @@ static s32 generatedModeldefReadFaces(const char *source_path,
 	u32 size = 0;
 	char *text;
 	char *copy;
-	char *line;
+	json_span_t root;
+	json_span_t faces_array;
+	const char *cursor = NULL;
+	json_span_t object;
 	u8 *seen;
 	s32 parsed_rows = 0;
 
 	if (!source_path || !mesh || mesh->triangle_count <= 0) {
 		return 0;
 	}
-	if (!generatedModeldefMetadataPath(source_path, "model.faces.tsv",
+	if (!generatedModeldefMetadataPath(source_path, "model.faces.json",
 			faces_path, sizeof(faces_path))) {
 		return 0;
 	}
@@ -5618,43 +5655,30 @@ static s32 generatedModeldefReadFaces(const char *source_path,
 		mesh->triangles[i].matrix_index = -1;
 	}
 
-	line = copy;
-	while (line && *line) {
-		char *end = line;
-		char *next = NULL;
-		char *p;
+	root.start = copy;
+	root.end = copy + size;
+	if (!jsonObjectArray(root, "faces", &faces_array)) {
+		free(seen);
+		free(copy);
+		return -1;
+	}
 
-		while (*end && *end != '\n' && *end != '\r') {
-			end++;
+	while (jsonArrayNextObject(faces_array, &cursor, &object)) {
+		s32 face_index;
+		s32 matrix_index;
+		if (!jsonObjectInt(object, "face_index", &face_index) ||
+				!jsonObjectInt(object, "matrix_index", &matrix_index) ||
+				face_index < 0 ||
+				face_index >= mesh->triangle_count ||
+				matrix_index < 0 ||
+				seen[face_index]) {
+			free(seen);
+			free(copy);
+			return -1;
 		}
-		if (*end) {
-			char sep = *end;
-			*end = '\0';
-			next = end + 1;
-			if (sep == '\r' && *next == '\n') {
-				next++;
-			}
-		}
-
-		p = skipSpaces(line);
-		if (*p && *p != '#' && strncmp(p, "face\t", 5) != 0) {
-			s32 face_index;
-			s32 matrix_index;
-			if (sscanf(p, "%d\t%d", &face_index, &matrix_index) != 2 ||
-					face_index < 0 ||
-					face_index >= mesh->triangle_count ||
-					matrix_index < 0 ||
-					seen[face_index]) {
-				free(seen);
-				free(copy);
-				return -1;
-			}
-			mesh->triangles[face_index].matrix_index = matrix_index;
-			seen[face_index] = 1;
-			parsed_rows++;
-		}
-
-		line = next;
+		mesh->triangles[face_index].matrix_index = matrix_index;
+		seen[face_index] = 1;
+		parsed_rows++;
 	}
 
 	free(seen);

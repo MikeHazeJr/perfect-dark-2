@@ -37,7 +37,7 @@ The executable source of truth is `tools/asset_archive_conformance.py`: `OPTIONA
 
 | Family | Optional public slots | Why they exist / absence behavior |
 |--------|-----------------------|-----------------------------------|
-| `.pdweapon` | `bindings/*.json`, `bindings/*.tsv`, `dependencies/assets/{models,materials,textures,animations,audio,projectiles,entities,ui}/*.pdxxx` | Bind graph requests to typed dependency archives. Missing bindings mean graph/default presentation values; missing dependencies are valid only when the graph does not use that class or declares an approved base dependency that resolves through catalog/on-disk provider source. |
+| `.pdweapon` | `bindings/*.json`, `dependencies/assets/{models,materials,textures,animations,audio,projectiles,entities,ui}/*.pdxxx` | Bind graph requests to typed dependency archives. Missing bindings mean graph/default presentation values; missing dependencies are valid only when the graph does not use that class or declares an approved base dependency that resolves through catalog/on-disk provider source. |
 | `.pdprojectile` | `dependencies/assets/{models,materials,textures,audio,effects,entities}/*.pdxxx` | Projectile graph visual/audio/effect/entity closure. Absence means the projectile graph does not use that dependency class or uses a declared base dependency that resolves through catalog/on-disk provider source. |
 | `.pdentity` | `composition.json`, `dependencies/assets/{props,models,materials,textures,audio,effects}/*.pdxxx` | Optional world composition and typed dependency closure. Without composition the entity is behavior-only. |
 | `.pdmaterial` | `dependencies/assets/texture/*.pdtexture`, `dependencies/assets/textures/*.pdtexture`, `dependencies/assets/effects/*.pdeffect` | Materials may bind reusable textures/effects. Absence means inline constant material values or no effect layer. |
@@ -47,15 +47,15 @@ The executable source of truth is `tools/asset_archive_conformance.py`: `OPTIONA
 | `.pdbody` | `hand.pdmesh`, `dependencies/assets/{materials,textures,animations}/*.pdxxx` | Optional first-person hand mesh plus typed visual/animation closure. Without `hand.pdmesh`, `mesh.pdmesh` is the fallback hand/body source. |
 | `.pdarena` | `preview.png`, `thumbnail.png`, `dependencies/assets/scenarios/*.pdscenario` | Selection UI art and playable scenario closure. Only explicit Random selector arenas may omit a scenario dependency. |
 | `.pdscenario` | `scene.glb` or `scene.gltf`, `collision.glb`, `collision.obj`, `mission.graph.json` | One DCC-openable scene source is required. Decoded navigation tables are required public source files; empty tables mean deterministic navigation is generated from the scene, pads, and volumes. Collision overrides replace deterministic scene-derived collision. |
-| `.pdmesh` | `model.gltf`, `model.glb`, `model.obj`, `model.mtl`, `model.render.json`, `export_version.txt`, `dependencies/assets/{materials,textures}/*.pdxxx` | One mesh source is required. OBJ may use `model.mtl`; extracted native modeldefs use `model.render.json` to preserve matrix, material, and triangle command order as editable source. Exporter provenance is diagnostic. Textures/materials are typed dependencies or embedded/declared by the model source, never loose mesh sidecars. |
-| `.pdanim` | `animation.gltf`, `animation.glb`, `commands.json` | Animation source alternatives. Character/body animation uses semantic GLTF/GLB channel source; weapon/inventory animation uses semantic command source. At least one source shape is required. |
+| `.pdmesh` | `model.gltf`, `model.glb`, `model.obj`, `model.mtl`, `model.nodes.json`, `model.parts.json`, `model.faces.json`, `model.render.json`, `export_version.txt`, `dependencies/assets/{materials,textures}/*.pdxxx` | One mesh source is required. OBJ may use `model.mtl`; extracted native modeldefs use semantic JSON for hierarchy, part lookup, face matrix bindings, and render command order. Exporter provenance is diagnostic. Public mesh TSV sidecars are not valid final source. Textures/materials are typed dependencies or embedded/declared by the model source, never loose mesh sidecars. |
+| `.pdanim` | `animation.gltf`, `animation.glb`, `commands.json` | Animation source alternatives. Character/body animation uses semantic GLTF/GLB channel source; weapon/inventory animation uses semantic command source with catalog-ID animation/audio refs. At least one source shape is required. |
 | `.pdsfx` | `sample.ogg`, `sample.flac` | Optional alternate standard audio source alongside authoritative `sample.wav`. Absence uses WAV. |
-| `.pdvoice` | `subtitle.tsv`, `locales/*.wav`, `locales/*.ogg` | Subtitle and locale variants. Absence uses no subtitle and default `sample.wav`. |
+| `.pdvoice` | `sample.wav`, `sample.mp3`, `subtitle.json`, `locales/*.wav`, `locales/*.ogg`, `locales/*.mp3` | Spoken-line source and locale variants. Absence uses no subtitle and the default `sample.wav` or `sample.mp3`. |
 | `.pdsong` | `sequence.mid`, `sequence.json`, `track.wav`, `track.ogg`, `track.mp3`, `cues.json`, `sections.json` | Music source alternatives and cue/section metadata. A sequence or track source is required; cues/sections are absent when not authored. |
-| `.pdui` | `texture.png`, `texture.tga`, `textures/*.png`, `textures/*.tga`, `layout.tsv`, `layout.json`, `nineslice.ini` | UI owns its own visual source. Multi-slot textures and layout/nine-slice metadata are only present when needed. |
-| `.pdfont` | `font.ttf`, `font.otf`, `glyphs.pgm`, `metrics.tsv`, `kerning.tsv` | Vector or bitmap font source alternatives. Bitmap metrics/kerning are required only for bitmap source. |
-| `.pdlang` | none | Localization has a definitive two-file shape: `lang.ini` plus `strings.tsv`. |
-| `.pdskin` | `texture.png`, `texture.tga`, `swatches.tsv`, `dependencies/assets/{material,materials,texture,textures}/*.pdxxx` | Skin appearance source can be inline texture/swatch data or typed material/texture dependencies. Absence means the compatible asset default is used. |
+| `.pdui` | `texture.png`, `texture.tga`, `textures/*.png`, `textures/*.tga`, `layout.json`, `nineslice.ini` | UI owns its own visual source. Multi-slot textures and semantic layout/nine-slice metadata are only present when needed. |
+| `.pdfont` | `font.ttf`, `font.otf`, `glyphs.pgm`, `font.metrics.json` | Vector or bitmap font source alternatives. Bitmap metrics and kerning live in semantic JSON when bitmap source is used. |
+| `.pdlang` | none | Localization has a definitive two-file shape: `lang.ini` plus `strings.json`. |
+| `.pdskin` | `texture.png`, `texture.tga`, `swatches.json`, `dependencies/assets/{material,materials,texture,textures}/*.pdxxx` | Skin appearance source can be inline texture/swatch data or typed material/texture dependencies. Absence means the compatible asset default is used. |
 | `.pdeffect` | `effect.graph.json`, `timeline.json`, `dependencies/assets/{materials,textures,audio}/*.pdxxx` | Effect source alternatives and typed visual/audio closure. One graph or timeline is required. |
 | `.pdprop` | `model.gltf`, `model.glb`, `model.obj`, `mesh.pdmesh`, `behavior.graph.json`, `dependencies/assets/{models,materials,textures,effects}/*.pdxxx` | Prop model source/dependency alternatives plus optional behavior and effects. A model source or model dependency is required. |
 | `.pdvehicle` | `model.gltf`, `model.glb`, `model.obj`, `mesh.pdmesh`, `behavior.graph.json`, `dependencies/assets/{models,materials,textures,audio,effects,weapons}/*.pdxxx` | Vehicle model, behavior, audio/effect, and mounted weapon closure. A model source or model dependency is required. |
@@ -65,7 +65,7 @@ The executable source of truth is `tools/asset_archive_conformance.py`: `OPTIONA
 | `.pdhud` | `texture.png`, `texture.tga`, `dependencies/assets/{ui,fonts,lang,audio}/*.pdxxx` | HUD can own a simple texture source or compose typed UI/font/lang/audio dependencies. Absence uses defaults or required UI dependency. |
 | `.pdtheme` | `dependencies/assets/{ui,font,fonts,audio,music,effects}/*.pdxxx` | Themes compose UI, font, audio, music, and effect assets. Missing classes mean no override for that class. |
 
-Definitive `_meta/` slots are common across families: `_meta/manifest.json`, `_meta/inventory.json`, `_meta/provenance.json`, `_meta/validation.json`, `_meta/source-handles.json`, `_meta/hashes.tsv`, plus `_meta/<public-entry>.sha256` only when the matching public source entry exists. Scenario may also carry `_meta/generated-collision.json` and `_meta/generated-navmesh.json`; weapon may carry `_meta/nested-payloads.json` as private dependency-closure inventory. No other `_meta/` entry is valid.
+Definitive `_meta/` slots are common across families: `_meta/manifest.json`, `_meta/inventory.json`, `_meta/provenance.json`, `_meta/validation.json`, `_meta/source-handles.json`, `_meta/hashes.json`, plus `_meta/<public-entry>.sha256` only when the matching public source entry exists. Scenario may also carry `_meta/generated-collision.json` and `_meta/generated-navmesh.json`; weapon may carry `_meta/nested-payloads.json` as private dependency-closure inventory. No other `_meta/` entry is valid.
 
 ## Frozen Family Contracts
 
@@ -82,13 +82,13 @@ Definitive `_meta/` slots are common across families: `_meta/manifest.json`, `_m
 | `.pdarena` | `arena.ini` | preview/thumbnail, match defaults, spawn playlist metadata, scenario reference | Multiplayer-facing arena selection wrapper around an embedded `.pdscenario`. Explicit Random selector meta-arenas are the only no-scenario variant and must declare that role in the descriptor. |
 | `.pdscenario` | `scenario.ini` | DCC-openable textured `scene.glb` or `scene.gltf`, optional `collision.glb`/`collision.obj`, pads/volumes, spawn profiles, generated navigation inputs, graph-linked level settings/triggers | Actual level/map content. Arena, mission, and gamemode wrappers select or configure it; the game consumes the same scene source through the asset pipeline. |
 | `.pdmesh` | `mesh.ini` | geometry, hierarchy, skinning/rig binding, sockets, LODs, optional collision proxy | Reusable geometry/model data. Materials and textures remain typed dependencies. |
-| `.pdanim` | `animation.ini` | timeline/channel data, events/notifies, retargeting/target rig metadata, optional legacy opcodes | Reusable animation clip or sequence. Body, weapon, mesh, and audio refs remain catalog IDs with embedded dependencies when needed. |
+| `.pdanim` | `animation.ini` | timeline/channel data, events/notifies, retargeting/target rig metadata, semantic weapon commands | Reusable animation clip or sequence. Body, weapon, mesh, and audio refs remain catalog IDs with embedded dependencies when needed; configured weapon-command SFX aliases are archive-backed `.pdsfx` source, not runtime-only aliases. |
 | `.pdsfx` | `sound.ini` | editable source audio, loop points, attenuation and mixer tags, import settings | Atomic sound effect. Codec/runtime cache is private and rebuildable. |
 | `.pdvoice` | `voice.ini` | speaker/context/category metadata, locale audio variants, subtitle binding, fallback rules | Spoken-line metadata and audio variants. `.pdlang` owns text strings. |
 | `.pdsong` | `music.ini` | `sequence.mid`, semantic `sequence.json`, `track.wav`, `track.ogg`, or `track.mp3`, loop/cue/adaptive metadata | Reusable music asset. Generated playback cache is private and rebuildable. |
 | `.pdui` | `ui.ini` | `texture.png` or `texture.tga` at root or under `textures/`, optional readable nine-slice/layout metadata | Atomic UI visual or chrome asset. Screens and themes compose `.pdui` refs rather than hiding unrelated UI payloads in one archive. |
-| `.pdfont` | `font.ini` | authored `font.ttf`/`font.otf`, or decoded ROM bitmap font files `glyphs.pgm`, `metrics.tsv`, and `kerning.tsv` | Reusable font face/range asset. Charset/range/import notes live in descriptor and `_meta/`, not raw runtime blobs. |
-| `.pdlang` | `lang.ini` | `strings.tsv` as UTF-8 text | Text/localization owner. Voice assets bind to string keys and audio locale fallbacks; `.pdlang` does not own spoken audio. |
+| `.pdfont` | `font.ini` | authored `font.ttf`/`font.otf`, or decoded ROM bitmap font files `glyphs.pgm` and `font.metrics.json` | Reusable font face/range asset. Charset/range/import notes live in descriptor and `_meta/`, not raw runtime blobs. |
+| `.pdlang` | `lang.ini` | `strings.json` as editable indexed text source | Text/localization owner. Voice assets bind to string keys and audio locale fallbacks; `.pdlang` does not own spoken audio. |
 | `.pdskin` | `skin.ini` | material slot overrides, texture/material bindings, palette/color data, preview swatches | Appearance variant for compatible bodies, heads, weapons, props, or vehicles. Geometry stays in mesh/body/head/prop/vehicle assets. |
 | `.pdeffect` | `effect.ini` | effect graph or timeline, emitter/decal/beam/post-process data, attachment rules | Reusable visual or feedback effect. Materials, textures, audio, lights, camera shake, and target assets stay typed dependencies. |
 | `.pdprop` | `prop.ini` | placement metadata, sockets, collision profile, simple interaction/damage/physics flags | Physical world object payload. Behavior-heavy active/deployed objects use `.pdentity` and can depend on `.pdprop`. |
@@ -128,16 +128,17 @@ Canonical target:
 scenario.ini
 scene.glb
 collision.glb          # optional override; collision.obj is allowed during transition
-pads.tsv
-volumes.tsv
-spawns.tsv
+pads.json
+volumes.json
+spawns.json
 navigation.ini
-navigation/waypoints.tsv
-navigation/waygroups.tsv
-navigation/covers.tsv
-objects.tsv
-setup.fields.tsv
-objectives.tsv
+navigation/waypoints.json
+navigation/waygroups.json
+navigation/covers.json
+navigation/paths.json
+objects.json
+setup.fields.json
+objectives.json
 mission.graph.json     # optional, or owned by .pdmission when campaign-specific
 level.graph.json       # triggers, global settings, scenario-local behavior hooks
 _meta/
@@ -147,7 +148,7 @@ _meta/
   validation.json
   generated-collision.json
   generated-navmesh.json
-  hashes.tsv
+  hashes.json
 ```
 
 `scene.glb` or `scene.gltf` is the primary level mesh, visual authoring source, and native scenario load source. It must carry mesh hierarchy, materials, UVs, and archive-local or embedded textures so Blender and 3DS Max open the level already textured without project-specific plugins. `scene.glb` is preferred for generated examples because it keeps buffers and textures in one file; `scene.gltf` is allowed when all referenced buffers/textures stay inside the archive through relative paths. `OBJ+MTL+TGA` may remain a transition/export fallback, but it is not the final scenario source contract.
@@ -158,9 +159,9 @@ Runtime should read `scene.glb`/`scene.gltf` through the catalog/provider asset 
 
 `collision.glb` or `collision.obj` is optional. If present, the game uses it as the collision authority after validation. If absent, collision is generated deterministically from `scene.glb` using explicit import rules recorded in `scenario.ini` and `_meta/generated-collision.json`. Collision generation must preserve room/portal/floor metadata through named sidecars or scene node tags rather than requiring a second user-edited mesh by default.
 
-Bot navigation is generated, not authored as opaque legacy waypoint dumps. Every scenario carries decoded public `navigation/waypoints.tsv`, `navigation/waygroups.tsv`, and `navigation/covers.tsv` tables so OG waypoint, group, and cover behavior can round-trip exactly through user-editable source files; these are source tables, not raw preprocessed words. Empty navigation tables mean the generation input is the scene/collision mesh plus pads, volumes, gameplay tags, and bot-profile capability rules. The generated nav data must support normal walkable surfaces, jump links, drop links, wall traversal, and ceiling traversal for bot profiles that opt into those movement abilities.
+Bot navigation is generated, not authored as opaque legacy waypoint dumps. Every scenario carries decoded public `navigation/waypoints.json`, `navigation/waygroups.json`, and `navigation/covers.json` rows so OG waypoint, group, and cover behavior can round-trip exactly through user-editable source files; these are semantic source rows, not raw preprocessed words or TSV-shaped binary dumps. Empty navigation rows mean the generation input is the scene/collision mesh plus pads, volumes, gameplay tags, public `navigation/paths.json`, and bot-profile capability rules. The generated nav data must support normal walkable surfaces, jump links, drop links, wall traversal, and ceiling traversal for bot profiles that opt into those movement abilities.
 
-Raw preprocessed setup dumps are not acceptable public payloads. The extractor no longer writes public `setup.tsv`, `mpsetup.tsv`, or `visual_segments.tsv`; c3841 replaced them with decoded named `objects.tsv` and `objectives.tsv` content using catalog IDs for asset refs, and c3844 adds `setup.fields.tsv` as the named per-command setup field source that removes the prior summary-only gap without exposing raw words. `level.graph.json` links scene/collision/navigation/setup tables. Campaign-specific flow lives in `.pdmission` through `mission.graph.json`; reusable level-local triggers and global settings live in `.pdscenario`.
+Raw preprocessed setup dumps are not acceptable public payloads. The extractor no longer writes public `setup.tsv`, `mpsetup.tsv`, or `visual_segments.tsv`; Scenario object rows now live in semantic `objects.json` with catalog IDs for asset refs, `setup.fields.json` is the named per-command setup field source that removes the prior summary-only gap without exposing raw words, and `ai/ailists.json` is the semantic AI command/list source with operand arrays instead of a flattened public command TSV. B-780 through B-789 moved objective, spawn, volume, pad, navigation path/table, portal, object, setup-field, and AI-list rows to semantic JSON. `level.graph.json` links scene/collision/navigation/setup/AI tables. Campaign-specific flow lives in `.pdmission` through `mission.graph.json`; reusable level-local triggers and global settings live in `.pdscenario`.
 | `.pdmesh` | `mesh.ini`, geometry, UVs, hierarchy, sockets, LODs, skinning, collision proxy | Material/texture typed deps, rig binding, model and collision loader metadata. |
 | `.pdanim` | `animation.ini`, timeline/channels/events/notifies, target metadata | Retargeting, weapon/body binding, optional legacy opcode listings, event refs. |
 | `.pdsfx` | `sound.ini`, editable source audio | Loop points, attenuation, mixer/category tags, import/codec intent. |
@@ -168,7 +169,7 @@ Raw preprocessed setup dumps are not acceptable public payloads. The extractor n
 | `.pdsong` | `music.ini`, sequence or track sources | Loop points, sections/cues, tempo/transition tags, optional adaptive layers. |
 | `.pdui` | `ui.ini`, texture or texture slots, layout/nine-slice metadata | Scale/theme/chrome/atlas role, GL upload guard metadata, UI composition refs. |
 | `.pdfont` | `font.ini`, vector font or decoded glyph/metrics/kerning files | Charset/range, fallback chain, baseline metrics, UI/lang bindings. |
-| `.pdlang` | `lang.ini`, UTF-8 `strings.tsv` | Locale/fallback data, stable string keys, context notes for voice/subtitle binding. |
+| `.pdlang` | `lang.ini`, UTF-8 `strings.json` | Locale/fallback data, stable string keys, context notes for voice/subtitle binding. |
 | `.pdskin` | `skin.ini`, slot overrides, material/texture deps, compatibility tags | Appearance application to compatible bodies, heads, weapons, props, or vehicles; preview/swatch data. |
 | `.pdeffect` | `effect.ini`, effect graph/timeline, emitter/decal/beam/post-process data | Attachment/target rules, lifetime/priority, material/texture/audio/light/camera deps. |
 | `.pdprop` | `prop.ini`, physical object metadata, mesh/collision/material refs | Placement, sockets, simple interaction, damage/break/physics/pickup hooks. |
@@ -190,17 +191,17 @@ Canonical layout:
 ```text
 ui.ini
 texture.png
-layout.tsv
+layout.json
 nineslice.ini
 _meta/
   manifest.json
   provenance.json
   validation.json
   gl-upload-guards.json
-  hashes.tsv
+  hashes.json
 ```
 
-`texture.tga` may replace `texture.png`, and multi-part UI assets may use `textures/<slot>.png` plus readable `layout.tsv` or `nineslice.ini`. The descriptor names the UI role, texture slots, intended scale behavior, nine-slice insets, atlas regions, theme/chrome compatibility tags, and catalog refs. GL upload caps and source texture provenance stay under `_meta/`.
+`texture.tga` may replace `texture.png`, and multi-part UI assets may use `textures/<slot>.png` plus semantic `layout.json` or `nineslice.ini`. The descriptor names the UI role, texture slots, intended scale behavior, nine-slice insets, atlas regions, theme/chrome compatibility tags, and catalog refs. GL upload caps and source texture provenance stay under `_meta/`. Public `layout.tsv` is not a valid final UI source.
 
 `.pdui` is not a whole menu screen contract. It is a reusable UI visual asset such as chrome, icon, reticle, portrait, atlas, or texture slice. Larger theme or screen bundles compose `.pdui` assets through their own future wrappers or `.pdmod` transport.
 
@@ -215,8 +216,7 @@ _meta/
   manifest.json
   provenance.json
   validation.json
-  charset.tsv
-  hashes.tsv
+  hashes.json
 ```
 
 Canonical layout for decoded ROM bitmap fonts:
@@ -224,17 +224,16 @@ Canonical layout for decoded ROM bitmap fonts:
 ```text
 font.ini
 glyphs.pgm
-metrics.tsv
-kerning.tsv
+font.metrics.json
 _meta/
   manifest.json
   provenance.json
   validation.json
   source-format.json
-  hashes.tsv
+  hashes.json
 ```
 
-`font.ini` owns the display name, catalog ID, style/weight, baseline/ascent/descent, default size, charset/range, fallback chain, and whether the payload is vector or bitmap. Bitmap glyph imagery and metrics remain visible authoring files. Raw `data.bin` is not an authoring fallback.
+`font.ini` owns the display name, catalog ID, style/weight, baseline/ascent/descent, default size, charset/range, fallback chain, and whether the payload is vector or bitmap. Bitmap glyph imagery remains a visible bitmap source, while `font.metrics.json` owns named glyph metrics, atlas coordinates, and kerning as editable semantic source. Raw `data.bin`, public charset TSVs, and public metric TSVs are not authoring fallbacks.
 
 ### `.pdlang`
 
@@ -242,16 +241,16 @@ Canonical layout:
 
 ```text
 lang.ini
-strings.tsv
+strings.json
 _meta/
   manifest.json
   provenance.json
   validation.json
   locale.json
-  hashes.tsv
+  hashes.json
 ```
 
-`lang.ini` owns locale, namespace, fallback locale, string table role, and compatibility tags. `strings.tsv` is UTF-8 and is the editable source of text. Recommended columns are `key`, `text`, `context`, and `notes`; validators may allow extra columns if they preserve round-trip editing. `.pdvoice` assets reference `.pdlang` keys for subtitles and localization, but audio remains in `.pdvoice`.
+`lang.ini` owns locale, namespace, fallback locale, string table role, and compatibility tags. `strings.json` is UTF-8 and is the editable indexed source of text. Entries use semantic fields such as `index`, `key`, `text`, `context`, and `notes`; validators may allow extra fields if they preserve round-trip editing. `.pdvoice` assets reference `.pdlang` keys for subtitles and localization, but audio remains in `.pdvoice`.
 
 ## Implementation Sweep Acceptance
 

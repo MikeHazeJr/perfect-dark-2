@@ -32,7 +32,7 @@ static s32 s_register(const char *manifest, size_t manifest_len,
     e->ext.lang.bank_id = (s32)source_bank;
     if (!loaderWalkerEnvelopeStrCopy(manifest, manifest_len, "data",
                                      source_member, sizeof(source_member))) {
-        strncpy(source_member, "strings.tsv", sizeof(source_member) - 1);
+        strncpy(source_member, "strings.json", sizeof(source_member) - 1);
         source_member[sizeof(source_member) - 1] = '\0';
     }
     if (loaderWalkerArchiveMemberPath(file_path, source_member,

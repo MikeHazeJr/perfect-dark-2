@@ -1,5 +1,5 @@
 schema=pdasset-fast-v1-20260521
-kind=pdsong
+kind=pdsong_sequence_json_v1
 count=119
-total_bytes=1964319
-latest_mtime=1780792988
+total_bytes=2393491
+latest_mtime=1780845675

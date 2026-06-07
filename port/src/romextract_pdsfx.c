@@ -171,6 +171,86 @@ static void s_filenameSlug(const char *catalog_id, char *out, size_t out_n)
 	out[j] = '\0';
 }
 
+static s32 s_existingArchiveHasEntry(const char *relpath, const char *entry);
+static s32 s_existingArchiveEntryContains(const char *relpath,
+                                          const char *entry,
+                                          const char *needle);
+
+static s32 s_configuredAliasMappedMp3Source(s32 confignum, union soundnumhack *out)
+{
+	if (confignum < 0 || confignum >= g_NumAudioRussMappings) {
+		return 0;
+	}
+
+	union soundnumhack mapped;
+	mapped.packed = g_AudioRussMappings[confignum].soundnum;
+	if (out) {
+		*out = mapped;
+	}
+	return mapped.mp3priority != 0;
+}
+
+static s32 s_configuredAliasArchivesComplete(const char *out_dir)
+{
+	if (!out_dir || !out_dir[0]) return 0;
+	for (s32 r = 0; r < g_NumAudioRussMappings; r++) {
+		union soundnumhack ref;
+		ref.packed = 0;
+		ref.hasconfig = 1;
+		ref.confignum = (u16)r;
+		s32 packed = (s32)(u16)ref.packed;
+		if (!loaderEnumNameForSfxEnum(packed)) {
+			continue;
+		}
+		if (s_configuredAliasMappedMp3Source(r, NULL)) {
+			continue;
+		}
+		char catalog_id[128];
+		char slug[128];
+		char full[FS_MAXPATH];
+		catalogReadableSoundRefId(packed, catalog_id, sizeof(catalog_id));
+		s_filenameSlug(catalog_id, slug, sizeof(slug));
+		snprintf(full, sizeof(full), "%s/%s.pdsfx", out_dir, slug);
+		if (fsFileSize(full) <= 0) {
+			return 0;
+		}
+	}
+	return 1;
+}
+
+static s32 s_configuredMp3VoiceArchivesComplete(const char *out_dir)
+{
+	if (!out_dir || !out_dir[0]) return 0;
+	for (s32 r = 0; r < g_NumAudioRussMappings; r++) {
+		union soundnumhack ref;
+		ref.packed = 0;
+		ref.hasconfig = 1;
+		ref.confignum = (u16)r;
+		s32 packed = (s32)(u16)ref.packed;
+		if (!loaderEnumNameForSfxEnum(packed)) {
+			continue;
+		}
+		if (!s_configuredAliasMappedMp3Source(r, NULL)) {
+			continue;
+		}
+		char catalog_id[128];
+		char slug[128];
+		char full[FS_MAXPATH];
+		catalogReadableSoundRefId(packed, catalog_id, sizeof(catalog_id));
+		s_filenameSlug(catalog_id, slug, sizeof(slug));
+		snprintf(full, sizeof(full), "%s/%s.pdvoice", out_dir, slug);
+		if (fsFileSize(full) <= 0 ||
+				!s_existingArchiveHasEntry(full, "voice.ini") ||
+				!s_existingArchiveHasEntry(full, "_meta/manifest.json") ||
+				!s_existingArchiveHasEntry(full, "sample.mp3") ||
+				!s_existingArchiveEntryContains(full, "_meta/manifest.json",
+					"\"source_filenum\"")) {
+			return 0;
+		}
+	}
+	return 1;
+}
+
 /* Read offset out of a stored "pointer" field in the post-preprocess
  * bank buffer. The preprocess stage casts u32 offsets to void* via
  * uintptr_t; we round-trip the same conversion here. */
@@ -450,7 +530,9 @@ static s32 s_emitOneSound(s32 sfx_idx,
                           const ALSound *snd, s32 sample_rate,
                           pdaudio_walk_mode_t mode,
                           const char *out_dir, s32 force_rewrite,
-                          const char *channel)
+                          const char *channel,
+                          const char *catalog_id_override,
+                          const char *source_symbol_override)
 {
 	if (!snd || !snd->wavetable) {
 		/* Empty slot: no wavetable means no audio data. Skip silently.
@@ -512,7 +594,11 @@ static s32 s_emitOneSound(s32 sfx_idx,
 
 	/* Catalog ID + filename slug. */
 	char catalog_id[128];
-	(void)s_buildSfxCatalogId(sfx_idx, mode, catalog_id, sizeof(catalog_id));
+	if (catalog_id_override && catalog_id_override[0]) {
+		snprintf(catalog_id, sizeof(catalog_id), "%s", catalog_id_override);
+	} else {
+		(void)s_buildSfxCatalogId(sfx_idx, mode, catalog_id, sizeof(catalog_id));
+	}
 
 	char filename_slug[128];
 	s_filenameSlug(catalog_id, filename_slug, sizeof(filename_slug));
@@ -529,7 +615,11 @@ static s32 s_emitOneSound(s32 sfx_idx,
 	    s_existingArchiveHasEntry(dst_rel, "_meta/manifest.json") &&
 	    s_existingArchiveHasEntry(dst_rel, "sample.wav") &&
 	    s_existingArchiveEntryContains(dst_rel, "_meta/manifest.json",
-			"\"key_base\"")) return 0;
+			"\"key_base\"") &&
+	    s_existingArchiveEntryContains(dst_rel, "_meta/manifest.json",
+			"\"attack_time_us\"") &&
+	    s_existingArchiveEntryContains(dst_rel, "_meta/manifest.json",
+			"\"velocity_max\"")) return 0;
 
 	u8 *wav_data = NULL;
 	u32 wav_size = 0;
@@ -551,6 +641,8 @@ static s32 s_emitOneSound(s32 sfx_idx,
 	const char *pd_kind = (mode == PDAUDIO_WALK_VOICE) ? "voice" : "sfx";
 	const char *fmt_str = s_waveFormatString(wt->type);
 	const char *sym = loaderEnumNameForSfxEnum(sfx_idx);
+	const char *source_symbol = (source_symbol_override && source_symbol_override[0])
+		? source_symbol_override : (sym ? sym : "");
 	const char *archive_format = "WAV_PCM16";
 	const ALKeyMap *keymap = NULL;
 	u32 keymap_off = s_offsetFromPointer(snd->keyMap);
@@ -561,8 +653,22 @@ static s32 s_emitOneSound(s32 sfx_idx,
 	u8 key_max = keymap ? keymap->keyMax : 127;
 	u8 key_base = keymap ? keymap->keyBase : 60;
 	s8 key_detune = keymap ? keymap->detune : 0;
+	u8 velocity_min = keymap ? keymap->velocityMin : 0;
+	u8 velocity_max = keymap ? keymap->velocityMax : 0;
 
-	char manifest_buf[1536];
+	const ALEnvelope *envelope = NULL;
+	u32 envelope_off = s_offsetFromPointer(snd->envelope);
+	if (envelope_off != 0 && envelope_off + sizeof(ALEnvelope) <= ctl_size) {
+		envelope = (const ALEnvelope *)(ctl_data + envelope_off);
+	}
+	u32 attack_time_us = envelope ? envelope->attackTime : 0;
+	u32 decay_time_us = envelope ? envelope->decayTime : 0;
+	u32 release_time_us = envelope ? envelope->releaseTime : 0;
+	u8 attack_volume = envelope ? envelope->attackVolume : 127;
+	u8 decay_volume = envelope ? envelope->decayVolume : 127;
+	s32 has_envelope = envelope != NULL;
+
+	char manifest_buf[3072];
 	int manifest_len;
 	if (mode == PDAUDIO_WALK_VOICE) {
 		manifest_len = snprintf(manifest_buf, sizeof(manifest_buf),
@@ -594,6 +700,14 @@ static s32 s_emitOneSound(s32 sfx_idx,
 			"  \"key_max\": %u,\n"
 			"  \"key_base\": %u,\n"
 			"  \"key_detune\": %d,\n"
+			"  \"velocity_min\": %u,\n"
+			"  \"velocity_max\": %u,\n"
+			"  \"has_envelope\": %s,\n"
+			"  \"attack_time_us\": %u,\n"
+			"  \"decay_time_us\": %u,\n"
+			"  \"release_time_us\": %u,\n"
+			"  \"attack_volume\": %u,\n"
+			"  \"decay_volume\": %u,\n"
 			"  \"source_symbol\": \"%s\"\n"
 			"}\n",
 			pd_kind, catalog_id, archive_format, fmt_str,
@@ -612,7 +726,15 @@ static s32 s_emitOneSound(s32 sfx_idx,
 			(unsigned)key_max,
 			(unsigned)key_base,
 			(int)key_detune,
-			sym ? sym : "");
+			(unsigned)velocity_min,
+			(unsigned)velocity_max,
+			has_envelope ? "true" : "false",
+			(unsigned)attack_time_us,
+			(unsigned)decay_time_us,
+			(unsigned)release_time_us,
+			(unsigned)attack_volume,
+			(unsigned)decay_volume,
+			source_symbol);
 	} else {
 		manifest_len = snprintf(manifest_buf, sizeof(manifest_buf),
 			"{\n"
@@ -639,6 +761,14 @@ static s32 s_emitOneSound(s32 sfx_idx,
 			"  \"key_max\": %u,\n"
 			"  \"key_base\": %u,\n"
 			"  \"key_detune\": %d,\n"
+			"  \"velocity_min\": %u,\n"
+			"  \"velocity_max\": %u,\n"
+			"  \"has_envelope\": %s,\n"
+			"  \"attack_time_us\": %u,\n"
+			"  \"decay_time_us\": %u,\n"
+			"  \"release_time_us\": %u,\n"
+			"  \"attack_volume\": %u,\n"
+			"  \"decay_volume\": %u,\n"
 			"  \"source_symbol\": \"%s\"\n"
 			"}\n",
 			pd_kind, catalog_id, archive_format, fmt_str,
@@ -657,7 +787,15 @@ static s32 s_emitOneSound(s32 sfx_idx,
 			(unsigned)key_max,
 			(unsigned)key_base,
 			(int)key_detune,
-			sym ? sym : "");
+			(unsigned)velocity_min,
+			(unsigned)velocity_max,
+			has_envelope ? "true" : "false",
+			(unsigned)attack_time_us,
+			(unsigned)decay_time_us,
+			(unsigned)release_time_us,
+			(unsigned)attack_volume,
+			(unsigned)decay_volume,
+			source_symbol);
 	}
 	if (manifest_len <= 0 || (size_t)manifest_len >= sizeof(manifest_buf)) {
 		LOUD_FAILF_RT(channel,
@@ -666,7 +804,7 @@ static s32 s_emitOneSound(s32 sfx_idx,
 		return -1;
 	}
 
-	char ini_buf[1536];
+	char ini_buf[3072];
 	int ini_len = snprintf(ini_buf, sizeof(ini_buf),
 		"[%s]\n"
 		"catalog_id = %s\n"
@@ -687,6 +825,14 @@ static s32 s_emitOneSound(s32 sfx_idx,
 		"key_max = %u\n"
 		"key_base = %u\n"
 		"key_detune = %d\n"
+		"velocity_min = %u\n"
+		"velocity_max = %u\n"
+		"has_envelope = %s\n"
+		"attack_time_us = %u\n"
+		"decay_time_us = %u\n"
+		"release_time_us = %u\n"
+		"attack_volume = %u\n"
+		"decay_volume = %u\n"
 		"sound_flags = %u\n"
 		"source_index = %d\n"
 		"source_offset = %u\n"
@@ -703,10 +849,18 @@ static s32 s_emitOneSound(s32 sfx_idx,
 		(unsigned)key_max,
 		(unsigned)key_base,
 		(int)key_detune,
+		(unsigned)velocity_min,
+		(unsigned)velocity_max,
+		has_envelope ? "true" : "false",
+		(unsigned)attack_time_us,
+		(unsigned)decay_time_us,
+		(unsigned)release_time_us,
+		(unsigned)attack_volume,
+		(unsigned)decay_volume,
 		(unsigned)snd->flags,
 		sfx_idx,
 		(unsigned)sample_off,
-		sym ? sym : "");
+		source_symbol);
 	if (mode == PDAUDIO_WALK_VOICE) {
 		ini_len += snprintf(ini_buf + ini_len, sizeof(ini_buf) - ini_len,
 			"actor = unknown\n"
@@ -748,7 +902,7 @@ static s32 s_emitOneSound(s32 sfx_idx,
 	}
 	assetArchiveWriterSetProvenance(&asset_writer,
 		(mode == PDAUDIO_WALK_VOICE) ? "romextract_pdvoice" : "romextract_pdsfx",
-		"sfxctl/sfxtbl", sfx_idx, sym ? sym : "");
+		"sfxctl/sfxtbl", sfx_idx, source_symbol);
 
 	if (assetArchiveWriterAddDescriptor(&asset_writer, descriptor_name,
 			ini_buf, (u32)ini_len) != MODARCHIVE_OK) {
@@ -793,6 +947,184 @@ static s32 s_emitOneSound(s32 sfx_idx,
 	}
 
 	free(wav_data);
+	return 1;
+}
+
+static s32 s_emitOneMp3VoiceAlias(s32 confignum, union soundnumhack mapped,
+                                  const char *out_dir, s32 force_rewrite,
+                                  const char *channel, const char *alias_sym)
+{
+	union soundnumhack ref;
+	ref.packed = 0;
+	ref.hasconfig = 1;
+	ref.confignum = (u16)confignum;
+	s32 packed = (s32)(u16)ref.packed;
+
+	char catalog_id[128];
+	catalogReadableSoundRefId(packed, catalog_id, sizeof(catalog_id));
+
+	char filename_slug[128];
+	s_filenameSlug(catalog_id, filename_slug, sizeof(filename_slug));
+
+	char dst_rel[FS_MAXPATH];
+	snprintf(dst_rel, sizeof(dst_rel), "%s/%s.pdvoice",
+		out_dir, filename_slug);
+
+	if (!force_rewrite && fsFileSize(dst_rel) > 0 &&
+			s_existingArchiveHasEntry(dst_rel, "voice.ini") &&
+			s_existingArchiveHasEntry(dst_rel, "_meta/manifest.json") &&
+			s_existingArchiveHasEntry(dst_rel, "sample.mp3") &&
+			s_existingArchiveEntryContains(dst_rel, "_meta/manifest.json",
+				"\"source_filenum\"")) {
+		return 0;
+	}
+
+	char mp3_rel[FS_MAXPATH + 1];
+	if (romExtractRelPathForFilenum((s32)mapped.id, mp3_rel,
+			(s32)sizeof(mp3_rel)) <= 0) {
+		LOUD_FAILF_RT(channel,
+			"configured alias %s maps to MP3 file %d but no extracted "
+			"source path exists",
+			alias_sym ? alias_sym : "(unknown)", (s32)mapped.id);
+		return -1;
+	}
+
+	u32 mp3_size = 0;
+	void *mp3_bytes = fsFileLoad(mp3_rel, &mp3_size);
+	if (!mp3_bytes || mp3_size == 0) {
+		if (mp3_bytes) {
+			sysMemFree(mp3_bytes);
+		}
+		LOUD_FAILF_RT(channel,
+			"configured alias %s maps to MP3 file %d but source \"%s\" "
+			"is missing or empty",
+			alias_sym ? alias_sym : "(unknown)", (s32)mapped.id, mp3_rel);
+		return -1;
+	}
+
+	const char *file_sym = loaderEnumNameForFileEnum((s32)mapped.id);
+	char manifest_buf[2048];
+	int manifest_len = snprintf(manifest_buf, sizeof(manifest_buf),
+		"{\n"
+		"  \"pd_kind\": \"voice\",\n"
+		"  \"pd_schema_version\": 1,\n"
+		"  \"id\": \"%s\",\n"
+		"  \"format\": \"MP3\",\n"
+		"  \"source_format\": \"MP3\",\n"
+		"  \"data\": \"sample.mp3\",\n"
+		"  \"data_size\": %u,\n"
+		"  \"source_filenum\": %d,\n"
+		"  \"source_index\": %d,\n"
+		"  \"mapped_soundnum\": %d,\n"
+		"  \"mp3_priority\": %u,\n"
+		"  \"actor\": \"unknown\",\n"
+		"  \"transcript\": \"\",\n"
+		"  \"language\": \"\",\n"
+		"  \"context\": \"\",\n"
+		"  \"source_symbol\": \"%s\",\n"
+		"  \"source_file_symbol\": \"%s\"\n"
+		"}\n",
+		catalog_id,
+		(unsigned)mp3_size,
+		(s32)mapped.id,
+		packed,
+		(s32)(u16)mapped.packed,
+		(unsigned)mapped.mp3priority,
+		alias_sym ? alias_sym : "",
+		file_sym ? file_sym : "");
+	if (manifest_len <= 0 || (size_t)manifest_len >= sizeof(manifest_buf)) {
+		sysMemFree(mp3_bytes);
+		LOUD_FAILF_RT(channel,
+			"manifest.json snprintf truncated for MP3 alias %s",
+			alias_sym ? alias_sym : "(unknown)");
+		return -1;
+	}
+
+	char ini_buf[2048];
+	int ini_len = snprintf(ini_buf, sizeof(ini_buf),
+		"[voice]\n"
+		"catalog_id = %s\n"
+		"format = MP3\n"
+		"source_format = MP3\n"
+		"file_path = sample.mp3\n"
+		"data_size = %u\n"
+		"source_filenum = %d\n"
+		"source_index = %d\n"
+		"mapped_soundnum = %d\n"
+		"mp3_priority = %u\n"
+		"source_symbol = %s\n"
+		"source_file_symbol = %s\n"
+		"actor = unknown\n"
+		"transcript = \n"
+		"language = \n"
+		"context = \n",
+		catalog_id,
+		(unsigned)mp3_size,
+		(s32)mapped.id,
+		packed,
+		(s32)(u16)mapped.packed,
+		(unsigned)mapped.mp3priority,
+		alias_sym ? alias_sym : "",
+		file_sym ? file_sym : "");
+	if (ini_len <= 0 || (size_t)ini_len >= sizeof(ini_buf)) {
+		sysMemFree(mp3_bytes);
+		LOUD_FAILF_RT(channel,
+			"voice.ini snprintf truncated for MP3 alias %s",
+			alias_sym ? alias_sym : "(unknown)");
+		return -1;
+	}
+
+	char dst_full_buf[FS_MAXPATH + 1];
+	const char *dst_full = fsFullPath(dst_rel, dst_full_buf, sizeof(dst_full_buf));
+	if (!dst_full || !dst_full[0]) {
+		sysMemFree(mp3_bytes);
+		LOUD_FAILF_RT(channel, "fsFullPath empty for \"%s\"", dst_rel);
+		return -1;
+	}
+
+	mod_archive_writer_t *aw = modArchiveBegin(dst_full);
+	if (!aw) {
+		sysMemFree(mp3_bytes);
+		LOUD_FAILF_RT(channel, "modArchiveBegin failed for \"%s\"", dst_full);
+		return -1;
+	}
+
+	asset_archive_writer_t asset_writer;
+	if (assetArchiveWriterInit(&asset_writer, aw, "voice", catalog_id) !=
+			MODARCHIVE_OK) {
+		sysMemFree(mp3_bytes);
+		LOUD_FAILF_RT(channel,
+			"assetArchiveWriterInit failed for \"%s\"", dst_full);
+		modArchiveAbort(aw);
+		return -1;
+	}
+	assetArchiveWriterSetProvenance(&asset_writer,
+		"romextract_pdvoice", mp3_rel, (s32)mapped.id,
+		alias_sym ? alias_sym : "");
+
+	if (assetArchiveWriterAddDescriptor(&asset_writer, "voice.ini",
+			ini_buf, (u32)ini_len) != MODARCHIVE_OK ||
+			assetArchiveWriterAddManifestJson(&asset_writer,
+				manifest_buf, (u32)manifest_len) != MODARCHIVE_OK ||
+			assetArchiveWriterAddPublicMem(&asset_writer, "sample.mp3",
+				(const char *)mp3_bytes, mp3_size, "sample") !=
+				MODARCHIVE_OK ||
+			assetArchiveWriterFinishMetadata(&asset_writer) !=
+				MODARCHIVE_OK) {
+		sysMemFree(mp3_bytes);
+		LOUD_FAILF_RT(channel,
+			"failed writing MP3 voice archive \"%s\"", dst_full);
+		modArchiveAbort(aw);
+		return -1;
+	}
+
+	if (modArchiveFinish(aw) != 0) {
+		sysMemFree(mp3_bytes);
+		LOUD_FAILF_RT(channel, "modArchiveFinish failed for \"%s\"", dst_full);
+		return -1;
+	}
+
+	sysMemFree(mp3_bytes);
 	return 1;
 }
 
@@ -844,7 +1176,8 @@ static void s_pdsfxWork(int i, void *user)
 	s32 r = s_emitOneSound(i, c->ctl_data, c->ctl_size,
 	                        c->tbl_data, c->tbl_size,
 	                        snd, c->sample_rate, c->mode,
-	                        c->out_dir, c->force_rewrite, c->channel);
+	                        c->out_dir, c->force_rewrite, c->channel,
+	                        NULL, NULL);
 	if (r > 0)        SDL_AtomicAdd(&c->written, 1);
 	else if (r == 0)  SDL_AtomicAdd(&c->skipped, 1);
 	else              SDL_AtomicAdd(&c->failed,  1);
@@ -855,6 +1188,88 @@ progress:
 		if ((done & 0x3f) == 0 || done == c->sound_count) {
 			bootProgressUpdate(done, c->sound_count);
 		}
+	}
+}
+
+static void s_emitConfiguredAliasSounds(const pdsfx_fanout_ctx_t *c,
+                                        s32 *written, s32 *skipped,
+                                        s32 *failed)
+{
+	if (!c) return;
+
+	s32 mp3_aliases = 0;
+	for (s32 r = 0; r < g_NumAudioRussMappings; r++) {
+		union soundnumhack ref;
+		ref.packed = 0;
+		ref.hasconfig = 1;
+		ref.confignum = (u16)r;
+		s32 packed = (s32)(u16)ref.packed;
+		const char *alias_sym = loaderEnumNameForSfxEnum(packed);
+		if (!alias_sym) {
+			continue;
+		}
+
+		union soundnumhack mapped;
+		mapped.packed = g_AudioRussMappings[r].soundnum;
+		if (mapped.mp3priority != 0) {
+			if (c->mode == PDAUDIO_WALK_VOICE) {
+				s32 result = s_emitOneMp3VoiceAlias(r, mapped, c->out_dir,
+					c->force_rewrite, c->channel, alias_sym);
+				if (result > 0 && written) {
+					(*written)++;
+				} else if (result == 0 && skipped) {
+					(*skipped)++;
+				} else if (result < 0 && failed) {
+					(*failed)++;
+				}
+				mp3_aliases++;
+			} else {
+				if (skipped) (*skipped)++;
+			}
+			continue;
+		}
+
+		if (c->mode != PDAUDIO_WALK_SFX) {
+			continue;
+		}
+
+		s32 leaf = (s32)mapped.id;
+		if (leaf < 0 || leaf >= c->sound_count) {
+			if (failed) (*failed)++;
+			LOUD_FAILF_RT(c->channel,
+				"configured alias %s maps outside sound bank (leaf=%d)",
+				alias_sym, leaf);
+			continue;
+		}
+
+		u32 snd_off = (u32)(uintptr_t)c->inst->soundArray[leaf];
+		if (snd_off + sizeof(ALSound) > c->ctl_size) {
+			if (failed) (*failed)++;
+			LOUD_FAILF_RT(c->channel,
+				"configured alias %s sound[%d] offset 0x%x past ctl size 0x%x",
+				alias_sym, leaf, (unsigned)snd_off, (unsigned)c->ctl_size);
+			continue;
+		}
+
+		char alias_id[128];
+		catalogReadableSoundRefId(packed, alias_id, sizeof(alias_id));
+		const ALSound *snd = (const ALSound *)(c->ctl_data + snd_off);
+		s32 result = s_emitOneSound(leaf, c->ctl_data, c->ctl_size,
+			c->tbl_data, c->tbl_size, snd, c->sample_rate, PDAUDIO_WALK_SFX,
+			c->out_dir, c->force_rewrite, c->channel, alias_id, alias_sym);
+		if (result > 0 && written) {
+			(*written)++;
+		} else if (result == 0 && skipped) {
+			(*skipped)++;
+		} else if (result < 0 && failed) {
+			(*failed)++;
+		}
+	}
+
+	if (mp3_aliases > 0) {
+		sysLogPrintf(LOG_NOTE,
+			"romextract pdvoice: %d configured MP3 alias archive(s) checked",
+			mp3_aliases);
 	}
 }
 
@@ -976,7 +1391,11 @@ s32 romextract_pdaudio_walkBank(pdaudio_walk_mode_t mode, s32 force_rewrite)
 	{
 		const char *ext = (mode == PDAUDIO_WALK_VOICE) ? ".pdvoice" : ".pdsfx";
 		if (romExtractPdFastCacheCanSkip(kind_label, out_dir,
-				ext, force_rewrite)) {
+				ext, force_rewrite) &&
+				(mode != PDAUDIO_WALK_SFX ||
+					s_configuredAliasArchivesComplete(out_dir)) &&
+				(mode != PDAUDIO_WALK_VOICE ||
+					s_configuredMp3VoiceArchivesComplete(out_dir))) {
 			bootProgressUpdate(sound_count, sound_count);
 			sysLogPrintf(LOG_NOTE,
 				"romextract %s: written=0 skipped=%d failed=0 "
@@ -1031,6 +1450,8 @@ s32 romextract_pdaudio_walkBank(pdaudio_walk_mode_t mode, s32 force_rewrite)
 	s32 written = SDL_AtomicGet(&fxctx.written);
 	s32 skipped = SDL_AtomicGet(&fxctx.skipped);
 	s32 failed  = SDL_AtomicGet(&fxctx.failed);
+
+	s_emitConfiguredAliasSounds(&fxctx, &written, &skipped, &failed);
 
 	sysMemFree(voice_cache);
 

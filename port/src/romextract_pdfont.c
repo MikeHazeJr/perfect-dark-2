@@ -13,8 +13,7 @@
  *   _meta/*.json         shared inventory/provenance/validation/source handles
  *   font.ini             modder-facing descriptor
  *   glyphs.pgm           decoded 8-bit grayscale glyph atlas
- *   metrics.tsv          glyph metrics and atlas coordinates
- *   kerning.tsv          13x13 kerning table
+ *   font.metrics.json    glyph metrics, atlas coordinates, and kerning
  *   _meta/*.sha256       public-file SHA-256 sidecars
  *
  * Catalog ID convention (feedback_human_readable_ids):
@@ -22,7 +21,7 @@
  *
  * The ROM segment stores a 13x13 kerning table, per-glyph metrics,
  * and CI4 glyph pixels. Base extraction now exposes those as editable
- * TSV plus a standard PGM bitmap atlas instead of a raw data.bin.
+ * JSON plus a standard PGM bitmap atlas instead of a raw data.bin.
  *
  * Server build (PD_SERVER): returns 0 immediately; font segments
  * are not loaded server-side and the disk paths are not produced.
@@ -48,6 +47,7 @@
 #include "system.h"
 
 #define PDFONT_OUT_DIR "fonts"
+#define PDFONT_FAST_CACHE_KIND "pdfont_metrics_json_v1"
 
 #define PDFONT_KERNING_DIM 13
 #define PDFONT_RAW_CHAR_SIZE 12
@@ -120,24 +120,60 @@ static void s_fontCharDisplay(u8 index, char *out, size_t out_n)
 	}
 }
 
+static s32 s_appendJsonString(char *dst, u32 dst_cap, const char *src)
+{
+	u32 w = 0;
+	if (!dst || dst_cap < 3) return -1;
+	dst[w++] = '"';
+	for (const unsigned char *p = (const unsigned char *)src;
+			p && *p && w + 2u < dst_cap; p++) {
+		if (*p == '"' || *p == '\\') {
+			if (w + 2u >= dst_cap) return -1;
+			dst[w++] = '\\';
+			dst[w++] = (char)*p;
+		} else if (*p == '\n') {
+			if (w + 2u >= dst_cap) return -1;
+			dst[w++] = '\\';
+			dst[w++] = 'n';
+		} else if (*p == '\t') {
+			if (w + 2u >= dst_cap) return -1;
+			dst[w++] = '\\';
+			dst[w++] = 't';
+		} else if (*p >= 0x20 && *p < 0x7f) {
+			dst[w++] = (char)*p;
+		} else {
+			static const char hex[] = "0123456789abcdef";
+			if (w + 6u >= dst_cap) return -1;
+			dst[w++] = '\\';
+			dst[w++] = 'u';
+			dst[w++] = '0';
+			dst[w++] = '0';
+			dst[w++] = hex[(*p >> 4) & 0x0f];
+			dst[w++] = hex[*p & 0x0f];
+		}
+	}
+	if (w + 1u >= dst_cap) return -1;
+	dst[w++] = '"';
+	if (w < dst_cap) dst[w] = '\0';
+	return (s32)w;
+}
+
 static s32 s_buildFontExports(const char *face, const u8 *src, u32 src_size,
                               u8 **out_pgm, u32 *out_pgm_size,
-                              char **out_metrics, u32 *out_metrics_size,
-                              char **out_kerning, u32 *out_kerning_size,
+                              char **out_metrics_json,
+                              u32 *out_metrics_json_size,
                               s32 *out_char_count)
 {
 	if (!src || src_size == 0 || !out_pgm || !out_pgm_size ||
-	    !out_metrics || !out_metrics_size || !out_kerning ||
-	    !out_kerning_size || !out_char_count) {
+	    !out_metrics_json || !out_metrics_json_size ||
+	    !out_char_count) {
 		return -1;
 	}
 
 	*out_pgm = NULL;
 	*out_pgm_size = 0;
-	*out_metrics = NULL;
-	*out_metrics_size = 0;
-	*out_kerning = NULL;
-	*out_kerning_size = 0;
+	*out_metrics_json = NULL;
+	*out_metrics_json_size = 0;
 	*out_char_count = 0;
 
 	s32 num_chars = s_fontNumChars(face);
@@ -175,15 +211,41 @@ static s32 s_buildFontExports(const char *face, const u8 *src, u32 src_size,
 	memcpy(pgm, pgm_header, (size_t)pgm_header_len);
 	memset(pgm + pgm_header_len, 0, pixel_count);
 
-	u32 metrics_cap = 128u + (u32)num_chars * 96u;
-	char *metrics = (char *)malloc(metrics_cap);
-	if (!metrics) {
+	u32 metrics_cap = 1024u + (u32)num_chars * 192u +
+		PDFONT_KERNING_DIM * PDFONT_KERNING_DIM * 72u;
+	char *metrics_json = (char *)malloc(metrics_cap);
+	if (!metrics_json) {
 		free(pgm);
 		return -1;
 	}
 	u32 metrics_len = 0;
-	metrics_len += snprintf(metrics + metrics_len, metrics_cap - metrics_len,
-		"slot\tindex_hex\tchar\tbaseline\theight\twidth\tkerning_index\tatlas_x\tatlas_y\n");
+	int metrics_header_len = snprintf(metrics_json + metrics_len,
+		metrics_cap - metrics_len,
+		"{\n"
+		"  \"pd_kind\": \"font_metrics\",\n"
+		"  \"pd_schema_version\": 1,\n"
+		"  \"glyphs_file\": \"glyphs.pgm\",\n"
+		"  \"atlas\": {\n"
+		"    \"format\": \"pgm_p5_grayscale\",\n"
+		"    \"columns\": %u,\n"
+		"    \"cell_width\": %u,\n"
+		"    \"cell_height\": %u,\n"
+		"    \"width\": %u,\n"
+		"    \"height\": %u\n"
+		"  },\n"
+		"  \"glyphs\": [\n",
+		(unsigned)PDFONT_ATLAS_COLUMNS,
+		(unsigned)cell_w,
+		(unsigned)cell_h,
+		(unsigned)atlas_w,
+		(unsigned)atlas_h);
+	if (metrics_header_len <= 0 ||
+			(u32)metrics_header_len >= metrics_cap - metrics_len) {
+		free(metrics_json);
+		free(pgm);
+		return -1;
+	}
+	metrics_len += (u32)metrics_header_len;
 
 	for (s32 i = 0; i < num_chars; i++) {
 		const u8 *ch = src + char_offset + (u32)i * PDFONT_RAW_CHAR_SIZE;
@@ -211,51 +273,81 @@ static s32 s_buildFontExports(const char *face, const u8 *src, u32 src_size,
 
 		char display[12];
 		s_fontCharDisplay(index, display, sizeof(display));
-		int wrote = snprintf(metrics + metrics_len, metrics_cap - metrics_len,
-			"%d\t0x%02x\t%s\t%d\t%u\t%u\t%u\t%u\t%u\n",
-			i, (unsigned)index, display, (int)baseline,
-			(unsigned)height, (unsigned)width, (unsigned)kerning_index,
-			(unsigned)atlas_x, (unsigned)atlas_y);
+		int wrote = snprintf(metrics_json + metrics_len,
+			metrics_cap - metrics_len,
+			"    { \"slot\": %d, \"index\": %u, \"index_hex\": \"0x%02x\", \"char\": ",
+			i, (unsigned)index, (unsigned)index);
 		if (wrote <= 0 || (u32)wrote >= metrics_cap - metrics_len) {
-			free(metrics);
+			free(metrics_json);
+			free(pgm);
+			return -1;
+		}
+		metrics_len += (u32)wrote;
+		s32 string_wrote = s_appendJsonString(metrics_json + metrics_len,
+			metrics_cap - metrics_len, display);
+		if (string_wrote <= 0) {
+			free(metrics_json);
+			free(pgm);
+			return -1;
+		}
+		metrics_len += (u32)string_wrote;
+		wrote = snprintf(metrics_json + metrics_len, metrics_cap - metrics_len,
+			", \"baseline\": %d, \"height\": %u, \"width\": %u, \"kerning_index\": %u, \"atlas_x\": %u, \"atlas_y\": %u }%s\n",
+			(int)baseline,
+			(unsigned)height, (unsigned)width, (unsigned)kerning_index,
+			(unsigned)atlas_x, (unsigned)atlas_y,
+			(i + 1 < num_chars) ? "," : "");
+		if (wrote <= 0 || (u32)wrote >= metrics_cap - metrics_len) {
+			free(metrics_json);
 			free(pgm);
 			return -1;
 		}
 		metrics_len += (u32)wrote;
 	}
 
-	u32 kerning_cap = 64u + PDFONT_KERNING_DIM * PDFONT_KERNING_DIM * 24u;
-	char *kerning = (char *)malloc(kerning_cap);
-	if (!kerning) {
-		free(metrics);
+	int wrote_header = snprintf(metrics_json + metrics_len,
+		metrics_cap - metrics_len,
+		"  ],\n"
+		"  \"kerning\": [\n");
+	if (wrote_header <= 0 || (u32)wrote_header >= metrics_cap - metrics_len) {
+		free(metrics_json);
 		free(pgm);
 		return -1;
 	}
-	u32 kerning_len = 0;
-	kerning_len += snprintf(kerning + kerning_len, kerning_cap - kerning_len,
-		"previous\tcurrent\tadjust\n");
+	metrics_len += (u32)wrote_header;
 	for (u32 prev = 0; prev < PDFONT_KERNING_DIM; prev++) {
 		for (u32 cur = 0; cur < PDFONT_KERNING_DIM; cur++) {
 			u32 pos = (prev * PDFONT_KERNING_DIM + cur) * 4u;
 			s32 adjust = (s32)s_readBe32(src + pos);
-			int wrote = snprintf(kerning + kerning_len, kerning_cap - kerning_len,
-				"%u\t%u\t%d\n", (unsigned)prev, (unsigned)cur, (int)adjust);
-			if (wrote <= 0 || (u32)wrote >= kerning_cap - kerning_len) {
-				free(kerning);
-				free(metrics);
+			u32 index = prev * PDFONT_KERNING_DIM + cur;
+			int wrote = snprintf(metrics_json + metrics_len,
+				metrics_cap - metrics_len,
+				"    { \"previous\": %u, \"current\": %u, \"adjust\": %d }%s\n",
+				(unsigned)prev, (unsigned)cur, (int)adjust,
+				(index + 1u < PDFONT_KERNING_DIM * PDFONT_KERNING_DIM) ? "," : "");
+			if (wrote <= 0 || (u32)wrote >= metrics_cap - metrics_len) {
+				free(metrics_json);
 				free(pgm);
 				return -1;
 			}
-			kerning_len += (u32)wrote;
+			metrics_len += (u32)wrote;
 		}
 	}
+	int wrote_footer = snprintf(metrics_json + metrics_len,
+		metrics_cap - metrics_len,
+		"  ]\n"
+		"}\n");
+	if (wrote_footer <= 0 || (u32)wrote_footer >= metrics_cap - metrics_len) {
+		free(metrics_json);
+		free(pgm);
+		return -1;
+	}
+	metrics_len += (u32)wrote_footer;
 
 	*out_pgm = pgm;
 	*out_pgm_size = pgm_size;
-	*out_metrics = metrics;
-	*out_metrics_size = metrics_len;
-	*out_kerning = kerning;
-	*out_kerning_size = kerning_len;
+	*out_metrics_json = metrics_json;
+	*out_metrics_json_size = metrics_len;
 	*out_char_count = num_chars;
 	return 0;
 }
@@ -299,7 +391,7 @@ static s32 s_emitOneFont(const char *face, const char *out_dir,
 	    s_existingArchiveHasEntry(dst_rel, "font.ini") &&
 	    s_existingArchiveHasEntry(dst_rel, "_meta/manifest.json") &&
 	    s_existingArchiveHasEntry(dst_rel, "glyphs.pgm") &&
-	    s_existingArchiveHasEntry(dst_rel, "metrics.tsv")) return 0;
+	    s_existingArchiveHasEntry(dst_rel, "font.metrics.json")) return 0;
 
 	/* Manifest. Carries segment name as provenance so the loader can
 	 * round-trip the catalog ID on the universality switch. */
@@ -316,15 +408,12 @@ static s32 s_emitOneFont(const char *face, const char *out_dir,
 
 	u8 *glyphs_pgm = NULL;
 	u32 glyphs_pgm_size = 0;
-	char *metrics_tsv = NULL;
-	u32 metrics_tsv_size = 0;
-	char *kerning_tsv = NULL;
-	u32 kerning_tsv_size = 0;
+	char *metrics_json = NULL;
+	u32 metrics_json_size = 0;
 	s32 char_count = 0;
 	if (s_buildFontExports(face, src_bytes, src_bytes_size,
 	                       &glyphs_pgm, &glyphs_pgm_size,
-	                       &metrics_tsv, &metrics_tsv_size,
-	                       &kerning_tsv, &kerning_tsv_size,
+	                       &metrics_json, &metrics_json_size,
 	                       &char_count) != 0) {
 		sysMemFree(src_bytes);
 		sysLoudFailf("EXTRACT.PDFONT",
@@ -341,16 +430,14 @@ static s32 s_emitOneFont(const char *face, const char *out_dir,
 		"  \"face\": \"%s\",\n"
 		"  \"format\": \"bitmap_ci4_atlas\",\n"
 		"  \"glyphs\": \"glyphs.pgm\",\n"
-		"  \"metrics\": \"metrics.tsv\",\n"
-		"  \"kerning\": \"kerning.tsv\",\n"
+		"  \"metrics\": \"font.metrics.json\",\n"
 		"  \"source_data_size\": %u,\n"
 		"  \"character_count\": %d,\n"
 		"  \"source_segment\": \"%s\"\n"
 		"}\n",
 		catalog_id, face, (unsigned)src_size, char_count, face);
 	if (manifest_len <= 0 || (size_t)manifest_len >= sizeof(manifest_buf)) {
-		free(kerning_tsv);
-		free(metrics_tsv);
+		free(metrics_json);
 		free(glyphs_pgm);
 		sysMemFree(src_bytes);
 		sysLoudFailf("EXTRACT.PDFONT",
@@ -365,15 +452,13 @@ static s32 s_emitOneFont(const char *face, const char *out_dir,
 		"face = %s\n"
 		"font_format = bitmap_ci4_atlas\n"
 		"font_file = glyphs.pgm\n"
-		"metrics_file = metrics.tsv\n"
-		"kerning_file = kerning.tsv\n"
+		"metrics_file = font.metrics.json\n"
 		"source_data_size = %u\n"
 		"character_count = %d\n"
 		"source_segment = %s\n",
 		catalog_id, face, (unsigned)src_size, char_count, face);
 	if (ini_len <= 0 || (size_t)ini_len >= sizeof(ini_buf)) {
-		free(kerning_tsv);
-		free(metrics_tsv);
+		free(metrics_json);
 		free(glyphs_pgm);
 		sysMemFree(src_bytes);
 		sysLoudFailf("EXTRACT.PDFONT",
@@ -384,8 +469,7 @@ static s32 s_emitOneFont(const char *face, const char *out_dir,
 	char dst_full_buf[FS_MAXPATH + 1];
 	const char *dst_full = fsFullPath(dst_rel, dst_full_buf, sizeof(dst_full_buf));
 	if (!dst_full || !dst_full[0]) {
-		free(kerning_tsv);
-		free(metrics_tsv);
+		free(metrics_json);
 		free(glyphs_pgm);
 		sysMemFree(src_bytes);
 		sysLoudFailf("EXTRACT.PDFONT",
@@ -395,8 +479,7 @@ static s32 s_emitOneFont(const char *face, const char *out_dir,
 
 	mod_archive_writer_t *aw = modArchiveBegin(dst_full);
 	if (!aw) {
-		free(kerning_tsv);
-		free(metrics_tsv);
+		free(metrics_json);
 		free(glyphs_pgm);
 		sysMemFree(src_bytes);
 		sysLoudFailf("EXTRACT.PDFONT",
@@ -437,18 +520,10 @@ static s32 s_emitOneFont(const char *face, const char *out_dir,
 		modArchiveAbort(aw);
 		goto fail;
 	}
-	if (assetArchiveWriterAddPublicMem(&asset_writer, "metrics.tsv",
-			metrics_tsv, metrics_tsv_size, "metrics") != MODARCHIVE_OK) {
+	if (assetArchiveWriterAddPublicMem(&asset_writer, "font.metrics.json",
+			metrics_json, metrics_json_size, "metrics") != MODARCHIVE_OK) {
 		sysLoudFailf("EXTRACT.PDFONT",
-			"AddFileMem metrics.tsv failed for face=\"%s\" -> \"%s\"",
-			face, dst_full);
-		modArchiveAbort(aw);
-		goto fail;
-	}
-	if (assetArchiveWriterAddPublicMem(&asset_writer, "kerning.tsv",
-			kerning_tsv, kerning_tsv_size, "kerning") != MODARCHIVE_OK) {
-		sysLoudFailf("EXTRACT.PDFONT",
-			"AddFileMem kerning.tsv failed for face=\"%s\" -> \"%s\"",
+			"AddFileMem font.metrics.json failed for face=\"%s\" -> \"%s\"",
 			face, dst_full);
 		modArchiveAbort(aw);
 		goto fail;
@@ -463,8 +538,7 @@ static s32 s_emitOneFont(const char *face, const char *out_dir,
 	}
 
 	if (modArchiveFinish(aw) != 0) {
-		free(kerning_tsv);
-		free(metrics_tsv);
+		free(metrics_json);
 		free(glyphs_pgm);
 		sysMemFree(src_bytes);
 		sysLoudFailf("EXTRACT.PDFONT",
@@ -472,15 +546,13 @@ static s32 s_emitOneFont(const char *face, const char *out_dir,
 		return -1;
 	}
 
-	free(kerning_tsv);
-	free(metrics_tsv);
+	free(metrics_json);
 	free(glyphs_pgm);
 	sysMemFree(src_bytes);
 	return 1;
 
 fail:
-	free(kerning_tsv);
-	free(metrics_tsv);
+	free(metrics_json);
 	free(glyphs_pgm);
 	sysMemFree(src_bytes);
 	return -1;
@@ -534,7 +606,7 @@ s32 romExtractAllPdfont(s32 force_rewrite)
 		return -1;
 	}
 
-	if (romExtractPdFastCacheCanSkip("pdfont", fonts_dir,
+	if (romExtractPdFastCacheCanSkip(PDFONT_FAST_CACHE_KIND, fonts_dir,
 			".pdfont", force_rewrite)) {
 		bootProgressUpdate((s32)K_FONT_FACE_COUNT, (s32)K_FONT_FACE_COUNT);
 		sysLogPrintf(LOG_NOTE,
@@ -568,7 +640,7 @@ s32 romExtractAllPdfont(s32 force_rewrite)
 		written, skipped, failed, K_FONT_FACE_COUNT, fonts_dir);
 
 	if (failed == 0) {
-		romExtractPdFastCacheWrite("pdfont", fonts_dir, ".pdfont");
+		romExtractPdFastCacheWrite(PDFONT_FAST_CACHE_KIND, fonts_dir, ".pdfont");
 	}
 
 	return written;

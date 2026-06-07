@@ -37,6 +37,7 @@ const char *assetArchiveLegacyDescriptorForPath(const char *path);
 void assetArchiveMetaPath(const char *leaf, char *out, size_t out_cap);
 s32 assetArchiveFindMetadataEntry(mod_archive_t *archive, const char *leaf);
 s32 assetArchiveEntryIsForbiddenBinPayload(const char *entry_name);
+s32 assetArchiveEntryIsForbiddenTsvPayload(const char *entry_name);
 s32 assetArchiveEntryIsRootMachineMetadata(const char *entry_name);
 
 s32 assetArchiveFindDescriptorEntry(mod_archive_t *archive,

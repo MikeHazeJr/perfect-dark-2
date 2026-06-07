@@ -350,38 +350,52 @@ static const char *packerSidecarTemplate(const char *leaf)
 	}
 	if (strcmp(leaf, "props.ini") == 0) {
 		return
-			"; props.ini - legacy map authoring template; .pdscenario uses objects.tsv\n"
+			"; props.ini - legacy map authoring template; .pdscenario uses objects.json\n"
 			"[props]\n"
 			"props = none\n";
 	}
 	if (strcmp(leaf, "objectives.ini") == 0) {
 		return
-			"; objectives.ini - legacy map authoring template; .pdscenario uses objectives.tsv\n"
+			"; objectives.ini - legacy map authoring template; .pdscenario uses objectives.json\n"
 			"[objectives]\n"
 			"objectives = none\n";
 	}
-	if (strcmp(leaf, "pads.tsv") == 0) {
+	if (strcmp(leaf, "pads.json") == 0) {
 		return
 			"pad_id\troom_ref\tliftnum\tflags\tpos_x\tpos_y\tpos_z\tup_x\tup_y\tup_z\tlook_x\tlook_y\tlook_z\tbbox_xmin\tbbox_xmax\tbbox_ymin\tbbox_ymax\tbbox_zmin\tbbox_zmax\n"
 			"pad_0000\troom_0000\t0\t0x00000\t0\t0\t0\t0\t1\t0\t0\t0\t1\t-16\t16\t0\t64\t-16\t16\n";
 	}
-	if (strcmp(leaf, "spawns.tsv") == 0) {
+	if (strcmp(leaf, "spawns.json") == 0) {
 		return
-			"spawn_id\tpad_ref\troom_ref\tteam\tprofile\tpos_x\tpos_y\tpos_z\tlook_x\tlook_y\tlook_z\n"
-			"spawn_0000\tpad_0000\troom_0000\tany\tdefault\t0\t0\t0\t0\t0\t1\n";
+			"{\n"
+			"  \"schema\": \"pd2.scenario.spawns.v1\",\n"
+			"  \"rows\": [\n"
+			"    { \"spawn_id\": \"spawn_0000\", \"pad_ref\": \"pad_0000\", \"room_ref\": \"room_0000\", \"team\": \"any\", \"profile\": \"default\", \"position\": [0, 0, 0], \"look\": [0, 0, 1] }\n"
+			"  ]\n"
+			"}\n";
 	}
-	if (strcmp(leaf, "volumes.tsv") == 0) {
+	if (strcmp(leaf, "volumes.json") == 0) {
 		return
-			"volume_id\tpad_ref\tkind\troom_ref\tshape\tmin_x\tmin_y\tmin_z\tmax_x\tmax_y\tmax_z\n"
-			"volume_pad_0000\tpad_0000\tpad_bounds\troom_0000\taabb\t-16\t0\t-16\t16\t64\t16\n";
+			"{\n"
+			"  \"schema\": \"pd2.scenario.volumes.v1\",\n"
+			"  \"rows\": [\n"
+			"    { \"volume_id\": \"volume_pad_0000\", \"pad_ref\": \"pad_0000\", \"kind\": \"pad_bounds\", \"room_ref\": \"room_0000\", \"shape\": \"aabb\", \"min\": [-16, 0, -16], \"max\": [16, 64, 16] }\n"
+			"  ]\n"
+			"}\n";
 	}
-	if (strcmp(leaf, "objects.tsv") == 0) {
+	if (strcmp(leaf, "objects.json") == 0) {
 		return
-			"record_id\tkind\tpad_ref\tmodel_catalog_id\tweapon_catalog_id\tsecondary_weapon_catalog_id\tbody_catalog_id\thead_catalog_id\tailist_ref\tflags\tflags2\tflags3\n";
+			"{\n"
+			"  \"schema\": \"pd2.scenario.objects.v1\",\n"
+			"  \"rows\": []\n"
+			"}\n";
 	}
-	if (strcmp(leaf, "objectives.tsv") == 0) {
+	if (strcmp(leaf, "objectives.json") == 0) {
 		return
-			"objective_id\tkind\ttext_token\tdifficulty_mask\tgraph_node\toperand_kind\ttarget_ref\ttarget_record_ref\tpad_ref\tstate_ref\tmatch_value\tinitial_status\n";
+			"{\n"
+			"  \"schema\": \"pd2.scenario.objectives.v1\",\n"
+			"  \"rows\": []\n"
+			"}\n";
 	}
 	if (strcmp(leaf, "navigation.ini") == 0) {
 		return
@@ -715,9 +729,11 @@ static s32 validateTypedPdDescriptorFile(const char *srcFolder, const char *desc
 	static const char *animationKeys[] = { "animation_file", "commands_file", "file_path" };
 	static const char *audioKeys[] = { "file_path" };
 	static const char *uiKeys[] = { "texture_file", "file_path", "texture" };
-	static const char *fontKeys[] = { "font_file", "glyphs_file", "file_path", "font" };
+	static const char *fontKeys[] = {
+		"font_file", "glyphs_file", "metrics_file", "file_path", "font"
+	};
 	static const char *langKeys[] = {
-		"strings_file", "strings", "strings_tsv", "file_path"
+		"strings_file", "strings", "file_path"
 	};
 	static const char *materialOptionalKeys[] = {
 		"material_file", "texture_archive", "texture_file", "effect_archive",
@@ -1132,8 +1148,10 @@ static s32 validateExternalFolderLayout(const char *srcFolder, const char *destP
 	static const char *animationKeys[] = { "animation_file", "commands_file", "file_path" };
 	static const char *audioKeys[] = { "file_path" };
 	static const char *uiKeys[] = { "texture_file", "file_path", "texture" };
-	static const char *fontKeys[] = { "font_file", "glyphs_file", "file_path", "font" };
-	static const char *langKeys[] = { "strings_file", "strings", "strings_tsv", "file_path" };
+	static const char *fontKeys[] = {
+		"font_file", "glyphs_file", "metrics_file", "file_path", "font"
+	};
+	static const char *langKeys[] = { "strings_file", "strings", "file_path" };
 	static const char *materialOptionalKeys[] = {
 		"material_file", "texture_archive", "texture_file", "effect_archive",
 		"file_path"
@@ -1168,11 +1186,11 @@ static s32 validateExternalFolderLayout(const char *srcFolder, const char *destP
 		{ "setup.ini", "setup.ini" },
 	};
 	static const modpack_sidecar_rule_t scenarioSidecars[] = {
-		{ "pads.tsv",       "pads.tsv" },
-		{ "spawns.tsv",     "spawns.tsv" },
-		{ "volumes.tsv",    "volumes.tsv" },
-		{ "objects.tsv",    "objects.tsv" },
-		{ "objectives.tsv", "objectives.tsv" },
+		{ "pads.json",       "pads.json" },
+		{ "spawns.json",    "spawns.json" },
+		{ "volumes.json",   "volumes.json" },
+		{ "objects.json",   "objects.json" },
+		{ "objectives.json", "objectives.json" },
 		{ "navigation.ini", "navigation.ini" },
 		{ "level.graph.json", "level.graph.json" },
 	};

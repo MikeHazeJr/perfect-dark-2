@@ -362,6 +362,7 @@ typedef struct asset_entry {
             char volumes_file[FS_MAXPATH];
             char objects_file[FS_MAXPATH];
             char setup_fields_file[FS_MAXPATH];
+            char ai_lists_file[FS_MAXPATH];
             char objectives_file[FS_MAXPATH];
             char navigation_file[FS_MAXPATH];
             char level_graph_file[FS_MAXPATH];
@@ -377,8 +378,20 @@ typedef struct asset_entry {
             s32 key_max;
             s32 key_base;
             s32 key_detune;
+            s32 velocity_min;
+            s32 velocity_max;
             s32 sample_pan;
             s32 sample_volume;
+            s32 has_loop;
+            u32 loop_start_samples;
+            u32 loop_end_samples;
+            u32 loop_count;
+            s32 has_envelope;
+            u32 attack_time_us;
+            u32 decay_time_us;
+            u32 release_time_us;
+            s32 attack_volume;
+            s32 decay_volume;
             /* MUSIC tracks only: solo stage whose best-time gates this track.
              * Mirrors g_MpTracks[].unlockstage. -1 = always unlocked
              * (mod tracks default here). SFX / VOICE entries leave at 0. */
@@ -423,7 +436,7 @@ typedef struct asset_entry {
         } theme;
         struct {
             s32 bank_id;               /* LANGBANK_* constant (0x01-0x44) */
-            char strings_file[128];    /* UTF-8 TSV source for mod language banks */
+            char strings_file[128];    /* Editable JSON source for mod language banks */
         } lang;
         struct {
             s32  type;                 /* BOTTYPE_* constant (e.g. BOTTYPE_GENERAL) */

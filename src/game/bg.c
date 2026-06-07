@@ -997,16 +997,40 @@ Gfx *bgRenderScene(Gfx *gdl)
 
 	if (sourcebg) {
 		struct zrange zrange;
+		f32 fovy;
+		f32 aspect;
 
 		viGetZRange(&zrange);
 
 		if (g_Vars.currentplayer) {
+			fovy = viGetFovY();
+			aspect = viGetAspect();
+
+			if (fovy <= 1.0f || fovy >= 179.0f) {
+				fovy = g_Vars.currentplayer->fovy;
+			}
+
+			if (fovy <= 1.0f || fovy >= 179.0f) {
+				fovy = g_Vars.currentplayer->zoominfovy;
+			}
+
+			if (fovy <= 1.0f || fovy >= 179.0f) {
+				fovy = 60.0f;
+			}
+
+			if (aspect <= 0.01f) {
+				aspect = g_Vars.currentplayer->aspect;
+			}
+
+			if (aspect <= 0.01f) {
+				aspect = 4.0f / 3.0f;
+			}
+
 			scenarioSceneRendererSetCameraFrame(
 				g_Vars.currentplayer->cam_pos.f,
 				g_Vars.currentplayer->cam_look.f,
 				g_Vars.currentplayer->cam_up.f,
-				viGetFovY(), viGetAspect(),
-				zrange.near, zrange.far);
+				fovy, aspect, zrange.near, zrange.far);
 		} else {
 			scenarioSceneRendererSetCameraFrame(NULL, NULL, NULL,
 				0.0f, 0.0f, 0.0f, 0.0f);
@@ -1395,7 +1419,7 @@ static void bgBuildScenarioSourcePortalTables(const catalog_stage_result_t *stag
 		memset(g_PortalCameraCache, 0, sizeof(struct portalcamcacheitem));
 		portal0f0b65a8(0);
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.SOURCE: built native portal tables '%s' portals=%d room_refs=0 source=portals.tsv",
+			"SCENARIO.SOURCE: built native portal tables '%s' portals=%d room_refs=0 source=portals.json",
 			g_BgScenarioSourceId[0] ? g_BgScenarioSourceId : "?",
 			portalcount > 0 ? portalcount : 0);
 		return;
@@ -1485,7 +1509,7 @@ static void bgBuildScenarioSourcePortalTables(const catalog_stage_result_t *stag
 		bgInitPortal(i);
 	}
 	sysLogPrintf(LOG_NOTE,
-		"SCENARIO.SOURCE: built native portal tables '%s' portals=%d room_refs=%d source=portals.tsv",
+		"SCENARIO.SOURCE: built native portal tables '%s' portals=%d room_refs=%d source=portals.json",
 		g_BgScenarioSourceId[0] ? g_BgScenarioSourceId : "?",
 		portalcount, totalrefs);
 }
@@ -6663,8 +6687,8 @@ void bgFindEnteredRooms(struct coord *bbmin, struct coord *bbmax, RoomNum *rooms
 		return;
 	}
 
-	for (len = 0; len < maxlen && rooms[len] != -1; len++);
-	if (len >= maxlen) {
+	for (len = 0; len <= maxlen && rooms[len] != -1; len++);
+	if (len > maxlen) {
 		sysLogPrintf(LOG_WARNING,
 			"BG.ROOMS: entered room list missing terminator maxlen=%d first=%d",
 			maxlen, (s32)rooms[0]);

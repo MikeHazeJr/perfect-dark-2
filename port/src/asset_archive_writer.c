@@ -207,8 +207,8 @@ static void markMeta(asset_archive_writer_t *writer, const char *leaf_name)
 	} else if (strcmp(leaf_name, "inventory.json") == 0 ||
 			strcmp(leaf_name, "_meta/inventory.json") == 0) {
 		writer->has_inventory = 1;
-	} else if (strcmp(leaf_name, "hashes.tsv") == 0 ||
-			strcmp(leaf_name, "_meta/hashes.tsv") == 0) {
+	} else if (strcmp(leaf_name, "hashes.json") == 0 ||
+			strcmp(leaf_name, "_meta/hashes.json") == 0) {
 		writer->has_hashes = 1;
 	} else if (strcmp(leaf_name, "provenance.json") == 0 ||
 			strcmp(leaf_name, "_meta/provenance.json") == 0) {
@@ -447,20 +447,34 @@ static s32 writeHashes(asset_archive_writer_t *writer)
 {
 	text_builder_t b;
 	memset(&b, 0, sizeof(b));
-	if (builderAppend(&b, "path\tsha256\tsize\trole\n") != 0) {
+	if (builderAppend(&b,
+			"{\n"
+			"  \"schema\": \"pd2.asset.hashes.v1\",\n"
+			"  \"entries\": [\n") != 0) {
 		builderFree(&b);
 		return MODARCHIVE_ERR_MEM;
 	}
 	for (u32 i = 0; i < writer->entry_count; i++) {
 		const asset_archive_writer_entry_t *entry = &writer->entries[i];
-		if (builderAppendFmt(&b, "%s\t%s\t%u\t%s\n",
-				entry->path, entry->sha256,
-				(unsigned)entry->size, entry->role) != 0) {
+		if (builderAppend(&b, i ? ",\n    {\n" : "    {\n") != 0 ||
+				builderAppend(&b, "      \"path\": ") != 0 ||
+				builderAppendJsonString(&b, entry->path) != 0 ||
+				builderAppend(&b, ",\n      \"sha256\": ") != 0 ||
+				builderAppendJsonString(&b, entry->sha256) != 0 ||
+				builderAppendFmt(&b, ",\n      \"size\": %u,\n",
+					(unsigned)entry->size) != 0 ||
+				builderAppend(&b, "      \"role\": ") != 0 ||
+				builderAppendJsonString(&b, entry->role) != 0 ||
+				builderAppend(&b, "\n    }") != 0) {
 			builderFree(&b);
 			return MODARCHIVE_ERR_MEM;
 		}
 	}
-	s32 r = addMetaText(writer, "hashes.tsv", b.data, (u32)b.len);
+	if (builderAppend(&b, "\n  ]\n}\n") != 0) {
+		builderFree(&b);
+		return MODARCHIVE_ERR_MEM;
+	}
+	s32 r = addMetaText(writer, "hashes.json", b.data, (u32)b.len);
 	builderFree(&b);
 	return r;
 }

@@ -1,0 +1,14 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 8,
+  "asset_id": "base:animation_cut_pete_intro_vehicle_03",
+  "mod_id": "base",
+  "kind": "animation",
+  "source": "data/ntsc-final/animations/base_animation_cut_pete_intro_vehicle_03.pdanim::animation.gltf",
+  "source_size": 5788,
+  "source_sha256": "09321b170e1db60a55bb2372e4b66e3402c31f925a38a1fb07fd9d8e06103b06",
+  "validation": "format=gltf animtableentry clips=1 frames=106 channels=2",
+  "normalized": "$S/mod-cache/base/base_animation_cut_pete_intro_vehicle_03/animation-v8-09321b170e1db60a55bb2372e4b66e3402c31f925a38a1fb07fd9d8e06103b06.pdanimation.json",
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

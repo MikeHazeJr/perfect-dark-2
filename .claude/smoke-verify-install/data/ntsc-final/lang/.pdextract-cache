@@ -1,5 +1,5 @@
 schema=pdasset-fast-v1-20260521
-kind=pdlang_strings_tsv_rzip_v2
+kind=pdlang_strings_json_rzip_v1
 count=68
-total_bytes=260674
-latest_mtime=1780793002
+total_bytes=277919
+latest_mtime=1780845691

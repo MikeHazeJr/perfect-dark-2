@@ -1,0 +1,18 @@
+{
+  "schema": "pd2.modasset.animation.v1",
+  "compiler_version": 7,
+  "asset_id": "base:animation_smoke_cigarette",
+  "kind": "animation",
+  "source": "data/ntsc-final/animations/base_animation_smoke_cigarette.pdanim::animation.gltf",
+  "source_sha256": "cbd8d24e0d46c866780983f1ae0113d0998f938e11a80d0eb1af00a91a3b29c2",
+  "runtime_boundary": "animtableentry",
+  "clip_name": "base:animation_smoke_cigarette",
+  "animation_count": 1,
+  "channel_count": 25,
+  "sampler_count": 25,
+  "frame_count": 291,
+  "header_length": -1,
+  "bytes_per_frame": -1,
+  "transform_policy": "gltf_skeletal_channel_pack",
+  "packed_channels": ["translation", "rotation", "scale"]
+}

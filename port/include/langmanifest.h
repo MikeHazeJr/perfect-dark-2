@@ -19,7 +19,7 @@
  * Runtime source:
  *   langReset(), langLoad(), and langLoadToAddr() should load the selected
  *   LANGBANK_* through the catalog entry whose public .pdlang source exposes
- *   strings.tsv. ROM-backed language files are bootstrap extraction input, not
+ *   strings.json. ROM-backed language files are bootstrap extraction input, not
  *   the steady-state runtime source.
  *
  * Mod lang banks:
@@ -98,7 +98,7 @@ s32 langManifestEnsureId(const char *lang_id);
  *
  * This is the bank-index bridge for legacy game code paths that still carry
  * LANGBANK_* values. It prefers enabled mod entries over bundled base entries,
- * then loads that entry's public FileProvider strings.tsv source into the
+ * then loads that entry's public FileProvider strings.json source into the
  * g_LangBanks[] runtime table.
  *
  * Returns 1 when the bank is loaded from catalog/FileProvider source.

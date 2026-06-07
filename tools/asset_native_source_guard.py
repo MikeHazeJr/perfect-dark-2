@@ -75,22 +75,34 @@ PDSCENARIO_FORBIDDEN_PUBLIC_ENTRY_NAMES = {
     "mpsetup.ini",
     "props.ini",
     "objectives.ini",
-}
-
-PDSCENARIO_REQUIRED_PUBLIC_ENTRY_NAMES = {
-    "scene.glb",
-    "portals.tsv",
+    "objects.tsv",
+    "objectives.tsv",
+    "setup.fields.tsv",
     "pads.tsv",
     "spawns.tsv",
     "volumes.tsv",
+    "portals.tsv",
     "navigation/waypoints.tsv",
     "navigation/waygroups.tsv",
     "navigation/covers.tsv",
     "navigation/paths.tsv",
-    "objects.tsv",
-    "setup.fields.tsv",
     "ai/ailists.tsv",
-    "objectives.tsv",
+}
+
+PDSCENARIO_REQUIRED_PUBLIC_ENTRY_NAMES = {
+    "scene.glb",
+    "portals.json",
+    "pads.json",
+    "spawns.json",
+    "volumes.json",
+    "navigation/waypoints.json",
+    "navigation/waygroups.json",
+    "navigation/covers.json",
+    "navigation/paths.json",
+    "objects.json",
+    "setup.fields.json",
+    "ai/ailists.json",
+    "objectives.json",
     "navigation.ini",
     "level.graph.json",
 }
@@ -187,7 +199,6 @@ LEGACY_ASSET_SYMBOL_PREFIXES = (
 PUBLIC_TEXT_ENTRY_SUFFIXES = (
     ".ini",
     ".json",
-    ".tsv",
     ".txt",
     ".csv",
 )
@@ -300,50 +311,50 @@ AI_GRAPH_PENDING_FUNCTIONS = set()
 
 SCENARIO_RUNTIME_COUNT_RULES = {
     "s_countRuntimePaths": {
-        "s_aiGraphFindRuntimePath": ("missing navigation/paths.tsv source",),
+        "s_aiGraphFindRuntimePath": ("missing navigation/paths.json source",),
         "s_aiGraphResolveOptionalRuntimePath": (
-            "missing navigation/paths.tsv source",
+            "missing navigation/paths.json source",
         ),
         "s_aiGraphRequireRuntimePathPointer": (
-            "missing navigation/paths.tsv source",
+            "missing navigation/paths.json source",
         ),
     },
     "s_countRuntimePads": {
-        "s_aiGraphRequireRuntimePad": ("missing pads.tsv source",),
-        "s_aiGraphRequireRuntimePadTable": ("missing pads.tsv source",),
+        "s_aiGraphRequireRuntimePad": ("missing pads.json source",),
+        "s_aiGraphRequireRuntimePadTable": ("missing pads.json source",),
         "s_aiGraphRequireRuntimeNavigationTables": (
-            "missing pads.tsv source",
-            "missing navigation/waypoints.tsv source",
-            "missing navigation/waygroups.tsv source",
+            "missing pads.json source",
+            "missing navigation/waypoints.json source",
+            "missing navigation/waygroups.json source",
         ),
     },
     "s_countRuntimeCovers": {
         "s_aiGraphRequireRuntimeCoverTable": (
-            "missing navigation/covers.tsv source",
+            "missing navigation/covers.json source",
         ),
     },
     "s_countRuntimeWaypoints": {
         "s_aiGraphRequireRuntimeNavigationTables": (
-            "missing navigation/waypoints.tsv source",
-            "missing navigation/waygroups.tsv source",
+            "missing navigation/waypoints.json source",
+            "missing navigation/waygroups.json source",
         ),
         "s_setupGraphValidateBlockedPathWaypoints": (
-            "missing navigation/waypoints.tsv source",
+            "missing navigation/waypoints.json source",
         ),
     },
     "s_countRuntimeWaygroups": {
         "s_aiGraphRequireRuntimeNavigationTables": (
-            "missing navigation/waygroups.tsv source",
+            "missing navigation/waygroups.json source",
         ),
     },
     "s_countRuntimeSetupObjectRows": {
-        "s_aiGraphRequireRuntimeObjectTag": ("missing objects.tsv source",),
-        "s_aiGraphResolveOptionalRuntimeObjectTag": ("missing objects.tsv source",),
+        "s_aiGraphRequireRuntimeObjectTag": ("missing objects.json source",),
+        "s_aiGraphResolveOptionalRuntimeObjectTag": ("missing objects.json source",),
         "s_aiGraphRequireRuntimeChopperPointer": (
-            "missing objects.tsv source for vehicle weapon state",
+            "missing objects.json source for vehicle weapon state",
         ),
         "s_aiGraphRequireRuntimeVehicleObjectPointer": (
-            "missing objects.tsv source for vehicle state",
+            "missing objects.json source for vehicle state",
         ),
     },
     "s_countRuntimeSetupChrRows": {
@@ -352,7 +363,7 @@ SCENARIO_RUNTIME_COUNT_RULES = {
         ),
     },
     "s_countRuntimeSetupTags": {
-        "s_aiGraphRequireRuntimeSetupTag": ("missing setup.fields.tsv source",),
+        "s_aiGraphRequireRuntimeSetupTag": ("missing setup.fields.json source",),
     },
 }
 
@@ -409,7 +420,7 @@ SCENARIO_STAGE_SETUP_GLOBAL_SOURCE_PROVEN_FUNCTIONS = {
         "g_StageSetup.waygroups[count].neighbours",
     ),
     "s_aiGraphRequireRuntimePathPointer": (
-        "missing navigation/paths.tsv source",
+        "missing navigation/paths.json source",
         "s_countRuntimePaths()",
         "if (&g_StageSetup.paths[i] == path)",
     ),
@@ -446,7 +457,7 @@ SCENARIO_SOURCE_WIDE_PAD_CACHE_SOURCE_PROVEN_FUNCTIONS = {
         "g_SourceWidePadFile = buf;",
         "g_SourceWidePadOffsets = wide_offsets;",
         "g_SourceWidePadOffsetCount = row_count;",
-        "SCENARIO.SOURCE: pads.tsv runtime uses 32-bit source pad offsets",
+        "SCENARIO.SOURCE: pads.json runtime uses 32-bit source pad offsets",
     ),
 }
 
@@ -472,21 +483,21 @@ SCENARIO_RUNTIME_LOOKUP_RULES = {
     },
     "pathFindById": {
         "s_aiGraphFindRuntimePath": (
-            "missing navigation/paths.tsv source",
+            "missing navigation/paths.json source",
             "s_countRuntimePaths()",
         ),
         "s_aiGraphResolveOptionalRuntimePath": (
-            "missing navigation/paths.tsv source",
+            "missing navigation/paths.json source",
             "s_countRuntimePaths()",
         ),
     },
     "tagFindById": {
         "s_aiGraphRequireRuntimeObjectTag": (
-            "missing objects.tsv source",
+            "missing objects.json source",
             "s_countRuntimeSetupObjectRows()",
         ),
         "s_aiGraphResolveOptionalRuntimeObjectTag": (
-            "missing objects.tsv source",
+            "missing objects.json source",
             "s_countRuntimeSetupObjectRows()",
         ),
         "s_aiGraphRequireRuntimeObjectTagType": (
@@ -496,7 +507,7 @@ SCENARIO_RUNTIME_LOOKUP_RULES = {
             "s_aiGraphRequireRuntimeObjectTag(",
         ),
         "s_aiGraphRequireRuntimeSetupTag": (
-            "missing setup.fields.tsv source",
+            "missing setup.fields.json source",
             "s_countRuntimeSetupTags()",
         ),
         "s_aiGraphCopyTagPlacementChecked": (
@@ -869,13 +880,13 @@ SCENARIO_PROP_PRESET_INDEX_REQUIRED_TOKENS = {
     "scenarioSourceAiGraphExecuteRemoveObjectAtPropPreset": (
         "struct prop *prop = &g_Vars.props[chr->proppreset1];",
         "chr_rows=%d source_chr=%d cleared=%d",
-        "objects=%s backend=graph.ai.action.prop_target+ai/ailists.tsv+objects.tsv",
+        "objects=%s backend=graph.ai.action.prop_target+ai/ailists.json+objects.json",
     ),
     "scenarioSourceAiGraphExecuteIfPropPresetHeightLessThan": (
         "struct prop *prop = &g_Vars.props[chr->proppreset1];",
         "propGetBbox(prop",
         "chr_rows=%d source_chr=%d value=%.3f height=%.3f",
-        "objects=%s backend=graph.ai.condition.prop_target+ai/ailists.tsv+objects.tsv",
+        "objects=%s backend=graph.ai.condition.prop_target+ai/ailists.json+objects.json",
     ),
 }
 
@@ -955,35 +966,35 @@ SCENARIO_PORTAL_TABLE_SOURCE_PROVEN_FUNCTIONS = {
     ),
 }
 
-SCENARIO_PORTAL_TABLE_ERROR = "scenario portal table mutations must stay behind source-built portals.tsv proof helpers"
+SCENARIO_PORTAL_TABLE_ERROR = "scenario portal table mutations must stay behind source-built portals.json proof helpers"
 
 SCENARIO_PORTAL_GLOBAL_SOURCE_PROVEN_FUNCTIONS = {
     "s_aiGraphResolveRuntimePortal": (
-        "missing portals.tsv source",
+        "missing portals.json source",
         "if (!g_BgPortals)",
         "g_BgNumPortalCameraCacheItems > 0",
         "portalnum < g_BgNumPortalCameraCacheItems",
     ),
 }
 
-SCENARIO_PORTAL_GLOBAL_ERROR = "scenario portal globals must stay behind source-built portals.tsv proof helpers"
+SCENARIO_PORTAL_GLOBAL_ERROR = "scenario portal globals must stay behind source-built portals.json proof helpers"
 
 SCENARIO_MISSION_MUSIC_MODE_GLOBAL_SOURCE_PROVEN_FUNCTIONS = {
     "scenarioSourceAiGraphExecuteDuplicateChr": (
         "missing scenario.ai.action.duplicate_chr node",
-        "missing pads.tsv source",
+        "missing pads.json source",
         's_aiGraphRequireRuntimeCharacterRefFromBase("duplicate_chr"',
         's_aiGraphResolveBodyCatalogId("duplicate_chr"',
         "AI action duplicate_chr chr=%d chr_rows=%d source_chr=%d",
     ),
     "scenarioSourceAiGraphExecuteIfMusicEventQueueIsEmpty": (
         "missing scenario.ai.condition.if_music_event_queue_is_empty node",
-        "missing ai/ailists.tsv source",
+        "missing ai/ailists.json source",
         "AI condition if_music_event_queue_is_empty queue=%d waited=%d branch=%d label=%d",
     ),
     "scenarioSourceAiGraphExecuteIfCoopMode": (
         "missing scenario.ai.condition.if_coop_mode node",
-        "missing ai/ailists.tsv source",
+        "missing ai/ailists.json source",
         "AI condition if_coop_mode coop=%d normmp=%d branch=%d label=%d",
     ),
     "s_aiGraphRuntimeChrIsSourceSpawned": (
@@ -1037,11 +1048,11 @@ SCENARIO_ENVIRONMENT_GLOBAL_SOURCE_PROVEN_FUNCTIONS = {
 SCENARIO_ENVIRONMENT_GLOBAL_HELPER_PROOF_TOKENS = {
     "s_aiGraphRequireSkyNode": (
         "missing scenario.ai.action.%s node",
-        "missing ai/ailists.tsv source",
+        "missing ai/ailists.json source",
     ),
     "s_aiGraphRequireMiscEffectNode": (
         "missing scenario.ai action/condition.%s node",
-        "missing ai/ailists.tsv source",
+        "missing ai/ailists.json source",
     ),
 }
 
@@ -1054,16 +1065,16 @@ SCENARIO_CUTSCENE_FRAME_OVERRUN_SOURCE_PROVEN_FUNCTIONS = {
         '"chr_do_animation", basechr, target_chr',
         "playerCurrentCutsceneInProgress()",
         "g_CutsceneFrameOverrun240 * speed * 0.25f",
-        "AI action chr_do_animation chr=%d chr_rows=%d target_chr=%d player_checked=%d anim_id=%s",
+        "AI action chr_do_animation chr=%d chr_rows=%d target_chr=%d player_checked=%d anim_id=%s anim_source=%s clip_bytes=%u",
     ),
     "scenarioSourceAiGraphExecuteObjectDoAnimation": (
         's_aiSetupSpawnGraphReady("object_do_animation"',
-        "missing objects.tsv source",
+        "missing objects.json source",
         '"object_do_animation", anim_id, "object"',
         's_aiGraphRequireRuntimeObjectTag("object_do_animation"',
         "playerCurrentCutsceneInProgress()",
         "g_CutsceneFrameOverrun240 * speed *",
-        "AI action object_do_animation anim_id=%s tag=%d resolved_tag=%d object_rows=%d chr_rows=%d",
+        "AI action object_do_animation anim_id=%s anim_source=%s clip_bytes=%u tag=%d resolved_tag=%d object_rows=%d chr_rows=%d",
     ),
 }
 
@@ -1228,7 +1239,7 @@ SCENARIO_STAGE_NUM_ERROR = "scenario stage-number globals must stay behind sourc
 SCENARIO_PLAYER_AUTOWALK_STATE_SOURCE_PROVEN_FUNCTIONS = {
     "scenarioSourceAiGraphExecuteIfPlayerAutoWalkFinished": (
         "missing scenario.ai.condition.if_player_auto_walk_finished node",
-        "missing ai/ailists.tsv source",
+        "missing ai/ailists.json source",
         "s_aiGraphRequireRuntimeCharacterRefFromBase(",
         "s_aiGraphRequireRuntimePlayerSlot(",
         "setCurrentPlayerNum(playernum)",
@@ -1625,7 +1636,7 @@ SCENARIO_PLAYER_IDENTITY_GLOBAL_SOURCE_PROVEN_FUNCTIONS = {
         "globals": ("g_Vars.bondplayernum", "g_Vars.coopplayernum"),
         "pre": (
             "missing scenario.ai.action.clear_inventory node",
-            "missing ai/ailists.tsv source",
+            "missing ai/ailists.json source",
             's_aiGraphRequireRuntimePlayerSlot("clear_inventory"',
             "setCurrentPlayerNum(playernum)",
         ),
@@ -1644,7 +1655,7 @@ SCENARIO_PLAYER_IDENTITY_GLOBAL_SOURCE_PROVEN_FUNCTIONS = {
         ),
         "pre": (
             "missing scenario.ai.action.toggle_p1p2 node",
-            "missing ai/ailists.tsv source",
+            "missing ai/ailists.json source",
         ),
         "required": (
             's_aiGraphRequireRuntimePlayerPointer("toggle_p1p2"',
@@ -1664,7 +1675,7 @@ SCENARIO_PLAYER_IDENTITY_GLOBAL_SOURCE_PROVEN_FUNCTIONS = {
         ),
         "pre": (
             "missing scenario.ai.action.chr_set_p1p2 node",
-            "missing ai/ailists.tsv source",
+            "missing ai/ailists.json source",
         ),
         "required": (
             "s_aiGraphRequireRuntimeCharacterRefFromBase(",
@@ -2562,8 +2573,15 @@ def scan_sound_file_source_only_guard(root: Path) -> list[str]:
         return [str(exc)]
 
     required = [
-        "audioPlayFileSound(r.path, volume, pan, filepitch)",
+        "audioStartFileSound(r.path, volume, pan",
         "filepitch *= alCents2Ratio(cents)",
+        "entry ? entry->ext.audio.has_loop : 0",
+        "entry ? entry->ext.audio.loop_start_samples : 0",
+        "entry ? entry->ext.audio.loop_end_samples : 0",
+        "entry ? entry->ext.audio.loop_count : 0",
+        "entry ? entry->ext.audio.has_envelope : 0",
+        "entry ? entry->ext.audio.attack_time_us : 0",
+        "entry ? entry->ext.audio.release_time_us : 0",
         "assetSourceDebugIsEnabledFor(ASSET_AUDIO)",
         "ASSET.SOURCE_ONLY: sound %d maps to public file source",
         "but file playback failed; refusing ROM/static fallback",
@@ -2581,7 +2599,7 @@ def scan_sound_file_source_only_guard(root: Path) -> list[str]:
         for name, start, end in iter_c_function_blocks(text)
     }
     block = blocks.get("sndStart", "")
-    play = "audioPlayFileSound(r.path, volume, pan, filepitch)"
+    play = "audioStartFileSound(r.path, volume, pan"
     before = "assetSourceDebugIsEnabledFor(ASSET_AUDIO)"
     after = "MOD: sound %d catalog override failed (%s), falling back to ROM"
     play_index = block.find(play)
@@ -2612,17 +2630,20 @@ def scan_mp3_audio_source_only_guard(root: Path) -> list[str]:
         '#include "asset_source_debug.h"',
         '#include "fs.h"',
         '#include "romextract.h"',
+        '#include "assetcatalog_load.h"',
         "static void *g_SndMp3SourceBytes = NULL",
         "static void sndMp3FreeSourceBuffer(void)",
         "static s32 sndMp3LoadPublicSourceFile(s32 filenum",
         "static s32 sndMp3ResolveSourceOrFallback(s32 filenum",
+        "catalogResolveFile(filenum)",
+        "fsFileLoad(source.path, &size)",
         "romExtractRelPathForFilenum(filenum, relpath",
         "fsFileLoad(relpath, &size)",
         "g_SndMp3SourceBytes = bytes",
         "sndMp3FreeSourceBuffer()",
         "assetSourceDebugIsEnabledFor(ASSET_AUDIO)",
         "ASSET.SOURCE_ONLY: MP3 file",
-        "refusing ROM/static playback fallback",
+        "refusing loose extracted file or ROM/static playback fallback",
         "sndMp3ResolveSourceOrFallback((s32)sp20.id",
         "fileGetRomAddress(filenum)",
         "fileGetRomSize(filenum)",
@@ -2633,12 +2654,15 @@ def scan_mp3_audio_source_only_guard(root: Path) -> list[str]:
         '#include "asset_source_debug.h"',
         '#include "fs.h"',
         '#include "romextract.h"',
+        '#include "assetcatalog_load.h"',
         "static s32 psMp3DurationGetSourceOrFallbackSize(s32 filenum)",
+        "catalogResolveFile(filenum)",
+        "fsFileSize(source.path)",
         "romExtractRelPathForFilenum(filenum, relpath",
         "fsFileSize(relpath)",
         "assetSourceDebugIsEnabledFor(ASSET_AUDIO)",
         "ASSET.SOURCE_ONLY: MP3 file",
-        "refusing ROM/static",
+        "refusing loose extracted file or ROM/static",
         "psMp3DurationGetSourceOrFallbackSize((s32)soundnum.id)",
         "fileGetRomSize(filenum)",
     ]
@@ -2664,6 +2688,28 @@ def scan_mp3_audio_source_only_guard(root: Path) -> list[str]:
     resolve_block = blocks.get("sndMp3ResolveSourceOrFallback", "")
     load_block = blocks.get("sndMp3LoadPublicSourceFile", "")
 
+    if "g_AudioConfigs[sp24.confignum]" in start_block:
+        errors.append(
+            MP3_AUDIO_SOURCE_ONLY_ERROR
+            + ": sndStartMp3 indexes g_AudioConfigs with the configured speech alias row"
+        )
+
+    mp3_config_required = [
+        "g_AudioRussMappings[sp24.confignum].audioconfig_index",
+        "config->volpercentage",
+        "config->pan",
+        "config->flags & AUDIOCONFIGFLAG_OFFENSIVE",
+        "config && (config->flags & AUDIOCONFIGFLAG_RESPONDHELLO)",
+    ]
+    missing = [needle for needle in mp3_config_required
+               if needle not in start_block]
+    if missing:
+        errors.append(
+            MP3_AUDIO_SOURCE_ONLY_ERROR
+            + ": sndStartMp3 missing configured speech config parity "
+            + ", ".join(missing)
+        )
+
     order_checks = [
         (
             "sndStartMp3",
@@ -2675,24 +2721,24 @@ def scan_mp3_audio_source_only_guard(root: Path) -> list[str]:
             "sndMp3ResolveSourceOrFallback",
             resolve_block,
             "sndMp3LoadPublicSourceFile(filenum, outaddr, outsize)",
-            "assetSourceDebugIsEnabledFor(ASSET_AUDIO)",
-        ),
-        (
-            "sndMp3ResolveSourceOrFallback",
-            resolve_block,
-            "assetSourceDebugIsEnabledFor(ASSET_AUDIO)",
             "fileGetRomAddress(filenum)",
-        ),
-        (
-            "sndMp3ResolveSourceOrFallback",
-            resolve_block,
-            "assetSourceDebugIsEnabledFor(ASSET_AUDIO)",
-            "fileGetRomSize(filenum)",
         ),
         (
             "sndMp3LoadPublicSourceFile",
             load_block,
-            "fsFileLoad(relpath, &size)",
+            "catalogResolveFile(filenum)",
+            "romExtractRelPathForFilenum(filenum, relpath",
+        ),
+        (
+            "sndMp3LoadPublicSourceFile",
+            load_block,
+            "assetSourceDebugIsEnabledFor(ASSET_AUDIO)",
+            "romExtractRelPathForFilenum(filenum, relpath",
+        ),
+        (
+            "sndMp3LoadPublicSourceFile",
+            load_block,
+            "fsFileLoad(source.path, &size)",
             "g_SndMp3SourceBytes = bytes",
         ),
     ]
@@ -2715,8 +2761,14 @@ def scan_mp3_audio_source_only_guard(root: Path) -> list[str]:
         (
             "psMp3DurationGetSourceOrFallbackSize",
             duration_block,
-            "fsFileSize(relpath)",
+            "catalogResolveFile(filenum)",
+            "romExtractRelPathForFilenum(filenum, relpath",
+        ),
+        (
+            "psMp3DurationGetSourceOrFallbackSize",
+            duration_block,
             "assetSourceDebugIsEnabledFor(ASSET_AUDIO)",
+            "romExtractRelPathForFilenum(filenum, relpath",
         ),
         (
             "psMp3DurationGetSourceOrFallbackSize",
@@ -3167,7 +3219,7 @@ def scan_scenario_setup_behavior_link_source_guards(root: Path) -> list[str]:
         "s_setupFindRecordByOrder",
         "s_setupValidateBehaviorLinkTarget",
         "s_setupValidateBehaviorLinkSourceTargets",
-        "is not a public setup.fields.tsv row",
+        "is not a public setup.fields.json row",
         "expected source type",
         "linked_guns.weapon_1",
         "linked_guns.weapon_2",
@@ -4313,7 +4365,7 @@ def scan_scenario_scene_room_global_guards(root: Path) -> list[str]:
 
 
 def scan_scenario_portal_table_guards(root: Path) -> list[str]:
-    """Reject direct Scenario portal-table mutations without portals.tsv proof."""
+    """Reject direct Scenario portal-table mutations without portals.json proof."""
     path = root / "port/src/scenario_source_runtime.c"
     try:
         text = path.read_text(encoding="utf-8")
@@ -4413,7 +4465,7 @@ def scan_scenario_portal_global_guards(root: Path) -> list[str]:
                         f"{function_name}:{line} reads {match.group(0)} without "
                         f"source proof token {token!r}"
                     )
-                elif token == "missing portals.tsv source" and token_pos > match.start():
+                elif token == "missing portals.json source" and token_pos > match.start():
                     errors.append(
                         f"{function_name}:{line} reads {match.group(0)} before "
                         f"source proof token {token!r}"

@@ -39,6 +39,7 @@
 #include "files.h"
 #include "assetcatalog.h"
 #include "fs.h"          /* Phase 3 Pass B: fsFullPath probe of extracted file */
+#include "loader_enum_reverse.h"
 #include "romextract.h"  /* Phase 3 Pass B: romExtractRelPathForFilenum */
 #include "system.h"
 #include "data.h"
@@ -370,8 +371,10 @@ static const struct {
 /*
  * Full SFX table: 1545 entries (indices 0x0000..0x0608), the main sound bank.
  * Per sfx.h comment: "There are 1545 (0x609) sound effects in the bank."
- * The high-bit mapped entries (SFX_8000+) are internal aliases remapped by
- * snd.c and are not registered as separate catalog entries.
+ * The high-bit mapped entries (SFX_8000+) are configured sound references.
+ * They are registered as readable aliases so authored source can preserve
+ * the same sound number the native runtime receives, including audioconfig
+ * volume/pan/filter behavior.
  *
  * Per Phase 3 Pass B Slice 10 (2026-05-02), entries whose russ-id falls
  * inside g_AudioRussMappings[] AND whose audioconfig is one of the seven
@@ -380,21 +383,10 @@ static const struct {
  * context/audits/catalog-phase3-slice10-voice-retag-2026-05-02.md
  * for the full inventory + the criteria.
  *
- * Phase 3 Pass B Slice 12 close-out (2026-05-02): the SFX alias range
- * (0x8000+) deliberately stays unregistered.  Mods can already override
- * leaf-level SFX through the 1545 ASSET_AUDIO entries below; alias-
- * range IDs decode to (confignum + russ-mapping) inside snd.c
- * BEFORE catalogResolveSound runs, so leaf-level overrides automati-
- * cally apply to the post-mapping result.  Direct alias override
- * would require growing LOAD_MAX_SOUNDS from 4096 to 65536 (256 KB
- * array) plus parallel-index plumbing for marginal value with no
- * live use case.  Mike's named "Farsight fire SFX plays a voiceline"
- * regression closed via Phase 2 Commit 4 (L_GUN regen, dev 68fb0ae3)
- * + S484-followup-5 (SFX enum drift).  See coverage audit
- * context/audits/catalog-coverage-audit-2026-05-01.md Section 3.D
- * (ACCEPTED LIMIT) and Phase 3 plan
- * context/designs/catalog/catalog-rom-once-phase3-plan-2026-05-02.md
- * Slice 12 for the architectural rationale.
+ * B-778 (2026-06-06): weapon animation command source can carry these
+ * configured sound IDs directly. Keeping them out of the catalog made
+ * valid public source fail to resolve at runtime and, when normalized,
+ * dropped the original audioconfig behavior.
  */
 #define NUM_BASE_SFX_ENTRIES 1545
 
@@ -546,7 +538,7 @@ static const struct {
  * loading via langLoad() and are NOT pre-loaded at catalog registration time.
  * When extracted .pdlang archives are present, loader_walker_lang.c registers
  * locale-suffixed base rows such as base:lang_options_en with public
- * strings.tsv FileProvider source. langLoad() prefers those source rows.
+ * strings.json FileProvider source. langLoad() prefers those source rows.
  */
 static const struct {
 	s32 bank_id;
@@ -936,6 +928,40 @@ s32 assetCatalogRegisterBaseGameExtended(void)
 			"assetcatalog: registered %d base audio entries (%d SFX + %d VOICE)",
 			sfx_n + voice_n, sfx_n, voice_n);
 		count += sfx_n + voice_n;
+
+#if !defined(PD_SERVER)
+		s32 alias_n = 0;
+		for (s32 r = 0; r < russCount; r++) {
+			union soundnumhack ref;
+			ref.packed = 0;
+			ref.hasconfig = 1;
+			ref.confignum = (u16)r;
+
+			s32 packed = (s32)(u16)ref.packed;
+			if (!loaderEnumNameForSfxEnum(packed)) {
+				continue;
+			}
+
+			catalogReadableSfxId(packed, idbuf, sizeof(idbuf));
+			asset_entry_t *e = assetCatalogRegisterAudio(
+				idbuf, packed, "", AUDIO_CAT_SFX, 0, "");
+			if (!e) {
+				sysLogPrintf(LOG_ERROR,
+					"assetcatalog: failed to register configured audio alias %s",
+					idbuf);
+				continue;
+			}
+			strncpy(e->category, "base", CATALOG_CATEGORY_LEN - 1);
+			e->bundled = 1; e->enabled = 1;
+			e->runtime_index = packed;
+			e->load_state = ASSET_STATE_LOADED;
+			e->ref_count = ASSET_REF_BUNDLED;
+			alias_n++;
+		}
+		sysLogPrintf(LOG_NOTE,
+			"assetcatalog: registered %d configured SFX aliases", alias_n);
+		count += alias_n;
+#endif
 	}
 
 	/* ---- music tracks (AUDIO_CAT_MUSIC) ---- */

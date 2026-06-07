@@ -615,7 +615,7 @@ TEST_CASE("music sequencer enforces source-only audio before legacy fallback", "
 	REQUIRE(loadH.find("catalogResolveMusicSequence") != std::string::npos);
 	REQUIRE(loadH.find("Public .pdsong track audio is routed through the streaming music path") !=
 	        std::string::npos);
-	REQUIRE(loadH.find("Public sequence.mid, sequence.tsv, and music.ini sources are") !=
+	REQUIRE(loadH.find("Public sequence.mid, sequence.json, and music.ini sources are") !=
 	        std::string::npos);
 	REQUIRE(load.find("CatalogResolveResult catalogResolveMusicSequence") !=
 	        std::string::npos);
@@ -640,10 +640,10 @@ TEST_CASE("music sequencer enforces source-only audio before legacy fallback", "
 	REQUIRE(mod.find("modSequenceCompilePublicSource") != std::string::npos);
 	REQUIRE(mod.find("modSequenceSiblingPath(r->path, \"sequence.mid\"") !=
 	        std::string::npos);
-	REQUIRE(mod.find("modSequenceSiblingPath(r->path, \"sequence.tsv\"") !=
+	REQUIRE(mod.find("modSequenceSiblingPath(r->path, \"sequence.json\"") !=
 	        std::string::npos);
 	REQUIRE(mod.find("fsFileSize(mid_path) <= 0") != std::string::npos);
-	REQUIRE(mod.find("modSequenceLoadEventsTsv") != std::string::npos);
+	REQUIRE(mod.find("modSequenceLoadEventsJson") != std::string::npos);
 	REQUIRE(mod.find("modSequenceBuildAlcBuffer") != std::string::npos);
 	REQUIRE(mod.find("modSequencePutBe32(data + 64, division)") !=
 	        std::string::npos);
@@ -663,7 +663,7 @@ TEST_CASE("music sequencer enforces source-only audio before legacy fallback", "
 	REQUIRE(mod.find("modSequenceSiblingPath(r->path, \"sequence.mid\"") <
 	        mod.find("fsFileSize(mid_path) <= 0"));
 	REQUIRE(mod.find("fsFileSize(mid_path) <= 0") <
-	        mod.find("modSequenceLoadEventsTsv(tsv_path, tracks, &event_count)"));
+	        mod.find("modSequenceLoadEventsJson(json_path, tracks, &event_count)"));
 	REQUIRE(snd.find("modSequencePlayAudioSource(seq->tracknum)") !=
 	        std::string::npos);
 	REQUIRE(snd.find("modSequencePlayAudioSource(seq->tracknum)") <
@@ -688,6 +688,8 @@ TEST_CASE("MP3 file use enforces source-only audio before ROM fallback", "[catal
 	        std::string::npos);
 	REQUIRE(snd.find("#include \"fs.h\"") != std::string::npos);
 	REQUIRE(snd.find("#include \"romextract.h\"") != std::string::npos);
+	REQUIRE(snd.find("#include \"assetcatalog_load.h\"") !=
+	        std::string::npos);
 	REQUIRE(snd.find("static void *g_SndMp3SourceBytes = NULL") !=
 	        std::string::npos);
 	REQUIRE(snd.find("static void sndMp3FreeSourceBuffer(void)") !=
@@ -696,6 +698,8 @@ TEST_CASE("MP3 file use enforces source-only audio before ROM fallback", "[catal
 	        std::string::npos);
 	REQUIRE(snd.find("static s32 sndMp3ResolveSourceOrFallback") !=
 	        std::string::npos);
+	REQUIRE(snd.find("catalogResolveFile(filenum)") != std::string::npos);
+	REQUIRE(snd.find("fsFileLoad(source.path, &size)") != std::string::npos);
 	REQUIRE(snd.find("romExtractRelPathForFilenum(filenum, relpath") !=
 	        std::string::npos);
 	REQUIRE(snd.find("fsFileLoad(relpath, &size)") != std::string::npos);
@@ -704,20 +708,28 @@ TEST_CASE("MP3 file use enforces source-only audio before ROM fallback", "[catal
 	        std::string::npos);
 	REQUIRE(snd.find("ASSET.SOURCE_ONLY: MP3 file") !=
 	        std::string::npos);
-	REQUIRE(snd.find("refusing ROM/static playback fallback") !=
+	REQUIRE(snd.find("refusing loose extracted file or ROM/static playback fallback") !=
 	        std::string::npos);
 	REQUIRE(snd_start_mp3.find("sndMp3ResolveSourceOrFallback((s32)sp20.id") <
 	        snd_start_mp3.find("mp3PlayFile(g_SndCurMp3.romaddr, g_SndCurMp3.romsize)"));
-	REQUIRE(snd_mp3_resolve.find("assetSourceDebugIsEnabledFor(ASSET_AUDIO)") <
+	REQUIRE(snd_mp3_resolve.find("sndMp3LoadPublicSourceFile(filenum, outaddr, outsize)") <
 	        snd_mp3_resolve.find("fileGetRomAddress(filenum)"));
-	REQUIRE(snd_mp3_resolve.find("assetSourceDebugIsEnabledFor(ASSET_AUDIO)") <
-	        snd_mp3_resolve.find("fileGetRomSize(filenum)"));
+	const std::string snd_mp3_load =
+		functionBlock(snd, "static s32 sndMp3LoadPublicSourceFile");
+	REQUIRE(snd_mp3_load.find("catalogResolveFile(filenum)") <
+	        snd_mp3_load.find("romExtractRelPathForFilenum(filenum, relpath"));
+	REQUIRE(snd_mp3_load.find("assetSourceDebugIsEnabledFor(ASSET_AUDIO)") <
+	        snd_mp3_load.find("romExtractRelPathForFilenum(filenum, relpath"));
 	REQUIRE(propsnd.find("#include \"asset_source_debug.h\"") !=
 	        std::string::npos);
 	REQUIRE(propsnd.find("#include \"fs.h\"") != std::string::npos);
 	REQUIRE(propsnd.find("#include \"romextract.h\"") != std::string::npos);
+	REQUIRE(propsnd.find("#include \"assetcatalog_load.h\"") !=
+	        std::string::npos);
 	REQUIRE(propsnd.find("static s32 psMp3DurationGetSourceOrFallbackSize") !=
 	        std::string::npos);
+	REQUIRE(propsnd.find("catalogResolveFile(filenum)") != std::string::npos);
+	REQUIRE(propsnd.find("fsFileSize(source.path)") != std::string::npos);
 	REQUIRE(propsnd.find("romExtractRelPathForFilenum(filenum, relpath") !=
 	        std::string::npos);
 	REQUIRE(propsnd.find("fsFileSize(relpath)") != std::string::npos);
@@ -725,10 +737,14 @@ TEST_CASE("MP3 file use enforces source-only audio before ROM fallback", "[catal
 	        std::string::npos);
 	REQUIRE(propsnd.find("ASSET.SOURCE_ONLY: MP3 file") !=
 	        std::string::npos);
-	REQUIRE(propsnd.find("refusing ROM/static") !=
+	REQUIRE(propsnd.find("refusing loose extracted file or ROM/static") !=
 	        std::string::npos);
 	REQUIRE(propsnd.find("psMp3DurationGetSourceOrFallbackSize((s32)soundnum.id)") !=
 	        std::string::npos);
+	REQUIRE(propsnd.find("catalogResolveFile(filenum)") <
+	        propsnd.find("romExtractRelPathForFilenum(filenum, relpath"));
+	REQUIRE(propsnd.find("assetSourceDebugIsEnabledFor(ASSET_AUDIO)") <
+	        propsnd.find("romExtractRelPathForFilenum(filenum, relpath"));
 	REQUIRE(propsnd.find("assetSourceDebugIsEnabledFor(ASSET_AUDIO)") <
 	        propsnd.find("fileGetRomSize(filenum)"));
 	REQUIRE(propsnd.find("fileGetRomSize(soundnum.id)") == std::string::npos);
@@ -746,16 +762,30 @@ TEST_CASE("file-source sound playback failure refuses source-only ROM fallback",
 	const std::string snd = readTextFile("src/lib/snd.c");
 	const std::string guard = readTextFile("tools/asset_native_source_guard.py");
 
-	REQUIRE(snd.find("audioPlayFileSound(r.path, volume, pan, filepitch)") !=
+	REQUIRE(snd.find("audioStartFileSound(r.path, volume, pan") !=
 	        std::string::npos);
 	REQUIRE(snd.find("filepitch *= alCents2Ratio(cents)") !=
+	        std::string::npos);
+	REQUIRE(snd.find("entry ? entry->ext.audio.has_loop : 0") !=
+	        std::string::npos);
+	REQUIRE(snd.find("entry ? entry->ext.audio.loop_start_samples : 0") !=
+	        std::string::npos);
+	REQUIRE(snd.find("entry ? entry->ext.audio.loop_end_samples : 0") !=
+	        std::string::npos);
+	REQUIRE(snd.find("entry ? entry->ext.audio.loop_count : 0") !=
+	        std::string::npos);
+	REQUIRE(snd.find("entry ? entry->ext.audio.has_envelope : 0") !=
+	        std::string::npos);
+	REQUIRE(snd.find("entry ? entry->ext.audio.attack_time_us : 0") !=
+	        std::string::npos);
+	REQUIRE(snd.find("entry ? entry->ext.audio.release_time_us : 0") !=
 	        std::string::npos);
 	REQUIRE(snd.find("ASSET.SOURCE_ONLY: sound %d maps to public file source") !=
 	        std::string::npos);
 	REQUIRE(snd.find("but file playback failed; refusing ROM/static fallback") !=
 	        std::string::npos);
 	REQUIRE(snd.find("assetSourceDebugIsEnabledFor(ASSET_AUDIO)",
-		snd.find("audioPlayFileSound(r.path, volume, pan, filepitch)")) <
+		snd.find("audioStartFileSound(r.path, volume, pan")) <
 	        snd.find("MOD: sound %d catalog override failed (%s), falling back to ROM"));
 
 	REQUIRE(guard.find("scan_sound_file_source_only_guard(root)") !=
@@ -797,7 +827,7 @@ TEST_CASE("base menu hudpiece model has a catalog provider handle", "[catalog][p
 	REQUIRE(baseExtended.find("weapon/menu-pipeline model files") != std::string::npos);
 	REQUIRE(meshExtractor.find("catalogReadableModelIdForFile((s32)FILE_GHUDPIECE, \"menu\", \"menu\"") != std::string::npos);
 	REQUIRE(meshExtractor.find("(u16)FILE_GHUDPIECE, \"menu\"") != std::string::npos);
-	REQUIRE(meshExtractor.find("pdmesh_model_obj_mtx_v19_materials_hierarchy_parts_scale_faces_relations_raw_mtx_allmodels_menuhud") != std::string::npos);
+	REQUIRE(meshExtractor.find("pdmesh_model_obj_mtx_v23_materials_hierarchy_parts_faces_json_relations_raw_mtx_render_commands_json_allmodels_menuhud_zero_tri_models") != std::string::npos);
 	REQUIRE(menu.find("MENUMODELPARAMS_SET_FILENUM(FILE_GHUDPIECE)") != std::string::npos);
 }
 

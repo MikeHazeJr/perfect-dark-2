@@ -191,7 +191,6 @@ static s32 iniKeyLooksLikeFileReference(const char *key)
 			keyEqualsNoCase(key, "texture") ||
 			keyEqualsNoCase(key, "font") ||
 			keyEqualsNoCase(key, "strings") ||
-			keyEqualsNoCase(key, "strings_tsv") ||
 			keyEqualsNoCase(key, "rooms") ||
 			keyEqualsNoCase(key, "pads") ||
 			keyEqualsNoCase(key, "setup") ||
@@ -379,6 +378,11 @@ s32 assetArchiveEntryIsForbiddenBinPayload(const char *entry_name)
 	return 0;
 }
 
+s32 assetArchiveEntryIsForbiddenTsvPayload(const char *entry_name)
+{
+	return entry_name && endsWithNoCase(entry_name, ".tsv");
+}
+
 s32 assetArchiveEntryIsRootMachineMetadata(const char *entry_name)
 {
 	if (!entry_name || !entry_name[0] || pathHasSlash(entry_name)) {
@@ -388,7 +392,7 @@ s32 assetArchiveEntryIsRootMachineMetadata(const char *entry_name)
 	    strcmp(entry_name, "inventory.json") == 0 ||
 	    strcmp(entry_name, "provenance.json") == 0 ||
 	    strcmp(entry_name, "validation.json") == 0 ||
-	    strcmp(entry_name, "hashes.tsv") == 0 ||
+	    strcmp(entry_name, "hashes.json") == 0 ||
 	    strcmp(entry_name, "source-format.json") == 0) {
 		return 1;
 	}
@@ -1289,6 +1293,12 @@ s32 assetArchiveValidateOpened(mod_archive_t *archive,
 			return -1;
 		}
 		if (mode == ASSET_ARCHIVE_VALIDATE_RELEASE &&
+				assetArchiveEntryIsForbiddenTsvPayload(entry)) {
+			setErr(err, err_cap, "%s contains forbidden public TSV payload: %s",
+				archive_path, entry);
+			return -1;
+		}
+		if (mode == ASSET_ARCHIVE_VALIDATE_RELEASE &&
 				assetArchiveEntryIsRootMachineMetadata(entry)) {
 			setErr(err, err_cap,
 				"%s keeps machine metadata at archive root: %s",
@@ -1356,6 +1366,14 @@ static s32 validateMemEntryCb(const char *entry_name, u32 uncompressed_size, voi
 	}
 	if (assetArchiveEntryIsForbiddenBinPayload(entry_name)) {
 		setErr(ctx->err, ctx->err_cap, "%s contains forbidden authored .bin payload: %s",
+			ctx->archive_name, entry_name);
+		ctx->failed = 1;
+		return 1;
+	}
+	if (ctx->mode == ASSET_ARCHIVE_VALIDATE_RELEASE &&
+			assetArchiveEntryIsForbiddenTsvPayload(entry_name)) {
+		setErr(ctx->err, ctx->err_cap,
+			"%s contains forbidden public TSV payload: %s",
 			ctx->archive_name, entry_name);
 		ctx->failed = 1;
 		return 1;

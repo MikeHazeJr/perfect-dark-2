@@ -14,6 +14,7 @@
  */
 
 #include <stddef.h>
+#include <stdlib.h>
 #include <string.h>
 #include <PR/ultratypes.h>
 
@@ -22,6 +23,7 @@
 #include "loader_pool.h"
 #include "loader_walker.h"
 #include "loader_walker_common.h"
+#include "system.h"
 
 static s32 s_register(const char *manifest, size_t manifest_len,
                       const char *pd_kind, const char *id,
@@ -45,7 +47,7 @@ static s32 s_register(const char *manifest, size_t manifest_len,
     char category[32];
     char target_body[64];
     char source_member[128];
-    char source_path[FS_MAXPATH + 1];
+    char source_path[FS_MAXPATH + 1] = {0};
     loaderWalkerEnvelopeStrCopy(manifest, manifest_len, "category",
                                  category, sizeof(category));
     loaderWalkerEnvelopeStrCopy(manifest, manifest_len, "target_body",
@@ -109,7 +111,21 @@ static s32 s_register(const char *manifest, size_t manifest_len,
      * command array that loaderPoolParseAnimationJson expects. Character
      * animations are byte-stream-only and have no pool slot. */
     if (strcmp(category, "weapon_animation") == 0) {
-        loaderPoolParseAnimationJson(manifest, manifest_len);
+        u32 command_size = 0;
+        char *command_json = (char *)fsFileLoad(source_path, &command_size);
+        if (!command_json || command_size == 0) {
+            if (command_json) free(command_json);
+            sysLogPrintf(LOG_WARNING,
+                "LOADER.POOL.ANIMATION.SOURCE_FAIL: id=%s source=%s",
+                id ? id : "", source_path);
+            return -1;
+        }
+        loaderPoolParseAnimationSourceJson(command_json, command_size,
+            source_path);
+        sysLogPrintf(LOG_NOTE,
+            "LOADER.POOL.ANIMATION.SOURCE: id=%s source=%s bytes=%u",
+            id ? id : "", source_path, (unsigned)command_size);
+        free(command_json);
     }
 
     return 1;

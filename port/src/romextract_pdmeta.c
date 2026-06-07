@@ -26,9 +26,9 @@
 #include "romextract_pd.h"
 #include "system.h"
 
-#define PDMETA_FAST_CACHE_KIND "pdmeta_table_backed_v8_pdscenario_v82"
+#define PDMETA_FAST_CACHE_KIND "pdmeta_table_backed_v10_pdscenario_v92_objectives_spawns_volumes_pads_paths_ai_lists_json_navtables_json"
 #define PDMETA_SCENARIO_DEP_CACHE_KIND \
-	"pdscenario_scene_glb_clean_public_v84_standalone_backfill_collision_obj_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_quip_shuffle_graph_portals_navhashes"
+	"pdscenario_scene_glb_clean_public_v95_standalone_backfill_collision_obj_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json"
 
 #define PDMETA_MAX_MISSION_OBJECTIVE_ROWS 512
 
@@ -256,6 +256,58 @@ static s32 s_textbufAppendf(pdmeta_textbuf_t *buf, const char *fmt, ...)
 	return 0;
 }
 
+static s32 s_textbufAppendJsonString(pdmeta_textbuf_t *buf, const char *value)
+{
+	const unsigned char *p;
+
+	if (s_textbufAppend(buf, "\"") != 0) {
+		return -1;
+	}
+
+	if (!value) {
+		value = "";
+	}
+
+	for (p = (const unsigned char *)value; *p; p++) {
+		char tmp[8];
+		switch (*p) {
+		case '\\':
+			if (s_textbufAppend(buf, "\\\\") != 0) return -1;
+			break;
+		case '"':
+			if (s_textbufAppend(buf, "\\\"") != 0) return -1;
+			break;
+		case '\b':
+			if (s_textbufAppend(buf, "\\b") != 0) return -1;
+			break;
+		case '\f':
+			if (s_textbufAppend(buf, "\\f") != 0) return -1;
+			break;
+		case '\n':
+			if (s_textbufAppend(buf, "\\n") != 0) return -1;
+			break;
+		case '\r':
+			if (s_textbufAppend(buf, "\\r") != 0) return -1;
+			break;
+		case '\t':
+			if (s_textbufAppend(buf, "\\t") != 0) return -1;
+			break;
+		default:
+			if (*p < 0x20) {
+				snprintf(tmp, sizeof(tmp), "\\u%04x", (unsigned)*p);
+				if (s_textbufAppend(buf, tmp) != 0) return -1;
+			} else {
+				tmp[0] = (char)*p;
+				tmp[1] = '\0';
+				if (s_textbufAppend(buf, tmp) != 0) return -1;
+			}
+			break;
+		}
+	}
+
+	return s_textbufAppend(buf, "\"");
+}
+
 static void s_textbufFree(pdmeta_textbuf_t *buf)
 {
 	if (!buf) return;
@@ -349,88 +401,211 @@ static char *s_nextTsvField(char **cursor)
 	return start;
 }
 
+static const char *s_jsonSkipWs(const char *p, const char *end)
+{
+	while (p && p < end && (*p == ' ' || *p == '\t' ||
+			*p == '\r' || *p == '\n')) {
+		p++;
+	}
+	return p;
+}
+
+static const char *s_jsonFindObjectEnd(const char *start)
+{
+	const char *p;
+	s32 depth = 0;
+	s32 in_string = 0;
+	s32 escape = 0;
+
+	if (!start || *start != '{') return NULL;
+	for (p = start; *p; p++) {
+		char c = *p;
+		if (in_string) {
+			if (escape) {
+				escape = 0;
+			} else if (c == '\\') {
+				escape = 1;
+			} else if (c == '"') {
+				in_string = 0;
+			}
+			continue;
+		}
+		if (c == '"') {
+			in_string = 1;
+		} else if (c == '{') {
+			depth++;
+		} else if (c == '}') {
+			depth--;
+			if (depth == 0) return p + 1;
+			if (depth < 0) return NULL;
+		}
+	}
+	return NULL;
+}
+
+static const char *s_jsonFindKey(const char *start, const char *end,
+	const char *key)
+{
+	char quoted[96];
+	const char *p;
+	size_t key_len;
+
+	if (!start || !end || !key) return NULL;
+	key_len = strlen(key);
+	if (key_len + 3 > sizeof(quoted)) return NULL;
+	snprintf(quoted, sizeof(quoted), "\"%s\"", key);
+	for (p = start; p < end; p++) {
+		size_t remaining = (size_t)(end - p);
+		size_t quoted_len = strlen(quoted);
+		if (remaining < quoted_len) return NULL;
+		if (memcmp(p, quoted, quoted_len) == 0) return p + quoted_len;
+	}
+	return NULL;
+}
+
+static s32 s_jsonObjectStringValue(const char *object_start,
+	const char *object_end, const char *key, char *out, size_t out_n)
+{
+	const char *p;
+	char *dst;
+	size_t remaining;
+	s32 escape = 0;
+
+	if (!out || out_n == 0) return -1;
+	out[0] = '\0';
+	if (!object_start || !object_end || object_start >= object_end || !key) {
+		return -1;
+	}
+
+	p = s_jsonFindKey(object_start, object_end, key);
+	if (!p) return 0;
+	p = s_jsonSkipWs(p, object_end);
+	if (!p || p >= object_end || *p != ':') return -1;
+	p++;
+	p = s_jsonSkipWs(p, object_end);
+	if (!p || p >= object_end || *p != '"') return -1;
+	p++;
+
+	dst = out;
+	remaining = out_n - 1;
+	while (p < object_end && *p) {
+		char c = *p++;
+		if (escape) {
+			switch (c) {
+			case 'n': c = '\n'; break;
+			case 'r': c = '\r'; break;
+			case 't': c = '\t'; break;
+			case 'b': c = '\b'; break;
+			case 'f': c = '\f'; break;
+			default: break;
+			}
+			escape = 0;
+		} else if (c == '\\') {
+			escape = 1;
+			continue;
+		} else if (c == '"') {
+			*dst = '\0';
+			return 1;
+		}
+		if (remaining > 0) {
+			*dst++ = c;
+			remaining--;
+		}
+	}
+	return -1;
+}
+
 static s32 s_loadScenarioObjectiveRows(const char *scenario_rel,
 	pdmeta_objective_row_t *rows, s32 max_rows)
 {
 	char *text;
-	char *cursor;
-	char *line;
+	const char *rows_key;
+	const char *array_start;
+	const char *array_end;
+	const char *cursor;
 	s32 count = 0;
-	s32 header = 1;
 
 	if (!scenario_rel || !rows || max_rows <= 0) return -1;
 
-	text = s_archiveEntryTextAlloc(scenario_rel, "objectives.tsv", NULL);
+	text = s_archiveEntryTextAlloc(scenario_rel, "objectives.json", NULL);
 	if (!text) return -1;
+	if (!strstr(text, "\"schema\": \"pd2.scenario.objectives.v1\"")) {
+		free(text);
+		return -1;
+	}
+	rows_key = strstr(text, "\"rows\"");
+	if (!rows_key) {
+		free(text);
+		return -1;
+	}
+	array_start = strchr(rows_key, '[');
+	if (!array_start) {
+		free(text);
+		return -1;
+	}
+	array_end = strchr(array_start, ']');
+	if (!array_end) {
+		free(text);
+		return -1;
+	}
 
-	cursor = text;
-	while ((line = s_nextTsvLine(&cursor)) != NULL) {
-		char *field_cursor;
-		char *objective_id;
-		char *kind;
-		char *text_token;
-		char *difficulty_mask;
-		char *scenario_node;
-		char *operand_kind;
-		char *target_ref;
-		char *target_record_ref;
-		char *pad_ref;
-		char *state_ref;
-		char *match_value;
-		char *initial_status;
+	cursor = array_start + 1;
+	while (cursor && cursor < array_end) {
+		const char *object_start = strchr(cursor, '{');
+		const char *object_end;
 
-		if (!line[0]) continue;
-		if (header) {
-			header = 0;
-			continue;
+		if (!object_start || object_start >= array_end) break;
+		object_end = s_jsonFindObjectEnd(object_start);
+		if (!object_end || object_end > array_end + 1) {
+			free(text);
+			return -1;
 		}
 		if (count >= max_rows) {
 			free(text);
 			return -1;
 		}
-
-		field_cursor = line;
-		objective_id = s_nextTsvField(&field_cursor);
-		kind = s_nextTsvField(&field_cursor);
-		text_token = s_nextTsvField(&field_cursor);
-		difficulty_mask = s_nextTsvField(&field_cursor);
-		scenario_node = s_nextTsvField(&field_cursor);
-		operand_kind = s_nextTsvField(&field_cursor);
-		target_ref = s_nextTsvField(&field_cursor);
-		target_record_ref = s_nextTsvField(&field_cursor);
-		pad_ref = s_nextTsvField(&field_cursor);
-		state_ref = s_nextTsvField(&field_cursor);
-		match_value = s_nextTsvField(&field_cursor);
-		initial_status = s_nextTsvField(&field_cursor);
-
-		if (!objective_id || !objective_id[0] || !kind || !kind[0]) {
+		memset(&rows[count], 0, sizeof(rows[count]));
+		if (s_jsonObjectStringValue(object_start, object_end,
+				"objective_id", rows[count].objective_id,
+				sizeof(rows[count].objective_id)) <= 0 ||
+				s_jsonObjectStringValue(object_start, object_end,
+					"kind", rows[count].kind,
+					sizeof(rows[count].kind)) <= 0) {
+			cursor = object_end;
 			continue;
 		}
-
-		s_copyString(rows[count].objective_id,
-			sizeof(rows[count].objective_id), objective_id);
-		s_copyString(rows[count].kind, sizeof(rows[count].kind), kind);
-		s_copyString(rows[count].text_token,
-			sizeof(rows[count].text_token), text_token);
-		s_copyString(rows[count].difficulty_mask,
-			sizeof(rows[count].difficulty_mask), difficulty_mask);
-		s_copyString(rows[count].scenario_node,
-			sizeof(rows[count].scenario_node), scenario_node);
-		s_copyString(rows[count].operand_kind,
-			sizeof(rows[count].operand_kind), operand_kind);
-		s_copyString(rows[count].target_ref,
-			sizeof(rows[count].target_ref), target_ref);
-		s_copyString(rows[count].target_record_ref,
-			sizeof(rows[count].target_record_ref), target_record_ref);
-		s_copyString(rows[count].pad_ref,
-			sizeof(rows[count].pad_ref), pad_ref);
-		s_copyString(rows[count].state_ref,
-			sizeof(rows[count].state_ref), state_ref);
-		s_copyString(rows[count].match_value,
-			sizeof(rows[count].match_value), match_value);
-		s_copyString(rows[count].initial_status,
-			sizeof(rows[count].initial_status), initial_status);
+		(void)s_jsonObjectStringValue(object_start, object_end,
+			"text_token", rows[count].text_token,
+			sizeof(rows[count].text_token));
+		(void)s_jsonObjectStringValue(object_start, object_end,
+			"difficulty_mask", rows[count].difficulty_mask,
+			sizeof(rows[count].difficulty_mask));
+		(void)s_jsonObjectStringValue(object_start, object_end,
+			"graph_node", rows[count].scenario_node,
+			sizeof(rows[count].scenario_node));
+		(void)s_jsonObjectStringValue(object_start, object_end,
+			"operand_kind", rows[count].operand_kind,
+			sizeof(rows[count].operand_kind));
+		(void)s_jsonObjectStringValue(object_start, object_end,
+			"target_ref", rows[count].target_ref,
+			sizeof(rows[count].target_ref));
+		(void)s_jsonObjectStringValue(object_start, object_end,
+			"target_record_ref", rows[count].target_record_ref,
+			sizeof(rows[count].target_record_ref));
+		(void)s_jsonObjectStringValue(object_start, object_end,
+			"pad_ref", rows[count].pad_ref,
+			sizeof(rows[count].pad_ref));
+		(void)s_jsonObjectStringValue(object_start, object_end,
+			"state_ref", rows[count].state_ref,
+			sizeof(rows[count].state_ref));
+		(void)s_jsonObjectStringValue(object_start, object_end,
+			"match_value", rows[count].match_value,
+			sizeof(rows[count].match_value));
+		(void)s_jsonObjectStringValue(object_start, object_end,
+			"initial_status", rows[count].initial_status,
+			sizeof(rows[count].initial_status));
 		count++;
+		cursor = object_end;
 	}
 
 	free(text);
@@ -462,7 +637,7 @@ static void s_missionObjectiveNodeId(const pdmeta_objective_row_t *row,
 	}
 }
 
-static s32 s_buildMissionObjectivesTsv(const char *scenario_file,
+static s32 s_buildMissionObjectivesJson(const char *scenario_file,
 	const pdmeta_objective_row_t *rows, s32 row_count,
 	pdmeta_textbuf_t *out)
 {
@@ -471,27 +646,53 @@ static s32 s_buildMissionObjectivesTsv(const char *scenario_file,
 	if (!scenario_file || !rows || row_count <= 0 || !out) return -1;
 
 	if (s_textbufAppend(out,
-			"objective_id\tkind\ttext_token\tdifficulty_mask\tgraph_node\tscenario_source\toperand_kind\ttarget_ref\ttarget_record_ref\tpad_ref\tstate_ref\tmatch_value\tinitial_status\n") != 0) {
+			"{\n"
+			"  \"schema\": \"pd2.mission.objectives.v1\",\n"
+			"  \"rows\": [\n") != 0) {
 		return -1;
 	}
 
 	for (i = 0; i < row_count; i++) {
 		char node_id[96];
+		char scenario_source[192];
 		s_missionObjectiveNodeId(&rows[i], i, node_id, sizeof(node_id));
-		if (s_textbufAppendf(out,
-				"%s\t%s\t%s\t%s\t%s\tdependencies/assets/scenarios/%s.pdscenario::objectives.tsv#%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
-				rows[i].objective_id, rows[i].kind,
-				rows[i].text_token, rows[i].difficulty_mask,
-				node_id, scenario_file, rows[i].objective_id,
-				rows[i].operand_kind, rows[i].target_ref,
-				rows[i].target_record_ref, rows[i].pad_ref,
-				rows[i].state_ref, rows[i].match_value,
-				rows[i].initial_status) != 0) {
+		snprintf(scenario_source, sizeof(scenario_source),
+			"dependencies/assets/scenarios/%s.pdscenario::objectives.json#%s",
+			scenario_file, rows[i].objective_id);
+
+		if (s_textbufAppend(out, i ? ",\n    {\n" : "    {\n") != 0 ||
+				s_textbufAppend(out, "      \"objective_id\": ") != 0 ||
+				s_textbufAppendJsonString(out, rows[i].objective_id) != 0 ||
+				s_textbufAppend(out, ",\n      \"kind\": ") != 0 ||
+				s_textbufAppendJsonString(out, rows[i].kind) != 0 ||
+				s_textbufAppend(out, ",\n      \"text_token\": ") != 0 ||
+				s_textbufAppendJsonString(out, rows[i].text_token) != 0 ||
+				s_textbufAppend(out, ",\n      \"difficulty_mask\": ") != 0 ||
+				s_textbufAppendJsonString(out, rows[i].difficulty_mask) != 0 ||
+				s_textbufAppend(out, ",\n      \"graph_node\": ") != 0 ||
+				s_textbufAppendJsonString(out, node_id) != 0 ||
+				s_textbufAppend(out, ",\n      \"scenario_source\": ") != 0 ||
+				s_textbufAppendJsonString(out, scenario_source) != 0 ||
+				s_textbufAppend(out, ",\n      \"operand_kind\": ") != 0 ||
+				s_textbufAppendJsonString(out, rows[i].operand_kind) != 0 ||
+				s_textbufAppend(out, ",\n      \"target_ref\": ") != 0 ||
+				s_textbufAppendJsonString(out, rows[i].target_ref) != 0 ||
+				s_textbufAppend(out, ",\n      \"target_record_ref\": ") != 0 ||
+				s_textbufAppendJsonString(out, rows[i].target_record_ref) != 0 ||
+				s_textbufAppend(out, ",\n      \"pad_ref\": ") != 0 ||
+				s_textbufAppendJsonString(out, rows[i].pad_ref) != 0 ||
+				s_textbufAppend(out, ",\n      \"state_ref\": ") != 0 ||
+				s_textbufAppendJsonString(out, rows[i].state_ref) != 0 ||
+				s_textbufAppend(out, ",\n      \"match_value\": ") != 0 ||
+				s_textbufAppendJsonString(out, rows[i].match_value) != 0 ||
+				s_textbufAppend(out, ",\n      \"initial_status\": ") != 0 ||
+				s_textbufAppendJsonString(out, rows[i].initial_status) != 0 ||
+				s_textbufAppend(out, "\n    }") != 0) {
 			return -1;
 		}
 	}
 
-	return 0;
+	return s_textbufAppend(out, "\n  ]\n}\n");
 }
 
 static s32 s_buildMissionGraph(const char *mission_id,
@@ -520,7 +721,7 @@ static s32 s_buildMissionGraph(const char *mission_id,
 			"    { \"id\": \"mission.phase.complete\", \"kind\": \"mission.phase.source\", \"phase\": \"complete\" },\n"
 			"    { \"id\": \"mission.phase.failed\", \"kind\": \"mission.phase.source\", \"phase\": \"failed\" },\n"
 			"    { \"id\": \"mission.phase.end\", \"kind\": \"mission.phase.source\", \"phase\": \"end\" },\n"
-			"    { \"id\": \"mission.objectives\", \"kind\": \"mission.objectives.source\", \"file\": \"objectives.tsv\", \"scenario_table\": \"dependencies/assets/scenarios/%s.pdscenario::objectives.tsv\" },\n",
+			"    { \"id\": \"mission.objectives\", \"kind\": \"mission.objectives.source\", \"file\": \"objectives.json\", \"scenario_table\": \"dependencies/assets/scenarios/%s.pdscenario::objectives.json\" },\n",
 			mission_id, scenario_id, slug, scenario_id, scenario_file) != 0) {
 		return -1;
 	}
@@ -958,7 +1159,7 @@ static s32 s_emitTexture(const asset_entry_t *e, const char *out_dir,
 	u32 height = 0;
 	s32 empty_rom_slot = 0;
 	if (romExtractDecodeTextureImages((u16)e->ext.texture.texture_id,
-			&tga, &tga_size, &png, &png_size, &width, &height) != 0 ||
+			&tga, &tga_size, &png, &png_size, &width, &height, NULL) != 0 ||
 			!png || png_size == 0) {
 		if (tga) { free(tga); tga = NULL; }
 		if (png) { free(png); png = NULL; }
@@ -1137,7 +1338,7 @@ static s32 s_emitSkin(const asset_entry_t *e, const char *out_dir,
 		"catalog_id = %s\n"
 		"target = %s\n"
 		"skin_file = skin.json\n"
-		"swatches_file = swatches.tsv\n",
+		"swatches_file = swatches.json\n",
 		e->id, target);
 	if (ini_len <= 0 || (size_t)ini_len >= sizeof(ini)) return -1;
 
@@ -1155,8 +1356,12 @@ static s32 s_emitSkin(const asset_entry_t *e, const char *out_dir,
 	if (skin_len <= 0 || (size_t)skin_len >= sizeof(skin)) return -1;
 
 	const char *swatches =
-		"swatch\tred\tgreen\tblue\talpha\n"
-		"default\t1.0\t1.0\t1.0\t1.0\n";
+		"{\n"
+		"  \"schema\": \"pd2.skin.swatches.v1\",\n"
+		"  \"swatches\": [\n"
+		"    { \"name\": \"default\", \"rgba\": [1.0, 1.0, 1.0, 1.0] }\n"
+		"  ]\n"
+		"}\n";
 
 	char manifest[1024];
 	int manifest_len = snprintf(manifest, sizeof(manifest),
@@ -1185,7 +1390,7 @@ static s32 s_emitSkin(const asset_entry_t *e, const char *out_dir,
 			manifest, (u32)manifest_len) != MODARCHIVE_OK ||
 			assetArchiveWriterAddPublicMem(&writer, "skin.json",
 			skin, (u32)skin_len, "skin") != MODARCHIVE_OK ||
-			assetArchiveWriterAddPublicMem(&writer, "swatches.tsv",
+			assetArchiveWriterAddPublicMem(&writer, "swatches.json",
 			swatches, (u32)strlen(swatches), "swatches") != MODARCHIVE_OK) {
 		modArchiveAbort(aw);
 		return -1;
@@ -1462,8 +1667,8 @@ static s32 s_emitMission(const arena_authored_record_t *a, const char *out_dir,
 	s32 archive_current = (!force_rewrite && fsFileSize(relpath) > 0 &&
 		s_existingArchiveHasEntry(relpath, "mission.ini") &&
 		s_existingArchiveHasEntry(relpath, "mission.graph.json") &&
-		s_existingArchiveHasEntry(relpath, "objectives.tsv") &&
-		s_existingArchiveHasEntry(relpath, "briefing.tsv") &&
+		s_existingArchiveHasEntry(relpath, "objectives.json") &&
+		s_existingArchiveHasEntry(relpath, "briefing.json") &&
 		s_existingArchiveEntryContains(relpath, "mission.graph.json",
 			"mission.phase.source") &&
 		s_existingArchiveEntryContains(relpath, "mission.graph.json",
@@ -1474,11 +1679,11 @@ static s32 s_emitMission(const arena_authored_record_t *a, const char *out_dir,
 			"scenario_graph_cache = " PDMETA_SCENARIO_DEP_CACHE_KIND) &&
 		s_existingArchiveEntryContains(relpath, "mission.graph.json",
 			"\"operand_kind\"") &&
-		s_existingArchiveEntryContains(relpath, "objectives.tsv",
+		s_existingArchiveEntryContains(relpath, "objectives.json",
 			"operand_kind") &&
 		!s_existingArchiveEntryContains(relpath, "mission.graph.json",
 			"\"nodes\": []") &&
-		!s_existingArchiveEntryContains(relpath, "objectives.tsv",
+		!s_existingArchiveEntryContains(relpath, "objectives.json",
 			"original_perfect_dark_setup"));
 
 	char scenario_id[CATALOG_ID_LEN];
@@ -1517,10 +1722,10 @@ static s32 s_emitMission(const arena_authored_record_t *a, const char *out_dir,
 		out_dir, mission_file, scenario_file);
 	snprintf(entry->ext.mission.objectives_file,
 		sizeof(entry->ext.mission.objectives_file),
-		"%s/%s.pdmission::objectives.tsv", out_dir, mission_file);
+		"%s/%s.pdmission::objectives.json", out_dir, mission_file);
 	snprintf(entry->ext.mission.briefing_file,
 		sizeof(entry->ext.mission.briefing_file),
-		"%s/%s.pdmission::briefing.tsv", out_dir, mission_file);
+		"%s/%s.pdmission::briefing.json", out_dir, mission_file);
 	snprintf(entry->ext.mission.mission_graph_file,
 		sizeof(entry->ext.mission.mission_graph_file),
 		"%s/%s.pdmission::mission.graph.json", out_dir, mission_file);
@@ -1541,8 +1746,8 @@ static s32 s_emitMission(const arena_authored_record_t *a, const char *out_dir,
 		"scenario_archive = dependencies/assets/scenarios/%s.pdscenario\n"
 		"scenario_graph_cache = %s\n"
 		"mission_graph_file = mission.graph.json\n"
-		"objectives_file = objectives.tsv\n"
-		"briefing_file = briefing.tsv\n"
+		"objectives_file = objectives.json\n"
+		"briefing_file = briefing.json\n"
 		"category = %s\n",
 		mission_id, scenario_id, scenario_file,
 		PDMETA_SCENARIO_DEP_CACHE_KIND, a->category);
@@ -1552,15 +1757,19 @@ static s32 s_emitMission(const arena_authored_record_t *a, const char *out_dir,
 	pdmeta_textbuf_t objectives = { 0 };
 	if (s_buildMissionGraph(mission_id, scenario_id, scenario_file,
 			a->slug, objective_rows, objective_row_count, &graph) != 0 ||
-			s_buildMissionObjectivesTsv(scenario_file, objective_rows,
+			s_buildMissionObjectivesJson(scenario_file, objective_rows,
 			objective_row_count, &objectives) != 0) {
 		s_textbufFree(&graph);
 		s_textbufFree(&objectives);
 		return -1;
 	}
 	const char *briefing =
-		"section\ttext\n"
-		"summary\tOriginal mission briefing is loaded from base language banks.\n";
+		"{\n"
+		"  \"schema\": \"pd2.mission.briefing.v1\",\n"
+		"  \"sections\": [\n"
+		"    { \"id\": \"summary\", \"text\": \"Original mission briefing is loaded from base language banks.\" }\n"
+		"  ]\n"
+		"}\n";
 
 	char manifest[1536];
 	int manifest_len = snprintf(manifest, sizeof(manifest),
@@ -1592,9 +1801,9 @@ static s32 s_emitMission(const arena_authored_record_t *a, const char *out_dir,
 			manifest, (u32)manifest_len) != MODARCHIVE_OK ||
 			assetArchiveWriterAddPublicMem(&writer, "mission.graph.json",
 			graph.data, (u32)graph.len, "mission-graph") != MODARCHIVE_OK ||
-			assetArchiveWriterAddPublicMem(&writer, "objectives.tsv",
+			assetArchiveWriterAddPublicMem(&writer, "objectives.json",
 			objectives.data, (u32)objectives.len, "objectives") != MODARCHIVE_OK ||
-			assetArchiveWriterAddPublicMem(&writer, "briefing.tsv",
+			assetArchiveWriterAddPublicMem(&writer, "briefing.json",
 			briefing, (u32)strlen(briefing), "briefing") != MODARCHIVE_OK ||
 			assetArchiveWriterAddPublicDisk(&writer, dep_name,
 			scenario_rel, "scenario-dependency") != MODARCHIVE_OK) {

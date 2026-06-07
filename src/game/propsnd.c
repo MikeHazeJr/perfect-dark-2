@@ -20,6 +20,8 @@
 #include "system.h"
 #include "fs.h"
 #include "romextract.h"
+#include "assetcatalog_load.h"
+#include "assetcatalog.h"
 
 struct pschannel *g_PsChannels = NULL;
 
@@ -1529,20 +1531,30 @@ static s32 psMp3DurationGetSourceOrFallbackSize(s32 filenum)
 {
 	char relpath[FS_MAXPATH + 1];
 	s32 size;
+	CatalogResolveResult source = catalogResolveFile(filenum);
 
-	if (romExtractRelPathForFilenum(filenum, relpath, (s32)sizeof(relpath)) > 0) {
-		size = fsFileSize(relpath);
+	if (source.path && source.path[0]) {
+		size = fsFileSize(source.path);
 		if (size > 0) {
 			return size;
 		}
 	}
 
 	if (assetSourceDebugIsEnabledFor(ASSET_AUDIO)) {
-		sysFatalError("ASSET.SOURCE_ONLY: MP3 file %d has no readable public "
-		              "extracted source for duration; refusing ROM/static "
-		              "file-size fallback.",
-		              filenum);
+		const asset_entry_t *entry = assetCatalogGetByIndex(source.catalog_id);
+		sysFatalError("ASSET.SOURCE_ONLY: MP3 file %d has no readable typed "
+		              "public audio source%s%s for duration; refusing loose extracted file or ROM/static file-size fallback.",
+		              filenum,
+		              entry ? " for " : "",
+		              entry ? entry->id : "");
 		return 0;
+	}
+
+	if (romExtractRelPathForFilenum(filenum, relpath, (s32)sizeof(relpath)) > 0) {
+		size = fsFileSize(relpath);
+		if (size > 0) {
+			return size;
+		}
 	}
 
 	return fileGetRomSize(filenum);

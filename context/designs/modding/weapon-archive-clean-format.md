@@ -54,7 +54,7 @@ _meta/
   inventory.json
   provenance.json
   validation.json
-  hashes.tsv
+  hashes.json
 ```
 
 Folders are omitted when unused. `dependencies/assets/` embeds cross-family assets as intact typed archives. The weapon root owns weapon identity, behavior, and bindings; it does not flatten mesh, texture, material, animation, audio, projectile, entity, or UI internals into loose root folders in release-format output. Transition readers may accept older `models/`, `materials/`, `textures/`, `animations/`, `sounds/`, `projectiles/`, `entities/`, and `ui/` folders until extraction is rebuilt, but new emitters and examples should use typed dependencies.

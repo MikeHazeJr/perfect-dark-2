@@ -52,11 +52,13 @@ s32 loaderPoolParseHeadJson(const char *json, size_t json_len);
 s32 loaderPoolParseBodyJson(const char *json, size_t json_len);
 s32 loaderPoolParseArenaJson(const char *json, size_t json_len);
 
-/* Per-asset .pdanim parser. Used by loader_walker_anim.c for both
- * weapon-animation and character-animation envelopes; the parser
- * extracts the opcode array into the shared guncmd pool so subsequent
- * parseWeapon resolveAnimByName lookups find the right entry. */
+/* Per-asset .pdanim parser. Used by loader_walker_anim.c for public
+ * weapon-animation commands.json sources; the parser extracts the command
+ * array into the shared guncmd pool so subsequent parseWeapon
+ * resolveAnimByName lookups find the right entry. */
 s32 loaderPoolParseAnimationJson(const char *json, size_t json_len);
+s32 loaderPoolParseAnimationSourceJson(const char *json, size_t json_len,
+                const char *source_path);
 
 /* Finalize: seed default aim / noise sentinels, flip s_LoaderActive,
  * emit the LOADER.POOL.*.OK summary line. Called once at the end of
@@ -89,6 +91,7 @@ const char *loaderPoolGetAnimationName(s32 idx);
 s32         loaderPoolGetAnimationOpcodes(s32 idx,
                 const struct guncmd **out_cmds, s32 *out_count);
 const char *loaderPoolAnimationNameForCmds(const struct guncmd *cmds);
+const char *loaderPoolAnimationSourceForCmds(const struct guncmd *cmds);
 
 /* ---- Heads / bodies / arenas pool accessors ---- */
 

@@ -88,6 +88,7 @@ typedef union {
 
 typedef struct {
 	char  name[64];
+	char  source_path[FS_MAXPATH + 1];
 	s32   cmd_offset;
 	s32   cmd_count;
 } pool_anim_entry_t;
@@ -133,6 +134,7 @@ static s32 s_RecoilSettingsUsed;
 static s32 s_WeaponFuncsUsed;
 static s32 s_VibrationsUsed;
 static s32 s_AnimationsUsed;
+static const char *s_ParseAnimationSourcePath;
 
 static s32 s_LoaderActive;
 static s32 s_WeaponsRegistered;
@@ -256,6 +258,20 @@ const char *loaderPoolAnimationNameForCmds(const struct guncmd *cmds)
 	for (i = 0; i < s_AnimationsUsed; i++) {
 		if (&s_Guncmds[s_Animations[i].cmd_offset] == cmds) {
 			return s_Animations[i].name;
+		}
+	}
+	return NULL;
+}
+
+const char *loaderPoolAnimationSourceForCmds(const struct guncmd *cmds)
+{
+	s32 i;
+	if (!s_LoaderActive || cmds == NULL) return NULL;
+	for (i = 0; i < s_AnimationsUsed; i++) {
+		if (&s_Guncmds[s_Animations[i].cmd_offset] == cmds) {
+			return s_Animations[i].source_path[0]
+				? s_Animations[i].source_path
+				: NULL;
 		}
 	}
 	return NULL;
@@ -629,8 +645,7 @@ static s32 s_resolveAudioCatalogOrEnumName(const char *name, s32 fallback,
 {
 	if (name != NULL && strchr(name, ':') != NULL) {
 		const asset_entry_t *e = assetCatalogResolve(name);
-		if (e != NULL && e->type == ASSET_AUDIO
-				&& e->ext.audio.category == AUDIO_CAT_SFX) {
+		if (e != NULL && e->type == ASSET_AUDIO) {
 			return e->ext.audio.sound_id;
 		}
 		sysLogPrintf(LOG_WARNING,
@@ -970,12 +985,13 @@ static void parseAnimation(jstream_t *s)
 	while (s->cur.kind != JT_RBRACE && s->cur.kind != JT_EOF) {
 		if (s->cur.kind != JT_STRING) { jstream_advance(s); continue; }
 		s32 is_id       = jstream_str_eq(&s->cur, "id");
+		s32 is_name     = jstream_str_eq(&s->cur, "name");
 		s32 is_commands = jstream_str_eq(&s->cur, "commands");
 		s32 is_opcodes  = jstream_str_eq(&s->cur, "opcodes");
 		jstream_advance(s);  /* consume key */
 		if (s->cur.kind != JT_COLON) continue;
 		jstream_advance(s);  /* consume : */
-		if (is_id) {
+		if (is_id || (is_name && anim_name[0] == '\0')) {
 			jread_string_buf(s, anim_name, sizeof(anim_name));
 		} else if (is_commands || is_opcodes) {
 			if (s->cur.kind != JT_LBRACK) { jstream_skip_value(s); }
@@ -1030,6 +1046,12 @@ static void parseAnimation(jstream_t *s)
 		if (n >= sizeof(e->name)) n = sizeof(e->name) - 1;
 		memcpy(e->name, bare, n);
 		e->name[n] = '\0';
+		e->source_path[0] = '\0';
+		if (s_ParseAnimationSourcePath && s_ParseAnimationSourcePath[0]) {
+			strncpy(e->source_path, s_ParseAnimationSourcePath,
+				sizeof(e->source_path) - 1);
+			e->source_path[sizeof(e->source_path) - 1] = '\0';
+		}
 		e->cmd_offset = (s32)(cmds_start - s_Guncmds);
 		e->cmd_count = cmds_count;
 	}
@@ -2165,9 +2187,18 @@ s32 loaderPoolParseArenaJson(const char *json, size_t json_len)
 
 s32 loaderPoolParseAnimationJson(const char *json, size_t json_len)
 {
+	return loaderPoolParseAnimationSourceJson(json, json_len, NULL);
+}
+
+s32 loaderPoolParseAnimationSourceJson(const char *json, size_t json_len,
+                const char *source_path)
+{
 	s_poolEnsureMutex();
 	POOL_LOCK();
+	const char *prev_source_path = s_ParseAnimationSourcePath;
+	s_ParseAnimationSourcePath = source_path;
 	s32 r = s_parseOneRecord(json, json_len, parseAnimation);
+	s_ParseAnimationSourcePath = prev_source_path;
 	POOL_UNLOCK();
 	return r;
 }

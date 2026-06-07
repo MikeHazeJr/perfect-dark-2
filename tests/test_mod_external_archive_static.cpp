@@ -150,6 +150,27 @@ TEST_CASE("typed asset archive policy enforces the two-zone migration boundary",
 		ASSET_ARCHIVE_VALIDATE_RELEASE, err, sizeof(err)) != 0);
 	REQUIRE(std::string(err).find("archive root") != std::string::npos);
 
+	auto legacyTsv = writeTypedArchiveEntries("policy-legacy-tsv", ".pdscenario", {
+		{ "scenario.ini",
+		  "[scenario]\n"
+		  "catalog_id = mod:scenario_policy_legacy_tsv\n"
+		  "scene_file = scene.glb\n" },
+		{ "scene.glb", "glb" },
+		{ "objects.tsv", "object_id\tkind\nobject_0000\tprop\n" },
+		{ "_meta/manifest.json", "{ \"pd_kind\": \"scenario\" }\n" },
+	});
+	REQUIRE(assetArchiveValidateFile(legacyTsv.path.string().c_str(),
+		ASSET_ARCHIVE_VALIDATE_MIGRATION, err, sizeof(err)) == 0);
+	REQUIRE(assetArchiveValidateFile(legacyTsv.path.string().c_str(),
+		ASSET_ARCHIVE_VALIDATE_RELEASE, err, sizeof(err)) != 0);
+	REQUIRE(std::string(err).find("TSV") != std::string::npos);
+	const std::string legacyTsvBytes = readFile(legacyTsv.path.string().c_str());
+	REQUIRE(assetArchiveValidateBytes(legacyTsvBytes.data(),
+		static_cast<u32>(legacyTsvBytes.size()),
+		legacyTsv.path.string().c_str(),
+		ASSET_ARCHIVE_VALIDATE_RELEASE, err, sizeof(err)) != 0);
+	REQUIRE(std::string(err).find("objects.tsv") != std::string::npos);
+
 	auto legacyMesh = writeTypedArchiveEntries("policy-legacy-mesh", ".pdmesh", {
 		{ "model.ini",
 		  "[model]\n"
@@ -258,8 +279,9 @@ TEST_CASE("typed asset archive policy enforces the two-zone migration boundary",
 		  "[lang]\n"
 		  "catalog_id = mod:lang_policy_missing_manifest_dependency\n"
 		  "manifest = _meta/manifest.json\n"
-		  "strings_file = strings.tsv\n" },
-		{ "strings.tsv", "0\tMissing dependency\n" },
+		  "strings_file = strings.json\n" },
+		{ "strings.json",
+		  "{ \"pd_kind\": \"language_strings\", \"strings\": [ { \"index\": 0, \"text\": \"Missing dependency\" } ] }\n" },
 		{ "_meta/manifest.json", manifestMissingDependency },
 	});
 	REQUIRE(assetArchiveValidateFile(missingManifestDependency.path.string().c_str(),
@@ -299,8 +321,9 @@ TEST_CASE("typed asset archive policy enforces the two-zone migration boundary",
 		  "[lang]\n"
 		  "catalog_id = mod:lang_policy_fallback_manifest_dependency\n"
 		  "manifest = _meta/manifest.json\n"
-		  "strings_file = strings.tsv\n" },
-		{ "strings.tsv", "0\tFallback dependency\n" },
+		  "strings_file = strings.json\n" },
+		{ "strings.json",
+		  "{ \"pd_kind\": \"language_strings\", \"strings\": [ { \"index\": 0, \"text\": \"Fallback dependency\" } ] }\n" },
 		{ "_meta/manifest.json", manifestBaseFallback },
 	});
 	REQUIRE(assetArchiveValidateFile(fallbackManifestDependency.path.string().c_str(),
@@ -332,8 +355,9 @@ TEST_CASE("typed asset archive policy enforces the two-zone migration boundary",
 		  "[lang]\n"
 		  "catalog_id = mod:lang_policy_unsafe_manifest_dependency\n"
 		  "manifest = _meta/manifest.json\n"
-		  "strings_file = strings.tsv\n" },
-		{ "strings.tsv", "0\tUnsafe dependency\n" },
+		  "strings_file = strings.json\n" },
+		{ "strings.json",
+		  "{ \"pd_kind\": \"language_strings\", \"strings\": [ { \"index\": 0, \"text\": \"Unsafe dependency\" } ] }\n" },
 		{ "_meta/manifest.json", manifestUnsafeDependency },
 	});
 	REQUIRE(assetArchiveValidateFile(unsafeManifestDependency.path.string().c_str(),
@@ -505,13 +529,13 @@ TEST_CASE("shared typed archive writer emits c3838 metadata contract",
 		"[lang]\n"
 		"catalog_id = base:lang_writer_contract_en\n"
 		"manifest = _meta/manifest.json\n"
-		"strings_file = strings.tsv\n";
+		"strings_file = strings.json\n";
 	const char manifest[] =
 		"{\n"
 		"  \"pd_kind\": \"lang\",\n"
 		"  \"pd_schema_version\": 1,\n"
 		"  \"id\": \"base:lang_writer_contract_en\",\n"
-		"  \"data\": \"strings.tsv\",\n"
+		"  \"data\": \"strings.json\",\n"
 		"  \"dependencies\": [\n"
 		"    {\n"
 		"      \"role\": \"font\",\n"
@@ -532,13 +556,21 @@ TEST_CASE("shared typed archive writer emits c3838 metadata contract",
 		"    \"required_fields\": [\"role\", \"type\", \"id\", \"archive\", \"required\", \"version\", \"sha256\", \"fallback.id\", \"fallback.reason\"]\n"
 		"  }\n"
 		"}\n";
-	const char strings[] = "0\tHello\n1\tArchive\n";
+	const char strings[] =
+		"{\n"
+		"  \"pd_kind\": \"language_strings\",\n"
+		"  \"pd_schema_version\": 1,\n"
+		"  \"strings\": [\n"
+		"    { \"index\": 0, \"text\": \"Hello\" },\n"
+		"    { \"index\": 1, \"text\": \"Archive\" }\n"
+		"  ]\n"
+		"}\n";
 
 	REQUIRE(assetArchiveWriterAddDescriptor(&writer, "lang.ini",
 		descriptor, (u32)strlen(descriptor)) == MODARCHIVE_OK);
 	REQUIRE(assetArchiveWriterAddManifestJson(&writer, manifest,
 		(u32)strlen(manifest)) == MODARCHIVE_OK);
-	REQUIRE(assetArchiveWriterAddPublicMem(&writer, "strings.tsv",
+	REQUIRE(assetArchiveWriterAddPublicMem(&writer, "strings.json",
 		strings, (u32)strlen(strings), "strings") == MODARCHIVE_OK);
 	REQUIRE(assetArchiveWriterFinishMetadata(&writer) == MODARCHIVE_OK);
 	REQUIRE(modArchiveFinish(raw) == MODARCHIVE_OK);
@@ -552,32 +584,34 @@ TEST_CASE("shared typed archive writer emits c3838 metadata contract",
 	REQUIRE(opened.archive != nullptr);
 
 	REQUIRE(modArchiveFindEntry(opened.archive, "lang.ini") >= 0);
-	REQUIRE(modArchiveFindEntry(opened.archive, "strings.tsv") >= 0);
+	REQUIRE(modArchiveFindEntry(opened.archive, "strings.json") >= 0);
 	REQUIRE(modArchiveFindEntry(opened.archive, "_meta/manifest.json") >= 0);
 	REQUIRE(modArchiveFindEntry(opened.archive, "_meta/inventory.json") >= 0);
-	REQUIRE(modArchiveFindEntry(opened.archive, "_meta/hashes.tsv") >= 0);
+	REQUIRE(modArchiveFindEntry(opened.archive, "_meta/hashes.json") >= 0);
 	REQUIRE(modArchiveFindEntry(opened.archive, "_meta/provenance.json") >= 0);
 	REQUIRE(modArchiveFindEntry(opened.archive, "_meta/validation.json") >= 0);
 	REQUIRE(modArchiveFindEntry(opened.archive,
 		"_meta/source-handles.json") >= 0);
 	REQUIRE(modArchiveFindEntry(opened.archive, "_meta/lang.ini.sha256") >= 0);
 	REQUIRE(modArchiveFindEntry(opened.archive,
-		"_meta/strings.tsv.sha256") >= 0);
+		"_meta/strings.json.sha256") >= 0);
 
 	const std::string inventory =
 		readArchiveEntryText(opened.archive, "_meta/inventory.json");
 	REQUIRE(inventory.find("\"path\": \"lang.ini\"") != std::string::npos);
 	REQUIRE(inventory.find("\"role\": \"descriptor\"") != std::string::npos);
-	REQUIRE(inventory.find("\"path\": \"strings.tsv\"") != std::string::npos);
+	REQUIRE(inventory.find("\"path\": \"strings.json\"") != std::string::npos);
 	REQUIRE(inventory.find("\"role\": \"strings\"") != std::string::npos);
 	REQUIRE(inventory.find("\"dependency_archive_root\": \"dependencies/assets\"") !=
 		std::string::npos);
 
 	const std::string hashes =
-		readArchiveEntryText(opened.archive, "_meta/hashes.tsv");
-	REQUIRE(hashes.find("path\tsha256\tsize\trole") != std::string::npos);
-	REQUIRE(hashes.find("lang.ini\t") != std::string::npos);
-	REQUIRE(hashes.find("strings.tsv\t") != std::string::npos);
+		readArchiveEntryText(opened.archive, "_meta/hashes.json");
+	REQUIRE(hashes.find("\"schema\": \"pd2.asset.hashes.v1\"") != std::string::npos);
+	REQUIRE(hashes.find("\"path\": \"lang.ini\"") != std::string::npos);
+	REQUIRE(hashes.find("\"path\": \"strings.json\"") != std::string::npos);
+	REQUIRE(hashes.find("\"role\": \"descriptor\"") != std::string::npos);
+	REQUIRE(hashes.find("\"role\": \"strings\"") != std::string::npos);
 
 	const std::string validation =
 		readArchiveEntryText(opened.archive, "_meta/validation.json");
@@ -614,14 +648,15 @@ TEST_CASE("shared typed archive writer infers c3838 dependency records",
 		"[lang]\n"
 		"catalog_id = base:lang_writer_dependency_en\n"
 		"manifest = _meta/manifest.json\n"
-		"strings_file = strings.tsv\n"
+		"strings_file = strings.json\n"
 		"font_archive = dependencies/assets/font/base_font_body.pdfont\n";
-	const char strings[] = "0\tDependency\n";
+	const char strings[] =
+		"{ \"pd_kind\": \"language_strings\", \"strings\": [ { \"index\": 0, \"text\": \"Dependency\" } ] }\n";
 	const char nested[] = "placeholder nested archive bytes";
 
 	REQUIRE(assetArchiveWriterAddDescriptor(&writer, "lang.ini",
 		descriptor, (u32)strlen(descriptor)) == MODARCHIVE_OK);
-	REQUIRE(assetArchiveWriterAddPublicMem(&writer, "strings.tsv",
+	REQUIRE(assetArchiveWriterAddPublicMem(&writer, "strings.json",
 		strings, (u32)strlen(strings), "strings") == MODARCHIVE_OK);
 	REQUIRE(assetArchiveWriterAddPublicMem(&writer,
 		"dependencies/assets/font/base_font_body.pdfont",
@@ -835,11 +870,11 @@ TEST_CASE("folder to pdmod packer validates layout and generates INI templates",
 	REQUIRE(packer.find("modiniTemplateForKind(kind)") != std::string::npos);
 	REQUIRE(packer.find("pads.ini - generated external map pad/spawn template") != std::string::npos);
 	REQUIRE(packer.find("setup.ini - generated external map setup template") != std::string::npos);
-	REQUIRE(packer.find("\"pads.tsv\"") != std::string::npos);
-	REQUIRE(packer.find("\"spawns.tsv\"") != std::string::npos);
-	REQUIRE(packer.find("\"volumes.tsv\"") != std::string::npos);
-	REQUIRE(packer.find("\"objects.tsv\"") != std::string::npos);
-	REQUIRE(packer.find("\"objectives.tsv\"") != std::string::npos);
+	REQUIRE(packer.find("\"pads.json\"") != std::string::npos);
+	REQUIRE(packer.find("\"spawns.json\"") != std::string::npos);
+	REQUIRE(packer.find("\"volumes.json\"") != std::string::npos);
+	REQUIRE(packer.find("\"objects.json\"") != std::string::npos);
+	REQUIRE(packer.find("\"objectives.json\"") != std::string::npos);
 	REQUIRE(packer.find("\"level.graph.json\"") != std::string::npos);
 	REQUIRE(packer.find("weapons\", \"weapon.ini\", \"weapon\"") != std::string::npos);
 	REQUIRE(packer.find("characters/heads\", \"head.ini\", \"head\"") != std::string::npos);
@@ -866,7 +901,7 @@ TEST_CASE("folder to pdmod packer validates layout and generates INI templates",
 	REQUIRE(hub.find("modpackPdmodLastError()") != std::string::npos);
 	REQUIRE(hub.find("MODPACK_PDMOD_ERR_LAYOUT") != std::string::npos);
 	REQUIRE(hub.find("MODPACK_PDMOD_ERR_TEMPLATE") != std::string::npos);
-	REQUIRE(hub.find("standard files + INI/TSV, no .bin") != std::string::npos);
+	REQUIRE(hub.find("standard files + INI/JSON, no .bin") != std::string::npos);
 }
 
 TEST_CASE("archive mods scan INI descriptors through the shared catalog scanner",
@@ -1283,14 +1318,14 @@ TEST_CASE("weapon content pipeline accepts pdweapon only",
 	REQUIRE(extractor.find("projectile_model_ref") == std::string::npos);
 	REQUIRE(extractor.find("shoot_sound_catalog_id") != std::string::npos);
 	REQUIRE(extractor.find("special_sound_catalog_id") != std::string::npos);
-	REQUIRE(extractor.find("PDWEAPON_DEPENDENCY_CLOSURE_MARKER \"embedded.v13\"") != std::string::npos);
+	REQUIRE(extractor.find("PDWEAPON_DEPENDENCY_CLOSURE_MARKER \"embedded.v14\"") != std::string::npos);
 	REQUIRE(extractor.find("dependency_closure = \" PDWEAPON_DEPENDENCY_CLOSURE_MARKER") != std::string::npos);
-	REQUIRE(extractor.find("PDWEAPON_FAST_CACHE_KIND \"pdweapon_embedded_v13_clean_public\"") != std::string::npos);
+	REQUIRE(extractor.find("PDWEAPON_FAST_CACHE_KIND \"pdweapon_embedded_v14_clean_public\"") != std::string::npos);
 	REQUIRE(extractor.find("PDWEAPON_DEP_MODELS \"dependencies/assets/models\"") != std::string::npos);
 	REQUIRE(extractor.find("/held_hi.pdmesh") != std::string::npos);
 	REQUIRE(extractor.find("/held_lo.pdmesh") != std::string::npos);
-	REQUIRE(extractor.find("bindings/animations.tsv") != std::string::npos);
-	REQUIRE(extractor.find("bindings/audio.tsv") != std::string::npos);
+	REQUIRE(extractor.find("bindings/animations.json") != std::string::npos);
+	REQUIRE(extractor.find("bindings/audio.json") != std::string::npos);
 	REQUIRE(extractor.find("model_archive = \" PDWEAPON_DEP_MODELS \"/visual.pdmesh") != std::string::npos);
 	REQUIRE(extractor.find("s_addWeaponMeshDependency") != std::string::npos);
 	REQUIRE(extractor.find("s_addWeaponAnimationDependency") != std::string::npos);
@@ -1416,7 +1451,8 @@ TEST_CASE("scenario path extraction uses runtime setup pointer resolution",
 	REQUIRE(arena.find("sizeof(paths[i].pads)") != std::string::npos);
 	REQUIRE(arena.find("s_resolveSetupPointer(data, size, paths[i].pads") !=
 	        std::string::npos);
-	REQUIRE(arena.find("if (!paths_ofs) {\n\t\treturn 0;\n\t}") !=
+	REQUIRE(arena.find("if (!paths_ofs) {") != std::string::npos);
+	REQUIRE(arena.find("s_textbufAppend(paths_json, \"  ]\\n}\\n\")") !=
 	        std::string::npos);
 }
 
@@ -2815,8 +2851,8 @@ TEST_CASE("external UI font and language descriptors use standard files",
 	REQUIRE(scanner.find("font.ini - external UI font metadata") != std::string::npos);
 	REQUIRE(scanner.find("Font authoring supports TTF or OTF") != std::string::npos);
 	REQUIRE(scanner.find("lang.ini - external UTF-8 language-bank metadata") != std::string::npos);
-	REQUIRE(scanner.find("strings_file = strings.tsv") != std::string::npos);
-	REQUIRE(scanner.find("\"strings_tsv\"") != std::string::npos);
+	REQUIRE(scanner.find("strings_file = strings.json") != std::string::npos);
+	REQUIRE(scanner.find("\"strings" "_tsv\"") == std::string::npos);
 
 	std::string catalog = readFile("port/include/assetcatalog.h");
 	REQUIRE(catalog.find("ASSET_FONT") != std::string::npos);
@@ -2835,7 +2871,7 @@ TEST_CASE("external UI font and language descriptors use standard files",
 	REQUIRE(theme_loader.find("fileProviderPath(entry->source.primary)") != std::string::npos);
 
 	std::string lang = readFile("port/src/langmanifest.c");
-	REQUIRE(lang.find("langManifestLoadExternalTsv") != std::string::npos);
+	REQUIRE(lang.find("langManifestLoadExternalJson") != std::string::npos);
 	REQUIRE(lang.find("fsFileLoad(path, &raw_size)") != std::string::npos);
 	REQUIRE(lang.find("g_LangBanks[bank] = bank_data") != std::string::npos);
 
@@ -3093,8 +3129,10 @@ TEST_CASE("external models maps and animations compile from standard sources",
 	REQUIRE(weapon_smoke.find("--debug-generated-mesh-render-audit") != std::string::npos);
 	REQUIRE(weapon_smoke.find("--debug-force-first-person") != std::string::npos);
 	REQUIRE(weapon_smoke.find("MODELDEF\\\\.SOURCE: loaded catalog model source type=23 filenum=843 id=base:model_chrdy357") != std::string::npos);
-	REQUIRE(weapon_smoke.find("texcoords=[1-9]\\\\d* uv_vertices=[1-9]\\\\d* materials=[1-9]\\\\d* textured_materials=[1-9]\\\\d* material_switches=[1-9]\\\\d* tris=262") != std::string::npos);
+	REQUIRE(weapon_smoke.find("built hierarchy modeldef 'base:model_taxicab'") != std::string::npos);
+	REQUIRE(weapon_smoke.find("nodes=[1-9]\\\\d*.*vertices=[1-9]\\\\d* tris=262") != std::string::npos);
 	REQUIRE(weapon_smoke.find("BONDGUN\\\\.SOURCE: loaded catalog model source filenum=890 id=base:model_dy357_hi") != std::string::npos);
+	REQUIRE(weapon_smoke.find("built hierarchy modeldef 'base:model_dy357_hi'") != std::string::npos);
 	REQUIRE(weapon_smoke.find("tris=404") != std::string::npos);
 	REQUIRE(weapon_smoke.find("MODASSET\\\\.RENDER: generated source modeldef rendered id=base:model_dy357_hi") != std::string::npos);
 	REQUIRE(weapon_smoke.find("LOG\\\\.WPN\\\\.DIAG: playerRenderHud branch=fp_render cameramode=0") != std::string::npos);
@@ -3254,7 +3292,7 @@ TEST_CASE("modder examples are zip-openable typed pdxxx asset archives",
 		readFile("examples/modding/typed-pdxxx-basic/README.md");
 	REQUIRE(readme.find("The content units are the typed `*.pdxxx` asset archives") != std::string::npos);
 	REQUIRE(readme.find("Change any `.pdxxx` extension to `.zip`") != std::string::npos);
-	REQUIRE(readme.find("The GLTF, OBJ, INI, JSON, TSV, and source media files inside each archive are the authored data") != std::string::npos);
+	REQUIRE(readme.find("The GLTF, OBJ, INI, JSON, and source media files inside each archive are the authored data") != std::string::npos);
 	REQUIRE(readme.find("Machine-owned manifest and provenance data lives under `_meta/`") != std::string::npos);
 	REQUIRE(readme.find("`.pdmod` is not the authoring format") != std::string::npos);
 
@@ -3447,8 +3485,9 @@ TEST_CASE("modder examples are zip-openable typed pdxxx asset archives",
 	REQUIRE(mission.find("catalog_id = example:tri_mission") != std::string::npos);
 	REQUIRE(mission.find("mission_graph_file = mission.graph.json") != std::string::npos);
 	REQUIRE(mission.find("scenario_archive = dependencies/assets/scenarios/tri_scenario.pdscenario") != std::string::npos);
-	REQUIRE(mission.find("scenario_graph_cache = pdscenario_scene_glb_clean_public_v84_standalone_backfill_collision_obj_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_quip_shuffle_graph_portals_navhashes") != std::string::npos);
-	REQUIRE(mission.find("objectives_file = objectives.tsv") != std::string::npos);
+	REQUIRE(mission.find("scenario_graph_cache = pdscenario_scene_glb_clean_public_v95_standalone_backfill_collision_obj_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json") != std::string::npos);
+	REQUIRE(mission.find("objectives_file = objectives.json") != std::string::npos);
+	REQUIRE(mission.find("briefing_file = briefing.json") != std::string::npos);
 
 	const std::string gamemode = readArchiveEntryText(gamemodeArchivePath.c_str(), "gamemode.ini");
 	REQUIRE(gamemode.find("catalog_id = example:tri_gamemode") != std::string::npos);
@@ -3613,7 +3652,7 @@ TEST_CASE("typed pdxxx example archives carry the implemented asset payloads",
 			"mission",
 			".pdmission",
 			"missions/tri_mission.pdmission",
-			{ "mission.ini", "mission.graph.json", "objectives.tsv", "briefing.tsv",
+			{ "mission.ini", "mission.graph.json", "objectives.json", "briefing.json",
 			  "dependencies/assets/scenarios/tri_scenario.pdscenario",
 			  "_meta/manifest.json" },
 		},
@@ -3718,17 +3757,17 @@ TEST_CASE("typed pdxxx example archives carry the implemented asset payloads",
 			"language",
 			".pdlang",
 			"lang/tri_lang.pdlang",
-			{ "lang.ini", "strings.tsv", "_meta/manifest.json" },
+			{ "lang.ini", "strings.json", "_meta/manifest.json" },
 		},
 		{
 			"scenario",
 			".pdscenario",
 			"scenarios/tri_scenario.pdscenario",
 			{ "scenario.ini", "scene.glb",
-			  "pads.tsv", "spawns.tsv", "volumes.tsv", "objects.tsv",
-			  "setup.fields.tsv", "ai/ailists.tsv", "objectives.tsv",
-			  "navigation/waypoints.tsv", "navigation/waygroups.tsv",
-			  "navigation/covers.tsv", "navigation/paths.tsv",
+			  "pads.json", "spawns.json", "volumes.json", "objects.json",
+			  "setup.fields.json", "ai/ailists.json", "objectives.json",
+			  "navigation/waypoints.json", "navigation/waygroups.json",
+			  "navigation/covers.json", "navigation/paths.json",
 			  "navigation.ini", "level.graph.json",
 			  "_meta/generated-collision.json", "_meta/generated-navmesh.json",
 			  "_meta/manifest.json" },
@@ -4059,12 +4098,13 @@ TEST_CASE("Modding Hub weapon tool supports template imports and pdweapon save",
 	REQUIRE(hub.find("models/held_hi.pdmesh") != std::string::npos);
 	REQUIRE(hub.find("weaponArchiveReadNestedCatalogId") != std::string::npos);
 	REQUIRE(hub.find("weaponArchiveHasEntry") != std::string::npos);
-	REQUIRE(hub.find("weaponTsvFirstField") != std::string::npos);
-	REQUIRE(hub.find("weaponTsvFindFieldForRow") != std::string::npos);
 	REQUIRE(hub.find("weaponJsonFindFirstStringField") != std::string::npos);
+	REQUIRE(hub.find("weaponJsonFindFieldForMatchedObject") != std::string::npos);
 	REQUIRE(hub.find("models/held_hi.pdmesh") != std::string::npos);
-	REQUIRE(hub.find("animations_manifest.tsv") != std::string::npos);
-	REQUIRE(hub.find("audio_manifest.tsv") != std::string::npos);
+	REQUIRE(hub.find("bindings/animations.json") != std::string::npos);
+	REQUIRE(hub.find("bindings/audio.json") != std::string::npos);
+	REQUIRE(hub.find("animations_manifest.tsv") == std::string::npos);
+	REQUIRE(hub.find("audio_manifest.tsv") == std::string::npos);
 	REQUIRE(hub.find("\"projectile_ref\"") != std::string::npos);
 	REQUIRE(hub.find("\"entity_ref\"") != std::string::npos);
 	REQUIRE(hub.find("\"payload_ref\"") != std::string::npos);
@@ -4495,11 +4535,17 @@ TEST_CASE("base scenario extractor emits standard map and text payloads",
           "[modding][pdxxx][base][static][c3812]") {
 	const std::string arena = readFile("port/src/romextract_pdarena.c");
 	const std::string conformance = readFile("tools/asset_archive_conformance.py");
+	const std::string scenario_smoke =
+		readFile("tools/smoke-verify/tests/scenario_pads_source_gate_smoke.json");
 	REQUIRE(!arena.empty());
 	REQUIRE(!conformance.empty());
+	REQUIRE(!scenario_smoke.empty());
+	REQUIRE(conformance.find("\"*.tsv\"") != std::string::npos);
+	REQUIRE(conformance.find("read_tsv_rows") == std::string::npos);
+	REQUIRE(conformance.find("count_tsv_data_rows") == std::string::npos);
 
 	REQUIRE(arena.find("s_buildTilesExports") != std::string::npos);
-	REQUIRE(arena.find("s_buildPadsTsv") != std::string::npos);
+	REQUIRE(arena.find("s_buildPadsJson") != std::string::npos);
 	REQUIRE(arena.find("s_buildWordsTsv") == std::string::npos);
 	REQUIRE(arena.find("#include \"lib/rzip.h\"") != std::string::npos);
 	REQUIRE(arena.find("rzipIs1173") != std::string::npos);
@@ -4518,7 +4564,8 @@ TEST_CASE("base scenario extractor emits standard map and text payloads",
 	REQUIRE(arena.find("texInflateNonZlib") != std::string::npos);
 	REQUIRE(arena.find("scene.glb") != std::string::npos);
 	REQUIRE(arena.find("stbi_write_png_to_mem") != std::string::npos);
-	REQUIRE(arena.find("bg_visual_scene_glb_v9_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0") != std::string::npos);
+	REQUIRE(arena.find("bg_visual_scene_glb_v11_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_materialextras_dualtex") != std::string::npos);
+	REQUIRE(arena.find("\\\"alphaMode\\\":\\\"MASK\\\",\\\"alphaCutoff\\\":0.01") != std::string::npos);
 	REQUIRE(arena.find("s_existingArchiveEntryContains(relpath, \"scene.glb\",") !=
 	        std::string::npos);
 	REQUIRE(arena.find("PDSCENARIO_BG_VISUAL_EXPORT_VERSION)") !=
@@ -4531,6 +4578,11 @@ TEST_CASE("base scenario extractor emits standard map and text payloads",
 	REQUIRE(arena.find("\\\"COLOR_0\\\":%u") != std::string::npos);
 	REQUIRE(arena.find("\\\"baseColorTexture\\\":{\\\"index\\\":%d,\\\"texCoord\\\":0}") !=
 	        std::string::npos);
+	REQUIRE(arena.find("\\\"extras\\\":{\\\"pd2_material\\\":") !=
+	        std::string::npos);
+	REQUIRE(arena.find("\\\"secondaryTexture\\\":{\\\"index\\\":%d,\\\"texCoord\\\":1}") !=
+	        std::string::npos);
+	REQUIRE(arena.find("s_bgMaterialTextureCommandName") != std::string::npos);
 	REQUIRE(arena.find("s_bgGltfWrapMode") != std::string::npos);
 	REQUIRE(arena.find("op == (u8)G_TEXTURE") != std::string::npos);
 	REQUIRE(arena.find("m->shifts <= 10") != std::string::npos);
@@ -4558,7 +4610,15 @@ TEST_CASE("base scenario extractor emits standard map and text payloads",
 	REQUIRE(conformance.find("visible textures to TEXCOORD_0") !=
 	        std::string::npos);
 	REQUIRE(arena.find("mat_%03u_tex_%04x") != std::string::npos);
-	REQUIRE(arena.find("texture_inventory_%04x") != std::string::npos);
+	REQUIRE(arena.find("texture_inventory_%04x") == std::string::npos);
+	REQUIRE(arena.find("materials_tsv") == std::string::npos);
+	REQUIRE(arena.find("tiles_tsv") == std::string::npos);
+	REQUIRE(scenario_smoke.find(".tsv") == std::string::npos);
+	REQUIRE(scenario_smoke.find("BG\\\\.ROOMS: entered room list missing terminator") !=
+	        std::string::npos);
+	REQUIRE(scenario_smoke.find("pads.json") != std::string::npos);
+	REQUIRE(scenario_smoke.find("ai/ailists") != std::string::npos);
+	REQUIRE(scenario_smoke.find("objectives") != std::string::npos);
 	REQUIRE(arena.find("strncmp(mtl_texture_path, \"visual/\", 7)") !=
 	        std::string::npos);
 	REQUIRE(arena.find("scene_file = scene.glb") !=
@@ -4573,11 +4633,11 @@ TEST_CASE("base scenario extractor emits standard map and text payloads",
 	        std::string::npos);
 	REQUIRE(arena.find("blender_scene_file = scene.glb") !=
 	        std::string::npos);
-	REQUIRE(arena.find("pads.tsv") != std::string::npos);
-	REQUIRE(arena.find("spawns.tsv") != std::string::npos);
-	REQUIRE(arena.find("volumes.tsv") != std::string::npos);
-	REQUIRE(arena.find("objects.tsv") != std::string::npos);
-	REQUIRE(arena.find("ai/ailists.tsv") != std::string::npos);
+	REQUIRE(arena.find("pads.json") != std::string::npos);
+	REQUIRE(arena.find("spawns.json") != std::string::npos);
+	REQUIRE(arena.find("volumes.json") != std::string::npos);
+	REQUIRE(arena.find("objects.json") != std::string::npos);
+	REQUIRE(arena.find("ai/ailists.json") != std::string::npos);
 	REQUIRE(arena.find("scenario.ai.lists.source") != std::string::npos);
 	REQUIRE(arena.find("scenario.pads.source") != std::string::npos);
 	REQUIRE(arena.find("scenario.ai.action.set_list") != std::string::npos);
@@ -4877,17 +4937,21 @@ TEST_CASE("base scenario extractor emits standard map and text payloads",
 	     }) {
 		REQUIRE(arena.find(kind) != std::string::npos);
 	}
-	REQUIRE(arena.find("ai_lists_file = ai/ailists.tsv") != std::string::npos);
-	REQUIRE(arena.find("navigation/paths.tsv") != std::string::npos);
+	REQUIRE(arena.find("ai_lists_file = ai/ailists.json") != std::string::npos);
+	REQUIRE(arena.find("navigation/paths.json") != std::string::npos);
 	REQUIRE(arena.find("scenario.navigation.paths.source") != std::string::npos);
-	REQUIRE(arena.find("paths_file = navigation/paths.tsv") != std::string::npos);
-	REQUIRE(arena.find("objectives.tsv") != std::string::npos);
+	REQUIRE(arena.find("paths_file = navigation/paths.json") != std::string::npos);
+	REQUIRE(arena.find("objectives.json") != std::string::npos);
 	REQUIRE(arena.find("navigation.ini") != std::string::npos);
 	REQUIRE(arena.find("level.graph.json") != std::string::npos);
 	REQUIRE(arena.find("_meta/generated-collision.json") != std::string::npos);
 	REQUIRE(arena.find("_meta/generated-navmesh.json") != std::string::npos);
-	REQUIRE(arena.find("setup.tsv") == std::string::npos);
-	REQUIRE(arena.find("mpsetup.tsv") == std::string::npos);
+	REQUIRE(arena.find("assetArchiveWriterAddPublicMem(&asset_writer, \"setup.tsv\"") ==
+	        std::string::npos);
+	REQUIRE(arena.find("assetArchiveWriterAddPublicMem(&asset_writer, \"mpsetup.tsv\"") ==
+	        std::string::npos);
+	REQUIRE(arena.find("s_buildSetupTsv") == std::string::npos);
+	REQUIRE(arena.find("s_buildMpSetupTsv") == std::string::npos);
 	REQUIRE(arena.find("visual_segments.tsv") == std::string::npos);
 	REQUIRE(arena.find("geometry_file = rooms.obj") == std::string::npos);
 	REQUIRE(arena.find("geometry_format = OBJ") == std::string::npos);
@@ -5094,6 +5158,36 @@ TEST_CASE("base audio extractors emit accessible wav payloads",
 	REQUIRE(audio.find("key_base = %u") != std::string::npos);
 	REQUIRE(audio.find("\\\"key_base\\\": %u") != std::string::npos);
 	REQUIRE(audio.find("key_detune = %d") != std::string::npos);
+	REQUIRE(audio.find("velocity_max = %u") != std::string::npos);
+	REQUIRE(audio.find("\\\"velocity_max\\\": %u") != std::string::npos);
+	REQUIRE(audio.find("attack_time_us = %u") != std::string::npos);
+	REQUIRE(audio.find("\\\"attack_time_us\\\": %u") != std::string::npos);
+	REQUIRE(audio.find("release_time_us = %u") != std::string::npos);
+	REQUIRE(audio.find("\\\"release_time_us\\\": %u") != std::string::npos);
+	REQUIRE(audio.find("s_configuredAliasArchivesComplete") != std::string::npos);
+	REQUIRE(audio.find("s_emitConfiguredAliasSounds") != std::string::npos);
+	REQUIRE(audio.find("s_configuredAliasMappedMp3Source") != std::string::npos);
+	REQUIRE(audio.find("s_configuredMp3VoiceArchivesComplete") !=
+	        std::string::npos);
+	REQUIRE(audio.find("s_emitOneMp3VoiceAlias") != std::string::npos);
+	REQUIRE(audio.find("mapped.mp3priority != 0") != std::string::npos);
+	REQUIRE(audio.find("romExtractRelPathForFilenum((s32)mapped.id") !=
+	        std::string::npos);
+	REQUIRE(audio.find("assetArchiveWriterAddPublicMem(&asset_writer, \"sample.mp3\"") !=
+	        std::string::npos);
+	REQUIRE(audio.find("file_path = sample.mp3") != std::string::npos);
+	REQUIRE(audio.find("\\\"data\\\": \\\"sample.mp3\\\"") !=
+	        std::string::npos);
+	REQUIRE(audio.find("\\\"source_filenum\\\": %d") !=
+	        std::string::npos);
+	REQUIRE(audio.find("source_filenum = %d") != std::string::npos);
+	REQUIRE(audio.find("configured MP3 alias archive(s) checked") !=
+	        std::string::npos);
+	REQUIRE(audio.find("catalogReadableSoundRefId(packed") != std::string::npos);
+	REQUIRE(audio.find("loaderEnumNameForSfxEnum(packed)") != std::string::npos);
+	REQUIRE(audio.find("loaderEnumNameForFileEnum((s32)mapped.id)") !=
+	        std::string::npos);
+	REQUIRE(audio.find("s_emitOneSound(leaf") != std::string::npos);
 
 	REQUIRE(audio.find("modArchiveAddFileMem(aw, \"sample.bin\"") ==
 	        std::string::npos);
@@ -5102,33 +5196,33 @@ TEST_CASE("base audio extractors emit accessible wav payloads",
 	        std::string::npos);
 }
 
-TEST_CASE("base language extractor emits editable tsv payloads",
+TEST_CASE("base language extractor emits editable json payloads",
           "[modding][pdxxx][base][static][c3812]") {
 	const std::string lang = readFile("port/src/romextract_pdlang.c");
 	REQUIRE(!lang.empty());
 
-	REQUIRE(lang.find("s_buildStringsTsv") != std::string::npos);
+	REQUIRE(lang.find("s_buildStringsJson") != std::string::npos);
 	REQUIRE(lang.find("s_langStringCount") != std::string::npos);
 	REQUIRE(lang.find("rzipIs1173") != std::string::npos);
 	REQUIRE(lang.find("rzipInflate") != std::string::npos);
 	REQUIRE(lang.find("PDLANG_EXTRACT_VERSION") != std::string::npos);
 	REQUIRE(lang.find("PDLANG_FAST_CACHE_KIND") != std::string::npos);
-	REQUIRE(lang.find("s_existingArchiveHasEntry(dst_rel, \"strings.tsv\")") !=
+	REQUIRE(lang.find("s_existingArchiveHasEntry(dst_rel, \"strings.json\")") !=
 	        std::string::npos);
 	REQUIRE(lang.find("s_existingArchiveEntryContains(dst_rel, \"lang.ini\"") !=
 	        std::string::npos);
-	REQUIRE(lang.find("strings_file = strings.tsv") != std::string::npos);
+	REQUIRE(lang.find("strings_file = strings.json") != std::string::npos);
 	REQUIRE(lang.find("extract_version = %s\\n") != std::string::npos);
-	REQUIRE(lang.find("assetArchiveWriterAddPublicMem(&asset_writer, \"strings.tsv\"") !=
+	REQUIRE(lang.find("assetArchiveWriterAddPublicMem(&asset_writer, \"strings.json\"") !=
 	        std::string::npos);
 	REQUIRE(lang.find("assetArchiveWriterFinishMetadata(&asset_writer)") !=
 	        std::string::npos);
 	REQUIRE(lang.find("assetArchiveWriterAddDescriptor(&asset_writer, \"lang.ini\"") !=
 	        std::string::npos);
-	REQUIRE(lang.find("\\\"data\\\": \\\"strings.tsv\\\"") !=
+	REQUIRE(lang.find("\\\"data\\\": \\\"strings.json\\\"") !=
 	        std::string::npos);
 
-	REQUIRE(lang.find("sha256Hash((const u8 *)tsv_text") == std::string::npos);
+	REQUIRE(lang.find("sha256Hash((const u8 *)json_text") == std::string::npos);
 	REQUIRE(lang.find("modArchiveAddFileDisk(aw, \"data.bin\"") ==
 	        std::string::npos);
 	REQUIRE(lang.find("strings_file = data.bin") == std::string::npos);
@@ -5142,24 +5236,25 @@ TEST_CASE("base font extractor emits editable bitmap font payloads",
 
 	REQUIRE(font.find("s_buildFontExports") != std::string::npos);
 	REQUIRE(font.find("glyphs.pgm") != std::string::npos);
-	REQUIRE(font.find("metrics.tsv") != std::string::npos);
-	REQUIRE(font.find("kerning.tsv") != std::string::npos);
+	REQUIRE(font.find("font.metrics.json") != std::string::npos);
+	REQUIRE(font.find("\\\"pd_kind\\\": \\\"font_metrics\\\"") != std::string::npos);
+	REQUIRE(font.find("\\\"kerning\\\": [") != std::string::npos);
 	REQUIRE(font.find("font_format = bitmap_ci4_atlas") != std::string::npos);
 	REQUIRE(font.find("font_file = glyphs.pgm") != std::string::npos);
-	REQUIRE(font.find("metrics_file = metrics.tsv") != std::string::npos);
-	REQUIRE(font.find("kerning_file = kerning.tsv") != std::string::npos);
+	REQUIRE(font.find("metrics_file = font.metrics.json") != std::string::npos);
 	REQUIRE(font.find("s_existingArchiveHasEntry(dst_rel, \"glyphs.pgm\")") !=
 	        std::string::npos);
-	REQUIRE(font.find("s_existingArchiveHasEntry(dst_rel, \"metrics.tsv\")") !=
+	REQUIRE(font.find("s_existingArchiveHasEntry(dst_rel, \"font.metrics.json\")") !=
 	        std::string::npos);
 	REQUIRE(font.find("assetArchiveWriterAddPublicMem(&asset_writer, \"glyphs.pgm\"") !=
 	        std::string::npos);
-	REQUIRE(font.find("assetArchiveWriterAddPublicMem(&asset_writer, \"metrics.tsv\"") !=
-	        std::string::npos);
-	REQUIRE(font.find("assetArchiveWriterAddPublicMem(&asset_writer, \"kerning.tsv\"") !=
+	REQUIRE(font.find("assetArchiveWriterAddPublicMem(&asset_writer, \"font.metrics.json\"") !=
 	        std::string::npos);
 	REQUIRE(font.find("assetArchiveWriterFinishMetadata(&asset_writer)") !=
 	        std::string::npos);
+	REQUIRE(font.find("metrics.tsv") == std::string::npos);
+	REQUIRE(font.find("kerning.tsv") == std::string::npos);
+	REQUIRE(font.find("kerning_file =") == std::string::npos);
 	REQUIRE(font.find("\"data\": \"data.bin\"") == std::string::npos);
 	REQUIRE(font.find("font_file = data.bin") == std::string::npos);
 	REQUIRE(font.find("modArchiveAddFileDisk(aw, \"data.bin\"") ==
@@ -5275,6 +5370,8 @@ TEST_CASE("base weapon animation extractor emits zip-openable command payloads",
 
 	REQUIRE(anim.find("s_existingArchiveHasAnimPayloads") !=
 	        std::string::npos);
+	REQUIRE(anim.find("\"\\\"animation\\\": \\\"invanim_\"") !=
+	        std::string::npos);
 	REQUIRE(anim.find("modArchiveBegin(full)") != std::string::npos);
 	REQUIRE(anim.find("assetArchiveWriterAddDescriptor(&asset_writer, \"animation.ini\"") !=
 	        std::string::npos);
@@ -5289,7 +5386,12 @@ TEST_CASE("base weapon animation extractor emits zip-openable command payloads",
 	REQUIRE(anim.find("commands_file = commands.json") != std::string::npos);
 	REQUIRE(anim.find("\\\"commands\\\": [") != std::string::npos);
 	REQUIRE(anim.find("\\\"command\\\": ") != std::string::npos);
-	REQUIRE(anim.find("catalogReadableSfxId") != std::string::npos);
+	REQUIRE(anim.find("s_weaponAnimCatalogIdFromName") != std::string::npos);
+	REQUIRE(anim.find("snprintf(out, out_n, \"base:%s\", anim_name)") !=
+	        std::string::npos);
+	REQUIRE(anim.find("s_textbufAppendJsonString(out, aname ? aname : \"\")") ==
+	        std::string::npos);
+	REQUIRE(anim.find("catalogReadableSoundRefId") != std::string::npos);
 	REQUIRE(anim.find("catalogReadableAnimationId") != std::string::npos);
 	REQUIRE(anim.find("\\\"category\\\": \\\"weapon_animation\\\"") !=
 	        std::string::npos);
@@ -5297,9 +5399,18 @@ TEST_CASE("base weapon animation extractor emits zip-openable command payloads",
 	REQUIRE(pool.find("jread_audio_catalog_or_enum") != std::string::npos);
 	REQUIRE(pool.find("s_resolveAnimationCatalogOrEnumName") != std::string::npos);
 	REQUIRE(pool.find("jstream_str_eq(&s->cur, \"commands\")") != std::string::npos);
+	REQUIRE(pool.find("jstream_str_eq(&s->cur, \"name\")") != std::string::npos);
+	REQUIRE(pool.find("loaderPoolParseAnimationSourceJson") != std::string::npos);
+	REQUIRE(pool.find("s_ParseAnimationSourcePath") != std::string::npos);
 	REQUIRE(anim.find("fsFileOpenWrite(relpath)") == std::string::npos);
 	REQUIRE(anim.find("emits one JSON") == std::string::npos);
 	REQUIRE(anim.find("opcodes_file = opcodes.json") == std::string::npos);
+
+	const std::string weapon = readFile("port/src/romextract_pdweapon.c");
+	REQUIRE(weapon.find("s_audioDependencyInfoForSfx") != std::string::npos);
+	REQUIRE(weapon.find("ref.hasconfig") != std::string::npos);
+	REQUIRE(weapon.find("audio/sfx/%s.pdsfx") != std::string::npos);
+	REQUIRE(weapon.find("sample_catalog_id") != std::string::npos);
 }
 
 TEST_CASE("base mesh extractor emits standard obj geometry payloads",
@@ -5313,9 +5424,9 @@ TEST_CASE("base mesh extractor emits standard obj geometry payloads",
 
 	REQUIRE(mesh.find("s_buildModelObj") != std::string::npos);
 	REQUIRE(mesh.find("s_exportGdlToObj") != std::string::npos);
-	REQUIRE(mesh.find("ROMEXTRACT_PDMESH_OBJ_EXPORT_VERSION_LABEL \"model_obj_mtx_v19_materials_hierarchy_parts_scale_faces_relations_raw_mtx_render_commands_json\"") !=
+	REQUIRE(mesh.find("ROMEXTRACT_PDMESH_OBJ_EXPORT_VERSION_LABEL \"model_obj_mtx_v20_materials_hierarchy_parts_faces_json_relations_raw_mtx_render_commands_json\"") !=
 	        std::string::npos);
-	REQUIRE(mesh.find("ROMEXTRACT_PDMESH_FAST_CACHE_KIND \"pdmesh_model_obj_mtx_v21_materials_hierarchy_parts_scale_faces_relations_raw_mtx_render_commands_json_allmodels_menuhud\"") !=
+	REQUIRE(mesh.find("ROMEXTRACT_PDMESH_FAST_CACHE_KIND \"pdmesh_model_obj_mtx_v23_materials_hierarchy_parts_faces_json_relations_raw_mtx_render_commands_json_allmodels_menuhud_zero_tri_models\"") !=
 	        std::string::npos);
 	REQUIRE(mesh.find("catalogReadableModelIdForFile((s32)FILE_GHUDPIECE, \"menu\", \"menu\"") !=
 	        std::string::npos);
@@ -5360,9 +5471,17 @@ TEST_CASE("base mesh extractor emits standard obj geometry payloads",
 	REQUIRE(mesh.find("ROMEXTRACT_PDMESH_NODE_DEPTH_CAP") != std::string::npos);
 	REQUIRE(mesh.find("s_objMtxTransformPoint") != std::string::npos);
 	REQUIRE(mesh.find("s_objMtxInverseTransformPoint") != std::string::npos);
-	REQUIRE(mesh.find("s_writeNodeHierarchyTsv") != std::string::npos);
-	REQUIRE(mesh.find("s_writePartTableTsv") != std::string::npos);
+	REQUIRE(mesh.find("s_writeNodeHierarchyJson") != std::string::npos);
+	REQUIRE(mesh.find("s_writePartTableJson") != std::string::npos);
 	REQUIRE(mesh.find("s_objRegisterNodes(&ctx, modeldef->rootnode, 0)") !=
+	        std::string::npos);
+	REQUIRE(mesh.find("if (!modeldef || !modeldef->rootnode) return 0;") ==
+	        std::string::npos);
+	REQUIRE(mesh.find("if (!modeldef->rootnode && modeldef->numparts > 0) return 0;") !=
+	        std::string::npos);
+	REQUIRE(mesh.find("if (s_writeNodeHierarchyJson(&ctx) != 0)") !=
+	        std::string::npos);
+	REQUIRE(mesh.find("if (s_writePartTableJson(&ctx) != 0)") !=
 	        std::string::npos);
 	REQUIRE(mesh.find("s_objNodeUnderHiddenGunToggle") != std::string::npos);
 	REQUIRE(mesh.find("s_objHiddenGunToggleTargetsNode") != std::string::npos);
@@ -5388,10 +5507,14 @@ TEST_CASE("base mesh extractor emits standard obj geometry payloads",
 	REQUIRE(mesh.find("gdl[cmdidx].tri4") == std::string::npos);
 	REQUIRE(mesh.find("model.obj") != std::string::npos);
 	REQUIRE(mesh.find("model.mtl") != std::string::npos);
-	REQUIRE(mesh.find("model.nodes.tsv") != std::string::npos);
-	REQUIRE(mesh.find("model.parts.tsv") != std::string::npos);
-	REQUIRE(mesh.find("model.faces.tsv") != std::string::npos);
+	REQUIRE(mesh.find("model.nodes.json") != std::string::npos);
+	REQUIRE(mesh.find("model.parts.json") != std::string::npos);
+	REQUIRE(mesh.find("model.faces.json") != std::string::npos);
 	REQUIRE(mesh.find("model.render.json") != std::string::npos);
+	REQUIRE(mesh.find("\\\"node_unresolved\\\": %s") != std::string::npos);
+	REQUIRE(mesh.find("model.nodes.tsv") == std::string::npos);
+	REQUIRE(mesh.find("model.parts.tsv") == std::string::npos);
+	REQUIRE(mesh.find("model.faces.tsv") == std::string::npos);
 	REQUIRE(mesh.find("s_objAppendRenderRow") != std::string::npos);
 	REQUIRE(mesh.find("\\\"pd_kind\\\": \\\"mesh_render_commands\\\"") !=
 	        std::string::npos);
@@ -5408,9 +5531,9 @@ TEST_CASE("base mesh extractor emits standard obj geometry payloads",
 	REQUIRE(mesh.find("obj_export_version = %s") != std::string::npos);
 	REQUIRE(mesh.find("geometry_file = model.obj") != std::string::npos);
 	REQUIRE(mesh.find("material_file = model.mtl") != std::string::npos);
-	REQUIRE(mesh.find("hierarchy_file = model.nodes.tsv") != std::string::npos);
-	REQUIRE(mesh.find("parts_file = model.parts.tsv") != std::string::npos);
-	REQUIRE(mesh.find("faces_file = model.faces.tsv") != std::string::npos);
+	REQUIRE(mesh.find("hierarchy_file = model.nodes.json") != std::string::npos);
+	REQUIRE(mesh.find("parts_file = model.parts.json") != std::string::npos);
+	REQUIRE(mesh.find("faces_file = model.faces.json") != std::string::npos);
 	REQUIRE(mesh.find("render_stream_file = model.render.json") != std::string::npos);
 	REQUIRE(mesh.find("model_scale = %.9g") != std::string::npos);
 	REQUIRE(mesh.find("\\\"model_scale\\\": %.9g") != std::string::npos);
@@ -5430,11 +5553,11 @@ TEST_CASE("base mesh extractor emits standard obj geometry payloads",
 	        std::string::npos);
 	REQUIRE(mesh.find("assetArchiveWriterAddPublicMem(&asset_writer, \"model.mtl\"") !=
 	        std::string::npos);
-	REQUIRE(mesh.find("assetArchiveWriterAddPublicMem(&asset_writer, \"model.nodes.tsv\"") !=
+	REQUIRE(mesh.find("assetArchiveWriterAddPublicMem(&asset_writer, \"model.nodes.json\"") !=
 	        std::string::npos);
-	REQUIRE(mesh.find("assetArchiveWriterAddPublicMem(&asset_writer, \"model.parts.tsv\"") !=
+	REQUIRE(mesh.find("assetArchiveWriterAddPublicMem(&asset_writer, \"model.parts.json\"") !=
 	        std::string::npos);
-	REQUIRE(mesh.find("assetArchiveWriterAddPublicMem(&asset_writer, \"model.faces.tsv\"") !=
+	REQUIRE(mesh.find("assetArchiveWriterAddPublicMem(&asset_writer, \"model.faces.json\"") !=
 	        std::string::npos);
 	REQUIRE(mesh.find("assetArchiveWriterAddPublicMem(&asset_writer, \"model.render.json\"") !=
 	        std::string::npos);
@@ -5464,7 +5587,8 @@ TEST_CASE("base mesh extractor emits standard obj geometry payloads",
 	        std::string::npos);
 	REQUIRE(mesh.find("const char mtl_buf[]") == std::string::npos);
 	REQUIRE(mesh.find("map_Kd") == std::string::npos);
-	REQUIRE(mesh.find("OBJ export produced no triangles") !=
+	REQUIRE(mesh.find("exported zero-triangle modeldef") !=
 	        std::string::npos);
-	REQUIRE(mesh.find("return -1;") != std::string::npos);
+	REQUIRE(mesh.find("OBJ export produced no triangles") ==
+	        std::string::npos);
 }

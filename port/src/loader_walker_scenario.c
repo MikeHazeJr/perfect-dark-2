@@ -4,7 +4,7 @@
  * Walks scenario .pdscenario files and registers each as ASSET_SCENARIO.
  * The public scene.glb/scene.gltf member is the DCC-openable runtime source;
  * collision/navigation/setup tables remain authored archive members.
- * setup.fields.tsv is the decoded setup-field source, not a raw setup dump.
+ * setup.fields.json is the decoded setup-field source, not a raw setup dump.
  */
 
 #include <stddef.h>
@@ -138,27 +138,31 @@ static s32 s_register(const char *manifest, size_t manifest_len,
     s_copyManifestMember(e->ext.scenario.pads_file,
                          sizeof(e->ext.scenario.pads_file),
                          manifest, manifest_len, file_path,
-                         "pads", "pads.tsv");
+                         "pads", "pads.json");
     s_copyManifestMember(e->ext.scenario.spawns_file,
                          sizeof(e->ext.scenario.spawns_file),
                          manifest, manifest_len, file_path,
-                         "spawns", "spawns.tsv");
+                         "spawns", "spawns.json");
     s_copyManifestMember(e->ext.scenario.volumes_file,
                          sizeof(e->ext.scenario.volumes_file),
                          manifest, manifest_len, file_path,
-                         "volumes", "volumes.tsv");
+                         "volumes", "volumes.json");
     s_copyManifestMember(e->ext.scenario.objects_file,
                          sizeof(e->ext.scenario.objects_file),
                          manifest, manifest_len, file_path,
-                         "objects", "objects.tsv");
+                         "objects", "objects.json");
     s_copyManifestMember(e->ext.scenario.setup_fields_file,
                          sizeof(e->ext.scenario.setup_fields_file),
                          manifest, manifest_len, file_path,
-                         "setup_fields", "setup.fields.tsv");
+                         "setup_fields", "setup.fields.json");
+    s_copyManifestMember(e->ext.scenario.ai_lists_file,
+                         sizeof(e->ext.scenario.ai_lists_file),
+                         manifest, manifest_len, file_path,
+                         "ai_lists", "ai/ailists.json");
     s_copyManifestMember(e->ext.scenario.objectives_file,
                          sizeof(e->ext.scenario.objectives_file),
                          manifest, manifest_len, file_path,
-                         "objectives", "objectives.tsv");
+                         "objectives", "objectives.json");
     s_copyManifestMember(e->ext.scenario.navigation_file,
                          sizeof(e->ext.scenario.navigation_file),
                          manifest, manifest_len, file_path,

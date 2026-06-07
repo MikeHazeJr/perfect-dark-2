@@ -1,0 +1,30 @@
+{
+  "Name": "all_family_source_gate_smoke",
+  "Category": "scenario",
+  "BugId": null,
+  "RegressionFor": null,
+  "Passed": false,
+  "ExitCode": 0,
+  "ElapsedSeconds": 36.5162245,
+  "InstallDir": "C:\\Users\\mikeh\\Perfect-Dark-2\\perfect_dark-mike\\.claude\\smoke-verify-install",
+  "AssertionsTotal": 36,
+  "AssertionsMet": 33,
+  "Failures": [
+    {
+      "Kind": "forbidden_pattern_matched",
+      "Pattern": "result=MISSING",
+      "Line": "[00:35.37] WARNING: BOOT: --debug-load-catalog-assets result type=ui id='base:ui_bg_alt' result=MISSING"
+    },
+    {
+      "Kind": "required_line_missing",
+      "Pattern": "BOOT: --debug-load-catalog-assets result type=ui id='base:ui_bg_alt' result=OK"
+    },
+    {
+      "Kind": "required_count_out_of_range",
+      "Pattern": "BOOT: --debug-load-catalog-assets result type=.* result=OK",
+      "Count": 23,
+      "Min": 24,
+      "Max": 24
+    }
+  ]
+}

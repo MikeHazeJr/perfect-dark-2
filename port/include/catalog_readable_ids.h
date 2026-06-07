@@ -14,6 +14,7 @@ void catalogReadableAnimationId(s32 anim_idx, const char *fallback_role,
 void catalogReadableTextureId(s32 texture_idx, char *out, size_t out_n);
 void catalogReadableSfxId(s32 sfx_idx, char *out, size_t out_n);
 void catalogReadableVoiceId(s32 sfx_idx, char *out, size_t out_n);
+void catalogReadableSoundRefId(s32 sound_ref, char *out, size_t out_n);
 void catalogReadableSongId(s32 slot_idx, char *out, size_t out_n);
 void catalogReadableModelIdForFile(s32 filenum, const char *hint_suffix,
 	const char *fallback_role, char *out, size_t out_n);

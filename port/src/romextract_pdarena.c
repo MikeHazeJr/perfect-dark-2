@@ -14,9 +14,9 @@
  *      wrapper and the exact scenario content unit it uses.
  *
  *   2. data/<romid>/scenarios/<scenario_id>.pdscenario
- *      ZIP compound bundling scene.glb, pads.tsv, spawns.tsv, volumes.tsv,
- *      objects.tsv, setup.fields.tsv, ai/ailists.tsv, objectives.tsv,
- *      navigation/paths.tsv, navigation.ini, level.graph.json, and
+ *      ZIP compound bundling scene.glb, pads.json, spawns.json, volumes.json,
+ *      objects.json, setup.fields.json, ai/ailists.json, objectives.json,
+ *      navigation/paths.json, navigation.ini, level.graph.json, and
  *      _meta/generated-*.json envelopes. UNIFIED per Q-1 (one file per stage;
  *      modder-friendly atomic distribution).
  *      Schema: universality-pivot-schemas.md Section 2.10.
@@ -80,11 +80,11 @@
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "../external/stb_image_write.h"
 
-#define PDSCENARIO_BG_VISUAL_EXPORT_VERSION "bg_visual_scene_glb_v9_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0"
+#define PDSCENARIO_BG_VISUAL_EXPORT_VERSION "bg_visual_scene_glb_v11_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_materialextras_dualtex"
 #define PDSCENARIO_BG_VISUAL_EXPORT_VERSION_FILE \
 	PDSCENARIO_BG_VISUAL_EXPORT_VERSION "\n"
-#define ROMEXTRACT_PDARENA_FAST_CACHE_KIND "pdarena_clean_public_v8_pdscenario_v84"
-#define ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND "pdscenario_scene_glb_clean_public_v84_standalone_backfill_collision_obj_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_quip_shuffle_graph_portals_navhashes"
+#define ROMEXTRACT_PDARENA_FAST_CACHE_KIND "pdarena_clean_public_v8_pdscenario_v91"
+#define ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND "pdscenario_scene_glb_clean_public_v95_standalone_backfill_collision_obj_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json"
 
 /* Convert "base:arena_mp_skedar" -> "base_arena_mp_skedar". */
 static void s_idToFilename(const char *id, char *out, size_t n)
@@ -261,6 +261,7 @@ typedef struct {
 	s32 decoded;
 	u32 width;
 	u32 height;
+	s32 has_alpha;
 	u8 *tga;
 	u32 tga_size;
 	u8 *png;
@@ -291,7 +292,6 @@ typedef struct {
 typedef struct {
 	pdscenario_textbuf_t obj;
 	pdscenario_textbuf_t mtl;
-	pdscenario_textbuf_t materials_tsv;
 	u8 *scene_glb;
 	u32 scene_glb_size;
 	pdscenario_bgtexture_t *textures;
@@ -372,6 +372,49 @@ static s32 s_textbufAppendf(pdscenario_textbuf_t *b, const char *fmt, ...)
 	if (wrote != need) return -1;
 	b->len += (u32)need;
 	return 0;
+}
+
+static s32 s_textbufAppendJsonString(pdscenario_textbuf_t *b, const char *s)
+{
+	if (!s) s = "";
+	if (s_textbufAppend(b, "\"") != 0) return -1;
+	while (*s) {
+		unsigned char c = (unsigned char)*s++;
+		switch (c) {
+		case '\\':
+			if (s_textbufAppend(b, "\\\\") != 0) return -1;
+			break;
+		case '"':
+			if (s_textbufAppend(b, "\\\"") != 0) return -1;
+			break;
+		case '\b':
+			if (s_textbufAppend(b, "\\b") != 0) return -1;
+			break;
+		case '\f':
+			if (s_textbufAppend(b, "\\f") != 0) return -1;
+			break;
+		case '\n':
+			if (s_textbufAppend(b, "\\n") != 0) return -1;
+			break;
+		case '\r':
+			if (s_textbufAppend(b, "\\r") != 0) return -1;
+			break;
+		case '\t':
+			if (s_textbufAppend(b, "\\t") != 0) return -1;
+			break;
+		default:
+			if (c < 0x20) {
+				if (s_textbufAppendf(b, "\\u%04x", (unsigned)c) != 0) {
+					return -1;
+				}
+			} else {
+				char tmp[2] = { (char)c, '\0' };
+				if (s_textbufAppend(b, tmp) != 0) return -1;
+			}
+			break;
+		}
+	}
+	return s_textbufAppend(b, "\"");
 }
 
 static void s_textbufSha256Hex(const pdscenario_textbuf_t *b,
@@ -472,7 +515,6 @@ static void s_bgSceneFree(pdscenario_bgscene_t *s)
 	if (!s) return;
 	s_textbufFree(&s->obj);
 	s_textbufFree(&s->mtl);
-	s_textbufFree(&s->materials_tsv);
 	if (s->scene_glb) free(s->scene_glb);
 	if (s->textures) {
 		for (u32 i = 0; i < s->texture_count; i++) {
@@ -602,19 +644,18 @@ static s32 s_visualMeshAddTri(pdscenario_visualmesh_t *m,
 }
 
 static void s_pdscenarioScratchFree(pdscenario_textbuf_t *rooms_obj,
-                                    pdscenario_textbuf_t *tiles_tsv,
-                                    pdscenario_textbuf_t *portals_tsv,
-                                    pdscenario_textbuf_t *pads_tsv,
-                                    pdscenario_textbuf_t *spawns_tsv,
-                                    pdscenario_textbuf_t *volumes_tsv,
-                                    pdscenario_textbuf_t *waypoints_tsv,
-                                    pdscenario_textbuf_t *waygroups_tsv,
-                                    pdscenario_textbuf_t *covers_tsv,
-                                    pdscenario_textbuf_t *paths_tsv,
-                                    pdscenario_textbuf_t *objects_tsv,
-                                    pdscenario_textbuf_t *setup_fields_tsv,
-                                    pdscenario_textbuf_t *ai_lists_tsv,
-                                    pdscenario_textbuf_t *objectives_tsv,
+                                    pdscenario_textbuf_t *portals_json,
+                                    pdscenario_textbuf_t *pads_json,
+                                    pdscenario_textbuf_t *spawns_json,
+                                    pdscenario_textbuf_t *volumes_json,
+                                    pdscenario_textbuf_t *waypoints_json,
+                                    pdscenario_textbuf_t *waygroups_json,
+                                    pdscenario_textbuf_t *covers_json,
+                                    pdscenario_textbuf_t *paths_json,
+                                    pdscenario_textbuf_t *objects_json,
+                                    pdscenario_textbuf_t *setup_fields_json,
+                                    pdscenario_textbuf_t *ai_lists_json,
+                                    pdscenario_textbuf_t *objectives_json,
                                     pdscenario_textbuf_t *navigation_ini,
                                     pdscenario_textbuf_t *level_graph_json,
                                     pdscenario_textbuf_t *collision_meta_json,
@@ -623,19 +664,18 @@ static void s_pdscenarioScratchFree(pdscenario_textbuf_t *rooms_obj,
                                     pdscenario_bgscene_t *bg_scene)
 {
 	s_textbufFree(rooms_obj);
-	s_textbufFree(tiles_tsv);
-	s_textbufFree(portals_tsv);
-	s_textbufFree(pads_tsv);
-	s_textbufFree(spawns_tsv);
-	s_textbufFree(volumes_tsv);
-	s_textbufFree(waypoints_tsv);
-	s_textbufFree(waygroups_tsv);
-	s_textbufFree(covers_tsv);
-	s_textbufFree(paths_tsv);
-	s_textbufFree(objects_tsv);
-	s_textbufFree(setup_fields_tsv);
-	s_textbufFree(ai_lists_tsv);
-	s_textbufFree(objectives_tsv);
+	s_textbufFree(portals_json);
+	s_textbufFree(pads_json);
+	s_textbufFree(spawns_json);
+	s_textbufFree(volumes_json);
+	s_textbufFree(waypoints_json);
+	s_textbufFree(waygroups_json);
+	s_textbufFree(covers_json);
+	s_textbufFree(paths_json);
+	s_textbufFree(objects_json);
+	s_textbufFree(setup_fields_json);
+	s_textbufFree(ai_lists_json);
+	s_textbufFree(objectives_json);
 	s_textbufFree(navigation_ini);
 	s_textbufFree(level_graph_json);
 	s_textbufFree(collision_meta_json);
@@ -795,14 +835,13 @@ static s32 s_tilesGeoStride(const struct geo *geo)
 static s32 s_buildTilesExports(const u8 *data, u32 size,
                                pdscenario_textbuf_t *obj,
                                pdscenario_visualmesh_t *visual,
-                               pdscenario_textbuf_t *tsv,
                                u32 *out_rooms, u32 *out_geos,
                                u32 *out_tris)
 {
 	if (out_rooms) *out_rooms = 0;
 	if (out_geos) *out_geos = 0;
 	if (out_tris) *out_tris = 0;
-	if (!data || size < 12 || !obj || !tsv) return -1;
+	if (!data || size < 12 || !obj) return -1;
 
 	u32 num_rooms = *(const u32 *)data;
 	if (num_rooms == 0 || num_rooms > 4096) return -1;
@@ -818,9 +857,7 @@ static s32 s_buildTilesExports(const u8 *data, u32 size,
 	if (s_textbufAppend(obj,
 			"# Perfect Dark 2 base scenario collision export\n"
 			"mtllib scenario.mtl\n"
-			"usemtl collision\n") != 0 ||
-	    s_textbufAppend(tsv,
-			"room_index\tgeo_index\ttype\tflags\tfloortype\tfloorcol\tvertex_index\tx\ty\tz\tymin\tymax\tradius\n") != 0) {
+			"usemtl collision\n") != 0) {
 		return -1;
 	}
 
@@ -845,14 +882,6 @@ static s32 s_buildTilesExports(const u8 *data, u32 size,
 			geos++;
 			if (geo->type == GEOTYPE_TILE_I) {
 				const struct geotilei *tile = (const struct geotilei *)ptr;
-				for (s32 v = 0; v < geo->numvertices; v++) {
-					if (s_textbufAppendf(tsv, "%u\t%u\tTILE_I\t%u\t%u\t%u\t%d\t%d\t%d\t%d\t\t\t\n",
-							room, geo_index, (unsigned)geo->flags,
-							(unsigned)tile->floortype, (unsigned)tile->floorcol,
-							v, (int)tile->vertices[v][0],
-							(int)tile->vertices[v][1],
-							(int)tile->vertices[v][2]) != 0) return -1;
-				}
 				for (s32 i = 1; i < geo->numvertices - 1; i++) {
 					if (s_objEmitTri(obj, visual, &next_index,
 							(f32)tile->vertices[0][0], (f32)tile->vertices[0][1], (f32)tile->vertices[0][2],
@@ -862,14 +891,6 @@ static s32 s_buildTilesExports(const u8 *data, u32 size,
 				}
 			} else if (geo->type == GEOTYPE_TILE_F) {
 				const struct geotilef *tile = (const struct geotilef *)ptr;
-				for (s32 v = 0; v < geo->numvertices; v++) {
-					if (s_textbufAppendf(tsv, "%u\t%u\tTILE_F\t%u\t%u\t%u\t%d\t%.6f\t%.6f\t%.6f\t\t\t\n",
-							room, geo_index, (unsigned)geo->flags,
-							(unsigned)tile->floortype, (unsigned)tile->floorcol,
-							v, (double)tile->vertices[v].x,
-							(double)tile->vertices[v].y,
-							(double)tile->vertices[v].z) != 0) return -1;
-				}
 				for (s32 i = 1; i < geo->numvertices - 1; i++) {
 					const struct coord *v0 = &tile->vertices[0];
 					const struct coord *v1 = &tile->vertices[i];
@@ -882,13 +903,6 @@ static s32 s_buildTilesExports(const u8 *data, u32 size,
 				}
 			} else if (geo->type == GEOTYPE_BLOCK) {
 				const struct geoblock *block = (const struct geoblock *)ptr;
-				for (s32 v = 0; v < geo->numvertices; v++) {
-					if (s_textbufAppendf(tsv, "%u\t%u\tBLOCK\t%u\t\t\t%d\t%.6f\t\t%.6f\t%.6f\t%.6f\t\n",
-							room, geo_index, (unsigned)geo->flags, v,
-							(double)block->vertices[v][0],
-							(double)block->vertices[v][1],
-							(double)block->ymin, (double)block->ymax) != 0) return -1;
-				}
 				for (s32 i = 0; i < geo->numvertices; i++) {
 					s32 j = (i + 1) % geo->numvertices;
 					f32 x0 = block->vertices[i][0], z0 = block->vertices[i][1];
@@ -906,11 +920,6 @@ static s32 s_buildTilesExports(const u8 *data, u32 size,
 				}
 			} else if (geo->type == GEOTYPE_CYL) {
 				const struct geocyl *cyl = (const struct geocyl *)ptr;
-				if (s_textbufAppendf(tsv, "%u\t%u\tCYL\t%u\t\t\t0\t%.6f\t\t%.6f\t%.6f\t%.6f\t%.6f\n",
-						room, geo_index, (unsigned)geo->flags,
-						(double)cyl->x, (double)cyl->z,
-						(double)cyl->ymin, (double)cyl->ymax,
-						(double)cyl->radius) != 0) return -1;
 				for (s32 i = 0; i < 8; i++) {
 					s32 j = (i + 1) & 7;
 					f32 x0 = cyl->x + cylx[i] * cyl->radius;
@@ -1049,61 +1058,68 @@ static s32 s_resolveSetupPointer(const u8 *data, u32 size,
 	return 1;
 }
 
-static s32 s_appendSegmentRef(pdscenario_textbuf_t *tsv, u32 segment,
+static s32 s_appendSegmentRef(pdscenario_textbuf_t *out, u32 segment,
                               const char *prefix)
 {
 	u32 id = segment & 0x3fffu;
 	u32 flags = segment & ~0x3fffu;
 
-	if (s_textbufAppendf(tsv, "%s_%04u", prefix, (unsigned)id) != 0) {
+	if (s_textbufAppendf(out, "%s_%04u", prefix, (unsigned)id) != 0) {
 		return -1;
 	}
 	if (flags & 0x4000u) {
-		if (s_textbufAppend(tsv, "|outward") != 0) return -1;
+		if (s_textbufAppend(out, "|outward") != 0) return -1;
 	}
 	if (flags & 0x8000u) {
-		if (s_textbufAppend(tsv, "|inward") != 0) return -1;
+		if (s_textbufAppend(out, "|inward") != 0) return -1;
 	}
 	return 0;
 }
 
-static s32 s_appendSegmentList(pdscenario_textbuf_t *tsv,
-                               const u8 *data, u32 size, uintptr_t offset,
-                               const char *prefix)
+static s32 s_appendSegmentListJson(pdscenario_textbuf_t *json,
+                                   const u8 *data, u32 size, uintptr_t offset,
+                                   const char *prefix)
 {
 	const u32 *segments;
 	u32 guard;
 	const char *sep = "";
 
-	if (!tsv) return -1;
-	if (!offset) return 0;
+	if (!json) return -1;
+	if (s_textbufAppend(json, "[") != 0) return -1;
+	if (!offset) return s_textbufAppend(json, "]");
 	if (!s_offsetRangeValid(size, offset, sizeof(u32))) return -1;
 
 	segments = (const u32 *)(const void *)(data + offset);
 	for (guard = 0; guard < 8192; guard++) {
 		u32 segment;
+		pdscenario_textbuf_t token = { 0 };
+
 		if (!s_offsetRangeValid(size, offset + (uintptr_t)guard * sizeof(u32),
 				sizeof(u32))) {
+			s_textbufFree(&token);
 			return -1;
 		}
 		segment = segments[guard];
 		if (segment == 0xffffffffu) {
-			return 0;
+			return s_textbufAppend(json, "]");
 		}
-		if (s_textbufAppend(tsv, sep) != 0 ||
-		    s_appendSegmentRef(tsv, segment, prefix) != 0) {
+		if (s_appendSegmentRef(&token, segment, prefix) != 0 ||
+				s_textbufAppend(json, sep) != 0 ||
+				s_textbufAppendJsonString(json, token.data) != 0) {
+			s_textbufFree(&token);
 			return -1;
 		}
-		sep = ";";
+		s_textbufFree(&token);
+		sep = ", ";
 	}
 
 	return -1;
 }
 
-static s32 s_buildNavigationTsv(const u8 *data, u32 size,
-                                pdscenario_textbuf_t *waypoints_tsv,
-                                pdscenario_textbuf_t *waygroups_tsv,
-                                pdscenario_textbuf_t *covers_tsv,
+static s32 s_buildNavigationJson(const u8 *data, u32 size,
+                                pdscenario_textbuf_t *waypoints_json,
+                                pdscenario_textbuf_t *waygroups_json,
+                                pdscenario_textbuf_t *covers_json,
                                 u32 *out_waypoints,
                                 u32 *out_waygroups,
                                 u32 *out_covers)
@@ -1117,7 +1133,7 @@ static s32 s_buildNavigationTsv(const u8 *data, u32 size,
 	if (out_waygroups) *out_waygroups = 0;
 	if (out_covers) *out_covers = 0;
 	if (!data || size < sizeof(struct padsfileheader) ||
-			!waypoints_tsv || !waygroups_tsv || !covers_tsv) {
+			!waypoints_json || !waygroups_json || !covers_json) {
 		return -1;
 	}
 
@@ -1127,12 +1143,18 @@ static s32 s_buildNavigationTsv(const u8 *data, u32 size,
 		return -1;
 	}
 
-	if (s_textbufAppend(waypoints_tsv,
-			"waypoint_id\tpad_ref\tgroup_ref\tstep\tneighbours\n") != 0 ||
-	    s_textbufAppend(waygroups_tsv,
-			"waygroup_id\tstep\twaypoints\tneighbours\n") != 0 ||
-	    s_textbufAppend(covers_tsv,
-			"cover_id\tflags\tpos_x\tpos_y\tpos_z\tlook_x\tlook_y\tlook_z\n") != 0) {
+	if (s_textbufAppend(waypoints_json,
+			"{\n"
+			"  \"schema\": \"pd2.scenario.waypoints.v1\",\n"
+			"  \"rows\": [\n") != 0 ||
+	    s_textbufAppend(waygroups_json,
+			"{\n"
+			"  \"schema\": \"pd2.scenario.waygroups.v1\",\n"
+			"  \"rows\": [\n") != 0 ||
+	    s_textbufAppend(covers_json,
+			"{\n"
+			"  \"schema\": \"pd2.scenario.covers.v1\",\n"
+			"  \"rows\": [\n") != 0) {
 		return -1;
 	}
 
@@ -1159,11 +1181,13 @@ static s32 s_buildNavigationTsv(const u8 *data, u32 size,
 			s_waypointRef((s32)i, waypoint_ref, sizeof(waypoint_ref));
 			s_padRef(waypoints[i].padnum, pad_ref, sizeof(pad_ref));
 			s_waygroupRef(waypoints[i].groupnum, group_ref, sizeof(group_ref));
-			if (s_textbufAppendf(waypoints_tsv, "%s\t%s\t%s\t%d\t",
+			if (s_textbufAppendf(waypoints_json,
+					"%s    { \"waypoint_ref\": \"%s\", \"pad_ref\": \"%s\", \"group_ref\": \"%s\", \"step\": %d, \"neighbours\": ",
+					waypoint_count ? ",\n" : "",
 					waypoint_ref, pad_ref, group_ref, waypoints[i].step) != 0 ||
-			    s_appendSegmentList(waypoints_tsv, data, size,
+			    s_appendSegmentListJson(waypoints_json, data, size,
 					(uintptr_t)waypoints[i].neighbours, "waypoint") != 0 ||
-			    s_textbufAppend(waypoints_tsv, "\n") != 0) {
+			    s_textbufAppend(waypoints_json, " }") != 0) {
 				return -1;
 			}
 			waypoint_count++;
@@ -1192,14 +1216,16 @@ static s32 s_buildNavigationTsv(const u8 *data, u32 size,
 				break;
 			}
 			s_waygroupRef((s32)i, waygroup_ref, sizeof(waygroup_ref));
-			if (s_textbufAppendf(waygroups_tsv, "%s\t%d\t",
+			if (s_textbufAppendf(waygroups_json,
+					"%s    { \"waygroup_ref\": \"%s\", \"step\": %d, \"waypoints\": ",
+					waygroup_count ? ",\n" : "",
 					waygroup_ref, waygroups[i].step) != 0 ||
-			    s_appendSegmentList(waygroups_tsv, data, size,
+			    s_appendSegmentListJson(waygroups_json, data, size,
 					(uintptr_t)waygroups[i].waypoints, "waypoint") != 0 ||
-			    s_textbufAppend(waygroups_tsv, "\t") != 0 ||
-			    s_appendSegmentList(waygroups_tsv, data, size,
+			    s_textbufAppend(waygroups_json, ", \"neighbours\": ") != 0 ||
+			    s_appendSegmentListJson(waygroups_json, data, size,
 					(uintptr_t)waygroups[i].neighbours, "waygroup") != 0 ||
-			    s_textbufAppend(waygroups_tsv, "\n") != 0) {
+			    s_textbufAppend(waygroups_json, " }") != 0) {
 				return -1;
 			}
 			waygroup_count++;
@@ -1220,8 +1246,9 @@ static s32 s_buildNavigationTsv(const u8 *data, u32 size,
 		}
 		covers = (const struct coverdefinition *)(const void *)(data + hdr->coversoffset);
 		for (i = 0; i < cover_count; i++) {
-			if (s_textbufAppendf(covers_tsv,
-					"cover_%04u\t0x%04x\t%.6f\t%.6f\t%.6f\t%.6f\t%.6f\t%.6f\n",
+			if (s_textbufAppendf(covers_json,
+					"%s    { \"cover_ref\": \"cover_%04u\", \"flags\": %u, \"position\": [%.6f, %.6f, %.6f], \"look\": [%.6f, %.6f, %.6f] }",
+					i ? ",\n" : "",
 					(unsigned)i, (unsigned)covers[i].flags,
 					(double)covers[i].pos.x,
 					(double)covers[i].pos.y,
@@ -1234,15 +1261,21 @@ static s32 s_buildNavigationTsv(const u8 *data, u32 size,
 		}
 	}
 
+	if (s_textbufAppend(waypoints_json, "\n  ]\n}\n") != 0 ||
+	    s_textbufAppend(waygroups_json, "\n  ]\n}\n") != 0 ||
+	    s_textbufAppend(covers_json, "\n  ]\n}\n") != 0) {
+		return -1;
+	}
+
 	if (out_waypoints) *out_waypoints = waypoint_count;
 	if (out_waygroups) *out_waygroups = waygroup_count;
 	if (out_covers) *out_covers = cover_count;
 	return 0;
 }
 
-static s32 s_buildPathTsv(const u8 *data, u32 size,
-                          pdscenario_textbuf_t *paths_tsv,
-                          u32 *out_paths)
+static s32 s_buildPathsJson(const u8 *data, u32 size,
+                            pdscenario_textbuf_t *paths_json,
+                            u32 *out_paths)
 {
 	const struct stagesetup *setup;
 	const struct path *paths;
@@ -1250,17 +1283,22 @@ static s32 s_buildPathTsv(const u8 *data, u32 size,
 	u32 path_count = 0;
 
 	if (out_paths) *out_paths = 0;
-	if (!data || size < sizeof(struct stagesetup) || !paths_tsv) {
+	if (!data || size < sizeof(struct stagesetup) || !paths_json) {
 		return -1;
 	}
-	if (s_textbufAppend(paths_tsv,
-			"path_ref\tflags\tpads\n") != 0) {
+	if (s_textbufAppend(paths_json,
+			"{\n"
+			"  \"schema\": \"pd2.scenario.paths.v1\",\n"
+			"  \"rows\": [\n") != 0) {
 		return -1;
 	}
 
 	setup = (const struct stagesetup *)data;
 	paths_ofs = (uintptr_t)setup->paths;
 	if (!paths_ofs) {
+		if (s_textbufAppend(paths_json, "  ]\n}\n") != 0) {
+			return -1;
+		}
 		return 0;
 	}
 	if (!s_resolveSetupPointer(data, size, setup->paths, sizeof(void *),
@@ -1294,8 +1332,14 @@ static s32 s_buildPathTsv(const u8 *data, u32 size,
 		}
 		pads = (const s32 *)(const void *)(data + pads_ofs);
 		s_pathRef((s32)paths[i].id, path_ref, sizeof(path_ref));
-		if (s_textbufAppendf(paths_tsv, "%s\t0x%02x\t",
-				path_ref, (unsigned)paths[i].flags) != 0) {
+		if (path_count > 0 && s_textbufAppend(paths_json, ",\n") != 0) {
+			return -1;
+		}
+		if (s_textbufAppend(paths_json, "    { \"path_ref\": ") != 0 ||
+		    s_textbufAppendJsonString(paths_json, path_ref) != 0 ||
+		    s_textbufAppendf(paths_json,
+				", \"flags\": \"0x%02x\", \"pads\": [",
+				(unsigned)paths[i].flags) != 0) {
 			return -1;
 		}
 		for (u32 j = 0; j < 8192u; j++) {
@@ -1309,16 +1353,16 @@ static s32 s_buildPathTsv(const u8 *data, u32 size,
 				break;
 			}
 			s_padRef(pads[j], pad_ref, sizeof(pad_ref));
-			if (s_textbufAppend(paths_tsv, sep) != 0 ||
-					s_textbufAppend(paths_tsv, pad_ref) != 0) {
+			if (s_textbufAppend(paths_json, sep) != 0 ||
+			    s_textbufAppendJsonString(paths_json, pad_ref) != 0) {
 				return -1;
 			}
-			sep = ";";
+			sep = ", ";
 			if (j == 8191u) {
 				return -1;
 			}
 		}
-		if (s_textbufAppend(paths_tsv, "\n") != 0) {
+		if (s_textbufAppend(paths_json, "] }") != 0) {
 			return -1;
 		}
 		path_count++;
@@ -1328,31 +1372,40 @@ static s32 s_buildPathTsv(const u8 *data, u32 size,
 	}
 
 	if (out_paths) *out_paths = path_count;
+	if (s_textbufAppend(paths_json, "\n  ]\n}\n") != 0) {
+		return -1;
+	}
 	return 0;
 }
 
-static s32 s_buildPadsTsv(const u8 *data, u32 size,
-                          pdscenario_textbuf_t *tsv,
-                          pdscenario_textbuf_t *spawns_tsv,
-                          pdscenario_textbuf_t *volumes_tsv,
+static s32 s_buildPadsJson(const u8 *data, u32 size,
+                          pdscenario_textbuf_t *pads_json,
+                          pdscenario_textbuf_t *spawns_json,
+                          pdscenario_textbuf_t *volumes_json,
                           u32 *out_pads)
 {
 	if (out_pads) *out_pads = 0;
-	if (!data || size < sizeof(struct padsfileheader) || !tsv) return -1;
+	if (!data || size < sizeof(struct padsfileheader) || !pads_json) return -1;
 	const struct padsfileheader *hdr = (const struct padsfileheader *)data;
 	if (hdr->numpads < 0 || hdr->numpads > 8192) return -1;
 	if ((uintptr_t)&hdr->padoffsets[hdr->numpads] > (uintptr_t)data + size) return -1;
 
-	if (s_textbufAppend(tsv,
-			"pad_id\troom_ref\tliftnum\tflags\tpos_x\tpos_y\tpos_z\tup_x\tup_y\tup_z\tlook_x\tlook_y\tlook_z\tbbox_xmin\tbbox_xmax\tbbox_ymin\tbbox_ymax\tbbox_zmin\tbbox_zmax\n") != 0) {
+	if (s_textbufAppend(pads_json,
+			"{\n"
+			"  \"schema\": \"pd2.scenario.pads.v1\",\n"
+			"  \"rows\": [\n") != 0) {
 		return -1;
 	}
-	if (spawns_tsv && s_textbufAppend(spawns_tsv,
-			"spawn_id\tpad_ref\troom_ref\tteam\tprofile\tpos_x\tpos_y\tpos_z\tlook_x\tlook_y\tlook_z\n") != 0) {
+	if (spawns_json && s_textbufAppend(spawns_json,
+			"{\n"
+			"  \"schema\": \"pd2.scenario.spawns.v1\",\n"
+			"  \"rows\": [\n") != 0) {
 		return -1;
 	}
-	if (volumes_tsv && s_textbufAppend(volumes_tsv,
-			"volume_id\tpad_ref\tkind\troom_ref\tshape\tmin_x\tmin_y\tmin_z\tmax_x\tmax_y\tmax_z\n") != 0) {
+	if (volumes_json && s_textbufAppend(volumes_json,
+			"{\n"
+			"  \"schema\": \"pd2.scenario.volumes.v1\",\n"
+			"  \"rows\": [\n") != 0) {
 		return -1;
 	}
 
@@ -1414,35 +1467,86 @@ static s32 s_buildPadsTsv(const u8 *data, u32 size,
 		s_padRef(i, pad_ref, sizeof(pad_ref));
 		s_roomRef(room, room_ref, sizeof(room_ref));
 
-		if (s_textbufAppendf(tsv,
-				"%s\t%s\t%d\t0x%05x\t%.6f\t%.6f\t%.6f\t%.6f\t%.6f\t%.6f\t%.6f\t%.6f\t%.6f\t%.6f\t%.6f\t%.6f\t%.6f\t%.6f\t%.6f\n",
-				pad_ref, room_ref, liftnum, (unsigned)flags,
+		if (i > 0 && s_textbufAppend(pads_json, ",\n") != 0) {
+			return -1;
+		}
+		if (s_textbufAppend(pads_json,
+				"    { \"pad_ref\": ") != 0 ||
+			    s_textbufAppendJsonString(pads_json, pad_ref) != 0 ||
+			    s_textbufAppend(pads_json, ", \"room_ref\": ") != 0 ||
+			    s_textbufAppendJsonString(pads_json, room_ref) != 0 ||
+			    s_textbufAppendf(pads_json,
+				", \"liftnum\": %d, \"flags\": \"0x%05x\", "
+				"\"position\": [%.6f, %.6f, %.6f], "
+				"\"up\": [%.6f, %.6f, %.6f], "
+				"\"look\": [%.6f, %.6f, %.6f], "
+				"\"bbox\": { \"min\": [%.6f, %.6f, %.6f], "
+				"\"max\": [%.6f, %.6f, %.6f] } }",
+				liftnum, (unsigned)flags,
 				(double)pos[0], (double)pos[1], (double)pos[2],
 				(double)up[0], (double)up[1], (double)up[2],
 				(double)look[0], (double)look[1], (double)look[2],
-				(double)bbox[0], (double)bbox[1], (double)bbox[2],
-				(double)bbox[3], (double)bbox[4], (double)bbox[5]) != 0) {
+				(double)bbox[0], (double)bbox[2], (double)bbox[4],
+				(double)bbox[1], (double)bbox[3], (double)bbox[5]) != 0) {
 			return -1;
 		}
-		if (spawns_tsv && s_textbufAppendf(spawns_tsv,
-				"spawn_%04d\t%s\t%s\tany\tdefault\t%.6f\t%.6f\t%.6f\t%.6f\t%.6f\t%.6f\n",
-				i, pad_ref, room_ref,
-				(double)pos[0], (double)pos[1], (double)pos[2],
-				(double)look[0], (double)look[1], (double)look[2]) != 0) {
-			return -1;
+		if (spawns_json) {
+			if (i > 0 && s_textbufAppend(spawns_json, ",\n") != 0) {
+				return -1;
+			}
+			if (s_textbufAppend(spawns_json,
+					"    { \"spawn_id\": ") != 0 ||
+			    s_textbufAppendf(spawns_json, "\"spawn_%04d\", \"pad_ref\": ",
+					i) != 0 ||
+			    s_textbufAppendJsonString(spawns_json, pad_ref) != 0 ||
+			    s_textbufAppend(spawns_json, ", \"room_ref\": ") != 0 ||
+			    s_textbufAppendJsonString(spawns_json, room_ref) != 0 ||
+			    s_textbufAppendf(spawns_json,
+					", \"team\": \"any\", \"profile\": \"default\", "
+					"\"position\": [%.6f, %.6f, %.6f], "
+					"\"look\": [%.6f, %.6f, %.6f] }",
+					(double)pos[0], (double)pos[1], (double)pos[2],
+					(double)look[0], (double)look[1],
+					(double)look[2]) != 0) {
+				return -1;
+			}
 		}
-		if (volumes_tsv && s_textbufAppendf(volumes_tsv,
-				"volume_pad_%04d\t%s\tpad_bounds\t%s\taabb\t%.6f\t%.6f\t%.6f\t%.6f\t%.6f\t%.6f\n",
-				i, pad_ref, room_ref,
-				(double)(pos[0] + bbox[0]), (double)(pos[1] + bbox[2]),
-				(double)(pos[2] + bbox[4]),
-				(double)(pos[0] + bbox[1]), (double)(pos[1] + bbox[3]),
-				(double)(pos[2] + bbox[5])) != 0) {
-			return -1;
+		if (volumes_json) {
+			if (i > 0 && s_textbufAppend(volumes_json, ",\n") != 0) {
+				return -1;
+			}
+			if (s_textbufAppendf(volumes_json,
+					"    { \"volume_id\": \"volume_pad_%04d\", \"pad_ref\": ",
+					i) != 0 ||
+			    s_textbufAppendJsonString(volumes_json, pad_ref) != 0 ||
+			    s_textbufAppend(volumes_json, ", \"kind\": \"pad_bounds\", \"room_ref\": ") != 0 ||
+			    s_textbufAppendJsonString(volumes_json, room_ref) != 0 ||
+			    s_textbufAppendf(volumes_json,
+					", \"shape\": \"aabb\", \"min\": [%.6f, %.6f, %.6f], "
+					"\"max\": [%.6f, %.6f, %.6f] }",
+					(double)(pos[0] + bbox[0]), (double)(pos[1] + bbox[2]),
+					(double)(pos[2] + bbox[4]),
+					(double)(pos[0] + bbox[1]), (double)(pos[1] + bbox[3]),
+					(double)(pos[2] + bbox[5])) != 0) {
+				return -1;
+			}
 		}
 	}
 
+	if (volumes_json && s_textbufAppend(volumes_json,
+			"\n"
+			"  ]\n"
+			"}\n") != 0) {
+		return -1;
+	}
+
 	if (out_pads) *out_pads = (u32)hdr->numpads;
+	if (s_textbufAppend(pads_json, "\n  ]\n}\n") != 0) {
+		return -1;
+	}
+	if (spawns_json && s_textbufAppend(spawns_json, "\n  ]\n}\n") != 0) {
+		return -1;
+	}
 	return 0;
 }
 
@@ -1634,17 +1738,46 @@ static s32 s_setupFieldAppend(pdscenario_textbuf_t *fields,
                               const char *catalog_id,
                               const char *ref_record_id)
 {
+	size_t i;
+	char last = '\0';
+
 	if (!fields) {
 		return 0;
 	}
-	return s_textbufAppendf(fields, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
-		record_id ? record_id : "",
-		kind ? kind : "",
-		field ? field : "",
-		type ? type : "",
-		value ? value : "",
-		catalog_id ? catalog_id : "",
-		ref_record_id ? ref_record_id : "");
+
+	for (i = fields->len; i > 0; i--) {
+		char c = fields->data[i - 1];
+		if (!isspace((unsigned char)c)) {
+			last = c;
+			break;
+		}
+	}
+
+	if (last == '}') {
+		if (s_textbufAppend(fields, ",\n") != 0) {
+			return -1;
+		}
+	}
+
+	if (s_textbufAppend(fields, "    {\n      \"record_id\": ") != 0 ||
+	    s_textbufAppendJsonString(fields, record_id ? record_id : "") != 0 ||
+	    s_textbufAppend(fields, ",\n      \"kind\": ") != 0 ||
+	    s_textbufAppendJsonString(fields, kind ? kind : "") != 0 ||
+	    s_textbufAppend(fields, ",\n      \"field\": ") != 0 ||
+	    s_textbufAppendJsonString(fields, field ? field : "") != 0 ||
+	    s_textbufAppend(fields, ",\n      \"type\": ") != 0 ||
+	    s_textbufAppendJsonString(fields, type ? type : "") != 0 ||
+	    s_textbufAppend(fields, ",\n      \"value\": ") != 0 ||
+	    s_textbufAppendJsonString(fields, value ? value : "") != 0 ||
+	    s_textbufAppend(fields, ",\n      \"catalog_id\": ") != 0 ||
+	    s_textbufAppendJsonString(fields, catalog_id ? catalog_id : "") != 0 ||
+	    s_textbufAppend(fields, ",\n      \"ref_record_id\": ") != 0 ||
+	    s_textbufAppendJsonString(fields, ref_record_id ? ref_record_id : "") != 0 ||
+	    s_textbufAppend(fields, "\n    }") != 0) {
+		return -1;
+	}
+
+	return 0;
 }
 
 static s32 s_setupFieldS32(pdscenario_textbuf_t *fields,
@@ -2837,16 +2970,110 @@ static s32 s_setupAppendCommandFields(pdscenario_textbuf_t *fields,
 	return 0;
 }
 
+static s32 s_appendScenarioObjectiveJsonRow(pdscenario_textbuf_t *objectives_json,
+                                            u32 index,
+                                            const char *objective_id,
+                                            const char *kind,
+                                            const char *text_token,
+                                            const char *difficulty_mask,
+                                            const char *graph_node,
+                                            const char *operand_kind,
+                                            const char *target_ref,
+                                            const char *target_record_ref,
+                                            const char *pad_ref,
+                                            const char *state_ref,
+                                            const char *match_value,
+                                            const char *initial_status)
+{
+	if (!objectives_json || !objective_id || !kind) return -1;
+	if (s_textbufAppend(objectives_json, index ? ",\n    {\n" : "    {\n") != 0 ||
+			s_textbufAppend(objectives_json, "      \"objective_id\": ") != 0 ||
+			s_textbufAppendJsonString(objectives_json, objective_id) != 0 ||
+			s_textbufAppend(objectives_json, ",\n      \"kind\": ") != 0 ||
+			s_textbufAppendJsonString(objectives_json, kind) != 0 ||
+			s_textbufAppend(objectives_json, ",\n      \"text_token\": ") != 0 ||
+			s_textbufAppendJsonString(objectives_json, text_token) != 0 ||
+			s_textbufAppend(objectives_json, ",\n      \"difficulty_mask\": ") != 0 ||
+			s_textbufAppendJsonString(objectives_json, difficulty_mask) != 0 ||
+			s_textbufAppend(objectives_json, ",\n      \"graph_node\": ") != 0 ||
+			s_textbufAppendJsonString(objectives_json, graph_node) != 0 ||
+			s_textbufAppend(objectives_json, ",\n      \"operand_kind\": ") != 0 ||
+			s_textbufAppendJsonString(objectives_json, operand_kind) != 0 ||
+			s_textbufAppend(objectives_json, ",\n      \"target_ref\": ") != 0 ||
+			s_textbufAppendJsonString(objectives_json, target_ref) != 0 ||
+			s_textbufAppend(objectives_json, ",\n      \"target_record_ref\": ") != 0 ||
+			s_textbufAppendJsonString(objectives_json, target_record_ref) != 0 ||
+			s_textbufAppend(objectives_json, ",\n      \"pad_ref\": ") != 0 ||
+			s_textbufAppendJsonString(objectives_json, pad_ref) != 0 ||
+			s_textbufAppend(objectives_json, ",\n      \"state_ref\": ") != 0 ||
+			s_textbufAppendJsonString(objectives_json, state_ref) != 0 ||
+			s_textbufAppend(objectives_json, ",\n      \"match_value\": ") != 0 ||
+			s_textbufAppendJsonString(objectives_json, match_value) != 0 ||
+			s_textbufAppend(objectives_json, ",\n      \"initial_status\": ") != 0 ||
+			s_textbufAppendJsonString(objectives_json, initial_status) != 0 ||
+			s_textbufAppend(objectives_json, "\n    }") != 0) {
+		return -1;
+	}
+	return 0;
+}
+
+static s32 s_appendScenarioObjectJsonRow(pdscenario_textbuf_t *objects_json,
+                                         u32 index,
+                                         const char *record_id,
+                                         const char *kind,
+                                         const char *pad_ref,
+                                         const char *model_catalog_id,
+                                         const char *weapon_catalog_id,
+                                         const char *secondary_weapon_catalog_id,
+                                         const char *body_catalog_id,
+                                         const char *head_catalog_id,
+                                         const char *ailist_ref,
+                                         const char *flags,
+                                         const char *flags2,
+                                         const char *flags3)
+{
+	if (!objects_json || !record_id || !kind) return -1;
+	if (s_textbufAppend(objects_json, index ? ",\n    {\n" : "    {\n") != 0 ||
+			s_textbufAppend(objects_json, "      \"record_id\": ") != 0 ||
+			s_textbufAppendJsonString(objects_json, record_id) != 0 ||
+			s_textbufAppend(objects_json, ",\n      \"kind\": ") != 0 ||
+			s_textbufAppendJsonString(objects_json, kind) != 0 ||
+			s_textbufAppend(objects_json, ",\n      \"pad_ref\": ") != 0 ||
+			s_textbufAppendJsonString(objects_json, pad_ref) != 0 ||
+			s_textbufAppend(objects_json, ",\n      \"model_catalog_id\": ") != 0 ||
+			s_textbufAppendJsonString(objects_json, model_catalog_id) != 0 ||
+			s_textbufAppend(objects_json, ",\n      \"weapon_catalog_id\": ") != 0 ||
+			s_textbufAppendJsonString(objects_json, weapon_catalog_id) != 0 ||
+			s_textbufAppend(objects_json, ",\n      \"secondary_weapon_catalog_id\": ") != 0 ||
+			s_textbufAppendJsonString(objects_json, secondary_weapon_catalog_id) != 0 ||
+			s_textbufAppend(objects_json, ",\n      \"body_catalog_id\": ") != 0 ||
+			s_textbufAppendJsonString(objects_json, body_catalog_id) != 0 ||
+			s_textbufAppend(objects_json, ",\n      \"head_catalog_id\": ") != 0 ||
+			s_textbufAppendJsonString(objects_json, head_catalog_id) != 0 ||
+			s_textbufAppend(objects_json, ",\n      \"ailist_ref\": ") != 0 ||
+			s_textbufAppendJsonString(objects_json, ailist_ref) != 0 ||
+			s_textbufAppend(objects_json, ",\n      \"flags\": ") != 0 ||
+			s_textbufAppendJsonString(objects_json, flags) != 0 ||
+			s_textbufAppend(objects_json, ",\n      \"flags2\": ") != 0 ||
+			s_textbufAppendJsonString(objects_json, flags2) != 0 ||
+			s_textbufAppend(objects_json, ",\n      \"flags3\": ") != 0 ||
+			s_textbufAppendJsonString(objects_json, flags3) != 0 ||
+			s_textbufAppend(objects_json, "\n    }") != 0) {
+		return -1;
+	}
+	return 0;
+}
+
 static s32 s_buildSetupTables(const u8 *data, u32 size,
-                              pdscenario_textbuf_t *objects_tsv,
-                              pdscenario_textbuf_t *objectives_tsv,
-                              pdscenario_textbuf_t *setup_fields_tsv,
+                              pdscenario_textbuf_t *objects_json,
+                              pdscenario_textbuf_t *objectives_json,
+                              pdscenario_textbuf_t *setup_fields_json,
                               u32 *out_objects, u32 *out_objectives)
 {
 	if (out_objects) *out_objects = 0;
 	if (out_objectives) *out_objectives = 0;
-	if (!data || size < sizeof(struct stagesetup) || !objects_tsv ||
-			!objectives_tsv || !setup_fields_tsv) {
+	if (!data || size < sizeof(struct stagesetup) || !objects_json ||
+			!objectives_json || !setup_fields_json) {
 		return -1;
 	}
 
@@ -2893,12 +3120,18 @@ static s32 s_buildSetupTables(const u8 *data, u32 size,
 		scan += len;
 	}
 
-	if (s_textbufAppend(objects_tsv,
-			"record_id\tkind\tpad_ref\tmodel_catalog_id\tweapon_catalog_id\tsecondary_weapon_catalog_id\tbody_catalog_id\thead_catalog_id\tailist_ref\tflags\tflags2\tflags3\n") != 0 ||
-	    s_textbufAppend(setup_fields_tsv,
-			"record_id\tkind\tfield\ttype\tvalue\tcatalog_id\tref_record_id\n") != 0 ||
-	    s_textbufAppend(objectives_tsv,
-			"objective_id\tkind\ttext_token\tdifficulty_mask\tgraph_node\toperand_kind\ttarget_ref\ttarget_record_ref\tpad_ref\tstate_ref\tmatch_value\tinitial_status\n") != 0) {
+	if (s_textbufAppend(objects_json,
+			"{\n"
+			"  \"schema\": \"pd2.scenario.objects.v1\",\n"
+			"  \"rows\": [\n") != 0 ||
+	    s_textbufAppend(setup_fields_json,
+			"{\n"
+			"  \"schema\": \"pd2.scenario.setup.fields.v1\",\n"
+			"  \"rows\": [\n") != 0 ||
+	    s_textbufAppend(objectives_json,
+			"{\n"
+			"  \"schema\": \"pd2.scenario.objectives.v1\",\n"
+			"  \"rows\": [\n") != 0) {
 		free(tag_targets);
 		return -1;
 	}
@@ -2922,16 +3155,19 @@ static s32 s_buildSetupTables(const u8 *data, u32 size,
 			const struct packedchr *chr = (const struct packedchr *)ptr;
 			char pad_ref[32];
 			char ailist_ref[32];
+			char flags[16];
+			char flags2[16];
 			s_padRef((s32)chr->padnum, pad_ref, sizeof(pad_ref));
 			snprintf(ailist_ref, sizeof(ailist_ref), "ailist_%04u",
 				(unsigned)chr->ailistnum);
-			if (s_textbufAppendf(objects_tsv,
-					"%s\t%s\t%s\t\t\t\t%s\t%s\t%s\t0x%08x\t0x%08x\t\n",
+			snprintf(flags, sizeof(flags), "0x%08x", (unsigned)chr->flags);
+			snprintf(flags2, sizeof(flags2), "0x%08x", (unsigned)chr->flags2);
+			if (s_appendScenarioObjectJsonRow(objects_json, object_count,
 					record_id, s_objTypeName(type), pad_ref,
+					"", "", "",
 					s_nonnullCatalogId(catalogBodyIdByBodynum(chr->bodynum)),
 					s_nonnullCatalogId(catalogHeadIdByHeadnum(chr->headnum)),
-					ailist_ref, (unsigned)chr->flags,
-					(unsigned)chr->flags2) != 0) {
+					ailist_ref, flags, flags2, "") != 0) {
 				free(tag_targets);
 				return -1;
 			}
@@ -2940,6 +3176,9 @@ static s32 s_buildSetupTables(const u8 *data, u32 size,
 			char pad_ref[32];
 			const char *weapon_ref = "";
 			const char *dual_weapon_ref = "";
+			char flags[16];
+			char flags2[16];
+			char flags3[16];
 			s_padRef((s32)obj->pad, pad_ref, sizeof(pad_ref));
 			if ((type == OBJTYPE_WEAPON || type == OBJTYPE_MINE) &&
 					len >= (s32)sizeof(struct weaponobj)) {
@@ -2949,26 +3188,27 @@ static s32 s_buildSetupTables(const u8 *data, u32 size,
 				dual_weapon_ref = s_nonnullCatalogId(
 					catalogWeaponIdByRuntimeWeaponNum(w->dualweaponnum));
 			}
-			if (s_textbufAppendf(objects_tsv,
-					"%s\t%s\t%s\t%s\t%s\t%s\t\t\t\t0x%08x\t0x%08x\t0x%08x\n",
+			snprintf(flags, sizeof(flags), "0x%08x", (unsigned)obj->flags);
+			snprintf(flags2, sizeof(flags2), "0x%08x", (unsigned)obj->flags2);
+			snprintf(flags3, sizeof(flags3), "0x%08x", (unsigned)obj->flags3);
+			if (s_appendScenarioObjectJsonRow(objects_json, object_count,
 					record_id, s_objTypeName(type), pad_ref,
 					s_nonnullCatalogId(catalogModelIdByModelnum(obj->modelnum)),
-					weapon_ref, dual_weapon_ref,
-					(unsigned)obj->flags, (unsigned)obj->flags2,
-					(unsigned)obj->flags3) != 0) {
+					weapon_ref, dual_weapon_ref, "", "", "",
+					flags, flags2, flags3) != 0) {
 				free(tag_targets);
 				return -1;
 			}
 		} else {
-			if (s_textbufAppendf(objects_tsv,
-					"%s\t%s\t\t\t\t\t\t\t\t\t\t\n",
-					record_id, s_objTypeName(type)) != 0) {
+			if (s_appendScenarioObjectJsonRow(objects_json, object_count,
+					record_id, s_objTypeName(type), "", "", "", "",
+					"", "", "", "", "", "") != 0) {
 				free(tag_targets);
 				return -1;
 			}
 		}
 
-		if (s_setupAppendCommandFields(setup_fields_tsv, record_id,
+		if (s_setupAppendCommandFields(setup_fields_json, record_id,
 				s_objTypeName(type), ptr, type, object_count,
 				record_count, tag_targets, tag_target_count) != 0) {
 			free(tag_targets);
@@ -2977,11 +3217,22 @@ static s32 s_buildSetupTables(const u8 *data, u32 size,
 
 		if (type == OBJTYPE_BEGINOBJECTIVE) {
 			const struct objective *obj = (const struct objective *)ptr;
-			if (s_textbufAppendf(objectives_tsv,
-					"objective_%04u\tobjective\tobjective_text_%04d\t0x%02x\tlevel.objective.%04u\tobjective\t\t\t\t\t\t\n",
-					(unsigned)objective_count, obj->index,
-					(unsigned)obj->difficulties,
-					(unsigned)objective_count) != 0) {
+			char objective_id[32];
+			char text_token[32];
+			char difficulty_mask[16];
+			char graph_node[48];
+			snprintf(objective_id, sizeof(objective_id), "objective_%04u",
+				(unsigned)objective_count);
+			snprintf(text_token, sizeof(text_token), "objective_text_%04d",
+				obj->index);
+			snprintf(difficulty_mask, sizeof(difficulty_mask), "0x%02x",
+				(unsigned)obj->difficulties);
+			snprintf(graph_node, sizeof(graph_node), "level.objective.%04u",
+				(unsigned)objective_count);
+			if (s_appendScenarioObjectiveJsonRow(objectives_json,
+					objective_count, objective_id, "objective",
+					text_token, difficulty_mask, graph_node,
+					"objective", "", "", "", "", "", "") != 0) {
 				free(tag_targets);
 				return -1;
 			}
@@ -3036,12 +3287,23 @@ static s32 s_buildSetupTables(const u8 *data, u32 size,
 				initial_status = (s32)criteria->status;
 				operand_kind = "throw_match_pad_status";
 			}
-			if (s_textbufAppendf(objectives_tsv,
-					"objective_step_%04u\t%s\t\t\tlevel.objective_step.%04u\t%s\t%s\t%s\t%s\t%s\t%d\t%d\n",
-					(unsigned)objective_count, s_objTypeName(type),
-					(unsigned)objective_count, operand_kind,
-					target_ref, target_record_ref, pad_ref, state_ref,
-					match_value, initial_status) != 0) {
+			char objective_id[32];
+			char graph_node[48];
+			char match_value_text[32];
+			char initial_status_text[32];
+			snprintf(objective_id, sizeof(objective_id),
+				"objective_step_%04u", (unsigned)objective_count);
+			snprintf(graph_node, sizeof(graph_node),
+				"level.objective_step.%04u", (unsigned)objective_count);
+			snprintf(match_value_text, sizeof(match_value_text), "%d",
+				match_value);
+			snprintf(initial_status_text, sizeof(initial_status_text), "%d",
+				initial_status);
+			if (s_appendScenarioObjectiveJsonRow(objectives_json,
+					objective_count, objective_id, s_objTypeName(type),
+					"", "", graph_node, operand_kind, target_ref,
+					target_record_ref, pad_ref, state_ref,
+					match_value_text, initial_status_text) != 0) {
 				free(tag_targets);
 				return -1;
 			}
@@ -3055,6 +3317,11 @@ static s32 s_buildSetupTables(const u8 *data, u32 size,
 	if (out_objects) *out_objects = object_count;
 	if (out_objectives) *out_objectives = objective_count;
 	free(tag_targets);
+	if (s_textbufAppend(objects_json, "\n  ]\n}\n") != 0 ||
+			s_textbufAppend(setup_fields_json, "\n  ]\n}\n") != 0 ||
+			s_textbufAppend(objectives_json, "\n  ]\n}\n") != 0) {
+		return -1;
+	}
 	return 0;
 }
 
@@ -3084,20 +3351,25 @@ static s32 s_introCommandWordCount(s32 type)
 }
 
 static s32 s_buildIntroSpawnsTable(const u8 *data, u32 size,
-	pdscenario_textbuf_t *spawns_tsv, u32 *out_spawns)
+	pdscenario_textbuf_t *spawns_json, u32 *out_spawns)
 {
 	if (out_spawns) *out_spawns = 0;
-	if (!data || size < sizeof(struct stagesetup) || !spawns_tsv) {
+	if (!data || size < sizeof(struct stagesetup) || !spawns_json) {
 		return -1;
 	}
-	if (s_textbufAppend(spawns_tsv,
-			"spawn_id\tpad_ref\troom_ref\tteam\tprofile\tpos_x\tpos_y\tpos_z\tlook_x\tlook_y\tlook_z\n") != 0) {
+	if (s_textbufAppend(spawns_json,
+			"{\n"
+			"  \"schema\": \"pd2.scenario.spawns.v1\",\n"
+			"  \"rows\": [\n") != 0) {
 		return -1;
 	}
 
 	const struct stagesetup *setup = (const struct stagesetup *)data;
 	uintptr_t intro_ofs = (uintptr_t)setup->intro;
 	if (!intro_ofs) {
+		if (s_textbufAppend(spawns_json, "  ]\n}\n") != 0) {
+			return -1;
+		}
 		return 0;
 	}
 	if (intro_ofs >= size || size - (u32)intro_ofs < sizeof(s32)) {
@@ -3127,9 +3399,20 @@ static s32 s_buildIntroSpawnsTable(const u8 *data, u32 size,
 				snprintf(team_buf, sizeof(team_buf), "team_%d", cmd[2]);
 				team = team_buf;
 			}
-			if (s_textbufAppendf(spawns_tsv,
-					"spawn_%04u\t%s\t\t%s\tintro\t\t\t\t\t\t\n",
-					(unsigned)spawn_count, pad_ref, team) != 0) {
+			if (spawn_count > 0 &&
+					s_textbufAppend(spawns_json, ",\n") != 0) {
+				return -1;
+			}
+			if (s_textbufAppend(spawns_json,
+					"    { \"spawn_id\": ") != 0 ||
+			    s_textbufAppendf(spawns_json, "\"spawn_%04u\", \"pad_ref\": ",
+					(unsigned)spawn_count) != 0 ||
+			    s_textbufAppendJsonString(spawns_json, pad_ref) != 0 ||
+			    s_textbufAppend(spawns_json,
+					", \"room_ref\": \"\", \"team\": ") != 0 ||
+			    s_textbufAppendJsonString(spawns_json, team) != 0 ||
+			    s_textbufAppend(spawns_json,
+					", \"profile\": \"intro\", \"position\": null, \"look\": null }") != 0) {
 				return -1;
 			}
 			spawn_count++;
@@ -3141,6 +3424,9 @@ static s32 s_buildIntroSpawnsTable(const u8 *data, u32 size,
 	}
 
 	if (out_spawns) *out_spawns = spawn_count;
+	if (s_textbufAppend(spawns_json, "\n  ]\n}\n") != 0) {
+		return -1;
+	}
 	return 0;
 }
 
@@ -3296,35 +3582,46 @@ static const char *s_aiOpcodeName(u16 opcode)
 	}
 }
 
-static s32 s_appendAiOperands(pdscenario_textbuf_t *out,
+static s32 s_appendAiOperandsJsonArray(pdscenario_textbuf_t *out,
 	const u8 *cmd, u32 len)
 {
+	if (s_textbufAppend(out, "[") != 0) {
+		return -1;
+	}
 	for (u32 i = 2; i < len; i++) {
-		if (s_textbufAppendf(out, "%s0x%02x",
-				i > 2 ? "," : "", (unsigned)cmd[i]) != 0) {
+		if (s_textbufAppendf(out, "%s\"0x%02x\"",
+				i > 2 ? ", " : "", (unsigned)cmd[i]) != 0) {
 			return -1;
 		}
+	}
+	if (s_textbufAppend(out, "]") != 0) {
+		return -1;
 	}
 	return 0;
 }
 
 static s32 s_buildAiListsTable(const u8 *data, u32 size,
-	pdscenario_textbuf_t *ai_lists_tsv, u32 *out_lists, u32 *out_commands)
+	pdscenario_textbuf_t *ai_lists_json, u32 *out_lists, u32 *out_commands)
 {
 	if (out_lists) *out_lists = 0;
 	if (out_commands) *out_commands = 0;
-	if (!data || size < sizeof(struct stagesetup) || !ai_lists_tsv) {
+	if (!data || size < sizeof(struct stagesetup) || !ai_lists_json) {
 		return -1;
 	}
 
-	if (s_textbufAppend(ai_lists_tsv,
-			"ailist_ref\tlist_id\tgraph_node\tcommand_index\toffset\topcode\topcode_name\toperands\tmodel_catalog_id\tweapon_catalog_id\tbody_catalog_id\thead_catalog_id\n") != 0) {
+	if (s_textbufAppend(ai_lists_json,
+			"{\n"
+			"  \"schema\": \"pd2.scenario.ai.lists.v1\",\n"
+			"  \"rows\": [\n") != 0) {
 		return -1;
 	}
 
 	const struct stagesetup *setup = (const struct stagesetup *)data;
 	uintptr_t table_ofs = (uintptr_t)setup->ailists;
 	if (!table_ofs) {
+		if (s_textbufAppend(ai_lists_json, "  ]\n}\n") != 0) {
+			return -1;
+		}
 		return 0;
 	}
 	if (table_ofs >= size || size - (u32)table_ofs < sizeof(struct ailist)) {
@@ -3382,16 +3679,33 @@ static s32 s_buildAiListsTable(const u8 *data, u32 size,
 				head_id = s_nonnullCatalogId(catalogHeadIdByHeadnum((s8)cmd[3]));
 			}
 
-			if (s_textbufAppendf(ai_lists_tsv,
-					"ailist_%04u\t0x%04x\t%s\t%u\t%u\t0x%04x\t%s\t",
-					(unsigned)i, (unsigned)(u16)lists[i].id,
-					graph_node, (unsigned)command_index,
-					(unsigned)offset, (unsigned)opcode,
-					s_aiOpcodeName(opcode)) != 0 ||
-					s_appendAiOperands(ai_lists_tsv, cmd, len) != 0 ||
-					s_textbufAppendf(ai_lists_tsv,
-					"\t%s\t%s\t%s\t%s\n",
-					model_id, weapon_id, body_id, head_id) != 0) {
+			if (s_textbufAppendf(ai_lists_json,
+					"%s    { \"ailist_ref\": \"ailist_%04u\", \"list_id\": \"0x%04x\", \"graph_node\": ",
+					command_count ? ",\n" : "",
+					(unsigned)i, (unsigned)(u16)lists[i].id) != 0 ||
+					s_textbufAppendJsonString(ai_lists_json, graph_node) != 0 ||
+					s_textbufAppendf(ai_lists_json,
+					", \"command_index\": %u, \"offset\": %u, \"opcode\": \"0x%04x\", \"opcode_name\": ",
+					(unsigned)command_index, (unsigned)offset,
+					(unsigned)opcode) != 0 ||
+					s_textbufAppendJsonString(ai_lists_json,
+						s_aiOpcodeName(opcode)) != 0 ||
+					s_textbufAppend(ai_lists_json,
+						", \"operands\": ") != 0 ||
+					s_appendAiOperandsJsonArray(ai_lists_json, cmd, len) != 0 ||
+					s_textbufAppend(ai_lists_json,
+						", \"model_catalog_id\": ") != 0 ||
+					s_textbufAppendJsonString(ai_lists_json, model_id) != 0 ||
+					s_textbufAppend(ai_lists_json,
+						", \"weapon_catalog_id\": ") != 0 ||
+					s_textbufAppendJsonString(ai_lists_json, weapon_id) != 0 ||
+					s_textbufAppend(ai_lists_json,
+						", \"body_catalog_id\": ") != 0 ||
+					s_textbufAppendJsonString(ai_lists_json, body_id) != 0 ||
+					s_textbufAppend(ai_lists_json,
+						", \"head_catalog_id\": ") != 0 ||
+					s_textbufAppendJsonString(ai_lists_json, head_id) != 0 ||
+					s_textbufAppend(ai_lists_json, " }") != 0) {
 				return -1;
 			}
 
@@ -3407,6 +3721,9 @@ static s32 s_buildAiListsTable(const u8 *data, u32 size,
 
 	if (out_lists) *out_lists = list_count;
 	if (out_commands) *out_commands = command_count;
+	if (s_textbufAppend(ai_lists_json, "\n  ]\n}\n") != 0) {
+		return -1;
+	}
 	return 0;
 }
 
@@ -3424,14 +3741,14 @@ static s32 s_buildScenarioSourceFiles(const char *scenario_id,
                                       const u8 *scene_glb,
                                       u32 scene_glb_size,
                                       const pdscenario_textbuf_t *collision_obj,
-                                      const pdscenario_textbuf_t *portals_tsv,
-                                      const pdscenario_textbuf_t *pads_tsv,
-                                      const pdscenario_textbuf_t *spawns_tsv,
-                                      const pdscenario_textbuf_t *volumes_tsv,
-                                      const pdscenario_textbuf_t *waypoints_tsv,
-                                      const pdscenario_textbuf_t *waygroups_tsv,
-                                      const pdscenario_textbuf_t *covers_tsv,
-                                      const pdscenario_textbuf_t *paths_tsv,
+                                      const pdscenario_textbuf_t *portals_json,
+                                      const pdscenario_textbuf_t *pads_json,
+                                      const pdscenario_textbuf_t *spawns_json,
+                                      const pdscenario_textbuf_t *volumes_json,
+                                      const pdscenario_textbuf_t *waypoints_json,
+                                      const pdscenario_textbuf_t *waygroups_json,
+                                      const pdscenario_textbuf_t *covers_json,
+                                      const pdscenario_textbuf_t *paths_json,
                                       pdscenario_textbuf_t *navigation_ini,
                                       pdscenario_textbuf_t *level_graph_json,
                                       pdscenario_textbuf_t *collision_meta_json,
@@ -3464,14 +3781,14 @@ static s32 s_buildScenarioSourceFiles(const char *scenario_id,
 			"supports_drop = true\n"
 			"supports_wall = true\n"
 			"supports_ceiling = true\n"
-			"portals_file = portals.tsv\n"
-			"pads_file = pads.tsv\n"
-			"spawns_file = spawns.tsv\n"
-			"volumes_file = volumes.tsv\n"
-			"waypoints_file = navigation/waypoints.tsv\n"
-			"waygroups_file = navigation/waygroups.tsv\n"
-			"covers_file = navigation/covers.tsv\n"
-			"paths_file = navigation/paths.tsv\n"
+			"portals_file = portals.json\n"
+			"pads_file = pads.json\n"
+			"spawns_file = spawns.json\n"
+			"volumes_file = volumes.json\n"
+			"waypoints_file = navigation/waypoints.json\n"
+			"waygroups_file = navigation/waygroups.json\n"
+			"covers_file = navigation/covers.json\n"
+			"paths_file = navigation/paths.json\n"
 			"generated_cache = _meta/generated-navmesh.json\n") != 0) {
 		return -1;
 	}
@@ -3483,450 +3800,450 @@ static s32 s_buildScenarioSourceFiles(const char *scenario_id,
 			"  \"source\": \"scene.glb\",\n"
 			"  \"kind\": \"%s\",\n"
 			"  \"tables\": {\n"
-			"    \"portals\": \"portals.tsv\",\n"
-			"    \"pads\": \"pads.tsv\",\n"
-			"    \"spawns\": \"spawns.tsv\",\n"
-			"    \"volumes\": \"volumes.tsv\",\n"
-			"    \"objects\": \"objects.tsv\",\n"
-			"    \"setup_fields\": \"setup.fields.tsv\",\n"
-			"    \"objectives\": \"objectives.tsv\",\n"
-			"    \"ai_lists\": \"ai/ailists.tsv\",\n"
-			"    \"waypoints\": \"navigation/waypoints.tsv\",\n"
-			"    \"waygroups\": \"navigation/waygroups.tsv\",\n"
-			"    \"covers\": \"navigation/covers.tsv\",\n"
-			"    \"paths\": \"navigation/paths.tsv\"\n"
+			"    \"portals\": \"portals.json\",\n"
+			"    \"pads\": \"pads.json\",\n"
+			"    \"spawns\": \"spawns.json\",\n"
+			"    \"volumes\": \"volumes.json\",\n"
+			"    \"objects\": \"objects.json\",\n"
+			"    \"setup_fields\": \"setup.fields.json\",\n"
+			"    \"objectives\": \"objectives.json\",\n"
+			"    \"ai_lists\": \"ai/ailists.json\",\n"
+			"    \"waypoints\": \"navigation/waypoints.json\",\n"
+			"    \"waygroups\": \"navigation/waygroups.json\",\n"
+			"    \"covers\": \"navigation/covers.json\",\n"
+			"    \"paths\": \"navigation/paths.json\"\n"
 			"  },\n"
 			"  \"nodes\": [\n"
 			"    { \"id\": \"scenario.load\", \"kind\": \"event.scenario.load\" },\n"
 			"    { \"id\": \"source.scene\", \"kind\": \"scenario.scene.source\", \"file\": \"scene.glb\" },\n"
 			"    { \"id\": \"collision.generate\", \"kind\": \"scenario.collision.generate\", \"source\": \"collision.obj\", \"cache\": \"_meta/generated-collision.json\" },\n"
-			"    { \"id\": \"scenario.portals\", \"kind\": \"scenario.portals.source\", \"source\": \"portals.tsv\", \"portals\": %u },\n"
+			"    { \"id\": \"scenario.portals\", \"kind\": \"scenario.portals.source\", \"source\": \"portals.json\", \"portals\": %u },\n"
 			"    { \"id\": \"navigation.generate\", \"kind\": \"scenario.navigation.generate\", \"source\": \"navigation.ini\", \"cache\": \"_meta/generated-navmesh.json\" },\n"
-			"    { \"id\": \"scenario.pads\", \"kind\": \"scenario.pads.source\", \"source\": \"pads.tsv\", \"pads\": %u },\n"
-			"    { \"id\": \"navigation.paths\", \"kind\": \"scenario.navigation.paths.source\", \"source\": \"navigation/paths.tsv\", \"paths\": %u },\n"
-			"    { \"id\": \"setup.tables\", \"kind\": \"scenario.setup.tables\", \"objects\": \"objects.tsv\", \"fields\": \"setup.fields.tsv\", \"objectives\": \"objectives.tsv\" },\n"
-			"    { \"id\": \"scenario.ai.lists\", \"kind\": \"scenario.ai.lists.source\", \"source\": \"ai/ailists.tsv\", \"lists\": %u },\n"
+			"    { \"id\": \"scenario.pads\", \"kind\": \"scenario.pads.source\", \"source\": \"pads.json\", \"pads\": %u },\n"
+			"    { \"id\": \"navigation.paths\", \"kind\": \"scenario.navigation.paths.source\", \"source\": \"navigation/paths.json\", \"paths\": %u },\n"
+			"    { \"id\": \"setup.tables\", \"kind\": \"scenario.setup.tables\", \"objects\": \"objects.json\", \"fields\": \"setup.fields.json\", \"objectives\": \"objectives.json\" },\n"
+			"    { \"id\": \"scenario.ai.lists\", \"kind\": \"scenario.ai.lists.source\", \"source\": \"ai/ailists.json\", \"lists\": %u },\n"
 			"    { \"id\": \"scenario.global.settings\", \"kind\": \"scenario.global.settings.source\", \"scenario\": \"%s\", \"source\": \"scenario.ini\", \"scene\": \"scene.glb\", \"collision\": \"collision.obj\", \"navigation\": \"navigation.ini\", \"pads\": %u, \"volumes\": %u },\n"
-			"    { \"id\": \"scenario.ai.action.set_list\", \"kind\": \"scenario.ai.action.set_list\", \"source\": \"ai/ailists.tsv\", \"target\": \"interpreter.ailist\", \"opcode\": \"0x0005\" },\n"
-			"    { \"id\": \"scenario.ai.action.set_return_list\", \"kind\": \"scenario.ai.action.set_return_list\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.aireturnlist\", \"opcode\": \"0x0006\" },\n"
-			"    { \"id\": \"scenario.ai.action.set_shot_list\", \"kind\": \"scenario.ai.action.set_shot_list\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.aishotlist\", \"opcode\": \"0x0007\" },\n"
-			"    { \"id\": \"scenario.ai.action.return_list\", \"kind\": \"scenario.ai.action.return_list\", \"source\": \"ai/ailists.tsv\", \"target\": \"interpreter.ailist\", \"opcode\": \"0x0008\" },\n"
-			"    { \"id\": \"scenario.ai.action.stop\", \"kind\": \"scenario.ai.action.stop\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.motion_state\", \"opcode\": \"0x0009\" },\n"
-			"    { \"id\": \"scenario.ai.action.kneel\", \"kind\": \"scenario.ai.action.kneel\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.posture\", \"opcode\": \"0x000a\" },\n"
-			"    { \"id\": \"scenario.ai.action.surrender\", \"kind\": \"scenario.ai.action.surrender\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.lifecycle\", \"opcode\": \"0x0024\" },\n"
-			"    { \"id\": \"scenario.ai.action.fade_out\", \"kind\": \"scenario.ai.action.fade_out\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.lifecycle\", \"opcode\": \"0x0025\" },\n"
-			"    { \"id\": \"scenario.ai.action.remove_chr\", \"kind\": \"scenario.ai.action.remove_chr\", \"source\": \"ai/ailists.tsv\", \"target\": \"target_chr.visibility\", \"opcode\": \"0x0026\" },\n"
-			"    { \"id\": \"scenario.ai.action.try_sidestep\", \"kind\": \"scenario.ai.action.try_sidestep\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.combat_evasion\", \"opcode\": \"0x000f\" },\n"
-			"    { \"id\": \"scenario.ai.action.try_jump_out\", \"kind\": \"scenario.ai.action.try_jump_out\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.combat_evasion\", \"opcode\": \"0x0010\" },\n"
-			"    { \"id\": \"scenario.ai.action.try_run_sideways\", \"kind\": \"scenario.ai.action.try_run_sideways\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.combat_movement\", \"opcode\": \"0x0011\" },\n"
-			"    { \"id\": \"scenario.ai.action.try_attack_walk\", \"kind\": \"scenario.ai.action.try_attack_walk\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.attack_state\", \"opcode\": \"0x0012\" },\n"
-			"    { \"id\": \"scenario.ai.action.try_attack_run\", \"kind\": \"scenario.ai.action.try_attack_run\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.attack_state\", \"opcode\": \"0x0013\" },\n"
-			"    { \"id\": \"scenario.ai.action.try_attack_roll\", \"kind\": \"scenario.ai.action.try_attack_roll\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.attack_state\", \"opcode\": \"0x0014\" },\n"
-			"    { \"id\": \"scenario.ai.action.try_attack_stand\", \"kind\": \"scenario.ai.action.try_attack_stand\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.attack_state\", \"opcode\": \"0x0015\" },\n"
-			"    { \"id\": \"scenario.ai.action.try_attack_kneel\", \"kind\": \"scenario.ai.action.try_attack_kneel\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.attack_state\", \"opcode\": \"0x0016\" },\n"
-			"    { \"id\": \"scenario.ai.action.try_attack_lie\", \"kind\": \"scenario.ai.action.try_attack_lie\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.attack_state\", \"opcode\": \"0x01ba\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_attack_locked\", \"kind\": \"scenario.ai.condition.if_attack_locked\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.attack_flags\", \"opcode\": \"0x00f0\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_attacking\", \"kind\": \"scenario.ai.condition.if_attacking\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.attack_state\", \"opcode\": \"0x00f1\" },\n"
-			"    { \"id\": \"scenario.ai.action.try_modify_attack\", \"kind\": \"scenario.ai.action.try_modify_attack\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.attack_state\", \"opcode\": \"0x0017\" },\n"
-			"    { \"id\": \"scenario.ai.action.face_entity\", \"kind\": \"scenario.ai.action.face_entity\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.facing\", \"opcode\": \"0x0018\" },\n"
-			"    { \"id\": \"scenario.ai.action.apply_gset_damage\", \"kind\": \"scenario.ai.action.apply_gset_damage\", \"source\": \"ai/ailists.tsv\", \"target\": \"target_chr.damage\", \"opcode\": \"0x0019\" },\n"
-			"    { \"id\": \"scenario.ai.action.chr_damage_chr\", \"kind\": \"scenario.ai.action.chr_damage_chr\", \"source\": \"ai/ailists.tsv\", \"target\": \"target_chr.damage\", \"opcode\": \"0x001a\" },\n"
-			"    { \"id\": \"scenario.ai.condition.consider_grenade_throw\", \"kind\": \"scenario.ai.condition.consider_grenade_throw\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.grenade_throw_decision\", \"opcode\": \"0x001b\" },\n"
-			"    { \"id\": \"scenario.ai.action.drop_item\", \"kind\": \"scenario.ai.action.drop_item\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.inventory_drop\", \"opcode\": \"0x001c\" },\n"
-			"    { \"id\": \"scenario.ai.action.chr_do_animation\", \"kind\": \"scenario.ai.action.chr_do_animation\", \"source\": \"ai/ailists.tsv\", \"target\": \"target_chr.animation\", \"opcode\": \"0x000b\" },\n"
-			"    { \"id\": \"scenario.ai.action.be_surprised_one_hand\", \"kind\": \"scenario.ai.action.be_surprised_one_hand\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.reaction\", \"opcode\": \"0x000d\" },\n"
-			"    { \"id\": \"scenario.ai.action.be_surprised_look_around\", \"kind\": \"scenario.ai.action.be_surprised_look_around\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.reaction\", \"opcode\": \"0x000e\" },\n"
-			"    { \"id\": \"scenario.ai.action.be_surprised_surrender\", \"kind\": \"scenario.ai.action.be_surprised_surrender\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.reaction\", \"opcode\": \"0x00ff\" },\n"
-			"    { \"id\": \"scenario.ai.action.random\", \"kind\": \"scenario.ai.action.random\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.random\", \"opcode\": \"0x0036\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_random_less_than\", \"kind\": \"scenario.ai.condition.if_random_less_than\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.random\", \"opcode\": \"0x0037\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_random_greater_than\", \"kind\": \"scenario.ai.condition.if_random_greater_than\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.random\", \"opcode\": \"0x0038\" },\n"
-			"    { \"id\": \"scenario.ai.action.print\", \"kind\": \"scenario.ai.action.print\", \"source\": \"ai/ailists.tsv\", \"target\": \"debug.console\", \"opcode\": \"0x00b5\" },\n"
-			"    { \"id\": \"scenario.ai.action.noop\", \"kind\": \"scenario.ai.action.noop\", \"source\": \"ai/ailists.tsv\", \"target\": \"interpreter.offset\", \"opcodes\": [\"0x0091\", \"0x00d8\", \"0x00d9\", \"0x00db\", \"0x0100\", \"0x0101\", \"0x010d\", \"0x016c\", \"0x01bb\"] },\n"
-			"    { \"id\": \"scenario.ai.action.set_punch_dodge_list\", \"kind\": \"scenario.ai.action.set_punch_dodge_list\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.aipunchdodgelist\", \"opcode\": \"0x01c1\" },\n"
-			"    { \"id\": \"scenario.ai.action.set_shooting_at_me_list\", \"kind\": \"scenario.ai.action.set_shooting_at_me_list\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.aishootingatmelist\", \"opcode\": \"0x01c2\" },\n"
-			"    { \"id\": \"scenario.ai.action.set_dark_room_list\", \"kind\": \"scenario.ai.action.set_dark_room_list\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.aidarkroomlist\", \"opcode\": \"0x01c3\" },\n"
-			"    { \"id\": \"scenario.ai.action.set_player_dead_list\", \"kind\": \"scenario.ai.action.set_player_dead_list\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.aiplayerdeadlist\", \"opcode\": \"0x01c4\" },\n"
-			"    { \"id\": \"scenario.ai.action.jog_to_pad\", \"kind\": \"scenario.ai.action.jog_to_pad\", \"source\": \"ai/ailists.tsv\", \"pads\": \"pads.tsv\", \"opcode\": \"0x001d\", \"speed\": \"jog\" },\n"
-			"    { \"id\": \"scenario.ai.action.go_to_pad_preset\", \"kind\": \"scenario.ai.action.go_to_pad_preset\", \"source\": \"ai/ailists.tsv\", \"pads\": \"pads.tsv\", \"opcode\": \"0x001e\", \"pad\": \"chr.padpreset1\" },\n"
-			"    { \"id\": \"scenario.ai.action.walk_to_pad\", \"kind\": \"scenario.ai.action.walk_to_pad\", \"source\": \"ai/ailists.tsv\", \"pads\": \"pads.tsv\", \"opcode\": \"0x001f\", \"speed\": \"walk\" },\n"
-			"    { \"id\": \"scenario.ai.action.run_to_pad\", \"kind\": \"scenario.ai.action.run_to_pad\", \"source\": \"ai/ailists.tsv\", \"pads\": \"pads.tsv\", \"opcode\": \"0x0020\", \"speed\": \"run\" },\n"
-			"    { \"id\": \"scenario.ai.action.set_path\", \"kind\": \"scenario.ai.action.set_path\", \"source\": \"ai/ailists.tsv\", \"paths\": \"navigation/paths.tsv\", \"opcode\": \"0x0021\" },\n"
-			"    { \"id\": \"scenario.ai.action.start_patrol\", \"kind\": \"scenario.ai.action.start_patrol\", \"source\": \"ai/ailists.tsv\", \"paths\": \"navigation/paths.tsv\", \"opcode\": \"0x0022\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_patrolling\", \"kind\": \"scenario.ai.condition.if_patrolling\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.patrol_state\", \"opcode\": \"0x0023\" },\n"
-			"    { \"id\": \"scenario.ai.action.try_start_alarm\", \"kind\": \"scenario.ai.action.try_start_alarm\", \"source\": \"ai/ailists.tsv\", \"pads\": \"pads.tsv\", \"target\": \"global.alarm\", \"opcode\": \"0x0027\" },\n"
-			"    { \"id\": \"scenario.ai.action.activate_alarm\", \"kind\": \"scenario.ai.action.activate_alarm\", \"source\": \"ai/ailists.tsv\", \"target\": \"global.alarm\", \"opcode\": \"0x0028\" },\n"
-			"    { \"id\": \"scenario.ai.action.deactivate_alarm\", \"kind\": \"scenario.ai.action.deactivate_alarm\", \"source\": \"ai/ailists.tsv\", \"target\": \"global.alarm\", \"opcode\": \"0x0029\" },\n"
-			"    { \"id\": \"scenario.ai.action.try_run_from_target\", \"kind\": \"scenario.ai.action.try_run_from_target\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.target_movement\", \"opcode\": \"0x002a\", \"speed\": \"run\" },\n"
-			"    { \"id\": \"scenario.ai.action.try_jog_to_target_prop\", \"kind\": \"scenario.ai.action.try_jog_to_target_prop\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.target_prop_movement\", \"opcode\": \"0x002b\", \"speed\": \"jog\" },\n"
-			"    { \"id\": \"scenario.ai.action.try_walk_to_target_prop\", \"kind\": \"scenario.ai.action.try_walk_to_target_prop\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.target_prop_movement\", \"opcode\": \"0x002c\", \"speed\": \"walk\" },\n"
-			"    { \"id\": \"scenario.ai.action.try_run_to_target_prop\", \"kind\": \"scenario.ai.action.try_run_to_target_prop\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.target_prop_movement\", \"opcode\": \"0x002d\", \"speed\": \"run\" },\n"
-			"    { \"id\": \"scenario.ai.action.try_go_to_cover_prop\", \"kind\": \"scenario.ai.action.try_go_to_cover_prop\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.cover_prop_movement\", \"opcode\": \"0x002e\" },\n"
-			"    { \"id\": \"scenario.ai.action.try_jog_to_chr\", \"kind\": \"scenario.ai.action.try_jog_to_chr\", \"source\": \"ai/ailists.tsv\", \"target\": \"target_chr.movement\", \"opcode\": \"0x002f\", \"speed\": \"jog\" },\n"
-			"    { \"id\": \"scenario.ai.action.try_walk_to_chr\", \"kind\": \"scenario.ai.action.try_walk_to_chr\", \"source\": \"ai/ailists.tsv\", \"target\": \"target_chr.movement\", \"opcode\": \"0x0030\", \"speed\": \"walk\" },\n"
-			"    { \"id\": \"scenario.ai.action.try_run_to_chr\", \"kind\": \"scenario.ai.action.try_run_to_chr\", \"source\": \"ai/ailists.tsv\", \"target\": \"target_chr.movement\", \"opcode\": \"0x0031\", \"speed\": \"run\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_can_hear_alarm\", \"kind\": \"scenario.ai.condition.if_can_hear_alarm\", \"source\": \"ai/ailists.tsv\", \"target\": \"global.alarm\", \"opcode\": \"0x0039\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_alarm_active\", \"kind\": \"scenario.ai.condition.if_alarm_active\", \"source\": \"ai/ailists.tsv\", \"target\": \"global.alarm\", \"opcode\": \"0x003a\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_gas_active\", \"kind\": \"scenario.ai.condition.if_gas_active\", \"source\": \"ai/ailists.tsv\", \"target\": \"global.gas\", \"opcode\": \"0x003b\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_hears_target\", \"kind\": \"scenario.ai.condition.if_hears_target\", \"source\": \"ai/ailists.tsv\", \"target\": \"target_chr.audio\", \"opcode\": \"0x003c\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_saw_injury\", \"kind\": \"scenario.ai.condition.if_saw_injury\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.perception.injury\", \"opcode\": \"0x003d\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_saw_death\", \"kind\": \"scenario.ai.condition.if_saw_death\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.perception.death\", \"opcode\": \"0x003e\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_los_to_target\", \"kind\": \"scenario.ai.condition.if_los_to_target\", \"source\": \"ai/ailists.tsv\", \"target\": \"target_chr.line_of_sight\", \"opcode\": \"0x003f\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_target_nearly_in_sight\", \"kind\": \"scenario.ai.condition.if_target_nearly_in_sight\", \"source\": \"ai/ailists.tsv\", \"target\": \"target_chr.nearly_in_sight\", \"opcode\": \"0x0040\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_nearly_in_targets_sight\", \"kind\": \"scenario.ai.condition.if_nearly_in_targets_sight\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.nearly_in_targets_sight\", \"opcode\": \"0x0041\" },\n"
-			"    { \"id\": \"scenario.ai.action.set_pad_preset_to_pad_on_route_to_target\", \"kind\": \"scenario.ai.action.set_pad_preset_to_pad_on_route_to_target\", \"source\": \"ai/ailists.tsv\", \"pads\": \"pads.tsv\", \"paths\": \"navigation/paths.tsv\", \"target\": \"chr.padpreset1\", \"opcode\": \"0x0042\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_saw_target_recently\", \"kind\": \"scenario.ai.condition.if_saw_target_recently\", \"source\": \"ai/ailists.tsv\", \"target\": \"target_chr.recent_sight\", \"opcode\": \"0x0043\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_heard_target_recently\", \"kind\": \"scenario.ai.condition.if_heard_target_recently\", \"source\": \"ai/ailists.tsv\", \"target\": \"target_chr.recent_audio\", \"opcode\": \"0x0044\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_los_to_chr\", \"kind\": \"scenario.ai.condition.if_los_to_chr\", \"source\": \"ai/ailists.tsv\", \"target\": \"target_chr.line_of_sight\", \"opcode\": \"0x0045\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_never_been_on_screen\", \"kind\": \"scenario.ai.condition.if_never_been_on_screen\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.screen_history\", \"opcode\": \"0x0046\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_on_screen\", \"kind\": \"scenario.ai.condition.if_on_screen\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.screen_state\", \"opcode\": \"0x0047\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_chr_in_on_screen_room\", \"kind\": \"scenario.ai.condition.if_chr_in_on_screen_room\", \"source\": \"ai/ailists.tsv\", \"target\": \"target_chr.room_visibility\", \"opcode\": \"0x0048\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_room_is_on_screen\", \"kind\": \"scenario.ai.condition.if_room_is_on_screen\", \"source\": \"ai/ailists.tsv\", \"pads\": \"pads.tsv\", \"target\": \"pad.room_visibility\", \"opcode\": \"0x0049\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_target_aiming_at_me\", \"kind\": \"scenario.ai.condition.if_target_aiming_at_me\", \"source\": \"ai/ailists.tsv\", \"target\": \"target_chr.aim\", \"opcode\": \"0x004a\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_near_miss\", \"kind\": \"scenario.ai.condition.if_near_miss\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.near_miss_latch\", \"opcode\": \"0x004b\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_sees_suspicious_item\", \"kind\": \"scenario.ai.condition.if_sees_suspicious_item\", \"source\": \"ai/ailists.tsv\", \"objects\": \"objects.tsv\", \"target\": \"object.suspicious_visibility\", \"opcode\": \"0x004c\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_target_in_fov_left\", \"kind\": \"scenario.ai.condition.if_target_in_fov_left\", \"source\": \"ai/ailists.tsv\", \"target\": \"target_chr.fov_left\", \"opcode\": \"0x004d\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_check_fov_with_target\", \"kind\": \"scenario.ai.condition.if_check_fov_with_target\", \"source\": \"ai/ailists.tsv\", \"target\": \"target_chr.fov\", \"opcode\": \"0x004e\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_target_out_of_fov_left\", \"kind\": \"scenario.ai.condition.if_target_out_of_fov_left\", \"source\": \"ai/ailists.tsv\", \"target\": \"target_chr.fov_left\", \"opcode\": \"0x004f\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_target_in_fov\", \"kind\": \"scenario.ai.condition.if_target_in_fov\", \"source\": \"ai/ailists.tsv\", \"target\": \"target_chr.fov\", \"opcode\": \"0x0050\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_target_out_of_fov\", \"kind\": \"scenario.ai.condition.if_target_out_of_fov\", \"source\": \"ai/ailists.tsv\", \"target\": \"target_chr.fov\", \"opcode\": \"0x0051\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_distance_to_target_less_than\", \"kind\": \"scenario.ai.condition.if_distance_to_target_less_than\", \"source\": \"ai/ailists.tsv\", \"target\": \"target_chr.distance\", \"opcode\": \"0x0052\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_distance_to_target_greater_than\", \"kind\": \"scenario.ai.condition.if_distance_to_target_greater_than\", \"source\": \"ai/ailists.tsv\", \"target\": \"target_chr.distance\", \"opcode\": \"0x0053\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_chr_distance_to_pad_less_than\", \"kind\": \"scenario.ai.condition.if_chr_distance_to_pad_less_than\", \"source\": \"ai/ailists.tsv\", \"pads\": \"pads.tsv\", \"target\": \"target_chr.pad_distance\", \"opcode\": \"0x0054\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_chr_distance_to_pad_greater_than\", \"kind\": \"scenario.ai.condition.if_chr_distance_to_pad_greater_than\", \"source\": \"ai/ailists.tsv\", \"pads\": \"pads.tsv\", \"target\": \"target_chr.pad_distance\", \"opcode\": \"0x0055\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_distance_to_chr_less_than\", \"kind\": \"scenario.ai.condition.if_distance_to_chr_less_than\", \"source\": \"ai/ailists.tsv\", \"target\": \"target_chr.distance\", \"opcode\": \"0x0056\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_distance_to_chr_greater_than\", \"kind\": \"scenario.ai.condition.if_distance_to_chr_greater_than\", \"source\": \"ai/ailists.tsv\", \"target\": \"target_chr.distance\", \"opcode\": \"0x0057\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_any_chr_near_self\", \"kind\": \"scenario.ai.condition.if_any_chr_near_self\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.preset_nearby\", \"opcode\": \"0x0058\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_distance_from_target_to_pad_less_than\", \"kind\": \"scenario.ai.condition.if_distance_from_target_to_pad_less_than\", \"source\": \"ai/ailists.tsv\", \"pads\": \"pads.tsv\", \"target\": \"target_chr.pad_distance\", \"opcode\": \"0x0059\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_distance_from_target_to_pad_greater_than\", \"kind\": \"scenario.ai.condition.if_distance_from_target_to_pad_greater_than\", \"source\": \"ai/ailists.tsv\", \"pads\": \"pads.tsv\", \"target\": \"target_chr.pad_distance\", \"opcode\": \"0x005a\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_chr_in_room\", \"kind\": \"scenario.ai.condition.if_chr_in_room\", \"source\": \"ai/ailists.tsv\", \"pads\": \"pads.tsv\", \"target\": \"target_chr.room\", \"opcode\": \"0x005b\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_target_in_room\", \"kind\": \"scenario.ai.condition.if_target_in_room\", \"source\": \"ai/ailists.tsv\", \"pads\": \"pads.tsv\", \"target\": \"target_chr.room\", \"opcode\": \"0x005c\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_chr_has_object\", \"kind\": \"scenario.ai.condition.if_chr_has_object\", \"source\": \"ai/ailists.tsv\", \"objects\": \"objects.tsv\", \"target\": \"player.inventory\", \"opcode\": \"0x005d\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_weapon_thrown\", \"kind\": \"scenario.ai.condition.if_weapon_thrown\", \"source\": \"ai/ailists.tsv\", \"target\": \"weapon.landed\", \"opcode\": \"0x005e\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_weapon_thrown_on_object\", \"kind\": \"scenario.ai.condition.if_weapon_thrown_on_object\", \"source\": \"ai/ailists.tsv\", \"objects\": \"objects.tsv\", \"target\": \"object.child_weapon\", \"opcode\": \"0x005f\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_chr_has_weapon_equipped\", \"kind\": \"scenario.ai.condition.if_chr_has_weapon_equipped\", \"source\": \"ai/ailists.tsv\", \"target\": \"player.weapon\", \"opcode\": \"0x0060\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_gun_unclaimed\", \"kind\": \"scenario.ai.condition.if_gun_unclaimed\", \"source\": \"ai/ailists.tsv\", \"objects\": \"objects.tsv\", \"target\": \"weapon.claim\", \"opcode\": \"0x0061\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_object_healthy\", \"kind\": \"scenario.ai.condition.if_object_healthy\", \"source\": \"ai/ailists.tsv\", \"objects\": \"objects.tsv\", \"target\": \"object.health\", \"opcode\": \"0x0062\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_chr_activated_object\", \"kind\": \"scenario.ai.condition.if_chr_activated_object\", \"source\": \"ai/ailists.tsv\", \"objects\": \"objects.tsv\", \"target\": \"object.activation_latch\", \"opcode\": \"0x0063\" },\n"
-			"    { \"id\": \"scenario.ai.action.obj_interact\", \"kind\": \"scenario.ai.action.obj_interact\", \"source\": \"ai/ailists.tsv\", \"objects\": \"objects.tsv\", \"target\": \"object.interaction\", \"opcode\": \"0x0065\" },\n"
-			"    { \"id\": \"scenario.ai.action.destroy_object\", \"kind\": \"scenario.ai.action.destroy_object\", \"source\": \"ai/ailists.tsv\", \"objects\": \"objects.tsv\", \"target\": \"object.destroyed_state\", \"opcode\": \"0x0066\" },\n"
-			"    { \"id\": \"scenario.ai.action.drop_object_from_chr\", \"kind\": \"scenario.ai.action.drop_object_from_chr\", \"source\": \"ai/ailists.tsv\", \"objects\": \"objects.tsv\", \"target\": \"object.parent\", \"opcode\": \"0x0067\" },\n"
-			"    { \"id\": \"scenario.ai.action.chr_drop_items\", \"kind\": \"scenario.ai.action.chr_drop_items\", \"source\": \"ai/ailists.tsv\", \"objects\": \"objects.tsv\", \"target\": \"chr.concealed_items\", \"opcode\": \"0x0068\" },\n"
-			"    { \"id\": \"scenario.ai.action.chr_drop_weapon\", \"kind\": \"scenario.ai.action.chr_drop_weapon\", \"source\": \"ai/ailists.tsv\", \"objects\": \"objects.tsv\", \"target\": \"chr.weapon_inventory\", \"opcode\": \"0x0069\" },\n"
-			"    { \"id\": \"scenario.ai.action.give_object_to_chr\", \"kind\": \"scenario.ai.action.give_object_to_chr\", \"source\": \"ai/ailists.tsv\", \"objects\": \"objects.tsv\", \"target\": \"object.owner\", \"opcode\": \"0x006a\" },\n"
-			"    { \"id\": \"scenario.ai.action.object_move_to_pad\", \"kind\": \"scenario.ai.action.object_move_to_pad\", \"source\": \"ai/ailists.tsv\", \"objects\": \"objects.tsv\", \"pads\": \"pads.tsv\", \"target\": \"object.transform\", \"opcode\": \"0x006b\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_waypoint_within_quadrant\", \"kind\": \"scenario.ai.condition.if_waypoint_within_quadrant\", \"source\": \"ai/ailists.tsv\", \"pads\": \"pads.tsv\", \"navigation\": \"navigation/waypoints.tsv\", \"target\": \"chr.padpreset1\", \"opcode\": \"0x0075\" },\n"
-			"    { \"id\": \"scenario.ai.action.set_pad_preset_to_target_quadrant\", \"kind\": \"scenario.ai.action.set_pad_preset_to_target_quadrant\", \"source\": \"ai/ailists.tsv\", \"pads\": \"pads.tsv\", \"navigation\": \"navigation/waypoints.tsv\", \"target\": \"chr.padpreset1\", \"opcode\": \"0x0076\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_los_to_attack_target\", \"kind\": \"scenario.ai.condition.if_los_to_attack_target\", \"source\": \"ai/ailists.tsv\", \"target\": \"attack_target.line_of_sight\", \"opcode\": \"0x017a\" },\n"
-			"    { \"id\": \"scenario.ai.action.set_morale\", \"kind\": \"scenario.ai.action.set_morale\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.morale\", \"operation\": \"set\", \"opcode\": \"0x0084\" },\n"
-			"    { \"id\": \"scenario.ai.action.add_morale\", \"kind\": \"scenario.ai.action.add_morale\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.morale\", \"operation\": \"add\", \"opcode\": \"0x0085\" },\n"
-			"    { \"id\": \"scenario.ai.action.chr_add_morale\", \"kind\": \"scenario.ai.action.chr_add_morale\", \"source\": \"ai/ailists.tsv\", \"target\": \"target_chr.morale\", \"operation\": \"add\", \"opcode\": \"0x0086\" },\n"
-			"    { \"id\": \"scenario.ai.action.subtract_morale\", \"kind\": \"scenario.ai.action.subtract_morale\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.morale\", \"operation\": \"subtract\", \"opcode\": \"0x0087\" },\n"
-			"    { \"id\": \"scenario.ai.action.set_alertness\", \"kind\": \"scenario.ai.action.set_alertness\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.alertness\", \"operation\": \"set\", \"opcode\": \"0x008a\" },\n"
-			"    { \"id\": \"scenario.ai.action.add_alertness\", \"kind\": \"scenario.ai.action.add_alertness\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.alertness\", \"operation\": \"add\", \"opcode\": \"0x008b\" },\n"
-			"    { \"id\": \"scenario.ai.action.chr_add_alertness\", \"kind\": \"scenario.ai.action.chr_add_alertness\", \"source\": \"ai/ailists.tsv\", \"target\": \"target_chr.alertness\", \"operation\": \"add\", \"opcode\": \"0x008c\" },\n"
-			"    { \"id\": \"scenario.ai.action.subtract_alertness\", \"kind\": \"scenario.ai.action.subtract_alertness\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.alertness\", \"operation\": \"subtract\", \"opcode\": \"0x008d\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_num_arghs_less_than\", \"kind\": \"scenario.ai.condition.if_num_arghs_less_than\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.recovery_reactions\", \"opcode\": \"0x007d\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_num_arghs_greater_than\", \"kind\": \"scenario.ai.condition.if_num_arghs_greater_than\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.recovery_reactions\", \"opcode\": \"0x007e\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_num_close_arghs_less_than\", \"kind\": \"scenario.ai.condition.if_num_close_arghs_less_than\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.close_recovery_reactions\", \"opcode\": \"0x007f\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_num_close_arghs_greater_than\", \"kind\": \"scenario.ai.condition.if_num_close_arghs_greater_than\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.close_recovery_reactions\", \"opcode\": \"0x0080\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_chr_health_greater_than\", \"kind\": \"scenario.ai.condition.if_chr_health_greater_than\", \"source\": \"ai/ailists.tsv\", \"target\": \"target_chr.health\", \"opcode\": \"0x0081\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_chr_health_less_than\", \"kind\": \"scenario.ai.condition.if_chr_health_less_than\", \"source\": \"ai/ailists.tsv\", \"target\": \"target_chr.health\", \"opcode\": \"0x0082\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_chr_shield_less_than\", \"kind\": \"scenario.ai.condition.if_chr_shield_less_than\", \"source\": \"ai/ailists.tsv\", \"target\": \"target_chr.shield\", \"opcode\": \"0x010f\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_chr_shield_greater_than\", \"kind\": \"scenario.ai.condition.if_chr_shield_greater_than\", \"source\": \"ai/ailists.tsv\", \"target\": \"target_chr.shield\", \"opcode\": \"0x0110\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_injured\", \"kind\": \"scenario.ai.condition.if_injured\", \"source\": \"ai/ailists.tsv\", \"target\": \"target_chr.injury_latch\", \"opcode\": \"0x0083\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_shield_damaged\", \"kind\": \"scenario.ai.condition.if_shield_damaged\", \"source\": \"ai/ailists.tsv\", \"target\": \"target_chr.shield_damage_latch\", \"opcode\": \"0x0168\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_morale_less_than\", \"kind\": \"scenario.ai.condition.if_morale_less_than\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.morale\", \"opcode\": \"0x0088\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_morale_less_than_random\", \"kind\": \"scenario.ai.condition.if_morale_less_than_random\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.morale_random\", \"opcode\": \"0x0089\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_alertness\", \"kind\": \"scenario.ai.condition.if_alertness\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.alertness\", \"opcode\": \"0x008e\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_chr_alertness_less_than\", \"kind\": \"scenario.ai.condition.if_chr_alertness_less_than\", \"source\": \"ai/ailists.tsv\", \"target\": \"target_chr.alertness\", \"opcode\": \"0x008f\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_alertness_less_than_random\", \"kind\": \"scenario.ai.condition.if_alertness_less_than_random\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.alertness_random\", \"opcode\": \"0x0090\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_idle\", \"kind\": \"scenario.ai.condition.if_idle\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.action_state\", \"opcode\": \"0x000c\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_stopped\", \"kind\": \"scenario.ai.condition.if_stopped\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.motion_state\", \"opcode\": \"0x0032\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_chr_dead\", \"kind\": \"scenario.ai.condition.if_chr_dead\", \"source\": \"ai/ailists.tsv\", \"target\": \"target_chr.life_state\", \"opcode\": \"0x0033\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_chr_death_animation_finished\", \"kind\": \"scenario.ai.condition.if_chr_death_animation_finished\", \"source\": \"ai/ailists.tsv\", \"target\": \"target_chr.death_animation\", \"opcode\": \"0x0034\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_chr_knocked_out\", \"kind\": \"scenario.ai.condition.if_chr_knocked_out\", \"source\": \"ai/ailists.tsv\", \"target\": \"target_chr.knockout_state\", \"opcode\": \"0x017b\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_can_see_target\", \"kind\": \"scenario.ai.condition.if_can_see_target\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.target_visibility\", \"opcode\": \"0x0035\" },\n"
-			"    { \"id\": \"scenario.ai.action.increase_squadron_alertness\", \"kind\": \"scenario.ai.action.increase_squadron_alertness\", \"source\": \"ai/ailists.tsv\", \"target\": \"squadron.alertness\", \"operation\": \"increase\", \"opcode\": \"0x0131\" },\n"
-			"    { \"id\": \"scenario.ai.action.set_hear_distance\", \"kind\": \"scenario.ai.action.set_hear_distance\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.hearing_scale\", \"opcode\": \"0x0092\" },\n"
-			"    { \"id\": \"scenario.ai.action.set_view_distance\", \"kind\": \"scenario.ai.action.set_view_distance\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.vision_range\", \"opcode\": \"0x0093\" },\n"
-			"    { \"id\": \"scenario.ai.action.set_grenade_probability\", \"kind\": \"scenario.ai.action.set_grenade_probability\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.grenade_probability\", \"opcode\": \"0x0094\" },\n"
-			"    { \"id\": \"scenario.ai.action.set_chr_num\", \"kind\": \"scenario.ai.action.set_chr_num\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.number\", \"opcode\": \"0x0095\" },\n"
-			"    { \"id\": \"scenario.ai.action.set_max_damage\", \"kind\": \"scenario.ai.action.set_max_damage\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.max_damage\", \"opcode\": \"0x0096\" },\n"
-			"    { \"id\": \"scenario.ai.action.add_health\", \"kind\": \"scenario.ai.action.add_health\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.health\", \"operation\": \"add\", \"opcode\": \"0x0097\" },\n"
-			"    { \"id\": \"scenario.ai.action.set_shield\", \"kind\": \"scenario.ai.action.set_shield\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.shield\", \"opcode\": \"0x010e\" },\n"
-			"    { \"id\": \"scenario.ai.action.set_reaction_speed\", \"kind\": \"scenario.ai.action.set_reaction_speed\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.speed_rating\", \"opcode\": \"0x0098\" },\n"
-			"    { \"id\": \"scenario.ai.action.set_recovery_speed\", \"kind\": \"scenario.ai.action.set_recovery_speed\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.recovery_rating\", \"opcode\": \"0x0099\" },\n"
-			"    { \"id\": \"scenario.ai.action.set_accuracy\", \"kind\": \"scenario.ai.action.set_accuracy\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.accuracy_rating\", \"opcode\": \"0x009a\" },\n"
-			"    { \"id\": \"scenario.ai.action.set_dodge_rating\", \"kind\": \"scenario.ai.action.set_dodge_rating\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.dodge_rating\", \"opcode\": \"0x01c6\" },\n"
-			"    { \"id\": \"scenario.ai.action.set_unarmed_dodge_rating\", \"kind\": \"scenario.ai.action.set_unarmed_dodge_rating\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.unarmed_dodge_rating\", \"opcode\": \"0x01c7\" },\n"
-			"    { \"id\": \"scenario.ai.action.set_flag\", \"kind\": \"scenario.ai.action.set_flag\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.flags\", \"opcode\": \"0x009b\" },\n"
-			"    { \"id\": \"scenario.ai.action.unset_flag\", \"kind\": \"scenario.ai.action.unset_flag\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.flags\", \"opcode\": \"0x009c\" },\n"
-			"    { \"id\": \"scenario.ai.action.if_has_flag\", \"kind\": \"scenario.ai.action.if_has_flag\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.flags\", \"opcode\": \"0x009d\" },\n"
-			"    { \"id\": \"scenario.ai.action.chr_set_flag\", \"kind\": \"scenario.ai.action.chr_set_flag\", \"source\": \"ai/ailists.tsv\", \"target\": \"target_chr.flags\", \"opcode\": \"0x009e\" },\n"
-			"    { \"id\": \"scenario.ai.action.chr_unset_flag\", \"kind\": \"scenario.ai.action.chr_unset_flag\", \"source\": \"ai/ailists.tsv\", \"target\": \"target_chr.flags\", \"opcode\": \"0x009f\" },\n"
-			"    { \"id\": \"scenario.ai.action.if_chr_has_flag\", \"kind\": \"scenario.ai.action.if_chr_has_flag\", \"source\": \"ai/ailists.tsv\", \"target\": \"target_chr.flags\", \"opcode\": \"0x00a0\" },\n"
-			"    { \"id\": \"scenario.ai.action.set_stage_flag\", \"kind\": \"scenario.ai.action.set_stage_flag\", \"source\": \"ai/ailists.tsv\", \"target\": \"mission.stage_flags\", \"opcode\": \"0x00a1\" },\n"
-			"    { \"id\": \"scenario.ai.action.unset_stage_flag\", \"kind\": \"scenario.ai.action.unset_stage_flag\", \"source\": \"ai/ailists.tsv\", \"target\": \"mission.stage_flags\", \"opcode\": \"0x00a2\" },\n"
-			"    { \"id\": \"scenario.ai.action.if_stage_flag_eq\", \"kind\": \"scenario.ai.action.if_stage_flag_eq\", \"source\": \"ai/ailists.tsv\", \"target\": \"mission.stage_flags\", \"opcode\": \"0x00a3\" },\n"
-			"    { \"id\": \"scenario.ai.action.set_chrflag\", \"kind\": \"scenario.ai.action.set_chrflag\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.chrflags\", \"opcode\": \"0x00a4\" },\n"
-			"    { \"id\": \"scenario.ai.action.unset_chrflag\", \"kind\": \"scenario.ai.action.unset_chrflag\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.chrflags\", \"opcode\": \"0x00a5\" },\n"
-			"    { \"id\": \"scenario.ai.action.if_has_chrflag\", \"kind\": \"scenario.ai.action.if_has_chrflag\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.chrflags\", \"opcode\": \"0x00a6\" },\n"
-			"    { \"id\": \"scenario.ai.action.chr_set_chrflag\", \"kind\": \"scenario.ai.action.chr_set_chrflag\", \"source\": \"ai/ailists.tsv\", \"target\": \"target_chr.chrflags\", \"opcode\": \"0x00a7\" },\n"
-			"    { \"id\": \"scenario.ai.action.chr_unset_chrflag\", \"kind\": \"scenario.ai.action.chr_unset_chrflag\", \"source\": \"ai/ailists.tsv\", \"target\": \"target_chr.chrflags\", \"opcode\": \"0x00a8\" },\n"
-			"    { \"id\": \"scenario.ai.action.if_chr_has_chrflag\", \"kind\": \"scenario.ai.action.if_chr_has_chrflag\", \"source\": \"ai/ailists.tsv\", \"target\": \"target_chr.chrflags\", \"opcode\": \"0x00a9\" },\n"
-			"    { \"id\": \"scenario.ai.action.set_obj_flag\", \"kind\": \"scenario.ai.action.set_obj_flag\", \"source\": \"ai/ailists.tsv\", \"objects\": \"objects.tsv\", \"target\": \"object.flags\", \"opcodes\": [\"0x00aa\", \"0x00ad\", \"0x0118\"] },\n"
-			"    { \"id\": \"scenario.ai.action.unset_obj_flag\", \"kind\": \"scenario.ai.action.unset_obj_flag\", \"source\": \"ai/ailists.tsv\", \"objects\": \"objects.tsv\", \"target\": \"object.flags\", \"opcodes\": [\"0x00ab\", \"0x00ae\", \"0x0119\"] },\n"
-			"    { \"id\": \"scenario.ai.action.if_obj_has_flag\", \"kind\": \"scenario.ai.action.if_obj_has_flag\", \"source\": \"ai/ailists.tsv\", \"objects\": \"objects.tsv\", \"target\": \"object.flags\", \"opcodes\": [\"0x00ac\", \"0x00af\", \"0x011a\"] },\n"
-			"    { \"id\": \"scenario.ai.action.open_door\", \"kind\": \"scenario.ai.action.open_door\", \"source\": \"ai/ailists.tsv\", \"objects\": \"objects.tsv\", \"target\": \"door.mode\", \"opcode\": \"0x006c\" },\n"
-			"    { \"id\": \"scenario.ai.action.close_door\", \"kind\": \"scenario.ai.action.close_door\", \"source\": \"ai/ailists.tsv\", \"objects\": \"objects.tsv\", \"target\": \"door.mode\", \"opcode\": \"0x006d\" },\n"
-			"    { \"id\": \"scenario.ai.action.if_door_state\", \"kind\": \"scenario.ai.action.if_door_state\", \"source\": \"ai/ailists.tsv\", \"objects\": \"objects.tsv\", \"target\": \"door.mode\", \"opcode\": \"0x006e\" },\n"
-			"    { \"id\": \"scenario.ai.action.if_object_is_door\", \"kind\": \"scenario.ai.action.if_object_is_door\", \"source\": \"ai/ailists.tsv\", \"objects\": \"objects.tsv\", \"target\": \"object.type\", \"opcode\": \"0x006f\" },\n"
-			"    { \"id\": \"scenario.ai.action.lock_door\", \"kind\": \"scenario.ai.action.lock_door\", \"source\": \"ai/ailists.tsv\", \"objects\": \"objects.tsv\", \"target\": \"door.keyflags\", \"opcode\": \"0x0070\" },\n"
-			"    { \"id\": \"scenario.ai.action.unlock_door\", \"kind\": \"scenario.ai.action.unlock_door\", \"source\": \"ai/ailists.tsv\", \"objects\": \"objects.tsv\", \"target\": \"door.keyflags\", \"opcode\": \"0x0071\" },\n"
-			"    { \"id\": \"scenario.ai.action.if_door_locked\", \"kind\": \"scenario.ai.action.if_door_locked\", \"source\": \"ai/ailists.tsv\", \"objects\": \"objects.tsv\", \"target\": \"door.keyflags\", \"opcode\": \"0x0072\" },\n"
-			"    { \"id\": \"scenario.ai.action.if_lift_stationary\", \"kind\": \"scenario.ai.action.if_lift_stationary\", \"source\": \"ai/ailists.tsv\", \"objects\": \"objects.tsv\", \"pads\": \"pads.tsv\", \"target\": \"lift.motion\", \"opcode\": \"0x0188\" },\n"
-			"    { \"id\": \"scenario.ai.action.lift_go_to_stop\", \"kind\": \"scenario.ai.action.lift_go_to_stop\", \"source\": \"ai/ailists.tsv\", \"objects\": \"objects.tsv\", \"pads\": \"pads.tsv\", \"target\": \"lift.target_level\", \"opcode\": \"0x0189\" },\n"
-			"    { \"id\": \"scenario.ai.action.if_lift_at_stop\", \"kind\": \"scenario.ai.action.if_lift_at_stop\", \"source\": \"ai/ailists.tsv\", \"objects\": \"objects.tsv\", \"pads\": \"pads.tsv\", \"target\": \"lift.current_level\", \"opcode\": \"0x018a\" },\n"
-			"    { \"id\": \"scenario.ai.action.activate_lift\", \"kind\": \"scenario.ai.action.activate_lift\", \"source\": \"ai/ailists.tsv\", \"objects\": \"objects.tsv\", \"pads\": \"pads.tsv\", \"target\": \"lift.registration\", \"opcode\": \"0x018d\" },\n"
-			"    { \"id\": \"scenario.ai.action.if_using_lift\", \"kind\": \"scenario.ai.action.if_using_lift\", \"source\": \"ai/ailists.tsv\", \"objects\": \"objects.tsv\", \"pads\": \"pads.tsv\", \"target\": \"chr.lift\", \"opcode\": \"0x01a5\" },\n"
-			"    { \"id\": \"scenario.ai.action.configure_rain\", \"kind\": \"scenario.ai.action.configure_rain\", \"source\": \"ai/ailists.tsv\", \"globals\": \"scenario.ini\", \"target\": \"weather.rain\", \"opcode\": \"0x018b\" },\n"
-			"    { \"id\": \"scenario.ai.action.configure_snow\", \"kind\": \"scenario.ai.action.configure_snow\", \"source\": \"ai/ailists.tsv\", \"globals\": \"scenario.ini\", \"target\": \"weather.snow\", \"opcode\": \"0x01b6\" },\n"
-			"    { \"id\": \"scenario.ai.action.switch_to_alt_sky\", \"kind\": \"scenario.ai.action.switch_to_alt_sky\", \"source\": \"ai/ailists.tsv\", \"target\": \"sky.transition\", \"opcode\": \"0x00f2\" },\n"
-			"    { \"id\": \"scenario.ai.action.set_wind_speed\", \"kind\": \"scenario.ai.action.set_wind_speed\", \"source\": \"ai/ailists.tsv\", \"target\": \"sky.wind_speed\", \"opcode\": \"0x01b2\" },\n"
-			"    { \"id\": \"scenario.ai.action.set_lights\", \"kind\": \"scenario.ai.action.set_lights\", \"source\": \"ai/ailists.tsv\", \"pads\": \"pads.tsv\", \"target\": \"room.lights\", \"opcode\": \"0x0102\" },\n"
-			"    { \"id\": \"scenario.ai.action.set_room_flag\", \"kind\": \"scenario.ai.action.set_room_flag\", \"source\": \"ai/ailists.tsv\", \"scene\": \"scene.glb\", \"target\": \"room.flags\", \"opcode\": \"0x01d4\" },\n"
-			"    { \"id\": \"scenario.ai.action.show_cutscene_chrs\", \"kind\": \"scenario.ai.action.show_cutscene_chrs\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.cutscene_visibility\", \"opcode\": \"0x01d5\" },\n"
-			"    { \"id\": \"scenario.ai.action.configure_environment\", \"kind\": \"scenario.ai.action.configure_environment\", \"source\": \"ai/ailists.tsv\", \"globals\": \"scenario.ini\", \"scene\": \"scene.glb\", \"target\": \"environment.room_global_audio\", \"opcode\": \"0x01d6\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_distance_to_target2_less_than\", \"kind\": \"scenario.ai.condition.if_distance_to_target2_less_than\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.target_distance2\", \"opcode\": \"0x01d7\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_distance_to_target2_greater_than\", \"kind\": \"scenario.ai.condition.if_distance_to_target2_greater_than\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.target_distance2\", \"opcode\": \"0x01d8\" },\n"
-			"    { \"id\": \"scenario.ai.action.speak\", \"kind\": \"scenario.ai.action.speak\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.subtitle_audio\", \"opcode\": \"0x00cd\" },\n"
-			"    { \"id\": \"scenario.ai.action.play_sound\", \"kind\": \"scenario.ai.action.play_sound\", \"source\": \"ai/ailists.tsv\", \"target\": \"audio.channel\", \"opcode\": \"0x00ce\" },\n"
-			"    { \"id\": \"scenario.ai.action.assign_sound\", \"kind\": \"scenario.ai.action.assign_sound\", \"source\": \"ai/ailists.tsv\", \"target\": \"audio.marker\", \"opcode\": \"0x017c\" },\n"
-			"    { \"id\": \"scenario.ai.action.audio_mute_channel\", \"kind\": \"scenario.ai.action.audio_mute_channel\", \"source\": \"ai/ailists.tsv\", \"target\": \"audio.channel\", \"opcode\": \"0x00d3\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_channel_free\", \"kind\": \"scenario.ai.condition.if_channel_free\", \"source\": \"ai/ailists.tsv\", \"target\": \"audio.channel\", \"opcode\": \"0x0138\" },\n"
-			"    { \"id\": \"scenario.ai.action.set_object_sound_volume\", \"kind\": \"scenario.ai.action.set_object_sound_volume\", \"source\": \"ai/ailists.tsv\", \"target\": \"audio.channel.volume\", \"opcode\": \"0x00d1\" },\n"
-			"    { \"id\": \"scenario.ai.action.set_object_sound_volume_by_distance\", \"kind\": \"scenario.ai.action.set_object_sound_volume_by_distance\", \"source\": \"ai/ailists.tsv\", \"target\": \"audio.channel.volume\", \"opcode\": \"0x00d2\" },\n"
-			"    { \"id\": \"scenario.ai.action.set_object_sound_playing\", \"kind\": \"scenario.ai.action.set_object_sound_playing\", \"source\": \"ai/ailists.tsv\", \"objects\": \"objects.tsv\", \"target\": \"object.audio\", \"opcode\": \"0x00cf\" },\n"
-			"    { \"id\": \"scenario.ai.action.play_repeating_sound_from_object\", \"kind\": \"scenario.ai.action.play_repeating_sound_from_object\", \"source\": \"ai/ailists.tsv\", \"objects\": \"objects.tsv\", \"target\": \"object.audio.repeating\", \"opcode\": \"0x016b\" },\n"
-			"    { \"id\": \"scenario.ai.action.play_sound_from_entity\", \"kind\": \"scenario.ai.action.play_sound_from_entity\", \"source\": \"ai/ailists.tsv\", \"objects\": \"objects.tsv\", \"target\": \"entity.audio\", \"opcode\": \"0x0179\" },\n"
-			"    { \"id\": \"scenario.ai.action.play_repeating_sound_from_pad\", \"kind\": \"scenario.ai.action.play_repeating_sound_from_pad\", \"source\": \"ai/ailists.tsv\", \"pads\": \"pads.tsv\", \"target\": \"pad.audio.repeating\", \"opcode\": \"0x00d0\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_object_sound_volume_less_than\", \"kind\": \"scenario.ai.condition.if_object_sound_volume_less_than\", \"source\": \"ai/ailists.tsv\", \"target\": \"audio.channel.volume\", \"opcode\": \"0x00d4\" },\n"
-			"    { \"id\": \"scenario.ai.action.play_sound_from_prop\", \"kind\": \"scenario.ai.action.play_sound_from_prop\", \"source\": \"ai/ailists.tsv\", \"target\": \"prop.audio\", \"opcode\": \"0x01d9\" },\n"
-			"    { \"id\": \"scenario.ai.action.play_temporary_primary_track\", \"kind\": \"scenario.ai.action.play_temporary_primary_track\", \"source\": \"ai/ailists.tsv\", \"target\": \"music.primary\", \"opcode\": \"0x01da\" },\n"
-			"    { \"id\": \"scenario.ai.action.play_x_track\", \"kind\": \"scenario.ai.action.play_x_track\", \"source\": \"ai/ailists.tsv\", \"target\": \"music.x_track\", \"opcode\": \"0x00f9\" },\n"
-			"    { \"id\": \"scenario.ai.action.stop_x_track\", \"kind\": \"scenario.ai.action.stop_x_track\", \"source\": \"ai/ailists.tsv\", \"target\": \"music.x_track\", \"opcode\": \"0x00fa\" },\n"
-			"    { \"id\": \"scenario.ai.action.play_track_isolated\", \"kind\": \"scenario.ai.action.play_track_isolated\", \"source\": \"ai/ailists.tsv\", \"target\": \"music.isolated\", \"opcode\": \"0x015b\" },\n"
-			"    { \"id\": \"scenario.ai.action.play_default_tracks\", \"kind\": \"scenario.ai.action.play_default_tracks\", \"source\": \"ai/ailists.tsv\", \"target\": \"music.default\", \"opcode\": \"0x015c\" },\n"
-			"    { \"id\": \"scenario.ai.action.play_cutscene_track\", \"kind\": \"scenario.ai.action.play_cutscene_track\", \"source\": \"ai/ailists.tsv\", \"target\": \"music.cutscene\", \"opcode\": \"0x017d\" },\n"
-			"    { \"id\": \"scenario.ai.action.stop_cutscene_track\", \"kind\": \"scenario.ai.action.stop_cutscene_track\", \"source\": \"ai/ailists.tsv\", \"target\": \"music.cutscene\", \"opcode\": \"0x017e\" },\n"
-			"    { \"id\": \"scenario.ai.action.play_temporary_track\", \"kind\": \"scenario.ai.action.play_temporary_track\", \"source\": \"ai/ailists.tsv\", \"target\": \"music.ambient_temporary\", \"opcode\": \"0x017f\" },\n"
-			"    { \"id\": \"scenario.ai.action.stop_ambient_track\", \"kind\": \"scenario.ai.action.stop_ambient_track\", \"source\": \"ai/ailists.tsv\", \"target\": \"music.ambient_temporary\", \"opcode\": \"0x0180\" },\n"
-			"    { \"id\": \"scenario.ai.action.chr_draw_weapon\", \"kind\": \"scenario.ai.action.chr_draw_weapon\", \"source\": \"ai/ailists.tsv\", \"target\": \"player.weapon\", \"opcode\": \"0x00ec\" },\n"
-			"    { \"id\": \"scenario.ai.action.chr_draw_weapon_in_cutscene\", \"kind\": \"scenario.ai.action.chr_draw_weapon_in_cutscene\", \"source\": \"ai/ailists.tsv\", \"target\": \"player.weapon.cutscene\", \"opcode\": \"0x00ed\" },\n"
-			"    { \"id\": \"scenario.ai.action.set_player_force_speed\", \"kind\": \"scenario.ai.action.set_player_force_speed\", \"source\": \"ai/ailists.tsv\", \"target\": \"player.force_speed\", \"opcode\": \"0x00ee\" },\n"
-			"    { \"id\": \"scenario.ai.action.chr_set_invincible\", \"kind\": \"scenario.ai.action.chr_set_invincible\", \"source\": \"ai/ailists.tsv\", \"target\": \"player.invincible\", \"opcode\": \"0x00f3\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_player_is_invincible\", \"kind\": \"scenario.ai.condition.if_player_is_invincible\", \"source\": \"ai/ailists.tsv\", \"target\": \"player.invincible\", \"opcode\": \"0x00f8\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_chr_has_no_gun\", \"kind\": \"scenario.ai.condition.if_chr_has_no_gun\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.weapon_state\", \"opcode\": \"0x016f\" },\n"
-			"    { \"id\": \"scenario.ai.action.chr_delete_weapon\", \"kind\": \"scenario.ai.action.chr_delete_weapon\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.weapon_inventory\", \"opcode\": \"0x00e9\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_trigger_shot_list\", \"kind\": \"scenario.ai.condition.if_trigger_shot_list\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.shot_list_latch\", \"opcode\": \"0x00fd\" },\n"
-			"    { \"id\": \"scenario.ai.action.end_level\", \"kind\": \"scenario.ai.action.end_level\", \"source\": \"ai/ailists.tsv\", \"target\": \"mission.flow\", \"opcode\": \"0x00dc\" },\n"
-			"    { \"id\": \"scenario.ai.action.end_cutscene\", \"kind\": \"scenario.ai.action.end_cutscene\", \"source\": \"ai/ailists.tsv\", \"target\": \"player.cutscene\", \"opcode\": \"0x00dd\" },\n"
-			"    { \"id\": \"scenario.ai.action.warp_jo_to_pad\", \"kind\": \"scenario.ai.action.warp_jo_to_pad\", \"source\": \"ai/ailists.tsv\", \"pads\": \"pads.tsv\", \"target\": \"player.warp\", \"opcode\": \"0x00de\" },\n"
-			"    { \"id\": \"scenario.ai.action.warp_jo_to_tag\", \"kind\": \"scenario.ai.action.warp_jo_to_tag\", \"source\": \"ai/ailists.tsv\", \"objects\": \"objects.tsv\", \"target\": \"player.warp\", \"opcode\": \"0x00df\" },\n"
-			"    { \"id\": \"scenario.ai.action.revoke_control\", \"kind\": \"scenario.ai.action.revoke_control\", \"source\": \"ai/ailists.tsv\", \"target\": \"player.control\", \"opcode\": \"0x00e0\" },\n"
-			"    { \"id\": \"scenario.ai.action.grant_control\", \"kind\": \"scenario.ai.action.grant_control\", \"source\": \"ai/ailists.tsv\", \"target\": \"player.control\", \"opcode\": \"0x00e1\" },\n"
-			"    { \"id\": \"scenario.ai.action.player_fade_in\", \"kind\": \"scenario.ai.action.player_fade_in\", \"source\": \"ai/ailists.tsv\", \"target\": \"player.fade\", \"opcode\": \"0x00e3\" },\n"
-			"    { \"id\": \"scenario.ai.action.players_fade_out\", \"kind\": \"scenario.ai.action.players_fade_out\", \"source\": \"ai/ailists.tsv\", \"target\": \"player.fade\", \"opcode\": \"0x00e4\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_colour_fade_complete\", \"kind\": \"scenario.ai.condition.if_colour_fade_complete\", \"source\": \"ai/ailists.tsv\", \"target\": \"player.fade\", \"opcode\": \"0x00e5\" },\n"
-			"    { \"id\": \"scenario.ai.action.prepare_warp_orbit\", \"kind\": \"scenario.ai.action.prepare_warp_orbit\", \"source\": \"ai/ailists.tsv\", \"pads\": \"pads.tsv\", \"target\": \"player.warp\", \"opcode\": \"0x00f4\" },\n"
-			"    { \"id\": \"scenario.ai.action.begin_warp_latch\", \"kind\": \"scenario.ai.action.begin_warp_latch\", \"source\": \"ai/ailists.tsv\", \"target\": \"player.warp_latch\", \"opcode\": \"0x00f5\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_warp_latch_complete\", \"kind\": \"scenario.ai.condition.if_warp_latch_complete\", \"source\": \"ai/ailists.tsv\", \"target\": \"player.warp_latch\", \"opcode\": \"0x00f6\" },\n"
-			"    { \"id\": \"scenario.ai.action.set_camera_animation\", \"kind\": \"scenario.ai.action.set_camera_animation\", \"source\": \"ai/ailists.tsv\", \"target\": \"player.camera_animation\", \"opcode\": \"0x0111\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_in_cutscene\", \"kind\": \"scenario.ai.condition.if_in_cutscene\", \"source\": \"ai/ailists.tsv\", \"target\": \"player.cutscene\", \"opcode\": \"0x0113\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_cutscene_button_pressed\", \"kind\": \"scenario.ai.condition.if_cutscene_button_pressed\", \"source\": \"ai/ailists.tsv\", \"target\": \"player.cutscene\", \"opcode\": \"0x0174\" },\n"
-			"    { \"id\": \"scenario.ai.action.reorient_for_cutscene_stop\", \"kind\": \"scenario.ai.action.reorient_for_cutscene_stop\", \"source\": \"ai/ailists.tsv\", \"target\": \"player.cutscene\", \"opcode\": \"0x0175\" },\n"
-			"    { \"id\": \"scenario.ai.action.spawn_chr_at_pad\", \"kind\": \"scenario.ai.action.spawn_chr_at_pad\", \"source\": \"ai/ailists.tsv\", \"pads\": \"pads.tsv\", \"target\": \"chr.spawn\", \"opcode\": \"0x00c6\" },\n"
-			"    { \"id\": \"scenario.ai.action.spawn_chr_at_chr\", \"kind\": \"scenario.ai.action.spawn_chr_at_chr\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.spawn\", \"opcode\": \"0x00c7\" },\n"
-			"    { \"id\": \"scenario.ai.action.try_equip_weapon\", \"kind\": \"scenario.ai.action.try_equip_weapon\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.weapon_inventory\", \"opcode\": \"0x00c8\" },\n"
-			"    { \"id\": \"scenario.ai.action.try_equip_hat\", \"kind\": \"scenario.ai.action.try_equip_hat\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.hat\", \"opcode\": \"0x00c9\" },\n"
-			"    { \"id\": \"scenario.ai.action.set_obj_image\", \"kind\": \"scenario.ai.action.set_obj_image\", \"source\": \"ai/ailists.tsv\", \"objects\": \"objects.tsv\", \"target\": \"object.monitor_image\", \"opcode\": \"0x00da\" },\n"
-			"    { \"id\": \"scenario.ai.action.object_do_animation\", \"kind\": \"scenario.ai.action.object_do_animation\", \"source\": \"ai/ailists.tsv\", \"objects\": \"objects.tsv\", \"target\": \"object.animation\", \"opcode\": \"0x0112\" },\n"
-			"    { \"id\": \"scenario.ai.action.set_door_open\", \"kind\": \"scenario.ai.action.set_door_open\", \"source\": \"ai/ailists.tsv\", \"objects\": \"objects.tsv\", \"target\": \"door.open_state\", \"opcode\": \"0x00e8\" },\n"
-			"    { \"id\": \"scenario.ai.action.duplicate_chr\", \"kind\": \"scenario.ai.action.duplicate_chr\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.clone\", \"opcode\": \"0x00ca\" },\n"
-			"    { \"id\": \"scenario.ai.action.enable_chr\", \"kind\": \"scenario.ai.action.enable_chr\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.enabled\", \"opcode\": \"0x0114\" },\n"
-			"    { \"id\": \"scenario.ai.action.disable_chr\", \"kind\": \"scenario.ai.action.disable_chr\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.enabled\", \"opcode\": \"0x0115\" },\n"
-			"    { \"id\": \"scenario.ai.action.enable_obj\", \"kind\": \"scenario.ai.action.enable_obj\", \"source\": \"ai/ailists.tsv\", \"objects\": \"objects.tsv\", \"target\": \"object.enabled\", \"opcode\": \"0x0116\" },\n"
-			"    { \"id\": \"scenario.ai.action.disable_obj\", \"kind\": \"scenario.ai.action.disable_obj\", \"source\": \"ai/ailists.tsv\", \"objects\": \"objects.tsv\", \"target\": \"object.enabled\", \"opcode\": \"0x0117\" },\n"
-			"    { \"id\": \"scenario.ai.action.chr_move_to_pad\", \"kind\": \"scenario.ai.action.chr_move_to_pad\", \"source\": \"ai/ailists.tsv\", \"pads\": \"pads.tsv\", \"target\": \"chr.transform\", \"opcode\": \"0x00e2\" },\n"
-			"    { \"id\": \"scenario.ai.action.chr_set_team\", \"kind\": \"scenario.ai.action.chr_set_team\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.team\", \"opcode\": \"0x010b\" },\n"
-			"    { \"id\": \"scenario.ai.action.damage_chr_by_amount\", \"kind\": \"scenario.ai.action.damage_chr_by_amount\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.damage\", \"opcode\": \"0x016e\" },\n"
-			"    { \"id\": \"scenario.ai.action.do_preset_animation\", \"kind\": \"scenario.ai.action.do_preset_animation\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.animation\", \"opcode\": \"0x01a3\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_player_chr_portal_distance_less_than\", \"kind\": \"scenario.ai.condition.if_player_chr_portal_distance_less_than\", \"source\": \"ai/ailists.tsv\", \"scene\": \"scene.glb\", \"target\": \"player_chr.portal_distance\", \"opcode\": \"0x01aa\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_chr_reposition_valid\", \"kind\": \"scenario.ai.condition.if_chr_reposition_valid\", \"source\": \"ai/ailists.tsv\", \"scene\": \"scene.glb\", \"target\": \"chr.reposition\", \"opcode\": \"0x01b4\" },\n"
-			"    { \"id\": \"scenario.ai.action.do_gun_command\", \"kind\": \"scenario.ai.action.do_gun_command\", \"source\": \"ai/ailists.tsv\", \"objects\": \"objects.tsv\", \"scene\": \"scene.glb\", \"target\": \"chr.gunprop.command\", \"opcode\": \"0x0170\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_distance_to_gun_less_than\", \"kind\": \"scenario.ai.condition.if_distance_to_gun_less_than\", \"source\": \"ai/ailists.tsv\", \"objects\": \"objects.tsv\", \"scene\": \"scene.glb\", \"target\": \"chr.gunprop.distance\", \"opcode\": \"0x0171\" },\n"
-			"    { \"id\": \"scenario.ai.action.recover_gun\", \"kind\": \"scenario.ai.action.recover_gun\", \"source\": \"ai/ailists.tsv\", \"objects\": \"objects.tsv\", \"scene\": \"scene.glb\", \"target\": \"chr.inventory.weapon\", \"opcode\": \"0x0172\" },\n"
-			"    { \"id\": \"scenario.ai.action.chr_copy_properties\", \"kind\": \"scenario.ai.action.chr_copy_properties\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.properties\", \"opcode\": \"0x0173\" },\n"
-			"    { \"id\": \"scenario.ai.action.player_auto_walk\", \"kind\": \"scenario.ai.action.player_auto_walk\", \"source\": \"ai/ailists.tsv\", \"pads\": \"pads.tsv\", \"target\": \"player.autowalk\", \"opcode\": \"0x0177\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_player_auto_walk_finished\", \"kind\": \"scenario.ai.condition.if_player_auto_walk_finished\", \"source\": \"ai/ailists.tsv\", \"target\": \"player.autowalk\", \"opcode\": \"0x0178\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_obj_in_room\", \"kind\": \"scenario.ai.condition.if_obj_in_room\", \"source\": \"ai/ailists.tsv\", \"objects\": \"objects.tsv\", \"pads\": \"pads.tsv\", \"scene\": \"scene.glb\", \"target\": \"object.room\", \"opcode\": \"0x00ef\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_player_looking_at_object\", \"kind\": \"scenario.ai.condition.if_player_looking_at_object\", \"source\": \"ai/ailists.tsv\", \"objects\": \"objects.tsv\", \"scene\": \"scene.glb\", \"target\": \"player.view.object\", \"opcode\": \"0x0181\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_target_is_player\", \"kind\": \"scenario.ai.condition.if_target_is_player\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.target.type\", \"opcode\": \"0x0183\" },\n"
-			"    { \"id\": \"scenario.ai.action.chr_kill\", \"kind\": \"scenario.ai.action.chr_kill\", \"source\": \"ai/ailists.tsv\", \"target\": \"character.state\", \"opcode\": \"0x01db\" },\n"
-			"    { \"id\": \"scenario.ai.action.remove_weapon_from_inventory\", \"kind\": \"scenario.ai.action.remove_weapon_from_inventory\", \"source\": \"ai/ailists.tsv\", \"target\": \"player.inventory\", \"opcode\": \"0x01dc\" },\n"
-			"    { \"id\": \"scenario.ai.action.clear_inventory\", \"kind\": \"scenario.ai.action.clear_inventory\", \"source\": \"ai/ailists.tsv\", \"target\": \"player.inventory\", \"opcode\": \"0x01ae\" },\n"
-			"    { \"id\": \"scenario.ai.action.release_object\", \"kind\": \"scenario.ai.action.release_object\", \"source\": \"ai/ailists.tsv\", \"target\": \"player.carry_state\", \"opcode\": \"0x01ad\" },\n"
-			"    { \"id\": \"scenario.ai.action.chr_grab_object\", \"kind\": \"scenario.ai.action.chr_grab_object\", \"source\": \"ai/ailists.tsv\", \"objects\": \"objects.tsv\", \"scene\": \"scene.glb\", \"target\": \"player.grab_object\", \"opcode\": \"0x01af\" },\n"
-			"    { \"id\": \"scenario.ai.action.toggle_p1p2\", \"kind\": \"scenario.ai.action.toggle_p1p2\", \"source\": \"ai/ailists.tsv\", \"target\": \"player.assignment\", \"opcode\": \"0x01b3\" },\n"
-			"    { \"id\": \"scenario.ai.action.chr_set_p1p2\", \"kind\": \"scenario.ai.action.chr_set_p1p2\", \"source\": \"ai/ailists.tsv\", \"target\": \"player.assignment\", \"opcode\": \"0x01b5\" },\n"
-			"    { \"id\": \"scenario.ai.action.chr_set_cloaked\", \"kind\": \"scenario.ai.action.chr_set_cloaked\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.cloak\", \"opcode\": \"0x01b7\" },\n"
-			"    { \"id\": \"scenario.ai.action.set_autogun_target_team\", \"kind\": \"scenario.ai.action.set_autogun_target_team\", \"source\": \"ai/ailists.tsv\", \"objects\": \"objects.tsv\", \"target\": \"autogun.target_team\", \"opcode\": \"0x01b8\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_objective_complete\", \"kind\": \"scenario.ai.condition.if_objective_complete\", \"source\": \"ai/ailists.tsv\", \"mission\": \"mission.graph.json\", \"target\": \"mission.objective_status\", \"opcode\": \"0x0073\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_objective_failed\", \"kind\": \"scenario.ai.condition.if_objective_failed\", \"source\": \"ai/ailists.tsv\", \"mission\": \"mission.graph.json\", \"target\": \"mission.objective_status\", \"opcode\": \"0x0074\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_all_objectives_complete\", \"kind\": \"scenario.ai.condition.if_all_objectives_complete\", \"source\": \"ai/ailists.tsv\", \"mission\": \"mission.graph.json\", \"target\": \"mission.objectives_complete\", \"opcode\": \"0x00f7\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_difficulty_less_than\", \"kind\": \"scenario.ai.condition.if_difficulty_less_than\", \"source\": \"ai/ailists.tsv\", \"target\": \"mission.difficulty\", \"opcode\": \"0x0077\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_difficulty_greater_than\", \"kind\": \"scenario.ai.condition.if_difficulty_greater_than\", \"source\": \"ai/ailists.tsv\", \"target\": \"mission.difficulty\", \"opcode\": \"0x0078\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_stage_timer_less_than\", \"kind\": \"scenario.ai.condition.if_stage_timer_less_than\", \"source\": \"ai/ailists.tsv\", \"target\": \"mission.stage_timer\", \"opcode\": \"0x0079\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_stage_timer_greater_than\", \"kind\": \"scenario.ai.condition.if_stage_timer_greater_than\", \"source\": \"ai/ailists.tsv\", \"target\": \"mission.stage_timer\", \"opcode\": \"0x007a\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_stage_id_less_than\", \"kind\": \"scenario.ai.condition.if_stage_id_less_than\", \"source\": \"ai/ailists.tsv\", \"target\": \"mission.stage_id\", \"opcode\": \"0x007b\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_stage_id_greater_than\", \"kind\": \"scenario.ai.condition.if_stage_id_greater_than\", \"source\": \"ai/ailists.tsv\", \"target\": \"mission.stage_id\", \"opcode\": \"0x007c\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_num_players_less_than\", \"kind\": \"scenario.ai.condition.if_num_players_less_than\", \"source\": \"ai/ailists.tsv\", \"target\": \"game.local_player_count\", \"opcode\": \"0x00ea\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_kill_count_greater_than\", \"kind\": \"scenario.ai.condition.if_kill_count_greater_than\", \"source\": \"ai/ailists.tsv\", \"target\": \"mission.kill_count\", \"opcode\": \"0x00fc\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_num_knocked_out_chrs\", \"kind\": \"scenario.ai.condition.if_num_knocked_out_chrs\", \"source\": \"ai/ailists.tsv\", \"target\": \"match.knockout_count\", \"opcode\": \"0x01ab\" },\n"
-			"    { \"id\": \"scenario.ai.action.kill_bond\", \"kind\": \"scenario.ai.action.kill_bond\", \"source\": \"ai/ailists.tsv\", \"mission\": \"mission.graph.json\", \"target\": \"player.bond.dead\", \"opcode\": \"0x00fe\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_pouncebits_eq\", \"kind\": \"scenario.ai.condition.if_pouncebits_eq\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.pouncebits\", \"opcode\": \"0x01bc\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_training_pc_holographed\", \"kind\": \"scenario.ai.condition.if_training_pc_holographed\", \"source\": \"ai/ailists.tsv\", \"target\": \"training.pc_hologram\", \"opcode\": \"0x01bd\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_player_using_device\", \"kind\": \"scenario.ai.condition.if_player_using_device\", \"source\": \"ai/ailists.tsv\", \"target\": \"player.device_state\", \"opcode\": \"0x01be\" },\n"
-			"    { \"id\": \"scenario.ai.action.chr_begin_or_end_teleport\", \"kind\": \"scenario.ai.action.chr_begin_or_end_teleport\", \"source\": \"ai/ailists.tsv\", \"pads\": \"pads.tsv\", \"target\": \"player.teleport_state\", \"opcode\": \"0x01bf\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_chr_teleport_full_white\", \"kind\": \"scenario.ai.condition.if_chr_teleport_full_white\", \"source\": \"ai/ailists.tsv\", \"target\": \"player.teleport_state\", \"opcode\": \"0x01c0\" },\n"
-			"    { \"id\": \"scenario.ai.action.chr_set_cutscene_weapon\", \"kind\": \"scenario.ai.action.chr_set_cutscene_weapon\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.cutscene_weapon\", \"opcode\": \"0x01ca\" },\n"
-			"    { \"id\": \"scenario.ai.action.fade_screen\", \"kind\": \"scenario.ai.action.fade_screen\", \"source\": \"ai/ailists.tsv\", \"target\": \"screen.fade\", \"opcode\": \"0x01cb\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_fade_complete\", \"kind\": \"scenario.ai.condition.if_fade_complete\", \"source\": \"ai/ailists.tsv\", \"target\": \"screen.fade\", \"opcode\": \"0x01cc\" },\n"
-			"    { \"id\": \"scenario.ai.action.set_chr_hudpiece_visible\", \"kind\": \"scenario.ai.action.set_chr_hudpiece_visible\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.hudpiece\", \"opcode\": \"0x01cd\" },\n"
-			"    { \"id\": \"scenario.ai.action.set_passive_mode\", \"kind\": \"scenario.ai.action.set_passive_mode\", \"source\": \"ai/ailists.tsv\", \"target\": \"player.weapon_passive_mode\", \"opcode\": \"0x01ce\" },\n"
-			"    { \"id\": \"scenario.ai.action.chr_set_firing_in_cutscene\", \"kind\": \"scenario.ai.action.chr_set_firing_in_cutscene\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.weapon_firing\", \"opcode\": \"0x01cf\" },\n"
-			"    { \"id\": \"scenario.ai.action.set_portal_flag\", \"kind\": \"scenario.ai.action.set_portal_flag\", \"source\": \"ai/ailists.tsv\", \"scene\": \"scene.glb\", \"target\": \"portal.flags\", \"opcode\": \"0x01d0\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_music_event_queue_is_empty\", \"kind\": \"scenario.ai.condition.if_music_event_queue_is_empty\", \"source\": \"ai/ailists.tsv\", \"target\": \"music.event_queue\", \"opcode\": \"0x01dd\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_coop_mode\", \"kind\": \"scenario.ai.condition.if_coop_mode\", \"source\": \"ai/ailists.tsv\", \"target\": \"game.mode\", \"opcode\": \"0x01de\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_chr_same_floor_distance_to_pad_less_than\", \"kind\": \"scenario.ai.condition.if_chr_same_floor_distance_to_pad_less_than\", \"source\": \"ai/ailists.tsv\", \"pads\": \"pads.tsv\", \"target\": \"chr.pad_same_floor_distance\", \"opcode\": \"0x01df\" },\n"
-			"    { \"id\": \"scenario.ai.action.remove_references_to_chr\", \"kind\": \"scenario.ai.action.remove_references_to_chr\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.references\", \"opcode\": \"0x01e0\" },\n"
-			"    { \"id\": \"scenario.ai.action.chr_toggle_model_part\", \"kind\": \"scenario.ai.action.chr_toggle_model_part\", \"source\": \"ai/ailists.tsv\", \"objects\": \"objects.tsv\", \"target\": \"chr.model_part.visibility\", \"opcode\": \"0x018c\" },\n"
-			"    { \"id\": \"scenario.ai.action.obj_set_model_part_visible\", \"kind\": \"scenario.ai.action.obj_set_model_part_visible\", \"source\": \"ai/ailists.tsv\", \"objects\": \"objects.tsv\", \"target\": \"object.model_part.visibility\", \"opcode\": \"0x01d1\" },\n"
-			"    { \"id\": \"scenario.ai.action.if_obj_health_less_than\", \"kind\": \"scenario.ai.action.if_obj_health_less_than\", \"source\": \"ai/ailists.tsv\", \"objects\": \"objects.tsv\", \"target\": \"object.damage\", \"opcode\": \"0x019e\" },\n"
-			"    { \"id\": \"scenario.ai.action.set_obj_health\", \"kind\": \"scenario.ai.action.set_obj_health\", \"source\": \"ai/ailists.tsv\", \"objects\": \"objects.tsv\", \"target\": \"object.damage\", \"opcode\": \"0x019f\" },\n"
-			"    { \"id\": \"scenario.ai.action.set_chr_special_death_animation\", \"kind\": \"scenario.ai.action.set_chr_special_death_animation\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.special_death_animation\", \"opcode\": \"0x01a0\" },\n"
-			"    { \"id\": \"scenario.ai.action.set_room_to_search\", \"kind\": \"scenario.ai.action.set_room_to_search\", \"source\": \"ai/ailists.tsv\", \"scene\": \"scene.glb\", \"target\": \"chr.room_to_search\", \"opcode\": \"0x01a1\" },\n"
-			"    { \"id\": \"scenario.ai.action.chr_set_hidden_flag\", \"kind\": \"scenario.ai.action.chr_set_hidden_flag\", \"source\": \"ai/ailists.tsv\", \"target\": \"target_chr.hidden\", \"opcode\": \"0x011b\" },\n"
-			"    { \"id\": \"scenario.ai.action.chr_unset_hidden_flag\", \"kind\": \"scenario.ai.action.chr_unset_hidden_flag\", \"source\": \"ai/ailists.tsv\", \"target\": \"target_chr.hidden\", \"opcode\": \"0x011c\" },\n"
-			"    { \"id\": \"scenario.ai.action.if_chr_has_hidden_flag\", \"kind\": \"scenario.ai.action.if_chr_has_hidden_flag\", \"source\": \"ai/ailists.tsv\", \"target\": \"target_chr.hidden\", \"opcode\": \"0x011d\" },\n"
-			"    { \"id\": \"scenario.ai.action.set_savefile_flag\", \"kind\": \"scenario.ai.action.set_savefile_flag\", \"source\": \"ai/ailists.tsv\", \"target\": \"savefile.flags\", \"opcode\": \"0x0190\" },\n"
-			"    { \"id\": \"scenario.ai.action.unset_savefile_flag\", \"kind\": \"scenario.ai.action.unset_savefile_flag\", \"source\": \"ai/ailists.tsv\", \"target\": \"savefile.flags\", \"opcode\": \"0x0191\" },\n"
-			"    { \"id\": \"scenario.ai.action.if_savefile_flag_set\", \"kind\": \"scenario.ai.action.if_savefile_flag_set\", \"source\": \"ai/ailists.tsv\", \"target\": \"savefile.flags\", \"opcode\": \"0x0192\" },\n"
-			"    { \"id\": \"scenario.ai.action.if_savefile_flag_unset\", \"kind\": \"scenario.ai.action.if_savefile_flag_unset\", \"source\": \"ai/ailists.tsv\", \"target\": \"savefile.flags\", \"opcode\": \"0x0193\" },\n"
-			"    { \"id\": \"scenario.ai.action.restart_timer\", \"kind\": \"scenario.ai.action.restart_timer\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.timer\", \"opcode\": \"0x00b6\" },\n"
-			"    { \"id\": \"scenario.ai.action.reset_timer\", \"kind\": \"scenario.ai.action.reset_timer\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.timer\", \"opcode\": \"0x00b7\" },\n"
-			"    { \"id\": \"scenario.ai.action.pause_timer\", \"kind\": \"scenario.ai.action.pause_timer\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.timer\", \"opcode\": \"0x00b8\" },\n"
-			"    { \"id\": \"scenario.ai.action.resume_timer\", \"kind\": \"scenario.ai.action.resume_timer\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.timer\", \"opcode\": \"0x00b9\" },\n"
-			"    { \"id\": \"scenario.ai.action.if_timer_stopped\", \"kind\": \"scenario.ai.action.if_timer_stopped\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.timer\", \"opcode\": \"0x00ba\" },\n"
-			"    { \"id\": \"scenario.ai.action.if_timer_greater_than_random\", \"kind\": \"scenario.ai.action.if_timer_greater_than_random\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.timer\", \"opcode\": \"0x00bb\" },\n"
-			"    { \"id\": \"scenario.ai.action.if_timer_less_than\", \"kind\": \"scenario.ai.action.if_timer_less_than\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr_or_hovercar.timer\", \"opcode\": \"0x00bc\" },\n"
-			"    { \"id\": \"scenario.ai.action.if_timer_greater_than\", \"kind\": \"scenario.ai.action.if_timer_greater_than\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr_or_hovercar.timer\", \"opcode\": \"0x00bd\" },\n"
-			"    { \"id\": \"scenario.ai.action.show_countdown_timer\", \"kind\": \"scenario.ai.action.show_countdown_timer\", \"source\": \"ai/ailists.tsv\", \"target\": \"hud.countdown\", \"opcode\": \"0x00be\" },\n"
-			"    { \"id\": \"scenario.ai.action.hide_countdown_timer\", \"kind\": \"scenario.ai.action.hide_countdown_timer\", \"source\": \"ai/ailists.tsv\", \"target\": \"hud.countdown\", \"opcode\": \"0x00bf\" },\n"
-			"    { \"id\": \"scenario.ai.action.set_countdown_timer\", \"kind\": \"scenario.ai.action.set_countdown_timer\", \"source\": \"ai/ailists.tsv\", \"target\": \"hud.countdown\", \"opcode\": \"0x00c0\" },\n"
-			"    { \"id\": \"scenario.ai.action.stop_countdown_timer\", \"kind\": \"scenario.ai.action.stop_countdown_timer\", \"source\": \"ai/ailists.tsv\", \"target\": \"hud.countdown\", \"opcode\": \"0x00c1\" },\n"
-			"    { \"id\": \"scenario.ai.action.start_countdown_timer\", \"kind\": \"scenario.ai.action.start_countdown_timer\", \"source\": \"ai/ailists.tsv\", \"target\": \"hud.countdown\", \"opcode\": \"0x00c2\" },\n"
-			"    { \"id\": \"scenario.ai.action.if_countdown_timer_stopped\", \"kind\": \"scenario.ai.action.if_countdown_timer_stopped\", \"source\": \"ai/ailists.tsv\", \"target\": \"hud.countdown\", \"opcode\": \"0x00c3\" },\n"
-			"    { \"id\": \"scenario.ai.action.if_countdown_timer_less_than\", \"kind\": \"scenario.ai.action.if_countdown_timer_less_than\", \"source\": \"ai/ailists.tsv\", \"target\": \"hud.countdown\", \"opcode\": \"0x00c4\" },\n"
-			"    { \"id\": \"scenario.ai.action.if_countdown_timer_greater_than\", \"kind\": \"scenario.ai.action.if_countdown_timer_greater_than\", \"source\": \"ai/ailists.tsv\", \"target\": \"hud.countdown\", \"opcode\": \"0x00c5\" },\n"
-			"    { \"id\": \"scenario.ai.action.set_action\", \"kind\": \"scenario.ai.action.set_action\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.myaction\", \"opcode\": \"0x0132\" },\n"
-			"    { \"id\": \"scenario.ai.action.set_team_orders\", \"kind\": \"scenario.ai.action.set_team_orders\", \"source\": \"ai/ailists.tsv\", \"target\": \"squadron.orders\", \"opcode\": \"0x0133\" },\n"
-			"    { \"id\": \"scenario.ai.action.retreat\", \"kind\": \"scenario.ai.action.retreat\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.navigation\", \"opcode\": \"0x0136\" },\n"
-			"    { \"id\": \"scenario.ai.action.find_cover\", \"kind\": \"scenario.ai.action.find_cover\", \"source\": \"ai/ailists.tsv\", \"covers\": \"navigation/covers.tsv\", \"target\": \"chr.cover\", \"opcode\": \"0x0121\" },\n"
-			"    { \"id\": \"scenario.ai.action.find_cover_within_dist\", \"kind\": \"scenario.ai.action.find_cover_within_dist\", \"source\": \"ai/ailists.tsv\", \"covers\": \"navigation/covers.tsv\", \"target\": \"chr.cover\", \"opcode\": \"0x0122\" },\n"
-			"    { \"id\": \"scenario.ai.action.find_cover_outside_dist\", \"kind\": \"scenario.ai.action.find_cover_outside_dist\", \"source\": \"ai/ailists.tsv\", \"covers\": \"navigation/covers.tsv\", \"target\": \"chr.cover\", \"opcode\": \"0x0123\" },\n"
-			"    { \"id\": \"scenario.ai.action.go_to_cover\", \"kind\": \"scenario.ai.action.go_to_cover\", \"source\": \"ai/ailists.tsv\", \"covers\": \"navigation/covers.tsv\", \"target\": \"chr.navigation\", \"opcode\": \"0x0124\" },\n"
-			"    { \"id\": \"scenario.ai.action.check_cover_out_of_sight\", \"kind\": \"scenario.ai.action.check_cover_out_of_sight\", \"source\": \"ai/ailists.tsv\", \"covers\": \"navigation/covers.tsv\", \"target\": \"chr.cover.visibility\", \"opcode\": \"0x0125\" },\n"
-			"    { \"id\": \"scenario.ai.action.orbit_target\", \"kind\": \"scenario.ai.action.orbit_target\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.navigation\", \"opcode\": \"0x0139\" },\n"
-			"    { \"id\": \"scenario.ai.action.set_chr_preset_to_unalerted_teammate\", \"kind\": \"scenario.ai.action.set_chr_preset_to_unalerted_teammate\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.chrpreset\", \"opcode\": \"0x013a\" },\n"
-			"    { \"id\": \"scenario.ai.action.set_squadron\", \"kind\": \"scenario.ai.action.set_squadron\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.squadron\", \"opcode\": \"0x013b\" },\n"
-			"    { \"id\": \"scenario.ai.action.face_cover\", \"kind\": \"scenario.ai.action.face_cover\", \"source\": \"ai/ailists.tsv\", \"covers\": \"navigation/covers.tsv\", \"target\": \"chr.cover\", \"opcode\": \"0x013c\" },\n"
-			"    { \"id\": \"scenario.ai.action.danger_cover\", \"kind\": \"scenario.ai.action.danger_cover\", \"source\": \"ai/ailists.tsv\", \"covers\": \"navigation/covers.tsv\", \"target\": \"chr.cover\", \"opcode\": \"0x013e\" },\n"
-			"    { \"id\": \"scenario.ai.action.release_cover\", \"kind\": \"scenario.ai.action.release_cover\", \"source\": \"ai/ailists.tsv\", \"covers\": \"navigation/covers.tsv\", \"target\": \"chr.cover\", \"opcode\": \"0x012f\" },\n"
-			"    { \"id\": \"scenario.ai.action.rebuild_teams\", \"kind\": \"scenario.ai.action.rebuild_teams\", \"source\": \"ai/ailists.tsv\", \"target\": \"team.index\", \"opcode\": \"0x0145\" },\n"
-			"    { \"id\": \"scenario.ai.action.rebuild_squadrons\", \"kind\": \"scenario.ai.action.rebuild_squadrons\", \"source\": \"ai/ailists.tsv\", \"target\": \"squadron.index\", \"opcode\": \"0x0146\" },\n"
-			"    { \"id\": \"scenario.ai.action.chr_set_listening\", \"kind\": \"scenario.ai.action.chr_set_listening\", \"source\": \"ai/ailists.tsv\", \"target\": \"target_chr.listening\", \"opcode\": \"0x0148\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_chr_not_talking\", \"kind\": \"scenario.ai.condition.if_chr_not_talking\", \"source\": \"ai/ailists.tsv\", \"target\": \"target_chr.talk_state\", \"opcode\": \"0x01a7\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_orders\", \"kind\": \"scenario.ai.condition.if_orders\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.orders\", \"opcode\": \"0x0134\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_has_orders\", \"kind\": \"scenario.ai.condition.if_has_orders\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.orders\", \"opcode\": \"0x0135\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_chr_in_squadron_doing_action\", \"kind\": \"scenario.ai.condition.if_chr_in_squadron_doing_action\", \"source\": \"ai/ailists.tsv\", \"target\": \"squadron.myaction\", \"opcode\": \"0x0137\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_chr_listening\", \"kind\": \"scenario.ai.condition.if_chr_listening\", \"source\": \"ai/ailists.tsv\", \"target\": \"target_chr.listening\", \"opcode\": \"0x0149\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_not_listening\", \"kind\": \"scenario.ai.condition.if_not_listening\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.listening\", \"opcode\": \"0x014b\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_chr_injured_target\", \"kind\": \"scenario.ai.condition.if_chr_injured_target\", \"source\": \"ai/ailists.tsv\", \"target\": \"target_chr.injured_target_latch\", \"opcode\": \"0x0165\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_action\", \"kind\": \"scenario.ai.condition.if_action\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.myaction\", \"opcode\": \"0x0166\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_chr_ammo_quantity_less_than\", \"kind\": \"scenario.ai.condition.if_chr_ammo_quantity_less_than\", \"source\": \"ai/ailists.tsv\", \"target\": \"player.ammo\", \"opcode\": \"0x00eb\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_chr_target\", \"kind\": \"scenario.ai.condition.if_chr_target\", \"source\": \"ai/ailists.tsv\", \"target\": \"target_chr.target\", \"opcode\": \"0x0108\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_compare_chr_presets_team\", \"kind\": \"scenario.ai.condition.if_compare_chr_presets_team\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.preset.team\", \"opcode\": \"0x010c\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_human\", \"kind\": \"scenario.ai.condition.if_human\", \"source\": \"ai/ailists.tsv\", \"target\": \"target_chr.race\", \"opcode\": \"0x011e\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_skedar\", \"kind\": \"scenario.ai.condition.if_skedar\", \"source\": \"ai/ailists.tsv\", \"target\": \"target_chr.race\", \"opcode\": \"0x011f\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_prop_preset_blocking_sight_to_target\", \"kind\": \"scenario.ai.condition.if_prop_preset_blocking_sight_to_target\", \"source\": \"ai/ailists.tsv\", \"objects\": \"objects.tsv\", \"target\": \"chr.proppreset1.line_of_sight\", \"opcode\": \"0x0103\" },\n"
-			"    { \"id\": \"scenario.ai.action.remove_object_at_prop_preset\", \"kind\": \"scenario.ai.action.remove_object_at_prop_preset\", \"source\": \"ai/ailists.tsv\", \"objects\": \"objects.tsv\", \"target\": \"chr.proppreset1\", \"opcode\": \"0x0104\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_prop_preset_height_less_than\", \"kind\": \"scenario.ai.condition.if_prop_preset_height_less_than\", \"source\": \"ai/ailists.tsv\", \"objects\": \"objects.tsv\", \"target\": \"chr.proppreset1.height\", \"opcode\": \"0x0105\" },\n"
-			"    { \"id\": \"scenario.ai.action.set_target\", \"kind\": \"scenario.ai.action.set_target\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.target\", \"opcode\": \"0x0106\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_presets_target_is_not_my_target\", \"kind\": \"scenario.ai.condition.if_presets_target_is_not_my_target\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.preset.target\", \"opcode\": \"0x0107\" },\n"
-			"    { \"id\": \"scenario.ai.action.set_chr_preset_to_chr_near_self\", \"kind\": \"scenario.ai.action.set_chr_preset_to_chr_near_self\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.chrpreset1\", \"opcode\": \"0x0109\" },\n"
-			"    { \"id\": \"scenario.ai.action.set_chr_preset_to_chr_near_pad\", \"kind\": \"scenario.ai.action.set_chr_preset_to_chr_near_pad\", \"source\": \"ai/ailists.tsv\", \"pads\": \"pads.tsv\", \"target\": \"chr.chrpreset1\", \"opcode\": \"0x010a\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_dangerous_object_nearby\", \"kind\": \"scenario.ai.condition.if_dangerous_object_nearby\", \"source\": \"ai/ailists.tsv\", \"objects\": \"objects.tsv\", \"target\": \"chr.danger\", \"opcode\": \"0x013d\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_heli_weapons_armed\", \"kind\": \"scenario.ai.condition.if_heli_weapons_armed\", \"source\": \"ai/ailists.tsv\", \"target\": \"vehicle.weapons\", \"opcode\": \"0x013f\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_hoverbot_next_step\", \"kind\": \"scenario.ai.condition.if_hoverbot_next_step\", \"source\": \"ai/ailists.tsv\", \"target\": \"vehicle.nextstep\", \"opcode\": \"0x0140\" },\n"
-			"    { \"id\": \"scenario.ai.action.shuffle_investigation_terminals\", \"kind\": \"scenario.ai.action.shuffle_investigation_terminals\", \"source\": \"ai/ailists.tsv\", \"objects\": \"objects.tsv\", \"target\": \"setup.tags\", \"opcode\": \"0x0141\" },\n"
-			"    { \"id\": \"scenario.ai.action.set_pad_preset_to_investigation_terminal\", \"kind\": \"scenario.ai.action.set_pad_preset_to_investigation_terminal\", \"source\": \"ai/ailists.tsv\", \"objects\": \"objects.tsv\", \"pads\": \"pads.tsv\", \"target\": \"chr.padpreset1\", \"opcode\": \"0x0142\" },\n"
-			"    { \"id\": \"scenario.ai.action.heli_arm_weapons\", \"kind\": \"scenario.ai.action.heli_arm_weapons\", \"source\": \"ai/ailists.tsv\", \"target\": \"vehicle.weapons\", \"opcode\": \"0x0143\" },\n"
-			"    { \"id\": \"scenario.ai.action.heli_unarm_weapons\", \"kind\": \"scenario.ai.action.heli_unarm_weapons\", \"source\": \"ai/ailists.tsv\", \"target\": \"vehicle.weapons\", \"opcode\": \"0x0144\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_safety2_less_than\", \"kind\": \"scenario.ai.condition.if_safety2_less_than\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.safety.weapon_support\", \"opcode\": \"0x0120\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_player_using_cmp_or_ar34\", \"kind\": \"scenario.ai.condition.if_player_using_cmp_or_ar34\", \"source\": \"ai/ailists.tsv\", \"target\": \"player.weapon\", \"opcode\": \"0x0126\" },\n"
-			"    { \"id\": \"scenario.ai.condition.detect_enemy_on_same_floor\", \"kind\": \"scenario.ai.condition.detect_enemy_on_same_floor\", \"source\": \"ai/ailists.tsv\", \"scene\": \"scene.glb\", \"target\": \"chr.target.scan_same_floor\", \"opcode\": \"0x0127\" },\n"
-			"    { \"id\": \"scenario.ai.condition.detect_enemy\", \"kind\": \"scenario.ai.condition.detect_enemy\", \"source\": \"ai/ailists.tsv\", \"scene\": \"scene.glb\", \"target\": \"chr.target.scan\", \"opcode\": \"0x0128\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_safety_less_than\", \"kind\": \"scenario.ai.condition.if_safety_less_than\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.safety.support\", \"opcode\": \"0x0129\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_target_moving_slowly\", \"kind\": \"scenario.ai.condition.if_target_moving_slowly\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.target.motion\", \"opcode\": \"0x012a\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_target_moving_closer\", \"kind\": \"scenario.ai.condition.if_target_moving_closer\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.target.motion\", \"opcode\": \"0x012b\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_target_moving_away\", \"kind\": \"scenario.ai.condition.if_target_moving_away\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.target.motion\", \"opcode\": \"0x012c\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_squadron_is_dead\", \"kind\": \"scenario.ai.condition.if_squadron_is_dead\", \"source\": \"ai/ailists.tsv\", \"target\": \"squadron.alive\", \"opcode\": \"0x0147\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_true\", \"kind\": \"scenario.ai.condition.if_true\", \"source\": \"ai/ailists.tsv\", \"target\": \"ai.branch\", \"opcode\": \"0x014a\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_num_chrs_in_squadron_greater_than\", \"kind\": \"scenario.ai.condition.if_num_chrs_in_squadron_greater_than\", \"source\": \"ai/ailists.tsv\", \"target\": \"squadron.count\", \"opcode\": \"0x0152\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_natural_anim\", \"kind\": \"scenario.ai.condition.if_natural_anim\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.naturalanim\", \"opcode\": \"0x0169\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_y\", \"kind\": \"scenario.ai.condition.if_y\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.position.y\", \"opcode\": \"0x016a\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_sound_timer\", \"kind\": \"scenario.ai.condition.if_sound_timer\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.soundtimer\", \"opcode\": \"0x0186\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_target_y_difference_less_than\", \"kind\": \"scenario.ai.condition.if_target_y_difference_less_than\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.target.position.y\", \"opcode\": \"0x01a6\" },\n"
-			"    { \"id\": \"scenario.ai.action.try_attack_amount\", \"kind\": \"scenario.ai.action.try_attack_amount\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.attack_state\", \"opcode\": \"0x0184\" },\n"
-			"    { \"id\": \"scenario.ai.action.set_chr_preset\", \"kind\": \"scenario.ai.action.set_chr_preset\", \"source\": \"ai/ailists.tsv\", \"opcode\": \"0x00b0\" },\n"
-			"    { \"id\": \"scenario.ai.action.set_chr_target\", \"kind\": \"scenario.ai.action.set_chr_target\", \"source\": \"ai/ailists.tsv\", \"opcode\": \"0x00b1\" },\n"
-			"    { \"id\": \"scenario.ai.action.set_pad_preset\", \"kind\": \"scenario.ai.action.set_pad_preset\", \"source\": \"ai/ailists.tsv\", \"pads\": \"pads.tsv\", \"opcode\": \"0x00b2\" },\n"
-			"    { \"id\": \"scenario.ai.action.chr_set_pad_preset\", \"kind\": \"scenario.ai.action.chr_set_pad_preset\", \"source\": \"ai/ailists.tsv\", \"pads\": \"pads.tsv\", \"opcode\": \"0x00b3\" },\n"
-			"    { \"id\": \"scenario.ai.action.chr_copy_pad_preset\", \"kind\": \"scenario.ai.action.chr_copy_pad_preset\", \"source\": \"ai/ailists.tsv\", \"pad\": \"source_chr.padpreset1\", \"opcode\": \"0x00b4\" },\n"
-			"    { \"id\": \"scenario.ai.action.show_hudmsg\", \"kind\": \"scenario.ai.action.show_hudmsg\", \"source\": \"ai/ailists.tsv\", \"target\": \"hud.message\", \"opcode\": \"0x00cb\" },\n"
-			"    { \"id\": \"scenario.ai.action.show_hudmsg_top_middle\", \"kind\": \"scenario.ai.action.show_hudmsg_top_middle\", \"source\": \"ai/ailists.tsv\", \"target\": \"hud.subtitle\", \"opcode\": \"0x00cc\" },\n"
-			"    { \"id\": \"scenario.ai.action.show_hudmsg_middle\", \"kind\": \"scenario.ai.action.show_hudmsg_middle\", \"source\": \"ai/ailists.tsv\", \"target\": \"hud.message.middle\", \"opcode\": \"0x01a4\" },\n"
-			"    { \"id\": \"scenario.ai.action.hovercar_begin_path\", \"kind\": \"scenario.ai.action.hovercar_begin_path\", \"source\": \"ai/ailists.tsv\", \"paths\": \"navigation/paths.tsv\", \"target\": \"vehicle.path\", \"opcode\": \"0x00d5\" },\n"
-			"    { \"id\": \"scenario.ai.action.set_vehicle_speed\", \"kind\": \"scenario.ai.action.set_vehicle_speed\", \"source\": \"ai/ailists.tsv\", \"target\": \"vehicle.speed\", \"opcode\": \"0x00d6\" },\n"
-			"    { \"id\": \"scenario.ai.action.set_rotor_speed\", \"kind\": \"scenario.ai.action.set_rotor_speed\", \"source\": \"ai/ailists.tsv\", \"target\": \"vehicle.rotor_speed\", \"opcode\": \"0x00d7\" },\n"
-			"    { \"id\": \"scenario.ai.action.chr_explosions\", \"kind\": \"scenario.ai.action.chr_explosions\", \"source\": \"ai/ailists.tsv\", \"target\": \"player.explosions\", \"opcode\": \"0x00fb\" },\n"
-			"    { \"id\": \"scenario.ai.action.set_tinted_glass_enabled\", \"kind\": \"scenario.ai.action.set_tinted_glass_enabled\", \"source\": \"ai/ailists.tsv\", \"target\": \"scene.tinted_glass\", \"opcode\": \"0x0157\" },\n"
-			"    { \"id\": \"scenario.ai.action.hovercopter_fire_rocket\", \"kind\": \"scenario.ai.action.hovercopter_fire_rocket\", \"source\": \"ai/ailists.tsv\", \"target\": \"vehicle.rocket\", \"opcode\": \"0x0167\" },\n"
-			"    { \"id\": \"scenario.ai.action.chr_adjust_motion_blur\", \"kind\": \"scenario.ai.action.chr_adjust_motion_blur\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.motion_blur\", \"opcode\": \"0x016d\" },\n"
-			"    { \"id\": \"scenario.ai.action.punch_or_kick\", \"kind\": \"scenario.ai.action.punch_or_kick\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.melee\", \"opcode\": \"0x0182\" },\n"
-			"    { \"id\": \"scenario.ai.action.set_target_to_eyespy_if_in_sight\", \"kind\": \"scenario.ai.action.set_target_to_eyespy_if_in_sight\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.target.eyespy\", \"opcode\": \"0x0187\" },\n"
-			"    { \"id\": \"scenario.ai.action.mini_skedar_try_pounce\", \"kind\": \"scenario.ai.action.mini_skedar_try_pounce\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.pounce\", \"opcode\": \"0x018e\" },\n"
-			"    { \"id\": \"scenario.ai.condition.if_object_distance_to_pad_less_than\", \"kind\": \"scenario.ai.condition.if_object_distance_to_pad_less_than\", \"source\": \"ai/ailists.tsv\", \"objects\": \"objects.tsv\", \"pads\": \"pads.tsv\", \"target\": \"object.pad_distance\", \"opcode\": \"0x018f\" },\n"
-			"    { \"id\": \"scenario.ai.action.avoid\", \"kind\": \"scenario.ai.action.avoid\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.avoidance\", \"opcode\": \"0x01c5\" },\n"
-			"    { \"id\": \"scenario.ai.action.title_init_mode\", \"kind\": \"scenario.ai.action.title_init_mode\", \"source\": \"ai/ailists.tsv\", \"target\": \"title.mode\", \"opcode\": \"0x01c8\" },\n"
-			"    { \"id\": \"scenario.ai.action.try_exit_title\", \"kind\": \"scenario.ai.action.try_exit_title\", \"source\": \"ai/ailists.tsv\", \"target\": \"title.exit\", \"opcode\": \"0x01c9\" },\n"
-			"    { \"id\": \"scenario.ai.action.chr_emit_sparks\", \"kind\": \"scenario.ai.action.chr_emit_sparks\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.sparks\", \"opcode\": \"0x01d2\" },\n"
-			"    { \"id\": \"scenario.ai.action.set_dr_caroll_images\", \"kind\": \"scenario.ai.action.set_dr_caroll_images\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.dr_caroll_images\", \"opcode\": \"0x01d3\" },\n"
-			"    { \"id\": \"scenario.ai.action.say_quip\", \"kind\": \"scenario.ai.action.say_quip\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.quip\", \"opcode\": \"0x0130\" },\n"
-			"    { \"id\": \"scenario.ai.action.say_ci_staff_quip\", \"kind\": \"scenario.ai.action.say_ci_staff_quip\", \"source\": \"ai/ailists.tsv\", \"target\": \"chr.ci_staff_quip\", \"opcode\": \"0x01a2\" },\n"
-			"    { \"id\": \"scenario.ai.action.shuffle_ruins_pillars\", \"kind\": \"scenario.ai.action.shuffle_ruins_pillars\", \"source\": \"ai/ailists.tsv\", \"objects\": \"objects.tsv\", \"target\": \"setup.tags\", \"opcode\": \"0x01b1\" },\n"
-			"    { \"id\": \"scenario.ai.action.shuffle_pelagic_switches\", \"kind\": \"scenario.ai.action.shuffle_pelagic_switches\", \"source\": \"ai/ailists.tsv\", \"objects\": \"objects.tsv\", \"target\": \"setup.tags\", \"opcode\": \"0x01b9\" }%s\n",
+			"    { \"id\": \"scenario.ai.action.set_list\", \"kind\": \"scenario.ai.action.set_list\", \"source\": \"ai/ailists.json\", \"target\": \"interpreter.ailist\", \"opcode\": \"0x0005\" },\n"
+			"    { \"id\": \"scenario.ai.action.set_return_list\", \"kind\": \"scenario.ai.action.set_return_list\", \"source\": \"ai/ailists.json\", \"target\": \"chr.aireturnlist\", \"opcode\": \"0x0006\" },\n"
+			"    { \"id\": \"scenario.ai.action.set_shot_list\", \"kind\": \"scenario.ai.action.set_shot_list\", \"source\": \"ai/ailists.json\", \"target\": \"chr.aishotlist\", \"opcode\": \"0x0007\" },\n"
+			"    { \"id\": \"scenario.ai.action.return_list\", \"kind\": \"scenario.ai.action.return_list\", \"source\": \"ai/ailists.json\", \"target\": \"interpreter.ailist\", \"opcode\": \"0x0008\" },\n"
+			"    { \"id\": \"scenario.ai.action.stop\", \"kind\": \"scenario.ai.action.stop\", \"source\": \"ai/ailists.json\", \"target\": \"chr.motion_state\", \"opcode\": \"0x0009\" },\n"
+			"    { \"id\": \"scenario.ai.action.kneel\", \"kind\": \"scenario.ai.action.kneel\", \"source\": \"ai/ailists.json\", \"target\": \"chr.posture\", \"opcode\": \"0x000a\" },\n"
+			"    { \"id\": \"scenario.ai.action.surrender\", \"kind\": \"scenario.ai.action.surrender\", \"source\": \"ai/ailists.json\", \"target\": \"chr.lifecycle\", \"opcode\": \"0x0024\" },\n"
+			"    { \"id\": \"scenario.ai.action.fade_out\", \"kind\": \"scenario.ai.action.fade_out\", \"source\": \"ai/ailists.json\", \"target\": \"chr.lifecycle\", \"opcode\": \"0x0025\" },\n"
+			"    { \"id\": \"scenario.ai.action.remove_chr\", \"kind\": \"scenario.ai.action.remove_chr\", \"source\": \"ai/ailists.json\", \"target\": \"target_chr.visibility\", \"opcode\": \"0x0026\" },\n"
+			"    { \"id\": \"scenario.ai.action.try_sidestep\", \"kind\": \"scenario.ai.action.try_sidestep\", \"source\": \"ai/ailists.json\", \"target\": \"chr.combat_evasion\", \"opcode\": \"0x000f\" },\n"
+			"    { \"id\": \"scenario.ai.action.try_jump_out\", \"kind\": \"scenario.ai.action.try_jump_out\", \"source\": \"ai/ailists.json\", \"target\": \"chr.combat_evasion\", \"opcode\": \"0x0010\" },\n"
+			"    { \"id\": \"scenario.ai.action.try_run_sideways\", \"kind\": \"scenario.ai.action.try_run_sideways\", \"source\": \"ai/ailists.json\", \"target\": \"chr.combat_movement\", \"opcode\": \"0x0011\" },\n"
+			"    { \"id\": \"scenario.ai.action.try_attack_walk\", \"kind\": \"scenario.ai.action.try_attack_walk\", \"source\": \"ai/ailists.json\", \"target\": \"chr.attack_state\", \"opcode\": \"0x0012\" },\n"
+			"    { \"id\": \"scenario.ai.action.try_attack_run\", \"kind\": \"scenario.ai.action.try_attack_run\", \"source\": \"ai/ailists.json\", \"target\": \"chr.attack_state\", \"opcode\": \"0x0013\" },\n"
+			"    { \"id\": \"scenario.ai.action.try_attack_roll\", \"kind\": \"scenario.ai.action.try_attack_roll\", \"source\": \"ai/ailists.json\", \"target\": \"chr.attack_state\", \"opcode\": \"0x0014\" },\n"
+			"    { \"id\": \"scenario.ai.action.try_attack_stand\", \"kind\": \"scenario.ai.action.try_attack_stand\", \"source\": \"ai/ailists.json\", \"target\": \"chr.attack_state\", \"opcode\": \"0x0015\" },\n"
+			"    { \"id\": \"scenario.ai.action.try_attack_kneel\", \"kind\": \"scenario.ai.action.try_attack_kneel\", \"source\": \"ai/ailists.json\", \"target\": \"chr.attack_state\", \"opcode\": \"0x0016\" },\n"
+			"    { \"id\": \"scenario.ai.action.try_attack_lie\", \"kind\": \"scenario.ai.action.try_attack_lie\", \"source\": \"ai/ailists.json\", \"target\": \"chr.attack_state\", \"opcode\": \"0x01ba\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_attack_locked\", \"kind\": \"scenario.ai.condition.if_attack_locked\", \"source\": \"ai/ailists.json\", \"target\": \"chr.attack_flags\", \"opcode\": \"0x00f0\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_attacking\", \"kind\": \"scenario.ai.condition.if_attacking\", \"source\": \"ai/ailists.json\", \"target\": \"chr.attack_state\", \"opcode\": \"0x00f1\" },\n"
+			"    { \"id\": \"scenario.ai.action.try_modify_attack\", \"kind\": \"scenario.ai.action.try_modify_attack\", \"source\": \"ai/ailists.json\", \"target\": \"chr.attack_state\", \"opcode\": \"0x0017\" },\n"
+			"    { \"id\": \"scenario.ai.action.face_entity\", \"kind\": \"scenario.ai.action.face_entity\", \"source\": \"ai/ailists.json\", \"target\": \"chr.facing\", \"opcode\": \"0x0018\" },\n"
+			"    { \"id\": \"scenario.ai.action.apply_gset_damage\", \"kind\": \"scenario.ai.action.apply_gset_damage\", \"source\": \"ai/ailists.json\", \"target\": \"target_chr.damage\", \"opcode\": \"0x0019\" },\n"
+			"    { \"id\": \"scenario.ai.action.chr_damage_chr\", \"kind\": \"scenario.ai.action.chr_damage_chr\", \"source\": \"ai/ailists.json\", \"target\": \"target_chr.damage\", \"opcode\": \"0x001a\" },\n"
+			"    { \"id\": \"scenario.ai.condition.consider_grenade_throw\", \"kind\": \"scenario.ai.condition.consider_grenade_throw\", \"source\": \"ai/ailists.json\", \"target\": \"chr.grenade_throw_decision\", \"opcode\": \"0x001b\" },\n"
+			"    { \"id\": \"scenario.ai.action.drop_item\", \"kind\": \"scenario.ai.action.drop_item\", \"source\": \"ai/ailists.json\", \"target\": \"chr.inventory_drop\", \"opcode\": \"0x001c\" },\n"
+			"    { \"id\": \"scenario.ai.action.chr_do_animation\", \"kind\": \"scenario.ai.action.chr_do_animation\", \"source\": \"ai/ailists.json\", \"target\": \"target_chr.animation\", \"opcode\": \"0x000b\" },\n"
+			"    { \"id\": \"scenario.ai.action.be_surprised_one_hand\", \"kind\": \"scenario.ai.action.be_surprised_one_hand\", \"source\": \"ai/ailists.json\", \"target\": \"chr.reaction\", \"opcode\": \"0x000d\" },\n"
+			"    { \"id\": \"scenario.ai.action.be_surprised_look_around\", \"kind\": \"scenario.ai.action.be_surprised_look_around\", \"source\": \"ai/ailists.json\", \"target\": \"chr.reaction\", \"opcode\": \"0x000e\" },\n"
+			"    { \"id\": \"scenario.ai.action.be_surprised_surrender\", \"kind\": \"scenario.ai.action.be_surprised_surrender\", \"source\": \"ai/ailists.json\", \"target\": \"chr.reaction\", \"opcode\": \"0x00ff\" },\n"
+			"    { \"id\": \"scenario.ai.action.random\", \"kind\": \"scenario.ai.action.random\", \"source\": \"ai/ailists.json\", \"target\": \"chr.random\", \"opcode\": \"0x0036\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_random_less_than\", \"kind\": \"scenario.ai.condition.if_random_less_than\", \"source\": \"ai/ailists.json\", \"target\": \"chr.random\", \"opcode\": \"0x0037\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_random_greater_than\", \"kind\": \"scenario.ai.condition.if_random_greater_than\", \"source\": \"ai/ailists.json\", \"target\": \"chr.random\", \"opcode\": \"0x0038\" },\n"
+			"    { \"id\": \"scenario.ai.action.print\", \"kind\": \"scenario.ai.action.print\", \"source\": \"ai/ailists.json\", \"target\": \"debug.console\", \"opcode\": \"0x00b5\" },\n"
+			"    { \"id\": \"scenario.ai.action.noop\", \"kind\": \"scenario.ai.action.noop\", \"source\": \"ai/ailists.json\", \"target\": \"interpreter.offset\", \"opcodes\": [\"0x0091\", \"0x00d8\", \"0x00d9\", \"0x00db\", \"0x0100\", \"0x0101\", \"0x010d\", \"0x016c\", \"0x01bb\"] },\n"
+			"    { \"id\": \"scenario.ai.action.set_punch_dodge_list\", \"kind\": \"scenario.ai.action.set_punch_dodge_list\", \"source\": \"ai/ailists.json\", \"target\": \"chr.aipunchdodgelist\", \"opcode\": \"0x01c1\" },\n"
+			"    { \"id\": \"scenario.ai.action.set_shooting_at_me_list\", \"kind\": \"scenario.ai.action.set_shooting_at_me_list\", \"source\": \"ai/ailists.json\", \"target\": \"chr.aishootingatmelist\", \"opcode\": \"0x01c2\" },\n"
+			"    { \"id\": \"scenario.ai.action.set_dark_room_list\", \"kind\": \"scenario.ai.action.set_dark_room_list\", \"source\": \"ai/ailists.json\", \"target\": \"chr.aidarkroomlist\", \"opcode\": \"0x01c3\" },\n"
+			"    { \"id\": \"scenario.ai.action.set_player_dead_list\", \"kind\": \"scenario.ai.action.set_player_dead_list\", \"source\": \"ai/ailists.json\", \"target\": \"chr.aiplayerdeadlist\", \"opcode\": \"0x01c4\" },\n"
+			"    { \"id\": \"scenario.ai.action.jog_to_pad\", \"kind\": \"scenario.ai.action.jog_to_pad\", \"source\": \"ai/ailists.json\", \"pads\": \"pads.json\", \"opcode\": \"0x001d\", \"speed\": \"jog\" },\n"
+			"    { \"id\": \"scenario.ai.action.go_to_pad_preset\", \"kind\": \"scenario.ai.action.go_to_pad_preset\", \"source\": \"ai/ailists.json\", \"pads\": \"pads.json\", \"opcode\": \"0x001e\", \"pad\": \"chr.padpreset1\" },\n"
+			"    { \"id\": \"scenario.ai.action.walk_to_pad\", \"kind\": \"scenario.ai.action.walk_to_pad\", \"source\": \"ai/ailists.json\", \"pads\": \"pads.json\", \"opcode\": \"0x001f\", \"speed\": \"walk\" },\n"
+			"    { \"id\": \"scenario.ai.action.run_to_pad\", \"kind\": \"scenario.ai.action.run_to_pad\", \"source\": \"ai/ailists.json\", \"pads\": \"pads.json\", \"opcode\": \"0x0020\", \"speed\": \"run\" },\n"
+			"    { \"id\": \"scenario.ai.action.set_path\", \"kind\": \"scenario.ai.action.set_path\", \"source\": \"ai/ailists.json\", \"paths\": \"navigation/paths.json\", \"opcode\": \"0x0021\" },\n"
+			"    { \"id\": \"scenario.ai.action.start_patrol\", \"kind\": \"scenario.ai.action.start_patrol\", \"source\": \"ai/ailists.json\", \"paths\": \"navigation/paths.json\", \"opcode\": \"0x0022\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_patrolling\", \"kind\": \"scenario.ai.condition.if_patrolling\", \"source\": \"ai/ailists.json\", \"target\": \"chr.patrol_state\", \"opcode\": \"0x0023\" },\n"
+			"    { \"id\": \"scenario.ai.action.try_start_alarm\", \"kind\": \"scenario.ai.action.try_start_alarm\", \"source\": \"ai/ailists.json\", \"pads\": \"pads.json\", \"target\": \"global.alarm\", \"opcode\": \"0x0027\" },\n"
+			"    { \"id\": \"scenario.ai.action.activate_alarm\", \"kind\": \"scenario.ai.action.activate_alarm\", \"source\": \"ai/ailists.json\", \"target\": \"global.alarm\", \"opcode\": \"0x0028\" },\n"
+			"    { \"id\": \"scenario.ai.action.deactivate_alarm\", \"kind\": \"scenario.ai.action.deactivate_alarm\", \"source\": \"ai/ailists.json\", \"target\": \"global.alarm\", \"opcode\": \"0x0029\" },\n"
+			"    { \"id\": \"scenario.ai.action.try_run_from_target\", \"kind\": \"scenario.ai.action.try_run_from_target\", \"source\": \"ai/ailists.json\", \"target\": \"chr.target_movement\", \"opcode\": \"0x002a\", \"speed\": \"run\" },\n"
+			"    { \"id\": \"scenario.ai.action.try_jog_to_target_prop\", \"kind\": \"scenario.ai.action.try_jog_to_target_prop\", \"source\": \"ai/ailists.json\", \"target\": \"chr.target_prop_movement\", \"opcode\": \"0x002b\", \"speed\": \"jog\" },\n"
+			"    { \"id\": \"scenario.ai.action.try_walk_to_target_prop\", \"kind\": \"scenario.ai.action.try_walk_to_target_prop\", \"source\": \"ai/ailists.json\", \"target\": \"chr.target_prop_movement\", \"opcode\": \"0x002c\", \"speed\": \"walk\" },\n"
+			"    { \"id\": \"scenario.ai.action.try_run_to_target_prop\", \"kind\": \"scenario.ai.action.try_run_to_target_prop\", \"source\": \"ai/ailists.json\", \"target\": \"chr.target_prop_movement\", \"opcode\": \"0x002d\", \"speed\": \"run\" },\n"
+			"    { \"id\": \"scenario.ai.action.try_go_to_cover_prop\", \"kind\": \"scenario.ai.action.try_go_to_cover_prop\", \"source\": \"ai/ailists.json\", \"target\": \"chr.cover_prop_movement\", \"opcode\": \"0x002e\" },\n"
+			"    { \"id\": \"scenario.ai.action.try_jog_to_chr\", \"kind\": \"scenario.ai.action.try_jog_to_chr\", \"source\": \"ai/ailists.json\", \"target\": \"target_chr.movement\", \"opcode\": \"0x002f\", \"speed\": \"jog\" },\n"
+			"    { \"id\": \"scenario.ai.action.try_walk_to_chr\", \"kind\": \"scenario.ai.action.try_walk_to_chr\", \"source\": \"ai/ailists.json\", \"target\": \"target_chr.movement\", \"opcode\": \"0x0030\", \"speed\": \"walk\" },\n"
+			"    { \"id\": \"scenario.ai.action.try_run_to_chr\", \"kind\": \"scenario.ai.action.try_run_to_chr\", \"source\": \"ai/ailists.json\", \"target\": \"target_chr.movement\", \"opcode\": \"0x0031\", \"speed\": \"run\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_can_hear_alarm\", \"kind\": \"scenario.ai.condition.if_can_hear_alarm\", \"source\": \"ai/ailists.json\", \"target\": \"global.alarm\", \"opcode\": \"0x0039\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_alarm_active\", \"kind\": \"scenario.ai.condition.if_alarm_active\", \"source\": \"ai/ailists.json\", \"target\": \"global.alarm\", \"opcode\": \"0x003a\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_gas_active\", \"kind\": \"scenario.ai.condition.if_gas_active\", \"source\": \"ai/ailists.json\", \"target\": \"global.gas\", \"opcode\": \"0x003b\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_hears_target\", \"kind\": \"scenario.ai.condition.if_hears_target\", \"source\": \"ai/ailists.json\", \"target\": \"target_chr.audio\", \"opcode\": \"0x003c\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_saw_injury\", \"kind\": \"scenario.ai.condition.if_saw_injury\", \"source\": \"ai/ailists.json\", \"target\": \"chr.perception.injury\", \"opcode\": \"0x003d\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_saw_death\", \"kind\": \"scenario.ai.condition.if_saw_death\", \"source\": \"ai/ailists.json\", \"target\": \"chr.perception.death\", \"opcode\": \"0x003e\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_los_to_target\", \"kind\": \"scenario.ai.condition.if_los_to_target\", \"source\": \"ai/ailists.json\", \"target\": \"target_chr.line_of_sight\", \"opcode\": \"0x003f\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_target_nearly_in_sight\", \"kind\": \"scenario.ai.condition.if_target_nearly_in_sight\", \"source\": \"ai/ailists.json\", \"target\": \"target_chr.nearly_in_sight\", \"opcode\": \"0x0040\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_nearly_in_targets_sight\", \"kind\": \"scenario.ai.condition.if_nearly_in_targets_sight\", \"source\": \"ai/ailists.json\", \"target\": \"chr.nearly_in_targets_sight\", \"opcode\": \"0x0041\" },\n"
+			"    { \"id\": \"scenario.ai.action.set_pad_preset_to_pad_on_route_to_target\", \"kind\": \"scenario.ai.action.set_pad_preset_to_pad_on_route_to_target\", \"source\": \"ai/ailists.json\", \"pads\": \"pads.json\", \"paths\": \"navigation/paths.json\", \"target\": \"chr.padpreset1\", \"opcode\": \"0x0042\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_saw_target_recently\", \"kind\": \"scenario.ai.condition.if_saw_target_recently\", \"source\": \"ai/ailists.json\", \"target\": \"target_chr.recent_sight\", \"opcode\": \"0x0043\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_heard_target_recently\", \"kind\": \"scenario.ai.condition.if_heard_target_recently\", \"source\": \"ai/ailists.json\", \"target\": \"target_chr.recent_audio\", \"opcode\": \"0x0044\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_los_to_chr\", \"kind\": \"scenario.ai.condition.if_los_to_chr\", \"source\": \"ai/ailists.json\", \"target\": \"target_chr.line_of_sight\", \"opcode\": \"0x0045\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_never_been_on_screen\", \"kind\": \"scenario.ai.condition.if_never_been_on_screen\", \"source\": \"ai/ailists.json\", \"target\": \"chr.screen_history\", \"opcode\": \"0x0046\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_on_screen\", \"kind\": \"scenario.ai.condition.if_on_screen\", \"source\": \"ai/ailists.json\", \"target\": \"chr.screen_state\", \"opcode\": \"0x0047\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_chr_in_on_screen_room\", \"kind\": \"scenario.ai.condition.if_chr_in_on_screen_room\", \"source\": \"ai/ailists.json\", \"target\": \"target_chr.room_visibility\", \"opcode\": \"0x0048\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_room_is_on_screen\", \"kind\": \"scenario.ai.condition.if_room_is_on_screen\", \"source\": \"ai/ailists.json\", \"pads\": \"pads.json\", \"target\": \"pad.room_visibility\", \"opcode\": \"0x0049\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_target_aiming_at_me\", \"kind\": \"scenario.ai.condition.if_target_aiming_at_me\", \"source\": \"ai/ailists.json\", \"target\": \"target_chr.aim\", \"opcode\": \"0x004a\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_near_miss\", \"kind\": \"scenario.ai.condition.if_near_miss\", \"source\": \"ai/ailists.json\", \"target\": \"chr.near_miss_latch\", \"opcode\": \"0x004b\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_sees_suspicious_item\", \"kind\": \"scenario.ai.condition.if_sees_suspicious_item\", \"source\": \"ai/ailists.json\", \"objects\": \"objects.json\", \"target\": \"object.suspicious_visibility\", \"opcode\": \"0x004c\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_target_in_fov_left\", \"kind\": \"scenario.ai.condition.if_target_in_fov_left\", \"source\": \"ai/ailists.json\", \"target\": \"target_chr.fov_left\", \"opcode\": \"0x004d\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_check_fov_with_target\", \"kind\": \"scenario.ai.condition.if_check_fov_with_target\", \"source\": \"ai/ailists.json\", \"target\": \"target_chr.fov\", \"opcode\": \"0x004e\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_target_out_of_fov_left\", \"kind\": \"scenario.ai.condition.if_target_out_of_fov_left\", \"source\": \"ai/ailists.json\", \"target\": \"target_chr.fov_left\", \"opcode\": \"0x004f\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_target_in_fov\", \"kind\": \"scenario.ai.condition.if_target_in_fov\", \"source\": \"ai/ailists.json\", \"target\": \"target_chr.fov\", \"opcode\": \"0x0050\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_target_out_of_fov\", \"kind\": \"scenario.ai.condition.if_target_out_of_fov\", \"source\": \"ai/ailists.json\", \"target\": \"target_chr.fov\", \"opcode\": \"0x0051\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_distance_to_target_less_than\", \"kind\": \"scenario.ai.condition.if_distance_to_target_less_than\", \"source\": \"ai/ailists.json\", \"target\": \"target_chr.distance\", \"opcode\": \"0x0052\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_distance_to_target_greater_than\", \"kind\": \"scenario.ai.condition.if_distance_to_target_greater_than\", \"source\": \"ai/ailists.json\", \"target\": \"target_chr.distance\", \"opcode\": \"0x0053\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_chr_distance_to_pad_less_than\", \"kind\": \"scenario.ai.condition.if_chr_distance_to_pad_less_than\", \"source\": \"ai/ailists.json\", \"pads\": \"pads.json\", \"target\": \"target_chr.pad_distance\", \"opcode\": \"0x0054\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_chr_distance_to_pad_greater_than\", \"kind\": \"scenario.ai.condition.if_chr_distance_to_pad_greater_than\", \"source\": \"ai/ailists.json\", \"pads\": \"pads.json\", \"target\": \"target_chr.pad_distance\", \"opcode\": \"0x0055\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_distance_to_chr_less_than\", \"kind\": \"scenario.ai.condition.if_distance_to_chr_less_than\", \"source\": \"ai/ailists.json\", \"target\": \"target_chr.distance\", \"opcode\": \"0x0056\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_distance_to_chr_greater_than\", \"kind\": \"scenario.ai.condition.if_distance_to_chr_greater_than\", \"source\": \"ai/ailists.json\", \"target\": \"target_chr.distance\", \"opcode\": \"0x0057\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_any_chr_near_self\", \"kind\": \"scenario.ai.condition.if_any_chr_near_self\", \"source\": \"ai/ailists.json\", \"target\": \"chr.preset_nearby\", \"opcode\": \"0x0058\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_distance_from_target_to_pad_less_than\", \"kind\": \"scenario.ai.condition.if_distance_from_target_to_pad_less_than\", \"source\": \"ai/ailists.json\", \"pads\": \"pads.json\", \"target\": \"target_chr.pad_distance\", \"opcode\": \"0x0059\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_distance_from_target_to_pad_greater_than\", \"kind\": \"scenario.ai.condition.if_distance_from_target_to_pad_greater_than\", \"source\": \"ai/ailists.json\", \"pads\": \"pads.json\", \"target\": \"target_chr.pad_distance\", \"opcode\": \"0x005a\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_chr_in_room\", \"kind\": \"scenario.ai.condition.if_chr_in_room\", \"source\": \"ai/ailists.json\", \"pads\": \"pads.json\", \"target\": \"target_chr.room\", \"opcode\": \"0x005b\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_target_in_room\", \"kind\": \"scenario.ai.condition.if_target_in_room\", \"source\": \"ai/ailists.json\", \"pads\": \"pads.json\", \"target\": \"target_chr.room\", \"opcode\": \"0x005c\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_chr_has_object\", \"kind\": \"scenario.ai.condition.if_chr_has_object\", \"source\": \"ai/ailists.json\", \"objects\": \"objects.json\", \"target\": \"player.inventory\", \"opcode\": \"0x005d\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_weapon_thrown\", \"kind\": \"scenario.ai.condition.if_weapon_thrown\", \"source\": \"ai/ailists.json\", \"target\": \"weapon.landed\", \"opcode\": \"0x005e\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_weapon_thrown_on_object\", \"kind\": \"scenario.ai.condition.if_weapon_thrown_on_object\", \"source\": \"ai/ailists.json\", \"objects\": \"objects.json\", \"target\": \"object.child_weapon\", \"opcode\": \"0x005f\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_chr_has_weapon_equipped\", \"kind\": \"scenario.ai.condition.if_chr_has_weapon_equipped\", \"source\": \"ai/ailists.json\", \"target\": \"player.weapon\", \"opcode\": \"0x0060\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_gun_unclaimed\", \"kind\": \"scenario.ai.condition.if_gun_unclaimed\", \"source\": \"ai/ailists.json\", \"objects\": \"objects.json\", \"target\": \"weapon.claim\", \"opcode\": \"0x0061\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_object_healthy\", \"kind\": \"scenario.ai.condition.if_object_healthy\", \"source\": \"ai/ailists.json\", \"objects\": \"objects.json\", \"target\": \"object.health\", \"opcode\": \"0x0062\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_chr_activated_object\", \"kind\": \"scenario.ai.condition.if_chr_activated_object\", \"source\": \"ai/ailists.json\", \"objects\": \"objects.json\", \"target\": \"object.activation_latch\", \"opcode\": \"0x0063\" },\n"
+			"    { \"id\": \"scenario.ai.action.obj_interact\", \"kind\": \"scenario.ai.action.obj_interact\", \"source\": \"ai/ailists.json\", \"objects\": \"objects.json\", \"target\": \"object.interaction\", \"opcode\": \"0x0065\" },\n"
+			"    { \"id\": \"scenario.ai.action.destroy_object\", \"kind\": \"scenario.ai.action.destroy_object\", \"source\": \"ai/ailists.json\", \"objects\": \"objects.json\", \"target\": \"object.destroyed_state\", \"opcode\": \"0x0066\" },\n"
+			"    { \"id\": \"scenario.ai.action.drop_object_from_chr\", \"kind\": \"scenario.ai.action.drop_object_from_chr\", \"source\": \"ai/ailists.json\", \"objects\": \"objects.json\", \"target\": \"object.parent\", \"opcode\": \"0x0067\" },\n"
+			"    { \"id\": \"scenario.ai.action.chr_drop_items\", \"kind\": \"scenario.ai.action.chr_drop_items\", \"source\": \"ai/ailists.json\", \"objects\": \"objects.json\", \"target\": \"chr.concealed_items\", \"opcode\": \"0x0068\" },\n"
+			"    { \"id\": \"scenario.ai.action.chr_drop_weapon\", \"kind\": \"scenario.ai.action.chr_drop_weapon\", \"source\": \"ai/ailists.json\", \"objects\": \"objects.json\", \"target\": \"chr.weapon_inventory\", \"opcode\": \"0x0069\" },\n"
+			"    { \"id\": \"scenario.ai.action.give_object_to_chr\", \"kind\": \"scenario.ai.action.give_object_to_chr\", \"source\": \"ai/ailists.json\", \"objects\": \"objects.json\", \"target\": \"object.owner\", \"opcode\": \"0x006a\" },\n"
+			"    { \"id\": \"scenario.ai.action.object_move_to_pad\", \"kind\": \"scenario.ai.action.object_move_to_pad\", \"source\": \"ai/ailists.json\", \"objects\": \"objects.json\", \"pads\": \"pads.json\", \"target\": \"object.transform\", \"opcode\": \"0x006b\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_waypoint_within_quadrant\", \"kind\": \"scenario.ai.condition.if_waypoint_within_quadrant\", \"source\": \"ai/ailists.json\", \"pads\": \"pads.json\", \"navigation\": \"navigation/waypoints.json\", \"target\": \"chr.padpreset1\", \"opcode\": \"0x0075\" },\n"
+			"    { \"id\": \"scenario.ai.action.set_pad_preset_to_target_quadrant\", \"kind\": \"scenario.ai.action.set_pad_preset_to_target_quadrant\", \"source\": \"ai/ailists.json\", \"pads\": \"pads.json\", \"navigation\": \"navigation/waypoints.json\", \"target\": \"chr.padpreset1\", \"opcode\": \"0x0076\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_los_to_attack_target\", \"kind\": \"scenario.ai.condition.if_los_to_attack_target\", \"source\": \"ai/ailists.json\", \"target\": \"attack_target.line_of_sight\", \"opcode\": \"0x017a\" },\n"
+			"    { \"id\": \"scenario.ai.action.set_morale\", \"kind\": \"scenario.ai.action.set_morale\", \"source\": \"ai/ailists.json\", \"target\": \"chr.morale\", \"operation\": \"set\", \"opcode\": \"0x0084\" },\n"
+			"    { \"id\": \"scenario.ai.action.add_morale\", \"kind\": \"scenario.ai.action.add_morale\", \"source\": \"ai/ailists.json\", \"target\": \"chr.morale\", \"operation\": \"add\", \"opcode\": \"0x0085\" },\n"
+			"    { \"id\": \"scenario.ai.action.chr_add_morale\", \"kind\": \"scenario.ai.action.chr_add_morale\", \"source\": \"ai/ailists.json\", \"target\": \"target_chr.morale\", \"operation\": \"add\", \"opcode\": \"0x0086\" },\n"
+			"    { \"id\": \"scenario.ai.action.subtract_morale\", \"kind\": \"scenario.ai.action.subtract_morale\", \"source\": \"ai/ailists.json\", \"target\": \"chr.morale\", \"operation\": \"subtract\", \"opcode\": \"0x0087\" },\n"
+			"    { \"id\": \"scenario.ai.action.set_alertness\", \"kind\": \"scenario.ai.action.set_alertness\", \"source\": \"ai/ailists.json\", \"target\": \"chr.alertness\", \"operation\": \"set\", \"opcode\": \"0x008a\" },\n"
+			"    { \"id\": \"scenario.ai.action.add_alertness\", \"kind\": \"scenario.ai.action.add_alertness\", \"source\": \"ai/ailists.json\", \"target\": \"chr.alertness\", \"operation\": \"add\", \"opcode\": \"0x008b\" },\n"
+			"    { \"id\": \"scenario.ai.action.chr_add_alertness\", \"kind\": \"scenario.ai.action.chr_add_alertness\", \"source\": \"ai/ailists.json\", \"target\": \"target_chr.alertness\", \"operation\": \"add\", \"opcode\": \"0x008c\" },\n"
+			"    { \"id\": \"scenario.ai.action.subtract_alertness\", \"kind\": \"scenario.ai.action.subtract_alertness\", \"source\": \"ai/ailists.json\", \"target\": \"chr.alertness\", \"operation\": \"subtract\", \"opcode\": \"0x008d\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_num_arghs_less_than\", \"kind\": \"scenario.ai.condition.if_num_arghs_less_than\", \"source\": \"ai/ailists.json\", \"target\": \"chr.recovery_reactions\", \"opcode\": \"0x007d\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_num_arghs_greater_than\", \"kind\": \"scenario.ai.condition.if_num_arghs_greater_than\", \"source\": \"ai/ailists.json\", \"target\": \"chr.recovery_reactions\", \"opcode\": \"0x007e\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_num_close_arghs_less_than\", \"kind\": \"scenario.ai.condition.if_num_close_arghs_less_than\", \"source\": \"ai/ailists.json\", \"target\": \"chr.close_recovery_reactions\", \"opcode\": \"0x007f\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_num_close_arghs_greater_than\", \"kind\": \"scenario.ai.condition.if_num_close_arghs_greater_than\", \"source\": \"ai/ailists.json\", \"target\": \"chr.close_recovery_reactions\", \"opcode\": \"0x0080\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_chr_health_greater_than\", \"kind\": \"scenario.ai.condition.if_chr_health_greater_than\", \"source\": \"ai/ailists.json\", \"target\": \"target_chr.health\", \"opcode\": \"0x0081\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_chr_health_less_than\", \"kind\": \"scenario.ai.condition.if_chr_health_less_than\", \"source\": \"ai/ailists.json\", \"target\": \"target_chr.health\", \"opcode\": \"0x0082\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_chr_shield_less_than\", \"kind\": \"scenario.ai.condition.if_chr_shield_less_than\", \"source\": \"ai/ailists.json\", \"target\": \"target_chr.shield\", \"opcode\": \"0x010f\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_chr_shield_greater_than\", \"kind\": \"scenario.ai.condition.if_chr_shield_greater_than\", \"source\": \"ai/ailists.json\", \"target\": \"target_chr.shield\", \"opcode\": \"0x0110\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_injured\", \"kind\": \"scenario.ai.condition.if_injured\", \"source\": \"ai/ailists.json\", \"target\": \"target_chr.injury_latch\", \"opcode\": \"0x0083\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_shield_damaged\", \"kind\": \"scenario.ai.condition.if_shield_damaged\", \"source\": \"ai/ailists.json\", \"target\": \"target_chr.shield_damage_latch\", \"opcode\": \"0x0168\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_morale_less_than\", \"kind\": \"scenario.ai.condition.if_morale_less_than\", \"source\": \"ai/ailists.json\", \"target\": \"chr.morale\", \"opcode\": \"0x0088\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_morale_less_than_random\", \"kind\": \"scenario.ai.condition.if_morale_less_than_random\", \"source\": \"ai/ailists.json\", \"target\": \"chr.morale_random\", \"opcode\": \"0x0089\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_alertness\", \"kind\": \"scenario.ai.condition.if_alertness\", \"source\": \"ai/ailists.json\", \"target\": \"chr.alertness\", \"opcode\": \"0x008e\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_chr_alertness_less_than\", \"kind\": \"scenario.ai.condition.if_chr_alertness_less_than\", \"source\": \"ai/ailists.json\", \"target\": \"target_chr.alertness\", \"opcode\": \"0x008f\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_alertness_less_than_random\", \"kind\": \"scenario.ai.condition.if_alertness_less_than_random\", \"source\": \"ai/ailists.json\", \"target\": \"chr.alertness_random\", \"opcode\": \"0x0090\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_idle\", \"kind\": \"scenario.ai.condition.if_idle\", \"source\": \"ai/ailists.json\", \"target\": \"chr.action_state\", \"opcode\": \"0x000c\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_stopped\", \"kind\": \"scenario.ai.condition.if_stopped\", \"source\": \"ai/ailists.json\", \"target\": \"chr.motion_state\", \"opcode\": \"0x0032\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_chr_dead\", \"kind\": \"scenario.ai.condition.if_chr_dead\", \"source\": \"ai/ailists.json\", \"target\": \"target_chr.life_state\", \"opcode\": \"0x0033\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_chr_death_animation_finished\", \"kind\": \"scenario.ai.condition.if_chr_death_animation_finished\", \"source\": \"ai/ailists.json\", \"target\": \"target_chr.death_animation\", \"opcode\": \"0x0034\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_chr_knocked_out\", \"kind\": \"scenario.ai.condition.if_chr_knocked_out\", \"source\": \"ai/ailists.json\", \"target\": \"target_chr.knockout_state\", \"opcode\": \"0x017b\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_can_see_target\", \"kind\": \"scenario.ai.condition.if_can_see_target\", \"source\": \"ai/ailists.json\", \"target\": \"chr.target_visibility\", \"opcode\": \"0x0035\" },\n"
+			"    { \"id\": \"scenario.ai.action.increase_squadron_alertness\", \"kind\": \"scenario.ai.action.increase_squadron_alertness\", \"source\": \"ai/ailists.json\", \"target\": \"squadron.alertness\", \"operation\": \"increase\", \"opcode\": \"0x0131\" },\n"
+			"    { \"id\": \"scenario.ai.action.set_hear_distance\", \"kind\": \"scenario.ai.action.set_hear_distance\", \"source\": \"ai/ailists.json\", \"target\": \"chr.hearing_scale\", \"opcode\": \"0x0092\" },\n"
+			"    { \"id\": \"scenario.ai.action.set_view_distance\", \"kind\": \"scenario.ai.action.set_view_distance\", \"source\": \"ai/ailists.json\", \"target\": \"chr.vision_range\", \"opcode\": \"0x0093\" },\n"
+			"    { \"id\": \"scenario.ai.action.set_grenade_probability\", \"kind\": \"scenario.ai.action.set_grenade_probability\", \"source\": \"ai/ailists.json\", \"target\": \"chr.grenade_probability\", \"opcode\": \"0x0094\" },\n"
+			"    { \"id\": \"scenario.ai.action.set_chr_num\", \"kind\": \"scenario.ai.action.set_chr_num\", \"source\": \"ai/ailists.json\", \"target\": \"chr.number\", \"opcode\": \"0x0095\" },\n"
+			"    { \"id\": \"scenario.ai.action.set_max_damage\", \"kind\": \"scenario.ai.action.set_max_damage\", \"source\": \"ai/ailists.json\", \"target\": \"chr.max_damage\", \"opcode\": \"0x0096\" },\n"
+			"    { \"id\": \"scenario.ai.action.add_health\", \"kind\": \"scenario.ai.action.add_health\", \"source\": \"ai/ailists.json\", \"target\": \"chr.health\", \"operation\": \"add\", \"opcode\": \"0x0097\" },\n"
+			"    { \"id\": \"scenario.ai.action.set_shield\", \"kind\": \"scenario.ai.action.set_shield\", \"source\": \"ai/ailists.json\", \"target\": \"chr.shield\", \"opcode\": \"0x010e\" },\n"
+			"    { \"id\": \"scenario.ai.action.set_reaction_speed\", \"kind\": \"scenario.ai.action.set_reaction_speed\", \"source\": \"ai/ailists.json\", \"target\": \"chr.speed_rating\", \"opcode\": \"0x0098\" },\n"
+			"    { \"id\": \"scenario.ai.action.set_recovery_speed\", \"kind\": \"scenario.ai.action.set_recovery_speed\", \"source\": \"ai/ailists.json\", \"target\": \"chr.recovery_rating\", \"opcode\": \"0x0099\" },\n"
+			"    { \"id\": \"scenario.ai.action.set_accuracy\", \"kind\": \"scenario.ai.action.set_accuracy\", \"source\": \"ai/ailists.json\", \"target\": \"chr.accuracy_rating\", \"opcode\": \"0x009a\" },\n"
+			"    { \"id\": \"scenario.ai.action.set_dodge_rating\", \"kind\": \"scenario.ai.action.set_dodge_rating\", \"source\": \"ai/ailists.json\", \"target\": \"chr.dodge_rating\", \"opcode\": \"0x01c6\" },\n"
+			"    { \"id\": \"scenario.ai.action.set_unarmed_dodge_rating\", \"kind\": \"scenario.ai.action.set_unarmed_dodge_rating\", \"source\": \"ai/ailists.json\", \"target\": \"chr.unarmed_dodge_rating\", \"opcode\": \"0x01c7\" },\n"
+			"    { \"id\": \"scenario.ai.action.set_flag\", \"kind\": \"scenario.ai.action.set_flag\", \"source\": \"ai/ailists.json\", \"target\": \"chr.flags\", \"opcode\": \"0x009b\" },\n"
+			"    { \"id\": \"scenario.ai.action.unset_flag\", \"kind\": \"scenario.ai.action.unset_flag\", \"source\": \"ai/ailists.json\", \"target\": \"chr.flags\", \"opcode\": \"0x009c\" },\n"
+			"    { \"id\": \"scenario.ai.action.if_has_flag\", \"kind\": \"scenario.ai.action.if_has_flag\", \"source\": \"ai/ailists.json\", \"target\": \"chr.flags\", \"opcode\": \"0x009d\" },\n"
+			"    { \"id\": \"scenario.ai.action.chr_set_flag\", \"kind\": \"scenario.ai.action.chr_set_flag\", \"source\": \"ai/ailists.json\", \"target\": \"target_chr.flags\", \"opcode\": \"0x009e\" },\n"
+			"    { \"id\": \"scenario.ai.action.chr_unset_flag\", \"kind\": \"scenario.ai.action.chr_unset_flag\", \"source\": \"ai/ailists.json\", \"target\": \"target_chr.flags\", \"opcode\": \"0x009f\" },\n"
+			"    { \"id\": \"scenario.ai.action.if_chr_has_flag\", \"kind\": \"scenario.ai.action.if_chr_has_flag\", \"source\": \"ai/ailists.json\", \"target\": \"target_chr.flags\", \"opcode\": \"0x00a0\" },\n"
+			"    { \"id\": \"scenario.ai.action.set_stage_flag\", \"kind\": \"scenario.ai.action.set_stage_flag\", \"source\": \"ai/ailists.json\", \"target\": \"mission.stage_flags\", \"opcode\": \"0x00a1\" },\n"
+			"    { \"id\": \"scenario.ai.action.unset_stage_flag\", \"kind\": \"scenario.ai.action.unset_stage_flag\", \"source\": \"ai/ailists.json\", \"target\": \"mission.stage_flags\", \"opcode\": \"0x00a2\" },\n"
+			"    { \"id\": \"scenario.ai.action.if_stage_flag_eq\", \"kind\": \"scenario.ai.action.if_stage_flag_eq\", \"source\": \"ai/ailists.json\", \"target\": \"mission.stage_flags\", \"opcode\": \"0x00a3\" },\n"
+			"    { \"id\": \"scenario.ai.action.set_chrflag\", \"kind\": \"scenario.ai.action.set_chrflag\", \"source\": \"ai/ailists.json\", \"target\": \"chr.chrflags\", \"opcode\": \"0x00a4\" },\n"
+			"    { \"id\": \"scenario.ai.action.unset_chrflag\", \"kind\": \"scenario.ai.action.unset_chrflag\", \"source\": \"ai/ailists.json\", \"target\": \"chr.chrflags\", \"opcode\": \"0x00a5\" },\n"
+			"    { \"id\": \"scenario.ai.action.if_has_chrflag\", \"kind\": \"scenario.ai.action.if_has_chrflag\", \"source\": \"ai/ailists.json\", \"target\": \"chr.chrflags\", \"opcode\": \"0x00a6\" },\n"
+			"    { \"id\": \"scenario.ai.action.chr_set_chrflag\", \"kind\": \"scenario.ai.action.chr_set_chrflag\", \"source\": \"ai/ailists.json\", \"target\": \"target_chr.chrflags\", \"opcode\": \"0x00a7\" },\n"
+			"    { \"id\": \"scenario.ai.action.chr_unset_chrflag\", \"kind\": \"scenario.ai.action.chr_unset_chrflag\", \"source\": \"ai/ailists.json\", \"target\": \"target_chr.chrflags\", \"opcode\": \"0x00a8\" },\n"
+			"    { \"id\": \"scenario.ai.action.if_chr_has_chrflag\", \"kind\": \"scenario.ai.action.if_chr_has_chrflag\", \"source\": \"ai/ailists.json\", \"target\": \"target_chr.chrflags\", \"opcode\": \"0x00a9\" },\n"
+			"    { \"id\": \"scenario.ai.action.set_obj_flag\", \"kind\": \"scenario.ai.action.set_obj_flag\", \"source\": \"ai/ailists.json\", \"objects\": \"objects.json\", \"target\": \"object.flags\", \"opcodes\": [\"0x00aa\", \"0x00ad\", \"0x0118\"] },\n"
+			"    { \"id\": \"scenario.ai.action.unset_obj_flag\", \"kind\": \"scenario.ai.action.unset_obj_flag\", \"source\": \"ai/ailists.json\", \"objects\": \"objects.json\", \"target\": \"object.flags\", \"opcodes\": [\"0x00ab\", \"0x00ae\", \"0x0119\"] },\n"
+			"    { \"id\": \"scenario.ai.action.if_obj_has_flag\", \"kind\": \"scenario.ai.action.if_obj_has_flag\", \"source\": \"ai/ailists.json\", \"objects\": \"objects.json\", \"target\": \"object.flags\", \"opcodes\": [\"0x00ac\", \"0x00af\", \"0x011a\"] },\n"
+			"    { \"id\": \"scenario.ai.action.open_door\", \"kind\": \"scenario.ai.action.open_door\", \"source\": \"ai/ailists.json\", \"objects\": \"objects.json\", \"target\": \"door.mode\", \"opcode\": \"0x006c\" },\n"
+			"    { \"id\": \"scenario.ai.action.close_door\", \"kind\": \"scenario.ai.action.close_door\", \"source\": \"ai/ailists.json\", \"objects\": \"objects.json\", \"target\": \"door.mode\", \"opcode\": \"0x006d\" },\n"
+			"    { \"id\": \"scenario.ai.action.if_door_state\", \"kind\": \"scenario.ai.action.if_door_state\", \"source\": \"ai/ailists.json\", \"objects\": \"objects.json\", \"target\": \"door.mode\", \"opcode\": \"0x006e\" },\n"
+			"    { \"id\": \"scenario.ai.action.if_object_is_door\", \"kind\": \"scenario.ai.action.if_object_is_door\", \"source\": \"ai/ailists.json\", \"objects\": \"objects.json\", \"target\": \"object.type\", \"opcode\": \"0x006f\" },\n"
+			"    { \"id\": \"scenario.ai.action.lock_door\", \"kind\": \"scenario.ai.action.lock_door\", \"source\": \"ai/ailists.json\", \"objects\": \"objects.json\", \"target\": \"door.keyflags\", \"opcode\": \"0x0070\" },\n"
+			"    { \"id\": \"scenario.ai.action.unlock_door\", \"kind\": \"scenario.ai.action.unlock_door\", \"source\": \"ai/ailists.json\", \"objects\": \"objects.json\", \"target\": \"door.keyflags\", \"opcode\": \"0x0071\" },\n"
+			"    { \"id\": \"scenario.ai.action.if_door_locked\", \"kind\": \"scenario.ai.action.if_door_locked\", \"source\": \"ai/ailists.json\", \"objects\": \"objects.json\", \"target\": \"door.keyflags\", \"opcode\": \"0x0072\" },\n"
+			"    { \"id\": \"scenario.ai.action.if_lift_stationary\", \"kind\": \"scenario.ai.action.if_lift_stationary\", \"source\": \"ai/ailists.json\", \"objects\": \"objects.json\", \"pads\": \"pads.json\", \"target\": \"lift.motion\", \"opcode\": \"0x0188\" },\n"
+			"    { \"id\": \"scenario.ai.action.lift_go_to_stop\", \"kind\": \"scenario.ai.action.lift_go_to_stop\", \"source\": \"ai/ailists.json\", \"objects\": \"objects.json\", \"pads\": \"pads.json\", \"target\": \"lift.target_level\", \"opcode\": \"0x0189\" },\n"
+			"    { \"id\": \"scenario.ai.action.if_lift_at_stop\", \"kind\": \"scenario.ai.action.if_lift_at_stop\", \"source\": \"ai/ailists.json\", \"objects\": \"objects.json\", \"pads\": \"pads.json\", \"target\": \"lift.current_level\", \"opcode\": \"0x018a\" },\n"
+			"    { \"id\": \"scenario.ai.action.activate_lift\", \"kind\": \"scenario.ai.action.activate_lift\", \"source\": \"ai/ailists.json\", \"objects\": \"objects.json\", \"pads\": \"pads.json\", \"target\": \"lift.registration\", \"opcode\": \"0x018d\" },\n"
+			"    { \"id\": \"scenario.ai.action.if_using_lift\", \"kind\": \"scenario.ai.action.if_using_lift\", \"source\": \"ai/ailists.json\", \"objects\": \"objects.json\", \"pads\": \"pads.json\", \"target\": \"chr.lift\", \"opcode\": \"0x01a5\" },\n"
+			"    { \"id\": \"scenario.ai.action.configure_rain\", \"kind\": \"scenario.ai.action.configure_rain\", \"source\": \"ai/ailists.json\", \"globals\": \"scenario.ini\", \"target\": \"weather.rain\", \"opcode\": \"0x018b\" },\n"
+			"    { \"id\": \"scenario.ai.action.configure_snow\", \"kind\": \"scenario.ai.action.configure_snow\", \"source\": \"ai/ailists.json\", \"globals\": \"scenario.ini\", \"target\": \"weather.snow\", \"opcode\": \"0x01b6\" },\n"
+			"    { \"id\": \"scenario.ai.action.switch_to_alt_sky\", \"kind\": \"scenario.ai.action.switch_to_alt_sky\", \"source\": \"ai/ailists.json\", \"target\": \"sky.transition\", \"opcode\": \"0x00f2\" },\n"
+			"    { \"id\": \"scenario.ai.action.set_wind_speed\", \"kind\": \"scenario.ai.action.set_wind_speed\", \"source\": \"ai/ailists.json\", \"target\": \"sky.wind_speed\", \"opcode\": \"0x01b2\" },\n"
+			"    { \"id\": \"scenario.ai.action.set_lights\", \"kind\": \"scenario.ai.action.set_lights\", \"source\": \"ai/ailists.json\", \"pads\": \"pads.json\", \"target\": \"room.lights\", \"opcode\": \"0x0102\" },\n"
+			"    { \"id\": \"scenario.ai.action.set_room_flag\", \"kind\": \"scenario.ai.action.set_room_flag\", \"source\": \"ai/ailists.json\", \"scene\": \"scene.glb\", \"target\": \"room.flags\", \"opcode\": \"0x01d4\" },\n"
+			"    { \"id\": \"scenario.ai.action.show_cutscene_chrs\", \"kind\": \"scenario.ai.action.show_cutscene_chrs\", \"source\": \"ai/ailists.json\", \"target\": \"chr.cutscene_visibility\", \"opcode\": \"0x01d5\" },\n"
+			"    { \"id\": \"scenario.ai.action.configure_environment\", \"kind\": \"scenario.ai.action.configure_environment\", \"source\": \"ai/ailists.json\", \"globals\": \"scenario.ini\", \"scene\": \"scene.glb\", \"target\": \"environment.room_global_audio\", \"opcode\": \"0x01d6\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_distance_to_target2_less_than\", \"kind\": \"scenario.ai.condition.if_distance_to_target2_less_than\", \"source\": \"ai/ailists.json\", \"target\": \"chr.target_distance2\", \"opcode\": \"0x01d7\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_distance_to_target2_greater_than\", \"kind\": \"scenario.ai.condition.if_distance_to_target2_greater_than\", \"source\": \"ai/ailists.json\", \"target\": \"chr.target_distance2\", \"opcode\": \"0x01d8\" },\n"
+			"    { \"id\": \"scenario.ai.action.speak\", \"kind\": \"scenario.ai.action.speak\", \"source\": \"ai/ailists.json\", \"target\": \"chr.subtitle_audio\", \"opcode\": \"0x00cd\" },\n"
+			"    { \"id\": \"scenario.ai.action.play_sound\", \"kind\": \"scenario.ai.action.play_sound\", \"source\": \"ai/ailists.json\", \"target\": \"audio.channel\", \"opcode\": \"0x00ce\" },\n"
+			"    { \"id\": \"scenario.ai.action.assign_sound\", \"kind\": \"scenario.ai.action.assign_sound\", \"source\": \"ai/ailists.json\", \"target\": \"audio.marker\", \"opcode\": \"0x017c\" },\n"
+			"    { \"id\": \"scenario.ai.action.audio_mute_channel\", \"kind\": \"scenario.ai.action.audio_mute_channel\", \"source\": \"ai/ailists.json\", \"target\": \"audio.channel\", \"opcode\": \"0x00d3\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_channel_free\", \"kind\": \"scenario.ai.condition.if_channel_free\", \"source\": \"ai/ailists.json\", \"target\": \"audio.channel\", \"opcode\": \"0x0138\" },\n"
+			"    { \"id\": \"scenario.ai.action.set_object_sound_volume\", \"kind\": \"scenario.ai.action.set_object_sound_volume\", \"source\": \"ai/ailists.json\", \"target\": \"audio.channel.volume\", \"opcode\": \"0x00d1\" },\n"
+			"    { \"id\": \"scenario.ai.action.set_object_sound_volume_by_distance\", \"kind\": \"scenario.ai.action.set_object_sound_volume_by_distance\", \"source\": \"ai/ailists.json\", \"target\": \"audio.channel.volume\", \"opcode\": \"0x00d2\" },\n"
+			"    { \"id\": \"scenario.ai.action.set_object_sound_playing\", \"kind\": \"scenario.ai.action.set_object_sound_playing\", \"source\": \"ai/ailists.json\", \"objects\": \"objects.json\", \"target\": \"object.audio\", \"opcode\": \"0x00cf\" },\n"
+			"    { \"id\": \"scenario.ai.action.play_repeating_sound_from_object\", \"kind\": \"scenario.ai.action.play_repeating_sound_from_object\", \"source\": \"ai/ailists.json\", \"objects\": \"objects.json\", \"target\": \"object.audio.repeating\", \"opcode\": \"0x016b\" },\n"
+			"    { \"id\": \"scenario.ai.action.play_sound_from_entity\", \"kind\": \"scenario.ai.action.play_sound_from_entity\", \"source\": \"ai/ailists.json\", \"objects\": \"objects.json\", \"target\": \"entity.audio\", \"opcode\": \"0x0179\" },\n"
+			"    { \"id\": \"scenario.ai.action.play_repeating_sound_from_pad\", \"kind\": \"scenario.ai.action.play_repeating_sound_from_pad\", \"source\": \"ai/ailists.json\", \"pads\": \"pads.json\", \"target\": \"pad.audio.repeating\", \"opcode\": \"0x00d0\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_object_sound_volume_less_than\", \"kind\": \"scenario.ai.condition.if_object_sound_volume_less_than\", \"source\": \"ai/ailists.json\", \"target\": \"audio.channel.volume\", \"opcode\": \"0x00d4\" },\n"
+			"    { \"id\": \"scenario.ai.action.play_sound_from_prop\", \"kind\": \"scenario.ai.action.play_sound_from_prop\", \"source\": \"ai/ailists.json\", \"target\": \"prop.audio\", \"opcode\": \"0x01d9\" },\n"
+			"    { \"id\": \"scenario.ai.action.play_temporary_primary_track\", \"kind\": \"scenario.ai.action.play_temporary_primary_track\", \"source\": \"ai/ailists.json\", \"target\": \"music.primary\", \"opcode\": \"0x01da\" },\n"
+			"    { \"id\": \"scenario.ai.action.play_x_track\", \"kind\": \"scenario.ai.action.play_x_track\", \"source\": \"ai/ailists.json\", \"target\": \"music.x_track\", \"opcode\": \"0x00f9\" },\n"
+			"    { \"id\": \"scenario.ai.action.stop_x_track\", \"kind\": \"scenario.ai.action.stop_x_track\", \"source\": \"ai/ailists.json\", \"target\": \"music.x_track\", \"opcode\": \"0x00fa\" },\n"
+			"    { \"id\": \"scenario.ai.action.play_track_isolated\", \"kind\": \"scenario.ai.action.play_track_isolated\", \"source\": \"ai/ailists.json\", \"target\": \"music.isolated\", \"opcode\": \"0x015b\" },\n"
+			"    { \"id\": \"scenario.ai.action.play_default_tracks\", \"kind\": \"scenario.ai.action.play_default_tracks\", \"source\": \"ai/ailists.json\", \"target\": \"music.default\", \"opcode\": \"0x015c\" },\n"
+			"    { \"id\": \"scenario.ai.action.play_cutscene_track\", \"kind\": \"scenario.ai.action.play_cutscene_track\", \"source\": \"ai/ailists.json\", \"target\": \"music.cutscene\", \"opcode\": \"0x017d\" },\n"
+			"    { \"id\": \"scenario.ai.action.stop_cutscene_track\", \"kind\": \"scenario.ai.action.stop_cutscene_track\", \"source\": \"ai/ailists.json\", \"target\": \"music.cutscene\", \"opcode\": \"0x017e\" },\n"
+			"    { \"id\": \"scenario.ai.action.play_temporary_track\", \"kind\": \"scenario.ai.action.play_temporary_track\", \"source\": \"ai/ailists.json\", \"target\": \"music.ambient_temporary\", \"opcode\": \"0x017f\" },\n"
+			"    { \"id\": \"scenario.ai.action.stop_ambient_track\", \"kind\": \"scenario.ai.action.stop_ambient_track\", \"source\": \"ai/ailists.json\", \"target\": \"music.ambient_temporary\", \"opcode\": \"0x0180\" },\n"
+			"    { \"id\": \"scenario.ai.action.chr_draw_weapon\", \"kind\": \"scenario.ai.action.chr_draw_weapon\", \"source\": \"ai/ailists.json\", \"target\": \"player.weapon\", \"opcode\": \"0x00ec\" },\n"
+			"    { \"id\": \"scenario.ai.action.chr_draw_weapon_in_cutscene\", \"kind\": \"scenario.ai.action.chr_draw_weapon_in_cutscene\", \"source\": \"ai/ailists.json\", \"target\": \"player.weapon.cutscene\", \"opcode\": \"0x00ed\" },\n"
+			"    { \"id\": \"scenario.ai.action.set_player_force_speed\", \"kind\": \"scenario.ai.action.set_player_force_speed\", \"source\": \"ai/ailists.json\", \"target\": \"player.force_speed\", \"opcode\": \"0x00ee\" },\n"
+			"    { \"id\": \"scenario.ai.action.chr_set_invincible\", \"kind\": \"scenario.ai.action.chr_set_invincible\", \"source\": \"ai/ailists.json\", \"target\": \"player.invincible\", \"opcode\": \"0x00f3\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_player_is_invincible\", \"kind\": \"scenario.ai.condition.if_player_is_invincible\", \"source\": \"ai/ailists.json\", \"target\": \"player.invincible\", \"opcode\": \"0x00f8\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_chr_has_no_gun\", \"kind\": \"scenario.ai.condition.if_chr_has_no_gun\", \"source\": \"ai/ailists.json\", \"target\": \"chr.weapon_state\", \"opcode\": \"0x016f\" },\n"
+			"    { \"id\": \"scenario.ai.action.chr_delete_weapon\", \"kind\": \"scenario.ai.action.chr_delete_weapon\", \"source\": \"ai/ailists.json\", \"target\": \"chr.weapon_inventory\", \"opcode\": \"0x00e9\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_trigger_shot_list\", \"kind\": \"scenario.ai.condition.if_trigger_shot_list\", \"source\": \"ai/ailists.json\", \"target\": \"chr.shot_list_latch\", \"opcode\": \"0x00fd\" },\n"
+			"    { \"id\": \"scenario.ai.action.end_level\", \"kind\": \"scenario.ai.action.end_level\", \"source\": \"ai/ailists.json\", \"target\": \"mission.flow\", \"opcode\": \"0x00dc\" },\n"
+			"    { \"id\": \"scenario.ai.action.end_cutscene\", \"kind\": \"scenario.ai.action.end_cutscene\", \"source\": \"ai/ailists.json\", \"target\": \"player.cutscene\", \"opcode\": \"0x00dd\" },\n"
+			"    { \"id\": \"scenario.ai.action.warp_jo_to_pad\", \"kind\": \"scenario.ai.action.warp_jo_to_pad\", \"source\": \"ai/ailists.json\", \"pads\": \"pads.json\", \"target\": \"player.warp\", \"opcode\": \"0x00de\" },\n"
+			"    { \"id\": \"scenario.ai.action.warp_jo_to_tag\", \"kind\": \"scenario.ai.action.warp_jo_to_tag\", \"source\": \"ai/ailists.json\", \"objects\": \"objects.json\", \"target\": \"player.warp\", \"opcode\": \"0x00df\" },\n"
+			"    { \"id\": \"scenario.ai.action.revoke_control\", \"kind\": \"scenario.ai.action.revoke_control\", \"source\": \"ai/ailists.json\", \"target\": \"player.control\", \"opcode\": \"0x00e0\" },\n"
+			"    { \"id\": \"scenario.ai.action.grant_control\", \"kind\": \"scenario.ai.action.grant_control\", \"source\": \"ai/ailists.json\", \"target\": \"player.control\", \"opcode\": \"0x00e1\" },\n"
+			"    { \"id\": \"scenario.ai.action.player_fade_in\", \"kind\": \"scenario.ai.action.player_fade_in\", \"source\": \"ai/ailists.json\", \"target\": \"player.fade\", \"opcode\": \"0x00e3\" },\n"
+			"    { \"id\": \"scenario.ai.action.players_fade_out\", \"kind\": \"scenario.ai.action.players_fade_out\", \"source\": \"ai/ailists.json\", \"target\": \"player.fade\", \"opcode\": \"0x00e4\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_colour_fade_complete\", \"kind\": \"scenario.ai.condition.if_colour_fade_complete\", \"source\": \"ai/ailists.json\", \"target\": \"player.fade\", \"opcode\": \"0x00e5\" },\n"
+			"    { \"id\": \"scenario.ai.action.prepare_warp_orbit\", \"kind\": \"scenario.ai.action.prepare_warp_orbit\", \"source\": \"ai/ailists.json\", \"pads\": \"pads.json\", \"target\": \"player.warp\", \"opcode\": \"0x00f4\" },\n"
+			"    { \"id\": \"scenario.ai.action.begin_warp_latch\", \"kind\": \"scenario.ai.action.begin_warp_latch\", \"source\": \"ai/ailists.json\", \"target\": \"player.warp_latch\", \"opcode\": \"0x00f5\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_warp_latch_complete\", \"kind\": \"scenario.ai.condition.if_warp_latch_complete\", \"source\": \"ai/ailists.json\", \"target\": \"player.warp_latch\", \"opcode\": \"0x00f6\" },\n"
+			"    { \"id\": \"scenario.ai.action.set_camera_animation\", \"kind\": \"scenario.ai.action.set_camera_animation\", \"source\": \"ai/ailists.json\", \"target\": \"player.camera_animation\", \"opcode\": \"0x0111\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_in_cutscene\", \"kind\": \"scenario.ai.condition.if_in_cutscene\", \"source\": \"ai/ailists.json\", \"target\": \"player.cutscene\", \"opcode\": \"0x0113\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_cutscene_button_pressed\", \"kind\": \"scenario.ai.condition.if_cutscene_button_pressed\", \"source\": \"ai/ailists.json\", \"target\": \"player.cutscene\", \"opcode\": \"0x0174\" },\n"
+			"    { \"id\": \"scenario.ai.action.reorient_for_cutscene_stop\", \"kind\": \"scenario.ai.action.reorient_for_cutscene_stop\", \"source\": \"ai/ailists.json\", \"target\": \"player.cutscene\", \"opcode\": \"0x0175\" },\n"
+			"    { \"id\": \"scenario.ai.action.spawn_chr_at_pad\", \"kind\": \"scenario.ai.action.spawn_chr_at_pad\", \"source\": \"ai/ailists.json\", \"pads\": \"pads.json\", \"target\": \"chr.spawn\", \"opcode\": \"0x00c6\" },\n"
+			"    { \"id\": \"scenario.ai.action.spawn_chr_at_chr\", \"kind\": \"scenario.ai.action.spawn_chr_at_chr\", \"source\": \"ai/ailists.json\", \"target\": \"chr.spawn\", \"opcode\": \"0x00c7\" },\n"
+			"    { \"id\": \"scenario.ai.action.try_equip_weapon\", \"kind\": \"scenario.ai.action.try_equip_weapon\", \"source\": \"ai/ailists.json\", \"target\": \"chr.weapon_inventory\", \"opcode\": \"0x00c8\" },\n"
+			"    { \"id\": \"scenario.ai.action.try_equip_hat\", \"kind\": \"scenario.ai.action.try_equip_hat\", \"source\": \"ai/ailists.json\", \"target\": \"chr.hat\", \"opcode\": \"0x00c9\" },\n"
+			"    { \"id\": \"scenario.ai.action.set_obj_image\", \"kind\": \"scenario.ai.action.set_obj_image\", \"source\": \"ai/ailists.json\", \"objects\": \"objects.json\", \"target\": \"object.monitor_image\", \"opcode\": \"0x00da\" },\n"
+			"    { \"id\": \"scenario.ai.action.object_do_animation\", \"kind\": \"scenario.ai.action.object_do_animation\", \"source\": \"ai/ailists.json\", \"objects\": \"objects.json\", \"target\": \"object.animation\", \"opcode\": \"0x0112\" },\n"
+			"    { \"id\": \"scenario.ai.action.set_door_open\", \"kind\": \"scenario.ai.action.set_door_open\", \"source\": \"ai/ailists.json\", \"objects\": \"objects.json\", \"target\": \"door.open_state\", \"opcode\": \"0x00e8\" },\n"
+			"    { \"id\": \"scenario.ai.action.duplicate_chr\", \"kind\": \"scenario.ai.action.duplicate_chr\", \"source\": \"ai/ailists.json\", \"target\": \"chr.clone\", \"opcode\": \"0x00ca\" },\n"
+			"    { \"id\": \"scenario.ai.action.enable_chr\", \"kind\": \"scenario.ai.action.enable_chr\", \"source\": \"ai/ailists.json\", \"target\": \"chr.enabled\", \"opcode\": \"0x0114\" },\n"
+			"    { \"id\": \"scenario.ai.action.disable_chr\", \"kind\": \"scenario.ai.action.disable_chr\", \"source\": \"ai/ailists.json\", \"target\": \"chr.enabled\", \"opcode\": \"0x0115\" },\n"
+			"    { \"id\": \"scenario.ai.action.enable_obj\", \"kind\": \"scenario.ai.action.enable_obj\", \"source\": \"ai/ailists.json\", \"objects\": \"objects.json\", \"target\": \"object.enabled\", \"opcode\": \"0x0116\" },\n"
+			"    { \"id\": \"scenario.ai.action.disable_obj\", \"kind\": \"scenario.ai.action.disable_obj\", \"source\": \"ai/ailists.json\", \"objects\": \"objects.json\", \"target\": \"object.enabled\", \"opcode\": \"0x0117\" },\n"
+			"    { \"id\": \"scenario.ai.action.chr_move_to_pad\", \"kind\": \"scenario.ai.action.chr_move_to_pad\", \"source\": \"ai/ailists.json\", \"pads\": \"pads.json\", \"target\": \"chr.transform\", \"opcode\": \"0x00e2\" },\n"
+			"    { \"id\": \"scenario.ai.action.chr_set_team\", \"kind\": \"scenario.ai.action.chr_set_team\", \"source\": \"ai/ailists.json\", \"target\": \"chr.team\", \"opcode\": \"0x010b\" },\n"
+			"    { \"id\": \"scenario.ai.action.damage_chr_by_amount\", \"kind\": \"scenario.ai.action.damage_chr_by_amount\", \"source\": \"ai/ailists.json\", \"target\": \"chr.damage\", \"opcode\": \"0x016e\" },\n"
+			"    { \"id\": \"scenario.ai.action.do_preset_animation\", \"kind\": \"scenario.ai.action.do_preset_animation\", \"source\": \"ai/ailists.json\", \"target\": \"chr.animation\", \"opcode\": \"0x01a3\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_player_chr_portal_distance_less_than\", \"kind\": \"scenario.ai.condition.if_player_chr_portal_distance_less_than\", \"source\": \"ai/ailists.json\", \"scene\": \"scene.glb\", \"target\": \"player_chr.portal_distance\", \"opcode\": \"0x01aa\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_chr_reposition_valid\", \"kind\": \"scenario.ai.condition.if_chr_reposition_valid\", \"source\": \"ai/ailists.json\", \"scene\": \"scene.glb\", \"target\": \"chr.reposition\", \"opcode\": \"0x01b4\" },\n"
+			"    { \"id\": \"scenario.ai.action.do_gun_command\", \"kind\": \"scenario.ai.action.do_gun_command\", \"source\": \"ai/ailists.json\", \"objects\": \"objects.json\", \"scene\": \"scene.glb\", \"target\": \"chr.gunprop.command\", \"opcode\": \"0x0170\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_distance_to_gun_less_than\", \"kind\": \"scenario.ai.condition.if_distance_to_gun_less_than\", \"source\": \"ai/ailists.json\", \"objects\": \"objects.json\", \"scene\": \"scene.glb\", \"target\": \"chr.gunprop.distance\", \"opcode\": \"0x0171\" },\n"
+			"    { \"id\": \"scenario.ai.action.recover_gun\", \"kind\": \"scenario.ai.action.recover_gun\", \"source\": \"ai/ailists.json\", \"objects\": \"objects.json\", \"scene\": \"scene.glb\", \"target\": \"chr.inventory.weapon\", \"opcode\": \"0x0172\" },\n"
+			"    { \"id\": \"scenario.ai.action.chr_copy_properties\", \"kind\": \"scenario.ai.action.chr_copy_properties\", \"source\": \"ai/ailists.json\", \"target\": \"chr.properties\", \"opcode\": \"0x0173\" },\n"
+			"    { \"id\": \"scenario.ai.action.player_auto_walk\", \"kind\": \"scenario.ai.action.player_auto_walk\", \"source\": \"ai/ailists.json\", \"pads\": \"pads.json\", \"target\": \"player.autowalk\", \"opcode\": \"0x0177\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_player_auto_walk_finished\", \"kind\": \"scenario.ai.condition.if_player_auto_walk_finished\", \"source\": \"ai/ailists.json\", \"target\": \"player.autowalk\", \"opcode\": \"0x0178\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_obj_in_room\", \"kind\": \"scenario.ai.condition.if_obj_in_room\", \"source\": \"ai/ailists.json\", \"objects\": \"objects.json\", \"pads\": \"pads.json\", \"scene\": \"scene.glb\", \"target\": \"object.room\", \"opcode\": \"0x00ef\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_player_looking_at_object\", \"kind\": \"scenario.ai.condition.if_player_looking_at_object\", \"source\": \"ai/ailists.json\", \"objects\": \"objects.json\", \"scene\": \"scene.glb\", \"target\": \"player.view.object\", \"opcode\": \"0x0181\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_target_is_player\", \"kind\": \"scenario.ai.condition.if_target_is_player\", \"source\": \"ai/ailists.json\", \"target\": \"chr.target.type\", \"opcode\": \"0x0183\" },\n"
+			"    { \"id\": \"scenario.ai.action.chr_kill\", \"kind\": \"scenario.ai.action.chr_kill\", \"source\": \"ai/ailists.json\", \"target\": \"character.state\", \"opcode\": \"0x01db\" },\n"
+			"    { \"id\": \"scenario.ai.action.remove_weapon_from_inventory\", \"kind\": \"scenario.ai.action.remove_weapon_from_inventory\", \"source\": \"ai/ailists.json\", \"target\": \"player.inventory\", \"opcode\": \"0x01dc\" },\n"
+			"    { \"id\": \"scenario.ai.action.clear_inventory\", \"kind\": \"scenario.ai.action.clear_inventory\", \"source\": \"ai/ailists.json\", \"target\": \"player.inventory\", \"opcode\": \"0x01ae\" },\n"
+			"    { \"id\": \"scenario.ai.action.release_object\", \"kind\": \"scenario.ai.action.release_object\", \"source\": \"ai/ailists.json\", \"target\": \"player.carry_state\", \"opcode\": \"0x01ad\" },\n"
+			"    { \"id\": \"scenario.ai.action.chr_grab_object\", \"kind\": \"scenario.ai.action.chr_grab_object\", \"source\": \"ai/ailists.json\", \"objects\": \"objects.json\", \"scene\": \"scene.glb\", \"target\": \"player.grab_object\", \"opcode\": \"0x01af\" },\n"
+			"    { \"id\": \"scenario.ai.action.toggle_p1p2\", \"kind\": \"scenario.ai.action.toggle_p1p2\", \"source\": \"ai/ailists.json\", \"target\": \"player.assignment\", \"opcode\": \"0x01b3\" },\n"
+			"    { \"id\": \"scenario.ai.action.chr_set_p1p2\", \"kind\": \"scenario.ai.action.chr_set_p1p2\", \"source\": \"ai/ailists.json\", \"target\": \"player.assignment\", \"opcode\": \"0x01b5\" },\n"
+			"    { \"id\": \"scenario.ai.action.chr_set_cloaked\", \"kind\": \"scenario.ai.action.chr_set_cloaked\", \"source\": \"ai/ailists.json\", \"target\": \"chr.cloak\", \"opcode\": \"0x01b7\" },\n"
+			"    { \"id\": \"scenario.ai.action.set_autogun_target_team\", \"kind\": \"scenario.ai.action.set_autogun_target_team\", \"source\": \"ai/ailists.json\", \"objects\": \"objects.json\", \"target\": \"autogun.target_team\", \"opcode\": \"0x01b8\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_objective_complete\", \"kind\": \"scenario.ai.condition.if_objective_complete\", \"source\": \"ai/ailists.json\", \"mission\": \"mission.graph.json\", \"target\": \"mission.objective_status\", \"opcode\": \"0x0073\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_objective_failed\", \"kind\": \"scenario.ai.condition.if_objective_failed\", \"source\": \"ai/ailists.json\", \"mission\": \"mission.graph.json\", \"target\": \"mission.objective_status\", \"opcode\": \"0x0074\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_all_objectives_complete\", \"kind\": \"scenario.ai.condition.if_all_objectives_complete\", \"source\": \"ai/ailists.json\", \"mission\": \"mission.graph.json\", \"target\": \"mission.objectives_complete\", \"opcode\": \"0x00f7\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_difficulty_less_than\", \"kind\": \"scenario.ai.condition.if_difficulty_less_than\", \"source\": \"ai/ailists.json\", \"target\": \"mission.difficulty\", \"opcode\": \"0x0077\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_difficulty_greater_than\", \"kind\": \"scenario.ai.condition.if_difficulty_greater_than\", \"source\": \"ai/ailists.json\", \"target\": \"mission.difficulty\", \"opcode\": \"0x0078\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_stage_timer_less_than\", \"kind\": \"scenario.ai.condition.if_stage_timer_less_than\", \"source\": \"ai/ailists.json\", \"target\": \"mission.stage_timer\", \"opcode\": \"0x0079\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_stage_timer_greater_than\", \"kind\": \"scenario.ai.condition.if_stage_timer_greater_than\", \"source\": \"ai/ailists.json\", \"target\": \"mission.stage_timer\", \"opcode\": \"0x007a\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_stage_id_less_than\", \"kind\": \"scenario.ai.condition.if_stage_id_less_than\", \"source\": \"ai/ailists.json\", \"target\": \"mission.stage_id\", \"opcode\": \"0x007b\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_stage_id_greater_than\", \"kind\": \"scenario.ai.condition.if_stage_id_greater_than\", \"source\": \"ai/ailists.json\", \"target\": \"mission.stage_id\", \"opcode\": \"0x007c\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_num_players_less_than\", \"kind\": \"scenario.ai.condition.if_num_players_less_than\", \"source\": \"ai/ailists.json\", \"target\": \"game.local_player_count\", \"opcode\": \"0x00ea\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_kill_count_greater_than\", \"kind\": \"scenario.ai.condition.if_kill_count_greater_than\", \"source\": \"ai/ailists.json\", \"target\": \"mission.kill_count\", \"opcode\": \"0x00fc\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_num_knocked_out_chrs\", \"kind\": \"scenario.ai.condition.if_num_knocked_out_chrs\", \"source\": \"ai/ailists.json\", \"target\": \"match.knockout_count\", \"opcode\": \"0x01ab\" },\n"
+			"    { \"id\": \"scenario.ai.action.kill_bond\", \"kind\": \"scenario.ai.action.kill_bond\", \"source\": \"ai/ailists.json\", \"mission\": \"mission.graph.json\", \"target\": \"player.bond.dead\", \"opcode\": \"0x00fe\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_pouncebits_eq\", \"kind\": \"scenario.ai.condition.if_pouncebits_eq\", \"source\": \"ai/ailists.json\", \"target\": \"chr.pouncebits\", \"opcode\": \"0x01bc\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_training_pc_holographed\", \"kind\": \"scenario.ai.condition.if_training_pc_holographed\", \"source\": \"ai/ailists.json\", \"target\": \"training.pc_hologram\", \"opcode\": \"0x01bd\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_player_using_device\", \"kind\": \"scenario.ai.condition.if_player_using_device\", \"source\": \"ai/ailists.json\", \"target\": \"player.device_state\", \"opcode\": \"0x01be\" },\n"
+			"    { \"id\": \"scenario.ai.action.chr_begin_or_end_teleport\", \"kind\": \"scenario.ai.action.chr_begin_or_end_teleport\", \"source\": \"ai/ailists.json\", \"pads\": \"pads.json\", \"target\": \"player.teleport_state\", \"opcode\": \"0x01bf\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_chr_teleport_full_white\", \"kind\": \"scenario.ai.condition.if_chr_teleport_full_white\", \"source\": \"ai/ailists.json\", \"target\": \"player.teleport_state\", \"opcode\": \"0x01c0\" },\n"
+			"    { \"id\": \"scenario.ai.action.chr_set_cutscene_weapon\", \"kind\": \"scenario.ai.action.chr_set_cutscene_weapon\", \"source\": \"ai/ailists.json\", \"target\": \"chr.cutscene_weapon\", \"opcode\": \"0x01ca\" },\n"
+			"    { \"id\": \"scenario.ai.action.fade_screen\", \"kind\": \"scenario.ai.action.fade_screen\", \"source\": \"ai/ailists.json\", \"target\": \"screen.fade\", \"opcode\": \"0x01cb\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_fade_complete\", \"kind\": \"scenario.ai.condition.if_fade_complete\", \"source\": \"ai/ailists.json\", \"target\": \"screen.fade\", \"opcode\": \"0x01cc\" },\n"
+			"    { \"id\": \"scenario.ai.action.set_chr_hudpiece_visible\", \"kind\": \"scenario.ai.action.set_chr_hudpiece_visible\", \"source\": \"ai/ailists.json\", \"target\": \"chr.hudpiece\", \"opcode\": \"0x01cd\" },\n"
+			"    { \"id\": \"scenario.ai.action.set_passive_mode\", \"kind\": \"scenario.ai.action.set_passive_mode\", \"source\": \"ai/ailists.json\", \"target\": \"player.weapon_passive_mode\", \"opcode\": \"0x01ce\" },\n"
+			"    { \"id\": \"scenario.ai.action.chr_set_firing_in_cutscene\", \"kind\": \"scenario.ai.action.chr_set_firing_in_cutscene\", \"source\": \"ai/ailists.json\", \"target\": \"chr.weapon_firing\", \"opcode\": \"0x01cf\" },\n"
+			"    { \"id\": \"scenario.ai.action.set_portal_flag\", \"kind\": \"scenario.ai.action.set_portal_flag\", \"source\": \"ai/ailists.json\", \"scene\": \"scene.glb\", \"target\": \"portal.flags\", \"opcode\": \"0x01d0\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_music_event_queue_is_empty\", \"kind\": \"scenario.ai.condition.if_music_event_queue_is_empty\", \"source\": \"ai/ailists.json\", \"target\": \"music.event_queue\", \"opcode\": \"0x01dd\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_coop_mode\", \"kind\": \"scenario.ai.condition.if_coop_mode\", \"source\": \"ai/ailists.json\", \"target\": \"game.mode\", \"opcode\": \"0x01de\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_chr_same_floor_distance_to_pad_less_than\", \"kind\": \"scenario.ai.condition.if_chr_same_floor_distance_to_pad_less_than\", \"source\": \"ai/ailists.json\", \"pads\": \"pads.json\", \"target\": \"chr.pad_same_floor_distance\", \"opcode\": \"0x01df\" },\n"
+			"    { \"id\": \"scenario.ai.action.remove_references_to_chr\", \"kind\": \"scenario.ai.action.remove_references_to_chr\", \"source\": \"ai/ailists.json\", \"target\": \"chr.references\", \"opcode\": \"0x01e0\" },\n"
+			"    { \"id\": \"scenario.ai.action.chr_toggle_model_part\", \"kind\": \"scenario.ai.action.chr_toggle_model_part\", \"source\": \"ai/ailists.json\", \"objects\": \"objects.json\", \"target\": \"chr.model_part.visibility\", \"opcode\": \"0x018c\" },\n"
+			"    { \"id\": \"scenario.ai.action.obj_set_model_part_visible\", \"kind\": \"scenario.ai.action.obj_set_model_part_visible\", \"source\": \"ai/ailists.json\", \"objects\": \"objects.json\", \"target\": \"object.model_part.visibility\", \"opcode\": \"0x01d1\" },\n"
+			"    { \"id\": \"scenario.ai.action.if_obj_health_less_than\", \"kind\": \"scenario.ai.action.if_obj_health_less_than\", \"source\": \"ai/ailists.json\", \"objects\": \"objects.json\", \"target\": \"object.damage\", \"opcode\": \"0x019e\" },\n"
+			"    { \"id\": \"scenario.ai.action.set_obj_health\", \"kind\": \"scenario.ai.action.set_obj_health\", \"source\": \"ai/ailists.json\", \"objects\": \"objects.json\", \"target\": \"object.damage\", \"opcode\": \"0x019f\" },\n"
+			"    { \"id\": \"scenario.ai.action.set_chr_special_death_animation\", \"kind\": \"scenario.ai.action.set_chr_special_death_animation\", \"source\": \"ai/ailists.json\", \"target\": \"chr.special_death_animation\", \"opcode\": \"0x01a0\" },\n"
+			"    { \"id\": \"scenario.ai.action.set_room_to_search\", \"kind\": \"scenario.ai.action.set_room_to_search\", \"source\": \"ai/ailists.json\", \"scene\": \"scene.glb\", \"target\": \"chr.room_to_search\", \"opcode\": \"0x01a1\" },\n"
+			"    { \"id\": \"scenario.ai.action.chr_set_hidden_flag\", \"kind\": \"scenario.ai.action.chr_set_hidden_flag\", \"source\": \"ai/ailists.json\", \"target\": \"target_chr.hidden\", \"opcode\": \"0x011b\" },\n"
+			"    { \"id\": \"scenario.ai.action.chr_unset_hidden_flag\", \"kind\": \"scenario.ai.action.chr_unset_hidden_flag\", \"source\": \"ai/ailists.json\", \"target\": \"target_chr.hidden\", \"opcode\": \"0x011c\" },\n"
+			"    { \"id\": \"scenario.ai.action.if_chr_has_hidden_flag\", \"kind\": \"scenario.ai.action.if_chr_has_hidden_flag\", \"source\": \"ai/ailists.json\", \"target\": \"target_chr.hidden\", \"opcode\": \"0x011d\" },\n"
+			"    { \"id\": \"scenario.ai.action.set_savefile_flag\", \"kind\": \"scenario.ai.action.set_savefile_flag\", \"source\": \"ai/ailists.json\", \"target\": \"savefile.flags\", \"opcode\": \"0x0190\" },\n"
+			"    { \"id\": \"scenario.ai.action.unset_savefile_flag\", \"kind\": \"scenario.ai.action.unset_savefile_flag\", \"source\": \"ai/ailists.json\", \"target\": \"savefile.flags\", \"opcode\": \"0x0191\" },\n"
+			"    { \"id\": \"scenario.ai.action.if_savefile_flag_set\", \"kind\": \"scenario.ai.action.if_savefile_flag_set\", \"source\": \"ai/ailists.json\", \"target\": \"savefile.flags\", \"opcode\": \"0x0192\" },\n"
+			"    { \"id\": \"scenario.ai.action.if_savefile_flag_unset\", \"kind\": \"scenario.ai.action.if_savefile_flag_unset\", \"source\": \"ai/ailists.json\", \"target\": \"savefile.flags\", \"opcode\": \"0x0193\" },\n"
+			"    { \"id\": \"scenario.ai.action.restart_timer\", \"kind\": \"scenario.ai.action.restart_timer\", \"source\": \"ai/ailists.json\", \"target\": \"chr.timer\", \"opcode\": \"0x00b6\" },\n"
+			"    { \"id\": \"scenario.ai.action.reset_timer\", \"kind\": \"scenario.ai.action.reset_timer\", \"source\": \"ai/ailists.json\", \"target\": \"chr.timer\", \"opcode\": \"0x00b7\" },\n"
+			"    { \"id\": \"scenario.ai.action.pause_timer\", \"kind\": \"scenario.ai.action.pause_timer\", \"source\": \"ai/ailists.json\", \"target\": \"chr.timer\", \"opcode\": \"0x00b8\" },\n"
+			"    { \"id\": \"scenario.ai.action.resume_timer\", \"kind\": \"scenario.ai.action.resume_timer\", \"source\": \"ai/ailists.json\", \"target\": \"chr.timer\", \"opcode\": \"0x00b9\" },\n"
+			"    { \"id\": \"scenario.ai.action.if_timer_stopped\", \"kind\": \"scenario.ai.action.if_timer_stopped\", \"source\": \"ai/ailists.json\", \"target\": \"chr.timer\", \"opcode\": \"0x00ba\" },\n"
+			"    { \"id\": \"scenario.ai.action.if_timer_greater_than_random\", \"kind\": \"scenario.ai.action.if_timer_greater_than_random\", \"source\": \"ai/ailists.json\", \"target\": \"chr.timer\", \"opcode\": \"0x00bb\" },\n"
+			"    { \"id\": \"scenario.ai.action.if_timer_less_than\", \"kind\": \"scenario.ai.action.if_timer_less_than\", \"source\": \"ai/ailists.json\", \"target\": \"chr_or_hovercar.timer\", \"opcode\": \"0x00bc\" },\n"
+			"    { \"id\": \"scenario.ai.action.if_timer_greater_than\", \"kind\": \"scenario.ai.action.if_timer_greater_than\", \"source\": \"ai/ailists.json\", \"target\": \"chr_or_hovercar.timer\", \"opcode\": \"0x00bd\" },\n"
+			"    { \"id\": \"scenario.ai.action.show_countdown_timer\", \"kind\": \"scenario.ai.action.show_countdown_timer\", \"source\": \"ai/ailists.json\", \"target\": \"hud.countdown\", \"opcode\": \"0x00be\" },\n"
+			"    { \"id\": \"scenario.ai.action.hide_countdown_timer\", \"kind\": \"scenario.ai.action.hide_countdown_timer\", \"source\": \"ai/ailists.json\", \"target\": \"hud.countdown\", \"opcode\": \"0x00bf\" },\n"
+			"    { \"id\": \"scenario.ai.action.set_countdown_timer\", \"kind\": \"scenario.ai.action.set_countdown_timer\", \"source\": \"ai/ailists.json\", \"target\": \"hud.countdown\", \"opcode\": \"0x00c0\" },\n"
+			"    { \"id\": \"scenario.ai.action.stop_countdown_timer\", \"kind\": \"scenario.ai.action.stop_countdown_timer\", \"source\": \"ai/ailists.json\", \"target\": \"hud.countdown\", \"opcode\": \"0x00c1\" },\n"
+			"    { \"id\": \"scenario.ai.action.start_countdown_timer\", \"kind\": \"scenario.ai.action.start_countdown_timer\", \"source\": \"ai/ailists.json\", \"target\": \"hud.countdown\", \"opcode\": \"0x00c2\" },\n"
+			"    { \"id\": \"scenario.ai.action.if_countdown_timer_stopped\", \"kind\": \"scenario.ai.action.if_countdown_timer_stopped\", \"source\": \"ai/ailists.json\", \"target\": \"hud.countdown\", \"opcode\": \"0x00c3\" },\n"
+			"    { \"id\": \"scenario.ai.action.if_countdown_timer_less_than\", \"kind\": \"scenario.ai.action.if_countdown_timer_less_than\", \"source\": \"ai/ailists.json\", \"target\": \"hud.countdown\", \"opcode\": \"0x00c4\" },\n"
+			"    { \"id\": \"scenario.ai.action.if_countdown_timer_greater_than\", \"kind\": \"scenario.ai.action.if_countdown_timer_greater_than\", \"source\": \"ai/ailists.json\", \"target\": \"hud.countdown\", \"opcode\": \"0x00c5\" },\n"
+			"    { \"id\": \"scenario.ai.action.set_action\", \"kind\": \"scenario.ai.action.set_action\", \"source\": \"ai/ailists.json\", \"target\": \"chr.myaction\", \"opcode\": \"0x0132\" },\n"
+			"    { \"id\": \"scenario.ai.action.set_team_orders\", \"kind\": \"scenario.ai.action.set_team_orders\", \"source\": \"ai/ailists.json\", \"target\": \"squadron.orders\", \"opcode\": \"0x0133\" },\n"
+			"    { \"id\": \"scenario.ai.action.retreat\", \"kind\": \"scenario.ai.action.retreat\", \"source\": \"ai/ailists.json\", \"target\": \"chr.navigation\", \"opcode\": \"0x0136\" },\n"
+			"    { \"id\": \"scenario.ai.action.find_cover\", \"kind\": \"scenario.ai.action.find_cover\", \"source\": \"ai/ailists.json\", \"covers\": \"navigation/covers.json\", \"target\": \"chr.cover\", \"opcode\": \"0x0121\" },\n"
+			"    { \"id\": \"scenario.ai.action.find_cover_within_dist\", \"kind\": \"scenario.ai.action.find_cover_within_dist\", \"source\": \"ai/ailists.json\", \"covers\": \"navigation/covers.json\", \"target\": \"chr.cover\", \"opcode\": \"0x0122\" },\n"
+			"    { \"id\": \"scenario.ai.action.find_cover_outside_dist\", \"kind\": \"scenario.ai.action.find_cover_outside_dist\", \"source\": \"ai/ailists.json\", \"covers\": \"navigation/covers.json\", \"target\": \"chr.cover\", \"opcode\": \"0x0123\" },\n"
+			"    { \"id\": \"scenario.ai.action.go_to_cover\", \"kind\": \"scenario.ai.action.go_to_cover\", \"source\": \"ai/ailists.json\", \"covers\": \"navigation/covers.json\", \"target\": \"chr.navigation\", \"opcode\": \"0x0124\" },\n"
+			"    { \"id\": \"scenario.ai.action.check_cover_out_of_sight\", \"kind\": \"scenario.ai.action.check_cover_out_of_sight\", \"source\": \"ai/ailists.json\", \"covers\": \"navigation/covers.json\", \"target\": \"chr.cover.visibility\", \"opcode\": \"0x0125\" },\n"
+			"    { \"id\": \"scenario.ai.action.orbit_target\", \"kind\": \"scenario.ai.action.orbit_target\", \"source\": \"ai/ailists.json\", \"target\": \"chr.navigation\", \"opcode\": \"0x0139\" },\n"
+			"    { \"id\": \"scenario.ai.action.set_chr_preset_to_unalerted_teammate\", \"kind\": \"scenario.ai.action.set_chr_preset_to_unalerted_teammate\", \"source\": \"ai/ailists.json\", \"target\": \"chr.chrpreset\", \"opcode\": \"0x013a\" },\n"
+			"    { \"id\": \"scenario.ai.action.set_squadron\", \"kind\": \"scenario.ai.action.set_squadron\", \"source\": \"ai/ailists.json\", \"target\": \"chr.squadron\", \"opcode\": \"0x013b\" },\n"
+			"    { \"id\": \"scenario.ai.action.face_cover\", \"kind\": \"scenario.ai.action.face_cover\", \"source\": \"ai/ailists.json\", \"covers\": \"navigation/covers.json\", \"target\": \"chr.cover\", \"opcode\": \"0x013c\" },\n"
+			"    { \"id\": \"scenario.ai.action.danger_cover\", \"kind\": \"scenario.ai.action.danger_cover\", \"source\": \"ai/ailists.json\", \"covers\": \"navigation/covers.json\", \"target\": \"chr.cover\", \"opcode\": \"0x013e\" },\n"
+			"    { \"id\": \"scenario.ai.action.release_cover\", \"kind\": \"scenario.ai.action.release_cover\", \"source\": \"ai/ailists.json\", \"covers\": \"navigation/covers.json\", \"target\": \"chr.cover\", \"opcode\": \"0x012f\" },\n"
+			"    { \"id\": \"scenario.ai.action.rebuild_teams\", \"kind\": \"scenario.ai.action.rebuild_teams\", \"source\": \"ai/ailists.json\", \"target\": \"team.index\", \"opcode\": \"0x0145\" },\n"
+			"    { \"id\": \"scenario.ai.action.rebuild_squadrons\", \"kind\": \"scenario.ai.action.rebuild_squadrons\", \"source\": \"ai/ailists.json\", \"target\": \"squadron.index\", \"opcode\": \"0x0146\" },\n"
+			"    { \"id\": \"scenario.ai.action.chr_set_listening\", \"kind\": \"scenario.ai.action.chr_set_listening\", \"source\": \"ai/ailists.json\", \"target\": \"target_chr.listening\", \"opcode\": \"0x0148\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_chr_not_talking\", \"kind\": \"scenario.ai.condition.if_chr_not_talking\", \"source\": \"ai/ailists.json\", \"target\": \"target_chr.talk_state\", \"opcode\": \"0x01a7\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_orders\", \"kind\": \"scenario.ai.condition.if_orders\", \"source\": \"ai/ailists.json\", \"target\": \"chr.orders\", \"opcode\": \"0x0134\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_has_orders\", \"kind\": \"scenario.ai.condition.if_has_orders\", \"source\": \"ai/ailists.json\", \"target\": \"chr.orders\", \"opcode\": \"0x0135\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_chr_in_squadron_doing_action\", \"kind\": \"scenario.ai.condition.if_chr_in_squadron_doing_action\", \"source\": \"ai/ailists.json\", \"target\": \"squadron.myaction\", \"opcode\": \"0x0137\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_chr_listening\", \"kind\": \"scenario.ai.condition.if_chr_listening\", \"source\": \"ai/ailists.json\", \"target\": \"target_chr.listening\", \"opcode\": \"0x0149\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_not_listening\", \"kind\": \"scenario.ai.condition.if_not_listening\", \"source\": \"ai/ailists.json\", \"target\": \"chr.listening\", \"opcode\": \"0x014b\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_chr_injured_target\", \"kind\": \"scenario.ai.condition.if_chr_injured_target\", \"source\": \"ai/ailists.json\", \"target\": \"target_chr.injured_target_latch\", \"opcode\": \"0x0165\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_action\", \"kind\": \"scenario.ai.condition.if_action\", \"source\": \"ai/ailists.json\", \"target\": \"chr.myaction\", \"opcode\": \"0x0166\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_chr_ammo_quantity_less_than\", \"kind\": \"scenario.ai.condition.if_chr_ammo_quantity_less_than\", \"source\": \"ai/ailists.json\", \"target\": \"player.ammo\", \"opcode\": \"0x00eb\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_chr_target\", \"kind\": \"scenario.ai.condition.if_chr_target\", \"source\": \"ai/ailists.json\", \"target\": \"target_chr.target\", \"opcode\": \"0x0108\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_compare_chr_presets_team\", \"kind\": \"scenario.ai.condition.if_compare_chr_presets_team\", \"source\": \"ai/ailists.json\", \"target\": \"chr.preset.team\", \"opcode\": \"0x010c\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_human\", \"kind\": \"scenario.ai.condition.if_human\", \"source\": \"ai/ailists.json\", \"target\": \"target_chr.race\", \"opcode\": \"0x011e\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_skedar\", \"kind\": \"scenario.ai.condition.if_skedar\", \"source\": \"ai/ailists.json\", \"target\": \"target_chr.race\", \"opcode\": \"0x011f\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_prop_preset_blocking_sight_to_target\", \"kind\": \"scenario.ai.condition.if_prop_preset_blocking_sight_to_target\", \"source\": \"ai/ailists.json\", \"objects\": \"objects.json\", \"target\": \"chr.proppreset1.line_of_sight\", \"opcode\": \"0x0103\" },\n"
+			"    { \"id\": \"scenario.ai.action.remove_object_at_prop_preset\", \"kind\": \"scenario.ai.action.remove_object_at_prop_preset\", \"source\": \"ai/ailists.json\", \"objects\": \"objects.json\", \"target\": \"chr.proppreset1\", \"opcode\": \"0x0104\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_prop_preset_height_less_than\", \"kind\": \"scenario.ai.condition.if_prop_preset_height_less_than\", \"source\": \"ai/ailists.json\", \"objects\": \"objects.json\", \"target\": \"chr.proppreset1.height\", \"opcode\": \"0x0105\" },\n"
+			"    { \"id\": \"scenario.ai.action.set_target\", \"kind\": \"scenario.ai.action.set_target\", \"source\": \"ai/ailists.json\", \"target\": \"chr.target\", \"opcode\": \"0x0106\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_presets_target_is_not_my_target\", \"kind\": \"scenario.ai.condition.if_presets_target_is_not_my_target\", \"source\": \"ai/ailists.json\", \"target\": \"chr.preset.target\", \"opcode\": \"0x0107\" },\n"
+			"    { \"id\": \"scenario.ai.action.set_chr_preset_to_chr_near_self\", \"kind\": \"scenario.ai.action.set_chr_preset_to_chr_near_self\", \"source\": \"ai/ailists.json\", \"target\": \"chr.chrpreset1\", \"opcode\": \"0x0109\" },\n"
+			"    { \"id\": \"scenario.ai.action.set_chr_preset_to_chr_near_pad\", \"kind\": \"scenario.ai.action.set_chr_preset_to_chr_near_pad\", \"source\": \"ai/ailists.json\", \"pads\": \"pads.json\", \"target\": \"chr.chrpreset1\", \"opcode\": \"0x010a\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_dangerous_object_nearby\", \"kind\": \"scenario.ai.condition.if_dangerous_object_nearby\", \"source\": \"ai/ailists.json\", \"objects\": \"objects.json\", \"target\": \"chr.danger\", \"opcode\": \"0x013d\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_heli_weapons_armed\", \"kind\": \"scenario.ai.condition.if_heli_weapons_armed\", \"source\": \"ai/ailists.json\", \"target\": \"vehicle.weapons\", \"opcode\": \"0x013f\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_hoverbot_next_step\", \"kind\": \"scenario.ai.condition.if_hoverbot_next_step\", \"source\": \"ai/ailists.json\", \"target\": \"vehicle.nextstep\", \"opcode\": \"0x0140\" },\n"
+			"    { \"id\": \"scenario.ai.action.shuffle_investigation_terminals\", \"kind\": \"scenario.ai.action.shuffle_investigation_terminals\", \"source\": \"ai/ailists.json\", \"objects\": \"objects.json\", \"target\": \"setup.tags\", \"opcode\": \"0x0141\" },\n"
+			"    { \"id\": \"scenario.ai.action.set_pad_preset_to_investigation_terminal\", \"kind\": \"scenario.ai.action.set_pad_preset_to_investigation_terminal\", \"source\": \"ai/ailists.json\", \"objects\": \"objects.json\", \"pads\": \"pads.json\", \"target\": \"chr.padpreset1\", \"opcode\": \"0x0142\" },\n"
+			"    { \"id\": \"scenario.ai.action.heli_arm_weapons\", \"kind\": \"scenario.ai.action.heli_arm_weapons\", \"source\": \"ai/ailists.json\", \"target\": \"vehicle.weapons\", \"opcode\": \"0x0143\" },\n"
+			"    { \"id\": \"scenario.ai.action.heli_unarm_weapons\", \"kind\": \"scenario.ai.action.heli_unarm_weapons\", \"source\": \"ai/ailists.json\", \"target\": \"vehicle.weapons\", \"opcode\": \"0x0144\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_safety2_less_than\", \"kind\": \"scenario.ai.condition.if_safety2_less_than\", \"source\": \"ai/ailists.json\", \"target\": \"chr.safety.weapon_support\", \"opcode\": \"0x0120\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_player_using_cmp_or_ar34\", \"kind\": \"scenario.ai.condition.if_player_using_cmp_or_ar34\", \"source\": \"ai/ailists.json\", \"target\": \"player.weapon\", \"opcode\": \"0x0126\" },\n"
+			"    { \"id\": \"scenario.ai.condition.detect_enemy_on_same_floor\", \"kind\": \"scenario.ai.condition.detect_enemy_on_same_floor\", \"source\": \"ai/ailists.json\", \"scene\": \"scene.glb\", \"target\": \"chr.target.scan_same_floor\", \"opcode\": \"0x0127\" },\n"
+			"    { \"id\": \"scenario.ai.condition.detect_enemy\", \"kind\": \"scenario.ai.condition.detect_enemy\", \"source\": \"ai/ailists.json\", \"scene\": \"scene.glb\", \"target\": \"chr.target.scan\", \"opcode\": \"0x0128\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_safety_less_than\", \"kind\": \"scenario.ai.condition.if_safety_less_than\", \"source\": \"ai/ailists.json\", \"target\": \"chr.safety.support\", \"opcode\": \"0x0129\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_target_moving_slowly\", \"kind\": \"scenario.ai.condition.if_target_moving_slowly\", \"source\": \"ai/ailists.json\", \"target\": \"chr.target.motion\", \"opcode\": \"0x012a\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_target_moving_closer\", \"kind\": \"scenario.ai.condition.if_target_moving_closer\", \"source\": \"ai/ailists.json\", \"target\": \"chr.target.motion\", \"opcode\": \"0x012b\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_target_moving_away\", \"kind\": \"scenario.ai.condition.if_target_moving_away\", \"source\": \"ai/ailists.json\", \"target\": \"chr.target.motion\", \"opcode\": \"0x012c\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_squadron_is_dead\", \"kind\": \"scenario.ai.condition.if_squadron_is_dead\", \"source\": \"ai/ailists.json\", \"target\": \"squadron.alive\", \"opcode\": \"0x0147\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_true\", \"kind\": \"scenario.ai.condition.if_true\", \"source\": \"ai/ailists.json\", \"target\": \"ai.branch\", \"opcode\": \"0x014a\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_num_chrs_in_squadron_greater_than\", \"kind\": \"scenario.ai.condition.if_num_chrs_in_squadron_greater_than\", \"source\": \"ai/ailists.json\", \"target\": \"squadron.count\", \"opcode\": \"0x0152\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_natural_anim\", \"kind\": \"scenario.ai.condition.if_natural_anim\", \"source\": \"ai/ailists.json\", \"target\": \"chr.naturalanim\", \"opcode\": \"0x0169\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_y\", \"kind\": \"scenario.ai.condition.if_y\", \"source\": \"ai/ailists.json\", \"target\": \"chr.position.y\", \"opcode\": \"0x016a\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_sound_timer\", \"kind\": \"scenario.ai.condition.if_sound_timer\", \"source\": \"ai/ailists.json\", \"target\": \"chr.soundtimer\", \"opcode\": \"0x0186\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_target_y_difference_less_than\", \"kind\": \"scenario.ai.condition.if_target_y_difference_less_than\", \"source\": \"ai/ailists.json\", \"target\": \"chr.target.position.y\", \"opcode\": \"0x01a6\" },\n"
+			"    { \"id\": \"scenario.ai.action.try_attack_amount\", \"kind\": \"scenario.ai.action.try_attack_amount\", \"source\": \"ai/ailists.json\", \"target\": \"chr.attack_state\", \"opcode\": \"0x0184\" },\n"
+			"    { \"id\": \"scenario.ai.action.set_chr_preset\", \"kind\": \"scenario.ai.action.set_chr_preset\", \"source\": \"ai/ailists.json\", \"opcode\": \"0x00b0\" },\n"
+			"    { \"id\": \"scenario.ai.action.set_chr_target\", \"kind\": \"scenario.ai.action.set_chr_target\", \"source\": \"ai/ailists.json\", \"opcode\": \"0x00b1\" },\n"
+			"    { \"id\": \"scenario.ai.action.set_pad_preset\", \"kind\": \"scenario.ai.action.set_pad_preset\", \"source\": \"ai/ailists.json\", \"pads\": \"pads.json\", \"opcode\": \"0x00b2\" },\n"
+			"    { \"id\": \"scenario.ai.action.chr_set_pad_preset\", \"kind\": \"scenario.ai.action.chr_set_pad_preset\", \"source\": \"ai/ailists.json\", \"pads\": \"pads.json\", \"opcode\": \"0x00b3\" },\n"
+			"    { \"id\": \"scenario.ai.action.chr_copy_pad_preset\", \"kind\": \"scenario.ai.action.chr_copy_pad_preset\", \"source\": \"ai/ailists.json\", \"pad\": \"source_chr.padpreset1\", \"opcode\": \"0x00b4\" },\n"
+			"    { \"id\": \"scenario.ai.action.show_hudmsg\", \"kind\": \"scenario.ai.action.show_hudmsg\", \"source\": \"ai/ailists.json\", \"target\": \"hud.message\", \"opcode\": \"0x00cb\" },\n"
+			"    { \"id\": \"scenario.ai.action.show_hudmsg_top_middle\", \"kind\": \"scenario.ai.action.show_hudmsg_top_middle\", \"source\": \"ai/ailists.json\", \"target\": \"hud.subtitle\", \"opcode\": \"0x00cc\" },\n"
+			"    { \"id\": \"scenario.ai.action.show_hudmsg_middle\", \"kind\": \"scenario.ai.action.show_hudmsg_middle\", \"source\": \"ai/ailists.json\", \"target\": \"hud.message.middle\", \"opcode\": \"0x01a4\" },\n"
+			"    { \"id\": \"scenario.ai.action.hovercar_begin_path\", \"kind\": \"scenario.ai.action.hovercar_begin_path\", \"source\": \"ai/ailists.json\", \"paths\": \"navigation/paths.json\", \"target\": \"vehicle.path\", \"opcode\": \"0x00d5\" },\n"
+			"    { \"id\": \"scenario.ai.action.set_vehicle_speed\", \"kind\": \"scenario.ai.action.set_vehicle_speed\", \"source\": \"ai/ailists.json\", \"target\": \"vehicle.speed\", \"opcode\": \"0x00d6\" },\n"
+			"    { \"id\": \"scenario.ai.action.set_rotor_speed\", \"kind\": \"scenario.ai.action.set_rotor_speed\", \"source\": \"ai/ailists.json\", \"target\": \"vehicle.rotor_speed\", \"opcode\": \"0x00d7\" },\n"
+			"    { \"id\": \"scenario.ai.action.chr_explosions\", \"kind\": \"scenario.ai.action.chr_explosions\", \"source\": \"ai/ailists.json\", \"target\": \"player.explosions\", \"opcode\": \"0x00fb\" },\n"
+			"    { \"id\": \"scenario.ai.action.set_tinted_glass_enabled\", \"kind\": \"scenario.ai.action.set_tinted_glass_enabled\", \"source\": \"ai/ailists.json\", \"target\": \"scene.tinted_glass\", \"opcode\": \"0x0157\" },\n"
+			"    { \"id\": \"scenario.ai.action.hovercopter_fire_rocket\", \"kind\": \"scenario.ai.action.hovercopter_fire_rocket\", \"source\": \"ai/ailists.json\", \"target\": \"vehicle.rocket\", \"opcode\": \"0x0167\" },\n"
+			"    { \"id\": \"scenario.ai.action.chr_adjust_motion_blur\", \"kind\": \"scenario.ai.action.chr_adjust_motion_blur\", \"source\": \"ai/ailists.json\", \"target\": \"chr.motion_blur\", \"opcode\": \"0x016d\" },\n"
+			"    { \"id\": \"scenario.ai.action.punch_or_kick\", \"kind\": \"scenario.ai.action.punch_or_kick\", \"source\": \"ai/ailists.json\", \"target\": \"chr.melee\", \"opcode\": \"0x0182\" },\n"
+			"    { \"id\": \"scenario.ai.action.set_target_to_eyespy_if_in_sight\", \"kind\": \"scenario.ai.action.set_target_to_eyespy_if_in_sight\", \"source\": \"ai/ailists.json\", \"target\": \"chr.target.eyespy\", \"opcode\": \"0x0187\" },\n"
+			"    { \"id\": \"scenario.ai.action.mini_skedar_try_pounce\", \"kind\": \"scenario.ai.action.mini_skedar_try_pounce\", \"source\": \"ai/ailists.json\", \"target\": \"chr.pounce\", \"opcode\": \"0x018e\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_object_distance_to_pad_less_than\", \"kind\": \"scenario.ai.condition.if_object_distance_to_pad_less_than\", \"source\": \"ai/ailists.json\", \"objects\": \"objects.json\", \"pads\": \"pads.json\", \"target\": \"object.pad_distance\", \"opcode\": \"0x018f\" },\n"
+			"    { \"id\": \"scenario.ai.action.avoid\", \"kind\": \"scenario.ai.action.avoid\", \"source\": \"ai/ailists.json\", \"target\": \"chr.avoidance\", \"opcode\": \"0x01c5\" },\n"
+			"    { \"id\": \"scenario.ai.action.title_init_mode\", \"kind\": \"scenario.ai.action.title_init_mode\", \"source\": \"ai/ailists.json\", \"target\": \"title.mode\", \"opcode\": \"0x01c8\" },\n"
+			"    { \"id\": \"scenario.ai.action.try_exit_title\", \"kind\": \"scenario.ai.action.try_exit_title\", \"source\": \"ai/ailists.json\", \"target\": \"title.exit\", \"opcode\": \"0x01c9\" },\n"
+			"    { \"id\": \"scenario.ai.action.chr_emit_sparks\", \"kind\": \"scenario.ai.action.chr_emit_sparks\", \"source\": \"ai/ailists.json\", \"target\": \"chr.sparks\", \"opcode\": \"0x01d2\" },\n"
+			"    { \"id\": \"scenario.ai.action.set_dr_caroll_images\", \"kind\": \"scenario.ai.action.set_dr_caroll_images\", \"source\": \"ai/ailists.json\", \"target\": \"chr.dr_caroll_images\", \"opcode\": \"0x01d3\" },\n"
+			"    { \"id\": \"scenario.ai.action.say_quip\", \"kind\": \"scenario.ai.action.say_quip\", \"source\": \"ai/ailists.json\", \"target\": \"chr.quip\", \"opcode\": \"0x0130\" },\n"
+			"    { \"id\": \"scenario.ai.action.say_ci_staff_quip\", \"kind\": \"scenario.ai.action.say_ci_staff_quip\", \"source\": \"ai/ailists.json\", \"target\": \"chr.ci_staff_quip\", \"opcode\": \"0x01a2\" },\n"
+			"    { \"id\": \"scenario.ai.action.shuffle_ruins_pillars\", \"kind\": \"scenario.ai.action.shuffle_ruins_pillars\", \"source\": \"ai/ailists.json\", \"objects\": \"objects.json\", \"target\": \"setup.tags\", \"opcode\": \"0x01b1\" },\n"
+			"    { \"id\": \"scenario.ai.action.shuffle_pelagic_switches\", \"kind\": \"scenario.ai.action.shuffle_pelagic_switches\", \"source\": \"ai/ailists.json\", \"objects\": \"objects.json\", \"target\": \"setup.tags\", \"opcode\": \"0x01b9\" }%s\n",
 			scenario_id, kind ? kind : "scenario",
 			(unsigned)portal_count,
 			(unsigned)pad_count, (unsigned)path_count,
@@ -3938,7 +4255,7 @@ static s32 s_buildScenarioSourceFiles(const char *scenario_id,
 
 	for (u32 i = 0; i < pad_count; i++) {
 		if (s_textbufAppendf(level_graph_json,
-				"    { \"id\": \"trigger.volume.%04u\", \"kind\": \"scenario.trigger.volume.source\", \"table\": \"volumes.tsv\", \"volume\": \"volume_pad_%04u\", \"pad\": \"pad_%04u\" }%s\n",
+				"    { \"id\": \"trigger.volume.%04u\", \"kind\": \"scenario.trigger.volume.source\", \"table\": \"volumes.json\", \"volume\": \"volume_pad_%04u\", \"pad\": \"pad_%04u\" }%s\n",
 				(unsigned)i, (unsigned)i, (unsigned)i,
 				i + 1 < pad_count ? "," : "") != 0) {
 			return -1;
@@ -4541,25 +4858,25 @@ static s32 s_buildScenarioSourceFiles(const char *scenario_id,
 	s_bytesSha256Hex(scene_glb, scene_glb_size, scene_hash);
 	s_textbufSha256Hex(collision_obj, collision_hash);
 	s_textbufSha256Hex(navigation_ini, navigation_hash);
-	s_textbufSha256Hex(portals_tsv, portals_hash);
-	s_textbufSha256Hex(pads_tsv, pads_hash);
-	s_textbufSha256Hex(spawns_tsv, spawns_hash);
-	s_textbufSha256Hex(volumes_tsv, volumes_hash);
-	s_textbufSha256Hex(waypoints_tsv, waypoints_hash);
-	s_textbufSha256Hex(waygroups_tsv, waygroups_hash);
-	s_textbufSha256Hex(covers_tsv, covers_hash);
-	s_textbufSha256Hex(paths_tsv, paths_hash);
+	s_textbufSha256Hex(portals_json, portals_hash);
+	s_textbufSha256Hex(pads_json, pads_hash);
+	s_textbufSha256Hex(spawns_json, spawns_hash);
+	s_textbufSha256Hex(volumes_json, volumes_hash);
+	s_textbufSha256Hex(waypoints_json, waypoints_hash);
+	s_textbufSha256Hex(waygroups_json, waygroups_hash);
+	s_textbufSha256Hex(covers_json, covers_hash);
+	s_textbufSha256Hex(paths_json, paths_hash);
 
 	if (s_textbufAppendf(navmesh_meta_json,
 			"{\n"
 			"  \"schema\": \"pd2.generated.navmesh.v1\",\n"
 			"  \"scenario\": \"%s\",\n"
 			"  \"derived_from\": \"scene.glb\",\n"
-			"  \"inputs\": [\"scene.glb\", \"collision.obj\", \"navigation.ini\", \"portals.tsv\", \"pads.tsv\", \"spawns.tsv\", \"volumes.tsv\", \"navigation/waypoints.tsv\", \"navigation/waygroups.tsv\", \"navigation/covers.tsv\", \"navigation/paths.tsv\"],\n"
+			"  \"inputs\": [\"scene.glb\", \"collision.obj\", \"navigation.ini\", \"portals.json\", \"pads.json\", \"spawns.json\", \"volumes.json\", \"navigation/waypoints.json\", \"navigation/waygroups.json\", \"navigation/covers.json\", \"navigation/paths.json\"],\n"
 			"  \"generator\": \"deterministic.surface_graph.v1\",\n"
 			"  \"capabilities\": [\"walk\", \"jump\", \"drop\", \"wall\", \"ceiling\"],\n"
 			"  \"source_counts\": { \"pads\": %u, \"volumes\": %u, \"waypoints\": %u, \"waygroups\": %u, \"covers\": %u, \"paths\": %u },\n"
-			"  \"source_hashes\": { \"scene.glb\": \"%s\", \"collision.obj\": \"%s\", \"navigation.ini\": \"%s\", \"portals.tsv\": \"%s\", \"pads.tsv\": \"%s\", \"spawns.tsv\": \"%s\", \"volumes.tsv\": \"%s\", \"navigation/waypoints.tsv\": \"%s\", \"navigation/waygroups.tsv\": \"%s\", \"navigation/covers.tsv\": \"%s\", \"navigation/paths.tsv\": \"%s\" },\n"
+			"  \"source_hashes\": { \"scene.glb\": \"%s\", \"collision.obj\": \"%s\", \"navigation.ini\": \"%s\", \"portals.json\": \"%s\", \"pads.json\": \"%s\", \"spawns.json\": \"%s\", \"volumes.json\": \"%s\", \"navigation/waypoints.json\": \"%s\", \"navigation/waygroups.json\": \"%s\", \"navigation/covers.json\": \"%s\", \"navigation/paths.json\": \"%s\" },\n"
 			"  \"cache_only\": true\n"
 			"}\n",
 			scenario_id, (unsigned)pad_count, (unsigned)pad_count,
@@ -5093,10 +5410,20 @@ static s32 s_decodeTexToRgba(const struct tex *tex, u8 **out_rgba)
 	return 0;
 }
 
+static s32 s_rgbaHasNonOpaqueAlpha(const u8 *rgba, u32 width, u32 height)
+{
+	if (!rgba || !width || !height) return 0;
+	for (u32 i = 0; i < width * height; i++) {
+		if (rgba[i * 4u + 3u] < 255u) return 1;
+	}
+	return 0;
+}
+
 s32 romExtractDecodeTextureImages(u16 texnum,
                                   u8 **out_tga, u32 *out_tga_size,
                                   u8 **out_png, u32 *out_png_size,
-                                  u32 *out_width, u32 *out_height)
+                                  u32 *out_width, u32 *out_height,
+                                  s32 *out_has_alpha)
 {
 	if (out_tga) *out_tga = NULL;
 	if (out_tga_size) *out_tga_size = 0;
@@ -5104,6 +5431,7 @@ s32 romExtractDecodeTextureImages(u16 texnum,
 	if (out_png_size) *out_png_size = 0;
 	if (out_width) *out_width = 0;
 	if (out_height) *out_height = 0;
+	if (out_has_alpha) *out_has_alpha = 0;
 
 	u8 *list_data = romdataSegGetData("textureslist");
 	u8 *data = romdataSegGetData("texturesdata");
@@ -5154,6 +5482,7 @@ s32 romExtractDecodeTextureImages(u16 texnum,
 		free(pool_mem);
 		return -1;
 	}
+	s32 has_alpha = s_rgbaHasNonOpaqueAlpha(rgba, tex->width, tex->height);
 	u8 *tga = NULL;
 	u32 tga_size = 0;
 	s32 ok = s_tgaFromRgba(rgba, tex->width, tex->height, &tga, &tga_size);
@@ -5174,6 +5503,7 @@ s32 romExtractDecodeTextureImages(u16 texnum,
 	}
 	if (out_width) *out_width = tex->width;
 	if (out_height) *out_height = tex->height;
+	if (out_has_alpha) *out_has_alpha = has_alpha;
 	*out_tga = tga;
 	*out_tga_size = tga_size;
 	*out_png = png;
@@ -5201,7 +5531,8 @@ static void s_bgSceneDecodeTextures(pdscenario_bgscene_t *scene)
 		if (romExtractDecodeTextureImages(tex->texnum,
 				&tex->tga, &tex->tga_size,
 				&tex->png, &tex->png_size,
-				&tex->width, &tex->height) == 0) {
+				&tex->width, &tex->height,
+				&tex->has_alpha) == 0) {
 			tex->decoded = 1;
 			scene->decoded_texture_count++;
 		} else {
@@ -5221,9 +5552,7 @@ static const pdscenario_bgtexture_t *s_bgSceneTextureByNum(
 static s32 s_bgSceneFinalizeMaterials(pdscenario_bgscene_t *scene)
 {
 	if (s_textbufAppend(&scene->mtl,
-			"# Perfect Dark 2 BG visual material export\n") != 0 ||
-	    s_textbufAppend(&scene->materials_tsv,
-			"material\ttexture_num\tsecondary_texture_num\tsubcmd\tsmode\ttmode\toffset\tshifts\tshiftt\tmin\tflag\ttriangles\ttexture_file\twidth\theight\tdecoded\n") != 0) {
+			"# Perfect Dark 2 BG visual material export\n") != 0) {
 		return -1;
 	}
 
@@ -5235,9 +5564,6 @@ static s32 s_bgSceneFinalizeMaterials(pdscenario_bgscene_t *scene)
 		if (strncmp(mtl_texture_path, "visual/", 7) == 0) {
 			mtl_texture_path += 7;
 		}
-		u32 width = tex ? tex->width : 0u;
-		u32 height = tex ? tex->height : 0u;
-		s32 decoded = tex ? tex->decoded : 0;
 		if (s_textbufAppendf(&scene->mtl,
 				"newmtl %s\n"
 				"Kd 1.000000 1.000000 1.000000\n"
@@ -5253,27 +5579,6 @@ static s32 s_bgSceneFinalizeMaterials(pdscenario_bgscene_t *scene)
 			}
 		}
 		if (s_textbufAppend(&scene->mtl, "\n") != 0) return -1;
-		if (s_textbufAppendf(&scene->materials_tsv,
-				"%s\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%u\t%s\t%u\t%u\t%d\n",
-				m->name, m->texnum, m->texnum2, m->subcmd,
-				m->smode, m->tmode, m->offset, m->shifts,
-				m->shiftt, m->min, m->flag, (unsigned)m->tri_count,
-				texture_path, (unsigned)width, (unsigned)height, decoded) != 0) {
-			return -1;
-		}
-	}
-
-	for (u32 i = 0; i < scene->texture_count; i++) {
-		const pdscenario_bgtexture_t *tex = &scene->textures[i];
-		if (tex->used_by_geometry) continue;
-		const char *texture_path = tex->decoded ? tex->path : "";
-		if (s_textbufAppendf(&scene->materials_tsv,
-				"texture_inventory_%04x\t%d\t-1\t-1\t0\t0\t0\t0\t0\t0\t0\t0\t%s\t%u\t%u\t%d\n",
-				(unsigned)tex->texnum, (int)tex->texnum, texture_path,
-				(unsigned)tex->width, (unsigned)tex->height,
-				tex->decoded) != 0) {
-			return -1;
-		}
 	}
 
 	return 0;
@@ -5291,6 +5596,7 @@ typedef struct {
 	u32 color_accessor;
 	u32 room_accessor;
 	u32 texture_index;
+	u32 secondary_texture_index;
 	f32 min_x, min_y, min_z;
 	f32 max_x, max_y, max_z;
 } pdscenario_gltf_material_t;
@@ -5359,6 +5665,24 @@ static u32 s_bgGltfWrapMode(s32 mode)
 	if (mode & G_TX_CLAMP) return 33071u; /* GL_CLAMP_TO_EDGE */
 	if (mode & G_TX_MIRROR) return 33648u; /* GL_MIRRORED_REPEAT */
 	return 10497u; /* GL_REPEAT */
+}
+
+static const char *s_bgGltfWrapName(s32 mode)
+{
+	if (mode & G_TX_CLAMP) return "clamp";
+	if (mode & G_TX_MIRROR) return "mirror";
+	return "repeat";
+}
+
+static const char *s_bgMaterialTextureCommandName(s32 subcmd)
+{
+	switch (subcmd) {
+	case 0: return "single_texture";
+	case 1: return "dual_texture";
+	case 2: return "lod_texture";
+	case 3: return "special_texture";
+	default: return "unknown";
+	}
 }
 
 static void s_bgMaterialUvScaleForGlb(const pdscenario_bgscene_t *scene,
@@ -5469,6 +5793,7 @@ static s32 s_bgSceneBuildSceneGlb(pdscenario_bgscene_t *scene)
 		mr[i].pos_accessor = mr[i].uv_accessor = mr[i].runtime_uv_accessor =
 			mr[i].room_accessor = 0xffffffffu;
 		mr[i].texture_index = 0xffffffffu;
+		mr[i].secondary_texture_index = 0xffffffffu;
 	}
 	for (u32 i = 0; i < scene->texture_count; i++) {
 		texture_views[i] = 0xffffffffu;
@@ -5570,6 +5895,11 @@ static s32 s_bgSceneBuildSceneGlb(pdscenario_bgscene_t *scene)
 				scene->materials[i].texnum) >= 0) {
 			mr[i].texture_index = material_texture_count++;
 		}
+		if (scene->materials[i].texnum2 >= 0 &&
+				s_bgSceneDecodedTextureIndex(scene,
+					scene->materials[i].texnum2) >= 0) {
+			mr[i].secondary_texture_index = material_texture_count++;
+		}
 	}
 
 	pdscenario_textbuf_t json = { 0 };
@@ -5604,20 +5934,51 @@ static s32 s_bgSceneBuildSceneGlb(pdscenario_bgscene_t *scene)
 
 	for (u32 i = 0; i < scene->material_count; i++) {
 		const pdscenario_bgmaterial_t *m = &scene->materials[i];
+		const pdscenario_bgtexture_t *tex =
+			s_bgSceneTextureByNum(scene, m->texnum);
+		const pdscenario_bgtexture_t *tex2 =
+			s_bgSceneTextureByNum(scene, m->texnum2);
+		const char *primary_image =
+			(tex && tex->decoded) ? tex->path : "";
+		const char *secondary_image =
+			(tex2 && tex2->decoded) ? tex2->path : "";
 		if (i && s_textbufAppend(&json, ",") != 0) goto fail_json;
 		if (mr[i].texture_index != 0xffffffffu) {
-			if (s_textbufAppendf(&json,
+			if (tex && tex->decoded && tex->has_alpha) {
+				if (s_textbufAppendf(&json,
+						"{\"name\":\"%s\",\"alphaMode\":\"MASK\",\"alphaCutoff\":0.01,"
+						"\"pbrMetallicRoughness\":{\"baseColorTexture\":{\"index\":%d,\"texCoord\":0},"
+						"\"metallicFactor\":0.0,\"roughnessFactor\":1.0}",
+						m->name, (s32)mr[i].texture_index) != 0) goto fail_json;
+			} else if (s_textbufAppendf(&json,
 					"{\"name\":\"%s\","
 					"\"pbrMetallicRoughness\":{\"baseColorTexture\":{\"index\":%d,\"texCoord\":0},"
-					"\"metallicFactor\":0.0,\"roughnessFactor\":1.0}}",
+					"\"metallicFactor\":0.0,\"roughnessFactor\":1.0}",
 					m->name, (s32)mr[i].texture_index) != 0) goto fail_json;
 		} else {
 			if (s_textbufAppendf(&json,
 					"{\"name\":\"%s\","
 					"\"pbrMetallicRoughness\":{\"baseColorFactor\":[1.0,1.0,1.0,1.0],"
-					"\"metallicFactor\":0.0,\"roughnessFactor\":1.0}}",
+					"\"metallicFactor\":0.0,\"roughnessFactor\":1.0}",
 					m->name) != 0) goto fail_json;
 		}
+		if (s_textbufAppendf(&json,
+				",\"extras\":{\"pd2_material\":{\"texture_command\":\"%s\","
+				"\"primary_image\":\"%s\",\"secondary_image\":\"%s\","
+				"\"wrap_s\":\"%s\",\"wrap_t\":\"%s\","
+				"\"offset\":%d,\"shift_s\":%d,\"shift_t\":%d,"
+				"\"min_lod\":%d,\"tile_flag\":%d",
+				s_bgMaterialTextureCommandName(m->subcmd),
+				primary_image, secondary_image,
+				s_bgGltfWrapName(m->smode), s_bgGltfWrapName(m->tmode),
+				m->offset, m->shifts, m->shiftt, m->min,
+				m->flag ? 1 : 0) != 0) goto fail_json;
+		if (mr[i].secondary_texture_index != 0xffffffffu) {
+			if (s_textbufAppendf(&json,
+					",\"secondaryTexture\":{\"index\":%d,\"texCoord\":1}",
+					(s32)mr[i].secondary_texture_index) != 0) goto fail_json;
+		}
+		if (s_textbufAppend(&json, "}}}") != 0) goto fail_json;
 	}
 
 	u32 decoded_texture_count = s_bgSceneDecodedTextureCount(scene);
@@ -5625,14 +5986,25 @@ static s32 s_bgSceneBuildSceneGlb(pdscenario_bgscene_t *scene)
 	for (u32 i = 0, idx = 0; i < scene->material_count; i++) {
 		const pdscenario_bgmaterial_t *m = &scene->materials[i];
 		s32 image_index = s_bgSceneDecodedTextureIndex(scene, m->texnum);
-		if (mr[i].texture_index == 0xffffffffu || image_index < 0) continue;
-		if (idx && s_textbufAppend(&json, ",") != 0) goto fail_json;
-		if (s_textbufAppendf(&json,
-				"{\"sampler\":%u,\"source\":%d}",
-				(unsigned)idx, image_index) != 0) {
-			goto fail_json;
+		if (mr[i].texture_index != 0xffffffffu && image_index >= 0) {
+			if (idx && s_textbufAppend(&json, ",") != 0) goto fail_json;
+			if (s_textbufAppendf(&json,
+					"{\"sampler\":%u,\"source\":%d}",
+					(unsigned)idx, image_index) != 0) {
+				goto fail_json;
+			}
+			idx++;
 		}
-		idx++;
+		image_index = s_bgSceneDecodedTextureIndex(scene, m->texnum2);
+		if (mr[i].secondary_texture_index != 0xffffffffu && image_index >= 0) {
+			if (idx && s_textbufAppend(&json, ",") != 0) goto fail_json;
+			if (s_textbufAppendf(&json,
+					"{\"sampler\":%u,\"source\":%d}",
+					(unsigned)idx, image_index) != 0) {
+				goto fail_json;
+			}
+			idx++;
+		}
 	}
 	if (s_textbufAppend(&json, "],\"images\":[") != 0) goto fail_json;
 	for (u32 i = 0, idx = 0; i < scene->texture_count; i++) {
@@ -5651,16 +6023,28 @@ static s32 s_bgSceneBuildSceneGlb(pdscenario_bgscene_t *scene)
 	if (s_textbufAppend(&json, "],\"samplers\":[") != 0) goto fail_json;
 	for (u32 i = 0, idx = 0; i < scene->material_count; i++) {
 		const pdscenario_bgmaterial_t *m = &scene->materials[i];
-		if (mr[i].texture_index == 0xffffffffu) continue;
-		if (idx && s_textbufAppend(&json, ",") != 0) goto fail_json;
-		if (s_textbufAppendf(&json,
-				"{\"magFilter\":9729,\"minFilter\":9987,"
-				"\"wrapS\":%u,\"wrapT\":%u}",
-				(unsigned)s_bgGltfWrapMode(m->smode),
-				(unsigned)s_bgGltfWrapMode(m->tmode)) != 0) {
-			goto fail_json;
+		if (mr[i].texture_index != 0xffffffffu) {
+			if (idx && s_textbufAppend(&json, ",") != 0) goto fail_json;
+			if (s_textbufAppendf(&json,
+					"{\"magFilter\":9729,\"minFilter\":9987,"
+					"\"wrapS\":%u,\"wrapT\":%u}",
+					(unsigned)s_bgGltfWrapMode(m->smode),
+					(unsigned)s_bgGltfWrapMode(m->tmode)) != 0) {
+				goto fail_json;
+			}
+			idx++;
 		}
-		idx++;
+		if (mr[i].secondary_texture_index != 0xffffffffu) {
+			if (idx && s_textbufAppend(&json, ",") != 0) goto fail_json;
+			if (s_textbufAppendf(&json,
+					"{\"magFilter\":9729,\"minFilter\":9987,"
+					"\"wrapS\":%u,\"wrapT\":%u}",
+					(unsigned)s_bgGltfWrapMode(m->smode),
+					(unsigned)s_bgGltfWrapMode(m->tmode)) != 0) {
+				goto fail_json;
+			}
+			idx++;
+		}
 	}
 
 	if (s_textbufAppendf(&json,
@@ -6131,9 +6515,9 @@ static s32 s_loadBgPrimary(const u8 *bg, u32 bg_size, u8 **out_primary,
 	return 0;
 }
 
-static s32 s_buildBgPortalsTsv(const u8 *bg, u32 bg_size,
-                               pdscenario_textbuf_t *out,
-                               u32 *out_portal_count)
+static s32 s_buildBgPortalsJson(const u8 *bg, u32 bg_size,
+                                pdscenario_textbuf_t *out,
+                                u32 *out_portal_count)
 {
 	u8 *primary = NULL;
 	u32 primary_size = 0;
@@ -6144,6 +6528,7 @@ static s32 s_buildBgPortalsTsv(const u8 *bg, u32 bg_size,
 	u8 *portal_base;
 	u32 portal_available;
 	u32 portal_count = 0;
+	u32 emitted_count = 0;
 	u32 *offsets = NULL;
 	u32 cursor;
 
@@ -6151,7 +6536,9 @@ static s32 s_buildBgPortalsTsv(const u8 *bg, u32 bg_size,
 		*out_portal_count = 0;
 	}
 	if (!out || s_textbufAppend(out,
-			"portal_id\troom_a\troom_b\tflags\tvertices\n") != 0) {
+			"{\n"
+			"  \"schema\": \"pd2.scenario.portals.v1\",\n"
+			"  \"rows\": [\n") != 0) {
 		return -1;
 	}
 	if (!bg || bg_size < 12) {
@@ -6166,7 +6553,9 @@ static s32 s_buildBgPortalsTsv(const u8 *bg, u32 bg_size,
 		hdr[2], 0x0f000000);
 	if (!portals) {
 		sysMemFree(primary);
-		return 0;
+		return s_textbufAppend(out,
+			"  ]\n"
+			"}\n");
 	}
 	while (portal_count < 4096u &&
 			s_rangeInBuffer(primary, primary_size, &portals[portal_count],
@@ -6176,7 +6565,9 @@ static s32 s_buildBgPortalsTsv(const u8 *bg, u32 bg_size,
 	}
 	if (portal_count == 0) {
 		sysMemFree(primary);
-		return 0;
+		return s_textbufAppend(out,
+			"  ]\n"
+			"}\n");
 	}
 	offsets = (u32 *)calloc((size_t)portal_count, sizeof(*offsets));
 	if (!offsets) {
@@ -6213,7 +6604,13 @@ static s32 s_buildBgPortalsTsv(const u8 *bg, u32 bg_size,
 				verts->count < 3 || verts->count > 32) {
 			continue;
 		}
-		if (s_textbufAppendf(out, "portal_%04u\troom_%d\troom_%d\t0x%02x\t",
+		if (emitted_count > 0 && s_textbufAppend(out, ",\n") != 0) {
+			free(offsets);
+			sysMemFree(primary);
+			return -1;
+		}
+		if (s_textbufAppendf(out,
+				"    { \"portal_ref\": \"portal_%04u\", \"room_a\": \"room_%d\", \"room_b\": \"room_%d\", \"flags\": %u, \"vertices\": [",
 				(unsigned)i, (s32)portals[i].roomnum1,
 				(s32)portals[i].roomnum2, (unsigned)portals[i].flags) != 0) {
 			free(offsets);
@@ -6221,12 +6618,12 @@ static s32 s_buildBgPortalsTsv(const u8 *bg, u32 bg_size,
 			return -1;
 		}
 		for (u32 j = 0; j < (u32)verts->count; j++) {
-			if (j > 0 && s_textbufAppend(out, ";") != 0) {
+			if (j > 0 && s_textbufAppend(out, ", ") != 0) {
 				free(offsets);
 				sysMemFree(primary);
 				return -1;
 			}
-			if (s_textbufAppendf(out, "%.6f,%.6f,%.6f",
+			if (s_textbufAppendf(out, "[%.6f, %.6f, %.6f]",
 					(double)verts->vertices[j].x,
 					(double)verts->vertices[j].y,
 					(double)verts->vertices[j].z) != 0) {
@@ -6235,7 +6632,7 @@ static s32 s_buildBgPortalsTsv(const u8 *bg, u32 bg_size,
 				return -1;
 			}
 		}
-		if (s_textbufAppend(out, "\n") != 0) {
+		if (s_textbufAppend(out, "] }") != 0) {
 			free(offsets);
 			sysMemFree(primary);
 			return -1;
@@ -6243,10 +6640,14 @@ static s32 s_buildBgPortalsTsv(const u8 *bg, u32 bg_size,
 		if (out_portal_count) {
 			(*out_portal_count)++;
 		}
+		emitted_count++;
 	}
 	free(offsets);
 	sysMemFree(primary);
-	return 0;
+	return s_textbufAppend(out,
+		"\n"
+		"  ]\n"
+		"}\n");
 }
 
 static s32 s_exportBgSection2Textures(const u8 *bg, u32 bg_size,
@@ -6475,29 +6876,60 @@ static s32 s_existingArchiveTextContains(const char *text, u32 size,
 	return 0;
 }
 
-static u32 s_countExistingArchiveTsvDataRows(const char *text, u32 size)
+static s32 s_countExistingArchiveJsonRows(const char *text, u32 size,
+	const char *schema)
 {
-	if (!text || size == 0) return 0;
-	u32 rows = 0;
-	u32 line_index = 0;
-	s32 has_data = 0;
-	for (u32 i = 0; i <= size; i++) {
-		char ch = (i < size) ? text[i] : '\n';
-		if (ch == '\n') {
-			if (line_index > 0 && has_data) rows++;
-			line_index++;
-			has_data = 0;
-		} else if (ch != '\r' &&
-		           !isspace((unsigned char)ch)) {
-			has_data = 1;
+	const char *rows_key;
+	const char *cursor;
+	const char *end;
+	s32 rows = 0;
+	s32 depth = 0;
+	s32 in_string = 0;
+	s32 escape = 0;
+
+	if (!text || size == 0 || !schema || !schema[0]) return -1;
+	if (!s_existingArchiveTextContains(text, size, schema)) return -1;
+	end = text + size;
+	rows_key = strstr(text, "\"rows\"");
+	if (!rows_key || rows_key >= end) return -1;
+	cursor = rows_key + strlen("\"rows\"");
+	while (cursor < end && isspace((unsigned char)*cursor)) cursor++;
+	if (cursor >= end || *cursor != ':') return -1;
+	cursor++;
+	while (cursor < end && isspace((unsigned char)*cursor)) cursor++;
+	if (cursor >= end || *cursor != '[') return -1;
+	cursor++;
+
+	for (; cursor < end; cursor++) {
+		char c = *cursor;
+		if (in_string) {
+			if (escape) {
+				escape = 0;
+			} else if (c == '\\') {
+				escape = 1;
+			} else if (c == '"') {
+				in_string = 0;
+			}
+			continue;
+		}
+		if (c == '"') {
+			in_string = 1;
+		} else if (c == '{') {
+			if (depth == 0) rows++;
+			depth++;
+		} else if (c == '}') {
+			if (depth <= 0) return -1;
+			depth--;
+		} else if (c == ']' && depth == 0) {
+			return rows;
 		}
 	}
-	return rows;
+	return -1;
 }
 
 static s32 s_existingPdscenarioNavmeshMetadataMatches(
 	mod_archive_t *arc, const char *entry, const char *count_key,
-	const char *navmesh_text, u32 navmesh_size)
+	const char *schema, const char *navmesh_text, u32 navmesh_size)
 {
 	s32 idx = modArchiveFindEntry(arc, entry);
 	if (idx < 0) return 0;
@@ -6506,14 +6938,17 @@ static s32 s_existingPdscenarioNavmeshMetadataMatches(
 	char *bytes = (char *)modArchiveExtractAlloc(arc, idx, &size);
 	if (!bytes) return 0;
 
-	u32 row_count = s_countExistingArchiveTsvDataRows(bytes, size);
+	s32 row_count = s_countExistingArchiveJsonRows(bytes, size, schema);
+	if (row_count < 0) {
+		free(bytes);
+		return 0;
+	}
 	char hash[SHA256_HEX_SIZE];
 	s_bytesSha256Hex((const u8 *)bytes, size, hash);
 	free(bytes);
 
 	char needle[256];
-	snprintf(needle, sizeof(needle), "\"%s\": %u", count_key,
-		(unsigned)row_count);
+	snprintf(needle, sizeof(needle), "\"%s\": %d", count_key, row_count);
 	if (!s_existingArchiveTextContains(navmesh_text, navmesh_size, needle)) {
 		return 0;
 	}
@@ -6527,20 +6962,21 @@ static s32 s_existingPdscenarioGeneratedNavmeshIsCurrent(const char *relpath)
 	static const struct {
 		const char *entry;
 		const char *count_key;
+		const char *schema;
 	} k_counted_sources[] = {
-		{ "pads.tsv", "pads" },
-		{ "volumes.tsv", "volumes" },
-		{ "navigation/waypoints.tsv", "waypoints" },
-		{ "navigation/waygroups.tsv", "waygroups" },
-		{ "navigation/covers.tsv", "covers" },
-		{ "navigation/paths.tsv", "paths" },
+		{ "pads.json", "pads", "pd2.scenario.pads.v1" },
+		{ "volumes.json", "volumes", "pd2.scenario.volumes.v1" },
+		{ "navigation/waypoints.json", "waypoints", "pd2.scenario.waypoints.v1" },
+		{ "navigation/waygroups.json", "waygroups", "pd2.scenario.waygroups.v1" },
+		{ "navigation/covers.json", "covers", "pd2.scenario.covers.v1" },
+		{ "navigation/paths.json", "paths", "pd2.scenario.paths.v1" },
 	};
 	static const char *k_hashed_only_sources[] = {
 		"scene.glb",
 		"collision.obj",
 		"navigation.ini",
-		"portals.tsv",
-		"spawns.tsv",
+		"portals.json",
+		"spawns.json",
 	};
 
 	char full_buf[FS_MAXPATH + 1];
@@ -6574,7 +7010,7 @@ static s32 s_existingPdscenarioGeneratedNavmeshIsCurrent(const char *relpath)
 			sizeof(k_counted_sources[0]); i++) {
 		ok = s_existingPdscenarioNavmeshMetadataMatches(arc,
 			k_counted_sources[i].entry, k_counted_sources[i].count_key,
-			navmesh, navmesh_size);
+			k_counted_sources[i].schema, navmesh, navmesh_size);
 	}
 
 	for (u32 i = 0; ok && i < sizeof(k_hashed_only_sources) /
@@ -6699,21 +7135,41 @@ static s32 s_existingPdscenarioArchiveIsClean(const char *relpath)
 		s_existingArchiveHasEntry(relpath, "_meta/manifest.json") &&
 		s_existingArchiveHasEntry(relpath, "scene.glb") &&
 		s_existingArchiveHasEntry(relpath, "collision.obj") &&
-		s_existingArchiveHasEntry(relpath, "portals.tsv") &&
-		s_existingArchiveHasEntry(relpath, "pads.tsv") &&
-		s_existingArchiveHasEntry(relpath, "spawns.tsv") &&
-		s_existingArchiveHasEntry(relpath, "volumes.tsv") &&
-		s_existingArchiveHasEntry(relpath, "navigation/waypoints.tsv") &&
-		s_existingArchiveHasEntry(relpath, "navigation/waygroups.tsv") &&
-		s_existingArchiveHasEntry(relpath, "navigation/covers.tsv") &&
-		s_existingArchiveHasEntry(relpath, "navigation/paths.tsv") &&
-		s_existingArchiveHasEntry(relpath, "objects.tsv") &&
-		s_existingArchiveHasEntry(relpath, "setup.fields.tsv") &&
-		s_existingArchiveHasEntry(relpath, "ai/ailists.tsv") &&
-		s_existingArchiveHasEntry(relpath, "objectives.tsv") &&
-		s_existingArchiveEntryContains(relpath, "objectives.tsv",
-			"operand_kind") &&
-		!s_existingArchiveEntryContains(relpath, "setup.fields.tsv",
+		s_existingArchiveHasEntry(relpath, "portals.json") &&
+		!s_existingArchiveHasEntry(relpath, "portals.tsv") &&
+		s_existingArchiveHasEntry(relpath, "pads.json") &&
+		s_existingArchiveHasEntry(relpath, "spawns.json") &&
+		s_existingArchiveHasEntry(relpath, "volumes.json") &&
+		s_existingArchiveHasEntry(relpath, "navigation/waypoints.json") &&
+		s_existingArchiveHasEntry(relpath, "navigation/waygroups.json") &&
+		s_existingArchiveHasEntry(relpath, "navigation/covers.json") &&
+		!s_existingArchiveHasEntry(relpath, "navigation/waypoints.tsv") &&
+		!s_existingArchiveHasEntry(relpath, "navigation/waygroups.tsv") &&
+		!s_existingArchiveHasEntry(relpath, "navigation/covers.tsv") &&
+		s_existingArchiveEntryContains(relpath, "navigation/waypoints.json",
+			"pd2.scenario.waypoints.v1") &&
+		s_existingArchiveEntryContains(relpath, "navigation/waygroups.json",
+			"pd2.scenario.waygroups.v1") &&
+		s_existingArchiveEntryContains(relpath, "navigation/covers.json",
+			"pd2.scenario.covers.v1") &&
+		s_existingArchiveHasEntry(relpath, "navigation/paths.json") &&
+		s_existingArchiveEntryContains(relpath, "navigation/paths.json",
+			"pd2.scenario.paths.v1") &&
+		!s_existingArchiveHasEntry(relpath, "navigation/paths.tsv") &&
+		s_existingArchiveHasEntry(relpath, "objects.json") &&
+		!s_existingArchiveHasEntry(relpath, "objects.tsv") &&
+		s_existingArchiveEntryContains(relpath, "objects.json",
+			"pd2.scenario.objects.v1") &&
+		s_existingArchiveHasEntry(relpath, "setup.fields.json") &&
+		!s_existingArchiveHasEntry(relpath, "setup.fields.tsv") &&
+		s_existingArchiveEntryContains(relpath, "setup.fields.json",
+			"pd2.scenario.setup.fields.v1") &&
+		s_existingArchiveHasEntry(relpath, "ai/ailists.json") &&
+		s_existingArchiveHasEntry(relpath, "objectives.json") &&
+		s_existingArchiveEntryContains(relpath, "objectives.json",
+			"pd2.scenario.objectives.v1") &&
+		!s_existingArchiveHasEntry(relpath, "objectives.tsv") &&
+		!s_existingArchiveEntryContains(relpath, "setup.fields.json",
 			"objective_step.argument") &&
 		s_existingArchiveHasEntry(relpath, "navigation.ini") &&
 		s_existingArchiveHasEntry(relpath, "level.graph.json") &&
@@ -6730,7 +7186,7 @@ static s32 s_existingPdscenarioArchiveIsClean(const char *relpath)
 		s_existingArchiveEntryContains(relpath, "level.graph.json",
 			"scenario.portals.source") &&
 		s_existingArchiveEntryContains(relpath, "level.graph.json",
-			"\"portals\": \"portals.tsv\"") &&
+			"\"portals\": \"portals.json\"") &&
 		s_existingArchiveEntryContains(relpath, "scenario.ini",
 			"collision_source = collision.obj") &&
 		s_existingArchiveEntryContains(relpath, "_meta/manifest.json",
@@ -7856,19 +8312,18 @@ static s32 s_emitOnePdscenarioSpec(const pdscenario_emit_spec_t *spec,
 		spec->provenance_index, spec->slug);
 
 	pdscenario_textbuf_t rooms_obj = { 0 };
-	pdscenario_textbuf_t tiles_tsv = { 0 };
-	pdscenario_textbuf_t portals_tsv = { 0 };
-	pdscenario_textbuf_t pads_tsv = { 0 };
-	pdscenario_textbuf_t spawns_tsv = { 0 };
-	pdscenario_textbuf_t volumes_tsv = { 0 };
-	pdscenario_textbuf_t waypoints_tsv = { 0 };
-	pdscenario_textbuf_t waygroups_tsv = { 0 };
-	pdscenario_textbuf_t covers_tsv = { 0 };
-	pdscenario_textbuf_t paths_tsv = { 0 };
-	pdscenario_textbuf_t objects_tsv = { 0 };
-	pdscenario_textbuf_t setup_fields_tsv = { 0 };
-	pdscenario_textbuf_t ai_lists_tsv = { 0 };
-	pdscenario_textbuf_t objectives_tsv = { 0 };
+	pdscenario_textbuf_t portals_json = { 0 };
+	pdscenario_textbuf_t pads_json = { 0 };
+	pdscenario_textbuf_t spawns_json = { 0 };
+	pdscenario_textbuf_t volumes_json = { 0 };
+	pdscenario_textbuf_t waypoints_json = { 0 };
+	pdscenario_textbuf_t waygroups_json = { 0 };
+	pdscenario_textbuf_t covers_json = { 0 };
+	pdscenario_textbuf_t paths_json = { 0 };
+	pdscenario_textbuf_t objects_json = { 0 };
+	pdscenario_textbuf_t setup_fields_json = { 0 };
+	pdscenario_textbuf_t ai_lists_json = { 0 };
+	pdscenario_textbuf_t objectives_json = { 0 };
 	pdscenario_textbuf_t navigation_ini = { 0 };
 	pdscenario_textbuf_t level_graph_json = { 0 };
 	pdscenario_textbuf_t collision_meta_json = { 0 };
@@ -7899,8 +8354,7 @@ static s32 s_emitOnePdscenarioSpec(const pdscenario_emit_spec_t *spec,
 		&tiles_data, &tiles_size);
 	if (has_tiles > 0) {
 		if (s_buildTilesExports(tiles_data, tiles_size, &rooms_obj,
-				&visual_mesh, &tiles_tsv,
-				&room_count, &geo_count, &tri_count) != 0) {
+				&visual_mesh, &room_count, &geo_count, &tri_count) != 0) {
 			sysLogPrintf(LOG_WARNING,
 				"romextract pdscenario: tile conversion failed for \"%s\"",
 				scenario_id);
@@ -7914,16 +8368,16 @@ static s32 s_emitOnePdscenarioSpec(const pdscenario_emit_spec_t *spec,
 	s32 has_pads = s_loadStageFilePreprocessed(st->padsfileid, LOADTYPE_PADS,
 		&pads_data, &pads_size);
 	if (has_pads > 0) {
-		if (s_buildPadsTsv(pads_data, pads_size, &pads_tsv,
-				NULL, &volumes_tsv, &pad_count) != 0) {
+		if (s_buildPadsJson(pads_data, pads_size, &pads_json,
+				NULL, &volumes_json, &pad_count) != 0) {
 			sysLogPrintf(LOG_WARNING,
 				"romextract pdscenario: pads conversion failed for \"%s\"",
 				scenario_id);
 			has_pads = -1;
 		}
 		if (has_pads > 0 &&
-				s_buildNavigationTsv(pads_data, pads_size, &waypoints_tsv,
-					&waygroups_tsv, &covers_tsv, &waypoint_count,
+				s_buildNavigationJson(pads_data, pads_size, &waypoints_json,
+					&waygroups_json, &covers_json, &waypoint_count,
 					&waygroup_count, &cover_count) != 0) {
 			sysLogPrintf(LOG_WARNING,
 				"romextract pdscenario: navigation table conversion failed for \"%s\"",
@@ -7938,8 +8392,8 @@ static s32 s_emitOnePdscenarioSpec(const pdscenario_emit_spec_t *spec,
 	s32 has_setup = s_loadStageFilePreprocessed(st->setupfileid,
 		LOADTYPE_SETUP, &setup_data, &setup_size);
 	if (has_setup > 0) {
-		if (s_buildSetupTables(setup_data, setup_size, &objects_tsv,
-				&objectives_tsv, &setup_fields_tsv, &object_count,
+		if (s_buildSetupTables(setup_data, setup_size, &objects_json,
+				&objectives_json, &setup_fields_json, &object_count,
 				&objective_count) != 0) {
 			sysLogPrintf(LOG_WARNING,
 				"romextract pdscenario: setup table conversion failed for \"%s\"",
@@ -7948,14 +8402,14 @@ static s32 s_emitOnePdscenarioSpec(const pdscenario_emit_spec_t *spec,
 		}
 		if (has_setup > 0 &&
 				s_buildIntroSpawnsTable(setup_data, setup_size,
-					&spawns_tsv, &spawn_count) != 0) {
+					&spawns_json, &spawn_count) != 0) {
 			sysLogPrintf(LOG_WARNING,
 				"romextract pdscenario: intro spawn conversion failed for \"%s\"",
 				scenario_id);
 			has_setup = -1;
 		}
 		if (has_setup > 0 &&
-				s_buildAiListsTable(setup_data, setup_size, &ai_lists_tsv,
+				s_buildAiListsTable(setup_data, setup_size, &ai_lists_json,
 					&ai_list_count, &ai_command_count) != 0) {
 			sysLogPrintf(LOG_WARNING,
 				"romextract pdscenario: AI list conversion failed for \"%s\"",
@@ -7963,7 +8417,7 @@ static s32 s_emitOnePdscenarioSpec(const pdscenario_emit_spec_t *spec,
 			has_setup = -1;
 		}
 		if (has_setup > 0 &&
-				s_buildPathTsv(setup_data, setup_size, &paths_tsv,
+				s_buildPathsJson(setup_data, setup_size, &paths_json,
 					&path_count) != 0) {
 			sysLogPrintf(LOG_WARNING,
 				"romextract pdscenario: path table conversion failed for \"%s\"",
@@ -7972,20 +8426,44 @@ static s32 s_emitOnePdscenarioSpec(const pdscenario_emit_spec_t *spec,
 		}
 		sysMemFree(setup_data);
 	} else {
-		if (s_textbufAppend(&objects_tsv,
-				"record_id\tkind\tpad_ref\tmodel_catalog_id\tweapon_catalog_id\tsecondary_weapon_catalog_id\tbody_catalog_id\thead_catalog_id\tailist_ref\tflags\tflags2\tflags3\n") != 0 ||
-		    s_textbufAppend(&setup_fields_tsv,
-				"record_id\tkind\tfield\ttype\tvalue\tcatalog_id\tref_record_id\n") != 0 ||
-		    s_textbufAppend(&spawns_tsv,
-				"spawn_id\tpad_ref\troom_ref\tteam\tprofile\tpos_x\tpos_y\tpos_z\tlook_x\tlook_y\tlook_z\n") != 0 ||
-		    s_textbufAppend(&ai_lists_tsv,
-				"ailist_ref\tlist_id\tgraph_node\tcommand_index\toffset\topcode\topcode_name\toperands\tmodel_catalog_id\tweapon_catalog_id\tbody_catalog_id\thead_catalog_id\n") != 0 ||
-		    s_textbufAppend(&objectives_tsv,
-				"objective_id\tkind\ttext_token\tdifficulty_mask\tgraph_node\toperand_kind\ttarget_ref\ttarget_record_ref\tpad_ref\tstate_ref\tmatch_value\tinitial_status\n") != 0) {
+		if (s_textbufAppend(&objects_json,
+				"{\n"
+				"  \"schema\": \"pd2.scenario.objects.v1\",\n"
+				"  \"rows\": [\n"
+				"  ]\n"
+				"}\n") != 0 ||
+		    s_textbufAppend(&setup_fields_json,
+				"{\n"
+				"  \"schema\": \"pd2.scenario.setup.fields.v1\",\n"
+				"  \"rows\": [\n"
+				"  ]\n"
+				"}\n") != 0 ||
+		    s_textbufAppend(&spawns_json,
+				"{\n"
+				"  \"schema\": \"pd2.scenario.spawns.v1\",\n"
+				"  \"rows\": [\n"
+				"  ]\n"
+				"}\n") != 0 ||
+		    s_textbufAppend(&ai_lists_json,
+				"{\n"
+				"  \"schema\": \"pd2.scenario.ai.lists.v1\",\n"
+				"  \"rows\": [\n"
+				"  ]\n"
+				"}\n") != 0 ||
+		    s_textbufAppend(&objectives_json,
+				"{\n"
+				"  \"schema\": \"pd2.scenario.objectives.v1\",\n"
+				"  \"rows\": [\n"
+				"  ]\n"
+				"}\n") != 0) {
 			has_setup = -1;
 		}
-		if (s_textbufAppend(&paths_tsv,
-				"path_ref\tflags\tpads\n") != 0) {
+		if (s_textbufAppend(&paths_json,
+				"{\n"
+				"  \"schema\": \"pd2.scenario.paths.v1\",\n"
+				"  \"rows\": [\n"
+				"  ]\n"
+				"}\n") != 0) {
 			has_setup = -1;
 		}
 	}
@@ -8001,7 +8479,7 @@ static s32 s_emitOnePdscenarioSpec(const pdscenario_emit_spec_t *spec,
 				"romextract pdscenario: BG visual display-list export failed for \"%s\"",
 				scenario_id);
 		}
-		if (s_buildBgPortalsTsv(bg_data, bg_size, &portals_tsv,
+		if (s_buildBgPortalsJson(bg_data, bg_size, &portals_json,
 				&portal_count) != 0) {
 			sysLogPrintf(LOG_WARNING,
 				"romextract pdscenario: portal table conversion failed for \"%s\"",
@@ -8023,8 +8501,8 @@ static s32 s_emitOnePdscenarioSpec(const pdscenario_emit_spec_t *spec,
 			ai_list_count,
 			waypoint_count, waygroup_count, cover_count, path_count,
 			bg_scene.scene_glb, bg_scene.scene_glb_size, &rooms_obj,
-			&portals_tsv, &pads_tsv, &spawns_tsv, &volumes_tsv,
-			&waypoints_tsv, &waygroups_tsv, &covers_tsv, &paths_tsv,
+			&portals_json, &pads_json, &spawns_json, &volumes_json,
+			&waypoints_json, &waygroups_json, &covers_json, &paths_json,
 			&navigation_ini,
 			&level_graph_json, &collision_meta_json,
 			&navmesh_meta_json) != 0) {
@@ -8035,9 +8513,9 @@ static s32 s_emitOnePdscenarioSpec(const pdscenario_emit_spec_t *spec,
 	}
 
 	if (has_tiles < 0 || has_pads < 0 || has_setup < 0 || has_bg < 0) {
-		s_pdscenarioScratchFree(&rooms_obj, &tiles_tsv, &portals_tsv, &pads_tsv,
-			&spawns_tsv, &volumes_tsv, &waypoints_tsv, &waygroups_tsv,
-			&covers_tsv, &paths_tsv, &objects_tsv, &setup_fields_tsv, &ai_lists_tsv, &objectives_tsv,
+		s_pdscenarioScratchFree(&rooms_obj, &portals_json, &pads_json,
+			&spawns_json, &volumes_json, &waypoints_json, &waygroups_json,
+			&covers_json, &paths_json, &objects_json, &setup_fields_json, &ai_lists_json, &objectives_json,
 			&navigation_ini, &level_graph_json, &collision_meta_json,
 			&navmesh_meta_json,
 			&visual_mesh, &bg_scene);
@@ -8049,9 +8527,9 @@ static s32 s_emitOnePdscenarioSpec(const pdscenario_emit_spec_t *spec,
 		if (assetArchiveWriterAddPublicMem(&asset_writer, "scene.glb",
 				bg_scene.scene_glb, bg_scene.scene_glb_size,
 				"scene") != MODARCHIVE_OK) {
-			s_pdscenarioScratchFree(&rooms_obj, &tiles_tsv, &portals_tsv, &pads_tsv,
-				&spawns_tsv, &volumes_tsv, &waypoints_tsv, &waygroups_tsv,
-				&covers_tsv, &paths_tsv, &objects_tsv, &setup_fields_tsv, &ai_lists_tsv, &objectives_tsv,
+			s_pdscenarioScratchFree(&rooms_obj, &portals_json, &pads_json,
+				&spawns_json, &volumes_json, &waypoints_json, &waygroups_json,
+				&covers_json, &paths_json, &objects_json, &setup_fields_json, &ai_lists_json, &objectives_json,
 				&navigation_ini, &level_graph_json, &collision_meta_json,
 				&navmesh_meta_json,
 				&visual_mesh, &bg_scene);
@@ -8063,9 +8541,9 @@ static s32 s_emitOnePdscenarioSpec(const pdscenario_emit_spec_t *spec,
 	if (has_tiles > 0) {
 		if (assetArchiveWriterAddPublicMem(&asset_writer, "collision.obj",
 				rooms_obj.data, rooms_obj.len, "collision") != MODARCHIVE_OK) {
-			s_pdscenarioScratchFree(&rooms_obj, &tiles_tsv, &portals_tsv, &pads_tsv,
-				&spawns_tsv, &volumes_tsv, &waypoints_tsv, &waygroups_tsv,
-				&covers_tsv, &paths_tsv, &objects_tsv, &setup_fields_tsv, &ai_lists_tsv, &objectives_tsv,
+			s_pdscenarioScratchFree(&rooms_obj, &portals_json, &pads_json,
+				&spawns_json, &volumes_json, &waypoints_json, &waygroups_json,
+				&covers_json, &paths_json, &objects_json, &setup_fields_json, &ai_lists_json, &objectives_json,
 				&navigation_ini, &level_graph_json,
 				&collision_meta_json, &navmesh_meta_json,
 				&visual_mesh, &bg_scene);
@@ -8075,11 +8553,11 @@ static s32 s_emitOnePdscenarioSpec(const pdscenario_emit_spec_t *spec,
 	}
 
 	if (has_bg > 0) {
-		if (assetArchiveWriterAddPublicMem(&asset_writer, "portals.tsv",
-				portals_tsv.data, portals_tsv.len, "portals") != MODARCHIVE_OK) {
-			s_pdscenarioScratchFree(&rooms_obj, &tiles_tsv, &portals_tsv, &pads_tsv,
-				&spawns_tsv, &volumes_tsv, &waypoints_tsv, &waygroups_tsv,
-				&covers_tsv, &paths_tsv, &objects_tsv, &setup_fields_tsv, &ai_lists_tsv, &objectives_tsv,
+		if (assetArchiveWriterAddPublicMem(&asset_writer, "portals.json",
+				portals_json.data, portals_json.len, "portals") != MODARCHIVE_OK) {
+			s_pdscenarioScratchFree(&rooms_obj, &portals_json, &pads_json,
+				&spawns_json, &volumes_json, &waypoints_json, &waygroups_json,
+				&covers_json, &paths_json, &objects_json, &setup_fields_json, &ai_lists_json, &objectives_json,
 				&navigation_ini, &level_graph_json,
 				&collision_meta_json, &navmesh_meta_json,
 				&visual_mesh, &bg_scene);
@@ -8089,24 +8567,24 @@ static s32 s_emitOnePdscenarioSpec(const pdscenario_emit_spec_t *spec,
 	}
 
 	if (has_pads > 0) {
-		if (assetArchiveWriterAddPublicMem(&asset_writer, "pads.tsv",
-				pads_tsv.data, pads_tsv.len, "pads") != MODARCHIVE_OK ||
-		    assetArchiveWriterAddPublicMem(&asset_writer, "spawns.tsv",
-				spawns_tsv.data, spawns_tsv.len, "spawns") != MODARCHIVE_OK ||
-		    assetArchiveWriterAddPublicMem(&asset_writer, "volumes.tsv",
-				volumes_tsv.data, volumes_tsv.len, "volumes") != MODARCHIVE_OK ||
+		if (assetArchiveWriterAddPublicMem(&asset_writer, "pads.json",
+				pads_json.data, pads_json.len, "pads") != MODARCHIVE_OK ||
+		    assetArchiveWriterAddPublicMem(&asset_writer, "spawns.json",
+				spawns_json.data, spawns_json.len, "spawns") != MODARCHIVE_OK ||
+		    assetArchiveWriterAddPublicMem(&asset_writer, "volumes.json",
+				volumes_json.data, volumes_json.len, "volumes") != MODARCHIVE_OK ||
 		    assetArchiveWriterAddPublicMem(&asset_writer,
-				"navigation/waypoints.tsv", waypoints_tsv.data,
-				waypoints_tsv.len, "waypoints") != MODARCHIVE_OK ||
+				"navigation/waypoints.json", waypoints_json.data,
+				waypoints_json.len, "waypoints") != MODARCHIVE_OK ||
 		    assetArchiveWriterAddPublicMem(&asset_writer,
-				"navigation/waygroups.tsv", waygroups_tsv.data,
-				waygroups_tsv.len, "waygroups") != MODARCHIVE_OK ||
+				"navigation/waygroups.json", waygroups_json.data,
+				waygroups_json.len, "waygroups") != MODARCHIVE_OK ||
 		    assetArchiveWriterAddPublicMem(&asset_writer,
-				"navigation/covers.tsv", covers_tsv.data,
-				covers_tsv.len, "covers") != MODARCHIVE_OK) {
-			s_pdscenarioScratchFree(&rooms_obj, &tiles_tsv, &portals_tsv, &pads_tsv,
-				&spawns_tsv, &volumes_tsv, &waypoints_tsv, &waygroups_tsv,
-				&covers_tsv, &paths_tsv, &objects_tsv, &setup_fields_tsv, &ai_lists_tsv, &objectives_tsv,
+				"navigation/covers.json", covers_json.data,
+				covers_json.len, "covers") != MODARCHIVE_OK) {
+			s_pdscenarioScratchFree(&rooms_obj, &portals_json, &pads_json,
+				&spawns_json, &volumes_json, &waypoints_json, &waygroups_json,
+				&covers_json, &paths_json, &objects_json, &setup_fields_json, &ai_lists_json, &objectives_json,
 				&navigation_ini, &level_graph_json, &collision_meta_json,
 				&navmesh_meta_json,
 				&visual_mesh, &bg_scene);
@@ -8115,16 +8593,16 @@ static s32 s_emitOnePdscenarioSpec(const pdscenario_emit_spec_t *spec,
 		}
 	}
 
-	if (assetArchiveWriterAddPublicMem(&asset_writer, "objects.tsv",
-			objects_tsv.data, objects_tsv.len, "objects") != MODARCHIVE_OK ||
-	    assetArchiveWriterAddPublicMem(&asset_writer, "setup.fields.tsv",
-			setup_fields_tsv.data, setup_fields_tsv.len, "setup_fields") != MODARCHIVE_OK ||
-	    assetArchiveWriterAddPublicMem(&asset_writer, "ai/ailists.tsv",
-			ai_lists_tsv.data, ai_lists_tsv.len, "ai_lists") != MODARCHIVE_OK ||
-	    assetArchiveWriterAddPublicMem(&asset_writer, "navigation/paths.tsv",
-			paths_tsv.data, paths_tsv.len, "paths") != MODARCHIVE_OK ||
-	    assetArchiveWriterAddPublicMem(&asset_writer, "objectives.tsv",
-			objectives_tsv.data, objectives_tsv.len, "objectives") != MODARCHIVE_OK ||
+	if (assetArchiveWriterAddPublicMem(&asset_writer, "objects.json",
+			objects_json.data, objects_json.len, "objects") != MODARCHIVE_OK ||
+	    assetArchiveWriterAddPublicMem(&asset_writer, "setup.fields.json",
+			setup_fields_json.data, setup_fields_json.len, "setup_fields") != MODARCHIVE_OK ||
+	    assetArchiveWriterAddPublicMem(&asset_writer, "ai/ailists.json",
+			ai_lists_json.data, ai_lists_json.len, "ai_lists") != MODARCHIVE_OK ||
+	    assetArchiveWriterAddPublicMem(&asset_writer, "navigation/paths.json",
+			paths_json.data, paths_json.len, "paths") != MODARCHIVE_OK ||
+	    assetArchiveWriterAddPublicMem(&asset_writer, "objectives.json",
+			objectives_json.data, objectives_json.len, "objectives") != MODARCHIVE_OK ||
 	    assetArchiveWriterAddPublicMem(&asset_writer, "navigation.ini",
 			navigation_ini.data, navigation_ini.len, "navigation") != MODARCHIVE_OK ||
 	    assetArchiveWriterAddPublicMem(&asset_writer, "level.graph.json",
@@ -8133,9 +8611,9 @@ static s32 s_emitOnePdscenarioSpec(const pdscenario_emit_spec_t *spec,
 			collision_meta_json.data, collision_meta_json.len, "generated_collision") != MODARCHIVE_OK ||
 	    assetArchiveWriterAddBundledMem(&asset_writer, "_meta/generated-navmesh.json",
 			navmesh_meta_json.data, navmesh_meta_json.len, "generated_navmesh") != MODARCHIVE_OK) {
-		s_pdscenarioScratchFree(&rooms_obj, &tiles_tsv, &portals_tsv, &pads_tsv,
-			&spawns_tsv, &volumes_tsv, &waypoints_tsv, &waygroups_tsv,
-			&covers_tsv, &paths_tsv, &objects_tsv, &setup_fields_tsv, &ai_lists_tsv, &objectives_tsv,
+		s_pdscenarioScratchFree(&rooms_obj, &portals_json, &pads_json,
+			&spawns_json, &volumes_json, &waypoints_json, &waygroups_json,
+			&covers_json, &paths_json, &objects_json, &setup_fields_json, &ai_lists_json, &objectives_json,
 			&navigation_ini, &level_graph_json, &collision_meta_json,
 			&navmesh_meta_json,
 			&visual_mesh, &bg_scene);
@@ -8162,10 +8640,10 @@ static s32 s_emitOnePdscenarioSpec(const pdscenario_emit_spec_t *spec,
 		"  \"collision_fallback\": \"override\",\n"
 		"  \"navigation\": \"navigation.ini\",\n"
 		"  \"level_graph\": \"level.graph.json\",\n"
-		"  \"objects\": \"objects.tsv\",\n"
-		"  \"setup_fields\": \"setup.fields.tsv\",\n"
-		"  \"ai_lists\": \"ai/ailists.tsv\",\n"
-		"  \"objectives\": \"objectives.tsv\",\n"
+		"  \"objects\": \"objects.json\",\n"
+		"  \"setup_fields\": \"setup.fields.json\",\n"
+		"  \"ai_lists\": \"ai/ailists.json\",\n"
+		"  \"objectives\": \"objectives.json\",\n"
 		"  \"generated_collision\": \"_meta/generated-collision.json\",\n"
 		"  \"generated_navmesh\": \"_meta/generated-navmesh.json\"",
 		scenario_id, kind, spec->stagenum, spec->slug);
@@ -8191,17 +8669,17 @@ static s32 s_emitOnePdscenarioSpec(const pdscenario_emit_spec_t *spec,
 		(unsigned)bg_scene.decoded_texture_count,
 		(unsigned)bg_scene.failed_texture_count);
 	if (has_bg > 0) n += snprintf(manifest_buf + n, sizeof(manifest_buf) - n,
-		",\n  \"portals\": \"portals.tsv\""
+		",\n  \"portals\": \"portals.json\""
 		",\n  \"portal_count\": %u",
 		(unsigned)portal_count);
 	if (has_pads > 0) n += snprintf(manifest_buf + n, sizeof(manifest_buf) - n,
-		",\n  \"pads\": \"pads.tsv\""
-		",\n  \"spawns\": \"spawns.tsv\""
-		",\n  \"volumes\": \"volumes.tsv\""
-		",\n  \"waypoints\": \"navigation/waypoints.tsv\""
-		",\n  \"waygroups\": \"navigation/waygroups.tsv\""
-		",\n  \"covers\": \"navigation/covers.tsv\""
-		",\n  \"paths\": \"navigation/paths.tsv\""
+		",\n  \"pads\": \"pads.json\""
+		",\n  \"spawns\": \"spawns.json\""
+		",\n  \"volumes\": \"volumes.json\""
+		",\n  \"waypoints\": \"navigation/waypoints.json\""
+		",\n  \"waygroups\": \"navigation/waygroups.json\""
+		",\n  \"covers\": \"navigation/covers.json\""
+		",\n  \"paths\": \"navigation/paths.json\""
 		",\n  \"pad_count\": %u"
 		",\n  \"spawn_count\": %u"
 		",\n  \"waypoint_count\": %u"
@@ -8221,9 +8699,9 @@ static s32 s_emitOnePdscenarioSpec(const pdscenario_emit_spec_t *spec,
 	if (n <= 0 || (size_t)n >= sizeof(manifest_buf)) {
 		sysLoudFailf("EXTRACT.PDSCENARIO",
 			"manifest snprintf truncated for \"%s\"", scenario_id);
-		s_pdscenarioScratchFree(&rooms_obj, &tiles_tsv, &portals_tsv, &pads_tsv,
-			&spawns_tsv, &volumes_tsv, &waypoints_tsv, &waygroups_tsv,
-			&covers_tsv, &paths_tsv, &objects_tsv, &setup_fields_tsv, &ai_lists_tsv, &objectives_tsv,
+		s_pdscenarioScratchFree(&rooms_obj, &portals_json, &pads_json,
+			&spawns_json, &volumes_json, &waypoints_json, &waygroups_json,
+			&covers_json, &paths_json, &objects_json, &setup_fields_json, &ai_lists_json, &objectives_json,
 			&navigation_ini, &level_graph_json, &collision_meta_json,
 			&navmesh_meta_json,
 			&visual_mesh, &bg_scene);
@@ -8242,13 +8720,13 @@ static s32 s_emitOnePdscenarioSpec(const pdscenario_emit_spec_t *spec,
 		"runtime_source_file = scene.glb\n"
 		"collision_source = collision.obj\n"
 		"collision_fallback = override\n"
-		"portals_file = portals.tsv\n"
+		"portals_file = portals.json\n"
 		"navigation_file = navigation.ini\n"
 		"level_graph_file = level.graph.json\n"
-		"objects_file = objects.tsv\n"
-		"setup_fields_file = setup.fields.tsv\n"
-		"ai_lists_file = ai/ailists.tsv\n"
-		"objectives_file = objectives.tsv\n",
+		"objects_file = objects.json\n"
+		"setup_fields_file = setup.fields.json\n"
+		"ai_lists_file = ai/ailists.json\n"
+		"objectives_file = objectives.json\n",
 		scenario_id, kind, spec->slug);
 	if (has_tiles > 0) ini_len += snprintf(ini_buf + ini_len,
 		sizeof(ini_buf) - ini_len,
@@ -8261,19 +8739,19 @@ static s32 s_emitOnePdscenarioSpec(const pdscenario_emit_spec_t *spec,
 		"scene_export_version = " PDSCENARIO_BG_VISUAL_EXPORT_VERSION "\n");
 	if (has_pads > 0) ini_len += snprintf(ini_buf + ini_len,
 		sizeof(ini_buf) - ini_len,
-		"pads_file = pads.tsv\n"
-		"spawns_file = spawns.tsv\n"
-		"volumes_file = volumes.tsv\n"
-		"waypoints_file = navigation/waypoints.tsv\n"
-		"waygroups_file = navigation/waygroups.tsv\n"
-		"covers_file = navigation/covers.tsv\n"
-		"paths_file = navigation/paths.tsv\n");
+		"pads_file = pads.json\n"
+		"spawns_file = spawns.json\n"
+		"volumes_file = volumes.json\n"
+		"waypoints_file = navigation/waypoints.json\n"
+		"waygroups_file = navigation/waygroups.json\n"
+		"covers_file = navigation/covers.json\n"
+		"paths_file = navigation/paths.json\n");
 	if (ini_len <= 0 || (size_t)ini_len >= sizeof(ini_buf)) {
 		sysLoudFailf("EXTRACT.PDSCENARIO",
 			"scenario.ini snprintf truncated for \"%s\"", scenario_id);
-		s_pdscenarioScratchFree(&rooms_obj, &tiles_tsv, &portals_tsv, &pads_tsv,
-			&spawns_tsv, &volumes_tsv, &waypoints_tsv, &waygroups_tsv,
-			&covers_tsv, &paths_tsv, &objects_tsv, &setup_fields_tsv, &ai_lists_tsv, &objectives_tsv,
+		s_pdscenarioScratchFree(&rooms_obj, &portals_json, &pads_json,
+			&spawns_json, &volumes_json, &waypoints_json, &waygroups_json,
+			&covers_json, &paths_json, &objects_json, &setup_fields_json, &ai_lists_json, &objectives_json,
 			&navigation_ini, &level_graph_json, &collision_meta_json,
 			&navmesh_meta_json,
 			&visual_mesh, &bg_scene);
@@ -8285,9 +8763,9 @@ static s32 s_emitOnePdscenarioSpec(const pdscenario_emit_spec_t *spec,
 			ini_buf, (u32)ini_len) != MODARCHIVE_OK) {
 		sysLoudFailf("EXTRACT.PDSCENARIO",
 			"AddFileMem scenario.ini failed for \"%s\"", dst_full);
-		s_pdscenarioScratchFree(&rooms_obj, &tiles_tsv, &portals_tsv, &pads_tsv,
-			&spawns_tsv, &volumes_tsv, &waypoints_tsv, &waygroups_tsv,
-			&covers_tsv, &paths_tsv, &objects_tsv, &setup_fields_tsv, &ai_lists_tsv, &objectives_tsv,
+		s_pdscenarioScratchFree(&rooms_obj, &portals_json, &pads_json,
+			&spawns_json, &volumes_json, &waypoints_json, &waygroups_json,
+			&covers_json, &paths_json, &objects_json, &setup_fields_json, &ai_lists_json, &objectives_json,
 			&navigation_ini, &level_graph_json, &collision_meta_json,
 			&navmesh_meta_json,
 			&visual_mesh, &bg_scene);
@@ -8298,9 +8776,9 @@ static s32 s_emitOnePdscenarioSpec(const pdscenario_emit_spec_t *spec,
 			manifest_buf, (u32)n) != MODARCHIVE_OK) {
 		sysLoudFailf("EXTRACT.PDSCENARIO",
 			"AddFileMem _meta/manifest.json failed for \"%s\"", dst_full);
-		s_pdscenarioScratchFree(&rooms_obj, &tiles_tsv, &portals_tsv, &pads_tsv,
-			&spawns_tsv, &volumes_tsv, &waypoints_tsv, &waygroups_tsv,
-			&covers_tsv, &paths_tsv, &objects_tsv, &setup_fields_tsv, &ai_lists_tsv, &objectives_tsv,
+		s_pdscenarioScratchFree(&rooms_obj, &portals_json, &pads_json,
+			&spawns_json, &volumes_json, &waypoints_json, &waygroups_json,
+			&covers_json, &paths_json, &objects_json, &setup_fields_json, &ai_lists_json, &objectives_json,
 			&navigation_ini, &level_graph_json, &collision_meta_json,
 			&navmesh_meta_json,
 			&visual_mesh, &bg_scene);
@@ -8310,9 +8788,9 @@ static s32 s_emitOnePdscenarioSpec(const pdscenario_emit_spec_t *spec,
 	if (assetArchiveWriterFinishMetadata(&asset_writer) != MODARCHIVE_OK) {
 		sysLoudFailf("EXTRACT.PDSCENARIO",
 			"assetArchiveWriterFinishMetadata failed for \"%s\"", dst_full);
-		s_pdscenarioScratchFree(&rooms_obj, &tiles_tsv, &portals_tsv, &pads_tsv,
-			&spawns_tsv, &volumes_tsv, &waypoints_tsv, &waygroups_tsv,
-			&covers_tsv, &paths_tsv, &objects_tsv, &setup_fields_tsv, &ai_lists_tsv, &objectives_tsv,
+		s_pdscenarioScratchFree(&rooms_obj, &portals_json, &pads_json,
+			&spawns_json, &volumes_json, &waypoints_json, &waygroups_json,
+			&covers_json, &paths_json, &objects_json, &setup_fields_json, &ai_lists_json, &objectives_json,
 			&navigation_ini, &level_graph_json, &collision_meta_json,
 			&navmesh_meta_json,
 			&visual_mesh, &bg_scene);
@@ -8323,17 +8801,17 @@ static s32 s_emitOnePdscenarioSpec(const pdscenario_emit_spec_t *spec,
 	if (modArchiveFinish(aw) != 0) {
 		sysLoudFailf("EXTRACT.PDSCENARIO",
 			"modArchiveFinish failed for \"%s\"", dst_full);
-		s_pdscenarioScratchFree(&rooms_obj, &tiles_tsv, &portals_tsv, &pads_tsv,
-			&spawns_tsv, &volumes_tsv, &waypoints_tsv, &waygroups_tsv,
-			&covers_tsv, &paths_tsv, &objects_tsv, &setup_fields_tsv, &ai_lists_tsv, &objectives_tsv,
+		s_pdscenarioScratchFree(&rooms_obj, &portals_json, &pads_json,
+			&spawns_json, &volumes_json, &waypoints_json, &waygroups_json,
+			&covers_json, &paths_json, &objects_json, &setup_fields_json, &ai_lists_json, &objectives_json,
 			&navigation_ini, &level_graph_json, &collision_meta_json,
 			&navmesh_meta_json,
 			&visual_mesh, &bg_scene);
 		return -1;
 	}
-	s_pdscenarioScratchFree(&rooms_obj, &tiles_tsv, &portals_tsv, &pads_tsv,
-		&spawns_tsv, &volumes_tsv, &waypoints_tsv, &waygroups_tsv,
-		&covers_tsv, &paths_tsv, &objects_tsv, &setup_fields_tsv, &ai_lists_tsv, &objectives_tsv,
+	s_pdscenarioScratchFree(&rooms_obj, &portals_json, &pads_json,
+		&spawns_json, &volumes_json, &waypoints_json, &waygroups_json,
+		&covers_json, &paths_json, &objects_json, &setup_fields_json, &ai_lists_json, &objectives_json,
 		&navigation_ini, &level_graph_json, &collision_meta_json,
 		&navmesh_meta_json,
 		&visual_mesh, &bg_scene);

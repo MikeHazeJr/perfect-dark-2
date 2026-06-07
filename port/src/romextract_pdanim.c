@@ -89,6 +89,15 @@ static const char *s_animNameForCmds(const struct guncmd *cmds)
 	return NULL;
 }
 
+static void s_weaponAnimCatalogIdFromName(const char *anim_name, char *out,
+                                          size_t out_n)
+{
+	if (!out || out_n == 0) return;
+	out[0] = '\0';
+	if (!anim_name || !anim_name[0]) return;
+	snprintf(out, out_n, "base:%s", anim_name);
+}
+
 typedef struct {
 	char *data;
 	u32   len;
@@ -204,13 +213,16 @@ static s32 s_emitCommandObject(pdanim_textbuf_t *out, const struct guncmd *cmd, 
 	case OPFMT_U16_ANIMNAME: {
 		const char *aname = s_animNameForCmds(
 			(const struct guncmd *)(intptr_t)cmd->unk04);
+		char animation_id[128];
+		s_weaponAnimCatalogIdFromName(aname, animation_id,
+			sizeof(animation_id));
 		if (s_textbufAppendf(out, ", \"weight\": %u, \"animation\": ", (unsigned)cmd->unk02) != 0) return -1;
-		if (s_textbufAppendJsonString(out, aname ? aname : "") != 0) return -1;
+		if (s_textbufAppendJsonString(out, animation_id) != 0) return -1;
 		break;
 	}
 	case OPFMT_U16_SFX: {
 		char sound_id[64];
-		catalogReadableSfxId((s32)cmd->unk04, sound_id, sizeof(sound_id));
+		catalogReadableSoundRefId((s32)cmd->unk04, sound_id, sizeof(sound_id));
 		if (s_textbufAppendf(out, ", \"slot\": %u, \"sound\": ", (unsigned)cmd->unk02) != 0) return -1;
 		if (s_textbufAppendJsonString(out, sound_id) != 0) return -1;
 		break;
@@ -236,8 +248,11 @@ static s32 s_emitCommandObject(pdanim_textbuf_t *out, const struct guncmd *cmd, 
 	case OPFMT_INCLUDE: {
 		const char *aname = s_animNameForCmds(
 			(const struct guncmd *)(intptr_t)cmd->unk04);
+		char animation_id[128];
+		s_weaponAnimCatalogIdFromName(aname, animation_id,
+			sizeof(animation_id));
 		if (s_textbufAppendf(out, ", \"slot\": %u, \"animation\": ", (unsigned)cmd->unk01) != 0) return -1;
-		if (s_textbufAppendJsonString(out, aname ? aname : "") != 0) return -1;
+		if (s_textbufAppendJsonString(out, animation_id) != 0) return -1;
 		break;
 	}
 	case OPFMT_SETSPEED:
@@ -271,6 +286,27 @@ static s32 s_existingArchiveHasAnimPayloads(const char *relpath)
 	s32 ok = modArchiveFindEntry(arc, "animation.ini") >= 0
 	      && modArchiveFindEntry(arc, "_meta/manifest.json") >= 0
 	      && modArchiveFindEntry(arc, "commands.json") >= 0;
+	if (ok) {
+		s32 idx = modArchiveFindEntry(arc, "commands.json");
+		u32 size = 0;
+		char *data = (char *)modArchiveExtractAlloc(arc, idx, &size);
+		if (data) {
+			char *text = (char *)malloc((size_t)size + 1u);
+			if (text) {
+				memcpy(text, data, size);
+				text[size] = '\0';
+				if (strstr(text, "\"animation\": \"invanim_") != NULL) {
+					ok = 0;
+				}
+				free(text);
+			} else {
+				ok = 0;
+			}
+			free(data);
+		} else {
+			ok = 0;
+		}
+	}
 	modArchiveClose(arc);
 	return ok;
 }

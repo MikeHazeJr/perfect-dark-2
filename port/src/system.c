@@ -71,6 +71,7 @@ static const char **sysArgv;
 
 static u32 s_LogChannelMask = LOG_CH_ALL;
 static s32 s_LogVerbose = 0;
+static s32 s_WeaponDiagLogging = -1;
 
 const char *sysLogChannelNames[LOG_CH_COUNT] = {
 	"Network", "Game", "Combat", "Audio", "Menu", "Save", "Mods", "System", "Match",
@@ -114,6 +115,18 @@ void sysLogSetVerbose(s32 enabled)
 {
 	s_LogVerbose = enabled ? 1 : 0;
 	sysLogPrintf(LOG_NOTE, "LOG: Verbose logging %s", enabled ? "enabled" : "disabled");
+}
+
+static s32 sysWeaponDiagLoggingEnabled(void)
+{
+	if (s_WeaponDiagLogging < 0) {
+		s_WeaponDiagLogging =
+			sysArgCheck("--debug-weapon-diag")
+			|| sysArgCheck("--debug-force-first-person")
+			|| sysArgCheck("--debug-generated-mesh-render-audit");
+	}
+
+	return s_WeaponDiagLogging;
 }
 
 /* Map a message prefix string to its channel bitmask.
@@ -485,6 +498,11 @@ void sysLogPrintf(s32 level, const char *fmt, ...)
 	}
 
 	const char *pfx = (lvl < (s32)(sizeof(prefix) / sizeof(prefix[0]))) ? prefix[lvl] : "";
+
+	if (strncmp(logmsg, "LOG.WPN.DIAG:", 13) == 0
+	    && !sysWeaponDiagLoggingEnabled()) {
+		return;
+	}
 
 	/* --- Verbose filter ---
 	 * LOG_VERBOSE messages are dropped entirely unless verbose mode is on. */

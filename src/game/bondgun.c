@@ -67,6 +67,7 @@
 #include "net/net.h"
 #include "net/netmsg.h"
 #include "modasset_compiler.h"
+#include "loader_pool.h"
 #include "system.h" /* B-246 instrumentation: sysLogPrintf for LOG.WPN.DIAG lines */
 
 #define GUNLOADSTATE_FLUX     0
@@ -918,6 +919,15 @@ void bgunStartAnimation(struct guncmd *cmd, s32 handnum, struct hand *hand)
 			"animation reference in the active weapon",
 			(s32)handnum);
 		return;
+	}
+	{
+		const char *anim_name = loaderPoolAnimationNameForCmds(cmd);
+		const char *anim_source = loaderPoolAnimationSourceForCmds(cmd);
+		if (anim_name && anim_source) {
+			sysLogPrintf(LOG_NOTE,
+				"BGUN.ANIM.SOURCE: hand=%d animation=base:%s source=%s",
+				(s32)handnum, anim_name, anim_source);
+		}
 	}
 	if (cmd->type != GUNCMD_PLAYANIMATION) {
 		struct guncmd *loopcmd = cmd;

@@ -9,7 +9,7 @@
  * Per-asset ZIP layout:
  *   lang.ini              editable language descriptor
  *   _meta/manifest.json   compatibility envelope + locale + bank metadata
- *   strings.tsv           escaped index<TAB>text source table
+ *   strings.json          editable indexed text source table
  *   _meta/*.json          shared inventory/provenance/validation/source handles
  *   _meta/*.sha256        public-file SHA-256 sidecars
  *
@@ -35,7 +35,7 @@
  * cleanup (or a follow-up worktree); the catalog ID stays stable
  * across that follow-up because it includes the locale suffix.
  *
- * The emitted TSV is decoded from the RAW pre-preprocess file as
+ * The emitted JSON is decoded from the RAW pre-preprocess file as
  * extracted to disk by Pass A. The raw file starts with a big-endian
  * string offset table followed by null-terminated string bytes.
  *
@@ -66,8 +66,8 @@
 #include "system.h"
 
 #define PDLANG_OUT_DIR "lang"
-#define PDLANG_EXTRACT_VERSION "strings_tsv_rzip_v2"
-#define PDLANG_FAST_CACHE_KIND "pdlang_strings_tsv_rzip_v2"
+#define PDLANG_EXTRACT_VERSION "strings_json_rzip_v1"
+#define PDLANG_FAST_CACHE_KIND "pdlang_strings_json_rzip_v1"
 
 /* Walk range. g_LangFiles[] is sized 69 in src/game/lang.c (bank 0
  * is a sentinel zero entry, banks 1..68 carry real files). The
@@ -232,12 +232,16 @@ static u32 s_langStringCount(const u8 *src, u32 len)
 	return 1;
 }
 
-static u32 s_escapeTsvText(char *dst, u32 dst_cap, const u8 *src, u32 len)
+static u32 s_escapeJsonText(char *dst, u32 dst_cap, const u8 *src, u32 len)
 {
 	u32 w = 0;
 	for (u32 i = 0; i < len && w + 1u < dst_cap; i++) {
 		u8 ch = src[i];
-		if (ch == '\\') {
+		if (ch == '"') {
+			if (w + 2u >= dst_cap) break;
+			dst[w++] = '\\';
+			dst[w++] = '"';
+		} else if (ch == '\\') {
 			if (w + 2u >= dst_cap) break;
 			dst[w++] = '\\';
 			dst[w++] = '\\';
@@ -253,9 +257,11 @@ static u32 s_escapeTsvText(char *dst, u32 dst_cap, const u8 *src, u32 len)
 			dst[w++] = (char)ch;
 		} else {
 			static const char hex[] = "0123456789abcdef";
-			if (w + 4u >= dst_cap) break;
+			if (w + 6u >= dst_cap) break;
 			dst[w++] = '\\';
-			dst[w++] = 'x';
+			dst[w++] = 'u';
+			dst[w++] = '0';
+			dst[w++] = '0';
 			dst[w++] = hex[(ch >> 4) & 0x0f];
 			dst[w++] = hex[ch & 0x0f];
 		}
@@ -264,9 +270,9 @@ static u32 s_escapeTsvText(char *dst, u32 dst_cap, const u8 *src, u32 len)
 	return w;
 }
 
-static s32 s_buildStringsTsv(const u8 *src, u32 src_size,
-                             char **out_text, u32 *out_size,
-                             u32 *out_count)
+static s32 s_buildStringsJson(const u8 *src, u32 src_size,
+                              char **out_text, u32 *out_size,
+                              u32 *out_count)
 {
 	*out_text = NULL;
 	*out_size = 0;
@@ -275,12 +281,23 @@ static s32 s_buildStringsTsv(const u8 *src, u32 src_size,
 	u32 count = s_langStringCount(src, src_size);
 	if (count == 0 || count > 512) return 0;
 
-	u32 cap = src_size * 4u + count * 18u + 32u;
-	char *tsv = (char *)malloc(cap);
-	if (!tsv) return 0;
+	u32 cap = src_size * 7u + count * 48u + 128u;
+	char *json = (char *)malloc(cap);
+	if (!json) return 0;
 	u32 w = 0;
 
-	for (u32 i = 0; i < count && w + 16u < cap; i++) {
+	int header = snprintf(json + w, cap - w,
+		"{\n"
+		"  \"pd_kind\": \"language_strings\",\n"
+		"  \"pd_schema_version\": 1,\n"
+		"  \"strings\": [\n");
+	if (header <= 0 || (u32)header >= cap - w) {
+		free(json);
+		return 0;
+	}
+	w += (u32)header;
+
+	for (u32 i = 0; i < count && w + 32u < cap; i++) {
 		u32 offset = (i * 4u + 4u <= src_size) ? s_readBe32(src + i * 4u) : 0;
 		u32 end = 0;
 		if (offset != 0 && offset < src_size) {
@@ -293,24 +310,35 @@ static s32 s_buildStringsTsv(const u8 *src, u32 src_size,
 			end = 0;
 		}
 
-		int n = snprintf(tsv + w, cap - w, "%u\t", (unsigned)i);
+		int n = snprintf(json + w, cap - w,
+			"    { \"index\": %u, \"text\": \"", (unsigned)i);
 		if (n <= 0 || (u32)n >= cap - w) {
-			free(tsv);
+			free(json);
 			return 0;
 		}
 		w += (u32)n;
 		if (end > offset) {
-			w += s_escapeTsvText(tsv + w, cap - w, src + offset, end - offset);
+			w += s_escapeJsonText(json + w, cap - w, src + offset, end - offset);
 		}
-		if (w + 1u >= cap) {
-			free(tsv);
+		n = snprintf(json + w, cap - w, "\" }%s\n",
+			(i + 1u < count) ? "," : "");
+		if (n <= 0 || (u32)n >= cap - w) {
+			free(json);
 			return 0;
 		}
-		tsv[w++] = '\n';
+		w += (u32)n;
 	}
-	tsv[w] = '\0';
 
-	*out_text = tsv;
+	int footer = snprintf(json + w, cap - w,
+		"  ]\n"
+		"}\n");
+	if (footer <= 0 || (u32)footer >= cap - w) {
+		free(json);
+		return 0;
+	}
+	w += (u32)footer;
+
+	*out_text = json;
 	*out_size = w;
 	*out_count = count;
 	return 1;
@@ -362,7 +390,7 @@ static s32 s_emitOneLang(s32 bank, const char *locale_tag,
 	if (!force_rewrite && fsFileSize(dst_rel) > 0 &&
 	    s_existingArchiveHasEntry(dst_rel, "lang.ini") &&
 	    s_existingArchiveHasEntry(dst_rel, "_meta/manifest.json") &&
-	    s_existingArchiveHasEntry(dst_rel, "strings.tsv") &&
+	    s_existingArchiveHasEntry(dst_rel, "strings.json") &&
 	    s_existingArchiveEntryContains(dst_rel, "lang.ini",
 		    "extract_version = " PDLANG_EXTRACT_VERSION)) return 0;
 
@@ -389,13 +417,13 @@ static s32 s_emitOneLang(s32 bank, const char *locale_tag,
 		return -1;
 	}
 
-	char *tsv_text = NULL;
-	u32 tsv_size = 0;
+	char *json_text = NULL;
+	u32 json_size = 0;
 	u32 string_count = 0;
-	if (!s_buildStringsTsv(lang_source, lang_source_size,
-	                       &tsv_text, &tsv_size, &string_count)) {
+	if (!s_buildStringsJson(lang_source, lang_source_size,
+	                        &json_text, &json_size, &string_count)) {
 		sysLoudFailf("EXTRACT.PDLANG",
-			"could not build strings.tsv for bank=%d source \"%s\"",
+			"could not build strings.json for bank=%d source \"%s\"",
 			bank, src_rel);
 		if (lang_source_was_rzip) free(lang_source);
 		sysMemFree(src_bytes);
@@ -420,7 +448,7 @@ static s32 s_emitOneLang(s32 bank, const char *locale_tag,
 		"  \"id\": \"%s\",\n"
 		"  \"locale\": \"%s\",\n"
 		"  \"category\": \"%s\",\n"
-		"  \"data\": \"strings.tsv\",\n"
+		"  \"data\": \"strings.json\",\n"
 		"  \"data_size\": %u,\n"
 		"  \"source_data_size\": %u,\n"
 		"  \"decoded_source_size\": %u,\n"
@@ -431,7 +459,7 @@ static s32 s_emitOneLang(s32 bank, const char *locale_tag,
 		"  \"source_symbol\": \"%s\"\n"
 		"}\n",
 		catalog_id, locale_tag, category,
-		(unsigned)tsv_size,
+		(unsigned)json_size,
 		(unsigned)src_size,
 		(unsigned)lang_source_size,
 		(unsigned)string_count,
@@ -442,7 +470,7 @@ static s32 s_emitOneLang(s32 bank, const char *locale_tag,
 		sysLoudFailf("EXTRACT.PDLANG",
 			"manifest.json snprintf truncated for bank=%d", bank);
 		if (lang_source_was_rzip) free(lang_source);
-		free(tsv_text);
+		free(json_text);
 		sysMemFree(src_bytes);
 		return -1;
 	}
@@ -453,7 +481,7 @@ static s32 s_emitOneLang(s32 bank, const char *locale_tag,
 		"catalog_id = %s\n"
 		"locale = %s\n"
 		"category = %s\n"
-		"strings_file = strings.tsv\n"
+		"strings_file = strings.json\n"
 		"data_size = %u\n"
 		"source_data_size = %u\n"
 		"decoded_source_size = %u\n"
@@ -463,7 +491,7 @@ static s32 s_emitOneLang(s32 bank, const char *locale_tag,
 		"source_filenum = %u\n"
 		"source_symbol = %s\n",
 		catalog_id, locale_tag, category,
-		(unsigned)tsv_size,
+		(unsigned)json_size,
 		(unsigned)src_size,
 		(unsigned)lang_source_size,
 		(unsigned)string_count,
@@ -474,7 +502,7 @@ static s32 s_emitOneLang(s32 bank, const char *locale_tag,
 		sysLoudFailf("EXTRACT.PDLANG",
 			"lang.ini snprintf truncated for bank=%d", bank);
 		if (lang_source_was_rzip) free(lang_source);
-		free(tsv_text);
+		free(json_text);
 		sysMemFree(src_bytes);
 		return -1;
 	}
@@ -485,7 +513,7 @@ static s32 s_emitOneLang(s32 bank, const char *locale_tag,
 		sysLoudFailf("EXTRACT.PDLANG",
 			"fsFullPath empty for \"%s\"", dst_rel);
 		if (lang_source_was_rzip) free(lang_source);
-		free(tsv_text);
+		free(json_text);
 		sysMemFree(src_bytes);
 		return -1;
 	}
@@ -495,7 +523,7 @@ static s32 s_emitOneLang(s32 bank, const char *locale_tag,
 		sysLoudFailf("EXTRACT.PDLANG",
 			"modArchiveBegin failed for \"%s\"", dst_full);
 		if (lang_source_was_rzip) free(lang_source);
-		free(tsv_text);
+		free(json_text);
 		sysMemFree(src_bytes);
 		return -1;
 	}
@@ -507,7 +535,7 @@ static s32 s_emitOneLang(s32 bank, const char *locale_tag,
 			"assetArchiveWriterInit failed for \"%s\"", dst_full);
 		modArchiveAbort(aw);
 		if (lang_source_was_rzip) free(lang_source);
-		free(tsv_text);
+		free(json_text);
 		sysMemFree(src_bytes);
 		return -1;
 	}
@@ -520,7 +548,7 @@ static s32 s_emitOneLang(s32 bank, const char *locale_tag,
 			"AddFileMem lang.ini failed for \"%s\"", dst_full);
 		modArchiveAbort(aw);
 		if (lang_source_was_rzip) free(lang_source);
-		free(tsv_text);
+		free(json_text);
 		sysMemFree(src_bytes);
 		return -1;
 	}
@@ -530,19 +558,19 @@ static s32 s_emitOneLang(s32 bank, const char *locale_tag,
 			"AddFileMem _meta/manifest.json failed for \"%s\"", dst_full);
 		modArchiveAbort(aw);
 		if (lang_source_was_rzip) free(lang_source);
-		free(tsv_text);
+		free(json_text);
 		sysMemFree(src_bytes);
 		return -1;
 	}
 
-	if (assetArchiveWriterAddPublicMem(&asset_writer, "strings.tsv",
-			tsv_text, tsv_size, "strings") != MODARCHIVE_OK) {
+	if (assetArchiveWriterAddPublicMem(&asset_writer, "strings.json",
+			json_text, json_size, "strings") != MODARCHIVE_OK) {
 		sysLoudFailf("EXTRACT.PDLANG",
-			"AddFileMem strings.tsv failed for bank=%d -> \"%s\"",
+			"AddFileMem strings.json failed for bank=%d -> \"%s\"",
 			bank, dst_full);
 		modArchiveAbort(aw);
 		if (lang_source_was_rzip) free(lang_source);
-		free(tsv_text);
+		free(json_text);
 		sysMemFree(src_bytes);
 		return -1;
 	}
@@ -552,7 +580,7 @@ static s32 s_emitOneLang(s32 bank, const char *locale_tag,
 			"assetArchiveWriterFinishMetadata failed for \"%s\"", dst_full);
 		modArchiveAbort(aw);
 		if (lang_source_was_rzip) free(lang_source);
-		free(tsv_text);
+		free(json_text);
 		sysMemFree(src_bytes);
 		return -1;
 	}
@@ -561,13 +589,13 @@ static s32 s_emitOneLang(s32 bank, const char *locale_tag,
 		sysLoudFailf("EXTRACT.PDLANG",
 			"modArchiveFinish failed for \"%s\"", dst_full);
 		if (lang_source_was_rzip) free(lang_source);
-		free(tsv_text);
+		free(json_text);
 		sysMemFree(src_bytes);
 		return -1;
 	}
 
 	if (lang_source_was_rzip) free(lang_source);
-	free(tsv_text);
+	free(json_text);
 	sysMemFree(src_bytes);
 	return 1;
 }

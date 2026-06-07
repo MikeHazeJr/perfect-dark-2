@@ -2291,11 +2291,23 @@ struct sndstate *sndStart(s32 arg0, s16 sound, struct sndstate **handle, s32 vol
 			}
 			sysLogPrintf(LOG_NOTE, "CATALOG: sound %d → mod override \"%s\" (entry %d)",
 			             (s32)sp40.id, r.path, r.catalog_id);
-			if (audioPlayFileSound(r.path, volume, pan, filepitch)) {
-				if (handle != NULL) {
-					*handle = NULL;
+			{
+				struct sndstate *file_state = audioStartFileSound(r.path, volume, pan,
+					filepitch,
+					entry ? entry->ext.audio.has_loop : 0,
+					entry ? entry->ext.audio.loop_start_samples : 0,
+					entry ? entry->ext.audio.loop_end_samples : 0,
+					entry ? entry->ext.audio.loop_count : 0,
+					entry ? entry->ext.audio.has_envelope : 0,
+					entry ? entry->ext.audio.attack_time_us : 0,
+					entry ? entry->ext.audio.decay_time_us : 0,
+					entry ? entry->ext.audio.release_time_us : 0,
+					entry ? entry->ext.audio.attack_volume : 127,
+					entry ? entry->ext.audio.decay_volume : 127,
+					handle);
+				if (file_state) {
+					return file_state;
 				}
-				return NULL;
 			}
 			if (assetSourceDebugIsEnabledFor(ASSET_AUDIO)) {
 				const asset_entry_t *entry = assetCatalogGetByIndex(r.catalog_id);
@@ -2362,8 +2374,38 @@ static s32 sndMp3LoadPublicSourceFile(s32 filenum, uintptr_t *outaddr, u32 *outs
 	char relpath[FS_MAXPATH + 1];
 	u32 size = 0;
 	void *bytes;
+	CatalogResolveResult source;
 
 	if (!outaddr || !outsize) {
+		return 0;
+	}
+
+	source = catalogResolveFile(filenum);
+	if (source.path && source.path[0]) {
+		bytes = fsFileLoad(source.path, &size);
+		if (bytes && size > 0) {
+			sndMp3FreeSourceBuffer();
+			g_SndMp3SourceBytes = bytes;
+			g_SndMp3SourceSize = size;
+			*outaddr = (uintptr_t)g_SndMp3SourceBytes;
+			*outsize = g_SndMp3SourceSize;
+			sysLogPrintf(LOG_NOTE,
+				"CATALOG: MP3 file %d -> typed public source \"%s\" (%u bytes)",
+				filenum, source.path, g_SndMp3SourceSize);
+			return 1;
+		}
+		if (bytes) {
+			sysMemFree(bytes);
+		}
+	}
+
+	if (assetSourceDebugIsEnabledFor(ASSET_AUDIO)) {
+		const asset_entry_t *entry = assetCatalogGetByIndex(source.catalog_id);
+		sysFatalError("ASSET.SOURCE_ONLY: MP3 file %d has no readable typed "
+		              "public audio source%s%s; refusing loose extracted file or ROM/static playback fallback.",
+		              filenum,
+		              entry ? " for " : "",
+		              entry ? entry->id : "");
 		return 0;
 	}
 
@@ -2384,7 +2426,7 @@ static s32 sndMp3LoadPublicSourceFile(s32 filenum, uintptr_t *outaddr, u32 *outs
 	g_SndMp3SourceSize = size;
 	*outaddr = (uintptr_t)g_SndMp3SourceBytes;
 	*outsize = g_SndMp3SourceSize;
-	sysLogPrintf(LOG_NOTE, "CATALOG: MP3 file %d -> public source \"%s\" (%u bytes)",
+	sysLogPrintf(LOG_NOTE, "CATALOG: MP3 file %d -> loose extracted source \"%s\" (%u bytes)",
 	             filenum, relpath, g_SndMp3SourceSize);
 	return 1;
 }
@@ -2393,13 +2435,6 @@ static s32 sndMp3ResolveSourceOrFallback(s32 filenum, uintptr_t *outaddr, u32 *o
 {
 	if (sndMp3LoadPublicSourceFile(filenum, outaddr, outsize)) {
 		return 1;
-	}
-
-	if (assetSourceDebugIsEnabledFor(ASSET_AUDIO)) {
-		sysFatalError("ASSET.SOURCE_ONLY: MP3 file %d has no readable public "
-		              "extracted source; refusing ROM/static playback fallback.",
-		              filenum);
-		return 0;
 	}
 
 	sndMp3FreeSourceBuffer();
@@ -2412,13 +2447,17 @@ void sndStartMp3(s16 soundnum, s32 volume, s32 pan, s32 responseflags)
 {
 	union soundnumhack sp24;
 	union soundnumhack sp20;
+	struct audioconfig *config = NULL;
 
 	sp24.packed = soundnum;
 
 	if (!g_SndDisabled) {
 		if (sp24.hasconfig) {
+			s32 index = g_AudioRussMappings[sp24.confignum].audioconfig_index;
+
 			sp20.packed = g_AudioRussMappings[sp24.confignum].soundnum;
 			sp20.hasconfig = false;
+			config = &g_AudioConfigs[index];
 		} else {
 			sp20.packed = soundnum;
 		}
@@ -2426,21 +2465,16 @@ void sndStartMp3(s16 soundnum, s32 volume, s32 pan, s32 responseflags)
 		if (!g_SndCurMp3.playing
 				|| ((sp20.mp3priority != 1 || g_SndCurMp3.sfxref.mp3priority != 1)
 				 && sp20.mp3priority <= g_SndCurMp3.sfxref.mp3priority)) {
-			if (sp24.hasconfig) {
-				if (g_AudioConfigs[sp24.confignum].volpercentage != -1) {
-					volume = g_AudioConfigs[sp24.confignum].volpercentage * AL_VOL_FULL / 100;
+			if (config) {
+				if (config->volpercentage != -1) {
+					volume = config->volpercentage * AL_VOL_FULL / 100;
 				}
 
-				if (g_AudioConfigs[sp24.confignum].pan != -1) {
-					pan = g_AudioConfigs[sp24.confignum].pan;
+				if (config->pan != -1) {
+					pan = config->pan;
 				}
 
-				// This is the same thing again
-				if (g_AudioConfigs[sp24.confignum].pan != -1) {
-					pan = g_AudioConfigs[sp24.confignum].pan;
-				}
-
-				if (g_Vars.langfilteron && (g_AudioConfigs[sp24.confignum].flags & AUDIOCONFIGFLAG_OFFENSIVE)) {
+				if (g_Vars.langfilteron && (config->flags & AUDIOCONFIGFLAG_OFFENSIVE)) {
 					volume = 0;
 				}
 			}
@@ -2471,7 +2505,7 @@ void sndStartMp3(s16 soundnum, s32 volume, s32 pan, s32 responseflags)
 				g_SndCurMp3.responsetype = MP3RESPONSETYPE_WHISPER;
 			}
 
-			if ((sp24.hasconfig && (g_AudioConfigs[sp24.confignum].flags & AUDIOCONFIGFLAG_RESPONDHELLO)) || (responseflags & 1)) {
+			if ((config && (config->flags & AUDIOCONFIGFLAG_RESPONDHELLO)) || (responseflags & 1)) {
 				g_SndCurMp3.responsetype = MP3RESPONSETYPE_GREETING;
 			}
 		}

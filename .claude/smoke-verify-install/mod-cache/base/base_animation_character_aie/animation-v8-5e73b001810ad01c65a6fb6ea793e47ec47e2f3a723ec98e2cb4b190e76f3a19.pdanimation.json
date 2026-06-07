@@ -1,0 +1,18 @@
+{
+  "schema": "pd2.modasset.animation.v1",
+  "compiler_version": 8,
+  "asset_id": "base:animation_character_aie",
+  "kind": "animation",
+  "source": "data/ntsc-final/animations/base_animation_character_aie.pdanim::animation.gltf",
+  "source_sha256": "5e73b001810ad01c65a6fb6ea793e47ec47e2f3a723ec98e2cb4b190e76f3a19",
+  "runtime_boundary": "animtableentry",
+  "clip_name": "base:animation_character_aie",
+  "animation_count": 1,
+  "channel_count": 36,
+  "sampler_count": 36,
+  "frame_count": 61,
+  "header_length": -1,
+  "bytes_per_frame": -1,
+  "transform_policy": "gltf_skeletal_channel_pack",
+  "packed_channels": ["translation", "rotation", "scale"]
+}

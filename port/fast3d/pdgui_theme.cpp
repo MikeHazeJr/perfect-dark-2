@@ -806,12 +806,7 @@ static GLuint s_loadImageTexture(const char *path, uint32_t *out_w, uint32_t *ou
     return tex;
 }
 
-/**
- * Register a theme texture from a mod file path.
- * Loads a PNG/TGA through fsFileLoad/VFS, uploads to GL, registers in catalog
- * + cache.
- */
-static s32 s_registerModTexture(const char *catalog_id, const char *path)
+static s32 s_loadThemeTextureFromPath(const char *catalog_id, const char *path)
 {
     uint32_t w = 0, h = 0;
     GLuint gl_id = s_loadImageTexture(path, &w, &h);
@@ -825,6 +820,22 @@ static s32 s_registerModTexture(const char *catalog_id, const char *path)
         "PDGUI theme: loaded '%s' from '%s' (%ux%u) → GL %u",
         catalog_id, path, w, h, gl_id);
 
+    s_ThemeTexCache[catalog_id] = gl_id;
+    s_ThemeTexDims[catalog_id]  = { w, h };
+    return 1;
+}
+
+/**
+ * Register a theme texture from a loose mod file path.
+ * Catalog-owned .pdui rows use s_loadThemeTextureFromPath directly so their
+ * public FileProvider source handle is not wiped by a redundant re-register.
+ */
+static s32 s_registerModTexture(const char *catalog_id, const char *path)
+{
+    if (!s_loadThemeTextureFromPath(catalog_id, path)) {
+        return 0;
+    }
+
     /* Register in asset catalog */
     asset_entry_t *e = assetCatalogRegister(catalog_id, ASSET_UI);
     if (e) {
@@ -834,12 +845,11 @@ static s32 s_registerModTexture(const char *catalog_id, const char *path)
         e->load_state    = ASSET_STATE_LOADED;
         e->ref_count     = ASSET_REF_BUNDLED;
         e->source_texnum = -1;
-        e->loaded_data     = (void *)(uintptr_t)gl_id;
-        e->data_size_bytes = (u32)(w * h * 4u);
+        e->loaded_data     = (void *)(uintptr_t)s_ThemeTexCache[catalog_id];
+        e->data_size_bytes = (u32)(s_ThemeTexDims[catalog_id].first
+            * s_ThemeTexDims[catalog_id].second * 4u);
     }
 
-    s_ThemeTexCache[catalog_id] = gl_id;
-    s_ThemeTexDims[catalog_id]  = { w, h };
     return 1;
 }
 
@@ -1237,7 +1247,7 @@ static void s_applyCatalogUiAsset(const asset_entry_t *entry, void *userdata)
     }
 
     if (s_pathHasExt(path, ".png") || s_pathHasExt(path, ".tga")) {
-        if (s_registerModTexture(entry->id, path)) {
+        if (s_loadThemeTextureFromPath(entry->id, path)) {
             s_CatalogUiApplied[entry->id] = true;
             if (ctx) ctx->textures++;
         }
@@ -2121,8 +2131,9 @@ static void s_registerLoadedThemeTexture(const char *catalog_id,
  * decoded with s_loadTgaFromMem.
  *
  * Procedural fallback (s_registerProceduralTexture) is unchanged and
- * fires when the .pdui ZIP is missing (first launch before the
- * render-loop emit trigger fires, or texture's ROM extract failed).
+ * fires when the .pdui ZIP is missing. Clean installs should now have
+ * .pdui archives emitted by the post-texReset boot hook before rendering;
+ * this fallback is for stale/missing source repair.
  */
 void pdguiThemeLateInit(void)
 {
@@ -2151,9 +2162,9 @@ void pdguiThemeLateInit(void)
             loaded++;
         } else {
             /* Fallback: generate procedural texture in-memory. The
-             * render-loop trigger in pdguiThemeCheckExtract will emit
-             * the .pdui ZIP later (when g_TexGeneralConfigs is ready)
-             * and re-run this lateInit to swap in the real texture. */
+             * render-loop trigger in pdguiThemeCheckExtract will repair a
+             * missing .pdui ZIP and re-run this lateInit to swap in the real
+             * texture. */
             s_registerProceduralTexture(
                 pe->catalog_id, pe->proc_name, pe->proc_w, pe->proc_h);
             procedural++;
@@ -2170,6 +2181,12 @@ void pdguiThemeLateInit(void)
         "PDGUI theme: late init complete -- %u from .pdui, %u procedural "
         "(total=%zu)",
         loaded, procedural, K_PDUI_ENTRY_COUNT);
+}
+
+void pdguiThemeReloadPduiSourceTextures(void)
+{
+    s_ThemeLateInitDone = false;
+    pdguiThemeLateInit();
 }
 
 void pdguiThemeShutdown(void)
@@ -2978,9 +2995,9 @@ static int s_emitOnePduiZip(const struct PduiEntry *e, int force_rewrite)
  *
  * Returns count of newly-written files. Returns 0 (not -1) when the
  * texture system is not yet ready (g_TexGeneralConfigs == NULL); this
- * is normal at boot main.c wiring point and the render-loop fallback
- * trigger handles the actual emit later. -1 reserved for infrastructure
- * failure (data dir creation). */
+ * is normal at boot main.c wiring point. The post-texReset boot hook reruns
+ * the emitter, and the render-loop check remains a safety repair. -1 reserved
+ * for infrastructure failure (data dir creation). */
 extern "C" int pdguiThemeEmitPduiZips(int force)
 {
     if (!fsDataDirEnsure()) {
@@ -3123,9 +3140,9 @@ static void s_generateModernUiTextures(void)
 /* Step 3b part 2 (2026-05-03): the canonical UI texture list now lives
  * in k_PduiEntries[] above; the missing-file probes below check for
  * data/<romid>/ui/<slug>.pdui ZIPs instead of the legacy loose-TGA
- * paths under data/ui/textures/. The trigger semantics (auto-extract
- * if any are missing on first launch, then re-run lateInit) are
- * preserved end-to-end through the migration. */
+ * paths under data/ui/textures/. The trigger now repairs missing/stale files;
+ * normal clean installs emit and scan UI source archives at the post-texInit
+ * boot hook before rendering. */
 
 /* Compute the missing .pdui count plus a bitfield mask of which entries
  * are missing (bit i set = entry i missing). max 64 entries tracked --

@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 7,
+  "asset_id": "base:scenario_chicago",
+  "mod_id": "base",
+  "kind": "scenario",
+  "source": "data/ntsc-final/scenarios/base_scenario_chicago.pdscenario::scene.glb",
+  "source_size": 1232560,
+  "source_sha256": "f0336665f360d28a0239408268e0d528c7da47ebe31d2145c6dfdc723e58dcca",
+  "validation": "format=glb vertices=19992 triangles=6664",
+  "normalized": "$S/mod-cache/base/base_scenario_chicago/scenario-v7-f0336665f360d28a0239408268e0d528c7da47ebe31d2145c6dfdc723e58dcca.pdmesh.json",
+  "vertex_count": 19992,
+  "triangle_count": 6664,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

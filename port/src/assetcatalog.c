@@ -1222,8 +1222,20 @@ asset_entry_t *assetCatalogRegisterAudio(const char *id, s32 sound_id,
         entry->ext.audio.key_max = 127;
         entry->ext.audio.key_base = 60;
         entry->ext.audio.key_detune = 0;
+        entry->ext.audio.velocity_min = 0;
+        entry->ext.audio.velocity_max = 0;
         entry->ext.audio.sample_pan = 64;
         entry->ext.audio.sample_volume = 127;
+        entry->ext.audio.has_loop = 0;
+        entry->ext.audio.loop_start_samples = 0;
+        entry->ext.audio.loop_end_samples = 0;
+        entry->ext.audio.loop_count = 0;
+        entry->ext.audio.has_envelope = 0;
+        entry->ext.audio.attack_time_us = 0;
+        entry->ext.audio.decay_time_us = 0;
+        entry->ext.audio.release_time_us = 0;
+        entry->ext.audio.attack_volume = 127;
+        entry->ext.audio.decay_volume = 127;
         if (file_path != NULL) {
             strncpy(entry->ext.audio.file_path, file_path, 127);
             entry->ext.audio.file_path[127] = '\0';

@@ -1,5 +1,5 @@
 schema=pdasset-fast-v1-20260521
-kind=pdfont
+kind=pdfont_metrics_json_v1
 count=1
-total_bytes=9974
-latest_mtime=1780793002
+total_bytes=10558
+latest_mtime=1780845691

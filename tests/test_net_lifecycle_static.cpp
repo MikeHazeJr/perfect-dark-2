@@ -972,6 +972,13 @@ TEST_CASE("net lifecycle: c3813 listen-host smoke fixtures cover live peer setup
     REQUIRE(lazy_path != std::string::npos);
     REQUIRE(default_call != std::string::npos);
     REQUIRE(lazy_path < default_call);
+
+    REQUIRE(system.find("static s32 sysWeaponDiagLoggingEnabled(void)") != std::string::npos);
+    REQUIRE(system.find("sysArgCheck(\"--debug-weapon-diag\")") != std::string::npos);
+    REQUIRE(system.find("sysArgCheck(\"--debug-force-first-person\")") != std::string::npos);
+    REQUIRE(system.find("sysArgCheck(\"--debug-generated-mesh-render-audit\")") != std::string::npos);
+    REQUIRE(log_printf.find("strncmp(logmsg, \"LOG.WPN.DIAG:\", 13)") != std::string::npos);
+    REQUIRE(log_printf.find("!sysWeaponDiagLoggingEnabled()") != std::string::npos);
 }
 
 TEST_CASE("net lifecycle: reconnect and drop-in gates preserve slots before reset",

@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 7,
+  "asset_id": "base:a51airman",
+  "mod_id": "base",
+  "kind": "body",
+  "source": "data/ntsc-final/bodies/base_a51airman.pdbody::mesh.pdmesh::model.obj",
+  "source_size": 145196,
+  "source_sha256": "a13de8c37e42234c7965ec1e91944eaeca6b64fe21a6689fb0b7b2f547250f14",
+  "validation": "format=obj vertices=2127 triangles=709",
+  "normalized": "$S/mod-cache/base/base_a51airman/body-v8-a13de8c37e42234c7965ec1e91944eaeca6b64fe21a6689fb0b7b2f547250f14.pdmodel.json",
+  "vertex_count": 2127,
+  "triangle_count": 709,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

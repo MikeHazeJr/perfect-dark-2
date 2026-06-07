@@ -17,10 +17,12 @@
  * Boot order: this wrapper must be called from main.c at the Step 3b
  * part 2 block. On first launch g_TexGeneralConfigs is not yet
  * populated (texInit runs from pdmain.c::mainInit later in the boot
- * sequence) so the emitter returns 0 cleanly; the actual emit fires
- * from pdguiThemeCheckExtract in the render-loop fallback path once
- * the texture system is up. Subsequent boots find the .pdui files
- * already on disk and the call is an idempotent skip.
+ * sequence) so the emitter returns 0 cleanly. The post-texReset boot hook
+ * reruns the emitter through bootEnsureUiArchivesReadyAfterTextureInit()
+ * once the texture system is up, then scans the .pdui archives into the catalog
+ * before rendering starts. The render-loop check remains a safety repair
+ * for missing/stale files. Subsequent boots find the .pdui files already
+ * on disk and the call is an idempotent skip.
  *
  * Server build: returns 0 immediately (no GL context, no texture
  * system, no UI rendering on the dedicated server side).

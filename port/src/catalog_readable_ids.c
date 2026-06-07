@@ -4,7 +4,55 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "constants.h"
+#include "data.h"
 #include "loader_enum_reverse.h"
+#include "types.h"
+
+#if !defined(PD_SERVER)
+#ifndef AUDIOCONFIG_01
+#define AUDIOCONFIG_01 1
+#define AUDIOCONFIG_02 2
+#define AUDIOCONFIG_03 3
+#define AUDIOCONFIG_47 47
+#define AUDIOCONFIG_48 48
+#define AUDIOCONFIG_60 60
+#define AUDIOCONFIG_62 62
+#endif
+
+static s32 s_audioConfigIsVoice(s32 audioconfig_idx)
+{
+	switch (audioconfig_idx) {
+	case AUDIOCONFIG_01:
+	case AUDIOCONFIG_02:
+	case AUDIOCONFIG_03:
+	case AUDIOCONFIG_47:
+	case AUDIOCONFIG_48:
+	case AUDIOCONFIG_60:
+#if VERSION >= VERSION_NTSC_1_0
+	case AUDIOCONFIG_62:
+#endif
+		return 1;
+	default:
+		return 0;
+	}
+}
+
+static s32 s_leafSoundIsVoice(s32 sfx_idx)
+{
+	for (s32 i = 0; i < g_NumAudioRussMappings; i++) {
+		if (!s_audioConfigIsVoice((s32)g_AudioRussMappings[i].audioconfig_index)) {
+			continue;
+		}
+		union soundnumhack mapped;
+		mapped.packed = g_AudioRussMappings[i].soundnum;
+		if ((s32)mapped.id == sfx_idx) {
+			return 1;
+		}
+	}
+	return 0;
+}
+#endif
 
 static s32 s_startsWith(const char *s, const char *prefix)
 {
@@ -184,6 +232,30 @@ void catalogReadableVoiceId(s32 sfx_idx, char *out, size_t out_n)
 	s_slugFromSymbol(loaderEnumNameForSfxEnum(sfx_idx), "line",
 		sfx_idx, slug, sizeof(slug));
 	snprintf(out, out_n, "base:voice_%s", slug);
+}
+
+void catalogReadableSoundRefId(s32 sound_ref, char *out, size_t out_n)
+{
+	if (!out || out_n == 0) return;
+	out[0] = '\0';
+	if (sound_ref <= 0) return;
+
+	union soundnumhack ref;
+	ref.packed = (s16)sound_ref;
+
+	if (ref.hasconfig) {
+		catalogReadableSfxId(sound_ref, out, out_n);
+		return;
+	}
+
+#if !defined(PD_SERVER)
+	if (s_leafSoundIsVoice((s32)ref.id)) {
+		catalogReadableVoiceId((s32)ref.id, out, out_n);
+		return;
+	}
+#endif
+
+	catalogReadableSfxId((s32)ref.id, out, out_n);
 }
 
 void catalogReadableSongId(s32 slot_idx, char *out, size_t out_n)

@@ -1401,8 +1401,37 @@ static void populateExtFromIni(asset_entry_t *e, asset_type_e type, const char *
         e->ext.audio.key_max = iniGetInt(ini, "key_max", 127);
         e->ext.audio.key_base = iniGetInt(ini, "key_base", 60);
         e->ext.audio.key_detune = iniGetInt(ini, "key_detune", 0);
+        e->ext.audio.velocity_min = iniGetInt(ini, "velocity_min", 0);
+        e->ext.audio.velocity_max = iniGetInt(ini, "velocity_max", 0);
         e->ext.audio.sample_pan = iniGetInt(ini, "sample_pan", 64);
         e->ext.audio.sample_volume = iniGetInt(ini, "sample_volume", 127);
+        e->ext.audio.loop_start_samples = (u32)iniGetInt(ini, "loop_start_samples", 0);
+        e->ext.audio.loop_end_samples = (u32)iniGetInt(ini, "loop_end_samples", 0);
+        e->ext.audio.loop_count = (u32)iniGetInt(ini, "loop_count", 0);
+        {
+            const char *has_loop = iniGet(ini, "has_loop", "0");
+            e->ext.audio.has_loop = iniGetInt(ini, "has_loop", 0)
+                || strcmp(has_loop, "true") == 0
+                || strcmp(has_loop, "yes") == 0
+                || e->ext.audio.loop_end_samples > e->ext.audio.loop_start_samples
+                || e->ext.audio.loop_count != 0;
+        }
+        e->ext.audio.attack_time_us = (u32)iniGetInt(ini, "attack_time_us", 0);
+        e->ext.audio.decay_time_us = (u32)iniGetInt(ini, "decay_time_us", 0);
+        e->ext.audio.release_time_us = (u32)iniGetInt(ini, "release_time_us", 0);
+        e->ext.audio.attack_volume = iniGetInt(ini, "attack_volume", 127);
+        e->ext.audio.decay_volume = iniGetInt(ini, "decay_volume", 127);
+        {
+            const char *has_envelope = iniGet(ini, "has_envelope", "0");
+            e->ext.audio.has_envelope = iniGetInt(ini, "has_envelope", 0)
+                || strcmp(has_envelope, "true") == 0
+                || strcmp(has_envelope, "yes") == 0
+                || e->ext.audio.attack_time_us != 0
+                || e->ext.audio.decay_time_us != 0
+                || e->ext.audio.release_time_us != 0
+                || e->ext.audio.attack_volume != 127
+                || e->ext.audio.decay_volume != 127;
+        }
         strncpy(e->ext.audio.file_path, iniGet(ini, "file_path", ""),
                 sizeof(e->ext.audio.file_path) - 1);
         if (e->ext.audio.file_path[0]) {
@@ -1464,6 +1493,9 @@ static void populateExtFromIni(asset_entry_t *e, asset_type_e type, const char *
             strncpy(e->ext.scenario.setup_fields_file,
                     iniGet(ini, "setup_fields_file", ""),
                     sizeof(e->ext.scenario.setup_fields_file) - 1);
+            strncpy(e->ext.scenario.ai_lists_file,
+                    iniGet(ini, "ai_lists_file", ""),
+                    sizeof(e->ext.scenario.ai_lists_file) - 1);
             strncpy(e->ext.scenario.objectives_file,
                     iniGet(ini, "objectives_file", ""),
                     sizeof(e->ext.scenario.objectives_file) - 1);
@@ -1527,8 +1559,7 @@ static void populateExtFromIni(asset_entry_t *e, asset_type_e type, const char *
         {
             const char *sf = iniGet(ini, "strings_file",
                 iniGet(ini, "strings",
-                iniGet(ini, "strings_tsv",
-                iniGet(ini, "file_path", ""))));
+                iniGet(ini, "file_path", "")));
             strncpy(e->ext.lang.strings_file, sf,
                     sizeof(e->ext.lang.strings_file) - 1);
             if (e->ext.lang.strings_file[0]) {

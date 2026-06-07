@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build a Scenario fixture that proves generated nav can use paths.tsv."""
+"""Build a Scenario fixture that proves generated nav can use paths.json."""
 
 from __future__ import annotations
 
@@ -10,84 +10,189 @@ import zipfile
 from pathlib import Path
 
 
-PAD_HEADER = (
-    "pad_id\troom_ref\tliftnum\tflags\tpos_x\tpos_y\tpos_z\t"
-    "up_x\tup_y\tup_z\tlook_x\tlook_y\tlook_z\t"
-    "bbox_xmin\tbbox_xmax\tbbox_ymin\tbbox_ymax\tbbox_zmin\tbbox_zmax\n"
-)
-PADS_TSV = (
-    PAD_HEADER
-    + "pad_0000\troom_0001\t0\t0x00000000\t0.000\t0.000\t0.000\t"
-    "0.000\t1.000\t0.000\t0.000\t0.000\t1.000\t"
-    "-16.000\t16.000\t-16.000\t16.000\t-16.000\t16.000\n"
-    + "pad_0001\troom_0001\t0\t0x00000000\t64.000\t0.000\t0.000\t"
-    "0.000\t1.000\t0.000\t1.000\t0.000\t0.000\t"
-    "-16.000\t16.000\t-16.000\t16.000\t-16.000\t16.000\n"
-    + "pad_0002\troom_0001\t0\t0x00000000\t128.000\t0.000\t0.000\t"
-    "0.000\t1.000\t0.000\t1.000\t0.000\t0.000\t"
-    "-16.000\t16.000\t-16.000\t16.000\t-16.000\t16.000\n"
-    + "pad_0003\troom_0001\t0\t0x00000000\t64.000\t0.000\t64.000\t"
-    "0.000\t1.000\t0.000\t0.000\t0.000\t1.000\t"
-    "-16.000\t16.000\t-16.000\t16.000\t-16.000\t16.000\n"
-    + "pad_0004\troom_0001\t0\t0x00000000\t192.000\t0.000\t64.000\t"
-    "0.000\t1.000\t0.000\t0.000\t0.000\t1.000\t"
-    "-16.000\t16.000\t-16.000\t16.000\t-16.000\t16.000\n"
-)
-PATHS_TSV = (
-    "path_ref\tflags\tpads\n"
-    "path_0000\t0x01\tpad_0000,pad_0001,pad_0002\n"
-    "path_0001\t0x02\tpad_0001|outward,pad_0003\n"
-    "path_0002\t0x00\tpad_0004\n"
-)
-OBJECTS_TSV = (
-    "record_id\tkind\tpad_ref\tmodel_catalog_id\tweapon_catalog_id\tsecondary_weapon_catalog_id\t"
-    "body_catalog_id\thead_catalog_id\tailist_ref\tflags\tflags2\tflags3\n"
-    "setup_0000\tcharacter_spawn\tpad_0000\t\t\t\tbase:a51airman\tbase:head_a51faceplate\t"
-    "ailist_1025\t0x00000000\t0x00000000\t\n"
-    "setup_0001\thover_car\tpad_0001\tbase:model_hovcop_eu\t\t\t\t\tailist_1026\t"
-    "0x00000000\t0x00000000\t0x00000000\n"
-)
-AI_LISTS_TSV = (
-    "ailist_ref\tlist_id\tgraph_node\tcommand_index\toffset\topcode\topcode_name\toperands\t"
-    "model_catalog_id\tweapon_catalog_id\tbody_catalog_id\thead_catalog_id\n"
-    "ailist_1025\t0x0401\tscenario.ai.ailist_1025.command.0000\t0\t0\t0x0076\t"
-    "set_pad_preset_to_target_quadrant\t0x01,0x01\t\t\t\t\n"
-    "ailist_1025\t0x0401\tscenario.ai.ailist_1025.command.0001\t1\t4\t0x0002\tlabel\t0x01\t\t\t\t\n"
-    "ailist_1025\t0x0401\tscenario.ai.ailist_1025.command.0002\t2\t7\t0x0075\t"
-    "if_waypoint_within_quadrant\t0x01,0x02\t\t\t\t\n"
-    "ailist_1025\t0x0401\tscenario.ai.ailist_1025.command.0003\t3\t11\t0x0002\tlabel\t0x02\t\t\t\t\n"
-    "ailist_1025\t0x0401\tscenario.ai.ailist_1025.command.0004\t4\t14\t0x0042\t"
-    "set_pad_preset_to_pad_on_route_to_target\t0x03\t\t\t\t\n"
-    "ailist_1025\t0x0401\tscenario.ai.ailist_1025.command.0005\t5\t17\t0x0002\tlabel\t0x03\t\t\t\t\n"
-    "ailist_1025\t0x0401\tscenario.ai.ailist_1025.command.0006\t6\t20\t0x0121\t"
-    "find_cover\t0x80,0x85,0x04\t\t\t\t\n"
-    "ailist_1025\t0x0401\tscenario.ai.ailist_1025.command.0007\t7\t25\t0x0002\tlabel\t0x04\t\t\t\t\n"
-    "ailist_1025\t0x0401\tscenario.ai.ailist_1025.command.0008\t8\t28\t0x0122\t"
-    "find_cover_within_dist\t0x80,0x85,0x00,0x00,0x00,0x00,0x05\t\t\t\t\n"
-    "ailist_1025\t0x0401\tscenario.ai.ailist_1025.command.0009\t9\t37\t0x0002\tlabel\t0x05\t\t\t\t\n"
-    "ailist_1025\t0x0401\tscenario.ai.ailist_1025.command.0010\t10\t40\t0x0123\t"
-    "find_cover_outside_dist\t0x80,0x85,0x00,0x00,0x00,0x00,0x06\t\t\t\t\n"
-    "ailist_1025\t0x0401\tscenario.ai.ailist_1025.command.0011\t11\t49\t0x0002\tlabel\t0x06\t\t\t\t\n"
-    "ailist_1025\t0x0401\tscenario.ai.ailist_1025.command.0012\t12\t52\t0x0124\t"
-    "go_to_cover\t0x11\t\t\t\t\n"
-    "ailist_1025\t0x0401\tscenario.ai.ailist_1025.command.0013\t13\t55\t0x0125\t"
-    "check_cover_out_of_sight\t0x07\t\t\t\t\n"
-    "ailist_1025\t0x0401\tscenario.ai.ailist_1025.command.0014\t14\t58\t0x0002\tlabel\t0x07\t\t\t\t\n"
-    "ailist_1025\t0x0401\tscenario.ai.ailist_1025.command.0015\t15\t61\t0x013c\t"
-    "face_cover\t0x08\t\t\t\t\n"
-    "ailist_1025\t0x0401\tscenario.ai.ailist_1025.command.0016\t16\t64\t0x0002\tlabel\t0x08\t\t\t\t\n"
-    "ailist_1025\t0x0401\tscenario.ai.ailist_1025.command.0017\t17\t67\t0x013e\t"
-    "danger_cover\t\t\t\t\t\n"
-    "ailist_1025\t0x0401\tscenario.ai.ailist_1025.command.0018\t18\t69\t0x012f\t"
-    "release_cover\t\t\t\t\t\n"
-    "ailist_1025\t0x0401\tscenario.ai.ailist_1025.command.0019\t19\t71\t0x0004\tend\t\t\t\t\t\n"
-    "ailist_1026\t0x0402\tscenario.ai.ailist_1026.command.0000\t0\t0\t0x00d5\t"
-    "hovercar_begin_path\t0x00\t\t\t\t\n"
-    "ailist_1026\t0x0402\tscenario.ai.ailist_1026.command.0001\t1\t3\t0x00d6\t"
-    "set_vehicle_speed\t0x0f,0x00,0x00,0x3c\t\t\t\t\n"
-    "ailist_1026\t0x0402\tscenario.ai.ailist_1026.command.0002\t2\t9\t0x0004\tend\t\t\t\t\t\n"
-)
-SETUP_FIELDS_TSV = (
+PADS_JSON = json.dumps({
+    "schema": "pd2.scenario.pads.v1",
+    "rows": [
+        {
+            "pad_ref": "pad_0000",
+            "room_ref": "room_0001",
+            "liftnum": 0,
+            "flags": "0x00000000",
+            "position": [0, 0, 0],
+            "up": [0, 1, 0],
+            "look": [0, 0, 1],
+            "bbox": {"min": [-16, -16, -16], "max": [16, 16, 16]},
+        },
+        {
+            "pad_ref": "pad_0001",
+            "room_ref": "room_0001",
+            "liftnum": 0,
+            "flags": "0x00000000",
+            "position": [64, 0, 0],
+            "up": [0, 1, 0],
+            "look": [1, 0, 0],
+            "bbox": {"min": [-16, -16, -16], "max": [16, 16, 16]},
+        },
+        {
+            "pad_ref": "pad_0002",
+            "room_ref": "room_0001",
+            "liftnum": 0,
+            "flags": "0x00000000",
+            "position": [128, 0, 0],
+            "up": [0, 1, 0],
+            "look": [1, 0, 0],
+            "bbox": {"min": [-16, -16, -16], "max": [16, 16, 16]},
+        },
+        {
+            "pad_ref": "pad_0003",
+            "room_ref": "room_0001",
+            "liftnum": 0,
+            "flags": "0x00000000",
+            "position": [64, 0, 64],
+            "up": [0, 1, 0],
+            "look": [0, 0, 1],
+            "bbox": {"min": [-16, -16, -16], "max": [16, 16, 16]},
+        },
+        {
+            "pad_ref": "pad_0004",
+            "room_ref": "room_0001",
+            "liftnum": 0,
+            "flags": "0x00000000",
+            "position": [192, 0, 64],
+            "up": [0, 1, 0],
+            "look": [0, 0, 1],
+            "bbox": {"min": [-16, -16, -16], "max": [16, 16, 16]},
+        },
+    ],
+}, indent=2) + "\n"
+PATHS_JSON = json.dumps({
+    "schema": "pd2.scenario.paths.v1",
+    "rows": [
+        {
+            "path_ref": "path_0000",
+            "flags": "0x01",
+            "pads": ["pad_0000", "pad_0001", "pad_0002"],
+        },
+        {
+            "path_ref": "path_0001",
+            "flags": "0x02",
+            "pads": ["pad_0001|outward", "pad_0003"],
+        },
+        {
+            "path_ref": "path_0002",
+            "flags": "0x00",
+            "pads": ["pad_0004"],
+        },
+    ],
+}, indent=2) + "\n"
+SPAWNS_JSON = json.dumps({
+    "schema": "pd2.scenario.spawns.v1",
+    "rows": [
+        {
+            "spawn_id": "spawn_0000",
+            "pad_ref": "pad_0000",
+            "room_ref": "room_0001",
+            "team": "any",
+            "profile": "default",
+            "position": [0, 0, 0],
+            "look": [0, 0, 1],
+        },
+    ],
+}, indent=2) + "\n"
+VOLUMES_JSON = json.dumps({
+    "schema": "pd2.scenario.volumes.v1",
+    "rows": [],
+}, indent=2) + "\n"
+PORTALS_JSON = json.dumps({
+    "schema": "pd2.scenario.portals.v1",
+    "rows": [],
+}, indent=2) + "\n"
+OBJECTIVES_JSON = json.dumps({
+    "schema": "pd2.scenario.objectives.v1",
+    "rows": [],
+}, indent=2) + "\n"
+OBJECTS_JSON = json.dumps({
+    "schema": "pd2.scenario.objects.v1",
+    "rows": [
+        {
+            "record_id": "setup_0000",
+            "kind": "character_spawn",
+            "pad_ref": "pad_0000",
+            "model_catalog_id": "",
+            "weapon_catalog_id": "",
+            "secondary_weapon_catalog_id": "",
+            "body_catalog_id": "base:a51airman",
+            "head_catalog_id": "base:head_a51faceplate",
+            "ailist_ref": "ailist_1025",
+            "flags": "0x00000000",
+            "flags2": "0x00000000",
+            "flags3": "",
+        },
+        {
+            "record_id": "setup_0001",
+            "kind": "hover_car",
+            "pad_ref": "pad_0001",
+            "model_catalog_id": "base:model_hovcop_eu",
+            "weapon_catalog_id": "",
+            "secondary_weapon_catalog_id": "",
+            "body_catalog_id": "",
+            "head_catalog_id": "",
+            "ailist_ref": "ailist_1026",
+            "flags": "0x00000000",
+            "flags2": "0x00000000",
+            "flags3": "0x00000000",
+        },
+    ],
+}, indent=2) + "\n"
+def ai_lists_json(rows: list[tuple[str, str, int, int, str, str, list[str]]]) -> str:
+    return json.dumps({
+        "schema": "pd2.scenario.ai.lists.v1",
+        "rows": [
+            {
+                "ailist_ref": ailist_ref,
+                "list_id": list_id,
+                "graph_node": f"scenario.ai.{ailist_ref}.command.{command_index:04d}",
+                "command_index": command_index,
+                "offset": offset,
+                "opcode": opcode,
+                "opcode_name": opcode_name,
+                "operands": operands,
+                "model_catalog_id": "",
+                "weapon_catalog_id": "",
+                "body_catalog_id": "",
+                "head_catalog_id": "",
+            }
+            for ailist_ref, list_id, command_index, offset, opcode, opcode_name, operands in rows
+        ],
+    }, indent=2) + "\n"
+
+
+AI_LISTS_JSON = ai_lists_json([
+    ("ailist_1025", "0x0401", 0, 0, "0x0076", "set_pad_preset_to_target_quadrant", ["0x01", "0x01"]),
+    ("ailist_1025", "0x0401", 1, 4, "0x0002", "label", ["0x01"]),
+    ("ailist_1025", "0x0401", 2, 7, "0x0075", "if_waypoint_within_quadrant", ["0x01", "0x02"]),
+    ("ailist_1025", "0x0401", 3, 11, "0x0002", "label", ["0x02"]),
+    ("ailist_1025", "0x0401", 4, 14, "0x0042", "set_pad_preset_to_pad_on_route_to_target", ["0x03"]),
+    ("ailist_1025", "0x0401", 5, 17, "0x0002", "label", ["0x03"]),
+    ("ailist_1025", "0x0401", 6, 20, "0x0121", "find_cover", ["0x80", "0x85", "0x04"]),
+    ("ailist_1025", "0x0401", 7, 25, "0x0002", "label", ["0x04"]),
+    ("ailist_1025", "0x0401", 8, 28, "0x0122", "find_cover_within_dist", ["0x80", "0x85", "0x00", "0x00", "0x00", "0x00", "0x05"]),
+    ("ailist_1025", "0x0401", 9, 37, "0x0002", "label", ["0x05"]),
+    ("ailist_1025", "0x0401", 10, 40, "0x0123", "find_cover_outside_dist", ["0x80", "0x85", "0x00", "0x00", "0x00", "0x00", "0x06"]),
+    ("ailist_1025", "0x0401", 11, 49, "0x0002", "label", ["0x06"]),
+    ("ailist_1025", "0x0401", 12, 52, "0x0124", "go_to_cover", ["0x11"]),
+    ("ailist_1025", "0x0401", 13, 55, "0x0125", "check_cover_out_of_sight", ["0x07"]),
+    ("ailist_1025", "0x0401", 14, 58, "0x0002", "label", ["0x07"]),
+    ("ailist_1025", "0x0401", 15, 61, "0x013c", "face_cover", ["0x08"]),
+    ("ailist_1025", "0x0401", 16, 64, "0x0002", "label", ["0x08"]),
+    ("ailist_1025", "0x0401", 17, 67, "0x013e", "danger_cover", []),
+    ("ailist_1025", "0x0401", 18, 69, "0x012f", "release_cover", []),
+    ("ailist_1025", "0x0401", 19, 71, "0x0004", "end", []),
+    ("ailist_1026", "0x0402", 0, 0, "0x00d5", "hovercar_begin_path", ["0x00"]),
+    ("ailist_1026", "0x0402", 1, 3, "0x00d6", "set_vehicle_speed", ["0x0f", "0x00", "0x00", "0x3c"]),
+    ("ailist_1026", "0x0402", 2, 9, "0x0004", "end", []),
+])
+SETUP_FIELDS_ROWS = (
     "record_id\tkind\tfield\ttype\tvalue\tcatalog_id\tref_record_id\n"
     "setup_0000\tcharacter_spawn\tcharacter.spawn_flags\tu32_hex\t0x00000100\t\t\n"
     "setup_0000\tcharacter_spawn\tcharacter.slot\ts32\t5000\t\t\n"
@@ -124,9 +229,18 @@ SETUP_FIELDS_TSV = (
     "setup_0001\thover_car\tvehicle.dead_timer60\ts32\t0\t\t\n"
     "setup_0001\thover_car\tvehicle.sparks_timer60\ts32\t0\t\t\n"
 )
-WAYPOINTS_TSV = "waypoint_id\tpad_ref\tgroup_ref\tstep\tneighbours\n"
-WAYGROUPS_TSV = "waygroup_id\tstep\twaypoints\tneighbours\n"
-COVERS_TSV = "cover_id\tflags\tpos_x\tpos_y\tpos_z\tlook_x\tlook_y\tlook_z\n"
+waypoints_json = json.dumps({
+    "schema": "pd2.scenario.waypoints.v1",
+    "rows": [],
+}, indent=2) + "\n"
+waygroups_json = json.dumps({
+    "schema": "pd2.scenario.waygroups.v1",
+    "rows": [],
+}, indent=2) + "\n"
+covers_json = json.dumps({
+    "schema": "pd2.scenario.covers.v1",
+    "rows": [],
+}, indent=2) + "\n"
 NAVIGATION_INI = """[navigation]
 source = scene.glb
 collision_source = collision.obj
@@ -136,14 +250,14 @@ supports_jump = true
 supports_drop = true
 supports_wall = true
 supports_ceiling = true
-portals_file = portals.tsv
-pads_file = pads.tsv
-spawns_file = spawns.tsv
-volumes_file = volumes.tsv
-waypoints_file = navigation/waypoints.tsv
-waygroups_file = navigation/waygroups.tsv
-covers_file = navigation/covers.tsv
-paths_file = navigation/paths.tsv
+portals_file = portals.json
+pads_file = pads.json
+spawns_file = spawns.json
+volumes_file = volumes.json
+waypoints_file = navigation/waypoints.json
+waygroups_file = navigation/waygroups.json
+covers_file = navigation/covers.json
+paths_file = navigation/paths.json
 generated_cache = _meta/generated-navmesh.json
 """
 
@@ -151,20 +265,21 @@ SOURCE_NAMES = [
     "scene.glb",
     "collision.obj",
     "navigation.ini",
-    "portals.tsv",
-    "pads.tsv",
-    "spawns.tsv",
-    "volumes.tsv",
-    "navigation/waypoints.tsv",
-    "navigation/waygroups.tsv",
-    "navigation/covers.tsv",
-    "navigation/paths.tsv",
+    "portals.json",
+    "pads.json",
+    "spawns.json",
+    "volumes.json",
+    "navigation/waypoints.json",
+    "navigation/waygroups.json",
+    "navigation/covers.json",
+    "navigation/paths.json",
 ]
 
 
-def count_tsv_rows(data: bytes) -> int:
-    lines = data.decode("utf-8", "replace").splitlines()
-    return sum(1 for index, line in enumerate(lines) if index > 0 and line.strip())
+def count_json_rows(data: bytes) -> int:
+    parsed = json.loads(data.decode("utf-8", "replace"))
+    rows = parsed.get("rows") if isinstance(parsed, dict) else None
+    return len(rows) if isinstance(rows, list) else 0
 
 
 def sha256_hex(data: bytes) -> str:
@@ -175,14 +290,28 @@ def text_bytes(text: str) -> bytes:
     return text.encode("utf-8")
 
 
+def setup_fields_json_from_rows(text: str) -> bytes:
+    lines = [line for line in text.splitlines() if line.strip()]
+    header = lines[0].split("\t")
+    rows = []
+    for line in lines[1:]:
+        cols = line.split("\t")
+        row = {header[i]: cols[i] if i < len(cols) else "" for i in range(len(header))}
+        rows.append(row)
+    return text_bytes(json.dumps({
+        "schema": "pd2.scenario.setup.fields.v1",
+        "rows": rows,
+    }, indent=2) + "\n")
+
+
 def build_navmesh_json(entries: dict[str, bytes]) -> bytes:
     counts = {
-        "pads": count_tsv_rows(entries["pads.tsv"]),
-        "volumes": count_tsv_rows(entries["volumes.tsv"]),
-        "waypoints": count_tsv_rows(entries["navigation/waypoints.tsv"]),
-        "waygroups": count_tsv_rows(entries["navigation/waygroups.tsv"]),
-        "covers": count_tsv_rows(entries["navigation/covers.tsv"]),
-        "paths": count_tsv_rows(entries["navigation/paths.tsv"]),
+        "pads": count_json_rows(entries["pads.json"]),
+        "volumes": count_json_rows(entries["volumes.json"]),
+        "waypoints": count_json_rows(entries["navigation/waypoints.json"]),
+        "waygroups": count_json_rows(entries["navigation/waygroups.json"]),
+        "covers": count_json_rows(entries["navigation/covers.json"]),
+        "paths": count_json_rows(entries["navigation/paths.json"]),
     }
     hashes = {name: sha256_hex(entries[name]) for name in SOURCE_NAMES}
     text = (
@@ -190,11 +319,11 @@ def build_navmesh_json(entries: dict[str, bytes]) -> bytes:
         '  "schema": "pd2.generated.navmesh.v1",\n'
         '  "scenario": "base:scenario_test_ash",\n'
         '  "derived_from": "scene.glb",\n'
-        '  "inputs": ["scene.glb", "collision.obj", "navigation.ini", "portals.tsv", "pads.tsv", "spawns.tsv", "volumes.tsv", "navigation/waypoints.tsv", "navigation/waygroups.tsv", "navigation/covers.tsv", "navigation/paths.tsv"],\n'
+        '  "inputs": ["scene.glb", "collision.obj", "navigation.ini", "portals.json", "pads.json", "spawns.json", "volumes.json", "navigation/waypoints.json", "navigation/waygroups.json", "navigation/covers.json", "navigation/paths.json"],\n'
         '  "generator": "deterministic.surface_graph.v1",\n'
         '  "capabilities": ["walk", "jump", "drop", "wall", "ceiling"],\n'
         f'  "source_counts": {{ "pads": {counts["pads"]}, "volumes": {counts["volumes"]}, "waypoints": {counts["waypoints"]}, "waygroups": {counts["waygroups"]}, "covers": {counts["covers"]}, "paths": {counts["paths"]} }},\n'
-        f'  "source_hashes": {{ "scene.glb": "{hashes["scene.glb"]}", "collision.obj": "{hashes["collision.obj"]}", "navigation.ini": "{hashes["navigation.ini"]}", "portals.tsv": "{hashes["portals.tsv"]}", "pads.tsv": "{hashes["pads.tsv"]}", "spawns.tsv": "{hashes["spawns.tsv"]}", "volumes.tsv": "{hashes["volumes.tsv"]}", "navigation/waypoints.tsv": "{hashes["navigation/waypoints.tsv"]}", "navigation/waygroups.tsv": "{hashes["navigation/waygroups.tsv"]}", "navigation/covers.tsv": "{hashes["navigation/covers.tsv"]}", "navigation/paths.tsv": "{hashes["navigation/paths.tsv"]}" }},\n'
+        f'  "source_hashes": {{ "scene.glb": "{hashes["scene.glb"]}", "collision.obj": "{hashes["collision.obj"]}", "navigation.ini": "{hashes["navigation.ini"]}", "portals.json": "{hashes["portals.json"]}", "pads.json": "{hashes["pads.json"]}", "spawns.json": "{hashes["spawns.json"]}", "volumes.json": "{hashes["volumes.json"]}", "navigation/waypoints.json": "{hashes["navigation/waypoints.json"]}", "navigation/waygroups.json": "{hashes["navigation/waygroups.json"]}", "navigation/covers.json": "{hashes["navigation/covers.json"]}", "navigation/paths.json": "{hashes["navigation/paths.json"]}" }},\n'
         '  "cache_only": true\n'
         "}\n"
     )
@@ -216,15 +345,19 @@ def update_manifest(data: bytes) -> bytes:
 
 def build_fixture(source: Path, out: Path) -> None:
     replacements = {
-        "pads.tsv": text_bytes(PADS_TSV),
-        "navigation/paths.tsv": text_bytes(PATHS_TSV),
-        "navigation/waypoints.tsv": text_bytes(WAYPOINTS_TSV),
-        "navigation/waygroups.tsv": text_bytes(WAYGROUPS_TSV),
-        "navigation/covers.tsv": text_bytes(COVERS_TSV),
+        "pads.json": text_bytes(PADS_JSON),
+        "spawns.json": text_bytes(SPAWNS_JSON),
+        "volumes.json": text_bytes(VOLUMES_JSON),
+        "portals.json": text_bytes(PORTALS_JSON),
+        "navigation/paths.json": text_bytes(PATHS_JSON),
+        "navigation/waypoints.json": text_bytes(waypoints_json),
+        "navigation/waygroups.json": text_bytes(waygroups_json),
+        "navigation/covers.json": text_bytes(covers_json),
         "navigation.ini": text_bytes(NAVIGATION_INI),
-        "objects.tsv": text_bytes(OBJECTS_TSV),
-        "setup.fields.tsv": text_bytes(SETUP_FIELDS_TSV),
-        "ai/ailists.tsv": text_bytes(AI_LISTS_TSV),
+        "objects.json": text_bytes(OBJECTS_JSON),
+        "setup.fields.json": setup_fields_json_from_rows(SETUP_FIELDS_ROWS),
+        "ai/ailists.json": text_bytes(AI_LISTS_JSON),
+        "objectives.json": text_bytes(OBJECTIVES_JSON),
     }
     entries: dict[str, bytes] = {}
     with zipfile.ZipFile(source, "r") as zin:
@@ -232,6 +365,56 @@ def build_fixture(source: Path, out: Path) -> None:
             entries[name] = zin.read(name)
 
     entries.update(replacements)
+    rewrites = {
+        b"portals.tsv": b"portals.json",
+        b"objects.tsv": b"objects.json",
+        b"setup.fields.tsv": b"setup.fields.json",
+        b"ai/ailists.tsv": b"ai/ailists.json",
+        b"objectives.tsv": b"objectives.json",
+        b"pads.tsv": b"pads.json",
+        b"spawns.tsv": b"spawns.json",
+        b"volumes.tsv": b"volumes.json",
+        b"navigation/waypoints.tsv": b"navigation/waypoints.json",
+        b"navigation/waygroups.tsv": b"navigation/waygroups.json",
+        b"navigation/covers.tsv": b"navigation/covers.json",
+        b"navigation/paths.tsv": b"navigation/paths.json",
+    }
+    for name in list(entries):
+        if name.endswith((".ini", ".json")):
+            for old, new in rewrites.items():
+                entries[name] = entries[name].replace(old, new)
+    for name in ("scenario.ini", "level.graph.json", "_meta/manifest.json"):
+        if name in entries:
+            for old, new in rewrites.items():
+                entries[name] = entries[name].replace(old, new)
+    for stale in (
+        "pads.tsv",
+        "spawns.tsv",
+        "volumes.tsv",
+        "portals.tsv",
+        "objects.tsv",
+        "setup.fields.tsv",
+        "ai/ailists.tsv",
+        "objectives.tsv",
+        "navigation/waypoints.tsv",
+        "navigation/waygroups.tsv",
+        "navigation/covers.tsv",
+        "navigation/paths.tsv",
+        "_meta/hashes.tsv",
+        "_meta/pads.tsv.sha256",
+        "_meta/spawns.tsv.sha256",
+        "_meta/volumes.tsv.sha256",
+        "_meta/portals.tsv.sha256",
+        "_meta/objects.tsv.sha256",
+        "_meta/setup.fields.tsv.sha256",
+        "_meta/ai/ailists.tsv.sha256",
+        "_meta/objectives.tsv.sha256",
+        "_meta/navigation/waypoints.tsv.sha256",
+        "_meta/navigation/waygroups.tsv.sha256",
+        "_meta/navigation/covers.tsv.sha256",
+        "_meta/navigation/paths.tsv.sha256",
+    ):
+        entries.pop(stale, None)
     entries["_meta/manifest.json"] = update_manifest(entries["_meta/manifest.json"])
     entries["_meta/generated-navmesh.json"] = build_navmesh_json(entries)
 

@@ -7,6 +7,7 @@
 #include "bss.h"
 #include "data.h"
 #include "types.h"
+#include "audio.h"
 
 u32 var8009c330;
 s16 *var8009c334;
@@ -680,6 +681,10 @@ void sndSetPriority(struct sndstate *state, u8 priority)
 
 s32 sndGetState(struct sndstate *state)
 {
+	if (audioFileSoundOwnsHandle(state)) {
+		return audioFileSoundGetState(state);
+	}
+
 	if (state) {
 		return state->state;
 	} else {
@@ -778,6 +783,11 @@ struct sndstate *func00033820(s32 arg0, s16 soundnum, u16 vol, ALPan pan, f32 pi
 void audioStop(struct sndstate *state)
 {
 	N_ALEvent evt;
+
+	if (audioFileSoundOwnsHandle(state)) {
+		audioFileSoundStop(state);
+		return;
+	}
 
 #if VERSION >= VERSION_NTSC_FINAL
 	if (state && (state->flags & SNDSTATEFLAG_02)) {
@@ -903,6 +913,11 @@ void func00033e28(void)
 void audioPostEvent(struct sndstate *state, s16 type, s32 data)
 {
 	N_ALEvent evt;
+
+	if (audioFileSoundOwnsHandle(state)) {
+		audioFileSoundPostEvent(state, type, data);
+		return;
+	}
 
 	evt.type = type;
 	evt.msg.generic.sndstate = state;

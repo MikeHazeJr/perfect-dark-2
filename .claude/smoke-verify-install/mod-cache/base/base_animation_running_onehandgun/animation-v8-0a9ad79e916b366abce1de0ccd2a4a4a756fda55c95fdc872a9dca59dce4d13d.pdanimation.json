@@ -1,0 +1,18 @@
+{
+  "schema": "pd2.modasset.animation.v1",
+  "compiler_version": 8,
+  "asset_id": "base:animation_running_onehandgun",
+  "kind": "animation",
+  "source": "data/ntsc-final/animations/base_animation_running_onehandgun.pdanim::animation.gltf",
+  "source_sha256": "0a9ad79e916b366abce1de0ccd2a4a4a756fda55c95fdc872a9dca59dce4d13d",
+  "runtime_boundary": "animtableentry",
+  "clip_name": "base:animation_running_onehandgun",
+  "animation_count": 1,
+  "channel_count": 15,
+  "sampler_count": 15,
+  "frame_count": 26,
+  "header_length": -1,
+  "bytes_per_frame": -1,
+  "transform_policy": "gltf_skeletal_channel_pack",
+  "packed_channels": ["translation", "rotation", "scale"]
+}

@@ -54,6 +54,7 @@
 #include "video.h"
 #include "net/net.h"
 #include "net/netmsg.h"
+#include "modasset_compiler.h"
 
 void rng2SetSeed(u32 seed);
 
@@ -3980,14 +3981,20 @@ void chr0f0260c4(struct model *model, s32 hitpart, struct modelnode *node, struc
 			// one in the model definition. If it hasn't been changed we'll
 			// use the space... after the model definition's colour table?
 			// Let's hope that's not being used by other instances...
-			if (rwdata->gdl == rodata->opagdl) {
+			if (modAssetCompilerModeldefIsGenerated(model->definition)) {
+				gdlptr = rwdata->gdl;
+			} else if (rwdata->gdl == rodata->opagdl) {
 				gdlptr = (Gfx *)((uintptr_t)rodata->colours + ((uintptr_t)UNSEGADDR(rodata->opagdl) & 0xffffff));
 			} else {
 				gdlptr = rwdata->gdl;
 			}
 
 			if (rodata->xlugdl) {
-				gdlptr2 = (Gfx *)((uintptr_t)rodata->colours + ((uintptr_t)UNSEGADDR(rodata->xlugdl) & 0xffffff));
+				if (modAssetCompilerModeldefIsGenerated(model->definition)) {
+					gdlptr2 = rodata->xlugdl;
+				} else {
+					gdlptr2 = (Gfx *)((uintptr_t)rodata->colours + ((uintptr_t)UNSEGADDR(rodata->xlugdl) & 0xffffff));
+				}
 			} else {
 				gdlptr2 = NULL;
 			}
@@ -4099,14 +4106,20 @@ void chr0f0260c4(struct model *model, s32 hitpart, struct modelnode *node, struc
 				break;
 			}
 
-			if (rwdata->gdl == rodata->opagdl) {
+			if (modAssetCompilerModeldefIsGenerated(model->definition)) {
+				gdlptr = rwdata->gdl;
+			} else if (rwdata->gdl == rodata->opagdl) {
 				gdlptr = (Gfx *)((uintptr_t)rodata->colours + ((uintptr_t)UNSEGADDR(rodata->opagdl) & 0xffffff));
 			} else {
 				gdlptr = rwdata->gdl;
 			}
 
 			if (rodata->xlugdl) {
-				gdlptr2 = (Gfx *)((uintptr_t)rodata->colours + ((uintptr_t)UNSEGADDR(rodata->xlugdl) & 0xffffff));
+				if (modAssetCompilerModeldefIsGenerated(model->definition)) {
+					gdlptr2 = rodata->xlugdl;
+				} else {
+					gdlptr2 = (Gfx *)((uintptr_t)rodata->colours + ((uintptr_t)UNSEGADDR(rodata->xlugdl) & 0xffffff));
+				}
 			} else {
 				gdlptr2 = NULL;
 			}
@@ -4267,14 +4280,20 @@ void chrBruise(struct model *model, s32 hitpart, struct modelnode *node, struct 
 			// one in the model definition. If it hasn't been changed we'll
 			// use the space... after the model definition's colour table?
 			// Let's hope that's not being used by other instances...
-			if (rwdata->gdl == rodata->opagdl) {
+			if (modAssetCompilerModeldefIsGenerated(model->definition)) {
+				gdlptr = rwdata->gdl;
+			} else if (rwdata->gdl == rodata->opagdl) {
 				gdlptr = (Gfx *)((uintptr_t)rodata->colours + ((uintptr_t)UNSEGADDR(rodata->opagdl) & 0xffffff));
 			} else {
 				gdlptr = rwdata->gdl;
 			}
 
 			if (rodata->xlugdl) {
-				gdlptr2 = (Gfx *)((uintptr_t)rodata->colours + ((uintptr_t)UNSEGADDR(rodata->xlugdl) & 0xffffff));
+				if (modAssetCompilerModeldefIsGenerated(model->definition)) {
+					gdlptr2 = rodata->xlugdl;
+				} else {
+					gdlptr2 = (Gfx *)((uintptr_t)rodata->colours + ((uintptr_t)UNSEGADDR(rodata->xlugdl) & 0xffffff));
+				}
 			} else {
 				gdlptr2 = NULL;
 			}
@@ -4405,14 +4424,20 @@ void chrBruise(struct model *model, s32 hitpart, struct modelnode *node, struct 
 					break;
 				}
 
-				if (rwdata->gdl == rodata->opagdl) {
+				if (modAssetCompilerModeldefIsGenerated(model->definition)) {
+					gdlptr = rwdata->gdl;
+				} else if (rwdata->gdl == rodata->opagdl) {
 					gdlptr = (Gfx *)((uintptr_t)rodata->colours + ((uintptr_t)UNSEGADDR(rodata->opagdl) & 0xffffff));
 				} else {
 					gdlptr = rwdata->gdl;
 				}
 
 				if (rodata->xlugdl) {
-					gdlptr2 = (Gfx *)((uintptr_t)rodata->colours + ((uintptr_t)UNSEGADDR(rodata->xlugdl) & 0xffffff));
+					if (modAssetCompilerModeldefIsGenerated(model->definition)) {
+						gdlptr2 = rodata->xlugdl;
+					} else {
+						gdlptr2 = (Gfx *)((uintptr_t)rodata->colours + ((uintptr_t)UNSEGADDR(rodata->xlugdl) & 0xffffff));
+					}
 				} else {
 					gdlptr2 = NULL;
 				}
@@ -4596,14 +4621,20 @@ void chrDisfigure(struct chrdata *chr, struct coord *exppos, f32 damageradius)
 				// MTX and VTX pointers
 				if (rwdata->vertices != rodata->vertices
 						&& (uintptr_t)rwdata->colours != ALIGN8((uintptr_t)&rodata->vertices[rodata->numvertices])) {
-					if (rwdata->gdl == rodata->opagdl) {
+					if (modAssetCompilerModeldefIsGenerated(model->definition)) {
+						gdlptr = rwdata->gdl;
+					} else if (rwdata->gdl == rodata->opagdl) {
 						gdlptr = (Gfx *)((uintptr_t)rodata->colours + ((uintptr_t)UNSEGADDR(rodata->opagdl) & 0xffffff));
 					} else {
 						gdlptr = rwdata->gdl;
 					}
 
 					if (rodata->xlugdl) {
-						gdlptr2 = (Gfx *)((uintptr_t)rodata->colours + ((uintptr_t)UNSEGADDR(rodata->xlugdl) & 0xffffff));
+						if (modAssetCompilerModeldefIsGenerated(model->definition)) {
+							gdlptr2 = rodata->xlugdl;
+						} else {
+							gdlptr2 = (Gfx *)((uintptr_t)rodata->colours + ((uintptr_t)UNSEGADDR(rodata->xlugdl) & 0xffffff));
+						}
 					} else {
 						gdlptr2 = NULL;
 					}

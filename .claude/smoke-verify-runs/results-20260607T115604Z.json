@@ -1,0 +1,18 @@
+{
+  "Name": "scenario_pads_source_gate_smoke",
+  "Category": "scenario",
+  "BugId": null,
+  "RegressionFor": null,
+  "Passed": false,
+  "ExitCode": 0,
+  "ElapsedSeconds": 91.4391362,
+  "InstallDir": "C:\\Users\\mikeh\\Perfect-Dark-2\\perfect_dark-mike\\.claude\\smoke-verify-install",
+  "AssertionsTotal": 152,
+  "AssertionsMet": 151,
+  "Failures": [
+    {
+      "Kind": "required_line_missing",
+      "Pattern": "SCENARIO\\.RENDER: rendered native source scene 'base:scenario_chicago' vertices=\\d+ groups=\\d+ textures=\\d+"
+    }
+  ]
+}

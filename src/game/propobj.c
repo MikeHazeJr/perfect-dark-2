@@ -77,6 +77,7 @@
 #include "lib/lib_17ce0.h"
 #include "lib/lib_317f0.h"
 #include "model_rodata_guard.h"
+#include "modasset_compiler.h"
 #include "data.h"
 #include "textures.h"
 #include "types.h"
@@ -3308,14 +3309,20 @@ bool func0f06bea0(struct model *model, struct modelnode *endnode, struct modelno
 				rwdata = modelGetNodeRwData(model, node);
 
 				if (rwdata->gdl != NULL) {
-					if (rwdata->gdl == rodata->dl.opagdl) {
+					if (modAssetCompilerModeldefIsGenerated(model->definition)) {
+						s4 = rwdata->gdl;
+					} else if (rwdata->gdl == rodata->dl.opagdl) {
 						s4 = (Gfx *)((uintptr_t)rodata->dl.colours + ((uintptr_t)UNSEGADDR(rodata->dl.opagdl) & 0xffffff));
 					} else {
 						s4 = rwdata->gdl;
 					}
 
 					if (rodata->dl.xlugdl != NULL) {
-						s6 = (Gfx *)((uintptr_t)rodata->dl.colours + ((uintptr_t)UNSEGADDR(rodata->dl.xlugdl) & 0xffffff));
+						if (modAssetCompilerModeldefIsGenerated(model->definition)) {
+							s6 = rodata->dl.xlugdl;
+						} else {
+							s6 = (Gfx *)((uintptr_t)rodata->dl.colours + ((uintptr_t)UNSEGADDR(rodata->dl.xlugdl) & 0xffffff));
+						}
 					}
 
 					vertices = rwdata->vertices;
@@ -15541,14 +15548,20 @@ bool func0f0849dc(struct model *model, struct modelnode *nodearg, struct coord *
 				}
 
 				if (rwdata->gdl != NULL) {
-					if (rwdata->gdl == rodata->opagdl) {
+					if (modAssetCompilerModeldefIsGenerated(model->definition)) {
+						s3 = rwdata->gdl;
+					} else if (rwdata->gdl == rodata->opagdl) {
 						s3 = (Gfx *)((uintptr_t)rodata->colours + ((uintptr_t)UNSEGADDR(rodata->opagdl) & 0xffffff));
 					} else {
 						s3 = rwdata->gdl;
 					}
 
 					if (rodata->xlugdl != NULL) {
-						s5 = (void *)((uintptr_t)rodata->colours + ((uintptr_t)UNSEGADDR(rodata->xlugdl) & 0xffffff));
+						if (modAssetCompilerModeldefIsGenerated(model->definition)) {
+							s5 = rodata->xlugdl;
+						} else {
+							s5 = (void *)((uintptr_t)rodata->colours + ((uintptr_t)UNSEGADDR(rodata->xlugdl) & 0xffffff));
+						}
 					}
 
 					vertices = rwdata->vertices;

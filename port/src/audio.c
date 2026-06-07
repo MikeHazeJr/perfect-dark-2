@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <SDL.h>
+#include <libaudio.h>
 #include "platform.h"
 #include "config.h"
 #include "audio.h"
@@ -10,6 +11,14 @@
 #include "assetcatalog.h"
 #include "fs.h"
 #include "system.h"
+#include "types.h"
+
+#define AL_SNDP_STOP_EVT  0x0002
+#define AL_SNDP_PAN_EVT   0x0004
+#define AL_SNDP_VOL_EVT   0x0008
+#define AL_SNDP_PITCH_EVT 0x0010
+#define AL_SNDP_0400_EVT  0x0400
+#define AL_SNDP_1000_EVT  0x1000
 
 /* Network externs for music tick (avoid pulling in full net headers) */
 extern s32 g_NetMode;
@@ -198,6 +207,362 @@ void audioSetNextBuffer(const s16 *buf, u32 len)
  * active we copy into this buffer, mix mod PCM on top, then queue it. */
 static s16 s_MixBuf[8192]; /* 8192 samples = 4096 stereo frames — covers any realistic frame */
 
+#define AUDIO_FILE_SOUND_MAX 32
+
+typedef struct audio_file_sound_s {
+	s32 allocated;
+	struct sndstate state;
+	s16 *pcm;
+	u32 frames;
+	f32 cursor;
+	f32 step;
+	u16 volume;
+	u8 pan;
+	u32 loop_start_frame;
+	u32 loop_end_frame;
+	u32 loop_count;
+	s32 has_loop;
+	s32 has_envelope;
+	u32 age_frames;
+	u32 attack_frames;
+	u32 decay_frames;
+	u32 release_frames;
+	f32 attack_volume_scale;
+	f32 decay_volume_scale;
+	s32 releasing;
+	u32 release_elapsed_frames;
+	f32 release_start_scale;
+	struct sndstate **handle;
+} audio_file_sound_t;
+
+static audio_file_sound_t s_FileSounds[AUDIO_FILE_SOUND_MAX];
+
+static audio_file_sound_t *audioFindFileSound(const struct sndstate *handle)
+{
+	s32 i;
+	for (i = 0; i < AUDIO_FILE_SOUND_MAX; i++) {
+		if (s_FileSounds[i].allocated && &s_FileSounds[i].state == handle) {
+			return &s_FileSounds[i];
+		}
+	}
+	return NULL;
+}
+
+s32 audioFileSoundOwnsHandle(const struct sndstate *handle)
+{
+	return audioFindFileSound(handle) != NULL;
+}
+
+s32 audioFileSoundGetState(const struct sndstate *handle)
+{
+	audio_file_sound_t *slot = audioFindFileSound(handle);
+	return slot ? slot->state.state : AL_STOPPED;
+}
+
+static void audioFileSoundRelease(audio_file_sound_t *slot)
+{
+	if (!slot) return;
+	if (slot->pcm) {
+		SDL_free(slot->pcm);
+		slot->pcm = NULL;
+	}
+	slot->frames = 0;
+	slot->cursor = 0.0f;
+	slot->state.state = AL_STOPPED;
+	slot->allocated = 0;
+	if (slot->handle && *slot->handle == &slot->state) {
+		*slot->handle = NULL;
+	}
+	slot->handle = NULL;
+}
+
+static f32 audioFileSoundEnvelopeScale(const audio_file_sound_t *slot)
+{
+	f32 scale;
+	u32 decay_pos;
+	u32 total_decay_start;
+
+	if (!slot || !slot->has_envelope) {
+		return 1.0f;
+	}
+
+	if (slot->releasing) {
+		if (slot->release_frames == 0 ||
+				slot->release_elapsed_frames >= slot->release_frames) {
+			return 0.0f;
+		}
+		scale = 1.0f - ((f32)slot->release_elapsed_frames /
+				(f32)slot->release_frames);
+		return slot->release_start_scale * scale;
+	}
+
+	if (slot->attack_frames > 0 && slot->age_frames < slot->attack_frames) {
+		scale = (f32)(slot->age_frames + 1) / (f32)slot->attack_frames;
+		return slot->attack_volume_scale * scale;
+	}
+
+	total_decay_start = slot->attack_frames;
+	if (slot->decay_frames > 0 &&
+			slot->age_frames < total_decay_start + slot->decay_frames) {
+		decay_pos = slot->age_frames > total_decay_start
+			? slot->age_frames - total_decay_start : 0;
+		scale = (f32)decay_pos / (f32)slot->decay_frames;
+		return slot->attack_volume_scale +
+			(slot->decay_volume_scale - slot->attack_volume_scale) * scale;
+	}
+
+	return slot->decay_volume_scale;
+}
+
+static void audioFileSoundBeginRelease(audio_file_sound_t *slot)
+{
+	if (!slot || slot->state.state == AL_STOPPED) {
+		return;
+	}
+
+	if (!slot->has_envelope || slot->release_frames == 0) {
+		audioFileSoundRelease(slot);
+		return;
+	}
+
+	slot->release_start_scale = audioFileSoundEnvelopeScale(slot);
+	slot->release_elapsed_frames = 0;
+	slot->releasing = 1;
+	slot->state.state = AL_STOPPING;
+}
+
+void audioFileSoundStop(struct sndstate *handle)
+{
+	audio_file_sound_t *slot = audioFindFileSound(handle);
+	if (slot) {
+		audioFileSoundBeginRelease(slot);
+	}
+}
+
+void audioFileSoundPostEvent(struct sndstate *handle, s16 type, s32 data)
+{
+	audio_file_sound_t *slot = audioFindFileSound(handle);
+	if (!slot || (slot->state.state != AL_PLAYING && slot->state.state != AL_STOPPING)) {
+		return;
+	}
+
+	switch (type) {
+	case AL_SNDP_VOL_EVT:
+		slot->volume = (u16)data;
+		slot->state.vol = (s16)data;
+		break;
+	case AL_SNDP_PAN_EVT:
+		if (data < 0) data = 0;
+		if (data > 127) data = 127;
+		slot->pan = (u8)data;
+		slot->state.pan = (u8)data;
+		break;
+	case AL_SNDP_PITCH_EVT:
+		memcpy(&slot->step, &data, sizeof(slot->step));
+		if (slot->step <= 0.0f) slot->step = 1.0f;
+		slot->state.pitch = slot->step;
+		break;
+	case AL_SNDP_STOP_EVT:
+	case AL_SNDP_0400_EVT:
+	case AL_SNDP_1000_EVT:
+		audioFileSoundBeginRelease(slot);
+		break;
+	default:
+		break;
+	}
+}
+
+static s32 audioFileSoundsActive(void)
+{
+	s32 i;
+	for (i = 0; i < AUDIO_FILE_SOUND_MAX; i++) {
+		if ((s_FileSounds[i].state.state == AL_PLAYING ||
+				s_FileSounds[i].state.state == AL_STOPPING) &&
+				s_FileSounds[i].pcm) {
+			return 1;
+		}
+	}
+	return 0;
+}
+
+static s32 audioLoadFilePcmStereo22050(const char *path, s16 **out_pcm,
+		u32 *out_frames, s32 *out_source_rate)
+{
+	SDL_AudioSpec wavSpec;
+	Uint8 *wavBuf = NULL;
+	Uint32 wavLen = 0;
+	u32 fileSize = 0;
+	void *fileBytes = fsFileLoad(path, &fileSize);
+
+	*out_pcm = NULL;
+	*out_frames = 0;
+	*out_source_rate = 22050;
+
+	if (fileBytes && fileSize > 0 && fileSize <= 0x7fffffffU) {
+		SDL_RWops *rw = SDL_RWFromConstMem(fileBytes, (int)fileSize);
+		if (rw) {
+			SDL_LoadWAV_RW(rw, 1, &wavSpec, &wavBuf, &wavLen);
+		}
+		free(fileBytes);
+	} else if (fileBytes) {
+		free(fileBytes);
+	}
+
+	if (!wavBuf) {
+		if (SDL_LoadWAV(path, &wavSpec, &wavBuf, &wavLen) == NULL) {
+			return 0;
+		}
+	}
+
+	*out_source_rate = wavSpec.freq > 0 ? wavSpec.freq : 22050;
+
+	SDL_AudioCVT cvt;
+	const int cvtResult = SDL_BuildAudioCVT(&cvt,
+		wavSpec.format, wavSpec.channels, wavSpec.freq,
+		AUDIO_S16SYS, 2, 22050);
+	if (cvtResult < 0) {
+		SDL_FreeWAV(wavBuf);
+		return 0;
+	}
+
+	Uint8 *pcm;
+	Uint32 pcmLen;
+	if (cvtResult > 0) {
+		const Uint32 cvtBufLen = wavLen * (Uint32)cvt.len_mult;
+		pcm = SDL_malloc(cvtBufLen);
+		if (!pcm) {
+			SDL_FreeWAV(wavBuf);
+			return 0;
+		}
+		memcpy(pcm, wavBuf, wavLen);
+		SDL_FreeWAV(wavBuf);
+		cvt.buf = pcm;
+		cvt.len = (int)wavLen;
+		if (SDL_ConvertAudio(&cvt) < 0) {
+			SDL_free(pcm);
+			return 0;
+		}
+		pcmLen = (Uint32)cvt.len_cvt;
+	} else {
+		pcm = wavBuf;
+		pcmLen = wavLen;
+	}
+
+	*out_pcm = (s16 *)pcm;
+	*out_frames = pcmLen / (sizeof(s16) * 2u);
+	return *out_frames > 0;
+}
+
+static u32 audioScaleSourceFrame(u32 source_frame, s32 source_rate, u32 frames)
+{
+	u64 scaled;
+	if (source_rate <= 0) source_rate = 22050;
+	scaled = ((u64)source_frame * 22050u + (u32)(source_rate / 2)) / (u32)source_rate;
+	if (scaled > frames) scaled = frames;
+	return (u32)scaled;
+}
+
+static u32 audioEnvelopeFrames(u32 time_us, f32 pitch)
+{
+	f32 frames;
+
+	if (time_us == 0) {
+		return 0;
+	}
+	if (pitch <= 0.0f) {
+		pitch = 1.0f;
+	}
+
+	frames = (((f32)time_us / pitch) * 22050.0f) / 1000000.0f;
+	if (frames < 1.0f) {
+		return 1;
+	}
+	if (frames > 4294967295.0f) {
+		return 0xffffffffu;
+	}
+	return (u32)(frames + 0.5f);
+}
+
+static void audioMixFileSoundsInto(s16 *dst, u32 frames)
+{
+	s32 slot_index;
+	for (slot_index = 0; slot_index < AUDIO_FILE_SOUND_MAX; slot_index++) {
+		audio_file_sound_t *slot = &s_FileSounds[slot_index];
+		u32 i;
+		f32 baseVolScale;
+		f32 panPos;
+
+		if ((slot->state.state != AL_PLAYING && slot->state.state != AL_STOPPING) ||
+				!slot->pcm || slot->frames == 0) {
+			continue;
+		}
+
+		baseVolScale = ((f32)slot->volume / (f32)0x7fff) *
+			g_AudioMasterVolume * g_AudioGameplayVolume;
+		panPos = (f32)slot->pan / 127.0f;
+
+		for (i = 0; i < frames; i++) {
+			f32 volScale;
+			f32 leftScale;
+			f32 rightScale;
+			u32 src_frame;
+			s32 l;
+			s32 r;
+			if (slot->cursor >= (f32)slot->frames) {
+				audioFileSoundRelease(slot);
+				break;
+			}
+
+			volScale = baseVolScale * audioFileSoundEnvelopeScale(slot);
+			leftScale = volScale * (1.0f - panPos) * 2.0f;
+			rightScale = volScale * panPos * 2.0f;
+			if (leftScale > 1.0f) leftScale = 1.0f;
+			if (rightScale > 1.0f) rightScale = 1.0f;
+
+			src_frame = (u32)slot->cursor;
+			l = dst[i * 2] + (s32)((f32)slot->pcm[src_frame * 2] * leftScale);
+			r = dst[i * 2 + 1] + (s32)((f32)slot->pcm[src_frame * 2 + 1] * rightScale);
+			if (l > 32767) l = 32767;
+			if (l < -32768) l = -32768;
+			if (r > 32767) r = 32767;
+			if (r < -32768) r = -32768;
+			dst[i * 2] = (s16)l;
+			dst[i * 2 + 1] = (s16)r;
+
+			slot->cursor += slot->step;
+			if (slot->releasing) {
+				slot->release_elapsed_frames++;
+				if (slot->release_elapsed_frames >= slot->release_frames) {
+					audioFileSoundRelease(slot);
+					break;
+				}
+			} else {
+				slot->age_frames++;
+			}
+			if (slot->has_loop && slot->loop_end_frame > slot->loop_start_frame
+					&& slot->cursor >= (f32)slot->loop_end_frame) {
+				const f32 loop_len = (f32)(slot->loop_end_frame - slot->loop_start_frame);
+				if (slot->loop_count == 0xffffffffu) {
+					while (slot->cursor >= (f32)slot->loop_end_frame) {
+						slot->cursor -= loop_len;
+					}
+					if (slot->cursor < (f32)slot->loop_start_frame) {
+						slot->cursor = (f32)slot->loop_start_frame;
+					}
+				} else if (slot->loop_count > 0) {
+					slot->loop_count--;
+					while (slot->cursor >= (f32)slot->loop_end_frame) {
+						slot->cursor -= loop_len;
+					}
+					if (slot->cursor < (f32)slot->loop_start_frame) {
+						slot->cursor = (f32)slot->loop_start_frame;
+					}
+				}
+			}
+		}
+	}
+}
+
 void audioEndFrame(void)
 {
 	const u32 now = SDL_GetTicks();
@@ -245,8 +610,10 @@ void audioEndFrame(void)
 		}
 
 		if (buffered < queueLimit) {
-			if (modMusicIsPlaying()) {
-				/* Copy N64 output into writable buffer, mix mod music on top */
+			const s32 file_sounds_active = audioFileSoundsActive();
+			if (modMusicIsPlaying() || file_sounds_active) {
+				/* Copy N64 output into writable buffer, mix source-backed
+				 * music and file SFX on top, then queue one combined frame. */
 				u32 numSamples = nextSize / sizeof(s16);
 				u32 numFrames = numSamples / 2;
 
@@ -263,7 +630,12 @@ void audioEndFrame(void)
 				}
 
 				memcpy(s_MixBuf, nextBuf, numSamples * sizeof(s16));
-				modMusicMixInto(s_MixBuf, numFrames);
+				if (modMusicIsPlaying()) {
+					modMusicMixInto(s_MixBuf, numFrames);
+				}
+				if (file_sounds_active) {
+					audioMixFileSoundsInto(s_MixBuf, numFrames);
+				}
 				SDL_QueueAudio(dev, s_MixBuf, numSamples * sizeof(s16));
 			} else {
 				SDL_QueueAudio(dev, nextBuf, nextSize);
@@ -552,6 +924,81 @@ s32 audioPlayFileSound(const char *path, u16 volume, u8 pan, f32 pitch)
     SDL_QueueAudio(dev, pcm, pcmLen);
     SDL_free(pcm);
     return 1;
+}
+
+struct sndstate *audioStartFileSound(const char *path, u16 volume, u8 pan,
+		f32 pitch, s32 has_loop, u32 loop_start_samples,
+		u32 loop_end_samples, u32 loop_count, s32 has_envelope,
+		u32 attack_time_us, u32 decay_time_us, u32 release_time_us,
+		s32 attack_volume, s32 decay_volume, struct sndstate **handle)
+{
+	s16 *pcm = NULL;
+	u32 frames = 0;
+	s32 source_rate = 22050;
+	audio_file_sound_t *slot = NULL;
+	s32 i;
+
+	if (pitch <= 0.0f) {
+		pitch = 1.0f;
+	}
+
+	if (!audioLoadFilePcmStereo22050(path, &pcm, &frames, &source_rate)) {
+		return NULL;
+	}
+
+	for (i = 0; i < AUDIO_FILE_SOUND_MAX; i++) {
+		if (s_FileSounds[i].state.state == AL_STOPPED) {
+			slot = &s_FileSounds[i];
+			audioFileSoundRelease(slot);
+			break;
+		}
+	}
+
+	if (!slot) {
+		SDL_free(pcm);
+		return NULL;
+	}
+
+	memset(&slot->state, 0, sizeof(slot->state));
+	slot->allocated = 1;
+	slot->pcm = pcm;
+	slot->frames = frames;
+	slot->cursor = 0.0f;
+	slot->step = pitch;
+	slot->volume = volume;
+	slot->pan = pan;
+	slot->loop_start_frame = audioScaleSourceFrame(loop_start_samples, source_rate, frames);
+	slot->loop_end_frame = audioScaleSourceFrame(loop_end_samples, source_rate, frames);
+	slot->loop_count = loop_count;
+	slot->has_loop = has_loop
+		&& slot->loop_end_frame > slot->loop_start_frame
+		&& slot->loop_start_frame < frames;
+	slot->has_envelope = has_envelope;
+	slot->age_frames = 0;
+	slot->attack_frames = audioEnvelopeFrames(attack_time_us, pitch);
+	slot->decay_frames = audioEnvelopeFrames(decay_time_us, pitch);
+	slot->release_frames = audioEnvelopeFrames(release_time_us, pitch);
+	if (attack_volume < 0) attack_volume = 0;
+	if (attack_volume > 127) attack_volume = 127;
+	if (decay_volume < 0) decay_volume = 0;
+	if (decay_volume > 127) decay_volume = 127;
+	slot->attack_volume_scale = (f32)attack_volume / 127.0f;
+	slot->decay_volume_scale = (f32)decay_volume / 127.0f;
+	slot->releasing = 0;
+	slot->release_elapsed_frames = 0;
+	slot->release_start_scale = 1.0f;
+	slot->handle = handle;
+	slot->state.state = AL_PLAYING;
+	slot->state.vol = (s16)volume;
+	slot->state.pan = pan;
+	slot->state.pitch = pitch;
+	slot->state.flags = 0;
+
+	if (handle) {
+		*handle = &slot->state;
+	}
+
+	return &slot->state;
 }
 
 /* ========================================================================

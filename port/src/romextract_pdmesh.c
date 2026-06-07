@@ -11,9 +11,9 @@
  *   _meta/*.json        shared inventory/provenance/validation/source handles
  *   model.obj           Wavefront OBJ converted from model display lists
  *   model.mtl           material stub for OBJ tooling
- *   model.nodes.tsv     original model node/matrix hierarchy
- *   model.parts.tsv     original model part table
- *   model.faces.tsv     original face-to-model-matrix bindings
+ *   model.nodes.json    original model node/matrix hierarchy
+ *   model.parts.json    original model part table
+ *   model.faces.json    original face-to-model-matrix bindings
  *   model.render.json   original render command stream by render node/group
  *   _meta/*.sha256     public-file SHA-256 sidecars
  *
@@ -67,9 +67,9 @@
 #define ROMEXTRACT_PDMESH_MODEL_VMA 0x05000000u
 #define ROMEXTRACT_PDMESH_MTX_STACK_CAP 11
 #define ROMEXTRACT_PDMESH_NODE_DEPTH_CAP 2048
-#define ROMEXTRACT_PDMESH_OBJ_EXPORT_VERSION_LABEL "model_obj_mtx_v19_materials_hierarchy_parts_scale_faces_relations_raw_mtx_render_commands_json"
+#define ROMEXTRACT_PDMESH_OBJ_EXPORT_VERSION_LABEL "model_obj_mtx_v20_materials_hierarchy_parts_faces_json_relations_raw_mtx_render_commands_json"
 #define ROMEXTRACT_PDMESH_OBJ_EXPORT_VERSION ROMEXTRACT_PDMESH_OBJ_EXPORT_VERSION_LABEL "\n"
-#define ROMEXTRACT_PDMESH_FAST_CACHE_KIND "pdmesh_model_obj_mtx_v21_materials_hierarchy_parts_scale_faces_relations_raw_mtx_render_commands_json_allmodels_menuhud"
+#define ROMEXTRACT_PDMESH_FAST_CACHE_KIND "pdmesh_model_obj_mtx_v23_materials_hierarchy_parts_faces_json_relations_raw_mtx_render_commands_json_allmodels_menuhud_zero_tri_models"
 extern u16 g_CartFileNums[];
 static u16 s_SeenFilenums[ROMEXTRACT_PDMESH_SEEN_CAP];
 static s32 s_SeenCount;
@@ -1214,10 +1214,14 @@ static s32 s_objEmitTri(pdmesh_obj_export_t *ctx,
 		return -1;
 	}
 	ctx->triangle_count++;
-	if (ctx->faces &&
-			s_textbufAppendf(ctx->faces, "%u\t%d\n",
-				(unsigned)(ctx->triangle_count - 1u), face_mtx) != 0) {
-		return -1;
+	if (ctx->faces) {
+		u32 face_index = ctx->triangle_count - 1u;
+		if ((face_index > 0 && s_textbufAppend(ctx->faces, ",\n") != 0) ||
+				s_textbufAppendf(ctx->faces,
+					"    { \"face_index\": %u, \"matrix_index\": %d }",
+					(unsigned)face_index, face_mtx) != 0) {
+			return -1;
+		}
 	}
 	if (s_objAppendRenderRow(ctx, "tri", (s32)(ctx->triangle_count - 1u),
 			face_mtx, 0, material_index) != 0) {
@@ -1588,14 +1592,17 @@ static const char *s_objRenderGroupSuffix(u32 type)
 	}
 }
 
-static s32 s_writeNodeHierarchyTsv(pdmesh_obj_export_t *ctx)
+static s32 s_writeNodeHierarchyJson(pdmesh_obj_export_t *ctx)
 {
 	if (!ctx || !ctx->nodes) {
 		return -1;
 	}
 
 	if (s_textbufAppend(ctx->nodes,
-			"id\tparent\ttype\tpartnum\tpart\tmtx0\tmtx1\tmtx2\tpos_x\tpos_y\tpos_z\tdrawdist\ttarget\tgroup\trender_mtx\tmcount\thitpart\txmin\txmax\tymin\tymax\tzmin\tzmax\tdistance_near\tdistance_far\treorder_x\treorder_y\treorder_z\treorder_axis_x\treorder_axis_y\treorder_axis_z\treorder_target_a\treorder_target_b\treorder_side\n") != 0) {
+			"{\n"
+			"  \"pd_kind\": \"mesh_nodes\",\n"
+			"  \"pd_schema_version\": 1,\n"
+			"  \"nodes\": [\n") != 0) {
 		return -1;
 	}
 
@@ -1737,31 +1744,56 @@ static s32 s_writeNodeHierarchyTsv(pdmesh_obj_export_t *ctx)
 			break;
 		}
 
+		if (i > 0 && s_textbufAppend(ctx->nodes, ",\n") != 0) {
+			return -1;
+		}
 		if (s_textbufAppendf(ctx->nodes,
-				"%d\t%d\t%u\t%d\t%d\t%d\t%d\t%d\t%.6f\t%.6f\t%.6f\t%.6f\t%d\t%s\t%d\t%d\t%d\t%.6f\t%.6f\t%.6f\t%.6f\t%.6f\t%.6f\t%.6f\t%.6f\t%.6f\t%.6f\t%.6f\t%.6f\t%.6f\t%.6f\t%d\t%d\t%d\n",
+				"    { \"id\": %d, \"parent\": %d, \"type\": %u, "
+				"\"partnum\": %d, \"part\": %d, "
+				"\"mtx0\": %d, \"mtx1\": %d, \"mtx2\": %d, "
+				"\"position\": { \"x\": %.6f, \"y\": %.6f, \"z\": %.6f }, "
+				"\"drawdist\": %.6f, \"target\": %d, \"group\": ",
 				i, parent, (unsigned)type, partnum, part, mtx0, mtx1, mtx2,
 				(double)pos_x, (double)pos_y, (double)pos_z,
-				(double)drawdist, target, group, render_mtx, mcount,
-				hitpart, (double)xmin, (double)xmax, (double)ymin,
-				(double)ymax, (double)zmin, (double)zmax,
-				(double)distance_near, (double)distance_far,
-				(double)reorder_x, (double)reorder_y, (double)reorder_z,
-				(double)reorder_axis_x, (double)reorder_axis_y,
-				(double)reorder_axis_z, reorder_target_a,
-				reorder_target_b, reorder_side) != 0) {
+				(double)drawdist, target) != 0 ||
+				s_textbufAppendJsonString(ctx->nodes, group) != 0 ||
+				s_textbufAppendf(ctx->nodes,
+					", \"render_mtx\": %d, \"mcount\": %d, "
+					"\"hitpart\": %d, "
+					"\"bounds\": { \"xmin\": %.6f, \"xmax\": %.6f, "
+					"\"ymin\": %.6f, \"ymax\": %.6f, "
+					"\"zmin\": %.6f, \"zmax\": %.6f }, "
+					"\"distance\": { \"near\": %.6f, \"far\": %.6f }, "
+					"\"reorder\": { "
+					"\"pivot\": { \"x\": %.6f, \"y\": %.6f, \"z\": %.6f }, "
+					"\"axis\": { \"x\": %.6f, \"y\": %.6f, \"z\": %.6f }, "
+					"\"target_a\": %d, \"target_b\": %d, \"side\": %d } }",
+					render_mtx, mcount, hitpart,
+					(double)xmin, (double)xmax, (double)ymin,
+					(double)ymax, (double)zmin, (double)zmax,
+					(double)distance_near, (double)distance_far,
+					(double)reorder_x, (double)reorder_y, (double)reorder_z,
+					(double)reorder_axis_x, (double)reorder_axis_y,
+					(double)reorder_axis_z, reorder_target_a,
+					reorder_target_b, reorder_side) != 0) {
 			return -1;
 		}
 	}
 
-	return 0;
+	return s_textbufAppend(ctx->nodes, "\n  ]\n}\n");
 }
 
-static s32 s_writePartTableTsv(pdmesh_obj_export_t *ctx)
+static s32 s_writePartTableJson(pdmesh_obj_export_t *ctx)
 {
 	if (!ctx || !ctx->parts || !ctx->modeldef ||
 			ctx->modeldef->numparts <= 0) {
 		if (ctx && ctx->parts) {
-			return s_textbufAppend(ctx->parts, "partnum\tnode\n");
+			return s_textbufAppend(ctx->parts,
+				"{\n"
+				"  \"pd_kind\": \"mesh_parts\",\n"
+				"  \"pd_schema_version\": 1,\n"
+				"  \"parts\": []\n"
+				"}\n");
 		}
 		return -1;
 	}
@@ -1779,22 +1811,28 @@ static s32 s_writePartTableTsv(pdmesh_obj_export_t *ctx)
 		return -1;
 	}
 
-	if (s_textbufAppend(ctx->parts, "partnum\tnode\n") != 0) {
+	if (s_textbufAppend(ctx->parts,
+			"{\n"
+			"  \"pd_kind\": \"mesh_parts\",\n"
+			"  \"pd_schema_version\": 1,\n"
+			"  \"parts\": [\n") != 0) {
 		return -1;
 	}
 
 	for (s32 i = 0; i < ctx->modeldef->numparts; i++) {
 		s32 node_id = s_objNodeId(ctx, ctx->modeldef->parts[i]);
-		if (node_id < 0) {
+		if (i > 0 && s_textbufAppend(ctx->parts, ",\n") != 0) {
 			return -1;
 		}
-		if (s_textbufAppendf(ctx->parts, "%d\t%d\n",
-				(s32)partnums[i], node_id) != 0) {
+		if (s_textbufAppendf(ctx->parts,
+				"    { \"partnum\": %d, \"node\": %d, \"node_unresolved\": %s }",
+				(s32)partnums[i], node_id,
+				node_id < 0 ? "true" : "false") != 0) {
 			return -1;
 		}
 	}
 
-	return 0;
+	return s_textbufAppend(ctx->parts, "\n  ]\n}\n");
 }
 
 static s32 s_vmaOffsetInModel(uintptr_t ptr, u32 size, size_t bytes)
@@ -1809,12 +1847,14 @@ static s32 s_vmaOffsetInModel(uintptr_t ptr, u32 size, size_t bytes)
 static s32 s_modeldefOffsetsLookPromotable(const struct modeldef *modeldef,
                                            u32 size)
 {
-	if (!modeldef || !modeldef->rootnode) return 0;
+	if (!modeldef) return 0;
 	if (modeldef->numparts < 0 || modeldef->numparts > 500) return 0;
-	if (!s_vmaOffsetInModel((uintptr_t)modeldef->rootnode, size,
-	                        sizeof(struct modelnode))) {
+	if (modeldef->rootnode &&
+			!s_vmaOffsetInModel((uintptr_t)modeldef->rootnode, size,
+			                    sizeof(struct modelnode))) {
 		return 0;
 	}
+	if (!modeldef->rootnode && modeldef->numparts > 0) return 0;
 	if (modeldef->numparts > 0) {
 		size_t part_bytes = (size_t)modeldef->numparts *
 			(sizeof(uintptr_t) + sizeof(s16));
@@ -1853,6 +1893,16 @@ static s32 s_buildModelObj(const u8 *src, u32 src_size,
 
 	struct modeldef *modeldef = (struct modeldef *)copy;
 	if (!s_modeldefOffsetsLookPromotable(modeldef, src_size)) {
+		sysLogPrintf(LOG_WARNING,
+			"romextract pdmesh: modeldef header rejected for filenum=0x%04x size=%u root=0x%08llx skel=0x%08llx parts=0x%08llx numparts=%d nummatrices=%d scale=%.9g rwdatalen=%d numtexconfigs=%d texconfigs=0x%08llx",
+			(unsigned)source_filenum, (unsigned)src_size,
+			(unsigned long long)(uintptr_t)modeldef->rootnode,
+			(unsigned long long)(uintptr_t)modeldef->skel,
+			(unsigned long long)(uintptr_t)modeldef->parts,
+			(int)modeldef->numparts, (int)modeldef->nummatrices,
+			(double)modeldef->scale, (int)modeldef->rwdatalen,
+			(int)modeldef->numtexconfigs,
+			(unsigned long long)(uintptr_t)modeldef->texconfigs);
 		free(copy);
 		return -1;
 	}
@@ -1860,6 +1910,10 @@ static s32 s_buildModelObj(const u8 *src, u32 src_size,
 	modelPromoteOffsetsToPointers(modeldef, ROMEXTRACT_PDMESH_MODEL_VMA,
 	                              (uintptr_t)modeldef);
 	if (modeldef->nummatrices < 0 || modeldef->nummatrices > 4096) {
+		sysLogPrintf(LOG_WARNING,
+			"romextract pdmesh: modeldef matrix count rejected for filenum=0x%04x size=%u nummatrices=%d",
+			(unsigned)source_filenum, (unsigned)src_size,
+			(int)modeldef->nummatrices);
 		free(copy);
 		return -1;
 	}
@@ -1867,6 +1921,9 @@ static s32 s_buildModelObj(const u8 *src, u32 src_size,
 	if (s_textbufAppend(obj,
 			"# Perfect Dark 2 base model export\n"
 			"mtllib model.mtl\n") != 0) {
+		sysLogPrintf(LOG_WARNING,
+			"romextract pdmesh: model OBJ header write failed for filenum=0x%04x",
+			(unsigned)source_filenum);
 		free(copy);
 		return -1;
 	}
@@ -1889,13 +1946,23 @@ static s32 s_buildModelObj(const u8 *src, u32 src_size,
 	ctx.current_material = s_objEnsureDefaultMaterial(&ctx);
 	ctx.emitted_material = -1;
 	if (ctx.current_material < 0) {
+		sysLogPrintf(LOG_WARNING,
+			"romextract pdmesh: default material allocation failed for filenum=0x%04x",
+			(unsigned)source_filenum);
 		free(copy);
 		return -1;
 	}
 	ctx.mtx_stack_size = 1;
 	s_objMtxIdentity(ctx.mtx_stack[0]);
 	ctx.mtx_stack_indices[0] = -1;
-	if (s_textbufAppend(ctx.faces, "face\tmatrix\n") != 0) {
+	if (s_textbufAppend(ctx.faces,
+			"{\n"
+			"  \"pd_kind\": \"mesh_faces\",\n"
+			"  \"pd_schema_version\": 1,\n"
+			"  \"faces\": [\n") != 0) {
+		sysLogPrintf(LOG_WARNING,
+			"romextract pdmesh: faces JSON header write failed for filenum=0x%04x",
+			(unsigned)source_filenum);
 		free(ctx.materials);
 		free(copy);
 		return -1;
@@ -1905,6 +1972,9 @@ static s32 s_buildModelObj(const u8 *src, u32 src_size,
 			"  \"pd_kind\": \"mesh_render_commands\",\n"
 			"  \"pd_schema_version\": 1,\n"
 			"  \"commands\": [\n") != 0) {
+		sysLogPrintf(LOG_WARNING,
+			"romextract pdmesh: render JSON header write failed for filenum=0x%04x",
+			(unsigned)source_filenum);
 		free(ctx.materials);
 		free(copy);
 		return -1;
@@ -1914,6 +1984,9 @@ static s32 s_buildModelObj(const u8 *src, u32 src_size,
 			sizeof(*ctx.model_matrices);
 		ctx.model_matrices = (f32 (*)[4][4])malloc(matrix_bytes);
 		if (!ctx.model_matrices) {
+			sysLogPrintf(LOG_WARNING,
+				"romextract pdmesh: matrix allocation failed for filenum=0x%04x matrices=%d",
+				(unsigned)source_filenum, (int)modeldef->nummatrices);
 			free(ctx.materials);
 			free(copy);
 			return -1;
@@ -1928,33 +2001,60 @@ static s32 s_buildModelObj(const u8 *src, u32 src_size,
 	}
 	if (modeldef->rootnode) {
 		s_objRegisterNodes(&ctx, modeldef->rootnode, 0);
-		if (s_writeNodeHierarchyTsv(&ctx) != 0) {
-			if (ctx.model_matrices) free(ctx.model_matrices);
-			free(ctx.materials);
-			free(copy);
-			return -1;
-		}
-		if (s_writePartTableTsv(&ctx) != 0) {
-			if (ctx.model_matrices) free(ctx.model_matrices);
-			free(ctx.materials);
-			free(copy);
-			return -1;
-		}
+	}
+	if (s_writeNodeHierarchyJson(&ctx) != 0) {
+		sysLogPrintf(LOG_WARNING,
+			"romextract pdmesh: node hierarchy JSON write failed for filenum=0x%04x root=%p nodes=%d",
+			(unsigned)source_filenum, (void *)modeldef->rootnode,
+			(int)ctx.node_count);
+		if (ctx.model_matrices) free(ctx.model_matrices);
+		free(ctx.materials);
+		free(copy);
+		return -1;
+	}
+	if (s_writePartTableJson(&ctx) != 0) {
+		sysLogPrintf(LOG_WARNING,
+			"romextract pdmesh: part table JSON write failed for filenum=0x%04x root=%p parts=%d",
+			(unsigned)source_filenum, (void *)modeldef->rootnode,
+			(int)modeldef->numparts);
+		if (ctx.model_matrices) free(ctx.model_matrices);
+		free(ctx.materials);
+		free(copy);
+		return -1;
 	}
 	if (modeldef->rootnode &&
 			s_exportNodeObj(&ctx, modeldef->rootnode, 0) != 0) {
+		sysLogPrintf(LOG_WARNING,
+			"romextract pdmesh: node OBJ export failed for filenum=0x%04x root=%p nodes=%d",
+			(unsigned)source_filenum, (void *)modeldef->rootnode,
+			(int)ctx.node_count);
 		if (ctx.model_matrices) free(ctx.model_matrices);
 		free(ctx.materials);
 		free(copy);
 		return -1;
 	}
 	if (s_objFinalizeMaterials(&ctx) != 0) {
+		sysLogPrintf(LOG_WARNING,
+			"romextract pdmesh: material finalization failed for filenum=0x%04x materials=%u",
+			(unsigned)source_filenum, (unsigned)ctx.material_count);
 		if (ctx.model_matrices) free(ctx.model_matrices);
 		free(ctx.materials);
 		free(copy);
 		return -1;
 	}
 	if (s_textbufAppend(ctx.render, "\n  ]\n}\n") != 0) {
+		sysLogPrintf(LOG_WARNING,
+			"romextract pdmesh: render JSON close failed for filenum=0x%04x",
+			(unsigned)source_filenum);
+		if (ctx.model_matrices) free(ctx.model_matrices);
+		free(ctx.materials);
+		free(copy);
+		return -1;
+	}
+	if (s_textbufAppend(ctx.faces, "\n  ]\n}\n") != 0) {
+		sysLogPrintf(LOG_WARNING,
+			"romextract pdmesh: faces JSON close failed for filenum=0x%04x",
+			(unsigned)source_filenum);
 		if (ctx.model_matrices) free(ctx.model_matrices);
 		free(ctx.materials);
 		free(copy);
@@ -2215,8 +2315,7 @@ static s32 s_emitOneMesh(u16 filenum, const char *hint_suffix,
 	memset(&stats, 0, sizeof(stats));
 	if (s_buildModelObj((const u8 *)model_bytes, model_size, loadtype,
 	                    filenum, &obj_buf, &mtl_buf, &nodes_buf, &parts_buf,
-	                    &faces_buf, &render_buf, &stats) != 0 ||
-	    stats.triangle_count == 0) {
+	                    &faces_buf, &render_buf, &stats) != 0) {
 		sysMemFree(model_bytes);
 		s_textbufFree(&obj_buf);
 		s_textbufFree(&mtl_buf);
@@ -2225,7 +2324,7 @@ static s32 s_emitOneMesh(u16 filenum, const char *hint_suffix,
 		s_textbufFree(&faces_buf);
 		s_textbufFree(&render_buf);
 		sysLogPrintf(LOG_WARNING,
-			"romextract pdmesh: OBJ export produced no triangles for filenum=0x%04x (rel=\"%s\", gdls=%u vtxcmds=%u vtxslots=%u mtxcmds=%u mtxrefs=%u tricmds=%u triattempts=%u trimiss=%u badvtxaddr=%u badmtxaddr=%u)",
+			"romextract pdmesh: OBJ export failed for filenum=0x%04x (rel=\"%s\", gdls=%u vtxcmds=%u vtxslots=%u mtxcmds=%u mtxrefs=%u tricmds=%u triattempts=%u trimiss=%u badvtxaddr=%u badmtxaddr=%u)",
 			(unsigned)filenum, src_rel, (unsigned)stats.gdl_count,
 			(unsigned)stats.vtx_cmd_count, (unsigned)stats.vtx_slot_count,
 			(unsigned)stats.mtx_cmd_count,
@@ -2235,6 +2334,18 @@ static s32 s_emitOneMesh(u16 filenum, const char *hint_suffix,
 			(unsigned)stats.vtx_bad_addr_count,
 			(unsigned)stats.mtx_bad_addr_count);
 		return -1;
+	}
+	if (stats.triangle_count == 0) {
+		sysLogPrintf(LOG_NOTE,
+			"romextract pdmesh: exported zero-triangle modeldef for filenum=0x%04x (rel=\"%s\", gdls=%u vtxcmds=%u vtxslots=%u mtxcmds=%u mtxrefs=%u tricmds=%u triattempts=%u trimiss=%u badvtxaddr=%u badmtxaddr=%u)",
+			(unsigned)filenum, src_rel, (unsigned)stats.gdl_count,
+			(unsigned)stats.vtx_cmd_count, (unsigned)stats.vtx_slot_count,
+			(unsigned)stats.mtx_cmd_count,
+			(unsigned)stats.mtx_model_ref_count,
+			(unsigned)stats.tri_cmd_count, (unsigned)stats.tri_attempt_count,
+			(unsigned)stats.tri_missing_slot_count,
+			(unsigned)stats.vtx_bad_addr_count,
+			(unsigned)stats.mtx_bad_addr_count);
 	}
 	sysLogPrintf(LOG_NOTE,
 		"romextract pdmesh: exported filenum=0x%04x loadtype=%u tris=%u gdls=%u materials=%u textured_materials=%u material_switches=%u mtxcmds=%u mtxrefs=%u",
@@ -2263,9 +2374,9 @@ static s32 s_emitOneMesh(u16 filenum, const char *hint_suffix,
 		"  \"obj_export_version\": \"%s\",\n"
 		"  \"geometry\": \"model.obj\",\n"
 		"  \"material\": \"model.mtl\",\n"
-		"  \"hierarchy\": \"model.nodes.tsv\",\n"
-		"  \"parts\": \"model.parts.tsv\",\n"
-		"  \"faces\": \"model.faces.tsv\",\n"
+		"  \"hierarchy\": \"model.nodes.json\",\n"
+		"  \"parts\": \"model.parts.json\",\n"
+		"  \"faces\": \"model.faces.json\",\n"
 		"  \"render_stream\": \"model.render.json\",\n"
 		"  \"model_scale\": %.9g,\n"
 		"  \"triangle_count\": %u,\n"
@@ -2317,9 +2428,9 @@ static s32 s_emitOneMesh(u16 filenum, const char *hint_suffix,
 		"obj_export_version = %s\n"
 		"geometry_file = model.obj\n"
 		"material_file = model.mtl\n"
-		"hierarchy_file = model.nodes.tsv\n"
-		"parts_file = model.parts.tsv\n"
-		"faces_file = model.faces.tsv\n"
+		"hierarchy_file = model.nodes.json\n"
+		"parts_file = model.parts.json\n"
+		"faces_file = model.faces.json\n"
 		"render_stream_file = model.render.json\n"
 		"model_scale = %.9g\n"
 		"skeleton_symbol = %s\n"
@@ -2477,10 +2588,10 @@ static s32 s_emitOneMesh(u16 filenum, const char *hint_suffix,
 		return -1;
 	}
 
-	if (assetArchiveWriterAddPublicMem(&asset_writer, "model.nodes.tsv",
+	if (assetArchiveWriterAddPublicMem(&asset_writer, "model.nodes.json",
 			nodes_buf.data, nodes_buf.len, "hierarchy") != MODARCHIVE_OK) {
 		sysLoudFailf("EXTRACT.PDMESH",
-			"AddFileMem model.nodes.tsv failed for \"%s\"", dst_full);
+			"AddFileMem model.nodes.json failed for \"%s\"", dst_full);
 		modArchiveAbort(aw);
 		s_textbufFree(&obj_buf);
 		s_textbufFree(&mtl_buf);
@@ -2491,10 +2602,10 @@ static s32 s_emitOneMesh(u16 filenum, const char *hint_suffix,
 		return -1;
 	}
 
-	if (assetArchiveWriterAddPublicMem(&asset_writer, "model.parts.tsv",
+	if (assetArchiveWriterAddPublicMem(&asset_writer, "model.parts.json",
 			parts_buf.data, parts_buf.len, "parts") != MODARCHIVE_OK) {
 		sysLoudFailf("EXTRACT.PDMESH",
-			"AddFileMem model.parts.tsv failed for \"%s\"", dst_full);
+			"AddFileMem model.parts.json failed for \"%s\"", dst_full);
 		modArchiveAbort(aw);
 		s_textbufFree(&obj_buf);
 		s_textbufFree(&mtl_buf);
@@ -2505,10 +2616,10 @@ static s32 s_emitOneMesh(u16 filenum, const char *hint_suffix,
 		return -1;
 	}
 
-	if (assetArchiveWriterAddPublicMem(&asset_writer, "model.faces.tsv",
+	if (assetArchiveWriterAddPublicMem(&asset_writer, "model.faces.json",
 			faces_buf.data, faces_buf.len, "faces") != MODARCHIVE_OK) {
 		sysLoudFailf("EXTRACT.PDMESH",
-			"AddFileMem model.faces.tsv failed for \"%s\"", dst_full);
+			"AddFileMem model.faces.json failed for \"%s\"", dst_full);
 		modArchiveAbort(aw);
 		s_textbufFree(&obj_buf);
 		s_textbufFree(&mtl_buf);

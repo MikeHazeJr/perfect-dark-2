@@ -6,10 +6,11 @@
  *
  * Two-stage lifecycle:
  *   1. pdguiThemeInit()      -- early init, called from pdguiInit()
- *   2. pdguiThemeLateInit()  -- loads textures from data/ui/textures or
- *                               procedural fallbacks, called after texInit()/texReset()
+ *   2. pdguiThemeLateInit()  -- loads textures from .pdui archives or
+ *                               procedural fallbacks, called after texInit()
+ *                               and reloadable after texReset()
  *
- * Texture pipeline: on-disk TGA files (data/ui/textures/*.tga) -> GL upload
+ * Texture pipeline: .pdui texture.tga members -> GL upload
  *   -> s_ThemeTexCache -> draw funcs
  * Procedural fallback: generate noise/solid textures when on-disk files missing
  *
@@ -35,6 +36,10 @@ void pdguiThemeInit(void);
  *  procedural fallbacks. Called after texInit()/texReset() have run.
  *  Safe to call more than once (no-op after first call). */
 void pdguiThemeLateInit(void);
+
+/** Force late init to reload from current .pdui source archives.
+ *  Used after texReset() emits clean-install UI archives. */
+void pdguiThemeReloadPduiSourceTextures(void);
 
 /** Shutdown: delete GL textures, clear theme cache. */
 void pdguiThemeShutdown(void);

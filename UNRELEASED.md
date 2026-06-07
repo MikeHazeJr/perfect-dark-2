@@ -13,24 +13,58 @@
 
 ## Added
 
+- Added a shared no-public-TSV release gate so typed archives reject TSV payloads and require semantic JSON/INI/graph or standard editable source files instead.
+- Tightened the native-source guard so TSV no longer counts as a public text-source suffix; old TSV member names are retained only as stale-archive rejection fingerprints.
+- Removed dead Scenario TSV diagnostic ledgers from extraction and updated the Chicago source smoke so runtime proof requires JSON Scenario and mission source paths.
+- Fixed source-built Scenario room-list validation so a full valid room list with its terminator in the reserved final slot no longer logs as malformed during Chicago source-scene gameplay.
+- Fixed Scenario source-scene texture alpha so public `scene.glb` materials mark masked textures and the native source renderer no longer draws transparent texels as solid dark pixels.
+- Fixed Scenario source-scene camera delivery so public `scene.glb` maps still render when the VI camera FOV is temporarily zero during stage startup/cutscene state.
+- Fixed configured SFX speech alias extraction so MP3-backed voice lines no longer fail `.pdsfx` extraction as out-of-bank sounds.
+- Added typed `.pdvoice::sample.mp3` source archives for MP3-backed speech aliases so playback and duration no longer depend on loose extracted binary files.
+- Fixed MP3-backed configured speech playback so voice aliases use the correct audio config row for volume, pan, filtering, and response behavior.
+- Fixed Scenario path archive loading so sparse or duplicate native path IDs are preserved instead of forcing `navigation/paths.json` rows to match row numbers.
+- Fixed `.pdmesh` extraction so real model archives with unresolved native part-table links are preserved instead of skipped.
+- Fixed another source-built mesh usage path so generated modeldefs use direct display-list pointers during character/object hit tests instead of being treated like segmented ROM model bytes.
+- Fixed clean-boot UI archive loading so base `.pdui` textures emit, register, and reload from public source after `texReset()` instead of being first repaired by the render loop.
+- Fixed `.pdui` catalog source retention so UI textures loaded by the theme also resolve through typed source-only catalog loads.
+- Added native envelope/release metadata for `.pdsfx` and `.pdvoice` so source-backed WAV sounds preserve readable attack, decay, release, and key velocity fields.
+- Removed stale TSV source handling from the Modding Hub weapon template path and Scenario source matrix proof so weapon bindings and Scenario runtime assertions now use the semantic JSON archive members.
+- Added semantic Scenario AI-list source with `.pdscenario::ai/ailists.json`, replacing the public `ai/ailists.tsv` command table in extraction, runtime AI-list compilation, generated-nav fixtures, examples, validation, and source-only Scenario graph proof.
+- Added semantic Scenario setup-field source with `.pdscenario::setup.fields.json`, replacing the public `setup.fields.tsv` table in extraction, runtime setup compilation, setup-link proof, examples, validation, and source-only Scenario graph proof.
+- Added semantic Scenario object source with `.pdscenario::objects.json`, replacing the public `objects.tsv` table in extraction, runtime setup object loading, examples, validation, and source-only Scenario graph proof.
+- Added semantic Scenario portal source with `.pdscenario::portals.json`, replacing the public `portals.tsv` table in extraction, runtime portal-table compilation, generated-nav hashes, examples, validation, and source-only Scenario graph proof.
+- Added semantic Scenario objective source with `.pdscenario::objectives.json`, replacing the public `objectives.tsv` table in extraction, mission provenance, templates, examples, validation, and source-matrix summaries.
+- Added semantic Scenario spawn source with `.pdscenario::spawns.json`, replacing the public `spawns.tsv` table in extraction, templates, examples, validation, and runtime setup compilation.
+- Added semantic Scenario trigger-volume source with `.pdscenario::volumes.json`, replacing the public `volumes.tsv` table in extraction, templates, examples, validation, generated-nav hashes, and runtime graph activation.
+- Added semantic Scenario pad source with `.pdscenario::pads.json`, replacing the public `pads.tsv` table in extraction, runtime padfile compilation, generated-nav hashes, examples, validation, and source-only Scenario graph proof.
+- Added semantic Scenario navigation path source with `.pdscenario::navigation/paths.json`, replacing the public `navigation/paths.tsv` table in extraction, generated-nav metadata, examples, validation, source-matrix proof, and runtime path compilation.
+- Added semantic Scenario navigation table source with `.pdscenario::navigation/waypoints.json`, `navigation/waygroups.json`, and `navigation/covers.json`, replacing public waypoint/waygroup/cover TSV tables in extraction, runtime padfile compilation, generated-nav metadata, examples, validation, and source-matrix proof.
+- Added JSON-only source contracts for shared archive hash metadata, `.pdskin` swatches, `.pdvoice` subtitles, and `.pdmission` objective/briefing source so those public typed archives no longer rely on TSV sidecars.
 - Added one-install source matrix verification so Scenario and all-family asset checks can reuse a frozen extracted content set when extraction itself did not change.
 - Added file-backed non-Scenario asset matrix loading so thousands of source-only catalog IDs are read from a generated `type=id` list instead of the command line.
 - Completed the c3844 asset-pipeline runtime source migration sweep, closing the remaining Scenario vehicle path, route-to-target, cover/navigation, optional actor/object/path, MP participant, and setup-record source-proof gaps found by the final matrices.
 - Added source-native `.pdsong` sequence playback by proving public `sequence.mid` plus semantic `sequence.json` before compiling editable sequence source for the legacy sequencer.
+- Added semantic `.pdmesh` hierarchy, part, and face JSON source files so extracted mesh archives no longer expose public TSV sidecars for model reconstruction.
+- Added a stricter `.pdui` source contract so optional UI layout data uses semantic `layout.json` instead of public TSV tables.
 - Added source-native `.pdtexture` image loading so source-built meshes decode public texture archives into runtime RGBA32 texture data instead of falling back to ROM/static compressed texture bytes.
 - Added Scenario `scene.glb` room-shading payloads so public map geometry carries `COLOR_0` alongside authoring/runtime UVs and renders with archived room shade data instead of flat texture-only output.
 - Added semantic GLTF extraction for character/cutscene `.pdanim` archives so public animation source uses editable transform channels and repeat/cut-skip metadata instead of header/frame byte tables.
+- Hardened Scenario animation actions so live character, camera, object, preset, natural, and special-death animation use requires compiled public `.pdanim` source clips instead of catalog names alone.
+- Hardened weapon/inventory `.pdanim` command playback so the loader consumes public `commands.json` archive members directly and the gun runtime logs the same source script when starting weapon animations.
 - Preserved generated mesh relation nodes during extraction so distance, reorder, and headspot model hierarchy rows are no longer flattened into bogus position nodes.
 - Added a catalog-provider guard so body/head model catalog validation uses handle-based source IDs instead of raw source-filenum reverse lookup.
 - Added source-native MP3 speech playback and duration sizing from extracted public source files before ROM/static fallback.
 - Added source-native `.pdsong` track-audio playback for public `track.wav`, `track.ogg`, and `track.mp3` sources before legacy sequence fallback.
 - Added a native-source guard so file-source SFX/voice playback failures refuse ROM/static fallback in source-only audio verification.
 - Added native SFX/voice keymap extraction so public `.pdsfx` and `.pdvoice` WAV playback preserves original base pitch, sample volume, and pan.
+- Added live file-backed SFX/voice handles so public `.pdsfx` and `.pdvoice` WAV playback preserves loop points and can be stopped, repanned, and repitched by gameplay code.
 - Added a native-source guard so MP3 prop-sound duration estimates refuse ROM/static file-size fallback in source-only audio verification.
 - Added a native-source guard so MP3 speech playback refuses ROM/static file playback in source-only audio verification.
+- Added archive-backed configured SFX aliases and catalog-form weapon animation command refs so `.pdanim` command source no longer depends on local animation names or runtime-only sound aliases.
+- Added configured SFX alias resolution for weapon command audio and converted `.pdweapon` binding sidecars from public TSV to JSON.
 - Added a native-source guard so sequenced music refuses ROM/static fallback in source-only audio verification until public `.pdsong` runtime playback is source-native.
 - Added a native-source guard so body/head manager modeldef fallbacks refuse non-public family handles in source-only verification.
-- Expanded the generated-nav Scenario smoke to prove live quadrant AI action/condition execution from public `ai/ailists.tsv`, `pads.tsv`, and generated navigation tables.
+- Expanded the generated-nav Scenario smoke to prove live quadrant AI action/condition execution from public `ai/ailists.json`, `pads.json`, and generated navigation tables.
 - Added a native-source guard so setup modeldef loads refuse non-public model handles in source-only verification.
 - Added a native-source guard so Forge prop, door, and weapon-pad model spawns refuse non-public family handles in source-only verification.
 - Added a native-source guard so bundled metadata preloads refuse activation without public editable source during source-only verification.
@@ -46,7 +80,7 @@
 - Expanded Rescue Scenario source-matrix proof to require stable live AI actions from public path, pad, object, lighting, environment, speech/audio, and inventory sources.
 - Hardened Scenario setup-link matrix proof so retained smokes require each authored behavior-link kind they exercise.
 - Refreshed CI Training Scenario matrix proof to match source-resolved AI logs and avoid non-deterministic branch-only route checks.
-- Added a native-source guard for Scenario AI-list runtime lookups so `ailistFindById()` stays behind public `ai/ailists.tsv` proof.
+- Added a native-source guard for Scenario AI-list runtime lookups so `ailistFindById()` stays behind public `ai/ailists.json` proof.
 - Added a Scenario external-global inventory guard so new non-`g_Vars` runtime globals fail until explicitly audited.
 - Hardened the Scenario scene-room guard so room table pointer and room-count reads stay inside source-built room helpers.
 - Hardened the Scenario quip asset guard so bare quip-bank pointer selection is guarded alongside indexed table reads.
@@ -62,14 +96,14 @@
 - Added a native-source guard for Scenario kill-count checks so `g_Vars.killcount` reads stay behind mission/global graph proof.
 - Added a native-source guard for Scenario frame-state timing so frame globals stay behind graph/source proof.
 - Added a native-source guard for Scenario autocut state so cutscene globals stay behind graph-source proof.
-- Added a native-source guard for Scenario lift-number validation so `g_Lifts` bounds checks stay behind public `pads.tsv` proof.
+- Added a native-source guard for Scenario lift-number validation so `g_Lifts` bounds checks stay behind public `pads.json` proof.
 - Added a native-source guard for Scenario teleport sound priority so audio-manager priority changes stay behind catalog-resolved graph audio proof.
 - Added a native-source guard for Scenario cutscene animation timing so frame-overrun reads stay behind animation source proof.
 - Added a native-source guard for Scenario environment globals so wind speed and tinted glass state stay behind graph-source proof.
 - Added a native-source guard for Scenario player invincibility so `g_PlayerInvincible` reads and writes stay behind player-slot proof.
 - Added a native-source guard for Scenario mission/music mode globals so co-op mode and music-queue reads stay behind graph-source proof.
-- Added a native-source guard for Scenario portal globals so portal table pointer/count reads stay behind public `portals.tsv` proof.
-- Added a native-source guard for Scenario source wide-pad offsets so large public `pads.tsv` runtime offset caches stay inside source padfile helpers.
+- Added a native-source guard for Scenario portal globals so portal table pointer/count reads stay behind public `portals.json` proof.
+- Added a native-source guard for Scenario source wide-pad offsets so large public `pads.json` runtime offset caches stay inside source padfile helpers.
 - Added a native-source guard for Scenario setup-tag globals so `g_TagsLinkedList` stays inside the source-gated setup-tag count helper.
 - Added a native-source guard for Scenario `g_StageSetup` table access so source-derived setup, path, and navigation tables stay behind source-gated helpers.
 - Added a native-source guard for Scenario padfile count globals so `g_PadsFile->...` reads stay inside source-gated count helpers.
@@ -85,10 +119,10 @@
 - Added a native-source guard for Scenario prop-preset table access so `remove_object_at_prop_preset` and height checks keep public object-source and character proof before `g_Vars.props` reads.
 - Added a native-source guard for Scenario target-index derivation so `propGetIndexByChrId()` stays behind character and target proof.
 - Added a native-source guard for Scenario prop-index derivation so `remove_references_to_chr` proves the current character before clearing prop references.
-- Added a native-source guard for Scenario hovercar branch helpers so stop, attack, and LOS graph paths prove public `objects.tsv` vehicle source before chopper helper calls.
-- Added a native-source guard for Scenario hovercar timer access so timer graph actions prove public `objects.tsv` vehicle source before chopper timer reads or writes.
-- Added a native-source guard for Scenario hovercar target mutation so `set_target` proves public `objects.tsv` vehicle source before `chopperSetTarget`.
-- Added a native-source guard for Scenario hovercar target reads so `if_y` proves public `objects.tsv` vehicle source before chopper target lookup.
+- Added a native-source guard for Scenario hovercar branch helpers so stop, attack, and LOS graph paths prove public `objects.json` vehicle source before chopper helper calls.
+- Added a native-source guard for Scenario hovercar timer access so timer graph actions prove public `objects.json` vehicle source before chopper timer reads or writes.
+- Added a native-source guard for Scenario hovercar target mutation so `set_target` proves public `objects.json` vehicle source before `chopperSetTarget`.
+- Added a native-source guard for Scenario hovercar target reads so `if_y` proves public `objects.json` vehicle source before chopper target lookup.
 - Added a native-source guard for Scenario Bond/Co-op pointer snapshots so global player identity stays behind proven local player pointers or validated player slots.
 - Added a native-source guard for Scenario current-player pointer snapshots so current-player graph paths must carry proof through local player pointers.
 - Added a native-source guard for Scenario setup/path lookup APIs so direct runtime tag, object, and path lookups stay behind source-checked helpers.
@@ -99,18 +133,18 @@
 - Added a native-source guard for Scenario camera sleep state so `set_camera_animation` uses the source-proven active character-state pointer before yielding.
 - Added a native-source guard for Scenario hovercopter fire so `hovercopter_fire_rocket` uses the source-proven local chopper pointer before rocket playback.
 - Added a native-source guard for Scenario quip access so `say_quip` uses the source-proven active character pointer for quip state, audio, and subtitle routing.
-- Added a native-source guard for Scenario list-control access so return-list and shot-list actions use source-proven local actor pointers after public `ai/ailists.tsv` and `objects.tsv` proof.
-- Added a native-source guard for Scenario vehicle-motion access so truck, hovercar, and heli motion actions use source-proven local vehicle pointers after public `objects.tsv` proof.
+- Added a native-source guard for Scenario list-control access so return-list and shot-list actions use source-proven local actor pointers after public `ai/ailists.json` and `objects.json` proof.
+- Added a native-source guard for Scenario vehicle-motion access so truck, hovercar, and heli motion actions use source-proven local vehicle pointers after public `objects.json` proof.
 - Added a native-source guard for Scenario player-state access so direct current-player and player-table reads stay behind proof helpers.
 - Added a native-source guard for Scenario runtime row-count helpers so future table counts must stay behind public-source proof.
-- Hardened Scenario logging-only pad row counts so graph diagnostics no longer count runtime pads unless a real public `pads.tsv` operand is required.
+- Hardened Scenario logging-only pad row counts so graph diagnostics no longer count runtime pads unless a real public `pads.json` operand is required.
 - Hardened Scenario character and vehicle row-source validation so graph helpers require public setup/spawn/object TSVs before runtime row counts.
 - Hardened Scenario cover/navigation table source validation so graph helpers require public navigation TSVs before runtime table access.
-- Hardened Scenario path-table source validation so graph path helpers require public `navigation/paths.tsv` before runtime path table access.
-- Hardened Scenario setup-tag source validation so graph setup-tag lookups require public `setup.fields.tsv` before runtime setup tag access.
-- Hardened Scenario object-tag source validation so graph object lookups require public `objects.tsv` before runtime setup object access.
-- Hardened Scenario pad-source validation so graph pad lookups require public `pads.tsv` before runtime pad access.
-- Hardened Scenario path-source validation so graph path lookups require public `navigation/paths.tsv` before runtime path lookup.
+- Hardened Scenario path-table source validation so graph path helpers require public `navigation/paths.json` before runtime path table access.
+- Hardened Scenario setup-tag source validation so graph setup-tag lookups require public `setup.fields.json` before runtime setup tag access.
+- Hardened Scenario object-tag source validation so graph object lookups require public `objects.json` before runtime setup object access.
+- Hardened Scenario pad-source validation so graph pad lookups require public `pads.json` before runtime pad access.
+- Hardened Scenario path-source validation so graph path lookups require public `navigation/paths.json` before runtime path lookup.
 - Added Scenario Anti-player team validation so `chr_set_team` proves player slots before Anti team mutation.
 - Added Scenario G5 Eyespy room-condition validation so `if_chr_in_room` proves player slots before Eyespy distance reads.
 - Added Scenario portal-distance validation so `if_player_chr_portal_distance_less_than` proves current-player state before portal distance reads.
@@ -157,17 +191,17 @@
 - Added Scenario AI graph proof so source-only stage smokes must show state/order, environment, audio/music, object/player, inventory, timer/HUD, and late utility modules from public Scenario graph source.
 - Added Scenario source-matrix proof for native `scene.glb` background activation and header-only generated navigation from public source rows.
 - Added campaign mission graph proof so source-only Scenario smokes must show public mission graph activation, phase source startup, and mission objective runtime proof for matching `.pdmission` archives.
-- Added Scenario setup-link matrix proof so source-only smokes retain evidence that public `setup.fields.tsv` link rows feed graph-owned live registration.
+- Added Scenario setup-link matrix proof so source-only smokes retain evidence that public `setup.fields.json` link rows feed graph-owned live registration.
 - Added Scenario source-matrix proof that public navigation path flag counts survive into runtime setup data.
-- Added Scenario source-matrix proof that live AI path commands validate requested path ids against public `navigation/paths.tsv` runtime data.
-- Added Scenario vehicle path graph validation against public `navigation/paths.tsv` runtime data.
-- Added Scenario player autowalk graph validation against public `pads.tsv` runtime data.
+- Added Scenario source-matrix proof that live AI path commands validate requested path ids against public `navigation/paths.json` runtime data.
+- Added Scenario vehicle path graph validation against public `navigation/paths.json` runtime data.
+- Added Scenario player autowalk graph validation against public `pads.json` runtime data.
 - Added Scenario graph source-contract preflight before live object-tag lookup on object-backed room/object/weapon predicates.
 - Added Scenario door graph source-object type validation before door-only runtime access.
 - Added Scenario source-object type validation before lift, monitor image, and autogun graph runtime access.
 - Added Scenario setup-tag table validation before Investigation terminal, Skedar Ruins pillar, Pelagic switch, and warp-to-tag graph placement access.
-- Added CI Training Scenario source-matrix proof for live AI runtime actions from public `ai/ailists.tsv`.
-- Added CI Training Scenario source-matrix proof for live AI runtime conditions from public `ai/ailists.tsv`.
+- Added CI Training Scenario source-matrix proof for live AI runtime actions from public `ai/ailists.json`.
+- Added CI Training Scenario source-matrix proof for live AI runtime conditions from public `ai/ailists.json`.
 - Added CI Training Scenario source-matrix proof for more live AI object, environment, combat, list, audio, and player-state actions.
 - Added CI Training Scenario source-matrix proof for live AI cutscene, timer, setup, lift, lighting, flag, and state actions.
 - Added CI Training Scenario source-matrix proof for remaining live AI flag, debug/no-op, cutscene reorient, and list-return setup actions.
@@ -188,15 +222,15 @@
 - Added Scenario AI body, head, model, and weapon proof so spawn/equipment/inventory graph actions resolve asset operands to catalog IDs instead of numeric runtime ids.
 - Added source-only body/head fallback hardening so player character model failures fail loudly instead of substituting fallback bodies during asset-family verification.
 - Added Scenario catalog-ID boot support so source-only Scenario smokes boot through `.pdscenario` identity instead of a numeric stage bridge.
-- Added Scenario teleport/cutscene pad validation so warp-orbit and teleport graph actions prove source-built `pads.tsv` rows before writing player warp state.
-- Added Scenario repeating pad-sound validation so pad-backed audio graph actions prove source-built `pads.tsv` rows before creating spatial sound.
-- Added Scenario near-pad target validation so character-preset searches prove source-built `pads.tsv` rows before live near-pad selection.
-- Added Scenario room-predicate pad validation so room checks prove source-built `pads.tsv` rows before deriving rooms from pad operands.
-- Added Scenario pad-preset copy validation so copied AI pad presets prove source-built `pads.tsv` rows before runtime mutation.
-- Added Scenario cover-selection validation so AI-selected cover ids prove source-built `navigation/covers.tsv` rows before movement/proof.
-- Added Scenario quadrant pad-preset validation so AI-selected quadrant pads prove source-built `pads.tsv` rows before branch proof.
+- Added Scenario teleport/cutscene pad validation so warp-orbit and teleport graph actions prove source-built `pads.json` rows before writing player warp state.
+- Added Scenario repeating pad-sound validation so pad-backed audio graph actions prove source-built `pads.json` rows before creating spatial sound.
+- Added Scenario near-pad target validation so character-preset searches prove source-built `pads.json` rows before live near-pad selection.
+- Added Scenario room-predicate pad validation so room checks prove source-built `pads.json` rows before deriving rooms from pad operands.
+- Added Scenario pad-preset copy validation so copied AI pad presets prove source-built `pads.json` rows before runtime mutation.
+- Added Scenario cover-selection validation so AI-selected cover ids prove source-built `navigation/covers.json` rows before movement/proof.
+- Added Scenario quadrant pad-preset validation so AI-selected quadrant pads prove source-built `pads.json` rows before branch proof.
 - Added Scenario waypoint-quadrant condition validation so successful quadrant checks prove their selected pad rows before branching.
-- Added Scenario character-copy pad validation so duplicated/copied character pad presets prove source-built `pads.tsv` rows before mutation.
+- Added Scenario character-copy pad validation so duplicated/copied character pad presets prove source-built `pads.json` rows before mutation.
 - Added Scenario communication/quip character validation so not-talking checks and quip nearby scans prove source-backed characters before live sound/talking state reads.
 - Added Scenario combat active-actor validation so combat helpers prove source-backed characters before live attack and movement state reads.
 - Added Scenario duplicate-character asset validation so cloned bodies, held weapons, and hats resolve to catalog IDs before clone creation.
@@ -291,23 +325,23 @@
 - Added base extraction and native catalog/provider loading for the remaining `.pdmaterial`, `.pdtexture`, `.pdskin`, `.pdeffect`, `.pdprop`, `.pdvehicle`, `.pdmission`, `.pdgamemode`, `.pdbotprofile`, `.pdhud`, and `.pdtheme` archive families.
 - Added a Settings > Debug asset source gate so one typed archive family at a time can be forced to use extracted/generated FileProvider source during playtest.
 - Added static coverage that keeps the Settings > Debug source gate aligned with every current public typed archive family.
-- Added public Scenario `portals.tsv` archives and native runtime portal-table compilation from extracted `.pdscenario` source.
+- Added public Scenario `portals.json` archives and native runtime portal-table compilation from extracted `.pdscenario` source.
 - Added a Scenario source-ground smoke guard so invalid Chicago player-body ground sync warnings fail verification instead of passing unnoticed.
 - Added exhaustive Scenario source-only matrix coverage for all 87 current `.pdscenario` archives.
 - Added Scenario runtime validation for public `navigation.ini` and generated navmesh metadata so source-only stage loads prove their navigation source/cache binding.
 - Added Scenario navmesh source-count validation so generated nav cache metadata must match public navigation tables before source-only stage loads continue.
 - Added Scenario navmesh source-hash validation so stale generated nav cache metadata is rejected when public navigation inputs change.
-- Added Scenario path-source smoke proof so source-only stage loads must show public `navigation/paths.tsv` graph binding.
-- Added Scenario setup path-table smoke proof so source-only stage loads must show public `navigation/paths.tsv` compiled into runtime setup data.
+- Added Scenario path-source smoke proof so source-only stage loads must show public `navigation/paths.json` graph binding.
+- Added Scenario setup path-table smoke proof so source-only stage loads must show public `navigation/paths.json` compiled into runtime setup data.
 - Added strict Scenario navigation-table runtime proof for public waypoint, waygroup, and cover TSV source.
 - Added Scenario nav behavior graph proof for source-bound path, cover, player-navigation, quadrant, and vehicle path surfaces.
-- Added deterministic Scenario navigation-table generation from public pads when waypoint, waygroup, and cover TSV sources are intentionally header-only, including valid zero-pad scenarios and path-source ordering when `navigation/paths.tsv` is present.
-- Added a Scenario generated-nav fixture smoke so nonzero header-only nav generation must consume public `pads.tsv` ordered by `navigation/paths.tsv`, and stale generated-nav metadata cannot pass Scenario extraction fast-cache checks.
-- Added Scenario generated-nav path topology so header-only navigation tables build waypoint neighbor edges from public `navigation/paths.tsv` rows instead of a generic pad chain.
+- Added deterministic Scenario navigation-table generation from public pads when waypoint, waygroup, and cover TSV sources are intentionally header-only, including valid zero-pad scenarios and path-source ordering when `navigation/paths.json` is present.
+- Added a Scenario generated-nav fixture smoke so nonzero header-only nav generation must consume public `pads.json` ordered by `navigation/paths.json`, and stale generated-nav metadata cannot pass Scenario extraction fast-cache checks.
+- Added Scenario generated-nav path topology so header-only navigation tables build waypoint neighbor edges from public `navigation/paths.json` rows instead of a generic pad chain.
 - Added Scenario generated-nav waygroup derivation so disconnected public path components become separate runtime waygroups.
 - Added Scenario generated-nav circular path handling so public circular path rows close the generated waypoint loop.
 - Added Scenario setup path-flag proof so circular and flying public path rows are smoke-verified in runtime setup data.
-- Added Scenario generated-nav waypoint segment flags so public `navigation/paths.tsv` directional `outward`/`inward` path tokens survive into generated runtime neighbour links.
+- Added Scenario generated-nav waypoint segment flags so public `navigation/paths.json` directional `outward`/`inward` path tokens survive into generated runtime neighbour links.
 - Added strict Scenario generated-nav movement capability proof so public `navigation.ini`, generated navmesh metadata, and source-only stage smokes agree on walk/jump/drop/wall/ceiling support.
 - Added Scenario trigger/global graph proof so source-only stage smokes must show trigger-volume nodes and mission/global AI actions from public graph source.
 - Added Scenario graph-source surface proof so source-only stage smokes must show global settings, volume table, pad table, and AI list source activation from public archive members.
@@ -369,7 +403,8 @@
 - Social friend invites are available even when a friend row is showing a stale Offline state.
 - The Modding Hub weapon template flow now drills into an in-place tabbed weapon-creation view with auto-populated template refs, primary/secondary graph tabs, and an opaque mesh picker with live preview.
 - Typed asset archive emitters now write machine metadata and hash sidecars under `_meta/`, while migration readers still accept legacy root metadata during the cleanup window.
-- `.pdlang` base extraction now uses the shared typed archive writer and emits standardized `_meta` inventory, hashes, provenance, validation, and source-handle metadata around editable `strings.tsv`.
+- `.pdlang` base extraction now emits editable `strings.json` language source, and runtime language banks compile that JSON through the same catalog/FileProvider path used by mods.
+- `.pdfont` base extraction now emits bitmap font metrics and kerning as semantic `font.metrics.json` source instead of public TSV tables.
 - Typed archive policy, scanners, packers, Mod Manager lists, hot-distribution registration, and debug tooling now recognize approved first-class asset families through `.pdtheme`; `.pdfont` is `ASSET_FONT`, `.pdscenario` is `ASSET_SCENARIO`, and `.pdtool` remains deferred.
 - Match manifests now carry approved typed dependency families through a generic asset entry, and `_meta/manifest.json` dependency records are validated for embedded archives or explicit base dependency records.
 - Typed archive public files are now validated through mounted `.pdmod` transport paths, including `archive.pdxxx::file` access through VFS, `fs`, and FileProvider-style loaders.
@@ -381,35 +416,35 @@
 - Base extracted content now includes all 27 typed asset families as strict on-disk archives, and fresh extraction passes strict conformance with `--require-all-families`.
 - Runtime ROM fallback after extraction is now tracked as an Asset Pipeline failure condition; `c3844` owns removal/fatal hardening of remaining runtime fallback paths.
 - Source-only asset checks now reject raw extracted ROM cache paths such as `data/<romid>/files`, `data/<romid>/segments`, and `.bin` payloads instead of treating every FileProvider path as clean public source.
-- Scenario pads now compile from public `.pdscenario` `pads.tsv` during stage load instead of relying on the legacy pad payload when public source is available.
-- Scenario archives now include decoded public waypoint, waygroup, and cover tables, and stage load compiles those tables with public `pads.tsv` instead of disabling navigation.
+- Scenario pads now compile from public `.pdscenario` `pads.json` during stage load instead of relying on the legacy pad payload when public source is available.
+- Scenario archives now include decoded public waypoint, waygroup, and cover tables, and stage load compiles those tables with public `pads.json` instead of disabling navigation.
 - Scenario `scene.glb` validation now fails generated archives whose visible materials use runtime-repeat UVs instead of Blender/3DS Max authoring UVs.
-- Scenario AI list-control opcodes now execute through required `.pdscenario` graph nodes backed by public `ai/ailists.tsv`, and stale `scene.glb` archives are rejected before fast-cache reuse if they lack the current DCC/runtime UV stamp.
-- Scenario level graphs now emit required AI morale/alertness action nodes, including cross-character and squadron alertness mutations, and runtime routes those state changes through graph-owned public `ai/ailists.tsv` source before the parity routine runs.
+- Scenario AI list-control opcodes now execute through required `.pdscenario` graph nodes backed by public `ai/ailists.json`, and stale `scene.glb` archives are rejected before fast-cache reuse if they lack the current DCC/runtime UV stamp.
+- Scenario level graphs now emit required AI morale/alertness action nodes, including cross-character and squadron alertness mutations, and runtime routes those state changes through graph-owned public `ai/ailists.json` source before the parity routine runs.
 - Scenario AI graph execution now covers distance/preset branch conditions, including character-to-pad, character-to-character, nearby-character preset, and target-to-pad distance checks from public AI and pad source.
 - Scenario AI graph execution now covers room/object/weapon conditions, including room checks, object possession, thrown/equipped weapon state, gun claim state, and object health from public AI, pad, and setup source.
 - Scenario AI graph execution now covers object interaction actions, including activation latches, object interaction/destruction, character/object drops, object handoff, and object-to-pad movement from public AI, object, and pad source.
 - Scenario AI graph execution now covers quadrant pad-preset behavior, including waypoint quadrant branching and target-quadrant pad preset selection from public AI, pad, and navigation source.
 - Scenario AI graph execution now covers the final guarded quip/shuffle commands, so every non-interpreter AI command routine has an explicit graph runtime path before broader trigger/global/phase and fallback closure continues.
-- Scenario level graphs now emit required AI action/order state nodes, and runtime routes `set_action`, `set_team_orders`, `retreat`, `set_squadron`, and `chr_set_listening` through graph-owned public `ai/ailists.tsv` source.
-- Scenario level graphs now emit required AI team-maintenance nodes, and runtime routes teammate preset selection plus team/squadron rebuilds through graph-owned public `ai/ailists.tsv` source.
-- Scenario level graphs now emit required AI cover/danger nodes, and runtime routes `orbit_target`, `face_cover`, and `danger_cover` through graph-owned public `ai/ailists.tsv` plus `navigation/covers.tsv` source.
-- Scenario level graphs now emit required AI cover-search/navigation nodes, and runtime routes `find_cover`, distance-filtered cover search, `go_to_cover`, and cover line-of-sight checks through graph-owned public `navigation/covers.tsv` source.
-- Scenario level graphs now emit required AI tuning/stat nodes, and runtime routes hearing/view distance, grenade probability, chr number, health/shield/damage, accuracy, reaction/recovery, and dodge ratings through graph-owned public `ai/ailists.tsv` source.
-- Scenario level graphs now emit required AI alarm nodes, and runtime routes try-start, activate, and deactivate alarm opcodes through graph-owned public `ai/ailists.tsv` plus `pads.tsv` source.
-- Scenario level graphs now emit required AI flag and stage-flag nodes, and runtime routes chr flag, target-chr flag, and stage-flag opcodes through graph-owned public `ai/ailists.tsv` source.
-- Scenario level graphs now emit required AI savefile-flag nodes, and runtime routes savefile flag set, unset, and branch opcodes through graph-owned public `ai/ailists.tsv` source.
-- Scenario level graphs now emit required AI HUD message nodes, and runtime routes HUD message, subtitle, middle-message, and removal opcodes through graph-owned public `ai/ailists.tsv` source.
-- Scenario level graphs now emit required AI vehicle motion nodes, and runtime routes hovercar path startup, truck/hovercar speed, and rotor speed through graph-owned public `ai/ailists.tsv` plus `navigation/paths.tsv` source.
-- Scenario level graphs now emit required AI door/object-control nodes, and runtime routes door open/close, door state tests, object-is-door tests, and door lock/unlock opcodes through graph-owned public `ai/ailists.tsv` plus `objects.tsv` source.
-- Scenario level graphs now emit required AI lift nodes, and runtime routes lift stationary checks, go-to-stop, at-stop checks, lift activation, and using-lift branches through graph-owned public `ai/ailists.tsv`, `objects.tsv`, and `pads.tsv` source.
-- Scenario level graphs now emit required AI weather/global nodes, and runtime routes rain/snow configuration through graph-owned public `ai/ailists.tsv` plus `scenario.ini` source.
-- Scenario level graphs now emit required AI sky/wind nodes, and runtime routes alternate-sky transition plus sky wind speed through graph-owned public `ai/ailists.tsv` source.
-- Scenario level graphs now emit the required AI room-lighting node, and runtime routes light on/off and timed light operations through graph-owned public `ai/ailists.tsv` plus `pads.tsv` source.
-- Scenario level graphs now emit required AI model-part visibility nodes, and runtime routes character/object model-part visibility through graph-owned public `ai/ailists.tsv` plus `objects.tsv` source.
-- Scenario level graphs now emit required AI object-health nodes, and runtime routes object health checks and mutations through graph-owned public `ai/ailists.tsv` plus `objects.tsv` source.
-- Scenario level graphs now emit the required AI room-search node, and runtime routes target-room search assignment through graph-owned public `ai/ailists.tsv` plus source-derived scene room data.
-- Scenario level graphs now emit the required AI special-death node, and runtime routes character special-death animation assignment through graph-owned public `ai/ailists.tsv` source.
+- Scenario level graphs now emit required AI action/order state nodes, and runtime routes `set_action`, `set_team_orders`, `retreat`, `set_squadron`, and `chr_set_listening` through graph-owned public `ai/ailists.json` source.
+- Scenario level graphs now emit required AI team-maintenance nodes, and runtime routes teammate preset selection plus team/squadron rebuilds through graph-owned public `ai/ailists.json` source.
+- Scenario level graphs now emit required AI cover/danger nodes, and runtime routes `orbit_target`, `face_cover`, and `danger_cover` through graph-owned public `ai/ailists.json` plus `navigation/covers.json` source.
+- Scenario level graphs now emit required AI cover-search/navigation nodes, and runtime routes `find_cover`, distance-filtered cover search, `go_to_cover`, and cover line-of-sight checks through graph-owned public `navigation/covers.json` source.
+- Scenario level graphs now emit required AI tuning/stat nodes, and runtime routes hearing/view distance, grenade probability, chr number, health/shield/damage, accuracy, reaction/recovery, and dodge ratings through graph-owned public `ai/ailists.json` source.
+- Scenario level graphs now emit required AI alarm nodes, and runtime routes try-start, activate, and deactivate alarm opcodes through graph-owned public `ai/ailists.json` plus `pads.json` source.
+- Scenario level graphs now emit required AI flag and stage-flag nodes, and runtime routes chr flag, target-chr flag, and stage-flag opcodes through graph-owned public `ai/ailists.json` source.
+- Scenario level graphs now emit required AI savefile-flag nodes, and runtime routes savefile flag set, unset, and branch opcodes through graph-owned public `ai/ailists.json` source.
+- Scenario level graphs now emit required AI HUD message nodes, and runtime routes HUD message, subtitle, middle-message, and removal opcodes through graph-owned public `ai/ailists.json` source.
+- Scenario level graphs now emit required AI vehicle motion nodes, and runtime routes hovercar path startup, truck/hovercar speed, and rotor speed through graph-owned public `ai/ailists.json` plus `navigation/paths.json` source.
+- Scenario level graphs now emit required AI door/object-control nodes, and runtime routes door open/close, door state tests, object-is-door tests, and door lock/unlock opcodes through graph-owned public `ai/ailists.json` plus `objects.json` source.
+- Scenario level graphs now emit required AI lift nodes, and runtime routes lift stationary checks, go-to-stop, at-stop checks, lift activation, and using-lift branches through graph-owned public `ai/ailists.json`, `objects.json`, and `pads.json` source.
+- Scenario level graphs now emit required AI weather/global nodes, and runtime routes rain/snow configuration through graph-owned public `ai/ailists.json` plus `scenario.ini` source.
+- Scenario level graphs now emit required AI sky/wind nodes, and runtime routes alternate-sky transition plus sky wind speed through graph-owned public `ai/ailists.json` source.
+- Scenario level graphs now emit the required AI room-lighting node, and runtime routes light on/off and timed light operations through graph-owned public `ai/ailists.json` plus `pads.json` source.
+- Scenario level graphs now emit required AI model-part visibility nodes, and runtime routes character/object model-part visibility through graph-owned public `ai/ailists.json` plus `objects.json` source.
+- Scenario level graphs now emit required AI object-health nodes, and runtime routes object health checks and mutations through graph-owned public `ai/ailists.json` plus `objects.json` source.
+- Scenario level graphs now emit the required AI room-search node, and runtime routes target-room search assignment through graph-owned public `ai/ailists.json` plus source-derived scene room data.
+- Scenario level graphs now emit the required AI special-death node, and runtime routes character special-death animation assignment through graph-owned public `ai/ailists.json` source.
 - Scenario `scene.glb` texture-scale verification now has a direct checker for `.glb` files and `.pdscenario::scene.glb`, catching stale Chicago archives that still expose tiny-tiled runtime UVs to Blender/3DS Max.
 - Scenario archives now feed public patrol paths and AI `set_path` / `start_patrol` graph nodes into runtime AI path behavior.
 - Generated scenario GLBs now expose normalized `TEXCOORD_0` UVs for Blender/3DS Max while preserving renderer-repeat UVs in `TEXCOORD_1` for runtime parity.
@@ -422,14 +457,14 @@
 - Mission objective completion/fail flag criteria now read graph-owned mission flag state instead of consulting the legacy stage-flag helper during graph evaluation.
 - Mission objective Destroy, Collect, Throw, and Holograph criteria now read tagged object present/healthy/held state from graph-owned runtime state instead of querying object and inventory state during graph evaluation.
 - Scenario setup behavior links now validate against graph-owned source records before live registration, covering linked guns, lift-door links, safe-item/padlock links, conditional scenery, and blocked paths.
-- Scenario level graphs now bind and parse public `volumes.tsv` into graph-owned trigger-volume source rows during stage load.
+- Scenario level graphs now bind and parse public `volumes.json` into graph-owned trigger-volume source rows during stage load.
 - Enter Room and Throw In Room objective criteria now use graph-owned trigger-volume rows when a level graph is active, with the legacy room check kept only as the inactive-graph fallback.
-- Scenario level graphs now emit explicit trigger-volume graph nodes, and stage activation validates those nodes against public `volumes.tsv` rows before trigger-volume source can be used.
+- Scenario level graphs now emit explicit trigger-volume graph nodes, and stage activation validates those nodes against public `volumes.json` rows before trigger-volume source can be used.
 - Scenario level graphs now emit a required global-settings source node, and stage activation validates it from public `.pdscenario::level.graph.json` before accepting the level graph.
 - Scenario source activation now derives the matching `.pdscenario` catalog row from the active stage catalog ID when no explicit scenario ref is present.
 - Mission graphs now emit required phase source nodes, and runtime records mission `load`/`active`/`complete`/`failed`/`end` transitions through the active `.pdmission` graph source.
-- Scenario archives now include public `navigation/paths.tsv`, and stage setup compiles those patrol paths from the archive source so AI patrol startup does not depend on ROM setup data.
-- Scenario level graphs now emit required AI pad movement action nodes, and runtime routes `jog_to_pad` / `go_to_pad_preset` / `walk_to_pad` / `run_to_pad` through graph-owned public `pads.tsv` source before the parity movement routine runs.
+- Scenario archives now include public `navigation/paths.json`, and stage setup compiles those patrol paths from the archive source so AI patrol startup does not depend on ROM setup data.
+- Scenario level graphs now emit required AI pad movement action nodes, and runtime routes `jog_to_pad` / `go_to_pad_preset` / `walk_to_pad` / `run_to_pad` through graph-owned public `pads.json` source before the parity movement routine runs.
 - Scenario level graphs now emit required AI pad-preset action nodes, and runtime routes `set_pad_preset`, `chr_set_pad_preset`, and `chr_copy_pad_preset` through graph-owned public source before the parity preset routine runs.
 - Scenario level graphs now emit required AI chr-preset action nodes, and runtime routes `set_chr_preset` and `set_chr_target` through graph-owned public AI-list source before the parity routine runs.
 - Source-gate smokes now fail closed on missing explicit source binaries and refresh the shared install binary on every explicit run, preventing stale clients from regenerating stale asset archives.
@@ -444,7 +479,7 @@
 - Fixed source-built `.pdmesh` rendering by exporting and compiling public `model.render.json` command source, preserving matrix-stack, material, and triangle order without exposing the render stream as TSV.
 - Fixed public `.pdmesh` source-built models so extracted OBJ UVs and material/texture catalog bindings reach generated runtime display lists, with smoke verification proving the textured DY357 first-person mesh loads, builds, and renders from public source.
 - Fixed Scenario source matrix validation so padded stage hex and stages that complete naturally before scripted exit do not produce false failures.
-- Fixed Scenario source-only loading for minimal stages with intentionally empty public `pads.tsv` or `portals.tsv`, so those files are treated as authoritative empty source instead of triggering ROM fallback.
+- Fixed Scenario source-only loading for minimal stages with intentionally empty public `pads.json` or `portals.json`, so those files are treated as authoritative empty source instead of triggering ROM fallback.
 - Fixed generated one-test smoke folders so source-only matrix smokes do not fail strict mode before launching the client.
 - Fixed normal `.pdmod` discovery logs so base-mod inheritance no longer appears as an asset-chain `fallback=` line.
 - Fixed clean-install mod startup so a missing optional `mods-enabled.json` is treated as normal no-mod state instead of logging a false file-load error.
@@ -457,24 +492,24 @@
 - Fixed a title-sequence crash when generated catalog model sources lack legacy Rare-logo toggle parts.
 - Fixed scenario path-table extraction so MP/test/Skedar Ruins `.pdscenario` archives with empty path tables are generated correctly and arena/mission dependency warnings are gone.
 - Fixed generated logo `.pdmesh` modeldefs so public-source PDTWO title logo models expose the runtime-required front/morph parts and no longer skip or crash the intro.
-- Fixed more scenario AI graph parity: character state/count conditions now execute through public `.pdscenario` graph source backed by `ai/ailists.tsv`, while generated scenario, mission-embedded, and arena-nested archives keep Chicago-style tiny tiled `scene.glb` imports gated by the texture-scale verifier.
-- Fixed more scenario AI graph parity: character animation and surprised reaction actions now execute through public `.pdscenario` graph source backed by `ai/ailists.tsv`, with strict regenerated archive conformance and Chicago `scene.glb` DCC texture-scale verification kept in the handoff path.
-- Fixed more scenario AI graph parity: random assignment and random branch conditions now execute through public `.pdscenario` graph source backed by `ai/ailists.tsv`, with generated archives and Chicago-scale `scene.glb` texture checks kept in the release gate.
-- Fixed more scenario AI graph parity: debug print and no-op commands now execute through public `.pdscenario` graph source backed by `ai/ailists.tsv`, with generated archives and Chicago-scale `scene.glb` texture checks kept in the release gate.
-- Fixed more scenario AI graph parity: mission/global branch conditions now execute through public `.pdscenario` graph source backed by `ai/ailists.tsv` and mission graph source, while the generated scene GLB texture-scale verifier keeps Chicago-style DCC UV regressions gated.
-- Fixed more scenario AI graph parity: teleport and cutscene-weapon commands now execute through public `.pdscenario` graph source backed by `ai/ailists.tsv` and `pads.tsv`, with the generated scene GLB texture-scale verifier proving DCC authoring UVs across generated and arena-nested scenes.
+- Fixed more scenario AI graph parity: character state/count conditions now execute through public `.pdscenario` graph source backed by `ai/ailists.json`, while generated scenario, mission-embedded, and arena-nested archives keep Chicago-style tiny tiled `scene.glb` imports gated by the texture-scale verifier.
+- Fixed more scenario AI graph parity: character animation and surprised reaction actions now execute through public `.pdscenario` graph source backed by `ai/ailists.json`, with strict regenerated archive conformance and Chicago `scene.glb` DCC texture-scale verification kept in the handoff path.
+- Fixed more scenario AI graph parity: random assignment and random branch conditions now execute through public `.pdscenario` graph source backed by `ai/ailists.json`, with generated archives and Chicago-scale `scene.glb` texture checks kept in the release gate.
+- Fixed more scenario AI graph parity: debug print and no-op commands now execute through public `.pdscenario` graph source backed by `ai/ailists.json`, with generated archives and Chicago-scale `scene.glb` texture checks kept in the release gate.
+- Fixed more scenario AI graph parity: mission/global branch conditions now execute through public `.pdscenario` graph source backed by `ai/ailists.json` and mission graph source, while the generated scene GLB texture-scale verifier keeps Chicago-style DCC UV regressions gated.
+- Fixed more scenario AI graph parity: teleport and cutscene-weapon commands now execute through public `.pdscenario` graph source backed by `ai/ailists.json` and `pads.json`, with the generated scene GLB texture-scale verifier proving DCC authoring UVs across generated and arena-nested scenes.
 - Fixed scenario GLB texture-scale verification so the focused checker and native-source guard scan generated scenario folders plus arena-nested scenario archives; stale Chicago-style tiny-tiled GLBs now fail in both smoke install and `Build\data`.
-- Fixed more scenario AI graph parity: player assignment, cloak, and autogun target-team actions now execute through public `.pdscenario` graph source backed by `ai/ailists.tsv` and `objects.tsv`.
+- Fixed more scenario AI graph parity: player assignment, cloak, and autogun target-team actions now execute through public `.pdscenario` graph source backed by `ai/ailists.json` and `objects.json`.
 - Fixed generated scenario archives so stale shared `Build\data` scene GLBs with tiny tiled DCC textures fail the native-source guard; refreshed `Build\data\ntsc-final` now conforms strictly, including nested arena scenario dependencies.
-- Fixed more scenario AI graph parity: player/object perception and target-is-player conditions now execute through public `.pdscenario` graph source backed by `ai/ailists.tsv`, `objects.tsv`, and `scene.glb`.
-- Fixed more scenario AI graph parity: HUD message actions now execute through public `.pdscenario` graph source backed by `ai/ailists.tsv`, with the Chicago `scene.glb` texture-scale guard kept in the verification path.
-- Fixed more scenario AI graph parity: vehicle motion actions now execute through public `.pdscenario` graph source backed by `ai/ailists.tsv` and `navigation/paths.tsv`, with the Chicago `scene.glb` texture-scale verifier proving fresh archives use DCC UVs.
-- Fixed more scenario AI graph parity: door and object-control actions now execute through public `.pdscenario` graph source backed by `ai/ailists.tsv` and `objects.tsv`, with the Chicago `scene.glb` texture-scale verifier proving fresh archives use DCC UVs.
-- Fixed more scenario AI graph parity: timer and countdown actions now execute through public `.pdscenario` graph source backed by `ai/ailists.tsv`, with the Chicago `scene.glb` texture-scale guard kept in the verification path.
-- Fixed more scenario AI graph parity: chrflag, hidden-flag, and object-flag actions now execute through public `.pdscenario` graph source backed by `ai/ailists.tsv` and `objects.tsv`, while the Chicago `scene.glb` texture-scale guard remains pinned to DCC `TEXCOORD_0` plus runtime `TEXCOORD_1`.
-- Fixed more scenario AI graph parity: idle/stopped/dead/knocked-out/can-see-target branch conditions now execute through public `.pdscenario` graph source backed by `ai/ailists.tsv`, with current generated scenario and arena GLBs texture-checked for DCC scale and stale installed Chicago archives identified as missing `scene.glb`.
-- Fixed more scenario AI graph parity: stop and kneel basic-motion actions now execute through public `.pdscenario` graph source backed by `ai/ailists.tsv`, with regenerated `Build\data` and smoke-install archives retaining DCC-scale `scene.glb` textures for Blender/3DS Max.
-- Fixed more scenario AI graph parity: combat movement and attack-state actions now execute through public `.pdscenario` graph source backed by `ai/ailists.tsv`, with restored `Build\data` and smoke-install archives retaining DCC-scale `scene.glb` textures for Blender/3DS Max.
+- Fixed more scenario AI graph parity: player/object perception and target-is-player conditions now execute through public `.pdscenario` graph source backed by `ai/ailists.json`, `objects.json`, and `scene.glb`.
+- Fixed more scenario AI graph parity: HUD message actions now execute through public `.pdscenario` graph source backed by `ai/ailists.json`, with the Chicago `scene.glb` texture-scale guard kept in the verification path.
+- Fixed more scenario AI graph parity: vehicle motion actions now execute through public `.pdscenario` graph source backed by `ai/ailists.json` and `navigation/paths.json`, with the Chicago `scene.glb` texture-scale verifier proving fresh archives use DCC UVs.
+- Fixed more scenario AI graph parity: door and object-control actions now execute through public `.pdscenario` graph source backed by `ai/ailists.json` and `objects.json`, with the Chicago `scene.glb` texture-scale verifier proving fresh archives use DCC UVs.
+- Fixed more scenario AI graph parity: timer and countdown actions now execute through public `.pdscenario` graph source backed by `ai/ailists.json`, with the Chicago `scene.glb` texture-scale guard kept in the verification path.
+- Fixed more scenario AI graph parity: chrflag, hidden-flag, and object-flag actions now execute through public `.pdscenario` graph source backed by `ai/ailists.json` and `objects.json`, while the Chicago `scene.glb` texture-scale guard remains pinned to DCC `TEXCOORD_0` plus runtime `TEXCOORD_1`.
+- Fixed more scenario AI graph parity: idle/stopped/dead/knocked-out/can-see-target branch conditions now execute through public `.pdscenario` graph source backed by `ai/ailists.json`, with current generated scenario and arena GLBs texture-checked for DCC scale and stale installed Chicago archives identified as missing `scene.glb`.
+- Fixed more scenario AI graph parity: stop and kneel basic-motion actions now execute through public `.pdscenario` graph source backed by `ai/ailists.json`, with regenerated `Build\data` and smoke-install archives retaining DCC-scale `scene.glb` textures for Blender/3DS Max.
+- Fixed more scenario AI graph parity: combat movement and attack-state actions now execute through public `.pdscenario` graph source backed by `ai/ailists.json`, with restored `Build\data` and smoke-install archives retaining DCC-scale `scene.glb` textures for Blender/3DS Max.
 - Fixed a CI startup render crash from legacy texture tuples by normalizing palette-backed RGBA/IA texture declarations before import/cache and using a transparent fallback for zero-sized uploads.
 - Fixed the menu HUD-piece model source chain so `base:model_hudpiece_menu` is emitted as a public `.pdmesh` archive and loads from `.pdmesh::model.obj` instead of falling back to ROM.
 - Fixed generated scenario `scene.glb` texture scale so Chicago and other extracted maps open in DCC tools with authoring-scale textures while preserving original repeated texture coordinates for runtime parity.
@@ -483,7 +518,7 @@
 - Fixed held weapon model loading so modeldefs resolve through catalog/FileProvider `.pdmesh::model.obj` sources and refuse ROM fallback under the asset-source contract.
 - Scenario setup overlays now compile from public `.pdscenario` setup source in source-gated match startup, and base `.pdmesh` extraction now emits every catalog model archive so scenario model references resolve under strict conformance.
 - Scenario stage load now uses public `.pdscenario` `scene.glb` or an optional collision override as the source-derived world mesh when available.
-- Scenario archives now include `setup.fields.tsv` as a named per-command setup source table, avoiding raw setup word dumps while preserving a complete authoring path for setup parity.
+- Scenario archives now include `setup.fields.json` as a named per-command setup source table, avoiding raw setup word dumps while preserving a complete authoring path for setup parity.
 - Public metadata-family typed archives now use named selector keys for game modes, bot profiles, HUD elements, effects, props, arenas, and scenarios instead of public numeric selector fields.
 - Universal extracted archive walkers now bind game-facing catalog rows to public archive-member sources such as `archive.pdxxx::scene.glb`, so runtime activation uses the same user-editable files the archives expose.
 - Weapon language IDs now preserve the full `L_GUN_*` range used by extracted weapon function labels, including DY-357 primary/secondary fire-mode text.
@@ -509,7 +544,7 @@
 - Fixed Scenario navigation source loading so decoded waypoint, waygroup, and cover TSV files build valid runtime navigation tables from `.pdscenario` archives.
 - Fixed Scenario graph-source runtime coverage so Chicago stage load validates `base_scenario_chicago.pdscenario::level.graph.json` and `base_mission_chicago.pdmission::mission.graph.json` through real archive-member file loads.
 - Fixed Scenario graph-source selection so Chicago stage load binds `level.graph.json` table refs before compiling public pads/navigation source.
-- Fixed Scenario generated-navmesh cache validation so public `portals.tsv` is hash-bound with the rest of the navigation source inputs.
+- Fixed Scenario generated-navmesh cache validation so public `portals.json` is hash-bound with the rest of the navigation source inputs.
 - Fixed Scenario generated-navmesh cache validation so public `scene.glb` and `collision.obj` changes also invalidate stale nav metadata.
 - Fixed source-gated Scenario startup so stage-owned scenario archives bind by catalog name instead of missing the public source row.
 - Fixed stale mission archive regeneration and validation so empty `mission.graph.json` files and `original_perfect_dark_setup` objective rows are rejected.
@@ -547,20 +582,21 @@
 - Fixed generated scenario GLB texture export so Blender/3DS Max receive renderer-matched texture scaling, tile shifts, and per-material wrap, mirror, and clamp sampler modes.
 - Fixed extracted SFX/voice parity so `.pdsfx` and `.pdvoice` archives preserve native keymap pitch metadata and file-backed playback applies base pitch, gameplay pitch, sample volume, and sample pan instead of playing every public WAV at default speed.
 - Fixed weapon/inventory animation archives so `.pdanim` uses semantic `commands.json` source instead of public opcode or TSV-style tables, while the loader rebuilds native weapon animation commands from that editable source.
+- Fixed generated `.pdmesh` runtime display-list handling so source-backed modeldefs use their real rebuilt pointers in character render and object hit-test paths instead of being treated like native segmented ROM addresses.
 - Fixed scenario parent archive regeneration so `.pdarena` and `.pdmission` archives cannot keep stale embedded `.pdscenario` graph source after a scenario graph/cache update; parent descriptors now declare `scenario_graph_cache` and strict conformance validates it.
-- Fixed more scenario AI graph parity: surrender, fade-out, remove-character, surprised-surrender, and kill-Bond actions now execute through public `.pdscenario` graph source backed by `ai/ailists.tsv` and mission graph source.
-- Fixed more scenario AI graph parity: face-entity, direct damage, character-to-character damage, grenade-decision, and drop-item behavior now execute through public `.pdscenario` graph source backed by `ai/ailists.tsv`.
-- Fixed more scenario AI graph parity: alarm/gas/hearing/sight predicates, patrol-state checks, recent target memory, injury/death observation, and route-to-target pad preset behavior now execute through public `.pdscenario` graph source backed by `ai/ailists.tsv`, pads, and navigation path source.
-- Fixed more scenario AI graph parity: player ammo quantity, character target, chr-preset team, human, and skedar branch checks now execute through public `.pdscenario` graph source backed by `ai/ailists.tsv`.
-- Fixed more scenario AI graph parity: miscellaneous effect and branch actions including character explosions, tinted glass, hovercopter rockets, motion blur, melee, Eyespy targeting, mini-Skedar pounce, object-to-pad distance, avoid, title mode/exit, sparks, and Dr. Caroll image state now execute through public `.pdscenario` graph source backed by `ai/ailists.tsv`, pads, and setup object source where needed.
-- Fixed large extracted Scenario pad tables such as Maians SOS so public `pads.tsv` compiles through native source-owned wide offsets instead of failing and trying to fall back to ROM pads.
-- Fixed Scenario AI cover actions so graph-backed cover search, movement, sight checks, facing, danger-cover, release, and retreat paths validate the source-built runtime cover table before using cover state, with `cover_rows=<n>` diagnostics tied to public `navigation/covers.tsv`.
+- Fixed more scenario AI graph parity: surrender, fade-out, remove-character, surprised-surrender, and kill-Bond actions now execute through public `.pdscenario` graph source backed by `ai/ailists.json` and mission graph source.
+- Fixed more scenario AI graph parity: face-entity, direct damage, character-to-character damage, grenade-decision, and drop-item behavior now execute through public `.pdscenario` graph source backed by `ai/ailists.json`.
+- Fixed more scenario AI graph parity: alarm/gas/hearing/sight predicates, patrol-state checks, recent target memory, injury/death observation, and route-to-target pad preset behavior now execute through public `.pdscenario` graph source backed by `ai/ailists.json`, pads, and navigation path source.
+- Fixed more scenario AI graph parity: player ammo quantity, character target, chr-preset team, human, and skedar branch checks now execute through public `.pdscenario` graph source backed by `ai/ailists.json`.
+- Fixed more scenario AI graph parity: miscellaneous effect and branch actions including character explosions, tinted glass, hovercopter rockets, motion blur, melee, Eyespy targeting, mini-Skedar pounce, object-to-pad distance, avoid, title mode/exit, sparks, and Dr. Caroll image state now execute through public `.pdscenario` graph source backed by `ai/ailists.json`, pads, and setup object source where needed.
+- Fixed large extracted Scenario pad tables such as Maians SOS so public `pads.json` compiles through native source-owned wide offsets instead of failing and trying to fall back to ROM pads.
+- Fixed Scenario AI cover actions so graph-backed cover search, movement, sight checks, facing, danger-cover, release, and retreat paths validate the source-built runtime cover table before using cover state, with `cover_rows=<n>` diagnostics tied to public `navigation/covers.json`.
 - Fixed Scenario quadrant pad-preset actions so graph-backed waypoint quadrant checks validate source-built pad, waypoint, and waygroup runtime rows before using navigation helpers, with row-count diagnostics tied to public Scenario source.
-- Fixed live Scenario pad-backed AI actions so character move-to-pad and lighting commands validate resolved runtime pad rows before using pad helpers, with retained source-matrix proof of `pad_rows=<n>` from public `pads.tsv`.
-- Fixed Scenario pad-backed distance predicates so graph-backed character/target-to-pad checks validate runtime pad rows before calling distance helpers, with retained source-matrix proof tied to public `pads.tsv`.
-- Fixed more Scenario pad-backed AI commands so pad preset, go-to-preset, warp/spawn, object-distance, and same-floor distance paths validate runtime pad rows from public `pads.tsv`, with retained Extra25 source-matrix proof for live go-to-preset and spawn commands.
+- Fixed live Scenario pad-backed AI actions so character move-to-pad and lighting commands validate resolved runtime pad rows before using pad helpers, with retained source-matrix proof of `pad_rows=<n>` from public `pads.json`.
+- Fixed Scenario pad-backed distance predicates so graph-backed character/target-to-pad checks validate runtime pad rows before calling distance helpers, with retained source-matrix proof tied to public `pads.json`.
+- Fixed more Scenario pad-backed AI commands so pad preset, go-to-preset, warp/spawn, object-distance, and same-floor distance paths validate runtime pad rows from public `pads.json`, with retained Extra25 source-matrix proof for live go-to-preset and spawn commands.
 - Fixed Scenario direct pad operands so object-to-pad movement, alarm start pads, Investigation terminal pad presets, and `PAD_PRESET` distance operands validate resolved source-built pad rows, with retained Extra16 proof for object movement and target-pad distance.
-- Fixed Scenario lift AI commands so lift stop pads, current/aim lift pads, and lift numbers validate against source-built `pads.tsv` rows before legacy lift helpers run, with retained CI Training proof for live lift activation.
+- Fixed Scenario lift AI commands so lift stop pads, current/aim lift pads, and lift numbers validate against source-built `pads.json` rows before legacy lift helpers run, with retained CI Training proof for live lift activation.
 - Fixed Scenario route-to-target pad preset selection so graph-backed route helpers validate source-built pad, waypoint, and waygroup rows, then validate the selected pad preset before continuing.
 - Fixed Scenario object-tag AI commands so object interaction, object flags, doors, model-part visibility, and object-health paths validate source-built setup object rows before using tag lookups.
 - Fixed more Scenario object-tag AI commands so room/object/weapon predicates, Investigation terminal selection, lift activators, object-backed audio, setup image/animation/door actions, object lifecycle, object-room/perception, inventory grab, and autogun target-team paths validate source-built setup object rows before using tag lookups.

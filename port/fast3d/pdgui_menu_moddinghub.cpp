@@ -2039,123 +2039,88 @@ static bool weaponArchiveHasEntry(const char *archivePath, const char *entry)
     return found;
 }
 
-static bool weaponTsvFirstField(const char *tsv, const char *field,
-                                char *out, size_t outSize)
+static bool weaponJsonFindStringFieldInRange(const char *begin,
+                                             const char *end,
+                                             const char *key,
+                                             char *out,
+                                             size_t outSize)
 {
     if (out && outSize) out[0] = '\0';
-    if (!tsv || !field || !field[0] || !out || outSize == 0) return false;
-    const char *headerEnd = tsv;
-    while (*headerEnd && *headerEnd != '\n') headerEnd++;
-    int targetCol = -1;
-    int col = 0;
-    const char *cell = tsv;
-    while (cell <= headerEnd) {
-        const char *cellEnd = cell;
-        while (cellEnd < headerEnd && *cellEnd != '\t') cellEnd++;
-        char name[64];
-        weaponCopyTrimmedRange(name, sizeof(name), cell, cellEnd);
-        if (strcmp(name, field) == 0) {
-            targetCol = col;
-            break;
-        }
-        if (cellEnd >= headerEnd) break;
-        cell = cellEnd + 1;
-        col++;
+    if (!begin || !end || end < begin || !key || !key[0] ||
+            !out || outSize == 0) {
+        return false;
     }
-    if (targetCol < 0) return false;
 
-    const char *line = *headerEnd ? headerEnd + 1 : headerEnd;
-    while (*line) {
-        const char *lineEnd = line;
-        while (*lineEnd && *lineEnd != '\n') lineEnd++;
-        const char *trim = line;
-        while (trim < lineEnd && weaponCharIsSpace(*trim)) trim++;
-        if (trim < lineEnd && *trim != '#') {
-            col = 0;
-            cell = line;
-            while (cell <= lineEnd) {
-                const char *cellEnd = cell;
-                while (cellEnd < lineEnd && *cellEnd != '\t') cellEnd++;
-                if (col == targetCol) {
-                    weaponCopyTrimmedRange(out, outSize, cell, cellEnd);
-                    return out[0] != '\0';
-                }
-                if (cellEnd >= lineEnd) break;
-                cell = cellEnd + 1;
-                col++;
+    char needle[96];
+    snprintf(needle, sizeof(needle), "\"%s\"", key);
+    const size_t needleLen = strlen(needle);
+    for (const char *p = strstr(begin, needle);
+            p && p < end;
+            p = strstr(p + 1, needle)) {
+        if (p + needleLen > end) break;
+        const char *q = p + needleLen;
+        while (q < end && weaponCharIsSpace(*q)) q++;
+        if (q >= end || *q != ':') continue;
+        q++;
+        while (q < end && weaponCharIsSpace(*q)) q++;
+        if (q >= end || *q != '"') continue;
+        q++;
+
+        char *w = out;
+        size_t left = outSize - 1;
+        bool escaped = false;
+        while (q < end && *q && left > 0) {
+            if (!escaped && *q == '"') break;
+            if (!escaped && *q == '\\') {
+                escaped = true;
+                q++;
+                continue;
             }
+            *w++ = *q++;
+            left--;
+            escaped = false;
         }
-        line = *lineEnd ? lineEnd + 1 : lineEnd;
+        *w = '\0';
+        if (out[0]) return true;
     }
     return false;
 }
 
-static bool weaponTsvFindFieldForRow(const char *tsv,
-                                     const char *matchField,
-                                     const char *matchValue,
-                                     const char *outField,
-                                     char *out,
-                                     size_t outSize)
+static bool weaponJsonFindFieldForMatchedObject(const char *json,
+                                                const char *matchField,
+                                                const char *matchValue,
+                                                const char *outField,
+                                                char *out,
+                                                size_t outSize)
 {
     if (out && outSize) out[0] = '\0';
-    if (!tsv || !matchField || !matchField[0] ||
+    if (!json || !matchField || !matchField[0] ||
             !matchValue || !matchValue[0] ||
             !outField || !outField[0] || !out || outSize == 0) {
         return false;
     }
 
-    const char *headerEnd = tsv;
-    while (*headerEnd && *headerEnd != '\n') headerEnd++;
-    int matchCol = -1;
-    int outCol = -1;
-    int col = 0;
-    const char *cell = tsv;
-    while (cell <= headerEnd) {
-        const char *cellEnd = cell;
-        while (cellEnd < headerEnd && *cellEnd != '\t') cellEnd++;
-        char name[64];
-        weaponCopyTrimmedRange(name, sizeof(name), cell, cellEnd);
-        if (strcmp(name, matchField) == 0) matchCol = col;
-        if (strcmp(name, outField) == 0) outCol = col;
-        if (cellEnd >= headerEnd) break;
-        cell = cellEnd + 1;
-        col++;
-    }
-    if (matchCol < 0 || outCol < 0) return false;
+    char needle[96];
+    snprintf(needle, sizeof(needle), "\"%s\"", matchField);
+    for (const char *p = strstr(json, needle); p; p = strstr(p + 1, needle)) {
+        const char *objectBegin = p;
+        while (objectBegin > json && *objectBegin != '{') objectBegin--;
+        if (*objectBegin != '{') continue;
+        const char *objectEnd = p;
+        while (*objectEnd && *objectEnd != '}') objectEnd++;
+        if (*objectEnd != '}') continue;
+        objectEnd++;
 
-    const char *line = *headerEnd ? headerEnd + 1 : headerEnd;
-    while (*line) {
-        const char *lineEnd = line;
-        while (*lineEnd && *lineEnd != '\n') lineEnd++;
-        const char *trim = line;
-        while (trim < lineEnd && weaponCharIsSpace(*trim)) trim++;
-        if (trim < lineEnd && *trim != '#') {
-            char match[CATALOG_ID_LEN];
-            char found[FS_MAXPATH];
-            match[0] = '\0';
-            found[0] = '\0';
-            col = 0;
-            cell = line;
-            while (cell <= lineEnd) {
-                const char *cellEnd = cell;
-                while (cellEnd < lineEnd && *cellEnd != '\t') cellEnd++;
-                if (col == matchCol) {
-                    weaponCopyTrimmedRange(match, sizeof(match), cell, cellEnd);
-                }
-                if (col == outCol) {
-                    weaponCopyTrimmedRange(found, sizeof(found), cell, cellEnd);
-                }
-                if (cellEnd >= lineEnd) break;
-                cell = cellEnd + 1;
-                col++;
-            }
-            if (strcmp(match, matchValue) == 0 && found[0]) {
-                strncpy(out, found, outSize - 1);
-                out[outSize - 1] = '\0';
-                return true;
-            }
+        char match[CATALOG_ID_LEN];
+        if (!weaponJsonFindStringFieldInRange(objectBegin, objectEnd,
+                matchField, match, sizeof(match)) ||
+                strcmp(match, matchValue) != 0) {
+            continue;
         }
-        line = *lineEnd ? lineEnd + 1 : lineEnd;
+        if (weaponJsonFindStringFieldInRange(objectBegin, objectEnd,
+                outField, out, outSize)) {
+            return true;
+        }
     }
     return false;
 }
@@ -2272,11 +2237,11 @@ static void weaponToolPopulateTemplateRefs(const asset_entry_t *e)
         }
     }
     {
-        char tsv[4096];
+        char json[4096];
         if (weaponArchiveReadEntryText(s_WeaponEditTemplateArchive,
-                "animations_manifest.tsv", tsv, sizeof(tsv))) {
+                "bindings/animations.json", json, sizeof(json))) {
             if (!s_WeaponEditAnimationRef[0] &&
-                    weaponTsvFirstField(tsv, "catalog_id",
+                    weaponJsonFindFirstStringField(json, "catalog_id",
                     value, sizeof(value))) {
                 weaponCopyCatalogRef(s_WeaponEditAnimationRef,
                     sizeof(s_WeaponEditAnimationRef), value);
@@ -2284,7 +2249,7 @@ static void weaponToolPopulateTemplateRefs(const asset_entry_t *e)
             if (!s_WeaponEditTemplateAnimationFile[0] &&
                     s_WeaponEditAnimationRef[0]) {
                 char archiveEntry[FS_MAXPATH];
-                if (weaponTsvFindFieldForRow(tsv, "catalog_id",
+                if (weaponJsonFindFieldForMatchedObject(json, "catalog_id",
                         s_WeaponEditAnimationRef, "archive_entry",
                         archiveEntry, sizeof(archiveEntry)) &&
                         weaponArchiveHasEntry(s_WeaponEditTemplateArchive,
@@ -2303,11 +2268,11 @@ static void weaponToolPopulateTemplateRefs(const asset_entry_t *e)
             sizeof(s_WeaponEditAudioRef), value);
     }
     if (!s_WeaponEditAudioRef[0]) {
-        char tsv[4096];
+        char json[4096];
         char nestedEntry[FS_MAXPATH];
         if (weaponArchiveReadEntryText(s_WeaponEditTemplateArchive,
-                "audio_manifest.tsv", tsv, sizeof(tsv)) &&
-                weaponTsvFirstField(tsv, "archive_entry",
+                "bindings/audio.json", json, sizeof(json)) &&
+                weaponJsonFindFirstStringField(json, "archive_entry",
                 nestedEntry, sizeof(nestedEntry))) {
             weaponArchiveReadNestedCatalogId(s_WeaponEditTemplateArchive,
                 nestedEntry, s_WeaponEditAudioRef,
@@ -4729,7 +4694,7 @@ static void renderPackTool(float contentW, float contentH, float scale)
      * PACK .pdmod FROM FOLDER (c3808/c3809-s7)
      *
      * Packs the external authoring layout: root mod.json plus standard
-     * files and grouped INI/TSV metadata. The helper validates canonical
+     * files and grouped INI/JSON metadata. The helper validates canonical
      * asset folders, generates missing commented INI templates, and refuses
      * authored .bin payloads before writing the archive.
      * ============================================================== */
@@ -4828,7 +4793,7 @@ static void renderPackTool(float contentW, float contentH, float scale)
             ImGui::TextColored(pdguiVec4TintDanger(),  "%s", s_PdmodStatusMsg);
         }
     } else {
-        ImGui::TextDisabled("Pack an external-layout folder mod (mod.json + standard files + INI/TSV, no .bin) into a .pdmod archive.");
+        ImGui::TextDisabled("Pack an external-layout folder mod (mod.json + standard files + INI/JSON, no .bin) into a .pdmod archive.");
     }
 }
 

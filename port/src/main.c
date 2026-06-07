@@ -115,6 +115,7 @@ s32 g_InteractCastDebugDraw = 0;
 s32 g_FileAutoSelect = -1;
 
 extern s32 g_StageNum;
+extern void pdguiThemeReloadPduiSourceTextures(void);
 
 /* ---------------------------------------------------------------- *
  * Smoke-verify CLI fast-paths (c115, 2026-05-13).
@@ -184,6 +185,12 @@ extern s32 g_StageNum;
  *       player 0 in CAMERAMODE_DEFAULT for a short window so first-person
  *       weapon render diagnostics can prove generated source meshes reach
  *       bgunRender. Inert unless passed on argv.
+ *
+ *   --debug-weapon-diag
+ *       Enables the LOG.WPN.DIAG diagnostic stream without forcing camera
+ *       state or generated mesh render auditing. Weapon source smokes also
+ *       get this stream through --debug-force-first-person /
+ *       --debug-generated-mesh-render-audit.
  *
  *   --launch-load-agent <name>
  *       Post-saveInit hook: invokes saveLoadAgent(name) on the first
@@ -1221,26 +1228,41 @@ static void bootDebugLogTypedPayload(asset_type_e type, const char *asset_id, s3
 	}
 }
 
-static void bootEnsureUiArchivesReadyForCliSourceLoads(void)
+s32 bootEnsureUiArchivesReadyAfterTextureInit(void)
 {
+	static s32 s_ready = 0;
 	char data_root[FS_MAXPATH + 1];
 	loader_walker_kind_result_t kr;
+	s32 written;
 
-	/* On clean installs, the normal boot emitter may run before
-	 * g_TexGeneralConfigs is populated, so .pdui emission defers to the
-	 * render-loop fallback. CLI source-gate loads run before that fallback;
-	 * emit and re-walk UI here once texture configs are available. */
-	(void)romExtractAllPdui(0);
+	if (s_ready) {
+		return 1;
+	}
+
+	/* The first boot extraction pass runs before texReset(), so UI textures
+	 * cannot be decoded into .pdui archives there. Run the source emitter
+	 * immediately after texReset() builds g_TexGeneralConfigs and register the
+	 * archives before rendering tries to repair a missing UI source set. */
+	written = romExtractAllPdui(0);
 	fsDataDir(data_root, sizeof(data_root));
 	if (!data_root[0]) {
-		return;
+		return 0;
 	}
 	loaderWalkerScanUi(data_root, &kr);
-	if (kr.entries_scanned > 0 || kr.entries_registered > 0) {
+	if (kr.entries_scanned > 0 || kr.entries_registered > 0 || written > 0) {
+		s_ready = 1;
+		modmgrCatalogChanged();
 		sysLogPrintf(LOG_NOTE,
-			"BOOT: UI source archives ready before CLI debug loads scanned=%d registered=%d",
-			kr.entries_scanned, kr.entries_registered);
+			"BOOT: UI source archives ready after texReset written=%d scanned=%d registered=%d",
+			written, kr.entries_scanned, kr.entries_registered);
+		pdguiThemeReloadPduiSourceTextures();
 	}
+	return s_ready;
+}
+
+static void bootEnsureUiArchivesReadyForCliSourceLoads(void)
+{
+	(void)bootEnsureUiArchivesReadyAfterTextureInit();
 }
 
 static const char *g_BootDebugLoadCatalogAssetsArg = NULL;

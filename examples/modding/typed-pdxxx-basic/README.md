@@ -22,7 +22,7 @@ This folder is a permanent modder-facing sample set. The content units are the t
 - `lang/tri_lang.pdlang`
 - `scenarios/tri_scenario.pdscenario`
 
-Change any `.pdxxx` extension to `.zip` to inspect the archive. The GLTF, OBJ, INI, JSON, TSV, and source media files inside each archive are the authored data. Machine-owned manifest and provenance data lives under `_meta/`. The game may generate private readable cache under `$S/mod-cache`, but that cache is internal, deleteable, and not part of this example.
+Change any `.pdxxx` extension to `.zip` to inspect the archive. The GLTF, OBJ, INI, JSON, and source media files inside each archive are the authored data. Machine-owned manifest and provenance data lives under `_meta/`. The game may generate private readable cache under `$S/mod-cache`, but that cache is internal, deleteable, and not part of this example.
 
 The contract is strict: each asset archive should carry every authored dependency it needs internally, including model textures/UV material references, rig or mesh linkage, animation targets, weapon model/animation/audio relationships, and any other files referenced by descriptors or source formats.
 

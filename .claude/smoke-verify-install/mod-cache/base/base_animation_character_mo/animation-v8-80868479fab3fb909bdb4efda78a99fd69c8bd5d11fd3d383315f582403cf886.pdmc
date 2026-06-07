@@ -1,0 +1,14 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 8,
+  "asset_id": "base:animation_character_mo",
+  "mod_id": "base",
+  "kind": "animation",
+  "source": "data/ntsc-final/animations/base_animation_character_mo.pdanim::animation.gltf",
+  "source_size": 6306,
+  "source_sha256": "80868479fab3fb909bdb4efda78a99fd69c8bd5d11fd3d383315f582403cf886",
+  "validation": "format=gltf animtableentry clips=1 frames=49 channels=4",
+  "normalized": "$S/mod-cache/base/base_animation_character_mo/animation-v8-80868479fab3fb909bdb4efda78a99fd69c8bd5d11fd3d383315f582403cf886.pdanimation.json",
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

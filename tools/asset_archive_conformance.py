@@ -89,11 +89,11 @@ ROOT_METADATA = {
     "provenance.json",
     "validation.json",
     "source-handles.json",
-    "hashes.tsv",
+    "hashes.json",
 }
 
 SCENARIO_GRAPH_CACHE_KIND = (
-    "pdscenario_scene_glb_clean_public_v84_standalone_backfill_collision_obj_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_quip_shuffle_graph_portals_navhashes"
+    "pdscenario_scene_glb_clean_public_v95_standalone_backfill_collision_obj_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json"
 )
 
 FORBIDDEN_COMMON_EXACT = {
@@ -111,6 +111,7 @@ FORBIDDEN_COMMON_EXACT = {
 FORBIDDEN_COMMON_GLOBS = {
     "*.pdwpn",
     "*.bin",
+    "*.tsv",
     "_meta/_meta/*",
 }
 
@@ -124,6 +125,14 @@ FORBIDDEN_SCENARIO_EXACT = {
     "setup.ini",
     "mpsetup.ini",
     "props.ini",
+    "portals.tsv",
+    "spawns.tsv",
+    "volumes.tsv",
+    "navigation/waypoints.tsv",
+    "navigation/waygroups.tsv",
+    "navigation/covers.tsv",
+    "navigation/paths.tsv",
+    "ai/ailists.tsv",
 }
 
 FORBIDDEN_SCENARIO_GLOBS = {
@@ -145,7 +154,6 @@ FORBIDDEN_WEAPON_EXACT = {
 PUBLIC_TEXT_ENTRY_SUFFIXES = (
     ".ini",
     ".json",
-    ".tsv",
     ".txt",
     ".csv",
 )
@@ -165,11 +173,46 @@ SCENARIO_OBJECTIVES_HEADER = [
     "initial_status",
 ]
 
-SCENARIO_SPAWNS_HEADER = (
-    "spawn_id\tpad_ref\troom_ref\tteam\tprofile\tpos_x\tpos_y\tpos_z\t"
-    "look_x\tlook_y\tlook_z"
-)
-SCENARIO_PORTALS_HEADER = "portal_id\troom_a\troom_b\tflags\tvertices"
+SCENARIO_SPAWNS_FIELDS = [
+    "spawn_id",
+    "pad_ref",
+    "room_ref",
+    "team",
+    "profile",
+    "position",
+    "look",
+]
+SCENARIO_PADS_FIELDS = [
+    "pad_ref",
+    "room_ref",
+    "liftnum",
+    "flags",
+    "position",
+    "up",
+    "look",
+    "bbox",
+]
+SCENARIO_VOLUMES_FIELDS = [
+    "volume_id",
+    "pad_ref",
+    "kind",
+    "room_ref",
+    "shape",
+    "min",
+    "max",
+]
+SCENARIO_PORTALS_FIELDS = [
+    "portal_ref",
+    "room_a",
+    "room_b",
+    "flags",
+    "vertices",
+]
+SCENARIO_PATHS_FIELDS = [
+    "path_ref",
+    "flags",
+    "pads",
+]
 
 MISSION_OBJECTIVES_HEADER = [
     "objective_id",
@@ -406,7 +449,7 @@ SCHEMAS: dict[str, Schema] = {
         ],
         require_one_of=[
             [
-                ["bindings/animations.tsv", "bindings/audio.tsv"],
+                ["bindings/animations.json", "bindings/audio.json"],
                 [
                     "bindings/material-slots.json",
                     "bindings/grip-sockets.json",
@@ -421,8 +464,8 @@ SCHEMAS: dict[str, Schema] = {
             "behavior/settings.json",
             "behavior/variables.json",
             "behavior/shared-context.json",
-            "bindings/animations.tsv",
-            "bindings/audio.tsv",
+            "bindings/animations.json",
+            "bindings/audio.json",
             "bindings/material-slots.json",
             "bindings/grip-sockets.json",
             "bindings/presentation.json",
@@ -433,6 +476,7 @@ SCHEMAS: dict[str, Schema] = {
             "dependencies/assets/textures/*.pdtexture",
             "dependencies/assets/animations/*.pdanim",
             "dependencies/assets/audio/*.pdsfx",
+            "dependencies/assets/audio/*.pdvoice",
             "dependencies/assets/projectiles/*.pdprojectile",
             "dependencies/assets/entities/*.pdentity",
             "dependencies/assets/ui/*.pdui",
@@ -523,18 +567,18 @@ SCHEMAS: dict[str, Schema] = {
     ".pdscenario": schema(
         required=[
             "scenario.ini",
-            "portals.tsv",
-            "pads.tsv",
-            "spawns.tsv",
-            "volumes.tsv",
-            "navigation/waypoints.tsv",  # decoded waypoint graph source
-            "navigation/waygroups.tsv",
-            "navigation/covers.tsv",
-            "navigation/paths.tsv",
-            "objects.tsv",
-            "setup.fields.tsv",
-            "ai/ailists.tsv",
-            "objectives.tsv",
+            "portals.json",
+            "pads.json",
+            "spawns.json",
+            "volumes.json",
+            "navigation/waypoints.json",  # decoded waypoint graph source
+            "navigation/waygroups.json",
+            "navigation/covers.json",
+            "navigation/paths.json",
+            "objects.json",
+            "setup.fields.json",
+            "ai/ailists.json",
+            "objectives.json",
             "navigation.ini",
             "level.graph.json",
         ],
@@ -545,23 +589,26 @@ SCHEMAS: dict[str, Schema] = {
             "scene.gltf",
             "collision.glb",
             "collision.obj",
-            "portals.tsv",
-            "pads.tsv",
-            "spawns.tsv",
-            "volumes.tsv",
-            "navigation/waypoints.tsv",
-            "navigation/waygroups.tsv",
-            "navigation/covers.tsv",
-            "navigation/paths.tsv",
-            "objects.tsv",
-            "setup.fields.tsv",
-            "ai/ailists.tsv",
-            "objectives.tsv",
+            "portals.json",
+            "pads.json",
+            "spawns.json",
+            "volumes.json",
+            "navigation/waypoints.json",
+            "navigation/waygroups.json",
+            "navigation/covers.json",
+            "navigation/paths.json",
+            "objects.json",
+            "setup.fields.json",
+            "ai/ailists.json",
+            "objectives.json",
             "navigation.ini",
             "level.graph.json",
             "mission.graph.json",
         ],
-        forbidden=sorted(FORBIDDEN_SCENARIO_EXACT),
+        forbidden=sorted(
+            FORBIDDEN_SCENARIO_EXACT |
+            {"objectives.tsv", "objects.tsv", "pads.tsv", "portals.tsv", "setup.fields.tsv", "navigation/paths.tsv", "ai/ailists.tsv"}
+        ),
         forbidden_globs=sorted(FORBIDDEN_SCENARIO_GLOBS),
     ),
     ".pdmesh": schema(
@@ -573,9 +620,9 @@ SCHEMAS: dict[str, Schema] = {
             "model.glb",
             "model.obj",
             "model.mtl",
-            "model.nodes.tsv",
-            "model.parts.tsv",
-            "model.faces.tsv",
+            "model.nodes.json",
+            "model.parts.json",
+            "model.faces.json",
             "model.render.json",
             "export_version.txt",
         ],
@@ -583,7 +630,7 @@ SCHEMAS: dict[str, Schema] = {
             "dependencies/assets/materials/*.pdmaterial",
             "dependencies/assets/textures/*.pdtexture",
         ],
-        forbidden=["model.render.tsv"],
+        forbidden=["model.nodes.tsv", "model.parts.tsv", "model.faces.tsv", "model.render.tsv"],
     ),
     ".pdanim": schema(
         required=["animation.ini"],
@@ -597,9 +644,10 @@ SCHEMAS: dict[str, Schema] = {
         allowed=["sound.ini", "sample.wav", "sample.ogg", "sample.flac"],
     ),
     ".pdvoice": schema(
-        required=["voice.ini", "sample.wav"],
-        allowed=["voice.ini", "sample.wav", "subtitle.tsv"],
-        allowed_globs=["locales/*.wav", "locales/*.ogg"],
+        required=["voice.ini"],
+        require_any=[["sample.wav", "sample.mp3"]],
+        allowed=["voice.ini", "sample.wav", "sample.mp3", "subtitle.json"],
+        allowed_globs=["locales/*.wav", "locales/*.ogg", "locales/*.mp3"],
     ),
     ".pdsong": schema(
         required=["music.ini"],
@@ -611,24 +659,24 @@ SCHEMAS: dict[str, Schema] = {
     ".pdui": schema(
         required=["ui.ini"],
         require_any=[["texture.png", "texture.tga", "textures/*.png", "textures/*.tga"]],
-        allowed=["ui.ini", "texture.png", "texture.tga", "layout.tsv", "layout.json", "nineslice.ini"],
+        allowed=["ui.ini", "texture.png", "texture.tga", "layout.json", "nineslice.ini"],
         allowed_globs=["textures/*.png", "textures/*.tga"],
     ),
     ".pdfont": schema(
         required=["font.ini"],
         require_one_of=[
-            [["font.ttf"], ["font.otf"], ["glyphs.pgm", "metrics.tsv", "kerning.tsv"]],
+            [["font.ttf"], ["font.otf"], ["glyphs.pgm", "font.metrics.json"]],
         ],
-        allowed=["font.ini", "font.ttf", "font.otf", "glyphs.pgm", "metrics.tsv", "kerning.tsv"],
+        allowed=["font.ini", "font.ttf", "font.otf", "glyphs.pgm", "font.metrics.json"],
     ),
     ".pdlang": schema(
-        required=["lang.ini", "strings.tsv"],
-        allowed=["lang.ini", "strings.tsv"],
+        required=["lang.ini", "strings.json"],
+        allowed=["lang.ini", "strings.json"],
     ),
     ".pdskin": schema(
         required=["skin.ini"],
-        require_any=[["skin.json", "texture.png", "texture.tga", "swatches.tsv"]],
-        allowed=["skin.ini", "skin.json", "texture.png", "texture.tga", "swatches.tsv"],
+        require_any=[["skin.json", "texture.png", "texture.tga", "swatches.json"]],
+        allowed=["skin.ini", "skin.json", "texture.png", "texture.tga", "swatches.json"],
         allowed_globs=[
             "dependencies/assets/material/*.pdmaterial",
             "dependencies/assets/materials/*.pdmaterial",
@@ -671,9 +719,10 @@ SCHEMAS: dict[str, Schema] = {
         ],
     ),
     ".pdmission": schema(
-        required=["mission.ini", "mission.graph.json", "objectives.tsv", "briefing.tsv"],
+        required=["mission.ini", "mission.graph.json", "objectives.json", "briefing.json"],
         require_any=[["dependencies/assets/scenario/*.pdscenario", "dependencies/assets/scenarios/*.pdscenario"]],
-        allowed=["mission.ini", "mission.graph.json", "objectives.tsv", "briefing.tsv"],
+        allowed=["mission.ini", "mission.graph.json", "objectives.json", "briefing.json"],
+        forbidden=["objectives.tsv", "briefing.tsv"],
         allowed_globs=[
             "dependencies/assets/scenario/*.pdscenario",
             "dependencies/assets/scenarios/*.pdscenario",
@@ -724,14 +773,14 @@ DEPENDENCY_ABSENT = (
 
 OPTIONAL_PUBLIC_SLOT_CONTRACT: dict[str, dict[str, SlotJustification]] = {
     ".pdweapon": {
-        "bindings/animations.tsv": slot(
-            "animation binding table",
+        "bindings/animations.json": slot(
+            "animation binding source",
             "weapon graph importer and Modding Hub",
             "maps graph animation requests to catalog animation dependencies",
             "weapon uses graph/default presentation timings",
         ),
-        "bindings/audio.tsv": slot(
-            "audio binding table",
+        "bindings/audio.json": slot(
+            "audio binding source",
             "weapon graph importer and audio adapter",
             "maps graph audio events to catalog sound dependencies",
             "weapon uses graph/default audio bindings",
@@ -780,6 +829,12 @@ OPTIONAL_PUBLIC_SLOT_CONTRACT: dict[str, dict[str, SlotJustification]] = {
         ),
         "dependencies/assets/audio/*.pdsfx": slot(
             "weapon sound dependencies",
+            "weapon graph importer",
+            DEPENDENCY_LOADER,
+            DEPENDENCY_ABSENT,
+        ),
+        "dependencies/assets/audio/*.pdvoice": slot(
+            "weapon voice/audio dependencies",
             "weapon graph importer",
             DEPENDENCY_LOADER,
             DEPENDENCY_ABSENT,
@@ -878,9 +933,9 @@ OPTIONAL_PUBLIC_SLOT_CONTRACT: dict[str, dict[str, SlotJustification]] = {
         "model.glb": slot("binary mesh source", "mesh importer", "loads geometry/UV/material declarations as runtime source and cache seed", "model.gltf or model.obj must be present"),
         "model.obj": slot("OBJ mesh source", "mesh importer", "loads geometry/UV/material declarations as runtime source and cache seed", "model.gltf or model.glb must be present"),
         "model.mtl": slot("OBJ material companion", "mesh importer", "loads material names for model.obj import", "OBJ imports use default material values"),
-        "model.nodes.tsv": slot("model hierarchy source", "mesh importer", "loads original node/matrix hierarchy for runtime modeldef reconstruction", "author-authored flat mesh sources may omit hierarchy metadata"),
-        "model.parts.tsv": slot("model part-table source", "mesh importer", "loads original part-to-node lookup table for runtime modeldef reconstruction", "required when hierarchy metadata is present"),
-        "model.faces.tsv": slot("model face-matrix source", "mesh importer", "loads original face-to-matrix bindings for runtime display-list reconstruction", "required when hierarchy metadata is present"),
+        "model.nodes.json": slot("semantic model hierarchy source", "mesh importer", "loads original node/matrix hierarchy for runtime modeldef reconstruction", "author-authored flat mesh sources may omit hierarchy metadata"),
+        "model.parts.json": slot("semantic model part-table source", "mesh importer", "loads original part-to-node lookup table for runtime modeldef reconstruction", "required when hierarchy metadata is present"),
+        "model.faces.json": slot("semantic model face-matrix source", "mesh importer", "loads original face-to-matrix bindings for runtime display-list reconstruction", "required when hierarchy metadata is present"),
         "model.render.json": slot("semantic render command source", "mesh importer", "preserves original matrix, material, and triangle command order for runtime modeldef reconstruction", "author-authored flat mesh sources may omit original render commands"),
         "export_version.txt": slot("exporter provenance marker", "mesh extractor", "records source exporter revision for stale-cache detection", "validator treats archive as source-authored without exporter provenance"),
         "dependencies/assets/materials/*.pdmaterial": slot("mesh material dependencies", "mesh importer", DEPENDENCY_LOADER, "mesh uses material declarations inside the model source"),
@@ -896,9 +951,12 @@ OPTIONAL_PUBLIC_SLOT_CONTRACT: dict[str, dict[str, SlotJustification]] = {
         "sample.flac": slot("lossless sound source", "audio importer", "decodes standard audio into runtime sound cache", "sample.wav is authoritative"),
     },
     ".pdvoice": {
-        "subtitle.tsv": slot("voice subtitle/source text", "voice importer", "loads subtitle strings for UI and localization", "voice line has no authored subtitle"),
-        "locales/*.wav": slot("localized WAV voice samples", "voice importer", "loads locale-specific voice source", "default sample.wav is used"),
-        "locales/*.ogg": slot("localized OGG voice samples", "voice importer", "loads locale-specific voice source", "default sample.wav is used"),
+        "sample.wav": slot("default WAV voice sample", "voice importer", "loads the default voice source", "sample.mp3 or a localized source must be present"),
+        "sample.mp3": slot("default MP3 voice sample", "voice importer", "loads the default voice source", "sample.wav or a localized source must be present"),
+        "subtitle.json": slot("voice subtitle/source text", "voice importer", "loads subtitle strings for UI and localization", "voice line has no authored subtitle"),
+        "locales/*.wav": slot("localized WAV voice samples", "voice importer", "loads locale-specific voice source", "default sample.wav/sample.mp3 is used"),
+        "locales/*.ogg": slot("localized OGG voice samples", "voice importer", "loads locale-specific voice source", "default sample.wav/sample.mp3 is used"),
+        "locales/*.mp3": slot("localized MP3 voice samples", "voice importer", "loads locale-specific voice source", "default sample.wav/sample.mp3 is used"),
     },
     ".pdsong": {
         "sequence.mid": slot("MIDI song source", "music importer", "loads authored sequence source", "track audio or sequence.json must supply playback source"),
@@ -912,8 +970,7 @@ OPTIONAL_PUBLIC_SLOT_CONTRACT: dict[str, dict[str, SlotJustification]] = {
     ".pdui": {
         "texture.png": slot("UI PNG source image", "UI importer", "loads standard image source into UI texture cache", "another UI texture source slot must be present"),
         "texture.tga": slot("UI TGA source image", "UI importer", "loads standard image source into UI texture cache", "another UI texture source slot must be present"),
-        "layout.tsv": slot("UI layout table", "UI importer", "loads readable layout data", "UI asset is texture-only or uses layout.json"),
-        "layout.json": slot("UI layout JSON", "UI importer", "loads structured layout data", "UI asset is texture-only or uses layout.tsv"),
+        "layout.json": slot("UI layout JSON", "UI importer", "loads structured layout data", "UI asset is texture-only"),
         "nineslice.ini": slot("nine-slice UI metadata", "UI importer", "loads scaling/inset metadata", "UI asset is not nine-sliced"),
         "textures/*.png": slot("multi-part UI PNG texture slots", "UI importer", "loads named texture slots", "root texture source must be present"),
         "textures/*.tga": slot("multi-part UI TGA texture slots", "UI importer", "loads named texture slots", "root texture source must be present"),
@@ -922,14 +979,13 @@ OPTIONAL_PUBLIC_SLOT_CONTRACT: dict[str, dict[str, SlotJustification]] = {
         "font.ttf": slot("TrueType font source", "font importer", "loads standard font source", "font.otf or glyph table source must be present"),
         "font.otf": slot("OpenType font source", "font importer", "loads standard font source", "font.ttf or glyph table source must be present"),
         "glyphs.pgm": slot("bitmap glyph atlas source", "font importer", "loads bitmap glyph source", "vector font source must be present"),
-        "metrics.tsv": slot("font metrics table", "font importer", "loads bitmap font metrics", "vector font metrics are read from font source"),
-        "kerning.tsv": slot("font kerning table", "font importer", "loads bitmap font kerning", "vector font kerning is read from font source"),
+        "font.metrics.json": slot("font metrics source", "font importer", "loads bitmap font metrics and kerning", "vector font metrics are read from font source"),
     },
     ".pdskin": {
         "skin.json": slot("skin material-binding source", "skin importer", "loads target material slots and color bindings", "skin must supply texture source, swatches, or typed dependencies"),
         "texture.png": slot("skin PNG source image", "skin importer", "loads standard image source into skin material binding", "texture dependency or another skin source slot must be present"),
         "texture.tga": slot("skin TGA source image", "skin importer", "loads standard image source into skin material binding", "texture dependency or another skin source slot must be present"),
-        "swatches.tsv": slot("skin color swatch table", "skin importer", "loads editable color variants", "skin has no authored swatches"),
+        "swatches.json": slot("skin color swatch source", "skin importer", "loads editable color variants", "skin has no authored swatches"),
         "dependencies/assets/material/*.pdmaterial": slot("singular material dependency path", "skin importer", DEPENDENCY_LOADER, "skin uses plural material path, texture path, or inline source"),
         "dependencies/assets/materials/*.pdmaterial": slot("material dependencies", "skin importer", DEPENDENCY_LOADER, "skin uses singular material path, texture path, or inline source"),
         "dependencies/assets/texture/*.pdtexture": slot("singular texture dependency path", "skin importer", DEPENDENCY_LOADER, "skin uses plural texture path, material path, or inline source"),
@@ -1026,7 +1082,7 @@ COMMON_META_SLOT_CONTRACT: dict[str, SlotJustification] = {
         "keeps legacy ROM/source handles private while public identity stays catalog IDs",
         "archive source remains valid without legacy handle mapping",
     ),
-    "_meta/hashes.tsv": slot(
+    "_meta/hashes.json": slot(
         "public-entry hash index",
         "asset_archive_writer",
         "used for cache invalidation and duplicate detection",
@@ -1266,7 +1322,7 @@ def validate_scene_glb_texture_contract(label: str, data: bytes,
     generator = asset.get("generator", "") if isinstance(asset, dict) else ""
     if (isinstance(generator, str)
             and generator.startswith("Perfect Dark 2 PDSCENARIO scene.glb exporter")
-            and "bg_visual_scene_glb_v9_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0" not in generator):
+            and "bg_visual_scene_glb_v11_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_materialextras_dualtex" not in generator):
         errors.append(
             f"{label} scene.glb uses stale scenario GLB exporter stamp {generator!r}"
         )
@@ -1344,6 +1400,51 @@ def validate_scene_glb_texture_contract(label: str, data: bytes,
             for index, material in enumerate(materials):
                 if not isinstance(material, dict):
                     continue
+                extras = material.get("extras", {})
+                pd2_material = extras.get("pd2_material") if isinstance(extras, dict) else None
+                if not isinstance(pd2_material, dict):
+                    errors.append(
+                        f"{label} scene.glb material {index} is missing "
+                        "pd2_material extras for source renderer material parity"
+                    )
+                    continue
+                command = pd2_material.get("texture_command")
+                if command not in {
+                    "single_texture",
+                    "dual_texture",
+                    "lod_texture",
+                    "special_texture",
+                    "unknown",
+                }:
+                    errors.append(
+                        f"{label} scene.glb material {index} has invalid "
+                        "pd2_material.texture_command"
+                    )
+                for key in ("primary_image", "secondary_image", "wrap_s", "wrap_t"):
+                    if key not in pd2_material or not isinstance(pd2_material.get(key), str):
+                        errors.append(
+                            f"{label} scene.glb material {index} pd2_material.{key} "
+                            "must be a string"
+                        )
+                secondary_texture = pd2_material.get("secondaryTexture")
+                if secondary_texture is not None:
+                    if not isinstance(secondary_texture, dict):
+                        errors.append(
+                            f"{label} scene.glb material {index} secondaryTexture "
+                            "must be an object"
+                        )
+                    else:
+                        secondary_index = secondary_texture.get("index")
+                        if not isinstance(secondary_index, int):
+                            errors.append(
+                                f"{label} scene.glb material {index} secondaryTexture "
+                                "must reference a texture index"
+                            )
+                        elif secondary_index < 0 or secondary_index >= texture_count:
+                            errors.append(
+                                f"{label} scene.glb material {index} secondaryTexture "
+                                f"index {secondary_index} is out of range"
+                            )
                 pbr = material.get("pbrMetallicRoughness", {})
                 if not isinstance(pbr, dict):
                     continue
@@ -1451,7 +1552,7 @@ def is_catalog_ref_key(key: str, path: str = "") -> bool:
 
 
 def is_delimited_catalog_ref_column(column: str) -> bool:
-    """TSV/CSV table columns use pad_ref/room_ref too, so avoid generic _ref."""
+    """Delimited table columns use pad_ref/room_ref too, so avoid generic _ref."""
     normalized = normalize_key(column)
     if normalized in CATALOG_IDENTITY_KEYS:
         return False
@@ -1547,11 +1648,9 @@ def scan_text_asset_refs(label: str, entry_name: str, text: str,
 def scan_delimited_asset_refs(label: str, entry_name: str, text: str,
                               known_catalog_ids: set[str] | None = None) -> list[str]:
     errors: list[str] = []
-    lower = entry_name.lower()
-    delimiter = "\t" if lower.endswith(".tsv") else ","
 
     try:
-        rows = list(csv.reader(text.splitlines(), delimiter=delimiter))
+        rows = list(csv.reader(text.splitlines(), delimiter=","))
     except csv.Error as exc:
         return [f"{label} has unreadable delimited table {entry_name}: {exc}"]
 
@@ -1601,113 +1700,425 @@ def scan_delimited_asset_refs(label: str, entry_name: str, text: str,
     return errors
 
 
-def read_tsv_rows(label: str, entry_name: str, text: str) -> tuple[list[list[str]], list[str]]:
+def validate_simple_rows_json_schema(label: str, entry_name: str, text: str,
+                                     schema_id: str,
+                                     required_fields: list[str]) -> tuple[int, list[str]]:
+    errors: list[str] = []
     try:
-        return list(csv.reader(text.splitlines(), delimiter="\t")), []
-    except csv.Error as exc:
-        return [], [f"{label} has unreadable TSV table {entry_name}: {exc}"]
-
-
-def count_tsv_data_rows(label: str, entry_name: str, text: str) -> tuple[int, list[str]]:
-    rows, errors = read_tsv_rows(label, entry_name, text)
-    if errors:
+        parsed = json.loads(text)
+    except json.JSONDecodeError as exc:
+        return 0, [f"{label} has unreadable JSON source {entry_name}: {exc}"]
+    if not isinstance(parsed, dict):
+        return 0, [f"{label} {entry_name} must be a JSON object"]
+    if parsed.get("schema") != schema_id:
+        errors.append(f"{label} {entry_name} must declare schema {schema_id}")
+    rows = parsed.get("rows")
+    if not isinstance(rows, list):
+        errors.append(f"{label} {entry_name} must contain rows")
         return 0, errors
-    if not rows:
-        return 0, [f"{label} {entry_name} must contain a header"]
-    return sum(1 for row in rows[1:] if any(cell.strip() for cell in row)), []
+    for idx, row in enumerate(rows):
+        if not isinstance(row, dict):
+            errors.append(f"{label} {entry_name} row {idx} must be an object")
+            continue
+        missing = [field for field in required_fields if field not in row]
+        if missing:
+            errors.append(
+                f"{label} {entry_name} row {idx} missing fields: {', '.join(missing)}"
+            )
+    return len(rows), errors
 
 
-def validate_objectives_tsv_schema(label: str, entry_name: str, text: str,
-                                   expected_header: list[str]) -> list[str]:
-    rows, errors = read_tsv_rows(label, entry_name, text)
-    if errors:
+def validate_objectives_json_schema(label: str, entry_name: str, text: str,
+                                    expected_fields: list[str],
+                                    schema_id: str = "pd2.mission.objectives.v1",
+                                    graph_prefix: str = "mission.objective",
+                                    require_rows: bool = True) -> list[str]:
+    errors: list[str] = []
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError as exc:
+        return [f"{label} has unreadable JSON source {entry_name}: {exc}"]
+    if not isinstance(parsed, dict):
+        return [f"{label} {entry_name} must be a JSON object"]
+    if parsed.get("schema") != schema_id:
+        errors.append(
+            f"{label} {entry_name} must declare schema {schema_id}"
+        )
+    rows = parsed.get("rows")
+    if not isinstance(rows, list):
+        errors.append(f"{label} {entry_name} must contain objective rows")
         return errors
-    if not rows:
-        return [f"{label} {entry_name} must contain the definitive objective source header"]
-
-    header = rows[0]
-    if header != expected_header:
-        return [
-            f"{label} {entry_name} must use definitive objective source columns: "
-            + ", ".join(expected_header)
-        ]
-
-    col = {name: index for index, name in enumerate(header)}
-    for row_num, row in enumerate(rows[1:], 2):
-        if not row or not any(cell.strip() for cell in row):
+    if require_rows and not rows:
+        errors.append(f"{label} {entry_name} must contain objective rows")
+        return errors
+    for idx, row in enumerate(rows):
+        if not isinstance(row, dict):
+            errors.append(f"{label} {entry_name} row {idx} must be an object")
             continue
-        padded = row + [""] * (len(header) - len(row))
-        kind = padded[col["kind"]].strip()
-        operand = padded[col["operand_kind"]].strip()
-        expected_operand = OBJECTIVE_KIND_OPERANDS.get(kind)
-        if expected_operand and operand != expected_operand:
+        missing = [field for field in expected_fields if field not in row]
+        if missing:
             errors.append(
-                f"{label} {entry_name}:{row_num} kind {kind} must use operand_kind={expected_operand}"
+                f"{label} {entry_name} row {idx} missing fields: {', '.join(missing)}"
             )
-            continue
-        if kind in {
-            "objective_destroy_object",
-            "objective_collect_object",
-            "objective_throw_object",
-            "objective_holograph",
-        } and not padded[col["target_ref"]].strip().startswith("tag_"):
+        if row.get("kind") == "objective" and not row.get("difficulty_mask"):
             errors.append(
-                f"{label} {entry_name}:{row_num} {kind} must declare target_ref as tag_####"
+                f"{label} {entry_name} row {idx} objective missing difficulty_mask"
             )
-        if kind in {"objective_complete_flags", "objective_fail_flags"} and not padded[
-            col["state_ref"]
-        ].strip().startswith("stage_flag_0x"):
+        if graph_prefix not in str(row.get("graph_node", "")):
             errors.append(
-                f"{label} {entry_name}:{row_num} {kind} must declare state_ref as stage_flag_0x########"
-            )
-        if kind in {"objective_enter_room", "objective_throw_in_room"} and not padded[
-            col["pad_ref"]
-        ].strip().startswith("pad_"):
-            errors.append(
-                f"{label} {entry_name}:{row_num} {kind} must declare pad_ref as pad_####"
-            )
-        if kind == "objective_throw_in_room" and not padded[col["match_value"]].strip():
-            errors.append(
-                f"{label} {entry_name}:{row_num} objective_throw_in_room must declare match_value"
+                f"{label} {entry_name} row {idx} graph_node must bind {graph_prefix} graph source"
             )
     return errors
 
 
+def validate_pads_json_schema(label: str, entry_name: str,
+                              text: str) -> tuple[int, list[str]]:
+    errors: list[str] = []
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError as exc:
+        return 0, [f"{label} has unreadable JSON source {entry_name}: {exc}"]
+    if not isinstance(parsed, dict):
+        return 0, [f"{label} {entry_name} must be a JSON object"]
+    if parsed.get("schema") != "pd2.scenario.pads.v1":
+        errors.append(
+            f"{label} {entry_name} must declare schema pd2.scenario.pads.v1"
+        )
+    rows = parsed.get("rows")
+    if not isinstance(rows, list):
+        errors.append(f"{label} {entry_name} must contain pad rows")
+        return 0, errors
+    for idx, row in enumerate(rows):
+        if not isinstance(row, dict):
+            errors.append(f"{label} {entry_name} row {idx} must be an object")
+            continue
+        missing = [field for field in SCENARIO_PADS_FIELDS if field not in row]
+        if missing:
+            errors.append(
+                f"{label} {entry_name} row {idx} missing fields: {', '.join(missing)}"
+            )
+        if str(row.get("pad_ref", "")) != f"pad_{idx:04d}":
+            errors.append(
+                f"{label} {entry_name} row {idx} pad_ref must preserve pad order"
+            )
+        room_ref = str(row.get("room_ref", ""))
+        if room_ref and not re.match(r"^room_-?\d+$", room_ref):
+            errors.append(
+                f"{label} {entry_name} row {idx} room_ref must be room_#"
+            )
+        if not isinstance(row.get("liftnum"), int):
+            errors.append(
+                f"{label} {entry_name} row {idx} liftnum must be an integer"
+            )
+        flags = row.get("flags")
+        if not (isinstance(flags, int) or
+                (isinstance(flags, str) and re.match(r"^0x[0-9a-fA-F]+$", flags))):
+            errors.append(
+                f"{label} {entry_name} row {idx} flags must be an integer or hex string"
+            )
+        for vec_name in ("position", "up", "look"):
+            vec = row.get(vec_name)
+            if (not isinstance(vec, list) or len(vec) != 3 or
+                    not all(isinstance(value, (int, float)) for value in vec)):
+                errors.append(
+                    f"{label} {entry_name} row {idx} {vec_name} must be a 3-number list"
+                )
+        bbox = row.get("bbox")
+        if not isinstance(bbox, dict):
+            errors.append(f"{label} {entry_name} row {idx} bbox must be an object")
+        else:
+            for bound in ("min", "max"):
+                vec = bbox.get(bound)
+                if (not isinstance(vec, list) or len(vec) != 3 or
+                        not all(isinstance(value, (int, float)) for value in vec)):
+                    errors.append(
+                        f"{label} {entry_name} row {idx} bbox.{bound} must be a 3-number list"
+                    )
+    return len(rows), errors
+
+
+def validate_spawns_json_schema(label: str, entry_name: str,
+                                text: str) -> list[str]:
+    errors: list[str] = []
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError as exc:
+        return [f"{label} has unreadable JSON source {entry_name}: {exc}"]
+    if not isinstance(parsed, dict):
+        return [f"{label} {entry_name} must be a JSON object"]
+    if parsed.get("schema") != "pd2.scenario.spawns.v1":
+        errors.append(
+            f"{label} {entry_name} must declare schema pd2.scenario.spawns.v1"
+        )
+    rows = parsed.get("rows")
+    if not isinstance(rows, list):
+        errors.append(f"{label} {entry_name} must contain spawn rows")
+        return errors
+    for idx, row in enumerate(rows):
+        if not isinstance(row, dict):
+            errors.append(f"{label} {entry_name} row {idx} must be an object")
+            continue
+        missing = [field for field in SCENARIO_SPAWNS_FIELDS if field not in row]
+        if missing:
+            errors.append(
+                f"{label} {entry_name} row {idx} missing fields: {', '.join(missing)}"
+            )
+        spawn_id = str(row.get("spawn_id", ""))
+        pad_ref = str(row.get("pad_ref", ""))
+        team = str(row.get("team", "any"))
+        if not re.match(r"^spawn_\d{4}$", spawn_id):
+            errors.append(
+                f"{label} {entry_name} row {idx} spawn_id must be spawn_####"
+            )
+        if not re.match(r"^pad_\d{4}$", pad_ref):
+            errors.append(
+                f"{label} {entry_name} row {idx} pad_ref must be pad_####"
+            )
+        if team not in {"", "any", "default"} and not re.match(r"^team_\d+$", team):
+            errors.append(
+                f"{label} {entry_name} row {idx} team must be any/default/team_#"
+            )
+        for vec_name in ("position", "look"):
+            vec = row.get(vec_name)
+            if vec is None:
+                continue
+            if (not isinstance(vec, list) or len(vec) != 3 or
+                    not all(isinstance(value, (int, float)) for value in vec)):
+                errors.append(
+                    f"{label} {entry_name} row {idx} {vec_name} must be null or a 3-number list"
+                )
+    return errors
+
+
+def validate_volumes_json_schema(label: str, entry_name: str,
+                                 text: str) -> tuple[int, list[str]]:
+    errors: list[str] = []
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError as exc:
+        return 0, [f"{label} has unreadable JSON source {entry_name}: {exc}"]
+    if not isinstance(parsed, dict):
+        return 0, [f"{label} {entry_name} must be a JSON object"]
+    if parsed.get("schema") != "pd2.scenario.volumes.v1":
+        errors.append(
+            f"{label} {entry_name} must declare schema pd2.scenario.volumes.v1"
+        )
+    rows = parsed.get("rows")
+    if not isinstance(rows, list):
+        errors.append(f"{label} {entry_name} must contain volume rows")
+        return 0, errors
+    for idx, row in enumerate(rows):
+        if not isinstance(row, dict):
+            errors.append(f"{label} {entry_name} row {idx} must be an object")
+            continue
+        missing = [field for field in SCENARIO_VOLUMES_FIELDS if field not in row]
+        if missing:
+            errors.append(
+                f"{label} {entry_name} row {idx} missing fields: {', '.join(missing)}"
+            )
+        if not re.match(r"^volume_pad_\d{4}$", str(row.get("volume_id", ""))):
+            errors.append(
+                f"{label} {entry_name} row {idx} volume_id must be volume_pad_####"
+            )
+        if not re.match(r"^pad_\d{4}$", str(row.get("pad_ref", ""))):
+            errors.append(
+                f"{label} {entry_name} row {idx} pad_ref must be pad_####"
+            )
+        room_ref = str(row.get("room_ref", ""))
+        if room_ref and not re.match(r"^room_-?\d+$", room_ref):
+            errors.append(
+                f"{label} {entry_name} row {idx} room_ref must be room_#"
+            )
+        if row.get("kind") != "pad_bounds":
+            errors.append(
+                f"{label} {entry_name} row {idx} kind must be pad_bounds"
+            )
+        if row.get("shape") != "aabb":
+            errors.append(
+                f"{label} {entry_name} row {idx} shape must be aabb"
+            )
+        for vec_name in ("min", "max"):
+            vec = row.get(vec_name)
+            if (not isinstance(vec, list) or len(vec) != 3 or
+                    not all(isinstance(value, (int, float)) for value in vec)):
+                errors.append(
+                    f"{label} {entry_name} row {idx} {vec_name} must be a 3-number list"
+                )
+        min_vec = row.get("min")
+        max_vec = row.get("max")
+        if (isinstance(min_vec, list) and isinstance(max_vec, list) and
+                len(min_vec) == 3 and len(max_vec) == 3 and
+                all(isinstance(value, (int, float)) for value in min_vec + max_vec)):
+            for axis in range(3):
+                if max_vec[axis] < min_vec[axis]:
+                    errors.append(
+                        f"{label} {entry_name} row {idx} max[{axis}] must be >= min[{axis}]"
+                    )
+    return len(rows), errors
+
+
+def validate_portals_json_schema(label: str, entry_name: str,
+                                 text: str) -> tuple[int, list[str]]:
+    errors: list[str] = []
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError as exc:
+        return 0, [f"{label} has unreadable JSON source {entry_name}: {exc}"]
+    if not isinstance(parsed, dict):
+        return 0, [f"{label} {entry_name} must be a JSON object"]
+    if parsed.get("schema") != "pd2.scenario.portals.v1":
+        errors.append(
+            f"{label} {entry_name} must declare schema pd2.scenario.portals.v1"
+        )
+    rows = parsed.get("rows")
+    if not isinstance(rows, list):
+        errors.append(f"{label} {entry_name} must contain portal rows")
+        return 0, errors
+    for idx, row in enumerate(rows):
+        if not isinstance(row, dict):
+            errors.append(f"{label} {entry_name} row {idx} must be an object")
+            continue
+        missing = [field for field in SCENARIO_PORTALS_FIELDS if field not in row]
+        if missing:
+            errors.append(
+                f"{label} {entry_name} row {idx} missing fields: {', '.join(missing)}"
+            )
+        if str(row.get("portal_ref", "")) != f"portal_{idx:04d}":
+            errors.append(
+                f"{label} {entry_name} row {idx} portal_ref must preserve portal order"
+            )
+        for room_key in ("room_a", "room_b"):
+            if not re.match(r"^room_-?\d+$", str(row.get(room_key, ""))):
+                errors.append(
+                    f"{label} {entry_name} row {idx} {room_key} must be room_#"
+                )
+        flags = row.get("flags")
+        if not (isinstance(flags, int) or
+                (isinstance(flags, str) and re.match(r"^0x[0-9a-fA-F]+$", flags))):
+            errors.append(
+                f"{label} {entry_name} row {idx} flags must be an integer or hex string"
+            )
+        vertices = row.get("vertices")
+        if not isinstance(vertices, list) or len(vertices) < 3:
+            errors.append(
+                f"{label} {entry_name} row {idx} vertices must contain at least three 3-number lists"
+            )
+        elif len(vertices) > 32:
+            errors.append(
+                f"{label} {entry_name} row {idx} vertices must contain no more than 32 points"
+            )
+        else:
+            for vertex_index, vertex in enumerate(vertices):
+                if (not isinstance(vertex, list) or len(vertex) != 3 or
+                        not all(isinstance(value, (int, float)) for value in vertex)):
+                    errors.append(
+                        f"{label} {entry_name} row {idx} vertices[{vertex_index}] must be a 3-number list"
+                    )
+    return len(rows), errors
+
+
+def validate_paths_json_schema(label: str, entry_name: str,
+                               text: str) -> tuple[int, list[str]]:
+    errors: list[str] = []
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError as exc:
+        return 0, [f"{label} has unreadable JSON source {entry_name}: {exc}"]
+    if not isinstance(parsed, dict):
+        return 0, [f"{label} {entry_name} must be a JSON object"]
+    if parsed.get("schema") != "pd2.scenario.paths.v1":
+        errors.append(
+            f"{label} {entry_name} must declare schema pd2.scenario.paths.v1"
+        )
+    rows = parsed.get("rows")
+    if not isinstance(rows, list):
+        errors.append(f"{label} {entry_name} must contain path rows")
+        return 0, errors
+    for idx, row in enumerate(rows):
+        if not isinstance(row, dict):
+            errors.append(f"{label} {entry_name} row {idx} must be an object")
+            continue
+        missing = [field for field in SCENARIO_PATHS_FIELDS if field not in row]
+        if missing:
+            errors.append(
+                f"{label} {entry_name} row {idx} missing fields: {', '.join(missing)}"
+            )
+        path_ref = str(row.get("path_ref", ""))
+        if not re.match(r"^path_\d{4}$", path_ref):
+            errors.append(
+                f"{label} {entry_name} row {idx} path_ref must be path_NNNN"
+            )
+        else:
+            path_id = int(path_ref[5:])
+            if path_id > 0xff:
+                errors.append(
+                    f"{label} {entry_name} row {idx} path_ref id must fit native u8"
+                )
+        flags = row.get("flags")
+        if not (isinstance(flags, int) or
+                (isinstance(flags, str) and re.match(r"^0x[0-9a-fA-F]+$", flags))):
+            errors.append(
+                f"{label} {entry_name} row {idx} flags must be an integer or hex string"
+            )
+        pads = row.get("pads")
+        if not isinstance(pads, list) or not pads:
+            errors.append(
+                f"{label} {entry_name} row {idx} pads must be a non-empty list"
+            )
+        elif not all(isinstance(pad, str) and
+                     re.match(r"^pad_\d{4}(\|(outward|inward))?$", pad)
+                     for pad in pads):
+            errors.append(
+                f"{label} {entry_name} row {idx} pads must be pad refs with optional direction suffix"
+            )
+    return len(rows), errors
+
+
 def validate_setup_fields_objective_schema(label: str, entry_name: str,
                                            text: str) -> list[str]:
-    rows, errors = read_tsv_rows(label, entry_name, text)
-    if errors:
-        return errors
-    if not rows:
+    errors: list[str] = []
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError as exc:
+        return [f"{label} {entry_name} is invalid JSON: {exc}"]
+    if not isinstance(parsed, dict):
+        return [f"{label} {entry_name} must be a JSON object"]
+    if parsed.get("schema") != "pd2.scenario.setup.fields.v1":
+        errors.append(
+            f"{label} {entry_name} must declare schema pd2.scenario.setup.fields.v1"
+        )
+    rows = parsed.get("rows")
+    if not isinstance(rows, list):
+        errors.append(f"{label} {entry_name} must contain a rows array")
         return errors
 
-    header = rows[0]
-    col = {name: index for index, name in enumerate(header)}
-    field_index = col.get("field")
-    type_index = col.get("type")
-    value_index = col.get("value")
-    if field_index is None:
-        return [f"{label} {entry_name} must include a field column"]
-
-    for row_num, row in enumerate(rows[1:], 2):
-        if field_index >= len(row):
+    required = {"record_id", "kind", "field", "type", "value", "catalog_id", "ref_record_id"}
+    for row_num, row in enumerate(rows, 1):
+        if not isinstance(row, dict):
+            errors.append(f"{label} {entry_name} row {row_num} must be an object")
             continue
-        field = row[field_index].strip()
-        value_type = row[type_index].strip() if type_index is not None and type_index < len(row) else ""
-        value = row[value_index].strip() if value_index is not None and value_index < len(row) else ""
+        missing = required - set(row.keys())
+        if missing:
+            errors.append(
+                f"{label} {entry_name} row {row_num} missing {', '.join(sorted(missing))}"
+            )
+            continue
+        field = str(row.get("field", "")).strip()
+        value_type = str(row.get("type", "")).strip()
+        value = str(row.get("value", "")).strip()
         if field in FORBIDDEN_SETUP_OBJECTIVE_FIELDS:
             errors.append(
-                f"{label} {entry_name}:{row_num} uses raw {field}; use typed objective target/stage source fields"
+                f"{label} {entry_name} row {row_num} uses raw {field}; use typed objective target/stage source fields"
             )
         if field in {"objective_step.target_tag", "objective_holograph.target_tag"}:
             if value_type != "tag_ref" or not value.startswith("tag_"):
                 errors.append(
-                    f"{label} {entry_name}:{row_num} {field} must be a tag_ref value"
+                    f"{label} {entry_name} row {row_num} {field} must be a tag_ref value"
                 )
         if field == "objective_step.stage_flag":
             if value_type != "stage_flag_ref" or not value.startswith("stage_flag_0x"):
                 errors.append(
-                    f"{label} {entry_name}:{row_num} {field} must be a stage_flag_ref value"
+                    f"{label} {entry_name} row {row_num} {field} must be a stage_flag_ref value"
                 )
     return errors
 
@@ -1885,13 +2296,13 @@ def validate_archive_bytes(data: bytes, label: str, ext: str,
                     result.errors.append(
                         f"{label} missing required alternative: one of {', '.join(group)}"
                     )
-            if ext == ".pdmesh" and "model.nodes.tsv" in name_set and "model.parts.tsv" not in name_set:
+            if ext == ".pdmesh" and "model.nodes.json" in name_set and "model.parts.json" not in name_set:
                 result.errors.append(
-                    f"{label} has model.nodes.tsv but missing required model.parts.tsv"
+                    f"{label} has model.nodes.json but missing required model.parts.json"
                 )
-            if ext == ".pdmesh" and "model.nodes.tsv" in name_set and "model.faces.tsv" not in name_set:
+            if ext == ".pdmesh" and "model.nodes.json" in name_set and "model.faces.json" not in name_set:
                 result.errors.append(
-                    f"{label} has model.nodes.tsv but missing required model.faces.tsv"
+                    f"{label} has model.nodes.json but missing required model.faces.json"
                 )
             for rule in spec.require_one_of:
                 if not any(archive_has_all(name_set, alternative)
@@ -1936,7 +2347,7 @@ def validate_archive_bytes(data: bytes, label: str, ext: str,
                         text = zf.read(name).decode("utf-8", errors="replace")
                     except KeyError:
                         continue
-                    if name.lower().endswith((".tsv", ".csv")):
+                    if name.lower().endswith(".csv"):
                         result.errors.extend(scan_delimited_asset_refs(
                             label, name, text, active_catalog_ids
                         ))
@@ -1971,83 +2382,192 @@ def validate_archive_bytes(data: bytes, label: str, ext: str,
                     result.errors.append(
                         f"{label} scenario.ini must declare runtime_source_file matching the scene source"
                     )
-                if "setup_fields_file = setup.fields.tsv" not in text:
+                if "setup_fields_file = setup.fields.json" not in text:
                     result.errors.append(
-                        f"{label} scenario.ini must declare setup_fields_file = setup.fields.tsv"
+                        f"{label} scenario.ini must declare setup_fields_file = setup.fields.json"
                     )
-                if "ai_lists_file = ai/ailists.tsv" not in text:
+                if "objects_file = objects.json" not in text:
                     result.errors.append(
-                        f"{label} scenario.ini must declare ai_lists_file = ai/ailists.tsv"
+                        f"{label} scenario.ini must declare objects_file = objects.json"
                     )
-                if "paths_file = navigation/paths.tsv" not in text:
+                if "ai_lists_file = ai/ailists.json" not in text:
                     result.errors.append(
-                        f"{label} scenario.ini must declare paths_file = navigation/paths.tsv"
+                        f"{label} scenario.ini must declare ai_lists_file = ai/ailists.json"
                     )
-                if "portals_file = portals.tsv" not in text:
+                if "paths_file = navigation/paths.json" not in text:
                     result.errors.append(
-                        f"{label} scenario.ini must declare portals_file = portals.tsv"
+                        f"{label} scenario.ini must declare paths_file = navigation/paths.json"
+                    )
+                if "portals_file = portals.json" not in text:
+                    result.errors.append(
+                        f"{label} scenario.ini must declare portals_file = portals.json"
+                    )
+                if "pads_file = pads.json" not in text:
+                    result.errors.append(
+                        f"{label} scenario.ini must declare pads_file = pads.json"
                     )
                 for stale_key in ("setup_file", "mpsetup_file", "rooms_file", "geometry_file", "visual_scene_file"):
                     if stale_key in text:
                         result.errors.append(
                             f"{label} scenario.ini still declares {stale_key}; use scene/native tables/graphs"
                         )
-                if "portals.tsv" in name_set:
-                    portals_text = zf.read("portals.tsv").decode(
+                portal_row_count: int | None = None
+                if "portals.json" in name_set:
+                    portals_text = zf.read("portals.json").decode(
                         "utf-8", errors="replace"
                     )
-                    first_line = portals_text.splitlines()[0] if portals_text.splitlines() else ""
-                    if first_line != SCENARIO_PORTALS_HEADER:
-                        result.errors.append(
-                            f"{label} portals.tsv must use the definitive portal source header"
-                        )
-                if "objectives.tsv" in name_set:
-                    objectives_text = zf.read("objectives.tsv").decode(
+                    portal_row_count, portal_errors = validate_portals_json_schema(
+                        label, "portals.json", portals_text
+                    )
+                    result.errors.extend(portal_errors)
+                if "objectives_file = objectives.json" not in text:
+                    result.errors.append(
+                        f"{label} scenario.ini must declare objectives_file = objectives.json"
+                    )
+                if "spawns_file = spawns.json" not in text:
+                    result.errors.append(
+                        f"{label} scenario.ini must declare spawns_file = spawns.json"
+                    )
+                if "volumes_file = volumes.json" not in text:
+                    result.errors.append(
+                        f"{label} scenario.ini must declare volumes_file = volumes.json"
+                    )
+                if "objectives.json" in name_set:
+                    objectives_text = zf.read("objectives.json").decode(
                         "utf-8", errors="replace"
                     )
-                    result.errors.extend(validate_objectives_tsv_schema(
-                        label, "objectives.tsv", objectives_text,
-                        SCENARIO_OBJECTIVES_HEADER
+                    result.errors.extend(validate_objectives_json_schema(
+                        label,
+                        "objectives.json",
+                        objectives_text,
+                        SCENARIO_OBJECTIVES_HEADER,
+                        schema_id="pd2.scenario.objectives.v1",
+                        graph_prefix="level.objective",
+                        require_rows=False,
                     ))
-                if "spawns.tsv" in name_set:
-                    spawns_text = zf.read("spawns.tsv").decode(
+                if "spawns.json" in name_set:
+                    spawns_text = zf.read("spawns.json").decode(
                         "utf-8", errors="replace"
                     )
-                    first_line = spawns_text.splitlines()[0] if spawns_text.splitlines() else ""
-                    if first_line != SCENARIO_SPAWNS_HEADER:
-                        result.errors.append(
-                            f"{label} spawns.tsv must use the definitive spawn source header"
-                        )
-                if "setup.fields.tsv" in name_set:
-                    setup_fields_text = zf.read("setup.fields.tsv").decode(
+                    result.errors.extend(validate_spawns_json_schema(
+                        label, "spawns.json", spawns_text
+                    ))
+                pad_row_count: int | None = None
+                if "pads.json" in name_set:
+                    pads_text = zf.read("pads.json").decode(
+                        "utf-8", errors="replace"
+                    )
+                    pad_row_count, pad_errors = validate_pads_json_schema(
+                        label, "pads.json", pads_text
+                    )
+                    result.errors.extend(pad_errors)
+                volume_row_count: int | None = None
+                if "volumes.json" in name_set:
+                    volumes_text = zf.read("volumes.json").decode(
+                        "utf-8", errors="replace"
+                    )
+                    volume_row_count, volume_errors = validate_volumes_json_schema(
+                        label, "volumes.json", volumes_text
+                    )
+                    result.errors.extend(volume_errors)
+                waypoint_row_count: int | None = None
+                if "navigation/waypoints.json" in name_set:
+                    waypoint_row_count, waypoint_errors = validate_simple_rows_json_schema(
+                        label,
+                        "navigation/waypoints.json",
+                        zf.read("navigation/waypoints.json").decode(
+                            "utf-8", errors="replace"
+                        ),
+                        "pd2.scenario.waypoints.v1",
+                        ["waypoint_ref", "pad_ref", "group_ref", "step", "neighbours"],
+                    )
+                    result.errors.extend(waypoint_errors)
+                waygroup_row_count: int | None = None
+                if "navigation/waygroups.json" in name_set:
+                    waygroup_row_count, waygroup_errors = validate_simple_rows_json_schema(
+                        label,
+                        "navigation/waygroups.json",
+                        zf.read("navigation/waygroups.json").decode(
+                            "utf-8", errors="replace"
+                        ),
+                        "pd2.scenario.waygroups.v1",
+                        ["waygroup_ref", "step", "waypoints", "neighbours"],
+                    )
+                    result.errors.extend(waygroup_errors)
+                cover_row_count: int | None = None
+                if "navigation/covers.json" in name_set:
+                    cover_row_count, cover_errors = validate_simple_rows_json_schema(
+                        label,
+                        "navigation/covers.json",
+                        zf.read("navigation/covers.json").decode(
+                            "utf-8", errors="replace"
+                        ),
+                        "pd2.scenario.covers.v1",
+                        ["cover_ref", "flags", "position", "look"],
+                    )
+                    result.errors.extend(cover_errors)
+                if "setup.fields.json" in name_set:
+                    setup_fields_text = zf.read("setup.fields.json").decode(
                         "utf-8", errors="replace"
                     )
                     result.errors.extend(validate_setup_fields_objective_schema(
-                        label, "setup.fields.tsv", setup_fields_text
+                        label, "setup.fields.json", setup_fields_text
                     ))
-                if "ai/ailists.tsv" in name_set:
-                    ai_text = zf.read("ai/ailists.tsv").decode(
+                if "objects.json" in name_set:
+                    object_row_count, object_errors = validate_simple_rows_json_schema(
+                        label,
+                        "objects.json",
+                        zf.read("objects.json").decode("utf-8", errors="replace"),
+                        "pd2.scenario.objects.v1",
+                        [
+                            "record_id",
+                            "kind",
+                            "pad_ref",
+                            "model_catalog_id",
+                            "weapon_catalog_id",
+                            "secondary_weapon_catalog_id",
+                            "body_catalog_id",
+                            "head_catalog_id",
+                            "ailist_ref",
+                            "flags",
+                            "flags2",
+                            "flags3",
+                        ],
+                    )
+                    result.errors.extend(object_errors)
+                if "ai/ailists.json" in name_set:
+                    ai_row_count, ai_errors = validate_simple_rows_json_schema(
+                        label,
+                        "ai/ailists.json",
+                        zf.read("ai/ailists.json").decode(
+                            "utf-8", errors="replace"
+                        ),
+                        "pd2.scenario.ai.lists.v1",
+                        [
+                            "ailist_ref",
+                            "list_id",
+                            "graph_node",
+                            "command_index",
+                            "offset",
+                            "opcode",
+                            "opcode_name",
+                            "operands",
+                            "model_catalog_id",
+                            "weapon_catalog_id",
+                            "body_catalog_id",
+                            "head_catalog_id",
+                        ],
+                    )
+                    result.errors.extend(ai_errors)
+                path_row_count: int | None = None
+                if "navigation/paths.json" in name_set:
+                    paths_text = zf.read("navigation/paths.json").decode(
                         "utf-8", errors="replace"
                     )
-                    required_ai_header = (
-                        "ailist_ref\tlist_id\tgraph_node\tcommand_index\toffset\t"
-                        "opcode\topcode_name\toperands\tmodel_catalog_id\t"
-                        "weapon_catalog_id\tbody_catalog_id\thead_catalog_id"
+                    path_row_count, path_errors = validate_paths_json_schema(
+                        label, "navigation/paths.json", paths_text
                     )
-                    first_line = ai_text.splitlines()[0] if ai_text.splitlines() else ""
-                    if first_line != required_ai_header:
-                        result.errors.append(
-                            f"{label} ai/ailists.tsv must use the definitive AI list source header"
-                        )
-                if "navigation/paths.tsv" in name_set:
-                    paths_text = zf.read("navigation/paths.tsv").decode(
-                        "utf-8", errors="replace"
-                    )
-                    first_line = paths_text.splitlines()[0] if paths_text.splitlines() else ""
-                    if first_line != "path_ref\tflags\tpads":
-                        result.errors.append(
-                            f"{label} navigation/paths.tsv must use the definitive path source header"
-                        )
+                    result.errors.extend(path_errors)
                 if "navigation.ini" in name_set:
                     navigation_ini_text = zf.read("navigation.ini").decode(
                         "utf-8", errors="replace"
@@ -2086,24 +2606,89 @@ def validate_archive_bytes(data: bytes, label: str, ext: str,
                         )
                     else:
                         for source_name, count_key in {
-                            "pads.tsv": "pads",
-                            "volumes.tsv": "volumes",
-                            "navigation/waypoints.tsv": "waypoints",
-                            "navigation/waygroups.tsv": "waygroups",
-                            "navigation/covers.tsv": "covers",
-                            "navigation/paths.tsv": "paths",
+                            "pads.json": "pads",
+                            "volumes.json": "volumes",
+                            "navigation/waypoints.json": "waypoints",
+                            "navigation/waygroups.json": "waygroups",
+                            "navigation/covers.json": "covers",
+                            "navigation/paths.json": "paths",
                         }.items():
                             if source_name not in name_set:
                                 result.errors.append(
                                     f"{label} _meta/generated-navmesh.json source_counts requires {source_name}"
                                 )
                                 continue
-                            row_count, row_errors = count_tsv_data_rows(
-                                label,
-                                source_name,
-                                zf.read(source_name).decode("utf-8", errors="replace"),
-                            )
-                            result.errors.extend(row_errors)
+                            if source_name == "pads.json":
+                                if pad_row_count is None:
+                                    row_count, row_errors = validate_pads_json_schema(
+                                        label,
+                                        source_name,
+                                        zf.read(source_name).decode("utf-8", errors="replace"),
+                                    )
+                                    result.errors.extend(row_errors)
+                                else:
+                                    row_count = pad_row_count
+                            elif source_name == "volumes.json":
+                                if volume_row_count is None:
+                                    row_count, row_errors = validate_volumes_json_schema(
+                                        label,
+                                        source_name,
+                                        zf.read(source_name).decode("utf-8", errors="replace"),
+                                    )
+                                    result.errors.extend(row_errors)
+                                else:
+                                    row_count = volume_row_count
+                            elif source_name == "navigation/paths.json":
+                                if path_row_count is None:
+                                    row_count, row_errors = validate_paths_json_schema(
+                                        label,
+                                        source_name,
+                                        zf.read(source_name).decode("utf-8", errors="replace"),
+                                    )
+                                    result.errors.extend(row_errors)
+                                else:
+                                    row_count = path_row_count
+                            elif source_name == "navigation/waypoints.json":
+                                if waypoint_row_count is None:
+                                    row_count, row_errors = validate_simple_rows_json_schema(
+                                        label,
+                                        source_name,
+                                        zf.read(source_name).decode("utf-8", errors="replace"),
+                                        "pd2.scenario.waypoints.v1",
+                                        ["waypoint_ref", "pad_ref", "group_ref", "step", "neighbours"],
+                                    )
+                                    result.errors.extend(row_errors)
+                                else:
+                                    row_count = waypoint_row_count
+                            elif source_name == "navigation/waygroups.json":
+                                if waygroup_row_count is None:
+                                    row_count, row_errors = validate_simple_rows_json_schema(
+                                        label,
+                                        source_name,
+                                        zf.read(source_name).decode("utf-8", errors="replace"),
+                                        "pd2.scenario.waygroups.v1",
+                                        ["waygroup_ref", "step", "waypoints", "neighbours"],
+                                    )
+                                    result.errors.extend(row_errors)
+                                else:
+                                    row_count = waygroup_row_count
+                            elif source_name == "navigation/covers.json":
+                                if cover_row_count is None:
+                                    row_count, row_errors = validate_simple_rows_json_schema(
+                                        label,
+                                        source_name,
+                                        zf.read(source_name).decode("utf-8", errors="replace"),
+                                        "pd2.scenario.covers.v1",
+                                        ["cover_ref", "flags", "position", "look"],
+                                    )
+                                    result.errors.extend(row_errors)
+                                else:
+                                    row_count = cover_row_count
+                            else:
+                                result.errors.append(
+                                    f"{label} _meta/generated-navmesh.json references unsupported source count input {source_name}; use semantic JSON source"
+                                )
+                                continue
                             if source_counts.get(count_key) != row_count:
                                 result.errors.append(
                                     f"{label} _meta/generated-navmesh.json source_counts.{count_key} must match {source_name} rows"
@@ -2118,14 +2703,14 @@ def validate_archive_bytes(data: bytes, label: str, ext: str,
                             "scene.glb",
                             "collision.obj",
                             "navigation.ini",
-                            "portals.tsv",
-                            "pads.tsv",
-                            "spawns.tsv",
-                            "volumes.tsv",
-                            "navigation/waypoints.tsv",
-                            "navigation/waygroups.tsv",
-                            "navigation/covers.tsv",
-                            "navigation/paths.tsv",
+                            "portals.json",
+                            "pads.json",
+                            "spawns.json",
+                            "volumes.json",
+                            "navigation/waypoints.json",
+                            "navigation/waygroups.json",
+                            "navigation/covers.json",
+                            "navigation/paths.json",
                         ]:
                             if source_name not in name_set:
                                 result.errors.append(
@@ -2152,13 +2737,21 @@ def validate_archive_bytes(data: bytes, label: str, ext: str,
                         graph = {}
                     nodes = graph.get("nodes")
                     tables = graph.get("tables")
-                    if not isinstance(tables, dict) or tables.get("paths") != "navigation/paths.tsv":
+                    if not isinstance(tables, dict) or tables.get("paths") != "navigation/paths.json":
                         result.errors.append(
-                            f"{label} level.graph.json must bind paths table to navigation/paths.tsv"
+                            f"{label} level.graph.json must bind paths table to navigation/paths.json"
                         )
-                    if not isinstance(tables, dict) or tables.get("portals") != "portals.tsv":
+                    if not isinstance(tables, dict) or tables.get("portals") != "portals.json":
                         result.errors.append(
-                            f"{label} level.graph.json must bind portals table to portals.tsv"
+                            f"{label} level.graph.json must bind portals table to portals.json"
+                        )
+                    if not isinstance(tables, dict) or tables.get("pads") != "pads.json":
+                        result.errors.append(
+                            f"{label} level.graph.json must bind pads table to pads.json"
+                        )
+                    if not isinstance(tables, dict) or tables.get("volumes") != "volumes.json":
+                        result.errors.append(
+                            f"{label} level.graph.json must bind volumes table to volumes.json"
                         )
                     if not isinstance(nodes, list) or not nodes:
                         result.errors.append(
@@ -3198,16 +3791,16 @@ def validate_archive_bytes(data: bytes, label: str, ext: str,
                         result.errors.append(
                             f"{label} mission.graph.json must include mission phase graph nodes"
                         )
-                if "objectives.tsv" in name_set:
-                    objectives_text = zf.read("objectives.tsv").decode(
+                if "objectives.json" in name_set:
+                    objectives_text = zf.read("objectives.json").decode(
                         "utf-8", errors="replace"
                     )
                     if "original_perfect_dark_setup" in objectives_text:
                         result.errors.append(
-                            f"{label} objectives.tsv still points at original_perfect_dark_setup; use mission graph source nodes"
+                            f"{label} objectives.json still points at original_perfect_dark_setup; use mission graph source nodes"
                         )
-                    result.errors.extend(validate_objectives_tsv_schema(
-                        label, "objectives.tsv", objectives_text,
+                    result.errors.extend(validate_objectives_json_schema(
+                        label, "objectives.json", objectives_text,
                         MISSION_OBJECTIVES_HEADER
                     ))
 

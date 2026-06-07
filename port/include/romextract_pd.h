@@ -137,8 +137,9 @@ s32 romExtractAllPdcharacter(s32 force_rewrite);
  * scenario dependency payload under dependencies/assets/scenarios/ so the
  * arena archive is self-contained on disk. The standalone .pdscenario
  * remains the lower-level typed scenario content unit and carries scene.glb,
- * pads.tsv, navigation tables, objects.tsv, setup.fields.tsv,
- * objectives.tsv, level.graph.json, descriptors, and metadata sidecars.
+ * pads.json, semantic navigation JSON, objects.json, setup.fields.json,
+ * ai/ailists.json, objectives.json, level.graph.json, descriptors, and
+ * metadata sidecars.
  *
  * 47 arenas total (CATALOG_MGR_ARENA_COUNT). The CANVAS-mode arenas
  * (Solo Missions group) carry a stagenum of 0 and have no playable
@@ -203,9 +204,10 @@ s32 romExtractAllPdanimChr(s32 force_rewrite);
  *              NOT classified as voice via the slot-7 predicate from
  *              Slice 10)
  *   .pdvoice   ZIP compound (one per leaf SFX classified as voice via
- *              g_AudioRussMappings + s_audioConfigIsVoice predicate;
- *              same audio bytes as a .pdsfx, distinct kind so modders
- *              can target voice content separately per Q-2)
+ *              g_AudioRussMappings + s_audioConfigIsVoice predicate, plus
+ *              configured MP3/file-backed speech aliases as sample.mp3;
+ *              distinct kind so modders can target voice content separately
+ *              per Q-2)
  *   .pdsong    ZIP compound (one per sequencer entry in the sequences
  *              segment seqtable)
  *
@@ -217,7 +219,8 @@ s32 romExtractAllPdanimChr(s32 force_rewrite);
  * Catalog ID format follows feedback_human_readable_ids:
  *   .pdsfx    base:sfx_<lowered_symbol>  (e.g. base:sfx_launch_rocket)
  *             OR a generated readable fallback for unnamed entries
- *   .pdvoice  base:voice_<readable_symbol_or_fallback>
+ *   .pdvoice  base:voice_<readable_symbol_or_fallback> for leaf voice, or the
+ *             configured sound-ref readable ID for MP3 speech aliases
  *   .pdsong   base:song_sequence_<readable_ordinal>
  *
  * Boot order requirement: must run AFTER romdataInit (segments
@@ -259,11 +262,14 @@ s32 romExtractAllPdsfx(s32 force_rewrite);
 
 /* Step 3 audio: emit one .pdvoice ZIP compound per leaf SFX entry
  * that IS classified as voice via g_AudioRussMappings +
- * s_audioConfigIsVoice (slots 1/2/3/47/48/60/62 per Slice 10).
+ * s_audioConfigIsVoice (slots 1/2/3/47/48/60/62 per Slice 10), and per
+ * configured MP3/file-backed speech alias.
  *
- * Same ALBankFile walker as romExtractAllPdsfx but with the inverse
- * filter; manifest carries actor="unknown" pending a curation pass
- * (Step 5 cleanup) that maps voice slots to actor names.
+ * Leaf entries use the same ALBankFile walker as romExtractAllPdsfx but with
+ * the inverse filter. MP3 aliases are packaged as sample.mp3 with source_filenum
+ * binding so catalog/provider runtime can resolve the typed source by original
+ * file number. Manifest carries actor="unknown" pending a curation pass (Step 5
+ * cleanup) that maps voice slots to actor names.
  *
  * Returns: count of files newly written; -1 on infrastructure failure. */
 s32 romExtractAllPdvoice(s32 force_rewrite);
@@ -347,7 +353,7 @@ s32 romExtractAllPdlang(s32 force_rewrite);
  *
  *   .pdui  ZIP compound (one per UI texture in the canonical
  *          k_PduiEntries[] table inside port/fast3d/pdgui_theme.cpp;
- *          14 textures expected for the base game)
+ *          15 textures expected for the base game)
  *
  * Output paths under data/<romid>/:
  *   ui/<slug>.pdui
@@ -363,10 +369,11 @@ s32 romExtractAllPdlang(s32 force_rewrite);
  * g_TexGeneralConfigs (populated by texInit/texReset in pdmain.c
  * mainInit). On the boot main.c block this typically runs before
  * texInit, so pdguiThemeEmitPduiZips returns 0 cleanly when the
- * texture system is not yet ready. The actual emit fires from the
- * render-loop fallback trigger inside pdguiThemeCheckExtract once
- * GL is up. Subsequent boots find the .pdui files already on disk
- * and the call is an idempotent skip.
+ * texture system is not yet ready. The post-texReset boot hook reruns the
+ * emitter, scans the generated .pdui archives into the catalog, and
+ * leaves pdguiThemeCheckExtract as a safety repair for stale/missing
+ * files. Subsequent boots find the .pdui files already on disk and the
+ * call is an idempotent skip.
  *
  * The reader migration in pdguiThemeLateInit consumes these via
  * modArchiveOpen + modArchiveExtractAlloc + s_loadTgaFromMem. The
@@ -392,9 +399,10 @@ s32 romExtractAllPdlang(s32 force_rewrite);
  *
  * Returns: count of files newly written. Returns 0 (not -1) when the
  * texture system is not yet ready (g_TexGeneralConfigs == NULL); this
- * is the normal state at the boot main.c block, and the actual emit
- * fires later from pdguiThemeCheckExtract in the render-loop fallback
- * trigger. -1 reserved for infrastructure failure (data dir creation). */
+ * is the normal state at the boot main.c block. The post-texReset boot hook
+ * reruns the emitter through bootEnsureUiArchivesReadyAfterTextureInit(); the
+ * render-loop check remains only a safety repair. -1 reserved for
+ * infrastructure failure (data dir creation). */
 s32 romExtractAllPdui(s32 force_rewrite);
 
 /* c3843 remaining-family emitter: table-backed metadata families whose base
@@ -413,7 +421,8 @@ s32 romExtractAllPdtheme(s32 force_rewrite);
 s32 romExtractDecodeTextureImages(u16 texnum,
                                   u8 **out_tga, u32 *out_tga_size,
                                   u8 **out_png, u32 *out_png_size,
-                                  u32 *out_width, u32 *out_height);
+                                  u32 *out_width, u32 *out_height,
+                                  s32 *out_has_alpha);
 s32 romExtractTextureSlotIsEmpty(u16 texnum);
 
 /* Fast cached-boot guard shared by typed base-asset emitters.

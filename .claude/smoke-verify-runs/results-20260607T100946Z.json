@@ -1,0 +1,18 @@
+{
+  "Name": "scenario_pads_source_gate_smoke",
+  "Category": "scenario",
+  "BugId": null,
+  "RegressionFor": null,
+  "Passed": false,
+  "ExitCode": 0,
+  "ElapsedSeconds": 91.5936419,
+  "InstallDir": "C:\\Users\\mikeh\\Perfect-Dark-2\\perfect_dark-mike\\.claude\\smoke-verify-install",
+  "AssertionsTotal": 148,
+  "AssertionsMet": 147,
+  "Failures": [
+    {
+      "Kind": "required_line_missing",
+      "Pattern": "SCENARIO\\.GRAPH: table refs 'base:scenario_chicago' pads=.*base_scenario_chicago\\.pdscenario::pads\\.json spawns=.*base_scenario_chicago\\.pdscenario::spawns\\.json setup=.*base_scenario_chicago\\.pdscenario::setup\\.fields\\.json ai=.*base_scenario_chicago\\.pdscenario::ai/ailists\\.json objects=.*base_scenario_chicago\\.pdscenario::objects\\.json volumes=.*base_scenario_chicago\\.pdscenario::volumes\\.json objectives=.*base_scenario_chicago\\.pdscenario::objectives\\.json waypoints=.*base_scenario_chicago\\.pdscenario::navigation/waypoints\\.json waygroups=.*base_scenario_chicago\\.pdscenario::navigation/waygroups\\.json covers=.*base_scenario_chicago\\.pdscenario::navigation/covers\\.json paths=.*base_scenario_chicago\\.pdscenario::navigation/paths\\.json"
+    }
+  ]
+}

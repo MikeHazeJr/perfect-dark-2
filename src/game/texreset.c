@@ -42,6 +42,8 @@ extern u8 EXT_SEG _textureconfigSegmentRomStart;
 extern u8 EXT_SEG _textureconfigSegmentStart;
 extern u8 EXT_SEG _textureconfigSegmentEnd;
 
+extern s32 bootEnsureUiArchivesReadyAfterTextureInit(void);
+
 void texReset(void)
 {
 	s32 stage;
@@ -115,6 +117,8 @@ void texReset(void)
 	for (i = 0; i < g_TexNumConfigs; i++) {
 		g_TexWords[i] = NULL;
 	}
+
+	(void)bootEnsureUiArchivesReadyAfterTextureInit();
 
 	for (i = 0; i < ARRAYCOUNT(g_TcExplosionTexturePairs); i++) {
 		texLoad(&g_ExplosionTexturePairs[i].texturenum1, NULL, false);

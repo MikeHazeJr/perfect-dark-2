@@ -2211,6 +2211,14 @@ static s32 s_setupResolveHeadNum(const char *catalog_id, s32 *out)
 	return 1;
 }
 
+static const char *s_jsonValueAfterKey(const char *start, const char *end,
+	const char *key);
+static s32 s_jsonReadStringValue(const char *start, const char *end,
+	const char *key, char *out, size_t out_n);
+static s32 s_jsonReadU32Value(const char *start, const char *end,
+	const char *key, u32 *out);
+static char *s_jsonFindObjectEnd(char *open, char *end);
+
 static scenario_source_ai_list_t *s_aiFindOrAddList(
 	scenario_source_ai_table_t *table, const char *ref, s32 id)
 {
@@ -2253,53 +2261,91 @@ static scenario_source_ai_list_t *s_aiFindOrAddList(
 	return list;
 }
 
-static s32 s_aiParseOperands(char *value, u8 **out_bytes, u32 *out_count)
+static s32 s_aiParseOperandsJsonArray(const char *start, const char *end,
+	const char *key, u8 **out_bytes, u32 *out_count)
 {
-	u8 *bytes;
+	const char *cursor = s_jsonValueAfterKey(start, end, key);
+	u8 *bytes = NULL;
 	u32 count = 0;
 	u32 capacity = 0;
+	s32 closed = 0;
 
 	if (out_bytes) *out_bytes = NULL;
 	if (out_count) *out_count = 0;
-	if (!value || !out_bytes || !out_count || !value[0]) {
-		return 1;
+	if (!out_bytes || !out_count || !cursor || cursor >= end ||
+			*cursor != '[') {
+		return 0;
 	}
 
-	char *cursor = value;
-	while (cursor && *cursor) {
-		char *token = cursor;
-		char *comma = strchr(cursor, ',');
+	cursor++;
+	while (cursor < end) {
+		char token[64];
+		size_t used = 0;
 		u32 parsed;
-		if (comma) {
-			*comma = '\0';
-			cursor = comma + 1;
-		} else {
-			cursor = NULL;
+
+		while (cursor < end && (isspace((unsigned char)*cursor) ||
+				*cursor == ',')) {
+			cursor++;
 		}
-		while (*token && isspace((unsigned char)*token)) token++;
-		if (!*token) {
-			continue;
+		if (cursor >= end) {
+			break;
 		}
-		if (!s_parseU32Value(token, &parsed) || parsed > 0xffu) {
-			free(*out_bytes);
-			*out_bytes = NULL;
-			*out_count = 0;
-			return 0;
+		if (*cursor == ']') {
+			closed = 1;
+			cursor++;
+			break;
 		}
-		if (count >= capacity) {
-			u32 new_capacity = capacity ? capacity * 2u : 16u;
-			bytes = (u8 *)realloc(*out_bytes, new_capacity);
-			if (!bytes) {
-				free(*out_bytes);
-				*out_bytes = NULL;
-				*out_count = 0;
+		if (*cursor == '"') {
+			s32 escape = 0;
+			cursor++;
+			while (cursor < end) {
+				char c = *cursor++;
+				if (escape) {
+					escape = 0;
+				} else if (c == '\\') {
+					escape = 1;
+					continue;
+				} else if (c == '"') {
+					break;
+				}
+				if (used + 1 < sizeof(token)) {
+					token[used++] = c;
+				}
+			}
+			token[used] = '\0';
+			if (!s_parseU32Value(token, &parsed) || parsed > 0xffu) {
+				free(bytes);
 				return 0;
 			}
-			*out_bytes = bytes;
+		} else {
+			char *next;
+			unsigned long value = strtoul(cursor, &next, 0);
+			if (next == cursor || next > end || value > 0xfful) {
+				free(bytes);
+				return 0;
+			}
+			parsed = (u32)value;
+			cursor = next;
+		}
+
+		if (count >= capacity) {
+			u32 new_capacity = capacity ? capacity * 2u : 16u;
+			u8 *grown = (u8 *)realloc(bytes, new_capacity);
+			if (!grown) {
+				free(bytes);
+				return 0;
+			}
+			bytes = grown;
 			capacity = new_capacity;
 		}
-		(*out_bytes)[count++] = (u8)parsed;
+		bytes[count++] = (u8)parsed;
 	}
+
+	if (!closed) {
+		free(bytes);
+		return 0;
+	}
+	*out_bytes = bytes;
 	*out_count = count;
 	return 1;
 }
@@ -2401,69 +2447,117 @@ static s32 s_aiAppendCommand(scenario_source_ai_table_t *table,
 	return 1;
 }
 
-static s32 s_loadAiListSourceRows(char *text,
+static s32 s_loadAiListSourceJson(char *text,
 	scenario_source_ai_table_t *table)
 {
 	char *cursor;
-	char *line;
+	char *end;
+	char schema[64];
 
 	if (!text || !table) {
 		return 0;
 	}
 
-	cursor = text;
-	while ((line = s_nextLine(&cursor)) != NULL) {
-		char *line_cursor = line;
-		char *ailist_ref = s_nextField(&line_cursor);
-		char *list_id = s_nextField(&line_cursor);
-		char *graph_node = s_nextField(&line_cursor);
-		char *command_index = s_nextField(&line_cursor);
-		char *offset = s_nextField(&line_cursor);
-		char *opcode = s_nextField(&line_cursor);
-		char *opcode_name = s_nextField(&line_cursor);
-		char *operands = s_nextField(&line_cursor);
-		char *model_id = s_nextField(&line_cursor);
-		char *weapon_id = s_nextField(&line_cursor);
-		char *body_id = s_nextField(&line_cursor);
-		char *head_id = s_nextField(&line_cursor);
+	end = text + strlen(text);
+	if (!s_jsonReadStringValue(text, end, "schema", schema, sizeof(schema)) ||
+			strcmp(schema, "pd2.scenario.ai.lists.v1") != 0) {
+		s_aiTableSetError(table, "bad AI list schema '%s'", "", "");
+		return 0;
+	}
+	cursor = (char *)s_jsonValueAfterKey(text, end, "rows");
+	if (!cursor || cursor >= end || *cursor != '[') {
+		s_aiTableSetError(table, "missing AI list rows '%s'", "", "");
+		return 0;
+	}
+
+	cursor++;
+	while (cursor < end) {
+		char *object_end;
+		char ailist_ref[32];
+		char graph_node[96];
+		char opcode_name[64];
+		char model_id[CATALOG_ID_LEN];
+		char weapon_id[CATALOG_ID_LEN];
+		char body_id[CATALOG_ID_LEN];
+		char head_id[CATALOG_ID_LEN];
 		u32 parsed;
 		u32 parsed_opcode;
+		u32 command_index;
+		u32 offset;
 		scenario_source_ai_list_t *list;
 		scenario_source_ai_command_t cmd;
 
-		(void)graph_node;
-		(void)command_index;
-		(void)offset;
-		(void)opcode_name;
+		while (cursor < end && (isspace((unsigned char)*cursor) ||
+				*cursor == ',')) {
+			cursor++;
+		}
+		if (cursor >= end || *cursor == ']') {
+			break;
+		}
+		if (*cursor != '{') {
+			s_aiTableSetError(table, "bad AI row '%s'", "", "");
+			return 0;
+		}
+		object_end = s_jsonFindObjectEnd(cursor, end);
+		if (!object_end) {
+			s_aiTableSetError(table, "bad AI row '%s'", "", "");
+			return 0;
+		}
 
-		if (!ailist_ref || !list_id || !opcode) {
-			continue;
-		}
-		if (strcmp(ailist_ref, "ailist_ref") == 0) {
-			continue;
-		}
-		if (!s_parseU32Value(list_id, &parsed) ||
-				!s_parseU32Value(opcode, &parsed_opcode) ||
-				parsed_opcode > 0xffffu) {
+		model_id[0] = '\0';
+		weapon_id[0] = '\0';
+		body_id[0] = '\0';
+		head_id[0] = '\0';
+		if (!s_jsonReadStringValue(cursor, object_end + 1, "ailist_ref",
+				ailist_ref, sizeof(ailist_ref)) ||
+				!s_jsonReadU32Value(cursor, object_end + 1, "list_id",
+				&parsed) ||
+				!s_jsonReadStringValue(cursor, object_end + 1,
+				"graph_node", graph_node, sizeof(graph_node)) ||
+				!s_jsonReadU32Value(cursor, object_end + 1,
+				"command_index", &command_index) ||
+				!s_jsonReadU32Value(cursor, object_end + 1, "offset",
+				&offset) ||
+				!s_jsonReadU32Value(cursor, object_end + 1, "opcode",
+				&parsed_opcode) ||
+				!s_jsonReadStringValue(cursor, object_end + 1,
+				"opcode_name", opcode_name, sizeof(opcode_name)) ||
+				parsed_opcode > 0xffffu || !graph_node[0] ||
+				!opcode_name[0]) {
 			s_aiTableSetError(table, "bad AI row '%s'", ailist_ref, "");
 			return 0;
 		}
+		(void)offset;
 
 		list = s_aiFindOrAddList(table, ailist_ref, (s32)parsed);
 		if (!list) {
 			return 0;
 		}
+		if (command_index != (u32)list->count) {
+			s_aiTableSetError(table,
+				"AI row '%s' has out-of-order command index", ailist_ref, "");
+			return 0;
+		}
 
 		memset(&cmd, 0, sizeof(cmd));
 		cmd.opcode = (u16)parsed_opcode;
-		if (!s_aiParseOperands(operands, &cmd.operands,
-				&cmd.operand_count) ||
+		(void)s_jsonReadStringValue(cursor, object_end + 1,
+			"model_catalog_id", model_id, sizeof(model_id));
+		(void)s_jsonReadStringValue(cursor, object_end + 1,
+			"weapon_catalog_id", weapon_id, sizeof(weapon_id));
+		(void)s_jsonReadStringValue(cursor, object_end + 1,
+			"body_catalog_id", body_id, sizeof(body_id));
+		(void)s_jsonReadStringValue(cursor, object_end + 1,
+			"head_catalog_id", head_id, sizeof(head_id));
+		if (!s_aiParseOperandsJsonArray(cursor, object_end + 1,
+				"operands", &cmd.operands, &cmd.operand_count) ||
 				!s_aiApplyCatalogOperands(table, &cmd, model_id,
 				weapon_id, body_id, head_id) ||
 				!s_aiAppendCommand(table, list, &cmd)) {
 			free(cmd.operands);
 			return 0;
 		}
+		cursor = object_end + 1;
 	}
 
 	return table->error[0] == '\0';
@@ -2506,34 +2600,279 @@ static s32 s_spawnAppendRow(scenario_source_spawn_table_t *table,
 	return 1;
 }
 
+static const char *s_jsonFindKeyInRange(const char *start, const char *end,
+	const char *key)
+{
+	char pattern[96];
+	const char *cursor;
+	size_t pattern_len;
+
+	if (!start || !end || !key) {
+		return NULL;
+	}
+	snprintf(pattern, sizeof(pattern), "\"%s\"", key);
+	pattern_len = strlen(pattern);
+	cursor = start;
+	while (cursor && cursor < end) {
+		cursor = strstr(cursor, pattern);
+		if (!cursor || cursor >= end) {
+			return NULL;
+		}
+		if (cursor + pattern_len <= end) {
+			return cursor + pattern_len;
+		}
+		cursor += pattern_len;
+	}
+	return NULL;
+}
+
+static const char *s_jsonValueAfterKey(const char *start, const char *end,
+	const char *key)
+{
+	const char *cursor = s_jsonFindKeyInRange(start, end, key);
+
+	if (!cursor) {
+		return NULL;
+	}
+	while (cursor < end && isspace((unsigned char)*cursor)) {
+		cursor++;
+	}
+	if (cursor >= end || *cursor != ':') {
+		return NULL;
+	}
+	cursor++;
+	while (cursor < end && isspace((unsigned char)*cursor)) {
+		cursor++;
+	}
+	return cursor < end ? cursor : NULL;
+}
+
+static s32 s_jsonReadStringValue(const char *start, const char *end,
+	const char *key, char *out, size_t out_n)
+{
+	const char *cursor = s_jsonValueAfterKey(start, end, key);
+	size_t used = 0;
+	s32 escape = 0;
+
+	if (!out || out_n == 0) {
+		return 0;
+	}
+	out[0] = '\0';
+	if (!cursor || cursor >= end || *cursor != '"') {
+		return 0;
+	}
+	cursor++;
+	while (cursor < end) {
+		char c = *cursor++;
+		if (escape) {
+			escape = 0;
+		} else if (c == '\\') {
+			escape = 1;
+			continue;
+		} else if (c == '"') {
+			out[used] = '\0';
+			return 1;
+		}
+		if (used + 1 < out_n) {
+			out[used++] = c;
+		}
+	}
+	out[used] = '\0';
+	return 0;
+}
+
+static s32 s_jsonReadFloatArray3Value(const char *start, const char *end,
+	const char *key, f32 out[3])
+{
+	const char *cursor = s_jsonValueAfterKey(start, end, key);
+	s32 i;
+
+	if (!out || !cursor || cursor >= end || *cursor != '[') {
+		return 0;
+	}
+	cursor++;
+	for (i = 0; i < 3; i++) {
+		char *next;
+		while (cursor < end && isspace((unsigned char)*cursor)) {
+			cursor++;
+		}
+		if (cursor >= end) {
+			return 0;
+		}
+		out[i] = strtof(cursor, &next);
+		if (next == cursor || next > end) {
+			return 0;
+		}
+		cursor = next;
+		while (cursor < end && isspace((unsigned char)*cursor)) {
+			cursor++;
+		}
+		if (i < 2) {
+			if (cursor >= end || *cursor != ',') {
+				return 0;
+			}
+			cursor++;
+		}
+	}
+	while (cursor < end && isspace((unsigned char)*cursor)) {
+		cursor++;
+	}
+	return cursor < end && *cursor == ']';
+}
+
+static s32 s_jsonReadS32Value(const char *start, const char *end,
+	const char *key, s32 *out)
+{
+	const char *cursor = s_jsonValueAfterKey(start, end, key);
+	char tmp[64];
+	char *next;
+	long value;
+
+	if (!out || !cursor || cursor >= end) {
+		return 0;
+	}
+	if (*cursor == '"') {
+		if (!s_jsonReadStringValue(start, end, key, tmp, sizeof(tmp))) {
+			return 0;
+		}
+		cursor = tmp;
+		end = tmp + strlen(tmp);
+	}
+	value = strtol(cursor, &next, 0);
+	if (next == cursor || next > end) {
+		return 0;
+	}
+	*out = (s32)value;
+	return 1;
+}
+
+static s32 s_jsonReadU32Value(const char *start, const char *end,
+	const char *key, u32 *out)
+{
+	const char *cursor = s_jsonValueAfterKey(start, end, key);
+	char tmp[64];
+	char *next;
+	unsigned long value;
+
+	if (!out || !cursor || cursor >= end) {
+		return 0;
+	}
+	if (*cursor == '"') {
+		if (!s_jsonReadStringValue(start, end, key, tmp, sizeof(tmp))) {
+			return 0;
+		}
+		cursor = tmp;
+		end = tmp + strlen(tmp);
+	}
+	value = strtoul(cursor, &next, 0);
+	if (next == cursor || next > end) {
+		return 0;
+	}
+	*out = (u32)value;
+	return 1;
+}
+
+static char *s_jsonFindObjectEnd(char *open, char *end)
+{
+	char *cursor;
+	s32 depth = 0;
+	s32 in_string = 0;
+	s32 escape = 0;
+
+	if (!open || !end || open >= end || *open != '{') {
+		return NULL;
+	}
+	for (cursor = open; cursor < end; cursor++) {
+		char c = *cursor;
+		if (in_string) {
+			if (escape) {
+				escape = 0;
+			} else if (c == '\\') {
+				escape = 1;
+			} else if (c == '"') {
+				in_string = 0;
+			}
+			continue;
+		}
+		if (c == '"') {
+			in_string = 1;
+		} else if (c == '{') {
+			depth++;
+		} else if (c == '}') {
+			depth--;
+			if (depth == 0) {
+				return cursor;
+			}
+		}
+	}
+	return NULL;
+}
+
 static s32 s_loadSpawnSourceRows(char *text,
 	scenario_source_spawn_table_t *table)
 {
+	char schema[64];
+	char *rows;
 	char *cursor;
-	char *line;
+	char *end;
 
 	if (!text || !table) {
 		return 0;
 	}
 
-	cursor = text;
-	while ((line = s_nextLine(&cursor)) != NULL) {
-		char *line_cursor = line;
-		char *spawn_id = s_nextField(&line_cursor);
-		char *pad_ref = s_nextField(&line_cursor);
-		char *room_ref = s_nextField(&line_cursor);
-		char *team = s_nextField(&line_cursor);
-		char *profile = s_nextField(&line_cursor);
+	end = text + strlen(text);
+	if (!s_jsonReadStringValue(text, end, "schema", schema, sizeof(schema)) ||
+			strcmp(schema, "pd2.scenario.spawns.v1") != 0) {
+		s_spawnTableSetError(table, "missing pd2.scenario.spawns.v1 schema",
+			"", "");
+		return 0;
+	}
+
+	rows = (char *)s_jsonValueAfterKey(text, end, "rows");
+	if (!rows || rows >= end || *rows != '[') {
+		s_spawnTableSetError(table, "missing spawn rows", "", "");
+		return 0;
+	}
+
+	cursor = rows + 1;
+	while (cursor < end) {
+		char *object_end;
+		char spawn_id[64];
+		char pad_ref[64];
+		char team[64];
 		s32 padnum;
 		s32 teamnum;
 
-		(void)room_ref;
-		(void)profile;
-
-		if (!spawn_id || !pad_ref || !team) {
-			continue;
+		while (cursor < end && (isspace((unsigned char)*cursor) ||
+				*cursor == ',')) {
+			cursor++;
 		}
-		if (strcmp(spawn_id, "spawn_id") == 0) {
+		if (cursor >= end || *cursor == ']') {
+			break;
+		}
+		if (*cursor != '{') {
+			s_spawnTableSetError(table, "bad spawn rows source", "", "");
+			return 0;
+		}
+		object_end = s_jsonFindObjectEnd(cursor, end);
+		if (!object_end) {
+			s_spawnTableSetError(table, "unterminated spawn row", "", "");
+			return 0;
+		}
+
+		if (!s_jsonReadStringValue(cursor, object_end + 1, "spawn_id",
+				spawn_id, sizeof(spawn_id)) ||
+				!s_jsonReadStringValue(cursor, object_end + 1, "pad_ref",
+				pad_ref, sizeof(pad_ref))) {
+			s_spawnTableSetError(table, "bad spawn row source", "", "");
+			return 0;
+		}
+		if (!s_jsonReadStringValue(cursor, object_end + 1, "team",
+				team, sizeof(team))) {
+			strcpy(team, "any");
+		}
+		if (!spawn_id[0] || !pad_ref[0]) {
+			cursor = object_end + 1;
 			continue;
 		}
 
@@ -2549,6 +2888,7 @@ static s32 s_loadSpawnSourceRows(char *text,
 				spawn_id, "");
 			return 0;
 		}
+		cursor = object_end + 1;
 	}
 
 	return table->error[0] == '\0';
@@ -3998,35 +4338,83 @@ static s32 s_setupApplyKnownField(scenario_source_setup_table_t *table,
 	return 0;
 }
 
-static s32 s_setupParseFieldsTsv(char *text,
+static void s_jsonReadOptionalStringValue(const char *start, const char *end,
+	const char *key, char *out, size_t out_n);
+
+static s32 s_setupParseFieldsJson(char *text,
 	scenario_source_setup_table_t *table)
 {
+	char schema[64];
+	char *rows;
 	char *cursor;
-	char *line;
+	char *end;
 	s32 default_order = 0;
 
 	if (!text || !table) {
 		return 0;
 	}
 
-	cursor = text;
-	while ((line = s_nextLine(&cursor)) != NULL) {
-		char *line_cursor = line;
-		char *record_id = s_nextField(&line_cursor);
-		char *kind = s_nextField(&line_cursor);
-		char *field = s_nextField(&line_cursor);
-		char *type = s_nextField(&line_cursor);
-		char *value = s_nextField(&line_cursor);
-		char *catalog_id = s_nextField(&line_cursor);
-		char *ref_record_id = s_nextField(&line_cursor);
+	end = text + strlen(text);
+	if (!s_jsonReadStringValue(text, end, "schema", schema, sizeof(schema)) ||
+			strcmp(schema, "pd2.scenario.setup.fields.v1") != 0) {
+		s_setupTableSetError(table,
+			"missing pd2.scenario.setup.fields.v1 schema", "", "");
+		return 0;
+	}
+
+	rows = (char *)s_jsonValueAfterKey(text, end, "rows");
+	if (!rows || rows >= end || *rows != '[') {
+		s_setupTableSetError(table, "missing setup field rows", "", "");
+		return 0;
+	}
+
+	cursor = rows + 1;
+	while (cursor < end) {
+		char *object_end;
+		char record_id[64];
+		char kind[64];
+		char field[96];
+		char type[64];
+		char value[CATALOG_ID_LEN];
+		char catalog_id[CATALOG_ID_LEN];
+		char ref_record_id[64];
 		scenario_source_setup_record_t *record;
 
-		if (!record_id || !kind || !field || !type) {
-			continue;
+		while (cursor < end && (isspace((unsigned char)*cursor) ||
+				*cursor == ',')) {
+			cursor++;
 		}
-		if (strcmp(record_id, "record_id") == 0) {
-			continue;
+		if (cursor >= end || *cursor == ']') {
+			break;
 		}
+		if (*cursor != '{') {
+			s_setupTableSetError(table, "invalid setup field row", "", "");
+			return 0;
+		}
+		object_end = s_jsonFindObjectEnd(cursor, end);
+		if (!object_end) {
+			s_setupTableSetError(table, "unterminated setup field row", "", "");
+			return 0;
+		}
+
+		if (!s_jsonReadStringValue(cursor, object_end + 1, "record_id",
+				record_id, sizeof(record_id)) ||
+				!s_jsonReadStringValue(cursor, object_end + 1, "kind",
+				kind, sizeof(kind)) ||
+				!s_jsonReadStringValue(cursor, object_end + 1, "field",
+				field, sizeof(field)) ||
+				!s_jsonReadStringValue(cursor, object_end + 1, "type",
+				type, sizeof(type))) {
+			s_setupTableSetError(table, "setup field row missing required keys",
+				"", "");
+			return 0;
+		}
+		s_jsonReadOptionalStringValue(cursor, object_end + 1, "value",
+			value, sizeof(value));
+		s_jsonReadOptionalStringValue(cursor, object_end + 1, "catalog_id",
+			catalog_id, sizeof(catalog_id));
+		s_jsonReadOptionalStringValue(cursor, object_end + 1,
+			"ref_record_id", ref_record_id, sizeof(ref_record_id));
 
 		record = s_setupFindOrAddRecord(table, record_id, kind,
 			s_setupRecordOrderFromId(record_id, default_order));
@@ -4035,8 +4423,7 @@ static s32 s_setupParseFieldsTsv(char *text,
 		}
 
 		if (!s_setupApplyKnownField(table, record, field, type,
-				value ? value : "", catalog_id ? catalog_id : "",
-				ref_record_id ? ref_record_id : "")) {
+				value, catalog_id, ref_record_id)) {
 			s_setupTableSetError(table,
 				"unsupported setup source field '%s' on '%s'",
 				field, record_id);
@@ -4044,6 +4431,7 @@ static s32 s_setupParseFieldsTsv(char *text,
 		}
 
 		default_order++;
+		cursor = object_end + 1;
 	}
 
 	return table->error[0] == '\0';
@@ -4155,42 +4543,108 @@ static s32 s_setupWriteVehicleAilistRef(
 	return s_setupWriteRaw(record, offset, &value, sizeof(value));
 }
 
-static s32 s_setupApplyObjectsSummary(char *text,
+static void s_jsonReadOptionalStringValue(const char *start, const char *end,
+	const char *key, char *out, size_t out_n)
+{
+	if (!out || out_n == 0) {
+		return;
+	}
+	out[0] = '\0';
+	(void)s_jsonReadStringValue(start, end, key, out, out_n);
+}
+
+static s32 s_setupApplyObjectsJson(char *text,
 	scenario_source_setup_table_t *table)
 {
+	char schema[64];
+	char *rows;
 	char *cursor;
-	char *line;
+	char *end;
 	s32 order = 0;
 
 	if (!text || !table) {
 		return 1;
 	}
 
-	cursor = text;
-	while ((line = s_nextLine(&cursor)) != NULL) {
-		char *line_cursor = line;
-		char *record_id = s_nextField(&line_cursor);
-		char *kind = s_nextField(&line_cursor);
-		char *pad_ref = s_nextField(&line_cursor);
-		char *model_id = s_nextField(&line_cursor);
-		char *weapon_id = s_nextField(&line_cursor);
-		char *secondary_weapon_id = s_nextField(&line_cursor);
-		char *body_id = s_nextField(&line_cursor);
-		char *head_id = s_nextField(&line_cursor);
-		char *ailist_ref = s_nextField(&line_cursor);
-		char *flags = s_nextField(&line_cursor);
-		char *flags2 = s_nextField(&line_cursor);
-		char *flags3 = s_nextField(&line_cursor);
+	end = text + strlen(text);
+	if (!s_jsonReadStringValue(text, end, "schema", schema, sizeof(schema)) ||
+			strcmp(schema, "pd2.scenario.objects.v1") != 0) {
+		s_setupTableSetError(table, "missing pd2.scenario.objects.v1 schema",
+			"", "");
+		return 0;
+	}
+
+	rows = (char *)s_jsonValueAfterKey(text, end, "rows");
+	if (!rows || rows >= end || *rows != '[') {
+		s_setupTableSetError(table, "missing object rows", "", "");
+		return 0;
+	}
+
+	cursor = rows + 1;
+	while (cursor < end) {
+		char *object_end;
+		char record_id[32];
+		char kind[64];
+		char pad_ref[32];
+		char model_id[CATALOG_ID_LEN];
+		char weapon_id[CATALOG_ID_LEN];
+		char secondary_weapon_id[CATALOG_ID_LEN];
+		char body_id[CATALOG_ID_LEN];
+		char head_id[CATALOG_ID_LEN];
+		char ailist_ref[32];
+		char flags[32];
+		char flags2[32];
+		char flags3[32];
 		scenario_source_setup_record_t *record;
 		s32 ivalue;
 		u32 uvalue;
 
-		if (!record_id || !kind) {
-			continue;
+		while (cursor < end && (isspace((unsigned char)*cursor) ||
+				*cursor == ',')) {
+			cursor++;
 		}
-		if (strcmp(record_id, "record_id") == 0) {
-			continue;
+		if (cursor >= end || *cursor == ']') {
+			break;
 		}
+		if (*cursor != '{') {
+			s_setupTableSetError(table, "invalid object row", "", "");
+			return 0;
+		}
+		object_end = s_jsonFindObjectEnd(cursor, end);
+		if (!object_end) {
+			s_setupTableSetError(table, "unterminated object row", "", "");
+			return 0;
+		}
+
+		if (!s_jsonReadStringValue(cursor, object_end + 1, "record_id",
+				record_id, sizeof(record_id)) ||
+				!s_jsonReadStringValue(cursor, object_end + 1, "kind",
+				kind, sizeof(kind))) {
+			s_setupTableSetError(table, "object row missing record_id/kind",
+				"", "");
+			return 0;
+		}
+		s_jsonReadOptionalStringValue(cursor, object_end + 1, "pad_ref",
+			pad_ref, sizeof(pad_ref));
+		s_jsonReadOptionalStringValue(cursor, object_end + 1,
+			"model_catalog_id", model_id, sizeof(model_id));
+		s_jsonReadOptionalStringValue(cursor, object_end + 1,
+			"weapon_catalog_id", weapon_id, sizeof(weapon_id));
+		s_jsonReadOptionalStringValue(cursor, object_end + 1,
+			"secondary_weapon_catalog_id", secondary_weapon_id,
+			sizeof(secondary_weapon_id));
+		s_jsonReadOptionalStringValue(cursor, object_end + 1,
+			"body_catalog_id", body_id, sizeof(body_id));
+		s_jsonReadOptionalStringValue(cursor, object_end + 1,
+			"head_catalog_id", head_id, sizeof(head_id));
+		s_jsonReadOptionalStringValue(cursor, object_end + 1,
+			"ailist_ref", ailist_ref, sizeof(ailist_ref));
+		s_jsonReadOptionalStringValue(cursor, object_end + 1,
+			"flags", flags, sizeof(flags));
+		s_jsonReadOptionalStringValue(cursor, object_end + 1,
+			"flags2", flags2, sizeof(flags2));
+		s_jsonReadOptionalStringValue(cursor, object_end + 1,
+			"flags3", flags3, sizeof(flags3));
 
 		record = s_setupFindOrAddRecord(table, record_id, kind,
 			s_setupRecordOrderFromId(record_id, order));
@@ -4198,7 +4652,7 @@ static s32 s_setupApplyObjectsSummary(char *text,
 			return 0;
 		}
 
-		if (pad_ref && pad_ref[0]) {
+		if (pad_ref[0]) {
 			ivalue = s_parseIndexedRef(pad_ref);
 			if (record->type == OBJTYPE_CHR) {
 				if (!s_setupWriteU16(record,
@@ -4213,7 +4667,7 @@ static s32 s_setupApplyObjectsSummary(char *text,
 			}
 		}
 
-		if (model_id && model_id[0]
+		if (model_id[0]
 				&& s_setupObjTypeHasDefaultBase(record->type)) {
 			if (!s_setupResolveModelnum(model_id, &ivalue) ||
 					!s_setupWriteS16(record,
@@ -4225,7 +4679,7 @@ static s32 s_setupApplyObjectsSummary(char *text,
 			}
 		}
 
-		if (weapon_id && weapon_id[0]
+		if (weapon_id[0]
 				&& (record->type == OBJTYPE_WEAPON
 					|| record->type == OBJTYPE_MINE)) {
 			if (!s_setupResolveWeaponnum(weapon_id, &ivalue) ||
@@ -4238,7 +4692,7 @@ static s32 s_setupApplyObjectsSummary(char *text,
 			}
 		}
 
-		if (secondary_weapon_id && secondary_weapon_id[0]
+		if (secondary_weapon_id[0]
 				&& (record->type == OBJTYPE_WEAPON
 					|| record->type == OBJTYPE_MINE)) {
 			if (!s_setupResolveWeaponnum(secondary_weapon_id, &ivalue) ||
@@ -4251,7 +4705,7 @@ static s32 s_setupApplyObjectsSummary(char *text,
 			}
 		}
 
-		if (body_id && body_id[0] && record->type == OBJTYPE_CHR) {
+		if (body_id[0] && record->type == OBJTYPE_CHR) {
 			if (!s_setupResolveBodyNum(body_id, &ivalue) ||
 					!s_setupWriteU8(record,
 						(u32)offsetof(struct packedchr, bodynum), ivalue)) {
@@ -4262,7 +4716,7 @@ static s32 s_setupApplyObjectsSummary(char *text,
 			}
 		}
 
-		if (head_id && head_id[0] && record->type == OBJTYPE_CHR) {
+		if (head_id[0] && record->type == OBJTYPE_CHR) {
 			if (!s_setupResolveHeadNum(head_id, &ivalue) ||
 					!s_setupWriteS8(record,
 						(u32)offsetof(struct packedchr, headnum), ivalue)) {
@@ -4273,13 +4727,13 @@ static s32 s_setupApplyObjectsSummary(char *text,
 			}
 		}
 
-		if (ailist_ref && ailist_ref[0] && record->type == OBJTYPE_CHR) {
+		if (ailist_ref[0] && record->type == OBJTYPE_CHR) {
 			ivalue = s_parseIndexedRef(ailist_ref);
 			if (!s_setupWriteU16(record,
 					(u32)offsetof(struct packedchr, ailistnum), ivalue)) {
 				return 0;
 			}
-		} else if (ailist_ref && ailist_ref[0]
+		} else if (ailist_ref[0]
 				&& (record->type == OBJTYPE_TRUCK ||
 					record->type == OBJTYPE_HELI ||
 					record->type == OBJTYPE_HOVERCAR ||
@@ -4290,7 +4744,7 @@ static s32 s_setupApplyObjectsSummary(char *text,
 			}
 		}
 
-		if (flags && flags[0] && s_parseU32Value(flags, &uvalue)) {
+		if (flags[0] && s_parseU32Value(flags, &uvalue)) {
 			if (record->type == OBJTYPE_CHR) {
 				if (!s_setupWriteU32(record,
 						(u32)offsetof(struct packedchr, flags), uvalue)) {
@@ -4304,7 +4758,7 @@ static s32 s_setupApplyObjectsSummary(char *text,
 			}
 		}
 
-		if (flags2 && flags2[0] && s_parseU32Value(flags2, &uvalue)) {
+		if (flags2[0] && s_parseU32Value(flags2, &uvalue)) {
 			if (record->type == OBJTYPE_CHR) {
 				if (!s_setupWriteU32(record,
 						(u32)offsetof(struct packedchr, flags2), uvalue)) {
@@ -4318,7 +4772,7 @@ static s32 s_setupApplyObjectsSummary(char *text,
 			}
 		}
 
-		if (flags3 && flags3[0] && s_parseU32Value(flags3, &uvalue)
+		if (flags3[0] && s_parseU32Value(flags3, &uvalue)
 				&& s_setupObjTypeHasDefaultBase(record->type)) {
 			if (!s_setupWriteU32(record,
 					(u32)offsetof(struct defaultobj, flags3), uvalue)) {
@@ -4327,6 +4781,7 @@ static s32 s_setupApplyObjectsSummary(char *text,
 		}
 
 		order++;
+		cursor = object_end + 1;
 	}
 
 	return table->error[0] == '\0';
@@ -4722,7 +5177,7 @@ static s32 s_setupValidateBehaviorLinkTarget(
 	target = s_setupFindRecordByOrder(table, target_order);
 	if (!target) {
 		sysLogPrintf(LOG_ERROR,
-			"SCENARIO.GRAPH: invalid setup behavior link source '%s' record=%s kind=%s target=%s order=%d is not a public setup.fields.tsv row",
+			"SCENARIO.GRAPH: invalid setup behavior link source '%s' record=%s kind=%s target=%s order=%d is not a public setup.fields.json row",
 			source_path ? source_path : "?",
 			link ? link->record_id : "?",
 			link ? link->kind : "?",
@@ -4862,7 +5317,7 @@ static s32 s_setupCollectBehaviorLinkSource(
 
 	s_ActiveScenarioGraphs.setup_link_count = count;
 	sysLogPrintf(LOG_NOTE,
-		"SCENARIO.GRAPH: setup behavior link source '%s' links=%d backend=graph.setup.links+setup.fields.tsv",
+		"SCENARIO.GRAPH: setup behavior link source '%s' links=%d backend=graph.setup.links+setup.fields.json",
 		source_path && source_path[0] ? source_path : active_path,
 		count);
 	return 1;
@@ -5091,12 +5546,14 @@ static s32 s_generateNavigationWaygroupsFromEdges(
 	return 1;
 }
 
-static s32 s_parseSegmentList(char *field, const char *prefix,
+static s32 s_parseSegmentJsonArray(const char *start, const char *end,
+	const char *key, const char *prefix,
 	scenario_source_segment_list_t *out)
 {
 	s32 capacity;
-	char *cursor;
-	char *token;
+	s32 count;
+	const char *cursor;
+	s32 closed = 0;
 
 	if (!out) {
 		return 0;
@@ -5104,41 +5561,62 @@ static s32 s_parseSegmentList(char *field, const char *prefix,
 	out->values = NULL;
 	out->count = 0;
 
-	if (!field || !field[0]) {
-		return 1;
+	cursor = s_jsonValueAfterKey(start, end, key);
+	if (!cursor || cursor >= end || *cursor != '[') {
+		return 0;
 	}
 
 	capacity = 8;
+	count = 0;
 	out->values = malloc((size_t)capacity * sizeof(*out->values));
 	if (!out->values) {
 		return 0;
 	}
 
-	cursor = field;
-	while (cursor && *cursor) {
+	cursor++;
+	while (cursor < end) {
 		u32 value;
-		char *end = cursor;
+		char token[64];
+		size_t used = 0;
+		s32 escape = 0;
 
-		while (*end && *end != ';' && *end != ',') {
-			end++;
+		while (cursor < end && (isspace((unsigned char)*cursor) ||
+				*cursor == ',')) {
+			cursor++;
 		}
-		if (*end) {
-			*end++ = '\0';
+		if (cursor >= end) {
+			break;
 		}
-		token = cursor;
-		while (*token && isspace((unsigned char)*token)) {
-			token++;
+		if (*cursor == ']') {
+			cursor++;
+			closed = 1;
+			break;
 		}
-		cursor = end;
-
-		if (!token[0]) {
-			continue;
+		if (*cursor != '"') {
+			s_freeSegmentList(out);
+			return 0;
 		}
+		cursor++;
+		while (cursor < end) {
+			char c = *cursor++;
+			if (escape) {
+				escape = 0;
+			} else if (c == '\\') {
+				escape = 1;
+				continue;
+			} else if (c == '"') {
+				break;
+			}
+			if (used + 1 < sizeof(token)) {
+				token[used++] = c;
+			}
+		}
+		token[used] = '\0';
 		if (!s_parseSegmentToken(token, prefix, &value)) {
 			s_freeSegmentList(out);
 			return 0;
 		}
-		if (out->count >= capacity) {
+		if (count >= capacity) {
 			u32 *grown;
 			capacity *= 2;
 			grown = realloc(out->values,
@@ -5149,9 +5627,14 @@ static s32 s_parseSegmentList(char *field, const char *prefix,
 			}
 			out->values = grown;
 		}
-		out->values[out->count++] = value;
+		out->values[count++] = value;
 	}
 
+	if (!closed) {
+		s_freeSegmentList(out);
+		return 0;
+	}
+	out->count = count;
 	return 1;
 }
 
@@ -5180,14 +5663,15 @@ static void s_freePathTable(scenario_source_path_table_t *table)
 	memset(table, 0, sizeof(*table));
 }
 
-static s32 s_parsePathPadList(char *field, s32 **out_pads,
-	u32 **out_segments, s32 *out_count)
+static s32 s_parsePathPadJsonArray(const char *start, const char *end,
+	const char *key, s32 **out_pads, u32 **out_segments, s32 *out_count)
 {
+	const char *cursor = s_jsonValueAfterKey(start, end, key);
 	s32 capacity;
 	s32 count;
 	s32 *pads;
 	u32 *segments;
-	char *cursor;
+	s32 closed = 0;
 
 	if (!out_pads || !out_segments || !out_count) {
 		return 0;
@@ -5195,8 +5679,7 @@ static s32 s_parsePathPadList(char *field, s32 **out_pads,
 	*out_pads = NULL;
 	*out_segments = NULL;
 	*out_count = 0;
-
-	if (!field || !field[0]) {
+	if (!cursor || cursor >= end || *cursor != '[') {
 		return 0;
 	}
 
@@ -5210,65 +5693,79 @@ static s32 s_parsePathPadList(char *field, s32 **out_pads,
 		return 0;
 	}
 
-	cursor = field;
-	while (cursor && *cursor) {
-		char *token = cursor;
-		char *end = cursor;
-		s32 padnum;
+	cursor++;
+	while (cursor < end) {
+		char token[64];
+		size_t used = 0;
+		s32 escape = 0;
 		u32 segment;
 
-		while (*end && *end != ';' && *end != ',') {
-			end++;
+		while (cursor < end && (isspace((unsigned char)*cursor) ||
+				*cursor == ',')) {
+			cursor++;
 		}
-		if (*end) {
-			*end++ = '\0';
+		if (cursor >= end) {
+			break;
 		}
-		cursor = end;
-
-		while (*token && isspace((unsigned char)*token)) {
-			token++;
+		if (*cursor == ']') {
+			cursor++;
+			closed = 1;
+			break;
 		}
-		if (!token[0]) {
-			continue;
+		if (*cursor != '"') {
+			free(pads);
+			free(segments);
+			return 0;
 		}
+		cursor++;
+		while (cursor < end) {
+			char c = *cursor++;
+			if (escape) {
+				escape = 0;
+			} else if (c == '\\') {
+				escape = 1;
+				continue;
+			} else if (c == '"') {
+				break;
+			}
+			if (used + 1 < sizeof(token)) {
+				token[used++] = c;
+			}
+		}
+		token[used] = '\0';
 		if (!s_parseSegmentToken(token, "pad_", &segment)) {
 			free(pads);
 			free(segments);
 			return 0;
 		}
-		padnum = (s32)(segment & SCENARIO_SEGMENT_ID_MASK);
 		if (count >= capacity) {
-			s32 *grown;
+			s32 *grown_pads;
 			u32 *grown_segments;
 			capacity *= 2;
-			grown = (s32 *)realloc(pads,
+			grown_pads = (s32 *)realloc(pads,
 				(size_t)capacity * sizeof(*pads));
 			grown_segments = (u32 *)realloc(segments,
 				(size_t)capacity * sizeof(*segments));
-			if (!grown || !grown_segments) {
-				if (grown) {
-					pads = grown;
-				}
-				if (grown_segments) {
-					segments = grown_segments;
-				}
+			if (!grown_pads || !grown_segments) {
+				if (grown_pads) pads = grown_pads;
+				if (grown_segments) segments = grown_segments;
 				free(pads);
 				free(segments);
 				return 0;
 			}
-			pads = grown;
+			pads = grown_pads;
 			segments = grown_segments;
 		}
-		pads[count++] = padnum;
-		segments[count - 1] = segment;
+		pads[count] = (s32)(segment & SCENARIO_SEGMENT_ID_MASK);
+		segments[count] = segment;
+		count++;
 	}
 
-	if (count <= 0) {
+	if (!closed || count <= 0) {
 		free(pads);
 		free(segments);
 		return 0;
 	}
-
 	*out_pads = pads;
 	*out_segments = segments;
 	*out_count = count;
@@ -5307,100 +5804,80 @@ static s32 s_pathAppendRow(scenario_source_path_table_t *table,
 static s32 s_loadPathSourceRows(char *text,
 	scenario_source_path_table_t *table)
 {
+	char schema[64];
+	char *end;
 	char *cursor;
-	char *line;
 
 	if (!text || !table) {
 		return 0;
 	}
 
-	cursor = text;
-	while ((line = s_nextLine(&cursor)) != NULL) {
-		char *line_cursor = line;
-		char *path_ref = s_nextField(&line_cursor);
-		char *flags = s_nextField(&line_cursor);
-		char *pads = s_nextField(&line_cursor);
-		u32 parsed_flags;
+	end = text + strlen(text);
+	if (!s_jsonReadStringValue(text, end, "schema", schema, sizeof(schema)) ||
+			strcmp(schema, "pd2.scenario.paths.v1") != 0) {
+		s_pathTableSetError(table, "bad paths schema '%s'", "");
+		return 0;
+	}
+	cursor = (char *)s_jsonValueAfterKey(text, end, "rows");
+	if (!cursor || cursor >= end || *cursor != '[') {
+		s_pathTableSetError(table, "missing paths rows '%s'", "");
+		return 0;
+	}
+
+	cursor++;
+	while (cursor < end) {
+		char *object_end;
+		char path_ref[64];
 		scenario_source_path_row_t row;
 
-		if (!path_ref || !flags || !pads) {
-			continue;
+		while (cursor < end && (isspace((unsigned char)*cursor) ||
+				*cursor == ',')) {
+			cursor++;
 		}
-		if (strcmp(path_ref, "path_ref") == 0) {
-			continue;
+		if (cursor >= end || *cursor == ']') {
+			break;
+		}
+		if (*cursor != '{') {
+			s_pathTableSetError(table, "bad path row '%s'", "");
+			return 0;
+		}
+		object_end = s_jsonFindObjectEnd(cursor, end);
+		if (!object_end) {
+			s_pathTableSetError(table, "bad path row '%s'", "");
+			return 0;
 		}
 
 		memset(&row, 0, sizeof(row));
+		if (!s_jsonReadStringValue(cursor, object_end + 1, "path_ref",
+				path_ref, sizeof(path_ref)) ||
+				!s_jsonReadU32Value(cursor, object_end + 1, "flags",
+				&row.flags) ||
+				!s_parsePathPadJsonArray(cursor, object_end + 1,
+				"pads", &row.pads, &row.pad_segments,
+				&row.pad_count)) {
+			free(row.pads);
+			free(row.pad_segments);
+			s_pathTableSetError(table, "bad path row '%s'", "");
+			return 0;
+		}
 		row.id = s_parseIndexedRef(path_ref);
-		if (row.id < 0 || row.id > 0xff ||
-				!s_startsWith(path_ref, "path_") ||
-				!s_parseU32Value(flags, &parsed_flags) ||
-				parsed_flags > 0xffu ||
-				!s_parsePathPadList(pads, &row.pads,
-				&row.pad_segments, &row.pad_count)) {
+		if (row.id < 0 || row.id > 0xff || row.flags > 0xffu ||
+				!s_startsWith(path_ref, "path_")) {
 			free(row.pads);
 			free(row.pad_segments);
 			s_pathTableSetError(table, "bad path row '%s'", path_ref);
 			return 0;
 		}
-		row.flags = parsed_flags;
 
 		if (!s_pathAppendRow(table, &row)) {
 			free(row.pads);
 			free(row.pad_segments);
 			return 0;
 		}
+		cursor = object_end + 1;
 	}
 
 	return table->error[0] == '\0';
-}
-
-static s32 s_parsePadRow(char *line, scenario_source_pad_row_t *out)
-{
-	char *cursor;
-	char *field;
-	s32 i;
-
-	if (!line || !out || !line[0] || s_startsWith(line, "pad_id")) {
-		return 0;
-	}
-
-	memset(out, 0, sizeof(*out));
-	out->room = -1;
-
-	cursor = line;
-	field = s_nextField(&cursor);
-	if (!field || !field[0]) {
-		return 0;
-	}
-
-	field = s_nextField(&cursor);
-	out->room = s_parseRoomRef(field);
-
-	field = s_nextField(&cursor);
-	out->liftnum = field ? (s32)strtol(field, NULL, 0) : 0;
-
-	field = s_nextField(&cursor);
-	out->flags = field ? (u32)strtoul(field, NULL, 0) : 0;
-
-	for (i = 0; i < 3; i++) {
-		field = s_nextField(&cursor);
-		if (!s_parseFloat(field, &out->pos[i])) return 0;
-	}
-	for (i = 0; i < 3; i++) {
-		field = s_nextField(&cursor);
-		if (!s_parseFloat(field, &out->up[i])) return 0;
-	}
-	for (i = 0; i < 3; i++) {
-		field = s_nextField(&cursor);
-		if (!s_parseFloat(field, &out->look[i])) return 0;
-	}
-	for (i = 0; i < 6; i++) {
-		field = s_nextField(&cursor);
-		if (!s_parseFloat(field, &out->bbox[i])) return 0;
-	}
-
-	return 1;
 }
 
 static u32 s_scenarioPadFlags(u32 flags)
@@ -5566,7 +6043,7 @@ static u8 *s_buildPadfile(const scenario_source_pad_row_t *rows,
 	buf = mempAlloc((u32)total_size, MEMPOOL_STAGE);
 	if (!buf) {
 		sysLogPrintf(LOG_ERROR,
-			"SCENARIO.SOURCE: could not allocate %u bytes for pads.tsv runtime buffer",
+			"SCENARIO.SOURCE: could not allocate %u bytes for pads.json runtime buffer",
 			(unsigned)total_size);
 		return NULL;
 	}
@@ -5598,7 +6075,7 @@ static u8 *s_buildPadfile(const scenario_source_pad_row_t *rows,
 		g_SourceWidePadOffsets = wide_offsets;
 		g_SourceWidePadOffsetCount = row_count;
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.SOURCE: pads.tsv runtime uses 32-bit source pad offsets for %d pads (%u byte record zone)",
+			"SCENARIO.SOURCE: pads.json runtime uses 32-bit source pad offsets for %d pads (%u byte record zone)",
 			row_count, (unsigned)pad_records_end);
 	}
 
@@ -5676,19 +6153,29 @@ static u8 *s_buildPadfile(const scenario_source_pad_row_t *rows,
 	return buf;
 }
 
-static scenario_source_pad_row_t *s_parsePadsTsv(char *text,
+static scenario_source_pad_row_t *s_parsePadsJson(char *text,
 	s32 *out_count)
 {
 	scenario_source_pad_row_t *rows;
 	s32 capacity;
 	s32 count;
+	char schema[64];
+	char *end;
 	char *cursor;
-	char *line;
 
 	if (out_count) {
 		*out_count = 0;
 	}
 	if (!text) {
+		return NULL;
+	}
+	end = text + strlen(text);
+	if (!s_jsonReadStringValue(text, end, "schema", schema, sizeof(schema)) ||
+			strcmp(schema, "pd2.scenario.pads.v1") != 0) {
+		return NULL;
+	}
+	cursor = (char *)s_jsonValueAfterKey(text, end, "rows");
+	if (!cursor || cursor >= end || *cursor != '[') {
 		return NULL;
 	}
 
@@ -5699,12 +6186,68 @@ static scenario_source_pad_row_t *s_parsePadsTsv(char *text,
 		return NULL;
 	}
 
-	cursor = text;
-	while ((line = s_nextLine(&cursor)) != NULL) {
+	cursor++;
+	while (cursor < end) {
 		scenario_source_pad_row_t row;
-		if (!s_parsePadRow(line, &row)) {
-			continue;
+		char *object_end;
+		char pad_ref[64];
+		char room_ref[64];
+		f32 bbox_min[3];
+		f32 bbox_max[3];
+		s32 padnum;
+
+		while (cursor < end && (isspace((unsigned char)*cursor) ||
+				*cursor == ',')) {
+			cursor++;
 		}
+		if (cursor >= end || *cursor == ']') {
+			break;
+		}
+		if (*cursor != '{') {
+			free(rows);
+			return NULL;
+		}
+		object_end = s_jsonFindObjectEnd(cursor, end);
+		if (!object_end) {
+			free(rows);
+			return NULL;
+		}
+
+		memset(&row, 0, sizeof(row));
+		row.room = -1;
+		if (!s_jsonReadStringValue(cursor, object_end + 1, "pad_ref",
+				pad_ref, sizeof(pad_ref)) ||
+				!s_jsonReadStringValue(cursor, object_end + 1, "room_ref",
+				room_ref, sizeof(room_ref)) ||
+				!s_jsonReadS32Value(cursor, object_end + 1, "liftnum",
+				&row.liftnum) ||
+				!s_jsonReadU32Value(cursor, object_end + 1, "flags",
+				&row.flags) ||
+				!s_jsonReadFloatArray3Value(cursor, object_end + 1,
+				"position", row.pos) ||
+				!s_jsonReadFloatArray3Value(cursor, object_end + 1,
+				"up", row.up) ||
+				!s_jsonReadFloatArray3Value(cursor, object_end + 1,
+				"look", row.look) ||
+				!s_jsonReadFloatArray3Value(cursor, object_end + 1,
+				"min", bbox_min) ||
+				!s_jsonReadFloatArray3Value(cursor, object_end + 1,
+				"max", bbox_max)) {
+			free(rows);
+			return NULL;
+		}
+		padnum = s_parseIndexedRef(pad_ref);
+		if (padnum != count) {
+			free(rows);
+			return NULL;
+		}
+		row.room = s_parseRoomRef(room_ref);
+		row.bbox[0] = bbox_min[0];
+		row.bbox[1] = bbox_max[0];
+		row.bbox[2] = bbox_min[1];
+		row.bbox[3] = bbox_max[1];
+		row.bbox[4] = bbox_min[2];
+		row.bbox[5] = bbox_max[2];
 		if (count >= capacity) {
 			scenario_source_pad_row_t *grown;
 			capacity *= 2;
@@ -5716,6 +6259,7 @@ static scenario_source_pad_row_t *s_parsePadsTsv(char *text,
 			rows = grown;
 		}
 		rows[count++] = row;
+		cursor = object_end + 1;
 	}
 
 	if (out_count) {
@@ -5724,49 +6268,78 @@ static scenario_source_pad_row_t *s_parsePadsTsv(char *text,
 	return rows;
 }
 
-static s32 s_parsePortalVertices(char *field,
+static s32 s_parsePortalVerticesJson(const char *start, const char *end,
 	struct scenario_source_portal_row *out)
 {
-	char *cursor = field;
+	const char *cursor;
 	s32 count = 0;
 
-	if (!field || !out) {
+	if (!start || !end || !out) {
 		return 0;
 	}
-	while (cursor && *cursor) {
-		char *part = cursor;
-		char *semi = strchr(part, ';');
-		char *coord_cursor = part;
-		char *x;
-		char *y;
-		char *z;
-		char *comma;
-		if (semi) {
-			*semi = '\0';
-			cursor = semi + 1;
-		} else {
-			cursor = NULL;
+	cursor = s_jsonValueAfterKey(start, end, "vertices");
+	if (!cursor || cursor >= end || *cursor != '[') {
+		return 0;
+	}
+	cursor++;
+	while (cursor < end) {
+		while (cursor < end && isspace((unsigned char)*cursor)) {
+			cursor++;
 		}
-		x = coord_cursor;
-		comma = strchr(coord_cursor, ',');
-		if (!comma) {
+		if (cursor >= end) {
 			return 0;
 		}
-		*comma = '\0';
-		y = comma + 1;
-		comma = strchr(y, ',');
-		if (!comma) {
+		if (*cursor == ']') {
+			cursor++;
+			break;
+		}
+		if (*cursor != '[' || count >= SCENARIO_SOURCE_PORTAL_MAX_VERTICES) {
 			return 0;
 		}
-		*comma = '\0';
-		z = comma + 1;
-		if (!x || !y || !z || count >= SCENARIO_SOURCE_PORTAL_MAX_VERTICES ||
-				!s_parseFloat(x, &out->vertices[count].x) ||
-				!s_parseFloat(y, &out->vertices[count].y) ||
-				!s_parseFloat(z, &out->vertices[count].z)) {
+		cursor++;
+		for (s32 axis = 0; axis < 3; axis++) {
+			char *next;
+			while (cursor < end && isspace((unsigned char)*cursor)) {
+				cursor++;
+			}
+			if (cursor >= end) {
+				return 0;
+			}
+			if (axis == 0) {
+				out->vertices[count].x = strtof(cursor, &next);
+			} else if (axis == 1) {
+				out->vertices[count].y = strtof(cursor, &next);
+			} else {
+				out->vertices[count].z = strtof(cursor, &next);
+			}
+			if (next == cursor || next > end) {
+				return 0;
+			}
+			cursor = next;
+			while (cursor < end && isspace((unsigned char)*cursor)) {
+				cursor++;
+			}
+			if (axis < 2) {
+				if (cursor >= end || *cursor != ',') {
+					return 0;
+				}
+				cursor++;
+			}
+		}
+		while (cursor < end && isspace((unsigned char)*cursor)) {
+			cursor++;
+		}
+		if (cursor >= end || *cursor != ']') {
 			return 0;
 		}
+		cursor++;
 		count++;
+		while (cursor < end && isspace((unsigned char)*cursor)) {
+			cursor++;
+		}
+		if (cursor < end && *cursor == ',') {
+			cursor++;
+		}
 	}
 	if (count < 3) {
 		return 0;
@@ -5775,48 +6348,25 @@ static s32 s_parsePortalVertices(char *field,
 	return 1;
 }
 
-static s32 s_parsePortalRow(char *line, scenario_source_portal_row_t *out)
-{
-	char *cursor;
-	char *field;
-
-	if (!line || !out || !line[0] || s_startsWith(line, "portal_id")) {
-		return 0;
-	}
-
-	memset(out, 0, sizeof(*out));
-	cursor = line;
-	field = s_nextField(&cursor);
-	if (!field || !field[0]) {
-		return 0;
-	}
-	field = s_nextField(&cursor);
-	out->room1 = s_parseRoomRef(field);
-	field = s_nextField(&cursor);
-	out->room2 = s_parseRoomRef(field);
-	field = s_nextField(&cursor);
-	out->flags = field ? (u32)strtoul(field, NULL, 0) : 0;
-	field = s_nextField(&cursor);
-	if (out->room1 <= 0 || out->room2 <= 0 || out->room1 == out->room2 ||
-			!s_parsePortalVertices(field, out)) {
-		return 0;
-	}
-	return 1;
-}
-
-static scenario_source_portal_row_t *s_parsePortalsTsv(char *text,
+static scenario_source_portal_row_t *s_parsePortalsJson(char *text,
 	s32 *out_count)
 {
 	scenario_source_portal_row_t *rows;
 	s32 capacity;
 	s32 count;
+	char schema[64];
+	char *end;
 	char *cursor;
-	char *line;
 
 	if (out_count) {
 		*out_count = 0;
 	}
 	if (!text) {
+		return NULL;
+	}
+	end = text + strlen(text);
+	if (!s_jsonReadStringValue(text, end, "schema", schema, sizeof(schema)) ||
+			strcmp(schema, "pd2.scenario.portals.v1") != 0) {
 		return NULL;
 	}
 
@@ -5827,11 +6377,54 @@ static scenario_source_portal_row_t *s_parsePortalsTsv(char *text,
 		return NULL;
 	}
 
-	cursor = text;
-	while ((line = s_nextLine(&cursor)) != NULL) {
+	cursor = (char *)s_jsonValueAfterKey(text, end, "rows");
+	if (!cursor || cursor >= end || *cursor != '[') {
+		free(rows);
+		return NULL;
+	}
+	cursor++;
+	while (cursor && cursor < end) {
+		char *object_end;
 		scenario_source_portal_row_t row;
-		if (!s_parsePortalRow(line, &row)) {
+		char portal_ref[64];
+		char room_a[64];
+		char room_b[64];
+		while (cursor < end && isspace((unsigned char)*cursor)) {
+			cursor++;
+		}
+		if (cursor >= end || *cursor == ']') {
+			break;
+		}
+		if (*cursor == ',') {
+			cursor++;
 			continue;
+		}
+		if (*cursor != '{') {
+			break;
+		}
+		object_end = s_jsonFindObjectEnd(cursor, end);
+		if (!object_end) {
+			break;
+		}
+		memset(&row, 0, sizeof(row));
+		if (!s_jsonReadStringValue(cursor, object_end + 1, "portal_ref",
+					portal_ref, sizeof(portal_ref)) ||
+				!s_jsonReadStringValue(cursor, object_end + 1, "room_a",
+					room_a, sizeof(room_a)) ||
+				!s_jsonReadStringValue(cursor, object_end + 1, "room_b",
+					room_b, sizeof(room_b)) ||
+				!s_jsonReadU32Value(cursor, object_end + 1, "flags",
+					&row.flags) ||
+				!s_parsePortalVerticesJson(cursor, object_end + 1, &row)) {
+			free(rows);
+			return NULL;
+		}
+		(void)portal_ref;
+		row.room1 = s_parseRoomRef(room_a);
+		row.room2 = s_parseRoomRef(room_b);
+		if (row.room1 <= 0 || row.room2 <= 0 || row.room1 == row.room2) {
+			free(rows);
+			return NULL;
 		}
 		if (count >= capacity) {
 			scenario_source_portal_row_t *grown;
@@ -5844,6 +6437,7 @@ static scenario_source_portal_row_t *s_parsePortalsTsv(char *text,
 			rows = grown;
 		}
 		rows[count++] = row;
+		cursor = object_end + 1;
 	}
 
 	if (out_count) {
@@ -5852,174 +6446,16 @@ static scenario_source_portal_row_t *s_parsePortalsTsv(char *text,
 	return rows;
 }
 
-static s32 s_parseWaypointRow(char *line, scenario_source_waypoint_row_t *out)
-{
-	char *cursor;
-	char *field;
-
-	if (!line || !out || !line[0] || s_startsWith(line, "waypoint_id")) {
-		return 0;
-	}
-
-	memset(out, 0, sizeof(*out));
-	out->groupnum = -1;
-
-	cursor = line;
-	field = s_nextField(&cursor);
-	if (!field || !field[0]) {
-		return 0;
-	}
-
-	field = s_nextField(&cursor);
-	out->padnum = s_parseIndexedRef(field);
-	if (out->padnum < 0) {
-		return -1;
-	}
-
-	field = s_nextField(&cursor);
-	out->groupnum = s_parseIndexedRef(field);
-
-	field = s_nextField(&cursor);
-	out->step = field && field[0] ? (s32)strtol(field, NULL, 0) : 0;
-
-	field = s_nextField(&cursor);
-	if (!s_parseSegmentList(field, "waypoint_", &out->neighbours)) {
-		return -1;
-	}
-
-	return 1;
-}
-
-static s32 s_parseWaygroupRow(char *line, scenario_source_waygroup_row_t *out)
-{
-	char *cursor;
-	char *field;
-
-	if (!line || !out || !line[0] || s_startsWith(line, "waygroup_id")) {
-		return 0;
-	}
-
-	memset(out, 0, sizeof(*out));
-	cursor = line;
-	field = s_nextField(&cursor);
-	if (!field || !field[0]) {
-		return 0;
-	}
-
-	field = s_nextField(&cursor);
-	out->step = field && field[0] ? (s32)strtol(field, NULL, 0) : 0;
-
-	field = s_nextField(&cursor);
-	if (!s_parseSegmentList(field, "waypoint_", &out->waypoints)) {
-		return -1;
-	}
-
-	field = s_nextField(&cursor);
-	if (!s_parseSegmentList(field, "waygroup_", &out->neighbours)) {
-		s_freeSegmentList(&out->waypoints);
-		return -1;
-	}
-
-	return 1;
-}
-
-static s32 s_parseCoverRow(char *line, scenario_source_cover_row_t *out)
-{
-	char *cursor;
-	char *field;
-	s32 i;
-
-	if (!line || !out || !line[0] || s_startsWith(line, "cover_id")) {
-		return 0;
-	}
-
-	memset(out, 0, sizeof(*out));
-	cursor = line;
-	field = s_nextField(&cursor);
-	if (!field || !field[0]) {
-		return 0;
-	}
-
-	field = s_nextField(&cursor);
-	out->flags = field && field[0] ? (u32)strtoul(field, NULL, 0) : 0;
-
-	for (i = 0; i < 3; i++) {
-		field = s_nextField(&cursor);
-		if (!s_parseFloat(field, &out->pos[i])) return -1;
-	}
-	for (i = 0; i < 3; i++) {
-		field = s_nextField(&cursor);
-		if (!s_parseFloat(field, &out->look[i])) return -1;
-	}
-
-	return 1;
-}
-
-static s32 s_parseVolumeRow(char *line, scenario_source_volume_row_t *out)
-{
-	char *cursor;
-	char *field;
-	s32 i;
-
-	if (!line || !out || !line[0] || s_startsWith(line, "volume_id")) {
-		return 0;
-	}
-
-	memset(out, 0, sizeof(*out));
-	out->padnum = -1;
-	out->room = -1;
-
-	cursor = line;
-	field = s_nextField(&cursor);
-	if (!field || !field[0]) {
-		return -1;
-	}
-	s_copyString(out->id, sizeof(out->id), field);
-
-	field = s_nextField(&cursor);
-	if (field && field[0]) {
-		out->padnum = s_parseIndexedRef(field);
-	}
-
-	field = s_nextField(&cursor);
-	if (!field || !field[0]) {
-		return -1;
-	}
-	s_copyString(out->kind, sizeof(out->kind), field);
-
-	field = s_nextField(&cursor);
-	if (field && field[0]) {
-		out->room = s_parseRoomRef(field);
-	}
-
-	field = s_nextField(&cursor);
-	if (!field || strcmp(field, "aabb") != 0) {
-		return -1;
-	}
-	s_copyString(out->shape, sizeof(out->shape), field);
-
-	for (i = 0; i < 3; i++) {
-		field = s_nextField(&cursor);
-		if (!s_parseFloat(field, &out->min[i])) return -1;
-	}
-	for (i = 0; i < 3; i++) {
-		field = s_nextField(&cursor);
-		if (!s_parseFloat(field, &out->max[i])) return -1;
-		if (out->max[i] < out->min[i]) return -1;
-	}
-
-	return 1;
-}
-
 static s32 s_loadLevelVolumeSourceRows(const char *path,
 	scenario_source_volume_row_t **out_rows, s32 *out_count)
 {
 	scenario_source_volume_row_t *rows;
 	s32 capacity;
 	s32 count;
+	char schema[64];
 	char *text;
+	char *end;
 	char *cursor;
-	char *line;
 
 	if (out_rows) {
 		*out_rows = NULL;
@@ -6035,6 +6471,17 @@ static s32 s_loadLevelVolumeSourceRows(const char *path,
 	if (!text) {
 		return 0;
 	}
+	end = text + strlen(text);
+	if (!s_jsonReadStringValue(text, end, "schema", schema, sizeof(schema)) ||
+			strcmp(schema, "pd2.scenario.volumes.v1") != 0) {
+		free(text);
+		return 0;
+	}
+	cursor = (char *)s_jsonValueAfterKey(text, end, "rows");
+	if (!cursor || cursor >= end || *cursor != '[') {
+		free(text);
+		return 0;
+	}
 
 	capacity = 32;
 	count = 0;
@@ -6044,17 +6491,67 @@ static s32 s_loadLevelVolumeSourceRows(const char *path,
 		return 0;
 	}
 
-	cursor = text;
-	while ((line = s_nextLine(&cursor)) != NULL) {
+	cursor++;
+	while (cursor < end) {
+		char *object_end;
 		scenario_source_volume_row_t row;
-		s32 parsed = s_parseVolumeRow(line, &row);
-		if (parsed < 0) {
+		char pad_ref[64];
+		char room_ref[64];
+
+		while (cursor < end && (isspace((unsigned char)*cursor) ||
+				*cursor == ',')) {
+			cursor++;
+		}
+		if (cursor >= end || *cursor == ']') {
+			break;
+		}
+		if (*cursor != '{') {
 			free(rows);
 			free(text);
 			return 0;
 		}
-		if (parsed == 0) {
-			continue;
+		object_end = s_jsonFindObjectEnd(cursor, end);
+		if (!object_end) {
+			free(rows);
+			free(text);
+			return 0;
+		}
+
+		memset(&row, 0, sizeof(row));
+		row.padnum = -1;
+		row.room = -1;
+		if (!s_jsonReadStringValue(cursor, object_end + 1, "volume_id",
+				row.id, sizeof(row.id)) ||
+				!s_jsonReadStringValue(cursor, object_end + 1, "pad_ref",
+				pad_ref, sizeof(pad_ref))) {
+			free(rows);
+			free(text);
+			return 0;
+		}
+		row.padnum = s_parseIndexedRef(pad_ref);
+		if (!s_jsonReadStringValue(cursor, object_end + 1, "kind",
+				row.kind, sizeof(row.kind)) ||
+				!s_jsonReadStringValue(cursor, object_end + 1, "room_ref",
+				room_ref, sizeof(room_ref))) {
+			free(rows);
+			free(text);
+			return 0;
+		}
+		row.room = s_parseRoomRef(room_ref);
+		if (!s_jsonReadStringValue(cursor, object_end + 1, "shape",
+				row.shape, sizeof(row.shape)) ||
+				strcmp(row.shape, "aabb") != 0 ||
+				row.padnum < 0 ||
+				!s_jsonReadFloatArray3Value(cursor, object_end + 1,
+				"min", row.min) ||
+				!s_jsonReadFloatArray3Value(cursor, object_end + 1,
+				"max", row.max) ||
+				row.max[0] < row.min[0] ||
+				row.max[1] < row.min[1] ||
+				row.max[2] < row.min[2]) {
+			free(rows);
+			free(text);
+			return 0;
 		}
 		if (count >= capacity) {
 			scenario_source_volume_row_t *grown;
@@ -6068,6 +6565,7 @@ static s32 s_loadLevelVolumeSourceRows(const char *path,
 			rows = grown;
 		}
 		rows[count++] = row;
+		cursor = object_end + 1;
 	}
 
 	free(text);
@@ -6351,15 +6849,25 @@ static s32 s_countNavigationBranchWaypoints(
 	return count;
 }
 
-static s32 s_parseWaypointsTsv(char *text, scenario_source_navigation_t *nav)
+static s32 s_parseWaypointsJson(char *text, scenario_source_navigation_t *nav)
 {
 	scenario_source_waypoint_row_t *rows;
 	s32 capacity;
 	s32 count;
+	char schema[64];
+	char *end;
 	char *cursor;
-	char *line;
 
 	if (!text || !nav) {
+		return 0;
+	}
+	end = text + strlen(text);
+	if (!s_jsonReadStringValue(text, end, "schema", schema, sizeof(schema)) ||
+			strcmp(schema, "pd2.scenario.waypoints.v1") != 0) {
+		return 0;
+	}
+	cursor = (char *)s_jsonValueAfterKey(text, end, "rows");
+	if (!cursor || cursor >= end || *cursor != '[') {
 		return 0;
 	}
 
@@ -6370,20 +6878,50 @@ static s32 s_parseWaypointsTsv(char *text, scenario_source_navigation_t *nav)
 		return 0;
 	}
 
-	cursor = text;
-	while ((line = s_nextLine(&cursor)) != NULL) {
+	cursor++;
+	while (cursor < end) {
 		scenario_source_waypoint_row_t row;
-		s32 parsed = s_parseWaypointRow(line, &row);
-		if (parsed < 0) {
-			s32 i;
-			for (i = 0; i < count; i++) {
-				s_freeSegmentList(&rows[i].neighbours);
-			}
-			free(rows);
-			return 0;
+		char *object_end;
+		char waypoint_ref[64];
+		char pad_ref[64];
+		char group_ref[64];
+		s32 waypoint_index;
+
+		while (cursor < end && (isspace((unsigned char)*cursor) ||
+				*cursor == ',')) {
+			cursor++;
 		}
-		if (parsed == 0) {
-			continue;
+		if (cursor >= end || *cursor == ']') {
+			break;
+		}
+		if (*cursor != '{') {
+			goto fail;
+		}
+		object_end = s_jsonFindObjectEnd(cursor, end);
+		if (!object_end) {
+			goto fail;
+		}
+
+		memset(&row, 0, sizeof(row));
+		row.groupnum = -1;
+		if (!s_jsonReadStringValue(cursor, object_end + 1, "waypoint_ref",
+				waypoint_ref, sizeof(waypoint_ref)) ||
+				!s_jsonReadStringValue(cursor, object_end + 1, "pad_ref",
+				pad_ref, sizeof(pad_ref)) ||
+				!s_jsonReadStringValue(cursor, object_end + 1, "group_ref",
+				group_ref, sizeof(group_ref)) ||
+				!s_jsonReadS32Value(cursor, object_end + 1, "step",
+				&row.step) ||
+				!s_parseSegmentJsonArray(cursor, object_end + 1,
+				"neighbours", "waypoint_", &row.neighbours)) {
+			goto fail;
+		}
+		waypoint_index = s_parseIndexedRef(waypoint_ref);
+		row.padnum = s_parseIndexedRef(pad_ref);
+		row.groupnum = group_ref[0] ? s_parseIndexedRef(group_ref) : -1;
+		if (waypoint_index != count || row.padnum < 0) {
+			s_freeSegmentList(&row.neighbours);
+			goto fail;
 		}
 		if (count >= capacity) {
 			scenario_source_waypoint_row_t *grown;
@@ -6401,22 +6939,40 @@ static s32 s_parseWaypointsTsv(char *text, scenario_source_navigation_t *nav)
 			rows = grown;
 		}
 		rows[count++] = row;
+		cursor = object_end + 1;
 	}
 
 	nav->waypoints = rows;
 	nav->waypoint_count = count;
 	return 1;
+
+fail:
+	for (s32 i = 0; i < count; i++) {
+		s_freeSegmentList(&rows[i].neighbours);
+	}
+	free(rows);
+	return 0;
 }
 
-static s32 s_parseWaygroupsTsv(char *text, scenario_source_navigation_t *nav)
+static s32 s_parseWaygroupsJson(char *text, scenario_source_navigation_t *nav)
 {
 	scenario_source_waygroup_row_t *rows;
 	s32 capacity;
 	s32 count;
+	char schema[64];
+	char *end;
 	char *cursor;
-	char *line;
 
 	if (!text || !nav) {
+		return 0;
+	}
+	end = text + strlen(text);
+	if (!s_jsonReadStringValue(text, end, "schema", schema, sizeof(schema)) ||
+			strcmp(schema, "pd2.scenario.waygroups.v1") != 0) {
+		return 0;
+	}
+	cursor = (char *)s_jsonValueAfterKey(text, end, "rows");
+	if (!cursor || cursor >= end || *cursor != '[') {
 		return 0;
 	}
 
@@ -6427,21 +6983,46 @@ static s32 s_parseWaygroupsTsv(char *text, scenario_source_navigation_t *nav)
 		return 0;
 	}
 
-	cursor = text;
-	while ((line = s_nextLine(&cursor)) != NULL) {
+	cursor++;
+	while (cursor < end) {
 		scenario_source_waygroup_row_t row;
-		s32 parsed = s_parseWaygroupRow(line, &row);
-		if (parsed < 0) {
-			s32 i;
-			for (i = 0; i < count; i++) {
-				s_freeSegmentList(&rows[i].waypoints);
-				s_freeSegmentList(&rows[i].neighbours);
-			}
-			free(rows);
-			return 0;
+		char *object_end;
+		char waygroup_ref[64];
+		s32 waygroup_index;
+
+		while (cursor < end && (isspace((unsigned char)*cursor) ||
+				*cursor == ',')) {
+			cursor++;
 		}
-		if (parsed == 0) {
-			continue;
+		if (cursor >= end || *cursor == ']') {
+			break;
+		}
+		if (*cursor != '{') {
+			goto fail;
+		}
+		object_end = s_jsonFindObjectEnd(cursor, end);
+		if (!object_end) {
+			goto fail;
+		}
+
+		memset(&row, 0, sizeof(row));
+		if (!s_jsonReadStringValue(cursor, object_end + 1, "waygroup_ref",
+				waygroup_ref, sizeof(waygroup_ref)) ||
+				!s_jsonReadS32Value(cursor, object_end + 1, "step",
+				&row.step) ||
+				!s_parseSegmentJsonArray(cursor, object_end + 1,
+				"waypoints", "waypoint_", &row.waypoints) ||
+				!s_parseSegmentJsonArray(cursor, object_end + 1,
+				"neighbours", "waygroup_", &row.neighbours)) {
+			s_freeSegmentList(&row.waypoints);
+			s_freeSegmentList(&row.neighbours);
+			goto fail;
+		}
+		waygroup_index = s_parseIndexedRef(waygroup_ref);
+		if (waygroup_index != count) {
+			s_freeSegmentList(&row.waypoints);
+			s_freeSegmentList(&row.neighbours);
+			goto fail;
 		}
 		if (count >= capacity) {
 			scenario_source_waygroup_row_t *grown;
@@ -6461,22 +7042,41 @@ static s32 s_parseWaygroupsTsv(char *text, scenario_source_navigation_t *nav)
 			rows = grown;
 		}
 		rows[count++] = row;
+		cursor = object_end + 1;
 	}
 
 	nav->waygroups = rows;
 	nav->waygroup_count = count;
 	return 1;
+
+fail:
+	for (s32 i = 0; i < count; i++) {
+		s_freeSegmentList(&rows[i].waypoints);
+		s_freeSegmentList(&rows[i].neighbours);
+	}
+	free(rows);
+	return 0;
 }
 
-static s32 s_parseCoversTsv(char *text, scenario_source_navigation_t *nav)
+static s32 s_parseCoversJson(char *text, scenario_source_navigation_t *nav)
 {
 	scenario_source_cover_row_t *rows;
 	s32 capacity;
 	s32 count;
+	char schema[64];
+	char *end;
 	char *cursor;
-	char *line;
 
 	if (!text || !nav) {
+		return 0;
+	}
+	end = text + strlen(text);
+	if (!s_jsonReadStringValue(text, end, "schema", schema, sizeof(schema)) ||
+			strcmp(schema, "pd2.scenario.covers.v1") != 0) {
+		return 0;
+	}
+	cursor = (char *)s_jsonValueAfterKey(text, end, "rows");
+	if (!cursor || cursor >= end || *cursor != '[') {
 		return 0;
 	}
 
@@ -6487,16 +7087,46 @@ static s32 s_parseCoversTsv(char *text, scenario_source_navigation_t *nav)
 		return 0;
 	}
 
-	cursor = text;
-	while ((line = s_nextLine(&cursor)) != NULL) {
+	cursor++;
+	while (cursor < end) {
 		scenario_source_cover_row_t row;
-		s32 parsed = s_parseCoverRow(line, &row);
-		if (parsed < 0) {
+		char *object_end;
+		char cover_ref[64];
+		s32 cover_index;
+
+		while (cursor < end && (isspace((unsigned char)*cursor) ||
+				*cursor == ',')) {
+			cursor++;
+		}
+		if (cursor >= end || *cursor == ']') {
+			break;
+		}
+		if (*cursor != '{') {
 			free(rows);
 			return 0;
 		}
-		if (parsed == 0) {
-			continue;
+		object_end = s_jsonFindObjectEnd(cursor, end);
+		if (!object_end) {
+			free(rows);
+			return 0;
+		}
+
+		memset(&row, 0, sizeof(row));
+		if (!s_jsonReadStringValue(cursor, object_end + 1, "cover_ref",
+				cover_ref, sizeof(cover_ref)) ||
+				!s_jsonReadU32Value(cursor, object_end + 1, "flags",
+				&row.flags) ||
+				!s_jsonReadFloatArray3Value(cursor, object_end + 1,
+				"position", row.pos) ||
+				!s_jsonReadFloatArray3Value(cursor, object_end + 1,
+				"look", row.look)) {
+			free(rows);
+			return 0;
+		}
+		cover_index = s_parseIndexedRef(cover_ref);
+		if (cover_index != count) {
+			free(rows);
+			return 0;
 		}
 		if (count >= capacity) {
 			scenario_source_cover_row_t *grown;
@@ -6509,6 +7139,7 @@ static s32 s_parseCoversTsv(char *text, scenario_source_navigation_t *nav)
 			rows = grown;
 		}
 		rows[count++] = row;
+		cursor = object_end + 1;
 	}
 
 	nav->covers = rows;
@@ -6762,7 +7393,7 @@ static s32 s_scenarioPadsPath(const asset_entry_t *scenario,
 		return out[0] != '\0';
 	}
 
-	s_copyMemberPath(out, out_n, scenario->ext.scenario.scene_file, "pads.tsv");
+	s_copyMemberPath(out, out_n, scenario->ext.scenario.scene_file, "pads.json");
 	return out[0] != '\0';
 }
 
@@ -6994,14 +7625,14 @@ static s32 s_hashSourceFileHex(const char *path,
 	return 1;
 }
 
-static s32 s_countAndHashSourceTsvRows(const char *path, s32 *out_rows,
-	char out_hash[SHA256_HEX_SIZE])
+static s32 s_countAndHashSourceJsonRows(const char *path, const char *schema_name,
+	s32 *out_rows, char out_hash[SHA256_HEX_SIZE])
 {
 	char *text;
+	char *end;
 	char *cursor;
-	char *line;
+	char schema[64];
 	s32 rows;
-	s32 header;
 	u32 text_size;
 
 	if (out_rows) {
@@ -7010,7 +7641,7 @@ static s32 s_countAndHashSourceTsvRows(const char *path, s32 *out_rows,
 	if (out_hash) {
 		out_hash[0] = '\0';
 	}
-	if (!path || !path[0] || !out_rows || !out_hash) {
+	if (!path || !path[0] || !schema_name || !out_rows || !out_hash) {
 		return 0;
 	}
 
@@ -7021,18 +7652,39 @@ static s32 s_countAndHashSourceTsvRows(const char *path, s32 *out_rows,
 	}
 	s_hashSourceTextHex(text, text_size, out_hash);
 
-	cursor = text;
+	end = text + strlen(text);
+	if (!s_jsonReadStringValue(text, end, "schema", schema, sizeof(schema)) ||
+			strcmp(schema, schema_name) != 0) {
+		free(text);
+		return 0;
+	}
+	cursor = (char *)s_jsonValueAfterKey(text, end, "rows");
+	if (!cursor || cursor >= end || *cursor != '[') {
+		free(text);
+		return 0;
+	}
+	cursor++;
 	rows = 0;
-	header = 1;
-	while ((line = s_nextLine(&cursor)) != NULL) {
-		if (!line[0]) {
-			continue;
+	while (cursor < end) {
+		char *object_end;
+		while (cursor < end && (isspace((unsigned char)*cursor) ||
+				*cursor == ',')) {
+			cursor++;
 		}
-		if (header) {
-			header = 0;
-			continue;
+		if (cursor >= end || *cursor == ']') {
+			break;
+		}
+		if (*cursor != '{') {
+			free(text);
+			return 0;
+		}
+		object_end = s_jsonFindObjectEnd(cursor, end);
+		if (!object_end) {
+			free(text);
+			return 0;
 		}
 		rows++;
+		cursor = object_end + 1;
 	}
 
 	free(text);
@@ -7135,21 +7787,28 @@ static s32 s_bindNavigationGenerateSource(const asset_entry_t *scenario,
 	}
 	free(nav_text);
 
-	if (!s_countAndHashSourceTsvRows(portals_path, &rows_ignored,
-				hashes.portals) ||
-			!s_countAndHashSourceTsvRows(pads_path, &counts.pads,
+	if (!s_countAndHashSourceJsonRows(portals_path, "pd2.scenario.portals.v1",
+				&rows_ignored, hashes.portals) ||
+			!s_countAndHashSourceJsonRows(pads_path,
+				"pd2.scenario.pads.v1", &counts.pads,
 				hashes.pads) ||
-			!s_countAndHashSourceTsvRows(spawns_path, &rows_ignored,
+			!s_countAndHashSourceJsonRows(spawns_path,
+				"pd2.scenario.spawns.v1", &rows_ignored,
 				hashes.spawns) ||
-			!s_countAndHashSourceTsvRows(volumes_path, &counts.volumes,
+			!s_countAndHashSourceJsonRows(volumes_path,
+				"pd2.scenario.volumes.v1", &counts.volumes,
 				hashes.volumes) ||
-			!s_countAndHashSourceTsvRows(waypoints_path, &counts.waypoints,
+			!s_countAndHashSourceJsonRows(waypoints_path,
+				"pd2.scenario.waypoints.v1", &counts.waypoints,
 				hashes.waypoints) ||
-			!s_countAndHashSourceTsvRows(waygroups_path, &counts.waygroups,
+			!s_countAndHashSourceJsonRows(waygroups_path,
+				"pd2.scenario.waygroups.v1", &counts.waygroups,
 				hashes.waygroups) ||
-			!s_countAndHashSourceTsvRows(covers_path, &counts.covers,
+			!s_countAndHashSourceJsonRows(covers_path,
+				"pd2.scenario.covers.v1", &counts.covers,
 				hashes.covers) ||
-			!s_countAndHashSourceTsvRows(paths_path, &counts.paths,
+			!s_countAndHashSourceJsonRows(paths_path,
+				"pd2.scenario.paths.v1", &counts.paths,
 				hashes.paths)) {
 		s_graphFailure(ASSET_SCENARIO,
 			scenario && scenario->id[0] ? scenario->id : "?",
@@ -7192,7 +7851,7 @@ static s32 s_bindNavigationGenerateSource(const asset_entry_t *scenario,
 	}
 
 	snprintf(expected_hashes, sizeof(expected_hashes),
-		"\"source_hashes\": { \"scene.glb\": \"%s\", \"collision.obj\": \"%s\", \"navigation.ini\": \"%s\", \"portals.tsv\": \"%s\", \"pads.tsv\": \"%s\", \"spawns.tsv\": \"%s\", \"volumes.tsv\": \"%s\", \"navigation/waypoints.tsv\": \"%s\", \"navigation/waygroups.tsv\": \"%s\", \"navigation/covers.tsv\": \"%s\", \"navigation/paths.tsv\": \"%s\" }",
+		"\"source_hashes\": { \"scene.glb\": \"%s\", \"collision.obj\": \"%s\", \"navigation.ini\": \"%s\", \"portals.json\": \"%s\", \"pads.json\": \"%s\", \"spawns.json\": \"%s\", \"volumes.json\": \"%s\", \"navigation/waypoints.json\": \"%s\", \"navigation/waygroups.json\": \"%s\", \"navigation/covers.json\": \"%s\", \"navigation/paths.json\": \"%s\" }",
 		hashes.scene, hashes.collision, hashes.navigation_ini,
 		hashes.portals, hashes.pads, hashes.spawns, hashes.volumes,
 		hashes.waypoints, hashes.waygroups, hashes.covers, hashes.paths);
@@ -7255,7 +7914,7 @@ static s32 s_bindMissionGraphObjectivesPath(const asset_entry_t *mission,
 		return out[0] != '\0';
 	}
 
-	return s_missionGraphMemberPath(mission, "objectives.tsv", out, out_n);
+	return s_missionGraphMemberPath(mission, "objectives.json", out, out_n);
 }
 
 static s32 s_parseDifficultyMask(const char *value, u32 *out)
@@ -7326,6 +7985,224 @@ static void s_freeMissionObjectiveSourceRows(
 	free(criteria);
 }
 
+static char *s_jsonObjectForKeyOccurrence(const char *text, const char *key_pos)
+{
+	const char *start;
+	const char *p;
+	s32 depth;
+	s32 in_string;
+	s32 escaped;
+	size_t len;
+	char *out;
+
+	if (!text || !key_pos || key_pos < text) {
+		return NULL;
+	}
+
+	start = key_pos;
+	while (start > text && *start != '{') {
+		start--;
+	}
+	if (*start != '{') {
+		return NULL;
+	}
+
+	depth = 0;
+	in_string = 0;
+	escaped = 0;
+	for (p = start; *p; p++) {
+		if (in_string) {
+			if (escaped) {
+				escaped = 0;
+			} else if (*p == '\\') {
+				escaped = 1;
+			} else if (*p == '"') {
+				in_string = 0;
+			}
+			continue;
+		}
+		if (*p == '"') {
+			in_string = 1;
+		} else if (*p == '{') {
+			depth++;
+		} else if (*p == '}') {
+			depth--;
+			if (depth == 0) {
+				p++;
+				break;
+			}
+		}
+	}
+	if (depth != 0 || p <= start) {
+		return NULL;
+	}
+
+	len = (size_t)(p - start);
+	out = (char *)malloc(len + 1u);
+	if (!out) {
+		return NULL;
+	}
+	memcpy(out, start, len);
+	out[len] = '\0';
+	return out;
+}
+
+static s32 s_addMissionObjectiveSourceRow(
+	const char *objective_id,
+	const char *kind,
+	const char *text_token,
+	const char *difficulty_mask,
+	const char *graph_node,
+	const char *operand_kind,
+	const char *target_ref,
+	const char *target_record_ref,
+	const char *pad_ref,
+	const char *state_ref,
+	const char *match_value,
+	const char *initial_status,
+	const char *graph_text,
+	scenario_source_objective_node_t **objectives,
+	s32 *objective_count,
+	s32 *objective_capacity,
+	scenario_source_objective_criteria_t **criteria,
+	s32 *criteria_count,
+	s32 *criteria_capacity,
+	s32 *current_objective)
+{
+	s32 i;
+
+	if (!objective_id || !objective_id[0] || !kind || !kind[0]
+			|| !graph_node || !strstr(graph_node, "mission.objective")) {
+		return 0;
+	}
+	if (graph_text && graph_text[0] && !strstr(graph_text, graph_node)) {
+		return 0;
+	}
+	for (i = 0; objective_id[i]; i++) {
+		if (!isprint((unsigned char)objective_id[i])) {
+			return 0;
+		}
+	}
+
+	if (strcmp(kind, "objective") == 0) {
+		scenario_source_objective_node_t *grown;
+		u32 difficulty_bits;
+
+		if (!s_parseDifficultyMask(difficulty_mask, &difficulty_bits)) {
+			return 0;
+		}
+		if (*objective_count >= *objective_capacity) {
+			*objective_capacity = *objective_capacity
+				? *objective_capacity * 2 : 8;
+			grown = realloc(*objectives,
+				(size_t)*objective_capacity * sizeof(**objectives));
+			if (!grown) {
+				return 0;
+			}
+			*objectives = grown;
+		}
+		memset(&(*objectives)[*objective_count], 0,
+			sizeof((*objectives)[*objective_count]));
+		s_copyString((*objectives)[*objective_count].objective_id,
+			sizeof((*objectives)[*objective_count].objective_id),
+			objective_id);
+		s_copyString((*objectives)[*objective_count].graph_node,
+			sizeof((*objectives)[*objective_count].graph_node),
+			graph_node);
+		s_copyString((*objectives)[*objective_count].text_token,
+			sizeof((*objectives)[*objective_count].text_token),
+			text_token ? text_token : "");
+		s_copyString((*objectives)[*objective_count].difficulty_mask,
+			sizeof((*objectives)[*objective_count].difficulty_mask),
+			difficulty_mask ? difficulty_mask : "");
+		(*objectives)[*objective_count].difficulty_bits = difficulty_bits;
+		(*objectives)[*objective_count].criteria_start = *criteria_count;
+		*current_objective = *objective_count;
+		(*objective_count)++;
+		return 1;
+	}
+
+	if (s_startsWith(kind, "objective_")) {
+		scenario_source_objective_criteria_t *grown;
+		u8 type;
+
+		if (*current_objective < 0 || !s_setupKindToObjType(kind, &type)) {
+			return 0;
+		}
+		if (*criteria_count >= *criteria_capacity) {
+			*criteria_capacity = *criteria_capacity
+				? *criteria_capacity * 2 : 16;
+			grown = realloc(*criteria,
+				(size_t)*criteria_capacity * sizeof(**criteria));
+			if (!grown) {
+				return 0;
+			}
+			*criteria = grown;
+		}
+		memset(&(*criteria)[*criteria_count], 0,
+			sizeof((*criteria)[*criteria_count]));
+		s_copyString((*criteria)[*criteria_count].objective_id,
+			sizeof((*criteria)[*criteria_count].objective_id),
+			objective_id);
+		s_copyString((*criteria)[*criteria_count].kind,
+			sizeof((*criteria)[*criteria_count].kind), kind);
+		s_copyString((*criteria)[*criteria_count].graph_node,
+			sizeof((*criteria)[*criteria_count].graph_node), graph_node);
+		s_copyString((*criteria)[*criteria_count].operand_kind,
+			sizeof((*criteria)[*criteria_count].operand_kind),
+			operand_kind ? operand_kind : "");
+		s_copyString((*criteria)[*criteria_count].target_ref,
+			sizeof((*criteria)[*criteria_count].target_ref),
+			target_ref ? target_ref : "");
+		s_copyString((*criteria)[*criteria_count].target_record_ref,
+			sizeof((*criteria)[*criteria_count].target_record_ref),
+			target_record_ref ? target_record_ref : "");
+		s_copyString((*criteria)[*criteria_count].pad_ref,
+			sizeof((*criteria)[*criteria_count].pad_ref),
+			pad_ref ? pad_ref : "");
+		s_copyString((*criteria)[*criteria_count].state_ref,
+			sizeof((*criteria)[*criteria_count].state_ref),
+			state_ref ? state_ref : "");
+		(*criteria)[*criteria_count].type = type;
+		(*criteria)[*criteria_count].tag_id = s_parseIndexedRef(target_ref);
+		(*criteria)[*criteria_count].pad = s_parseIndexedRef(pad_ref);
+		if (state_ref && state_ref[0] &&
+				!s_parseStageFlagRef(state_ref,
+					&(*criteria)[*criteria_count].stage_flag_mask)) {
+			return 0;
+		}
+		if (match_value && match_value[0]) {
+			s32 parsed_match;
+			if (!s_parseInteger(match_value, &parsed_match)) {
+				return 0;
+			}
+			(*criteria)[*criteria_count].match_value = parsed_match;
+		}
+		(*criteria)[*criteria_count].initial_status = -1;
+		if (initial_status && initial_status[0]) {
+			if (strcmp(initial_status, "complete") == 0) {
+				(*criteria)[*criteria_count].initial_status =
+					OBJECTIVE_COMPLETE;
+			} else if (strcmp(initial_status, "failed") == 0) {
+				(*criteria)[*criteria_count].initial_status =
+					OBJECTIVE_FAILED;
+			} else {
+				(*criteria)[*criteria_count].initial_status =
+					OBJECTIVE_INCOMPLETE;
+			}
+		}
+		(*criteria)[*criteria_count].runtime_status =
+			(*criteria)[*criteria_count].initial_status;
+		if (*current_objective >= 0) {
+			(*objectives)[*current_objective].criteria_count++;
+		}
+		(*criteria_count)++;
+		return 1;
+	}
+
+	return 0;
+}
+
 static s32 s_loadMissionObjectiveSourceRows(const char *path,
 	const char *graph_text,
 	scenario_source_objective_node_t **out_objectives,
@@ -7356,6 +8233,85 @@ static s32 s_loadMissionObjectiveSourceRows(const char *path,
 	text = s_loadGraphText(path, NULL);
 	if (!text) {
 		return 0;
+	}
+
+	if (strstr(text, "\"schema\": \"pd2.mission.objectives.v1\"")) {
+		const char *scan = text;
+		while ((scan = strstr(scan, "\"objective_id\"")) != NULL) {
+			char *object_text = s_jsonObjectForKeyOccurrence(text, scan);
+			char objective_id[64];
+			char kind[64];
+			char text_token[64];
+			char difficulty_mask[32];
+			char graph_node[96];
+			char operand_kind[48];
+			char target_ref[32];
+			char target_record_ref[32];
+			char pad_ref[32];
+			char state_ref[64];
+			char match_value[32];
+			char initial_status[32];
+			if (!object_text) {
+				free(text);
+				s_freeMissionObjectiveSourceRows(objectives, criteria);
+				return 0;
+			}
+			if (!s_jsonStringValueForKey(object_text, "objective_id",
+					objective_id, sizeof(objective_id)) ||
+					!s_jsonStringValueForKey(object_text, "kind",
+						kind, sizeof(kind)) ||
+					!s_jsonStringValueForKey(object_text, "graph_node",
+						graph_node, sizeof(graph_node))) {
+				free(object_text);
+				free(text);
+				s_freeMissionObjectiveSourceRows(objectives, criteria);
+				return 0;
+			}
+			s_jsonStringValueForKey(object_text, "text_token",
+				text_token, sizeof(text_token));
+			s_jsonStringValueForKey(object_text, "difficulty_mask",
+				difficulty_mask, sizeof(difficulty_mask));
+			s_jsonStringValueForKey(object_text, "operand_kind",
+				operand_kind, sizeof(operand_kind));
+			s_jsonStringValueForKey(object_text, "target_ref",
+				target_ref, sizeof(target_ref));
+			s_jsonStringValueForKey(object_text, "target_record_ref",
+				target_record_ref, sizeof(target_record_ref));
+			s_jsonStringValueForKey(object_text, "pad_ref",
+				pad_ref, sizeof(pad_ref));
+			s_jsonStringValueForKey(object_text, "state_ref",
+				state_ref, sizeof(state_ref));
+			s_jsonStringValueForKey(object_text, "match_value",
+				match_value, sizeof(match_value));
+			s_jsonStringValueForKey(object_text, "initial_status",
+				initial_status, sizeof(initial_status));
+
+			if (!s_addMissionObjectiveSourceRow(objective_id, kind,
+					text_token, difficulty_mask, graph_node,
+					operand_kind, target_ref, target_record_ref,
+					pad_ref, state_ref, match_value, initial_status,
+					graph_text, &objectives, &objective_count,
+					&objective_capacity, &criteria, &criteria_count,
+					&criteria_capacity, &current_objective)) {
+				free(object_text);
+				free(text);
+				s_freeMissionObjectiveSourceRows(objectives, criteria);
+				return 0;
+			}
+			free(object_text);
+			scan++;
+		}
+
+		free(text);
+		if (objective_count <= 0) {
+			s_freeMissionObjectiveSourceRows(objectives, criteria);
+			return 0;
+		}
+		if (out_objectives) *out_objectives = objectives;
+		if (out_objective_count) *out_objective_count = objective_count;
+		if (out_criteria) *out_criteria = criteria;
+		if (out_criteria_count) *out_criteria_count = criteria_count;
+		return 1;
 	}
 
 	cursor = text;
@@ -10127,7 +11083,7 @@ s32 scenarioSourceActivateGraphsForStage(const catalog_stage_result_t *stage,
 	}
 	if (level_volume_node_count != level_volume_count) {
 		s_graphFailure(ASSET_SCENARIO, scenario->id, graph_path,
-			"trigger volume node count differs from volumes.tsv rows");
+			"trigger volume node count differs from volumes.json rows");
 		s_resetActiveScenarioGraphs();
 		free(text);
 		free(level_volume_rows);
@@ -11022,11 +11978,11 @@ s32 scenarioSourceActivateGraphsForStage(const catalog_stage_result_t *stage,
 		s_ActiveScenarioGraphs.level_global_settings_kind[0]
 			? s_ActiveScenarioGraphs.level_global_settings_kind : "(unknown)");
 	sysLogPrintf(LOG_NOTE,
-		"SCENARIO.GRAPH: volume source '%s' volumes=%d backend=graph.trigger.volumes+volumes.tsv",
+		"SCENARIO.GRAPH: volume source '%s' volumes=%d backend=graph.trigger.volumes+volumes.json",
 		s_ActiveScenarioGraphs.volumes_path,
 		s_ActiveScenarioGraphs.level_volume_count);
 	sysLogPrintf(LOG_NOTE,
-		"SCENARIO.GRAPH: pad source '%s' nodes=%d backend=graph.pads+pads.tsv",
+		"SCENARIO.GRAPH: pad source '%s' nodes=%d backend=graph.pads+pads.json",
 		s_ActiveScenarioGraphs.pads_path,
 		s_ActiveScenarioGraphs.level_pad_node_count);
 	sysLogPrintf(LOG_NOTE,
@@ -11041,16 +11997,16 @@ s32 scenarioSourceActivateGraphsForStage(const catalog_stage_result_t *stage,
 		s_ActiveScenarioGraphs.nav_source_counts.covers,
 		s_ActiveScenarioGraphs.nav_source_counts.paths);
 	sysLogPrintf(LOG_NOTE,
-		"SCENARIO.GRAPH: trigger volume nodes '%s' nodes=%d rows=%d backend=graph.trigger.volumes+level.graph.nodes+volumes.tsv",
+		"SCENARIO.GRAPH: trigger volume nodes '%s' nodes=%d rows=%d backend=graph.trigger.volumes+level.graph.nodes+volumes.json",
 		s_ActiveScenarioGraphs.level_graph_path,
 		s_ActiveScenarioGraphs.level_volume_node_count,
 		s_ActiveScenarioGraphs.level_volume_count);
 	sysLogPrintf(LOG_NOTE,
-		"SCENARIO.GRAPH: AI list source '%s' nodes=%d backend=graph.ai.lists+ai/ailists.tsv",
+		"SCENARIO.GRAPH: AI list source '%s' nodes=%d backend=graph.ai.lists+ai/ailists.json",
 		s_ActiveScenarioGraphs.ai_lists_path,
 		s_ActiveScenarioGraphs.level_ai_list_node_count);
 	sysLogPrintf(LOG_NOTE,
-		"SCENARIO.GRAPH: AI basic/lifecycle actions '%s' stop=%d kneel=%d surrender=%d fade_out=%d remove_chr=%d backend=graph.ai.action.character_lifecycle+ai/ailists.tsv",
+		"SCENARIO.GRAPH: AI basic/lifecycle actions '%s' stop=%d kneel=%d surrender=%d fade_out=%d remove_chr=%d backend=graph.ai.action.character_lifecycle+ai/ailists.json",
 		s_ActiveScenarioGraphs.level_graph_path,
 		s_ActiveScenarioGraphs.level_ai_stop_node_count,
 		s_ActiveScenarioGraphs.level_ai_kneel_node_count,
@@ -11058,7 +12014,7 @@ s32 scenarioSourceActivateGraphsForStage(const catalog_stage_result_t *stage,
 		s_ActiveScenarioGraphs.level_ai_fade_out_node_count,
 		s_ActiveScenarioGraphs.level_ai_remove_chr_node_count);
 	sysLogPrintf(LOG_NOTE,
-		"SCENARIO.GRAPH: AI combat actions '%s' sidestep=%d jump_out=%d run_sideways=%d attack_walk=%d attack_run=%d attack_roll=%d attack_stand=%d attack_kneel=%d attack_lie=%d if_attack_locked=%d if_attacking=%d modify=%d face_entity=%d apply_gset_damage=%d chr_damage_chr=%d consider_grenade_throw=%d drop_item=%d backend=graph.ai.action.combat+ai/ailists.tsv",
+		"SCENARIO.GRAPH: AI combat actions '%s' sidestep=%d jump_out=%d run_sideways=%d attack_walk=%d attack_run=%d attack_roll=%d attack_stand=%d attack_kneel=%d attack_lie=%d if_attack_locked=%d if_attacking=%d modify=%d face_entity=%d apply_gset_damage=%d chr_damage_chr=%d consider_grenade_throw=%d drop_item=%d backend=graph.ai.action.combat+ai/ailists.json",
 		s_ActiveScenarioGraphs.level_graph_path,
 		s_ActiveScenarioGraphs.level_ai_try_sidestep_node_count,
 		s_ActiveScenarioGraphs.level_ai_try_jump_out_node_count,
@@ -11078,7 +12034,7 @@ s32 scenarioSourceActivateGraphsForStage(const catalog_stage_result_t *stage,
 		s_ActiveScenarioGraphs.level_ai_consider_grenade_throw_node_count,
 		s_ActiveScenarioGraphs.level_ai_drop_item_node_count);
 	sysLogPrintf(LOG_NOTE,
-		"SCENARIO.GRAPH: AI target movement actions '%s' run_from_target=%d jog_to_target_prop=%d walk_to_target_prop=%d run_to_target_prop=%d go_to_cover_prop=%d jog_to_chr=%d walk_to_chr=%d run_to_chr=%d backend=graph.ai.action.target_movement+ai/ailists.tsv",
+		"SCENARIO.GRAPH: AI target movement actions '%s' run_from_target=%d jog_to_target_prop=%d walk_to_target_prop=%d run_to_target_prop=%d go_to_cover_prop=%d jog_to_chr=%d walk_to_chr=%d run_to_chr=%d backend=graph.ai.action.target_movement+ai/ailists.json",
 		s_ActiveScenarioGraphs.level_graph_path,
 		s_ActiveScenarioGraphs.level_ai_try_run_from_target_node_count,
 		s_ActiveScenarioGraphs.level_ai_try_jog_to_target_prop_node_count,
@@ -11089,7 +12045,7 @@ s32 scenarioSourceActivateGraphsForStage(const catalog_stage_result_t *stage,
 		s_ActiveScenarioGraphs.level_ai_try_walk_to_chr_node_count,
 		s_ActiveScenarioGraphs.level_ai_try_run_to_chr_node_count);
 	sysLogPrintf(LOG_NOTE,
-		"SCENARIO.GRAPH: AI perception/alarm actions '%s' hear_alarm=%d patrolling=%d alarm_active=%d gas_active=%d hears_target=%d saw_injury=%d saw_death=%d los_target=%d los_attack_target=%d target_nearly_in_sight=%d nearly_in_targets_sight=%d set_pad_route=%d saw_target_recently=%d heard_target_recently=%d backend=graph.ai.condition.perception_alarm+ai/ailists.tsv",
+		"SCENARIO.GRAPH: AI perception/alarm actions '%s' hear_alarm=%d patrolling=%d alarm_active=%d gas_active=%d hears_target=%d saw_injury=%d saw_death=%d los_target=%d los_attack_target=%d target_nearly_in_sight=%d nearly_in_targets_sight=%d set_pad_route=%d saw_target_recently=%d heard_target_recently=%d backend=graph.ai.condition.perception_alarm+ai/ailists.json",
 		s_ActiveScenarioGraphs.level_graph_path,
 		s_ActiveScenarioGraphs.level_ai_if_can_hear_alarm_node_count,
 		s_ActiveScenarioGraphs.level_ai_if_patrolling_node_count,
@@ -11106,7 +12062,7 @@ s32 scenarioSourceActivateGraphsForStage(const catalog_stage_result_t *stage,
 		s_ActiveScenarioGraphs.level_ai_if_saw_target_recently_node_count,
 		s_ActiveScenarioGraphs.level_ai_if_heard_target_recently_node_count);
 	sysLogPrintf(LOG_NOTE,
-		"SCENARIO.GRAPH: AI spatial perception conditions '%s' los_chr=%d never_screen=%d on_screen=%d chr_room_screen=%d room_screen=%d target_aiming=%d near_miss=%d suspicious_item=%d check_fov=%d fov_left=%d out_fov_left=%d target_fov=%d target_out_fov=%d dist_lt=%d dist_gt=%d backend=graph.ai.condition.spatial_perception+ai/ailists.tsv",
+		"SCENARIO.GRAPH: AI spatial perception conditions '%s' los_chr=%d never_screen=%d on_screen=%d chr_room_screen=%d room_screen=%d target_aiming=%d near_miss=%d suspicious_item=%d check_fov=%d fov_left=%d out_fov_left=%d target_fov=%d target_out_fov=%d dist_lt=%d dist_gt=%d backend=graph.ai.condition.spatial_perception+ai/ailists.json",
 		s_ActiveScenarioGraphs.level_graph_path,
 		s_ActiveScenarioGraphs.level_ai_if_los_to_chr_node_count,
 		s_ActiveScenarioGraphs.level_ai_if_never_been_on_screen_node_count,
@@ -11124,7 +12080,7 @@ s32 scenarioSourceActivateGraphsForStage(const catalog_stage_result_t *stage,
 		s_ActiveScenarioGraphs.level_ai_if_distance_to_target_less_than_node_count,
 		s_ActiveScenarioGraphs.level_ai_if_distance_to_target_greater_than_node_count);
 	sysLogPrintf(LOG_NOTE,
-		"SCENARIO.GRAPH: AI distance perception conditions '%s' chr_pad_lt=%d chr_pad_gt=%d dist_chr_lt=%d dist_chr_gt=%d any_chr_near=%d target_pad_lt=%d target_pad_gt=%d backend=graph.ai.condition.distance_perception+ai/ailists.tsv",
+		"SCENARIO.GRAPH: AI distance perception conditions '%s' chr_pad_lt=%d chr_pad_gt=%d dist_chr_lt=%d dist_chr_gt=%d any_chr_near=%d target_pad_lt=%d target_pad_gt=%d backend=graph.ai.condition.distance_perception+ai/ailists.json",
 		s_ActiveScenarioGraphs.level_graph_path,
 		s_ActiveScenarioGraphs
 			.level_ai_if_chr_distance_to_pad_less_than_node_count,
@@ -11139,7 +12095,7 @@ s32 scenarioSourceActivateGraphsForStage(const catalog_stage_result_t *stage,
 		s_ActiveScenarioGraphs
 			.level_ai_if_distance_from_target_to_pad_greater_than_node_count);
 	sysLogPrintf(LOG_NOTE,
-		"SCENARIO.GRAPH: AI room/object/weapon conditions '%s' chr_room=%d target_room=%d chr_object=%d weapon_thrown=%d weapon_on_object=%d chr_weapon=%d gun_unclaimed=%d object_healthy=%d backend=graph.ai.condition.room_object_weapon+ai/ailists.tsv",
+		"SCENARIO.GRAPH: AI room/object/weapon conditions '%s' chr_room=%d target_room=%d chr_object=%d weapon_thrown=%d weapon_on_object=%d chr_weapon=%d gun_unclaimed=%d object_healthy=%d backend=graph.ai.condition.room_object_weapon+ai/ailists.json",
 		s_ActiveScenarioGraphs.level_graph_path,
 		s_ActiveScenarioGraphs.level_ai_if_chr_in_room_node_count,
 		s_ActiveScenarioGraphs.level_ai_if_target_in_room_node_count,
@@ -11150,7 +12106,7 @@ s32 scenarioSourceActivateGraphsForStage(const catalog_stage_result_t *stage,
 		s_ActiveScenarioGraphs.level_ai_if_gun_unclaimed_node_count,
 		s_ActiveScenarioGraphs.level_ai_if_object_healthy_node_count);
 	sysLogPrintf(LOG_NOTE,
-		"SCENARIO.GRAPH: AI object interaction actions '%s' activated=%d interact=%d destroy=%d drop_object=%d drop_items=%d drop_weapon=%d give_object=%d move_to_pad=%d backend=graph.ai.action.object_interaction+ai/ailists.tsv+objects.tsv+pads.tsv",
+		"SCENARIO.GRAPH: AI object interaction actions '%s' activated=%d interact=%d destroy=%d drop_object=%d drop_items=%d drop_weapon=%d give_object=%d move_to_pad=%d backend=graph.ai.action.object_interaction+ai/ailists.json+objects.json+pads.json",
 		s_ActiveScenarioGraphs.level_graph_path,
 		s_ActiveScenarioGraphs.level_ai_if_chr_activated_object_node_count,
 		s_ActiveScenarioGraphs.level_ai_obj_interact_node_count,
@@ -11161,25 +12117,25 @@ s32 scenarioSourceActivateGraphsForStage(const catalog_stage_result_t *stage,
 		s_ActiveScenarioGraphs.level_ai_give_object_to_chr_node_count,
 		s_ActiveScenarioGraphs.level_ai_object_move_to_pad_node_count);
 	sysLogPrintf(LOG_NOTE,
-		"SCENARIO.GRAPH: AI animation actions '%s' chr_do_animation=%d surprise_one_hand=%d surprise_look_around=%d surprise_surrender=%d backend=graph.ai.action.animation+ai/ailists.tsv",
+		"SCENARIO.GRAPH: AI animation actions '%s' chr_do_animation=%d surprise_one_hand=%d surprise_look_around=%d surprise_surrender=%d backend=graph.ai.action.animation+ai/ailists.json",
 		s_ActiveScenarioGraphs.level_graph_path,
 		s_ActiveScenarioGraphs.level_ai_chr_do_animation_node_count,
 		s_ActiveScenarioGraphs.level_ai_be_surprised_one_hand_node_count,
 		s_ActiveScenarioGraphs.level_ai_be_surprised_look_around_node_count,
 		s_ActiveScenarioGraphs.level_ai_be_surprised_surrender_node_count);
 	sysLogPrintf(LOG_NOTE,
-		"SCENARIO.GRAPH: AI random control '%s' random=%d less_than=%d greater_than=%d backend=graph.ai.control.random+ai/ailists.tsv",
+		"SCENARIO.GRAPH: AI random control '%s' random=%d less_than=%d greater_than=%d backend=graph.ai.control.random+ai/ailists.json",
 		s_ActiveScenarioGraphs.level_graph_path,
 		s_ActiveScenarioGraphs.level_ai_random_node_count,
 		s_ActiveScenarioGraphs.level_ai_if_random_less_than_node_count,
 		s_ActiveScenarioGraphs.level_ai_if_random_greater_than_node_count);
 	sysLogPrintf(LOG_NOTE,
-		"SCENARIO.GRAPH: AI debug/no-op actions '%s' print=%d noop=%d backend=graph.ai.action.debug_noop+ai/ailists.tsv",
+		"SCENARIO.GRAPH: AI debug/no-op actions '%s' print=%d noop=%d backend=graph.ai.action.debug_noop+ai/ailists.json",
 		s_ActiveScenarioGraphs.level_graph_path,
 		s_ActiveScenarioGraphs.level_ai_print_node_count,
 		s_ActiveScenarioGraphs.level_ai_noop_node_count);
 	sysLogPrintf(LOG_NOTE,
-		"SCENARIO.GRAPH: AI list-control actions '%s' set_list=%d set_return_list=%d set_shot_list=%d return_list=%d set_punch_dodge_list=%d set_shooting_at_me_list=%d set_dark_room_list=%d set_player_dead_list=%d backend=graph.ai.action.list_control+ai/ailists.tsv",
+		"SCENARIO.GRAPH: AI list-control actions '%s' set_list=%d set_return_list=%d set_shot_list=%d return_list=%d set_punch_dodge_list=%d set_shooting_at_me_list=%d set_dark_room_list=%d set_player_dead_list=%d backend=graph.ai.action.list_control+ai/ailists.json",
 		s_ActiveScenarioGraphs.level_graph_path,
 		s_ActiveScenarioGraphs.level_ai_set_list_node_count,
 		s_ActiveScenarioGraphs.level_ai_set_return_list_node_count,
@@ -11190,37 +12146,37 @@ s32 scenarioSourceActivateGraphsForStage(const catalog_stage_result_t *stage,
 		s_ActiveScenarioGraphs.level_ai_set_dark_room_list_node_count,
 		s_ActiveScenarioGraphs.level_ai_set_player_dead_list_node_count);
 	sysLogPrintf(LOG_NOTE,
-		"SCENARIO.GRAPH: path source '%s' nodes=%d backend=graph.navigation.paths+navigation/paths.tsv",
+		"SCENARIO.GRAPH: path source '%s' nodes=%d backend=graph.navigation.paths+navigation/paths.json",
 		s_ActiveScenarioGraphs.paths_path,
 		s_ActiveScenarioGraphs.level_path_node_count);
 	sysLogPrintf(LOG_NOTE,
-		"SCENARIO.GRAPH: AI pad actions '%s' walk_to_pad=%d run_to_pad=%d backend=graph.ai.action.pad+pads.tsv",
+		"SCENARIO.GRAPH: AI pad actions '%s' walk_to_pad=%d run_to_pad=%d backend=graph.ai.action.pad+pads.json",
 		s_ActiveScenarioGraphs.level_graph_path,
 		s_ActiveScenarioGraphs.level_ai_walk_to_pad_node_count,
 		s_ActiveScenarioGraphs.level_ai_run_to_pad_node_count);
 	sysLogPrintf(LOG_NOTE,
-		"SCENARIO.GRAPH: AI pad movement actions '%s' jog_to_pad=%d go_to_pad_preset=%d backend=graph.ai.action.pad+pads.tsv",
+		"SCENARIO.GRAPH: AI pad movement actions '%s' jog_to_pad=%d go_to_pad_preset=%d backend=graph.ai.action.pad+pads.json",
 		s_ActiveScenarioGraphs.level_graph_path,
 		s_ActiveScenarioGraphs.level_ai_jog_to_pad_node_count,
 		s_ActiveScenarioGraphs.level_ai_goto_pad_preset_node_count);
 	sysLogPrintf(LOG_NOTE,
-		"SCENARIO.GRAPH: AI path actions '%s' set_path=%d start_patrol=%d backend=graph.ai.action.path+navigation/paths.tsv",
+		"SCENARIO.GRAPH: AI path actions '%s' set_path=%d start_patrol=%d backend=graph.ai.action.path+navigation/paths.json",
 		s_ActiveScenarioGraphs.level_graph_path,
 		s_ActiveScenarioGraphs.level_ai_set_path_node_count,
 		s_ActiveScenarioGraphs.level_ai_start_patrol_node_count);
 	sysLogPrintf(LOG_NOTE,
-		"SCENARIO.GRAPH: AI pad-preset actions '%s' set_pad_preset=%d chr_set_pad_preset=%d chr_copy_pad_preset=%d backend=graph.ai.action.pad_preset+pads.tsv",
+		"SCENARIO.GRAPH: AI pad-preset actions '%s' set_pad_preset=%d chr_set_pad_preset=%d chr_copy_pad_preset=%d backend=graph.ai.action.pad_preset+pads.json",
 		s_ActiveScenarioGraphs.level_graph_path,
 		s_ActiveScenarioGraphs.level_ai_set_pad_preset_node_count,
 		s_ActiveScenarioGraphs.level_ai_chr_set_pad_preset_node_count,
 		s_ActiveScenarioGraphs.level_ai_chr_copy_pad_preset_node_count);
 	sysLogPrintf(LOG_NOTE,
-		"SCENARIO.GRAPH: AI chr-preset actions '%s' set_chr_preset=%d set_chr_target=%d backend=graph.ai.action.chr_preset+ai/ailists.tsv",
+		"SCENARIO.GRAPH: AI chr-preset actions '%s' set_chr_preset=%d set_chr_target=%d backend=graph.ai.action.chr_preset+ai/ailists.json",
 		s_ActiveScenarioGraphs.level_graph_path,
 		s_ActiveScenarioGraphs.level_ai_set_chr_preset_node_count,
 		s_ActiveScenarioGraphs.level_ai_set_chr_target_node_count);
 	sysLogPrintf(LOG_NOTE,
-		"SCENARIO.GRAPH: AI morale/alertness actions '%s' set_morale=%d add_morale=%d chr_add_morale=%d subtract_morale=%d set_alertness=%d add_alertness=%d chr_add_alertness=%d subtract_alertness=%d increase_squadron_alertness=%d backend=graph.ai.action.state+ai/ailists.tsv",
+		"SCENARIO.GRAPH: AI morale/alertness actions '%s' set_morale=%d add_morale=%d chr_add_morale=%d subtract_morale=%d set_alertness=%d add_alertness=%d chr_add_alertness=%d subtract_alertness=%d increase_squadron_alertness=%d backend=graph.ai.action.state+ai/ailists.json",
 		s_ActiveScenarioGraphs.level_graph_path,
 		s_ActiveScenarioGraphs.level_ai_set_morale_node_count,
 		s_ActiveScenarioGraphs.level_ai_add_morale_node_count,
@@ -11232,7 +12188,7 @@ s32 scenarioSourceActivateGraphsForStage(const catalog_stage_result_t *stage,
 		s_ActiveScenarioGraphs.level_ai_subtract_alertness_node_count,
 		s_ActiveScenarioGraphs.level_ai_increase_squadron_alertness_node_count);
 	sysLogPrintf(LOG_NOTE,
-		"SCENARIO.GRAPH: AI character conditions '%s' if_num_arghs_less_than=%d if_num_arghs_greater_than=%d if_num_close_arghs_less_than=%d if_num_close_arghs_greater_than=%d if_chr_health_greater_than=%d if_chr_health_less_than=%d if_chr_shield_less_than=%d if_chr_shield_greater_than=%d if_injured=%d if_shield_damaged=%d if_morale_less_than=%d if_morale_less_than_random=%d if_alertness=%d if_chr_alertness_less_than=%d if_alertness_less_than_random=%d backend=graph.ai.condition.character_state+ai/ailists.tsv",
+		"SCENARIO.GRAPH: AI character conditions '%s' if_num_arghs_less_than=%d if_num_arghs_greater_than=%d if_num_close_arghs_less_than=%d if_num_close_arghs_greater_than=%d if_chr_health_greater_than=%d if_chr_health_less_than=%d if_chr_shield_less_than=%d if_chr_shield_greater_than=%d if_injured=%d if_shield_damaged=%d if_morale_less_than=%d if_morale_less_than_random=%d if_alertness=%d if_chr_alertness_less_than=%d if_alertness_less_than_random=%d backend=graph.ai.condition.character_state+ai/ailists.json",
 		s_ActiveScenarioGraphs.level_graph_path,
 		s_ActiveScenarioGraphs.level_ai_if_num_arghs_less_than_node_count,
 		s_ActiveScenarioGraphs.level_ai_if_num_arghs_greater_than_node_count,
@@ -11250,7 +12206,7 @@ s32 scenarioSourceActivateGraphsForStage(const catalog_stage_result_t *stage,
 		s_ActiveScenarioGraphs.level_ai_if_chr_alertness_less_than_node_count,
 		s_ActiveScenarioGraphs.level_ai_if_alertness_less_than_random_node_count);
 	sysLogPrintf(LOG_NOTE,
-		"SCENARIO.GRAPH: AI lifecycle/perception conditions '%s' if_idle=%d if_stopped=%d if_chr_dead=%d if_chr_death_animation_finished=%d if_chr_knocked_out=%d if_can_see_target=%d backend=graph.ai.condition.lifecycle+ai/ailists.tsv",
+		"SCENARIO.GRAPH: AI lifecycle/perception conditions '%s' if_idle=%d if_stopped=%d if_chr_dead=%d if_chr_death_animation_finished=%d if_chr_knocked_out=%d if_can_see_target=%d backend=graph.ai.condition.lifecycle+ai/ailists.json",
 		s_ActiveScenarioGraphs.level_graph_path,
 		s_ActiveScenarioGraphs.level_ai_if_idle_node_count,
 		s_ActiveScenarioGraphs.level_ai_if_stopped_node_count,
@@ -11259,7 +12215,7 @@ s32 scenarioSourceActivateGraphsForStage(const catalog_stage_result_t *stage,
 		s_ActiveScenarioGraphs.level_ai_if_chr_knocked_out_node_count,
 		s_ActiveScenarioGraphs.level_ai_if_can_see_target_node_count);
 	sysLogPrintf(LOG_NOTE,
-		"SCENARIO.GRAPH: AI tuning actions '%s' set_hear_distance=%d set_view_distance=%d set_grenade_probability=%d set_chr_num=%d set_max_damage=%d add_health=%d set_shield=%d set_reaction_speed=%d set_recovery_speed=%d set_accuracy=%d set_dodge_rating=%d set_unarmed_dodge_rating=%d backend=graph.ai.action.tuning+ai/ailists.tsv",
+		"SCENARIO.GRAPH: AI tuning actions '%s' set_hear_distance=%d set_view_distance=%d set_grenade_probability=%d set_chr_num=%d set_max_damage=%d add_health=%d set_shield=%d set_reaction_speed=%d set_recovery_speed=%d set_accuracy=%d set_dodge_rating=%d set_unarmed_dodge_rating=%d backend=graph.ai.action.tuning+ai/ailists.json",
 		s_ActiveScenarioGraphs.level_graph_path,
 		s_ActiveScenarioGraphs.level_ai_set_hear_distance_node_count,
 		s_ActiveScenarioGraphs.level_ai_set_view_distance_node_count,
@@ -11274,7 +12230,7 @@ s32 scenarioSourceActivateGraphsForStage(const catalog_stage_result_t *stage,
 		s_ActiveScenarioGraphs.level_ai_set_dodge_rating_node_count,
 		s_ActiveScenarioGraphs.level_ai_set_unarmed_dodge_rating_node_count);
 	sysLogPrintf(LOG_NOTE,
-		"SCENARIO.GRAPH: AI action/order actions '%s' set_action=%d set_team_orders=%d retreat=%d set_squadron=%d chr_set_listening=%d try_attack_amount=%d backend=graph.ai.action.orders+ai/ailists.tsv",
+		"SCENARIO.GRAPH: AI action/order actions '%s' set_action=%d set_team_orders=%d retreat=%d set_squadron=%d chr_set_listening=%d try_attack_amount=%d backend=graph.ai.action.orders+ai/ailists.json",
 		s_ActiveScenarioGraphs.level_graph_path,
 		s_ActiveScenarioGraphs.level_ai_set_action_node_count,
 		s_ActiveScenarioGraphs.level_ai_set_team_orders_node_count,
@@ -11283,7 +12239,7 @@ s32 scenarioSourceActivateGraphsForStage(const catalog_stage_result_t *stage,
 		s_ActiveScenarioGraphs.level_ai_chr_set_listening_node_count,
 		s_ActiveScenarioGraphs.level_ai_try_attack_amount_node_count);
 	sysLogPrintf(LOG_NOTE,
-		"SCENARIO.GRAPH: AI intent/status conditions '%s' not_talking=%d orders=%d has_orders=%d squadron_action=%d chr_listening=%d not_listening=%d injured_target=%d action=%d ammo_less=%d chr_target=%d preset_team=%d human=%d skedar=%d prop_sight=%d remove_prop=%d prop_height=%d set_target=%d preset_target=%d preset_near_self=%d preset_near_pad=%d backend=graph.ai.condition.intent_status+ai/ailists.tsv",
+		"SCENARIO.GRAPH: AI intent/status conditions '%s' not_talking=%d orders=%d has_orders=%d squadron_action=%d chr_listening=%d not_listening=%d injured_target=%d action=%d ammo_less=%d chr_target=%d preset_team=%d human=%d skedar=%d prop_sight=%d remove_prop=%d prop_height=%d set_target=%d preset_target=%d preset_near_self=%d preset_near_pad=%d backend=graph.ai.condition.intent_status+ai/ailists.json",
 		s_ActiveScenarioGraphs.level_graph_path,
 		s_ActiveScenarioGraphs.level_ai_if_chr_not_talking_node_count,
 		s_ActiveScenarioGraphs.level_ai_if_orders_node_count,
@@ -11311,7 +12267,7 @@ s32 scenarioSourceActivateGraphsForStage(const catalog_stage_result_t *stage,
 		s_ActiveScenarioGraphs
 			.level_ai_set_chr_preset_to_chr_near_pad_node_count);
 	sysLogPrintf(LOG_NOTE,
-		"SCENARIO.GRAPH: AI cover actions '%s' find_cover=%d find_cover_within_dist=%d find_cover_outside_dist=%d go_to_cover=%d check_cover_out_of_sight=%d orbit_target=%d face_cover=%d danger_cover=%d release_cover=%d backend=graph.ai.action.cover+navigation/covers.tsv",
+		"SCENARIO.GRAPH: AI cover actions '%s' find_cover=%d find_cover_within_dist=%d find_cover_outside_dist=%d go_to_cover=%d check_cover_out_of_sight=%d orbit_target=%d face_cover=%d danger_cover=%d release_cover=%d backend=graph.ai.action.cover+navigation/covers.json",
 		s_ActiveScenarioGraphs.level_graph_path,
 		s_ActiveScenarioGraphs.level_ai_find_cover_node_count,
 		s_ActiveScenarioGraphs.level_ai_find_cover_within_dist_node_count,
@@ -11323,7 +12279,7 @@ s32 scenarioSourceActivateGraphsForStage(const catalog_stage_result_t *stage,
 		s_ActiveScenarioGraphs.level_ai_danger_cover_node_count,
 		s_ActiveScenarioGraphs.level_ai_release_cover_node_count);
 	sysLogPrintf(LOG_NOTE,
-		"SCENARIO.GRAPH: AI vehicle/investigation actions '%s' danger_object=%d heli_armed=%d hoverbot_next_step=%d shuffle_investigation=%d set_investigation_pad=%d heli_arm=%d heli_unarm=%d backend=graph.ai.action.vehicle_investigation+ai/ailists.tsv+objects.tsv+pads.tsv",
+		"SCENARIO.GRAPH: AI vehicle/investigation actions '%s' danger_object=%d heli_armed=%d hoverbot_next_step=%d shuffle_investigation=%d set_investigation_pad=%d heli_arm=%d heli_unarm=%d backend=graph.ai.action.vehicle_investigation+ai/ailists.json+objects.json+pads.json",
 		s_ActiveScenarioGraphs.level_graph_path,
 		s_ActiveScenarioGraphs.level_ai_if_dangerous_object_nearby_node_count,
 		s_ActiveScenarioGraphs.level_ai_if_heli_weapons_armed_node_count,
@@ -11335,7 +12291,7 @@ s32 scenarioSourceActivateGraphsForStage(const catalog_stage_result_t *stage,
 		s_ActiveScenarioGraphs.level_ai_heli_arm_weapons_node_count,
 		s_ActiveScenarioGraphs.level_ai_heli_unarm_weapons_node_count);
 	sysLogPrintf(LOG_NOTE,
-		"SCENARIO.GRAPH: AI safety/detection conditions '%s' safety2=%d player_cmp_ar34=%d detect_same_floor=%d detect_enemy=%d safety=%d target_slow=%d target_closer=%d target_away=%d backend=graph.ai.condition.safety_detection+ai/ailists.tsv",
+		"SCENARIO.GRAPH: AI safety/detection conditions '%s' safety2=%d player_cmp_ar34=%d detect_same_floor=%d detect_enemy=%d safety=%d target_slow=%d target_closer=%d target_away=%d backend=graph.ai.condition.safety_detection+ai/ailists.json",
 		s_ActiveScenarioGraphs.level_graph_path,
 		s_ActiveScenarioGraphs.level_ai_if_safety2_less_than_node_count,
 		s_ActiveScenarioGraphs
@@ -11351,7 +12307,7 @@ s32 scenarioSourceActivateGraphsForStage(const catalog_stage_result_t *stage,
 		s_ActiveScenarioGraphs
 			.level_ai_if_target_moving_away_node_count);
 	sysLogPrintf(LOG_NOTE,
-		"SCENARIO.GRAPH: AI misc branch conditions '%s' squadron_dead=%d if_true=%d squadron_count=%d natural_anim=%d y=%d sound_timer=%d target_y_diff=%d backend=graph.ai.condition.misc_branch+ai/ailists.tsv",
+		"SCENARIO.GRAPH: AI misc branch conditions '%s' squadron_dead=%d if_true=%d squadron_count=%d natural_anim=%d y=%d sound_timer=%d target_y_diff=%d backend=graph.ai.condition.misc_branch+ai/ailists.json",
 		s_ActiveScenarioGraphs.level_graph_path,
 		s_ActiveScenarioGraphs.level_ai_if_squadron_is_dead_node_count,
 		s_ActiveScenarioGraphs.level_ai_if_true_node_count,
@@ -11363,7 +12319,7 @@ s32 scenarioSourceActivateGraphsForStage(const catalog_stage_result_t *stage,
 		s_ActiveScenarioGraphs
 			.level_ai_if_target_y_difference_less_than_node_count);
 	sysLogPrintf(LOG_NOTE,
-		"SCENARIO.GRAPH: AI misc effect actions '%s' chr_explosions=%d tinted_glass=%d rocket=%d blur=%d punch=%d eyespy=%d skedar_pounce=%d obj_pad_distance=%d avoid=%d title_init=%d title_exit=%d sparks=%d dr_caroll_images=%d backend=graph.ai.action.misc_effect+ai/ailists.tsv",
+		"SCENARIO.GRAPH: AI misc effect actions '%s' chr_explosions=%d tinted_glass=%d rocket=%d blur=%d punch=%d eyespy=%d skedar_pounce=%d obj_pad_distance=%d avoid=%d title_init=%d title_exit=%d sparks=%d dr_caroll_images=%d backend=graph.ai.action.misc_effect+ai/ailists.json",
 		s_ActiveScenarioGraphs.level_graph_path,
 		s_ActiveScenarioGraphs.level_ai_chr_explosions_node_count,
 		s_ActiveScenarioGraphs
@@ -11384,7 +12340,7 @@ s32 scenarioSourceActivateGraphsForStage(const catalog_stage_result_t *stage,
 	s_ActiveScenarioGraphs.level_ai_chr_emit_sparks_node_count,
 	s_ActiveScenarioGraphs.level_ai_set_dr_caroll_images_node_count);
 	sysLogPrintf(LOG_NOTE,
-		"SCENARIO.GRAPH: AI quip/setup shuffle actions '%s' say_quip=%d ci_staff_quip=%d ruins_pillars=%d pelagic_switches=%d backend=graph.ai.action.quip_shuffle+ai/ailists.tsv+objects.tsv",
+		"SCENARIO.GRAPH: AI quip/setup shuffle actions '%s' say_quip=%d ci_staff_quip=%d ruins_pillars=%d pelagic_switches=%d backend=graph.ai.action.quip_shuffle+ai/ailists.json+objects.json",
 		s_ActiveScenarioGraphs.level_graph_path,
 		s_ActiveScenarioGraphs.level_ai_say_quip_node_count,
 		s_ActiveScenarioGraphs.level_ai_say_ci_staff_quip_node_count,
@@ -11392,19 +12348,19 @@ s32 scenarioSourceActivateGraphsForStage(const catalog_stage_result_t *stage,
 		s_ActiveScenarioGraphs
 			.level_ai_shuffle_pelagic_switches_node_count);
 	sysLogPrintf(LOG_NOTE,
-		"SCENARIO.GRAPH: AI team maintenance actions '%s' set_chr_preset_to_unalerted_teammate=%d rebuild_teams=%d rebuild_squadrons=%d backend=graph.ai.action.team+ai/ailists.tsv",
+		"SCENARIO.GRAPH: AI team maintenance actions '%s' set_chr_preset_to_unalerted_teammate=%d rebuild_teams=%d rebuild_squadrons=%d backend=graph.ai.action.team+ai/ailists.json",
 		s_ActiveScenarioGraphs.level_graph_path,
 		s_ActiveScenarioGraphs.level_ai_set_chr_preset_to_unalerted_teammate_node_count,
 		s_ActiveScenarioGraphs.level_ai_rebuild_teams_node_count,
 		s_ActiveScenarioGraphs.level_ai_rebuild_squadrons_node_count);
 	sysLogPrintf(LOG_NOTE,
-		"SCENARIO.GRAPH: AI alarm actions '%s' try_start_alarm=%d activate_alarm=%d deactivate_alarm=%d backend=graph.ai.action.alarm+ai/ailists.tsv",
+		"SCENARIO.GRAPH: AI alarm actions '%s' try_start_alarm=%d activate_alarm=%d deactivate_alarm=%d backend=graph.ai.action.alarm+ai/ailists.json",
 		s_ActiveScenarioGraphs.level_graph_path,
 		s_ActiveScenarioGraphs.level_ai_try_start_alarm_node_count,
 		s_ActiveScenarioGraphs.level_ai_activate_alarm_node_count,
 		s_ActiveScenarioGraphs.level_ai_deactivate_alarm_node_count);
 	sysLogPrintf(LOG_NOTE,
-		"SCENARIO.GRAPH: AI flag actions '%s' set_flag=%d unset_flag=%d if_has_flag=%d chr_set_flag=%d chr_unset_flag=%d if_chr_has_flag=%d set_stage_flag=%d unset_stage_flag=%d if_stage_flag_eq=%d backend=graph.ai.action.flags+ai/ailists.tsv",
+		"SCENARIO.GRAPH: AI flag actions '%s' set_flag=%d unset_flag=%d if_has_flag=%d chr_set_flag=%d chr_unset_flag=%d if_chr_has_flag=%d set_stage_flag=%d unset_stage_flag=%d if_stage_flag_eq=%d backend=graph.ai.action.flags+ai/ailists.json",
 		s_ActiveScenarioGraphs.level_graph_path,
 		s_ActiveScenarioGraphs.level_ai_set_flag_node_count,
 		s_ActiveScenarioGraphs.level_ai_unset_flag_node_count,
@@ -11416,7 +12372,7 @@ s32 scenarioSourceActivateGraphsForStage(const catalog_stage_result_t *stage,
 		s_ActiveScenarioGraphs.level_ai_unset_stage_flag_node_count,
 		s_ActiveScenarioGraphs.level_ai_if_stage_flag_eq_node_count);
 	sysLogPrintf(LOG_NOTE,
-		"SCENARIO.GRAPH: AI chr/object flag actions '%s' set_chrflag=%d unset_chrflag=%d if_has_chrflag=%d chr_set_chrflag=%d chr_unset_chrflag=%d if_chr_has_chrflag=%d chr_set_hidden_flag=%d chr_unset_hidden_flag=%d if_chr_has_hidden_flag=%d set_obj_flag=%d unset_obj_flag=%d if_obj_has_flag=%d backend=graph.ai.action.chr_object_flags+ai/ailists.tsv",
+		"SCENARIO.GRAPH: AI chr/object flag actions '%s' set_chrflag=%d unset_chrflag=%d if_has_chrflag=%d chr_set_chrflag=%d chr_unset_chrflag=%d if_chr_has_chrflag=%d chr_set_hidden_flag=%d chr_unset_hidden_flag=%d if_chr_has_hidden_flag=%d set_obj_flag=%d unset_obj_flag=%d if_obj_has_flag=%d backend=graph.ai.action.chr_object_flags+ai/ailists.json",
 		s_ActiveScenarioGraphs.level_graph_path,
 		s_ActiveScenarioGraphs.level_ai_set_chrflag_node_count,
 		s_ActiveScenarioGraphs.level_ai_unset_chrflag_node_count,
@@ -11431,7 +12387,7 @@ s32 scenarioSourceActivateGraphsForStage(const catalog_stage_result_t *stage,
 		s_ActiveScenarioGraphs.level_ai_unset_obj_flag_node_count,
 		s_ActiveScenarioGraphs.level_ai_if_obj_has_flag_node_count);
 	sysLogPrintf(LOG_NOTE,
-		"SCENARIO.GRAPH: AI door actions '%s' open_door=%d close_door=%d if_door_state=%d if_object_is_door=%d lock_door=%d unlock_door=%d if_door_locked=%d backend=graph.ai.action.door+objects.tsv",
+		"SCENARIO.GRAPH: AI door actions '%s' open_door=%d close_door=%d if_door_state=%d if_object_is_door=%d lock_door=%d unlock_door=%d if_door_locked=%d backend=graph.ai.action.door+objects.json",
 		s_ActiveScenarioGraphs.level_graph_path,
 		s_ActiveScenarioGraphs.level_ai_open_door_node_count,
 		s_ActiveScenarioGraphs.level_ai_close_door_node_count,
@@ -11441,7 +12397,7 @@ s32 scenarioSourceActivateGraphsForStage(const catalog_stage_result_t *stage,
 		s_ActiveScenarioGraphs.level_ai_unlock_door_node_count,
 		s_ActiveScenarioGraphs.level_ai_if_door_locked_node_count);
 	sysLogPrintf(LOG_NOTE,
-		"SCENARIO.GRAPH: AI lift actions '%s' if_lift_stationary=%d lift_go_to_stop=%d if_lift_at_stop=%d activate_lift=%d if_using_lift=%d backend=graph.ai.action.lift+objects.tsv+pads.tsv",
+		"SCENARIO.GRAPH: AI lift actions '%s' if_lift_stationary=%d lift_go_to_stop=%d if_lift_at_stop=%d activate_lift=%d if_using_lift=%d backend=graph.ai.action.lift+objects.json+pads.json",
 		s_ActiveScenarioGraphs.level_graph_path,
 		s_ActiveScenarioGraphs.level_ai_if_lift_stationary_node_count,
 		s_ActiveScenarioGraphs.level_ai_lift_go_to_stop_node_count,
@@ -11449,38 +12405,38 @@ s32 scenarioSourceActivateGraphsForStage(const catalog_stage_result_t *stage,
 		s_ActiveScenarioGraphs.level_ai_activate_lift_node_count,
 		s_ActiveScenarioGraphs.level_ai_if_using_lift_node_count);
 	sysLogPrintf(LOG_NOTE,
-		"SCENARIO.GRAPH: AI weather actions '%s' configure_rain=%d configure_snow=%d backend=graph.ai.action.weather+ai/ailists.tsv+scenario.ini",
+		"SCENARIO.GRAPH: AI weather actions '%s' configure_rain=%d configure_snow=%d backend=graph.ai.action.weather+ai/ailists.json+scenario.ini",
 		s_ActiveScenarioGraphs.level_graph_path,
 		s_ActiveScenarioGraphs.level_ai_configure_rain_node_count,
 		s_ActiveScenarioGraphs.level_ai_configure_snow_node_count);
 	sysLogPrintf(LOG_NOTE,
-		"SCENARIO.GRAPH: AI sky actions '%s' switch_to_alt_sky=%d set_wind_speed=%d backend=graph.ai.action.sky+ai/ailists.tsv",
+		"SCENARIO.GRAPH: AI sky actions '%s' switch_to_alt_sky=%d set_wind_speed=%d backend=graph.ai.action.sky+ai/ailists.json",
 		s_ActiveScenarioGraphs.level_graph_path,
 		s_ActiveScenarioGraphs.level_ai_switch_to_alt_sky_node_count,
 		s_ActiveScenarioGraphs.level_ai_set_wind_speed_node_count);
 	sysLogPrintf(LOG_NOTE,
-		"SCENARIO.GRAPH: AI lighting actions '%s' set_lights=%d backend=graph.ai.action.lighting+ai/ailists.tsv+pads.tsv",
+		"SCENARIO.GRAPH: AI lighting actions '%s' set_lights=%d backend=graph.ai.action.lighting+ai/ailists.json+pads.json",
 		s_ActiveScenarioGraphs.level_graph_path,
 		s_ActiveScenarioGraphs.level_ai_set_lights_node_count);
 	sysLogPrintf(LOG_NOTE,
-		"SCENARIO.GRAPH: AI room-flag actions '%s' set_room_flag=%d backend=graph.ai.action.room_flags+ai/ailists.tsv+scene.glb",
+		"SCENARIO.GRAPH: AI room-flag actions '%s' set_room_flag=%d backend=graph.ai.action.room_flags+ai/ailists.json+scene.glb",
 		s_ActiveScenarioGraphs.level_graph_path,
 		s_ActiveScenarioGraphs.level_ai_set_room_flag_node_count);
 	sysLogPrintf(LOG_NOTE,
-		"SCENARIO.GRAPH: AI cutscene visibility actions '%s' show_cutscene_chrs=%d backend=graph.ai.action.cutscene_visibility+ai/ailists.tsv",
+		"SCENARIO.GRAPH: AI cutscene visibility actions '%s' show_cutscene_chrs=%d backend=graph.ai.action.cutscene_visibility+ai/ailists.json",
 		s_ActiveScenarioGraphs.level_graph_path,
 		s_ActiveScenarioGraphs.level_ai_show_cutscene_chrs_node_count);
 	sysLogPrintf(LOG_NOTE,
-		"SCENARIO.GRAPH: AI environment actions '%s' configure_environment=%d backend=graph.ai.action.environment+ai/ailists.tsv+scenario.ini+scene.glb",
+		"SCENARIO.GRAPH: AI environment actions '%s' configure_environment=%d backend=graph.ai.action.environment+ai/ailists.json+scenario.ini+scene.glb",
 		s_ActiveScenarioGraphs.level_graph_path,
 		s_ActiveScenarioGraphs.level_ai_configure_environment_node_count);
 	sysLogPrintf(LOG_NOTE,
-		"SCENARIO.GRAPH: AI target-distance conditions '%s' if_distance_to_target2_less_than=%d if_distance_to_target2_greater_than=%d backend=graph.ai.condition.target_distance+ai/ailists.tsv",
+		"SCENARIO.GRAPH: AI target-distance conditions '%s' if_distance_to_target2_less_than=%d if_distance_to_target2_greater_than=%d backend=graph.ai.condition.target_distance+ai/ailists.json",
 		s_ActiveScenarioGraphs.level_graph_path,
 		s_ActiveScenarioGraphs.level_ai_if_distance_to_target2_less_than_node_count,
 		s_ActiveScenarioGraphs.level_ai_if_distance_to_target2_greater_than_node_count);
 	sysLogPrintf(LOG_NOTE,
-		"SCENARIO.GRAPH: AI audio actions '%s' speak=%d play_sound=%d assign_sound=%d mute=%d if_channel_free=%d set_volume=%d set_volume_by_distance=%d set_playing=%d repeat_object=%d sound_entity=%d repeat_pad=%d if_volume_less_than=%d play_sound_from_prop=%d play_temporary_primary_track=%d backend=graph.ai.action.audio+ai/ailists.tsv",
+		"SCENARIO.GRAPH: AI audio actions '%s' speak=%d play_sound=%d assign_sound=%d mute=%d if_channel_free=%d set_volume=%d set_volume_by_distance=%d set_playing=%d repeat_object=%d sound_entity=%d repeat_pad=%d if_volume_less_than=%d play_sound_from_prop=%d play_temporary_primary_track=%d backend=graph.ai.action.audio+ai/ailists.json",
 		s_ActiveScenarioGraphs.level_graph_path,
 		s_ActiveScenarioGraphs.level_ai_speak_node_count,
 		s_ActiveScenarioGraphs.level_ai_play_sound_node_count,
@@ -11497,7 +12453,7 @@ s32 scenarioSourceActivateGraphsForStage(const catalog_stage_result_t *stage,
 		s_ActiveScenarioGraphs.level_ai_play_sound_from_prop_node_count,
 		s_ActiveScenarioGraphs.level_ai_play_temporary_primary_track_node_count);
 	sysLogPrintf(LOG_NOTE,
-		"SCENARIO.GRAPH: AI music track actions '%s' play_x_track=%d stop_x_track=%d play_track_isolated=%d play_default_tracks=%d play_cutscene_track=%d stop_cutscene_track=%d play_temporary_track=%d stop_ambient_track=%d backend=graph.ai.action.music_track+ai/ailists.tsv",
+		"SCENARIO.GRAPH: AI music track actions '%s' play_x_track=%d stop_x_track=%d play_track_isolated=%d play_default_tracks=%d play_cutscene_track=%d stop_cutscene_track=%d play_temporary_track=%d stop_ambient_track=%d backend=graph.ai.action.music_track+ai/ailists.json",
 		s_ActiveScenarioGraphs.level_graph_path,
 		s_ActiveScenarioGraphs.level_ai_play_x_track_node_count,
 		s_ActiveScenarioGraphs.level_ai_stop_x_track_node_count,
@@ -11508,7 +12464,7 @@ s32 scenarioSourceActivateGraphsForStage(const catalog_stage_result_t *stage,
 		s_ActiveScenarioGraphs.level_ai_play_temporary_track_node_count,
 		s_ActiveScenarioGraphs.level_ai_stop_ambient_track_node_count);
 	sysLogPrintf(LOG_NOTE,
-		"SCENARIO.GRAPH: AI player weapon-state actions '%s' chr_draw_weapon=%d chr_draw_weapon_in_cutscene=%d set_player_force_speed=%d chr_set_invincible=%d if_player_is_invincible=%d if_chr_has_no_gun=%d chr_delete_weapon=%d if_trigger_shot_list=%d backend=graph.ai.action.player_weapon_state+ai/ailists.tsv",
+		"SCENARIO.GRAPH: AI player weapon-state actions '%s' chr_draw_weapon=%d chr_draw_weapon_in_cutscene=%d set_player_force_speed=%d chr_set_invincible=%d if_player_is_invincible=%d if_chr_has_no_gun=%d chr_delete_weapon=%d if_trigger_shot_list=%d backend=graph.ai.action.player_weapon_state+ai/ailists.json",
 		s_ActiveScenarioGraphs.level_graph_path,
 		s_ActiveScenarioGraphs.level_ai_chr_draw_weapon_node_count,
 		s_ActiveScenarioGraphs.level_ai_chr_draw_weapon_in_cutscene_node_count,
@@ -11519,7 +12475,7 @@ s32 scenarioSourceActivateGraphsForStage(const catalog_stage_result_t *stage,
 		s_ActiveScenarioGraphs.level_ai_chr_delete_weapon_node_count,
 		s_ActiveScenarioGraphs.level_ai_if_trigger_shot_list_node_count);
 	sysLogPrintf(LOG_NOTE,
-		"SCENARIO.GRAPH: AI player cutscene/warp actions '%s' end_level=%d end_cutscene=%d warp_jo_to_pad=%d set_camera_animation=%d if_in_cutscene=%d if_cutscene_button_pressed=%d reorient_for_cutscene_stop=%d warp_jo_to_tag=%d revoke_control=%d grant_control=%d player_fade_in=%d players_fade_out=%d if_colour_fade_complete=%d prepare_warp_orbit=%d begin_warp_latch=%d if_warp_latch_complete=%d backend=graph.ai.action.player_cutscene+ai/ailists.tsv+pads.tsv+objects.tsv",
+		"SCENARIO.GRAPH: AI player cutscene/warp actions '%s' end_level=%d end_cutscene=%d warp_jo_to_pad=%d set_camera_animation=%d if_in_cutscene=%d if_cutscene_button_pressed=%d reorient_for_cutscene_stop=%d warp_jo_to_tag=%d revoke_control=%d grant_control=%d player_fade_in=%d players_fade_out=%d if_colour_fade_complete=%d prepare_warp_orbit=%d begin_warp_latch=%d if_warp_latch_complete=%d backend=graph.ai.action.player_cutscene+ai/ailists.json+pads.json+objects.json",
 		s_ActiveScenarioGraphs.level_graph_path,
 		s_ActiveScenarioGraphs.level_ai_end_level_node_count,
 		s_ActiveScenarioGraphs.level_ai_end_cutscene_node_count,
@@ -11538,7 +12494,7 @@ s32 scenarioSourceActivateGraphsForStage(const catalog_stage_result_t *stage,
 		s_ActiveScenarioGraphs.level_ai_begin_warp_latch_node_count,
 		s_ActiveScenarioGraphs.level_ai_if_warp_latch_complete_node_count);
 	sysLogPrintf(LOG_NOTE,
-		"SCENARIO.GRAPH: AI setup/spawn/equipment actions '%s' spawn_chr_at_pad=%d spawn_chr_at_chr=%d try_equip_weapon=%d try_equip_hat=%d set_obj_image=%d object_do_animation=%d set_door_open=%d backend=graph.ai.action.setup_spawn+ai/ailists.tsv+pads.tsv+objects.tsv",
+		"SCENARIO.GRAPH: AI setup/spawn/equipment actions '%s' spawn_chr_at_pad=%d spawn_chr_at_chr=%d try_equip_weapon=%d try_equip_hat=%d set_obj_image=%d object_do_animation=%d set_door_open=%d backend=graph.ai.action.setup_spawn+ai/ailists.json+pads.json+objects.json",
 		s_ActiveScenarioGraphs.level_graph_path,
 		s_ActiveScenarioGraphs.level_ai_spawn_chr_at_pad_node_count,
 		s_ActiveScenarioGraphs.level_ai_spawn_chr_at_chr_node_count,
@@ -11548,7 +12504,7 @@ s32 scenarioSourceActivateGraphsForStage(const catalog_stage_result_t *stage,
 		s_ActiveScenarioGraphs.level_ai_object_do_animation_node_count,
 		s_ActiveScenarioGraphs.level_ai_set_door_open_node_count);
 	sysLogPrintf(LOG_NOTE,
-		"SCENARIO.GRAPH: AI entity lifecycle/motion actions '%s' duplicate_chr=%d enable_chr=%d disable_chr=%d enable_obj=%d disable_obj=%d chr_move_to_pad=%d chr_set_team=%d damage_chr_by_amount=%d do_preset_animation=%d if_player_chr_portal_distance_less_than=%d if_chr_reposition_valid=%d backend=graph.ai.action.entity_lifecycle+ai/ailists.tsv+pads.tsv+objects.tsv",
+		"SCENARIO.GRAPH: AI entity lifecycle/motion actions '%s' duplicate_chr=%d enable_chr=%d disable_chr=%d enable_obj=%d disable_obj=%d chr_move_to_pad=%d chr_set_team=%d damage_chr_by_amount=%d do_preset_animation=%d if_player_chr_portal_distance_less_than=%d if_chr_reposition_valid=%d backend=graph.ai.action.entity_lifecycle+ai/ailists.json+pads.json+objects.json",
 		s_ActiveScenarioGraphs.level_graph_path,
 		s_ActiveScenarioGraphs.level_ai_duplicate_chr_node_count,
 		s_ActiveScenarioGraphs.level_ai_enable_chr_node_count,
@@ -11562,31 +12518,31 @@ s32 scenarioSourceActivateGraphsForStage(const catalog_stage_result_t *stage,
 		s_ActiveScenarioGraphs.level_ai_if_player_chr_portal_distance_less_than_node_count,
 		s_ActiveScenarioGraphs.level_ai_if_chr_reposition_valid_node_count);
 	sysLogPrintf(LOG_NOTE,
-		"SCENARIO.GRAPH: AI gun interaction actions '%s' do_gun_command=%d if_distance_to_gun_less_than=%d recover_gun=%d backend=graph.ai.action.gun_interaction+ai/ailists.tsv+objects.tsv+scene.glb",
+		"SCENARIO.GRAPH: AI gun interaction actions '%s' do_gun_command=%d if_distance_to_gun_less_than=%d recover_gun=%d backend=graph.ai.action.gun_interaction+ai/ailists.json+objects.json+scene.glb",
 		s_ActiveScenarioGraphs.level_graph_path,
 		s_ActiveScenarioGraphs.level_ai_do_gun_command_node_count,
 		s_ActiveScenarioGraphs.level_ai_if_distance_to_gun_less_than_node_count,
 		s_ActiveScenarioGraphs.level_ai_recover_gun_node_count);
 	sysLogPrintf(LOG_NOTE,
-		"SCENARIO.GRAPH: AI character property actions '%s' chr_copy_properties=%d backend=graph.ai.action.character_property+ai/ailists.tsv",
+		"SCENARIO.GRAPH: AI character property actions '%s' chr_copy_properties=%d backend=graph.ai.action.character_property+ai/ailists.json",
 		s_ActiveScenarioGraphs.level_graph_path,
 		s_ActiveScenarioGraphs.level_ai_chr_copy_properties_node_count);
 	sysLogPrintf(LOG_NOTE,
-		"SCENARIO.GRAPH: AI player navigation actions '%s' player_auto_walk=%d if_player_auto_walk_finished=%d backend=graph.ai.action.player_navigation+ai/ailists.tsv+pads.tsv",
+		"SCENARIO.GRAPH: AI player navigation actions '%s' player_auto_walk=%d if_player_auto_walk_finished=%d backend=graph.ai.action.player_navigation+ai/ailists.json+pads.json",
 		s_ActiveScenarioGraphs.level_graph_path,
 		s_ActiveScenarioGraphs.level_ai_player_auto_walk_node_count,
 		s_ActiveScenarioGraphs.level_ai_if_player_auto_walk_finished_node_count);
 	sysLogPrintf(LOG_NOTE,
-		"SCENARIO.GRAPH: AI object-room conditions '%s' if_obj_in_room=%d backend=graph.ai.condition.object_room+ai/ailists.tsv+objects.tsv+pads.tsv+scene.glb",
+		"SCENARIO.GRAPH: AI object-room conditions '%s' if_obj_in_room=%d backend=graph.ai.condition.object_room+ai/ailists.json+objects.json+pads.json+scene.glb",
 		s_ActiveScenarioGraphs.level_graph_path,
 		s_ActiveScenarioGraphs.level_ai_if_obj_in_room_node_count);
 	sysLogPrintf(LOG_NOTE,
-		"SCENARIO.GRAPH: AI perception conditions '%s' if_player_looking_at_object=%d if_target_is_player=%d backend=graph.ai.condition.perception+ai/ailists.tsv+objects.tsv+scene.glb",
+		"SCENARIO.GRAPH: AI perception conditions '%s' if_player_looking_at_object=%d if_target_is_player=%d backend=graph.ai.condition.perception+ai/ailists.json+objects.json+scene.glb",
 		s_ActiveScenarioGraphs.level_graph_path,
 		s_ActiveScenarioGraphs.level_ai_if_player_looking_at_object_node_count,
 		s_ActiveScenarioGraphs.level_ai_if_target_is_player_node_count);
 	sysLogPrintf(LOG_NOTE,
-		"SCENARIO.GRAPH: AI character/inventory actions '%s' chr_kill=%d remove_weapon_from_inventory=%d clear_inventory=%d release_object=%d chr_grab_object=%d backend=graph.ai.action.character_inventory+ai/ailists.tsv+objects.tsv",
+		"SCENARIO.GRAPH: AI character/inventory actions '%s' chr_kill=%d remove_weapon_from_inventory=%d clear_inventory=%d release_object=%d chr_grab_object=%d backend=graph.ai.action.character_inventory+ai/ailists.json+objects.json",
 		s_ActiveScenarioGraphs.level_graph_path,
 		s_ActiveScenarioGraphs.level_ai_chr_kill_node_count,
 		s_ActiveScenarioGraphs.level_ai_remove_weapon_from_inventory_node_count,
@@ -11594,14 +12550,14 @@ s32 scenarioSourceActivateGraphsForStage(const catalog_stage_result_t *stage,
 		s_ActiveScenarioGraphs.level_ai_release_object_node_count,
 		s_ActiveScenarioGraphs.level_ai_chr_grab_object_node_count);
 	sysLogPrintf(LOG_NOTE,
-		"SCENARIO.GRAPH: AI player-state actions '%s' toggle_p1p2=%d chr_set_p1p2=%d chr_set_cloaked=%d set_autogun_target_team=%d backend=graph.ai.action.player_state+ai/ailists.tsv+objects.tsv",
+		"SCENARIO.GRAPH: AI player-state actions '%s' toggle_p1p2=%d chr_set_p1p2=%d chr_set_cloaked=%d set_autogun_target_team=%d backend=graph.ai.action.player_state+ai/ailists.json+objects.json",
 		s_ActiveScenarioGraphs.level_graph_path,
 		s_ActiveScenarioGraphs.level_ai_toggle_p1p2_node_count,
 		s_ActiveScenarioGraphs.level_ai_chr_set_p1p2_node_count,
 		s_ActiveScenarioGraphs.level_ai_chr_set_cloaked_node_count,
 		s_ActiveScenarioGraphs.level_ai_set_autogun_target_team_node_count);
 	sysLogPrintf(LOG_NOTE,
-		"SCENARIO.GRAPH: AI mission/global actions '%s' if_objective_complete=%d if_objective_failed=%d if_all_objectives_complete=%d if_difficulty_less_than=%d if_difficulty_greater_than=%d if_stage_timer_less_than=%d if_stage_timer_greater_than=%d if_stage_id_less_than=%d if_stage_id_greater_than=%d if_num_players_less_than=%d if_kill_count_greater_than=%d if_num_knocked_out_chrs=%d kill_bond=%d backend=graph.ai.action.mission_global+ai/ailists.tsv+mission.graph.json",
+		"SCENARIO.GRAPH: AI mission/global actions '%s' if_objective_complete=%d if_objective_failed=%d if_all_objectives_complete=%d if_difficulty_less_than=%d if_difficulty_greater_than=%d if_stage_timer_less_than=%d if_stage_timer_greater_than=%d if_stage_id_less_than=%d if_stage_id_greater_than=%d if_num_players_less_than=%d if_kill_count_greater_than=%d if_num_knocked_out_chrs=%d kill_bond=%d backend=graph.ai.action.mission_global+ai/ailists.json+mission.graph.json",
 		s_ActiveScenarioGraphs.level_graph_path,
 		s_ActiveScenarioGraphs.level_ai_if_objective_complete_node_count,
 		s_ActiveScenarioGraphs.level_ai_if_objective_failed_node_count,
@@ -11617,24 +12573,24 @@ s32 scenarioSourceActivateGraphsForStage(const catalog_stage_result_t *stage,
 		s_ActiveScenarioGraphs.level_ai_if_num_knocked_out_chrs_node_count,
 		s_ActiveScenarioGraphs.level_ai_kill_bond_node_count);
 	sysLogPrintf(LOG_NOTE,
-		"SCENARIO.GRAPH: AI quadrant pad-preset actions '%s' waypoint_quadrant=%d target_quadrant=%d backend=graph.ai.action.quadrant_preset+ai/ailists.tsv+pads.tsv+navigation.generate",
+		"SCENARIO.GRAPH: AI quadrant pad-preset actions '%s' waypoint_quadrant=%d target_quadrant=%d backend=graph.ai.action.quadrant_preset+ai/ailists.json+pads.json+navigation.generate",
 		s_ActiveScenarioGraphs.level_graph_path,
 		s_ActiveScenarioGraphs.level_ai_if_waypoint_within_quadrant_node_count,
 		s_ActiveScenarioGraphs.level_ai_set_pad_preset_to_target_quadrant_node_count);
 	sysLogPrintf(LOG_NOTE,
-		"SCENARIO.GRAPH: AI state/device conditions '%s' if_pouncebits_eq=%d if_training_pc_holographed=%d if_player_using_device=%d backend=graph.ai.condition.state_device+ai/ailists.tsv",
+		"SCENARIO.GRAPH: AI state/device conditions '%s' if_pouncebits_eq=%d if_training_pc_holographed=%d if_player_using_device=%d backend=graph.ai.condition.state_device+ai/ailists.json",
 		s_ActiveScenarioGraphs.level_graph_path,
 		s_ActiveScenarioGraphs.level_ai_if_pouncebits_eq_node_count,
 		s_ActiveScenarioGraphs.level_ai_if_training_pc_holographed_node_count,
 		s_ActiveScenarioGraphs.level_ai_if_player_using_device_node_count);
 	sysLogPrintf(LOG_NOTE,
-		"SCENARIO.GRAPH: AI teleport/cutscene weapon actions '%s' chr_begin_or_end_teleport=%d if_chr_teleport_full_white=%d chr_set_cutscene_weapon=%d backend=graph.ai.action.teleport_cutscene_weapon+ai/ailists.tsv",
+		"SCENARIO.GRAPH: AI teleport/cutscene weapon actions '%s' chr_begin_or_end_teleport=%d if_chr_teleport_full_white=%d chr_set_cutscene_weapon=%d backend=graph.ai.action.teleport_cutscene_weapon+ai/ailists.json",
 		s_ActiveScenarioGraphs.level_graph_path,
 		s_ActiveScenarioGraphs.level_ai_chr_begin_or_end_teleport_node_count,
 		s_ActiveScenarioGraphs.level_ai_if_chr_teleport_full_white_node_count,
 		s_ActiveScenarioGraphs.level_ai_chr_set_cutscene_weapon_node_count);
 	sysLogPrintf(LOG_NOTE,
-		"SCENARIO.GRAPH: AI cutscene presentation actions '%s' fade_screen=%d if_fade_complete=%d set_chr_hudpiece_visible=%d set_passive_mode=%d chr_set_firing_in_cutscene=%d set_portal_flag=%d backend=graph.ai.action.cutscene_presentation+ai/ailists.tsv+scene.glb",
+		"SCENARIO.GRAPH: AI cutscene presentation actions '%s' fade_screen=%d if_fade_complete=%d set_chr_hudpiece_visible=%d set_passive_mode=%d chr_set_firing_in_cutscene=%d set_portal_flag=%d backend=graph.ai.action.cutscene_presentation+ai/ailists.json+scene.glb",
 		s_ActiveScenarioGraphs.level_graph_path,
 		s_ActiveScenarioGraphs.level_ai_fade_screen_node_count,
 		s_ActiveScenarioGraphs.level_ai_if_fade_complete_node_count,
@@ -11643,42 +12599,42 @@ s32 scenarioSourceActivateGraphsForStage(const catalog_stage_result_t *stage,
 		s_ActiveScenarioGraphs.level_ai_chr_set_firing_in_cutscene_node_count,
 		s_ActiveScenarioGraphs.level_ai_set_portal_flag_node_count);
 	sysLogPrintf(LOG_NOTE,
-		"SCENARIO.GRAPH: AI music/mode conditions '%s' if_music_event_queue_is_empty=%d if_coop_mode=%d backend=graph.ai.condition.music_mode+ai/ailists.tsv",
+		"SCENARIO.GRAPH: AI music/mode conditions '%s' if_music_event_queue_is_empty=%d if_coop_mode=%d backend=graph.ai.condition.music_mode+ai/ailists.json",
 		s_ActiveScenarioGraphs.level_graph_path,
 		s_ActiveScenarioGraphs.level_ai_if_music_event_queue_is_empty_node_count,
 		s_ActiveScenarioGraphs.level_ai_if_coop_mode_node_count);
 	sysLogPrintf(LOG_NOTE,
-		"SCENARIO.GRAPH: AI pad/reference actions '%s' if_chr_same_floor_distance_to_pad_less_than=%d remove_references_to_chr=%d backend=graph.ai.action.pad_reference+ai/ailists.tsv+pads.tsv",
+		"SCENARIO.GRAPH: AI pad/reference actions '%s' if_chr_same_floor_distance_to_pad_less_than=%d remove_references_to_chr=%d backend=graph.ai.action.pad_reference+ai/ailists.json+pads.json",
 		s_ActiveScenarioGraphs.level_graph_path,
 		s_ActiveScenarioGraphs.level_ai_if_chr_same_floor_distance_to_pad_less_than_node_count,
 		s_ActiveScenarioGraphs.level_ai_remove_references_to_chr_node_count);
 	sysLogPrintf(LOG_NOTE,
-		"SCENARIO.GRAPH: AI model-part actions '%s' chr_toggle_model_part=%d obj_set_model_part_visible=%d backend=graph.ai.action.model_part+ai/ailists.tsv+objects.tsv",
+		"SCENARIO.GRAPH: AI model-part actions '%s' chr_toggle_model_part=%d obj_set_model_part_visible=%d backend=graph.ai.action.model_part+ai/ailists.json+objects.json",
 		s_ActiveScenarioGraphs.level_graph_path,
 		s_ActiveScenarioGraphs.level_ai_chr_toggle_model_part_node_count,
 		s_ActiveScenarioGraphs.level_ai_obj_set_model_part_visible_node_count);
 	sysLogPrintf(LOG_NOTE,
-		"SCENARIO.GRAPH: AI object-health actions '%s' if_obj_health_less_than=%d set_obj_health=%d backend=graph.ai.action.object_health+ai/ailists.tsv+objects.tsv",
+		"SCENARIO.GRAPH: AI object-health actions '%s' if_obj_health_less_than=%d set_obj_health=%d backend=graph.ai.action.object_health+ai/ailists.json+objects.json",
 		s_ActiveScenarioGraphs.level_graph_path,
 		s_ActiveScenarioGraphs.level_ai_if_obj_health_less_than_node_count,
 		s_ActiveScenarioGraphs.level_ai_set_obj_health_node_count);
 	sysLogPrintf(LOG_NOTE,
-		"SCENARIO.GRAPH: AI special-death actions '%s' set_chr_special_death_animation=%d backend=graph.ai.action.special_death+ai/ailists.tsv",
+		"SCENARIO.GRAPH: AI special-death actions '%s' set_chr_special_death_animation=%d backend=graph.ai.action.special_death+ai/ailists.json",
 		s_ActiveScenarioGraphs.level_graph_path,
 		s_ActiveScenarioGraphs.level_ai_set_chr_special_death_animation_node_count);
 	sysLogPrintf(LOG_NOTE,
-		"SCENARIO.GRAPH: AI room-search actions '%s' set_room_to_search=%d backend=graph.ai.action.room_search+ai/ailists.tsv+scene.glb",
+		"SCENARIO.GRAPH: AI room-search actions '%s' set_room_to_search=%d backend=graph.ai.action.room_search+ai/ailists.json+scene.glb",
 		s_ActiveScenarioGraphs.level_graph_path,
 		s_ActiveScenarioGraphs.level_ai_set_room_to_search_node_count);
 	sysLogPrintf(LOG_NOTE,
-		"SCENARIO.GRAPH: AI savefile flag actions '%s' set_savefile_flag=%d unset_savefile_flag=%d if_savefile_flag_set=%d if_savefile_flag_unset=%d backend=graph.ai.action.savefile_flags+ai/ailists.tsv",
+		"SCENARIO.GRAPH: AI savefile flag actions '%s' set_savefile_flag=%d unset_savefile_flag=%d if_savefile_flag_set=%d if_savefile_flag_unset=%d backend=graph.ai.action.savefile_flags+ai/ailists.json",
 		s_ActiveScenarioGraphs.level_graph_path,
 		s_ActiveScenarioGraphs.level_ai_set_savefile_flag_node_count,
 		s_ActiveScenarioGraphs.level_ai_unset_savefile_flag_node_count,
 		s_ActiveScenarioGraphs.level_ai_if_savefile_flag_set_node_count,
 		s_ActiveScenarioGraphs.level_ai_if_savefile_flag_unset_node_count);
 	sysLogPrintf(LOG_NOTE,
-		"SCENARIO.GRAPH: AI timer/countdown actions '%s' restart_timer=%d reset_timer=%d pause_timer=%d resume_timer=%d if_timer_stopped=%d if_timer_greater_than_random=%d if_timer_less_than=%d if_timer_greater_than=%d show_countdown_timer=%d hide_countdown_timer=%d set_countdown_timer=%d stop_countdown_timer=%d start_countdown_timer=%d if_countdown_timer_stopped=%d if_countdown_timer_less_than=%d if_countdown_timer_greater_than=%d backend=graph.ai.action.timer+ai/ailists.tsv",
+		"SCENARIO.GRAPH: AI timer/countdown actions '%s' restart_timer=%d reset_timer=%d pause_timer=%d resume_timer=%d if_timer_stopped=%d if_timer_greater_than_random=%d if_timer_less_than=%d if_timer_greater_than=%d show_countdown_timer=%d hide_countdown_timer=%d set_countdown_timer=%d stop_countdown_timer=%d start_countdown_timer=%d if_countdown_timer_stopped=%d if_countdown_timer_less_than=%d if_countdown_timer_greater_than=%d backend=graph.ai.action.timer+ai/ailists.json",
 		s_ActiveScenarioGraphs.level_graph_path,
 		s_ActiveScenarioGraphs.level_ai_restart_timer_node_count,
 		s_ActiveScenarioGraphs.level_ai_reset_timer_node_count,
@@ -11697,13 +12653,13 @@ s32 scenarioSourceActivateGraphsForStage(const catalog_stage_result_t *stage,
 		s_ActiveScenarioGraphs.level_ai_if_countdown_timer_less_than_node_count,
 		s_ActiveScenarioGraphs.level_ai_if_countdown_timer_greater_than_node_count);
 	sysLogPrintf(LOG_NOTE,
-		"SCENARIO.GRAPH: AI HUD message actions '%s' show_hudmsg=%d show_hudmsg_middle=%d show_hudmsg_top_middle=%d backend=graph.ai.action.hud+ai/ailists.tsv",
+		"SCENARIO.GRAPH: AI HUD message actions '%s' show_hudmsg=%d show_hudmsg_middle=%d show_hudmsg_top_middle=%d backend=graph.ai.action.hud+ai/ailists.json",
 		s_ActiveScenarioGraphs.level_graph_path,
 		s_ActiveScenarioGraphs.level_ai_show_hudmsg_node_count,
 		s_ActiveScenarioGraphs.level_ai_show_hudmsg_middle_node_count,
 		s_ActiveScenarioGraphs.level_ai_show_hudmsg_top_middle_node_count);
 	sysLogPrintf(LOG_NOTE,
-		"SCENARIO.GRAPH: AI vehicle motion actions '%s' hovercar_begin_path=%d set_vehicle_speed=%d set_rotor_speed=%d backend=graph.ai.action.vehicle+navigation/paths.tsv",
+		"SCENARIO.GRAPH: AI vehicle motion actions '%s' hovercar_begin_path=%d set_vehicle_speed=%d set_rotor_speed=%d backend=graph.ai.action.vehicle+navigation/paths.json",
 		s_ActiveScenarioGraphs.level_graph_path,
 		s_ActiveScenarioGraphs.level_ai_hovercar_begin_path_node_count,
 		s_ActiveScenarioGraphs.level_ai_set_vehicle_speed_node_count,
@@ -11974,7 +12930,7 @@ static s32 s_aiGraphRequireRuntimeSetupCharacterSource(const char *action)
 {
 	if (!s_aiGraphRuntimeSetupCharacterSourceIsActive()) {
 		return s_aiGraphRuntimeFailure(action,
-			"missing setup.fields.tsv or spawns.tsv source");
+			"missing setup.fields.json or spawns.json source");
 	}
 
 	return 1;
@@ -12182,7 +13138,7 @@ static struct path *s_aiGraphFindRuntimePath(const char *action,
 	}
 	if (!s_ActiveScenarioGraphs.paths_path[0]) {
 		s_aiGraphRuntimeFailure(action,
-			"missing navigation/paths.tsv source");
+			"missing navigation/paths.json source");
 		return NULL;
 	}
 
@@ -12229,7 +13185,7 @@ static s32 s_aiGraphResolveOptionalRuntimePath(const char *action,
 	}
 	if (!s_ActiveScenarioGraphs.paths_path[0]) {
 		s_aiGraphRuntimeFailure(action,
-			"missing navigation/paths.tsv source");
+			"missing navigation/paths.json source");
 		return 0;
 	}
 
@@ -12276,7 +13232,7 @@ static s32 s_aiGraphRequireRuntimePathPointer(const char *action,
 	}
 	if (!s_ActiveScenarioGraphs.paths_path[0]) {
 		return s_aiGraphRuntimeFailure(action,
-			"missing navigation/paths.tsv source");
+			"missing navigation/paths.json source");
 	}
 
 	path_count = s_countRuntimePaths();
@@ -12311,7 +13267,7 @@ static s32 s_aiGraphRequireRuntimePathPads(const char *action,
 	}
 	if (!s_ActiveScenarioGraphs.pads_path[0]) {
 		return s_aiGraphRuntimeFailure(action,
-			"missing pads.tsv source for navigation path pads");
+			"missing pads.json source for navigation path pads");
 	}
 	if (!path->pads || path->len == 0) {
 		snprintf(reason, sizeof(reason),
@@ -12344,7 +13300,7 @@ static s32 s_aiGraphRequireRuntimePad(const char *action, s32 pad_id,
 		*out_pad_count = 0;
 	}
 	if (!s_ActiveScenarioGraphs.pads_path[0]) {
-		s_aiGraphRuntimeFailure(action, "missing pads.tsv source");
+		s_aiGraphRuntimeFailure(action, "missing pads.json source");
 		return 0;
 	}
 
@@ -12385,7 +13341,7 @@ static s32 s_aiGraphRequireRuntimeObjectTag(const char *action,
 		*out_object_count = 0;
 	}
 	if (!s_ActiveScenarioGraphs.objects_path[0]) {
-		s_aiGraphRuntimeFailure(action, "missing objects.tsv source");
+		s_aiGraphRuntimeFailure(action, "missing objects.json source");
 		return 0;
 	}
 
@@ -12439,7 +13395,7 @@ static s32 s_aiGraphResolveOptionalRuntimeObjectTag(const char *action,
 		*out_obj = NULL;
 	}
 	if (!s_ActiveScenarioGraphs.objects_path[0]) {
-		s_aiGraphRuntimeFailure(action, "missing objects.tsv source");
+		s_aiGraphRuntimeFailure(action, "missing objects.json source");
 		return 0;
 	}
 
@@ -12500,7 +13456,7 @@ static s32 s_aiGraphRequireRuntimeSetupTag(const char *action,
 		*out_tag_count = 0;
 	}
 	if (!s_ActiveScenarioGraphs.setup_fields_path[0]) {
-		s_aiGraphRuntimeFailure(action, "missing setup.fields.tsv source");
+		s_aiGraphRuntimeFailure(action, "missing setup.fields.json source");
 		return 0;
 	}
 
@@ -13131,7 +14087,7 @@ static s32 s_aiGraphRequireRuntimePadTable(const char *action,
 		*out_pad_count = 0;
 	}
 	if (!s_ActiveScenarioGraphs.pads_path[0]) {
-		s_aiGraphRuntimeFailure(action, "missing pads.tsv source");
+		s_aiGraphRuntimeFailure(action, "missing pads.json source");
 		return 0;
 	}
 
@@ -13204,7 +14160,7 @@ static s32 s_aiGraphRequireRuntimeCoverTable(const char *action,
 	}
 	if (!s_ActiveScenarioGraphs.covers_path[0]) {
 		s_aiGraphRuntimeFailure(action,
-			"missing navigation/covers.tsv source");
+			"missing navigation/covers.json source");
 		return 0;
 	}
 
@@ -13240,17 +14196,17 @@ static s32 s_aiGraphRequireRuntimeNavigationTables(const char *action,
 	}
 
 	if (!s_ActiveScenarioGraphs.pads_path[0]) {
-		s_aiGraphRuntimeFailure(action, "missing pads.tsv source");
+		s_aiGraphRuntimeFailure(action, "missing pads.json source");
 		return 0;
 	}
 	if (!s_ActiveScenarioGraphs.waypoints_path[0]) {
 		s_aiGraphRuntimeFailure(action,
-			"missing navigation/waypoints.tsv source");
+			"missing navigation/waypoints.json source");
 		return 0;
 	}
 	if (!s_ActiveScenarioGraphs.waygroups_path[0]) {
 		s_aiGraphRuntimeFailure(action,
-			"missing navigation/waygroups.tsv source");
+			"missing navigation/waygroups.json source");
 		return 0;
 	}
 
@@ -13398,7 +14354,7 @@ static s32 s_aiGraphRequireListControlNode(const char *action,
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
 		s_aiGraphRuntimeFailure(action,
-			"missing ai/ailists.tsv source");
+			"missing ai/ailists.json source");
 		return -1;
 	}
 	return 1;
@@ -13420,7 +14376,7 @@ static s32 s_aiGraphRequireBasicMotionNode(const char *action,
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
 		s_aiGraphRuntimeFailure(action,
-			"missing ai/ailists.tsv source");
+			"missing ai/ailists.json source");
 		return -1;
 	}
 	return 1;
@@ -13442,23 +14398,67 @@ static s32 s_aiGraphRequireAnimationNode(const char *action,
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
 		s_aiGraphRuntimeFailure(action,
-			"missing ai/ailists.tsv source");
+			"missing ai/ailists.json source");
 		return -1;
 	}
 	return 1;
 }
 
 static const char *s_aiGraphResolveAnimationCatalogId(const char *action,
-	s32 anim_id, const char *role)
+	s32 anim_id, const char *role, const char **out_source_path,
+	u32 *out_clip_size)
 {
 	CatalogResolveResult result;
 	const asset_entry_t *entry;
 	char reason[128];
+	const void *clip;
+
+	if (out_source_path) {
+		*out_source_path = NULL;
+	}
+	if (out_clip_size) {
+		*out_clip_size = 0;
+	}
 
 	result = catalogResolveAnim(anim_id);
 	if (result.catalog_id >= 0) {
 		entry = assetCatalogGetByIndex(result.catalog_id);
 		if (entry && entry->id[0]) {
+			u32 clip_size = 0;
+
+			if (!result.is_mod_override || !result.path || !result.path[0]) {
+				snprintf(reason, sizeof(reason),
+					"%s animation %s has no public .pdanim source",
+					role, entry->id);
+				s_aiGraphRuntimeFailure(action, reason);
+				return NULL;
+			}
+			clip = catalogGetLoadedAnimationClip(entry->id, NULL,
+				&clip_size);
+			if (!clip || clip_size == 0) {
+				if (!catalogLoadTypedAsset(ASSET_ANIMATION, entry->id)) {
+					snprintf(reason, sizeof(reason),
+						"%s animation %s failed public .pdanim load",
+						role, entry->id);
+					s_aiGraphRuntimeFailure(action, reason);
+					return NULL;
+				}
+				clip = catalogGetLoadedAnimationClip(entry->id, NULL,
+					&clip_size);
+				if (!clip || clip_size == 0) {
+					snprintf(reason, sizeof(reason),
+						"%s animation %s has no compiled public clip",
+						role, entry->id);
+					s_aiGraphRuntimeFailure(action, reason);
+					return NULL;
+				}
+			}
+			if (out_source_path) {
+				*out_source_path = result.path;
+			}
+			if (out_clip_size) {
+				*out_clip_size = clip_size;
+			}
 			return entry->id;
 		}
 	}
@@ -13500,20 +14500,20 @@ static s32 s_aiGraphResolveSpecialDeathAnimationCatalogIds(
 	if (specialdie == SPECIALDIE_ONCHAIR) {
 		anim_id = s_aiGraphResolveAnimationCatalogId(action,
 			g_SpecialDieAnims[SPECIALDIE_ONCHAIR].animnum,
-			"special death chair");
+			"special death chair", NULL, NULL);
 		alt_anim_id = s_aiGraphResolveAnimationCatalogId(action,
 			g_SpecialDieAnims[SPECIALDIE_ONCHAIR + 1].animnum,
-			"special death chair alternate");
+			"special death chair alternate", NULL, NULL);
 		chair_fallback_anim_id = s_aiGraphResolveAnimationCatalogId(action,
 			g_SpecialDieAnims[SPECIALDIE_ONCHAIR - 1].animnum,
-			"special death chair fallback");
+			"special death chair fallback", NULL, NULL);
 		if (!anim_id || !alt_anim_id || !chair_fallback_anim_id) {
 			return 0;
 		}
 	} else {
 		anim_id = s_aiGraphResolveAnimationCatalogId(action,
 			g_SpecialDieAnims[specialdie - 1].animnum,
-			"special death");
+			"special death", NULL, NULL);
 		if (!anim_id) {
 			return 0;
 		}
@@ -13662,7 +14662,7 @@ static s32 s_aiGraphRequireRandomControlNode(const char *kind,
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
 		return s_aiGraphRuntimeFailure(name,
-			"missing ai/ailists.tsv source");
+			"missing ai/ailists.json source");
 	}
 	return 1;
 }
@@ -13682,7 +14682,7 @@ static s32 s_aiGraphRequireDebugNoOpNode(const char *action,
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
 		return s_aiGraphRuntimeFailure(action,
-			"missing ai/ailists.tsv source");
+			"missing ai/ailists.json source");
 	}
 	return 1;
 }
@@ -13723,8 +14723,8 @@ s32 scenarioSourceAiGraphExecuteStop(struct chrdata *chr,
 
 	if (!s_ActiveScenarioGraphs.ai_action_stop_logged) {
 		const char *backend = vehicle_count > 0
-			? "graph.ai.action.basic_motion+ai/ailists.tsv+objects.tsv"
-			: "graph.ai.action.basic_motion+ai/ailists.tsv";
+			? "graph.ai.action.basic_motion+ai/ailists.json+objects.json"
+			: "graph.ai.action.basic_motion+ai/ailists.json";
 		const char *objects_path = vehicle_count > 0
 			? s_ActiveScenarioGraphs.objects_path : "";
 		sysLogPrintf(LOG_NOTE,
@@ -13756,7 +14756,7 @@ s32 scenarioSourceAiGraphExecuteKneel(struct chrdata *chr)
 
 	if (!s_ActiveScenarioGraphs.ai_action_kneel_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action kneel chr=%d chr_rows=%d source_chr=%d source=%s backend=graph.ai.action.basic_motion+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action kneel chr=%d chr_rows=%d source_chr=%d source=%s backend=graph.ai.action.basic_motion+ai/ailists.json",
 			chr ? 1 : 0, chr_count, source_chr,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_kneel_logged = 1;
@@ -13779,7 +14779,7 @@ static s32 s_aiGraphRequireCharacterLifecycleNode(const char *action,
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
 		return s_aiGraphRuntimeFailure(action,
-			"missing ai/ailists.tsv source");
+			"missing ai/ailists.json source");
 	}
 	return 1;
 }
@@ -13803,7 +14803,7 @@ s32 scenarioSourceAiGraphExecuteSurrender(struct chrdata *chr)
 
 	if (!s_ActiveScenarioGraphs.ai_action_surrender_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action surrender chr=%d chr_rows=%d source_chr=%d source=%s backend=graph.ai.action.character_lifecycle+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action surrender chr=%d chr_rows=%d source_chr=%d source=%s backend=graph.ai.action.character_lifecycle+ai/ailists.json",
 			chr ? 1 : 0, chr_count, source_chr,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_surrender_logged = 1;
@@ -13830,7 +14830,7 @@ s32 scenarioSourceAiGraphExecuteFadeOut(struct chrdata *chr)
 
 	if (!s_ActiveScenarioGraphs.ai_action_fade_out_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action fade_out chr=%d chr_rows=%d source_chr=%d source=%s backend=graph.ai.action.character_lifecycle+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action fade_out chr=%d chr_rows=%d source_chr=%d source=%s backend=graph.ai.action.character_lifecycle+ai/ailists.json",
 			chr ? 1 : 0, chr_count, source_chr,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_fade_out_logged = 1;
@@ -13861,7 +14861,7 @@ s32 scenarioSourceAiGraphExecuteRemoveChr(struct chrdata *basechr, s32 chrnum)
 
 	if (!s_ActiveScenarioGraphs.ai_action_remove_chr_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action remove_chr chr=%d chr_rows=%d target_chr=%d applied=%d source=%s backend=graph.ai.action.character_lifecycle+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action remove_chr chr=%d chr_rows=%d target_chr=%d applied=%d source=%s backend=graph.ai.action.character_lifecycle+ai/ailists.json",
 			chrnum, chr_count, chr ? chr->chrnum : -1, applied,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_remove_chr_logged = 1;
@@ -13884,7 +14884,7 @@ static s32 s_aiGraphRequireCombatNode(const char *kind, const char *action,
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
 		return s_aiGraphRuntimeFailure(action,
-			"missing ai/ailists.tsv source");
+			"missing ai/ailists.json source");
 	}
 	return 1;
 }
@@ -13899,7 +14899,7 @@ static s32 s_aiGraphExecuteCombatTry(const char *action, s32 node_count,
 	s_aiGraphApplyBranch(result, label, false_offset);
 	if (logged && !*logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action %s chr=%d chr_rows=%d source_chr=%d label=%d result=%d source=%s backend=graph.ai.action.combat+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action %s chr=%d chr_rows=%d source_chr=%d label=%d result=%d source=%s backend=graph.ai.action.combat+ai/ailists.json",
 			action, chr ? 1 : 0, chr_count, source_chr, label, result,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		*logged = 1;
@@ -14110,7 +15110,7 @@ s32 scenarioSourceAiGraphExecuteIfAttackLocked(struct chrdata *chr, s32 label)
 	s_aiGraphApplyBranch(result, label, 3);
 	if (!s_ActiveScenarioGraphs.ai_condition_if_attack_locked_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_attack_locked chr_rows=%d source_chr=%d label=%d result=%d source=%s backend=graph.ai.action.combat+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI condition if_attack_locked chr_rows=%d source_chr=%d label=%d result=%d source=%s backend=graph.ai.action.combat+ai/ailists.json",
 			chr_count, source_chr, label, result,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_condition_if_attack_locked_logged = 1;
@@ -14136,7 +15136,7 @@ s32 scenarioSourceAiGraphExecuteIfAttacking(struct chrdata *chr, s32 label)
 	s_aiGraphApplyBranch(result, label, 3);
 	if (!s_ActiveScenarioGraphs.ai_condition_if_attacking_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_attacking chr_rows=%d source_chr=%d label=%d result=%d source=%s backend=graph.ai.action.combat+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI condition if_attacking chr_rows=%d source_chr=%d label=%d result=%d source=%s backend=graph.ai.action.combat+ai/ailists.json",
 			chr_count, source_chr, label, result,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_condition_if_attacking_logged = 1;
@@ -14177,8 +15177,8 @@ s32 scenarioSourceAiGraphExecuteTryModifyAttack(struct chrdata *chr,
 	s_aiGraphApplyBranch(result, label, 7);
 	if (!s_ActiveScenarioGraphs.ai_action_try_modify_attack_logged) {
 		const char *backend = vehicle_count > 0
-			? "graph.ai.action.combat+ai/ailists.tsv+objects.tsv"
-			: "graph.ai.action.combat+ai/ailists.tsv";
+			? "graph.ai.action.combat+ai/ailists.json+objects.json"
+			: "graph.ai.action.combat+ai/ailists.json";
 		const char *objects_path = vehicle_count > 0
 			? s_ActiveScenarioGraphs.objects_path : "";
 		sysLogPrintf(LOG_NOTE,
@@ -14213,7 +15213,7 @@ s32 scenarioSourceAiGraphExecuteFaceEntity(struct chrdata *chr,
 	s_aiGraphApplyBranch(result, label, 7);
 	if (!s_ActiveScenarioGraphs.ai_action_face_entity_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action face_entity chr=%d chr_rows=%d source_chr=%d type=%u id=%u label=%d result=%d source=%s backend=graph.ai.action.combat+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action face_entity chr=%d chr_rows=%d source_chr=%d type=%u id=%u label=%d result=%d source=%s backend=graph.ai.action.combat+ai/ailists.json",
 			chr ? 1 : 0, chr_count, source_chr, (unsigned)thingtype,
 			(unsigned)thingid, label, result,
 			s_ActiveScenarioGraphs.ai_lists_path);
@@ -14253,7 +15253,7 @@ s32 scenarioSourceAiGraphExecuteApplyGsetDamage(struct chrdata *basechr,
 	g_Vars.aioffset += 8;
 	if (!s_ActiveScenarioGraphs.ai_action_apply_gset_damage_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action apply_gset_damage chr=%d chr_rows=%d target_chr=%d hitpart=%d applied=%d source=%s backend=graph.ai.action.combat+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action apply_gset_damage chr=%d chr_rows=%d target_chr=%d hitpart=%d applied=%d source=%s backend=graph.ai.action.combat+ai/ailists.json",
 			chrnum, chr_count, chr ? chr->chrnum : -1, hitpart, applied,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_apply_gset_damage_logged = 1;
@@ -14312,7 +15312,7 @@ s32 scenarioSourceAiGraphExecuteChrDamageChr(struct chrdata *basechr,
 	g_Vars.aioffset += 5;
 	if (!s_ActiveScenarioGraphs.ai_action_chr_damage_chr_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action chr_damage_chr attacker=%d attacker_chr_rows=%d source_attacker_chr=%d victim=%d victim_chr_rows=%d source_victim_chr=%d hitpart=%d applied=%d source=%s backend=graph.ai.action.combat+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action chr_damage_chr attacker=%d attacker_chr_rows=%d source_attacker_chr=%d victim=%d victim_chr_rows=%d source_victim_chr=%d hitpart=%d applied=%d source=%s backend=graph.ai.action.combat+ai/ailists.json",
 			attacker_chrnum, attacker_chr_count, chr1 ? chr1->chrnum : -1,
 			victim_chrnum, victim_chr_count, chr2 ? chr2->chrnum : -1,
 			hitpart, applied,
@@ -14344,7 +15344,7 @@ s32 scenarioSourceAiGraphExecuteConsiderGrenadeThrow(struct chrdata *chr,
 	s_aiGraphApplyBranch(result, label, 7);
 	if (!s_ActiveScenarioGraphs.ai_condition_consider_grenade_throw_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition consider_grenade_throw chr=%d chr_rows=%d source_chr=%d type=%u id=%u label=%d result=%d source=%s backend=graph.ai.action.combat+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI condition consider_grenade_throw chr=%d chr_rows=%d source_chr=%d type=%u id=%u label=%d result=%d source=%s backend=graph.ai.action.combat+ai/ailists.json",
 			chr ? 1 : 0, chr_count, source_chr, (unsigned)thingtype,
 			(unsigned)thingid, label, result,
 			s_ActiveScenarioGraphs.ai_lists_path);
@@ -14384,7 +15384,7 @@ s32 scenarioSourceAiGraphExecuteDropItem(struct chrdata *chr,
 	s_aiGraphApplyBranch(result, label, 6);
 	if (!s_ActiveScenarioGraphs.ai_action_drop_item_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action drop_item chr=%d chr_rows=%d source_chr=%d model_id=%s weapon_id=%s label=%d result=%d source=%s backend=graph.ai.action.combat+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action drop_item chr=%d chr_rows=%d source_chr=%d model_id=%s weapon_id=%s label=%d result=%d source=%s backend=graph.ai.action.combat+ai/ailists.json",
 			chr ? 1 : 0, chr_count, source_chr, model_id, weapon_id, label,
 			result,
 			s_ActiveScenarioGraphs.ai_lists_path);
@@ -14408,7 +15408,7 @@ static s32 s_aiGraphRequireTargetMovementNode(const char *action,
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
 		return s_aiGraphRuntimeFailure(action,
-			"missing ai/ailists.tsv source");
+			"missing ai/ailists.json source");
 	}
 	return 1;
 }
@@ -14433,7 +15433,7 @@ static s32 s_aiGraphExecuteTargetMovementTry(const char *action,
 	s_aiGraphApplyBranch(result, label, false_offset);
 	if (logged && !*logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action %s chr=%d chr_rows=%d source_chr=%d target_chr=%d target_chr_rows=%d resolved_target_chr=%d label=%d result=%d source=%s backend=graph.ai.action.target_movement+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action %s chr=%d chr_rows=%d source_chr=%d target_chr=%d target_chr_rows=%d resolved_target_chr=%d label=%d result=%d source=%s backend=graph.ai.action.target_movement+ai/ailists.json",
 			action, chr ? 1 : 0, chr_count, source_chr, target_chrnum,
 			target_chr_count, resolved_target_chr, label, result,
 			s_ActiveScenarioGraphs.ai_lists_path);
@@ -14624,7 +15624,7 @@ static s32 s_aiGraphRequirePerceptionAlarmNode(const char *kind,
 		return -1;
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
-		s_aiGraphRuntimeFailure(name, "missing ai/ailists.tsv source");
+		s_aiGraphRuntimeFailure(name, "missing ai/ailists.json source");
 		return -1;
 	}
 	return 1;
@@ -14650,7 +15650,7 @@ static s32 s_aiGraphExecutePerceptionAlarmBranch(const char *kind,
 	s_aiGraphApplyBranch(branch_taken, label, false_offset);
 	if (logged && !*logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI %s %s chr_rows=%d source_chr=%d value=%d label=%d result=%d source=%s backend=graph.ai.condition.perception_alarm+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI %s %s chr_rows=%d source_chr=%d value=%d label=%d result=%d source=%s backend=graph.ai.condition.perception_alarm+ai/ailists.json",
 			kind, name, chr_count, source_chr, value, label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		*logged = 1;
@@ -14859,8 +15859,8 @@ s32 scenarioSourceAiGraphExecuteIfLosToTarget(struct chrdata *chr,
 	s_aiGraphApplyBranch(branch_taken, label, 3);
 	if (!s_ActiveScenarioGraphs.ai_condition_if_los_to_target_logged) {
 		const char *backend = vehicle_count > 0
-			? "graph.ai.condition.perception_alarm+ai/ailists.tsv+objects.tsv"
-			: "graph.ai.condition.perception_alarm+ai/ailists.tsv";
+			? "graph.ai.condition.perception_alarm+ai/ailists.json+objects.json"
+			: "graph.ai.condition.perception_alarm+ai/ailists.json";
 		const char *objects_path = vehicle_count > 0
 			? s_ActiveScenarioGraphs.objects_path : "";
 		sysLogPrintf(LOG_NOTE,
@@ -14910,8 +15910,8 @@ s32 scenarioSourceAiGraphExecuteIfLosToAttackTarget(struct chrdata *chr,
 	if (!s_ActiveScenarioGraphs
 			.ai_condition_if_los_to_attack_target_logged) {
 		const char *backend = vehicle_count > 0
-			? "graph.ai.condition.perception_alarm+ai/ailists.tsv+objects.tsv"
-			: "graph.ai.condition.perception_alarm+ai/ailists.tsv";
+			? "graph.ai.condition.perception_alarm+ai/ailists.json+objects.json"
+			: "graph.ai.condition.perception_alarm+ai/ailists.json";
 		const char *objects_path = vehicle_count > 0
 			? s_ActiveScenarioGraphs.objects_path : "";
 		sysLogPrintf(LOG_NOTE,
@@ -15008,7 +16008,7 @@ s32 scenarioSourceAiGraphExecuteSetPadPresetToPadOnRouteToTarget(
 			!s_ActiveScenarioGraphs.waygroups_path[0] ||
 			!s_ActiveScenarioGraphs.paths_path[0]) {
 		s_aiGraphRuntimeFailure("set_pad_preset_to_pad_on_route_to_target",
-			"missing pads.tsv or navigation source");
+			"missing pads.json or navigation source");
 		return 1;
 	}
 	if (!s_aiGraphRequireRuntimeNavigationTables(
@@ -15035,7 +16035,7 @@ s32 scenarioSourceAiGraphExecuteSetPadPresetToPadOnRouteToTarget(
 	if (!s_ActiveScenarioGraphs
 			.ai_action_set_pad_preset_to_pad_on_route_to_target_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action set_pad_preset_to_pad_on_route_to_target chr_rows=%d source_chr=%d label=%d pad=%d found=%d pad_rows=%d waypoint_rows=%d waygroup_rows=%d result=%d source=%s pads=%s waypoints=%s waygroups=%s paths=%s backend=graph.ai.condition.perception_alarm+ai/ailists.tsv+pads.tsv+navigation/paths.tsv",
+			"SCENARIO.GRAPH: AI action set_pad_preset_to_pad_on_route_to_target chr_rows=%d source_chr=%d label=%d pad=%d found=%d pad_rows=%d waypoint_rows=%d waygroup_rows=%d result=%d source=%s pads=%s waypoints=%s waygroups=%s paths=%s backend=graph.ai.condition.perception_alarm+ai/ailists.json+pads.json+navigation/paths.json",
 			chr_count, source_chr, label, selected_pad, branch_taken ? 1 : 0, pad_count,
 			waypoint_count, waygroup_count, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path,
@@ -15120,17 +16120,17 @@ static s32 s_aiGraphExecuteSpatialPerceptionBranch(const char *name,
 		return 0;
 	}
 	if (require_pads && !s_ActiveScenarioGraphs.pads_path[0]) {
-		s_aiGraphRuntimeFailure(name, "missing pads.tsv source");
+		s_aiGraphRuntimeFailure(name, "missing pads.json source");
 		return -1;
 	}
 	if (require_objects && !s_ActiveScenarioGraphs.objects_path[0]) {
-		s_aiGraphRuntimeFailure(name, "missing objects.tsv source");
+		s_aiGraphRuntimeFailure(name, "missing objects.json source");
 		return 1;
 	}
 	s_aiGraphApplyBranch(branch_taken, label, false_offset);
 	if (logged && !*logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition %s chr_rows=%d source_chr=%d value=%d label=%d result=%d source=%s backend=graph.ai.condition.spatial_perception+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI condition %s chr_rows=%d source_chr=%d value=%d label=%d result=%d source=%s backend=graph.ai.condition.spatial_perception+ai/ailists.json",
 			name, chr_count, source_chr, value, label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		*logged = 1;
@@ -15150,11 +16150,11 @@ static s32 s_aiGraphRequireSpatialPerceptionActor(const char *name,
 		return required;
 	}
 	if (require_pads && !s_ActiveScenarioGraphs.pads_path[0]) {
-		s_aiGraphRuntimeFailure(name, "missing pads.tsv source");
+		s_aiGraphRuntimeFailure(name, "missing pads.json source");
 		return -1;
 	}
 	if (require_objects && !s_ActiveScenarioGraphs.objects_path[0]) {
-		s_aiGraphRuntimeFailure(name, "missing objects.tsv source");
+		s_aiGraphRuntimeFailure(name, "missing objects.json source");
 		return -1;
 	}
 	if (!s_aiGraphRequireOptionalRuntimeCharacterPointer(name, chr,
@@ -15183,13 +16183,13 @@ static s32 s_aiGraphExecuteDistancePerceptionBranch(const char *name,
 		return 0;
 	}
 	if (require_pads && !s_ActiveScenarioGraphs.pads_path[0]) {
-		s_aiGraphRuntimeFailure(name, "missing pads.tsv source");
+		s_aiGraphRuntimeFailure(name, "missing pads.json source");
 		return 1;
 	}
 	s_aiGraphApplyBranch(branch_taken, label, false_offset);
 	if (logged && !*logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition %s value=%d chr_rows=%d source_chr=%d label=%d result=%d source=%s backend=graph.ai.condition.distance_perception+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI condition %s value=%d chr_rows=%d source_chr=%d label=%d result=%d source=%s backend=graph.ai.condition.distance_perception+ai/ailists.json",
 			name, value, chr_count, source_chr, label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		*logged = 1;
@@ -15209,7 +16209,7 @@ static s32 s_aiGraphRequireDistancePerceptionActor(const char *name,
 		return required;
 	}
 	if (require_pads && !s_ActiveScenarioGraphs.pads_path[0]) {
-		s_aiGraphRuntimeFailure(name, "missing pads.tsv source");
+		s_aiGraphRuntimeFailure(name, "missing pads.json source");
 		return -1;
 	}
 	if (!s_aiGraphRequireOptionalRuntimeCharacterPointer(name, chr,
@@ -15233,7 +16233,7 @@ static s32 s_aiGraphRequirePadDistancePerceptionSource(const char *name,
 		return 0;
 	}
 	if (!s_ActiveScenarioGraphs.pads_path[0]) {
-		s_aiGraphRuntimeFailure(name, "missing pads.tsv source");
+		s_aiGraphRuntimeFailure(name, "missing pads.json source");
 		s_aiGraphApplyBranch(0, label, false_offset);
 		return -1;
 	}
@@ -15286,7 +16286,7 @@ static void s_aiGraphLogPadDistancePerceptionBranch(const char *name,
 {
 	if (logged && !*logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition %s value=%d pad=%d found=1 pad_rows=%d chr_rows=%d source_chr=%d label=%d result=%d source=%s pads=%s backend=graph.ai.condition.distance_perception+ai/ailists.tsv+pads.tsv",
+			"SCENARIO.GRAPH: AI condition %s value=%d pad=%d found=1 pad_rows=%d chr_rows=%d source_chr=%d label=%d result=%d source=%s pads=%s backend=graph.ai.condition.distance_perception+ai/ailists.json+pads.json",
 			name, value, padnum, pad_count, chr_count, source_chr,
 			label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path,
@@ -15312,11 +16312,11 @@ static s32 s_aiGraphPrepareRoomObjectWeaponBranch(const char *name,
 		return 0;
 	}
 	if (require_pads && !s_ActiveScenarioGraphs.pads_path[0]) {
-		s_aiGraphRuntimeFailure(name, "missing pads.tsv source");
+		s_aiGraphRuntimeFailure(name, "missing pads.json source");
 		return 1;
 	}
 	if (require_objects && !s_ActiveScenarioGraphs.objects_path[0]) {
-		s_aiGraphRuntimeFailure(name, "missing objects.tsv source");
+		s_aiGraphRuntimeFailure(name, "missing objects.json source");
 		return -1;
 	}
 	return 1;
@@ -15327,7 +16327,7 @@ static void s_aiGraphLogRoomObjectWeaponBranch(const char *name, s32 value,
 {
 	if (logged && !*logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition %s value=%d label=%d result=%d source=%s backend=graph.ai.condition.room_object_weapon+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI condition %s value=%d label=%d result=%d source=%s backend=graph.ai.condition.room_object_weapon+ai/ailists.json",
 			name, value, label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		*logged = 1;
@@ -15339,7 +16339,7 @@ static void s_aiGraphLogRoomObjectWeaponBranchWeapon(const char *name,
 {
 	if (logged && !*logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition %s weapon_id=%s label=%d result=%d source=%s backend=graph.ai.condition.room_object_weapon+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI condition %s weapon_id=%s label=%d result=%d source=%s backend=graph.ai.condition.room_object_weapon+ai/ailists.json",
 			name, weapon_id, label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		*logged = 1;
@@ -15352,7 +16352,7 @@ static void s_aiGraphLogRoomObjectWeaponBranchWeaponObject(
 {
 	if (logged && !*logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition %s tag=%d object_rows=%d weapon_id=%s label=%d result=%d source=%s objects=%s backend=graph.ai.condition.room_object_weapon+ai/ailists.tsv+objects.tsv",
+			"SCENARIO.GRAPH: AI condition %s tag=%d object_rows=%d weapon_id=%s label=%d result=%d source=%s objects=%s backend=graph.ai.condition.room_object_weapon+ai/ailists.json+objects.json",
 			name, tag_id, object_count, weapon_id, label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path,
 			s_ActiveScenarioGraphs.objects_path);
@@ -15618,7 +16618,7 @@ s32 scenarioSourceAiGraphExecuteIfRoomIsOnScreen(struct chrdata *chr,
 	}
 	if (!s_ActiveScenarioGraphs.pads_path[0]) {
 		s_aiGraphRuntimeFailure("if_room_is_on_screen",
-			"missing pads.tsv source");
+			"missing pads.json source");
 		s_aiGraphApplyBranch(0, label, 5);
 		return 1;
 	}
@@ -15638,7 +16638,7 @@ s32 scenarioSourceAiGraphExecuteIfRoomIsOnScreen(struct chrdata *chr,
 	s_aiGraphApplyBranch(branch, label, 5);
 	if (!s_ActiveScenarioGraphs.ai_condition_if_room_is_on_screen_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_room_is_on_screen chr_rows=%d source_chr=%d pad=%d found=1 pad_rows=%d room=%d label=%d result=%d source=%s pads=%s backend=graph.ai.condition.spatial_perception+ai/ailists.tsv+pads.tsv",
+			"SCENARIO.GRAPH: AI condition if_room_is_on_screen chr_rows=%d source_chr=%d pad=%d found=1 pad_rows=%d room=%d label=%d result=%d source=%s pads=%s backend=graph.ai.condition.spatial_perception+ai/ailists.json+pads.json",
 			chr_count, source_chr, pad, pad_count, room_id, label, branch,
 			s_ActiveScenarioGraphs.ai_lists_path,
 			s_ActiveScenarioGraphs.pads_path);
@@ -16228,7 +17228,7 @@ s32 scenarioSourceAiGraphExecuteIfChrInRoom(struct chrdata *basechr,
 	s_aiGraphApplyBranch(branch, label, 7);
 	if (!s_ActiveScenarioGraphs.ai_condition_if_chr_in_room_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_chr_in_room chr=%d room_type=%d pad=%d found=%d pad_rows=%d checked_players=%d room=%d label=%d result=%d source=%s pads=%s backend=graph.ai.condition.room_object_weapon+ai/ailists.tsv+pads.tsv",
+			"SCENARIO.GRAPH: AI condition if_chr_in_room chr=%d room_type=%d pad=%d found=%d pad_rows=%d checked_players=%d room=%d label=%d result=%d source=%s pads=%s backend=graph.ai.condition.room_object_weapon+ai/ailists.json+pads.json",
 			chrnum, room_type, padnum, room_type != 1, pad_count,
 			checked_players, room, label, branch,
 			s_ActiveScenarioGraphs.ai_lists_path,
@@ -16262,7 +17262,7 @@ s32 scenarioSourceAiGraphExecuteIfTargetInRoom(struct chrdata *chr,
 	s_aiGraphApplyBranch(branch, label, 5);
 	if (!s_ActiveScenarioGraphs.ai_condition_if_target_in_room_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_target_in_room pad=%d found=1 pad_rows=%d room=%d label=%d result=%d source=%s pads=%s backend=graph.ai.condition.room_object_weapon+ai/ailists.tsv+pads.tsv",
+			"SCENARIO.GRAPH: AI condition if_target_in_room pad=%d found=1 pad_rows=%d room=%d label=%d result=%d source=%s pads=%s backend=graph.ai.condition.room_object_weapon+ai/ailists.json+pads.json",
 			padnum, pad_count, room, label, branch,
 			s_ActiveScenarioGraphs.ai_lists_path,
 			s_ActiveScenarioGraphs.pads_path);
@@ -16316,7 +17316,7 @@ s32 scenarioSourceAiGraphExecuteIfChrHasObject(struct chrdata *basechr,
 	s_aiGraphApplyBranch(branch, label, 5);
 	if (!s_ActiveScenarioGraphs.ai_condition_if_chr_has_object_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_chr_has_object chr=%d chr_rows=%d target_chr=%d player_checked=%d tag=%d object_rows=%d label=%d result=%d source=%s objects=%s backend=graph.ai.condition.room_object_weapon+ai/ailists.tsv+objects.tsv",
+			"SCENARIO.GRAPH: AI condition if_chr_has_object chr=%d chr_rows=%d target_chr=%d player_checked=%d tag=%d object_rows=%d label=%d result=%d source=%s objects=%s backend=graph.ai.condition.room_object_weapon+ai/ailists.json+objects.json",
 			chrnum, chr_count, target_chrnum, player_checked, tag_id,
 			object_count, label, branch,
 			s_ActiveScenarioGraphs.ai_lists_path,
@@ -16447,7 +17447,7 @@ s32 scenarioSourceAiGraphExecuteIfChrHasWeaponEquipped(
 	s_aiGraphApplyBranch(branch, label, 5);
 	if (!s_ActiveScenarioGraphs.ai_condition_if_chr_has_weapon_equipped_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_chr_has_weapon_equipped chr=%d chr_rows=%d target_chr=%d player_checked=%d weapon_id=%s label=%d result=%d source=%s backend=graph.ai.condition.room_object_weapon+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI condition if_chr_has_weapon_equipped chr=%d chr_rows=%d target_chr=%d player_checked=%d weapon_id=%s label=%d result=%d source=%s backend=graph.ai.condition.room_object_weapon+ai/ailists.json",
 			chrnum, chr_count, target_chrnum, player_checked, weapon_id,
 			label, branch, s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs
@@ -16548,8 +17548,8 @@ static s32 s_aiGraphRequireObjectInteractionNode(const char *action,
 			(require_pads && !s_ActiveScenarioGraphs.pads_path[0])) {
 		return s_aiGraphRuntimeFailure(action,
 			require_pads
-				? "missing ai/ailists.tsv, objects.tsv, or pads.tsv source"
-				: "missing ai/ailists.tsv or objects.tsv source");
+				? "missing ai/ailists.json, objects.json, or pads.json source"
+				: "missing ai/ailists.json or objects.json source");
 	}
 	return 1;
 }
@@ -16621,7 +17621,7 @@ s32 scenarioSourceAiGraphExecuteIfChrActivatedObject(s32 chrnum,
 	s_aiGraphApplyBranch(branch, label, 5);
 	if (!s_ActiveScenarioGraphs.ai_condition_if_chr_activated_object_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_chr_activated_object chr=%d chr_rows=%d target_chr=%d player_checked=%d tag=%d object_rows=%d result=%d source=%s objects=%s backend=graph.ai.action.object_interaction+ai/ailists.tsv+objects.tsv",
+			"SCENARIO.GRAPH: AI condition if_chr_activated_object chr=%d chr_rows=%d target_chr=%d player_checked=%d tag=%d object_rows=%d result=%d source=%s objects=%s backend=graph.ai.action.object_interaction+ai/ailists.json+objects.json",
 			chrnum, chr_count, chr ? chr->chrnum : -1,
 			player_checked, tag_id, object_count, branch,
 			s_ActiveScenarioGraphs.ai_lists_path,
@@ -16660,7 +17660,7 @@ s32 scenarioSourceAiGraphExecuteObjInteract(s32 tag_id)
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_obj_interact_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action obj_interact tag=%d object_rows=%d applied=%d source=%s objects=%s backend=graph.ai.action.object_interaction+ai/ailists.tsv+objects.tsv",
+			"SCENARIO.GRAPH: AI action obj_interact tag=%d object_rows=%d applied=%d source=%s objects=%s backend=graph.ai.action.object_interaction+ai/ailists.json+objects.json",
 			tag_id, object_count, applied, s_ActiveScenarioGraphs.ai_lists_path,
 			s_ActiveScenarioGraphs.objects_path);
 		s_ActiveScenarioGraphs.ai_action_obj_interact_logged = 1;
@@ -16707,7 +17707,7 @@ s32 scenarioSourceAiGraphExecuteDestroyObject(s32 tag_id)
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_destroy_object_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action destroy_object tag=%d object_rows=%d applied=%d source=%s objects=%s backend=graph.ai.action.object_interaction+ai/ailists.tsv+objects.tsv",
+			"SCENARIO.GRAPH: AI action destroy_object tag=%d object_rows=%d applied=%d source=%s objects=%s backend=graph.ai.action.object_interaction+ai/ailists.json+objects.json",
 			tag_id, object_count, applied, s_ActiveScenarioGraphs.ai_lists_path,
 			s_ActiveScenarioGraphs.objects_path);
 		s_ActiveScenarioGraphs.ai_action_destroy_object_logged = 1;
@@ -16747,7 +17747,7 @@ s32 scenarioSourceAiGraphExecuteDropObjectFromChr(s32 tag_id)
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_drop_object_from_chr_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action drop_object_from_chr tag=%d object_rows=%d chr_rows=%d source_chr=%d applied=%d source=%s objects=%s backend=graph.ai.action.object_interaction+ai/ailists.tsv+objects.tsv",
+			"SCENARIO.GRAPH: AI action drop_object_from_chr tag=%d object_rows=%d chr_rows=%d source_chr=%d applied=%d source=%s objects=%s backend=graph.ai.action.object_interaction+ai/ailists.json+objects.json",
 			tag_id, object_count, chr_count, source_chr, applied,
 			s_ActiveScenarioGraphs.ai_lists_path,
 			s_ActiveScenarioGraphs.objects_path);
@@ -16777,7 +17777,7 @@ s32 scenarioSourceAiGraphExecuteChrDropItems(struct chrdata *basechr,
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_chr_drop_items_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action chr_drop_items chr=%d chr_rows=%d target_chr=%d applied=%d source=%s objects=%s backend=graph.ai.action.object_interaction+ai/ailists.tsv+objects.tsv",
+			"SCENARIO.GRAPH: AI action chr_drop_items chr=%d chr_rows=%d target_chr=%d applied=%d source=%s objects=%s backend=graph.ai.action.object_interaction+ai/ailists.json+objects.json",
 			chrnum, chr_count, chr ? chr->chrnum : -1, applied,
 			s_ActiveScenarioGraphs.ai_lists_path,
 			s_ActiveScenarioGraphs.objects_path);
@@ -16831,7 +17831,7 @@ s32 scenarioSourceAiGraphExecuteChrDropWeapon(struct chrdata *basechr,
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_chr_drop_weapon_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action chr_drop_weapon chr=%d chr_rows=%d target_chr=%d player_checked=%d applied=%d source=%s objects=%s backend=graph.ai.action.object_interaction+ai/ailists.tsv+objects.tsv",
+			"SCENARIO.GRAPH: AI action chr_drop_weapon chr=%d chr_rows=%d target_chr=%d player_checked=%d applied=%d source=%s objects=%s backend=graph.ai.action.object_interaction+ai/ailists.json+objects.json",
 			chrnum, chr_count, chr ? chr->chrnum : -1, player_checked,
 			applied,
 			s_ActiveScenarioGraphs.ai_lists_path,
@@ -16907,7 +17907,7 @@ s32 scenarioSourceAiGraphExecuteGiveObjectToChr(struct chrdata *basechr,
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_give_object_to_chr_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action give_object_to_chr tag=%d chr=%d chr_rows=%d target_chr=%d player_checked=%d object_rows=%d applied=%d source=%s objects=%s backend=graph.ai.action.object_interaction+ai/ailists.tsv+objects.tsv",
+			"SCENARIO.GRAPH: AI action give_object_to_chr tag=%d chr=%d chr_rows=%d target_chr=%d player_checked=%d object_rows=%d applied=%d source=%s objects=%s backend=graph.ai.action.object_interaction+ai/ailists.json+objects.json",
 			tag_id, chrnum, chr_count, chr ? chr->chrnum : -1,
 			player_checked, object_count, applied,
 			s_ActiveScenarioGraphs.ai_lists_path,
@@ -16958,7 +17958,7 @@ s32 scenarioSourceAiGraphExecuteObjectMoveToPad(s32 tag_id, s32 padnum)
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_object_move_to_pad_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action object_move_to_pad tag=%d object_rows=%d pad=%d found=1 pad_rows=%d applied=%d source=%s objects=%s pads=%s backend=graph.ai.action.object_interaction+ai/ailists.tsv+objects.tsv+pads.tsv",
+			"SCENARIO.GRAPH: AI action object_move_to_pad tag=%d object_rows=%d pad=%d found=1 pad_rows=%d applied=%d source=%s objects=%s pads=%s backend=graph.ai.action.object_interaction+ai/ailists.json+objects.json+pads.json",
 			tag_id, object_count, padnum, pad_count, applied,
 			s_ActiveScenarioGraphs.ai_lists_path,
 			s_ActiveScenarioGraphs.objects_path,
@@ -16976,6 +17976,8 @@ s32 scenarioSourceAiGraphExecuteChrDoAnimation(struct chrdata *basechr,
 	f32 fstartframe;
 	f32 fendframe;
 	const char *anim_catalog_id;
+	const char *anim_source_path = "(none)";
+	u32 anim_clip_size = 0;
 	s32 chr_count = 0;
 	s32 player_checked = 0;
 	struct player *player = NULL;
@@ -16985,7 +17987,7 @@ s32 scenarioSourceAiGraphExecuteChrDoAnimation(struct chrdata *basechr,
 		return 0;
 	}
 	anim_catalog_id = s_aiGraphResolveAnimationCatalogId("chr_do_animation",
-		anim_id, "character");
+		anim_id, "character", &anim_source_path, &anim_clip_size);
 	if (!anim_catalog_id) {
 		return 1;
 	}
@@ -17052,9 +18054,10 @@ s32 scenarioSourceAiGraphExecuteChrDoAnimation(struct chrdata *basechr,
 
 	if (!s_ActiveScenarioGraphs.ai_action_chr_do_animation_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action chr_do_animation chr=%d chr_rows=%d target_chr=%d player_checked=%d anim_id=%s target=%d source=%s backend=graph.ai.action.animation+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action chr_do_animation chr=%d chr_rows=%d target_chr=%d player_checked=%d anim_id=%s anim_source=%s clip_bytes=%u target=%d source=%s backend=graph.ai.action.animation+ai/ailists.json",
 			chr ? 1 : 0, chr_count, chr ? chr->chrnum : -1,
-			player_checked, anim_catalog_id, target_chr,
+			player_checked, anim_catalog_id, anim_source_path,
+			anim_clip_size, target_chr,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_chr_do_animation_logged = 1;
 	}
@@ -17080,7 +18083,7 @@ s32 scenarioSourceAiGraphExecuteBeSurprisedOneHand(struct chrdata *chr)
 
 	if (!s_ActiveScenarioGraphs.ai_action_be_surprised_one_hand_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action be_surprised_one_hand chr=%d chr_rows=%d source_chr=%d source=%s backend=graph.ai.action.animation+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action be_surprised_one_hand chr=%d chr_rows=%d source_chr=%d source=%s backend=graph.ai.action.animation+ai/ailists.json",
 			chr ? 1 : 0, chr_count, source_chr,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_be_surprised_one_hand_logged = 1;
@@ -17107,7 +18110,7 @@ s32 scenarioSourceAiGraphExecuteBeSurprisedLookAround(struct chrdata *chr)
 
 	if (!s_ActiveScenarioGraphs.ai_action_be_surprised_look_around_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action be_surprised_look_around chr=%d chr_rows=%d source_chr=%d source=%s backend=graph.ai.action.animation+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action be_surprised_look_around chr=%d chr_rows=%d source_chr=%d source=%s backend=graph.ai.action.animation+ai/ailists.json",
 			chr ? 1 : 0, chr_count, source_chr,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_be_surprised_look_around_logged = 1;
@@ -17134,7 +18137,7 @@ s32 scenarioSourceAiGraphExecuteBeSurprisedSurrender(struct chrdata *chr)
 
 	if (!s_ActiveScenarioGraphs.ai_action_be_surprised_surrender_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action be_surprised_surrender chr=%d chr_rows=%d source_chr=%d source=%s backend=graph.ai.action.animation+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action be_surprised_surrender chr=%d chr_rows=%d source_chr=%d source=%s backend=graph.ai.action.animation+ai/ailists.json",
 			chr ? 1 : 0, chr_count, source_chr,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_be_surprised_surrender_logged = 1;
@@ -17161,7 +18164,7 @@ s32 scenarioSourceAiGraphExecuteRandom(struct chrdata *chr)
 
 	if (!s_ActiveScenarioGraphs.ai_action_random_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action random chr_rows=%d source_chr=%d value=%u source=%s backend=graph.ai.control.random+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action random chr_rows=%d source_chr=%d value=%u source=%s backend=graph.ai.control.random+ai/ailists.json",
 			chr_count, source_chr, (unsigned)chr->random,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_random_logged = 1;
@@ -17194,7 +18197,7 @@ s32 scenarioSourceAiGraphExecuteIfRandomLessThan(struct chrdata *chr,
 
 	if (!s_ActiveScenarioGraphs.ai_condition_if_random_less_than_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_random_less_than chr_rows=%d source_chr=%d threshold=%d label=%d branch=%d source=%s backend=graph.ai.control.random+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI condition if_random_less_than chr_rows=%d source_chr=%d threshold=%d label=%d branch=%d source=%s backend=graph.ai.control.random+ai/ailists.json",
 			chr_count, source_chr, threshold, label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_condition_if_random_less_than_logged = 1;
@@ -17227,7 +18230,7 @@ s32 scenarioSourceAiGraphExecuteIfRandomGreaterThan(struct chrdata *chr,
 
 	if (!s_ActiveScenarioGraphs.ai_condition_if_random_greater_than_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_random_greater_than chr_rows=%d source_chr=%d threshold=%d label=%d branch=%d source=%s backend=graph.ai.control.random+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI condition if_random_greater_than chr_rows=%d source_chr=%d threshold=%d label=%d branch=%d source=%s backend=graph.ai.control.random+ai/ailists.json",
 			chr_count, source_chr, threshold, label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_condition_if_random_greater_than_logged = 1;
@@ -17258,7 +18261,7 @@ s32 scenarioSourceAiGraphExecutePrint(void)
 
 	if (!s_ActiveScenarioGraphs.ai_action_print_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action print len=%u source=%s backend=graph.ai.action.debug_noop+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action print len=%u source=%s backend=graph.ai.action.debug_noop+ai/ailists.json",
 			(unsigned)len, s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_print_logged = 1;
 	}
@@ -17276,7 +18279,7 @@ s32 scenarioSourceAiGraphExecuteNoOp(const char *opcode_name, s32 len)
 
 	if (!s_ActiveScenarioGraphs.ai_action_noop_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action noop opcode=%s len=%d source=%s backend=graph.ai.action.debug_noop+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action noop opcode=%s len=%d source=%s backend=graph.ai.action.debug_noop+ai/ailists.json",
 			opcode_name && opcode_name[0] ? opcode_name : "?",
 			len, s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_noop_logged = 1;
@@ -17315,7 +18318,7 @@ s32 scenarioSourceAiGraphExecuteSetList(s32 target_preset, u16 list_id)
 
 	if (!s_ActiveScenarioGraphs.ai_action_set_list_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action set_list target=%d chr_rows=%d target_chr=%d list=%u source=%s backend=graph.ai.action.list_control+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action set_list target=%d chr_rows=%d target_chr=%d list=%u source=%s backend=graph.ai.action.list_control+ai/ailists.json",
 			target_preset, chr_count, chr ? chr->chrnum : -1,
 			(unsigned)list_id,
 			s_ActiveScenarioGraphs.ai_lists_path);
@@ -17392,7 +18395,7 @@ s32 scenarioSourceAiGraphExecuteSetReturnList(s32 target_preset, u16 list_id)
 	g_Vars.aioffset += 5;
 	if (!s_ActiveScenarioGraphs.ai_action_set_return_list_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action set_return_list target=%d chr_rows=%d source_chr=%d target_chr=%d vehicle_rows=%d source_vehicle_type=%d list=%u source=%s objects=%s backend=graph.ai.action.list_control+ai/ailists.tsv+objects.tsv",
+			"SCENARIO.GRAPH: AI action set_return_list target=%d chr_rows=%d source_chr=%d target_chr=%d vehicle_rows=%d source_vehicle_type=%d list=%u source=%s objects=%s backend=graph.ai.action.list_control+ai/ailists.json+objects.json",
 			target_preset, chr_count, source_chr, chr ? chr->chrnum : -1,
 			vehicle_count, source_vehicle_type, (unsigned)list_id,
 			s_ActiveScenarioGraphs.ai_lists_path,
@@ -17424,7 +18427,7 @@ s32 scenarioSourceAiGraphExecuteSetShotList(u16 list_id)
 	g_Vars.aioffset += 4;
 	if (!s_ActiveScenarioGraphs.ai_action_set_shot_list_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action set_shot_list chr_rows=%d source_chr=%d list=%u applied=%d source=%s backend=graph.ai.action.list_control+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action set_shot_list chr_rows=%d source_chr=%d list=%u applied=%d source=%s backend=graph.ai.action.list_control+ai/ailists.json",
 			chr_count, source_chr, (unsigned)list_id, applied,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_set_shot_list_logged = 1;
@@ -17483,7 +18486,7 @@ s32 scenarioSourceAiGraphExecuteReturnList(void)
 	g_Vars.aioffset = 0;
 	if (!s_ActiveScenarioGraphs.ai_action_return_list_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action return_list chr_rows=%d source_chr=%d vehicle_rows=%d source_vehicle_type=%d list=%u source=%s objects=%s backend=graph.ai.action.list_control+ai/ailists.tsv+objects.tsv",
+			"SCENARIO.GRAPH: AI action return_list chr_rows=%d source_chr=%d vehicle_rows=%d source_vehicle_type=%d list=%u source=%s objects=%s backend=graph.ai.action.list_control+ai/ailists.json+objects.json",
 			chr_count, source_chr, vehicle_count, source_vehicle_type,
 			(unsigned)list_id,
 			s_ActiveScenarioGraphs.ai_lists_path,
@@ -17518,7 +18521,7 @@ static s32 s_aiGraphExecuteSetChrListField(const char *action,
 	g_Vars.aioffset += 4;
 	if (logged && !*logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action %s chr_rows=%d source_chr=%d list=%u applied=%d source=%s backend=graph.ai.action.list_control+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action %s chr_rows=%d source_chr=%d list=%u applied=%d source=%s backend=graph.ai.action.list_control+ai/ailists.json",
 			action, chr_count, source_chr, (unsigned)list_id, applied,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		*logged = 1;
@@ -17578,11 +18581,11 @@ s32 scenarioSourceAiGraphExecuteTryStartAlarm(struct chrdata *chr,
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
 		return s_aiGraphRuntimeFailure("try_start_alarm",
-			"missing ai/ailists.tsv source");
+			"missing ai/ailists.json source");
 	}
 	if (!s_ActiveScenarioGraphs.pads_path[0]) {
 		return s_aiGraphRuntimeFailure("try_start_alarm",
-			"missing pads.tsv source");
+			"missing pads.json source");
 	}
 	if (!s_aiGraphRequireRuntimePad("try_start_alarm", pad_id,
 			&pad_count)) {
@@ -17603,7 +18606,7 @@ s32 scenarioSourceAiGraphExecuteTryStartAlarm(struct chrdata *chr,
 
 	if (!s_ActiveScenarioGraphs.ai_action_try_start_alarm_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action try_start_alarm chr_rows=%d source_chr=%d pad=%d found=1 pad_rows=%d label=%d source=%s backend=graph.ai.action.try_start_alarm+pads.tsv",
+			"SCENARIO.GRAPH: AI action try_start_alarm chr_rows=%d source_chr=%d pad=%d found=1 pad_rows=%d label=%d source=%s backend=graph.ai.action.try_start_alarm+pads.json",
 			chr_count, source_chr, pad_id, pad_count, label,
 			s_ActiveScenarioGraphs.pads_path);
 		s_ActiveScenarioGraphs.ai_action_try_start_alarm_logged = 1;
@@ -17622,13 +18625,13 @@ s32 scenarioSourceAiGraphExecuteActivateAlarm(void)
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
 		return s_aiGraphRuntimeFailure("activate_alarm",
-			"missing ai/ailists.tsv source");
+			"missing ai/ailists.json source");
 	}
 	alarmActivate();
 	g_Vars.aioffset += 2;
 	if (!s_ActiveScenarioGraphs.ai_action_activate_alarm_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action activate_alarm source=%s backend=graph.ai.action.activate_alarm+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action activate_alarm source=%s backend=graph.ai.action.activate_alarm+ai/ailists.json",
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_activate_alarm_logged = 1;
 	}
@@ -17646,13 +18649,13 @@ s32 scenarioSourceAiGraphExecuteDeactivateAlarm(void)
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
 		return s_aiGraphRuntimeFailure("deactivate_alarm",
-			"missing ai/ailists.tsv source");
+			"missing ai/ailists.json source");
 	}
 	alarmDeactivate();
 	g_Vars.aioffset += 2;
 	if (!s_ActiveScenarioGraphs.ai_action_deactivate_alarm_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action deactivate_alarm source=%s backend=graph.ai.action.deactivate_alarm+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action deactivate_alarm source=%s backend=graph.ai.action.deactivate_alarm+ai/ailists.json",
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_deactivate_alarm_logged = 1;
 	}
@@ -17673,7 +18676,7 @@ static s32 s_aiGraphExecuteGoToPad(struct chrdata *chr, s32 pad,
 		return s_aiGraphRuntimeFailure(action, "missing chr");
 	}
 	if (!s_ActiveScenarioGraphs.pads_path[0]) {
-		return s_aiGraphRuntimeFailure(action, "missing pads.tsv source");
+		return s_aiGraphRuntimeFailure(action, "missing pads.json source");
 	}
 	if (!s_aiGraphRequireRuntimePad(action, pad, &pad_count)) {
 		return 1;
@@ -17703,7 +18706,7 @@ s32 scenarioSourceAiGraphExecuteJogToPad(struct chrdata *chr, s32 pad)
 			"missing scenario.ai.action.jog_to_pad node");
 	}
 	return s_aiGraphExecuteGoToPad(chr, pad, GOPOSFLAG_JOG,
-		"jog_to_pad", "backend=graph.ai.action.jog_to_pad+pads.tsv",
+		"jog_to_pad", "backend=graph.ai.action.jog_to_pad+pads.json",
 		&s_ActiveScenarioGraphs.ai_action_jog_to_pad_logged);
 }
 
@@ -17740,7 +18743,7 @@ s32 scenarioSourceAiGraphExecuteGoToPadPreset(struct chrdata *chr, s32 speed_cod
 
 	return s_aiGraphExecuteGoToPad(chr, chr->padpreset1, goposflags,
 		"go_to_pad_preset",
-		"backend=graph.ai.action.go_to_pad_preset+pads.tsv",
+		"backend=graph.ai.action.go_to_pad_preset+pads.json",
 		&s_ActiveScenarioGraphs.ai_action_goto_pad_preset_logged);
 }
 
@@ -17754,7 +18757,7 @@ s32 scenarioSourceAiGraphExecuteWalkToPad(struct chrdata *chr, s32 pad)
 			"missing scenario.ai.action.walk_to_pad node");
 	}
 	return s_aiGraphExecuteGoToPad(chr, pad, GOPOSFLAG_WALK,
-		"walk_to_pad", "backend=graph.ai.action.walk_to_pad+pads.tsv",
+		"walk_to_pad", "backend=graph.ai.action.walk_to_pad+pads.json",
 		&s_ActiveScenarioGraphs.ai_action_walk_to_pad_logged);
 }
 
@@ -17768,7 +18771,7 @@ s32 scenarioSourceAiGraphExecuteRunToPad(struct chrdata *chr, s32 pad)
 			"missing scenario.ai.action.run_to_pad node");
 	}
 	return s_aiGraphExecuteGoToPad(chr, pad, GOPOSFLAG_RUN,
-		"run_to_pad", "backend=graph.ai.action.run_to_pad+pads.tsv",
+		"run_to_pad", "backend=graph.ai.action.run_to_pad+pads.json",
 		&s_ActiveScenarioGraphs.ai_action_run_to_pad_logged);
 }
 
@@ -17792,7 +18795,7 @@ s32 scenarioSourceAiGraphExecuteSetPath(struct chrdata *chr, s32 path_id)
 	}
 	if (!s_ActiveScenarioGraphs.paths_path[0]) {
 		return s_aiGraphRuntimeFailure("set_path",
-			"missing navigation/paths.tsv source");
+			"missing navigation/paths.json source");
 	}
 	if (!s_aiGraphResolveOptionalRuntimePath("set_path", path_id,
 			&path_count, &path)) {
@@ -17811,7 +18814,7 @@ s32 scenarioSourceAiGraphExecuteSetPath(struct chrdata *chr, s32 path_id)
 	chrSetPath(chr, (u32)path_id);
 	if (!s_ActiveScenarioGraphs.ai_action_set_path_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action set_path chr_rows=%d source_chr=%d path=%d found=1 path_rows=%d source=%s path_pads=%u pad_rows=%d backend=graph.ai.action.set_path+navigation/paths.tsv+pads.tsv",
+			"SCENARIO.GRAPH: AI action set_path chr_rows=%d source_chr=%d path=%d found=1 path_rows=%d source=%s path_pads=%u pad_rows=%d backend=graph.ai.action.set_path+navigation/paths.json+pads.json",
 			chr_count, source_chr, path->id, path_count,
 			s_ActiveScenarioGraphs.paths_path, (unsigned)path->len,
 			pad_count);
@@ -17840,7 +18843,7 @@ s32 scenarioSourceAiGraphExecuteStartPatrol(struct chrdata *chr)
 	}
 	if (!s_ActiveScenarioGraphs.paths_path[0]) {
 		return s_aiGraphRuntimeFailure("start_patrol",
-			"missing navigation/paths.tsv source");
+			"missing navigation/paths.json source");
 	}
 	if (!s_aiGraphRequireRuntimeCharacterPointer("start_patrol", chr,
 			&chr_count, &source_chr)) {
@@ -17860,7 +18863,7 @@ s32 scenarioSourceAiGraphExecuteStartPatrol(struct chrdata *chr)
 	chrTryStartPatrol(chr);
 	if (!s_ActiveScenarioGraphs.ai_action_start_patrol_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action start_patrol chr_rows=%d source_chr=%d path=%u found=1 path_rows=%d source=%s path_pads=%u pad_rows=%d backend=graph.ai.action.start_patrol+navigation/paths.tsv+pads.tsv",
+			"SCENARIO.GRAPH: AI action start_patrol chr_rows=%d source_chr=%d path=%u found=1 path_rows=%d source=%s path_pads=%u pad_rows=%d backend=graph.ai.action.start_patrol+navigation/paths.json+pads.json",
 			chr_count, source_chr, (unsigned)path->id, path_count,
 			s_ActiveScenarioGraphs.paths_path, (unsigned)path->len,
 			pad_count);
@@ -17887,7 +18890,7 @@ s32 scenarioSourceAiGraphExecuteSetPadPreset(struct chrdata *chr, s32 pad)
 	}
 	if (!s_ActiveScenarioGraphs.pads_path[0]) {
 		return s_aiGraphRuntimeFailure("set_pad_preset",
-			"missing pads.tsv source");
+			"missing pads.json source");
 	}
 	if (!s_aiGraphRequireRuntimePad("set_pad_preset", pad, &pad_count)) {
 		return 1;
@@ -17899,7 +18902,7 @@ s32 scenarioSourceAiGraphExecuteSetPadPreset(struct chrdata *chr, s32 pad)
 	chrSetPadPreset(chr, pad);
 	if (!s_ActiveScenarioGraphs.ai_action_set_pad_preset_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action set_pad_preset chr_rows=%d source_chr=%d pad=%d found=1 pad_rows=%d source=%s backend=graph.ai.action.set_pad_preset+pads.tsv",
+			"SCENARIO.GRAPH: AI action set_pad_preset chr_rows=%d source_chr=%d pad=%d found=1 pad_rows=%d source=%s backend=graph.ai.action.set_pad_preset+pads.json",
 			chr_count, source_chr, pad, pad_count,
 			s_ActiveScenarioGraphs.pads_path);
 		s_ActiveScenarioGraphs.ai_action_set_pad_preset_logged = 1;
@@ -17923,7 +18926,7 @@ s32 scenarioSourceAiGraphExecuteChrSetPadPreset(struct chrdata *basechr,
 	}
 	if (!s_ActiveScenarioGraphs.pads_path[0]) {
 		return s_aiGraphRuntimeFailure("chr_set_pad_preset",
-			"missing pads.tsv source");
+			"missing pads.json source");
 	}
 	if (!s_aiGraphRequireRuntimePad("chr_set_pad_preset", pad,
 			&pad_count)) {
@@ -17936,7 +18939,7 @@ s32 scenarioSourceAiGraphExecuteChrSetPadPreset(struct chrdata *basechr,
 	chr->padpreset1 = chrResolvePadId(basechr, pad);
 	if (!s_ActiveScenarioGraphs.ai_action_chr_set_pad_preset_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action chr_set_pad_preset chr=%d chr_rows=%d target_chr=%d pad=%d found=1 pad_rows=%d source=%s backend=graph.ai.action.chr_set_pad_preset+pads.tsv",
+			"SCENARIO.GRAPH: AI action chr_set_pad_preset chr=%d chr_rows=%d target_chr=%d pad=%d found=1 pad_rows=%d source=%s backend=graph.ai.action.chr_set_pad_preset+pads.json",
 			chrnum, chr_count, chr ? chr->chrnum : -1, pad, pad_count,
 			s_ActiveScenarioGraphs.pads_path);
 		s_ActiveScenarioGraphs.ai_action_chr_set_pad_preset_logged = 1;
@@ -17963,7 +18966,7 @@ s32 scenarioSourceAiGraphExecuteChrCopyPadPreset(struct chrdata *basechr,
 	}
 	if (!s_ActiveScenarioGraphs.pads_path[0]) {
 		return s_aiGraphRuntimeFailure("chr_copy_pad_preset",
-			"missing pads.tsv source");
+			"missing pads.json source");
 	}
 	if (!s_aiGraphRequireRuntimeCharacterRefFromBase(
 			"chr_copy_pad_preset", basechr, src_chrnum, &chr_count,
@@ -17987,7 +18990,7 @@ s32 scenarioSourceAiGraphExecuteChrCopyPadPreset(struct chrdata *basechr,
 	chrdst->padpreset1 = copied_pad;
 	if (!s_ActiveScenarioGraphs.ai_action_chr_copy_pad_preset_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action chr_copy_pad_preset src_chr=%d dst_chr=%d chr_rows=%d source_chr=%d target_chr=%d pad=%d found=%d pad_rows=%d source=%s pads=%s backend=graph.ai.action.chr_copy_pad_preset+chrstate+pads.tsv",
+			"SCENARIO.GRAPH: AI action chr_copy_pad_preset src_chr=%d dst_chr=%d chr_rows=%d source_chr=%d target_chr=%d pad=%d found=%d pad_rows=%d source=%s pads=%s backend=graph.ai.action.chr_copy_pad_preset+chrstate+pads.json",
 			src_chrnum, dst_chrnum, chr_count,
 			chrsrc ? chrsrc->chrnum : -1,
 			chrdst ? chrdst->chrnum : -1,
@@ -18018,7 +19021,7 @@ s32 scenarioSourceAiGraphExecuteSetChrPreset(struct chrdata *chr,
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
 		return s_aiGraphRuntimeFailure("set_chr_preset",
-			"missing ai/ailists.tsv source");
+			"missing ai/ailists.json source");
 	}
 	if (!s_aiGraphRequireOptionalRuntimeCharacterPointer("set_chr_preset", chr,
 			&chr_count, &target_chr)) {
@@ -18029,7 +19032,7 @@ s32 scenarioSourceAiGraphExecuteSetChrPreset(struct chrdata *chr,
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_set_chr_preset_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action set_chr_preset chr_rows=%d target_chr=%d chrpreset=%d source=%s backend=graph.ai.action.set_chr_preset+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action set_chr_preset chr_rows=%d target_chr=%d chrpreset=%d source=%s backend=graph.ai.action.set_chr_preset+ai/ailists.json",
 			chr_count, target_chr, chrpreset,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_set_chr_preset_logged = 1;
@@ -18052,7 +19055,7 @@ s32 scenarioSourceAiGraphExecuteSetChrTarget(struct chrdata *basechr,
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
 		return s_aiGraphRuntimeFailure("set_chr_target",
-			"missing ai/ailists.tsv source");
+			"missing ai/ailists.json source");
 	}
 	if (!s_aiGraphRequireRuntimeCharacterRefFromBase("set_chr_target",
 			basechr, chrnum, &chr_count, &chr)) {
@@ -18061,7 +19064,7 @@ s32 scenarioSourceAiGraphExecuteSetChrTarget(struct chrdata *basechr,
 	chrSetChrPreset(chr, chrpreset);
 	if (!s_ActiveScenarioGraphs.ai_action_set_chr_target_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action set_chr_target chr=%d chr_rows=%d target_chr=%d chrpreset=%d source=%s backend=graph.ai.action.set_chr_target+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action set_chr_target chr=%d chr_rows=%d target_chr=%d chrpreset=%d source=%s backend=graph.ai.action.set_chr_target+ai/ailists.json",
 			chrnum, chr_count, chr ? chr->chrnum : -1, chrpreset,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_set_chr_target_logged = 1;
@@ -18087,7 +19090,7 @@ s32 scenarioSourceAiGraphExecuteSetAction(struct chrdata *chr,
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
 		return s_aiGraphRuntimeFailure("set_action",
-			"missing ai/ailists.tsv source");
+			"missing ai/ailists.json source");
 	}
 	if (!s_aiGraphRequireRuntimeCharacterStatePointer("set_action", chr,
 			&chr_count, &target_chr)) {
@@ -18099,7 +19102,7 @@ s32 scenarioSourceAiGraphExecuteSetAction(struct chrdata *chr,
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_set_action_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action set_action chr_rows=%d target_chr=%d action=%d clear_orders=%d source=%s backend=graph.ai.action.set_action+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action set_action chr_rows=%d target_chr=%d action=%d clear_orders=%d source=%s backend=graph.ai.action.set_action+ai/ailists.json",
 			chr_count, target_chr, action, clear_orders ? 1 : 0,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_set_action_logged = 1;
@@ -18131,7 +19134,7 @@ s32 scenarioSourceAiGraphExecuteSetTeamOrders(struct chrdata *chr,
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
 		return s_aiGraphRuntimeFailure("set_team_orders",
-			"missing ai/ailists.tsv source");
+			"missing ai/ailists.json source");
 	}
 	if (out_follow_label) {
 		*out_follow_label = 0;
@@ -18288,7 +19291,7 @@ s32 scenarioSourceAiGraphExecuteSetTeamOrders(struct chrdata *chr,
 
 	if (!s_ActiveScenarioGraphs.ai_action_set_team_orders_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action set_team_orders chr_rows=%d source_chr=%d action=%d chrs=%d checked=%d follow_label=%d source=%s backend=graph.ai.action.set_team_orders+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action set_team_orders chr_rows=%d source_chr=%d action=%d chrs=%d checked=%d follow_label=%d source=%s backend=graph.ai.action.set_team_orders+ai/ailists.json",
 			chr_count, source_chr, chr->myaction, chrcount, checked_chrs,
 			out_follow_label ? *out_follow_label : 0,
 			s_ActiveScenarioGraphs.ai_lists_path);
@@ -18317,7 +19320,7 @@ s32 scenarioSourceAiGraphExecuteRetreat(struct chrdata *chr,
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
 		return s_aiGraphRuntimeFailure("retreat",
-			"missing ai/ailists.tsv source");
+			"missing ai/ailists.json source");
 	}
 	if (!s_aiGraphRequireRuntimeCharacterPointer("retreat", chr,
 			&chr_count, &source_chr)) {
@@ -18337,7 +19340,7 @@ s32 scenarioSourceAiGraphExecuteRetreat(struct chrdata *chr,
 	} else {
 		if (!s_ActiveScenarioGraphs.covers_path[0]) {
 			return s_aiGraphRuntimeFailure("retreat",
-				"missing navigation/covers.tsv source");
+				"missing navigation/covers.json source");
 		}
 		if (!s_aiGraphRequireRuntimeCoverTable("retreat",
 				&cover_count)) {
@@ -18357,7 +19360,7 @@ s32 scenarioSourceAiGraphExecuteRetreat(struct chrdata *chr,
 
 	if (!s_ActiveScenarioGraphs.ai_action_retreat_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action retreat chr_rows=%d source_chr=%d speed=%d operation=%d assigned=%d cover_rows=%d source=%s covers=%s backend=graph.ai.action.retreat+ai/ailists.tsv+navigation/covers.tsv",
+			"SCENARIO.GRAPH: AI action retreat chr_rows=%d source_chr=%d speed=%d operation=%d assigned=%d cover_rows=%d source=%s covers=%s backend=graph.ai.action.retreat+ai/ailists.json+navigation/covers.json",
 			chr_count, source_chr, speed, operation, assigned_cover,
 			cover_count,
 			s_ActiveScenarioGraphs.ai_lists_path,
@@ -18388,7 +19391,7 @@ static s32 s_aiGraphExecuteFindCoverByCriteria(struct chrdata *chr,
 	}
 	if (!s_ActiveScenarioGraphs.covers_path[0]) {
 		return s_aiGraphRuntimeFailure(action,
-			"missing navigation/covers.tsv source");
+			"missing navigation/covers.json source");
 	}
 	if (!s_aiGraphRequireRuntimeCharacterPointer(action, chr, &chr_count,
 			&source_chr)) {
@@ -18422,7 +19425,7 @@ s32 scenarioSourceAiGraphExecuteFindCover(struct chrdata *chr,
 	return s_aiGraphExecuteFindCoverByCriteria(chr, criteria, 0,
 		"find_cover",
 		s_ActiveScenarioGraphs.level_ai_find_cover_node_count,
-		"backend=graph.ai.action.find_cover+navigation/covers.tsv",
+		"backend=graph.ai.action.find_cover+navigation/covers.json",
 		&s_ActiveScenarioGraphs.ai_action_find_cover_logged,
 		out_assigned);
 }
@@ -18433,7 +19436,7 @@ s32 scenarioSourceAiGraphExecuteFindCoverWithinDist(struct chrdata *chr,
 	return s_aiGraphExecuteFindCoverByCriteria(chr, criteria, refdist,
 		"find_cover_within_dist",
 		s_ActiveScenarioGraphs.level_ai_find_cover_within_dist_node_count,
-		"backend=graph.ai.action.find_cover_within_dist+navigation/covers.tsv",
+		"backend=graph.ai.action.find_cover_within_dist+navigation/covers.json",
 		&s_ActiveScenarioGraphs.ai_action_find_cover_within_dist_logged,
 		out_assigned);
 }
@@ -18444,7 +19447,7 @@ s32 scenarioSourceAiGraphExecuteFindCoverOutsideDist(struct chrdata *chr,
 	return s_aiGraphExecuteFindCoverByCriteria(chr, criteria, -refdist,
 		"find_cover_outside_dist",
 		s_ActiveScenarioGraphs.level_ai_find_cover_outside_dist_node_count,
-		"backend=graph.ai.action.find_cover_outside_dist+navigation/covers.tsv",
+		"backend=graph.ai.action.find_cover_outside_dist+navigation/covers.json",
 		&s_ActiveScenarioGraphs.ai_action_find_cover_outside_dist_logged,
 		out_assigned);
 }
@@ -18468,7 +19471,7 @@ s32 scenarioSourceAiGraphExecuteGoToCover(struct chrdata *chr, s32 speed)
 	}
 	if (!s_ActiveScenarioGraphs.covers_path[0]) {
 		return s_aiGraphRuntimeFailure("go_to_cover",
-			"missing navigation/covers.tsv source");
+			"missing navigation/covers.json source");
 	}
 	if (!s_aiGraphRequireRuntimeCharacterPointer("go_to_cover", chr,
 			&chr_count, &source_chr)) {
@@ -18483,7 +19486,7 @@ s32 scenarioSourceAiGraphExecuteGoToCover(struct chrdata *chr, s32 speed)
 	moved_cover = chrGoToCover(chr, speed);
 	if (!s_ActiveScenarioGraphs.ai_action_go_to_cover_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action go_to_cover chr_rows=%d source_chr=%d speed=%d cover=%d moved_cover=%d cover_rows=%d source=%s backend=graph.ai.action.go_to_cover+navigation/covers.tsv",
+			"SCENARIO.GRAPH: AI action go_to_cover chr_rows=%d source_chr=%d speed=%d cover=%d moved_cover=%d cover_rows=%d source=%s backend=graph.ai.action.go_to_cover+navigation/covers.json",
 			chr_count, source_chr, speed, chr->cover, moved_cover, cover_count,
 			s_ActiveScenarioGraphs.covers_path);
 		s_ActiveScenarioGraphs.ai_action_go_to_cover_logged = 1;
@@ -18512,7 +19515,7 @@ s32 scenarioSourceAiGraphExecuteCheckCoverOutOfSight(struct chrdata *chr,
 	}
 	if (!s_ActiveScenarioGraphs.covers_path[0]) {
 		return s_aiGraphRuntimeFailure("check_cover_out_of_sight",
-			"missing navigation/covers.tsv source");
+			"missing navigation/covers.json source");
 	}
 	if (!s_aiGraphRequireRuntimeCharacterPointer("check_cover_out_of_sight",
 			chr, &chr_count, &source_chr)) {
@@ -18532,7 +19535,7 @@ s32 scenarioSourceAiGraphExecuteCheckCoverOutOfSight(struct chrdata *chr,
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_check_cover_out_of_sight_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action check_cover_out_of_sight chr_rows=%d source_chr=%d cover=%d out_of_sight=%d cover_rows=%d source=%s backend=graph.ai.action.check_cover_out_of_sight+navigation/covers.tsv",
+			"SCENARIO.GRAPH: AI action check_cover_out_of_sight chr_rows=%d source_chr=%d cover=%d out_of_sight=%d cover_rows=%d source=%s backend=graph.ai.action.check_cover_out_of_sight+navigation/covers.json",
 			chr_count, source_chr, chr->cover, out_of_sight, cover_count,
 			s_ActiveScenarioGraphs.covers_path);
 		s_ActiveScenarioGraphs.ai_action_check_cover_out_of_sight_logged = 1;
@@ -18560,7 +19563,7 @@ s32 scenarioSourceAiGraphExecuteOrbitTarget(struct chrdata *chr,
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
 		return s_aiGraphRuntimeFailure("orbit_target",
-			"missing ai/ailists.tsv source");
+			"missing ai/ailists.json source");
 	}
 	if (!s_aiGraphRequireRuntimeCharacterPointer("orbit_target", chr,
 			&chr_count, &source_chr)) {
@@ -18575,7 +19578,7 @@ s32 scenarioSourceAiGraphExecuteOrbitTarget(struct chrdata *chr,
 	chr0f04c874(chr, angle, &pos, (u8)try_alternate, (u8)speed);
 	if (!s_ActiveScenarioGraphs.ai_action_orbit_target_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action orbit_target chr_rows=%d source_chr=%d angle=%u alternate=%d speed=%d source=%s backend=graph.ai.action.orbit_target+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action orbit_target chr_rows=%d source_chr=%d angle=%u alternate=%d speed=%d source=%s backend=graph.ai.action.orbit_target+ai/ailists.json",
 			chr_count, source_chr, (unsigned)angle, try_alternate ? 1 : 0, speed,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_orbit_target_logged = 1;
@@ -18607,7 +19610,7 @@ s32 scenarioSourceAiGraphExecuteSetChrPresetToUnalertedTeammate(
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
 		return s_aiGraphRuntimeFailure("set_chr_preset_to_unalerted_teammate",
-			"missing ai/ailists.tsv source");
+			"missing ai/ailists.json source");
 	}
 	if (out_follow_label) {
 		*out_follow_label = 0;
@@ -18676,7 +19679,7 @@ s32 scenarioSourceAiGraphExecuteSetChrPresetToUnalertedTeammate(
 
 	if (!s_ActiveScenarioGraphs.ai_action_set_chr_preset_to_unalerted_teammate_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action set_chr_preset_to_unalerted_teammate chr_rows=%d source_chr=%d checked=%d candidate=%d distance_units=%d require_far=%d source=%s backend=graph.ai.action.set_chr_preset_to_unalerted_teammate+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action set_chr_preset_to_unalerted_teammate chr_rows=%d source_chr=%d checked=%d candidate=%d distance_units=%d require_far=%d source=%s backend=graph.ai.action.set_chr_preset_to_unalerted_teammate+ai/ailists.json",
 			chr_count, source_chr, checked_chrs, candidate_chrnum,
 			distance_units, require_far ? 1 : 0,
 			s_ActiveScenarioGraphs.ai_lists_path);
@@ -18703,7 +19706,7 @@ s32 scenarioSourceAiGraphExecuteSetSquadron(struct chrdata *chr,
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
 		return s_aiGraphRuntimeFailure("set_squadron",
-			"missing ai/ailists.tsv source");
+			"missing ai/ailists.json source");
 	}
 	if (!s_aiGraphRequireRuntimeCharacterPointer("set_squadron", chr,
 			&chr_count, &source_chr)) {
@@ -18712,7 +19715,7 @@ s32 scenarioSourceAiGraphExecuteSetSquadron(struct chrdata *chr,
 	chr->squadron = (u8)squadron;
 	if (!s_ActiveScenarioGraphs.ai_action_set_squadron_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action set_squadron chr_rows=%d source_chr=%d squadron=%d source=%s backend=graph.ai.action.set_squadron+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action set_squadron chr_rows=%d source_chr=%d squadron=%d source=%s backend=graph.ai.action.set_squadron+ai/ailists.json",
 			chr_count, source_chr, squadron,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_set_squadron_logged = 1;
@@ -18740,7 +19743,7 @@ s32 scenarioSourceAiGraphExecuteFaceCover(struct chrdata *chr,
 	}
 	if (!s_ActiveScenarioGraphs.covers_path[0]) {
 		return s_aiGraphRuntimeFailure("face_cover",
-			"missing navigation/covers.tsv source");
+			"missing navigation/covers.json source");
 	}
 	if (!s_aiGraphRequireRuntimeCharacterPointer("face_cover", chr,
 			&chr_count, &source_chr)) {
@@ -18757,7 +19760,7 @@ s32 scenarioSourceAiGraphExecuteFaceCover(struct chrdata *chr,
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_face_cover_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action face_cover chr_rows=%d source_chr=%d cover=%d faced=%d cover_rows=%d source=%s backend=graph.ai.action.face_cover+navigation/covers.tsv",
+			"SCENARIO.GRAPH: AI action face_cover chr_rows=%d source_chr=%d cover=%d faced=%d cover_rows=%d source=%s backend=graph.ai.action.face_cover+navigation/covers.json",
 			chr_count, source_chr, chr->cover, faced, cover_count,
 			s_ActiveScenarioGraphs.covers_path);
 		s_ActiveScenarioGraphs.ai_action_face_cover_logged = 1;
@@ -18785,7 +19788,7 @@ s32 scenarioSourceAiGraphExecuteDangerCover(struct chrdata *chr)
 	}
 	if (!s_ActiveScenarioGraphs.covers_path[0]) {
 		return s_aiGraphRuntimeFailure("danger_cover",
-			"missing navigation/covers.tsv source");
+			"missing navigation/covers.json source");
 	}
 	if (!s_aiGraphRequireRuntimeCharacterPointer("danger_cover", chr,
 			&chr_count, &source_chr)) {
@@ -18811,7 +19814,7 @@ s32 scenarioSourceAiGraphExecuteDangerCover(struct chrdata *chr)
 
 	if (!s_ActiveScenarioGraphs.ai_action_danger_cover_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action danger_cover chr_rows=%d source_chr=%d assigned=%d moved=%d cover_rows=%d source=%s backend=graph.ai.action.danger_cover+navigation/covers.tsv",
+			"SCENARIO.GRAPH: AI action danger_cover chr_rows=%d source_chr=%d assigned=%d moved=%d cover_rows=%d source=%s backend=graph.ai.action.danger_cover+navigation/covers.json",
 			chr_count, source_chr, assigned, moved, cover_count,
 			s_ActiveScenarioGraphs.covers_path);
 		s_ActiveScenarioGraphs.ai_action_danger_cover_logged = 1;
@@ -18838,7 +19841,7 @@ s32 scenarioSourceAiGraphExecuteReleaseCover(struct chrdata *chr)
 	}
 	if (!s_ActiveScenarioGraphs.covers_path[0]) {
 		return s_aiGraphRuntimeFailure("release_cover",
-			"missing navigation/covers.tsv source");
+			"missing navigation/covers.json source");
 	}
 	if (!s_aiGraphRequireRuntimeCharacterPointer("release_cover", chr,
 			&chr_count, &source_chr)) {
@@ -18860,7 +19863,7 @@ s32 scenarioSourceAiGraphExecuteReleaseCover(struct chrdata *chr)
 	g_Vars.aioffset += 2;
 	if (!s_ActiveScenarioGraphs.ai_action_release_cover_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action release_cover chr_rows=%d source_chr=%d cover=%d released=%d cover_rows=%d source=%s backend=graph.ai.action.release_cover+navigation/covers.tsv",
+			"SCENARIO.GRAPH: AI action release_cover chr_rows=%d source_chr=%d cover=%d released=%d cover_rows=%d source=%s backend=graph.ai.action.release_cover+navigation/covers.json",
 			chr_count, source_chr, chr->cover, released, cover_count,
 			s_ActiveScenarioGraphs.covers_path);
 		s_ActiveScenarioGraphs.ai_action_release_cover_logged = 1;
@@ -18879,12 +19882,12 @@ s32 scenarioSourceAiGraphExecuteRebuildTeams(void)
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
 		return s_aiGraphRuntimeFailure("rebuild_teams",
-			"missing ai/ailists.tsv source");
+			"missing ai/ailists.json source");
 	}
 	rebuildTeams();
 	if (!s_ActiveScenarioGraphs.ai_action_rebuild_teams_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action rebuild_teams source=%s backend=graph.ai.action.rebuild_teams+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action rebuild_teams source=%s backend=graph.ai.action.rebuild_teams+ai/ailists.json",
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_rebuild_teams_logged = 1;
 	}
@@ -18902,12 +19905,12 @@ s32 scenarioSourceAiGraphExecuteRebuildSquadrons(void)
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
 		return s_aiGraphRuntimeFailure("rebuild_squadrons",
-			"missing ai/ailists.tsv source");
+			"missing ai/ailists.json source");
 	}
 	rebuildSquadrons();
 	if (!s_ActiveScenarioGraphs.ai_action_rebuild_squadrons_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action rebuild_squadrons source=%s backend=graph.ai.action.rebuild_squadrons+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action rebuild_squadrons source=%s backend=graph.ai.action.rebuild_squadrons+ai/ailists.json",
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_rebuild_squadrons_logged = 1;
 	}
@@ -18940,7 +19943,7 @@ s32 scenarioSourceAiGraphExecuteChrSetListening(struct chrdata *basechr,
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
 		return s_aiGraphRuntimeFailure("chr_set_listening",
-			"missing ai/ailists.tsv source");
+			"missing ai/ailists.json source");
 	}
 	if (!s_aiGraphRequireRuntimeCharacterRefFromBase("chr_set_listening",
 			basechr, chrnum, &chr_count, &chr)) {
@@ -18954,7 +19957,7 @@ s32 scenarioSourceAiGraphExecuteChrSetListening(struct chrdata *basechr,
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_chr_set_listening_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action chr_set_listening chr=%d chr_rows=%d target_chr=%d value=%d applied=%d source=%s backend=graph.ai.action.chr_set_listening+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action chr_set_listening chr=%d chr_rows=%d target_chr=%d value=%d applied=%d source=%s backend=graph.ai.action.chr_set_listening+ai/ailists.json",
 			chrnum, chr_count, target_chrnum, listening, applied,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_chr_set_listening_logged = 1;
@@ -18985,7 +19988,7 @@ s32 scenarioSourceAiGraphExecuteIfChrNotTalking(s32 chrnum, s32 label)
 	s_aiGraphApplyBranch(branch_taken, label, 4);
 	if (!s_ActiveScenarioGraphs.ai_condition_if_chr_not_talking_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_chr_not_talking chr=%d chr_rows=%d target_chr=%d label=%d branch=%d source=%s backend=graph.ai.condition.intent_status+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI condition if_chr_not_talking chr=%d chr_rows=%d target_chr=%d label=%d branch=%d source=%s backend=graph.ai.condition.intent_status+ai/ailists.json",
 			chrnum, chr_count, target_chrnum, label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_condition_if_chr_not_talking_logged = 1;
@@ -19009,7 +20012,7 @@ s32 scenarioSourceAiGraphExecuteIfOrders(struct chrdata *chr, s32 order,
 	s_aiGraphApplyBranch(branch_taken, label, 5);
 	if (!s_ActiveScenarioGraphs.ai_condition_if_orders_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_orders chr_rows=%d source_chr=%d order=%d current=%d label=%d branch=%d source=%s backend=graph.ai.condition.intent_status+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI condition if_orders chr_rows=%d source_chr=%d order=%d current=%d label=%d branch=%d source=%s backend=graph.ai.condition.intent_status+ai/ailists.json",
 			chr_count, source_chr, order,
 			chr && chr->prop ? chr->orders : -1, label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
@@ -19033,7 +20036,7 @@ s32 scenarioSourceAiGraphExecuteIfHasOrders(struct chrdata *chr, s32 label)
 	s_aiGraphApplyBranch(branch_taken, label, 3);
 	if (!s_ActiveScenarioGraphs.ai_condition_if_has_orders_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_has_orders chr_rows=%d source_chr=%d current=%d label=%d branch=%d source=%s backend=graph.ai.condition.intent_status+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI condition if_has_orders chr_rows=%d source_chr=%d current=%d label=%d branch=%d source=%s backend=graph.ai.condition.intent_status+ai/ailists.json",
 			chr_count, source_chr,
 			chr && chr->prop ? chr->orders : -1, label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
@@ -19092,7 +20095,7 @@ s32 scenarioSourceAiGraphExecuteIfChrInSquadronDoingAction(
 	if (!s_ActiveScenarioGraphs
 			.ai_condition_if_chr_in_squadron_doing_action_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_chr_in_squadron_doing_action chr_rows=%d source_chr=%d checked=%d action=%d label=%d branch=%d source=%s backend=graph.ai.condition.intent_status+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI condition if_chr_in_squadron_doing_action chr_rows=%d source_chr=%d checked=%d action=%d label=%d branch=%d source=%s backend=graph.ai.condition.intent_status+ai/ailists.json",
 			chr_count, source_chr, checked_chrs, action, label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs
@@ -19132,7 +20135,7 @@ s32 scenarioSourceAiGraphExecuteIfChrListening(struct chrdata *basechr,
 	s_aiGraphApplyBranch(branch_taken, label, 6);
 	if (!s_ActiveScenarioGraphs.ai_condition_if_chr_listening_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_chr_listening chr=%d chr_rows=%d target_chr=%d listening=%d check_convtalk=%d label=%d branch=%d source=%s backend=graph.ai.condition.intent_status+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI condition if_chr_listening chr=%d chr_rows=%d target_chr=%d listening=%d check_convtalk=%d label=%d branch=%d source=%s backend=graph.ai.condition.intent_status+ai/ailists.json",
 			chrnum, chr_count, target_chrnum, listening, check_convtalk,
 			label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
@@ -19158,7 +20161,7 @@ s32 scenarioSourceAiGraphExecuteIfNotListening(struct chrdata *chr,
 	s_aiGraphApplyBranch(branch_taken, label, 3);
 	if (!s_ActiveScenarioGraphs.ai_condition_if_not_listening_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_not_listening chr_rows=%d source_chr=%d current=%d label=%d branch=%d source=%s backend=graph.ai.condition.intent_status+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI condition if_not_listening chr_rows=%d source_chr=%d current=%d label=%d branch=%d source=%s backend=graph.ai.condition.intent_status+ai/ailists.json",
 			chr_count, source_chr,
 			chr && chr->prop ? chr->listening : -1, label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
@@ -19193,7 +20196,7 @@ s32 scenarioSourceAiGraphExecuteIfChrInjuredTarget(struct chrdata *basechr,
 	s_aiGraphApplyBranch(branch_taken, label, 4);
 	if (!s_ActiveScenarioGraphs.ai_condition_if_chr_injured_target_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_chr_injured_target chr=%d chr_rows=%d target_chr=%d label=%d branch=%d source=%s backend=graph.ai.condition.intent_status+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI condition if_chr_injured_target chr=%d chr_rows=%d target_chr=%d label=%d branch=%d source=%s backend=graph.ai.condition.intent_status+ai/ailists.json",
 			chrnum, chr_count, target_chrnum, label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_condition_if_chr_injured_target_logged = 1;
@@ -19217,7 +20220,7 @@ s32 scenarioSourceAiGraphExecuteIfAction(struct chrdata *chr, s32 action,
 	s_aiGraphApplyBranch(branch_taken, label, 4);
 	if (!s_ActiveScenarioGraphs.ai_condition_if_action_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_action chr_rows=%d source_chr=%d action=%d current=%d label=%d branch=%d source=%s backend=graph.ai.condition.intent_status+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI condition if_action chr_rows=%d source_chr=%d action=%d current=%d label=%d branch=%d source=%s backend=graph.ai.condition.intent_status+ai/ailists.json",
 			chr_count, source_chr, action,
 			chr && chr->prop ? chr->myaction : -1, label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
@@ -19269,7 +20272,7 @@ s32 scenarioSourceAiGraphExecuteIfChrAmmoQuantityLessThan(
 	if (!s_ActiveScenarioGraphs
 			.ai_condition_if_chr_ammo_quantity_less_than_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_chr_ammo_quantity_less_than chr=%d chr_rows=%d target_chr=%d player_checked=%d ammo_type=%d quantity=%d current=%d label=%d branch=%d source=%s backend=graph.ai.condition.intent_status+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI condition if_chr_ammo_quantity_less_than chr=%d chr_rows=%d target_chr=%d player_checked=%d ammo_type=%d quantity=%d current=%d label=%d branch=%d source=%s backend=graph.ai.condition.intent_status+ai/ailists.json",
 			chrnum, chr_count, target_chrnum, player_checked, ammo_type,
 			quantity, ammo_count, label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
@@ -19325,7 +20328,7 @@ s32 scenarioSourceAiGraphExecuteIfChrTarget(struct chrdata *basechr,
 	s_aiGraphApplyBranch(branch_taken, label, 6);
 	if (!s_ActiveScenarioGraphs.ai_condition_if_chr_target_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_chr_target chr=%d chr_rows=%d resolved_chr=%d target_chr=%d target_chr_rows=%d resolved_target_chr=%d any=%d label=%d branch=%d source=%s backend=graph.ai.condition.intent_status+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI condition if_chr_target chr=%d chr_rows=%d resolved_chr=%d target_chr=%d target_chr_rows=%d resolved_target_chr=%d any=%d label=%d branch=%d source=%s backend=graph.ai.condition.intent_status+ai/ailists.json",
 			chrnum, chr_count, resolved_chrnum, target_chrnum,
 			target_chr_count, resolved_target_chrnum,
 			require_any_target, label, branch_taken,
@@ -19370,7 +20373,7 @@ s32 scenarioSourceAiGraphExecuteIfCompareChrPresetsTeam(
 	if (!s_ActiveScenarioGraphs
 			.ai_condition_if_compare_chr_presets_team_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_compare_chr_presets_team chr_rows=%d preset_chr=%d comparison=%d label=%d branch=%d source=%s backend=graph.ai.condition.intent_status+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI condition if_compare_chr_presets_team chr_rows=%d preset_chr=%d comparison=%d label=%d branch=%d source=%s backend=graph.ai.condition.intent_status+ai/ailists.json",
 			chr_count, preset_chrnum, comparison, label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs
@@ -19400,7 +20403,7 @@ s32 scenarioSourceAiGraphExecuteIfHuman(struct chrdata *basechr,
 	s_aiGraphApplyBranch(branch_taken, label, 4);
 	if (!s_ActiveScenarioGraphs.ai_condition_if_human_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_human chr=%d chr_rows=%d target_chr=%d label=%d branch=%d source=%s backend=graph.ai.condition.intent_status+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI condition if_human chr=%d chr_rows=%d target_chr=%d label=%d branch=%d source=%s backend=graph.ai.condition.intent_status+ai/ailists.json",
 			chrnum, chr_count, target_chrnum, label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_condition_if_human_logged = 1;
@@ -19429,7 +20432,7 @@ s32 scenarioSourceAiGraphExecuteIfSkedar(struct chrdata *basechr,
 	s_aiGraphApplyBranch(branch_taken, label, 4);
 	if (!s_ActiveScenarioGraphs.ai_condition_if_skedar_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_skedar chr=%d chr_rows=%d target_chr=%d label=%d branch=%d source=%s backend=graph.ai.condition.intent_status+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI condition if_skedar chr=%d chr_rows=%d target_chr=%d label=%d branch=%d source=%s backend=graph.ai.condition.intent_status+ai/ailists.json",
 			chrnum, chr_count, target_chrnum, label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_condition_if_skedar_logged = 1;
@@ -19456,10 +20459,10 @@ static s32 s_aiGraphRequirePropPresetTargetNode(const char *kind,
 			(require_pads && !s_ActiveScenarioGraphs.pads_path[0])) {
 		s_aiGraphRuntimeFailure(name,
 			require_pads
-				? "missing ai/ailists.tsv, objects.tsv, or pads.tsv source"
+				? "missing ai/ailists.json, objects.json, or pads.json source"
 				: require_objects
-					? "missing ai/ailists.tsv or objects.tsv source"
-					: "missing ai/ailists.tsv source");
+					? "missing ai/ailists.json or objects.json source"
+					: "missing ai/ailists.json source");
 		return -1;
 	}
 	return 1;
@@ -19491,7 +20494,7 @@ s32 scenarioSourceAiGraphExecuteIfPropPresetIsBlockingSightToTarget(
 	if (!s_ActiveScenarioGraphs
 			.ai_condition_if_prop_preset_blocking_sight_to_target_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_prop_preset_blocking_sight_to_target chr_rows=%d source_chr=%d label=%d branch=%d source=%s objects=%s backend=graph.ai.condition.prop_target+ai/ailists.tsv+objects.tsv",
+			"SCENARIO.GRAPH: AI condition if_prop_preset_blocking_sight_to_target chr_rows=%d source_chr=%d label=%d branch=%d source=%s objects=%s backend=graph.ai.condition.prop_target+ai/ailists.json+objects.json",
 			chr_count, source_chr, label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path,
 			s_ActiveScenarioGraphs.objects_path);
@@ -19530,7 +20533,7 @@ s32 scenarioSourceAiGraphExecuteRemoveObjectAtPropPreset(struct chrdata *chr)
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_remove_object_at_prop_preset_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action remove_object_at_prop_preset chr_rows=%d source_chr=%d cleared=%d source=%s objects=%s backend=graph.ai.action.prop_target+ai/ailists.tsv+objects.tsv",
+			"SCENARIO.GRAPH: AI action remove_object_at_prop_preset chr_rows=%d source_chr=%d cleared=%d source=%s objects=%s backend=graph.ai.action.prop_target+ai/ailists.json+objects.json",
 			chr_count, source_chr, cleared,
 			s_ActiveScenarioGraphs.ai_lists_path,
 			s_ActiveScenarioGraphs.objects_path);
@@ -19574,7 +20577,7 @@ s32 scenarioSourceAiGraphExecuteIfPropPresetHeightLessThan(
 	if (!s_ActiveScenarioGraphs
 			.ai_condition_if_prop_preset_height_less_than_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_prop_preset_height_less_than chr_rows=%d source_chr=%d value=%.3f height=%.3f label=%d branch=%d source=%s objects=%s backend=graph.ai.condition.prop_target+ai/ailists.tsv+objects.tsv",
+			"SCENARIO.GRAPH: AI condition if_prop_preset_height_less_than chr_rows=%d source_chr=%d value=%.3f height=%.3f label=%d branch=%d source=%s objects=%s backend=graph.ai.condition.prop_target+ai/ailists.json+objects.json",
 			chr_count, source_chr, (double)value, (double)height,
 			label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path,
@@ -19666,8 +20669,8 @@ s32 scenarioSourceAiGraphExecuteSetTarget(struct chrdata *chr,
 log_result:
 	if (!s_ActiveScenarioGraphs.ai_action_set_target_logged) {
 		const char *backend = vehicle_count > 0
-			? "graph.ai.action.prop_target+ai/ailists.tsv+objects.tsv"
-			: "graph.ai.action.prop_target+ai/ailists.tsv";
+			? "graph.ai.action.prop_target+ai/ailists.json+objects.json"
+			: "graph.ai.action.prop_target+ai/ailists.json";
 		const char *objects_path = vehicle_count > 0
 			? s_ActiveScenarioGraphs.objects_path : "";
 		sysLogPrintf(LOG_NOTE,
@@ -19711,7 +20714,7 @@ s32 scenarioSourceAiGraphExecuteIfPresetsTargetIsNotMyTarget(
 	if (!s_ActiveScenarioGraphs
 			.ai_condition_if_presets_target_is_not_my_target_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_presets_target_is_not_my_target chr_rows=%d source_chr=%d preset_target=%d target=%d label=%d branch=%d source=%s backend=graph.ai.condition.prop_target+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI condition if_presets_target_is_not_my_target chr_rows=%d source_chr=%d preset_target=%d target=%d label=%d branch=%d source=%s backend=graph.ai.condition.prop_target+ai/ailists.json",
 			chr_count, source_chr, preset_target,
 			chr ? chr->target : -1, label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
@@ -19747,7 +20750,7 @@ s32 scenarioSourceAiGraphExecuteSetChrPresetToChrNearSelf(
 	if (!s_ActiveScenarioGraphs
 			.ai_action_set_chr_preset_to_chr_near_self_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action set_chr_preset_to_chr_near_self chr_rows=%d source_chr=%d preset=%d distance=%.3f label=%d branch=%d source=%s backend=graph.ai.action.prop_target+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action set_chr_preset_to_chr_near_self chr_rows=%d source_chr=%d preset=%d distance=%.3f label=%d branch=%d source=%s backend=graph.ai.action.prop_target+ai/ailists.json",
 			chr_count, source_chr, preset, (double)distance, label,
 			branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
@@ -19789,7 +20792,7 @@ s32 scenarioSourceAiGraphExecuteSetChrPresetToChrNearPad(
 	if (!s_ActiveScenarioGraphs
 			.ai_action_set_chr_preset_to_chr_near_pad_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action set_chr_preset_to_chr_near_pad chr_rows=%d source_chr=%d preset=%d distance=%.3f pad=%d found=1 pad_rows=%d label=%d branch=%d source=%s pads=%s backend=graph.ai.action.prop_target+ai/ailists.tsv+pads.tsv",
+			"SCENARIO.GRAPH: AI action set_chr_preset_to_chr_near_pad chr_rows=%d source_chr=%d preset=%d distance=%.3f pad=%d found=1 pad_rows=%d label=%d branch=%d source=%s pads=%s backend=graph.ai.action.prop_target+ai/ailists.json+pads.json",
 			chr_count, source_chr, preset, (double)distance, padnum,
 			pad_count, label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path,
@@ -19819,10 +20822,10 @@ static s32 s_aiGraphRequireVehicleInvestigationNode(const char *kind,
 			(require_pads && !s_ActiveScenarioGraphs.pads_path[0])) {
 		s_aiGraphRuntimeFailure(name,
 			require_pads
-				? "missing ai/ailists.tsv, objects.tsv, or pads.tsv source"
+				? "missing ai/ailists.json, objects.json, or pads.json source"
 				: require_objects
-					? "missing ai/ailists.tsv or objects.tsv source"
-					: "missing ai/ailists.tsv source");
+					? "missing ai/ailists.json or objects.json source"
+					: "missing ai/ailists.json source");
 		return -1;
 	}
 	return 1;
@@ -19853,7 +20856,7 @@ static s32 s_aiGraphRequireRuntimeChopperPointer(const char *action,
 	}
 	if (!s_ActiveScenarioGraphs.objects_path[0]) {
 		return s_aiGraphRuntimeFailure(action,
-			"missing objects.tsv source for vehicle weapon state");
+			"missing objects.json source for vehicle weapon state");
 	}
 	object_count = s_countRuntimeSetupObjectRows();
 	if (out_object_count) {
@@ -19900,7 +20903,7 @@ static s32 s_aiGraphRequireRuntimeVehicleObjectPointer(const char *action,
 	}
 	if (!s_ActiveScenarioGraphs.objects_path[0]) {
 		return s_aiGraphRuntimeFailure(action,
-			"missing objects.tsv source for vehicle state");
+			"missing objects.json source for vehicle state");
 	}
 	object_count = s_countRuntimeSetupObjectRows();
 	if (out_object_count) {
@@ -19958,7 +20961,7 @@ s32 scenarioSourceAiGraphExecuteIfDangerousObjectNearby(struct chrdata *chr,
 	if (!s_ActiveScenarioGraphs
 			.ai_condition_if_dangerous_object_nearby_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_dangerous_object_nearby chr_rows=%d source_chr=%d flags=%d label=%d branch=%d source=%s objects=%s backend=graph.ai.condition.vehicle_investigation+ai/ailists.tsv+objects.tsv",
+			"SCENARIO.GRAPH: AI condition if_dangerous_object_nearby chr_rows=%d source_chr=%d flags=%d label=%d branch=%d source=%s objects=%s backend=graph.ai.condition.vehicle_investigation+ai/ailists.json+objects.json",
 			chr_count, source_chr, flags, label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path,
 			s_ActiveScenarioGraphs.objects_path);
@@ -19991,7 +20994,7 @@ s32 scenarioSourceAiGraphExecuteIfHeliWeaponsArmed(
 	s_aiGraphApplyBranch(branch_taken, label, 3);
 	if (!s_ActiveScenarioGraphs.ai_condition_if_heli_weapons_armed_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_heli_weapons_armed vehicle_rows=%d source_vehicle_type=%d label=%d branch=%d source=%s objects=%s backend=graph.ai.condition.vehicle_investigation+ai/ailists.tsv+objects.tsv",
+			"SCENARIO.GRAPH: AI condition if_heli_weapons_armed vehicle_rows=%d source_vehicle_type=%d label=%d branch=%d source=%s objects=%s backend=graph.ai.condition.vehicle_investigation+ai/ailists.json+objects.json",
 			vehicle_count, source_vehicle_type, label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path,
 			s_ActiveScenarioGraphs.objects_path);
@@ -20056,7 +21059,7 @@ s32 scenarioSourceAiGraphExecuteIfHoverbotNextStep(
 			!s_ActiveScenarioGraphs
 				.ai_condition_if_hoverbot_next_step_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_hoverbot_next_step vehicle_rows=%d source_vehicle_type=%d comparison=%d value=%d path=%d path_rows=%d path_pads=%d pad_rows=%d nextstep=%d label=%d branch=%d source=%s objects=%s backend=graph.ai.condition.vehicle_investigation+ai/ailists.tsv+objects.tsv+navigation/paths.tsv+pads.tsv",
+			"SCENARIO.GRAPH: AI condition if_hoverbot_next_step vehicle_rows=%d source_vehicle_type=%d comparison=%d value=%d path=%d path_rows=%d path_pads=%d pad_rows=%d nextstep=%d label=%d branch=%d source=%s objects=%s backend=graph.ai.condition.vehicle_investigation+ai/ailists.json+objects.json+navigation/paths.json+pads.json",
 			vehicle_count, source_vehicle_type,
 			comparison, value, path_id, path_count, path_pads,
 			pad_count, nextstep, label, branch_taken,
@@ -20152,7 +21155,7 @@ s32 scenarioSourceAiGraphExecuteShuffleInvestigationTerminals(s32 goodtag_id,
 	if (!s_ActiveScenarioGraphs
 			.ai_action_shuffle_investigation_terminals_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action shuffle_investigation_terminals enabled=%d setup_tags=%d source=%s objects=%s backend=graph.ai.action.vehicle_investigation+ai/ailists.tsv+objects.tsv",
+			"SCENARIO.GRAPH: AI action shuffle_investigation_terminals enabled=%d setup_tags=%d source=%s objects=%s backend=graph.ai.action.vehicle_investigation+ai/ailists.json+objects.json",
 			enabled, setup_tag_count,
 			s_ActiveScenarioGraphs.ai_lists_path,
 			s_ActiveScenarioGraphs.objects_path);
@@ -20206,7 +21209,7 @@ s32 scenarioSourceAiGraphExecuteSetPadPresetToInvestigationTerminal(
 	if (!s_ActiveScenarioGraphs
 			.ai_action_set_pad_preset_to_investigation_terminal_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action set_pad_preset_to_investigation_terminal tag=%d object_rows=%d pad=%d found=%d pad_rows=%d applied=%d source=%s objects=%s pads=%s backend=graph.ai.action.vehicle_investigation+ai/ailists.tsv+objects.tsv+pads.tsv",
+			"SCENARIO.GRAPH: AI action set_pad_preset_to_investigation_terminal tag=%d object_rows=%d pad=%d found=%d pad_rows=%d applied=%d source=%s objects=%s pads=%s backend=graph.ai.action.vehicle_investigation+ai/ailists.json+objects.json+pads.json",
 			tag_id, object_count, selected_pad, applied ? 1 : 0,
 			pad_count, applied,
 			s_ActiveScenarioGraphs.ai_lists_path,
@@ -20246,7 +21249,7 @@ s32 scenarioSourceAiGraphExecuteHeliSetWeaponsArmed(
 	g_Vars.aioffset += 2;
 	if (!*logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action %s vehicle_rows=%d source_vehicle_type=%d armed=%d source=%s objects=%s backend=graph.ai.action.vehicle_investigation+ai/ailists.tsv+objects.tsv",
+			"SCENARIO.GRAPH: AI action %s vehicle_rows=%d source_vehicle_type=%d armed=%d source=%s objects=%s backend=graph.ai.action.vehicle_investigation+ai/ailists.json+objects.json",
 			name, vehicle_count, source_vehicle_type, armed,
 			s_ActiveScenarioGraphs.ai_lists_path,
 			s_ActiveScenarioGraphs.objects_path);
@@ -20270,7 +21273,7 @@ static s32 s_aiGraphRequireSafetyDetectionNode(const char *name,
 		return -1;
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
-		s_aiGraphRuntimeFailure(name, "missing ai/ailists.tsv source");
+		s_aiGraphRuntimeFailure(name, "missing ai/ailists.json source");
 		return -1;
 	}
 	return 1;
@@ -20418,7 +21421,7 @@ s32 scenarioSourceAiGraphExecuteIfSafety2LessThan(struct chrdata *chr,
 	s_aiGraphApplyBranch(branch_taken, label, 4);
 	if (!s_ActiveScenarioGraphs.ai_condition_if_safety2_less_than_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_safety2_less_than chr_rows=%d source_chr=%d checked=%d threshold=%d score=%d nearby=%d label=%d branch=%d source=%s backend=graph.ai.condition.safety_detection+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI condition if_safety2_less_than chr_rows=%d source_chr=%d checked=%d threshold=%d score=%d nearby=%d label=%d branch=%d source=%s backend=graph.ai.condition.safety_detection+ai/ailists.json",
 			chr_count, source_chr, checked_chrs, threshold, score, nearby,
 			label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
@@ -20452,7 +21455,7 @@ s32 scenarioSourceAiGraphExecuteIfPlayerUsingCmpOrAr34(s32 label)
 	if (!s_ActiveScenarioGraphs
 			.ai_condition_if_player_using_cmp_or_ar34_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_player_using_cmp_or_ar34 weapon_id=%s label=%d branch=%d source=%s backend=graph.ai.condition.safety_detection+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI condition if_player_using_cmp_or_ar34 weapon_id=%s label=%d branch=%d source=%s backend=graph.ai.condition.safety_detection+ai/ailists.json",
 			weapon_id, label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs
@@ -20495,7 +21498,7 @@ s32 scenarioSourceAiGraphExecuteDetectEnemyOnSameFloor(struct chrdata *chr,
 		if (!s_ActiveScenarioGraphs
 				.ai_condition_detect_enemy_on_same_floor_logged) {
 			sysLogPrintf(LOG_NOTE,
-				"SCENARIO.GRAPH: AI condition detect_enemy_on_same_floor chr_rows=%d source_chr=%d checked=%d scan=%.3f target=%d label=%d branch=%d source=%s backend=graph.ai.condition.safety_detection+ai/ailists.tsv",
+				"SCENARIO.GRAPH: AI condition detect_enemy_on_same_floor chr_rows=%d source_chr=%d checked=%d scan=%.3f target=%d label=%d branch=%d source=%s backend=graph.ai.condition.safety_detection+ai/ailists.json",
 				chr_count, source_chr, checked_chrs, 0.0,
 				newtarget, label, 0,
 				s_ActiveScenarioGraphs.ai_lists_path);
@@ -20570,7 +21573,7 @@ s32 scenarioSourceAiGraphExecuteDetectEnemyOnSameFloor(struct chrdata *chr,
 	if (!s_ActiveScenarioGraphs
 			.ai_condition_detect_enemy_on_same_floor_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition detect_enemy_on_same_floor chr_rows=%d source_chr=%d checked=%d scan=%.3f target=%d label=%d branch=%d source=%s backend=graph.ai.condition.safety_detection+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI condition detect_enemy_on_same_floor chr_rows=%d source_chr=%d checked=%d scan=%.3f target=%d label=%d branch=%d source=%s backend=graph.ai.condition.safety_detection+ai/ailists.json",
 			chr_count, source_chr, checked_chrs, (double)scandist,
 			newtarget, label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
@@ -20610,7 +21613,7 @@ s32 scenarioSourceAiGraphExecuteDetectEnemy(struct chrdata *chr,
 		s_aiGraphApplyBranch(0, label, 4);
 		if (!s_ActiveScenarioGraphs.ai_condition_detect_enemy_logged) {
 			sysLogPrintf(LOG_NOTE,
-				"SCENARIO.GRAPH: AI condition detect_enemy chr_rows=%d source_chr=%d checked=%d maxdist=%.3f target=%d label=%d branch=%d source=%s backend=graph.ai.condition.safety_detection+ai/ailists.tsv",
+				"SCENARIO.GRAPH: AI condition detect_enemy chr_rows=%d source_chr=%d checked=%d maxdist=%.3f target=%d label=%d branch=%d source=%s backend=graph.ai.condition.safety_detection+ai/ailists.json",
 				chr_count, source_chr, checked_chrs, (double)maxdist,
 				closesttarg, label, 0,
 				s_ActiveScenarioGraphs.ai_lists_path);
@@ -20687,7 +21690,7 @@ s32 scenarioSourceAiGraphExecuteDetectEnemy(struct chrdata *chr,
 	s_aiGraphApplyBranch(branch_taken, label, 4);
 	if (!s_ActiveScenarioGraphs.ai_condition_detect_enemy_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition detect_enemy chr_rows=%d source_chr=%d checked=%d maxdist=%.3f target=%d label=%d branch=%d source=%s backend=graph.ai.condition.safety_detection+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI condition detect_enemy chr_rows=%d source_chr=%d checked=%d maxdist=%.3f target=%d label=%d branch=%d source=%s backend=graph.ai.condition.safety_detection+ai/ailists.json",
 			chr_count, source_chr, checked_chrs, (double)maxdist,
 			closesttarg, label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
@@ -20752,7 +21755,7 @@ s32 scenarioSourceAiGraphExecuteIfSafetyLessThan(struct chrdata *chr,
 	s_aiGraphApplyBranch(branch_taken, label, 4);
 	if (!s_ActiveScenarioGraphs.ai_condition_if_safety_less_than_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_safety_less_than chr_rows=%d source_chr=%d checked=%d threshold=%d safety=%d nearby=%d label=%d branch=%d source=%s backend=graph.ai.condition.safety_detection+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI condition if_safety_less_than chr_rows=%d source_chr=%d checked=%d threshold=%d safety=%d nearby=%d label=%d branch=%d source=%s backend=graph.ai.condition.safety_detection+ai/ailists.json",
 			chr_count, source_chr, checked_chrs, threshold, safety,
 			numnearby, label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
@@ -20801,7 +21804,7 @@ s32 scenarioSourceAiGraphExecuteIfTargetMovingSlowly(struct chrdata *basechr,
 	if (!s_ActiveScenarioGraphs
 			.ai_condition_if_target_moving_slowly_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_target_moving_slowly chr=%d chr_rows=%d target_chr=%d delta=%d label=%d branch=%d source=%s backend=graph.ai.condition.safety_detection+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI condition if_target_moving_slowly chr=%d chr_rows=%d target_chr=%d delta=%d label=%d branch=%d source=%s backend=graph.ai.condition.safety_detection+ai/ailists.json",
 			chrnum, chr_count, target_chrnum, delta, label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs
@@ -20830,7 +21833,7 @@ s32 scenarioSourceAiGraphExecuteIfTargetMovingCloser(struct chrdata *chr,
 	if (!s_ActiveScenarioGraphs
 			.ai_condition_if_target_moving_closer_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_target_moving_closer delta=%d label=%d branch=%d source=%s backend=graph.ai.condition.safety_detection+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI condition if_target_moving_closer delta=%d label=%d branch=%d source=%s backend=graph.ai.condition.safety_detection+ai/ailists.json",
 			delta, label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs
@@ -20859,7 +21862,7 @@ s32 scenarioSourceAiGraphExecuteIfTargetMovingAway(struct chrdata *chr,
 	if (!s_ActiveScenarioGraphs
 			.ai_condition_if_target_moving_away_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_target_moving_away delta=%d label=%d branch=%d source=%s backend=graph.ai.condition.safety_detection+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI condition if_target_moving_away delta=%d label=%d branch=%d source=%s backend=graph.ai.condition.safety_detection+ai/ailists.json",
 			delta, label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs
@@ -20882,7 +21885,7 @@ static s32 s_aiGraphRequireMiscBranchNode(const char *name, s32 node_count)
 		return -1;
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
-		s_aiGraphRuntimeFailure(name, "missing ai/ailists.tsv source");
+		s_aiGraphRuntimeFailure(name, "missing ai/ailists.json source");
 		return -1;
 	}
 	return 1;
@@ -20927,7 +21930,7 @@ s32 scenarioSourceAiGraphExecuteIfSquadronIsDead(s32 squadron, s32 label)
 	s_aiGraphApplyBranch(branch_taken, label, 4);
 	if (!s_ActiveScenarioGraphs.ai_condition_if_squadron_is_dead_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_squadron_is_dead chr_rows=%d checked=%d squadron=%d alive=%d label=%d branch=%d source=%s backend=graph.ai.condition.misc_branch+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI condition if_squadron_is_dead chr_rows=%d checked=%d squadron=%d alive=%d label=%d branch=%d source=%s backend=graph.ai.condition.misc_branch+ai/ailists.json",
 			chr_count, checked_chrs, squadron, anyalive, label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_condition_if_squadron_is_dead_logged = 1;
@@ -20947,7 +21950,7 @@ s32 scenarioSourceAiGraphExecuteIfTrue(s32 label)
 	s_aiGraphApplyBranch(1, label, 6);
 	if (!s_ActiveScenarioGraphs.ai_condition_if_true_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_true label=%d branch=1 source=%s backend=graph.ai.condition.misc_branch+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI condition if_true label=%d branch=1 source=%s backend=graph.ai.condition.misc_branch+ai/ailists.json",
 			label, s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_condition_if_true_logged = 1;
 	}
@@ -20999,7 +22002,7 @@ s32 scenarioSourceAiGraphExecuteIfNumChrsInSquadronGreaterThan(s32 threshold,
 	if (!s_ActiveScenarioGraphs
 			.ai_condition_if_num_chrs_in_squadron_greater_than_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_num_chrs_in_squadron_greater_than chr_rows=%d checked=%d threshold=%d squadron=%d count=%d label=%d branch=%d source=%s backend=graph.ai.condition.misc_branch+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI condition if_num_chrs_in_squadron_greater_than chr_rows=%d checked=%d threshold=%d squadron=%d count=%d label=%d branch=%d source=%s backend=graph.ai.condition.misc_branch+ai/ailists.json",
 			chr_count, checked_chrs, threshold, squadron, count, label,
 			branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
@@ -21018,6 +22021,10 @@ s32 scenarioSourceAiGraphExecuteIfNaturalAnim(struct chrdata *chr,
 	s32 source_chr = -1;
 	const char *anim_catalog_id;
 	const char *current_anim_catalog_id = "none";
+	const char *anim_source_path = "(none)";
+	const char *current_anim_source_path = "none";
+	u32 anim_clip_size = 0;
+	u32 current_anim_clip_size = 0;
 
 	required = s_aiGraphRequireMiscBranchNode("if_natural_anim",
 		s_ActiveScenarioGraphs.level_ai_if_natural_anim_node_count);
@@ -21025,7 +22032,7 @@ s32 scenarioSourceAiGraphExecuteIfNaturalAnim(struct chrdata *chr,
 		return required < 0 ? 1 : 0;
 	}
 	anim_catalog_id = s_aiGraphResolveAnimationCatalogId("if_natural_anim",
-		anim, "natural");
+		anim, "natural", &anim_source_path, &anim_clip_size);
 	if (!anim_catalog_id) {
 		s_aiGraphApplyBranch(0, label, 4);
 		return 1;
@@ -21036,7 +22043,8 @@ s32 scenarioSourceAiGraphExecuteIfNaturalAnim(struct chrdata *chr,
 	}
 	if (chr && chr->naturalanim >= 0) {
 		current_anim_catalog_id = s_aiGraphResolveAnimationCatalogId(
-			"if_natural_anim", chr->naturalanim, "current_natural");
+			"if_natural_anim", chr->naturalanim, "current_natural",
+			&current_anim_source_path, &current_anim_clip_size);
 		if (!current_anim_catalog_id) {
 			s_aiGraphApplyBranch(0, label, 4);
 			return 1;
@@ -21046,9 +22054,11 @@ s32 scenarioSourceAiGraphExecuteIfNaturalAnim(struct chrdata *chr,
 	s_aiGraphApplyBranch(branch_taken, label, 4);
 	if (!s_ActiveScenarioGraphs.ai_condition_if_natural_anim_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_natural_anim chr_rows=%d source_chr=%d anim_id=%s current_anim_id=%s label=%d branch=%d source=%s backend=graph.ai.condition.misc_branch+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI condition if_natural_anim chr_rows=%d source_chr=%d anim_id=%s anim_source=%s clip_bytes=%u current_anim_id=%s current_anim_source=%s current_clip_bytes=%u label=%d branch=%d source=%s backend=graph.ai.condition.misc_branch+ai/ailists.json",
 			chr_count, source_chr, anim_catalog_id,
-			current_anim_catalog_id, label, branch_taken,
+			anim_source_path, anim_clip_size,
+			current_anim_catalog_id, current_anim_source_path,
+			current_anim_clip_size, label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_condition_if_natural_anim_logged = 1;
 	}
@@ -21105,8 +22115,8 @@ s32 scenarioSourceAiGraphExecuteIfY(struct chrdata *basechr, s32 chrnum,
 		((chr->prop->pos.y < cutoff_y && comparison == 0) ||
 			(chr->prop->pos.y > cutoff_y && comparison == 1));
 	backend = vehicle_count > 0
-		? "graph.ai.condition.misc_branch+ai/ailists.tsv+objects.tsv"
-		: "graph.ai.condition.misc_branch+ai/ailists.tsv";
+		? "graph.ai.condition.misc_branch+ai/ailists.json+objects.json"
+		: "graph.ai.condition.misc_branch+ai/ailists.json";
 	s_aiGraphApplyBranch(branch_taken, label, 7);
 	if (!s_ActiveScenarioGraphs.ai_condition_if_y_logged) {
 		sysLogPrintf(LOG_NOTE,
@@ -21145,7 +22155,7 @@ s32 scenarioSourceAiGraphExecuteIfSoundTimer(struct chrdata *chr,
 	s_aiGraphApplyBranch(branch_taken, label, 6);
 	if (!s_ActiveScenarioGraphs.ai_condition_if_sound_timer_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_sound_timer chr_rows=%d source_chr=%d value=%d timer=%d comparison=%d label=%d branch=%d source=%s backend=graph.ai.condition.misc_branch+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI condition if_sound_timer chr_rows=%d source_chr=%d value=%d timer=%d comparison=%d label=%d branch=%d source=%s backend=graph.ai.condition.misc_branch+ai/ailists.json",
 			chr_count, source_chr, ticks_value,
 			chr ? chr->soundtimer : -1, comparison, label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
@@ -21188,7 +22198,7 @@ s32 scenarioSourceAiGraphExecuteIfTargetYDifferenceLessThan(struct chrdata *chr,
 	if (!s_ActiveScenarioGraphs
 			.ai_condition_if_target_y_difference_less_than_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_target_y_difference_less_than chr_rows=%d source_chr=%d threshold=%d diff=%.3f label=%d branch=%d source=%s backend=graph.ai.condition.misc_branch+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI condition if_target_y_difference_less_than chr_rows=%d source_chr=%d threshold=%d diff=%.3f label=%d branch=%d source=%s backend=graph.ai.condition.misc_branch+ai/ailists.json",
 			chr_count, source_chr, threshold, (double)diff, label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs
@@ -21212,15 +22222,15 @@ static s32 s_aiGraphRequireMiscEffectNode(const char *name, s32 node_count,
 		return -1;
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
-		s_aiGraphRuntimeFailure(name, "missing ai/ailists.tsv source");
+		s_aiGraphRuntimeFailure(name, "missing ai/ailists.json source");
 		return -1;
 	}
 	if (require_objects && !s_ActiveScenarioGraphs.objects_path[0]) {
-		s_aiGraphRuntimeFailure(name, "missing objects.tsv source");
+		s_aiGraphRuntimeFailure(name, "missing objects.json source");
 		return -1;
 	}
 	if (require_pads && !s_ActiveScenarioGraphs.pads_path[0]) {
-		s_aiGraphRuntimeFailure(name, "missing pads.tsv source");
+		s_aiGraphRuntimeFailure(name, "missing pads.json source");
 		return -1;
 	}
 	return 1;
@@ -21260,7 +22270,7 @@ s32 scenarioSourceAiGraphExecuteChrExplosions(struct chrdata *basechr,
 	g_Vars.aioffset += 3;
 	if (!s_ActiveScenarioGraphs.ai_action_chr_explosions_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action chr_explosions chr=%d chr_rows=%d target_chr=%d player_checked=%d source=%s backend=graph.ai.action.misc_effect+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action chr_explosions chr=%d chr_rows=%d target_chr=%d player_checked=%d source=%s backend=graph.ai.action.misc_effect+ai/ailists.json",
 			chrnum, chr_count, target_chrnum, player_checked,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_chr_explosions_logged = 1;
@@ -21282,7 +22292,7 @@ s32 scenarioSourceAiGraphExecuteSetTintedGlassEnabled(s32 enabled)
 	g_Vars.aioffset += 3;
 	if (!s_ActiveScenarioGraphs.ai_action_set_tinted_glass_enabled_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action set_tinted_glass_enabled enabled=%d source=%s backend=graph.ai.action.misc_effect+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action set_tinted_glass_enabled enabled=%d source=%s backend=graph.ai.action.misc_effect+ai/ailists.json",
 			enabled, s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_set_tinted_glass_enabled_logged = 1;
 	}
@@ -21314,7 +22324,7 @@ s32 scenarioSourceAiGraphExecuteHovercopterFireRocket(s32 side)
 	g_Vars.aioffset += 3;
 	if (!s_ActiveScenarioGraphs.ai_action_hovercopter_fire_rocket_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action hovercopter_fire_rocket vehicle_rows=%d source_vehicle_type=%d side=%d source=%s objects=%s backend=graph.ai.action.misc_effect+ai/ailists.tsv+objects.tsv",
+			"SCENARIO.GRAPH: AI action hovercopter_fire_rocket vehicle_rows=%d source_vehicle_type=%d side=%d source=%s objects=%s backend=graph.ai.action.misc_effect+ai/ailists.json+objects.json",
 			vehicle_count, source_vehicle_type, side,
 			s_ActiveScenarioGraphs.ai_lists_path,
 			s_ActiveScenarioGraphs.objects_path);
@@ -21353,7 +22363,7 @@ s32 scenarioSourceAiGraphExecuteChrAdjustMotionBlur(struct chrdata *basechr,
 	g_Vars.aioffset += 5;
 	if (!s_ActiveScenarioGraphs.ai_action_chr_adjust_motion_blur_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action chr_adjust_motion_blur chr=%d chr_rows=%d target_chr=%d amount=%d mode=%d source=%s backend=graph.ai.action.misc_effect+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action chr_adjust_motion_blur chr=%d chr_rows=%d target_chr=%d amount=%d mode=%d source=%s backend=graph.ai.action.misc_effect+ai/ailists.json",
 			chrnum, chr_count, target_chrnum, amount, mode,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_chr_adjust_motion_blur_logged = 1;
@@ -21382,7 +22392,7 @@ s32 scenarioSourceAiGraphExecutePunchOrKick(struct chrdata *chr, s32 reverse,
 	s_aiGraphApplyBranch(branch_taken, label, 4);
 	if (!s_ActiveScenarioGraphs.ai_action_punch_or_kick_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action punch_or_kick chr_rows=%d source_chr=%d reverse=%d label=%d branch=%d source=%s backend=graph.ai.action.misc_effect+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action punch_or_kick chr_rows=%d source_chr=%d reverse=%d label=%d branch=%d source=%s backend=graph.ai.action.misc_effect+ai/ailists.json",
 			chr_count, source_chr, reverse, label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_punch_or_kick_logged = 1;
@@ -21445,7 +22455,7 @@ s32 scenarioSourceAiGraphExecuteSetTargetToEyespyIfInSight(
 	if (!s_ActiveScenarioGraphs
 			.ai_action_set_target_to_eyespy_if_in_sight_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action set_target_to_eyespy_if_in_sight chr_rows=%d source_chr=%d player_checked=%d target_chr_rows=%d source_target_chr=%d label=%d branch=%d source=%s backend=graph.ai.action.misc_effect+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action set_target_to_eyespy_if_in_sight chr_rows=%d source_chr=%d player_checked=%d target_chr_rows=%d source_target_chr=%d label=%d branch=%d source=%s backend=graph.ai.action.misc_effect+ai/ailists.json",
 			chr_count, source_chr, player_checked, target_chr_count,
 			source_target_chr, label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
@@ -21478,7 +22488,7 @@ s32 scenarioSourceAiGraphExecuteMiniSkedarTryPounce(struct chrdata *chr,
 	s_aiGraphApplyBranch(branch_taken, label, 7);
 	if (!s_ActiveScenarioGraphs.ai_action_mini_skedar_try_pounce_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action mini_skedar_try_pounce chr_rows=%d source_chr=%d pouncebits=%d arg0=%d arg1=%d arg2=%d label=%d branch=%d source=%s backend=graph.ai.action.misc_effect+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action mini_skedar_try_pounce chr_rows=%d source_chr=%d pouncebits=%d arg0=%d arg1=%d arg2=%d label=%d branch=%d source=%s backend=graph.ai.action.misc_effect+ai/ailists.json",
 			chr_count, source_chr, chr ? chr->pouncebits : -1,
 			arg0, arg1, arg2, label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
@@ -21533,7 +22543,7 @@ s32 scenarioSourceAiGraphExecuteIfObjectDistanceToPadLessThan(
 	if (!s_ActiveScenarioGraphs
 			.ai_condition_if_object_distance_to_pad_less_than_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_object_distance_to_pad_less_than tag=%d object_rows=%d pad=%d found=1 pad_rows=%d distance=%.3f label=%d branch=%d source=%s objects=%s pads=%s backend=graph.ai.action.misc_effect+ai/ailists.tsv+objects.tsv+pads.tsv",
+			"SCENARIO.GRAPH: AI condition if_object_distance_to_pad_less_than tag=%d object_rows=%d pad=%d found=1 pad_rows=%d distance=%.3f label=%d branch=%d source=%s objects=%s pads=%s backend=graph.ai.action.misc_effect+ai/ailists.json+objects.json+pads.json",
 			tag_id, object_count, pad_id, pad_count, (double)distance,
 			label, branch_taken, s_ActiveScenarioGraphs.ai_lists_path,
 			s_ActiveScenarioGraphs.objects_path,
@@ -21567,7 +22577,7 @@ s32 scenarioSourceAiGraphExecuteAvoid(struct chrdata *chr)
 	g_Vars.aioffset += 2;
 	if (!s_ActiveScenarioGraphs.ai_action_avoid_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action avoid chr_rows=%d source_chr=%d applied=%d source=%s backend=graph.ai.action.misc_effect+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action avoid chr_rows=%d source_chr=%d applied=%d source=%s backend=graph.ai.action.misc_effect+ai/ailists.json",
 			chr_count, source_chr, applied,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_avoid_logged = 1;
@@ -21588,7 +22598,7 @@ s32 scenarioSourceAiGraphExecuteTitleInitMode(s32 mode)
 	titleInitFromAiCmd(mode);
 	if (!s_ActiveScenarioGraphs.ai_action_title_init_mode_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action title_init_mode mode=%d source=%s backend=graph.ai.action.misc_effect+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action title_init_mode mode=%d source=%s backend=graph.ai.action.misc_effect+ai/ailists.json",
 			mode, s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_title_init_mode_logged = 1;
 	}
@@ -21612,7 +22622,7 @@ s32 scenarioSourceAiGraphExecuteTryExitTitle(s32 label)
 	s_aiGraphApplyBranch(branch_taken, label, 3);
 	if (!s_ActiveScenarioGraphs.ai_action_try_exit_title_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action try_exit_title label=%d branch=%d source=%s backend=graph.ai.action.misc_effect+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action try_exit_title label=%d branch=%d source=%s backend=graph.ai.action.misc_effect+ai/ailists.json",
 			label, branch_taken, s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_try_exit_title_logged = 1;
 	}
@@ -21643,7 +22653,7 @@ s32 scenarioSourceAiGraphExecuteChrEmitSparks(struct chrdata *basechr,
 	g_Vars.aioffset += 3;
 	if (!s_ActiveScenarioGraphs.ai_action_chr_emit_sparks_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action chr_emit_sparks chr=%d chr_rows=%d target_chr=%d source=%s backend=graph.ai.action.misc_effect+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action chr_emit_sparks chr=%d chr_rows=%d target_chr=%d source=%s backend=graph.ai.action.misc_effect+ai/ailists.json",
 			chrnum, chr_count, target_chrnum,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_chr_emit_sparks_logged = 1;
@@ -21695,7 +22705,7 @@ s32 scenarioSourceAiGraphExecuteSetDrCarollImages(struct chrdata *basechr,
 	g_Vars.aioffset += 5;
 	if (!s_ActiveScenarioGraphs.ai_action_set_dr_caroll_images_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action set_dr_caroll_images chr=%d chr_rows=%d target_chr=%d right=%d left=%d source=%s backend=graph.ai.action.misc_effect+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action set_dr_caroll_images chr=%d chr_rows=%d target_chr=%d right=%d left=%d source=%s backend=graph.ai.action.misc_effect+ai/ailists.json",
 			chrnum, chr_count, target_chrnum, right_image, left_image,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_set_dr_caroll_images_logged = 1;
@@ -21721,8 +22731,8 @@ static s32 s_aiGraphRequireQuipShuffleNode(const char *name, s32 node_count,
 			(require_objects && !s_ActiveScenarioGraphs.objects_path[0])) {
 		s_aiGraphRuntimeFailure(name,
 			require_objects
-				? "missing ai/ailists.tsv or objects.tsv source"
-				: "missing ai/ailists.tsv source");
+				? "missing ai/ailists.json or objects.json source"
+				: "missing ai/ailists.json source");
 		return -1;
 	}
 	return 1;
@@ -22126,7 +23136,7 @@ s32 scenarioSourceAiGraphExecuteSayQuip(struct chrdata *basechr, s32 chr_id,
 	g_Vars.aioffset += 10;
 	if (!s_ActiveScenarioGraphs.ai_action_say_quip_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action say_quip chr=%d chr_rows=%d target_chr=%d source_chr=%d checked=%d player_checked=%d row=%d audio_id=%s text_id=%s source=%s backend=graph.ai.action.quip_shuffle+ai/ailists.tsv+audio+lang",
+			"SCENARIO.GRAPH: AI action say_quip chr=%d chr_rows=%d target_chr=%d source_chr=%d checked=%d player_checked=%d row=%d audio_id=%s text_id=%s source=%s backend=graph.ai.action.quip_shuffle+ai/ailists.json+audio+lang",
 			chr_id, chr_count, target_chrnum, source_chr, checked_chrs,
 			player_checked, row_arg, audio_catalog_id,
 			text_catalog_id, s_ActiveScenarioGraphs.ai_lists_path);
@@ -22176,7 +23186,7 @@ s32 scenarioSourceAiGraphExecuteSayCiStaffQuip(struct chrdata *chr,
 	g_Vars.aioffset += 4;
 	if (!s_ActiveScenarioGraphs.ai_action_say_ci_staff_quip_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action say_ci_staff_quip chr_rows=%d target_chr=%d type=%d channel=%d audio_id=%s source=%s backend=graph.ai.action.quip_shuffle+ai/ailists.tsv+audio",
+			"SCENARIO.GRAPH: AI action say_ci_staff_quip chr_rows=%d target_chr=%d type=%d channel=%d audio_id=%s source=%s backend=graph.ai.action.quip_shuffle+ai/ailists.json+audio",
 			chr_count, target_chrnum, quip_type, channel, audio_catalog_id,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_say_ci_staff_quip_logged = 1;
@@ -22237,7 +23247,7 @@ s32 scenarioSourceAiGraphExecuteShuffleRuinsPillars(const u8 *cmd)
 	g_Vars.aioffset += 18;
 	if (!s_ActiveScenarioGraphs.ai_action_shuffle_ruins_pillars_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action shuffle_ruins_pillars choices=%u/%u/%u setup_tags=%d source=%s objects=%s backend=graph.ai.action.quip_shuffle+ai/ailists.tsv+objects.tsv",
+			"SCENARIO.GRAPH: AI action shuffle_ruins_pillars choices=%u/%u/%u setup_tags=%d source=%s objects=%s backend=graph.ai.action.quip_shuffle+ai/ailists.json+objects.json",
 			(unsigned)marked1index, (unsigned)marked2index,
 			(unsigned)marked3index, setup_tag_count,
 			s_ActiveScenarioGraphs.ai_lists_path,
@@ -22287,7 +23297,7 @@ s32 scenarioSourceAiGraphExecuteShufflePelagicSwitches(void)
 	g_Vars.aioffset += 2;
 	if (!s_ActiveScenarioGraphs.ai_action_shuffle_pelagic_switches_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action shuffle_pelagic_switches setup_tags=%d source=%s objects=%s backend=graph.ai.action.quip_shuffle+ai/ailists.tsv+objects.tsv",
+			"SCENARIO.GRAPH: AI action shuffle_pelagic_switches setup_tags=%d source=%s objects=%s backend=graph.ai.action.quip_shuffle+ai/ailists.json+objects.json",
 			setup_tag_count, s_ActiveScenarioGraphs.ai_lists_path,
 			s_ActiveScenarioGraphs.objects_path);
 		s_ActiveScenarioGraphs.ai_action_shuffle_pelagic_switches_logged = 1;
@@ -22313,7 +23323,7 @@ s32 scenarioSourceAiGraphExecuteTryAttackAmount(struct chrdata *chr,
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
 		return s_aiGraphRuntimeFailure("try_attack_amount",
-			"missing ai/ailists.tsv source");
+			"missing ai/ailists.json source");
 	}
 	if (!s_aiGraphRequireRuntimeCharacterPointer("try_attack_amount",
 			chr, &chr_count, &source_chr)) {
@@ -22323,7 +23333,7 @@ s32 scenarioSourceAiGraphExecuteTryAttackAmount(struct chrdata *chr,
 	g_Vars.aioffset += 4;
 	if (!s_ActiveScenarioGraphs.ai_action_try_attack_amount_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action try_attack_amount chr_rows=%d source_chr=%d arg0=%d arg1=%d source=%s backend=graph.ai.action.orders+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action try_attack_amount chr_rows=%d source_chr=%d arg0=%d arg1=%d source=%s backend=graph.ai.action.orders+ai/ailists.json",
 			chr_count, source_chr, arg0, arg1,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_try_attack_amount_logged = 1;
@@ -22347,7 +23357,7 @@ static s32 s_aiGraphRequireActiveCharacterAction(const char *action,
 		return -1;
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
-		s_aiGraphRuntimeFailure(action, "missing ai/ailists.tsv source");
+		s_aiGraphRuntimeFailure(action, "missing ai/ailists.json source");
 		return -1;
 	}
 	if (!chr || !chr->prop) {
@@ -22384,7 +23394,7 @@ s32 scenarioSourceAiGraphExecuteSetMorale(struct chrdata *chr, s32 morale)
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_set_morale_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action set_morale chr_rows=%d source_chr=%d value=%d source=%s backend=graph.ai.action.set_morale+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action set_morale chr_rows=%d source_chr=%d value=%d source=%s backend=graph.ai.action.set_morale+ai/ailists.json",
 			chr_count, source_chr, morale,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_set_morale_logged = 1;
@@ -22409,7 +23419,7 @@ s32 scenarioSourceAiGraphExecuteAddMorale(struct chrdata *chr, s32 amount)
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_add_morale_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action add_morale chr_rows=%d source_chr=%d amount=%d source=%s backend=graph.ai.action.add_morale+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action add_morale chr_rows=%d source_chr=%d amount=%d source=%s backend=graph.ai.action.add_morale+ai/ailists.json",
 			chr_count, source_chr, amount,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_add_morale_logged = 1;
@@ -22436,7 +23446,7 @@ s32 scenarioSourceAiGraphExecuteChrAddMorale(struct chrdata *basechr,
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
 		return s_aiGraphRuntimeFailure("chr_add_morale",
-			"missing ai/ailists.tsv source");
+			"missing ai/ailists.json source");
 	}
 	if (!s_aiGraphRequireRuntimeCharacterRefFromBase("chr_add_morale",
 			basechr, chrnum, &chr_count, &chr)) {
@@ -22446,7 +23456,7 @@ s32 scenarioSourceAiGraphExecuteChrAddMorale(struct chrdata *basechr,
 	incrementByte(&chr->morale, (u8)amount);
 	if (!s_ActiveScenarioGraphs.ai_action_chr_add_morale_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action chr_add_morale chr=%d chr_rows=%d target_chr=%d amount=%d source=%s backend=graph.ai.action.chr_add_morale+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action chr_add_morale chr=%d chr_rows=%d target_chr=%d amount=%d source=%s backend=graph.ai.action.chr_add_morale+ai/ailists.json",
 			chrnum, chr_count, target_chrnum, amount,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_chr_add_morale_logged = 1;
@@ -22472,7 +23482,7 @@ s32 scenarioSourceAiGraphExecuteSubtractMorale(struct chrdata *chr,
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_subtract_morale_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action subtract_morale chr_rows=%d source_chr=%d amount=%d source=%s backend=graph.ai.action.subtract_morale+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action subtract_morale chr_rows=%d source_chr=%d amount=%d source=%s backend=graph.ai.action.subtract_morale+ai/ailists.json",
 			chr_count, source_chr, amount,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_subtract_morale_logged = 1;
@@ -22498,7 +23508,7 @@ s32 scenarioSourceAiGraphExecuteSetAlertness(struct chrdata *chr,
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_set_alertness_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action set_alertness chr_rows=%d source_chr=%d value=%d source=%s backend=graph.ai.action.set_alertness+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action set_alertness chr_rows=%d source_chr=%d value=%d source=%s backend=graph.ai.action.set_alertness+ai/ailists.json",
 			chr_count, source_chr, alertness,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_set_alertness_logged = 1;
@@ -22524,7 +23534,7 @@ s32 scenarioSourceAiGraphExecuteAddAlertness(struct chrdata *chr,
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_add_alertness_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action add_alertness chr_rows=%d source_chr=%d amount=%d source=%s backend=graph.ai.action.add_alertness+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action add_alertness chr_rows=%d source_chr=%d amount=%d source=%s backend=graph.ai.action.add_alertness+ai/ailists.json",
 			chr_count, source_chr, amount,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_add_alertness_logged = 1;
@@ -22552,7 +23562,7 @@ s32 scenarioSourceAiGraphExecuteChrAddAlertness(struct chrdata *basechr,
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
 		return s_aiGraphRuntimeFailure("chr_add_alertness",
-			"missing ai/ailists.tsv source");
+			"missing ai/ailists.json source");
 	}
 	if (!s_aiGraphRequireRuntimeCharacterRefFromBase("chr_add_alertness",
 			basechr, chrnum, &chr_count, &chr)) {
@@ -22564,7 +23574,7 @@ s32 scenarioSourceAiGraphExecuteChrAddAlertness(struct chrdata *basechr,
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_chr_add_alertness_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action chr_add_alertness chr=%d chr_rows=%d target_chr=%d amount=%d applied=%d source=%s backend=graph.ai.action.chr_add_alertness+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action chr_add_alertness chr=%d chr_rows=%d target_chr=%d amount=%d applied=%d source=%s backend=graph.ai.action.chr_add_alertness+ai/ailists.json",
 			chrnum, chr_count, target_chrnum, amount,
 			chr && chr->prop ? 1 : 0,
 			s_ActiveScenarioGraphs.ai_lists_path);
@@ -22595,7 +23605,7 @@ s32 scenarioSourceAiGraphExecuteIncreaseSquadronAlertness(
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
 		return s_aiGraphRuntimeFailure("increase_squadron_alertness",
-			"missing ai/ailists.tsv source");
+			"missing ai/ailists.json source");
 	}
 	if (!s_aiGraphRequireRuntimeCharacterPointer(
 			"increase_squadron_alertness", chr, &chr_count, &source_chr)) {
@@ -22635,7 +23645,7 @@ s32 scenarioSourceAiGraphExecuteIncreaseSquadronAlertness(
 
 	if (!s_ActiveScenarioGraphs.ai_action_increase_squadron_alertness_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action increase_squadron_alertness chr_rows=%d source_chr=%d checked=%d amount=%d affected=%d source=%s backend=graph.ai.action.increase_squadron_alertness+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action increase_squadron_alertness chr_rows=%d source_chr=%d checked=%d amount=%d affected=%d source=%s backend=graph.ai.action.increase_squadron_alertness+ai/ailists.json",
 			chr_count, source_chr, checked_chrs, amount, affected,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_increase_squadron_alertness_logged = 1;
@@ -22661,7 +23671,7 @@ s32 scenarioSourceAiGraphExecuteSubtractAlertness(struct chrdata *chr,
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_subtract_alertness_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action subtract_alertness chr_rows=%d source_chr=%d amount=%d source=%s backend=graph.ai.action.subtract_alertness+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action subtract_alertness chr_rows=%d source_chr=%d amount=%d source=%s backend=graph.ai.action.subtract_alertness+ai/ailists.json",
 			chr_count, source_chr, amount,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_subtract_alertness_logged = 1;
@@ -22687,7 +23697,7 @@ s32 scenarioSourceAiGraphExecuteSetHearDistance(struct chrdata *chr,
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_set_hear_distance_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action set_hear_distance chr_rows=%d source_chr=%d value=%.3f source=%s backend=graph.ai.action.set_hear_distance+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action set_hear_distance chr_rows=%d source_chr=%d value=%.3f source=%s backend=graph.ai.action.set_hear_distance+ai/ailists.json",
 			chr_count, source_chr, distance,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_set_hear_distance_logged = 1;
@@ -22716,7 +23726,7 @@ s32 scenarioSourceAiGraphExecuteSetViewDistance(struct chrdata *chr,
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_set_view_distance_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action set_view_distance chr_rows=%d source_chr=%d value=%d applied=%d source=%s backend=graph.ai.action.set_view_distance+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action set_view_distance chr_rows=%d source_chr=%d value=%d applied=%d source=%s backend=graph.ai.action.set_view_distance+ai/ailists.json",
 			chr_count, source_chr, distance, applied,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_set_view_distance_logged = 1;
@@ -22744,7 +23754,7 @@ s32 scenarioSourceAiGraphExecuteSetGrenadeProbability(struct chrdata *chr,
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_set_grenade_probability_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action set_grenade_probability chr_rows=%d source_chr=%d value=%d source=%s backend=graph.ai.action.set_grenade_probability+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action set_grenade_probability chr_rows=%d source_chr=%d value=%d source=%s backend=graph.ai.action.set_grenade_probability+ai/ailists.json",
 			chr_count, source_chr, probability,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_set_grenade_probability_logged = 1;
@@ -22770,7 +23780,7 @@ s32 scenarioSourceAiGraphExecuteSetChrNum(struct chrdata *chr, s32 chrnum)
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_set_chr_num_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action set_chr_num chr_rows=%d source_chr=%d value=%d source=%s backend=graph.ai.action.set_chr_num+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action set_chr_num chr_rows=%d source_chr=%d value=%d source=%s backend=graph.ai.action.set_chr_num+ai/ailists.json",
 			chr_count, source_chr, chrnum,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_set_chr_num_logged = 1;
@@ -22801,7 +23811,7 @@ s32 scenarioSourceAiGraphExecuteSetMaxDamage(struct chrdata *basechr,
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
 		return s_aiGraphRuntimeFailure("set_max_damage",
-			"missing ai/ailists.tsv source");
+			"missing ai/ailists.json source");
 	}
 	applied = 0;
 	if (hovercar) {
@@ -22832,7 +23842,7 @@ s32 scenarioSourceAiGraphExecuteSetMaxDamage(struct chrdata *basechr,
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_set_max_damage_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action set_max_damage chr=%d chr_rows=%d target_chr=%d vehicle_rows=%d source_vehicle_type=%d value=%.3f applied=%d source=%s objects=%s backend=graph.ai.action.set_max_damage+ai/ailists.tsv+objects.tsv",
+			"SCENARIO.GRAPH: AI action set_max_damage chr=%d chr_rows=%d target_chr=%d vehicle_rows=%d source_vehicle_type=%d value=%.3f applied=%d source=%s objects=%s backend=graph.ai.action.set_max_damage+ai/ailists.json+objects.json",
 			chrnum, chr_count, target_chrnum, vehicle_count,
 			source_vehicle_type, maxdamage, applied,
 			s_ActiveScenarioGraphs.ai_lists_path,
@@ -22859,7 +23869,7 @@ s32 scenarioSourceAiGraphExecuteAddHealth(struct chrdata *chr, f32 amount)
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_add_health_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action add_health chr_rows=%d source_chr=%d amount=%.3f source=%s backend=graph.ai.action.add_health+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action add_health chr_rows=%d source_chr=%d amount=%.3f source=%s backend=graph.ai.action.add_health+ai/ailists.json",
 			chr_count, source_chr, amount,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_add_health_logged = 1;
@@ -22887,7 +23897,7 @@ s32 scenarioSourceAiGraphExecuteSetShield(struct chrdata *chr, f32 amount)
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_set_shield_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action set_shield chr_rows=%d source_chr=%d value=%.3f source=%s backend=graph.ai.action.set_shield+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action set_shield chr_rows=%d source_chr=%d value=%.3f source=%s backend=graph.ai.action.set_shield+ai/ailists.json",
 			chr_count, source_chr, amount,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_set_shield_logged = 1;
@@ -22913,7 +23923,7 @@ s32 scenarioSourceAiGraphExecuteSetReactionSpeed(struct chrdata *chr,
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_set_reaction_speed_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action set_reaction_speed chr_rows=%d source_chr=%d value=%d source=%s backend=graph.ai.action.set_reaction_speed+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action set_reaction_speed chr_rows=%d source_chr=%d value=%d source=%s backend=graph.ai.action.set_reaction_speed+ai/ailists.json",
 			chr_count, source_chr, speed,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_set_reaction_speed_logged = 1;
@@ -22939,7 +23949,7 @@ s32 scenarioSourceAiGraphExecuteSetRecoverySpeed(struct chrdata *chr,
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_set_recovery_speed_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action set_recovery_speed chr_rows=%d source_chr=%d value=%d source=%s backend=graph.ai.action.set_recovery_speed+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action set_recovery_speed chr_rows=%d source_chr=%d value=%d source=%s backend=graph.ai.action.set_recovery_speed+ai/ailists.json",
 			chr_count, source_chr, speed,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_set_recovery_speed_logged = 1;
@@ -22965,7 +23975,7 @@ s32 scenarioSourceAiGraphExecuteSetAccuracy(struct chrdata *chr,
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_set_accuracy_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action set_accuracy chr_rows=%d source_chr=%d value=%d source=%s backend=graph.ai.action.set_accuracy+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action set_accuracy chr_rows=%d source_chr=%d value=%d source=%s backend=graph.ai.action.set_accuracy+ai/ailists.json",
 			chr_count, source_chr, accuracy,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_set_accuracy_logged = 1;
@@ -22998,7 +24008,7 @@ s32 scenarioSourceAiGraphExecuteSetDodgeRating(struct chrdata *chr,
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_set_dodge_rating_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action set_dodge_rating chr_rows=%d source_chr=%d mode=%d value=%d source=%s backend=graph.ai.action.set_dodge_rating+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action set_dodge_rating chr_rows=%d source_chr=%d mode=%d value=%d source=%s backend=graph.ai.action.set_dodge_rating+ai/ailists.json",
 			chr_count, source_chr, mode, rating,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_set_dodge_rating_logged = 1;
@@ -23026,7 +24036,7 @@ s32 scenarioSourceAiGraphExecuteSetUnarmedDodgeRating(struct chrdata *chr,
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_set_unarmed_dodge_rating_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action set_unarmed_dodge_rating chr_rows=%d source_chr=%d value=%d source=%s backend=graph.ai.action.set_unarmed_dodge_rating+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action set_unarmed_dodge_rating chr_rows=%d source_chr=%d value=%d source=%s backend=graph.ai.action.set_unarmed_dodge_rating+ai/ailists.json",
 			chr_count, source_chr, rating,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_set_unarmed_dodge_rating_logged = 1;
@@ -23052,7 +24062,7 @@ s32 scenarioSourceAiGraphExecuteSetFlag(struct chrdata *chr,
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_set_flag_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action set_flag chr_rows=%d source_chr=%d flags=0x%08x bank=%u source=%s backend=graph.ai.action.set_flag+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action set_flag chr_rows=%d source_chr=%d flags=0x%08x bank=%u source=%s backend=graph.ai.action.set_flag+ai/ailists.json",
 			chr_count, source_chr, flags, (unsigned)bank,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_set_flag_logged = 1;
@@ -23078,7 +24088,7 @@ s32 scenarioSourceAiGraphExecuteUnsetFlag(struct chrdata *chr,
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_unset_flag_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action unset_flag chr_rows=%d source_chr=%d flags=0x%08x bank=%u source=%s backend=graph.ai.action.unset_flag+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action unset_flag chr_rows=%d source_chr=%d flags=0x%08x bank=%u source=%s backend=graph.ai.action.unset_flag+ai/ailists.json",
 			chr_count, source_chr, flags, (unsigned)bank,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_unset_flag_logged = 1;
@@ -23112,7 +24122,7 @@ s32 scenarioSourceAiGraphExecuteIfHasFlag(struct chrdata *chr,
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_if_has_flag_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action if_has_flag chr_rows=%d source_chr=%d flags=0x%08x bank=%u invert=%d result=%d source=%s backend=graph.ai.action.if_has_flag+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action if_has_flag chr_rows=%d source_chr=%d flags=0x%08x bank=%u invert=%d result=%d source=%s backend=graph.ai.action.if_has_flag+ai/ailists.json",
 			chr_count, source_chr, flags, (unsigned)bank, invert, result,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_if_has_flag_logged = 1;
@@ -23140,7 +24150,7 @@ s32 scenarioSourceAiGraphExecuteChrSetFlag(struct chrdata *basechr,
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
 		return s_aiGraphRuntimeFailure("chr_set_flag",
-			"missing ai/ailists.tsv source");
+			"missing ai/ailists.json source");
 	}
 	if (!s_aiGraphRequireRuntimeCharacterRefFromBase("chr_set_flag",
 			basechr, chrnum, &chr_count, &chr)) {
@@ -23152,7 +24162,7 @@ s32 scenarioSourceAiGraphExecuteChrSetFlag(struct chrdata *basechr,
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_chr_set_flag_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action chr_set_flag chr=%d chr_rows=%d target_chr=%d flags=0x%08x bank=%u source=%s backend=graph.ai.action.chr_set_flag+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action chr_set_flag chr=%d chr_rows=%d target_chr=%d flags=0x%08x bank=%u source=%s backend=graph.ai.action.chr_set_flag+ai/ailists.json",
 			chrnum, chr_count, target_chrnum, flags, (unsigned)bank,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_chr_set_flag_logged = 1;
@@ -23180,7 +24190,7 @@ s32 scenarioSourceAiGraphExecuteChrUnsetFlag(struct chrdata *basechr,
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
 		return s_aiGraphRuntimeFailure("chr_unset_flag",
-			"missing ai/ailists.tsv source");
+			"missing ai/ailists.json source");
 	}
 	if (!s_aiGraphRequireRuntimeCharacterRefFromBase("chr_unset_flag",
 			basechr, chrnum, &chr_count, &chr)) {
@@ -23192,7 +24202,7 @@ s32 scenarioSourceAiGraphExecuteChrUnsetFlag(struct chrdata *basechr,
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_chr_unset_flag_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action chr_unset_flag chr=%d chr_rows=%d target_chr=%d flags=0x%08x bank=%u source=%s backend=graph.ai.action.chr_unset_flag+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action chr_unset_flag chr=%d chr_rows=%d target_chr=%d flags=0x%08x bank=%u source=%s backend=graph.ai.action.chr_unset_flag+ai/ailists.json",
 			chrnum, chr_count, target_chrnum, flags, (unsigned)bank,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_chr_unset_flag_logged = 1;
@@ -23221,7 +24231,7 @@ s32 scenarioSourceAiGraphExecuteIfChrHasFlag(struct chrdata *basechr,
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
 		return s_aiGraphRuntimeFailure("if_chr_has_flag",
-			"missing ai/ailists.tsv source");
+			"missing ai/ailists.json source");
 	}
 	if (!s_aiGraphRequireRuntimeCharacterRefFromBase("if_chr_has_flag",
 			basechr, chrnum, &chr_count, &chr)) {
@@ -23237,7 +24247,7 @@ s32 scenarioSourceAiGraphExecuteIfChrHasFlag(struct chrdata *basechr,
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_if_chr_has_flag_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action if_chr_has_flag chr=%d chr_rows=%d target_chr=%d flags=0x%08x bank=%u result=%d source=%s backend=graph.ai.action.if_chr_has_flag+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action if_chr_has_flag chr=%d chr_rows=%d target_chr=%d flags=0x%08x bank=%u result=%d source=%s backend=graph.ai.action.if_chr_has_flag+ai/ailists.json",
 			chrnum, chr_count, target_chrnum, flags, (unsigned)bank, result,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_if_chr_has_flag_logged = 1;
@@ -23256,12 +24266,12 @@ s32 scenarioSourceAiGraphExecuteSetStageFlag(u32 flags)
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
 		return s_aiGraphRuntimeFailure("set_stage_flag",
-			"missing ai/ailists.tsv source");
+			"missing ai/ailists.json source");
 	}
 	chrSetStageFlag(NULL, flags);
 	if (!s_ActiveScenarioGraphs.ai_action_set_stage_flag_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action set_stage_flag flags=0x%08x source=%s backend=graph.ai.action.set_stage_flag+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action set_stage_flag flags=0x%08x source=%s backend=graph.ai.action.set_stage_flag+ai/ailists.json",
 			flags, s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_set_stage_flag_logged = 1;
 	}
@@ -23279,12 +24289,12 @@ s32 scenarioSourceAiGraphExecuteUnsetStageFlag(u32 flags)
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
 		return s_aiGraphRuntimeFailure("unset_stage_flag",
-			"missing ai/ailists.tsv source");
+			"missing ai/ailists.json source");
 	}
 	chrUnsetStageFlag(NULL, flags);
 	if (!s_ActiveScenarioGraphs.ai_action_unset_stage_flag_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action unset_stage_flag flags=0x%08x source=%s backend=graph.ai.action.unset_stage_flag+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action unset_stage_flag flags=0x%08x source=%s backend=graph.ai.action.unset_stage_flag+ai/ailists.json",
 			flags, s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_unset_stage_flag_logged = 1;
 	}
@@ -23306,7 +24316,7 @@ s32 scenarioSourceAiGraphExecuteIfStageFlagEq(u32 flags, s32 expected,
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
 		return s_aiGraphRuntimeFailure("if_stage_flag_eq",
-			"missing ai/ailists.tsv source");
+			"missing ai/ailists.json source");
 	}
 	has_flag = chrHasStageFlag(NULL, flags) ? 1 : 0;
 	result = (has_flag && expected == 1) || (!has_flag && expected == 0);
@@ -23318,7 +24328,7 @@ s32 scenarioSourceAiGraphExecuteIfStageFlagEq(u32 flags, s32 expected,
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_if_stage_flag_eq_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action if_stage_flag_eq flags=0x%08x expected=%d result=%d source=%s backend=graph.ai.action.if_stage_flag_eq+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action if_stage_flag_eq flags=0x%08x expected=%d result=%d source=%s backend=graph.ai.action.if_stage_flag_eq+ai/ailists.json",
 			flags, expected, result,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_if_stage_flag_eq_logged = 1;
@@ -23343,7 +24353,7 @@ s32 scenarioSourceAiGraphExecuteSetChrflag(struct chrdata *chr, u32 flags)
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
 		return s_aiGraphRuntimeFailure("set_chrflag",
-			"missing ai/ailists.tsv source");
+			"missing ai/ailists.json source");
 	}
 	if (!s_aiGraphRequireRuntimeCharacterStatePointer("set_chrflag", chr,
 			&chr_count, &target_chrnum)) {
@@ -23352,7 +24362,7 @@ s32 scenarioSourceAiGraphExecuteSetChrflag(struct chrdata *chr, u32 flags)
 	chr->chrflags |= flags;
 	if (!s_ActiveScenarioGraphs.ai_action_set_chrflag_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action set_chrflag chr_rows=%d target_chr=%d flags=0x%08x source=%s backend=graph.ai.action.set_chrflag+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action set_chrflag chr_rows=%d target_chr=%d flags=0x%08x source=%s backend=graph.ai.action.set_chrflag+ai/ailists.json",
 			chr_count, target_chrnum, flags,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_set_chrflag_logged = 1;
@@ -23377,7 +24387,7 @@ s32 scenarioSourceAiGraphExecuteUnsetChrflag(struct chrdata *chr, u32 flags)
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
 		return s_aiGraphRuntimeFailure("unset_chrflag",
-			"missing ai/ailists.tsv source");
+			"missing ai/ailists.json source");
 	}
 	if (!s_aiGraphRequireRuntimeCharacterStatePointer("unset_chrflag", chr,
 			&chr_count, &target_chrnum)) {
@@ -23386,7 +24396,7 @@ s32 scenarioSourceAiGraphExecuteUnsetChrflag(struct chrdata *chr, u32 flags)
 	chr->chrflags &= ~flags;
 	if (!s_ActiveScenarioGraphs.ai_action_unset_chrflag_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action unset_chrflag chr_rows=%d target_chr=%d flags=0x%08x source=%s backend=graph.ai.action.unset_chrflag+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action unset_chrflag chr_rows=%d target_chr=%d flags=0x%08x source=%s backend=graph.ai.action.unset_chrflag+ai/ailists.json",
 			chr_count, target_chrnum, flags,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_unset_chrflag_logged = 1;
@@ -23413,7 +24423,7 @@ s32 scenarioSourceAiGraphExecuteIfHasChrflag(struct chrdata *chr,
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
 		return s_aiGraphRuntimeFailure("if_has_chrflag",
-			"missing ai/ailists.tsv source");
+			"missing ai/ailists.json source");
 	}
 	if (!s_aiGraphRequireRuntimeCharacterStatePointer("if_has_chrflag", chr,
 			&chr_count, &target_chrnum)) {
@@ -23428,7 +24438,7 @@ s32 scenarioSourceAiGraphExecuteIfHasChrflag(struct chrdata *chr,
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_if_has_chrflag_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action if_has_chrflag chr_rows=%d target_chr=%d flags=0x%08x result=%d source=%s backend=graph.ai.action.if_has_chrflag+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action if_has_chrflag chr_rows=%d target_chr=%d flags=0x%08x result=%d source=%s backend=graph.ai.action.if_has_chrflag+ai/ailists.json",
 			chr_count, target_chrnum, flags, result,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_if_has_chrflag_logged = 1;
@@ -23454,7 +24464,7 @@ s32 scenarioSourceAiGraphExecuteChrSetChrflag(struct chrdata *basechr,
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
 		return s_aiGraphRuntimeFailure("chr_set_chrflag",
-			"missing ai/ailists.tsv source");
+			"missing ai/ailists.json source");
 	}
 	if (!s_aiGraphResolveOptionalRuntimeCharacterRefOrSelector("chr_set_chrflag",
 			basechr, chrnum, &chr_count, &chr, &selector)) {
@@ -23467,7 +24477,7 @@ s32 scenarioSourceAiGraphExecuteChrSetChrflag(struct chrdata *basechr,
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_chr_set_chrflag_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action chr_set_chrflag chr=%d chr_rows=%d target_chr=%d selector=%d flags=0x%08x applied=%d source=%s backend=graph.ai.action.chr_set_chrflag+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action chr_set_chrflag chr=%d chr_rows=%d target_chr=%d selector=%d flags=0x%08x applied=%d source=%s backend=graph.ai.action.chr_set_chrflag+ai/ailists.json",
 			chrnum, chr_count, target_chrnum, selector, flags, applied,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_chr_set_chrflag_logged = 1;
@@ -23493,7 +24503,7 @@ s32 scenarioSourceAiGraphExecuteChrUnsetChrflag(struct chrdata *basechr,
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
 		return s_aiGraphRuntimeFailure("chr_unset_chrflag",
-			"missing ai/ailists.tsv source");
+			"missing ai/ailists.json source");
 	}
 	if (!s_aiGraphResolveOptionalRuntimeCharacterRefOrSelector("chr_unset_chrflag",
 			basechr, chrnum, &chr_count, &chr, &selector)) {
@@ -23506,7 +24516,7 @@ s32 scenarioSourceAiGraphExecuteChrUnsetChrflag(struct chrdata *basechr,
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_chr_unset_chrflag_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action chr_unset_chrflag chr=%d chr_rows=%d target_chr=%d selector=%d flags=0x%08x applied=%d source=%s backend=graph.ai.action.chr_unset_chrflag+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action chr_unset_chrflag chr=%d chr_rows=%d target_chr=%d selector=%d flags=0x%08x applied=%d source=%s backend=graph.ai.action.chr_unset_chrflag+ai/ailists.json",
 			chrnum, chr_count, target_chrnum, selector, flags, applied,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_chr_unset_chrflag_logged = 1;
@@ -23532,7 +24542,7 @@ s32 scenarioSourceAiGraphExecuteIfChrHasChrflag(struct chrdata *basechr,
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
 		return s_aiGraphRuntimeFailure("if_chr_has_chrflag",
-			"missing ai/ailists.tsv source");
+			"missing ai/ailists.json source");
 	}
 	if (!s_aiGraphResolveOptionalRuntimeCharacterRefOrSelector(
 			"if_chr_has_chrflag", basechr, chrnum, &chr_count,
@@ -23549,7 +24559,7 @@ s32 scenarioSourceAiGraphExecuteIfChrHasChrflag(struct chrdata *basechr,
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_if_chr_has_chrflag_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action if_chr_has_chrflag chr=%d chr_rows=%d target_chr=%d selector=%d flags=0x%08x result=%d source=%s backend=graph.ai.action.if_chr_has_chrflag+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action if_chr_has_chrflag chr=%d chr_rows=%d target_chr=%d selector=%d flags=0x%08x result=%d source=%s backend=graph.ai.action.if_chr_has_chrflag+ai/ailists.json",
 			chrnum, chr_count, target_chrnum, selector, flags, result,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_if_chr_has_chrflag_logged = 1;
@@ -23575,7 +24585,7 @@ s32 scenarioSourceAiGraphExecuteChrSetHiddenFlag(struct chrdata *basechr,
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
 		return s_aiGraphRuntimeFailure("chr_set_hidden_flag",
-			"missing ai/ailists.tsv source");
+			"missing ai/ailists.json source");
 	}
 	if (!s_aiGraphResolveOptionalRuntimeCharacterRefOrSelector(
 			"chr_set_hidden_flag", basechr, chrnum, &chr_count,
@@ -23589,7 +24599,7 @@ s32 scenarioSourceAiGraphExecuteChrSetHiddenFlag(struct chrdata *basechr,
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_chr_set_hidden_flag_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action chr_set_hidden_flag chr=%d chr_rows=%d target_chr=%d selector=%d flags=0x%08x applied=%d source=%s backend=graph.ai.action.chr_set_hidden_flag+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action chr_set_hidden_flag chr=%d chr_rows=%d target_chr=%d selector=%d flags=0x%08x applied=%d source=%s backend=graph.ai.action.chr_set_hidden_flag+ai/ailists.json",
 			chrnum, chr_count, target_chrnum, selector, flags, applied,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_chr_set_hidden_flag_logged = 1;
@@ -23615,7 +24625,7 @@ s32 scenarioSourceAiGraphExecuteChrUnsetHiddenFlag(struct chrdata *basechr,
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
 		return s_aiGraphRuntimeFailure("chr_unset_hidden_flag",
-			"missing ai/ailists.tsv source");
+			"missing ai/ailists.json source");
 	}
 	if (!s_aiGraphResolveOptionalRuntimeCharacterRefOrSelector(
 			"chr_unset_hidden_flag", basechr, chrnum,
@@ -23629,7 +24639,7 @@ s32 scenarioSourceAiGraphExecuteChrUnsetHiddenFlag(struct chrdata *basechr,
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_chr_unset_hidden_flag_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action chr_unset_hidden_flag chr=%d chr_rows=%d target_chr=%d selector=%d flags=0x%08x applied=%d source=%s backend=graph.ai.action.chr_unset_hidden_flag+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action chr_unset_hidden_flag chr=%d chr_rows=%d target_chr=%d selector=%d flags=0x%08x applied=%d source=%s backend=graph.ai.action.chr_unset_hidden_flag+ai/ailists.json",
 			chrnum, chr_count, target_chrnum, selector, flags, applied,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_chr_unset_hidden_flag_logged = 1;
@@ -23655,7 +24665,7 @@ s32 scenarioSourceAiGraphExecuteIfChrHasHiddenFlag(struct chrdata *basechr,
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
 		return s_aiGraphRuntimeFailure("if_chr_has_hidden_flag",
-			"missing ai/ailists.tsv source");
+			"missing ai/ailists.json source");
 	}
 	if (!s_aiGraphResolveOptionalRuntimeCharacterRefOrSelector(
 			"if_chr_has_hidden_flag", basechr, chrnum,
@@ -23672,7 +24682,7 @@ s32 scenarioSourceAiGraphExecuteIfChrHasHiddenFlag(struct chrdata *basechr,
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_if_chr_has_hidden_flag_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action if_chr_has_hidden_flag chr=%d chr_rows=%d target_chr=%d selector=%d flags=0x%08x result=%d source=%s backend=graph.ai.action.if_chr_has_hidden_flag+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action if_chr_has_hidden_flag chr=%d chr_rows=%d target_chr=%d selector=%d flags=0x%08x result=%d source=%s backend=graph.ai.action.if_chr_has_hidden_flag+ai/ailists.json",
 			chrnum, chr_count, target_chrnum, selector, flags, result,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_if_chr_has_hidden_flag_logged = 1;
@@ -23713,7 +24723,7 @@ s32 scenarioSourceAiGraphExecuteSetObjFlag(s32 tag_id, u32 flags, s32 bank)
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0] ||
 			!s_ActiveScenarioGraphs.objects_path[0]) {
 		return s_aiGraphRuntimeFailure("set_obj_flag",
-			"missing ai/ailists.tsv or objects.tsv source");
+			"missing ai/ailists.json or objects.json source");
 	}
 	if (!s_aiGraphResolveOptionalRuntimeObjectTag("set_obj_flag", tag_id,
 			&object_count, &obj)) {
@@ -23725,7 +24735,7 @@ s32 scenarioSourceAiGraphExecuteSetObjFlag(s32 tag_id, u32 flags, s32 bank)
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_set_obj_flag_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action set_obj_flag tag=%d object_rows=%d bank=%d flags=0x%08x applied=%d source=%s objects=%s backend=graph.ai.action.set_obj_flag+objects.tsv",
+			"SCENARIO.GRAPH: AI action set_obj_flag tag=%d object_rows=%d bank=%d flags=0x%08x applied=%d source=%s objects=%s backend=graph.ai.action.set_obj_flag+objects.json",
 			tag_id, object_count, bank, flags,
 			target && obj && obj->prop ? 1 : 0,
 			s_ActiveScenarioGraphs.ai_lists_path,
@@ -23751,7 +24761,7 @@ s32 scenarioSourceAiGraphExecuteUnsetObjFlag(s32 tag_id, u32 flags, s32 bank)
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0] ||
 			!s_ActiveScenarioGraphs.objects_path[0]) {
 		return s_aiGraphRuntimeFailure("unset_obj_flag",
-			"missing ai/ailists.tsv or objects.tsv source");
+			"missing ai/ailists.json or objects.json source");
 	}
 	if (!s_aiGraphResolveOptionalRuntimeObjectTag("unset_obj_flag", tag_id,
 			&object_count, &obj)) {
@@ -23763,7 +24773,7 @@ s32 scenarioSourceAiGraphExecuteUnsetObjFlag(s32 tag_id, u32 flags, s32 bank)
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_unset_obj_flag_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action unset_obj_flag tag=%d object_rows=%d bank=%d flags=0x%08x applied=%d source=%s objects=%s backend=graph.ai.action.unset_obj_flag+objects.tsv",
+			"SCENARIO.GRAPH: AI action unset_obj_flag tag=%d object_rows=%d bank=%d flags=0x%08x applied=%d source=%s objects=%s backend=graph.ai.action.unset_obj_flag+objects.json",
 			tag_id, object_count, bank, flags,
 			target && obj && obj->prop ? 1 : 0,
 			s_ActiveScenarioGraphs.ai_lists_path,
@@ -23791,7 +24801,7 @@ s32 scenarioSourceAiGraphExecuteIfObjHasFlag(s32 tag_id, u32 flags, s32 bank,
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0] ||
 			!s_ActiveScenarioGraphs.objects_path[0]) {
 		return s_aiGraphRuntimeFailure("if_obj_has_flag",
-			"missing ai/ailists.tsv or objects.tsv source");
+			"missing ai/ailists.json or objects.json source");
 	}
 	if (!s_aiGraphResolveOptionalRuntimeObjectTag("if_obj_has_flag", tag_id,
 			&object_count, &obj)) {
@@ -23807,7 +24817,7 @@ s32 scenarioSourceAiGraphExecuteIfObjHasFlag(s32 tag_id, u32 flags, s32 bank,
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_if_obj_has_flag_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action if_obj_has_flag tag=%d object_rows=%d bank=%d flags=0x%08x result=%d source=%s objects=%s backend=graph.ai.action.if_obj_has_flag+objects.tsv",
+			"SCENARIO.GRAPH: AI action if_obj_has_flag tag=%d object_rows=%d bank=%d flags=0x%08x result=%d source=%s objects=%s backend=graph.ai.action.if_obj_has_flag+objects.json",
 			tag_id, object_count, bank, flags, result,
 			s_ActiveScenarioGraphs.ai_lists_path,
 			s_ActiveScenarioGraphs.objects_path);
@@ -23830,7 +24840,7 @@ static s32 s_aiGraphRequireDoorNode(const char *action, s32 node_count)
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0] ||
 			!s_ActiveScenarioGraphs.objects_path[0]) {
 		return s_aiGraphRuntimeFailure(action,
-			"missing ai/ailists.tsv or objects.tsv source");
+			"missing ai/ailists.json or objects.json source");
 	}
 	return 1;
 }
@@ -23858,7 +24868,7 @@ s32 scenarioSourceAiGraphExecuteOpenDoor(s32 tag_id)
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_open_door_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action open_door tag=%d object_rows=%d applied=%d source=%s objects=%s backend=graph.ai.action.door+objects.tsv",
+			"SCENARIO.GRAPH: AI action open_door tag=%d object_rows=%d applied=%d source=%s objects=%s backend=graph.ai.action.door+objects.json",
 			tag_id, object_count, applied, s_ActiveScenarioGraphs.ai_lists_path,
 			s_ActiveScenarioGraphs.objects_path);
 		s_ActiveScenarioGraphs.ai_action_open_door_logged = 1;
@@ -23887,7 +24897,7 @@ s32 scenarioSourceAiGraphExecuteCloseDoor(s32 tag_id)
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_close_door_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action close_door tag=%d object_rows=%d applied=%d source=%s objects=%s backend=graph.ai.action.door+objects.tsv",
+			"SCENARIO.GRAPH: AI action close_door tag=%d object_rows=%d applied=%d source=%s objects=%s backend=graph.ai.action.door+objects.json",
 			tag_id, object_count, applied, s_ActiveScenarioGraphs.ai_lists_path,
 			s_ActiveScenarioGraphs.objects_path);
 		s_ActiveScenarioGraphs.ai_action_close_door_logged = 1;
@@ -23934,7 +24944,7 @@ s32 scenarioSourceAiGraphExecuteIfDoorState(s32 tag_id, u32 states, s32 label)
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_if_door_state_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action if_door_state tag=%d object_rows=%d states=0x%02x result=%d source=%s objects=%s backend=graph.ai.action.door+objects.tsv",
+			"SCENARIO.GRAPH: AI action if_door_state tag=%d object_rows=%d states=0x%02x result=%d source=%s objects=%s backend=graph.ai.action.door+objects.json",
 			tag_id, object_count, (unsigned)states, result,
 			s_ActiveScenarioGraphs.ai_lists_path,
 			s_ActiveScenarioGraphs.objects_path);
@@ -23968,7 +24978,7 @@ s32 scenarioSourceAiGraphExecuteIfObjectIsDoor(s32 tag_id, s32 label)
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_if_object_is_door_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action if_object_is_door tag=%d object_rows=%d result=%d source=%s objects=%s backend=graph.ai.action.door+objects.tsv",
+			"SCENARIO.GRAPH: AI action if_object_is_door tag=%d object_rows=%d result=%d source=%s objects=%s backend=graph.ai.action.door+objects.json",
 			tag_id, object_count, result, s_ActiveScenarioGraphs.ai_lists_path,
 			s_ActiveScenarioGraphs.objects_path);
 		s_ActiveScenarioGraphs.ai_action_if_object_is_door_logged = 1;
@@ -23997,7 +25007,7 @@ s32 scenarioSourceAiGraphExecuteLockDoor(s32 tag_id, u32 bits)
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_lock_door_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action lock_door tag=%d object_rows=%d bits=0x%02x applied=%d source=%s objects=%s backend=graph.ai.action.door+objects.tsv",
+			"SCENARIO.GRAPH: AI action lock_door tag=%d object_rows=%d bits=0x%02x applied=%d source=%s objects=%s backend=graph.ai.action.door+objects.json",
 			tag_id, object_count, (unsigned)bits, applied,
 			s_ActiveScenarioGraphs.ai_lists_path,
 			s_ActiveScenarioGraphs.objects_path);
@@ -24027,7 +25037,7 @@ s32 scenarioSourceAiGraphExecuteUnlockDoor(s32 tag_id, u32 bits)
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_unlock_door_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action unlock_door tag=%d object_rows=%d bits=0x%02x applied=%d source=%s objects=%s backend=graph.ai.action.door+objects.tsv",
+			"SCENARIO.GRAPH: AI action unlock_door tag=%d object_rows=%d bits=0x%02x applied=%d source=%s objects=%s backend=graph.ai.action.door+objects.json",
 			tag_id, object_count, (unsigned)bits, applied,
 			s_ActiveScenarioGraphs.ai_lists_path,
 			s_ActiveScenarioGraphs.objects_path);
@@ -24062,7 +25072,7 @@ s32 scenarioSourceAiGraphExecuteIfDoorLocked(s32 tag_id, u32 bits, s32 label)
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_if_door_locked_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action if_door_locked tag=%d object_rows=%d bits=0x%02x result=%d source=%s objects=%s backend=graph.ai.action.door+objects.tsv",
+			"SCENARIO.GRAPH: AI action if_door_locked tag=%d object_rows=%d bits=0x%02x result=%d source=%s objects=%s backend=graph.ai.action.door+objects.json",
 			tag_id, object_count, (unsigned)bits, result,
 			s_ActiveScenarioGraphs.ai_lists_path,
 			s_ActiveScenarioGraphs.objects_path);
@@ -24086,7 +25096,7 @@ static s32 s_aiGraphRequireLiftNode(const char *action, s32 node_count)
 			!s_ActiveScenarioGraphs.objects_path[0] ||
 			!s_ActiveScenarioGraphs.pads_path[0]) {
 		return s_aiGraphRuntimeFailure(action,
-			"missing ai/ailists.tsv, objects.tsv, or pads.tsv source");
+			"missing ai/ailists.json, objects.json, or pads.json source");
 	}
 	return 1;
 }
@@ -24192,7 +25202,7 @@ s32 scenarioSourceAiGraphExecuteIfLiftStationary(s32 tag_id, s32 label)
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_if_lift_stationary_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action if_lift_stationary tag=%d object_rows=%d pad=%d found=%d pad_rows=%d result=%d source=%s objects=%s pads=%s backend=graph.ai.action.lift+objects.tsv+pads.tsv",
+			"SCENARIO.GRAPH: AI action if_lift_stationary tag=%d object_rows=%d pad=%d found=%d pad_rows=%d result=%d source=%s objects=%s pads=%s backend=graph.ai.action.lift+objects.json+pads.json",
 			tag_id, object_count, pad_id, found, pad_count, result,
 			s_ActiveScenarioGraphs.ai_lists_path,
 			s_ActiveScenarioGraphs.objects_path,
@@ -24235,7 +25245,7 @@ s32 scenarioSourceAiGraphExecuteLiftGoToStop(s32 tag_id, s32 stopnum)
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_lift_go_to_stop_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action lift_go_to_stop tag=%d object_rows=%d stop=%d pad=%d found=%d pad_rows=%d applied=%d source=%s objects=%s pads=%s backend=graph.ai.action.lift+objects.tsv+pads.tsv",
+			"SCENARIO.GRAPH: AI action lift_go_to_stop tag=%d object_rows=%d stop=%d pad=%d found=%d pad_rows=%d applied=%d source=%s objects=%s pads=%s backend=graph.ai.action.lift+objects.json+pads.json",
 			tag_id, object_count, stopnum, pad_id, found, pad_count,
 			applied,
 			s_ActiveScenarioGraphs.ai_lists_path,
@@ -24285,7 +25295,7 @@ s32 scenarioSourceAiGraphExecuteIfLiftAtStop(s32 tag_id, s32 stopnum,
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_if_lift_at_stop_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action if_lift_at_stop tag=%d object_rows=%d stop=%d pad=%d found=%d pad_rows=%d result=%d source=%s objects=%s pads=%s backend=graph.ai.action.lift+objects.tsv+pads.tsv",
+			"SCENARIO.GRAPH: AI action if_lift_at_stop tag=%d object_rows=%d stop=%d pad=%d found=%d pad_rows=%d result=%d source=%s objects=%s pads=%s backend=graph.ai.action.lift+objects.json+pads.json",
 			tag_id, object_count, stopnum, pad_id, found, pad_count,
 			result,
 			s_ActiveScenarioGraphs.ai_lists_path,
@@ -24323,7 +25333,7 @@ s32 scenarioSourceAiGraphExecuteActivateLift(s32 liftnum, s32 tag_id)
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_activate_lift_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action activate_lift liftnum=%d pad=%d found=1 pad_rows=%d tag=%d object_rows=%d applied=%d source=%s objects=%s pads=%s backend=graph.ai.action.lift+objects.tsv+pads.tsv",
+			"SCENARIO.GRAPH: AI action activate_lift liftnum=%d pad=%d found=1 pad_rows=%d tag=%d object_rows=%d applied=%d source=%s objects=%s pads=%s backend=graph.ai.action.lift+objects.json+pads.json",
 			liftnum, pad_id, pad_count, tag_id, object_count, applied,
 			s_ActiveScenarioGraphs.ai_lists_path,
 			s_ActiveScenarioGraphs.objects_path,
@@ -24360,7 +25370,7 @@ s32 scenarioSourceAiGraphExecuteIfUsingLift(struct chrdata *chr, s32 label)
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_if_using_lift_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action if_using_lift pad_rows=%d chr_rows=%d source_chr=%d result=%d source=%s objects=%s pads=%s backend=graph.ai.action.lift+objects.tsv+pads.tsv",
+			"SCENARIO.GRAPH: AI action if_using_lift pad_rows=%d chr_rows=%d source_chr=%d result=%d source=%s objects=%s pads=%s backend=graph.ai.action.lift+objects.json+pads.json",
 			pad_count, chr_count, source_chr, result,
 			s_ActiveScenarioGraphs.ai_lists_path,
 			s_ActiveScenarioGraphs.objects_path,
@@ -24384,7 +25394,7 @@ static s32 s_aiGraphRequireWeatherNode(const char *action, s32 node_count)
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0] ||
 			!s_ActiveScenarioGraphs.level_global_settings_node_count) {
 		return s_aiGraphRuntimeFailure(action,
-			"missing ai/ailists.tsv or scenario.ini source");
+			"missing ai/ailists.json or scenario.ini source");
 	}
 	return 1;
 }
@@ -24398,7 +25408,7 @@ s32 scenarioSourceAiGraphExecuteConfigureRain(u32 intensity)
 	weatherConfigureRain(intensity);
 	if (!s_ActiveScenarioGraphs.ai_action_configure_rain_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action configure_rain intensity=%u source=%s scenario=%s backend=graph.ai.action.weather+ai/ailists.tsv+scenario.ini",
+			"SCENARIO.GRAPH: AI action configure_rain intensity=%u source=%s scenario=%s backend=graph.ai.action.weather+ai/ailists.json+scenario.ini",
 			(unsigned)intensity, s_ActiveScenarioGraphs.ai_lists_path,
 			s_ActiveScenarioGraphs.level_global_settings_scenario);
 		s_ActiveScenarioGraphs.ai_action_configure_rain_logged = 1;
@@ -24415,7 +25425,7 @@ s32 scenarioSourceAiGraphExecuteConfigureSnow(u32 intensity)
 	weatherConfigureSnow(intensity);
 	if (!s_ActiveScenarioGraphs.ai_action_configure_snow_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action configure_snow intensity=%u source=%s scenario=%s backend=graph.ai.action.weather+ai/ailists.tsv+scenario.ini",
+			"SCENARIO.GRAPH: AI action configure_snow intensity=%u source=%s scenario=%s backend=graph.ai.action.weather+ai/ailists.json+scenario.ini",
 			(unsigned)intensity, s_ActiveScenarioGraphs.ai_lists_path,
 			s_ActiveScenarioGraphs.level_global_settings_scenario);
 		s_ActiveScenarioGraphs.ai_action_configure_snow_logged = 1;
@@ -24436,7 +25446,7 @@ static s32 s_aiGraphRequireSkyNode(const char *action, s32 node_count)
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
 		return s_aiGraphRuntimeFailure(action,
-			"missing ai/ailists.tsv source");
+			"missing ai/ailists.json source");
 	}
 	return 1;
 }
@@ -24450,7 +25460,7 @@ s32 scenarioSourceAiGraphExecuteSwitchToAltSky(void)
 	envApplyTransitionFrac(1);
 	if (!s_ActiveScenarioGraphs.ai_action_switch_to_alt_sky_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action switch_to_alt_sky source=%s backend=graph.ai.action.sky+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action switch_to_alt_sky source=%s backend=graph.ai.action.sky+ai/ailists.json",
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_switch_to_alt_sky_logged = 1;
 	}
@@ -24466,7 +25476,7 @@ s32 scenarioSourceAiGraphExecuteSetWindSpeed(s32 speed)
 	g_SkyWindSpeed = 0.1f * speed;
 	if (!s_ActiveScenarioGraphs.ai_action_set_wind_speed_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action set_wind_speed speed=%d value=%.3f source=%s backend=graph.ai.action.sky+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action set_wind_speed speed=%d value=%.3f source=%s backend=graph.ai.action.sky+ai/ailists.json",
 			speed, g_SkyWindSpeed, s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_set_wind_speed_logged = 1;
 	}
@@ -24491,7 +25501,7 @@ s32 scenarioSourceAiGraphExecuteSetLights(struct chrdata *chr, s32 padnum,
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0] ||
 			!s_ActiveScenarioGraphs.pads_path[0]) {
 		return s_aiGraphRuntimeFailure("set_lights",
-			"missing ai/ailists.tsv or pads.tsv source");
+			"missing ai/ailists.json or pads.json source");
 	}
 	if (!s_aiGraphRequireRuntimePad("set_lights", padnum, &pad_count)) {
 		return 1;
@@ -24517,7 +25527,7 @@ s32 scenarioSourceAiGraphExecuteSetLights(struct chrdata *chr, s32 padnum,
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_set_lights_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action set_lights pad=%d found=1 pad_rows=%d chr_rows=%d source_chr=%d room=%d op=%d source=%s pads=%s backend=graph.ai.action.lighting+pads.tsv",
+			"SCENARIO.GRAPH: AI action set_lights pad=%d found=1 pad_rows=%d chr_rows=%d source_chr=%d room=%d op=%d source=%s pads=%s backend=graph.ai.action.lighting+pads.json",
 			padnum, pad_count, chr_count, source_chr, roomnum, operation,
 			s_ActiveScenarioGraphs.ai_lists_path,
 			s_ActiveScenarioGraphs.pads_path);
@@ -24570,7 +25580,7 @@ static s32 s_aiGraphResolveRuntimePortal(const char *action, s32 portalnum,
 	}
 	if (!s_ActiveScenarioGraphs.portals_path[0]) {
 		return s_aiGraphRuntimeFailure(action,
-			"missing portals.tsv source");
+			"missing portals.json source");
 	}
 	if (!g_BgPortals) {
 		return s_aiGraphRuntimeFailure(action,
@@ -24603,7 +25613,7 @@ s32 scenarioSourceAiGraphExecuteSetRoomFlag(s32 roomnum, s32 flag)
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
 		return s_aiGraphRuntimeFailure("set_room_flag",
-			"missing ai/ailists.tsv source");
+			"missing ai/ailists.json source");
 	}
 	if (!s_aiGraphResolveRuntimeSceneRoom("set_room_flag", roomnum,
 			&room_count, &room_available)) {
@@ -24614,7 +25624,7 @@ s32 scenarioSourceAiGraphExecuteSetRoomFlag(s32 roomnum, s32 flag)
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_set_room_flag_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action set_room_flag room=%d room_rows=%d flag=0x%04x source=%s scene=scene.glb backend=graph.ai.action.room_flags+ai/ailists.tsv+scene.glb",
+			"SCENARIO.GRAPH: AI action set_room_flag room=%d room_rows=%d flag=0x%04x source=%s scene=scene.glb backend=graph.ai.action.room_flags+ai/ailists.json+scene.glb",
 			roomnum, room_count, (u32)(flag & 0xffff),
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_set_room_flag_logged = 1;
@@ -24641,7 +25651,7 @@ s32 scenarioSourceAiGraphExecuteShowCutsceneChrs(s32 show)
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
 		return s_aiGraphRuntimeFailure("show_cutscene_chrs",
-			"missing ai/ailists.tsv source");
+			"missing ai/ailists.json source");
 	}
 	if (!s_aiGraphCountRuntimeSetupChrRowsFromSource(
 			"show_cutscene_chrs", &chr_count)) {
@@ -24698,7 +25708,7 @@ s32 scenarioSourceAiGraphExecuteShowCutsceneChrs(s32 show)
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_show_cutscene_chrs_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action show_cutscene_chrs show=%d chr_rows=%d checked_chrs=%d applied=%d source=%s backend=graph.ai.action.cutscene_visibility+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action show_cutscene_chrs show=%d chr_rows=%d checked_chrs=%d applied=%d source=%s backend=graph.ai.action.cutscene_visibility+ai/ailists.json",
 			show ? 1 : 0, chr_count, checked_chrs, applied,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_show_cutscene_chrs_logged = 1;
@@ -24722,7 +25732,7 @@ s32 scenarioSourceAiGraphExecuteConfigureEnvironment(s32 roomnum,
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
 		return s_aiGraphRuntimeFailure("configure_environment",
-			"missing ai/ailists.tsv source");
+			"missing ai/ailists.json source");
 	}
 
 	switch (command) {
@@ -24824,7 +25834,7 @@ s32 scenarioSourceAiGraphExecuteConfigureEnvironment(s32 roomnum,
 
 	if (!s_ActiveScenarioGraphs.ai_action_configure_environment_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action configure_environment room=%d room_rows=%d command=0x%02x value=%d source=%s backend=graph.ai.action.environment+ai/ailists.tsv+scenario.ini+scene.glb",
+			"SCENARIO.GRAPH: AI action configure_environment room=%d room_rows=%d command=0x%02x value=%d source=%s backend=graph.ai.action.environment+ai/ailists.json+scenario.ini+scene.glb",
 			roomnum, room_count, (u32)(command & 0xff), value,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_configure_environment_logged = 1;
@@ -24862,7 +25872,7 @@ s32 scenarioSourceAiGraphExecuteIfDistanceToTarget2(struct chrdata *chr,
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
 		return s_aiGraphRuntimeFailure(action,
-			"missing ai/ailists.tsv source");
+			"missing ai/ailists.json source");
 	}
 	if (!s_aiGraphRequireRuntimeCharacterPointer(action, chr,
 			&chr_count, &source_chr)) {
@@ -24881,7 +25891,7 @@ s32 scenarioSourceAiGraphExecuteIfDistanceToTarget2(struct chrdata *chr,
 
 	if (!s_ActiveScenarioGraphs.ai_action_if_distance_to_target2_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition %s chr_rows=%d source_chr=%d actual=%.2f threshold=%.2f label=%d source=%s backend=graph.ai.condition.target_distance+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI condition %s chr_rows=%d source_chr=%d actual=%.2f threshold=%.2f label=%d source=%s backend=graph.ai.condition.target_distance+ai/ailists.json",
 			action, chr_count, source_chr, (double)actual,
 			(double)distance, label,
 			s_ActiveScenarioGraphs.ai_lists_path);
@@ -24901,7 +25911,7 @@ static s32 s_aiAudioGraphReady(const char *action, s32 node_count,
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
 		return s_aiGraphRuntimeFailure(action,
-			"missing ai/ailists.tsv source");
+			"missing ai/ailists.json source");
 	}
 	return 1;
 }
@@ -24978,7 +25988,7 @@ s32 scenarioSourceAiGraphExecuteSpeak(struct chrdata *basechr, s32 chrnum,
 	g_Vars.aioffset += 9;
 	if (!s_ActiveScenarioGraphs.ai_action_speak_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action speak chr=%d chr_rows=%d target_chr=%d target_selector=%d player_checked=%d text_id=%s audio_id=%s channel=%d source=%s backend=graph.ai.action.audio+ai/ailists.tsv+lang",
+			"SCENARIO.GRAPH: AI action speak chr=%d chr_rows=%d target_chr=%d target_selector=%d player_checked=%d text_id=%s audio_id=%s channel=%d source=%s backend=graph.ai.action.audio+ai/ailists.json+lang",
 			chrnum, chr_count, target_chrnum, target_selector,
 			player_checked, text_catalog_id, audio_source_id, channel,
 			s_ActiveScenarioGraphs.ai_lists_path);
@@ -25006,7 +26016,7 @@ s32 scenarioSourceAiGraphExecutePlaySound(s8 channel, s16 audio_id)
 	g_Vars.aioffset += 5;
 	if (!s_ActiveScenarioGraphs.ai_action_play_sound_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action play_sound channel=%d audio_id=%s source=%s backend=graph.ai.action.audio+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action play_sound channel=%d audio_id=%s source=%s backend=graph.ai.action.audio+ai/ailists.json",
 			channel, audio_catalog_id, s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_play_sound_logged = 1;
 	}
@@ -25032,7 +26042,7 @@ s32 scenarioSourceAiGraphExecuteAssignSound(s8 channel, s16 audio_id)
 	g_Vars.aioffset += 5;
 	if (!s_ActiveScenarioGraphs.ai_action_assign_sound_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action assign_sound channel=%d audio_id=%s source=%s backend=graph.ai.action.audio+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action assign_sound channel=%d audio_id=%s source=%s backend=graph.ai.action.audio+ai/ailists.json",
 			channel, audio_catalog_id, s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_assign_sound_logged = 1;
 	}
@@ -25051,7 +26061,7 @@ s32 scenarioSourceAiGraphExecuteAudioMuteChannel(s8 channel)
 	g_Vars.aioffset += 3;
 	if (!s_ActiveScenarioGraphs.ai_action_audio_mute_channel_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action audio_mute_channel channel=%d source=%s backend=graph.ai.action.audio+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action audio_mute_channel channel=%d source=%s backend=graph.ai.action.audio+ai/ailists.json",
 			channel, s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_audio_mute_channel_logged = 1;
 	}
@@ -25076,7 +26086,7 @@ s32 scenarioSourceAiGraphExecuteIfChannelFree(s8 channel, s32 label)
 	}
 	if (!s_ActiveScenarioGraphs.ai_condition_if_channel_free_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_channel_free channel=%d label=%d branch=%d source=%s backend=graph.ai.action.audio+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI condition if_channel_free channel=%d label=%d branch=%d source=%s backend=graph.ai.action.audio+ai/ailists.json",
 			channel, label, free_channel,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_condition_if_channel_free_logged = 1;
@@ -25097,7 +26107,7 @@ s32 scenarioSourceAiGraphExecuteSetObjectSoundVolume(s8 channel, s16 volume,
 	g_Vars.aioffset += 7;
 	if (!s_ActiveScenarioGraphs.ai_action_set_object_sound_volume_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action set_object_sound_volume channel=%d volume=%d timer=%u source=%s backend=graph.ai.action.audio+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action set_object_sound_volume channel=%d volume=%d timer=%u source=%s backend=graph.ai.action.audio+ai/ailists.json",
 			channel, volume, volchangetimer60,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_set_object_sound_volume_logged = 1;
@@ -25122,7 +26132,7 @@ s32 scenarioSourceAiGraphExecuteSetObjectSoundVolumeByDistance(s8 channel,
 	if (!s_ActiveScenarioGraphs
 			.ai_action_set_object_sound_volume_by_distance_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action set_object_sound_volume_by_distance channel=%d distance=%.2f volume=%d timer=%u source=%s backend=graph.ai.action.audio+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action set_object_sound_volume_by_distance channel=%d distance=%.2f volume=%d timer=%u source=%s backend=graph.ai.action.audio+ai/ailists.json",
 			channel, (double)playerdist, volume, volchangetimer60,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs
@@ -25156,7 +26166,7 @@ s32 scenarioSourceAiGraphExecuteSetObjectSoundPlaying(s8 channel, s32 tag_id,
 	g_Vars.aioffset += 6;
 	if (!s_ActiveScenarioGraphs.ai_action_set_object_sound_playing_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action set_object_sound_playing tag=%d object_rows=%d channel=%d timer=%u applied=%d source=%s objects=%s backend=graph.ai.action.audio+ai/ailists.tsv+objects.tsv",
+			"SCENARIO.GRAPH: AI action set_object_sound_playing tag=%d object_rows=%d channel=%d timer=%u applied=%d source=%s objects=%s backend=graph.ai.action.audio+ai/ailists.json+objects.json",
 			tag_id, object_count, channel, volchangetimer60, applied,
 			s_ActiveScenarioGraphs.ai_lists_path,
 			s_ActiveScenarioGraphs.objects_path);
@@ -25192,7 +26202,7 @@ s32 scenarioSourceAiGraphExecutePlayRepeatingSoundFromObject(s8 channel,
 	if (!s_ActiveScenarioGraphs
 			.ai_action_play_repeating_sound_from_object_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action play_repeating_sound_from_object tag=%d object_rows=%d channel=%d timer=%d dist2=%u dist3=%u applied=%d source=%s objects=%s backend=graph.ai.action.audio+ai/ailists.tsv+objects.tsv",
+			"SCENARIO.GRAPH: AI action play_repeating_sound_from_object tag=%d object_rows=%d channel=%d timer=%d dist2=%u dist3=%u applied=%d source=%s objects=%s backend=graph.ai.action.audio+ai/ailists.json+objects.json",
 			tag_id, object_count, channel, timer, dist2, dist3, applied,
 			s_ActiveScenarioGraphs.ai_lists_path,
 			s_ActiveScenarioGraphs.objects_path);
@@ -25241,7 +26251,7 @@ s32 scenarioSourceAiGraphExecutePlaySoundFromEntity(s8 channel, s32 entity_id,
 	g_Vars.aioffset += 11;
 	if (!s_ActiveScenarioGraphs.ai_action_play_sound_from_entity_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action play_sound_from_entity entity=%d object_rows=%d chr_rows=%d is_chr=%d channel=%d timer=%u dist2=%u dist3=%u applied=%d source=%s objects=%s backend=graph.ai.action.audio+ai/ailists.tsv+objects.tsv",
+			"SCENARIO.GRAPH: AI action play_sound_from_entity entity=%d object_rows=%d chr_rows=%d is_chr=%d channel=%d timer=%u dist2=%u dist3=%u applied=%d source=%s objects=%s backend=graph.ai.action.audio+ai/ailists.json+objects.json",
 			entity_id, object_count, chr_count, entity_is_chr, channel,
 			volchangetimer60, dist2, dist3, prop != NULL,
 			s_ActiveScenarioGraphs.ai_lists_path,
@@ -25265,7 +26275,7 @@ s32 scenarioSourceAiGraphExecutePlayRepeatingSoundFromPad(s16 padnum,
 	}
 	if (!s_ActiveScenarioGraphs.pads_path[0]) {
 		return s_aiGraphRuntimeFailure("play_repeating_sound_from_pad",
-			"missing pads.tsv source");
+			"missing pads.json source");
 	}
 	if (!s_aiGraphRequireRuntimePad("play_repeating_sound_from_pad",
 			padnum, &pad_count)) {
@@ -25282,7 +26292,7 @@ s32 scenarioSourceAiGraphExecutePlayRepeatingSoundFromPad(s16 padnum,
 	g_Vars.aioffset += 7;
 	if (!s_ActiveScenarioGraphs.ai_action_play_repeating_sound_from_pad_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action play_repeating_sound_from_pad pad=%d found=1 pad_rows=%d audio_id=%s source=%s pads=%s backend=graph.ai.action.audio+ai/ailists.tsv+pads.tsv",
+			"SCENARIO.GRAPH: AI action play_repeating_sound_from_pad pad=%d found=1 pad_rows=%d audio_id=%s source=%s pads=%s backend=graph.ai.action.audio+ai/ailists.json+pads.json",
 			padnum, pad_count, audio_catalog_id,
 			s_ActiveScenarioGraphs.ai_lists_path,
 			s_ActiveScenarioGraphs.pads_path);
@@ -25313,7 +26323,7 @@ s32 scenarioSourceAiGraphExecuteIfObjectSoundVolumeLessThan(s8 channel,
 	if (!s_ActiveScenarioGraphs
 			.ai_condition_if_object_sound_volume_less_than_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_object_sound_volume_less_than channel=%d value=%d current=%d label=%d branch=%d source=%s backend=graph.ai.action.audio+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI condition if_object_sound_volume_less_than channel=%d value=%d current=%d label=%d branch=%d source=%s backend=graph.ai.action.audio+ai/ailists.json",
 			channel, value, current, label, branch,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs
@@ -25340,7 +26350,7 @@ s32 scenarioSourceAiGraphExecutePlaySoundFromProp(s32 channel, s16 audio_id,
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
 		return s_aiGraphRuntimeFailure("play_sound_from_prop",
-			"missing ai/ailists.tsv source");
+			"missing ai/ailists.json source");
 	}
 	if (!s_aiGraphRequireRuntimeObjectTag("play_sound_from_prop",
 			tag_id, &object_count)) {
@@ -25359,7 +26369,7 @@ s32 scenarioSourceAiGraphExecutePlaySoundFromProp(s32 channel, s16 audio_id,
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_play_sound_from_prop_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action play_sound_from_prop tag=%d object_rows=%d channel=%d audio_id=%s volume=%d type=%d flags=0x%04x applied=%d source=%s objects=%s backend=graph.ai.action.audio+ai/ailists.tsv+objects.tsv",
+			"SCENARIO.GRAPH: AI action play_sound_from_prop tag=%d object_rows=%d channel=%d audio_id=%s volume=%d type=%d flags=0x%04x applied=%d source=%s objects=%s backend=graph.ai.action.audio+ai/ailists.json+objects.json",
 			tag_id, object_count, channel, audio_catalog_id, volume, type, flags,
 			applied, s_ActiveScenarioGraphs.ai_lists_path,
 			s_ActiveScenarioGraphs.objects_path);
@@ -25422,7 +26432,7 @@ s32 scenarioSourceAiGraphExecutePlayTemporaryPrimaryTrack(s32 tracknum)
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
 		return s_aiGraphRuntimeFailure("play_temporary_primary_track",
-			"missing ai/ailists.tsv source");
+			"missing ai/ailists.json source");
 	}
 	track_id = s_aiGraphResolveMusicCatalogId("play_temporary_primary_track",
 		tracknum, "temporary primary track");
@@ -25433,7 +26443,7 @@ s32 scenarioSourceAiGraphExecutePlayTemporaryPrimaryTrack(s32 tracknum)
 	g_Vars.aioffset += 3;
 	if (!s_ActiveScenarioGraphs.ai_action_play_temporary_primary_track_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action play_temporary_primary_track track_id=%s source=%s backend=graph.ai.action.audio+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action play_temporary_primary_track track_id=%s source=%s backend=graph.ai.action.audio+ai/ailists.json",
 			track_id, s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_play_temporary_primary_track_logged = 1;
 	}
@@ -25451,7 +26461,7 @@ static s32 s_aiMusicTrackGraphReady(const char *action, s32 node_count,
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
 		return s_aiGraphRuntimeFailure(action,
-			"missing ai/ailists.tsv source");
+			"missing ai/ailists.json source");
 	}
 	return 1;
 }
@@ -25470,7 +26480,7 @@ s32 scenarioSourceAiGraphExecutePlayXTrack(s32 reason, s32 minsecs,
 	g_Vars.aioffset += 5;
 	if (!s_ActiveScenarioGraphs.ai_action_play_x_track_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action play_x_track reason=%d minsecs=%d maxsecs=%d source=%s backend=graph.ai.action.music_track+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action play_x_track reason=%d minsecs=%d maxsecs=%d source=%s backend=graph.ai.action.music_track+ai/ailists.json",
 			reason, minsecs, maxsecs, s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_play_x_track_logged = 1;
 	}
@@ -25490,7 +26500,7 @@ s32 scenarioSourceAiGraphExecuteStopXTrack(s32 reason)
 	g_Vars.aioffset += 3;
 	if (!s_ActiveScenarioGraphs.ai_action_stop_x_track_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action stop_x_track reason=%d source=%s backend=graph.ai.action.music_track+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action stop_x_track reason=%d source=%s backend=graph.ai.action.music_track+ai/ailists.json",
 			reason, s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_stop_x_track_logged = 1;
 	}
@@ -25522,7 +26532,7 @@ s32 scenarioSourceAiGraphExecutePlayTrackIsolated(s32 tracknum)
 	g_Vars.aioffset += 3;
 	if (!s_ActiveScenarioGraphs.ai_action_play_track_isolated_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action play_track_isolated track_id=%s source=%s backend=graph.ai.action.music_track+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action play_track_isolated track_id=%s source=%s backend=graph.ai.action.music_track+ai/ailists.json",
 			track_id, s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_play_track_isolated_logged = 1;
 	}
@@ -25542,7 +26552,7 @@ s32 scenarioSourceAiGraphExecutePlayDefaultTracks(void)
 	g_Vars.aioffset += 2;
 	if (!s_ActiveScenarioGraphs.ai_action_play_default_tracks_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action play_default_tracks source=%s backend=graph.ai.action.music_track+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action play_default_tracks source=%s backend=graph.ai.action.music_track+ai/ailists.json",
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_play_default_tracks_logged = 1;
 	}
@@ -25568,7 +26578,7 @@ s32 scenarioSourceAiGraphExecutePlayCutsceneTrack(s32 tracknum)
 	g_Vars.aioffset += 3;
 	if (!s_ActiveScenarioGraphs.ai_action_play_cutscene_track_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action play_cutscene_track track_id=%s source=%s backend=graph.ai.action.music_track+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action play_cutscene_track track_id=%s source=%s backend=graph.ai.action.music_track+ai/ailists.json",
 			track_id, s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_play_cutscene_track_logged = 1;
 	}
@@ -25588,7 +26598,7 @@ s32 scenarioSourceAiGraphExecuteStopCutsceneTrack(void)
 	g_Vars.aioffset += 2;
 	if (!s_ActiveScenarioGraphs.ai_action_stop_cutscene_track_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action stop_cutscene_track source=%s backend=graph.ai.action.music_track+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action stop_cutscene_track source=%s backend=graph.ai.action.music_track+ai/ailists.json",
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_stop_cutscene_track_logged = 1;
 	}
@@ -25614,7 +26624,7 @@ s32 scenarioSourceAiGraphExecutePlayTemporaryTrack(s32 tracknum)
 	g_Vars.aioffset += 3;
 	if (!s_ActiveScenarioGraphs.ai_action_play_temporary_track_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action play_temporary_track track_id=%s source=%s backend=graph.ai.action.music_track+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action play_temporary_track track_id=%s source=%s backend=graph.ai.action.music_track+ai/ailists.json",
 			track_id, s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_play_temporary_track_logged = 1;
 	}
@@ -25634,7 +26644,7 @@ s32 scenarioSourceAiGraphExecuteStopAmbientTrack(void)
 	g_Vars.aioffset += 2;
 	if (!s_ActiveScenarioGraphs.ai_action_stop_ambient_track_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action stop_ambient_track source=%s backend=graph.ai.action.music_track+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action stop_ambient_track source=%s backend=graph.ai.action.music_track+ai/ailists.json",
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_stop_ambient_track_logged = 1;
 	}
@@ -25652,7 +26662,7 @@ static s32 s_aiPlayerWeaponStateGraphReady(const char *action,
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
 		return s_aiGraphRuntimeFailure(action,
-			"missing ai/ailists.tsv source");
+			"missing ai/ailists.json source");
 	}
 	return 1;
 }
@@ -25728,7 +26738,7 @@ s32 scenarioSourceAiGraphExecuteChrDrawWeapon(struct chrdata *basechr,
 	g_Vars.aioffset += 4;
 	if (!s_ActiveScenarioGraphs.ai_action_chr_draw_weapon_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action chr_draw_weapon chr=%d chr_rows=%d target_chr=%d player_checked=%d weapon_id=%s applied=%d source=%s backend=graph.ai.action.player_weapon_state+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action chr_draw_weapon chr=%d chr_rows=%d target_chr=%d player_checked=%d weapon_id=%s applied=%d source=%s backend=graph.ai.action.player_weapon_state+ai/ailists.json",
 			chrnum, chr_count, target_chrnum, player_checked,
 			weapon_id, applied,
 			s_ActiveScenarioGraphs.ai_lists_path);
@@ -25778,7 +26788,7 @@ s32 scenarioSourceAiGraphExecuteChrDrawWeaponInCutscene(
 	g_Vars.aioffset += 4;
 	if (!s_ActiveScenarioGraphs.ai_action_chr_draw_weapon_in_cutscene_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action chr_draw_weapon_in_cutscene chr=%d chr_rows=%d target_chr=%d player_checked=%d weapon_id=%s applied=%d source=%s backend=graph.ai.action.player_weapon_state+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action chr_draw_weapon_in_cutscene chr=%d chr_rows=%d target_chr=%d player_checked=%d weapon_id=%s applied=%d source=%s backend=graph.ai.action.player_weapon_state+ai/ailists.json",
 			chrnum, chr_count, target_chrnum, player_checked,
 			weapon_id, applied,
 			s_ActiveScenarioGraphs.ai_lists_path);
@@ -25824,7 +26834,7 @@ s32 scenarioSourceAiGraphExecuteSetPlayerForceSpeed(struct chrdata *basechr,
 	g_Vars.aioffset += 5;
 	if (!s_ActiveScenarioGraphs.ai_action_set_player_force_speed_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action set_player_force_speed chr=%d chr_rows=%d target_chr=%d player_checked=%d x=%d z=%d applied=%d source=%s backend=graph.ai.action.player_weapon_state+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action set_player_force_speed chr=%d chr_rows=%d target_chr=%d player_checked=%d x=%d z=%d applied=%d source=%s backend=graph.ai.action.player_weapon_state+ai/ailists.json",
 			chrnum, chr_count, target_chrnum, player_checked,
 			speed_x, speed_z, applied,
 			s_ActiveScenarioGraphs.ai_lists_path);
@@ -25867,7 +26877,7 @@ s32 scenarioSourceAiGraphExecuteChrSetInvincible(struct chrdata *basechr,
 	g_Vars.aioffset += 3;
 	if (!s_ActiveScenarioGraphs.ai_action_chr_set_invincible_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action chr_set_invincible chr=%d chr_rows=%d target_chr=%d player_checked=%d applied=%d source=%s backend=graph.ai.action.player_weapon_state+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action chr_set_invincible chr=%d chr_rows=%d target_chr=%d player_checked=%d applied=%d source=%s backend=graph.ai.action.player_weapon_state+ai/ailists.json",
 			chrnum, chr_count, target_chrnum, player_checked, applied,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_chr_set_invincible_logged = 1;
@@ -25913,7 +26923,7 @@ s32 scenarioSourceAiGraphExecuteIfPlayerIsInvincible(struct chrdata *basechr,
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_if_player_is_invincible_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_player_is_invincible chr=%d chr_rows=%d target_chr=%d player_checked=%d label=%d result=%d source=%s backend=graph.ai.action.player_weapon_state+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI condition if_player_is_invincible chr=%d chr_rows=%d target_chr=%d player_checked=%d label=%d result=%d source=%s backend=graph.ai.action.player_weapon_state+ai/ailists.json",
 			chrnum, chr_count, target_chrnum, player_checked, label, pass,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_if_player_is_invincible_logged = 1;
@@ -25955,7 +26965,7 @@ s32 scenarioSourceAiGraphExecuteIfChrHasNoGun(struct chrdata *basechr,
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_if_chr_has_no_gun_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_chr_has_no_gun chr=%d chr_rows=%d target_chr=%d gun_model_id=%s weapon_id=%s label=%d result=%d source=%s backend=graph.ai.action.player_weapon_state+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI condition if_chr_has_no_gun chr=%d chr_rows=%d target_chr=%d gun_model_id=%s weapon_id=%s label=%d result=%d source=%s backend=graph.ai.action.player_weapon_state+ai/ailists.json",
 			chrnum, chr_count, target_chrnum, gun_model_id,
 			gun_weapon_id, label, pass,
 			s_ActiveScenarioGraphs.ai_lists_path);
@@ -25996,7 +27006,7 @@ s32 scenarioSourceAiGraphExecuteChrDeleteWeapon(struct chrdata *basechr,
 	g_Vars.aioffset += 4;
 	if (!s_ActiveScenarioGraphs.ai_action_chr_delete_weapon_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action chr_delete_weapon chr=%d chr_rows=%d target_chr=%d weapon_id=%s applied=%d source=%s backend=graph.ai.action.player_weapon_state+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action chr_delete_weapon chr=%d chr_rows=%d target_chr=%d weapon_id=%s applied=%d source=%s backend=graph.ai.action.player_weapon_state+ai/ailists.json",
 			chrnum, chr_count, target_chrnum, weapon_id, applied,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_chr_delete_weapon_logged = 1;
@@ -26036,7 +27046,7 @@ s32 scenarioSourceAiGraphExecuteIfTriggerShotList(struct chrdata *basechr,
 	}
 	if (!s_ActiveScenarioGraphs.ai_condition_if_trigger_shot_list_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_trigger_shot_list chr=%d chr_rows=%d target_chr=%d label=%d branch=%d source=%s backend=graph.ai.action.player_weapon_state+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI condition if_trigger_shot_list chr=%d chr_rows=%d target_chr=%d label=%d branch=%d source=%s backend=graph.ai.action.player_weapon_state+ai/ailists.json",
 			chrnum, chr_count, target_chrnum, label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_condition_if_trigger_shot_list_logged = 1;
@@ -26055,7 +27065,7 @@ static s32 s_aiPlayerCutsceneGraphReady(const char *action,
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
 		return s_aiGraphRuntimeFailure(action,
-			"missing ai/ailists.tsv source");
+			"missing ai/ailists.json source");
 	}
 	return 1;
 }
@@ -26077,7 +27087,7 @@ s32 scenarioSourceAiGraphExecuteEndLevel(void)
 	g_Vars.aioffset += 2;
 	if (!s_ActiveScenarioGraphs.ai_action_end_level_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action end_level autocut=%d source=%s backend=graph.ai.action.player_cutscene+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action end_level autocut=%d source=%s backend=graph.ai.action.player_cutscene+ai/ailists.json",
 			g_Vars.autocutplaying ? 1 : 0,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_end_level_logged = 1;
@@ -26096,7 +27106,7 @@ s32 scenarioSourceAiGraphExecuteEndCutscene(void)
 	g_Vars.aioffset += 2;
 	if (!s_ActiveScenarioGraphs.ai_action_end_cutscene_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action end_cutscene source=%s backend=graph.ai.action.player_cutscene+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action end_cutscene source=%s backend=graph.ai.action.player_cutscene+ai/ailists.json",
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_end_cutscene_logged = 1;
 	}
@@ -26114,7 +27124,7 @@ s32 scenarioSourceAiGraphExecuteWarpJoToPad(s32 pad_id)
 	}
 	if (!s_ActiveScenarioGraphs.pads_path[0]) {
 		return s_aiGraphRuntimeFailure("warp_jo_to_pad",
-			"missing pads.tsv source");
+			"missing pads.json source");
 	}
 	if (!s_aiGraphRequireRuntimePad("warp_jo_to_pad", pad_id,
 			&pad_count)) {
@@ -26124,7 +27134,7 @@ s32 scenarioSourceAiGraphExecuteWarpJoToPad(s32 pad_id)
 	g_Vars.aioffset += 4;
 	if (!s_ActiveScenarioGraphs.ai_action_warp_jo_to_pad_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action warp_jo_to_pad pad=%d found=1 pad_rows=%d source=%s pads=%s backend=graph.ai.action.player_cutscene+ai/ailists.tsv+pads.tsv",
+			"SCENARIO.GRAPH: AI action warp_jo_to_pad pad=%d found=1 pad_rows=%d source=%s pads=%s backend=graph.ai.action.player_cutscene+ai/ailists.json+pads.json",
 			pad_id, pad_count, s_ActiveScenarioGraphs.ai_lists_path,
 			s_ActiveScenarioGraphs.pads_path);
 		s_ActiveScenarioGraphs.ai_action_warp_jo_to_pad_logged = 1;
@@ -26137,6 +27147,8 @@ s32 scenarioSourceAiGraphExecuteSetCameraAnimation(s32 anim_id)
 	struct player *player = g_Vars.currentplayer;
 	struct chrdata *active_chr = g_Vars.chrdata;
 	const char *anim_catalog_id;
+	const char *anim_source_path = "(none)";
+	u32 anim_clip_size = 0;
 	s32 chr_count = 0;
 	s32 player_checked = 0;
 	s32 source_chr = -1;
@@ -26152,7 +27164,8 @@ s32 scenarioSourceAiGraphExecuteSetCameraAnimation(s32 anim_id)
 	}
 	player_checked = 1;
 	anim_catalog_id = s_aiGraphResolveAnimationCatalogId(
-		"set_camera_animation", anim_id, "camera");
+		"set_camera_animation", anim_id, "camera", &anim_source_path,
+		&anim_clip_size);
 	if (!anim_catalog_id) {
 		return 1;
 	}
@@ -26165,8 +27178,9 @@ s32 scenarioSourceAiGraphExecuteSetCameraAnimation(s32 anim_id)
 		active_chr->sleep = -1;
 		if (!s_ActiveScenarioGraphs.ai_action_set_camera_animation_logged) {
 			sysLogPrintf(LOG_NOTE,
-				"SCENARIO.GRAPH: AI action set_camera_animation anim_id=%s player_checked=%d chr_rows=%d source_chr=%d yielded=1 source=%s backend=graph.ai.action.player_cutscene+ai/ailists.tsv",
-				anim_catalog_id, player_checked, chr_count, source_chr,
+				"SCENARIO.GRAPH: AI action set_camera_animation anim_id=%s anim_source=%s clip_bytes=%u player_checked=%d chr_rows=%d source_chr=%d yielded=1 source=%s backend=graph.ai.action.player_cutscene+ai/ailists.json",
+				anim_catalog_id, anim_source_path, anim_clip_size,
+				player_checked, chr_count, source_chr,
 				s_ActiveScenarioGraphs.ai_lists_path);
 			s_ActiveScenarioGraphs.ai_action_set_camera_animation_logged = 1;
 		}
@@ -26175,8 +27189,9 @@ s32 scenarioSourceAiGraphExecuteSetCameraAnimation(s32 anim_id)
 	g_Vars.aioffset += 4;
 	if (!s_ActiveScenarioGraphs.ai_action_set_camera_animation_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action set_camera_animation anim_id=%s player_checked=%d chr_rows=%d source_chr=%d yielded=0 source=%s backend=graph.ai.action.player_cutscene+ai/ailists.tsv",
-			anim_catalog_id, player_checked, chr_count, source_chr,
+			"SCENARIO.GRAPH: AI action set_camera_animation anim_id=%s anim_source=%s clip_bytes=%u player_checked=%d chr_rows=%d source_chr=%d yielded=0 source=%s backend=graph.ai.action.player_cutscene+ai/ailists.json",
+			anim_catalog_id, anim_source_path, anim_clip_size,
+			player_checked, chr_count, source_chr,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_set_camera_animation_logged = 1;
 	}
@@ -26201,7 +27216,7 @@ s32 scenarioSourceAiGraphExecuteIfInCutscene(s32 label)
 	}
 	if (!s_ActiveScenarioGraphs.ai_condition_if_in_cutscene_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_in_cutscene label=%d branch=%d source=%s backend=graph.ai.action.player_cutscene+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI condition if_in_cutscene label=%d branch=%d source=%s backend=graph.ai.action.player_cutscene+ai/ailists.json",
 			label, branch, s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_condition_if_in_cutscene_logged = 1;
 	}
@@ -26228,7 +27243,7 @@ s32 scenarioSourceAiGraphExecuteIfCutsceneButtonPressed(s32 label)
 	}
 	if (!s_ActiveScenarioGraphs.ai_condition_if_cutscene_button_pressed_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_cutscene_button_pressed label=%d branch=%d source=%s backend=graph.ai.action.player_cutscene+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI condition if_cutscene_button_pressed label=%d branch=%d source=%s backend=graph.ai.action.player_cutscene+ai/ailists.json",
 			label, branch, s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_condition_if_cutscene_button_pressed_logged = 1;
 	}
@@ -26246,7 +27261,7 @@ s32 scenarioSourceAiGraphExecuteReorientForCutsceneStop(s32 mode)
 	g_Vars.aioffset += 3;
 	if (!s_ActiveScenarioGraphs.ai_action_reorient_for_cutscene_stop_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action reorient_for_cutscene_stop mode=%d source=%s backend=graph.ai.action.player_cutscene+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action reorient_for_cutscene_stop mode=%d source=%s backend=graph.ai.action.player_cutscene+ai/ailists.json",
 			mode, s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_reorient_for_cutscene_stop_logged = 1;
 	}
@@ -26266,7 +27281,7 @@ s32 scenarioSourceAiGraphExecuteWarpJoToTag(s32 tag_id, s32 arg0, s32 arg1)
 	}
 	if (!s_ActiveScenarioGraphs.objects_path[0]) {
 		return s_aiGraphRuntimeFailure("warp_jo_to_tag",
-			"missing objects.tsv source");
+			"missing objects.json source");
 	}
 	if (!s_aiGraphRequireRuntimeSetupTag("warp_jo_to_tag", tag_id,
 			&setup_tag_count)) {
@@ -26287,7 +27302,7 @@ s32 scenarioSourceAiGraphExecuteWarpJoToTag(s32 tag_id, s32 arg0, s32 arg1)
 	g_Vars.aioffset += 7;
 	if (!s_ActiveScenarioGraphs.ai_action_warp_jo_to_tag_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action warp_jo_to_tag tag=%d setup_tags=%d arg0=%d arg1=%d applied=%d source=%s objects=%s backend=graph.ai.action.player_cutscene+ai/ailists.tsv+objects.tsv",
+			"SCENARIO.GRAPH: AI action warp_jo_to_tag tag=%d setup_tags=%d arg0=%d arg1=%d applied=%d source=%s objects=%s backend=graph.ai.action.player_cutscene+ai/ailists.json+objects.json",
 			tag_id, setup_tag_count, arg0, arg1, applied,
 			s_ActiveScenarioGraphs.ai_lists_path,
 			s_ActiveScenarioGraphs.objects_path);
@@ -26339,7 +27354,7 @@ s32 scenarioSourceAiGraphExecuteRevokeControl(struct chrdata *basechr,
 	g_Vars.aioffset += 4;
 	if (!s_ActiveScenarioGraphs.ai_action_revoke_control_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action revoke_control chr=%d chr_rows=%d target_chr=%d player_checked=%d flags=0x%02x applied=%d source=%s backend=graph.ai.action.player_cutscene+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action revoke_control chr=%d chr_rows=%d target_chr=%d player_checked=%d flags=0x%02x applied=%d source=%s backend=graph.ai.action.player_cutscene+ai/ailists.json",
 			chrnum, chr_count, target_chrnum, player_checked, flags, applied,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_revoke_control_logged = 1;
@@ -26385,7 +27400,7 @@ s32 scenarioSourceAiGraphExecuteGrantControl(struct chrdata *basechr,
 	g_Vars.aioffset += 3;
 	if (!s_ActiveScenarioGraphs.ai_action_grant_control_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action grant_control chr=%d chr_rows=%d target_chr=%d player_checked=%d applied=%d source=%s backend=graph.ai.action.player_cutscene+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action grant_control chr=%d chr_rows=%d target_chr=%d player_checked=%d applied=%d source=%s backend=graph.ai.action.player_cutscene+ai/ailists.json",
 			chrnum, chr_count, target_chrnum, player_checked, applied,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_grant_control_logged = 1;
@@ -26430,7 +27445,7 @@ s32 scenarioSourceAiGraphExecutePlayerFadeIn(struct chrdata *basechr,
 	g_Vars.aioffset += 3;
 	if (!s_ActiveScenarioGraphs.ai_action_player_fade_in_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action player_fade_in chr=%d chr_rows=%d target_chr=%d player_checked=%d applied=%d source=%s backend=graph.ai.action.player_cutscene+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action player_fade_in chr=%d chr_rows=%d target_chr=%d player_checked=%d applied=%d source=%s backend=graph.ai.action.player_cutscene+ai/ailists.json",
 			chrnum, chr_count, target_chrnum, player_checked, applied,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_player_fade_in_logged = 1;
@@ -26469,7 +27484,7 @@ s32 scenarioSourceAiGraphExecutePlayersFadeOut(void)
 	g_Vars.aioffset += 3;
 	if (!s_ActiveScenarioGraphs.ai_action_players_fade_out_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action players_fade_out checked_players=%d applied=%d source=%s backend=graph.ai.action.player_cutscene+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action players_fade_out checked_players=%d applied=%d source=%s backend=graph.ai.action.player_cutscene+ai/ailists.json",
 			checked_players, applied, s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_players_fade_out_logged = 1;
 	}
@@ -26512,7 +27527,7 @@ s32 scenarioSourceAiGraphExecuteIfColourFadeComplete(struct chrdata *basechr,
 	}
 	if (!s_ActiveScenarioGraphs.ai_condition_if_colour_fade_complete_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_colour_fade_complete chr=%d chr_rows=%d target_chr=%d player_checked=%d label=%d branch=%d source=%s backend=graph.ai.action.player_cutscene+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI condition if_colour_fade_complete chr=%d chr_rows=%d target_chr=%d player_checked=%d label=%d branch=%d source=%s backend=graph.ai.action.player_cutscene+ai/ailists.json",
 			chrnum, chr_count, target_chrnum, player_checked, label, pass,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_condition_if_colour_fade_complete_logged = 1;
@@ -26532,7 +27547,7 @@ s32 scenarioSourceAiGraphExecutePrepareWarpOrbit(s32 range, s32 height1,
 	}
 	if (!s_ActiveScenarioGraphs.pads_path[0]) {
 		return s_aiGraphRuntimeFailure("prepare_warp_orbit",
-			"missing pads.tsv source");
+			"missing pads.json source");
 	}
 	if (!s_aiGraphRequireRuntimePad("prepare_warp_orbit", padnum,
 			&pad_count)) {
@@ -26543,7 +27558,7 @@ s32 scenarioSourceAiGraphExecutePrepareWarpOrbit(s32 range, s32 height1,
 	g_Vars.aioffset += 14;
 	if (!s_ActiveScenarioGraphs.ai_action_prepare_warp_orbit_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action prepare_warp_orbit pad=%d found=1 pad_rows=%d range=%d source=%s pads=%s backend=graph.ai.action.player_cutscene+ai/ailists.tsv+pads.tsv",
+			"SCENARIO.GRAPH: AI action prepare_warp_orbit pad=%d found=1 pad_rows=%d range=%d source=%s pads=%s backend=graph.ai.action.player_cutscene+ai/ailists.json+pads.json",
 			padnum, pad_count, range,
 			s_ActiveScenarioGraphs.ai_lists_path,
 			s_ActiveScenarioGraphs.pads_path);
@@ -26563,7 +27578,7 @@ s32 scenarioSourceAiGraphExecuteBeginWarpLatch(void)
 	g_Vars.aioffset += 2;
 	if (!s_ActiveScenarioGraphs.ai_action_begin_warp_latch_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action begin_warp_latch source=%s backend=graph.ai.action.player_cutscene+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action begin_warp_latch source=%s backend=graph.ai.action.player_cutscene+ai/ailists.json",
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_begin_warp_latch_logged = 1;
 	}
@@ -26588,7 +27603,7 @@ s32 scenarioSourceAiGraphExecuteIfWarpLatchComplete(s32 label)
 	}
 	if (!s_ActiveScenarioGraphs.ai_condition_if_warp_latch_complete_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_warp_latch_complete label=%d branch=%d source=%s backend=graph.ai.action.player_cutscene+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI condition if_warp_latch_complete label=%d branch=%d source=%s backend=graph.ai.action.player_cutscene+ai/ailists.json",
 			label, branch, s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_condition_if_warp_latch_complete_logged = 1;
 	}
@@ -26606,7 +27621,7 @@ static s32 s_aiSetupSpawnGraphReady(const char *action,
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
 		return s_aiGraphRuntimeFailure(action,
-			"missing ai/ailists.tsv source");
+			"missing ai/ailists.json source");
 	}
 	return 1;
 }
@@ -26629,7 +27644,7 @@ s32 scenarioSourceAiGraphExecuteSpawnChrAtPad(struct chrdata *basechr,
 	}
 	if (!s_ActiveScenarioGraphs.pads_path[0]) {
 		return s_aiGraphRuntimeFailure("spawn_chr_at_pad",
-			"missing pads.tsv source");
+			"missing pads.json source");
 	}
 	if (!s_aiGraphRequireRuntimePad("spawn_chr_at_pad", pad, &pad_count)) {
 		return 1;
@@ -26657,7 +27672,7 @@ s32 scenarioSourceAiGraphExecuteSpawnChrAtPad(struct chrdata *basechr,
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_spawn_chr_at_pad_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action spawn_chr_at_pad body_id=%s head_id=%s pad=%d found=1 pad_rows=%d ailist=%u pass=%d source=%s pads=%s backend=graph.ai.action.setup_spawn+ai/ailists.tsv+pads.tsv",
+			"SCENARIO.GRAPH: AI action spawn_chr_at_pad body_id=%s head_id=%s pad=%d found=1 pad_rows=%d ailist=%u pass=%d source=%s pads=%s backend=graph.ai.action.setup_spawn+ai/ailists.json+pads.json",
 			body_id, head_id, pad, pad_count, ailistid, pass,
 			s_ActiveScenarioGraphs.ai_lists_path,
 			s_ActiveScenarioGraphs.pads_path);
@@ -26710,7 +27725,7 @@ s32 scenarioSourceAiGraphExecuteSpawnChrAtChr(struct chrdata *basechr,
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_spawn_chr_at_chr_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action spawn_chr_at_chr body_id=%s head_id=%s chr=%d chr_rows=%d target_chr=%d ailist=%u pass=%d source=%s backend=graph.ai.action.setup_spawn+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action spawn_chr_at_chr body_id=%s head_id=%s chr=%d chr_rows=%d target_chr=%d ailist=%u pass=%d source=%s backend=graph.ai.action.setup_spawn+ai/ailists.json",
 			body_id, head_id, chrnum, chr_count,
 			target_chr ? target_chr->chrnum : -1, ailistid, pass,
 			s_ActiveScenarioGraphs.ai_lists_path);
@@ -26841,7 +27856,7 @@ s32 scenarioSourceAiGraphExecuteTryEquipWeapon(u32 model, s32 weaponnum,
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_try_equip_weapon_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action try_equip_weapon model_id=%s weapon_id=%s chr_rows=%d source_chr=%d flags=0x%08x pass=%d source=%s backend=graph.ai.action.setup_spawn+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action try_equip_weapon model_id=%s weapon_id=%s chr_rows=%d source_chr=%d flags=0x%08x pass=%d source=%s backend=graph.ai.action.setup_spawn+ai/ailists.json",
 			model_id, weapon_id, chr_count, source_chr,
 			applied_flags, prop != NULL,
 			s_ActiveScenarioGraphs.ai_lists_path);
@@ -26884,7 +27899,7 @@ s32 scenarioSourceAiGraphExecuteTryEquipHat(u32 modelnum, u32 flags,
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_try_equip_hat_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action try_equip_hat model_id=%s chr_rows=%d source_chr=%d flags=0x%08x pass=%d source=%s backend=graph.ai.action.setup_spawn+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action try_equip_hat model_id=%s chr_rows=%d source_chr=%d flags=0x%08x pass=%d source=%s backend=graph.ai.action.setup_spawn+ai/ailists.json",
 			model_id, chr_count, source_chr, flags, prop != NULL,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_try_equip_hat_logged = 1;
@@ -26910,7 +27925,7 @@ s32 scenarioSourceAiGraphExecuteSetObjImage(s32 tag_id, s32 slot,
 	}
 	if (!s_ActiveScenarioGraphs.objects_path[0]) {
 		return s_aiGraphRuntimeFailure("set_obj_image",
-			"missing objects.tsv source");
+			"missing objects.json source");
 	}
 	if (!s_aiGraphRequireRuntimeObjectTagAnyType("set_obj_image",
 			tag_id, monitor_types, ARRAYCOUNT(monitor_types),
@@ -26934,7 +27949,7 @@ s32 scenarioSourceAiGraphExecuteSetObjImage(s32 tag_id, s32 slot,
 	g_Vars.aioffset += 5;
 	if (!s_ActiveScenarioGraphs.ai_action_set_obj_image_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action set_obj_image tag=%d object_rows=%d slot=%d image_index=%d applied=%d source=%s objects=%s backend=graph.ai.action.setup_spawn+ai/ailists.tsv+objects.tsv",
+			"SCENARIO.GRAPH: AI action set_obj_image tag=%d object_rows=%d slot=%d image_index=%d applied=%d source=%s objects=%s backend=graph.ai.action.setup_spawn+ai/ailists.json+objects.json",
 			tag_id, object_count, slot, image, applied,
 			s_ActiveScenarioGraphs.ai_lists_path,
 			s_ActiveScenarioGraphs.objects_path);
@@ -26956,6 +27971,8 @@ s32 scenarioSourceAiGraphExecuteObjectDoAnimation(s32 anim_id, s32 tag_id,
 	s32 source_chr = -1;
 	s32 resolved_tag_id = tag_id;
 	const char *anim_catalog_id;
+	const char *anim_source_path = "(none)";
+	u32 anim_clip_size = 0;
 
 	if (!s_aiSetupSpawnGraphReady("object_do_animation",
 			s_ActiveScenarioGraphs.level_ai_object_do_animation_node_count,
@@ -26964,10 +27981,11 @@ s32 scenarioSourceAiGraphExecuteObjectDoAnimation(s32 anim_id, s32 tag_id,
 	}
 	if (!s_ActiveScenarioGraphs.objects_path[0]) {
 		return s_aiGraphRuntimeFailure("object_do_animation",
-			"missing objects.tsv source");
+			"missing objects.json source");
 	}
 	anim_catalog_id = s_aiGraphResolveAnimationCatalogId(
-		"object_do_animation", anim_id, "object");
+		"object_do_animation", anim_id, "object", &anim_source_path,
+		&anim_clip_size);
 	if (!anim_catalog_id) {
 		return 1;
 	}
@@ -27036,9 +28054,10 @@ s32 scenarioSourceAiGraphExecuteObjectDoAnimation(s32 anim_id, s32 tag_id,
 	g_Vars.aioffset += 8;
 	if (!s_ActiveScenarioGraphs.ai_action_object_do_animation_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action object_do_animation anim_id=%s tag=%d resolved_tag=%d object_rows=%d chr_rows=%d source_chr=%d speed_divisor=%d startframe=%d applied=%d source=%s objects=%s backend=graph.ai.action.setup_spawn+ai/ailists.tsv+objects.tsv",
-			anim_catalog_id, tag_id, resolved_tag_id, object_count,
-			chr_count, source_chr, speed_divisor, startframe, applied,
+			"SCENARIO.GRAPH: AI action object_do_animation anim_id=%s anim_source=%s clip_bytes=%u tag=%d resolved_tag=%d object_rows=%d chr_rows=%d source_chr=%d speed_divisor=%d startframe=%d applied=%d source=%s objects=%s backend=graph.ai.action.setup_spawn+ai/ailists.json+objects.json",
+			anim_catalog_id, anim_source_path, anim_clip_size, tag_id,
+			resolved_tag_id, object_count, chr_count, source_chr,
+			speed_divisor, startframe, applied,
 			s_ActiveScenarioGraphs.ai_lists_path,
 			s_ActiveScenarioGraphs.objects_path);
 		s_ActiveScenarioGraphs.ai_action_object_do_animation_logged = 1;
@@ -27059,7 +28078,7 @@ s32 scenarioSourceAiGraphExecuteSetDoorOpen(s32 tag_id)
 	}
 	if (!s_ActiveScenarioGraphs.objects_path[0]) {
 		return s_aiGraphRuntimeFailure("set_door_open",
-			"missing objects.tsv source");
+			"missing objects.json source");
 	}
 	if (!s_aiGraphRequireRuntimeObjectTagType("set_door_open", tag_id,
 			OBJTYPE_DOOR, &object_count)) {
@@ -27080,7 +28099,7 @@ s32 scenarioSourceAiGraphExecuteSetDoorOpen(s32 tag_id)
 	g_Vars.aioffset += 3;
 	if (!s_ActiveScenarioGraphs.ai_action_set_door_open_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action set_door_open tag=%d object_rows=%d applied=%d source=%s objects=%s backend=graph.ai.action.setup_spawn+ai/ailists.tsv+objects.tsv",
+			"SCENARIO.GRAPH: AI action set_door_open tag=%d object_rows=%d applied=%d source=%s objects=%s backend=graph.ai.action.setup_spawn+ai/ailists.json+objects.json",
 			tag_id, object_count, applied,
 			s_ActiveScenarioGraphs.ai_lists_path,
 			s_ActiveScenarioGraphs.objects_path);
@@ -27100,7 +28119,7 @@ static s32 s_aiEntityLifecycleGraphReady(const char *action,
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
 		return s_aiGraphRuntimeFailure(action,
-			"missing ai/ailists.tsv source");
+			"missing ai/ailists.json source");
 	}
 	return 1;
 }
@@ -27139,7 +28158,7 @@ s32 scenarioSourceAiGraphExecuteDuplicateChr(struct chrdata *basechr,
 	}
 	if (!s_ActiveScenarioGraphs.pads_path[0]) {
 		return s_aiGraphRuntimeFailure("duplicate_chr",
-			"missing pads.tsv source");
+			"missing pads.json source");
 	}
 	ailist = ailistFindById(ailistid);
 	if (!s_aiGraphRequireRuntimeCharacterRefFromBase("duplicate_chr",
@@ -27265,7 +28284,7 @@ s32 scenarioSourceAiGraphExecuteDuplicateChr(struct chrdata *basechr,
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_duplicate_chr_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action duplicate_chr chr=%d chr_rows=%d source_chr=%d body_id=%s weapon0_model_id=%s weapon0_id=%s weapon1_model_id=%s weapon1_id=%s hat_model_id=%s ailist=%u pad=%d found=%d pad_rows=%d pass=%d source=%s pads=%s backend=graph.ai.action.entity_lifecycle+ai/ailists.tsv+pads.tsv",
+			"SCENARIO.GRAPH: AI action duplicate_chr chr=%d chr_rows=%d source_chr=%d body_id=%s weapon0_model_id=%s weapon0_id=%s weapon1_model_id=%s weapon1_id=%s hat_model_id=%s ailist=%u pad=%d found=%d pad_rows=%d pass=%d source=%s pads=%s backend=graph.ai.action.entity_lifecycle+ai/ailists.json+pads.json",
 			chrnum, chr_count, chr ? chr->chrnum : -1,
 			body_id, weapon0_model_id, weapon0_id,
 			weapon1_model_id, weapon1_id, hat_model_id,
@@ -27301,7 +28320,7 @@ s32 scenarioSourceAiGraphExecuteEnableChr(struct chrdata *basechr, s32 chrnum)
 	g_Vars.aioffset += 3;
 	if (!s_ActiveScenarioGraphs.ai_action_enable_chr_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action enable_chr chr=%d chr_rows=%d target_chr=%d applied=%d source=%s backend=graph.ai.action.entity_lifecycle+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action enable_chr chr=%d chr_rows=%d target_chr=%d applied=%d source=%s backend=graph.ai.action.entity_lifecycle+ai/ailists.json",
 			chrnum, chr_count, chr ? chr->chrnum : -1, applied,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_enable_chr_logged = 1;
@@ -27333,7 +28352,7 @@ s32 scenarioSourceAiGraphExecuteDisableChr(struct chrdata *basechr, s32 chrnum)
 	g_Vars.aioffset += 3;
 	if (!s_ActiveScenarioGraphs.ai_action_disable_chr_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action disable_chr chr=%d chr_rows=%d target_chr=%d applied=%d source=%s backend=graph.ai.action.entity_lifecycle+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action disable_chr chr=%d chr_rows=%d target_chr=%d applied=%d source=%s backend=graph.ai.action.entity_lifecycle+ai/ailists.json",
 			chrnum, chr_count, chr ? chr->chrnum : -1, applied,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_disable_chr_logged = 1;
@@ -27357,7 +28376,7 @@ s32 scenarioSourceAiGraphExecuteEnableObj(s32 tag_id)
 	}
 	if (!s_ActiveScenarioGraphs.objects_path[0]) {
 		return s_aiGraphRuntimeFailure("enable_obj",
-			"missing objects.tsv source");
+			"missing objects.json source");
 	}
 	if (!s_aiGraphRequireRuntimeObjectTag("enable_obj", tag_id,
 			&object_count)) {
@@ -27391,7 +28410,7 @@ s32 scenarioSourceAiGraphExecuteEnableObj(s32 tag_id)
 	g_Vars.aioffset += 3;
 	if (!s_ActiveScenarioGraphs.ai_action_enable_obj_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action enable_obj tag=%d object_rows=%d player_checked=%d applied=%d source=%s objects=%s backend=graph.ai.action.entity_lifecycle+ai/ailists.tsv+objects.tsv",
+			"SCENARIO.GRAPH: AI action enable_obj tag=%d object_rows=%d player_checked=%d applied=%d source=%s objects=%s backend=graph.ai.action.entity_lifecycle+ai/ailists.json+objects.json",
 			tag_id, object_count, player_checked, applied,
 			s_ActiveScenarioGraphs.ai_lists_path,
 			s_ActiveScenarioGraphs.objects_path);
@@ -27413,7 +28432,7 @@ s32 scenarioSourceAiGraphExecuteDisableObj(s32 tag_id)
 	}
 	if (!s_ActiveScenarioGraphs.objects_path[0]) {
 		return s_aiGraphRuntimeFailure("disable_obj",
-			"missing objects.tsv source");
+			"missing objects.json source");
 	}
 	if (!s_aiGraphRequireRuntimeObjectTag("disable_obj", tag_id,
 			&object_count)) {
@@ -27442,7 +28461,7 @@ s32 scenarioSourceAiGraphExecuteDisableObj(s32 tag_id)
 	g_Vars.aioffset += 3;
 	if (!s_ActiveScenarioGraphs.ai_action_disable_obj_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action disable_obj tag=%d object_rows=%d applied=%d source=%s objects=%s backend=graph.ai.action.entity_lifecycle+ai/ailists.tsv+objects.tsv",
+			"SCENARIO.GRAPH: AI action disable_obj tag=%d object_rows=%d applied=%d source=%s objects=%s backend=graph.ai.action.entity_lifecycle+ai/ailists.json+objects.json",
 			tag_id, object_count, applied,
 			s_ActiveScenarioGraphs.ai_lists_path,
 			s_ActiveScenarioGraphs.objects_path);
@@ -27472,7 +28491,7 @@ s32 scenarioSourceAiGraphExecuteChrMoveToPad(struct chrdata *basechr,
 	}
 	if (!s_ActiveScenarioGraphs.pads_path[0]) {
 		return s_aiGraphRuntimeFailure("chr_move_to_pad",
-			"missing pads.tsv source");
+			"missing pads.json source");
 	}
 	if (!s_aiGraphRequireRuntimeCharacterRefFromBase("chr_move_to_pad",
 			basechr, chrnum, &chr_count, &chr)) {
@@ -27520,7 +28539,7 @@ apply_branch:
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_chr_move_to_pad_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action chr_move_to_pad chr=%d chr_rows=%d target_chr=%d operand=%d mode88_chr=%d mode88_chr_rows=%d resolved_pad=%d mode=%d pass=%d pad_rows=%d source=%s pads=%s backend=graph.ai.action.entity_lifecycle+ai/ailists.tsv+pads.tsv",
+			"SCENARIO.GRAPH: AI action chr_move_to_pad chr=%d chr_rows=%d target_chr=%d operand=%d mode88_chr=%d mode88_chr_rows=%d resolved_pad=%d mode=%d pass=%d pad_rows=%d source=%s pads=%s backend=graph.ai.action.entity_lifecycle+ai/ailists.json+pads.json",
 			chrnum, chr_count, chr ? chr->chrnum : -1, pad_or_chr,
 			mode88_target_chr, mode88_chr_count, resolved_pad, mode,
 			pass, pad_count,
@@ -27582,7 +28601,7 @@ s32 scenarioSourceAiGraphExecuteChrSetTeam(struct chrdata *basechr,
 	g_Vars.aioffset += 4;
 	if (!s_ActiveScenarioGraphs.ai_action_chr_set_team_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action chr_set_team chr=%d chr_rows=%d target_chr=%d checked_players=%d team=%d applied=%d source=%s backend=graph.ai.action.entity_lifecycle+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action chr_set_team chr=%d chr_rows=%d target_chr=%d checked_players=%d team=%d applied=%d source=%s backend=graph.ai.action.entity_lifecycle+ai/ailists.json",
 			chrnum, chr_count, target_chrnum, checked_players, team,
 			applied,
 			s_ActiveScenarioGraphs.ai_lists_path);
@@ -27626,7 +28645,7 @@ s32 scenarioSourceAiGraphExecuteDamageChrByAmount(struct chrdata *basechr,
 	g_Vars.aioffset += 5;
 	if (!s_ActiveScenarioGraphs.ai_action_damage_chr_by_amount_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action damage_chr_by_amount chr=%d chr_rows=%d target_chr=%d amount=%d mode=%d applied=%d source=%s backend=graph.ai.action.entity_lifecycle+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action damage_chr_by_amount chr=%d chr_rows=%d target_chr=%d amount=%d mode=%d applied=%d source=%s backend=graph.ai.action.entity_lifecycle+ai/ailists.json",
 			chrnum, chr_count, chr ? chr->chrnum : -1, amount, mode, applied,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_damage_chr_by_amount_logged = 1;
@@ -27646,6 +28665,8 @@ s32 scenarioSourceAiGraphExecuteDoPresetAnimation(struct chrdata *chr,
 	s32 applied = 0;
 	s32 selected_anim = -1;
 	const char *anim_catalog_id = "none";
+	const char *anim_source_path = "none";
+	u32 anim_clip_size = 0;
 
 	if (!s_aiEntityLifecycleGraphReady("do_preset_animation",
 			s_ActiveScenarioGraphs.level_ai_do_preset_animation_node_count,
@@ -27670,7 +28691,8 @@ s32 scenarioSourceAiGraphExecuteDoPresetAnimation(struct chrdata *chr,
 		}
 		if (selected_anim >= 0) {
 			anim_catalog_id = s_aiGraphResolveAnimationCatalogId(
-				"do_preset_animation", selected_anim, "preset");
+				"do_preset_animation", selected_anim, "preset",
+				&anim_source_path, &anim_clip_size);
 			if (!anim_catalog_id) {
 				return 1;
 			}
@@ -27682,8 +28704,9 @@ s32 scenarioSourceAiGraphExecuteDoPresetAnimation(struct chrdata *chr,
 	g_Vars.aioffset += 3;
 	if (!s_ActiveScenarioGraphs.ai_action_do_preset_animation_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action do_preset_animation preset=%d anim_id=%s applied=%d source=%s backend=graph.ai.action.entity_lifecycle+ai/ailists.tsv",
-			preset, anim_catalog_id, applied,
+			"SCENARIO.GRAPH: AI action do_preset_animation preset=%d anim_id=%s anim_source=%s clip_bytes=%u applied=%d source=%s backend=graph.ai.action.entity_lifecycle+ai/ailists.json",
+			preset, anim_catalog_id, anim_source_path, anim_clip_size,
+			applied,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_do_preset_animation_logged = 1;
 	}
@@ -27730,7 +28753,7 @@ s32 scenarioSourceAiGraphExecuteIfPlayerChrPortalDistanceLessThan(
 	}
 	if (!s_ActiveScenarioGraphs.ai_condition_if_player_chr_portal_distance_less_than_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_player_chr_portal_distance_less_than chr_rows=%d source_chr=%d player_checked=%d label=%d branch=%d distance=%.2f source=%s backend=graph.ai.action.entity_lifecycle+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI condition if_player_chr_portal_distance_less_than chr_rows=%d source_chr=%d player_checked=%d label=%d branch=%d distance=%.2f source=%s backend=graph.ai.action.entity_lifecycle+ai/ailists.json",
 			chr_count, source_chr, player_checked, label, branch, distance,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_condition_if_player_chr_portal_distance_less_than_logged = 1;
@@ -27768,7 +28791,7 @@ s32 scenarioSourceAiGraphExecuteIfChrRepositionValid(struct chrdata *chr,
 	}
 	if (!s_ActiveScenarioGraphs.ai_condition_if_chr_reposition_valid_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_chr_reposition_valid chr_rows=%d source_chr=%d label=%d branch=%d source=%s backend=graph.ai.action.entity_lifecycle+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI condition if_chr_reposition_valid chr_rows=%d source_chr=%d label=%d branch=%d source=%s backend=graph.ai.action.entity_lifecycle+ai/ailists.json",
 			chr_count, source_chr, label, branch,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_condition_if_chr_reposition_valid_logged = 1;
@@ -27787,11 +28810,11 @@ static s32 s_aiGunInteractionGraphReady(const char *action,
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
 		return s_aiGraphRuntimeFailure(action,
-			"missing ai/ailists.tsv source");
+			"missing ai/ailists.json source");
 	}
 	if (!s_ActiveScenarioGraphs.objects_path[0]) {
 		return s_aiGraphRuntimeFailure(action,
-			"missing objects.tsv source");
+			"missing objects.json source");
 	}
 	if (!s_ActiveScenarioGraphs.level_graph_path[0]) {
 		return s_aiGraphRuntimeFailure(action,
@@ -27839,7 +28862,7 @@ s32 scenarioSourceAiGraphExecuteDoGunCommand(struct chrdata *chr,
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_do_gun_command_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action do_gun_command chr_rows=%d source_chr=%d mode=%d gun_model_id=%s weapon_id=%s label=%d branch=%d moved=%d source=%s objects=%s backend=graph.ai.action.gun_interaction+ai/ailists.tsv+objects.tsv+scene.glb",
+			"SCENARIO.GRAPH: AI action do_gun_command chr_rows=%d source_chr=%d mode=%d gun_model_id=%s weapon_id=%s label=%d branch=%d moved=%d source=%s objects=%s backend=graph.ai.action.gun_interaction+ai/ailists.json+objects.json+scene.glb",
 			chr_count, source_chr, mode, gun_model_id, gun_weapon_id,
 			label, branch_taken, moved_to_gun,
 			s_ActiveScenarioGraphs.ai_lists_path,
@@ -27897,7 +28920,7 @@ s32 scenarioSourceAiGraphExecuteIfDistanceToGunLessThan(struct chrdata *chr,
 			.ai_action_if_distance_to_gun_less_than_logged &&
 			gun_valid) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_distance_to_gun_less_than chr_rows=%d source_chr=%d distance=%.2f gun_model_id=%s weapon_id=%s label=%d result=%d source=%s objects=%s backend=graph.ai.action.gun_interaction+ai/ailists.tsv+objects.tsv+scene.glb",
+			"SCENARIO.GRAPH: AI condition if_distance_to_gun_less_than chr_rows=%d source_chr=%d distance=%.2f gun_model_id=%s weapon_id=%s label=%d result=%d source=%s objects=%s backend=graph.ai.action.gun_interaction+ai/ailists.json+objects.json+scene.glb",
 			chr_count, source_chr, (double)distance, gun_model_id,
 			gun_weapon_id, label, pass,
 			s_ActiveScenarioGraphs.ai_lists_path,
@@ -27943,7 +28966,7 @@ s32 scenarioSourceAiGraphExecuteRecoverGun(struct chrdata *chr, s32 label)
 		g_Vars.aioffset, label);
 	if (!s_ActiveScenarioGraphs.ai_action_recover_gun_logged && prop) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action recover_gun chr_rows=%d source_chr=%d gun_model_id=%s weapon_id=%s label=%d recovered=%d source=%s objects=%s backend=graph.ai.action.gun_interaction+ai/ailists.tsv+objects.tsv+scene.glb",
+			"SCENARIO.GRAPH: AI action recover_gun chr_rows=%d source_chr=%d gun_model_id=%s weapon_id=%s label=%d recovered=%d source=%s objects=%s backend=graph.ai.action.gun_interaction+ai/ailists.json+objects.json+scene.glb",
 			chr_count, source_chr, gun_model_id, gun_weapon_id, label,
 			recovered,
 			s_ActiveScenarioGraphs.ai_lists_path,
@@ -27972,11 +28995,11 @@ s32 scenarioSourceAiGraphExecuteChrCopyProperties(struct chrdata *basechr,
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
 		return s_aiGraphRuntimeFailure("chr_copy_properties",
-			"missing ai/ailists.tsv source");
+			"missing ai/ailists.json source");
 	}
 	if (!s_ActiveScenarioGraphs.pads_path[0]) {
 		return s_aiGraphRuntimeFailure("chr_copy_properties",
-			"missing pads.tsv source");
+			"missing pads.json source");
 	}
 	if (!basechr) {
 		return s_aiGraphRuntimeFailure("chr_copy_properties",
@@ -28020,7 +29043,7 @@ s32 scenarioSourceAiGraphExecuteChrCopyProperties(struct chrdata *basechr,
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_chr_copy_properties_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action chr_copy_properties src_chr=%d chr_rows=%d source_chr=%d label=%d pad=%d found=%d pad_rows=%d copied=%d source=%s pads=%s backend=graph.ai.action.character_property+ai/ailists.tsv+pads.tsv",
+			"SCENARIO.GRAPH: AI action chr_copy_properties src_chr=%d chr_rows=%d source_chr=%d label=%d pad=%d found=%d pad_rows=%d copied=%d source=%s pads=%s backend=graph.ai.action.character_property+ai/ailists.json+pads.json",
 			src_chrnum, chr_count, src ? src->chrnum : -1, label,
 			copied_pad, pad_found, pad_count, copied,
 			s_ActiveScenarioGraphs.ai_lists_path,
@@ -28050,7 +29073,7 @@ s32 scenarioSourceAiGraphExecutePlayerAutoWalk(struct chrdata *basechr,
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0] ||
 			!s_ActiveScenarioGraphs.pads_path[0]) {
 		return s_aiGraphRuntimeFailure("player_auto_walk",
-			"missing ai/ailists.tsv or pads.tsv source");
+			"missing ai/ailists.json or pads.json source");
 	}
 	if (!s_aiGraphRequireRuntimePad("player_auto_walk", pad_id,
 			&pad_count)) {
@@ -28077,7 +29100,7 @@ s32 scenarioSourceAiGraphExecutePlayerAutoWalk(struct chrdata *basechr,
 	g_Vars.aioffset += 9;
 	if (!s_ActiveScenarioGraphs.ai_action_player_auto_walk_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action player_auto_walk chr=%d chr_rows=%d target_chr=%d player_checked=%d pad=%d found=1 pad_rows=%d applied=%d source=%s pads=%s backend=graph.ai.action.player_navigation+ai/ailists.tsv+pads.tsv",
+			"SCENARIO.GRAPH: AI action player_auto_walk chr=%d chr_rows=%d target_chr=%d player_checked=%d pad=%d found=1 pad_rows=%d applied=%d source=%s pads=%s backend=graph.ai.action.player_navigation+ai/ailists.json+pads.json",
 			chrnum, chr_count, chr ? chr->chrnum : -1,
 			player_checked, pad_id, pad_count, applied,
 			s_ActiveScenarioGraphs.ai_lists_path,
@@ -28104,7 +29127,7 @@ s32 scenarioSourceAiGraphExecuteIfPlayerAutoWalkFinished(struct chrdata *basechr
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
 		return s_aiGraphRuntimeFailure("if_player_auto_walk_finished",
-			"missing ai/ailists.tsv source");
+			"missing ai/ailists.json source");
 	}
 	if (!s_aiGraphRequireRuntimeCharacterRefFromBase(
 			"if_player_auto_walk_finished", basechr, chrnum,
@@ -28134,7 +29157,7 @@ s32 scenarioSourceAiGraphExecuteIfPlayerAutoWalkFinished(struct chrdata *basechr
 	}
 	if (!s_ActiveScenarioGraphs.ai_condition_if_player_auto_walk_finished_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_player_auto_walk_finished chr=%d chr_rows=%d target_chr=%d player_checked=%d label=%d walking=%d source=%s backend=graph.ai.action.player_navigation+ai/ailists.tsv+pads.tsv",
+			"SCENARIO.GRAPH: AI condition if_player_auto_walk_finished chr=%d chr_rows=%d target_chr=%d player_checked=%d label=%d walking=%d source=%s backend=graph.ai.action.player_navigation+ai/ailists.json+pads.json",
 			chrnum, chr_count, chr ? chr->chrnum : -1,
 			player_checked, label, walking,
 			s_ActiveScenarioGraphs.ai_lists_path);
@@ -28161,15 +29184,15 @@ s32 scenarioSourceAiGraphExecuteIfObjInRoom(struct chrdata *basechr,
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
 		return s_aiGraphRuntimeFailure("if_obj_in_room",
-			"missing ai/ailists.tsv source");
+			"missing ai/ailists.json source");
 	}
 	if (!s_ActiveScenarioGraphs.objects_path[0]) {
 		return s_aiGraphRuntimeFailure("if_obj_in_room",
-			"missing objects.tsv source");
+			"missing objects.json source");
 	}
 	if (!s_ActiveScenarioGraphs.pads_path[0]) {
 		return s_aiGraphRuntimeFailure("if_obj_in_room",
-			"missing pads.tsv source");
+			"missing pads.json source");
 	}
 	if (!s_aiGraphRequireRuntimeObjectTag("if_obj_in_room", tag_id,
 			&object_count)) {
@@ -28193,7 +29216,7 @@ s32 scenarioSourceAiGraphExecuteIfObjInRoom(struct chrdata *basechr,
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_if_obj_in_room_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_obj_in_room tag=%d object_rows=%d pad=%d found=1 pad_rows=%d resolved_room=%d label=%d result=%d source=%s objects=%s pads=%s backend=graph.ai.condition.object_room+ai/ailists.tsv+objects.tsv+pads.tsv+scene.glb",
+			"SCENARIO.GRAPH: AI condition if_obj_in_room tag=%d object_rows=%d pad=%d found=1 pad_rows=%d resolved_room=%d label=%d result=%d source=%s objects=%s pads=%s backend=graph.ai.condition.object_room+ai/ailists.json+objects.json+pads.json+scene.glb",
 			tag_id, object_count, room_id, pad_count, resolved_room,
 			label, pass,
 			s_ActiveScenarioGraphs.ai_lists_path,
@@ -28219,11 +29242,11 @@ static s32 s_aiGraphRequirePerceptionNode(const char *action, s32 node_count,
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
 		return s_aiGraphRuntimeFailure(action,
-			"missing ai/ailists.tsv source");
+			"missing ai/ailists.json source");
 	}
 	if (needs_objects && !s_ActiveScenarioGraphs.objects_path[0]) {
 		return s_aiGraphRuntimeFailure(action,
-			"missing objects.tsv source");
+			"missing objects.json source");
 	}
 	return 1;
 }
@@ -28275,7 +29298,7 @@ s32 scenarioSourceAiGraphExecuteIfPlayerLookingAtObject(
 	}
 	if (!s_ActiveScenarioGraphs.ai_condition_if_player_looking_at_object_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_player_looking_at_object chr=%d chr_rows=%d target_chr=%d player_checked=%d tag=%d object_rows=%d label=%d result=%d source=%s objects=%s backend=graph.ai.condition.perception+ai/ailists.tsv+objects.tsv+scene.glb",
+			"SCENARIO.GRAPH: AI condition if_player_looking_at_object chr=%d chr_rows=%d target_chr=%d player_checked=%d tag=%d object_rows=%d label=%d result=%d source=%s objects=%s backend=graph.ai.condition.perception+ai/ailists.json+objects.json+scene.glb",
 			chrnum, chr_count, target_chrnum, player_checked, tag_id,
 			object_count, label, pass,
 			s_ActiveScenarioGraphs.ai_lists_path,
@@ -28307,7 +29330,7 @@ s32 scenarioSourceAiGraphExecuteIfTargetIsPlayer(struct chrdata *chr,
 	}
 	if (!s_ActiveScenarioGraphs.ai_condition_if_target_is_player_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_target_is_player label=%d result=%d source=%s backend=graph.ai.condition.perception+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI condition if_target_is_player label=%d result=%d source=%s backend=graph.ai.condition.perception+ai/ailists.json",
 			label, pass, s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_condition_if_target_is_player_logged = 1;
 	}
@@ -28329,7 +29352,7 @@ s32 scenarioSourceAiGraphExecuteChrKill(struct chrdata *basechr, s32 chrnum)
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
 		return s_aiGraphRuntimeFailure("chr_kill",
-			"missing ai/ailists.tsv source");
+			"missing ai/ailists.json source");
 	}
 	if (!s_aiGraphRequireRuntimeCharacterRefFromBase("chr_kill",
 			basechr, chrnum, &chr_count, &chr)) {
@@ -28350,7 +29373,7 @@ s32 scenarioSourceAiGraphExecuteChrKill(struct chrdata *basechr, s32 chrnum)
 	g_Vars.aioffset += 3;
 	if (!s_ActiveScenarioGraphs.ai_action_chr_kill_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action chr_kill chr=%d chr_rows=%d target_chr=%d applied=%d source=%s backend=graph.ai.action.character_inventory+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action chr_kill chr=%d chr_rows=%d target_chr=%d applied=%d source=%s backend=graph.ai.action.character_inventory+ai/ailists.json",
 			chrnum, chr_count, chr ? chr->chrnum : -1, applied,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_chr_kill_logged = 1;
@@ -28372,7 +29395,7 @@ s32 scenarioSourceAiGraphExecuteRemoveWeaponFromInventory(s32 weaponnum)
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
 		return s_aiGraphRuntimeFailure("remove_weapon_from_inventory",
-			"missing ai/ailists.tsv source");
+			"missing ai/ailists.json source");
 	}
 	weapon_id = s_aiGraphResolveWeaponCatalogId(
 		"remove_weapon_from_inventory", weaponnum, "inventory");
@@ -28383,7 +29406,7 @@ s32 scenarioSourceAiGraphExecuteRemoveWeaponFromInventory(s32 weaponnum)
 	g_Vars.aioffset += 3;
 	if (!s_ActiveScenarioGraphs.ai_action_remove_weapon_from_inventory_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action remove_weapon_from_inventory weapon_id=%s source=%s backend=graph.ai.action.character_inventory+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action remove_weapon_from_inventory weapon_id=%s source=%s backend=graph.ai.action.character_inventory+ai/ailists.json",
 			weapon_id,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_remove_weapon_from_inventory_logged = 1;
@@ -28407,7 +29430,7 @@ s32 scenarioSourceAiGraphExecuteClearInventory(void)
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
 		return s_aiGraphRuntimeFailure("clear_inventory",
-			"missing ai/ailists.tsv source");
+			"missing ai/ailists.json source");
 	}
 	prevplayernum = g_Vars.currentplayernum;
 	for (playernum = 0; playernum < PLAYERCOUNT(); playernum++) {
@@ -28434,7 +29457,7 @@ s32 scenarioSourceAiGraphExecuteClearInventory(void)
 	g_Vars.aioffset += 3;
 	if (!s_ActiveScenarioGraphs.ai_action_clear_inventory_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action clear_inventory checked_players=%d players=%d source=%s backend=graph.ai.action.character_inventory+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action clear_inventory checked_players=%d players=%d source=%s backend=graph.ai.action.character_inventory+ai/ailists.json",
 			checked_players, cleared, s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_clear_inventory_logged = 1;
 	}
@@ -28452,13 +29475,13 @@ s32 scenarioSourceAiGraphExecuteReleaseObject(void)
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
 		return s_aiGraphRuntimeFailure("release_object",
-			"missing ai/ailists.tsv source");
+			"missing ai/ailists.json source");
 	}
 	bmoveSetModeForAllPlayers(MOVEMODE_WALK);
 	g_Vars.aioffset += 3;
 	if (!s_ActiveScenarioGraphs.ai_action_release_object_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action release_object source=%s backend=graph.ai.action.character_inventory+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action release_object source=%s backend=graph.ai.action.character_inventory+ai/ailists.json",
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_release_object_logged = 1;
 	}
@@ -28485,7 +29508,7 @@ s32 scenarioSourceAiGraphExecuteChrGrabObject(struct chrdata *basechr,
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0] ||
 			!s_ActiveScenarioGraphs.objects_path[0]) {
 		return s_aiGraphRuntimeFailure("chr_grab_object",
-			"missing ai/ailists.tsv or objects.tsv source");
+			"missing ai/ailists.json or objects.json source");
 	}
 	if (!s_aiGraphRequireRuntimeObjectTag("chr_grab_object", tag_id,
 			&object_count)) {
@@ -28518,7 +29541,7 @@ s32 scenarioSourceAiGraphExecuteChrGrabObject(struct chrdata *basechr,
 	g_Vars.aioffset += 4;
 	if (!s_ActiveScenarioGraphs.ai_action_chr_grab_object_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action chr_grab_object chr=%d chr_rows=%d target_chr=%d player_checked=%d tag=%d object_rows=%d grabbed=%d source=%s objects=%s backend=graph.ai.action.character_inventory+ai/ailists.tsv+objects.tsv",
+			"SCENARIO.GRAPH: AI action chr_grab_object chr=%d chr_rows=%d target_chr=%d player_checked=%d tag=%d object_rows=%d grabbed=%d source=%s objects=%s backend=graph.ai.action.character_inventory+ai/ailists.json+objects.json",
 			chrnum, chr_count, chr ? chr->chrnum : -1,
 			player_checked, tag_id, object_count, grabbed,
 			s_ActiveScenarioGraphs.ai_lists_path,
@@ -28547,7 +29570,7 @@ s32 scenarioSourceAiGraphExecuteToggleP1P2(struct chrdata *basechr,
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
 		return s_aiGraphRuntimeFailure("toggle_p1p2",
-			"missing ai/ailists.tsv source");
+			"missing ai/ailists.json source");
 	}
 	if (g_Vars.coopplayernum >= 0) {
 		if (!s_aiGraphRequireRuntimePlayerPointer("toggle_p1p2",
@@ -28576,7 +29599,7 @@ s32 scenarioSourceAiGraphExecuteToggleP1P2(struct chrdata *basechr,
 	g_Vars.aioffset += 3;
 	if (!s_ActiveScenarioGraphs.ai_action_toggle_p1p2_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action toggle_p1p2 chr=%d chr_rows=%d target_chr=%d player_checked=%d applied=%d source=%s backend=graph.ai.action.player_state+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action toggle_p1p2 chr=%d chr_rows=%d target_chr=%d player_checked=%d applied=%d source=%s backend=graph.ai.action.player_state+ai/ailists.json",
 			chrnum, chr_count, chr ? chr->chrnum : -1,
 			player_checked, applied,
 			s_ActiveScenarioGraphs.ai_lists_path);
@@ -28604,7 +29627,7 @@ s32 scenarioSourceAiGraphExecuteChrSetP1P2(struct chrdata *basechr,
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
 		return s_aiGraphRuntimeFailure("chr_set_p1p2",
-			"missing ai/ailists.tsv source");
+			"missing ai/ailists.json source");
 	}
 	if (g_Vars.coopplayernum >= 0) {
 		struct player *player = NULL;
@@ -28639,7 +29662,7 @@ s32 scenarioSourceAiGraphExecuteChrSetP1P2(struct chrdata *basechr,
 	g_Vars.aioffset += 4;
 	if (!s_ActiveScenarioGraphs.ai_action_chr_set_p1p2_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action chr_set_p1p2 chr=%d chr_rows=%d source_chr=%d target_chr=%d target_chr_rows=%d resolved_target_chr=%d player_checked=%d applied=%d source=%s backend=graph.ai.action.player_state+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action chr_set_p1p2 chr=%d chr_rows=%d source_chr=%d target_chr=%d target_chr_rows=%d resolved_target_chr=%d player_checked=%d applied=%d source=%s backend=graph.ai.action.player_state+ai/ailists.json",
 			chrnum, chr_count1, chr1 ? chr1->chrnum : -1,
 			target_chrnum, chr_count2, chr2 ? chr2->chrnum : -1,
 			player_checked, applied,
@@ -28665,7 +29688,7 @@ s32 scenarioSourceAiGraphExecuteChrSetCloaked(struct chrdata *basechr,
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
 		return s_aiGraphRuntimeFailure("chr_set_cloaked",
-			"missing ai/ailists.tsv source");
+			"missing ai/ailists.json source");
 	}
 	if (!s_aiGraphRequireRuntimeCharacterRefFromBase("chr_set_cloaked",
 			basechr, chrnum, &chr_count, &chr)) {
@@ -28682,7 +29705,7 @@ s32 scenarioSourceAiGraphExecuteChrSetCloaked(struct chrdata *basechr,
 	g_Vars.aioffset += 5;
 	if (!s_ActiveScenarioGraphs.ai_action_chr_set_cloaked_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action chr_set_cloaked chr=%d chr_rows=%d target_chr=%d cloaked=%d timer=%d applied=%d source=%s backend=graph.ai.action.player_state+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action chr_set_cloaked chr=%d chr_rows=%d target_chr=%d cloaked=%d timer=%d applied=%d source=%s backend=graph.ai.action.player_state+ai/ailists.json",
 			chrnum, chr_count, chr ? chr->chrnum : -1, cloaked != 0, timer, applied,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_chr_set_cloaked_logged = 1;
@@ -28707,7 +29730,7 @@ s32 scenarioSourceAiGraphExecuteSetAutogunTargetTeam(s32 tag_id, s32 team)
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0] ||
 			!s_ActiveScenarioGraphs.objects_path[0]) {
 		return s_aiGraphRuntimeFailure("set_autogun_target_team",
-			"missing ai/ailists.tsv or objects.tsv source");
+			"missing ai/ailists.json or objects.json source");
 	}
 	if (!s_aiGraphRequireRuntimeObjectTagType("set_autogun_target_team",
 			tag_id, OBJTYPE_AUTOGUN, &object_count)) {
@@ -28723,7 +29746,7 @@ s32 scenarioSourceAiGraphExecuteSetAutogunTargetTeam(s32 tag_id, s32 team)
 	g_Vars.aioffset += 4;
 	if (!s_ActiveScenarioGraphs.ai_action_set_autogun_target_team_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action set_autogun_target_team tag=%d object_rows=%d team=%d applied=%d source=%s objects=%s backend=graph.ai.action.player_state+ai/ailists.tsv+objects.tsv",
+			"SCENARIO.GRAPH: AI action set_autogun_target_team tag=%d object_rows=%d team=%d applied=%d source=%s objects=%s backend=graph.ai.action.player_state+ai/ailists.json+objects.json",
 			tag_id, object_count, team, applied,
 			s_ActiveScenarioGraphs.ai_lists_path,
 			s_ActiveScenarioGraphs.objects_path);
@@ -28748,7 +29771,7 @@ static s32 s_aiGraphRequireCharacterConditionNode(const char *condition,
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
 		return s_aiGraphRuntimeFailure(condition,
-			"missing ai/ailists.tsv source");
+			"missing ai/ailists.json source");
 	}
 	return 1;
 }
@@ -28789,7 +29812,7 @@ static s32 s_aiGraphRequireMissionGlobalConditionNode(const char *condition,
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
 		return s_aiGraphRuntimeFailure(condition,
-			"missing ai/ailists.tsv source");
+			"missing ai/ailists.json source");
 	}
 	return 1;
 }
@@ -28820,7 +29843,7 @@ s32 scenarioSourceAiGraphExecuteIfIdle(struct chrdata *chr, s32 label)
 	s_aiGraphApplyBranch(branch_taken, label, 3);
 	if (!s_ActiveScenarioGraphs.ai_condition_if_idle_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_idle chr_rows=%d source_chr=%d actiontype=%d label=%d branch=%d source=%s backend=graph.ai.condition.lifecycle+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI condition if_idle chr_rows=%d source_chr=%d actiontype=%d label=%d branch=%d source=%s backend=graph.ai.condition.lifecycle+ai/ailists.json",
 			chr_count, source_chr,
 			chr && chr->prop ? chr->actiontype : -1, label,
 			branch_taken,
@@ -28845,7 +29868,7 @@ s32 scenarioSourceAiGraphExecuteIfStopped(struct chrdata *chr, s32 label)
 	s_aiGraphApplyBranch(branch_taken, label, 3);
 	if (!s_ActiveScenarioGraphs.ai_condition_if_stopped_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_stopped chr_rows=%d source_chr=%d label=%d branch=%d source=%s backend=graph.ai.condition.lifecycle+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI condition if_stopped chr_rows=%d source_chr=%d label=%d branch=%d source=%s backend=graph.ai.condition.lifecycle+ai/ailists.json",
 			chr_count, source_chr, label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_condition_if_stopped_logged = 1;
@@ -28876,7 +29899,7 @@ s32 scenarioSourceAiGraphExecuteIfChrDead(struct chrdata *basechr,
 	s_aiGraphApplyBranch(branch_taken, label, 4);
 	if (!s_ActiveScenarioGraphs.ai_condition_if_chr_dead_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_chr_dead chr=%d chr_rows=%d target_chr=%d label=%d branch=%d source=%s backend=graph.ai.condition.lifecycle+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI condition if_chr_dead chr=%d chr_rows=%d target_chr=%d label=%d branch=%d source=%s backend=graph.ai.condition.lifecycle+ai/ailists.json",
 			chrnum, chr_count, target_chrnum, label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_condition_if_chr_dead_logged = 1;
@@ -28924,7 +29947,7 @@ s32 scenarioSourceAiGraphExecuteIfChrDeathAnimationFinished(
 	if (!s_ActiveScenarioGraphs
 			.ai_condition_if_chr_death_animation_finished_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_chr_death_animation_finished chr=%d chr_rows=%d target_chr=%d player_checked=%d label=%d branch=%d source=%s backend=graph.ai.condition.lifecycle+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI condition if_chr_death_animation_finished chr=%d chr_rows=%d target_chr=%d player_checked=%d label=%d branch=%d source=%s backend=graph.ai.condition.lifecycle+ai/ailists.json",
 			chrnum, chr_count, target_chrnum, player_checked, label,
 			branch_taken, s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs
@@ -28959,7 +29982,7 @@ s32 scenarioSourceAiGraphExecuteIfChrKnockedOut(struct chrdata *basechr,
 	s_aiGraphApplyBranch(branch_taken, label, 4);
 	if (!s_ActiveScenarioGraphs.ai_condition_if_chr_knocked_out_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_chr_knocked_out chr=%d chr_rows=%d target_chr=%d label=%d branch=%d source=%s backend=graph.ai.condition.lifecycle+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI condition if_chr_knocked_out chr=%d chr_rows=%d target_chr=%d label=%d branch=%d source=%s backend=graph.ai.condition.lifecycle+ai/ailists.json",
 			chrnum, chr_count, target_chrnum, label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_condition_if_chr_knocked_out_logged = 1;
@@ -28984,7 +30007,7 @@ s32 scenarioSourceAiGraphExecuteIfCanSeeTarget(struct chrdata *chr,
 	s_aiGraphApplyBranch(branch_taken, label, 3);
 	if (!s_ActiveScenarioGraphs.ai_condition_if_can_see_target_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_can_see_target chr_rows=%d source_chr=%d label=%d branch=%d source=%s backend=graph.ai.condition.lifecycle+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI condition if_can_see_target chr_rows=%d source_chr=%d label=%d branch=%d source=%s backend=graph.ai.condition.lifecycle+ai/ailists.json",
 			chr_count, source_chr, label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_condition_if_can_see_target_logged = 1;
@@ -29012,7 +30035,7 @@ s32 scenarioSourceAiGraphExecuteIfNumArghsLessThan(struct chrdata *chr,
 	if (!s_ActiveScenarioGraphs
 			.ai_condition_if_num_arghs_less_than_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_num_arghs_less_than chr_rows=%d source_chr=%d threshold=%d current=%d label=%d branch=%d source=%s backend=graph.ai.condition.character_state+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI condition if_num_arghs_less_than chr_rows=%d source_chr=%d threshold=%d current=%d label=%d branch=%d source=%s backend=graph.ai.condition.character_state+ai/ailists.json",
 			chr_count, source_chr, threshold, current, label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs
@@ -29041,7 +30064,7 @@ s32 scenarioSourceAiGraphExecuteIfNumArghsGreaterThan(struct chrdata *chr,
 	if (!s_ActiveScenarioGraphs
 			.ai_condition_if_num_arghs_greater_than_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_num_arghs_greater_than chr_rows=%d source_chr=%d threshold=%d current=%d label=%d branch=%d source=%s backend=graph.ai.condition.character_state+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI condition if_num_arghs_greater_than chr_rows=%d source_chr=%d threshold=%d current=%d label=%d branch=%d source=%s backend=graph.ai.condition.character_state+ai/ailists.json",
 			chr_count, source_chr, threshold, current, label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs
@@ -29071,7 +30094,7 @@ s32 scenarioSourceAiGraphExecuteIfNumCloseArghsLessThan(struct chrdata *chr,
 	if (!s_ActiveScenarioGraphs
 			.ai_condition_if_num_close_arghs_less_than_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_num_close_arghs_less_than chr_rows=%d source_chr=%d threshold=%d current=%d label=%d branch=%d source=%s backend=graph.ai.condition.character_state+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI condition if_num_close_arghs_less_than chr_rows=%d source_chr=%d threshold=%d current=%d label=%d branch=%d source=%s backend=graph.ai.condition.character_state+ai/ailists.json",
 			chr_count, source_chr, threshold, current, label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs
@@ -29101,7 +30124,7 @@ s32 scenarioSourceAiGraphExecuteIfNumCloseArghsGreaterThan(struct chrdata *chr,
 	if (!s_ActiveScenarioGraphs
 			.ai_condition_if_num_close_arghs_greater_than_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_num_close_arghs_greater_than chr_rows=%d source_chr=%d threshold=%d current=%d label=%d branch=%d source=%s backend=graph.ai.condition.character_state+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI condition if_num_close_arghs_greater_than chr_rows=%d source_chr=%d threshold=%d current=%d label=%d branch=%d source=%s backend=graph.ai.condition.character_state+ai/ailists.json",
 			chr_count, source_chr, threshold, current, label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs
@@ -29193,7 +30216,7 @@ s32 scenarioSourceAiGraphExecuteIfChrHealthGreaterThan(struct chrdata *basechr,
 	if (!s_ActiveScenarioGraphs
 			.ai_condition_if_chr_health_greater_than_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_chr_health_greater_than chr=%d chr_rows=%d target_chr=%d player_checked=%d value=%.3f current=%.3f label=%d branch=%d source=%s backend=graph.ai.condition.character_state+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI condition if_chr_health_greater_than chr=%d chr_rows=%d target_chr=%d player_checked=%d value=%.3f current=%.3f label=%d branch=%d source=%s backend=graph.ai.condition.character_state+ai/ailists.json",
 			chrnum, chr_count, target_chrnum, player_checked,
 			(double)value, (double)current, label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
@@ -29226,7 +30249,7 @@ s32 scenarioSourceAiGraphExecuteIfChrHealthLessThan(struct chrdata *basechr,
 	if (!s_ActiveScenarioGraphs
 			.ai_condition_if_chr_health_less_than_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_chr_health_less_than chr=%d chr_rows=%d target_chr=%d player_checked=%d value=%.3f current=%.3f label=%d branch=%d source=%s backend=graph.ai.condition.character_state+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI condition if_chr_health_less_than chr=%d chr_rows=%d target_chr=%d player_checked=%d value=%.3f current=%.3f label=%d branch=%d source=%s backend=graph.ai.condition.character_state+ai/ailists.json",
 			chrnum, chr_count, target_chrnum, player_checked,
 			(double)value, (double)current, label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
@@ -29264,7 +30287,7 @@ s32 scenarioSourceAiGraphExecuteIfChrShieldLessThan(struct chrdata *basechr,
 	if (!s_ActiveScenarioGraphs
 			.ai_condition_if_chr_shield_less_than_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_chr_shield_less_than chr=%d chr_rows=%d target_chr=%d value=%.3f current=%.3f label=%d branch=%d source=%s backend=graph.ai.condition.character_state+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI condition if_chr_shield_less_than chr=%d chr_rows=%d target_chr=%d value=%.3f current=%.3f label=%d branch=%d source=%s backend=graph.ai.condition.character_state+ai/ailists.json",
 			chrnum, chr_count, target_chrnum, (double)value,
 			(double)current, label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
@@ -29302,7 +30325,7 @@ s32 scenarioSourceAiGraphExecuteIfChrShieldGreaterThan(struct chrdata *basechr,
 	if (!s_ActiveScenarioGraphs
 			.ai_condition_if_chr_shield_greater_than_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_chr_shield_greater_than chr=%d chr_rows=%d target_chr=%d value=%.3f current=%.3f label=%d branch=%d source=%s backend=graph.ai.condition.character_state+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI condition if_chr_shield_greater_than chr=%d chr_rows=%d target_chr=%d value=%.3f current=%.3f label=%d branch=%d source=%s backend=graph.ai.condition.character_state+ai/ailists.json",
 			chrnum, chr_count, target_chrnum, (double)value,
 			(double)current, label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
@@ -29336,7 +30359,7 @@ s32 scenarioSourceAiGraphExecuteIfInjured(struct chrdata *basechr,
 	s_aiGraphApplyBranch(branch_taken, label, 4);
 	if (!s_ActiveScenarioGraphs.ai_condition_if_injured_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_injured chr=%d chr_rows=%d target_chr=%d label=%d branch=%d source=%s backend=graph.ai.condition.character_state+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI condition if_injured chr=%d chr_rows=%d target_chr=%d label=%d branch=%d source=%s backend=graph.ai.condition.character_state+ai/ailists.json",
 			chrnum, chr_count, target_chrnum, label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_condition_if_injured_logged = 1;
@@ -29370,7 +30393,7 @@ s32 scenarioSourceAiGraphExecuteIfShieldDamaged(struct chrdata *basechr,
 	if (!s_ActiveScenarioGraphs
 			.ai_condition_if_shield_damaged_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_shield_damaged chr=%d chr_rows=%d target_chr=%d label=%d branch=%d source=%s backend=graph.ai.condition.character_state+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI condition if_shield_damaged chr=%d chr_rows=%d target_chr=%d label=%d branch=%d source=%s backend=graph.ai.condition.character_state+ai/ailists.json",
 			chrnum, chr_count, target_chrnum, label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs
@@ -29399,7 +30422,7 @@ s32 scenarioSourceAiGraphExecuteIfMoraleLessThan(struct chrdata *chr,
 	if (!s_ActiveScenarioGraphs
 			.ai_condition_if_morale_less_than_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_morale_less_than chr_rows=%d source_chr=%d threshold=%d current=%d label=%d branch=%d source=%s backend=graph.ai.condition.character_state+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI condition if_morale_less_than chr_rows=%d source_chr=%d threshold=%d current=%d label=%d branch=%d source=%s backend=graph.ai.condition.character_state+ai/ailists.json",
 			chr_count, source_chr, threshold, current, label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_condition_if_morale_less_than_logged = 1;
@@ -29430,7 +30453,7 @@ s32 scenarioSourceAiGraphExecuteIfMoraleLessThanRandom(struct chrdata *chr,
 	if (!s_ActiveScenarioGraphs
 			.ai_condition_if_morale_less_than_random_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_morale_less_than_random chr_rows=%d source_chr=%d morale=%d random=%d label=%d branch=%d source=%s backend=graph.ai.condition.character_state+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI condition if_morale_less_than_random chr_rows=%d source_chr=%d morale=%d random=%d label=%d branch=%d source=%s backend=graph.ai.condition.character_state+ai/ailists.json",
 			chr_count, source_chr, morale, random, label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs
@@ -29459,7 +30482,7 @@ s32 scenarioSourceAiGraphExecuteIfAlertness(struct chrdata *chr,
 	s_aiGraphApplyBranch(branch_taken, label, 5);
 	if (!s_ActiveScenarioGraphs.ai_condition_if_alertness_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_alertness chr_rows=%d source_chr=%d threshold=%d mode=%d current=%d label=%d branch=%d source=%s backend=graph.ai.condition.character_state+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI condition if_alertness chr_rows=%d source_chr=%d threshold=%d mode=%d current=%d label=%d branch=%d source=%s backend=graph.ai.condition.character_state+ai/ailists.json",
 			chr_count, source_chr, threshold, comparison_mode, current,
 			label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
@@ -29497,7 +30520,7 @@ s32 scenarioSourceAiGraphExecuteIfChrAlertnessLessThan(
 	if (!s_ActiveScenarioGraphs
 			.ai_condition_if_chr_alertness_less_than_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_chr_alertness_less_than chr=%d chr_rows=%d target_chr=%d threshold=%d current=%d label=%d branch=%d source=%s backend=graph.ai.condition.character_state+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI condition if_chr_alertness_less_than chr=%d chr_rows=%d target_chr=%d threshold=%d current=%d label=%d branch=%d source=%s backend=graph.ai.condition.character_state+ai/ailists.json",
 			chrnum, chr_count, target_chrnum, threshold, current, label,
 			branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
@@ -29530,7 +30553,7 @@ s32 scenarioSourceAiGraphExecuteIfAlertnessLessThanRandom(struct chrdata *chr,
 	if (!s_ActiveScenarioGraphs
 			.ai_condition_if_alertness_less_than_random_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_alertness_less_than_random chr_rows=%d source_chr=%d alertness=%d random=%d label=%d branch=%d source=%s backend=graph.ai.condition.character_state+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI condition if_alertness_less_than_random chr_rows=%d source_chr=%d alertness=%d random=%d label=%d branch=%d source=%s backend=graph.ai.condition.character_state+ai/ailists.json",
 			chr_count, source_chr, alertness, random, label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs
@@ -29557,7 +30580,7 @@ s32 scenarioSourceAiGraphExecuteIfObjectiveComplete(s32 objective_index,
 	if (!s_ActiveScenarioGraphs
 			.ai_condition_if_objective_complete_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_objective_complete objective=%d label=%d branch=%d source=%s mission=%s backend=graph.ai.condition.mission_global+ai/ailists.tsv+mission.graph.json",
+			"SCENARIO.GRAPH: AI condition if_objective_complete objective=%d label=%d branch=%d source=%s mission=%s backend=graph.ai.condition.mission_global+ai/ailists.json+mission.graph.json",
 			objective_index, label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path,
 			s_ActiveScenarioGraphs.mission_graph_path[0]
@@ -29586,7 +30609,7 @@ s32 scenarioSourceAiGraphExecuteIfObjectiveFailed(s32 objective_index,
 	if (!s_ActiveScenarioGraphs
 			.ai_condition_if_objective_failed_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_objective_failed objective=%d label=%d branch=%d source=%s mission=%s backend=graph.ai.condition.mission_global+ai/ailists.tsv+mission.graph.json",
+			"SCENARIO.GRAPH: AI condition if_objective_failed objective=%d label=%d branch=%d source=%s mission=%s backend=graph.ai.condition.mission_global+ai/ailists.json+mission.graph.json",
 			objective_index, label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path,
 			s_ActiveScenarioGraphs.mission_graph_path[0]
@@ -29611,7 +30634,7 @@ s32 scenarioSourceAiGraphExecuteIfAllObjectivesComplete(s32 label)
 	if (!s_ActiveScenarioGraphs
 			.ai_condition_if_all_objectives_complete_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_all_objectives_complete label=%d branch=%d source=%s mission=%s backend=graph.ai.condition.mission_global+ai/ailists.tsv+mission.graph.json",
+			"SCENARIO.GRAPH: AI condition if_all_objectives_complete label=%d branch=%d source=%s mission=%s backend=graph.ai.condition.mission_global+ai/ailists.json+mission.graph.json",
 			label, branch_taken, s_ActiveScenarioGraphs.ai_lists_path,
 			s_ActiveScenarioGraphs.mission_graph_path[0]
 				? s_ActiveScenarioGraphs.mission_graph_path : "(inactive)");
@@ -29639,7 +30662,7 @@ s32 scenarioSourceAiGraphExecuteIfDifficultyLessThan(s32 difficulty,
 	if (!s_ActiveScenarioGraphs
 			.ai_condition_if_difficulty_less_than_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_difficulty_less_than difficulty=%d current=%d label=%d branch=%d source=%s backend=graph.ai.condition.mission_global+ai/ailists.tsv+mission.graph.json",
+			"SCENARIO.GRAPH: AI condition if_difficulty_less_than difficulty=%d current=%d label=%d branch=%d source=%s backend=graph.ai.condition.mission_global+ai/ailists.json+mission.graph.json",
 			difficulty, current, label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs
@@ -29666,7 +30689,7 @@ s32 scenarioSourceAiGraphExecuteIfDifficultyGreaterThan(s32 difficulty,
 	if (!s_ActiveScenarioGraphs
 			.ai_condition_if_difficulty_greater_than_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_difficulty_greater_than difficulty=%d current=%d label=%d branch=%d source=%s backend=graph.ai.condition.mission_global+ai/ailists.tsv+mission.graph.json",
+			"SCENARIO.GRAPH: AI condition if_difficulty_greater_than difficulty=%d current=%d label=%d branch=%d source=%s backend=graph.ai.condition.mission_global+ai/ailists.json+mission.graph.json",
 			difficulty, current, label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs
@@ -29692,7 +30715,7 @@ s32 scenarioSourceAiGraphExecuteIfStageTimerLessThan(f32 seconds, s32 label)
 	if (!s_ActiveScenarioGraphs
 			.ai_condition_if_stage_timer_less_than_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_stage_timer_less_than seconds=%.3f current=%.3f label=%d branch=%d source=%s backend=graph.ai.condition.mission_global+ai/ailists.tsv+mission.graph.json",
+			"SCENARIO.GRAPH: AI condition if_stage_timer_less_than seconds=%.3f current=%.3f label=%d branch=%d source=%s backend=graph.ai.condition.mission_global+ai/ailists.json+mission.graph.json",
 			(double)seconds, (double)current, label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs
@@ -29719,7 +30742,7 @@ s32 scenarioSourceAiGraphExecuteIfStageTimerGreaterThan(f32 seconds,
 	if (!s_ActiveScenarioGraphs
 			.ai_condition_if_stage_timer_greater_than_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_stage_timer_greater_than seconds=%.3f current=%.3f label=%d branch=%d source=%s backend=graph.ai.condition.mission_global+ai/ailists.tsv+mission.graph.json",
+			"SCENARIO.GRAPH: AI condition if_stage_timer_greater_than seconds=%.3f current=%.3f label=%d branch=%d source=%s backend=graph.ai.condition.mission_global+ai/ailists.json+mission.graph.json",
 			(double)seconds, (double)current, label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs
@@ -29770,7 +30793,7 @@ s32 scenarioSourceAiGraphExecuteIfStageIdLessThan(s32 stagenum, s32 label)
 	if (!s_ActiveScenarioGraphs
 			.ai_condition_if_stage_id_less_than_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_stage_id_less_than stage_id=%s current_stage_id=%s label=%d branch=%d source=%s backend=graph.ai.condition.mission_global+ai/ailists.tsv+mission.graph.json",
+			"SCENARIO.GRAPH: AI condition if_stage_id_less_than stage_id=%s current_stage_id=%s label=%d branch=%d source=%s backend=graph.ai.condition.mission_global+ai/ailists.json+mission.graph.json",
 			stage_id, current_stage_id, label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs
@@ -29806,7 +30829,7 @@ s32 scenarioSourceAiGraphExecuteIfStageIdGreaterThan(s32 stagenum, s32 label)
 	if (!s_ActiveScenarioGraphs
 			.ai_condition_if_stage_id_greater_than_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_stage_id_greater_than stage_id=%s current_stage_id=%s label=%d branch=%d source=%s backend=graph.ai.condition.mission_global+ai/ailists.tsv+mission.graph.json",
+			"SCENARIO.GRAPH: AI condition if_stage_id_greater_than stage_id=%s current_stage_id=%s label=%d branch=%d source=%s backend=graph.ai.condition.mission_global+ai/ailists.json+mission.graph.json",
 			stage_id, current_stage_id, label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs
@@ -29830,13 +30853,13 @@ static s32 s_aiGraphRequireQuadrantPresetNode(const char *action,
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
 		return s_aiGraphRuntimeFailure(action,
-			"missing ai/ailists.tsv source");
+			"missing ai/ailists.json source");
 	}
 	if (!s_ActiveScenarioGraphs.pads_path[0] ||
 			!s_ActiveScenarioGraphs.waypoints_path[0] ||
 			!s_ActiveScenarioGraphs.waygroups_path[0]) {
 		return s_aiGraphRuntimeFailure(action,
-			"missing pads.tsv or navigation waypoint/waygroup source");
+			"missing pads.json or navigation waypoint/waygroup source");
 	}
 	return 1;
 }
@@ -29879,7 +30902,7 @@ s32 scenarioSourceAiGraphExecuteIfWaypointWithinQuadrant(struct chrdata *chr,
 	if (!s_ActiveScenarioGraphs
 			.ai_condition_if_waypoint_within_quadrant_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_waypoint_within_quadrant quadrant=%d label=%d pad=%d found=%d result=%d pad_rows=%d waypoint_rows=%d waygroup_rows=%d source=%s pads=%s waypoints=%s waygroups=%s backend=graph.ai.action.quadrant_preset+ai/ailists.tsv+pads.tsv+navigation.generate",
+			"SCENARIO.GRAPH: AI condition if_waypoint_within_quadrant quadrant=%d label=%d pad=%d found=%d result=%d pad_rows=%d waypoint_rows=%d waygroup_rows=%d source=%s pads=%s waypoints=%s waygroups=%s backend=graph.ai.action.quadrant_preset+ai/ailists.json+pads.json+navigation.generate",
 			quadrant, label, selected_pad, branch_taken ? 1 : 0,
 			branch_taken,
 			pad_count, waypoint_count, waygroup_count,
@@ -29929,7 +30952,7 @@ s32 scenarioSourceAiGraphExecuteSetPadPresetToTargetQuadrant(
 	if (!s_ActiveScenarioGraphs
 			.ai_action_set_pad_preset_to_target_quadrant_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action set_pad_preset_to_target_quadrant quadrant=%d label=%d pad=%d found=%d result=%d pad_rows=%d waypoint_rows=%d waygroup_rows=%d source=%s pads=%s waypoints=%s waygroups=%s backend=graph.ai.action.quadrant_preset+ai/ailists.tsv+pads.tsv+navigation.generate",
+			"SCENARIO.GRAPH: AI action set_pad_preset_to_target_quadrant quadrant=%d label=%d pad=%d found=%d result=%d pad_rows=%d waypoint_rows=%d waygroup_rows=%d source=%s pads=%s waypoints=%s waygroups=%s backend=graph.ai.action.quadrant_preset+ai/ailists.json+pads.json+navigation.generate",
 			quadrant, label, selected_pad, branch_taken ? 1 : 0,
 			branch_taken,
 			pad_count, waypoint_count, waygroup_count,
@@ -29961,7 +30984,7 @@ s32 scenarioSourceAiGraphExecuteIfNumPlayersLessThan(s32 player_count,
 	if (!s_ActiveScenarioGraphs
 			.ai_condition_if_num_players_less_than_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_num_players_less_than player_count=%d current=%d label=%d branch=%d source=%s backend=graph.ai.condition.mission_global+ai/ailists.tsv+mission.graph.json",
+			"SCENARIO.GRAPH: AI condition if_num_players_less_than player_count=%d current=%d label=%d branch=%d source=%s backend=graph.ai.condition.mission_global+ai/ailists.json+mission.graph.json",
 			player_count, current, label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs
@@ -29986,7 +31009,7 @@ s32 scenarioSourceAiGraphExecuteIfKillCountGreaterThan(s32 kill_count,
 	if (!s_ActiveScenarioGraphs
 			.ai_condition_if_kill_count_greater_than_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_kill_count_greater_than kill_count=%d current=%d label=%d branch=%d source=%s backend=graph.ai.condition.mission_global+ai/ailists.tsv+mission.graph.json",
+			"SCENARIO.GRAPH: AI condition if_kill_count_greater_than kill_count=%d current=%d label=%d branch=%d source=%s backend=graph.ai.condition.mission_global+ai/ailists.json+mission.graph.json",
 			kill_count, g_Vars.killcount, label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs
@@ -30014,7 +31037,7 @@ s32 scenarioSourceAiGraphExecuteIfNumKnockedOutChrs(s32 count,
 	if (!s_ActiveScenarioGraphs
 			.ai_condition_if_num_knocked_out_chrs_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_num_knocked_out_chrs count=%d mode=%d current=%d label=%d branch=%d source=%s backend=graph.ai.condition.mission_global+ai/ailists.tsv+mission.graph.json",
+			"SCENARIO.GRAPH: AI condition if_num_knocked_out_chrs count=%d mode=%d current=%d label=%d branch=%d source=%s backend=graph.ai.condition.mission_global+ai/ailists.json+mission.graph.json",
 			count, comparison_mode, current, label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs
@@ -30036,7 +31059,7 @@ s32 scenarioSourceAiGraphExecuteKillBond(void)
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
 		return s_aiGraphRuntimeFailure("kill_bond",
-			"missing ai/ailists.tsv source");
+			"missing ai/ailists.json source");
 	}
 	if (!s_ActiveScenarioGraphs.mission_graph_path[0]) {
 		return s_aiGraphRuntimeFailure("kill_bond",
@@ -30050,7 +31073,7 @@ s32 scenarioSourceAiGraphExecuteKillBond(void)
 	g_Vars.aioffset += 2;
 	if (!s_ActiveScenarioGraphs.ai_action_kill_bond_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action kill_bond player_checked=1 applied=1 source=%s mission=%s backend=graph.ai.action.mission_global+ai/ailists.tsv+mission.graph.json",
+			"SCENARIO.GRAPH: AI action kill_bond player_checked=1 applied=1 source=%s mission=%s backend=graph.ai.action.mission_global+ai/ailists.json+mission.graph.json",
 			s_ActiveScenarioGraphs.ai_lists_path,
 			s_ActiveScenarioGraphs.mission_graph_path);
 		s_ActiveScenarioGraphs.ai_action_kill_bond_logged = 1;
@@ -30079,7 +31102,7 @@ s32 scenarioSourceAiGraphExecuteIfPouncebitsEq(struct chrdata *chr,
 	}
 	if (!s_ActiveScenarioGraphs.ai_condition_if_pouncebits_eq_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_pouncebits_eq chr_rows=%d source_chr=%d value=%d current=%d label=%d branch=%d source=%s backend=graph.ai.condition.state_device+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI condition if_pouncebits_eq chr_rows=%d source_chr=%d value=%d current=%d label=%d branch=%d source=%s backend=graph.ai.condition.state_device+ai/ailists.json",
 			chr_count, source_chr, pouncebits,
 			chr && chr->prop ? chr->pouncebits : -1, label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
@@ -30103,7 +31126,7 @@ s32 scenarioSourceAiGraphExecuteIfTrainingPcHolographed(s32 label)
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
 		return s_aiGraphRuntimeFailure("if_training_pc_holographed",
-			"missing ai/ailists.tsv source");
+			"missing ai/ailists.json source");
 	}
 	data = dtGetData();
 	branch_taken = data && data->holographedpc;
@@ -30116,7 +31139,7 @@ s32 scenarioSourceAiGraphExecuteIfTrainingPcHolographed(s32 label)
 	if (!s_ActiveScenarioGraphs
 			.ai_condition_if_training_pc_holographed_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_training_pc_holographed label=%d branch=%d source=%s backend=graph.ai.condition.state_device+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI condition if_training_pc_holographed label=%d branch=%d source=%s backend=graph.ai.condition.state_device+ai/ailists.json",
 			label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs
@@ -30145,7 +31168,7 @@ s32 scenarioSourceAiGraphExecuteIfPlayerUsingDevice(struct chrdata *basechr,
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
 		return s_aiGraphRuntimeFailure("if_player_using_device",
-			"missing ai/ailists.tsv source");
+			"missing ai/ailists.json source");
 	}
 	if (!s_aiGraphRequireRuntimeCharacterRefFromBase(
 			"if_player_using_device", basechr, chrnum,
@@ -30175,7 +31198,7 @@ s32 scenarioSourceAiGraphExecuteIfPlayerUsingDevice(struct chrdata *basechr,
 	if (!s_ActiveScenarioGraphs
 			.ai_condition_if_player_using_device_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_player_using_device chr=%d chr_rows=%d target_chr=%d player=%d player_checked=%d device=%d label=%d branch=%d source=%s backend=graph.ai.condition.state_device+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI condition if_player_using_device chr=%d chr_rows=%d target_chr=%d player=%d player_checked=%d device=%d label=%d branch=%d source=%s backend=graph.ai.condition.state_device+ai/ailists.json",
 			chrnum, chr_count, chr ? chr->chrnum : -1, playernum,
 			player_checked, devicenum, label, branch_taken,
 			s_ActiveScenarioGraphs.ai_lists_path);
@@ -30228,7 +31251,7 @@ s32 scenarioSourceAiGraphExecuteChrBeginOrEndTeleport(struct chrdata *basechr,
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
 		return s_aiGraphRuntimeFailure("chr_begin_or_end_teleport",
-			"missing ai/ailists.tsv source");
+			"missing ai/ailists.json source");
 	}
 	if (!s_aiGraphRequireRuntimeCharacterRefFromBase(
 			"chr_begin_or_end_teleport", basechr, chrnum,
@@ -30238,7 +31261,7 @@ s32 scenarioSourceAiGraphExecuteChrBeginOrEndTeleport(struct chrdata *basechr,
 	if (pad_id != 0) {
 		if (!s_ActiveScenarioGraphs.pads_path[0]) {
 			return s_aiGraphRuntimeFailure("chr_begin_or_end_teleport",
-				"missing pads.tsv source");
+				"missing pads.json source");
 		}
 		if (!s_aiGraphRequireRuntimePad("chr_begin_or_end_teleport",
 				pad_id, &pad_count)) {
@@ -30276,7 +31299,7 @@ s32 scenarioSourceAiGraphExecuteChrBeginOrEndTeleport(struct chrdata *basechr,
 	if (!s_ActiveScenarioGraphs
 			.ai_action_chr_begin_or_end_teleport_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action chr_begin_or_end_teleport chr=%d chr_rows=%d target_chr=%d player=%d player_checked=%d pad=%d found=%d pad_rows=%d sound_id=%s source=%s pads=%s backend=graph.ai.action.teleport_cutscene_weapon+ai/ailists.tsv+pads.tsv+audio",
+			"SCENARIO.GRAPH: AI action chr_begin_or_end_teleport chr=%d chr_rows=%d target_chr=%d player=%d player_checked=%d pad=%d found=%d pad_rows=%d sound_id=%s source=%s pads=%s backend=graph.ai.action.teleport_cutscene_weapon+ai/ailists.json+pads.json+audio",
 			chrnum, chr_count, chr ? chr->chrnum : -1, playernum,
 			player_checked, pad_id, pad_id != 0, pad_count, sound_id,
 			s_ActiveScenarioGraphs.ai_lists_path,
@@ -30310,7 +31333,7 @@ s32 scenarioSourceAiGraphExecuteIfChrTeleportFullWhite(struct chrdata *basechr,
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
 		return s_aiGraphRuntimeFailure("if_chr_teleport_full_white",
-			"missing ai/ailists.tsv source");
+			"missing ai/ailists.json source");
 	}
 	if (!s_aiGraphRequireRuntimeCharacterRefFromBase(
 			"if_chr_teleport_full_white", basechr, chrnum,
@@ -30348,7 +31371,7 @@ s32 scenarioSourceAiGraphExecuteIfChrTeleportFullWhite(struct chrdata *basechr,
 	if (!s_ActiveScenarioGraphs
 			.ai_condition_if_chr_teleport_full_white_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_chr_teleport_full_white chr=%d chr_rows=%d target_chr=%d player=%d player_checked=%d label=%d branch=%d sound_id=%s source=%s backend=graph.ai.action.teleport_cutscene_weapon+ai/ailists.tsv+audio",
+			"SCENARIO.GRAPH: AI condition if_chr_teleport_full_white chr=%d chr_rows=%d target_chr=%d player=%d player_checked=%d label=%d branch=%d sound_id=%s source=%s backend=graph.ai.action.teleport_cutscene_weapon+ai/ailists.json+audio",
 			chrnum, chr_count, chr ? chr->chrnum : -1, playernum,
 			player_checked, label, branch_taken, sound_id,
 			s_ActiveScenarioGraphs.ai_lists_path);
@@ -30381,7 +31404,7 @@ s32 scenarioSourceAiGraphExecuteChrSetCutsceneWeapon(struct chrdata *basechr,
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
 		return s_aiGraphRuntimeFailure("chr_set_cutscene_weapon",
-			"missing ai/ailists.tsv source");
+			"missing ai/ailists.json source");
 	}
 	if (!s_aiGraphRequireRuntimeCharacterRefFromBase(
 			"chr_set_cutscene_weapon", basechr, chrnum,
@@ -30460,7 +31483,7 @@ s32 scenarioSourceAiGraphExecuteChrSetCutsceneWeapon(struct chrdata *basechr,
 	if (!s_ActiveScenarioGraphs
 			.ai_action_chr_set_cutscene_weapon_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action chr_set_cutscene_weapon chr=%d chr_rows=%d target_chr=%d weapon_id=%s model_id=%s fallback_weapon_id=%s fallback_model_id=%s applied=%d source=%s backend=graph.ai.action.teleport_cutscene_weapon+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action chr_set_cutscene_weapon chr=%d chr_rows=%d target_chr=%d weapon_id=%s model_id=%s fallback_weapon_id=%s fallback_model_id=%s applied=%d source=%s backend=graph.ai.action.teleport_cutscene_weapon+ai/ailists.json",
 			chrnum, chr_count, chr ? chr->chrnum : -1, weapon_id,
 			model_id, fallback_weapon_id, fallback_model_id, applied,
 			s_ActiveScenarioGraphs.ai_lists_path);
@@ -30484,7 +31507,7 @@ static s32 s_aiGraphRequireCutscenePresentationNode(const char *action,
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
 		return s_aiGraphRuntimeFailure(action,
-			"missing ai/ailists.tsv source");
+			"missing ai/ailists.json source");
 	}
 	return 1;
 }
@@ -30498,7 +31521,7 @@ s32 scenarioSourceAiGraphExecuteFadeScreen(u32 color, s32 num_frames)
 	lvConfigureFade(color, num_frames);
 	if (!s_ActiveScenarioGraphs.ai_action_fade_screen_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action fade_screen color=0x%08x frames=%d source=%s backend=graph.ai.action.cutscene_presentation+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action fade_screen color=0x%08x frames=%d source=%s backend=graph.ai.action.cutscene_presentation+ai/ailists.json",
 			color, num_frames, s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_fade_screen_logged = 1;
 	}
@@ -30518,7 +31541,7 @@ s32 scenarioSourceAiGraphExecuteIfFadeComplete(s32 label)
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
 		return s_aiGraphRuntimeFailure("if_fade_complete",
-			"missing ai/ailists.tsv source");
+			"missing ai/ailists.json source");
 	}
 	branch_taken = lvIsFadeActive() == false;
 	if (branch_taken) {
@@ -30529,7 +31552,7 @@ s32 scenarioSourceAiGraphExecuteIfFadeComplete(s32 label)
 	}
 	if (!s_ActiveScenarioGraphs.ai_condition_if_fade_complete_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_fade_complete label=%d branch=%d source=%s backend=graph.ai.action.cutscene_presentation+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI condition if_fade_complete label=%d branch=%d source=%s backend=graph.ai.action.cutscene_presentation+ai/ailists.json",
 			label, branch_taken, s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_condition_if_fade_complete_logged = 1;
 	}
@@ -30559,7 +31582,7 @@ s32 scenarioSourceAiGraphExecuteSetChrHudpieceVisible(struct chrdata *basechr,
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_set_chr_hudpiece_visible_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action set_chr_hudpiece_visible chr=%d chr_rows=%d target_chr=%d visible=%d applied=%d source=%s backend=graph.ai.action.cutscene_presentation+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action set_chr_hudpiece_visible chr=%d chr_rows=%d target_chr=%d visible=%d applied=%d source=%s backend=graph.ai.action.cutscene_presentation+ai/ailists.json",
 			chrnum, chr_count, chr ? chr->chrnum : -1,
 			visible != 0, applied,
 			s_ActiveScenarioGraphs.ai_lists_path);
@@ -30577,7 +31600,7 @@ s32 scenarioSourceAiGraphExecuteSetPassiveMode(s32 enable)
 	bgunSetPassiveMode(enable != 0);
 	if (!s_ActiveScenarioGraphs.ai_action_set_passive_mode_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action set_passive_mode enable=%d source=%s backend=graph.ai.action.cutscene_presentation+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action set_passive_mode enable=%d source=%s backend=graph.ai.action.cutscene_presentation+ai/ailists.json",
 			enable != 0, s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_set_passive_mode_logged = 1;
 	}
@@ -30616,7 +31639,7 @@ s32 scenarioSourceAiGraphExecuteChrSetFiringInCutscene(struct chrdata *basechr,
 	if (!s_ActiveScenarioGraphs
 			.ai_action_chr_set_firing_in_cutscene_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action chr_set_firing_in_cutscene chr=%d chr_rows=%d target_chr=%d firing=%d applied=%d source=%s backend=graph.ai.action.cutscene_presentation+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action chr_set_firing_in_cutscene chr=%d chr_rows=%d target_chr=%d firing=%d applied=%d source=%s backend=graph.ai.action.cutscene_presentation+ai/ailists.json",
 			chrnum, chr_count, chr ? chr->chrnum : -1,
 			firing != 0, applied,
 			s_ActiveScenarioGraphs.ai_lists_path);
@@ -30644,7 +31667,7 @@ s32 scenarioSourceAiGraphExecuteSetPortalFlag(s32 portalnum, s32 flags)
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_set_portal_flag_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action set_portal_flag portal=%d found=%d portal_rows=%d flags=0x%02x source=%s portals=%s scene=scene.glb backend=graph.ai.action.cutscene_presentation+ai/ailists.tsv+portals.tsv+scene.glb",
+			"SCENARIO.GRAPH: AI action set_portal_flag portal=%d found=%d portal_rows=%d flags=0x%02x source=%s portals=%s scene=scene.glb backend=graph.ai.action.cutscene_presentation+ai/ailists.json+portals.json+scene.glb",
 			portalnum, portal_available, portal_count, flags & 0xff,
 			s_ActiveScenarioGraphs.ai_lists_path,
 			s_ActiveScenarioGraphs.portals_path);
@@ -30668,7 +31691,7 @@ s32 scenarioSourceAiGraphExecuteIfMusicEventQueueIsEmpty(s32 label)
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
 		return s_aiGraphRuntimeFailure("if_music_event_queue_is_empty",
-			"missing ai/ailists.tsv source");
+			"missing ai/ailists.json source");
 	}
 	if (g_MusicEventQueueLength && !waited) {
 		waited = true;
@@ -30683,7 +31706,7 @@ s32 scenarioSourceAiGraphExecuteIfMusicEventQueueIsEmpty(s32 label)
 	if (!s_ActiveScenarioGraphs
 			.ai_action_if_music_event_queue_is_empty_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_music_event_queue_is_empty queue=%d waited=%d branch=%d label=%d source=%s backend=graph.ai.condition.music_mode+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI condition if_music_event_queue_is_empty queue=%d waited=%d branch=%d label=%d source=%s backend=graph.ai.condition.music_mode+ai/ailists.json",
 			g_MusicEventQueueLength, waited, branch_taken, label,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_if_music_event_queue_is_empty_logged = 1;
@@ -30704,7 +31727,7 @@ s32 scenarioSourceAiGraphExecuteIfCoopMode(s32 label)
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
 		return s_aiGraphRuntimeFailure("if_coop_mode",
-			"missing ai/ailists.tsv source");
+			"missing ai/ailists.json source");
 	}
 	branch_taken = g_Vars.normmplayerisrunning == false &&
 		g_MissionConfig.iscoop;
@@ -30716,7 +31739,7 @@ s32 scenarioSourceAiGraphExecuteIfCoopMode(s32 label)
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_if_coop_mode_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_coop_mode coop=%d normmp=%d branch=%d label=%d source=%s backend=graph.ai.condition.music_mode+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI condition if_coop_mode coop=%d normmp=%d branch=%d label=%d source=%s backend=graph.ai.condition.music_mode+ai/ailists.json",
 			g_MissionConfig.iscoop, g_Vars.normmplayerisrunning,
 			branch_taken, label, s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_if_coop_mode_logged = 1;
@@ -30747,7 +31770,7 @@ s32 scenarioSourceAiGraphExecuteIfChrSameFloorDistanceToPadLessThan(
 			!s_ActiveScenarioGraphs.pads_path[0]) {
 		return s_aiGraphRuntimeFailure(
 			"if_chr_same_floor_distance_to_pad_less_than",
-			"missing ai/ailists.tsv or pads.tsv source");
+			"missing ai/ailists.json or pads.json source");
 	}
 	if (!s_aiGraphRequireRuntimePad(
 			"if_chr_same_floor_distance_to_pad_less_than",
@@ -30771,7 +31794,7 @@ s32 scenarioSourceAiGraphExecuteIfChrSameFloorDistanceToPadLessThan(
 	if (!s_ActiveScenarioGraphs
 			.ai_action_if_chr_same_floor_distance_to_pad_less_than_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI condition if_chr_same_floor_distance_to_pad_less_than chr=%d chr_rows=%d target_chr=%d pad=%d found=1 pad_rows=%d actual=%.2f threshold=%.2f branch=%d label=%d source=%s pads=%s backend=graph.ai.action.pad_reference+ai/ailists.tsv+pads.tsv",
+			"SCENARIO.GRAPH: AI condition if_chr_same_floor_distance_to_pad_less_than chr=%d chr_rows=%d target_chr=%d pad=%d found=1 pad_rows=%d actual=%.2f threshold=%.2f branch=%d label=%d source=%s pads=%s backend=graph.ai.action.pad_reference+ai/ailists.json+pads.json",
 			chrnum, chr_count, chr ? chr->chrnum : -1, padnum,
 			pad_count, (double)actual, (double)distance, branch_taken,
 			label,
@@ -30800,7 +31823,7 @@ s32 scenarioSourceAiGraphExecuteRemoveReferencesToChr(struct chrdata *chr)
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
 		return s_aiGraphRuntimeFailure("remove_references_to_chr",
-			"missing ai/ailists.tsv source");
+			"missing ai/ailists.json source");
 	}
 	if (!s_aiGraphRequireOptionalRuntimeCharacterPointer(
 			"remove_references_to_chr", chr, &chr_count, &source_chr)) {
@@ -30815,7 +31838,7 @@ s32 scenarioSourceAiGraphExecuteRemoveReferencesToChr(struct chrdata *chr)
 	g_Vars.aioffset += 2;
 	if (!s_ActiveScenarioGraphs.ai_action_remove_references_to_chr_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action remove_references_to_chr prop=%d applied=%d chr_rows=%d source_chr=%d source=%s backend=graph.ai.action.pad_reference+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action remove_references_to_chr prop=%d applied=%d chr_rows=%d source_chr=%d source=%s backend=graph.ai.action.pad_reference+ai/ailists.json",
 			prop_index, applied, chr_count, source_chr,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_remove_references_to_chr_logged = 1;
@@ -30837,7 +31860,7 @@ static s32 s_aiGraphRequireModelPartNode(const char *action, s32 node_count)
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0] ||
 			!s_ActiveScenarioGraphs.objects_path[0]) {
 		return s_aiGraphRuntimeFailure(action,
-			"missing ai/ailists.tsv or objects.tsv source");
+			"missing ai/ailists.json or objects.json source");
 	}
 	return 1;
 }
@@ -30860,7 +31883,7 @@ s32 scenarioSourceAiGraphExecuteChrToggleModelPart(struct chrdata *basechr,
 	chrToggleModelPart(chr, partnum);
 	if (!s_ActiveScenarioGraphs.ai_action_chr_toggle_model_part_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action chr_toggle_model_part chr=%d chr_rows=%d target_chr=%d part=%d source=%s objects=%s backend=graph.ai.action.model_part+ai/ailists.tsv+objects.tsv",
+			"SCENARIO.GRAPH: AI action chr_toggle_model_part chr=%d chr_rows=%d target_chr=%d part=%d source=%s objects=%s backend=graph.ai.action.model_part+ai/ailists.json+objects.json",
 			chrnum, chr_count, chr ? chr->chrnum : -1, partnum,
 			s_ActiveScenarioGraphs.ai_lists_path,
 			s_ActiveScenarioGraphs.objects_path);
@@ -30889,7 +31912,7 @@ s32 scenarioSourceAiGraphExecuteObjSetModelPartVisible(s32 tag_id,
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_obj_set_model_part_visible_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action obj_set_model_part_visible tag=%d object_rows=%d part=%d visible=%d source=%s objects=%s backend=graph.ai.action.model_part+ai/ailists.tsv+objects.tsv",
+			"SCENARIO.GRAPH: AI action obj_set_model_part_visible tag=%d object_rows=%d part=%d visible=%d source=%s objects=%s backend=graph.ai.action.model_part+ai/ailists.json+objects.json",
 			tag_id, object_count, partnum, visible != 0,
 			s_ActiveScenarioGraphs.ai_lists_path,
 			s_ActiveScenarioGraphs.objects_path);
@@ -30912,7 +31935,7 @@ static s32 s_aiGraphRequireObjectHealthNode(const char *action, s32 node_count)
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0] ||
 			!s_ActiveScenarioGraphs.objects_path[0]) {
 		return s_aiGraphRuntimeFailure(action,
-			"missing ai/ailists.tsv or objects.tsv source");
+			"missing ai/ailists.json or objects.json source");
 	}
 	return 1;
 }
@@ -30942,7 +31965,7 @@ s32 scenarioSourceAiGraphExecuteIfObjHealthLessThan(s32 tag_id,
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_if_obj_health_less_than_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action if_obj_health_less_than tag=%d object_rows=%d damage=%d result=%d source=%s objects=%s backend=graph.ai.action.object_health+ai/ailists.tsv+objects.tsv",
+			"SCENARIO.GRAPH: AI action if_obj_health_less_than tag=%d object_rows=%d damage=%d result=%d source=%s objects=%s backend=graph.ai.action.object_health+ai/ailists.json+objects.json",
 			tag_id, object_count, damage, result,
 			s_ActiveScenarioGraphs.ai_lists_path,
 			s_ActiveScenarioGraphs.objects_path);
@@ -30970,7 +31993,7 @@ s32 scenarioSourceAiGraphExecuteSetObjHealth(s32 tag_id, s32 damage)
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_set_obj_health_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action set_obj_health tag=%d object_rows=%d damage=%d source=%s objects=%s backend=graph.ai.action.object_health+ai/ailists.tsv+objects.tsv",
+			"SCENARIO.GRAPH: AI action set_obj_health tag=%d object_rows=%d damage=%d source=%s objects=%s backend=graph.ai.action.object_health+ai/ailists.json+objects.json",
 			tag_id, object_count, damage,
 			s_ActiveScenarioGraphs.ai_lists_path,
 			s_ActiveScenarioGraphs.objects_path);
@@ -30997,7 +32020,7 @@ s32 scenarioSourceAiGraphExecuteSetChrSpecialDeathAnimation(
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
 		return s_aiGraphRuntimeFailure("set_chr_special_death_animation",
-			"missing ai/ailists.tsv source");
+			"missing ai/ailists.json source");
 	}
 	if (!s_aiGraphRequireRuntimeCharacterRefFromBase(
 			"set_chr_special_death_animation", basechr, chrnum,
@@ -31012,7 +32035,7 @@ s32 scenarioSourceAiGraphExecuteSetChrSpecialDeathAnimation(
 	chr->specialdie = animation;
 	if (!s_ActiveScenarioGraphs.ai_action_set_chr_special_death_animation_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action set_chr_special_death_animation chr=%d chr_rows=%d target_chr=%d specialdie=%d anim_id=%s alt_anim_id=%s chair_fallback_anim_id=%s source=%s backend=graph.ai.action.special_death+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action set_chr_special_death_animation chr=%d chr_rows=%d target_chr=%d specialdie=%d anim_id=%s alt_anim_id=%s chair_fallback_anim_id=%s source=%s backend=graph.ai.action.special_death+ai/ailists.json",
 			chrnum, chr_count, chr ? chr->chrnum : -1, animation,
 			anim_id, alt_anim_id, chair_fallback_anim_id,
 			s_ActiveScenarioGraphs.ai_lists_path);
@@ -31039,7 +32062,7 @@ s32 scenarioSourceAiGraphExecuteSetRoomToSearch(struct chrdata *chr)
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
 		return s_aiGraphRuntimeFailure("set_room_to_search",
-			"missing ai/ailists.tsv source");
+			"missing ai/ailists.json source");
 	}
 	if (!s_aiGraphRequireRuntimeCharacterPointer("set_room_to_search", chr,
 			&chr_count, &chrnum)) {
@@ -31056,7 +32079,7 @@ s32 scenarioSourceAiGraphExecuteSetRoomToSearch(struct chrdata *chr)
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_set_room_to_search_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action set_room_to_search chr_rows=%d chr=%d target_chr=%d target_selector=%d room=%d source=%s scene=scene.glb backend=graph.ai.action.room_search+ai/ailists.tsv+scene.glb",
+			"SCENARIO.GRAPH: AI action set_room_to_search chr_rows=%d chr=%d target_chr=%d target_selector=%d room=%d source=%s scene=scene.glb backend=graph.ai.action.room_search+ai/ailists.json+scene.glb",
 			chr_count, chrnum, target_chrnum,
 			target_selector, room, s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_set_room_to_search_logged = 1;
@@ -31081,7 +32104,7 @@ s32 scenarioSourceAiGraphExecuteRestartTimer(struct chrdata *chr,
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
 		return s_aiGraphRuntimeFailure("restart_timer",
-			"missing ai/ailists.tsv source");
+			"missing ai/ailists.json source");
 	}
 	if (chr) {
 		if (!s_aiGraphRequireRuntimeCharacterStatePointer("restart_timer", chr,
@@ -31101,8 +32124,8 @@ s32 scenarioSourceAiGraphExecuteRestartTimer(struct chrdata *chr,
 	g_Vars.aioffset += 2;
 	if (!s_ActiveScenarioGraphs.ai_action_restart_timer_logged) {
 		const char *backend = vehicle_count > 0
-			? "graph.ai.action.restart_timer+ai/ailists.tsv+objects.tsv"
-			: "graph.ai.action.restart_timer+ai/ailists.tsv";
+			? "graph.ai.action.restart_timer+ai/ailists.json+objects.json"
+			: "graph.ai.action.restart_timer+ai/ailists.json";
 		const char *objects_path = vehicle_count > 0
 			? s_ActiveScenarioGraphs.objects_path : "";
 		sysLogPrintf(LOG_NOTE,
@@ -31133,7 +32156,7 @@ s32 scenarioSourceAiGraphExecuteResetTimer(struct chrdata *chr)
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
 		return s_aiGraphRuntimeFailure("reset_timer",
-			"missing ai/ailists.tsv source");
+			"missing ai/ailists.json source");
 	}
 	if (!s_aiGraphRequireRuntimeCharacterStatePointer("reset_timer", chr,
 			&chr_count, &target_chrnum)) {
@@ -31143,7 +32166,7 @@ s32 scenarioSourceAiGraphExecuteResetTimer(struct chrdata *chr)
 	g_Vars.aioffset += 2;
 	if (!s_ActiveScenarioGraphs.ai_action_reset_timer_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action reset_timer chr_rows=%d target_chr=%d source=%s backend=graph.ai.action.reset_timer+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action reset_timer chr_rows=%d target_chr=%d source=%s backend=graph.ai.action.reset_timer+ai/ailists.json",
 			chr_count, target_chrnum, s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_reset_timer_logged = 1;
 	}
@@ -31167,7 +32190,7 @@ s32 scenarioSourceAiGraphExecutePauseTimer(struct chrdata *chr)
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
 		return s_aiGraphRuntimeFailure("pause_timer",
-			"missing ai/ailists.tsv source");
+			"missing ai/ailists.json source");
 	}
 	if (!s_aiGraphRequireRuntimeCharacterStatePointer("pause_timer", chr,
 			&chr_count, &target_chrnum)) {
@@ -31177,7 +32200,7 @@ s32 scenarioSourceAiGraphExecutePauseTimer(struct chrdata *chr)
 	g_Vars.aioffset += 2;
 	if (!s_ActiveScenarioGraphs.ai_action_pause_timer_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action pause_timer chr_rows=%d target_chr=%d source=%s backend=graph.ai.action.pause_timer+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action pause_timer chr_rows=%d target_chr=%d source=%s backend=graph.ai.action.pause_timer+ai/ailists.json",
 			chr_count, target_chrnum, s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_pause_timer_logged = 1;
 	}
@@ -31201,7 +32224,7 @@ s32 scenarioSourceAiGraphExecuteResumeTimer(struct chrdata *chr)
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
 		return s_aiGraphRuntimeFailure("resume_timer",
-			"missing ai/ailists.tsv source");
+			"missing ai/ailists.json source");
 	}
 	if (!s_aiGraphRequireRuntimeCharacterStatePointer("resume_timer", chr,
 			&chr_count, &target_chrnum)) {
@@ -31211,7 +32234,7 @@ s32 scenarioSourceAiGraphExecuteResumeTimer(struct chrdata *chr)
 	g_Vars.aioffset += 2;
 	if (!s_ActiveScenarioGraphs.ai_action_resume_timer_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action resume_timer chr_rows=%d target_chr=%d source=%s backend=graph.ai.action.resume_timer+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action resume_timer chr_rows=%d target_chr=%d source=%s backend=graph.ai.action.resume_timer+ai/ailists.json",
 			chr_count, target_chrnum, s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_resume_timer_logged = 1;
 	}
@@ -31236,7 +32259,7 @@ s32 scenarioSourceAiGraphExecuteIfTimerStopped(struct chrdata *chr, s32 label)
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
 		return s_aiGraphRuntimeFailure("if_timer_stopped",
-			"missing ai/ailists.tsv source");
+			"missing ai/ailists.json source");
 	}
 	if (!s_aiGraphRequireRuntimeCharacterStatePointer("if_timer_stopped", chr,
 			&chr_count, &target_chrnum)) {
@@ -31251,7 +32274,7 @@ s32 scenarioSourceAiGraphExecuteIfTimerStopped(struct chrdata *chr, s32 label)
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_if_timer_stopped_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action if_timer_stopped chr_rows=%d target_chr=%d result=%d source=%s backend=graph.ai.action.if_timer_stopped+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action if_timer_stopped chr_rows=%d target_chr=%d result=%d source=%s backend=graph.ai.action.if_timer_stopped+ai/ailists.json",
 			chr_count, target_chrnum, result,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_if_timer_stopped_logged = 1;
@@ -31280,7 +32303,7 @@ s32 scenarioSourceAiGraphExecuteIfTimerGreaterThanRandom(struct chrdata *chr,
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
 		return s_aiGraphRuntimeFailure("if_timer_greater_than_random",
-			"missing ai/ailists.tsv source");
+			"missing ai/ailists.json source");
 	}
 	if (!s_aiGraphRequireRuntimeCharacterStatePointer(
 			"if_timer_greater_than_random", chr, &chr_count,
@@ -31297,7 +32320,7 @@ s32 scenarioSourceAiGraphExecuteIfTimerGreaterThanRandom(struct chrdata *chr,
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_if_timer_greater_than_random_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action if_timer_greater_than_random chr_rows=%d target_chr=%d timer=%f random=%u result=%d source=%s backend=graph.ai.action.if_timer_greater_than_random+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action if_timer_greater_than_random chr_rows=%d target_chr=%d timer=%f random=%u result=%d source=%s backend=graph.ai.action.if_timer_greater_than_random+ai/ailists.json",
 			chr_count, target_chrnum, timer, chr->random, result,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_if_timer_greater_than_random_logged = 1;
@@ -31325,7 +32348,7 @@ s32 scenarioSourceAiGraphExecuteIfTimerLessThan(struct chrdata *chr,
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
 		return s_aiGraphRuntimeFailure("if_timer_less_than",
-			"missing ai/ailists.tsv source");
+			"missing ai/ailists.json source");
 	}
 	if (chr) {
 		if (!s_aiGraphRequireRuntimeCharacterStatePointer(
@@ -31354,8 +32377,8 @@ s32 scenarioSourceAiGraphExecuteIfTimerLessThan(struct chrdata *chr,
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_if_timer_less_than_logged) {
 		const char *backend = vehicle_count > 0
-			? "graph.ai.action.if_timer_less_than+ai/ailists.tsv+objects.tsv"
-			: "graph.ai.action.if_timer_less_than+ai/ailists.tsv";
+			? "graph.ai.action.if_timer_less_than+ai/ailists.json+objects.json"
+			: "graph.ai.action.if_timer_less_than+ai/ailists.json";
 		const char *objects_path = vehicle_count > 0
 			? s_ActiveScenarioGraphs.objects_path : "";
 		sysLogPrintf(LOG_NOTE,
@@ -31389,7 +32412,7 @@ s32 scenarioSourceAiGraphExecuteIfTimerGreaterThan(struct chrdata *chr,
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
 		return s_aiGraphRuntimeFailure("if_timer_greater_than",
-			"missing ai/ailists.tsv source");
+			"missing ai/ailists.json source");
 	}
 	if (chr) {
 		if (!s_aiGraphRequireRuntimeCharacterStatePointer(
@@ -31418,8 +32441,8 @@ s32 scenarioSourceAiGraphExecuteIfTimerGreaterThan(struct chrdata *chr,
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_if_timer_greater_than_logged) {
 		const char *backend = vehicle_count > 0
-			? "graph.ai.action.if_timer_greater_than+ai/ailists.tsv+objects.tsv"
-			: "graph.ai.action.if_timer_greater_than+ai/ailists.tsv";
+			? "graph.ai.action.if_timer_greater_than+ai/ailists.json+objects.json"
+			: "graph.ai.action.if_timer_greater_than+ai/ailists.json";
 		const char *objects_path = vehicle_count > 0
 			? s_ActiveScenarioGraphs.objects_path : "";
 		sysLogPrintf(LOG_NOTE,
@@ -31444,13 +32467,13 @@ s32 scenarioSourceAiGraphExecuteShowCountdownTimer(void)
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
 		return s_aiGraphRuntimeFailure("show_countdown_timer",
-			"missing ai/ailists.tsv source");
+			"missing ai/ailists.json source");
 	}
 	countdownTimerSetVisible(COUNTDOWNTIMERREASON_AI, true);
 	g_Vars.aioffset += 2;
 	if (!s_ActiveScenarioGraphs.ai_action_show_countdown_timer_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action show_countdown_timer source=%s backend=graph.ai.action.show_countdown_timer+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action show_countdown_timer source=%s backend=graph.ai.action.show_countdown_timer+ai/ailists.json",
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_show_countdown_timer_logged = 1;
 	}
@@ -31468,13 +32491,13 @@ s32 scenarioSourceAiGraphExecuteHideCountdownTimer(void)
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
 		return s_aiGraphRuntimeFailure("hide_countdown_timer",
-			"missing ai/ailists.tsv source");
+			"missing ai/ailists.json source");
 	}
 	countdownTimerSetVisible(COUNTDOWNTIMERREASON_AI, false);
 	g_Vars.aioffset += 2;
 	if (!s_ActiveScenarioGraphs.ai_action_hide_countdown_timer_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action hide_countdown_timer source=%s backend=graph.ai.action.hide_countdown_timer+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action hide_countdown_timer source=%s backend=graph.ai.action.hide_countdown_timer+ai/ailists.json",
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_hide_countdown_timer_logged = 1;
 	}
@@ -31492,13 +32515,13 @@ s32 scenarioSourceAiGraphExecuteSetCountdownTimerValue(f32 seconds)
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
 		return s_aiGraphRuntimeFailure("set_countdown_timer",
-			"missing ai/ailists.tsv source");
+			"missing ai/ailists.json source");
 	}
 	countdownTimerSetValue60(seconds * 60);
 	g_Vars.aioffset += 4;
 	if (!s_ActiveScenarioGraphs.ai_action_set_countdown_timer_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action set_countdown_timer seconds=%f source=%s backend=graph.ai.action.set_countdown_timer+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action set_countdown_timer seconds=%f source=%s backend=graph.ai.action.set_countdown_timer+ai/ailists.json",
 			seconds, s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_set_countdown_timer_logged = 1;
 	}
@@ -31516,13 +32539,13 @@ s32 scenarioSourceAiGraphExecuteStopCountdownTimer(void)
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
 		return s_aiGraphRuntimeFailure("stop_countdown_timer",
-			"missing ai/ailists.tsv source");
+			"missing ai/ailists.json source");
 	}
 	countdownTimerSetRunning(false);
 	g_Vars.aioffset += 2;
 	if (!s_ActiveScenarioGraphs.ai_action_stop_countdown_timer_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action stop_countdown_timer source=%s backend=graph.ai.action.stop_countdown_timer+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action stop_countdown_timer source=%s backend=graph.ai.action.stop_countdown_timer+ai/ailists.json",
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_stop_countdown_timer_logged = 1;
 	}
@@ -31540,13 +32563,13 @@ s32 scenarioSourceAiGraphExecuteStartCountdownTimer(void)
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
 		return s_aiGraphRuntimeFailure("start_countdown_timer",
-			"missing ai/ailists.tsv source");
+			"missing ai/ailists.json source");
 	}
 	countdownTimerSetRunning(true);
 	g_Vars.aioffset += 2;
 	if (!s_ActiveScenarioGraphs.ai_action_start_countdown_timer_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action start_countdown_timer source=%s backend=graph.ai.action.start_countdown_timer+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action start_countdown_timer source=%s backend=graph.ai.action.start_countdown_timer+ai/ailists.json",
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_start_countdown_timer_logged = 1;
 	}
@@ -31566,7 +32589,7 @@ s32 scenarioSourceAiGraphExecuteIfCountdownTimerStopped(s32 label)
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
 		return s_aiGraphRuntimeFailure("if_countdown_timer_stopped",
-			"missing ai/ailists.tsv source");
+			"missing ai/ailists.json source");
 	}
 	result = !countdownTimerIsRunning();
 	if (result) {
@@ -31577,7 +32600,7 @@ s32 scenarioSourceAiGraphExecuteIfCountdownTimerStopped(s32 label)
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_if_countdown_timer_stopped_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action if_countdown_timer_stopped result=%d source=%s backend=graph.ai.action.if_countdown_timer_stopped+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action if_countdown_timer_stopped result=%d source=%s backend=graph.ai.action.if_countdown_timer_stopped+ai/ailists.json",
 			result, s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_if_countdown_timer_stopped_logged = 1;
 	}
@@ -31598,7 +32621,7 @@ s32 scenarioSourceAiGraphExecuteIfCountdownTimerLessThan(f32 seconds,
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
 		return s_aiGraphRuntimeFailure("if_countdown_timer_less_than",
-			"missing ai/ailists.tsv source");
+			"missing ai/ailists.json source");
 	}
 	result = countdownTimerGetValue60() < seconds * 60;
 	if (result) {
@@ -31609,7 +32632,7 @@ s32 scenarioSourceAiGraphExecuteIfCountdownTimerLessThan(f32 seconds,
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_if_countdown_timer_less_than_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action if_countdown_timer_less_than seconds=%f result=%d source=%s backend=graph.ai.action.if_countdown_timer_less_than+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action if_countdown_timer_less_than seconds=%f result=%d source=%s backend=graph.ai.action.if_countdown_timer_less_than+ai/ailists.json",
 			seconds, result, s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_if_countdown_timer_less_than_logged = 1;
 	}
@@ -31630,7 +32653,7 @@ s32 scenarioSourceAiGraphExecuteIfCountdownTimerGreaterThan(f32 seconds,
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
 		return s_aiGraphRuntimeFailure("if_countdown_timer_greater_than",
-			"missing ai/ailists.tsv source");
+			"missing ai/ailists.json source");
 	}
 	result = countdownTimerGetValue60() > seconds * 60;
 	if (result) {
@@ -31641,7 +32664,7 @@ s32 scenarioSourceAiGraphExecuteIfCountdownTimerGreaterThan(f32 seconds,
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_if_countdown_timer_greater_than_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action if_countdown_timer_greater_than seconds=%f result=%d source=%s backend=graph.ai.action.if_countdown_timer_greater_than+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action if_countdown_timer_greater_than seconds=%f result=%d source=%s backend=graph.ai.action.if_countdown_timer_greater_than+ai/ailists.json",
 			seconds, result, s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_if_countdown_timer_greater_than_logged = 1;
 	}
@@ -31659,12 +32682,12 @@ s32 scenarioSourceAiGraphExecuteSetSavefileFlag(u32 flag)
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
 		return s_aiGraphRuntimeFailure("set_savefile_flag",
-			"missing ai/ailists.tsv source");
+			"missing ai/ailists.json source");
 	}
 	gamefileSetFlag(flag);
 	if (!s_ActiveScenarioGraphs.ai_action_set_savefile_flag_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action set_savefile_flag flag=0x%02x source=%s backend=graph.ai.action.set_savefile_flag+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action set_savefile_flag flag=0x%02x source=%s backend=graph.ai.action.set_savefile_flag+ai/ailists.json",
 			flag, s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_set_savefile_flag_logged = 1;
 	}
@@ -31682,12 +32705,12 @@ s32 scenarioSourceAiGraphExecuteUnsetSavefileFlag(u32 flag)
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
 		return s_aiGraphRuntimeFailure("unset_savefile_flag",
-			"missing ai/ailists.tsv source");
+			"missing ai/ailists.json source");
 	}
 	gamefileUnsetFlag(flag);
 	if (!s_ActiveScenarioGraphs.ai_action_unset_savefile_flag_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action unset_savefile_flag flag=0x%02x source=%s backend=graph.ai.action.unset_savefile_flag+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action unset_savefile_flag flag=0x%02x source=%s backend=graph.ai.action.unset_savefile_flag+ai/ailists.json",
 			flag, s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_unset_savefile_flag_logged = 1;
 	}
@@ -31707,7 +32730,7 @@ s32 scenarioSourceAiGraphExecuteIfSavefileFlagIsSet(u32 flag, s32 label)
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
 		return s_aiGraphRuntimeFailure("if_savefile_flag_set",
-			"missing ai/ailists.tsv source");
+			"missing ai/ailists.json source");
 	}
 	result = gamefileHasFlag(flag) ? 1 : 0;
 	if (result) {
@@ -31718,7 +32741,7 @@ s32 scenarioSourceAiGraphExecuteIfSavefileFlagIsSet(u32 flag, s32 label)
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_if_savefile_flag_set_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action if_savefile_flag_set flag=0x%02x result=%d source=%s backend=graph.ai.action.if_savefile_flag_set+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action if_savefile_flag_set flag=0x%02x result=%d source=%s backend=graph.ai.action.if_savefile_flag_set+ai/ailists.json",
 			flag, result, s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_if_savefile_flag_set_logged = 1;
 	}
@@ -31738,7 +32761,7 @@ s32 scenarioSourceAiGraphExecuteIfSavefileFlagIsUnset(u32 flag, s32 label)
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
 		return s_aiGraphRuntimeFailure("if_savefile_flag_unset",
-			"missing ai/ailists.tsv source");
+			"missing ai/ailists.json source");
 	}
 	result = gamefileHasFlag(flag) ? 0 : 1;
 	if (result) {
@@ -31749,7 +32772,7 @@ s32 scenarioSourceAiGraphExecuteIfSavefileFlagIsUnset(u32 flag, s32 label)
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_if_savefile_flag_unset_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action if_savefile_flag_unset flag=0x%02x result=%d source=%s backend=graph.ai.action.if_savefile_flag_unset+ai/ailists.tsv",
+			"SCENARIO.GRAPH: AI action if_savefile_flag_unset flag=0x%02x result=%d source=%s backend=graph.ai.action.if_savefile_flag_unset+ai/ailists.json",
 			flag, result, s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_if_savefile_flag_unset_logged = 1;
 	}
@@ -31769,7 +32792,7 @@ static s32 s_aiGraphRequireHudNode(const char *action, s32 node_count)
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
 		return s_aiGraphRuntimeFailure(action,
-			"missing ai/ailists.tsv source");
+			"missing ai/ailists.json source");
 	}
 	return 1;
 }
@@ -31864,7 +32887,7 @@ s32 scenarioSourceAiGraphExecuteShowHudmsg(struct chrdata *basechr,
 
 	if (!s_ActiveScenarioGraphs.ai_action_show_hudmsg_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action show_hudmsg chr=%d chr_rows=%d target_chr=%d player_checked=%d text_id=%s player=%d source=%s backend=graph.ai.action.hud+ai/ailists.tsv+lang",
+			"SCENARIO.GRAPH: AI action show_hudmsg chr=%d chr_rows=%d target_chr=%d player_checked=%d text_id=%s player=%d source=%s backend=graph.ai.action.hud+ai/ailists.json+lang",
 			chrnum, chr_count, target_chr, player_checked,
 			text_catalog_id, playernum,
 			s_ActiveScenarioGraphs.ai_lists_path);
@@ -31907,7 +32930,7 @@ s32 scenarioSourceAiGraphExecuteShowHudmsgMiddle(s32 mode, s32 colour,
 
 	if (!s_ActiveScenarioGraphs.ai_action_show_hudmsg_middle_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action show_hudmsg_middle mode=%d colour=%d text_id=%s source=%s backend=graph.ai.action.hud+ai/ailists.tsv+lang",
+			"SCENARIO.GRAPH: AI action show_hudmsg_middle mode=%d colour=%d text_id=%s source=%s backend=graph.ai.action.hud+ai/ailists.json+lang",
 			mode, colour, text_catalog_id,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_show_hudmsg_middle_logged = 1;
@@ -31950,7 +32973,7 @@ s32 scenarioSourceAiGraphExecuteShowHudmsgTopMiddle(struct chrdata *basechr,
 
 	if (!s_ActiveScenarioGraphs.ai_action_show_hudmsg_top_middle_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action show_hudmsg_top_middle chr=%d chr_rows=%d target_chr=%d player_checked=%d text_id=%s colour=%d player=%d source=%s backend=graph.ai.action.hud+ai/ailists.tsv+lang",
+			"SCENARIO.GRAPH: AI action show_hudmsg_top_middle chr=%d chr_rows=%d target_chr=%d player_checked=%d text_id=%s colour=%d player=%d source=%s backend=graph.ai.action.hud+ai/ailists.json+lang",
 			chrnum, chr_count, target_chr, player_checked,
 			text_catalog_id, colour, playernum,
 			s_ActiveScenarioGraphs.ai_lists_path);
@@ -31973,11 +32996,11 @@ static s32 s_aiGraphRequireVehicleNode(const char *action, s32 node_count,
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
 		return s_aiGraphRuntimeFailure(action,
-			"missing ai/ailists.tsv source");
+			"missing ai/ailists.json source");
 	}
 	if (require_paths && !s_ActiveScenarioGraphs.paths_path[0]) {
 		return s_aiGraphRuntimeFailure(action,
-			"missing navigation/paths.tsv source");
+			"missing navigation/paths.json source");
 	}
 	return 1;
 }
@@ -32066,7 +33089,7 @@ s32 scenarioSourceAiGraphExecuteHovercarBeginPath(s32 path_id)
 
 	if (!s_ActiveScenarioGraphs.ai_action_hovercar_begin_path_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action hovercar_begin_path path=%d found=1 vehicle_rows=%d truck_type=%d hovercar_type=%d path_rows=%d source=%s objects=%s path_pads=%u pad_rows=%d backend=graph.ai.action.vehicle+objects.tsv+navigation/paths.tsv+pads.tsv",
+			"SCENARIO.GRAPH: AI action hovercar_begin_path path=%d found=1 vehicle_rows=%d truck_type=%d hovercar_type=%d path_rows=%d source=%s objects=%s path_pads=%u pad_rows=%d backend=graph.ai.action.vehicle+objects.json+navigation/paths.json+pads.json",
 			path->id,
 			truck_object_count > hovercar_object_count
 				? truck_object_count : hovercar_object_count,
@@ -32118,7 +33141,7 @@ s32 scenarioSourceAiGraphExecuteSetVehicleSpeed(f32 speedaim, f32 speedtime)
 
 	if (!s_ActiveScenarioGraphs.ai_action_set_vehicle_speed_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action set_vehicle_speed vehicle_rows=%d truck_type=%d hovercar_type=%d speedaim=%.3f speedtime=%.3f source=%s objects=%s backend=graph.ai.action.vehicle+ai/ailists.tsv+objects.tsv",
+			"SCENARIO.GRAPH: AI action set_vehicle_speed vehicle_rows=%d truck_type=%d hovercar_type=%d speedaim=%.3f speedtime=%.3f source=%s objects=%s backend=graph.ai.action.vehicle+ai/ailists.json+objects.json",
 			truck_object_count > hovercar_object_count
 				? truck_object_count : hovercar_object_count,
 			truck_source_type, hovercar_source_type, speedaim,
@@ -32155,7 +33178,7 @@ s32 scenarioSourceAiGraphExecuteSetRotorSpeed(f32 speedaim, f32 speedtime)
 
 	if (!s_ActiveScenarioGraphs.ai_action_set_rotor_speed_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action set_rotor_speed vehicle_rows=%d source_vehicle_type=%d speedaim=%.3f speedtime=%.3f source=%s objects=%s backend=graph.ai.action.vehicle+ai/ailists.tsv+objects.tsv",
+			"SCENARIO.GRAPH: AI action set_rotor_speed vehicle_rows=%d source_vehicle_type=%d speedaim=%.3f speedtime=%.3f source=%s objects=%s backend=graph.ai.action.vehicle+ai/ailists.json+objects.json",
 			vehicle_count, source_vehicle_type, speedaim, speedtime,
 			s_ActiveScenarioGraphs.ai_lists_path,
 			s_ActiveScenarioGraphs.objects_path);
@@ -32710,7 +33733,7 @@ s32 scenarioSourceLevelGraphCheckPadRoom(s32 pad, s32 room,
 	row = s_findLevelVolumeForPad(pad);
 	if (!row) {
 		return s_levelGraphVolumeRuntimeFailure(pad, room,
-			"runtime pad was not present in volumes.tsv");
+			"runtime pad was not present in volumes.json");
 	}
 	if (row->room < 0 || strcmp(row->shape, "aabb") != 0) {
 		return s_levelGraphVolumeRuntimeFailure(pad, room,
@@ -32789,7 +33812,7 @@ static s32 s_setupGraphValidateBlockedPathWaypoints(u8 type,
 	}
 	if (!s_ActiveScenarioGraphs.waypoints_path[0]) {
 		return s_setupGraphRuntimeFailure(type, record_index,
-			"missing navigation/waypoints.tsv source");
+			"missing navigation/waypoints.json source");
 	}
 	waypoint_count = s_countRuntimeWaypoints();
 	if (waypoint_count <= 0) {
@@ -32851,7 +33874,7 @@ s32 scenarioSourceSetupGraphRecordBehaviorLink(u8 type, s32 record_index,
 		}
 		if (!s_setupBehaviorLinkTargetsMatch(link, targets, aux)) {
 			return s_setupGraphRuntimeFailure(type, record_index,
-				"runtime targets differ from setup.fields.tsv");
+				"runtime targets differ from setup.fields.json");
 		}
 
 		link->matched = 1;
@@ -32859,7 +33882,7 @@ s32 scenarioSourceSetupGraphRecordBehaviorLink(u8 type, s32 record_index,
 				!(s_ActiveScenarioGraphs.setup_link_logged_mask &
 					log_bit)) {
 			sysLogPrintf(LOG_NOTE,
-				"SCENARIO.GRAPH: setup behavior link registered from graph source '%s' record=%d kind=%s backend=graph.setup.links+setup.fields.tsv",
+				"SCENARIO.GRAPH: setup behavior link registered from graph source '%s' record=%d kind=%s backend=graph.setup.links+setup.fields.json",
 				s_ActiveScenarioGraphs.setup_fields_path,
 				record_index,
 				kind);
@@ -32869,7 +33892,7 @@ s32 scenarioSourceSetupGraphRecordBehaviorLink(u8 type, s32 record_index,
 	}
 
 	return s_setupGraphRuntimeFailure(type, record_index,
-		"runtime link record was not present in setup.fields.tsv");
+		"runtime link record was not present in setup.fields.json");
 }
 
 static s32 s_loadNavigationTables(const asset_entry_t *scenario,
@@ -32899,7 +33922,7 @@ static s32 s_loadNavigationTables(const asset_entry_t *scenario,
 	if (s_activeGraphPathForScenario(scenario,
 			s_ActiveScenarioGraphs.waypoints_path, waypoints_path,
 			sizeof(waypoints_path))
-			|| s_scenarioMemberPath(scenario, "navigation/waypoints.tsv",
+			|| s_scenarioMemberPath(scenario, "navigation/waypoints.json",
 			waypoints_path, sizeof(waypoints_path))) {
 		text = s_loadOptionalText(waypoints_path, &text_size);
 	} else {
@@ -32908,12 +33931,12 @@ static s32 s_loadNavigationTables(const asset_entry_t *scenario,
 	}
 	if (!text) {
 		sysLogPrintf(LOG_ERROR,
-			"SCENARIO.SOURCE: missing public navigation table 'navigation/waypoints.tsv' for '%s'",
+			"SCENARIO.SOURCE: missing public navigation table 'navigation/waypoints.json' for '%s'",
 			scenario->id);
 		s_freeNavigation(nav);
 		return 0;
 	}
-	if (!s_parseWaypointsTsv(text, nav)) {
+	if (!s_parseWaypointsJson(text, nav)) {
 		sysLogPrintf(LOG_ERROR,
 			"SCENARIO.SOURCE: invalid public navigation table '%s'",
 			waypoints_path);
@@ -32926,7 +33949,7 @@ static s32 s_loadNavigationTables(const asset_entry_t *scenario,
 	if (s_activeGraphPathForScenario(scenario,
 			s_ActiveScenarioGraphs.waygroups_path, waygroups_path,
 			sizeof(waygroups_path))
-			|| s_scenarioMemberPath(scenario, "navigation/waygroups.tsv",
+			|| s_scenarioMemberPath(scenario, "navigation/waygroups.json",
 			waygroups_path, sizeof(waygroups_path))) {
 		text = s_loadOptionalText(waygroups_path, &text_size);
 	} else {
@@ -32935,12 +33958,12 @@ static s32 s_loadNavigationTables(const asset_entry_t *scenario,
 	}
 	if (!text) {
 		sysLogPrintf(LOG_ERROR,
-			"SCENARIO.SOURCE: missing public navigation table 'navigation/waygroups.tsv' for '%s'",
+			"SCENARIO.SOURCE: missing public navigation table 'navigation/waygroups.json' for '%s'",
 			scenario->id);
 		s_freeNavigation(nav);
 		return 0;
 	}
-	if (!s_parseWaygroupsTsv(text, nav)) {
+	if (!s_parseWaygroupsJson(text, nav)) {
 		sysLogPrintf(LOG_ERROR,
 			"SCENARIO.SOURCE: invalid public navigation table '%s'",
 			waygroups_path);
@@ -32953,7 +33976,7 @@ static s32 s_loadNavigationTables(const asset_entry_t *scenario,
 	if (s_activeGraphPathForScenario(scenario,
 			s_ActiveScenarioGraphs.covers_path, covers_path,
 			sizeof(covers_path))
-			|| s_scenarioMemberPath(scenario, "navigation/covers.tsv",
+			|| s_scenarioMemberPath(scenario, "navigation/covers.json",
 			covers_path, sizeof(covers_path))) {
 		text = s_loadOptionalText(covers_path, &text_size);
 	} else {
@@ -32962,12 +33985,12 @@ static s32 s_loadNavigationTables(const asset_entry_t *scenario,
 	}
 	if (!text) {
 		sysLogPrintf(LOG_ERROR,
-			"SCENARIO.SOURCE: missing public navigation table 'navigation/covers.tsv' for '%s'",
+			"SCENARIO.SOURCE: missing public navigation table 'navigation/covers.json' for '%s'",
 			scenario->id);
 		s_freeNavigation(nav);
 		return 0;
 	}
-	if (!s_parseCoversTsv(text, nav)) {
+	if (!s_parseCoversJson(text, nav)) {
 		sysLogPrintf(LOG_ERROR,
 			"SCENARIO.SOURCE: invalid public navigation table '%s'",
 			covers_path);
@@ -32982,7 +34005,7 @@ static s32 s_loadNavigationTables(const asset_entry_t *scenario,
 		if (s_activeGraphPathForScenario(scenario,
 				s_ActiveScenarioGraphs.paths_path, paths_path,
 				sizeof(paths_path))
-				|| s_scenarioMemberPath(scenario, "navigation/paths.tsv",
+				|| s_scenarioMemberPath(scenario, "navigation/paths.json",
 				paths_path, sizeof(paths_path))) {
 			text = s_loadOptionalText(paths_path, &text_size);
 			if (text) {
@@ -33005,7 +34028,7 @@ static s32 s_loadNavigationTables(const asset_entry_t *scenario,
 		if (!s_generateNavigationTablesFromPads(pads, pad_count,
 				path_table_loaded ? &path_table : NULL, nav)) {
 			sysLogPrintf(LOG_ERROR,
-				"SCENARIO.SOURCE: could not generate deterministic public navigation tables from pads.tsv for '%s'",
+				"SCENARIO.SOURCE: could not generate deterministic public navigation tables from pads.json for '%s'",
 				scenario->id);
 			s_freeNavigation(nav);
 			s_freePathTable(&path_table);
@@ -33015,8 +34038,8 @@ static s32 s_loadNavigationTables(const asset_entry_t *scenario,
 			s32 directional_segments =
 				s_countNavigationDirectionalSegments(nav);
 			sysLogPrintf(LOG_NOTE,
-				"SCENARIO.SOURCE: generated deterministic navigation tables from public pads.tsv '%s' and navigation/paths.tsv '%s' through empty waypoint, waygroup, and cover sources as %d waypoints, %d waygroups, %d covers, %d path edges, %d branch waypoints backend=source.navigation.generated+pads.tsv+navigation/paths.tsv+navigation/waypoints.tsv+navigation/waygroups.tsv+navigation/covers.tsv",
-				(pads_path && pads_path[0]) ? pads_path : "pads.tsv",
+				"SCENARIO.SOURCE: generated deterministic navigation tables from public pads.json '%s' and navigation/paths.json '%s' through empty waypoint, waygroup, and cover sources as %d waypoints, %d waygroups, %d covers, %d path edges, %d branch waypoints backend=source.navigation.generated+pads.json+navigation/paths.json+navigation/waypoints.json+navigation/waygroups.json+navigation/covers.json",
+				(pads_path && pads_path[0]) ? pads_path : "pads.json",
 				paths_path,
 				nav->waypoint_count, nav->waygroup_count,
 				nav->cover_count,
@@ -33024,13 +34047,13 @@ static s32 s_loadNavigationTables(const asset_entry_t *scenario,
 				s_countNavigationBranchWaypoints(nav));
 			if (directional_segments > 0) {
 				sysLogPrintf(LOG_NOTE,
-					"SCENARIO.SOURCE: generated directional path segments from public navigation/paths.tsv '%s' as %d flagged neighbour refs backend=source.navigation.generated+navigation/paths.tsv+waypoint-segment-flags",
+					"SCENARIO.SOURCE: generated directional path segments from public navigation/paths.json '%s' as %d flagged neighbour refs backend=source.navigation.generated+navigation/paths.json+waypoint-segment-flags",
 					paths_path, directional_segments);
 			}
 		} else {
 			sysLogPrintf(LOG_NOTE,
-				"SCENARIO.SOURCE: generated deterministic navigation tables from public pads.tsv '%s' through empty waypoint, waygroup, and cover sources as %d waypoints, %d waygroups, %d covers backend=source.navigation.generated+pads.tsv+navigation/waypoints.tsv+navigation/waygroups.tsv+navigation/covers.tsv",
-				(pads_path && pads_path[0]) ? pads_path : "pads.tsv",
+				"SCENARIO.SOURCE: generated deterministic navigation tables from public pads.json '%s' through empty waypoint, waygroup, and cover sources as %d waypoints, %d waygroups, %d covers backend=source.navigation.generated+pads.json+navigation/waypoints.json+navigation/waygroups.json+navigation/covers.json",
+				(pads_path && pads_path[0]) ? pads_path : "pads.json",
 				nav->waypoint_count, nav->waygroup_count,
 				nav->cover_count);
 		}
@@ -33038,7 +34061,7 @@ static s32 s_loadNavigationTables(const asset_entry_t *scenario,
 	}
 
 	sysLogPrintf(LOG_NOTE,
-		"SCENARIO.SOURCE: compiled navigation tables waypoints '%s', waygroups '%s', covers '%s' as %d waypoints, %d waygroups, %d covers, waypoint_neighbour_refs=%d, waygroup_neighbour_refs=%d backend=source.navigation.tables+navigation/waypoints.tsv+navigation/waygroups.tsv+navigation/covers.tsv",
+		"SCENARIO.SOURCE: compiled navigation tables waypoints '%s', waygroups '%s', covers '%s' as %d waypoints, %d waygroups, %d covers, waypoint_neighbour_refs=%d, waygroup_neighbour_refs=%d backend=source.navigation.tables+navigation/waypoints.json+navigation/waygroups.json+navigation/covers.json",
 		waypoints_path, waygroups_path, covers_path,
 		nav->waypoint_count, nav->waygroup_count, nav->cover_count,
 		s_countNavigationWaypointNeighbourRefs(nav),
@@ -33066,7 +34089,7 @@ static s32 s_scenarioSetupFieldsPath(const asset_entry_t *scenario,
 		return out[0] != '\0';
 	}
 
-	return s_scenarioMemberPath(scenario, "setup.fields.tsv", out, out_n);
+	return s_scenarioMemberPath(scenario, "setup.fields.json", out, out_n);
 }
 
 static s32 s_scenarioObjectsPath(const asset_entry_t *scenario,
@@ -33088,7 +34111,7 @@ static s32 s_scenarioObjectsPath(const asset_entry_t *scenario,
 		return out[0] != '\0';
 	}
 
-	return s_scenarioMemberPath(scenario, "objects.tsv", out, out_n);
+	return s_scenarioMemberPath(scenario, "objects.json", out, out_n);
 }
 
 static s32 s_scenarioSpawnsPath(const asset_entry_t *scenario,
@@ -33110,7 +34133,7 @@ static s32 s_scenarioSpawnsPath(const asset_entry_t *scenario,
 		return out[0] != '\0';
 	}
 
-	return s_scenarioMemberPath(scenario, "spawns.tsv", out, out_n);
+	return s_scenarioMemberPath(scenario, "spawns.json", out, out_n);
 }
 
 static s32 s_scenarioAiListsPath(const asset_entry_t *scenario,
@@ -33126,7 +34149,13 @@ static s32 s_scenarioAiListsPath(const asset_entry_t *scenario,
 		return 1;
 	}
 
-	return s_scenarioMemberPath(scenario, "ai/ailists.tsv", out, out_n);
+	if (scenario->ext.scenario.ai_lists_file[0]) {
+		strncpy(out, scenario->ext.scenario.ai_lists_file, out_n - 1);
+		out[out_n - 1] = '\0';
+		return out[0] != '\0';
+	}
+
+	return s_scenarioMemberPath(scenario, "ai/ailists.json", out, out_n);
 }
 
 static s32 s_scenarioPathsPath(const asset_entry_t *scenario,
@@ -33142,7 +34171,7 @@ static s32 s_scenarioPathsPath(const asset_entry_t *scenario,
 		return 1;
 	}
 
-	return s_scenarioMemberPath(scenario, "navigation/paths.tsv",
+	return s_scenarioMemberPath(scenario, "navigation/paths.json",
 		out, out_n);
 }
 
@@ -33183,7 +34212,7 @@ u8 *scenarioSourceLoadSetupForStage(const catalog_stage_result_t *stage,
 	if (!setup_text) {
 		if (assetSourceDebugIsEnabledFor(ASSET_SCENARIO)) {
 			sysLogPrintf(LOG_ERROR,
-				"SCENARIO.SOURCE: missing public setup.fields.tsv for '%s' at %s",
+				"SCENARIO.SOURCE: missing public setup.fields.json for '%s' at %s",
 				scenario->id, setup_path);
 		}
 		return NULL;
@@ -33193,9 +34222,9 @@ u8 *scenarioSourceLoadSetupForStage(const catalog_stage_result_t *stage,
 	memset(&spawn_table, 0, sizeof(spawn_table));
 	memset(&ai_table, 0, sizeof(ai_table));
 	memset(&path_table, 0, sizeof(path_table));
-	if (!s_setupParseFieldsTsv(setup_text, &table)) {
+	if (!s_setupParseFieldsJson(setup_text, &table)) {
 		sysLogPrintf(LOG_ERROR,
-			"SCENARIO.SOURCE: invalid public setup.fields.tsv for '%s': %s",
+			"SCENARIO.SOURCE: invalid public setup.fields.json for '%s': %s",
 			scenario->id, table.error[0] ? table.error : "parse failed");
 		free(setup_text);
 		s_setupFreeTable(&table);
@@ -33208,9 +34237,9 @@ u8 *scenarioSourceLoadSetupForStage(const catalog_stage_result_t *stage,
 		objects_text = s_loadOptionalText(objects_path, &text_size);
 	}
 	if (objects_text) {
-		if (!s_setupApplyObjectsSummary(objects_text, &table)) {
+		if (!s_setupApplyObjectsJson(objects_text, &table)) {
 			sysLogPrintf(LOG_ERROR,
-				"SCENARIO.SOURCE: invalid public objects.tsv for '%s': %s",
+				"SCENARIO.SOURCE: invalid public objects.json for '%s': %s",
 				scenario->id, table.error[0] ? table.error : "parse failed");
 			free(objects_text);
 			s_setupFreeTable(&table);
@@ -33227,7 +34256,7 @@ u8 *scenarioSourceLoadSetupForStage(const catalog_stage_result_t *stage,
 	}
 	if (!spawns_text) {
 		sysLogPrintf(LOG_ERROR,
-			"SCENARIO.SOURCE: missing public spawns.tsv for '%s'",
+			"SCENARIO.SOURCE: missing public spawns.json for '%s'",
 			scenario->id);
 		s_setupFreeTable(&table);
 		s_spawnFreeTable(&spawn_table);
@@ -33237,7 +34266,7 @@ u8 *scenarioSourceLoadSetupForStage(const catalog_stage_result_t *stage,
 	}
 	if (!s_loadSpawnSourceRows(spawns_text, &spawn_table)) {
 		sysLogPrintf(LOG_ERROR,
-			"SCENARIO.SOURCE: invalid public spawns.tsv for '%s': %s",
+			"SCENARIO.SOURCE: invalid public spawns.json for '%s': %s",
 			scenario->id, spawn_table.error[0] ? spawn_table.error : "parse failed");
 		free(spawns_text);
 		s_setupFreeTable(&table);
@@ -33254,7 +34283,7 @@ u8 *scenarioSourceLoadSetupForStage(const catalog_stage_result_t *stage,
 	}
 	if (!paths_text) {
 		sysLogPrintf(LOG_ERROR,
-			"SCENARIO.SOURCE: missing public navigation/paths.tsv for '%s'",
+			"SCENARIO.SOURCE: missing public navigation/paths.json for '%s'",
 			scenario->id);
 		s_setupFreeTable(&table);
 		s_spawnFreeTable(&spawn_table);
@@ -33264,7 +34293,7 @@ u8 *scenarioSourceLoadSetupForStage(const catalog_stage_result_t *stage,
 	}
 	if (!s_loadPathSourceRows(paths_text, &path_table)) {
 		sysLogPrintf(LOG_ERROR,
-			"SCENARIO.SOURCE: invalid public navigation/paths.tsv for '%s': %s",
+			"SCENARIO.SOURCE: invalid public navigation/paths.json for '%s': %s",
 			scenario->id, path_table.error[0]
 				? path_table.error : "parse failed");
 		free(paths_text);
@@ -33282,7 +34311,7 @@ u8 *scenarioSourceLoadSetupForStage(const catalog_stage_result_t *stage,
 	}
 	if (!ai_text) {
 		sysLogPrintf(LOG_ERROR,
-			"SCENARIO.SOURCE: missing public ai/ailists.tsv for '%s'",
+			"SCENARIO.SOURCE: missing public ai/ailists.json for '%s'",
 			scenario->id);
 		s_setupFreeTable(&table);
 		s_spawnFreeTable(&spawn_table);
@@ -33290,9 +34319,9 @@ u8 *scenarioSourceLoadSetupForStage(const catalog_stage_result_t *stage,
 		s_aiFreeTable(&ai_table);
 		return NULL;
 	}
-	if (!s_loadAiListSourceRows(ai_text, &ai_table)) {
+	if (!s_loadAiListSourceJson(ai_text, &ai_table)) {
 		sysLogPrintf(LOG_ERROR,
-			"SCENARIO.SOURCE: invalid public ai/ailists.tsv for '%s': %s",
+			"SCENARIO.SOURCE: invalid public ai/ailists.json for '%s': %s",
 			scenario->id, ai_table.error[0] ? ai_table.error : "parse failed");
 		free(ai_text);
 		s_setupFreeTable(&table);
@@ -33322,7 +34351,7 @@ u8 *scenarioSourceLoadSetupForStage(const catalog_stage_result_t *stage,
 	if (setup_data) {
 		s_activeGraphSetSourceSetupChrRefs(&table);
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.SOURCE: compiled setup.fields.tsv '%s', spawns.tsv '%s', navigation/paths.tsv '%s', and ai/ailists.tsv '%s' for stage '%s' as %d setup records, %d spawns, %d paths, %d AI lists (%d bytes) path_flags=circular:%d,flying:%d",
+			"SCENARIO.SOURCE: compiled setup.fields.json '%s', spawns.json '%s', navigation/paths.json '%s', and ai/ailists.json '%s' for stage '%s' as %d setup records, %d spawns, %d paths, %d AI lists (%d bytes) path_flags=circular:%d,flying:%d",
 			setup_path, spawns_path, paths_path, ai_lists_path, stageid,
 			table.count, spawn_table.count, path_table.count, ai_table.count,
 			out_size ? *out_size : 0,
@@ -33533,7 +34562,7 @@ struct bgportal *scenarioSourceLoadPortalsForStage(
 
 	scenario = s_findScenarioForStage(stage, prefer_mp);
 	if (!scenario || !scenario->id[0] ||
-			!s_scenarioMemberPath(scenario, "portals.tsv",
+			!s_scenarioMemberPath(scenario, "portals.json",
 				portals_path, sizeof(portals_path))) {
 		return NULL;
 	}
@@ -33542,13 +34571,13 @@ struct bgportal *scenarioSourceLoadPortalsForStage(
 	if (!text) {
 		if (assetSourceDebugIsEnabledFor(ASSET_SCENARIO)) {
 			sysLogPrintf(LOG_ERROR,
-				"SCENARIO.SOURCE: missing public portals.tsv for '%s' at %s",
+				"SCENARIO.SOURCE: missing public portals.json for '%s' at %s",
 				scenario->id, portals_path);
 		}
 		return NULL;
 	}
 
-	rows = s_parsePortalsTsv(text, &row_count);
+	rows = s_parsePortalsJson(text, &row_count);
 	free(text);
 	if (!rows) {
 		free(rows);
@@ -33603,7 +34632,7 @@ struct bgportal *scenarioSourceLoadPortalsForStage(
 	stageid = (stage && stage->entry && stage->entry->id[0])
 		? stage->entry->id : "?";
 	sysLogPrintf(LOG_NOTE,
-		"SCENARIO.SOURCE: compiled portals.tsv '%s' for stage '%s' as %d portals (%u bytes)",
+		"SCENARIO.SOURCE: compiled portals.json '%s' for stage '%s' as %d portals (%u bytes)",
 		portals_path, stageid, row_count, (unsigned)total_size);
 
 	if (out_count) {
@@ -33648,13 +34677,13 @@ u8 *scenarioSourceLoadPadsForStage(const catalog_stage_result_t *stage,
 		}
 		if (assetSourceDebugIsEnabledFor(ASSET_SCENARIO)) {
 			sysLogPrintf(LOG_ERROR,
-				"SCENARIO.SOURCE: missing public pads.tsv for '%s' at %s",
+				"SCENARIO.SOURCE: missing public pads.json for '%s' at %s",
 				scenario->id, pads_path);
 		}
 		return NULL;
 	}
 
-	rows = s_parsePadsTsv(text, &row_count);
+	rows = s_parsePadsJson(text, &row_count);
 	free(text);
 
 	if (!rows) {
@@ -33689,7 +34718,7 @@ u8 *scenarioSourceLoadPadsForStage(const catalog_stage_result_t *stage,
 	stageid = (stage && stage->entry && stage->entry->id[0])
 		? stage->entry->id : "?";
 	sysLogPrintf(LOG_NOTE,
-		"SCENARIO.SOURCE: compiled pads.tsv '%s' for stage '%s' as %d pads, %d waypoints, %d waygroups, %d covers (%d bytes)",
+		"SCENARIO.SOURCE: compiled pads.json '%s' for stage '%s' as %d pads, %d waypoints, %d waygroups, %d covers (%d bytes)",
 		pads_path, stageid, row_count,
 		waypoint_count, waygroup_count, cover_count, padfile_size);
 
