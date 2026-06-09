@@ -44,6 +44,12 @@ powershell -ExecutionPolicy Bypass -File devtools\dev-window-v2\dev-window-v2.ps
 - Split view: file list on left, content on right.
 - Read-only viewer.
 
+### CLI
+- **Open Claude CLI** -- opens the Claude Code CLI in a new console at the project root.
+- **Open Claude CLI (ultracode)** -- same, but starts the session with ultracode mode on. Ultracode is a Claude Code session *setting* (not an `--effort` level or env var), so it launches with `--settings` pointed at a temp `{"ultracode": true}` JSON file.
+- **Open Codex CLI** -- opens the Codex CLI as administrator in a new console at the project root.
+- That's the whole tab: three launchers, nothing else. (The earlier prompt-composition workbench -- action wraps, kanban cards, prompt box, headless mode -- was removed.)
+
 ## Bottom Bar
 - **RUN SERVER** / **RUN GAME** -- toggles (click again to stop).
 
@@ -65,6 +71,17 @@ powershell -ExecutionPolicy Bypass -File devtools\dev-window-v2\dev-window-v2.ps
 ## Settings
 
 Window size and position are saved to `devtools/dev-window-v2/settings.json` on close.
+
+## Window scaling
+
+The UI is laid out on a fixed 1480x900 design canvas and wrapped in a Viewbox
+(`Stretch=Uniform`, `StretchDirection=DownOnly`). On a screen large enough it
+renders 1:1 (the doubled-bold fonts are untouched); on a smaller screen the
+**entire** UI scales down uniformly to fit instead of clipping or forcing the
+window off the edge. The window's minimum size is 720x480, and a restored
+size/position is clamped to the current screen work area at launch so a size
+saved on a bigger monitor never opens larger than (or off the edge of) a
+smaller one.
 
 ## Independence
 

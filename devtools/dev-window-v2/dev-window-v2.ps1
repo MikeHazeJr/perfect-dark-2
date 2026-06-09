@@ -804,7 +804,7 @@ function Refresh-LatestRelease {
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Perfect Dark 2  |  Dev Window v2"
-        MinWidth="1500" MinHeight="940"
+        MinWidth="720" MinHeight="480"
         Background="#ECEEF2"
         WindowStartupLocation="CenterScreen"
         UseLayoutRounding="True"
@@ -971,7 +971,15 @@ function Refresh-LatestRelease {
         </Style>
     </Window.Resources>
 
-    <DockPanel>
+    <!-- Scaling host (S-scale): the whole UI is laid out at a fixed design
+         canvas (1480x900, the size everything was tuned to fit at) and a
+         Viewbox scales it UNIFORMLY to whatever the window is. StretchDirection
+         DownOnly means big screens render at native 1:1 (Mike's doubled-bold
+         fonts untouched) while smaller screens shrink the entire UI to fit
+         instead of clipping it. Centered so the page bg frames it evenly. -->
+    <Viewbox Stretch="Uniform" StretchDirection="DownOnly"
+             HorizontalAlignment="Center" VerticalAlignment="Center">
+    <DockPanel Width="1480" Height="900">
         <!-- Header Brand Bar (light theme, narrow PD-styled band; cyan accent
              on the PD2 chip + "v2" label preserves PD identity without
              dominating the page) -->
@@ -1316,9 +1324,9 @@ function Refresh-LatestRelease {
                 </Grid>
             </TabItem>
 
-            <!-- CLI TAB (c125): Claude CLI launcher. Compose well-formed prompts
-                 with card context + standing rules, launch interactively in a
-                 new console or headless (-p) with output to the Log tab. -->
+            <!-- CLI TAB: launcher only. Strips the old prompt-composition
+                 workbench (actions / cards / prompt box / modes) down to the
+                 two buttons that open a CLI session in the project root. -->
             <TabItem Header="CLI">
                 <DockPanel Margin="14,12,14,12" LastChildFill="True">
 
@@ -1326,141 +1334,43 @@ function Refresh-LatestRelease {
                     <Border DockPanel.Dock="Top" Background="#FFFFFF" CornerRadius="3"
                             BorderBrush="#C0C8D2" BorderThickness="1" Padding="14,8" Margin="0,0,0,10">
                         <StackPanel Orientation="Horizontal">
-                            <TextBlock Text="CLAUDE CLI" Foreground="#0078A8" FontFamily="Consolas"
+                            <TextBlock Text="CLI" Foreground="#0078A8" FontFamily="Consolas"
                                        FontSize="24" FontWeight="Bold" Margin="0,0,14,0"/>
                             <Rectangle Width="1" Fill="#C0C8D2" Margin="0,2"/>
-                            <TextBlock Text="action buttons wrap the prompt in place. Click LAUNCH to send."
+                            <TextBlock Text="Open a command-line session in the project root."
                                        Foreground="#7A8898"
                                        FontFamily="Segoe UI" FontSize="20" FontWeight="Bold" Margin="14,0,0,0"
                                        VerticalAlignment="Center"/>
                         </StackPanel>
                     </Border>
 
-                    <!-- Action row (c127: single-row layout, smaller padding so the
-                         whole CLI tab fits at the default window size). -->
-                    <Border DockPanel.Dock="Top" Background="#FFFFFF" CornerRadius="3"
-                            BorderBrush="#C0C8D2" BorderThickness="1" Padding="10,8" Margin="0,0,0,10">
-                        <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
-                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                                <TextBlock Text="ACTION" Foreground="#7A8898" FontFamily="Consolas"
-                                           FontSize="20" FontWeight="Bold" Margin="0,0,10,0"
-                                           VerticalAlignment="Center"/>
-                                <Button x:Name="BtnCliActionGoal" Content="Goal" Style="{StaticResource ToolBtn}" Margin="0,0,6,0"
-                                        FontSize="22" Padding="14,8" MinHeight="44"
-                                        ToolTip="Wrap as /goal. Use for autonomous run-to-completion."/>
-                                <Button x:Name="BtnCliActionPlan" Content="Plan" Style="{StaticResource ToolBtn}" Margin="0,0,6,0"
-                                        FontSize="22" Padding="14,8" MinHeight="44"
-                                        ToolTip="Plan without executing code. Returns a structured plan."/>
-                                <Button x:Name="BtnCliActionInvestigate" Content="Investigate" Style="{StaticResource ToolBtn}" Margin="0,0,6,0"
-                                        FontSize="22" Padding="14,8" MinHeight="44"
-                                        ToolTip="Read-only diagnostic. Report findings only, no modifications."/>
-                                <Button x:Name="BtnCliActionBugFix" Content="Bug Fix" Style="{StaticResource ToolBtn}" Margin="0,0,6,0"
-                                        FontSize="22" Padding="14,8" MinHeight="44"
-                                        ToolTip="Fix bug B-NNN. Prompts for the bug ID, then writes regression test first."/>
-                                <Button x:Name="BtnCliActionReview" Content="Review" Style="{StaticResource ToolBtn}" Margin="0,0,6,0"
-                                        FontSize="22" Padding="14,8" MinHeight="44"
-                                        ToolTip="Code review. Prompts for optional branch name."/>
-                                <Button x:Name="BtnCliActionCustom" Content="Custom" Style="{StaticResource ToolBtn}" Margin="0,0,14,0"
-                                        FontSize="22" Padding="14,8" MinHeight="44"
-                                        ToolTip="No wrapping. Sends prompt verbatim with only the standing-rules suffix."/>
-                                <Rectangle Width="1" Fill="#C0C8D2" Margin="0,2,12,2"/>
-                                <TextBlock x:Name="LblCliActiveAction" Text="active: Goal" Foreground="#0078A8"
-                                           FontFamily="Consolas" FontSize="22" FontWeight="Bold"
-                                           VerticalAlignment="Center"/>
-                            </StackPanel>
-                        </ScrollViewer>
-                    </Border>
-
-                    <!-- Launch controls (c127: docked at the BOTTOM so LAUNCH is
-                         always visible regardless of how much vertical room the
-                         middle prompt + cards row gets). LastChildFill on the
-                         outer DockPanel hands the remaining space to the grid. -->
-                    <Border DockPanel.Dock="Bottom" Background="#FFFFFF" CornerRadius="3"
-                            BorderBrush="#C0C8D2" BorderThickness="1" Padding="10,8" Margin="0,10,0,0">
-                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                            <TextBlock Text="MODE:" Foreground="#7A8898" FontFamily="Consolas"
-                                       FontSize="20" FontWeight="Bold" Margin="0,0,8,0"
-                                       VerticalAlignment="Center"/>
-                            <RadioButton x:Name="RdoCliModeInteractive" Content="Interactive (new console)"
-                                         IsChecked="True" GroupName="CliMode"
-                                         Foreground="#1A2434" FontFamily="Segoe UI" FontSize="22" FontWeight="Bold"
-                                         VerticalAlignment="Center" Margin="0,0,16,0"/>
-                            <RadioButton x:Name="RdoCliModeHeadless" Content="Headless (-p, log)"
-                                         GroupName="CliMode"
-                                         Foreground="#1A2434" FontFamily="Segoe UI" FontSize="22" FontWeight="Bold"
-                                         VerticalAlignment="Center" Margin="0,0,20,0"/>
-                            <Button x:Name="BtnCliLaunch" Content="LAUNCH" Style="{StaticResource GreenBtn}"
-                                    Padding="22,10" FontSize="24" Margin="0,0,8,0"/>
-                            <Button x:Name="BtnCliLaunchCodex" Content="Codex CLI Admin" Style="{StaticResource ToolBtn}"
-                                    Padding="18,10" FontSize="22" MinHeight="44" Margin="0,0,8,0"
-                                    ToolTip="Open Codex CLI as administrator in the project root. Does not use the prompt box."/>
-                            <Button x:Name="BtnCliCopy" Content="Copy Prompt" Style="{StaticResource ToolBtn}"
-                                    Padding="18,10" FontSize="22" MinHeight="44" Margin="0,0,8,0"/>
-                            <Button x:Name="BtnCliReset" Content="Reset" Style="{StaticResource ToolBtn}"
-                                    Padding="18,10" FontSize="22" MinHeight="44"/>
+                    <!-- Launcher buttons (centered) -->
+                    <Border Background="#FFFFFF" CornerRadius="3"
+                            BorderBrush="#C0C8D2" BorderThickness="1" Padding="24,24">
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center"
+                                    VerticalAlignment="Center">
+                            <Button x:Name="BtnCliLaunch" Content="Open Claude CLI"
+                                    Style="{StaticResource GreenBtn}"
+                                    FontSize="26" Padding="30,18" MinHeight="68" MinWidth="320"
+                                    Margin="0,0,18,0"
+                                    ToolTip="Open the Claude Code CLI in a new console at the project root."/>
+                            <Button x:Name="BtnCliLaunchUltra" Content="Open Claude CLI (ultracode)"
+                                    Style="{StaticResource AccentBtn}"
+                                    FontSize="26" Padding="30,18" MinHeight="68" MinWidth="320"
+                                    Margin="0,0,18,0"
+                                    ToolTip="Open the Claude Code CLI with ultracode mode on (launches with --settings &quot;ultracode: true&quot;)."/>
+                            <Button x:Name="BtnCliLaunchCodex" Content="Open Codex CLI"
+                                    Style="{StaticResource ToolBtn}"
+                                    FontSize="26" Padding="30,18" MinHeight="68" MinWidth="320"
+                                    ToolTip="Open the Codex CLI as administrator in a new console at the project root."/>
                         </StackPanel>
                     </Border>
-
-                    <!-- Prompt + Cards row (60/40 split). c127: this is the only
-                         middle content now; the preview pane + Bug ID/Branch row
-                         are gone. The prompt textbox is the single canonical
-                         source of what LAUNCH will send. Action buttons rewrite
-                         it in place (with overwrite confirmation if dirty). -->
-                    <Grid Margin="0,0,0,0">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="3*" MinWidth="500"/>
-                            <ColumnDefinition Width="12"/>
-                            <ColumnDefinition Width="2*" MinWidth="380"/>
-                        </Grid.ColumnDefinitions>
-
-                        <!-- Prompt textbox -->
-                        <Border Grid.Column="0" Background="#FFFFFF" CornerRadius="3"
-                                BorderBrush="#C0C8D2" BorderThickness="1" Padding="10,8">
-                            <DockPanel>
-                                <TextBlock DockPanel.Dock="Top" Text="PROMPT" Foreground="#7A8898"
-                                           FontFamily="Consolas" FontSize="20" FontWeight="Bold"
-                                           Margin="0,0,0,4"/>
-                                <TextBox x:Name="TxtCliPrompt" Background="#FFFFFF" Foreground="#1A2434"
-                                         BorderBrush="#C0C8D2" Padding="8,6" AcceptsReturn="True"
-                                         AcceptsTab="True" TextWrapping="Wrap"
-                                         VerticalScrollBarVisibility="Auto"
-                                         FontFamily="Consolas" FontSize="22"/>
-                            </DockPanel>
-                        </Border>
-
-                        <!-- Cards list -->
-                        <Border Grid.Column="2" Background="#FFFFFF" CornerRadius="3"
-                                BorderBrush="#C0C8D2" BorderThickness="1" Padding="10,8">
-                            <DockPanel>
-                                <DockPanel DockPanel.Dock="Top" Margin="0,0,0,4">
-                                    <TextBlock Text="CARDS" Foreground="#7A8898"
-                                               FontFamily="Consolas" FontSize="20" FontWeight="Bold"
-                                               VerticalAlignment="Center"/>
-                                    <Button x:Name="BtnCliCardsRefresh" Content="Refresh"
-                                            Style="{StaticResource ToolBtn}" DockPanel.Dock="Right"
-                                            Padding="12,4" MinHeight="36" FontSize="20" Margin="6,0,0,0"/>
-                                    <TextBox x:Name="TxtCliCardSearch" Background="#FFFFFF" Foreground="#4A5868"
-                                             BorderBrush="#C0C8D2" Padding="6,4" Margin="8,0,0,0"
-                                             FontFamily="Consolas" FontSize="20"
-                                             Tag="Search..." FontStyle="Italic"/>
-                                </DockPanel>
-                                <TextBlock x:Name="LblCliSelectedCards" DockPanel.Dock="Bottom"
-                                           Text="Selected: (none)" Foreground="#0078A8"
-                                           FontFamily="Consolas" FontSize="20" FontWeight="Bold"
-                                           Margin="0,4,0,0" TextWrapping="Wrap"/>
-                                <ListBox x:Name="LstCliCards" Background="#FFFFFF" Foreground="#1A2434"
-                                         BorderBrush="#C0C8D2" BorderThickness="1"
-                                         FontFamily="Consolas" FontSize="20"
-                                         SelectionMode="Multiple"
-                                         ScrollViewer.VerticalScrollBarVisibility="Auto"/>
-                            </DockPanel>
-                        </Border>
-                    </Grid>
 
                 </DockPanel>
             </TabItem>
         </TabControl>
     </DockPanel>
+    </Viewbox>
 </Window>
 "@
 
@@ -1485,11 +1395,7 @@ $namedElements = @(
     "BtnOpenGitHub","BtnOpenFolder","BtnOpenKanban","BtnStartKanbanServer","BtnStopKanbanServer","BtnCleanBuild","BtnPull","BtnPush","BtnPruneWorktrees",
     "BtnLogClear","BtnLogExport","ChkAutoScroll","TxtLogFilter","LogOutput",
     "DocList","DocContent",
-    "BtnCliActionGoal","BtnCliActionPlan","BtnCliActionInvestigate","BtnCliActionBugFix",
-    "BtnCliActionReview","BtnCliActionCustom","LblCliActiveAction",
-    "TxtCliPrompt","TxtCliCardSearch","LstCliCards",
-    "LblCliSelectedCards","BtnCliCardsRefresh",
-    "RdoCliModeInteractive","RdoCliModeHeadless","BtnCliLaunch","BtnCliLaunchCodex","BtnCliCopy","BtnCliReset"
+    "BtnCliLaunch","BtnCliLaunchUltra","BtnCliLaunchCodex"
 )
 foreach ($name in $namedElements) {
     $ui[$name] = $window.FindName($name)
@@ -3573,28 +3479,16 @@ function Start-Build {
 }
 
 # ============================================================================
-# Section 14a: Claude CLI panel (c125, pillar=Tooling)
+# Section 14a: CLI launcher panel (pillar=Tooling)
 #
-# Composes well-formed prompts for Claude Code CLI sessions, scoped to selected
-# kanban cards, with mandatory sprint-report output for the Dispatch orchestrator
-# to consume on its next turn.
-#
-# Design doc: context\designs\devwindow-claude-cli-panel.md
+# Opens a CLI session (Claude Code or Codex) in the project root. The earlier
+# prompt-composition workbench (action wraps, kanban cards, prompt box, headless
+# mode) was stripped -- the CLI tab is now just the two launch buttons.
 # ============================================================================
 
-$script:CliActiveAction      = ""           # "" or Goal/Plan/Investigate/BugFix/Review/Custom
-$script:CliCardsCache        = @()           # all active+backlog cards from kanban
-$script:CliSelectedCardIds   = @()           # ids of selected cards (preserved across filter)
 $script:CliClaudeExe         = $null         # resolved on first use
 $script:CliCodexExe          = $null         # resolved on first use
 $script:CliPowerShellExe     = $null         # resolved on first use
-$script:CliPreallocatedRange = "c126-c130"   # default reservation hint for spawned sessions
-$script:CliBodyText          = ""            # c127 correction: the user's substance (body slot content)
-$script:CliWrapPrefix        = ""            # c127 correction: current wrap's prefix, for body extraction
-$script:CliWrapSuffix        = ""            # c127 correction: current wrap's suffix, for body extraction
-$script:CliBugIdMemory       = ""            # c127: last entered B-NNN, prefilled on Bug Fix
-$script:CliBranchMemory      = ""            # c127: last entered branch, prefilled on Review
-$script:CliDialogResult      = $null         # c127: stash for modal input dialog return value
 
 function Get-CliClaudeExe {
     if ($script:CliClaudeExe) { return $script:CliClaudeExe }
@@ -3655,446 +3549,18 @@ function Get-CliPowerShellExe {
     return "powershell.exe"
 }
 
-function Get-CliKanbanState {
-    # Fetch the kanban state.json contents. Prefer the live server endpoint so
-    # we pick up uncommitted in-flight edits to the kanban; fall back to the
-    # on-disk file if the server is not running.
-    $port = 7531
-    if (Test-KanbanServerUp -Port $port) {
-        try {
-            $resp = Invoke-WebRequest -Uri ("http://127.0.0.1:" + $port + "/api/state") -UseBasicParsing -TimeoutSec 4
-            if ($resp.StatusCode -eq 200) {
-                return ($resp.Content | ConvertFrom-Json)
-            }
-        } catch {}
-    }
-    $statePath = Join-Path $script:ProjectRoot "tools\kanban\state.json"
-    if (Test-Path -LiteralPath $statePath) {
-        try { return (Get-Content -LiteralPath $statePath -Raw -Encoding UTF8 | ConvertFrom-Json) } catch {}
-    }
-    return $null
-}
-
-function Refresh-CliCardsList {
-    $state = Get-CliKanbanState
-    $cards = @()
-    if ($null -ne $state -and $null -ne $state.cards) {
-        # Filter to active + backlog; sort active first, then by priority, then order.
-        $filtered = @($state.cards | Where-Object { $_.column -eq "active" -or $_.column -eq "backlog" })
-        $cards = $filtered | Sort-Object `
-            @{Expression={ if ($_.column -eq "active") { 0 } else { 1 } }; Ascending=$true}, `
-            @{Expression={ if ($_.priority) { [int]$_.priority } else { 9 } }; Ascending=$true}, `
-            @{Expression={ if ($_.order) { [int]$_.order } else { 0 } }; Ascending=$true}
-    }
-    $script:CliCardsCache = @($cards)
-    Apply-CliCardsFilter
-}
-
-function Apply-CliCardsFilter {
-    if ($null -eq $ui["LstCliCards"]) { return }
-    $listBox = $ui["LstCliCards"]
-    $search = ""
-    if ($null -ne $ui["TxtCliCardSearch"]) {
-        $t = $ui["TxtCliCardSearch"].Text
-        if ($t -and $t -ne "Search...") { $search = $t.ToLowerInvariant() }
-    }
-    $listBox.Items.Clear()
-    foreach ($c in $script:CliCardsCache) {
-        $line = ("{0}  {1}  ({2}, {3})" -f $c.id, $c.title, $c.column, $c.pillar)
-        if ($search -ne "") {
-            if (-not ($line.ToLowerInvariant().Contains($search))) { continue }
-        }
-        [void]$listBox.Items.Add($line)
-        # Restore selection state from CliSelectedCardIds.
-        if ($script:CliSelectedCardIds -contains $c.id) {
-            $listBox.SelectedItems.Add($line) | Out-Null
-        }
-    }
-    Update-CliSelectedCardLabel
-}
-
-function Update-CliSelectedCardLabel {
-    if ($null -eq $ui["LblCliSelectedCards"]) { return }
-    if ($script:CliSelectedCardIds.Count -eq 0) {
-        $ui["LblCliSelectedCards"].Text = "Selected: (none)"
-    } else {
-        $ui["LblCliSelectedCards"].Text = "Selected: " + ($script:CliSelectedCardIds -join ", ")
-    }
-}
-
-function Sync-CliSelectedCardsFromListBox {
-    if ($null -eq $ui["LstCliCards"]) { return }
-    $selected = @()
-    foreach ($item in $ui["LstCliCards"].SelectedItems) {
-        $line = [string]$item
-        $idx = $line.IndexOf("  ")
-        if ($idx -gt 0) {
-            $id = $line.Substring(0, $idx).Trim()
-            if ($id -ne "") { $selected += $id }
-        }
-    }
-    $script:CliSelectedCardIds = @($selected)
-    Update-CliSelectedCardLabel
-}
-
-function Get-CliWrappingPrefix {
-    param([string]$action, [string]$bugId, [string]$branch)
-    switch ($action) {
-        "Goal"        { return "/goal " }
-        "Plan"        { return "Plan the following without executing any code. Output a structured plan:`n`n" }
-        "Investigate" { return "Investigate the following. Do not modify code. Report findings only:`n`n" }
-        "BugFix"      {
-            $bug = if ($bugId -and $bugId.Trim() -ne "") { $bugId.Trim() } else { "B-NNN" }
-            return ("Fix bug " + $bug + ": ")
-        }
-        "Review"      {
-            $b = if ($branch) { $branch.Trim() } else { "" }
-            if ($b -ne "") {
-                return ("Review the following. Scope: branch " + $b + ":`n`n")
-            }
-            return "Review the following. Scope: selected cards' affected files:`n`n"
-        }
-        "Custom"      { return "" }
-    }
-    return ""
-}
-
-function Get-CliWrappingSuffix {
-    param([string]$action, [string]$bugId)
-    if ($action -eq "BugFix") {
-        $bug = if ($bugId -and $bugId.Trim() -ne "") { $bugId.Trim() } else { "B-NNN" }
-        return ("`n`nWrite or update the regression test at tools/smoke-verify/tests/bugs/" + $bug + ".json first, then fix until it passes.")
-    }
-    return ""
-}
-
-function Show-CliInputDialog {
-    # Small modal WPF input dialog. Returns the entered string, OR $null if the
-    # user cancelled. Allows empty input by default (the consumer decides whether
-    # that is valid). Parented to $window so it modal-blocks the dev-window.
-    param(
-        [string]$Title       = "Input",
-        [string]$Prompt      = "Value:",
-        [string]$DefaultText = "",
-        [string]$Placeholder = ""
-    )
-
-    [xml]$dlgXaml = @"
-<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="$Title"
-        Width="520" Height="200"
-        WindowStartupLocation="CenterOwner"
-        ResizeMode="NoResize"
-        ShowInTaskbar="False"
-        Background="#ECEEF2"
-        TextElement.FontFamily="Segoe UI"
-        TextElement.FontSize="20"
-        TextElement.FontWeight="Bold"
-        TextElement.Foreground="#1A2434">
-    <Grid Margin="18,16,18,16">
-        <Grid.RowDefinitions>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="*"/>
-            <RowDefinition Height="Auto"/>
-        </Grid.RowDefinitions>
-        <TextBlock Grid.Row="0" x:Name="DlgPrompt"
-                   Foreground="#1A2434" FontSize="20" FontWeight="Bold"
-                   Margin="0,0,0,8" TextWrapping="Wrap"/>
-        <TextBox Grid.Row="1" x:Name="DlgInput"
-                 Background="#FFFFFF" Foreground="#1A2434"
-                 BorderBrush="#C0C8D2" BorderThickness="1" Padding="8,6"
-                 FontFamily="Consolas" FontSize="22"/>
-        <TextBlock Grid.Row="2" x:Name="DlgPlaceholder"
-                   Foreground="#7A8898" FontFamily="Segoe UI" FontSize="18"
-                   Margin="0,6,0,0" TextWrapping="Wrap"/>
-        <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,10,0,0">
-            <Button x:Name="BtnDlgOk" Content="OK" Width="100" Height="40"
-                    Background="#0078A8" Foreground="#FFFFFF" BorderThickness="0"
-                    FontSize="20" FontWeight="Bold" Margin="0,0,8,0"/>
-            <Button x:Name="BtnDlgCancel" Content="Cancel" Width="100" Height="40"
-                    Background="#FFFFFF" Foreground="#1A2434"
-                    BorderBrush="#B0B8C2" BorderThickness="1"
-                    FontSize="20" FontWeight="Bold"/>
-        </StackPanel>
-    </Grid>
-</Window>
-"@
-
-    $reader = New-Object System.Xml.XmlNodeReader $dlgXaml
-    $dlg = [Windows.Markup.XamlReader]::Load($reader)
-    $dlg.Owner = $window
-
-    $dlg.FindName("DlgPrompt").Text      = $Prompt
-    $dlg.FindName("DlgInput").Text       = $DefaultText
-    $dlg.FindName("DlgPlaceholder").Text = $Placeholder
-
-    $script:CliDialogResult = $null
-    $dlg.FindName("BtnDlgOk").Add_Click({
-        $script:CliDialogResult = $dlg.FindName("DlgInput").Text
-        $dlg.Close()
-    }.GetNewClosure())
-    $dlg.FindName("BtnDlgCancel").Add_Click({
-        $script:CliDialogResult = $null
-        $dlg.Close()
-    }.GetNewClosure())
-    $dlg.Add_KeyDown({
-        param($s, $e)
-        if ($e.Key -eq [System.Windows.Input.Key]::Return) {
-            $script:CliDialogResult = $dlg.FindName("DlgInput").Text
-            $dlg.Close()
-        } elseif ($e.Key -eq [System.Windows.Input.Key]::Escape) {
-            $script:CliDialogResult = $null
-            $dlg.Close()
-        }
-    }.GetNewClosure())
-    $dlg.FindName("DlgInput").Focus() | Out-Null
-    [void]$dlg.ShowDialog()
-    return $script:CliDialogResult
-}
-
-function Build-CliCardsContextBlock {
-    if ($script:CliSelectedCardIds.Count -eq 0) { return "" }
-    $lines = @("Working cards:")
-    foreach ($id in $script:CliSelectedCardIds) {
-        $card = $script:CliCardsCache | Where-Object { $_.id -eq $id } | Select-Object -First 1
-        if ($null -ne $card) {
-            $lines += ("- " + $card.id + ": " + $card.title + " (" + $card.column + ", " + $card.pillar + ")")
-        } else {
-            $lines += ("- " + $id)
-        }
-    }
-    return ($lines -join "`n")
-}
-
-function Build-CliStandingRulesBlock {
-    return @"
-[Standing rules]
-- Apply all PD2 standing rules from feedback auto-memory (commit-message standard
-  "<Pillar> - cNNN: <summary>" with body + Refs line, dirty-tree relaxed auto-merge
-  to dev, no em-dashes in any generated file, hierarchical log channels, BYOR-compliant,
-  queued build tool only, descriptive headings).
-- Pre-allocated card IDs for this session: $($script:CliPreallocatedRange). Use these for any NEW
-  sub-cards. Do NOT generate from kanban state.
-- Update tools/kanban/state.json reflecting all card transitions, pending_completion
-  for any completed cards (orchestrator-confirmed flow).
-- At session end, write a sprint report to
-  .claude/sprint-reports/sprint-YYYY-MM-DDTHHMMSS.md (UTC ISO 8601 in filename,
-  hyphen-separated). Sections required:
-  - ## Goal       verbatim user prompt
-  - ## Shipped    what landed (commit SHAs, files touched, kanban transitions)
-  - ## Decisions  calls made and rationale
-  - ## Blockers   anything that stopped progress
-  - ## Follow-ups work surfaced but not done
-  - ## Kanban Changes  exact cNNN transitions (created, updated, columns moved)
-  - ## Files Touched   list with brief change description
-  - ## Verification Notes  for orchestrator: what to spot-check before disposing.
-- The orchestrator (dispatch session) will read the sprint report on next interaction,
-  verify against kanban + git state, then ARCHIVE (move to
-  .claude/sprint-reports/archive/<same-filename>.md) once verified. Reports are
-  NEVER deleted - they have long-term reference value. The active directory
-  .claude/sprint-reports/ holds only unprocessed reports; the archive is the
-  permanent record of every sprint the orchestrator has consumed.
-"@
-}
-
-# (c127 correction 2026-05-12: the empty-body-template `Build-CliActionTemplate`
-# function was removed. Apply-CliActionTemplate now builds the wrap inline
-# around a non-empty body so the user's substance is preserved across
-# action-button switches.)
-
-function Build-CliComposedPrompt {
-    # c127 correction: TxtCliPrompt IS the composed prompt. LAUNCH sends it
-    # verbatim. The action-button click flow rewrites TxtCliPrompt with the
-    # new wrap around the preserved user substance (CliBodyText), so the
-    # textbox always reflects what will be sent.
-    if ($ui["TxtCliPrompt"]) { return ([string]$ui["TxtCliPrompt"].Text) }
-    return ""
-}
-
-function Extract-CliBodyFromCurrentText {
-    # c127 correction: when a wrap is currently applied (CliActiveAction != ""),
-    # extract the user's substance by stripping the stored prefix and suffix
-    # from TxtCliPrompt.Text. If the wrap markers don't match (user nuked the
-    # wrap wholesale), fall back to treating the entire textbox content as the
-    # new substance.
-    if ($null -eq $ui["TxtCliPrompt"]) { return "" }
-    $text = [string]$ui["TxtCliPrompt"].Text
-    if ($script:CliActiveAction -eq "") { return $text }
-    $prefix = $script:CliWrapPrefix
-    $suffix = $script:CliWrapSuffix
-    if ($text.StartsWith($prefix) -and $text.EndsWith($suffix)) {
-        $bodyLen = $text.Length - $prefix.Length - $suffix.Length
-        if ($bodyLen -ge 0) {
-            return $text.Substring($prefix.Length, $bodyLen)
-        }
-    }
-    return $text
-}
-
-function Apply-CliActionTemplate {
-    # c127 correction: wrap the given body with the action's prefix/suffix +
-    # cards block + standing rules, and write the full wrap into TxtCliPrompt.
-    # Stores CliWrapPrefix / CliWrapSuffix so a later action click can extract
-    # the body back out of TxtCliPrompt.Text reliably. Caret lands at the
-    # END of the body so the user can keep typing inline.
-    param([string]$action, [string]$body, [string]$bugId, [string]$branch)
-
-    $prefix       = Get-CliWrappingPrefix -action $action -bugId $bugId -branch $branch
-    $actionSuffix = Get-CliWrappingSuffix -action $action -bugId $bugId
-    $cardsBlock   = Build-CliCardsContextBlock
-    $standing     = Build-CliStandingRulesBlock
-
-    # Trailing tail = action suffix + cards block (optional) + standing rules.
-    $tailParts = @($actionSuffix)
-    if ($cardsBlock -ne "") { $tailParts += ""; $tailParts += $cardsBlock }
-    $tailParts += ""
-    $tailParts += $standing
-    $tail = ($tailParts -join "`n")
-
-    $script:CliWrapPrefix = $prefix
-    $script:CliWrapSuffix = $tail
-    $script:CliBodyText   = $body
-
-    $full = $prefix + $body + $tail
-    if ($ui["TxtCliPrompt"]) {
-        $ui["TxtCliPrompt"].Text = $full
-        try {
-            $caret = $prefix.Length + $body.Length
-            $ui["TxtCliPrompt"].SelectionStart  = $caret
-            $ui["TxtCliPrompt"].SelectionLength = 0
-            $ui["TxtCliPrompt"].Focus() | Out-Null
-        } catch {}
-    }
-}
-
-function Update-CliActionButtonVisuals {
-    # c127 correction: highlight the active action button with PD cyan
-    # background + white text + dark cyan border so the user sees at a glance
-    # which wrap is applied. Inactive buttons fall back to the ToolBtn style
-    # defaults via ClearValue (so the style's mouse-over trigger still works).
-    $cyanBrush     = New-Object System.Windows.Media.SolidColorBrush ([System.Windows.Media.ColorConverter]::ConvertFromString("#0078A8"))
-    $whiteBrush    = New-Object System.Windows.Media.SolidColorBrush ([System.Windows.Media.ColorConverter]::ConvertFromString("#FFFFFF"))
-    $darkCyanBrush = New-Object System.Windows.Media.SolidColorBrush ([System.Windows.Media.ColorConverter]::ConvertFromString("#005A80"))
-
-    $map = @{
-        "Goal"        = "BtnCliActionGoal"
-        "Plan"        = "BtnCliActionPlan"
-        "Investigate" = "BtnCliActionInvestigate"
-        "BugFix"      = "BtnCliActionBugFix"
-        "Review"      = "BtnCliActionReview"
-        "Custom"      = "BtnCliActionCustom"
-    }
-    foreach ($action in @($map.Keys)) {
-        $btn = $ui[$map[$action]]
-        if ($null -eq $btn) { continue }
-        if ($action -eq $script:CliActiveAction) {
-            $btn.Background      = $cyanBrush
-            $btn.Foreground      = $whiteBrush
-            $btn.BorderBrush     = $darkCyanBrush
-            $btn.BorderThickness = "2"
-        } else {
-            $btn.ClearValue([System.Windows.Controls.Control]::BackgroundProperty)
-            $btn.ClearValue([System.Windows.Controls.Control]::ForegroundProperty)
-            $btn.ClearValue([System.Windows.Controls.Control]::BorderBrushProperty)
-            $btn.ClearValue([System.Windows.Controls.Control]::BorderThicknessProperty)
-        }
-    }
-}
-
-function Set-CliAction([string]$action) {
-    # c127 correction: action button click preserves the user's substance and
-    # swaps the wrapping around it. Bug Fix / Review collect their action-
-    # specific inputs via Show-CliInputDialog first; Cancel aborts the click
-    # with NO change to the panel state. No overwrite-modal, no destruction
-    # of typed content -- the body is extracted from the current textbox and
-    # re-wrapped with the new template.
-
-    $bugId  = $script:CliBugIdMemory
-    $branch = $script:CliBranchMemory
-
-    if ($action -eq "BugFix") {
-        $entered = Show-CliInputDialog `
-            -Title       "Bug Fix" `
-            -Prompt      "Bug ID (e.g. B-999):" `
-            -DefaultText $script:CliBugIdMemory `
-            -Placeholder "Required. The fix wrap and regression-test path use this ID."
-        if ($null -eq $entered) { return }
-        $bugId = $entered.Trim()
-        if ($bugId -eq "") { return }
-        $script:CliBugIdMemory = $bugId
-    }
-    elseif ($action -eq "Review") {
-        $entered = Show-CliInputDialog `
-            -Title       "Review" `
-            -Prompt      "Branch (optional):" `
-            -DefaultText $script:CliBranchMemory `
-            -Placeholder "Leave blank to scope to the selected cards' affected files."
-        if ($null -eq $entered) { return }
-        $branch = $entered.Trim()
-        $script:CliBranchMemory = $branch
-    }
-
-    $body = Extract-CliBodyFromCurrentText
-
-    $script:CliActiveAction = $action
-    if ($null -ne $ui["LblCliActiveAction"]) {
-        $ui["LblCliActiveAction"].Text = "active: " + $action
-    }
-    Apply-CliActionTemplate -action $action -body $body -bugId $bugId -branch $branch
-    Update-CliActionButtonVisuals
-}
-
-function Reset-CliPanel {
-    if ($ui["TxtCliPrompt"]) { $ui["TxtCliPrompt"].Text = "" }
-    if ($ui["TxtCliCardSearch"]) { $ui["TxtCliCardSearch"].Text = "" }
-    $script:CliSelectedCardIds = @()
-    $script:CliActiveAction    = ""
-    $script:CliBodyText        = ""
-    $script:CliWrapPrefix      = ""
-    $script:CliWrapSuffix      = ""
-    $script:CliBugIdMemory     = ""
-    $script:CliBranchMemory    = ""
-    if ($ui["LstCliCards"]) { $ui["LstCliCards"].SelectedItems.Clear() }
-    if ($null -ne $ui["LblCliActiveAction"]) {
-        $ui["LblCliActiveAction"].Text = "active: (none)"
-    }
-    Update-CliSelectedCardLabel
-    Update-CliActionButtonVisuals
-}
-
-function Get-CliPromptTempPath {
-    $ts = (Get-Date).ToUniversalTime().ToString("yyyyMMddTHHmmssZ")
-    $dir = $env:TEMP
-    if (-not $dir) { $dir = Join-Path $script:ProjectRoot ".claude\scratch" }
-    if (-not (Test-Path -LiteralPath $dir)) {
-        try { New-Item -ItemType Directory -Force -Path $dir | Out-Null } catch {}
-    }
-    return (Join-Path $dir ("pd2-cli-prompt-" + $ts + ".txt"))
-}
-
-function Ensure-CliSprintReportDirs {
-    # Sprint reports land at .claude/sprint-reports/ and the orchestrator moves
-    # consumed reports into .claude/sprint-reports/archive/. We create both at
-    # launch time so the directory shape is correct on a fresh checkout even
-    # before the orchestrator has had a chance to archive anything. The launcher
-    # never writes the archive itself; that is the orchestrator's job.
-    $base = Join-Path $script:ProjectRoot ".claude\sprint-reports"
-    $arch = Join-Path $base "archive"
-    foreach ($d in @($base, $arch)) {
-        if (-not (Test-Path -LiteralPath $d)) {
-            try { New-Item -ItemType Directory -Force -Path $d | Out-Null } catch {}
-        }
-    }
-}
-
 function Invoke-CliLaunch {
-    $composed = Build-CliComposedPrompt
-    if (-not $composed -or $composed.Trim() -eq "") {
-        [System.Windows.MessageBox]::Show("Composed prompt is empty.", "Claude CLI", "OK", "Information") | Out-Null
-        return
-    }
+    # Open the Claude Code CLI interactively in a new console at the project
+    # root. The prompt-composition workbench was removed; this just launches
+    # the CLI so Mike can drive it directly.
+    #
+    # -Ultracode starts the session with ultracode mode ON. Ultracode is a
+    # Claude Code session SETTING -- not an --effort level (--effort only takes
+    # low/medium/high/xhigh/max) and not an env var -- so we enable it at launch
+    # via "--settings". We write {"ultracode": true} to a temp JSON file and
+    # pass its PATH (--settings accepts a file or a JSON string), which avoids
+    # the fragile inline-JSON quoting that breaks going through cmd.exe.
+    param([switch]$Ultracode)
 
     $claudeExe = Get-CliClaudeExe
     if (-not $claudeExe) {
@@ -4103,113 +3569,39 @@ function Invoke-CliLaunch {
         return
     }
 
-    Ensure-CliSprintReportDirs
-
-    $promptPath = Get-CliPromptTempPath
-    try {
-        # UTF-8 with BOM. Set-Content -Encoding UTF8 emits a BOM by default in
-        # Windows PowerShell 5.1; that is what we want so the prompt round-trips
-        # safely through clipboard and stdin redirection.
-        Set-Content -LiteralPath $promptPath -Value $composed -Encoding UTF8
-    } catch {
-        Add-LogLine ("CLI: failed to write prompt file: " + $_.Exception.Message) "#B81818"
-        return
+    $extraArgs = ""
+    $logLabel  = "claude started in new console"
+    if ($Ultracode) {
+        $settingsPath = Join-Path $env:TEMP "pd2-devwindow-ultracode-settings.json"
+        try {
+            # UTF-8 without BOM -- node's JSON.parse chokes on a leading BOM.
+            [System.IO.File]::WriteAllText($settingsPath, '{"ultracode": true}', (New-Object System.Text.UTF8Encoding($false)))
+        } catch {
+            Add-LogLine ("CLI: failed to write ultracode settings file: " + $_.Exception.Message) "#B81818"
+            [System.Windows.MessageBox]::Show("Failed to write ultracode settings file: " + $_.Exception.Message, "Claude CLI", "OK", "Warning") | Out-Null
+            return
+        }
+        $extraArgs = " --settings `"" + $settingsPath + "`""
+        $logLabel  = "claude started in new console (ultracode on)"
     }
 
-    $headless = $false
-    if ($ui["RdoCliModeHeadless"] -and $ui["RdoCliModeHeadless"].IsChecked) { $headless = $true }
-
-    if ($headless) {
-        Invoke-CliLaunchHeadless -PromptPath $promptPath -ClaudeExe $claudeExe -Composed $composed
+    # cmd /K keeps the console open after claude exits. When passing extra args
+    # we wrap the whole command in an outer quote pair so cmd strips only that
+    # pair, leaving "claude.cmd" and the quoted settings path intact.
+    if ($extraArgs -ne "") {
+        $cmdLine = "/K `"`"" + $claudeExe + "`"" + $extraArgs + "`""
     } else {
-        Invoke-CliLaunchInteractive -PromptPath $promptPath -ClaudeExe $claudeExe -Composed $composed
+        $cmdLine = "/K `"" + $claudeExe + "`""
     }
-}
-
-function Invoke-CliLaunchInteractive {
-    param([string]$PromptPath, [string]$ClaudeExe, [string]$Composed)
-    # Copy prompt to clipboard so Mike can paste with Ctrl+V in the new console.
-    try { [System.Windows.Clipboard]::SetText($Composed) } catch {}
-
-    # Build a cmd.exe command line that:
-    #  1. echoes a "paste with Ctrl+V" hint
-    #  2. starts claude (no args, picks up prompt via paste)
-    #  3. keeps the window open with /K after claude exits
-    $hint = "echo Prompt copied to clipboard. Paste with Ctrl+V into the claude prompt, then press Enter."
-    $cmdLine = "/K " + $hint + " && `"" + $ClaudeExe + "`""
     try {
         Start-Process -FilePath "cmd.exe" `
                       -ArgumentList $cmdLine `
                       -WorkingDirectory $script:ProjectRoot
-        Add-LogSessionLine ">>> CLI launch (interactive): claude started in new console. Prompt copied to clipboard." "#0078A8"
-        Add-LogLine ("CLI: prompt file at " + $PromptPath) "#44586C"
+        Add-LogSessionLine (">>> CLI launch: " + $logLabel + ".") "#0078A8"
     } catch {
         Add-LogLine ("CLI: failed to launch cmd.exe: " + $_.Exception.Message) "#B81818"
         [System.Windows.MessageBox]::Show("Failed to launch console: " + $_.Exception.Message, "Claude CLI", "OK", "Warning") | Out-Null
     }
-}
-
-function Invoke-CliLaunchHeadless {
-    param([string]$PromptPath, [string]$ClaudeExe, [string]$Composed)
-
-    Add-LogSessionLine ">>> CLI launch (headless): claude --print, output below." "#0078A8"
-    Add-LogLine ("CLI: prompt file at " + $PromptPath) "#44586C"
-
-    Start-AsyncPoolAction `
-        -Script {
-            param($claudeExe, $promptPath, $projectRoot)
-            try {
-                $psi = New-Object System.Diagnostics.ProcessStartInfo
-                $psi.FileName = "cmd.exe"
-                # claude reads stdin when invoked with --print and stdin is piped.
-                # Redirect from the prompt file so we round-trip arbitrary characters.
-                $psi.Arguments = "/d /c `"`"" + $claudeExe + "`" --print --output-format text < `"" + $promptPath + "`"`""
-                $psi.WorkingDirectory = $projectRoot
-                $psi.UseShellExecute = $false
-                $psi.RedirectStandardOutput = $true
-                $psi.RedirectStandardError = $true
-                $psi.CreateNoWindow = $true
-                $p = [System.Diagnostics.Process]::Start($psi)
-                $stdout = $p.StandardOutput.ReadToEnd()
-                $stderr = $p.StandardError.ReadToEnd()
-                $p.WaitForExit()
-                [PSCustomObject]@{
-                    ExitCode = $p.ExitCode
-                    Stdout   = $stdout
-                    Stderr   = $stderr
-                }
-            } catch {
-                [PSCustomObject]@{ ExitCode = -1; Stdout = ""; Stderr = $_.Exception.Message }
-            }
-        } `
-        -Arguments @($ClaudeExe, $PromptPath, $script:ProjectRoot) `
-        -OnComplete {
-            param($result)
-            try {
-                $r = if ($result -and $result.Count -gt 0) { $result[0] } else { $result }
-                if ($null -eq $r) {
-                    Add-LogLine "CLI: headless run returned no result." "#A07810"
-                    return
-                }
-                if ($r.ExitCode -eq 0) {
-                    Add-LogSessionLine ">>> CLI headless: exit 0." "#10783A"
-                } else {
-                    Add-LogSessionLine (">>> CLI headless: exit " + $r.ExitCode + ".") "#B81818"
-                }
-                if ($r.Stdout -and $r.Stdout.Length -gt 0) {
-                    foreach ($line in ($r.Stdout -split "`r?`n")) {
-                        if ($line.Length -gt 0) { Add-LogLine $line "#1A2434" }
-                    }
-                }
-                if ($r.Stderr -and $r.Stderr.Length -gt 0) {
-                    foreach ($line in ($r.Stderr -split "`r?`n")) {
-                        if ($line.Length -gt 0) { Add-LogLine $line "#B86810" }
-                    }
-                }
-            } catch {
-                Add-LogLine ("CLI: headless callback error: " + $_.Exception.Message) "#B81818"
-            }
-        }
 }
 
 function Invoke-CliLaunchCodexAdmin {
@@ -4878,35 +4270,10 @@ $ui["LblAuthStatus"].Add_MouseLeftButtonDown({ Invoke-GhAuthHelp })
 $ui["StatusAuth"].Cursor = [System.Windows.Input.Cursors]::Hand
 $ui["StatusAuth"].Add_MouseLeftButtonDown({ Invoke-GhAuthHelp })
 
-# --- CLI panel (c125 + c127) event wiring ------------------------------------
-$ui["BtnCliActionGoal"].Add_Click({ Set-CliAction "Goal" })
-$ui["BtnCliActionPlan"].Add_Click({ Set-CliAction "Plan" })
-$ui["BtnCliActionInvestigate"].Add_Click({ Set-CliAction "Investigate" })
-$ui["BtnCliActionBugFix"].Add_Click({ Set-CliAction "BugFix" })
-$ui["BtnCliActionReview"].Add_Click({ Set-CliAction "Review" })
-$ui["BtnCliActionCustom"].Add_Click({ Set-CliAction "Custom" })
-
-# c127 correction: no TextChanged handler on TxtCliPrompt. The single prompt
-# textbox IS the composed prompt and the user can freely edit it. Body
-# extraction happens lazily at action-button-click time via
-# Extract-CliBodyFromCurrentText (strips the stored CliWrapPrefix/Suffix).
-
-$ui["BtnCliCardsRefresh"].Add_Click({ Refresh-CliCardsList })
-$ui["TxtCliCardSearch"].Add_TextChanged({ Apply-CliCardsFilter })
-$ui["LstCliCards"].Add_SelectionChanged({ Sync-CliSelectedCardsFromListBox })
-
+# --- CLI launcher panel event wiring -----------------------------------------
 $ui["BtnCliLaunch"].Add_Click({ Invoke-CliLaunch })
+$ui["BtnCliLaunchUltra"].Add_Click({ Invoke-CliLaunch -Ultracode })
 $ui["BtnCliLaunchCodex"].Add_Click({ Invoke-CliLaunchCodexAdmin })
-$ui["BtnCliCopy"].Add_Click({
-    try {
-        $composed = Build-CliComposedPrompt
-        [System.Windows.Clipboard]::SetText($composed)
-        Add-LogLine ("CLI: prompt copied to clipboard (" + $composed.Length + " chars).") "#0078A8"
-    } catch {
-        Add-LogLine ("CLI: clipboard copy failed: " + $_.Exception.Message) "#B81818"
-    }
-})
-$ui["BtnCliReset"].Add_Click({ Reset-CliPanel })
 
 # ============================================================================
 # Section 18: Timers (WPF DispatcherTimer)
@@ -5494,15 +4861,37 @@ $window.Add_KeyDown({
 $window.Add_Loaded({
     try {
         Write-DevWindowDebugLog "Window Loaded event" "INFO"
-        # Restore window size/position
+        # Restore window size/position, clamped to the current screen work area.
+        # A size saved on a larger monitor must not open bigger than (or off the
+        # edge of) a smaller screen -- the Viewbox scales the UI down to fit, but
+        # the window itself still has to land on-screen. WorkArea excludes the
+        # taskbar; values are in WPF device-independent units, same as Width/Top.
         $s = $script:Settings
+        $wa = $null
+        try { $wa = [System.Windows.SystemParameters]::WorkArea } catch {}
         if ($s.WindowWidth -gt 0 -and $s.WindowHeight -gt 0) {
-            $window.Width  = $s.WindowWidth
-            $window.Height = $s.WindowHeight
+            $w = [double]$s.WindowWidth
+            $h = [double]$s.WindowHeight
+            if ($wa) {
+                if ($w -gt $wa.Width)  { $w = $wa.Width }
+                if ($h -gt $wa.Height) { $h = $wa.Height }
+            }
+            $window.Width  = $w
+            $window.Height = $h
         }
         if ($s.WindowLeft -ge 0 -and $s.WindowTop -ge 0) {
-            $window.Left = $s.WindowLeft
-            $window.Top  = $s.WindowTop
+            $left = [double]$s.WindowLeft
+            $top  = [double]$s.WindowTop
+            if ($wa) {
+                $effW = $window.Width;  if ([double]::IsNaN($effW)) { $effW = $wa.Width }
+                $effH = $window.Height; if ([double]::IsNaN($effH)) { $effH = $wa.Height }
+                if ($left + $effW -gt $wa.Right)  { $left = [math]::Max($wa.Left, $wa.Right  - $effW) }
+                if ($top  + $effH -gt $wa.Bottom) { $top  = [math]::Max($wa.Top,  $wa.Bottom - $effH) }
+                if ($left -lt $wa.Left) { $left = $wa.Left }
+                if ($top  -lt $wa.Top)  { $top  = $wa.Top }
+            }
+            $window.Left = $left
+            $window.Top  = $top
             $window.WindowStartupLocation = [System.Windows.WindowStartupLocation]::Manual
         }
 
@@ -5535,24 +4924,6 @@ $window.Add_Loaded({
         Update-StatusMode
 
         Invoke-GhAuthBackgroundCheck
-
-        # CLI panel (c125 + c127): populate cards from kanban; init state has
-        # NO active action (no wrap applied yet). User types substance into the
-        # empty prompt and clicks an action button to wrap. Active-button
-        # visuals are also at default until the first click.
-        try {
-            Refresh-CliCardsList
-            $script:CliActiveAction = ""
-            $script:CliBodyText     = ""
-            $script:CliWrapPrefix   = ""
-            $script:CliWrapSuffix   = ""
-            if ($null -ne $ui["LblCliActiveAction"]) {
-                $ui["LblCliActiveAction"].Text = "active: (none)"
-            }
-            Update-CliActionButtonVisuals
-        } catch {
-            Write-DevWindowDebugLog ("CLI init failed: " + ($_ | Out-String)) "WARN"
-        }
 
         # Start timers: MainTimer (2s git poll) + StatusModeTimer (500ms live state).
         $script:MainTimer.Start()
