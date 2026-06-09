@@ -36,6 +36,7 @@ struct Accessor {
 struct Material {
 	int image = -1;
 	int secondary_image = -1;
+	int primary_texcoord = 0;
 	int wrap_s = GL_REPEAT;
 	int wrap_t = GL_REPEAT;
 	int secondary_wrap_s = GL_REPEAT;
@@ -60,8 +61,10 @@ struct Vertex {
 	float x;
 	float y;
 	float z;
-	float u;
-	float v;
+	float u0;
+	float v0;
+	float u1;
+	float v1;
 	float r;
 	float g;
 	float b;
@@ -94,6 +97,7 @@ struct Scene {
 	bool logged_waiting_camera = false;
 	bool logged_transform = false;
 	bool logged_gpu_unavailable = false;
+	bool shader_failed = false;
 	bool has_camera = false;
 	bool camera_ever_valid = false;
 	size_t alpha_texture_count = 0;
@@ -150,6 +154,31 @@ static int intMember(const crude_json::value &v, const char *key,
 
 static int glWrap(int value);
 
+static const crude_json::object *objectField(const crude_json::object &obj,
+	const char *key)
+{
+	auto it = obj.find(key);
+	return it != obj.end() && it->second.is_object()
+		? it->second.get_ptr<crude_json::object>() : nullptr;
+}
+
+static int intField(const crude_json::object &obj, const char *key,
+	int fallback)
+{
+	auto it = obj.find(key);
+	return it != obj.end() && it->second.is_number()
+		? (int)it->second.get<crude_json::number>() : fallback;
+}
+
+static bool probeLoggingEnabled()
+{
+	static int enabled = -1;
+	if (enabled < 0) {
+		enabled = sysArgCheck("--debug-scenario-render-probe") ? 1 : 0;
+	}
+	return enabled != 0;
+}
+
 static bool readTextureBinding(const crude_json::array *textures,
 	const crude_json::array *samplers, int tex_index, int &image,
 	int &wrap_s, int &wrap_t)
@@ -159,12 +188,20 @@ static bool readTextureBinding(const crude_json::array *textures,
 	}
 
 	const crude_json::value &tex = (*textures)[(size_t)tex_index];
-	image = intMember(tex, "source", -1);
-	int sampler = intMember(tex, "sampler", -1);
+	const crude_json::object *tex_obj = tex.get_ptr<crude_json::object>();
+	if (!tex_obj) {
+		return false;
+	}
+	image = intField(*tex_obj, "source", -1);
+	int sampler = intField(*tex_obj, "sampler", -1);
 	if (samplers && sampler >= 0 && (size_t)sampler < samplers->size()) {
 		const crude_json::value &s = (*samplers)[(size_t)sampler];
-		wrap_s = glWrap(intMember(s, "wrapS", 10497));
-		wrap_t = glWrap(intMember(s, "wrapT", 10497));
+		const crude_json::object *sampler_obj =
+			s.get_ptr<crude_json::object>();
+		if (sampler_obj) {
+			wrap_s = glWrap(intField(*sampler_obj, "wrapS", 10497));
+			wrap_t = glWrap(intField(*sampler_obj, "wrapT", 10497));
+		}
 	}
 	return image >= 0;
 }
@@ -366,26 +403,41 @@ static void parseMaterials(const crude_json::value &root,
 		return;
 	}
 
+	size_t mat_index = 0;
 	for (const auto &m : *mats) {
+		if (probeLoggingEnabled()) {
+			sysLogPrintf(LOG_NOTE,
+				"SCENARIO.RENDER.CPU_PROBE: parse material index=%zu",
+				mat_index);
+		}
 		Material mat;
-		const crude_json::object *pbr =
-			objectMember(m, "pbrMetallicRoughness");
+		const crude_json::object *mat_obj =
+			m.get_ptr<crude_json::object>();
+		const crude_json::object *pbr = mat_obj
+			? objectField(*mat_obj, "pbrMetallicRoughness") : nullptr;
 		if (pbr) {
 			auto it = pbr->find("baseColorTexture");
 			if (it != pbr->end() && it->second.is_object()) {
-				int tex_index = intMember(it->second, "index", -1);
+				const crude_json::object *base =
+					it->second.get_ptr<crude_json::object>();
+				int tex_index = base ? intField(*base, "index", -1) : -1;
+				mat.primary_texcoord = base ? intField(*base, "texCoord", 0) : 0;
 				readTextureBinding(textures, samplers, tex_index, mat.image,
 					mat.wrap_s, mat.wrap_t);
 			}
 		}
-		const crude_json::object *extras = objectMember(m, "extras");
+		const crude_json::object *extras = mat_obj
+			? objectField(*mat_obj, "extras") : nullptr;
 		const crude_json::object *pd2 =
-			extras ? objectMember(*extras, "pd2_material") : nullptr;
+			extras ? objectField(*extras, "pd2_material") : nullptr;
+		if (pd2) {
+			mat.primary_texcoord = 1;
+		}
 		const crude_json::object *secondary =
-			pd2 ? objectMember(*pd2, "secondaryTexture") : nullptr;
+			pd2 ? objectField(*pd2, "secondaryTexture") : nullptr;
 		if (secondary) {
-			int secondary_index = intMember(*secondary, "index", -1);
-			mat.secondary_texcoord = intMember(*secondary, "texCoord", 1);
+			int secondary_index = intField(*secondary, "index", -1);
+			mat.secondary_texcoord = intField(*secondary, "texCoord", 1);
 			if (readTextureBinding(textures, samplers, secondary_index,
 					mat.secondary_image, mat.secondary_wrap_s,
 					mat.secondary_wrap_t)) {
@@ -393,6 +445,12 @@ static void parseMaterials(const crude_json::value &root,
 			}
 		}
 		materials.push_back(mat);
+		if (probeLoggingEnabled()) {
+			sysLogPrintf(LOG_NOTE,
+				"SCENARIO.RENDER.CPU_PROBE: parsed material index=%zu image=%d secondary=%d",
+				mat_index, mat.image, mat.has_secondary ? 1 : 0);
+		}
+		mat_index++;
 	}
 }
 
@@ -413,9 +471,20 @@ static bool parseImages(const crude_json::value &root,
 			if ((uint64_t)bv.offset + bv.length <= bin_size) {
 				img.bytes = bin + bv.offset;
 				img.size = bv.length;
+				if (probeLoggingEnabled()) {
+					sysLogPrintf(LOG_NOTE,
+						"SCENARIO.RENDER.CPU_PROBE: decode image index=%zu name='%s' bytes=%u",
+						images.size(), img.name.c_str(), img.size);
+				}
 				int comp = 0;
 				img.rgba = stbi_load_from_memory(img.bytes,
 					(int)img.size, &img.width, &img.height, &comp, 4);
+				if (probeLoggingEnabled()) {
+					sysLogPrintf(LOG_NOTE,
+						"SCENARIO.RENDER.CPU_PROBE: decoded image index=%zu name='%s' size=%dx%d ok=%d",
+						images.size(), img.name.c_str(), img.width, img.height,
+						img.rgba ? 1 : 0);
+				}
 				img.has_nonopaque_alpha =
 					imageHasNonOpaqueAlpha(img.rgba, img.width, img.height);
 			}
@@ -471,22 +540,28 @@ static bool appendPrimitive(const crude_json::value &prim,
 	};
 
 	int pos_i = findAttr("POSITION");
-	int uv_i = findAttr("TEXCOORD_1");
-	if (uv_i < 0) {
-		uv_i = findAttr("TEXCOORD_0");
-	}
+	int uv0_i = findAttr("TEXCOORD_0");
+	int uv1_i = findAttr("TEXCOORD_1");
 	int color_i = findAttr("COLOR_0");
-	if (pos_i < 0 || uv_i < 0 || (size_t)pos_i >= accessors.size()
-			|| (size_t)uv_i >= accessors.size()) {
+	if (pos_i < 0 || (uv0_i < 0 && uv1_i < 0)
+			|| (size_t)pos_i >= accessors.size()) {
+		return false;
+	}
+	if (uv0_i >= 0 && (size_t)uv0_i >= accessors.size()) {
+		return false;
+	}
+	if (uv1_i >= 0 && (size_t)uv1_i >= accessors.size()) {
 		return false;
 	}
 
 	const Accessor &pos = accessors[(size_t)pos_i];
-	const Accessor &uv = accessors[(size_t)uv_i];
+	const Accessor *uv0 = uv0_i >= 0 ? &accessors[(size_t)uv0_i] : nullptr;
+	const Accessor *uv1 = uv1_i >= 0 ? &accessors[(size_t)uv1_i] : nullptr;
 	const Accessor *color =
 		(color_i >= 0 && (size_t)color_i < accessors.size())
 			? &accessors[(size_t)color_i] : nullptr;
-	if (pos.count != uv.count || (color && color->count != pos.count)) {
+	if ((uv0 && uv0->count != pos.count) || (uv1 && uv1->count != pos.count)
+			|| (color && color->count != pos.count)) {
 		return false;
 	}
 
@@ -508,10 +583,24 @@ static bool appendPrimitive(const crude_json::value &prim,
 			if (!readIndexValue(indices, views, bin, bin_size, i, &idx)
 					|| idx >= pos.count
 					|| !readFloatVec3(pos, views, bin, bin_size, idx,
-						&out.x, &out.y, &out.z)
-					|| !readFloatVec2(uv, views, bin, bin_size, idx,
-						&out.u, &out.v)) {
+						&out.x, &out.y, &out.z)) {
 				return false;
+			}
+			if (uv0 && !readFloatVec2(*uv0, views, bin, bin_size, idx,
+					&out.u0, &out.v0)) {
+				return false;
+			}
+			if (uv1 && !readFloatVec2(*uv1, views, bin, bin_size, idx,
+					&out.u1, &out.v1)) {
+				return false;
+			}
+			if (!uv0) {
+				out.u0 = out.u1;
+				out.v0 = out.v1;
+			}
+			if (!uv1) {
+				out.u1 = out.u0;
+				out.v1 = out.v0;
 			}
 			out.r = out.g = out.b = out.a = 1.0f;
 			if (color && !readFloatVec4(*color, views, bin, bin_size, idx,
@@ -527,10 +616,24 @@ static bool appendPrimitive(const crude_json::value &prim,
 		for (uint32_t i = 0; i < pos.count; i++) {
 			Vertex out {};
 			if (!readFloatVec3(pos, views, bin, bin_size, i,
-					&out.x, &out.y, &out.z)
-					|| !readFloatVec2(uv, views, bin, bin_size, i,
-						&out.u, &out.v)) {
+					&out.x, &out.y, &out.z)) {
 				return false;
+			}
+			if (uv0 && !readFloatVec2(*uv0, views, bin, bin_size, i,
+					&out.u0, &out.v0)) {
+				return false;
+			}
+			if (uv1 && !readFloatVec2(*uv1, views, bin, bin_size, i,
+					&out.u1, &out.v1)) {
+				return false;
+			}
+			if (!uv0) {
+				out.u0 = out.u1;
+				out.v0 = out.v1;
+			}
+			if (!uv1) {
+				out.u1 = out.u0;
+				out.v1 = out.v0;
 			}
 			out.r = out.g = out.b = out.a = 1.0f;
 			if (color && !readFloatVec4(*color, views, bin, bin_size, i,
@@ -559,6 +662,11 @@ static bool buildCpuScene(const char *scenario_id, const char *path,
 	if (!bytes || size < 28) {
 		if (bytes) std::free(bytes);
 		return false;
+	}
+	if (probeLoggingEnabled()) {
+		sysLogPrintf(LOG_NOTE,
+			"SCENARIO.RENDER.CPU_PROBE: loaded source scenario='%s' source=%s bytes=%u",
+			scenario_id ? scenario_id : "?", path ? path : "", size);
 	}
 
 	bool ok = false;
@@ -591,6 +699,11 @@ static bool buildCpuScene(const char *scenario_id, const char *path,
 
 	{
 		std::string json((const char *)json_bytes, (size_t)json_size);
+		if (probeLoggingEnabled()) {
+			sysLogPrintf(LOG_NOTE,
+				"SCENARIO.RENDER.CPU_PROBE: parse json bytes=%u bin=%u",
+				json_size, bin_size);
+		}
 		crude_json::value root = crude_json::value::parse(json);
 		std::vector<BufferView> views;
 		std::vector<Accessor> accessors;
@@ -598,12 +711,35 @@ static bool buildCpuScene(const char *scenario_id, const char *path,
 				|| !parseAccessors(root, accessors)) {
 			goto done;
 		}
+		if (probeLoggingEnabled()) {
+			sysLogPrintf(LOG_NOTE,
+				"SCENARIO.RENDER.CPU_PROBE: parsed json views=%zu accessors=%zu",
+				views.size(), accessors.size());
+		}
 
 		out.scenario_id = scenario_id ? scenario_id : "";
 		out.source_path = path ? path : "";
+		if (probeLoggingEnabled()) {
+			sysLogPrintf(LOG_NOTE,
+				"SCENARIO.RENDER.CPU_PROBE: begin materials");
+		}
 		parseMaterials(root, out.materials);
+		if (probeLoggingEnabled()) {
+			sysLogPrintf(LOG_NOTE,
+				"SCENARIO.RENDER.CPU_PROBE: end materials count=%zu begin images",
+				out.materials.size());
+		}
 		parseImages(root, views, bin, bin_size, out.images);
+		if (probeLoggingEnabled()) {
+			sysLogPrintf(LOG_NOTE,
+				"SCENARIO.RENDER.CPU_PROBE: end images count=%zu begin material alpha",
+				out.images.size());
+		}
 		markMaterialAlpha(out);
+		if (probeLoggingEnabled()) {
+			sysLogPrintf(LOG_NOTE,
+				"SCENARIO.RENDER.CPU_PROBE: end material alpha begin meshes");
+		}
 
 		const crude_json::array *meshes = arrayMember(root, "meshes");
 		if (!meshes) {
@@ -625,6 +761,12 @@ static bool buildCpuScene(const char *scenario_id, const char *path,
 				}
 			}
 		}
+		if (probeLoggingEnabled()) {
+			sysLogPrintf(LOG_NOTE,
+				"SCENARIO.RENDER.CPU_PROBE: built vertices=%zu groups=%zu materials=%zu images=%zu",
+				out.vertices.size(), out.groups.size(), out.materials.size(),
+				out.images.size());
+		}
 		ok = !out.vertices.empty() && !out.groups.empty();
 	}
 
@@ -642,11 +784,47 @@ done:
 	return ok;
 }
 
-static GLuint compileShader(GLenum type, const char *src)
+static void fillProbeResult(const Scene &scene,
+	scenario_scene_renderer_probe_t *out_probe)
+{
+	if (!out_probe) {
+		return;
+	}
+
+	out_probe->vertices = scene.vertices.size();
+	out_probe->groups = scene.groups.size();
+	out_probe->materials = scene.materials.size();
+	out_probe->images = scene.images.size();
+	out_probe->alpha_textures = scene.alpha_texture_count;
+	out_probe->alpha_materials = scene.alpha_material_count;
+	out_probe->secondary_materials = scene.secondary_material_count;
+}
+
+static GLuint compileShader(GLenum type, const char *src, const char *label)
 {
 	GLuint shader = glCreateShader(type);
+	if (!shader) {
+		sysLogPrintf(LOG_ERROR,
+			"SCENARIO.RENDER: shader create failed stage=%s",
+			label ? label : "?");
+		return 0;
+	}
+
 	glShaderSource(shader, 1, &src, nullptr);
 	glCompileShader(shader);
+
+	GLint ok = GL_FALSE;
+	glGetShaderiv(shader, GL_COMPILE_STATUS, &ok);
+	if (!ok) {
+		char log[1024] = {};
+		glGetShaderInfoLog(shader, sizeof(log), nullptr, log);
+		sysLogPrintf(LOG_ERROR,
+			"SCENARIO.RENDER: shader compile failed stage=%s log=%s",
+			label ? label : "?", log[0] ? log : "<empty>");
+		glDeleteShader(shader);
+		return 0;
+	}
+
 	return shader;
 }
 
@@ -794,23 +972,30 @@ static bool buildProjectionMatrix(float out[4][4], float fovy_degrees,
 	return true;
 }
 
-static void ensureShader(Scene &scene)
+static bool ensureShader(Scene &scene)
 {
 	if (scene.shader) {
-		return;
+		return true;
+	}
+
+	if (scene.shader_failed) {
+		return false;
 	}
 
 	static const char *vs =
 		"#version 130\n"
 		"uniform mat4 u_VP;\n"
 		"in vec3 a_Pos;\n"
-		"in vec2 a_Uv;\n"
+		"in vec2 a_Uv0;\n"
+		"in vec2 a_Uv1;\n"
 		"in vec4 a_Color;\n"
-		"out vec2 v_Uv;\n"
+		"out vec2 v_Uv0;\n"
+		"out vec2 v_Uv1;\n"
 		"out vec4 v_Color;\n"
 		"void main() {\n"
 		"  gl_Position = u_VP * vec4(a_Pos, 1.0);\n"
-		"  v_Uv = a_Uv;\n"
+		"  v_Uv0 = a_Uv0;\n"
+		"  v_Uv1 = a_Uv1;\n"
 		"  v_Color = a_Color;\n"
 		"}\n";
 	static const char *fs =
@@ -818,13 +1003,19 @@ static void ensureShader(Scene &scene)
 		"uniform sampler2D u_Tex;\n"
 		"uniform sampler2D u_Tex2;\n"
 		"uniform int u_HasTex2;\n"
-		"in vec2 v_Uv;\n"
+		"uniform int u_PrimaryTexcoord;\n"
+		"uniform int u_SecondaryTexcoord;\n"
+		"in vec2 v_Uv0;\n"
+		"in vec2 v_Uv1;\n"
 		"in vec4 v_Color;\n"
 		"out vec4 fragColor;\n"
+		"vec2 pdTexcoord(int channel) {\n"
+		"  return channel == 0 ? v_Uv0 : v_Uv1;\n"
+		"}\n"
 		"void main() {\n"
-		"  vec4 sampled = texture(u_Tex, v_Uv);\n"
+		"  vec4 sampled = texture(u_Tex, pdTexcoord(u_PrimaryTexcoord));\n"
 		"  if (u_HasTex2 != 0) {\n"
-		"    vec4 sampled2 = texture(u_Tex2, v_Uv);\n"
+		"    vec4 sampled2 = texture(u_Tex2, pdTexcoord(u_SecondaryTexcoord));\n"
 		"    sampled = mix(sampled, sampled2, 0.5);\n"
 		"  }\n"
 		"  vec4 outColor = sampled * v_Color;\n"
@@ -832,17 +1023,56 @@ static void ensureShader(Scene &scene)
 		"  fragColor = outColor;\n"
 		"}\n";
 
-	GLuint vert = compileShader(GL_VERTEX_SHADER, vs);
-	GLuint frag = compileShader(GL_FRAGMENT_SHADER, fs);
-	scene.shader = glCreateProgram();
-	glAttachShader(scene.shader, vert);
-	glAttachShader(scene.shader, frag);
-	glBindAttribLocation(scene.shader, 0, "a_Pos");
-	glBindAttribLocation(scene.shader, 1, "a_Uv");
-	glBindAttribLocation(scene.shader, 2, "a_Color");
-	glLinkProgram(scene.shader);
+	GLuint vert = compileShader(GL_VERTEX_SHADER, vs, "vertex");
+	if (!vert) {
+		scene.shader_failed = true;
+		return false;
+	}
+
+	GLuint frag = compileShader(GL_FRAGMENT_SHADER, fs, "fragment");
+	if (!frag) {
+		scene.shader_failed = true;
+		glDeleteShader(vert);
+		return false;
+	}
+
+	GLuint program = glCreateProgram();
+	if (!program) {
+		scene.shader_failed = true;
+		sysLogPrintf(LOG_ERROR,
+			"SCENARIO.RENDER: shader program create failed");
+		glDeleteShader(vert);
+		glDeleteShader(frag);
+		return false;
+	}
+
+	glAttachShader(program, vert);
+	glAttachShader(program, frag);
+	glBindAttribLocation(program, 0, "a_Pos");
+	glBindAttribLocation(program, 1, "a_Uv0");
+	glBindAttribLocation(program, 2, "a_Uv1");
+	glBindAttribLocation(program, 3, "a_Color");
+	glLinkProgram(program);
+
+	GLint ok = GL_FALSE;
+	glGetProgramiv(program, GL_LINK_STATUS, &ok);
+	if (!ok) {
+		char log[1024] = {};
+		glGetProgramInfoLog(program, sizeof(log), nullptr, log);
+		sysLogPrintf(LOG_ERROR,
+			"SCENARIO.RENDER: shader link failed log=%s",
+			log[0] ? log : "<empty>");
+		scene.shader_failed = true;
+		glDeleteShader(vert);
+		glDeleteShader(frag);
+		glDeleteProgram(program);
+		return false;
+	}
+
 	glDeleteShader(vert);
 	glDeleteShader(frag);
+	scene.shader = program;
+	return true;
 }
 
 static void ensureGpu(Scene &scene)
@@ -851,7 +1081,9 @@ static void ensureGpu(Scene &scene)
 		return;
 	}
 
-	ensureShader(scene);
+	if (!ensureShader(scene)) {
+		return;
+	}
 
 	if (!scene.white_tex) {
 		const uint8_t white[4] = { 255, 255, 255, 255 };
@@ -893,8 +1125,11 @@ static void ensureGpu(Scene &scene)
 	glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, sizeof(Vertex),
 		(void *)(3 * sizeof(float)));
 	glEnableVertexAttribArray(2);
-	glVertexAttribPointer(2, 4, GL_FLOAT, GL_FALSE, sizeof(Vertex),
+	glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, sizeof(Vertex),
 		(void *)(5 * sizeof(float)));
+	glEnableVertexAttribArray(3);
+	glVertexAttribPointer(3, 4, GL_FLOAT, GL_FALSE, sizeof(Vertex),
+		(void *)(7 * sizeof(float)));
 	glBindVertexArray(0);
 	glBindBuffer(GL_ARRAY_BUFFER, 0);
 	glBindTexture(GL_TEXTURE_2D, 0);
@@ -1003,6 +1238,29 @@ static void logTransformProbe(Scene &scene)
 }
 
 } // namespace
+
+extern "C" int scenarioSceneRendererProbeSource(const char *scenario_id,
+	const char *scene_path, scenario_scene_renderer_probe_t *out_probe)
+{
+	if (!scene_path || !scene_path[0]) {
+		if (out_probe) {
+			*out_probe = scenario_scene_renderer_probe_t {};
+		}
+		return 0;
+	}
+
+	Scene probe;
+	if (!buildCpuScene(scenario_id, scene_path, probe)) {
+		if (out_probe) {
+			*out_probe = scenario_scene_renderer_probe_t {};
+		}
+		return 0;
+	}
+
+	fillProbeResult(probe, out_probe);
+	freeScene(probe);
+	return 1;
+}
 
 extern "C" int scenarioSceneRendererActivate(const char *scenario_id,
 	const char *scene_path)
@@ -1135,6 +1393,7 @@ extern "C" void scenarioSceneRendererRender(int width, int height)
 	GLint prev_texture1 = 0;
 	GLint prev_active_texture = GL_TEXTURE0;
 	GLint prev_vertex_array = 0;
+	GLint prev_viewport[4] = {};
 	GLint prev_depth_func = GL_LESS;
 	GLboolean prev_depth_mask = GL_TRUE;
 	GLboolean prev_depth_test = GL_FALSE;
@@ -1144,6 +1403,7 @@ extern "C" void scenarioSceneRendererRender(int width, int height)
 	glGetIntegerv(GL_CURRENT_PROGRAM, &prev_program);
 	glGetIntegerv(GL_TEXTURE_BINDING_2D, &prev_texture);
 	glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &prev_vertex_array);
+	glGetIntegerv(GL_VIEWPORT, prev_viewport);
 	glGetIntegerv(GL_DEPTH_FUNC, &prev_depth_func);
 	glGetBooleanv(GL_DEPTH_WRITEMASK, &prev_depth_mask);
 	prev_depth_test = glIsEnabled(GL_DEPTH_TEST);
@@ -1170,6 +1430,10 @@ extern "C" void scenarioSceneRendererRender(int width, int height)
 	GLint tex_loc = glGetUniformLocation(g_scene.shader, "u_Tex");
 	GLint tex2_loc = glGetUniformLocation(g_scene.shader, "u_Tex2");
 	GLint has_tex2_loc = glGetUniformLocation(g_scene.shader, "u_HasTex2");
+	GLint primary_texcoord_loc =
+		glGetUniformLocation(g_scene.shader, "u_PrimaryTexcoord");
+	GLint secondary_texcoord_loc =
+		glGetUniformLocation(g_scene.shader, "u_SecondaryTexcoord");
 	glUniformMatrix4fv(vp_loc, 1, GL_FALSE,
 		(const float *)g_scene.view_projection);
 	glUniform1i(tex_loc, 0);
@@ -1184,9 +1448,13 @@ extern "C" void scenarioSceneRendererRender(int width, int height)
 		int wrap2_s = GL_REPEAT;
 		int wrap2_t = GL_REPEAT;
 		int has_tex2 = 0;
+		int primary_texcoord = 0;
+		int secondary_texcoord = 1;
 		if (group.material >= 0
 				&& (size_t)group.material < g_scene.materials.size()) {
 			const Material &mat = g_scene.materials[(size_t)group.material];
+			primary_texcoord = mat.primary_texcoord == 0 ? 0 : 1;
+			secondary_texcoord = mat.secondary_texcoord == 0 ? 0 : 1;
 			wrap_s = mat.wrap_s;
 			wrap_t = mat.wrap_t;
 			wrap2_s = mat.secondary_wrap_s;
@@ -1203,6 +1471,8 @@ extern "C" void scenarioSceneRendererRender(int width, int height)
 			}
 		}
 		glUniform1i(has_tex2_loc, has_tex2);
+		glUniform1i(primary_texcoord_loc, primary_texcoord);
+		glUniform1i(secondary_texcoord_loc, secondary_texcoord);
 		glActiveTexture(GL_TEXTURE1);
 		glBindTexture(GL_TEXTURE_2D, tex2);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, wrap2_s);
@@ -1229,6 +1499,8 @@ extern "C" void scenarioSceneRendererRender(int width, int height)
 	glBindTexture(GL_TEXTURE_2D, (GLuint)prev_texture);
 	glActiveTexture((GLenum)prev_active_texture);
 	glBindVertexArray((GLuint)prev_vertex_array);
+	glViewport(prev_viewport[0], prev_viewport[1], prev_viewport[2],
+		prev_viewport[3]);
 	if (prev_depth_test) {
 		glEnable(GL_DEPTH_TEST);
 	} else {

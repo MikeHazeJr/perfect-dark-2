@@ -29,8 +29,10 @@
 #include "constants.h"
 #include "asset_archive_policy.h"
 #include "assetcatalog.h"
+#include "assetcatalog_weapon_slots.h"
 #include "assetcatalog_deps.h"
 #include "assetcatalog_scanner.h"
+#include "loader_pool.h"
 #include "modarchive.h"
 #include "romdata.h"
 #include "system.h"
@@ -357,6 +359,7 @@ const char *modiniTemplateForKind(const char *kind)
 			"; catalog_id = mod:effect_id\n"
 			"name = New Effect\n"
 			"effect_file = effect.graph.json\n"
+			"timeline_file = timeline.json\n"
 			"; texture_archive = dependencies/assets/texture/texture.pdtexture\n"
 			"; audio_archive = dependencies/assets/audio/effect.pdsfx\n";
 	}
@@ -472,6 +475,7 @@ const char *modiniTemplateForKind(const char *kind)
 			"collision_fallback = override\n"
 			"\n"
 			"[setup]\n"
+			"portals_file = portals.json\n"
 			"pads_file = pads.json\n"
 			"spawns_file = spawns.json\n"
 			"volumes_file = volumes.json\n"
@@ -480,6 +484,10 @@ const char *modiniTemplateForKind(const char *kind)
 			"ai_lists_file = ai/ailists.json\n"
 			"objectives_file = objectives.json\n"
 			"navigation_file = navigation.ini\n"
+			"waypoints_file = navigation/waypoints.json\n"
+			"waygroups_file = navigation/waygroups.json\n"
+			"covers_file = navigation/covers.json\n"
+			"paths_file = navigation/paths.json\n"
 			"level_graph_file = level.graph.json\n"
 			"; rooms_file = rooms.obj\n";
 	}
@@ -532,7 +540,10 @@ const char *modiniTemplateForKind(const char *kind)
 			"name = New Theme\n"
 			"theme_file = theme.json\n"
 			"; ui_archive = dependencies/assets/ui/chrome.pdui\n"
-			"; font_archive = dependencies/assets/font/body.pdfont\n";
+			"; font_archive = dependencies/assets/font/body.pdfont\n"
+			"; audio_archive = dependencies/assets/audio/click.pdsfx\n"
+			"; music_archive = dependencies/assets/music/menu.pdsong\n"
+			"; effect_archive = dependencies/assets/effects/glow.pdeffect\n";
 	}
 
 	if (strcmp(kind, "animation") == 0) {
@@ -979,10 +990,35 @@ static void qualifyIniSourcePaths(ini_section_t *ini, const char *component_dir)
 	static const char *keys[] = {
 		"bodyfile",
 		"headfile",
+		"mesh_archive",
+		"hand_archive",
+		"body_archive",
+		"head_archive",
+		"portrait_file",
 		"model_file",
 		"model",
 		"lo_model_file",
 		"hand_model_file",
+		"prop_file",
+		"behavior_graph",
+		"graph",
+		"primary_graph",
+		"secondary_graph",
+		"settings_file",
+		"settings",
+		"variables_file",
+		"variables",
+		"shared_context_file",
+		"shared_context",
+		"material_slots_file",
+		"grip_sockets_file",
+		"presentation_file",
+		"primary_projectile_archive",
+		"deployed_entity_archive",
+		"fire_sound_archive",
+		"idle_animation_archive",
+		"reticle_archive",
+		"nested_payloads",
 		"scene_file",
 		"scene",
 		"runtime_source_file",
@@ -998,6 +1034,7 @@ static void qualifyIniSourcePaths(ini_section_t *ini, const char *component_dir)
 		"collision_source_file",
 		"collision_source",
 		"tiles_file",
+		"portals_file",
 		"pads_file",
 		"spawns_file",
 		"volumes_file",
@@ -1014,8 +1051,13 @@ static void qualifyIniSourcePaths(ini_section_t *ini, const char *component_dir)
 		"objectives_file",
 		"objectives",
 		"navigation_file",
+		"waypoints_file",
+		"waygroups_file",
+		"covers_file",
+		"paths_file",
 		"level_graph_file",
 		"mission_graph_file",
+		"scenario_archive",
 		"rules_file",
 		"profile_file",
 		"visual_source_file",
@@ -1023,12 +1065,26 @@ static void qualifyIniSourcePaths(ini_section_t *ini, const char *component_dir)
 		"music_file",
 		"midi_file",
 		"file_path",
+		"effect_file",
+		"timeline_file",
 		"theme_file",
+		"ui_archive",
+		"font_archive",
+		"audio_archive",
+		"music_archive",
+		"effect_archive",
 		"animation_file",
 		"commands_file",
+		"material_archive",
 		"texture_file",
+		"layout_file",
+		"nineslice_file",
+		"swatches_file",
+		"texture_archive",
 		"texture",
+		"physics_file",
 		"font_file",
+		"glyphs_file",
 		"font",
 		"strings_file",
 		"strings",
@@ -1096,10 +1152,35 @@ static void qualifyTypedArchiveSourcePaths(ini_section_t *ini,
 	static const char *keys[] = {
 		"bodyfile",
 		"headfile",
+		"body_archive",
+		"head_archive",
+		"portrait_file",
 		"model_file",
 		"model",
 		"lo_model_file",
 		"hand_model_file",
+		"mesh_archive",
+		"hand_archive",
+		"prop_file",
+		"behavior_graph",
+		"graph",
+		"primary_graph",
+		"secondary_graph",
+		"settings_file",
+		"settings",
+		"variables_file",
+		"variables",
+		"shared_context_file",
+		"shared_context",
+		"material_slots_file",
+		"grip_sockets_file",
+		"presentation_file",
+		"primary_projectile_archive",
+		"deployed_entity_archive",
+		"fire_sound_archive",
+		"idle_animation_archive",
+		"reticle_archive",
+		"nested_payloads",
 		"scene_file",
 		"scene",
 		"runtime_source_file",
@@ -1115,6 +1196,7 @@ static void qualifyTypedArchiveSourcePaths(ini_section_t *ini,
 		"collision_source_file",
 		"collision_source",
 		"tiles_file",
+		"portals_file",
 		"pads_file",
 		"spawns_file",
 		"volumes_file",
@@ -1131,8 +1213,13 @@ static void qualifyTypedArchiveSourcePaths(ini_section_t *ini,
 		"objectives_file",
 		"objectives",
 		"navigation_file",
+		"waypoints_file",
+		"waygroups_file",
+		"covers_file",
+		"paths_file",
 		"level_graph_file",
 		"mission_graph_file",
+		"scenario_archive",
 		"rules_file",
 		"profile_file",
 		"visual_source_file",
@@ -1140,11 +1227,26 @@ static void qualifyTypedArchiveSourcePaths(ini_section_t *ini,
 		"music_file",
 		"midi_file",
 		"file_path",
+		"effect_file",
+		"timeline_file",
+		"theme_file",
+		"ui_archive",
+		"font_archive",
+		"audio_archive",
+		"music_archive",
+		"effect_archive",
 		"animation_file",
 		"commands_file",
+		"material_archive",
 		"texture_file",
+		"layout_file",
+		"nineslice_file",
+		"swatches_file",
+		"texture_archive",
 		"texture",
+		"physics_file",
 		"font_file",
+		"glyphs_file",
 		"font",
 		"strings_file",
 		"strings",
@@ -1362,6 +1464,42 @@ static void registerDependencyList(const char *owner_id, const char *deps,
 	}
 }
 
+static void registerAnimationCommandSource(const char *id,
+                                           const char *source_path)
+{
+	char *json;
+	u32 json_size = 0;
+
+	if (!source_path || !source_path[0]) {
+		return;
+	}
+
+	json = (char *)fsFileLoad(source_path, &json_size);
+	if (!json || json_size == 0) {
+		if (json) {
+			free(json);
+		}
+		sysLogPrintf(LOG_WARNING,
+			"assetcatalog_scanner: animation command source missing for '%s': %s",
+			id ? id : "", source_path);
+		return;
+	}
+
+	if (!loaderPoolParseAnimationSourceJson(json, json_size, source_path)) {
+		sysLogPrintf(LOG_WARNING,
+			"assetcatalog_scanner: animation command source rejected for '%s': %s",
+			id ? id : "", source_path);
+		free(json);
+		return;
+	}
+
+	loaderPoolFinalize();
+	sysLogPrintf(LOG_NOTE,
+		"assetcatalog_scanner: animation command source registered for '%s': %s",
+		id ? id : "", source_path);
+	free(json);
+}
+
 /**
  * Register a single component from a parsed INI section.
  *
@@ -1454,10 +1592,14 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 
 	case ASSET_CHARACTER:
 		{
-			const char *bf = iniGet(ini, "bodyfile", "");
-			const char *hf = iniGet(ini, "headfile", "");
+			const char *bf = iniGet(ini, "body_archive",
+				iniGet(ini, "bodyfile", ""));
+			const char *hf = iniGet(ini, "head_archive",
+				iniGet(ini, "headfile", ""));
+			const char *pf = iniGet(ini, "portrait_file", "");
 			strncpy(e->ext.character.bodyfile, bf, FS_MAXPATH - 1);
 			strncpy(e->ext.character.headfile, hf, FS_MAXPATH - 1);
+			strncpy(e->ext.character.portrait_file, pf, FS_MAXPATH - 1);
 
 			/* C-2-ext: resolve bodyfile basename to ROM filenum for reverse-index.
 			 * INI path is like "files/Cbond_bodyZ" — basename matches fileSlots[n].name. */
@@ -1483,11 +1625,26 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 				iniGet(ini, "texture", ""));
 			const char *sf = iniGet(ini, "skin_file",
 				iniGet(ini, "file_path", ""));
+			const char *swatches = iniGet(ini, "swatches_file", "");
+			const char *material_archive = iniGet(ini, "material_archive", "");
+			const char *texture_archive = iniGet(ini, "texture_archive", "");
 			strncpy(e->ext.skin.target_id, target, CATALOG_ID_LEN - 1);
 			strncpy(e->ext.skin.skin_file, sf, sizeof(e->ext.skin.skin_file) - 1);
 			e->ext.skin.skin_file[sizeof(e->ext.skin.skin_file) - 1] = '\0';
 			strncpy(e->ext.skin.texture_file, tf, sizeof(e->ext.skin.texture_file) - 1);
 			e->ext.skin.texture_file[sizeof(e->ext.skin.texture_file) - 1] = '\0';
+			strncpy(e->ext.skin.swatches_file, swatches,
+				sizeof(e->ext.skin.swatches_file) - 1);
+			e->ext.skin.swatches_file[
+				sizeof(e->ext.skin.swatches_file) - 1] = '\0';
+			strncpy(e->ext.skin.material_archive, material_archive,
+				sizeof(e->ext.skin.material_archive) - 1);
+			e->ext.skin.material_archive[
+				sizeof(e->ext.skin.material_archive) - 1] = '\0';
+			strncpy(e->ext.skin.texture_archive, texture_archive,
+				sizeof(e->ext.skin.texture_archive) - 1);
+			e->ext.skin.texture_archive[
+				sizeof(e->ext.skin.texture_archive) - 1] = '\0';
 			if (e->ext.skin.texture_file[0]) {
 				catalogSetPrimaryFile(e, e->ext.skin.texture_file);
 			} else if (e->ext.skin.skin_file[0]) {
@@ -1508,15 +1665,16 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 
 	case ASSET_ARENA:
 		e->ext.arena.stagenum = iniGetInt(ini, "stagenum", -1);
+		strncpy(e->ext.arena.scenario_id, iniGet(ini, "scenario", ""),
+			sizeof(e->ext.arena.scenario_id) - 1);
+		strncpy(e->ext.arena.scenario_archive,
+			iniGet(ini, "scenario_archive", ""),
+			sizeof(e->ext.arena.scenario_archive) - 1);
 		e->ext.arena.requirefeature = (u8)iniGetInt(ini, "requirefeature", 0);
 		e->ext.arena.name_langid = iniGetInt(ini, "name_langid", 0);
 		e->ext.arena.load_mode = iniGetInt(ini, "load_mode", ARENA_LOADMODE_PLAYABLE);
-		{
-			const char *gf = iniGet(ini, "geometry_file",
-				iniGet(ini, "geometry", ""));
-			if (gf[0]) {
-				catalogSetPrimaryFile(e, gf);
-			}
+		if (e->ext.arena.scenario_archive[0]) {
+			catalogSetPrimaryFile(e, e->ext.arena.scenario_archive);
 		}
 		break;
 
@@ -1529,10 +1687,16 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 			iniGet(ini, "name", "")));
 		catalogSetBodyRigClass(e, iniGet(ini, "rig_class", ""));
 		{
-			const char *mf = iniGet(ini, "model_file",
-				iniGet(ini, "model", ""));
-			if (mf[0]) {
-				catalogSetPrimaryFile(e, mf);
+			const char *mesh = iniGet(ini, "mesh_archive", "");
+			const char *hand = iniGet(ini, "hand_archive", "");
+			if (mesh[0]) {
+				strncpy(e->ext.body.mesh_archive, mesh,
+					sizeof(e->ext.body.mesh_archive) - 1);
+				catalogSetPrimaryFile(e, e->ext.body.mesh_archive);
+			}
+			if (hand[0]) {
+				strncpy(e->ext.body.hand_archive, hand,
+					sizeof(e->ext.body.hand_archive) - 1);
 			}
 		}
 		break;
@@ -1542,10 +1706,11 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 		e->ext.head.requirefeature = (u8)iniGetInt(ini, "requirefeature", 0);
 		catalogSetHeadRigClass(e, iniGet(ini, "rig_class", ""));
 		{
-			const char *mf = iniGet(ini, "model_file",
-				iniGet(ini, "model", ""));
-			if (mf[0]) {
-				catalogSetPrimaryFile(e, mf);
+			const char *mesh = iniGet(ini, "mesh_archive", "");
+			if (mesh[0]) {
+				strncpy(e->ext.head.mesh_archive, mesh,
+					sizeof(e->ext.head.mesh_archive) - 1);
+				catalogSetPrimaryFile(e, e->ext.head.mesh_archive);
 			}
 		}
 		break;
@@ -1570,8 +1735,17 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 			e->mp_index = (s16)e->ext.weapon.weapon_id;
 			e->runtime_index = catalogGetMpWeaponNum(e->ext.weapon.weapon_id);
 		} else {
-			e->mp_index = preserved_mp_index;
-			e->runtime_index = preserved_runtime_index;
+			s32 runtime_weapon_id = -1;
+			s32 mp_weapon_id = -1;
+			if (assetCatalogResolveWeaponPrivateSlots(idbuf, -1, 0,
+					&runtime_weapon_id, &mp_weapon_id)) {
+				e->ext.weapon.weapon_id = mp_weapon_id;
+				e->mp_index = (s16)mp_weapon_id;
+				e->runtime_index = runtime_weapon_id;
+			} else {
+				e->mp_index = preserved_mp_index;
+				e->runtime_index = preserved_runtime_index;
+			}
 		}
 		{
 			const char *weapon_name = iniGet(ini, "name", "");
@@ -1580,8 +1754,27 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 				sizeof(e->ext.weapon.name) - 1);
 		}
 		strncpy(e->ext.weapon.model_file, iniGet(ini, "model_file", ""), sizeof(e->ext.weapon.model_file) - 1);
-		if (e->ext.weapon.model_file[0]) {
-			catalogSetPrimaryFile(e, e->ext.weapon.model_file);
+		strncpy(e->ext.weapon.behavior_graph,
+			iniGet(ini, "behavior_graph", iniGet(ini, "graph", "")),
+			sizeof(e->ext.weapon.behavior_graph) - 1);
+		strncpy(e->ext.weapon.primary_graph,
+			iniGet(ini, "primary_graph", ""),
+			sizeof(e->ext.weapon.primary_graph) - 1);
+		strncpy(e->ext.weapon.secondary_graph,
+			iniGet(ini, "secondary_graph", ""),
+			sizeof(e->ext.weapon.secondary_graph) - 1);
+		strncpy(e->ext.weapon.shared_context,
+			iniGet(ini, "shared_context_file",
+				iniGet(ini, "shared_context", "")),
+			sizeof(e->ext.weapon.shared_context) - 1);
+		strncpy(e->ext.weapon.settings_file,
+			iniGet(ini, "settings_file", iniGet(ini, "settings", "")),
+			sizeof(e->ext.weapon.settings_file) - 1);
+		strncpy(e->ext.weapon.variables_file,
+			iniGet(ini, "variables_file", iniGet(ini, "variables", "")),
+			sizeof(e->ext.weapon.variables_file) - 1);
+		if (e->ext.weapon.primary_graph[0]) {
+			catalogSetPrimaryFile(e, e->ext.weapon.primary_graph);
 		}
 		/* S484 F9 / Mike I.2 (2026-04-27): damage/fire_rate/ammo_type
 		 * shadow fields dropped from ext.weapon. The catalog manager
@@ -1603,8 +1796,6 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 			iniGet(ini, "transition_entity", "")), sizeof(e->ext.projectile.entity_ref) - 1);
 		if (e->ext.projectile.behavior_graph[0]) {
 			catalogSetPrimaryFile(e, e->ext.projectile.behavior_graph);
-		} else if (e->ext.projectile.model_file[0]) {
-			catalogSetPrimaryFile(e, e->ext.projectile.model_file);
 		}
 		break;
 
@@ -1617,8 +1808,6 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 			iniGet(ini, "graph", "")), sizeof(e->ext.entity.behavior_graph) - 1);
 		if (e->ext.entity.behavior_graph[0]) {
 			catalogSetPrimaryFile(e, e->ext.entity.behavior_graph);
-		} else if (e->ext.entity.model_file[0]) {
-			catalogSetPrimaryFile(e, e->ext.entity.model_file);
 		}
 		break;
 
@@ -1629,6 +1818,9 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 		strncpy(e->ext.prop.prop_file, iniGet(ini, "prop_file",
 			iniGet(ini, "file_path", "")), sizeof(e->ext.prop.prop_file) - 1);
 		strncpy(e->ext.prop.model_file, iniGet(ini, "model_file", ""), sizeof(e->ext.prop.model_file) - 1);
+		strncpy(e->ext.prop.behavior_graph,
+			iniGet(ini, "behavior_graph", iniGet(ini, "graph", "")),
+			sizeof(e->ext.prop.behavior_graph) - 1);
 		if (e->ext.prop.model_file[0]) {
 			catalogSetPrimaryFile(e, e->ext.prop.model_file);
 		} else if (e->ext.prop.prop_file[0]) {
@@ -1656,6 +1848,10 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 			if (af[0]) {
 				catalogSetPrimaryFile(e, af);
 			}
+			const char *cf = iniGet(ini, "commands_file", "");
+			if (cf[0]) {
+				registerAnimationCommandSource(e->id, cf);
+			}
 		}
 		break;
 
@@ -1677,9 +1873,7 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 	case ASSET_MATERIAL:
 		{
 			const char *pf = iniGet(ini, "material_file",
-				iniGet(ini, "file_path",
-				iniGet(ini, "texture_archive",
-				iniGet(ini, "texture_file", ""))));
+				iniGet(ini, "file_path", ""));
 			strncpy(e->ext.material.material_file,
 				iniGet(ini, "material_file", iniGet(ini, "file_path", "")),
 				sizeof(e->ext.material.material_file) - 1);
@@ -1737,6 +1931,9 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 				sizeof(e->ext.scenario.collision_file) - 1);
 			strncpy(e->ext.scenario.rooms_file, rf,
 				sizeof(e->ext.scenario.rooms_file) - 1);
+			strncpy(e->ext.scenario.portals_file,
+				iniGet(ini, "portals_file", ""),
+				sizeof(e->ext.scenario.portals_file) - 1);
 			strncpy(e->ext.scenario.pads_file,
 				iniGet(ini, "pads_file", ""),
 				sizeof(e->ext.scenario.pads_file) - 1);
@@ -1762,6 +1959,18 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 			strncpy(e->ext.scenario.navigation_file,
 				iniGet(ini, "navigation_file", ""),
 				sizeof(e->ext.scenario.navigation_file) - 1);
+			strncpy(e->ext.scenario.navigation_waypoints_file,
+				iniGet(ini, "waypoints_file", ""),
+				sizeof(e->ext.scenario.navigation_waypoints_file) - 1);
+			strncpy(e->ext.scenario.navigation_waygroups_file,
+				iniGet(ini, "waygroups_file", ""),
+				sizeof(e->ext.scenario.navigation_waygroups_file) - 1);
+			strncpy(e->ext.scenario.navigation_covers_file,
+				iniGet(ini, "covers_file", ""),
+				sizeof(e->ext.scenario.navigation_covers_file) - 1);
+			strncpy(e->ext.scenario.navigation_paths_file,
+				iniGet(ini, "paths_file", ""),
+				sizeof(e->ext.scenario.navigation_paths_file) - 1);
 			strncpy(e->ext.scenario.level_graph_file,
 				iniGet(ini, "level_graph_file",
 				iniGet(ini, "level_graph", "")),
@@ -1819,9 +2028,15 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 				|| e->ext.audio.attack_volume != 127
 				|| e->ext.audio.decay_volume != 127;
 		}
-		strncpy(e->ext.audio.file_path, iniGet(ini, "file_path", ""), sizeof(e->ext.audio.file_path) - 1);
-		if (e->ext.audio.file_path[0]) {
-			catalogSetPrimaryFile(e, e->ext.audio.file_path);
+		{
+			const char *audio_file = iniGet(ini, "file_path", "");
+			const char *primary_file = audio_file[0] ? audio_file :
+				iniGet(ini, "music_file", iniGet(ini, "midi_file", ""));
+			strncpy(e->ext.audio.file_path, audio_file,
+				sizeof(e->ext.audio.file_path) - 1);
+			if (primary_file[0]) {
+				catalogSetPrimaryFile(e, primary_file);
+			}
 		}
 		break;
 
@@ -1837,9 +2052,7 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 		strncpy(e->ext.hud.texture_file, iniGet(ini, "texture_file", ""), sizeof(e->ext.hud.texture_file) - 1);
 		strncpy(e->ext.hud.layout_file, iniGet(ini, "layout_file",
 			iniGet(ini, "file_path", "")), sizeof(e->ext.hud.layout_file) - 1);
-		if (e->ext.hud.texture_file[0]) {
-			catalogSetPrimaryFile(e, e->ext.hud.texture_file);
-		} else if (e->ext.hud.layout_file[0]) {
+		if (e->ext.hud.layout_file[0]) {
 			catalogSetPrimaryFile(e, e->ext.hud.layout_file);
 		}
 		break;
@@ -1857,6 +2070,9 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 			iniGet(ini, "behavior_graph",
 			iniGet(ini, "file_path", ""))),
 			sizeof(e->ext.effect.effect_file) - 1);
+		strncpy(e->ext.effect.timeline_file, iniGet(ini, "timeline_file",
+			iniGet(ini, "timeline", "")),
+			sizeof(e->ext.effect.timeline_file) - 1);
 		strncpy(e->ext.effect.shader_id, iniGet(ini, "shader_id", ""),
 			sizeof(e->ext.effect.shader_id) - 1);
 		e->ext.effect.intensity = iniGetFloat(ini, "intensity", 1.0f);
@@ -1864,6 +2080,8 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 			const char *pf = e->ext.effect.effect_file;
 			if (pf[0]) {
 				catalogSetPrimaryFile(e, pf);
+			} else if (e->ext.effect.timeline_file[0]) {
+				catalogSetPrimaryFile(e, e->ext.effect.timeline_file);
 			}
 		}
 		break;
@@ -1874,6 +2092,38 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 				iniGet(ini, "texture_file",
 				iniGet(ini, "texture",
 				iniGet(ini, "ui_file", ""))));
+			const char *lf = iniGet(ini, "layout_file", "");
+			const char *nf = iniGet(ini, "nineslice_file", "");
+			const char *tn = iniGet(ini, "texture_name", "");
+			strncpy(e->ext.ui.texture_file, pf,
+				sizeof(e->ext.ui.texture_file) - 1);
+			e->ext.ui.texture_file[sizeof(e->ext.ui.texture_file) - 1] = '\0';
+			strncpy(e->ext.ui.layout_file, lf,
+				sizeof(e->ext.ui.layout_file) - 1);
+			e->ext.ui.layout_file[sizeof(e->ext.ui.layout_file) - 1] = '\0';
+			strncpy(e->ext.ui.nineslice_file, nf,
+				sizeof(e->ext.ui.nineslice_file) - 1);
+			e->ext.ui.nineslice_file[sizeof(e->ext.ui.nineslice_file) - 1] = '\0';
+			strncpy(e->ext.ui.texture_name, tn,
+				sizeof(e->ext.ui.texture_name) - 1);
+			e->ext.ui.texture_name[sizeof(e->ext.ui.texture_name) - 1] = '\0';
+			e->ext.ui.width = iniGetInt(ini, "width", 0);
+			e->ext.ui.height = iniGetInt(ini, "height", 0);
+			e->ext.ui.data_size = iniGetInt(ini, "data_size", 0);
+			e->ext.ui.nineslice_left = iniGetInt(ini, "nineslice_left", 0);
+			e->ext.ui.nineslice_right = iniGetInt(ini, "nineslice_right", 0);
+			e->ext.ui.nineslice_top = iniGetInt(ini, "nineslice_top", 0);
+			e->ext.ui.nineslice_bottom = iniGetInt(ini, "nineslice_bottom", 0);
+			strncpy(e->ext.ui.nineslice_edge_mode,
+				iniGet(ini, "nineslice_edge_mode", ""),
+				sizeof(e->ext.ui.nineslice_edge_mode) - 1);
+			e->ext.ui.nineslice_edge_mode[
+				sizeof(e->ext.ui.nineslice_edge_mode) - 1] = '\0';
+			strncpy(e->ext.ui.nineslice_center_mode,
+				iniGet(ini, "nineslice_center_mode", ""),
+				sizeof(e->ext.ui.nineslice_center_mode) - 1);
+			e->ext.ui.nineslice_center_mode[
+				sizeof(e->ext.ui.nineslice_center_mode) - 1] = '\0';
 			if (pf[0]) {
 				catalogSetPrimaryFile(e, pf);
 			}
@@ -1886,6 +2136,11 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 				iniGet(ini, "glyphs_file",
 				iniGet(ini, "file_path",
 				iniGet(ini, "font", ""))));
+			const char *mf = iniGet(ini, "metrics_file", "");
+			strncpy(e->ext.font.font_file, pf,
+				sizeof(e->ext.font.font_file) - 1);
+			strncpy(e->ext.font.metrics_file, mf,
+				sizeof(e->ext.font.metrics_file) - 1);
 			if (pf[0]) {
 				catalogSetPrimaryFile(e, pf);
 			}
@@ -1894,13 +2149,23 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 
 	case ASSET_LANG:
 		/* bank_id: the LANGBANK_* slot this mod lang bank occupies.
-		 * Mod declares an integer bank_id (0-68) in its component INI. */
-		e->ext.lang.bank_id = iniGetInt(ini, "bank_id", -1);
+		 * Mod declares an integer bank_id/source_bank (0-68) in its component INI. */
+		e->ext.lang.bank_id = iniGetInt(ini, "bank_id",
+			iniGetInt(ini, "source_bank", -1));
 		{
+			const char *locale = iniGet(ini, "locale", "");
+			const char *category = iniGet(ini, "category", "");
 			const char *sf = iniGet(ini, "strings_file",
 				iniGet(ini, "strings",
 				iniGet(ini, "file_path", "")));
+			strncpy(e->ext.lang.locale, locale, sizeof(e->ext.lang.locale) - 1);
+			e->ext.lang.locale[sizeof(e->ext.lang.locale) - 1] = '\0';
+			strncpy(e->ext.lang.lang_category, category,
+				sizeof(e->ext.lang.lang_category) - 1);
+			e->ext.lang.lang_category[sizeof(e->ext.lang.lang_category) - 1] = '\0';
+			e->ext.lang.string_count = (u32)iniGetInt(ini, "string_count", 0);
 			strncpy(e->ext.lang.strings_file, sf, sizeof(e->ext.lang.strings_file) - 1);
+			e->ext.lang.strings_file[sizeof(e->ext.lang.strings_file) - 1] = '\0';
 			if (sf[0]) {
 				catalogSetPrimaryFile(e, sf);
 			}
@@ -1942,8 +2207,7 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 				sizeof(e->ext.vehicle.behavior_graph) - 1);
 			const char *pf = e->ext.vehicle.model_file[0] ?
 				e->ext.vehicle.model_file :
-				(e->ext.vehicle.behavior_graph[0] ?
-					e->ext.vehicle.behavior_graph : e->ext.vehicle.physics_file);
+				e->ext.vehicle.behavior_graph;
 			if (pf[0]) {
 				catalogSetPrimaryFile(e, pf);
 			}
@@ -1965,12 +2229,7 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 				iniGet(ini, "mission_graph_file",
 				iniGet(ini, "graph", "")),
 				sizeof(e->ext.mission.mission_graph_file) - 1);
-			const char *pf = e->ext.mission.mission_graph_file[0] ?
-				e->ext.mission.mission_graph_file :
-				(e->ext.mission.scenario_archive[0] ?
-					e->ext.mission.scenario_archive :
-				(e->ext.mission.objectives_file[0] ?
-					e->ext.mission.objectives_file : e->ext.mission.briefing_file));
+			const char *pf = e->ext.mission.mission_graph_file;
 			if (pf[0]) {
 				catalogSetPrimaryFile(e, pf);
 			}
@@ -1988,10 +2247,16 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 			strncpy(e->ext.theme.font_archive,
 				iniGet(ini, "font_archive", ""),
 				sizeof(e->ext.theme.font_archive) - 1);
-			const char *pf = e->ext.theme.theme_file[0] ?
-				e->ext.theme.theme_file :
-				(e->ext.theme.ui_archive[0] ?
-					e->ext.theme.ui_archive : e->ext.theme.font_archive);
+			strncpy(e->ext.theme.audio_archive,
+				iniGet(ini, "audio_archive", ""),
+				sizeof(e->ext.theme.audio_archive) - 1);
+			strncpy(e->ext.theme.music_archive,
+				iniGet(ini, "music_archive", ""),
+				sizeof(e->ext.theme.music_archive) - 1);
+			strncpy(e->ext.theme.effect_archive,
+				iniGet(ini, "effect_archive", ""),
+				sizeof(e->ext.theme.effect_archive) - 1);
+			const char *pf = e->ext.theme.theme_file;
 			if (pf[0]) {
 				catalogSetPrimaryFile(e, pf);
 			}
@@ -2696,10 +2961,35 @@ static void qualifyArchiveIniPaths(ini_section_t *ini, const char *component_dir
 	static const char *keys[] = {
 		"bodyfile",
 		"headfile",
+		"body_archive",
+		"head_archive",
+		"portrait_file",
 		"model_file",
 		"model",
 		"lo_model_file",
 		"hand_model_file",
+		"mesh_archive",
+		"hand_archive",
+		"prop_file",
+		"behavior_graph",
+		"graph",
+		"primary_graph",
+		"secondary_graph",
+		"settings_file",
+		"settings",
+		"variables_file",
+		"variables",
+		"shared_context_file",
+		"shared_context",
+		"material_slots_file",
+		"grip_sockets_file",
+		"presentation_file",
+		"primary_projectile_archive",
+		"deployed_entity_archive",
+		"fire_sound_archive",
+		"idle_animation_archive",
+		"reticle_archive",
+		"nested_payloads",
 		"scene_file",
 		"scene",
 		"runtime_source_file",
@@ -2717,6 +3007,7 @@ static void qualifyArchiveIniPaths(ini_section_t *ini, const char *component_dir
 		"collision_file",
 		"collision_source_file",
 		"collision_source",
+		"portals_file",
 		"pads_file",
 		"spawns_file",
 		"volumes_file",
@@ -2731,6 +3022,10 @@ static void qualifyArchiveIniPaths(ini_section_t *ini, const char *component_dir
 		"objectives_file",
 		"objectives",
 		"navigation_file",
+		"waypoints_file",
+		"waygroups_file",
+		"covers_file",
+		"paths_file",
 		"level_graph_file",
 		"mission_graph_file",
 		"visual_source_file",
@@ -2738,6 +3033,7 @@ static void qualifyArchiveIniPaths(ini_section_t *ini, const char *component_dir
 		"midi_file",
 		"file_path",
 		"effect_file",
+		"timeline_file",
 		"behavior_graph",
 		"graph",
 		"theme_file",
@@ -2746,14 +3042,20 @@ static void qualifyArchiveIniPaths(ini_section_t *ini, const char *component_dir
 		"scenario_archive",
 		"ui_archive",
 		"audio_archive",
+		"music_archive",
+		"effect_archive",
 		"animation_file",
 		"commands_file",
 		"texture_file",
+		"layout_file",
+		"nineslice_file",
+		"swatches_file",
 		"texture_archive",
 		"texture",
 		"texture_manifest_file",
 		"font_file",
 		"glyphs_file",
+		"physics_file",
 		"font_archive",
 		"font",
 		"strings_file",

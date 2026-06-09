@@ -1,18 +1,17 @@
 /**
- * mapimport.h -- Mod Map Import Pipeline (Layer 3)
+ * mapimport.h -- Source Map Import Pipeline
  *
- * PD-native binary format importer for community map packs, converted GE maps,
- * and externally-authored content. Validates, normalizes, generates missing
- * metadata (spawns, waypoints, mod.json), emits to mods/ directory, and
- * registers in the Asset Catalog.
+ * Source-layout importer for externally-authored maps. Accepts editable
+ * external-layout folders or typed .pdarena/.pdscenario content units, stages
+ * them under mods/, and registers them in the Asset Catalog.
  *
  * Pipeline stages:
- *   1. PARSE     -- Read source files, detect what's present
- *   2. NORMALIZE -- Validate formats, bounds-check, sanitize
- *   3. GENERATE  -- Fill missing metadata (spawns, waypoints, setup, mod.json)
+ *   1. PARSE     -- Read source files, detect source layout/content units
+ *   2. NORMALIZE -- Validate accessible source contract
+ *   3. GENERATE  -- Fill missing metadata (mod.json)
  *   4. EMIT      -- Atomic write to mods/imported_<name>/
- *   5. VALIDATE  -- Smoke test: load BG, verify pads, spawn pool, collision
- *   6. REGISTER  -- Trigger modmgrReload(), verify catalog entry
+ *   5. VALIDATE  -- Smoke test staged source layout
+ *   6. REGISTER  -- Trigger catalog rescan on next safe reload
  *
  * Design ref: context/designs/mod-map-import-pipeline-2026-04-13.md
  */
@@ -41,8 +40,8 @@ extern "C" {
 typedef enum {
 	MAPIMPORT_OK = 0,
 	MAPIMPORT_ERR_NO_SOURCE_DIR,
-	MAPIMPORT_ERR_NO_BG_FILE,
-	MAPIMPORT_ERR_CORRUPT_BG,
+	MAPIMPORT_ERR_NO_SOURCE_GEOMETRY,
+	MAPIMPORT_ERR_FORBIDDEN_NATIVE_PAYLOAD,
 	MAPIMPORT_ERR_EMPTY_MAP,
 	MAPIMPORT_ERR_NO_PADS,
 	MAPIMPORT_ERR_CORRUPT_PADS,
@@ -62,9 +61,9 @@ typedef struct {
 	char map_name[MAPIMPORT_NAME_LEN];
 
 	/* What we found */
-	s32 has_bg;           /* BG geometry file present */
-	s32 has_pads;         /* Pad location file present */
-	s32 has_setup;        /* Setup/entity file present */
+	s32 has_source_geometry; /* scene.glb/gltf, geometry.obj, or typed map archive */
+	s32 has_pads;         /* Editable pad/spawn source present */
+	s32 has_setup;        /* Editable setup/entity source present */
 	s32 has_waypoints;    /* Waypoint data in setup */
 	s32 has_spawns;       /* INTROCMD_SPAWN entries in setup */
 	s32 has_textures;     /* Custom texture data present */
@@ -77,10 +76,14 @@ typedef struct {
 	s32 num_spawn_cmds;
 
 	/* Resolved file paths in source dir */
-	char bg_path[FS_MAXPATH];
+	char source_geometry_path[FS_MAXPATH];
 	char pad_path[FS_MAXPATH];
 	char setup_path[FS_MAXPATH];
 	char modjson_path[FS_MAXPATH];
+	char first_forbidden_path[FS_MAXPATH];
+	s32 source_is_mod_layout;
+	s32 source_is_scenario_layout;
+	s32 source_is_arena_layout;
 
 	/* Output directory */
 	char output_dir[FS_MAXPATH];
@@ -111,7 +114,9 @@ typedef struct {
 /**
  * Run the full import pipeline on a source directory.
  *
- * source_dir:  Path to directory containing map files (BG, pads, setup, etc.)
+ * source_dir:  Path to an external-layout mod folder, a bare scenario/arena
+ *              source folder, or a folder containing typed .pdarena/.pdscenario
+ *              content units.
  * map_name:    Human-readable name for the map (used in catalog/mod.json).
  *              If NULL, derived from directory name.
  *

@@ -11,12 +11,15 @@
 #include "data.h"
 #include "assetcatalog.h"
 #include "assetcatalog_load.h"
+#include "asset_source_debug.h"
 #include "modmusic.h"
 #include "modasset_compiler.h"
 
 #define MOD_TEXTURES_DIR "textures"
 #define MOD_ANIMATIONS_DIR "animations"
 #define MOD_SEQUENCES_DIR "sequences"
+#define MOD_SEQUENCE_VIRTUAL_BASE 0x4000
+#define MOD_SEQUENCE_VIRTUAL_SLOTS 32
 
 #define PARSE_INT(sec, name, v, min, max, ret) \
 	p = modConfigParseIntValue(p, token, &v); \
@@ -63,6 +66,79 @@ typedef struct {
 	u32 len;
 	u32 cap;
 } mod_seq_buf_t;
+
+static char s_ModSequenceVirtualIds[MOD_SEQUENCE_VIRTUAL_SLOTS][CATALOG_ID_LEN];
+
+static s32 modSequenceVirtualIndex(s32 tracknum)
+{
+	if (tracknum < MOD_SEQUENCE_VIRTUAL_BASE) {
+		return -1;
+	}
+
+	tracknum -= MOD_SEQUENCE_VIRTUAL_BASE;
+	if (tracknum < 0 || tracknum >= MOD_SEQUENCE_VIRTUAL_SLOTS) {
+		return -1;
+	}
+
+	return tracknum;
+}
+
+s32 modSequenceIsVirtualTrack(s32 tracknum)
+{
+	const s32 index = modSequenceVirtualIndex(tracknum);
+	return index >= 0 && s_ModSequenceVirtualIds[index][0] != '\0';
+}
+
+const char *modSequenceVirtualTrackId(s32 tracknum)
+{
+	const s32 index = modSequenceVirtualIndex(tracknum);
+	if (index < 0 || s_ModSequenceVirtualIds[index][0] == '\0') {
+		return NULL;
+	}
+	return s_ModSequenceVirtualIds[index];
+}
+
+s32 modSequenceVirtualTrackForCatalogId(const char *catalog_id)
+{
+	const asset_entry_t *entry;
+	s32 i;
+
+	if (!catalog_id || !catalog_id[0]) {
+		return -1;
+	}
+
+	entry = assetCatalogResolve(catalog_id);
+	if (!entry || entry->type != ASSET_AUDIO ||
+			entry->ext.audio.category != AUDIO_CAT_MUSIC) {
+		return -1;
+	}
+
+	if (entry->ext.audio.file_path[0]) {
+		return -1;
+	}
+
+	for (i = 0; i < MOD_SEQUENCE_VIRTUAL_SLOTS; i++) {
+		if (strcmp(s_ModSequenceVirtualIds[i], catalog_id) == 0) {
+			return MOD_SEQUENCE_VIRTUAL_BASE + i;
+		}
+	}
+
+	for (i = 0; i < MOD_SEQUENCE_VIRTUAL_SLOTS; i++) {
+		if (s_ModSequenceVirtualIds[i][0] == '\0') {
+			strncpy(s_ModSequenceVirtualIds[i], catalog_id,
+				sizeof(s_ModSequenceVirtualIds[i]) - 1);
+			s_ModSequenceVirtualIds[i][sizeof(s_ModSequenceVirtualIds[i]) - 1] = '\0';
+			sysLogPrintf(LOG_NOTE,
+				"CATALOG: music '%s' assigned private sequence slot %d",
+				catalog_id, MOD_SEQUENCE_VIRTUAL_BASE + i);
+			return MOD_SEQUENCE_VIRTUAL_BASE + i;
+		}
+	}
+
+	sysLogPrintf(LOG_WARNING,
+		"CATALOG: music '%s' could not get a private sequence slot", catalog_id);
+	return -1;
+}
 
 typedef struct {
 	u32 tick;
@@ -775,16 +851,24 @@ s32 modTextureLoad(u16 num, void *dst, u32 dstSize)
 		}
 		if (r.is_mod_override && r.path) {
 			const char *dot = strrchr(r.path, '.');
-			if (dot && (
-					strcasecmp(dot, ".png") == 0 ||
-					strcasecmp(dot, ".tga") == 0 ||
-					strcasecmp(dot, ".jpg") == 0 ||
-					strcasecmp(dot, ".jpeg") == 0 ||
-					strcasecmp(dot, ".bmp") == 0)) {
+			s32 is_public_image = dot && (
+				strcasecmp(dot, ".png") == 0 ||
+				strcasecmp(dot, ".tga") == 0 ||
+				strcasecmp(dot, ".jpg") == 0 ||
+				strcasecmp(dot, ".jpeg") == 0 ||
+				strcasecmp(dot, ".bmp") == 0);
+			if (is_public_image) {
 				sysLogPrintf(LOG_WARNING,
 				             "MOD: texture %d catalog path is public image source (%s); "
 				             "skipping legacy compressed texture loader",
 				             (s32)num, r.path);
+				return -1;
+			}
+			if (assetSourceDebugIsEnabledFor(ASSET_TEXTURE)) {
+				sysFatalError("ASSET.SOURCE_ONLY: texture %d maps to public source '%s' "
+				              "but the catalog path is not an editable image source; "
+				              "refusing legacy compressed texture fallback.",
+				              (s32)num, r.path);
 				return -1;
 			}
 			const s32 ret = fsFileLoadTo(r.path, dst, dstSize);
@@ -830,13 +914,20 @@ void *modSequenceLoad(u16 num, u32 *outSize)
 		if (compiled) {
 			return compiled;
 		}
+		if (assetSourceDebugIsEnabledFor(ASSET_AUDIO)) {
+			const asset_entry_t *entry = assetCatalogGetByIndex(r.catalog_id);
+			sysFatalError("ASSET.SOURCE_ONLY: music sequence %d maps to public "
+			              "audio source '%s' for audio '%s' but sequencer-native "
+			              "public source compile failed; refusing ROM/static fallback.",
+			              (s32)num, r.path, entry ? entry->id : "?");
+			return NULL;
+		}
 	}
 
 	if (r.source_only_blocked) {
 		const asset_entry_t *entry = assetCatalogGetByIndex(r.catalog_id);
 		sysFatalError("ASSET.SOURCE_ONLY: music sequence %d maps to audio '%s' "
-		              "but sequencer-native public source compile failed; "
-		              "refusing ROM/static fallback.",
+		              "but has no public FileProvider source; refusing ROM/static fallback.",
 		              (s32)num, entry ? entry->id : "?");
 		return NULL;
 	}
@@ -874,7 +965,7 @@ s32 modSequencePlayAudioSource(u16 num)
 	modMusicPlay(r.path);
 
 	if (!modMusicIsPlaying()) {
-		if (r.source_only_blocked) {
+		if (assetSourceDebugIsEnabledFor(ASSET_AUDIO)) {
 			const asset_entry_t *entry = assetCatalogGetByIndex(r.catalog_id);
 			sysFatalError("ASSET.SOURCE_ONLY: music sequence %d maps to public audio "
 			              "source '%s' for audio '%s' but streaming playback failed; "
@@ -931,6 +1022,18 @@ static void *modAnimationLoadCatalogClip(const CatalogResolveResult *r, u16 num)
 	return (void *)clip_data;
 }
 
+static void modAnimationFatalPublicSourceFailure(
+	u16 num, const CatalogResolveResult *r, const char *reason)
+{
+	const asset_entry_t *entry = r ? assetCatalogGetByIndex(r->catalog_id) : NULL;
+
+	sysFatalError("ASSET.SOURCE_ONLY: animation %d maps to public animation source "
+	              "'%s' for animation '%s' but %s; refusing ROM/static fallback.",
+	              (s32)num, r && r->path ? r->path : "?",
+	              entry ? entry->id : "?",
+	              reason ? reason : "runtime clip build failed");
+}
+
 void *modAnimationLoadData(u16 num)
 {
 	/* C-6: catalog is primary animation router.
@@ -951,7 +1054,17 @@ void *modAnimationLoadData(u16 num)
 				if (clip) {
 					return clip;
 				}
+				if (assetSourceDebugIsEnabledFor(ASSET_ANIMATION)) {
+					modAnimationFatalPublicSourceFailure(num, &r,
+						"runtime clip compilation failed");
+					return NULL;
+				}
 				sysFatalError("External animation %04x failed to compile from %s.", num, r.path);
+			}
+			if (assetSourceDebugIsEnabledFor(ASSET_ANIMATION)) {
+				modAnimationFatalPublicSourceFailure(num, &r,
+					"the selected public source is not editable GLTF/GLB animation source");
+				return NULL;
 			}
 			void *data = fsFileLoad(r.path, NULL);
 			if (data) {
@@ -983,18 +1096,36 @@ void *modAnimationTryCatalogOverride(u16 num)
 	/* C-6 supplement: catalog-only check for ROM-based animations.
 	 * Called from animLoadFrame/animLoadHeader when data != 0xffffffff.
 	 * Returns file data if a mod override is registered, NULL otherwise.
-	 * No legacy fallback, no sysFatalError — caller uses ROM DMA on NULL. */
-	const char *path = catalogGetAnimOverride((s32)num);
-	if (path) {
+	 * Outside source-only checks, no legacy fallback is done here; the caller
+	 * uses ROM DMA on NULL. Source-only mode fails closed before that DMA. */
+	CatalogResolveResult r = catalogResolveAnim((s32)num);
+	if (r.source_only_blocked) {
+		const asset_entry_t *entry = assetCatalogGetByIndex(r.catalog_id);
+		sysFatalError("ASSET.SOURCE_ONLY: animation %d maps to '%s' but has "
+		              "no public FileProvider source; refusing ROM/static fallback.",
+		              (s32)num, entry ? entry->id : "?");
+		return NULL;
+	}
+	if (r.is_mod_override && r.path) {
+		const char *path = r.path;
 		if (modAssetCompilerIsAnimationSource(path)) {
-			CatalogResolveResult r = catalogResolveAnim((s32)num);
 			void *clip = modAnimationLoadCatalogClip(&r, num);
 			if (clip) {
 				return clip;
 			}
+			if (assetSourceDebugIsEnabledFor(ASSET_ANIMATION)) {
+				modAnimationFatalPublicSourceFailure(num, &r,
+					"runtime clip compilation failed");
+				return NULL;
+			}
 			sysLogPrintf(LOG_WARNING,
 				"C-6: generated clip for ROM anim %d failed to build: %s",
 				(s32)num, path);
+			return NULL;
+		}
+		if (assetSourceDebugIsEnabledFor(ASSET_ANIMATION)) {
+			modAnimationFatalPublicSourceFailure(num, &r,
+				"the selected public source is not editable GLTF/GLB animation source");
 			return NULL;
 		}
 		void *data = fsFileLoad(path, NULL);

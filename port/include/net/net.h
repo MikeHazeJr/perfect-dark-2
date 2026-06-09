@@ -9,7 +9,18 @@
 /* Forward declaration — avoids pulling enet.h into every translation unit */
 typedef struct _ENetAddress ENetAddress;
 
-#define NET_PROTOCOL_VER 49  /* v49 (2026-05-17): CLC_LOBBY_RESYNC (0x18) so a
+#define NET_PROTOCOL_VER 50  /* v50 (2026-06-08): SVC_CATALOG_INFO is now
+                              * batched as [u16 total_count][u16 batch_offset]
+                              * [u16 count] plus id/category string rows, so
+                              * large custom typed-archive packs are advertised
+                              * without the old 256-entry truncation. CLC
+                              * catalog diffs and CLC_MANIFEST_STATUS missing
+                              * lists now use heap-backed u16 counts instead
+                              * of fixed 256/u8 buffers, and distribution
+                              * queues grow instead of dropping entries after
+                              * 64 pending transfers. Mixed v49/v50 play is
+                              * rejected at the ENet auth handshake.
+                              * v49 (2026-05-17): CLC_LOBBY_RESYNC (0x18) so a
                               * client can ask the server to re-broadcast room
                               * assignment + lobby settings after a match ends.
                               * Closes the "MP post-match returns me to an

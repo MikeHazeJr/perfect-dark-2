@@ -24,6 +24,7 @@
 #include "asset_runtime.h"
 #include "assetprovider.h"
 #include "assetload.h"
+#include "mod.h"
 #include "modasset_compiler.h"
 #include "weapon_graph_runtime.h"
 #include "data.h"
@@ -379,6 +380,7 @@ CatalogResolveResult catalogResolveSound(s32 soundnum)
 CatalogResolveResult catalogResolveMusicSequence(s32 tracknum)
 {
     CatalogResolveResult r = { NULL, -1, 0, 0 };
+	const char *virtual_id = modSequenceVirtualTrackId(tracknum);
 
     if (!s_Initialized || tracknum < 0) {
         return r;
@@ -392,9 +394,13 @@ CatalogResolveResult catalogResolveMusicSequence(s32 tracknum)
         if (e->ext.audio.category != AUDIO_CAT_MUSIC) {
             continue;
         }
-        if (e->ext.audio.sound_id != tracknum) {
-            continue;
-        }
+		if (virtual_id) {
+			if (strcmp(e->id, virtual_id) != 0) {
+				continue;
+			}
+		} else if (e->ext.audio.sound_id != tracknum) {
+			continue;
+		}
 
         r.catalog_id = i;
     }
@@ -409,9 +415,7 @@ CatalogResolveResult catalogResolveMusicSequence(s32 tracknum)
 		if (r.path) {
 			r.is_mod_override = 1;
 		}
-		if (assetSourceDebugIsEnabledFor(ASSET_AUDIO)) {
-			r.source_only_blocked = 1;
-		}
+		s_catalogApplySourceOnlyDebug(&r, entry);
 	}
 	return r;
 }
@@ -520,11 +524,91 @@ static s32 s_catalogTypeUsesModelPayload(asset_type_e type)
     }
 }
 
+static s32 s_catalogPathEndsWithNoCase(const char *path, const char *suffix)
+{
+    size_t path_len;
+    size_t suffix_len;
+
+    if (!path || !suffix) {
+        return 0;
+    }
+
+    path_len = strlen(path);
+    suffix_len = strlen(suffix);
+    if (path_len < suffix_len) {
+        return 0;
+    }
+
+    path += path_len - suffix_len;
+    for (size_t i = 0; i < suffix_len; i++) {
+        char a = path[i];
+        char b = suffix[i];
+        if (a >= 'A' && a <= 'Z') {
+            a = (char)(a - 'A' + 'a');
+        }
+        if (b >= 'A' && b <= 'Z') {
+            b = (char)(b - 'A' + 'a');
+        }
+        if (a != b) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+static s32 s_catalogModelPayloadSourcePath(const asset_entry_t *entry,
+                                           const char *source_path,
+                                           char *out,
+                                           size_t out_cap)
+{
+    static const char *const members[] = {
+        "model.obj",
+        "model.gltf",
+        "model.glb",
+    };
+
+    if (!out || out_cap == 0) {
+        return 0;
+    }
+    out[0] = '\0';
+
+    if (!source_path || !source_path[0]) {
+        return 0;
+    }
+
+    if (modAssetCompilerIsExternalSource(source_path)) {
+        snprintf(out, out_cap, "%s", source_path);
+        out[out_cap - 1] = '\0';
+        return 1;
+    }
+
+    if (!s_catalogPathEndsWithNoCase(source_path, ".pdmesh")) {
+        return 0;
+    }
+
+    for (size_t i = 0; i < sizeof(members) / sizeof(members[0]); i++) {
+        char candidate[FS_MAXPATH + 1];
+        snprintf(candidate, sizeof(candidate), "%s::%s", source_path, members[i]);
+        candidate[sizeof(candidate) - 1] = '\0';
+        if (fsFileSize(candidate) > 0) {
+            snprintf(out, out_cap, "%s", candidate);
+            out[out_cap - 1] = '\0';
+            return 1;
+        }
+    }
+
+    sysLogPrintf(LOG_WARNING,
+                 "CATALOG.LIFECYCLE.ACTIVATE: '%s' mesh archive source has no model.obj/model.gltf/model.glb member (%s)",
+                 entry ? entry->id : "?", source_path);
+    return 0;
+}
+
 static s32 s_catalogLoadEntryModelPayload(asset_entry_t *entry, asset_data_handle_t handle)
 {
     char desc[128];
     modasset_compiled_result_t compiled;
     const char *source_path = NULL;
+    char resolved_source_path[FS_MAXPATH + 1];
     struct modeldef *modeldef;
     s32 loaded_size;
 
@@ -532,9 +616,10 @@ static s32 s_catalogLoadEntryModelPayload(asset_entry_t *entry, asset_data_handl
         source_path = fileProviderPath(handle);
     }
 
-    if (modAssetCompilerIsExternalSource(source_path)) {
+    if (s_catalogModelPayloadSourcePath(entry, source_path,
+            resolved_source_path, sizeof(resolved_source_path))) {
         s32 cache_result = modAssetCompilerCompileReadable(entry,
-            s_catalogPayloadKind(entry->type), source_path, &compiled);
+            s_catalogPayloadKind(entry->type), resolved_source_path, &compiled);
         if (cache_result < 0) {
             sysLogPrintf(LOG_WARNING,
                          "CATALOG.LIFECYCLE.ACTIVATE: '%s' external %s source validation failed (%s)",
@@ -543,7 +628,7 @@ static s32 s_catalogLoadEntryModelPayload(asset_entry_t *entry, asset_data_handl
             return 0;
         }
 
-        if (modAssetCompilerBuildModeldef(entry, source_path, &modeldef) <= 0
+        if (modAssetCompilerBuildModeldef(entry, resolved_source_path, &modeldef) <= 0
                 || !modeldef) {
             sysLogPrintf(LOG_WARNING,
                          "CATALOG.LIFECYCLE.ACTIVATE: '%s' external %s modeldef conversion failed (%s)",
@@ -598,6 +683,8 @@ static s32 s_catalogLoadEntryModelPayload(asset_entry_t *entry, asset_data_handl
 
 static s32 s_catalogLoadEntryLangPayload(asset_entry_t *entry)
 {
+    const char *source_path = entryGetFilePath(entry);
+
     if (!langManifestEnsureId(entry->id)) {
         sysLogPrintf(LOG_WARNING,
                      "CATALOG.LIFECYCLE.ACTIVATE: '%s' language payload activation failed",
@@ -610,6 +697,17 @@ static s32 s_catalogLoadEntryLangPayload(asset_entry_t *entry)
     entry->payload_kind     = ASSET_PAYLOAD_RUNTIME_ACTIVE;
     entry->load_state       = ASSET_STATE_ACTIVE;
     entry->ref_count        = 1;
+
+    if (!assetRuntimeActivateCatalogEntry(entry, source_path)) {
+        entry->loaded_data     = NULL;
+        entry->payload_kind    = ASSET_PAYLOAD_NONE;
+        entry->load_state      = ASSET_STATE_ENABLED;
+        entry->ref_count       = 0;
+        sysLogPrintf(LOG_WARNING,
+                     "CATALOG.LIFECYCLE.ACTIVATE: '%s' language runtime adapter rejected missing strings source",
+                     entry->id);
+        return 0;
+    }
 
     sysLogPrintf(LOG_NOTE,
                  "CATALOG.LIFECYCLE.ACTIVATE: activated language payload '%s' bank=%d",
@@ -692,7 +790,140 @@ static s32 s_catalogTypeCanUseObjColmeshPayload(asset_type_e type)
 
 static s32 s_catalogTypeUsesWeaponGraphRuntime(asset_type_e type)
 {
-    return type == ASSET_PROJECTILE || type == ASSET_ENTITY;
+    return type == ASSET_WEAPON || type == ASSET_PROJECTILE || type == ASSET_ENTITY;
+}
+
+static s32 s_catalogExtractTypedArchiveRoot(const char *source_path,
+                                            const char *archive_ext,
+                                            char *out,
+                                            size_t out_cap)
+{
+    const char *member_sep;
+    size_t root_len;
+    size_t ext_len;
+
+    if (!source_path || !source_path[0] || !archive_ext || !archive_ext[0]
+            || !out || out_cap == 0) {
+        return 0;
+    }
+
+    member_sep = strstr(source_path, "::");
+    root_len = member_sep ? (size_t)(member_sep - source_path)
+                          : strlen(source_path);
+    ext_len = strlen(archive_ext);
+
+    if (root_len == 0 || root_len >= out_cap || root_len < ext_len) {
+        return 0;
+    }
+
+    if (strncmp(source_path + root_len - ext_len, archive_ext, ext_len) != 0) {
+        return 0;
+    }
+
+    memcpy(out, source_path, root_len);
+    out[root_len] = '\0';
+    return 1;
+}
+
+static s32 s_catalogLoadTextSource(const char *source_path,
+                                   char **out,
+                                   u32 *out_size,
+                                   char *err,
+                                   size_t err_cap)
+{
+    char *text;
+    u32 size = 0;
+
+    if (out) {
+        *out = NULL;
+    }
+    if (out_size) {
+        *out_size = 0;
+    }
+    if (!source_path || !source_path[0] || !out) {
+        snprintf(err, err_cap, "missing source path");
+        return 0;
+    }
+
+    text = (char *)fsFileLoad(source_path, &size);
+    if (!text || size == 0) {
+        if (text) {
+            free(text);
+        }
+        snprintf(err, err_cap, "could not load %s", source_path);
+        return 0;
+    }
+
+    *out = text;
+    if (out_size) {
+        *out_size = size;
+    }
+    return 1;
+}
+
+static s32 s_catalogActivateLooseWeaponGraphRuntime(asset_entry_t *entry)
+{
+    char err[256];
+    char *primary = NULL;
+    char *secondary = NULL;
+    char *shared = NULL;
+    u32 primary_size = 0;
+    u32 secondary_size = 0;
+    u32 shared_size = 0;
+    s32 result = 0;
+
+    if (!entry) {
+        return 0;
+    }
+
+    if (!entry->ext.weapon.primary_graph[0]
+            || !entry->ext.weapon.secondary_graph[0]
+            || !entry->ext.weapon.shared_context[0]
+            || !entry->ext.weapon.settings_file[0]
+            || !entry->ext.weapon.variables_file[0]) {
+        sysLogPrintf(LOG_NOTE,
+                     "CATALOG.LIFECYCLE.ACTIVATE: '%s' held graph source is incomplete; skipping held graph registration",
+                     entry->id);
+        return 1;
+    }
+
+    if (entry->runtime_index < 0) {
+        sysLogPrintf(LOG_WARNING,
+                     "CATALOG.LIFECYCLE.ACTIVATE: '%s' held graph source has no runtime weapon slot",
+                     entry->id);
+        return 0;
+    }
+
+    err[0] = '\0';
+    if (!s_catalogLoadTextSource(entry->ext.weapon.primary_graph,
+            &primary, &primary_size, err, sizeof(err))
+            || !s_catalogLoadTextSource(entry->ext.weapon.secondary_graph,
+            &secondary, &secondary_size, err, sizeof(err))
+            || !s_catalogLoadTextSource(entry->ext.weapon.shared_context,
+            &shared, &shared_size, err, sizeof(err))) {
+        sysLogPrintf(LOG_WARNING,
+                     "CATALOG.LIFECYCLE.ACTIVATE: '%s' held graph source missing split graph source: %s",
+                     entry->id, err[0] ? err : "unknown error");
+        free(primary);
+        free(secondary);
+        free(shared);
+        return 0;
+    }
+    result = weaponGraphRuntimeRegisterWeaponSourceJson(
+        entry->runtime_index, entry->id, primary, primary_size,
+        secondary, secondary_size, shared, shared_size, err, sizeof(err));
+    free(primary);
+    free(secondary);
+    free(shared);
+
+    if (result != 0) {
+        sysLogPrintf(LOG_WARNING,
+                     "CATALOG.LIFECYCLE.ACTIVATE: '%s' held graph source compile failed: %s",
+                     entry->id, err[0] ? err : "unknown error");
+        return 0;
+    }
+
+    return 1;
 }
 
 static s32 s_catalogPreloadBundledMetadataPayload(asset_entry_t *entry)
@@ -712,11 +943,41 @@ static s32 s_catalogActivateWeaponGraphRuntime(asset_entry_t *entry,
 {
     u32 graph_size = 0;
     char err[256];
+    char archive_path[FS_MAXPATH + 1];
+    char full_buf[FS_MAXPATH + 1];
     char *graph = NULL;
+    const char *full;
     s32 result;
 
     if (!entry || !source_path || !source_path[0]) {
         return 0;
+    }
+
+    if (entry->type == ASSET_WEAPON) {
+        if (!s_catalogExtractTypedArchiveRoot(source_path, ".pdweapon",
+                archive_path, sizeof(archive_path))) {
+            return s_catalogActivateLooseWeaponGraphRuntime(entry);
+        }
+
+        if (entry->runtime_index < 0) {
+            sysLogPrintf(LOG_WARNING,
+                         "CATALOG.LIFECYCLE.ACTIVATE: '%s' held graph archive has no runtime weapon slot",
+                         entry->id);
+            return 0;
+        }
+
+        full = fsFullPath(archive_path, full_buf, sizeof(full_buf));
+        err[0] = '\0';
+        result = weaponGraphRuntimeRegisterWeaponArchive(entry->runtime_index,
+            full ? full : archive_path, err, sizeof(err));
+        if (result != 0) {
+            sysLogPrintf(LOG_WARNING,
+                         "CATALOG.LIFECYCLE.ACTIVATE: '%s' held graph archive compile failed: %s",
+                         entry->id, err[0] ? err : "unknown error");
+            return 0;
+        }
+
+        return 1;
     }
 
     graph = (char *)fsFileLoad(source_path, &graph_size);
@@ -743,6 +1004,25 @@ static s32 s_catalogActivateWeaponGraphRuntime(asset_entry_t *entry,
     }
 
     return 1;
+}
+
+static void s_catalogClearWeaponGraphRuntime(asset_entry_t *entry,
+                                             const char *assetId)
+{
+    if (!entry) {
+        return;
+    }
+
+    if (entry->type == ASSET_WEAPON) {
+        if (entry->runtime_index >= 0) {
+            weaponGraphRuntimeClearWeapon(entry->runtime_index);
+        }
+        return;
+    }
+
+    if (entry->type == ASSET_PROJECTILE || entry->type == ASSET_ENTITY) {
+        weaponGraphRuntimeClearAsset(assetId);
+    }
 }
 
 static void s_catalogInstallAnimationClip(asset_entry_t *entry,
@@ -1341,7 +1621,7 @@ static void s_catalogUnloadEntry(const char *assetId, asset_entry_t *entry)
             }
         } else if (entry->payload_kind == ASSET_PAYLOAD_RUNTIME_ACTIVE) {
             if (s_catalogTypeUsesWeaponGraphRuntime(entry->type)) {
-                weaponGraphRuntimeClearAsset(assetId);
+                s_catalogClearWeaponGraphRuntime(entry, assetId);
             }
             assetRuntimeReleaseCatalogEntry(assetId);
             /* Runtime-owned activation (for example language banks) is

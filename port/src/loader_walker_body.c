@@ -18,10 +18,82 @@
 #include <PR/ultratypes.h>
 
 #include "assetcatalog.h"
+#include "catalog_mgr_bodies.h"
+#include "catalog_readable_ids.h"
 #include "fs.h"
+#include "loader_enum_reverse.h"
 #include "loader_pool.h"
 #include "loader_walker.h"
 #include "loader_walker_common.h"
+#include "system.h"
+
+static s32 s_bodyWalkerManifestFileEnum(const char *manifest,
+                                        size_t manifest_len,
+                                        const char *key)
+{
+    char symbol[64];
+    s64 value = -1;
+
+    if (loaderWalkerEnvelopeStrCopy(manifest, manifest_len, key,
+                                    symbol, sizeof(symbol))) {
+        return loaderEnumResolveFileEnum(symbol, -1);
+    }
+
+    if (loaderWalkerEnvelopeInt(manifest, manifest_len, key, &value)
+            && value > 0) {
+        return (s32)value;
+    }
+
+    return -1;
+}
+
+static void s_bindBodyHandModelSource(const char *manifest, size_t manifest_len,
+                                      asset_entry_t *body_entry,
+                                      const char *body_archive_path,
+                                      const char *hand_member)
+{
+    char hand_archive_path[FS_MAXPATH + 1];
+    char hand_source_path[FS_MAXPATH + 1];
+    char hand_model_id[CATALOG_ID_LEN];
+    s32 hand_filenum;
+    asset_entry_t *hand_entry;
+
+    if (!body_entry || !body_archive_path || !hand_member || !hand_member[0]) {
+        return;
+    }
+
+    hand_filenum = s_bodyWalkerManifestFileEnum(manifest, manifest_len, "hand");
+    if (hand_filenum <= 0) {
+        return;
+    }
+
+    if (!loaderWalkerArchiveMemberPath(body_archive_path, hand_member,
+                                       hand_archive_path,
+                                       sizeof(hand_archive_path))) {
+        return;
+    }
+
+    catalogReadableModelIdForFile(hand_filenum, "hand", "hand",
+        hand_model_id, sizeof(hand_model_id));
+
+    hand_entry = (asset_entry_t *)assetCatalogResolve(hand_model_id);
+    if (!hand_entry) {
+        hand_entry = assetCatalogRegister(hand_model_id, ASSET_MODEL);
+    }
+    if (!hand_entry) {
+        return;
+    }
+
+    loaderWalkerMarkBaseArchiveEntry(hand_entry);
+    if (hand_entry->runtime_index == -1) {
+        hand_entry->runtime_index = -hand_filenum;
+    }
+    hand_entry->source_filenum = hand_filenum;
+
+    snprintf(hand_source_path, sizeof(hand_source_path), "%s::model.obj",
+        hand_archive_path);
+    catalogSetPrimaryFile(hand_entry, hand_source_path);
+}
 
 static s32 s_register(const char *manifest, size_t manifest_len,
                       const char *pd_kind, const char *id,
@@ -29,17 +101,29 @@ static s32 s_register(const char *manifest, size_t manifest_len,
 {
     (void)pd_kind;
 
-    s64 bodynum = 0;
+    s64 bodynum = -1;
     s64 requirefeature = 0;
     char mesh_member[128];
+    char hand_member[128];
     char mesh_archive_path[FS_MAXPATH + 1];
     char source_path[FS_MAXPATH + 1];
-    loaderWalkerEnvelopeInt(manifest, manifest_len, "bodynum", &bodynum);
+    if (!loaderWalkerEnvelopeInt(manifest, manifest_len, "bodynum", &bodynum)
+            || bodynum < 0 || bodynum >= CATALOG_MGR_BODY_COUNT) {
+        sysLogPrintf(LOG_WARNING,
+            "LOADER.WALKER.BODY.RUNTIME_SLOT_MISSING: id=%s bodynum=%d path=%s",
+            id ? id : "(null)", (s32)bodynum,
+            file_path ? file_path : "(null)");
+        bodynum = -1;
+    }
     loaderWalkerEnvelopeInt(manifest, manifest_len, "requirefeature", &requirefeature);
     if (!loaderWalkerEnvelopeStrCopy(manifest, manifest_len, "mesh_archive",
                                      mesh_member, sizeof(mesh_member))) {
         strncpy(mesh_member, "mesh.pdmesh", sizeof(mesh_member) - 1);
         mesh_member[sizeof(mesh_member) - 1] = '\0';
+    }
+    if (!loaderWalkerEnvelopeStrCopy(manifest, manifest_len, "hand_archive",
+                                     hand_member, sizeof(hand_member))) {
+        hand_member[0] = '\0';
     }
 
     asset_entry_t *e = NULL;
@@ -57,7 +141,23 @@ static s32 s_register(const char *manifest, size_t manifest_len,
     if (e && loaderWalkerArchiveMemberPath(file_path, mesh_member,
                                            mesh_archive_path, sizeof(mesh_archive_path))) {
         snprintf(source_path, sizeof(source_path), "%s::model.obj", mesh_archive_path);
+        strncpy(e->ext.body.mesh_archive, mesh_archive_path,
+            sizeof(e->ext.body.mesh_archive) - 1);
+        e->ext.body.mesh_archive[sizeof(e->ext.body.mesh_archive) - 1] = '\0';
         catalogSetPrimaryFile(e, source_path);
+    }
+    if (e && hand_member[0]) {
+        char hand_archive_path[FS_MAXPATH + 1];
+        if (loaderWalkerArchiveMemberPath(file_path, hand_member,
+                                          hand_archive_path,
+                                          sizeof(hand_archive_path))) {
+            strncpy(e->ext.body.hand_archive, hand_archive_path,
+                sizeof(e->ext.body.hand_archive) - 1);
+            e->ext.body.hand_archive[
+                sizeof(e->ext.body.hand_archive) - 1] = '\0';
+        }
+        s_bindBodyHandModelSource(manifest, manifest_len, e, file_path,
+            hand_member);
     }
 
     loaderPoolParseBodyJson(manifest, manifest_len);

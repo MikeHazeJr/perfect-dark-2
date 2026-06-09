@@ -27,6 +27,7 @@ static s32 s_register(const char *manifest, size_t manifest_len,
     loaderWalkerMarkBaseArchiveEntry(e);
 
     char source_member[128];
+    char metrics_member[128];
     char source_path[FS_MAXPATH + 1];
     if (!loaderWalkerEnvelopeStrCopy(manifest, manifest_len, "font",
                                      source_member, sizeof(source_member))
@@ -37,6 +38,15 @@ static s32 s_register(const char *manifest, size_t manifest_len,
     if (loaderWalkerArchiveMemberPath(file_path, source_member,
                                       source_path, sizeof(source_path))) {
         catalogSetPrimaryFile(e, source_path);
+        strncpy(e->ext.font.font_file, source_path,
+                sizeof(e->ext.font.font_file) - 1);
+    }
+    if (loaderWalkerEnvelopeStrCopy(manifest, manifest_len, "metrics",
+                                    metrics_member, sizeof(metrics_member))
+            && loaderWalkerArchiveMemberPath(file_path, metrics_member,
+                                             source_path, sizeof(source_path))) {
+        strncpy(e->ext.font.metrics_file, source_path,
+                sizeof(e->ext.font.metrics_file) - 1);
     }
 
     /* Engine Phase 4: walker may run from boot-pool workers; build the

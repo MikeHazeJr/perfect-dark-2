@@ -170,13 +170,14 @@ TEST_CASE("net manifest status: status and hash are validated before ready gate 
     const std::string read = function_block(netmsg, "u32 netmsgClcManifestStatusRead");
 
     const size_t status_read = read.find("const u8  status");
-    const size_t missing_read = read.find("const u8  num_missing", status_read);
+    const size_t missing_read = read.find("const u16 num_missing", status_read);
     const size_t error_gate = read.find("if (src->error)", missing_read);
     const size_t status_gate = read.find("status > MANIFEST_STATUS_DECLINE", error_gate);
     const size_t status_return = read.find("return 1;", status_gate);
     const size_t hash_gate = read.find("manifest_hash != g_ServerManifest.manifest_hash", status_return);
     const size_t hash_return = read.find("return 1;", hash_gate);
-    const size_t missing_loop = read.find("for (s32 mi = 0;", hash_return);
+    const size_t missing_alloc = read.find("calloc(num_missing", hash_return);
+    const size_t missing_loop = read.find("for (s32 mi = 0;", missing_alloc);
     const size_t ready_gate = read.find("if (s_ReadyGate.active && srccl)", missing_loop);
     const size_t ready_commit = read.find("s_ReadyGate.ready_mask |=", ready_gate);
 
@@ -187,6 +188,7 @@ TEST_CASE("net manifest status: status and hash are validated before ready gate 
     REQUIRE(status_return != std::string::npos);
     REQUIRE(hash_gate != std::string::npos);
     REQUIRE(hash_return != std::string::npos);
+    REQUIRE(missing_alloc != std::string::npos);
     REQUIRE(missing_loop != std::string::npos);
     REQUIRE(ready_gate != std::string::npos);
     REQUIRE(ready_commit != std::string::npos);
@@ -197,7 +199,8 @@ TEST_CASE("net manifest status: status and hash are validated before ready gate 
     REQUIRE(status_gate < status_return);
     REQUIRE(status_return < hash_gate);
     REQUIRE(hash_gate < hash_return);
-    REQUIRE(hash_return < missing_loop);
+    REQUIRE(hash_return < missing_alloc);
+    REQUIRE(missing_alloc < missing_loop);
     REQUIRE(missing_loop < ready_gate);
     REQUIRE(ready_gate < ready_commit);
 }

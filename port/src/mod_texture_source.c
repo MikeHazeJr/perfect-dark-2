@@ -4,6 +4,7 @@
 #include <PR/ultratypes.h>
 #include "assetcatalog.h"
 #include "assetcatalog_load.h"
+#include "asset_source_debug.h"
 #include "fs.h"
 #include "mod.h"
 #include "system.h"
@@ -103,6 +104,11 @@ s32 modTextureLoadRgba32Source(u16 num, mod_texture_rgba32_source_t *out)
 	}
 
 	if (!modTexturePathHasImageExtension(r.path)) {
+		if (assetSourceDebugIsEnabledFor(ASSET_TEXTURE)) {
+			modTextureFatalPublicSourceFailure(num, &r,
+				"the selected public source is not an editable image source");
+			return -1;
+		}
 		return 0;
 	}
 

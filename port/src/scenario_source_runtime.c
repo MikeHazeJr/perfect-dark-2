@@ -7416,6 +7416,40 @@ static s32 s_scenarioMemberPath(const asset_entry_t *scenario,
 	return out[0] != '\0';
 }
 
+static s32 s_scenarioDeclaredOrMemberPath(const asset_entry_t *scenario,
+	const char *declared_path, const char *fallback_member,
+	char *out, size_t out_n)
+{
+	if (!out || out_n == 0) {
+		return 0;
+	}
+
+	out[0] = '\0';
+	if (declared_path && declared_path[0]) {
+		s_copyString(out, out_n, declared_path);
+		return out[0] != '\0';
+	}
+
+	return s_scenarioMemberPath(scenario, fallback_member, out, out_n);
+}
+
+static s32 s_scenarioPortalsPath(const asset_entry_t *scenario,
+	char *out, size_t out_n)
+{
+	if (!scenario || !out || out_n == 0) {
+		return 0;
+	}
+
+	out[0] = '\0';
+	if (scenario->ext.scenario.portals_file[0]) {
+		strncpy(out, scenario->ext.scenario.portals_file, out_n - 1);
+		out[out_n - 1] = '\0';
+		return out[0] != '\0';
+	}
+
+	return s_scenarioMemberPath(scenario, "portals.json", out, out_n);
+}
+
 static void s_graphFailure(asset_type_e type, const char *asset_id,
 	const char *path, const char *reason);
 
@@ -7741,8 +7775,9 @@ static s32 s_bindNavigationGenerateSource(const asset_entry_t *scenario,
 			sizeof(scene_path)) ||
 			!s_scenarioMemberPath(scenario, "collision.obj",
 			collision_path, sizeof(collision_path)) ||
-			!s_scenarioMemberPath(scenario, "navigation.ini", nav_ini_out,
-			nav_ini_out_n) ||
+			!s_scenarioDeclaredOrMemberPath(scenario,
+			scenario ? scenario->ext.scenario.navigation_file : NULL,
+			"navigation.ini", nav_ini_out, nav_ini_out_n) ||
 			!s_scenarioMemberPath(scenario, "_meta/generated-navmesh.json",
 			nav_cache_out, nav_cache_out_n)) {
 		s_graphFailure(ASSET_SCENARIO,
@@ -33922,8 +33957,10 @@ static s32 s_loadNavigationTables(const asset_entry_t *scenario,
 	if (s_activeGraphPathForScenario(scenario,
 			s_ActiveScenarioGraphs.waypoints_path, waypoints_path,
 			sizeof(waypoints_path))
-			|| s_scenarioMemberPath(scenario, "navigation/waypoints.json",
-			waypoints_path, sizeof(waypoints_path))) {
+			|| s_scenarioDeclaredOrMemberPath(scenario,
+			scenario->ext.scenario.navigation_waypoints_file,
+			"navigation/waypoints.json", waypoints_path,
+			sizeof(waypoints_path))) {
 		text = s_loadOptionalText(waypoints_path, &text_size);
 	} else {
 		text = NULL;
@@ -33949,8 +33986,10 @@ static s32 s_loadNavigationTables(const asset_entry_t *scenario,
 	if (s_activeGraphPathForScenario(scenario,
 			s_ActiveScenarioGraphs.waygroups_path, waygroups_path,
 			sizeof(waygroups_path))
-			|| s_scenarioMemberPath(scenario, "navigation/waygroups.json",
-			waygroups_path, sizeof(waygroups_path))) {
+			|| s_scenarioDeclaredOrMemberPath(scenario,
+			scenario->ext.scenario.navigation_waygroups_file,
+			"navigation/waygroups.json", waygroups_path,
+			sizeof(waygroups_path))) {
 		text = s_loadOptionalText(waygroups_path, &text_size);
 	} else {
 		text = NULL;
@@ -33976,8 +34015,10 @@ static s32 s_loadNavigationTables(const asset_entry_t *scenario,
 	if (s_activeGraphPathForScenario(scenario,
 			s_ActiveScenarioGraphs.covers_path, covers_path,
 			sizeof(covers_path))
-			|| s_scenarioMemberPath(scenario, "navigation/covers.json",
-			covers_path, sizeof(covers_path))) {
+			|| s_scenarioDeclaredOrMemberPath(scenario,
+			scenario->ext.scenario.navigation_covers_file,
+			"navigation/covers.json", covers_path,
+			sizeof(covers_path))) {
 		text = s_loadOptionalText(covers_path, &text_size);
 	} else {
 		text = NULL;
@@ -34005,8 +34046,10 @@ static s32 s_loadNavigationTables(const asset_entry_t *scenario,
 		if (s_activeGraphPathForScenario(scenario,
 				s_ActiveScenarioGraphs.paths_path, paths_path,
 				sizeof(paths_path))
-				|| s_scenarioMemberPath(scenario, "navigation/paths.json",
-				paths_path, sizeof(paths_path))) {
+				|| s_scenarioDeclaredOrMemberPath(scenario,
+				scenario->ext.scenario.navigation_paths_file,
+				"navigation/paths.json", paths_path,
+				sizeof(paths_path))) {
 			text = s_loadOptionalText(paths_path, &text_size);
 			if (text) {
 				if (!s_loadPathSourceRows(text, &path_table)) {
@@ -34171,8 +34214,9 @@ static s32 s_scenarioPathsPath(const asset_entry_t *scenario,
 		return 1;
 	}
 
-	return s_scenarioMemberPath(scenario, "navigation/paths.json",
-		out, out_n);
+	return s_scenarioDeclaredOrMemberPath(scenario,
+		scenario->ext.scenario.navigation_paths_file,
+		"navigation/paths.json", out, out_n);
 }
 
 u8 *scenarioSourceLoadSetupForStage(const catalog_stage_result_t *stage,
@@ -34562,8 +34606,8 @@ struct bgportal *scenarioSourceLoadPortalsForStage(
 
 	scenario = s_findScenarioForStage(stage, prefer_mp);
 	if (!scenario || !scenario->id[0] ||
-			!s_scenarioMemberPath(scenario, "portals.json",
-				portals_path, sizeof(portals_path))) {
+			!s_scenarioPortalsPath(scenario, portals_path,
+				sizeof(portals_path))) {
 		return NULL;
 	}
 

@@ -18,8 +18,8 @@
  *   "Save format (MPSETUP_VERSION 1 -> 2): WAD save/load roundtrip +
  *    v1 -> v2 migration"
  *
- * Bumped 2026-05-17 to NET_PROTOCOL_VER 49 for CLC_LOBBY_RESYNC after
- * match end. MPSETUP_VERSION unchanged.
+ * Bumped 2026-06-08 to NET_PROTOCOL_VER 50 for batched catalog-info and
+ * wider distribution missing-list counts. MPSETUP_VERSION unchanged.
  */
 
 #include "catch.hpp"
@@ -42,7 +42,7 @@ extern const u32 g_TestExpectedMpsetupVersion;
 extern const u32 g_TestLiveMpsetupVersion;
 }
 
-const u32 g_TestExpectedNetProtocolVer  = 49;
+const u32 g_TestExpectedNetProtocolVer  = 50;
 const u32 g_TestExpectedMpsetupVersion  = 2;
 
 TEST_CASE("version pin: NET_PROTOCOL_VER is the version this test was written against",
@@ -53,9 +53,9 @@ TEST_CASE("version pin: NET_PROTOCOL_VER is the version this test was written ag
      * verifying the bump is intentional, update g_TestExpectedNetProtocolVer
      * to match and re-run.
      *
-     * As of 2026-05-17 the live value is 49. v49 adds CLC_LOBBY_RESYNC
-     * so post-match room return can ask the server to replay SVC_ROOM_ASSIGN,
-     * SVC_ROOM_SETTINGS, and SVC_ROOM_PLAYLIST. v48 added GPU swarm state
+     * As of 2026-06-08 the live value is 50. v50 batches catalog-info and
+     * widens distribution missing-list counts so large typed-archive packs do
+     * not truncate. v49 added CLC_LOBBY_RESYNC; v48 added GPU swarm state
      * sync; v47 added surface_up locomotion sync; v46 added SVC_DISTRIB_BEGIN
      * SHA-256 digest and cutscene mask/skip authority. Prior bumps remain
      * documented in port/include/net/net.h. MPSETUP_VERSION stays at 2. */

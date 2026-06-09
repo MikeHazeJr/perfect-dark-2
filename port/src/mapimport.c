@@ -1,10 +1,9 @@
 /**
- * mapimport.c -- Mod Map Import Pipeline (Layer 3)
+ * mapimport.c -- Source Map Import Pipeline
  *
- * PD-native binary format importer. Takes a directory of map files (BG, pads,
- * setup, textures), validates and normalizes them, generates missing metadata
- * (spawn points, mod.json), writes to mods/imported_<name>/, and registers
- * in the Asset Catalog.
+ * Stages editable map source layouts and typed .pdarena/.pdscenario content
+ * units. Native BG/setup/pad dumps are rejected because public mod content must
+ * remain source-openable and feed the runtime through catalog/provider loading.
  *
  * Pipeline: PARSE -> NORMALIZE -> GENERATE -> EMIT -> VALIDATE -> REGISTER
  *
@@ -78,49 +77,76 @@ static void sanitizeName(const char *input, char *output, s32 maxlen)
 	output[o] = '\0';
 }
 
-/**
- * Check if a file has one of the expected BG file extensions.
- * PD BG files are typically .bg, .bin, or extensionless.
- */
-static s32 isBgFile(const char *name)
+/* Case-insensitive suffix/equality helpers for source member names. */
+static s32 strEndsWithNoCase(const char *s, const char *suffix)
 {
-	s32 len = (s32)strlen(name);
-	if (len >= 3 && strcmp(name + len - 3, ".bg") == 0) return 1;
-	if (len >= 4 && strcmp(name + len - 4, ".bin") == 0) return 1;
+	size_t slen;
+	size_t tlen;
+	size_t i;
 
-	/* Check if file starts with "bg" prefix (common convention) */
-	if (len >= 2 && name[0] == 'b' && name[1] == 'g') return 1;
+	if (!s || !suffix) return 0;
+	slen = strlen(s);
+	tlen = strlen(suffix);
+	if (tlen > slen) return 0;
 
+	for (i = 0; i < tlen; i++) {
+		unsigned char a = (unsigned char)s[slen - tlen + i];
+		unsigned char b = (unsigned char)suffix[i];
+		if (tolower(a) != tolower(b)) return 0;
+	}
+
+	return 1;
+}
+
+static s32 strEqualsNoCase(const char *a, const char *b)
+{
+	if (!a || !b) return 0;
+	while (*a && *b) {
+		if (tolower((unsigned char)*a) != tolower((unsigned char)*b)) {
+			return 0;
+		}
+		a++;
+		b++;
+	}
+	return *a == '\0' && *b == '\0';
+}
+
+static s32 isForbiddenNativePayload(const char *name)
+{
+	if (strEndsWithNoCase(name, ".bin")) return 1;
+	if (strEndsWithNoCase(name, ".bg")) return 1;
+	if (strEndsWithNoCase(name, ".pad")) return 1;
+	if (strEndsWithNoCase(name, ".pads")) return 1;
+	if (strEndsWithNoCase(name, ".setup")) return 1;
+	if (strEndsWithNoCase(name, ".set")) return 1;
 	return 0;
 }
 
-/**
- * Check if a file is a pad file.
- */
-static s32 isPadFile(const char *name)
+static s32 isSourceGeometryFile(const char *name)
 {
-	s32 len = (s32)strlen(name);
-	if (len >= 4 && strcmp(name + len - 4, ".pad") == 0) return 1;
-	if (len >= 5 && strcmp(name + len - 5, ".pads") == 0) return 1;
-
-	/* Prefix convention */
-	if (len >= 3 && name[0] == 'p' && name[1] == 'a' && name[2] == 'd') return 1;
-
+	if (strEqualsNoCase(name, "scene.glb")) return 1;
+	if (strEqualsNoCase(name, "scene.gltf")) return 1;
+	if (strEqualsNoCase(name, "geometry.obj")) return 1;
+	if (strEqualsNoCase(name, "collision.obj")) return 1;
+	if (strEndsWithNoCase(name, ".pdarena")) return 1;
+	if (strEndsWithNoCase(name, ".pdscenario")) return 1;
 	return 0;
 }
 
-/**
- * Check if a file is a setup file.
- */
-static s32 isSetupFile(const char *name)
+static s32 isEditablePadSource(const char *name)
 {
-	s32 len = (s32)strlen(name);
-	if (len >= 6 && strcmp(name + len - 6, ".setup") == 0) return 1;
-	if (len >= 4 && strcmp(name + len - 4, ".set") == 0) return 1;
+	if (strEqualsNoCase(name, "pads.ini")) return 1;
+	if (strEqualsNoCase(name, "pads.json")) return 1;
+	if (strEqualsNoCase(name, "spawns.json")) return 1;
+	return 0;
+}
 
-	/* Prefix convention */
-	if (len >= 5 && strncmp(name, "setup", 5) == 0) return 1;
-
+static s32 isEditableSetupSource(const char *name)
+{
+	if (strEqualsNoCase(name, "setup.ini")) return 1;
+	if (strEqualsNoCase(name, "objects.json")) return 1;
+	if (strEqualsNoCase(name, "setup.fields.json")) return 1;
+	if (strEqualsNoCase(name, "level.graph.json")) return 1;
 	return 0;
 }
 
@@ -206,6 +232,58 @@ static void removeDirRecursive(const char *path)
 	rmdir(path);
 }
 
+static s32 copyDirRecursive(const char *src, const char *dst)
+{
+	DIR *dir = opendir(src);
+	struct dirent *ent;
+
+	if (!dir) {
+		sysLogPrintf(LOG_WARNING,
+		             "MAPIMPORT: copyDirRecursive: cannot open '%s': %s",
+		             src, strerror(errno));
+		return -1;
+	}
+
+	if (mkdirSafe(dst) != 0) {
+		closedir(dir);
+		sysLogPrintf(LOG_WARNING,
+		             "MAPIMPORT: copyDirRecursive: cannot create '%s': %s",
+		             dst, strerror(errno));
+		return -1;
+	}
+
+	while ((ent = readdir(dir)) != NULL) {
+		char srcfull[FS_MAXPATH];
+		char dstfull[FS_MAXPATH];
+		struct stat st;
+
+		if (strcmp(ent->d_name, ".") == 0 || strcmp(ent->d_name, "..") == 0) {
+			continue;
+		}
+
+		snprintf(srcfull, sizeof(srcfull), "%s/%s", src, ent->d_name);
+		snprintf(dstfull, sizeof(dstfull), "%s/%s", dst, ent->d_name);
+
+		if (stat(srcfull, &st) != 0) {
+			closedir(dir);
+			return -1;
+		}
+
+		if (S_ISDIR(st.st_mode)) {
+			if (copyDirRecursive(srcfull, dstfull) != 0) {
+				closedir(dir);
+				return -1;
+			}
+		} else if (copyFile(srcfull, dstfull) != 0) {
+			closedir(dir);
+			return -1;
+		}
+	}
+
+	closedir(dir);
+	return 0;
+}
+
 /**
  * Get the resolved mods directory path. Checks CWD-relative first.
  */
@@ -216,144 +294,230 @@ static const char *getModsDir(void)
 	return "./" MODMGR_MODS_DIR;
 }
 
+static const char *pathLeaf(const char *path)
+{
+	const char *slash;
+	const char *bslash;
+
+	if (!path) return "";
+	slash = strrchr(path, '/');
+	bslash = strrchr(path, '\\');
+	if (bslash && (!slash || bslash > slash)) {
+		slash = bslash;
+	}
+	return slash ? slash + 1 : path;
+}
+
+static s32 generateScenarioIni(import_context_t *ctx, const char *outdir)
+{
+	char path[FS_MAXPATH];
+	const char *scene_leaf = pathLeaf(ctx->source_geometry_path);
+	FILE *f;
+
+	snprintf(path, sizeof(path), "%s/scenario.ini", outdir);
+	f = fopen(path, "w");
+	if (!f) {
+		sysLogPrintf(LOG_WARNING, "MAPIMPORT: cannot create scenario.ini: %s",
+		             strerror(errno));
+		return -1;
+	}
+
+	fprintf(f,
+		"[scenario]\n"
+		"catalog_id = imported:%s_scenario\n"
+		"name = %s\n"
+		"mode = mp\n"
+		"\n"
+		"[source]\n"
+		"scene_file = %s\n"
+		"runtime_source_file = %s\n"
+		"collision_fallback = generated\n",
+		ctx->map_name,
+		ctx->map_name,
+		scene_leaf,
+		scene_leaf);
+
+	fclose(f);
+	return 0;
+}
+
+static s32 generateArenaIni(import_context_t *ctx, const char *outdir)
+{
+	char path[FS_MAXPATH];
+	const char *geometry_leaf = pathLeaf(ctx->source_geometry_path);
+	FILE *f;
+
+	snprintf(path, sizeof(path), "%s/arena.ini", outdir);
+	f = fopen(path, "w");
+	if (!f) {
+		sysLogPrintf(LOG_WARNING, "MAPIMPORT: cannot create arena.ini: %s",
+		             strerror(errno));
+		return -1;
+	}
+
+	fprintf(f,
+		"[arena]\n"
+		"catalog_id = imported:%s\n"
+		"load_mode = 0\n"
+		"\n"
+		"[geometry]\n"
+		"geometry_file = %s\n",
+		ctx->map_name,
+		geometry_leaf);
+
+	fclose(f);
+	return 0;
+}
+
 /* ========================================================================
  * Stage 1: PARSE -- Scan source directory
  * ======================================================================== */
 
-static mapimport_result_e stageParse(const char *source_dir,
-                                     import_context_t *ctx)
+static mapimport_result_e scanSourceTree(import_context_t *ctx,
+                                         const char *dirpath,
+                                         const char *relpath,
+                                         s32 depth)
 {
 	DIR *dir;
 	struct dirent *ent;
 
-	sysLogPrintf(LOG_NOTE, "MAPIMPORT: PARSE -- scanning '%s'", source_dir);
-
-	/* Verify source directory exists */
-	dir = opendir(source_dir);
-	if (!dir) {
-		ctxError(ctx, MAPIMPORT_ERR_NO_SOURCE_DIR,
-		         "Cannot open source directory: %s", source_dir);
+	if (depth > 16) {
+		ctxError(ctx, MAPIMPORT_ERR_VALIDATE_FAILED,
+		         "Source layout is nested too deeply: %s", dirpath);
 		return ctx->result;
 	}
 
-	strncpy(ctx->source_dir, source_dir, FS_MAXPATH - 1);
-	ctx->source_dir[FS_MAXPATH - 1] = '\0';
+	dir = opendir(dirpath);
+	if (!dir) {
+		ctxError(ctx, MAPIMPORT_ERR_NO_SOURCE_DIR,
+		         "Cannot open source directory: %s", dirpath);
+		return ctx->result;
+	}
 
-	/* Scan for known file types */
 	while ((ent = readdir(dir)) != NULL) {
-		if (ent->d_name[0] == '.') continue;
-
 		char fullpath[FS_MAXPATH];
-		snprintf(fullpath, sizeof(fullpath), "%s/%s", source_dir, ent->d_name);
-
+		char childrel[FS_MAXPATH];
 		struct stat st;
-		if (stat(fullpath, &st) != 0 || S_ISDIR(st.st_mode)) {
-			continue; /* Skip directories and unreadable files */
+		const char *leaf = ent->d_name;
+
+		if (strcmp(leaf, ".") == 0 || strcmp(leaf, "..") == 0) {
+			continue;
+		}
+		if (leaf[0] == '.' && strcmp(leaf, ".") != 0) {
+			continue;
 		}
 
-		/* Check for BG file */
-		if (!ctx->has_bg && isBgFile(ent->d_name)) {
-			ctx->has_bg = 1;
-			strncpy(ctx->bg_path, fullpath, FS_MAXPATH - 1);
-			ctx->bg_path[FS_MAXPATH - 1] = '\0';
-			sysLogPrintf(LOG_NOTE, "MAPIMPORT:   BG file: %s", ent->d_name);
+		snprintf(fullpath, sizeof(fullpath), "%s/%s", dirpath, leaf);
+		if (relpath && relpath[0]) {
+			snprintf(childrel, sizeof(childrel), "%s/%s", relpath, leaf);
+		} else {
+			snprintf(childrel, sizeof(childrel), "%s", leaf);
 		}
 
-		/* Check for pad file */
-		if (!ctx->has_pads && isPadFile(ent->d_name)) {
-			ctx->has_pads = 1;
-			strncpy(ctx->pad_path, fullpath, FS_MAXPATH - 1);
-			ctx->pad_path[FS_MAXPATH - 1] = '\0';
-			sysLogPrintf(LOG_NOTE, "MAPIMPORT:   Pad file: %s", ent->d_name);
+		if (stat(fullpath, &st) != 0) {
+			continue;
 		}
 
-		/* Check for setup file */
-		if (!ctx->has_setup && isSetupFile(ent->d_name)) {
-			ctx->has_setup = 1;
-			strncpy(ctx->setup_path, fullpath, FS_MAXPATH - 1);
-			ctx->setup_path[FS_MAXPATH - 1] = '\0';
-			sysLogPrintf(LOG_NOTE, "MAPIMPORT:   Setup file: %s", ent->d_name);
+		if (S_ISDIR(st.st_mode)) {
+			if (strcmp(leaf, "maps") == 0 || strcmp(leaf, "scenarios") == 0
+					|| strcmp(leaf, "arenas") == 0) {
+				ctx->source_is_mod_layout = 1;
+			}
+			if (scanSourceTree(ctx, fullpath, childrel, depth + 1) != MAPIMPORT_OK) {
+				closedir(dir);
+				return ctx->result;
+			}
+			continue;
 		}
 
-		/* Check for mod.json */
-		if (strcmp(ent->d_name, "mod.json") == 0) {
+		if (isForbiddenNativePayload(leaf)) {
+			strncpy(ctx->first_forbidden_path, childrel, FS_MAXPATH - 1);
+			ctx->first_forbidden_path[FS_MAXPATH - 1] = '\0';
+			closedir(dir);
+			ctxError(ctx, MAPIMPORT_ERR_FORBIDDEN_NATIVE_PAYLOAD,
+			         "Map Import accepts editable source, not native payloads: %s",
+			         ctx->first_forbidden_path);
+			return ctx->result;
+		}
+
+		if (strEqualsNoCase(leaf, "mod.json")) {
 			ctx->has_modjson = 1;
+			ctx->source_is_mod_layout = 1;
 			strncpy(ctx->modjson_path, fullpath, FS_MAXPATH - 1);
 			ctx->modjson_path[FS_MAXPATH - 1] = '\0';
-			sysLogPrintf(LOG_NOTE, "MAPIMPORT:   mod.json found");
+			sysLogPrintf(LOG_NOTE, "MAPIMPORT:   mod.json: %s", childrel);
+		}
+
+		if (strEqualsNoCase(leaf, "arena.ini")) {
+			ctx->source_is_arena_layout = 1;
+			sysLogPrintf(LOG_NOTE, "MAPIMPORT:   arena source: %s", childrel);
+		}
+
+		if (strEqualsNoCase(leaf, "scenario.ini")) {
+			ctx->source_is_scenario_layout = 1;
+			sysLogPrintf(LOG_NOTE, "MAPIMPORT:   scenario source: %s", childrel);
+		}
+
+		if (isSourceGeometryFile(leaf)) {
+			ctx->has_source_geometry = 1;
+			if (ctx->source_geometry_path[0] == '\0') {
+				strncpy(ctx->source_geometry_path, fullpath, FS_MAXPATH - 1);
+				ctx->source_geometry_path[FS_MAXPATH - 1] = '\0';
+			}
+			sysLogPrintf(LOG_NOTE, "MAPIMPORT:   source geometry: %s", childrel);
+		}
+
+		if (isEditablePadSource(leaf)) {
+			ctx->has_pads = 1;
+			if (ctx->pad_path[0] == '\0') {
+				strncpy(ctx->pad_path, fullpath, FS_MAXPATH - 1);
+				ctx->pad_path[FS_MAXPATH - 1] = '\0';
+			}
+		}
+
+		if (isEditableSetupSource(leaf)) {
+			ctx->has_setup = 1;
+			if (ctx->setup_path[0] == '\0') {
+				strncpy(ctx->setup_path, fullpath, FS_MAXPATH - 1);
+				ctx->setup_path[FS_MAXPATH - 1] = '\0';
+			}
 		}
 	}
 
 	closedir(dir);
+	return MAPIMPORT_OK;
+}
 
-	/* BG file is mandatory */
-	if (!ctx->has_bg) {
-		ctxError(ctx, MAPIMPORT_ERR_NO_BG_FILE,
-		         "No map geometry file found in '%s'. Expected a .bg or .bin file.",
+static mapimport_result_e stageParse(const char *source_dir,
+                                     import_context_t *ctx)
+{
+	sysLogPrintf(LOG_NOTE, "MAPIMPORT: PARSE -- scanning '%s'", source_dir);
+
+	strncpy(ctx->source_dir, source_dir, FS_MAXPATH - 1);
+	ctx->source_dir[FS_MAXPATH - 1] = '\0';
+
+	if (scanSourceTree(ctx, source_dir, "", 0) != MAPIMPORT_OK) {
+		return ctx->result;
+	}
+
+	if (!ctx->has_source_geometry) {
+		ctxError(ctx, MAPIMPORT_ERR_NO_SOURCE_GEOMETRY,
+		         "No editable map source found in '%s'. Expected scene.glb, scene.gltf, geometry.obj, .pdarena, or .pdscenario.",
 		         source_dir);
 		return ctx->result;
 	}
 
-	/* Validate BG file: check it's non-empty */
-	{
-		struct stat bgst;
-		if (stat(ctx->bg_path, &bgst) != 0 || bgst.st_size < 16) {
-			ctxError(ctx, MAPIMPORT_ERR_CORRUPT_BG,
-			         "Map geometry file is too small or corrupt (%lld bytes).",
-			         (long long)(bgst.st_size));
-			return ctx->result;
-		}
-
-		/* Check for valid BG header: first 4 bytes should be non-zero
-		 * (room count or header magic). PD BG files start with the room count. */
-		FILE *bgf = fopen(ctx->bg_path, "rb");
-		if (bgf) {
-			u32 header;
-			if (fread(&header, 4, 1, bgf) == 1) {
-				/* A valid BG has room count > 0 and < MAX. Zero = empty. */
-				/* Note: byte order may vary but 0 is always invalid. */
-				if (header == 0) {
-					fclose(bgf);
-					ctxError(ctx, MAPIMPORT_ERR_EMPTY_MAP,
-					         "Map geometry file has 0 rooms.");
-					return ctx->result;
-				}
-				if (header < 0x10000) {
-					ctx->num_rooms = (s32)header;
-				}
-			}
-			fclose(bgf);
-		}
-	}
-
-	/* Validate pad file if present */
-	if (ctx->has_pads) {
-		struct stat padst;
-		if (stat(ctx->pad_path, &padst) != 0 || padst.st_size < 4) {
-			sysLogPrintf(LOG_WARNING,
-			             "MAPIMPORT: Pad file exists but is too small (%lld bytes), ignoring",
-			             (long long)(padst.st_size));
-			ctx->has_pads = 0;
-		} else {
-			/* Read pad count from header */
-			FILE *padf = fopen(ctx->pad_path, "rb");
-			if (padf) {
-				u32 numpads;
-				if (fread(&numpads, 4, 1, padf) == 1 && numpads > 0 &&
-				    numpads <= MAPIMPORT_MAX_PADS) {
-					ctx->num_pads = (s32)numpads;
-				}
-				fclose(padf);
-			}
-		}
+	if (ctx->source_is_scenario_layout && !ctx->source_is_mod_layout) {
+		ctx->source_is_arena_layout = 0;
 	}
 
 	ctx->parse_ok = 1;
 
 	sysLogPrintf(LOG_NOTE,
-	             "MAPIMPORT: PARSE complete -- bg=%d pads=%d(%d) setup=%d modjson=%d rooms=%d",
-	             ctx->has_bg, ctx->has_pads, ctx->num_pads,
-	             ctx->has_setup, ctx->has_modjson, ctx->num_rooms);
+	             "MAPIMPORT: PARSE complete -- source=%d pads=%d setup=%d modjson=%d layout=%d scenario=%d arena=%d",
+	             ctx->has_source_geometry, ctx->has_pads, ctx->has_setup,
+	             ctx->has_modjson, ctx->source_is_mod_layout,
+	             ctx->source_is_scenario_layout, ctx->source_is_arena_layout);
 
 	return MAPIMPORT_OK;
 }
@@ -366,7 +530,7 @@ static mapimport_result_e stageNormalize(import_context_t *ctx)
 {
 	sysLogPrintf(LOG_NOTE, "MAPIMPORT: NORMALIZE -- validating content");
 
-	/* Room count bounds check */
+	/* Legacy counters may be supplied by future source parsers. */
 	if (ctx->num_rooms > MAPIMPORT_MAX_ROOMS) {
 		sysLogPrintf(LOG_WARNING,
 		             "MAPIMPORT: room count %d exceeds max %d -- clamping",
@@ -374,26 +538,25 @@ static mapimport_result_e stageNormalize(import_context_t *ctx)
 		/* Not fatal: PD can handle large maps, just warn */
 	}
 
-	/* Pad count bounds check */
 	if (ctx->num_pads > MAPIMPORT_MAX_PADS) {
 		sysLogPrintf(LOG_WARNING,
 		             "MAPIMPORT: pad count %d exceeds max %d -- clamping",
 		             ctx->num_pads, MAPIMPORT_MAX_PADS);
 	}
 
-	/* If no pads, we'll need to generate spawns from geometry alone (L3/L4) */
+	/* If no editable pads, runtime spawn generation must derive from source geometry. */
 	if (!ctx->has_pads || ctx->num_pads == 0) {
 		sysLogPrintf(LOG_NOTE,
 		             "MAPIMPORT: no pad data -- spawns will be generated from geometry");
 		ctx->has_spawns = 0;
 	}
 
-	/* If no setup file, spawns definitely need generation */
+	/* If no editable setup source exists, runtime uses generated defaults. */
 	if (!ctx->has_setup) {
 		ctx->has_spawns = 0;
 		ctx->has_waypoints = 0;
 		sysLogPrintf(LOG_NOTE,
-		             "MAPIMPORT: no setup file -- will generate minimal setup");
+		             "MAPIMPORT: no setup source -- runtime will use generated defaults");
 	}
 
 	ctx->normalize_ok = 1;
@@ -467,10 +630,13 @@ static void writeImportMetadata(import_context_t *ctx, const char *outdir)
 		"{\n"
 		"  \"source_dir\": \"%s\",\n"
 		"  \"map_name\": \"%s\",\n"
-		"  \"has_bg\": %d,\n"
-		"  \"has_pads\": %d,\n"
-		"  \"has_setup\": %d,\n"
+		"  \"has_source_geometry\": %d,\n"
+		"  \"has_editable_pads\": %d,\n"
+		"  \"has_editable_setup\": %d,\n"
 		"  \"has_modjson\": %d,\n"
+		"  \"source_is_mod_layout\": %d,\n"
+		"  \"source_is_scenario_layout\": %d,\n"
+		"  \"source_is_arena_layout\": %d,\n"
 		"  \"num_rooms\": %d,\n"
 		"  \"num_pads\": %d,\n"
 		"  \"generated_spawns\": %d,\n"
@@ -482,10 +648,13 @@ static void writeImportMetadata(import_context_t *ctx, const char *outdir)
 		"}\n",
 		ctx->source_dir,
 		ctx->map_name,
-		ctx->has_bg,
+		ctx->has_source_geometry,
 		ctx->has_pads,
 		ctx->has_setup,
 		ctx->has_modjson,
+		ctx->source_is_mod_layout,
+		ctx->source_is_scenario_layout,
+		ctx->source_is_arena_layout,
 		ctx->num_rooms,
 		ctx->num_pads,
 		ctx->generated_spawns,
@@ -549,33 +718,100 @@ static mapimport_result_e stageEmit(import_context_t *ctx)
 		return ctx->result;
 	}
 
-	/* Copy BG file */
-	{
-		char dstpath[FS_MAXPATH];
-		snprintf(dstpath, sizeof(dstpath), "%s/%s.bg", tempdir, ctx->map_name);
-		if (copyFile(ctx->bg_path, dstpath) != 0) {
+	/* Stage source content without flattening it into native engine payloads. */
+	if (ctx->source_is_mod_layout) {
+		if (copyDirRecursive(ctx->source_dir, tempdir) != 0) {
 			ctxError(ctx, MAPIMPORT_ERR_EMIT_FAILED,
-			         "Failed to copy BG file to output");
+			         "Failed to copy source layout to output");
 			removeDirRecursive(tempdir);
 			return ctx->result;
 		}
-	}
-
-	/* Copy pad file if present */
-	if (ctx->has_pads) {
+	} else if (strEndsWithNoCase(ctx->source_geometry_path, ".pdarena")) {
+		char arenadir[FS_MAXPATH];
 		char dstpath[FS_MAXPATH];
-		snprintf(dstpath, sizeof(dstpath), "%s/%s.pad", tempdir, ctx->map_name);
-		if (copyFile(ctx->pad_path, dstpath) != 0) {
-			sysLogPrintf(LOG_WARNING, "MAPIMPORT: failed to copy pad file (non-fatal)");
+		snprintf(arenadir, sizeof(arenadir), "%s/arenas", tempdir);
+		if (mkdirSafe(arenadir) != 0) {
+			ctxError(ctx, MAPIMPORT_ERR_EMIT_FAILED,
+			         "Cannot create arenas directory");
+			removeDirRecursive(tempdir);
+			return ctx->result;
 		}
-	}
-
-	/* Copy setup file if present */
-	if (ctx->has_setup) {
+		snprintf(dstpath, sizeof(dstpath), "%s/%s", arenadir,
+		         pathLeaf(ctx->source_geometry_path));
+		if (copyFile(ctx->source_geometry_path, dstpath) != 0) {
+			ctxError(ctx, MAPIMPORT_ERR_EMIT_FAILED,
+			         "Failed to copy .pdarena source archive");
+			removeDirRecursive(tempdir);
+			return ctx->result;
+		}
+	} else if (strEndsWithNoCase(ctx->source_geometry_path, ".pdscenario")) {
+		char scenariodir[FS_MAXPATH];
 		char dstpath[FS_MAXPATH];
-		snprintf(dstpath, sizeof(dstpath), "%s/%s.setup", tempdir, ctx->map_name);
-		if (copyFile(ctx->setup_path, dstpath) != 0) {
-			sysLogPrintf(LOG_WARNING, "MAPIMPORT: failed to copy setup file (non-fatal)");
+		snprintf(scenariodir, sizeof(scenariodir), "%s/scenarios", tempdir);
+		if (mkdirSafe(scenariodir) != 0) {
+			ctxError(ctx, MAPIMPORT_ERR_EMIT_FAILED,
+			         "Cannot create scenarios directory");
+			removeDirRecursive(tempdir);
+			return ctx->result;
+		}
+		snprintf(dstpath, sizeof(dstpath), "%s/%s", scenariodir,
+		         pathLeaf(ctx->source_geometry_path));
+		if (copyFile(ctx->source_geometry_path, dstpath) != 0) {
+			ctxError(ctx, MAPIMPORT_ERR_EMIT_FAILED,
+			         "Failed to copy .pdscenario source archive");
+			removeDirRecursive(tempdir);
+			return ctx->result;
+		}
+	} else if (ctx->source_is_scenario_layout
+			|| strEndsWithNoCase(ctx->source_geometry_path, ".glb")
+			|| strEndsWithNoCase(ctx->source_geometry_path, ".gltf")) {
+		char parentdir[FS_MAXPATH];
+		char scenariodir[FS_MAXPATH];
+		snprintf(parentdir, sizeof(parentdir), "%s/scenarios", tempdir);
+		if (mkdirSafe(parentdir) != 0) {
+			ctxError(ctx, MAPIMPORT_ERR_EMIT_FAILED,
+			         "Cannot create scenarios directory");
+			removeDirRecursive(tempdir);
+			return ctx->result;
+		}
+		snprintf(scenariodir, sizeof(scenariodir), "%s/scenarios/%s",
+		         tempdir, ctx->map_name);
+		if (copyDirRecursive(ctx->source_dir, scenariodir) != 0) {
+			ctxError(ctx, MAPIMPORT_ERR_EMIT_FAILED,
+			         "Failed to copy scenario source folder");
+			removeDirRecursive(tempdir);
+			return ctx->result;
+		}
+		if (!ctx->source_is_scenario_layout
+				&& generateScenarioIni(ctx, scenariodir) != 0) {
+			ctxError(ctx, MAPIMPORT_ERR_EMIT_FAILED,
+			         "Failed to generate scenario.ini");
+			removeDirRecursive(tempdir);
+			return ctx->result;
+		}
+	} else {
+		char parentdir[FS_MAXPATH];
+		char mapdir[FS_MAXPATH];
+		snprintf(parentdir, sizeof(parentdir), "%s/maps", tempdir);
+		if (mkdirSafe(parentdir) != 0) {
+			ctxError(ctx, MAPIMPORT_ERR_EMIT_FAILED,
+			         "Cannot create maps directory");
+			removeDirRecursive(tempdir);
+			return ctx->result;
+		}
+		snprintf(mapdir, sizeof(mapdir), "%s/maps/%s", tempdir, ctx->map_name);
+		if (copyDirRecursive(ctx->source_dir, mapdir) != 0) {
+			ctxError(ctx, MAPIMPORT_ERR_EMIT_FAILED,
+			         "Failed to copy arena source folder");
+			removeDirRecursive(tempdir);
+			return ctx->result;
+		}
+		if (!ctx->source_is_arena_layout
+				&& generateArenaIni(ctx, mapdir) != 0) {
+			ctxError(ctx, MAPIMPORT_ERR_EMIT_FAILED,
+			         "Failed to generate arena.ini");
+			removeDirRecursive(tempdir);
+			return ctx->result;
 		}
 	}
 
@@ -600,41 +836,6 @@ static mapimport_result_e stageEmit(import_context_t *ctx)
 			         "Failed to generate mod.json");
 			removeDirRecursive(tempdir);
 			return ctx->result;
-		}
-	}
-
-	/* Copy any additional files from source (textures, etc.) */
-	{
-		DIR *srcdir = opendir(ctx->source_dir);
-		if (srcdir) {
-			struct dirent *ent;
-			while ((ent = readdir(srcdir)) != NULL) {
-				if (ent->d_name[0] == '.') continue;
-				if (strcmp(ent->d_name, "mod.json") == 0) continue;
-
-				char srcfull[FS_MAXPATH];
-				char dstfull[FS_MAXPATH];
-				snprintf(srcfull, sizeof(srcfull), "%s/%s",
-				         ctx->source_dir, ent->d_name);
-				snprintf(dstfull, sizeof(dstfull), "%s/%s",
-				         tempdir, ent->d_name);
-
-				struct stat fst;
-				if (stat(srcfull, &fst) == 0 && !S_ISDIR(fst.st_mode)) {
-					/* Skip files we already copied */
-					if (strcmp(srcfull, ctx->bg_path) == 0) continue;
-					if (ctx->has_pads && strcmp(srcfull, ctx->pad_path) == 0) continue;
-					if (ctx->has_setup && strcmp(srcfull, ctx->setup_path) == 0) continue;
-
-					/* Don't fail on extra file copy failures */
-					if (copyFile(srcfull, dstfull) != 0) {
-						sysLogPrintf(LOG_WARNING,
-						             "MAPIMPORT: failed to copy '%s' (non-fatal)",
-						             ent->d_name);
-					}
-				}
-			}
-			closedir(srcdir);
 		}
 	}
 
@@ -664,34 +865,12 @@ static mapimport_result_e stageEmit(import_context_t *ctx)
 			return ctx->result;
 		}
 
-		/* Copy all files from temp to final */
-		DIR *tmpdir = opendir(tempdir);
-		if (tmpdir) {
-			struct dirent *ent;
-			s32 copy_ok = 1;
-			while ((ent = readdir(tmpdir)) != NULL) {
-				if (ent->d_name[0] == '.') continue;
-
-				char tsrc[FS_MAXPATH], tdst[FS_MAXPATH];
-				snprintf(tsrc, sizeof(tsrc), "%s/%s", tempdir, ent->d_name);
-				snprintf(tdst, sizeof(tdst), "%s/%s", finaldir, ent->d_name);
-
-				struct stat tfst;
-				if (stat(tsrc, &tfst) == 0 && !S_ISDIR(tfst.st_mode)) {
-					if (copyFile(tsrc, tdst) != 0) {
-						copy_ok = 0;
-					}
-				}
-			}
-			closedir(tmpdir);
-
-			if (!copy_ok) {
-				ctxError(ctx, MAPIMPORT_ERR_EMIT_FAILED,
-				         "Failed to copy files from temp to output directory");
-				removeDirRecursive(tempdir);
-				removeDirRecursive(finaldir);
-				return ctx->result;
-			}
+		if (copyDirRecursive(tempdir, finaldir) != 0) {
+			ctxError(ctx, MAPIMPORT_ERR_EMIT_FAILED,
+			         "Failed to copy source layout from temp to output directory");
+			removeDirRecursive(tempdir);
+			removeDirRecursive(finaldir);
+			return ctx->result;
 		}
 
 		removeDirRecursive(tempdir);
@@ -706,15 +885,14 @@ static mapimport_result_e stageEmit(import_context_t *ctx)
 /* ========================================================================
  * Stage 5: VALIDATE -- Smoke test
  *
- * Since we can't load the BG data into the engine mid-session without
- * disrupting the current stage, validation at import time is limited to
- * filesystem-level checks. Full in-engine validation (spawn pool build,
- * collision test, match simulation) happens on first load.
+ * Validation at import time is limited to filesystem/source-contract checks.
+ * Full in-engine validation (source compile, spawn pool build, collision test,
+ * match simulation) happens on first load.
  *
  * What we CAN verify here:
  *   - Output directory contains all expected files
- *   - mod.json is parseable by modmgr
- *   - File sizes are sane
+ *   - source layout still contains editable map source
+ *   - native .bg/.bin/.pad/.setup payloads are still absent
  * ======================================================================== */
 
 static mapimport_result_e stageValidate(import_context_t *ctx)
@@ -743,15 +921,18 @@ static mapimport_result_e stageValidate(import_context_t *ctx)
 		}
 	}
 
-	/* Verify BG file exists in output */
+	/* Verify staged source layout still has editable map source and no native payloads. */
 	{
-		char bgfile[FS_MAXPATH];
-		struct stat bgst;
-		snprintf(bgfile, sizeof(bgfile), "%s/%s.bg",
-		         ctx->output_dir, ctx->map_name);
-		if (stat(bgfile, &bgst) != 0 || bgst.st_size < 16) {
+		import_context_t staged;
+		memset(&staged, 0, sizeof(staged));
+		if (scanSourceTree(&staged, ctx->output_dir, "", 0) != MAPIMPORT_OK) {
 			ctxError(ctx, MAPIMPORT_ERR_VALIDATE_FAILED,
-			         "Output missing valid BG geometry file");
+			         "Output source validation failed: %s", staged.error);
+			return ctx->result;
+		}
+		if (!staged.has_source_geometry) {
+			ctxError(ctx, MAPIMPORT_ERR_VALIDATE_FAILED,
+			         "Output missing editable source geometry");
 			return ctx->result;
 		}
 	}
@@ -808,8 +989,8 @@ const char *mapImportResultStr(mapimport_result_e result)
 	switch (result) {
 	case MAPIMPORT_OK:                  return "Success";
 	case MAPIMPORT_ERR_NO_SOURCE_DIR:   return "Source directory not found";
-	case MAPIMPORT_ERR_NO_BG_FILE:      return "No map geometry file found";
-	case MAPIMPORT_ERR_CORRUPT_BG:      return "Map geometry file is corrupt";
+	case MAPIMPORT_ERR_NO_SOURCE_GEOMETRY: return "No editable map source found";
+	case MAPIMPORT_ERR_FORBIDDEN_NATIVE_PAYLOAD: return "Native map payloads are not accepted";
 	case MAPIMPORT_ERR_EMPTY_MAP:       return "Map contains no rooms";
 	case MAPIMPORT_ERR_NO_PADS:         return "No pad location data";
 	case MAPIMPORT_ERR_CORRUPT_PADS:    return "Pad file is corrupt";

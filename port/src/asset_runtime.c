@@ -7,8 +7,9 @@
 #include "fs.h"
 #endif
 
-static asset_runtime_binding_t s_Bindings[ASSET_RUNTIME_MAX_BINDINGS];
+static asset_runtime_binding_t *s_Bindings = NULL;
 static s32 s_BindingCount = 0;
+static s32 s_BindingCapacity = 0;
 
 static void s_copy(char *dst, u32 cap, const char *src)
 {
@@ -32,6 +33,33 @@ static s32 s_hasAnyFile(const char *a, const char *b, const char *c,
                         const char *d)
 {
     return s_hasText(a) || s_hasText(b) || s_hasText(c) || s_hasText(d);
+}
+
+static s32 s_hasSuffix(const char *s, const char *suffix)
+{
+    size_t s_len;
+    size_t suffix_len;
+
+    if (!s || !suffix) {
+        return 0;
+    }
+    s_len = strlen(s);
+    suffix_len = strlen(suffix);
+    if (s_len < suffix_len) {
+        return 0;
+    }
+    return strcmp(s + s_len - suffix_len, suffix) == 0;
+}
+
+static s32 s_fontSourceComplete(const asset_runtime_binding_t *binding)
+{
+    if (!binding || !s_hasText(binding->authored_file)) {
+        return 0;
+    }
+    if (s_hasSuffix(binding->authored_file, ".pgm")) {
+        return s_hasText(binding->dependency_a);
+    }
+    return 1;
 }
 
 static s32 s_primaryFileSize(const char *path)
@@ -104,23 +132,35 @@ static s32 s_finishFileBinding(asset_runtime_binding_t *binding, s32 ok)
 
 void assetRuntimeReset(void)
 {
-    memset(s_Bindings, 0, sizeof(s_Bindings));
+    if (s_Bindings && s_BindingCapacity > 0) {
+        memset(s_Bindings, 0,
+               (size_t)s_BindingCapacity * sizeof(s_Bindings[0]));
+    }
     s_BindingCount = 0;
 }
 
 s32 assetRuntimeSupportsType(asset_type_e type)
 {
     switch (type) {
+    case ASSET_ARENA:
+    case ASSET_BODY:
+    case ASSET_HEAD:
+    case ASSET_CHARACTER:
     case ASSET_SKIN:
     case ASSET_EFFECT:
     case ASSET_PROP:
     case ASSET_VEHICLE:
     case ASSET_MISSION:
+    case ASSET_WEAPON:
+    case ASSET_PROJECTILE:
+    case ASSET_ENTITY:
     case ASSET_GAMEMODE:
     case ASSET_BOT_PROFILE:
     case ASSET_HUD:
     case ASSET_MATERIAL:
+    case ASSET_UI:
     case ASSET_FONT:
+    case ASSET_LANG:
     case ASSET_SCENARIO:
     case ASSET_THEME:
         return 1;
@@ -198,8 +238,26 @@ static asset_runtime_binding_t *s_allocBinding(const char *asset_id)
         return binding;
     }
 
-    if (s_BindingCount >= ASSET_RUNTIME_MAX_BINDINGS) {
-        return NULL;
+    if (s_BindingCount >= s_BindingCapacity) {
+        s32 new_capacity = s_BindingCapacity > 0
+            ? s_BindingCapacity * 2
+            : ASSET_RUNTIME_INITIAL_BINDINGS;
+        asset_runtime_binding_t *new_bindings;
+
+        if (new_capacity <= s_BindingCapacity) {
+            return NULL;
+        }
+
+        new_bindings = (asset_runtime_binding_t *)realloc(s_Bindings,
+            (size_t)new_capacity * sizeof(s_Bindings[0]));
+        if (!new_bindings) {
+            return NULL;
+        }
+        memset(new_bindings + s_BindingCapacity, 0,
+               (size_t)(new_capacity - s_BindingCapacity)
+                    * sizeof(new_bindings[0]));
+        s_Bindings = new_bindings;
+        s_BindingCapacity = new_capacity;
     }
 
     binding = &s_Bindings[s_BindingCount++];
@@ -227,20 +285,79 @@ s32 assetRuntimeActivateCatalogEntry(const asset_entry_t *entry,
     s_copy(binding->primary_path, sizeof(binding->primary_path), primary_path);
 
     switch (entry->type) {
+    case ASSET_ARENA:
+        s_copy(binding->authored_file, sizeof(binding->authored_file),
+               entry->ext.arena.scenario_archive);
+        s_copy(binding->target_id, sizeof(binding->target_id),
+               entry->ext.arena.scenario_id);
+        binding->runtime_id = entry->ext.arena.stagenum;
+        binding->kind = entry->ext.arena.load_mode;
+        binding->target_kind = entry->ext.arena.requirefeature;
+        binding->name_langid = entry->ext.arena.name_langid;
+        binding->requirefeature = entry->ext.arena.requirefeature;
+        return s_finishFileBinding(binding,
+            s_hasAnyFile(binding->authored_file, NULL, NULL, NULL));
+
+    case ASSET_BODY:
+        s_copy(binding->authored_file, sizeof(binding->authored_file),
+               entry->ext.body.mesh_archive);
+        s_copy(binding->dependency_a, sizeof(binding->dependency_a),
+               entry->ext.body.hand_archive);
+        s_copy(binding->target_id, sizeof(binding->target_id),
+               entry->ext.body.rig_class);
+        binding->runtime_id = entry->ext.body.bodynum;
+        binding->kind = entry->ext.body.headnum;
+        s_copy(binding->display_name, sizeof(binding->display_name),
+               entry->ext.body.display_name);
+        binding->name_langid = entry->ext.body.name_langid;
+        binding->requirefeature = entry->ext.body.requirefeature;
+        return s_finishFileBinding(binding,
+            s_hasAnyFile(binding->authored_file, NULL, NULL, NULL));
+
+    case ASSET_HEAD:
+        s_copy(binding->authored_file, sizeof(binding->authored_file),
+               entry->ext.head.mesh_archive);
+        s_copy(binding->target_id, sizeof(binding->target_id),
+               entry->ext.head.rig_class);
+        binding->runtime_id = entry->ext.head.headnum;
+        binding->requirefeature = entry->ext.head.requirefeature;
+        return s_finishFileBinding(binding,
+            s_hasAnyFile(binding->authored_file, NULL, NULL, NULL));
+
+    case ASSET_CHARACTER:
+        s_copy(binding->authored_file, sizeof(binding->authored_file),
+               entry->ext.character.bodyfile);
+        s_copy(binding->dependency_a, sizeof(binding->dependency_a),
+               entry->ext.character.headfile);
+        s_copy(binding->dependency_b, sizeof(binding->dependency_b),
+               entry->ext.character.portrait_file);
+        return s_finishFileBinding(binding,
+            s_hasAnyFile(binding->authored_file, NULL, NULL, NULL));
+
     case ASSET_SKIN:
         s_copy(binding->authored_file, sizeof(binding->authored_file),
-               entry->ext.skin.texture_file[0]
-                    ? entry->ext.skin.texture_file
-                    : entry->ext.skin.skin_file);
+               entry->ext.skin.skin_file[0]
+                    ? entry->ext.skin.skin_file
+                    : entry->ext.skin.texture_file);
+        s_copy(binding->dependency_a, sizeof(binding->dependency_a),
+               entry->ext.skin.texture_file);
+        s_copy(binding->dependency_b, sizeof(binding->dependency_b),
+               entry->ext.skin.swatches_file);
+        s_copy(binding->dependency_c, sizeof(binding->dependency_c),
+               entry->ext.skin.material_archive);
+        s_copy(binding->dependency_d, sizeof(binding->dependency_d),
+               entry->ext.skin.texture_archive);
         s_copy(binding->target_id, sizeof(binding->target_id),
                entry->ext.skin.target_id);
         return s_finishFileBinding(binding,
-            s_hasAnyFile(binding->primary_path, binding->authored_file,
-                         NULL, NULL));
+            s_hasAnyFile(binding->authored_file, binding->dependency_a,
+                         binding->dependency_b, NULL));
 
     case ASSET_EFFECT:
         s_copy(binding->authored_file, sizeof(binding->authored_file),
                entry->ext.effect.effect_file);
+        s_copy(binding->dependency_a, sizeof(binding->dependency_a),
+               entry->ext.effect.timeline_file);
         s_copy(binding->shader_id, sizeof(binding->shader_id),
                entry->ext.effect.shader_id);
         binding->kind = entry->ext.effect.effect_type;
@@ -250,8 +367,8 @@ s32 assetRuntimeActivateCatalogEntry(const asset_entry_t *entry,
             binding->params[i] = entry->ext.effect.params[i];
         }
         return s_finishFileBinding(binding,
-            s_hasAnyFile(binding->primary_path, binding->authored_file,
-                         binding->shader_id, NULL));
+            s_hasAnyFile(binding->authored_file, binding->dependency_a,
+                         NULL, NULL));
 
     case ASSET_VEHICLE:
         s_copy(binding->authored_file, sizeof(binding->authored_file),
@@ -261,46 +378,114 @@ s32 assetRuntimeActivateCatalogEntry(const asset_entry_t *entry,
         s_copy(binding->dependency_b, sizeof(binding->dependency_b),
                entry->ext.vehicle.behavior_graph);
         return s_finishFileBinding(binding,
-            s_hasAnyFile(binding->primary_path, binding->authored_file,
-                         binding->dependency_a, binding->dependency_b));
+            s_hasText(binding->dependency_a) &&
+            s_hasAnyFile(binding->authored_file, binding->dependency_b,
+                         NULL, NULL));
 
     case ASSET_PROP:
         s_copy(binding->authored_file, sizeof(binding->authored_file),
                entry->ext.prop.model_file[0]
                     ? entry->ext.prop.model_file
                     : entry->ext.prop.prop_file);
+        s_copy(binding->dependency_a, sizeof(binding->dependency_a),
+               entry->ext.prop.model_file[0] ? entry->ext.prop.prop_file : "");
+        s_copy(binding->dependency_b, sizeof(binding->dependency_b),
+               entry->ext.prop.behavior_graph);
         binding->runtime_id = entry->ext.prop.prop_type;
         binding->kind = entry->ext.prop.prop_type;
         binding->target_kind = (s32)entry->ext.prop.flags;
         binding->value0 = entry->ext.prop.health;
+        s_copy(binding->display_name, sizeof(binding->display_name),
+               entry->ext.prop.name);
         return s_finishFileBinding(binding,
-            s_hasAnyFile(binding->primary_path, binding->authored_file,
-                         NULL, NULL));
+            s_hasAnyFile(binding->authored_file, NULL, NULL, NULL));
+
+    case ASSET_WEAPON:
+        s_copy(binding->authored_file, sizeof(binding->authored_file),
+               entry->ext.weapon.primary_graph);
+        s_copy(binding->dependency_a, sizeof(binding->dependency_a),
+               entry->ext.weapon.secondary_graph);
+        s_copy(binding->dependency_b, sizeof(binding->dependency_b),
+               entry->ext.weapon.shared_context);
+        s_copy(binding->dependency_c, sizeof(binding->dependency_c),
+               entry->ext.weapon.settings_file);
+        s_copy(binding->dependency_d, sizeof(binding->dependency_d),
+               entry->ext.weapon.variables_file);
+        s_copy(binding->dependency_e, sizeof(binding->dependency_e),
+               entry->ext.weapon.model_file);
+        s_copy(binding->weapon_model_file, sizeof(binding->weapon_model_file),
+               entry->ext.weapon.model_file);
+        binding->runtime_id = entry->runtime_index;
+        binding->kind = entry->ext.weapon.weapon_id;
+        binding->target_kind = entry->ext.weapon.requirefeature;
+        binding->value0 = (f32)entry->ext.weapon.dual_wieldable;
+        binding->params[0] = (f32)entry->mp_index;
+        s_copy(binding->display_name, sizeof(binding->display_name),
+               entry->ext.weapon.name);
+        binding->requirefeature = entry->ext.weapon.requirefeature;
+        return s_finishFileBinding(binding,
+            s_hasText(binding->authored_file) &&
+            s_hasText(binding->dependency_a) &&
+            s_hasText(binding->dependency_b) &&
+            s_hasText(binding->dependency_c) &&
+            s_hasText(binding->dependency_d));
+
+    case ASSET_PROJECTILE:
+        s_copy(binding->authored_file, sizeof(binding->authored_file),
+               entry->ext.projectile.behavior_graph);
+        s_copy(binding->dependency_a, sizeof(binding->dependency_a),
+               entry->ext.projectile.model_file);
+        s_copy(binding->target_id, sizeof(binding->target_id),
+               entry->ext.projectile.entity_ref);
+        s_copy(binding->display_name, sizeof(binding->display_name),
+               entry->ext.projectile.name);
+        return s_finishFileBinding(binding,
+            s_hasAnyFile(binding->authored_file, NULL, NULL, NULL));
+
+    case ASSET_ENTITY:
+        s_copy(binding->authored_file, sizeof(binding->authored_file),
+               entry->ext.entity.behavior_graph);
+        s_copy(binding->dependency_a, sizeof(binding->dependency_a),
+               entry->ext.entity.model_file);
+        s_copy(binding->target_id, sizeof(binding->target_id),
+               entry->ext.entity.archetype);
+        s_copy(binding->display_name, sizeof(binding->display_name),
+               entry->ext.entity.name);
+        return s_finishFileBinding(binding,
+            s_hasAnyFile(binding->authored_file, NULL, NULL, NULL));
 
     case ASSET_MISSION:
         s_copy(binding->authored_file, sizeof(binding->authored_file),
-               entry->ext.mission.mission_graph_file[0]
-                    ? entry->ext.mission.mission_graph_file
-                    : entry->ext.mission.scenario_archive);
+               entry->ext.mission.mission_graph_file);
         s_copy(binding->dependency_a, sizeof(binding->dependency_a),
                entry->ext.mission.scenario_archive);
         s_copy(binding->dependency_b, sizeof(binding->dependency_b),
-               entry->ext.mission.objectives_file[0]
-                    ? entry->ext.mission.objectives_file
-                    : entry->ext.mission.briefing_file);
+               entry->ext.mission.objectives_file);
+        s_copy(binding->dependency_c, sizeof(binding->dependency_c),
+               entry->ext.mission.briefing_file);
         return s_finishFileBinding(binding,
-            s_hasAnyFile(binding->primary_path, binding->authored_file,
-                         binding->dependency_a, binding->dependency_b));
+            s_hasText(binding->authored_file) &&
+            s_hasText(binding->dependency_a) &&
+            s_hasText(binding->dependency_b) &&
+            s_hasText(binding->dependency_c));
 
     case ASSET_GAMEMODE:
         s_copy(binding->authored_file, sizeof(binding->authored_file),
                entry->ext.gamemode.rules_file);
+        s_copy(binding->gamemode_name, sizeof(binding->gamemode_name),
+               entry->ext.gamemode.name);
+        s_copy(binding->gamemode_description,
+               sizeof(binding->gamemode_description),
+               entry->ext.gamemode.description);
         binding->runtime_id = entry->ext.gamemode.mode_id;
         binding->kind = entry->ext.gamemode.team_based;
         binding->target_kind = entry->ext.gamemode.min_players;
+        binding->gamemode_min_players = entry->ext.gamemode.min_players;
+        binding->gamemode_max_players = entry->ext.gamemode.max_players;
+        binding->gamemode_team_based = entry->ext.gamemode.team_based;
+        binding->gamemode_requirefeature = entry->ext.gamemode.requirefeature;
         return s_finishFileBinding(binding,
-            s_hasAnyFile(binding->primary_path, binding->authored_file,
-                         NULL, NULL));
+            s_hasAnyFile(binding->authored_file, NULL, NULL, NULL));
 
     case ASSET_BOT_PROFILE:
         s_copy(binding->authored_file, sizeof(binding->authored_file),
@@ -310,20 +495,48 @@ s32 assetRuntimeActivateCatalogEntry(const asset_entry_t *entry,
         binding->runtime_id = entry->ext.bot_profile.type;
         binding->kind = entry->ext.bot_profile.difficulty;
         binding->target_kind = entry->ext.bot_profile.body;
+        binding->bot_profile_type = entry->ext.bot_profile.type;
+        binding->bot_profile_difficulty = entry->ext.bot_profile.difficulty;
+        binding->bot_profile_body = entry->ext.bot_profile.body;
+        binding->bot_profile_name_langid = entry->ext.bot_profile.name_langid;
+        binding->bot_profile_requirefeature = entry->ext.bot_profile.requirefeature;
         return s_finishFileBinding(binding,
-            s_hasAnyFile(binding->primary_path, binding->authored_file,
-                         NULL, NULL));
+            s_hasAnyFile(binding->authored_file, NULL, NULL, NULL));
 
     case ASSET_HUD:
         s_copy(binding->authored_file, sizeof(binding->authored_file),
-               entry->ext.hud.texture_file[0]
-                    ? entry->ext.hud.texture_file
-                    : entry->ext.hud.layout_file);
+               entry->ext.hud.layout_file);
+        s_copy(binding->dependency_a, sizeof(binding->dependency_a),
+               entry->ext.hud.texture_file);
         binding->runtime_id = entry->ext.hud.hud_id;
         binding->kind = entry->ext.hud.element_type;
         return s_finishFileBinding(binding,
-            s_hasAnyFile(binding->primary_path, binding->authored_file,
-                         NULL, NULL));
+            s_hasAnyFile(binding->authored_file, NULL, NULL, NULL));
+
+    case ASSET_UI:
+        s_copy(binding->authored_file, sizeof(binding->authored_file),
+               entry->ext.ui.texture_file);
+        s_copy(binding->dependency_a, sizeof(binding->dependency_a),
+               entry->ext.ui.layout_file);
+        s_copy(binding->dependency_b, sizeof(binding->dependency_b),
+               entry->ext.ui.nineslice_file);
+        s_copy(binding->target_id, sizeof(binding->target_id),
+               entry->ext.ui.texture_name);
+        binding->ui_width = entry->ext.ui.width;
+        binding->ui_height = entry->ext.ui.height;
+        binding->ui_data_size = entry->ext.ui.data_size;
+        binding->ui_nineslice_left = entry->ext.ui.nineslice_left;
+        binding->ui_nineslice_right = entry->ext.ui.nineslice_right;
+        binding->ui_nineslice_top = entry->ext.ui.nineslice_top;
+        binding->ui_nineslice_bottom = entry->ext.ui.nineslice_bottom;
+        s_copy(binding->ui_nineslice_edge_mode,
+               sizeof(binding->ui_nineslice_edge_mode),
+               entry->ext.ui.nineslice_edge_mode);
+        s_copy(binding->ui_nineslice_center_mode,
+               sizeof(binding->ui_nineslice_center_mode),
+               entry->ext.ui.nineslice_center_mode);
+        return s_finishFileBinding(binding,
+            s_hasAnyFile(binding->authored_file, NULL, NULL, NULL));
 
     case ASSET_MATERIAL:
         s_copy(binding->authored_file, sizeof(binding->authored_file),
@@ -333,26 +546,94 @@ s32 assetRuntimeActivateCatalogEntry(const asset_entry_t *entry,
         s_copy(binding->dependency_b, sizeof(binding->dependency_b),
                entry->ext.material.effect_archive);
         return s_finishFileBinding(binding,
-            s_hasAnyFile(binding->primary_path, binding->authored_file,
-                         binding->dependency_a, binding->dependency_b));
+            s_hasAnyFile(binding->authored_file, NULL, NULL, NULL));
 
     case ASSET_FONT:
-        return s_finishFileBinding(binding, s_hasText(binding->primary_path));
+        s_copy(binding->authored_file, sizeof(binding->authored_file),
+               entry->ext.font.font_file);
+        s_copy(binding->dependency_a, sizeof(binding->dependency_a),
+               entry->ext.font.metrics_file);
+        return s_finishFileBinding(binding, s_fontSourceComplete(binding));
+
+    case ASSET_LANG:
+        s_copy(binding->authored_file, sizeof(binding->authored_file),
+               entry->ext.lang.strings_file);
+        s_copy(binding->lang_locale, sizeof(binding->lang_locale),
+               entry->ext.lang.locale);
+        s_copy(binding->lang_category, sizeof(binding->lang_category),
+               entry->ext.lang.lang_category);
+        binding->runtime_id = entry->ext.lang.bank_id;
+        binding->lang_string_count = entry->ext.lang.string_count;
+        return s_finishFileBinding(binding,
+            s_hasText(binding->authored_file) && entry->ext.lang.bank_id >= 0);
 
     case ASSET_SCENARIO:
         s_copy(binding->authored_file, sizeof(binding->authored_file),
-               entry->ext.scenario.scene_file[0]
-                    ? entry->ext.scenario.scene_file
-                    : entry->ext.scenario.rooms_file);
+               entry->ext.scenario.scene_file);
         s_copy(binding->dependency_a, sizeof(binding->dependency_a),
                entry->ext.scenario.collision_file);
         s_copy(binding->dependency_b, sizeof(binding->dependency_b),
                entry->ext.scenario.level_graph_file);
+        s_copy(binding->scenario_rooms_file,
+               sizeof(binding->scenario_rooms_file),
+               entry->ext.scenario.rooms_file);
+        s_copy(binding->scenario_portals_file,
+               sizeof(binding->scenario_portals_file),
+               entry->ext.scenario.portals_file);
+        s_copy(binding->scenario_pads_file,
+               sizeof(binding->scenario_pads_file),
+               entry->ext.scenario.pads_file);
+        s_copy(binding->scenario_spawns_file,
+               sizeof(binding->scenario_spawns_file),
+               entry->ext.scenario.spawns_file);
+        s_copy(binding->scenario_volumes_file,
+               sizeof(binding->scenario_volumes_file),
+               entry->ext.scenario.volumes_file);
+        s_copy(binding->scenario_objects_file,
+               sizeof(binding->scenario_objects_file),
+               entry->ext.scenario.objects_file);
+        s_copy(binding->scenario_setup_fields_file,
+               sizeof(binding->scenario_setup_fields_file),
+               entry->ext.scenario.setup_fields_file);
+        s_copy(binding->scenario_ai_lists_file,
+               sizeof(binding->scenario_ai_lists_file),
+               entry->ext.scenario.ai_lists_file);
+        s_copy(binding->scenario_objectives_file,
+               sizeof(binding->scenario_objectives_file),
+               entry->ext.scenario.objectives_file);
+        s_copy(binding->scenario_navigation_file,
+               sizeof(binding->scenario_navigation_file),
+               entry->ext.scenario.navigation_file);
+        s_copy(binding->scenario_navigation_waypoints_file,
+               sizeof(binding->scenario_navigation_waypoints_file),
+               entry->ext.scenario.navigation_waypoints_file);
+        s_copy(binding->scenario_navigation_waygroups_file,
+               sizeof(binding->scenario_navigation_waygroups_file),
+               entry->ext.scenario.navigation_waygroups_file);
+        s_copy(binding->scenario_navigation_covers_file,
+               sizeof(binding->scenario_navigation_covers_file),
+               entry->ext.scenario.navigation_covers_file);
+        s_copy(binding->scenario_navigation_paths_file,
+               sizeof(binding->scenario_navigation_paths_file),
+               entry->ext.scenario.navigation_paths_file);
         binding->runtime_id = entry->ext.scenario.stagenum;
         binding->kind = entry->ext.scenario.mode;
         return s_finishFileBinding(binding,
-            s_hasAnyFile(binding->primary_path, binding->authored_file,
-                         binding->dependency_a, binding->dependency_b));
+            s_hasText(binding->authored_file) &&
+            s_hasText(binding->dependency_b) &&
+            s_hasText(binding->scenario_portals_file) &&
+            s_hasText(binding->scenario_pads_file) &&
+            s_hasText(binding->scenario_spawns_file) &&
+            s_hasText(binding->scenario_volumes_file) &&
+            s_hasText(binding->scenario_objects_file) &&
+            s_hasText(binding->scenario_setup_fields_file) &&
+            s_hasText(binding->scenario_ai_lists_file) &&
+            s_hasText(binding->scenario_objectives_file) &&
+            s_hasText(binding->scenario_navigation_file) &&
+            s_hasText(binding->scenario_navigation_waypoints_file) &&
+            s_hasText(binding->scenario_navigation_waygroups_file) &&
+            s_hasText(binding->scenario_navigation_covers_file) &&
+            s_hasText(binding->scenario_navigation_paths_file));
 
     case ASSET_THEME:
         s_copy(binding->authored_file, sizeof(binding->authored_file),
@@ -361,9 +642,14 @@ s32 assetRuntimeActivateCatalogEntry(const asset_entry_t *entry,
                entry->ext.theme.ui_archive);
         s_copy(binding->dependency_b, sizeof(binding->dependency_b),
                entry->ext.theme.font_archive);
+        s_copy(binding->dependency_c, sizeof(binding->dependency_c),
+               entry->ext.theme.audio_archive);
+        s_copy(binding->dependency_d, sizeof(binding->dependency_d),
+               entry->ext.theme.music_archive);
+        s_copy(binding->dependency_e, sizeof(binding->dependency_e),
+               entry->ext.theme.effect_archive);
         return s_finishFileBinding(binding,
-            s_hasAnyFile(binding->primary_path, binding->authored_file,
-                         binding->dependency_a, binding->dependency_b));
+            s_hasAnyFile(binding->authored_file, NULL, NULL, NULL));
 
     default:
         binding->active = 0;

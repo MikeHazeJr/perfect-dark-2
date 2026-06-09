@@ -14,13 +14,18 @@ Preferred `.pdscenario` public layout:
 scenario.ini
 scene.glb
 collision.glb
-pads.tsv
-volumes.tsv
+pads.json
+volumes.json
 spawns.json
-objects.tsv
-setup.fields.tsv
+objects.json
+setup.fields.json
 objectives.json
+ai/ailists.json
 navigation.ini
+navigation/paths.json
+navigation/waypoints.json
+navigation/waygroups.json
+navigation/covers.json
 level.graph.json
 _meta/
   manifest.json
@@ -84,7 +89,7 @@ The raw `setup.tsv`, `mpsetup.tsv`, and `visual_segments.tsv` public outputs hav
 
 Reusable level-local behavior lives in `level.graph.json`. Campaign story flow, objective progression, cutscenes, checkpoints, unlocks, and mission phase logic belong in `.pdmission` graph assets that reference one or more `.pdscenario` archives.
 
-Implementation note, 2026-05-25 through 2026-06-07: raw setup/mpsetup/visual word dumps are no longer public outputs. The extractor emits `objects.tsv` with named records and catalog-ID asset refs, `setup.fields.tsv` is the named per-command field table for setup parity work, B-780 moved Scenario objective records to semantic `objectives.json` with schema `pd2.scenario.objectives.v1`, and B-781 moved spawn rows to semantic `spawns.json` with schema `pd2.scenario.spawns.v1`. `level.graph.json` links scene, collision, navigation, and decoded setup/objective/spawn source. `.pdmission` descriptors, scanner/distribution/runtime bindings, and examples now prefer `mission.graph.json` and mission `objectives.json`.
+Implementation note, 2026-05-25 through 2026-06-07: raw setup/mpsetup/visual word dumps are no longer public outputs. The extractor now emits semantic JSON source for Scenario objectives, spawns, volumes, pads, navigation paths/tables, portals, objects, setup fields, and AI lists. `level.graph.json` links scene, collision, navigation, and decoded setup/objective/spawn/AI source. `.pdmission` descriptors, scanner/distribution/runtime bindings, and examples now prefer `mission.graph.json`, mission `objectives.json`, and mission `briefing.json`. Stale public Scenario or mission TSV members and stale TSV metadata references are validation failures, not an authoring format.
 
 ## Runtime Parity
 

@@ -27,6 +27,7 @@
 #include "types.h"
 #include "assetcatalog.h"
 #include "assetcatalog_scanner.h"
+#include "assetcatalog_weapon_slots.h"
 #include "assetprovider_internal.h"
 #include "fs.h"          /* Phase 3 Pass B: catalogBindPrimaryFromDiskOrRom probe */
 #include "romextract.h"  /* Phase 3 Pass B: romExtractRelPathForFilenum */
@@ -365,6 +366,7 @@ void assetCatalogClear(void)
     s_CatalogGeneration++;
 
     CATALOG_UNLOCK();
+    assetCatalogResetCustomWeaponSlots();
 }
 
 void assetCatalogClearMods(void)
@@ -373,6 +375,7 @@ void assetCatalogClearMods(void)
 
     if (s_EntryPool == NULL || s_HashTable == NULL) {
         CATALOG_UNLOCK();
+        assetCatalogResetCustomWeaponSlots();
         return;
     }
 
@@ -407,6 +410,7 @@ void assetCatalogClearMods(void)
 
     s_CatalogGeneration++;
     CATALOG_UNLOCK();
+    assetCatalogResetCustomWeaponSlots();
 }
 
 s32 assetCatalogGetCount(void)
@@ -1096,7 +1100,6 @@ asset_entry_t *assetCatalogRegisterWeapon(const char *id, s32 weapon_id,
             strncpy(entry->ext.weapon.model_file, model_file, 127);
             entry->ext.weapon.model_file[127] = '\0';
         }
-        catalogSetPrimaryFile(entry, entry->ext.weapon.model_file);
         entry->ext.weapon.dual_wieldable = dual_wieldable;
     }
     CATALOG_UNLOCK();
@@ -1281,7 +1284,6 @@ asset_entry_t *assetCatalogRegisterHud(const char *id, s32 hud_id,
             strncpy(entry->ext.hud.texture_file, texture_file, 127);
             entry->ext.hud.texture_file[127] = '\0';
         }
-        catalogSetPrimaryFile(entry, entry->ext.hud.texture_file);
     }
     CATALOG_UNLOCK();
     return entry;
@@ -1328,6 +1330,17 @@ void catalogSetPrimaryFile(asset_entry_t *entry, const char *path)
     if (!assetHandleIsNull(handle)) {
         catalogSetPrimary(entry, handle);
     }
+}
+
+asset_data_handle_t catalogHandleForSourceFile(const char *path)
+{
+    asset_data_handle_t handle = ASSET_HANDLE_NULL_INIT;
+
+    if (path == NULL || path[0] == '\0') {
+        return handle;
+    }
+
+    return fileProviderHandle(path);
 }
 
 void catalogSetPrimaryRomFilenum(asset_entry_t *entry, s32 filenum)

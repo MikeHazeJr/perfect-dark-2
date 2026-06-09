@@ -1387,6 +1387,11 @@ const char *pdguiTrFrWeaponName(u32 weaponnum)
     return bgunGetName((s32)weaponnum);
 }
 
+const char *pdguiTrFrWeaponCatalogId(u32 weaponnum)
+{
+    return catalogWeaponIdByRuntimeWeaponNum((s32)weaponnum);
+}
+
 s32 pdguiTrFrWeaponScoreTier(u32 weaponnum)
 {
     return ciGetFiringRangeScore(frGetWeaponIndexByWeapon(weaponnum));
@@ -1552,6 +1557,12 @@ const char *pdguiTrDtCurrentDescription(void)
     return dtGetDescription();
 }
 
+const char *pdguiTrDtCurrentWeaponCatalogId(void)
+{
+    u32 weaponnum = dtGetWeaponByDeviceIndex(dtGetIndexBySlot((s32)g_DtSlot));
+    return catalogWeaponIdByRuntimeWeaponNum((s32)weaponnum);
+}
+
 u32 pdguiTrDtCurrentWeaponFilenum(void)
 {
     u32 weaponnum = dtGetWeaponByDeviceIndex(dtGetIndexBySlot((s32)g_DtSlot));
@@ -1608,6 +1619,21 @@ u32 pdguiTrHtCurrentWeaponFilenum(void)
         return 0;
     }
     return (u32)weaponGetFileNum((s32)weaponnum);
+}
+
+const char *pdguiTrHtCurrentWeaponCatalogId(void)
+{
+    s32 index = htGetIndexBySlot((s32)var80088bb4);
+    if (index < 0) {
+        return NULL;
+    }
+
+    u32 weaponnum = func0f1a25c0(index);
+    if (weaponnum == 0) {
+        return NULL;
+    }
+
+    return catalogWeaponIdByRuntimeWeaponNum((s32)weaponnum);
 }
 
 /* ---- Hangar ------------------------------------------------------------ */
@@ -1707,6 +1733,23 @@ u32 pdguiTrHangarCurrentVehicleFilenum(void)
         return 0;
     }
     return items[veh];
+}
+
+const char *pdguiTrHangarCurrentVehicleCatalogId(void)
+{
+    s32 filenum = (s32)pdguiTrHangarCurrentVehicleFilenum();
+    const char *id;
+
+    if (filenum <= 0) {
+        return NULL;
+    }
+
+    id = catalogIdBySourceFilenum(ASSET_VEHICLE, filenum);
+    if (id) {
+        return id;
+    }
+
+    return catalogIdBySourceFilenum(ASSET_MODEL, filenum);
 }
 
 /* ========================================================================

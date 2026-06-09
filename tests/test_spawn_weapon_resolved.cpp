@@ -13,7 +13,7 @@
  *
  * which let 0xFE flow through as if it were a real WEAPON_* enum.
  * modelmgrLoadProjectileModeldefs(254) then read g_Weapons[254] -- a 254-byte
- * walk past the end of the 86-entry [WEAPON_SUICIDEPILL + 1] array -- and AVed
+ * walk past the end of the weapon runtime slot array -- and AVed
  * on the next deref.
  *
  * The fix introduces spawnWeaponNumIsResolved() in port/include/net/matchsetup.h
@@ -33,8 +33,8 @@
  * @SYNC port/include/net/matchsetup.h    SPAWNWEAPON_FIESTA_SENTINEL (= 0xFE)
  * @SYNC src/game/setup.c                 setupCreateProps spawn-weapon preload
  * @SYNC src/game/modelmgrreset.c         modelmgrLoadProjectileModeldefs leaf
- * @SYNC src/include/game/inv.h           g_Weapons[WEAPON_SUICIDEPILL + 1]
- *       (size of the array the consumer indexes; bound is WEAPON_SUICIDEPILL + 1)
+ * @SYNC port/include/catalog_mgr_weapons_pure.h CATALOG_MGR_WEAPON_COUNT_PURE
+ *       (size of the array the consumer indexes, including private custom slots)
  *
  * Methodology note (Mike's directive, B-263):
  *   When adding a new sentinel value, the audit must include EVERY consumer
@@ -84,8 +84,8 @@ TEST_CASE("spawnWeaponNumIsResolved: real WEAPON_* enums in [1, 0x55] are resolv
           "[matchsetup][spawn-weapon][sentinel][b263][s483c]")
 {
     /* WEAPON_UNARMED = 1 .. WEAPON_SUICIDEPILL = 0x55 are the populated
-     * slots in g_Weapons[]. Anything in this range is a real resolved
-     * weapon enum. */
+     * base slots in the weapon runtime pool. Anything in this range is a real
+     * resolved weapon enum. */
     for (s32 num = 1; num <= 0x55; num++) {
         INFO("spawnWeaponNum = " << num);
         REQUIRE(spawnWeaponNumIsResolved(num) == 1);
@@ -153,8 +153,8 @@ bool consumer_gate_admits(s32 spawnWeaponNum)
 
 /* Pure mirror of the post-fix leaf bound at modelmgrreset.c:172. The leaf
  * accepts anything in [0, kArraySize) and rejects everything else with a
- * loud-fail return. We treat "admitted" as "would index g_Weapons[X]". */
-constexpr s32 kArraySize_g_Weapons = 0x55 + 1; /* WEAPON_SUICIDEPILL + 1 */
+ * loud-fail return. We treat "admitted" as "would index the weapon pool". */
+constexpr s32 kArraySize_g_Weapons = 0x60; /* base 0x00..0x55 + custom 0x56..0x5f */
 
 bool leaf_admits_for_indexing(s32 weaponnum)
 {
@@ -195,15 +195,25 @@ TEST_CASE("Real WEAPON_* enums pass the gate AND fit in g_Weapons[] bounds",
     }
 }
 
+TEST_CASE("Private custom weapon slots pass the gate AND fit in weapon-pool bounds",
+          "[matchsetup][spawn-weapon][b263][b855]")
+{
+    for (s32 num = 0x56; num < 0x60; num++) {
+        INFO("weaponnum = " << num);
+        REQUIRE(consumer_gate_admits(num) == true);
+        REQUIRE(leaf_admits_for_indexing(num) == true);
+    }
+}
+
 TEST_CASE("Out-of-bounds weaponnum reaches leaf only via gate failure (defence in depth)",
           "[matchsetup][spawn-weapon][b263][s483c][defence-in-depth]")
 {
-    /* Values 0x56..0xFD are NOT reserved sentinels (so the upstream gate
-     * admits them) but ARE out of bounds for g_Weapons[]. The leaf bound
-     * is what catches these.  This covers the case where a future caller
+    /* Values 0x60..0xFD are NOT reserved sentinels (so the upstream gate
+     * admits them) but ARE out of bounds for the weapon pool. The leaf bound
+     * is what catches these. This covers the case where a future caller
      * passes a bad value that bypassed the upstream gate logic
      * (e.g. wire-data tampering, not-yet-migrated consumer). */
-    for (s32 num = 0x56; num <= 0xFD; num++) {
+    for (s32 num = 0x60; num <= 0xFD; num++) {
         INFO("weaponnum = " << num);
         /* Upstream gate says yes (it's not a reserved sentinel) -- */
         REQUIRE(consumer_gate_admits(num) == true);

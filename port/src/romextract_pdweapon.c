@@ -142,15 +142,60 @@ static s32 s_existingWeaponArchiveGraphCurrent(const char *relpath)
 	return current;
 }
 
-static s32 s_existingWeaponArchiveComplete(const char *relpath)
+static s32 s_existingWeaponArchiveComplete(const char *relpath,
+	const struct weapon *wpn)
 {
+	s32 model_source_current = 0;
+	if (wpn && wpn->hi_model) {
+		model_source_current =
+			s_existingArchiveHasEntry(relpath,
+				PDWEAPON_DEP_MODELS "/held_hi.pdmesh") &&
+			s_existingArchiveEntryContains(relpath, "weapon.ini",
+				"model_file = " PDWEAPON_DEP_MODELS "/held_hi.pdmesh") &&
+			s_existingArchiveEntryContains(relpath, "_meta/manifest.json",
+				"\"model_file\": \"" PDWEAPON_DEP_MODELS "/held_hi.pdmesh\"");
+	} else {
+		model_source_current =
+			!s_existingArchiveEntryContains(relpath, "weapon.ini",
+				"model_file = " PDWEAPON_DEP_MODELS "/held_hi.pdmesh") &&
+			!s_existingArchiveEntryContains(relpath, "_meta/manifest.json",
+				"\"model_file\": \"" PDWEAPON_DEP_MODELS "/held_hi.pdmesh\"");
+	}
+
 	return s_existingArchiveHasEntry(relpath, "weapon.ini") &&
 	       s_existingArchiveHasEntry(relpath, "_meta/manifest.json") &&
 	       s_existingArchiveHasEntry(relpath, PDWEAPON_PRIMARY_GRAPH_ENTRY) &&
 	       s_existingArchiveHasEntry(relpath, PDWEAPON_SECONDARY_GRAPH_ENTRY) &&
 	       s_existingArchiveHasEntry(relpath, PDWEAPON_NESTED_PAYLOADS_ENTRY) &&
+	       model_source_current &&
 	       s_existingArchiveEntryContains(relpath, "weapon.ini",
 		"dependency_closure = " PDWEAPON_DEPENDENCY_CLOSURE_MARKER) &&
+	       s_existingArchiveEntryContains(relpath, "weapon.ini",
+		"primary_graph = " PDWEAPON_PRIMARY_GRAPH_ENTRY) &&
+	       s_existingArchiveEntryContains(relpath, "weapon.ini",
+		"secondary_graph = " PDWEAPON_SECONDARY_GRAPH_ENTRY) &&
+	       s_existingArchiveEntryContains(relpath, "weapon.ini",
+		"shared_context_file = " PDWEAPON_SHARED_CONTEXT_ENTRY) &&
+	       s_existingArchiveEntryContains(relpath, "weapon.ini",
+		"settings_file = " PDWEAPON_SETTINGS_ENTRY) &&
+	       s_existingArchiveEntryContains(relpath, "weapon.ini",
+		"variables_file = " PDWEAPON_VARIABLES_ENTRY) &&
+	       s_existingArchiveEntryContains(relpath, "_meta/manifest.json",
+		"\"primary_graph\": \"" PDWEAPON_PRIMARY_GRAPH_ENTRY "\"") &&
+	       s_existingArchiveEntryContains(relpath, "_meta/manifest.json",
+		"\"secondary_graph\": \"" PDWEAPON_SECONDARY_GRAPH_ENTRY "\"") &&
+	       s_existingArchiveEntryContains(relpath, "_meta/manifest.json",
+		"\"shared_context_file\": \"" PDWEAPON_SHARED_CONTEXT_ENTRY "\"") &&
+	       s_existingArchiveEntryContains(relpath, "_meta/manifest.json",
+		"\"settings_file\": \"" PDWEAPON_SETTINGS_ENTRY "\"") &&
+	       s_existingArchiveEntryContains(relpath, "_meta/manifest.json",
+		"\"variables_file\": \"" PDWEAPON_VARIABLES_ENTRY "\"") &&
+	       !s_existingArchiveEntryContains(relpath, "weapon.ini",
+		"shared_context = " PDWEAPON_SHARED_CONTEXT_ENTRY) &&
+	       !s_existingArchiveEntryContains(relpath, "weapon.ini",
+		"settings = " PDWEAPON_SETTINGS_ENTRY) &&
+	       !s_existingArchiveEntryContains(relpath, "weapon.ini",
+		"variables = " PDWEAPON_VARIABLES_ENTRY) &&
 	       !s_existingArchiveEntryContains(relpath, "weapon.ini", "weapon_id") &&
 	       !s_existingArchiveEntryContains(relpath, PDWEAPON_SETTINGS_ENTRY, "weapon_id") &&
 	       !s_existingArchiveEntryContains(relpath, PDWEAPON_PRIMARY_GRAPH_ENTRY, "MODEL_") &&
@@ -2274,7 +2319,7 @@ static s32 s_emitOneWeapon(s32 weapon_id, const struct weapon *wpn,
 
 	if (!force_rewrite) {
 		s32 sz = fsFileSize(relpath);
-		if (sz > 0 && s_existingWeaponArchiveComplete(relpath)) return 0;
+		if (sz > 0 && s_existingWeaponArchiveComplete(relpath, wpn)) return 0;
 	}
 
 	pdweapon_anim_deps_t anim_deps;
@@ -2309,6 +2354,14 @@ static s32 s_emitOneWeapon(s32 weapon_id, const struct weapon *wpn,
 	jw_field_file_or_int(&w, "lo_model", wpn->lo_model, 0);
 	jw_field_str(&w, "dependency_closure",
 		PDWEAPON_DEPENDENCY_CLOSURE_MARKER, 0);
+	if (wpn->hi_model) {
+		jw_field_str(&w, "model_file", PDWEAPON_DEP_MODELS "/held_hi.pdmesh", 0);
+	}
+	jw_field_str(&w, "primary_graph", PDWEAPON_PRIMARY_GRAPH_ENTRY, 0);
+	jw_field_str(&w, "secondary_graph", PDWEAPON_SECONDARY_GRAPH_ENTRY, 0);
+	jw_field_str(&w, "shared_context_file", PDWEAPON_SHARED_CONTEXT_ENTRY, 0);
+	jw_field_str(&w, "settings_file", PDWEAPON_SETTINGS_ENTRY, 0);
+	jw_field_str(&w, "variables_file", PDWEAPON_VARIABLES_ENTRY, 0);
 	jw_open_object(&w, "embedded_archives");
 	jw_field_str(&w, "hi_model",
 		wpn->hi_model ? PDWEAPON_DEP_MODELS "/held_hi.pdmesh" : NULL, 0);
@@ -2385,12 +2438,15 @@ static s32 s_emitOneWeapon(s32 weapon_id, const struct weapon *wpn,
 		"manifest = _meta/manifest.json\n"
 		"primary_graph = " PDWEAPON_PRIMARY_GRAPH_ENTRY "\n"
 		"secondary_graph = " PDWEAPON_SECONDARY_GRAPH_ENTRY "\n"
-		"shared_context = " PDWEAPON_SHARED_CONTEXT_ENTRY "\n"
-		"settings = " PDWEAPON_SETTINGS_ENTRY "\n"
-		"variables = " PDWEAPON_VARIABLES_ENTRY "\n"
+		"shared_context_file = " PDWEAPON_SHARED_CONTEXT_ENTRY "\n"
+		"settings_file = " PDWEAPON_SETTINGS_ENTRY "\n"
+		"variables_file = " PDWEAPON_VARIABLES_ENTRY "\n"
 		"nested_payloads = " PDWEAPON_NESTED_PAYLOADS_ENTRY "\n"
-		"model_file = " PDWEAPON_DEP_MODELS "/held_hi.pdmesh\n",
-		catalog_id);
+		"%s%s%s",
+		catalog_id,
+		wpn->hi_model ? "model_file = " : "",
+		wpn->hi_model ? PDWEAPON_DEP_MODELS "/held_hi.pdmesh" : "",
+		wpn->hi_model ? "\n" : "");
 	if (weapon_ini_len <= 0 || (size_t)weapon_ini_len >= sizeof(weapon_ini)) {
 		sysMemFree(manifest_bytes);
 		sysLoudFailf("EXTRACT.PDWEAPON",

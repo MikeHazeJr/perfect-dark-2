@@ -58,7 +58,7 @@
 
 namespace {
 
-constexpr int kNUM_MPWEAPONS_v2 = 0x29;  /* matches src/include/constants.h:3035 */
+constexpr int kNUM_MPWEAPONS_v2 = 0x33;  /* includes private custom MP slots */
 
 /* Pure replication of mpSetRandomWeapons. Returns the
  * filter_num_out (the count assigned to g_MpWeaponRandomFilterNum). */
@@ -281,8 +281,8 @@ TEST_CASE("random-pool: count matches spec for unlock pattern",
 }
 
 TEST_CASE("random-pool: NUM_MPWEAPONS pin", "[random-pool]") {
-    /* The spec helper hardcodes NUM_MPWEAPONS = 0x29 (41). If the live
-     * constant in src/include/constants.h:3035 changes, this test
-     * fails loudly so the spec gets updated alongside. */
-    REQUIRE(kNUM_MPWEAPONS_v2 == 0x29);
+    /* The spec helper hardcodes NUM_MPWEAPONS = 0x33 (51). If the live
+     * constant in src/include/constants.h changes, this test fails loudly
+     * so the spec gets updated alongside. */
+    REQUIRE(kNUM_MPWEAPONS_v2 == 0x33);
 }

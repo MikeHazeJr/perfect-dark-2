@@ -1,6 +1,8 @@
 #include <string.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include "types.h"
+#include "platform.h"
 #include "data.h"
 #include "bss.h"
 #include "lib/main.h"
@@ -542,7 +544,7 @@ static inline u32 netbufReadPlayerMove(struct netbuf *buf, struct netplayermove 
 	in->crosspos[1] = netbufReadF32(buf);
 	in->weaponnum = netbufReadS8(buf);
 	/* M-6: Clamp weaponnum to valid range to prevent OOB from malicious packets. */
-	if (in->weaponnum < WEAPON_NONE || in->weaponnum > WEAPON_SUICIDEPILL) {
+	if (in->weaponnum < WEAPON_NONE || in->weaponnum >= WEAPON_CUSTOM_END) {
 		in->weaponnum = WEAPON_UNARMED;
 	}
 	netbufReadCoord(buf, &in->pos);
@@ -560,7 +562,7 @@ static bool netmsgClientCanSelectWeapon(struct netclient *cl, s32 weaponnum, boo
 		return false;
 	}
 
-	if (weaponnum < WEAPON_UNARMED || weaponnum > WEAPON_SUICIDEPILL) {
+	if (weaponnum < WEAPON_UNARMED || weaponnum >= WEAPON_CUSTOM_END) {
 		return false;
 	}
 
@@ -2303,7 +2305,7 @@ u32 netmsgSvcPlayerStatsRead(struct netbuf *src, struct netclient *srccl)
 	}
 
 	const bool dualwielding = (flags & (1 << 1)) != 0;
-	if (!pl->isdead && newweaponnum >= WEAPON_UNARMED && newweaponnum <= WEAPON_SUICIDEPILL
+	if (!pl->isdead && newweaponnum >= WEAPON_UNARMED && newweaponnum < WEAPON_CUSTOM_END
 			&& (newweaponnum != pl->gunctrl.weaponnum || dualwielding != pl->gunctrl.dualwielding)) {
 		pl->gunctrl.dualwielding = dualwielding;
 		bgunEquipWeapon(newweaponnum);
@@ -2805,7 +2807,7 @@ u32 netmsgSvcPropDamageRead(struct netbuf *src, struct netclient *srccl)
 		return src->error;
 	}
 	if (prop && prop->obj && prop->type != PROPTYPE_PLAYER && prop->type != PROPTYPE_CHR && !src->error
-			&& weaponnum >= WEAPON_UNARMED && weaponnum <= WEAPON_SUICIDEPILL) {
+			&& weaponnum >= WEAPON_UNARMED && weaponnum < WEAPON_CUSTOM_END) {
 		prop->obj->damage = damagepre;
 		prop->obj->hidden = hidden | (prop->obj->hidden & (OBJHFLAG_PROJECTILE | OBJHFLAG_EMBEDDED));
 		objDamage(prop->obj, -damage, &pos, weaponnum, playernum);
@@ -3158,7 +3160,7 @@ u32 netmsgSvcChrDisarmRead(struct netbuf *src, struct netclient *srccl)
 	if (weapondmg > 0.f) {
 		// someone shot a grenade the chr is holding, explode that shit
 		netbufReadCoord(src, &pos);
-		if (weaponnum < WEAPON_UNARMED || weaponnum > WEAPON_SUICIDEPILL) {
+		if (weaponnum < WEAPON_UNARMED || weaponnum >= WEAPON_CUSTOM_END) {
 			return src->error;
 		}
 		struct weaponobj *weapon = NULL;
@@ -3412,7 +3414,7 @@ u32 netmsgSvcChrStateRead(struct netbuf *src, struct netclient *srccl)
 
 	chr->damage = damage;
 	chr->cshield = shield;
-	if (weaponnum >= WEAPON_UNARMED && weaponnum <= WEAPON_SUICIDEPILL) {
+	if (weaponnum >= WEAPON_UNARMED && weaponnum < WEAPON_CUSTOM_END) {
 		aibot->weaponnum = weaponnum;
 	}
 	aibot->gunfunc = gunfunc;
@@ -3872,7 +3874,7 @@ u32 netmsgSvcChrResyncRead(struct netbuf *src, struct netclient *srccl)
 
 		chr->damage = damage;
 		chr->cshield = shield;
-		if (weaponnum >= WEAPON_UNARMED && weaponnum <= WEAPON_SUICIDEPILL) {
+		if (weaponnum >= WEAPON_UNARMED && weaponnum < WEAPON_CUSTOM_END) {
 			aibot->weaponnum = weaponnum;
 		}
 		aibot->gunfunc = gunfunc;
@@ -5999,65 +6001,145 @@ u32 netmsgSvcLobbyStateRead(struct netbuf *src, struct netclient *srccl)
 
 /* ---- Catalog entry collector (shared by SvcCatalogInfoWrite) ---- */
 
-#define CATALOG_COLLECT_MAX 256
+static const asset_type_e s_CatalogInfoTypes[] = {
+	ASSET_MAP, ASSET_CHARACTER, ASSET_SKIN, ASSET_BOT_VARIANT,
+	ASSET_WEAPON, ASSET_PROJECTILE, ASSET_ENTITY,
+	ASSET_ARENA, ASSET_BODY, ASSET_HEAD, ASSET_MODEL,
+	ASSET_ANIMATION,
+	ASSET_TEXTURES, ASSET_TEXTURE, ASSET_MATERIAL, ASSET_EFFECT,
+	ASSET_SFX, ASSET_MUSIC, ASSET_AUDIO,
+	ASSET_PROP, ASSET_VEHICLE, ASSET_MISSION, ASSET_GAMEMODE,
+	ASSET_BOT_PROFILE, ASSET_SCENARIO, ASSET_HUD, ASSET_UI,
+	ASSET_FONT, ASSET_LANG, ASSET_THEME, ASSET_TOOL,
+	ASSET_NONE  /* sentinel */
+};
 
-static const asset_entry_t *s_CatalogCollectBuf[CATALOG_COLLECT_MAX];
-static s32 s_CatalogCollectN = 0;
+struct catalog_info_chunk_ctx {
+	struct netbuf *dst;
+	u16 start_offset;
+	u16 written;
+	u16 total_count;
+	u8 stopped;
+};
 
-static void catalogInfoCollectCb(const asset_entry_t *e, void *ud)
+static u32 catalogInfoStringWireSize(const char *str)
 {
-	(void)ud;
-	if (!e->bundled && e->enabled && s_CatalogCollectN < CATALOG_COLLECT_MAX) {
-		s_CatalogCollectBuf[s_CatalogCollectN++] = e;
+	return 2u + (u32)strlen(str ? str : "") + 1u;
+}
+
+static void catalogInfoPatchU16(struct netbuf *dst, u32 pos, u16 value)
+{
+	if (!dst || !dst->data || pos + sizeof(value) > dst->size) {
+		if (dst) {
+			dst->error = 1;
+		}
+		return;
 	}
+	value = PD_LE16(value);
+	memcpy(dst->data + pos, &value, sizeof(value));
+}
+
+static void catalogInfoWriteChunkCb(const asset_entry_t *e, void *ud)
+{
+	struct catalog_info_chunk_ctx *ctx = (struct catalog_info_chunk_ctx *)ud;
+	if (!ctx || !e || e->bundled || !e->enabled) {
+		return;
+	}
+
+	if (ctx->total_count != 0xffffu) {
+		ctx->total_count++;
+	}
+
+	if (ctx->total_count <= ctx->start_offset || ctx->stopped) {
+		return;
+	}
+
+	const u32 need = catalogInfoStringWireSize(e->id)
+	               + catalogInfoStringWireSize(e->category);
+	if ((u32)netbufWriteLeft(ctx->dst) < need) {
+		ctx->stopped = 1;
+		return;
+	}
+
+	netbufWriteStr(ctx->dst, e->id);
+	netbufWriteStr(ctx->dst, e->category);
+	ctx->written++;
 }
 
 /* ---- SVC_CATALOG_INFO ---- */
 
-u32 netmsgSvcCatalogInfoWrite(struct netbuf *dst)
+u32 netmsgSvcCatalogInfoWriteChunk(struct netbuf *dst, u16 start_offset,
+                                   u16 *next_offset, u16 *total_count)
 {
-	/* Collect all non-bundled enabled entries from the catalog.
-	 * A-7: ASSET_AUDIO added for mod audio network distribution.
-	 * S-9: ASSET_SKIN already present — skin mods distributed via same pipeline. */
-	static const asset_type_e s_types[] = {
-		ASSET_MAP, ASSET_CHARACTER, ASSET_SKIN, ASSET_BOT_VARIANT,
-		ASSET_WEAPON, ASSET_PROJECTILE, ASSET_ENTITY,
-		ASSET_TEXTURES, ASSET_TEXTURE, ASSET_MATERIAL, ASSET_EFFECT,
-		ASSET_SFX, ASSET_MUSIC, ASSET_AUDIO,
-		ASSET_PROP, ASSET_VEHICLE, ASSET_MISSION, ASSET_GAMEMODE,
-		ASSET_BOT_PROFILE, ASSET_SCENARIO, ASSET_HUD, ASSET_UI,
-		ASSET_FONT, ASSET_LANG, ASSET_THEME,
-		ASSET_NONE  /* sentinel */
-	};
-
-	s_CatalogCollectN = 0;
-	for (s32 ti = 0; s_types[ti] != ASSET_NONE; ti++) {
-		assetCatalogIterateByType(s_types[ti], catalogInfoCollectCb, NULL);
-	}
+	struct catalog_info_chunk_ctx ctx;
+	memset(&ctx, 0, sizeof(ctx));
+	ctx.dst = dst;
+	ctx.start_offset = start_offset;
 
 	netbufWriteU8(dst, SVC_CATALOG_INFO);
-	netbufWriteU16(dst, (u16)s_CatalogCollectN);
-	for (s32 i = 0; i < s_CatalogCollectN; i++) {
-		const asset_entry_t *e = s_CatalogCollectBuf[i];
-		/* v27: no net_hash on wire — catalog ID string only. */
-		netbufWriteStr(dst, e->id);
-		netbufWriteStr(dst, e->category);
+	const u32 total_pos = dst->wp;
+	netbufWriteU16(dst, 0);
+	netbufWriteU16(dst, start_offset);
+	const u32 count_pos = dst->wp;
+	netbufWriteU16(dst, 0);
+
+	for (s32 ti = 0; s_CatalogInfoTypes[ti] != ASSET_NONE; ti++) {
+		assetCatalogIterateByType(s_CatalogInfoTypes[ti],
+		                          catalogInfoWriteChunkCb, &ctx);
 	}
+
+	catalogInfoPatchU16(dst, total_pos, ctx.total_count);
+	catalogInfoPatchU16(dst, count_pos, ctx.written);
+
+	if (next_offset) {
+		*next_offset = (u16)(start_offset + ctx.written);
+	}
+	if (total_count) {
+		*total_count = ctx.total_count;
+	}
+
+	if (ctx.stopped && ctx.written == 0 && start_offset < ctx.total_count) {
+		sysLogPrintf(LOG_WARNING,
+		             "NET: SVC_CATALOG_INFO could not fit one catalog entry "
+		             "at offset %u", (unsigned)start_offset);
+		dst->error = 1;
+	}
+
 	return dst->error;
+}
+
+u32 netmsgSvcCatalogInfoWrite(struct netbuf *dst)
+{
+	return netmsgSvcCatalogInfoWriteChunk(dst, 0, NULL, NULL);
 }
 
 u32 netmsgSvcCatalogInfoRead(struct netbuf *src, struct netclient *srccl)
 {
 	(void)srccl;
+	u16 total_count = netbufReadU16(src);
+	u16 batch_offset = netbufReadU16(src);
 	u16 count = netbufReadU16(src);
-	if (count > CATALOG_COLLECT_MAX) {
-		sysLogPrintf(LOG_WARNING, "NET: SVC_CATALOG_INFO count %u exceeds limit", count);
+	if (count > 0 && (u32)count > (u32)netbufReadLeft(src) / 4u) {
+		sysLogPrintf(LOG_WARNING,
+		             "NET: SVC_CATALOG_INFO count %u exceeds packet capacity",
+		             count);
 		return 1;
 	}
 
 	/* v27: no net_hash on wire — collect catalog ID strings only. */
-	char ids[CATALOG_COLLECT_MAX][64];
-	char cats[CATALOG_COLLECT_MAX][64];
+	char (*ids)[64] = NULL;
+	char (*cats)[64] = NULL;
+	if (count > 0) {
+		ids = (char (*)[64])calloc(count, sizeof(*ids));
+		cats = (char (*)[64])calloc(count, sizeof(*cats));
+		if (!ids || !cats) {
+			free(ids);
+			free(cats);
+			sysLogPrintf(LOG_WARNING,
+			             "NET: SVC_CATALOG_INFO OOM for %u entries", count);
+			return 1;
+		}
+	}
 
 	for (u16 i = 0; i < count; i++) {
 		const char *id  = netbufReadStr(src);
@@ -6066,11 +6148,17 @@ u32 netmsgSvcCatalogInfoRead(struct netbuf *src, struct netclient *srccl)
 		strncpy(cats[i], cat ? cat : "", 63);  cats[i][63] = '\0';
 	}
 
-	if (src->error) return src->error;
+	if (src->error) {
+		free(ids);
+		free(cats);
+		return src->error;
+	}
 
 	netDistribClientHandleCatalogInfo((const char (*)[64])ids,
 	                                  (const char (*)[64])cats,
-	                                  count);
+	                                  count, batch_offset, total_count);
+	free(ids);
+	free(cats);
 	return src->error;
 }
 
@@ -6093,22 +6181,36 @@ u32 netmsgClcCatalogDiffRead(struct netbuf *src, struct netclient *srccl)
 {
 	u8  temporary = netbufReadU8(src);
 	u16 count     = netbufReadU16(src);
-	if (count > 256) {
-		sysLogPrintf(LOG_WARNING, "NET: CLC_CATALOG_DIFF count %u exceeds limit", count);
+	if (count > 0 && (u32)count > (u32)netbufReadLeft(src) / 2u) {
+		sysLogPrintf(LOG_WARNING,
+		             "NET: CLC_CATALOG_DIFF count %u exceeds packet capacity",
+		             count);
 		return 1;
 	}
 
 	/* v27: catalog ID strings only — no u32 net_hash on wire. */
-	char missing_ids[256][CATALOG_ID_LEN];
+	char (*missing_ids)[CATALOG_ID_LEN] = NULL;
+	if (count > 0) {
+		missing_ids = (char (*)[CATALOG_ID_LEN])calloc(count, sizeof(*missing_ids));
+		if (!missing_ids) {
+			sysLogPrintf(LOG_WARNING,
+			             "NET: CLC_CATALOG_DIFF OOM for %u entries", count);
+			return 1;
+		}
+	}
 	for (u16 i = 0; i < count; i++) {
 		const char *id = netbufReadStr(src);
 		strncpy(missing_ids[i], id ? id : "", CATALOG_ID_LEN - 1);
 		missing_ids[i][CATALOG_ID_LEN - 1] = '\0';
 	}
 
-	if (src->error) return src->error;
+	if (src->error) {
+		free(missing_ids);
+		return src->error;
+	}
 
 	netDistribServerHandleDiff(srccl, (const char (*)[CATALOG_ID_LEN])missing_ids, count, temporary);
+	free(missing_ids);
 	return src->error;
 }
 
@@ -6356,15 +6458,15 @@ u32 netmsgSvcMatchManifestRead(struct netbuf *src, struct netclient *srccl)
 /* ---- CLC_MANIFEST_STATUS ---- */
 
 u32 netmsgClcManifestStatusWrite(struct netbuf *dst, u32 manifest_hash, u8 status,
-                                  const char (*missing_ids)[CATALOG_ID_LEN], u8 num_missing)
+                                  const char (*missing_ids)[CATALOG_ID_LEN], u16 num_missing)
 {
 	netbufWriteU8(dst, CLC_MANIFEST_STATUS);
 	netbufWriteU32(dst, manifest_hash);
 	netbufWriteU8(dst, status);
-	netbufWriteU8(dst, num_missing);
+	netbufWriteU16(dst, num_missing);
 
 	/* v27: catalog ID strings only — no u32 net_hash on wire. */
-	for (u8 i = 0; i < num_missing; i++) {
+	for (u16 i = 0; i < num_missing; i++) {
 		netbufWriteStr(dst, missing_ids ? missing_ids[i] : "");
 	}
 
@@ -6375,7 +6477,7 @@ u32 netmsgClcManifestStatusRead(struct netbuf *src, struct netclient *srccl)
 {
 	const u32 manifest_hash = netbufReadU32(src);
 	const u8  status        = netbufReadU8(src);
-	const u8  num_missing   = netbufReadU8(src);
+	const u16 num_missing   = netbufReadU16(src);
 
 	if (src->error) {
 		sysLogPrintf(LOG_WARNING, "NET: malformed CLC_MANIFEST_STATUS header");
@@ -6399,13 +6501,23 @@ u32 netmsgClcManifestStatusRead(struct netbuf *src, struct netclient *srccl)
 	             srccl ? srccl->id : 0xFF,
 	             (unsigned)manifest_hash, (unsigned)status, (unsigned)num_missing);
 
-	/* v27: catalog ID strings only — no u32 net_hash on wire.
-	 * num_missing is u8 (0-255) — bounded by wire protocol. */
-	char missing_ids[256][CATALOG_ID_LEN];
-	u8   missing_count = 0;
+	/* v27: catalog ID strings only — no u32 net_hash on wire. */
+	char (*missing_ids)[CATALOG_ID_LEN] = NULL;
+	u16 missing_count = 0;
+	if (num_missing > 0) {
+		missing_ids = (char (*)[CATALOG_ID_LEN])calloc(num_missing,
+			sizeof(*missing_ids));
+		if (!missing_ids) {
+			sysLogPrintf(LOG_WARNING,
+			             "NET: CLC_MANIFEST_STATUS OOM for %u missing ids",
+			             (unsigned)num_missing);
+			return 1;
+		}
+	}
 	for (s32 mi = 0; mi < (s32)num_missing; mi++) {
 		const char *id = netbufReadStr(src);
 		if (src->error) {
+			free(missing_ids);
 			sysLogPrintf(LOG_WARNING, "NET: CLC_MANIFEST_STATUS malformed at missing[%d]", mi);
 			return 1;
 		}
@@ -6453,6 +6565,7 @@ u32 netmsgClcManifestStatusRead(struct netbuf *src, struct netclient *srccl)
 		}
 	}
 
+	free(missing_ids);
 	return src->error;
 }
 

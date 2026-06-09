@@ -2417,6 +2417,8 @@ void modmgrSaveComponentState(void)
 	static const asset_type_e types[] = {
 		ASSET_MAP, ASSET_CHARACTER, ASSET_SKIN, ASSET_BOT_VARIANT,
 		ASSET_WEAPON, ASSET_PROJECTILE, ASSET_ENTITY,
+		ASSET_ARENA, ASSET_BODY, ASSET_HEAD, ASSET_MODEL,
+		ASSET_ANIMATION,
 		ASSET_TEXTURES, ASSET_TEXTURE, ASSET_MATERIAL, ASSET_EFFECT,
 		ASSET_SFX, ASSET_MUSIC, ASSET_AUDIO,
 		ASSET_PROP, ASSET_VEHICLE, ASSET_MISSION, ASSET_GAMEMODE,
@@ -2935,6 +2937,7 @@ static void modmgrBodyCollectCb(const asset_entry_t *entry, void *userdata)
 	b->name = entry->ext.body.name_langid;
 	b->headnum = entry->ext.body.headnum;
 	b->requirefeature = entry->ext.body.requirefeature;
+	((asset_entry_t *)entry)->mp_index = (s16)idx;
 
 	(*idx_ptr)++;
 	if (*idx_ptr > s_CatalogBodyCount) {
@@ -2974,6 +2977,7 @@ static void modmgrHeadCollectCb(const asset_entry_t *entry, void *userdata)
 	struct mphead *h = &s_CatalogHeads[idx];
 	h->headnum = entry->ext.head.headnum;
 	h->requirefeature = entry->ext.head.requirefeature;
+	((asset_entry_t *)entry)->mp_index = (s16)idx;
 
 	(*idx_ptr)++;
 	if (*idx_ptr > s_CatalogHeadCount) {

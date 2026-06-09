@@ -478,6 +478,22 @@ s32 weaponGraphRuntimeRegisterHeldIr(s32 weaponnum, const weapon_graph_ir_t *ir,
 s32 weaponGraphRuntimeRegisterWeaponArchive(s32 weaponnum,
                                             const char *archive_path,
                                             char *err, size_t err_cap);
+s32 weaponGraphRuntimeRegisterWeaponGraphJson(s32 weaponnum,
+                                              const char *asset_id,
+                                              const char *json,
+                                              u32 json_size,
+                                              char *err,
+                                              size_t err_cap);
+s32 weaponGraphRuntimeRegisterWeaponSourceJson(s32 weaponnum,
+                                               const char *asset_id,
+                                               const char *primary_json,
+                                               u32 primary_size,
+                                               const char *secondary_json,
+                                               u32 secondary_size,
+                                               const char *shared_json,
+                                               u32 shared_size,
+                                               char *err,
+                                               size_t err_cap);
 s32 weaponGraphRuntimeRegisterProjectileIr(const weapon_graph_ir_t *ir,
                                            char *err, size_t err_cap);
 s32 weaponGraphRuntimeRegisterEntityIr(const weapon_graph_ir_t *ir,
@@ -519,6 +535,15 @@ s32 weaponGraphCompileArchiveFile(const char *archive_path,
                                   asset_type_e graph_type,
                                   weapon_graph_ir_t *out,
                                   char *err, size_t err_cap);
+s32 weaponGraphCompileWeaponSourceJson(const char *asset_id,
+                                       const char *primary_json,
+                                       u32 primary_size,
+                                       const char *secondary_json,
+                                       u32 secondary_size,
+                                       const char *shared_json,
+                                       u32 shared_size,
+                                       weapon_graph_ir_t *out,
+                                       char *err, size_t err_cap);
 
 #ifdef __cplusplus
 }

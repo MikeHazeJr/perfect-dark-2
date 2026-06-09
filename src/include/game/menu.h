@@ -73,6 +73,7 @@ void menuPoolConsistencyCheck(void);
 s32 menuDialogIsCurrent(const struct menudialog *dialog);
 void func0f0f3704(struct menudialogdef *dialogdef);
 void menuConfigureModel(struct menumodel *menumodel, f32 x, f32 y, f32 z, f32 rotx, f32 roty, f32 rotz, f32 scale, u8 flags);
+#define MENUMODEL_HANDLE_SENTINEL_FILENUM 0xfffe
 void menuSetModelFileHandle(struct menumodel *menumodel, s32 source_filenum, asset_data_handle_t handle);
 void menuUnsetModel(struct menumodel *menumodel);
 Gfx *menuRenderModel(Gfx *gdl, struct menumodel *menumodel, s32 modeltype);

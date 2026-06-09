@@ -36,9 +36,11 @@ struct aibotweaponpreference;
 struct invaimsettings;
 struct noisesettings;
 
-/* Range bound for weapon_id. Equals WEAPON_SUICIDEPILL + 1 = 0x56 = 86.
- * The legacy g_Weapons[] is sized identically (src/include/game/inv.h:9). */
-#define CATALOG_MGR_WEAPON_COUNT 86
+/* Range bound for private runtime weapon slots. Base weapons occupy
+ * WEAPON_* 0..0x55; catalog-owned custom archives use 0x56..0x5f while
+ * the legacy runtime still needs integer slots. These custom slots are
+ * private migration bridges, not public archive identity. */
+#define CATALOG_MGR_WEAPON_COUNT 96
 
 /* EYESPY variant enum (S484 F5 mutator surface).
  * 0 CamSpy / 1 DrugSpy / 2 BombSpy. Per-stage spec lives in

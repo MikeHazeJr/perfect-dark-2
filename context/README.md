@@ -28,11 +28,11 @@ Then load the pillar doc(s) for whatever you are touching.
 
 ## Live state at a glance
 
-- **Wire protocol**: v49 (per [pillars/save-wire-format.md](pillars/save-wire-format.md) and `port/include/net/net.h:12`).
+- **Wire protocol**: v50 (per [pillars/save-wire-format.md](pillars/save-wire-format.md) and `port/include/net/net.h:12`).
 - **Save format**: SAVE_VERSION=2, MPSETUP_VERSION=2.
 - **Build**: v0.0.175+ (per recent release tags). Build via `.\devtools\build-session.ps1 -Session <id> -Target all`; standalone `pd-server` is removed/deprecated, so use listen-host in the client.
 - **Active session range**: see [session-log.md](session-log.md).
-- **Critical path**: see [tasks.md](tasks.md). Current priority chain is asset pipeline, input, collision, then local/network gameplay stability and drop-in/drop-out.
+- **Critical path**: see [tasks.md](tasks.md). Current Active lane is intentionally narrowed to `c3844`: all-asset source/runtime parity closure to 100%.
 - **Long-term roadmap**: [roadmap.md](roadmap.md).
 
 ---
@@ -48,7 +48,7 @@ Each pillar doc captures the live state, current invariants, and the code that o
 | Menus / UI / UX | [pillars/menus.md](pillars/menus.md) | ImGui menus (31 files), menu pool, menu graph, theme system |
 | Modding | [pillars/modding.md](pillars/modding.md) | `.pdmod` format, scanner, manifest, network distribution |
 | Connectivity | [pillars/connectivity.md](pillars/connectivity.md) | ENet, P2P 6-tier (LAN/DIRECT/STUN/UPnP/ICE/TURN), presence, voice |
-| Save / wire format | [pillars/save-wire-format.md](pillars/save-wire-format.md) | SAVE_VERSION=2, MPSETUP_VERSION=2, NET_PROTOCOL_VER=49, migration framework |
+| Save / wire format | [pillars/save-wire-format.md](pillars/save-wire-format.md) | SAVE_VERSION=2, MPSETUP_VERSION=2, NET_PROTOCOL_VER=50, migration framework |
 | Server / hosting | [pillars/server.md](pillars/server.md) | Listen vs dedicated, participant pool, RCON, bans, room passwords |
 | Build / dev tooling | [pillars/build-dev-tooling.md](pillars/build-dev-tooling.md) | CMake + MSYS2, build-headless / build-session, release pipeline, updater |
 | Tests | [pillars/tests.md](pillars/tests.md) | pd-tests, Catch2, 35 test files, pure mirrors, scope aliases |

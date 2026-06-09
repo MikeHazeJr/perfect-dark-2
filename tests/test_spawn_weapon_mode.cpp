@@ -79,9 +79,11 @@ constexpr u8 kMPWEAPON_K7       = 0x0f;
 constexpr u8 kMPWEAPON_AR34     = 0x10;
 constexpr u8 kMPWEAPON_SHIELD   = 0x27;
 constexpr u8 kMPWEAPON_DISABLED = 0x28;
+constexpr u8 kMPWEAPON_CUSTOM_START = 0x29;
+constexpr u8 kMPWEAPON_CUSTOM_COUNT = 0x0a;
 
 /* Mirror of NUM_MPWEAPONS (constants.h). */
-constexpr s32 kNUM_MPWEAPONS = 0x29;
+constexpr s32 kNUM_MPWEAPONS = kMPWEAPON_CUSTOM_START + kMPWEAPON_CUSTOM_COUNT;
 
 /* Mirror of NUM_MPWEAPONSLOTS (constants.h). */
 constexpr s32 kNUM_MPWEAPONSLOTS = 6;
@@ -467,12 +469,14 @@ TEST_CASE("spawn-weapon: NUM_MPWEAPONSLOTS pin",
     REQUIRE(kNUM_MPWEAPONSLOTS == 6);
 }
 
-TEST_CASE("weapon catalog identity: MP weapon table count is post-cull 41",
+TEST_CASE("weapon catalog identity: MP weapon table count includes private custom slots",
           "[spawn-weapon][catalog][pin]") {
-    REQUIRE(kNUM_MPWEAPONS == 0x29);
+    REQUIRE(kNUM_MPWEAPONS == 0x33);
     REQUIRE(kMPWEAPON_NONE == 0x00);
     REQUIRE(kMPWEAPON_SHIELD == 0x27);
     REQUIRE(kMPWEAPON_DISABLED == 0x28);
+    REQUIRE(kMPWEAPON_CUSTOM_START == 0x29);
+    REQUIRE(kMPWEAPON_CUSTOM_COUNT == 0x0a);
 }
 
 TEST_CASE("weapon catalog identity: MP and runtime identity remain separate",

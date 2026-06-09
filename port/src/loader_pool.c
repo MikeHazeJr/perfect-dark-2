@@ -48,6 +48,7 @@
 #include "loader_pool.h"
 #include "loader_enum_reverse.h"
 #include "assetcatalog.h"
+#include "assetcatalog_weapon_slots.h"
 #include "catalog_mgr_weapons.h"
 #include "catalog_mgr_heads.h"
 #include "catalog_mgr_bodies.h"
@@ -138,6 +139,7 @@ static const char *s_ParseAnimationSourcePath;
 
 static s32 s_LoaderActive;
 static s32 s_WeaponsRegistered;
+static s32 s_ParseWeaponOverrideId = -1;
 
 /* Engine Phase 4 (2026-05-03): single mutex around all parser entry
  * points + any reader that walks pool counters during parsing.  The
@@ -1808,6 +1810,10 @@ static void parseWeapon(jstream_t *s)
 	}
 	if (s->cur.kind == JT_RBRACE) jstream_advance(s);
 
+	if (s_ParseWeaponOverrideId >= 0) {
+		weapon_id = s_ParseWeaponOverrideId;
+	}
+
 	if (weapon_id >= 0 && weapon_id < CATALOG_MGR_WEAPON_COUNT) {
 		s_Weapons[weapon_id] = w;
 		if (bp_present) s_BotPrefs[weapon_id] = bp;
@@ -1815,6 +1821,8 @@ static void parseWeapon(jstream_t *s)
 			sizeof(s_WeaponCatalogIds[weapon_id]) - 1);
 		s_WeaponCatalogIds[weapon_id][sizeof(s_WeaponCatalogIds[weapon_id]) - 1] = '\0';
 		s_WeaponsRegistered++;
+		assetCatalogRefreshWeaponPrivateSlotDefaults(weapon_id,
+			&s_Weapons[weapon_id], bp_present ? &s_BotPrefs[weapon_id] : NULL);
 
 		/* S484-followup-4 diag (2026-05-01): per-weapon name dump.
 		 * Mike's playtest log surfaced a UI mismatch where Falcon 2
@@ -2153,7 +2161,21 @@ s32 loaderPoolParseWeaponJson(const char *json, size_t json_len)
 {
 	s_poolEnsureMutex();
 	POOL_LOCK();
+	s_ParseWeaponOverrideId = -1;
 	s32 r = s_parseOneRecord(json, json_len, parseWeapon);
+	s_ParseWeaponOverrideId = -1;
+	POOL_UNLOCK();
+	return r;
+}
+
+s32 loaderPoolParseWeaponJsonWithRuntimeSlot(const char *json, size_t json_len,
+                s32 runtime_weapon_id)
+{
+	s_poolEnsureMutex();
+	POOL_LOCK();
+	s_ParseWeaponOverrideId = runtime_weapon_id;
+	s32 r = s_parseOneRecord(json, json_len, parseWeapon);
+	s_ParseWeaponOverrideId = -1;
 	POOL_UNLOCK();
 	return r;
 }

@@ -2,8 +2,8 @@
  * assetcatalog_deps.c -- Phase 2: Catalog dependency graph implementation
  *
  * Dynamically allocated table of (owner, dep) pairs.  Populated by the
- * scanner; queried by the manifest build functions.  Grows by doubling from
- * CATALOG_MAX_DEP_PAIRS initial capacity so mods with many dependencies
+ * scanner; queried by the manifest build functions. Grows by doubling from
+ * CATALOG_INITIAL_DEP_PAIRS initial capacity so mods with many dependencies
  * never hit a silent drop.
  *
  * See assetcatalog_deps.h for design rationale.
@@ -78,8 +78,8 @@ void catalogDepRegister(const char *owner_id, const char *dep_id,
     }
 
     if (s_NumDepPairs >= s_DepCap) {
-        /* Grow by doubling; initial alloc uses CATALOG_MAX_DEP_PAIRS as base */
-        s32 newCap = (s_DepCap > 0) ? s_DepCap * 2 : CATALOG_MAX_DEP_PAIRS;
+        /* Grow by doubling; initial alloc uses CATALOG_INITIAL_DEP_PAIRS. */
+        s32 newCap = (s_DepCap > 0) ? s_DepCap * 2 : CATALOG_INITIAL_DEP_PAIRS;
         s_DepPair *newTable = (s_DepPair *)realloc(s_DepTable,
                                                     (size_t)newCap * sizeof(s_DepPair));
         if (!newTable) {

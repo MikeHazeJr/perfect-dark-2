@@ -21,9 +21,17 @@ static s32 s_register(const char *manifest, size_t manifest_len,
     (void)pd_kind;
 
     s64 source_index = -1;
+    s32 duration_ms = 0;
     char source_member[128];
     char source_path[FS_MAXPATH + 1];
     loaderWalkerEnvelopeInt(manifest, manifest_len, "source_index", &source_index);
+    {
+        const asset_entry_t *existing = assetCatalogResolve(id);
+        if (existing && existing->type == ASSET_AUDIO
+                && existing->ext.audio.category == AUDIO_CAT_MUSIC) {
+            duration_ms = existing->ext.audio.duration_ms;
+        }
+    }
     if (!loaderWalkerEnvelopeStrCopy(manifest, manifest_len, "midi",
                                      source_member, sizeof(source_member))
             && !loaderWalkerEnvelopeStrCopy(manifest, manifest_len, "data",
@@ -36,7 +44,7 @@ static s32 s_register(const char *manifest, size_t manifest_len,
         id, (s32)source_index,
         /* name: */ "",
         AUDIO_CAT_MUSIC,
-        /* duration_ms: */ 0,
+        duration_ms,
         /* file_path: */ "");
     if (e) {
         loaderWalkerMarkBaseArchiveEntry(e);

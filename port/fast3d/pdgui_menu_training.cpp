@@ -53,6 +53,7 @@
 #include "pdgui_audio.h"
 #include "pdgui_model_preview.h"
 #include "pdgui_charpreview.h"
+#include "assetcatalog.h"
 #include "pdgui_nav.h"
 #include "system.h"
 #include "inputctx.h"
@@ -175,6 +176,7 @@ char *htGetTip2(void);
 s32         pdguiTrFrNumWeaponsAvailable(void);
 u32         pdguiTrFrWeaponBySlot(s32 slot);
 const char *pdguiTrFrWeaponName(u32 weaponnum);
+const char *pdguiTrFrWeaponCatalogId(u32 weaponnum);
 s32         pdguiTrFrWeaponScoreTier(u32 weaponnum);
 u32         pdguiTrFrWeaponFilenum(u32 weaponnum);
 s32         pdguiTrFrGetSlot(void);
@@ -203,6 +205,7 @@ const char *pdguiTrDtDeviceName(s32 slot);
 s32         pdguiTrDtGetSlot(void);
 void        pdguiTrDtSetSlot(s32 slot);
 const char *pdguiTrDtCurrentDescription(void);
+const char *pdguiTrDtCurrentWeaponCatalogId(void);
 u32         pdguiTrDtCurrentWeaponFilenum(void);
 s32         pdguiTrDtIsInTraining(void);
 
@@ -211,6 +214,7 @@ s32         pdguiTrHtGetSlot(void);
 void        pdguiTrHtSetSlot(s32 slot);
 const char *pdguiTrHtCurrentDescription(void);
 s32         pdguiTrHtIsInTraining(void);
+const char *pdguiTrHtCurrentWeaponCatalogId(void);
 u32         pdguiTrHtCurrentWeaponFilenum(void);
 
 /* Hangar */
@@ -223,6 +227,7 @@ const char *pdguiTrHangarSlotName(s32 slot);
 const char *pdguiTrHangarCurrentFullName(void);
 const char *pdguiTrHangarCurrentSubheading(void);
 const char *pdguiTrHangarCurrentDescription(void);
+const char *pdguiTrHangarCurrentVehicleCatalogId(void);
 u32         pdguiTrHangarCurrentVehicleFilenum(void);
 
 } /* extern "C" */
@@ -261,7 +266,7 @@ static bool beginTrainingWindow(const char *id, const char *title,
 {
     /* M-14 (C2 preview-dock invariant): Bio Profile, Training Details
      * (DT/HT weapon preview), and Hangar Holograph all render their 3D
-     * previews via pdguiModelPreviewDraw/drawFilenumPreview at absolute
+     * previews via pdguiModelPreviewDraw/drawSourcePreview at absolute
      * screen coords computed from the window origin. If this outer window
      * ever gained a scrollbar, those absolute-coord previews would not
      * scroll with the content beneath them — visually broken. Force the
@@ -1053,21 +1058,68 @@ static s32 renderNowSafe(struct menudialog *dialog,
  * ========================================================================= */
 
 /* -----------------------------------------------------------------------
- * Small helper: draw a self-contained 3D model preview panel keyed by a
- * file number instead of a catalog ID.  Used by DT Details, HT Details
- * and Hangar Holograph where the source data stores raw file indices, not
- * catalog ID strings.
+ * Small helper: draw a self-contained 3D model preview panel from catalog
+ * source identity first, with the legacy file number kept only as a final
+ * base-content fallback. Used by DT Details, HT Details and Hangar Holograph
+ * where the legacy source data still stores raw file indices.
  *
  * Internally: set rotation, request the FBO render via
- * pdguiCharPreviewRequestFilenum, draw the resulting texture or a
- * placeholder silhouette.  Mirrors the visual style of
+ * pdguiCharPreviewRequestHandle / pdguiCharPreviewRequestEx where possible,
+ * draw the resulting texture or a placeholder silhouette. Mirrors the visual style of
  * pdguiModelPreviewDraw so the two feel identical on screen.
  * --------------------------------------------------------------------- */
 
 static f32 s_Batch10IdleAngle = 0.0f;
 
-static void drawFilenumPreview(s32 kind, u32 filenum, const char *label,
-                                f32 x, f32 y, f32 w, f32 h)
+static void requestSourcePreview(s32 kind,
+                                 asset_type_e preferredType,
+                                 const char *catalogId,
+                                 u32 filenum)
+{
+    const PdguiPreviewType previewType = (PdguiPreviewType)kind;
+
+    if (catalogId && catalogId[0]) {
+        const asset_entry_t *entry = assetCatalogResolve(catalogId);
+
+        if (entry && entry->source_filenum > 0) {
+            asset_data_handle_t handle =
+                catalogHandleByModelSourceFilenum(preferredType,
+                                                  entry->source_filenum);
+
+            if (!assetHandleIsNull(handle)) {
+                pdguiCharPreviewRequestHandle(previewType, handle,
+                                              (u32)entry->source_filenum);
+                return;
+            }
+
+            pdguiCharPreviewRequestFilenum(previewType,
+                                           (u32)entry->source_filenum);
+            return;
+        }
+
+        pdguiCharPreviewRequestEx(previewType, catalogId, nullptr);
+        return;
+    }
+
+    if (filenum != 0) {
+        asset_data_handle_t handle =
+            catalogHandleByModelSourceFilenum(preferredType, (s32)filenum);
+
+        if (!assetHandleIsNull(handle)) {
+            pdguiCharPreviewRequestHandle(previewType, handle, filenum);
+            return;
+        }
+
+        pdguiCharPreviewRequestFilenum(previewType, filenum);
+    }
+}
+
+static void drawSourcePreview(s32 kind,
+                              asset_type_e preferredType,
+                              const char *catalogId,
+                              u32 filenum,
+                              const char *label,
+                              f32 x, f32 y, f32 w, f32 h)
 {
     ImDrawList *dl = ImGui::GetWindowDrawList();
     ImU32 bgCol     = pdguiPalImU32(PDPAL_BODYBG,  240);
@@ -1083,8 +1135,8 @@ static void drawFilenumPreview(s32 kind, u32 filenum, const char *label,
     if (s_Batch10IdleAngle > twoPi) s_Batch10IdleAngle -= twoPi;
     pdguiCharPreviewSetRotY(s_Batch10IdleAngle);
 
-    if (filenum != 0) {
-        pdguiCharPreviewRequestFilenum((PdguiPreviewType)kind, filenum);
+    if ((catalogId && catalogId[0]) || filenum != 0) {
+        requestSourcePreview(kind, preferredType, catalogId, filenum);
     }
 
     float pad = 2.0f;
@@ -1095,7 +1147,8 @@ static void drawFilenumPreview(s32 kind, u32 filenum, const char *label,
     float ch = h - pad * 2.0f - labelH;
 
     u32 texId = pdguiCharPreviewGetTextureId();
-    if (texId != 0 && pdguiCharPreviewIsReady() && filenum != 0) {
+    if (texId != 0 && pdguiCharPreviewIsReady()
+            && ((catalogId && catalogId[0]) || filenum != 0)) {
         /* FBO textures are vertically flipped: UV0 = (0,1), UV1 = (1,0). */
         dl->AddImage((ImTextureID)(uintptr_t)texId,
                      ImVec2(cx, cy), ImVec2(cx + cw, cy + ch),
@@ -1109,7 +1162,8 @@ static void drawFilenumPreview(s32 kind, u32 filenum, const char *label,
                     ImVec2(pcx + cw * 0.25f, pcy + ch * 0.15f),
                     silCol, 1.5f, 0, 2.0f);
 
-        const char *msg = filenum != 0 ? "Loading..." : "No model";
+        const char *msg = ((catalogId && catalogId[0]) || filenum != 0)
+            ? "Loading..." : "No model";
         ImVec2 msgSz = ImGui::CalcTextSize(msg);
         dl->AddText(ImVec2(pcx - msgSz.x * 0.5f, cy + ch * 0.75f),
                     pdguiPalImU32(PDPAL_ITEM_DISABLED, 180), msg);
@@ -1677,6 +1731,7 @@ static s32 renderTrainingDetailsImpl(const char *imguiId,
                                       menu_type_t sourceType,
                                       const char *deviceName,
                                       const char *description,
+                                      const char *weaponCatalogId,
                                       u32 weaponFilenum,
                                       s32 isInTraining,
                                       TrainingVoidFn onBegin,
@@ -1715,8 +1770,9 @@ static s32 renderTrainingDetailsImpl(const char *imguiId,
         stripNewline(nameBuf);
     }
 
-    drawFilenumPreview(PDGUI_PREVIEW_WEAPON, weaponFilenum,
-                        nameBuf, previewX, previewY, previewW, previewH);
+    drawSourcePreview(PDGUI_PREVIEW_WEAPON, ASSET_WEAPON,
+                      weaponCatalogId, weaponFilenum,
+                      nameBuf, previewX, previewY, previewW, previewH);
 
     /* Left column: description */
     float leftW = previewX - winMin.x - pdguiScale(20.0f);
@@ -1798,12 +1854,13 @@ static s32 renderDtDetails(struct menudialog *dialog,
 {
     const char *name = pdguiTrDtDeviceName(pdguiTrDtGetSlot());
     const char *desc = pdguiTrDtCurrentDescription();
+    const char *weaponId = pdguiTrDtCurrentWeaponCatalogId();
     u32 filenum      = pdguiTrDtCurrentWeaponFilenum();
     s32 training     = pdguiTrDtIsInTraining();
 
     return renderTrainingDetailsImpl("##dt_details", "Device Training",
                                       MENU_TYPE_DT_DETAILS,
-                                      name, desc, filenum, training,
+                                      name, desc, weaponId, filenum, training,
                                       dt_Begin_cb, dt_End_cb, winW, winH);
 }
 
@@ -1830,12 +1887,13 @@ static s32 renderHtDetails(struct menudialog *dialog,
 {
     const char *name = htGetName(htGetIndexBySlot(pdguiTrHtGetSlot()));
     const char *desc = pdguiTrHtCurrentDescription();
+    const char *weaponId = pdguiTrHtCurrentWeaponCatalogId();
     u32 filenum      = pdguiTrHtCurrentWeaponFilenum();
     s32 training     = pdguiTrHtIsInTraining();
 
     return renderTrainingDetailsImpl("##ht_details", "Holotraining",
                                       MENU_TYPE_HT_DETAILS,
-                                      name, desc, filenum, training,
+                                      name, desc, weaponId, filenum, training,
                                       ht_Begin_cb, ht_End_cb, winW, winH);
 }
 
@@ -2112,9 +2170,11 @@ static s32 renderHangarVehicleHolograph(struct menudialog *dialog,
     float previewX = winMin.x + (diagW - previewW) * 0.5f;
     float previewY = winMin.y + titleH + padY + pdguiScale(20.0f);
 
+    const char *vehicleId = pdguiTrHangarCurrentVehicleCatalogId();
     u32 filenum = pdguiTrHangarCurrentVehicleFilenum();
-    drawFilenumPreview(PDGUI_PREVIEW_VEHICLE, filenum,
-                        nullptr, previewX, previewY, previewW, previewH);
+    drawSourcePreview(PDGUI_PREVIEW_VEHICLE, ASSET_VEHICLE,
+                      vehicleId, filenum,
+                      nullptr, previewX, previewY, previewW, previewH);
 
     /* Footer */
     ImGui::SetCursorPosY(diagH - footerH + pdguiScale(12.0f));

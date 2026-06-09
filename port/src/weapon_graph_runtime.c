@@ -14,6 +14,7 @@
 #include "config.h"
 #include "constants.h"
 #include "loader_enum_reverse.h"
+#include "modarchive.h"
 #include "platform.h"
 #include "weapon_graph_archive.h"
 #include "weapon_graph_runtime.h"
@@ -33,6 +34,8 @@ typedef struct module_info {
 #define WEAPON_GRAPH_RUNTIME_MAX_FUNCS   2
 #define WEAPON_GRAPH_RUNTIME_MAX_PROJECTILES 128
 #define WEAPON_GRAPH_RUNTIME_MAX_ENTITIES    128
+#define WEAPON_GRAPH_RUNTIME_OWNER_WORDS \
+	((WEAPON_GRAPH_RUNTIME_MAX_WEAPONS + 31) / 32)
 
 static s32 s_runtime_enabled = 0;
 static weapon_graph_held_function_t
@@ -41,6 +44,19 @@ static weapon_graph_projectile_runtime_t
 	s_projectile_runtimes[WEAPON_GRAPH_RUNTIME_MAX_PROJECTILES];
 static weapon_graph_entity_runtime_t
 	s_entity_runtimes[WEAPON_GRAPH_RUNTIME_MAX_ENTITIES];
+static u32
+	s_projectile_owner_bits[WEAPON_GRAPH_RUNTIME_MAX_PROJECTILES][WEAPON_GRAPH_RUNTIME_OWNER_WORDS];
+static u32
+	s_entity_owner_bits[WEAPON_GRAPH_RUNTIME_MAX_ENTITIES][WEAPON_GRAPH_RUNTIME_OWNER_WORDS];
+static s32 s_projectile_external_refs[WEAPON_GRAPH_RUNTIME_MAX_PROJECTILES];
+static s32 s_entity_external_refs[WEAPON_GRAPH_RUNTIME_MAX_ENTITIES];
+
+static s32 weaponGraphRuntimeRegisterBehaviorIr(const weapon_graph_ir_t *ir,
+                                                char *err, size_t err_cap);
+static s32 weaponGraphRuntimeRegisterBehaviorIrOwned(const weapon_graph_ir_t *ir,
+                                                     s32 owner_weapon,
+                                                     s32 external_ref,
+                                                     char *err, size_t err_cap);
 
 static const module_info_t s_modules[] = {
 	{ "function.empty", ASSET_WEAPON, WEAPON_GRAPH_OP_FUNCTION_EMPTY },
@@ -460,10 +476,74 @@ static s32 heldIndexValid(s32 weaponnum, s32 funcindex)
 		funcindex < WEAPON_GRAPH_RUNTIME_MAX_FUNCS;
 }
 
+static void ownerBitsSet(u32 bits[WEAPON_GRAPH_RUNTIME_OWNER_WORDS],
+                         s32 weaponnum)
+{
+	if (weaponnum < 0 || weaponnum >= WEAPON_GRAPH_RUNTIME_MAX_WEAPONS) return;
+	bits[weaponnum / 32] |= (u32)1 << (weaponnum % 32);
+}
+
+static void ownerBitsClear(u32 bits[WEAPON_GRAPH_RUNTIME_OWNER_WORDS],
+                           s32 weaponnum)
+{
+	if (weaponnum < 0 || weaponnum >= WEAPON_GRAPH_RUNTIME_MAX_WEAPONS) return;
+	bits[weaponnum / 32] &= ~((u32)1 << (weaponnum % 32));
+}
+
+static s32 ownerBitsAny(const u32 bits[WEAPON_GRAPH_RUNTIME_OWNER_WORDS])
+{
+	for (s32 i = 0; i < WEAPON_GRAPH_RUNTIME_OWNER_WORDS; i++) {
+		if (bits[i]) return 1;
+	}
+	return 0;
+}
+
+static void projectileRuntimeClearSlot(s32 index)
+{
+	if (index < 0 || index >= WEAPON_GRAPH_RUNTIME_MAX_PROJECTILES) return;
+	memset(&s_projectile_runtimes[index], 0,
+		sizeof(s_projectile_runtimes[index]));
+	memset(s_projectile_owner_bits[index], 0,
+		sizeof(s_projectile_owner_bits[index]));
+	s_projectile_external_refs[index] = 0;
+}
+
+static void entityRuntimeClearSlot(s32 index)
+{
+	if (index < 0 || index >= WEAPON_GRAPH_RUNTIME_MAX_ENTITIES) return;
+	memset(&s_entity_runtimes[index], 0, sizeof(s_entity_runtimes[index]));
+	memset(s_entity_owner_bits[index], 0, sizeof(s_entity_owner_bits[index]));
+	s_entity_external_refs[index] = 0;
+}
+
+static void weaponGraphRuntimeClearWeaponDependencies(s32 weaponnum)
+{
+	if (weaponnum < 0 || weaponnum >= WEAPON_GRAPH_RUNTIME_MAX_WEAPONS) return;
+
+	for (s32 i = 0; i < WEAPON_GRAPH_RUNTIME_MAX_PROJECTILES; i++) {
+		ownerBitsClear(s_projectile_owner_bits[i], weaponnum);
+		if (s_projectile_runtimes[i].valid &&
+				!s_projectile_external_refs[i] &&
+				!ownerBitsAny(s_projectile_owner_bits[i])) {
+			projectileRuntimeClearSlot(i);
+		}
+	}
+
+	for (s32 i = 0; i < WEAPON_GRAPH_RUNTIME_MAX_ENTITIES; i++) {
+		ownerBitsClear(s_entity_owner_bits[i], weaponnum);
+		if (s_entity_runtimes[i].valid &&
+				!s_entity_external_refs[i] &&
+				!ownerBitsAny(s_entity_owner_bits[i])) {
+			entityRuntimeClearSlot(i);
+		}
+	}
+}
+
 void weaponGraphRuntimeClearWeapon(s32 weaponnum)
 {
 	if (weaponnum < 0 || weaponnum >= WEAPON_GRAPH_RUNTIME_MAX_WEAPONS) return;
 	memset(s_held_functions[weaponnum], 0, sizeof(s_held_functions[weaponnum]));
+	weaponGraphRuntimeClearWeaponDependencies(weaponnum);
 }
 
 static weapon_graph_projectile_runtime_t *projectileRuntimeFindMutable(
@@ -479,6 +559,18 @@ static weapon_graph_projectile_runtime_t *projectileRuntimeFindMutable(
 	return NULL;
 }
 
+static s32 projectileRuntimeFindIndex(const char *asset_id)
+{
+	if (!asset_id || !asset_id[0]) return -1;
+	for (s32 i = 0; i < WEAPON_GRAPH_RUNTIME_MAX_PROJECTILES; i++) {
+		if (s_projectile_runtimes[i].valid &&
+				strcmp(s_projectile_runtimes[i].asset_id, asset_id) == 0) {
+			return i;
+		}
+	}
+	return -1;
+}
+
 static weapon_graph_entity_runtime_t *entityRuntimeFindMutable(
 	const char *asset_id)
 {
@@ -492,19 +584,30 @@ static weapon_graph_entity_runtime_t *entityRuntimeFindMutable(
 	return NULL;
 }
 
+static s32 entityRuntimeFindIndex(const char *asset_id)
+{
+	if (!asset_id || !asset_id[0]) return -1;
+	for (s32 i = 0; i < WEAPON_GRAPH_RUNTIME_MAX_ENTITIES; i++) {
+		if (s_entity_runtimes[i].valid &&
+				strcmp(s_entity_runtimes[i].asset_id, asset_id) == 0) {
+			return i;
+		}
+	}
+	return -1;
+}
+
 static weapon_graph_projectile_runtime_t *projectileRuntimeAlloc(
 	const char *asset_id)
 {
-	weapon_graph_projectile_runtime_t *existing =
-		projectileRuntimeFindMutable(asset_id);
-	if (existing) {
-		memset(existing, 0, sizeof(*existing));
-		return existing;
+	s32 existing = projectileRuntimeFindIndex(asset_id);
+	if (existing >= 0) {
+		memset(&s_projectile_runtimes[existing], 0,
+			sizeof(s_projectile_runtimes[existing]));
+		return &s_projectile_runtimes[existing];
 	}
 	for (s32 i = 0; i < WEAPON_GRAPH_RUNTIME_MAX_PROJECTILES; i++) {
 		if (!s_projectile_runtimes[i].valid) {
-			memset(&s_projectile_runtimes[i], 0,
-				sizeof(s_projectile_runtimes[i]));
+			projectileRuntimeClearSlot(i);
 			return &s_projectile_runtimes[i];
 		}
 	}
@@ -513,14 +616,15 @@ static weapon_graph_projectile_runtime_t *projectileRuntimeAlloc(
 
 static weapon_graph_entity_runtime_t *entityRuntimeAlloc(const char *asset_id)
 {
-	weapon_graph_entity_runtime_t *existing = entityRuntimeFindMutable(asset_id);
-	if (existing) {
-		memset(existing, 0, sizeof(*existing));
-		return existing;
+	s32 existing = entityRuntimeFindIndex(asset_id);
+	if (existing >= 0) {
+		memset(&s_entity_runtimes[existing], 0,
+			sizeof(s_entity_runtimes[existing]));
+		return &s_entity_runtimes[existing];
 	}
 	for (s32 i = 0; i < WEAPON_GRAPH_RUNTIME_MAX_ENTITIES; i++) {
 		if (!s_entity_runtimes[i].valid) {
-			memset(&s_entity_runtimes[i], 0, sizeof(s_entity_runtimes[i]));
+			entityRuntimeClearSlot(i);
 			return &s_entity_runtimes[i];
 		}
 	}
@@ -529,11 +633,21 @@ static weapon_graph_entity_runtime_t *entityRuntimeAlloc(const char *asset_id)
 
 void weaponGraphRuntimeClearAsset(const char *asset_id)
 {
-	weapon_graph_projectile_runtime_t *projectile =
-		projectileRuntimeFindMutable(asset_id);
-	if (projectile) memset(projectile, 0, sizeof(*projectile));
-	weapon_graph_entity_runtime_t *entity = entityRuntimeFindMutable(asset_id);
-	if (entity) memset(entity, 0, sizeof(*entity));
+	s32 projectile = projectileRuntimeFindIndex(asset_id);
+	if (projectile >= 0) {
+		s_projectile_external_refs[projectile] = 0;
+		if (!ownerBitsAny(s_projectile_owner_bits[projectile])) {
+			projectileRuntimeClearSlot(projectile);
+		}
+	}
+
+	s32 entity = entityRuntimeFindIndex(asset_id);
+	if (entity >= 0) {
+		s_entity_external_refs[entity] = 0;
+		if (!ownerBitsAny(s_entity_owner_bits[entity])) {
+			entityRuntimeClearSlot(entity);
+		}
+	}
 }
 
 void weaponGraphRuntimeClearAll(void)
@@ -541,6 +655,10 @@ void weaponGraphRuntimeClearAll(void)
 	memset(s_held_functions, 0, sizeof(s_held_functions));
 	memset(s_projectile_runtimes, 0, sizeof(s_projectile_runtimes));
 	memset(s_entity_runtimes, 0, sizeof(s_entity_runtimes));
+	memset(s_projectile_owner_bits, 0, sizeof(s_projectile_owner_bits));
+	memset(s_entity_owner_bits, 0, sizeof(s_entity_owner_bits));
+	memset(s_projectile_external_refs, 0, sizeof(s_projectile_external_refs));
+	memset(s_entity_external_refs, 0, sizeof(s_entity_external_refs));
 }
 
 const weapon_graph_held_function_t *weaponGraphRuntimeGetHeldFunction(
@@ -1390,6 +1508,89 @@ fail:
 	return -1;
 }
 
+s32 weaponGraphCompileWeaponSourceJson(const char *asset_id,
+                                       const char *primary_json,
+                                       u32 primary_size,
+                                       const char *secondary_json,
+                                       u32 secondary_size,
+                                       const char *shared_json,
+                                       u32 shared_size,
+                                       weapon_graph_ir_t *out,
+                                       char *err,
+                                       size_t err_cap)
+{
+	size_t cap;
+	graph_source_builder_t b;
+	s32 wrote;
+	s32 result;
+
+	if (!out || !primary_json || primary_size == 0 ||
+			!secondary_json || secondary_size == 0) {
+		setErr(err, err_cap, "weapon source graph compile requires primary and secondary graph JSON");
+		return -1;
+	}
+
+	cap = (size_t)primary_size + (size_t)secondary_size +
+		(size_t)shared_size + 2048u;
+	b.buf = (char *)malloc(cap);
+	b.len = 0;
+	b.cap = cap;
+	if (!b.buf) {
+		setErr(err, err_cap, "out of memory composing weapon graph source");
+		return -1;
+	}
+	b.buf[0] = '\0';
+
+	if (builderAppendFmt(&b,
+			"{\n"
+			"  \"schema\": \"pd.weapon_graph.v1\",\n"
+			"  \"asset_id\": \"%s\",\n"
+			"  \"graph_id\": \"source_composed\",\n",
+			asset_id ? asset_id : "") != 0) goto overflow;
+
+	if (builderAppend(&b, "  \"shared_context\": [\n") != 0) goto overflow;
+	wrote = 0;
+	if (shared_json && shared_size > 0 &&
+			builderAppendSharedContexts(&b, shared_json, shared_size,
+			&wrote, err, err_cap) != 0) goto fail;
+	if (builderAppend(&b, "\n  ],\n") != 0) goto overflow;
+
+	if (builderAppend(&b, "  \"nodes\": [\n") != 0) goto overflow;
+	wrote = 0;
+	if (builderAppendArrayMembers(&b, primary_json, primary_size, "nodes", 1,
+			&wrote, err, err_cap) != 0 ||
+			builderAppendArrayMembers(&b, secondary_json, secondary_size,
+			"nodes", 1, &wrote, err, err_cap) != 0) goto fail;
+	if (builderAppend(&b, "\n  ],\n") != 0) goto overflow;
+
+	if (builderAppend(&b, "  \"edges\": [\n") != 0) goto overflow;
+	wrote = 0;
+	if (builderAppendArrayMembers(&b, primary_json, primary_size, "edges", 0,
+			&wrote, err, err_cap) != 0 ||
+			builderAppendArrayMembers(&b, secondary_json, secondary_size,
+			"edges", 0, &wrote, err, err_cap) != 0) goto fail;
+	if (builderAppend(&b, "\n  ],\n") != 0) goto overflow;
+
+	if (builderAppend(&b, "  \"exports\": [\n") != 0) goto overflow;
+	wrote = 0;
+	if (builderAppendArrayMembers(&b, primary_json, primary_size, "exports", 1,
+			&wrote, err, err_cap) != 0 ||
+			builderAppendArrayMembers(&b, secondary_json, secondary_size,
+			"exports", 1, &wrote, err, err_cap) != 0) goto fail;
+	if (builderAppend(&b, "\n  ]\n}\n") != 0) goto overflow;
+
+	result = weaponGraphCompileJson(ASSET_WEAPON, b.buf, (u32)b.len, out,
+		err, err_cap);
+	free(b.buf);
+	return result;
+
+overflow:
+	setErr(err, err_cap, "weapon graph source composition overflow");
+fail:
+	free(b.buf);
+	return -1;
+}
+
 s32 weaponGraphCompileArchiveFile(const char *archive_path,
                                   asset_type_e graph_type,
                                   weapon_graph_ir_t *out,
@@ -1425,6 +1626,53 @@ s32 weaponGraphCompileArchiveFile(const char *archive_path,
 	}
 	result = weaponGraphCompileJson(graph_type, graph, graph_size, out,
 		err, err_cap);
+	free(graph);
+	if (result == 0 && desc.catalog_id[0] && out->asset_id[0] &&
+			strcmp(desc.catalog_id, out->asset_id) != 0) {
+		setErr(err, err_cap, "graph asset_id %s does not match descriptor %s",
+			out->asset_id, desc.catalog_id);
+		return -1;
+	}
+	if (result == 0 && desc.catalog_id[0] && !out->asset_id[0]) {
+		copyStr(out->asset_id, sizeof(out->asset_id), desc.catalog_id);
+		finalizeIrDigest(out);
+	}
+	return result;
+}
+
+static s32 weaponGraphCompileArchiveBytes(const void *archive_bytes,
+                                          u32 archive_size,
+                                          asset_type_e graph_type,
+                                          weapon_graph_ir_t *out,
+                                          char *err, size_t err_cap)
+{
+	weapon_graph_archive_descriptor_t desc;
+	void *graph = NULL;
+	u32 graph_size = 0;
+	s32 result;
+	if (!archive_bytes || archive_size == 0 || !out) {
+		setErr(err, err_cap, "compile archive bytes called with null input");
+		return -1;
+	}
+	if (weaponGraphArchiveReadDescriptorBytes(archive_bytes, archive_size,
+			graph_type, &desc, err, err_cap) != 0) {
+		return -1;
+	}
+	if (!desc.behavior_graph[0]) {
+		setErr(err, err_cap, "embedded %s archive has no behavior_graph",
+			weaponGraphArchiveTypeName(graph_type));
+		return -1;
+	}
+	graph = modArchiveExtractMemAlloc(archive_bytes, archive_size,
+		desc.behavior_graph, &graph_size);
+	if (!graph || graph_size == 0) {
+		free(graph);
+		setErr(err, err_cap, "embedded %s archive missing graph entry %s",
+			weaponGraphArchiveTypeName(graph_type), desc.behavior_graph);
+		return -1;
+	}
+	result = weaponGraphCompileJson(graph_type, (const char *)graph,
+		graph_size, out, err, err_cap);
 	free(graph);
 	if (result == 0 && desc.catalog_id[0] && out->asset_id[0] &&
 			strcmp(desc.catalog_id, out->asset_id) != 0) {
@@ -2481,6 +2729,128 @@ s32 weaponGraphRuntimeRegisterHeldIr(s32 weaponnum, const weapon_graph_ir_t *ir,
 	return 0;
 }
 
+static s32 weaponGraphRuntimeRegisterWeaponArchiveDependencies(
+	const char *archive_path,
+	const char *parent_id,
+	s32 owner_weapon,
+	char *err, size_t err_cap)
+{
+	weapon_graph_archive_inventory_t inventory;
+	char registered[WEAPON_GRAPH_ARCHIVE_MAX_NESTED_PAYLOADS][CATALOG_ID_LEN];
+	s32 registered_count = 0;
+	mod_archive_t *arc;
+	s32 count;
+
+	if (!archive_path || !archive_path[0] || !parent_id || !parent_id[0]) {
+		return 0;
+	}
+
+	count = weaponGraphArchiveScanNestedPayloadsFile(archive_path, parent_id,
+		&inventory, err, err_cap);
+	if (count < 0) {
+		return -1;
+	}
+	if (count == 0) {
+		return 0;
+	}
+
+	arc = modArchiveOpen(archive_path);
+	if (!arc) {
+		setErr(err, err_cap, "could not reopen weapon archive %s",
+			archive_path);
+		return -1;
+	}
+
+	for (s32 i = 0; i < inventory.count; i++) {
+		const weapon_graph_archive_payload_t *payload = &inventory.payloads[i];
+		if (payload->type != ASSET_PROJECTILE &&
+				payload->type != ASSET_ENTITY) {
+			continue;
+		}
+
+		s32 idx = modArchiveFindEntry(arc, payload->archive_entry);
+		if (idx < 0) {
+			setErr(err, err_cap, "nested payload %s disappeared from %s",
+				payload->archive_entry, archive_path);
+			goto fail;
+		}
+
+		u32 nested_size = 0;
+		void *nested = modArchiveExtractAlloc(arc, idx, &nested_size);
+		if (!nested || nested_size == 0) {
+			free(nested);
+			setErr(err, err_cap, "could not read nested payload %s",
+				payload->archive_entry);
+			goto fail;
+		}
+
+		weapon_graph_ir_t ir;
+		if (weaponGraphCompileArchiveBytes(nested, nested_size, payload->type,
+				&ir, err, err_cap) != 0) {
+			free(nested);
+			goto fail;
+		}
+		free(nested);
+
+		if (payload->catalog_id[0] && ir.asset_id[0] &&
+				strcmp(payload->catalog_id, ir.asset_id) != 0) {
+			setErr(err, err_cap,
+				"nested payload %s compiled as %s, expected %s",
+				payload->archive_entry, ir.asset_id, payload->catalog_id);
+			goto fail;
+		}
+
+		if (payload->type == ASSET_PROJECTILE &&
+				projectileRuntimeFindIndex(ir.asset_id) >= 0) {
+			ownerBitsSet(s_projectile_owner_bits[
+				projectileRuntimeFindIndex(ir.asset_id)], owner_weapon);
+		} else if (payload->type == ASSET_ENTITY &&
+				entityRuntimeFindIndex(ir.asset_id) >= 0) {
+			ownerBitsSet(s_entity_owner_bits[
+				entityRuntimeFindIndex(ir.asset_id)], owner_weapon);
+		} else if (weaponGraphRuntimeRegisterBehaviorIrOwned(&ir,
+				owner_weapon, 0, err, err_cap) != 0) {
+			goto fail;
+		}
+		if (registered_count < WEAPON_GRAPH_ARCHIVE_MAX_NESTED_PAYLOADS &&
+				ir.asset_id[0]) {
+			copyStr(registered[registered_count++],
+				sizeof(registered[0]), ir.asset_id);
+		}
+	}
+
+	modArchiveClose(arc);
+	return 0;
+
+fail:
+	for (s32 i = 0; i < registered_count; i++) {
+		if (owner_weapon >= 0 &&
+				owner_weapon < WEAPON_GRAPH_RUNTIME_MAX_WEAPONS) {
+			s32 projectile = projectileRuntimeFindIndex(registered[i]);
+			if (projectile >= 0) {
+				ownerBitsClear(s_projectile_owner_bits[projectile],
+					owner_weapon);
+				if (!s_projectile_external_refs[projectile] &&
+						!ownerBitsAny(s_projectile_owner_bits[projectile])) {
+					projectileRuntimeClearSlot(projectile);
+				}
+			}
+			s32 entity = entityRuntimeFindIndex(registered[i]);
+			if (entity >= 0) {
+				ownerBitsClear(s_entity_owner_bits[entity], owner_weapon);
+				if (!s_entity_external_refs[entity] &&
+						!ownerBitsAny(s_entity_owner_bits[entity])) {
+					entityRuntimeClearSlot(entity);
+				}
+			}
+		} else {
+			weaponGraphRuntimeClearAsset(registered[i]);
+		}
+	}
+	modArchiveClose(arc);
+	return -1;
+}
+
 s32 weaponGraphRuntimeRegisterWeaponArchive(s32 weaponnum,
                                             const char *archive_path,
                                             char *err, size_t err_cap)
@@ -2490,11 +2860,69 @@ s32 weaponGraphRuntimeRegisterWeaponArchive(s32 weaponnum,
 			err, err_cap) != 0) {
 		return -1;
 	}
+	if (weaponGraphRuntimeRegisterHeldIr(weaponnum, &ir, err, err_cap) != 0) {
+		return -1;
+	}
+	if (weaponGraphRuntimeRegisterWeaponArchiveDependencies(archive_path,
+			ir.asset_id, weaponnum, err, err_cap) != 0) {
+		weaponGraphRuntimeClearWeapon(weaponnum);
+		return -1;
+	}
+	return 0;
+}
+
+s32 weaponGraphRuntimeRegisterWeaponGraphJson(s32 weaponnum,
+                                              const char *asset_id,
+                                              const char *json,
+                                              u32 json_size,
+                                              char *err,
+                                              size_t err_cap)
+{
+	weapon_graph_ir_t ir;
+	if (weaponGraphCompileJson(ASSET_WEAPON, json, json_size, &ir,
+			err, err_cap) != 0) {
+		return -1;
+	}
+	if (asset_id && asset_id[0]) {
+		if (ir.asset_id[0] && strcmp(ir.asset_id, asset_id) != 0) {
+			setErr(err, err_cap, "graph asset_id %s does not match catalog %s",
+				ir.asset_id, asset_id);
+			return -1;
+		}
+		if (!ir.asset_id[0]) {
+			copyStr(ir.asset_id, sizeof(ir.asset_id), asset_id);
+			finalizeIrDigest(&ir);
+		}
+	}
 	return weaponGraphRuntimeRegisterHeldIr(weaponnum, &ir, err, err_cap);
 }
 
-s32 weaponGraphRuntimeRegisterProjectileIr(const weapon_graph_ir_t *ir,
-                                           char *err, size_t err_cap)
+s32 weaponGraphRuntimeRegisterWeaponSourceJson(s32 weaponnum,
+                                               const char *asset_id,
+                                               const char *primary_json,
+                                               u32 primary_size,
+                                               const char *secondary_json,
+                                               u32 secondary_size,
+                                               const char *shared_json,
+                                               u32 shared_size,
+                                               char *err,
+                                               size_t err_cap)
+{
+	weapon_graph_ir_t ir;
+	if (weaponGraphCompileWeaponSourceJson(asset_id, primary_json, primary_size,
+			secondary_json, secondary_size, shared_json, shared_size,
+			&ir, err, err_cap) != 0) {
+		return -1;
+	}
+	return weaponGraphRuntimeRegisterHeldIr(weaponnum, &ir, err, err_cap);
+}
+
+static s32 weaponGraphRuntimeRegisterProjectileIrOwned(
+	const weapon_graph_ir_t *ir,
+	s32 owner_weapon,
+	s32 external_ref,
+	char *err,
+	size_t err_cap)
 {
 	if (!ir || ir->asset_type != ASSET_PROJECTILE || !ir->asset_id[0]) {
 		setErr(err, err_cap,
@@ -2529,11 +2957,30 @@ s32 weaponGraphRuntimeRegisterProjectileIr(const weapon_graph_ir_t *ir,
 		return -1;
 	}
 
+	s32 index = projectileRuntimeFindIndex(ir->asset_id);
+	if (index >= 0) {
+		if (external_ref) {
+			s_projectile_external_refs[index] = 1;
+		}
+		ownerBitsSet(s_projectile_owner_bits[index], owner_weapon);
+	}
+
 	return 0;
 }
 
-s32 weaponGraphRuntimeRegisterEntityIr(const weapon_graph_ir_t *ir,
-                                       char *err, size_t err_cap)
+s32 weaponGraphRuntimeRegisterProjectileIr(const weapon_graph_ir_t *ir,
+                                           char *err, size_t err_cap)
+{
+	return weaponGraphRuntimeRegisterProjectileIrOwned(ir, -1, 1,
+		err, err_cap);
+}
+
+static s32 weaponGraphRuntimeRegisterEntityIrOwned(
+	const weapon_graph_ir_t *ir,
+	s32 owner_weapon,
+	s32 external_ref,
+	char *err,
+	size_t err_cap)
 {
 	if (!ir || ir->asset_type != ASSET_ENTITY || !ir->asset_id[0]) {
 		setErr(err, err_cap,
@@ -2569,11 +3016,28 @@ s32 weaponGraphRuntimeRegisterEntityIr(const weapon_graph_ir_t *ir,
 		return -1;
 	}
 
+	s32 index = entityRuntimeFindIndex(ir->asset_id);
+	if (index >= 0) {
+		if (external_ref) {
+			s_entity_external_refs[index] = 1;
+		}
+		ownerBitsSet(s_entity_owner_bits[index], owner_weapon);
+	}
+
 	return 0;
 }
 
-static s32 weaponGraphRuntimeRegisterBehaviorIr(const weapon_graph_ir_t *ir,
-                                                char *err, size_t err_cap)
+s32 weaponGraphRuntimeRegisterEntityIr(const weapon_graph_ir_t *ir,
+                                       char *err, size_t err_cap)
+{
+	return weaponGraphRuntimeRegisterEntityIrOwned(ir, -1, 1,
+		err, err_cap);
+}
+
+static s32 weaponGraphRuntimeRegisterBehaviorIrOwned(const weapon_graph_ir_t *ir,
+                                                     s32 owner_weapon,
+                                                     s32 external_ref,
+                                                     char *err, size_t err_cap)
 {
 	if (!ir) {
 		setErr(err, err_cap, "behavior IR registration called with null input");
@@ -2581,14 +3045,23 @@ static s32 weaponGraphRuntimeRegisterBehaviorIr(const weapon_graph_ir_t *ir,
 	}
 	switch (ir->asset_type) {
 	case ASSET_PROJECTILE:
-		return weaponGraphRuntimeRegisterProjectileIr(ir, err, err_cap);
+		return weaponGraphRuntimeRegisterProjectileIrOwned(ir, owner_weapon,
+			external_ref, err, err_cap);
 	case ASSET_ENTITY:
-		return weaponGraphRuntimeRegisterEntityIr(ir, err, err_cap);
+		return weaponGraphRuntimeRegisterEntityIrOwned(ir, owner_weapon,
+			external_ref, err, err_cap);
 	default:
 		setErr(err, err_cap, "unsupported behavior graph runtime type %d",
 			(s32)ir->asset_type);
 		return -1;
 	}
+}
+
+static s32 weaponGraphRuntimeRegisterBehaviorIr(const weapon_graph_ir_t *ir,
+                                                char *err, size_t err_cap)
+{
+	return weaponGraphRuntimeRegisterBehaviorIrOwned(ir, -1, 1,
+		err, err_cap);
 }
 
 s32 weaponGraphRuntimeRegisterBehaviorGraphJson(asset_type_e graph_type,

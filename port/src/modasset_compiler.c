@@ -29,6 +29,8 @@
 extern double sqrt(double);
 extern double atan2(double, double);
 extern double asin(double);
+extern double floor(double);
+extern double ceil(double);
 
 static s32 endsWithNoCase(const char *path, const char *ext)
 {
@@ -986,6 +988,7 @@ typedef struct gltf_anim_sampler {
 typedef struct gltf_anim_channel {
 	s32 target_node;
 	gltf_anim_path_e path;
+	s32 step_interpolation;
 	const u8 *input_data;
 	const u8 *output_data;
 	u32 input_stride;
@@ -1204,6 +1207,27 @@ static s32 jsonObjectInt(json_span_t object, const char *key, s32 *out)
 
 	*out = (s32)parsed;
 	return 1;
+}
+
+static s32 jsonObjectBool(json_span_t object, const char *key, s32 *out)
+{
+	const char *value = jsonFindKeyInSpan(object, key);
+
+	if (!value || !out) {
+		return 0;
+	}
+
+	value = jsonSkipWs(value, object.end);
+	if (value + 4 <= object.end && strncmp(value, "true", 4) == 0) {
+		*out = 1;
+		return 1;
+	}
+	if (value + 5 <= object.end && strncmp(value, "false", 5) == 0) {
+		*out = 0;
+		return 1;
+	}
+
+	return 0;
 }
 
 static s32 jsonObjectFloat(json_span_t object, const char *key, f32 *out)
@@ -1800,6 +1824,139 @@ static f32 gltfChannelReadFloat(const gltf_anim_channel_t *channel,
 	p = channel->output_data + (u32)sample_index * channel->output_stride
 		+ (u32)component * 4u;
 	return readLeFloat(p);
+}
+
+static f32 gltfChannelReadInputTime(const gltf_anim_channel_t *channel,
+                                    s32 sample_index)
+{
+	const u8 *p;
+
+	if (!channel || !channel->input_data || sample_index < 0
+			|| sample_index >= channel->sample_count) {
+		return 0.0f;
+	}
+
+	p = channel->input_data + (u32)sample_index * channel->input_stride;
+	return readLeFloat(p);
+}
+
+static f32 gltfChannelFrameTime(const gltf_anim_channel_t *channel,
+                                s32 frame,
+                                s32 frame_count)
+{
+	f32 start;
+	f32 end;
+	f32 t;
+
+	if (!channel || channel->sample_count <= 0) {
+		return 0.0f;
+	}
+
+	start = gltfChannelReadInputTime(channel, 0);
+	end = gltfChannelReadInputTime(channel, channel->sample_count - 1);
+	if (frame_count <= 1 || end <= start) {
+		return start;
+	}
+
+	t = (f32)frame / (f32)(frame_count - 1);
+	return start + (end - start) * t;
+}
+
+static s32 gltfChannelFindSampleForTime(const gltf_anim_channel_t *channel,
+                                        f32 time,
+                                        f32 *out_alpha)
+{
+	if (out_alpha) {
+		*out_alpha = 0.0f;
+	}
+	if (!channel || channel->sample_count <= 1) {
+		return 0;
+	}
+
+	for (s32 i = 0; i + 1 < channel->sample_count; i++) {
+		f32 t0 = gltfChannelReadInputTime(channel, i);
+		f32 t1 = gltfChannelReadInputTime(channel, i + 1);
+		if (time <= t1) {
+			if (out_alpha && !channel->step_interpolation && t1 > t0) {
+				*out_alpha = clampfLocal((time - t0) / (t1 - t0),
+					0.0f, 1.0f);
+			}
+			return i;
+		}
+	}
+
+	return channel->sample_count - 1;
+}
+
+static f32 gltfChannelSampleFloat(const gltf_anim_channel_t *channel,
+                                  s32 frame,
+                                  s32 frame_count,
+                                  s32 component)
+{
+	f32 time;
+	f32 alpha;
+	s32 sample;
+	f32 a;
+	f32 b;
+
+	if (!channel || channel->sample_count <= 0) {
+		return 0.0f;
+	}
+
+	time = gltfChannelFrameTime(channel, frame, frame_count);
+	sample = gltfChannelFindSampleForTime(channel, time, &alpha);
+	a = gltfChannelReadFloat(channel, sample, component);
+	if (channel->step_interpolation || alpha <= 0.0f
+			|| sample + 1 >= channel->sample_count) {
+		return a;
+	}
+
+	b = gltfChannelReadFloat(channel, sample + 1, component);
+	return a + (b - a) * alpha;
+}
+
+static void gltfChannelSampleQuat(const gltf_anim_channel_t *channel,
+                                  s32 frame,
+                                  s32 frame_count,
+                                  f32 *x,
+                                  f32 *y,
+                                  f32 *z,
+                                  f32 *w)
+{
+	f32 time;
+	f32 alpha;
+	s32 sample;
+
+	*x = *y = *z = 0.0f;
+	*w = 1.0f;
+	if (!channel || channel->sample_count <= 0) {
+		return;
+	}
+
+	time = gltfChannelFrameTime(channel, frame, frame_count);
+	sample = gltfChannelFindSampleForTime(channel, time, &alpha);
+	*x = gltfChannelReadFloat(channel, sample, 0);
+	*y = gltfChannelReadFloat(channel, sample, 1);
+	*z = gltfChannelReadFloat(channel, sample, 2);
+	*w = gltfChannelReadFloat(channel, sample, 3);
+	if (!channel->step_interpolation && alpha > 0.0f
+			&& sample + 1 < channel->sample_count) {
+		f32 nx = gltfChannelReadFloat(channel, sample + 1, 0);
+		f32 ny = gltfChannelReadFloat(channel, sample + 1, 1);
+		f32 nz = gltfChannelReadFloat(channel, sample + 1, 2);
+		f32 nw = gltfChannelReadFloat(channel, sample + 1, 3);
+		f32 dot = (*x * nx) + (*y * ny) + (*z * nz) + (*w * nw);
+		if (dot < 0.0f) {
+			nx = -nx;
+			ny = -ny;
+			nz = -nz;
+			nw = -nw;
+		}
+		*x = *x + (nx - *x) * alpha;
+		*y = *y + (ny - *y) * alpha;
+		*z = *z + (nz - *z) * alpha;
+		*w = *w + (nw - *w) * alpha;
+	}
 }
 
 static void quatToEuler(f32 x, f32 y, f32 z, f32 w,
@@ -2840,6 +2997,8 @@ static s32 parseGltfAnimationClipFromJson(const char *json,
 		channel->input_stride = input_stride;
 		channel->output_stride = output_stride;
 		channel->sample_count = input->count;
+		channel->step_interpolation =
+			strcmp(sampler->interpolation, "STEP") == 0;
 
 		if (input->count > clip->frame_count) {
 			clip->frame_count = input->count;
@@ -4056,6 +4215,130 @@ static s16 clampToS16(f32 value)
 	return (s16)rounded;
 }
 
+static s32 quantizeFloatToS16(f32 value, s32 *out)
+{
+	double rounded;
+
+	if (!modAssetFloatIsFinite(value) || !out) {
+		return 0;
+	}
+
+	rounded = value >= 0.0f ? floor((double)value + 0.5) :
+		ceil((double)value - 0.5);
+	if (rounded < -32768.0 || rounded > 32767.0) {
+		return 0;
+	}
+
+	*out = (s32)rounded;
+	return 1;
+}
+
+static s32 validateGeneratedMeshIntegerNativeBoundary(const char *source_path,
+                                                      obj_mesh_t *mesh)
+{
+	s32 collapsed_triangles = 0;
+
+	if (!mesh) {
+		return 0;
+	}
+
+	for (s32 i = 0; i < mesh->vertex_count; i++) {
+		s32 qx;
+		s32 qy;
+		s32 qz;
+		const obj_vertex_t *v = &mesh->vertices[i];
+
+		if (!quantizeFloatToS16(v->x, &qx) ||
+				!quantizeFloatToS16(v->y, &qy) ||
+				!quantizeFloatToS16(v->z, &qz)) {
+			objMeshSetError(mesh, 0, "mesh_native_coord_overflow");
+			sysLogPrintf(LOG_WARNING,
+				"MODASSET.COMPILER: mesh integer-native conversion rejected source=%s vertex=%d coord=(%g,%g,%g)",
+				source_path ? source_path : "(null)", i,
+				(double)v->x, (double)v->y, (double)v->z);
+			return 0;
+		}
+	}
+
+	for (s32 i = 0; i < mesh->texcoord_count; i++) {
+		s32 qs;
+		s32 qt;
+		const obj_texcoord_t *tc = &mesh->texcoords[i];
+
+		if (!quantizeFloatToS16(tc->u * 32.0f, &qs) ||
+				!quantizeFloatToS16((1.0f - tc->v) * 32.0f, &qt)) {
+			objMeshSetError(mesh, 0, "mesh_native_uv_overflow");
+			sysLogPrintf(LOG_WARNING,
+				"MODASSET.COMPILER: mesh integer-native conversion rejected source=%s texcoord=%d uv=(%g,%g)",
+				source_path ? source_path : "(null)", i,
+				(double)tc->u, (double)tc->v);
+			return 0;
+		}
+	}
+
+	for (s32 i = 0; i < mesh->triangle_count; i++) {
+		const obj_triangle_t *tri = &mesh->triangles[i];
+		const obj_vertex_t *va;
+		const obj_vertex_t *vb;
+		const obj_vertex_t *vc;
+		s32 ax, ay, az;
+		s32 bx, by, bz;
+		s32 cx, cy, cz;
+		int64_t abx, aby, abz;
+		int64_t acx, acy, acz;
+		int64_t cross_x, cross_y, cross_z;
+
+		if (tri->a < 0 || tri->a >= mesh->vertex_count ||
+				tri->b < 0 || tri->b >= mesh->vertex_count ||
+				tri->c < 0 || tri->c >= mesh->vertex_count) {
+			objMeshSetError(mesh, 0, "mesh_native_face_index_invalid");
+			return 0;
+		}
+
+		va = &mesh->vertices[tri->a];
+		vb = &mesh->vertices[tri->b];
+		vc = &mesh->vertices[tri->c];
+		if (!quantizeFloatToS16(va->x, &ax) ||
+				!quantizeFloatToS16(va->y, &ay) ||
+				!quantizeFloatToS16(va->z, &az) ||
+				!quantizeFloatToS16(vb->x, &bx) ||
+				!quantizeFloatToS16(vb->y, &by) ||
+				!quantizeFloatToS16(vb->z, &bz) ||
+				!quantizeFloatToS16(vc->x, &cx) ||
+				!quantizeFloatToS16(vc->y, &cy) ||
+				!quantizeFloatToS16(vc->z, &cz)) {
+			objMeshSetError(mesh, 0, "mesh_native_coord_overflow");
+			return 0;
+		}
+
+		abx = (int64_t)bx - ax;
+		aby = (int64_t)by - ay;
+		abz = (int64_t)bz - az;
+		acx = (int64_t)cx - ax;
+		acy = (int64_t)cy - ay;
+		acz = (int64_t)cz - az;
+		cross_x = aby * acz - abz * acy;
+		cross_y = abz * acx - abx * acz;
+		cross_z = abx * acy - aby * acx;
+
+		if ((ax == bx && ay == by && az == bz) ||
+				(ax == cx && ay == cy && az == cz) ||
+				(bx == cx && by == cy && bz == cz) ||
+				(cross_x == 0 && cross_y == 0 && cross_z == 0)) {
+			collapsed_triangles++;
+		}
+	}
+
+	if (collapsed_triangles > 0) {
+		sysLogPrintf(LOG_WARNING,
+			"MODASSET.COMPILER: mesh integer-native quantization warning source=%s collapsed_triangles=%d/%d",
+			source_path ? source_path : "(null)", collapsed_triangles,
+			mesh->triangle_count);
+	}
+
+	return 1;
+}
+
 static const obj_texcoord_t *objMeshTexcoord(const obj_mesh_t *mesh,
                                              s32 index)
 {
@@ -4473,6 +4756,175 @@ static obj_material_t *objMeshFindMaterial(obj_mesh_t *mesh, const char *name)
 	return NULL;
 }
 
+static void objPathNormalizeCopy(char *dst, size_t dst_n, const char *src)
+{
+	size_t i = 0;
+
+	if (!dst || dst_n == 0) {
+		return;
+	}
+	dst[0] = '\0';
+	if (!src) {
+		return;
+	}
+	while (src[i] && i + 1 < dst_n) {
+		char c = src[i];
+		dst[i] = c == '\\' ? '/' : c;
+		i++;
+	}
+	dst[i] = '\0';
+}
+
+static s32 objPathEqualsOrSuffix(const char *path, const char *needle)
+{
+	size_t path_len;
+	size_t needle_len;
+
+	if (!path || !needle || !path[0] || !needle[0]) {
+		return 0;
+	}
+	if (strcmp(path, needle) == 0) {
+		return 1;
+	}
+
+	path_len = strlen(path);
+	needle_len = strlen(needle);
+	if (path_len <= needle_len) {
+		return 0;
+	}
+	if (strcmp(path + path_len - needle_len, needle) != 0) {
+		return 0;
+	}
+	return path[path_len - needle_len - 1] == '/'
+		|| (path_len >= needle_len + 2
+			&& path[path_len - needle_len - 2] == ':'
+			&& path[path_len - needle_len - 1] == ':');
+}
+
+static s32 objMaterialMapBuildCandidate(const char *source_path,
+                                        const char *map_path,
+                                        char *out,
+                                        size_t out_n)
+{
+	char map_norm[FS_MAXPATH + 1];
+	const char *archive_sep;
+	const char *slash;
+	size_t prefix_len;
+
+	if (!source_path || !map_path || !out || out_n == 0) {
+		return 0;
+	}
+	objPathNormalizeCopy(map_norm, sizeof(map_norm), map_path);
+	if (!map_norm[0]) {
+		return 0;
+	}
+	if (strstr(map_norm, "::") || strchr(map_norm, ':') ||
+			map_norm[0] == '/') {
+		snprintf(out, out_n, "%s", map_norm);
+		return out[0] != '\0';
+	}
+
+	archive_sep = strstr(source_path, "::");
+	if (archive_sep) {
+		prefix_len = (size_t)(archive_sep - source_path) + 2;
+		if (prefix_len + strlen(map_norm) + 1 > out_n) {
+			return 0;
+		}
+		memcpy(out, source_path, prefix_len);
+		out[prefix_len] = '\0';
+		for (size_t i = 0; i < prefix_len; i++) {
+			if (out[i] == '\\') {
+				out[i] = '/';
+			}
+		}
+		strncat(out, map_norm, out_n - strlen(out) - 1);
+		return 1;
+	}
+
+	objPathNormalizeCopy(out, out_n, source_path);
+	slash = strrchr(out, '/');
+	if (slash) {
+		size_t base_len = (size_t)(slash - out) + 1;
+		if (base_len + strlen(map_norm) + 1 > out_n) {
+			return 0;
+		}
+		out[base_len] = '\0';
+		strncat(out, map_norm, out_n - strlen(out) - 1);
+		return 1;
+	}
+
+	snprintf(out, out_n, "%s", map_norm);
+	return out[0] != '\0';
+}
+
+typedef struct obj_texture_map_lookup {
+	char raw[FS_MAXPATH + 1];
+	char candidate[FS_MAXPATH + 1];
+	char candidate_texture_member[FS_MAXPATH + 1];
+	const asset_entry_t *entry;
+} obj_texture_map_lookup_t;
+
+static void objMaterialTextureMapLookupCb(const asset_entry_t *entry,
+                                          void *userdata)
+{
+	obj_texture_map_lookup_t *lookup =
+		(obj_texture_map_lookup_t *)userdata;
+	const char *path = NULL;
+	char norm[FS_MAXPATH + 1];
+
+	if (!lookup || lookup->entry || !entry || entry->type != ASSET_TEXTURE) {
+		return;
+	}
+	if (entry->source.primary.provider == fileProvider()) {
+		path = fileProviderPath(entry->source.primary);
+	}
+	if ((!path || !path[0]) && entry->ext.texture.file_path[0]) {
+		path = entry->ext.texture.file_path;
+	}
+	if (!path || !path[0]) {
+		return;
+	}
+
+	objPathNormalizeCopy(norm, sizeof(norm), path);
+	if (objPathEqualsOrSuffix(norm, lookup->candidate) ||
+			objPathEqualsOrSuffix(norm, lookup->candidate_texture_member) ||
+			objPathEqualsOrSuffix(norm, lookup->raw)) {
+		lookup->entry = entry;
+	}
+}
+
+static const asset_entry_t *objResolveTextureMapPath(const char *source_path,
+                                                     const char *map_path)
+{
+	obj_texture_map_lookup_t lookup;
+	const asset_entry_t *direct;
+	char id[CATALOG_ID_LEN];
+
+	if (!map_path || !map_path[0]) {
+		return NULL;
+	}
+	copyObjToken(id, sizeof(id), map_path);
+	direct = assetCatalogResolve(id);
+	if (direct && direct->type == ASSET_TEXTURE) {
+		return direct;
+	}
+
+	memset(&lookup, 0, sizeof(lookup));
+	objPathNormalizeCopy(lookup.raw, sizeof(lookup.raw), id);
+	if (!objMaterialMapBuildCandidate(source_path, id,
+			lookup.candidate, sizeof(lookup.candidate))) {
+		return NULL;
+	}
+	if (endsWithNoCase(lookup.candidate, ".pdtexture")) {
+		snprintf(lookup.candidate_texture_member,
+			sizeof(lookup.candidate_texture_member),
+			"%s::texture.png", lookup.candidate);
+	}
+	assetCatalogIterateByType(ASSET_TEXTURE,
+		objMaterialTextureMapLookupCb, &lookup);
+	return lookup.entry;
+}
+
 static s32 parseObjMaterialInt(const char *text, s32 *out)
 {
 	char *end;
@@ -4495,12 +4947,44 @@ static s32 parseObjMaterialInt(const char *text, s32 *out)
 	return 1;
 }
 
+static void objMaterialSetTextureEntry(obj_material_t *material,
+                                       const asset_entry_t *entry,
+                                       s32 secondary)
+{
+	s32 texture_num;
+
+	if (!material || !entry || entry->type != ASSET_TEXTURE) {
+		return;
+	}
+	texture_num = entry->source_texnum >= 0 ?
+		entry->source_texnum : entry->ext.texture.texture_id;
+	if (texture_num < 0) {
+		sysLogPrintf(LOG_WARNING,
+			"MODASSET.COMPILER: material '%s' references texture catalog id '%s' without a texture table id",
+			material->name, entry->id);
+		return;
+	}
+
+	if (secondary) {
+		strncpy(material->secondary_texture_catalog_id, entry->id,
+			sizeof(material->secondary_texture_catalog_id) - 1);
+		material->secondary_texture_catalog_id[
+			sizeof(material->secondary_texture_catalog_id) - 1] = '\0';
+		material->secondary_texture_num = texture_num;
+	} else {
+		strncpy(material->texture_catalog_id, entry->id,
+			sizeof(material->texture_catalog_id) - 1);
+		material->texture_catalog_id[
+			sizeof(material->texture_catalog_id) - 1] = '\0';
+		material->texture_num = texture_num;
+	}
+}
+
 static void objMaterialSetTextureCatalog(obj_material_t *material,
                                          const char *catalog_id,
                                          s32 secondary)
 {
 	const asset_entry_t *entry;
-	s32 texture_num;
 	char id[CATALOG_ID_LEN];
 
 	if (!material || !catalog_id) {
@@ -4519,28 +5003,31 @@ static void objMaterialSetTextureCatalog(obj_material_t *material,
 			material->name, id);
 		return;
 	}
-	texture_num = entry->source_texnum >= 0 ?
-		entry->source_texnum : entry->ext.texture.texture_id;
-	if (texture_num < 0) {
-		sysLogPrintf(LOG_WARNING,
-			"MODASSET.COMPILER: material '%s' references texture catalog id '%s' without a texture table id",
-			material->name, id);
+	objMaterialSetTextureEntry(material, entry, secondary);
+}
+
+static void objMaterialSetTextureMapPath(obj_material_t *material,
+                                         const char *source_path,
+                                         const char *map_path)
+{
+	const asset_entry_t *entry;
+	char path[FS_MAXPATH + 1];
+
+	if (!material || !map_path) {
 		return;
 	}
-
-	if (secondary) {
-		strncpy(material->secondary_texture_catalog_id, id,
-			sizeof(material->secondary_texture_catalog_id) - 1);
-		material->secondary_texture_catalog_id[
-			sizeof(material->secondary_texture_catalog_id) - 1] = '\0';
-		material->secondary_texture_num = texture_num;
-	} else {
-		strncpy(material->texture_catalog_id, id,
-			sizeof(material->texture_catalog_id) - 1);
-		material->texture_catalog_id[
-			sizeof(material->texture_catalog_id) - 1] = '\0';
-		material->texture_num = texture_num;
+	copyObjToken(path, sizeof(path), map_path);
+	if (!path[0]) {
+		return;
 	}
+	entry = objResolveTextureMapPath(source_path, path);
+	if (!entry) {
+		sysLogPrintf(LOG_WARNING,
+			"MODASSET.COMPILER: material '%s' map_Kd '%s' did not resolve to a catalog texture",
+			material->name, path);
+		return;
+	}
+	objMaterialSetTextureEntry(material, entry, 0);
 }
 
 static void generatedModeldefLoadMaterialMetadata(const char *source_path,
@@ -4603,6 +5090,10 @@ static void generatedModeldefLoadMaterialMetadata(const char *source_path,
 			if (value) {
 				objMaterialSetTextureCatalog(current, value + 1, 0);
 			}
+		} else if (current && strncmp(p, "map_Kd", 6) == 0 &&
+				isspace((u8)p[6])) {
+			objMaterialSetTextureMapPath(current, source_path,
+				skipSpaces(p + 6));
 		} else if (current &&
 				strncmp(p, "pd_secondary_texture_catalog", 28) == 0) {
 			char *value = strchr(p, '=');
@@ -5585,9 +6076,18 @@ static s32 generatedModeldefReadParts(const char *source_path,
 	while (jsonArrayNextObject(parts_array, &cursor, &object)) {
 		s32 partnum;
 		s32 node_id;
+		s32 node_unresolved = 0;
 		if (!jsonObjectInt(object, "partnum", &partnum) ||
-				!jsonObjectInt(object, "node", &node_id) ||
-				node_id < 0 || node_id >= node_count) {
+				!jsonObjectInt(object, "node", &node_id)) {
+			free(parts);
+			free(copy);
+			return -1;
+		}
+		jsonObjectBool(object, "node_unresolved", &node_unresolved);
+		if (node_id < 0 && node_unresolved) {
+			continue;
+		}
+		if (node_id < 0 || node_id >= node_count) {
 			free(parts);
 			free(copy);
 			return -1;
@@ -6354,6 +6854,15 @@ s32 modAssetCompilerBuildModeldef(const asset_entry_t *entry,
 		return -1;
 	}
 
+	if (!validateGeneratedMeshIntegerNativeBoundary(source_path, &mesh)) {
+		sysLogPrintf(LOG_WARNING,
+			"MODASSET.COMPILER: modeldef native integer boundary failed for '%s': %s (%s)",
+			entry->id, source_path,
+			mesh.error[0] ? mesh.error : "integer_native_invalid");
+		objMeshFree(&mesh);
+		return -1;
+	}
+
 	generatedModeldefLoadMaterialMetadata(source_path, &mesh);
 	rc = buildGeneratedModeldefFromMeshHierarchy(entry, source_path, &mesh,
 		out_modeldef);
@@ -6492,17 +7001,6 @@ s32 modAssetCompilerBuildObjColmesh(const char *source_path,
 	return modAssetCompilerBuildColmesh(source_path, out_mesh);
 }
 
-static s32 gltfAnimationSampleForFrame(const gltf_anim_channel_t *channel,
-                                       s32 frame,
-                                       s32 frame_count)
-{
-	if (!channel || channel->sample_count <= 1 || frame_count <= 1) {
-		return 0;
-	}
-	return (s32)(((s64)frame * (s64)(channel->sample_count - 1))
-		/ (s64)(frame_count - 1));
-}
-
 static s32 gltfBuildAnimationClipPayload(gltf_animation_clip_t *clip,
                                          s32 requested_frame_count,
                                          struct animtableentry *out_entry,
@@ -6607,10 +7105,11 @@ static s32 gltfBuildAnimationClipPayload(gltf_animation_clip_t *clip,
 			translation_for_part[channel->target_node] = i;
 			for (s32 axis = 0; axis < 3; axis++) {
 				s32 min_value = floatToMilliS32(
-					gltfChannelReadFloat(channel, 0, axis));
-				for (s32 s = 1; s < channel->sample_count; s++) {
+					gltfChannelSampleFloat(channel, 0, frame_count, axis));
+				for (s32 frame = 1; frame < frame_count; frame++) {
 					s32 value = floatToMilliS32(
-						gltfChannelReadFloat(channel, s, axis));
+						gltfChannelSampleFloat(channel, frame,
+							frame_count, axis));
 					if (value < min_value) {
 						min_value = value;
 					}
@@ -6708,11 +7207,10 @@ static s32 gltfBuildAnimationClipPayload(gltf_animation_clip_t *clip,
 
 			if (trans_index >= 0) {
 				gltf_anim_channel_t *channel = &clip->channels[trans_index];
-				s32 sample = gltfAnimationSampleForFrame(channel,
-					frame, frame_count);
 				for (s32 axis = 0; axis < 3; axis++) {
 					s32 value = floatToMilliS32(
-						gltfChannelReadFloat(channel, sample, axis));
+						gltfChannelSampleFloat(channel, frame,
+							frame_count, axis));
 					writeBe32(p, (u32)(value - channel->translation_base[axis]));
 					p += 4;
 				}
@@ -6720,17 +7218,16 @@ static s32 gltfBuildAnimationClipPayload(gltf_animation_clip_t *clip,
 
 			if (rot_index >= 0) {
 				gltf_anim_channel_t *channel = &clip->channels[rot_index];
-				s32 sample = gltfAnimationSampleForFrame(channel,
-					frame, frame_count);
 				f32 rx;
 				f32 ry;
 				f32 rz;
-				quatToEuler(
-					gltfChannelReadFloat(channel, sample, 0),
-					gltfChannelReadFloat(channel, sample, 1),
-					gltfChannelReadFloat(channel, sample, 2),
-					gltfChannelReadFloat(channel, sample, 3),
-					&rx, &ry, &rz);
+				f32 qx;
+				f32 qy;
+				f32 qz;
+				f32 qw;
+				gltfChannelSampleQuat(channel, frame, frame_count,
+					&qx, &qy, &qz, &qw);
+				quatToEuler(qx, qy, qz, qw, &rx, &ry, &rz);
 				writeBeFloat(p + 0, rx);
 				writeBeFloat(p + 4, ry);
 				writeBeFloat(p + 8, rz);
@@ -6739,11 +7236,12 @@ static s32 gltfBuildAnimationClipPayload(gltf_animation_clip_t *clip,
 
 			if (scale_index >= 0) {
 				gltf_anim_channel_t *channel = &clip->channels[scale_index];
-				s32 sample = gltfAnimationSampleForFrame(channel,
-					frame, frame_count);
-				writeBeFloat(p + 0, gltfChannelReadFloat(channel, sample, 0));
-				writeBeFloat(p + 4, gltfChannelReadFloat(channel, sample, 1));
-				writeBeFloat(p + 8, gltfChannelReadFloat(channel, sample, 2));
+				writeBeFloat(p + 0, gltfChannelSampleFloat(channel,
+					frame, frame_count, 0));
+				writeBeFloat(p + 4, gltfChannelSampleFloat(channel,
+					frame, frame_count, 1));
+				writeBeFloat(p + 8, gltfChannelSampleFloat(channel,
+					frame, frame_count, 2));
 				p += 12;
 			}
 		}

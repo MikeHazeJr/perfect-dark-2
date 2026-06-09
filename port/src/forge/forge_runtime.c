@@ -364,13 +364,13 @@ static void s_spawn_door(const forge_object_t *o)
                 "GRID.RUNTIME: door pool full -- uid=%u '%s' dropped",
                 o->uid, o->catalog_id);
         return;
-    }
+	}
 
-    catalog_prop_result_t pr;
-    if (!catalogResolveProp(o->catalog_id, &pr) || pr.filenum <= 0) {
-        sysLogPrintf(LOG_WARNING,
-                "GRID.RUNTIME: door uid=%u -- cannot resolve '%s'",
-                o->uid, o->catalog_id);
+	catalog_prop_result_t pr;
+	if (!catalogResolveProp(o->catalog_id, &pr) || assetHandleIsNull(pr.handle)) {
+		sysLogPrintf(LOG_WARNING,
+				"GRID.RUNTIME: door uid=%u -- cannot resolve '%s'",
+				o->uid, o->catalog_id);
         return;
     }
 
@@ -532,13 +532,13 @@ static void s_spawn_weapon_pad(const forge_object_t *o)
         return;
     }
 
-    catalog_weapon_result_t wr;
-    if (!catalogResolveWeapon(o->props.weapon.weapon_id, &wr)
-            || wr.weapon_num < 0
-            || wr.filenum <= 0) {
-        sysLogPrintf(LOG_WARNING,
-                "GRID.RUNTIME: weapon pad uid=%u -- cannot resolve '%s'",
-                o->uid, o->props.weapon.weapon_id);
+	catalog_weapon_result_t wr;
+	if (!catalogResolveWeapon(o->props.weapon.weapon_id, &wr)
+			|| wr.weapon_num < 0
+			|| assetHandleIsNull(wr.handle)) {
+		sysLogPrintf(LOG_WARNING,
+				"GRID.RUNTIME: weapon pad uid=%u -- cannot resolve '%s'",
+				o->uid, o->props.weapon.weapon_id);
         return;
     }
 
@@ -625,11 +625,11 @@ static void s_spawn_prop(const forge_object_t *o)
         return;
     }
 
-    catalog_prop_result_t pr;
-    if (!catalogResolveProp(o->catalog_id, &pr) || pr.filenum <= 0) {
-        sysLogPrintf(LOG_WARNING,
-                "GRID.RUNTIME: prop uid=%u -- cannot resolve '%s'",
-                o->uid, o->catalog_id);
+	catalog_prop_result_t pr;
+	if (!catalogResolveProp(o->catalog_id, &pr) || assetHandleIsNull(pr.handle)) {
+		sysLogPrintf(LOG_WARNING,
+				"GRID.RUNTIME: prop uid=%u -- cannot resolve '%s'",
+				o->uid, o->catalog_id);
         return;
     }
 

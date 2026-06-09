@@ -4,7 +4,7 @@
  * A single standalone window with three tools:
  *   0 - Mod Manager  (delegates to pdgui_menu_modmgr.cpp content renderer)
  *   1 - INI Editor   (browse catalog entries, edit .ini manifests)
- *   2 - Model Scale Tool (read/write model binary scale at offset 0x10)
+ *   2 - Model Scale Tool (inspect catalog/source mesh scale)
  *
  * Entry: pdguiModdingHubShow() — opened from main menu "Modding..." button.
  * pdguiModdingHubRender() is called every frame from pdgui_backend.cpp.
@@ -43,6 +43,7 @@
 #include "asset_mod_utility_contract.h"
 #include "assetcatalog.h"
 #include "assetcatalog_load.h"
+#include "assetcatalog_scanner.h"
 #include "identity.h"
 #include "pdgui_charpreview.h"
 #include "fs.h"
@@ -371,6 +372,11 @@ static const char *iniNameForType(asset_type_e t)
         case ASSET_WEAPON:      return "weapon.ini";
         case ASSET_PROJECTILE:  return "projectile.ini";
         case ASSET_ENTITY:      return "entity.ini";
+        case ASSET_ARENA:       return "arena.ini";
+        case ASSET_BODY:        return "body.ini";
+        case ASSET_HEAD:        return "head.ini";
+        case ASSET_MODEL:       return "mesh.ini";
+        case ASSET_ANIMATION:   return "animation.ini";
         case ASSET_MATERIAL:    return "material.ini";
         case ASSET_TEXTURES:    return "textures.ini";
         case ASSET_TEXTURE:     return "texture.ini";
@@ -432,6 +438,8 @@ static void iniCollectCallback(const asset_entry_t *e, void *ud)
 static const asset_type_e s_AllTypes[] = {
     ASSET_MAP, ASSET_CHARACTER, ASSET_SKIN, ASSET_BOT_VARIANT,
     ASSET_WEAPON, ASSET_PROJECTILE, ASSET_ENTITY,
+    ASSET_ARENA, ASSET_BODY, ASSET_HEAD, ASSET_MODEL,
+    ASSET_ANIMATION,
     ASSET_TEXTURES, ASSET_TEXTURE, ASSET_MATERIAL, ASSET_EFFECT,
     ASSET_SFX, ASSET_MUSIC, ASSET_AUDIO,
     ASSET_PROP, ASSET_VEHICLE, ASSET_MISSION, ASSET_GAMEMODE,
@@ -3993,7 +4001,7 @@ static void renderIniEditor(float contentW, float contentH, float scale)
 
 struct ScaleEntry {
     char id[CATALOG_ID_LEN];
-    char bodyfile[FS_MAXPATH];
+    char scale_source[FS_MAXPATH];
     int  runtime_index;    /* used as bodynum hint for charpreview */
     int  bundled;
 };
@@ -4001,63 +4009,110 @@ struct ScaleEntry {
 static ScaleEntry s_ScaleEntries[HUB_MAX_ENTRIES];
 static int        s_ScaleNumEntries = 0;
 static int        s_ScaleSelected   = -1;
-static float      s_ScaleValue      = 1.0f;   /* current slider value */
 static float      s_ScaleOriginal   = 1.0f;   /* value read from file */
 static float      s_PreviewRotAngle = 0.0f;   /* accumulated rotation angle */
-static char       s_ScaleStatusMsg[128] = "";
+static char       s_ScaleStatusMsg[160] = "";
 static bool       s_ScaleStatusOk  = true;
 
 /* ========================================================================
- * Model Scale Tool — binary helpers
+ * Model Scale Tool — source helpers
  * ======================================================================== */
 
-static uint32_t byteswap32(uint32_t v)
+static bool scaleCopyPath(char *out, size_t out_n, const char *path)
 {
-    return ((v & 0xFF000000u) >> 24)
-         | ((v & 0x00FF0000u) >> 8)
-         | ((v & 0x0000FF00u) << 8)
-         | ((v & 0x000000FFu) << 24);
+    if (!out || out_n == 0 || !path || !path[0]) return false;
+    snprintf(out, out_n, "%s", path);
+    return out[0] != '\0';
 }
 
-/* n64_modeldef.scale is a big-endian IEEE 754 float at byte offset 0x10.
- * Returns 1.0f on any error. */
-static float readModelScale(const char *filePath)
+static bool scalePathHasMeshIniMember(const char *path)
 {
-    if (!filePath || filePath[0] == '\0') return 1.0f;
-    FILE *f = fopen(filePath, "rb");
-    if (!f) return 1.0f;
-    if (fseek(f, 0x10, SEEK_SET) != 0) { fclose(f); return 1.0f; }
-    uint32_t bits = 0;
-    if (fread(&bits, 4, 1, f) != 1) { fclose(f); return 1.0f; }
-    fclose(f);
-    bits = byteswap32(bits);
-    float scale;
-    memcpy(&scale, &bits, 4);
-    if (scale <= 0.0f || scale != scale) return 1.0f; /* NaN / negative guard */
-    return scale;
+    if (!path) return false;
+    const char *needle = "::mesh.ini";
+    const size_t path_len = strlen(path);
+    const size_t needle_len = strlen(needle);
+    return path_len >= needle_len &&
+           strcmp(path + path_len - needle_len, needle) == 0;
 }
 
-/* Write a new scale value (big-endian) at offset 0x10 in the model file.
- * Returns true on success. */
-static bool writeModelScale(const char *filePath, float newScale)
+static bool scaleBuildMeshIniSource(const char *mesh_archive,
+                                    char *out, size_t out_n)
 {
-    if (!filePath || filePath[0] == '\0') return false;
-    FILE *f = fopen(filePath, "r+b");
-    if (!f) return false;
-    if (fseek(f, 0x10, SEEK_SET) != 0) { fclose(f); return false; }
-    uint32_t bits;
-    memcpy(&bits, &newScale, 4);
-    bits = byteswap32(bits);
-    bool ok = (fwrite(&bits, 4, 1, f) == 1);
-    fclose(f);
+    if (!mesh_archive || !mesh_archive[0] || !out || out_n == 0) return false;
+    if (scalePathHasMeshIniMember(mesh_archive)) {
+        return scaleCopyPath(out, out_n, mesh_archive);
+    }
+    snprintf(out, out_n, "%s::mesh.ini", mesh_archive);
+    return out[0] != '\0';
+}
+
+static bool scaleResolveRelativeArchiveMember(const char *archive_path,
+                                              const char *member_or_path,
+                                              char *out, size_t out_n)
+{
+    if (!member_or_path || !member_or_path[0]) return false;
+    if (strstr(member_or_path, "::") || fsPathIsAbsolute(member_or_path) ||
+            fsPathIsCwdRelative(member_or_path) || member_or_path[0] == '$') {
+        return scaleCopyPath(out, out_n, member_or_path);
+    }
+    if (!archive_path || !archive_path[0]) return false;
+    snprintf(out, out_n, "%s::%s", archive_path, member_or_path);
+    return out[0] != '\0';
+}
+
+static bool scaleBuildMeshIniFromBodyArchive(const char *body_archive,
+                                             char *out, size_t out_n)
+{
+    if (!body_archive || !body_archive[0]) return false;
+
+    char body_ini_path[FS_MAXPATH + 1];
+    snprintf(body_ini_path, sizeof(body_ini_path), "%s::body.ini", body_archive);
+
+    u32 size = 0;
+    char *text = (char *)fsFileLoad(body_ini_path, &size);
+    if (!text || size == 0) {
+        if (text) free(text);
+        return false;
+    }
+
+    ini_section_t ini;
+    memset(&ini, 0, sizeof(ini));
+    bool ok = false;
+    if (iniParseBuffer(body_ini_path, text, size, &ini)) {
+        const char *mesh = iniGet(&ini, "mesh_archive", "");
+        char mesh_archive[FS_MAXPATH + 1];
+        if (scaleResolveRelativeArchiveMember(body_archive, mesh,
+                mesh_archive, sizeof(mesh_archive))) {
+            ok = scaleBuildMeshIniSource(mesh_archive, out, out_n);
+        }
+    }
+    free(text);
     return ok;
 }
 
-static bool fileExists(const char *path)
+static bool scaleReadSourceScale(const char *scale_source, float *out)
 {
-    if (!path || path[0] == '\0') return false;
-    struct stat st;
-    return stat(path, &st) == 0;
+    if (!scale_source || !scale_source[0] || !out) return false;
+
+    u32 size = 0;
+    char *text = (char *)fsFileLoad(scale_source, &size);
+    if (!text || size == 0) {
+        if (text) free(text);
+        return false;
+    }
+
+    ini_section_t ini;
+    memset(&ini, 0, sizeof(ini));
+    bool ok = false;
+    if (iniParseBuffer(scale_source, text, size, &ini)) {
+        const float scale = iniGetFloat(&ini, "model_scale", 1.0f);
+        if (scale > 0.0f && scale == scale) {
+            *out = scale;
+            ok = true;
+        }
+    }
+    free(text);
+    return ok;
 }
 
 /* ========================================================================
@@ -4069,11 +4124,16 @@ static void scaleCollectCallback(const asset_entry_t *e, void *ud)
     int *n = (int *)ud;
     if (*n >= HUB_MAX_ENTRIES) return;
     if (e->ext.character.bodyfile[0] == '\0') return;
+    char scale_source[FS_MAXPATH + 1];
+    if (!scaleBuildMeshIniFromBodyArchive(e->ext.character.bodyfile,
+            scale_source, sizeof(scale_source))) {
+        return;
+    }
     ScaleEntry &se = s_ScaleEntries[(*n)++];
     strncpy(se.id, e->id, CATALOG_ID_LEN - 1);
     se.id[CATALOG_ID_LEN - 1] = '\0';
-    strncpy(se.bodyfile, e->ext.character.bodyfile, FS_MAXPATH - 1);
-    se.bodyfile[FS_MAXPATH - 1] = '\0';
+    strncpy(se.scale_source, scale_source, FS_MAXPATH - 1);
+    se.scale_source[FS_MAXPATH - 1] = '\0';
     se.runtime_index = e->runtime_index;
     se.bundled       = e->bundled;
 }
@@ -4083,14 +4143,16 @@ static void scaleCollectBodyCallback(const asset_entry_t *e, void *ud)
     int *n = (int *)ud;
     if (*n >= HUB_MAX_ENTRIES) return;
     if (!e || e->type != ASSET_BODY) return;
-    if (e->source_filenum < 0) return;
-    CatalogResolveResult r = catalogResolveFile(e->source_filenum);
-    if (!r.path || !r.path[0]) return;
+    char scale_source[FS_MAXPATH + 1];
+    if (!scaleBuildMeshIniSource(e->ext.body.mesh_archive,
+            scale_source, sizeof(scale_source))) {
+        return;
+    }
     ScaleEntry &se = s_ScaleEntries[(*n)++];
     strncpy(se.id, e->id, CATALOG_ID_LEN - 1);
     se.id[CATALOG_ID_LEN - 1] = '\0';
-    strncpy(se.bodyfile, r.path, FS_MAXPATH - 1);
-    se.bodyfile[FS_MAXPATH - 1] = '\0';
+    strncpy(se.scale_source, scale_source, FS_MAXPATH - 1);
+    se.scale_source[FS_MAXPATH - 1] = '\0';
     se.runtime_index = e->runtime_index;
     se.bundled       = e->bundled;
 }
@@ -4107,7 +4169,6 @@ static void scaleRefreshEntries(void)
                                                 scaleCollectBodyCallback,
                                                 &s_ScaleNumEntries);
     s_ScaleSelected   = -1;
-    s_ScaleValue      = 1.0f;
     s_ScaleOriginal   = 1.0f;
     s_ScaleStatusMsg[0] = '\0';
 }
@@ -4118,10 +4179,15 @@ static void scaleSelectEntry(int idx)
     s_PreviewRotAngle = 0.0f;
     if (idx < 0 || idx >= s_ScaleNumEntries) return;
     const ScaleEntry &se = s_ScaleEntries[idx];
-    s_ScaleOriginal = readModelScale(se.bodyfile);
-    s_ScaleValue    = s_ScaleOriginal;
+    if (!scaleReadSourceScale(se.scale_source, &s_ScaleOriginal)) {
+        s_ScaleOriginal = 1.0f;
+        snprintf(s_ScaleStatusMsg, sizeof(s_ScaleStatusMsg),
+                 "Scale source missing model_scale.");
+        s_ScaleStatusOk = false;
+        return;
+    }
     snprintf(s_ScaleStatusMsg, sizeof(s_ScaleStatusMsg),
-             "Loaded — file scale: %.4f", s_ScaleOriginal);
+             "Loaded source scale: %.4f", s_ScaleOriginal);
     s_ScaleStatusOk = true;
 }
 
@@ -4145,7 +4211,7 @@ static void renderScaleTool(float contentW, float contentH, float scale)
         }
     }
     if (s_ScaleNumEntries == 0) {
-        ImGui::TextDisabled("No character or body model files found (need loose file path).");
+        ImGui::TextDisabled("No character or body mesh sources found.");
     }
 
     ImGui::EndChild();
@@ -4207,8 +4273,8 @@ static void renderScaleTool(float contentW, float contentH, float scale)
         ImGui::Text("%s", se.id);
         ImGui::PopStyleColor();
 
-        /* Body file path (truncated) */
-        const char *shortPath = se.bodyfile;
+        /* Source descriptor path (truncated) */
+        const char *shortPath = se.scale_source;
         /* Show last 40 chars of path if long */
         int pathLen = (int)strlen(shortPath);
         if (pathLen > 50) shortPath = shortPath + pathLen - 50;
@@ -4217,56 +4283,12 @@ static void renderScaleTool(float contentW, float contentH, float scale)
         ImGui::Spacing();
 
         /* Scale info row */
-        ImGui::Text("File scale: %.4f", s_ScaleOriginal);
-        ImGui::SameLine();
-        ImGui::TextDisabled("(at 0x10 in binary)");
+        ImGui::Text("Source scale: %.4f", s_ScaleOriginal);
 
         ImGui::Spacing();
 
-        /* Scale slider */
-        ImGui::PushStyleColor(ImGuiCol_Text, pdguiVec4TextWarning(220));
-        ImGui::Text("New scale:");
-        ImGui::PopStyleColor();
-        ImGui::SameLine();
-        ImGui::SetNextItemWidth(rightW - 200.0f * scale);
-        ImGui::SliderFloat("##scale_slider", &s_ScaleValue, 0.1f, 5.0f, "%.4f");
-        ImGui::SameLine();
-        if (ImGui::Button("Reset##scalerst")) {
-            s_ScaleValue = s_ScaleOriginal;
-        }
-
-        ImGui::Spacing();
-
-        /* Bake button */
-        bool canBake = !se.bundled && fileExists(se.bodyfile)
-                       && (s_ScaleValue != s_ScaleOriginal);
-        if (!canBake) ImGui::BeginDisabled();
-        if (PdButton("Bake Scale to File", ImVec2(180.0f * scale, 30.0f * scale))) {
-            if (writeModelScale(se.bodyfile, s_ScaleValue)) {
-                s_ScaleOriginal = s_ScaleValue;
-                snprintf(s_ScaleStatusMsg, sizeof(s_ScaleStatusMsg),
-                         "Baked scale %.4f to file.", s_ScaleValue);
-                s_ScaleStatusOk = true;
-            } else {
-                snprintf(s_ScaleStatusMsg, sizeof(s_ScaleStatusMsg),
-                         "Bake failed — file may be read-only.");
-                s_ScaleStatusOk = false;
-            }
-        }
-        if (!canBake) ImGui::EndDisabled();
-
-        if (se.bundled) {
-            ImGui::SameLine();
-            ImGui::TextDisabled("(base game — read-only)");
-        } else if (!fileExists(se.bodyfile)) {
-            ImGui::SameLine();
-            ImGui::TextDisabled("(file not found)");
-        }
-
-        /* Warning note */
-        ImGui::Spacing();
-        ImGui::TextDisabled("Bake modifies the model binary on disk.");
-        ImGui::TextDisabled("Restart required for changes to take effect.");
+        ImGui::TextDisabled("Edit model_scale in mesh.ini.");
+        ImGui::TextDisabled("Restart or rescan to apply changes.");
     }
 
     ImGui::EndChild();
@@ -4280,7 +4302,7 @@ static void renderScaleTool(float contentW, float contentH, float scale)
             ImGui::TextColored(pdguiVec4TintDanger(), "%s", s_ScaleStatusMsg);
         }
     } else {
-        ImGui::TextDisabled("Model Scale Tool — bake scale into model binary");
+        ImGui::TextDisabled("Model Scale Tool — inspect mesh source scale");
     }
 }
 
@@ -5045,7 +5067,7 @@ static void renderModdingHub(s32 winW, s32 winH)
         "Export/import .pdpack files",
         "Browse, audition, and import audio mods",
         "Paint custom character skins",
-        "Import PD-format map files as playable arenas",
+        "Stage editable map source layouts and typed map archives",
         "Create UI chrome nine-slice mods in-game",
         "Import a .ttf/.otf font as a mod",
         "Browse weapon archives and graph payloads"
@@ -6051,7 +6073,7 @@ static void importReset(void)
 
 static void renderMapImport(float w, float h, float scale)
 {
-    ImGui::TextDisabled("Import Map -- import PD-format map files");
+    ImGui::TextDisabled("Import Map -- stage editable map source");
     ImGui::Spacing();
 
     /* Source directory path input */
@@ -6170,9 +6192,9 @@ static void renderMapImport(float w, float h, float scale)
     ImGui::Spacing();
     ImGui::Separator();
     ImGui::Spacing();
-    ImGui::TextDisabled("Accepts directories containing PD-format map files (.bg, .pad, .setup).");
-    ImGui::TextDisabled("Missing spawn points and mod.json will be generated automatically.");
-    ImGui::TextDisabled("Imported maps appear in Combat Simulator stage select.");
+    ImGui::TextDisabled("Accepts external-layout folders, scene.glb/gltf, geometry.obj, .pdarena, or .pdscenario source.");
+    ImGui::TextDisabled("Native .bg/.bin/.pad/.setup payloads are rejected.");
+    ImGui::TextDisabled("Imported source is staged under mods/ and picked up by the catalog scanner.");
 }
 
 /* ========================================================================

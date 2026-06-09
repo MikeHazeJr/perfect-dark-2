@@ -48,6 +48,8 @@ void loaderPoolReset(void);
  * typed payload. Returns 1 on success, 0 if the envelope index is out
  * of range (one log line at WARNING). */
 s32 loaderPoolParseWeaponJson(const char *json, size_t json_len);
+s32 loaderPoolParseWeaponJsonWithRuntimeSlot(const char *json, size_t json_len,
+                s32 runtime_weapon_id);
 s32 loaderPoolParseHeadJson(const char *json, size_t json_len);
 s32 loaderPoolParseBodyJson(const char *json, size_t json_len);
 s32 loaderPoolParseArenaJson(const char *json, size_t json_len);

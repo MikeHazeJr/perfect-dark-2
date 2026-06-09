@@ -13,10 +13,12 @@
 #include <PR/ultratypes.h>
 
 #include "assetcatalog.h"
+#include "catalog_mgr_heads.h"
 #include "fs.h"
 #include "loader_pool.h"
 #include "loader_walker.h"
 #include "loader_walker_common.h"
+#include "system.h"
 
 static s32 s_register(const char *manifest, size_t manifest_len,
                       const char *pd_kind, const char *id,
@@ -24,12 +26,19 @@ static s32 s_register(const char *manifest, size_t manifest_len,
 {
     (void)pd_kind;
 
-    s64 headnum = 0;
+    s64 headnum = -1;
     s64 requirefeature = 0;
     char mesh_member[128];
     char mesh_archive_path[FS_MAXPATH + 1];
     char source_path[FS_MAXPATH + 1];
-    loaderWalkerEnvelopeInt(manifest, manifest_len, "headnum", &headnum);
+    if (!loaderWalkerEnvelopeInt(manifest, manifest_len, "headnum", &headnum)
+            || headnum < 0 || headnum >= CATALOG_MGR_HEAD_COUNT) {
+        sysLogPrintf(LOG_WARNING,
+            "LOADER.WALKER.HEAD.RUNTIME_SLOT_MISSING: id=%s headnum=%d path=%s",
+            id ? id : "(null)", (s32)headnum,
+            file_path ? file_path : "(null)");
+        headnum = -1;
+    }
     loaderWalkerEnvelopeInt(manifest, manifest_len, "requirefeature", &requirefeature);
     if (!loaderWalkerEnvelopeStrCopy(manifest, manifest_len, "mesh_archive",
                                      mesh_member, sizeof(mesh_member))) {

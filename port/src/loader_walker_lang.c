@@ -26,10 +26,26 @@ static s32 s_register(const char *manifest, size_t manifest_len,
     loaderWalkerMarkBaseArchiveEntry(e);
 
     s64 source_bank = -1;
+    s64 string_count = 0;
     char source_member[128];
     char source_path[FS_MAXPATH + 1];
+    char locale[16];
+    char category[32];
     loaderWalkerEnvelopeInt(manifest, manifest_len, "source_bank", &source_bank);
+    loaderWalkerEnvelopeInt(manifest, manifest_len, "string_count", &string_count);
     e->ext.lang.bank_id = (s32)source_bank;
+    e->ext.lang.string_count = (u32)string_count;
+    if (loaderWalkerEnvelopeStrCopy(manifest, manifest_len, "locale",
+                                     locale, sizeof(locale))) {
+        strncpy(e->ext.lang.locale, locale, sizeof(e->ext.lang.locale) - 1);
+        e->ext.lang.locale[sizeof(e->ext.lang.locale) - 1] = '\0';
+    }
+    if (loaderWalkerEnvelopeStrCopy(manifest, manifest_len, "category",
+                                     category, sizeof(category))) {
+        strncpy(e->ext.lang.lang_category, category,
+                sizeof(e->ext.lang.lang_category) - 1);
+        e->ext.lang.lang_category[sizeof(e->ext.lang.lang_category) - 1] = '\0';
+    }
     if (!loaderWalkerEnvelopeStrCopy(manifest, manifest_len, "data",
                                      source_member, sizeof(source_member))) {
         strncpy(source_member, "strings.json", sizeof(source_member) - 1);
@@ -44,10 +60,8 @@ static s32 s_register(const char *manifest, size_t manifest_len,
     }
 
     /* Engine Phase 4: lock-safe category fill via helper. */
-    char category[32];
-    if (loaderWalkerEnvelopeStrCopy(manifest, manifest_len, "category",
-                                     category, sizeof(category))) {
-        assetCatalogSetCategoryById(id, category);
+    if (e->ext.lang.lang_category[0]) {
+        assetCatalogSetCategoryById(id, e->ext.lang.lang_category);
     }
     return 1;
 }

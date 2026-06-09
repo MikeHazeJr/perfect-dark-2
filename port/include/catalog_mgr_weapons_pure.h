@@ -22,9 +22,10 @@
 extern "C" {
 #endif
 
-/* Equals WEAPON_SUICIDEPILL + 1 = 0x55 + 1 = 86. The legacy
- * g_Weapons[] is sized identically (src/include/game/inv.h:9). */
-#define CATALOG_MGR_WEAPON_COUNT_PURE 86
+/* Base WEAPON_* rows occupy 0..0x55. The active runtime also reserves
+ * 0x56..0x5f as catalog-owned private custom weapon slots while the
+ * legacy held-weapon runtime is still integer-indexed. */
+#define CATALOG_MGR_WEAPON_COUNT_PURE 96
 
 typedef enum {
     EYESPY_VARIANT_PURE_CAMSPY  = 0,

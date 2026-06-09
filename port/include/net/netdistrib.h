@@ -189,7 +189,9 @@ void netDistribSendKillFeed(const char *attacker, const char *victim,
  */
 void netDistribClientHandleCatalogInfo(const char (*ids)[64],
                                        const char (*categories)[64],
-                                       u16 count);
+                                       u16 count,
+                                       u16 batch_offset,
+                                       u16 total_count);
 
 /**
  * Client received SVC_DISTRIB_BEGIN from server.

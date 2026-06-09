@@ -12,7 +12,7 @@ Code:
 
 - Test framework: [port/include/catch.hpp](../../port/include/catch.hpp) (Catch2 v2 single-header).
 - Test main: [tests/main.cpp](../../tests/main.cpp) (`#define CATCH_CONFIG_MAIN` at line 12).
-- Test inventory: 35 `tests/test_*.cpp` files plus `test_versions_pin.c`.
+- Test inventory: 60 `tests/test_*.cpp` files plus `test_versions_pin.c`.
 - Pure-C mirrors: `tests/actionmap_pure.c`, `inputctx_pure.c`, `inputlayer_pure.c`, `manifest_pure.c`, `menupool_pure.c`, `savebuffer_pure.c`, `scene_pure.c`.
 - Cherry-picked pure source files from `port/src/`: `netbuf.c`, `connectcode.c`, `bondgun_cache.c`, `catalog_checked.c`, `spawn_predicate.c`, `bodies_headcount.c`, `options_forced.c`, `catalog_mgr_weapons_pure.c`.
 - Stubs for unreferenced symbols: [tests/stubs.c](../../tests/stubs.c).
@@ -33,8 +33,11 @@ The binary is self-contained: no SDL2, no OpenGL, no ImGui, no ENet linkage. Com
 
 ### Catalog
 - `test_catalog_checked` - bounds + invariants on the catalog query API.
+- `test_assetcatalog_deps` - dependency graph growth, dedupe, bundled-skip behavior.
 - `test_catalog_mgr_weapons_api` - 10 cases including bounds, EYESPY stage-to-variant mapping, mutual exclusion of flag masks, NULL-out guard.
-- `test_catalog_provider_static` - source-wide static guards for typed identity helpers, FileProvider / RomProvider call boundaries.
+- `test_catalog_provider_static` - source-wide static guards for typed identity helpers, FileProvider / RomProvider call boundaries, and audio source-decoder parity such as OGG per-channel sample counts.
+- `test_asset_runtime_adapters` - runtime activation coverage for typed archive source members, adapter capacity, named metadata handoffs such as gamemode/bot-profile and arena/body/head/prop/weapon/projectile/entity selector fields, and source-required activation such as rejecting primary-only arenas, primary/partial Scenarios, primary/incomplete missions, primary/model/partial-source weapons, behavior-only props, primary/model-only projectiles and entities, primary/hand-only bodies, primary-only heads, primary/portrait-only characters, primary-path-only gamemodes/bot profiles, primary/metrics-only fonts, bankless language rows, layout/nine-slice/primary-only UI rows, shader-only or primary-path-only effects, physics-only or physics-missing vehicles, texture-only HUDs, dependency-only skins, dependency-only materials, and dependency-only themes.
+- `test_mod_external_archive_static` - static source-contract coverage for archive writer, packer, scanner, network delivery, examples, and runtime load handoffs, including local/network `.pdanim` command-source parsing through the loader-pool path instead of catalog-primary-only registration.
 - `test_loader_pdbase_scan` - 3 cases (currently shape-only static text; needs behavioral coverage when F11 lands).
 - `test_weapon_findbyid_migrated` - F2 weapon-find migration pin.
 - `test_weapon_direct_reads_audit` - source-wide `g_Weapons[` substring pin per migrated file.

@@ -26,7 +26,7 @@
 #include "romextract_pd.h"
 #include "system.h"
 
-#define PDMETA_FAST_CACHE_KIND "pdmeta_table_backed_v10_pdscenario_v92_objectives_spawns_volumes_pads_paths_ai_lists_json_navtables_json"
+#define PDMETA_FAST_CACHE_KIND "pdmeta_table_backed_v11_gamemode_botprofile_manifest_source_fields"
 #define PDMETA_SCENARIO_DEP_CACHE_KIND \
 	"pdscenario_scene_glb_clean_public_v95_standalone_backfill_collision_obj_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json"
 
@@ -926,7 +926,15 @@ static s32 s_emitGamemode(const asset_entry_t *e, const char *out_dir,
 	s_archiveRelPath(out_dir, e->id, ".pdgamemode", relpath, sizeof(relpath));
 	if (!force_rewrite && fsFileSize(relpath) > 0 &&
 			s_existingArchiveHasEntry(relpath, "gamemode.ini") &&
-			s_existingArchiveHasEntry(relpath, "rules.json")) {
+			s_existingArchiveHasEntry(relpath, "rules.json") &&
+			s_existingArchiveEntryContains(relpath, "_meta/manifest.json",
+				"\"name\"") &&
+			s_existingArchiveEntryContains(relpath, "_meta/manifest.json",
+				"\"min_players\"") &&
+			s_existingArchiveEntryContains(relpath, "_meta/manifest.json",
+				"\"max_players\"") &&
+			s_existingArchiveEntryContains(relpath, "_meta/manifest.json",
+				"\"team_based\"")) {
 		return 0;
 	}
 
@@ -972,10 +980,20 @@ static s32 s_emitGamemode(const asset_entry_t *e, const char *out_dir,
 		"  \"pd_kind\": \"gamemode\",\n"
 		"  \"pd_schema_version\": 1,\n"
 		"  \"id\": \"%s\",\n"
+		"  \"name\": \"%s\",\n"
+		"  \"description\": \"%s\",\n"
 		"  \"mode_key\": \"%s\",\n"
+		"  \"min_players\": %d,\n"
+		"  \"max_players\": %d,\n"
+		"  \"team_based\": %d,\n"
+		"  \"requirefeature\": %u,\n"
 		"  \"rules_file\": \"rules.json\"\n"
 		"}\n",
-		e->id, s_modeKey(e->ext.gamemode.mode_id));
+		e->id, e->ext.gamemode.name, e->ext.gamemode.description,
+		s_modeKey(e->ext.gamemode.mode_id),
+		e->ext.gamemode.min_players, e->ext.gamemode.max_players,
+		e->ext.gamemode.team_based,
+		(unsigned)e->ext.gamemode.requirefeature);
 	if (manifest_len <= 0 || (size_t)manifest_len >= sizeof(manifest)) {
 		return -1;
 	}
@@ -1006,7 +1024,11 @@ static s32 s_emitBotProfile(const asset_entry_t *e, const char *out_dir,
 	s_archiveRelPath(out_dir, e->id, ".pdbotprofile", relpath, sizeof(relpath));
 	if (!force_rewrite && fsFileSize(relpath) > 0 &&
 			s_existingArchiveHasEntry(relpath, "botprofile.ini") &&
-			s_existingArchiveHasEntry(relpath, "profile.json")) {
+			s_existingArchiveHasEntry(relpath, "profile.json") &&
+			s_existingArchiveEntryContains(relpath, "_meta/manifest.json",
+				"\"type_key\"") &&
+			s_existingArchiveEntryContains(relpath, "_meta/manifest.json",
+				"\"difficulty_key\"")) {
 		return 0;
 	}
 
@@ -1047,10 +1069,12 @@ static s32 s_emitBotProfile(const asset_entry_t *e, const char *out_dir,
 		"  \"pd_kind\": \"botprofile\",\n"
 		"  \"pd_schema_version\": 1,\n"
 		"  \"id\": \"%s\",\n"
+		"  \"type_key\": \"%s\",\n"
+		"  \"difficulty_key\": \"%s\",\n"
 		"  \"target_body\": \"%s\",\n"
 		"  \"profile_file\": \"profile.json\"\n"
 		"}\n",
-		e->id, body_id);
+		e->id, type_key, diff_key, body_id);
 	if (manifest_len <= 0 || (size_t)manifest_len >= sizeof(manifest)) {
 		return -1;
 	}
@@ -1326,7 +1350,8 @@ static s32 s_emitSkin(const asset_entry_t *e, const char *out_dir,
 	s_archiveRelPath(out_dir, e->id, ".pdskin", relpath, sizeof(relpath));
 	if (!force_rewrite && fsFileSize(relpath) > 0 &&
 			s_existingArchiveHasEntry(relpath, "skin.ini") &&
-			s_existingArchiveHasEntry(relpath, "skin.json")) {
+			s_existingArchiveHasEntry(relpath, "skin.json") &&
+			s_existingArchiveHasEntry(relpath, "swatches.json")) {
 		return 0;
 	}
 
@@ -1370,7 +1395,8 @@ static s32 s_emitSkin(const asset_entry_t *e, const char *out_dir,
 		"  \"pd_schema_version\": 1,\n"
 		"  \"id\": \"%s\",\n"
 		"  \"target\": \"%s\",\n"
-		"  \"skin_file\": \"skin.json\"\n"
+		"  \"skin_file\": \"skin.json\",\n"
+		"  \"swatches_file\": \"swatches.json\"\n"
 		"}\n",
 		e->id, target);
 	if (manifest_len <= 0 || (size_t)manifest_len >= sizeof(manifest)) {
@@ -1669,6 +1695,10 @@ static s32 s_emitMission(const arena_authored_record_t *a, const char *out_dir,
 		s_existingArchiveHasEntry(relpath, "mission.graph.json") &&
 		s_existingArchiveHasEntry(relpath, "objectives.json") &&
 		s_existingArchiveHasEntry(relpath, "briefing.json") &&
+		s_existingArchiveEntryContains(relpath, "_meta/manifest.json",
+			"\"objectives_file\": \"objectives.json\"") &&
+		s_existingArchiveEntryContains(relpath, "_meta/manifest.json",
+			"\"briefing_file\": \"briefing.json\"") &&
 		s_existingArchiveEntryContains(relpath, "mission.graph.json",
 			"mission.phase.source") &&
 		s_existingArchiveEntryContains(relpath, "mission.graph.json",
@@ -1774,14 +1804,20 @@ static s32 s_emitMission(const arena_authored_record_t *a, const char *out_dir,
 	char manifest[1536];
 	int manifest_len = snprintf(manifest, sizeof(manifest),
 		"{\n"
+		"  \"schema\": \"pd.asset_archive.manifest.v1\",\n"
 		"  \"pd_kind\": \"mission\",\n"
 		"  \"pd_schema_version\": 1,\n"
+		"  \"catalog_id\": \"%s\",\n"
 		"  \"id\": \"%s\",\n"
 		"  \"scenario\": \"%s\",\n"
 		"  \"scenario_archive\": \"dependencies/assets/scenarios/%s.pdscenario\",\n"
-		"  \"mission_graph_file\": \"mission.graph.json\"\n"
+		"  \"scenario_graph_cache\": \"%s\",\n"
+		"  \"mission_graph_file\": \"mission.graph.json\",\n"
+		"  \"objectives_file\": \"objectives.json\",\n"
+		"  \"briefing_file\": \"briefing.json\"\n"
 		"}\n",
-		mission_id, scenario_id, scenario_file);
+		mission_id, mission_id, scenario_id, scenario_file,
+		PDMETA_SCENARIO_DEP_CACHE_KIND);
 	if (manifest_len <= 0 || (size_t)manifest_len >= sizeof(manifest)) {
 		return -1;
 	}

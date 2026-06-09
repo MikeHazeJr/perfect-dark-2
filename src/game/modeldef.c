@@ -1,4 +1,5 @@
 #include <ultra64.h>
+#include <string.h>
 #include "constants.h"
 #include "game/chraction.h"
 #include "game/ceil.h"
@@ -28,6 +29,7 @@
 #include "assetcatalog.h"
 #include "assetcatalog_load.h"
 #include "assetload.h"
+#include "fs.h"
 #include "modasset_compiler.h"
 
 struct skeleton *g_Skeletons[] = {
@@ -305,6 +307,90 @@ static const char *modeldefCatalogSourcePath(asset_data_handle_t handle)
 	return fileProviderPath(handle);
 }
 
+static s32 modeldefPathEndsWithNoCase(const char *path, const char *suffix)
+{
+	size_t path_len;
+	size_t suffix_len;
+	size_t i;
+
+	if (path == NULL || suffix == NULL) {
+		return 0;
+	}
+
+	path_len = strlen(path);
+	suffix_len = strlen(suffix);
+
+	if (suffix_len > path_len) {
+		return 0;
+	}
+
+	path += path_len - suffix_len;
+
+	for (i = 0; i < suffix_len; i++) {
+		char a = path[i];
+		char b = suffix[i];
+
+		if (a >= 'A' && a <= 'Z') {
+			a = (char)(a - 'A' + 'a');
+		}
+
+		if (b >= 'A' && b <= 'Z') {
+			b = (char)(b - 'A' + 'a');
+		}
+
+		if (a != b) {
+			return 0;
+		}
+	}
+
+	return 1;
+}
+
+static s32 modeldefResolveExternalSourcePath(const char *source_path, char *out, size_t out_cap)
+{
+	static const char *const members[] = {
+		"model.obj",
+		"model.gltf",
+		"model.glb",
+	};
+	size_t i;
+
+	if (out == NULL || out_cap == 0) {
+		return 0;
+	}
+
+	out[0] = '\0';
+
+	if (source_path == NULL || source_path[0] == '\0') {
+		return 0;
+	}
+
+	if (modAssetCompilerIsExternalSource(source_path)) {
+		snprintf(out, out_cap, "%s", source_path);
+		out[out_cap - 1] = '\0';
+		return 1;
+	}
+
+	if (!modeldefPathEndsWithNoCase(source_path, ".pdmesh")) {
+		return 0;
+	}
+
+	for (i = 0; i < sizeof(members) / sizeof(members[0]); i++) {
+		char candidate[FS_MAXPATH + 1];
+
+		snprintf(candidate, sizeof(candidate), "%s::%s", source_path, members[i]);
+		candidate[sizeof(candidate) - 1] = '\0';
+
+		if (fsFileSize(candidate) > 0) {
+			snprintf(out, out_cap, "%s", candidate);
+			out[out_cap - 1] = '\0';
+			return 1;
+		}
+	}
+
+	return 0;
+}
+
 static asset_data_handle_t modeldefCatalogModelSourceHandle(s32 source_filenum)
 {
 	if (source_filenum <= 0) {
@@ -315,33 +401,94 @@ static asset_data_handle_t modeldefCatalogModelSourceHandle(s32 source_filenum)
 	return catalogHandleByModelSourceFilenum(ASSET_NONE, source_filenum);
 }
 
-static struct modeldef *modeldefLoadExternalCatalogSource(asset_data_handle_t handle, s32 source_filenum)
+static const asset_entry_t *modeldefFindVisualSourceEntry(asset_data_handle_t handle, asset_type_e *type_out)
 {
 	static const asset_type_e model_payload_types[] = {
 		ASSET_MODEL,
 		ASSET_BODY,
 		ASSET_HEAD,
 		ASSET_PROP,
+		ASSET_WEAPON,
+		ASSET_VEHICLE,
 	};
-	const char *source_path = modeldefCatalogSourcePath(handle);
-	const char *model_id = NULL;
-	asset_type_e model_type = ASSET_NONE;
-	struct modeldef *modeldef;
 	s32 i;
 
-	if (!modAssetCompilerIsExternalSource(source_path)) {
+	if (type_out != NULL) {
+		*type_out = ASSET_NONE;
+	}
+
+	if (assetHandleIsNull(handle)) {
 		return NULL;
 	}
 
 	for (i = 0; i < (s32)(sizeof(model_payload_types) / sizeof(model_payload_types[0])); i++) {
-		model_id = catalogIdBySourceHandle(model_payload_types[i], handle);
-		if (model_id) {
-			model_type = model_payload_types[i];
-			break;
+		const char *model_id = catalogIdBySourceHandle(model_payload_types[i], handle);
+
+		if (model_id != NULL) {
+			const asset_entry_t *entry = assetCatalogResolve(model_id);
+
+			if (entry != NULL) {
+				if (type_out != NULL) {
+					*type_out = model_payload_types[i];
+				}
+
+				return entry;
+			}
 		}
 	}
 
-	if (model_id == NULL || model_type == ASSET_NONE) {
+	for (i = 0; i < assetCatalogGetPoolSize(); i++) {
+		const asset_entry_t *entry = assetCatalogGetByIndex(i);
+		asset_data_handle_t visual_handle = ASSET_HANDLE_NULL_INIT;
+
+		if (entry == NULL) {
+			continue;
+		}
+
+		if (entry->type == ASSET_WEAPON && entry->ext.weapon.model_file[0]) {
+			visual_handle = catalogHandleForSourceFile(entry->ext.weapon.model_file);
+		} else if (entry->type == ASSET_PROP && entry->ext.prop.model_file[0]) {
+			visual_handle = catalogHandleForSourceFile(entry->ext.prop.model_file);
+		} else if (entry->type == ASSET_VEHICLE && entry->ext.vehicle.model_file[0]) {
+			visual_handle = catalogHandleForSourceFile(entry->ext.vehicle.model_file);
+		}
+
+		if (visual_handle.provider == handle.provider
+				&& visual_handle.opaque[0] == handle.opaque[0]
+				&& visual_handle.opaque[1] == handle.opaque[1]) {
+			if (type_out != NULL) {
+				*type_out = entry->type;
+			}
+
+			return entry;
+		}
+	}
+
+	return NULL;
+}
+
+static s32 modeldefTypeUsesLoadedModelPayload(asset_type_e type)
+{
+	return type == ASSET_MODEL || type == ASSET_BODY || type == ASSET_HEAD;
+}
+
+static struct modeldef *modeldefLoadExternalCatalogSource(asset_data_handle_t handle, s32 source_filenum)
+{
+	const char *source_path = modeldefCatalogSourcePath(handle);
+	char resolved_source_path[FS_MAXPATH + 1];
+	const asset_entry_t *entry;
+	asset_type_e model_type = ASSET_NONE;
+	struct modeldef *modeldef;
+	modasset_compiled_result_t compiled;
+
+	if (!modeldefResolveExternalSourcePath(source_path,
+			resolved_source_path, sizeof(resolved_source_path))) {
+		return NULL;
+	}
+
+	entry = modeldefFindVisualSourceEntry(handle, &model_type);
+
+	if (entry == NULL || model_type == ASSET_NONE) {
 		sysLogPrintf(LOG_WARNING,
 			"MODELDEF.SOURCE: external model source filenum=%d path=%s has no model-payload catalog id",
 			source_filenum,
@@ -349,26 +496,44 @@ static struct modeldef *modeldefLoadExternalCatalogSource(asset_data_handle_t ha
 		return NULL;
 	}
 
-	if (!catalogLoadTypedAsset(model_type, model_id)) {
-		sysLogPrintf(LOG_WARNING,
-			"MODELDEF.SOURCE: catalog model source load failed type=%d filenum=%d id=%s path=%s",
-			(s32)model_type,
-			source_filenum,
-			model_id,
-			source_path ? source_path : "(null)");
-		return NULL;
-	}
+	if (modeldefTypeUsesLoadedModelPayload(model_type)) {
+		if (!catalogLoadTypedAsset(model_type, entry->id)) {
+			sysLogPrintf(LOG_WARNING,
+				"MODELDEF.SOURCE: catalog model source load failed type=%d filenum=%d id=%s path=%s",
+				(s32)model_type,
+				source_filenum,
+				entry->id,
+				source_path ? source_path : "(null)");
+			return NULL;
+		}
 
-	modeldef = catalogGetLoadedModeldef(model_id);
+		modeldef = catalogGetLoadedModeldef(entry->id);
 
-	if (modeldef == NULL) {
-		sysLogPrintf(LOG_WARNING,
-			"MODELDEF.SOURCE: catalog model source produced NULL modeldef type=%d filenum=%d id=%s path=%s",
-			(s32)model_type,
-			source_filenum,
-			model_id,
-			source_path ? source_path : "(null)");
-		return NULL;
+		if (modeldef == NULL) {
+			sysLogPrintf(LOG_WARNING,
+				"MODELDEF.SOURCE: catalog model source produced NULL modeldef type=%d filenum=%d id=%s path=%s",
+				(s32)model_type,
+				source_filenum,
+				entry->id,
+				source_path ? source_path : "(null)");
+			return NULL;
+		}
+	} else {
+		if (modAssetCompilerCompileReadable(entry,
+				model_type == ASSET_WEAPON ? "weapon" :
+				model_type == ASSET_VEHICLE ? "vehicle" :
+				model_type == ASSET_PROP ? "prop" : "model",
+				resolved_source_path, &compiled) < 0
+				|| modAssetCompilerBuildModeldef(entry, resolved_source_path, &modeldef) <= 0
+				|| modeldef == NULL) {
+			sysLogPrintf(LOG_WARNING,
+				"MODELDEF.SOURCE: visual model source conversion failed type=%d filenum=%d id=%s path=%s",
+				(s32)model_type,
+				source_filenum,
+				entry->id,
+				resolved_source_path);
+			return NULL;
+		}
 	}
 
 	g_LoadType = LOADTYPE_NONE;
@@ -376,8 +541,8 @@ static struct modeldef *modeldefLoadExternalCatalogSource(asset_data_handle_t ha
 		"MODELDEF.SOURCE: loaded catalog model source type=%d filenum=%d id=%s path=%s",
 		(s32)model_type,
 		source_filenum,
-		model_id,
-		source_path ? source_path : "(null)");
+		entry->id,
+		resolved_source_path);
 	return modeldef;
 }
 
@@ -385,6 +550,7 @@ static asset_data_handle_t modeldefExternalCatalogSourceHandle(s32 source_filenu
 {
 	asset_data_handle_t null_handle = ASSET_HANDLE_NULL_INIT;
 	asset_data_handle_t handle;
+	char resolved_source_path[FS_MAXPATH + 1];
 
 	if (source_filenum <= 0) {
 		return null_handle;
@@ -392,7 +558,8 @@ static asset_data_handle_t modeldefExternalCatalogSourceHandle(s32 source_filenu
 
 	handle = modeldefCatalogModelSourceHandle(source_filenum);
 	if (!assetHandleIsNull(handle)
-			&& modAssetCompilerIsExternalSource(modeldefCatalogSourcePath(handle))) {
+			&& modeldefResolveExternalSourcePath(modeldefCatalogSourcePath(handle),
+				resolved_source_path, sizeof(resolved_source_path))) {
 		return handle;
 	}
 

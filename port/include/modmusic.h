@@ -22,6 +22,13 @@
 extern "C" {
 #endif
 
+/** Decode a standard audio file to S16 stereo at 22050 Hz.
+ *  Accepts WAV, MP3, and OGG formats. The returned buffer is owned by the
+ *  caller and must be released with SDL_free. out_len receives total S16
+ *  samples, not stereo frames. out_source_rate may be NULL. */
+s16 *modMusicLoadAudioPcm22050(const char *file_path, u32 *out_len,
+		s32 *out_source_rate);
+
 /** Load an audio file from disk and begin playback. Stops any current mod track.
  *  Accepts WAV, MP3, and OGG formats (detected by extension). */
 void modMusicPlay(const char *file_path);

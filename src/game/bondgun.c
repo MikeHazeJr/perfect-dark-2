@@ -6996,7 +6996,7 @@ void bgunEquipWeapon2(s32 handnum, s32 weaponnum)
 			g_Vars.currentplayer->gunctrl.dualwielding = true;
 		}
 	} else {
-		if (weaponnum > WEAPON_SUICIDEPILL) {
+		if (weaponnum >= WEAPON_CUSTOM_END) {
 			weaponnum = WEAPON_UNARMED;
 		}
 

@@ -160,6 +160,21 @@ TEST_CASE("body0f02ce8c gates head catalog misses before rw allocation",
 		"\t\t\t\t\t\tbodymodeldef->rwdatalen += headmodeldef->rwdatalen;") != std::string::npos);
 }
 
+TEST_CASE("body0f02ce8c refuses unresolved body identity instead of slot-zero fallback",
+          "[catalog][checked][static][regression]") {
+	const std::string body = readTextFile("src/game/body.c");
+
+	REQUIRE(body.find("body_source_id = catalogBodyIdByBodynum(bodynum);") !=
+	        std::string::npos);
+	REQUIRE(body.find("if (!body_source_id)") != std::string::npos);
+	REQUIRE(body.find("BODY.IDENTITY: bodynum=%d has no catalog body; refusing slot-0 visual fallback") !=
+	        std::string::npos);
+	REQUIRE(body.find("return NULL;\n\t}") <
+	        body.find("catalogGetBodyScaleChecked(bodynum, &scaleRaw)"));
+	REQUIRE(body.find("substituting bodynum=0") == std::string::npos);
+	REQUIRE(body.find("bodynum = 0;") == std::string::npos);
+}
+
 TEST_CASE("body0f02ce8c requires a headspot node before attaching a head",
           "[catalog][checked][static][regression]") {
 	const std::string body = readTextFile("src/game/body.c");

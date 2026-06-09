@@ -126,7 +126,7 @@ endif()
 # GitHub release prerelease flag, not by the version number itself.
 set(VERSION_SEM_MAJOR 0 CACHE STRING "Semantic version major")
 set(VERSION_SEM_MINOR 1 CACHE STRING "Semantic version minor")
-set(VERSION_SEM_PATCH 18 CACHE STRING "Semantic version revision")
+set(VERSION_SEM_PATCH 19 CACHE STRING "Semantic version revision")
 
 set(VERSION_SEM_STRING "${VERSION_SEM_MAJOR}.${VERSION_SEM_MINOR}.${VERSION_SEM_PATCH}")
 
@@ -647,6 +647,26 @@ target_include_directories(logview PRIVATE "${CMAKE_SOURCE_DIR}/port/include")
 set_target_properties(logview PROPERTIES OUTPUT_NAME "logview")
 
 # ---------------------------------------------------------------------------
+# scenario-scene-probe: CPU-only source-renderer scene.glb probe
+# ---------------------------------------------------------------------------
+add_executable(scenario-scene-probe
+  "${CMAKE_SOURCE_DIR}/tools/scenario_scene_probe_main.cpp"
+  "${CMAKE_SOURCE_DIR}/tools/scenario_scene_probe_stubs.cpp"
+  "${CMAKE_SOURCE_DIR}/tools/scenario_scene_probe_stb.cpp"
+  "${CMAKE_SOURCE_DIR}/port/fast3d/scenario_scene_renderer.cpp"
+  "${CMAKE_SOURCE_DIR}/port/fast3d/glad/glad.c"
+  "${CMAKE_SOURCE_DIR}/port/external/imgui-node-editor/crude_json.cpp"
+  "${CMAKE_SOURCE_DIR}/port/src/modarchive.c"
+  "${CMAKE_SOURCE_DIR}/port/src/sha256.c")
+add_dependencies(scenario-scene-probe pd_headers)
+set_target_properties(scenario-scene-probe PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+target_link_libraries(scenario-scene-probe PRIVATE "${PD_ZLIB_LIB}")
+if(WIN32)
+  target_link_libraries(scenario-scene-probe PRIVATE -static-libgcc -static-libstdc++
+    -Wl,-Bstatic "${PD_WINPTHREAD_STATIC_LIB}" -Wl,-Bdynamic)
+endif()
+
+# ---------------------------------------------------------------------------
 # pd-updater: standalone Updater.exe that ships next to PerfectDark.exe.
 # If a release breaks the main client executable, the end user can
 # still launch Updater.exe to pull and install a fixed build from GitHub
@@ -859,12 +879,14 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/tests/test_catalog_provider_static.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_asset_native_source_contract.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_asset_runtime_adapters.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_assetcatalog_deps.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_public_mods_static.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_mod_external_archive_static.cpp
   ${CMAKE_SOURCE_DIR}/port/src/asset_archive_policy.c
   ${CMAKE_SOURCE_DIR}/port/src/asset_archive_writer.c
   ${CMAKE_SOURCE_DIR}/port/src/asset_mod_utility_contract.c
   ${CMAKE_SOURCE_DIR}/port/src/asset_runtime.c
+  ${CMAKE_SOURCE_DIR}/port/src/assetcatalog_deps.c
   ${CMAKE_SOURCE_DIR}/port/fast3d/pdgui_gameplay_graph_editor.cpp
   ${CMAKE_SOURCE_DIR}/port/src/modarchive.c
   ${CMAKE_SOURCE_DIR}/port/src/weapon_graph_archive.c

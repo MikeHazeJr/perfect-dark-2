@@ -3057,7 +3057,10 @@
 // SHIELD/DISABLED shifted from 0x2f/0x30 down to 0x27/0x28.
 #define MPWEAPON_SHIELD           0x27
 #define MPWEAPON_DISABLED         0x28
-#define NUM_MPWEAPONS             0x29
+#define MPWEAPON_CUSTOM_START     0x29
+#define MPWEAPON_CUSTOM_COUNT     0x0a
+#define MPWEAPON_CUSTOM_END       (MPWEAPON_CUSTOM_START + MPWEAPON_CUSTOM_COUNT)
+#define NUM_MPWEAPONS             MPWEAPON_CUSTOM_END
 
 #define MUSICEVENTTYPE_PLAY        1
 #define MUSICEVENTTYPE_STOP        2
@@ -4556,6 +4559,10 @@ enum weaponnum {
 	/*0x54*/ WEAPON_DISABLED,
 	/*0x55*/ WEAPON_SUICIDEPILL
 };
+
+#define WEAPON_CUSTOM_START 0x56
+#define WEAPON_CUSTOM_COUNT 0x0a
+#define WEAPON_CUSTOM_END   (WEAPON_CUSTOM_START + WEAPON_CUSTOM_COUNT)
 
 // Upper bound (inclusive) on weapon enum slots that may be dropped on death
 // or transferred via the wire weapon-drop path. Slots above this are

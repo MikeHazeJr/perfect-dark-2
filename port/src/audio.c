@@ -8,17 +8,22 @@
 #include "config.h"
 #include "audio.h"
 #include "modmusic.h"
+#include "mod.h"
 #include "assetcatalog.h"
 #include "fs.h"
 #include "system.h"
 #include "types.h"
+#include "game/music.h"
 
 #define AL_SNDP_STOP_EVT  0x0002
 #define AL_SNDP_PAN_EVT   0x0004
 #define AL_SNDP_VOL_EVT   0x0008
 #define AL_SNDP_PITCH_EVT 0x0010
+#define AL_SNDP_FX_EVT    0x0100
 #define AL_SNDP_0400_EVT  0x0400
 #define AL_SNDP_1000_EVT  0x1000
+#define AL_SNDP_FXBUS_EVT 0x2000
+#define AL_SNDP_4000_EVT  0x4000
 
 /* Network externs for music tick (avoid pulling in full net headers) */
 extern s32 g_NetMode;
@@ -71,6 +76,7 @@ extern u16  musicGetVolume(void);
 extern void sndSetSfxVolume(u16 volume);
 extern u16  g_SfxVolume;
 extern u16  g_MusicVolume;
+extern u16  func00033ec4(u8 index);
 
 /* Guard flag: set to 1 once the game engine's sound system (sndInit) has
  * been called and it's safe to write to audio structures. audioApplyVolumes
@@ -208,6 +214,10 @@ void audioSetNextBuffer(const s16 *buf, u32 len)
 static s16 s_MixBuf[8192]; /* 8192 samples = 4096 stereo frames — covers any realistic frame */
 
 #define AUDIO_FILE_SOUND_MAX 32
+#define AUDIO_FILE_SOUND_KEY_VOLUME_COUNT 9
+#define AUDIO_FILE_SOUND_FX_BUS_COUNT 2
+#define AUDIO_FILE_SOUND_FX_DELAY_FRAMES 4096
+#define AUDIO_FILE_SOUND_FX_MAX_MIX_FRAMES 4096
 
 typedef struct audio_file_sound_s {
 	s32 allocated;
@@ -216,6 +226,10 @@ typedef struct audio_file_sound_s {
 	u32 frames;
 	f32 cursor;
 	f32 step;
+	f32 base_pitch;
+	u8 sample_pan;
+	u8 sample_volume;
+	u8 key_volume_index;
 	u16 volume;
 	u8 pan;
 	u32 loop_start_frame;
@@ -223,6 +237,8 @@ typedef struct audio_file_sound_s {
 	u32 loop_count;
 	s32 has_loop;
 	s32 has_envelope;
+	u8 fxmix_key_offset;
+	u8 effective_fxmix;
 	u32 age_frames;
 	u32 attack_frames;
 	u32 decay_frames;
@@ -236,6 +252,9 @@ typedef struct audio_file_sound_s {
 } audio_file_sound_t;
 
 static audio_file_sound_t s_FileSounds[AUDIO_FILE_SOUND_MAX];
+static s16 s_FileSoundFxDelay[AUDIO_FILE_SOUND_FX_BUS_COUNT][AUDIO_FILE_SOUND_FX_DELAY_FRAMES][2];
+static u32 s_FileSoundFxWritePos[AUDIO_FILE_SOUND_FX_BUS_COUNT];
+static s32 s_FileSoundFxSend[AUDIO_FILE_SOUND_FX_BUS_COUNT][AUDIO_FILE_SOUND_FX_MAX_MIX_FRAMES][2];
 
 static audio_file_sound_t *audioFindFileSound(const struct sndstate *handle)
 {
@@ -314,6 +333,145 @@ static f32 audioFileSoundEnvelopeScale(const audio_file_sound_t *slot)
 	return slot->decay_volume_scale;
 }
 
+static u8 audioFileSoundEffectiveFxmix(u8 raw_fxmix, u8 key_offset)
+{
+	s32 fxmix = (raw_fxmix & 0x7f) + key_offset;
+	if (fxmix < 0) fxmix = 0;
+	if (fxmix > 127) fxmix = 127;
+	return (u8)fxmix | (raw_fxmix & 0x80);
+}
+
+static u16 audioFileSoundKeyVolume(u8 index)
+{
+	if (index >= AUDIO_FILE_SOUND_KEY_VOLUME_COUNT) {
+		index = 0;
+	}
+	return func00033ec4(index);
+}
+
+static u16 audioFileSoundEffectiveVolume(u16 volume, u8 sample_volume,
+		u8 key_volume_index)
+{
+	u32 effective = ((u32)volume * (u32)sample_volume) / 127u;
+	effective = (effective * (u32)audioFileSoundKeyVolume(key_volume_index)) /
+		0x7fffu;
+	if (effective > 0x7fffu) {
+		effective = 0x7fffu;
+	}
+	return (u16)effective;
+}
+
+static s16 audioClampS16(s32 value)
+{
+	if (value > 32767) return 32767;
+	if (value < -32768) return -32768;
+	return (s16)value;
+}
+
+static f32 audioFileSoundFxSendScale(u8 effective_fxmix)
+{
+	return (f32)(effective_fxmix & 0x7f) / 127.0f;
+}
+
+static s32 audioFileSoundFxActive(void)
+{
+	s32 bus;
+	s32 i;
+	for (bus = 0; bus < AUDIO_FILE_SOUND_FX_BUS_COUNT; bus++) {
+		for (i = 0; i < AUDIO_FILE_SOUND_FX_DELAY_FRAMES; i++) {
+			if (s_FileSoundFxDelay[bus][i][0] || s_FileSoundFxDelay[bus][i][1]) {
+				return 1;
+			}
+		}
+	}
+	return 0;
+}
+
+static void audioFileSoundFxClearSend(u32 frames)
+{
+	s32 bus;
+	if (frames > AUDIO_FILE_SOUND_FX_MAX_MIX_FRAMES) {
+		frames = AUDIO_FILE_SOUND_FX_MAX_MIX_FRAMES;
+	}
+	for (bus = 0; bus < AUDIO_FILE_SOUND_FX_BUS_COUNT; bus++) {
+		memset(s_FileSoundFxSend[bus], 0, (size_t)frames * 2u * sizeof(s32));
+	}
+}
+
+static void audioFileSoundFxAddSend(u8 fxbus, u8 effective_fxmix, u32 frame,
+		s32 left, s32 right)
+{
+	f32 send_scale;
+	s32 send_l;
+	s32 send_r;
+
+	if (frame >= AUDIO_FILE_SOUND_FX_MAX_MIX_FRAMES) {
+		return;
+	}
+	if (fxbus >= AUDIO_FILE_SOUND_FX_BUS_COUNT) {
+		fxbus = 0;
+	}
+
+	send_scale = audioFileSoundFxSendScale(effective_fxmix);
+	if (send_scale <= 0.0f) {
+		return;
+	}
+
+	send_l = (s32)((f32)left * send_scale);
+	send_r = (s32)((f32)right * send_scale);
+	s_FileSoundFxSend[fxbus][frame][0] += send_l;
+	s_FileSoundFxSend[fxbus][frame][1] += send_r;
+}
+
+static void audioFileSoundFxMixInto(s16 *dst, u32 frames)
+{
+	static const f32 feedback[AUDIO_FILE_SOUND_FX_BUS_COUNT] = { 0.34f, 0.48f };
+	static const f32 return_gain[AUDIO_FILE_SOUND_FX_BUS_COUNT] = { 0.42f, 0.50f };
+	u32 i;
+	s32 bus;
+
+	if (frames > AUDIO_FILE_SOUND_FX_MAX_MIX_FRAMES) {
+		frames = AUDIO_FILE_SOUND_FX_MAX_MIX_FRAMES;
+	}
+
+	for (i = 0; i < frames; i++) {
+		for (bus = 0; bus < AUDIO_FILE_SOUND_FX_BUS_COUNT; bus++) {
+			u32 pos = s_FileSoundFxWritePos[bus];
+			s32 delayed_l = s_FileSoundFxDelay[bus][pos][0];
+			s32 delayed_r = s_FileSoundFxDelay[bus][pos][1];
+			s32 out_l = (s32)((f32)delayed_l * return_gain[bus]);
+			s32 out_r = (s32)((f32)delayed_r * return_gain[bus]);
+			s32 next_l = s_FileSoundFxSend[bus][i][0] +
+				(s32)((f32)delayed_l * feedback[bus]);
+			s32 next_r = s_FileSoundFxSend[bus][i][1] +
+				(s32)((f32)delayed_r * feedback[bus]);
+
+			dst[i * 2] = audioClampS16((s32)dst[i * 2] + out_l);
+			dst[i * 2 + 1] = audioClampS16((s32)dst[i * 2 + 1] + out_r);
+			s_FileSoundFxDelay[bus][pos][0] = audioClampS16(next_l);
+			s_FileSoundFxDelay[bus][pos][1] = audioClampS16(next_r);
+
+			pos++;
+			if (pos >= AUDIO_FILE_SOUND_FX_DELAY_FRAMES) {
+				pos = 0;
+			}
+			s_FileSoundFxWritePos[bus] = pos;
+		}
+	}
+}
+
+static u8 audioFileSoundEffectivePan(u8 pan, u8 sample_pan)
+{
+	s32 effective = (s32)pan + (s32)sample_pan - AL_PAN_CENTER;
+	if (effective < AL_PAN_LEFT) {
+		effective = AL_PAN_LEFT;
+	}
+	if (effective > AL_PAN_RIGHT) {
+		effective = AL_PAN_RIGHT;
+	}
+	return (u8)effective;
+}
+
 static void audioFileSoundBeginRelease(audio_file_sound_t *slot)
 {
 	if (!slot || slot->state.state == AL_STOPPED) {
@@ -348,19 +506,40 @@ void audioFileSoundPostEvent(struct sndstate *handle, s16 type, s32 data)
 
 	switch (type) {
 	case AL_SNDP_VOL_EVT:
-		slot->volume = (u16)data;
+		if (data < 0) data = 0;
+		if (data > 0x7fff) data = 0x7fff;
 		slot->state.vol = (s16)data;
+		slot->volume = audioFileSoundEffectiveVolume((u16)data,
+			slot->sample_volume, slot->key_volume_index);
 		break;
 	case AL_SNDP_PAN_EVT:
 		if (data < 0) data = 0;
 		if (data > 127) data = 127;
-		slot->pan = (u8)data;
 		slot->state.pan = (u8)data;
+		slot->pan = audioFileSoundEffectivePan((u8)data, slot->sample_pan);
 		break;
 	case AL_SNDP_PITCH_EVT:
-		memcpy(&slot->step, &data, sizeof(slot->step));
+		memcpy(&slot->state.pitch, &data, sizeof(slot->state.pitch));
+		if (slot->state.pitch <= 0.0f) slot->state.pitch = 1.0f;
+		slot->step = slot->state.pitch * slot->base_pitch;
 		if (slot->step <= 0.0f) slot->step = 1.0f;
-		slot->state.pitch = slot->step;
+		break;
+	case AL_SNDP_FX_EVT:
+		if (data < 0) data = 0;
+		if (data > 255) data = 255;
+		slot->state.fxmix = (u8)data;
+		slot->effective_fxmix = audioFileSoundEffectiveFxmix(
+			slot->state.fxmix, slot->fxmix_key_offset);
+		break;
+	case AL_SNDP_4000_EVT:
+		slot->state.fxmix = (u8)(slot->state.fxmix & 0x7f) |
+			(u8)(data & 0x80);
+		slot->effective_fxmix = audioFileSoundEffectiveFxmix(
+			slot->state.fxmix, slot->fxmix_key_offset);
+		break;
+	case AL_SNDP_FXBUS_EVT:
+		if (data < 0) data = 0;
+		slot->state.fxbus = (data >= 2) ? 0 : (u8)data;
 		break;
 	case AL_SNDP_STOP_EVT:
 	case AL_SNDP_0400_EVT:
@@ -408,10 +587,19 @@ static s32 audioLoadFilePcmStereo22050(const char *path, s16 **out_pcm,
 		free(fileBytes);
 	}
 
-	if (!wavBuf) {
-		if (SDL_LoadWAV(path, &wavSpec, &wavBuf, &wavLen) == NULL) {
+	if (!wavBuf && SDL_LoadWAV(path, &wavSpec, &wavBuf, &wavLen) == NULL) {
+		u32 decoded_samples = 0;
+		s16 *decoded = modMusicLoadAudioPcm22050(path, &decoded_samples,
+			out_source_rate);
+		if (!decoded || decoded_samples < 2) {
+			if (decoded) {
+				SDL_free(decoded);
+			}
 			return 0;
 		}
+		*out_pcm = decoded;
+		*out_frames = decoded_samples / 2u;
+		return *out_frames > 0;
 	}
 
 	*out_source_rate = wavSpec.freq > 0 ? wavSpec.freq : 22050;
@@ -486,6 +674,11 @@ static u32 audioEnvelopeFrames(u32 time_us, f32 pitch)
 static void audioMixFileSoundsInto(s16 *dst, u32 frames)
 {
 	s32 slot_index;
+	if (frames > AUDIO_FILE_SOUND_FX_MAX_MIX_FRAMES) {
+		frames = AUDIO_FILE_SOUND_FX_MAX_MIX_FRAMES;
+	}
+	audioFileSoundFxClearSend(frames);
+
 	for (slot_index = 0; slot_index < AUDIO_FILE_SOUND_MAX; slot_index++) {
 		audio_file_sound_t *slot = &s_FileSounds[slot_index];
 		u32 i;
@@ -497,8 +690,9 @@ static void audioMixFileSoundsInto(s16 *dst, u32 frames)
 			continue;
 		}
 
-		baseVolScale = ((f32)slot->volume / (f32)0x7fff) *
-			g_AudioMasterVolume * g_AudioGameplayVolume;
+		slot->volume = audioFileSoundEffectiveVolume((u16)slot->state.vol,
+			slot->sample_volume, slot->key_volume_index);
+		baseVolScale = ((f32)slot->volume / (f32)0x7fff);
 		panPos = (f32)slot->pan / 127.0f;
 
 		for (i = 0; i < frames; i++) {
@@ -506,6 +700,8 @@ static void audioMixFileSoundsInto(s16 *dst, u32 frames)
 			f32 leftScale;
 			f32 rightScale;
 			u32 src_frame;
+			s32 dry_l;
+			s32 dry_r;
 			s32 l;
 			s32 r;
 			if (slot->cursor >= (f32)slot->frames) {
@@ -520,14 +716,14 @@ static void audioMixFileSoundsInto(s16 *dst, u32 frames)
 			if (rightScale > 1.0f) rightScale = 1.0f;
 
 			src_frame = (u32)slot->cursor;
-			l = dst[i * 2] + (s32)((f32)slot->pcm[src_frame * 2] * leftScale);
-			r = dst[i * 2 + 1] + (s32)((f32)slot->pcm[src_frame * 2 + 1] * rightScale);
-			if (l > 32767) l = 32767;
-			if (l < -32768) l = -32768;
-			if (r > 32767) r = 32767;
-			if (r < -32768) r = -32768;
-			dst[i * 2] = (s16)l;
-			dst[i * 2 + 1] = (s16)r;
+			dry_l = (s32)((f32)slot->pcm[src_frame * 2] * leftScale);
+			dry_r = (s32)((f32)slot->pcm[src_frame * 2 + 1] * rightScale);
+			audioFileSoundFxAddSend(slot->state.fxbus, slot->effective_fxmix,
+				i, dry_l, dry_r);
+			l = dst[i * 2] + dry_l;
+			r = dst[i * 2 + 1] + dry_r;
+			dst[i * 2] = audioClampS16(l);
+			dst[i * 2 + 1] = audioClampS16(r);
 
 			slot->cursor += slot->step;
 			if (slot->releasing) {
@@ -561,6 +757,8 @@ static void audioMixFileSoundsInto(s16 *dst, u32 frames)
 			}
 		}
 	}
+
+	audioFileSoundFxMixInto(dst, frames);
 }
 
 void audioEndFrame(void)
@@ -610,7 +808,8 @@ void audioEndFrame(void)
 		}
 
 		if (buffered < queueLimit) {
-			const s32 file_sounds_active = audioFileSoundsActive();
+			const s32 file_sounds_active = audioFileSoundsActive() ||
+				audioFileSoundFxActive();
 			if (modMusicIsPlaying() || file_sounds_active) {
 				/* Copy N64 output into writable buffer, mix source-backed
 				 * music and file SFX on top, then queue one combined frame. */
@@ -808,12 +1007,12 @@ u16 audioGetUiVolumeScaled(void)
 /* ========================================================================
  * File-based sound playback (C-7 mod SFX override)
  *
- * Loads a WAV file from disk, converts it to the device format (22050 Hz,
- * AUDIO_S16SYS, stereo), applies the engine's volume and pan values, and
- * queues the PCM directly via SDL_QueueAudio.
+ * Loads a standard audio file from disk, converts it to the device format
+ * (22050 Hz, AUDIO_S16SYS, stereo), applies the engine's volume and pan
+ * values, and queues the PCM directly via SDL_QueueAudio.
  *
  * This bypasses the N64 ADPCM/RSP pipeline — appropriate because mod sound
- * files are standard WAV, not ADPCM-encoded N64 SFX.
+ * files are standard audio sources, not ADPCM-encoded N64 SFX.
  *
  * volume: 0–0x7fff (AL_VOL_FULL = 0x7fff)
  * pan:    0–127   (AL_PAN_CENTER = 64; 0 = full left, 127 = full right)
@@ -927,10 +1126,12 @@ s32 audioPlayFileSound(const char *path, u16 volume, u8 pan, f32 pitch)
 }
 
 struct sndstate *audioStartFileSound(const char *path, u16 volume, u8 pan,
-		f32 pitch, s32 has_loop, u32 loop_start_samples,
+		f32 pitch, f32 base_pitch, u8 sample_pan, u8 sample_volume,
+		u8 key_volume_index, s32 has_loop, u32 loop_start_samples,
 		u32 loop_end_samples, u32 loop_count, s32 has_envelope,
 		u32 attack_time_us, u32 decay_time_us, u32 release_time_us,
-		s32 attack_volume, s32 decay_volume, struct sndstate **handle)
+		s32 attack_volume, s32 decay_volume, u8 fxmix, u8 fxbus,
+		u8 fxmix_key_offset, struct sndstate **handle)
 {
 	s16 *pcm = NULL;
 	u32 frames = 0;
@@ -940,6 +1141,9 @@ struct sndstate *audioStartFileSound(const char *path, u16 volume, u8 pan,
 
 	if (pitch <= 0.0f) {
 		pitch = 1.0f;
+	}
+	if (base_pitch <= 0.0f) {
+		base_pitch = 1.0f;
 	}
 
 	if (!audioLoadFilePcmStereo22050(path, &pcm, &frames, &source_rate)) {
@@ -964,9 +1168,17 @@ struct sndstate *audioStartFileSound(const char *path, u16 volume, u8 pan,
 	slot->pcm = pcm;
 	slot->frames = frames;
 	slot->cursor = 0.0f;
-	slot->step = pitch;
-	slot->volume = volume;
-	slot->pan = pan;
+	slot->base_pitch = base_pitch;
+	slot->step = pitch * base_pitch;
+	if (slot->step <= 0.0f) {
+		slot->step = 1.0f;
+	}
+	slot->sample_pan = sample_pan;
+	slot->sample_volume = sample_volume;
+	slot->key_volume_index = key_volume_index & 0x1f;
+	slot->volume = audioFileSoundEffectiveVolume(volume, sample_volume,
+		slot->key_volume_index);
+	slot->pan = audioFileSoundEffectivePan(pan, sample_pan);
 	slot->loop_start_frame = audioScaleSourceFrame(loop_start_samples, source_rate, frames);
 	slot->loop_end_frame = audioScaleSourceFrame(loop_end_samples, source_rate, frames);
 	slot->loop_count = loop_count;
@@ -974,10 +1186,12 @@ struct sndstate *audioStartFileSound(const char *path, u16 volume, u8 pan,
 		&& slot->loop_end_frame > slot->loop_start_frame
 		&& slot->loop_start_frame < frames;
 	slot->has_envelope = has_envelope;
+	slot->fxmix_key_offset = fxmix_key_offset;
+	slot->effective_fxmix = audioFileSoundEffectiveFxmix(fxmix, fxmix_key_offset);
 	slot->age_frames = 0;
-	slot->attack_frames = audioEnvelopeFrames(attack_time_us, pitch);
-	slot->decay_frames = audioEnvelopeFrames(decay_time_us, pitch);
-	slot->release_frames = audioEnvelopeFrames(release_time_us, pitch);
+	slot->attack_frames = audioEnvelopeFrames(attack_time_us, slot->step);
+	slot->decay_frames = audioEnvelopeFrames(decay_time_us, slot->step);
+	slot->release_frames = audioEnvelopeFrames(release_time_us, slot->step);
 	if (attack_volume < 0) attack_volume = 0;
 	if (attack_volume > 127) attack_volume = 127;
 	if (decay_volume < 0) decay_volume = 0;
@@ -992,6 +1206,9 @@ struct sndstate *audioStartFileSound(const char *path, u16 volume, u8 pan,
 	slot->state.vol = (s16)volume;
 	slot->state.pan = pan;
 	slot->state.pitch = pitch;
+	slot->state.basepitch = base_pitch;
+	slot->state.fxmix = fxmix;
+	slot->state.fxbus = (fxbus >= 2) ? 0 : fxbus;
 	slot->state.flags = 0;
 
 	if (handle) {
@@ -1352,6 +1569,24 @@ void audioMusicSyncReceive(const char *track_id, u32 match_clock_offset_ms)
 			}
 			sysLogPrintf(LOG_NOTE, "MUSIC.SYNC: track-change -> '%s' offset=%u ms",
 			             track_id, match_clock_offset_ms);
+		} else if (ae && ae->type == ASSET_AUDIO &&
+				ae->ext.audio.category == AUDIO_CAT_MUSIC) {
+			s32 virtual_track = modSequenceVirtualTrackForCatalogId(track_id);
+			if (virtual_track >= 0) {
+				modMusicStop();
+				musicStartTemporaryPrimary(virtual_track);
+				/* The legacy sequencer cannot seek or drift-correct through
+				 * modMusic, so sequence-backed sync is a start-only handoff. */
+				s_MusicSyncActive = 0;
+				sysLogPrintf(LOG_NOTE,
+				             "MUSIC.SYNC: sequence track-change -> '%s' private_slot=%d",
+				             track_id, virtual_track);
+			} else {
+				sysLogPrintf(LOG_WARNING,
+				             "MUSIC.SYNC: track '%s' has no playable public music source",
+				             track_id);
+				s_MusicSyncActive = 0;
+			}
 		} else {
 			sysLogPrintf(LOG_WARNING, "MUSIC.SYNC: track '%s' not in catalog", track_id);
 			s_MusicSyncActive = 0;

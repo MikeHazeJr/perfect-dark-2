@@ -49,6 +49,11 @@ static const char *iniFilenameForType(asset_type_e type)
         case ASSET_WEAPON:       return "weapon.ini";
         case ASSET_PROJECTILE:   return "projectile.ini";
         case ASSET_ENTITY:       return "entity.ini";
+        case ASSET_ARENA:        return "arena.ini";
+        case ASSET_BODY:         return "body.ini";
+        case ASSET_HEAD:         return "head.ini";
+        case ASSET_MODEL:        return "mesh.ini";
+        case ASSET_ANIMATION:    return "animation.ini";
         case ASSET_MATERIAL:     return "material.ini";
         case ASSET_TEXTURES:     return "textures.ini";
         case ASSET_TEXTURE:      return "texture.ini";
@@ -76,6 +81,8 @@ static const char *iniFilenameForType(asset_type_e type)
 static const char *s_KnownIniNames[] = {
     "map.ini", "character.ini", "bot.ini", "textures.ini",
     "skin.ini", "weapon.ini", "projectile.ini", "entity.ini",
+    "arena.ini", "body.ini", "head.ini", "mesh.ini", "model.ini",
+    "animation.ini",
     "material.ini", "texture.ini", "effect.ini", "sfx.ini", "music.ini",
     "audio.ini", "sound.ini", "voice.ini",
     "prop.ini", "vehicle.ini", "mission.ini", "gamemode.ini",
@@ -106,6 +113,8 @@ static const asset_entry_t *catalogFindByIdAny(const char *id)
     static const asset_type_e kTypes[] = {
         ASSET_MAP, ASSET_CHARACTER, ASSET_SKIN, ASSET_BOT_VARIANT,
         ASSET_WEAPON, ASSET_PROJECTILE, ASSET_ENTITY,
+        ASSET_ARENA, ASSET_BODY, ASSET_HEAD, ASSET_MODEL,
+        ASSET_ANIMATION,
         ASSET_TEXTURES, ASSET_TEXTURE, ASSET_MATERIAL, ASSET_EFFECT,
         ASSET_SFX, ASSET_MUSIC, ASSET_AUDIO,
         ASSET_PROP, ASSET_VEHICLE, ASSET_MISSION, ASSET_GAMEMODE,

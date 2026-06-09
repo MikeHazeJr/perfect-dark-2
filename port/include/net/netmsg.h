@@ -246,6 +246,8 @@ u32 netmsgSvcLobbyStateRead(struct netbuf *src, struct netclient *srccl);
 
 /* SVC_CATALOG_INFO: server→client, list of required non-bundled enabled components */
 u32 netmsgSvcCatalogInfoWrite(struct netbuf *dst);
+u32 netmsgSvcCatalogInfoWriteChunk(struct netbuf *dst, u16 start_offset,
+                                   u16 *next_offset, u16 *total_count);
 u32 netmsgSvcCatalogInfoRead(struct netbuf *src, struct netclient *srccl);
 
 /* CLC_CATALOG_DIFF: client→server, which components the client is missing.
@@ -279,7 +281,7 @@ u32 netmsgSvcMatchManifestRead(struct netbuf *src, struct netclient *srccl);
 /* CLC_MANIFEST_STATUS: client→server, catalog check result.
  * v27: missing list uses catalog ID strings, not net_hash u32 values. */
 u32 netmsgClcManifestStatusWrite(struct netbuf *dst, u32 manifest_hash, u8 status,
-                                  const char (*missing_ids)[CATALOG_ID_LEN], u8 num_missing);
+                                  const char (*missing_ids)[CATALOG_ID_LEN], u16 num_missing);
 u32 netmsgClcManifestStatusRead(struct netbuf *src, struct netclient *srccl);
 
 /* SVC_MATCH_COUNTDOWN: server→room, ready-gate progress broadcast */

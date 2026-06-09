@@ -3147,8 +3147,8 @@ extern "C" void gfx_run(Gfx* commands) {
     rdp.viewport_or_scissor_changed = true;
     rendering_state.viewport = {};
     rendering_state.scissor = {};
-    scenarioSceneRendererRender(gfx_current_window_dimensions.width,
-        gfx_current_window_dimensions.height);
+    scenarioSceneRendererRender(gfx_current_dimensions.width,
+        gfx_current_dimensions.height);
     gfx_run_dl(commands);
     gfx_flush();
     gfxFramebuffer = 0;

@@ -22,6 +22,7 @@
 
 #include <PR/ultratypes.h>
 #include <PR/gbi.h>
+#include "assetprovider.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -59,9 +60,10 @@ void pdguiCharPreviewRequest(const char *head_id, const char *body_id);
  * PROP:      id1 = prop catalog id, id2 unused
  *
  * For non-character types the function resolves the catalog entry and uses
- * its source_filenum for MENUMODELPARAMS_SET_FILENUM().  If the entry cannot
- * be resolved or has no filenum, the request is silently dropped (preview
- * falls back to the placeholder silhouette rendered by pdgui_model_preview). */
+ * either its source_filenum or a direct catalog provider handle for custom
+ * source-backed rows that do not occupy a ROM file slot. If the entry cannot
+ * be resolved, the request is silently dropped (preview falls back to the
+ * placeholder silhouette rendered by pdgui_model_preview). */
 void pdguiCharPreviewRequestEx(PdguiPreviewType type,
                                 const char *id1,
                                 const char *id2);
@@ -69,6 +71,13 @@ void pdguiCharPreviewRequestEx(PdguiPreviewType type,
 /* Low-level filenum-based request.  Use when the caller already has a
  * resolved N64 file index and does not need catalog resolution. */
 void pdguiCharPreviewRequestFilenum(PdguiPreviewType type, u32 filenum);
+
+/* Low-level provider-backed request. Use when the caller already has a
+ * catalog source handle but no real legacy file index. `request_key` is only
+ * the menu-model request key and must match the key stored with the handle. */
+void pdguiCharPreviewRequestHandle(PdguiPreviewType type,
+                                   asset_data_handle_t handle,
+                                   u32 request_key);
 
 /* Set Y rotation angle (radians) applied on the next pdguiCharPreviewRequest.
  * Call each frame before pdguiCharPreviewRequest to animate rotation. */

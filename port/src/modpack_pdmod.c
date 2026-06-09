@@ -19,6 +19,10 @@
 #include <stdarg.h>
 #include <dirent.h>
 #include <sys/stat.h>
+#include <errno.h>
+#ifdef PLATFORM_WIN32
+#include <direct.h>
+#endif
 #include <PR/ultratypes.h>
 
 #include "fs.h"
@@ -240,6 +244,56 @@ static s32 dirExistsLocal(const char *path)
 	return path && stat(path, &st) == 0 && S_ISDIR(st.st_mode);
 }
 
+static s32 mkdirLocal(const char *path)
+{
+	if (!path || !path[0]) {
+		return 0;
+	}
+	if (dirExistsLocal(path)) {
+		return 1;
+	}
+#ifdef PLATFORM_WIN32
+	if (_mkdir(path) == 0) {
+		return 1;
+	}
+#else
+	if (mkdir(path, 0777) == 0) {
+		return 1;
+	}
+#endif
+	if (errno == EEXIST && dirExistsLocal(path)) {
+		return 1;
+	}
+	return 0;
+}
+
+static s32 ensureParentDirsLocal(const char *path)
+{
+	char dir[FS_MAXPATH + 1];
+	pathDirnameRel(path, dir, sizeof(dir));
+	if (!dir[0]) {
+		return 1;
+	}
+
+	for (char *p = dir; *p; p++) {
+		if (*p != '/' && *p != '\\') {
+			continue;
+		}
+		if (p == dir ||
+				(isalpha((u8)dir[0]) && dir[1] == ':' && p == dir + 2)) {
+			continue;
+		}
+		char saved = *p;
+		*p = '\0';
+		if (dir[0] && !mkdirLocal(dir)) {
+			*p = saved;
+			return 0;
+		}
+		*p = saved;
+	}
+	return mkdirLocal(dir);
+}
+
 static s32 relativeSourcePathIsSafe(const char *path)
 {
 	if (!path || !path[0]) {
@@ -362,8 +416,12 @@ static const char *packerSidecarTemplate(const char *leaf)
 	}
 	if (strcmp(leaf, "pads.json") == 0) {
 		return
-			"pad_id\troom_ref\tliftnum\tflags\tpos_x\tpos_y\tpos_z\tup_x\tup_y\tup_z\tlook_x\tlook_y\tlook_z\tbbox_xmin\tbbox_xmax\tbbox_ymin\tbbox_ymax\tbbox_zmin\tbbox_zmax\n"
-			"pad_0000\troom_0000\t0\t0x00000\t0\t0\t0\t0\t1\t0\t0\t0\t1\t-16\t16\t0\t64\t-16\t16\n";
+			"{\n"
+			"  \"schema\": \"pd2.scenario.pads.v1\",\n"
+			"  \"rows\": [\n"
+			"    { \"pad_ref\": \"pad_0000\", \"room_ref\": \"room_0000\", \"liftnum\": 0, \"flags\": \"0x00000\", \"position\": [0, 0, 0], \"up\": [0, 1, 0], \"look\": [0, 0, 1], \"bbox\": { \"min\": [-16, 0, -16], \"max\": [16, 64, 16] } }\n"
+			"  ]\n"
+			"}\n";
 	}
 	if (strcmp(leaf, "spawns.json") == 0) {
 		return
@@ -390,11 +448,62 @@ static const char *packerSidecarTemplate(const char *leaf)
 			"  \"rows\": []\n"
 			"}\n";
 	}
+	if (strcmp(leaf, "setup.fields.json") == 0) {
+		return
+			"{\n"
+			"  \"schema\": \"pd2.scenario.setup.fields.v1\",\n"
+			"  \"rows\": []\n"
+			"}\n";
+	}
+	if (strcmp(leaf, "ailists.json") == 0) {
+		return
+			"{\n"
+			"  \"schema\": \"pd2.scenario.ai.lists.v1\",\n"
+			"  \"rows\": []\n"
+			"}\n";
+	}
 	if (strcmp(leaf, "objectives.json") == 0) {
 		return
 			"{\n"
 			"  \"schema\": \"pd2.scenario.objectives.v1\",\n"
 			"  \"rows\": []\n"
+			"}\n";
+	}
+	if (strcmp(leaf, "portals.json") == 0) {
+		return
+			"{\n"
+			"  \"schema\": \"pd2.scenario.portals.v1\",\n"
+			"  \"rows\": []\n"
+			"}\n";
+	}
+	if (strcmp(leaf, "waypoints.json") == 0) {
+		return
+			"{\n"
+			"  \"schema\": \"pd2.scenario.waypoints.v1\",\n"
+			"  \"rows\": []\n"
+			"}\n";
+	}
+	if (strcmp(leaf, "waygroups.json") == 0) {
+		return
+			"{\n"
+			"  \"schema\": \"pd2.scenario.waygroups.v1\",\n"
+			"  \"rows\": []\n"
+			"}\n";
+	}
+	if (strcmp(leaf, "covers.json") == 0) {
+		return
+			"{\n"
+			"  \"schema\": \"pd2.scenario.covers.v1\",\n"
+			"  \"rows\": []\n"
+			"}\n";
+	}
+	if (strcmp(leaf, "paths.json") == 0) {
+		return
+			"{\n"
+			"  \"schema\": \"pd2.scenario.paths.v1\",\n"
+			"  \"rows\": [\n"
+			"    { \"path_ref\": \"path_0000\", \"flags\": \"0x00\", \"pads\": [\"pad_0000\"] }\n"
+			"  ]\n"
 			"}\n";
 	}
 	if (strcmp(leaf, "navigation.ini") == 0) {
@@ -403,6 +512,15 @@ static const char *packerSidecarTemplate(const char *leaf)
 			"source = scene.glb\n"
 			"collision_source = collision.obj\n"
 			"generator = deterministic.surface_graph.v1\n"
+			"portals_file = portals.json\n"
+			"pads_file = pads.json\n"
+			"spawns_file = spawns.json\n"
+			"volumes_file = volumes.json\n"
+			"waypoints_file = navigation/waypoints.json\n"
+			"waygroups_file = navigation/waygroups.json\n"
+			"covers_file = navigation/covers.json\n"
+			"paths_file = navigation/paths.json\n"
+			"generated_cache = _meta/generated-navmesh.json\n"
 			"supports_walk = true\n"
 			"supports_jump = true\n"
 			"supports_drop = true\n"
@@ -442,6 +560,10 @@ static s32 writeTemplateIfMissing(const char *absPath, const char *relPath,
 	const char *templ = packerTemplateForKind(kind, leaf);
 	if (!templ) {
 		pdmodSetLastError("No INI template is registered for %s", relPath ? relPath : "(unknown)");
+		return MODPACK_PDMOD_ERR_TEMPLATE;
+	}
+	if (!ensureParentDirsLocal(absPath)) {
+		pdmodSetLastError("Could not create template directory for %s", relPath ? relPath : absPath);
 		return MODPACK_PDMOD_ERR_TEMPLATE;
 	}
 
@@ -716,10 +838,15 @@ static s32 validateTypedPdDescriptorFile(const char *srcFolder, const char *desc
 	asset_type_e type = typedPdContentTypeForPath(descriptorRel);
 
 	static const char *modelKeys[] = {
-		"model_file", "model", "geometry_file", "geometry", "file_path"
+		"mesh_archive", "hand_archive", "model_file", "model",
+		"geometry_file", "geometry", "file_path"
 	};
 	static const char *behaviorAssetKeys[] = {
 		"behavior_graph", "graph", "model_file", "model", "file_path"
+	};
+	static const char *characterKeys[] = {
+		"body_archive", "bodyfile", "body_file", "head_archive", "headfile",
+		"head_file", "portrait_file"
 	};
 	static const char *arenaKeys[] = { "geometry_file", "geometry" };
 	static const char *scenarioKeys[] = {
@@ -745,8 +872,10 @@ static s32 validateTypedPdDescriptorFile(const char *srcFolder, const char *desc
 	};
 	static const char *metadataOptionalKeys[] = {
 		"file_path", "model_file", "texture_file", "theme_file",
-		"rules_file", "scenario_archive", "ui_archive", "font_archive",
-		"audio_archive", "objectives_file", "briefing_file",
+		"swatches_file", "material_archive", "texture_archive",
+		"rules_file", "scenario_archive", "ui_archive",
+		"font_archive", "audio_archive", "music_archive", "effect_archive",
+		"objectives_file", "briefing_file",
 		"mission_graph_file", "graph"
 	};
 	static const char *mapOptionalKeys[] = {
@@ -756,9 +885,11 @@ static s32 validateTypedPdDescriptorFile(const char *srcFolder, const char *desc
 	};
 	static const char *scenarioOptionalKeys[] = {
 		"collision_file", "collision_source_file", "collision_source",
-		"objects_file", "setup_fields_file", "objectives_file", "tiles_file",
+		"portals_file", "objects_file", "setup_fields_file", "ai_lists_file",
+		"objectives_file", "tiles_file",
 		"pads_file", "spawns_file", "volumes_file",
-		"navigation_file", "level_graph_file",
+		"navigation_file", "waypoints_file", "waygroups_file",
+		"covers_file", "paths_file", "level_graph_file",
 		"material_file", "texture_file", "texture_manifest_file",
 		"blender_scene_file", "visual_scene_file", "visual_material_file",
 		"visual_materials_file", "visual_source_file"
@@ -831,6 +962,18 @@ static s32 validateTypedPdDescriptorFile(const char *srcFolder, const char *desc
 			type == ASSET_PROJECTILE || type == ASSET_ENTITY
 				? (s32)(sizeof(behaviorAssetKeys) / sizeof(behaviorAssetKeys[0]))
 				: (s32)(sizeof(modelKeys) / sizeof(modelKeys[0])),
+			NULL, 0);
+	case ASSET_CHARACTER:
+		if (typedArchive) {
+			s32 r = validateArchiveDescriptorSources(typedArchive,
+				archiveIniPtr, descriptorRel, characterKeys,
+				(s32)(sizeof(characterKeys) / sizeof(characterKeys[0])),
+				NULL, 0);
+			modArchiveClose(typedArchive);
+			return r;
+		}
+		return validateDescriptorSources(srcFolder, descriptorRel,
+			characterKeys, (s32)(sizeof(characterKeys) / sizeof(characterKeys[0])),
 			NULL, 0);
 	case ASSET_ARENA:
 		if (typedArchive) {
@@ -1139,7 +1282,10 @@ static s32 validateExternalFolderLayout(const char *srcFolder, const char *destP
 
 	static const char *modelKeys[] = { "model_file", "model" };
 	static const char *behaviorAssetKeys[] = { "behavior_graph", "graph", "model_file", "model", "file_path" };
-	static const char *characterKeys[] = { "bodyfile", "body_file" };
+	static const char *characterKeys[] = {
+		"body_archive", "bodyfile", "body_file", "head_archive", "headfile",
+		"head_file", "portrait_file"
+	};
 	static const char *arenaKeys[] = { "geometry_file", "geometry" };
 	static const char *scenarioKeys[] = {
 		"scene_file", "scene", "runtime_source_file",
@@ -1162,8 +1308,10 @@ static s32 validateExternalFolderLayout(const char *srcFolder, const char *destP
 	};
 	static const char *metadataOptionalKeys[] = {
 		"file_path", "model_file", "texture_file", "theme_file",
-		"rules_file", "scenario_archive", "ui_archive", "font_archive",
-		"audio_archive", "objectives_file", "briefing_file",
+		"swatches_file", "material_archive", "texture_archive",
+		"rules_file", "scenario_archive", "ui_archive",
+		"font_archive", "audio_archive", "music_archive", "effect_archive",
+		"objectives_file", "briefing_file",
 		"mission_graph_file", "graph"
 	};
 	static const char *mapOptionalKeys[] = {
@@ -1175,7 +1323,8 @@ static s32 validateExternalFolderLayout(const char *srcFolder, const char *destP
 		"collision_file", "collision_source_file", "collision_source",
 		"objects_file", "setup_fields_file", "objectives_file", "tiles_file",
 		"pads_file", "spawns_file", "volumes_file",
-		"navigation_file", "level_graph_file",
+		"navigation_file", "waypoints_file", "waygroups_file",
+		"covers_file", "paths_file", "level_graph_file",
 		"material_file", "texture_file", "texture_manifest_file",
 		"blender_scene_file", "visual_scene_file", "visual_material_file",
 		"visual_materials_file", "visual_source_file"
@@ -1186,11 +1335,18 @@ static s32 validateExternalFolderLayout(const char *srcFolder, const char *destP
 		{ "setup.ini", "setup.ini" },
 	};
 	static const modpack_sidecar_rule_t scenarioSidecars[] = {
+		{ "portals.json",    "portals.json" },
 		{ "pads.json",       "pads.json" },
 		{ "spawns.json",    "spawns.json" },
 		{ "volumes.json",   "volumes.json" },
 		{ "objects.json",   "objects.json" },
+		{ "setup.fields.json", "setup.fields.json" },
+		{ "ai/ailists.json", "ailists.json" },
 		{ "objectives.json", "objectives.json" },
+		{ "navigation/waypoints.json", "waypoints.json" },
+		{ "navigation/waygroups.json", "waygroups.json" },
+		{ "navigation/covers.json", "covers.json" },
+		{ "navigation/paths.json", "paths.json" },
 		{ "navigation.ini", "navigation.ini" },
 		{ "level.graph.json", "level.graph.json" },
 	};

@@ -15,6 +15,7 @@
 #include <PR/ultratypes.h>
 
 #include "assetcatalog.h"
+#include "assetcatalog_weapon_slots.h"
 #include "constants.h"
 #include "fs.h"
 #include "loader_pool.h"
@@ -25,14 +26,16 @@
 
 static SDL_mutex *s_WeaponArchiveCatalogMutex = NULL;
 
-static s32 s_mpWeaponIdForRuntimeWeapon(s32 runtime_weapon_id)
+static s32 s_selectWeaponSlots(const char *manifest, size_t manifest_len,
+                               const char *id, s32 *runtime_weapon_id_out,
+                               s32 *mp_weapon_id_out)
 {
-    for (s32 mp_weapon_id = 0; mp_weapon_id < NUM_MPWEAPONS; mp_weapon_id++) {
-        if (catalogGetMpWeaponNum(mp_weapon_id) == runtime_weapon_id) {
-            return mp_weapon_id;
-        }
-    }
-    return -1;
+    s64 runtime_weapon_id64 = -1;
+    s32 has_runtime = loaderWalkerEnvelopeInt(manifest, manifest_len,
+        "weapon_id", &runtime_weapon_id64);
+    s32 runtime_weapon_id = has_runtime ? (s32)runtime_weapon_id64 : -1;
+    return assetCatalogResolveWeaponPrivateSlots(id, runtime_weapon_id,
+        has_runtime, runtime_weapon_id_out, mp_weapon_id_out);
 }
 
 static void s_bindWeaponArchiveSource(asset_entry_t *e,
@@ -52,7 +55,88 @@ static void s_bindWeaponArchiveSource(asset_entry_t *e,
     e->bundled = 1;
     e->enabled = 1;
     e->ref_count = ASSET_REF_BUNDLED;
+    e->ext.weapon.model_file[0] = '\0';
+    e->ext.weapon.behavior_graph[0] = '\0';
+    e->ext.weapon.primary_graph[0] = '\0';
+    e->ext.weapon.secondary_graph[0] = '\0';
+    e->ext.weapon.shared_context[0] = '\0';
+    e->ext.weapon.settings_file[0] = '\0';
+    e->ext.weapon.variables_file[0] = '\0';
     catalogSetPrimaryFile(e, file_path);
+}
+
+static void s_copyManifestMemberPath(const char *manifest, size_t manifest_len,
+                                     const char *key, const char *archive_path,
+                                     char *out, size_t out_n)
+{
+    char member[FS_MAXPATH + 1];
+    char path[FS_MAXPATH + 1];
+
+    if (!out || out_n == 0) {
+        return;
+    }
+    out[0] = '\0';
+    if (!loaderWalkerEnvelopeStrCopy(manifest, manifest_len, key,
+            member, sizeof(member)) || !member[0]) {
+        return;
+    }
+    if (!loaderWalkerArchiveMemberPath(archive_path, member,
+            path, sizeof(path))) {
+        return;
+    }
+    strncpy(out, path, out_n - 1);
+    out[out_n - 1] = '\0';
+}
+
+static void s_copyManifestMemberPathAlias(const char *manifest,
+                                          size_t manifest_len,
+                                          const char *key,
+                                          const char *alias,
+                                          const char *archive_path,
+                                          char *out,
+                                          size_t out_n)
+{
+    s_copyManifestMemberPath(manifest, manifest_len, key, archive_path,
+        out, out_n);
+    if (!out || out[0] || !alias) {
+        return;
+    }
+    s_copyManifestMemberPath(manifest, manifest_len, alias, archive_path,
+        out, out_n);
+}
+
+static void s_bindWeaponArchiveSourceMembers(asset_entry_t *e,
+                                             const char *manifest,
+                                             size_t manifest_len,
+                                             const char *file_path)
+{
+    if (!e || !manifest || !file_path) {
+        return;
+    }
+    s_copyManifestMemberPath(manifest, manifest_len, "model_file",
+        file_path, e->ext.weapon.model_file,
+        sizeof(e->ext.weapon.model_file));
+    s_copyManifestMemberPath(manifest, manifest_len, "behavior_graph",
+        file_path, e->ext.weapon.behavior_graph,
+        sizeof(e->ext.weapon.behavior_graph));
+    s_copyManifestMemberPath(manifest, manifest_len, "primary_graph",
+        file_path, e->ext.weapon.primary_graph,
+        sizeof(e->ext.weapon.primary_graph));
+    s_copyManifestMemberPath(manifest, manifest_len, "secondary_graph",
+        file_path, e->ext.weapon.secondary_graph,
+        sizeof(e->ext.weapon.secondary_graph));
+    s_copyManifestMemberPath(manifest, manifest_len, "shared_context",
+        file_path, e->ext.weapon.shared_context,
+        sizeof(e->ext.weapon.shared_context));
+    s_copyManifestMemberPathAlias(manifest, manifest_len, "settings_file",
+        "settings", file_path, e->ext.weapon.settings_file,
+        sizeof(e->ext.weapon.settings_file));
+    s_copyManifestMemberPathAlias(manifest, manifest_len, "variables_file",
+        "variables", file_path, e->ext.weapon.variables_file,
+        sizeof(e->ext.weapon.variables_file));
+    s_copyManifestMemberPathAlias(manifest, manifest_len, "shared_context_file",
+        "shared_context", file_path, e->ext.weapon.shared_context,
+        sizeof(e->ext.weapon.shared_context));
 }
 
 static s32 s_register(const char *manifest, size_t manifest_len,
@@ -61,10 +145,10 @@ static s32 s_register(const char *manifest, size_t manifest_len,
 {
     (void)pd_kind;
 
-    s64 runtime_weapon_id64 = 0;
-    loaderWalkerEnvelopeInt(manifest, manifest_len, "weapon_id", &runtime_weapon_id64);
-    s32 runtime_weapon_id = (s32)runtime_weapon_id64;
-    s32 mp_weapon_id = s_mpWeaponIdForRuntimeWeapon(runtime_weapon_id);
+    s32 runtime_weapon_id = -1;
+    s32 mp_weapon_id = -1;
+    s32 slots_ok = s_selectWeaponSlots(manifest, manifest_len, id,
+        &runtime_weapon_id, &mp_weapon_id);
 
     asset_entry_t *e = NULL;
     if (s_WeaponArchiveCatalogMutex) {
@@ -85,6 +169,7 @@ static s32 s_register(const char *manifest, size_t manifest_len,
             /* dual_wieldable: */ 0);
     }
     s_bindWeaponArchiveSource(e, file_path, runtime_weapon_id, mp_weapon_id);
+    s_bindWeaponArchiveSourceMembers(e, manifest, manifest_len, file_path);
 
     if (s_WeaponArchiveCatalogMutex) {
         SDL_UnlockMutex(s_WeaponArchiveCatalogMutex);
@@ -93,7 +178,12 @@ static s32 s_register(const char *manifest, size_t manifest_len,
     /* Heavyweight pool payload (Step 5): always populate from the
      * envelope. parseWeapon uses weapon_id from the envelope to pick
      * the pool slot. */
-    loaderPoolParseWeaponJson(manifest, manifest_len);
+    if (slots_ok && runtime_weapon_id >= WEAPON_CUSTOM_START) {
+        loaderPoolParseWeaponJsonWithRuntimeSlot(manifest, manifest_len,
+            runtime_weapon_id);
+    } else {
+        loaderPoolParseWeaponJson(manifest, manifest_len);
+    }
 
     {
         char full_buf[FS_MAXPATH + 1];
@@ -117,6 +207,7 @@ void loaderWalkerScanWeapons(const char *tier_dir,
     static const loader_walker_kind_desc_t desc = {
         "weapon", "weapons", ".pdweapon", /* always_invoke: */ 1,
     };
+    assetCatalogResetCustomWeaponSlots();
     s_WeaponArchiveCatalogMutex = SDL_CreateMutex();
     loaderWalkerScanKind(tier_dir, &desc, s_register, out);
     if (s_WeaponArchiveCatalogMutex) {

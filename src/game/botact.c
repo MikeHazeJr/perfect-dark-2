@@ -23,7 +23,7 @@
 
 s32 botactGetAmmoTypeByFunction(s32 weaponnum, s32 funcnum)
 {
-	if (weaponnum >= WEAPON_FALCON2 && weaponnum <= WEAPON_SUICIDEPILL) {
+	if (weaponnum >= WEAPON_FALCON2 && weaponnum < WEAPON_CUSTOM_END) {
 		struct inventory_ammo *ammo = weaponGetAmmoByFunction(weaponnum, funcnum);
 
 		if (ammo) {
@@ -36,7 +36,7 @@ s32 botactGetAmmoTypeByFunction(s32 weaponnum, s32 funcnum)
 
 s32 botactGetClipCapacityByFunction(s32 weaponnum, u32 funcnum)
 {
-	if (weaponnum >= WEAPON_FALCON2 && weaponnum <= WEAPON_SUICIDEPILL) {
+	if (weaponnum >= WEAPON_FALCON2 && weaponnum < WEAPON_CUSTOM_END) {
 		struct inventory_ammo *ammo = weaponGetAmmoByFunction(weaponnum, funcnum);
 
 		if (ammo) {

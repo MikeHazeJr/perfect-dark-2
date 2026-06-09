@@ -344,24 +344,18 @@ bool bodyLoad(s32 bodynum)
 
 struct model *body0f02ce8c(s32 bodynum, s32 headnum, struct modeldef *bodymodeldef, struct modeldef *headmodeldef, bool sunglasses, struct model *model, bool isplayer, u8 varyheight)
 {
-	/* INV-5 / Cohort E.1 (player-init-architectural-fixes-2026-04-26):
-	 * defensive bodynum-OOB substitution clamps the requested body to slot 0
-	 * (DJ Bond) so chrSetup has a renderable model. The substitution is
-	 * preserved (existing rendering behavior) but elevated to LOG_ERROR
-	 * with full context, plus a one-shot HUD message during active
-	 * gameplay so the player can see WHY their selected body appears as
-	 * DJ Bond rather than silently wondering. Per Opus H-6 + design D-X. */
-	/* BYOR completion (2026-05-03): historical g_HeadsAndBodies[152]
-	 * retired; the headnum/bodynum index space remains [0,152). */
-	if (bodynum < 0 || bodynum >= 152) {
+	const char *body_source_id = NULL;
+
+	body_source_id = catalogBodyIdByBodynum(bodynum);
+	if (!body_source_id) {
 		sysLogPrintf(LOG_ERROR,
-			"BODY.IDENTITY: bodynum=%d OOB [0,152), substituting bodynum=0 "
-			"(DJ Bond) -- chr will appear as wrong character (isplayer=%d headnum=%d)",
+			"BODY.IDENTITY: bodynum=%d has no catalog body; refusing slot-0 visual fallback "
+			"(isplayer=%d headnum=%d)",
 			bodynum, isplayer, headnum);
 		if (isplayer && g_Vars.currentplayer != NULL && g_Vars.currentplayer->prop != NULL) {
-			hudmsgCreate("Character load failed -- using fallback body", HUDMSGTYPE_DEFAULT);
+			hudmsgCreate("Character load failed -- missing body source", HUDMSGTYPE_DEFAULT);
 		}
-		bodynum = 0;
+		return NULL;
 	}
 
 	/* INV-1 / Cohort A.4 (player-init-architectural-fixes-2026-04-26):
@@ -375,7 +369,6 @@ struct model *body0f02ce8c(s32 bodynum, s32 headnum, struct modeldef *bodymodeld
 	(void)catalogGetBodyAnimScaleChecked(bodynum, &animscale);
 	f32 scale = scaleRaw * 0.10000001f; /* SA-5-cleanup */
 	struct modelnode *node = NULL;
-	const char *body_source_id = NULL;
 	bool public_source_generated_modeldef = false;
 	bool public_source_static_modeldef = false;
 	u32 stack[2];
@@ -383,8 +376,6 @@ struct model *body0f02ce8c(s32 bodynum, s32 headnum, struct modeldef *bodymodeld
 	if (cheatIsActive(CHEAT_DKMODE)) {
 		scale *= 0.8f;
 	}
-
-	body_source_id = catalogBodyIdByBodynum(bodynum);
 
 	if (bodymodeldef == NULL) {
 		bodymodeldef = catalogGetBodyModeldef(bodynum); /* SA-5f */

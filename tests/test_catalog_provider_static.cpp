@@ -489,8 +489,17 @@ TEST_CASE("typed catalog model lifecycle activates model payloads", "[catalog][p
 
 	REQUIRE(catalog.find("ASSET_PAYLOAD_STAGE_MODELDEF") != std::string::npos);
 	REQUIRE(catalogLoad.find("s_catalogLoadEntryModelPayload") != std::string::npos);
+	REQUIRE(catalogLoad.find("s_catalogModelPayloadSourcePath") != std::string::npos);
+	REQUIRE(catalogLoad.find("\"model.obj\"") != std::string::npos);
+	REQUIRE(catalogLoad.find("\"model.gltf\"") != std::string::npos);
+	REQUIRE(catalogLoad.find("\"model.glb\"") != std::string::npos);
+	REQUIRE(catalogLoad.find("fsFileSize(candidate) > 0") != std::string::npos);
 	REQUIRE(catalogLoad.find("modeldefLoadToNewFromHandle") != std::string::npos);
 	REQUIRE(catalogLoad.find("model payload has no provider handle") != std::string::npos);
+	REQUIRE(catalogLoad.find("s_catalogModelPayloadSourcePath(entry, source_path") <
+	        catalogLoad.find("modeldefLoadToNewFromHandle(handle"));
+	REQUIRE(catalogLoad.find("modAssetCompilerCompileReadable(entry") <
+	        catalogLoad.find("modeldefLoadToNewFromHandle(handle"));
 	const std::string modelPayloadBlock =
 		functionBlock(catalogLoad, "static s32 s_catalogTypeUsesModelPayload");
 	const std::string metadataPayloadBlock =
@@ -509,25 +518,214 @@ TEST_CASE("typed catalog model lifecycle activates model payloads", "[catalog][p
 	REQUIRE(api.find("catalogGetLoadedModeldef") != std::string::npos);
 }
 
-TEST_CASE("weapon and prop model files populate provider handles", "[catalog][provider][static]")
+TEST_CASE("Modding Hub model scale tool reads mesh source scale", "[catalog][provider][static]")
 {
+	const std::string hub = readTextFile("port/fast3d/pdgui_menu_moddinghub.cpp");
+	const std::string scaleSelectBlock = functionBlock(hub, "static void scaleSelectEntry");
+	const std::string bodyCollectBlock = functionBlock(hub, "static void scaleCollectBodyCallback");
+
+	REQUIRE(hub.find("scaleReadSourceScale") != std::string::npos);
+	REQUIRE(hub.find("iniParseBuffer") != std::string::npos);
+	REQUIRE(hub.find("\"model_scale\"") != std::string::npos);
+	REQUIRE(hub.find("scaleBuildMeshIniFromBodyArchive") != std::string::npos);
+	REQUIRE(hub.find("scaleBuildMeshIniSource(e->ext.body.mesh_archive") !=
+	        std::string::npos);
+	REQUIRE(hub.find("catalogResolveFile(e->source_filenum)") == std::string::npos);
+	REQUIRE(hub.find("readModelScale") == std::string::npos);
+	REQUIRE(hub.find("writeModelScale") == std::string::npos);
+	REQUIRE(hub.find("fseek(f, 0x10") == std::string::npos);
+	REQUIRE(hub.find("Bake Scale to File") == std::string::npos);
+	REQUIRE(hub.find("model binary") == std::string::npos);
+	REQUIRE(!scaleSelectBlock.empty());
+	REQUIRE(scaleSelectBlock.find("scaleReadSourceScale(se.scale_source") !=
+	        std::string::npos);
+	REQUIRE(!bodyCollectBlock.empty());
+	REQUIRE(bodyCollectBlock.find("catalogResolveFile") == std::string::npos);
+	REQUIRE(bodyCollectBlock.find("source_filenum") == std::string::npos);
+}
+
+TEST_CASE("model previews accept source-backed handles without legacy file numbers",
+          "[catalog][provider][static]")
+{
+	const std::string charpreview = readTextFile("port/fast3d/pdgui_charpreview.c");
+	const std::string preview_header = readTextFile("port/include/pdgui_charpreview.h");
+	const std::string menu_header = readTextFile("src/include/game/menu.h");
+	const std::string menu = readTextFile("src/game/menu.c");
+	const std::string requestBlock = functionBlock(charpreview,
+		"void pdguiCharPreviewRequestEx");
+	const std::string handleBlock = functionBlock(charpreview,
+		"void pdguiCharPreviewRequestHandle");
+	const std::string menuSetHandleBlock = functionBlock(menu,
+		"void menuSetModelFileHandle");
+
+	REQUIRE(menu_header.find("MENUMODEL_HANDLE_SENTINEL_FILENUM 0xfffe") !=
+	        std::string::npos);
+	REQUIRE(charpreview.find("CHARPREVIEW_HANDLE_SENTINEL_FILENUM") ==
+	        std::string::npos);
+	REQUIRE(charpreview.find("MENUMODEL_HANDLE_SENTINEL_FILENUM") !=
+	        std::string::npos);
+	REQUIRE(charpreview.find("catalogEffectiveHandle(e)") != std::string::npos);
+	REQUIRE(charpreview.find("pdguiCharPreviewRequestHandle(type, handle, filenum)") !=
+	        std::string::npos);
+	REQUIRE(charpreview.find("menuSetModelFileHandle(&g_Menus[playernum].menumodel") !=
+	        std::string::npos);
+	REQUIRE(preview_header.find("pdguiCharPreviewRequestHandle") !=
+	        std::string::npos);
+	REQUIRE(preview_header.find("direct catalog provider handle") !=
+	        std::string::npos);
+	REQUIRE(!requestBlock.empty());
+	REQUIRE(requestBlock.find("e->source_filenum > 0") <
+	        requestBlock.find("catalogEffectiveHandle(e)"));
+	REQUIRE(!handleBlock.empty());
+	REQUIRE(handleBlock.find("menuSetModelFileHandle") <
+	        handleBlock.find("charPreviewSubmitParams"));
+	REQUIRE(!menuSetHandleBlock.empty());
+	REQUIRE(menuSetHandleBlock.find("MENUMODELPARAMS_GET_FILENUM(source_filenum) == 0xffff") !=
+	        std::string::npos);
+	REQUIRE(menuSetHandleBlock.find("request_filenum = MENUMODEL_HANDLE_SENTINEL_FILENUM") !=
+	        std::string::npos);
+	REQUIRE(menuSetHandleBlock.find("MENUMODELPARAMS_SET_FILENUM(request_filenum)") !=
+	        std::string::npos);
+	REQUIRE(menuSetHandleBlock.find("newhandle_filenum = request_filenum") !=
+	        std::string::npos);
+}
+
+TEST_CASE("Training and Hangar previews use catalog/provider source before raw filenum",
+          "[catalog][provider][static]")
+{
+	const std::string training = readTextFile("port/fast3d/pdgui_menu_training.cpp");
+	const std::string bridge = readTextFile("port/fast3d/pdgui_bridge.c");
+	const std::string requestBlock = functionBlock(training,
+		"static void requestSourcePreview");
+	const std::string drawBlock = functionBlock(training,
+		"static void drawSourcePreview");
+	const std::string detailsBlock = functionBlock(training,
+		"static s32 renderTrainingDetailsImpl");
+	const std::string dtIdBlock = functionBlock(bridge,
+		"const char *pdguiTrDtCurrentWeaponCatalogId");
+	const std::string htIdBlock = functionBlock(bridge,
+		"const char *pdguiTrHtCurrentWeaponCatalogId");
+	const std::string hangarIdBlock = functionBlock(bridge,
+		"const char *pdguiTrHangarCurrentVehicleCatalogId");
+
+	REQUIRE(training.find("#include \"assetcatalog.h\"") != std::string::npos);
+	REQUIRE(training.find("drawFilenumPreview") == std::string::npos);
+	REQUIRE(!requestBlock.empty());
+	REQUIRE(requestBlock.find("assetCatalogResolve(catalogId)") != std::string::npos);
+	REQUIRE(requestBlock.find("catalogHandleByModelSourceFilenum") != std::string::npos);
+	REQUIRE(requestBlock.find("pdguiCharPreviewRequestHandle") <
+	        requestBlock.find("pdguiCharPreviewRequestFilenum"));
+	REQUIRE(requestBlock.find("pdguiCharPreviewRequestEx") != std::string::npos);
+	REQUIRE(!drawBlock.empty());
+	REQUIRE(drawBlock.find("requestSourcePreview(kind, preferredType, catalogId, filenum)") !=
+	        std::string::npos);
+	REQUIRE(!detailsBlock.empty());
+	REQUIRE(detailsBlock.find("const char *weaponCatalogId") != std::string::npos);
+	REQUIRE(detailsBlock.find("drawSourcePreview(PDGUI_PREVIEW_WEAPON, ASSET_WEAPON") !=
+	        std::string::npos);
+	REQUIRE(training.find("pdguiTrDtCurrentWeaponCatalogId()") != std::string::npos);
+	REQUIRE(training.find("pdguiTrHtCurrentWeaponCatalogId()") != std::string::npos);
+	REQUIRE(training.find("pdguiTrHangarCurrentVehicleCatalogId()") != std::string::npos);
+	REQUIRE(training.find("drawSourcePreview(PDGUI_PREVIEW_VEHICLE, ASSET_VEHICLE") !=
+	        std::string::npos);
+	REQUIRE(!dtIdBlock.empty());
+	REQUIRE(dtIdBlock.find("catalogWeaponIdByRuntimeWeaponNum") != std::string::npos);
+	REQUIRE(!htIdBlock.empty());
+	REQUIRE(htIdBlock.find("catalogWeaponIdByRuntimeWeaponNum") != std::string::npos);
+	REQUIRE(!hangarIdBlock.empty());
+	REQUIRE(hangarIdBlock.find("catalogIdBySourceFilenum(ASSET_VEHICLE") !=
+	        std::string::npos);
+	REQUIRE(hangarIdBlock.find("catalogIdBySourceFilenum(ASSET_MODEL") !=
+	        std::string::npos);
+}
+
+TEST_CASE("weapon graph and prop model files populate provider handles", "[catalog][provider][static]")
+{
+	const std::string api = readTextFile("port/src/assetcatalog_api.c");
 	const std::string scanner = readTextFile("port/src/assetcatalog_scanner.c");
 	const std::string distrib = readTextFile("port/src/net/netdistrib.c");
 
-	REQUIRE(scanner.find("catalogSetPrimaryFile(e, e->ext.weapon.model_file)") != std::string::npos);
+	REQUIRE(scanner.find("catalogSetPrimaryFile(e, e->ext.weapon.primary_graph)") != std::string::npos);
+	REQUIRE(scanner.find("catalogSetPrimaryFile(e, e->ext.weapon.model_file)") == std::string::npos);
+	REQUIRE(api.find("static asset_data_handle_t s_weaponModelHandle") != std::string::npos);
+	REQUIRE(api.find("catalogHandleForSourceFile(e->ext.weapon.model_file)") != std::string::npos);
+	REQUIRE(api.find("catalogHandleByModelSourceFilenum(ASSET_MODEL, e->source_filenum)") != std::string::npos);
+	REQUIRE(api.find("out->handle     = s_weaponModelHandle(e)") != std::string::npos);
+	REQUIRE(scanner.find("e->ext.weapon.primary_graph") != std::string::npos);
+	REQUIRE(scanner.find("e->ext.weapon.secondary_graph") != std::string::npos);
+	REQUIRE(scanner.find("e->ext.weapon.shared_context") != std::string::npos);
 	REQUIRE(scanner.find("catalogSetPrimaryFile(e, e->ext.prop.model_file)") != std::string::npos);
+	REQUIRE(scanner.find("catalogSetPrimaryFile(e, e->ext.prop.behavior_graph)") == std::string::npos);
+	REQUIRE(scanner.find("const char *pf = e->ext.vehicle.model_file[0]") != std::string::npos);
+	REQUIRE(scanner.find("e->ext.vehicle.behavior_graph") != std::string::npos);
+	REQUIRE(scanner.find("e->ext.vehicle.behavior_graph : e->ext.vehicle.physics_file") == std::string::npos);
 	REQUIRE(distrib.find("#include \"assetprovider.h\"") == std::string::npos);
 	REQUIRE(distrib.find("\"prop.ini\"") != std::string::npos);
+	REQUIRE(distrib.find("\"mesh.ini\"") != std::string::npos);
+	REQUIRE(distrib.find("\"model.ini\"") != std::string::npos);
 	REQUIRE(distrib.find("distribSetPrimaryFromFile(e, dirpath, e->ext.character.bodyfile)") != std::string::npos);
-	REQUIRE(distrib.find("distribSetPrimaryFromFile(e, dirpath, e->ext.weapon.model_file)") != std::string::npos);
+	REQUIRE(distrib.find("distribSetPrimaryFromFile(e, dirpath, e->ext.weapon.primary_graph)") != std::string::npos);
+	REQUIRE(distrib.find("distribSetPrimaryFromFile(e, dirpath, e->ext.weapon.model_file)") == std::string::npos);
+	REQUIRE(distrib.find("e->ext.weapon.primary_graph") != std::string::npos);
+	REQUIRE(distrib.find("e->ext.weapon.secondary_graph") != std::string::npos);
+	REQUIRE(distrib.find("e->ext.weapon.shared_context") != std::string::npos);
 	REQUIRE(distrib.find("distribSetPrimaryFromFile(e, dirpath, e->ext.prop.model_file)") != std::string::npos);
+	REQUIRE(distrib.find("distribSetPrimaryFromFile(e, dirpath, e->ext.prop.behavior_graph)") == std::string::npos);
+	REQUIRE(distrib.find("const char *pf = e->ext.vehicle.model_file[0]") != std::string::npos);
+	REQUIRE(distrib.find("e->ext.vehicle.behavior_graph") != std::string::npos);
+	REQUIRE(distrib.find("e->ext.vehicle.behavior_graph : e->ext.vehicle.physics_file") == std::string::npos);
+	REQUIRE(distrib.find("case ASSET_MODEL:") != std::string::npos);
 	REQUIRE(distrib.find("snprintf(fullpath, sizeof(fullpath), \"%s/%s\", dirpath, relpath)") != std::string::npos);
 	REQUIRE(distrib.find("catalogSetPrimaryFile(e, path)") != std::string::npos);
+	REQUIRE(distrib.find("preserved_weapon_id = preserved_entry->ext.weapon.weapon_id") != std::string::npos);
+	REQUIRE(distrib.find("preserved_runtime_index = preserved_entry->runtime_index") != std::string::npos);
+	REQUIRE(distrib.find("preserved_mp_index = preserved_entry->mp_index") != std::string::npos);
+	REQUIRE(distrib.find("preserved_weapon_requirefeature = preserved_entry->ext.weapon.requirefeature") != std::string::npos);
+	REQUIRE(distrib.find("weapon_name[0] ? weapon_name : preserved_weapon_name") != std::string::npos);
+	REQUIRE(distrib.find("e->ext.weapon.requirefeature = preserved_weapon_requirefeature") != std::string::npos);
+}
+
+TEST_CASE("MP body and head selector identity covers catalog-backed custom rows", "[catalog][provider][static]")
+{
+	const std::string api = readTextFile("port/src/assetcatalog_api.c");
+	const std::string modmgr = readTextFile("port/src/modmgr.c");
+	const std::string bodyIdBlock = functionBlock(api, "const char *catalogMpBodyId");
+	const std::string headIdBlock = functionBlock(api, "const char *catalogMpHeadId");
+	const std::string defaultHeadBlock = functionBlock(api, "s32 catalogGetBodyDefaultMpHeadIdx");
+	const std::string displayNameBlock = functionBlock(api, "const char *catalogGetBodyDisplayName");
+
+	REQUIRE(api.find("#define CATALOG_MP_SELECT_CACHE_COUNT 256") != std::string::npos);
+	REQUIRE(api.find("s_MpBodyIdCache[CATALOG_MP_SELECT_CACHE_COUNT]") != std::string::npos);
+	REQUIRE(api.find("s_MpHeadIdCache[CATALOG_MP_SELECT_CACHE_COUNT]") != std::string::npos);
+	REQUIRE(api.find("assetCatalogIterateByType(ASSET_BODY, catalogAssignBodyMpIndex") !=
+	        std::string::npos);
+	REQUIRE(api.find("assetCatalogIterateByType(ASSET_HEAD, catalogAssignHeadMpIndex") !=
+	        std::string::npos);
+
+	REQUIRE(!bodyIdBlock.empty());
+	REQUIRE(!headIdBlock.empty());
+	REQUIRE(bodyIdBlock.find("CATALOG_MP_SELECT_CACHE_COUNT") != std::string::npos);
+	REQUIRE(headIdBlock.find("CATALOG_MP_SELECT_CACHE_COUNT") != std::string::npos);
+	REQUIRE(bodyIdBlock.find("catalogFindMpIndexedAssetId(ASSET_BODY, mp_idx)") !=
+	        std::string::npos);
+	REQUIRE(headIdBlock.find("catalogFindMpIndexedAssetId(ASSET_HEAD, mp_idx)") !=
+	        std::string::npos);
+	REQUIRE(bodyIdBlock.find("MP_BODY_BASE_COUNT") == std::string::npos);
+	REQUIRE(headIdBlock.find("MP_HEAD_BASE_COUNT") == std::string::npos);
+
+	REQUIRE(!defaultHeadBlock.empty());
+	REQUIRE(!displayNameBlock.empty());
+	REQUIRE(defaultHeadBlock.find("catalogMpBodyId(mpbodynum)") != std::string::npos);
+	REQUIRE(defaultHeadBlock.find("MP_BODY_BASE_COUNT") == std::string::npos);
+	REQUIRE(displayNameBlock.find("catalogMpBodyId(mpbodynum)") != std::string::npos);
+	REQUIRE(displayNameBlock.find("MP_BODY_BASE_COUNT") == std::string::npos);
+	REQUIRE(countOccurrences(modmgr, "((asset_entry_t *)entry)->mp_index = (s16)idx;") >= 2);
 }
 
 TEST_CASE("Forge runtime model spawns enforce source-only family handles", "[catalog][provider][static]")
 {
 	const std::string forge = readTextFile("port/src/forge/forge_runtime.c");
+	const std::string modeldef = readTextFile("src/game/modeldef.c");
 	const std::string guard = readTextFile("tools/asset_native_source_guard.py");
 
 	REQUIRE(forge.find("#include \"asset_source_debug.h\"") != std::string::npos);
@@ -536,6 +734,10 @@ TEST_CASE("Forge runtime model spawns enforce source-only family handles", "[cat
 	        std::string::npos);
 	REQUIRE(forge.find("assetSourceDebugHandleRequiresPublicFileSource(type, handle)") !=
 	        std::string::npos);
+	REQUIRE(forge.find("|| pr.filenum <= 0") == std::string::npos);
+	REQUIRE(forge.find("|| wr.filenum <= 0") == std::string::npos);
+	REQUIRE(countOccurrences(forge, "assetHandleIsNull(pr.handle)") >= 2);
+	REQUIRE(forge.find("assetHandleIsNull(wr.handle)") != std::string::npos);
 	REQUIRE(forge.find("s_forgeModelHandlePassesSourceOnlyCheck(ASSET_PROP, o->catalog_id") <
 	        forge.find("modeldefLoadToNewFromHandle(pr.handle, pr.filenum)"));
 	REQUIRE(forge.find("s_forgeModelHandlePassesSourceOnlyCheck(ASSET_WEAPON") <
@@ -543,6 +745,15 @@ TEST_CASE("Forge runtime model spawns enforce source-only family handles", "[cat
 	REQUIRE(forge.find("forge door modeldef") != std::string::npos);
 	REQUIRE(forge.find("forge weapon pad modeldef") != std::string::npos);
 	REQUIRE(forge.find("forge prop modeldef") != std::string::npos);
+	REQUIRE(modeldef.find("modeldefResolveExternalSourcePath") != std::string::npos);
+	REQUIRE(modeldef.find("\"model.obj\"") != std::string::npos);
+	REQUIRE(modeldef.find("\"model.gltf\"") != std::string::npos);
+	REQUIRE(modeldef.find("\"model.glb\"") != std::string::npos);
+	REQUIRE(modeldef.find("entry->ext.weapon.model_file") != std::string::npos);
+	REQUIRE(modeldef.find("entry->ext.prop.model_file") != std::string::npos);
+	REQUIRE(modeldef.find("entry->ext.vehicle.model_file") != std::string::npos);
+	REQUIRE(modeldef.find("modAssetCompilerBuildModeldef(entry, resolved_source_path") !=
+	        std::string::npos);
 	REQUIRE(guard.find("scan_forge_runtime_source_only_guards(root)") !=
 	        std::string::npos);
 	REQUIRE(guard.find("FORGE_RUNTIME_SOURCE_ONLY_ERROR") !=
@@ -609,6 +820,8 @@ TEST_CASE("music sequencer enforces source-only audio before legacy fallback", "
 	const std::string loadH = readTextFile("port/include/assetcatalog_load.h");
 	const std::string mod = readTextFile("port/src/mod.c");
 	const std::string snd = readTextFile("src/lib/snd.c");
+	const std::string mplayer = readTextFile("src/game/mplayer/mplayer.c");
+	const std::string audio = readTextFile("port/src/audio.c");
 	const std::string guard = readTextFile("tools/asset_native_source_guard.py");
 	const std::string modSequenceLoad = functionBlock(mod, "void *modSequenceLoad");
 
@@ -619,18 +832,45 @@ TEST_CASE("music sequencer enforces source-only audio before legacy fallback", "
 	        std::string::npos);
 	REQUIRE(load.find("CatalogResolveResult catalogResolveMusicSequence") !=
 	        std::string::npos);
+	REQUIRE(load.find("modSequenceVirtualTrackId(tracknum)") !=
+	        std::string::npos);
+	REQUIRE(load.find("strcmp(e->id, virtual_id)") != std::string::npos);
 	REQUIRE(load.find("e->ext.audio.category != AUDIO_CAT_MUSIC") !=
 	        std::string::npos);
 	REQUIRE(load.find("e->ext.audio.sound_id != tracknum") !=
 	        std::string::npos);
 	REQUIRE(load.find("r.path = entryGetFilePath(entry)") != std::string::npos);
 	REQUIRE(load.find("r.is_mod_override = 1") != std::string::npos);
-	REQUIRE(load.find("assetSourceDebugIsEnabledFor(ASSET_AUDIO)") !=
+	REQUIRE(load.find("s_catalogApplySourceOnlyDebug(&r, entry)") !=
 	        std::string::npos);
-	REQUIRE(load.find("r.source_only_blocked = 1") != std::string::npos);
+	REQUIRE(load.find("assetSourceDebugIsEnabledFor(ASSET_AUDIO)") ==
+	        std::string::npos);
 
 	REQUIRE(mod.find("catalogResolveMusicSequence((s32)num)") !=
 	        std::string::npos);
+	REQUIRE(mod.find("#include \"asset_source_debug.h\"") !=
+	        std::string::npos);
+	REQUIRE(mod.find("#define MOD_SEQUENCE_VIRTUAL_BASE 0x4000") !=
+	        std::string::npos);
+	REQUIRE(mod.find("s_ModSequenceVirtualIds[MOD_SEQUENCE_VIRTUAL_SLOTS]") !=
+	        std::string::npos);
+	REQUIRE(mod.find("modSequenceVirtualTrackForCatalogId") !=
+	        std::string::npos);
+	REQUIRE(mod.find("entry->ext.audio.category != AUDIO_CAT_MUSIC") !=
+	        std::string::npos);
+	REQUIRE(mod.find("entry->ext.audio.file_path[0]") !=
+	        std::string::npos);
+	REQUIRE(mod.find("private sequence slot") != std::string::npos);
+	REQUIRE(mplayer.find("modSequenceVirtualTrackForCatalogId(modId)") !=
+	        std::string::npos);
+	REQUIRE(mplayer.find("return virtual_track") != std::string::npos);
+	REQUIRE(audio.find("modSequenceVirtualTrackForCatalogId(track_id)") !=
+	        std::string::npos);
+	REQUIRE(audio.find("musicStartTemporaryPrimary(virtual_track)") !=
+	        std::string::npos);
+	REQUIRE(audio.find("sequence-backed sync is a start-only handoff") !=
+	        std::string::npos);
+	REQUIRE(audio.find("sequence track-change") != std::string::npos);
 	REQUIRE(mod.find("modSequencePlayAudioSource(u16 num)") !=
 	        std::string::npos);
 	REQUIRE(mod.find("modSequencePathHasAudioExtension(r.path)") !=
@@ -652,11 +892,17 @@ TEST_CASE("music sequencer enforces source-only audio before legacy fallback", "
 	REQUIRE(mod.find("streaming playback failed") != std::string::npos);
 	REQUIRE(mod.find("ASSET.SOURCE_ONLY: music sequence") !=
 	        std::string::npos);
-	REQUIRE(mod.find("sequencer-native public source compile failed") !=
+	REQUIRE(mod.find("but has no public FileProvider source") !=
+	        std::string::npos);
+	REQUIRE(mod.find("sequencer-native ") != std::string::npos);
+	REQUIRE(mod.find("public source compile failed") != std::string::npos);
+	REQUIRE(mod.find("assetSourceDebugIsEnabledFor(ASSET_AUDIO)") !=
 	        std::string::npos);
 	REQUIRE(modSequenceLoad.find("catalogResolveMusicSequence((s32)num)") <
 	        modSequenceLoad.find("modSequenceCompilePublicSource(&r, num, outSize)"));
 	REQUIRE(modSequenceLoad.find("modSequenceCompilePublicSource(&r, num, outSize)") <
+	        modSequenceLoad.find("assetSourceDebugIsEnabledFor(ASSET_AUDIO)"));
+	REQUIRE(modSequenceLoad.find("assetSourceDebugIsEnabledFor(ASSET_AUDIO)") <
 	        modSequenceLoad.find("r.source_only_blocked"));
 	REQUIRE(modSequenceLoad.find("modSequenceCompilePublicSource(&r, num, outSize)") <
 	        modSequenceLoad.find("fsFileSize(MOD_SEQUENCES_DIR \"/\")"));
@@ -668,11 +914,66 @@ TEST_CASE("music sequencer enforces source-only audio before legacy fallback", "
 	        std::string::npos);
 	REQUIRE(snd.find("modSequencePlayAudioSource(seq->tracknum)") <
 	        snd.find("modSequenceLoad(seq->tracknum, &extlen)"));
+	REQUIRE(snd.find("modSequenceLoad(seq->tracknum, &extlen)") <
+	        snd.find("g_SeqRomAddrs[seq->tracknum] < 0x10000"));
+	REQUIRE(snd.find("seq->tracknum >= g_SeqTable->count") !=
+	        std::string::npos);
+	REQUIRE(snd.find("modSequenceIsVirtualTrack(seq->tracknum)") !=
+	        std::string::npos);
+	REQUIRE(snd.find("var8005ecf8[seq->tracknum] >= 0") !=
+	        std::string::npos);
 
 	REQUIRE(guard.find("scan_music_sequence_source_only_guard(root)") !=
 	        std::string::npos);
 	REQUIRE(guard.find("MUSIC_SEQUENCE_SOURCE_ONLY_ERROR") !=
 	        std::string::npos);
+}
+
+TEST_CASE("animation source-only refuses ROM DMA fallback after public source failure", "[catalog][provider][static]")
+{
+	const std::string mod = readTextFile("port/src/mod.c");
+	const std::string anim = readTextFile("src/lib/anim.c");
+	const std::string load_data =
+		functionBlock(mod, "void *modAnimationLoadData");
+	const std::string try_override =
+		functionBlock(mod, "void *modAnimationTryCatalogOverride");
+	const std::string load_frame = functionBlock(anim, "u8 animLoadFrame");
+	const std::string load_header = functionBlock(anim, "void animLoadHeader");
+
+	REQUIRE(mod.find("modAnimationFatalPublicSourceFailure") !=
+	        std::string::npos);
+	REQUIRE(mod.find("ASSET.SOURCE_ONLY: animation %d maps to public animation source") !=
+	        std::string::npos);
+	REQUIRE(mod.find("refusing ROM/static fallback") != std::string::npos);
+	REQUIRE(load_data.find("catalogResolveAnim((s32)num)") !=
+	        std::string::npos);
+	REQUIRE(load_data.find("r.source_only_blocked") != std::string::npos);
+	REQUIRE(load_data.find("assetSourceDebugIsEnabledFor(ASSET_ANIMATION)") !=
+	        std::string::npos);
+	REQUIRE(load_data.find("runtime clip compilation failed") !=
+	        std::string::npos);
+	REQUIRE(load_data.find("the selected public source is not editable GLTF/GLB animation source") !=
+	        std::string::npos);
+	REQUIRE(load_data.find("assetSourceDebugIsEnabledFor(ASSET_ANIMATION)") <
+	        load_data.find("void *data = fsFileLoad(r.path, NULL)"));
+
+	REQUIRE(try_override.find("catalogResolveAnim((s32)num)") !=
+	        std::string::npos);
+	REQUIRE(try_override.find("catalogGetAnimOverride") == std::string::npos);
+	REQUIRE(try_override.find("r.source_only_blocked") != std::string::npos);
+	REQUIRE(try_override.find("assetSourceDebugIsEnabledFor(ASSET_ANIMATION)") !=
+	        std::string::npos);
+	REQUIRE(try_override.find("runtime clip compilation failed") !=
+	        std::string::npos);
+	REQUIRE(try_override.find("the selected public source is not editable GLTF/GLB animation source") !=
+	        std::string::npos);
+	REQUIRE(try_override.find("assetSourceDebugIsEnabledFor(ASSET_ANIMATION)") <
+	        try_override.find("void *data = fsFileLoad(path, NULL)"));
+
+	REQUIRE(load_frame.find("modAnimationTryCatalogOverride(animnum)") <
+	        load_frame.find("animDma(&g_AnimFrameByteSlots"));
+	REQUIRE(load_header.find("modAnimationTryCatalogOverride(animnum)") <
+	        load_header.find("animDma(&g_AnimHeaderByteSlots"));
 }
 
 TEST_CASE("MP3 file use enforces source-only audio before ROM fallback", "[catalog][provider][static]")
@@ -764,8 +1065,27 @@ TEST_CASE("file-source sound playback failure refuses source-only ROM fallback",
 
 	REQUIRE(snd.find("audioStartFileSound(r.path, volume, pan") !=
 	        std::string::npos);
-	REQUIRE(snd.find("filepitch *= alCents2Ratio(cents)") !=
+	REQUIRE(snd.find("f32 filebasepitch = 1.0f") !=
 	        std::string::npos);
+	REQUIRE(snd.find("u8 file_sample_pan = AL_PAN_CENTER") !=
+	        std::string::npos);
+	REQUIRE(snd.find("u8 file_sample_volume = 127") !=
+	        std::string::npos);
+	REQUIRE(snd.find("u8 file_key_volume_index = 0") !=
+	        std::string::npos);
+	REQUIRE(snd.find("file_sample_pan = entry->ext.audio.sample_pan") !=
+	        std::string::npos);
+	REQUIRE(snd.find("file_sample_volume = entry->ext.audio.sample_volume") !=
+	        std::string::npos);
+	REQUIRE(snd.find("file_key_volume_index = (u8)(entry->ext.audio.key_min & 0x1f)") !=
+	        std::string::npos);
+	REQUIRE(snd.find("filebasepitch = alCents2Ratio(cents)") !=
+	        std::string::npos);
+	REQUIRE(snd.find("pitch,\n\t\t\t\t\tfilebasepitch") !=
+	        std::string::npos);
+	REQUIRE(snd.find("file_sample_pan,\n\t\t\t\t\tfile_sample_volume") !=
+	        std::string::npos);
+	REQUIRE(snd.find("file_key_volume_index") != std::string::npos);
 	REQUIRE(snd.find("entry ? entry->ext.audio.has_loop : 0") !=
 	        std::string::npos);
 	REQUIRE(snd.find("entry ? entry->ext.audio.loop_start_samples : 0") !=
@@ -779,6 +1099,10 @@ TEST_CASE("file-source sound playback failure refuses source-only ROM fallback",
 	REQUIRE(snd.find("entry ? entry->ext.audio.attack_time_us : 0") !=
 	        std::string::npos);
 	REQUIRE(snd.find("entry ? entry->ext.audio.release_time_us : 0") !=
+	        std::string::npos);
+	REQUIRE(snd.find("file_fxmix_key_offset = (u8)((entry->ext.audio.key_max & 0x0f) * 8)") !=
+	        std::string::npos);
+	REQUIRE(snd.find("fxmix,\n\t\t\t\t\tfxbus,\n\t\t\t\t\tfile_fxmix_key_offset") !=
 	        std::string::npos);
 	REQUIRE(snd.find("ASSET.SOURCE_ONLY: sound %d maps to public file source") !=
 	        std::string::npos);
@@ -794,9 +1118,123 @@ TEST_CASE("file-source sound playback failure refuses source-only ROM fallback",
 	        std::string::npos);
 }
 
+TEST_CASE("file-source sound handles preserve native keymap pan volume and fx state", "[catalog][provider][static]")
+{
+	const std::string audio = readTextFile("port/src/audio.c");
+	const std::string header = readTextFile("port/include/audio.h");
+	const std::string modmusic = readTextFile("port/src/modmusic.c");
+	const std::string modmusic_h = readTextFile("port/include/modmusic.h");
+	const std::string file_sound_mix =
+		functionBlock(audio, "static void audioMixFileSoundsInto");
+	const std::string file_sound_load =
+		functionBlock(audio, "static s32 audioLoadFilePcmStereo22050");
+
+	REQUIRE(header.find("u8 sample_pan, u8 sample_volume") != std::string::npos);
+	REQUIRE(header.find("u8 key_volume_index") != std::string::npos);
+	REQUIRE(header.find("u8 fxmix, u8 fxbus") != std::string::npos);
+	REQUIRE(header.find("u8 fxmix_key_offset") != std::string::npos);
+	REQUIRE(header.find("f32 pitch, f32 base_pitch") != std::string::npos);
+	REQUIRE(header.find("standard audio file") != std::string::npos);
+	REQUIRE(modmusic_h.find("modMusicLoadAudioPcm22050") !=
+	        std::string::npos);
+	REQUIRE(modmusic.find("s16 *modMusicLoadAudioPcm22050") !=
+	        std::string::npos);
+	REQUIRE(modmusic.find("modmusic_loadMp3(path, outLen, outSourceRate)") !=
+	        std::string::npos);
+	REQUIRE(modmusic.find("modmusic_loadOgg(path, outLen, outSourceRate)") !=
+	        std::string::npos);
+	REQUIRE(modmusic.find("samplesPerChannel = stb_vorbis_decode_memory") !=
+	        std::string::npos);
+	REQUIRE(modmusic.find("samplesPerChannel = stb_vorbis_decode_filename") !=
+	        std::string::npos);
+	REQUIRE(modmusic.find("u32 totalSourceSamples = (u32)samplesPerChannel * (u32)channels") !=
+	        std::string::npos);
+	REQUIRE(modmusic.find("u32 rawBytes = totalSourceSamples * sizeof(s16)") !=
+	        std::string::npos);
+	REQUIRE(modmusic.find("*outLen = (u32)samplesPerChannel * (u32)channels") !=
+	        std::string::npos);
+	REQUIRE(modmusic.find("rawBytes = (u32)totalSamples * sizeof(s16)") ==
+	        std::string::npos);
+	REQUIRE(file_sound_load.find("SDL_LoadWAV(path, &wavSpec, &wavBuf, &wavLen)") <
+	        file_sound_load.find("modMusicLoadAudioPcm22050(path, &decoded_samples"));
+	REQUIRE(file_sound_load.find("*out_frames = decoded_samples / 2u") !=
+	        std::string::npos);
+	REQUIRE(audio.find("u8 sample_pan;") != std::string::npos);
+	REQUIRE(audio.find("u8 sample_volume;") != std::string::npos);
+	REQUIRE(audio.find("u8 key_volume_index;") != std::string::npos);
+	REQUIRE(audio.find("extern u16  func00033ec4(u8 index)") != std::string::npos);
+	REQUIRE(audio.find("#define AUDIO_FILE_SOUND_KEY_VOLUME_COUNT 9") !=
+	        std::string::npos);
+	REQUIRE(audio.find("static u16 audioFileSoundKeyVolume") != std::string::npos);
+	REQUIRE(audio.find("return func00033ec4(index)") != std::string::npos);
+	REQUIRE(audio.find("return volume ? volume : 0x7fff") == std::string::npos);
+	REQUIRE(audio.find("static u16 audioFileSoundEffectiveVolume") != std::string::npos);
+	REQUIRE(audio.find("((u32)volume * (u32)sample_volume) / 127u") !=
+	        std::string::npos);
+	REQUIRE(audio.find("audioFileSoundKeyVolume(key_volume_index)") !=
+	        std::string::npos);
+	REQUIRE(audio.find("static u8 audioFileSoundEffectivePan") != std::string::npos);
+	REQUIRE(audio.find("(s32)pan + (s32)sample_pan - AL_PAN_CENTER") !=
+	        std::string::npos);
+	REQUIRE(audio.find("#define AL_SNDP_FX_EVT    0x0100") != std::string::npos);
+	REQUIRE(audio.find("#define AL_SNDP_FXBUS_EVT 0x2000") != std::string::npos);
+	REQUIRE(audio.find("#define AL_SNDP_4000_EVT  0x4000") != std::string::npos);
+	REQUIRE(audio.find("#define AUDIO_FILE_SOUND_FX_BUS_COUNT 2") !=
+	        std::string::npos);
+	REQUIRE(audio.find("s_FileSoundFxDelay") != std::string::npos);
+	REQUIRE(audio.find("s_FileSoundFxSend") != std::string::npos);
+	REQUIRE(audio.find("static u8 audioFileSoundEffectiveFxmix") != std::string::npos);
+	REQUIRE(audio.find("(raw_fxmix & 0x7f) + key_offset") != std::string::npos);
+	REQUIRE(audio.find("return (u8)fxmix | (raw_fxmix & 0x80)") != std::string::npos);
+	REQUIRE(audio.find("static f32 audioFileSoundFxSendScale") !=
+	        std::string::npos);
+	REQUIRE(audio.find("static void audioFileSoundFxAddSend") !=
+	        std::string::npos);
+	REQUIRE(audio.find("static void audioFileSoundFxMixInto") !=
+	        std::string::npos);
+	REQUIRE(audio.find("audioFileSoundFxAddSend(slot->state.fxbus, slot->effective_fxmix") !=
+	        std::string::npos);
+	REQUIRE(audio.find("audioFileSoundFxMixInto(dst, frames)") !=
+	        std::string::npos);
+	REQUIRE(audio.find("audioFileSoundsActive() ||") != std::string::npos);
+	REQUIRE(audio.find("audioFileSoundFxActive()") != std::string::npos);
+	REQUIRE(audio.find("slot->state.fxmix = fxmix") != std::string::npos);
+	REQUIRE(audio.find("slot->state.fxbus = (fxbus >= 2) ? 0 : fxbus") !=
+	        std::string::npos);
+	REQUIRE(audio.find("slot->sample_pan = sample_pan") != std::string::npos);
+	REQUIRE(audio.find("slot->sample_volume = sample_volume") != std::string::npos);
+	REQUIRE(audio.find("slot->key_volume_index = key_volume_index & 0x1f") !=
+	        std::string::npos);
+	REQUIRE(audio.find("slot->volume = audioFileSoundEffectiveVolume(volume, sample_volume,") !=
+	        std::string::npos);
+	REQUIRE(audio.find("slot->pan = audioFileSoundEffectivePan(pan, sample_pan)") !=
+	        std::string::npos);
+	REQUIRE(audio.find("slot->volume = audioFileSoundEffectiveVolume((u16)data,") !=
+	        std::string::npos);
+	REQUIRE(audio.find("slot->sample_volume, slot->key_volume_index") !=
+	        std::string::npos);
+	REQUIRE(audio.find("slot->volume = audioFileSoundEffectiveVolume((u16)slot->state.vol,") !=
+	        std::string::npos);
+	REQUIRE(file_sound_mix.find("g_AudioMasterVolume * g_AudioGameplayVolume") ==
+	        std::string::npos);
+	REQUIRE(audio.find("slot->pan = audioFileSoundEffectivePan((u8)data, slot->sample_pan)") !=
+	        std::string::npos);
+	REQUIRE(audio.find("slot->base_pitch = base_pitch") != std::string::npos);
+	REQUIRE(audio.find("slot->step = pitch * base_pitch") != std::string::npos);
+	REQUIRE(audio.find("slot->state.basepitch = base_pitch") !=
+	        std::string::npos);
+	REQUIRE(audio.find("slot->step = slot->state.pitch * slot->base_pitch") !=
+	        std::string::npos);
+	REQUIRE(audio.find("case AL_SNDP_FX_EVT:") != std::string::npos);
+	REQUIRE(audio.find("case AL_SNDP_4000_EVT:") != std::string::npos);
+	REQUIRE(audio.find("case AL_SNDP_FXBUS_EVT:") != std::string::npos);
+}
+
 TEST_CASE("base first-person hand model files populate provider handles", "[catalog][provider][static]")
 {
 	const std::string baseExtended = readTextFile("port/src/assetcatalog_base_extended.c");
+	const std::string bodyWalker = readTextFile("port/src/loader_walker_body.c");
+	const std::string headWalker = readTextFile("port/src/loader_walker_head.c");
 	const std::string bondgun = readTextFile("src/game/bondgun.c");
 
 	/* BYOR completion (2026-05-03): hand-model probe migrated from
@@ -807,6 +1245,18 @@ TEST_CASE("base first-person hand model files populate provider handles", "[cata
 	REQUIRE(baseExtended.find("e->runtime_index = -handfilenum") != std::string::npos);
 	REQUIRE(baseExtended.find("e->source_filenum = handfilenum") != std::string::npos);
 	REQUIRE(baseExtended.find("catalogBindPrimaryFromDiskOrRom(e, e->source_filenum)") != std::string::npos);
+	REQUIRE(bodyWalker.find("loaderWalkerEnvelopeStrCopy(manifest, manifest_len, \"hand_archive\"") != std::string::npos);
+	REQUIRE(bodyWalker.find("s64 bodynum = -1;") != std::string::npos);
+	REQUIRE(bodyWalker.find("s64 bodynum = 0;") == std::string::npos);
+	REQUIRE(bodyWalker.find("LOADER.WALKER.BODY.RUNTIME_SLOT_MISSING") != std::string::npos);
+	REQUIRE(headWalker.find("s64 headnum = -1;") != std::string::npos);
+	REQUIRE(headWalker.find("s64 headnum = 0;") == std::string::npos);
+	REQUIRE(headWalker.find("LOADER.WALKER.HEAD.RUNTIME_SLOT_MISSING") != std::string::npos);
+	REQUIRE(bodyWalker.find("s_bodyWalkerManifestFileEnum(manifest, manifest_len, \"hand\")") != std::string::npos);
+	REQUIRE(bodyWalker.find("catalogReadableModelIdForFile(hand_filenum, \"hand\", \"hand\"") != std::string::npos);
+	REQUIRE(bodyWalker.find("assetCatalogRegister(hand_model_id, ASSET_MODEL)") != std::string::npos);
+	REQUIRE(bodyWalker.find("hand_entry->source_filenum = hand_filenum") != std::string::npos);
+	REQUIRE(bodyWalker.find("catalogSetPrimaryFile(hand_entry, hand_source_path)") != std::string::npos);
 	REQUIRE(bondgun.find("catalogHandleByModelSourceFilenum(ASSET_NONE, filenum)") != std::string::npos);
 	REQUIRE(bondgun.find("bgunQueuedLoadPassesSourceOnlyCheck") != std::string::npos);
 	REQUIRE(bondgun.find("assetSourceDebugFatalHandleFallback(ASSET_MODEL") != std::string::npos);
@@ -915,12 +1365,18 @@ TEST_CASE("texture audio and hud file fields populate provider handles", "[catal
 	const std::string distrib = readTextFile("port/src/net/netdistrib.c");
 
 	REQUIRE(scanner.find("catalogSetPrimaryFile(e, e->ext.texture.file_path)") != std::string::npos);
-	REQUIRE(scanner.find("catalogSetPrimaryFile(e, e->ext.audio.file_path)") != std::string::npos);
-	REQUIRE(scanner.find("catalogSetPrimaryFile(e, e->ext.hud.texture_file)") != std::string::npos);
+	REQUIRE(scanner.find("const char *primary_file = audio_file[0] ? audio_file :") != std::string::npos);
+	REQUIRE(scanner.find("iniGet(ini, \"music_file\", iniGet(ini, \"midi_file\", \"\"))") != std::string::npos);
+	REQUIRE(scanner.find("catalogSetPrimaryFile(e, primary_file)") != std::string::npos);
+	REQUIRE(scanner.find("catalogSetPrimaryFile(e, e->ext.hud.layout_file)") != std::string::npos);
 	REQUIRE(distrib.find("distribSetPrimaryFromFile(e, dirpath, e->ext.texture.file_path)") != std::string::npos);
-	REQUIRE(distrib.find("distribSetPrimaryFromFile(e, dirpath, e->ext.audio.file_path)") != std::string::npos);
-	REQUIRE(distrib.find("distribSetPrimaryFromFile(e, dirpath, e->ext.hud.texture_file)") != std::string::npos);
+	REQUIRE(distrib.find("const char *primary_file = audio_file[0] ? audio_file :") != std::string::npos);
+	REQUIRE(distrib.find("iniGet(ini, \"music_file\", iniGet(ini, \"midi_file\", \"\"))") != std::string::npos);
+	REQUIRE(distrib.find("distribSetPrimaryFromFile(e, dirpath, primary_file)") != std::string::npos);
+	REQUIRE(distrib.find("distribSetPrimaryFromFile(e, dirpath, e->ext.hud.layout_file)") != std::string::npos);
 	REQUIRE(distrib.find("slot->id, 0, aname, cat, dur, fpath[0] ? fullfile : \"\")") != std::string::npos);
+	REQUIRE(distrib.find("populateExtFromIni(e, ASSET_AUDIO, destdir, &ini, NULL)") != std::string::npos);
+	REQUIRE(distrib.find("distribParseAudioCategoryValue(") != std::string::npos);
 }
 
 TEST_CASE("file-backed catalog registration helpers populate provider handles", "[catalog][provider][static]")
@@ -929,15 +1385,56 @@ TEST_CASE("file-backed catalog registration helpers populate provider handles", 
 	const std::string header = readTextFile("port/include/assetcatalog.h");
 
 	REQUIRE(header.find("catalogSetPrimaryFile(asset_entry_t *entry, const char *path)") != std::string::npos);
+	REQUIRE(header.find("catalogHandleForSourceFile(const char *path)") != std::string::npos);
 	REQUIRE(catalog.find("catalogSetPrimaryFile(asset_entry_t *entry, const char *path)") != std::string::npos);
+	REQUIRE(catalog.find("catalogHandleForSourceFile(const char *path)") != std::string::npos);
 	REQUIRE(catalog.find("fileProviderHandle(path)") != std::string::npos);
 	REQUIRE(catalog.find("catalogSetPrimary(entry, handle)") != std::string::npos);
 	REQUIRE(catalog.find("catalogSetPrimaryFile(entry, entry->ext.character.bodyfile)") != std::string::npos);
-	REQUIRE(countOccurrences(catalog, "catalogSetPrimaryFile(entry, entry->ext.weapon.model_file)") >= 1);
+	REQUIRE(countOccurrences(catalog, "catalogSetPrimaryFile(entry, entry->ext.weapon.model_file)") == 0);
 	REQUIRE(countOccurrences(catalog, "catalogSetPrimaryFile(entry, entry->ext.prop.model_file)") >= 1);
 	REQUIRE(countOccurrences(catalog, "catalogSetPrimaryFile(entry, entry->ext.texture.file_path)") >= 1);
 	REQUIRE(countOccurrences(catalog, "catalogSetPrimaryFile(entry, entry->ext.audio.file_path)") >= 1);
-	REQUIRE(countOccurrences(catalog, "catalogSetPrimaryFile(entry, entry->ext.hud.texture_file)") >= 1);
+	REQUIRE(countOccurrences(catalog, "catalogSetPrimaryFile(entry, entry->ext.hud.texture_file)") == 0);
+}
+
+TEST_CASE("base and walked prop vehicle sources use activating provider primaries", "[catalog][provider][static]")
+{
+	const std::string base = readTextFile("port/src/assetcatalog_base_extended.c");
+	const std::string walker = readTextFile("port/src/loader_walker_meta.c");
+
+	const size_t prop_start = base.find("/* ---- props ---- */");
+	const size_t material_start = base.find("/* ---- materials ---- */", prop_start);
+	REQUIRE(prop_start != std::string::npos);
+	REQUIRE(material_start != std::string::npos);
+	const std::string prop_block = base.substr(prop_start, material_start - prop_start);
+	REQUIRE(prop_block.find("catalogSetPrimaryFile(e, e->ext.prop.prop_file)") !=
+		std::string::npos);
+	REQUIRE(prop_block.find("catalogSetPrimaryFile(e, e->ext.prop.behavior_graph)") ==
+		std::string::npos);
+
+	const size_t vehicle_start = base.find("/* ---- vehicles ---- */");
+	const size_t hand_start = base.find("/* ---- first-person hand models", vehicle_start);
+	REQUIRE(vehicle_start != std::string::npos);
+	REQUIRE(hand_start != std::string::npos);
+	const std::string vehicle_block = base.substr(vehicle_start, hand_start - vehicle_start);
+	REQUIRE(vehicle_block.find("const char *primary_file = e->ext.vehicle.model_file[0]") !=
+		std::string::npos);
+	REQUIRE(vehicle_block.find("e->ext.vehicle.behavior_graph") !=
+		std::string::npos);
+	REQUIRE(vehicle_block.find("catalogSetPrimaryFile(e, primary_file)") !=
+		std::string::npos);
+	REQUIRE(vehicle_block.find("catalogSetPrimaryFile(e, e->ext.vehicle.physics_file)") ==
+		std::string::npos);
+
+	REQUIRE(walker.find("{ ASSET_PROP,        \"prop\",       \"props\",       \".pdprop\",       \"prop.ini\",      { \"model_file\", \"prop_file\", \"behavior_graph\", NULL } }") !=
+		std::string::npos);
+	REQUIRE(walker.find("{ ASSET_PROP,        \"prop\",       \"props\",       \".pdprop\",       \"prop.ini\",      { \"model_file\", \"behavior_graph\", \"prop_file\", NULL } }") ==
+		std::string::npos);
+	REQUIRE(walker.find("{ ASSET_VEHICLE,     \"vehicle\",    \"vehicles\",    \".pdvehicle\",    \"vehicle.ini\",   { \"model_file\", \"behavior_graph\", \"physics_file\", NULL } }") !=
+		std::string::npos);
+	REQUIRE(walker.find("{ ASSET_VEHICLE,     \"vehicle\",    \"vehicles\",    \".pdvehicle\",    \"vehicle.ini\",   { \"physics_file\", \"behavior_graph\", \"model_file\", NULL } }") ==
+		std::string::npos);
 }
 
 TEST_CASE("file provider handles stay behind catalog provider boundary", "[catalog][provider][static]")
@@ -989,6 +1486,8 @@ TEST_CASE("typed catalog language lifecycle activates runtime payloads", "[catal
 	REQUIRE(catalogLoad.find("s_catalogLoadEntryLangPayload") != std::string::npos);
 	REQUIRE(catalogLoad.find("langManifestEnsureId") != std::string::npos);
 	REQUIRE(catalogLoad.find("entry->type == ASSET_LANG") != std::string::npos);
+	REQUIRE(catalogLoad.find("assetRuntimeActivateCatalogEntry(entry, source_path)") != std::string::npos);
+	REQUIRE(catalogLoad.find("language runtime adapter rejected missing strings source") != std::string::npos);
 }
 
 TEST_CASE("typed catalog audio lifecycle uses runtime activation", "[catalog][provider][static]")
@@ -1168,6 +1667,7 @@ TEST_CASE("typed catalog texture lifecycle activates texture payloads", "[catalo
 	const std::string catalogLoad = readTextFile("port/src/assetcatalog_load.c");
 	const std::string catalog = readTextFile("port/src/assetcatalog.c");
 	const std::string scanner = readTextFile("port/src/assetcatalog_scanner.c");
+	const std::string netdistrib = readTextFile("port/src/net/netdistrib.c");
 	const std::string mod = readTextFile("port/src/mod.c");
 	const std::string source = readTextFile("port/src/mod_texture_source.c");
 	const std::string tex = readTextFile("src/game/texdecompress.c");
@@ -1179,12 +1679,17 @@ TEST_CASE("typed catalog texture lifecycle activates texture payloads", "[catalo
 	REQUIRE(catalogLoad.find("activated texture payload") != std::string::npos);
 	REQUIRE(catalog.find("entry->source_texnum = texture_id") != std::string::npos);
 	REQUIRE(scanner.find("e->source_texnum = e->ext.texture.texture_id") != std::string::npos);
+	REQUIRE(netdistrib.find("e->source_texnum = e->ext.texture.texture_id") != std::string::npos);
 	REQUIRE(source.find("stbi_load_from_memory") != std::string::npos);
 	REQUIRE(source.find("g_NotLoadMod && (!entry || !entry->bundled)") != std::string::npos);
+	REQUIRE(source.find("assetSourceDebugIsEnabledFor(ASSET_TEXTURE)") != std::string::npos);
+	REQUIRE(source.find("the selected public source is not an editable image source") != std::string::npos);
 	REQUIRE(tex.find("texLoadPublicRgba32Source") != std::string::npos);
 	REQUIRE(tex.find("tex->gbiformat = G_IM_FMT_RGBA") != std::string::npos);
 	REQUIRE(tex.find("tex->depth = G_IM_SIZ_32b") != std::string::npos);
 	REQUIRE(mod.find("skipping legacy compressed texture loader") != std::string::npos);
+	REQUIRE(mod.find("assetSourceDebugIsEnabledFor(ASSET_TEXTURE)") != std::string::npos);
+	REQUIRE(mod.find("refusing legacy compressed texture fallback") != std::string::npos);
 }
 
 TEST_CASE("raw RomProvider handles stay inside catalog provider internals", "[catalog][provider][static]")

@@ -64,7 +64,8 @@ extern double cos(double);
  * count (already byte-swapped by preprocessAnimations), followed by
  * `count` struct animtableentry records (also byte-swapped). */
 #define PDANIM_CHR_TABLE_TAIL_BYTES 0x38a0
-#define PDANIM_CHR_SCHEMA_VERSION 3
+#define PDANIM_CHR_SCHEMA_VERSION 4
+#define PDANIM_CHR_GENERATOR "Perfect Dark 2 pdanim_chr semantic extractor v4"
 #define PDANIM_MAX_TAIL_VALUES 512
 
 static s32 s_memContains(const char *data, u32 size, const char *needle)
@@ -136,10 +137,20 @@ static s32 s_existingArchiveHasAnimPayloads(const char *relpath)
 			&manifest_size);
 		ok = manifest
 			&& s_memContains(manifest, manifest_size,
-				"\"pd_schema_version\": 3")
+				"\"pd_schema_version\": 4")
 			&& s_memContains(manifest, manifest_size,
 				"\"animation\": \"animation.gltf\"");
 		free(manifest);
+	}
+	if (ok) {
+		u32 gltf_size = 0;
+		s32 gltf_idx = modArchiveFindEntry(arc, "animation.gltf");
+		char *gltf = (char *)modArchiveExtractAlloc(arc, gltf_idx,
+			&gltf_size);
+		ok = gltf
+			&& s_memContains(gltf, gltf_size,
+				"\"generator\": \"" PDANIM_CHR_GENERATOR "\"");
+		free(gltf);
 	}
 	modArchiveClose(arc);
 	return ok;
@@ -788,6 +799,56 @@ static s32 s_buildAnimationGltf(const u8 *anim_data,
 	}
 	if (stats) stats->channel_count = channel_count;
 
+	if (frame_count == 0 || bytes_per_frame == 0) {
+		if (stats) {
+			stats->channel_count = 0;
+			stats->bin_len = 0;
+			stats->b64_len = 0;
+		}
+		if (part_count == 0) {
+			part_count = 1;
+		}
+		if (s_textbufAppend(out, "{\n") != 0) goto fail;
+		if (s_textbufAppend(out, "  \"asset\": { \"version\": \"2.0\", \"generator\": \"" PDANIM_CHR_GENERATOR "\" },\n") != 0) goto fail;
+		if (s_textbufAppend(out, "  \"nodes\": [\n") != 0) goto fail;
+		for (u32 p = 0; p < part_count; p++) {
+			if (s_textbufAppendf(out,
+					"    { \"name\": \"part_%03u\" }%s\n",
+					(unsigned)p, p + 1 < part_count ? "," : "") != 0) {
+				goto fail;
+			}
+		}
+		if (s_textbufAppend(out, "  ],\n") != 0) goto fail;
+		if (s_textbufAppendf(out,
+				"  \"animations\": [ { \"name\": \"%s\", \"samplers\": [], \"channels\": [] } ],\n",
+				catalog_id) != 0) goto fail;
+		if (s_textbufAppendf(out,
+				"  \"extras\": { \"pd_kind\": \"animation\", \"pd_category\": \"character_animation\", \"pd_part_count\": %u, \"pd_channel_count\": 0, \"pd_anim_flags\": %u, \"pd_zero_frame_placeholder\": true, \"pd_repeat_ranges\": [",
+				(unsigned)part_count, (unsigned)anim_flags) != 0) goto fail;
+		for (u32 i = 0; i < repeat_range_count; i++) {
+			u32 src = repeat_range_count - 1 - i;
+			if (s_textbufAppendf(out,
+					"%s{ \"repeat_to_frame\": %d, \"repeat_from_frame\": %d }",
+					i ? ", " : "",
+					(int)repeat_ranges[src].repeattoframe,
+					(int)repeat_ranges[src].repeatfromframe) != 0) {
+				goto fail;
+			}
+		}
+		if (s_textbufAppend(out, "], \"pd_cut_skip_frames\": [") != 0) goto fail;
+		for (u32 i = 0; i < cut_skip_count; i++) {
+			u32 src = cut_skip_count - 1 - i;
+			if (s_textbufAppendf(out, "%s%d", i ? ", " : "",
+					(int)cut_skip_frames[src]) != 0) {
+				goto fail;
+			}
+		}
+		if (s_textbufAppend(out, "] }\n") != 0) goto fail;
+		if (s_textbufAppend(out, "}\n") != 0) goto fail;
+		free(parts);
+		return 0;
+	}
+
 	view_count = 1 + channel_count;
 	view_offsets = (u32 *)calloc(view_count, sizeof(u32));
 	view_lengths = (u32 *)calloc(view_count, sizeof(u32));
@@ -881,7 +942,7 @@ static s32 s_buildAnimationGltf(const u8 *anim_data,
 		s_buildReason(reason, reason_n, "GLTF text append failed at asset open");
 		goto fail;
 	}
-	if (s_textbufAppend(out, "  \"asset\": { \"version\": \"2.0\", \"generator\": \"Perfect Dark 2 pdanim_chr semantic extractor v3\" },\n") != 0) {
+	if (s_textbufAppend(out, "  \"asset\": { \"version\": \"2.0\", \"generator\": \"" PDANIM_CHR_GENERATOR "\" },\n") != 0) {
 		s_buildReason(reason, reason_n, "GLTF text append failed at asset metadata");
 		goto fail;
 	}

@@ -2194,16 +2194,29 @@ void manifestCheck(const match_manifest_t *manifest)
         "LANG", "AUDIO", "PROJECTILE", "ENTITY", "ASSET"
     };
 
-    /* v27: catalog ID strings only — no u32 net_hash on wire.
-     * num_missing bounded at 255 by CLC_MANIFEST_STATUS wire field (u8). */
-    char missing_ids[256][CATALOG_ID_LEN];
+    /* v27: catalog ID strings only -- no u32 net_hash on wire. */
+    char (*missing_ids)[CATALOG_ID_LEN] = NULL;
     s32 num_missing = 0;
     u8  status;
     s32 i;
 
+    if (!manifest || manifest->num_entries == 0) {
+        sysLogPrintf(LOG_WARNING, "MANIFEST: check requested for empty manifest");
+        return;
+    }
+
     sysLogPrintf(LOG_NOTE,
                  "MANIFEST: checking %u entries against local catalog (hash=0x%08x)",
                  (unsigned)manifest->num_entries, (unsigned)manifest->manifest_hash);
+
+    missing_ids = (char (*)[CATALOG_ID_LEN])calloc(manifest->num_entries,
+                                                   sizeof(*missing_ids));
+    if (!missing_ids) {
+        sysLogPrintf(LOG_ERROR,
+                     "MANIFEST: failed to allocate missing-id list for %u entries",
+                     (unsigned)manifest->num_entries);
+        return;
+    }
 
     for (i = 0; i < (s32)manifest->num_entries; i++) {
         const match_manifest_entry_t *e = &manifest->entries[i];
@@ -2235,11 +2248,9 @@ void manifestCheck(const match_manifest_t *manifest)
                             sysLogPrintf(LOG_WARNING,
                                          "MANIFEST: [%2d] COMPONENT id='%s' SHA-256 MISMATCH: want %s got %s",
                                          i, e->id, expected_hex, local_hex);
-                            if (num_missing < 255) {
-                                strncpy(missing_ids[num_missing], e->id, CATALOG_ID_LEN - 1);
-                                missing_ids[num_missing][CATALOG_ID_LEN - 1] = '\0';
-                                num_missing++;
-                            }
+                            strncpy(missing_ids[num_missing], e->id, CATALOG_ID_LEN - 1);
+                            missing_ids[num_missing][CATALOG_ID_LEN - 1] = '\0';
+                            num_missing++;
                             continue;
                         }
                     }
@@ -2261,11 +2272,9 @@ void manifestCheck(const match_manifest_t *manifest)
                 sysLogPrintf(LOG_WARNING,
                              "MANIFEST: [%2d] %-9s id='%s' — unresolved non-base namespace, marking MISSING",
                              i, type_name, e->id);
-                if (num_missing < 255) {
-                    strncpy(missing_ids[num_missing], e->id, CATALOG_ID_LEN - 1);
-                    missing_ids[num_missing][CATALOG_ID_LEN - 1] = '\0';
-                    num_missing++;
-                }
+                strncpy(missing_ids[num_missing], e->id, CATALOG_ID_LEN - 1);
+                missing_ids[num_missing][CATALOG_ID_LEN - 1] = '\0';
+                num_missing++;
                 continue;
             }
 
@@ -2279,11 +2288,9 @@ void manifestCheck(const match_manifest_t *manifest)
         sysLogPrintf(LOG_WARNING,
                      "MANIFEST: [%2d] COMPONENT  id='%s' — MISSING",
                      i, e->id);
-        if (num_missing < 255) {
-            strncpy(missing_ids[num_missing], e->id, CATALOG_ID_LEN - 1);
-            missing_ids[num_missing][CATALOG_ID_LEN - 1] = '\0';
-            num_missing++;
-        }
+        strncpy(missing_ids[num_missing], e->id, CATALOG_ID_LEN - 1);
+        missing_ids[num_missing][CATALOG_ID_LEN - 1] = '\0';
+        num_missing++;
     }
 
     status = (num_missing == 0) ? MANIFEST_STATUS_READY
@@ -2303,6 +2310,7 @@ void manifestCheck(const match_manifest_t *manifest)
     netmsgClcManifestStatusWrite(&g_NetMsgRel, manifest->manifest_hash,
                                  status,
                                  (const char (*)[CATALOG_ID_LEN])missing_ids,
-                                 (u8)num_missing);
+                                 (u16)num_missing);
     netSend(NULL, &g_NetMsgRel, true, NETCHAN_CONTROL);
+    free(missing_ids);
 }

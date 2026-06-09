@@ -1,17 +1,17 @@
 /**
  * assetcatalog_deps.h -- Phase 2: Catalog dependency graph
  *
- * A lightweight flat table that maps catalog entries to their constituent
- * dependencies.  Manifest builders call catalogDepForEach() at known owner
- * boundaries so registered deps can be added with the owning composite or
- * behavior chain.
+ * A lightweight dynamically-grown table that maps catalog entries to their
+ * constituent dependencies. Manifest builders call catalogDepForEach() at
+ * known owner boundaries so registered deps can be added with the owning
+ * composite or behavior chain.
  *
  * Population:
- *   - Scanner calls catalogDepRegister() for each "deps" value found in a
- *     body/head/projectile/entity component INI file.
- *   - Scanner calls catalogDepRegister() when a projectile declares
+ *   - Scanner and distribution ingestion call catalogDepRegister() for each
+ *     "deps" value found in a body/head/projectile/entity component INI file.
+ *   - Scanner and distribution ingestion call catalogDepRegister() when a projectile declares
  *     entity_ref / transition_entity.
- *   - Scanner also calls catalogDepRegister() in reverse when an
+ *   - Scanner and distribution ingestion also call catalogDepRegister() in reverse when an
  *     ASSET_ANIMATION entry declares a non-empty "target_body" field, so
  *     mods only need to annotate the animation side if preferred.
  *   - Base-game (bundled) entries are never given deps; their assets are
@@ -44,11 +44,11 @@ extern "C" {
  * ------------------------------------------------------------------------- */
 
 /**
- * Hard cap on total registered dependency pairs.
- * 256 pairs is well above any realistic mod loadout (a character with
- * 10 custom animations + 5 textures consumes 15 slots).
+ * Initial allocation for registered dependency pairs. This is not a content
+ * cap; the table grows so large extracted installs and custom packs do not
+ * drop public source dependency closure after the first allocation.
  */
-#define CATALOG_MAX_DEP_PAIRS 256
+#define CATALOG_INITIAL_DEP_PAIRS 256
 
 /* -------------------------------------------------------------------------
  * Iteration callback type
@@ -76,8 +76,8 @@ typedef void (*CatalogDepIterFn)(const char *dep_id, void *userdata);
  *   ROM-resident; pass 1 to allow consistent code paths but note that
  *   catalogDepForEach() skips bundled pairs during manifest expansion.
  *
- * Duplicate (owner_id, dep_id) pairs are silently ignored.
- * If the table is full a warning is logged and the pair is dropped.
+ * Duplicate (owner_id, dep_id) pairs are silently ignored. Allocation failure
+ * logs a warning and drops only that pair.
  */
 void catalogDepRegister(const char *owner_id, const char *dep_id,
                         s32 is_bundled);

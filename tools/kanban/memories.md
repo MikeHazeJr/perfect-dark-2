@@ -1,3 +1,49 @@
+# Task Group: Codex Windows Desktop Remote-Control Troubleshooting
+scope: Troubleshooting Codex Mobile / Windows desktop remote-control pairing failures, especially auth-metadata mismatch and stale local enrollment state.
+applies_to: cwd=C:\Users\mikeh\Documents\Codex\2026-06-06\i-connected-my-phone-for-use; reuse_rule=reuse for Codex desktop/mobile remote-control failures on this Windows machine or similar local Codex setups; re-check live app versions and backend behavior if the product flow changes.
+
+## Task 1: Diagnose and fix Codex Mobile remote-control pairing for a Windows desktop host, success
+
+### rollout_summary_files
+
+- rollout_summaries/2026-06-06T15-41-33-HOCH-codex_mobile_windows_remote_control_auth_metadata_fix.md (cwd=C:\Users\mikeh\Documents\Codex\2026-06-06\i-connected-my-phone-for-use, rollout_path=C:\Users\mikeh\.codex\sessions\2026\06\06\rollout-2026-06-06T11-41-33-019e9d98-bda0-7791-9a6b-22cd2f4d331f.jsonl, updated_at=2026-06-06T17:21:10+00:00, thread_id=019e9d98-bda0-7791-9a6b-22cd2f4d331f, repaired local auth metadata plus enrollment state and verified the packaged desktop app-server came online)
+
+### keywords
+
+- Codex Mobile, remote control, Windows, auth.json, tokens.account_id, state_5.sqlite, remote_control_enrollments, app-server, codex doctor, wss://chatgpt.com/backend-api/wham/remote/control/server, Shadowbane, 409 Conflict
+
+## Task 2: Confirm durability / future regression triggers after the repair, partial
+
+### rollout_summary_files
+
+- rollout_summaries/2026-06-06T15-41-33-HOCH-codex_mobile_windows_remote_control_auth_metadata_fix.md (cwd=C:\Users\mikeh\Documents\Codex\2026-06-06\i-connected-my-phone-for-use, rollout_path=C:\Users\mikeh\.codex\sessions\2026\06\06\rollout-2026-06-06T11-41-33-019e9d98-bda0-7791-9a6b-22cd2f4d331f.jsonl, updated_at=2026-06-06T17:21:10+00:00, thread_id=019e9d98-bda0-7791-9a6b-22cd2f4d331f, durability caveat tied to auth/account rewrites and future app updates)
+
+### keywords
+
+- Will this continue to work, going forward?, sign-out/in, reinstall, update, auth.json, tokens.account_id, state_5.sqlite, remote_control_enrollments, last_seen_at, online: true
+
+## User preferences
+
+- when the user says "Please fix it." after listing possible causes -> move directly into remediation instead of stopping at advice or a general explanation [Task 1]
+- when the user asks "Will this continue to work, going forward?" -> answer with a concise durability assessment plus the concrete regression triggers that would make the fix need repeating [Task 1][Task 2]
+
+## Reusable knowledge
+
+- On Windows, Codex Mobile remote access is owned by the Codex desktop app-server, not a Windows service and not the Unix-only `codex remote-control start` flow [Task 1]
+- `codex doctor` can confirm auth is configured and whether the background app-server is running, but a remote-control failure can still come from metadata mismatch rather than installation/service problems [Task 1]
+- The desktop app was connecting to `wss://chatgpt.com/backend-api/wham/remote/control/server`; backend environment state can confirm whether the PC host is actually online [Task 1]
+- `C:\Users\mikeh\.codex\auth.json` contains `tokens.account_id`; if it is `null`, remote-control enrollment can fail even when ChatGPT login otherwise looks valid [Task 1]
+- `C:\Users\mikeh\.codex\state_5.sqlite` table `remote_control_enrollments` stores the host enrollment row; the useful fields here were `websocket_url`, `account_id`, `app_server_client_name`, `server_id`, `environment_id`, `server_name`, and `updated_at` [Task 1]
+- The packaged desktop host was confirmed as `"C:\Program Files\WindowsApps\OpenAI.Codex_26.602.4764.0_x64__2p2nqsd0c76g0\app\resources\codex.exe" app-server --analytics-default-enabled`, and backend verification showed `Shadowbane` online with fresh `last_seen_at` [Task 1]
+- If this breaks again after it was working, check `C:\Users\mikeh\.codex\auth.json` for `tokens.account_id` first, then the `remote_control_enrollments` row in `C:\Users\mikeh\.codex\state_5.sqlite` [Task 2]
+
+## Failures and how to do differently
+
+- If `codex remote-control start` on Windows fails with `Error: codex app-server daemon lifecycle is only supported on Unix platforms`, do not keep pushing the Unix path; pivot to desktop app-server state plus local auth/enrollment repair [Task 1]
+- Restoring only the `remote_control_enrollments` row was not enough here; the real blocker was `tokens.account_id = null` in `auth.json`, so check auth metadata before assuming the backend or install is broken [Task 1]
+- A temporary helper app-server can validate the repair, but once the packaged desktop host is back online it may return `409 Conflict` with "Remote app server already online"; do not leave the helper running after the real host is confirmed [Task 1]
+- The rollout verified that the host stayed online after the helper exited, but it did not prove multi-day stability; if the user later reports regression, re-check the backend and the local metadata rather than assuming the earlier repair still holds [Task 2]
+
 # Task Group: PD2 Mesh and Texture Source Rendering Debugging
 scope: Runtime load/render debugging for source-built meshes and adjacent texture-family loading, plus failure shields for keeping mesh-family audits tightly scoped.
 applies_to: cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike; reuse_rule=reuse for PD2 `.pdmesh` / `.pdtexture` runtime-debugging or asset-family source-gap audits in this checkout; verify live context/tasks if a prompt appears to reopen already-closed source-gap work.

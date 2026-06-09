@@ -61,7 +61,8 @@ static inline f32 modmusic_clampf(f32 v, f32 lo, f32 hi)
  * Returns a malloc'd buffer of S16 samples on success, NULL on failure.
  * *outLen receives the total number of s16 samples (frames * 2).
  */
-static s16 *modmusic_loadWav(const char *path, u32 *outLen)
+static s16 *modmusic_loadWav(const char *path, u32 *outLen,
+        s32 *outSourceRate)
 {
     SDL_AudioSpec wavSpec;
     Uint8 *wavBuf = NULL;
@@ -90,6 +91,9 @@ static s16 *modmusic_loadWav(const char *path, u32 *outLen)
         sysLogPrintf(LOG_WARNING, "modmusic: failed to load WAV '%s': %s",
                      path, SDL_GetError());
         return NULL;
+    }
+    if (outSourceRate) {
+        *outSourceRate = wavSpec.freq > 0 ? wavSpec.freq : 22050;
     }
 
     /* Convert to device format: 22050 Hz, AUDIO_S16SYS, 2 channels */
@@ -142,7 +146,8 @@ static s16 *modmusic_loadWav(const char *path, u32 *outLen)
  * Uses minimp3 frame-by-frame decoding, then SDL_AudioCVT for resampling.
  * Returns a malloc'd buffer, NULL on failure. *outLen = total S16 samples.
  */
-static s16 *modmusic_loadMp3(const char *path, u32 *outLen)
+static s16 *modmusic_loadMp3(const char *path, u32 *outLen,
+        s32 *outSourceRate)
 {
     FILE *f;
     long fsize;
@@ -238,6 +243,9 @@ static s16 *modmusic_loadMp3(const char *path, u32 *outLen)
         sysLogPrintf(LOG_WARNING, "modmusic: MP3 decode yielded no audio '%s'", path);
         return NULL;
     }
+    if (outSourceRate) {
+        *outSourceRate = srcRate;
+    }
 
     /* Convert to device format: 22050 Hz, S16, stereo */
     SDL_AudioCVT cvt;
@@ -285,11 +293,12 @@ static s16 *modmusic_loadMp3(const char *path, u32 *outLen)
  * Uses stb_vorbis_decode_filename(), then SDL_AudioCVT for resampling.
  * Returns a malloc'd buffer, NULL on failure. *outLen = total S16 samples.
  */
-static s16 *modmusic_loadOgg(const char *path, u32 *outLen)
+static s16 *modmusic_loadOgg(const char *path, u32 *outLen,
+        s32 *outSourceRate)
 {
     int channels = 0, sample_rate = 0;
     short *decoded = NULL;
-    s32 totalSamples;
+    s32 samplesPerChannel;
     u32 fileSize = 0;
     void *fileBytes = NULL;
 
@@ -297,7 +306,7 @@ static s16 *modmusic_loadOgg(const char *path, u32 *outLen)
 
     fileBytes = fsFileLoad(path, &fileSize);
     if (fileBytes && fileSize > 0 && fileSize <= 0x7fffffffU) {
-        totalSamples = stb_vorbis_decode_memory((const unsigned char *)fileBytes,
+        samplesPerChannel = stb_vorbis_decode_memory((const unsigned char *)fileBytes,
                                                 (int)fileSize,
                                                 &channels, &sample_rate,
                                                 &decoded);
@@ -306,12 +315,15 @@ static s16 *modmusic_loadOgg(const char *path, u32 *outLen)
         if (fileBytes) {
             free(fileBytes);
         }
-        totalSamples = stb_vorbis_decode_filename(path, &channels, &sample_rate,
+        samplesPerChannel = stb_vorbis_decode_filename(path, &channels, &sample_rate,
                                                    &decoded);
     }
-    if (totalSamples <= 0 || !decoded) {
+    if (samplesPerChannel <= 0 || channels <= 0 || !decoded) {
         sysLogPrintf(LOG_WARNING, "modmusic: OGG decode failed '%s'", path);
         return NULL;
+    }
+    if (outSourceRate) {
+        *outSourceRate = sample_rate > 0 ? sample_rate : 22050;
     }
 
     /* Convert to device format: 22050 Hz, S16, stereo */
@@ -327,7 +339,8 @@ static s16 *modmusic_loadOgg(const char *path, u32 *outLen)
     }
 
     if (cvtResult > 0) {
-        u32 rawBytes = (u32)totalSamples * sizeof(s16);
+        u32 totalSourceSamples = (u32)samplesPerChannel * (u32)channels;
+        u32 rawBytes = totalSourceSamples * sizeof(s16);
         u32 cvtBufLen = rawBytes * (u32)cvt.len_mult;
         u8 *cvtBuf = (u8 *)malloc(cvtBufLen);
         if (!cvtBuf) { free(decoded); return NULL; }
@@ -347,7 +360,7 @@ static s16 *modmusic_loadOgg(const char *path, u32 *outLen)
     }
 
     /* Already in target format */
-    *outLen = (u32)totalSamples;
+    *outLen = (u32)samplesPerChannel * (u32)channels;
     return (s16 *)decoded;
 }
 
@@ -360,11 +373,15 @@ static s16 *modmusic_loadOgg(const char *path, u32 *outLen)
  * Supports .wav, .mp3, and .ogg.
  * Returns a malloc'd S16 PCM buffer, NULL on failure.
  */
-static s16 *modmusic_loadAudio(const char *path, u32 *outLen)
+static s16 *modmusic_loadAudio(const char *path, u32 *outLen,
+        s32 *outSourceRate)
 {
     const char *ext;
 
     *outLen = 0;
+    if (outSourceRate) {
+        *outSourceRate = 22050;
+    }
     if (!path || !path[0]) return NULL;
 
     /* Find the last '.' in the filename */
@@ -377,17 +394,32 @@ static s16 *modmusic_loadAudio(const char *path, u32 *outLen)
         if ((ext[1] == 'm' || ext[1] == 'M') &&
             (ext[2] == 'p' || ext[2] == 'P') &&
             ext[3] == '3' && ext[4] == '\0') {
-            return modmusic_loadMp3(path, outLen);
+            return modmusic_loadMp3(path, outLen, outSourceRate);
         }
         if ((ext[1] == 'o' || ext[1] == 'O') &&
             (ext[2] == 'g' || ext[2] == 'G') &&
             (ext[3] == 'g' || ext[3] == 'G') && ext[4] == '\0') {
-            return modmusic_loadOgg(path, outLen);
+            return modmusic_loadOgg(path, outLen, outSourceRate);
         }
     }
 
     /* Default: try WAV */
-    return modmusic_loadWav(path, outLen);
+    return modmusic_loadWav(path, outLen, outSourceRate);
+}
+
+s16 *modMusicLoadAudioPcm22050(const char *file_path, u32 *out_len,
+        s32 *out_source_rate)
+{
+    if (out_len) {
+        *out_len = 0;
+    }
+    if (out_source_rate) {
+        *out_source_rate = 22050;
+    }
+    if (!out_len) {
+        return NULL;
+    }
+    return modmusic_loadAudio(file_path, out_len, out_source_rate);
 }
 
 /**
@@ -454,7 +486,7 @@ void modMusicPlay(const char *file_path)
     sysLogPrintf(LOG_NOTE, "modmusic: loading '%s' (resolved from '%s')",
                  resolved, file_path);
 
-    pcm = modmusic_loadAudio(resolved, &len);
+    pcm = modmusic_loadAudio(resolved, &len, NULL);
     if (!pcm || len == 0) {
         sysLogPrintf(LOG_WARNING, "modmusic: could not load '%s'", resolved);
         return;

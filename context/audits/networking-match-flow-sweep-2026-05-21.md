@@ -17,7 +17,7 @@ This sweep checks whether current networking and match flow infrastructure still
 
 ## Immediate Corrections Made
 
-- Live context now reports `NET_PROTOCOL_VER 49`, matching `port/include/net/net.h`.
+- Live context reported protocol v49 at the time of this 2026-05-21 sweep. Current protocol state is tracked in `context/constraints.md` and `context/pillars/connectivity.md`.
 - Connectivity and save/wire pillars now document v49 `CLC_LOBBY_RESYNC` as the latest bump.
 - Live test docs no longer describe `pd-server` as an active peer target; active build coverage is `pd`, `pd-tests`, and `pd-updater`.
 - `port/include/net/netmanifest.h` no longer carries stale SA-6 TODO wording for stage-spawn bodies/heads and prop models; the implementation now points to the post-setup scanners.

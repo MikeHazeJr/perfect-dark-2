@@ -112,6 +112,31 @@ static void s_fillStageResult(const asset_entry_t *e, catalog_stage_result_t *ou
     }
 }
 
+static asset_data_handle_t s_weaponModelHandle(const asset_entry_t *e)
+{
+    asset_data_handle_t handle = ASSET_HANDLE_NULL_INIT;
+
+    if (!e) {
+        return handle;
+    }
+
+    if (e->ext.weapon.model_file[0]) {
+        handle = catalogHandleForSourceFile(e->ext.weapon.model_file);
+        if (!assetHandleIsNull(handle)) {
+            return handle;
+        }
+    }
+
+    if (e->source_filenum > 0) {
+        handle = catalogHandleByModelSourceFilenum(ASSET_MODEL, e->source_filenum);
+        if (!assetHandleIsNull(handle)) {
+            return handle;
+        }
+    }
+
+    return catalogEffectiveHandle(e);
+}
+
 static void s_fillWeaponResult(const asset_entry_t *e, catalog_weapon_result_t *out)
 {
     s32 mp_weapon_id;
@@ -119,7 +144,7 @@ static void s_fillWeaponResult(const asset_entry_t *e, catalog_weapon_result_t *
     memset(out, 0, sizeof(*out));
     out->entry      = e;
     out->filenum    = (e->source_filenum >= 0) ? e->source_filenum : -1;
-    out->handle     = catalogEffectiveHandle(e);
+    out->handle     = s_weaponModelHandle(e);
     mp_weapon_id    = e->ext.weapon.weapon_id;
     out->mp_weapon_id = mp_weapon_id;
     out->weapon_num = (e->runtime_index >= 0)
@@ -401,23 +426,25 @@ const asset_entry_t *catalogResolveByNetHash(u32 net_hash)
 }
 
 /* =========================================================================
- * Phase 8: O(1) cached runtime lookups
+ * Phase 8: cached runtime lookups
  *
- * All integer↔catalog-ID resolution is pre-cached during init.  Zero O(n)
- * scans at runtime.  The caches are populated once by catalogBuildRuntimeCaches()
- * after base-game + mod registration completes.
+ * Integer-to-catalog-ID resolution is pre-cached during init.  The MP
+ * body/head selector caches cover the private bridge range used by catalog
+ * backed mod-manager rows; a miss can still scan by mp_index so late lazy
+ * cache rebuilds do not lose source identity.
  * ========================================================================= */
 
 extern struct mpbody g_MpBodies[];
 extern struct mphead g_MpHeads[];
 
-#define MP_BODY_COUNT 63
-#define MP_HEAD_COUNT 76
+#define MP_BODY_BASE_COUNT 63
+#define MP_HEAD_BASE_COUNT 76
+#define CATALOG_MP_SELECT_CACHE_COUNT 256
 #define RT_CACHE_SIZE 1024
 
 /* Forward caches: mp table position → catalog ID string */
-static const char *s_MpBodyIdCache[MP_BODY_COUNT];
-static const char *s_MpHeadIdCache[MP_HEAD_COUNT];
+static const char *s_MpBodyIdCache[CATALOG_MP_SELECT_CACHE_COUNT];
+static const char *s_MpHeadIdCache[CATALOG_MP_SELECT_CACHE_COUNT];
 
 /* General cache: (type, runtime_index) → catalog ID string.
  * Indexed as s_RuntimeCache[type][runtime_index]. */
@@ -425,10 +452,67 @@ static const char *s_RuntimeCache[ASSET_TYPE_COUNT][RT_CACHE_SIZE];
 
 static int s_RuntimeCacheBuilt = 0;
 
+static const char *catalogFindMpIndexedAssetId(asset_type_e type, s32 mp_idx)
+{
+    s32 i;
+
+    for (i = 0; i < assetCatalogGetPoolSize(); i++) {
+        const asset_entry_t *e = assetCatalogGetByIndex(i);
+        if (!e || !e->occupied) continue;
+        if (e->type != type) continue;
+        if ((s32)e->mp_index != mp_idx) continue;
+        return e->id;
+    }
+
+    return NULL;
+}
+
+typedef struct catalog_mp_index_ctx {
+    s32 idx;
+} catalog_mp_index_ctx_t;
+
+static void catalogAssignBodyMpIndex(const asset_entry_t *entry, void *userdata)
+{
+    catalog_mp_index_ctx_t *ctx = (catalog_mp_index_ctx_t *)userdata;
+    asset_entry_t *mutable_entry;
+
+    if (!entry || entry->type != ASSET_BODY) return;
+    if (ctx->idx < 0 || ctx->idx >= CATALOG_MP_SELECT_CACHE_COUNT) {
+        sysLogPrintf(LOG_WARNING, "CATALOG: body '%s' mp_index %d out of private selector cache range",
+                entry->id ? entry->id : "", ctx->idx);
+        return;
+    }
+
+    mutable_entry = (asset_entry_t *)entry;
+    mutable_entry->mp_index = (s16)ctx->idx;
+    s_MpBodyIdCache[ctx->idx] = entry->id;
+    ctx->idx++;
+}
+
+static void catalogAssignHeadMpIndex(const asset_entry_t *entry, void *userdata)
+{
+    catalog_mp_index_ctx_t *ctx = (catalog_mp_index_ctx_t *)userdata;
+    asset_entry_t *mutable_entry;
+
+    if (!entry || entry->type != ASSET_HEAD) return;
+    if (ctx->idx < 0 || ctx->idx >= CATALOG_MP_SELECT_CACHE_COUNT) {
+        sysLogPrintf(LOG_WARNING, "CATALOG: head '%s' mp_index %d out of private selector cache range",
+                entry->id ? entry->id : "", ctx->idx);
+        return;
+    }
+
+    mutable_entry = (asset_entry_t *)entry;
+    mutable_entry->mp_index = (s16)ctx->idx;
+    s_MpHeadIdCache[ctx->idx] = entry->id;
+    ctx->idx++;
+}
+
 void catalogBuildRuntimeCaches(void)
 {
     s32 i;
     const asset_entry_t *e;
+    catalog_mp_index_ctx_t mp_body_ctx;
+    catalog_mp_index_ctx_t mp_head_ctx;
 
     memset(s_MpBodyIdCache, 0, sizeof(s_MpBodyIdCache));
     memset(s_MpHeadIdCache, 0, sizeof(s_MpHeadIdCache));
@@ -445,8 +529,8 @@ void catalogBuildRuntimeCaches(void)
         }
     }
 
-    /* Pass 2: build mp body cache + populate mp_index on body entries */
-    for (i = 0; i < MP_BODY_COUNT; i++) {
+    /* Pass 2: seed legacy base MP body/head cache positions. */
+    for (i = 0; i < MP_BODY_BASE_COUNT; i++) {
         s32 bodynum = (s32)g_MpBodies[i].bodynum;
         const char *cid = (bodynum >= 0 && bodynum < RT_CACHE_SIZE)
                           ? s_RuntimeCache[ASSET_BODY][bodynum] : NULL;
@@ -457,8 +541,7 @@ void catalogBuildRuntimeCaches(void)
         }
     }
 
-    /* Pass 3: build mp head cache + populate mp_index on head entries */
-    for (i = 0; i < MP_HEAD_COUNT; i++) {
+    for (i = 0; i < MP_HEAD_BASE_COUNT; i++) {
         s32 headnum = (s32)g_MpHeads[i].headnum;
         const char *cid = (headnum >= 0 && headnum < RT_CACHE_SIZE)
                           ? s_RuntimeCache[ASSET_HEAD][headnum] : NULL;
@@ -469,21 +552,32 @@ void catalogBuildRuntimeCaches(void)
         }
     }
 
+    /* Pass 3: rebuild the selector caches from catalog iteration order so
+     * base rows and custom source-backed rows share the same private
+     * mp_index domain that modmgrGetBody/Head exposes. */
+    mp_body_ctx.idx = 0;
+    assetCatalogIterateByType(ASSET_BODY, catalogAssignBodyMpIndex, &mp_body_ctx);
+
+    mp_head_ctx.idx = 0;
+    assetCatalogIterateByType(ASSET_HEAD, catalogAssignHeadMpIndex, &mp_head_ctx);
+
     s_RuntimeCacheBuilt = 1;
-    sysLogPrintf(LOG_NOTE, "[CATALOG] Runtime caches built: %d body IDs, %d head IDs",
-                 MP_BODY_COUNT, MP_HEAD_COUNT);
+    sysLogPrintf(LOG_NOTE, "[CATALOG] Runtime caches built: %d body selector IDs, %d head selector IDs",
+                 mp_body_ctx.idx, mp_head_ctx.idx);
 }
 
 const char *catalogMpBodyId(s32 mp_idx)
 {
-    if (mp_idx < 0 || mp_idx >= MP_BODY_COUNT) return NULL;
-    return s_MpBodyIdCache[mp_idx];
+    if (mp_idx < 0 || mp_idx >= CATALOG_MP_SELECT_CACHE_COUNT) return NULL;
+    if (s_MpBodyIdCache[mp_idx]) return s_MpBodyIdCache[mp_idx];
+    return catalogFindMpIndexedAssetId(ASSET_BODY, mp_idx);
 }
 
 const char *catalogMpHeadId(s32 mp_idx)
 {
-    if (mp_idx < 0 || mp_idx >= MP_HEAD_COUNT) return NULL;
-    return s_MpHeadIdCache[mp_idx];
+    if (mp_idx < 0 || mp_idx >= CATALOG_MP_SELECT_CACHE_COUNT) return NULL;
+    if (s_MpHeadIdCache[mp_idx]) return s_MpHeadIdCache[mp_idx];
+    return catalogFindMpIndexedAssetId(ASSET_HEAD, mp_idx);
 }
 
 const char *catalogIdByRuntime(asset_type_e type, s32 runtime_index)
@@ -904,8 +998,7 @@ const char *catalogGetBodyDisplayName(s32 mpbodynum)
 {
     const char *bid;
     const asset_entry_t *e;
-    if (mpbodynum < 0 || mpbodynum >= MP_BODY_COUNT) return NULL;
-    bid = s_MpBodyIdCache[mpbodynum];
+    bid = catalogMpBodyId(mpbodynum);
     if (!bid) return NULL;
     e = assetCatalogResolve(bid);
     if (!e || e->type != ASSET_BODY) return NULL;
@@ -1087,8 +1180,7 @@ s32 catalogGetBodyDefaultMpHeadIdx(s32 mpbodynum)
     const char *bid;
     const asset_entry_t *e;
     const asset_entry_t *he;
-    if (mpbodynum < 0 || mpbodynum >= MP_BODY_COUNT) return -1;
-    bid = s_MpBodyIdCache[mpbodynum];
+    bid = catalogMpBodyId(mpbodynum);
     if (!bid) return -1;
     e = assetCatalogResolve(bid);
     if (!e || e->type != ASSET_BODY) return -1;

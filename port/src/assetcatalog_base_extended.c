@@ -151,7 +151,9 @@ static const char *s_bodyCatalogIdForMpIndex(s32 mp_body_index)
 
 /*
  * Maps MPWEAPON_* constant -> catalog slug, display name, dual-wield flag.
- * weapon_id is the MP weapon table slot (MPWEAPON_* range 0x00-0x28).
+ * weapon_id is the base MP weapon table slot (MPWEAPON_* range 0x00-0x28).
+ * Private custom MP slots live after MPWEAPON_DISABLED and are allocated
+ * by the .pdweapon walker from catalog IDs, not listed here.
  * Mesh, stats, and behavior are populated by the .pdweapon emitter/loader path.
  */
 static const struct {
@@ -204,8 +206,8 @@ static const struct {
 };
 
 #define NUM_BASE_WEAPONS (sizeof(s_BaseWeapons) / sizeof(s_BaseWeapons[0]))
-_Static_assert(NUM_BASE_WEAPONS == NUM_MPWEAPONS,
-	"base weapon catalog table must cover every MPWEAPON_* slot");
+_Static_assert(NUM_BASE_WEAPONS == MPWEAPON_DISABLED + 1,
+	"base weapon catalog table must cover every base MPWEAPON_* slot");
 
 /* ========================================================================
  * Animation Table
@@ -783,6 +785,9 @@ s32 assetCatalogRegisterBaseGameExtended(void)
 			s_buildArchiveMemberPath("skins", skin_id, ".pdskin",
 				"skin.json", e->ext.skin.skin_file,
 				sizeof(e->ext.skin.skin_file));
+			s_buildArchiveMemberPath("skins", skin_id, ".pdskin",
+				"swatches.json", e->ext.skin.swatches_file,
+				sizeof(e->ext.skin.swatches_file));
 			catalogSetPrimaryFile(e, e->ext.skin.skin_file);
 			e->load_state = ASSET_STATE_LOADED; e->ref_count = ASSET_REF_BUNDLED;
 			n++;
@@ -1168,7 +1173,12 @@ s32 assetCatalogRegisterBaseGameExtended(void)
 			s_buildArchiveMemberPath("vehicles", idbuf, ".pdvehicle",
 				"behavior.graph.json", e->ext.vehicle.behavior_graph,
 				sizeof(e->ext.vehicle.behavior_graph));
-			catalogSetPrimaryFile(e, e->ext.vehicle.physics_file);
+			const char *primary_file = e->ext.vehicle.model_file[0] ?
+				e->ext.vehicle.model_file :
+				e->ext.vehicle.behavior_graph;
+			if (primary_file[0]) {
+				catalogSetPrimaryFile(e, primary_file);
+			}
 			e->load_state = ASSET_STATE_LOADED; e->ref_count = ASSET_REF_BUNDLED;
 			n++;
 		}

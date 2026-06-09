@@ -689,6 +689,55 @@ TEST_CASE("shared typed archive writer infers c3838 dependency records",
 	REQUIRE(validation.find("\"fallback.reason\"") != std::string::npos);
 }
 
+TEST_CASE("shared typed archive writer preserves projectile entity source members",
+          "[modding][pdxxx][writer][projectile][entity][c3838]") {
+	const auto stamp =
+		std::chrono::high_resolution_clock::now().time_since_epoch().count();
+	TempArchive out{
+		std::filesystem::temp_directory_path()
+			/ ("pd2-writer-entity-source-" + std::to_string(stamp) + ".pdentity")
+	};
+
+	mod_archive_writer_t *raw = modArchiveBegin(out.path.string().c_str());
+	REQUIRE(raw != nullptr);
+
+	asset_archive_writer_t writer;
+	REQUIRE(assetArchiveWriterInit(&writer, raw, "entity",
+		"base:writer_entity_source") == MODARCHIVE_OK);
+
+	const char descriptor[] =
+		"[entity]\n"
+		"catalog_id = base:writer_entity_source\n"
+		"bindings_file = bindings.json\n"
+		"behavior_graph = behavior.graph.json\n"
+		"composition_file = composition.json\n";
+	const char bindings[] = "{ \"schema\": \"pd.entity.bindings.v1\" }\n";
+	const char graph[] = "{ \"schema\": \"pd.entity_graph.v1\", \"nodes\": [] }\n";
+	const char composition[] = "{ \"schema\": \"pd.entity.composition.v1\" }\n";
+
+	REQUIRE(assetArchiveWriterAddDescriptor(&writer, "entity.ini",
+		descriptor, (u32)strlen(descriptor)) == MODARCHIVE_OK);
+	REQUIRE(assetArchiveWriterAddPublicMem(&writer, "bindings.json",
+		bindings, (u32)strlen(bindings), "bindings") == MODARCHIVE_OK);
+	REQUIRE(assetArchiveWriterAddPublicMem(&writer, "behavior.graph.json",
+		graph, (u32)strlen(graph), "behavior") == MODARCHIVE_OK);
+	REQUIRE(assetArchiveWriterAddPublicMem(&writer, "composition.json",
+		composition, (u32)strlen(composition), "composition") == MODARCHIVE_OK);
+	REQUIRE(assetArchiveWriterFinishMetadata(&writer) == MODARCHIVE_OK);
+	REQUIRE(modArchiveFinish(raw) == MODARCHIVE_OK);
+
+	OpenArchive opened;
+	opened.archive = modArchiveOpen(out.path.string().c_str());
+	REQUIRE(opened.archive != nullptr);
+
+	const std::string manifest =
+		readArchiveEntryText(opened.archive, "_meta/manifest.json");
+	REQUIRE(manifest.find("\"bindings_file\": \"bindings.json\"") != std::string::npos);
+	REQUIRE(manifest.find("\"behavior_graph\": \"behavior.graph.json\"") != std::string::npos);
+	REQUIRE(manifest.find("\"composition_file\": \"composition.json\"") != std::string::npos);
+	REQUIRE(manifest.find("\"dependencies\": [") != std::string::npos);
+}
+
 struct ExpectedPdxxxArchive {
 	const char *assetType;
 	const char *extension;
@@ -867,14 +916,36 @@ TEST_CASE("folder to pdmod packer validates layout and generates INI templates",
 	REQUIRE(packer.find("MODPACK.PDMOD: validated %u typed .pd* content descriptor(s) before packing") != std::string::npos);
 	REQUIRE(packer.find("processCanonicalFamily(srcFolder") != std::string::npos);
 	REQUIRE(packer.find("writeTemplateIfMissing") != std::string::npos);
+	REQUIRE(packer.find("ensureParentDirsLocal") != std::string::npos);
 	REQUIRE(packer.find("modiniTemplateForKind(kind)") != std::string::npos);
 	REQUIRE(packer.find("pads.ini - generated external map pad/spawn template") != std::string::npos);
 	REQUIRE(packer.find("setup.ini - generated external map setup template") != std::string::npos);
+	REQUIRE(packer.find("pad_id\\troom_ref") == std::string::npos);
+	REQUIRE(packer.find("pd2.scenario.pads.v1") != std::string::npos);
+	REQUIRE(packer.find("pd2.scenario.setup.fields.v1") != std::string::npos);
+	REQUIRE(packer.find("pd2.scenario.ai.lists.v1") != std::string::npos);
+	REQUIRE(packer.find("pd2.scenario.portals.v1") != std::string::npos);
+	REQUIRE(packer.find("pd2.scenario.waypoints.v1") != std::string::npos);
+	REQUIRE(packer.find("pd2.scenario.waygroups.v1") != std::string::npos);
+	REQUIRE(packer.find("pd2.scenario.covers.v1") != std::string::npos);
+	REQUIRE(packer.find("pd2.scenario.paths.v1") != std::string::npos);
 	REQUIRE(packer.find("\"pads.json\"") != std::string::npos);
+	REQUIRE(packer.find("\"portals.json\"") != std::string::npos);
 	REQUIRE(packer.find("\"spawns.json\"") != std::string::npos);
 	REQUIRE(packer.find("\"volumes.json\"") != std::string::npos);
 	REQUIRE(packer.find("\"objects.json\"") != std::string::npos);
+	REQUIRE(packer.find("\"setup.fields.json\"") != std::string::npos);
+	REQUIRE(packer.find("\"ai/ailists.json\"") != std::string::npos);
 	REQUIRE(packer.find("\"objectives.json\"") != std::string::npos);
+	REQUIRE(packer.find("\"navigation/waypoints.json\"") != std::string::npos);
+	REQUIRE(packer.find("\"navigation/waygroups.json\"") != std::string::npos);
+	REQUIRE(packer.find("\"navigation/covers.json\"") != std::string::npos);
+	REQUIRE(packer.find("\"navigation/paths.json\"") != std::string::npos);
+	REQUIRE(packer.find("waypoints_file = navigation/waypoints.json") != std::string::npos);
+	REQUIRE(packer.find("waygroups_file = navigation/waygroups.json") != std::string::npos);
+	REQUIRE(packer.find("covers_file = navigation/covers.json") != std::string::npos);
+	REQUIRE(packer.find("paths_file = navigation/paths.json") != std::string::npos);
+	REQUIRE(packer.find("generated_cache = _meta/generated-navmesh.json") != std::string::npos);
 	REQUIRE(packer.find("\"level.graph.json\"") != std::string::npos);
 	REQUIRE(packer.find("weapons\", \"weapon.ini\", \"weapon\"") != std::string::npos);
 	REQUIRE(packer.find("characters/heads\", \"head.ini\", \"head\"") != std::string::npos);
@@ -891,6 +962,10 @@ TEST_CASE("folder to pdmod packer validates layout and generates INI templates",
 	REQUIRE(packer.find("uses unsafe source path") != std::string::npos);
 
 	std::string scanner = readFile("port/src/assetcatalog_scanner.c");
+	REQUIRE(scanner.find("waypoints_file = navigation/waypoints.json") != std::string::npos);
+	REQUIRE(scanner.find("waygroups_file = navigation/waygroups.json") != std::string::npos);
+	REQUIRE(scanner.find("covers_file = navigation/covers.json") != std::string::npos);
+	REQUIRE(scanner.find("paths_file = navigation/paths.json") != std::string::npos);
 	REQUIRE(scanner.find("voice.ini - external voice metadata") != std::string::npos);
 	REQUIRE(scanner.find("audio_category = voice") != std::string::npos);
 	REQUIRE(scanner.find("music.ini - external music metadata") != std::string::npos);
@@ -942,6 +1017,64 @@ TEST_CASE("archive mods scan INI descriptors through the shared catalog scanner"
 	REQUIRE(mount != std::string::npos);
 	REQUIRE(scan != std::string::npos);
 	REQUIRE(mount < scan);
+}
+
+TEST_CASE("typed archive source path qualification covers strict archive members",
+          "[modding][pdxxx][c3842][source][static]") {
+	const std::string scanner = readFile("port/src/assetcatalog_scanner.c");
+	const auto typedStart = scanner.find("static void qualifyTypedArchiveSourcePaths");
+	const auto typedEnd = scanner.find("/* ========================================================================\n * Component Registration", typedStart);
+	const auto folderStart = scanner.find("static void qualifyIniSourcePaths");
+	const auto folderEnd = scanner.find("static s32 archiveInnerPathIsSafe", folderStart);
+	const auto archiveStart = scanner.find("static void qualifyArchiveIniPaths");
+	const auto archiveEnd = scanner.find("#endif", archiveStart);
+
+	REQUIRE(typedStart != std::string::npos);
+	REQUIRE(typedEnd != std::string::npos);
+	REQUIRE(folderStart != std::string::npos);
+	REQUIRE(folderEnd != std::string::npos);
+	REQUIRE(archiveStart != std::string::npos);
+	REQUIRE(archiveEnd != std::string::npos);
+
+	const std::string typedBlock = scanner.substr(typedStart, typedEnd - typedStart);
+	const std::string folderBlock = scanner.substr(folderStart, folderEnd - folderStart);
+	const std::string archiveBlock = scanner.substr(archiveStart, archiveEnd - archiveStart);
+	const char *requiredKeys[] = {
+		"\"scenario_archive\"",
+		"\"mesh_archive\"",
+		"\"hand_archive\"",
+		"\"behavior_graph\"",
+		"\"primary_graph\"",
+		"\"secondary_graph\"",
+		"\"settings_file\"",
+		"\"variables_file\"",
+		"\"shared_context_file\"",
+		"\"material_slots_file\"",
+		"\"grip_sockets_file\"",
+		"\"presentation_file\"",
+		"\"primary_projectile_archive\"",
+		"\"deployed_entity_archive\"",
+		"\"fire_sound_archive\"",
+		"\"idle_animation_archive\"",
+		"\"reticle_archive\"",
+		"\"layout_file\"",
+		"\"nineslice_file\"",
+		"\"ui_archive\"",
+		"\"font_archive\"",
+		"\"audio_archive\"",
+		"\"music_archive\"",
+		"\"effect_archive\"",
+		"\"waypoints_file\"",
+		"\"waygroups_file\"",
+		"\"covers_file\"",
+		"\"paths_file\"",
+	};
+
+	for (const char *key : requiredKeys) {
+		REQUIRE(typedBlock.find(key) != std::string::npos);
+		REQUIRE(folderBlock.find(key) != std::string::npos);
+		REQUIRE(archiveBlock.find(key) != std::string::npos);
+	}
 }
 
 TEST_CASE("folder and archive fixtures use the same external descriptor layout",
@@ -1180,6 +1313,225 @@ TEST_CASE("external archive scanner recognizes canonical descriptor families",
 	REQUIRE(assetArchivePathIsTyped("tools/x.pdtool") == 0);
 }
 
+TEST_CASE("component enable state persists every user-manageable catalog family",
+          "[modding][pdmod][static][c3809]") {
+	std::string modmgr = readFile("port/src/modmgr.c");
+	REQUIRE(!modmgr.empty());
+
+	const std::string marker = "static const asset_type_e types[] = {";
+	const size_t begin = modmgr.find(marker);
+	REQUIRE(begin != std::string::npos);
+	const size_t end = modmgr.find("};", begin);
+	REQUIRE(end != std::string::npos);
+	const std::string saveList = modmgr.substr(begin, end - begin);
+
+	const char *families[] = {
+		"ASSET_MAP",
+		"ASSET_CHARACTER",
+		"ASSET_SKIN",
+		"ASSET_BOT_VARIANT",
+		"ASSET_WEAPON",
+		"ASSET_PROJECTILE",
+		"ASSET_ENTITY",
+		"ASSET_ARENA",
+		"ASSET_BODY",
+		"ASSET_HEAD",
+		"ASSET_MODEL",
+		"ASSET_ANIMATION",
+		"ASSET_TEXTURES",
+		"ASSET_TEXTURE",
+		"ASSET_MATERIAL",
+		"ASSET_EFFECT",
+		"ASSET_SFX",
+		"ASSET_MUSIC",
+		"ASSET_AUDIO",
+		"ASSET_PROP",
+		"ASSET_VEHICLE",
+		"ASSET_MISSION",
+		"ASSET_GAMEMODE",
+		"ASSET_BOT_PROFILE",
+		"ASSET_SCENARIO",
+		"ASSET_HUD",
+		"ASSET_UI",
+		"ASSET_FONT",
+		"ASSET_LANG",
+		"ASSET_THEME",
+		"ASSET_TOOL",
+	};
+	for (const char *family : families) {
+		INFO(family);
+		REQUIRE(saveList.find(family) != std::string::npos);
+	}
+
+	REQUIRE(modmgr.find("modmgrLoadComponentState") != std::string::npos);
+	REQUIRE(modmgr.find("assetCatalogSetEnabled(line, 0)") != std::string::npos);
+}
+
+TEST_CASE("network catalog info advertises every user-manageable catalog family",
+          "[modding][pdmod][static][c3809]") {
+	std::string netmsg = readFile("port/src/net/netmsg.c");
+	std::string distrib = readFile("port/src/net/netdistrib.c");
+	REQUIRE(!netmsg.empty());
+	REQUIRE(!distrib.empty());
+
+	const std::string marker = "static const asset_type_e s_CatalogInfoTypes[] = {";
+	const size_t begin = netmsg.find(marker);
+	REQUIRE(begin != std::string::npos);
+	const size_t end = netmsg.find("ASSET_NONE  /* sentinel */", begin);
+	REQUIRE(end != std::string::npos);
+	const std::string collectList = netmsg.substr(begin, end - begin);
+
+	const char *families[] = {
+		"ASSET_MAP",
+		"ASSET_CHARACTER",
+		"ASSET_SKIN",
+		"ASSET_BOT_VARIANT",
+		"ASSET_WEAPON",
+		"ASSET_PROJECTILE",
+		"ASSET_ENTITY",
+		"ASSET_ARENA",
+		"ASSET_BODY",
+		"ASSET_HEAD",
+		"ASSET_MODEL",
+		"ASSET_ANIMATION",
+		"ASSET_TEXTURES",
+		"ASSET_TEXTURE",
+		"ASSET_MATERIAL",
+		"ASSET_EFFECT",
+		"ASSET_SFX",
+		"ASSET_MUSIC",
+		"ASSET_AUDIO",
+		"ASSET_PROP",
+		"ASSET_VEHICLE",
+		"ASSET_MISSION",
+		"ASSET_GAMEMODE",
+		"ASSET_BOT_PROFILE",
+		"ASSET_SCENARIO",
+		"ASSET_HUD",
+		"ASSET_UI",
+		"ASSET_FONT",
+		"ASSET_LANG",
+		"ASSET_THEME",
+		"ASSET_TOOL",
+	};
+	for (const char *family : families) {
+		INFO(family);
+		REQUIRE(collectList.find(family) != std::string::npos);
+	}
+
+	REQUIRE(netmsg.find("netmsgSvcCatalogInfoWriteChunk") != std::string::npos);
+	REQUIRE(netmsg.find("batch_offset") != std::string::npos);
+	REQUIRE(netmsg.find("total_count") != std::string::npos);
+	REQUIRE(netmsg.find("CATALOG_COLLECT_MAX") == std::string::npos);
+	REQUIRE(netmsg.find("count > 256") == std::string::npos);
+	REQUIRE(netmsg.find("missing_ids[256]") == std::string::npos);
+	REQUIRE(distrib.find("distribEnsureQueueCapacity") != std::string::npos);
+	REQUIRE(distrib.find("DISTRIB_INITIAL_QUEUE") != std::string::npos);
+	REQUIRE(distrib.find("transfer queue full, dropping") == std::string::npos);
+	REQUIRE(distrib.find("missing_ids[256]") == std::string::npos);
+}
+
+TEST_CASE("mod pack and authoring UIs enumerate every user-manageable catalog family",
+          "[modding][pdmod][static][c3809]") {
+	const char *families[] = {
+		"ASSET_MAP",
+		"ASSET_CHARACTER",
+		"ASSET_SKIN",
+		"ASSET_BOT_VARIANT",
+		"ASSET_WEAPON",
+		"ASSET_PROJECTILE",
+		"ASSET_ENTITY",
+		"ASSET_ARENA",
+		"ASSET_BODY",
+		"ASSET_HEAD",
+		"ASSET_MODEL",
+		"ASSET_ANIMATION",
+		"ASSET_TEXTURES",
+		"ASSET_TEXTURE",
+		"ASSET_MATERIAL",
+		"ASSET_EFFECT",
+		"ASSET_SFX",
+		"ASSET_MUSIC",
+		"ASSET_AUDIO",
+		"ASSET_PROP",
+		"ASSET_VEHICLE",
+		"ASSET_MISSION",
+		"ASSET_GAMEMODE",
+		"ASSET_BOT_PROFILE",
+		"ASSET_SCENARIO",
+		"ASSET_HUD",
+		"ASSET_UI",
+		"ASSET_FONT",
+		"ASSET_LANG",
+		"ASSET_THEME",
+		"ASSET_TOOL",
+	};
+
+	const std::string modpack = readFile("port/src/modpack.c");
+	const size_t modpackTypesBegin =
+		modpack.find("static const asset_type_e kTypes[] = {");
+	REQUIRE(modpackTypesBegin != std::string::npos);
+	const size_t modpackTypesEnd = modpack.find("ASSET_NONE", modpackTypesBegin);
+	REQUIRE(modpackTypesEnd != std::string::npos);
+	const std::string modpackTypes =
+		modpack.substr(modpackTypesBegin, modpackTypesEnd - modpackTypesBegin);
+	for (const char *family : families) {
+		INFO(std::string("modpack:") + family);
+		REQUIRE(modpackTypes.find(family) != std::string::npos);
+	}
+
+	const char *descriptorNames[] = {
+		"\"arena.ini\"",
+		"\"body.ini\"",
+		"\"head.ini\"",
+		"\"mesh.ini\"",
+		"\"model.ini\"",
+		"\"animation.ini\"",
+	};
+	for (const char *descriptor : descriptorNames) {
+		INFO(descriptor);
+		REQUIRE(modpack.find(descriptor) != std::string::npos);
+	}
+
+	const std::string modmgr = readFile("port/fast3d/pdgui_menu_modmgr.cpp");
+	const size_t mgrAllBegin =
+		modmgr.find("static const asset_type_e s_AllTypes[] = {");
+	REQUIRE(mgrAllBegin != std::string::npos);
+	const size_t mgrAllEnd = modmgr.find("};", mgrAllBegin);
+	REQUIRE(mgrAllEnd != std::string::npos);
+	const std::string mgrAll = modmgr.substr(mgrAllBegin, mgrAllEnd - mgrAllBegin);
+	const size_t mgrUserBegin =
+		modmgr.find("static const asset_type_e userTypes[] = {");
+	REQUIRE(mgrUserBegin != std::string::npos);
+	const size_t mgrUserEnd = modmgr.find("};", mgrUserBegin);
+	REQUIRE(mgrUserEnd != std::string::npos);
+	const std::string mgrUser =
+		modmgr.substr(mgrUserBegin, mgrUserEnd - mgrUserBegin);
+	for (const char *family : families) {
+		INFO(std::string("modmgr all:") + family);
+		REQUIRE(mgrAll.find(family) != std::string::npos);
+		INFO(std::string("modmgr user:") + family);
+		REQUIRE(mgrUser.find(family) != std::string::npos);
+	}
+
+	const std::string hub = readFile("port/fast3d/pdgui_menu_moddinghub.cpp");
+	const size_t hubAllBegin =
+		hub.find("static const asset_type_e s_AllTypes[] = {");
+	REQUIRE(hubAllBegin != std::string::npos);
+	const size_t hubAllEnd = hub.find("};", hubAllBegin);
+	REQUIRE(hubAllEnd != std::string::npos);
+	const std::string hubAll =
+		hub.substr(hubAllBegin, hubAllEnd - hubAllBegin);
+	for (const char *family : families) {
+		INFO(std::string("modhub:") + family);
+		REQUIRE(hubAll.find(family) != std::string::npos);
+	}
+	for (const char *descriptor : descriptorNames) {
+		INFO(std::string("hub:") + descriptor);
+		REQUIRE(hub.find(descriptor) != std::string::npos);
+	}
+}
+
 TEST_CASE("legacy pd asset walkers remain registered during external pdmod migration",
           "[modding][pdmod][static][c3809]") {
 	std::string common_h = readFile("port/include/loader_walker_common.h");
@@ -1252,6 +1604,40 @@ TEST_CASE("legacy pd asset walkers remain registered during external pdmod migra
 	REQUIRE(metaWalker.find("loaderWalkerArchiveMemberPath") != std::string::npos);
 	REQUIRE(metaWalker.find("catalogSetPrimaryFile") != std::string::npos);
 	REQUIRE(metaWalker.find("loaderWalkerMarkBaseArchiveEntry") != std::string::npos);
+	REQUIRE(metaWalker.find("s_manifestMemberPath") != std::string::npos);
+	REQUIRE(metaWalker.find("s_copyManifestMemberPath") != std::string::npos);
+	REQUIRE(metaWalker.find("\"body_archive\"") != std::string::npos);
+	REQUIRE(metaWalker.find("\"head_archive\"") != std::string::npos);
+	REQUIRE(metaWalker.find("entry->ext.character.bodyfile") != std::string::npos);
+	REQUIRE(metaWalker.find("entry->ext.character.headfile") != std::string::npos);
+	REQUIRE(metaWalker.find("entry->ext.character.portrait_file") != std::string::npos);
+	REQUIRE(metaWalker.find("entry->ext.character.headfile, source_path") == std::string::npos);
+	REQUIRE(metaWalker.find("entry->ext.prop.model_file") != std::string::npos);
+	REQUIRE(metaWalker.find("entry->ext.prop.behavior_graph") != std::string::npos);
+	REQUIRE(metaWalker.find("entry->ext.vehicle.model_file") != std::string::npos);
+	REQUIRE(metaWalker.find("entry->ext.vehicle.physics_file") != std::string::npos);
+	REQUIRE(metaWalker.find("entry->ext.vehicle.behavior_graph") != std::string::npos);
+	REQUIRE(metaWalker.find("entry->ext.mission.scenario_archive") != std::string::npos);
+	REQUIRE(metaWalker.find("entry->ext.mission.objectives_file") != std::string::npos);
+	REQUIRE(metaWalker.find("entry->ext.mission.briefing_file") != std::string::npos);
+	REQUIRE(metaWalker.find("entry->ext.mission.mission_graph_file") != std::string::npos);
+	REQUIRE(metaWalker.find("entry->ext.hud.texture_file") != std::string::npos);
+	REQUIRE(metaWalker.find("entry->ext.hud.layout_file") != std::string::npos);
+	REQUIRE(metaWalker.find("entry->ext.material.material_file") != std::string::npos);
+	REQUIRE(metaWalker.find("entry->ext.material.texture_archive") != std::string::npos);
+	REQUIRE(metaWalker.find("entry->ext.material.effect_archive") != std::string::npos);
+	REQUIRE(metaWalker.find("\"material_file\", \"file_path\", \"texture_archive\", \"effect_archive\"") != std::string::npos);
+	REQUIRE(metaWalker.find("entry->ext.theme.theme_file") != std::string::npos);
+	REQUIRE(metaWalker.find("entry->ext.theme.ui_archive") != std::string::npos);
+	REQUIRE(metaWalker.find("entry->ext.theme.font_archive") != std::string::npos);
+	REQUIRE(metaWalker.find("entry->ext.theme.audio_archive") != std::string::npos);
+	REQUIRE(metaWalker.find("entry->ext.theme.music_archive") != std::string::npos);
+	REQUIRE(metaWalker.find("entry->ext.theme.effect_archive") != std::string::npos);
+	REQUIRE(metaWalker.find("\"theme_file\", \"ui_archive\", \"font_archive\", \"audio_archive\", \"music_archive\", \"effect_archive\"") != std::string::npos);
+	REQUIRE(metaWalker.find("entry->ext.vehicle.physics_file, source_path") == std::string::npos);
+	REQUIRE(metaWalker.find("entry->ext.hud.texture_file, source_path") == std::string::npos);
+	REQUIRE(metaWalker.find("entry->ext.material.texture_archive, source_path") == std::string::npos);
+	REQUIRE(metaWalker.find("entry->ext.material.effect_archive, source_path") == std::string::npos);
 }
 
 TEST_CASE("weapon content pipeline accepts pdweapon only",
@@ -1321,6 +1707,11 @@ TEST_CASE("weapon content pipeline accepts pdweapon only",
 	REQUIRE(extractor.find("PDWEAPON_DEPENDENCY_CLOSURE_MARKER \"embedded.v14\"") != std::string::npos);
 	REQUIRE(extractor.find("dependency_closure = \" PDWEAPON_DEPENDENCY_CLOSURE_MARKER") != std::string::npos);
 	REQUIRE(extractor.find("PDWEAPON_FAST_CACHE_KIND \"pdweapon_embedded_v14_clean_public\"") != std::string::npos);
+	REQUIRE(extractor.find("\\\"primary_graph\\\": \\\"") != std::string::npos);
+	REQUIRE(extractor.find("\\\"shared_context_file\\\": \\\"") != std::string::npos);
+	REQUIRE(extractor.find("shared_context = \" PDWEAPON_SHARED_CONTEXT_ENTRY") != std::string::npos);
+	REQUIRE(extractor.find("settings = \" PDWEAPON_SETTINGS_ENTRY") != std::string::npos);
+	REQUIRE(extractor.find("variables = \" PDWEAPON_VARIABLES_ENTRY") != std::string::npos);
 	REQUIRE(extractor.find("PDWEAPON_DEP_MODELS \"dependencies/assets/models\"") != std::string::npos);
 	REQUIRE(extractor.find("/held_hi.pdmesh") != std::string::npos);
 	REQUIRE(extractor.find("/held_lo.pdmesh") != std::string::npos);
@@ -1377,6 +1768,28 @@ TEST_CASE("projectile and entity asset kinds are catalog and manifest visible",
 	REQUIRE(scanner.find("projectile.ini - physical projectile behavior metadata") != std::string::npos);
 	REQUIRE(scanner.find("entity.ini - deployed/stuck behavior archetype metadata") != std::string::npos);
 	REQUIRE(scanner.find("catalogDepRegister(e->id, e->ext.projectile.entity_ref") != std::string::npos);
+	{
+		const size_t projectile_start = scanner.find("case ASSET_PROJECTILE:");
+		const size_t entity_start = scanner.find("case ASSET_ENTITY:",
+			projectile_start);
+		const size_t prop_start = scanner.find("case ASSET_PROP:",
+			entity_start);
+		REQUIRE(projectile_start != std::string::npos);
+		REQUIRE(entity_start != std::string::npos);
+		REQUIRE(prop_start != std::string::npos);
+		const std::string projectile_case =
+			scanner.substr(projectile_start, entity_start - projectile_start);
+		const std::string entity_case =
+			scanner.substr(entity_start, prop_start - entity_start);
+		REQUIRE(projectile_case.find("catalogSetPrimaryFile(e, e->ext.projectile.behavior_graph)") !=
+		        std::string::npos);
+		REQUIRE(projectile_case.find("catalogSetPrimaryFile(e, e->ext.projectile.model_file)") ==
+		        std::string::npos);
+		REQUIRE(entity_case.find("catalogSetPrimaryFile(e, e->ext.entity.behavior_graph)") !=
+		        std::string::npos);
+		REQUIRE(entity_case.find("catalogSetPrimaryFile(e, e->ext.entity.model_file)") ==
+		        std::string::npos);
+	}
 
 	std::string packer = readFile("port/src/modpack_pdmod.c");
 	REQUIRE(packer.find("assetArchiveTypeForPath(path)") != std::string::npos);
@@ -1407,6 +1820,34 @@ TEST_CASE("projectile and entity asset kinds are catalog and manifest visible",
 	std::string distrib = readFile("port/src/net/netdistrib.c");
 	REQUIRE(distrib.find("projectile.ini\") == 0) return ASSET_PROJECTILE") != std::string::npos);
 	REQUIRE(distrib.find("entity.ini\") == 0)    return ASSET_ENTITY") != std::string::npos);
+	{
+		const size_t projectile_start = distrib.find("case ASSET_PROJECTILE:");
+		const size_t entity_start = distrib.find("case ASSET_ENTITY:",
+			projectile_start);
+		const size_t anim_start = distrib.find("case ASSET_ANIMATION:",
+			entity_start);
+		REQUIRE(projectile_start != std::string::npos);
+		REQUIRE(entity_start != std::string::npos);
+		REQUIRE(anim_start != std::string::npos);
+		const std::string projectile_case =
+			distrib.substr(projectile_start, entity_start - projectile_start);
+		const std::string entity_case =
+			distrib.substr(entity_start, anim_start - entity_start);
+		REQUIRE(projectile_case.find("distribSetPrimaryFromFile(e, dirpath, e->ext.projectile.behavior_graph)") !=
+		        std::string::npos);
+		REQUIRE(projectile_case.find("distribSetPrimaryFromFile(e, dirpath, e->ext.projectile.model_file)") ==
+		        std::string::npos);
+		REQUIRE(entity_case.find("distribSetPrimaryFromFile(e, dirpath, e->ext.entity.behavior_graph)") !=
+		        std::string::npos);
+		REQUIRE(entity_case.find("distribSetPrimaryFromFile(e, dirpath, e->ext.entity.model_file)") ==
+		        std::string::npos);
+	}
+	REQUIRE(distrib.find("const asset_entry_t *existing = assetCatalogResolve(slot->id)") != std::string::npos);
+	REQUIRE(distrib.find("preserved_entry = *existing") != std::string::npos);
+	REQUIRE(distrib.find("populateExtFromIni(e, type, destdir, &ini, preserved_entry_ptr)") != std::string::npos);
+	REQUIRE(distrib.find("preserved_weapon_requirefeature") != std::string::npos);
+	REQUIRE(distrib.find("iniGetInt(ini, \"dual_wieldable\",\n"
+	                     "                    preserved_dual_wieldable)") != std::string::npos);
 
 	std::string modmgr = readFile("port/src/modmgr.c");
 	REQUIRE(modmgr.find(".pdprojectile") != std::string::npos);
@@ -1500,7 +1941,7 @@ TEST_CASE("weapon graph archive helpers derive IDs and validate graph roots",
 	REQUIRE(std::string(weaponGraphArchiveDescriptorForType(ASSET_PROJECTILE)) == "projectile.ini");
 	REQUIRE(std::string(weaponGraphArchiveDescriptorForType(ASSET_ENTITY)) == "entity.ini");
 	REQUIRE(weaponGraphArchiveGraphRequired(ASSET_WEAPON) == 1);
-	REQUIRE(weaponGraphArchiveGraphRequired(ASSET_PROJECTILE) == 0);
+	REQUIRE(weaponGraphArchiveGraphRequired(ASSET_PROJECTILE) == 1);
 	REQUIRE(weaponGraphArchiveGraphRequired(ASSET_ENTITY) == 1);
 
 	char id[CATALOG_ID_LEN];
@@ -1541,11 +1982,11 @@ TEST_CASE("weapon graph archive helpers derive IDs and validate graph roots",
 		"[projectile]\n"
 		"catalog_id = base:test_projectile\n"
 		"model_file = model.gltf\n";
-	TempArchive projectile = writeArchiveEntries("projectile-graph-root", {
+	TempArchive brokenProjectile = writeArchiveEntries("projectile-graph-root", {
 		{ "projectile.ini", projectileIni },
 	});
-	REQUIRE(weaponGraphArchiveValidateRootFile(projectile.path.string().c_str(),
-		ASSET_PROJECTILE, err, sizeof(err)) == 0);
+	REQUIRE(weaponGraphArchiveValidateRootFile(brokenProjectile.path.string().c_str(),
+		ASSET_PROJECTILE, err, sizeof(err)) != 0);
 
 	const std::string entityIni =
 		"[entity]\n"
@@ -2736,12 +3177,26 @@ TEST_CASE("held weapon graph adapter is wired into runtime callsites",
 	REQUIRE(runtime.find("weaponGraphRuntimeGetProjectileForHeldFunction") != std::string::npos);
 	REQUIRE(runtime.find("weaponGraphRuntimeGetEntityForHeldFunction") != std::string::npos);
 	REQUIRE(runtime.find("weaponGraphRuntimeGetEntityForProjectile") != std::string::npos);
+	REQUIRE(runtime.find("weaponGraphArchiveScanNestedPayloadsFile") != std::string::npos);
+	REQUIRE(runtime.find("weaponGraphCompileArchiveBytes") != std::string::npos);
+	REQUIRE(runtime.find("weaponGraphRuntimeRegisterWeaponArchiveDependencies") != std::string::npos);
+	REQUIRE(runtime.find("weaponGraphRuntimeRegisterBehaviorIrOwned(&ir") != std::string::npos);
+	REQUIRE(runtime.find("weaponGraphRuntimeClearWeaponDependencies") != std::string::npos);
+	REQUIRE(runtime.find("ownerBitsSet") != std::string::npos);
 
 	const std::string lifecycle = readFile("port/src/assetcatalog_load.c");
 	REQUIRE(lifecycle.find("s_catalogTypeUsesWeaponGraphRuntime") != std::string::npos);
+	REQUIRE(lifecycle.find("type == ASSET_WEAPON") != std::string::npos);
+	REQUIRE(lifecycle.find("s_catalogExtractTypedArchiveRoot") != std::string::npos);
+	REQUIRE(lifecycle.find("\".pdweapon\"") != std::string::npos);
+	REQUIRE(lifecycle.find("weaponGraphRuntimeRegisterWeaponArchive(entry->runtime_index") != std::string::npos);
+	REQUIRE(lifecycle.find("s_catalogActivateLooseWeaponGraphRuntime") != std::string::npos);
+	REQUIRE(lifecycle.find("weaponGraphRuntimeRegisterWeaponGraphJson") == std::string::npos);
+	REQUIRE(lifecycle.find("weaponGraphRuntimeRegisterWeaponSourceJson") != std::string::npos);
 	REQUIRE(lifecycle.find("fsFileLoad(source_path") != std::string::npos);
 	REQUIRE(lifecycle.find("weaponGraphRuntimeRegisterBehaviorGraphJson") != std::string::npos);
 	REQUIRE(lifecycle.find("weaponGraphRuntimeClearAsset") != std::string::npos);
+	REQUIRE(lifecycle.find("weaponGraphRuntimeClearWeapon(entry->runtime_index") != std::string::npos);
 }
 
 TEST_CASE("PC weapon switching and function HUD consume action-map state",
@@ -2812,6 +3267,10 @@ TEST_CASE("metadata family INI support covers grouped templates and deps",
 	REQUIRE(scanner.find("animation.ini - external animation metadata") != std::string::npos);
 	REQUIRE(scanner.find("catalogDepRegister(owner_id, dep, is_bundled)") != std::string::npos);
 	REQUIRE(scanner.find("catalogDepRegister(e->ext.anim.target_body, e->id, e->bundled)") != std::string::npos);
+	std::string distrib = readFile("port/src/net/netdistrib.c");
+	REQUIRE(distrib.find("distribRegisterDependencyList(e->id, iniGet(&ini, \"deps\", \"\"), e->bundled)") != std::string::npos);
+	REQUIRE(distrib.find("catalogDepRegister(e->id, e->ext.projectile.entity_ref, e->bundled)") != std::string::npos);
+	REQUIRE(distrib.find("catalogDepRegister(e->ext.anim.target_body, e->id, e->bundled)") != std::string::npos);
 	REQUIRE(scanner.find("\"animation_file\"") != std::string::npos);
 	REQUIRE(scanner.find("\"rules_file\"") != std::string::npos);
 	REQUIRE(scanner.find("\"profile_file\"") != std::string::npos);
@@ -2848,15 +3307,30 @@ TEST_CASE("external UI font and language descriptors use standard files",
 	std::string scanner = readFile("port/src/assetcatalog_scanner.c");
 	REQUIRE(scanner.find("ui.ini - external UI texture metadata") != std::string::npos);
 	REQUIRE(scanner.find("UI texture authoring supports PNG or TGA") != std::string::npos);
+	REQUIRE(scanner.find("e->ext.ui.texture_file") != std::string::npos);
+	REQUIRE(scanner.find("e->ext.ui.layout_file") != std::string::npos);
+	REQUIRE(scanner.find("e->ext.ui.nineslice_file") != std::string::npos);
+	REQUIRE(scanner.find("e->ext.ui.nineslice_left") != std::string::npos);
+	REQUIRE(scanner.find("catalogSetPrimaryFile(e, lf)") == std::string::npos);
 	REQUIRE(scanner.find("font.ini - external UI font metadata") != std::string::npos);
 	REQUIRE(scanner.find("Font authoring supports TTF or OTF") != std::string::npos);
 	REQUIRE(scanner.find("lang.ini - external UTF-8 language-bank metadata") != std::string::npos);
+	REQUIRE(scanner.find("iniGetInt(ini, \"bank_id\",") != std::string::npos);
+	REQUIRE(scanner.find("iniGetInt(ini, \"source_bank\", -1)") != std::string::npos);
+	REQUIRE(scanner.find("e->ext.lang.locale") != std::string::npos);
+	REQUIRE(scanner.find("e->ext.lang.lang_category") != std::string::npos);
+	REQUIRE(scanner.find("e->ext.lang.string_count") != std::string::npos);
 	REQUIRE(scanner.find("strings_file = strings.json") != std::string::npos);
 	REQUIRE(scanner.find("\"strings" "_tsv\"") == std::string::npos);
 
 	std::string catalog = readFile("port/include/assetcatalog.h");
 	REQUIRE(catalog.find("ASSET_FONT") != std::string::npos);
+	REQUIRE(catalog.find("char nineslice_file[128]") != std::string::npos);
+	REQUIRE(catalog.find("s32 nineslice_left") != std::string::npos);
 	REQUIRE(catalog.find("char strings_file[128]") != std::string::npos);
+	REQUIRE(catalog.find("char locale[16]") != std::string::npos);
+	REQUIRE(catalog.find("char lang_category[32]") != std::string::npos);
+	REQUIRE(catalog.find("u32 string_count") != std::string::npos);
 
 	std::string theme = readFile("port/fast3d/pdgui_theme.cpp");
 	REQUIRE(theme.find("stbi_load_from_memory") != std::string::npos);
@@ -2877,9 +3351,30 @@ TEST_CASE("external UI font and language descriptors use standard files",
 
 	std::string distrib = readFile("port/src/net/netdistrib.c");
 	REQUIRE(distrib.find("\"ui.ini\"") != std::string::npos);
+	REQUIRE(distrib.find("e->ext.ui.texture_file") != std::string::npos);
+	REQUIRE(distrib.find("e->ext.ui.layout_file") != std::string::npos);
+	REQUIRE(distrib.find("e->ext.ui.nineslice_file") != std::string::npos);
+	REQUIRE(distrib.find("e->ext.ui.nineslice_left") != std::string::npos);
+	REQUIRE(distrib.find("distribSetPrimaryFromFile(e, dirpath, lf)") == std::string::npos);
 	REQUIRE(distrib.find("\"font.ini\"") != std::string::npos);
 	REQUIRE(distrib.find("\"lang.ini\"") != std::string::npos);
+	REQUIRE(distrib.find("iniGetInt(ini, \"bank_id\",") != std::string::npos);
+	REQUIRE(distrib.find("iniGetInt(ini, \"source_bank\", -1)") != std::string::npos);
+	REQUIRE(distrib.find("e->ext.lang.locale") != std::string::npos);
+	REQUIRE(distrib.find("e->ext.lang.lang_category") != std::string::npos);
+	REQUIRE(distrib.find("e->ext.lang.string_count") != std::string::npos);
 	REQUIRE(distrib.find("e->ext.lang.strings_file") != std::string::npos);
+
+	std::string loader_ui = readFile("port/src/loader_walker_ui.c");
+	REQUIRE(loader_ui.find("e->ext.ui.texture_file") != std::string::npos);
+	REQUIRE(loader_ui.find("e->ext.ui.layout_file") != std::string::npos);
+	REQUIRE(loader_ui.find("e->ext.ui.nineslice_file") != std::string::npos);
+	REQUIRE(loader_ui.find("e->ext.ui.nineslice_left") != std::string::npos);
+
+	std::string runtime = readFile("port/src/asset_runtime.c");
+	REQUIRE(runtime.find("case ASSET_UI:") != std::string::npos);
+	REQUIRE(runtime.find("entry->ext.ui.nineslice_file") != std::string::npos);
+	REQUIRE(runtime.find("binding->ui_nineslice_left") != std::string::npos);
 }
 
 TEST_CASE("catalog game mode and bot profile assets drive live runtime selectors",
@@ -2922,8 +3417,16 @@ TEST_CASE("catalog game mode and bot profile assets drive live runtime selectors
 
 	std::string runtime = readFile("port/src/asset_runtime.c");
 	REQUIRE(runtime.find("entry->ext.gamemode.rules_file") != std::string::npos);
+	REQUIRE(runtime.find("binding->gamemode_name") != std::string::npos);
+	REQUIRE(runtime.find("binding->gamemode_description") != std::string::npos);
+	REQUIRE(runtime.find("binding->gamemode_max_players = entry->ext.gamemode.max_players") != std::string::npos);
+	REQUIRE(runtime.find("binding->gamemode_requirefeature = entry->ext.gamemode.requirefeature") != std::string::npos);
 	REQUIRE(runtime.find("entry->ext.bot_profile.profile_file") != std::string::npos);
 	REQUIRE(runtime.find("entry->ext.bot_profile.target_body") != std::string::npos);
+	REQUIRE(runtime.find("binding->bot_profile_type = entry->ext.bot_profile.type") != std::string::npos);
+	REQUIRE(runtime.find("binding->bot_profile_difficulty = entry->ext.bot_profile.difficulty") != std::string::npos);
+	REQUIRE(runtime.find("binding->bot_profile_name_langid = entry->ext.bot_profile.name_langid") != std::string::npos);
+	REQUIRE(runtime.find("binding->bot_profile_requirefeature = entry->ext.bot_profile.requirefeature") != std::string::npos);
 
 	std::string distrib = readFile("port/src/net/netdistrib.c");
 	REQUIRE(distrib.find("distribParseModeKeyValue") != std::string::npos);
@@ -2937,15 +3440,24 @@ TEST_CASE("skin assets expose saved texture payloads through catalog provider pa
           "[modding][pdxxx][runtime][c3838][skin]") {
 	const std::string catalog = readFile("port/include/assetcatalog.h");
 	REQUIRE(catalog.find("char texture_file[128];          /* appearance payload for this skin */") != std::string::npos);
+	REQUIRE(catalog.find("char swatches_file[128];         /* editable color swatch source */") != std::string::npos);
+	REQUIRE(catalog.find("char material_archive[FS_MAXPATH]; /* typed material dependency archive */") != std::string::npos);
+	REQUIRE(catalog.find("char texture_archive[FS_MAXPATH];  /* typed texture dependency archive */") != std::string::npos);
 
 	const std::string scanner = readFile("port/src/assetcatalog_scanner.c");
 	REQUIRE(scanner.find("case ASSET_SKIN:") != std::string::npos);
 	REQUIRE(scanner.find("texture_file = texture.tga") != std::string::npos);
 	REQUIRE(scanner.find("e->ext.skin.texture_file") != std::string::npos);
+	REQUIRE(scanner.find("e->ext.skin.swatches_file") != std::string::npos);
+	REQUIRE(scanner.find("e->ext.skin.material_archive") != std::string::npos);
+	REQUIRE(scanner.find("e->ext.skin.texture_archive") != std::string::npos);
 	REQUIRE(scanner.find("catalogSetPrimaryFile(e, e->ext.skin.texture_file)") != std::string::npos);
 
 	const std::string distrib = readFile("port/src/net/netdistrib.c");
 	REQUIRE(distrib.find("distribSetPrimaryFromFile(e, dirpath, e->ext.skin.texture_file)") != std::string::npos);
+	REQUIRE(distrib.find("e->ext.skin.swatches_file") != std::string::npos);
+	REQUIRE(distrib.find("e->ext.skin.material_archive") != std::string::npos);
+	REQUIRE(distrib.find("e->ext.skin.texture_archive") != std::string::npos);
 
 	const std::string editor = readFile("port/fast3d/pdgui_skin_editor.cpp");
 	REQUIRE(editor.find("texture_file = texture.tga") != std::string::npos);
@@ -2953,6 +3465,19 @@ TEST_CASE("skin assets expose saved texture payloads through catalog provider pa
 
 	const std::string load = readFile("port/src/assetcatalog_load.c");
 	REQUIRE(load.find("type == ASSET_SKIN") != std::string::npos);
+
+	const std::string runtime = readFile("port/src/asset_runtime.c");
+	REQUIRE(runtime.find("entry->ext.skin.swatches_file") != std::string::npos);
+	REQUIRE(runtime.find("entry->ext.skin.material_archive") != std::string::npos);
+	REQUIRE(runtime.find("entry->ext.skin.texture_archive") != std::string::npos);
+	const std::string runtimeHeader = readFile("port/include/asset_runtime.h");
+	REQUIRE(runtimeHeader.find("char dependency_d[FS_MAXPATH]") != std::string::npos);
+	REQUIRE(runtimeHeader.find("char dependency_e[FS_MAXPATH]") != std::string::npos);
+
+	const std::string walker = readFile("port/src/loader_walker_meta.c");
+	REQUIRE(walker.find("\"swatches_file\"") != std::string::npos);
+	REQUIRE(walker.find("\"material_archive\"") != std::string::npos);
+	REQUIRE(walker.find("\"texture_archive\"") != std::string::npos);
 }
 
 TEST_CASE("metadata asset families expose primary authored files through catalog provider paths",
@@ -2961,26 +3486,115 @@ TEST_CASE("metadata asset families expose primary authored files through catalog
 	REQUIRE(scanner.find("material_file = material.json") != std::string::npos);
 	REQUIRE(scanner.find("texture_file = texture.png") != std::string::npos);
 	REQUIRE(scanner.find("effect_file = effect.graph.json") != std::string::npos);
+	REQUIRE(scanner.find("timeline_file = timeline.json") != std::string::npos);
 	REQUIRE(scanner.find("model_file = model.gltf") != std::string::npos);
 	REQUIRE(scanner.find("scenario_archive = dependencies/assets/scenario/mission.pdscenario") != std::string::npos);
 	REQUIRE(scanner.find("case ASSET_MATERIAL:") != std::string::npos);
 	REQUIRE(scanner.find("case ASSET_EFFECT:") != std::string::npos);
 	REQUIRE(scanner.find("case ASSET_HUD:") != std::string::npos);
+	REQUIRE(scanner.find("case ASSET_PROP:") != std::string::npos);
 	REQUIRE(scanner.find("case ASSET_VEHICLE:") != std::string::npos);
 	REQUIRE(scanner.find("case ASSET_MISSION:") != std::string::npos);
 	REQUIRE(scanner.find("iniGet(ini, \"material_file\"") != std::string::npos);
 	REQUIRE(scanner.find("iniGet(ini, \"effect_file\"") != std::string::npos);
-	REQUIRE(scanner.find("catalogSetPrimaryFile(e, e->ext.hud.texture_file)") != std::string::npos);
+	REQUIRE(scanner.find("e->ext.weapon.primary_graph") != std::string::npos);
+	REQUIRE(scanner.find("e->ext.weapon.secondary_graph") != std::string::npos);
+	REQUIRE(scanner.find("e->ext.weapon.shared_context") != std::string::npos);
+	REQUIRE(scanner.find("e->ext.effect.timeline_file") != std::string::npos);
+	REQUIRE(scanner.find("e->ext.prop.behavior_graph") != std::string::npos);
+	REQUIRE(scanner.find("e->ext.vehicle.behavior_graph : e->ext.vehicle.physics_file") ==
+		std::string::npos);
+	{
+		const auto vehicleStart = scanner.find("case ASSET_VEHICLE:");
+		const auto missionStart = scanner.find("case ASSET_MISSION:", vehicleStart);
+		REQUIRE(vehicleStart != std::string::npos);
+		REQUIRE(missionStart != std::string::npos);
+		const std::string vehicleCase =
+			scanner.substr(vehicleStart, missionStart - vehicleStart);
+		const auto primaryStart =
+			vehicleCase.find("const char *pf = e->ext.vehicle.model_file[0]");
+		const auto primaryEnd = vehicleCase.find("if (pf[0])", primaryStart);
+		REQUIRE(primaryStart != std::string::npos);
+		REQUIRE(primaryEnd != std::string::npos);
+		const std::string primaryExpr =
+			vehicleCase.substr(primaryStart, primaryEnd - primaryStart);
+		REQUIRE(primaryExpr.find("physics_file") == std::string::npos);
+	}
+	{
+		const auto missionStart = scanner.find("case ASSET_MISSION:");
+		const auto themeStart = scanner.find("case ASSET_THEME:", missionStart);
+		REQUIRE(missionStart != std::string::npos);
+		REQUIRE(themeStart != std::string::npos);
+		const std::string missionCase =
+			scanner.substr(missionStart, themeStart - missionStart);
+		REQUIRE(missionCase.find("e->ext.mission.mission_graph_file") !=
+			std::string::npos);
+		REQUIRE(missionCase.find("e->ext.mission.scenario_archive[0]") ==
+			std::string::npos);
+		REQUIRE(missionCase.find("e->ext.mission.objectives_file[0]") ==
+			std::string::npos);
+		REQUIRE(missionCase.find("e->ext.mission.briefing_file") !=
+			std::string::npos);
+	}
+	REQUIRE(scanner.find("catalogSetPrimaryFile(e, e->ext.hud.layout_file)") != std::string::npos);
 	REQUIRE(scanner.find("iniGet(ini, \"scenario_archive\"") != std::string::npos);
 
 	const std::string distrib = readFile("port/src/net/netdistrib.c");
 	REQUIRE(distrib.find("case ASSET_MATERIAL:") != std::string::npos);
+	REQUIRE(distrib.find("case ASSET_MODEL:") != std::string::npos);
 	REQUIRE(distrib.find("case ASSET_EFFECT:") != std::string::npos);
 	REQUIRE(distrib.find("case ASSET_HUD:") != std::string::npos);
+	REQUIRE(distrib.find("case ASSET_PROP:") != std::string::npos);
 	REQUIRE(distrib.find("case ASSET_VEHICLE:") != std::string::npos);
 	REQUIRE(distrib.find("case ASSET_MISSION:") != std::string::npos);
+	REQUIRE(distrib.find("if (strcmp(ini_name, \"mesh.ini\") == 0)      return ASSET_MODEL;") != std::string::npos);
+	REQUIRE(distrib.find("if (strcmp(ini_name, \"model.ini\") == 0)     return ASSET_MODEL;") != std::string::npos);
+	REQUIRE(distrib.find("\"material.ini\", \"mesh.ini\", \"model.ini\", \"effect.ini\"") != std::string::npos);
 	REQUIRE(distrib.find("distribSetPrimaryFromFile(e, dirpath, pf)") != std::string::npos);
-	REQUIRE(distrib.find("distribSetPrimaryFromFile(e, dirpath, e->ext.hud.texture_file)") != std::string::npos);
+	REQUIRE(distrib.find("e->ext.weapon.primary_graph") != std::string::npos);
+	REQUIRE(distrib.find("e->ext.weapon.secondary_graph") != std::string::npos);
+	REQUIRE(distrib.find("e->ext.weapon.shared_context") != std::string::npos);
+	REQUIRE(distrib.find("e->ext.effect.timeline_file") != std::string::npos);
+	REQUIRE(distrib.find("e->ext.prop.behavior_graph") != std::string::npos);
+	REQUIRE(distrib.find("e->ext.vehicle.behavior_graph : e->ext.vehicle.physics_file") ==
+		std::string::npos);
+	{
+		const auto vehicleStart = distrib.find("case ASSET_VEHICLE:");
+		const auto missionStart = distrib.find("case ASSET_MISSION:", vehicleStart);
+		REQUIRE(vehicleStart != std::string::npos);
+		REQUIRE(missionStart != std::string::npos);
+		const std::string vehicleCase =
+			distrib.substr(vehicleStart, missionStart - vehicleStart);
+		const auto primaryStart =
+			vehicleCase.find("const char *pf = e->ext.vehicle.model_file[0]");
+		const auto primaryEnd = vehicleCase.find("if (pf[0])", primaryStart);
+		REQUIRE(primaryStart != std::string::npos);
+		REQUIRE(primaryEnd != std::string::npos);
+		const std::string primaryExpr =
+			vehicleCase.substr(primaryStart, primaryEnd - primaryStart);
+		REQUIRE(primaryExpr.find("physics_file") == std::string::npos);
+	}
+	{
+		const auto missionStart = distrib.find("case ASSET_MISSION:");
+		const auto themeStart = distrib.find("case ASSET_THEME:", missionStart);
+		REQUIRE(missionStart != std::string::npos);
+		REQUIRE(themeStart != std::string::npos);
+		const std::string missionCase =
+			distrib.substr(missionStart, themeStart - missionStart);
+		REQUIRE(missionCase.find("e->ext.mission.mission_graph_file") !=
+			std::string::npos);
+		REQUIRE(missionCase.find("e->ext.mission.scenario_archive[0]") ==
+			std::string::npos);
+		REQUIRE(missionCase.find("e->ext.mission.objectives_file[0]") ==
+			std::string::npos);
+		REQUIRE(missionCase.find("e->ext.mission.briefing_file") !=
+			std::string::npos);
+	}
+	REQUIRE(distrib.find("distribSetPrimaryFromFile(e, dirpath, e->ext.hud.layout_file)") != std::string::npos);
+	REQUIRE(distrib.find("distribParseModeString(iniGet(ini, \"mode\", \"\"))") != std::string::npos);
+	REQUIRE(distrib.find("strcmp(t, \"mp\") == 0") != std::string::npos);
+	REQUIRE(distrib.find("strcmp(t, \"solo\") == 0") != std::string::npos);
+	REQUIRE(distrib.find("strcmp(t, \"coop\") == 0") != std::string::npos);
 
 	const std::string load = readFile("port/src/assetcatalog_load.c");
 	REQUIRE(load.find("type == ASSET_VEHICLE") != std::string::npos);
@@ -2988,6 +3602,14 @@ TEST_CASE("metadata asset families expose primary authored files through catalog
 	REQUIRE(load.find("type == ASSET_HUD") != std::string::npos);
 	REQUIRE(load.find("type == ASSET_EFFECT") != std::string::npos);
 	REQUIRE(load.find("type == ASSET_MATERIAL") != std::string::npos);
+
+	const std::string runtime = readFile("port/src/asset_runtime.c");
+	REQUIRE(runtime.find("entry->ext.weapon.primary_graph") != std::string::npos);
+	REQUIRE(runtime.find("entry->ext.weapon.secondary_graph") != std::string::npos);
+	REQUIRE(runtime.find("entry->ext.weapon.shared_context") != std::string::npos);
+	REQUIRE(runtime.find("entry->ext.effect.timeline_file") != std::string::npos);
+	REQUIRE(runtime.find("entry->ext.prop.behavior_graph") != std::string::npos);
+	REQUIRE(runtime.find("binding->dependency_b") != std::string::npos);
 }
 
 TEST_CASE("external models maps and animations compile from standard sources",
@@ -3018,8 +3640,17 @@ TEST_CASE("external models maps and animations compile from standard sources",
 	REQUIRE(compiler.find("parseObjTexcoordLine") != std::string::npos);
 	REQUIRE(compiler.find("resolveObjIndex(raw_texcoord, texcoord_count") != std::string::npos);
 	REQUIRE(compiler.find("usemtl") != std::string::npos);
+	REQUIRE(compiler.find("validateGeneratedMeshIntegerNativeBoundary") != std::string::npos);
+	REQUIRE(compiler.find("mesh_native_coord_overflow") != std::string::npos);
+	REQUIRE(compiler.find("mesh_native_uv_overflow") != std::string::npos);
+	REQUIRE(compiler.find("collapsed_triangles=%d/%d") != std::string::npos);
+	REQUIRE(compiler.find("modeldef native integer boundary failed") != std::string::npos);
 	REQUIRE(compiler.find("generatedModeldefLoadMaterialMetadata") != std::string::npos);
 	REQUIRE(compiler.find("pd_texture_catalog") != std::string::npos);
+	REQUIRE(compiler.find("objMaterialSetTextureMapPath") != std::string::npos);
+	REQUIRE(compiler.find("map_Kd") != std::string::npos);
+	REQUIRE(compiler.find("assetCatalogIterateByType(ASSET_TEXTURE") != std::string::npos);
+	REQUIRE(compiler.find("did not resolve to a catalog texture") != std::string::npos);
 	REQUIRE(compiler.find("while (*src && isspace((u8)*src))") != std::string::npos);
 	REQUIRE(compiler.find("texLoadFromGdl") != std::string::npos);
 	REQUIRE(compiler.find("\\\"texcoord_count\\\"") != std::string::npos);
@@ -3070,6 +3701,27 @@ TEST_CASE("external models maps and animations compile from standard sources",
 	REQUIRE(compiler.find("MODELNODETYPE_DL") != std::string::npos);
 	REQUIRE(compiler.find("gSPMatrix(gdl++") != std::string::npos);
 	REQUIRE(compiler.find("gSPPopMatrix(gdl++") != std::string::npos);
+
+	const std::string conformance = readFile("tools/asset_archive_conformance.py");
+	REQUIRE(conformance.find("validate_pdmesh_integer_native_boundary") != std::string::npos);
+	REQUIRE(conformance.find("validate_direct_model_source_integer_native_boundary") != std::string::npos);
+	REQUIRE(conformance.find("validate_pdmesh_obj_integer_native_boundary") != std::string::npos);
+	REQUIRE(conformance.find("validate_pdmesh_gltf_integer_native_boundary") != std::string::npos);
+	REQUIRE(conformance.find("validate_vehicle_source_contract") != std::string::npos);
+	REQUIRE(conformance.find("validate_mission_source_contract") != std::string::npos);
+	REQUIRE(conformance.find("validate_mission_briefing_json_schema") != std::string::npos);
+	REQUIRE(conformance.find("pdmesh_gltf_json_and_bin") != std::string::npos);
+	REQUIRE(conformance.find("glTF external binary buffers are not allowed") != std::string::npos);
+	REQUIRE(conformance.find("POSITION vertex") != std::string::npos);
+	REQUIRE(conformance.find("model.glb") != std::string::npos);
+	REQUIRE(conformance.find("model.gltf") != std::string::npos);
+	REQUIRE(conformance.find("ext in {\".pdprop\", \".pdvehicle\"}") != std::string::npos);
+	REQUIRE(conformance.find("direct_model_source_members(name_set)") != std::string::npos);
+	REQUIRE(conformance.find("weapon.ini model_file member {model_file} is missing") != std::string::npos);
+	REQUIRE(conformance.find("optional_source_members =") != std::string::npos);
+	REQUIRE(conformance.find("manifest.get(key)") != std::string::npos);
+	REQUIRE(conformance.find("vertex cannot quantize to native s16 coordinates") != std::string::npos);
+	REQUIRE(conformance.find("texcoord cannot quantize to native s16 UV units") != std::string::npos);
 	REQUIRE(compiler.find("gSPTexture(gdl++, 0, 0, 0, 0, 0)") != std::string::npos);
 	REQUIRE(compiler.find("dst->s = clampToS16(texcoord->u * 32.0f)") != std::string::npos);
 	REQUIRE(compiler.find("dst->t = clampToS16((1.0f - texcoord->v) * 32.0f)") != std::string::npos);
@@ -3166,6 +3818,10 @@ TEST_CASE("external models maps and animations compile from standard sources",
 	REQUIRE(scanner.find("iniGet(ini, \"rooms_file\"") != std::string::npos);
 	REQUIRE(scanner.find("iniGet(ini, \"scene_file\"") != std::string::npos);
 	REQUIRE(scanner.find("e->source_animnum = e->ext.anim.anim_id") != std::string::npos);
+	REQUIRE(scanner.find("#include \"loader_pool.h\"") != std::string::npos);
+	REQUIRE(scanner.find("registerAnimationCommandSource(e->id, cf)") != std::string::npos);
+	REQUIRE(scanner.find("loaderPoolParseAnimationSourceJson(json, json_size, source_path)") != std::string::npos);
+	REQUIRE(scanner.find("loaderPoolFinalize()") != std::string::npos);
 
 	std::string distrib = readFile("port/src/net/netdistrib.c");
 	REQUIRE(distrib.find("\"head.ini\"") != std::string::npos);
@@ -3174,6 +3830,13 @@ TEST_CASE("external models maps and animations compile from standard sources",
 	REQUIRE(distrib.find("\"scenario.ini\"") != std::string::npos);
 	REQUIRE(distrib.find("\"animation.ini\"") != std::string::npos);
 	REQUIRE(distrib.find("case ASSET_ANIMATION:") != std::string::npos);
+	REQUIRE(distrib.find("#include \"loader_pool.h\"") != std::string::npos);
+	REQUIRE(distrib.find("distribRegisterAnimationCommandSource(e->id, dirpath, cf)") != std::string::npos);
+	REQUIRE(distrib.find("loaderPoolParseAnimationSourceJson(json, json_size, path)") != std::string::npos);
+	REQUIRE(distrib.find("e->ext.anim.bytes_per_frame = iniGetInt(ini, \"bytes_per_frame\", 0)") != std::string::npos);
+	REQUIRE(distrib.find("e->ext.anim.header_len = iniGetInt(ini, \"header_len\", 0)") != std::string::npos);
+	REQUIRE(distrib.find("e->ext.anim.framelen = iniGetInt(ini, \"framelen\", 0)") != std::string::npos);
+	REQUIRE(distrib.find("e->ext.anim.flags = iniGetInt(ini, \"flags\", 0)") != std::string::npos);
 	REQUIRE(distrib.find("case ASSET_SCENARIO:") != std::string::npos);
 	REQUIRE(distrib.find("case ASSET_GAMEMODE:") != std::string::npos);
 }
@@ -3360,6 +4023,8 @@ TEST_CASE("modder examples are zip-openable typed pdxxx asset archives",
 		"examples/modding/typed-pdxxx-basic/bodies/tri_body.pdbody";
 	const std::string arenaArchivePath =
 		"examples/modding/typed-pdxxx-basic/arenas/tri_arena.pdarena";
+	const std::string scenarioArchivePath =
+		"examples/modding/typed-pdxxx-basic/scenarios/tri_scenario.pdscenario";
 	const std::string meshArchivePath =
 		"examples/modding/typed-pdxxx-basic/meshes/tri_mesh.pdmesh";
 	const std::string materialArchivePath =
@@ -3399,6 +4064,11 @@ TEST_CASE("modder examples are zip-openable typed pdxxx asset archives",
 	REQUIRE(character.find("catalog_id = example:tri_character") != std::string::npos);
 	REQUIRE(character.find("body_archive = dependencies/assets/body/tri_body.pdbody") != std::string::npos);
 	REQUIRE(character.find("head_archive = dependencies/assets/head/tri_head.pdhead") != std::string::npos);
+	REQUIRE(character.find("portrait_file = portrait.png") != std::string::npos);
+	const std::string characterManifest = readArchiveEntryText(characterArchivePath.c_str(), "_meta/manifest.json");
+	REQUIRE(characterManifest.find("\"body_archive\": \"dependencies/assets/body/tri_body.pdbody\"") != std::string::npos);
+	REQUIRE(characterManifest.find("\"head_archive\": \"dependencies/assets/head/tri_head.pdhead\"") != std::string::npos);
+	REQUIRE(characterManifest.find("\"portrait_file\": \"portrait.png\"") != std::string::npos);
 
 	const std::string head = readArchiveEntryText(headArchivePath.c_str(), "head.ini");
 	REQUIRE(head.find("catalog_id = example:tri_head") != std::string::npos);
@@ -3440,41 +4110,89 @@ TEST_CASE("modder examples are zip-openable typed pdxxx asset archives",
 		REQUIRE_FALSE(archiveHasEntry(opened.archive, "geometry.obj"));
 	}
 
+	const std::string scenario = readArchiveEntryText(scenarioArchivePath.c_str(), "scenario.ini");
+	const std::string scenarioManifest =
+		readArchiveEntryText(scenarioArchivePath.c_str(), "_meta/manifest.json");
+	REQUIRE(scenario.find("runtime_source_file = scene.glb") != std::string::npos);
+	REQUIRE(scenarioManifest.find("\"runtime_source\": \"scene.glb\"") != std::string::npos);
+	REQUIRE(scenario.find("portals_file = portals.json") != std::string::npos);
+	REQUIRE(scenarioManifest.find("\"portals\": \"portals.json\"") != std::string::npos);
+	REQUIRE(scenario.find("ai_lists_file = ai/ailists.json") != std::string::npos);
+	REQUIRE(scenarioManifest.find("\"ai_lists\": \"ai/ailists.json\"") != std::string::npos);
+	REQUIRE(scenario.find("objectives_file = objectives.json") != std::string::npos);
+	REQUIRE(scenarioManifest.find("\"objectives\": \"objectives.json\"") != std::string::npos);
+	REQUIRE(scenario.find("navigation_file = navigation.ini") != std::string::npos);
+	REQUIRE(scenarioManifest.find("\"navigation\": \"navigation.ini\"") != std::string::npos);
+	REQUIRE(scenario.find("level_graph_file = level.graph.json") != std::string::npos);
+	REQUIRE(scenarioManifest.find("\"level_graph\": \"level.graph.json\"") != std::string::npos);
+
 	const std::string mesh = readArchiveEntryText(meshArchivePath.c_str(), "mesh.ini");
 	const std::string meshModel = readArchiveEntryText(meshArchivePath.c_str(), "model.gltf");
+	const std::string meshManifest =
+		readArchiveEntryText(meshArchivePath.c_str(), "_meta/manifest.json");
 	REQUIRE(mesh.find("catalog_id = example:tri_mesh") != std::string::npos);
 	REQUIRE(mesh.find("model_file = model.gltf") != std::string::npos);
+	REQUIRE(meshManifest.find("\"geometry\": \"model.gltf\"") != std::string::npos);
+	REQUIRE(meshManifest.find("\"model_file\": \"model.gltf\"") != std::string::npos);
 	REQUIRE(meshModel.find("\"TEXCOORD_0\"") != std::string::npos);
 	REQUIRE(meshModel.find("\"baseColorFactor\"") != std::string::npos);
 
 	const std::string material = readArchiveEntryText(materialArchivePath.c_str(), "material.ini");
+	const std::string materialSource =
+		readArchiveEntryText(materialArchivePath.c_str(), "material.json");
+	const std::string materialManifest =
+		readArchiveEntryText(materialArchivePath.c_str(), "_meta/manifest.json");
 	REQUIRE(material.find("catalog_id = example:tri_material") != std::string::npos);
+	REQUIRE(material.find("material_file = material.json") != std::string::npos);
 	REQUIRE(material.find("texture_archive = dependencies/assets/texture/tri_texture.pdtexture") != std::string::npos);
+	REQUIRE(material.find("effect_archive = dependencies/assets/effects/tri_effect.pdeffect") != std::string::npos);
+	REQUIRE(materialSource.find("\"schema\": \"pd2.material.v1\"") != std::string::npos);
+	REQUIRE(materialSource.find("\"texture_slots\"") != std::string::npos);
+	REQUIRE(materialManifest.find("\"material_file\": \"material.json\"") != std::string::npos);
+	REQUIRE(materialManifest.find("\"texture_archive\": \"dependencies/assets/texture/tri_texture.pdtexture\"") != std::string::npos);
+	REQUIRE(materialManifest.find("\"effect_archive\": \"dependencies/assets/effects/tri_effect.pdeffect\"") != std::string::npos);
 
 	const std::string texture = readArchiveEntryText(textureArchivePath.c_str(), "texture.ini");
+	const std::string textureManifest =
+		readArchiveEntryText(textureArchivePath.c_str(), "_meta/manifest.json");
 	REQUIRE(texture.find("catalog_id = example:tri_texture") != std::string::npos);
 	REQUIRE(texture.find("texture_file = texture.png") != std::string::npos);
+	REQUIRE(textureManifest.find("\"texture_file\": \"texture.png\"") != std::string::npos);
 
 	const std::string skin = readArchiveEntryText(skinArchivePath.c_str(), "skin.ini");
 	REQUIRE(skin.find("catalog_id = example:tri_skin") != std::string::npos);
 	REQUIRE(skin.find("texture_file = texture.tga") != std::string::npos);
+	REQUIRE(skin.find("swatches_file = swatches.json") != std::string::npos);
 	REQUIRE(skin.find("material_archive = dependencies/assets/material/tri_material.pdmaterial") != std::string::npos);
+	REQUIRE(skin.find("texture_archive = dependencies/assets/texture/tri_texture.pdtexture") != std::string::npos);
+	const std::string skinSwatches = readArchiveEntryText(skinArchivePath.c_str(), "swatches.json");
+	REQUIRE(skinSwatches.find("\"schema\": \"pd2.skin.swatches.v1\"") != std::string::npos);
 
 	const std::string effect = readArchiveEntryText(effectArchivePath.c_str(), "effect.ini");
 	const std::string effectGraph = readArchiveEntryText(effectArchivePath.c_str(), "effect.graph.json");
+	const std::string effectTimeline = readArchiveEntryText(effectArchivePath.c_str(), "timeline.json");
+	const std::string effectManifest =
+		readArchiveEntryText(effectArchivePath.c_str(), "_meta/manifest.json");
 	REQUIRE(effect.find("catalog_id = example:tri_effect") != std::string::npos);
 	REQUIRE(effect.find("effect_key = glow") != std::string::npos);
 	REQUIRE(effect.find("target_key = weapon") != std::string::npos);
 	REQUIRE(effect.find("effect_type") == std::string::npos);
 	REQUIRE(effect.find("effect_file = effect.graph.json") != std::string::npos);
+	REQUIRE(effect.find("timeline_file = timeline.json") != std::string::npos);
 	REQUIRE(effectGraph.find("\"schema\": \"pd.effect_graph.v1\"") != std::string::npos);
+	REQUIRE(effectTimeline.find("\"schema\": \"pd2.effect.timeline.v1\"") != std::string::npos);
+	REQUIRE(effectManifest.find("\"effect_file\": \"effect.graph.json\"") != std::string::npos);
+	REQUIRE(effectManifest.find("\"timeline_file\": \"timeline.json\"") != std::string::npos);
 
 	const std::string prop = readArchiveEntryText(propArchivePath.c_str(), "prop.ini");
+	const std::string propManifest = readArchiveEntryText(propArchivePath.c_str(), "_meta/manifest.json");
 	REQUIRE(prop.find("catalog_id = example:tri_prop") != std::string::npos);
 	REQUIRE(prop.find("prop_key = object") != std::string::npos);
 	REQUIRE(prop.find("prop_type") == std::string::npos);
 	REQUIRE(prop.find("model_file = model.gltf") != std::string::npos);
 	REQUIRE(prop.find("behavior_graph = behavior.graph.json") != std::string::npos);
+	REQUIRE(propManifest.find("\"model_file\": \"model.gltf\"") != std::string::npos);
+	REQUIRE(propManifest.find("\"behavior_graph\": \"behavior.graph.json\"") != std::string::npos);
 
 	const std::string vehicle = readArchiveEntryText(vehicleArchivePath.c_str(), "vehicle.ini");
 	REQUIRE(vehicle.find("catalog_id = example:tri_vehicle") != std::string::npos);
@@ -3482,12 +4200,17 @@ TEST_CASE("modder examples are zip-openable typed pdxxx asset archives",
 	REQUIRE(vehicle.find("physics_file = physics.json") != std::string::npos);
 
 	const std::string mission = readArchiveEntryText(missionArchivePath.c_str(), "mission.ini");
+	const std::string missionManifest =
+		readArchiveEntryText(missionArchivePath.c_str(), "_meta/manifest.json");
 	REQUIRE(mission.find("catalog_id = example:tri_mission") != std::string::npos);
 	REQUIRE(mission.find("mission_graph_file = mission.graph.json") != std::string::npos);
 	REQUIRE(mission.find("scenario_archive = dependencies/assets/scenarios/tri_scenario.pdscenario") != std::string::npos);
 	REQUIRE(mission.find("scenario_graph_cache = pdscenario_scene_glb_clean_public_v95_standalone_backfill_collision_obj_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json") != std::string::npos);
 	REQUIRE(mission.find("objectives_file = objectives.json") != std::string::npos);
 	REQUIRE(mission.find("briefing_file = briefing.json") != std::string::npos);
+	REQUIRE(missionManifest.find("\"objectives_file\": \"objectives.json\"") != std::string::npos);
+	REQUIRE(missionManifest.find("\"briefing_file\": \"briefing.json\"") != std::string::npos);
+	REQUIRE(missionManifest.find(".tsv") == std::string::npos);
 
 	const std::string gamemode = readArchiveEntryText(gamemodeArchivePath.c_str(), "gamemode.ini");
 	REQUIRE(gamemode.find("catalog_id = example:tri_gamemode") != std::string::npos);
@@ -3502,37 +4225,86 @@ TEST_CASE("modder examples are zip-openable typed pdxxx asset archives",
 	REQUIRE(botprofile.find("profile_file = profile.json") != std::string::npos);
 
 	const std::string hud = readArchiveEntryText(hudArchivePath.c_str(), "hud.ini");
+	const std::string hudManifest =
+		readArchiveEntryText(hudArchivePath.c_str(), "_meta/manifest.json");
 	REQUIRE(hud.find("catalog_id = example:tri_hud") != std::string::npos);
 	REQUIRE(hud.find("hud_key = ammo") != std::string::npos);
 	REQUIRE(hud.find("hud_id") == std::string::npos);
 	REQUIRE(hud.find("element_type") == std::string::npos);
 	REQUIRE(hud.find("texture_file = texture.png") != std::string::npos);
 	REQUIRE(hud.find("layout_file = layout.json") != std::string::npos);
+	REQUIRE(hudManifest.find("\"texture_file\": \"texture.png\"") != std::string::npos);
+	REQUIRE(hudManifest.find("\"layout_file\": \"layout.json\"") != std::string::npos);
 
 	const std::string theme = readArchiveEntryText(themeArchivePath.c_str(), "theme.ini");
 	REQUIRE(theme.find("catalog_id = example:tri_theme") != std::string::npos);
 	REQUIRE(theme.find("theme_file = theme.json") != std::string::npos);
 	REQUIRE(theme.find("ui_archive = dependencies/assets/ui/tri_reticle.pdui") != std::string::npos);
+	REQUIRE(theme.find("font_archive = dependencies/assets/font/tri_font.pdfont") != std::string::npos);
+	REQUIRE(theme.find("audio_archive = dependencies/assets/audio/tri_click.pdsfx") != std::string::npos);
+	REQUIRE(theme.find("music_archive = dependencies/assets/music/tri_song.pdsong") != std::string::npos);
+	REQUIRE(theme.find("effect_archive = dependencies/assets/effects/tri_effect.pdeffect") != std::string::npos);
+	const std::string themeManifest = readArchiveEntryText(themeArchivePath.c_str(), "_meta/manifest.json");
+	REQUIRE(themeManifest.find("\"audio_archive\": \"dependencies/assets/audio/tri_click.pdsfx\"") != std::string::npos);
+	REQUIRE(themeManifest.find("\"music_archive\": \"dependencies/assets/music/tri_song.pdsong\"") != std::string::npos);
+	REQUIRE(themeManifest.find("\"effect_archive\": \"dependencies/assets/effects/tri_effect.pdeffect\"") != std::string::npos);
 
 	const std::string entity = readArchiveEntryText(entityArchivePath.c_str(), "entity.ini");
 	const std::string bindings = readArchiveEntryText(entityArchivePath.c_str(), "bindings.json");
+	const std::string entityManifest =
+		readArchiveEntryText(entityArchivePath.c_str(), "_meta/manifest.json");
 	REQUIRE(entity.find("catalog_id = example:tri_entity") != std::string::npos);
 	REQUIRE(entity.find("bindings_file = bindings.json") != std::string::npos);
+	REQUIRE(entityManifest.find("\"bindings_file\": \"bindings.json\"") != std::string::npos);
+	REQUIRE(entity.find("behavior_graph = behavior.graph.json") != std::string::npos);
+	REQUIRE(entityManifest.find("\"behavior_graph\": \"behavior.graph.json\"") != std::string::npos);
+	REQUIRE(entity.find("composition_file = composition.json") != std::string::npos);
+	REQUIRE(entityManifest.find("\"composition_file\": \"composition.json\"") != std::string::npos);
 	REQUIRE(bindings.find("\"schema\": \"pd.entity.bindings.v1\"") != std::string::npos);
 
 	const std::string projectile = readArchiveEntryText(projectileArchivePath.c_str(), "projectile.ini");
+	const std::string projectileManifest =
+		readArchiveEntryText(projectileArchivePath.c_str(), "_meta/manifest.json");
 	REQUIRE(projectile.find("catalog_id = example:tri_projectile") != std::string::npos);
 	REQUIRE(projectile.find("behavior_graph = behavior.graph.json") != std::string::npos);
+	REQUIRE(projectileManifest.find("\"behavior_graph\": \"behavior.graph.json\"") != std::string::npos);
 
 	const std::string weapon = readArchiveEntryText(weaponArchiveFullPath.c_str(), "weapon.ini");
+	const std::string weaponManifest =
+		readArchiveEntryText(weaponArchiveFullPath.c_str(), "_meta/manifest.json");
 	const std::string weaponPrimaryGraph =
 		readArchiveEntryText(weaponArchiveFullPath.c_str(), "behavior/primary.graph.json");
 	const std::string weaponSecondaryGraph =
 		readArchiveEntryText(weaponArchiveFullPath.c_str(), "behavior/secondary.graph.json");
 	REQUIRE(weapon.find("catalog_id = example:tri_weapon") != std::string::npos);
 	REQUIRE(weapon.find("model_file = dependencies/assets/models/weapon.pdmesh") != std::string::npos);
+	REQUIRE(weaponManifest.find("\"model_file\": \"dependencies/assets/models/weapon.pdmesh\"") != std::string::npos);
 	REQUIRE(weapon.find("primary_graph = behavior/primary.graph.json") != std::string::npos);
+	REQUIRE(weaponManifest.find("\"primary_graph\": \"behavior/primary.graph.json\"") != std::string::npos);
 	REQUIRE(weapon.find("secondary_graph = behavior/secondary.graph.json") != std::string::npos);
+	REQUIRE(weaponManifest.find("\"secondary_graph\": \"behavior/secondary.graph.json\"") != std::string::npos);
+	REQUIRE(weapon.find("settings_file = behavior/settings.json") != std::string::npos);
+	REQUIRE(weaponManifest.find("\"settings_file\": \"behavior/settings.json\"") != std::string::npos);
+	REQUIRE(weapon.find("variables_file = behavior/variables.json") != std::string::npos);
+	REQUIRE(weaponManifest.find("\"variables_file\": \"behavior/variables.json\"") != std::string::npos);
+	REQUIRE(weapon.find("shared_context_file = behavior/shared-context.json") != std::string::npos);
+	REQUIRE(weaponManifest.find("\"shared_context_file\": \"behavior/shared-context.json\"") != std::string::npos);
+	REQUIRE(weapon.find("material_slots_file = bindings/material-slots.json") != std::string::npos);
+	REQUIRE(weaponManifest.find("\"material_slots_file\": \"bindings/material-slots.json\"") != std::string::npos);
+	REQUIRE(weapon.find("grip_sockets_file = bindings/grip-sockets.json") != std::string::npos);
+	REQUIRE(weaponManifest.find("\"grip_sockets_file\": \"bindings/grip-sockets.json\"") != std::string::npos);
+	REQUIRE(weapon.find("presentation_file = bindings/presentation.json") != std::string::npos);
+	REQUIRE(weaponManifest.find("\"presentation_file\": \"bindings/presentation.json\"") != std::string::npos);
+	REQUIRE(weapon.find("primary_projectile_archive = dependencies/assets/projectiles/primary.pdprojectile") != std::string::npos);
+	REQUIRE(weaponManifest.find("\"primary_projectile_archive\": \"dependencies/assets/projectiles/primary.pdprojectile\"") != std::string::npos);
+	REQUIRE(weapon.find("deployed_entity_archive = dependencies/assets/entities/deployed.pdentity") != std::string::npos);
+	REQUIRE(weaponManifest.find("\"deployed_entity_archive\": \"dependencies/assets/entities/deployed.pdentity\"") != std::string::npos);
+	REQUIRE(weapon.find("fire_sound_archive = dependencies/assets/audio/fire.pdsfx") != std::string::npos);
+	REQUIRE(weaponManifest.find("\"fire_sound_archive\": \"dependencies/assets/audio/fire.pdsfx\"") != std::string::npos);
+	REQUIRE(weapon.find("idle_animation_archive = dependencies/assets/animations/idle.pdanim") != std::string::npos);
+	REQUIRE(weaponManifest.find("\"idle_animation_archive\": \"dependencies/assets/animations/idle.pdanim\"") != std::string::npos);
+	REQUIRE(weapon.find("reticle_archive = dependencies/assets/ui/reticle.pdui") != std::string::npos);
+	REQUIRE(weaponManifest.find("\"reticle_archive\": \"dependencies/assets/ui/reticle.pdui\"") != std::string::npos);
 	REQUIRE(weapon.find("behavior_graph") == std::string::npos);
 	REQUIRE(weaponPrimaryGraph.find("\"schema\": \"pd.weapon_graph.v1\"") != std::string::npos);
 	REQUIRE(weaponPrimaryGraph.find("\"asset_id\": \"example:tri_weapon\"") != std::string::npos);
@@ -3541,16 +4313,103 @@ TEST_CASE("modder examples are zip-openable typed pdxxx asset archives",
 	REQUIRE(weapon.find("texture_file = weapon_texture.png") == std::string::npos);
 	REQUIRE(weapon.find("animation_file = reload.gltf") == std::string::npos);
 	REQUIRE(weapon.find("file_path = fire.wav") == std::string::npos);
+	REQUIRE(weaponPrimaryGraph.find("\"kind\": \"spawn.fired_projectile\"") != std::string::npos);
+	REQUIRE(weaponPrimaryGraph.find("\"projectile_ref\": \"example:tri_projectile\"") != std::string::npos);
+	REQUIRE(weaponPrimaryGraph.find("\"from\": \"trigger_primary\"") != std::string::npos);
+	REQUIRE(weaponPrimaryGraph.find("\"to\": \"spawn_projectile\"") != std::string::npos);
+	REQUIRE(weaponPrimaryGraph.find("\"node\": \"spawn_projectile\"") != std::string::npos);
+	REQUIRE(weaponPrimaryGraph.find("\"kind\": \"spawn.projectile\"") == std::string::npos);
+	REQUIRE(weaponPrimaryGraph.find(".exec") == std::string::npos);
+	REQUIRE(weaponSecondaryGraph.find("\"kind\": \"spawn.thrown_physical\"") != std::string::npos);
+	REQUIRE(weaponSecondaryGraph.find("\"entity_ref\": \"example:tri_entity\"") != std::string::npos);
+	REQUIRE(weaponSecondaryGraph.find("\"from\": \"trigger_secondary\"") != std::string::npos);
+	REQUIRE(weaponSecondaryGraph.find("\"to\": \"deploy_entity\"") != std::string::npos);
+	REQUIRE(weaponSecondaryGraph.find("\"node\": \"deploy_entity\"") != std::string::npos);
+	REQUIRE(weaponSecondaryGraph.find("\"kind\": \"spawn.deployed_entity\"") == std::string::npos);
+	REQUIRE(weaponSecondaryGraph.find(".exec") == std::string::npos);
+	{
+		weapon_graph_ir_t weaponIr;
+		char err[256] = {};
+		REQUIRE(weaponGraphCompileArchiveFile(weaponArchiveFullPath.c_str(),
+			ASSET_WEAPON, &weaponIr, err, sizeof(err)) == 0);
+		weaponGraphRuntimeClearAll();
+		weaponGraphRuntimeSetEnabled(1);
+		INFO(err);
+		REQUIRE(weaponGraphRuntimeRegisterWeaponArchive(WEAPON_CUSTOM_START,
+			weaponArchiveFullPath.c_str(), err, sizeof(err)) == 0);
+		const weapon_graph_held_function_t *primary =
+			weaponGraphRuntimeGetHeldFunctionForGameplay(WEAPON_CUSTOM_START, 0);
+		const weapon_graph_held_function_t *secondary =
+			weaponGraphRuntimeGetHeldFunctionForGameplay(WEAPON_CUSTOM_START, 1);
+		REQUIRE(primary != nullptr);
+		REQUIRE(secondary != nullptr);
+		REQUIRE(primary->opcode == WEAPON_GRAPH_OP_SPAWN_FIRED_PROJECTILE);
+		REQUIRE(std::string(primary->projectile_ref) == "example:tri_projectile");
+		REQUIRE(secondary->opcode == WEAPON_GRAPH_OP_SPAWN_THROWN_PHYSICAL);
+		REQUIRE(std::string(secondary->entity_ref) == "example:tri_entity");
+		const weapon_graph_projectile_runtime_t *projectileRuntime =
+			weaponGraphRuntimeGetProjectileForHeldFunction(primary);
+		const weapon_graph_entity_runtime_t *entityRuntime =
+			weaponGraphRuntimeGetEntityForHeldFunction(secondary);
+		REQUIRE(projectileRuntime != nullptr);
+		REQUIRE(entityRuntime != nullptr);
+		REQUIRE(std::string(projectileRuntime->asset_id) == "example:tri_projectile");
+		REQUIRE(std::string(projectileRuntime->motion_kind) == "authored");
+		REQUIRE(projectileRuntime->has_speed == 1);
+		REQUIRE(projectileRuntime->speed == Approx(18.0f));
+		REQUIRE(projectileRuntime->has_timer60 == 1);
+		REQUIRE(projectileRuntime->timer60 == 120);
+		REQUIRE(projectileRuntime->has_transition_to_entity == 1);
+		REQUIRE(std::string(projectileRuntime->entity_ref) == "example:tri_entity");
+		REQUIRE(std::string(projectileRuntime->transition_when) == "at_rest");
+		REQUIRE(projectileRuntime->transfer_owner == 1);
+		REQUIRE(projectileRuntime->transfer_position == 1);
+		REQUIRE(std::string(entityRuntime->asset_id) == "example:tri_entity");
+		REQUIRE(entityRuntime->has_armed_explosive == 1);
+		REQUIRE(std::string(entityRuntime->archetype) == "deployed_triangle");
+		REQUIRE(entityRuntime->has_activation_time60 == 1);
+		REQUIRE(entityRuntime->activation_time60 == 30);
+		REQUIRE(entityRuntime->has_recovery_time60 == 1);
+		REQUIRE(entityRuntime->recovery_time60 == 15);
+		REQUIRE(entityRuntime->delete_on_detonate == 1);
+		REQUIRE(entityRuntime->has_owner_cleanup == 1);
+		REQUIRE(entityRuntime->max_active_per_owner == 1);
+		REQUIRE(weaponGraphRuntimeGetEntityForProjectile(projectileRuntime) ==
+			entityRuntime);
+		weaponGraphRuntimeClearWeapon(WEAPON_CUSTOM_START);
+		REQUIRE(weaponGraphRuntimeGetHeldFunctionForGameplay(
+			WEAPON_CUSTOM_START, 0) == nullptr);
+		REQUIRE(weaponGraphRuntimeGetHeldFunctionForGameplay(
+			WEAPON_CUSTOM_START, 1) == nullptr);
+		REQUIRE(weaponGraphRuntimeGetProjectile("example:tri_projectile") ==
+			nullptr);
+		REQUIRE(weaponGraphRuntimeGetEntity("example:tri_entity") ==
+			nullptr);
+		weaponGraphRuntimeSetEnabled(0);
+		weaponGraphRuntimeClearAll();
+	}
 
 	const std::string weaponAnim = readArchiveEntryText(weaponArchivePath.c_str(), "animation.ini");
+	const std::string weaponAnimManifest =
+		readArchiveEntryText(weaponArchivePath.c_str(), "_meta/manifest.json");
 	const std::string weaponGltf = readArchiveEntryText(weaponArchivePath.c_str(), "animation.gltf");
 	const std::string skeletalAnim = readArchiveEntryText(skeletalArchivePath.c_str(), "animation.ini");
+	const std::string skeletalAnimManifest =
+		readArchiveEntryText(skeletalArchivePath.c_str(), "_meta/manifest.json");
 	const std::string skeletalGltf = readArchiveEntryText(skeletalArchivePath.c_str(), "animation.gltf");
 	REQUIRE(weaponAnim.find("catalog_id = example:weapon_idle") != std::string::npos);
 	REQUIRE(weaponAnim.find("category = weapon_animation") != std::string::npos);
+	REQUIRE(weaponAnimManifest.find("\"category\": \"weapon_animation\"") != std::string::npos);
+	REQUIRE(weaponAnimManifest.find("\"animation\": \"animation.gltf\"") != std::string::npos);
+	REQUIRE(weaponAnimManifest.find("\"runtime_source\": \"animation.gltf\"") != std::string::npos);
+	REQUIRE(weaponAnimManifest.find("\"animation_file\": \"animation.gltf\"") != std::string::npos);
 	REQUIRE(weaponGltf.find("\"animations\"") != std::string::npos);
 	REQUIRE(skeletalAnim.find("catalog_id = example:character_skeletal") != std::string::npos);
 	REQUIRE(skeletalAnim.find("category = character_animation") != std::string::npos);
+	REQUIRE(skeletalAnimManifest.find("\"category\": \"character_animation\"") != std::string::npos);
+	REQUIRE(skeletalAnimManifest.find("\"animation\": \"animation.gltf\"") != std::string::npos);
+	REQUIRE(skeletalAnimManifest.find("\"runtime_source\": \"animation.gltf\"") != std::string::npos);
+	REQUIRE(skeletalAnimManifest.find("\"animation_file\": \"animation.gltf\"") != std::string::npos);
 	REQUIRE(skeletalGltf.find("\"path\": \"translation\"") != std::string::npos);
 
 	REQUIRE_FALSE(std::filesystem::exists(root / "heads/tri_head/model.gltf"));
@@ -3611,7 +4470,9 @@ TEST_CASE("typed pdxxx example archives carry the implemented asset payloads",
 			".pdmaterial",
 			"materials/tri_material.pdmaterial",
 			{ "material.ini",
+			  "material.json",
 			  "dependencies/assets/texture/tri_texture.pdtexture",
+			  "dependencies/assets/effects/tri_effect.pdeffect",
 			  "_meta/manifest.json" },
 		},
 		{
@@ -3624,7 +4485,7 @@ TEST_CASE("typed pdxxx example archives carry the implemented asset payloads",
 			"skin",
 			".pdskin",
 			"skins/tri_skin.pdskin",
-			{ "skin.ini", "texture.tga",
+			{ "skin.ini", "texture.tga", "swatches.json",
 			  "dependencies/assets/material/tri_material.pdmaterial",
 			  "_meta/manifest.json" },
 		},
@@ -3682,6 +4543,9 @@ TEST_CASE("typed pdxxx example archives carry the implemented asset payloads",
 			{ "theme.ini", "theme.json",
 			  "dependencies/assets/ui/tri_reticle.pdui",
 			  "dependencies/assets/font/tri_font.pdfont",
+			  "dependencies/assets/audio/tri_click.pdsfx",
+			  "dependencies/assets/music/tri_song.pdsong",
+			  "dependencies/assets/effects/tri_effect.pdeffect",
 			  "_meta/manifest.json" },
 		},
 		{
@@ -3739,19 +4603,22 @@ TEST_CASE("typed pdxxx example archives carry the implemented asset payloads",
 			"music",
 			".pdsong",
 			"audio/music/tri_song.pdsong",
-			{ "music.ini", "track.wav", "_meta/manifest.json" },
+			{ "music.ini", "sequence.mid", "sequence.json",
+			  "_meta/manifest.json" },
 		},
 		{
 			"UI texture",
 			".pdui",
 			"ui/tri_reticle.pdui",
-			{ "ui.ini", "texture.png", "_meta/manifest.json" },
+			{ "ui.ini", "texture.png", "layout.json", "nineslice.ini",
+			  "_meta/manifest.json" },
 		},
 		{
 			"font",
 			".pdfont",
 			"fonts/tri_font.pdfont",
-			{ "font.ini", "font.otf", "_meta/manifest.json" },
+			{ "font.ini", "glyphs.pgm", "font.metrics.json",
+			  "_meta/manifest.json" },
 		},
 		{
 			"language",
@@ -3855,7 +4722,7 @@ TEST_CASE("typed pdxxx example archives keep declared source refs self-contained
 		{
 			"materials/tri_material.pdmaterial",
 			"material.ini",
-			{ "texture_archive" },
+			{ "material_file", "texture_archive", "effect_archive" },
 			{},
 			{},
 		},
@@ -3869,15 +4736,15 @@ TEST_CASE("typed pdxxx example archives keep declared source refs self-contained
 		{
 			"skins/tri_skin.pdskin",
 			"skin.ini",
-			{ "texture_file", "material_archive" },
+			{ "texture_file", "swatches_file", "material_archive", "texture_archive" },
 			{},
 			{},
 		},
 		{
 			"effects/tri_effect.pdeffect",
 			"effect.ini",
-			{ "effect_file" },
-			{ "effect.graph.json" },
+			{ "effect_file", "timeline_file" },
+			{ "effect.graph.json", "timeline.json" },
 			{},
 		},
 		{
@@ -3925,7 +4792,8 @@ TEST_CASE("typed pdxxx example archives keep declared source refs self-contained
 		{
 			"themes/tri_theme.pdtheme",
 			"theme.ini",
-			{ "theme_file", "ui_archive", "font_archive" },
+			{ "theme_file", "ui_archive", "font_archive", "audio_archive",
+			  "music_archive", "effect_archive" },
 			{ "theme.json" },
 			{},
 		},
@@ -3986,21 +4854,21 @@ TEST_CASE("typed pdxxx example archives keep declared source refs self-contained
 		{
 			"audio/music/tri_song.pdsong",
 			"music.ini",
-			{ "file_path" },
+			{ "music_file", "midi_file", "events_file" },
 			{},
 			{},
 		},
 		{
 			"ui/tri_reticle.pdui",
 			"ui.ini",
-			{ "texture_file" },
+			{ "texture_file", "layout_file", "nineslice_file" },
 			{},
 			{},
 		},
 		{
 			"fonts/tri_font.pdfont",
 			"font.ini",
-			{ "font_file" },
+			{ "font_file", "glyphs_file", "metrics_file" },
 			{},
 			{},
 		},
@@ -4014,9 +4882,11 @@ TEST_CASE("typed pdxxx example archives keep declared source refs self-contained
 		{
 			"scenarios/tri_scenario.pdscenario",
 			"scenario.ini",
-			{ "scene_file", "runtime_source_file", "pads_file",
+			{ "scene_file", "runtime_source_file", "portals_file", "pads_file",
 			  "spawns_file", "volumes_file", "objects_file",
-			  "setup_fields_file", "objectives_file", "navigation_file", "level_graph_file" },
+			  "setup_fields_file", "objectives_file", "navigation_file",
+			  "waypoints_file", "waygroups_file", "covers_file",
+			  "paths_file", "level_graph_file" },
 			{},
 			{},
 		},
@@ -4059,6 +4929,36 @@ TEST_CASE("Modding Hub exposes typed pdxxx examples as pack input",
 	        std::string::npos);
 	REQUIRE(hub.find("editable content is inside the typed .pdxxx asset archives") !=
 	        std::string::npos);
+}
+
+TEST_CASE("Map Import stages editable source layouts instead of native map dumps",
+          "[modding][pdxxx][mapimport][source][static][c3844]") {
+	const std::string mapimport = readFile("port/src/mapimport.c");
+	const std::string mapimport_h = readFile("port/include/mapimport.h");
+	const std::string hub = readFile("port/fast3d/pdgui_menu_moddinghub.cpp");
+	REQUIRE(!mapimport.empty());
+	REQUIRE(!mapimport_h.empty());
+	REQUIRE(!hub.empty());
+
+	REQUIRE(mapimport.find("isForbiddenNativePayload") != std::string::npos);
+	REQUIRE(mapimport.find("MAPIMPORT_ERR_FORBIDDEN_NATIVE_PAYLOAD") != std::string::npos);
+	REQUIRE(mapimport.find("scene.glb") != std::string::npos);
+	REQUIRE(mapimport.find("scene.gltf") != std::string::npos);
+	REQUIRE(mapimport.find("geometry.obj") != std::string::npos);
+	REQUIRE(mapimport.find(".pdarena") != std::string::npos);
+	REQUIRE(mapimport.find(".pdscenario") != std::string::npos);
+	REQUIRE(mapimport.find("copyDirRecursive(ctx->source_dir") != std::string::npos);
+	REQUIRE(mapimport.find("snprintf(dstpath, sizeof(dstpath), \"%s/%s.bg\"") ==
+	        std::string::npos);
+	REQUIRE(mapimport.find("PD-native binary format importer") == std::string::npos);
+	REQUIRE(mapimport.find("PD BG files are typically") == std::string::npos);
+	REQUIRE(mapimport.find("Expected a .bg or .bin file") == std::string::npos);
+	REQUIRE(mapimport_h.find("has_source_geometry") != std::string::npos);
+	REQUIRE(mapimport_h.find("MAPIMPORT_ERR_NO_BG_FILE") == std::string::npos);
+	REQUIRE(mapimport_h.find("MAPIMPORT_ERR_CORRUPT_BG") == std::string::npos);
+	REQUIRE(hub.find("Native .bg/.bin/.pad/.setup payloads are rejected.") !=
+	        std::string::npos);
+	REQUIRE(hub.find("Import PD-format map files") == std::string::npos);
 }
 
 TEST_CASE("Modding Hub exposes weapon graph browser tab",
@@ -5304,8 +6204,12 @@ TEST_CASE("base character animation extractor emits semantic gltf payloads",
 	REQUIRE(anim.find("s_animDescriptorHeaderLen") != std::string::npos);
 	REQUIRE(anim.find("s_existingArchiveHasAnimPayloads") !=
 	        std::string::npos);
-	REQUIRE(anim.find("PDANIM_CHR_SCHEMA_VERSION 3") !=
+	REQUIRE(anim.find("PDANIM_CHR_SCHEMA_VERSION 4") !=
 	        std::string::npos);
+	REQUIRE(anim.find("PDANIM_CHR_GENERATOR") != std::string::npos);
+	REQUIRE(anim.find("pd_zero_frame_placeholder") !=
+	        std::string::npos);
+	REQUIRE(anim.find("semantic extractor v4") != std::string::npos);
 	REQUIRE(anim.find("\\\"runtime_source\\\": \\\"animation.gltf\\\"") !=
 	        std::string::npos);
 	REQUIRE(anim.find("animation.gltf") != std::string::npos);
@@ -5317,6 +6221,10 @@ TEST_CASE("base character animation extractor emits semantic gltf payloads",
 	REQUIRE(anim.find("\\\"pd_anim_flags\\\"") != std::string::npos);
 	REQUIRE(anim.find("\\\"pd_repeat_ranges\\\"") != std::string::npos);
 	REQUIRE(anim.find("\\\"pd_cut_skip_frames\\\"") != std::string::npos);
+	REQUIRE(anim.find("modArchiveExtractAlloc(arc, gltf_idx") !=
+	        std::string::npos);
+	REQUIRE(anim.find("\\\"generator\\\": \\\"\" PDANIM_CHR_GENERATOR") !=
+	        std::string::npos);
 
 	REQUIRE(anim.find("header.tsv") == std::string::npos);
 	REQUIRE(anim.find("frames.tsv") == std::string::npos);
@@ -5359,6 +6267,59 @@ TEST_CASE("animation compiler reads full embedded gltf buffer uris",
 	REQUIRE(compiler.find("ANIMFLAG_HASCUTSKIPFRAMES") !=
 	        std::string::npos);
 	REQUIRE(compiler.find("writeBe16(p, 0xffff)") != std::string::npos);
+}
+
+TEST_CASE("animation compiler resamples gltf channels by authored input time",
+          "[modding][pdxxx][base][static][c3812][B-804]") {
+	const std::string compiler = readFile("port/src/modasset_compiler.c");
+	REQUIRE(!compiler.empty());
+
+	REQUIRE(compiler.find("gltfChannelReadInputTime") != std::string::npos);
+	REQUIRE(compiler.find("gltfChannelFrameTime") != std::string::npos);
+	REQUIRE(compiler.find("gltfChannelFindSampleForTime") != std::string::npos);
+	REQUIRE(compiler.find("gltfChannelSampleFloat") != std::string::npos);
+	REQUIRE(compiler.find("gltfChannelSampleQuat") != std::string::npos);
+	REQUIRE(compiler.find("step_interpolation") != std::string::npos);
+	REQUIRE(compiler.find("strcmp(sampler->interpolation, \"STEP\") == 0") !=
+	        std::string::npos);
+	REQUIRE(compiler.find("gltfAnimationSampleForFrame") == std::string::npos);
+
+	const auto payload = compiler.find("static s32 gltfBuildAnimationClipPayload");
+	REQUIRE(payload != std::string::npos);
+	const auto translation = compiler.find("gltfChannelSampleFloat(channel, frame", payload);
+	REQUIRE(translation != std::string::npos);
+	const auto rotation = compiler.find("gltfChannelSampleQuat(channel, frame", payload);
+	REQUIRE(rotation != std::string::npos);
+	const auto scale = compiler.find("writeBeFloat(p + 0, gltfChannelSampleFloat(channel", payload);
+	REQUIRE(scale != std::string::npos);
+}
+
+TEST_CASE("animation compiler preserves zero-frame no-op gltf clips at animtable boundary",
+          "[modding][pdxxx][base][static][c3812][B-772]") {
+	const std::string compiler = readFile("port/src/modasset_compiler.c");
+	REQUIRE(!compiler.empty());
+
+	const auto payload = compiler.find("static s32 gltfBuildAnimationClipPayload");
+	REQUIRE(payload != std::string::npos);
+	const auto frameClamp = compiler.find("if (frame_count <= 0)", payload);
+	REQUIRE(frameClamp != std::string::npos);
+	REQUIRE(compiler.find("frame_count = 1;", frameClamp) != std::string::npos);
+
+	const auto noChannel = compiler.find("if (clip->channel_count <= 0)", payload);
+	REQUIRE(noChannel != std::string::npos);
+	const auto normalChannel = compiler.find("part_count = clip->part_count", noChannel);
+	REQUIRE(normalChannel != std::string::npos);
+	const std::string block = compiler.substr(noChannel, normalChannel - noChannel);
+
+	REQUIRE(block.find("data = calloc(1, (size_t)(1 + tail_len));") != std::string::npos);
+	REQUIRE(block.find("data[0] = 0;") != std::string::npos);
+	REQUIRE(block.find("out_entry->numframes = (u16)frame_count;") != std::string::npos);
+	REQUIRE(block.find("out_entry->bytesperframe = 0;") != std::string::npos);
+	REQUIRE(block.find("out_entry->data = 0xffffffff;") != std::string::npos);
+	REQUIRE(block.find("out_entry->headerlen = (u16)header_len;") != std::string::npos);
+	REQUIRE(block.find("out_entry->framelen = 16;") != std::string::npos);
+	REQUIRE(block.find("*out_data_size = (u32)header_len;") != std::string::npos);
+	REQUIRE(block.find("return 1;") != std::string::npos);
 }
 
 TEST_CASE("base weapon animation extractor emits zip-openable command payloads",
@@ -5511,6 +6472,23 @@ TEST_CASE("base mesh extractor emits standard obj geometry payloads",
 	REQUIRE(mesh.find("model.parts.json") != std::string::npos);
 	REQUIRE(mesh.find("model.faces.json") != std::string::npos);
 	REQUIRE(mesh.find("model.render.json") != std::string::npos);
+	const std::string conformance = readFile("tools/asset_archive_conformance.py");
+	REQUIRE(conformance.find("validate_pdmesh_hierarchy_contract") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("model.render.json must contain a non-empty commands array") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("model.faces.json row count") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("model.render.json must reference every model.faces.json") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("model.nodes.json render node") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("node_unresolved") != std::string::npos);
+	REQUIRE(conformance.find("node == -1 and node_unresolved is True") !=
+	        std::string::npos);
+	const std::string compiler = readFile("port/src/modasset_compiler.c");
+	REQUIRE(compiler.find("node_id < 0 && node_unresolved") !=
+	        std::string::npos);
 	REQUIRE(mesh.find("\\\"node_unresolved\\\": %s") != std::string::npos);
 	REQUIRE(mesh.find("model.nodes.tsv") == std::string::npos);
 	REQUIRE(mesh.find("model.parts.tsv") == std::string::npos);

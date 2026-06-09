@@ -12,10 +12,80 @@ import argparse
 import io
 import sys
 import zipfile
+from dataclasses import dataclass
 from collections.abc import Iterable
 from pathlib import Path
 
-from asset_archive_conformance import validate_scene_glb_texture_contract
+from asset_archive_conformance import (
+    _glb_json_and_bin,
+    validate_scene_glb_texture_contract,
+)
+
+
+CURRENT_SCENARIO_GLB_STAMP = (
+    "bg_visual_scene_glb_v11_dccuv_rsptexscale_texshift_samplerwrap_"
+    "untextured_uvbound_color0_alphamask_materialextras_dualtex"
+)
+
+
+@dataclass
+class SceneMaterialStats:
+    checked: int = 0
+    current_v11: int = 0
+    materials: int = 0
+    materials_with_pd2: int = 0
+    complete_pd2_materials: int = 0
+    secondary_textures: int = 0
+
+
+def update_scene_material_stats(
+    label: str,
+    data: bytes,
+    stats: SceneMaterialStats,
+    errors: list[str],
+) -> None:
+    try:
+        gltf_json, _bin_chunk = _glb_json_and_bin(data)
+    except Exception as exc:  # validated below, only avoid losing summary counts
+        errors.append(f"{label} scene.glb could not be counted: {exc}")
+        return
+
+    asset = gltf_json.get("asset")
+    generator = asset.get("generator", "") if isinstance(asset, dict) else ""
+    if isinstance(generator, str) and CURRENT_SCENARIO_GLB_STAMP in generator:
+        stats.current_v11 += 1
+
+    materials = gltf_json.get("materials", [])
+    if not isinstance(materials, list):
+        return
+
+    for material in materials:
+        if not isinstance(material, dict):
+            continue
+        stats.materials += 1
+        extras = material.get("extras", {})
+        pd2_material = (
+            extras.get("pd2_material") if isinstance(extras, dict) else None
+        )
+        if not isinstance(pd2_material, dict):
+            continue
+        stats.materials_with_pd2 += 1
+        complete_keys = {
+            "texture_command",
+            "primary_image",
+            "secondary_image",
+            "wrap_s",
+            "wrap_t",
+            "offset",
+            "shift_s",
+            "shift_t",
+            "min_lod",
+            "tile_flag",
+        }
+        if all(key in pd2_material for key in complete_keys):
+            stats.complete_pd2_materials += 1
+        if isinstance(pd2_material.get("secondaryTexture"), dict):
+            stats.secondary_textures += 1
 
 
 def read_scene_glbs_from_archive(path: Path, label: str) -> list[tuple[str, bytes]]:
@@ -71,10 +141,15 @@ def main(argv: list[str]) -> int:
             "containing them."
         ),
     )
+    parser.add_argument(
+        "--require-secondary",
+        action="store_true",
+        help="Fail if no material contains a pd2_material.secondaryTexture binding.",
+    )
     args = parser.parse_args(argv)
 
     errors: list[str] = []
-    checked = 0
+    stats = SceneMaterialStats()
 
     for path in iter_scene_inputs(args.paths):
         try:
@@ -85,10 +160,13 @@ def main(argv: list[str]) -> int:
 
         for label, data in glbs:
             validate_scene_glb_texture_contract(label, data, errors)
-            checked += 1
+            update_scene_material_stats(label, data, stats, errors)
+            stats.checked += 1
 
-    if not checked and not errors:
+    if not stats.checked and not errors:
         errors.append("no scene.glb files or .pdscenario archives were found")
+    if args.require_secondary and stats.secondary_textures == 0:
+        errors.append("no pd2_material.secondaryTexture bindings were found")
 
     if errors:
         print("scene.glb texture contract failed:", file=sys.stderr)
@@ -96,7 +174,15 @@ def main(argv: list[str]) -> int:
             print(f"  - {error}", file=sys.stderr)
         return 1
 
-    print(f"scene.glb texture contract ok: checked={checked}")
+    print(
+        "scene.glb texture contract ok: "
+        f"checked={stats.checked} "
+        f"current_v11={stats.current_v11} "
+        f"materials={stats.materials} "
+        f"pd2_materials={stats.materials_with_pd2} "
+        f"complete_pd2_materials={stats.complete_pd2_materials} "
+        f"secondary_textures={stats.secondary_textures}"
+    )
     return 0
 
 

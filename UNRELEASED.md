@@ -13,18 +13,141 @@
 
 ## Added
 
+- Cleaned the Kanban Active lane so the current asset-parity completion path is the only active critical work, with unrelated cards deferred or marked done.
+- Fixed source-backed menu model previews so custom provider handles avoid the character-preview sentinel and weapon previews receive visual model source instead of split graph source.
+- Fixed unresolved character body source so it no longer renders as the wrong built-in body.
+- Fixed catalog-backed body/head selector identity so custom rows beyond the old base body/head counts keep their catalog IDs through selection, default-head, bot, and config paths.
+- Fixed body/head archive walking so user-authored meshes without private runtime slots no longer masquerade as built-in slot zero.
+- Fixed Forge prop, door, and weapon-pad model spawns so source-backed visual models use catalog/provider handles and `.pdmesh` inner model source instead of requiring positive legacy file numbers.
+- Fixed Training and Hangar model previews so source-backed weapon/vehicle rows use catalog/provider handles before legacy file-number fallback.
+- Fixed Map Import so it stages editable map source layouts or typed map archives instead of accepting native `.bg`/`.bin` map dumps.
+- Fixed source-backed weapon, vehicle, and prop previews so custom catalog rows no longer require a legacy ROM file number.
+- Fixed the Modding Hub model scale tool so it reads public `.pdmesh::mesh.ini` source metadata instead of editing native model bytes.
+- Fixed walked prop archives so behavior graphs cannot replace prop/model source as the selected provider handle.
+- Fixed base and walked vehicle archives so `physics.json` cannot replace model or behavior source as the selected provider handle.
+- Fixed theme archive activation so UI/font/audio/music/effect dependencies cannot replace the required `theme.json` source.
+- Fixed material archive activation so texture/effect dependencies cannot replace the required `material.json` source.
+- Fixed skin archive activation so material/texture dependencies cannot replace required skin source such as `skin.json`, texture, or swatches data.
+- Fixed HUD archive activation so `texture_file` cannot replace the required `layout.json` source.
+- Fixed UI archive activation so layout and nine-slice metadata cannot replace the required texture source.
+- Fixed font and language archive activation so primary paths, font metrics, or bankless strings cannot replace required authored source.
+- Fixed mission archive activation so Scenario/objective/briefing members cannot replace the required complete mission source bundle.
+- Fixed projectile/entity archive activation so model files cannot replace required behavior graph source.
+- Fixed character/body/head archive activation so portraits, hand meshes, legacy model paths, or selected primary paths cannot replace required body/mesh source.
+- Fixed weapon archive activation so model files, selected primary paths, legacy single graphs, or partial graph settings cannot replace required split held source.
+- Fixed prop archive activation so behavior graphs or selected primary paths cannot replace required prop/model source.
+- Fixed Scenario archive activation so selected primary paths or partial source bundles cannot replace required scene, setup, navigation, and level graph source.
+- Fixed Arena archive activation so legacy geometry paths or selected primary paths cannot replace the required Scenario archive source.
+- Fixed checked-in typed material examples so `.pdmaterial` archives and nested copies carry editable `material.json` source.
+- Fixed runtime bindings so arena, body, head, prop, weapon, projectile, and entity archives keep display/name and unlock metadata after activation.
 - Added a shared no-public-TSV release gate so typed archives reject TSV payloads and require semantic JSON/INI/graph or standard editable source files instead.
+- Tightened typed archive conformance so public manifests and text metadata reject stale TSV references, not only TSV archive members.
 - Tightened the native-source guard so TSV no longer counts as a public text-source suffix; old TSV member names are retained only as stale-archive rejection fingerprints.
 - Removed dead Scenario TSV diagnostic ledgers from extraction and updated the Chicago source smoke so runtime proof requires JSON Scenario and mission source paths.
 - Fixed source-built Scenario room-list validation so a full valid room list with its terminator in the reserved final slot no longer logs as malformed during Chicago source-scene gameplay.
 - Fixed Scenario source-scene texture alpha so public `scene.glb` materials mark masked textures and the native source renderer no longer draws transparent texels as solid dark pixels.
 - Fixed Scenario source-scene camera delivery so public `scene.glb` maps still render when the VI camera FOV is temporarily zero during stage startup/cutscene state.
+- Added Scenario `scene.glb` material extras so public map geometry preserves texture-command, sampler, and secondary-texture metadata instead of flattening materials to one base texture.
+- Added a non-visual Scenario `scene.glb` verifier that reports material-extras and secondary-texture coverage without launching the game.
+- Added a CPU-only Scenario source-renderer probe so `scene.glb` build failures can be separated from live camera/GPU render failures without launching the game.
+- Fixed Scenario source-scene material parsing so extracted levels build renderer CPU data quickly instead of stalling on real material/texture tables.
+- Fixed Scenario source-scene rendering so valid `scene.glb` maps draw against the active game framebuffer dimensions and do not leak viewport state into later display-list rendering.
+- Fixed Scenario source-scene material sampling so DCC UVs, runtime-repeat UVs, and secondary texture UV bindings are preserved instead of flattening all texture layers onto one coordinate set.
+- Fixed Scenario source-scene shader diagnostics so compile/link failures log the exact renderer failure instead of looking like bad extracted geometry.
+- Tightened Scenario `scene.glb` validation so material extras must include native integer tile/LOD fields and correct secondary runtime-UV bindings.
 - Fixed configured SFX speech alias extraction so MP3-backed voice lines no longer fail `.pdsfx` extraction as out-of-bank sounds.
 - Added typed `.pdvoice::sample.mp3` source archives for MP3-backed speech aliases so playback and duration no longer depend on loose extracted binary files.
 - Fixed MP3-backed configured speech playback so voice aliases use the correct audio config row for volume, pan, filtering, and response behavior.
+- Fixed MP3-backed `.pdvoice` playback so public `sample.mp3` voice archives use the source-backed SFX/voice path instead of failing WAV-only playback.
+- Added offline repair tools for stale retained generated `.pdanim`, metadata, mission, weapon, projectile, and entity archives whose public source already matches the current contract.
+- Fixed source-backed SFX/voice playback so native key-volume table changes affect public WAV handles instead of being flattened by the file mixer.
+- Fixed source-backed SFX/voice playback so later pan and volume changes preserve native sample pan and sample volume metadata.
+- Fixed source-backed SFX/voice playback so native FX mix and FX bus state drive a bounded audible send/return path for public WAV handles.
+- Fixed source-backed `.pdsong` playback so public stream and sequence sources are tried before legacy sequence ROM-address validation.
+- Fixed source-only `.pdsong` resolution so valid public song sources are not misclassified as missing source, while failed public compile/stream still refuses ROM fallback.
+- Fixed source-only `.pdtexture` loading so non-image public source paths cannot fall back into the legacy compressed texture loader.
+- Fixed source-only `.pdanim` loading so failed or non-GLTF public animation sources cannot fall back to native animation bytes.
+- Fixed OGG-backed source audio decoding so stereo OGG files keep their full decoded sample length instead of truncating during runtime conversion.
+- Recorded the current custom `.pdsong` integer-slot limitation so fully user-created songs stay tracked until runtime selection can use catalog IDs or catalog-owned music slots.
+- Fixed custom sequence-backed `.pdsong` selection so catalog-ID songs can use private virtual sequence slots without exposing integer slots to modders.
 - Fixed Scenario path archive loading so sparse or duplicate native path IDs are preserved instead of forcing `navigation/paths.json` rows to match row numbers.
 - Fixed `.pdmesh` extraction so real model archives with unresolved native part-table links are preserved instead of skipped.
+- Fixed `.pdmesh` hierarchy rebuilds so unresolved native part rows are preserved as editable metadata without breaking generated modeldef construction.
+- Fixed editable `.pdmesh` archives so manifest metadata points at the actual GLTF/OBJ model source before registration.
+- Recorded the current mesh/runtime integer-only geometry boundary so extracted and imported meshes preserve or quantize into native fixed-point semantics instead of float-only visual geometry.
+- Tightened `.pdmesh` import validation so custom geometry rejects coordinates/UVs that cannot quantize into the current native integer mesh domain.
+- Tightened `.pdmesh` GLTF/GLB archive validation so custom mesh sources fail before runtime if they cannot quantize into the native integer mesh domain.
+- Fixed custom `.pdweapon` private MP slots so spawn defaults derive ammo/model data from parsed weapon source instead of empty slot rows.
+- Fixed custom `.pdweapon` private slots so removed mod weapons no longer leave stale runtime/MP slot reservations after a catalog rebuild.
+- Fixed model-less base `.pdweapon` archives so they no longer advertise a missing held mesh source member.
+- Fixed the checked-in custom `.pdweapon` example so its graph source compiles and registers through the held weapon runtime.
+- Tightened Scenario and Weapon typed archive manifests so loader-facing source keys and optional weapon dependencies stay visible to manifest-driven tools.
+- Tightened direct `.pdprop` and `.pdvehicle` model-source validation so OBJ/GLTF/GLB sources must match the same native integer mesh boundary as `.pdmesh` before runtime load.
 - Fixed another source-built mesh usage path so generated modeldefs use direct display-list pointers during character/object hit tests instead of being treated like segmented ROM model bytes.
+- Fixed source-backed body/head activation so embedded `.pdmesh` archives compile their public model source instead of being handed to native model loading as archive bytes.
+- Fixed source-backed body hand activation so `.pdbody::hand.pdmesh` feeds first-person hand model loading through the catalog instead of remaining archive-only source data.
+- Fixed source-backed `.pdanim` rebuilds so authored glTF timing and `STEP`/`LINEAR` sampler behavior are preserved when clips are converted back into runtime animation frames.
+- Tightened `.pdanim` validation so glTF sampler interpolation and accessor types must match the runtime animation compiler.
+- Fixed editable `.pdanim` archives so manifest metadata names the actual GLTF/command source consumed by animation registration.
+- Fixed local and network `.pdanim` command animations so `commands.json` is parsed into the weapon animation pool instead of only being registered as a file path.
+- Fixed character `.pdanim` extraction currentness so stale GLTF payloads cannot be skipped just because manifest metadata looks current.
+- Fixed network-distributed typed archives so shared `.pdanim` and `.pdtexture` assets keep the same animation metadata and source texture override data as locally scanned archives.
+- Fixed network-distributed typed archives so shared assets keep the same dependency closure as locally scanned archives.
+- Fixed network-distributed model and legacy audio descriptors so shared `.pdmesh`/model rows and `audio.ini` metadata match locally scanned archives.
+- Fixed network-distributed map and Scenario descriptors so readable mode strings like `mp|solo` match locally scanned archives.
+- Fixed network-distributed weapon descriptors so shared `.pdweapon` rows preserve the same existing weapon defaults as locally scanned archives.
+- Fixed network distribution for large custom typed-archive packs so catalog advertisement, missing-asset reports, and transfer queues no longer truncate at old fixed integer caps.
+- Fixed runtime bindings so large typed archive sets no longer drop source-backed runtime visibility after the old 256-entry cap.
+- Fixed catalog dependency graph coverage so large typed archive dependency closure is tested past the old 256-entry initial allocation.
+- Recorded the all-family integer-only runtime limitation so remaining numeric slots stay private bridge/cache details instead of becoming modder-authored archive fields.
+- Fixed gamemode and bot-profile runtime bindings so selector metadata stays available by name after archive activation instead of flattening into generic fields.
+- Fixed effect runtime activation so shader metadata cannot stand in for missing authored effect graph or timeline source.
+- Fixed effect archive activation so an outer archive path cannot replace the required effect graph or timeline source.
+- Fixed vehicle archive activation so `physics.json` cannot stand in for model/behavior source and model/behavior source cannot load without required physics data.
+- Fixed gamemode and bot-profile activation so outer archive paths cannot replace required `rules.json` or `profile.json` source.
+- Fixed metadata archive source walking so vehicle, mission, HUD, material, and theme dependency members stay distinct after boot-time registration.
+- Fixed extracted `.pdmission` archives so mission graph, objectives, briefing, and embedded Scenario source members are all declared in manifest metadata and survive boot-time registration.
+- Fixed editable `.pdhud` archives so HUD texture and layout source members are declared in manifest metadata before boot-time registration.
+- Fixed editable `.pdtexture` archives so texture image source members are declared in manifest metadata before registration.
+- Fixed runtime adapter bindings so skin, HUD, and mission archives keep distinct authored and dependency files after activation.
+- Fixed Scenario runtime bindings so public scene, collision, setup, navigation, objective, and graph source members stay visible after activation.
+- Fixed Scenario portal source propagation so `portals.json` remains an explicit catalog/runtime member after scanning, sharing, and activation.
+- Tightened WAV-backed `.pdsfx` and `.pdvoice` archives so keymap, loop, envelope, pan, and volume metadata cannot be omitted from editable audio source.
+- Tightened WAV-backed `.pdsfx` and `.pdvoice` validation so metadata must match the actual PCM16 mono `sample.wav` header.
+- Fixed sequence-backed `.pdsong` archives so `sequence.mid` and `sequence.json` bind as public music source during local scan and network delivery.
+- Fixed bitmap `.pdfont` archives so glyph atlases and metrics JSON survive scanning, sharing, boot walking, and runtime activation together.
+- Fixed `.pdlang` archives so extractor-style `source_bank`, locale, category, string count, and `strings.json` survive scanning, sharing, and boot walking together.
+- Fixed `.pdlang` runtime activation so public strings source and bank metadata remain visible through the runtime binding layer.
+- Fixed `.pdui` archives so layout and nine-slice metadata survive scanning, sharing, boot walking, and runtime activation with the texture source.
+- Fixed `.pdprop` archives so behavior graph source survives scanning, sharing, boot walking, and runtime activation with the prop model source.
+- Fixed `.pdprojectile` and `.pdentity` archives so graph, binding, and composition source members are declared in manifest metadata before runtime registration.
+- Fixed `.pdmaterial` examples and validation so embedded material effect archives stay declared as public source dependencies.
+- Fixed `.pdeffect` archives so timeline source survives scanning, sharing, boot walking, and runtime activation with the effect graph source.
+- Tightened `.pdanim` archive conformance so stale generated character animation GLTF and malformed weapon command sources fail the normal all-family archive gate.
+- Fixed Scenario navigation source propagation so waypoint, waygroup, cover, and path JSON members remain explicit catalog/runtime members after scanning, sharing, and activation.
+- Fixed Scenario folder-to-`.pdmod` templates so new user-created Scenario folders start with semantic JSON sidecars instead of TSV-shaped `pads.json` and include the required portal, setup, AI, and navigation source members.
+- Fixed `.pdskin` archives so editable swatch source survives scanning, sharing, boot walking, and runtime activation.
+- Fixed `.pdskin` archives so typed material and texture dependency archives survive scanning, sharing, boot walking, and runtime activation.
+- Fixed `.pdtheme` archives so UI, font, audio, music, and effect dependency archives survive scanning, sharing, boot walking, packaging, and runtime activation.
+- Fixed `.pdcharacter` archives so body, head, and portrait source members survive scanning, sharing, packaging, boot walking, and runtime activation.
+- Fixed `.pdbody` and `.pdhead` archives so body mesh, hand mesh, and head mesh source members survive scanning, sharing, packaging, boot walking, and runtime activation.
+- Fixed `.pdarena` archives so embedded Scenario source and catalog links survive scanning, sharing, boot walking, and runtime activation.
+- Fixed `.pdgamemode` and `.pdbotprofile` archives so rules/profile metadata and bot target/tuning fields survive scanning, sharing, boot walking, and runtime activation.
+- Fixed base metadata and weapon archive regeneration checks so stale `.pdgamemode`, `.pdbotprofile`, `.pdmission`, and `.pdweapon` archives no longer survive after source-manifest contract changes.
+- Fixed Mod Manager component-state persistence so disabled custom arenas, bodies, heads, meshes, and animations stay disabled after restart.
+- Fixed direct typed-archive scanning so strict source members such as Scenario links, mesh archives, weapon graph files, UI layout/nine-slice files, and theme dependencies resolve as archive-member paths instead of loose relative files.
+- Fixed `.pdweapon` catalog lifecycle activation so archive-backed held weapon graphs compile and release through the held-weapon runtime instead of being skipped by the projectile/entity graph path.
+- Fixed `.pdweapon` manifests so base weapon walking preserves model, graph, settings, variables, and shared-context source members instead of flattening them to the outer archive.
+- Fixed `.pdweapon` source propagation so held graph members survive local scan, network delivery, base walking, runtime bindings, and loose-source activation instead of only working inside archive compiler reads.
+- Fixed `.pdweapon` runtime bindings so model source and existing weapon defaults stay visible after held graph activation.
+- Added catalog-owned private custom weapon slots so fully custom `.pdweapon` archives can enter match selection, spawn manifests, and held-weapon graph registration without exposing numeric weapon IDs to modders.
+- Recorded remaining custom weapon base-equivalence work around authored gameplay defaults and direct catalog-ID weapon consumers after the private-slot bridge.
+- Fixed `.pdprojectile` and `.pdentity` runtime bindings so behavior graph, model source, transition target, and archetype metadata stay visible after graph activation.
+- Fixed extracted audio archive walking so SFX, voice, and music durations survive public-source registration instead of being reset to unknown.
+- Fixed source-backed SFX and voice repitching so keymap base pitch stays applied after gameplay pitch changes.
+- Fixed network catalog-info advertisement so custom arenas, bodies, heads, meshes, animations, and tools are visible for distribution.
+- Fixed mod pack export/import and authoring UI lists so custom arenas, bodies, heads, meshes, and animations are manageable as first-class assets.
+- Fixed `.pdcharacter` source walking so body and head archive members stay distinct after boot-time public-source registration.
 - Fixed clean-boot UI archive loading so base `.pdui` textures emit, register, and reload from public source after `texReset()` instead of being first repaired by the render loop.
 - Fixed `.pdui` catalog source retention so UI textures loaded by the theme also resolve through typed source-only catalog loads.
 - Added native envelope/release metadata for `.pdsfx` and `.pdvoice` so source-backed WAV sounds preserve readable attack, decay, release, and key velocity fields.
@@ -49,6 +172,8 @@
 - Added source-native `.pdtexture` image loading so source-built meshes decode public texture archives into runtime RGBA32 texture data instead of falling back to ROM/static compressed texture bytes.
 - Added Scenario `scene.glb` room-shading payloads so public map geometry carries `COLOR_0` alongside authoring/runtime UVs and renders with archived room shade data instead of flat texture-only output.
 - Added semantic GLTF extraction for character/cutscene `.pdanim` archives so public animation source uses editable transform channels and repeat/cut-skip metadata instead of header/frame byte tables.
+- Fixed zero-frame `.pdanim` extraction so reserved native animation entries become valid no-op GLTF clips instead of invalid zero-sample channels.
+- Improved `.pdanim` source verification so stale generated animation archives are grouped and capped instead of flooding full-tree audit output.
 - Hardened Scenario animation actions so live character, camera, object, preset, natural, and special-death animation use requires compiled public `.pdanim` source clips instead of catalog names alone.
 - Hardened weapon/inventory `.pdanim` command playback so the loader consumes public `commands.json` archive members directly and the gun runtime logs the same source script when starting weapon animations.
 - Preserved generated mesh relation nodes during extraction so distance, reorder, and headspot model hierarchy rows are no longer flattened into bogus position nodes.
@@ -58,6 +183,8 @@
 - Added a native-source guard so file-source SFX/voice playback failures refuse ROM/static fallback in source-only audio verification.
 - Added native SFX/voice keymap extraction so public `.pdsfx` and `.pdvoice` WAV playback preserves original base pitch, sample volume, and pan.
 - Added live file-backed SFX/voice handles so public `.pdsfx` and `.pdvoice` WAV playback preserves loop points and can be stopped, repanned, and repitched by gameplay code.
+- Preserved native SFX/voice fxmix and fxbus state on source-backed `.pdsfx` and `.pdvoice` handles.
+- Fixed custom `.pdmesh` OBJ material imports so standard `map_Kd` texture refs resolve through typed `.pdtexture` catalog dependencies.
 - Added a native-source guard so MP3 prop-sound duration estimates refuse ROM/static file-size fallback in source-only audio verification.
 - Added a native-source guard so MP3 speech playback refuses ROM/static file playback in source-only audio verification.
 - Added archive-backed configured SFX aliases and catalog-form weapon animation command refs so `.pdanim` command source no longer depends on local animation names or runtime-only sound aliases.
@@ -577,6 +704,8 @@
 - Fixed Combat Simulator weapon and arena pickers so catalog entries are alphabetized, custom weapon mods appear by catalog name, and No Score Limit stores the runtime unlimited sentinel.
 - Fixed Cheats menu controller activation for focused cheat rows and the Unlock All action.
 - Fixed weapon behavior graph editing so template graphs load with connected trigger/action nodes, left/right docked pins, pin-colored wires, inspector link lists, larger exec sockets, and simple node-param controls.
+- Fixed custom `.pdweapon` dependency activation so embedded projectile/entity archives register their runtime graph payloads from public source during normal weapon archive activation.
+- Fixed custom `.pdweapon` dependency cleanup so embedded projectile/entity runtimes are released when the owning weapon is removed or replaced, without clearing independently registered projectile/entity assets.
 - Fixed a match-start crash when a saved `.pdweapon` mod was selected in Combat Simulator custom weapon slots.
 - Fixed jump collision follow-through so airborne horizontal movement is clamped against rendered wall, ceiling, and corner geometry before the player can clip into it.
 - Fixed generated scenario GLB texture export so Blender/3DS Max receive renderer-matched texture scaling, tile shifts, and per-material wrap, mirror, and clamp sampler modes.

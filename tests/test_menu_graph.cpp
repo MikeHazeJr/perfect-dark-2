@@ -825,11 +825,23 @@ TEST_CASE("menu graph: Combat Sim limits and custom weapons are catalog-native",
     const std::string matchsetup = readTextFile("port/src/net/matchsetup.c");
     const std::string netmsg = readTextFile("port/src/net/netmsg.c");
     const std::string netmanifest = readTextFile("port/src/net/netmanifest.c");
+    const std::string weaponSlots = readTextFile("port/src/assetcatalog_weapon_slots.c");
+    const std::string assetCatalog = readTextFile("port/src/assetcatalog.c");
+    const std::string weaponWalker = readTextFile("port/src/loader_walker_weapon.c");
+    const std::string loaderPool = readTextFile("port/src/loader_pool.c");
+    const std::string scanner = readTextFile("port/src/assetcatalog_scanner.c");
+    const std::string netdistrib = readTextFile("port/src/net/netdistrib.c");
 
     REQUIRE_FALSE(room.empty());
     REQUIRE_FALSE(matchsetup.empty());
     REQUIRE_FALSE(netmsg.empty());
     REQUIRE_FALSE(netmanifest.empty());
+    REQUIRE_FALSE(weaponSlots.empty());
+    REQUIRE_FALSE(assetCatalog.empty());
+    REQUIRE_FALSE(weaponWalker.empty());
+    REQUIRE_FALSE(loaderPool.empty());
+    REQUIRE_FALSE(scanner.empty());
+    REQUIRE_FALSE(netdistrib.empty());
 
     const std::string combat = functionBlock(room, "renderCombatSimTab");
     REQUIRE_FALSE(combat.empty());
@@ -848,11 +860,24 @@ TEST_CASE("menu graph: Combat Sim limits and custom weapons are catalog-native",
     REQUIRE(combat.find("g_MatchConfig.weapon_ids[slot]") != std::string::npos);
     REQUIRE(combat.find("s_RoomSettingsDirty = true") != std::string::npos);
 
+    REQUIRE(weaponSlots.find("MPWEAPON_CUSTOM_START") != std::string::npos);
+    REQUIRE(weaponSlots.find("WEAPON_CUSTOM_START") != std::string::npos);
+    REQUIRE(weaponSlots.find("CATALOG.WEAPON.CUSTOM_SLOT_FAIL") != std::string::npos);
+    REQUIRE(weaponSlots.find("assetCatalogRefreshWeaponPrivateSlotDefaults") != std::string::npos);
+    REQUIRE(weaponSlots.find("s_refreshFunctionAmmoDefault") != std::string::npos);
+    REQUIRE(weaponSlots.find("mpw->priammotype") != std::string::npos);
+    REQUIRE(weaponSlots.find("mpw->priammoqty") != std::string::npos);
+    REQUIRE(weaponSlots.find("mpw->model = (s16)weapon->hi_model") != std::string::npos);
+    REQUIRE(functionBlock(assetCatalog, "assetCatalogClear").find("assetCatalogResetCustomWeaponSlots()") != std::string::npos);
+    REQUIRE(functionBlock(assetCatalog, "assetCatalogClearMods").find("assetCatalogResetCustomWeaponSlots()") != std::string::npos);
+    REQUIRE(weaponWalker.find("assetCatalogResolveWeaponPrivateSlots") != std::string::npos);
+    REQUIRE(scanner.find("assetCatalogResolveWeaponPrivateSlots") != std::string::npos);
+    REQUIRE(netdistrib.find("assetCatalogResolveWeaponPrivateSlots") != std::string::npos);
+    REQUIRE(weaponWalker.find("loaderPoolParseWeaponJsonWithRuntimeSlot") != std::string::npos);
+    REQUIRE(loaderPool.find("assetCatalogRefreshWeaponPrivateSlotDefaults(weapon_id") != std::string::npos);
+
     REQUIRE(matchsetup.find("mpw >= 0 && mpw < NUM_MPWEAPONS") != std::string::npos);
-    REQUIRE(matchsetup.find("catalog-only weapon") != std::string::npos);
-    REQUIRE(matchsetup.find("g_MpSetup.weapons[wi] = MPWEAPON_DISABLED") != std::string::npos);
     REQUIRE(netmsg.find("strncpy(g_MatchConfig.weapon_ids[wi], wid") != std::string::npos);
-    REQUIRE(netmsg.find("no MPWEAPON binding yet") != std::string::npos);
     REQUIRE(netmanifest.find("catalog-native custom slots") != std::string::npos);
     REQUIRE(netmanifest.find("s_manifestSkipMpWeaponSlot") != std::string::npos);
     REQUIRE(netmanifest.find("entry->type == MANIFEST_TYPE_COMPONENT") != std::string::npos);

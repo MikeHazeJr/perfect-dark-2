@@ -198,9 +198,11 @@ static const char *typeName(asset_type_e t)
         case ASSET_HUD:         return "HUD";
         case ASSET_THEME:       return "Themes";
         case ASSET_TOOL:        return "Tools";
-        case ASSET_ARENA:       return "Arenas (base)";
-        case ASSET_BODY:        return "Bodies (base)";
-        case ASSET_HEAD:        return "Heads (base)";
+        case ASSET_ARENA:       return "Arenas";
+        case ASSET_BODY:        return "Bodies";
+        case ASSET_HEAD:        return "Heads";
+        case ASSET_MODEL:       return "Meshes / Models";
+        case ASSET_ANIMATION:   return "Animations";
         default:                return "Unknown";
     }
 }
@@ -216,6 +218,11 @@ static const char *iniNameForType(asset_type_e t)
         case ASSET_WEAPON:      return "weapon.ini";
         case ASSET_PROJECTILE:  return "projectile.ini";
         case ASSET_ENTITY:      return "entity.ini";
+        case ASSET_ARENA:       return "arena.ini";
+        case ASSET_BODY:        return "body.ini";
+        case ASSET_HEAD:        return "head.ini";
+        case ASSET_MODEL:       return "mesh.ini";
+        case ASSET_ANIMATION:   return "animation.ini";
         case ASSET_MATERIAL:    return "material.ini";
         case ASSET_TEXTURES:    return "textures.ini";
         case ASSET_TEXTURE:     return "texture.ini";
@@ -296,12 +303,13 @@ static void populateCallback(const asset_entry_t *entry, void *userdata)
 static const asset_type_e s_AllTypes[] = {
     ASSET_MAP, ASSET_CHARACTER, ASSET_SKIN, ASSET_BOT_VARIANT,
     ASSET_WEAPON, ASSET_PROJECTILE, ASSET_ENTITY,
+    ASSET_ARENA, ASSET_BODY, ASSET_HEAD, ASSET_MODEL,
+    ASSET_ANIMATION,
     ASSET_TEXTURES, ASSET_TEXTURE, ASSET_MATERIAL, ASSET_EFFECT,
     ASSET_SFX, ASSET_MUSIC, ASSET_AUDIO,
     ASSET_PROP, ASSET_VEHICLE, ASSET_MISSION, ASSET_GAMEMODE,
     ASSET_BOT_PROFILE, ASSET_SCENARIO, ASSET_HUD, ASSET_UI,
     ASSET_FONT, ASSET_LANG, ASSET_THEME, ASSET_TOOL,
-    ASSET_ARENA, ASSET_BODY, ASSET_HEAD
 };
 static const int s_NumAllTypes = (int)(sizeof(s_AllTypes) / sizeof(s_AllTypes[0]));
 
@@ -649,6 +657,8 @@ static void renderByCategoryTab(float scale)
     static const asset_type_e userTypes[] = {
         ASSET_MAP, ASSET_CHARACTER, ASSET_SKIN, ASSET_BOT_VARIANT,
         ASSET_WEAPON, ASSET_PROJECTILE, ASSET_ENTITY,
+        ASSET_ARENA, ASSET_BODY, ASSET_HEAD, ASSET_MODEL,
+        ASSET_ANIMATION,
         ASSET_TEXTURES, ASSET_TEXTURE, ASSET_MATERIAL, ASSET_EFFECT,
         ASSET_SFX, ASSET_MUSIC, ASSET_AUDIO,
         ASSET_PROP, ASSET_VEHICLE, ASSET_MISSION, ASSET_GAMEMODE,

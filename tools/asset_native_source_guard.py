@@ -2429,13 +2429,13 @@ def scan_music_sequence_source_only_guard(root: Path) -> list[str]:
                 "e->ext.audio.sound_id != tracknum",
                 "r.path = entryGetFilePath(entry)",
                 "r.is_mod_override = 1",
-                "assetSourceDebugIsEnabledFor(ASSET_AUDIO)",
-                "r.source_only_blocked = 1",
+                "s_catalogApplySourceOnlyDebug(&r, entry)",
             ],
         ),
         "port/src/mod.c": (
             mod,
             [
+                "#include \"asset_source_debug.h\"",
                 "catalogResolveMusicSequence((s32)num)",
                 "modSequencePlayAudioSource(u16 num)",
                     "modSequencePathHasAudioExtension(r.path)",
@@ -2455,7 +2455,10 @@ def scan_music_sequence_source_only_guard(root: Path) -> list[str]:
                     "r.source_only_blocked",
                     "streaming playback failed",
                     "ASSET.SOURCE_ONLY: music sequence",
-                    "sequencer-native public source compile failed",
+                    "sequencer-native ",
+                    "public source compile failed",
+                    "but has no public FileProvider source",
+                    "assetSourceDebugIsEnabledFor(ASSET_AUDIO)",
                     "refusing ROM/static fallback",
                 ],
             ),
@@ -2464,6 +2467,8 @@ def scan_music_sequence_source_only_guard(root: Path) -> list[str]:
             [
                 "modSequencePlayAudioSource(seq->tracknum)",
                 "modSequenceLoad(seq->tracknum, &extlen)",
+                "seq->tracknum >= g_SeqTable->count",
+                "g_SeqRomAddrs[seq->tracknum] < 0x10000",
                 "dmaExec(zipstart, g_SeqRomAddrs[seq->tracknum], ziplen)",
             ],
         ),
@@ -2509,6 +2514,12 @@ def scan_music_sequence_source_only_guard(root: Path) -> list[str]:
               "port/src/mod.c",
               mod_sequence,
               "modSequenceCompilePublicSource(&r, num, outSize)",
+              "assetSourceDebugIsEnabledFor(ASSET_AUDIO)",
+          ),
+          (
+              "port/src/mod.c",
+              mod_sequence,
+              "assetSourceDebugIsEnabledFor(ASSET_AUDIO)",
               "r.source_only_blocked",
           ),
           (
@@ -2538,7 +2549,7 @@ def scan_music_sequence_source_only_guard(root: Path) -> list[str]:
         (
             "port/src/mod.c",
             mod_sequence_audio,
-            "r.source_only_blocked",
+            "assetSourceDebugIsEnabledFor(ASSET_AUDIO)",
             "falling back to legacy sequence",
         ),
         (
@@ -2550,13 +2561,19 @@ def scan_music_sequence_source_only_guard(root: Path) -> list[str]:
         (
             "src/lib/snd.c",
             snd_seq_play,
+            "modSequenceLoad(seq->tracknum, &extlen)",
+            "g_SeqRomAddrs[seq->tracknum] < 0x10000",
+        ),
+        (
+            "src/lib/snd.c",
+            snd_seq_play,
             "modSequencePlayAudioSource(seq->tracknum)",
             "dmaExec(zipstart, g_SeqRomAddrs[seq->tracknum], ziplen)",
         ),
     ]
     for path, text, before, after in order_checks:
         before_index = text.find(before)
-        after_index = text.find(after)
+        after_index = text.find(after, before_index + len(before)) if before_index >= 0 else -1
         if before_index == -1 or after_index == -1 or before_index > after_index:
             errors.append(
                 MUSIC_SEQUENCE_SOURCE_ONLY_ERROR
@@ -2574,7 +2591,17 @@ def scan_sound_file_source_only_guard(root: Path) -> list[str]:
 
     required = [
         "audioStartFileSound(r.path, volume, pan",
-        "filepitch *= alCents2Ratio(cents)",
+        "f32 filebasepitch = 1.0f",
+        "u8 file_sample_pan = AL_PAN_CENTER",
+        "u8 file_sample_volume = 127",
+        "u8 file_key_volume_index = 0",
+        "file_sample_pan = entry->ext.audio.sample_pan",
+        "file_sample_volume = entry->ext.audio.sample_volume",
+        "file_key_volume_index = (u8)(entry->ext.audio.key_min & 0x1f)",
+        "filebasepitch = alCents2Ratio(cents)",
+        "pitch,\n\t\t\t\t\tfilebasepitch",
+        "file_sample_pan,\n\t\t\t\t\tfile_sample_volume",
+        "file_key_volume_index",
         "entry ? entry->ext.audio.has_loop : 0",
         "entry ? entry->ext.audio.loop_start_samples : 0",
         "entry ? entry->ext.audio.loop_end_samples : 0",

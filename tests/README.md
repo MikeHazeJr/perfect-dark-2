@@ -159,7 +159,7 @@ will catch behavior drift on the next run.**
 | smoke | 3 | 6 | Catch2 framework sanity |
 | netbuf wire primitives | 16 | 77 | u8/u16/u32/u64/s8/s16/s32/s64/f32/str/mixed |
 | connect codes | 6 | 99 | encode/decode roundtrip + case + garbage |
-| version pins | 4 | ~5 | NET_PROTOCOL_VER 49, MPSETUP_VERSION 2 |
+| version pins | 4 | ~5 | NET_PROTOCOL_VER 50, MPSETUP_VERSION 2 |
 | savebuffer bit-pack | 10 | ~80 | 1/7/8/13/32/63/64-bit + cross-byte |
 | v1 -> v2 save migration | 8 | ~30 | Weapon clamp + zero-mask filter |
 | manifest container | 8 | ~30 | Clear/Free/Add/AddMod/grow |

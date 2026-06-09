@@ -226,11 +226,15 @@ typedef struct asset_entry {
         struct {
             char bodyfile[FS_MAXPATH];
             char headfile[FS_MAXPATH];
+            char portrait_file[FS_MAXPATH];
         } character;
         struct {
             char target_id[CATALOG_ID_LEN];  /* soft reference to target char */
             char skin_file[128];             /* editable skin/material binding source */
             char texture_file[128];          /* appearance payload for this skin */
+            char swatches_file[128];         /* editable color swatch source */
+            char material_archive[FS_MAXPATH]; /* typed material dependency archive */
+            char texture_archive[FS_MAXPATH];  /* typed texture dependency archive */
         } skin;
         struct {
             char base_type[32];        /* "NormalSim", "DarkSim", etc. */
@@ -240,6 +244,8 @@ typedef struct asset_entry {
         } bot_variant;
         struct {
             s32 stagenum;              /* logical stage ID this arena loads */
+            char scenario_id[CATALOG_ID_LEN]; /* catalog ID for playable scenario */
+            char scenario_archive[FS_MAXPATH]; /* embedded playable scenario source */
             u8  requirefeature;        /* unlock check (0 = always available) */
             s32 name_langid;           /* language string ID for display name */
             /* B-254 (2026-04-25): how a Grid arena entry loads its stage.
@@ -266,6 +272,8 @@ typedef struct asset_entry {
              * the langid resolves to junk (some legacy bodies share langids
              * or point to unrelated UI strings). */
             char display_name[64];
+            char mesh_archive[FS_MAXPATH]; /* body mesh typed dependency/source */
+            char hand_archive[FS_MAXPATH]; /* optional first-person hand mesh */
             /* Issue 10 (2026-04-24): rig_class is the authoritative physical
              * compatibility key for body <-> head pairing. Two entries with
              * the same rig_class share a neck socket geometry and can be
@@ -284,6 +292,7 @@ typedef struct asset_entry {
         struct {
             s16 headnum;               /* global head ID in g_HeadsAndBodies[] */
             u8  requirefeature;        /* unlock check (0 = always available) */
+            char mesh_archive[FS_MAXPATH]; /* head mesh typed dependency/source */
             /* Issue 10 (2026-04-24): see body.rig_class above. Same semantics
              * -- equality match with a body's rig_class = physically
              * compatible pair. */
@@ -293,6 +302,12 @@ typedef struct asset_entry {
             s32 weapon_id;             /* MPWEAPON_* slot, not runtime WEAPON_* */
             char name[64];             /* human-readable display name */
             char model_file[128];      /* model file path (empty for base game) */
+            char behavior_graph[128];  /* optional single held behavior graph source */
+            char primary_graph[128];   /* primary function graph source */
+            char secondary_graph[128]; /* secondary function graph source */
+            char shared_context[128];  /* shared context source for split graphs */
+            char settings_file[128];   /* editable weapon settings source */
+            char variables_file[128];  /* editable weapon variable source */
             s32  dual_wieldable;       /* bool: can be dual-wielded */
             u8   requirefeature;       /* unlock check (0 = always available) */
             /* S484 F9 / Mike I.2 (2026-04-27): the legacy headline
@@ -338,6 +353,7 @@ typedef struct asset_entry {
             char name[64];             /* human-readable display name */
             char prop_file[128];       /* editable prop/archetype source */
             char model_file[128];      /* model file path (empty for base game) */
+            char behavior_graph[128];  /* behavior.graph.json source path */
             u32  flags;                /* prop flags bitmask */
             f32  health;               /* base health value (0 = indestructible) */
         } prop;
@@ -357,6 +373,7 @@ typedef struct asset_entry {
             char scene_file[FS_MAXPATH]; /* DCC-openable runtime scene source */
             char collision_file[FS_MAXPATH]; /* optional collision override */
             char rooms_file[FS_MAXPATH]; /* compatibility rooms/geometry export */
+            char portals_file[FS_MAXPATH];
             char pads_file[FS_MAXPATH];
             char spawns_file[FS_MAXPATH];
             char volumes_file[FS_MAXPATH];
@@ -365,6 +382,10 @@ typedef struct asset_entry {
             char ai_lists_file[FS_MAXPATH];
             char objectives_file[FS_MAXPATH];
             char navigation_file[FS_MAXPATH];
+            char navigation_waypoints_file[FS_MAXPATH];
+            char navigation_waygroups_file[FS_MAXPATH];
+            char navigation_covers_file[FS_MAXPATH];
+            char navigation_paths_file[FS_MAXPATH];
             char level_graph_file[FS_MAXPATH];
         } scenario;
         struct {
@@ -405,10 +426,26 @@ typedef struct asset_entry {
             char layout_file[128];     /* layout/source path for engine-rendered HUD */
         } hud;
         struct {
+            char texture_file[128];    /* public image source, usually texture.png/tga */
+            char layout_file[128];     /* optional structured layout source */
+            char nineslice_file[128];  /* optional nine-slice metadata source */
+            char texture_name[64];     /* authored atlas/chrome slot name */
+            s32 width;
+            s32 height;
+            s32 data_size;
+            s32 nineslice_left;
+            s32 nineslice_right;
+            s32 nineslice_top;
+            s32 nineslice_bottom;
+            char nineslice_edge_mode[16];
+            char nineslice_center_mode[16];
+        } ui;
+        struct {
             char name[64];             /* human-readable display name */
             s32 effect_type;           /* EFFECT_TYPE_* constant */
             s32 target;                /* EFFECT_TARGET_* constant */
-            char effect_file[128];     /* graph/timeline payload for runtime adapter */
+            char effect_file[128];     /* graph payload for runtime adapter */
+            char timeline_file[128];   /* optional effect timeline source */
             char shader_id[64];        /* shader identifier for the renderer */
             f32 intensity;             /* effect strength 0.0-1.0 */
             f32 params[4];             /* generic effect parameters */
@@ -433,11 +470,21 @@ typedef struct asset_entry {
             char theme_file[128];       /* theme token/style source */
             char ui_archive[FS_MAXPATH];   /* optional UI chrome dependency */
             char font_archive[FS_MAXPATH]; /* optional font dependency */
+            char audio_archive[FS_MAXPATH]; /* optional theme SFX dependency */
+            char music_archive[FS_MAXPATH]; /* optional theme music dependency */
+            char effect_archive[FS_MAXPATH]; /* optional theme effect dependency */
         } theme;
         struct {
             s32 bank_id;               /* LANGBANK_* constant (0x01-0x44) */
+            char locale[16];           /* locale tag for this language source */
+            char lang_category[32];    /* stage / mp_ui / system */
+            u32 string_count;          /* authored strings.json row count */
             char strings_file[128];    /* Editable JSON source for mod language banks */
         } lang;
+        struct {
+            char font_file[128];       /* vector font or bitmap glyph atlas */
+            char metrics_file[128];    /* bitmap glyph metrics/kerning source */
+        } font;
         struct {
             s32  type;                 /* BOTTYPE_* constant (e.g. BOTTYPE_GENERAL) */
             s32  difficulty;           /* BOTDIFF_* constant */
@@ -751,6 +798,7 @@ asset_entry_t *assetCatalogRegisterAudio(const char *id, s32 sound_id,
  * Convenience wrapper that sets ext.hud fields.
  * element_type: HUD_ELEM_CROSSHAIR, HUD_ELEM_AMMO, etc.
  * texture_file may be NULL/"" for elements using the default renderer.
+ * Layout-aware scanners/base registration assign the primary source.
  */
 asset_entry_t *assetCatalogRegisterHud(const char *id, s32 hud_id,
                                         const char *name, s32 element_type,
@@ -948,6 +996,7 @@ void assetCatalogSetCategoryById(const char *id, const char *category);
 
 void catalogSetPrimary(asset_entry_t *entry, asset_data_handle_t handle);
 void catalogSetPrimaryFile(asset_entry_t *entry, const char *path);
+asset_data_handle_t catalogHandleForSourceFile(const char *path);
 void catalogSetPrimaryRomFilenum(asset_entry_t *entry, s32 filenum);
 void catalogSetOverride(asset_entry_t *entry, asset_data_handle_t handle);
 void catalogClearOverride(asset_entry_t *entry);
@@ -1157,9 +1206,10 @@ const asset_entry_t *catalogResolveByNetHash(u32 net_hash);
 
 /* ── SA-4: Reverse-index lookup (migration only) ───────────────────────── */
 
-/* ── Phase 8: O(1) cached runtime lookups ───────────────────────────────
+/* ── Phase 8: cached runtime lookups ────────────────────────────────────
  * Built once by catalogBuildRuntimeCaches() after catalog population.
- * Zero O(n) scans at runtime — all integer↔string resolution is cached. */
+ * Integer-to-string resolution is cached for normal runtime use; body/head
+ * selector helpers may scan mp_index as a late-rebuild fallback. */
 
 /**
  * Build all runtime↔catalog-ID caches (mp body/head, stage, weapon, model).
@@ -1169,13 +1219,13 @@ const asset_entry_t *catalogResolveByNetHash(u32 net_hash);
 void catalogBuildRuntimeCaches(void);
 
 /**
- * O(1) mp body table position → catalog ID string.
+ * Cached mp body table position → catalog ID string.
  * Returns NULL if mp_idx is out of range or has no registered catalog entry.
  */
 const char *catalogMpBodyId(s32 mp_idx);
 
 /**
- * O(1) mp head table position → catalog ID string.
+ * Cached mp head table position → catalog ID string.
  * Returns NULL if mp_idx is out of range or has no registered catalog entry.
  */
 const char *catalogMpHeadId(s32 mp_idx);

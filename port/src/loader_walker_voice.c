@@ -24,6 +24,8 @@ static s32 s_register(const char *manifest, size_t manifest_len,
 
     s64 source_index = -1;
     s64 source_filenum = -1;
+    s64 sample_rate_hz = 0;
+    s64 decoded_sample_count = 0;
     s64 key_min = 0;
     s64 key_max = 127;
     s64 key_base = 60;
@@ -46,6 +48,8 @@ static s32 s_register(const char *manifest, size_t manifest_len,
     char source_path[FS_MAXPATH + 1];
     loaderWalkerEnvelopeInt(manifest, manifest_len, "source_index", &source_index);
     loaderWalkerEnvelopeInt(manifest, manifest_len, "source_filenum", &source_filenum);
+    loaderWalkerEnvelopeInt(manifest, manifest_len, "sample_rate_hz", &sample_rate_hz);
+    loaderWalkerEnvelopeInt(manifest, manifest_len, "decoded_sample_count", &decoded_sample_count);
     loaderWalkerEnvelopeInt(manifest, manifest_len, "key_min", &key_min);
     loaderWalkerEnvelopeInt(manifest, manifest_len, "key_max", &key_max);
     loaderWalkerEnvelopeInt(manifest, manifest_len, "key_base", &key_base);
@@ -73,7 +77,9 @@ static s32 s_register(const char *manifest, size_t manifest_len,
         id, (s32)source_index,
         /* name: */ "",
         AUDIO_CAT_VOICE,
-        /* duration_ms: */ 0,
+        (sample_rate_hz > 0 && decoded_sample_count > 0)
+            ? (s32)((decoded_sample_count * 1000 + sample_rate_hz / 2) / sample_rate_hz)
+            : 0,
         /* file_path: */ "");
     if (e) {
         loaderWalkerMarkBaseArchiveEntry(e);

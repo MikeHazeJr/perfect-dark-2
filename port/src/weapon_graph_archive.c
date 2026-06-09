@@ -100,7 +100,8 @@ static const char *sectionForType(asset_type_e type)
 
 s32 weaponGraphArchiveGraphRequired(asset_type_e type)
 {
-	return (type == ASSET_WEAPON || type == ASSET_ENTITY) ? 1 : 0;
+	return (type == ASSET_WEAPON || type == ASSET_PROJECTILE ||
+			type == ASSET_ENTITY) ? 1 : 0;
 }
 
 static s32 endsWithNoCase(const char *value, const char *suffix)

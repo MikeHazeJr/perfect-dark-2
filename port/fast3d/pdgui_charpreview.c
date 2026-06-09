@@ -33,6 +33,7 @@
 #include "system.h"
 #include "constants.h"
 #include "assetcatalog.h"
+#include "assetprovider.h"
 #include "modelcatalog.h"
 #include "pdgui.h"
 #include "pdgui_charpreview.h"
@@ -209,10 +210,11 @@ void pdguiCharPreviewRequest(const char *head_id, const char *body_id)
  * For CHARACTER: id1 = head catalog id, id2 = body catalog id.
  * For WEAPON / VEHICLE / PROP: id1 = catalog id, id2 is ignored.
  *
- * Non-character paths resolve the catalog entry and use its source_filenum
- * as the menu model filenum.  If resolution fails, the request is silently
- * dropped so the caller's fallback placeholder (pdgui_model_preview
- * silhouette) remains visible.
+ * Non-character paths resolve the catalog entry and submit either its
+ * legacy source_filenum or a direct catalog provider handle for custom
+ * source-backed assets that do not occupy a ROM file slot. If resolution
+ * fails, the request is silently dropped so the caller's fallback placeholder
+ * (pdgui_model_preview silhouette) remains visible.
  */
 void pdguiCharPreviewRequestEx(PdguiPreviewType type,
                                 const char *id1,
@@ -308,13 +310,22 @@ void pdguiCharPreviewRequestEx(PdguiPreviewType type,
         return;
     }
 
-    /* Single-filenum path (weapon / vehicle / prop).  Catalog entry's
-     * source_filenum is the N64 fileSlots index for the model file. */
+    /* Single-model path (weapon / vehicle / prop). Base entries can still
+     * use the legacy file number. Custom/source-only entries may have no ROM
+     * file slot, so submit the catalog provider handle with a preview-only
+     * sentinel key. menuRenderModel will use newhandle directly when the
+     * encoded key matches newhandle_filenum. */
     u32 filenum = 0;
+    asset_data_handle_t handle = ASSET_HANDLE_NULL_INIT;
     if (id1 && id1[0]) {
         const asset_entry_t *e = assetCatalogResolve(id1);
         if (e && e->source_filenum > 0) {
             filenum = (u32)e->source_filenum;
+        } else if (e) {
+            handle = catalogEffectiveHandle(e);
+            if (!assetHandleIsNull(handle)) {
+                filenum = MENUMODEL_HANDLE_SENTINEL_FILENUM;
+            }
         }
     }
 
@@ -330,7 +341,11 @@ void pdguiCharPreviewRequestEx(PdguiPreviewType type,
     sysLogPrintf(LOG_NOTE,
                  "pdgui_charpreview: request non-character type=%d id='%s' filenum=%u",
                  type, id1 ? id1 : "", filenum);
-    pdguiCharPreviewRequestFilenum(type, filenum);
+    if (!assetHandleIsNull(handle)) {
+        pdguiCharPreviewRequestHandle(type, handle, filenum);
+    } else {
+        pdguiCharPreviewRequestFilenum(type, filenum);
+    }
 }
 
 /**
@@ -350,6 +365,26 @@ void pdguiCharPreviewRequestFilenum(PdguiPreviewType type, u32 filenum)
     u32 params = filenum;
 
     charPreviewSubmitParams(params, type);
+}
+
+void pdguiCharPreviewRequestHandle(PdguiPreviewType type,
+                                   asset_data_handle_t handle,
+                                   u32 request_key)
+{
+    if (assetHandleIsNull(handle) || request_key == 0) return;
+
+    s_PreviewHeadnum = 0;
+    s_PreviewBodynum = 0;
+    s_PreviewFilenum = request_key;
+
+    s32 playernum = g_MpPlayerNum;
+    if (playernum < 0) playernum = 0;
+    if (playernum >= MAX_PLAYERS) playernum = 0;
+
+    menuSetModelFileHandle(&g_Menus[playernum].menumodel,
+                           (s32)request_key,
+                           handle);
+    charPreviewSubmitParams(MENUMODELPARAMS_SET_FILENUM(request_key), type);
 }
 
 /**

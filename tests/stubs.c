@@ -183,15 +183,6 @@ const char *catalogIdBySourceHandle(asset_type_e type, asset_data_handle_t handl
     return NULL;
 }
 
-void catalogDepForEach(const char *owner_id,
-                       void (*callback)(const char *dep_id, void *userdata),
-                       void *userdata)
-{
-    (void)owner_id;
-    (void)callback;
-    (void)userdata;
-}
-
 /* -------------------------------------------------------------------------
  * Mod manager stubs -- no mods registered.
  * ------------------------------------------------------------------------- */

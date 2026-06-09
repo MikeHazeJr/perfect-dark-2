@@ -9,9 +9,11 @@ shape as the top-level samples.
 
 from __future__ import annotations
 
-import zipfile
 import hashlib
 import json
+import math
+import struct
+import zipfile
 from collections.abc import Iterable
 from pathlib import Path
 
@@ -61,6 +63,390 @@ def manifest(kind: str, catalog_id: str) -> str:
         "  \"schema\": \"pd.asset_archive.manifest.v1\",\n"
         f"  \"pd_kind\": \"{kind}\",\n"
         f"  \"catalog_id\": \"{catalog_id}\"\n"
+        "}\n"
+    )
+
+
+def manifest_with(kind: str, catalog_id: str, fields: dict[str, object]) -> str:
+    data: dict[str, object] = {
+        "schema": "pd.asset_archive.manifest.v1",
+        "pd_kind": kind,
+        "catalog_id": catalog_id,
+    }
+    data.update(fields)
+    return json.dumps(data, indent=2) + "\n"
+
+
+def prop_manifest(catalog_id: str) -> str:
+    return (
+        "{\n"
+        "  \"schema\": \"pd.asset_archive.manifest.v1\",\n"
+        "  \"pd_kind\": \"prop\",\n"
+        f"  \"catalog_id\": \"{catalog_id}\",\n"
+        "  \"model_file\": \"model.gltf\",\n"
+        "  \"behavior_graph\": \"behavior.graph.json\"\n"
+        "}\n"
+    )
+
+
+def vehicle_manifest(catalog_id: str) -> str:
+    return (
+        "{\n"
+        "  \"schema\": \"pd.asset_archive.manifest.v1\",\n"
+        "  \"pd_kind\": \"vehicle\",\n"
+        f"  \"catalog_id\": \"{catalog_id}\",\n"
+        "  \"model_file\": \"model.gltf\",\n"
+        "  \"physics_file\": \"physics.json\",\n"
+        "  \"behavior_graph\": \"behavior.graph.json\"\n"
+        "}\n"
+    )
+
+
+def effect_manifest(catalog_id: str) -> str:
+    return (
+        "{\n"
+        "  \"schema\": \"pd.asset_archive.manifest.v1\",\n"
+        "  \"pd_kind\": \"effect\",\n"
+        f"  \"catalog_id\": \"{catalog_id}\",\n"
+        "  \"effect_file\": \"effect.graph.json\",\n"
+        "  \"timeline_file\": \"timeline.json\"\n"
+        "}\n"
+    )
+
+
+def material_manifest(catalog_id: str) -> str:
+    return (
+        "{\n"
+        "  \"schema\": \"pd.asset_archive.manifest.v1\",\n"
+        "  \"pd_kind\": \"material\",\n"
+        f"  \"catalog_id\": \"{catalog_id}\",\n"
+        "  \"material_file\": \"material.json\",\n"
+        "  \"texture_archive\": \"dependencies/assets/texture/tri_texture.pdtexture\",\n"
+        "  \"effect_archive\": \"dependencies/assets/effects/tri_effect.pdeffect\"\n"
+        "}\n"
+    )
+
+
+def theme_manifest(catalog_id: str) -> str:
+    return (
+        "{\n"
+        "  \"schema\": \"pd.asset_archive.manifest.v1\",\n"
+        "  \"pd_kind\": \"theme\",\n"
+        f"  \"catalog_id\": \"{catalog_id}\",\n"
+        "  \"theme_file\": \"theme.json\",\n"
+        "  \"ui_archive\": \"dependencies/assets/ui/tri_reticle.pdui\",\n"
+        "  \"font_archive\": \"dependencies/assets/font/tri_font.pdfont\",\n"
+        "  \"audio_archive\": \"dependencies/assets/audio/tri_click.pdsfx\",\n"
+        "  \"music_archive\": \"dependencies/assets/music/tri_song.pdsong\",\n"
+        "  \"effect_archive\": \"dependencies/assets/effects/tri_effect.pdeffect\"\n"
+        "}\n"
+    )
+
+
+def character_manifest(catalog_id: str) -> str:
+    return (
+        "{\n"
+        "  \"schema\": \"pd.asset_archive.manifest.v1\",\n"
+        "  \"pd_kind\": \"character\",\n"
+        f"  \"catalog_id\": \"{catalog_id}\",\n"
+        "  \"body_archive\": \"dependencies/assets/body/tri_body.pdbody\",\n"
+        "  \"head_archive\": \"dependencies/assets/head/tri_head.pdhead\",\n"
+        "  \"portrait_file\": \"portrait.png\"\n"
+        "}\n"
+    )
+
+
+def audio_wav_descriptor(kind: str, catalog_id: str, name: str,
+                         category: str, duration_ms: int,
+                         sample_size: int, decoded_sample_count: int,
+                         extra: str = "") -> str:
+    return (
+        f"; {catalog_id} - self-contained {category} asset\n"
+        f"[{kind}]\n"
+        f"catalog_id = {catalog_id}\n"
+        f"name = {name}\n"
+        f"audio_category = {category}\n"
+        f"duration_ms = {duration_ms}\n"
+        "format = WAV_PCM16\n"
+        "source_format = WAV_PCM16\n"
+        "sample_rate_hz = 44100\n"
+        "file_path = sample.wav\n"
+        f"data_size = {sample_size}\n"
+        f"source_data_size = {sample_size}\n"
+        f"decoded_sample_count = {decoded_sample_count}\n"
+        "loop_start_samples = 0\n"
+        "loop_end_samples = 0\n"
+        "loop_count = 0\n"
+        "has_loop = false\n"
+        "sample_pan = 64\n"
+        "sample_volume = 127\n"
+        "key_min = 0\n"
+        "key_max = 127\n"
+        "key_base = 60\n"
+        "key_detune = 0\n"
+        "velocity_min = 0\n"
+        "velocity_max = 127\n"
+        "has_envelope = false\n"
+        "attack_time_us = 0\n"
+        "decay_time_us = 0\n"
+        "release_time_us = 0\n"
+        "attack_volume = 127\n"
+        "decay_volume = 127\n"
+        "sound_flags = 0\n"
+        "source_index = -1\n"
+        "source_offset = 0\n"
+        "source_symbol = custom\n"
+        f"{extra}"
+        "\n[meta]\n"
+        "manifest = _meta/manifest.json\n"
+    )
+
+
+def arena_manifest(catalog_id: str) -> str:
+    return (
+        "{\n"
+        "  \"schema\": \"pd.asset_archive.manifest.v1\",\n"
+        "  \"pd_kind\": \"arena\",\n"
+        f"  \"catalog_id\": \"{catalog_id}\",\n"
+        "  \"scenario\": \"example:tri_scenario\",\n"
+        "  \"scenario_archive\": \"dependencies/assets/scenarios/tri_scenario.pdscenario\"\n"
+        "}\n"
+    )
+
+
+def head_manifest(catalog_id: str) -> str:
+    return (
+        "{\n"
+        "  \"schema\": \"pd.asset_archive.manifest.v1\",\n"
+        "  \"pd_kind\": \"head\",\n"
+        f"  \"catalog_id\": \"{catalog_id}\",\n"
+        "  \"mesh_archive\": \"mesh.pdmesh\"\n"
+        "}\n"
+    )
+
+
+def body_manifest(catalog_id: str) -> str:
+    return (
+        "{\n"
+        "  \"schema\": \"pd.asset_archive.manifest.v1\",\n"
+        "  \"pd_kind\": \"body\",\n"
+        f"  \"catalog_id\": \"{catalog_id}\",\n"
+        "  \"mesh_archive\": \"mesh.pdmesh\",\n"
+        "  \"hand_archive\": \"hand.pdmesh\"\n"
+        "}\n"
+    )
+
+
+def audio_wav_manifest(kind: str, catalog_id: str, sample_size: int,
+                       decoded_sample_count: int) -> str:
+    return (
+        "{\n"
+        "  \"schema\": \"pd.asset_archive.manifest.v1\",\n"
+        f"  \"pd_kind\": \"{kind}\",\n"
+        f"  \"catalog_id\": \"{catalog_id}\",\n"
+        "  \"format\": \"WAV_PCM16\",\n"
+        "  \"source_format\": \"WAV_PCM16\",\n"
+        "  \"sample_rate_hz\": 44100,\n"
+        "  \"data\": \"sample.wav\",\n"
+        f"  \"data_size\": {sample_size},\n"
+        f"  \"source_data_size\": {sample_size},\n"
+        f"  \"decoded_sample_count\": {decoded_sample_count},\n"
+        "  \"loop_start_samples\": 0,\n"
+        "  \"loop_end_samples\": 0,\n"
+        "  \"loop_count\": 0,\n"
+        "  \"has_loop\": false,\n"
+        "  \"sample_pan\": 64,\n"
+        "  \"sample_volume\": 127,\n"
+        "  \"sound_flags\": 0,\n"
+        "  \"source_index\": -1,\n"
+        "  \"source_offset\": 0,\n"
+        "  \"key_min\": 0,\n"
+        "  \"key_max\": 127,\n"
+        "  \"key_base\": 60,\n"
+        "  \"key_detune\": 0,\n"
+        "  \"velocity_min\": 0,\n"
+        "  \"velocity_max\": 127,\n"
+        "  \"has_envelope\": false,\n"
+        "  \"attack_time_us\": 0,\n"
+        "  \"decay_time_us\": 0,\n"
+        "  \"release_time_us\": 0,\n"
+        "  \"attack_volume\": 127,\n"
+        "  \"decay_volume\": 127,\n"
+        "  \"source_symbol\": \"custom\"\n"
+        "}\n"
+    )
+
+
+def pcm16_mono_wav(sample_rate_hz: int = 44100,
+                   frame_count: int = 44) -> bytes:
+    samples = bytearray()
+    for i in range(frame_count):
+        phase = (i / max(frame_count, 1)) * math.pi * 2.0
+        value = int(math.sin(phase) * 12000.0)
+        samples.extend(struct.pack("<h", value))
+
+    data_size = len(samples)
+    return (
+        b"RIFF" +
+        struct.pack("<I", 36 + data_size) +
+        b"WAVE" +
+        b"fmt " +
+        struct.pack(
+            "<IHHIIHH",
+            16,
+            1,
+            1,
+            sample_rate_hz,
+            sample_rate_hz * 2,
+            2,
+            16,
+        ) +
+        b"data" +
+        struct.pack("<I", data_size) +
+        bytes(samples)
+    )
+
+
+def song_sequence_mid() -> bytes:
+    return (
+        b"MThd"
+        b"\x00\x00\x00\x06"
+        b"\x00\x00"
+        b"\x00\x01"
+        b"\x00\x60"
+        b"MTrk"
+        b"\x00\x00\x00\x04"
+        b"\x00\xff\x2f\x00"
+    )
+
+
+def song_sequence_json() -> str:
+    return json.dumps({
+        "schema": "pd2.song.sequence.v1",
+        "events": [
+            {
+                "tick": 0,
+                "track": 0,
+                "type": "track_end",
+            },
+        ],
+    }, indent=2) + "\n"
+
+
+def song_sequence_descriptor(catalog_id: str, midi_size: int,
+                             events_size: int) -> str:
+    return (
+        "; tri_song.pdsong - self-contained sequenced music asset\n"
+        "[music]\n"
+        f"catalog_id = {catalog_id}\n"
+        "name = Triangle Song\n"
+        "audio_category = music\n"
+        "duration_ms = 1\n"
+        "source_format = MIDI\n"
+        "format = MIDI\n"
+        "music_file = sequence.mid\n"
+        "midi_file = sequence.mid\n"
+        "events_file = sequence.json\n"
+        f"midi_size = {midi_size}\n"
+        f"events_size = {events_size}\n"
+        "division = 96\n"
+        "event_count = 1\n"
+        "loops = false\n"
+        "source_index = -1\n"
+        "source_offset = 0\n"
+        "\n[meta]\n"
+        "manifest = _meta/manifest.json\n"
+    )
+
+
+def song_sequence_manifest(catalog_id: str, midi_size: int,
+                           events_size: int) -> str:
+    return (
+        "{\n"
+        "  \"schema\": \"pd.asset_archive.manifest.v1\",\n"
+        "  \"pd_kind\": \"song\",\n"
+        f"  \"catalog_id\": \"{catalog_id}\",\n"
+        "  \"source_format\": \"MIDI\",\n"
+        "  \"format\": \"MIDI\",\n"
+        "  \"midi\": \"sequence.mid\",\n"
+        "  \"events\": \"sequence.json\",\n"
+        f"  \"midi_size\": {midi_size},\n"
+        f"  \"events_size\": {events_size},\n"
+        "  \"division\": 96,\n"
+        "  \"event_count\": 1,\n"
+        "  \"loops\": false,\n"
+        "  \"source_index\": -1,\n"
+        "  \"source_offset\": 0\n"
+        "}\n"
+    )
+
+
+def font_glyphs_pgm() -> bytes:
+    return b"P5\n1 1\n255\n\xff"
+
+
+def font_metrics_json() -> str:
+    return json.dumps({
+        "pd_kind": "font_metrics",
+        "pd_schema_version": 1,
+        "glyphs_file": "glyphs.pgm",
+        "atlas": {
+            "width": 1,
+            "height": 1,
+            "cell_width": 1,
+            "cell_height": 1,
+        },
+        "glyphs": [
+            {
+                "index": 65,
+                "char": "A",
+                "baseline": 0,
+                "height": 1,
+                "width": 1,
+                "kerning_index": 0,
+                "atlas_x": 0,
+                "atlas_y": 0,
+            },
+        ],
+    }, indent=2) + "\n"
+
+
+def font_bitmap_descriptor(catalog_id: str, glyph_size: int,
+                           metrics_size: int) -> str:
+    return (
+        "; tri_font.pdfont - self-contained bitmap font asset\n"
+        "[font]\n"
+        f"catalog_id = {catalog_id}\n"
+        "name = Triangle Font\n"
+        "face = triangle\n"
+        "font_format = bitmap_ci4_atlas\n"
+        "font_file = glyphs.pgm\n"
+        "glyphs_file = glyphs.pgm\n"
+        "metrics_file = font.metrics.json\n"
+        f"glyphs_size = {glyph_size}\n"
+        f"metrics_size = {metrics_size}\n"
+        "character_count = 1\n"
+        "source_segment = custom\n"
+        "\n[meta]\n"
+        "manifest = _meta/manifest.json\n"
+    )
+
+
+def font_bitmap_manifest(catalog_id: str, glyph_size: int,
+                         metrics_size: int) -> str:
+    return (
+        "{\n"
+        "  \"schema\": \"pd.asset_archive.manifest.v1\",\n"
+        "  \"pd_kind\": \"font\",\n"
+        f"  \"catalog_id\": \"{catalog_id}\",\n"
+        "  \"face\": \"triangle\",\n"
+        "  \"format\": \"bitmap_ci4_atlas\",\n"
+        "  \"glyphs\": \"glyphs.pgm\",\n"
+        "  \"metrics\": \"font.metrics.json\",\n"
+        f"  \"glyphs_size\": {glyph_size},\n"
+        f"  \"metrics_size\": {metrics_size},\n"
+        "  \"character_count\": 1,\n"
+        "  \"source_segment\": \"custom\"\n"
         "}\n"
     )
 
@@ -121,7 +507,163 @@ def update_animation(rel: str, catalog_id: str, name: str, category: str) -> Non
          "\n[meta]\n"
          "manifest = _meta/manifest.json\n"),
         ("animation.gltf", animation),
-        ("_meta/manifest.json", manifest("animation", catalog_id)),
+        ("_meta/manifest.json", manifest_with("animation", catalog_id, {
+            "category": category,
+            "frame_count": 2,
+            "animation": "animation.gltf",
+            "runtime_source": "animation.gltf",
+            "animation_file": "animation.gltf",
+        })),
+    ])
+
+
+def update_audio_examples() -> None:
+    sfx_sample = pcm16_mono_wav()
+    voice_sample = pcm16_mono_wav()
+    sfx_count = 44
+    voice_count = 44
+    write_archive("audio/sfx/tri_click.pdsfx", [
+        ("sound.ini", audio_wav_descriptor(
+            "sfx",
+            "example:tri_click",
+            "Triangle Click",
+            "sfx",
+            1,
+            len(sfx_sample),
+            sfx_count,
+        )),
+        ("sample.wav", sfx_sample),
+        ("_meta/manifest.json", audio_wav_manifest(
+            "sfx",
+            "example:tri_click",
+            len(sfx_sample),
+            sfx_count,
+        )),
+    ])
+    write_archive("audio/voice/tri_voice.pdvoice", [
+        ("voice.ini", audio_wav_descriptor(
+            "voice",
+            "example:tri_voice",
+            "Triangle Voice",
+            "voice",
+            1,
+            len(voice_sample),
+            voice_count,
+            extra=(
+                "\n[voice]\n"
+                "actor = example\n"
+                "transcript = triangle\n"
+                "language = en\n"
+            ),
+        )),
+        ("sample.wav", voice_sample),
+        ("_meta/manifest.json", audio_wav_manifest(
+            "voice",
+            "example:tri_voice",
+            len(voice_sample),
+            voice_count,
+        )),
+    ])
+
+
+def update_song_examples() -> None:
+    catalog_id = "example:tri_song"
+    midi = song_sequence_mid()
+    events = song_sequence_json()
+    write_archive("audio/music/tri_song.pdsong", [
+        ("music.ini", song_sequence_descriptor(
+            catalog_id,
+            len(midi),
+            len(events.encode("utf-8")),
+        )),
+        ("sequence.mid", midi),
+        ("sequence.json", events),
+        ("_meta/manifest.json", song_sequence_manifest(
+            catalog_id,
+            len(midi),
+            len(events.encode("utf-8")),
+        )),
+    ])
+
+
+def update_font_examples() -> None:
+    catalog_id = "example:tri_font"
+    glyphs = font_glyphs_pgm()
+    metrics = font_metrics_json()
+    metrics_bytes = metrics.encode("utf-8")
+    write_archive("fonts/tri_font.pdfont", [
+        ("font.ini", font_bitmap_descriptor(
+            catalog_id,
+            len(glyphs),
+            len(metrics_bytes),
+        )),
+        ("glyphs.pgm", glyphs),
+        ("font.metrics.json", metrics),
+        ("_meta/manifest.json", font_bitmap_manifest(
+            catalog_id,
+            len(glyphs),
+            len(metrics_bytes),
+        )),
+    ])
+
+
+def lang_strings_json() -> str:
+    return json.dumps({
+        "pd_kind": "language_strings",
+        "pd_schema_version": 1,
+        "strings": [
+            {"index": 0, "key": "triangle", "text": "Triangle"},
+            {"index": 1, "key": "archive", "text": "Archive"},
+        ],
+    }, indent=2) + "\n"
+
+
+def lang_descriptor(catalog_id: str, strings_size: int,
+                    string_count: int) -> str:
+    return (
+        "; tri_lang.pdlang - self-contained language asset\n"
+        "[lang]\n"
+        f"catalog_id = {catalog_id}\n"
+        "locale = en\n"
+        "category = system\n"
+        "strings_file = strings.json\n"
+        f"data_size = {strings_size}\n"
+        f"string_count = {string_count}\n"
+        "source_bank = 1\n"
+        "source_symbol = custom\n"
+        "\n[meta]\n"
+        "manifest = _meta/manifest.json\n"
+    )
+
+
+def lang_manifest(catalog_id: str, strings_size: int,
+                  string_count: int) -> str:
+    return (
+        "{\n"
+        "  \"schema\": \"pd.asset_archive.manifest.v1\",\n"
+        "  \"pd_kind\": \"lang\",\n"
+        f"  \"catalog_id\": \"{catalog_id}\",\n"
+        "  \"locale\": \"en\",\n"
+        "  \"category\": \"system\",\n"
+        "  \"data\": \"strings.json\",\n"
+        f"  \"data_size\": {strings_size},\n"
+        f"  \"string_count\": {string_count},\n"
+        "  \"source_bank\": 1,\n"
+        "  \"source_symbol\": \"custom\"\n"
+        "}\n"
+    )
+
+
+def update_lang_examples() -> None:
+    catalog_id = "example:tri_lang"
+    strings = lang_strings_json()
+    strings_size = len(strings.encode("utf-8"))
+    string_count = 2
+    write_archive("lang/tri_lang.pdlang", [
+        ("lang.ini", lang_descriptor(catalog_id, strings_size, string_count)),
+        ("strings.json", strings),
+        ("_meta/manifest.json",
+         lang_manifest(catalog_id, strings_size, string_count)),
     ])
 
 
@@ -1370,7 +1912,31 @@ def update_mesh() -> bytes:
          "\n[meta]\n"
          "manifest = _meta/manifest.json\n"),
         ("model.gltf", json.dumps(gltf, indent=2) + "\n"),
-        ("_meta/manifest.json", manifest("mesh", "example:tri_mesh")),
+        ("_meta/manifest.json", manifest_with("mesh", "example:tri_mesh", {
+            "geometry": "model.gltf",
+            "model_file": "model.gltf",
+        })),
+    ])
+    return read_archive(rel)
+
+
+def update_texture() -> bytes:
+    rel = "textures/tri_texture.pdtexture"
+    texture = read_entry(rel, "texture.png")
+    write_archive(rel, [
+        ("texture.ini",
+         "; tri_texture.pdtexture - self-contained texture asset\n"
+         "[texture]\n"
+         "catalog_id = example:tri_texture\n"
+         "name = Triangle Texture\n"
+         "\n[source]\n"
+         "texture_file = texture.png\n"
+         "\n[meta]\n"
+         "manifest = _meta/manifest.json\n"),
+        ("texture.png", texture),
+        ("_meta/manifest.json", manifest_with("texture", "example:tri_texture", {
+            "texture_file": "texture.png",
+        })),
     ])
     return read_archive(rel)
 
@@ -1386,7 +1952,7 @@ def update_head_and_body(mesh_bytes: bytes) -> tuple[bytes, bytes]:
          "\n[meta]\n"
          "manifest = _meta/manifest.json\n"),
         ("mesh.pdmesh", mesh_bytes),
-        ("_meta/manifest.json", manifest("head", "example:tri_head")),
+        ("_meta/manifest.json", head_manifest("example:tri_head")),
     ])
     write_archive("bodies/tri_body.pdbody", [
         ("body.ini",
@@ -1401,7 +1967,7 @@ def update_head_and_body(mesh_bytes: bytes) -> tuple[bytes, bytes]:
          "manifest = _meta/manifest.json\n"),
         ("mesh.pdmesh", mesh_bytes),
         ("hand.pdmesh", mesh_bytes),
-        ("_meta/manifest.json", manifest("body", "example:tri_body")),
+        ("_meta/manifest.json", body_manifest("example:tri_body")),
     ])
     return read_archive("heads/tri_head.pdhead"), read_archive("bodies/tri_body.pdbody")
 
@@ -1422,7 +1988,7 @@ def update_character(head_bytes: bytes, body_bytes: bytes) -> None:
         ("portrait.png", portrait),
         ("dependencies/assets/body/tri_body.pdbody", body_bytes),
         ("dependencies/assets/head/tri_head.pdhead", head_bytes),
-        ("_meta/manifest.json", manifest("character", "example:tri_character")),
+        ("_meta/manifest.json", character_manifest("example:tri_character")),
     ])
 
 
@@ -1439,7 +2005,74 @@ def update_arena(scenario_bytes: bytes) -> None:
          "\n[meta]\n"
          "manifest = _meta/manifest.json\n"),
         ("dependencies/assets/scenarios/tri_scenario.pdscenario", scenario_bytes),
-        ("_meta/manifest.json", manifest("arena", "example:tri_arena")),
+        ("_meta/manifest.json", arena_manifest("example:tri_arena")),
+    ])
+
+
+def update_projectile_entity() -> None:
+    projectile_graph = (
+        "{\n"
+        "  \"schema\": \"pd.projectile_graph.v1\",\n"
+        "  \"asset_id\": \"example:tri_projectile\",\n"
+        "  \"graph_id\": \"projectile\",\n"
+        "  \"nodes\": [\n"
+        "    { \"id\": \"motion\", \"kind\": \"projectile.motion\", \"params\": { \"motion_kind\": \"authored\", \"speed\": 18.0, \"timer60\": 120 } },\n"
+        "    { \"id\": \"transition\", \"kind\": \"projectile.transition_to_entity\", \"params\": { \"entity_ref\": \"example:tri_entity\", \"when\": \"at_rest\", \"transfer_owner\": true, \"transfer_position\": true } }\n"
+        "  ],\n"
+        "  \"edges\": [],\n"
+        "  \"exports\": [ { \"name\": \"main\", \"node\": \"motion\" } ]\n"
+        "}\n"
+    )
+    write_archive("projectiles/tri_projectile.pdprojectile", [
+        ("projectile.ini",
+         "; tri_projectile.pdprojectile - self-contained projectile asset\n"
+         "[projectile]\n"
+         "catalog_id = example:tri_projectile\n"
+         "name = Triangle Projectile\n"
+         "speed = 18.0\n"
+         "behavior_graph = behavior.graph.json\n"
+         "\n[meta]\n"
+         "manifest = _meta/manifest.json\n"),
+        ("behavior.graph.json", projectile_graph),
+        ("_meta/manifest.json", manifest_with("projectile", "example:tri_projectile", {
+            "behavior_graph": "behavior.graph.json",
+        })),
+    ])
+
+    entity_bindings = read_entry("entities/tri_entity.pdentity", "bindings.json")
+    entity_graph = (
+        "{\n"
+        "  \"schema\": \"pd.entity_graph.v1\",\n"
+        "  \"asset_id\": \"example:tri_entity\",\n"
+        "  \"graph_id\": \"entity\",\n"
+        "  \"nodes\": [\n"
+        "    { \"id\": \"armed\", \"kind\": \"entity.armed_explosive\", \"params\": { \"archetype\": \"deployed_triangle\", \"activation_time60\": 30, \"recovery_time60\": 15, \"delete_on_detonate\": true } },\n"
+        "    { \"id\": \"cleanup\", \"kind\": \"entity.owner_cleanup\", \"params\": { \"max_active_per_owner\": 1 } }\n"
+        "  ],\n"
+        "  \"edges\": [],\n"
+        "  \"exports\": [ { \"name\": \"main\", \"node\": \"armed\" } ]\n"
+        "}\n"
+    )
+    entity_composition = read_entry("entities/tri_entity.pdentity", "composition.json")
+    write_archive("entities/tri_entity.pdentity", [
+        ("entity.ini",
+         "; tri_entity.pdentity - self-contained entity asset\n"
+         "[entity]\n"
+         "catalog_id = example:tri_entity\n"
+         "name = Triangle Entity\n"
+         "bindings_file = bindings.json\n"
+         "behavior_graph = behavior.graph.json\n"
+         "composition_file = composition.json\n"
+         "\n[meta]\n"
+         "manifest = _meta/manifest.json\n"),
+        ("bindings.json", entity_bindings),
+        ("behavior.graph.json", entity_graph),
+        ("composition.json", entity_composition),
+        ("_meta/manifest.json", manifest_with("entity", "example:tri_entity", {
+            "bindings_file": "bindings.json",
+            "behavior_graph": "behavior.graph.json",
+            "composition_file": "composition.json",
+        })),
     ])
 
 
@@ -1458,10 +2091,10 @@ def update_weapon(mesh_bytes: bytes) -> None:
         "  \"graph_id\": \"primary\",\n"
         "  \"nodes\": [\n"
         "    { \"id\": \"trigger_primary\", \"kind\": \"event.trigger_pressed\", \"params\": { \"mode\": \"primary\" } },\n"
-        "    { \"id\": \"spawn_projectile\", \"kind\": \"spawn.projectile\", \"params\": { \"projectile\": \"example:tri_projectile\" } }\n"
+        "    { \"id\": \"spawn_projectile\", \"kind\": \"spawn.fired_projectile\", \"params\": { \"mode\": \"primary\", \"function_type\": \"shoot_projectile\", \"projectile_ref\": \"example:tri_projectile\" } }\n"
         "  ],\n"
-        "  \"edges\": [ { \"from\": \"trigger_primary.exec\", \"to\": \"spawn_projectile.exec\" } ],\n"
-        "  \"exports\": [ { \"name\": \"primary\", \"node\": \"trigger_primary\" } ]\n"
+        "  \"edges\": [ { \"from\": \"trigger_primary\", \"to\": \"spawn_projectile\" } ],\n"
+        "  \"exports\": [ { \"name\": \"primary\", \"node\": \"spawn_projectile\" } ]\n"
         "}\n"
     )
     secondary_graph = (
@@ -1471,10 +2104,10 @@ def update_weapon(mesh_bytes: bytes) -> None:
         "  \"graph_id\": \"secondary\",\n"
         "  \"nodes\": [\n"
         "    { \"id\": \"trigger_secondary\", \"kind\": \"event.trigger_pressed\", \"params\": { \"mode\": \"secondary\" } },\n"
-        "    { \"id\": \"deploy_entity\", \"kind\": \"spawn.deployed_entity\", \"params\": { \"entity\": \"example:tri_entity\" } }\n"
+        "    { \"id\": \"deploy_entity\", \"kind\": \"spawn.thrown_physical\", \"params\": { \"mode\": \"secondary\", \"function_type\": \"throw\", \"entity_ref\": \"example:tri_entity\", \"payload_ref\": \"example:tri_entity\" } }\n"
         "  ],\n"
-        "  \"edges\": [ { \"from\": \"trigger_secondary.exec\", \"to\": \"deploy_entity.exec\" } ],\n"
-        "  \"exports\": [ { \"name\": \"secondary\", \"node\": \"trigger_secondary\" } ]\n"
+        "  \"edges\": [ { \"from\": \"trigger_secondary\", \"to\": \"deploy_entity\" } ],\n"
+        "  \"exports\": [ { \"name\": \"secondary\", \"node\": \"deploy_entity\" } ]\n"
         "}\n"
     )
     write_archive("weapons/tri_weapon.pdweapon", [
@@ -1522,7 +2155,22 @@ def update_weapon(mesh_bytes: bytes) -> None:
         ("dependencies/assets/projectiles/primary.pdprojectile", projectile),
         ("dependencies/assets/entities/deployed.pdentity", entity),
         ("dependencies/assets/ui/reticle.pdui", ui),
-        ("_meta/manifest.json", manifest("weapon", "example:tri_weapon")),
+        ("_meta/manifest.json", manifest_with("weapon", "example:tri_weapon", {
+            "model_file": "dependencies/assets/models/weapon.pdmesh",
+            "primary_graph": "behavior/primary.graph.json",
+            "secondary_graph": "behavior/secondary.graph.json",
+            "settings_file": "behavior/settings.json",
+            "variables_file": "behavior/variables.json",
+            "shared_context_file": "behavior/shared-context.json",
+            "material_slots_file": "bindings/material-slots.json",
+            "grip_sockets_file": "bindings/grip-sockets.json",
+            "presentation_file": "bindings/presentation.json",
+            "primary_projectile_archive": "dependencies/assets/projectiles/primary.pdprojectile",
+            "deployed_entity_archive": "dependencies/assets/entities/deployed.pdentity",
+            "fire_sound_archive": "dependencies/assets/audio/fire.pdsfx",
+            "idle_animation_archive": "dependencies/assets/animations/idle.pdanim",
+            "reticle_archive": "dependencies/assets/ui/reticle.pdui",
+        })),
     ])
 
 
@@ -1537,12 +2185,29 @@ def update_botprofile() -> None:
          "target_body = example:tri_body\n"
          "profile_file = profile.json\n"),
         ("profile.json", profile),
-        ("_meta/manifest.json", manifest("botprofile", "example:tri_botprofile")),
+        ("_meta/manifest.json", manifest_with("botprofile", "example:tri_botprofile", {
+            "type_key": "general",
+            "difficulty_key": "normal",
+            "body": -1,
+            "name_langid": 0,
+            "requirefeature": 0,
+            "target_body": "example:tri_body",
+            "profile_file": "profile.json",
+        })),
     ])
 
 
 def update_effect() -> None:
     graph = read_entry("effects/tri_effect.pdeffect", "effect.graph.json")
+    timeline = (
+        "{\n"
+        "  \"schema\": \"pd2.effect.timeline.v1\",\n"
+        "  \"tracks\": [\n"
+        "    { \"time\": 0.0, \"property\": \"intensity\", \"value\": 0.0 },\n"
+        "    { \"time\": 0.25, \"property\": \"intensity\", \"value\": 0.75 }\n"
+        "  ]\n"
+        "}\n"
+    )
     write_archive("effects/tri_effect.pdeffect", [
         ("effect.ini",
          "[effect]\n"
@@ -1551,15 +2216,80 @@ def update_effect() -> None:
          "effect_key = glow\n"
          "target_key = weapon\n"
          "effect_file = effect.graph.json\n"
+         "timeline_file = timeline.json\n"
          "shader_id = example_glow\n"
          "intensity = 0.75\n"),
         ("effect.graph.json", graph),
-        ("_meta/manifest.json", manifest("effect", "example:tri_effect")),
+        ("timeline.json", timeline),
+        ("_meta/manifest.json", effect_manifest("example:tri_effect")),
+    ])
+
+
+def update_material() -> None:
+    texture = read_archive("textures/tri_texture.pdtexture")
+    effect = read_archive("effects/tri_effect.pdeffect")
+    material_json = (
+        "{\n"
+        "  \"schema\": \"pd2.material.v1\",\n"
+        "  \"catalog_id\": \"example:tri_material\",\n"
+        "  \"name\": \"Triangle Material\",\n"
+        "  \"shading_model\": \"pd2_unlit\",\n"
+        "  \"base_color\": [1.0, 1.0, 1.0, 1.0],\n"
+        "  \"texture_slots\": [\n"
+        "    { \"name\": \"base_color\", \"archive\": \"dependencies/assets/texture/tri_texture.pdtexture\" }\n"
+        "  ],\n"
+        "  \"effect\": \"dependencies/assets/effects/tri_effect.pdeffect\"\n"
+        "}\n"
+    )
+    write_archive("materials/tri_material.pdmaterial", [
+        ("material.ini",
+         "; tri_material.pdmaterial - self-contained material asset\n"
+         "[material]\n"
+         "catalog_id = example:tri_material\n"
+         "name = Triangle Material\n"
+         "shader = pd2_unlit\n"
+         "material_file = material.json\n"
+         "texture_archive = dependencies/assets/texture/tri_texture.pdtexture\n"
+         "effect_archive = dependencies/assets/effects/tri_effect.pdeffect\n"
+         "\n[meta]\n"
+         "manifest = _meta/manifest.json\n"),
+        ("material.json", material_json),
+        ("dependencies/assets/texture/tri_texture.pdtexture", texture),
+        ("dependencies/assets/effects/tri_effect.pdeffect", effect),
+        ("_meta/manifest.json", material_manifest("example:tri_material")),
+    ])
+
+
+def update_theme() -> None:
+    theme_json = read_entry("themes/tri_theme.pdtheme", "theme.json")
+    ui = read_archive("ui/tri_reticle.pdui")
+    font = read_archive("fonts/tri_font.pdfont")
+    audio = read_archive("audio/sfx/tri_click.pdsfx")
+    music = read_archive("audio/music/tri_song.pdsong")
+    effect = read_archive("effects/tri_effect.pdeffect")
+    write_archive("themes/tri_theme.pdtheme", [
+        ("theme.ini",
+         "[theme]\n"
+         "catalog_id = example:tri_theme\n"
+         "name = Triangle Theme\n"
+         "theme_file = theme.json\n"
+         "ui_archive = dependencies/assets/ui/tri_reticle.pdui\n"
+         "font_archive = dependencies/assets/font/tri_font.pdfont\n"
+         "audio_archive = dependencies/assets/audio/tri_click.pdsfx\n"
+         "music_archive = dependencies/assets/music/tri_song.pdsong\n"
+         "effect_archive = dependencies/assets/effects/tri_effect.pdeffect\n"),
+        ("theme.json", theme_json),
+        ("dependencies/assets/ui/tri_reticle.pdui", ui),
+        ("dependencies/assets/font/tri_font.pdfont", font),
+        ("dependencies/assets/audio/tri_click.pdsfx", audio),
+        ("dependencies/assets/music/tri_song.pdsong", music),
+        ("dependencies/assets/effects/tri_effect.pdeffect", effect),
+        ("_meta/manifest.json", theme_manifest("example:tri_theme")),
     ])
 
 
 def update_prop() -> None:
-    model = read_entry("props/tri_prop.pdprop", "model.gltf")
+    model = read_entry("meshes/tri_mesh.pdmesh", "model.gltf")
     behavior = read_entry("props/tri_prop.pdprop", "behavior.graph.json")
     write_archive("props/tri_prop.pdprop", [
         ("prop.ini",
@@ -1572,7 +2302,26 @@ def update_prop() -> None:
          "behavior_graph = behavior.graph.json\n"),
         ("model.gltf", model),
         ("behavior.graph.json", behavior),
-        ("_meta/manifest.json", manifest("prop", "example:tri_prop")),
+        ("_meta/manifest.json", prop_manifest("example:tri_prop")),
+    ])
+
+
+def update_vehicle() -> None:
+    model = read_entry("meshes/tri_mesh.pdmesh", "model.gltf")
+    physics = read_entry("vehicles/tri_vehicle.pdvehicle", "physics.json")
+    behavior = read_entry("vehicles/tri_vehicle.pdvehicle", "behavior.graph.json")
+    write_archive("vehicles/tri_vehicle.pdvehicle", [
+        ("vehicle.ini",
+         "[vehicle]\n"
+         "catalog_id = example:tri_vehicle\n"
+         "name = Triangle Hoverbike\n"
+         "model_file = model.gltf\n"
+         "physics_file = physics.json\n"
+         "behavior_graph = behavior.graph.json\n"),
+        ("model.gltf", model),
+        ("physics.json", physics),
+        ("behavior.graph.json", behavior),
+        ("_meta/manifest.json", vehicle_manifest("example:tri_vehicle")),
     ])
 
 
@@ -1589,7 +2338,16 @@ def update_gamemode() -> None:
          "team_based = 0\n"
          "rules_file = rules.json\n"),
         ("rules.json", rules),
-        ("_meta/manifest.json", manifest("gamemode", "example:tri_gamemode")),
+        ("_meta/manifest.json", manifest_with("gamemode", "example:tri_gamemode", {
+            "name": "Triangle Rules",
+            "description": "",
+            "mode_key": "custom",
+            "min_players": 2,
+            "max_players": 8,
+            "team_based": 0,
+            "requirefeature": 0,
+            "rules_file": "rules.json",
+        })),
     ])
 
 
@@ -1606,7 +2364,126 @@ def update_hud() -> None:
          "layout_file = layout.json\n"),
         ("layout.json", layout),
         ("texture.png", texture),
-        ("_meta/manifest.json", manifest("hud", "example:tri_hud")),
+        ("_meta/manifest.json", manifest_with("hud", "example:tri_hud", {
+            "texture_file": "texture.png",
+            "layout_file": "layout.json",
+        })),
+    ])
+
+
+def update_ui() -> None:
+    texture = read_entry("ui/tri_reticle.pdui", "texture.png")
+    layout = (
+        "{\n"
+        "  \"schema\": \"pd2.ui.layout.v1\",\n"
+        "  \"role\": \"reticle\",\n"
+        "  \"texture\": \"texture.png\",\n"
+        "  \"slots\": [\n"
+        "    { \"id\": \"center\", \"rect\": [0, 0, 16, 16], \"anchor\": \"center\" }\n"
+        "  ]\n"
+        "}\n"
+    )
+    nineslice = (
+        "[nineslice]\n"
+        "left = 4\n"
+        "right = 4\n"
+        "top = 4\n"
+        "bottom = 4\n"
+        "edge_mode = stretch\n"
+        "center_mode = stretch\n"
+    )
+    ui_manifest = (
+        "{\n"
+        "  \"schema\": \"pd.asset_archive.manifest.v1\",\n"
+        "  \"pd_kind\": \"ui\",\n"
+        "  \"catalog_id\": \"example:tri_reticle\",\n"
+        "  \"texture_file\": \"texture.png\",\n"
+        "  \"layout_file\": \"layout.json\",\n"
+        "  \"nineslice_file\": \"nineslice.ini\",\n"
+        "  \"texture\": {\n"
+        "    \"name\": \"tri_reticle\",\n"
+        "    \"file\": \"texture.png\",\n"
+        "    \"width\": 16,\n"
+        "    \"height\": 16,\n"
+        "    \"format\": \"rgba32_top_down\",\n"
+        f"    \"data_size\": {len(texture)},\n"
+        "    \"nineslice\": {\n"
+        "      \"left\": 4,\n"
+        "      \"right\": 4,\n"
+        "      \"top\": 4,\n"
+        "      \"bottom\": 4,\n"
+        "      \"edgeMode\": \"stretch\",\n"
+        "      \"centerMode\": \"stretch\"\n"
+        "    }\n"
+        "  }\n"
+        "}\n"
+    )
+    write_archive("ui/tri_reticle.pdui", [
+        ("ui.ini",
+         "; tri_reticle.pdui - self-contained UI texture/layout asset\n"
+         "[ui]\n"
+         "catalog_id = example:tri_reticle\n"
+         "name = Triangle Reticle\n"
+         "texture_file = texture.png\n"
+         "layout_file = layout.json\n"
+         "nineslice_file = nineslice.ini\n"
+         "texture_name = tri_reticle\n"
+         "width = 16\n"
+         "height = 16\n"
+         f"data_size = {len(texture)}\n"
+         "nineslice_left = 4\n"
+         "nineslice_right = 4\n"
+         "nineslice_top = 4\n"
+         "nineslice_bottom = 4\n"
+         "nineslice_edge_mode = stretch\n"
+         "nineslice_center_mode = stretch\n"
+         "\n[meta]\n"
+         "manifest = _meta/manifest.json\n"),
+        ("texture.png", texture),
+        ("layout.json", layout),
+        ("nineslice.ini", nineslice),
+        ("_meta/manifest.json", ui_manifest),
+    ])
+
+
+def update_skin() -> None:
+    texture = read_entry("skins/tri_skin.pdskin", "texture.tga")
+    material = read_archive("materials/tri_material.pdmaterial")
+    texture_archive = read_archive("textures/tri_texture.pdtexture")
+    swatches = (
+        "{\n"
+        "  \"schema\": \"pd2.skin.swatches.v1\",\n"
+        "  \"swatches\": [\n"
+        "    { \"name\": \"default\", \"rgba\": [1.0, 1.0, 1.0, 1.0] }\n"
+        "  ]\n"
+        "}\n"
+    )
+    skin_manifest = (
+        "{\n"
+        "  \"schema\": \"pd.asset_archive.manifest.v1\",\n"
+        "  \"pd_kind\": \"skin\",\n"
+        "  \"catalog_id\": \"example:tri_skin\",\n"
+        "  \"texture_file\": \"texture.tga\",\n"
+        "  \"swatches_file\": \"swatches.json\",\n"
+        "  \"material_archive\": \"dependencies/assets/material/tri_material.pdmaterial\",\n"
+        "  \"texture_archive\": \"dependencies/assets/texture/tri_texture.pdtexture\"\n"
+        "}\n"
+    )
+    write_archive("skins/tri_skin.pdskin", [
+        ("skin.ini",
+         "[skin]\n"
+         "catalog_id = example:tri_skin\n"
+         "name = Triangle Skin\n"
+         "target = example:tri_character\n"
+         "texture_file = texture.tga\n"
+         "swatches_file = swatches.json\n"
+         "material_archive = dependencies/assets/material/tri_material.pdmaterial\n"
+         "texture_archive = dependencies/assets/texture/tri_texture.pdtexture\n"),
+        ("texture.tga", texture),
+        ("swatches.json", swatches),
+        ("dependencies/assets/material/tri_material.pdmaterial", material),
+        ("dependencies/assets/texture/tri_texture.pdtexture", texture_archive),
+        ("_meta/manifest.json", skin_manifest),
     ])
 
 
@@ -1637,15 +2514,26 @@ def main() -> int:
     )
 
     mesh_bytes = update_mesh()
+    update_texture()
     scenario_bytes = update_scenario()
     head_bytes, body_bytes = update_head_and_body(mesh_bytes)
     update_character(head_bytes, body_bytes)
     update_arena(scenario_bytes)
+    update_projectile_entity()
     update_botprofile()
     update_effect()
+    update_material()
     update_prop()
+    update_vehicle()
     update_gamemode()
+    update_ui()
     update_hud()
+    update_skin()
+    update_audio_examples()
+    update_song_examples()
+    update_font_examples()
+    update_lang_examples()
+    update_theme()
 
     rewrite_without_directory_entries("skins/tri_skin.pdskin")
     rewrite_without_directory_entries("themes/tri_theme.pdtheme")
@@ -1712,9 +2600,22 @@ def main() -> int:
         "  ]\n"
         "}\n"
     ).encode("utf-8")
+    mission_manifest = (
+        "{\n"
+        "  \"schema\": \"pd.asset_archive.manifest.v1\",\n"
+        "  \"pd_kind\": \"mission\",\n"
+        "  \"catalog_id\": \"example:tri_mission\",\n"
+        "  \"mission_graph_file\": \"mission.graph.json\",\n"
+        "  \"scenario_archive\": \"dependencies/assets/scenarios/tri_scenario.pdscenario\",\n"
+        "  \"objectives_file\": \"objectives.json\",\n"
+        "  \"briefing_file\": \"briefing.json\"\n"
+        "}\n"
+    ).encode("utf-8")
     mission_entries = [
         (name, mission_graph if name == "mission.graph.json"
-         else mission_ini if name == "mission.ini" else data)
+         else mission_ini if name == "mission.ini"
+         else mission_manifest if name == "_meta/manifest.json"
+         else data)
         for name, data in mission_entries
     ]
     mission_entries.extend([

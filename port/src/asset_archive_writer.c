@@ -373,6 +373,50 @@ static s32 writeDependencyArray(text_builder_t *b,
 	return builderAppend(b, "\n  ],\n");
 }
 
+static s32 writerHasEntry(const asset_archive_writer_t *writer,
+                          const char *path)
+{
+	if (!writer || !path || !path[0]) return 0;
+	for (u32 i = 0; i < writer->entry_count; i++) {
+		if (strcmp(writer->entries[i].path, path) == 0) {
+			return 1;
+		}
+	}
+	return 0;
+}
+
+static s32 writeFamilySourceFields(text_builder_t *b,
+                                   const asset_archive_writer_t *writer)
+{
+	if (!writer) return -1;
+
+	if (strcmp(writer->family, "projectile") == 0) {
+		if (writerHasEntry(writer, "behavior.graph.json") &&
+				(builderAppend(b, "  \"behavior_graph\": \"behavior.graph.json\",\n") != 0)) {
+			return -1;
+		}
+		return 0;
+	}
+
+	if (strcmp(writer->family, "entity") == 0) {
+		if (writerHasEntry(writer, "bindings.json") &&
+				(builderAppend(b, "  \"bindings_file\": \"bindings.json\",\n") != 0)) {
+			return -1;
+		}
+		if (writerHasEntry(writer, "behavior.graph.json") &&
+				(builderAppend(b, "  \"behavior_graph\": \"behavior.graph.json\",\n") != 0)) {
+			return -1;
+		}
+		if (writerHasEntry(writer, "composition.json") &&
+				(builderAppend(b, "  \"composition_file\": \"composition.json\",\n") != 0)) {
+			return -1;
+		}
+		return 0;
+	}
+
+	return 0;
+}
+
 static s32 writeDefaultManifest(asset_archive_writer_t *writer)
 {
 	text_builder_t b;
@@ -385,6 +429,7 @@ static s32 writeDefaultManifest(asset_archive_writer_t *writer)
 		builderAppend(&b, "  \"id\": ") == 0 &&
 		builderAppendJsonString(&b, writer->catalog_id) == 0 &&
 		builderAppend(&b, ",\n") == 0 &&
+		writeFamilySourceFields(&b, writer) == 0 &&
 		writeDependencyArray(&b, writer) == 0 &&
 		builderAppend(&b, "  \"dependency_schema\": {\n") == 0 &&
 		builderAppend(&b, "    \"root\": \"") == 0 &&

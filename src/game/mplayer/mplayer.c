@@ -40,6 +40,7 @@
 #include "catalog_mgr_heads.h"  /* Catalog Gate 3 F6: random-gender pool helpers */
 #include "modelcatalog.h"
 #include "audio.h"
+#include "mod.h"
 #include "modmusic.h"
 #include "game/bg.h"
 
@@ -3467,6 +3468,24 @@ s32 mpChooseTrack(void)
 						g_MusicLife60 = (ar.entry->ext.audio.duration_ms / 1000) * TICKS(60);
 					}
 					return ar.sound_id;
+				}
+				if (ar.entry && !ar.entry->bundled) {
+					s32 virtual_track = modSequenceVirtualTrackForCatalogId(modId);
+					if (virtual_track >= 0) {
+						if (modMusicIsPlaying()) {
+							modMusicStop();
+						}
+						if (ar.entry->ext.audio.duration_ms > 0) {
+							g_MusicLife60 = (ar.entry->ext.audio.duration_ms / 1000) * TICKS(60);
+						} else {
+							g_MusicLife60 = TICKS(120);
+						}
+						g_MpLockInfo.unk04 = virtual_track;
+						sysLogPrintf(LOG_NOTE,
+							"CATALOG: music '%s' -> private sequence slot %d",
+							modId, virtual_track);
+						return virtual_track;
+					}
 				}
 			}
 			/* Catalog entry missing/invalid — fall through to base music */

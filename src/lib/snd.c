@@ -1609,7 +1609,7 @@ void sndInit(void)
 
 		// Promote segment-relative offsets to ROM addresses
 		g_SeqRomAddrs = mempAlloc(g_SeqTable->count * sizeof(uintptr_t), MEMPOOL_PERMANENT);
-		
+
 		for (i = 0; i < g_SeqTable->count; i++) {
 			g_SeqRomAddrs[i] = g_SeqTable->entries[i].romaddr + (romptr_t) REF_SEG _sequencesSegmentRomStart;
 		}
@@ -1708,6 +1708,8 @@ bool seqPlay(struct seqinstance *seq, s32 tracknum)
 	u8 *binstart;
 	u8 *zipstart;
 	s32 ziplen;
+	u32 extlen = 0;
+	u8 *extseq = NULL;
 	u8 scratch[1024 * 5];
 
 	s32 state = n_alCSPGetState(seq->seqp);
@@ -1724,23 +1726,19 @@ bool seqPlay(struct seqinstance *seq, s32 tracknum)
 		return false;
 	}
 
-	if (g_SeqRomAddrs[seq->tracknum] < 0x10000) {
-		return false;
-	}
-
 	if (modSequencePlayAudioSource(seq->tracknum)) {
 		return true;
 	}
 
 	// try to load external replacement, which can be either compressed or not
-	u32 extlen = 0;
-	u8 *extseq = modSequenceLoad(seq->tracknum, &extlen);
+	extseq = modSequenceLoad(seq->tracknum, &extlen);
 	if (extseq) {
 		if (extlen > 2 && rzipIs1173(extseq)) {
 			// sequence is compressed; uncompress
 			binlen = ((u32)extseq[2] << 16) | ((u32)extseq[3] << 8) | (u32)extseq[4];
 			binlen = ALIGN16(binlen) + 0x40;
 			if (binlen >= g_SeqBufferSize) {
+				sysMemFree(extseq);
 				return false;
 			}
 			ziplen = ALIGN16(extlen);
@@ -1751,6 +1749,7 @@ bool seqPlay(struct seqinstance *seq, s32 tracknum)
 			// sequence is uncompressed; just load as is
 			binlen = ALIGN16(extlen) + 0x40;
 			if (binlen >= g_SeqBufferSize) {
+				sysMemFree(extseq);
 				return false;
 			}
 			ziplen = extlen;
@@ -1761,6 +1760,12 @@ bool seqPlay(struct seqinstance *seq, s32 tracknum)
 		sysMemFree(extseq);
 	} else
 	{
+		if (!g_SeqTable || !g_SeqRomAddrs || seq->tracknum < 0 ||
+				seq->tracknum >= g_SeqTable->count ||
+				g_SeqRomAddrs[seq->tracknum] < 0x10000) {
+			return false;
+		}
+
 		binlen = ALIGN16(g_SeqTable->entries[seq->tracknum].binlen) + 0x40;
 
 		if (binlen >= g_SeqBufferSize) {
@@ -1819,7 +1824,13 @@ u16 seqGetVolume(struct seqinstance *seq)
 void seqSetVolume(struct seqinstance *seq, u16 volume)
 {
 	if (!g_SndDisabled) {
-		u32 tmp = var8005ecf8[seq->tracknum] * volume;
+		u32 base = 0x5fff;
+		if (seq->tracknum >= 0 && seq->tracknum < (s32)ARRAYCOUNT(var8005ecf8) &&
+				!modSequenceIsVirtualTrack(seq->tracknum) &&
+				var8005ecf8[seq->tracknum] >= 0) {
+			base = var8005ecf8[seq->tracknum];
+		}
+		u32 tmp = base * volume;
 		tmp >>=	15;
 
 		seq->volume = volume;
@@ -2271,7 +2282,16 @@ struct sndstate *sndStart(s32 arg0, s16 sound, struct sndstate **handle, s32 vol
 		}
 		if (r.is_mod_override && r.path) {
 			const asset_entry_t *entry = assetCatalogGetByIndex(r.catalog_id);
-			f32 filepitch = pitch;
+			f32 filebasepitch = 1.0f;
+			u8 file_sample_pan = AL_PAN_CENTER;
+			u8 file_sample_volume = 127;
+			u8 file_key_volume_index = 0;
+			u8 file_fxmix_key_offset = 0;
+			if (entry) {
+				file_sample_pan = entry->ext.audio.sample_pan;
+				file_sample_volume = entry->ext.audio.sample_volume;
+				file_key_volume_index = (u8)(entry->ext.audio.key_min & 0x1f);
+			}
 			if (entry && entry->ext.audio.has_keymap) {
 				s32 cents;
 				if (entry->ext.audio.key_max & SNDSTATEFLAG_20) {
@@ -2280,20 +2300,18 @@ struct sndstate *sndStart(s32 arg0, s16 sound, struct sndstate **handle, s32 vol
 					cents = entry->ext.audio.key_base * 100
 						+ entry->ext.audio.key_detune - 6000;
 				}
-				filepitch *= alCents2Ratio(cents);
-				volume = (u16)(((u32)volume * (u32)entry->ext.audio.sample_volume) / 127u);
-				{
-					s32 filepan = (s32)pan + entry->ext.audio.sample_pan - AL_PAN_CENTER;
-					if (filepan < 0) filepan = 0;
-					if (filepan > 127) filepan = 127;
-					pan = (u8)filepan;
-				}
+				filebasepitch = alCents2Ratio(cents);
+				file_fxmix_key_offset = (u8)((entry->ext.audio.key_max & 0x0f) * 8);
 			}
 			sysLogPrintf(LOG_NOTE, "CATALOG: sound %d → mod override \"%s\" (entry %d)",
 			             (s32)sp40.id, r.path, r.catalog_id);
 			{
 				struct sndstate *file_state = audioStartFileSound(r.path, volume, pan,
-					filepitch,
+					pitch,
+					filebasepitch,
+					file_sample_pan,
+					file_sample_volume,
+					file_key_volume_index,
 					entry ? entry->ext.audio.has_loop : 0,
 					entry ? entry->ext.audio.loop_start_samples : 0,
 					entry ? entry->ext.audio.loop_end_samples : 0,
@@ -2304,6 +2322,9 @@ struct sndstate *sndStart(s32 arg0, s16 sound, struct sndstate **handle, s32 vol
 					entry ? entry->ext.audio.release_time_us : 0,
 					entry ? entry->ext.audio.attack_volume : 127,
 					entry ? entry->ext.audio.decay_volume : 127,
+					fxmix,
+					fxbus,
+					file_fxmix_key_offset,
 					handle);
 				if (file_state) {
 					return file_state;

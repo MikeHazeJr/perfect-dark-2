@@ -26,17 +26,19 @@ void audioSetUiVolume(f32 vol);
 /* Get the effective UI volume as a 0x0000–0x5000 scale for sound bridge */
 u16 audioGetUiVolumeScaled(void);
 
-/* Load and play a WAV file through the SDL audio device.
+/* Load and play a standard audio file through the SDL audio device.
  * volume: 0–0x7fff (AL_VOL_FULL = 0x7fff).
  * pan:    0–127   (AL_PAN_CENTER = 64; 0 = full left, 127 = full right).
  * Returns 1 on success, 0 if the file could not be loaded or converted.
  * On failure the caller should fall back to the ROM sound path. */
 s32 audioPlayFileSound(const char *path, u16 volume, u8 pan, f32 pitch);
 struct sndstate *audioStartFileSound(const char *path, u16 volume, u8 pan,
-		f32 pitch, s32 has_loop, u32 loop_start_samples,
+		f32 pitch, f32 base_pitch, u8 sample_pan, u8 sample_volume,
+		u8 key_volume_index, s32 has_loop, u32 loop_start_samples,
 		u32 loop_end_samples, u32 loop_count, s32 has_envelope,
 		u32 attack_time_us, u32 decay_time_us, u32 release_time_us,
-		s32 attack_volume, s32 decay_volume, struct sndstate **handle);
+		s32 attack_volume, s32 decay_volume, u8 fxmix, u8 fxbus,
+		u8 fxmix_key_offset, struct sndstate **handle);
 s32 audioFileSoundOwnsHandle(const struct sndstate *handle);
 s32 audioFileSoundGetState(const struct sndstate *handle);
 void audioFileSoundStop(struct sndstate *handle);

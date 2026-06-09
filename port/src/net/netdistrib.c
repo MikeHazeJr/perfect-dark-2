@@ -43,8 +43,10 @@
 #include "net/netenet.h"
 #include "net/netmanifest.h"
 #include "assetcatalog.h"
+#include "assetcatalog_weapon_slots.h"
 #include "assetcatalog_deps.h"
 #include "assetcatalog_scanner.h"
+#include "loader_pool.h"
 #include "modmgr.h"
 #include "pdgui_theme_loader.h"
 #include "system.h"
@@ -60,8 +62,8 @@
 #define CRASH_STATE_FILE ".crash_state"
 #define TEMP_SUBDIR      ".temp"
 
-/* Max pending transfers per server (one per client × max concurrent) */
-#define DISTRIB_MAX_QUEUE 64
+/* Initial pending transfer slots. The queue grows for large mod packs. */
+#define DISTRIB_INITIAL_QUEUE 128
 
 /* Default trust threshold in MB — transfers above this require user approval.
  * No hard size ceiling exists; the only protection is this user approval prompt.
@@ -83,9 +85,8 @@ typedef struct distrib_queue_entry {
     s32  temporary;              /* client requested session-only */
 } distrib_queue_entry_t;
 
-static distrib_queue_entry_t s_Queue[DISTRIB_MAX_QUEUE];
-static s32 s_QueueHead = 0;
-static s32 s_QueueTail = 0;
+static distrib_queue_entry_t *s_Queue = NULL;
+static s32 s_QueueCap = 0;
 static s32 s_Initialized = 0;
 
 /* ========================================================================
@@ -129,6 +130,54 @@ static s32 s_PendingTemporary = 0;
 /* Configurable trust threshold (MB) — transfers above this need user approval.
  * Bound to Net.DistribTrustThresholdMB in pd.ini. */
 static s32 s_TrustThresholdMb = DISTRIB_TRUST_THRESHOLD_DEFAULT_MB;
+
+static s32 distribEnsureQueueCapacity(s32 min_cap)
+{
+    if (min_cap <= s_QueueCap) {
+        return 1;
+    }
+
+    s32 old_cap = s_QueueCap;
+    s32 new_cap = s_QueueCap ? s_QueueCap : DISTRIB_INITIAL_QUEUE;
+    while (new_cap < min_cap) {
+        new_cap *= 2;
+    }
+
+    distrib_queue_entry_t *new_queue =
+        (distrib_queue_entry_t *)realloc(s_Queue,
+            (size_t)new_cap * sizeof(*new_queue));
+    if (!new_queue) {
+        sysLogPrintf(LOG_ERROR,
+                     "DISTRIB: failed to grow transfer queue to %d entries",
+                     new_cap);
+        return 0;
+    }
+
+    s_Queue = new_queue;
+    memset(s_Queue + old_cap, 0,
+           (size_t)(new_cap - old_cap) * sizeof(*s_Queue));
+    s_QueueCap = new_cap;
+    return 1;
+}
+
+static distrib_queue_entry_t *distribAllocQueueSlot(void)
+{
+    if (!distribEnsureQueueCapacity(DISTRIB_INITIAL_QUEUE)) {
+        return NULL;
+    }
+
+    for (s32 i = 0; i < s_QueueCap; i++) {
+        if (!s_Queue[i].active) {
+            return &s_Queue[i];
+        }
+    }
+
+    s32 old_cap = s_QueueCap;
+    if (!distribEnsureQueueCapacity(s_QueueCap + 1)) {
+        return NULL;
+    }
+    return &s_Queue[old_cap];
+}
 
 /* ========================================================================
  * PDCA Archive Builder (server side)
@@ -444,12 +493,12 @@ static void streamComponentToClient(struct netclient *cl, const char *catalog_id
 
 void netDistribInit(void)
 {
-    memset(s_Queue, 0, sizeof(s_Queue));
+    if (distribEnsureQueueCapacity(DISTRIB_INITIAL_QUEUE)) {
+        memset(s_Queue, 0, (size_t)s_QueueCap * sizeof(*s_Queue));
+    }
     memset(s_RecvSlots, 0, sizeof(s_RecvSlots));
     memset(&s_ClientStatus, 0, sizeof(s_ClientStatus));
     memset(s_KillFeed, 0, sizeof(s_KillFeed));
-    s_QueueHead = 0;
-    s_QueueTail = 0;
     s_KillFeedNext = 0;
     s_PendingTemporary = 0;
     s_TrustThresholdMb = DISTRIB_TRUST_THRESHOLD_DEFAULT_MB;
@@ -463,11 +512,28 @@ void netDistribServerSendCatalogInfo(struct netclient *cl)
 {
     if (!s_Initialized || !cl) return;
 
-    netbufStartWrite(&g_NetMsgRel);
-    netmsgSvcCatalogInfoWrite(&g_NetMsgRel);
-    netSend(cl, &g_NetMsgRel, 1, NETCHAN_CONTROL);
+    u16 offset = 0;
+    u16 total = 0;
+    s32 batches = 0;
+    do {
+        u16 next = offset;
+        netbufStartWrite(&g_NetMsgRel);
+        netmsgSvcCatalogInfoWriteChunk(&g_NetMsgRel, offset, &next, &total);
+        if (g_NetMsgRel.error || (total > offset && next == offset)) {
+            sysLogPrintf(LOG_WARNING,
+                         "DISTRIB: failed to write SVC_CATALOG_INFO batch "
+                         "offset=%u total=%u for %s",
+                         (unsigned)offset, (unsigned)total, cl->settings.name);
+            break;
+        }
+        netSend(cl, &g_NetMsgRel, 1, NETCHAN_CONTROL);
+        batches++;
+        offset = next;
+    } while (offset < total);
 
-    sysLogPrintf(LOG_NOTE, "DISTRIB: sent SVC_CATALOG_INFO to %s", cl->settings.name);
+    sysLogPrintf(LOG_NOTE,
+                 "DISTRIB: sent SVC_CATALOG_INFO to %s (%u entries, %d batches)",
+                 cl->settings.name, (unsigned)total, batches);
 }
 
 void netDistribServerHandleDiff(struct netclient *cl,
@@ -484,22 +550,18 @@ void netDistribServerHandleDiff(struct netclient *cl,
                  cl->settings.name, count, (s32)temporary);
 
     for (u16 i = 0; i < count; i++) {
-        /* Find a free queue slot */
-        s32 found = 0;
-        for (s32 j = 0; j < DISTRIB_MAX_QUEUE; j++) {
-            if (!s_Queue[j].active) {
-                s_Queue[j].cl = cl;
-                strncpy(s_Queue[j].catalog_id, missing_ids[i], sizeof(s_Queue[j].catalog_id) - 1);
-                s_Queue[j].catalog_id[sizeof(s_Queue[j].catalog_id) - 1] = '\0';
-                s_Queue[j].temporary = (s32)temporary;
-                s_Queue[j].active = 1;
-                found = 1;
-                break;
-            }
+        distrib_queue_entry_t *slot = distribAllocQueueSlot();
+        if (!slot) {
+            sysLogPrintf(LOG_WARNING,
+                         "DISTRIB: transfer queue allocation failed for '%s'",
+                         missing_ids[i]);
+            continue;
         }
-        if (!found) {
-            sysLogPrintf(LOG_WARNING, "DISTRIB: transfer queue full, dropping '%s'", missing_ids[i]);
-        }
+        slot->cl = cl;
+        strncpy(slot->catalog_id, missing_ids[i], sizeof(slot->catalog_id) - 1);
+        slot->catalog_id[sizeof(slot->catalog_id) - 1] = '\0';
+        slot->temporary = (s32)temporary;
+        slot->active = 1;
     }
 }
 
@@ -508,7 +570,7 @@ void netDistribServerTick(void)
     if (!s_Initialized || g_NetMode != NETMODE_SERVER) return;
 
     /* Process one pending entry per tick to avoid stalling the frame */
-    for (s32 i = 0; i < DISTRIB_MAX_QUEUE; i++) {
+    for (s32 i = 0; i < s_QueueCap; i++) {
         if (!s_Queue[i].active) continue;
 
         struct netclient *cl = s_Queue[i].cl;
@@ -545,7 +607,7 @@ void netDistribServerGetClientStatus(s32 client_index,
     if (!s_Initialized || client_index < 0 || client_index > NET_MAX_CLIENTS) return;
 
     const struct netclient *target = &g_NetClients[client_index];
-    for (s32 i = 0; i < DISTRIB_MAX_QUEUE; i++) {
+    for (s32 i = 0; i < s_QueueCap; i++) {
         if (s_Queue[i].active && s_Queue[i].cl == target) {
             out->queue_remaining++;
             if (!out->current_id[0]) {
@@ -711,15 +773,37 @@ static s32 extractArchive(const u8 *data, u32 data_len, const char *destdir)
 
 void netDistribClientHandleCatalogInfo(const char (*ids)[64],
                                        const char (*categories)[64],
-                                       u16 count)
+                                       u16 count,
+                                       u16 batch_offset,
+                                       u16 total_count)
 {
     if (!s_Initialized) return;
+    (void)categories;
+
+    if (batch_offset == 0) {
+        s_ClientStatus.missing_count = 0;
+        s_ClientStatus.received_count = 0;
+        s_ClientStatus.session_bytes_total = 0;
+        s_ClientStatus.current_id[0] = '\0';
+        s_ClientStatus.current_bytes_received = 0;
+        s_ClientStatus.current_bytes_total = 0;
+    }
 
     /* v27: diff by catalog ID string — no net_hash lookup. */
-    char missing_ids[256][64];
+    char (*missing_ids)[64] = NULL;
     u16 missing_count = 0;
+    if (count > 0) {
+        missing_ids = (char (*)[64])calloc(count, sizeof(*missing_ids));
+        if (!missing_ids) {
+            s_ClientStatus.state = DISTRIB_CSTATE_ERROR;
+            sysLogPrintf(LOG_WARNING,
+                         "DISTRIB: OOM while diffing %u catalog entries",
+                         count);
+            return;
+        }
+    }
 
-    for (u16 i = 0; i < count && missing_count < 256; i++) {
+    for (u16 i = 0; i < count; i++) {
         const asset_entry_t *e = assetCatalogResolve(ids[i]);
         if (!e) {
             strncpy(missing_ids[missing_count], ids[i], 63);
@@ -729,12 +813,10 @@ void netDistribClientHandleCatalogInfo(const char (*ids)[64],
         }
     }
 
-    /* Update UI state */
-    s_ClientStatus.missing_count = missing_count;
-    s_ClientStatus.received_count = 0;
-    s_ClientStatus.session_bytes_total = 0;
+    s_ClientStatus.missing_count += missing_count;
 
-    if (missing_count == 0) {
+    const s32 final_batch = ((u32)batch_offset + (u32)count >= (u32)total_count);
+    if (final_batch && s_ClientStatus.missing_count == 0) {
         sysLogPrintf(LOG_NOTE, "DISTRIB: local catalog satisfies server requirements");
         s_ClientStatus.state = DISTRIB_CSTATE_IDLE;
 
@@ -742,17 +824,31 @@ void netDistribClientHandleCatalogInfo(const char (*ids)[64],
         netbufStartWrite(&g_NetMsgRel);
         netmsgClcCatalogDiffWrite(&g_NetMsgRel, NULL, 0, 0);
         netSend(NULL, &g_NetMsgRel, 1, NETCHAN_CONTROL);
+        free(missing_ids);
         return;
     }
 
-    s_ClientStatus.state = DISTRIB_CSTATE_DIFFING;
-    sysLogPrintf(LOG_NOTE, "DISTRIB: requesting %u missing components", missing_count);
+    if (missing_count > 0) {
+        s_ClientStatus.state = DISTRIB_CSTATE_DIFFING;
+        sysLogPrintf(LOG_NOTE,
+                     "DISTRIB: requesting %u missing components from catalog batch "
+                     "%u..%u of %u (total missing so far %d)",
+                     missing_count, (unsigned)batch_offset,
+                     (unsigned)(batch_offset + count),
+                     (unsigned)total_count, s_ClientStatus.missing_count);
 
-    /* Send CLC_CATALOG_DIFF */
-    netbufStartWrite(&g_NetMsgRel);
-    netmsgClcCatalogDiffWrite(&g_NetMsgRel, (const char (*)[64])missing_ids,
-                              missing_count, (u8)s_PendingTemporary);
-    netSend(NULL, &g_NetMsgRel, 1, NETCHAN_CONTROL);
+        /* Send CLC_CATALOG_DIFF for this batch. */
+        netbufStartWrite(&g_NetMsgRel);
+        netmsgClcCatalogDiffWrite(&g_NetMsgRel, (const char (*)[64])missing_ids,
+                                  missing_count, (u8)s_PendingTemporary);
+        netSend(NULL, &g_NetMsgRel, 1, NETCHAN_CONTROL);
+    } else if (final_batch) {
+        sysLogPrintf(LOG_NOTE,
+                     "DISTRIB: catalog diff complete, total missing=%d",
+                     s_ClientStatus.missing_count);
+    }
+
+    free(missing_ids);
 }
 
 void netDistribClientHandleBegin(const char *catalog_id, const char *category,
@@ -968,6 +1064,8 @@ static asset_type_e iniFilenameToAssetType(const char *ini_name)
     if (strcmp(ini_name, "textures.ini") == 0)  return ASSET_TEXTURES;
     if (strcmp(ini_name, "texture.ini") == 0)   return ASSET_TEXTURE;
     if (strcmp(ini_name, "material.ini") == 0)  return ASSET_MATERIAL;
+    if (strcmp(ini_name, "mesh.ini") == 0)      return ASSET_MODEL;
+    if (strcmp(ini_name, "model.ini") == 0)     return ASSET_MODEL;
     if (strcmp(ini_name, "skin.ini") == 0)      return ASSET_SKIN;
     if (strcmp(ini_name, "weapon.ini") == 0)    return ASSET_WEAPON;
     if (strcmp(ini_name, "projectile.ini") == 0) return ASSET_PROJECTILE;
@@ -1170,6 +1268,94 @@ static s32 distribParseEffectTargetKeyValue(const char *value, s32 default_value
         (s32)(sizeof(values) / sizeof(values[0])));
 }
 
+static char *distribTrimWhitespace(char *str)
+{
+    while (*str && isspace((u8)*str)) {
+        str++;
+    }
+
+    if (*str == '\0') {
+        return str;
+    }
+
+    char *end = str + strlen(str) - 1;
+    while (end > str && isspace((u8)*end)) {
+        *end = '\0';
+        end--;
+    }
+
+    return str;
+}
+
+static void distribRegisterDependencyList(const char *owner_id, const char *deps,
+                                          s32 is_bundled)
+{
+    if (!owner_id || !owner_id[0] || !deps || !deps[0]) {
+        return;
+    }
+
+    char buf[512];
+    strncpy(buf, deps, sizeof(buf) - 1);
+    buf[sizeof(buf) - 1] = '\0';
+
+    char *tok = buf;
+    while (tok) {
+        char *next = strpbrk(tok, ",|");
+        if (next) {
+            *next++ = '\0';
+        }
+
+        char *dep = distribTrimWhitespace(tok);
+        if (dep[0]) {
+            catalogDepRegister(owner_id, dep, is_bundled);
+        }
+
+        tok = next;
+    }
+}
+
+static s32 distribParseModeString(const char *val)
+{
+    if (!val || !val[0]) {
+        return 0;
+    }
+
+    s32 mode = 0;
+    s32 saw_named_token = 0;
+    char buf[64];
+    strncpy(buf, val, sizeof(buf) - 1);
+    buf[sizeof(buf) - 1] = '\0';
+
+    char *tok = buf;
+    while (tok) {
+        char *pipe = strchr(tok, '|');
+        if (pipe) {
+            *pipe = '\0';
+        }
+
+        char *t = distribTrimWhitespace(tok);
+        if (strcmp(t, "mp") == 0) {
+            mode |= MAP_MODE_MP;
+            saw_named_token = 1;
+        } else if (strcmp(t, "solo") == 0) {
+            mode |= MAP_MODE_SOLO;
+            saw_named_token = 1;
+        } else if (strcmp(t, "coop") == 0) {
+            mode |= MAP_MODE_COOP;
+            saw_named_token = 1;
+        }
+
+        tok = pipe ? pipe + 1 : NULL;
+    }
+
+    if (!saw_named_token && (((u8)val[0] >= '0' && (u8)val[0] <= '9')
+            || val[0] == '-' || val[0] == '+')) {
+        return (s32)strtol(val, NULL, 10);
+    }
+
+    return mode;
+}
+
 static void distribSetPrimaryFromFile(asset_entry_t *e, const char *dirpath, const char *relpath)
 {
     char fullpath[FS_MAXPATH];
@@ -1190,16 +1376,64 @@ static void distribSetPrimaryFromFile(asset_entry_t *e, const char *dirpath, con
     catalogSetPrimaryFile(e, path);
 }
 
+static void distribRegisterAnimationCommandSource(const char *id,
+                                                  const char *dirpath,
+                                                  const char *relpath)
+{
+    char fullpath[FS_MAXPATH];
+    const char *path = relpath;
+    char *json;
+    u32 json_size = 0;
+
+    if (!relpath || !relpath[0]) {
+        return;
+    }
+
+    if (relpath[0] != '/'
+            && relpath[0] != '\\'
+            && !(relpath[0] && relpath[1] == ':')
+            && dirpath && dirpath[0]) {
+        snprintf(fullpath, sizeof(fullpath), "%s/%s", dirpath, relpath);
+        path = fullpath;
+    }
+
+    json = (char *)fsFileLoad(path, &json_size);
+    if (!json || json_size == 0) {
+        if (json) {
+            free(json);
+        }
+        sysLogPrintf(LOG_WARNING,
+                     "DISTRIB: animation command source missing for '%s': %s",
+                     id ? id : "", path);
+        return;
+    }
+
+    if (!loaderPoolParseAnimationSourceJson(json, json_size, path)) {
+        sysLogPrintf(LOG_WARNING,
+                     "DISTRIB: animation command source rejected for '%s': %s",
+                     id ? id : "", path);
+        free(json);
+        return;
+    }
+
+    loaderPoolFinalize();
+    sysLogPrintf(LOG_NOTE,
+                 "DISTRIB: animation command source registered for '%s': %s",
+                 id ? id : "", path);
+    free(json);
+}
+
 /* Populate the asset_entry_t ext union from the parsed INI, mirroring the
  * field-for-field behavior of assetcatalog_scanner.c's registerComponent().
  * Keeps registration parity between local-scan and wire-delivery paths. */
 static void populateExtFromIni(asset_entry_t *e, asset_type_e type, const char *dirpath,
-                                const ini_section_t *ini)
+                                const ini_section_t *ini,
+                                const asset_entry_t *preserved_entry)
 {
     switch (type) {
     case ASSET_MAP:
         e->ext.map.stagenum = iniGetInt(ini, "stagenum", -1);
-        e->ext.map.mode = (u8)iniGetInt(ini, "mode", 0);
+        e->ext.map.mode = (u8)distribParseModeString(iniGet(ini, "mode", ""));
         {
             const char *mf = iniGet(ini, "music_file", "");
             if (mf[0]) {
@@ -1208,8 +1442,15 @@ static void populateExtFromIni(asset_entry_t *e, asset_type_e type, const char *
         }
         break;
     case ASSET_CHARACTER:
-        strncpy(e->ext.character.bodyfile, iniGet(ini, "bodyfile", ""), FS_MAXPATH - 1);
-        strncpy(e->ext.character.headfile, iniGet(ini, "headfile", ""), FS_MAXPATH - 1);
+        strncpy(e->ext.character.bodyfile,
+                iniGet(ini, "body_archive", iniGet(ini, "bodyfile", "")),
+                FS_MAXPATH - 1);
+        strncpy(e->ext.character.headfile,
+                iniGet(ini, "head_archive", iniGet(ini, "headfile", "")),
+                FS_MAXPATH - 1);
+        strncpy(e->ext.character.portrait_file,
+                iniGet(ini, "portrait_file", ""),
+                FS_MAXPATH - 1);
         if (e->ext.character.bodyfile[0]) {
             distribSetPrimaryFromFile(e, dirpath, e->ext.character.bodyfile);
         }
@@ -1222,6 +1463,15 @@ static void populateExtFromIni(asset_entry_t *e, asset_type_e type, const char *
         strncpy(e->ext.skin.texture_file, iniGet(ini, "texture_file",
                 iniGet(ini, "texture", "")), sizeof(e->ext.skin.texture_file) - 1);
         e->ext.skin.texture_file[sizeof(e->ext.skin.texture_file) - 1] = '\0';
+        strncpy(e->ext.skin.swatches_file, iniGet(ini, "swatches_file", ""),
+                sizeof(e->ext.skin.swatches_file) - 1);
+        e->ext.skin.swatches_file[sizeof(e->ext.skin.swatches_file) - 1] = '\0';
+        strncpy(e->ext.skin.material_archive, iniGet(ini, "material_archive", ""),
+                sizeof(e->ext.skin.material_archive) - 1);
+        e->ext.skin.material_archive[sizeof(e->ext.skin.material_archive) - 1] = '\0';
+        strncpy(e->ext.skin.texture_archive, iniGet(ini, "texture_archive", ""),
+                sizeof(e->ext.skin.texture_archive) - 1);
+        e->ext.skin.texture_archive[sizeof(e->ext.skin.texture_archive) - 1] = '\0';
         if (e->ext.skin.texture_file[0]) {
             distribSetPrimaryFromFile(e, dirpath, e->ext.skin.texture_file);
         } else if (e->ext.skin.skin_file[0]) {
@@ -1236,15 +1486,17 @@ static void populateExtFromIni(asset_entry_t *e, asset_type_e type, const char *
         break;
     case ASSET_ARENA:
         e->ext.arena.stagenum = iniGetInt(ini, "stagenum", -1);
+        strncpy(e->ext.arena.scenario_id, iniGet(ini, "scenario", ""),
+                sizeof(e->ext.arena.scenario_id) - 1);
+        strncpy(e->ext.arena.scenario_archive,
+                iniGet(ini, "scenario_archive", ""),
+                sizeof(e->ext.arena.scenario_archive) - 1);
         e->ext.arena.requirefeature = (u8)iniGetInt(ini, "requirefeature", 0);
         e->ext.arena.name_langid = iniGetInt(ini, "name_langid", 0);
         e->ext.arena.load_mode = iniGetInt(ini, "load_mode", ARENA_LOADMODE_PLAYABLE);
-        {
-            const char *gf = iniGet(ini, "geometry_file",
-                iniGet(ini, "geometry", ""));
-            if (gf[0]) {
-                distribSetPrimaryFromFile(e, dirpath, gf);
-            }
+        if (e->ext.arena.scenario_archive[0]) {
+            distribSetPrimaryFromFile(e, dirpath,
+                                      e->ext.arena.scenario_archive);
         }
         break;
     case ASSET_BODY:
@@ -1256,10 +1508,16 @@ static void populateExtFromIni(asset_entry_t *e, asset_type_e type, const char *
             iniGet(ini, "name", "")));
         catalogSetBodyRigClass(e, iniGet(ini, "rig_class", ""));
         {
-            const char *mf = iniGet(ini, "model_file",
-                iniGet(ini, "model", ""));
-            if (mf[0]) {
-                distribSetPrimaryFromFile(e, dirpath, mf);
+            const char *mesh = iniGet(ini, "mesh_archive", "");
+            const char *hand = iniGet(ini, "hand_archive", "");
+            if (mesh[0]) {
+                strncpy(e->ext.body.mesh_archive, mesh,
+                    sizeof(e->ext.body.mesh_archive) - 1);
+                distribSetPrimaryFromFile(e, dirpath, e->ext.body.mesh_archive);
+            }
+            if (hand[0]) {
+                strncpy(e->ext.body.hand_archive, hand,
+                    sizeof(e->ext.body.hand_archive) - 1);
             }
         }
         break;
@@ -1268,30 +1526,102 @@ static void populateExtFromIni(asset_entry_t *e, asset_type_e type, const char *
         e->ext.head.requirefeature = (u8)iniGetInt(ini, "requirefeature", 0);
         catalogSetHeadRigClass(e, iniGet(ini, "rig_class", ""));
         {
-            const char *mf = iniGet(ini, "model_file",
-                iniGet(ini, "model", ""));
-            if (mf[0]) {
-                distribSetPrimaryFromFile(e, dirpath, mf);
+            const char *mesh = iniGet(ini, "mesh_archive", "");
+            if (mesh[0]) {
+                strncpy(e->ext.head.mesh_archive, mesh,
+                    sizeof(e->ext.head.mesh_archive) - 1);
+                distribSetPrimaryFromFile(e, dirpath, e->ext.head.mesh_archive);
+            }
+        }
+        break;
+    case ASSET_MODEL:
+        {
+            const char *pf = iniGet(ini, "model_file",
+                iniGet(ini, "model",
+                iniGet(ini, "geometry_file",
+                iniGet(ini, "geometry",
+                iniGet(ini, "file_path", "")))));
+            if (pf[0]) {
+                distribSetPrimaryFromFile(e, dirpath, pf);
             }
         }
         break;
     case ASSET_WEAPON:
-        e->ext.weapon.weapon_id = iniGetInt(ini, "weapon_id", -1);
-        if (e->ext.weapon.weapon_id >= 0
-                && e->ext.weapon.weapon_id < NUM_MPWEAPONS) {
-            e->mp_index = (s16)e->ext.weapon.weapon_id;
-            e->runtime_index = catalogGetMpWeaponNum(e->ext.weapon.weapon_id);
+        {
+            s32 preserved_weapon_id = -1;
+            s32 preserved_runtime_index = -1;
+            s16 preserved_mp_index = -1;
+            u8 preserved_weapon_requirefeature = 0;
+            s32 preserved_dual_wieldable = 0;
+            char preserved_weapon_name[64];
+            preserved_weapon_name[0] = '\0';
+            if (preserved_entry && preserved_entry->type == ASSET_WEAPON) {
+                preserved_weapon_id = preserved_entry->ext.weapon.weapon_id;
+                preserved_runtime_index = preserved_entry->runtime_index;
+                preserved_mp_index = preserved_entry->mp_index;
+                preserved_weapon_requirefeature = preserved_entry->ext.weapon.requirefeature;
+                preserved_dual_wieldable = preserved_entry->ext.weapon.dual_wieldable;
+                strncpy(preserved_weapon_name, preserved_entry->ext.weapon.name,
+                        sizeof(preserved_weapon_name) - 1);
+                preserved_weapon_name[sizeof(preserved_weapon_name) - 1] = '\0';
+            }
+            e->ext.weapon.weapon_id = iniGetInt(ini, "weapon_id", preserved_weapon_id);
+            if (e->ext.weapon.weapon_id >= 0
+                    && e->ext.weapon.weapon_id < NUM_MPWEAPONS) {
+                e->mp_index = (s16)e->ext.weapon.weapon_id;
+                e->runtime_index = catalogGetMpWeaponNum(e->ext.weapon.weapon_id);
+            } else {
+                s32 runtime_weapon_id = -1;
+                s32 mp_weapon_id = -1;
+                if (assetCatalogResolveWeaponPrivateSlots(e->id, -1, 0,
+                        &runtime_weapon_id, &mp_weapon_id)) {
+                    e->ext.weapon.weapon_id = mp_weapon_id;
+                    e->mp_index = (s16)mp_weapon_id;
+                    e->runtime_index = runtime_weapon_id;
+                } else {
+                    e->mp_index = preserved_mp_index;
+                    e->runtime_index = preserved_runtime_index;
+                }
+            }
+            {
+                const char *weapon_name = iniGet(ini, "name", "");
+                strncpy(e->ext.weapon.name,
+                        weapon_name[0] ? weapon_name : preserved_weapon_name,
+                        sizeof(e->ext.weapon.name) - 1);
+                e->ext.weapon.name[sizeof(e->ext.weapon.name) - 1] = '\0';
+            }
+            strncpy(e->ext.weapon.model_file, iniGet(ini, "model_file", ""),
+                    sizeof(e->ext.weapon.model_file) - 1);
+            strncpy(e->ext.weapon.behavior_graph,
+                    iniGet(ini, "behavior_graph", iniGet(ini, "graph", "")),
+                    sizeof(e->ext.weapon.behavior_graph) - 1);
+            strncpy(e->ext.weapon.primary_graph,
+                    iniGet(ini, "primary_graph", ""),
+                    sizeof(e->ext.weapon.primary_graph) - 1);
+            strncpy(e->ext.weapon.secondary_graph,
+                    iniGet(ini, "secondary_graph", ""),
+                    sizeof(e->ext.weapon.secondary_graph) - 1);
+            strncpy(e->ext.weapon.shared_context,
+                    iniGet(ini, "shared_context_file",
+                        iniGet(ini, "shared_context", "")),
+                    sizeof(e->ext.weapon.shared_context) - 1);
+            strncpy(e->ext.weapon.settings_file,
+                    iniGet(ini, "settings_file", iniGet(ini, "settings", "")),
+                    sizeof(e->ext.weapon.settings_file) - 1);
+            strncpy(e->ext.weapon.variables_file,
+                    iniGet(ini, "variables_file", iniGet(ini, "variables", "")),
+                    sizeof(e->ext.weapon.variables_file) - 1);
+            if (e->ext.weapon.primary_graph[0]) {
+                distribSetPrimaryFromFile(e, dirpath, e->ext.weapon.primary_graph);
+            }
+            /* S484 F9 / Mike I.2 (2026-04-27): damage/fire_rate/ammo_type
+             * shadow fields dropped. Wire-delivered mod INIs that include
+             * those keys are now parsed-and-ignored; the manager is the
+             * single source of truth. */
+            e->ext.weapon.dual_wieldable = iniGetInt(ini, "dual_wieldable",
+                    preserved_dual_wieldable);
+            e->ext.weapon.requirefeature = preserved_weapon_requirefeature;
         }
-        strncpy(e->ext.weapon.name, iniGet(ini, "name", ""), sizeof(e->ext.weapon.name) - 1);
-        strncpy(e->ext.weapon.model_file, iniGet(ini, "model_file", ""), sizeof(e->ext.weapon.model_file) - 1);
-        if (e->ext.weapon.model_file[0]) {
-            distribSetPrimaryFromFile(e, dirpath, e->ext.weapon.model_file);
-        }
-        /* S484 F9 / Mike I.2 (2026-04-27): damage/fire_rate/ammo_type
-         * shadow fields dropped. Wire-delivered mod INIs that include
-         * those keys are now parsed-and-ignored; the manager is the
-         * single source of truth. */
-        e->ext.weapon.dual_wieldable = iniGetInt(ini, "dual_wieldable", 0);
         break;
     case ASSET_PROJECTILE:
         strncpy(e->ext.projectile.name, iniGet(ini, "name", ""),
@@ -1304,8 +1634,6 @@ static void populateExtFromIni(asset_entry_t *e, asset_type_e type, const char *
                 iniGet(ini, "transition_entity", "")), sizeof(e->ext.projectile.entity_ref) - 1);
         if (e->ext.projectile.behavior_graph[0]) {
             distribSetPrimaryFromFile(e, dirpath, e->ext.projectile.behavior_graph);
-        } else if (e->ext.projectile.model_file[0]) {
-            distribSetPrimaryFromFile(e, dirpath, e->ext.projectile.model_file);
         }
         break;
     case ASSET_ENTITY:
@@ -1319,8 +1647,6 @@ static void populateExtFromIni(asset_entry_t *e, asset_type_e type, const char *
                 iniGet(ini, "graph", "")), sizeof(e->ext.entity.behavior_graph) - 1);
         if (e->ext.entity.behavior_graph[0]) {
             distribSetPrimaryFromFile(e, dirpath, e->ext.entity.behavior_graph);
-        } else if (e->ext.entity.model_file[0]) {
-            distribSetPrimaryFromFile(e, dirpath, e->ext.entity.model_file);
         }
         break;
     case ASSET_ANIMATION:
@@ -1331,6 +1657,10 @@ static void populateExtFromIni(asset_entry_t *e, asset_type_e type, const char *
         strncpy(e->ext.anim.name, iniGet(ini, "name", ""),
                 sizeof(e->ext.anim.name) - 1);
         e->ext.anim.frame_count = iniGetInt(ini, "frame_count", 0);
+        e->ext.anim.bytes_per_frame = iniGetInt(ini, "bytes_per_frame", 0);
+        e->ext.anim.header_len = iniGetInt(ini, "header_len", 0);
+        e->ext.anim.framelen = iniGetInt(ini, "framelen", 0);
+        e->ext.anim.flags = iniGetInt(ini, "flags", 0);
         strncpy(e->ext.anim.target_body, iniGet(ini, "target_body", ""),
                 sizeof(e->ext.anim.target_body) - 1);
         {
@@ -1338,6 +1668,12 @@ static void populateExtFromIni(asset_entry_t *e, asset_type_e type, const char *
                 iniGet(ini, "commands_file", iniGet(ini, "file_path", "")));
             if (af[0]) {
                 distribSetPrimaryFromFile(e, dirpath, af);
+            }
+            {
+                const char *cf = iniGet(ini, "commands_file", "");
+                if (cf[0]) {
+                    distribRegisterAnimationCommandSource(e->id, dirpath, cf);
+                }
             }
         }
         break;
@@ -1348,6 +1684,9 @@ static void populateExtFromIni(asset_entry_t *e, asset_type_e type, const char *
         strncpy(e->ext.prop.prop_file, iniGet(ini, "prop_file",
                 iniGet(ini, "file_path", "")), sizeof(e->ext.prop.prop_file) - 1);
         strncpy(e->ext.prop.model_file, iniGet(ini, "model_file", ""), sizeof(e->ext.prop.model_file) - 1);
+        strncpy(e->ext.prop.behavior_graph,
+                iniGet(ini, "behavior_graph", iniGet(ini, "graph", "")),
+                sizeof(e->ext.prop.behavior_graph) - 1);
         if (e->ext.prop.model_file[0]) {
             distribSetPrimaryFromFile(e, dirpath, e->ext.prop.model_file);
         } else if (e->ext.prop.prop_file[0]) {
@@ -1358,6 +1697,9 @@ static void populateExtFromIni(asset_entry_t *e, asset_type_e type, const char *
         break;
     case ASSET_TEXTURE:
         e->ext.texture.texture_id = iniGetInt(ini, "texture_id", -1);
+        if (e->ext.texture.texture_id >= 0) {
+            e->source_texnum = e->ext.texture.texture_id;
+        }
         e->ext.texture.width = iniGetInt(ini, "width", 0);
         e->ext.texture.height = iniGetInt(ini, "height", 0);
         e->ext.texture.format = iniGetInt(ini, "format", 0);
@@ -1370,9 +1712,7 @@ static void populateExtFromIni(asset_entry_t *e, asset_type_e type, const char *
     case ASSET_MATERIAL:
         {
             const char *pf = iniGet(ini, "material_file",
-                iniGet(ini, "file_path",
-                iniGet(ini, "texture_archive",
-                iniGet(ini, "texture_file", ""))));
+                iniGet(ini, "file_path", ""));
             strncpy(e->ext.material.material_file,
                     iniGet(ini, "material_file", iniGet(ini, "file_path", "")),
                     sizeof(e->ext.material.material_file) - 1);
@@ -1432,10 +1772,15 @@ static void populateExtFromIni(asset_entry_t *e, asset_type_e type, const char *
                 || e->ext.audio.attack_volume != 127
                 || e->ext.audio.decay_volume != 127;
         }
-        strncpy(e->ext.audio.file_path, iniGet(ini, "file_path", ""),
-                sizeof(e->ext.audio.file_path) - 1);
-        if (e->ext.audio.file_path[0]) {
-            distribSetPrimaryFromFile(e, dirpath, e->ext.audio.file_path);
+        {
+            const char *audio_file = iniGet(ini, "file_path", "");
+            const char *primary_file = audio_file[0] ? audio_file :
+                iniGet(ini, "music_file", iniGet(ini, "midi_file", ""));
+            strncpy(e->ext.audio.file_path, audio_file,
+                    sizeof(e->ext.audio.file_path) - 1);
+            if (primary_file[0]) {
+                distribSetPrimaryFromFile(e, dirpath, primary_file);
+            }
         }
         break;
     case ASSET_GAMEMODE:
@@ -1461,7 +1806,7 @@ static void populateExtFromIni(asset_entry_t *e, asset_type_e type, const char *
         break;
     case ASSET_SCENARIO:
         e->ext.scenario.stagenum = iniGetInt(ini, "stagenum", -1);
-        e->ext.scenario.mode = (u8)iniGetInt(ini, "mode", 0);
+        e->ext.scenario.mode = (u8)distribParseModeString(iniGet(ini, "mode", ""));
         {
             const char *sf = iniGet(ini, "scene_file",
                 iniGet(ini, "scene",
@@ -1481,6 +1826,9 @@ static void populateExtFromIni(asset_entry_t *e, asset_type_e type, const char *
                     sizeof(e->ext.scenario.collision_file) - 1);
             strncpy(e->ext.scenario.rooms_file, rf,
                     sizeof(e->ext.scenario.rooms_file) - 1);
+            strncpy(e->ext.scenario.portals_file,
+                    iniGet(ini, "portals_file", ""),
+                    sizeof(e->ext.scenario.portals_file) - 1);
             strncpy(e->ext.scenario.pads_file, iniGet(ini, "pads_file", ""),
                     sizeof(e->ext.scenario.pads_file) - 1);
             strncpy(e->ext.scenario.spawns_file, iniGet(ini, "spawns_file", ""),
@@ -1502,6 +1850,18 @@ static void populateExtFromIni(asset_entry_t *e, asset_type_e type, const char *
             strncpy(e->ext.scenario.navigation_file,
                     iniGet(ini, "navigation_file", ""),
                     sizeof(e->ext.scenario.navigation_file) - 1);
+            strncpy(e->ext.scenario.navigation_waypoints_file,
+                    iniGet(ini, "waypoints_file", ""),
+                    sizeof(e->ext.scenario.navigation_waypoints_file) - 1);
+            strncpy(e->ext.scenario.navigation_waygroups_file,
+                    iniGet(ini, "waygroups_file", ""),
+                    sizeof(e->ext.scenario.navigation_waygroups_file) - 1);
+            strncpy(e->ext.scenario.navigation_covers_file,
+                    iniGet(ini, "covers_file", ""),
+                    sizeof(e->ext.scenario.navigation_covers_file) - 1);
+            strncpy(e->ext.scenario.navigation_paths_file,
+                    iniGet(ini, "paths_file", ""),
+                    sizeof(e->ext.scenario.navigation_paths_file) - 1);
             strncpy(e->ext.scenario.level_graph_file,
                     iniGet(ini, "level_graph_file", iniGet(ini, "level_graph", "")),
                     sizeof(e->ext.scenario.level_graph_file) - 1);
@@ -1526,9 +1886,7 @@ static void populateExtFromIni(asset_entry_t *e, asset_type_e type, const char *
         strncpy(e->ext.hud.layout_file,
                 iniGet(ini, "layout_file", iniGet(ini, "file_path", "")),
                 sizeof(e->ext.hud.layout_file) - 1);
-        if (e->ext.hud.texture_file[0]) {
-            distribSetPrimaryFromFile(e, dirpath, e->ext.hud.texture_file);
-        } else if (e->ext.hud.layout_file[0]) {
+        if (e->ext.hud.layout_file[0]) {
             distribSetPrimaryFromFile(e, dirpath, e->ext.hud.layout_file);
         }
         break;
@@ -1538,6 +1896,38 @@ static void populateExtFromIni(asset_entry_t *e, asset_type_e type, const char *
                 iniGet(ini, "texture_file",
                 iniGet(ini, "texture",
                 iniGet(ini, "ui_file", ""))));
+            const char *lf = iniGet(ini, "layout_file", "");
+            const char *nf = iniGet(ini, "nineslice_file", "");
+            const char *tn = iniGet(ini, "texture_name", "");
+            strncpy(e->ext.ui.texture_file, pf,
+                    sizeof(e->ext.ui.texture_file) - 1);
+            e->ext.ui.texture_file[sizeof(e->ext.ui.texture_file) - 1] = '\0';
+            strncpy(e->ext.ui.layout_file, lf,
+                    sizeof(e->ext.ui.layout_file) - 1);
+            e->ext.ui.layout_file[sizeof(e->ext.ui.layout_file) - 1] = '\0';
+            strncpy(e->ext.ui.nineslice_file, nf,
+                    sizeof(e->ext.ui.nineslice_file) - 1);
+            e->ext.ui.nineslice_file[sizeof(e->ext.ui.nineslice_file) - 1] = '\0';
+            strncpy(e->ext.ui.texture_name, tn,
+                    sizeof(e->ext.ui.texture_name) - 1);
+            e->ext.ui.texture_name[sizeof(e->ext.ui.texture_name) - 1] = '\0';
+            e->ext.ui.width = iniGetInt(ini, "width", 0);
+            e->ext.ui.height = iniGetInt(ini, "height", 0);
+            e->ext.ui.data_size = iniGetInt(ini, "data_size", 0);
+            e->ext.ui.nineslice_left = iniGetInt(ini, "nineslice_left", 0);
+            e->ext.ui.nineslice_right = iniGetInt(ini, "nineslice_right", 0);
+            e->ext.ui.nineslice_top = iniGetInt(ini, "nineslice_top", 0);
+            e->ext.ui.nineslice_bottom = iniGetInt(ini, "nineslice_bottom", 0);
+            strncpy(e->ext.ui.nineslice_edge_mode,
+                    iniGet(ini, "nineslice_edge_mode", ""),
+                    sizeof(e->ext.ui.nineslice_edge_mode) - 1);
+            e->ext.ui.nineslice_edge_mode[
+                    sizeof(e->ext.ui.nineslice_edge_mode) - 1] = '\0';
+            strncpy(e->ext.ui.nineslice_center_mode,
+                    iniGet(ini, "nineslice_center_mode", ""),
+                    sizeof(e->ext.ui.nineslice_center_mode) - 1);
+            e->ext.ui.nineslice_center_mode[
+                    sizeof(e->ext.ui.nineslice_center_mode) - 1] = '\0';
             if (pf[0]) {
                 distribSetPrimaryFromFile(e, dirpath, pf);
             }
@@ -1549,19 +1939,34 @@ static void populateExtFromIni(asset_entry_t *e, asset_type_e type, const char *
                 iniGet(ini, "glyphs_file",
                 iniGet(ini, "file_path",
                 iniGet(ini, "font", ""))));
+            const char *mf = iniGet(ini, "metrics_file", "");
+            strncpy(e->ext.font.font_file, pf,
+                    sizeof(e->ext.font.font_file) - 1);
+            strncpy(e->ext.font.metrics_file, mf,
+                    sizeof(e->ext.font.metrics_file) - 1);
             if (pf[0]) {
                 distribSetPrimaryFromFile(e, dirpath, pf);
             }
         }
         break;
     case ASSET_LANG:
-        e->ext.lang.bank_id = iniGetInt(ini, "bank_id", -1);
+        e->ext.lang.bank_id = iniGetInt(ini, "bank_id",
+            iniGetInt(ini, "source_bank", -1));
         {
+            const char *locale = iniGet(ini, "locale", "");
+            const char *category = iniGet(ini, "category", "");
             const char *sf = iniGet(ini, "strings_file",
                 iniGet(ini, "strings",
                 iniGet(ini, "file_path", "")));
+            strncpy(e->ext.lang.locale, locale, sizeof(e->ext.lang.locale) - 1);
+            e->ext.lang.locale[sizeof(e->ext.lang.locale) - 1] = '\0';
+            strncpy(e->ext.lang.lang_category, category,
+                    sizeof(e->ext.lang.lang_category) - 1);
+            e->ext.lang.lang_category[sizeof(e->ext.lang.lang_category) - 1] = '\0';
+            e->ext.lang.string_count = (u32)iniGetInt(ini, "string_count", 0);
             strncpy(e->ext.lang.strings_file, sf,
                     sizeof(e->ext.lang.strings_file) - 1);
+            e->ext.lang.strings_file[sizeof(e->ext.lang.strings_file) - 1] = '\0';
             if (e->ext.lang.strings_file[0]) {
                 distribSetPrimaryFromFile(e, dirpath, e->ext.lang.strings_file);
             }
@@ -1580,6 +1985,9 @@ static void populateExtFromIni(asset_entry_t *e, asset_type_e type, const char *
                 iniGet(ini, "behavior_graph",
                 iniGet(ini, "file_path", ""))),
                 sizeof(e->ext.effect.effect_file) - 1);
+        strncpy(e->ext.effect.timeline_file, iniGet(ini, "timeline_file",
+                iniGet(ini, "timeline", "")),
+                sizeof(e->ext.effect.timeline_file) - 1);
         strncpy(e->ext.effect.shader_id, iniGet(ini, "shader_id", ""),
                 sizeof(e->ext.effect.shader_id) - 1);
         e->ext.effect.intensity = iniGetFloat(ini, "intensity", 1.0f);
@@ -1587,6 +1995,9 @@ static void populateExtFromIni(asset_entry_t *e, asset_type_e type, const char *
             const char *pf = e->ext.effect.effect_file;
             if (pf[0]) {
                 distribSetPrimaryFromFile(e, dirpath, pf);
+            } else if (e->ext.effect.timeline_file[0]) {
+                distribSetPrimaryFromFile(e, dirpath,
+                        e->ext.effect.timeline_file);
             }
         }
         break;
@@ -1624,8 +2035,7 @@ static void populateExtFromIni(asset_entry_t *e, asset_type_e type, const char *
                     sizeof(e->ext.vehicle.behavior_graph) - 1);
             const char *pf = e->ext.vehicle.model_file[0] ?
                 e->ext.vehicle.model_file :
-                (e->ext.vehicle.behavior_graph[0] ?
-                    e->ext.vehicle.behavior_graph : e->ext.vehicle.physics_file);
+                e->ext.vehicle.behavior_graph;
             if (pf[0]) {
                 distribSetPrimaryFromFile(e, dirpath, pf);
             }
@@ -1645,12 +2055,7 @@ static void populateExtFromIni(asset_entry_t *e, asset_type_e type, const char *
             strncpy(e->ext.mission.mission_graph_file,
                     iniGet(ini, "mission_graph_file", iniGet(ini, "graph", "")),
                     sizeof(e->ext.mission.mission_graph_file) - 1);
-            const char *pf = e->ext.mission.mission_graph_file[0] ?
-                e->ext.mission.mission_graph_file :
-                (e->ext.mission.scenario_archive[0] ?
-                    e->ext.mission.scenario_archive :
-                (e->ext.mission.objectives_file[0] ?
-                    e->ext.mission.objectives_file : e->ext.mission.briefing_file));
+            const char *pf = e->ext.mission.mission_graph_file;
             if (pf[0]) {
                 distribSetPrimaryFromFile(e, dirpath, pf);
             }
@@ -1667,10 +2072,16 @@ static void populateExtFromIni(asset_entry_t *e, asset_type_e type, const char *
             strncpy(e->ext.theme.font_archive,
                     iniGet(ini, "font_archive", ""),
                     sizeof(e->ext.theme.font_archive) - 1);
-            const char *pf = e->ext.theme.theme_file[0] ?
-                e->ext.theme.theme_file :
-                (e->ext.theme.ui_archive[0] ?
-                    e->ext.theme.ui_archive : e->ext.theme.font_archive);
+            strncpy(e->ext.theme.audio_archive,
+                    iniGet(ini, "audio_archive", ""),
+                    sizeof(e->ext.theme.audio_archive) - 1);
+            strncpy(e->ext.theme.music_archive,
+                    iniGet(ini, "music_archive", ""),
+                    sizeof(e->ext.theme.music_archive) - 1);
+            strncpy(e->ext.theme.effect_archive,
+                    iniGet(ini, "effect_archive", ""),
+                    sizeof(e->ext.theme.effect_archive) - 1);
+            const char *pf = e->ext.theme.theme_file;
             if (pf[0]) {
                 distribSetPrimaryFromFile(e, dirpath, pf);
             }
@@ -1786,7 +2197,7 @@ void netDistribClientHandleEnd(const char *catalog_id, u8 success)
         char inipath[FS_MAXPATH];
         const char *ini_names[] = { "map.ini", "character.ini", "bot.ini", "prop.ini",
                                     "textures.ini", "texture.ini", "skin.ini",
-                                    "material.ini", "effect.ini",
+                                    "material.ini", "mesh.ini", "model.ini", "effect.ini",
                                     "weapon.ini", "projectile.ini", "entity.ini",
                                     "head.ini", "body.ini",
                                     "arena.ini", "scenario.ini", "animation.ini",
@@ -1800,10 +2211,13 @@ void netDistribClientHandleEnd(const char *catalog_id, u8 success)
         for (s32 k = 0; ini_names[k] && !registered; k++) {
             snprintf(inipath, sizeof(inipath), "%s/%s", destdir, ini_names[k]);
             if (iniParse(inipath, &ini)) {
-                /* audio.ini: register via audio-specific API for catalog audio fields */
+                /* audio.ini: preserve legacy registration while mirroring the shared audio parser. */
                 if (strcmp(ini_names[k], "audio.ini") == 0) {
                     const char *aname = iniGet(&ini, "name", slot->id);
-                    s32 cat = iniGetInt(&ini, "category", 1);
+                    s32 cat = distribParseAudioCategoryValue(
+                        iniGet(&ini, "audio_category",
+                            iniGet(&ini, "kind",
+                            iniGet(&ini, "category", ""))), AUDIO_CAT_SFX);
                     s32 dur = iniGetInt(&ini, "duration_ms", 0);
                     const char *fpath = iniGet(&ini, "file_path", "");
                     char fullfile[FS_MAXPATH];
@@ -1815,6 +2229,8 @@ void netDistribClientHandleEnd(const char *catalog_id, u8 success)
                         e->enabled = 1;
                         e->temporary = slot->temporary;
                         e->bundled = 0;
+                        populateExtFromIni(e, ASSET_AUDIO, destdir, &ini, NULL);
+                        distribRegisterDependencyList(e->id, iniGet(&ini, "deps", ""), e->bundled);
                         sysLogPrintf(LOG_NOTE, "DISTRIB: hot-registered audio '%s' from %s", slot->id, destdir);
                         registered = 1;
                     }
@@ -1830,6 +2246,15 @@ void netDistribClientHandleEnd(const char *catalog_id, u8 success)
                             "type-resolvable until next catalog refresh",
                             ini_names[k], slot->id);
                     }
+                    asset_entry_t preserved_entry;
+                    const asset_entry_t *preserved_entry_ptr = NULL;
+                    if (type == ASSET_WEAPON) {
+                        const asset_entry_t *existing = assetCatalogResolve(slot->id);
+                        if (existing && existing->type == ASSET_WEAPON) {
+                            preserved_entry = *existing;
+                            preserved_entry_ptr = &preserved_entry;
+                        }
+                    }
                     asset_entry_t *e = assetCatalogRegister(slot->id, type);
                     if (e) {
                         strncpy(e->id, slot->id, sizeof(e->id) - 1);
@@ -1839,9 +2264,13 @@ void netDistribClientHandleEnd(const char *catalog_id, u8 success)
                         e->temporary = slot->temporary;
                         e->bundled = 0;
                         e->model_scale = iniGetFloat(&ini, "model_scale", 1.0f);
-                        populateExtFromIni(e, type, destdir, &ini);
+                        populateExtFromIni(e, type, destdir, &ini, preserved_entry_ptr);
+                        distribRegisterDependencyList(e->id, iniGet(&ini, "deps", ""), e->bundled);
                         if (type == ASSET_PROJECTILE && e->ext.projectile.entity_ref[0]) {
                             catalogDepRegister(e->id, e->ext.projectile.entity_ref, e->bundled);
+                        }
+                        if (type == ASSET_ANIMATION && e->ext.anim.target_body[0]) {
+                            catalogDepRegister(e->ext.anim.target_body, e->id, e->bundled);
                         }
                         sysLogPrintf(LOG_NOTE, "DISTRIB: hot-registered '%s' (type=%d) from %s",
                                      slot->id, (int)type, destdir);

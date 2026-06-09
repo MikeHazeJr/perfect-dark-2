@@ -29,5 +29,8 @@ void *modAnimationTryCatalogOverride(u16 num);
 
 void *modSequenceLoad(u16 num, u32 *outSize);
 s32 modSequencePlayAudioSource(u16 num);
+s32 modSequenceVirtualTrackForCatalogId(const char *catalog_id);
+const char *modSequenceVirtualTrackId(s32 tracknum);
+s32 modSequenceIsVirtualTrack(s32 tracknum);
 
 #endif

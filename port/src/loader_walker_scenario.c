@@ -135,6 +135,10 @@ static s32 s_register(const char *manifest, size_t manifest_len,
         e->ext.scenario.level_graph_file[sizeof(e->ext.scenario.level_graph_file) - 1] = '\0';
     }
 
+    s_copyManifestMember(e->ext.scenario.portals_file,
+                         sizeof(e->ext.scenario.portals_file),
+                         manifest, manifest_len, file_path,
+                         "portals", "portals.json");
     s_copyManifestMember(e->ext.scenario.pads_file,
                          sizeof(e->ext.scenario.pads_file),
                          manifest, manifest_len, file_path,
@@ -167,6 +171,22 @@ static s32 s_register(const char *manifest, size_t manifest_len,
                          sizeof(e->ext.scenario.navigation_file),
                          manifest, manifest_len, file_path,
                          "navigation", "navigation.ini");
+    s_copyManifestMember(e->ext.scenario.navigation_waypoints_file,
+                         sizeof(e->ext.scenario.navigation_waypoints_file),
+                         manifest, manifest_len, file_path,
+                         "waypoints", "navigation/waypoints.json");
+    s_copyManifestMember(e->ext.scenario.navigation_waygroups_file,
+                         sizeof(e->ext.scenario.navigation_waygroups_file),
+                         manifest, manifest_len, file_path,
+                         "waygroups", "navigation/waygroups.json");
+    s_copyManifestMember(e->ext.scenario.navigation_covers_file,
+                         sizeof(e->ext.scenario.navigation_covers_file),
+                         manifest, manifest_len, file_path,
+                         "covers", "navigation/covers.json");
+    s_copyManifestMember(e->ext.scenario.navigation_paths_file,
+                         sizeof(e->ext.scenario.navigation_paths_file),
+                         manifest, manifest_len, file_path,
+                         "paths", "navigation/paths.json");
     return 1;
 }
 

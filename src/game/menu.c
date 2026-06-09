@@ -1958,9 +1958,16 @@ static void menuClearCurrentModelHandles(struct menumodel *menumodel)
 
 void menuSetModelFileHandle(struct menumodel *menumodel, s32 source_filenum, asset_data_handle_t handle)
 {
-	menumodel->newparams = MENUMODELPARAMS_SET_FILENUM(source_filenum);
+	s32 request_filenum = source_filenum;
+
+	if (!assetHandleIsNull(handle)
+			&& (source_filenum <= 0 || MENUMODELPARAMS_GET_FILENUM(source_filenum) == 0xffff)) {
+		request_filenum = MENUMODEL_HANDLE_SENTINEL_FILENUM;
+	}
+
+	menumodel->newparams = MENUMODELPARAMS_SET_FILENUM(request_filenum);
 	menumodel->newhandle = handle;
-	menumodel->newhandle_filenum = source_filenum;
+	menumodel->newhandle_filenum = request_filenum;
 }
 
 static bool menuResolveModelHandleByFilenum(s32 source_filenum, asset_data_handle_t *handle)

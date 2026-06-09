@@ -10,7 +10,7 @@ Two persisted formats and one transient format share the same versioning discipl
 
 1. **Save format** - PC-native JSON files at known paths (`agent_<name>.json`, `player_<name>.json`, `mpsetup_<name>.json`, `system.json`). Replaces N64 EEPROM. `SAVE_VERSION = 2`.
 2. **MP setup format** - binary WAD format for MP setup blocks. `MPSETUP_VERSION = 2`.
-3. **Wire format** - ENet UDP frames. `NET_PROTOCOL_VER = 49`.
+3. **Wire format** - ENet UDP frames. `NET_PROTOCOL_VER = 50`.
 
 All three are version-pinned in headers and verified in tests; mixed-version mismatches are rejected at handshake.
 
@@ -71,7 +71,7 @@ v < 2 saves migrate via the clamp rule in `mpsetupfileLoadWad`: weapon values >=
 
 ## Wire protocol
 
-`NET_PROTOCOL_VER = 49` at [port/include/net/net.h:12](../../port/include/net/net.h:12). Latest bump 2026-05-17: `CLC_LOBBY_RESYNC 0x18` lets a client request authoritative `SVC_ROOM_ASSIGN`, `SVC_ROOM_SETTINGS`, and `SVC_ROOM_PLAYLIST` after match end so post-match room return does not rely on stale client state. v48 (2026-05-16, c3807 Track 2d) carried `SVC_GPUSWARM_STATE 0x6c` listen-host GPU swarm state broadcast. v47 carried Skedar surface-normal locomotion MP sync (`chr->surface_up` over the wire). v46 (S507/S511, 2026-04-28) added mandatory SHA-256 digest on `SVC_DISTRIB_BEGIN` and cutscene network semantics.
+`NET_PROTOCOL_VER = 50` at [port/include/net/net.h:12](../../port/include/net/net.h:12). Latest bump 2026-06-08: `SVC_CATALOG_INFO` is batched with total/offset/count metadata, catalog diff and manifest-status missing lists use `u16` heap-backed counts, and the distribution queue grows for large custom typed-archive packs. v49 (2026-05-17) carried `CLC_LOBBY_RESYNC 0x18` so post-match room return can request authoritative `SVC_ROOM_ASSIGN`, `SVC_ROOM_SETTINGS`, and `SVC_ROOM_PLAYLIST`. v48 (2026-05-16, c3807 Track 2d) carried `SVC_GPUSWARM_STATE 0x6c` listen-host GPU swarm state broadcast. v47 carried Skedar surface-normal locomotion MP sync (`chr->surface_up` over the wire). v46 (S507/S511, 2026-04-28) added mandatory SHA-256 digest on `SVC_DISTRIB_BEGIN` and cutscene network semantics.
 
 See [pillars/connectivity.md](connectivity.md) for the full changelog and protocol details.
 
@@ -138,7 +138,7 @@ Per [audits/infrastructure-pillars-status-2026-04-27.md](../audits/infrastructur
 
 ## Where to look
 
-- For wire protocol full changelog (v27 through v49): [pillars/connectivity.md](connectivity.md).
+- For wire protocol full changelog (v27 through v50): [pillars/connectivity.md](connectivity.md).
 - For catalog ID convention behind every string field: [pillars/catalog.md](catalog.md).
 - For mod distribution which carries SHA-256 digests: [pillars/modding.md](modding.md).
 - For why bit-pack matters at scale: see B-12 history in `_old/_archive/` or [systemic-bugs.md](../systemic-bugs.md) SP entries.

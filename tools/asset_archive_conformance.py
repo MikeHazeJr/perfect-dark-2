@@ -10,10 +10,13 @@ and dependency archive requirements that match the clean c3824/c3842 contract.
 from __future__ import annotations
 
 import argparse
+import base64
+import binascii
 import csv
 import fnmatch
 import hashlib
 import json
+import math
 import re
 import struct
 import sys
@@ -82,6 +85,14 @@ FAMILY_NAMES = {
     ".pdhud": "hud",
     ".pdtheme": "theme",
 }
+
+
+def read_json_member(zf: zipfile.ZipFile, member: str) -> dict[str, object]:
+    try:
+        value = json.loads(zf.read(member).decode("utf-8"))
+    except (KeyError, UnicodeDecodeError, json.JSONDecodeError):
+        return {}
+    return value if isinstance(value, dict) else {}
 
 ROOT_METADATA = {
     "manifest.json",
@@ -156,6 +167,99 @@ PUBLIC_TEXT_ENTRY_SUFFIXES = (
     ".json",
     ".txt",
     ".csv",
+)
+
+STALE_TSV_REFERENCE_RE = re.compile(
+    r"(?i)(?:^|[\\\"'\\s:=,])[^\\\"'\\s:=,]*\\.tsv(?:$|[\\\"'\\s,}])"
+)
+
+GLB_MAGIC = 0x46546C67
+GLB_JSON_CHUNK = 0x4E4F534A
+PDANIM_CHR_GENERATOR = "Perfect Dark 2 pdanim_chr semantic extractor v4"
+AUDIO_WAV_NATIVE_FIELDS = (
+    "sample_rate_hz",
+    "file_path",
+    "decoded_sample_count",
+    "loop_start_samples",
+    "loop_end_samples",
+    "loop_count",
+    "has_loop",
+    "sample_pan",
+    "sample_volume",
+    "key_min",
+    "key_max",
+    "key_base",
+    "key_detune",
+    "velocity_min",
+    "velocity_max",
+    "has_envelope",
+    "attack_time_us",
+    "decay_time_us",
+    "release_time_us",
+    "attack_volume",
+    "decay_volume",
+)
+AUDIO_WAV_MANIFEST_FIELDS = (
+    "sample_rate_hz",
+    "data",
+    "decoded_sample_count",
+    "loop_start_samples",
+    "loop_end_samples",
+    "loop_count",
+    "has_loop",
+    "sample_pan",
+    "sample_volume",
+    "key_min",
+    "key_max",
+    "key_base",
+    "key_detune",
+    "velocity_min",
+    "velocity_max",
+    "has_envelope",
+    "attack_time_us",
+    "decay_time_us",
+    "release_time_us",
+    "attack_volume",
+    "decay_volume",
+)
+WAV_PCM_FORMAT = 1
+WAV_PCM16_BITS = 16
+WAV_NATIVE_CHANNELS = 1
+SONG_SEQUENCE_NATIVE_FIELDS = (
+    "music_file",
+    "midi_file",
+    "events_file",
+    "division",
+    "event_count",
+)
+SONG_SEQUENCE_MANIFEST_FIELDS = (
+    "midi",
+    "events",
+    "division",
+    "event_count",
+)
+FONT_BITMAP_NATIVE_FIELDS = (
+    "font_file",
+    "metrics_file",
+    "character_count",
+)
+FONT_BITMAP_MANIFEST_FIELDS = (
+    "glyphs",
+    "metrics",
+    "character_count",
+)
+LANG_NATIVE_FIELDS = (
+    "locale",
+    "category",
+    "strings_file",
+    "string_count",
+)
+LANG_MANIFEST_FIELDS = (
+    "locale",
+    "category",
+    "data",
+    "string_count",
+    "source_bank",
 )
 
 SCENARIO_OBJECTIVES_HEADER = [
@@ -508,8 +612,7 @@ SCHEMAS: dict[str, Schema] = {
         ],
     ),
     ".pdmaterial": schema(
-        required=["material.ini"],
-        require_any=[["material.json", "dependencies/assets/texture/*.pdtexture", "dependencies/assets/textures/*.pdtexture"]],
+        required=["material.ini", "material.json"],
         allowed=["material.ini", "material.json"],
         allowed_globs=[
             "dependencies/assets/texture/*.pdtexture",
@@ -881,7 +984,6 @@ OPTIONAL_PUBLIC_SLOT_CONTRACT: dict[str, dict[str, SlotJustification]] = {
         "dependencies/assets/effects/*.pdeffect": slot("entity effect dependencies", "entity graph importer", DEPENDENCY_LOADER, DEPENDENCY_ABSENT),
     },
     ".pdmaterial": {
-        "material.json": slot("inline material source", "material importer", "loads material constants as runtime material source", "material must embed typed texture dependencies"),
         "dependencies/assets/texture/*.pdtexture": slot("legacy-singular texture dependency path", "material importer", DEPENDENCY_LOADER, "material must use inline constant values or the plural texture dependency path"),
         "dependencies/assets/textures/*.pdtexture": slot("material texture dependencies", "material importer", DEPENDENCY_LOADER, "material must use inline constant values or the singular compatibility path"),
         "dependencies/assets/effects/*.pdeffect": slot("material effect dependencies", "material importer", DEPENDENCY_LOADER, "material has no animated/effect layer"),
@@ -932,7 +1034,7 @@ OPTIONAL_PUBLIC_SLOT_CONTRACT: dict[str, dict[str, SlotJustification]] = {
         "model.gltf": slot("text mesh source", "mesh importer", "loads geometry/UV/material declarations as runtime source and cache seed", "model.glb or model.obj must be present"),
         "model.glb": slot("binary mesh source", "mesh importer", "loads geometry/UV/material declarations as runtime source and cache seed", "model.gltf or model.obj must be present"),
         "model.obj": slot("OBJ mesh source", "mesh importer", "loads geometry/UV/material declarations as runtime source and cache seed", "model.gltf or model.glb must be present"),
-        "model.mtl": slot("OBJ material companion", "mesh importer", "loads material names for model.obj import", "OBJ imports use default material values"),
+        "model.mtl": slot("OBJ material companion", "mesh importer", "loads material names and catalog-resolved texture bindings for model.obj import", "OBJ imports use default material values when no catalog texture binding is declared"),
         "model.nodes.json": slot("semantic model hierarchy source", "mesh importer", "loads original node/matrix hierarchy for runtime modeldef reconstruction", "author-authored flat mesh sources may omit hierarchy metadata"),
         "model.parts.json": slot("semantic model part-table source", "mesh importer", "loads original part-to-node lookup table for runtime modeldef reconstruction", "required when hierarchy metadata is present"),
         "model.faces.json": slot("semantic model face-matrix source", "mesh importer", "loads original face-to-matrix bindings for runtime display-list reconstruction", "required when hierarchy metadata is present"),
@@ -1426,6 +1528,20 @@ def validate_scene_glb_texture_contract(label: str, data: bytes,
                             f"{label} scene.glb material {index} pd2_material.{key} "
                             "must be a string"
                         )
+                for key in ("wrap_s", "wrap_t"):
+                    if pd2_material.get(key) not in {"repeat", "clamp", "mirror"}:
+                        errors.append(
+                            f"{label} scene.glb material {index} pd2_material.{key} "
+                            "must be repeat, clamp, or mirror"
+                        )
+                for key in ("offset", "shift_s", "shift_t", "min_lod", "tile_flag"):
+                    value = pd2_material.get(key)
+                    if not isinstance(value, int):
+                        errors.append(
+                            f"{label} scene.glb material {index} pd2_material.{key} "
+                            "must be an integer native material field"
+                        )
+                secondary_image = pd2_material.get("secondary_image")
                 secondary_texture = pd2_material.get("secondaryTexture")
                 if secondary_texture is not None:
                     if not isinstance(secondary_texture, dict):
@@ -1445,6 +1561,17 @@ def validate_scene_glb_texture_contract(label: str, data: bytes,
                                 f"{label} scene.glb material {index} secondaryTexture "
                                 f"index {secondary_index} is out of range"
                             )
+                        texcoord = secondary_texture.get("texCoord")
+                        if texcoord != 1:
+                            errors.append(
+                                f"{label} scene.glb material {index} secondaryTexture "
+                                "must use texCoord 1 for renderer-parity runtime UVs"
+                            )
+                elif secondary_image:
+                    errors.append(
+                        f"{label} scene.glb material {index} declares secondary_image "
+                        "without a secondaryTexture binding"
+                    )
                 pbr = material.get("pbrMetallicRoughness", {})
                 if not isinstance(pbr, dict):
                     continue
@@ -1495,6 +1622,2027 @@ def validate_scene_glb_texture_contract(label: str, data: bytes,
             "the bounded repeat range; this usually means stale unnormalized N64 "
             "texture coordinates that appear as tiny tiled textures in Blender/3DS Max"
         )
+
+
+def parse_ini_values(text: str) -> dict[str, str]:
+    values: dict[str, str] = {}
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line or line.startswith("[") or line.startswith("#"):
+            continue
+        if "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        values[key.strip()] = value.strip()
+    return values
+
+
+def validate_prop_source_contract(label: str, zf: zipfile.ZipFile,
+                                  name_set: set[str],
+                                  errors: list[str]) -> None:
+    descriptor_values: dict[str, str] = {}
+    direct_sources = direct_model_source_members(name_set)
+    if "prop.ini" in name_set:
+        try:
+            descriptor_values = parse_ini_values(
+                zf.read("prop.ini").decode("utf-8", errors="replace")
+            )
+        except KeyError:
+            descriptor_values = {}
+
+    if direct_sources and descriptor_values.get("model_file") not in direct_sources:
+        errors.append(
+            f"{label} prop.ini must declare model_file as one of {direct_sources}"
+        )
+    if ("behavior.graph.json" in name_set and
+            descriptor_values.get("behavior_graph") != "behavior.graph.json"):
+        errors.append(
+            f"{label} prop.ini must declare behavior_graph = behavior.graph.json"
+        )
+
+    if "_meta/manifest.json" not in name_set:
+        return
+    try:
+        manifest = json.loads(
+            zf.read("_meta/manifest.json").decode("utf-8", errors="replace")
+        )
+    except (KeyError, json.JSONDecodeError) as exc:
+        errors.append(f"{label} _meta/manifest.json is invalid JSON: {exc}")
+        return
+
+    if direct_sources and manifest.get("model_file") not in direct_sources:
+        errors.append(
+            f"{label} _meta/manifest.json must declare model_file as one of {direct_sources}"
+        )
+    if ("behavior.graph.json" in name_set and
+            manifest.get("behavior_graph") != "behavior.graph.json"):
+        errors.append(
+            f"{label} _meta/manifest.json must declare behavior_graph = behavior.graph.json"
+        )
+
+
+def validate_projectile_entity_source_contract(label: str, ext: str,
+                                               zf: zipfile.ZipFile,
+                                               name_set: set[str],
+                                               errors: list[str]) -> None:
+    descriptor = "projectile.ini" if ext == ".pdprojectile" else "entity.ini"
+    descriptor_values: dict[str, str] = {}
+    if descriptor in name_set:
+        try:
+            descriptor_values = parse_ini_values(
+                zf.read(descriptor).decode("utf-8", errors="replace")
+            )
+        except KeyError:
+            descriptor_values = {}
+
+    expected_fields: tuple[tuple[str, str], ...]
+    if ext == ".pdprojectile":
+        expected_fields = (("behavior_graph", "behavior.graph.json"),)
+    else:
+        expected_fields = (
+            ("bindings_file", "bindings.json"),
+            ("behavior_graph", "behavior.graph.json"),
+            ("composition_file", "composition.json"),
+        )
+
+    for field, expected in expected_fields:
+        if expected in name_set and descriptor_values.get(field) != expected:
+            errors.append(f"{label} {descriptor} must declare {field} = {expected}")
+
+    if "_meta/manifest.json" not in name_set:
+        return
+    try:
+        manifest = json.loads(
+            zf.read("_meta/manifest.json").decode("utf-8", errors="replace")
+        )
+    except (KeyError, json.JSONDecodeError) as exc:
+        errors.append(f"{label} _meta/manifest.json is invalid JSON: {exc}")
+        return
+
+    for field, expected in expected_fields:
+        if expected in name_set and manifest.get(field) != expected:
+            errors.append(
+                f"{label} _meta/manifest.json must declare {field} = {expected}"
+            )
+
+
+def validate_mesh_source_contract(label: str, zf: zipfile.ZipFile,
+                                  name_set: set[str],
+                                  errors: list[str]) -> None:
+    if "mesh.ini" not in name_set:
+        return
+
+    try:
+        descriptor_values = parse_ini_values(
+            zf.read("mesh.ini").decode("utf-8", errors="replace")
+        )
+    except KeyError:
+        descriptor_values = {}
+
+    direct_sources = direct_model_source_members(name_set)
+    declared_source = (
+        descriptor_values.get("model_file")
+        or descriptor_values.get("geometry_file")
+        or descriptor_values.get("geometry")
+        or descriptor_values.get("file_path")
+        or ""
+    )
+    if direct_sources and declared_source not in direct_sources:
+        errors.append(
+            f"{label} mesh.ini must declare model_file or geometry_file "
+            f"as one of {direct_sources}"
+        )
+
+    if "_meta/manifest.json" not in name_set:
+        return
+    try:
+        manifest = json.loads(
+            zf.read("_meta/manifest.json").decode("utf-8", errors="replace")
+        )
+    except (KeyError, json.JSONDecodeError) as exc:
+        errors.append(f"{label} _meta/manifest.json is invalid JSON: {exc}")
+        return
+
+    manifest_geometry = manifest.get("geometry")
+    if direct_sources:
+        if manifest_geometry not in direct_sources:
+            errors.append(
+                f"{label} _meta/manifest.json must declare geometry as one of {direct_sources}"
+            )
+        if declared_source and manifest_geometry and manifest_geometry != declared_source:
+            errors.append(
+                f"{label} mesh.ini source {declared_source!r} does not match "
+                f"manifest geometry {manifest_geometry!r}"
+            )
+    manifest_model_file = manifest.get("model_file")
+    if manifest_model_file is not None and manifest_model_file not in direct_sources:
+        errors.append(
+            f"{label} _meta/manifest.json model_file must name one of {direct_sources}"
+        )
+    validate_pdmesh_hierarchy_contract(label, zf, name_set, direct_sources, errors)
+
+
+def pdmesh_obj_face_count(text: str) -> int:
+    count = 0
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("f "):
+            count += 1
+    return count
+
+
+def load_pdmesh_json_member(label: str, zf: zipfile.ZipFile, member: str,
+                            errors: list[str]) -> object | None:
+    try:
+        return json.loads(zf.read(member).decode("utf-8", errors="replace"))
+    except KeyError:
+        errors.append(f"{label} missing required {member}")
+    except json.JSONDecodeError as exc:
+        errors.append(f"{label} {member} is invalid JSON: {exc}")
+    return None
+
+
+def validate_pdmesh_hierarchy_contract(label: str, zf: zipfile.ZipFile,
+                                       name_set: set[str],
+                                       direct_sources: list[str],
+                                       errors: list[str]) -> None:
+    if "model.nodes.json" not in name_set:
+        return
+
+    for member in ("model.parts.json", "model.faces.json", "model.render.json"):
+        if member not in name_set:
+            errors.append(
+                f"{label} has model.nodes.json but missing required {member}"
+            )
+            return
+
+    nodes_root = load_pdmesh_json_member(label, zf, "model.nodes.json", errors)
+    parts_root = load_pdmesh_json_member(label, zf, "model.parts.json", errors)
+    faces_root = load_pdmesh_json_member(label, zf, "model.faces.json", errors)
+    render_root = load_pdmesh_json_member(label, zf, "model.render.json", errors)
+    if not all(isinstance(root, dict) for root in
+               (nodes_root, parts_root, faces_root, render_root)):
+        return
+
+    nodes = nodes_root.get("nodes")
+    parts = parts_root.get("parts")
+    faces = faces_root.get("faces")
+    commands = render_root.get("commands")
+    if not isinstance(nodes, list) or not nodes:
+        errors.append(f"{label} model.nodes.json must contain a non-empty nodes array")
+        return
+    if not isinstance(parts, list):
+        errors.append(f"{label} model.parts.json must contain a parts array")
+        return
+    if not isinstance(faces, list):
+        errors.append(f"{label} model.faces.json must contain a faces array")
+        return
+    if not isinstance(commands, list) or not commands:
+        errors.append(
+            f"{label} model.render.json must contain a non-empty commands array"
+        )
+        return
+
+    for index, node in enumerate(nodes):
+        if not isinstance(node, dict):
+            errors.append(f"{label} model.nodes.json node {index} is not an object")
+            return
+        node_id = node.get("id")
+        parent = node.get("parent")
+        node_type = node.get("type")
+        if node_id != index:
+            errors.append(
+                f"{label} model.nodes.json node ids must be contiguous; "
+                f"node {index} has id {node_id!r}"
+            )
+            return
+        if not isinstance(parent, int) or parent >= len(nodes):
+            errors.append(
+                f"{label} model.nodes.json node {index} has invalid parent {parent!r}"
+            )
+            return
+        if not isinstance(node_type, int):
+            errors.append(
+                f"{label} model.nodes.json node {index} has invalid type {node_type!r}"
+            )
+            return
+        if node_type in {3, 4, 18} and not str(node.get("group", "")).strip():
+            errors.append(
+                f"{label} model.nodes.json render node {index} must declare group"
+            )
+            return
+
+    for index, part in enumerate(parts):
+        if not isinstance(part, dict):
+            errors.append(f"{label} model.parts.json part {index} is not an object")
+            return
+        partnum = part.get("partnum")
+        node = part.get("node")
+        node_unresolved = part.get("node_unresolved")
+        if not isinstance(partnum, int):
+            errors.append(
+                f"{label} model.parts.json part {index} has invalid partnum {partnum!r}"
+            )
+            return
+        if node == -1 and node_unresolved is True:
+            continue
+        if not isinstance(node, int) or node < 0 or node >= len(nodes):
+            errors.append(
+                f"{label} model.parts.json part {index} has invalid node {node!r}"
+            )
+            return
+
+    if "model.obj" in direct_sources:
+        try:
+            obj_text = zf.read("model.obj").decode("utf-8", errors="replace")
+        except KeyError:
+            obj_text = ""
+        obj_faces = pdmesh_obj_face_count(obj_text)
+        if obj_faces != len(faces):
+            errors.append(
+                f"{label} model.faces.json row count {len(faces)} "
+                f"does not match model.obj face count {obj_faces}"
+            )
+            return
+
+    seen_faces: set[int] = set()
+    for index, face in enumerate(faces):
+        if not isinstance(face, dict):
+            errors.append(f"{label} model.faces.json face {index} is not an object")
+            return
+        face_index = face.get("face_index")
+        matrix_index = face.get("matrix_index")
+        if (not isinstance(face_index, int) or face_index < 0 or
+                face_index >= len(faces)):
+            errors.append(
+                f"{label} model.faces.json row {index} has invalid face_index "
+                f"{face_index!r}"
+            )
+            return
+        if face_index in seen_faces:
+            errors.append(
+                f"{label} model.faces.json duplicates face_index {face_index}"
+            )
+            return
+        seen_faces.add(face_index)
+        if not isinstance(matrix_index, int) or matrix_index < 0:
+            errors.append(
+                f"{label} model.faces.json row {index} has invalid matrix_index "
+                f"{matrix_index!r}"
+            )
+            return
+
+    tri_faces: list[int] = []
+    allowed_commands = {"mtx", "pop", "material", "tri"}
+    for index, command in enumerate(commands):
+        if not isinstance(command, dict):
+            errors.append(
+                f"{label} model.render.json command {index} is not an object"
+            )
+            return
+        command_name = command.get("command")
+        if command_name not in allowed_commands:
+            errors.append(
+                f"{label} model.render.json command {index} has invalid command "
+                f"{command_name!r}"
+            )
+            return
+        if "matrix_flags" in command:
+            flags = command.get("matrix_flags")
+            if not isinstance(flags, int) or flags < 0 or flags > 255:
+                errors.append(
+                    f"{label} model.render.json command {index} has invalid "
+                    f"matrix_flags {flags!r}"
+                )
+                return
+        if command_name in {"mtx", "tri"} and "matrix_index" in command:
+            matrix_index = command.get("matrix_index")
+            if not isinstance(matrix_index, int) or matrix_index < 0:
+                errors.append(
+                    f"{label} model.render.json command {index} has invalid "
+                    f"matrix_index {matrix_index!r}"
+                )
+                return
+        if command_name == "tri":
+            face_index = command.get("face_index")
+            if (not isinstance(face_index, int) or face_index < 0 or
+                    face_index >= len(faces)):
+                errors.append(
+                    f"{label} model.render.json tri command {index} has invalid "
+                    f"face_index {face_index!r}"
+                )
+                return
+            tri_faces.append(face_index)
+
+    if len(tri_faces) != len(faces) or len(set(tri_faces)) != len(faces):
+        errors.append(
+            f"{label} model.render.json must reference every model.faces.json "
+            "face exactly once"
+        )
+
+
+def validate_vehicle_source_contract(label: str, zf: zipfile.ZipFile,
+                                     name_set: set[str],
+                                     errors: list[str]) -> None:
+    descriptor_values: dict[str, str] = {}
+    direct_sources = direct_model_source_members(name_set)
+    if "vehicle.ini" in name_set:
+        try:
+            descriptor_values = parse_ini_values(
+                zf.read("vehicle.ini").decode("utf-8", errors="replace")
+            )
+        except KeyError:
+            descriptor_values = {}
+
+    if direct_sources and descriptor_values.get("model_file") not in direct_sources:
+        errors.append(
+            f"{label} vehicle.ini must declare model_file as one of {direct_sources}"
+        )
+    if "physics.json" in name_set and descriptor_values.get("physics_file") != "physics.json":
+        errors.append(f"{label} vehicle.ini must declare physics_file = physics.json")
+    if ("behavior.graph.json" in name_set and
+            descriptor_values.get("behavior_graph") != "behavior.graph.json"):
+        errors.append(
+            f"{label} vehicle.ini must declare behavior_graph = behavior.graph.json"
+        )
+
+    if "_meta/manifest.json" not in name_set:
+        return
+    try:
+        manifest = json.loads(
+            zf.read("_meta/manifest.json").decode("utf-8", errors="replace")
+        )
+    except (KeyError, json.JSONDecodeError) as exc:
+        errors.append(f"{label} _meta/manifest.json is invalid JSON: {exc}")
+        return
+
+    if direct_sources and manifest.get("model_file") not in direct_sources:
+        errors.append(
+            f"{label} _meta/manifest.json must declare model_file as one of {direct_sources}"
+        )
+    if manifest.get("physics_file") != "physics.json":
+        errors.append(
+            f"{label} _meta/manifest.json must declare physics_file = physics.json"
+        )
+    if ("behavior.graph.json" in name_set and
+            manifest.get("behavior_graph") != "behavior.graph.json"):
+        errors.append(
+            f"{label} _meta/manifest.json must declare behavior_graph = behavior.graph.json"
+        )
+
+
+def validate_mission_briefing_json_schema(label: str, entry_name: str,
+                                          text: str) -> list[str]:
+    errors: list[str] = []
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError as exc:
+        return [f"{label} has unreadable JSON source {entry_name}: {exc}"]
+    if not isinstance(parsed, dict):
+        return [f"{label} {entry_name} must be a JSON object"]
+    if parsed.get("schema") != "pd2.mission.briefing.v1":
+        errors.append(
+            f"{label} {entry_name} must declare schema pd2.mission.briefing.v1"
+        )
+    sections = parsed.get("sections")
+    if not isinstance(sections, list) or not sections:
+        errors.append(f"{label} {entry_name} must contain briefing sections")
+        return errors
+    for idx, section in enumerate(sections):
+        if not isinstance(section, dict):
+            errors.append(f"{label} {entry_name} section {idx} must be an object")
+            continue
+        if not isinstance(section.get("id"), str) or not section.get("id"):
+            errors.append(f"{label} {entry_name} section {idx} missing id")
+        if not isinstance(section.get("text"), str):
+            errors.append(f"{label} {entry_name} section {idx} missing text")
+    return errors
+
+
+def validate_mission_source_contract(label: str, zf: zipfile.ZipFile,
+                                     name_set: set[str],
+                                     errors: list[str]) -> None:
+    scenario_archives = sorted(
+        name for name in name_set
+        if name.startswith("dependencies/assets/scenario/")
+        and name.endswith(".pdscenario")
+    ) + sorted(
+        name for name in name_set
+        if name.startswith("dependencies/assets/scenarios/")
+        and name.endswith(".pdscenario")
+    )
+    descriptor_values: dict[str, str] = {}
+    if "mission.ini" in name_set:
+        try:
+            descriptor_values = parse_ini_values(
+                zf.read("mission.ini").decode("utf-8", errors="replace")
+            )
+        except KeyError:
+            descriptor_values = {}
+
+    for field, expected in (
+        ("mission_graph_file", "mission.graph.json"),
+        ("objectives_file", "objectives.json"),
+        ("briefing_file", "briefing.json"),
+    ):
+        if expected in name_set and descriptor_values.get(field) != expected:
+            errors.append(f"{label} mission.ini must declare {field} = {expected}")
+    if scenario_archives and descriptor_values.get("scenario_archive") not in scenario_archives:
+        errors.append(
+            f"{label} mission.ini must declare scenario_archive as one of "
+            f"{scenario_archives}"
+        )
+    scenario_graph_cache = descriptor_values.get("scenario_graph_cache")
+    if scenario_graph_cache != SCENARIO_GRAPH_CACHE_KIND:
+        errors.append(
+            f"{label} mission.ini must declare scenario_graph_cache = {SCENARIO_GRAPH_CACHE_KIND}"
+        )
+
+    if "_meta/manifest.json" in name_set:
+        try:
+            manifest = json.loads(
+                zf.read("_meta/manifest.json").decode("utf-8", errors="replace")
+            )
+        except (KeyError, json.JSONDecodeError) as exc:
+            errors.append(f"{label} _meta/manifest.json is invalid JSON: {exc}")
+            manifest = {}
+        if isinstance(manifest, dict):
+            for field, expected in (
+                ("mission_graph_file", "mission.graph.json"),
+                ("objectives_file", "objectives.json"),
+                ("briefing_file", "briefing.json"),
+            ):
+                if manifest.get(field) != expected:
+                    errors.append(
+                        f"{label} _meta/manifest.json must declare {field} = {expected}"
+                    )
+            if scenario_archives and manifest.get("scenario_archive") not in scenario_archives:
+                errors.append(
+                    f"{label} _meta/manifest.json must declare scenario_archive as one of "
+                    f"{scenario_archives}"
+                )
+
+    if "mission.graph.json" in name_set:
+        graph_text = zf.read("mission.graph.json").decode(
+            "utf-8", errors="replace"
+        )
+        try:
+            graph = json.loads(graph_text)
+        except json.JSONDecodeError as exc:
+            errors.append(
+                f"{label} mission.graph.json is not valid JSON: {exc.msg}"
+            )
+            graph = {}
+        if isinstance(graph, dict):
+            if graph.get("schema") != "pd2.mission.graph.v1":
+                errors.append(
+                    f"{label} mission.graph.json must declare schema pd2.mission.graph.v1"
+                )
+            nodes = graph.get("nodes")
+            if not isinstance(nodes, list) or not nodes:
+                errors.append(
+                    f"{label} mission.graph.json must contain executable mission/objective nodes"
+                )
+            elif not any(
+                isinstance(node, dict)
+                and str(node.get("kind", ""))
+                in {
+                    "mission.objective.source",
+                    "mission.objective.criteria.source",
+                }
+                for node in nodes
+            ):
+                errors.append(
+                    f"{label} mission.graph.json must include mission objective graph nodes"
+                )
+            if isinstance(nodes, list) and nodes and not any(
+                isinstance(node, dict)
+                and str(node.get("kind", "")) == "mission.phase.source"
+                for node in nodes
+            ):
+                errors.append(
+                    f"{label} mission.graph.json must include mission phase graph nodes"
+                )
+            if isinstance(nodes, list) and not any(
+                isinstance(node, dict)
+                and str(node.get("kind", "")) == "mission.objectives.source"
+                and str(node.get("file", "")) == "objectives.json"
+                for node in nodes
+            ):
+                errors.append(
+                    f"{label} mission.graph.json must bind mission.objectives.source to objectives.json"
+                )
+
+    if "objectives.json" in name_set:
+        objectives_text = zf.read("objectives.json").decode(
+            "utf-8", errors="replace"
+        )
+        if "original_perfect_dark_setup" in objectives_text:
+            errors.append(
+                f"{label} objectives.json still points at original_perfect_dark_setup; use mission graph source nodes"
+            )
+        errors.extend(validate_objectives_json_schema(
+            label, "objectives.json", objectives_text,
+            MISSION_OBJECTIVES_HEADER
+        ))
+    if "briefing.json" in name_set:
+        briefing_text = zf.read("briefing.json").decode(
+            "utf-8", errors="replace"
+        )
+        errors.extend(validate_mission_briefing_json_schema(
+            label, "briefing.json", briefing_text
+        ))
+
+
+def validate_scenario_source_contract(label: str, zf: zipfile.ZipFile,
+                                      name_set: set[str],
+                                      errors: list[str]) -> None:
+    descriptor_values: dict[str, str] = {}
+    if "scenario.ini" in name_set:
+        descriptor_values = parse_ini_values(
+            zf.read("scenario.ini").decode("utf-8", errors="replace")
+        )
+
+    if "_meta/manifest.json" not in name_set:
+        return
+    manifest = read_json_member(zf, "_meta/manifest.json")
+    if not manifest:
+        errors.append(f"{label} _meta/manifest.json is invalid JSON")
+        return
+
+    scene_file = descriptor_values.get("scene_file")
+    runtime_source = descriptor_values.get("runtime_source_file")
+    if scene_file and manifest.get("scene") != scene_file:
+        errors.append(
+            f"{label} _meta/manifest.json must declare scene = {scene_file}"
+        )
+    if runtime_source and manifest.get("runtime_source") != runtime_source:
+        errors.append(
+            f"{label} _meta/manifest.json must declare runtime_source = {runtime_source}"
+        )
+
+    field_map = (
+        ("collision_source", "collision_source"),
+        ("portals_file", "portals"),
+        ("pads_file", "pads"),
+        ("spawns_file", "spawns"),
+        ("volumes_file", "volumes"),
+        ("objects_file", "objects"),
+        ("setup_fields_file", "setup_fields"),
+        ("ai_lists_file", "ai_lists"),
+        ("objectives_file", "objectives"),
+        ("navigation_file", "navigation"),
+        ("waypoints_file", "waypoints"),
+        ("waygroups_file", "waygroups"),
+        ("covers_file", "covers"),
+        ("paths_file", "paths"),
+        ("level_graph_file", "level_graph"),
+    )
+    for descriptor_key, manifest_key in field_map:
+        expected = descriptor_values.get(descriptor_key)
+        if expected and manifest.get(manifest_key) != expected:
+            errors.append(
+                f"{label} _meta/manifest.json must declare {manifest_key} = {expected}"
+            )
+
+
+def validate_arena_source_contract(label: str, zf: zipfile.ZipFile,
+                                   name_set: set[str],
+                                   errors: list[str]) -> None:
+    scenario_archives = sorted(
+        name for name in name_set
+        if name.startswith("dependencies/assets/scenarios/")
+        and name.endswith(".pdscenario")
+    )
+    if not scenario_archives:
+        return
+
+    descriptor_values: dict[str, str] = {}
+    if "arena.ini" in name_set:
+        try:
+            descriptor_values = parse_ini_values(
+                zf.read("arena.ini").decode("utf-8", errors="replace")
+            )
+        except KeyError:
+            descriptor_values = {}
+
+    if descriptor_values.get("scenario_archive") not in scenario_archives:
+        errors.append(
+            f"{label} arena.ini must declare scenario_archive as one of "
+            f"{scenario_archives}"
+        )
+    if not descriptor_values.get("scenario"):
+        errors.append(f"{label} arena.ini must declare scenario catalog ID")
+
+    if "_meta/manifest.json" not in name_set:
+        return
+    try:
+        manifest = json.loads(
+            zf.read("_meta/manifest.json").decode("utf-8", errors="replace")
+        )
+    except (KeyError, json.JSONDecodeError) as exc:
+        errors.append(f"{label} _meta/manifest.json is invalid JSON: {exc}")
+        return
+
+    if manifest.get("scenario_archive") not in scenario_archives:
+        errors.append(
+            f"{label} _meta/manifest.json must declare scenario_archive as one of "
+            f"{scenario_archives}"
+        )
+    if not manifest.get("scenario"):
+        errors.append(
+            f"{label} _meta/manifest.json must declare scenario catalog ID"
+        )
+
+
+def validate_gamemode_source_contract(label: str, zf: zipfile.ZipFile,
+                                      name_set: set[str],
+                                      errors: list[str]) -> None:
+    if "gamemode.ini" not in name_set:
+        return
+    text = zf.read("gamemode.ini").decode("utf-8", errors="replace")
+    expected = {
+        "name": "display name",
+        "mode_key": "readable mode key",
+        "min_players": "minimum player count",
+        "max_players": "maximum player count",
+        "team_based": "team flag",
+        "rules_file": "rules source member",
+    }
+    for field, description in expected.items():
+        if not descriptor_value(text, field):
+            errors.append(f"{label} gamemode.ini must declare {field} ({description})")
+    if descriptor_value(text, "rules_file") != "rules.json":
+        errors.append(f"{label} gamemode.ini must declare rules_file = rules.json")
+
+    if "_meta/manifest.json" not in name_set:
+        return
+    try:
+        manifest = json.loads(
+            zf.read("_meta/manifest.json").decode("utf-8", errors="replace")
+        )
+    except (KeyError, json.JSONDecodeError) as exc:
+        errors.append(f"{label} _meta/manifest.json is invalid JSON: {exc}")
+        return
+
+    for field in expected:
+        if field not in manifest:
+            errors.append(f"{label} _meta/manifest.json must declare {field}")
+    if manifest.get("rules_file") != "rules.json":
+        errors.append(
+            f"{label} _meta/manifest.json must declare rules_file = rules.json"
+        )
+    for field in ("min_players", "max_players", "team_based"):
+        if not isinstance(manifest.get(field), int):
+            errors.append(
+                f"{label} _meta/manifest.json {field} must be an integer"
+            )
+
+
+def validate_botprofile_source_contract(label: str, zf: zipfile.ZipFile,
+                                        name_set: set[str],
+                                        errors: list[str]) -> None:
+    if "botprofile.ini" not in name_set:
+        return
+    text = zf.read("botprofile.ini").decode("utf-8", errors="replace")
+    expected = {
+        "type_key": "readable bot type",
+        "difficulty_key": "readable difficulty",
+        "target_body": "catalog body reference",
+        "profile_file": "profile source member",
+    }
+    for field, description in expected.items():
+        if not descriptor_value(text, field):
+            errors.append(f"{label} botprofile.ini must declare {field} ({description})")
+    if descriptor_value(text, "profile_file") != "profile.json":
+        errors.append(f"{label} botprofile.ini must declare profile_file = profile.json")
+
+    if "_meta/manifest.json" not in name_set:
+        return
+    try:
+        manifest = json.loads(
+            zf.read("_meta/manifest.json").decode("utf-8", errors="replace")
+        )
+    except (KeyError, json.JSONDecodeError) as exc:
+        errors.append(f"{label} _meta/manifest.json is invalid JSON: {exc}")
+        return
+
+    for field in expected:
+        if field not in manifest:
+            errors.append(f"{label} _meta/manifest.json must declare {field}")
+    if manifest.get("profile_file") != "profile.json":
+        errors.append(
+            f"{label} _meta/manifest.json must declare profile_file = profile.json"
+        )
+    if not isinstance(manifest.get("target_body"), str) or not CATALOG_ID_RE.match(
+            str(manifest.get("target_body", ""))):
+        errors.append(
+            f"{label} _meta/manifest.json target_body must be a catalog ID string"
+        )
+
+
+def validate_texture_source_contract(label: str, zf: zipfile.ZipFile,
+                                     name_set: set[str],
+                                     errors: list[str]) -> None:
+    if "texture.ini" not in name_set:
+        return
+
+    texture_members = sorted(
+        name for name in name_set
+        if name in {"texture.png", "texture.tga", "texture.jpg", "texture.jpeg"}
+    )
+    if not texture_members:
+        return
+
+    try:
+        descriptor_values = parse_ini_values(
+            zf.read("texture.ini").decode("utf-8", errors="replace")
+        )
+    except KeyError:
+        descriptor_values = {}
+
+    descriptor_texture = descriptor_values.get("texture_file") or descriptor_values.get("file_path")
+    if descriptor_texture not in texture_members:
+        errors.append(
+            f"{label} texture.ini must declare texture_file as one of {texture_members}"
+        )
+
+    if "_meta/manifest.json" not in name_set:
+        return
+    manifest = read_json_member(zf, "_meta/manifest.json")
+    if not manifest:
+        errors.append(f"{label} _meta/manifest.json is invalid JSON")
+        return
+    manifest_texture = manifest.get("texture_file") or manifest.get("file_path")
+    if manifest_texture not in texture_members:
+        errors.append(
+            f"{label} _meta/manifest.json must declare texture_file as one of "
+            f"{texture_members}"
+        )
+
+
+def validate_hud_source_contract(label: str, zf: zipfile.ZipFile,
+                                 name_set: set[str],
+                                 errors: list[str]) -> None:
+    if "hud.ini" not in name_set:
+        return
+
+    try:
+        descriptor_values = parse_ini_values(
+            zf.read("hud.ini").decode("utf-8", errors="replace")
+        )
+    except KeyError:
+        descriptor_values = {}
+
+    if descriptor_values.get("layout_file") != "layout.json":
+        errors.append(f"{label} hud.ini must declare layout_file = layout.json")
+
+    texture_members = sorted(
+        name for name in name_set if name in {"texture.png", "texture.tga"}
+    )
+    if texture_members and descriptor_values.get("texture_file") not in texture_members:
+        errors.append(
+            f"{label} hud.ini must declare texture_file as one of {texture_members}"
+        )
+
+    if "_meta/manifest.json" not in name_set:
+        return
+    manifest = read_json_member(zf, "_meta/manifest.json")
+    if not manifest:
+        errors.append(f"{label} _meta/manifest.json is invalid JSON")
+        return
+
+    if manifest.get("layout_file") != "layout.json":
+        errors.append(
+            f"{label} _meta/manifest.json must declare layout_file = layout.json"
+        )
+    if texture_members and manifest.get("texture_file") not in texture_members:
+        errors.append(
+            f"{label} _meta/manifest.json must declare texture_file as one of "
+            f"{texture_members}"
+        )
+
+
+def validate_character_source_contract(label: str, zf: zipfile.ZipFile,
+                                       name_set: set[str],
+                                       errors: list[str]) -> None:
+    descriptor_values: dict[str, str] = {}
+    if "character.ini" in name_set:
+        try:
+            descriptor_values = parse_ini_values(
+                zf.read("character.ini").decode("utf-8", errors="replace")
+            )
+        except KeyError:
+            descriptor_values = {}
+
+    archive_groups = [
+        (
+            "body_archive",
+            sorted(
+                name for name in name_set
+                if (name == "body.pdbody"
+                    or name.startswith("dependencies/assets/body/")
+                    or name.startswith("dependencies/assets/bodies/"))
+                and name.endswith(".pdbody")
+            ),
+        ),
+        (
+            "head_archive",
+            sorted(
+                name for name in name_set
+                if (name == "head.pdhead"
+                    or name.startswith("dependencies/assets/head/")
+                    or name.startswith("dependencies/assets/heads/"))
+                and name.endswith(".pdhead")
+            ),
+        ),
+    ]
+
+    for field, archives in archive_groups:
+        legacy_field = "bodyfile" if field == "body_archive" else "headfile"
+        if (archives and descriptor_values.get(field) not in archives
+                and descriptor_values.get(legacy_field) not in archives):
+            errors.append(
+                f"{label} character.ini must declare {field} as one of {archives}"
+            )
+
+    if ("portrait.png" in name_set and
+            descriptor_values.get("portrait_file") != "portrait.png"):
+        errors.append(
+            f"{label} character.ini must declare portrait_file = portrait.png"
+        )
+
+    if "_meta/manifest.json" not in name_set:
+        return
+    try:
+        manifest = json.loads(
+            zf.read("_meta/manifest.json").decode("utf-8", errors="replace")
+        )
+    except (KeyError, json.JSONDecodeError) as exc:
+        errors.append(f"{label} _meta/manifest.json is invalid JSON: {exc}")
+        return
+
+    for field, archives in archive_groups:
+        if archives and manifest.get(field) not in archives:
+            errors.append(
+                f"{label} _meta/manifest.json must declare {field} as one of "
+                f"{archives}"
+            )
+    if "portrait.png" in name_set and manifest.get("portrait_file") != "portrait.png":
+        errors.append(
+            f"{label} _meta/manifest.json must declare portrait_file = portrait.png"
+        )
+
+
+def validate_head_source_contract(label: str, zf: zipfile.ZipFile,
+                                  name_set: set[str],
+                                  errors: list[str]) -> None:
+    descriptor_values: dict[str, str] = {}
+    if "head.ini" in name_set:
+        try:
+            descriptor_values = parse_ini_values(
+                zf.read("head.ini").decode("utf-8", errors="replace")
+            )
+        except KeyError:
+            descriptor_values = {}
+
+    if "mesh.pdmesh" in name_set and descriptor_values.get("mesh_archive") != "mesh.pdmesh":
+        errors.append(
+            f"{label} head.ini must declare mesh_archive = mesh.pdmesh"
+        )
+
+    if "_meta/manifest.json" not in name_set:
+        return
+    try:
+        manifest = json.loads(
+            zf.read("_meta/manifest.json").decode("utf-8", errors="replace")
+        )
+    except (KeyError, json.JSONDecodeError) as exc:
+        errors.append(f"{label} _meta/manifest.json is invalid JSON: {exc}")
+        return
+
+    if "mesh.pdmesh" in name_set and manifest.get("mesh_archive") != "mesh.pdmesh":
+        errors.append(
+            f"{label} _meta/manifest.json must declare mesh_archive = mesh.pdmesh"
+        )
+
+
+def validate_body_source_contract(label: str, zf: zipfile.ZipFile,
+                                  name_set: set[str],
+                                  errors: list[str]) -> None:
+    descriptor_values: dict[str, str] = {}
+    if "body.ini" in name_set:
+        try:
+            descriptor_values = parse_ini_values(
+                zf.read("body.ini").decode("utf-8", errors="replace")
+            )
+        except KeyError:
+            descriptor_values = {}
+
+    if "mesh.pdmesh" in name_set and descriptor_values.get("mesh_archive") != "mesh.pdmesh":
+        errors.append(
+            f"{label} body.ini must declare mesh_archive = mesh.pdmesh"
+        )
+    if "hand.pdmesh" in name_set and descriptor_values.get("hand_archive") != "hand.pdmesh":
+        errors.append(
+            f"{label} body.ini must declare hand_archive = hand.pdmesh"
+        )
+
+    if "_meta/manifest.json" not in name_set:
+        return
+    try:
+        manifest = json.loads(
+            zf.read("_meta/manifest.json").decode("utf-8", errors="replace")
+        )
+    except (KeyError, json.JSONDecodeError) as exc:
+        errors.append(f"{label} _meta/manifest.json is invalid JSON: {exc}")
+        return
+
+    if "mesh.pdmesh" in name_set and manifest.get("mesh_archive") != "mesh.pdmesh":
+        errors.append(
+            f"{label} _meta/manifest.json must declare mesh_archive = mesh.pdmesh"
+        )
+    if "hand.pdmesh" in name_set and manifest.get("hand_archive") != "hand.pdmesh":
+        errors.append(
+            f"{label} _meta/manifest.json must declare hand_archive = hand.pdmesh"
+        )
+
+
+def validate_effect_source_contract(label: str, zf: zipfile.ZipFile,
+                                    name_set: set[str],
+                                    errors: list[str]) -> None:
+    descriptor_values: dict[str, str] = {}
+    if "effect.ini" in name_set:
+        try:
+            descriptor_values = parse_ini_values(
+                zf.read("effect.ini").decode("utf-8", errors="replace")
+            )
+        except KeyError:
+            descriptor_values = {}
+
+    if ("effect.graph.json" in name_set and
+            descriptor_values.get("effect_file") != "effect.graph.json"):
+        errors.append(
+            f"{label} effect.ini must declare effect_file = effect.graph.json"
+        )
+    if ("timeline.json" in name_set and
+            descriptor_values.get("timeline_file") != "timeline.json"):
+        errors.append(
+            f"{label} effect.ini must declare timeline_file = timeline.json"
+        )
+
+    if "_meta/manifest.json" not in name_set:
+        return
+    try:
+        manifest = json.loads(
+            zf.read("_meta/manifest.json").decode("utf-8", errors="replace")
+        )
+    except (KeyError, json.JSONDecodeError) as exc:
+        errors.append(f"{label} _meta/manifest.json is invalid JSON: {exc}")
+        return
+
+    if ("effect.graph.json" in name_set and
+            manifest.get("effect_file") != "effect.graph.json"):
+        errors.append(
+            f"{label} _meta/manifest.json must declare effect_file = effect.graph.json"
+        )
+    if ("timeline.json" in name_set and
+            manifest.get("timeline_file") != "timeline.json"):
+        errors.append(
+            f"{label} _meta/manifest.json must declare timeline_file = timeline.json"
+        )
+
+
+def validate_material_source_contract(label: str, zf: zipfile.ZipFile,
+                                      name_set: set[str],
+                                      errors: list[str]) -> None:
+    descriptor_values: dict[str, str] = {}
+    if "material.ini" in name_set:
+        try:
+            descriptor_values = parse_ini_values(
+                zf.read("material.ini").decode("utf-8", errors="replace")
+            )
+        except KeyError:
+            descriptor_values = {}
+
+    texture_archives = sorted(
+        name for name in name_set
+        if (name.startswith("dependencies/assets/texture/")
+            or name.startswith("dependencies/assets/textures/"))
+        and name.endswith(".pdtexture")
+    )
+    effect_archives = sorted(
+        name for name in name_set
+        if name.startswith("dependencies/assets/effects/")
+        and name.endswith(".pdeffect")
+    )
+
+    if (texture_archives and
+            descriptor_values.get("texture_archive") not in texture_archives):
+        errors.append(
+            f"{label} material.ini must declare texture_archive as one of "
+            f"{texture_archives}"
+        )
+    if "material.json" in name_set and descriptor_values.get("material_file") != "material.json":
+        errors.append(
+            f"{label} material.ini must declare material_file = material.json"
+        )
+    if (effect_archives and
+            descriptor_values.get("effect_archive") not in effect_archives):
+        errors.append(
+            f"{label} material.ini must declare effect_archive as one of "
+            f"{effect_archives}"
+        )
+
+    if "_meta/manifest.json" not in name_set:
+        return
+    try:
+        manifest = json.loads(
+            zf.read("_meta/manifest.json").decode("utf-8", errors="replace")
+        )
+    except (KeyError, json.JSONDecodeError) as exc:
+        errors.append(f"{label} _meta/manifest.json is invalid JSON: {exc}")
+        return
+
+    if texture_archives and manifest.get("texture_archive") not in texture_archives:
+        errors.append(
+            f"{label} _meta/manifest.json must declare texture_archive as one of "
+            f"{texture_archives}"
+        )
+    if "material.json" in name_set and manifest.get("material_file") != "material.json":
+        errors.append(
+            f"{label} _meta/manifest.json must declare material_file = material.json"
+        )
+    if effect_archives and manifest.get("effect_archive") not in effect_archives:
+        errors.append(
+            f"{label} _meta/manifest.json must declare effect_archive as one of "
+            f"{effect_archives}"
+        )
+
+
+def validate_theme_source_contract(label: str, zf: zipfile.ZipFile,
+                                   name_set: set[str],
+                                   errors: list[str]) -> None:
+    descriptor_values: dict[str, str] = {}
+    if "theme.ini" in name_set:
+        try:
+            descriptor_values = parse_ini_values(
+                zf.read("theme.ini").decode("utf-8", errors="replace")
+            )
+        except KeyError:
+            descriptor_values = {}
+
+    archive_groups = [
+        (
+            "ui_archive",
+            sorted(
+                name for name in name_set
+                if name.startswith("dependencies/assets/ui/")
+                and name.endswith(".pdui")
+            ),
+        ),
+        (
+            "font_archive",
+            sorted(
+                name for name in name_set
+                if (name.startswith("dependencies/assets/font/")
+                    or name.startswith("dependencies/assets/fonts/"))
+                and name.endswith(".pdfont")
+            ),
+        ),
+        (
+            "audio_archive",
+            sorted(
+                name for name in name_set
+                if name.startswith("dependencies/assets/audio/")
+                and name.endswith(".pdsfx")
+            ),
+        ),
+        (
+            "music_archive",
+            sorted(
+                name for name in name_set
+                if name.startswith("dependencies/assets/music/")
+                and name.endswith(".pdsong")
+            ),
+        ),
+        (
+            "effect_archive",
+            sorted(
+                name for name in name_set
+                if name.startswith("dependencies/assets/effects/")
+                and name.endswith(".pdeffect")
+            ),
+        ),
+    ]
+
+    for field, archives in archive_groups:
+        if archives and descriptor_values.get(field) not in archives:
+            errors.append(
+                f"{label} theme.ini must declare {field} as one of {archives}"
+            )
+
+    if "_meta/manifest.json" not in name_set:
+        return
+    try:
+        manifest = json.loads(
+            zf.read("_meta/manifest.json").decode("utf-8", errors="replace")
+        )
+    except (KeyError, json.JSONDecodeError) as exc:
+        errors.append(f"{label} _meta/manifest.json is invalid JSON: {exc}")
+        return
+
+    for field, archives in archive_groups:
+        if archives and manifest.get(field) not in archives:
+            errors.append(
+                f"{label} _meta/manifest.json must declare {field} as one of "
+                f"{archives}"
+            )
+
+
+def gltf_json_from_bytes(data: bytes) -> dict[str, object]:
+    if len(data) >= 12:
+        magic, version, total_length = struct.unpack_from("<III", data, 0)
+        if magic == GLB_MAGIC:
+            if version != 2 or total_length > len(data):
+                raise ValueError("invalid GLB header")
+            offset = 12
+            while offset + 8 <= total_length:
+                chunk_length, chunk_type = struct.unpack_from("<II", data, offset)
+                offset += 8
+                if offset + chunk_length > total_length:
+                    raise ValueError("invalid GLB chunk length")
+                chunk = data[offset:offset + chunk_length]
+                offset += (chunk_length + 3) & ~3
+                if chunk_type == GLB_JSON_CHUNK:
+                    return json.loads(chunk.decode("utf-8"))
+            raise ValueError("GLB has no JSON chunk")
+    return json.loads(data.decode("utf-8"))
+
+
+def validate_pdanim_commands(label: str, text: str,
+                             errors: list[str]) -> int:
+    try:
+        source = json.loads(text)
+    except json.JSONDecodeError as exc:
+        errors.append(f"{label} commands.json is invalid JSON: {exc}")
+        return 0
+
+    commands = source.get("commands")
+    if not isinstance(commands, list) or not commands:
+        errors.append(f"{label} commands.json must contain non-empty commands")
+        return 0
+
+    for index, command in enumerate(commands):
+        if not isinstance(command, dict):
+            errors.append(f"{label} command {index} must be an object")
+            continue
+        name = command.get("command")
+        if not isinstance(name, str) or not name:
+            errors.append(f"{label} command {index} is missing command name")
+        for key in ("animation", "sound"):
+            value = command.get(key)
+            if value is not None and (
+                    not isinstance(value, str)
+                    or not CATALOG_ID_RE.match(value.strip())):
+                errors.append(
+                    f"{label} command {index} {key} must be a catalog ID string"
+                )
+    return len(commands)
+
+
+def pdanim_accessor_at(accessors: list[object], index: object) -> dict[str, object] | None:
+    if not isinstance(index, int) or index < 0 or index >= len(accessors):
+        return None
+    accessor = accessors[index]
+    return accessor if isinstance(accessor, dict) else None
+
+
+def validate_pdanim_gltf(label: str, data: bytes,
+                         errors: list[str]) -> None:
+    try:
+        gltf = gltf_json_from_bytes(data)
+    except (ValueError, json.JSONDecodeError, UnicodeDecodeError, struct.error) as exc:
+        errors.append(f"{label} animation source is invalid glTF/GLB: {exc}")
+        return
+
+    asset = gltf.get("asset", {})
+    generator = asset.get("generator", "") if isinstance(asset, dict) else ""
+    if isinstance(generator, str) and generator.startswith("Perfect Dark 2 pdanim_chr"):
+        if generator != PDANIM_CHR_GENERATOR:
+            errors.append(
+                f"{label} uses stale pdanim generator {generator!r}; "
+                f"expected {PDANIM_CHR_GENERATOR!r}"
+            )
+
+    animations = gltf.get("animations")
+    nodes = gltf.get("nodes", [])
+    accessors = gltf.get("accessors", [])
+    if not isinstance(animations, list) or not animations:
+        errors.append(f"{label} must contain at least one glTF animation")
+        return
+    if not isinstance(nodes, list) or not nodes:
+        errors.append(f"{label} must contain animation target nodes")
+    if not isinstance(accessors, list):
+        errors.append(f"{label} accessors must be a list")
+        accessors = []
+
+    for anim_index, animation in enumerate(animations):
+        if not isinstance(animation, dict):
+            errors.append(f"{label} animation {anim_index} must be an object")
+            continue
+        channels = animation.get("channels")
+        samplers = animation.get("samplers")
+        if not isinstance(channels, list):
+            errors.append(f"{label} animation {anim_index} channels must be a list")
+            continue
+        if not isinstance(samplers, list):
+            errors.append(f"{label} animation {anim_index} samplers must be a list")
+            continue
+        if not channels:
+            extras = gltf.get("extras", {})
+            if not isinstance(extras, dict) or extras.get("pd_zero_frame_placeholder") is not True:
+                errors.append(f"{label} animation {anim_index} has no channels")
+            continue
+        if not samplers:
+            errors.append(f"{label} animation {anim_index} has no samplers")
+            continue
+
+        for sampler_index, sampler in enumerate(samplers):
+            if not isinstance(sampler, dict):
+                errors.append(f"{label} sampler {sampler_index} must be an object")
+                continue
+            interpolation = sampler.get("interpolation", "LINEAR")
+            if interpolation not in {"LINEAR", "STEP"}:
+                errors.append(
+                    f"{label} sampler {sampler_index} interpolation "
+                    "must be LINEAR or STEP"
+                )
+            for key in ("input", "output"):
+                accessor_index = sampler.get(key)
+                if not isinstance(accessor_index, int):
+                    errors.append(f"{label} sampler {sampler_index} missing {key} accessor")
+                    continue
+                if accessor_index < 0 or accessor_index >= len(accessors):
+                    errors.append(f"{label} sampler {sampler_index} {key} accessor is out of range")
+                    continue
+                accessor = accessors[accessor_index]
+                if isinstance(accessor, dict) and accessor.get("count", 0) <= 0:
+                    errors.append(f"{label} sampler {sampler_index} {key} accessor has no values")
+
+        for channel_index, channel in enumerate(channels):
+            if not isinstance(channel, dict):
+                errors.append(f"{label} channel {channel_index} must be an object")
+                continue
+            sampler_index = channel.get("sampler")
+            if not isinstance(sampler_index, int) or sampler_index < 0 or sampler_index >= len(samplers):
+                errors.append(f"{label} channel {channel_index} sampler is out of range")
+            target = channel.get("target")
+            if not isinstance(target, dict):
+                errors.append(f"{label} channel {channel_index} target must be an object")
+                continue
+            node = target.get("node")
+            path = target.get("path")
+            if not isinstance(node, int) or node < 0 or node >= len(nodes):
+                errors.append(f"{label} channel {channel_index} target node is out of range")
+            if path not in {"translation", "rotation", "scale"}:
+                errors.append(f"{label} channel {channel_index} target path {path!r} is unsupported")
+                continue
+            if not isinstance(sampler_index, int) or sampler_index < 0 or sampler_index >= len(samplers):
+                continue
+            sampler = samplers[sampler_index]
+            if not isinstance(sampler, dict):
+                continue
+            input_accessor = pdanim_accessor_at(accessors, sampler.get("input"))
+            output_accessor = pdanim_accessor_at(accessors, sampler.get("output"))
+            if input_accessor:
+                if input_accessor.get("componentType") != 5126 or input_accessor.get("type") != "SCALAR":
+                    errors.append(
+                        f"{label} channel {channel_index} input accessor "
+                        "must be float SCALAR time values"
+                    )
+            if output_accessor:
+                expected_type = "VEC4" if path == "rotation" else "VEC3"
+                if output_accessor.get("componentType") != 5126 or output_accessor.get("type") != expected_type:
+                    errors.append(
+                        f"{label} channel {channel_index} output accessor "
+                        f"must be float {expected_type} values for {path}"
+                    )
+
+
+def validate_pdanim_source_contract(label: str, zf: zipfile.ZipFile,
+                                    name_set: set[str],
+                                    errors: list[str]) -> None:
+    if "animation.ini" not in name_set:
+        return
+    try:
+        ini = parse_ini_values(zf.read("animation.ini").decode("utf-8"))
+    except (KeyError, UnicodeDecodeError) as exc:
+        errors.append(f"{label} animation.ini cannot be read: {exc}")
+        return
+
+    category = ini.get("category", "")
+    declared_count = ini.get("command_count")
+    source_member = ini.get("animation_file", "")
+    manifest: dict[str, object] = {}
+    if "_meta/manifest.json" in name_set:
+        try:
+            parsed_manifest = json.loads(
+                zf.read("_meta/manifest.json").decode("utf-8", errors="replace")
+            )
+            if isinstance(parsed_manifest, dict):
+                manifest = parsed_manifest
+        except (KeyError, json.JSONDecodeError) as exc:
+            errors.append(f"{label} _meta/manifest.json is invalid JSON: {exc}")
+
+    manifest_category = manifest.get("category")
+    if category and manifest and manifest_category != category:
+        errors.append(
+            f"{label} _meta/manifest.json must declare category = {category}"
+        )
+    if category == "weapon_animation":
+        if source_member:
+            if source_member not in name_set:
+                errors.append(f"{label} weapon animation is missing {source_member}")
+                return
+            if not source_member.endswith((".gltf", ".glb")):
+                errors.append(f"{label} animation_file must be animation.gltf or animation.glb")
+                return
+            manifest_source = (
+                manifest.get("animation")
+                or manifest.get("runtime_source")
+                or manifest.get("animation_file")
+            )
+            if manifest and manifest_source != source_member:
+                errors.append(
+                    f"{label} _meta/manifest.json must declare animation/runtime_source "
+                    f"= {source_member}"
+                )
+            validate_pdanim_gltf(f"{label}::{source_member}",
+                                 zf.read(source_member), errors)
+        else:
+            if "commands.json" not in name_set:
+                errors.append(f"{label} weapon animation is missing commands.json")
+                return
+            manifest_command_source = (
+                manifest.get("command_source")
+                or manifest.get("commands_file")
+            )
+            if manifest and manifest_command_source != "commands.json":
+                errors.append(
+                    f"{label} _meta/manifest.json must declare command_source "
+                    "= commands.json"
+                )
+            count = validate_pdanim_commands(
+                label, zf.read("commands.json").decode("utf-8"), errors
+            )
+            if declared_count is not None:
+                try:
+                    expected_count = int(declared_count)
+                except ValueError:
+                    expected_count = -1
+                if expected_count != count:
+                    errors.append(
+                        f"{label} command_count {declared_count!r} does not match "
+                        f"commands.json count {count}"
+                    )
+    elif category == "character_animation":
+        source_member = source_member or "animation.gltf"
+        if source_member not in name_set:
+            errors.append(f"{label} character animation is missing {source_member}")
+            return
+        if not source_member.endswith((".gltf", ".glb")):
+            errors.append(f"{label} animation_file must be animation.gltf or animation.glb")
+            return
+        manifest_source = (
+            manifest.get("animation")
+            or manifest.get("runtime_source")
+            or manifest.get("animation_file")
+        )
+        if manifest and manifest_source != source_member:
+            errors.append(
+                f"{label} _meta/manifest.json must declare animation/runtime_source "
+                f"= {source_member}"
+            )
+        validate_pdanim_gltf(f"{label}::{source_member}",
+                             zf.read(source_member), errors)
+    else:
+        errors.append(f"{label} has unknown animation category {category!r}")
+
+
+def validate_audio_wav_descriptor(label: str, descriptor: str, text: str,
+                                  errors: list[str]) -> None:
+    values = parse_ini_values(text)
+    missing = [field for field in AUDIO_WAV_NATIVE_FIELDS if field not in values]
+    if missing:
+        errors.append(
+            f"{label} {descriptor} missing WAV playback metadata fields: "
+            + ", ".join(missing)
+        )
+    file_path = values.get("file_path", "")
+    if file_path != "sample.wav":
+        errors.append(
+            f"{label} {descriptor} must declare file_path = sample.wav "
+            "for WAV-backed source playback"
+        )
+    has_loop = values.get("has_loop", "")
+    if has_loop and has_loop not in {"true", "false", "0", "1", "yes", "no"}:
+        errors.append(f"{label} {descriptor} has invalid has_loop value {has_loop!r}")
+    has_envelope = values.get("has_envelope", "")
+    if has_envelope and has_envelope not in {"true", "false", "0", "1", "yes", "no"}:
+        errors.append(
+            f"{label} {descriptor} has invalid has_envelope value {has_envelope!r}"
+        )
+
+
+def validate_audio_wav_manifest(label: str, text: str,
+                                errors: list[str]) -> None:
+    try:
+        manifest = json.loads(text)
+    except json.JSONDecodeError as exc:
+        errors.append(f"{label} _meta/manifest.json is invalid JSON: {exc}")
+        return
+    missing = [
+        field for field in AUDIO_WAV_MANIFEST_FIELDS
+        if field not in manifest
+    ]
+    if missing:
+        errors.append(
+            f"{label} _meta/manifest.json missing WAV playback metadata fields: "
+            + ", ".join(missing)
+        )
+    if manifest.get("data") != "sample.wav":
+        errors.append(
+            f"{label} _meta/manifest.json must declare data = sample.wav "
+            "for WAV-backed source playback"
+        )
+
+
+def int_field(values: dict[str, object], field: str) -> int | None:
+    raw = values.get(field)
+    try:
+        return int(raw)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+
+
+def parse_wav_source_metadata(label: str, data: bytes,
+                              errors: list[str]) -> dict[str, int] | None:
+    if len(data) < 44 or data[0:4] != b"RIFF" or data[8:12] != b"WAVE":
+        errors.append(f"{label} sample.wav must be a RIFF/WAVE file")
+        return None
+
+    offset = 12
+    fmt: dict[str, int] | None = None
+    data_bytes: int | None = None
+
+    while offset + 8 <= len(data):
+        chunk_id = data[offset:offset + 4]
+        chunk_size = struct.unpack_from("<I", data, offset + 4)[0]
+        chunk_start = offset + 8
+        chunk_end = chunk_start + chunk_size
+        if chunk_end > len(data):
+            errors.append(f"{label} sample.wav chunk exceeds file size")
+            return None
+
+        if chunk_id == b"fmt ":
+            if chunk_size < 16:
+                errors.append(f"{label} sample.wav fmt chunk is too small")
+                return None
+            audio_format, channels, sample_rate, byte_rate, block_align, bits_per_sample = (
+                struct.unpack_from("<HHIIHH", data, chunk_start)
+            )
+            fmt = {
+                "audio_format": audio_format,
+                "channels": channels,
+                "sample_rate_hz": sample_rate,
+                "byte_rate": byte_rate,
+                "block_align": block_align,
+                "bits_per_sample": bits_per_sample,
+            }
+        elif chunk_id == b"data":
+            data_bytes = chunk_size
+
+        offset = chunk_end + (chunk_size & 1)
+
+    if fmt is None:
+        errors.append(f"{label} sample.wav is missing fmt chunk")
+        return None
+    if data_bytes is None:
+        errors.append(f"{label} sample.wav is missing data chunk")
+        return None
+
+    channels = fmt["channels"]
+    bits_per_sample = fmt["bits_per_sample"]
+    expected_block_align = channels * bits_per_sample // 8
+    if fmt["audio_format"] != WAV_PCM_FORMAT:
+        errors.append(
+            f"{label} sample.wav must be PCM format {WAV_PCM_FORMAT}, "
+            f"got {fmt['audio_format']}"
+        )
+    if channels != WAV_NATIVE_CHANNELS:
+        errors.append(
+            f"{label} sample.wav must be mono for native SFX/voice parity, "
+            f"got {channels} channel(s)"
+        )
+    if bits_per_sample != WAV_PCM16_BITS:
+        errors.append(
+            f"{label} sample.wav must be PCM16 for native SFX/voice parity, "
+            f"got {bits_per_sample} bits"
+        )
+    if expected_block_align <= 0 or fmt["block_align"] != expected_block_align:
+        errors.append(
+            f"{label} sample.wav block_align {fmt['block_align']} does not match "
+            f"channels/bits {expected_block_align}"
+        )
+    if fmt["byte_rate"] != fmt["sample_rate_hz"] * fmt["block_align"]:
+        errors.append(
+            f"{label} sample.wav byte_rate {fmt['byte_rate']} does not match "
+            "sample_rate_hz * block_align"
+        )
+    if fmt["block_align"] <= 0:
+        return None
+    if data_bytes % fmt["block_align"] != 0:
+        errors.append(
+            f"{label} sample.wav data size {data_bytes} is not aligned to "
+            f"block_align {fmt['block_align']}"
+        )
+        return None
+
+    fmt["decoded_sample_count"] = data_bytes // fmt["block_align"]
+    fmt["data_bytes"] = data_bytes
+    return fmt
+
+
+def validate_audio_source_contract(label: str, ext: str, zf: zipfile.ZipFile,
+                                   name_set: set[str],
+                                   errors: list[str]) -> None:
+    if "sample.wav" not in name_set:
+        return
+    descriptor = "sound.ini" if ext == ".pdsfx" else "voice.ini"
+    descriptor_values: dict[str, str] = {}
+    manifest_values: dict[str, object] = {}
+    if descriptor in name_set:
+        descriptor_text = zf.read(descriptor).decode("utf-8", errors="replace")
+        descriptor_values = parse_ini_values(descriptor_text)
+        validate_audio_wav_descriptor(label, descriptor, descriptor_text, errors)
+    if "_meta/manifest.json" in name_set:
+        manifest_text = zf.read("_meta/manifest.json").decode("utf-8", errors="replace")
+        try:
+            manifest_values = json.loads(manifest_text)
+        except json.JSONDecodeError:
+            manifest_values = {}
+        validate_audio_wav_manifest(
+            label,
+            manifest_text,
+            errors,
+        )
+    wav_meta = parse_wav_source_metadata(label, zf.read("sample.wav"), errors)
+    if wav_meta is None:
+        return
+
+    expected_rate = wav_meta["sample_rate_hz"]
+    expected_count = wav_meta["decoded_sample_count"]
+    descriptor_rate = int_field(descriptor_values, "sample_rate_hz")
+    descriptor_count = int_field(descriptor_values, "decoded_sample_count")
+    manifest_rate = int_field(manifest_values, "sample_rate_hz")
+    manifest_count = int_field(manifest_values, "decoded_sample_count")
+    if descriptor_rate is not None and descriptor_rate != expected_rate:
+        errors.append(
+            f"{label} {descriptor} sample_rate_hz {descriptor_rate} does not "
+            f"match sample.wav rate {expected_rate}"
+        )
+    if descriptor_count is not None and descriptor_count != expected_count:
+        errors.append(
+            f"{label} {descriptor} decoded_sample_count {descriptor_count} "
+            f"does not match sample.wav frame count {expected_count}"
+        )
+    if manifest_rate is not None and manifest_rate != expected_rate:
+        errors.append(
+            f"{label} _meta/manifest.json sample_rate_hz {manifest_rate} does "
+            f"not match sample.wav rate {expected_rate}"
+        )
+    if manifest_count is not None and manifest_count != expected_count:
+        errors.append(
+            f"{label} _meta/manifest.json decoded_sample_count {manifest_count} "
+            f"does not match sample.wav frame count {expected_count}"
+        )
+
+
+def validate_song_sequence_descriptor(label: str, text: str,
+                                      errors: list[str]) -> None:
+    values = parse_ini_values(text)
+    missing = [field for field in SONG_SEQUENCE_NATIVE_FIELDS if field not in values]
+    if missing:
+        errors.append(
+            f"{label} music.ini missing sequence playback metadata fields: "
+            + ", ".join(missing)
+        )
+    if values.get("music_file") != "sequence.mid":
+        errors.append(
+            f"{label} music.ini must declare music_file = sequence.mid "
+            "for sequence-backed source playback"
+        )
+    if values.get("midi_file") != "sequence.mid":
+        errors.append(
+            f"{label} music.ini must declare midi_file = sequence.mid "
+            "for sequence-backed source playback"
+        )
+    if values.get("events_file") != "sequence.json":
+        errors.append(
+            f"{label} music.ini must declare events_file = sequence.json "
+            "for sequence-backed source playback"
+        )
+    for field in ("division", "event_count"):
+        raw = values.get(field, "")
+        try:
+            value = int(raw, 10)
+        except ValueError:
+            errors.append(f"{label} music.ini {field} must be an integer")
+            continue
+        if value <= 0:
+            errors.append(f"{label} music.ini {field} must be positive")
+
+
+def validate_song_sequence_manifest(label: str, text: str,
+                                    errors: list[str]) -> None:
+    try:
+        manifest = json.loads(text)
+    except json.JSONDecodeError as exc:
+        errors.append(f"{label} _meta/manifest.json is invalid JSON: {exc}")
+        return
+    missing = [
+        field for field in SONG_SEQUENCE_MANIFEST_FIELDS
+        if field not in manifest
+    ]
+    if missing:
+        errors.append(
+            f"{label} _meta/manifest.json missing sequence playback metadata fields: "
+            + ", ".join(missing)
+        )
+    if manifest.get("midi") != "sequence.mid":
+        errors.append(
+            f"{label} _meta/manifest.json must declare midi = sequence.mid "
+            "for sequence-backed source playback"
+        )
+    if manifest.get("events") != "sequence.json":
+        errors.append(
+            f"{label} _meta/manifest.json must declare events = sequence.json "
+            "for sequence-backed source playback"
+        )
+    for field in ("division", "event_count"):
+        value = manifest.get(field)
+        if not isinstance(value, int) or value <= 0:
+            errors.append(
+                f"{label} _meta/manifest.json {field} must be a positive integer"
+            )
+
+
+def validate_song_sequence_json(label: str, text: str,
+                                errors: list[str]) -> None:
+    try:
+        source = json.loads(text)
+    except json.JSONDecodeError as exc:
+        errors.append(f"{label} sequence.json is invalid JSON: {exc}")
+        return
+    events = source.get("events") if isinstance(source, dict) else None
+    if not isinstance(events, list) or not events:
+        errors.append(f"{label} sequence.json must contain non-empty events")
+        return
+    for idx, event in enumerate(events):
+        if not isinstance(event, dict):
+            errors.append(f"{label} sequence.json event {idx} must be an object")
+            continue
+        if "tick" not in event or "track" not in event or "type" not in event:
+            errors.append(
+                f"{label} sequence.json event {idx} must include tick, track, and type"
+            )
+
+
+def validate_song_source_contract(label: str, zf: zipfile.ZipFile,
+                                  name_set: set[str],
+                                  errors: list[str]) -> None:
+    if "sequence.mid" not in name_set and "sequence.json" not in name_set:
+        return
+    if "sequence.mid" not in name_set or "sequence.json" not in name_set:
+        errors.append(
+            f"{label} sequence-backed song source must include both "
+            "sequence.mid and sequence.json"
+        )
+        return
+    if "music.ini" in name_set:
+        validate_song_sequence_descriptor(
+            label,
+            zf.read("music.ini").decode("utf-8", errors="replace"),
+            errors,
+        )
+    if "_meta/manifest.json" in name_set:
+        validate_song_sequence_manifest(
+            label,
+            zf.read("_meta/manifest.json").decode("utf-8", errors="replace"),
+            errors,
+        )
+    validate_song_sequence_json(
+        label,
+        zf.read("sequence.json").decode("utf-8", errors="replace"),
+        errors,
+    )
+
+
+def validate_font_bitmap_descriptor(label: str, text: str,
+                                    errors: list[str]) -> None:
+    values = parse_ini_values(text)
+    missing = [field for field in FONT_BITMAP_NATIVE_FIELDS if field not in values]
+    if missing:
+        errors.append(
+            f"{label} font.ini missing bitmap font metadata fields: "
+            + ", ".join(missing)
+        )
+    if values.get("font_file") != "glyphs.pgm":
+        errors.append(
+            f"{label} font.ini must declare font_file = glyphs.pgm "
+            "for bitmap font source"
+        )
+    if values.get("metrics_file") != "font.metrics.json":
+        errors.append(
+            f"{label} font.ini must declare metrics_file = font.metrics.json "
+            "for bitmap font source"
+        )
+    raw_count = values.get("character_count", "")
+    try:
+        count = int(raw_count, 10)
+    except ValueError:
+        errors.append(f"{label} font.ini character_count must be an integer")
+        return
+    if count <= 0:
+        errors.append(f"{label} font.ini character_count must be positive")
+
+
+def validate_font_bitmap_manifest(label: str, text: str,
+                                  errors: list[str]) -> None:
+    try:
+        manifest = json.loads(text)
+    except json.JSONDecodeError as exc:
+        errors.append(f"{label} _meta/manifest.json is invalid JSON: {exc}")
+        return
+    missing = [
+        field for field in FONT_BITMAP_MANIFEST_FIELDS
+        if field not in manifest
+    ]
+    if missing:
+        errors.append(
+            f"{label} _meta/manifest.json missing bitmap font metadata fields: "
+            + ", ".join(missing)
+        )
+    if manifest.get("glyphs") != "glyphs.pgm":
+        errors.append(
+            f"{label} _meta/manifest.json must declare glyphs = glyphs.pgm "
+            "for bitmap font source"
+        )
+    if manifest.get("metrics") != "font.metrics.json":
+        errors.append(
+            f"{label} _meta/manifest.json must declare metrics = font.metrics.json "
+            "for bitmap font source"
+        )
+    value = manifest.get("character_count")
+    if not isinstance(value, int) or value <= 0:
+        errors.append(
+            f"{label} _meta/manifest.json character_count must be a positive integer"
+        )
+
+
+def validate_font_metrics_json(label: str, text: str,
+                               errors: list[str]) -> None:
+    try:
+        metrics = json.loads(text)
+    except json.JSONDecodeError as exc:
+        errors.append(f"{label} font.metrics.json is invalid JSON: {exc}")
+        return
+    atlas = metrics.get("atlas") if isinstance(metrics, dict) else None
+    glyphs = metrics.get("glyphs") if isinstance(metrics, dict) else None
+    if not isinstance(atlas, dict):
+        errors.append(f"{label} font.metrics.json must contain atlas object")
+    if not isinstance(glyphs, list) or not glyphs:
+        errors.append(f"{label} font.metrics.json must contain non-empty glyphs")
+
+
+def validate_font_source_contract(label: str, zf: zipfile.ZipFile,
+                                  name_set: set[str],
+                                  errors: list[str]) -> None:
+    if "glyphs.pgm" not in name_set:
+        return
+    if "font.metrics.json" not in name_set:
+        errors.append(
+            f"{label} bitmap font source must include font.metrics.json"
+        )
+        return
+    if "font.ini" in name_set:
+        validate_font_bitmap_descriptor(
+            label,
+            zf.read("font.ini").decode("utf-8", errors="replace"),
+            errors,
+        )
+    if "_meta/manifest.json" in name_set:
+        validate_font_bitmap_manifest(
+            label,
+            zf.read("_meta/manifest.json").decode("utf-8", errors="replace"),
+            errors,
+        )
+        validate_font_metrics_json(
+            label,
+            zf.read("font.metrics.json").decode("utf-8", errors="replace"),
+            errors,
+        )
+
+
+def validate_lang_descriptor(label: str, text: str,
+                             errors: list[str]) -> tuple[int | None, int | None]:
+    values = parse_ini_values(text)
+    missing = [field for field in LANG_NATIVE_FIELDS if field not in values]
+    if missing:
+        errors.append(
+            f"{label} lang.ini missing language source metadata fields: "
+            + ", ".join(missing)
+        )
+    if values.get("strings_file") != "strings.json":
+        errors.append(
+            f"{label} lang.ini must declare strings_file = strings.json "
+            "for public language source playback"
+        )
+
+    bank_raw = values.get("source_bank", values.get("bank_id", ""))
+    bank_value: int | None = None
+    if not bank_raw:
+        errors.append(
+            f"{label} lang.ini must declare source_bank or bank_id for the runtime language bank"
+        )
+    else:
+        try:
+            bank_value = int(bank_raw, 10)
+        except ValueError:
+            errors.append(f"{label} lang.ini language bank must be an integer")
+        else:
+            if bank_value <= 0:
+                errors.append(f"{label} lang.ini language bank must be positive")
+
+    count_raw = values.get("string_count", "")
+    count_value: int | None = None
+    if count_raw:
+        try:
+            count_value = int(count_raw, 10)
+        except ValueError:
+            errors.append(f"{label} lang.ini string_count must be an integer")
+        else:
+            if count_value <= 0:
+                errors.append(f"{label} lang.ini string_count must be positive")
+
+    return bank_value, count_value
+
+
+def validate_lang_manifest(label: str, text: str,
+                           errors: list[str]) -> tuple[int | None, int | None]:
+    try:
+        manifest = json.loads(text)
+    except json.JSONDecodeError as exc:
+        errors.append(f"{label} _meta/manifest.json is invalid JSON: {exc}")
+        return None, None
+
+    missing = [field for field in LANG_MANIFEST_FIELDS if field not in manifest]
+    if missing:
+        errors.append(
+            f"{label} _meta/manifest.json missing language source metadata fields: "
+            + ", ".join(missing)
+        )
+    if manifest.get("data") != "strings.json":
+        errors.append(
+            f"{label} _meta/manifest.json must declare data = strings.json "
+            "for public language source playback"
+        )
+
+    bank_value = manifest.get("source_bank")
+    if not isinstance(bank_value, int) or bank_value <= 0:
+        errors.append(
+            f"{label} _meta/manifest.json source_bank must be a positive integer"
+        )
+        bank_value = None
+
+    count_value = manifest.get("string_count")
+    if not isinstance(count_value, int) or count_value <= 0:
+        errors.append(
+            f"{label} _meta/manifest.json string_count must be a positive integer"
+        )
+        count_value = None
+
+    return bank_value, count_value
+
+
+def validate_lang_strings_json(label: str, text: str,
+                               errors: list[str]) -> int:
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError as exc:
+        errors.append(f"{label} strings.json is invalid JSON: {exc}")
+        return 0
+    if not isinstance(parsed, dict):
+        errors.append(f"{label} strings.json root must be an object")
+        return 0
+    if parsed.get("pd_kind") != "language_strings":
+        errors.append(f"{label} strings.json pd_kind must be language_strings")
+    rows = parsed.get("strings")
+    if not isinstance(rows, list) or not rows:
+        errors.append(f"{label} strings.json must contain a non-empty strings array")
+        return 0
+    for i, row in enumerate(rows):
+        if not isinstance(row, dict):
+            errors.append(f"{label} strings.json row {i} must be an object")
+            continue
+        index = row.get("index")
+        if not isinstance(index, int) or index < 0:
+            errors.append(f"{label} strings.json row {i} has invalid index")
+        if "text" not in row or not isinstance(row.get("text"), str):
+            errors.append(f"{label} strings.json row {i} must contain text string")
+    return len(rows)
+
+
+def validate_lang_source_contract(label: str, zf: zipfile.ZipFile,
+                                  name_set: set[str],
+                                  errors: list[str]) -> None:
+    descriptor_bank: int | None = None
+    descriptor_count: int | None = None
+    manifest_bank: int | None = None
+    manifest_count: int | None = None
+    strings_count = 0
+
+    if "lang.ini" in name_set:
+        descriptor_bank, descriptor_count = validate_lang_descriptor(
+            label,
+            zf.read("lang.ini").decode("utf-8", errors="replace"),
+            errors,
+        )
+    if "_meta/manifest.json" in name_set:
+        manifest_bank, manifest_count = validate_lang_manifest(
+            label,
+            zf.read("_meta/manifest.json").decode("utf-8", errors="replace"),
+            errors,
+        )
+    if "strings.json" in name_set:
+        strings_count = validate_lang_strings_json(
+            label,
+            zf.read("strings.json").decode("utf-8", errors="replace"),
+            errors,
+        )
+
+    if descriptor_bank is not None and manifest_bank is not None and descriptor_bank != manifest_bank:
+        errors.append(
+            f"{label} lang.ini language bank {descriptor_bank} does not match "
+            f"_meta/manifest.json source_bank {manifest_bank}"
+        )
+    for source, count in (("lang.ini", descriptor_count), ("_meta/manifest.json", manifest_count)):
+        if count is not None and strings_count and count != strings_count:
+            errors.append(
+                f"{label} {source} string_count {count} does not match "
+                f"strings.json row count {strings_count}"
+            )
 
 
 def meta_entry_allowed(name: str, ext: str, public: set[str]) -> bool:
@@ -2240,6 +4388,436 @@ def validate_manifest_dependency_refs(label: str, text: str,
                 )
 
 
+def validate_no_stale_tsv_references(label: str, entry_name: str, text: str,
+                                     errors: list[str]) -> None:
+    if STALE_TSV_REFERENCE_RE.search(text):
+        errors.append(
+            f"{label} {entry_name} contains stale TSV source reference; "
+            "public typed archives must use semantic JSON/INI/graph source paths"
+        )
+
+
+def quantize_s16(value: float) -> int | None:
+    if not math.isfinite(value):
+        return None
+    rounded = math.floor(value + 0.5) if value >= 0.0 else math.ceil(value - 0.5)
+    if rounded < -32768 or rounded > 32767:
+        return None
+    return int(rounded)
+
+
+def resolve_obj_index(raw: int, count: int) -> int | None:
+    if raw == 0 or count <= 0:
+        return None
+    index = raw - 1 if raw > 0 else count + raw
+    if index < 0 or index >= count:
+        return None
+    return index
+
+
+DIRECT_MODEL_SOURCE_MEMBERS = ("model.obj", "model.gltf", "model.glb")
+
+
+def direct_model_source_members(name_set: set[str]) -> list[str]:
+    return [member for member in DIRECT_MODEL_SOURCE_MEMBERS if member in name_set]
+
+
+def validate_pdmesh_obj_integer_native_boundary(label: str,
+                                                zf: zipfile.ZipFile,
+                                                name_set: set[str],
+                                                errors: list[str],
+                                                source_member: str = "model.obj") -> None:
+    if source_member not in name_set:
+        return
+
+    vertices: list[tuple[int, int, int]] = []
+    texcoords: list[tuple[int, int]] = []
+    collapsed_triangles = 0
+
+    try:
+        text = zf.read(source_member).decode("utf-8", errors="replace")
+    except KeyError:
+        return
+
+    for line_no, line in enumerate(text.splitlines(), start=1):
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        parts = stripped.split()
+        if not parts:
+            continue
+        if parts[0] == "v":
+            if len(parts) < 4:
+                errors.append(f"{label} {source_member} line {line_no} has incomplete vertex")
+                return
+            try:
+                coords = [float(parts[1]), float(parts[2]), float(parts[3])]
+            except ValueError:
+                errors.append(f"{label} {source_member} line {line_no} has non-numeric vertex")
+                return
+            quantized = [quantize_s16(value) for value in coords]
+            if any(value is None for value in quantized):
+                errors.append(
+                    f"{label} {source_member} line {line_no} vertex cannot quantize to native s16 coordinates"
+                )
+                return
+            vertices.append((quantized[0], quantized[1], quantized[2]))  # type: ignore[arg-type]
+        elif parts[0] == "vt":
+            if len(parts) < 3:
+                errors.append(f"{label} {source_member} line {line_no} has incomplete texcoord")
+                return
+            try:
+                u = float(parts[1])
+                v = float(parts[2])
+            except ValueError:
+                errors.append(f"{label} {source_member} line {line_no} has non-numeric texcoord")
+                return
+            qs = quantize_s16(u * 32.0)
+            qt = quantize_s16((1.0 - v) * 32.0)
+            if qs is None or qt is None:
+                errors.append(
+                    f"{label} {source_member} line {line_no} texcoord cannot quantize to native s16 UV units"
+                )
+                return
+            texcoords.append((qs, qt))
+        elif parts[0] == "f":
+            if len(parts) < 4:
+                errors.append(f"{label} {source_member} line {line_no} face needs at least three vertices")
+                return
+            face_indices: list[int] = []
+            for token in parts[1:]:
+                raw_vertex = token.split("/", 1)[0]
+                try:
+                    resolved = resolve_obj_index(int(raw_vertex), len(vertices))
+                except ValueError:
+                    resolved = None
+                if resolved is None:
+                    errors.append(f"{label} {source_member} line {line_no} has invalid face index")
+                    return
+                face_indices.append(resolved)
+            for index in range(2, len(face_indices)):
+                a = vertices[face_indices[0]]
+                b = vertices[face_indices[index - 1]]
+                c = vertices[face_indices[index]]
+                ab = (b[0] - a[0], b[1] - a[1], b[2] - a[2])
+                ac = (c[0] - a[0], c[1] - a[1], c[2] - a[2])
+                cross = (
+                    ab[1] * ac[2] - ab[2] * ac[1],
+                    ab[2] * ac[0] - ab[0] * ac[2],
+                    ab[0] * ac[1] - ab[1] * ac[0],
+                )
+                if a == b or a == c or b == c or cross == (0, 0, 0):
+                    collapsed_triangles += 1
+
+    if vertices and not texcoords:
+        return
+
+
+GLTF_COMPONENT_SIZES = {
+    5120: 1,
+    5121: 1,
+    5122: 2,
+    5123: 2,
+    5125: 4,
+    5126: 4,
+}
+
+GLTF_TYPE_COMPONENT_COUNTS = {
+    "SCALAR": 1,
+    "VEC2": 2,
+    "VEC3": 3,
+    "VEC4": 4,
+}
+
+
+def pdmesh_gltf_json_and_bin(data: bytes) -> tuple[dict[str, object], bytes]:
+    if len(data) >= 12 and data[:4] == b"glTF":
+        return _glb_json_and_bin(data)
+
+    gltf = json.loads(data.decode("utf-8"))
+    buffers = gltf.get("buffers")
+    if not isinstance(buffers, list) or not buffers:
+        raise ValueError("missing embedded glTF buffer")
+    first_buffer = buffers[0]
+    if not isinstance(first_buffer, dict):
+        raise ValueError("glTF buffer 0 is not an object")
+    uri = first_buffer.get("uri")
+    if not isinstance(uri, str) or not uri.startswith("data:"):
+        raise ValueError("glTF external binary buffers are not allowed")
+    if "," not in uri:
+        raise ValueError("glTF data URI is malformed")
+    return gltf, base64.b64decode(uri.split(",", 1)[1], validate=True)
+
+
+def gltf_accessor_view(label: str, gltf: dict[str, object],
+                       bin_chunk: bytes, accessor_index: int,
+                       expected_component: int | None = None,
+                       expected_type: str | None = None
+                       ) -> tuple[dict[str, object], bytes, int, int]:
+    accessors = gltf.get("accessors")
+    buffer_views = gltf.get("bufferViews")
+    if not isinstance(accessors, list) or not isinstance(buffer_views, list):
+        raise ValueError("missing glTF accessors or bufferViews")
+    if accessor_index < 0 or accessor_index >= len(accessors):
+        raise ValueError(f"{label} accessor {accessor_index} out of range")
+    accessor = accessors[accessor_index]
+    if not isinstance(accessor, dict):
+        raise ValueError(f"{label} accessor {accessor_index} is not an object")
+
+    component_type = accessor.get("componentType")
+    accessor_type = accessor.get("type")
+    if expected_component is not None and component_type != expected_component:
+        raise ValueError(
+            f"{label} accessor {accessor_index} must use componentType {expected_component}"
+        )
+    if expected_type is not None and accessor_type != expected_type:
+        raise ValueError(
+            f"{label} accessor {accessor_index} must be {expected_type}"
+        )
+    if component_type not in GLTF_COMPONENT_SIZES:
+        raise ValueError(f"{label} accessor {accessor_index} has unsupported componentType")
+    if accessor_type not in GLTF_TYPE_COMPONENT_COUNTS:
+        raise ValueError(f"{label} accessor {accessor_index} has unsupported type")
+
+    view_index = accessor.get("bufferView")
+    if not isinstance(view_index, int) or view_index < 0 or view_index >= len(buffer_views):
+        raise ValueError(f"{label} accessor {accessor_index} has invalid bufferView")
+    buffer_view = buffer_views[view_index]
+    if not isinstance(buffer_view, dict):
+        raise ValueError(f"{label} bufferView {view_index} is not an object")
+    if buffer_view.get("buffer", 0) != 0:
+        raise ValueError(f"{label} bufferView {view_index} must use buffer 0")
+
+    count = accessor.get("count")
+    if not isinstance(count, int) or count < 0:
+        raise ValueError(f"{label} accessor {accessor_index} has invalid count")
+    component_size = GLTF_COMPONENT_SIZES[component_type]  # type: ignore[index]
+    component_count = GLTF_TYPE_COMPONENT_COUNTS[accessor_type]  # type: ignore[index]
+    element_size = component_size * component_count
+    stride = buffer_view.get("byteStride", element_size)
+    if not isinstance(stride, int) or stride < element_size:
+        raise ValueError(f"{label} bufferView {view_index} has invalid stride")
+
+    view_offset = int(buffer_view.get("byteOffset", 0))
+    view_length = int(buffer_view.get("byteLength", len(bin_chunk) - view_offset))
+    accessor_offset = int(accessor.get("byteOffset", 0))
+    if view_offset < 0 or view_length < 0 or accessor_offset < 0:
+        raise ValueError(f"{label} accessor {accessor_index} has negative offsets")
+    if view_offset > len(bin_chunk) or view_offset + view_length > len(bin_chunk):
+        raise ValueError(f"{label} bufferView {view_index} overruns BIN chunk")
+    if count > 0:
+        last = accessor_offset + (count - 1) * stride + element_size
+        if last > view_length:
+            raise ValueError(f"{label} accessor {accessor_index} overruns bufferView")
+
+    start = view_offset + accessor_offset
+    return accessor, bin_chunk[start:view_offset + view_length], stride, element_size
+
+
+def gltf_accessor_float_values(label: str, gltf: dict[str, object],
+                               bin_chunk: bytes, accessor_index: int,
+                               expected_type: str) -> list[tuple[float, ...]]:
+    accessor, data, stride, element_size = gltf_accessor_view(
+        label, gltf, bin_chunk, accessor_index, 5126, expected_type
+    )
+    count = int(accessor.get("count", 0))
+    component_count = GLTF_TYPE_COMPONENT_COUNTS[expected_type]
+    values: list[tuple[float, ...]] = []
+    for index in range(count):
+        offset = index * stride
+        if offset + element_size > len(data):
+            raise ValueError(f"{label} accessor {accessor_index} overruns BIN chunk")
+        values.append(struct.unpack_from("<" + "f" * component_count, data, offset))
+    return values
+
+
+def gltf_read_index(data: bytes, offset: int, component_type: int) -> int:
+    if component_type == 5121:
+        return data[offset]
+    if component_type == 5123:
+        return struct.unpack_from("<H", data, offset)[0]
+    if component_type == 5125:
+        return struct.unpack_from("<I", data, offset)[0]
+    raise ValueError("indices must be unsigned scalar")
+
+
+def validate_pdmesh_gltf_integer_native_boundary(label: str,
+                                                 zf: zipfile.ZipFile,
+                                                 name_set: set[str],
+                                                 errors: list[str],
+                                                 source_member: str = "") -> None:
+    if not source_member:
+        source_member = "model.glb" if "model.glb" in name_set else (
+            "model.gltf" if "model.gltf" in name_set else ""
+        )
+    if not source_member:
+        return
+
+    try:
+        gltf, bin_chunk = pdmesh_gltf_json_and_bin(zf.read(source_member))
+    except (KeyError, ValueError, json.JSONDecodeError, UnicodeDecodeError,
+            binascii.Error, struct.error) as exc:
+        errors.append(f"{label} {source_member} is invalid glTF/GLB mesh source: {exc}")
+        return
+
+    meshes = gltf.get("meshes")
+    if not isinstance(meshes, list) or not meshes:
+        errors.append(f"{label} {source_member} must contain at least one mesh")
+        return
+
+    saw_triangle = False
+    for mesh_index, mesh in enumerate(meshes):
+        if not isinstance(mesh, dict):
+            errors.append(f"{label} {source_member} mesh {mesh_index} must be an object")
+            continue
+        primitives = mesh.get("primitives")
+        if not isinstance(primitives, list):
+            continue
+        for primitive_index, primitive in enumerate(primitives):
+            if not isinstance(primitive, dict):
+                errors.append(
+                    f"{label} {source_member} primitive {primitive_index} must be an object"
+                )
+                continue
+            if primitive.get("mode", 4) != 4:
+                errors.append(
+                    f"{label} {source_member} primitive {primitive_index} must use triangle mode"
+                )
+                continue
+            attributes = primitive.get("attributes")
+            if not isinstance(attributes, dict):
+                errors.append(
+                    f"{label} {source_member} primitive {primitive_index} missing attributes"
+                )
+                continue
+            position_accessor = attributes.get("POSITION")
+            if not isinstance(position_accessor, int):
+                errors.append(
+                    f"{label} {source_member} primitive {primitive_index} missing POSITION"
+                )
+                continue
+            try:
+                positions = gltf_accessor_float_values(
+                    "POSITION", gltf, bin_chunk, position_accessor, "VEC3"
+                )
+            except (ValueError, struct.error) as exc:
+                errors.append(
+                    f"{label} {source_member} primitive {primitive_index} "
+                    f"has invalid POSITION data: {exc}"
+                )
+                continue
+
+            quantized_positions: list[tuple[int, int, int]] = []
+            for vertex_index, coords in enumerate(positions):
+                quantized = [quantize_s16(value) for value in coords[:3]]
+                if any(value is None for value in quantized):
+                    errors.append(
+                        f"{label} {source_member} POSITION vertex {vertex_index} "
+                        "cannot quantize to native s16 coordinates"
+                    )
+                    return
+                quantized_positions.append((quantized[0], quantized[1], quantized[2]))  # type: ignore[arg-type]
+
+            for texcoord_name in ("TEXCOORD_0", "TEXCOORD_1"):
+                texcoord_accessor = attributes.get(texcoord_name)
+                if not isinstance(texcoord_accessor, int):
+                    continue
+                try:
+                    texcoords = gltf_accessor_float_values(
+                        texcoord_name, gltf, bin_chunk, texcoord_accessor, "VEC2"
+                    )
+                except (ValueError, struct.error) as exc:
+                    errors.append(
+                        f"{label} {source_member} primitive {primitive_index} "
+                        f"has invalid {texcoord_name} data: {exc}"
+                    )
+                    continue
+                for uv_index, (u, v) in enumerate(texcoords):
+                    if quantize_s16(u * 32.0) is None or quantize_s16((1.0 - v) * 32.0) is None:
+                        errors.append(
+                            f"{label} {source_member} {texcoord_name} vertex {uv_index} "
+                            "cannot quantize to native s16 UV units"
+                        )
+                        return
+
+            indices_accessor = primitive.get("indices")
+            face_indices: list[int] = []
+            if isinstance(indices_accessor, int):
+                try:
+                    accessor, data, stride, _ = gltf_accessor_view(
+                        "indices", gltf, bin_chunk, indices_accessor, None, "SCALAR"
+                    )
+                    component_type = int(accessor.get("componentType", 0))
+                    if component_type not in {5121, 5123, 5125}:
+                        raise ValueError("indices must be unsigned scalar")
+                    count = int(accessor.get("count", 0))
+                    if count % 3 != 0:
+                        raise ValueError("index count is not a multiple of three")
+                    for index in range(count):
+                        value = gltf_read_index(data, index * stride, component_type)
+                        if value < 0 or value >= len(quantized_positions):
+                            raise ValueError("index value out of range")
+                        face_indices.append(value)
+                except (ValueError, struct.error) as exc:
+                    errors.append(
+                        f"{label} {source_member} primitive {primitive_index} "
+                        f"has invalid index data: {exc}"
+                    )
+                    continue
+            else:
+                if len(quantized_positions) % 3 != 0:
+                    errors.append(
+                        f"{label} {source_member} primitive {primitive_index} "
+                        "unindexed vertex count is not a multiple of three"
+                    )
+                    continue
+                face_indices = list(range(len(quantized_positions)))
+
+            for index in range(0, len(face_indices), 3):
+                a = quantized_positions[face_indices[index + 0]]
+                b = quantized_positions[face_indices[index + 1]]
+                c = quantized_positions[face_indices[index + 2]]
+                ab = (b[0] - a[0], b[1] - a[1], b[2] - a[2])
+                ac = (c[0] - a[0], c[1] - a[1], c[2] - a[2])
+                cross = (
+                    ab[1] * ac[2] - ab[2] * ac[1],
+                    ab[2] * ac[0] - ab[0] * ac[2],
+                    ab[0] * ac[1] - ab[1] * ac[0],
+                )
+                if a == b or a == c or b == c or cross == (0, 0, 0):
+                    continue
+                saw_triangle = True
+
+    if not saw_triangle:
+        errors.append(
+            f"{label} {source_member} has no non-collapsed triangles after native quantization"
+        )
+
+
+def validate_pdmesh_integer_native_boundary(label: str,
+                                            zf: zipfile.ZipFile,
+                                            name_set: set[str],
+                                            errors: list[str]) -> None:
+    validate_direct_model_source_integer_native_boundary(
+        label, zf, name_set, errors
+    )
+
+
+def validate_direct_model_source_integer_native_boundary(label: str,
+                                                        zf: zipfile.ZipFile,
+                                                        name_set: set[str],
+                                                        errors: list[str]) -> None:
+    for source_member in direct_model_source_members(name_set):
+        if source_member == "model.obj":
+            validate_pdmesh_obj_integer_native_boundary(
+                label, zf, name_set, errors, source_member
+            )
+        else:
+            validate_pdmesh_gltf_integer_native_boundary(
+                label, zf, name_set, errors, source_member
+            )
+
+
 def validate_archive_bytes(data: bytes, label: str, ext: str,
                            recurse: bool = True,
                            known_catalog_ids: set[str] | None = None) -> ConformanceResult:
@@ -2347,6 +4925,9 @@ def validate_archive_bytes(data: bytes, label: str, ext: str,
                         text = zf.read(name).decode("utf-8", errors="replace")
                     except KeyError:
                         continue
+                    validate_no_stale_tsv_references(
+                        label, name, text, result.errors
+                    )
                     if name.lower().endswith(".csv"):
                         result.errors.extend(scan_delimited_asset_refs(
                             label, name, text, active_catalog_ids
@@ -2359,6 +4940,9 @@ def validate_archive_bytes(data: bytes, label: str, ext: str,
                 manifest_text = zf.read("_meta/manifest.json").decode(
                     "utf-8", errors="replace"
                 )
+                validate_no_stale_tsv_references(
+                    label, "_meta/manifest.json", manifest_text, result.errors
+                )
                 if ext == ".pdweapon" and '"SFX_0000"' in manifest_text:
                     result.errors.append(
                         f"{label} _meta/manifest.json contains SFX_0000; "
@@ -2367,6 +4951,60 @@ def validate_archive_bytes(data: bytes, label: str, ext: str,
                 validate_manifest_dependency_refs(
                     label, manifest_text, active_catalog_ids, result.errors
                 )
+
+            if ext == ".pdanim":
+                validate_pdanim_source_contract(label, zf, name_set, result.errors)
+            if ext in {".pdsfx", ".pdvoice"}:
+                validate_audio_source_contract(label, ext, zf, name_set, result.errors)
+            if ext == ".pdmesh":
+                validate_mesh_source_contract(label, zf, name_set, result.errors)
+                validate_pdmesh_integer_native_boundary(
+                    label, zf, name_set, result.errors
+                )
+            if ext in {".pdprop", ".pdvehicle"}:
+                validate_direct_model_source_integer_native_boundary(
+                    label, zf, name_set, result.errors
+                )
+            if ext == ".pdsong":
+                validate_song_source_contract(label, zf, name_set, result.errors)
+            if ext == ".pdfont":
+                validate_font_source_contract(label, zf, name_set, result.errors)
+            if ext == ".pdlang":
+                validate_lang_source_contract(label, zf, name_set, result.errors)
+            if ext == ".pdprop":
+                validate_prop_source_contract(label, zf, name_set, result.errors)
+            if ext in {".pdprojectile", ".pdentity"}:
+                validate_projectile_entity_source_contract(
+                    label, ext, zf, name_set, result.errors
+                )
+            if ext == ".pdvehicle":
+                validate_vehicle_source_contract(label, zf, name_set, result.errors)
+            if ext == ".pdmission":
+                validate_mission_source_contract(label, zf, name_set, result.errors)
+            if ext == ".pdscenario":
+                validate_scenario_source_contract(label, zf, name_set, result.errors)
+            if ext == ".pdarena":
+                validate_arena_source_contract(label, zf, name_set, result.errors)
+            if ext == ".pdgamemode":
+                validate_gamemode_source_contract(label, zf, name_set, result.errors)
+            if ext == ".pdbotprofile":
+                validate_botprofile_source_contract(label, zf, name_set, result.errors)
+            if ext == ".pdtexture":
+                validate_texture_source_contract(label, zf, name_set, result.errors)
+            if ext == ".pdhud":
+                validate_hud_source_contract(label, zf, name_set, result.errors)
+            if ext == ".pdcharacter":
+                validate_character_source_contract(label, zf, name_set, result.errors)
+            if ext == ".pdhead":
+                validate_head_source_contract(label, zf, name_set, result.errors)
+            if ext == ".pdbody":
+                validate_body_source_contract(label, zf, name_set, result.errors)
+            if ext == ".pdeffect":
+                validate_effect_source_contract(label, zf, name_set, result.errors)
+            if ext == ".pdmaterial":
+                validate_material_source_contract(label, zf, name_set, result.errors)
+            if ext == ".pdtheme":
+                validate_theme_source_contract(label, zf, name_set, result.errors)
 
             if ext == ".pdscenario" and descriptor in name_set:
                 text = zf.read(descriptor).decode("utf-8", errors="replace")
@@ -3743,67 +6381,6 @@ def validate_archive_bytes(data: bytes, label: str, ext: str,
                                     f"{label} level.graph.json must link {pair[0]} to {pair[1]}"
                                 )
 
-            if ext == ".pdmission":
-                if descriptor in name_set:
-                    mission_text = zf.read(descriptor).decode(
-                        "utf-8", errors="replace"
-                    )
-                    scenario_graph_cache = descriptor_value(
-                        mission_text, "scenario_graph_cache"
-                    )
-                    if scenario_graph_cache != SCENARIO_GRAPH_CACHE_KIND:
-                        result.errors.append(
-                            f"{label} mission.ini must declare scenario_graph_cache = {SCENARIO_GRAPH_CACHE_KIND}"
-                        )
-                if "mission.graph.json" in name_set:
-                    graph_text = zf.read("mission.graph.json").decode(
-                        "utf-8", errors="replace"
-                    )
-                    try:
-                        graph = json.loads(graph_text)
-                    except json.JSONDecodeError as exc:
-                        result.errors.append(
-                            f"{label} mission.graph.json is not valid JSON: {exc.msg}"
-                        )
-                        graph = {}
-                    nodes = graph.get("nodes")
-                    if not isinstance(nodes, list) or not nodes:
-                        result.errors.append(
-                            f"{label} mission.graph.json must contain executable mission/objective nodes"
-                        )
-                    elif not any(
-                        isinstance(node, dict)
-                        and str(node.get("kind", ""))
-                        in {
-                            "mission.objective.source",
-                            "mission.objective.criteria.source",
-                        }
-                        for node in nodes
-                    ):
-                        result.errors.append(
-                            f"{label} mission.graph.json must include mission objective graph nodes"
-                        )
-                    if isinstance(nodes, list) and nodes and not any(
-                        isinstance(node, dict)
-                        and str(node.get("kind", "")) == "mission.phase.source"
-                        for node in nodes
-                    ):
-                        result.errors.append(
-                            f"{label} mission.graph.json must include mission phase graph nodes"
-                        )
-                if "objectives.json" in name_set:
-                    objectives_text = zf.read("objectives.json").decode(
-                        "utf-8", errors="replace"
-                    )
-                    if "original_perfect_dark_setup" in objectives_text:
-                        result.errors.append(
-                            f"{label} objectives.json still points at original_perfect_dark_setup; use mission graph source nodes"
-                        )
-                    result.errors.extend(validate_objectives_json_schema(
-                        label, "objectives.json", objectives_text,
-                        MISSION_OBJECTIVES_HEADER
-                    ))
-
             if ext == ".pdarena" and descriptor in name_set:
                 text = zf.read(descriptor).decode("utf-8", errors="replace")
                 has_scenario_dep = matches_any_from_names(
@@ -3848,18 +6425,86 @@ def validate_archive_bytes(data: bytes, label: str, ext: str,
 
             if ext == ".pdweapon" and descriptor in name_set:
                 text = zf.read(descriptor).decode("utf-8", errors="replace")
+                manifest = read_json_member(zf, "_meta/manifest.json")
                 if "behavior_graph" in text:
                     result.errors.append(
                         f"{label} weapon.ini still declares behavior_graph; use primary_graph/secondary_graph"
                     )
+                model_file = descriptor_value(text, "model_file")
+                declared_model = (
+                    bool(model_file) or
+                    bool(manifest.get("model_file")) or
+                    "dependencies/assets/models/held_hi.pdmesh" in name_set
+                )
+                if declared_model:
+                    if not model_file:
+                        result.errors.append(
+                            f"{label} weapon.ini must declare model_file when a held model is embedded"
+                        )
+                    elif model_file not in name_set:
+                        result.errors.append(
+                            f"{label} weapon.ini model_file member {model_file} is missing"
+                        )
+                    if manifest.get("model_file") != model_file:
+                        result.errors.append(
+                            f"{label} _meta/manifest.json model_file must match weapon.ini"
+                        )
                 if "primary_graph = behavior/primary.graph.json" not in text:
                     result.errors.append(
                         f"{label} weapon.ini must declare primary_graph = behavior/primary.graph.json"
+                    )
+                if manifest.get("primary_graph") != "behavior/primary.graph.json":
+                    result.errors.append(
+                        f"{label} _meta/manifest.json must declare primary_graph = behavior/primary.graph.json"
                     )
                 if "secondary_graph = behavior/secondary.graph.json" not in text:
                     result.errors.append(
                         f"{label} weapon.ini must declare secondary_graph = behavior/secondary.graph.json"
                     )
+                if manifest.get("secondary_graph") != "behavior/secondary.graph.json":
+                    result.errors.append(
+                        f"{label} _meta/manifest.json must declare secondary_graph = behavior/secondary.graph.json"
+                    )
+                required_source_members = (
+                    ("settings_file", "behavior/settings.json"),
+                    ("variables_file", "behavior/variables.json"),
+                    ("shared_context_file", "behavior/shared-context.json"),
+                )
+                optional_source_members = (
+                    ("material_slots_file", "bindings/material-slots.json"),
+                    ("grip_sockets_file", "bindings/grip-sockets.json"),
+                    ("presentation_file", "bindings/presentation.json"),
+                    ("primary_projectile_archive", "dependencies/assets/projectiles/primary.pdprojectile"),
+                    ("deployed_entity_archive", "dependencies/assets/entities/deployed.pdentity"),
+                    ("fire_sound_archive", "dependencies/assets/audio/fire.pdsfx"),
+                    ("idle_animation_archive", "dependencies/assets/animations/idle.pdanim"),
+                    ("reticle_archive", "dependencies/assets/ui/reticle.pdui"),
+                )
+                for key, member in required_source_members:
+                    if f"{key} = {member}" not in text:
+                        result.errors.append(
+                            f"{label} weapon.ini must declare {key} = {member}"
+                        )
+                    if manifest.get(key) != member:
+                        result.errors.append(
+                            f"{label} _meta/manifest.json must declare {key} = {member}"
+                        )
+                for key, member in optional_source_members:
+                    declared = (
+                        member in name_set or
+                        descriptor_value(text, key) or
+                        manifest.get(key)
+                    )
+                    if not declared:
+                        continue
+                    if f"{key} = {member}" not in text:
+                        result.errors.append(
+                            f"{label} weapon.ini must declare {key} = {member}"
+                        )
+                    if manifest.get(key) != member:
+                        result.errors.append(
+                            f"{label} _meta/manifest.json must declare {key} = {member}"
+                        )
                 for stale_key in ("hand_model_file", "texture_file = weapon_texture.png", "animation_file = reload.gltf", "file_path = fire.wav"):
                     if stale_key in text:
                         result.errors.append(
@@ -3954,6 +6599,12 @@ def main(argv: list[str]) -> int:
         action="store_true",
         help="Do not recursively validate embedded typed dependency archives.",
     )
+    parser.add_argument(
+        "--max-errors",
+        type=int,
+        default=200,
+        help="Maximum detailed failures to print before summarizing the rest.",
+    )
     args = parser.parse_args(argv)
 
     definition_errors = validate_schema_definitions()
@@ -3973,8 +6624,11 @@ def main(argv: list[str]) -> int:
 
     if total.errors:
         print("asset-archive conformance failed:", file=sys.stderr)
-        for error in total.errors:
+        max_errors = max(args.max_errors, 1)
+        for error in total.errors[:max_errors]:
             print(f"  - {error}", file=sys.stderr)
+        if len(total.errors) > max_errors:
+            print(f"  - ... {len(total.errors) - max_errors} more error(s)", file=sys.stderr)
         print(
             "\nContract: every typed archive must match its frozen public "
             "schema exactly; generated products stay under _meta/ or private "
