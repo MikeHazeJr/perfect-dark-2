@@ -29,6 +29,7 @@
 #include "weapon_graph_runtime.h"
 #include "data.h"
 #include "game/modeldef.h"
+#include "lib/anim.h"   /* c3849 Wave 2: animGetTotalCount */
 #include "lib/meshcollision.h"
 #include "langmanifest.h"
 #include "system.h"
@@ -148,6 +149,53 @@ void catalogLoadInit(void)
     s_Initialized = 1;
     sysLogPrintf(LOG_NOTE, "catalogLoadInit: %d base-game + %d mod override(s) indexed from %d catalog entries",
                  bundled_count, override_count, total);
+
+    /* c3849 Wave 2: seed catalog-owned custom anim rows (covers mod-rebuild
+     * reloads; the boot path calls this from animsInit instead, because the
+     * first catalogLoadInit runs before g_Anims exists). */
+    catalogSeedCustomAnimRows();
+}
+
+/* c3849 Wave 2: write the g_Anims rows for catalog-owned custom anim slots
+ * from catalog metadata. The 0xffffffff data sentinel routes playback through
+ * the clip-replacement machinery (animLoadHeader/Frame -> modAnimationLoadData
+ * -> clip compile installs exact values over this seed); custom rows never
+ * touch the ROM segment. Safe no-op before animsInit. */
+void catalogSeedCustomAnimRows(void)
+{
+    s32 total_entries;
+    s32 i;
+
+    if (!g_Anims) {
+        return;
+    }
+
+    total_entries = assetCatalogGetCount();
+
+    for (i = 0; i < total_entries; i++) {
+        const asset_entry_t *e = assetCatalogGetByIndex(i);
+        s32 anim_id;
+
+        if (!e || !e->occupied || !e->enabled || e->type != ASSET_ANIMATION) {
+            continue;
+        }
+
+        anim_id = e->ext.anim.anim_id;
+        if (anim_id < g_NumAnimations || anim_id >= animGetTotalCount()) {
+            continue;
+        }
+
+        g_Anims[anim_id].numframes = (u16)e->ext.anim.frame_count;
+        g_Anims[anim_id].bytesperframe = (u16)e->ext.anim.bytes_per_frame;
+        g_Anims[anim_id].data = 0xffffffff;
+        g_Anims[anim_id].headerlen = (u16)e->ext.anim.header_len;
+        g_Anims[anim_id].framelen = (u8)e->ext.anim.framelen;
+        g_Anims[anim_id].flags = (u8)e->ext.anim.flags;
+
+        if (g_AnimReplacements) {
+            g_AnimReplacements[anim_id] = NULL;
+        }
+    }
 }
 
 /* ========================================================================
@@ -1035,7 +1083,8 @@ static void s_catalogInstallAnimationClip(asset_entry_t *entry,
     }
 
     anim_id = entry->ext.anim.anim_id;
-    if (anim_id < 0 || anim_id >= g_NumAnimations || !g_Anims) {
+    /* c3849 Wave 2: custom slots install too. */
+    if (anim_id < 0 || anim_id >= animGetTotalCount() || !g_Anims) {
         return;
     }
 
@@ -1610,6 +1659,16 @@ static void s_catalogUnloadEntry(const char *assetId, asset_entry_t *entry)
             if (anim_id >= 0 && anim_id < g_NumAnimations) {
                 if (g_RomAnims && g_Anims) {
                     g_Anims[anim_id] = g_RomAnims[anim_id];
+                }
+                if (g_AnimReplacements) {
+                    g_AnimReplacements[anim_id] = NULL;
+                }
+            } else if (anim_id >= g_NumAnimations &&
+                    anim_id < animGetTotalCount()) {
+                /* c3849 Wave 2: a custom slot has no ROM row to restore;
+                 * zero it (re-seeded from catalog metadata on next init). */
+                if (g_Anims) {
+                    memset(&g_Anims[anim_id], 0, sizeof(g_Anims[anim_id]));
                 }
                 if (g_AnimReplacements) {
                     g_AnimReplacements[anim_id] = NULL;

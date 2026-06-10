@@ -10,6 +10,7 @@ void animsReset(void);
 s32 animGetNumFrames(s16 anim_id);
 bool animHasFrames(s16 animnum);
 s32 animGetNumAnimations(void);
+s32 animGetTotalCount(void); /* c3849 Wave 2: base + ANIM_CUSTOM_COUNT */
 u8 *animDma(u8 *dst, u32 segoffset, u32 len);
 s32 animGetRemappedFrame(s16 animnum, s32 frame);
 bool animRemapFrameForLoad(s16 animnum, s32 frame, s32 *frameptr);

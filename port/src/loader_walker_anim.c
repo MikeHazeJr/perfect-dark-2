@@ -22,6 +22,7 @@
 #include "fs.h"
 #include "loader_pool.h"
 #include "loader_walker.h"
+#include "assetcatalog_anim_slots.h" /* c3849 Wave 2 */
 #include "loader_walker_common.h"
 #include "system.h"
 
@@ -95,6 +96,15 @@ static s32 s_register(const char *manifest, size_t manifest_len,
             e->ext.anim.anim_id = (s32)source_index;
             e->source_animnum = (s32)source_index;
             e->runtime_index = (s32)source_index;
+        } else {
+            /* c3849 Wave 2: net-new custom anim gets a catalog-owned private
+             * slot (exhaustion already logged loud; row stays -1). */
+            s32 slot = assetCatalogResolveAnimPrivateSlot(id);
+            if (slot >= 0) {
+                e->ext.anim.anim_id = slot;
+                e->source_animnum = slot;
+                e->runtime_index = slot;
+            }
         }
         e->ext.anim.frame_count = (s32)frame_count;
         e->ext.anim.bytes_per_frame = (s32)bytes_per_frame;

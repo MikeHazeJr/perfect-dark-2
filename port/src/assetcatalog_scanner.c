@@ -32,6 +32,7 @@
 #include "assetcatalog_weapon_slots.h"
 #include "assetcatalog_sound_slots.h" /* c3849 Wave 2 */
 #include "assetcatalog_texture_slots.h" /* c3849 Wave 2 */
+#include "assetcatalog_anim_slots.h" /* c3849 Wave 2 */
 #include "assetcatalog_deps.h"
 #include "assetcatalog_scanner.h"
 #include "loader_pool.h"
@@ -1836,6 +1837,15 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 		e->ext.anim.anim_id = iniGetInt(ini, "anim_id", -1);
 		if (e->ext.anim.anim_id >= 0) {
 			e->source_animnum = e->ext.anim.anim_id;
+		} else {
+			/* c3849 Wave 2: custom anim with no base animnum gets a
+			 * catalog-owned private slot. */
+			s32 slot = assetCatalogResolveAnimPrivateSlot(e->id);
+			if (slot >= 0) {
+				e->ext.anim.anim_id = slot;
+				e->source_animnum = slot;
+				e->runtime_index = slot;
+			}
 		}
 		strncpy(e->ext.anim.name, iniGet(ini, "name", ""), sizeof(e->ext.anim.name) - 1);
 		e->ext.anim.frame_count = iniGetInt(ini, "frame_count", 0);

@@ -49,6 +49,11 @@ struct animtableentry;
  */
 void catalogLoadInit(void);
 
+/* c3849 Wave 2: seed g_Anims rows for catalog-owned custom anim slots from
+ * catalog metadata (0xffffffff data sentinel -> clip-replacement path). Called
+ * at the end of catalogLoadInit (mod reloads) and from animsInit (boot). */
+void catalogSeedCustomAnimRows(void);
+
 /* ========================================================================
  * Resolve Result  (primary query result type)
  * ======================================================================== */

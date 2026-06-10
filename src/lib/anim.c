@@ -1,5 +1,7 @@
 #include <ultra64.h>
+#include <string.h>
 #include "constants.h"
+#include "system.h" /* c3849 Wave 2: sysLogPrintf */
 #include "game/prop.h"
 #include "game/game_1531a0.h"
 #include "game/bg.h"
@@ -13,6 +15,8 @@
 #include "data.h"
 #include "types.h"
 #include "mod.h"
+#include "assetcatalog_anim_slots.h" /* c3849 Wave 2: ANIM_CUSTOM_COUNT */
+#include "assetcatalog_load.h"       /* c3849 Wave 2: catalogSeedCustomAnimRows */
 
 #define ANIM_HEADER_CACHE_SIZE 40
 #define ANIM_FRAME_CACHE_SIZE  32
@@ -48,14 +52,28 @@ extern u8 EXT_SEG _animationsTableRomEnd;
 void animsInit(void)
 {
 	s32 i;
+	s32 total;
 	u32 *ptr;
 	u32 tablelen = ALIGN64(REF_SEG _animationsTableRomEnd - REF_SEG _animationsTableRomStart);
 
-	ptr = mempAlloc(tablelen, MEMPOOL_PERMANENT);
+	/* c3849 Wave 2: grow the table by the custom-anim slot range. Base rows
+	 * copy unchanged; the custom tail is zero-init and later seeded from
+	 * catalog metadata (catalogSeedCustomAnimRows). */
+	ptr = mempAlloc(ALIGN64(tablelen + ANIM_CUSTOM_COUNT * sizeof(struct animtableentry)),
+		MEMPOOL_PERMANENT);
 	dmaExec(ptr, (romptr_t) REF_SEG _animationsTableRomStart, tablelen);
 
 	g_NumAnimations = g_NumRomAnimations = ptr[0];
 	g_Anims = g_RomAnims = (struct animtableentry *)&ptr[1];
+
+	if (g_NumRomAnimations != ANIM_CUSTOM_START) {
+		sysLogPrintf(LOG_WARNING,
+			"ANIM.CUSTOM: ROM anim count %d != ANIM_END %d; custom slots may collide",
+			g_NumRomAnimations, (s32)ANIM_CUSTOM_START);
+	}
+	total = g_NumAnimations + ANIM_CUSTOM_COUNT;
+	memset(&g_Anims[g_NumAnimations], 0,
+		ANIM_CUSTOM_COUNT * sizeof(struct animtableentry));
 
 	g_AnimMaxHeaderLength = 1;
 	g_AnimMaxBytesPerFrame = 1;
@@ -73,8 +91,8 @@ void animsInit(void)
 	g_AnimMaxHeaderLength = ALIGN16(g_AnimMaxHeaderLength + 34);
 	g_AnimMaxBytesPerFrame = ALIGN16(g_AnimMaxBytesPerFrame + 34);
 
-	g_AnimToHeaderSlot    = mempAlloc(ALIGN64(g_NumAnimations), MEMPOOL_PERMANENT);
-	var8005f014           = mempAlloc(ALIGN64(g_NumAnimations * sizeof(*var8005f014)), MEMPOOL_PERMANENT);
+	g_AnimToHeaderSlot    = mempAlloc(ALIGN64(total), MEMPOOL_PERMANENT);
+	var8005f014           = mempAlloc(ALIGN64(total * sizeof(*var8005f014)), MEMPOOL_PERMANENT);
 	g_AnimFrameByteSlots  = mempAlloc(ALIGN64(ANIM_FRAME_CACHE_SIZE * g_AnimMaxBytesPerFrame), MEMPOOL_PERMANENT);
 	g_AnimFrameBytes      = mempAlloc(ALIGN64(ANIM_FRAME_CACHE_SIZE * sizeof(*g_AnimFrameBytes)), MEMPOOL_PERMANENT);
 	g_AnimFrameAnimNums   = mempAlloc(ALIGN64(ANIM_FRAME_CACHE_SIZE * sizeof(*g_AnimFrameAnimNums)), MEMPOOL_PERMANENT);
@@ -84,20 +102,25 @@ void animsInit(void)
 	g_AnimHeaderBytes     = mempAlloc(ALIGN64(ANIM_HEADER_CACHE_SIZE * sizeof(*g_AnimHeaderBytes)), MEMPOOL_PERMANENT);
 	g_AnimHeaderAnimNums  = mempAlloc(ALIGN64(ANIM_HEADER_CACHE_SIZE * sizeof(*g_AnimHeaderAnimNums)), MEMPOOL_PERMANENT);
 	g_AnimHeaderBirths    = mempAlloc(ALIGN64(ANIM_HEADER_CACHE_SIZE * sizeof(*g_AnimHeaderBirths)), MEMPOOL_PERMANENT);
-	g_AnimReplacements    = mempAlloc(ALIGN64(g_NumAnimations * sizeof(u8 *)), MEMPOOL_PERMANENT);
-	bzero(g_AnimReplacements, g_NumAnimations * sizeof(u8 *));
+	g_AnimReplacements    = mempAlloc(ALIGN64(total * sizeof(u8 *)), MEMPOOL_PERMANENT);
+	bzero(g_AnimReplacements, total * sizeof(u8 *));
 
 	animsInitTables();
 
 	g_AnimHostSegment = NULL;
 	g_AnimHostEnabled = false;
+
+	/* c3849 Wave 2: seed catalog-registered custom anim rows (boot path;
+	 * catalogLoadInit ran before g_Anims existed). */
+	catalogSeedCustomAnimRows();
 }
 
 void animsInitTables(void)
 {
 	s32 i;
 
-	for (i = 0; i < g_NumAnimations; i++) {
+	/* c3849 Wave 2: cover the custom slot range too. */
+	for (i = 0; i < g_NumAnimations + ANIM_CUSTOM_COUNT; i++) {
 		g_AnimToHeaderSlot[i] = 0xff;
 		var8005f014[i] = 0;
 	}
@@ -128,12 +151,20 @@ s32 animGetNumFrames(s16 animnum)
 
 bool animHasFrames(s16 animnum)
 {
-	return animnum < g_NumAnimations && g_Anims[animnum].numframes > 0;
+	return animnum < animGetTotalCount() && g_Anims[animnum].numframes > 0;
 }
 
 s32 animGetNumAnimations(void)
 {
 	return g_NumAnimations;
+}
+
+/* c3849 Wave 2: base count + the catalog-owned custom slot range. Bounds for
+ * code that must accept custom animnums (clip install, playback gates); the
+ * debug anim cycler and LRU byte-slot sizing stay on the base count. */
+s32 animGetTotalCount(void)
+{
+	return g_NumAnimations + ANIM_CUSTOM_COUNT;
 }
 
 extern u8 EXT_SEG _animationsSegmentRomStart;

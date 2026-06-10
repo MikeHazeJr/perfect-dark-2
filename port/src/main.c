@@ -1493,7 +1493,7 @@ static void bootApplyDebugProbeAnimationSource(void)
 	}
 
 	animnum = entry->ext.anim.anim_id;
-	if (animnum < 0 || animnum >= g_NumAnimations || !g_Anims) {
+	if (animnum < 0 || animnum >= animGetTotalCount() || !g_Anims) { /* c3849: customs too */
 		sysLogPrintf(LOG_WARNING,
 			"BOOT: --debug-probe-animation-source result id='%s' result=INVALID_ANIM anim=%d",
 			asset_id, animnum);

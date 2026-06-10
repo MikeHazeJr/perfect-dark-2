@@ -936,6 +936,8 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/tests/test_sound_slots.cpp
   ${CMAKE_SOURCE_DIR}/port/src/assetcatalog_texture_slots.c
   ${CMAKE_SOURCE_DIR}/tests/test_texture_slots.cpp
+  ${CMAKE_SOURCE_DIR}/port/src/assetcatalog_anim_slots.c
+  ${CMAKE_SOURCE_DIR}/tests/test_anim_slots.cpp
 
   # S484 F1: catalog manager for weapons (pure validators + variant spec).
   # Live router lives in port/src/catalog_mgr_weapons.c and pulls in

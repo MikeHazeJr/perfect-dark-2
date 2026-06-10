@@ -1021,7 +1021,7 @@ static void *modAnimationLoadCatalogClip(const CatalogResolveResult *r, u16 num)
 		return NULL;
 	}
 
-	if (compiled_entry && num < g_NumAnimations && g_Anims) {
+	if (compiled_entry && num < animGetTotalCount() && g_Anims) { /* c3849: customs too */
 		g_Anims[num] = *compiled_entry;
 		g_Anims[num].data = 0xffffffff;
 	}
