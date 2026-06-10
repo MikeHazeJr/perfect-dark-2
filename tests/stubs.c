@@ -153,6 +153,15 @@ s32 catalogResolveAudio(const char *id, catalog_audio_result_t *out)
     return 0;
 }
 
+s32 catalogResolveWeapon(const char *id, catalog_weapon_result_t *out)
+{
+    (void)id;
+    if (out) {
+        memset(out, 0, sizeof(*out));
+    }
+    return 0;
+}
+
 asset_data_handle_t catalogGetModelHandle(s32 modelnum)
 {
     asset_data_handle_t handle = ASSET_HANDLE_NULL_INIT;

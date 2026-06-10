@@ -1407,6 +1407,21 @@ struct projectile {
 	/*0x104*/ u8 numwaypads;
 	/*0x105*/ u8 step;
 	/*0x108*/ struct prop *pickupby;
+
+	/* PC (c3849 guidance): graph-latched per-projectile tuning, appended at
+	 * the end because the pool is mempAlloc'd and never ROM-read (stride
+	 * safe). Zeroed in projectileReset; 0 means unset, fall back to the OG
+	 * literal at the consume site. None of these cross the wire
+	 * (SVC_PROP_MOVE is frozen); remote clients steer with OG constants. */
+	f32 hominggain;          /* projectile.homing steering_gain */
+	f32 homingdamping;       /* projectile.homing steering_damping */
+	f32 homingpreverr;       /* per-projectile prev error for the custom PD loop */
+	f32 flyturnrate;         /* fly_by_wire turn_rate */
+	f32 flyaccel;            /* fly_by_wire acceleration */
+	f32 flyproxradius;       /* fly_by_wire enemy_proximity_radius (unsquared) */
+	f32 flymaxaltitude;      /* fly_by_wire max_altitude */
+	s32 flylosttimeout240;   /* fly_by_wire lost_target_timeout (240Hz ticks) */
+	s32 flysmokeinterval240; /* fly_by_wire smoke_interval (240Hz ticks) */
 };
 
 struct embedment {

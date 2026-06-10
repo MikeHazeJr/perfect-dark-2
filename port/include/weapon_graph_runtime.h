@@ -365,6 +365,21 @@ typedef struct weapon_graph_projectile_runtime {
 	char recover_weapon_ref[CATALOG_ID_LEN];
 	char recover_ammo_policy[64];
 	s32 pickup_sound;
+
+	/* c3849 Unit 1c: registration-time derived fields. String policies latch
+	 * to s32 enums at parse so weaponTick/projectileTick consumers never
+	 * strcmp per event (binding spec B3). Defaults are pre-set in
+	 * weaponGraphRuntimeRegisterProjectileIrOwned before the node loop. */
+	s32 timer_start_policy;   /* 0 on_spawn (default), 1 on_impact, 2 on_attach */
+	s32 timer_expire_policy;  /* 0 explode (default), 1 delete */
+	f32 wall_fall_vec[3];     /* default {0,-10,0}; accepts "down" or "x,y,z" */
+	s32 wall_stick_bg_only;   /* wall_stick_surface_filter == "background" */
+	s32 impact_filter_mode;   /* 0 any/"", 1 background, 2 props, 3 chr */
+	s32 impact_exptype;       /* EXPLOSIONTYPE_* from impact_explosion_ref; -1 unresolved */
+	s32 trail_smoketype;      /* SMOKETYPE_* from trail_type; -1 none */
+	s32 recover_weaponnum;    /* WEAPON_* from recover_weapon_ref; -1 unresolved */
+	s32 pickup_owner_only;    /* pickup_allowed_owner == "owner"/"owner_only" */
+	s32 recover_ammo_none;    /* recover_ammo_policy == "none" */
 } weapon_graph_projectile_runtime_t;
 
 typedef struct weapon_graph_entity_runtime {
@@ -456,6 +471,21 @@ typedef struct weapon_graph_entity_runtime {
 	char prompt_ref[CATALOG_ID_LEN];
 	s32 interaction_sound;
 	char transfer_payload[CATALOG_ID_LEN];
+
+	/* c3849 Unit 1c: registration-time derived fields (binding spec B3).
+	 * Mode defaults (0 = OG behavior) and the -1 sentinels are pre-set in
+	 * weaponGraphRuntimeRegisterEntityIrOwned before the node loop, so an
+	 * absent bool param stays -1 (OG default) while an authored 0/1 is
+	 * preserved (absent-vs-authored-0 disambiguation). */
+	s32 armed_damage_response_mode; /* 0 detonate (OG), 1 ignore */
+	s32 armed_exptype;              /* EXPLOSIONTYPE_* from explosion_ref; -1 unresolved */
+	s32 proxy_on_trigger_mode;      /* 0 detonate (OG), 1 storm */
+	s32 proxy_target_filter_mode;   /* 0 all (OG), 1 hostile_chr */
+	s32 proxy_team_filter_mode;     /* 0 all (OG), 1 enemy_only */
+	s32 proxy_owner_filter_mode;    /* 0 all (OG), 1 exclude_owner, 2 owner_only */
+	s32 remote_signal_mode;         /* 0 detonate (OG) */
+	s32 timed_on_expire_mode;       /* 0 detonate (OG), 1 storm, 2 delete */
+	s32 timed_starts_mode;          /* 0 thrown/armed (OG default) */
 } weapon_graph_entity_runtime_t;
 
 const char *weaponGraphSchemaForType(asset_type_e type);
@@ -467,6 +497,20 @@ const weapon_graph_parity_module_t *weaponGraphParityModuleAt(size_t index);
 const weapon_graph_parity_module_t *weaponGraphParityModuleForOpcode(
 	weapon_graph_opcode_e opcode);
 const char *weaponGraphParityModuleNameForOpcode(weapon_graph_opcode_e opcode);
+
+/* c3849 Unit 1b: unified explosion ref vocabulary (binding spec B2). One
+ * parse-time resolver serves impact_explosion_ref, entity explosion_ref and
+ * wall_explosion_ref. Canonical base tokens map to EXPLOSIONTYPE_* values;
+ * the deprecated impact-cluster spellings resolve with a one-time
+ * LOG_WARNING naming the canonical token; empty/NULL/unknown return -1
+ * (non-base refs are stored and resolved at detonation through the
+ * effect_graph_runtime bridge instead). */
+s32 weaponGraphResolveExplosionRef(const char *ref);
+
+/* c3849 Unit 1c: pure rpm -> autogunTickShoot fire-interval conversion.
+ * 1800 rpm is the OG laptop baseline (interval 1); 900 rpm -> 2; rpm <= 0
+ * (absent) and out-of-range values clamp to 1 (OG cadence). */
+s32 weaponGraphAutogunFireInterval(f32 rpm);
 
 s32 weaponGraphRuntimeEnabled(void);
 void weaponGraphRuntimeSetEnabled(s32 enabled);

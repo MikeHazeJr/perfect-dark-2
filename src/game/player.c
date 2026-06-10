@@ -5165,12 +5165,22 @@ void playerTick(bool arg0)
 					}
 				}
 
+				/* c3849 guidance Slice D: graph fly-by-wire numerics, latched
+				 * at spawn onto the projectile; 0 means unauthored, so the OG
+				 * literal stays the fallback. Reachable for customs once a
+				 * graph weapon routes through playerLaunchSlayerRocket (the
+				 * FUNCFLAG_FLYBYWIRE wiring already exists in bondgun.c). */
+				f32 fbwturnrate = projectile->flyturnrate > 0.0f
+					? projectile->flyturnrate : 0.00025f;
+				f32 fbwaccel = projectile->flyaccel > 0.0f
+					? projectile->flyaccel : 0.05f;
+
 				rocketok = true;
 				sp2ac.x = sp2b8[0][0];
 				sp2ac.z = sp2b8[0][2];
 
-				sp178 = sticky * LVUPDATE60FREAL() * 0.00025f;
-				sp174 = -stickx * LVUPDATE60FREAL() * 0.00025f;
+				sp178 = sticky * LVUPDATE60FREAL() * fbwturnrate;
+				sp174 = -stickx * LVUPDATE60FREAL() * fbwturnrate;
 
 				// respect the invert pitch setting
 				if (optionsGetForwardPitch(g_Vars.currentplayerstats->mpindex)) {
@@ -5252,13 +5262,13 @@ void playerTick(bool arg0)
 				newspeed = prevspeed;
 
 				if (prevspeed < targetspeed) {
-					newspeed = prevspeed + 0.05f * LVUPDATE60FREAL();
+					newspeed = prevspeed + fbwaccel * LVUPDATE60FREAL();
 
 					if (newspeed > targetspeed) {
 						newspeed = targetspeed;
 					}
 				} else if (prevspeed > targetspeed) {
-					newspeed = prevspeed - 0.05f * LVUPDATE60FREAL();
+					newspeed = prevspeed - fbwaccel * LVUPDATE60FREAL();
 
 					if (newspeed < targetspeed) {
 						newspeed = targetspeed;

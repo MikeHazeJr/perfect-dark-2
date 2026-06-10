@@ -27,6 +27,7 @@ extern "C" {
 #include "asset_archive_writer.h"
 #include "asset_mod_utility_contract.h"
 #include "constants.h"
+#include "effect_graph_runtime.h"
 #include "modarchive.h"
 #include "modvfs.h"
 #include "weapon_graph_archive.h"
@@ -3262,6 +3263,394 @@ TEST_CASE("wave 5 unit 0 bug-fix pins stay wired",
 	const std::string::size_type unref = prop.find("projectilesUnrefOwner(prop);");
 	REQUIRE(unref != std::string::npos);
 	REQUIRE(prop.find("propFree(prop);", unref) != std::string::npos);
+
+	/* Wave 5 Unit 1a: shared helper family. The contact-impact helper is
+	 * reimplemented on top of the module-precondition-free lookup, and the
+	 * entity sibling exists for the Unit 6/7 arms. */
+	REQUIRE(propobj.find("weaponGetCustomProjectileGraph") != std::string::npos);
+	REQUIRE(propobj.find("weaponGetEntityGraphForGameplay") != std::string::npos);
+
+	/* Wave 5 Unit 3 Slice A: per-projectile steering gains. The custom
+	 * branch must use the per-projectile prev error, and the OG branch must
+	 * keep its mainOverrideVariable hooks and shared static verbatim. */
+	REQUIRE(propobj.find("projectile->hominggain") != std::string::npos);
+	REQUIRE(propobj.find("homingpreverr") != std::string::npos);
+	REQUIRE(propobj.find("mainOverrideVariable(\"kkg\"") != std::string::npos);
+
+	/* Wave 5 Unit 3 Slice D: fly-by-wire numerics latched + consumed. */
+	REQUIRE(propobj.find("flysmokeinterval240") != std::string::npos);
+	REQUIRE(propobj.find("flyproxradius") != std::string::npos);
+
+	/* Wave 5 Unit 1c: s16 timer sinks saturate (propobj + bondgun). */
+	REQUIRE(propobj.find("weaponGraphClampTicks240") != std::string::npos);
+
+	/* Wave 5 Unit 3 Slice B: trajectory closure in bondgun.c. */
+	REQUIRE(bondgun.find("has_trajectory_correction") != std::string::npos);
+	REQUIRE(bondgun.find("trajectory_max_angle") != std::string::npos);
+	REQUIRE(bondgun.find("bgunGraphClampTicks240") != std::string::npos);
+
+	/* Wave 5 Unit 3 Slice C: AI launcher widen + wrong-owner fix. */
+	const std::string chraction = readFile("src/game/chraction.c");
+	REQUIRE(chraction.find("chrGsetCustomProjectileGraph") != std::string::npos);
+	REQUIRE(chraction.find("|| customlaunch") != std::string::npos);
+	REQUIRE(chraction.find(
+		"weaponCreateProjectileFromGset(projectilemodelnum, &gset, chr)")
+		!= std::string::npos);
+	REQUIRE(chraction.find(
+		"weaponCreateProjectileFromGset(projectilemodelnum, &gset, g_Vars.currentplayer")
+		== std::string::npos);
+
+	/* Wave 5 Unit 3 Slice D: player-path fbw constants route through the
+	 * latched fields with the OG literals as 0-fallbacks. */
+	const std::string player = readFile("src/game/player.c");
+	REQUIRE(player.find("flyturnrate") != std::string::npos);
+	REQUIRE(player.find("flyaccel") != std::string::npos);
+
+	/* Wave 5 Unit 3: struct projectile grew the PC guidance fields. */
+	const std::string types = readFile("src/include/types.h");
+	REQUIRE(types.find("f32 hominggain;") != std::string::npos);
+	REQUIRE(types.find("f32 homingpreverr;") != std::string::npos);
+	REQUIRE(types.find("f32 flyturnrate;") != std::string::npos);
+	REQUIRE(types.find("s32 flylosttimeout240;") != std::string::npos);
+	REQUIRE(types.find("s32 flysmokeinterval240;") != std::string::npos);
+
+	/* Wave 5 Unit 1b/1c: unified explosion resolver + entity sentinels. */
+	const std::string runtime = readFile("port/src/weapon_graph_runtime.c");
+	REQUIRE(runtime.find("s32 weaponGraphResolveExplosionRef(const char *ref)")
+		!= std::string::npos);
+	REQUIRE(runtime.find("runtime->armed_exptype = -1;") != std::string::npos);
+	REQUIRE(runtime.find("runtime->autogun_alternate_muzzles = -1;") != std::string::npos);
+	REQUIRE(runtime.find("runtime->autogun_friendly_fire_suppression = -1;") != std::string::npos);
+	REQUIRE(runtime.find("runtime->autogun_pickup_recover = -1;") != std::string::npos);
+	REQUIRE(runtime.find("runtime->storm_delete_carrier = -1;") != std::string::npos);
+	REQUIRE(runtime.find("weaponGraphWarnTimerOverlap") != std::string::npos);
+
+	/* Wave 5 Unit 1b: the effect bridge returns the fallback verbatim unless
+	 * the toggle is on AND the explosion ref resolves. */
+	const std::string bridge = readFile("port/src/effect_graph_runtime.c");
+	REQUIRE(bridge.find("weaponGraphRuntimeEnabled()") != std::string::npos);
+	REQUIRE(bridge.find("return fallback_exptype;") != std::string::npos);
+	REQUIRE(bridge.find("return fallback_sparktype;") != std::string::npos);
+}
+
+TEST_CASE("wave 5 unit 1 explosion resolver and autogun cadence are pure",
+          "[modding][pdxxx][weapon_graph][c3849]") {
+	/* Canonical tokens (binding spec B2). */
+	REQUIRE(weaponGraphResolveExplosionRef("base:explosion_rocket") == EXPLOSIONTYPE_ROCKET);
+	REQUIRE(weaponGraphResolveExplosionRef("base:explosion_huge") == EXPLOSIONTYPE_HUGE17);
+	REQUIRE(weaponGraphResolveExplosionRef("base:explosion_sdgrenade") == EXPLOSIONTYPE_SDGRENADE);
+	REQUIRE(weaponGraphResolveExplosionRef("base:explosion_phoenix") == EXPLOSIONTYPE_PHOENIX);
+	REQUIRE(weaponGraphResolveExplosionRef("base:explosion_dragonbombspy") == EXPLOSIONTYPE_DRAGONBOMBSPY);
+
+	/* Deprecated aliases resolve (with a one-time warning). */
+	REQUIRE(weaponGraphResolveExplosionRef("base:explosion_small") == EXPLOSIONTYPE_PHOENIX);
+	REQUIRE(weaponGraphResolveExplosionRef("base:explosion_laptop") == EXPLOSIONTYPE_LAPTOP);
+
+	/* Empty/NULL/unknown (including mod refs) stay unresolved. */
+	REQUIRE(weaponGraphResolveExplosionRef(nullptr) == -1);
+	REQUIRE(weaponGraphResolveExplosionRef("") == -1);
+	REQUIRE(weaponGraphResolveExplosionRef("needler:pink_blast") == -1);
+	REQUIRE(weaponGraphResolveExplosionRef("base:explosion_bogus") == -1);
+
+	/* rpm -> autogun fire interval (1800 rpm OG baseline). */
+	REQUIRE(weaponGraphAutogunFireInterval(1800.0f) == 1);
+	REQUIRE(weaponGraphAutogunFireInterval(900.0f) == 2);
+	REQUIRE(weaponGraphAutogunFireInterval(450.0f) == 4);
+	REQUIRE(weaponGraphAutogunFireInterval(0.0f) == 1);
+	REQUIRE(weaponGraphAutogunFireInterval(-60.0f) == 1);
+	REQUIRE(weaponGraphAutogunFireInterval(1000000.0f) == 1);
+}
+
+TEST_CASE("wave 5 unit 1b effect bridges return fallbacks until unit 8",
+          "[modding][pdxxx][weapon_graph][c3849]") {
+	const s32 prev = weaponGraphRuntimeEnabled();
+
+	/* Toggle OFF: fallback verbatim even for canonical refs. */
+	weaponGraphRuntimeSetEnabled(0);
+	REQUIRE(effectGraphResolveExplosionType("base:explosion_rocket", 5) == 5);
+	REQUIRE(effectGraphResolveExplosionType("", 7) == 7);
+
+	/* Toggle ON: canonical refs resolve; unknown refs keep the fallback. */
+	weaponGraphRuntimeSetEnabled(1);
+	REQUIRE(effectGraphResolveExplosionType("base:explosion_rocket", 5) == EXPLOSIONTYPE_ROCKET);
+	REQUIRE(effectGraphResolveExplosionType("mod:unknown_boom", 5) == 5);
+	REQUIRE(effectGraphResolveExplosionType(nullptr, 9) == 9);
+
+	/* Spark/smoke/sound bridges are fallback-verbatim until Unit 8. */
+	REQUIRE(effectGraphResolveSparkType("base:spark_pink", 4) == 4);
+	REQUIRE(effectGraphResolveSmokeType("base:smoke_large", 6) == 6);
+	REQUIRE(effectGraphResolveSound("base:sfx_boom", 123) == 123);
+
+	weaponGraphRuntimeSetEnabled(prev);
+}
+
+TEST_CASE("wave 5 unit 1c latches derived projectile fields at registration",
+          "[modding][pdxxx][weapon_graph][c3849]") {
+	const std::string richGraph =
+		"{\n"
+		"  \"schema\": \"pd.projectile_graph.v1\",\n"
+		"  \"asset_id\": \"base:test_derived_projectile\",\n"
+		"  \"graph_id\": \"derived_projectile_v1\",\n"
+		"  \"nodes\": [\n"
+		"    { \"id\": \"motion\", \"kind\": \"projectile.motion\", \"params\": {\n"
+		"      \"motion_kind\": \"ballistic\"\n"
+		"    } },\n"
+		"    { \"id\": \"timer\", \"kind\": \"projectile.timer\", \"params\": {\n"
+		"      \"timer_ticks60\": 180,\n"
+		"      \"timer_starts\": \"on_impact\",\n"
+		"      \"on_expire\": \"delete\"\n"
+		"    } },\n"
+		"    { \"id\": \"wall\", \"kind\": \"projectile.wall_hugger\", \"params\": {\n"
+		"      \"stick_surface_filter\": \"background\",\n"
+		"      \"fall_vector\": \"1,2,3\"\n"
+		"    } },\n"
+		"    { \"id\": \"impact\", \"kind\": \"projectile.impact\", \"params\": {\n"
+		"      \"impact_filter\": \"background\",\n"
+		"      \"explosion_ref\": \"base:explosion_rocket\",\n"
+		"      \"consume_on_hit\": true\n"
+		"    } },\n"
+		"    { \"id\": \"trail\", \"kind\": \"projectile.trail\", \"params\": {\n"
+		"      \"trail_type\": \"homing\",\n"
+		"      \"interval_ticks60\": 24\n"
+		"    } },\n"
+		"    { \"id\": \"pickup\", \"kind\": \"projectile.pickup_recover\", \"params\": {\n"
+		"      \"allowed_owner\": \"owner\",\n"
+		"      \"recover_weapon_ref\": \"base:laptopgun\",\n"
+		"      \"recover_ammo_policy\": \"none\"\n"
+		"    } }\n"
+		"  ],\n"
+		"  \"edges\": [],\n"
+		"  \"exports\": [ { \"name\": \"main\", \"node\": \"motion\" } ]\n"
+		"}\n";
+
+	char err[256] = {};
+	weaponGraphRuntimeClearAll();
+	REQUIRE(weaponGraphRuntimeRegisterBehaviorGraphJson(ASSET_PROJECTILE,
+		"base:test_derived_projectile", richGraph.data(),
+		static_cast<u32>(richGraph.size()), err, sizeof(err)) == 0);
+
+	const weapon_graph_projectile_runtime_t *rich =
+		weaponGraphRuntimeGetProjectile("base:test_derived_projectile");
+	REQUIRE(rich != nullptr);
+	REQUIRE(rich->timer_start_policy == 1);
+	REQUIRE(rich->timer_expire_policy == 1);
+	REQUIRE(rich->wall_stick_bg_only == 1);
+	REQUIRE(rich->wall_fall_vec[0] == Approx(1.0f));
+	REQUIRE(rich->wall_fall_vec[1] == Approx(2.0f));
+	REQUIRE(rich->wall_fall_vec[2] == Approx(3.0f));
+	REQUIRE(rich->impact_filter_mode == 1);
+	REQUIRE(rich->impact_exptype == EXPLOSIONTYPE_ROCKET);
+	REQUIRE(rich->trail_smoketype == SMOKETYPE_HOMINGTAIL);
+	REQUIRE(rich->pickup_owner_only == 1);
+	REQUIRE(rich->recover_ammo_none == 1);
+	/* pd-tests stubs the catalog, so the ref cannot resolve here; the
+	 * unresolved sentinel is the contract. */
+	REQUIRE(rich->recover_weaponnum == -1);
+
+	const std::string downGraph =
+		"{\n"
+		"  \"schema\": \"pd.projectile_graph.v1\",\n"
+		"  \"asset_id\": \"base:test_derived_projectile_down\",\n"
+		"  \"graph_id\": \"derived_projectile_down_v1\",\n"
+		"  \"nodes\": [\n"
+		"    { \"id\": \"motion\", \"kind\": \"projectile.motion\", \"params\": {\n"
+		"      \"motion_kind\": \"ballistic\"\n"
+		"    } },\n"
+		"    { \"id\": \"wall\", \"kind\": \"projectile.wall_hugger\", \"params\": {\n"
+		"      \"fall_vector\": \"down\"\n"
+		"    } },\n"
+		"    { \"id\": \"impact\", \"kind\": \"projectile.impact\", \"params\": {\n"
+		"      \"explosion_ref\": \"mod:custom_boom\"\n"
+		"    } },\n"
+		"    { \"id\": \"trail\", \"kind\": \"projectile.trail\", \"params\": {\n"
+		"      \"trail_type\": \"none\"\n"
+		"    } }\n"
+		"  ],\n"
+		"  \"edges\": [],\n"
+		"  \"exports\": [ { \"name\": \"main\", \"node\": \"motion\" } ]\n"
+		"}\n";
+	REQUIRE(weaponGraphRuntimeRegisterBehaviorGraphJson(ASSET_PROJECTILE,
+		"base:test_derived_projectile_down", downGraph.data(),
+		static_cast<u32>(downGraph.size()), err, sizeof(err)) == 0);
+
+	const weapon_graph_projectile_runtime_t *down =
+		weaponGraphRuntimeGetProjectile("base:test_derived_projectile_down");
+	REQUIRE(down != nullptr);
+	REQUIRE(down->wall_fall_vec[0] == Approx(0.0f));
+	REQUIRE(down->wall_fall_vec[1] == Approx(-10.0f));
+	REQUIRE(down->wall_fall_vec[2] == Approx(0.0f));
+	REQUIRE(down->wall_stick_bg_only == 0);
+	REQUIRE(down->impact_exptype == -1);
+	REQUIRE(down->trail_smoketype == -1);
+	REQUIRE(down->timer_start_policy == 0);
+	REQUIRE(down->timer_expire_policy == 0);
+
+	const std::string garbageGraph =
+		"{\n"
+		"  \"schema\": \"pd.projectile_graph.v1\",\n"
+		"  \"asset_id\": \"base:test_derived_projectile_garbage\",\n"
+		"  \"graph_id\": \"derived_projectile_garbage_v1\",\n"
+		"  \"nodes\": [\n"
+		"    { \"id\": \"motion\", \"kind\": \"projectile.motion\", \"params\": {\n"
+		"      \"motion_kind\": \"ballistic\"\n"
+		"    } },\n"
+		"    { \"id\": \"timer\", \"kind\": \"projectile.timer\", \"params\": {\n"
+		"      \"timer_starts\": \"whenever\",\n"
+		"      \"on_expire\": \"confetti\"\n"
+		"    } },\n"
+		"    { \"id\": \"wall\", \"kind\": \"projectile.wall_hugger\", \"params\": {\n"
+		"      \"fall_vector\": \"purple\"\n"
+		"    } },\n"
+		"    { \"id\": \"trail\", \"kind\": \"projectile.trail\", \"params\": {\n"
+		"      \"trail_type\": \"sparkles\"\n"
+		"    } }\n"
+		"  ],\n"
+		"  \"edges\": [],\n"
+		"  \"exports\": [ { \"name\": \"main\", \"node\": \"motion\" } ]\n"
+		"}\n";
+	REQUIRE(weaponGraphRuntimeRegisterBehaviorGraphJson(ASSET_PROJECTILE,
+		"base:test_derived_projectile_garbage", garbageGraph.data(),
+		static_cast<u32>(garbageGraph.size()), err, sizeof(err)) == 0);
+
+	const weapon_graph_projectile_runtime_t *garbage =
+		weaponGraphRuntimeGetProjectile("base:test_derived_projectile_garbage");
+	REQUIRE(garbage != nullptr);
+	REQUIRE(garbage->timer_start_policy == 0);
+	REQUIRE(garbage->timer_expire_policy == 0);
+	REQUIRE(garbage->wall_fall_vec[0] == Approx(0.0f));
+	REQUIRE(garbage->wall_fall_vec[1] == Approx(-10.0f));
+	REQUIRE(garbage->wall_fall_vec[2] == Approx(0.0f));
+	REQUIRE(garbage->trail_smoketype == SMOKETYPE_ROCKETTAIL);
+
+	/* Minimal fixture: sentinels hold without the source nodes. */
+	const std::string minimalGraph =
+		"{\n"
+		"  \"schema\": \"pd.projectile_graph.v1\",\n"
+		"  \"asset_id\": \"base:test_derived_projectile_minimal\",\n"
+		"  \"graph_id\": \"derived_projectile_minimal_v1\",\n"
+		"  \"nodes\": [\n"
+		"    { \"id\": \"motion\", \"kind\": \"projectile.motion\", \"params\": {\n"
+		"      \"motion_kind\": \"ballistic\"\n"
+		"    } }\n"
+		"  ],\n"
+		"  \"edges\": [],\n"
+		"  \"exports\": [ { \"name\": \"main\", \"node\": \"motion\" } ]\n"
+		"}\n";
+	REQUIRE(weaponGraphRuntimeRegisterBehaviorGraphJson(ASSET_PROJECTILE,
+		"base:test_derived_projectile_minimal", minimalGraph.data(),
+		static_cast<u32>(minimalGraph.size()), err, sizeof(err)) == 0);
+
+	const weapon_graph_projectile_runtime_t *minimal =
+		weaponGraphRuntimeGetProjectile("base:test_derived_projectile_minimal");
+	REQUIRE(minimal != nullptr);
+	REQUIRE(minimal->impact_exptype == -1);
+	REQUIRE(minimal->trail_smoketype == -1);
+	REQUIRE(minimal->recover_weaponnum == -1);
+	REQUIRE(minimal->wall_fall_vec[1] == Approx(-10.0f));
+	REQUIRE(minimal->timer_start_policy == 0);
+	REQUIRE(minimal->timer_expire_policy == 0);
+	REQUIRE(minimal->pickup_owner_only == 0);
+	REQUIRE(minimal->recover_ammo_none == 0);
+
+	weaponGraphRuntimeClearAll();
+}
+
+TEST_CASE("wave 5 unit 1c latches derived entity modes and sentinels",
+          "[modding][pdxxx][weapon_graph][c3849]") {
+	const std::string richGraph =
+		"{\n"
+		"  \"schema\": \"pd.entity_graph.v1\",\n"
+		"  \"asset_id\": \"base:test_derived_entity\",\n"
+		"  \"graph_id\": \"derived_entity_v1\",\n"
+		"  \"nodes\": [\n"
+		"    { \"id\": \"armed\", \"kind\": \"entity.armed_explosive\", \"params\": {\n"
+		"      \"damage_response\": \"ignore\",\n"
+		"      \"explosion_ref\": \"base:explosion_phoenix\"\n"
+		"    } },\n"
+		"    { \"id\": \"proxy\", \"kind\": \"entity.proxy_trigger\", \"params\": {\n"
+		"      \"on_trigger\": \"storm\",\n"
+		"      \"target_filter\": \"hostile_chr\",\n"
+		"      \"team_filter\": \"enemy_only\",\n"
+		"      \"owner_filter\": \"exclude_owner\"\n"
+		"    } },\n"
+		"    { \"id\": \"remote\", \"kind\": \"entity.remote_detonatable\", \"params\": {\n"
+		"      \"on_remote_signal\": \"detonate\"\n"
+		"    } },\n"
+		"    { \"id\": \"timed\", \"kind\": \"entity.timed_detonatable\", \"params\": {\n"
+		"      \"timer_ticks60\": 240,\n"
+		"      \"starts_when\": \"armed\",\n"
+		"      \"on_expire\": \"delete\"\n"
+		"    } },\n"
+		"    { \"id\": \"storm\", \"kind\": \"entity.nbomb_storm\", \"params\": {\n"
+		"      \"delete_carrier\": false\n"
+		"    } },\n"
+		"    { \"id\": \"autogun\", \"kind\": \"entity.autogun\", \"params\": {\n"
+		"      \"friendly_fire_suppression\": false,\n"
+		"      \"pickup_recover\": false,\n"
+		"      \"alternate_muzzles\": 0\n"
+		"    } }\n"
+		"  ],\n"
+		"  \"edges\": [],\n"
+		"  \"exports\": [ { \"name\": \"main\", \"node\": \"armed\" } ]\n"
+		"}\n";
+
+	char err[256] = {};
+	weaponGraphRuntimeClearAll();
+	REQUIRE(weaponGraphRuntimeRegisterBehaviorGraphJson(ASSET_ENTITY,
+		"base:test_derived_entity", richGraph.data(),
+		static_cast<u32>(richGraph.size()), err, sizeof(err)) == 0);
+
+	const weapon_graph_entity_runtime_t *rich =
+		weaponGraphRuntimeGetEntity("base:test_derived_entity");
+	REQUIRE(rich != nullptr);
+	REQUIRE(rich->armed_damage_response_mode == 1);
+	REQUIRE(rich->armed_exptype == EXPLOSIONTYPE_PHOENIX);
+	REQUIRE(rich->proxy_on_trigger_mode == 1);
+	REQUIRE(rich->proxy_target_filter_mode == 1);
+	REQUIRE(rich->proxy_team_filter_mode == 1);
+	REQUIRE(rich->proxy_owner_filter_mode == 1);
+	REQUIRE(rich->remote_signal_mode == 0);
+	REQUIRE(rich->timed_on_expire_mode == 2);
+	REQUIRE(rich->timed_starts_mode == 0);
+	/* Authored-zero must be preserved (not confused with absent = -1). */
+	REQUIRE(rich->storm_delete_carrier == 0);
+	REQUIRE(rich->autogun_friendly_fire_suppression == 0);
+	REQUIRE(rich->autogun_pickup_recover == 0);
+	REQUIRE(rich->autogun_alternate_muzzles == 0);
+
+	/* Minimal fixture: -1 sentinels hold when the params are absent. */
+	const std::string minimalGraph =
+		"{\n"
+		"  \"schema\": \"pd.entity_graph.v1\",\n"
+		"  \"asset_id\": \"base:test_derived_entity_minimal\",\n"
+		"  \"graph_id\": \"derived_entity_minimal_v1\",\n"
+		"  \"nodes\": [\n"
+		"    { \"id\": \"armed\", \"kind\": \"entity.armed_explosive\", \"params\": {} },\n"
+		"    { \"id\": \"storm\", \"kind\": \"entity.nbomb_storm\", \"params\": {} },\n"
+		"    { \"id\": \"autogun\", \"kind\": \"entity.autogun\", \"params\": {} }\n"
+		"  ],\n"
+		"  \"edges\": [],\n"
+		"  \"exports\": [ { \"name\": \"main\", \"node\": \"armed\" } ]\n"
+		"}\n";
+	REQUIRE(weaponGraphRuntimeRegisterBehaviorGraphJson(ASSET_ENTITY,
+		"base:test_derived_entity_minimal", minimalGraph.data(),
+		static_cast<u32>(minimalGraph.size()), err, sizeof(err)) == 0);
+
+	const weapon_graph_entity_runtime_t *minimal =
+		weaponGraphRuntimeGetEntity("base:test_derived_entity_minimal");
+	REQUIRE(minimal != nullptr);
+	REQUIRE(minimal->armed_exptype == -1);
+	REQUIRE(minimal->autogun_alternate_muzzles == -1);
+	REQUIRE(minimal->autogun_friendly_fire_suppression == -1);
+	REQUIRE(minimal->autogun_pickup_recover == -1);
+	REQUIRE(minimal->storm_delete_carrier == -1);
+	REQUIRE(minimal->armed_damage_response_mode == 0);
+	REQUIRE(minimal->proxy_on_trigger_mode == 0);
+	REQUIRE(minimal->remote_signal_mode == 0);
+	REQUIRE(minimal->timed_on_expire_mode == 0);
+	REQUIRE(minimal->timed_starts_mode == 0);
+
+	weaponGraphRuntimeClearAll();
 }
 
 TEST_CASE("PC weapon switching and function HUD consume action-map state",

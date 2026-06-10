@@ -5,6 +5,7 @@
 #include "types.h"
 
 struct weapon_graph_projectile_runtime;
+struct weapon_graph_entity_runtime;
 
 extern u32 var800698f0;
 extern u32 var800698f4;
@@ -74,6 +75,10 @@ void func0f0685e4(struct prop *prop);
 void projectileSetSticky(struct prop *prop);
 void projectileApplyGraphRuntime(struct defaultobj *obj,
 	const struct weapon_graph_projectile_runtime *runtime);
+/* c3849 Unit 1a: custom-slot-guarded entity record lookup; consumers land in
+ * the Unit 6/7 entity arms. */
+const struct weapon_graph_entity_runtime *weaponGetEntityGraphForGameplay(
+	struct weaponobj *weapon);
 void embedmentFree(struct embedment *embedment);
 struct embedment *embedmentAllocate(void);
 s32 objGetShotsTaken(struct defaultobj *obj);

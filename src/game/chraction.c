@@ -10061,6 +10061,26 @@ const char var7f1a8ae4[] = "aimadjust=%d";
  * This should be called on every frame while the chr is shooting.
  * The function takes care of the gun's fire rate.
  */
+/* c3849 guidance Slice C: custom-slot-guarded held -> projectile chain for
+ * the AI launcher (mirrors propobj.c's weaponGetCustomProjectileGraph; this
+ * one keys off a gset because chrTickShoot copies the weaponobj's gset by
+ * value). Returns NULL for every base weapon, and always NULL when the
+ * Debug.WeaponGraphRuntime toggle is off (inherited from the gameplay
+ * accessor). */
+static const weapon_graph_projectile_runtime_t *chrGsetCustomProjectileGraph(const struct gset *gset)
+{
+	const weapon_graph_held_function_t *graph;
+
+	if (gset->weaponnum < WEAPON_CUSTOM_START) {
+		return NULL;
+	}
+
+	graph = weaponGraphRuntimeGetHeldFunctionForGameplay(
+		gset->weaponnum, gset->weaponfunc);
+
+	return weaponGraphRuntimeGetProjectileForHeldFunction(graph);
+}
+
 void chrTickShoot(struct chrdata *chr, s32 handnum)
 {
 	struct prop *chrprop = chr->prop;
@@ -10277,13 +10297,26 @@ void chrTickShoot(struct chrdata *chr, s32 handnum)
 
 				sqshotdist = xdiff * xdiff + ydiff * ydiff + zdiff * zdiff;
 
+				/* c3849 guidance Slice C: AI launcher widen. A custom graph
+				 * weapon whose held function carries a projectile record
+				 * launches through this arm too. Gated on weapondef function
+				 * dispatch presence because customs can register a graph
+				 * without a weapondef row (NULL-safe; the arm dereferences
+				 * weapondef->functions unconditionally below). The lookup is
+				 * computed once here and reused inside the arm. */
+				struct weapon *launchweapondef = weaponFindById(gset.weaponnum);
+				bool customlaunch = chrGsetCustomProjectileGraph(&gset) != NULL
+					&& launchweapondef != NULL
+					&& launchweapondef->functions[gset.weaponfunc] != NULL;
+
 				// Handle projectile launchers specially
 				if (gset.weaponnum == WEAPON_ROCKETLAUNCHER
 						|| gset.weaponnum == WEAPON_SLAYER
 						|| (gset.weaponnum == WEAPON_SUPERDRAGON && gset.weaponfunc == FUNC_SECONDARY)
 						|| gset.weaponnum == WEAPON_DEVASTATOR
 						|| gset.weaponnum == WEAPON_CROSSBOW
-						|| gset.weaponnum == WEAPON_ROCKETLAUNCHER_34) {
+						|| gset.weaponnum == WEAPON_ROCKETLAUNCHER_34
+						|| customlaunch) {
 					makebeam = false;
 
 					// Solo chrs won't fire their projectile weapon
@@ -10296,7 +10329,7 @@ void chrTickShoot(struct chrdata *chr, s32 handnum)
 						struct coord sp15c;
 						Mtxf projectilemtx;
 						Mtxf yrotmtx;
-						struct weapon *weapondef = weaponFindById(gset.weaponnum);
+						struct weapon *weapondef = launchweapondef;
 						struct weaponfunc_shootprojectile *func = weapondef->functions[gset.weaponfunc];
 						const weapon_graph_held_function_t *graph =
 							weaponGraphRuntimeGetHeldFunctionForGameplay(gset.weaponnum, gset.weaponfunc);
@@ -10367,8 +10400,14 @@ void chrTickShoot(struct chrdata *chr, s32 handnum)
 								projectileobj->gunfunc = FUNC_2;
 							}
 						} else {
-							// Unreachable
-							projectileobj = weaponCreateProjectileFromGset(projectilemodelnum, &gset, g_Vars.currentplayer->prop->chr);
+							/* Custom graph weapons land here (this arm was
+							 * unreachable before the Slice C widen). Owner
+							 * must be the firing chr, not the local player:
+							 * the previous g_Vars.currentplayer owner was a
+							 * wrong-owner latent bug (kill credit / proxy
+							 * self-trigger would attribute to the wrong
+							 * actor). */
+							projectileobj = weaponCreateProjectileFromGset(projectilemodelnum, &gset, chr);
 						}
 
 						if (projectileobj) {

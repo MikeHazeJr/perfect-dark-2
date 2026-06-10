@@ -1113,6 +1113,19 @@ void projectileReset(struct projectile *projectile)
 	projectile->unk0e0 = 0;
 	projectile->unk0ec = 0;
 	projectile->unk0f0 = 0;
+
+	/* PC (c3849 guidance): projectileReset is not a memset and slots are
+	 * reused, so every graph-latched field MUST reset here or values leak
+	 * across slot reuse. */
+	projectile->hominggain = 0;
+	projectile->homingdamping = 0;
+	projectile->homingpreverr = 0;
+	projectile->flyturnrate = 0;
+	projectile->flyaccel = 0;
+	projectile->flyproxradius = 0;
+	projectile->flymaxaltitude = 0;
+	projectile->flylosttimeout240 = 0;
+	projectile->flysmokeinterval240 = 0;
 }
 
 struct projectile *projectileAllocate(void)
@@ -1207,6 +1220,18 @@ static s32 weaponGraphTicks60To240(s32 ticks60)
 	return TICKS(ticks60 * 4);
 }
 
+/* c3849 Unit 1c: weaponobj timer240 is s16 and projectile pickuptimer240
+ * crosses the wire as S16 (netmsg SVC_PROP_MOVE), so every ticks60 -> 240
+ * conversion feeding those sinks must saturate instead of overflowing when
+ * an authored timer exceeds ~136 seconds. */
+static s32 weaponGraphClampTicks240(s32 ticks240)
+{
+	if (ticks240 > 32767) {
+		return 32767;
+	}
+	return ticks240;
+}
+
 void projectileApplyGraphRuntime(struct defaultobj *obj,
 		const struct weapon_graph_projectile_runtime *runtime)
 {
@@ -1229,6 +1254,44 @@ void projectileApplyGraphRuntime(struct defaultobj *obj,
 	 * set while Debug.WeaponGraphRuntime is off (runtime is NULL then). */
 	if (runtime->has_homing) {
 		projectile->flags |= PROJECTILEFLAG_HOMING;
+
+		/* c3849 guidance Slice A: latch authored steering gains at spawn.
+		 * 0 means unauthored (base graphs carry homing records with empty
+		 * params); the projectileTick consumer falls back to the OG
+		 * composite constants when both stay 0. */
+		if (runtime->homing_steering_gain > 0.0f) {
+			projectile->hominggain = runtime->homing_steering_gain;
+		}
+		if (runtime->homing_steering_damping > 0.0f) {
+			projectile->homingdamping = runtime->homing_steering_damping;
+		}
+	}
+
+	/* c3849 guidance Slice D: fly-by-wire numerics latch at spawn because
+	 * spawned rockets mutate identity (per-tick graph lookups silently fail
+	 * for them). Consume sites: player.c Slayer tick and rocketTickFbw. */
+	if (runtime->has_fly_by_wire) {
+		if (runtime->fly_turn_rate > 0.0f) {
+			projectile->flyturnrate = runtime->fly_turn_rate;
+		}
+		if (runtime->fly_acceleration > 0.0f) {
+			projectile->flyaccel = runtime->fly_acceleration;
+		}
+		if (runtime->fly_enemy_proximity_radius > 0.0f) {
+			/* Latched unsquared; rocketTickFbw squares at use. */
+			projectile->flyproxradius = runtime->fly_enemy_proximity_radius;
+		}
+		if (runtime->fly_max_altitude > 0.0f) {
+			projectile->flymaxaltitude = runtime->fly_max_altitude;
+		}
+		if (runtime->fly_lost_target_timeout_ticks60 >= 0) {
+			projectile->flylosttimeout240 = weaponGraphClampTicks240(
+				weaponGraphTicks60To240(runtime->fly_lost_target_timeout_ticks60));
+		}
+		if (runtime->fly_smoke_interval_ticks60 >= 0) {
+			projectile->flysmokeinterval240 = weaponGraphClampTicks240(
+				weaponGraphTicks60To240(runtime->fly_smoke_interval_ticks60));
+		}
 	}
 
 	if (runtime->powered || strcmp(runtime->motion_kind, "powered") == 0) {
@@ -1246,8 +1309,8 @@ void projectileApplyGraphRuntime(struct defaultobj *obj,
 	}
 
 	if (runtime->has_pickup_recover && runtime->pickup_timer_ticks60 >= 0) {
-		projectile->pickuptimer240 =
-			weaponGraphTicks60To240(runtime->pickup_timer_ticks60);
+		projectile->pickuptimer240 = weaponGraphClampTicks240(
+			weaponGraphTicks60To240(runtime->pickup_timer_ticks60));
 	}
 
 	if (runtime->has_timer) {
@@ -1259,23 +1322,23 @@ void projectileApplyGraphRuntime(struct defaultobj *obj,
 	}
 
 	if (hastimer && obj->type == OBJTYPE_WEAPON) {
-		((struct weaponobj *)obj)->timer240 = weaponGraphTicks60To240(timer60);
+		((struct weaponobj *)obj)->timer240 =
+			weaponGraphClampTicks240(weaponGraphTicks60To240(timer60));
 	}
 }
 
-/* B-912 first slice: the projectile-impact graph IR's first production
- * consumer. Returns the projectile runtime when this weaponobj is a CUSTOM
- * graph weapon whose projectile authored explode-on-contact
- * (projectile.impact with consume_on_hit), else NULL. The weaponnum guard
- * keeps every base weapon on its existing weaponnum-keyed arms: base-emitted
- * graphs (rocket/devastator) also carry impact records, and without the guard
- * they would double-handle. Per the cutover plan's closure rule the values
- * feed the EXISTING OG execution routines (timer240 / propExplode); gating on
- * Debug.WeaponGraphRuntime is inherited from the gameplay accessor. */
-static const weapon_graph_projectile_runtime_t *weaponGetContactImpactGraph(struct weaponobj *weapon)
+/* c3849 Unit 1a: shared record-scoped helper family (binding spec B4: build
+ * once). Returns the projectile runtime record for a CUSTOM graph weapon
+ * with NO module precondition; callers gate on the has_* bit they consume
+ * (binding spec B3). The weaponnum guard keeps every base weapon on its
+ * existing weaponnum-keyed arms: base-emitted graphs also carry projectile
+ * records, and without the guard they would double-handle. The Held lookup
+ * keys on gset.weaponnum/weaponfunc, which differ from weapon->weaponnum for
+ * some base weapons. Gating on Debug.WeaponGraphRuntime is inherited from
+ * the gameplay accessor. */
+static const weapon_graph_projectile_runtime_t *weaponGetCustomProjectileGraph(struct weaponobj *weapon)
 {
 	const weapon_graph_held_function_t *graph;
-	const weapon_graph_projectile_runtime_t *projectile;
 
 	if (weapon->weaponnum < WEAPON_CUSTOM_START) {
 		return NULL;
@@ -1283,7 +1346,37 @@ static const weapon_graph_projectile_runtime_t *weaponGetContactImpactGraph(stru
 
 	graph = weaponGraphRuntimeGetHeldFunctionForGameplay(
 		weapon->gset.weaponnum, weapon->gset.weaponfunc);
-	projectile = weaponGraphRuntimeGetProjectileForHeldFunction(graph);
+
+	return weaponGraphRuntimeGetProjectileForHeldFunction(graph);
+}
+
+/* c3849 Unit 1a: entity-record sibling of weaponGetCustomProjectileGraph.
+ * No production consumers yet; the Unit 6 custom entity arm (weaponTick /
+ * objDamage / objFree) lands on top of it. */
+const struct weapon_graph_entity_runtime *weaponGetEntityGraphForGameplay(struct weaponobj *weapon)
+{
+	const weapon_graph_held_function_t *graph;
+
+	if (weapon->weaponnum < WEAPON_CUSTOM_START) {
+		return NULL;
+	}
+
+	graph = weaponGraphRuntimeGetHeldFunctionForGameplay(
+		weapon->gset.weaponnum, weapon->gset.weaponfunc);
+
+	return weaponGraphRuntimeGetEntityForHeldFunction(graph);
+}
+
+/* B-912 first slice: the projectile-impact graph IR's first production
+ * consumer. Returns the projectile runtime when this weaponobj is a CUSTOM
+ * graph weapon whose projectile authored explode-on-contact
+ * (projectile.impact with consume_on_hit), else NULL. Per the cutover plan's
+ * closure rule the values feed the EXISTING OG execution routines
+ * (timer240 / propExplode). */
+static const weapon_graph_projectile_runtime_t *weaponGetContactImpactGraph(struct weaponobj *weapon)
+{
+	const weapon_graph_projectile_runtime_t *projectile =
+		weaponGetCustomProjectileGraph(weapon);
 
 	if (projectile && projectile->has_impact && projectile->impact_consume_on_hit) {
 		return projectile;
@@ -6535,12 +6628,20 @@ bool rocketTickFbw(struct weaponobj *rocket)
 	}
 
 	if (ownerchr) {
+		/* c3849 guidance Slice D: graph fly-by-wire numerics, latched at
+		 * spawn; 0 means unauthored, so the OG literal is the fallback.
+		 * This path is reachable only through the WEAPON_SKROCKET gate
+		 * (Slayer-only bot route today), so the custom reach is pre-wired
+		 * and dormant until a bot-side widen. */
+		f32 fbwturnrate = projectile->flyturnrate > 0.0f
+			? projectile->flyturnrate : (PAL ? 0.02246f : 0.01875f);
+
 		xrot = atan2f(xdist, zdist);
 		yrot = atan2f(ydist, sqrtf(xdist * xdist + zdist * zdist));
 
 		for (i = 0; i < g_Vars.lvupdate240; i++) {
-			projectile->unk018 = modelTweenRotAxis(projectile->unk018, xrot, PAL ? 0.02246f : 0.01875f);
-			projectile->unk014 = modelTweenRotAxis(projectile->unk014, yrot, PAL ? 0.02246f : 0.01875f);
+			projectile->unk018 = modelTweenRotAxis(projectile->unk018, xrot, fbwturnrate);
+			projectile->unk014 = modelTweenRotAxis(projectile->unk014, yrot, fbwturnrate);
 		}
 
 		mtx4LoadXRotation(M_BADTAU - projectile->unk014, &sp118);
@@ -6560,7 +6661,9 @@ bool rocketTickFbw(struct weaponobj *rocket)
 	newpos.z = rocketprop->pos.z;
 
 	for (i = 0; i < g_Vars.lvupdate60; i++) {
-		projectile->unk010 += PAL ? 0.0021600001f : 0.0018f;
+		/* Slice D: graph acceleration with the OG literal as 0-fallback. */
+		projectile->unk010 += projectile->flyaccel > 0.0f
+			? projectile->flyaccel : (PAL ? 0.0021600001f : 0.0018f);
 
 		speed = projectile->unk010;
 
@@ -6601,19 +6704,28 @@ bool rocketTickFbw(struct weaponobj *rocket)
 
 	// Create smoke behind the rocket
 	if (projectile->smoketimer240 <= 0) {
-		projectile->smoketimer240 = TICKS(24);
+		/* Slice D: graph smoke cadence with the OG literal as 0-fallback. */
+		projectile->smoketimer240 = projectile->flysmokeinterval240 > 0
+			? projectile->flysmokeinterval240 : TICKS(24);
 		smokeCreateSimple(&rocketprop->pos, rocketprop->rooms, SMOKETYPE_ROCKETTAIL);
 	} else {
 		projectile->smoketimer240 -= g_Vars.lvupdate240;
 	}
 
 	// Blow up rocket if it's gone too high
-	if (rocketprop->pos.y > 10000.0f) {
+	if (rocketprop->pos.y > (projectile->flymaxaltitude > 0.0f
+			? projectile->flymaxaltitude : 10000.0f)) {
 		rocket->timer240 = 0;
 	}
 
 	// Check if close to an enemy
 	if (ownerchr && rocket->timer240) {
+		/* Slice D: latched unsquared, squared once here (compare stays in
+		 * squared space, matching the OG 250 * 250). */
+		f32 fbwproxradius = projectile->flyproxradius > 0.0f
+			? projectile->flyproxradius : 250.0f;
+		f32 fbwproxradiussq = fbwproxradius * fbwproxradius;
+
 		for (i = 0; i < g_MpNumChrs; i++) {
 			struct chrdata *chr = mpGetChrFromPlayerIndex(i);
 
@@ -6626,7 +6738,7 @@ bool rocketTickFbw(struct weaponobj *rocket)
 				ydist = rocketprop->pos.y - chr->prop->pos.y;
 				zdist = rocketprop->pos.z - chr->prop->pos.z;
 
-				if (xdist * xdist + ydist * ydist + zdist * zdist < 250 * 250) {
+				if (xdist * xdist + ydist * ydist + zdist * zdist < fbwproxradiussq) {
 					rocket->timer240 = 0;
 					break;
 				}
@@ -6652,7 +6764,10 @@ bool rocketTickFbw(struct weaponobj *rocket)
 
 		projectile->losttimer240 += g_Vars.lvupdate240;
 
-		if (projectile->losttimer240 > 8 * TICKS(240)) {
+		/* Slice D: graph lost-target timeout with the OG literal as
+		 * 0-fallback. */
+		if (projectile->losttimer240 > (projectile->flylosttimeout240 > 0
+				? projectile->flylosttimeout240 : 8 * TICKS(240))) {
 			rocket->timer240 = 0;
 		}
 	} else {
@@ -7293,13 +7408,31 @@ s32 projectileTick(struct defaultobj *obj, bool *embedded)
 							static u32 kkd = 20;
 							static u32 kkp = 120;
 
-							mainOverrideVariable("kkg", &kkg);
-							mainOverrideVariable("kkd", &kkd);
-							mainOverrideVariable("kkp", &kkp);
+							if (projectile->hominggain > 0.0f || projectile->homingdamping > 0.0f) {
+								/* c3849 guidance Slice A: graph-authored steering gains,
+								 * latched at spawn (projectileApplyGraphRuntime), so this
+								 * branch is unreachable with Debug.WeaponGraphRuntime off.
+								 * Defaults are the OG composites (kkd/100)*(kkg/100) =
+								 * 0.006 and (kkp/100)*(kkg/100) = 0.036. Uses the
+								 * per-projectile homingpreverr and must NOT write
+								 * var80069bc4: that static is shared by every
+								 * simultaneous homing projectile, and writing it here
+								 * would perturb base rockets steering in the same frame. */
+								f32 gain_eff = projectile->hominggain > 0.0f ? projectile->hominggain : 0.036f;
+								f32 damping_eff = projectile->homingdamping > 0.0f ? projectile->homingdamping : 0.006f;
 
-							tmp = ((kkd / 100.0f * var80069bc4 / LVUPDATE60FREAL()) + (kkp / 100.00f * sp28c * LVUPDATE60FREAL())) * (kkg / 100.000f);
+								tmp = (damping_eff * projectile->homingpreverr / LVUPDATE60FREAL()) + (gain_eff * sp28c * LVUPDATE60FREAL());
 
-							var80069bc4 = sp28c;
+								projectile->homingpreverr = sp28c;
+							} else {
+								mainOverrideVariable("kkg", &kkg);
+								mainOverrideVariable("kkd", &kkd);
+								mainOverrideVariable("kkp", &kkp);
+
+								tmp = ((kkd / 100.0f * var80069bc4 / LVUPDATE60FREAL()) + (kkp / 100.00f * sp28c * LVUPDATE60FREAL())) * (kkg / 100.000f);
+
+								var80069bc4 = sp28c;
+							}
 
 							sp280.x = sp2ec.f[1] * sp290.f[2] - sp2ec.f[2] * sp290.f[1];
 							sp280.y = -(sp2ec.f[0] * sp290.f[2] - sp2ec.f[2] * sp290.f[0]);

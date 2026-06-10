@@ -1841,6 +1841,16 @@ static s32 bgunGraphTicks60To240(s32 ticks60)
 	return TICKS(ticks60 * 4);
 }
 
+/* c3849 Unit 1c: weaponobj timer240 is s16; saturate authored timers over
+ * ~136 seconds instead of overflowing (mirrors propobj.c's clamp). */
+static s32 bgunGraphClampTicks240(s32 ticks240)
+{
+	if (ticks240 > 32767) {
+		return 32767;
+	}
+	return ticks240;
+}
+
 static u32 bgunGetProjectileFlagsFromGraph(u32 fallback,
 		const weapon_graph_held_function_t *graph,
 		const weapon_graph_projectile_runtime_t *projectile)
@@ -1852,6 +1862,12 @@ static u32 bgunGetProjectileFlagsFromGraph(u32 fallback,
 			flags |= FUNCFLAG_PROJECTILE_POWERED;
 		}
 		if (projectile->calculate_trajectory) {
+			flags |= FUNCFLAG_CALCULATETRAJECTORY;
+		}
+		/* c3849 guidance Slice B: a trajectory_correction module implies the
+		 * OG trajectory solve (aim_source/solve_velocity are validate-only;
+		 * the OG backend always crosshair-aims and velocity-solves). */
+		if (projectile->has_trajectory_correction) {
 			flags |= FUNCFLAG_CALCULATETRAJECTORY;
 		}
 		if (projectile->has_homing) {
@@ -2034,7 +2050,8 @@ static void bgunApplyEntityGraphToWeapon(struct weaponobj *weapon,
 	}
 
 	if (hastimer) {
-		weapon->timer240 = bgunGraphTicks60To240(timer60);
+		weapon->timer240 =
+			bgunGraphClampTicks240(bgunGraphTicks60To240(timer60));
 	}
 }
 
@@ -5459,7 +5476,18 @@ struct defaultobj *bgunCreateThrownProjectile(s32 handnum, struct gset *gset)
 		velocity.y = gundir.y * 1.6666666f;
 		velocity.z = gundir.z * 1.6666666f;
 	} else if (gsetHasFunctionFlags(&hand->gset, FUNCFLAG_CALCULATETRAJECTORY)
-			|| (projectilegraph && projectilegraph->calculate_trajectory)) {
+			|| (projectilegraph && projectilegraph->calculate_trajectory)
+			|| (projectilegraph && projectilegraph->has_trajectory_correction)) {
+		/* c3849 guidance Slice B: the OG thrown clamp is 20 degrees
+		 * (0.34901026f). trajectory_max_angle is authored in DEGREES (B6.2
+		 * decision) and converts at use; 0/absent keeps the OG literal. */
+		f32 maxclampangle = 0.34901026f;
+
+		if (projectilegraph && projectilegraph->has_trajectory_correction
+				&& projectilegraph->trajectory_max_angle > 0.0f) {
+			maxclampangle = DEG2RAD(projectilegraph->trajectory_max_angle);
+		}
+
 		// Calculate the velocity based on the trajectory to the aimpos
 		propFindAimingAt(HAND_RIGHT, false, FINDPROPCONTEXT_QUERY);
 
@@ -5472,8 +5500,8 @@ struct defaultobj *bgunCreateThrownProjectile(s32 handnum, struct gset *gset)
 
 			radians = acosf(gundir.f[0] * sp140.f[0] + gundir.f[1] * sp140.f[1] + gundir.f[2] * sp140.f[2]);
 
-			// Check within 20 degrees
-			if (radians > 0.34901026f || radians < -0.34901026f) {
+			// Check within 20 degrees (or the authored clamp)
+			if (radians > maxclampangle || radians < -maxclampangle) {
 				mtx00016b58(&spf8, 0, 0, 0, gundir.x, gundir.y, gundir.z, 0, 1, 0);
 				mtx00016b58(&spb8, 0, 0, 0, sp140.x, sp140.y, sp140.z, 0, 1, 0);
 
@@ -5481,7 +5509,7 @@ struct defaultobj *bgunCreateThrownProjectile(s32 handnum, struct gset *gset)
 				quaternion0f097044(&spb8, sp58);
 				quaternion0f0976c0(sp68, sp58);
 
-				frac = 0.34901025891304f / radians;
+				frac = maxclampangle / radians;
 
 				if (frac < 0.0f) {
 					frac = -frac;
@@ -5750,6 +5778,16 @@ void bgunCreateFiredProjectile(s32 handnum)
 
 			if (gsetHasFunctionFlags(&hand->gset, FUNCFLAG_CALCULATETRAJECTORY)
 					|| (funcflags & FUNCFLAG_CALCULATETRAJECTORY)) {
+				/* c3849 guidance Slice B: the OG fired clamp is 10 degrees
+				 * (0.17450513f). trajectory_max_angle is authored in DEGREES
+				 * (B6.2 decision); 0/absent keeps the OG literal. */
+				f32 maxclampangle = 0.17450513f;
+
+				if (projectilegraph && projectilegraph->has_trajectory_correction
+						&& projectilegraph->trajectory_max_angle > 0.0f) {
+					maxclampangle = DEG2RAD(projectilegraph->trajectory_max_angle);
+				}
+
 				propFindAimingAt(HAND_RIGHT, false, FINDPROPCONTEXT_QUERY);
 
 				if (hand->hasdotinfo) {
@@ -5761,7 +5799,7 @@ void bgunCreateFiredProjectile(s32 handnum)
 
 					radians = acosf(gundir.f[0] * sp1bc.f[0] + gundir.f[1] * sp1bc.f[1] + gundir.f[2] * sp1bc.f[2]);
 
-					if (radians > 0.17450513f || radians < -0.17450513f) {
+					if (radians > maxclampangle || radians < -maxclampangle) {
 						mtx00016b58(&sp174, 0.0f, 0.0f, 0.0f, gundir.x, gundir.y, gundir.z, 0.0f, 1.0f, 0.0f);
 						mtx00016b58(&sp134, 0.0f, 0.0f, 0.0f, sp1bc.x, sp1bc.y, sp1bc.z, 0.0f, 1.0f, 0.0f);
 
@@ -5769,7 +5807,7 @@ void bgunCreateFiredProjectile(s32 handnum)
 						quaternion0f097044(&sp134, spd4);
 						quaternion0f0976c0(spe4, spd4);
 
-						frac = 0.17450513f / radians;
+						frac = maxclampangle / radians;
 
 						if (frac < 0.0f) {
 							frac = -frac;

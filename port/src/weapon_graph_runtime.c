@@ -470,6 +470,80 @@ void weaponGraphRuntimeSetEnabled(s32 enabled)
 	s_runtime_enabled = enabled ? 1 : 0;
 }
 
+/* c3849 Unit 1b (binding spec B2): single explosion-ref table. Values mirror
+ * the EXPLOSIONTYPE_* constants (constants.h:919-940, included above). The
+ * pdeffect class words (tiny/small/medium/...) are legal ONLY inside
+ * .pdeffect graph bodies, never here. Spark refs intentionally have NO base
+ * vocabulary: the OG spark table has no stable authored names worth pinning,
+ * so spark refs stay runtime-resolved through effectGraphResolveSparkType
+ * (fallback verbatim until the Unit 8 effect runtime lands). */
+s32 weaponGraphResolveExplosionRef(const char *ref)
+{
+	static s32 s_warned_alias_small = 0;
+	static s32 s_warned_alias_laptop = 0;
+
+	if (!ref || !ref[0]) {
+		return -1;
+	}
+
+	if (strcmp(ref, "base:explosion_rocket") == 0) {
+		return EXPLOSIONTYPE_ROCKET;
+	}
+	if (strcmp(ref, "base:explosion_huge") == 0) {
+		return EXPLOSIONTYPE_HUGE17;
+	}
+	if (strcmp(ref, "base:explosion_sdgrenade") == 0) {
+		return EXPLOSIONTYPE_SDGRENADE;
+	}
+	if (strcmp(ref, "base:explosion_phoenix") == 0) {
+		return EXPLOSIONTYPE_PHOENIX;
+	}
+	if (strcmp(ref, "base:explosion_dragonbombspy") == 0) {
+		return EXPLOSIONTYPE_DRAGONBOMBSPY;
+	}
+
+	/* Deprecated impact-cluster spellings: accepted, warned once. */
+	if (strcmp(ref, "base:explosion_small") == 0) {
+		if (!s_warned_alias_small) {
+			s_warned_alias_small = 1;
+			sysLogPrintf(LOG_WARNING,
+				"WEAPONGRAPH.PARSE: explosion ref 'base:explosion_small' is deprecated; use 'base:explosion_phoenix'");
+		}
+		return EXPLOSIONTYPE_PHOENIX;
+	}
+	if (strcmp(ref, "base:explosion_laptop") == 0) {
+		if (!s_warned_alias_laptop) {
+			s_warned_alias_laptop = 1;
+			sysLogPrintf(LOG_WARNING,
+				"WEAPONGRAPH.PARSE: explosion ref 'base:explosion_laptop' is deprecated; use the canonical EXPLOSIONTYPE token vocabulary");
+		}
+		return EXPLOSIONTYPE_LAPTOP;
+	}
+
+	return -1;
+}
+
+/* c3849 Unit 1c: rpm -> autogunTickShoot firecount interval. The OG laptop
+ * autogun fires every other firecount tick (1800 rpm baseline = interval 1);
+ * halving the rpm doubles the interval. Clamped to >= 1 so a bad authored
+ * cadence can never divide by zero or stall the gun. */
+s32 weaponGraphAutogunFireInterval(f32 rpm)
+{
+	s32 interval;
+
+	if (rpm <= 0.0f) {
+		return 1;
+	}
+
+	interval = (s32)((1800.0f / rpm) + 0.5f);
+
+	if (interval < 1) {
+		interval = 1;
+	}
+
+	return interval;
+}
+
 static s32 heldIndexValid(s32 weaponnum, s32 funcindex)
 {
 	return weaponnum >= 0 &&
@@ -769,6 +843,11 @@ static s32 graphSubgraphIndex(const weapon_graph_ir_t *ir, const char *id)
 static s32 keyNeedsUnit(const char *key)
 {
 	if (!key || !key[0] || startsWith(key, "runtime_")) return 0;
+	/* c3849 Unit 1c: "timer_starts" is a policy string (on_spawn/on_impact/
+	 * on_attach), not a time value; without this exemption the substring
+	 * heuristic below made the documented projectile.timer key
+	 * uncompilable. */
+	if (strcmp(key, "timer_starts") == 0) return 0;
 	if (strstr(key, "timer") || strstr(key, "duration") ||
 			strstr(key, "cooldown") || strstr(key, "interval") ||
 			strstr(key, "_time") || strstr(key, "recoverytime")) {
@@ -2054,6 +2133,164 @@ static void runtimeCopyIrIdentity(const weapon_graph_ir_t *ir,
 	copyStr(ir_sha256, ir_cap, ir ? ir->ir_sha256 : "");
 }
 
+/* c3849 Unit 1c: string policies latch to s32 enums at registration so no
+ * weaponTick/projectileTick consumer ever strcmps per event (binding spec
+ * B3). Unknown values latch the OG default LOUDLY so authoring mistakes
+ * surface at registration time. */
+static s32 policyLatchUnknown(const char *field, const char *value,
+                              s32 og_default)
+{
+	sysLogPrintf(LOG_WARNING,
+		"WEAPONGRAPH.PARSE: unknown %s '%s'; latching OG default",
+		field, value);
+	return og_default;
+}
+
+static s32 weaponGraphParseTimerStartPolicy(const char *value)
+{
+	if (!value || !value[0] || strcmp(value, "on_spawn") == 0) return 0;
+	if (strcmp(value, "on_impact") == 0) return 1;
+	if (strcmp(value, "on_attach") == 0) return 2;
+	return policyLatchUnknown("timer_starts", value, 0);
+}
+
+static s32 weaponGraphParseTimerExpirePolicy(const char *value)
+{
+	if (!value || !value[0] || strcmp(value, "explode") == 0) return 0;
+	if (strcmp(value, "delete") == 0) return 1;
+	return policyLatchUnknown("timer_on_expire", value, 0);
+}
+
+/* Accepts "down" (the OG Devastator fall) or an explicit "x,y,z" triple;
+ * anything else keeps the pre-set {0,-10,0} default loudly. */
+static void weaponGraphParseFallVector(const char *value, f32 out[3])
+{
+	f32 x;
+	f32 y;
+	f32 z;
+
+	if (!value || !value[0] || strcmp(value, "down") == 0) {
+		return;
+	}
+	if (sscanf(value, " %f , %f , %f", &x, &y, &z) == 3) {
+		out[0] = x;
+		out[1] = y;
+		out[2] = z;
+		return;
+	}
+	policyLatchUnknown("fall_vector", value, 0);
+}
+
+static s32 weaponGraphParseImpactFilterMode(const char *value)
+{
+	if (!value || !value[0] || strcmp(value, "any") == 0) return 0;
+	if (strcmp(value, "background") == 0) return 1;
+	if (strcmp(value, "props") == 0) return 2;
+	if (strcmp(value, "chr") == 0) return 3;
+	return policyLatchUnknown("impact_filter", value, 0);
+}
+
+static s32 weaponGraphParseTrailSmokeType(const char *value)
+{
+	if (!value || !value[0] || strcmp(value, "none") == 0) return -1;
+	if (strcmp(value, "rocket") == 0) return SMOKETYPE_ROCKETTAIL;
+	if (strcmp(value, "homing") == 0) return SMOKETYPE_HOMINGTAIL;
+	if (strcmp(value, "grenade") == 0) return SMOKETYPE_GRENADETAIL;
+	return policyLatchUnknown("trail_type", value, SMOKETYPE_ROCKETTAIL);
+}
+
+/* Mirrors heldResolveSfxParam: catalog refs resolve at registration, and
+ * only an actually-resolved runtime weaponnum is accepted. If the ref names
+ * a weapon that registers later, this stays -1 and the consume site keeps
+ * its OG fallback; the miss is logged so it stays visible. */
+static s32 weaponGraphResolveRecoverWeapon(const char *ref)
+{
+	catalog_weapon_result_t weapon;
+
+	if (!ref || !ref[0]) {
+		return -1;
+	}
+	if (catalogResolveWeapon(ref, &weapon) && weapon.weapon_num > 0) {
+		return weapon.weapon_num;
+	}
+	sysLogPrintf(LOG_NOTE,
+		"WEAPONGRAPH.PARSE: recover_weapon_ref '%s' unresolved at registration; consume site keeps the OG fallback",
+		ref);
+	return -1;
+}
+
+static s32 weaponGraphParseDamageResponseMode(const char *value)
+{
+	if (!value || !value[0] || strcmp(value, "detonate") == 0) return 0;
+	if (strcmp(value, "ignore") == 0) return 1;
+	return policyLatchUnknown("damage_response", value, 0);
+}
+
+static s32 weaponGraphParseProxyTriggerMode(const char *value)
+{
+	if (!value || !value[0] || strcmp(value, "detonate") == 0) return 0;
+	if (strcmp(value, "storm") == 0 || strcmp(value, "create_storm") == 0) {
+		return 1;
+	}
+	return policyLatchUnknown("proxy on_trigger", value, 0);
+}
+
+static s32 weaponGraphParseProxyTargetFilterMode(const char *value)
+{
+	if (!value || !value[0] || strcmp(value, "all") == 0 ||
+			strcmp(value, "any") == 0) {
+		return 0;
+	}
+	if (strcmp(value, "hostile_chr") == 0) return 1;
+	return policyLatchUnknown("proxy target_filter", value, 0);
+}
+
+static s32 weaponGraphParseProxyTeamFilterMode(const char *value)
+{
+	if (!value || !value[0] || strcmp(value, "all") == 0 ||
+			strcmp(value, "any") == 0) {
+		return 0;
+	}
+	if (strcmp(value, "enemy_only") == 0) return 1;
+	return policyLatchUnknown("proxy team_filter", value, 0);
+}
+
+static s32 weaponGraphParseProxyOwnerFilterMode(const char *value)
+{
+	if (!value || !value[0] || strcmp(value, "all") == 0 ||
+			strcmp(value, "any") == 0) {
+		return 0;
+	}
+	if (strcmp(value, "exclude_owner") == 0) return 1;
+	if (strcmp(value, "owner_only") == 0) return 2;
+	return policyLatchUnknown("proxy owner_filter", value, 0);
+}
+
+static s32 weaponGraphParseRemoteSignalMode(const char *value)
+{
+	if (!value || !value[0] || strcmp(value, "detonate") == 0) return 0;
+	return policyLatchUnknown("on_remote_signal", value, 0);
+}
+
+static s32 weaponGraphParseTimedExpireMode(const char *value)
+{
+	if (!value || !value[0] || strcmp(value, "detonate") == 0) return 0;
+	if (strcmp(value, "storm") == 0 || strcmp(value, "create_storm") == 0) {
+		return 1;
+	}
+	if (strcmp(value, "delete") == 0) return 2;
+	return policyLatchUnknown("timed on_expire", value, 0);
+}
+
+static s32 weaponGraphParseTimedStartsMode(const char *value)
+{
+	if (!value || !value[0] || strcmp(value, "thrown") == 0 ||
+			strcmp(value, "armed") == 0) {
+		return 0;
+	}
+	return policyLatchUnknown("timed starts_when", value, 0);
+}
+
 static void projectileRuntimeFromNode(const weapon_graph_ir_t *ir,
                                       const weapon_graph_ir_node_t *node,
                                       weapon_graph_projectile_runtime_t *out)
@@ -2195,6 +2432,10 @@ static void projectileRuntimeFromNode(const weapon_graph_ir_t *ir,
 			&out->wall_fall_threshold);
 		heldParamIntAlias(ir, node, "post_fall_timer60",
 			"post_fall_timer_ticks60", &out->wall_post_fall_timer60);
+		/* c3849 Unit 1c: derived latches (B3). */
+		out->wall_stick_bg_only =
+			strcmp(out->wall_stick_surface_filter, "background") == 0 ? 1 : 0;
+		weaponGraphParseFallVector(out->wall_fall_vector, out->wall_fall_vec);
 		break;
 	case WEAPON_GRAPH_OP_PROJECTILE_STICKY_ATTACH:
 		out->has_sticky_attach = 1;
@@ -2230,6 +2471,11 @@ static void projectileRuntimeFromNode(const weapon_graph_ir_t *ir,
 			sizeof(out->timer_starts));
 		heldParamString(ir, node, "on_expire", out->timer_on_expire,
 			sizeof(out->timer_on_expire));
+		/* c3849 Unit 1c: derived latches (B3). */
+		out->timer_start_policy =
+			weaponGraphParseTimerStartPolicy(out->timer_starts);
+		out->timer_expire_policy =
+			weaponGraphParseTimerExpirePolicy(out->timer_on_expire);
 		break;
 	case WEAPON_GRAPH_OP_PROJECTILE_IMPACT:
 		out->has_impact = 1;
@@ -2243,6 +2489,12 @@ static void projectileRuntimeFromNode(const weapon_graph_ir_t *ir,
 		heldParamBool(ir, node, "consume_on_hit",
 			&out->impact_consume_on_hit);
 		heldParamBool(ir, node, "stick_on_hit", &out->impact_stick_on_hit);
+		/* c3849 Unit 1c: derived latches (B3). Non-base explosion refs stay
+		 * -1 here and resolve at detonation via the effect bridge (B2). */
+		out->impact_filter_mode =
+			weaponGraphParseImpactFilterMode(out->impact_filter);
+		out->impact_exptype =
+			weaponGraphResolveExplosionRef(out->impact_explosion_ref);
 		break;
 	case WEAPON_GRAPH_OP_PROJECTILE_TRAIL:
 		out->has_trail = 1;
@@ -2250,6 +2502,9 @@ static void projectileRuntimeFromNode(const weapon_graph_ir_t *ir,
 			sizeof(out->trail_type));
 		heldParamIntAlias(ir, node, "interval", "interval_ticks60",
 			&out->trail_interval_ticks60);
+		/* c3849 Unit 1c: derived latch (B3). */
+		out->trail_smoketype =
+			weaponGraphParseTrailSmokeType(out->trail_type);
 		break;
 	case WEAPON_GRAPH_OP_PROJECTILE_TRANSITION_TO_ENTITY:
 		out->has_transition_to_entity = 1;
@@ -2274,6 +2529,14 @@ static void projectileRuntimeFromNode(const weapon_graph_ir_t *ir,
 		heldParamString(ir, node, "recover_ammo_policy",
 			out->recover_ammo_policy, sizeof(out->recover_ammo_policy));
 		heldResolveSfxParam(ir, node, "sound", &out->pickup_sound);
+		/* c3849 Unit 1c: derived latches (B3). */
+		out->pickup_owner_only =
+			(strcmp(out->pickup_allowed_owner, "owner") == 0 ||
+			 strcmp(out->pickup_allowed_owner, "owner_only") == 0) ? 1 : 0;
+		out->recover_ammo_none =
+			strcmp(out->recover_ammo_policy, "none") == 0 ? 1 : 0;
+		out->recover_weaponnum =
+			weaponGraphResolveRecoverWeapon(out->recover_weapon_ref);
 		break;
 	default:
 		break;
@@ -2334,6 +2597,12 @@ static void entityRuntimeFromNode(const weapon_graph_ir_t *ir,
 			sizeof(out->damage_response));
 		heldParamBool(ir, node, "delete_on_detonate",
 			&out->delete_on_detonate);
+		/* c3849 Unit 1c: derived latches (B3). Non-base refs stay -1 and
+		 * resolve at detonation via the effect bridge (B2). */
+		out->armed_damage_response_mode =
+			weaponGraphParseDamageResponseMode(out->damage_response);
+		out->armed_exptype =
+			weaponGraphResolveExplosionRef(out->explosion_ref);
 		break;
 	case WEAPON_GRAPH_OP_ENTITY_PROXY_TRIGGER:
 		out->has_proxy_trigger = 1;
@@ -2347,6 +2616,15 @@ static void entityRuntimeFromNode(const weapon_graph_ir_t *ir,
 		heldParamBool(ir, node, "line_of_sight", &out->proxy_line_of_sight);
 		heldParamString(ir, node, "on_trigger", out->proxy_on_trigger,
 			sizeof(out->proxy_on_trigger));
+		/* c3849 Unit 1c: derived latches (B3); 0 = OG (all/detonate). */
+		out->proxy_on_trigger_mode =
+			weaponGraphParseProxyTriggerMode(out->proxy_on_trigger);
+		out->proxy_target_filter_mode =
+			weaponGraphParseProxyTargetFilterMode(out->proxy_target_filter);
+		out->proxy_team_filter_mode =
+			weaponGraphParseProxyTeamFilterMode(out->proxy_team_filter);
+		out->proxy_owner_filter_mode =
+			weaponGraphParseProxyOwnerFilterMode(out->proxy_owner_filter);
 		break;
 	case WEAPON_GRAPH_OP_ENTITY_REMOTE_DETONATABLE:
 		out->has_remote_detonatable = 1;
@@ -2362,6 +2640,9 @@ static void entityRuntimeFromNode(const weapon_graph_ir_t *ir,
 			out->self_attached_policy, sizeof(out->self_attached_policy));
 		heldParamString(ir, node, "on_remote_signal",
 			out->on_remote_signal, sizeof(out->on_remote_signal));
+		/* c3849 Unit 1c: derived latch (B3). */
+		out->remote_signal_mode =
+			weaponGraphParseRemoteSignalMode(out->on_remote_signal);
 		break;
 	case WEAPON_GRAPH_OP_ENTITY_TIMED_DETONATABLE:
 		out->has_timed_detonatable = 1;
@@ -2373,6 +2654,11 @@ static void entityRuntimeFromNode(const weapon_graph_ir_t *ir,
 			sizeof(out->timed_on_expire));
 		heldParamString(ir, node, "pause_policy", out->timed_pause_policy,
 			sizeof(out->timed_pause_policy));
+		/* c3849 Unit 1c: derived latches (B3). */
+		out->timed_on_expire_mode =
+			weaponGraphParseTimedExpireMode(out->timed_on_expire);
+		out->timed_starts_mode =
+			weaponGraphParseTimedStartsMode(out->timed_starts_when);
 		break;
 	case WEAPON_GRAPH_OP_ENTITY_NBOMB_STORM:
 		out->has_nbomb_storm = 1;
@@ -2932,6 +3218,42 @@ fail:
 	return -1;
 }
 
+/* c3849 Unit 1c (binding spec B1 rule 7): a weapon authoring BOTH a
+ * projectile fuse timer and an entity timed_detonatable record would qualify
+ * for two weaponTick arms; the projectile arm wins by chain position. The
+ * check lives at the archive registration seam because it is the only parse
+ * path where the held function and both behavior records are reliably
+ * co-visible (the loose JSON path registers behavior graphs independently,
+ * with no ordering guarantee). Non-gated accessors on purpose: registration
+ * runs with the gameplay toggle in either state. */
+static void weaponGraphWarnTimerOverlap(s32 weaponnum)
+{
+	for (s32 func = 0; func < WEAPON_GRAPH_RUNTIME_MAX_FUNCS; func++) {
+		const weapon_graph_held_function_t *held =
+			weaponGraphRuntimeGetHeldFunction(weaponnum, func);
+		const weapon_graph_projectile_runtime_t *projectile;
+		const weapon_graph_entity_runtime_t *entity;
+
+		if (!held) {
+			continue;
+		}
+
+		projectile = held->projectile_ref[0] ?
+			weaponGraphRuntimeGetProjectile(held->projectile_ref) : NULL;
+		entity = held->entity_ref[0] ?
+			weaponGraphRuntimeGetEntity(held->entity_ref) :
+			(held->payload_ref[0] ?
+				weaponGraphRuntimeGetEntity(held->payload_ref) : NULL);
+
+		if (projectile && projectile->has_timer &&
+				entity && entity->has_timed_detonatable) {
+			sysLogPrintf(LOG_WARNING,
+				"WEAPONGRAPH.PARSE: weapon %d func %d authors both projectile.timer and entity.timed_detonatable; the projectile arm wins (B1 rule 7)",
+				weaponnum, func);
+		}
+	}
+}
+
 s32 weaponGraphRuntimeRegisterWeaponArchive(s32 weaponnum,
                                             const char *archive_path,
                                             char *err, size_t err_cap)
@@ -2949,6 +3271,7 @@ s32 weaponGraphRuntimeRegisterWeaponArchive(s32 weaponnum,
 		weaponGraphRuntimeClearWeapon(weaponnum);
 		return -1;
 	}
+	weaponGraphWarnTimerOverlap(weaponnum);
 	return 0;
 }
 
@@ -3025,6 +3348,16 @@ static s32 weaponGraphRuntimeRegisterProjectileIrOwned(
 		runtime->source_sha256, sizeof(runtime->source_sha256),
 		runtime->ir_sha256, sizeof(runtime->ir_sha256));
 
+	/* c3849 Unit 1c: derived-field defaults must hold even when the source
+	 * node is absent (base-emitted graphs carry records with empty params,
+	 * binding spec B3). Pre-set BEFORE the node loop; parse overrides. */
+	runtime->impact_exptype = -1;
+	runtime->trail_smoketype = -1;
+	runtime->recover_weaponnum = -1;
+	runtime->wall_fall_vec[0] = 0.0f;
+	runtime->wall_fall_vec[1] = -10.0f;
+	runtime->wall_fall_vec[2] = 0.0f;
+
 	for (s32 i = 0; i < ir->node_count; i++) {
 		projectileRuntimeFromNode(ir, &ir->nodes[i], runtime);
 	}
@@ -3081,6 +3414,17 @@ static s32 weaponGraphRuntimeRegisterEntityIrOwned(
 		runtime->graph_id, sizeof(runtime->graph_id),
 		runtime->source_sha256, sizeof(runtime->source_sha256),
 		runtime->ir_sha256, sizeof(runtime->ir_sha256));
+
+	/* c3849 Unit 1c: -1 sentinels BEFORE the heldParam reads. heldParam*
+	 * assigns only when the key is present, so an absent bool param stays
+	 * -1 (OG default) while an authored 0/1 is preserved -- the
+	 * absent-vs-authored-0 disambiguation for the entity-deployed cluster.
+	 * armed_exptype mirrors the projectile-side unresolved convention. */
+	runtime->armed_exptype = -1;
+	runtime->autogun_alternate_muzzles = -1;
+	runtime->autogun_friendly_fire_suppression = -1;
+	runtime->autogun_pickup_recover = -1;
+	runtime->storm_delete_carrier = -1;
 
 	for (s32 i = 0; i < ir->node_count; i++) {
 		entityRuntimeFromNode(ir, &ir->nodes[i], runtime);
