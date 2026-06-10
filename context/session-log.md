@@ -1,5 +1,15 @@
 # Session Log (Active)
 
+## 2026-06-10 - c3849 100% utilization program: Waves 1 + 2a SHIPPED
+
+Mike's ultracode directive: use the measurement audit (context/audits/migration-utilization-measurement-2026-06-10.md) to drive to 100%. Program card c3849 opened (7 waves; Wave 7 = the live-gated flips staged to B-801). Mapping workflows: wkdkezz7v (Wave 1 telemetry + 4 allocators, 5 agents), wmi19i7uk (Wave 3 font + Wave 4 texture emitter, 2 agents -- KEY FINDING: the .pdfont emitter is doubly broken today: wrong segment names (face vs fontface -> zero NTSC archives) AND wrong byte layout (parses raw N64 BE but segs/*.bin are post-preprocess PC-native), so Wave 3 = emitter repair + a ~300-line PGM+metrics->struct-font compiler at textLoadFont; full plan in the workflow output).
+
+SHIPPED Wave 1 (`421ba04c`): asset_fallback_telemetry.{c,h} -- O(1) per-family counters, first-offender snapshot, quiet-when-zero ASSET.FALLBACK aggregate consumed at the lv.c stage-load checkpoint beside catalogAssertHealthy. 15 sites instrumented across mod.c/snd.c/setup.c/tilesreset.c/bg.c/bondgun.c/romdata.c -- abnormal branches ONLY (healthy Pass-C cache reads + uncataloged base routing deliberately uncounted; scenario records gated on scenarioSourceFindEntryForStage != NULL); two formerly-silent sites upgraded to LOUDFAIL.FALLBACK (MP3 raw-ROM, extracted-cache-missing). Client PASS; [catalog][fallback][telemetry] 14/4.
+
+SHIPPED Wave 2a soundnum (`94ede922`): assetcatalog_sound_slots.{c,h} (SND_CUSTOM_* = 0x60A + 0x40, 11-bit soundnum ceiling _Static_assert); allocation at scanner + netdistrib ASSET_AUDIO ingest (gate: sound_id<0 && !MUSIC && file primary; MUSIC excluded because sound_id doubles as tracknum); slot -> ext.audio.sound_id + source_soundnum so the existing reverse index + file-playback chain works with NO native bank growth; snd.c bank-overlap guard; heldResolveSfxParam now rejects sound_id<0 (was silently playing SFX_0000). Client PASS; [catalog][sound][slots] green (168/16 combined run).
+
+REMAINING per the maps (all plans in the wkdkezz7v/wmi19i7uk outputs, file:line-anchored): Wave 2b texnum, 2c animnum (needs custom anim-table row store), 2d stagenum (stageTableAppend has zero callers; mind the Index Domain Warning + wire analysis), Wave 3 font (two-stage: emitter repair + runtime compiler), Wave 4 base-texture emitter (decode via texdecompress at extract time), Wave 5 dead-IR consumers, Wave 6 meta/effects, Wave 7 live flips (B-801).
+
 ## 2026-06-10 - BUILD VERIFIED: the full Needler/B-911/B-912/B-914 stack is green
 
 Mike granted the build-session wrapper permission (the blocker was a session-scoped PowerShell deny the auto-mode classifier honored; his settings files never had one -- the unblock was explicit allow grants via /permissions). Full verification of the six stacked commits:
