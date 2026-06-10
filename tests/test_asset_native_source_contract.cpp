@@ -10,6 +10,10 @@
 #include <sstream>
 #include <string>
 
+/* c3849 Wave 4 Slice B: the ONE shared catalog-id -> filename slug
+ * (header-only static inline), unit-tested behaviorally below. */
+#include "assetcatalog_slug.h"
+
 namespace {
 
 std::string readTextFile(const char *path)
@@ -13946,6 +13950,9 @@ TEST_CASE("c3843 remaining base asset families emit clean native archives",
 	REQUIRE(texture_extractor.find(
 	                "romExtractPdFastCacheWrite(ROMEXTRACT_PDTEXTURE_FAST_CACHE_KIND") !=
 	        std::string::npos);
+	/* c3849 Slice B: boot bind verification (loud TEXTURE.BIND pass) is
+	 * part of the extractor; details pinned in the [c3849][bind] case. */
+	REQUIRE(texture_extractor.find("TEXTURE.BIND") != std::string::npos);
 	REQUIRE(meta.find("s_emitMaterial") != std::string::npos);
 	REQUIRE(meta.find("s_emitSkin") != std::string::npos);
 	REQUIRE(meta.find("s_emitEffect") != std::string::npos);
@@ -14350,8 +14357,16 @@ TEST_CASE("c3843 remaining base asset families emit clean native archives",
 	REQUIRE(runtime.find("entry->ext.font.font_file") != std::string::npos);
 	REQUIRE(runtime.find("entry->ext.font.metrics_file") != std::string::npos);
 	REQUIRE(runtime.find("s_fontSourceComplete") != std::string::npos);
+	/* Slice anchors below start at the binding switch ("switch
+	 * (entry->type)", the established pattern earlier in this file).
+	 * Anchoring at the file's FIRST "case ASSET_FONT:" broke when the
+	 * early type-support switch ("switch (type)") gained an adjacent
+	 * "case ASSET_LANG:" label, shrinking the slice to two lines. */
+	const size_t runtime_binding_switch = runtime.find("switch (entry->type)");
+	REQUIRE(runtime_binding_switch != std::string::npos);
 	{
-		const size_t font_start = runtime.find("case ASSET_FONT:");
+		const size_t font_start = runtime.find("case ASSET_FONT:",
+			runtime_binding_switch);
 		const size_t lang_start = runtime.find("case ASSET_LANG:", font_start);
 		REQUIRE(font_start != std::string::npos);
 		REQUIRE(lang_start != std::string::npos);
@@ -14367,7 +14382,8 @@ TEST_CASE("c3843 remaining base asset families emit clean native archives",
 		        std::string::npos);
 	}
 	{
-		const size_t lang_start = runtime.find("case ASSET_LANG:");
+		const size_t lang_start = runtime.find("case ASSET_LANG:",
+			runtime_binding_switch);
 		const size_t scenario_start = runtime.find("case ASSET_SCENARIO:",
 			lang_start);
 		REQUIRE(lang_start != std::string::npos);
@@ -14573,5 +14589,276 @@ TEST_CASE("typed asset extractors do not leave zip inspection artifacts",
 	const std::string mesh = readTextFile("port/src/romextract_pdmesh.c");
 	REQUIRE(mesh.find("s_removeLegacyZipForMesh") != std::string::npos);
 	REQUIRE(mesh.find("romextract pdmesh: removed stale typed-archive zip") !=
+	        std::string::npos);
+}
+
+/* ========================================================================
+ * c3849 Wave 4 Slice B -- texture boot bind verification.
+ *
+ * texLoad's public-source path sysFatalErrors at FIRST USE of a texture
+ * whose bound .pdtexture archive is missing (mod_texture_source.c), with
+ * zero boot-time detection. romExtractAllPdtexture now ends with a
+ * Gate-5-style verification pass (mirrors B-908): one LOG_WARNING per
+ * miss (catalog id + path) plus a "TEXTURE.BIND: n missing of m" summary.
+ * These pins lock the shape: actual bound handle, "::" split, stat-only
+ * cost, and execution on BOTH the emit and fast-cache skip paths.
+ * ======================================================================== */
+
+TEST_CASE("c3849 Slice B: texture bind verification is loud, cheap, and runs on both paths",
+          "[modding][pdxxx][c3849][texture][bind][static]") {
+	const std::string texture_extractor =
+		readTextFile("port/src/romextract_pdtexture.c");
+
+	/* The pass exists and self-identifies in the log. */
+	REQUIRE(texture_extractor.find("TEXTURE.BIND") != std::string::npos);
+
+	const std::string verify_block =
+		functionBlock(texture_extractor, "static void s_verifyTextureBinds(void)");
+	REQUIRE(!verify_block.empty());
+
+	/* It checks the ACTUAL bound primary handle, not a re-derived path --
+	 * a registration bug that binds the wrong path must be caught too. */
+	REQUIRE(verify_block.find("fileProviderPath(e->source.primary)") !=
+	        std::string::npos);
+	/* Split the bound path at "::" and stat only the archive half. */
+	REQUIRE(verify_block.find("strstr(archive, \"::\")") !=
+	        std::string::npos);
+	REQUIRE(verify_block.find("fsFileSize(archive)") != std::string::npos);
+	/* Cheap by contract: no ZIP opens inside the verification pass. */
+	REQUIRE(verify_block.find("modArchiveOpen") == std::string::npos);
+	/* One LOG_WARNING per miss with catalog id + path, plus the summary. */
+	REQUIRE(verify_block.find("LOG_WARNING") != std::string::npos);
+	REQUIRE(verify_block.find("has no FileProvider primary bound") !=
+	        std::string::npos);
+	REQUIRE(verify_block.find("missing archive") != std::string::npos);
+	REQUIRE(verify_block.find("%d missing of %d") != std::string::npos);
+	REQUIRE(verify_block.find("0 missing of %d") != std::string::npos);
+	/* Same bundled ASSET_TEXTURE predicate as the emit loop. */
+	REQUIRE(verify_block.find("e->type != ASSET_TEXTURE") !=
+	        std::string::npos);
+
+	/* Runs on BOTH paths: the fast-cache skip early-out AND the full emit
+	 * path. The skip path is the one a warm boot takes every time, so
+	 * skipping verification there would defeat the point of the pass. */
+	const std::string extract_all =
+		functionBlock(texture_extractor, "s32 romExtractAllPdtexture");
+	REQUIRE(!extract_all.empty());
+	REQUIRE(countOccurrences(extract_all, "s_verifyTextureBinds();") == 2);
+	requireTokenOrder(extract_all, "fast-cache)",
+		"s_verifyTextureBinds();");
+	requireTokenOrder(extract_all, "romExtractPdFastCacheWrite",
+		"\n\ts_verifyTextureBinds();");
+}
+
+/* ========================================================================
+ * c3849 Wave 4 Slice B -- unified catalog filename slug.
+ *
+ * The emitter names the archive on disk and registration builds the bound
+ * FileProvider primary path; both sides must produce the IDENTICAL slug
+ * or boot completes fine and the first texLoad of the divergent texture
+ * is fatal. Slice B unified the texture pair onto the shared
+ * catalogIdToFilenameSlug (port/include/assetcatalog_slug.h). The
+ * remaining private copy in romextract_pdmeta.c (used by the non-texture
+ * meta families that assetcatalog_base_extended.c also binds) is pinned
+ * byte-identical to the shared body below.
+ * ======================================================================== */
+
+TEST_CASE("c3849 Slice B: shared catalog filename slug produces stable slugs",
+          "[modding][pdxxx][c3849][slug]") {
+	char out[64];
+
+	/* Separators (':' '/' '\\') map to '_'; everything else verbatim. */
+	catalogIdToFilenameSlug("base:texture_0000", out, sizeof(out));
+	REQUIRE(std::string(out) == "base_texture_0000");
+
+	catalogIdToFilenameSlug("base:weapon/falcon\\mk2", out, sizeof(out));
+	REQUIRE(std::string(out) == "base_weapon_falcon_mk2");
+
+	/* Case and dots are PRESERVED -- the slug is not lowercased, and any
+	 * future "improvement" is a re-emit migration for existing installs. */
+	catalogIdToFilenameSlug("Base:TeX/SubDir\\Name.01", out, sizeof(out));
+	REQUIRE(std::string(out) == "Base_TeX_SubDir_Name.01");
+
+	/* All-separator input. */
+	catalogIdToFilenameSlug(":/\\", out, sizeof(out));
+	REQUIRE(std::string(out) == "___");
+
+	/* Empty and NULL ids produce the empty slug, never garbage. */
+	memset(out, 'x', sizeof(out));
+	catalogIdToFilenameSlug("", out, sizeof(out));
+	REQUIRE(out[0] == '\0');
+	memset(out, 'x', sizeof(out));
+	catalogIdToFilenameSlug(NULL, out, sizeof(out));
+	REQUIRE(out[0] == '\0');
+
+	/* Long ids truncate to out_n - 1 plus NUL (catalog ids are capped at
+	 * CATALOG_ID_LEN 64, same as this buffer). */
+	const std::string long_id =
+		"base:" + std::string(90, 'a') + ":tail";
+	catalogIdToFilenameSlug(long_id.c_str(), out, sizeof(out));
+	REQUIRE(std::strlen(out) == sizeof(out) - 1);
+	REQUIRE(std::string(out) == "base_" + std::string(58, 'a'));
+
+	/* Degenerate buffer sizes stay safe. */
+	char tiny[1];
+	tiny[0] = 'x';
+	catalogIdToFilenameSlug("base:texture_0000", tiny, sizeof(tiny));
+	REQUIRE(tiny[0] == '\0');
+	catalogIdToFilenameSlug("base:texture_0000", NULL, 0);
+}
+
+TEST_CASE("c3849 Slice B: filename slug is unified for the texture pair and pinned elsewhere",
+          "[modding][pdxxx][c3849][slug][static]") {
+	const std::string slug_header =
+		readTextFile("port/include/assetcatalog_slug.h");
+	const std::string texture_extractor =
+		readTextFile("port/src/romextract_pdtexture.c");
+	const std::string base =
+		readTextFile("port/src/assetcatalog_base_extended.c");
+	const std::string meta = readTextFile("port/src/romextract_pdmeta.c");
+
+	/* The texture pair (emitter archive name + bound primary path) calls
+	 * the ONE shared helper; the private copies are gone. */
+	REQUIRE(texture_extractor.find("#include \"assetcatalog_slug.h\"") !=
+	        std::string::npos);
+	REQUIRE(base.find("#include \"assetcatalog_slug.h\"") !=
+	        std::string::npos);
+	REQUIRE(texture_extractor.find("s_idToFilenameSlug") ==
+	        std::string::npos);
+	REQUIRE(base.find("s_catalogIdToFilenameSlug") == std::string::npos);
+	{
+		const std::string rel_path_block =
+			functionBlock(texture_extractor, "static void s_archiveRelPath");
+		REQUIRE(rel_path_block.find(
+		                "catalogIdToFilenameSlug(id, slug, sizeof(slug))") !=
+		        std::string::npos);
+		const std::string member_path_block =
+			functionBlock(base, "static void s_buildArchiveMemberPath");
+		REQUIRE(member_path_block.find(
+		                "catalogIdToFilenameSlug(id, slug, sizeof(slug))") !=
+		        std::string::npos);
+	}
+
+	/* romextract_pdmeta.c keeps a private s_idToFilenameSlug for the
+	 * non-texture meta families (out of Slice B's allowed surface); those
+	 * archives are ALSO bound by s_buildArchiveMemberPath, so its body
+	 * must stay byte-identical to the shared helper. Drift here is the
+	 * same boot-fine-then-fatal failure the unification removed for
+	 * textures. Fix drift by re-pointing pdmeta at assetcatalog_slug.h,
+	 * not by editing either body in place. */
+	const auto bracedBody = [](const std::string &text, const char *name) {
+		const std::string block = functionBlock(text, name);
+		const size_t brace = block.find('{');
+		if (brace == std::string::npos) {
+			return std::string();
+		}
+		return block.substr(brace);
+	};
+	const std::string shared_body = bracedBody(slug_header,
+		"static inline void catalogIdToFilenameSlug");
+	const std::string meta_body = bracedBody(meta,
+		"static void s_idToFilenameSlug");
+	REQUIRE(!shared_body.empty());
+	REQUIRE(!meta_body.empty());
+	REQUIRE(shared_body == meta_body);
+}
+
+/* ------------------------------------------------------------------------
+ * c3849 Wave 6a (Unit 10) -- meta-family runtime consumers.
+ *
+ * Three existing native systems now read assetRuntimeFind* records:
+ * botprofile (mpCreateBotFromProfile + the simulant menu apply site),
+ * gamemode (scenarioCtxAccepts team filter), and theme
+ * (register_catalog_theme_entry path resolution). Values are identical
+ * to the native mirrors, so no gates -- but every consumer keeps a
+ * logged native fallback (RUNTIME_MISS, once per session), never a hard
+ * dependence on binding presence.
+ * ---------------------------------------------------------------------- */
+
+TEST_CASE("c3849 Wave 6a: meta-family runtime consumers feed native systems",
+          "[modding][pdxxx][runtime][c3849][meta][static]") {
+	const std::string mplayer = readTextFile("src/game/mplayer/mplayer.c");
+	const std::string setup = readTextFile("src/game/mplayer/setup.c");
+	const std::string scenarios = readTextFile("src/game/mplayer/scenarios.c");
+	const std::string theme_loader =
+		readTextFile("port/fast3d/pdgui_theme_loader.cpp");
+	const std::string mplayer_h =
+		readTextFile("src/include/game/mplayer/mplayer.h");
+
+	/* Shared helper is declared in the header both consumers include. */
+	REQUIRE(mplayer_h.find(
+		"const struct asset_runtime_binding *mpBotProfileRuntimeBinding(s32 profilenum)") !=
+		std::string::npos);
+
+	/* botprofile helper: catalogIdByRuntime -> assetRuntimeFindByTypeAndId,
+	 * once-per-session miss warning, NULL -> caller uses g_BotProfiles. */
+	const std::string helper = functionBlock(mplayer,
+		"const struct asset_runtime_binding *mpBotProfileRuntimeBinding");
+	REQUIRE(!helper.empty());
+	REQUIRE(helper.find("catalogIdByRuntime(ASSET_BOT_PROFILE") !=
+	        std::string::npos);
+	REQUIRE(helper.find("assetRuntimeFindByTypeAndId(ASSET_BOT_PROFILE") !=
+	        std::string::npos);
+	REQUIRE(helper.find("CATALOG.BOTPROFILE.RUNTIME_MISS") !=
+	        std::string::npos);
+	REQUIRE(helper.find("LOG_WARNING") != std::string::npos);
+
+	/* mpCreateBotFromProfile consumes binding values with native fallback. */
+	const std::string create =
+		functionBlock(mplayer, "void mpCreateBotFromProfile");
+	REQUIRE(!create.empty());
+	REQUIRE(create.find("assetRuntimeFindByTypeAndId") != std::string::npos);
+	REQUIRE(create.find("mpBotProfileRuntimeBinding(profilenum)") !=
+	        std::string::npos);
+	REQUIRE(create.find("bot_profile_type") != std::string::npos);
+	REQUIRE(create.find("bot_profile_difficulty") != std::string::npos);
+	REQUIRE(create.find("bot_profile_body") != std::string::npos);
+	REQUIRE(create.find("g_BotProfiles[profilenum].type") !=
+	        std::string::npos);
+	REQUIRE(create.find("g_BotProfiles[profilenum].difficulty") !=
+	        std::string::npos);
+	REQUIRE(create.find("g_BotProfiles[profilenum].body") !=
+	        std::string::npos);
+
+	/* Simulant menu apply site consumes the same helper with the same
+	 * native fallback. */
+	REQUIRE(setup.find("mpBotProfileRuntimeBinding(profnum)") !=
+	        std::string::npos);
+	REQUIRE(setup.find("profile->bot_profile_type") != std::string::npos);
+	REQUIRE(setup.find(
+		"g_BotConfigsArray[botnum].type = g_BotProfiles[profnum].type") !=
+		std::string::npos);
+	REQUIRE(setup.find("g_BotProfiles[profnum].difficulty") !=
+	        std::string::npos);
+
+	/* gamemode: scenarioCtxAccepts prefers binding->gamemode_team_based,
+	 * native ext fallback after a once-per-session warning. min/max
+	 * players stay UNWIRED (net-new enforcement, excluded). */
+	const std::string accepts =
+		functionBlock(scenarios, "static bool scenarioCtxAccepts");
+	REQUIRE(!accepts.empty());
+	REQUIRE(accepts.find("assetRuntimeFindByTypeAndId(ASSET_GAMEMODE") !=
+	        std::string::npos);
+	REQUIRE(accepts.find("gamemode_team_based") != std::string::npos);
+	REQUIRE(accepts.find("CATALOG.GAMEMODE.RUNTIME_MISS") !=
+	        std::string::npos);
+	REQUIRE(accepts.find("e->ext.gamemode.team_based") !=
+	        std::string::npos);
+	REQUIRE(accepts.find("gamemode_min_players") == std::string::npos);
+	REQUIRE(accepts.find("gamemode_max_players") == std::string::npos);
+
+	/* theme: register_catalog_theme_entry prefers binding paths, falls
+	 * back to the entry's native source resolution, and warns once per
+	 * session when an enabled catalog theme entry has no binding. */
+	const std::string theme_reg =
+		functionBlock(theme_loader, "register_catalog_theme_entry");
+	REQUIRE(!theme_reg.empty());
+	REQUIRE(theme_reg.find("assetRuntimeFindByTypeAndId(ASSET_THEME") !=
+	        std::string::npos);
+	REQUIRE(theme_reg.find("binding->primary_path") != std::string::npos);
+	REQUIRE(theme_reg.find("binding->authored_file") != std::string::npos);
+	REQUIRE(theme_reg.find("CATALOG.THEME.RUNTIME_MISS") !=
+	        std::string::npos);
+	REQUIRE(theme_reg.find("fileProviderPath(entry->source.primary)") !=
 	        std::string::npos);
 }

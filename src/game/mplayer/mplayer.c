@@ -37,6 +37,7 @@
 #include "net/netmanifest.h"
 #include "mpsetups.h"
 #include "assetcatalog.h"
+#include "asset_runtime.h"  /* c3849 Wave 6a: botprofile meta-family consumer */
 #include "catalog_mgr_heads.h"  /* Catalog Gate 3 F6: random-gender pool helpers */
 #include "modelcatalog.h"
 #include "audio.h"
@@ -3667,6 +3668,48 @@ static void s_mpCollectBotHead(const asset_entry_t *e, void *userdata)
 	ctx->count++;
 }
 
+/* c3849 Wave 6a (Unit 10): botprofile meta-family runtime consumer.
+ *
+ * Resolves the catalog runtime binding for a g_BotProfiles[] index:
+ * catalogIdByRuntime(ASSET_BOT_PROFILE, profilenum) maps the runtime
+ * slot to a catalog id, then assetRuntimeFindByTypeAndId returns the
+ * activated binding. Base profiles mirror g_BotProfiles[] exactly
+ * (registered in assetcatalog_base_extended.c, copied verbatim by
+ * assetRuntimeActivateCatalogEntry), so consumers may use binding
+ * values directly without a gate.
+ *
+ * Binding presence is NOT guaranteed -- the bundled preload requires a
+ * fileProvider primary -- so this is never a hard dependence: on miss
+ * we log CATALOG.BOTPROFILE.RUNTIME_MISS once per session and return
+ * NULL, and callers fall back to g_BotProfiles[]. */
+const struct asset_runtime_binding *mpBotProfileRuntimeBinding(s32 profilenum)
+{
+	static bool warned = false;
+	const char *asset_id;
+	const asset_runtime_binding_t *binding;
+
+	if (profilenum < 0 || profilenum >= (s32)ARRAYCOUNT(g_BotProfiles)) {
+		return NULL;
+	}
+
+	asset_id = catalogIdByRuntime(ASSET_BOT_PROFILE, profilenum);
+	binding = asset_id
+		? assetRuntimeFindByTypeAndId(ASSET_BOT_PROFILE, asset_id)
+		: NULL;
+
+	if (!binding) {
+		if (!warned) {
+			warned = true;
+			sysLogPrintf(LOG_WARNING,
+				"CATALOG.BOTPROFILE.RUNTIME_MISS: profile %d (id %s) has no runtime binding; using g_BotProfiles",
+				profilenum, asset_id ? asset_id : "(none)");
+		}
+		return NULL;
+	}
+
+	return binding;
+}
+
 void mpCreateBotFromProfile(s32 botnum, u8 profilenum)
 {
 	s32 headnum = 0;
@@ -3674,8 +3717,17 @@ void mpCreateBotFromProfile(s32 botnum, u8 profilenum)
 	u8 team = mpFindUnusedTeamNum();
 	s32 i;
 
-	g_BotConfigsArray[botnum].type = g_BotProfiles[profilenum].type;
-	g_BotConfigsArray[botnum].difficulty = g_BotProfiles[profilenum].difficulty;
+	/* c3849 Wave 6a: profile values come from the catalog runtime binding
+	 * (catalogIdByRuntime -> assetRuntimeFindByTypeAndId inside
+	 * mpBotProfileRuntimeBinding); value-identical to g_BotProfiles[] for
+	 * base profiles, with a logged native fallback on binding miss. */
+	const struct asset_runtime_binding *profile = mpBotProfileRuntimeBinding(profilenum);
+	s32 profiletype = profile ? profile->bot_profile_type : g_BotProfiles[profilenum].type;
+	s32 profilediff = profile ? profile->bot_profile_difficulty : g_BotProfiles[profilenum].difficulty;
+	s32 profilebody = profile ? profile->bot_profile_body : g_BotProfiles[profilenum].body;
+
+	g_BotConfigsArray[botnum].type = (u8)profiletype;
+	g_BotConfigsArray[botnum].difficulty = (u8)profilediff;
 
 	for (i = 0; i < MAX_PLAYERS; i++) {
 		g_MpSimulantDifficultiesPerNumPlayers[botnum][i] = g_BotConfigsArray[botnum].difficulty;
@@ -3729,7 +3781,7 @@ void mpCreateBotFromProfile(s32 botnum, u8 profilenum)
 		g_BotConfigsArray[botnum].base.head_id[0] = '\0';
 	}
 	{
-		const char *cid = catalogMpBodyId(g_BotProfiles[profilenum].body);
+		const char *cid = catalogMpBodyId(profilebody);
 		if (cid) {
 			strncpy(g_BotConfigsArray[botnum].base.body_id, cid,
 				sizeof(g_BotConfigsArray[botnum].base.body_id) - 1);
@@ -3740,7 +3792,7 @@ void mpCreateBotFromProfile(s32 botnum, u8 profilenum)
 	}
 	/* DERIVED: set deprecated integer indices */
 	g_BotConfigsArray[botnum].base.mpheadnum = (u8)headnum;
-	g_BotConfigsArray[botnum].base.mpbodynum = g_BotProfiles[profilenum].body;
+	g_BotConfigsArray[botnum].base.mpbodynum = (u8)profilebody;
 }
 
 void mpSetBotDifficulty(s32 botnum, s32 difficulty)

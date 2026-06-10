@@ -1190,3 +1190,125 @@ TEST_CASE("asset runtime adapters reject file-backed families without accessible
 	REQUIRE(str(botBinding->authored_file) == "profile.json");
 	REQUIRE(str(botBinding->target_id) == "base:body_training");
 }
+
+/* c3849 Wave 6a (Unit 10): value-identity proof for the meta-family
+ * consumers. The new consumers (mpCreateBotFromProfile / the simulant
+ * menu apply site, scenarioCtxAccepts, register_catalog_theme_entry) are
+ * UNGATED, which is acceptable only because binding values are identical
+ * to the native mirrors. These tests activate entries built from
+ * native-shaped ext fields and require the binding fields to equal the
+ * inputs exactly (critic ruling: value-identity assertions ship in the
+ * same commit as the consumers). */
+TEST_CASE("c3849 meta-family bindings are value-identical to native-shaped inputs",
+          "[modding][pdxxx][runtime][c3849][adapters]") {
+	assetRuntimeReset();
+
+	/* gamemode rows shaped like the base mirrors of
+	 * s_BaseGameModes[] / g_MpScenarioOverviews[]: Combat (mode 0) is
+	 * free-for-all, King of the Hill (mode 4) and Capture the Case
+	 * (mode 5) are team-only. */
+	struct gamemode_row {
+		const char *id;
+		s32 mode_id;
+		s32 team_based;
+		s32 min_players;
+		s32 max_players;
+		s32 requirefeature;
+	};
+	const gamemode_row modes[] = {
+		{ "base:gamemode_combat", 0, 0, 2, 12, 0 },
+		{ "base:gamemode_king_of_the_hill", 4, 1, 2, 12, 20 },
+		{ "base:gamemode_capture_the_case", 5, 1, 2, 12, 21 },
+	};
+	for (const gamemode_row &row : modes) {
+		asset_entry_t mode;
+		initEntry(mode, ASSET_GAMEMODE, row.id);
+		mode.ext.gamemode.mode_id = row.mode_id;
+		mode.ext.gamemode.team_based = row.team_based;
+		mode.ext.gamemode.min_players = row.min_players;
+		mode.ext.gamemode.max_players = row.max_players;
+		mode.ext.gamemode.requirefeature = row.requirefeature;
+		std::strncpy(mode.ext.gamemode.rules_file, "rules.json",
+			sizeof(mode.ext.gamemode.rules_file) - 1);
+		REQUIRE(assetRuntimeActivateCatalogEntry(&mode,
+			"data/ntsc-final/gamemodes/test.pdgamemode::rules.json") == 1);
+
+		const asset_runtime_binding_t *binding =
+			assetRuntimeFindByTypeAndId(ASSET_GAMEMODE, row.id);
+		REQUIRE(binding != nullptr);
+		/* The consumer field: scenarioCtxAccepts reads
+		 * binding->gamemode_team_based in place of
+		 * ext.gamemode.team_based. */
+		REQUIRE(binding->gamemode_team_based == row.team_based);
+		REQUIRE(binding->runtime_id == row.mode_id);
+		REQUIRE(binding->gamemode_min_players == row.min_players);
+		REQUIRE(binding->gamemode_max_players == row.max_players);
+		REQUIRE(binding->gamemode_requirefeature == row.requirefeature);
+	}
+
+	/* botprofile rows shaped like g_BotProfiles[] (u8 type, u8 difficulty,
+	 * s16 body, s16 name, u8 requirefeature), covering a plain GENERAL
+	 * bot, a feature-locked DARK bot, and a special (non-GENERAL) type. */
+	struct botprofile_row {
+		const char *id;
+		s32 type;
+		s32 difficulty;
+		s32 body;
+		s32 name_langid;
+		s32 requirefeature;
+	};
+	const botprofile_row bots[] = {
+		{ "base:bot_meat", 0, 0, 4, 5570, 0 },
+		{ "base:bot_dark", 0, 5, 10, 5575, 8 },
+		{ "base:bot_venge", 13, 0, 22, 5587, 0 },
+	};
+	for (const botprofile_row &row : bots) {
+		asset_entry_t bot;
+		initEntry(bot, ASSET_BOT_PROFILE, row.id);
+		bot.ext.bot_profile.type = row.type;
+		bot.ext.bot_profile.difficulty = row.difficulty;
+		bot.ext.bot_profile.body = row.body;
+		bot.ext.bot_profile.name_langid = row.name_langid;
+		bot.ext.bot_profile.requirefeature = row.requirefeature;
+		std::strncpy(bot.ext.bot_profile.profile_file, "profile.json",
+			sizeof(bot.ext.bot_profile.profile_file) - 1);
+		REQUIRE(assetRuntimeActivateCatalogEntry(&bot,
+			"data/ntsc-final/botprofiles/test.pdbotprofile::profile.json") == 1);
+
+		const asset_runtime_binding_t *binding =
+			assetRuntimeFindByTypeAndId(ASSET_BOT_PROFILE, row.id);
+		REQUIRE(binding != nullptr);
+		/* The consumer fields: mpBotProfileRuntimeBinding callers read
+		 * bot_profile_type / _difficulty / _body in place of the
+		 * g_BotProfiles[] row. */
+		REQUIRE(binding->bot_profile_type == row.type);
+		REQUIRE(binding->bot_profile_difficulty == row.difficulty);
+		REQUIRE(binding->bot_profile_body == row.body);
+		REQUIRE(binding->bot_profile_name_langid == row.name_langid);
+		REQUIRE(binding->bot_profile_requirefeature == row.requirefeature);
+	}
+
+	/* theme entry shaped like the loader's builtin registration
+	 * (ext.theme.theme_file = archive member path, also the primary).
+	 * register_catalog_theme_entry prefers binding->primary_path and
+	 * falls back to binding->authored_file; both must mirror inputs. */
+	{
+		asset_entry_t theme;
+		initEntry(theme, ASSET_THEME, "base:theme_blue");
+		std::strncpy(theme.ext.theme.theme_file,
+			"data/ntsc-final/themes/base_theme_blue.pdtheme::theme.json",
+			sizeof(theme.ext.theme.theme_file) - 1);
+		REQUIRE(assetRuntimeActivateCatalogEntry(&theme,
+			theme.ext.theme.theme_file) == 1);
+
+		const asset_runtime_binding_t *binding =
+			assetRuntimeFindByTypeAndId(ASSET_THEME, "base:theme_blue");
+		REQUIRE(binding != nullptr);
+		REQUIRE(str(binding->primary_path) ==
+			"data/ntsc-final/themes/base_theme_blue.pdtheme::theme.json");
+		REQUIRE(str(binding->authored_file) ==
+			"data/ntsc-final/themes/base_theme_blue.pdtheme::theme.json");
+	}
+
+	assetRuntimeReset();
+}

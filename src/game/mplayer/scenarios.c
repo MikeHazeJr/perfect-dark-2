@@ -39,6 +39,7 @@
 #include "data.h"
 #include "types.h"
 #include "assetcatalog.h"   /* catalog universality sweep (2026-04-27) */
+#include "asset_runtime.h"  /* c3849 Wave 6a: gamemode meta-family consumer */
 
 /**
  * There are six multiplayer scenarios:
@@ -351,11 +352,36 @@ struct scenario_pick_ctx {
 
 static bool scenarioCtxAccepts(const asset_entry_t *e, const struct scenario_pick_ctx *ctx)
 {
+	s32 team_based;
+
 	if (!scenarioIndexIsValid(e->ext.gamemode.mode_id)) {
 		return false;
 	}
 
-	if (!ctx->teamgame && e->ext.gamemode.team_based) {
+	/* c3849 Wave 6a: prefer the catalog runtime binding's
+	 * gamemode_team_based (value-identical to ext for base entries,
+	 * copied by assetRuntimeActivateCatalogEntry). Binding presence is
+	 * not guaranteed (preload needs a fileProvider primary), so fall
+	 * back to the native ext mirror with a once-per-session warning.
+	 * This runs per menu frame -- never warn per call. */
+	{
+		const asset_runtime_binding_t *binding =
+			assetRuntimeFindByTypeAndId(ASSET_GAMEMODE, e->id);
+		if (binding) {
+			team_based = binding->gamemode_team_based;
+		} else {
+			static bool warned = false;
+			if (!warned) {
+				warned = true;
+				sysLogPrintf(LOG_WARNING,
+					"CATALOG.GAMEMODE.RUNTIME_MISS: '%s' has no runtime binding; using ext.gamemode.team_based",
+					e->id);
+			}
+			team_based = e->ext.gamemode.team_based;
+		}
+	}
+
+	if (!ctx->teamgame && team_based) {
 		return false;
 	}
 	return true;

@@ -33,6 +33,7 @@
 #include "pdgui_fontmgr.h"
 #include "pdgui_font_mod.h"   /* S305 P4: theme → font-mod bundling */
 #include "assetcatalog.h"
+#include "asset_runtime.h"    /* c3849 Wave 6a: theme meta-family consumer */
 #include "asset_archive_writer.h"
 #include "boot_progress.h"
 #include "config.h"
@@ -1617,8 +1618,39 @@ static void register_catalog_theme_entry(const asset_entry_t *entry, void *userd
         return;
     }
 
+    /* c3849 Wave 6a: prefer the catalog runtime binding's resolved paths.
+     * Activation ordering: pdguiThemeLoaderInit runs at pdguiInit time
+     * (main.c), BEFORE the boot worker's catalogLoadInit bundled preload
+     * creates theme bindings via assetRuntimeActivateCatalogEntry -- so
+     * at init this scan sees no catalog-only entries (the 7 builtins are
+     * filtered by find_entry above) and no bindings. The binding path is
+     * live on pdguiThemeRescanMods (mod apply / theme editor save), which
+     * runs after catalogLoadInit has activated the entries. Tolerate both
+     * orders: a missing binding falls back to the entry's native source
+     * resolution below, with a once-per-session warning for enabled
+     * entries. binding->primary_path is value-identical to
+     * fileProviderPath(entry->source.primary) (entryGetFilePath). */
     const char *theme_path = nullptr;
-    if (entry->source.primary.provider == fileProvider()) {
+    const asset_runtime_binding_t *binding =
+        assetRuntimeFindByTypeAndId(ASSET_THEME, entry->id);
+    if (binding) {
+        if (binding->primary_path[0]) {
+            theme_path = binding->primary_path;
+        } else if (binding->authored_file[0]) {
+            theme_path = binding->authored_file;
+        }
+    } else if (entry->enabled) {
+        static bool s_WarnedThemeRuntimeMiss = false;
+        if (!s_WarnedThemeRuntimeMiss) {
+            s_WarnedThemeRuntimeMiss = true;
+            sysLogPrintf(LOG_WARNING,
+                "CATALOG.THEME.RUNTIME_MISS: enabled catalog theme '%s' has no runtime binding; using native source resolution",
+                entry->id);
+        }
+    }
+
+    if ((!theme_path || !theme_path[0])
+            && entry->source.primary.provider == fileProvider()) {
         theme_path = fileProviderPath(entry->source.primary);
     }
     if (!theme_path || !theme_path[0]) {

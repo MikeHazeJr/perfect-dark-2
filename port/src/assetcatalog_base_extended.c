@@ -38,6 +38,7 @@
 #include "catalog_readable_ids.h"
 #include "files.h"
 #include "assetcatalog.h"
+#include "assetcatalog_slug.h"
 #include "fs.h"          /* Phase 3 Pass B: fsFullPath probe of extracted file */
 #include "loader_enum_reverse.h"
 #include "romextract.h"  /* Phase 3 Pass B: romExtractRelPathForFilenum */
@@ -104,19 +105,11 @@ static void s_makeReadableCatalogIdUnique(char ids[][CATALOG_ID_LEN],
 	snprintf(id, id_n, "%s_variant_%s", base, alpha);
 }
 
-static void s_catalogIdToFilenameSlug(const char *id, char *out, size_t out_n)
-{
-	if (!out || out_n == 0) return;
-	out[0] = '\0';
-	if (!id) return;
-	size_t j = 0;
-	for (size_t i = 0; id[i] && j + 1 < out_n; i++) {
-		char c = id[i];
-		out[j++] = (c == ':' || c == '/' || c == '\\') ? '_' : c;
-	}
-	out[j] = '\0';
-}
-
+/* c3849 Wave 4 Slice B: the bound primary path's slug now comes from the
+ * shared catalogIdToFilenameSlug (assetcatalog_slug.h), the same body the
+ * .pdtexture emitter names archives with -- drift between the bound path
+ * and the on-disk archive name (fatal at first texLoad) is structurally
+ * impossible. */
 static void s_buildArchiveMemberPath(const char *dir, const char *id,
 	const char *ext, const char *member, char *out, size_t out_n)
 {
@@ -124,7 +117,7 @@ static void s_buildArchiveMemberPath(const char *dir, const char *id,
 	out[0] = '\0';
 	char slug[CATALOG_ID_LEN];
 	char rel[FS_MAXPATH];
-	s_catalogIdToFilenameSlug(id, slug, sizeof(slug));
+	catalogIdToFilenameSlug(id, slug, sizeof(slug));
 	snprintf(rel, sizeof(rel), "%s/%s%s::%s", dir, slug, ext, member);
 	fsDataPathFor(rel, out, out_n);
 }
@@ -1162,7 +1155,7 @@ s32 assetCatalogRegisterBaseGameExtended(void)
 			const char *model_id = catalogModelIdByModelnum(s_BaseVehicles[i].modelnum);
 			if (model_id && model_id[0]) {
 				char model_slug[CATALOG_ID_LEN];
-				s_catalogIdToFilenameSlug(model_id, model_slug, sizeof(model_slug));
+				catalogIdToFilenameSlug(model_id, model_slug, sizeof(model_slug));
 				snprintf(e->ext.vehicle.model_file,
 					sizeof(e->ext.vehicle.model_file),
 					"dependencies/assets/models/%s.pdmesh", model_slug);

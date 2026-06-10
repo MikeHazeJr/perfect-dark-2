@@ -37,6 +37,7 @@
 
 #include "asset_archive_writer.h"
 #include "assetcatalog.h"
+#include "assetcatalog_slug.h"
 #include "boot_progress.h"
 #include "constants.h"
 #include "fs.h"
@@ -61,30 +62,16 @@ static const u8 k_Transparent1x1Png[] = {
 	0xae, 0x42, 0x60, 0x82,
 };
 
-/* Per-file private copy (established emitter convention). Must stay
- * byte-identical in behavior to s_catalogIdToFilenameSlug in
- * assetcatalog_base_extended.c -- drift means the bound primary path and
- * the emitted archive name diverge, which is fatal at first texLoad. */
-static void s_idToFilenameSlug(const char *id, char *out, size_t out_n)
-{
-	if (!out || out_n == 0) return;
-	out[0] = '\0';
-	if (!id) return;
-	size_t j = 0;
-	for (size_t i = 0; id[i] && j + 1 < out_n; i++) {
-		char c = id[i];
-		out[j++] = (c == ':' || c == '/' || c == '\\') ? '_' : c;
-	}
-	out[j] = '\0';
-}
-
+/* Slice B: archive name and bound primary path both come from the shared
+ * catalogIdToFilenameSlug (assetcatalog_slug.h) -- the per-file private
+ * slug copy is gone, so emitter/binding drift is structurally impossible. */
 static void s_archiveRelPath(const char *dir, const char *id,
 	const char *ext, char *out, size_t out_n)
 {
 	if (!out || out_n == 0) return;
 	out[0] = '\0';
 	char slug[CATALOG_ID_LEN];
-	s_idToFilenameSlug(id, slug, sizeof(slug));
+	catalogIdToFilenameSlug(id, slug, sizeof(slug));
 	snprintf(out, out_n, "%s/%s%s", dir, slug, ext);
 }
 
@@ -261,6 +248,64 @@ static s32 s_emitTexture(const asset_entry_t *e, const char *out_dir,
 	return s_finishWriter(aw, &writer, relpath);
 }
 
+/* c3849 Wave 4 Slice B: boot bind verification (Gate-5 style, mirrors
+ * B-908). texLoad's public-source path sysFatalErrors at FIRST USE when a
+ * bound .pdtexture archive is missing (mod_texture_source.c), with zero
+ * boot-time detection -- a miss here is boot-completes-fine-then-fatal
+ * mid-game. This pass surfaces every miss loudly at boot instead.
+ *
+ * Cheap by design: split each bundled ASSET_TEXTURE row's bound primary
+ * path at "::" and fsFileSize only the archive half (a VFS central-dir
+ * lookup or stat -- never a ZIP open), so it runs on BOTH the emit path
+ * and the fast-cache skip path (~3,500 stats, negligible). */
+static void s_verifyTextureBinds(void)
+{
+	s32 total = assetCatalogGetCount();
+	s32 checked = 0;
+	s32 missing = 0;
+
+	for (s32 i = 0; i < total; i++) {
+		const asset_entry_t *e = assetCatalogGetByIndex(i);
+		if (!e || !e->occupied || !e->bundled || e->type != ASSET_TEXTURE) {
+			continue;
+		}
+		checked++;
+
+		const char *path = fileProviderPath(e->source.primary);
+		if (!path || !path[0]) {
+			missing++;
+			sysLogPrintf(LOG_WARNING,
+				"TEXTURE.BIND: %s has no FileProvider primary bound",
+				e->id);
+			continue;
+		}
+
+		char archive[FS_MAXPATH + 1];
+		strncpy(archive, path, sizeof(archive) - 1);
+		archive[sizeof(archive) - 1] = '\0';
+		char *sep = strstr(archive, "::");
+		if (sep) {
+			*sep = '\0';
+		}
+
+		if (fsFileSize(archive) <= 0) {
+			missing++;
+			sysLogPrintf(LOG_WARNING,
+				"TEXTURE.BIND: %s missing archive \"%s\" (bound primary \"%s\")",
+				e->id, archive, path);
+		}
+	}
+
+	if (missing > 0) {
+		sysLogPrintf(LOG_WARNING,
+			"TEXTURE.BIND: %d missing of %d -- first texLoad of any "
+			"missing texture is fatal (mod_texture_source.c)",
+			missing, checked);
+	} else {
+		sysLogPrintf(LOG_NOTE, "TEXTURE.BIND: 0 missing of %d", checked);
+	}
+}
+
 s32 romExtractAllPdtexture(s32 force_rewrite)
 {
 #if defined(PD_SERVER)
@@ -303,6 +348,10 @@ s32 romExtractAllPdtexture(s32 force_rewrite)
 			"romextract pdtexture: written=0 skipped=%d failed=0 "
 			"total=%d (out=%s, fast-cache)",
 			tex_total, tex_total, textures_dir);
+		/* The skip path still verifies binds -- catching a deleted or
+		 * renamed archive before first texLoad is the point of the pass,
+		 * and the stamp's dir fingerprint is a heuristic, not a proof. */
+		s_verifyTextureBinds();
 		return 0;
 	}
 
@@ -337,6 +386,8 @@ s32 romExtractAllPdtexture(s32 force_rewrite)
 		romExtractPdFastCacheWrite(ROMEXTRACT_PDTEXTURE_FAST_CACHE_KIND,
 			textures_dir, ".pdtexture");
 	}
+
+	s_verifyTextureBinds();
 
 	return failed ? -1 : written;
 #endif

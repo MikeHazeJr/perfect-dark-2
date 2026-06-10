@@ -32,6 +32,7 @@
 #include "net/matchsetup.h"
 #include "modmgr.h"
 #include "assetcatalog.h"
+#include "asset_runtime.h"  /* c3849 Wave 6a: botprofile meta-family consumer */
 
 struct menuitem g_MpCharacterMenuItems[];
 struct menudialogdef g_MpAddSimulantMenuDialog;
@@ -3354,9 +3355,19 @@ MenuItemHandlerResult mpAddChangeSimulantMenuHandler(s32 operation, struct menui
 			if (creating) {
 				mpCreateBotFromProfile(botnum, profnum);
 			} else {
-				g_BotConfigsArray[botnum].type = g_BotProfiles[profnum].type;
+				/* c3849 Wave 6a: prefer the catalog runtime binding
+				 * (value-identical to g_BotProfiles[] for base profiles);
+				 * logged native fallback when the binding is missing. */
+				const struct asset_runtime_binding *profile = mpBotProfileRuntimeBinding(profnum);
+				if (profile) {
+					g_BotConfigsArray[botnum].type = (u8)profile->bot_profile_type;
+				} else {
+					g_BotConfigsArray[botnum].type = g_BotProfiles[profnum].type;
+				}
 				if (g_BotConfigsArray[botnum].type == BOTTYPE_GENERAL) {
-					mpSetBotDifficulty(botnum, g_BotProfiles[profnum].difficulty);
+					mpSetBotDifficulty(botnum, profile
+						? profile->bot_profile_difficulty
+						: g_BotProfiles[profnum].difficulty);
 				}
 			}
 		}
