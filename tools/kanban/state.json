@@ -5279,9 +5279,9 @@
         {
           "id": "c3844-s106",
           "title": "Custom body/head full runtime equivalence",
-          "status": "backlog",
+          "status": "done",
           "order": 106000,
-          "notes": "Finish the remaining slot-indexed character runtime boundaries by adding direct catalog-ID consumers or catalog-owned private body/head runtime allocation. Do not expose numeric body/head slots to modders."
+          "notes": "Implemented 2026-06-10 (B-909): catalog-owned private body/head slot allocator (assetcatalog_body_head_slots.c), pools/bounds grown to TOTAL, walker wiring, forced-slot parse. Static/adapter verified (438 assertions/51 cases). Only the live custom-body render remains, tracked under the B-801 live-proof subtask."
         },
         {
           "id": "c3844-s107",
@@ -5316,7 +5316,7 @@
       "flagged_at": "2026-05-27T18:45:00Z",
       "pending_completion": null,
       "created": "2026-05-27T18:45:00Z",
-      "updated": "2026-06-09T00:00:00-04:00",
+      "updated": "2026-06-10T00:00:00-04:00",
       "updatedAt": "2026-06-09T00:00:00-04:00",
       "updated_at": "2026-06-09T00:00:00-04:00"
     },
@@ -5327,26 +5327,46 @@
       "pillar": "networking",
       "column": "active",
       "order": 1001,
-      "notes": "Created 2026-06-10 from Mike's multi-phase /goal.",
+      "notes": "Updated 2026-06-10: rank-1 listen-host start fix (B-910) landed; co-op reconnect/drop-out ranks 8-11 next (reconnect-reliable scope per design decision A).",
       "flag": null,
       "created": "2026-06-10T00:00:00-04:00",
       "updated": "2026-06-10T00:00:00-04:00",
       "pending_completion": null,
       "subtasks": [
         {
-          "title": "Listen-host match-start fix (netLobbyRequestStartWithSims local replay)"
+          "title": "Listen-host match-start fix (netLobbyRequestStartWithSims local replay)",
+          "id": "c3845-s1",
+          "order": 1000,
+          "status": "done",
+          "notes": "Done 2026-06-10 (B-910, commit 91274c7f): widened netLobbyRequestStartWithSims guard + local CLC_LOBBY_START replay for the listen host."
         },
         {
-          "title": "Static guard for the listen-host start branch"
+          "title": "Static guard for the listen-host start branch",
+          "id": "c3845-s2",
+          "order": 2000,
+          "status": "done",
+          "notes": "Done 2026-06-10: tests/test_net_lifecycle_static.cpp listen-host-start case ([net][lifecycle] 417 assertions/18 cases)."
         },
         {
-          "title": "Co-op drop-in mid-session join path"
+          "title": "Co-op drop-in mid-session join path",
+          "id": "c3845-s3",
+          "order": 3000,
+          "status": "active",
+          "notes": ""
         },
         {
-          "title": "Co-op drop-out / reconnect cleanup"
+          "title": "Co-op drop-out / reconnect cleanup",
+          "id": "c3845-s4",
+          "order": 4000,
+          "status": "active",
+          "notes": ""
         },
         {
-          "title": "2-process peer smoke for host start + join (CPU-safe)"
+          "title": "2-process peer smoke for host start + join (CPU-safe)",
+          "id": "c3845-s5",
+          "order": 5000,
+          "status": "active",
+          "notes": ""
         }
       ]
     },
@@ -5357,32 +5377,60 @@
       "pillar": "mod-infrastructure",
       "column": "active",
       "order": 1002,
-      "notes": "Created 2026-06-10 from Mike's multi-phase /goal.",
+      "notes": "Updated 2026-06-10: dev-mod build pipeline landed; Mod Studio rebuild (contract-driven, controller IMC, versioning) ranks 12-18 next.",
       "flag": null,
       "created": "2026-06-10T00:00:00-04:00",
       "updated": "2026-06-10T00:00:00-04:00",
       "pending_completion": null,
       "subtasks": [
         {
-          "title": "Dev-mods build pipeline (dev-mods/ -> install mods, -DevMods select)"
+          "title": "Dev-mods build pipeline (dev-mods/ -> install mods, -DevMods select)",
+          "id": "c3846-s1",
+          "order": 1000,
+          "status": "done",
+          "notes": "Done 2026-06-10 (commit 35a66709): git-tracked dev-mods/ copied into <install>/mods on each client build; -DevMods all|none|id select; verified needler/mod.json landed."
         },
         {
-          "title": "Mod Studio design grounded in asset_mod_utility_contract.c"
+          "title": "Mod Studio design grounded in asset_mod_utility_contract.c",
+          "id": "c3846-s2",
+          "order": 2000,
+          "status": "active",
+          "notes": ""
         },
         {
-          "title": "Unified create/edit/version/package hub"
+          "title": "Unified create/edit/version/package hub",
+          "id": "c3846-s3",
+          "order": 3000,
+          "status": "active",
+          "notes": ""
         },
         {
-          "title": "Per-family create flow (contract-driven)"
+          "title": "Per-family create flow (contract-driven)",
+          "id": "c3846-s4",
+          "order": 4000,
+          "status": "active",
+          "notes": ""
         },
         {
-          "title": "Asset versioning + bump-on-edit"
+          "title": "Asset versioning + bump-on-edit",
+          "id": "c3846-s5",
+          "order": 5000,
+          "status": "active",
+          "notes": ""
         },
         {
-          "title": "Comprehensive controller support across create/edit"
+          "title": "Comprehensive controller support across create/edit",
+          "id": "c3846-s6",
+          "order": 6000,
+          "status": "active",
+          "notes": ""
         },
         {
-          "title": "Mod Studio author + package smoke (closes gate 6)"
+          "title": "Mod Studio author + package smoke (closes gate 6)",
+          "id": "c3846-s7",
+          "order": 7000,
+          "status": "active",
+          "notes": ""
         }
       ]
     },
@@ -5393,29 +5441,53 @@
       "pillar": "modding",
       "column": "active",
       "order": 1003,
-      "notes": "Created 2026-06-10 from Mike's multi-phase /goal.",
+      "notes": "Updated 2026-06-10: folder reserved; needle mesh/material + weapon graph authoring next (CPU-verifiable before live).",
       "flag": null,
       "created": "2026-06-10T00:00:00-04:00",
       "updated": "2026-06-10T00:00:00-04:00",
       "pending_completion": null,
       "subtasks": [
         {
-          "title": "Reserve dev-mods/needler folder + versioned manifest"
+          "title": "Reserve dev-mods/needler folder + versioned manifest",
+          "id": "c3847-s1",
+          "order": 1000,
+          "status": "done",
+          "notes": "Done 2026-06-10: dev-mods/needler/mod.json versioned placeholder reserved; copied into install by the dev-mod pipeline."
         },
         {
-          "title": "Needle .pdmesh + pink .pdmaterial/.pdtexture"
+          "title": "Needle .pdmesh + pink .pdmaterial/.pdtexture",
+          "id": "c3847-s2",
+          "order": 2000,
+          "status": "active",
+          "notes": ""
         },
         {
-          "title": "Primary weapon graph: tracking needles (.pdweapon/.pdprojectile)"
+          "title": "Primary weapon graph: tracking needles (.pdweapon/.pdprojectile)",
+          "id": "c3847-s3",
+          "order": 3000,
+          "status": "active",
+          "notes": ""
         },
         {
-          "title": "Secondary: non-tracking explosive needles + small pink .pdeffect"
+          "title": "Secondary: non-tracking explosive needles + small pink .pdeffect",
+          "id": "c3847-s4",
+          "order": 4000,
+          "status": "active",
+          "notes": ""
         },
         {
-          "title": "Bind to custom weapon slot; conformance + mesh probe"
+          "title": "Bind to custom weapon slot; conformance + mesh probe",
+          "id": "c3847-s5",
+          "order": 5000,
+          "status": "active",
+          "notes": ""
         },
         {
-          "title": "Weapon source-gate smoke; live playtest (B-801 gated)"
+          "title": "Weapon source-gate smoke; live playtest (B-801 gated)",
+          "id": "c3847-s6",
+          "order": 6000,
+          "status": "active",
+          "notes": ""
         }
       ]
     }

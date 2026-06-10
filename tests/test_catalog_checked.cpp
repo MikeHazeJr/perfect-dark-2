@@ -216,3 +216,44 @@ TEST_CASE("catalogAssertHealthy consumes g_CatalogFailure at stage-load entry",
 	/* The flag is consumed at a real phase boundary, not left write-only. */
 	REQUIRE(lv.find("catalogAssertHealthy(\"stage-load-entry\")") != std::string::npos);
 }
+
+TEST_CASE("Gate 5: body/head field accessors surface in-range unregistered misses",
+          "[catalog][checked][static][regression][c3844]") {
+	/* The body/head field accessors used to return a zeroed field for an
+	 * in-range but unregistered slot, masking a catalog miss. They now route
+	 * through s_bodyFieldRecordChecked / s_headFieldRecordChecked which set
+	 * g_CatalogFailure on a genuine miss. */
+	const std::string api = readTextFile("port/src/assetcatalog_api.c");
+
+	REQUIRE(api.find("s_bodyFieldRecordChecked(s32 bodynum, const char *accessor)") != std::string::npos);
+	REQUIRE(api.find("s_headFieldRecordChecked(s32 headnum, const char *accessor)") != std::string::npos);
+
+	/* The "registered" discriminator must include catalog_id, not just
+	 * filenum: B-909 custom bodies/heads use public mesh source with
+	 * filenum==0 and must NOT be mis-flagged as unregistered. */
+	REQUIRE(api.find("b->filenum != 0 || b->catalog_id[0] != '\\0'") != std::string::npos);
+	REQUIRE(api.find("h->filenum != 0 || h->catalog_id[0] != '\\0'") != std::string::npos);
+
+	/* A genuine in-range-unregistered read sets the health flag + message. */
+	REQUIRE(api.find("CATALOG-MISS: %s bodynum=%d in-range but unregistered") != std::string::npos);
+	REQUIRE(api.find("CATALOG-MISS: %s headnum=%d in-range but unregistered") != std::string::npos);
+
+	/* All 10 field accessors route through the checked helpers (spot-check
+	 * the first/last of each family). */
+	REQUIRE(api.find("s_bodyFieldRecordChecked(bodynum, \"catalogGetBodyIsMale\")") != std::string::npos);
+	REQUIRE(api.find("s_bodyFieldRecordChecked(bodynum, \"catalogGetBodyHandFilenum\")") != std::string::npos);
+	REQUIRE(api.find("s_headFieldRecordChecked(headnum, \"catalogGetHeadIsMale\")") != std::string::npos);
+	REQUIRE(api.find("s_headFieldRecordChecked(headnum, \"catalogGetHeadHeight\")") != std::string::npos);
+}
+
+TEST_CASE("Gate 5: validateSlot discriminator over the body/head TOTAL range",
+          "[catalog][checked][regression][c3844]") {
+	/* The helper passes a "registered marker" (1 if filenum!=0 or catalog_id
+	 * set, else 0) as the sentinel. TOTAL = 152 base + 32 custom = 184. */
+	const s32 TOTAL = 152 + 32;
+	REQUIRE(catalogCheckedValidateSlot(0,   TOTAL, 1) == CATALOG_CHECKED_OK);           /* registered base */
+	REQUIRE(catalogCheckedValidateSlot(160, TOTAL, 1) == CATALOG_CHECKED_OK);           /* registered custom slot */
+	REQUIRE(catalogCheckedValidateSlot(160, TOTAL, 0) == CATALOG_CHECKED_UNPOPULATED);  /* unregistered in-range */
+	REQUIRE(catalogCheckedValidateSlot(0,   TOTAL, 0) == CATALOG_CHECKED_UNPOPULATED);
+	REQUIRE(catalogCheckedValidateSlot(TOTAL, TOTAL, 1) == CATALOG_CHECKED_OOB);        /* past TOTAL */
+}

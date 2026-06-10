@@ -1501,33 +1501,78 @@ asset_data_handle_t catalogGetModelHandle(s32 modelnum)
  * head guards across the four picker UIs) inherit through these
  * accessors without source changes. */
 
-s32 catalogGetBodyIsMale(s32 bodynum)
+/* Gate 5 (c3844): the body/head field accessors below used to return a zeroed
+ * field for an in-range but UNREGISTERED slot, masking a catalog miss as a
+ * benign zero. These helpers surface that miss through g_CatalogFailure (which
+ * the stage-load health checkpoint consumes), while leaving the deliberate
+ * manager-NULL cases (negative / out-of-range / HEAD_RANDOM_GENDER) benign.
+ * The "registered" discriminator is filenum != 0 OR catalog_id set: catalog_id
+ * covers B-909 custom bodies/heads that use public mesh source with filenum==0,
+ * so they are NOT mis-flagged as unregistered. Returns the record, or NULL when
+ * the caller should fall back to its default. */
+static const body_data_t *s_bodyFieldRecordChecked(s32 bodynum, const char *accessor)
 {
     const body_data_t *b = catalogManagerGetBodyByIndex(bodynum);
+    s32 marker;
+    if (!b) {
+        return NULL; /* benign: negative / out-of-range / sentinel slot */
+    }
+    marker = (b->filenum != 0 || b->catalog_id[0] != '\0') ? 1 : 0;
+    if (catalogCheckedValidateSlot(bodynum, CATALOG_MGR_BODY_TOTAL, marker)
+            == CATALOG_CHECKED_UNPOPULATED) {
+        g_CatalogFailure = 1;
+        snprintf(g_CatalogFailureMsg, sizeof(g_CatalogFailureMsg),
+            "CATALOG-MISS: %s bodynum=%d in-range but unregistered", accessor, bodynum);
+        return NULL;
+    }
+    return b;
+}
+
+static const head_data_t *s_headFieldRecordChecked(s32 headnum, const char *accessor)
+{
+    const head_data_t *h = catalogManagerGetHeadByIndex(headnum);
+    s32 marker;
+    if (!h) {
+        return NULL; /* benign: negative / out-of-range / HEAD_RANDOM_GENDER */
+    }
+    marker = (h->filenum != 0 || h->catalog_id[0] != '\0') ? 1 : 0;
+    if (catalogCheckedValidateSlot(headnum, CATALOG_MGR_HEAD_TOTAL, marker)
+            == CATALOG_CHECKED_UNPOPULATED) {
+        g_CatalogFailure = 1;
+        snprintf(g_CatalogFailureMsg, sizeof(g_CatalogFailureMsg),
+            "CATALOG-MISS: %s headnum=%d in-range but unregistered", accessor, headnum);
+        return NULL;
+    }
+    return h;
+}
+
+s32 catalogGetBodyIsMale(s32 bodynum)
+{
+    const body_data_t *b = s_bodyFieldRecordChecked(bodynum, "catalogGetBodyIsMale");
     return b ? (s32)b->ismale : 0;
 }
 
 s32 catalogGetBodyType(s32 bodynum)
 {
-    const body_data_t *b = catalogManagerGetBodyByIndex(bodynum);
+    const body_data_t *b = s_bodyFieldRecordChecked(bodynum, "catalogGetBodyType");
     return b ? (s32)b->type : 0;
 }
 
 s32 catalogGetBodyHeight(s32 bodynum)
 {
-    const body_data_t *b = catalogManagerGetBodyByIndex(bodynum);
+    const body_data_t *b = s_bodyFieldRecordChecked(bodynum, "catalogGetBodyHeight");
     return b ? (s32)b->height : 0;
 }
 
 f32 catalogGetBodyAnimScale(s32 bodynum)
 {
-    const body_data_t *b = catalogManagerGetBodyByIndex(bodynum);
+    const body_data_t *b = s_bodyFieldRecordChecked(bodynum, "catalogGetBodyAnimScale");
     return b ? b->animscale : 1.0f;
 }
 
 s32 catalogGetBodyCanVaryHeight(s32 bodynum)
 {
-    const body_data_t *b = catalogManagerGetBodyByIndex(bodynum);
+    const body_data_t *b = s_bodyFieldRecordChecked(bodynum, "catalogGetBodyCanVaryHeight");
     return b ? (s32)b->canvaryheight : 0;
 }
 
@@ -1538,13 +1583,13 @@ s32 catalogGetBodyIsComplete(s32 bodynum)
      * unk00_01 == 1 for body slots) is preserved across the F2 routing:
      * the manager copies unk00_01 from g_HeadsAndBodies during the
      * parity-period mirror and from the per-asset envelope post-F12. */
-    const body_data_t *b = catalogManagerGetBodyByIndex(bodynum);
+    const body_data_t *b = s_bodyFieldRecordChecked(bodynum, "catalogGetBodyIsComplete");
     return b ? (s32)b->unk00_01 : 0;
 }
 
 s32 catalogGetBodyHandFilenum(s32 bodynum)
 {
-    const body_data_t *b = catalogManagerGetBodyByIndex(bodynum);
+    const body_data_t *b = s_bodyFieldRecordChecked(bodynum, "catalogGetBodyHandFilenum");
     return b ? (s32)b->handfilenum : 0;
 }
 
@@ -1557,19 +1602,19 @@ s32 catalogGetBodyHandFilenum(s32 bodynum)
 
 s32 catalogGetHeadIsMale(s32 headnum)
 {
-    const head_data_t *h = catalogManagerGetHeadByIndex(headnum);
+    const head_data_t *h = s_headFieldRecordChecked(headnum, "catalogGetHeadIsMale");
     return h ? (s32)h->ismale : 0;
 }
 
 s32 catalogGetHeadType(s32 headnum)
 {
-    const head_data_t *h = catalogManagerGetHeadByIndex(headnum);
+    const head_data_t *h = s_headFieldRecordChecked(headnum, "catalogGetHeadType");
     return h ? (s32)h->type : 0;
 }
 
 s32 catalogGetHeadHeight(s32 headnum)
 {
-    const head_data_t *h = catalogManagerGetHeadByIndex(headnum);
+    const head_data_t *h = s_headFieldRecordChecked(headnum, "catalogGetHeadHeight");
     return h ? (s32)h->height : 0;
 }
 
