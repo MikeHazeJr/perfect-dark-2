@@ -28,6 +28,7 @@ and close the final runtime, stale-output, and tool workflow gates.
    - Build or use bounded CPU-safe probes first because prior live tests made the PC unresponsive.
    - Then run narrow live proof for Scenario visuals, character/body/head visuals, weapons/props, textures/materials, animations, SFX/voice/music.
    - Enable only relevant logging and inspect the logs after each run.
+   - 2026-06-09: Scenario CPU pre-flight is now repeatable. `build-session.ps1 -Target probe` builds `scenario-scene-probe`; `devtools/scenario-scene-probe-sweep.ps1 -Session <id>` probes every `.pdscenario` (87/87 green on the fresh tree) with no window/GPU/audio. Remaining CPU pre-flight gaps before any live pass: standalone anim/mesh/audio decode probes for the non-scenario families. The narrow live pass itself remains the only live-blocked step.
 
 2. **Custom body/head full runtime equivalence**
    - B-904, B-905, and B-906 removed wrong slot-zero and selector-cache failures.

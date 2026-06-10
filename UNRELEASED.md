@@ -15,6 +15,7 @@
 
 - Cleaned the Kanban Active lane so the current asset-parity completion path is the only active critical work, with unrelated cards deferred or marked done.
 - Strengthened the asset-archive conformance check so numeric or legacy asset references (for example `model_catalog_id = 42` or a `MODEL_*` symbol) in JSON catalog-ID fields are now rejected like they already were in delimited tables, closing a gap in the primary public source format. Intra-archive member and dependency paths stay allowed.
+- Added a first-class `probe` build target and a repeatable scenario-scene CPU sweep so the source scene.glb path can be validated for every level without launching the game, GPU, or audio. The full extracted scenario set passes 87/87.
 - Fixed source-backed menu model previews so custom provider handles avoid the character-preview sentinel and weapon previews receive visual model source instead of split graph source.
 - Fixed unresolved character body source so it no longer renders as the wrong built-in body.
 - Fixed catalog-backed body/head selector identity so custom rows beyond the old base body/head counts keep their catalog IDs through selection, default-head, bot, and config paths.

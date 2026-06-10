@@ -45,7 +45,7 @@
 #>
 
 param(
-    [ValidateSet("client", "updater", "tests", "all")]
+    [ValidateSet("client", "updater", "tests", "probe", "all")]
     [string]$Target = "all",
 
     # Version override in "X.Y.Z" format. If omitted, reads VERSION_SEM_* from CMakeLists.txt
@@ -889,11 +889,12 @@ $targets = switch ($Target) {
     "client"  { @("client") }
     "updater" { @("updater") }
     "tests"   { @("tests") }
+    "probe"   { @("probe") }
     "all"     { @("client", "updater") }
 }
 
-$cmakeTargetMap = @{ "client" = "pd"; "updater" = "pd-updater"; "tests" = "pd-tests" }
-$exeNameMap     = @{ "client" = "PerfectDark.exe"; "updater" = "Updater.exe"; "tests" = "pd-tests.exe" }
+$cmakeTargetMap = @{ "client" = "pd"; "updater" = "pd-updater"; "tests" = "pd-tests"; "probe" = "scenario-scene-probe" }
+$exeNameMap     = @{ "client" = "PerfectDark.exe"; "updater" = "Updater.exe"; "tests" = "pd-tests.exe"; "probe" = "scenario-scene-probe.exe" }
 
 $results  = @{}
 $anyFail  = $false
