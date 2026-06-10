@@ -1422,6 +1422,13 @@ struct projectile {
 	f32 flymaxaltitude;      /* fly_by_wire max_altitude */
 	s32 flylosttimeout240;   /* fly_by_wire lost_target_timeout (240Hz ticks) */
 	s32 flysmokeinterval240; /* fly_by_wire smoke_interval (240Hz ticks) */
+
+	/* PC (c3849 Wave 5 surface/impact): projectile.trail latch. -1 means no
+	 * trail (the projectileReset value, NOT 0: SMOKETYPE 0 is valid); the
+	 * cadence rides the otherwise-free smoketimer240 at the projectileTick
+	 * consumer, interval 0 = emit every tick. Host-local, never on the wire. */
+	s32 graphtrailsmoketype;   /* projectile.trail SMOKETYPE_*; -1 none */
+	s32 graphtrailinterval240; /* projectile.trail cadence (240Hz ticks) */
 };
 
 struct embedment {

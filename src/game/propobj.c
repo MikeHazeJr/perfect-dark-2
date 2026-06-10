@@ -82,6 +82,7 @@
 #include "textures.h"
 #include "types.h"
 #include "weapon_graph_runtime.h"
+#include "effect_graph_runtime.h"
 
 /* PC: persistent stats tracking */
 extern void statIncrement(const char *key, u64 amount);
@@ -1126,6 +1127,8 @@ void projectileReset(struct projectile *projectile)
 	projectile->flymaxaltitude = 0;
 	projectile->flylosttimeout240 = 0;
 	projectile->flysmokeinterval240 = 0;
+	projectile->graphtrailsmoketype = -1;
+	projectile->graphtrailinterval240 = 0;
 }
 
 struct projectile *projectileAllocate(void)
@@ -1308,14 +1311,53 @@ void projectileApplyGraphRuntime(struct defaultobj *obj,
 		projectile->unk08c = runtime->bounce_first_boost;
 	}
 
+	/* c3849 Wave 5 (surface): bounce-slide spawn latches. Base graphs author
+	 * no bounce_slide node, so has_bounce_slide is custom-only by data. */
+	if (runtime->has_bounce_slide) {
+		if (runtime->bounce_slide_friction > 0.0f) {
+			/* linear post-land deceleration; OG setters live at the spawn
+			 * sites (bondgun/chraction), unk098 0 keeps the 0.9f decay */
+			projectile->unk098 = runtime->bounce_slide_friction;
+		}
+
+		if (runtime->bounce_first_boost > 0.0f) {
+			/* OG pairs the boost value with this flag (bondgun.c thrown
+			 * setters); without it the bounce consumer never reads unk08c
+			 * as a first-bounce boost */
+			projectile->flags |= PROJECTILEFLAG_00000002;
+		}
+
+		if (runtime->bounce_randomize_rotation == 0) {
+			/* authored false (absent stays -1): disable the OG random
+			 * rotation on bounce. The flag is read-only in OG code. */
+			projectile->flags |= PROJECTILEFLAG_00000100;
+		}
+	}
+
+	/* c3849 Wave 5 (impact/trail): trail latch. trail_smoketype is the
+	 * parse-derived SMOKETYPE_*; -1 (none/absent) leaves the reset value. */
+	if (runtime->has_trail && runtime->trail_smoketype >= 0) {
+		projectile->graphtrailsmoketype = runtime->trail_smoketype;
+		projectile->graphtrailinterval240 = runtime->trail_interval_ticks60 > 0
+			? weaponGraphClampTicks240(
+				weaponGraphTicks60To240(runtime->trail_interval_ticks60))
+			: 0;
+	}
+
 	if (runtime->has_pickup_recover && runtime->pickup_timer_ticks60 >= 0) {
 		projectile->pickuptimer240 = weaponGraphClampTicks240(
 			weaponGraphTicks60To240(runtime->pickup_timer_ticks60));
 	}
 
 	if (runtime->has_timer) {
-		timer60 = runtime->timer_ticks60;
-		hastimer = true;
+		/* c3849 Wave 5 (surface): timer_starts gates the spawn latch.
+		 * timer_start_policy == 1 (on_impact) arms at the BG-collision site
+		 * and == 2 (on_attach) at the stick site; both leave timer240 at the
+		 * spawn default -1 until then. */
+		if (runtime->timer_start_policy == 0) {
+			timer60 = runtime->timer_ticks60;
+			hastimer = true;
+		}
 	} else if (runtime->has_timer60) {
 		timer60 = runtime->timer60;
 		hastimer = true;
@@ -4801,6 +4843,11 @@ void weaponTick(struct prop *prop)
 			weapon->gset.weaponnum, weapon->gset.weaponfunc);
 	const weapon_graph_entity_runtime_t *entitygraph =
 		weaponGraphRuntimeGetEntityForHeldFunction(graph);
+	/* c3849 Wave 5 (binding spec B1): resolved once per tick for the combined
+	 * custom projectile arm below. NULL for every base weapon (custom-slot
+	 * guard) and whenever Debug.WeaponGraphRuntime is off. */
+	const weapon_graph_projectile_runtime_t *customproj =
+		weaponGetCustomProjectileGraph(weapon);
 
 	// Handle grenade timers
 	if (((weapon->weaponnum == WEAPON_GRENADE && weapon->gunfunc == FUNC_PRIMARY)
@@ -4974,17 +5021,153 @@ void weaponTick(struct prop *prop)
 			}
 #endif
 		}
-	} else if (weaponGetContactImpactGraph(weapon) != NULL) {
-		/* B-912: graph-authored explode-on-contact detonation. timer240 is
-		 * zeroed by the contact arms below (prop hit / BG hit / launch
-		 * collision), mirroring the rocket arm above. EXPLOSIONTYPE_PHOENIX is
-		 * the small OG explosion class per the Needler design decision Q2
-		 * (blast/damage parity; the pink visual is the effect-graph runtime's
-		 * job when it lands). */
-		if (weapon->timer240 == 0) {
-			propExplode(prop, (obj->flags2 & OBJFLAG2_WEAPON_HUGEEXP)
-					? EXPLOSIONTYPE_HUGE17 : EXPLOSIONTYPE_PHOENIX);
+	} else if (customproj != NULL
+			&& (customproj->has_wall_hugger
+				|| (customproj->has_impact && customproj->impact_consume_on_hit)
+				|| customproj->has_timer)) {
+		/* c3849 Wave 5 (binding spec B1 position 2): combined CUSTOM
+		 * PROJECTILE ARM, extending the B-912 contact arm in place. Entry
+		 * requires a consumable record, never bare graph presence. Internal
+		 * priority is fixed: (a) wall-hugger -> (b) contact-impact ->
+		 * (c) fuse timer. The OG arms above and below never double-handle
+		 * because customproj is NULL for every base weapon. */
+		if (customproj->has_wall_hugger && weapon->timer240 > 0) {
+			/* (a) wall-hugger state machine, OG Devastator arm shape
+			 * (WEAPON_GRENADEROUND FUNC_SECONDARY above; customs never enter
+			 * it). The projectileTick stick latch armed timer240; 1 is the
+			 * falling sentinel, zeroed by the landing collision. */
+			if (weapon->timer240 >= 2) {
+				/* fall_threshold is authored in ticks60; the OG literal is
+				 * 8 ticks240 */
+				s32 fallthreshold = customproj->wall_fall_threshold > 0.0f
+					? weaponGraphClampTicks240(weaponGraphTicks60To240(
+						(s32)customproj->wall_fall_threshold))
+					: 8;
+
+				// Still on the wall
+				weapon->timer240 -= g_Vars.lvupdate240;
+
+				if (weapon->timer240 < fallthreshold) {
+					// Time to fall
+					struct coord direction;
+					struct prop *parent;
+					struct projectile *projectile = NULL;
+
+					direction.x = customproj->wall_fall_vec[0];
+					direction.y = customproj->wall_fall_vec[1];
+					direction.z = customproj->wall_fall_vec[2];
+
+					func0f0685e4(prop);
+
+					if (obj->hidden & OBJHFLAG_EMBEDDED) {
+						projectile = obj->embedment->projectile;
+					} else if (obj->hidden & OBJHFLAG_PROJECTILE) {
+						projectile = obj->projectile;
+					}
+
+					if (projectile) {
+						parent = prop;
+
+						while (parent->parent) {
+							parent = parent->parent;
+						}
+
+						if (parent && (parent->type == PROPTYPE_CHR || parent->type == PROPTYPE_PLAYER)) {
+							if (parent->chr) {
+								parent->chr->hidden |= CHRHFLAG_DROPPINGITEM;
+							}
+						} else {
+							projectile->ownerprop = NULL;
+							projectile->flags |= PROJECTILEFLAG_AIRBORNE;
+						}
+
+						weapon->timer240 = 1;
+
+						projectileSetSticky(prop);
+
+						projectile->speed.x = direction.x;
+						projectile->speed.y = direction.y;
+						projectile->speed.z = direction.z;
+
+						mtx4LoadIdentity(&projectile->mtx);
+
+						projectile->obj = (struct defaultobj *)weapon;
+						projectile->unk0d8 = g_Vars.lvframenum;
+					} else {
+						// Couldn't create projectile - try again next frame
+						weapon->timer240 = 2;
+					}
+				}
+			}
+			/* timer240 == 1: falling; nothing to do until the landing
+			 * collision zeroes it (projectileTick stick latch) */
+		} else if (customproj->has_wall_hugger && weapon->timer240 == 0) {
+			/* (a) wall expiry after the post-fall landing.
+			 * WAVE6-EFFECT-HANDOFF: wall_explosion_ref ships shimmed through
+			 * the fallback-returning bridge until the Unit 8 effect runtime
+			 * lands (binding spec B7). */
+			propExplode(prop, effectGraphResolveExplosionType(
+					customproj->wall_explosion_ref,
+					(obj->flags2 & OBJFLAG2_WEAPON_HUGEEXP)
+						? EXPLOSIONTYPE_HUGE17 : EXPLOSIONTYPE_ROCKET));
 			obj->hidden |= OBJHFLAG_DELETING;
+		} else if (customproj->has_impact && customproj->impact_consume_on_hit
+				&& weapon->timer240 == 0) {
+			/* (b) B-912 contact-impact detonation. timer240 is zeroed by the
+			 * contact arms (prop hit / BG hit / launch collision), mirroring
+			 * the rocket arm above. Parse-derived impact_exptype wins when
+			 * set; EXPLOSIONTYPE_PHOENIX stays the HUGEEXP-aware fallback
+			 * class (Needler Q2 blast/damage parity).
+			 * WAVE6-EFFECT-HANDOFF: non-base impact_explosion_ref resolves at
+			 * detonation once the Unit 8 effect runtime lands. */
+			propExplode(prop, effectGraphResolveExplosionType(
+					customproj->impact_explosion_ref[0]
+						? customproj->impact_explosion_ref : NULL,
+					customproj->impact_exptype >= 0
+						? customproj->impact_exptype
+						: ((obj->flags2 & OBJFLAG2_WEAPON_HUGEEXP)
+							? EXPLOSIONTYPE_HUGE17 : EXPLOSIONTYPE_PHOENIX)));
+			obj->hidden |= OBJHFLAG_DELETING;
+		} else if (customproj->has_timer && weapon->timer240 >= 0) {
+			/* (c) fuse timer. The decrement clamps to 0 (rocket-style == 0
+			 * detonation, NOT the grenade < 0 inline explode) so a contact
+			 * zero and a fuse expiry funnel through one detonation shape. */
+			if (weapon->timer240 > 0) {
+				weapon->timer240 -= g_Vars.lvupdate240;
+
+				if (weapon->timer240 < 0) {
+					weapon->timer240 = 0;
+				}
+			}
+
+			if (weapon->timer240 == 0) {
+				propUnsetDangerous(prop);
+
+				if (customproj->timer_expire_policy == 1) {
+					/* timer_on_expire delete: removal without an explosion */
+					obj->hidden |= OBJHFLAG_DELETING;
+				} else {
+					/* timer_on_expire explode: grenade-parity class */
+					propExplode(prop, (obj->flags2 & OBJFLAG2_WEAPON_HUGEEXP)
+							? EXPLOSIONTYPE_HUGE17 : EXPLOSIONTYPE_ROCKET);
+
+					obj->hidden |= OBJHFLAG_DELETING;
+
+					{
+						s32 i;
+
+						for (i = 0; i < MAX_PLAYERS; i++) {
+							if (!g_Vars.players[i]) {
+								continue;
+							}
+							if (g_Vars.players[i]->slayerrocket == (struct weaponobj *)obj) {
+								g_Vars.players[i]->slayerrocket = NULL;
+								g_Vars.players[i]->visionmode = VISIONMODE_SLAYERROCKETSTATIC;
+							}
+						}
+					}
+				}
+			}
 		}
 	} else if (weapon->weaponnum == WEAPON_TIMEDMINE && weapon->timer240 >= 0) {
 		// Handle timed mines
@@ -6811,11 +6994,15 @@ s32 projectileLaunch(struct defaultobj *obj, struct projectile *projectile, stru
 	} else if (cdresult != CDRESULT_NOCOLLISION && obj->type == OBJTYPE_WEAPON) {
 		struct weaponobj *weapon = (struct weaponobj *)obj;
 		RoomNum rooms[8];
-
 		/* B-912: a custom graph projectile fired point-blank into geometry
-		 * detonates like a rocket (the impactgraph clause). */
+		 * detonates like a rocket (the impactgraph clause). c3849 Wave 5:
+		 * impact_filter gates the CUSTOM clause only; props/chr modes skip
+		 * this geometry consume, the OG rocket clauses see no change. */
+		const weapon_graph_projectile_runtime_t *impactgraph =
+			weaponGetContactImpactGraph(weapon);
+
 		if (weapon->weaponnum == WEAPON_ROCKET || weapon->weaponnum == WEAPON_HOMINGROCKET
-				|| weaponGetContactImpactGraph(weapon) != NULL) {
+				|| (impactgraph != NULL && impactgraph->impact_filter_mode <= 1)) {
 			weapon->timer240 = 0;
 
 			func0f065e74(&prop->pos, prop->rooms, arg2, rooms);
@@ -7541,7 +7728,13 @@ s32 projectileTick(struct defaultobj *obj, bool *embedded)
 								stick = true;
 							}
 						} else if (obj->type == OBJTYPE_WEAPON) {
+							/* c3849 Wave 5 (surface): NULL for every base
+							 * weapon (custom-slot guard); the clauses below
+							 * gate on has_* bits (binding spec B3). */
+							const weapon_graph_projectile_runtime_t *stickgraph;
+
 							weapon2 = (struct weaponobj *) obj;
+							stickgraph = weaponGetCustomProjectileGraph(weapon2);
 
 							if (weapon2->weaponnum == WEAPON_REMOTEMINE
 									|| weapon2->weaponnum == WEAPON_TIMEDMINE
@@ -7562,7 +7755,51 @@ s32 projectileTick(struct defaultobj *obj, bool *embedded)
 									} else {
 										weapon2->timer240 = TICKS(480);
 									}
+								} else if (stickgraph != NULL && stickgraph->has_wall_hugger) {
+									/* c3849 Wave 5 (surface): wall-hugger
+									 * stick latch, OG sentinel structure.
+									 * timer240 == 1 is the post-fall sentinel;
+									 * zeroing it routes the landing into the
+									 * weaponTick wall-expiry arm. */
+									if (weapon2->timer240 == 1) {
+										stick = false;
+										weapon2->timer240 = 0;
+									} else if (stickgraph->wall_stick_bg_only && hitprop != NULL) {
+										/* authored stick_surface_filter
+										 * "background": props never stick and
+										 * never arm the wall timer */
+										stick = false;
+									} else {
+										weapon2->timer240 = stickgraph->wall_stick_timer_ticks60 > 0
+											? weaponGraphClampTicks240(weaponGraphTicks60To240(
+												stickgraph->wall_stick_timer_ticks60))
+											: TICKS(480);
+									}
 								}
+							}
+
+							/* c3849 Wave 5 (surface): sticky_attach owns the
+							 * stick decision per hit class for customs. Runs
+							 * after the OG computation and before the OG
+							 * vetoes below (sliding/shield still win). */
+							if (stickgraph != NULL && stickgraph->has_sticky_attach) {
+								if (hitprop == NULL) {
+									stick = stickgraph->sticky_allow_background;
+								} else if (hitprop->type == PROPTYPE_CHR
+										|| hitprop->type == PROPTYPE_PLAYER) {
+									stick = stickgraph->sticky_allow_char;
+								} else {
+									stick = stickgraph->sticky_allow_obj;
+								}
+							}
+
+							/* impact_stick_on_hit (binding spec B4): an
+							 * additional custom stick entry, gated
+							 * !impact_consume_on_hit because consume wins. */
+							if (stickgraph != NULL && stickgraph->has_impact
+									&& stickgraph->impact_stick_on_hit
+									&& !stickgraph->impact_consume_on_hit) {
+								stick = true;
 							}
 						}
 
@@ -7628,6 +7865,20 @@ s32 projectileTick(struct defaultobj *obj, bool *embedded)
 							 * explode-on-contact (NULL for every base weapon). */
 							const weapon_graph_projectile_runtime_t *impactgraph =
 								weaponGetContactImpactGraph(weapon);
+
+							/* c3849 Wave 5: impact_filter gates the CUSTOM
+							 * consume clause only. background mode never
+							 * consumes on prop hits; chr mode consumes on
+							 * chr/player hits only. OG arms see no change. */
+							if (impactgraph != NULL) {
+								if (impactgraph->impact_filter_mode == 1) {
+									impactgraph = NULL;
+								} else if (impactgraph->impact_filter_mode == 3
+										&& g_EmbedProp->type != PROPTYPE_CHR
+										&& !(g_EmbedProp->type == PROPTYPE_PLAYER && g_EmbedProp->chr)) {
+									impactgraph = NULL;
+								}
+							}
 
 							if (weapon->weaponnum == WEAPON_BOLT || weapon->weaponnum == WEAPON_COMBATKNIFE) {
 								if (hitprop->type == PROPTYPE_CHR || (hitprop->type == PROPTYPE_PLAYER && hitprop->chr)) {
@@ -7803,6 +8054,23 @@ s32 projectileTick(struct defaultobj *obj, bool *embedded)
 										}
 									}
 								}
+
+								/* c3849 Wave 5 (surface): timer_starts ==
+								 * on_attach seeds the fuse at the stick site.
+								 * timer240 lives on the weaponobj and
+								 * survives objLand (which frees only the
+								 * projectile), so the weaponTick fuse arm
+								 * counts down while attached. */
+								if (weapon->timer240 == -1) {
+									const weapon_graph_projectile_runtime_t *attachgraph =
+										weaponGetCustomProjectileGraph(weapon);
+
+									if (attachgraph != NULL && attachgraph->has_timer
+											&& attachgraph->timer_start_policy == 2) {
+										weapon->timer240 = weaponGraphClampTicks240(
+											weaponGraphTicks60To240(attachgraph->timer_ticks60));
+									}
+								}
 							}
 
 							objLand(prop, &sp5e8, &sp5f4, embedded);
@@ -7921,6 +8189,28 @@ s32 projectileTick(struct defaultobj *obj, bool *embedded)
 #endif
 
 					if (cdresult == CDRESULT_COLLISION) {
+						/* c3849 Wave 5 (surface): bounce-slide event params,
+						 * resolved once per bounce collision. The OG literals
+						 * (6 bounces, 2.2222223f rest speed) stay the
+						 * fallbacks for base weapons and unauthored params. */
+						s32 bouncelimit = 6;
+						f32 bouncerestspeed = 2.2222223f;
+
+						if (obj->type == OBJTYPE_WEAPON) {
+							const weapon_graph_projectile_runtime_t *bouncegraph =
+								weaponGetCustomProjectileGraph((struct weaponobj *) obj);
+
+							if (bouncegraph != NULL && bouncegraph->has_bounce_slide) {
+								if (bouncegraph->bounce_limit > 0) {
+									bouncelimit = bouncegraph->bounce_limit;
+								}
+
+								if (bouncegraph->bounce_rest_speed > 0.0f) {
+									bouncerestspeed = bouncegraph->bounce_rest_speed;
+								}
+							}
+						}
+
 						// Bouncing
 						if ((projectile->speed.y <= 0.0f && sp5c8.y <= prop->pos.y)
 								|| ((projectile->flags & PROJECTILEFLAG_STICKY) == 0 && sp354)) {
@@ -7973,14 +8263,14 @@ s32 projectileTick(struct defaultobj *obj, bool *embedded)
 						}
 
 						if (sp350) {
-							if ((projectile->flags & PROJECTILEFLAG_STICKY) == 0 && projectile->bouncecount >= 6) {
+							if ((projectile->flags & PROJECTILEFLAG_STICKY) == 0 && projectile->bouncecount >= bouncelimit) {
 								if (sp354) {
 									projectileFall(obj, realrot);
 								}
 							} else if (projectile->unk08c > 0.0f) {
-								if (projectile->speed.y >= 0.0f && projectile->speed.y < 2.2222223f) {
+								if (projectile->speed.y >= 0.0f && projectile->speed.y < bouncerestspeed) {
 									if ((projectile->flags & PROJECTILEFLAG_00000002) && projectile->bouncecount == 1) {
-										projectile->speed.y = 2.2222223f;
+										projectile->speed.y = bouncerestspeed;
 									} else {
 										if (sp354) {
 											projectileFall(obj, realrot);
@@ -7997,6 +8287,11 @@ s32 projectileTick(struct defaultobj *obj, bool *embedded)
 
 					if (obj->type == OBJTYPE_WEAPON) {
 						struct weaponobj *weapon = (struct weaponobj *) obj;
+						/* c3849 Wave 5: resolved once for the custom
+						 * impact/trail clause and the hit-sound/spark arms
+						 * below; NULL for every base weapon. */
+						const weapon_graph_projectile_runtime_t *customproj =
+							weaponGetCustomProjectileGraph(weapon);
 
 						if (weapon->weaponnum == WEAPON_COMBATKNIFE && weapon->gunfunc == FUNC_SECONDARY) {
 							knifePlayWooshSound(obj);
@@ -8039,12 +8334,43 @@ s32 projectileTick(struct defaultobj *obj, bool *embedded)
 							} else {
 								smokeCreateSimple(&prop->pos, prop->rooms, SMOKETYPE_HOMINGTAIL);
 							}
-						} else if (weaponGetContactImpactGraph(weapon) != NULL) {
-							/* B-912: graph-authored explode-on-contact, BG/wall
-							 * hit. Zeroing timer240 hands detonation to the
-							 * weaponTick arm, mirroring the rocket arms above. */
+						} else if (customproj != NULL
+								&& ((customproj->has_impact && customproj->impact_consume_on_hit)
+									|| (customproj->has_timer && customproj->timer_start_policy == 1)
+									|| projectile->graphtrailsmoketype >= 0)) {
+							/* B-912 widened (c3849 Wave 5): BG/wall collision
+							 * consume + on_impact fuse arming + trail cadence,
+							 * holding the OG chain position (after the rocket
+							 * arms, before GRENADEROUND). */
 							if (cdresult == CDRESULT_COLLISION) {
-								weapon->timer240 = 0;
+								if (customproj->has_timer
+										&& customproj->timer_start_policy == 1
+										&& weapon->timer240 == -1) {
+									/* timer_starts on_impact: the first
+									 * collision arms the fuse instead of
+									 * detonating */
+									weapon->timer240 = weaponGraphClampTicks240(
+										weaponGraphTicks60To240(customproj->timer_ticks60));
+								} else if (customproj->has_impact
+										&& customproj->impact_consume_on_hit
+										&& customproj->impact_filter_mode <= 1) {
+									/* impact_filter any/background only;
+									 * props/chr modes skip geometry consumes.
+									 * Zeroing timer240 hands detonation to
+									 * the weaponTick arm, mirroring the
+									 * rocket arms above. */
+									weapon->timer240 = 0;
+								}
+							} else if (projectile->graphtrailsmoketype >= 0) {
+								/* projectile.trail cadence on the otherwise
+								 * free smoketimer240 (rocketTickFbw shape);
+								 * interval240 == 0 emits every tick */
+								if (projectile->smoketimer240 <= 0) {
+									projectile->smoketimer240 = projectile->graphtrailinterval240;
+									smokeCreateSimple(&prop->pos, prop->rooms, projectile->graphtrailsmoketype);
+								} else {
+									projectile->smoketimer240 -= g_Vars.lvupdate240;
+								}
 							}
 						} else if (weapon->weaponnum == WEAPON_GRENADEROUND
 								|| (weapon->weaponnum == WEAPON_NBOMB && weapon->gunfunc == FUNC_PRIMARY)) {
@@ -8073,8 +8399,39 @@ s32 projectileTick(struct defaultobj *obj, bool *embedded)
 
 									psCreate(0, prop, sp100[rngRandom() % 4], -1, -1, 0, 0, PSTYPE_NONE, 0, -1.0f, 0, -1, -1.0f, -1.0f, -1.0f);
 									psCreate(0, prop, SFX_EYESPYHIT, -1, -1, 0, 0, PSTYPE_NONE, 0, -1.0f, 0, -1, -1.0f, -1.0f, -1.0f);
+								} else if (customproj != NULL && customproj->has_impact
+										&& customproj->impact_hit_sound > 0) {
+									/* c3849 Wave 5: impact_hit_sound is a
+									 * registration-resolved soundnum (> 0 is
+									 * the presence check). Knife/grenade arms
+									 * above stay first and verbatim. */
+									psCreate(0, prop, customproj->impact_hit_sound, -1, -1, 0, 0, PSTYPE_NONE, 0, -1.0f, 0, -1, -1.0f, -1.0f, -1.0f);
 								} else {
 									psCreate(0, prop, SFX_EYESPYHIT, -1, -1, 0, 0, PSTYPE_NONE, 0, -1.0f, 0, -1, -1.0f, -1.0f, -1.0f);
+								}
+
+								if (customproj != NULL && customproj->has_impact
+										&& customproj->impact_spark_ref[0] != '\0') {
+									/* c3849 Wave 5: authored impact spark,
+									 * debounced by the same unk0a4 frame guard
+									 * as the hit sound; mirrors the bolt/knife
+									 * stick-arm sparksCreate.
+									 * WAVE6-EFFECT-HANDOFF: the spark bridge
+									 * returns the fallback type until the
+									 * Unit 8 spark registry lands. */
+									struct coord sparkdir;
+									struct prop *sparkowner = projectile->ownerprop;
+
+									sparkdir.x = projectile->speed.x;
+									sparkdir.y = projectile->speed.y;
+									sparkdir.z = projectile->speed.z;
+
+									guNormalize(&sparkdir.x, &sparkdir.y, &sparkdir.z);
+
+									sparksCreate(prop->rooms[0], prop, &sp5e8, &sparkdir, &sp5f4,
+											effectGraphResolveSparkType(customproj->impact_spark_ref,
+												chrIsUsingPaintball(sparkowner ? sparkowner->chr : NULL)
+													? SPARKTYPE_PAINT : SPARKTYPE_PROJECTILE));
 								}
 							}
 

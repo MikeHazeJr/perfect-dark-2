@@ -3331,6 +3331,42 @@ TEST_CASE("wave 5 unit 0 bug-fix pins stay wired",
 	REQUIRE(bridge.find("weaponGraphRuntimeEnabled()") != std::string::npos);
 	REQUIRE(bridge.find("return fallback_exptype;") != std::string::npos);
 	REQUIRE(bridge.find("return fallback_sparktype;") != std::string::npos);
+
+	/* Wave 5 Unit 4 (surface): combined custom projectile arm (B1 position
+	 * 2), wall-hugger stick latch + fall vector, sticky_attach stick gate,
+	 * impact_stick_on_hit absorption (B4), timer policies, bounce-slide
+	 * event params and spawn latches. */
+	REQUIRE(propobj.find("wall_stick_timer_ticks60") != std::string::npos);
+	REQUIRE(propobj.find("wall_fall_vec") != std::string::npos);
+	REQUIRE(propobj.find("sticky_allow_background") != std::string::npos);
+	REQUIRE(propobj.find("impact_stick_on_hit") != std::string::npos);
+	REQUIRE(propobj.find("timer_expire_policy") != std::string::npos);
+	/* on_attach seed (stick site) + on_impact arming (BG-hit chain). */
+	REQUIRE(propobj.find("timer_start_policy == 2") != std::string::npos);
+	REQUIRE(propobj.find("timer_start_policy == 1") != std::string::npos);
+	REQUIRE(propobj.find("bounce_limit") != std::string::npos);
+	REQUIRE(propobj.find("bounce_rest_speed") != std::string::npos);
+	/* The randomize-rotation latch must SET the flag (OG only reads it). */
+	REQUIRE(propobj.find("flags |= PROJECTILEFLAG_00000100") != std::string::npos);
+
+	/* Wave 5 Unit 5 (impact remainder + trail): filter-gated consume sites,
+	 * hit sound arm, spark mirror, trail cadence, and the Wave 6 effect
+	 * bridge handoff at the detonation/visual sites. */
+	REQUIRE(propobj.find("impact_filter_mode") != std::string::npos);
+	REQUIRE(propobj.find("impact_hit_sound") != std::string::npos);
+	REQUIRE(propobj.find("graphtrailsmoketype") != std::string::npos);
+	REQUIRE(propobj.find("WAVE6-EFFECT-HANDOFF") != std::string::npos);
+	REQUIRE(propobj.find("effectGraphResolveExplosionType") != std::string::npos);
+	REQUIRE(propobj.find("effectGraphResolveSparkType") != std::string::npos);
+
+	/* Wave 5 Units 4+5: struct projectile trail fields + slot-reuse reset. */
+	REQUIRE(types.find("s32 graphtrailsmoketype;") != std::string::npos);
+	REQUIRE(types.find("s32 graphtrailinterval240;") != std::string::npos);
+	REQUIRE(propobj.find("projectile->graphtrailsmoketype = -1;") != std::string::npos);
+
+	/* Wave 5 Unit 4: bounce_randomize_rotation absent-vs-authored-0 sentinel
+	 * pre-set in the bounce parse case. */
+	REQUIRE(runtime.find("out->bounce_randomize_rotation = -1;") != std::string::npos);
 }
 
 TEST_CASE("wave 5 unit 1 explosion resolver and autogun cadence are pure",
@@ -3413,6 +3449,18 @@ TEST_CASE("wave 5 unit 1c latches derived projectile fields at registration",
 		"      \"trail_type\": \"homing\",\n"
 		"      \"interval_ticks60\": 24\n"
 		"    } },\n"
+		"    { \"id\": \"bounce\", \"kind\": \"projectile.bounce_slide\", \"params\": {\n"
+		"      \"bounce_limit\": 9,\n"
+		"      \"rest_speed\": 3.5,\n"
+		"      \"slide_friction\": 0.25,\n"
+		"      \"first_bounce_boost\": 0.4,\n"
+		"      \"randomize_rotation\": false\n"
+		"    } },\n"
+		"    { \"id\": \"sticky\", \"kind\": \"projectile.sticky_attach\", \"params\": {\n"
+		"      \"allow_background\": true,\n"
+		"      \"allow_char\": false,\n"
+		"      \"allow_obj\": true\n"
+		"    } },\n"
 		"    { \"id\": \"pickup\", \"kind\": \"projectile.pickup_recover\", \"params\": {\n"
 		"      \"allowed_owner\": \"owner\",\n"
 		"      \"recover_weapon_ref\": \"base:laptopgun\",\n"
@@ -3441,6 +3489,20 @@ TEST_CASE("wave 5 unit 1c latches derived projectile fields at registration",
 	REQUIRE(rich->impact_filter_mode == 1);
 	REQUIRE(rich->impact_exptype == EXPLOSIONTYPE_ROCKET);
 	REQUIRE(rich->trail_smoketype == SMOKETYPE_HOMINGTAIL);
+	REQUIRE(rich->trail_interval_ticks60 == 24);
+	/* Wave 5 Unit 4 (surface): bounce-slide params + authored-false
+	 * randomize_rotation (sentinel semantics: authored 0 stays 0). */
+	REQUIRE(rich->has_bounce_slide == 1);
+	REQUIRE(rich->bounce_limit == 9);
+	REQUIRE(rich->bounce_rest_speed == Approx(3.5f));
+	REQUIRE(rich->bounce_slide_friction == Approx(0.25f));
+	REQUIRE(rich->bounce_first_boost == Approx(0.4f));
+	REQUIRE(rich->bounce_randomize_rotation == 0);
+	/* Wave 5 Unit 4 (surface): sticky_attach per-hit-class allows. */
+	REQUIRE(rich->has_sticky_attach == 1);
+	REQUIRE(rich->sticky_allow_background == 1);
+	REQUIRE(rich->sticky_allow_char == 0);
+	REQUIRE(rich->sticky_allow_obj == 1);
 	REQUIRE(rich->pickup_owner_only == 1);
 	REQUIRE(rich->recover_ammo_none == 1);
 	/* pd-tests stubs the catalog, so the ref cannot resolve here; the
@@ -3461,6 +3523,9 @@ TEST_CASE("wave 5 unit 1c latches derived projectile fields at registration",
 		"    } },\n"
 		"    { \"id\": \"impact\", \"kind\": \"projectile.impact\", \"params\": {\n"
 		"      \"explosion_ref\": \"mod:custom_boom\"\n"
+		"    } },\n"
+		"    { \"id\": \"bounce\", \"kind\": \"projectile.bounce_slide\", \"params\": {\n"
+		"      \"bounce_limit\": 4\n"
 		"    } },\n"
 		"    { \"id\": \"trail\", \"kind\": \"projectile.trail\", \"params\": {\n"
 		"      \"trail_type\": \"none\"\n"
@@ -3484,6 +3549,11 @@ TEST_CASE("wave 5 unit 1c latches derived projectile fields at registration",
 	REQUIRE(down->trail_smoketype == -1);
 	REQUIRE(down->timer_start_policy == 0);
 	REQUIRE(down->timer_expire_policy == 0);
+	/* randomize_rotation ABSENT inside an authored bounce node: the parse
+	 * case pre-set keeps the -1 sentinel (absent != authored false). */
+	REQUIRE(down->has_bounce_slide == 1);
+	REQUIRE(down->bounce_limit == 4);
+	REQUIRE(down->bounce_randomize_rotation == -1);
 
 	const std::string garbageGraph =
 		"{\n"
@@ -3500,6 +3570,9 @@ TEST_CASE("wave 5 unit 1c latches derived projectile fields at registration",
 		"    } },\n"
 		"    { \"id\": \"wall\", \"kind\": \"projectile.wall_hugger\", \"params\": {\n"
 		"      \"fall_vector\": \"purple\"\n"
+		"    } },\n"
+		"    { \"id\": \"bounce\", \"kind\": \"projectile.bounce_slide\", \"params\": {\n"
+		"      \"randomize_rotation\": true\n"
 		"    } },\n"
 		"    { \"id\": \"trail\", \"kind\": \"projectile.trail\", \"params\": {\n"
 		"      \"trail_type\": \"sparkles\"\n"
@@ -3521,6 +3594,8 @@ TEST_CASE("wave 5 unit 1c latches derived projectile fields at registration",
 	REQUIRE(garbage->wall_fall_vec[1] == Approx(-10.0f));
 	REQUIRE(garbage->wall_fall_vec[2] == Approx(0.0f));
 	REQUIRE(garbage->trail_smoketype == SMOKETYPE_ROCKETTAIL);
+	/* randomize_rotation authored true -> 1. */
+	REQUIRE(garbage->bounce_randomize_rotation == 1);
 
 	/* Minimal fixture: sentinels hold without the source nodes. */
 	const std::string minimalGraph =
@@ -3551,6 +3626,9 @@ TEST_CASE("wave 5 unit 1c latches derived projectile fields at registration",
 	REQUIRE(minimal->timer_expire_policy == 0);
 	REQUIRE(minimal->pickup_owner_only == 0);
 	REQUIRE(minimal->recover_ammo_none == 0);
+	/* No bounce node at all: consumers gate on has_bounce_slide, so the
+	 * zero-init randomize value is never read. */
+	REQUIRE(minimal->has_bounce_slide == 0);
 
 	weaponGraphRuntimeClearAll();
 }

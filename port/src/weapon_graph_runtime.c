@@ -2454,6 +2454,12 @@ static void projectileRuntimeFromNode(const weapon_graph_ir_t *ir,
 		break;
 	case WEAPON_GRAPH_OP_PROJECTILE_BOUNCE_SLIDE:
 		out->has_bounce_slide = 1;
+		/* c3849 Wave 5 (surface): randomize_rotation is absent-vs-authored-0
+		 * ambiguous on a zeroed struct, and authored false carries meaning
+		 * (it sets PROJECTILEFLAG_00000100 to disable the OG random bounce
+		 * rotation). Sentinel pre-set mirrors the entity-record discipline:
+		 * absent -1, authored false 0, authored true 1. */
+		out->bounce_randomize_rotation = -1;
 		heldParamInt(ir, node, "bounce_limit", &out->bounce_limit);
 		heldParamFloat(ir, node, "first_bounce_boost",
 			&out->bounce_first_boost);
