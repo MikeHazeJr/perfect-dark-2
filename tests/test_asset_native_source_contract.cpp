@@ -757,9 +757,9 @@ TEST_CASE("c3842 source-of-truth docs stay aligned",
 	        std::string::npos);
 
 	const std::string tasks = readTextFile("context/tasks.md");
-	REQUIRE(tasks.find("Asset Pipeline native-source correction") !=
+	REQUIRE(tasks.find("Public typed archives are the game-facing source") !=
 	        std::string::npos);
-	REQUIRE(tasks.find("c3842") != std::string::npos);
+	REQUIRE(tasks.find("source-hashed cache only") != std::string::npos);
 	REQUIRE(tasks.find("c3844") != std::string::npos);
 
 	const std::string kanban = readTextFile("tools/kanban/state.json");
@@ -783,7 +783,7 @@ TEST_CASE("runtime ROM fallback is tracked as an asset-chain failure",
 	REQUIRE(constraints.find("Runtime ROM fallback is an asset-chain failure") !=
 	        std::string::npos);
 	REQUIRE(constraints.find("system/ecosystem failure") != std::string::npos);
-	REQUIRE(tasks.find("Runtime ROM fallback is an asset-chain failure") !=
+	REQUIRE(tasks.find("Runtime ROM/RomProvider fallback after extraction is an asset-chain failure") !=
 	        std::string::npos);
 	REQUIRE(modding.find("Runtime ROM fallback is an asset-chain failure") !=
 	        std::string::npos);
@@ -792,7 +792,7 @@ TEST_CASE("runtime ROM fallback is tracked as an asset-chain failure",
 	REQUIRE(guard.find("c3844 must explicitly track ROM fallback") !=
 	        std::string::npos);
 	REQUIRE(kanban.find("\"id\": \"c3844\"") != std::string::npos);
-	REQUIRE(kanban.find("Asset Pipeline: make runtime ROM fallback a hard failure") !=
+	REQUIRE(kanban.find("Asset Pipeline: 100% source/runtime parity closure") !=
 	        std::string::npos);
 	REQUIRE(kanban.find("\"id\": \"c3844-s1\"") != std::string::npos);
 }

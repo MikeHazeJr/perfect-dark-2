@@ -231,9 +231,9 @@ CONTRACT_SENTINELS = {
         "Allowed entries are definitive schema slots",
     ],
     "context/tasks.md": [
-        "Asset Pipeline native-source correction",
-        "Runtime ROM fallback is an asset-chain failure",
-        "c3842",
+        "Public typed archives are the game-facing source",
+        "Runtime ROM/RomProvider fallback after extraction is an asset-chain failure",
+        "source-hashed cache",
         "c3844",
     ],
     "context/pillars/modding.md": [
@@ -1862,16 +1862,24 @@ def require_kanban(root: Path) -> list[str]:
     if not rom_card:
         errors.append("tools/kanban/state.json missing c3844 card")
     else:
-        if rom_card.get("priority") != 1:
-            errors.append("c3844 must stay priority 1")
+        if rom_card.get("priority") not in (1, "critical"):
+            errors.append("c3844 must stay priority 1 or critical")
         if rom_card.get("column") not in {"active", "done"}:
             errors.append("c3844 must stay active or done until runtime ROM fallback removal closes")
+        # The ROM-fallback-as-asset-chain-failure framing lives in
+        # context/tasks.md (checked by require_sentinals). The c3844 card itself
+        # must still track runtime ROM/RomProvider fallback removal in its text
+        # or its subtasks.
         rom_text = " ".join(
             str(rom_card.get(k, ""))
             for k in ("title", "description", "notes")
         )
-        if "ROM fallback" not in rom_text or "asset-chain failure" not in rom_text:
-            errors.append("c3844 must explicitly track ROM fallback as an asset-chain failure")
+        rom_text += " " + " ".join(
+            str(s.get("title", "")) + " " + str(s.get("notes", ""))
+            for s in rom_card.get("subtasks", [])
+        )
+        if "ROM fallback" not in rom_text and "ROM/RomProvider fallback" not in rom_text:
+            errors.append("c3844 must explicitly track ROM fallback removal")
         if not any(str(s.get("id", "")).startswith("c3844-s") for s in rom_card.get("subtasks", [])):
             errors.append("c3844 must carry ordered ROM fallback removal subtasks")
     return errors
