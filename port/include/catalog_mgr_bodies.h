@@ -47,6 +47,19 @@ struct modeldef;
  * directly without an mp_idx remap. */
 #define CATALOG_MGR_BODY_COUNT 152
 
+/* c3844 Gate 2: catalog-owned private custom body slots above the 152 base
+ * ceiling. A fully-new user-created .pdbody with no legacy bodynum is
+ * assigned a private slot in [CATALOG_MGR_BODY_CUSTOM_START,
+ * CATALOG_MGR_BODY_TOTAL) by assetcatalog_body_head_slots.c so the existing
+ * integer render path (body0f02ce8c -> s_Bodies[slot]) assembles it from the
+ * public mesh source. Base indices [0,152) are byte-for-byte unchanged.
+ * The private slot is migration debt only and must never cross a public
+ * boundary (wire/save/manifest/UI); catalog ID strings stay identity. */
+#define CATALOG_MGR_BODY_CUSTOM_COUNT 32
+#define CATALOG_MGR_BODY_CUSTOM_START CATALOG_MGR_BODY_COUNT
+#define CATALOG_MGR_BODY_TOTAL (CATALOG_MGR_BODY_COUNT + CATALOG_MGR_BODY_CUSTOM_COUNT)
+#define CATALOG_MGR_BODY_CUSTOM_END CATALOG_MGR_BODY_TOTAL
+
 /* Bodies-only typed payload (per audit Section B.1).
  *
  * Mirrors the body-relevant subset of struct headorbody. Preserves

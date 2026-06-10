@@ -26,9 +26,17 @@ extern "C" {
  * with heads; the underlying array carries both. */
 #define CATALOG_MGR_BODY_COUNT_PURE 152
 
+/* c3844 Gate 2: total addressable body slots = base + private custom range.
+ * Kept in sync with CATALOG_MGR_BODY_TOTAL in catalog_mgr_bodies.h (the pure
+ * TU cannot include the manager header). The in-range bound below uses TOTAL
+ * so a catalog-owned custom body slot is a valid index; the base count stays
+ * 152 for population/enumeration loops. */
+#define CATALOG_MGR_BODY_CUSTOM_COUNT_PURE 32
+#define CATALOG_MGR_BODY_TOTAL_PURE (CATALOG_MGR_BODY_COUNT_PURE + CATALOG_MGR_BODY_CUSTOM_COUNT_PURE)
+
 /* Bounds check for bodynum.
- * Returns 1 if bodynum is in [0, CATALOG_MGR_BODY_COUNT_PURE).
- * Returns 0 for negative or out-of-range inputs.
+ * Returns 1 if bodynum is in [0, CATALOG_MGR_BODY_TOTAL_PURE) (base +
+ * private custom range). Returns 0 for negative or out-of-range inputs.
  * Bodies have no RANDOM_GENDER sentinel (that's a head-side concept), so
  * unlike the heads predicate this one only rejects out-of-range.
  */

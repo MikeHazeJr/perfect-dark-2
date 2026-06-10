@@ -35,6 +35,15 @@
 #include "catalog_mgr_heads.h"
 #include "catalog_mgr_heads_pure.h"
 #include "loader_pool.h"  /* Catalog Gate 3 F12: pool-backed source when active */
+
+/* c3844 Gate 2: keep the pure bound constants in lockstep with the manager
+ * constants at compile time (see catalog_mgr_bodies.c). */
+_Static_assert(CATALOG_MGR_HEAD_COUNT_PURE == CATALOG_MGR_HEAD_COUNT,
+	"head base count drift between pure and manager headers");
+_Static_assert(CATALOG_MGR_HEAD_CUSTOM_COUNT_PURE == CATALOG_MGR_HEAD_CUSTOM_COUNT,
+	"head custom count drift between pure and manager headers");
+_Static_assert(CATALOG_MGR_HEAD_TOTAL_PURE == CATALOG_MGR_HEAD_TOTAL,
+	"head total drift between pure and manager headers");
 /* BYOR completion (2026-05-03): manager seeds from authoring table
  * instead of g_HeadsAndBodies[]. */
 #include "headdata_authored.h"
@@ -42,7 +51,9 @@
 /* F1 backing pool: parallel mirror that the manager owns. Populated
  * at init from g_HeadData[] (BYOR completion 2026-05-03; was
  * g_HeadsAndBodies[] pre-pivot). Loader pool overrides on the F12 path. */
-static head_data_t s_Heads[CATALOG_MGR_HEAD_COUNT];
+/* c3844 Gate 2: sized to TOTAL so a catalog-owned custom head slot
+ * [152, TOTAL) is valid storage indexable directly by the render path. */
+static head_data_t s_Heads[CATALOG_MGR_HEAD_TOTAL];
 static s32 s_HeadsInited = 0;
 
 static void s_populateFromAuthored(s32 headnum)
@@ -50,7 +61,7 @@ static void s_populateFromAuthored(s32 headnum)
 	const head_authored_record_t *src;
 	head_data_t *dst;
 
-	if (headnum < 0 || headnum >= CATALOG_MGR_HEAD_COUNT) {
+	if (headnum < 0 || headnum >= CATALOG_MGR_HEAD_TOTAL) {
 		return;
 	}
 	src = headDataLookupByHeadnum(headnum);
@@ -121,11 +132,13 @@ void catalogManagerHeadInit(void)
 {
 	s32 i;
 
-	for (i = 0; i < CATALOG_MGR_HEAD_COUNT; i++) {
+	/* c3844 Gate 2: zero-init across the full TOTAL range so the private
+	 * custom head slots [152, TOTAL) start clean. */
+	for (i = 0; i < CATALOG_MGR_HEAD_TOTAL; i++) {
 		memset(&s_Heads[i], 0, sizeof(head_data_t));
 		s_Heads[i].headnum = (s16)i;
 	}
-	for (i = 0; i < CATALOG_MGR_HEAD_COUNT; i++) {
+	for (i = 0; i < CATALOG_MGR_HEAD_TOTAL; i++) {
 		s_populateFromAuthored(i);
 	}
 	s_HeadsInited = 1;
@@ -145,7 +158,8 @@ const head_data_t *catalogManagerGetHeadByIndex(s32 headnum)
 	 * head-slot legitimate sentinels). Out-of-positive is silent too
 	 * during F1 because the legacy accessors that we'll proxy did not
 	 * log on out-of-range; F2 may reconsider per-callsite. */
-	if (headnum < 0 || headnum >= CATALOG_MGR_HEAD_COUNT) {
+	/* c3844 Gate 2: render-path lookup accepts the custom range too. */
+	if (headnum < 0 || headnum >= CATALOG_MGR_HEAD_TOTAL) {
 		return NULL;
 	}
 	if (headnum == CATALOG_MGR_HEAD_RANDOM_GENDER_PURE) {
@@ -307,7 +321,8 @@ void catalogManagerResetAllHeadModeldefs(void)
 	if (!s_HeadsInited) {
 		return;
 	}
-	for (i = 0; i < CATALOG_MGR_HEAD_COUNT; i++) {
+	/* c3844 Gate 2: release custom-slot modeldefs too. */
+	for (i = 0; i < CATALOG_MGR_HEAD_TOTAL; i++) {
 		s_Heads[i].modeldef = NULL;
 	}
 	/* No legacy-walk delegate here -- catalogResetAllModeldefs() is

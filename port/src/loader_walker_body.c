@@ -18,6 +18,7 @@
 #include <PR/ultratypes.h>
 
 #include "assetcatalog.h"
+#include "assetcatalog_body_head_slots.h"  /* c3844 Gate 2: private custom-slot allocator */
 #include "catalog_mgr_bodies.h"
 #include "catalog_readable_ids.h"
 #include "fs.h"
@@ -109,11 +110,24 @@ static s32 s_register(const char *manifest, size_t manifest_len,
     char source_path[FS_MAXPATH + 1];
     if (!loaderWalkerEnvelopeInt(manifest, manifest_len, "bodynum", &bodynum)
             || bodynum < 0 || bodynum >= CATALOG_MGR_BODY_COUNT) {
-        sysLogPrintf(LOG_WARNING,
-            "LOADER.WALKER.BODY.RUNTIME_SLOT_MISSING: id=%s bodynum=%d path=%s",
-            id ? id : "(null)", (s32)bodynum,
-            file_path ? file_path : "(null)");
-        bodynum = -1;
+        /* c3844 Gate 2: a fully-new custom .pdbody has no legacy bodynum.
+         * Allocate a catalog-owned private slot (>= 152) instead of dropping
+         * it, so the existing integer render path assembles it from the
+         * public mesh source. The private slot never crosses a public
+         * boundary; catalog ID strings stay identity. */
+        s32 custom = assetCatalogResolveBodyPrivateSlot(id);
+        if (custom >= 0) {
+            sysLogPrintf(LOG_NOTE,
+                "LOADER.WALKER.BODY.CUSTOM_SLOT: id=%s slot=%d path=%s",
+                id ? id : "(null)", custom, file_path ? file_path : "(null)");
+            bodynum = custom;
+        } else {
+            sysLogPrintf(LOG_WARNING,
+                "LOADER.WALKER.BODY.RUNTIME_SLOT_MISSING: id=%s bodynum=%d path=%s",
+                id ? id : "(null)", (s32)bodynum,
+                file_path ? file_path : "(null)");
+            bodynum = -1;
+        }
     }
     loaderWalkerEnvelopeInt(manifest, manifest_len, "requirefeature", &requirefeature);
     if (!loaderWalkerEnvelopeStrCopy(manifest, manifest_len, "mesh_archive",
@@ -138,6 +152,12 @@ static s32 s_register(const char *manifest, size_t manifest_len,
     }
 
     loaderWalkerMarkBaseArchiveEntry(e);
+    /* c3844 Gate 2: bind the runtime slot so catalogBodyIdByBodynum reverse-
+     * resolves a custom body. Base bodies already have runtime_index set by
+     * base registration; only set it when unset (custom). */
+    if (e && bodynum >= 0 && e->runtime_index < 0) {
+        e->runtime_index = (s32)bodynum;
+    }
     if (e && loaderWalkerArchiveMemberPath(file_path, mesh_member,
                                            mesh_archive_path, sizeof(mesh_archive_path))) {
         snprintf(source_path, sizeof(source_path), "%s::model.obj", mesh_archive_path);
@@ -160,7 +180,13 @@ static s32 s_register(const char *manifest, size_t manifest_len,
             hand_member);
     }
 
-    loaderPoolParseBodyJson(manifest, manifest_len);
+    /* c3844 Gate 2: custom bodies have no manifest bodynum, so feed the
+     * loader pool the allocated private slot directly. */
+    if (bodynum >= CATALOG_MGR_BODY_CUSTOM_START) {
+        loaderPoolParseBodyJsonForSlot(manifest, manifest_len, (s32)bodynum);
+    } else {
+        loaderPoolParseBodyJson(manifest, manifest_len);
+    }
 
     return e ? 1 : -1;
 }

@@ -34,6 +34,16 @@
 #include "catalog_mgr_bodies.h"
 #include "catalog_mgr_bodies_pure.h"
 #include "loader_pool.h"  /* Catalog Gate 3 Bodies F12: pool-backed source when active */
+
+/* c3844 Gate 2: the pure bound constants (used by catalogMgrBodyIsInRangePure
+ * and the slot tests) must equal the manager constants (which size the arrays
+ * and the allocator). Keep them in lockstep at compile time. */
+_Static_assert(CATALOG_MGR_BODY_COUNT_PURE == CATALOG_MGR_BODY_COUNT,
+	"body base count drift between pure and manager headers");
+_Static_assert(CATALOG_MGR_BODY_CUSTOM_COUNT_PURE == CATALOG_MGR_BODY_CUSTOM_COUNT,
+	"body custom count drift between pure and manager headers");
+_Static_assert(CATALOG_MGR_BODY_TOTAL_PURE == CATALOG_MGR_BODY_TOTAL,
+	"body total drift between pure and manager headers");
 /* BYOR completion (2026-05-03): manager seeds from authoring table
  * instead of g_HeadsAndBodies[]. */
 #include "bodydata_authored.h"
@@ -41,7 +51,9 @@
 /* F1 backing pool: parallel mirror that the manager owns. Populated
  * at init from g_BodyData[] (BYOR completion 2026-05-03; was
  * g_HeadsAndBodies[] pre-pivot). Loader pool overrides on the F12 path. */
-static body_data_t s_Bodies[CATALOG_MGR_BODY_COUNT];
+/* c3844 Gate 2: sized to TOTAL so a catalog-owned custom body slot
+ * [152, TOTAL) is valid storage indexable directly by the render path. */
+static body_data_t s_Bodies[CATALOG_MGR_BODY_TOTAL];
 static s32 s_BodiesInited = 0;
 
 static void s_populateFromAuthored(s32 bodynum)
@@ -49,7 +61,7 @@ static void s_populateFromAuthored(s32 bodynum)
 	const body_authored_record_t *src;
 	body_data_t *dst;
 
-	if (bodynum < 0 || bodynum >= CATALOG_MGR_BODY_COUNT) {
+	if (bodynum < 0 || bodynum >= CATALOG_MGR_BODY_TOTAL) {
 		return;
 	}
 	src = bodyDataLookupByBodynum(bodynum);
@@ -120,11 +132,15 @@ void catalogManagerBodyInit(void)
 {
 	s32 i;
 
-	for (i = 0; i < CATALOG_MGR_BODY_COUNT; i++) {
+	/* c3844 Gate 2: zero-init across the full TOTAL range so the private
+	 * custom slots [152, TOTAL) start clean; authored population is a no-op
+	 * for them (no authored record), leaving them empty until the loader
+	 * pool supplies a custom body. */
+	for (i = 0; i < CATALOG_MGR_BODY_TOTAL; i++) {
 		memset(&s_Bodies[i], 0, sizeof(body_data_t));
 		s_Bodies[i].bodynum = (s16)i;
 	}
-	for (i = 0; i < CATALOG_MGR_BODY_COUNT; i++) {
+	for (i = 0; i < CATALOG_MGR_BODY_TOTAL; i++) {
 		s_populateFromAuthored(i);
 	}
 	s_BodiesInited = 1;
@@ -140,7 +156,8 @@ s32 catalogManagerBodyCount(void)
 
 const body_data_t *catalogManagerGetBodyByIndex(s32 bodynum)
 {
-	if (bodynum < 0 || bodynum >= CATALOG_MGR_BODY_COUNT) {
+	/* c3844 Gate 2: render-path lookup accepts the custom range too. */
+	if (bodynum < 0 || bodynum >= CATALOG_MGR_BODY_TOTAL) {
 		return NULL;
 	}
 	return s_get(bodynum);
@@ -287,7 +304,8 @@ void catalogManagerResetAllBodyModeldefs(void)
 	if (!s_BodiesInited) {
 		return;
 	}
-	for (i = 0; i < CATALOG_MGR_BODY_COUNT; i++) {
+	/* c3844 Gate 2: release custom-slot modeldefs too. */
+	for (i = 0; i < CATALOG_MGR_BODY_TOTAL; i++) {
 		s_Bodies[i].modeldef = NULL;
 	}
 }

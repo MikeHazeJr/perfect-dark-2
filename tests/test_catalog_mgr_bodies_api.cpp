@@ -45,14 +45,18 @@ TEST_CASE("catalog-mgr-body: bounds-check in-range",
 	REQUIRE(catalogMgrBodyIsInRangePure(63) == 1);  /* near the MP body edge */
 	REQUIRE(catalogMgrBodyIsInRangePure(92) == 1);  /* BODY_SKEDAR */
 	REQUIRE(catalogMgrBodyIsInRangePure(CATALOG_MGR_BODY_COUNT_PURE - 1) == 1);
+	/* c3844 Gate 2: the private custom range [152, TOTAL) is now in-range. */
+	REQUIRE(catalogMgrBodyIsInRangePure(CATALOG_MGR_BODY_COUNT_PURE) == 1);
+	REQUIRE(catalogMgrBodyIsInRangePure(CATALOG_MGR_BODY_TOTAL_PURE - 1) == 1);
 }
 
 TEST_CASE("catalog-mgr-body: bounds-check out-of-range",
           "[catalog-mgr-body][gate3][f1]") {
 	REQUIRE(catalogMgrBodyIsInRangePure(-1) == 0);
 	REQUIRE(catalogMgrBodyIsInRangePure(-100) == 0);
-	REQUIRE(catalogMgrBodyIsInRangePure(CATALOG_MGR_BODY_COUNT_PURE) == 0);
-	REQUIRE(catalogMgrBodyIsInRangePure(CATALOG_MGR_BODY_COUNT_PURE + 1) == 0);
+	/* c3844 Gate 2: TOTAL (= base + custom) is the new upper bound. */
+	REQUIRE(catalogMgrBodyIsInRangePure(CATALOG_MGR_BODY_TOTAL_PURE) == 0);
+	REQUIRE(catalogMgrBodyIsInRangePure(CATALOG_MGR_BODY_TOTAL_PURE + 1) == 0);
 	REQUIRE(catalogMgrBodyIsInRangePure(255) == 0);
 }
 

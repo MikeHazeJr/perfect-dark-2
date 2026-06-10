@@ -50,14 +50,18 @@ TEST_CASE("catalog-mgr-head: bounds-check in-range",
 	REQUIRE(catalogMgrHeadIsInRangePure(1) == 1);
 	REQUIRE(catalogMgrHeadIsInRangePure(75) == 1);  /* near the MP head edge */
 	REQUIRE(catalogMgrHeadIsInRangePure(CATALOG_MGR_HEAD_COUNT_PURE - 1) == 1);
+	/* c3844 Gate 2: the private custom range [152, TOTAL) is now in-range. */
+	REQUIRE(catalogMgrHeadIsInRangePure(CATALOG_MGR_HEAD_COUNT_PURE) == 1);
+	REQUIRE(catalogMgrHeadIsInRangePure(CATALOG_MGR_HEAD_TOTAL_PURE - 1) == 1);
 }
 
 TEST_CASE("catalog-mgr-head: bounds-check out-of-range",
           "[catalog-mgr-head][gate3][f1]") {
 	REQUIRE(catalogMgrHeadIsInRangePure(-1) == 0);
 	REQUIRE(catalogMgrHeadIsInRangePure(-100) == 0);
-	REQUIRE(catalogMgrHeadIsInRangePure(CATALOG_MGR_HEAD_COUNT_PURE) == 0);
-	REQUIRE(catalogMgrHeadIsInRangePure(CATALOG_MGR_HEAD_COUNT_PURE + 1) == 0);
+	/* c3844 Gate 2: TOTAL (= base + custom) is the new upper bound. */
+	REQUIRE(catalogMgrHeadIsInRangePure(CATALOG_MGR_HEAD_TOTAL_PURE) == 0);
+	REQUIRE(catalogMgrHeadIsInRangePure(CATALOG_MGR_HEAD_TOTAL_PURE + 1) == 0);
 	REQUIRE(catalogMgrHeadIsInRangePure(255) == 0);
 }
 

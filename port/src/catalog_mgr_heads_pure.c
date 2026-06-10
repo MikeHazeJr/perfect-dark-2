@@ -13,7 +13,9 @@
 
 s32 catalogMgrHeadIsInRangePure(s32 headnum)
 {
-	if (headnum < 0 || headnum >= CATALOG_MGR_HEAD_COUNT_PURE) {
+	/* c3844 Gate 2: accept base [0,152) AND the private custom range
+	 * [152, TOTAL); the RANDOM_GENDER sentinel (1000) is still rejected. */
+	if (headnum < 0 || headnum >= CATALOG_MGR_HEAD_TOTAL_PURE) {
 		return 0;
 	}
 	if (headnum == CATALOG_MGR_HEAD_RANDOM_GENDER_PURE) {

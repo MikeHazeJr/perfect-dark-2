@@ -167,12 +167,19 @@ static void s_poolEnsureMutex(void)
  * .pdbody / .pdarena envelopes via loaderPoolParse*Json; the catalog
  * managers (catalog_mgr_heads.c / _bodies.c / _arenas.c) gate their
  * pool reads on the matching loaderPool*Active() flag. */
-static head_data_t  s_HeadsPool[CATALOG_MGR_HEAD_COUNT];
+/* c3844 Gate 2: sized to TOTAL so custom body/head slots [152, TOTAL)
+ * populated by the walker's private-slot allocator have valid pool storage. */
+static head_data_t  s_HeadsPool[CATALOG_MGR_HEAD_TOTAL];
 static s32          s_HeadsLoaderActive;
 static s32          s_HeadsRegistered;
-static body_data_t  s_BodiesPool[CATALOG_MGR_BODY_COUNT];
+static body_data_t  s_BodiesPool[CATALOG_MGR_BODY_TOTAL];
 static s32          s_BodiesLoaderActive;
 static s32          s_BodiesRegistered;
+/* c3844 Gate 2: when >= 0, parseHead/parseBody use this forced slot instead
+ * of the manifest's bodynum/headnum (the manifest of a fully-new custom
+ * .pdbody/.pdhead has no legacy slot). Set by loaderPoolParse*JsonForSlot. */
+static s32          s_ForcedBodynum = -1;
+static s32          s_ForcedHeadnum = -1;
 static arena_data_t s_ArenasPool[CATALOG_MGR_ARENA_COUNT];
 static s32          s_ArenasLoaderActive;
 static s32          s_ArenasRegistered;
@@ -1940,10 +1947,15 @@ static void parseHead(jstream_t *s)
 	}
 	if (s->cur.kind == JT_RBRACE) jstream_advance(s);
 
-	if (headnum < 0 || headnum >= CATALOG_MGR_HEAD_COUNT) {
+	/* c3844 Gate 2: a fully-new custom .pdhead has no legacy headnum; the
+	 * walker allocates a private slot and forces it here. */
+	if (s_ForcedHeadnum >= 0) {
+		headnum = s_ForcedHeadnum;
+	}
+	if (headnum < 0 || headnum >= CATALOG_MGR_HEAD_TOTAL) {
 		sysLogPrintf(LOG_WARNING,
 			"LOADER.POOL.HEAD.RESOLVE_FAIL: headnum=%d out of range [0,%d)",
-			headnum, CATALOG_MGR_HEAD_COUNT);
+			headnum, CATALOG_MGR_HEAD_TOTAL);
 		return;
 	}
 	h.headnum = (s16)headnum;
@@ -1999,10 +2011,15 @@ static void parseBody(jstream_t *s)
 	}
 	if (s->cur.kind == JT_RBRACE) jstream_advance(s);
 
-	if (bodynum < 0 || bodynum >= CATALOG_MGR_BODY_COUNT) {
+	/* c3844 Gate 2: a fully-new custom .pdbody has no legacy bodynum; the
+	 * walker allocates a private slot and forces it here. */
+	if (s_ForcedBodynum >= 0) {
+		bodynum = s_ForcedBodynum;
+	}
+	if (bodynum < 0 || bodynum >= CATALOG_MGR_BODY_TOTAL) {
 		sysLogPrintf(LOG_WARNING,
 			"LOADER.POOL.BODY.RESOLVE_FAIL: bodynum=%d out of range [0,%d)",
-			bodynum, CATALOG_MGR_BODY_COUNT);
+			bodynum, CATALOG_MGR_BODY_TOTAL);
 		return;
 	}
 	b.bodynum = (s16)bodynum;
@@ -2198,6 +2215,33 @@ s32 loaderPoolParseBodyJson(const char *json, size_t json_len)
 	return r;
 }
 
+/* c3844 Gate 2: parse a custom body's manifest into a catalog-owned private
+ * slot, overriding the manifest's (absent) bodynum. forced_slot must be in
+ * the custom range [CATALOG_MGR_BODY_CUSTOM_START, CATALOG_MGR_BODY_TOTAL). */
+s32 loaderPoolParseBodyJsonForSlot(const char *json, size_t json_len,
+	s32 forced_slot)
+{
+	s_poolEnsureMutex();
+	POOL_LOCK();
+	s_ForcedBodynum = forced_slot;
+	s32 r = s_parseOneRecord(json, json_len, parseBody);
+	s_ForcedBodynum = -1;
+	POOL_UNLOCK();
+	return r;
+}
+
+s32 loaderPoolParseHeadJsonForSlot(const char *json, size_t json_len,
+	s32 forced_slot)
+{
+	s_poolEnsureMutex();
+	POOL_LOCK();
+	s_ForcedHeadnum = forced_slot;
+	s32 r = s_parseOneRecord(json, json_len, parseHead);
+	s_ForcedHeadnum = -1;
+	POOL_UNLOCK();
+	return r;
+}
+
 s32 loaderPoolParseArenaJson(const char *json, size_t json_len)
 {
 	s_poolEnsureMutex();
@@ -2325,7 +2369,7 @@ s32 loaderPoolHeadsActive(void)
 
 const head_data_t *loaderPoolGetHead(s32 idx)
 {
-	if (idx < 0 || idx >= CATALOG_MGR_HEAD_COUNT) return NULL;
+	if (idx < 0 || idx >= CATALOG_MGR_HEAD_TOTAL) return NULL;
 	if (!s_HeadsLoaderActive) return NULL;
 	return &s_HeadsPool[idx];
 }
@@ -2346,7 +2390,7 @@ s32 loaderPoolBodiesActive(void)
 
 const body_data_t *loaderPoolGetBody(s32 idx)
 {
-	if (idx < 0 || idx >= CATALOG_MGR_BODY_COUNT) return NULL;
+	if (idx < 0 || idx >= CATALOG_MGR_BODY_TOTAL) return NULL;
 	if (!s_BodiesLoaderActive) return NULL;
 	return &s_BodiesPool[idx];
 }

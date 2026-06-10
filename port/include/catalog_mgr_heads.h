@@ -46,6 +46,17 @@ struct modeldef;
  * so headnum can index it directly without an mp_idx remap. */
 #define CATALOG_MGR_HEAD_COUNT 152
 
+/* c3844 Gate 2: catalog-owned private custom head slots above the 152 base
+ * ceiling (parallels CATALOG_MGR_BODY_CUSTOM_*). A fully-new user-created
+ * .pdhead with no legacy headnum gets a private slot in
+ * [CATALOG_MGR_HEAD_CUSTOM_START, CATALOG_MGR_HEAD_TOTAL). Base indices
+ * [0,152) are unchanged; the private slot is migration debt only and must
+ * never cross a public boundary. */
+#define CATALOG_MGR_HEAD_CUSTOM_COUNT 32
+#define CATALOG_MGR_HEAD_CUSTOM_START CATALOG_MGR_HEAD_COUNT
+#define CATALOG_MGR_HEAD_TOTAL (CATALOG_MGR_HEAD_COUNT + CATALOG_MGR_HEAD_CUSTOM_COUNT)
+#define CATALOG_MGR_HEAD_CUSTOM_END CATALOG_MGR_HEAD_TOTAL
+
 /* Heads-only typed payload (per audit Section B.2 / decision I.1).
  *
  * Mirrors the head-relevant subset of struct headorbody. Drops bodies-side

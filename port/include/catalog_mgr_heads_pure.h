@@ -25,6 +25,12 @@ extern "C" {
  * identically (src/include/data.h:390). */
 #define CATALOG_MGR_HEAD_COUNT_PURE 152
 
+/* c3844 Gate 2: total addressable head slots = base + private custom range.
+ * Kept in sync with CATALOG_MGR_HEAD_TOTAL in catalog_mgr_heads.h. The
+ * in-range bound uses TOTAL; base count stays 152 for population loops. */
+#define CATALOG_MGR_HEAD_CUSTOM_COUNT_PURE 32
+#define CATALOG_MGR_HEAD_TOTAL_PURE (CATALOG_MGR_HEAD_COUNT_PURE + CATALOG_MGR_HEAD_CUSTOM_COUNT_PURE)
+
 /* HEAD_RANDOM_GENDER sentinel, mirrored here so the pure layer can
  * surface it without dragging constants.h. Live routers pass this value
  * through; the pure layer treats it as "not a real index". */

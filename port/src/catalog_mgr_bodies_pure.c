@@ -13,7 +13,9 @@
 
 s32 catalogMgrBodyIsInRangePure(s32 bodynum)
 {
-	if (bodynum < 0 || bodynum >= CATALOG_MGR_BODY_COUNT_PURE) {
+	/* c3844 Gate 2: accept base [0,152) AND the private custom range
+	 * [152, TOTAL) so a catalog-owned custom body slot is a valid index. */
+	if (bodynum < 0 || bodynum >= CATALOG_MGR_BODY_TOTAL_PURE) {
 		return 0;
 	}
 	return 1;

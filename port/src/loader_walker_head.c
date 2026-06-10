@@ -13,6 +13,7 @@
 #include <PR/ultratypes.h>
 
 #include "assetcatalog.h"
+#include "assetcatalog_body_head_slots.h"  /* c3844 Gate 2: private custom-slot allocator */
 #include "catalog_mgr_heads.h"
 #include "fs.h"
 #include "loader_pool.h"
@@ -33,11 +34,22 @@ static s32 s_register(const char *manifest, size_t manifest_len,
     char source_path[FS_MAXPATH + 1];
     if (!loaderWalkerEnvelopeInt(manifest, manifest_len, "headnum", &headnum)
             || headnum < 0 || headnum >= CATALOG_MGR_HEAD_COUNT) {
-        sysLogPrintf(LOG_WARNING,
-            "LOADER.WALKER.HEAD.RUNTIME_SLOT_MISSING: id=%s headnum=%d path=%s",
-            id ? id : "(null)", (s32)headnum,
-            file_path ? file_path : "(null)");
-        headnum = -1;
+        /* c3844 Gate 2: a fully-new custom .pdhead has no legacy headnum.
+         * Allocate a catalog-owned private slot (>= 152) so the integer
+         * render path assembles it from the public mesh source. */
+        s32 custom = assetCatalogResolveHeadPrivateSlot(id);
+        if (custom >= 0) {
+            sysLogPrintf(LOG_NOTE,
+                "LOADER.WALKER.HEAD.CUSTOM_SLOT: id=%s slot=%d path=%s",
+                id ? id : "(null)", custom, file_path ? file_path : "(null)");
+            headnum = custom;
+        } else {
+            sysLogPrintf(LOG_WARNING,
+                "LOADER.WALKER.HEAD.RUNTIME_SLOT_MISSING: id=%s headnum=%d path=%s",
+                id ? id : "(null)", (s32)headnum,
+                file_path ? file_path : "(null)");
+            headnum = -1;
+        }
     }
     loaderWalkerEnvelopeInt(manifest, manifest_len, "requirefeature", &requirefeature);
     if (!loaderWalkerEnvelopeStrCopy(manifest, manifest_len, "mesh_archive",
@@ -54,13 +66,25 @@ static s32 s_register(const char *manifest, size_t manifest_len,
     }
 
     loaderWalkerMarkBaseArchiveEntry(e);
+    /* c3844 Gate 2: bind the runtime slot so catalogHeadIdByHeadnum reverse-
+     * resolves a custom head. Only set when unset (custom); base heads keep
+     * their base-registration runtime_index. */
+    if (e && headnum >= 0 && e->runtime_index < 0) {
+        e->runtime_index = (s32)headnum;
+    }
     if (e && loaderWalkerArchiveMemberPath(file_path, mesh_member,
                                            mesh_archive_path, sizeof(mesh_archive_path))) {
         snprintf(source_path, sizeof(source_path), "%s::model.obj", mesh_archive_path);
         catalogSetPrimaryFile(e, source_path);
     }
 
-    loaderPoolParseHeadJson(manifest, manifest_len);
+    /* c3844 Gate 2: custom heads have no manifest headnum, so feed the loader
+     * pool the allocated private slot directly. */
+    if (headnum >= CATALOG_MGR_HEAD_CUSTOM_START) {
+        loaderPoolParseHeadJsonForSlot(manifest, manifest_len, (s32)headnum);
+    } else {
+        loaderPoolParseHeadJson(manifest, manifest_len);
+    }
 
     return e ? 1 : -1;
 }

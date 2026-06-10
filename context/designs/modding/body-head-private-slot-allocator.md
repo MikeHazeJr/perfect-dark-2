@@ -1,8 +1,17 @@
 # Body/Head Private Runtime-Slot Allocator (Gate 2)
 
-> c3844 Gate 2 closure. Status: DESIGNED, ready for a one-pass implementation.
-> Scoped 2026-06-09. The blast radius is verified-contained; the only
-> unverifiable-until-B-801 part is the live render of a custom body/head.
+> c3844 Gate 2 closure. Status: IMPLEMENTED 2026-06-10 (B-909), static/adapter
+> verified. The only unverified-until-B-801 part is the live render of a custom
+> body/head. Implemented per Option B exactly as designed below.
+>
+> Landed: `CATALOG_MGR_{BODY,HEAD}_CUSTOM_*`/`_TOTAL` constants (manager +
+> pure headers, with `_Static_assert` lockstep guards); arrays/bounds grown to
+> TOTAL while population/random-gender loops stay at base 152; new
+> `assetcatalog_body_head_slots.c` allocator; `loaderPoolParse{Body,Head}Json
+> ForSlot` forced-slot parse; walker wiring in `loader_walker_{body,head}.c`
+> (allocate private slot + set `runtime_index` + forced-slot parse); reset
+> beside `assetCatalogResetCustomWeaponSlots` in `assetcatalog.c`. Tests:
+> `tests/test_body_head_slots.cpp` (8 cases) + updated manager bound pins.
 
 ## Problem (verified)
 

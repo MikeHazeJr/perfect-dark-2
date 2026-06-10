@@ -52,6 +52,11 @@ s32 loaderPoolParseWeaponJsonWithRuntimeSlot(const char *json, size_t json_len,
                 s32 runtime_weapon_id);
 s32 loaderPoolParseHeadJson(const char *json, size_t json_len);
 s32 loaderPoolParseBodyJson(const char *json, size_t json_len);
+/* c3844 Gate 2: parse a custom body/head manifest into a catalog-owned
+ * private slot (forced_slot in the custom range), overriding the manifest's
+ * absent bodynum/headnum. Parallels loaderPoolParseWeaponJsonWithRuntimeSlot. */
+s32 loaderPoolParseBodyJsonForSlot(const char *json, size_t json_len, s32 forced_slot);
+s32 loaderPoolParseHeadJsonForSlot(const char *json, size_t json_len, s32 forced_slot);
 s32 loaderPoolParseArenaJson(const char *json, size_t json_len);
 
 /* Per-asset .pdanim parser. Used by loader_walker_anim.c for public

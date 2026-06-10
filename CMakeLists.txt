@@ -916,6 +916,11 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/port/src/spawn_predicate.c
   ${CMAKE_SOURCE_DIR}/port/src/bodies_headcount.c
   ${CMAKE_SOURCE_DIR}/port/src/options_forced.c
+  # c3844 Gate 2: catalog-owned private body/head slot allocator. Depends only
+  # on static arrays + sysLogPrintf (stubbed) + CATALOG_ID_LEN, so it stays
+  # globals-free and is behaviorally testable in pd-tests.
+  ${CMAKE_SOURCE_DIR}/port/src/assetcatalog_body_head_slots.c
+  ${CMAKE_SOURCE_DIR}/tests/test_body_head_slots.cpp
 
   # S484 F1: catalog manager for weapons (pure validators + variant spec).
   # Live router lives in port/src/catalog_mgr_weapons.c and pulls in
