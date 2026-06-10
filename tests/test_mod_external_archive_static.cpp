@@ -2189,12 +2189,14 @@ TEST_CASE("weapon graph runtime compiler validates modules and deterministic IR"
 		ASSET_WEAPON, &fromArchive, err, sizeof(err)) == 0);
 	REQUIRE(std::string(fromArchive.ir_sha256) == std::string(a.ir_sha256));
 
+	/* B-917: real archives author the *_file spelling (romextract_pdweapon.c);
+	 * the fixture must match or the descriptor-key drift can regrow unseen. */
 	const std::string cleanWeaponIni =
 		"[weapon]\n"
 		"catalog_id = base:test_weapon\n"
 		"primary_graph = behavior/primary.graph.json\n"
 		"secondary_graph = behavior/secondary.graph.json\n"
-		"shared_context = behavior/shared-context.json\n";
+		"shared_context_file = behavior/shared-context.json\n";
 	const std::string primaryGraph =
 		"{\n"
 		"  \"schema\": \"pd.weapon_graph.v1\",\n"
@@ -2231,6 +2233,27 @@ TEST_CASE("weapon graph runtime compiler validates modules and deterministic IR"
 	REQUIRE(fromCleanArchive.export_count == 2);
 	REQUIRE(fromCleanArchive.nodes[0].opcode == WEAPON_GRAPH_OP_FIRE_HITSCAN);
 	REQUIRE(fromCleanArchive.nodes[1].opcode == WEAPON_GRAPH_OP_SPAWN_FIRED_PROJECTILE);
+
+	/* B-917: the bare legacy spelling stays accepted (first-set-wins alias),
+	 * so older fixtures and hand-authored archives keep compiling. */
+	const std::string legacyWeaponIni =
+		"[weapon]\n"
+		"catalog_id = base:test_weapon\n"
+		"primary_graph = behavior/primary.graph.json\n"
+		"secondary_graph = behavior/secondary.graph.json\n"
+		"shared_context = behavior/shared-context.json\n";
+	TempArchive legacyWeapon = writeArchiveEntries("weapon-legacy-graph-compiler", {
+		{ "weapon.ini", legacyWeaponIni },
+		{ "behavior/primary.graph.json", primaryGraph },
+		{ "behavior/secondary.graph.json", secondaryGraph },
+		{ "behavior/shared-context.json", sharedContext },
+	});
+	weapon_graph_ir_t fromLegacyArchive;
+	REQUIRE(weaponGraphCompileArchiveFile(legacyWeapon.path.string().c_str(),
+		ASSET_WEAPON, &fromLegacyArchive, err, sizeof(err)) == 0);
+	REQUIRE(fromLegacyArchive.context_count == 1);
+	REQUIRE(std::string(fromLegacyArchive.ir_sha256) ==
+		std::string(fromCleanArchive.ir_sha256));
 }
 
 TEST_CASE("weapon mod save contract supports shotgun template dual wield save",
@@ -3203,6 +3226,42 @@ TEST_CASE("held weapon graph adapter is wired into runtime callsites",
 	REQUIRE(lifecycle.find("weaponGraphRuntimeRegisterBehaviorGraphJson") != std::string::npos);
 	REQUIRE(lifecycle.find("weaponGraphRuntimeClearAsset") != std::string::npos);
 	REQUIRE(lifecycle.find("weaponGraphRuntimeClearWeapon(entry->runtime_index") != std::string::npos);
+}
+
+TEST_CASE("wave 5 unit 0 bug-fix pins stay wired",
+          "[modding][pdxxx][weapon_graph][c3849][static]") {
+	/* B-916: both timed_timer_ticks60 consumers in bondgun.c must zero-guard.
+	 * Base timed mines author no timer param (field 0); an unguarded read
+	 * arms timer240 = 0 and detonates on the first tick with the runtime
+	 * toggle ON. */
+	const std::string bondgun = readFile("src/game/bondgun.c");
+	const std::string::size_type firstguard =
+		bondgun.find("entity->timed_timer_ticks60 > 0");
+	REQUIRE(firstguard != std::string::npos);
+	REQUIRE(bondgun.find("entity->timed_timer_ticks60 > 0", firstguard + 1)
+		!= std::string::npos);
+
+	/* B-917: real archives write the *_file descriptor spellings; the parser
+	 * must match them, with the bare spellings kept as first-set-wins
+	 * aliases (model/model_file precedent). */
+	const std::string archive = readFile("port/src/weapon_graph_archive.c");
+	REQUIRE(archive.find("strcmp(key, \"shared_context_file\") == 0") != std::string::npos);
+	REQUIRE(archive.find("strcmp(key, \"settings_file\") == 0") != std::string::npos);
+	REQUIRE(archive.find("strcmp(key, \"variables_file\") == 0") != std::string::npos);
+	REQUIRE(archive.find("strcmp(key, \"shared_context\") == 0 && out->shared_context[0] == '\\0'") != std::string::npos);
+	REQUIRE(archive.find("strcmp(key, \"settings\") == 0 && out->settings[0] == '\\0'") != std::string::npos);
+	REQUIRE(archive.find("strcmp(key, \"variables\") == 0 && out->variables[0] == '\\0'") != std::string::npos);
+
+	/* Dangling targetprop: projectilesUnrefOwner must clear targetprop along
+	 * with ownerprop (projectileTick homing dereferences it unguarded), and
+	 * the TICKOP_FREE arm in prop.c must unref before propFree because
+	 * pickup paths free threat-trackable props without objFree/chrRemove. */
+	const std::string propobj = readFile("src/game/propobj.c");
+	REQUIRE(propobj.find("g_Projectiles[i].targetprop == prop") != std::string::npos);
+	const std::string prop = readFile("src/game/prop.c");
+	const std::string::size_type unref = prop.find("projectilesUnrefOwner(prop);");
+	REQUIRE(unref != std::string::npos);
+	REQUIRE(prop.find("propFree(prop);", unref) != std::string::npos);
 }
 
 TEST_CASE("PC weapon switching and function HUD consume action-map state",

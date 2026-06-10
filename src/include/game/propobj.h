@@ -67,7 +67,7 @@ void func0f06803c(struct coord *arg0, f32 *arg1, f32 *arg2, f32 *arg3, f32 *arg4
 struct defaultobj *objFindByPadNum(s32 padnum);
 struct defaultobj *objFindByPos(struct coord *pos, RoomNum *rooms);
 void projectileFree(struct projectile *projectile);
-void projectilesUnrefOwner(struct prop *owner);
+void projectilesUnrefOwner(struct prop *prop);
 void projectileReset(struct projectile *projectile);
 struct projectile *projectileAllocate(void);
 void func0f0685e4(struct prop *prop);

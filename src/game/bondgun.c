@@ -1965,7 +1965,10 @@ static s32 bgunGetActivationTimeFromGraph(
 	if (graph && graph->has_activation_time_ticks60) {
 		return graph->activation_time_ticks60;
 	}
-	if (entity && entity->has_timed_detonatable) {
+	/* B-916: base timed mines author no timer param, so the field is 0;
+	 * an unguarded read arms timer240 = 0 and detonates on the first tick. */
+	if (entity && entity->has_timed_detonatable &&
+			entity->timed_timer_ticks60 > 0) {
 		return entity->timed_timer_ticks60;
 	}
 	if (entity && entity->has_armed_explosive &&
@@ -2015,7 +2018,10 @@ static void bgunApplyEntityGraphToWeapon(struct weaponobj *weapon,
 		return;
 	}
 
-	if (entity->has_timed_detonatable) {
+	/* B-916: zero-guard matches bgunGetActivationTimeFromGraph; base timed
+	 * mines author no timer param, so 0 must fall through. */
+	if (entity->has_timed_detonatable &&
+			entity->timed_timer_ticks60 > 0) {
 		timer60 = entity->timed_timer_ticks60;
 		hastimer = true;
 	} else if (entity->has_armed_explosive &&

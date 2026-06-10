@@ -1054,14 +1054,22 @@ void projectileFree(struct projectile *projectile)
 	}
 }
 
-void projectilesUnrefOwner(struct prop *owner)
+/* Clears every live projectile reference to a prop that is being freed.
+ * targetprop must be cleared too: projectileTick homing dereferences it
+ * unguarded, so a stale pointer is a use-after-free. */
+void projectilesUnrefOwner(struct prop *prop)
 {
 	s32 i;
 
 	for (i = 0; i < g_MaxProjectiles; i++) {
-		if ((g_Projectiles[i].flags & PROJECTILEFLAG_FREE) == 0
-				&& g_Projectiles[i].ownerprop == owner) {
-			g_Projectiles[i].ownerprop = NULL;
+		if ((g_Projectiles[i].flags & PROJECTILEFLAG_FREE) == 0) {
+			if (g_Projectiles[i].ownerprop == prop) {
+				g_Projectiles[i].ownerprop = NULL;
+			}
+
+			if (g_Projectiles[i].targetprop == prop) {
+				g_Projectiles[i].targetprop = NULL;
+			}
 		}
 	}
 }

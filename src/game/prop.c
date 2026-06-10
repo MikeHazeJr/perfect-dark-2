@@ -1582,6 +1582,11 @@ void propExecuteTickOperation(struct prop *prop, s32 op)
 			propDeregisterRooms(prop);
 			propDelist(prop);
 			propDisable(prop);
+			/* Pickup paths (propPickupByPlayer, bot collection) free at-rest
+			 * thrown weapons here without objFree/chrRemove; the threat
+			 * detector tracks those props, so a homing projectile can hold
+			 * one as targetprop and must be unreferenced before the free. */
+			projectilesUnrefOwner(prop);
 			propFree(prop);
 		}
 	} else if (op == TICKOP_DISABLE) {

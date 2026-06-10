@@ -297,11 +297,20 @@ static s32 readDescriptorFromText(const char *label, const char *text, u32 size,
 			copyStr(out->primary_graph, sizeof(out->primary_graph), value);
 		} else if (strcmp(key, "secondary_graph") == 0) {
 			copyStr(out->secondary_graph, sizeof(out->secondary_graph), value);
-		} else if (strcmp(key, "shared_context") == 0) {
+		/* B-917: every real archive writes the *_file spellings
+		 * (romextract_pdweapon.c); the bare spellings are legacy aliases,
+		 * first-set-wins like model/model_file below. */
+		} else if (strcmp(key, "shared_context_file") == 0) {
 			copyStr(out->shared_context, sizeof(out->shared_context), value);
-		} else if (strcmp(key, "settings") == 0) {
+		} else if (strcmp(key, "shared_context") == 0 && out->shared_context[0] == '\0') {
+			copyStr(out->shared_context, sizeof(out->shared_context), value);
+		} else if (strcmp(key, "settings_file") == 0) {
 			copyStr(out->settings, sizeof(out->settings), value);
-		} else if (strcmp(key, "variables") == 0) {
+		} else if (strcmp(key, "settings") == 0 && out->settings[0] == '\0') {
+			copyStr(out->settings, sizeof(out->settings), value);
+		} else if (strcmp(key, "variables_file") == 0) {
+			copyStr(out->variables, sizeof(out->variables), value);
+		} else if (strcmp(key, "variables") == 0 && out->variables[0] == '\0') {
 			copyStr(out->variables, sizeof(out->variables), value);
 		} else if (strcmp(key, "manifest") == 0) {
 			copyStr(out->manifest, sizeof(out->manifest), value);

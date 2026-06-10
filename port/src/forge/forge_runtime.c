@@ -874,6 +874,12 @@ void forgeRuntimeExitPlay(void)
     for (s32 i = 0; i < s_handle_count; ++i) {
         forge_prop_handle_t *h = &s_handles[i];
         if (h->prop && !h->is_bot && !h->is_spawn_point) {
+            /* Same class as the prop.c TICKOP_FREE fix: exit-play frees
+             * these props without objFree/chrRemove while stage-lifetime
+             * projectiles persist, so any ownerprop/targetprop reference
+             * must be cleared before the free (homing projectileTick
+             * dereferences targetprop unguarded). */
+            projectilesUnrefOwner(h->prop);
             propFree(h->prop);
             h->prop = NULL;
             ++freed;
