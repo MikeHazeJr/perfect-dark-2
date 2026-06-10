@@ -3736,19 +3736,39 @@ def scan_json_asset_refs(value: object, path: str, errors: list[str],
     if isinstance(value, dict):
         for key, child in value.items():
             next_path = f"{path}.{key}" if path else str(key)
-            normalized = normalize_key(str(key))
-            if (normalized in FORBIDDEN_NUMERIC_ASSET_REF_KEYS and
-                    not isinstance(child, (dict, list)) and
-                    is_forbidden_asset_ref_value(child)):
-                errors.append(
-                    f"{label} contains numeric/legacy asset reference "
-                    f"{entry_name}:{next_path}={clean_value(child)}; use a catalog ID"
-                )
-            if (not isinstance(child, (dict, list)) and
-                    is_catalog_ref_key(str(key), next_path)):
-                validate_catalog_id_reference(
-                    child, known_catalog_ids, label, entry_name, next_path, errors
-                )
+            key_str = str(key)
+            if not isinstance(child, (dict, list)):
+                # Reject numeric/legacy asset references on ANY catalog-ref key,
+                # using the same hard-ref selector as scan_delimited_asset_refs()
+                # (is_delimited_catalog_ref_column, which deliberately excludes
+                # generic structural *_ref like pad_ref/room_ref). This closes
+                # the JSON-vs-delimited gap where catalog-id keys outside the
+                # narrow FORBIDDEN_NUMERIC_ASSET_REF_KEYS set (e.g.
+                # model_catalog_id, stage_id) silently accepted numeric/legacy
+                # values in the primary public JSON format.
+                #
+                # We do NOT additionally require the value to be catalog-ID
+                # shaped here: unlike retired delimited tables, JSON members
+                # legitimately carry intra-archive paths in these keys
+                # (.pdui layout.json texture=texture.png, .pdweapon
+                # material-slots.json material=dependencies/.../default.pdmaterial).
+                # An empty / null / bool value is treated as "absent".
+                if (is_delimited_catalog_ref_column(key_str)
+                        and child is not None
+                        and not isinstance(child, bool)
+                        and clean_value(child)
+                        and is_forbidden_asset_ref_value(child)):
+                    errors.append(
+                        f"{label} contains numeric/legacy asset reference "
+                        f"{entry_name}:{next_path}={clean_value(child)}; use a catalog ID"
+                    )
+                if is_catalog_ref_key(key_str, next_path):
+                    # Catalog-ID-shaped values still get the known-ID check
+                    # (rejects fake/typo base:* ids); non-catalog-shaped local
+                    # paths early-return inside validate_catalog_id_reference.
+                    validate_catalog_id_reference(
+                        child, known_catalog_ids, label, entry_name, next_path, errors
+                    )
             scan_json_asset_refs(child, next_path, errors, label, entry_name,
                                  known_catalog_ids)
     elif isinstance(value, list):
@@ -6580,14 +6600,97 @@ def validate_root(root: Path, require_all_families: bool = False,
     return result
 
 
+def run_selftest() -> int:
+    """In-process parity fixtures for the asset-ref scanners.
+
+    Pins that the JSON gate (scan_json_asset_refs, the primary public source
+    format) rejects exactly the same numeric/legacy/invalid catalog references
+    as the delimited gate (scan_delimited_asset_refs), and that an empty
+    optional reference and generic structural *_ref keys are NOT over-rejected.
+    No archives, no filesystem -- runnable under the B-801 live-test freeze.
+    """
+    known = {"base:model_dy357", "base:stage_villa"}
+
+    def json_reject(key: str, value: object) -> bool:
+        errs: list[str] = []
+        scan_json_asset_refs({key: value}, "", errs, "selftest", "x.json", known)
+        return bool(errs)
+
+    def delim_reject(key: str, value: object) -> bool:
+        text = "" if value == "" else str(value)
+        csv_text = f"{key}\n{text}\n"
+        return bool(scan_delimited_asset_refs("selftest", "x.csv", csv_text, known))
+
+    # (key, value, expect_reject, assert_delimited_parity)
+    cases = [
+        # The verified hole: catalog-ref keys outside the narrow FORBIDDEN set.
+        ("model_catalog_id", 42, True, True),
+        ("model_catalog_id", "42", True, True),
+        ("model_catalog_id", "0x1f", True, True),
+        ("model_catalog_id", "MODEL_CHRAVENGER", True, True),
+        ("model_catalog_id", "", False, True),            # empty optional ref = absent
+        ("model_catalog_id", "base:model_dy357", False, True),   # valid + known
+        ("model_catalog_id", "base:model_missing", True, True),  # valid shape, unknown id
+        ("texture_catalog_id", 7, True, True),
+        ("sound_catalog_id", "SFX_ROCKET", True, True),
+        ("stage_id", "base:stage_villa", False, True),
+        # FORBIDDEN-set keys still rejected for numerics (unchanged behavior).
+        ("modelnum", 5, True, True),
+        ("filenum", "0x20", True, True),
+        # Generic structural *_ref must NOT be hard-rejected (delimited skips them).
+        ("pad_ref", 5, False, True),
+        ("room_ref", "room_3", False, True),
+        # Intra-archive member/dependency paths in JSON ref keys are legitimate
+        # and must NOT be rejected (delimited would, but these are JSON-only).
+        ("texture", "texture.png", False, False),
+        ("material", "dependencies/assets/materials/default.pdmaterial", False, False),
+    ]
+
+    failures: list[str] = []
+    for key, value, expect_reject, parity in cases:
+        jr = json_reject(key, value)
+        if jr != expect_reject:
+            failures.append(
+                f"JSON {key}={value!r}: expected reject={expect_reject}, got {jr}"
+            )
+        if parity:
+            dr = delim_reject(key, value)
+            if dr != jr:
+                failures.append(
+                    f"PARITY {key}={value!r}: json reject={jr} but delimited reject={dr}"
+                )
+
+    # Recursion: a numeric ref nested in a list/dict is still caught.
+    nested: list[str] = []
+    scan_json_asset_refs(
+        {"objects": [{"model_catalog_id": 9}]}, "", nested,
+        "selftest", "x.json", known,
+    )
+    if not nested:
+        failures.append("RECURSION objects[0].model_catalog_id=9 not rejected")
+
+    if failures:
+        print("asset-archive scanner selftest FAILED:", file=sys.stderr)
+        for f in failures:
+            print(f"  - {f}", file=sys.stderr)
+        return 1
+    print(f"asset-archive scanner selftest ok: {len(cases)} parity cases + recursion")
+    return 0
+
+
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--root",
         action="append",
         type=Path,
-        required=True,
+        required=False,
         help="Folder containing typed archives to validate. Can be repeated.",
+    )
+    parser.add_argument(
+        "--selftest",
+        action="store_true",
+        help="Run in-process scanner parity fixtures and exit (no --root needed).",
     )
     parser.add_argument(
         "--require-all-families",
@@ -6606,6 +6709,12 @@ def main(argv: list[str]) -> int:
         help="Maximum detailed failures to print before summarizing the rest.",
     )
     args = parser.parse_args(argv)
+
+    if args.selftest:
+        return run_selftest()
+
+    if not args.root:
+        parser.error("--root is required (or pass --selftest)")
 
     definition_errors = validate_schema_definitions()
     if definition_errors:
