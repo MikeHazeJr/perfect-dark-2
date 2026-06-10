@@ -24,13 +24,16 @@ and close the final runtime, stale-output, and tool workflow gates.
 `c3848` (opened 2026-06-10 from the Needler proof-of-need) is parity work surfaced by
 B-911: a custom `.pdweapon`'s embedded `.pdmesh` referenced by a catalog-ID `model_ref`
 never reached the catalog and had no runtime slot, so custom weapon meshes did not
-render. Slices 1-3 are IMPLEMENTED and BUILD-PENDING (no build access this session):
-foundation `9063004c` (slot allocator + additive `g_ModelStates` growth), ingest
-consumer (pure embedded-mesh scan + dependency-walk wiring binding a multi-level `::`
-source chain -- `fs.c` resolves N levels for loose on-disk archives, so no disk
-extraction), and the CPU pins (scan seam tests; the catalog is structurally stubbed in
-pd-tests so the full chain proves via client build + live render). Remaining after
-Mike's compile + test run: only s4, the B-801-gated live render proof.
+render. Slices 1-3 are IMPLEMENTED and BUILD-VERIFIED (2026-06-10: client `-Target all`
+PASS, empty err; `[catalog][model][slots]` + `[modding][pdxxx][model_slots]` PASS 119
+assertions / 10 cases; regression band 173/178 with the 5 failures pre-existing pins on
+files untouched since `23914afb`): foundation `9063004c` (slot allocator + additive
+`g_ModelStates` growth), ingest consumer (pure embedded-mesh scan + dependency-walk
+wiring binding a multi-level `::` source chain -- `fs.c` resolves N levels for loose
+on-disk archives, so no disk extraction), and the CPU pins. The related Needler gameplay
+halves (B-914 homing widen, B-912 impact first slice, spawn functions bridge, c3847)
+are also build-verified. Remaining: only s4, the B-801-gated live render proof (enable
+`Debug.WeaponGraphRuntime` at live-test time).
 
 ---
 

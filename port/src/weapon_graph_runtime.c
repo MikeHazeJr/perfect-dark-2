@@ -13,6 +13,7 @@
 
 #include "assetcatalog_model_slots.h"  /* B-911: custom-model private slots for embedded meshes */
 #include "config.h"
+#include "system.h"  /* B-911/B-912: sysLogPrintf for the embedded-mesh ingest (pd-tests has no PCH) */
 #include "constants.h"
 #include "loader_enum_reverse.h"
 #include "modarchive.h"

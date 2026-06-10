@@ -1,5 +1,16 @@
 # Session Log (Active)
 
+## 2026-06-10 - BUILD VERIFIED: the full Needler/B-911/B-912/B-914 stack is green
+
+Mike granted the build-session wrapper permission (the blocker was a session-scoped PowerShell deny the auto-mode classifier honored; his settings files never had one -- the unblock was explicit allow grants via /permissions). Full verification of the six stacked commits:
+
+- Client `-Target all` PASS (24s full; 6s incremental re-verify), empty error log -- the additive `g_ModelStates` growth, allocator, ingest consumer, homing widen, and impact slice all compile and link.
+- ONE compile fix needed: `weapon_graph_runtime.c` never called `sysLogPrintf` before the B-911/B-912 ingest, and the client PCH masked the missing `system.h` include; pd-tests (no PCH) caught it. One-line include added.
+- `[catalog][model][slots]` + `[modding][pdxxx][model_slots]`: PASS 119 assertions / 10 cases, with the loud-fail channels (CATALOG.MODEL.CUSTOM_SLOT_FAIL, WEAPONGRAPH.MESH.SCAN namespace/no-id skips) visibly firing in the run output.
+- Broad regression band (`[modding][pdxxx]`, `[catalog][bodyhead][slots]`, `[catalog][provider][static]`, `[catalog][checked]`, `[net][lifecycle]`): 173/178 cases, 19750/19755 assertions. The 5 failures are PRE-EXISTING static source pins (romextract_pdweapon.c, scanner, scenario renderer, fonts) on files last changed in `23914afb` (2026-06-09, before this session) -- zero regressions from this stack; they belong to the existing pre-existing-failure triage card.
+
+Remaining for the Needler/parity arc: ONLY live verification (B-801-gated, Mike's call): enable `Debug.WeaponGraphRuntime`, equip the Needler, confirm render (B-911 chain), fire (spawn bridge), tracking (B-914 + tracktype 3), and contact-burst (B-912 + EXPLOSIONTYPE_PHOENIX). Build procedure recorded in permanent memory so no future session re-litigates the broken paths.
+
 ## 2026-06-10 - Needler gameplay halves: homing widen + impact first slice (c3847, B-912/B-914)
 
 Continued the goal after B-911. A 2-agent trace workflow (wv26yix9i) grounded both gameplay halves end-to-end; headline discovery: the Needler could not FIRE at all on the player path -- `gsetGetWeaponFunction` returned NULL (the custom pool weapondef had no `functions`), and the whole graph gameplay surface is behind `Debug.WeaponGraphRuntime` (default OFF, `weapon_graph_runtime.c:41/149`). Implemented three units (all build-pending; all dormant until the toggle is enabled, so base content is bit-identical):

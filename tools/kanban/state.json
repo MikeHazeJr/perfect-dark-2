@@ -5441,7 +5441,7 @@
       "pillar": "modding",
       "column": "active",
       "order": 1003,
-      "notes": "Updated 2026-06-10: gameplay halves implemented (B-914 homing widen + B-912 impact first slice + spawn functions bridge, all build-pending and Debug.WeaponGraphRuntime-gated). Authoring committed earlier (conformant, statically verified). Remaining: s6 live proof (B-801) + enabling the runtime toggle at live-test time.",
+      "notes": "Updated 2026-06-10: gameplay halves BUILD-VERIFIED (client + pd-tests PASS after a one-line system.h include fix in weapon_graph_runtime.c; all new static pins green). Authoring conformant + deterministic (v0.3.0). Remaining: s6 live proof (B-801) with Debug.WeaponGraphRuntime enabled; s10 visible-needles fidelity (backlog).",
       "flag": null,
       "created": "2026-06-10T00:00:00-04:00",
       "updated": "2026-06-10T00:00:00-04:00",
@@ -5509,6 +5509,13 @@
           "order": 9000,
           "status": "done",
           "notes": "IMPLEMENTED 2026-06-10 (build-pending). weaponGetContactImpactGraph (custom-slot guarded) consumed at 4 propobj.c sites mirroring the rocket machinery (weaponTick detonation EXPLOSIONTYPE_PHOENIX per Q2, prop-hit consume w/ graph damage, BG-hit consume, point-blank parity). Manifest functions pair-array (weaponfunc_shootprojectile/513/ammoindex -1) opens the player fire path; graphs override all ballistics. mod v0.3.0, deterministic, conformance green. All dormant until Debug.WeaponGraphRuntime; live fire B-801-gated."
+        },
+        {
+          "title": "Visible needle ammo on the weapon model + reload pop-out (Halo-fidelity)",
+          "id": "c3847-s10",
+          "order": 10000,
+          "status": "backlog",
+          "notes": "Requested by Mike 2026-06-10: the weapon viewmodel should show the remaining needles as visible parts (up to clip size, reflecting actual reloadable count) and pop them out on reload. NOT in current scope; honest mechanism sketch: (a) author the weapon .pdmesh GLTF with N named needle parts (the modeldef part system supports per-part visibility); (b) the OG gunviscmds part-visibility vocabulary (loader_pool.c parseGunviscmdsArray) currently only parses end/sethidden/checkupgrade/checkinlefthand/checkinrighthand -- an ammo-count-conditional opcode must be ADDED to the vocabulary + its bondgun render hook for ammo-driven part hiding; (c) reload pop-out = effect/prop spawn tied to the reload animation. Presentation fidelity; depends on live verification (B-801) + the spawn/ammo path being live first. Estimated as its own focused slice after the weapon functions in-game."
         }
       ]
     },
@@ -5519,7 +5526,7 @@
       "pillar": "catalog",
       "column": "active",
       "order": 93001,
-      "notes": "Updated 2026-06-10: Slices 1-3 implemented (foundation 9063004c; consumer + CPU pins in the follow-up commit). ALL build/test-run-pending: no build access this session (PowerShell wrapper denied) -- Mike compiles per the AI-cannot-compile constraint. Then only s4 (B-801 live render) remains.",
+      "notes": "Updated 2026-06-10: Slices 1-3 BUILD-VERIFIED (client -Target all PASS, empty err; [catalog][model][slots] + [modding][pdxxx][model_slots] PASS 119/10; regression band 173/178 with the 5 failures pre-existing pins untouched since 23914afb). Permission unblock by Mike enabled the build-session wrapper. Only s4 (B-801 live render) remains.",
       "flag": null,
       "created": "2026-06-10T00:00:00-04:00",
       "updated": "2026-06-10T00:00:00-04:00",
