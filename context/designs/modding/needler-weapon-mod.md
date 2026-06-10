@@ -37,9 +37,19 @@ folder discovered) and surfaced three runtime gaps the prior design note did not
   (`has_projectile_modelnum = 0`, graceful) -- the needle/crystal/pink assets never
   reach the catalog. The weapon viewmodel `model_file` is an intra-archive `::` path
   (read into `e->ext.weapon.model_file`) so it may load, but catalog-ID-referenced
-  embedded assets do not. This is a c3844-class self-contained-closure parity gap and
-  affects ALL custom weapons with an embedded model closure (open question: whether the
-  base tri_weapon example is equally affected -- decides scope/severity).
+  embedded assets do not. INVESTIGATION OUTCOME (3-agent workflow `wp36kfcp7`,
+  high confidence): the root cause is deeper than "ingest the embedded mesh." No family
+  ingests embedded mesh/material/texture by nested catalog_id, AND even a registered
+  ASSET_MODEL row would not render -- gameplay indexes the fixed `g_ModelStates[NUM_MODELS]`
+  array via `runtime_index`, a brand-new embedded mesh gets `runtime_index = -1`, and
+  there is NO custom-model private-slot allocator (the C52 bridge bodies/heads got in
+  B-909, models never got). Base weapons dodge it via intra-archive `model_archive` +
+  pre-seeded base ASSET_MODEL rows, so B-911 is custom/embedded-specific, NOT broad.
+  True fix = a catalog-owned custom-model slot allocator (mirror
+  `assetcatalog_weapon_slots.c` / `assetcatalog_body_head_slots.c`) + mesh
+  register-from-bytes + a consumer at the ingest site -- render-critical (`g_ModelStates`
+  slot space + firing path) and B-801 live-unverifiable, so SURFACED to Mike for the
+  design call rather than coded autonomously. See bugs.md B-911.
 - **B-912 (projectile-graph gameplay runtime unconsumed).** `weaponGraphRuntimeGetProjectileForGameplay`
   has no production caller (test-only). The parsed `projectile.impact` IR
   (`has_impact`, `impact_consume_on_hit`, etc.) is never executed in live gameplay, so
@@ -55,8 +65,9 @@ folder discovered) and surfaced three runtime gaps the prior design note did not
   from the mod id.
 
 None of these are authoring defects -- the `.pdweapon` is correct and conformant. They
-are runtime/loader parity follow-ups. The Needler is the proof-of-need that motivates
-closing B-911 (the most contained + clearly-correct-per-constraint of the three).
+are runtime/loader parity follow-ups. The Needler is the proof-of-need for the missing
+custom-model slot bridge (B-911); the investigation showed B-911 is NOT a contained
+ticket but a render-critical C52 allocator gap requiring Mike's design call.
 
 ## Verified grounding (from the goal-phase-design workflow)
 

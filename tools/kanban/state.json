@@ -5497,11 +5497,11 @@
           "notes": "2026-06-10: propobj.c:7159-7163 gates homing on weaponnum==WEAPON_HOMINGROCKET; widen to honor FUNCFLAG_HOMINGROCKET (bondgun.c:1856 already sets it from projectile->has_homing). Additive (OG rocket unchanged). Needed for primary TRACKING; the .pdmod authoring is correct without it. Behavior-changing runtime + B-801-gated proof; trace spawn/target-acquisition so custom homing gets targetprop."
         },
         {
-          "title": "Ingest embedded mesh/material/texture for custom weapons (B-911 runtime follow-up)",
+          "title": "Custom-model runtime-slot allocator for embedded weapon meshes (B-911)",
           "id": "c3847-s8",
           "order": 8000,
           "status": "active",
-          "notes": "Found 2026-06-10 by static verification. weapon_graph_archive.c typeForNestedArchiveName ingests only .pdprojectile/.pdentity, so a custom .pdweapon's embedded mesh/material/texture never reach the catalog and model_ref resolves to nothing. Decide fix locus (general catalog-scanner closure ingestion vs weapon-graph-walker extension) via the embedded-asset-ingestion investigation; render-sensitive + B-801 live-unverifiable."
+          "notes": "Investigation wp36kfcp7 (2026-06-10, high confidence): B-911 is NOT a contained \"ingest the embedded mesh\" ticket. Root cause = missing catalog-owned custom-model runtime-slot allocator (the C52 bridge bodies/heads got in B-909; models never got). catalogResolveModel returns out.modelnum = runtime_index (fixed g_ModelStates index); a new embedded mesh gets runtime_index=-1, so even a registered ASSET_MODEL row does not render. Base weapons dodge via intra-archive model_archive + pre-seeded base rows, so B-911 is custom/embedded-specific. True fix = model slot allocator (mirror assetcatalog_weapon_slots.c / assetcatalog_body_head_slots.c) + mesh register-from-bytes + a consumer at weapon_graph_runtime.c:2732-2820. Render-critical (g_ModelStates + firing path) + B-801-unverifiable -> SURFACED to Mike for the design call (grow g_ModelStates headroom vs parallel store) before any code. Likely warrants its own c3844 card."
         }
       ]
     }
