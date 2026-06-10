@@ -46,7 +46,7 @@ powershell -ExecutionPolicy Bypass -File devtools\dev-window-v2\dev-window-v2.ps
 
 ### CLI
 - **Open Claude CLI** -- opens the Claude Code CLI in a new console at the project root.
-- **Open Claude CLI (ultracode)** -- same, but starts the session with ultracode mode on. Ultracode is a Claude Code session *setting* (not an `--effort` level or env var), so it launches with `--settings` pointed at a temp `{"ultracode": true}` JSON file.
+- **Open Claude CLI (ultracode)** -- same, but starts the session with ultracode mode on. Ultracode is a Claude Code session *setting* (not an `--effort` level or env var), so it launches with `--settings` pointed at a temp `{"ultracode": true}` JSON file. The launcher also strips any inherited `CLAUDE_CODE_EFFORT_LEVEL` from the ultracode child process, because that variable is read at claude startup and outranks the settings file (left in place it would silently force the effort level and defeat ultracode).
 - **Open Codex CLI** -- opens the Codex CLI as administrator in a new console at the project root.
 - That's the whole tab: three launchers, nothing else. (The earlier prompt-composition workbench -- action wraps, kanban cards, prompt box, headless mode -- was removed.)
 

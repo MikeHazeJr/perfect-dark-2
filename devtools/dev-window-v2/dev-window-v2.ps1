@@ -3593,6 +3593,16 @@ function Invoke-CliLaunch {
     } else {
         $cmdLine = "/K `"" + $claudeExe + "`""
     }
+    if ($Ultracode) {
+        # Ultracode is enabled via the --settings file above, but a stray
+        # CLAUDE_CODE_EFFORT_LEVEL env var (User or Machine scope) is read at
+        # claude startup and OUTRANKS the settings file, silently defeating
+        # ultracode. Scrub it from this process just long enough for the child
+        # cmd.exe to inherit an environment without it, then restore in the
+        # finally so other launches and the Dev Window itself stay untouched.
+        $savedEffort = $env:CLAUDE_CODE_EFFORT_LEVEL
+        Remove-Item Env:CLAUDE_CODE_EFFORT_LEVEL -ErrorAction SilentlyContinue
+    }
     try {
         Start-Process -FilePath "cmd.exe" `
                       -ArgumentList $cmdLine `
@@ -3601,6 +3611,10 @@ function Invoke-CliLaunch {
     } catch {
         Add-LogLine ("CLI: failed to launch cmd.exe: " + $_.Exception.Message) "#B81818"
         [System.Windows.MessageBox]::Show("Failed to launch console: " + $_.Exception.Message, "Claude CLI", "OK", "Warning") | Out-Null
+    } finally {
+        if ($Ultracode -and $null -ne $savedEffort) {
+            $env:CLAUDE_CODE_EFFORT_LEVEL = $savedEffort
+        }
     }
 }
 
