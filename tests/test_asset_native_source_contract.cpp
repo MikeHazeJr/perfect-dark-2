@@ -13854,6 +13854,8 @@ TEST_CASE("c3843 remaining base asset families emit clean native archives",
 	const std::string base =
 		readTextFile("port/src/assetcatalog_base_extended.c");
 	const std::string meta = readTextFile("port/src/romextract_pdmeta.c");
+	const std::string texture_extractor =
+		readTextFile("port/src/romextract_pdtexture.c");
 	const std::string arena = readTextFile("port/src/romextract_pdarena.c");
 	const std::string conformance =
 		readTextFile("tools/asset_archive_conformance.py");
@@ -13891,6 +13893,7 @@ TEST_CASE("c3843 remaining base asset families emit clean native archives",
 		INFO(family);
 		REQUIRE((base.find(family) != std::string::npos ||
 		         meta.find(family) != std::string::npos ||
+		         texture_extractor.find(family) != std::string::npos ||
 		         header.find(family) != std::string::npos));
 	}
 
@@ -13929,7 +13932,20 @@ TEST_CASE("c3843 remaining base asset families emit clean native archives",
 		        std::string::npos);
 	}
 
-	REQUIRE(meta.find("s_emitTexture") != std::string::npos);
+	/* c3849 Wave 4: the texture emitter lives in romextract_pdtexture.c and
+	 * gates on the family fast-cache stamp pdmeta wrote but never read. */
+	REQUIRE(texture_extractor.find("s_emitTexture") != std::string::npos);
+	REQUIRE(meta.find("s_emitTexture") == std::string::npos);
+	REQUIRE(texture_extractor.find(
+	                "ROMEXTRACT_PDTEXTURE_FAST_CACHE_KIND \\\n"
+	                "\t\"pdtexture_png_v1_decoded_rom_rgba_manifest_texture_file\"") !=
+	        std::string::npos);
+	REQUIRE(texture_extractor.find(
+	                "romExtractPdFastCacheCanSkip(ROMEXTRACT_PDTEXTURE_FAST_CACHE_KIND") !=
+	        std::string::npos);
+	REQUIRE(texture_extractor.find(
+	                "romExtractPdFastCacheWrite(ROMEXTRACT_PDTEXTURE_FAST_CACHE_KIND") !=
+	        std::string::npos);
 	REQUIRE(meta.find("s_emitMaterial") != std::string::npos);
 	REQUIRE(meta.find("s_emitSkin") != std::string::npos);
 	REQUIRE(meta.find("s_emitEffect") != std::string::npos);
@@ -13937,7 +13953,7 @@ TEST_CASE("c3843 remaining base asset families emit clean native archives",
 	REQUIRE(meta.find("s_emitVehicle") != std::string::npos);
 	REQUIRE(meta.find("PDMETA_FAST_CACHE_KIND \"pdmeta_table_backed_v11_gamemode_botprofile_manifest_source_fields\"") !=
 	        std::string::npos);
-	REQUIRE(meta.find("texture.png") != std::string::npos);
+	REQUIRE(texture_extractor.find("texture.png") != std::string::npos);
 	REQUIRE(meta.find("material.json") != std::string::npos);
 	REQUIRE(meta.find("skin.json") != std::string::npos);
 	REQUIRE(meta.find("swatches.json") != std::string::npos);
@@ -13965,8 +13981,9 @@ TEST_CASE("c3843 remaining base asset families emit clean native archives",
 	        std::string::npos);
 	REQUIRE(header.find("romExtractTextureSlotIsEmpty") !=
 	        std::string::npos);
-	REQUIRE(meta.find("k_Transparent1x1Png") != std::string::npos);
-	REQUIRE(meta.find("empty_rom_slot") != std::string::npos);
+	REQUIRE(texture_extractor.find("k_Transparent1x1Png") !=
+	        std::string::npos);
+	REQUIRE(texture_extractor.find("empty_rom_slot") != std::string::npos);
 	REQUIRE(meta.find("\"mode_id = %d") == std::string::npos);
 	REQUIRE(meta.find("\"type = %d") == std::string::npos);
 	REQUIRE(meta.find("\"difficulty = %d") == std::string::npos);
@@ -14490,10 +14507,10 @@ TEST_CASE("c3843 remaining base asset families emit clean native archives",
 	REQUIRE(examples.find("scenario.ai.condition.if_random_greater_than") != std::string::npos);
 	REQUIRE(examples.find("scenario.ai.action.print") != std::string::npos);
 	REQUIRE(examples.find("scenario.ai.action.noop") != std::string::npos);
-	REQUIRE(meta.find("\"empty_rom_slot = %s\\n\"\n"
+	REQUIRE(texture_extractor.find("\"empty_rom_slot = %s\\n\"\n"
 	                  "\t\t\"texture_file = texture.png\\n\",") !=
 	        std::string::npos);
-	REQUIRE(meta.find("\"empty_rom_slot = %s\\n\",\n"
+	REQUIRE(texture_extractor.find("\"empty_rom_slot = %s\\n\",\n"
 	                  "\t\t\"texture_file = texture.png\\n\"") ==
 	        std::string::npos);
 	REQUIRE(theme.find("fsDataPathFor(rel, out, out_n)") !=

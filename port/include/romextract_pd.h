@@ -405,6 +405,13 @@ s32 romExtractAllPdlang(s32 force_rewrite);
  * infrastructure failure (data dir creation). */
 s32 romExtractAllPdui(s32 force_rewrite);
 
+/* c3849 Wave 4 standalone base-texture emitter (split from
+ * romextract_pdmeta.c). Emits one .pdtexture archive per bundled
+ * ASSET_TEXTURE catalog row (texture.ini + texture.png + manifest) decoded
+ * from the user's extracted textureslist/texturesdata segments. Gates on the
+ * family fast-cache stamp so warm boots skip the per-archive ZIP checks. */
+s32 romExtractAllPdtexture(s32 force_rewrite);
+
 /* c3843 remaining-family emitter: table-backed metadata families whose base
  * source is already known at catalog build time. Emits .pdgamemode,
  * .pdbotprofile, .pdhud, and .pdmission archives with public source files

@@ -53,18 +53,6 @@ typedef struct pdmeta_objective_row {
 	char initial_status[32];
 } pdmeta_objective_row_t;
 
-static const u8 k_Transparent1x1Png[] = {
-	0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
-	0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
-	0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
-	0x08, 0x06, 0x00, 0x00, 0x00, 0x1f, 0x15, 0xc4,
-	0x89, 0x00, 0x00, 0x00, 0x0b, 0x49, 0x44, 0x41,
-	0x54, 0x78, 0xda, 0x63, 0x60, 0x00, 0x02, 0x00,
-	0x00, 0x05, 0x00, 0x01, 0xe9, 0xfa, 0xdc, 0xd8,
-	0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44,
-	0xae, 0x42, 0x60, 0x82,
-};
-
 static void s_idToFilenameSlug(const char *id, char *out, size_t out_n)
 {
 	if (!out || out_n == 0) return;
@@ -1164,110 +1152,9 @@ static s32 s_emitHud(const asset_entry_t *e, const char *out_dir,
 	return s_finishWriter(aw, &writer, relpath);
 }
 
-static s32 s_emitTexture(const asset_entry_t *e, const char *out_dir,
-	s32 force_rewrite)
-{
-	char relpath[FS_MAXPATH];
-	s_archiveRelPath(out_dir, e->id, ".pdtexture", relpath, sizeof(relpath));
-	if (!force_rewrite && fsFileSize(relpath) > 0 &&
-			s_existingArchiveHasEntry(relpath, "texture.ini") &&
-			s_existingArchiveHasEntry(relpath, "texture.png")) {
-		return 0;
-	}
-
-	u8 *tga = NULL;
-	u8 *png = NULL;
-	u32 tga_size = 0;
-	u32 png_size = 0;
-	u32 width = 0;
-	u32 height = 0;
-	s32 empty_rom_slot = 0;
-	if (romExtractDecodeTextureImages((u16)e->ext.texture.texture_id,
-			&tga, &tga_size, &png, &png_size, &width, &height, NULL) != 0 ||
-			!png || png_size == 0) {
-		if (tga) { free(tga); tga = NULL; }
-		if (png) { free(png); png = NULL; }
-		empty_rom_slot =
-			romExtractTextureSlotIsEmpty((u16)e->ext.texture.texture_id);
-		if (!empty_rom_slot) {
-			sysLogPrintf(LOG_WARNING,
-				"romextract pdtexture: failed to decode %s (texture_id=%d)",
-				e->id, e->ext.texture.texture_id);
-			return -1;
-		}
-		png = (u8 *)malloc(sizeof(k_Transparent1x1Png));
-		if (!png) {
-			return -1;
-		}
-		memcpy(png, k_Transparent1x1Png, sizeof(k_Transparent1x1Png));
-		png_size = (u32)sizeof(k_Transparent1x1Png);
-		width = 1;
-		height = 1;
-		sysLogPrintf(LOG_NOTE,
-			"romextract pdtexture: emitted transparent source for empty ROM slot %s",
-			e->id);
-	}
-
-	char ini[1024];
-	int ini_len = snprintf(ini, sizeof(ini),
-		"[texture]\n"
-		"catalog_id = %s\n"
-		"name = %s\n"
-		"width = %u\n"
-		"height = %u\n"
-		"empty_rom_slot = %s\n"
-		"texture_file = texture.png\n",
-		e->id, e->id, (unsigned)width, (unsigned)height,
-		empty_rom_slot ? "true" : "false");
-	if (ini_len <= 0 || (size_t)ini_len >= sizeof(ini)) {
-		free(tga);
-		free(png);
-		return -1;
-	}
-
-	char manifest[1024];
-	int manifest_len = snprintf(manifest, sizeof(manifest),
-		"{\n"
-		"  \"pd_kind\": \"texture\",\n"
-		"  \"pd_schema_version\": 1,\n"
-		"  \"id\": \"%s\",\n"
-		"  \"texture_file\": \"texture.png\",\n"
-		"  \"source_state\": \"%s\",\n"
-		"  \"size\": { \"width\": %u, \"height\": %u }\n"
-		"}\n",
-		e->id,
-		empty_rom_slot ? "empty_rom_slot" : "decoded_rom_texture",
-		(unsigned)width, (unsigned)height);
-	if (manifest_len <= 0 || (size_t)manifest_len >= sizeof(manifest)) {
-		free(tga);
-		free(png);
-		return -1;
-	}
-
-	mod_archive_writer_t *aw;
-	asset_archive_writer_t writer;
-	if (s_openWriter(relpath, "texture", e->id, "romextract_pdmeta",
-			"textureslist/texturesdata", e->ext.texture.texture_id,
-			&aw, &writer) != 0) {
-		free(tga);
-		free(png);
-		return -1;
-	}
-	if (assetArchiveWriterAddDescriptor(&writer, "texture.ini",
-			ini, (u32)ini_len) != MODARCHIVE_OK ||
-			assetArchiveWriterAddManifestJson(&writer,
-			manifest, (u32)manifest_len) != MODARCHIVE_OK ||
-			assetArchiveWriterAddPublicMem(&writer, "texture.png",
-			png, png_size, "texture") != MODARCHIVE_OK) {
-		modArchiveAbort(aw);
-		free(tga);
-		free(png);
-		return -1;
-	}
-	free(tga);
-	free(png);
-	return s_finishWriter(aw, &writer, relpath);
-}
+/* c3849 Wave 4: the .pdtexture emitter moved to romextract_pdtexture.c
+ * (romExtractAllPdtexture), which gates on the fast-cache stamp that this
+ * file used to write but never read. */
 
 static s32 s_emitMaterial(const asset_entry_t *e, const char *out_dir,
 	s32 force_rewrite)
@@ -1859,7 +1746,6 @@ typedef struct pdmeta_ctx {
 	const char *hud_dir;
 	const char *missions_dir;
 	const char *scenarios_dir;
-	const char *textures_dir;
 	const char *materials_dir;
 	const char *skins_dir;
 	const char *effects_dir;
@@ -1884,9 +1770,6 @@ static void s_emitEntryArchive(const asset_entry_t *e, pdmeta_ctx_t *ctx)
 		break;
 	case ASSET_HUD:
 		r = s_emitHud(e, ctx->hud_dir, ctx->force_rewrite);
-		break;
-	case ASSET_TEXTURE:
-		r = s_emitTexture(e, ctx->textures_dir, ctx->force_rewrite);
 		break;
 	case ASSET_MATERIAL:
 		r = s_emitMaterial(e, ctx->materials_dir, ctx->force_rewrite);
@@ -1931,7 +1814,6 @@ s32 romExtractAllPdmeta(s32 force_rewrite)
 	char hud_dir[FS_MAXPATH];
 	char missions_dir[FS_MAXPATH];
 	char scenarios_dir[FS_MAXPATH];
-	char textures_dir[FS_MAXPATH];
 	char materials_dir[FS_MAXPATH];
 	char skins_dir[FS_MAXPATH];
 	char effects_dir[FS_MAXPATH];
@@ -1943,7 +1825,6 @@ s32 romExtractAllPdmeta(s32 force_rewrite)
 	snprintf(hud_dir, sizeof(hud_dir), "%s/hud", data_dir);
 	snprintf(missions_dir, sizeof(missions_dir), "%s/missions", data_dir);
 	snprintf(scenarios_dir, sizeof(scenarios_dir), "%s/scenarios", data_dir);
-	snprintf(textures_dir, sizeof(textures_dir), "%s/textures", data_dir);
 	snprintf(materials_dir, sizeof(materials_dir), "%s/materials", data_dir);
 	snprintf(skins_dir, sizeof(skins_dir), "%s/skins", data_dir);
 	snprintf(effects_dir, sizeof(effects_dir), "%s/effects", data_dir);
@@ -1953,7 +1834,7 @@ s32 romExtractAllPdmeta(s32 force_rewrite)
 
 	if (!fsCreateDir(gamemodes_dir) || !fsCreateDir(botprofiles_dir) ||
 			!fsCreateDir(hud_dir) || !fsCreateDir(missions_dir) ||
-			!fsCreateDir(textures_dir) || !fsCreateDir(materials_dir) ||
+			!fsCreateDir(materials_dir) ||
 			!fsCreateDir(skins_dir) || !fsCreateDir(effects_dir) ||
 			!fsCreateDir(props_dir) || !fsCreateDir(vehicles_dir)) {
 		sysLoudFailf("EXTRACT.PDMETA", "failed to create metadata output dirs");
@@ -1967,7 +1848,6 @@ s32 romExtractAllPdmeta(s32 force_rewrite)
 	ctx.hud_dir = hud_dir;
 	ctx.missions_dir = missions_dir;
 	ctx.scenarios_dir = scenarios_dir;
-	ctx.textures_dir = textures_dir;
 	ctx.materials_dir = materials_dir;
 	ctx.skins_dir = skins_dir;
 	ctx.effects_dir = effects_dir;
@@ -2019,8 +1899,6 @@ s32 romExtractAllPdmeta(s32 force_rewrite)
 			".pdhud");
 		romExtractPdFastCacheWrite(PDMETA_FAST_CACHE_KIND, missions_dir,
 			".pdmission");
-		romExtractPdFastCacheWrite(PDMETA_FAST_CACHE_KIND, textures_dir,
-			".pdtexture");
 		romExtractPdFastCacheWrite(PDMETA_FAST_CACHE_KIND, materials_dir,
 			".pdmaterial");
 		romExtractPdFastCacheWrite(PDMETA_FAST_CACHE_KIND, skins_dir,

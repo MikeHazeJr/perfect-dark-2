@@ -563,6 +563,10 @@ static void bootRunCatalogWork(void *arg)
 	(void)romExtractAllPdui(0);
 	bootProgressEndPhase();
 
+	bootProgressBeginPhase(BOOT_PHASE_EMIT_TEXTURE);
+	(void)romExtractAllPdtexture(0);
+	bootProgressEndPhase();
+
 	bootProgressBeginPhase(BOOT_PHASE_EMIT_META);
 	(void)romExtractAllPdmeta(0);
 	(void)romExtractAllPdtheme(0);

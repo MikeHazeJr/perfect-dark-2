@@ -5600,8 +5600,8 @@
           "title": "Wave 4: base texture public-source emitter (romextract)",
           "id": "c3849-s4",
           "order": 4000,
-          "status": "active",
-          "notes": ""
+          "status": "done",
+          "notes": "DONE 2026-06-10 (Slice A per the map; agent-implemented, independently re-verified: client PASS empty err; [catalog][provider][static] 11,532/40; guard ok). KEY CORRECTION to the audit: the base texture emitter ALREADY existed inside romextract_pdmeta.c -- extracted to its own romextract_pdtexture.c with a WORKING fast-cache stamp (pdmeta wrote but never read its stamp; new kind <64 chars because the stamp reader fscanf %63s truncates -- pdmeta own 66-char kind flagged), own BOOT_PHASE_EMIT_TEXTURE, c3843 pins re-pointed. Agent evidence: 3,503/3,503 conformant archives (conformance PASS), fresh-boot written=3503 failed=0, warm boot fast-cache skip (7k zip opens gone), live texture intercepts in boot smoke (tex=427 queries). Slices B/C (bind verification pin, emit fan-out) remain map follow-ups."
         },
         {
           "title": "Wave 5: dead-IR consumers (impact refs, homing gains, trails, transitions)",

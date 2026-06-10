@@ -74,6 +74,7 @@ static const char *k_PhaseLabel[BOOT_PHASE_COUNT] = {
     "Extracting fonts",
     "Extracting languages",
     "Extracting UI textures",
+    "Extracting textures",
     "Extracting metadata assets",
     "Building runtime caches",
     "Ready"
@@ -106,6 +107,7 @@ static float s_PhaseWeights[BOOT_PHASE_COUNT] = {
     0.01f,  /* EMIT_FONT       */
     0.01f,  /* EMIT_LANG       */
     0.01f,  /* EMIT_UI         */
+    0.01f,  /* EMIT_TEXTURE    */
     0.01f,  /* EMIT_META       */
     0.02f,  /* BUILD_CACHES    */
     0.00f   /* READY           */
@@ -134,6 +136,7 @@ static float s_PhaseExpectedMs[BOOT_PHASE_COUNT] = {
     20.0f,   /* EMIT_FONT       */
     20.0f,   /* EMIT_LANG       */
     10.0f,   /* EMIT_UI         */
+    30.0f,   /* EMIT_TEXTURE    */
     30.0f,   /* EMIT_META       */
     100.0f,  /* BUILD_CACHES    */
     0.0f     /* READY           */
@@ -174,6 +177,7 @@ static const char *k_PhaseConfigKey[BOOT_PHASE_COUNT] = {
     "emit_font",
     "emit_lang",
     "emit_ui",
+    "emit_texture",
     "emit_meta",
     "build_caches",
     "ready"
