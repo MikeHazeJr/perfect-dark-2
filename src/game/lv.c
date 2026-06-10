@@ -574,6 +574,14 @@ void lvReset(s32 stagenum)
 		}
 		sysLogPrintf(LOG_NOTE, "LOAD: lv.c entering stage load sequence for stagenum=0x%02x", g_Vars.stagenum);
 
+		/* Gate 5 (c3844): consume any catalog miss accumulated during the prior
+		 * phase (menu / character preview / previous stage) before this stage
+		 * loads fresh. catalogGet*ByIndex helpers set g_CatalogFailure on a
+		 * miss but nothing read it; this checkpoint reports it loudly and, under
+		 * source-only enforcement, hard-fails instead of tolerating the silent
+		 * default substitution. No-op on a healthy install. */
+		catalogAssertHealthy("stage-load-entry");
+
 		tilesReset();
 		bgReset(g_Vars.stagenum);
 		sysLogPrintf(LOG_NOTE, "LOAD: bgReset done");

@@ -51,6 +51,7 @@ and close the final runtime, stale-output, and tool workflow gates.
    - Each bridge must be catalog-owned and loud-failing, or replaced with direct catalog-ID runtime consumption.
    - Integer bridge details remain private migration debt, never public archive identity.
    - 2026-06-09 (B-907): closed a conformance gap where the JSON ref scanner accepted numeric/legacy values in catalog-ID keys (`model_catalog_id`, etc.) that the delimited scanner already rejected; the public-archive numeric-leak guard is now symmetric across JSON and delimited source. `tools/asset_archive_conformance.py --selftest` pins it.
+   - 2026-06-09 (B-908): closed the write-only `g_CatalogFailure` flag. The catalog `*ByIndex`/modelnum load helpers set it on a miss but nothing consumed it (silent default substitution). Added `catalogAssertHealthy()` (consumer, fatal-under-enforcement via pure `catalogHealthShouldFatal`), wired at `lv.c` stage-load entry. Remaining gate-5 items: per-accessor flag-setting for the in-range-unregistered body/head field accessors; weapon/music slot exhaustion already loud + leak no identity.
 
 6. **End-to-end modder workflow proof**
    - Prove user-created external geometry, audio, animation, materials, and gameplay assets can import, validate, package, distribute, load, render/play/animate, and be edited again.

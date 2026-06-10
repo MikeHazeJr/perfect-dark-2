@@ -76,6 +76,24 @@ catalog_checked_result_e catalogCheckedValidateSlot(s32 idx, s32 count, s32 sent
  */
 const char *catalogCheckedResultName(catalog_checked_result_e r);
 
+/*
+ * Catalog health checkpoint decision (Gate 5, c3844).
+ *
+ * The catalog load-site helpers (catalogGetBodyFilenumByIndex, etc.) set the
+ * write-only g_CatalogFailure flag on a miss and substitute a default. Nothing
+ * consumed that accumulated flag, so a catalog miss after extraction was
+ * logged-then-tolerated. catalogAssertHealthy() (in assetcatalog_api.c) is the
+ * checkpoint consumer; this pure predicate is the single point where the
+ * "escalate to a hard fail" decision lives so pd-tests can pin it without the
+ * catalog runtime.
+ *
+ * Returns 1 (should hard-fail) only when a miss is pending AND source-only
+ * enforcement is active for some asset family; otherwise 0 (loud-report and
+ * tolerate in normal play so a live brick is not introduced before every
+ * per-family source gate is closed).
+ */
+s32 catalogHealthShouldFatal(s32 failure_flag, s32 enforcement_active);
+
 #ifdef __cplusplus
 }
 #endif

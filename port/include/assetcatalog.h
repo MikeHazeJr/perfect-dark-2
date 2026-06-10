@@ -1334,6 +1334,18 @@ extern s32  g_CatalogFailure;
  */
 extern char g_CatalogFailureMsg[256];
 
+/**
+ * Gate 5 (c3844) catalog health checkpoint consumer for g_CatalogFailure.
+ * Call at a safe phase boundary (stage load entry). Emits a single
+ * checkpoint-tagged CATALOG.HEALTH report if a miss is pending, hard-fails
+ * under source-only enforcement, and always clears the flag. Returns 1 if
+ * healthy, 0 if a miss was pending and consumed.
+ */
+s32 catalogAssertHealthy(const char *checkpoint);
+
+/** Clear g_CatalogFailure + g_CatalogFailureMsg without reporting. */
+void catalogClearHealth(void);
+
 /* ── SA-5a: Load-site helpers ───────────────────────────────────────────── */
 
 /* ── Phase 4: Handle-based load accessors ───────────────────────────────────

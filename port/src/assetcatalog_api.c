@@ -41,6 +41,7 @@
 #include "modmgr.h"
 #include "game/challenge.h"  /* unlock-state filter for assetCatalogIterateUnlockedByType */
 #include "catalog_checked.h"  /* INV-1: pure validators backing _Checked accessors */
+#include "asset_source_debug.h"  /* Gate 5 (c3844): source-only enforcement query for catalogAssertHealthy */
 #include "catalog_mgr_heads.h"  /* Catalog Gate 3 F2: head accessors route through manager */
 #include "catalog_mgr_bodies.h"  /* Catalog Gate 3 Bodies F2: body accessors route through manager */
 #if !defined(PD_SERVER)
@@ -1217,6 +1218,44 @@ u16 catalogReadAssetRef(struct netbuf *buf)
 
 s32  g_CatalogFailure = 0;
 char g_CatalogFailureMsg[256] = {0};
+
+void catalogClearHealth(void)
+{
+    g_CatalogFailure = 0;
+    g_CatalogFailureMsg[0] = '\0';
+}
+
+/* Gate 5 (c3844): the consumer for the formerly write-only g_CatalogFailure
+ * flag. The load-site helpers above already LOG_ERROR each individual miss,
+ * but nothing acted on the accumulated flag, so a catalog miss after
+ * extraction was logged-then-tolerated (default slot-0 / filenum-0 / 1.0f
+ * substitution). Callers invoke this at safe phase boundaries (stage load
+ * entry) to surface an accumulated miss as a single checkpoint-tagged
+ * CATALOG.HEALTH report and, under source-only enforcement, a hard fail --
+ * a catalog miss after extraction is an asset-chain failure, not a tolerated
+ * fallback. In normal play (enforcement off) it stays a loud report + clear
+ * so no live brick is introduced before every per-family source gate closes.
+ * Returns 1 if healthy (no miss since the last check), 0 if a miss was
+ * pending. Always clears the flag so the next phase starts clean. */
+s32 catalogAssertHealthy(const char *checkpoint)
+{
+    const char *where = (checkpoint && checkpoint[0]) ? checkpoint : "(unspecified)";
+    const char *detail = g_CatalogFailureMsg[0] ? g_CatalogFailureMsg : "(no detail)";
+
+    if (!g_CatalogFailure) {
+        return 1;
+    }
+
+    sysLogPrintf(LOG_ERROR, "CATALOG.HEALTH: FAIL at %s -- %s", where, detail);
+
+    if (catalogHealthShouldFatal(g_CatalogFailure,
+            assetSourceDebugOnlyType() != ASSET_NONE)) {
+        sysFatalError("CATALOG.HEALTH: %s -- %s", where, detail);
+    }
+
+    catalogClearHealth();
+    return 0;
+}
 
 /* -------------------------------------------------------------------------
  * SA-5a: Load-site helpers

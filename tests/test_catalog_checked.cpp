@@ -182,3 +182,37 @@ TEST_CASE("body0f02ce8c requires a headspot node before attaching a head",
 	REQUIRE(body.find("if (headmodeldef && node != NULL && !catalogGetBodyIsComplete(bodynum))") != std::string::npos);
 	REQUIRE(body.find("missing headspot for bodynum") != std::string::npos);
 }
+
+TEST_CASE("catalogHealthShouldFatal: only fails on miss AND enforcement",
+          "[catalog][checked][regression][c3844]") {
+	/* Gate 5 (c3844): the formerly write-only g_CatalogFailure flag now has a
+	 * consumer (catalogAssertHealthy). The escalation decision lives in this
+	 * pure predicate so it can be pinned: a hard fail requires BOTH a pending
+	 * miss AND active source-only enforcement. In normal play (enforcement
+	 * off) a miss is loud-reported and tolerated, not fatal, so no live brick
+	 * is introduced before every per-family source gate closes. */
+	REQUIRE(catalogHealthShouldFatal(0, 0) == 0);   /* clean, no enforcement */
+	REQUIRE(catalogHealthShouldFatal(0, 1) == 0);   /* clean, enforcement on */
+	REQUIRE(catalogHealthShouldFatal(1, 0) == 0);   /* miss, enforcement off -> loud only */
+	REQUIRE(catalogHealthShouldFatal(1, 1) == 1);   /* miss + enforcement -> hard fail */
+	/* Any nonzero failure / enforcement value counts as set. */
+	REQUIRE(catalogHealthShouldFatal(7, 3) == 1);
+	REQUIRE(catalogHealthShouldFatal(-1, 1) == 1);
+}
+
+TEST_CASE("catalogAssertHealthy consumes g_CatalogFailure at stage-load entry",
+          "[catalog][checked][static][regression][c3844]") {
+	const std::string api = readTextFile("port/src/assetcatalog_api.c");
+	const std::string lv  = readTextFile("src/game/lv.c");
+
+	/* The consumer exists, reports loudly, escalates under enforcement via the
+	 * pure predicate, and clears -- the flag is no longer write-only. */
+	REQUIRE(api.find("s32 catalogAssertHealthy(const char *checkpoint)") != std::string::npos);
+	REQUIRE(api.find("CATALOG.HEALTH: FAIL at") != std::string::npos);
+	REQUIRE(api.find("catalogHealthShouldFatal(g_CatalogFailure") != std::string::npos);
+	REQUIRE(api.find("assetSourceDebugOnlyType() != ASSET_NONE") != std::string::npos);
+	REQUIRE(api.find("catalogClearHealth();") != std::string::npos);
+
+	/* The flag is consumed at a real phase boundary, not left write-only. */
+	REQUIRE(lv.find("catalogAssertHealthy(\"stage-load-entry\")") != std::string::npos);
+}

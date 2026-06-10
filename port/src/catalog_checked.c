@@ -41,3 +41,8 @@ const char *catalogCheckedResultName(catalog_checked_result_e r)
 	}
 	return "unknown";
 }
+
+s32 catalogHealthShouldFatal(s32 failure_flag, s32 enforcement_active)
+{
+	return (failure_flag != 0) && (enforcement_active != 0);
+}
