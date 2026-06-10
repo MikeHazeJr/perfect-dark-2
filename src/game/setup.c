@@ -1732,7 +1732,10 @@ void setupLoadFiles(s32 stagenum)
 
 	g_DoorScale = 1;
 
-	for (i = 0; i < NUM_MODELS; i++) {
+	/* B-911: clear custom slots [NUM_MODELS, MODEL_CUSTOM_END) too, so a custom
+	 * model's stage-scoped modeldef pointer never survives a stage change into a
+	 * recycled pool (use-after-free). The catalog owns the actual modeldef data. */
+	for (i = 0; i < MODEL_CUSTOM_END; i++) {
 		g_ModelStates[i].modeldef = NULL;
 	}
 

@@ -921,6 +921,12 @@ set(SRC_TESTS
   # globals-free and is behaviorally testable in pd-tests.
   ${CMAKE_SOURCE_DIR}/port/src/assetcatalog_body_head_slots.c
   ${CMAKE_SOURCE_DIR}/tests/test_body_head_slots.cpp
+  # B-911 (c3848): catalog-owned private custom-model slot allocator. Same
+  # globals-free shape as the body/head allocator (static array + sysLogPrintf +
+  # CATALOG_ID_LEN + constants.h, which is already in this target via
+  # test_mod_external_archive_static.cpp), so it is behaviorally testable here.
+  ${CMAKE_SOURCE_DIR}/port/src/assetcatalog_model_slots.c
+  ${CMAKE_SOURCE_DIR}/tests/test_model_slots.cpp
 
   # S484 F1: catalog manager for weapons (pure validators + variant spec).
   # Live router lives in port/src/catalog_mgr_weapons.c and pulls in

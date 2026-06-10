@@ -2301,6 +2301,20 @@
 #define MODEL_JPNPD                 0x01ba
 #define NUM_MODELS                  (VERSION == VERSION_JPN_FINAL ? 0x1bb : 0x1b9)
 
+/*
+ * B-911 (c3848): catalog-owned private custom-model runtime slots. Additive
+ * headroom ABOVE NUM_MODELS so a custom .pdweapon's embedded .pdmesh (referenced
+ * by a catalog-ID model_ref in its projectile graph) gets a usable g_ModelStates
+ * index. Base [0, NUM_MODELS) stays byte-for-byte unchanged; population, base
+ * registration, and ROM-extract loops keep iterating to NUM_MODELS. Only the
+ * g_ModelStates storage + the runtime render-path bounds grow to MODEL_CUSTOM_END.
+ * The private slot is migration debt and must NEVER cross wire/save/manifest/UI --
+ * catalog ID strings stay identity (mirror of the body/head allocator, B-909).
+ */
+#define MODEL_CUSTOM_COUNT          0x20
+#define MODEL_CUSTOM_START          NUM_MODELS
+#define MODEL_CUSTOM_END            (NUM_MODELS + MODEL_CUSTOM_COUNT)
+
 #define MODELNODETYPE_CHRINFO      0x01
 #define MODELNODETYPE_POSITION     0x02
 #define MODELNODETYPE_GUNDL        0x04

@@ -5504,6 +5504,49 @@
           "notes": "Investigation wp36kfcp7 (2026-06-10, high confidence): B-911 is NOT a contained \"ingest the embedded mesh\" ticket. Root cause = missing catalog-owned custom-model runtime-slot allocator (the C52 bridge bodies/heads got in B-909; models never got). catalogResolveModel returns out.modelnum = runtime_index (fixed g_ModelStates index); a new embedded mesh gets runtime_index=-1, so even a registered ASSET_MODEL row does not render. Base weapons dodge via intra-archive model_archive + pre-seeded base rows, so B-911 is custom/embedded-specific. True fix = model slot allocator (mirror assetcatalog_weapon_slots.c / assetcatalog_body_head_slots.c) + mesh register-from-bytes + a consumer at weapon_graph_runtime.c:2732-2820. Render-critical (g_ModelStates + firing path) + B-801-unverifiable -> SURFACED to Mike for the design call (grow g_ModelStates headroom vs parallel store) before any code. Likely warrants its own c3844 card."
         }
       ]
+    },
+    {
+      "id": "c3848",
+      "title": "Catalog: custom-model runtime-slot allocator for embedded weapon meshes (B-911)",
+      "description": "B-911: a custom .pdweapon embeds its .pdmesh and references it by a catalog-ID model_ref, but no family ingests embedded mesh/material/texture by nested catalog_id, and there is no custom-model runtime-slot allocator, so catalogResolveModel returns runtime_index=-1 and the custom mesh never renders. Mirror the B-909 body/head allocator: grow g_ModelStates additively + a catalog-owned private model-slot allocator + an ingest consumer that registers the embedded mesh and assigns a custom slot. Render-critical (g_ModelStates + firing path), B-801 live-unverifiable. Under the c3844 100%-parity umbrella.",
+      "pillar": "catalog",
+      "column": "active",
+      "order": 93001,
+      "notes": "Created 2026-06-10 from the Needler proof-of-need (c3847) + the 3-agent design workflows wp36kfcp7 (root cause) and wf3hlqwrf (implementation map). Mike chose the B-909 pattern.",
+      "flag": null,
+      "created": "2026-06-10T00:00:00-04:00",
+      "updated": "2026-06-10T00:00:00-04:00",
+      "pending_completion": null,
+      "subtasks": [
+        {
+          "title": "Foundation: model-slot allocator + additive g_ModelStates growth + reset + unit test",
+          "id": "c3848-s1",
+          "order": 1000,
+          "status": "active",
+          "notes": "IMPLEMENTED 2026-06-10, BUILD-PENDING (no build access this session -- PowerShell wrapper denied). New port/src/assetcatalog_model_slots.c + .h (mirror assetcatalog_body_head_slots.c); MODEL_CUSTOM_COUNT/START/END in constants.h (derived from NUM_MODELS, JPN-ternary safe); g_ModelStates grown to MODEL_CUSTOM_END at data.h:338, general.c:404, server_stubs.c:100; setup.c:1735 NULL-clear + prop.c:1678 bound grown to TOTAL; romextract/base registration loops stay BASE; reset wired at the 3 assetcatalog.c sites; tests/test_model_slots.cpp + CMake entry. Self-reviewed; needs a clean compile + [catalog][model][slots] run."
+        },
+        {
+          "title": "Ingest consumer: mesh-first two-pass embedded-mesh ingestion + materialization to a public source handle",
+          "id": "c3848-s2",
+          "order": 2000,
+          "status": "active",
+          "notes": "Extend typeForNestedArchiveName (.pdmesh->ASSET_MODEL); in weaponGraphRuntimeRegisterWeaponArchiveDependencies add a mesh-first pass that peels the embedded .pdmesh (weapon->projectile->mesh, in-memory, defeating the single-level :: limit), registers it ASSET_MODEL (mod-category, NOT bundled), allocates a custom slot + sets runtime_index, and materializes the bytes to a public FileProvider-resolvable on-disk path + catalogSetPrimaryFile so setupLoadModeldef compiles it (source-only guard demands a public handle). Then model_ref resolves to the custom slot."
+        },
+        {
+          "title": "CPU end-to-end ingest test: has_projectile_modelnum in custom range",
+          "id": "c3848-s3",
+          "order": 3000,
+          "status": "active",
+          "notes": ""
+        },
+        {
+          "title": "Live render proof of a custom weapon mesh (B-801 gated)",
+          "id": "c3848-s4",
+          "order": 4000,
+          "status": "backlog",
+          "notes": ""
+        }
+      ]
     }
   ],
   "x_special_notes": {

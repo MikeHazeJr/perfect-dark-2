@@ -97,7 +97,7 @@ s32 g_SndDisabled = 1;
 /* Rendering state — data.h types */
 struct font *g_FontHandelGothicXs = NULL;      /* data.h:421 */
 struct fontchar *g_CharsHandelGothicXs = NULL; /* data.h:422 */
-struct modelstate g_ModelStates[NUM_MODELS];    /* data.h:341 */
+struct modelstate g_ModelStates[MODEL_CUSTOM_END];    /* data.h:338; B-911 sizing */
 OSViMode osViModeTable[1];                     /* data.h:81 — array, provide 1 entry */
 void *g_ViBackData = NULL;
 

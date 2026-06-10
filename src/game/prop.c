@@ -1675,7 +1675,7 @@ static s32 propDefaultVehicleTitleLangId(const struct defaultobj *obj)
 	}
 
 	m = obj->modelnum;
-	if (m >= 0 && m < NUM_MODELS && g_ModelStates[m].fileid == FILE_PHOVBIKE) {
+	if (m >= 0 && m < MODEL_CUSTOM_END && g_ModelStates[m].fileid == FILE_PHOVBIKE) { /* B-911: custom slots are valid indices */
 		return L_MISC_306;
 	}
 

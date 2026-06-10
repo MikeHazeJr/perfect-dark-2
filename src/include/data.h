@@ -335,7 +335,7 @@ extern struct skeleton g_SkelTarget;
 extern struct skeleton g_SkelRareLogo;
 extern struct skeleton g_SkelWireFence;
 extern struct skeleton g_SkelBB;
-extern struct modelstate g_ModelStates[NUM_MODELS];
+extern struct modelstate g_ModelStates[MODEL_CUSTOM_END]; /* B-911: base [0,NUM_MODELS) + custom slots */
 extern s8 g_PropExplosionTypes[];
 extern struct skeleton g_SkelBasic;
 extern struct skeleton g_SkelChrGun;

@@ -1,5 +1,17 @@
 # Session Log (Active)
 
+## 2026-06-10 - B-911 custom-model slot allocator: foundation (c3848, under c3844)
+
+Mike set an autonomous `/goal` ("complete that, expand scope as necessary") then "ultracode complete the goal" after the Needler verification surfaced B-911 (custom embedded mesh/material/texture never reach the catalog -> custom needle does not render). Two design workflows (wp36kfcp7 root-cause, wf3hlqwrf implementation-map) established: the root cause is a MISSING catalog-owned custom-model runtime-slot allocator (catalogResolveModel returns out.modelnum = runtime_index; a fresh embedded mesh gets runtime_index = -1; no allocator exists -- the C52 bridge bodies/heads got in B-909, models never got). Mike chose the B-909 pattern. New card c3848 under the c3844 100%-parity umbrella.
+
+FOUNDATION IMPLEMENTED (build-pending -- the PowerShell build wrapper is denied by the auto-mode classifier this session, so this is delivered for Mike to compile per the AI-cannot-compile constraint; self-reviewed against the full diff):
+- `constants.h`: `MODEL_CUSTOM_COUNT 0x20` / `MODEL_CUSTOM_START NUM_MODELS` / `MODEL_CUSTOM_END (NUM_MODELS + MODEL_CUSTOM_COUNT)` (derived from NUM_MODELS so the JPN ternary is tracked).
+- New `port/src/assetcatalog_model_slots.c` + `port/include/assetcatalog_model_slots.h`: mirrors `assetcatalog_body_head_slots.c` (dedup-by-id `s_allocate`, loud `CATALOG.MODEL.CUSTOM_SLOT_FAIL` on exhaustion, reset). Globals-free, added to the pd-tests block (constants.h is already in that target via test_mod_external_archive_static.cpp).
+- `g_ModelStates` grown additively to `MODEL_CUSTOM_END` at `data.h:338`, `general.c:404` (base init rows unchanged; 32 trailing slots zero-init), `server_stubs.c:100`. Runtime sites that index by a custom slot grow to TOTAL: `setup.c:1735` stage-init NULL-clear (REQUIRED -- else a custom slot's stage-scoped modeldef pointer survives a stage change into a recycled pool = UAF) and `prop.c:1678` bound. All `romextract_*` + base-registration loops correctly stay at NUM_MODELS; dead `g_GexModelStates`/`g_Goldfinger64ModelStates` untouched.
+- Reset wired at all 3 `assetcatalog.c` sites beside the weapon/body-head resets. `tests/test_model_slots.cpp` (mirror of the body/head test) + CMake entry.
+
+The foundation alone is additive headroom + a dead-but-tested allocator (no caller yet, so zero behavior change for base content). The ingest consumer (s2: mesh-first two-pass peel of the doubly-nested embedded mesh + materialization to a public source handle, since the model loader + source-only guard demand a public FileProvider path and modvfs `::` is single-level) is the next slice.
+
 ## 2026-06-10 - Needler authoring complete + adversarial runtime verification (c3847)
 
 Resumed the multi-phase `/goal` after Mike's PC updated mid-work. The in-flight unit was the Needler weapon mod (phase 4). `tools/build_needler_mod.py` was already written and run (uncommitted); confirmed it is deterministic (stable SHA-256 across rebuilds), strict conformance passes (`--root dev-mods/needler`: 1 root -> 12 archives across `.pdweapon/.pdprojectile/.pdmesh/.pdmaterial/.pdtexture/.pdeffect`), and the native-source guard is clean.

@@ -401,7 +401,11 @@ struct skeleton g_SkelBB = {
 	SKEL_BB, ARRAYCOUNT(g_SkelBBJoints), g_SkelBBJoints,
 };
 
-struct modelstate g_ModelStates[NUM_MODELS] = {
+/* B-911 (c3848): sized to MODEL_CUSTOM_END so custom embedded-mesh slots
+ * [NUM_MODELS, MODEL_CUSTOM_END) are addressable. Only NUM_MODELS base rows are
+ * initialized below; the trailing custom slots zero-init to { NULL, 0, 0 } (NULL
+ * modeldef -> lazy catalog load via setupLoadModeldef). Do NOT add custom rows. */
+struct modelstate g_ModelStates[MODEL_CUSTOM_END] = {
 	//                 file                         scale
 	/*0x0000*/ { NULL, FILE_PROOFGUN,               0x0199 },
 	/*0x0001*/ { NULL, FILE_PGROUNDGUN,             0x0199 },
