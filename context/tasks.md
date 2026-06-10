@@ -39,6 +39,7 @@ and close the final runtime, stale-output, and tool workflow gates.
    - Continue retiring remaining Scenario AI command graph/fallback debt module by module.
    - Public Scenario JSON/GLB source remains the runtime source.
    - Fallback to native/ROM behavior after extraction must fail loudly.
+   - 2026-06-09: producer side is fully wired (all `scenarioSourceAiGraphExecute*` reach the loud-fail guard). Remaining is CONSUMER-side silent OG fallback in 3 modules: `objectiveCheck` (objectives.c), trigger-volume room checks (objectives.c), and global `lvTick` behavior. Hardened `scenarioSourceAiGraphExecuteChrDoAnimation` to handle the require-node tri-state explicitly (was correct only by accident of a downstream NULL-resolve).
 
 4. **Regenerate and validate stale extracted output**
    - Run a safe regeneration or repair pass for retained generated installs.

@@ -18017,9 +18017,20 @@ s32 scenarioSourceAiGraphExecuteChrDoAnimation(struct chrdata *basechr,
 	s32 player_checked = 0;
 	struct player *player = NULL;
 
-	if (!s_aiGraphRequireAnimationNode("chr_do_animation",
-			s_ActiveScenarioGraphs.level_ai_chr_do_animation_node_count)) {
-		return 0;
+	/* Tri-state contract: s_aiGraphRequireAnimationNode returns 0 (graph
+	 * inactive), <0 (graph active but the public source node is missing --
+	 * already reported as a loud failure), or 1 (active + source present).
+	 * Handle the loud-fail explicitly here instead of relying on the
+	 * downstream catalog-id resolve returning NULL: 0 falls back to the OG
+	 * backend, <0 owns the result (return 1) so the OG animation is not
+	 * silently played after a source failure. No behavior change in normal
+	 * play -- the resolve path returned 1 on the missing node anyway. */
+	{
+		s32 anim_node_state = s_aiGraphRequireAnimationNode("chr_do_animation",
+			s_ActiveScenarioGraphs.level_ai_chr_do_animation_node_count);
+		if (anim_node_state <= 0) {
+			return anim_node_state == 0 ? 0 : 1;
+		}
 	}
 	anim_catalog_id = s_aiGraphResolveAnimationCatalogId("chr_do_animation",
 		anim_id, "character", &anim_source_path, &anim_clip_size);
