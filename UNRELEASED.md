@@ -18,6 +18,8 @@
 - Added a first-class `probe` build target and a repeatable scenario-scene CPU sweep so the source scene.glb path can be validated for every level without launching the game, GPU, or audio. The full extracted scenario set passes 87/87.
 - Catalog asset misses are now surfaced at a stage-load health checkpoint instead of being silently tolerated after a one-time log, and hard-fail under source-only enforcement so a missing extracted asset cannot quietly fall back to a default.
 - Fully custom characters now work like base ones: a user-created body or head with its own mesh source is assigned a private runtime slot automatically (no numeric slot for modders to manage), so it can be selected and assembled instead of failing to load. Base content is unchanged.
+- Fixed the host "Start Match" button: when you host a game in the client (listen host), Combat Simulator, Campaign co-op, and Counter-Operative matches now actually start. Previously only a remote client could trigger the start.
+- Dev mods now ship from a git-tracked `dev-mods/` folder that is copied into the game's `mods/` on every build, so they survive clean builds, and builds/releases can include or exclude specific mods.
 - Fixed source-backed menu model previews so custom provider handles avoid the character-preview sentinel and weapon previews receive visual model source instead of split graph source.
 - Fixed unresolved character body source so it no longer renders as the wrong built-in body.
 - Fixed catalog-backed body/head selector identity so custom rows beyond the old base body/head counts keep their catalog IDs through selection, default-head, bot, and config paths.

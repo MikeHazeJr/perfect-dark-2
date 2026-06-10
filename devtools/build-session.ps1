@@ -31,6 +31,10 @@ param(
 
     [string]$Version = "",
 
+    # Dev-mod selection passed through to build-headless.ps1 (copied into
+    # <install>/mods). "" = manifest "dev":true; "all"/"none"/"id1,id2".
+    [string]$DevMods = "",
+
     [switch]$Clean,
     [switch]$Verbose,
     [switch]$NoQueue,
@@ -902,6 +906,7 @@ try {
         "-OutputDir", $buildDir
     )
     if ($Version -ne "") { $buildArgs += @("-Version", $Version) }
+    if ($DevMods -ne "") { $buildArgs += @("-DevMods", $DevMods) }
     if ($Clean) { $buildArgs += "-Clean" }
     if ($Verbose) { $buildArgs += "-Verbose" }
 

@@ -1,0 +1,13 @@
+{
+  "schema": "pd2-dev-mods-v1",
+  "description": "Authored dev mods that are git-tracked here (so a clean build cannot erase them) and copied into <install>/mods on every build by devtools/build-headless.ps1. Each entry's source lives at dev-mods/<path>/. Per-mod 'dev' and 'release' flags control default inclusion; override at build time with -DevMods all|none|<comma-list>, or at release time with the release script's mod flags.",
+  "mods": [
+    {
+      "id": "needler",
+      "path": "needler",
+      "dev": true,
+      "release": false,
+      "summary": "Halo-Needler-style custom weapon: tracking primary needles, non-tracking explosive secondary with small pink contact explosions."
+    }
+  ]
+}

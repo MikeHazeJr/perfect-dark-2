@@ -63,7 +63,12 @@ param(
 
     [switch]$UseNextVersion,
 
-    [switch]$SelfTest
+    [switch]$SelfTest,
+
+    # Dev-mod selection copied into <install>/mods. "" = manifest "dev":true
+    # mods (default); "all" = every listed mod; "none" = no dev mods;
+    # "id1,id2" = only the named mods. See dev-mods/README.md.
+    [string]$DevMods = ""
 )
 
 Set-StrictMode -Version Latest
@@ -975,6 +980,49 @@ foreach ($t in $targets) {
                 Write-Ok "  Copied addin\data -> $BuildDir (ROM at install root)"
             } catch {
                 Write-Warn "  Addin copy failed (non-fatal): $($_.Exception.Message)"
+            }
+        }
+
+        # Dev mods: copy selected git-tracked dev mods (dev-mods/<path>) into
+        # <install>/mods so they survive clean builds. Selection via -DevMods:
+        # "" => manifest "dev":true (default); "all"; "none"; "id1,id2".
+        # See dev-mods/README.md. Non-fatal.
+        $devModsManifest = Join-Path $ProjectDir "dev-mods\dev-mods.json"
+        if (Test-Path -LiteralPath $devModsManifest) {
+            try {
+                $dm  = Get-Content -LiteralPath $devModsManifest -Raw | ConvertFrom-Json
+                $sel = $DevMods.Trim().ToLower()
+                if     ($sel -eq "none") { $names = @() }
+                elseif ($sel -eq "all")  { $names = @($dm.mods | ForEach-Object { $_.id }) }
+                elseif ($sel -ne "")     { $names = @($sel -split "," | ForEach-Object { $_.Trim() } | Where-Object { $_ }) }
+                else                     { $names = @($dm.mods | Where-Object { $_.dev } | ForEach-Object { $_.id }) }
+
+                if ($names.Count -gt 0) {
+                    Write-Header "Post-Build: Copy Dev Mods"
+                    $modsRoot = Join-Path $BuildDir "mods"
+                    if (-not (Test-Path $modsRoot)) { New-Item -ItemType Directory -Path $modsRoot -Force | Out-Null }
+                    $rc = Get-Command robocopy.exe -ErrorAction SilentlyContinue
+                    foreach ($entry in $dm.mods) {
+                        if ($names -notcontains $entry.id) { continue }
+                        $src = Join-Path $ProjectDir (Join-Path "dev-mods" $entry.path)
+                        if (-not (Test-Path -LiteralPath $src)) {
+                            Write-Warn "  Dev mod '$($entry.id)' source missing: $src (skipped)"
+                            continue
+                        }
+                        $dst = Join-Path $modsRoot $entry.path
+                        if ($null -ne $rc) {
+                            & robocopy.exe $src $dst /E /NFL /NDL /NJH /NJS /NP | Out-Null
+                        } else {
+                            if (-not (Test-Path $dst)) { New-Item -ItemType Directory -Path $dst -Force | Out-Null }
+                            Copy-Item -Path (Join-Path $src "*") -Destination $dst -Recurse -Force -ErrorAction SilentlyContinue
+                        }
+                        Write-Ok "  Dev mod '$($entry.id)' -> $dst"
+                    }
+                } else {
+                    Write-Info "  Dev mods: none selected (DevMods='$DevMods')"
+                }
+            } catch {
+                Write-Warn "  Dev-mods copy failed (non-fatal): $($_.Exception.Message)"
             }
         }
     }

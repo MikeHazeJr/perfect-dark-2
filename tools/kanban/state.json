@@ -5319,6 +5319,105 @@
       "updated": "2026-06-09T00:00:00-04:00",
       "updatedAt": "2026-06-09T00:00:00-04:00",
       "updated_at": "2026-06-09T00:00:00-04:00"
+    },
+    {
+      "id": "c3845",
+      "title": "Connectivity: MP co-op drop-in/out and Combat Sim start",
+      "description": "Fix multiplayer connectivity for Campaign co-op (drop in / drop out) and Combat Simulator. Rank-1 root cause: the in-client listen host could not start a match (pdgui_bridge.c netLobbyRequestStartWithSims rejected NETMODE_SERVER), a single bug blocking Combat Sim + co-op + Counter-Op start. Then close remaining co-op join/leave mid-session gaps.",
+      "pillar": "networking",
+      "column": "active",
+      "order": 1001,
+      "notes": "Created 2026-06-10 from Mike's multi-phase /goal.",
+      "flag": null,
+      "created": "2026-06-10T00:00:00-04:00",
+      "updated": "2026-06-10T00:00:00-04:00",
+      "pending_completion": null,
+      "subtasks": [
+        {
+          "title": "Listen-host match-start fix (netLobbyRequestStartWithSims local replay)"
+        },
+        {
+          "title": "Static guard for the listen-host start branch"
+        },
+        {
+          "title": "Co-op drop-in mid-session join path"
+        },
+        {
+          "title": "Co-op drop-out / reconnect cleanup"
+        },
+        {
+          "title": "2-process peer smoke for host start + join (CPU-safe)"
+        }
+      ]
+    },
+    {
+      "id": "c3846",
+      "title": "Mod-infrastructure: Mod Studio rebuild + versioning + controller + dev-mod pipeline",
+      "description": "Rebuild the in-game mod tooling from scratch: a simple, clean, accessible Mod Studio to create each asset family as a mod, with versioning and comprehensive controller support. Subsumes the c3844 gate-6 end-to-end modder workflow. Includes the dev-mods build pipeline (git-tracked dev-mods/ copied into <install>/mods on every build, with -DevMods include/exclude) so authored dev mods survive clean builds.",
+      "pillar": "mod-infrastructure",
+      "column": "active",
+      "order": 1002,
+      "notes": "Created 2026-06-10 from Mike's multi-phase /goal.",
+      "flag": null,
+      "created": "2026-06-10T00:00:00-04:00",
+      "updated": "2026-06-10T00:00:00-04:00",
+      "pending_completion": null,
+      "subtasks": [
+        {
+          "title": "Dev-mods build pipeline (dev-mods/ -> install mods, -DevMods select)"
+        },
+        {
+          "title": "Mod Studio design grounded in asset_mod_utility_contract.c"
+        },
+        {
+          "title": "Unified create/edit/version/package hub"
+        },
+        {
+          "title": "Per-family create flow (contract-driven)"
+        },
+        {
+          "title": "Asset versioning + bump-on-edit"
+        },
+        {
+          "title": "Comprehensive controller support across create/edit"
+        },
+        {
+          "title": "Mod Studio author + package smoke (closes gate 6)"
+        }
+      ]
+    },
+    {
+      "id": "c3847",
+      "title": "Modding: Needler custom weapon mod",
+      "description": "Author a custom .pdmod weapon that looks similar to the Halo Needler and replicates its behavior. Primary fire: tracking needles. Secondary fire: non-tracking needles that explode on contact with small pink explosions. Binds to a catalog-owned custom weapon slot; CPU-verifiable (mesh probe, conformance, weapon source-gate smoke) before live test.",
+      "pillar": "modding",
+      "column": "active",
+      "order": 1003,
+      "notes": "Created 2026-06-10 from Mike's multi-phase /goal.",
+      "flag": null,
+      "created": "2026-06-10T00:00:00-04:00",
+      "updated": "2026-06-10T00:00:00-04:00",
+      "pending_completion": null,
+      "subtasks": [
+        {
+          "title": "Reserve dev-mods/needler folder + versioned manifest"
+        },
+        {
+          "title": "Needle .pdmesh + pink .pdmaterial/.pdtexture"
+        },
+        {
+          "title": "Primary weapon graph: tracking needles (.pdweapon/.pdprojectile)"
+        },
+        {
+          "title": "Secondary: non-tracking explosive needles + small pink .pdeffect"
+        },
+        {
+          "title": "Bind to custom weapon slot; conformance + mesh probe"
+        },
+        {
+          "title": "Weapon source-gate smoke; live playtest (B-801 gated)"
+        }
+      ]
     }
   ],
   "x_special_notes": {

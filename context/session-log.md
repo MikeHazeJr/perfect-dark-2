@@ -1,5 +1,13 @@
 # Session Log (Active)
 
+## 2026-06-10 - Goal phases kickoff: dev-mods pipeline + MP start fix (B-910)
+
+Ran the `goal-phase-design` ultracode workflow (7 agents) to produce source-grounded, file-anchored plans for Mike's multi-phase `/goal` (finish migrations, rebuild mod tooling, fix MP co-op/Combat Sim, build the Needler mod). Key verified finding: the Combat Sim "dead Start button" is a SINGLE bug, and three input plans collapse into one delivery spine (the per-family contract table already exists as `port/src/asset_mod_utility_contract.c`, so the Mod Studio design supersedes the inventory plan and subsumes the gate-6 modder-workflow item). Created Kanban cards c3845 (networking: MP co-op + Combat Sim), c3846 (mod-infrastructure: Mod Studio rebuild + dev-mod pipeline), c3847 (modding: Needler mod).
+
+Dev-mod build pipeline (c3846): per Mike, dev mods must survive clean builds and be copied into the build like the ROM, with build/release include/exclude. Added a git-tracked `dev-mods/` source tree (`dev-mods.json` manifest + `README.md` + `needler/mod.json` placeholder) copied into `<install>/mods/` by `build-headless.ps1` on every client build, selected via a new `-DevMods ""|all|none|id1,id2` flag (default = manifest `dev:true`), passed through `build-session.ps1`. Source is git-tracked so a clean build cannot erase it; the copy re-populates the wiped install each build. Verified: `-Target all` build landed `needler/mod.json` in the install's `mods/`.
+
+MP listen-host start fix (B-910, c3845, rank 1): `netLobbyRequestStartWithSims` (`pdgui_bridge.c`) rejected every mode except `NETMODE_CLIENT`, so the in-client listen host's "Start Match" button was dead -- the single blocker for Combat Sim + co-op + Counter-Op start. Widened the guard to accept the listen host and replay `CLC_LOBBY_START` through the server handler locally (mirroring `netSendRoomSettingsUpdate` at `netmsg.c:8334-8346`); remote-client `netSend` path preserved. Added a static guard test. Verified: client `-Target all` PASS (26s); `[net][lifecycle]` PASS 417 assertions / 18 cases incl. the new listen-host-start test. Live match-start is B-801-gated.
+
 ## 2026-06-10 - B-909 body/head private-slot allocator (Gate 2 implemented)
 
 Mike set a multi-phase `/goal`: (1) finish c3844 migrations to 100%, (2) rebuild the in-game mod tooling from scratch with versioning + comprehensive controller support, (3) fix MP co-op drop-in/out + Combat Sim connectivity, (4) build a Halo-Needler-style custom weapon mod (secondary fire = non-tracking explosive pink needles). Working autonomously through the phases under a session-scoped goal hook.
