@@ -30,6 +30,7 @@
 #include "asset_archive_policy.h"
 #include "assetcatalog.h"
 #include "assetcatalog_weapon_slots.h"
+#include "assetcatalog_sound_slots.h" /* c3849 Wave 2 */
 #include "assetcatalog_deps.h"
 #include "assetcatalog_scanner.h"
 #include "loader_pool.h"
@@ -2036,6 +2037,21 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 				sizeof(e->ext.audio.file_path) - 1);
 			if (primary_file[0]) {
 				catalogSetPrimaryFile(e, primary_file);
+			}
+			/* c3849 Wave 2: a net-new custom SFX/VOICE row (no authored
+			 * sound_id) with a public sample primary gets a catalog-owned
+			 * private soundnum so the existing resolve chain reaches it.
+			 * Never for MUSIC: catalogResolveMusicSequence reuses sound_id
+			 * as a tracknum. Slot exhaustion already logged loud; the row
+			 * then stays -1 (unplayable, pre-existing behavior). */
+			if (e->ext.audio.sound_id < 0 &&
+					e->ext.audio.category != AUDIO_CAT_MUSIC &&
+					primary_file[0]) {
+				s32 slot = assetCatalogResolveSoundPrivateSlot(e->id);
+				if (slot >= 0) {
+					e->ext.audio.sound_id = slot;
+					e->source_soundnum = slot;
+				}
 			}
 		}
 		break;

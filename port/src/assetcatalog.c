@@ -30,6 +30,7 @@
 #include "assetcatalog_weapon_slots.h"
 #include "assetcatalog_body_head_slots.h"  /* c3844 Gate 2: reset custom body/head slots on rebuild */
 #include "assetcatalog_model_slots.h"       /* B-911: reset custom model slots on rebuild */
+#include "assetcatalog_sound_slots.h"       /* c3849 Wave 2: reset custom sound slots on rebuild */
 #include "assetprovider_internal.h"
 #include "fs.h"          /* Phase 3 Pass B: catalogBindPrimaryFromDiskOrRom probe */
 #include "romextract.h"  /* Phase 3 Pass B: romExtractRelPathForFilenum */
@@ -371,6 +372,7 @@ void assetCatalogClear(void)
     assetCatalogResetCustomWeaponSlots();
     assetCatalogResetCustomBodyHeadSlots();
     assetCatalogResetCustomModelSlots();
+    assetCatalogResetCustomSoundSlots();
 }
 
 void assetCatalogClearMods(void)
@@ -419,6 +421,7 @@ void assetCatalogClearMods(void)
     assetCatalogResetCustomWeaponSlots();
     assetCatalogResetCustomBodyHeadSlots();
     assetCatalogResetCustomModelSlots();
+    assetCatalogResetCustomSoundSlots();
 }
 
 s32 assetCatalogGetCount(void)

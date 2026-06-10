@@ -5587,7 +5587,7 @@
           "id": "c3849-s2",
           "order": 2000,
           "status": "active",
-          "notes": ""
+          "notes": "2026-06-10 soundnum DONE (build-verified: client PASS; [catalog][sound][slots] PASS in a 168/16 run). New assetcatalog_sound_slots.{c,h} (SND_CUSTOM_* 0x60A+0x40, 11-bit ceiling _Static_assert); allocation at scanner + netdistrib ASSET_AUDIO ingest (gated: sound_id<0, not MUSIC, file primary); source_soundnum reverse-index entry; snd.c bank-overlap guard; heldResolveSfxParam hardened to reject sound_id<0 (was silently playing SFX_0000). No native bank growth -- playback is file-based. modmgr legacy audio.ini path (hardcoded sound_id=0) deliberately excluded. Remaining: texnum, animnum, stagenum allocators."
         },
         {
           "title": "Wave 3: FONT runtime consumer (.pdfont -> textLoadFont)",

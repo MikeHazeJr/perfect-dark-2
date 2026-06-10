@@ -931,6 +931,9 @@ set(SRC_TESTS
   # (stubbed) + asset_type_e; globals-light and behaviorally testable here.
   ${CMAKE_SOURCE_DIR}/port/src/asset_fallback_telemetry.c
   ${CMAKE_SOURCE_DIR}/tests/test_asset_fallback_telemetry.cpp
+  # c3849 Wave 2: catalog-owned private custom-sound slot allocator.
+  ${CMAKE_SOURCE_DIR}/port/src/assetcatalog_sound_slots.c
+  ${CMAKE_SOURCE_DIR}/tests/test_sound_slots.cpp
 
   # S484 F1: catalog manager for weapons (pure validators + variant spec).
   # Live router lives in port/src/catalog_mgr_weapons.c and pulls in

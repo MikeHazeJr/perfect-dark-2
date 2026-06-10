@@ -1891,7 +1891,11 @@ static s32 heldResolveSfxParam(const weapon_graph_ir_t *ir,
 
 	if (strchr(p->value, ':')) {
 		catalog_audio_result_t audio;
-		if (catalogResolveAudio(p->value, &audio)) {
+		/* c3849 Wave 2: only accept a RESOLVED soundnum. An unallocated
+		 * custom row carries sound_id = -1; downstream consumers clamp
+		 * negatives to 0, which would silently play SFX_0000. Fall through
+		 * so the miss stays loud (no shootsound) instead. */
+		if (catalogResolveAudio(p->value, &audio) && audio.sound_id >= 0) {
 			*out = audio.sound_id;
 			return 1;
 		}

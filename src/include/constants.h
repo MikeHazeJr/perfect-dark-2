@@ -2315,6 +2315,21 @@
 #define MODEL_CUSTOM_START          NUM_MODELS
 #define MODEL_CUSTOM_END            (NUM_MODELS + MODEL_CUSTOM_COUNT)
 
+/*
+ * c3849 Wave 2: catalog-owned private custom-sound slots. Net-new custom SFX
+ * (sound_id = -1 rows with a public sample primary) get a private soundnum so
+ * the existing resolve chain (catalogResolveSound -> s_SoundnumOverride ->
+ * file playback) reaches them. NO native bank growth: playback is file-based;
+ * a custom slot >= g_NumSounds safely NULLs out of the native path. The 11-bit
+ * soundnum id field (union soundnumhack) caps the range at 0x800. SND_BASE_COUNT
+ * mirrors the NTSC sfx.ctl bank count (g_NumSounds, runtime-derived); a runtime
+ * guard in snd.c verifies the bank never overlaps the custom range.
+ */
+#define SND_BASE_COUNT              0x60A
+#define SND_CUSTOM_COUNT            0x40
+#define SND_CUSTOM_START            SND_BASE_COUNT
+#define SND_CUSTOM_END              (SND_CUSTOM_START + SND_CUSTOM_COUNT)
+
 #define MODELNODETYPE_CHRINFO      0x01
 #define MODELNODETYPE_POSITION     0x02
 #define MODELNODETYPE_GUNDL        0x04

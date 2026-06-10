@@ -1079,6 +1079,15 @@ void sndLoadSfxCtl(void)
 	// Or accounting for 1-based indexing of soundnums.
 	g_NumSounds = ((ALInstrument *)buffer)->soundCount + 1;
 
+	/* c3849 Wave 2: the custom-sound slot range starts at the compile-time
+	 * SND_CUSTOM_START (mirroring this bank count). A different bank size
+	 * must never silently overlap the private range. */
+	if (g_NumSounds > SND_CUSTOM_START) {
+		sysLogPrintf(LOG_WARNING,
+			"SND: bank soundCount %d overlaps SND_CUSTOM_START %d -- custom sfx slots collide",
+			g_NumSounds, SND_CUSTOM_START);
+	}
+
 	// Calculate the size of the ALInstrument and load it. The pointer is then
 	// shifted forward to point to the instrument's ALSound array. This leaks
 	// some memory but this is initialisation code so it's not much of an issue.
