@@ -4095,6 +4095,16 @@
 #define STAGE_EXTRA25 0x5e // Paradox
 #define STAGE_EXTRA26 0x5f // War Colors
 
+/* c3849 Wave 2: private custom-stage stagenum range. Base logical IDs occupy
+ * 0x01..0x5f (STAGE_EXTRA26); 0x00 is the fail sentinel. The mpsetup save
+ * stores stagenum in 7 bits, so the range must end at 0x80. Minted stagenums
+ * are machine-local runtime bridges ONLY (allocation-order dependent): wire
+ * identity is the catalog ID string / session ref, and a saved custom
+ * stagenum is rejected on load. */
+#define STAGENUM_CUSTOM_START 0x60
+#define STAGENUM_CUSTOM_COUNT 0x20
+#define STAGENUM_CUSTOM_END   (STAGENUM_CUSTOM_START + STAGENUM_CUSTOM_COUNT)
+
 
 #define STAGE_TEST_RUN      0x23
 #define STAGE_24            0x24

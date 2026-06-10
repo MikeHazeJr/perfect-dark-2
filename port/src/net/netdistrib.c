@@ -47,6 +47,8 @@
 #include "assetcatalog_sound_slots.h" /* c3849 Wave 2 */
 #include "assetcatalog_texture_slots.h" /* c3849 Wave 2 */
 #include "assetcatalog_anim_slots.h" /* c3849 Wave 2 */
+#include "assetcatalog_stage_slots.h" /* c3849 Wave 2 */
+#include "game/stagetable.h" /* c3849 Wave 2 */
 #include "assetcatalog_deps.h"
 #include "assetcatalog_scanner.h"
 #include "loader_pool.h"
@@ -1429,6 +1431,46 @@ static void distribRegisterAnimationCommandSource(const char *id,
 /* Populate the asset_entry_t ext union from the parsed INI, mirroring the
  * field-for-field behavior of assetcatalog_scanner.c's registerComponent().
  * Keeps registration parity between local-scan and wire-delivery paths. */
+
+/* c3849 Wave 2 (parity mirror of the scanner s_mintCustomStagenum): mint a private stagenum for a custom stage component that
+ * authored no INI stagenum, and (client only) ensure an idempotent g_Stages
+ * row exists so stageGetIndex/s_fillStageResult resolve it. File IDs are 0 (the fileids are u16; -1 would wrap to 65535 and pass the
+ * fileid > 0 handle guard) so loading routes through the scenario-source path, never base ROM handles.
+ * Returns the minted stagenum or -1 (already loudly logged). */
+static s32 distribMintCustomStagenum(asset_entry_t *e, const char *mint_key)
+{
+    s32 stagenum = assetCatalogResolveStagenumPrivateSlot(mint_key);
+
+    if (stagenum < 0) {
+        return -1;
+    }
+
+    if (g_Stages != NULL) { /* dedicated server has no stage table */
+        s32 idx = stageGetIndex(stagenum);
+
+        if (idx < 0) {
+            s32 template_idx = stageGetIndex(STAGE_MP_SKEDAR);
+
+            if (template_idx >= 0) {
+                struct stagetableentry tmpl = *stageGetEntry(template_idx);
+                tmpl.id = (s16)stagenum;
+                tmpl.bgfileid = 0;
+                tmpl.tilefileid = 0;
+                tmpl.padsfileid = 0;
+                tmpl.setupfileid = 0;
+                tmpl.mpsetupfileid = 0;
+                idx = stageTableAppend(&tmpl);
+            }
+        }
+
+        if (idx >= 0) {
+            e->runtime_index = idx;
+        }
+    }
+
+    return stagenum;
+}
+
 static void populateExtFromIni(asset_entry_t *e, asset_type_e type, const char *dirpath,
                                 const ini_section_t *ini,
                                 const asset_entry_t *preserved_entry)
@@ -1436,6 +1478,9 @@ static void populateExtFromIni(asset_entry_t *e, asset_type_e type, const char *
     switch (type) {
     case ASSET_MAP:
         e->ext.map.stagenum = iniGetInt(ini, "stagenum", -1);
+        if (e->ext.map.stagenum < 0) {
+            e->ext.map.stagenum = distribMintCustomStagenum(e, e->id); /* c3849 */
+        }
         e->ext.map.mode = (u8)distribParseModeString(iniGet(ini, "mode", ""));
         {
             const char *mf = iniGet(ini, "music_file", "");
@@ -1491,6 +1536,10 @@ static void populateExtFromIni(asset_entry_t *e, asset_type_e type, const char *
         e->ext.arena.stagenum = iniGetInt(ini, "stagenum", -1);
         strncpy(e->ext.arena.scenario_id, iniGet(ini, "scenario", ""),
                 sizeof(e->ext.arena.scenario_id) - 1);
+        if (e->ext.arena.stagenum < 0) {
+            e->ext.arena.stagenum = distribMintCustomStagenum(e,
+                e->ext.arena.scenario_id[0] ? e->ext.arena.scenario_id : e->id); /* c3849 */
+        }
         strncpy(e->ext.arena.scenario_archive,
                 iniGet(ini, "scenario_archive", ""),
                 sizeof(e->ext.arena.scenario_archive) - 1);
@@ -1837,6 +1886,9 @@ static void populateExtFromIni(asset_entry_t *e, asset_type_e type, const char *
         break;
     case ASSET_SCENARIO:
         e->ext.scenario.stagenum = iniGetInt(ini, "stagenum", -1);
+        if (e->ext.scenario.stagenum < 0) {
+            e->ext.scenario.stagenum = distribMintCustomStagenum(e, e->id); /* c3849 */
+        }
         e->ext.scenario.mode = (u8)distribParseModeString(iniGet(ini, "mode", ""));
         {
             const char *sf = iniGet(ini, "scene_file",

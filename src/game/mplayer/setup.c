@@ -250,6 +250,12 @@ static void randomPoolCollect(const asset_entry_t *e, void *userdata)
 		return;
 	}
 
+	/* c3849 Wave 2: an arena whose stagenum never resolved (-1: authored
+	 * none and the mint failed) must not enter the random pool. */
+	if (e->ext.arena.stagenum <= 0) {
+		return;
+	}
+
 	ctx->pool[ctx->count++] = (s16)e->ext.arena.stagenum;
 }
 

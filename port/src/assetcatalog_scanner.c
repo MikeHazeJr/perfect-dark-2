@@ -33,6 +33,8 @@
 #include "assetcatalog_sound_slots.h" /* c3849 Wave 2 */
 #include "assetcatalog_texture_slots.h" /* c3849 Wave 2 */
 #include "assetcatalog_anim_slots.h" /* c3849 Wave 2 */
+#include "assetcatalog_stage_slots.h" /* c3849 Wave 2 */
+#include "game/stagetable.h" /* c3849 Wave 2: stageTableAppend for minted stagenums */
 #include "assetcatalog_deps.h"
 #include "assetcatalog_scanner.h"
 #include "loader_pool.h"
@@ -1511,6 +1513,46 @@ static void registerAnimationCommandSource(const char *id,
  * @param mod_id    Mod identifier (e.g., "my_mod")
  * @return 1 on success, 0 on failure
  */
+
+/* c3849 Wave 2: mint a private stagenum for a custom stage component that
+ * authored no INI stagenum, and (client only) ensure an idempotent g_Stages
+ * row exists so stageGetIndex/s_fillStageResult resolve it. File IDs are 0 (the fileids are u16; -1 would wrap to 65535 and pass the
+ * fileid > 0 handle guard) so loading routes through the scenario-source path, never base ROM handles.
+ * Returns the minted stagenum or -1 (already loudly logged). */
+static s32 s_mintCustomStagenum(asset_entry_t *e, const char *mint_key)
+{
+	s32 stagenum = assetCatalogResolveStagenumPrivateSlot(mint_key);
+
+	if (stagenum < 0) {
+		return -1;
+	}
+
+	if (g_Stages != NULL) { /* dedicated server has no stage table */
+		s32 idx = stageGetIndex(stagenum);
+
+		if (idx < 0) {
+			s32 template_idx = stageGetIndex(STAGE_MP_SKEDAR);
+
+			if (template_idx >= 0) {
+				struct stagetableentry tmpl = *stageGetEntry(template_idx);
+				tmpl.id = (s16)stagenum;
+				tmpl.bgfileid = 0;
+				tmpl.tilefileid = 0;
+				tmpl.padsfileid = 0;
+				tmpl.setupfileid = 0;
+				tmpl.mpsetupfileid = 0;
+				idx = stageTableAppend(&tmpl);
+			}
+		}
+
+		if (idx >= 0) {
+			e->runtime_index = idx;
+		}
+	}
+
+	return stagenum;
+}
+
 static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
                               const char *mod_id)
 {
@@ -1584,6 +1626,9 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 	switch (type) {
 	case ASSET_MAP:
 		e->ext.map.stagenum = iniGetInt(ini, "stagenum", -1);
+		if (e->ext.map.stagenum < 0) {
+			e->ext.map.stagenum = s_mintCustomStagenum(e, e->id); /* c3849 */
+		}
 		e->ext.map.mode = parseModeString(iniGet(ini, "mode", ""));
 		{
 			const char *mf = iniGet(ini, "music_file", "");
@@ -1670,6 +1715,12 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 		e->ext.arena.stagenum = iniGetInt(ini, "stagenum", -1);
 		strncpy(e->ext.arena.scenario_id, iniGet(ini, "scenario", ""),
 			sizeof(e->ext.arena.scenario_id) - 1);
+		if (e->ext.arena.stagenum < 0) {
+			/* c3849: key the mint to the scenario so arena+scenario share
+			 * one stagenum (FindModMapByStagenum pairing holds). */
+			e->ext.arena.stagenum = s_mintCustomStagenum(e,
+				e->ext.arena.scenario_id[0] ? e->ext.arena.scenario_id : e->id);
+		}
 		strncpy(e->ext.arena.scenario_archive,
 			iniGet(ini, "scenario_archive", ""),
 			sizeof(e->ext.arena.scenario_archive) - 1);
@@ -1933,6 +1984,9 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 
 	case ASSET_SCENARIO:
 		e->ext.scenario.stagenum = iniGetInt(ini, "stagenum", -1);
+		if (e->ext.scenario.stagenum < 0) {
+			e->ext.scenario.stagenum = s_mintCustomStagenum(e, e->id); /* c3849 */
+		}
 		e->ext.scenario.mode = parseModeString(iniGet(ini, "mode", ""));
 		{
 			const char *sf = iniGet(ini, "scene_file",

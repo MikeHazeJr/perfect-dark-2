@@ -4523,6 +4523,16 @@ void mpsetupfileLoadWad(struct savebuffer *buffer, u8 version)
 	g_MpSetup.stagenum = savebufferReadBits(buffer, 7);
 	g_MpSetup.scenario = savebufferReadBits(buffer, 3);
 
+	/* c3849 Wave 2: a saved custom stagenum is machine-local and
+	 * allocation-order dependent -- meaningless on reload. Reset to a safe
+	 * default; catalog stage_id strings are the durable identity. */
+	if (g_MpSetup.stagenum >= STAGENUM_CUSTOM_START) {
+		sysLogPrintf(LOG_WARNING,
+			"MPSETUP: saved stagenum 0x%02x is a machine-local custom slot -- resetting to default",
+			g_MpSetup.stagenum);
+		g_MpSetup.stagenum = STAGE_MP_SKEDAR;
+	}
+
 	// version == 0 means we're only reading to convert, so no actions are needed
 	if (version > 0) {
 		scenarioInit();
