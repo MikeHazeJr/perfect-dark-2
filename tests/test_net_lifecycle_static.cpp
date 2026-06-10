@@ -106,6 +106,38 @@ TEST_CASE("net lifecycle: CLC_LOBBY_START authorizes before reading payload",
     REQUIRE(leader_reject < first_payload_read);
 }
 
+TEST_CASE("net lifecycle: listen host can start a match (Combat Sim / co-op start fix)",
+          "[net][lifecycle][static]")
+{
+    /* The in-client listen host runs NETMODE_SERVER (g_NetDedicated==0) and has
+     * no wire to itself, so netLobbyRequestStartWithSims must replay
+     * CLC_LOBBY_START through the server handler locally instead of rejecting
+     * every non-CLIENT mode (the dead "Start Match" button bug). */
+    const std::string bridge = read_text_file("port/fast3d/pdgui_bridge.c");
+    const std::string fn = function_block(bridge, "s32 netLobbyRequestStartWithSims");
+
+    /* The guard accepts the listen host, not only NETMODE_CLIENT. */
+    const size_t listen_host = fn.find("g_NetMode == NETMODE_SERVER && !g_NetDedicated");
+    REQUIRE(listen_host != std::string::npos);
+
+    /* The write still happens, and the host replays it through the server
+     * handler (skipping the message-type byte first), mirroring
+     * netSendRoomSettingsUpdate. */
+    const size_t write = fn.find("netmsgClcLobbyStartWrite(");
+    const size_t skip_type = fn.find("netbufReadU8(&rb)", write);
+    const size_t local_replay = fn.find("netmsgClcLobbyStartRead(&rb, g_NetLocalClient)", skip_type);
+    const size_t client_send = fn.find("netSend(g_NetLocalClient, NULL, true, NETCHAN_CONTROL)");
+
+    REQUIRE(write != std::string::npos);
+    REQUIRE(skip_type != std::string::npos);
+    REQUIRE(local_replay != std::string::npos);
+    REQUIRE(client_send != std::string::npos);   /* remote client path preserved */
+    REQUIRE(write < local_replay);
+
+    /* The old client-only rejection must be gone. */
+    REQUIRE(fn.find("if (g_NetMode != NETMODE_CLIENT || !g_NetLocalClient)") == std::string::npos);
+}
+
 TEST_CASE("net lifecycle: malformed SVC_MATCH_MANIFEST clears staged client manifest",
           "[net][lifecycle][manifest][static]")
 {

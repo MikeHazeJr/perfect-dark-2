@@ -1085,7 +1085,16 @@ static s32 s_resolveStageIdToStagenum(const char *stage_id)
 
 s32 netLobbyRequestStartWithSims(u8 gamemode, const char *stage_id, u8 difficulty, u8 antiClientId, u8 numSims, u8 simType, u8 timelimit, u32 options, u8 scenario, u8 scorelimit, u16 teamscorelimit, u8 weaponSetIndex)
 {
-    if (g_NetMode != NETMODE_CLIENT || !g_NetLocalClient) {
+    /* The match-start command must work for BOTH a remote client and the
+     * in-client listen HOST. The host runs NETMODE_SERVER (g_NetDedicated==0)
+     * and has no wire to itself, so it replays CLC_LOBBY_START through the
+     * server handler locally, mirroring netSendRoomSettingsUpdate
+     * (netmsg.c:8334-8346). Previously this rejected every non-CLIENT mode, so
+     * the host's "Start Match" button was dead -- the single connectivity
+     * blocker for Combat Sim, Campaign co-op, and Counter-Op start. */
+    const s32 isClient = (g_NetMode == NETMODE_CLIENT);
+    const s32 isListenHost = (g_NetMode == NETMODE_SERVER && !g_NetDedicated);
+    if ((!isClient && !isListenHost) || !g_NetLocalClient) {
         return -1;
     }
     if (g_NetLocalClient->state < CLSTATE_LOBBY) {
@@ -1099,15 +1108,25 @@ s32 netLobbyRequestStartWithSims(u8 gamemode, const char *stage_id, u8 difficult
         return -3;
     }
 
-    /* Write to a fresh out-buffer then send immediately.
-     * g_NetLocalClient->out is the per-client reliable send buffer; calling
-     * netSend(cl, NULL, reliable, chan) flushes it via enet_peer_send to the
-     * server.  Without the explicit netSend the packet sits unsent — the
-     * netFlushSendBuffers() path only drains g_NetMsgRel / g_NetMsg. */
+    /* Write CLC_LOBBY_START into the per-client reliable out-buffer. */
     netbufStartWrite(&g_NetLocalClient->out);
     netmsgClcLobbyStartWrite(&g_NetLocalClient->out, gamemode, (u8)stagenum, difficulty, antiClientId, numSims, simType, timelimit, options, scenario, scorelimit, teamscorelimit, weaponSetIndex);
-    netSend(g_NetLocalClient, NULL, true, NETCHAN_CONTROL);
-    sysLogPrintf(LOG_NOTE, "BRIDGE: sent CLC_LOBBY_START gamemode=%u stage='%s'(0x%02x) diff=%u antiClient=%u sims=%u simtype=%u tl=%u opt=0x%08x scen=%u sc=%u tsc=%u weaponset=%u",
+
+    if (isClient) {
+        /* Remote client: netSend(cl, NULL, reliable, chan) flushes it via
+         * enet_peer_send to the server. */
+        netSend(g_NetLocalClient, NULL, true, NETCHAN_CONTROL);
+    } else {
+        /* In-client listen host: run the same server handler as if the CLC
+         * arrived over the wire, then clear the buffer. */
+        struct netbuf rb;
+        netbufStartReadData(&rb, g_NetLocalClient->out.data, g_NetLocalClient->out.wp);
+        (void)netbufReadU8(&rb); /* skip the message-type byte */
+        netmsgClcLobbyStartRead(&rb, g_NetLocalClient);
+        netbufStartWrite(&g_NetLocalClient->out);
+    }
+    sysLogPrintf(LOG_NOTE, "BRIDGE: %s CLC_LOBBY_START gamemode=%u stage='%s'(0x%02x) diff=%u antiClient=%u sims=%u simtype=%u tl=%u opt=0x%08x scen=%u sc=%u tsc=%u weaponset=%u",
+                 isClient ? "sent" : "local-replayed",
                  gamemode, stage_id, (unsigned)stagenum, difficulty, (unsigned)antiClientId, numSims, simType, timelimit, (unsigned)options, scenario, scorelimit, (unsigned)teamscorelimit, (unsigned)weaponSetIndex);
     return 0;
 }
