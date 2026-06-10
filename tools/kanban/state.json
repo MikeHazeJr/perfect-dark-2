@@ -5500,8 +5500,8 @@
           "title": "Custom-model runtime-slot allocator for embedded weapon meshes (B-911)",
           "id": "c3847-s8",
           "order": 8000,
-          "status": "active",
-          "notes": "Investigation wp36kfcp7 (2026-06-10, high confidence): B-911 is NOT a contained \"ingest the embedded mesh\" ticket. Root cause = missing catalog-owned custom-model runtime-slot allocator (the C52 bridge bodies/heads got in B-909; models never got). catalogResolveModel returns out.modelnum = runtime_index (fixed g_ModelStates index); a new embedded mesh gets runtime_index=-1, so even a registered ASSET_MODEL row does not render. Base weapons dodge via intra-archive model_archive + pre-seeded base rows, so B-911 is custom/embedded-specific. True fix = model slot allocator (mirror assetcatalog_weapon_slots.c / assetcatalog_body_head_slots.c) + mesh register-from-bytes + a consumer at weapon_graph_runtime.c:2732-2820. Render-critical (g_ModelStates + firing path) + B-801-unverifiable -> SURFACED to Mike for the design call (grow g_ModelStates headroom vs parallel store) before any code. Likely warrants its own c3844 card."
+          "status": "done",
+          "notes": "Investigation wp36kfcp7 (2026-06-10, high confidence): B-911 is NOT a contained \"ingest the embedded mesh\" ticket. Root cause = missing catalog-owned custom-model runtime-slot allocator (the C52 bridge bodies/heads got in B-909; models never got). catalogResolveModel returns out.modelnum = runtime_index (fixed g_ModelStates index); a new embedded mesh gets runtime_index=-1, so even a registered ASSET_MODEL row does not render. Base weapons dodge via intra-archive model_archive + pre-seeded base rows, so B-911 is custom/embedded-specific. True fix = model slot allocator (mirror assetcatalog_weapon_slots.c / assetcatalog_body_head_slots.c) + mesh register-from-bytes + a consumer at weapon_graph_runtime.c:2732-2820. Render-critical (g_ModelStates + firing path) + B-801-unverifiable -> SURFACED to Mike for the design call (grow g_ModelStates headroom vs parallel store) before any code. Likely warrants its own c3844 card. DONE 2026-06-10 via c3848 (allocator + ingest consumer build-verified; mesh/material/texture sibling ingestion beyond .pdmesh remains a recorded expansion unit)."
         },
         {
           "title": "Impact consumer first slice + spawn-path functions bridge (B-912)",
@@ -5536,8 +5536,8 @@
           "title": "Foundation: model-slot allocator + additive g_ModelStates growth + reset + unit test",
           "id": "c3848-s1",
           "order": 1000,
-          "status": "active",
-          "notes": "IMPLEMENTED 2026-06-10, BUILD-PENDING (no build access this session -- PowerShell wrapper denied). New port/src/assetcatalog_model_slots.c + .h (mirror assetcatalog_body_head_slots.c); MODEL_CUSTOM_COUNT/START/END in constants.h (derived from NUM_MODELS, JPN-ternary safe); g_ModelStates grown to MODEL_CUSTOM_END at data.h:338, general.c:404, server_stubs.c:100; setup.c:1735 NULL-clear + prop.c:1678 bound grown to TOTAL; romextract/base registration loops stay BASE; reset wired at the 3 assetcatalog.c sites; tests/test_model_slots.cpp + CMake entry. Self-reviewed; needs a clean compile + [catalog][model][slots] run."
+          "status": "done",
+          "notes": "IMPLEMENTED 2026-06-10, BUILD-VERIFIED 2026-06-10 (client -Target all PASS; [catalog][model][slots] PASS). New port/src/assetcatalog_model_slots.c + .h (mirror assetcatalog_body_head_slots.c); MODEL_CUSTOM_COUNT/START/END in constants.h (derived from NUM_MODELS, JPN-ternary safe); g_ModelStates grown to MODEL_CUSTOM_END at data.h:338, general.c:404, server_stubs.c:100; setup.c:1735 NULL-clear + prop.c:1678 bound grown to TOTAL; romextract/base registration loops stay BASE; reset wired at the 3 assetcatalog.c sites; tests/test_model_slots.cpp + CMake entry. Self-reviewed; needs a clean compile + [catalog][model][slots] run."
         },
         {
           "title": "Ingest consumer: mesh-first two-pass embedded-mesh ingestion + materialization to a public source handle",
