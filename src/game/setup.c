@@ -47,6 +47,7 @@
 #include "system.h"
 #include "assetcatalog.h"
 #include "assetload.h"
+#include "asset_fallback_telemetry.h" /* c3849 Wave 1 */
 #include "asset_source_debug.h"
 #include "scenario_source_runtime.h"
 #include "net/matchsetup.h"
@@ -1760,6 +1761,17 @@ void setupLoadFiles(s32 stagenum)
 			setupRequireScenarioSourceHandle(
 				g_Vars.normmplayerisrunning ? "mp setup" : "setup",
 				&stage, setup_handle);
+			/* c3849 Wave 1: record only when a scenario source is REGISTERED
+			 * and failed -- base stages without source are normal routing. */
+			if (scenarioSourceFindEntryForStage(&stage,
+					g_Vars.normmplayerisrunning) != NULL) {
+				sysLoudFailf("FALLBACK",
+					"setup fileid=%d scenario source failed -> ROM handle",
+					(s32)(g_Vars.normmplayerisrunning ? stage.mpsetupfileid : stage.setupfileid));
+				assetFallbackRecord(ASSET_SCENARIO,
+					(s32)(g_Vars.normmplayerisrunning ? stage.mpsetupfileid : stage.setupfileid),
+					"setup source -> ROM handle");
+			}
 			g_GeCreditsData = (u8 *)assetLoadToNew(setup_handle, FILELOADMETHOD_DEFAULT, LOADTYPE_SETUP);
 			setup_loaded_size = assetLoadGetLoadedSize(setup_handle);
 		}
@@ -1838,6 +1850,14 @@ void setupLoadFiles(s32 stagenum)
 			setupSetPadFileDataSize(source_pad_size);
 		} else {
 			setupRequireScenarioSourceHandle("pads", &stage, stage.pads_handle);
+			if (scenarioSourceFindEntryForStage(&stage,
+					g_Vars.normmplayerisrunning) != NULL) {
+				sysLoudFailf("FALLBACK",
+					"pads fileid=%d scenario source failed -> ROM handle",
+					(s32)stage.padsfileid);
+				assetFallbackRecord(ASSET_SCENARIO, (s32)stage.padsfileid,
+					"pads source -> ROM handle");
+			}
 			g_StageSetup.padfiledata = assetLoadToNew(stage.pads_handle, FILELOADMETHOD_DEFAULT, LOADTYPE_PADS);
 			setupSetPadFileDataSize(g_StageSetup.padfiledata ? assetLoadGetLoadedSize(stage.pads_handle) : 0);
 		}

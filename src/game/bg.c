@@ -51,6 +51,7 @@
 #include "platform.h"
 #include "assetcatalog.h"
 #include "assetcatalog_load.h"
+#include "asset_fallback_telemetry.h" /* c3849 Wave 1 */
 #include "asset_source_debug.h"
 #include "lib/meshcollision.h"
 #include "scenario_scene_renderer.h"
@@ -1909,6 +1910,16 @@ void bgReset(s32 stagenum)
 	if (bgTryActivateScenarioSourceBackground(&stage,
 			g_Vars.normmplayerisrunning)) {
 		return;
+	}
+	/* c3849 Wave 1: record only when a scenario source is registered and its
+	 * background activation failed -- base stages are normal routing. */
+	if (scenarioSourceFindEntryForStage(&stage,
+			g_Vars.normmplayerisrunning) != NULL) {
+		sysLoudFailf("FALLBACK",
+			"bg fileid=%d scenario source failed -> ROM bg cache",
+			(s32)stage.bgfileid);
+		assetFallbackRecord(ASSET_SCENARIO, (s32)stage.bgfileid,
+			"bg source -> ROM bg cache");
 	}
 
 	// Copy section 1 header to stack and parse into variables

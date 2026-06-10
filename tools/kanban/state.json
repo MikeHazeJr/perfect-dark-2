@@ -5579,8 +5579,8 @@
           "title": "Wave 1: ASSET.FALLBACK telemetry + loud per-family warnings",
           "id": "c3849-s1",
           "order": 1000,
-          "status": "active",
-          "notes": ""
+          "status": "done",
+          "notes": "DONE 2026-06-10, BUILD-VERIFIED. New asset_fallback_telemetry.{c,h} (O(1) per-family counters, first-offender snapshot, quiet-when-zero aggregate) consumed at the lv.c stage-load checkpoint beside catalogAssertHealthy. 15 instrumentation sites across mod.c/snd.c/setup.c/tilesreset.c/bg.c/bondgun.c/romdata.c -- abnormal branches only (healthy Pass-C cache reads and base routing deliberately NOT counted; scenario records gated on a registered source entry). Two formerly-silent sites upgraded to LOUDFAIL.FALLBACK (MP3 raw-ROM, extracted-cache-missing raw re-read). Client PASS; [catalog][fallback][telemetry] PASS 14/4."
         },
         {
           "title": "Wave 2: soundnum/stagenum/animnum/texnum allocators + tests",

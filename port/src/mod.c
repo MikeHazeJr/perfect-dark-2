@@ -11,6 +11,7 @@
 #include "data.h"
 #include "assetcatalog.h"
 #include "assetcatalog_load.h"
+#include "asset_fallback_telemetry.h" /* c3849 Wave 1 */
 #include "asset_source_debug.h"
 #include "modmusic.h"
 #include "modasset_compiler.h"
@@ -879,6 +880,8 @@ s32 modTextureLoad(u16 num, void *dst, u32 dstSize)
 			}
 			sysLogPrintf(LOG_WARNING, "MOD: texture %d catalog override failed (%s), falling back to legacy path",
 			             (s32)num, r.path);
+			assetFallbackRecord(ASSET_TEXTURE, (s32)num,
+				"catalog override failed -> legacy/segment");
 		} else if (r.catalog_id >= 0) {
 			sysLogPrintf(LOG_NOTE, "CATALOG: tex %d → base (entry %d)", (s32)num, r.catalog_id);
 		} else {
@@ -922,6 +925,11 @@ void *modSequenceLoad(u16 num, u32 *outSize)
 			              (s32)num, r.path, entry ? entry->id : "?");
 			return NULL;
 		}
+		sysLoudFailf("FALLBACK",
+			"music sequence %d public source compile failed -> legacy sequence",
+			(s32)num);
+		assetFallbackRecord(ASSET_MUSIC, (s32)num,
+			"sequence source compile failed -> legacy");
 	}
 
 	if (r.source_only_blocked) {
@@ -975,6 +983,8 @@ s32 modSequencePlayAudioSource(u16 num)
 		sysLogPrintf(LOG_WARNING,
 		             "MOD: music sequence %d catalog audio source failed (%s), falling back to legacy sequence",
 		             (s32)num, r.path);
+		assetFallbackRecord(ASSET_MUSIC, (s32)num,
+			"audio source playback failed -> legacy sequence");
 		return 0;
 	}
 
@@ -1121,6 +1131,8 @@ void *modAnimationTryCatalogOverride(u16 num)
 			sysLogPrintf(LOG_WARNING,
 				"C-6: generated clip for ROM anim %d failed to build: %s",
 				(s32)num, path);
+			assetFallbackRecord(ASSET_ANIMATION, (s32)num,
+				"clip compile failed -> ROM segment");
 			return NULL;
 		}
 		if (assetSourceDebugIsEnabledFor(ASSET_ANIMATION)) {
@@ -1134,6 +1146,8 @@ void *modAnimationTryCatalogOverride(u16 num)
 			return data;
 		}
 		sysLogPrintf(LOG_WARNING, "C-6: catalog override for ROM anim %d failed to load: %s", (s32)num, path);
+		assetFallbackRecord(ASSET_ANIMATION, (s32)num,
+			"override load failed -> ROM segment");
 	}
 	return NULL;
 }

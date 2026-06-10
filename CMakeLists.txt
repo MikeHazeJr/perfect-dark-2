@@ -927,6 +927,10 @@ set(SRC_TESTS
   # test_mod_external_archive_static.cpp), so it is behaviorally testable here.
   ${CMAKE_SOURCE_DIR}/port/src/assetcatalog_model_slots.c
   ${CMAKE_SOURCE_DIR}/tests/test_model_slots.cpp
+  # c3849 Wave 1: asset fallback telemetry. Pure counters + sysLogPrintf
+  # (stubbed) + asset_type_e; globals-light and behaviorally testable here.
+  ${CMAKE_SOURCE_DIR}/port/src/asset_fallback_telemetry.c
+  ${CMAKE_SOURCE_DIR}/tests/test_asset_fallback_telemetry.cpp
 
   # S484 F1: catalog manager for weapons (pure validators + variant spec).
   # Live router lives in port/src/catalog_mgr_weapons.c and pulls in

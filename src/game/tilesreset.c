@@ -9,6 +9,7 @@
 #include "system.h"
 #include "assetcatalog.h"
 #include "assetload.h"
+#include "asset_fallback_telemetry.h" /* c3849 Wave 1 */
 #include "asset_source_debug.h"
 #include "scenario_source_runtime.h"
 
@@ -48,6 +49,15 @@ void tilesReset(void)
 	assetSourceDebugFatalHandleFallback(ASSET_SCENARIO, "tiles",
 		stage.entry && stage.entry->id[0] ? stage.entry->id : "?",
 		stage.tile_handle);
+	/* c3849 Wave 1: record only when a scenario source is registered. */
+	if (scenarioSourceFindEntryForStage(&stage,
+			g_Vars.normmplayerisrunning) != NULL) {
+		sysLoudFailf("FALLBACK",
+			"tiles fileid=%d scenario source failed -> ROM handle",
+			(s32)stage.tilefileid);
+		assetFallbackRecord(ASSET_SCENARIO, (s32)stage.tilefileid,
+			"tiles source -> ROM handle");
+	}
 	g_TileFileData.u8 = assetLoadToNew(stage.tile_handle, FILELOADMETHOD_DEFAULT, LOADTYPE_TILES);
 	if (!g_TileFileData.u8) {
 		sysLogPrintf(LOG_ERROR, "TILES: failed to load tilefileid=%d for stage index=%d",

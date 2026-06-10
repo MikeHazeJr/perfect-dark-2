@@ -1,6 +1,7 @@
 #include <ultra64.h>
 #include "constants.h"
 #include "memsizes.h"
+#include "asset_fallback_telemetry.h" /* c3849 Wave 1 */
 #include "asset_source_debug.h"
 #include "assetcatalog.h" /* Catalog-owned asset identity and source handles */
 #include "assetcatalog_load.h"
@@ -4375,6 +4376,9 @@ static asset_data_handle_t bgunResolveQueuedModelHandle(s32 filenum)
 				filenum);
 		}
 	}
+	/* c3849 Wave 1: outside the log throttle so counts stay true. */
+	assetFallbackRecord(ASSET_MODEL, filenum,
+		"bgun model has no catalog/provider handle");
 
 	return null_handle;
 }
@@ -4497,6 +4501,9 @@ static void bgunFailQueuedModelLoad(struct player *player)
 			"CATALOG_CRITICAL: bgun model filenum=%d failed to load",
 			(s32)player->gunctrl.loadfilenum);
 	}
+	/* c3849 Wave 1: outside the log throttle so counts stay true. */
+	assetFallbackRecord(ASSET_MODEL, (s32)player->gunctrl.loadfilenum,
+		"bgun model load failed (FLUX retry)");
 
 	player->gunctrl.gunloadstate = GUNLOADSTATE_FLUX;
 }

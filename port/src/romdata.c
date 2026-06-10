@@ -18,6 +18,7 @@
 #include "sha256.h"
 #include "assetcatalog.h"
 #include "assetcatalog_load.h"
+#include "asset_fallback_telemetry.h" /* c3849 Wave 1 */
 #include "fs.h"
 #include "system.h"
 #include "preprocess.h"
@@ -1041,6 +1042,8 @@ u8 *romdataFileLoad(s32 fileNum, u32 *outSize)
 				}
 				sysLogPrintf(LOG_WARNING, "C-4: catalog override for file %d (%s) failed to load: %s",
 				             fileNum, fileSlots[fileNum].name, r.path);
+				assetFallbackRecord(ASSET_NONE, fileNum,
+					"file catalog override failed -> legacy/ROM");
 			} else if (r.catalog_id >= 0) {
 				{
 					const asset_entry_t *ce = assetCatalogGetByIndex(r.catalog_id);
@@ -1112,6 +1115,15 @@ u8 *romdataFileLoad(s32 fileNum, u32 *outSize)
 				return NULL;
 			}
 			// tried and failed, fall back to ROM
+			/* c3849 Wave 1: a present extracted cache is the normal Pass C
+			 * path; REACHING here means the cache is missing and the resident
+			 * ROM is being re-read raw -- always abnormal post-extraction. */
+			sysLoudFailf("FALLBACK",
+				"file %d (%s) extracted cache missing -> raw ROM re-read",
+				fileNum,
+				fileSlots[fileNum].name ? fileSlots[fileNum].name : "?");
+			assetFallbackRecord(ASSET_NONE, fileNum,
+				"extracted cache missing -> raw ROM");
 			fileSlots[fileNum].source = SRC_ROM;
 		}
 	}

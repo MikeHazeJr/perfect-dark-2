@@ -23,6 +23,7 @@
 #include "lib/speaker.h"
 #include "data.h"
 #include "types.h"
+#include "asset_fallback_telemetry.h" /* c3849 Wave 1 */
 #include "asset_source_debug.h"
 #include "system.h"
 #include "fs.h"
@@ -2339,6 +2340,8 @@ struct sndstate *sndStart(s32 arg0, s16 sound, struct sndstate **handle, s32 vol
 			}
 			sysLogPrintf(LOG_WARNING, "MOD: sound %d catalog override failed (%s), falling back to ROM",
 			             (s32)sp40.id, r.path);
+			assetFallbackRecord(ASSET_SFX, (s32)sp40.id,
+				"catalog override failed -> native bank");
 		} else if (r.catalog_id >= 0) {
 			sysLogPrintf(LOG_NOTE, "CATALOG: sound %d → ROM (entry %d)", (s32)sp40.id, r.catalog_id);
 		} else {
@@ -2449,6 +2452,13 @@ static s32 sndMp3LoadPublicSourceFile(s32 filenum, uintptr_t *outaddr, u32 *outs
 	*outsize = g_SndMp3SourceSize;
 	sysLogPrintf(LOG_NOTE, "CATALOG: MP3 file %d -> loose extracted source \"%s\" (%u bytes)",
 	             filenum, relpath, g_SndMp3SourceSize);
+	if (source.path && source.path[0]) {
+		/* c3849 Wave 1: a typed public source existed and failed; the loose
+		 * raw cache is not public source (B-382). Base routing (no typed
+		 * source at all) is deliberately not recorded. */
+		assetFallbackRecord(ASSET_MUSIC, filenum,
+			"MP3 typed source missing -> loose extracted cache");
+	}
 	return 1;
 }
 
@@ -2457,6 +2467,13 @@ static s32 sndMp3ResolveSourceOrFallback(s32 filenum, uintptr_t *outaddr, u32 *o
 	if (sndMp3LoadPublicSourceFile(filenum, outaddr, outsize)) {
 		return 1;
 	}
+
+	/* c3849 Wave 1: no typed source AND no loose cache -- raw ROM bytes.
+	 * Always abnormal after extraction; loud + tracked. */
+	sysLoudFailf("FALLBACK",
+		"MP3 file %d -> raw ROM bytes (no typed source, no loose cache)",
+		filenum);
+	assetFallbackRecord(ASSET_MUSIC, filenum, "MP3 -> raw ROM bytes");
 
 	sndMp3FreeSourceBuffer();
 	*outaddr = fileGetRomAddress(filenum);

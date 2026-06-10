@@ -118,6 +118,7 @@
 #include <string.h>
 #include "assetcatalog_resolve.h"
 #include "assetcatalog_load.h"
+#include "asset_fallback_telemetry.h" /* c3849 Wave 1 */
 #include "scenario_source_runtime.h"
 
 /* PC: persistent stats tracking */
@@ -581,6 +582,9 @@ void lvReset(s32 stagenum)
 		 * source-only enforcement, hard-fails instead of tolerating the silent
 		 * default substitution. No-op on a healthy install. */
 		catalogAssertHealthy("stage-load-entry");
+		/* c3849 Wave 1: consume the prior phase's asset fallbacks at the same
+		 * checkpoint (ASSET.FALLBACK aggregate; silent when zero). */
+		assetFallbackReportAndReset("stage-load-entry");
 
 		tilesReset();
 		bgReset(g_Vars.stagenum);
