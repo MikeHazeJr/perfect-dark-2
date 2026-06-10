@@ -64,6 +64,14 @@
 #define NUM_SOLOSTAGES        21
 #define NUM_TEXTURES          (VERSION == VERSION_JPN_FINAL ? 3511 : 3503)
 
+/* c3849 Wave 2: catalog-owned private custom-texture slots. g_Textures storage
+ * (texinit.c) + the texLoad/texconfig gates grow to TEXTURE_CUSTOM_END; base
+ * registration/extract/surfacetype loops stay at NUM_TEXTURES. Hard 12-bit
+ * ceiling: struct tex texturenum:12 + the G_NOOP marker pack clamp at 4096. */
+#define TEXTURE_CUSTOM_COUNT  0x40
+#define TEXTURE_CUSTOM_START  NUM_TEXTURES
+#define TEXTURE_CUSTOM_END    (NUM_TEXTURES + TEXTURE_CUSTOM_COUNT)
+
 #define osSyncPrintf
 
 #define S32_MAX  2147483647

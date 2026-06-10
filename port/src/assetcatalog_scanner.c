@@ -31,6 +31,7 @@
 #include "assetcatalog.h"
 #include "assetcatalog_weapon_slots.h"
 #include "assetcatalog_sound_slots.h" /* c3849 Wave 2 */
+#include "assetcatalog_texture_slots.h" /* c3849 Wave 2 */
 #include "assetcatalog_deps.h"
 #include "assetcatalog_scanner.h"
 #include "loader_pool.h"
@@ -1860,6 +1861,16 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 		e->ext.texture.texture_id = iniGetInt(ini, "texture_id", -1);
 		if (e->ext.texture.texture_id >= 0) {
 			e->source_texnum = e->ext.texture.texture_id;
+		} else {
+			/* c3849 Wave 2: a net-new custom texture (no base texnum) gets a
+			 * catalog-owned private texnum so modeldef texconfigs can reach
+			 * it. texture_id stays -1 ("no base ROM texnum"); consumers read
+			 * source_texnum. Exhaustion already logged loud. */
+			s32 slot = assetCatalogResolveTexturePrivateSlot(e->id);
+			if (slot >= 0) {
+				e->source_texnum = slot;
+				e->runtime_index = slot;
+			}
 		}
 		e->ext.texture.width = iniGetInt(ini, "width", 0);
 		e->ext.texture.height = iniGetInt(ini, "height", 0);

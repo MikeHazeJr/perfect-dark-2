@@ -2306,7 +2306,7 @@ void texLoad(texnum_t *updateword, struct texpool *pool, bool unusedarg)
 			mod_texture_rgba32_source_t source;
 			s32 source_result;
 
-			if (g_TexNumToLoad >= NUM_TEXTURES) {
+			if (g_TexNumToLoad >= TEXTURE_CUSTOM_END) { /* c3849: custom slots loadable */
 				return;
 			}
 
@@ -2461,7 +2461,10 @@ void texLoadFromConfigs(struct textureconfig *configs, s32 numconfigs, struct te
 	s32 i;
 
 	for (i = 0; i < numconfigs; i++) {
-		if ((uintptr_t)configs[i].texturenum < NUM_TEXTURES) {
+		/* c3849: the else branch treats the value as an embedded pointer and
+		 * relocates it -- a custom texnum below the raised gate must take the
+		 * texLoad path or it would be silently corrupted. */
+		if ((uintptr_t)configs[i].texturenum < TEXTURE_CUSTOM_END) {
 			texLoad(&configs[i].texturenum, pool, true);
 			configs[i].unk0b = 1;
 		} else {

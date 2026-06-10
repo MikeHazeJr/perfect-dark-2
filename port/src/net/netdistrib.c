@@ -45,6 +45,7 @@
 #include "assetcatalog.h"
 #include "assetcatalog_weapon_slots.h"
 #include "assetcatalog_sound_slots.h" /* c3849 Wave 2 */
+#include "assetcatalog_texture_slots.h" /* c3849 Wave 2 */
 #include "assetcatalog_deps.h"
 #include "assetcatalog_scanner.h"
 #include "loader_pool.h"
@@ -1700,6 +1701,14 @@ static void populateExtFromIni(asset_entry_t *e, asset_type_e type, const char *
         e->ext.texture.texture_id = iniGetInt(ini, "texture_id", -1);
         if (e->ext.texture.texture_id >= 0) {
             e->source_texnum = e->ext.texture.texture_id;
+        } else {
+            /* c3849 Wave 2: mirror the scanner -- net-distributed custom
+             * texture with no base texnum gets a private slot. */
+            s32 slot = assetCatalogResolveTexturePrivateSlot(e->id);
+            if (slot >= 0) {
+                e->source_texnum = slot;
+                e->runtime_index = slot;
+            }
         }
         e->ext.texture.width = iniGetInt(ini, "width", 0);
         e->ext.texture.height = iniGetInt(ini, "height", 0);

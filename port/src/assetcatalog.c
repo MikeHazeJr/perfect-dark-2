@@ -31,6 +31,7 @@
 #include "assetcatalog_body_head_slots.h"  /* c3844 Gate 2: reset custom body/head slots on rebuild */
 #include "assetcatalog_model_slots.h"       /* B-911: reset custom model slots on rebuild */
 #include "assetcatalog_sound_slots.h"       /* c3849 Wave 2: reset custom sound slots on rebuild */
+#include "assetcatalog_texture_slots.h"     /* c3849 Wave 2: reset custom texture slots on rebuild */
 #include "assetprovider_internal.h"
 #include "fs.h"          /* Phase 3 Pass B: catalogBindPrimaryFromDiskOrRom probe */
 #include "romextract.h"  /* Phase 3 Pass B: romExtractRelPathForFilenum */
@@ -373,6 +374,7 @@ void assetCatalogClear(void)
     assetCatalogResetCustomBodyHeadSlots();
     assetCatalogResetCustomModelSlots();
     assetCatalogResetCustomSoundSlots();
+    assetCatalogResetCustomTextureSlots();
 }
 
 void assetCatalogClearMods(void)
@@ -422,6 +424,7 @@ void assetCatalogClearMods(void)
     assetCatalogResetCustomBodyHeadSlots();
     assetCatalogResetCustomModelSlots();
     assetCatalogResetCustomSoundSlots();
+    assetCatalogResetCustomTextureSlots();
 }
 
 s32 assetCatalogGetCount(void)

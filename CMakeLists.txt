@@ -934,6 +934,8 @@ set(SRC_TESTS
   # c3849 Wave 2: catalog-owned private custom-sound slot allocator.
   ${CMAKE_SOURCE_DIR}/port/src/assetcatalog_sound_slots.c
   ${CMAKE_SOURCE_DIR}/tests/test_sound_slots.cpp
+  ${CMAKE_SOURCE_DIR}/port/src/assetcatalog_texture_slots.c
+  ${CMAKE_SOURCE_DIR}/tests/test_texture_slots.cpp
 
   # S484 F1: catalog manager for weapons (pure validators + variant spec).
   # Live router lives in port/src/catalog_mgr_weapons.c and pulls in
