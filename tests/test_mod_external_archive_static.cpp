@@ -3367,6 +3367,48 @@ TEST_CASE("wave 5 unit 0 bug-fix pins stay wired",
 	/* Wave 5 Unit 4: bounce_randomize_rotation absent-vs-authored-0 sentinel
 	 * pre-set in the bounce parse case. */
 	REQUIRE(runtime.find("out->bounce_randomize_rotation = -1;") != std::string::npos);
+
+	/* Wave 5 Unit 6 (entity-armed + nbomb-storm Step 2): CUSTOM ENTITY ARM
+	 * in weaponTick (B1 position 6), with the Unit 1a entity helper consumed
+	 * beyond its definition (objDamage), the parse-latched damage response
+	 * mode wired, and the proxy LOS pair (cdTestLos05 gated on
+	 * proxy_line_of_sight, radius-pass only). */
+	REQUIRE(propobj.find("CUSTOM ENTITY ARM") != std::string::npos);
+	{
+		const std::string::size_type entityhelper =
+			propobj.find("weaponGetEntityGraphForGameplay(");
+		REQUIRE(entityhelper != std::string::npos);
+		REQUIRE(propobj.find("weaponGetEntityGraphForGameplay(", entityhelper + 1)
+			!= std::string::npos);
+	}
+	REQUIRE(propobj.find("armed_damage_response_mode") != std::string::npos);
+	REQUIRE(propobj.find("proxy_line_of_sight") != std::string::npos);
+	REQUIRE(propobj.find("cdTestLos05") != std::string::npos);
+
+	/* Wave 5 Unit 6: objFree custom-slot unregister clause (a custom proxy
+	 * left in g_Proxies = use-after-free in coordTriggerProxies). */
+	REQUIRE(propobj.find("custom proxy left in g_Proxies") != std::string::npos);
+
+	/* Wave 5 Unit 6: detonator provenance. Sidecar array beside the mask,
+	 * the predicate exported from the runtime, the widened
+	 * playerActivateRemoteMineDetonator signature at BOTH callers, and the
+	 * sidecar reset at BOTH mask reset sites (alarmTick tail + setupReset). */
+	REQUIRE(propobj.find("g_PlayersDetonatingWeaponnum") != std::string::npos);
+	REQUIRE(runtime.find("weaponGraphEntityRemoteSignalMatches") != std::string::npos);
+	REQUIRE(prop.find(
+		"playerActivateRemoteMineDetonator(g_Vars.currentplayernum, weaponnum)")
+		!= std::string::npos);
+	{
+		const std::string bondmove = readFile("src/game/bondmove.c");
+		REQUIRE(bondmove.find(
+			"playerActivateRemoteMineDetonator(g_Vars.currentplayernum, bgunGetWeaponNum(HAND_RIGHT))")
+			!= std::string::npos);
+	}
+	REQUIRE(propobj.find("g_PlayersDetonatingWeaponnum[i] = -1;") != std::string::npos);
+	{
+		const std::string setup = readFile("src/game/setup.c");
+		REQUIRE(setup.find("g_PlayersDetonatingWeaponnum[i] = -1;") != std::string::npos);
+	}
 }
 
 TEST_CASE("wave 5 unit 1 explosion resolver and autogun cadence are pure",
@@ -3729,6 +3771,29 @@ TEST_CASE("wave 5 unit 1c latches derived entity modes and sentinels",
 	REQUIRE(minimal->timed_starts_mode == 0);
 
 	weaponGraphRuntimeClearAll();
+}
+
+TEST_CASE("wave 5 unit 6 remote signal provenance predicate",
+          "[modding][pdxxx][weapon_graph][c3849]") {
+	weapon_graph_entity_runtime_t entity;
+	memset(&entity, 0, sizeof(entity));
+
+	/* Empty/unauthored detonator_ref: ANY signal matches, including the -1
+	 * wildcard weaponnum (OG parity - the OG mask carries no identity). */
+	REQUIRE(weaponGraphEntityRemoteSignalMatches(&entity, 30) == 1);
+	REQUIRE(weaponGraphEntityRemoteSignalMatches(&entity, 0) == 1);
+	REQUIRE(weaponGraphEntityRemoteSignalMatches(&entity, -1) == 1);
+
+	/* NULL entity behaves as unauthored (OG parity). */
+	REQUIRE(weaponGraphEntityRemoteSignalMatches(nullptr, -1) == 1);
+
+	/* Authored ref: the -1 wildcard does NOT satisfy it (authored refs
+	 * demand exact provenance), and an unresolved ref never matches -
+	 * pd-tests stubs the catalog, so resolution always fails here, which is
+	 * exactly the unresolved contract. */
+	strcpy(entity.detonator_ref, "base:remotemine");
+	REQUIRE(weaponGraphEntityRemoteSignalMatches(&entity, -1) == 0);
+	REQUIRE(weaponGraphEntityRemoteSignalMatches(&entity, 30) == 0);
 }
 
 TEST_CASE("PC weapon switching and function HUD consume action-map state",

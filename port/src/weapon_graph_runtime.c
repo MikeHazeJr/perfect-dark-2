@@ -544,6 +544,43 @@ s32 weaponGraphAutogunFireInterval(f32 rpm)
 	return interval;
 }
 
+/* c3849 Wave 5 Unit 6: detonator provenance predicate for the custom remote
+ * sub-branch (propobj.c weaponTick CUSTOM ENTITY ARM). Resolution is lazy
+ * (signal time): a remote detonation is a one-shot event, so no per-tick
+ * catalog work ever happens. Match semantics (pinned by the unit tests):
+ * - empty/unauthored detonator_ref: ANY signal matches, including the -1
+ *   wildcard weaponnum (OG parity - the OG mask carries no identity);
+ * - authored detonator_ref: demands an exact runtime weaponnum match, so
+ *   the -1 wildcard does NOT satisfy it;
+ * - authored but unresolved ref: never matches (one-time LOG_WARNING). */
+s32 weaponGraphEntityRemoteSignalMatches(
+		const weapon_graph_entity_runtime_t *entity, s32 weaponnum)
+{
+	static s32 s_warned_unresolved = 0;
+	catalog_weapon_result_t weapon;
+
+	if (!entity || entity->detonator_ref[0] == '\0') {
+		return 1;
+	}
+
+	if (weaponnum < 0) {
+		return 0;
+	}
+
+	if (!catalogResolveWeapon(entity->detonator_ref, &weapon)
+			|| weapon.weapon_num <= 0) {
+		if (!s_warned_unresolved) {
+			s_warned_unresolved = 1;
+			sysLogPrintf(LOG_WARNING,
+				"WEAPONGRAPH.RUNTIME: detonator_ref '%s' unresolved at signal time; remote signal rejected",
+				entity->detonator_ref);
+		}
+		return 0;
+	}
+
+	return weapon.weapon_num == weaponnum ? 1 : 0;
+}
+
 static s32 heldIndexValid(s32 weaponnum, s32 funcindex)
 {
 	return weaponnum >= 0 &&
@@ -2269,6 +2306,11 @@ static s32 weaponGraphParseProxyOwnerFilterMode(const char *value)
 static s32 weaponGraphParseRemoteSignalMode(const char *value)
 {
 	if (!value || !value[0] || strcmp(value, "detonate") == 0) return 0;
+	/* c3849 Wave 5 Unit 6: remote-storm route (the custom entity arm
+	 * consumes mode 1); same vocabulary as the proxy/timed parsers. */
+	if (strcmp(value, "storm") == 0 || strcmp(value, "create_storm") == 0) {
+		return 1;
+	}
 	return policyLatchUnknown("on_remote_signal", value, 0);
 }
 

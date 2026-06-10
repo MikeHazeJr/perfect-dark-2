@@ -199,6 +199,7 @@ extern u32 g_CountdownTimerOff;
 extern bool g_CountdownTimerRunning;
 extern f32 g_CountdownTimerValue60;
 extern u32 g_PlayersDetonatingMines;
+extern s32 g_PlayersDetonatingWeaponnum[MAX_PLAYERS];
 extern s32 g_NextWeaponSlot;
 extern s32 g_NextHatSlot;
 extern struct linkliftdoorobj *g_LiftDoors;

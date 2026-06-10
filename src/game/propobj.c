@@ -134,6 +134,13 @@ u32 g_CountdownTimerOff = COUNTDOWNTIMERREASON_AI;
 bool g_CountdownTimerRunning = false;
 f32 g_CountdownTimerValue60 = 0;
 u32 g_PlayersDetonatingMines = 0x00000000;
+/* c3849 Wave 5 Unit 6: detonator provenance sidecar for g_PlayersDetonatingMines.
+ * g_PlayersDetonatingWeaponnum[n] records WHICH weapon raised player n's
+ * detonate signal this frame (-1 = wildcard/no record). Written by
+ * playerActivateRemoteMineDetonator, reset at both mask reset sites
+ * (alarmTick tail + setupReset), consumed by the custom remote sub-branch
+ * via weaponGraphEntityRemoteSignalMatches. */
+s32 g_PlayersDetonatingWeaponnum[MAX_PLAYERS] = { -1, -1, -1, -1, -1, -1, -1, -1 };
 s32 g_NextWeaponSlot = 0;
 s32 g_NextHatSlot = 0;
 struct linkliftdoorobj *g_LiftDoors = NULL;
@@ -2989,6 +2996,14 @@ void objFree(struct defaultobj *obj, bool freeprop, bool canregen)
 			smokeClearForProp(obj->prop);
 		}
 
+		/* c3849 Wave 5 Unit 6: custom-slot weapons always unregister; a
+		 * custom proxy left in g_Proxies would dangle after this free
+		 * (use-after-free in coordTriggerProxies). No-op when the weapon
+		 * never registered. */
+		if (weapon->weaponnum >= WEAPON_CUSTOM_START) {
+			weaponUnregisterProxy(weapon);
+		}
+
 		if (weapon->weaponnum == WEAPON_BOLT) {
 			s32 beammnum = boltbeamFindByProp(obj->prop);
 
@@ -5323,6 +5338,299 @@ void weaponTick(struct prop *prop)
 				if (propExplode(prop, exptype)) {
 					weapon->timer240 = -1;
 					obj->hidden |= OBJHFLAG_DELETING;
+				}
+			}
+		}
+	} else if (weapon->weaponnum >= WEAPON_CUSTOM_START && entitygraph
+			&& (entitygraph->has_remote_detonatable
+				|| entitygraph->has_timed_detonatable
+				|| entitygraph->has_proxy_trigger
+				|| entitygraph->has_nbomb_storm)) {
+		/* c3849 Wave 5 Unit 6 (binding spec B1 position 6): CUSTOM ENTITY ARM.
+		 * Custom-slot-only by entry: entitygraph is non-NULL for base weapons
+		 * with the runtime toggle ON, so the weaponnum gate carries the
+		 * dormancy guarantee (the OG arms above stay verbatim and first). A
+		 * weapon that matches the custom PROJECTILE arm (wall/impact/fuse)
+		 * never reaches this arm - documented B1 rule 7: projectile wins.
+		 * Sub-branch order is fixed: remote -> timed -> proxy -> storm ->
+		 * shared detonation block. Policy strings were latched to s32 modes
+		 * at parse (B3); the only strcmp below runs inside the one-shot storm
+		 * transition, never per tick. timer240 == -1 is inert from every
+		 * sub-branch (pickup safety). */
+		s32 dostorm = 0;
+
+		/* (1) remote: mirrors the OG REMOTEMINE signal scan. The
+		 * self-attached parent check and the coop/anti ownerplayernum == 2
+		 * mask special case are copied verbatim from the OG arm above; empty
+		 * coop_policy/anti_policy/self_attached_policy mean exactly those OG
+		 * clauses (B6.8: non-default vocabularies deferred). */
+		if (entitygraph->has_remote_detonatable && g_PlayersDetonatingMines != 0) {
+			s32 ownerplayernum = (obj->hidden & 0xf0000000) >> 28;
+			struct chrdata *parentchr = prop->parent ? prop->parent->chr : NULL;
+			u32 signalmask = 0;
+
+			// If a player manages to throw a mine on themselves, it will not detonate.
+			// You can't throw a mine on yourself anyway, so this check always passes
+			if (prop->parent == NULL || parentchr == NULL || mpPlayerGetIndex(parentchr) != ownerplayernum) {
+				if (g_Vars.coopplayernum >= 0 || g_Vars.antiplayernum >= 0) {
+					if (ownerplayernum == 2) {
+						u32 mask = 0;
+
+						if (g_Vars.coop && g_Vars.coop->prop) {
+							mask |= 1 << playermgrGetPlayerNumByProp(g_Vars.coop->prop);
+						}
+
+						if (g_Vars.bond && g_Vars.bond->prop) {
+							mask |= 1 << playermgrGetPlayerNumByProp(g_Vars.bond->prop);
+						}
+
+						g_PlayersDetonatingMines &= mask;
+
+						signalmask = g_PlayersDetonatingMines;
+					} else if (g_PlayersDetonatingMines & 1 << ownerplayernum) {
+						signalmask = 1 << ownerplayernum;
+					}
+				} else if (g_PlayersDetonatingMines & 1 << ownerplayernum) {
+					signalmask = 1 << ownerplayernum;
+				}
+			}
+
+			if (signalmask != 0) {
+				/* Detonator provenance: an authored detonator_ref requires
+				 * the signal to come from a matching detonator weapon; an
+				 * empty ref accepts any signal (OG parity). One-shot event:
+				 * the lazy catalog resolve never runs per tick. */
+				s32 signalled = 0;
+
+				if (entitygraph->detonator_ref[0] == '\0') {
+					signalled = 1;
+				} else {
+					s32 i;
+
+					for (i = 0; i < MAX_PLAYERS; i++) {
+						if ((signalmask & 1 << i)
+								&& weaponGraphEntityRemoteSignalMatches(entitygraph,
+									g_PlayersDetonatingWeaponnum[i])) {
+							signalled = 1;
+							break;
+						}
+					}
+				}
+
+				if (signalled) {
+					weapon->timer240 = 0;
+
+					if (entitygraph->remote_signal_mode == 1) {
+						dostorm = 1;
+					}
+				}
+			}
+		}
+
+		/* (2) timed: OG TIMEDMINE shape including the gunfunc == FUNC_PRIMARY
+		 * decrement gate (the OG pause), with the decrement clamped to 0 so a
+		 * natural expiry funnels through the shared detonation block. The
+		 * expire modes apply at natural expiry only; a damage-zeroed timer
+		 * (objDamage) always routes to detonation. */
+		if (entitygraph->has_timed_detonatable && weapon->timer240 > 0) {
+			if (weapon->gunfunc == FUNC_PRIMARY) {
+				weapon->timer240 -= g_Vars.lvupdate240;
+
+				if (weapon->timer240 <= 0) {
+					weapon->timer240 = 0;
+
+					if (entitygraph->timed_on_expire_mode == 1) {
+						dostorm = 1;
+					} else if (entitygraph->timed_on_expire_mode == 2) {
+						/* delete: removal without an explosion */
+						propUnsetDangerous(prop);
+						obj->hidden |= OBJHFLAG_DELETING;
+						weapon->timer240 = -1;
+					}
+					/* mode 0 detonate: timer240 == 0 falls through to the
+					 * shared detonation block */
+				}
+			} else {
+				// empty (OG pause: the timer only runs while primed)
+			}
+		}
+
+		/* (3) proxy: only without a timed record (both share timer240; the
+		 * timed countdown wins - map gotcha). Arm countdown and active-state
+		 * radius check mirror the OG proximity arm verbatim; the custom
+		 * filter modes and proxy_line_of_sight apply on this weaponTick
+		 * currentplayer path only this wave (coordTriggerProxies keeps OG
+		 * semantics for chr/object triggers; 4-caller widen deferred). */
+		if (entitygraph->has_proxy_trigger && !entitygraph->has_timed_detonatable) {
+			if (weapon->timer240 >= 2) {
+				// The timer is still active, so the proxy isn't active yet
+				weapon->timer240 -= g_Vars.lvupdate240;
+
+				if (weapon->timer240 < 2) {
+					weapon->timer240 = 1;
+					weaponRegisterProxy(weapon);
+				}
+			} else if (weapon->timer240 == 1) {
+				// Proxy is active
+				struct coord *playerpos = &g_Vars.currentplayer->prop->pos;
+				f32 xdist = playerpos->f[0] - prop->pos.f[0];
+				f32 ydist = playerpos->f[1] - prop->pos.f[1];
+				f32 zdist = playerpos->f[2] - prop->pos.f[2];
+				f32 proxyradius = entitygraph->proxy_radius > 0.0f
+					? entitygraph->proxy_radius : 250.0f;
+
+				if (xdist * xdist + ydist * ydist + zdist * zdist
+						< proxyradius * proxyradius) {
+					s32 trigger = 1;
+					s32 ownerplayernum = (obj->hidden & 0xf0000000) >> 28;
+
+					/* proxy_owner_filter_mode: 1 exclude_owner, 2 owner_only
+					 * (0 = OG: everyone triggers) */
+					if (entitygraph->proxy_owner_filter_mode == 1
+							&& g_Vars.currentplayernum == ownerplayernum) {
+						trigger = 0;
+					} else if (entitygraph->proxy_owner_filter_mode == 2
+							&& g_Vars.currentplayernum != ownerplayernum) {
+						trigger = 0;
+					}
+
+					/* team/target filters: on this path the candidate is
+					 * always the current player, so enemy_only (team mode 1)
+					 * and hostile_chr (target mode 1) both reduce to "hostile
+					 * to the owner" via chrCompareTeams. An unresolvable
+					 * owner keeps the OG trigger (value-guard discipline,
+					 * B3). */
+					if (trigger && (entitygraph->proxy_team_filter_mode == 1
+							|| entitygraph->proxy_target_filter_mode == 1)) {
+						struct chrdata *ownerchr = NULL;
+						struct chrdata *playerchr = g_Vars.currentplayer->prop->chr;
+
+						if (g_Vars.normmplayerisrunning) {
+							ownerchr = mpGetChrFromPlayerIndex(ownerplayernum);
+						}
+
+						if (ownerchr && playerchr
+								&& !chrCompareTeams(ownerchr, playerchr, COMPARE_ENEMIES)) {
+							trigger = 0;
+						}
+					}
+
+					/* proxy_line_of_sight: runs ONLY after the radius check
+					 * passes (rare event, never per tick). Mirrors the
+					 * canonical chraction.c cdTestLos05 usage
+					 * (GEOFLAG_BLOCK_SHOOT). */
+					if (trigger && entitygraph->proxy_line_of_sight > 0
+							&& !cdTestLos05(&prop->pos, prop->rooms,
+								&g_Vars.currentplayer->prop->pos,
+								g_Vars.currentplayer->prop->rooms,
+								CDTYPE_DOORSWITHOUTFLAG | CDTYPE_ALL,
+								GEOFLAG_BLOCK_SHOOT)) {
+						trigger = 0;
+					}
+
+					if (trigger) {
+						weapon->timer240 = 0;
+
+						if (entitygraph->proxy_on_trigger_mode == 1) {
+							dostorm = 1;
+						}
+					}
+				}
+			}
+		}
+
+		/* (4) storm carrier countdown (entity-deployed Step 2): a pure
+		 * nbomb-storm carrier - no timed/proxy/remote record owning
+		 * timer240 - mirrors the OG thrown-nbomb airborne expiry. */
+		if (entitygraph->has_nbomb_storm
+				&& !entitygraph->has_timed_detonatable
+				&& !entitygraph->has_proxy_trigger
+				&& !entitygraph->has_remote_detonatable
+				&& weapon->timer240 > 0) {
+			weapon->timer240 -= g_Vars.lvupdate240;
+
+			if (weapon->timer240 <= 0) {
+				weapon->timer240 = 0;
+			}
+		}
+
+		/* (5) storm action + shared detonation block. Storm routes: timed
+		 * expire mode 1, proxy on_trigger mode 1, remote signal mode 1, and
+		 * any nbomb-storm carrier reaching detonation (OG parity: an nbomb
+		 * detonation is always a storm). */
+		if (dostorm || (entitygraph->has_nbomb_storm && weapon->timer240 == 0)) {
+			struct prop *ownerprop = NULL;
+
+			/* storm_owner_transfer: "none" -> ownerless storm; empty or
+			 * "owner" -> the OG owner extraction with the
+			 * normmplayerisrunning lookup copied verbatim. One-shot
+			 * transition strcmp, never per tick. */
+			if (strcmp(entitygraph->storm_owner_transfer, "none") != 0) {
+				s32 ownerplayernum = (obj->hidden & 0xf0000000) >> 28;
+
+				if (g_Vars.normmplayerisrunning) {
+					struct chrdata *chr = mpGetChrFromPlayerIndex(ownerplayernum);
+
+					if (chr) {
+						ownerprop = chr->prop;
+					}
+				}
+			}
+
+			nbombCreateStorm_hack(&prop->pos, ownerprop, prop);
+			propUnsetDangerous(prop);
+
+			weapon->timer240 = -1;
+
+			/* storm_delete_carrier: absent (-1 sentinel) or authored true =
+			 * OG carrier delete; authored 0 keeps the carrier (inert). */
+			if (entitygraph->storm_delete_carrier != 0) {
+				obj->hidden |= OBJHFLAG_DELETING;
+			}
+
+			{
+				s32 i;
+
+				for (i = 0; i < MAX_PLAYERS; i++) {
+					if (!g_Vars.players[i]) {
+						continue;
+					}
+					if (g_Vars.players[i]->slayerrocket == (struct weaponobj *)obj) {
+						g_Vars.players[i]->slayerrocket = NULL;
+						g_Vars.players[i]->visionmode = VISIONMODE_SLAYERROCKETSTATIC;
+					}
+				}
+			}
+		} else if (weapon->timer240 == 0) {
+			/* Shared detonation block, OG remote-detonation shape (failed
+			 * propExplode keeps timer240 == 0 and retries next tick).
+			 * armed_exptype is the parse-resolved entity explosion_ref;
+			 * WAVE6-EFFECT-HANDOFF: non-base explosion_ref resolves at
+			 * detonation once the Unit 8 effect runtime lands (B2). The
+			 * slayerrocket sweep mirrors the custom projectile arm: a custom
+			 * fly-by-wire weapon can be a live slayerrocket here. */
+			if (propExplode(prop, effectGraphResolveExplosionType(
+					entitygraph->explosion_ref[0]
+						? entitygraph->explosion_ref : NULL,
+					entitygraph->armed_exptype >= 0
+						? entitygraph->armed_exptype
+						: ((obj->flags2 & OBJFLAG2_WEAPON_HUGEEXP)
+							? EXPLOSIONTYPE_HUGE17 : EXPLOSIONTYPE_ROCKET)))) {
+				weapon->timer240 = -1;
+				obj->hidden |= OBJHFLAG_DELETING;
+
+				{
+					s32 i;
+
+					for (i = 0; i < MAX_PLAYERS; i++) {
+						if (!g_Vars.players[i]) {
+							continue;
+						}
+						if (g_Vars.players[i]->slayerrocket == (struct weaponobj *)obj) {
+							g_Vars.players[i]->slayerrocket = NULL;
+							g_Vars.players[i]->visionmode = VISIONMODE_SLAYERROCKETSTATIC;
+						}
+					}
 				}
 			}
 		}
@@ -16532,6 +16840,26 @@ void objDamage(struct defaultobj *obj, f32 damage, struct coord *pos, s32 weapon
 				if (weapon->weaponnum != WEAPON_HOMINGROCKET || weaponnum != WEAPON_REMOTEMINE) {
 					weapon->timer240 = 0;
 				}
+			} else if (weapon->weaponnum >= WEAPON_CUSTOM_START) {
+				/* c3849 Wave 5 Unit 6: custom-slot damage response. Checked
+				 * in B1 precedence order: a graph matching the custom
+				 * PROJECTILE arm (fuse timer / consume-on-hit impact) gets
+				 * grenade-parity shot-detonation regardless of any entity
+				 * record (the projectile arm wins in weaponTick); otherwise
+				 * the entity armed record decides via the parse-latched
+				 * armed_damage_response_mode (0 detonate = OG, 1 ignore). */
+				const weapon_graph_projectile_runtime_t *customproj =
+					weaponGetCustomProjectileGraph(weapon);
+				const weapon_graph_entity_runtime_t *entity =
+					weaponGetEntityGraphForGameplay(weapon);
+
+				if (customproj && (customproj->has_timer
+						|| (customproj->has_impact && customproj->impact_consume_on_hit))) {
+					weapon->timer240 = 0;
+				} else if (entity && entity->has_armed_explosive
+						&& entity->armed_damage_response_mode != 1) {
+					weapon->timer240 = 0;
+				}
 			}
 
 			return;
@@ -19360,9 +19688,16 @@ struct defaultobj *debrisAllocate(void)
 	return NULL;
 }
 
-void playerActivateRemoteMineDetonator(s32 playernum)
+void playerActivateRemoteMineDetonator(s32 playernum, s32 weaponnum)
 {
 	g_PlayersDetonatingMines |= 1 << playernum;
+
+	/* c3849 Wave 5 Unit 6: detonator provenance. weaponnum -1 = wildcard
+	 * (no record); it satisfies only graphs without an authored
+	 * detonator_ref - see weaponGraphEntityRemoteSignalMatches. */
+	if (playernum >= 0 && playernum < MAX_PLAYERS) {
+		g_PlayersDetonatingWeaponnum[playernum] = weaponnum;
+	}
 
 	sndStart(var80095200, SFX_DETONATE, 0, -1, -1, -1, -1, -1);
 
@@ -22348,6 +22683,16 @@ void alarmTick(void)
 	chrsTriggerProxies();
 
 	g_PlayersDetonatingMines = 0;
+
+	/* c3849 Wave 5 Unit 6: provenance sidecar resets on the same frame
+	 * schedule as the mask (second site: setupReset, setup.c). */
+	{
+		s32 i;
+
+		for (i = 0; i < MAX_PLAYERS; i++) {
+			g_PlayersDetonatingWeaponnum[i] = -1;
+		}
+	}
 }
 
 void func0f091030(void)

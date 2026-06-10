@@ -1509,7 +1509,9 @@ void handTickAttack(s32 handnum)
 			handInflictMeleeDamage(handnum, &gset, true);
 			break;
 		case HANDATTACKTYPE_DETONATE:
-			playerActivateRemoteMineDetonator(g_Vars.currentplayernum);
+			/* c3849 Wave 5 Unit 6: the firing hand's weaponnum is the
+			 * detonator provenance for custom remote graphs. */
+			playerActivateRemoteMineDetonator(g_Vars.currentplayernum, weaponnum);
 			break;
 		case HANDATTACKTYPE_UPLINK:
 			propFindForUplink();

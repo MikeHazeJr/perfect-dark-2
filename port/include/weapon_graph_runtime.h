@@ -483,7 +483,7 @@ typedef struct weapon_graph_entity_runtime {
 	s32 proxy_target_filter_mode;   /* 0 all (OG), 1 hostile_chr */
 	s32 proxy_team_filter_mode;     /* 0 all (OG), 1 enemy_only */
 	s32 proxy_owner_filter_mode;    /* 0 all (OG), 1 exclude_owner, 2 owner_only */
-	s32 remote_signal_mode;         /* 0 detonate (OG) */
+	s32 remote_signal_mode;         /* 0 detonate (OG), 1 storm */
 	s32 timed_on_expire_mode;       /* 0 detonate (OG), 1 storm, 2 delete */
 	s32 timed_starts_mode;          /* 0 thrown/armed (OG default) */
 } weapon_graph_entity_runtime_t;
@@ -511,6 +511,14 @@ s32 weaponGraphResolveExplosionRef(const char *ref);
  * 1800 rpm is the OG laptop baseline (interval 1); 900 rpm -> 2; rpm <= 0
  * (absent) and out-of-range values clamp to 1 (OG cadence). */
 s32 weaponGraphAutogunFireInterval(f32 rpm);
+
+/* c3849 Wave 5 Unit 6: detonator provenance predicate for the custom remote
+ * sub-branch. Empty detonator_ref accepts any signal weaponnum including the
+ * -1 wildcard (OG parity); an authored ref demands an exact runtime
+ * weaponnum match (-1 never satisfies it); an unresolved ref never matches
+ * (one-time LOG_WARNING). Lazy catalog resolve at signal time only. */
+s32 weaponGraphEntityRemoteSignalMatches(
+	const weapon_graph_entity_runtime_t *entity, s32 weaponnum);
 
 s32 weaponGraphRuntimeEnabled(void);
 void weaponGraphRuntimeSetEnabled(s32 enabled);

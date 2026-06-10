@@ -2944,7 +2944,9 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 	if (movedata.detonating) {
 		g_Vars.currentplayer->hands[HAND_RIGHT].mode = HANDMODE_NONE;
 		g_Vars.currentplayer->hands[HAND_RIGHT].modenext = HANDMODE_NONE;
-		playerActivateRemoteMineDetonator(g_Vars.currentplayernum);
+		/* c3849 Wave 5 Unit 6: quick-detonate provenance is the right-hand
+		 * weapon (the same gate this path already keys on). */
+		playerActivateRemoteMineDetonator(g_Vars.currentplayernum, bgunGetWeaponNum(HAND_RIGHT));
 	}
 
 	cancycleweapons = true;

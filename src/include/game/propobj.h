@@ -277,7 +277,7 @@ struct weaponobj *weaponCreate(bool musthaveprop, bool musthavemodel, struct mod
 struct hatobj *hatCreate(bool musthaveprop, bool musthavemodel, struct modeldef *modeldef);
 struct ammocrateobj *ammocrateAllocate(void);
 struct defaultobj *debrisAllocate(void);
-void playerActivateRemoteMineDetonator(s32 playernum);
+void playerActivateRemoteMineDetonator(s32 playernum, s32 weaponnum);
 struct weaponobj *weaponFindChildByWeaponNum(s32 weaponnum, struct prop *prop);
 struct weaponobj *weaponFindLanded(s32 weaponnum);
 void weaponRegisterProxy(struct weaponobj *weapon);

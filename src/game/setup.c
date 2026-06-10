@@ -356,6 +356,13 @@ void propsReset(void)
 	g_CountdownTimerValue60 = 0;
 
 	g_PlayersDetonatingMines = 0;
+
+	/* c3849 Wave 5 Unit 6: provenance sidecar resets with the mask
+	 * (second site: alarmTick tail, propobj.c). */
+	for (i = 0; i < MAX_PLAYERS; i++) {
+		g_PlayersDetonatingWeaponnum[i] = -1;
+	}
+
 	g_TintedGlassEnabled = false;
 
 	if (g_MaxWeaponSlots == 0) {
