@@ -1,7 +1,7 @@
 {
   "id": "needler",
   "name": "Needler",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "author": "PD2",
   "description": "Halo-Needler-style custom weapon. Primary fire: tracking needles (active homing depends on a separate runtime homing-gate adapter, out of scope for this data-only mod). Secondary fire: non-tracking needles that explode on contact with small pink explosions. Pure data .pdmod: one self-contained needler.pdweapon embedding its full typed dependency closure (mesh, material, textures, projectiles, and the pink contact-explosion effect).",
   "contents": [

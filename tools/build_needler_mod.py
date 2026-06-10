@@ -609,6 +609,25 @@ def build_weapon(needle_mesh: bytes, crystal_material: bytes, body_texture: byte
             "grip_sockets_file": "bindings/grip-sockets.json",
             "presentation_file": "bindings/presentation.json",
             "primary_projectile_archive": "dependencies/assets/projectiles/primary.pdprojectile",
+            # Spawn-path bridge (B-912): the player fire path dispatches through
+            # the pool weapondef's static funcdef skeleton (gsetGetWeaponFunction
+            # -> bondgun INVENTORYFUNCTYPE_SHOOT_PROJECTILE gate, type 0x0201 =
+            # 513). Every ballistic value (model/scale/speed/travel/timer) is
+            # overridden by the behavior graphs at fire time; these entries are
+            # the dispatch skeleton only. ammoindex -1 = no ammo pool (laser
+            # pattern). Parsed by loader_pool.c parseWeaponFunc via the
+            # "functions" pair-array.
+            "functions": [
+                {"_struct": "weaponfunc_shootprojectile", "type": 513,
+                 "ammoindex": -1, "damage": 6.0},
+                {"_struct": "weaponfunc_shootprojectile", "type": 513,
+                 "ammoindex": -1, "damage": 5.0},
+            ],
+            # SIGHTTRACKTYPE_ROCKETLAUNCHER (3): latched lock-on like the OG
+            # launcher, so bondgun's generic targetprop assignment hands the
+            # primary needle a live homing target (B-914). The default
+            # tracktype would only track while aim-mode rests on a target.
+            "aimsettings": {"tracktype": 3},
         })),
     ])
 
@@ -620,7 +639,7 @@ def write_mod_json() -> None:
     mod = {
         "id": "needler",
         "name": "Needler",
-        "version": "0.2.0",
+        "version": "0.3.0",
         "author": "PD2",
         "description": (
             "Halo-Needler-style custom weapon. Primary fire: tracking needles "

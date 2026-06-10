@@ -1214,6 +1214,15 @@ void projectileApplyGraphRuntime(struct defaultobj *obj,
 	projectile = obj->projectile;
 	projectile->flags |= runtime->flags & ~PROJECTILEFLAG_FREE;
 
+	/* B-914 (Q1 homing widen): latch the graph's projectile.homing intent onto
+	 * the spawned projectile so the projectileTick steering gate can honor it
+	 * without a per-tick string-keyed runtime lookup. Runs at every spawn site
+	 * that passes the projectile runtime (player and AI), and is impossible to
+	 * set while Debug.WeaponGraphRuntime is off (runtime is NULL then). */
+	if (runtime->has_homing) {
+		projectile->flags |= PROJECTILEFLAG_HOMING;
+	}
+
 	if (runtime->powered || strcmp(runtime->motion_kind, "powered") == 0) {
 		projectile->flags |= PROJECTILEFLAG_POWERED;
 	}
@@ -1244,6 +1253,35 @@ void projectileApplyGraphRuntime(struct defaultobj *obj,
 	if (hastimer && obj->type == OBJTYPE_WEAPON) {
 		((struct weaponobj *)obj)->timer240 = weaponGraphTicks60To240(timer60);
 	}
+}
+
+/* B-912 first slice: the projectile-impact graph IR's first production
+ * consumer. Returns the projectile runtime when this weaponobj is a CUSTOM
+ * graph weapon whose projectile authored explode-on-contact
+ * (projectile.impact with consume_on_hit), else NULL. The weaponnum guard
+ * keeps every base weapon on its existing weaponnum-keyed arms: base-emitted
+ * graphs (rocket/devastator) also carry impact records, and without the guard
+ * they would double-handle. Per the cutover plan's closure rule the values
+ * feed the EXISTING OG execution routines (timer240 / propExplode); gating on
+ * Debug.WeaponGraphRuntime is inherited from the gameplay accessor. */
+static const weapon_graph_projectile_runtime_t *weaponGetContactImpactGraph(struct weaponobj *weapon)
+{
+	const weapon_graph_held_function_t *graph;
+	const weapon_graph_projectile_runtime_t *projectile;
+
+	if (weapon->weaponnum < WEAPON_CUSTOM_START) {
+		return NULL;
+	}
+
+	graph = weaponGraphRuntimeGetHeldFunctionForGameplay(
+		weapon->gset.weaponnum, weapon->gset.weaponfunc);
+	projectile = weaponGraphRuntimeGetProjectileForHeldFunction(graph);
+
+	if (projectile && projectile->has_impact && projectile->impact_consume_on_hit) {
+		return projectile;
+	}
+
+	return NULL;
 }
 
 void embedmentFree(struct embedment *embedment)
@@ -4835,6 +4873,18 @@ void weaponTick(struct prop *prop)
 			}
 #endif
 		}
+	} else if (weaponGetContactImpactGraph(weapon) != NULL) {
+		/* B-912: graph-authored explode-on-contact detonation. timer240 is
+		 * zeroed by the contact arms below (prop hit / BG hit / launch
+		 * collision), mirroring the rocket arm above. EXPLOSIONTYPE_PHOENIX is
+		 * the small OG explosion class per the Needler design decision Q2
+		 * (blast/damage parity; the pink visual is the effect-graph runtime's
+		 * job when it lands). */
+		if (weapon->timer240 == 0) {
+			propExplode(prop, (obj->flags2 & OBJFLAG2_WEAPON_HUGEEXP)
+					? EXPLOSIONTYPE_HUGE17 : EXPLOSIONTYPE_PHOENIX);
+			obj->hidden |= OBJHFLAG_DELETING;
+		}
 	} else if (weapon->weaponnum == WEAPON_TIMEDMINE && weapon->timer240 >= 0) {
 		// Handle timed mines
 		if (weapon->gunfunc == FUNC_PRIMARY) {
@@ -6639,7 +6689,10 @@ s32 projectileLaunch(struct defaultobj *obj, struct projectile *projectile, stru
 		struct weaponobj *weapon = (struct weaponobj *)obj;
 		RoomNum rooms[8];
 
-		if (weapon->weaponnum == WEAPON_ROCKET || weapon->weaponnum == WEAPON_HOMINGROCKET) {
+		/* B-912: a custom graph projectile fired point-blank into geometry
+		 * detonates like a rocket (the impactgraph clause). */
+		if (weapon->weaponnum == WEAPON_ROCKET || weapon->weaponnum == WEAPON_HOMINGROCKET
+				|| weaponGetContactImpactGraph(weapon) != NULL) {
 			weapon->timer240 = 0;
 
 			func0f065e74(&prop->pos, prop->rooms, arg2, rooms);
@@ -7158,8 +7211,22 @@ s32 projectileTick(struct defaultobj *obj, bool *embedded)
 
 				homingrocket = false;
 
-				if (obj->type == OBJTYPE_WEAPON && ((struct weaponobj *)obj)->weaponnum == WEAPON_HOMINGROCKET) {
-					homingrocket = true;
+				/* B-914 (Q1): honor graph-authored homing in addition to the OG
+				 * weaponnum identity. The weaponnum clause stays first and
+				 * verbatim, so OG WEAPON_HOMINGROCKET behavior is bit-identical.
+				 * PROJECTILEFLAG_HOMING is latched from projectile.homing IR at
+				 * spawn (projectileApplyGraphRuntime); the gsetHasFunctionFlags
+				 * clause honors an authored FUNCFLAG_HOMINGROCKET held-function
+				 * flags literal (graph-aware, mirrors the FUNCFLAG_STICKTOWALL
+				 * precedent below). No OG airborne weaponobj carries either. */
+				if (obj->type == OBJTYPE_WEAPON) {
+					struct weaponobj *homingwobj = (struct weaponobj *)obj;
+
+					if (homingwobj->weaponnum == WEAPON_HOMINGROCKET
+							|| (projectile->flags & PROJECTILEFLAG_HOMING)
+							|| gsetHasFunctionFlags(&homingwobj->gset, FUNCFLAG_HOMINGROCKET)) {
+						homingrocket = true;
+					}
 				}
 
 				if (homingrocket) {
@@ -7416,6 +7483,10 @@ s32 projectileTick(struct defaultobj *obj, bool *embedded)
 
 						if (!handled && g_EmbedProp && obj->type == OBJTYPE_WEAPON) {
 							struct weaponobj *weapon = (struct weaponobj *) obj;
+							/* B-912: custom graph projectile with authored
+							 * explode-on-contact (NULL for every base weapon). */
+							const weapon_graph_projectile_runtime_t *impactgraph =
+								weaponGetContactImpactGraph(weapon);
 
 							if (weapon->weaponnum == WEAPON_BOLT || weapon->weaponnum == WEAPON_COMBATKNIFE) {
 								if (hitprop->type == PROPTYPE_CHR || (hitprop->type == PROPTYPE_PLAYER && hitprop->chr)) {
@@ -7463,7 +7534,12 @@ s32 projectileTick(struct defaultobj *obj, bool *embedded)
 										frCalculateHit(hitobj, &sp5e8, 0.0f);
 									}
 								}
-							} else if (weapon->weaponnum == WEAPON_ROCKET || weapon->weaponnum == WEAPON_HOMINGROCKET) {
+							} else if (weapon->weaponnum == WEAPON_ROCKET || weapon->weaponnum == WEAPON_HOMINGROCKET
+									|| impactgraph != NULL) {
+								/* B-912: the impactgraph clause routes a custom
+								 * graph projectile through the proven rocket
+								 * contact-consume path (direct-hit damage +
+								 * handled + timer240 = 0 -> detonation arm). */
 								s32 ownerplayernum = (obj->hidden & 0xf0000000) >> 28;
 
 								if (g_EmbedProp->type == PROPTYPE_CHR || (g_EmbedProp->type == PROPTYPE_PLAYER && g_EmbedProp->chr)) {
@@ -7480,7 +7556,10 @@ s32 projectileTick(struct defaultobj *obj, bool *embedded)
 										}
 									}
 
-									func0f0341dc(g_EmbedProp->chr, 2.0f, &var8009ce78, &weapon->gset, ownerprop2,
+									func0f0341dc(g_EmbedProp->chr,
+											(impactgraph != NULL && impactgraph->has_damage)
+												? impactgraph->damage : 2.0f,
+											&var8009ce78, &weapon->gset, ownerprop2,
 											g_EmbedHitPart, g_EmbedProp, g_EmbedNode, g_EmbedModel, g_EmbedSide, var8006993c);
 								} else if (g_EmbedProp->type == PROPTYPE_OBJ || g_EmbedProp->type == PROPTYPE_WEAPON) {
 									if (var80069944 == 10000) {
@@ -7818,6 +7897,13 @@ s32 projectileTick(struct defaultobj *obj, bool *embedded)
 								weapon->timer240 = 0;
 							} else {
 								smokeCreateSimple(&prop->pos, prop->rooms, SMOKETYPE_HOMINGTAIL);
+							}
+						} else if (weaponGetContactImpactGraph(weapon) != NULL) {
+							/* B-912: graph-authored explode-on-contact, BG/wall
+							 * hit. Zeroing timer240 hands detonation to the
+							 * weaponTick arm, mirroring the rocket arms above. */
+							if (cdresult == CDRESULT_COLLISION) {
+								weapon->timer240 = 0;
 							}
 						} else if (weapon->weaponnum == WEAPON_GRENADEROUND
 								|| (weapon->weaponnum == WEAPON_NBOMB && weapon->gunfunc == FUNC_PRIMARY)) {

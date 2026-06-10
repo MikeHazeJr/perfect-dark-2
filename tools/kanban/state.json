@@ -5441,7 +5441,7 @@
       "pillar": "modding",
       "column": "active",
       "order": 1003,
-      "notes": "Updated 2026-06-10: needler.pdweapon AUTHORED + CONFORMANT + statically verified (tools/build_needler_mod.py, deterministic). 4-way adversarial verification confirmed all node-kinds/param keys match the live parser; surfaced runtime follow-ups B-911 (embedded mesh/material/texture not ingested), B-912 (projectile-graph gameplay runtime unconsumed), B-913 (mod.json contents/assets ignored). Homing-gate (s7, Q1) + B-801 live proof (s6) remain. Decisions in context/designs/modding/needler-weapon-mod.md.",
+      "notes": "Updated 2026-06-10: gameplay halves implemented (B-914 homing widen + B-912 impact first slice + spawn functions bridge, all build-pending and Debug.WeaponGraphRuntime-gated). Authoring committed earlier (conformant, statically verified). Remaining: s6 live proof (B-801) + enabling the runtime toggle at live-test time.",
       "flag": null,
       "created": "2026-06-10T00:00:00-04:00",
       "updated": "2026-06-10T00:00:00-04:00",
@@ -5492,9 +5492,9 @@
         {
           "id": "c3847-s7",
           "title": "Homing-gate adapter so custom homing steers (Q1 runtime follow-up)",
-          "status": "active",
+          "status": "done",
           "order": 7000,
-          "notes": "2026-06-10: propobj.c:7159-7163 gates homing on weaponnum==WEAPON_HOMINGROCKET; widen to honor FUNCFLAG_HOMINGROCKET (bondgun.c:1856 already sets it from projectile->has_homing). Additive (OG rocket unchanged). Needed for primary TRACKING; the .pdmod authoring is correct without it. Behavior-changing runtime + B-801-gated proof; trace spawn/target-acquisition so custom homing gets targetprop."
+          "notes": "IMPLEMENTED 2026-06-10 (B-914, build-pending). Trace workflow wv26yix9i grounded it: player-path targetprop is already assigned generically at fire (bondgun.c:5868); the gap was lock-on DATA (manifest now authors aimsettings.tracktype=3) + the gate. Widen: PROJECTILEFLAG_HOMING latched from has_homing in projectileApplyGraphRuntime; steering gate honors OG weaponnum (first, verbatim) OR the flag OR gsetHasFunctionFlags(FUNCFLAG_HOMINGROCKET). Dormant until Debug.WeaponGraphRuntime is enabled. Deferred: AI launcher-branch widen (+ wrong-owner fix at chraction.c:10371), per-weapon steering gains."
         },
         {
           "title": "Custom-model runtime-slot allocator for embedded weapon meshes (B-911)",
@@ -5502,6 +5502,13 @@
           "order": 8000,
           "status": "active",
           "notes": "Investigation wp36kfcp7 (2026-06-10, high confidence): B-911 is NOT a contained \"ingest the embedded mesh\" ticket. Root cause = missing catalog-owned custom-model runtime-slot allocator (the C52 bridge bodies/heads got in B-909; models never got). catalogResolveModel returns out.modelnum = runtime_index (fixed g_ModelStates index); a new embedded mesh gets runtime_index=-1, so even a registered ASSET_MODEL row does not render. Base weapons dodge via intra-archive model_archive + pre-seeded base rows, so B-911 is custom/embedded-specific. True fix = model slot allocator (mirror assetcatalog_weapon_slots.c / assetcatalog_body_head_slots.c) + mesh register-from-bytes + a consumer at weapon_graph_runtime.c:2732-2820. Render-critical (g_ModelStates + firing path) + B-801-unverifiable -> SURFACED to Mike for the design call (grow g_ModelStates headroom vs parallel store) before any code. Likely warrants its own c3844 card."
+        },
+        {
+          "title": "Impact consumer first slice + spawn-path functions bridge (B-912)",
+          "id": "c3847-s9",
+          "order": 9000,
+          "status": "done",
+          "notes": "IMPLEMENTED 2026-06-10 (build-pending). weaponGetContactImpactGraph (custom-slot guarded) consumed at 4 propobj.c sites mirroring the rocket machinery (weaponTick detonation EXPLOSIONTYPE_PHOENIX per Q2, prop-hit consume w/ graph damage, BG-hit consume, point-blank parity). Manifest functions pair-array (weaponfunc_shootprojectile/513/ammoindex -1) opens the player fire path; graphs override all ballistics. mod v0.3.0, deterministic, conformance green. All dormant until Debug.WeaponGraphRuntime; live fire B-801-gated."
         }
       ]
     },

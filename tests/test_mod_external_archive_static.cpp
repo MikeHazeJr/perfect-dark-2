@@ -3172,6 +3172,12 @@ TEST_CASE("held weapon graph adapter is wired into runtime callsites",
 	REQUIRE(propobj.find("weaponGraphRuntimeGetEntityForHeldFunction") != std::string::npos);
 	REQUIRE(propobj.find("entitygraph->proxy_radius") != std::string::npos);
 	REQUIRE(propobj.find("entitygraph->autogun_aim_distance") != std::string::npos);
+	/* B-912 first slice: the projectile-impact IR's production consumer +
+	 * B-914 homing widen must stay wired in propobj.c. */
+	REQUIRE(propobj.find("weaponGetContactImpactGraph") != std::string::npos);
+	REQUIRE(propobj.find("impact_consume_on_hit") != std::string::npos);
+	REQUIRE(propobj.find("PROJECTILEFLAG_HOMING") != std::string::npos);
+	REQUIRE(propobj.find("gsetHasFunctionFlags(&homingwobj->gset, FUNCFLAG_HOMINGROCKET)") != std::string::npos);
 
 	const std::string runtime = readFile("port/src/weapon_graph_runtime.c");
 	REQUIRE(runtime.find("weaponGraphRuntimeGetProjectileForHeldFunction") != std::string::npos);
