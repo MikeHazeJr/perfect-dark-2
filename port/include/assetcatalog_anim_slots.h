@@ -3,7 +3,13 @@
 
 #include <PR/ultratypes.h>
 
-#include "animations.h" /* generated; ANIM_END is the base anim-table count */
+/* ANIM_END (the base anim-table count) comes from the generated
+ * animations.h, but that header has NO include guard and is already
+ * pre-included in every pd translation unit through the constants.h
+ * precompiled header -- including it directly redeclares enum animnum
+ * on a fresh build. Route through the guarded constants.h instead
+ * (found while building c3849 Wave 3). */
+#include "constants.h"
 
 /*
  * c3849 Wave 2: catalog-owned private custom-animation slot allocator.

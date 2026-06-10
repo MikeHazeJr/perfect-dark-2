@@ -5593,8 +5593,8 @@
           "title": "Wave 3: FONT runtime consumer (.pdfont -> textLoadFont)",
           "id": "c3849-s3",
           "order": 3000,
-          "status": "active",
-          "notes": ""
+          "status": "done",
+          "notes": "DONE 2026-06-10, BUILD-VERIFIED (agent-implemented from the preserved map, independently re-verified: client PASS empty err; 11,584/49 green; guard ok; agent proved a lossless Python round-trip of all six real font segments). Stage 1: romextract_pdfont.c repaired (face->segname table; parses the POST-preprocess PC-native layout field-by-field; cache kind v2 + schema-2 skip gate; stale jpn garbage archives removed). Stage 2: new fontcatalog.{c,h} (~640-line PGM+metrics -> segment-shaped buffer compiler, build-variant-safe fontchar fill, (v+8)/17 CI4 repack, glyph-width overflow rejected only on non-zero pixels past col 16 -- handelgothiclg W advance=17 falsified the blanket rule); textLoadFont tries catalog FIRST, all post-load mutations unchanged, miss = LOUDFAIL + assetFallbackRecord(ASSET_FONT). FONT goes 0% -> consuming public source. Also fixed two latent Wave-2c fresh-build breaks (anim_slots.h guard-less generated include -> constants.h; mod.c missing lib/anim.h)."
         },
         {
           "title": "Wave 4: base texture public-source emitter (romextract)",

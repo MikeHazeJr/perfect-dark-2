@@ -1,4 +1,6 @@
 #include <ultra64.h>
+#include <stdlib.h>
+#include <string.h>
 #include "constants.h"
 #include "game/game_006900.h"
 #include "game/gfxmemory.h"
@@ -16,6 +18,8 @@
 #include "types.h"
 #include "platform.h"
 #include "system.h"
+#include "asset_fallback_telemetry.h"
+#include "fontcatalog.h"
 
 #define SPACE_WIDTH 5
 
@@ -281,32 +285,70 @@ void textLoadFont(u8 *romstart, u8 *romend, struct font **fontptr, struct fontch
 
 	len = (romptr_t)romend - (romptr_t)romstart;
 
-	/* Build a human-readable tag for debug tracking.
-	 * Compare ROM addresses to identify which font this is. */
+	/* Build a human-readable tag for debug tracking and derive the
+	 * public-source face name (c3849 Wave 3). Compare ROM addresses to
+	 * identify which font this is. */
 	const char *tag = "FontUnknown";
-	if (romstart == REF_SEG _fonthandelgothicsmSegmentRomStart) {
-		tag = "FontHandelGothicSm";
-	} else if (romstart == REF_SEG _fonthandelgothicxsSegmentRomStart) {
-		tag = "FontHandelGothicXs";
-	} else if (romstart == REF_SEG _fonthandelgothicmdSegmentRomStart) {
-		tag = "FontHandelGothicMd";
-	} else {
-		/* Could be Lg, Numeric, Tahoma — use a generic tag.
-		 * These are less common; the tag still aids debugging. */
+	const char *face = NULL;
+	{
 		extern u8 EXT_SEG _fonthandelgothiclgSegmentRomStart;
 		extern u8 EXT_SEG _fontnumericSegmentRomStart;
 		extern u8 EXT_SEG _fonttahomaSegmentRomStart;
-		if (romstart == REF_SEG _fonthandelgothiclgSegmentRomStart) {
+
+		if (romstart == REF_SEG _fonthandelgothicsmSegmentRomStart) {
+			tag = "FontHandelGothicSm";
+			face = "handelgothicsm";
+		} else if (romstart == REF_SEG _fonthandelgothicxsSegmentRomStart) {
+			tag = "FontHandelGothicXs";
+			face = "handelgothicxs";
+		} else if (romstart == REF_SEG _fonthandelgothicmdSegmentRomStart) {
+			tag = "FontHandelGothicMd";
+			face = "handelgothicmd";
+		} else if (romstart == REF_SEG _fonthandelgothiclgSegmentRomStart) {
 			tag = "FontHandelGothicLg";
+			face = "handelgothiclg";
 		} else if (romstart == REF_SEG _fontnumericSegmentRomStart) {
 			tag = "FontNumeric";
+			face = "numeric";
 		} else if (romstart == REF_SEG _fonttahomaSegmentRomStart) {
 			tag = "FontTahoma";
+			face = "tahoma";
 		}
 	}
 
+	/*
+	 * c3849 Wave 3: catalog-first font bytes. When the face is known,
+	 * compile the public .pdfont source (glyphs.pgm + font.metrics.json)
+	 * into a segment-shaped payload and use it in place of the dmaExec
+	 * byte copy. ALL downstream fixups (pixeldata base patch, JPN
+	 * baseline, monospace clamp, cache registration, integrity checksum,
+	 * PAL pipe baseline) run unchanged on either byte source.
+	 */
+	u8 *catalogpayload = NULL;
+	u32 cataloglen = 0;
+	if (face != NULL) {
+		if (fontCatalogBuildFace(face, &catalogpayload, &cataloglen)
+				&& catalogpayload != NULL && cataloglen > 0) {
+			sysLogPrintf(LOG_NOTE, "FONT: face %s source=catalog (%u bytes, segment %u bytes)",
+				face, cataloglen, len);
+		} else {
+			catalogpayload = NULL;
+			cataloglen = 0;
+			sysLogPrintf(LOG_WARNING, "FONT: face %s public source unavailable -> ROM segment", face);
+			assetFallbackRecord(ASSET_FONT, 0, "font source -> ROM segment");
+		}
+	}
+
+	/* The compiled payload length may differ slightly from the segment
+	 * length; allocate the max so either byte source fits. The chars
+	 * fixup loop below derives from NUMCHARS(), not len. */
+	u32 alloclen = len;
+	if (catalogpayload != NULL && cataloglen > alloclen) {
+		alloclen = cataloglen;
+	}
+
 	bool persistent = false;
-	font = mempPCAlloc(len, tag);
+	font = mempPCAlloc(alloclen, tag);
 	if (font) {
 		persistent = true;
 	} else {
@@ -314,12 +356,23 @@ void textLoadFont(u8 *romstart, u8 *romend, struct font **fontptr, struct fontch
 		 * This should never happen with adequate heap size, but defensive
 		 * coding means the game still runs (without cross-stage persistence). */
 		sysLogPrintf(LOG_WARNING, "MEMPC: persistent alloc failed for '%s' (%u bytes), "
-			"falling back to MEMPOOL_STAGE", tag, len);
-		font = mempAlloc(len, MEMPOOL_STAGE);
+			"falling back to MEMPOOL_STAGE", tag, alloclen);
+		font = mempAlloc(alloclen, MEMPOOL_STAGE);
 	}
 	chars = font->chars;
 
-	dmaExec(font, (romptr_t) romstart, len);
+	if (catalogpayload != NULL) {
+		bcopy(catalogpayload, font, cataloglen);
+		if (cataloglen < alloclen) {
+			/* Keep the integrity checksum below deterministic when the
+			 * compiled payload is shorter than the segment. */
+			memset((u8 *)font + cataloglen, 0, alloclen - cataloglen);
+		}
+		free(catalogpayload);
+		catalogpayload = NULL;
+	} else {
+		dmaExec(font, (romptr_t) romstart, len);
+	}
 
 	// Convert pointers
 	for (i = 0; i < NUMCHARS(); i++) {

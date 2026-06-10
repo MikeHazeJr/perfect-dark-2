@@ -1,12 +1,19 @@
 /**
  * romextract_pdfont.c -- Catalog universality pivot Step 3b
- * (2026-05-03).
+ * (2026-05-03), repaired for consumption under c3849 Wave 3
+ * (2026-06-10).
  *
- * Per-asset font emitter. Walks the font ROM segments
- * (bankgothic / zurich / tahoma / numeric / handelgothic{xs,sm,md,lg}
- * / ocra{md,lg} for NTSC; fontjpn / fontjpnsingle for JPN) and
+ * Per-asset font emitter. Walks the six struct-font ROM segments
+ * (fonttahoma / fontnumeric / fonthandelgothic{xs,sm,md,lg}) and
  * emits one .pdfont ZIP compound per face at
  * data/<romid>/fonts/<id>.pdfont.
+ *
+ * The JPN glyph banks (fontjpn / fontjpnsingle / fontjpnmulti) are
+ * raw codepoint-indexed pixel arrays with no kerning/char-table
+ * layout; they have no valid struct-font .pdfont shape and are
+ * deliberately NOT in the face table (lang.c keeps them on the
+ * segment path). bankgothic / zurich / ocramd / ocralg have no ROM
+ * segments in the port at all (romdata.c ROMSEG_LIST).
  *
  * Per c3812 typed-archive repair:
  *   _meta/manifest.json  envelope + face metadata + provenance
@@ -19,14 +26,24 @@
  * Catalog ID convention (feedback_human_readable_ids):
  *   base:font_<facename>   e.g. base:font_handelgothicsm
  *
- * The ROM segment stores a 13x13 kerning table, per-glyph metrics,
- * and CI4 glyph pixels. Base extraction now exposes those as editable
- * JSON plus a standard PGM bitmap atlas instead of a raw data.bin.
+ * IMPORTANT (c3849 Wave 3): segs/font*.bin on disk is the
+ * POST-preprocess PC-native segment image (romdataInitSegment runs
+ * preprocessFont before romExtractAllSegments dumps seg->data), per
+ * port/src/preprocess/segfonts.c:
+ *   - little-endian s32 kerning[13*13] at offset 0
+ *   - struct fontchar[num_chars] at PD_ALIGN(676, sizeof(uintptr_t))
+ *     = offsetof(struct font, chars) = 680 (16-byte records on x86_64)
+ *   - fontchar.pixeldata holds a buffer-relative offset to CI4 glyph
+ *     pixels with a fixed 8-byte row stride
+ * The exports are losslessly recompiled at runtime by
+ * port/src/fontcatalog.c (textLoadFont consumes them catalog-first).
  *
  * Server build (PD_SERVER): returns 0 immediately; font segments
  * are not loaded server-side and the disk paths are not produced.
  */
 
+#include <stddef.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -47,32 +64,40 @@
 #include "system.h"
 
 #define PDFONT_OUT_DIR "fonts"
-#define PDFONT_FAST_CACHE_KIND "pdfont_metrics_json_v1"
+/* v2 (c3849 Wave 3): v1 misparsed the PC-native segment as raw N64
+ * big-endian bytes AND resolved segments by face name (always missed),
+ * so every v1 archive on disk is absent or garbage. The kind bump plus
+ * the manifest pd_schema_version=2 early-skip gate below force stale
+ * installs to regenerate. */
+#define PDFONT_FAST_CACHE_KIND "pdfont_metrics_json_v2"
+#define PDFONT_SCHEMA_VERSION 2
 
 #define PDFONT_KERNING_DIM 13
-#define PDFONT_RAW_CHAR_SIZE 12
 #define PDFONT_GLYPH_ROW_BYTES 8
 #define PDFONT_ATLAS_COLUMNS 16
 
-/* Canonical face list. Driven by ld/pd.ld FONT(name) macros for the
- * NTSC / PAL / JPN segments. The .pdfont emitter walks this table;
- * faces whose segment is not present in the current build (e.g. JPN
- * faces in NTSC) are skipped silently (segment lookup returns 0). */
-static const char *const k_FontFaces[] = {
-	"bankgothic",
-	"zurich",
-	"tahoma",
-	"numeric",
-	"handelgothicxs",
-	"handelgothicsm",
-	"handelgothicmd",
-	"handelgothiclg",
-	"ocramd",
-	"ocralg",
-	/* JPN-only faces; harmless on NTSC/PAL where the segment lookup
-	 * misses and the entry is skipped. */
-	"fontjpn",
-	"fontjpnsingle",
+/* The parse below reads the build's own struct fontchar straight out of
+ * the post-preprocess segment image; pin the 16-byte record contract. */
+_Static_assert(sizeof(struct fontchar) == 16,
+	"PC-native font segment parse expects 16-byte fontchar records");
+
+/* Canonical {face, segname} table (c3849 Wave 3). Pass B dumps segments
+ * under their ROMSEG_LIST names (segs/fonthandelgothicsm.bin), NOT face
+ * names, so each face carries its segment name explicitly. Faces whose
+ * segment is not present in the current build are skipped silently
+ * (segment lookup returns 0). bankgothic/zurich/ocramd/ocralg have no
+ * segments; fontjpn/fontjpnsingle/fontjpnmulti are raw glyph banks with
+ * the wrong shape -- all deliberately absent. */
+static const struct {
+	const char *face;
+	const char *segname;
+} k_FontFaces[] = {
+	{ "tahoma",         "fonttahoma"         },
+	{ "numeric",        "fontnumeric"        },
+	{ "handelgothicxs", "fonthandelgothicxs" },
+	{ "handelgothicsm", "fonthandelgothicsm" },
+	{ "handelgothicmd", "fonthandelgothicmd" },
+	{ "handelgothiclg", "fonthandelgothiclg" },
 };
 
 #define K_FONT_FACE_COUNT (sizeof(k_FontFaces) / sizeof(k_FontFaces[0]))
@@ -89,9 +114,43 @@ static s32 s_existingArchiveHasEntry(const char *relpath, const char *entry)
 	return has_entry;
 }
 
-static u32 s_readBe32(const u8 *p)
+/* Schema gate for the early-skip (pdlang precedent): an existing archive
+ * only counts as current when its manifest carries the v2 schema marker,
+ * so pre-repair installs regenerate instead of fossilizing garbage. */
+static s32 s_existingArchiveEntryContains(const char *relpath, const char *entry,
+	const char *needle)
 {
-	return ((u32)p[0] << 24) | ((u32)p[1] << 16) | ((u32)p[2] << 8) | (u32)p[3];
+	if (!needle || !needle[0]) return 1;
+
+	char full_buf[FS_MAXPATH + 1];
+	const char *full = fsFullPath(relpath, full_buf, sizeof(full_buf));
+	if (!full || !full[0]) return 0;
+
+	mod_archive_t *arc = modArchiveOpen(full);
+	if (!arc) return 0;
+
+	s32 idx = modArchiveFindEntry(arc, entry);
+	if (idx < 0) {
+		modArchiveClose(arc);
+		return 0;
+	}
+
+	u32 size = 0;
+	void *bytes = modArchiveExtractAlloc(arc, idx, &size);
+	s32 found = 0;
+	if (bytes) {
+		const char *hay = (const char *)bytes;
+		size_t nlen = strlen(needle);
+		for (u32 i = 0; i + nlen <= size; i++) {
+			if (memcmp(hay + i, needle, nlen) == 0) {
+				found = 1;
+				break;
+			}
+		}
+		free(bytes);
+	}
+	modArchiveClose(arc);
+	return found;
 }
 
 static s32 s_fontNumChars(const char *face)
@@ -108,15 +167,18 @@ static s32 s_fontNumChars(const char *face)
 	return 94;
 }
 
-static void s_fontCharDisplay(u8 index, char *out, size_t out_n)
+static void s_fontCharDisplay(u32 index, char *out, size_t out_n)
 {
 	if (!out || out_n == 0) return;
 	if (index == '\\') {
 		snprintf(out, out_n, "\\\\");
 	} else if (index >= 0x21 && index <= 0x7e) {
 		snprintf(out, out_n, "%c", (char)index);
-	} else {
+	} else if (index <= 0xff) {
 		snprintf(out, out_n, "\\x%02x", (unsigned)index);
+	} else {
+		/* JPN builds carry u16 glyph indices. */
+		snprintf(out, out_n, "\\x%04x", (unsigned)index);
 	}
 }
 
@@ -177,18 +239,29 @@ static s32 s_buildFontExports(const char *face, const u8 *src, u32 src_size,
 	*out_char_count = 0;
 
 	s32 num_chars = s_fontNumChars(face);
-	u32 char_offset = ((PDFONT_KERNING_DIM * PDFONT_KERNING_DIM * 4u) + 3u) & ~3u;
-	u32 char_table_bytes = (u32)num_chars * PDFONT_RAW_CHAR_SIZE;
+
+	/* POST-preprocess PC-native segment layout (segfonts.c): the .bin on
+	 * disk was dumped AFTER preprocessFont ran, so it is little-endian
+	 * native data, not raw N64 big-endian. Kerning s32[169] at offset 0;
+	 * struct fontchar records at PD_ALIGN(676, sizeof(uintptr_t)) =
+	 * offsetof(struct font, chars) = 680; fontchar.pixeldata holds a
+	 * buffer-relative offset to CI4 pixels (8-byte row stride). */
+	u32 char_offset = (u32)offsetof(struct font, chars);
+	u32 char_table_bytes = (u32)num_chars * (u32)sizeof(struct fontchar);
 	if (src_size < char_offset + char_table_bytes) {
 		return -1;
 	}
 
+	const s32 *src_kerning = (const s32 *)(const void *)src;
+	const struct fontchar *src_chars =
+		(const struct fontchar *)(const void *)(src + char_offset);
+
 	u8 max_width = 1;
 	u8 max_height = 1;
 	for (s32 i = 0; i < num_chars; i++) {
-		const u8 *ch = src + char_offset + (u32)i * PDFONT_RAW_CHAR_SIZE;
-		if (ch[3] > max_width) max_width = ch[3];
-		if (ch[2] > max_height) max_height = ch[2];
+		const struct fontchar *ch = &src_chars[i];
+		if (ch->width > max_width) max_width = ch->width;
+		if (ch->height > max_height) max_height = ch->height;
 	}
 
 	u32 cell_w = (u32)max_width + 2u;
@@ -223,7 +296,7 @@ static s32 s_buildFontExports(const char *face, const u8 *src, u32 src_size,
 		metrics_cap - metrics_len,
 		"{\n"
 		"  \"pd_kind\": \"font_metrics\",\n"
-		"  \"pd_schema_version\": 1,\n"
+		"  \"pd_schema_version\": %d,\n"
 		"  \"glyphs_file\": \"glyphs.pgm\",\n"
 		"  \"atlas\": {\n"
 		"    \"format\": \"pgm_p5_grayscale\",\n"
@@ -234,6 +307,7 @@ static s32 s_buildFontExports(const char *face, const u8 *src, u32 src_size,
 		"    \"height\": %u\n"
 		"  },\n"
 		"  \"glyphs\": [\n",
+		PDFONT_SCHEMA_VERSION,
 		(unsigned)PDFONT_ATLAS_COLUMNS,
 		(unsigned)cell_w,
 		(unsigned)cell_h,
@@ -248,13 +322,14 @@ static s32 s_buildFontExports(const char *face, const u8 *src, u32 src_size,
 	metrics_len += (u32)metrics_header_len;
 
 	for (s32 i = 0; i < num_chars; i++) {
-		const u8 *ch = src + char_offset + (u32)i * PDFONT_RAW_CHAR_SIZE;
-		u8 index = ch[0];
-		s8 baseline = (s8)ch[1];
-		u8 height = ch[2];
-		u8 width = ch[3];
-		u32 kerning_index = s_readBe32(ch + 4);
-		u32 pixel_offset = s_readBe32(ch + 8);
+		const struct fontchar *ch = &src_chars[i];
+		u32 index = (u32)ch->index;
+		s8 baseline = ch->baseline;
+		u8 height = ch->height;
+		u8 width = ch->width;
+		u32 kerning_index = (u32)ch->kerningindex;
+		/* Buffer-relative offset written by preprocessFont (0 = none). */
+		u32 pixel_offset = (u32)(uintptr_t)ch->pixeldata;
 		u32 atlas_x = ((u32)i % PDFONT_ATLAS_COLUMNS) * cell_w + 1u;
 		u32 atlas_y = ((u32)i / PDFONT_ATLAS_COLUMNS) * cell_h + 1u;
 
@@ -317,9 +392,8 @@ static s32 s_buildFontExports(const char *face, const u8 *src, u32 src_size,
 	metrics_len += (u32)wrote_header;
 	for (u32 prev = 0; prev < PDFONT_KERNING_DIM; prev++) {
 		for (u32 cur = 0; cur < PDFONT_KERNING_DIM; cur++) {
-			u32 pos = (prev * PDFONT_KERNING_DIM + cur) * 4u;
-			s32 adjust = (s32)s_readBe32(src + pos);
 			u32 index = prev * PDFONT_KERNING_DIM + cur;
+			s32 adjust = src_kerning[index];
 			int wrote = snprintf(metrics_json + metrics_len,
 				metrics_cap - metrics_len,
 				"    { \"previous\": %u, \"current\": %u, \"adjust\": %d }%s\n",
@@ -352,18 +426,20 @@ static s32 s_buildFontExports(const char *face, const u8 *src, u32 src_size,
 	return 0;
 }
 
-/* Emit one .pdfont ZIP for a given face name. Returns 1 written, 0
- * skipped (face not in this build, or already on disk), -1 failed. */
-static s32 s_emitOneFont(const char *face, const char *out_dir,
-                          s32 force_rewrite)
+/* Emit one .pdfont ZIP for a given {face, segname} pair. Returns 1
+ * written, 0 skipped (segment not in this build, or already on disk),
+ * -1 failed. */
+static s32 s_emitOneFont(const char *face, const char *segname,
+                          const char *out_dir, s32 force_rewrite)
 {
-	if (!face || !face[0]) return 0;
+	if (!face || !face[0] || !segname || !segname[0]) return 0;
 
-	/* Resolve the on-disk RAW segment path (Pass A wrote this). If
-	 * the segment is not present in this build's romid, skip the
-	 * face silently. */
+	/* Resolve the on-disk POST-preprocess segment path (Pass B wrote
+	 * this under the ROMSEG_LIST segment name, e.g.
+	 * segs/fonthandelgothicsm.bin). If the segment is not present in
+	 * this build's romid, skip the face silently. */
 	char src_rel[FS_MAXPATH];
-	if (romExtractSegmentRelPath(face, src_rel, sizeof(src_rel)) <= 0) {
+	if (romExtractSegmentRelPath(segname, src_rel, sizeof(src_rel)) <= 0) {
 		return 0;
 	}
 	if (fsFileSize(src_rel) <= 0) {
@@ -391,7 +467,9 @@ static s32 s_emitOneFont(const char *face, const char *out_dir,
 	    s_existingArchiveHasEntry(dst_rel, "font.ini") &&
 	    s_existingArchiveHasEntry(dst_rel, "_meta/manifest.json") &&
 	    s_existingArchiveHasEntry(dst_rel, "glyphs.pgm") &&
-	    s_existingArchiveHasEntry(dst_rel, "font.metrics.json")) return 0;
+	    s_existingArchiveHasEntry(dst_rel, "font.metrics.json") &&
+	    s_existingArchiveEntryContains(dst_rel, "_meta/manifest.json",
+		    "\"pd_schema_version\": 2")) return 0;
 
 	/* Manifest. Carries segment name as provenance so the loader can
 	 * round-trip the catalog ID on the universality switch. */
@@ -425,7 +503,7 @@ static s32 s_emitOneFont(const char *face, const char *out_dir,
 	int manifest_len = snprintf(manifest_buf, sizeof(manifest_buf),
 		"{\n"
 		"  \"pd_kind\": \"font\",\n"
-		"  \"pd_schema_version\": 1,\n"
+		"  \"pd_schema_version\": %d,\n"
 		"  \"id\": \"%s\",\n"
 		"  \"face\": \"%s\",\n"
 		"  \"format\": \"bitmap_ci4_atlas\",\n"
@@ -435,7 +513,8 @@ static s32 s_emitOneFont(const char *face, const char *out_dir,
 		"  \"character_count\": %d,\n"
 		"  \"source_segment\": \"%s\"\n"
 		"}\n",
-		catalog_id, face, (unsigned)src_size, char_count, face);
+		PDFONT_SCHEMA_VERSION, catalog_id, face, (unsigned)src_size,
+		char_count, segname);
 	if (manifest_len <= 0 || (size_t)manifest_len >= sizeof(manifest_buf)) {
 		free(metrics_json);
 		free(glyphs_pgm);
@@ -450,13 +529,15 @@ static s32 s_emitOneFont(const char *face, const char *out_dir,
 		"[font]\n"
 		"catalog_id = %s\n"
 		"face = %s\n"
+		"pd_schema_version = %d\n"
 		"font_format = bitmap_ci4_atlas\n"
 		"font_file = glyphs.pgm\n"
 		"metrics_file = font.metrics.json\n"
 		"source_data_size = %u\n"
 		"character_count = %d\n"
 		"source_segment = %s\n",
-		catalog_id, face, (unsigned)src_size, char_count, face);
+		catalog_id, face, PDFONT_SCHEMA_VERSION, (unsigned)src_size,
+		char_count, segname);
 	if (ini_len <= 0 || (size_t)ini_len >= sizeof(ini_buf)) {
 		free(metrics_json);
 		free(glyphs_pgm);
@@ -496,7 +577,7 @@ static s32 s_emitOneFont(const char *face, const char *out_dir,
 		goto fail;
 	}
 	assetArchiveWriterSetProvenance(&asset_writer, "romextract_pdfont",
-		src_rel, -1, face);
+		src_rel, -1, segname);
 
 	if (assetArchiveWriterAddDescriptor(&asset_writer, "font.ini",
 			ini_buf, (u32)ini_len) != MODARCHIVE_OK) {
@@ -559,6 +640,36 @@ fail:
 }
 
 #if !defined(PD_SERVER)
+/* c3849 Wave 3: pre-v2 builds misparsed the raw fontjpnsingle glyph bank
+ * into a garbage .pdfont (the only face/segment name that matched). The
+ * JPN glyph banks have no valid struct-font shape, so any stale archive
+ * is removed instead of regenerated -- otherwise the walker keeps
+ * registering a junk ASSET_FONT row. */
+static void s_removeStaleJpnArchives(const char *out_dir)
+{
+	static const char *const k_Stale[] = {
+		"base_font_fontjpn",
+		"base_font_fontjpnsingle",
+		"base_font_fontjpnmulti",
+	};
+	for (size_t i = 0; i < sizeof(k_Stale) / sizeof(k_Stale[0]); i++) {
+		char rel[FS_MAXPATH];
+		snprintf(rel, sizeof(rel), "%s/%s.pdfont", out_dir, k_Stale[i]);
+		if (fsFileSize(rel) <= 0) continue;
+		char full_buf[FS_MAXPATH + 1];
+		const char *full = fsFullPath(rel, full_buf, sizeof(full_buf));
+		if (full && full[0] && remove(full) == 0) {
+			sysLogPrintf(LOG_NOTE,
+				"romextract pdfont: removed stale pre-v2 archive \"%s\"",
+				rel);
+		} else {
+			sysLogPrintf(LOG_WARNING,
+				"romextract pdfont: could not remove stale archive \"%s\"",
+				rel);
+		}
+	}
+}
+
 /* Engine Phase 4: per-font fan-out. */
 typedef struct {
 	const char  *fonts_dir;
@@ -575,7 +686,8 @@ static void s_pdfontWork(int i, void *user)
 	pdfont_fanout_ctx_t *c = (pdfont_fanout_ctx_t *)user;
 	if (i < 0 || i >= c->count) return;
 
-	s32 r = s_emitOneFont(k_FontFaces[i], c->fonts_dir, c->force_rewrite);
+	s32 r = s_emitOneFont(k_FontFaces[i].face, k_FontFaces[i].segname,
+		c->fonts_dir, c->force_rewrite);
 	if (r > 0)       SDL_AtomicAdd(&c->written, 1);
 	else if (r == 0) SDL_AtomicAdd(&c->skipped, 1);
 	else             SDL_AtomicAdd(&c->failed,  1);
@@ -605,6 +717,10 @@ s32 romExtractAllPdfont(s32 force_rewrite)
 			"fsCreateDir(\"%s\") failed", fonts_dir);
 		return -1;
 	}
+
+	/* Before the fast-cache fingerprint: drop garbage v1 JPN archives so
+	 * they neither register nor pollute the v2 stamp. */
+	s_removeStaleJpnArchives(fonts_dir);
 
 	if (romExtractPdFastCacheCanSkip(PDFONT_FAST_CACHE_KIND, fonts_dir,
 			".pdfont", force_rewrite)) {

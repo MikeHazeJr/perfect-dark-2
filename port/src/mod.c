@@ -12,6 +12,7 @@
 #include "assetcatalog.h"
 #include "assetcatalog_load.h"
 #include "asset_fallback_telemetry.h" /* c3849 Wave 1 */
+#include "lib/anim.h"   /* c3849 Wave 2: animGetTotalCount */
 #include "asset_source_debug.h"
 #include "modmusic.h"
 #include "modasset_compiler.h"
