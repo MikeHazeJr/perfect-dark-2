@@ -55,6 +55,18 @@ typedef struct weapon_graph_archive_inventory {
 	s32 count;
 } weapon_graph_archive_inventory_t;
 
+/* B-911 (c3848): embedded .pdmesh dependencies of a nested projectile/entity
+ * payload, discovered from the payload's in-memory archive bytes. The mesh's
+ * catalog_id is read verbatim from its mesh.ini [mesh] section (never derived)
+ * and must share the parent weapon's namespace. */
+#define WEAPON_GRAPH_EMBEDDED_MESH_MAX 8
+
+typedef struct weapon_graph_embedded_mesh {
+	char archive_entry[FS_MAXPATH];   /* member path of the .pdmesh inside the container */
+	char catalog_id[CATALOG_ID_LEN];  /* declared in mesh.ini ([mesh] catalog_id) */
+	char geometry[128];               /* mesh.ini model_file ("model.obj" when absent) */
+} weapon_graph_embedded_mesh_t;
+
 const char *weaponGraphArchiveDescriptorForType(asset_type_e type);
 const char *weaponGraphArchiveExtensionForType(asset_type_e type);
 const char *weaponGraphArchiveTypeName(asset_type_e type);
@@ -89,6 +101,18 @@ s32 weaponGraphArchiveScanNestedPayloadsFile(const char *archive_path,
                                              const char *parent_id,
                                              weapon_graph_archive_inventory_t *out,
                                              char *err, size_t err_cap);
+
+/* B-911 (c3848): discover embedded .pdmesh members inside an in-memory nested
+ * payload archive (a .pdprojectile/.pdentity already extracted to bytes).
+ * Applies the parent-namespace gate and dedups by catalog_id; meshes with no
+ * declared catalog_id, a foreign namespace, or no readable mesh.ini are
+ * loud-skipped, never derived. Returns the number of meshes written to `out`
+ * (0 for non-archive bytes or no embedded meshes; never negative). */
+s32 weaponGraphArchiveScanEmbeddedMeshesBytes(const void *container_bytes,
+                                              u32 container_size,
+                                              const char *parent_id,
+                                              weapon_graph_embedded_mesh_t *out,
+                                              s32 max_out);
 s32 weaponGraphArchiveFormatNestedPayloadsJson(const char *asset_id,
                                                const weapon_graph_archive_inventory_t *inventory,
                                                char *out, size_t out_cap);

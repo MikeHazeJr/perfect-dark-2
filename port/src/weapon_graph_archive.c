@@ -9,6 +9,7 @@
 #include <string.h>
 
 #include "modarchive.h"
+#include "system.h"  /* B-911: loud-skip logging in the embedded-mesh scan */
 #include "weapon_graph_archive.h"
 
 typedef struct name_list {
@@ -745,6 +746,200 @@ s32 weaponGraphArchiveScanNestedPayloadsFile(const char *archive_path,
 
 	modArchiveClose(arc);
 	return out->count;
+}
+
+/* ---------------------------------------------------------------------------
+ * B-911 (c3848): embedded .pdmesh discovery inside nested payload bytes.
+ * A .pdprojectile/.pdentity may embed its visual mesh under
+ * dependencies/assets/models/<name>.pdmesh; the projectile graph references it
+ * by a catalog-ID model_ref. This scan finds those members, reads each mesh's
+ * declared catalog_id + geometry member from its mesh.ini, and applies the
+ * same parent-namespace gate the nested-payload scan uses. IDs are never
+ * derived for meshes (no derived-id support in weaponGraphArchiveDerivedNestedId
+ * for ASSET_MODEL, by design): a mesh with no declared id is loud-skipped.
+ * ------------------------------------------------------------------------- */
+
+typedef struct {
+	char names[WEAPON_GRAPH_EMBEDDED_MESH_MAX][FS_MAXPATH];
+	s32 count;
+	s32 overflow;
+} embedded_mesh_name_scan_t;
+
+static s32 s_collectEmbeddedMeshNames(const char *entryName,
+		u32 uncompressedSize, void *user)
+{
+	embedded_mesh_name_scan_t *scan = (embedded_mesh_name_scan_t *)user;
+	(void)uncompressedSize;
+	if (!entryName || !endsWithNoCase(entryName, ".pdmesh")) {
+		return 0;
+	}
+	if (scan->count >= WEAPON_GRAPH_EMBEDDED_MESH_MAX) {
+		scan->overflow = 1;
+		return 0;
+	}
+	copyStr(scan->names[scan->count], sizeof(scan->names[0]), entryName);
+	scan->count++;
+	return 0;
+}
+
+/* Read catalog_id + model_file out of a mesh.ini's [mesh] section. Mirrors the
+ * readDescriptorFromText line-scan idiom; only keys inside [mesh] count.
+ * Returns 0 on parse success (id may still be empty), -1 on malformed input. */
+static s32 readMeshIniIdAndGeometry(const char *text, u32 size,
+		char *id_out, size_t id_cap, char *geom_out, size_t geom_cap)
+{
+	char *buf = (char *)malloc((size_t)size + 1);
+	if (!buf) {
+		return -1;
+	}
+	memcpy(buf, text, size);
+	buf[size] = '\0';
+
+	id_out[0] = '\0';
+	copyStr(geom_out, geom_cap, "model.obj");
+
+	s32 in_mesh_section = 0;
+	for (char *line = buf; line; ) {
+		char *next = strchr(line, '\n');
+		if (next) {
+			*next = '\0';
+			next++;
+		}
+		char *p = trimLocal(line);
+		if (*p == '\0' || *p == ';' || *p == '#') {
+			line = next;
+			continue;
+		}
+		if (*p == '[') {
+			char *end = strchr(p, ']');
+			if (!end) {
+				free(buf);
+				return -1;
+			}
+			*end = '\0';
+			in_mesh_section = strcmp(trimLocal(p + 1), "mesh") == 0;
+			line = next;
+			continue;
+		}
+		if (!in_mesh_section) {
+			line = next;
+			continue;
+		}
+		char *eq = strchr(p, '=');
+		if (!eq) {
+			line = next;
+			continue;
+		}
+		*eq = '\0';
+		char *key = trimLocal(p);
+		char *value = trimLocal(eq + 1);
+		if (strcmp(key, "catalog_id") == 0) {
+			copyStr(id_out, id_cap, value);
+		} else if (strcmp(key, "id") == 0 && id_out[0] == '\0') {
+			copyStr(id_out, id_cap, value);
+		} else if (strcmp(key, "model_file") == 0 && value[0]) {
+			copyStr(geom_out, geom_cap, value);
+		}
+		line = next;
+	}
+
+	free(buf);
+	return 0;
+}
+
+s32 weaponGraphArchiveScanEmbeddedMeshesBytes(const void *container_bytes,
+                                              u32 container_size,
+                                              const char *parent_id,
+                                              weapon_graph_embedded_mesh_t *out,
+                                              s32 max_out)
+{
+	if (!container_bytes || container_size == 0 || !parent_id ||
+			!parent_id[0] || !out || max_out <= 0) {
+		return 0;
+	}
+
+	embedded_mesh_name_scan_t scan;
+	memset(&scan, 0, sizeof(scan));
+	if (modArchiveMemForEachEntry(container_bytes, container_size,
+			s_collectEmbeddedMeshNames, &scan) != MODARCHIVE_OK) {
+		/* Not an archive (or unreadable): nothing to ingest. */
+		return 0;
+	}
+	if (scan.overflow) {
+		sysLogPrintf(LOG_WARNING,
+			"WEAPONGRAPH.MESH.SCAN: more than %d embedded .pdmesh members; extras ignored",
+			WEAPON_GRAPH_EMBEDDED_MESH_MAX);
+	}
+
+	s32 found = 0;
+	for (s32 i = 0; i < scan.count && found < max_out; i++) {
+		u32 mesh_size = 0;
+		void *mesh_bytes = modArchiveExtractMemAlloc(container_bytes,
+			container_size, scan.names[i], &mesh_size);
+		if (!mesh_bytes || mesh_size == 0) {
+			free(mesh_bytes);
+			sysLogPrintf(LOG_WARNING,
+				"WEAPONGRAPH.MESH.SCAN: could not read embedded mesh %s",
+				scan.names[i]);
+			continue;
+		}
+
+		u32 ini_size = 0;
+		void *ini_bytes = modArchiveExtractMemAlloc(mesh_bytes, mesh_size,
+			"mesh.ini", &ini_size);
+		if (!ini_bytes || ini_size == 0) {
+			free(ini_bytes);
+			free(mesh_bytes);
+			sysLogPrintf(LOG_WARNING,
+				"WEAPONGRAPH.MESH.SCAN: embedded mesh %s has no readable mesh.ini; skipped",
+				scan.names[i]);
+			continue;
+		}
+
+		char catalog_id[CATALOG_ID_LEN];
+		char geometry[128];
+		s32 parsed = readMeshIniIdAndGeometry((const char *)ini_bytes, ini_size,
+			catalog_id, sizeof(catalog_id), geometry, sizeof(geometry));
+		free(ini_bytes);
+		free(mesh_bytes);
+		if (parsed != 0) {
+			sysLogPrintf(LOG_WARNING,
+				"WEAPONGRAPH.MESH.SCAN: embedded mesh %s has a malformed mesh.ini; skipped",
+				scan.names[i]);
+			continue;
+		}
+		if (!catalog_id[0]) {
+			sysLogPrintf(LOG_WARNING,
+				"WEAPONGRAPH.MESH.SCAN: embedded mesh %s declares no catalog_id; skipped",
+				scan.names[i]);
+			continue;
+		}
+		if (!sameNamespace(parent_id, catalog_id)) {
+			sysLogPrintf(LOG_WARNING,
+				"WEAPONGRAPH.MESH.SCAN: embedded mesh %s id %s is outside parent namespace %s; skipped",
+				scan.names[i], catalog_id, parent_id);
+			continue;
+		}
+
+		s32 duplicate = 0;
+		for (s32 j = 0; j < found; j++) {
+			if (strcmp(out[j].catalog_id, catalog_id) == 0) {
+				duplicate = 1;
+				break;
+			}
+		}
+		if (duplicate) {
+			continue;
+		}
+
+		weapon_graph_embedded_mesh_t *m = &out[found++];
+		memset(m, 0, sizeof(*m));
+		copyStr(m->archive_entry, sizeof(m->archive_entry), scan.names[i]);
+		copyStr(m->catalog_id, sizeof(m->catalog_id), catalog_id);
+		copyStr(m->geometry, sizeof(m->geometry), geometry);
+	}
+
+	return found;
 }
 
 static s32 appendFmt(char **cursor, size_t *left, const char *fmt, ...)

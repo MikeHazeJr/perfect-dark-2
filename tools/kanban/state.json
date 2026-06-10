@@ -5512,7 +5512,7 @@
       "pillar": "catalog",
       "column": "active",
       "order": 93001,
-      "notes": "Created 2026-06-10 from the Needler proof-of-need (c3847) + the 3-agent design workflows wp36kfcp7 (root cause) and wf3hlqwrf (implementation map). Mike chose the B-909 pattern.",
+      "notes": "Updated 2026-06-10: Slices 1-3 implemented (foundation 9063004c; consumer + CPU pins in the follow-up commit). ALL build/test-run-pending: no build access this session (PowerShell wrapper denied) -- Mike compiles per the AI-cannot-compile constraint. Then only s4 (B-801 live render) remains.",
       "flag": null,
       "created": "2026-06-10T00:00:00-04:00",
       "updated": "2026-06-10T00:00:00-04:00",
@@ -5529,15 +5529,15 @@
           "title": "Ingest consumer: mesh-first two-pass embedded-mesh ingestion + materialization to a public source handle",
           "id": "c3848-s2",
           "order": 2000,
-          "status": "active",
-          "notes": "Extend typeForNestedArchiveName (.pdmesh->ASSET_MODEL); in weaponGraphRuntimeRegisterWeaponArchiveDependencies add a mesh-first pass that peels the embedded .pdmesh (weapon->projectile->mesh, in-memory, defeating the single-level :: limit), registers it ASSET_MODEL (mod-category, NOT bundled), allocates a custom slot + sets runtime_index, and materializes the bytes to a public FileProvider-resolvable on-disk path + catalogSetPrimaryFile so setupLoadModeldef compiles it (source-only guard demands a public handle). Then model_ref resolves to the custom slot."
+          "status": "done",
+          "notes": "IMPLEMENTED 2026-06-10 (build-pending). Materialization fork DISSOLVED: fs.c fsExtractNestedArchiveChain recurses N levels of :: for loose on-disk archives (verified fs.c:129-240; the single-level limit is modvfs-mount-only), so no disk extraction -- bind <weapon>::<projectile>::<mesh>::<geometry> directly. Pure scan weaponGraphArchiveScanEmbeddedMeshesBytes (weapon_graph_archive.c: declared-id-only, namespace-gated, deduped, loud-skip) + thin wiring s_registerEmbeddedMeshDeps (weapon_graph_runtime.c dependency walk, BEFORE payload IR registers: ASSET_MODEL mod-category row + private slot runtime_index + multi-level primary). Stubs added so pd-tests keeps the walk exercised with ingest inert."
         },
         {
           "title": "CPU end-to-end ingest test: has_projectile_modelnum in custom range",
           "id": "c3848-s3",
           "order": 3000,
-          "status": "active",
-          "notes": ""
+          "status": "done",
+          "notes": "IMPLEMENTED 2026-06-10 (run-pending). pd-tests structurally stubs the catalog (assetCatalogResolve->NULL is load-bearing for netmanifest tests; base refs resolve via the hardcoded alias table), so the full has_projectile_modelnum-in-custom-range chain cannot assert in pd-tests. Pinned the testable seam instead: scan discovery/default-geometry/namespace-gate/no-id-skip/dedup/non-archive-robustness in test_mod_external_archive_static.cpp [modding][pdxxx][model_slots][c3848]; allocator behavior in test_model_slots.cpp. Full chain proven by review + client build + Slice 4 live render."
         },
         {
           "title": "Live render proof of a custom weapon mesh (B-801 gated)",

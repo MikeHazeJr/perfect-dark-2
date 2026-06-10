@@ -42,43 +42,61 @@ only as a catalog-ID-derived session ref).
 The foundation alone is additive headroom + a dead-but-tested allocator (no caller
 yet -> zero behavior change for base content).
 
-## Slice 2 - Ingest consumer (IN PROGRESS, APIs being mapped by workflow w6cid0dyo)
+## Slice 2 - Ingest consumer (IMPLEMENTED 2026-06-10, build-pending)
 
 The needle mesh is DOUBLY nested:
 `needler.pdweapon -> .../primary.pdprojectile -> .../needle.pdmesh -> model.gltf`,
-and `model_ref` resolves at projectile-register time (`weapon_graph_runtime.c:2811`),
-so the mesh must be registered BEFORE that. Plan:
+and `model_ref` resolves at projectile-register time, so the mesh must be
+registered BEFORE that. As built (API map: workflow w6cid0dyo):
 
-1. `typeForNestedArchiveName`: add `.pdmesh -> ASSET_MODEL` (and `.pdmaterial`,
-   `.pdtexture` if the mesh needs them to render).
-2. In `weaponGraphRuntimeRegisterWeaponArchiveDependencies` (the dependency walk),
-   add a MESH-FIRST pass: for each `.pdprojectile` payload, peel its embedded
-   `.pdmesh` in memory (open the already-extracted projectile bytes as an archive,
-   extract the `.pdmesh` member), read its `catalog_id`, register it as a
-   MOD-category (NOT base/bundled) `ASSET_MODEL`, set
-   `runtime_index = assetCatalogResolveModelPrivateSlot(catalog_id)`, and give it a
-   renderable source handle. Do this BEFORE the existing projectile/entity register
-   loop, with the same `registered[]`/`fail:` rollback symmetry.
-3. Source handle / MATERIALIZATION (the one new design fork): the model loader
-   (`modeldefLoadExternalCatalogSource` -> `fsFileLoad`) + the source-only guard
-   (`setupModelHandlePassesSourceOnlyCheck` / `modeldefRefuseRomSource`) demand a
-   public FileProvider-resolvable path, and `modvfs` `::` is single-level so a
-   handle to the triply-nested `model.gltf` will not resolve. Leading approach:
-   extract the embedded `.pdmesh` bytes to a public writable tier on disk during
-   ingest, then `catalogSetPrimaryFile(e, "<path>::model.gltf")`. The workflow is
-   confirming the exact writable tier + fs-write API + whether an in-memory /
-   register-from-bytes provider path exists that avoids the disk write.
+1. **Materialization fork DISSOLVED -- no disk extraction needed.** The earlier
+   "modvfs `::` is single-level" concern applies only to archives resolved through
+   a modvfs MOUNT (zipped `.pdmod`s). A loose on-disk `.pdweapon` resolves through
+   `fs.c::fsLoadNestedArchiveEntry` -> `fsExtractNestedArchiveChain` (`fs.c:129-240`,
+   verified by direct read), which RECURSES on every `::` -- arbitrary-depth
+   nesting. The shipping `.pdbody` chain (`<body>.pdbody::mesh.pdmesh::model.obj`,
+   `loader_walker_body.c:163`) is the 2-level precedent; B-911 binds the same kind
+   of chain one level deeper:
+   `<weapon path>::<projectile entry>::<mesh entry>::<geometry>`.
+   The source-only guard passes (FileProvider handle; dev-mods/ path is not under
+   `data/.../files|segments` and not `.bin`), and `.gltf` routes through
+   `modAssetCompilerIsExternalSource` -> `modeldefLoadExternalCatalogSource` ->
+   `fsFileLoad(chain)`.
+2. **Pure scan (pd-tests-linkable)**: `weaponGraphArchiveScanEmbeddedMeshesBytes`
+   (`weapon_graph_archive.c`) enumerates an in-memory nested payload's `.pdmesh`
+   members (`modArchiveMemForEachEntry` + `modArchiveExtractMemAlloc` -- the proven
+   bytes->archive primitives), reads each mesh's declared `catalog_id` +
+   `model_file` from `mesh.ini` (`[mesh]`-gated local parser; ids NEVER derived),
+   applies the parent-namespace gate (loud-skip), dedups by id. Returns >= 0.
+3. **Catalog wiring (thin)**: `s_registerEmbeddedMeshDeps` in
+   `weapon_graph_runtime.c`, called in the dependency walk right after each
+   payload's bytes are extracted and BEFORE its IR is compiled/registered:
+   `assetCatalogRegister(id, ASSET_MODEL)` (fresh entries default to the mod
+   profile: bundled=0; category inherited from the parent weapon's row -- NOT
+   `loaderWalkerMarkBaseArchiveEntry`, which would mismark it base/bundled),
+   `e->runtime_index = assetCatalogResolveModelPrivateSlot(id)`, and
+   `catalogSetPrimaryFile(e, <multi-level chain>)`. All failures loud-skip
+   (`WEAPONGRAPH.MESH.INGEST:` channel); the weapon still registers minus its
+   custom model (pre-B-911 behavior). Success logs id + slot + source.
 
 After this, `catalogResolveModel("mod_needler:needle")` returns the custom slot,
 `has_projectile_modelnum = 1`, and `setupLoadModeldef(slot)` compiles + renders it.
 
-## Slice 3 - CPU end-to-end test
+## Slice 3 - CPU tests (IMPLEMENTED 2026-06-10, run-pending)
 
-Clone the walker block in `tests/test_mod_external_archive_static.cpp` (~4330-4389):
-a fixture `.pdweapon` whose projectile embeds a `.pdmesh` declaring a catalog_id;
-drive `weaponGraphRuntimeRegisterWeaponArchive`; assert the projectile runtime has
-`has_projectile_modelnum == 1` and `projectile_modelnum` in
-`[MODEL_CUSTOM_START, MODEL_CUSTOM_END)`.
+pd-tests STUBS the catalog (`tests/stubs.c` `assetCatalogResolve` -> NULL is
+load-bearing for netmanifest tests; base model refs in tests resolve via the
+hardcoded alias table in `heldResolveProjectileModelRef`, not the catalog). So a
+full-chain `has_projectile_modelnum`-in-custom-range assertion is structurally
+impossible in pd-tests. The testable seam is the pure scan:
+`tests/test_mod_external_archive_static.cpp` `[modding][pdxxx][model_slots][c3848]`
+pins discovery (entry/id/geometry), the `model.obj` geometry default, the
+namespace gate, the no-declared-id skip, dedup-by-id, and non-archive-bytes
+robustness. The allocator itself is pinned by `tests/test_model_slots.cpp`
+(`[catalog][model][slots][c3848]`, real allocator linked). New stubs:
+`assetCatalogRegister` -> NULL + `catalogSetPrimaryFile` no-op keep the ingest
+inert-but-exercised in the existing weapon-graph walk tests. The full resolve
+chain is proven by review + the client build + the live render (Slice 4).
 
 ## Slice 4 - Live render proof
 

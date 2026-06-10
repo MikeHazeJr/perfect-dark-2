@@ -6570,3 +6570,145 @@ TEST_CASE("base mesh extractor emits standard obj geometry payloads",
 	REQUIRE(mesh.find("OBJ export produced no triangles") ==
 	        std::string::npos);
 }
+
+TEST_CASE("B-911 embedded mesh scan discovers nested .pdmesh dependencies",
+          "[modding][pdxxx][model_slots][c3848]") {
+	/* A .pdprojectile embedding its visual mesh, the way the Needler's
+	 * primary/secondary projectiles embed needle.pdmesh. The scan must find
+	 * the mesh, read its declared catalog_id + geometry member from mesh.ini,
+	 * and apply the parent-namespace gate. */
+	TempArchive mesh = writeTypedArchiveEntries("b911-mesh", ".pdmesh", {
+		{"mesh.ini",
+		 "; embedded needle-style mesh\n"
+		 "[mesh]\n"
+		 "catalog_id = example:proj_mesh\n"
+		 "model_file = model.gltf\n"},
+		{"model.gltf", "{\"asset\":{\"version\":\"2.0\"}}\n"},
+		{"_meta/manifest.json", "{}\n"},
+	});
+	const std::string meshBytes = readFile(mesh.path.string().c_str());
+
+	TempArchive projectile = writeTypedArchiveEntries("b911-proj", ".pdprojectile", {
+		{"projectile.ini",
+		 "[projectile]\n"
+		 "catalog_id = example:proj\n"
+		 "behavior_graph = behavior.graph.json\n"},
+		{"behavior.graph.json", "{}\n"},
+		{"dependencies/assets/models/proj.pdmesh", meshBytes},
+	});
+	const std::string projBytes = readFile(projectile.path.string().c_str());
+
+	weapon_graph_embedded_mesh_t found[WEAPON_GRAPH_EMBEDDED_MESH_MAX];
+	s32 count = weaponGraphArchiveScanEmbeddedMeshesBytes(projBytes.data(),
+		static_cast<u32>(projBytes.size()), "example:weapon", found,
+		WEAPON_GRAPH_EMBEDDED_MESH_MAX);
+	REQUIRE(count == 1);
+	REQUIRE(std::string(found[0].archive_entry) ==
+		"dependencies/assets/models/proj.pdmesh");
+	REQUIRE(std::string(found[0].catalog_id) == "example:proj_mesh");
+	REQUIRE(std::string(found[0].geometry) == "model.gltf");
+}
+
+TEST_CASE("B-911 embedded mesh scan defaults geometry and gates namespace",
+          "[modding][pdxxx][model_slots][c3848]") {
+	/* model_file absent -> geometry defaults to model.obj (the loose-mesh
+	 * walker default). */
+	TempArchive defaulted = writeTypedArchiveEntries("b911-mesh-default", ".pdmesh", {
+		{"mesh.ini",
+		 "[mesh]\n"
+		 "catalog_id = example:defaulted_mesh\n"},
+		{"model.obj", "v 0 0 0\n"},
+	});
+	const std::string defaultedBytes = readFile(defaulted.path.string().c_str());
+
+	TempArchive container = writeTypedArchiveEntries("b911-proj-default", ".pdprojectile", {
+		{"projectile.ini", "[projectile]\ncatalog_id = example:proj\n"},
+		{"dependencies/assets/models/defaulted.pdmesh", defaultedBytes},
+	});
+	const std::string containerBytes = readFile(container.path.string().c_str());
+
+	weapon_graph_embedded_mesh_t found[WEAPON_GRAPH_EMBEDDED_MESH_MAX];
+	s32 count = weaponGraphArchiveScanEmbeddedMeshesBytes(containerBytes.data(),
+		static_cast<u32>(containerBytes.size()), "example:weapon", found,
+		WEAPON_GRAPH_EMBEDDED_MESH_MAX);
+	REQUIRE(count == 1);
+	REQUIRE(std::string(found[0].geometry) == "model.obj");
+
+	/* Foreign namespace -> loud-skipped, not returned. */
+	TempArchive foreign = writeTypedArchiveEntries("b911-mesh-foreign", ".pdmesh", {
+		{"mesh.ini",
+		 "[mesh]\n"
+		 "catalog_id = other_ns:stolen_mesh\n"
+		 "model_file = model.gltf\n"},
+		{"model.gltf", "{}\n"},
+	});
+	const std::string foreignBytes = readFile(foreign.path.string().c_str());
+
+	TempArchive foreignContainer = writeTypedArchiveEntries(
+		"b911-proj-foreign", ".pdprojectile", {
+		{"projectile.ini", "[projectile]\ncatalog_id = example:proj\n"},
+		{"dependencies/assets/models/foreign.pdmesh", foreignBytes},
+	});
+	const std::string foreignContainerBytes =
+		readFile(foreignContainer.path.string().c_str());
+
+	count = weaponGraphArchiveScanEmbeddedMeshesBytes(foreignContainerBytes.data(),
+		static_cast<u32>(foreignContainerBytes.size()), "example:weapon", found,
+		WEAPON_GRAPH_EMBEDDED_MESH_MAX);
+	REQUIRE(count == 0);
+
+	/* No declared catalog_id -> loud-skipped (mesh ids are never derived). */
+	TempArchive anonymous = writeTypedArchiveEntries("b911-mesh-anon", ".pdmesh", {
+		{"mesh.ini", "[mesh]\nmodel_file = model.gltf\n"},
+		{"model.gltf", "{}\n"},
+	});
+	const std::string anonymousBytes = readFile(anonymous.path.string().c_str());
+
+	TempArchive anonymousContainer = writeTypedArchiveEntries(
+		"b911-proj-anon", ".pdprojectile", {
+		{"projectile.ini", "[projectile]\ncatalog_id = example:proj\n"},
+		{"dependencies/assets/models/anon.pdmesh", anonymousBytes},
+	});
+	const std::string anonymousContainerBytes =
+		readFile(anonymousContainer.path.string().c_str());
+
+	count = weaponGraphArchiveScanEmbeddedMeshesBytes(anonymousContainerBytes.data(),
+		static_cast<u32>(anonymousContainerBytes.size()), "example:weapon", found,
+		WEAPON_GRAPH_EMBEDDED_MESH_MAX);
+	REQUIRE(count == 0);
+}
+
+TEST_CASE("B-911 embedded mesh scan dedups by id and survives non-archives",
+          "[modding][pdxxx][model_slots][c3848]") {
+	/* The same mesh id embedded twice (the Needler embeds needle.pdmesh in
+	 * BOTH projectiles) must yield one result. */
+	TempArchive mesh = writeTypedArchiveEntries("b911-mesh-dup", ".pdmesh", {
+		{"mesh.ini",
+		 "[mesh]\n"
+		 "catalog_id = example:shared_mesh\n"
+		 "model_file = model.gltf\n"},
+		{"model.gltf", "{}\n"},
+	});
+	const std::string meshBytes = readFile(mesh.path.string().c_str());
+
+	TempArchive container = writeTypedArchiveEntries("b911-proj-dup", ".pdprojectile", {
+		{"projectile.ini", "[projectile]\ncatalog_id = example:proj\n"},
+		{"dependencies/assets/models/a.pdmesh", meshBytes},
+		{"dependencies/assets/models/b.pdmesh", meshBytes},
+	});
+	const std::string containerBytes = readFile(container.path.string().c_str());
+
+	weapon_graph_embedded_mesh_t found[WEAPON_GRAPH_EMBEDDED_MESH_MAX];
+	s32 count = weaponGraphArchiveScanEmbeddedMeshesBytes(containerBytes.data(),
+		static_cast<u32>(containerBytes.size()), "example:weapon", found,
+		WEAPON_GRAPH_EMBEDDED_MESH_MAX);
+	REQUIRE(count == 1);
+	REQUIRE(std::string(found[0].catalog_id) == "example:shared_mesh");
+
+	/* Non-archive container bytes: no crash, nothing found. */
+	const std::string garbage = "this is not a zip archive at all";
+	count = weaponGraphArchiveScanEmbeddedMeshesBytes(garbage.data(),
+		static_cast<u32>(garbage.size()), "example:weapon", found,
+		WEAPON_GRAPH_EMBEDDED_MESH_MAX);
+	REQUIRE(count == 0);
+}

@@ -72,6 +72,23 @@ const asset_entry_t *assetCatalogResolve(const char *id)
     return NULL;
 }
 
+/* B-911 (c3848): weapon_graph_runtime.c's embedded-mesh ingest registers
+ * custom weapon meshes into the catalog. pd-tests has no live catalog, so the
+ * register stub returns NULL and the ingest takes its loud-skip path -- the
+ * weapon-graph tests keep exercising the walk with the ingest inert. */
+asset_entry_t *assetCatalogRegister(const char *id, asset_type_e type)
+{
+    (void)id;
+    (void)type;
+    return NULL;
+}
+
+void catalogSetPrimaryFile(asset_entry_t *entry, const char *path)
+{
+    (void)entry;
+    (void)path;
+}
+
 const char *catalogIdByRuntime(asset_type_e type, s32 runtime_index)
 {
     (void)type;

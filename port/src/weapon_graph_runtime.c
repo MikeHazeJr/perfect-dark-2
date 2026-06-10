@@ -11,6 +11,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "assetcatalog_model_slots.h"  /* B-911: custom-model private slots for embedded meshes */
 #include "config.h"
 #include "constants.h"
 #include "loader_enum_reverse.h"
@@ -2729,6 +2730,75 @@ s32 weaponGraphRuntimeRegisterHeldIr(s32 weaponnum, const weapon_graph_ir_t *ir,
 	return 0;
 }
 
+/* B-911 (c3848): register a nested payload's embedded .pdmesh dependencies as
+ * mod-category ASSET_MODEL rows on catalog-owned private custom slots, BEFORE
+ * the payload's IR is registered, so the graph's catalog-ID model_ref resolves
+ * to a usable g_ModelStates index (heldResolveProjectileModelRef ->
+ * catalogResolveModel -> entry->runtime_index). The bound source handle is a
+ * multi-level "::" member chain into the loose on-disk weapon archive, which
+ * fsLoadNestedArchiveEntry resolves recursively (fs.c) -- the same mechanism
+ * the .pdbody mesh chain ships with, one level deeper. Failures are loud but
+ * non-fatal: the weapon still registers minus its custom model, which is the
+ * pre-B-911 behavior. The private slot never crosses wire/save/manifest/UI. */
+static void s_registerEmbeddedMeshDeps(const char *archive_path,
+		const char *container_entry, const void *container_bytes,
+		u32 container_size, const char *parent_id)
+{
+	weapon_graph_embedded_mesh_t meshes[WEAPON_GRAPH_EMBEDDED_MESH_MAX];
+	s32 count = weaponGraphArchiveScanEmbeddedMeshesBytes(container_bytes,
+		container_size, parent_id, meshes, WEAPON_GRAPH_EMBEDDED_MESH_MAX);
+
+	for (s32 i = 0; i < count; i++) {
+		const weapon_graph_embedded_mesh_t *mesh = &meshes[i];
+
+		if (strcmp(mesh->catalog_id, parent_id) == 0) {
+			sysLogPrintf(LOG_WARNING,
+				"WEAPONGRAPH.MESH.INGEST: embedded mesh %s reuses parent id %s; skipped",
+				mesh->archive_entry, parent_id);
+			continue;
+		}
+
+		asset_entry_t *e = assetCatalogRegister(mesh->catalog_id, ASSET_MODEL);
+		if (!e) {
+			sysLogPrintf(LOG_WARNING,
+				"WEAPONGRAPH.MESH.INGEST: catalog register failed for %s",
+				mesh->catalog_id);
+			continue;
+		}
+
+		s32 slot = assetCatalogResolveModelPrivateSlot(mesh->catalog_id);
+		if (slot < 0) {
+			/* Allocator already logged CATALOG.MODEL.CUSTOM_SLOT_FAIL. */
+			continue;
+		}
+		e->runtime_index = slot;
+
+		/* Mod-category, never base/bundled: the row must be evicted by
+		 * assetCatalogClearMods like every other mod asset. A fresh register
+		 * already defaults bundled=0; inherit the owning weapon's category. */
+		const asset_entry_t *parent = assetCatalogResolve(parent_id);
+		if (parent && parent->category[0]) {
+			copyStr(e->category, sizeof(e->category), parent->category);
+		}
+
+		char source_path[FS_MAXPATH + 1];
+		int written = snprintf(source_path, sizeof(source_path),
+			"%s::%s::%s::%s", archive_path, container_entry,
+			mesh->archive_entry, mesh->geometry);
+		if (written < 0 || (size_t)written >= sizeof(source_path)) {
+			sysLogPrintf(LOG_WARNING,
+				"WEAPONGRAPH.MESH.INGEST: source path for %s exceeds FS_MAXPATH; mesh not bound",
+				mesh->catalog_id);
+			continue;
+		}
+		catalogSetPrimaryFile(e, source_path);
+
+		sysLogPrintf(LOG_NOTE,
+			"WEAPONGRAPH.MESH.INGEST: id=%s slot=%d source=%s",
+			mesh->catalog_id, slot, source_path);
+	}
+}
+
 static s32 weaponGraphRuntimeRegisterWeaponArchiveDependencies(
 	const char *archive_path,
 	const char *parent_id,
@@ -2783,6 +2853,12 @@ static s32 weaponGraphRuntimeRegisterWeaponArchiveDependencies(
 				payload->archive_entry);
 			goto fail;
 		}
+
+		/* B-911: register the payload's embedded mesh dependencies before the
+		 * payload IR is compiled/registered, so its model_ref resolves to the
+		 * custom slot during projectileRuntimeFromNode. */
+		s_registerEmbeddedMeshDeps(archive_path, payload->archive_entry,
+			nested, nested_size, parent_id);
 
 		weapon_graph_ir_t ir;
 		if (weaponGraphCompileArchiveBytes(nested, nested_size, payload->type,
