@@ -5327,7 +5327,7 @@
       "pillar": "networking",
       "column": "active",
       "order": 1001,
-      "notes": "Updated 2026-06-10: rank-1 listen-host start fix (B-910) landed; co-op reconnect/drop-out ranks 8-11 next (reconnect-reliable scope per design decision A).",
+      "notes": "Updated 2026-06-10: rank-1 listen-host start (B-910) done. Co-op scope decision A adopted: ship reconnect-reliable (ranks 8-11) now, hold fresh drop-in as opt-in follow-up; reuse CHRS roster resync (decision B, no wire bump).",
       "flag": null,
       "created": "2026-06-10T00:00:00-04:00",
       "updated": "2026-06-10T00:00:00-04:00",
@@ -5441,7 +5441,7 @@
       "pillar": "modding",
       "column": "active",
       "order": 1003,
-      "notes": "Updated 2026-06-10: folder reserved; needle mesh/material + weapon graph authoring next (CPU-verifiable before live).",
+      "notes": "Updated 2026-06-10: needler-author workflow authoring tools/build_needler_mod.py (CPU-verifiable via conformance). Q1 homing-gate adapter and Q2 pink .pdeffect decisions recorded in context/designs/modding/needler-weapon-mod.md.",
       "flag": null,
       "created": "2026-06-10T00:00:00-04:00",
       "updated": "2026-06-10T00:00:00-04:00",
@@ -5488,6 +5488,13 @@
           "order": 6000,
           "status": "active",
           "notes": ""
+        },
+        {
+          "id": "c3847-s7",
+          "title": "Homing-gate adapter so custom homing steers (Q1 runtime follow-up)",
+          "status": "active",
+          "order": 7000,
+          "notes": "2026-06-10: propobj.c:7159-7163 gates homing on weaponnum==WEAPON_HOMINGROCKET; widen to honor FUNCFLAG_HOMINGROCKET (bondgun.c:1856 already sets it from projectile->has_homing). Additive (OG rocket unchanged). Needed for primary TRACKING; the .pdmod authoring is correct without it. Behavior-changing runtime + B-801-gated proof; trace spawn/target-acquisition so custom homing gets targetprop."
         }
       ]
     }
