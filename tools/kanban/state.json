@@ -5441,7 +5441,7 @@
       "pillar": "modding",
       "column": "active",
       "order": 1003,
-      "notes": "Updated 2026-06-10: needler-author workflow authoring tools/build_needler_mod.py (CPU-verifiable via conformance). Q1 homing-gate adapter and Q2 pink .pdeffect decisions recorded in context/designs/modding/needler-weapon-mod.md.",
+      "notes": "Updated 2026-06-10: needler.pdweapon AUTHORED + CONFORMANT + statically verified (tools/build_needler_mod.py, deterministic). 4-way adversarial verification confirmed all node-kinds/param keys match the live parser; surfaced runtime follow-ups B-911 (embedded mesh/material/texture not ingested), B-912 (projectile-graph gameplay runtime unconsumed), B-913 (mod.json contents/assets ignored). Homing-gate (s7, Q1) + B-801 live proof (s6) remain. Decisions in context/designs/modding/needler-weapon-mod.md.",
       "flag": null,
       "created": "2026-06-10T00:00:00-04:00",
       "updated": "2026-06-10T00:00:00-04:00",
@@ -5458,29 +5458,29 @@
           "title": "Needle .pdmesh + pink .pdmaterial/.pdtexture",
           "id": "c3847-s2",
           "order": 2000,
-          "status": "active",
-          "notes": ""
+          "status": "done",
+          "notes": "Done 2026-06-10: needle .pdmesh (thin spike, integer-native), pink .pdmaterial (crystalline) + .pdtexture (body + spark) authored into the needler.pdweapon closure by tools/build_needler_mod.py. Conformance green. NOTE: runtime ingestion of these embedded mesh/material/texture deps is B-911 (the weapon-graph walker only ingests .pdprojectile/.pdentity) -- authoring is correct; runtime resolution of model_ref is the follow-up."
         },
         {
           "title": "Primary weapon graph: tracking needles (.pdweapon/.pdprojectile)",
           "id": "c3847-s3",
           "order": 3000,
-          "status": "active",
-          "notes": ""
+          "status": "done",
+          "notes": "Done 2026-06-10: primary.graph.json (event.trigger_pressed -> spawn.fired_projectile) + homing.pdprojectile (spawn_state/motion/homing). Node-kinds + every param key verified against the live parser (weapon_graph_runtime.c s_modules + projectileRuntimeFromNode). Active TRACKING needs the Q1 homing-gate adapter (s7); authoring is correct regardless."
         },
         {
           "title": "Secondary: non-tracking explosive needles + small pink .pdeffect",
           "id": "c3847-s4",
           "order": 4000,
-          "status": "active",
-          "notes": ""
+          "status": "done",
+          "notes": "Done 2026-06-10: secondary.graph.json + burst.pdprojectile (projectile.impact, NO homing) + small pink .pdeffect + spark texture. Verified the impact op reads the UNPREFIXED explosion_ref/spark_ref JSON keys (NOT dropped). NOTE: gameplay execution of projectile.impact is B-912 (projectile-graph gameplay runtime unconsumed); pink visual is effect-graph-runtime-gated. Authoring correct + conformant."
         },
         {
           "title": "Bind to custom weapon slot; conformance + mesh probe",
           "id": "c3847-s5",
           "order": 5000,
-          "status": "active",
-          "notes": ""
+          "status": "done",
+          "notes": "Done 2026-06-10: conformance --root dev-mods/needler PASS (1 root -> 12 archives, 6 families); deterministic SHA-256; native-source guard clean; custom-slot binding (WEAPON_CUSTOM_START / MPWEAPON_CUSTOM_START) confirmed statically via assetCatalogResolveWeaponPrivateSlots. Mesh integer-native quantize covered by conformance. Full embedded-closure ingestion is gated by B-911."
         },
         {
           "title": "Weapon source-gate smoke; live playtest (B-801 gated)",
@@ -5495,6 +5495,13 @@
           "status": "active",
           "order": 7000,
           "notes": "2026-06-10: propobj.c:7159-7163 gates homing on weaponnum==WEAPON_HOMINGROCKET; widen to honor FUNCFLAG_HOMINGROCKET (bondgun.c:1856 already sets it from projectile->has_homing). Additive (OG rocket unchanged). Needed for primary TRACKING; the .pdmod authoring is correct without it. Behavior-changing runtime + B-801-gated proof; trace spawn/target-acquisition so custom homing gets targetprop."
+        },
+        {
+          "title": "Ingest embedded mesh/material/texture for custom weapons (B-911 runtime follow-up)",
+          "id": "c3847-s8",
+          "order": 8000,
+          "status": "active",
+          "notes": "Found 2026-06-10 by static verification. weapon_graph_archive.c typeForNestedArchiveName ingests only .pdprojectile/.pdentity, so a custom .pdweapon's embedded mesh/material/texture never reach the catalog and model_ref resolves to nothing. Decide fix locus (general catalog-scanner closure ingestion vs weapon-graph-walker extension) via the embedded-asset-ingestion investigation; render-sensitive + B-801 live-unverifiable."
         }
       ]
     }

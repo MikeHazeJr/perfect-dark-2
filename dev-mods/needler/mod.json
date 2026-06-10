@@ -1,9 +1,18 @@
 {
   "id": "needler",
   "name": "Needler",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "author": "PD2",
-  "description": "Halo-Needler-style custom weapon. Primary fire: tracking needles. Secondary fire: non-tracking needles that explode on contact with small pink explosions. WORK IN PROGRESS -- typed asset archives (.pdweapon / .pdprojectile / .pdentity / .pdmesh / .pdmaterial / .pdtexture / .pdeffect) are authored in Phase 4; this manifest reserves the dev-mod folder and is the versioned root.",
-  "contents": ["weapon"],
-  "requires_restart": false
+  "description": "Halo-Needler-style custom weapon. Primary fire: tracking needles (active homing depends on a separate runtime homing-gate adapter, out of scope for this data-only mod). Secondary fire: non-tracking needles that explode on contact with small pink explosions. Pure data .pdmod: one self-contained needler.pdweapon embedding its full typed dependency closure (mesh, material, textures, projectiles, and the pink contact-explosion effect).",
+  "contents": [
+    "weapon"
+  ],
+  "requires_restart": false,
+  "assets": [
+    {
+      "catalog_id": "mod_needler:needler",
+      "kind": "weapon",
+      "archive": "needler.pdweapon"
+    }
+  ]
 }

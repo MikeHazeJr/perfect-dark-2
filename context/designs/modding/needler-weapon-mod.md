@@ -9,10 +9,54 @@
 
 ## Status (2026-06-10)
 
-Authoring in progress via the `needler-author` ultracode workflow, which adapts
-the proven example builder `tools/build_typed_pdxxx_examples.py` (tri_weapon
-emitter) into `tools/build_needler_mod.py`. CPU-verifiable via
-`tools/asset_archive_conformance.py`. Live fire/visual proof is B-801-gated.
+AUTHORING COMPLETE + CONFORMANT + STATICALLY VERIFIED. `tools/build_needler_mod.py`
+(adapted member-for-member from the proven `tools/build_typed_pdxxx_examples.py`
+tri_weapon emitter) emits `dev-mods/needler/needler.pdweapon` deterministically
+(stable SHA-256 across rebuilds). Strict conformance passes (`--root dev-mods/needler`:
+1 root -> 12 archives across `.pdweapon/.pdprojectile/.pdmesh/.pdmaterial/.pdtexture/.pdeffect`),
+native-source guard clean. A 4-way adversarial static verification confirmed every
+authored graph node-kind and param key matches the live parser (see next section).
+Live fire/visual proof is B-801-gated.
+
+## Runtime integration gaps found by static verification (2026-06-10)
+
+The authoring is correct, but the conformance checker validates the ARCHIVE SCHEMA,
+not full runtime ingestion. A 4-agent adversarial sweep against the live C source
+(`weapon_graph_runtime.c`, `weapon_graph_archive.c`, `assetcatalog_scanner.c`,
+`modmgr.c`) confirmed the parse layer is solid (all node kinds in `s_modules`; every
+authored key read; `shoot_projectile` -> `INVENTORYFUNCTYPE_SHOOT_PROJECTILE`; impact
+op reads the UNPREFIXED `explosion_ref`/`spark_ref` keys -> NOT dropped; custom
+`.pdweapon` -> private `WEAPON_CUSTOM_START`/`MPWEAPON_CUSTOM_START` slot; loose
+folder discovered) and surfaced three runtime gaps the prior design note did not list:
+
+- **B-911 (embedded mesh/material/texture not ingested).** `weapon_graph_archive.c`
+  `typeForNestedArchiveName` (lines 123-128) returns a type only for `.pdprojectile`
+  and `.pdentity`; embedded `.pdmesh`/`.pdmaterial`/`.pdtexture` fall through to
+  `ASSET_NONE` and the walker (line 671) skips them. So the projectile graph's
+  `model_ref = mod_needler:needle` resolves through `catalogResolveModel` to nothing
+  (`has_projectile_modelnum = 0`, graceful) -- the needle/crystal/pink assets never
+  reach the catalog. The weapon viewmodel `model_file` is an intra-archive `::` path
+  (read into `e->ext.weapon.model_file`) so it may load, but catalog-ID-referenced
+  embedded assets do not. This is a c3844-class self-contained-closure parity gap and
+  affects ALL custom weapons with an embedded model closure (open question: whether the
+  base tri_weapon example is equally affected -- decides scope/severity).
+- **B-912 (projectile-graph gameplay runtime unconsumed).** `weaponGraphRuntimeGetProjectileForGameplay`
+  has no production caller (test-only). The parsed `projectile.impact` IR
+  (`has_impact`, `impact_consume_on_hit`, etc.) is never executed in live gameplay, so
+  the secondary's explode-on-contact-and-consume is data-only at the GAMEPLAY level,
+  not merely the pink VISUAL. This is the broader weapon-graph-runtime-cutover
+  (`weapon-graph-runtime-cutover-plan.md`); the prior note understated it as visual-only.
+- **B-913 (mod.json `contents`/`assets` ignored).** `modmgr.c` reads only singular
+  `content` (bodies/heads/arenas object); the authored `contents` tag array and the
+  `assets` array (`catalog_id`/`kind`/`archive`) are `json_skip_value`'d. The weapon
+  registers via loose-`.pdweapon` auto-discovery, not the `assets` manifest, so those
+  blocks are forward-looking decoration today. Namespace `mod_needler` is author
+  convention (read verbatim from the archive INI `catalog_id`), not engine-derived
+  from the mod id.
+
+None of these are authoring defects -- the `.pdweapon` is correct and conformant. They
+are runtime/loader parity follow-ups. The Needler is the proof-of-need that motivates
+closing B-911 (the most contained + clearly-correct-per-constraint of the three).
 
 ## Verified grounding (from the goal-phase-design workflow)
 
