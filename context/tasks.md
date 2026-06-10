@@ -15,10 +15,19 @@ Only one card is active after the 2026-06-09 context/Kanban cleanup:
 | Card | Status | Purpose |
 |------|--------|---------|
 | `c3844` | Active | Finish all-asset source/runtime parity to 100%. |
+| `c3848` | Active | Custom-model runtime-slot allocator for embedded weapon meshes (B-911), under the c3844 umbrella. |
 
 `c3844` has been retitled **Asset Pipeline: 100% source/runtime parity closure**.
 This is no longer a broad archive-format migration. The remaining work is to prove
 and close the final runtime, stale-output, and tool workflow gates.
+
+`c3848` (opened 2026-06-10 from the Needler proof-of-need) is parity work surfaced by
+B-911: a custom `.pdweapon`'s embedded `.pdmesh` referenced by a catalog-ID `model_ref`
+never reached the catalog and had no runtime slot, so custom weapon meshes did not
+render. Foundation (catalog-owned custom-model slot allocator + additive `g_ModelStates`
+growth, mirroring the B-909 body/head allocator) landed `9063004c` (build-pending). The
+ingest consumer (mesh-first peel of the doubly-nested embedded mesh + materialization to
+a public source handle) + the end-to-end CPU test are in progress.
 
 ---
 
