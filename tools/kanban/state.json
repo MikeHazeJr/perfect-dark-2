@@ -5561,6 +5561,70 @@
           "notes": ""
         }
       ]
+    },
+    {
+      "id": "c3849",
+      "title": "Catalog: 100% utilization program (audit-driven closure)",
+      "description": "Drive the measured gaps from context/audits/migration-utilization-measurement-2026-06-10.md to closure. Waves: (1) normal-play fallback telemetry (loud+tracked per the constraint, no bricking); (2) the four missing allocators (soundnum/stagenum/animnum/texnum) so net-new content is reachable; (3) FONT runtime consumer; (4) base-texture public-source emitter; (5) dead-IR consumers (dormant-safe behind Debug.WeaponGraphRuntime); (6) meta-family consumers + .pdeffect runtime; (7) live-gated final flips (per-family fatal cutover + graph-runtime default) staged to the B-801 gate. Under the c3844 umbrella.",
+      "pillar": "catalog",
+      "column": "active",
+      "order": 93002,
+      "notes": "Created 2026-06-10 from Mike's ultracode directive: \"get us to 100% completion.\"",
+      "flag": null,
+      "created": "2026-06-10T00:00:00-04:00",
+      "updated": "2026-06-10T00:00:00-04:00",
+      "pending_completion": null,
+      "subtasks": [
+        {
+          "title": "Wave 1: ASSET.FALLBACK telemetry + loud per-family warnings",
+          "id": "c3849-s1",
+          "order": 1000,
+          "status": "active",
+          "notes": ""
+        },
+        {
+          "title": "Wave 2: soundnum/stagenum/animnum/texnum allocators + tests",
+          "id": "c3849-s2",
+          "order": 2000,
+          "status": "active",
+          "notes": ""
+        },
+        {
+          "title": "Wave 3: FONT runtime consumer (.pdfont -> textLoadFont)",
+          "id": "c3849-s3",
+          "order": 3000,
+          "status": "active",
+          "notes": ""
+        },
+        {
+          "title": "Wave 4: base texture public-source emitter (romextract)",
+          "id": "c3849-s4",
+          "order": 4000,
+          "status": "active",
+          "notes": ""
+        },
+        {
+          "title": "Wave 5: dead-IR consumers (impact refs, homing gains, trails, transitions)",
+          "id": "c3849-s5",
+          "order": 5000,
+          "status": "active",
+          "notes": ""
+        },
+        {
+          "title": "Wave 6: meta-family consumers + .pdeffect runtime",
+          "id": "c3849-s6",
+          "order": 6000,
+          "status": "backlog",
+          "notes": ""
+        },
+        {
+          "title": "Wave 7: live-gated flips (fatal cutover + graph default) at B-801",
+          "id": "c3849-s7",
+          "order": 7000,
+          "status": "backlog",
+          "notes": ""
+        }
+      ]
     }
   ],
   "x_special_notes": {
