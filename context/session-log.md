@@ -1,5 +1,19 @@
 # Session Log (Active)
 
+## 2026-06-10 - c3849 Waves 5+6 COMPLETE; utilization program at 100% of pre-live scope
+
+Final session entry for the ultracode "finish asset extraction and utility to 100%" directive. Everything implementable before the B-801 live gate is now shipped, build-verified, and committed:
+
+- Units 2+9 (1e7d0c01): settings/variables/presentation parse (dual spelling/shape, unit enforcement), $name variable substitution at compile (loud unresolved), defaults layering onto held records (fire_cadence rpm -> max_rpm ONLY for auto functions / recoverytime for others - the has_max_rpm bit classifies automatics at bondgun.c:2068, layering it blindly would flip single-shots to auto), presentation_file at all three mirror sites, moddinghub scalar zoom_fov fix (B8), camera_effect xray consumer in the bgunTick vision arm (parse-latched mode, no per-tick strcmp), MPOPTION_WEAPONGRAPH 0x20000000 (host ORs the WIRE COPY only when toggle on; client latches + restores at stage end AND netDisconnect; masked at the single mplayer.c save site - verified the only options serialization path). Needler regenerated with canonical schemas.
+- Unit 8 (20532a64): full .pdeffect runtime per the Wave 6b map. Needler nesting evidence: the pink effect is at level TWO (weapon -> projectile -> effect), so the typeForNestedArchiveName fix alone was insufficient; s_registerEmbeddedEffectDeps second-level scan added (mesh-ingest precedent). Spark finding: g_SparkTypes is one 27-row compile-time PAL/NTSC table, runtime-mutated by OG recolor code - registry is append-only, custom rows >= 27, SPARKTYPE_BASE_COUNT pinned by _Static_assert.
+- Wave 7 staging recorded (kanban s7 + catalog pillar): toggle default flip, per-family fatal cutover, strict MP refusal (protocol bump + test_versions pin), toggle retirement. NOTHING further is implementable pre-live.
+
+Cross-cutting facts for future sessions: binding specs B1-B8 in c3849-wave-implementation-maps.md are the weapon-graph consumer contract (arm ordering, unified explosion/spark vocabulary, param-presence guards - base graphs carry records with EMPTY params); the pre-existing weapon_id=-1 scanner pin failure (c028) is the only standing red in [weapon_graph]; [c3849] closed at 985 assertions / 52 cases green, [effect_graph] 235/8, [net][lifecycle] 417/18.
+
+Tactical decisions taken this session (B6 in the maps doc; flag to Mike): $name syntax, canonical schema spellings (base wins; needler converged), MPOPTION masked-at-save (transient), fire_cadence unit rpm, trajectory_max_angle degrees, wall_post_fall_timer60 + lost-target detonate + non-parity policy vocabularies deferred, pink-spark in scope.
+
+NEXT SESSION: Wave 7 at Mike's live-test time (B-801): enable Debug.WeaponGraphRuntime, run the Needler full-chain proof (render via B-911 chain, fire, homing track, pink contact burst via Unit 8), then the staged flips. The c3844 umbrella gates 1 (live proofs) and 6 (end-to-end modder workflow proof) remain the program-level closers.
+
 ## 2026-06-10 - c3849 Wave 5 dead-IR consumers: Units 0-7 SHIPPED (checkpoint)
 
 Ultracode session continuing c3849 to 100%. 8-agent mapping round + cross-map critic produced binding specs B1-B8 (weaponTick custom arm ordering, unified explosion/spark ref resolver, param-presence guard discipline, 10-unit order) preserved in context/designs/catalog/c3849-wave-implementation-maps.md (b32833a3). Landed, each build-verified (client -Target all PASS, [c3849] green, only the pre-existing weapon_id=-1 scanner pin failing in [weapon_graph]):

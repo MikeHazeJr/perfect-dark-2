@@ -202,6 +202,20 @@ Audit: [audits/catalog-phase3-passd-self-heal-2026-05-02.md](../audits/catalog-p
 
 ---
 
+## Utilization program state (c3849, 2026-06-10)
+
+The measured-gaps audit ([audits/migration-utilization-measurement-2026-06-10.md](../audits/migration-utilization-measurement-2026-06-10.md)) drove a 7-wave closure program. As of 2026-06-10 evening, Waves 1-6 are SHIPPED and build-verified; Wave 7 (the live-gated flips) is staged to B-801:
+
+- **Waves 1-4** (telemetry, soundnum/stagenum/animnum/texnum allocators, FONT consumer, texture emitter extraction + Slice B bind verification/slug unification): see the session log entries of 2026-06-10 and [designs/catalog/c3849-wave-implementation-maps.md](../designs/catalog/c3849-wave-implementation-maps.md).
+- **Wave 5 (dead-IR consumers)**: the ~115 dead weapon-graph IR fields now have production consumers feeding the EXISTING OG execution routines, all dormant behind `Debug.WeaponGraphRuntime` via the `*ForGameplay` accessors + custom-slot guards (binding specs B1-B8 in the maps doc). weaponTick now has a combined custom PROJECTILE arm (wall-hugger -> contact-impact -> fuse timer) and a custom ENTITY arm (remote w/ detonator provenance, timed, proxy w/ LOS, storm); stick gate honors sticky_attach/sticky-device records; bounce/trail/impact filter/hit-sound/spark/explosion refs consume; guidance gains/fbw numerics/trajectory clamp consume; deployed-autogun cadence/muzzles/beam/ffsuppress + transition-to-entity + owner-cleanup + interaction consume via the g_ThrownLaptopLatch sidecar; settings/variables/presentation parse with $name substitution and defaults layering; camera_effect xray consumes; MPOPTION_WEAPONGRAPH (0x20000000) rides the existing options u32 (masked at the MP-setup save site) so a host's toggle propagates to clients for the match.
+- **Wave 6a (meta families)**: first 3 of 11 assetRuntimeFind* gameplay consumers (botprofile, gamemode, theme), value-identical to native mirrors with once-per-session `CATALOG.<FAM>.RUNTIME_MISS` fallbacks. Remaining 8 ranked + deferred with reasons in the maps doc.
+- **Wave 6b (.pdeffect runtime)**: full compiler (canonical `pd.effect_graph.v1`, legacy accepted loudly) + effect_graph_runtime records + the four `effectGraphResolve*` bridges consumed at the Wave-5 WAVE6-EFFECT-HANDOFF seams + the custom spark-row registry (pink Needler spark achievable; explosion fireball tint is NOT OG-parameterizable - renderer slice deferred). Nested `.pdeffect` ingestion fixed at both levels (weapon -> projectile -> effect).
+- **Wave 7 (STAGED, B-801-gated, Mike's call at live-test time)**: (1) flip `Debug.WeaponGraphRuntime` default to ON after live parity proof; (2) per-family normal-play fatal cutover for the parity-by-fallback families (texture/animation/sfx/song/scenario/bondgun) - the ASSET.FALLBACK telemetry from Wave 1 is the regression instrument; (3) strict MP mismatch refusal (needs a NET_PROTOCOL_VER bump + test_versions pin; the MPOPTION bit is best-effort parity until then); (4) retire the toggle entirely per the cutover plan's closure state.
+
+Bug ledger from the program: B-915/916/917 fixed (Unit 0), B-918 fixed (test pin repair), B-919 open (decomp quirk, verify-before-fix).
+
+---
+
 ## What is in flight
 
 - **Asset Provider Phase 4.** Filenum retirement (~23 game-code sites). Blocked on three prerequisite API migrations: handle-aware `assetGetSize`, handle-aware `modeldefLoad`, `MENUMODELPARAMS_SET_HANDLE`. Design at [designs/catalog/catalog-asset-provider-future-phases.md](../designs/catalog/catalog-asset-provider-future-phases.md) [TBD doc].

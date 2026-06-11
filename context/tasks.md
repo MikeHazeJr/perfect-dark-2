@@ -4,18 +4,29 @@
 > [session-log.md](session-log.md). Historical card and bug detail remains in the
 > Kanban card history and bug ledger.
 
-Last updated: 2026-06-09
+Last updated: 2026-06-10
 
 ---
 
 ## Active Critical Path
 
-Only one card is active after the 2026-06-09 context/Kanban cleanup:
-
 | Card | Status | Purpose |
 |------|--------|---------|
 | `c3844` | Active | Finish all-asset source/runtime parity to 100%. |
 | `c3848` | Active | Custom-model runtime-slot allocator for embedded weapon meshes (B-911), under the c3844 umbrella. |
+| `c3849` | Active (Waves 1-6 DONE; Wave 7 staged to B-801) | Catalog 100% utilization program, under the c3844 umbrella. |
+
+**c3849 status (2026-06-10 evening):** Waves 1-6 are SHIPPED and build-verified
+(telemetry; the four allocators; FONT consumer; texture emitter + Slice B bind
+verification/slug unification; ALL Wave-5 dead-IR consumers per binding specs
+B1-B8; Wave-6a meta-family consumers botprofile/gamemode/theme; Wave-6b full
+.pdeffect runtime + pink-spark registry). Everything gameplay-facing is dormant
+behind `Debug.WeaponGraphRuntime`. Wave 7 is the ONLY remainder and is
+deliberately staged to the B-801 live gate (Mike's call): toggle default flip,
+per-family fatal cutover (ASSET.FALLBACK telemetry is the instrument), strict MP
+mismatch refusal (protocol bump), toggle retirement. Maps + binding specs:
+`context/designs/catalog/c3849-wave-implementation-maps.md`. Bug ledger:
+B-915/916/917/918 fixed, B-919 open (verify-before-fix decomp quirk).
 
 `c3844` has been retitled **Asset Pipeline: 100% source/runtime parity closure**.
 This is no longer a broad archive-format migration. The remaining work is to prove

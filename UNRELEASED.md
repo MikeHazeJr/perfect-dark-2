@@ -13,6 +13,12 @@
 
 ## Added
 
+- Custom weapon behavior authored in `.pdweapon`/`.pdprojectile`/`.pdentity` graphs now actually drives gameplay (behind the developer graph-runtime toggle): homing steering gains, fly-by-wire tuning, trajectory clamps, wall-hugger and sticky behavior, bounce tuning, fuse timers, impact filters/sounds/sparks/explosions, smoke trails, carrier-to-turret transitions, proxy/remote/timed mine policies with detonator pairing, deployed-autogun cadence and muzzle behavior, owner-death cleanup, pickup/recover rules, weapon settings/variables with `$name` substitution, and an x-ray camera effect. Base-game behavior is bit-identical with the toggle off (and on, for base weapons).
+- Custom visual effects now have a runtime: `.pdeffect` graphs compile and drive the existing explosion/spark/smoke machinery, including custom-tinted spark types (the Needler's pink burst), with effects nested inside weapon archives now correctly discovered.
+- When a host enables the weapon graph runtime, clients now adopt it for that match automatically (no protocol change; never saved into MP setup files).
+- Fixed three latent bugs found by static analysis: base Timed Mines would have detonated instantly with the graph runtime enabled; weapon archive shared-context/settings/variables files were silently ignored; and a freed target could leave homing projectiles pointing at stale memory.
+- Bot profiles, game modes, and UI themes now read their authored archive data through the catalog runtime (with loud fallback to built-ins), the first of the meta asset families to do so.
+- Boot now verifies every texture archive binding with a cheap stat pass and reports missing archives loudly instead of crashing at first use; the texture filename slug logic is unified so the emitter and catalog can never drift apart.
 - Cleaned the Kanban Active lane so the current asset-parity completion path is the only active critical work, with unrelated cards deferred or marked done.
 - Strengthened the asset-archive conformance check so numeric or legacy asset references (for example `model_catalog_id = 42` or a `MODEL_*` symbol) in JSON catalog-ID fields are now rejected like they already were in delimited tables, closing a gap in the primary public source format. Intra-archive member and dependency paths stay allowed.
 - Added a first-class `probe` build target and a repeatable scenario-scene CPU sweep so the source scene.glb path can be validated for every level without launching the game, GPU, or audio. The full extracted scenario set passes 87/87.

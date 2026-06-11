@@ -5607,22 +5607,22 @@
           "title": "Wave 5: dead-IR consumers (impact refs, homing gains, trails, transitions)",
           "id": "c3849-s5",
           "order": 5000,
-          "status": "active",
-          "notes": "IN PROGRESS 2026-06-10 (this session): 8-agent mapping round + critic; binding specs B1-B8 preserved in c3849-wave-implementation-maps.md (b32833a3). Landed + build-verified: Unit 0 latent bugs B-915/916/917 (34f3a6e5); Units 1+3 substrate + guidance incl. AI-launcher widen + wrong-owner fix (c061a4d2); Units 4+5 combined custom projectile arm (wall-hugger/impact/fuse) + stick-gate + bounce + trail + impact filter/sound/spark seams (bb0c58ad); Unit 6 custom entity arm remote/timed/proxy/storm + detonator provenance + objDamage/objFree (96925f3a); Unit 7 deployed-entity autogun/transition/owner-cleanup/sticky-device/interaction (ee058887). Remaining: Unit 2+9 settings/variables/presentation + camera_effect + MPOPTION bit."
+          "status": "done",
+          "notes": "DONE 2026-06-10, BUILD-VERIFIED per unit. 8-agent mapping + critic -> binding specs B1-B8 (c3849-wave-implementation-maps.md, b32833a3). Unit 0 latent bugs B-915/916/917 (34f3a6e5); Units 1+3 substrate + guidance incl. AI-launcher widen + wrong-owner fix (c061a4d2); Units 4+5 combined custom projectile arm + stick gate + bounce/trail/impact (bb0c58ad); Unit 6 custom entity arm remote/timed/proxy/storm + detonator provenance (96925f3a); Unit 7 deployed autogun/transition/owner-cleanup/sticky/interaction via g_ThrownLaptopLatch sidecar (ee058887); Units 2+9 settings/variables/presentation + $name substitution + defaults layering + camera_effect + MPOPTION_WEAPONGRAPH masked-at-save (1e7d0c01). All dormant behind Debug.WeaponGraphRuntime; [c3849] 985 assertions/52 cases green at close."
         },
         {
           "title": "Wave 6: meta-family consumers + .pdeffect runtime",
           "id": "c3849-s6",
           "order": 6000,
-          "status": "active",
-          "notes": "Wave 6a meta-family consumers (3 of 11: botprofile/gamemode/theme) landed 2026-06-10 (06e3cac1), value-identical + RUNTIME_MISS fallbacks. Wave 6b .pdeffect runtime: bridge stubs landed in c061a4d2; full runtime in progress."
+          "status": "done",
+          "notes": "DONE 2026-06-10, BUILD-VERIFIED. 6a: first 3/11 assetRuntimeFind* gameplay consumers (botprofile/gamemode/theme), value-identical + once-per-session RUNTIME_MISS fallbacks (06e3cac1); remaining 8 ranked+deferred in the maps doc. 6b: full .pdeffect runtime (20532a64) - canonical pd.effect_graph.v1 (legacy accepted loudly), effect_graph_runtime records + 4 bridges consumed at the Wave-5 seams, custom spark-row registry (pink Needler spark), two-level nested ingestion (weapon->projectile->effect), [effect_graph] 235 assertions/8 cases."
         },
         {
           "title": "Wave 7: live-gated flips (fatal cutover + graph default) at B-801",
           "id": "c3849-s7",
           "order": 7000,
           "status": "backlog",
-          "notes": ""
+          "notes": "STAGED to B-801 (Mike's live-test call). The flip list: (1) Debug.WeaponGraphRuntime default ON after live parity proof; (2) per-family normal-play fatal cutover for the six parity-by-fallback families (ASSET.FALLBACK telemetry from Wave 1 is the instrument); (3) strict MP mismatch refusal = NET_PROTOCOL_VER bump + test_versions pin (MPOPTION_WEAPONGRAPH bit is best-effort parity until then); (4) toggle retirement per the cutover plan closure state. Nothing further is implementable pre-live."
         }
       ]
     }
