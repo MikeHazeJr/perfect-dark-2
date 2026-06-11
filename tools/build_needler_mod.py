@@ -358,14 +358,13 @@ def build_pink_burst_effect(spark_texture: bytes) -> bytes:
     # effect.graph.json -- small pink contact explosion. The pink tint lives in
     # the effect/texture data because the OG explosion path is hard-white with
     # no scalar tint; this custom effect carries the colour.
-    # NOTE: effect.explosion / effect.spark are ILLUSTRATIVE node kinds. Unlike
-    # the weapon/projectile graphs (whose kinds are pinned to the live
-    # weapon_graph_runtime.c module table), there is no in-tree effect-graph
-    # runtime to validate these against yet. The conformance checker only
-    # requires effect.graph.json to be valid JSON with no forbidden members /
-    # bad refs -- it does not enforce an effect-node-kind enum. These kinds and
-    # the "tint" params are the authored intent for the pink burst and will need
-    # alignment with the real effect-graph runtime when/if it lands.
+    # NOTE (c3849 Unit 8): effect.explosion / effect.spark are LIVE node kinds
+    # pinned to the weapon_graph_runtime.c ASSET_EFFECT module table and
+    # compiled by port/src/effect_graph_runtime.c. explosion_class "small"
+    # maps to EXPLOSIONTYPE_EYESPY (2) for blast/damage parity; the spark
+    # "tint" compiles to a custom spark-row clone of SPARKTYPE_PROJECTILE
+    # (src/game/sparks_custom.c) -- the pink is carried by the spark because
+    # explosion fireballs render hard-white (renderer tint deferred).
     effect_graph = dumps_graph({
         "schema": "pd.effect_graph.v1",
         "asset_id": BURST_EFFECT_ID,

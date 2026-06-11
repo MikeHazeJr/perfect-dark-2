@@ -27,6 +27,7 @@
 #include "mod.h"
 #include "modasset_compiler.h"
 #include "weapon_graph_runtime.h"
+#include "effect_graph_runtime.h"  /* c3849 Unit 8: ASSET_EFFECT activation/clear hooks */
 #include "data.h"
 #include "game/modeldef.h"
 #include "lib/anim.h"   /* c3849 Wave 2: animGetTotalCount */
@@ -841,6 +842,14 @@ static s32 s_catalogTypeUsesWeaponGraphRuntime(asset_type_e type)
     return type == ASSET_WEAPON || type == ASSET_PROJECTILE || type == ASSET_ENTITY;
 }
 
+/* c3849 Unit 8: ASSET_EFFECT entries register into the effect graph runtime
+ * (effect_graph_runtime.c), keyed by asset_id string. Sibling of the
+ * weapon-graph hook above; same loud-fail activation contract. */
+static s32 s_catalogTypeUsesEffectGraphRuntime(asset_type_e type)
+{
+    return type == ASSET_EFFECT;
+}
+
 static s32 s_catalogExtractTypedArchiveRoot(const char *source_path,
                                             const char *archive_ext,
                                             char *out,
@@ -1073,6 +1082,84 @@ static void s_catalogClearWeaponGraphRuntime(asset_entry_t *entry,
     }
 }
 
+/* c3849 Unit 8: ASSET_EFFECT activation. Archive primaries (.pdeffect,
+ * possibly behind a "::" member chain) register through the descriptor path;
+ * a loose graph file (ext.effect.effect_file holding a real path) registers
+ * through fsFileLoad + RegisterGraphJson, mirroring how weapons handle the
+ * archive/loose split. Loud-fail: a compile failure refuses activation. */
+static s32 s_catalogActivateEffectGraphRuntime(asset_entry_t *entry,
+                                               const char *source_path)
+{
+    char archive_path[FS_MAXPATH + 1];
+    char full_buf[FS_MAXPATH + 1];
+    char err[256];
+    const char *full;
+    char *graph = NULL;
+    u32 graph_size = 0;
+    s32 result;
+
+    if (!entry || !source_path || !source_path[0]) {
+        return 0;
+    }
+
+    if (s_catalogExtractTypedArchiveRoot(source_path, ".pdeffect",
+            archive_path, sizeof(archive_path))) {
+        full = fsFullPath(archive_path, full_buf, sizeof(full_buf));
+        err[0] = '\0';
+        result = effectGraphRuntimeRegisterArchive(full ? full : archive_path,
+            err, sizeof(err));
+        if (result != 0) {
+            sysLogPrintf(LOG_WARNING,
+                         "CATALOG.LIFECYCLE.ACTIVATE: '%s' effect graph archive compile failed: %s",
+                         entry->id, err[0] ? err : "unknown error");
+            return 0;
+        }
+        return 1;
+    }
+
+    if (!entry->ext.effect.effect_file[0]) {
+        sysLogPrintf(LOG_NOTE,
+                     "CATALOG.LIFECYCLE.ACTIVATE: '%s' effect entry has no graph source; skipping effect runtime registration",
+                     entry->id);
+        return 1;
+    }
+
+    graph = (char *)fsFileLoad(entry->ext.effect.effect_file, &graph_size);
+    if (!graph || graph_size == 0) {
+        if (graph) {
+            free(graph);
+        }
+        sysLogPrintf(LOG_WARNING,
+                     "CATALOG.LIFECYCLE.ACTIVATE: '%s' effect graph source missing %s",
+                     entry->id, entry->ext.effect.effect_file);
+        return 0;
+    }
+
+    err[0] = '\0';
+    result = effectGraphRuntimeRegisterGraphJson(entry->id, graph, graph_size,
+        err, sizeof(err));
+    free(graph);
+
+    if (result != 0) {
+        sysLogPrintf(LOG_WARNING,
+                     "CATALOG.LIFECYCLE.ACTIVATE: '%s' effect graph compile failed: %s",
+                     entry->id, err[0] ? err : "unknown error");
+        return 0;
+    }
+
+    return 1;
+}
+
+/* c3849 Unit 8: sibling of s_catalogClearWeaponGraphRuntime. */
+static void s_catalogClearEffectGraphRuntime(asset_entry_t *entry,
+                                             const char *assetId)
+{
+    if (!entry || entry->type != ASSET_EFFECT) {
+        return;
+    }
+    effectGraphRuntimeClearAsset(assetId);
+}
+
 static void s_catalogInstallAnimationClip(asset_entry_t *entry,
                                           const struct animtableentry *anim)
 {
@@ -1236,6 +1323,15 @@ static s32 s_catalogLoadEntryMetadataPayload(asset_entry_t *entry)
 
     if (s_catalogTypeUsesWeaponGraphRuntime(entry->type)
             && !s_catalogActivateWeaponGraphRuntime(entry, source_path)) {
+        entry->loaded_data     = NULL;
+        entry->payload_kind    = ASSET_PAYLOAD_NONE;
+        entry->load_state      = ASSET_STATE_ENABLED;
+        entry->ref_count       = 0;
+        return 0;
+    }
+
+    if (s_catalogTypeUsesEffectGraphRuntime(entry->type)
+            && !s_catalogActivateEffectGraphRuntime(entry, source_path)) {
         entry->loaded_data     = NULL;
         entry->payload_kind    = ASSET_PAYLOAD_NONE;
         entry->load_state      = ASSET_STATE_ENABLED;
@@ -1681,6 +1777,9 @@ static void s_catalogUnloadEntry(const char *assetId, asset_entry_t *entry)
         } else if (entry->payload_kind == ASSET_PAYLOAD_RUNTIME_ACTIVE) {
             if (s_catalogTypeUsesWeaponGraphRuntime(entry->type)) {
                 s_catalogClearWeaponGraphRuntime(entry, assetId);
+            }
+            if (s_catalogTypeUsesEffectGraphRuntime(entry->type)) {
+                s_catalogClearEffectGraphRuntime(entry, assetId);
             }
             assetRuntimeReleaseCatalogEntry(assetId);
             /* Runtime-owned activation (for example language banks) is

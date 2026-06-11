@@ -65,6 +65,7 @@ const char *weaponGraphArchiveDescriptorForType(asset_type_e type)
 	case ASSET_WEAPON:     return "weapon.ini";
 	case ASSET_PROJECTILE: return "projectile.ini";
 	case ASSET_ENTITY:     return "entity.ini";
+	case ASSET_EFFECT:     return "effect.ini";  /* c3849 Unit 8 */
 	default:               return NULL;
 	}
 }
@@ -75,6 +76,7 @@ const char *weaponGraphArchiveExtensionForType(asset_type_e type)
 	case ASSET_WEAPON:     return ".pdweapon";
 	case ASSET_PROJECTILE: return ".pdprojectile";
 	case ASSET_ENTITY:     return ".pdentity";
+	case ASSET_EFFECT:     return ".pdeffect";  /* c3849 Unit 8 */
 	default:               return NULL;
 	}
 }
@@ -85,6 +87,7 @@ const char *weaponGraphArchiveTypeName(asset_type_e type)
 	case ASSET_WEAPON:     return "weapon";
 	case ASSET_PROJECTILE: return "projectile";
 	case ASSET_ENTITY:     return "entity";
+	case ASSET_EFFECT:     return "effect";  /* c3849 Unit 8 */
 	default:               return "unknown";
 	}
 }
@@ -95,6 +98,7 @@ static const char *sectionForType(asset_type_e type)
 	case ASSET_WEAPON:     return "weapon";
 	case ASSET_PROJECTILE: return "projectile";
 	case ASSET_ENTITY:     return "entity";
+	case ASSET_EFFECT:     return "effect";  /* c3849 Unit 8 */
 	default:               return NULL;
 	}
 }
@@ -125,6 +129,10 @@ static asset_type_e typeForNestedArchiveName(const char *name)
 {
 	if (endsWithNoCase(name, ".pdprojectile")) return ASSET_PROJECTILE;
 	if (endsWithNoCase(name, ".pdentity")) return ASSET_ENTITY;
+	/* c3849 Unit 8 (bug-class): .pdeffect previously fell to ASSET_NONE and
+	 * was silently DROPPED from the nested-payload walk; the needler proving
+	 * asset's pink effect never registered. */
+	if (endsWithNoCase(name, ".pdeffect")) return ASSET_EFFECT;
 	return ASSET_NONE;
 }
 
@@ -292,6 +300,12 @@ static s32 readDescriptorFromText(const char *label, const char *text, u32 size,
 		} else if (strcmp(key, "behavior_graph") == 0) {
 			copyStr(out->behavior_graph, sizeof(out->behavior_graph), value);
 		} else if (strcmp(key, "graph") == 0 && out->behavior_graph[0] == '\0') {
+			copyStr(out->behavior_graph, sizeof(out->behavior_graph), value);
+		/* c3849 Unit 8: effect.ini names its graph member effect_file
+		 * (asset_archive_conformance.py effect contract); alias it onto
+		 * behavior_graph so the shared compile path reads the right member.
+		 * behavior_graph/graph keep precedence (first-set-wins). */
+		} else if (strcmp(key, "effect_file") == 0 && out->behavior_graph[0] == '\0') {
 			copyStr(out->behavior_graph, sizeof(out->behavior_graph), value);
 		} else if (strcmp(key, "primary_graph") == 0) {
 			copyStr(out->primary_graph, sizeof(out->primary_graph), value);
@@ -483,7 +497,8 @@ s32 weaponGraphArchiveDerivedNestedId(const char *parent_id, asset_type_e type,
 {
 	if (!parent_id || !local_slug || !out || out_cap == 0) return -1;
 	out[0] = '\0';
-	if (type != ASSET_PROJECTILE && type != ASSET_ENTITY) return -1;
+	if (type != ASSET_PROJECTILE && type != ASSET_ENTITY &&
+			type != ASSET_EFFECT) return -1;
 
 	const char *colon = strchr(parent_id, ':');
 	if (!colon || colon == parent_id || colon[1] == '\0') return -1;
@@ -501,7 +516,8 @@ s32 weaponGraphArchiveDerivedNestedId(const char *parent_id, asset_type_e type,
 		return -1;
 	}
 
-	const char *kind = (type == ASSET_PROJECTILE) ? "projectile" : "entity";
+	const char *kind = (type == ASSET_PROJECTILE) ? "projectile"
+		: (type == ASSET_EFFECT) ? "effect" : "entity";
 	int n = snprintf(out, out_cap, "%s:%s__%s_%s",
 		namespace_part, parent_slug, kind, nested_slug);
 	if (n <= 0 || (size_t)n >= out_cap || n >= CATALOG_ID_LEN) {

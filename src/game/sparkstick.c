@@ -1,5 +1,6 @@
 #include <ultra64.h>
 #include "constants.h"
+#include "game/sparks.h"
 #include "bss.h"
 #include "data.h"
 #include "types.h"
@@ -20,7 +21,8 @@ void sparksTick(void)
 
 		// Iterate spark groups
 		for (i = 0; i < ARRAYCOUNT(g_SparkGroups); i++) {
-			type = &g_SparkTypes[group->type];
+			/* c3849 Unit 8 (B6.9): registry-aware lookup. */
+			type = sparkTypeFor(group->type);
 
 			if (group->age >= type->maxage) {
 				group->age = 0;

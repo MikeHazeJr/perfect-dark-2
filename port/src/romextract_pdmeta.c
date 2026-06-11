@@ -1339,10 +1339,13 @@ static s32 s_emitEffect(const asset_entry_t *e, const char *out_dir,
 		e->ext.effect.intensity);
 	if (ini_len <= 0 || (size_t)ini_len >= sizeof(ini)) return -1;
 
+	/* c3849 Unit 8 (B6.4): canonical effect-graph schema. Existing archives
+	 * keep the legacy "pd2.effect.graph.v1" string (the early-out above
+	 * checks entry presence only); weaponGraphCompileJson accepts both. */
 	char graph[1536];
 	int graph_len = snprintf(graph, sizeof(graph),
 		"{\n"
-		"  \"schema\": \"pd2.effect.graph.v1\",\n"
+		"  \"schema\": \"pd.effect_graph.v1\",\n"
 		"  \"catalog_id\": \"%s\",\n"
 		"  \"effect\": \"%s\",\n"
 		"  \"target\": \"%s\",\n"

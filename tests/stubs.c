@@ -28,6 +28,20 @@
 #include "assetcatalog.h"
 #include "modmgr.h"
 #include "audio.h"
+#include "game/sparks.h"
+
+/* -------------------------------------------------------------------------
+ * c3849 Unit 8: base spark table for sparks_custom.c (the custom spark-row
+ * registry under test). The game build defines this in src/game/sparks.c;
+ * here only the SPARKTYPE_PROJECTILE row carries real values (the NTSC
+ * literals from sparks.c row 0x10) because that is the row the effect
+ * runtime clones for tinted custom sparks. Every other row stays zeroed --
+ * the registry never reads them.
+ * ------------------------------------------------------------------------- */
+struct sparktype g_SparkTypes[SPARKTYPE_BASE_COUNT] = {
+    [SPARKTYPE_PROJECTILE] =
+        { 50, 28, 100, 1, 0, 0, 1, 60, 30, 10, 1, 0xffff80ff, 0xffffffff, 0.02f },
+};
 
 /* -------------------------------------------------------------------------
  * sysLogPrintf -- printf to stderr at debug level, drop everything else.

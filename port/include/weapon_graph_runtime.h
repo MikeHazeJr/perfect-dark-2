@@ -75,6 +75,21 @@ typedef enum weapon_graph_opcode {
 	WEAPON_GRAPH_OP_ENTITY_STICKY_DEVICE,
 	WEAPON_GRAPH_OP_ENTITY_OWNER_CLEANUP,
 	WEAPON_GRAPH_OP_ENTITY_INTERACTION,
+
+	/* c3849 Unit 8 (.pdeffect): the 700 range is the effect-graph module
+	 * family. tint..particle are presentation kinds (gameplay-inert, recorded
+	 * for the renderer slice); explosion/spark/smoke are the gameplay kinds
+	 * whose executors ARE the OG explosion/spark/smoke machinery (closure
+	 * rule - no new particle or render systems). */
+	WEAPON_GRAPH_OP_EFFECT_TINT = 700,
+	WEAPON_GRAPH_OP_EFFECT_GLOW,
+	WEAPON_GRAPH_OP_EFFECT_SHIMMER,
+	WEAPON_GRAPH_OP_EFFECT_DARKEN,
+	WEAPON_GRAPH_OP_EFFECT_SCREEN,
+	WEAPON_GRAPH_OP_EFFECT_PARTICLE,
+	WEAPON_GRAPH_OP_EFFECT_EXPLOSION,
+	WEAPON_GRAPH_OP_EFFECT_SPARK,
+	WEAPON_GRAPH_OP_EFFECT_SMOKE,
 } weapon_graph_opcode_e;
 
 typedef struct weapon_graph_parity_module {

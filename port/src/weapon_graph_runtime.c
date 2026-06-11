@@ -15,6 +15,7 @@
 #include "config.h"
 #include "system.h"  /* B-911/B-912: sysLogPrintf for the embedded-mesh ingest (pd-tests has no PCH) */
 #include "constants.h"
+#include "effect_graph_runtime.h"  /* c3849 Unit 8: nested .pdeffect ingestion */
 #include "loader_enum_reverse.h"
 #include "modarchive.h"
 #include "platform.h"
@@ -108,6 +109,21 @@ static const module_info_t s_modules[] = {
 	{ "entity.sticky_device", ASSET_ENTITY, WEAPON_GRAPH_OP_ENTITY_STICKY_DEVICE },
 	{ "entity.owner_cleanup", ASSET_ENTITY, WEAPON_GRAPH_OP_ENTITY_OWNER_CLEANUP },
 	{ "entity.interaction", ASSET_ENTITY, WEAPON_GRAPH_OP_ENTITY_INTERACTION },
+
+	/* c3849 Unit 8: .pdeffect module family. The six presentation kinds match
+	 * romextract_pdmeta.c s_effectTypeKey (base archives author exactly one
+	 * effect.<type_key> node) and are gameplay-inert; the three gameplay kinds
+	 * resolve into existing OG table indices at registration time
+	 * (effect_graph_runtime.c). */
+	{ "effect.tint", ASSET_EFFECT, WEAPON_GRAPH_OP_EFFECT_TINT },
+	{ "effect.glow", ASSET_EFFECT, WEAPON_GRAPH_OP_EFFECT_GLOW },
+	{ "effect.shimmer", ASSET_EFFECT, WEAPON_GRAPH_OP_EFFECT_SHIMMER },
+	{ "effect.darken", ASSET_EFFECT, WEAPON_GRAPH_OP_EFFECT_DARKEN },
+	{ "effect.screen", ASSET_EFFECT, WEAPON_GRAPH_OP_EFFECT_SCREEN },
+	{ "effect.particle", ASSET_EFFECT, WEAPON_GRAPH_OP_EFFECT_PARTICLE },
+	{ "effect.explosion", ASSET_EFFECT, WEAPON_GRAPH_OP_EFFECT_EXPLOSION },
+	{ "effect.spark", ASSET_EFFECT, WEAPON_GRAPH_OP_EFFECT_SPARK },
+	{ "effect.smoke", ASSET_EFFECT, WEAPON_GRAPH_OP_EFFECT_SMOKE },
 };
 
 static const weapon_graph_parity_module_t s_parity_modules[] = {
@@ -142,6 +158,12 @@ static const weapon_graph_parity_module_t s_parity_modules[] = {
 	{ WEAPON_GRAPH_OP_ENTITY_STICKY_DEVICE, "og.entity.sticky_device", "entity_sticky_device", "propobj.c sticky device path", "attachment, visible state" },
 	{ WEAPON_GRAPH_OP_ENTITY_OWNER_CLEANUP, "og.entity.owner_cleanup", "entity_owner_cleanup", "propobj.c owner cleanup path", "death/lost owner behavior" },
 	{ WEAPON_GRAPH_OP_ENTITY_INTERACTION, "og.entity.interaction", "entity_interaction", "propobj.c pickup/recover path", "prompts, transfer, sound" },
+	/* c3849 Unit 8: effect gameplay kinds. The executor IS the OG machinery
+	 * (closure rule); the runtime only selects existing table rows (and, for
+	 * sparks, appends tinted clones of an existing row). */
+	{ WEAPON_GRAPH_OP_EFFECT_EXPLOSION, "og.effect.explosion", "effect_explosion", "explosions.c g_ExplosionTypes path", "class to EXPLOSIONTYPE_* selection" },
+	{ WEAPON_GRAPH_OP_EFFECT_SPARK, "og.effect.spark", "effect_spark", "sparks.c g_SparkTypes path", "tinted custom spark rows" },
+	{ WEAPON_GRAPH_OP_EFFECT_SMOKE, "og.effect.smoke", "effect_smoke", "smoke.c g_SmokeTypes path", "class to nearest SMOKETYPE_*" },
 };
 
 #ifndef PD_TESTS
@@ -408,6 +430,11 @@ const char *weaponGraphSchemaForType(asset_type_e type)
 	case ASSET_WEAPON:     return "pd.weapon_graph.v1";
 	case ASSET_PROJECTILE: return "pd.projectile_graph.v1";
 	case ASSET_ENTITY:     return "pd.entity_graph.v1";
+	/* c3849 Unit 8 (B6.4): canonical effect schema. The legacy
+	 * "pd2.effect.graph.v1" spelling (stale base archives predating the
+	 * emitter update) is accepted in weaponGraphCompileJson with a one-time
+	 * LOG_WARNING. */
+	case ASSET_EFFECT:     return "pd.effect_graph.v1";
 	default:               return NULL;
 	}
 }
@@ -1377,14 +1404,37 @@ s32 weaponGraphCompileJson(asset_type_e graph_type, const char *json,
 	out->asset_type = graph_type;
 	if (!jsonObjectString(root, "schema", out->schema, sizeof(out->schema)) ||
 			strcmp(out->schema, schema_expected) != 0) {
-		setErr(err, err_cap, "graph schema must be %s", schema_expected);
-		return -1;
+		/* c3849 Unit 8 (B6.4): stale base .pdeffect archives persist the
+		 * legacy schema spelling (the s_emitEffect early-out checks entry
+		 * presence only); accept it with a one-time deprecation warning. */
+		if (graph_type == ASSET_EFFECT &&
+				strcmp(out->schema, "pd2.effect.graph.v1") == 0) {
+			static s32 s_warned_legacy_effect_schema = 0;
+			if (!s_warned_legacy_effect_schema) {
+				s_warned_legacy_effect_schema = 1;
+				sysLogPrintf(LOG_WARNING,
+					"EFFECTGRAPH.PARSE: schema 'pd2.effect.graph.v1' is deprecated; use 'pd.effect_graph.v1'");
+			}
+		} else {
+			setErr(err, err_cap, "graph schema must be %s", schema_expected);
+			return -1;
+		}
 	}
 	jsonObjectString(root, "asset_id", out->asset_id, sizeof(out->asset_id));
+	if (!out->asset_id[0] && graph_type == ASSET_EFFECT) {
+		/* Base s_emitEffect writes the catalog_id spelling. */
+		jsonObjectString(root, "catalog_id", out->asset_id, sizeof(out->asset_id));
+	}
 	jsonObjectString(root, "graph_id", out->graph_id, sizeof(out->graph_id));
 	if (!out->graph_id[0]) {
-		setErr(err, err_cap, "graph missing graph_id");
-		return -1;
+		if (graph_type == ASSET_EFFECT) {
+			/* Neither the base emitter nor the needler proving asset authors
+			 * a graph_id for effect graphs; default deterministically. */
+			copyStr(out->graph_id, sizeof(out->graph_id), "effect_graph");
+		} else {
+			setErr(err, err_cap, "graph missing graph_id");
+			return -1;
+		}
 	}
 	if (out->asset_id[0] && !catalogRefLooksValid(out->asset_id)) {
 		setErr(err, err_cap, "asset_id must be a catalog id, got %s",
@@ -3157,6 +3207,130 @@ static void s_registerEmbeddedMeshDeps(const char *archive_path,
 	}
 }
 
+/* c3849 Unit 8: embedded .pdeffect discovery inside nested payload bytes.
+ * The needler proving asset nests its pink effect one level down
+ * (secondary.pdprojectile -> dependencies/assets/effects/pink_burst.pdeffect),
+ * the same place B-911 finds embedded meshes. Effects key by asset_id string
+ * in the effect runtime (no slot allocator), so ingestion is registration
+ * only. Failures are loud but non-fatal at this depth (mesh-ingest
+ * precedent): the weapon still registers and the effect bridges keep their
+ * OG fallbacks. */
+
+#define WEAPON_GRAPH_EMBEDDED_EFFECT_MAX 8
+
+typedef struct {
+	char names[WEAPON_GRAPH_EMBEDDED_EFFECT_MAX][FS_MAXPATH];
+	s32 count;
+	s32 overflow;
+} embedded_effect_name_scan_t;
+
+static s32 effectSuffixMatches(const char *name)
+{
+	static const char suffix[] = ".pdeffect";
+	size_t nlen;
+	size_t slen = sizeof(suffix) - 1;
+	if (!name) return 0;
+	nlen = strlen(name);
+	if (nlen < slen) return 0;
+	name += nlen - slen;
+	for (size_t i = 0; i < slen; i++) {
+		if (tolower((unsigned char)name[i]) != suffix[i]) return 0;
+	}
+	return 1;
+}
+
+static s32 s_collectEmbeddedEffectNames(const char *entryName,
+		u32 uncompressedSize, void *user)
+{
+	embedded_effect_name_scan_t *scan = (embedded_effect_name_scan_t *)user;
+	(void)uncompressedSize;
+	if (!effectSuffixMatches(entryName)) {
+		return 0;
+	}
+	if (scan->count >= WEAPON_GRAPH_EMBEDDED_EFFECT_MAX) {
+		scan->overflow = 1;
+		return 0;
+	}
+	copyStr(scan->names[scan->count], sizeof(scan->names[0]), entryName);
+	scan->count++;
+	return 0;
+}
+
+static s32 effectSameNamespace(const char *a, const char *b)
+{
+	const char *ac = a ? strchr(a, ':') : NULL;
+	const char *bc = b ? strchr(b, ':') : NULL;
+	size_t alen;
+	size_t blen;
+	if (!ac || !bc || ac == a || bc == b) return 0;
+	alen = (size_t)(ac - a);
+	blen = (size_t)(bc - b);
+	return alen == blen && strncmp(a, b, alen) == 0;
+}
+
+static void s_registerEmbeddedEffectDeps(const void *container_bytes,
+		u32 container_size, const char *parent_id)
+{
+	embedded_effect_name_scan_t scan;
+	memset(&scan, 0, sizeof(scan));
+	if (modArchiveMemForEachEntry(container_bytes, container_size,
+			s_collectEmbeddedEffectNames, &scan) != MODARCHIVE_OK) {
+		return;
+	}
+	if (scan.overflow) {
+		sysLogPrintf(LOG_WARNING,
+			"WEAPONGRAPH.EFFECT.SCAN: more than %d embedded .pdeffect members; extras ignored",
+			WEAPON_GRAPH_EMBEDDED_EFFECT_MAX);
+	}
+
+	for (s32 i = 0; i < scan.count; i++) {
+		u32 effect_size = 0;
+		void *effect_bytes = modArchiveExtractMemAlloc(container_bytes,
+			container_size, scan.names[i], &effect_size);
+		if (!effect_bytes || effect_size == 0) {
+			free(effect_bytes);
+			sysLogPrintf(LOG_WARNING,
+				"WEAPONGRAPH.EFFECT.SCAN: could not read embedded effect %s",
+				scan.names[i]);
+			continue;
+		}
+
+		weapon_graph_archive_descriptor_t desc;
+		char err[256];
+		err[0] = '\0';
+		if (weaponGraphArchiveReadDescriptorBytes(effect_bytes, effect_size,
+				ASSET_EFFECT, &desc, err, sizeof(err)) != 0) {
+			free(effect_bytes);
+			sysLogPrintf(LOG_WARNING,
+				"WEAPONGRAPH.EFFECT.SCAN: embedded effect %s has a bad effect.ini; skipped: %s",
+				scan.names[i], err[0] ? err : "unknown error");
+			continue;
+		}
+		if (desc.catalog_id[0] &&
+				!effectSameNamespace(parent_id, desc.catalog_id)) {
+			free(effect_bytes);
+			sysLogPrintf(LOG_WARNING,
+				"WEAPONGRAPH.EFFECT.SCAN: embedded effect %s id %s is outside parent namespace %s; skipped",
+				scan.names[i], desc.catalog_id, parent_id);
+			continue;
+		}
+
+		err[0] = '\0';
+		if (effectGraphRuntimeRegisterArchiveBytes(effect_bytes, effect_size,
+				err, sizeof(err)) != 0) {
+			sysLogPrintf(LOG_WARNING,
+				"WEAPONGRAPH.EFFECT.SCAN: embedded effect %s failed to register: %s",
+				scan.names[i], err[0] ? err : "unknown error");
+		} else {
+			sysLogPrintf(LOG_NOTE,
+				"WEAPONGRAPH.EFFECT.INGEST: id=%s source=%s",
+				desc.catalog_id[0] ? desc.catalog_id : "(derived)",
+				scan.names[i]);
+		}
+		free(effect_bytes);
+	}
+}
+
 static s32 weaponGraphRuntimeRegisterWeaponArchiveDependencies(
 	const char *archive_path,
 	const char *parent_id,
@@ -3192,7 +3366,8 @@ static s32 weaponGraphRuntimeRegisterWeaponArchiveDependencies(
 	for (s32 i = 0; i < inventory.count; i++) {
 		const weapon_graph_archive_payload_t *payload = &inventory.payloads[i];
 		if (payload->type != ASSET_PROJECTILE &&
-				payload->type != ASSET_ENTITY) {
+				payload->type != ASSET_ENTITY &&
+				payload->type != ASSET_EFFECT) {
 			continue;
 		}
 
@@ -3212,11 +3387,34 @@ static s32 weaponGraphRuntimeRegisterWeaponArchiveDependencies(
 			goto fail;
 		}
 
+		/* c3849 Unit 8: a top-level nested .pdeffect is a typed payload like
+		 * projectile/entity and registers (loud-fail) into the effect runtime,
+		 * keyed by asset_id string -- no slot allocator, no owner bits. */
+		if (payload->type == ASSET_EFFECT) {
+			if (effectGraphRuntimeRegisterArchiveBytes(nested, nested_size,
+					err, err_cap) != 0) {
+				free(nested);
+				goto fail;
+			}
+			free(nested);
+			if (registered_count < WEAPON_GRAPH_ARCHIVE_MAX_NESTED_PAYLOADS &&
+					payload->catalog_id[0]) {
+				copyStr(registered[registered_count++],
+					sizeof(registered[0]), payload->catalog_id);
+			}
+			continue;
+		}
+
 		/* B-911: register the payload's embedded mesh dependencies before the
 		 * payload IR is compiled/registered, so its model_ref resolves to the
 		 * custom slot during projectileRuntimeFromNode. */
 		s_registerEmbeddedMeshDeps(archive_path, payload->archive_entry,
 			nested, nested_size, parent_id);
+
+		/* c3849 Unit 8: register effects embedded one level deeper (inside
+		 * the projectile/entity bytes), so the payload's impact spark and
+		 * explosion refs resolve once the toggle is on. Loud, non-fatal. */
+		s_registerEmbeddedEffectDeps(nested, nested_size, parent_id);
 
 		weapon_graph_ir_t ir;
 		if (weaponGraphCompileArchiveBytes(nested, nested_size, payload->type,
@@ -3258,6 +3456,9 @@ static s32 weaponGraphRuntimeRegisterWeaponArchiveDependencies(
 
 fail:
 	for (s32 i = 0; i < registered_count; i++) {
+		/* c3849 Unit 8: effect records have no owner bits; clear by id
+		 * (no-op for projectile/entity ids). */
+		effectGraphRuntimeClearAsset(registered[i]);
 		if (owner_weapon >= 0 &&
 				owner_weapon < WEAPON_GRAPH_RUNTIME_MAX_WEAPONS) {
 			s32 projectile = projectileRuntimeFindIndex(registered[i]);

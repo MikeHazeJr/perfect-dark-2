@@ -92,6 +92,12 @@ struct sparktype g_SparkTypes[] = {
 #endif
 };
 
+/* c3849 Unit 8 (B6.9): sparkTypeFor (sparks_custom.c) extends this table
+ * with bounded custom rows; the registry math assumes exactly this many
+ * base rows in BOTH variant blocks. */
+_Static_assert(ARRAYCOUNT(g_SparkTypes) == SPARKTYPE_BASE_COUNT,
+	"g_SparkTypes row count must match SPARKTYPE_BASE_COUNT (game/sparks.h)");
+
 bool g_SparksAreActive = false;
 
 void sparkCreate(struct coord *pos, struct sparktype *type)
@@ -178,7 +184,9 @@ void sparkgroupEnsureFreeSparkSlot(struct sparkgroup *group)
 void sparksCreate(s32 room, struct prop *prop, struct coord *pos, struct coord *arg3, struct coord *arg4, s32 typenum)
 {
 	struct sparkgroup *group = &g_SparkGroups[g_NextSparkGroupIndex];
-	struct sparktype *type = &g_SparkTypes[typenum];
+	/* c3849 Unit 8 (B6.9): route through the registry helper so custom
+	 * (>= SPARKTYPE_BASE_COUNT) typenums resolve; base rows unchanged. */
+	struct sparktype *type = sparkTypeFor(typenum);
 	struct coord grouppos;
 	s32 i;
 
@@ -396,7 +404,8 @@ Gfx *sparksRender(Gfx *gdl)
 				}
 
 				if (render) {
-					type = &g_SparkTypes[group->type];
+					/* c3849 Unit 8 (B6.9): registry-aware lookup. */
+					type = sparkTypeFor(group->type);
 					colours = gfxAllocateColours(2);
 
 					if (USINGDEVICE(DEVICE_NIGHTVISION) || USINGDEVICE(DEVICE_IRSCANNER)) {

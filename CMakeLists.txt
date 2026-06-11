@@ -891,9 +891,13 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/port/src/modarchive.c
   ${CMAKE_SOURCE_DIR}/port/src/weapon_graph_archive.c
   ${CMAKE_SOURCE_DIR}/port/src/weapon_graph_runtime.c
-  # c3849 Wave 5 Unit 1b: OG-executor bridge stubs for .pdeffect refs
-  # (fallback-verbatim contract pinned by [c3849] tests).
+  # c3849 Wave 6b Unit 8: full .pdeffect runtime (compiler, records, bridges)
+  # plus the custom spark-row registry it allocates tinted rows from.
+  # sparks_custom.c is pure (table + constants + log); the base g_SparkTypes
+  # table it indexes is provided by tests/stubs.c in this target.
   ${CMAKE_SOURCE_DIR}/port/src/effect_graph_runtime.c
+  ${CMAKE_SOURCE_DIR}/src/game/sparks_custom.c
+  ${CMAKE_SOURCE_DIR}/tests/test_effect_graph_runtime.cpp
   ${CMAKE_SOURCE_DIR}/port/src/loader_enum_reverse.c
   ${CMAKE_SOURCE_DIR}/port/src/modvfs.c
   ${CMAKE_SOURCE_DIR}/port/src/sha256.c
