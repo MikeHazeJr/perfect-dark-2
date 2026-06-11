@@ -308,6 +308,7 @@ typedef struct asset_entry {
             char shared_context[128];  /* shared context source for split graphs */
             char settings_file[128];   /* editable weapon settings source */
             char variables_file[128];  /* editable weapon variable source */
+            char presentation_file[128]; /* c3849 Wave 5f: bindings/presentation.json (sight/zoom_fov defaults) */
             s32  dual_wieldable;       /* bool: can be dual-wielded */
             u8   requirefeature;       /* unlock check (0 = always available) */
             /* S484 F9 / Mike I.2 (2026-04-27): the legacy headline

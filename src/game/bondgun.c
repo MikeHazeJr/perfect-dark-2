@@ -9533,9 +9533,36 @@ void bgunTickGameplay2(void)
 				player->epcol_1 = 1;
 				player->epcol_2 = 2;
 			} else {
-				// Aiming with non-Farsight
-				if (player->visionmode != VISIONMODE_SLAYERROCKET) {
-					player->visionmode = VISIONMODE_NORMAL;
+				/* c3849 Wave 5f Unit 9: graph camera_effect clause, AFTER the
+				 * OG Farsight clause (OG first and verbatim). The mode is an
+				 * s32 latched at parse (no per-tick strcmp); the gate is the
+				 * toggle-gated ForGameplay accessor so the clause is dormant
+				 * when the runtime is off. xray while aiming takes the
+				 * VISIONMODE_XRAY path with the Farsight constants. */
+				const weapon_graph_held_function_t *camgraph =
+					weaponGraphRuntimeGetHeldFunctionForGameplay(
+						player->hands[HAND_RIGHT].gset.weaponnum,
+						player->hands[HAND_RIGHT].gset.weaponfunc);
+
+				if (camgraph && camgraph->camera_effect_mode == WEAPON_GRAPH_CAMERA_EFFECT_XRAY) {
+					if (player->visionmode != VISIONMODE_XRAY) {
+						player->erasertime = 0;
+					} else {
+						player->erasertime += g_Vars.lvupdate240;
+					}
+
+					player->visionmode = VISIONMODE_XRAY;
+					player->ecol_1 = 16;
+					player->ecol_2 = 24;
+					player->ecol_3 = 8;
+					player->epcol_0 = 0;
+					player->epcol_1 = 1;
+					player->epcol_2 = 2;
+				} else {
+					// Aiming with non-Farsight
+					if (player->visionmode != VISIONMODE_SLAYERROCKET) {
+						player->visionmode = VISIONMODE_NORMAL;
+					}
 				}
 			}
 		} else {

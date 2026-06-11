@@ -4690,7 +4690,12 @@ void mpsetupfileSaveWad(struct savebuffer *buffer)
 
 	scenarioWriteSave(buffer);
 
-	savebufferOr(buffer, g_MpSetup.options, 32);
+	/* c3849 Wave 5f (B6.5): MPOPTION_WEAPONGRAPH is transient per-match debug
+	 * semantics latched from the host at SVC_STAGE_START; mask it out so it
+	 * never persists into the MP-setup save. This is the ONLY serialization
+	 * path for g_MpSetup.options (mpsetupfileSaveWad), so masking here covers
+	 * every save. */
+	savebufferOr(buffer, g_MpSetup.options & ~MPOPTION_WEAPONGRAPH, 32);
 
 	for (i = 0; i < MAX_BOTS; i++) {
 		savebufferOr(buffer, g_BotConfigsArray[i].type, 5);

@@ -53,6 +53,7 @@
 #include "assetcatalog.h"
 #include "audio.h"
 #include "modmusic.h"
+#include "weapon_graph_runtime.h"  /* c3849 Wave 5f: MPOPTION_WEAPONGRAPH latch */
 #if !defined(PD_SERVER)
 #include "modelcatalog.h"
 #include "game/mplayer/scenarios.h"
@@ -1268,7 +1269,12 @@ u32 netmsgSvcStageStartWrite(struct netbuf *dst)
 		/* v37: active-slot bitmap derived from the participant pool.
 		 * Bits 0..MAX_PLAYERS-1 = players, MAX_PLAYERS..MAX_MPCHRS-1 = bots. */
 		netbufWriteU64(dst, mpParticipantsEncodeActiveMask());
-		netbufWriteU32(dst, g_MpSetup.options);
+		/* c3849 Wave 5f (B6.5): host ORs MPOPTION_WEAPONGRAPH onto the wire
+		 * copy only -- g_MpSetup.options itself is never mutated, so the bit
+		 * cannot leak into the host's own MP-setup state. Host-side only:
+		 * the bit fires only when the host's local toggle is on. */
+		netbufWriteU32(dst, g_MpSetup.options
+			| (weaponGraphRuntimeEnabled() ? MPOPTION_WEAPONGRAPH : 0));
 		/* SA-3: weapons as session IDs (NUM_MPWEAPONSLOTS u16 entries) */
 		{
 			s32 wi;
@@ -1545,6 +1551,12 @@ u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)
 			mpParticipantsDecodeActiveMask(active_mask);
 		}
 		g_MpSetup.options = netbufReadU32(src);
+		/* c3849 Wave 5f (B6.5): the client follows the host's weapon-graph
+		 * toggle for the match. The latch saves the pre-match local toggle
+		 * once; netmsgSvcStageEndRead and netDisconnect both restore it
+		 * (idempotent, no-op when nothing was latched). */
+		weaponGraphRuntimeNetLatchEnabled(
+			(g_MpSetup.options & MPOPTION_WEAPONGRAPH) != 0);
 		/* SA-3: weapons as session IDs */
 		{
 			s32 wi;
@@ -2004,6 +2016,11 @@ u32 netmsgSvcStageEndRead(struct netbuf *src, struct netclient *srccl)
 
 	/* SA-1: tear down session catalog on match end (client-side). */
 	sessionCatalogTeardown();
+
+	/* c3849 Wave 5f (B6.5): restore the pre-match local weapon-graph toggle.
+	 * Idempotent; netDisconnect carries the same restore for the
+	 * disconnect-before-stage-end path. */
+	weaponGraphRuntimeNetRestoreEnabled();
 
 	/* L1-1: clear stale client manifest so no match-N assets leak into match N+1.
 	 * The manifest is fully rebuilt when SVC_MATCH_MANIFEST arrives for the next

@@ -56,6 +56,7 @@
 #include "sha256.h"
 #include "server_bans.h"
 #include "scene_transition.h"
+#include "weapon_graph_runtime.h"  /* c3849 Wave 5f: MPOPTION_WEAPONGRAPH restore */
 #if defined(_WIN32)
 #include <windows.h>
 #include <bcrypt.h>
@@ -1313,6 +1314,12 @@ s32 netDisconnect(void)
 	g_NetLocalBotAuthority = false;
 	g_NetPendingBotAuthority = false;
 	g_NetBotAuthorityClientId = NET_NULL_CLIENT;
+
+	/* c3849 Wave 5f (B6.5): if a disconnect lands before SVC_STAGE_END, the
+	 * stage-end restore never ran -- restore the pre-match weapon-graph
+	 * toggle here. Idempotent: no-op when nothing was latched (including
+	 * after a normal stage-end restore already fired). */
+	weaponGraphRuntimeNetRestoreEnabled();
 
 	/* MASTER-C3: drop the identity cookie so a fresh connect to any server
 	 * begins as a new player.  Cookies are scoped to a single session —

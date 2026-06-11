@@ -62,6 +62,7 @@ static void s_bindWeaponArchiveSource(asset_entry_t *e,
     e->ext.weapon.shared_context[0] = '\0';
     e->ext.weapon.settings_file[0] = '\0';
     e->ext.weapon.variables_file[0] = '\0';
+    e->ext.weapon.presentation_file[0] = '\0';
     catalogSetPrimaryFile(e, file_path);
 }
 
@@ -137,6 +138,11 @@ static void s_bindWeaponArchiveSourceMembers(asset_entry_t *e,
     s_copyManifestMemberPathAlias(manifest, manifest_len, "shared_context_file",
         "shared_context", file_path, e->ext.weapon.shared_context,
         sizeof(e->ext.weapon.shared_context));
+    /* c3849 Wave 5f: presentation fold-in. Field-for-field parity with
+     * assetcatalog_scanner.c and netdistrib.c -- keep all three in sync. */
+    s_copyManifestMemberPathAlias(manifest, manifest_len, "presentation_file",
+        "presentation", file_path, e->ext.weapon.presentation_file,
+        sizeof(e->ext.weapon.presentation_file));
 }
 
 static s32 s_register(const char *manifest, size_t manifest_len,

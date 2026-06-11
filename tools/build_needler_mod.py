@@ -563,12 +563,15 @@ def build_weapon(needle_mesh: bytes, crystal_material: bytes, body_texture: byte
          "manifest = _meta/manifest.json\n"),
         ("behavior/primary.graph.json", primary_graph),
         ("behavior/secondary.graph.json", secondary_graph),
+        # c3849 Wave 5f (B6.4): canonical schema spellings converge on the
+        # base emitter strings (pd.weapon_settings.v1 / pd.weapon_variables.v1);
+        # the old dotted spellings stay accepted at parse with a LOG_WARNING.
         ("behavior/settings.json", dumps_graph({
-            "schema": "pd.weapon.settings.v1",
+            "schema": "pd.weapon_settings.v1",
             "fire_cadence": {"value": 8, "unit": "centiseconds"},
         })),
         ("behavior/variables.json", dumps_graph({
-            "schema": "pd.weapon.variables.v1",
+            "schema": "pd.weapon_variables.v1",
             "ammo_clip": 20,
             "ammo_reserve": 100,
         })),

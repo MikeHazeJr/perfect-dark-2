@@ -41,8 +41,22 @@ typedef struct module_info {
 	((WEAPON_GRAPH_RUNTIME_MAX_WEAPONS + 31) / 32)
 
 static s32 s_runtime_enabled = 0;
+/* c3849 Wave 5f Unit 9 (B6.5): MP latch state. s_net_latched flags that a
+ * match latch is active; s_net_saved_enabled is the pre-match local toggle. */
+static s32 s_net_latched = 0;
+static s32 s_net_saved_enabled = 0;
 static weapon_graph_held_function_t
 	s_held_functions[WEAPON_GRAPH_RUNTIME_MAX_WEAPONS][WEAPON_GRAPH_RUNTIME_MAX_FUNCS];
+/* c3849 Wave 5f Unit 2: per-weapon tunables beside the held records. */
+static weapon_graph_weapon_settings_t
+	s_weapon_settings[WEAPON_GRAPH_RUNTIME_MAX_WEAPONS];
+/* c3849 Wave 5f Unit 2 (B6.3): variables table active for the CURRENT held
+ * weapon graph compile. compileParam resolves "$name" string params from it;
+ * NULL means no substitution scope (behavior graphs, bare compile calls).
+ * Single-threaded by contract: the walker serializes register_fn under
+ * register_mutex (loader_walker_common.c) and the loose/catalog path runs on
+ * the activation thread. */
+static const weapon_graph_weapon_settings_t *s_compile_variables = NULL;
 static weapon_graph_projectile_runtime_t
 	s_projectile_runtimes[WEAPON_GRAPH_RUNTIME_MAX_PROJECTILES];
 static weapon_graph_entity_runtime_t
@@ -497,6 +511,30 @@ void weaponGraphRuntimeSetEnabled(s32 enabled)
 	s_runtime_enabled = enabled ? 1 : 0;
 }
 
+/* c3849 Wave 5f Unit 9 (B6.5): client-side MP latch. The first latch of a
+ * match saves the local toggle; repeat latches (resyncs, repeated stage
+ * starts) keep the ORIGINAL saved value so the eventual restore returns to
+ * the true pre-match state. */
+void weaponGraphRuntimeNetLatchEnabled(s32 enabled)
+{
+	if (!s_net_latched) {
+		s_net_latched = 1;
+		s_net_saved_enabled = s_runtime_enabled;
+	}
+	weaponGraphRuntimeSetEnabled(enabled);
+}
+
+/* Idempotent: a second restore (stage end followed by disconnect) and a
+ * restore with no prior latch are both no-ops. */
+void weaponGraphRuntimeNetRestoreEnabled(void)
+{
+	if (!s_net_latched) {
+		return;
+	}
+	s_net_latched = 0;
+	weaponGraphRuntimeSetEnabled(s_net_saved_enabled);
+}
+
 /* c3849 Unit 1b (binding spec B2): single explosion-ref table. Values mirror
  * the EXPLOSIONTYPE_* constants (constants.h:919-940, included above). The
  * pdeffect class words (tiny/small/medium/...) are legal ONLY inside
@@ -683,6 +721,8 @@ void weaponGraphRuntimeClearWeapon(s32 weaponnum)
 {
 	if (weaponnum < 0 || weaponnum >= WEAPON_GRAPH_RUNTIME_MAX_WEAPONS) return;
 	memset(s_held_functions[weaponnum], 0, sizeof(s_held_functions[weaponnum]));
+	/* c3849 Wave 5f Unit 2: tunables share the held-record lifecycle. */
+	memset(&s_weapon_settings[weaponnum], 0, sizeof(s_weapon_settings[weaponnum]));
 	weaponGraphRuntimeClearWeaponDependencies(weaponnum);
 }
 
@@ -793,6 +833,7 @@ void weaponGraphRuntimeClearAsset(const char *asset_id)
 void weaponGraphRuntimeClearAll(void)
 {
 	memset(s_held_functions, 0, sizeof(s_held_functions));
+	memset(s_weapon_settings, 0, sizeof(s_weapon_settings));
 	memset(s_projectile_runtimes, 0, sizeof(s_projectile_runtimes));
 	memset(s_entity_runtimes, 0, sizeof(s_entity_runtimes));
 	memset(s_projectile_owner_bits, 0, sizeof(s_projectile_owner_bits));
@@ -814,6 +855,25 @@ const weapon_graph_held_function_t *weaponGraphRuntimeGetHeldFunctionForGameplay
 {
 	if (!weaponGraphRuntimeEnabled()) return NULL;
 	return weaponGraphRuntimeGetHeldFunction(weaponnum, funcindex);
+}
+
+const weapon_graph_weapon_settings_t *weaponGraphRuntimeGetWeaponSettings(
+	s32 weaponnum)
+{
+	if (weaponnum < 0 || weaponnum >= WEAPON_GRAPH_RUNTIME_MAX_WEAPONS) {
+		return NULL;
+	}
+	if (!s_weapon_settings[weaponnum].valid) {
+		return NULL;
+	}
+	return &s_weapon_settings[weaponnum];
+}
+
+const weapon_graph_weapon_settings_t *weaponGraphRuntimeGetWeaponSettingsForGameplay(
+	s32 weaponnum)
+{
+	if (!weaponGraphRuntimeEnabled()) return NULL;
+	return weaponGraphRuntimeGetWeaponSettings(weaponnum);
 }
 
 const weapon_graph_projectile_runtime_t *weaponGraphRuntimeGetProjectile(
@@ -987,6 +1047,69 @@ static int cmpParam(const void *a, const void *b)
 	return strcmp(pa->value, pb->value);
 }
 
+static const weapon_graph_setting_entry_t *weaponGraphFindVariable(
+	const weapon_graph_weapon_settings_t *table, const char *name)
+{
+	if (!table || !name || !name[0]) return NULL;
+	for (s32 i = 0; i < table->variable_count; i++) {
+		if (strcmp(table->variables[i].key, name) == 0) {
+			return &table->variables[i];
+		}
+	}
+	return NULL;
+}
+
+/* c3849 Wave 5f Unit 2 (B6.3): "$name" string params resolve from the active
+ * weapon variables table BEFORE the IR is emitted, so the IR digest hashes the
+ * resolved typed value and stays deterministic for a given archive. Scope is
+ * held weapon graphs only: when no variables table is active
+ * (s_compile_variables == NULL -- behavior graphs, bare compile entry points)
+ * the "$" string stays literal. An ACTIVE table that lacks the name is a loud
+ * compile error like any other validation failure. */
+static s32 compileParamSubstituteVariable(weapon_graph_ir_param_t *p,
+                                          char *err, size_t err_cap)
+{
+	const weapon_graph_setting_entry_t *var;
+
+	if (!s_compile_variables) {
+		return 0;
+	}
+
+	var = weaponGraphFindVariable(s_compile_variables, p->value + 1);
+	if (!var) {
+		setErr(err, err_cap, "unresolved weapon variable '%s' for param %s",
+			p->value, p->key);
+		return -1;
+	}
+
+	switch (var->type) {
+	case WEAPON_GRAPH_PARAM_INT:
+		p->type = WEAPON_GRAPH_PARAM_INT;
+		p->i_value = var->i_value;
+		snprintf(p->value, sizeof(p->value), "%d", var->i_value);
+		break;
+	case WEAPON_GRAPH_PARAM_FLOAT:
+		p->type = WEAPON_GRAPH_PARAM_FLOAT;
+		p->f_value = var->f_value;
+		snprintf(p->value, sizeof(p->value), "%.9g", (double)var->f_value);
+		break;
+	case WEAPON_GRAPH_PARAM_BOOL:
+		p->type = WEAPON_GRAPH_PARAM_BOOL;
+		p->b_value = var->b_value;
+		copyStr(p->value, sizeof(p->value), var->b_value ? "true" : "false");
+		break;
+	case WEAPON_GRAPH_PARAM_STRING:
+		p->type = WEAPON_GRAPH_PARAM_STRING;
+		copyStr(p->value, sizeof(p->value), var->value);
+		break;
+	default:
+		setErr(err, err_cap, "weapon variable '%s' has unsupported type for param %s",
+			p->value, p->key);
+		return -1;
+	}
+	return 0;
+}
+
 static s32 compileParam(json_span_t value, char value_type,
                         weapon_graph_ir_param_t *p,
                         char *err, size_t err_cap)
@@ -1001,7 +1124,15 @@ static s32 compileParam(json_span_t value, char value_type,
 			setErr(err, err_cap, "bad string param %s", p->key);
 			return -1;
 		}
-		if (paramIsCatalogRefKey(p->key) && p->value[0] &&
+		/* B6.3: $name resolves from the active variables table before the
+		 * catalog-ref shape check, so a substituted ref validates like a
+		 * directly-authored one. */
+		if (p->value[0] == '$' && p->value[1] &&
+				compileParamSubstituteVariable(p, err, err_cap) != 0) {
+			return -1;
+		}
+		if (p->type == WEAPON_GRAPH_PARAM_STRING &&
+				paramIsCatalogRefKey(p->key) && p->value[0] &&
 				!catalogRefLooksValid(p->value)) {
 			setErr(err, err_cap, "%s must be a catalog id, got %s",
 				p->key, p->value);
@@ -1759,12 +1890,419 @@ fail:
 	return -1;
 }
 
+/* ---------------------------------------------------------------------------
+ * c3849 Wave 5f Unit 2: settings.json / variables.json / presentation.json
+ * parsers. Both schema spellings are accepted (canonical pd.weapon_settings.v1
+ * / pd.weapon_variables.v1 per B6.4; the needler pd.weapon.settings.v1 /
+ * pd.weapon.variables.v1 spellings warn once) and both shapes (the base
+ * "variables": [] array of {name,value,...} rows and the needler flat object
+ * keys, where a member value may be a scalar or a {value, unit} object).
+ * ------------------------------------------------------------------------- */
+
+static s32 weaponGraphSettingScalar(json_span_t value, char value_type,
+                                    weapon_graph_setting_entry_t *e,
+                                    char *err, size_t err_cap)
+{
+	char *endptr = NULL;
+	const char *v = jsonSkipWs(value.start, value.end);
+
+	if (value_type == '"') {
+		e->type = WEAPON_GRAPH_PARAM_STRING;
+		if (!readJsonStringSpan(value, e->value, sizeof(e->value))) {
+			setErr(err, err_cap, "bad string value for tunable %s", e->key);
+			return -1;
+		}
+	} else if (startsWith(v, "true") || startsWith(v, "false")) {
+		e->type = WEAPON_GRAPH_PARAM_BOOL;
+		e->b_value = startsWith(v, "true") ? 1 : 0;
+		copyStr(e->value, sizeof(e->value), e->b_value ? "true" : "false");
+	} else if (startsWith(v, "null")) {
+		e->type = WEAPON_GRAPH_PARAM_NULL;
+		copyStr(e->value, sizeof(e->value), "null");
+	} else {
+		double d = strtod(v, &endptr);
+		if (endptr == v) {
+			setErr(err, err_cap, "unsupported value for tunable %s", e->key);
+			return -1;
+		}
+		if (memchr(v, '.', (size_t)(endptr - v)) ||
+				memchr(v, 'e', (size_t)(endptr - v)) ||
+				memchr(v, 'E', (size_t)(endptr - v))) {
+			e->type = WEAPON_GRAPH_PARAM_FLOAT;
+			e->f_value = (f32)d;
+			e->i_value = (s32)d;
+			snprintf(e->value, sizeof(e->value), "%.9g", d);
+		} else {
+			long i = strtol(v, NULL, 10);
+			e->type = WEAPON_GRAPH_PARAM_INT;
+			e->i_value = (s32)i;
+			e->f_value = (f32)i;
+			snprintf(e->value, sizeof(e->value), "%ld", i);
+		}
+	}
+	return 0;
+}
+
+static s32 weaponGraphTunableKeyReserved(const char *key)
+{
+	return strcmp(key, "schema") == 0 ||
+		strcmp(key, "asset_id") == 0 ||
+		strcmp(key, "catalog_id") == 0 ||
+		strcmp(key, "graph_id") == 0 ||
+		strcmp(key, "dependency_closure") == 0;
+}
+
+/* The fixed defaults-layer key map (Unit 9). Settings keys outside it are
+ * stored but noted: nothing consumes them yet. */
+static s32 weaponGraphSettingKeyKnown(const char *key)
+{
+	return strcmp(key, "fire_cadence") == 0 ||
+		strcmp(key, "spread") == 0 ||
+		strcmp(key, "zoom_fov") == 0 ||
+		strcmp(key, "sight") == 0;
+}
+
+static s32 weaponGraphTunableAppend(const char *label, s32 is_variables,
+                                    const char *key,
+                                    json_span_t value, char value_type,
+                                    weapon_graph_setting_entry_t *out,
+                                    s32 cap, s32 *count,
+                                    char *err, size_t err_cap)
+{
+	weapon_graph_setting_entry_t *e;
+
+	if (*count >= cap) {
+		setErr(err, err_cap, "too many weapon %s entries (max %d)", label, cap);
+		return -1;
+	}
+	e = &out[*count];
+	memset(e, 0, sizeof(*e));
+	copyStr(e->key, sizeof(e->key), key);
+
+	if (value_type == '{') {
+		/* {value, unit} object form (needler fire_cadence shape). */
+		json_span_t obj;
+		json_span_t member;
+		char member_key[WEAPON_GRAPH_IR_KEY_LEN];
+		char member_type;
+		const char *cursor = NULL;
+		s32 saw_value = 0;
+		if (!jsonReadObject(value.start, value.end, &obj)) {
+			setErr(err, err_cap, "bad object value for tunable %s", key);
+			return -1;
+		}
+		while (jsonObjectNextMember(obj, &cursor, member_key,
+				sizeof(member_key), &member, &member_type)) {
+			if (strcmp(member_key, "value") == 0) {
+				if (weaponGraphSettingScalar(member, member_type, e,
+						err, err_cap) != 0) {
+					return -1;
+				}
+				saw_value = 1;
+			} else if (strcmp(member_key, "unit") == 0) {
+				readJsonStringSpan(member, e->unit, sizeof(e->unit));
+			}
+		}
+		if (!saw_value) {
+			setErr(err, err_cap, "tunable %s object form requires a value member",
+				key);
+			return -1;
+		}
+	} else if (value_type == '[') {
+		setErr(err, err_cap, "tunable %s must be a scalar or {value, unit} object",
+			key);
+		return -1;
+	} else if (weaponGraphSettingScalar(value, value_type, e,
+			err, err_cap) != 0) {
+		return -1;
+	}
+
+	/* Explicit-unit enforcement on time-like keys, mirroring the graph
+	 * param validator (keyNeedsUnit/keyHasUnit). The unit row satisfies it. */
+	if (keyNeedsUnit(e->key) && !keyHasUnit(e->key) && !e->unit[0]) {
+		setErr(err, err_cap, "time-like %s key %s needs explicit units",
+			label, e->key);
+		return -1;
+	}
+
+	if (!is_variables && !weaponGraphSettingKeyKnown(e->key)) {
+		sysLogPrintf(LOG_NOTE,
+			"WEAPONGRAPH.SETTINGS: setting '%s' has no consumer yet; stored only",
+			e->key);
+	}
+
+	(*count)++;
+	return 0;
+}
+
+static s32 weaponGraphTunablesSchemaOk(json_span_t root, s32 is_variables,
+                                       char *err, size_t err_cap)
+{
+	static s32 s_warned_legacy_settings_schema = 0;
+	static s32 s_warned_legacy_variables_schema = 0;
+	char schema[64];
+	const char *canonical = is_variables ?
+		"pd.weapon_variables.v1" : "pd.weapon_settings.v1";
+	const char *legacy = is_variables ?
+		"pd.weapon.variables.v1" : "pd.weapon.settings.v1";
+
+	schema[0] = '\0';
+	jsonObjectString(root, "schema", schema, sizeof(schema));
+	if (strcmp(schema, canonical) == 0) {
+		return 0;
+	}
+	if (strcmp(schema, legacy) == 0) {
+		s32 *warned = is_variables ?
+			&s_warned_legacy_variables_schema : &s_warned_legacy_settings_schema;
+		if (!*warned) {
+			*warned = 1;
+			sysLogPrintf(LOG_WARNING,
+				"WEAPONGRAPH.SETTINGS: schema '%s' is deprecated; use '%s' (B6.4)",
+				legacy, canonical);
+		}
+		return 0;
+	}
+	setErr(err, err_cap, "weapon %s schema must be %s",
+		is_variables ? "variables" : "settings", canonical);
+	return -1;
+}
+
+static s32 weaponGraphParseTunablesJson(const char *json, u32 json_size,
+                                        s32 is_variables,
+                                        weapon_graph_setting_entry_t *out,
+                                        s32 cap, s32 *count,
+                                        char *err, size_t err_cap)
+{
+	json_span_t root;
+	json_span_t rows;
+	const char *label = is_variables ? "variables" : "settings";
+	const char *cursor = NULL;
+	char key[WEAPON_GRAPH_IR_KEY_LEN];
+	json_span_t value;
+	char value_type;
+
+	*count = 0;
+	if (!json || json_size == 0) {
+		return 0;
+	}
+	if (!jsonReadObject(json, json + json_size, &root)) {
+		setErr(err, err_cap, "weapon %s source is not a JSON object", label);
+		return -1;
+	}
+	if (weaponGraphTunablesSchemaOk(root, is_variables, err, err_cap) != 0) {
+		return -1;
+	}
+
+	/* Shape 1: "settings"/"variables" array of {name|key, value, unit} rows
+	 * (the base emitter's variables shape). */
+	if (jsonObjectArray(root, label, &rows)) {
+		json_span_t row;
+		while (jsonArrayNextObject(rows, &cursor, &row)) {
+			char name[WEAPON_GRAPH_IR_KEY_LEN];
+			const char *value_start;
+			name[0] = '\0';
+			if (!jsonObjectString(row, "name", name, sizeof(name)) &&
+					!jsonObjectString(row, "key", name, sizeof(name))) {
+				setErr(err, err_cap, "weapon %s row missing name", label);
+				return -1;
+			}
+			value_start = jsonFindKeyInObject(row, "value");
+			if (!value_start) {
+				setErr(err, err_cap, "weapon %s row %s missing value",
+					label, name);
+				return -1;
+			}
+			value.start = jsonSkipWs(value_start, row.end);
+			value.end = jsonValueEnd(value.start, row.end);
+			value_type = value.start < row.end ? *value.start : '\0';
+			if (weaponGraphTunableAppend(label, is_variables, name,
+					value, value_type, out, cap, count, err, err_cap) != 0) {
+				return -1;
+			}
+			/* Row-level unit overrides nothing if absent: the append above
+			 * captured a {value,unit} object when authored that way. */
+			if (*count > 0 && !out[*count - 1].unit[0]) {
+				jsonObjectString(row, "unit", out[*count - 1].unit,
+					sizeof(out[*count - 1].unit));
+			}
+		}
+	}
+
+	/* Shape 2: flat object keys (the needler shape). Reserved envelope keys
+	 * and the array member itself are skipped. */
+	cursor = NULL;
+	while (jsonObjectNextMember(root, &cursor, key, sizeof(key),
+			&value, &value_type)) {
+		if (weaponGraphTunableKeyReserved(key) || strcmp(key, label) == 0) {
+			continue;
+		}
+		if (weaponGraphTunableAppend(label, is_variables, key,
+				value, value_type, out, cap, count, err, err_cap) != 0) {
+			return -1;
+		}
+	}
+
+	return 0;
+}
+
+/* presentation.json fold-in: sight / zoom_fov land in the SAME defaults layer
+ * as settings.json rows (settings.json wins on key collision); "crosshair"
+ * is a no-op for "default" and a one-time LOG_NOTE otherwise (pending the
+ * .pdui reticle runtime); unknown keys are noted. */
+static s32 weaponGraphParsePresentationJson(const char *json, u32 json_size,
+                                            weapon_graph_weapon_settings_t *table,
+                                            char *err, size_t err_cap)
+{
+	json_span_t root;
+	const char *cursor = NULL;
+	char key[WEAPON_GRAPH_IR_KEY_LEN];
+	json_span_t value;
+	char value_type;
+
+	if (!json || json_size == 0) {
+		return 0;
+	}
+	if (!jsonReadObject(json, json + json_size, &root)) {
+		setErr(err, err_cap, "weapon presentation source is not a JSON object");
+		return -1;
+	}
+
+	while (jsonObjectNextMember(root, &cursor, key, sizeof(key),
+			&value, &value_type)) {
+		if (weaponGraphTunableKeyReserved(key)) {
+			continue;
+		}
+		if (strcmp(key, "crosshair") == 0) {
+			char crosshair[64];
+			crosshair[0] = '\0';
+			readJsonStringSpan(value, crosshair, sizeof(crosshair));
+			if (crosshair[0] && strcmp(crosshair, "default") != 0) {
+				static s32 s_noted_crosshair = 0;
+				if (!s_noted_crosshair) {
+					s_noted_crosshair = 1;
+					sysLogPrintf(LOG_NOTE,
+						"WEAPONGRAPH.PRESENTATION: crosshair '%s' has no reticle runtime yet; ignored",
+						crosshair);
+				}
+			}
+			continue;
+		}
+		if (strcmp(key, "sight") == 0 || strcmp(key, "zoom_fov") == 0) {
+			s32 already = 0;
+			for (s32 i = 0; i < table->setting_count; i++) {
+				if (strcmp(table->settings[i].key, key) == 0) {
+					already = 1;
+					break;
+				}
+			}
+			if (already) {
+				continue;
+			}
+			if (weaponGraphTunableAppend("presentation", 0, key, value,
+					value_type, table->settings, WEAPON_GRAPH_SETTINGS_MAX,
+					&table->setting_count, err, err_cap) != 0) {
+				return -1;
+			}
+			continue;
+		}
+		sysLogPrintf(LOG_NOTE,
+			"WEAPONGRAPH.PRESENTATION: key '%s' has no consumer yet; ignored",
+			key);
+	}
+
+	return 0;
+}
+
+static s32 weaponGraphParseWeaponTunables(const char *settings_json,
+                                          u32 settings_size,
+                                          const char *variables_json,
+                                          u32 variables_size,
+                                          const char *presentation_json,
+                                          u32 presentation_size,
+                                          weapon_graph_weapon_settings_t *out,
+                                          char *err, size_t err_cap)
+{
+	memset(out, 0, sizeof(*out));
+	if (weaponGraphParseTunablesJson(settings_json, settings_size, 0,
+			out->settings, WEAPON_GRAPH_SETTINGS_MAX, &out->setting_count,
+			err, err_cap) != 0) {
+		return -1;
+	}
+	if (weaponGraphParseTunablesJson(variables_json, variables_size, 1,
+			out->variables, WEAPON_GRAPH_SETTINGS_MAX, &out->variable_count,
+			err, err_cap) != 0) {
+		return -1;
+	}
+	if (weaponGraphParsePresentationJson(presentation_json, presentation_size,
+			out, err, err_cap) != 0) {
+		return -1;
+	}
+	if ((settings_json && settings_size) || (variables_json && variables_size) ||
+			(presentation_json && presentation_size)) {
+		out->valid = 1;
+	}
+	return 0;
+}
+
+/* Archive-side tunables read. A descriptor entry that names a member which
+ * cannot be read is a loud failure (the descriptor promised it); an absent
+ * descriptor entry is a silent skip (legacy/test archives). */
+static s32 weaponGraphArchiveReadTunables(
+	const char *archive_path,
+	const weapon_graph_archive_descriptor_t *desc,
+	weapon_graph_weapon_settings_t *out,
+	char *err, size_t err_cap)
+{
+	char *settings = NULL;
+	char *variables = NULL;
+	char *presentation = NULL;
+	u32 settings_size = 0;
+	u32 variables_size = 0;
+	u32 presentation_size = 0;
+	s32 result;
+
+	memset(out, 0, sizeof(*out));
+	if (desc->settings[0] &&
+			weaponGraphArchiveReadTextFile(archive_path, desc->settings,
+			&settings, &settings_size) != 0) {
+		setErr(err, err_cap, "%s missing settings entry %s",
+			archive_path, desc->settings);
+		return -1;
+	}
+	if (desc->variables[0] &&
+			weaponGraphArchiveReadTextFile(archive_path, desc->variables,
+			&variables, &variables_size) != 0) {
+		free(settings);
+		setErr(err, err_cap, "%s missing variables entry %s",
+			archive_path, desc->variables);
+		return -1;
+	}
+	if (desc->presentation[0] &&
+			weaponGraphArchiveReadTextFile(archive_path, desc->presentation,
+			&presentation, &presentation_size) != 0) {
+		free(settings);
+		free(variables);
+		setErr(err, err_cap, "%s missing presentation entry %s",
+			archive_path, desc->presentation);
+		return -1;
+	}
+
+	result = weaponGraphParseWeaponTunables(settings, settings_size,
+		variables, variables_size, presentation, presentation_size,
+		out, err, err_cap);
+	free(settings);
+	free(variables);
+	free(presentation);
+	return result;
+}
+
 s32 weaponGraphCompileArchiveFile(const char *archive_path,
                                   asset_type_e graph_type,
                                   weapon_graph_ir_t *out,
                                   char *err, size_t err_cap)
 {
 	weapon_graph_archive_descriptor_t desc;
+	weapon_graph_weapon_settings_t vartable;
 	char *graph = NULL;
 	u32 graph_size = 0;
 	s32 result;
@@ -1776,24 +2314,54 @@ s32 weaponGraphCompileArchiveFile(const char *archive_path,
 			&desc, err, err_cap) != 0) {
 		return -1;
 	}
+
+	/* c3849 Wave 5f Unit 2 (B6.3): a held weapon archive that ships a
+	 * variables file gets $name substitution at this compile, so digests are
+	 * identical between bare compiles and the register path. An empty
+	 * variables table is still an ACTIVE substitution scope: unresolved
+	 * $refs in such graphs fail loudly. */
+	if (graph_type == ASSET_WEAPON && desc.variables[0]) {
+		char *vtext = NULL;
+		u32 vsize = 0;
+		if (weaponGraphArchiveReadTextFile(archive_path, desc.variables,
+				&vtext, &vsize) != 0) {
+			setErr(err, err_cap, "%s missing variables entry %s",
+				archive_path, desc.variables);
+			return -1;
+		}
+		memset(&vartable, 0, sizeof(vartable));
+		result = weaponGraphParseTunablesJson(vtext, vsize, 1,
+			vartable.variables, WEAPON_GRAPH_SETTINGS_MAX,
+			&vartable.variable_count, err, err_cap);
+		free(vtext);
+		if (result != 0) {
+			return -1;
+		}
+		vartable.valid = 1;
+		s_compile_variables = &vartable;
+	}
 	if (desc.behavior_graph[0]) {
 		if (weaponGraphArchiveReadTextFile(archive_path, desc.behavior_graph,
 				&graph, &graph_size) != 0) {
 			setErr(err, err_cap, "%s missing graph entry %s",
 				archive_path, desc.behavior_graph);
+			s_compile_variables = NULL;
 			return -1;
 		}
 	} else if (graph_type == ASSET_WEAPON) {
 		if (composeWeaponGraphFromAuthoringFiles(archive_path, &desc,
 				&graph, &graph_size, err, err_cap) != 0) {
+			s_compile_variables = NULL;
 			return -1;
 		}
 	} else {
 		setErr(err, err_cap, "%s has no behavior_graph", archive_path);
+		s_compile_variables = NULL;
 		return -1;
 	}
 	result = weaponGraphCompileJson(graph_type, graph, graph_size, out,
 		err, err_cap);
+	s_compile_variables = NULL;
 	free(graph);
 	if (result == 0 && desc.catalog_id[0] && out->asset_id[0] &&
 			strcmp(desc.catalog_id, out->asset_id) != 0) {
@@ -3083,6 +3651,134 @@ static void heldFunctionFromNode(const weapon_graph_ir_t *ir,
 		sizeof(out->overlay_ref));
 	heldParamString(ir, node, "camera_effect", out->camera_effect,
 		sizeof(out->camera_effect));
+	/* c3849 Wave 5f Unit 9: latch camera_effect to an s32 enum at parse so
+	 * the bgunTick vision arm never strcmps per tick (B3). Unknown values
+	 * get a one-time LOG_NOTE and stay NONE. */
+	out->camera_effect_mode = WEAPON_GRAPH_CAMERA_EFFECT_NONE;
+	if (out->camera_effect[0]) {
+		if (strcmp(out->camera_effect, "xray") == 0) {
+			out->camera_effect_mode = WEAPON_GRAPH_CAMERA_EFFECT_XRAY;
+		} else if (strcmp(out->camera_effect, "none") != 0) {
+			static s32 s_noted_camera_effect = 0;
+			if (!s_noted_camera_effect) {
+				s_noted_camera_effect = 1;
+				sysLogPrintf(LOG_NOTE,
+					"WEAPONGRAPH.PARSE: camera_effect '%s' has no backend yet; latching none",
+					out->camera_effect);
+			}
+		}
+	}
+}
+
+static f32 weaponGraphSettingNumber(const weapon_graph_setting_entry_t *e)
+{
+	if (e->type == WEAPON_GRAPH_PARAM_FLOAT) return e->f_value;
+	if (e->type == WEAPON_GRAPH_PARAM_INT) return (f32)e->i_value;
+	return 0.0f;
+}
+
+/* fire_cadence -> rpm (canonical unit per B6.6; absent unit = rpm). Explicit
+ * period units convert: centiseconds (6000/v, the needler authoring) and
+ * ticks60 (3600/v). Unknown units latch 0 loudly (no mapping). */
+static f32 weaponGraphSettingCadenceRpm(const weapon_graph_setting_entry_t *e)
+{
+	f32 v = weaponGraphSettingNumber(e);
+	if (v <= 0.0f) {
+		return 0.0f;
+	}
+	if (!e->unit[0] || strcmp(e->unit, "rpm") == 0) {
+		return v;
+	}
+	if (strcmp(e->unit, "centiseconds") == 0) {
+		return 6000.0f / v;
+	}
+	if (strcmp(e->unit, "ticks60") == 0) {
+		return 3600.0f / v;
+	}
+	policyLatchUnknown("fire_cadence unit", e->unit, 0);
+	return 0.0f;
+}
+
+/* c3849 Wave 5f Unit 9: defaults layering. After held node param capture
+ * completes for a weapon's functions, settings rows fill ONLY fields whose
+ * has_* bit is still 0 -- node params always win. Fixed key map, conservative:
+ * - spread     -> has_spread/spread
+ * - zoom_fov   -> has_zoom_fov/zoom_fov
+ * - sight      -> has_sight/sight (int or heldSightId string)
+ * - fire_cadence (rpm) -> max_rpm for fire.auto_cadence functions ONLY
+ *   (weaponGetNumTicksPerShot + the bondgun auto path consume it); for every
+ *   other function it converts to recoverytime_ticks60 (3600/rpm), the
+ *   cadence field the bondgun recovery sites consume. It must never set
+ *   has_max_rpm on a non-auto function: bondgun.c classifies a function as
+ *   automatic by exactly that bit. initial_rpm is deliberately NOT filled --
+ *   one rpm number cannot express a spin-up curve and the consumer falls back
+ *   gracefully.
+ * Base archives carry zero tunables, so this layer is empty for base weapons
+ * (asserted in tests). */
+static void weaponGraphApplySettingsDefaults(s32 weaponnum)
+{
+	const weapon_graph_weapon_settings_t *table;
+
+	if (weaponnum < 0 || weaponnum >= WEAPON_GRAPH_RUNTIME_MAX_WEAPONS) {
+		return;
+	}
+	table = &s_weapon_settings[weaponnum];
+	if (!table->valid || table->setting_count <= 0) {
+		return;
+	}
+
+	for (s32 func = 0; func < WEAPON_GRAPH_RUNTIME_MAX_FUNCS; func++) {
+		weapon_graph_held_function_t *held = &s_held_functions[weaponnum][func];
+		if (!held->valid) {
+			continue;
+		}
+		for (s32 i = 0; i < table->setting_count; i++) {
+			const weapon_graph_setting_entry_t *e = &table->settings[i];
+			s32 numeric = e->type == WEAPON_GRAPH_PARAM_FLOAT ||
+				e->type == WEAPON_GRAPH_PARAM_INT;
+			if (strcmp(e->key, "spread") == 0) {
+				if (!held->has_spread && numeric) {
+					held->has_spread = 1;
+					held->spread = weaponGraphSettingNumber(e);
+				}
+			} else if (strcmp(e->key, "zoom_fov") == 0) {
+				if (!held->has_zoom_fov && numeric) {
+					held->has_zoom_fov = 1;
+					held->zoom_fov = weaponGraphSettingNumber(e);
+				}
+			} else if (strcmp(e->key, "sight") == 0) {
+				if (!held->has_sight) {
+					if (e->type == WEAPON_GRAPH_PARAM_INT) {
+						held->has_sight = 1;
+						held->sight = (u32)e->i_value;
+					} else if (e->type == WEAPON_GRAPH_PARAM_STRING) {
+						s32 id = heldSightId(e->value);
+						if (id >= 0) {
+							held->has_sight = 1;
+							held->sight = (u32)id;
+						}
+					}
+				}
+			} else if (strcmp(e->key, "fire_cadence") == 0) {
+				f32 rpm = weaponGraphSettingCadenceRpm(e);
+				if (rpm > 0.0f) {
+					if (held->opcode == WEAPON_GRAPH_OP_FIRE_AUTO_CADENCE) {
+						if (!held->has_max_rpm) {
+							held->has_max_rpm = 1;
+							held->max_rpm = rpm;
+						}
+					} else if (!held->has_recoverytime_ticks60) {
+						s32 ticks = (s32)((3600.0f / rpm) + 0.5f);
+						if (ticks < 1) {
+							ticks = 1;
+						}
+						held->has_recoverytime_ticks60 = 1;
+						held->recoverytime_ticks60 = ticks;
+					}
+				}
+			}
+		}
+	}
 }
 
 s32 weaponGraphRuntimeRegisterHeldIr(s32 weaponnum, const weapon_graph_ir_t *ir,
@@ -3527,12 +4223,34 @@ s32 weaponGraphRuntimeRegisterWeaponArchive(s32 weaponnum,
                                             char *err, size_t err_cap)
 {
 	weapon_graph_ir_t ir;
+	weapon_graph_archive_descriptor_t desc;
+	weapon_graph_weapon_settings_t tunables;
+
+	/* c3849 Wave 5f Unit 2: parse the tunables trio (settings/variables/
+	 * presentation, via the B-917-fixed *_file descriptor aliases) BEFORE the
+	 * compile so a malformed tunables file fails registration as loudly as a
+	 * malformed graph. The compile activates the variables file itself for
+	 * $name substitution (weaponGraphCompileArchiveFile). */
+	if (weaponGraphArchiveReadDescriptorFile(archive_path, ASSET_WEAPON,
+			&desc, err, err_cap) != 0) {
+		return -1;
+	}
+	if (weaponGraphArchiveReadTunables(archive_path, &desc, &tunables,
+			err, err_cap) != 0) {
+		return -1;
+	}
 	if (weaponGraphCompileArchiveFile(archive_path, ASSET_WEAPON, &ir,
 			err, err_cap) != 0) {
 		return -1;
 	}
 	if (weaponGraphRuntimeRegisterHeldIr(weaponnum, &ir, err, err_cap) != 0) {
 		return -1;
+	}
+	/* Store AFTER RegisterHeldIr: the ClearWeapon inside it wipes the slot.
+	 * Then layer settings defaults onto held fields whose has_* is still 0. */
+	if (heldIndexValid(weaponnum, 0)) {
+		s_weapon_settings[weaponnum] = tunables;
+		weaponGraphApplySettingsDefaults(weaponnum);
 	}
 	if (weaponGraphRuntimeRegisterWeaponArchiveDependencies(archive_path,
 			ir.asset_id, weaponnum, err, err_cap) != 0) {
@@ -3577,16 +4295,45 @@ s32 weaponGraphRuntimeRegisterWeaponSourceJson(s32 weaponnum,
                                                u32 secondary_size,
                                                const char *shared_json,
                                                u32 shared_size,
+                                               const char *settings_json,
+                                               u32 settings_size,
+                                               const char *variables_json,
+                                               u32 variables_size,
+                                               const char *presentation_json,
+                                               u32 presentation_size,
                                                char *err,
                                                size_t err_cap)
 {
 	weapon_graph_ir_t ir;
-	if (weaponGraphCompileWeaponSourceJson(asset_id, primary_json, primary_size,
-			secondary_json, secondary_size, shared_json, shared_size,
-			&ir, err, err_cap) != 0) {
+	weapon_graph_weapon_settings_t tunables;
+	s32 result;
+
+	/* c3849 Wave 5f Unit 2: loose-path mirror of the archive register. */
+	if (weaponGraphParseWeaponTunables(settings_json, settings_size,
+			variables_json, variables_size, presentation_json,
+			presentation_size, &tunables, err, err_cap) != 0) {
 		return -1;
 	}
-	return weaponGraphRuntimeRegisterHeldIr(weaponnum, &ir, err, err_cap);
+	/* B6.3: a PRESENT variables file (even an empty table) is an active
+	 * substitution scope for this held compile. */
+	if (variables_json && variables_size > 0) {
+		s_compile_variables = &tunables;
+	}
+	result = weaponGraphCompileWeaponSourceJson(asset_id, primary_json,
+		primary_size, secondary_json, secondary_size, shared_json,
+		shared_size, &ir, err, err_cap);
+	s_compile_variables = NULL;
+	if (result != 0) {
+		return -1;
+	}
+	if (weaponGraphRuntimeRegisterHeldIr(weaponnum, &ir, err, err_cap) != 0) {
+		return -1;
+	}
+	if (heldIndexValid(weaponnum, 0)) {
+		s_weapon_settings[weaponnum] = tunables;
+		weaponGraphApplySettingsDefaults(weaponnum);
+	}
+	return 0;
 }
 
 static s32 weaponGraphRuntimeRegisterProjectileIrOwned(

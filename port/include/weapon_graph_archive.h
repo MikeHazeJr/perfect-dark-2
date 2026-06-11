@@ -35,6 +35,7 @@ typedef struct weapon_graph_archive_descriptor {
 	char shared_context[128];
 	char settings[128];
 	char variables[128];
+	char presentation[128];  /* c3849 Wave 5f: bindings/presentation.json */
 	char manifest[128];
 	char nested_payloads[128];
 	char model_file[128];

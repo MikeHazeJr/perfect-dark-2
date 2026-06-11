@@ -1827,6 +1827,12 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 		strncpy(e->ext.weapon.variables_file,
 			iniGet(ini, "variables_file", iniGet(ini, "variables", "")),
 			sizeof(e->ext.weapon.variables_file) - 1);
+		/* c3849 Wave 5f: presentation fold-in. Field-for-field parity with
+		 * loader_walker_weapon.c s_bindWeaponArchiveSourceMembers and
+		 * netdistrib.c distribApplyIniToEntry -- keep all three in sync. */
+		strncpy(e->ext.weapon.presentation_file,
+			iniGet(ini, "presentation_file", iniGet(ini, "presentation", "")),
+			sizeof(e->ext.weapon.presentation_file) - 1);
 		if (e->ext.weapon.primary_graph[0]) {
 			catalogSetPrimaryFile(e, e->ext.weapon.primary_graph);
 		}

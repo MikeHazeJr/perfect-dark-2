@@ -1055,8 +1055,12 @@ static const WeaponGraphModuleDef s_WeaponGraphModules[] = {
     {
         "Reticle / Overlay / Camera",
         "presentation.reticle_overlay_camera",
+        /* c3849 Wave 5f (B8): the compiler consumes scalar zoom_fov
+         * (heldFunctionFromNode); the old plural-array key authored a value
+         * nothing read, so editor-authored zoom was dead on arrival. No
+         * reader consumed the array form, so it is dropped outright. */
         "{ \"mode\": \"primary\", \"reticle_ref\": \"default\", "
-        "\"overlay_ref\": \"\", \"zoom_fovs\": [60.0], "
+        "\"overlay_ref\": \"\", \"zoom_fov\": 60.0, "
         "\"camera_effect\": \"none\", "
         "\"context_refs\": [\"owner_player\", \"weapon_instance\"] }"
     },

@@ -119,6 +119,37 @@ typedef struct weapon_graph_ir_param {
 	char value[WEAPON_GRAPH_IR_VALUE_LEN];
 } weapon_graph_ir_param_t;
 
+/* c3849 Wave 5f Unit 2: bounded per-weapon tunables store. settings.json /
+ * variables.json (and presentation.json sight/zoom_fov keys, which fold into
+ * the same defaults layer) parse into typed key rows that reuse the
+ * weapon_graph_ir_param_t shape plus an explicit unit column. Base archives
+ * author zero tunables, so the layer is empty for every base weapon. */
+#define WEAPON_GRAPH_SETTINGS_MAX      32
+#define WEAPON_GRAPH_SETTINGS_UNIT_LEN 24
+
+typedef struct weapon_graph_setting_entry {
+	char key[WEAPON_GRAPH_IR_KEY_LEN];
+	weapon_graph_param_type_e type;
+	s32 i_value;
+	f32 f_value;
+	s32 b_value;
+	char value[WEAPON_GRAPH_IR_VALUE_LEN];
+	char unit[WEAPON_GRAPH_SETTINGS_UNIT_LEN];
+} weapon_graph_setting_entry_t;
+
+typedef struct weapon_graph_weapon_settings {
+	s32 valid;
+	weapon_graph_setting_entry_t settings[WEAPON_GRAPH_SETTINGS_MAX];
+	s32 setting_count;
+	weapon_graph_setting_entry_t variables[WEAPON_GRAPH_SETTINGS_MAX];
+	s32 variable_count;
+} weapon_graph_weapon_settings_t;
+
+/* c3849 Wave 5f Unit 9: camera_effect latches to an s32 enum at parse so the
+ * bgunTick vision arm never strcmps per tick (binding spec B3). */
+#define WEAPON_GRAPH_CAMERA_EFFECT_NONE 0
+#define WEAPON_GRAPH_CAMERA_EFFECT_XRAY 1
+
 typedef struct weapon_graph_ir_node {
 	char id[WEAPON_GRAPH_IR_ID_LEN];
 	char kind[WEAPON_GRAPH_IR_ID_LEN];
@@ -260,6 +291,9 @@ typedef struct weapon_graph_held_function {
 	char reticle_ref[CATALOG_ID_LEN];
 	char overlay_ref[CATALOG_ID_LEN];
 	char camera_effect[WEAPON_GRAPH_IR_VALUE_LEN];
+	/* c3849 Wave 5f: WEAPON_GRAPH_CAMERA_EFFECT_* latched at parse; unknown
+	 * camera_effect values get a one-time compile LOG_NOTE and latch NONE. */
+	s32 camera_effect_mode;
 } weapon_graph_held_function_t;
 
 typedef struct weapon_graph_projectile_runtime {
@@ -547,6 +581,14 @@ s32 weaponGraphEntityRemoteSignalMatches(
 
 s32 weaponGraphRuntimeEnabled(void);
 void weaponGraphRuntimeSetEnabled(s32 enabled);
+
+/* c3849 Wave 5f Unit 9 (B6.5): MP authority latch for the runtime toggle.
+ * The client saves its pre-match local toggle ONCE on the first latch, then
+ * follows the host's MPOPTION_WEAPONGRAPH bit; restore is idempotent and a
+ * no-op when nothing was latched (stage end + disconnect both call it). */
+void weaponGraphRuntimeNetLatchEnabled(s32 enabled);
+void weaponGraphRuntimeNetRestoreEnabled(void);
+
 void weaponGraphRuntimeClearWeapon(s32 weaponnum);
 void weaponGraphRuntimeClearAsset(const char *asset_id);
 void weaponGraphRuntimeClearAll(void);
@@ -561,6 +603,11 @@ s32 weaponGraphRuntimeRegisterWeaponGraphJson(s32 weaponnum,
                                               u32 json_size,
                                               char *err,
                                               size_t err_cap);
+/* c3849 Wave 5f Unit 2: extended with the settings/variables/presentation
+ * authoring sources so the loose path matches the archive path. variables
+ * feed $name substitution at compile (B6.3); settings + presentation
+ * sight/zoom_fov feed the per-weapon defaults layer. Either may be
+ * NULL/empty (no tunables, no substitution scope). */
 s32 weaponGraphRuntimeRegisterWeaponSourceJson(s32 weaponnum,
                                                const char *asset_id,
                                                const char *primary_json,
@@ -569,6 +616,12 @@ s32 weaponGraphRuntimeRegisterWeaponSourceJson(s32 weaponnum,
                                                u32 secondary_size,
                                                const char *shared_json,
                                                u32 shared_size,
+                                               const char *settings_json,
+                                               u32 settings_size,
+                                               const char *variables_json,
+                                               u32 variables_size,
+                                               const char *presentation_json,
+                                               u32 presentation_size,
                                                char *err,
                                                size_t err_cap);
 s32 weaponGraphRuntimeRegisterProjectileIr(const weapon_graph_ir_t *ir,
@@ -588,6 +641,13 @@ const weapon_graph_held_function_t *weaponGraphRuntimeGetHeldFunction(
 	s32 weaponnum, s32 funcindex);
 const weapon_graph_held_function_t *weaponGraphRuntimeGetHeldFunctionForGameplay(
 	s32 weaponnum, s32 funcindex);
+/* c3849 Wave 5f Unit 2: per-weapon tunables accessors. The ungated form is
+ * for registration/editor surfaces; gameplay consumers go through the
+ * toggle-gated ForGameplay form like every other accessor pair. */
+const weapon_graph_weapon_settings_t *weaponGraphRuntimeGetWeaponSettings(
+	s32 weaponnum);
+const weapon_graph_weapon_settings_t *weaponGraphRuntimeGetWeaponSettingsForGameplay(
+	s32 weaponnum);
 const weapon_graph_projectile_runtime_t *weaponGraphRuntimeGetProjectile(
 	const char *asset_id);
 const weapon_graph_projectile_runtime_t *weaponGraphRuntimeGetProjectileForGameplay(

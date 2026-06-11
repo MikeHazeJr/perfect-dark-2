@@ -3223,6 +3223,10 @@ TEST_CASE("held weapon graph adapter is wired into runtime callsites",
 	REQUIRE(lifecycle.find("s_catalogActivateLooseWeaponGraphRuntime") != std::string::npos);
 	REQUIRE(lifecycle.find("weaponGraphRuntimeRegisterWeaponGraphJson") == std::string::npos);
 	REQUIRE(lifecycle.find("weaponGraphRuntimeRegisterWeaponSourceJson") != std::string::npos);
+	/* c3849 Wave 5f Unit 2: the loose path passes the tunables trio through
+	 * the EXTENDED RegisterWeaponSourceJson signature. */
+	REQUIRE(lifecycle.find("settings, settings_size, variables, variables_size") != std::string::npos);
+	REQUIRE(lifecycle.find("presentation, presentation_size") != std::string::npos);
 	REQUIRE(lifecycle.find("fsFileLoad(source_path") != std::string::npos);
 	REQUIRE(lifecycle.find("weaponGraphRuntimeRegisterBehaviorGraphJson") != std::string::npos);
 	REQUIRE(lifecycle.find("weaponGraphRuntimeClearAsset") != std::string::npos);
@@ -3897,6 +3901,538 @@ TEST_CASE("wave 5 unit 6 remote signal provenance predicate",
 	strcpy(entity.detonator_ref, "base:remotemine");
 	REQUIRE(weaponGraphEntityRemoteSignalMatches(&entity, -1) == 0);
 	REQUIRE(weaponGraphEntityRemoteSignalMatches(&entity, 30) == 0);
+}
+
+/* ---------------------------------------------------------------------------
+ * c3849 Wave 5f: settings/variables/presentation parse + consumers.
+ * ------------------------------------------------------------------------- */
+
+namespace {
+
+const char *kW5fPrimaryGraph =
+	"{\n"
+	"  \"schema\": \"pd.weapon_graph.v1\",\n"
+	"  \"asset_id\": \"base:w5f_weapon\",\n"
+	"  \"graph_id\": \"primary\",\n"
+	"  \"nodes\": [ { \"id\": \"primary_action\", \"kind\": \"fire.hitscan\","
+	" \"params\": { \"mode\": \"primary\", \"function_type\": \"shoot_single\","
+	" \"damage\": \"$base_damage\", \"penetration\": \"$pierce\","
+	" \"camera_effect\": \"$cam\" } } ],\n"
+	"  \"exports\": [ { \"name\": \"primary\", \"node\": \"primary_action\" } ]\n"
+	"}\n";
+
+const char *kW5fSecondaryGraph =
+	"{\n"
+	"  \"schema\": \"pd.weapon_graph.v1\",\n"
+	"  \"asset_id\": \"base:w5f_weapon\",\n"
+	"  \"graph_id\": \"secondary\",\n"
+	"  \"nodes\": [ { \"id\": \"secondary_action\", \"kind\": \"fire.auto_cadence\","
+	" \"params\": { \"mode\": \"secondary\", \"function_type\": \"shoot_automatic\","
+	" \"spread\": 2.5 } } ],\n"
+	"  \"exports\": [ { \"name\": \"secondary\", \"node\": \"secondary_action\" } ]\n"
+	"}\n";
+
+const char *kW5fSharedContext =
+	"{ \"schema\": \"pd.weapon_shared_context.v1\", \"asset_id\": \"base:w5f_weapon\","
+	" \"contexts\": [ { \"name\": \"owner_player\", \"scope\": \"player\","
+	" \"source\": \"equipped_player\", \"type\": \"player_ref\" } ] }\n";
+
+const char *kW5fWeaponIni =
+	"[weapon]\n"
+	"catalog_id = base:w5f_weapon\n"
+	"primary_graph = behavior/primary.graph.json\n"
+	"secondary_graph = behavior/secondary.graph.json\n"
+	"shared_context_file = behavior/shared-context.json\n"
+	"settings_file = behavior/settings.json\n"
+	"variables_file = behavior/variables.json\n"
+	"presentation_file = bindings/presentation.json\n";
+
+}  /* anonymous namespace */
+
+TEST_CASE("weapon settings, variables and presentation register from real *_file archive",
+          "[modding][pdxxx][weapon_graph][c3849][settings]") {
+	/* Real archive contract: *_file descriptor spellings, canonical schema
+	 * spellings, needler flat shapes, $name substitution in the graphs. */
+	const std::string settingsJson =
+		"{\n"
+		"  \"schema\": \"pd.weapon_settings.v1\",\n"
+		"  \"asset_id\": \"base:w5f_weapon\",\n"
+		"  \"fire_cadence\": { \"value\": 8, \"unit\": \"centiseconds\" },\n"
+		"  \"spread\": 1.5,\n"
+		"  \"zoom_fov\": 30.0,\n"
+		"  \"sight\": \"zoom\"\n"
+		"}\n";
+	const std::string variablesJson =
+		"{\n"
+		"  \"schema\": \"pd.weapon_variables.v1\",\n"
+		"  \"base_damage\": 6.5,\n"
+		"  \"pierce\": 3,\n"
+		"  \"cam\": \"xray\"\n"
+		"}\n";
+	/* settings.json wins the zoom_fov collision; crosshair default is a
+	 * no-op. */
+	const std::string presentationJson =
+		"{ \"schema\": \"pd.weapon.presentation.v1\", \"crosshair\": \"default\","
+		" \"zoom_fov\": 45.0 }\n";
+
+	TempArchive weapon = writeArchiveEntries("w5f-settings-weapon", {
+		{ "weapon.ini", kW5fWeaponIni },
+		{ "behavior/primary.graph.json", kW5fPrimaryGraph },
+		{ "behavior/secondary.graph.json", kW5fSecondaryGraph },
+		{ "behavior/shared-context.json", kW5fSharedContext },
+		{ "behavior/settings.json", settingsJson },
+		{ "behavior/variables.json", variablesJson },
+		{ "bindings/presentation.json", presentationJson },
+	});
+
+	char err[256] = {};
+	weaponGraphRuntimeClearAll();
+	weaponGraphRuntimeSetEnabled(0);
+	INFO(err);
+	REQUIRE(weaponGraphRuntimeRegisterWeaponArchive(70,
+		weapon.path.string().c_str(), err, sizeof(err)) == 0);
+
+	/* Toggle gate: the ungated accessor serves registration/editor surfaces;
+	 * the ForGameplay form is NULL while the runtime is off. */
+	const weapon_graph_weapon_settings_t *table =
+		weaponGraphRuntimeGetWeaponSettings(70);
+	REQUIRE(table != nullptr);
+	REQUIRE(weaponGraphRuntimeGetWeaponSettingsForGameplay(70) == nullptr);
+	weaponGraphRuntimeSetEnabled(1);
+	REQUIRE(weaponGraphRuntimeGetWeaponSettingsForGameplay(70) == table);
+
+	/* 4 settings rows (fire_cadence/spread/zoom_fov/sight; the presentation
+	 * zoom_fov loses the collision, crosshair is consumed) + 3 variables. */
+	REQUIRE(table->setting_count == 4);
+	REQUIRE(table->variable_count == 3);
+	bool sawCadenceUnit = false;
+	for (s32 i = 0; i < table->setting_count; i++) {
+		if (std::string(table->settings[i].key) == "fire_cadence") {
+			REQUIRE(std::string(table->settings[i].unit) == "centiseconds");
+			sawCadenceUnit = true;
+		}
+	}
+	REQUIRE(sawCadenceUnit);
+
+	const weapon_graph_held_function_t *primary =
+		weaponGraphRuntimeGetHeldFunctionForGameplay(70, 0);
+	const weapon_graph_held_function_t *secondary =
+		weaponGraphRuntimeGetHeldFunctionForGameplay(70, 1);
+	REQUIRE(primary != nullptr);
+	REQUIRE(secondary != nullptr);
+
+	/* B6.3 $name substitution: float, int and string variables resolve at
+	 * compile, typed. */
+	REQUIRE(primary->has_damage == 1);
+	REQUIRE(primary->damage == Approx(6.5f));
+	REQUIRE(primary->has_penetration == 1);
+	REQUIRE(primary->penetration == 3);
+	REQUIRE(std::string(primary->camera_effect) == "xray");
+	REQUIRE(primary->camera_effect_mode == WEAPON_GRAPH_CAMERA_EFFECT_XRAY);
+
+	/* Defaults layering: settings fill ONLY has_* == 0 fields. */
+	REQUIRE(primary->has_spread == 1);
+	REQUIRE(primary->spread == Approx(1.5f));
+	REQUIRE(primary->has_zoom_fov == 1);
+	REQUIRE(primary->zoom_fov == Approx(30.0f));
+	REQUIRE(primary->has_sight == 1);
+	REQUIRE(primary->sight == (u32)SIGHT_ZOOM);
+	/* fire_cadence 8 centiseconds = 750 rpm; non-auto functions take the
+	 * recovery-ticks mapping (3600/750 -> 5), never has_max_rpm (bondgun
+	 * classifies automatics by that bit). */
+	REQUIRE(primary->has_max_rpm == 0);
+	REQUIRE(primary->has_recoverytime_ticks60 == 1);
+	REQUIRE(primary->recoverytime_ticks60 == 5);
+
+	/* Node params always win: secondary authored its own spread. */
+	REQUIRE(secondary->has_spread == 1);
+	REQUIRE(secondary->spread == Approx(2.5f));
+	/* fire.auto_cadence functions take the rpm mapping. */
+	REQUIRE(secondary->has_max_rpm == 1);
+	REQUIRE(secondary->max_rpm == Approx(750.0f));
+	REQUIRE(secondary->has_recoverytime_ticks60 == 0);
+
+	weaponGraphRuntimeSetEnabled(0);
+	weaponGraphRuntimeClearAll();
+}
+
+TEST_CASE("weapon tunables accept legacy schema spellings and the array shape",
+          "[modding][pdxxx][weapon_graph][c3849][settings]") {
+	const std::string primaryGraph =
+		"{\n"
+		"  \"schema\": \"pd.weapon_graph.v1\",\n"
+		"  \"asset_id\": \"base:w5f_legacy\",\n"
+		"  \"graph_id\": \"primary\",\n"
+		"  \"nodes\": [ { \"id\": \"primary_action\", \"kind\": \"fire.hitscan\","
+		" \"params\": { \"mode\": \"primary\", \"damage\": \"$dmg\" } } ],\n"
+		"  \"exports\": [ { \"name\": \"primary\", \"node\": \"primary_action\" } ]\n"
+		"}\n";
+	const std::string secondaryGraph =
+		"{\n"
+		"  \"schema\": \"pd.weapon_graph.v1\",\n"
+		"  \"asset_id\": \"base:w5f_legacy\",\n"
+		"  \"graph_id\": \"secondary\",\n"
+		"  \"nodes\": [ { \"id\": \"secondary_action\", \"kind\": \"fire.hitscan\","
+		" \"params\": { \"mode\": \"secondary\" } } ],\n"
+		"  \"exports\": [ { \"name\": \"secondary\", \"node\": \"secondary_action\" } ]\n"
+		"}\n";
+	const std::string weaponIni =
+		"[weapon]\n"
+		"catalog_id = base:w5f_legacy\n"
+		"primary_graph = behavior/primary.graph.json\n"
+		"secondary_graph = behavior/secondary.graph.json\n"
+		"shared_context_file = behavior/shared-context.json\n"
+		"settings_file = behavior/settings.json\n"
+		"variables_file = behavior/variables.json\n";
+	const std::string sharedContext =
+		"{ \"schema\": \"pd.weapon_shared_context.v1\", \"asset_id\": \"base:w5f_legacy\","
+		" \"contexts\": [ { \"name\": \"owner_player\", \"scope\": \"player\","
+		" \"source\": \"equipped_player\", \"type\": \"player_ref\" } ] }\n";
+	/* Legacy needler spellings (accepted with a one-time LOG_WARNING) and the
+	 * base "variables": [] ARRAY shape with {name,value,unit} rows. */
+	const std::string settingsJson =
+		"{ \"schema\": \"pd.weapon.settings.v1\", \"spread\": 2.0 }\n";
+	const std::string variablesJson =
+		"{ \"schema\": \"pd.weapon.variables.v1\","
+		" \"variables\": [ { \"name\": \"dmg\", \"value\": 9.0 } ] }\n";
+
+	TempArchive weapon = writeArchiveEntries("w5f-legacy-weapon", {
+		{ "weapon.ini", weaponIni },
+		{ "behavior/primary.graph.json", primaryGraph },
+		{ "behavior/secondary.graph.json", secondaryGraph },
+		{ "behavior/shared-context.json", sharedContext },
+		{ "behavior/settings.json", settingsJson },
+		{ "behavior/variables.json", variablesJson },
+	});
+
+	char err[256] = {};
+	weaponGraphRuntimeClearAll();
+	INFO(err);
+	REQUIRE(weaponGraphRuntimeRegisterWeaponArchive(71,
+		weapon.path.string().c_str(), err, sizeof(err)) == 0);
+
+	const weapon_graph_weapon_settings_t *table =
+		weaponGraphRuntimeGetWeaponSettings(71);
+	REQUIRE(table != nullptr);
+	REQUIRE(table->setting_count == 1);
+	REQUIRE(table->variable_count == 1);
+
+	const weapon_graph_held_function_t *primary =
+		weaponGraphRuntimeGetHeldFunction(71, 0);
+	REQUIRE(primary != nullptr);
+	REQUIRE(primary->has_damage == 1);
+	REQUIRE(primary->damage == Approx(9.0f));
+	REQUIRE(primary->has_spread == 1);
+	REQUIRE(primary->spread == Approx(2.0f));
+
+	weaponGraphRuntimeClearAll();
+}
+
+TEST_CASE("weapon tunables enforce explicit units and loud unresolved variables",
+          "[modding][pdxxx][weapon_graph][c3849][settings]") {
+	const std::string sharedContext =
+		"{ \"schema\": \"pd.weapon_shared_context.v1\", \"asset_id\": \"base:w5f_bad\","
+		" \"contexts\": [ { \"name\": \"owner_player\", \"scope\": \"player\","
+		" \"source\": \"equipped_player\", \"type\": \"player_ref\" } ] }\n";
+	const std::string weaponIni =
+		"[weapon]\n"
+		"catalog_id = base:w5f_bad\n"
+		"primary_graph = behavior/primary.graph.json\n"
+		"secondary_graph = behavior/secondary.graph.json\n"
+		"shared_context_file = behavior/shared-context.json\n"
+		"settings_file = behavior/settings.json\n"
+		"variables_file = behavior/variables.json\n";
+	const std::string okGraphPrimary =
+		"{\n"
+		"  \"schema\": \"pd.weapon_graph.v1\",\n"
+		"  \"asset_id\": \"base:w5f_bad\",\n"
+		"  \"graph_id\": \"primary\",\n"
+		"  \"nodes\": [ { \"id\": \"primary_action\", \"kind\": \"fire.hitscan\","
+		" \"params\": { \"mode\": \"primary\" } } ],\n"
+		"  \"exports\": [ { \"name\": \"primary\", \"node\": \"primary_action\" } ]\n"
+		"}\n";
+	const std::string okGraphSecondary =
+		"{\n"
+		"  \"schema\": \"pd.weapon_graph.v1\",\n"
+		"  \"asset_id\": \"base:w5f_bad\",\n"
+		"  \"graph_id\": \"secondary\",\n"
+		"  \"nodes\": [ { \"id\": \"secondary_action\", \"kind\": \"fire.hitscan\","
+		" \"params\": { \"mode\": \"secondary\" } } ],\n"
+		"  \"exports\": [ { \"name\": \"secondary\", \"node\": \"secondary_action\" } ]\n"
+		"}\n";
+	const std::string emptyVariables =
+		"{ \"schema\": \"pd.weapon_variables.v1\", \"variables\": [] }\n";
+
+	char err[256] = {};
+	weaponGraphRuntimeClearAll();
+
+	{
+		/* Time-like settings key without an explicit unit: rejected via the
+		 * keyNeedsUnit/keyHasUnit validator pattern. */
+		const std::string badSettings =
+			"{ \"schema\": \"pd.weapon_settings.v1\", \"arm_timer\": 5 }\n";
+		TempArchive weapon = writeArchiveEntries("w5f-unit-reject", {
+			{ "weapon.ini", weaponIni },
+			{ "behavior/primary.graph.json", okGraphPrimary },
+			{ "behavior/secondary.graph.json", okGraphSecondary },
+			{ "behavior/shared-context.json", sharedContext },
+			{ "behavior/settings.json", badSettings },
+			{ "behavior/variables.json", emptyVariables },
+		});
+		err[0] = '\0';
+		REQUIRE(weaponGraphRuntimeRegisterWeaponArchive(72,
+			weapon.path.string().c_str(), err, sizeof(err)) != 0);
+		REQUIRE(std::string(err).find("explicit units") != std::string::npos);
+	}
+
+	{
+		/* Unresolved $ref against a PRESENT (empty) variables table is a loud
+		 * compile failure, like any other validation error. */
+		const std::string dollarGraph =
+			"{\n"
+			"  \"schema\": \"pd.weapon_graph.v1\",\n"
+			"  \"asset_id\": \"base:w5f_bad\",\n"
+			"  \"graph_id\": \"primary\",\n"
+			"  \"nodes\": [ { \"id\": \"primary_action\", \"kind\": \"fire.hitscan\","
+			" \"params\": { \"mode\": \"primary\", \"damage\": \"$missing\" } } ],\n"
+			"  \"exports\": [ { \"name\": \"primary\", \"node\": \"primary_action\" } ]\n"
+			"}\n";
+		const std::string okSettings =
+			"{ \"schema\": \"pd.weapon_settings.v1\" }\n";
+		TempArchive weapon = writeArchiveEntries("w5f-unresolved-ref", {
+			{ "weapon.ini", weaponIni },
+			{ "behavior/primary.graph.json", dollarGraph },
+			{ "behavior/secondary.graph.json", okGraphSecondary },
+			{ "behavior/shared-context.json", sharedContext },
+			{ "behavior/settings.json", okSettings },
+			{ "behavior/variables.json", emptyVariables },
+		});
+		err[0] = '\0';
+		REQUIRE(weaponGraphRuntimeRegisterWeaponArchive(72,
+			weapon.path.string().c_str(), err, sizeof(err)) != 0);
+		REQUIRE(std::string(err).find("unresolved weapon variable") != std::string::npos);
+	}
+
+	weaponGraphRuntimeClearAll();
+}
+
+TEST_CASE("base-shaped empty tunables layer zero defaults",
+          "[modding][pdxxx][weapon_graph][c3849][settings]") {
+	/* The base emitter authors settings with only envelope keys and an empty
+	 * variables array (romextract_pdweapon.c); the defaults layer must stay
+	 * empty so toggle-ON base behavior is untouched. */
+	const std::string weaponIni =
+		"[weapon]\n"
+		"catalog_id = base:w5f_base_shape\n"
+		"primary_graph = behavior/primary.graph.json\n"
+		"secondary_graph = behavior/secondary.graph.json\n"
+		"shared_context_file = behavior/shared-context.json\n"
+		"settings_file = behavior/settings.json\n"
+		"variables_file = behavior/variables.json\n";
+	const std::string primaryGraph =
+		"{\n"
+		"  \"schema\": \"pd.weapon_graph.v1\",\n"
+		"  \"asset_id\": \"base:w5f_base_shape\",\n"
+		"  \"graph_id\": \"primary\",\n"
+		"  \"nodes\": [ { \"id\": \"primary_action\", \"kind\": \"fire.hitscan\","
+		" \"params\": { \"mode\": \"primary\" } } ],\n"
+		"  \"exports\": [ { \"name\": \"primary\", \"node\": \"primary_action\" } ]\n"
+		"}\n";
+	const std::string secondaryGraph =
+		"{\n"
+		"  \"schema\": \"pd.weapon_graph.v1\",\n"
+		"  \"asset_id\": \"base:w5f_base_shape\",\n"
+		"  \"graph_id\": \"secondary\",\n"
+		"  \"nodes\": [ { \"id\": \"secondary_action\", \"kind\": \"fire.hitscan\","
+		" \"params\": { \"mode\": \"secondary\" } } ],\n"
+		"  \"exports\": [ { \"name\": \"secondary\", \"node\": \"secondary_action\" } ]\n"
+		"}\n";
+	const std::string sharedContext =
+		"{ \"schema\": \"pd.weapon_shared_context.v1\", \"asset_id\": \"base:w5f_base_shape\","
+		" \"contexts\": [ { \"name\": \"owner_player\", \"scope\": \"player\","
+		" \"source\": \"equipped_player\", \"type\": \"player_ref\" } ] }\n";
+	const std::string baseSettings =
+		"{\n"
+		"  \"schema\": \"pd.weapon_settings.v1\",\n"
+		"  \"asset_id\": \"base:w5f_base_shape\",\n"
+		"  \"dependency_closure\": \"complete_typed_archive_dependencies\"\n"
+		"}\n";
+	const std::string baseVariables =
+		"{\n"
+		"  \"schema\": \"pd.weapon_variables.v1\",\n"
+		"  \"asset_id\": \"base:w5f_base_shape\",\n"
+		"  \"variables\": []\n"
+		"}\n";
+
+	TempArchive weapon = writeArchiveEntries("w5f-base-shape", {
+		{ "weapon.ini", weaponIni },
+		{ "behavior/primary.graph.json", primaryGraph },
+		{ "behavior/secondary.graph.json", secondaryGraph },
+		{ "behavior/shared-context.json", sharedContext },
+		{ "behavior/settings.json", baseSettings },
+		{ "behavior/variables.json", baseVariables },
+	});
+
+	char err[256] = {};
+	weaponGraphRuntimeClearAll();
+	INFO(err);
+	REQUIRE(weaponGraphRuntimeRegisterWeaponArchive(73,
+		weapon.path.string().c_str(), err, sizeof(err)) == 0);
+
+	const weapon_graph_weapon_settings_t *table =
+		weaponGraphRuntimeGetWeaponSettings(73);
+	REQUIRE(table != nullptr);
+	REQUIRE(table->setting_count == 0);
+	REQUIRE(table->variable_count == 0);
+
+	const weapon_graph_held_function_t *primary =
+		weaponGraphRuntimeGetHeldFunction(73, 0);
+	REQUIRE(primary != nullptr);
+	REQUIRE(primary->has_spread == 0);
+	REQUIRE(primary->has_zoom_fov == 0);
+	REQUIRE(primary->has_sight == 0);
+	REQUIRE(primary->has_max_rpm == 0);
+	REQUIRE(primary->has_recoverytime_ticks60 == 0);
+
+	weaponGraphRuntimeClearAll();
+}
+
+TEST_CASE("camera_effect latches xray to 1 and garbage to 0 at parse",
+          "[modding][pdxxx][weapon_graph][c3849][settings]") {
+	const std::string graph =
+		"{\n"
+		"  \"schema\": \"pd.weapon_graph.v1\",\n"
+		"  \"asset_id\": \"base:w5f_camera\",\n"
+		"  \"graph_id\": \"camera_test\",\n"
+		"  \"nodes\": [\n"
+		"    { \"id\": \"primary_action\", \"kind\": \"fire.beam_tick\","
+		" \"params\": { \"mode\": \"primary\", \"camera_effect\": \"xray\" } },\n"
+		"    { \"id\": \"secondary_action\", \"kind\": \"fire.beam_tick\","
+		" \"params\": { \"mode\": \"secondary\", \"camera_effect\": \"wobble\" } }\n"
+		"  ],\n"
+		"  \"exports\": [\n"
+		"    { \"name\": \"primary\", \"node\": \"primary_action\" },\n"
+		"    { \"name\": \"secondary\", \"node\": \"secondary_action\" }\n"
+		"  ]\n"
+		"}\n";
+
+	weapon_graph_ir_t ir;
+	char err[256] = {};
+	REQUIRE(weaponGraphCompileJson(ASSET_WEAPON, graph.data(),
+		static_cast<u32>(graph.size()), &ir, err, sizeof(err)) == 0);
+
+	weaponGraphRuntimeClearAll();
+	REQUIRE(weaponGraphRuntimeRegisterHeldIr(74, &ir, err, sizeof(err)) == 0);
+	const weapon_graph_held_function_t *primary =
+		weaponGraphRuntimeGetHeldFunction(74, 0);
+	const weapon_graph_held_function_t *secondary =
+		weaponGraphRuntimeGetHeldFunction(74, 1);
+	REQUIRE(primary != nullptr);
+	REQUIRE(secondary != nullptr);
+	REQUIRE(primary->camera_effect_mode == WEAPON_GRAPH_CAMERA_EFFECT_XRAY);
+	/* Unknown value: one-time LOG_NOTE, mode latches NONE. */
+	REQUIRE(secondary->camera_effect_mode == WEAPON_GRAPH_CAMERA_EFFECT_NONE);
+	weaponGraphRuntimeClearAll();
+}
+
+TEST_CASE("weapon graph MP latch saves once and restores idempotently",
+          "[modding][pdxxx][weapon_graph][c3849][netparity]") {
+	/* Pre-match local toggle OFF; host bit latches ON for the match. */
+	weaponGraphRuntimeSetEnabled(0);
+	weaponGraphRuntimeNetLatchEnabled(1);
+	REQUIRE(weaponGraphRuntimeEnabled() == 1);
+	/* Re-latch mid-match (resync) keeps the ORIGINAL saved value. */
+	weaponGraphRuntimeNetLatchEnabled(1);
+	REQUIRE(weaponGraphRuntimeEnabled() == 1);
+	weaponGraphRuntimeNetRestoreEnabled();
+	REQUIRE(weaponGraphRuntimeEnabled() == 0);
+	/* Second restore (stage end then disconnect) is a no-op. */
+	weaponGraphRuntimeNetRestoreEnabled();
+	REQUIRE(weaponGraphRuntimeEnabled() == 0);
+
+	/* Restore must not fire when nothing was latched. */
+	weaponGraphRuntimeSetEnabled(1);
+	weaponGraphRuntimeNetRestoreEnabled();
+	REQUIRE(weaponGraphRuntimeEnabled() == 1);
+
+	/* Pre-match ON, host OFF: the latch can also disable for the match. */
+	weaponGraphRuntimeNetLatchEnabled(0);
+	REQUIRE(weaponGraphRuntimeEnabled() == 0);
+	weaponGraphRuntimeNetRestoreEnabled();
+	REQUIRE(weaponGraphRuntimeEnabled() == 1);
+
+	weaponGraphRuntimeSetEnabled(0);
+}
+
+TEST_CASE("MPOPTION_WEAPONGRAPH wire/save/restore pins stay wired",
+          "[modding][pdxxx][weapon_graph][c3849][netparity][static]") {
+	/* B6.5: value pin + masked-at-save pin + write/read latch + restores. */
+	const std::string constants = readFile("src/include/constants.h");
+	REQUIRE(constants.find("#define MPOPTION_WEAPONGRAPH            0x20000000") != std::string::npos);
+
+	/* Exactly ONE serialization path for g_MpSetup.options
+	 * (mpsetupfileSaveWad) and it masks the transient bit. */
+	const std::string mplayer = readFile("src/game/mplayer/mplayer.c");
+	REQUIRE(mplayer.find("g_MpSetup.options & ~MPOPTION_WEAPONGRAPH, 32") != std::string::npos);
+	REQUIRE(mplayer.find("savebufferOr(buffer, g_MpSetup.options, 32)") == std::string::npos);
+
+	const std::string netmsg = readFile("port/src/net/netmsg.c");
+	/* Host write: OR onto the wire copy only, gated on the live toggle. */
+	REQUIRE(netmsg.find("weaponGraphRuntimeEnabled() ? MPOPTION_WEAPONGRAPH : 0") != std::string::npos);
+	/* Client read latch + stage-end restore. */
+	REQUIRE(netmsg.find("weaponGraphRuntimeNetLatchEnabled(") != std::string::npos);
+	REQUIRE(netmsg.find("g_MpSetup.options & MPOPTION_WEAPONGRAPH") != std::string::npos);
+	REQUIRE(netmsg.find("weaponGraphRuntimeNetRestoreEnabled()") != std::string::npos);
+
+	/* Disconnect-before-stage-end restore. */
+	const std::string net = readFile("port/src/net/net.c");
+	REQUIRE(net.find("weaponGraphRuntimeNetRestoreEnabled()") != std::string::npos);
+}
+
+TEST_CASE("presentation_file mirrors and camera clause pins stay wired",
+          "[modding][pdxxx][weapon_graph][c3849][settings][static]") {
+	/* ext.weapon.presentation_file exists and all THREE mirror sites copy it
+	 * (field-for-field parity discipline). */
+	const std::string catalog_h = readFile("port/include/assetcatalog.h");
+	REQUIRE(catalog_h.find("char presentation_file[128]") != std::string::npos);
+
+	const std::string scanner = readFile("port/src/assetcatalog_scanner.c");
+	REQUIRE(scanner.find("e->ext.weapon.presentation_file") != std::string::npos);
+	REQUIRE(scanner.find("iniGet(ini, \"presentation_file\", iniGet(ini, \"presentation\", \"\"))") != std::string::npos);
+
+	const std::string walker = readFile("port/src/loader_walker_weapon.c");
+	REQUIRE(walker.find("e->ext.weapon.presentation_file") != std::string::npos);
+
+	const std::string distrib = readFile("port/src/net/netdistrib.c");
+	REQUIRE(distrib.find("e->ext.weapon.presentation_file") != std::string::npos);
+
+	/* Descriptor alias pair in the shared archive reader. */
+	const std::string archive = readFile("port/src/weapon_graph_archive.c");
+	REQUIRE(archive.find("strcmp(key, \"presentation_file\") == 0") != std::string::npos);
+
+	/* bgunTick vision arm: OG clauses stay FIRST and verbatim; the graph
+	 * clause consumes the latched s32 mode (no per-tick strcmp). */
+	const std::string bondgun = readFile("src/game/bondgun.c");
+	const std::string::size_type ogFarsight =
+		bondgun.find("// Aiming with the Farsight");
+	const std::string::size_type graphClause =
+		bondgun.find("camera_effect_mode == WEAPON_GRAPH_CAMERA_EFFECT_XRAY");
+	REQUIRE(ogFarsight != std::string::npos);
+	REQUIRE(graphClause != std::string::npos);
+	REQUIRE(ogFarsight < graphClause);
+
+	/* B8: the Modding Hub presentation template authors the scalar zoom_fov
+	 * the compiler consumes; the dead zoom_fovs array is gone. */
+	const std::string moddinghub = readFile("port/fast3d/pdgui_menu_moddinghub.cpp");
+	REQUIRE(moddinghub.find("\\\"zoom_fov\\\": 60.0") != std::string::npos);
+	REQUIRE(moddinghub.find("zoom_fovs") == std::string::npos);
+
+	/* B6.4: the needler builder converged on the canonical spellings. */
+	const std::string needler = readFile("tools/build_needler_mod.py");
+	REQUIRE(needler.find("pd.weapon_settings.v1") != std::string::npos);
+	REQUIRE(needler.find("pd.weapon_variables.v1") != std::string::npos);
+	REQUIRE(needler.find("pd.weapon.settings.v1") == std::string::npos);
+	REQUIRE(needler.find("pd.weapon.variables.v1") == std::string::npos);
 }
 
 TEST_CASE("PC weapon switching and function HUD consume action-map state",

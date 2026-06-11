@@ -326,6 +326,12 @@ static s32 readDescriptorFromText(const char *label, const char *text, u32 size,
 			copyStr(out->variables, sizeof(out->variables), value);
 		} else if (strcmp(key, "variables") == 0 && out->variables[0] == '\0') {
 			copyStr(out->variables, sizeof(out->variables), value);
+		/* c3849 Wave 5f: bindings/presentation.json fold-in. Same *_file
+		 * first-set-wins alias discipline as the tunables pair above. */
+		} else if (strcmp(key, "presentation_file") == 0) {
+			copyStr(out->presentation, sizeof(out->presentation), value);
+		} else if (strcmp(key, "presentation") == 0 && out->presentation[0] == '\0') {
+			copyStr(out->presentation, sizeof(out->presentation), value);
 		} else if (strcmp(key, "manifest") == 0) {
 			copyStr(out->manifest, sizeof(out->manifest), value);
 		} else if (strcmp(key, "nested_payloads") == 0) {

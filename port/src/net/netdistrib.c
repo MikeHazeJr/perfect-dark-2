@@ -1663,6 +1663,13 @@ static void populateExtFromIni(asset_entry_t *e, asset_type_e type, const char *
             strncpy(e->ext.weapon.variables_file,
                     iniGet(ini, "variables_file", iniGet(ini, "variables", "")),
                     sizeof(e->ext.weapon.variables_file) - 1);
+            /* c3849 Wave 5f: presentation fold-in. Field-for-field parity
+             * with assetcatalog_scanner.c and loader_walker_weapon.c --
+             * keep all three in sync. */
+            strncpy(e->ext.weapon.presentation_file,
+                    iniGet(ini, "presentation_file",
+                        iniGet(ini, "presentation", "")),
+                    sizeof(e->ext.weapon.presentation_file) - 1);
             if (e->ext.weapon.primary_graph[0]) {
                 distribSetPrimaryFromFile(e, dirpath, e->ext.weapon.primary_graph);
             }

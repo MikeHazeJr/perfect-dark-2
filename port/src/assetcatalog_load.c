@@ -924,9 +924,15 @@ static s32 s_catalogActivateLooseWeaponGraphRuntime(asset_entry_t *entry)
     char *primary = NULL;
     char *secondary = NULL;
     char *shared = NULL;
+    char *settings = NULL;
+    char *variables = NULL;
+    char *presentation = NULL;
     u32 primary_size = 0;
     u32 secondary_size = 0;
     u32 shared_size = 0;
+    u32 settings_size = 0;
+    u32 variables_size = 0;
+    u32 presentation_size = 0;
     s32 result = 0;
 
     if (!entry) {
@@ -957,21 +963,50 @@ static s32 s_catalogActivateLooseWeaponGraphRuntime(asset_entry_t *entry)
             || !s_catalogLoadTextSource(entry->ext.weapon.secondary_graph,
             &secondary, &secondary_size, err, sizeof(err))
             || !s_catalogLoadTextSource(entry->ext.weapon.shared_context,
-            &shared, &shared_size, err, sizeof(err))) {
+            &shared, &shared_size, err, sizeof(err))
+            /* c3849 Wave 5f Unit 2: the tunables pair is part of the held
+             * source contract (refused above when unnamed); a named-but-
+             * unreadable file is the same loud failure as a graph source. */
+            || !s_catalogLoadTextSource(entry->ext.weapon.settings_file,
+            &settings, &settings_size, err, sizeof(err))
+            || !s_catalogLoadTextSource(entry->ext.weapon.variables_file,
+            &variables, &variables_size, err, sizeof(err))) {
         sysLogPrintf(LOG_WARNING,
                      "CATALOG.LIFECYCLE.ACTIVATE: '%s' held graph source missing split graph source: %s",
                      entry->id, err[0] ? err : "unknown error");
         free(primary);
         free(secondary);
         free(shared);
+        free(settings);
+        free(variables);
+        return 0;
+    }
+    /* presentation.json is optional on the loose path (older loose mods
+     * predate the bindings trio); named-but-unreadable stays loud. */
+    if (entry->ext.weapon.presentation_file[0]
+            && !s_catalogLoadTextSource(entry->ext.weapon.presentation_file,
+            &presentation, &presentation_size, err, sizeof(err))) {
+        sysLogPrintf(LOG_WARNING,
+                     "CATALOG.LIFECYCLE.ACTIVATE: '%s' held graph presentation source unreadable: %s",
+                     entry->id, err[0] ? err : "unknown error");
+        free(primary);
+        free(secondary);
+        free(shared);
+        free(settings);
+        free(variables);
         return 0;
     }
     result = weaponGraphRuntimeRegisterWeaponSourceJson(
         entry->runtime_index, entry->id, primary, primary_size,
-        secondary, secondary_size, shared, shared_size, err, sizeof(err));
+        secondary, secondary_size, shared, shared_size,
+        settings, settings_size, variables, variables_size,
+        presentation, presentation_size, err, sizeof(err));
     free(primary);
     free(secondary);
     free(shared);
+    free(settings);
+    free(variables);
+    free(presentation);
 
     if (result != 0) {
         sysLogPrintf(LOG_WARNING,

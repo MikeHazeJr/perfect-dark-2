@@ -10851,6 +10851,12 @@ TEST_CASE("base weapon archives use the catalog IDs requested at runtime",
 		        std::string::npos);
 		REQUIRE(catalog_load.find("weaponGraphRuntimeRegisterWeaponSourceJson") !=
 		        std::string::npos);
+		/* c3849 Wave 5f Unit 2: the loose path feeds the tunables trio
+		 * through the EXTENDED RegisterWeaponSourceJson signature. */
+		REQUIRE(catalog_load.find("settings, settings_size, variables, variables_size") !=
+		        std::string::npos);
+		REQUIRE(catalog_load.find("presentation, presentation_size") !=
+		        std::string::npos);
 	}
 	REQUIRE(match_smoke.find("MANIFEST-SP: load 'base:dy357'") !=
 	        std::string::npos);
