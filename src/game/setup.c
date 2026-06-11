@@ -356,6 +356,9 @@ void propsReset(void)
 	g_CountdownTimerValue60 = 0;
 
 	g_PlayersDetonatingMines = 0;
+	/* c3849 Wave 5 Unit 7: owner-cleanup mask resets with the detonate mask
+	 * (second site: alarmTick tail, propobj.c). */
+	g_PlayersOwnerCleanupPending = 0;
 
 	/* c3849 Wave 5 Unit 6: provenance sidecar resets with the mask
 	 * (second site: alarmTick tail, propobj.c). */
@@ -452,6 +455,11 @@ void propsReset(void)
 	for (i = 0; i < g_MaxThrownLaptops; i++) {
 		g_ThrownLaptops[i].base.prop = NULL;
 	}
+
+	/* c3849 Wave 5 Unit 7: the deploy latch sidecar is static (propobj.c)
+	 * while g_ThrownLaptops is stage-lifetime; clear it beside the
+	 * reallocation so a previous stage's latch never applies here. */
+	thrownLaptopLatchResetAll();
 }
 
 void setupCreateLiftDoor(struct linkliftdoorobj *link)

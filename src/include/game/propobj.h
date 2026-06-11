@@ -292,6 +292,9 @@ struct prop *func0f08b108(struct weaponobj *weapon, struct chrdata *chr, struct 
 void func0f08b208(struct weaponobj *weapon, struct chrdata *chr);
 void func0f08b25c(struct weaponobj *weapon, struct chrdata *chr);
 struct autogunobj *laptopDeploy(s32 modelnum, struct gset *gset, struct chrdata *chr);
+/* c3849 Wave 5 Unit 7: clears the thrown-laptop deploy latch sidecar; called
+ * from propsReset beside the g_ThrownLaptops reallocation. */
+void thrownLaptopLatchResetAll(void);
 struct weaponobj *weaponCreateProjectileFromGset(s32 modelnum, struct gset *gset, struct chrdata *chr);
 struct weaponobj *weaponCreateProjectileFromWeaponNum(s32 modelnum, s32 weaponnum, struct chrdata *chr);
 void weaponDeleteFromChr(struct chrdata *chr, s32 hand);

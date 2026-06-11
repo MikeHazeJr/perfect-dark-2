@@ -2756,6 +2756,25 @@ static void entityRuntimeFromNode(const weapon_graph_ir_t *ir,
 			out->sticky_disable_policy, sizeof(out->sticky_disable_policy));
 		heldParamString(ir, node, "visible_state",
 			out->sticky_visible_state, sizeof(out->sticky_visible_state));
+		/* c3849 Wave 5 Unit 7: derived latches (B3); 0 = OG. The propobj.c
+		 * stick gate / pickup gate / landing arm consume only these. */
+		out->sticky_attachment_bg_only =
+			strcmp(out->sticky_attachment_filter, "background_only") == 0 ? 1 : 0;
+		out->sticky_pickup_none =
+			strcmp(out->sticky_pickup_policy, "none") == 0 ? 1 : 0;
+		out->sticky_disable_shootable =
+			strcmp(out->sticky_disable_policy, "shootable") == 0 ? 1 : 0;
+		out->sticky_visible_hidden =
+			strcmp(out->sticky_visible_state, "hidden") == 0 ? 1 : 0;
+		/* mission_behavior_ref: scenario-owned per the module spec;
+		 * registration-time existence validation only (Unit 1c did not
+		 * cover it). */
+		if (out->mission_behavior_ref[0] &&
+				!assetCatalogResolve(out->mission_behavior_ref)) {
+			sysLogPrintf(LOG_WARNING,
+				"WEAPONGRAPH.PARSE: sticky_device mission_behavior_ref '%s' does not resolve in the catalog (validation only; behavior unchanged)",
+				out->mission_behavior_ref);
+		}
 		break;
 	case WEAPON_GRAPH_OP_ENTITY_OWNER_CLEANUP:
 		out->has_owner_cleanup = 1;
@@ -3473,6 +3492,9 @@ static s32 weaponGraphRuntimeRegisterEntityIrOwned(
 	runtime->autogun_friendly_fire_suppression = -1;
 	runtime->autogun_pickup_recover = -1;
 	runtime->storm_delete_carrier = -1;
+	/* c3849 Wave 5 Unit 7: absent max_active_per_owner must stay distinct
+	 * from an authored 0 (0 denies the deployment at laptopDeploy). */
+	runtime->max_active_per_owner = -1;
 
 	for (s32 i = 0; i < ir->node_count; i++) {
 		entityRuntimeFromNode(ir, &ir->nodes[i], runtime);

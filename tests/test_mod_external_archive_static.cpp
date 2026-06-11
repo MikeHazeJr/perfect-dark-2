@@ -3411,6 +3411,82 @@ TEST_CASE("wave 5 unit 0 bug-fix pins stay wired",
 	}
 }
 
+TEST_CASE("wave 5 unit 7 deployed-entity consumer pins stay wired",
+          "[modding][pdxxx][weapon_graph][c3849][static]") {
+	const std::string propobj = readFile("src/game/propobj.c");
+	const std::string bondgun = readFile("src/game/bondgun.c");
+	const std::string setup = readFile("src/game/setup.c");
+	const std::string player = readFile("src/game/player.c");
+	const std::string runtime = readFile("port/src/weapon_graph_runtime.c");
+
+	/* Autogun completion: the deploy latch sidecar (binding spec B4 - NO
+	 * autogunobj struct growth, B-323 stride class), the rpm conversion
+	 * consumed at deploy, and the cadence/beam/ffsuppress consumers in
+	 * autogunTickShoot. */
+	REQUIRE(propobj.find("g_ThrownLaptopLatch") != std::string::npos);
+	REQUIRE(propobj.find("weaponGraphAutogunFireInterval(") != std::string::npos);
+	REQUIRE(propobj.find("autogun_beam_interval_ticks60") != std::string::npos);
+	REQUIRE(propobj.find("autogun_friendly_fire_suppression") != std::string::npos);
+	REQUIRE(propobj.find("autogun_turn_speed") != std::string::npos);
+	REQUIRE(propobj.find("autogun_target_filter") != std::string::npos);
+	REQUIRE(propobj.find("latch->fireinterval > 1") != std::string::npos);
+	REQUIRE(propobj.find("latch->ffsuppress != 0") != std::string::npos);
+
+	/* Latch lifecycle: objFree clears the slot; propsReset clears the whole
+	 * sidecar beside the g_ThrownLaptops reallocation. */
+	REQUIRE(propobj.find("thrownLaptopLatchGet((struct autogunobj *) obj)") != std::string::npos);
+	REQUIRE(propobj.find("void thrownLaptopLatchResetAll(void)") != std::string::npos);
+	REQUIRE(setup.find("thrownLaptopLatchResetAll();") != std::string::npos);
+
+	/* Transition (impact U5, B4 single bondgun.c gate widen): the first
+	 * production caller of weaponGraphRuntimeGetEntityForProjectile, OG
+	 * laptop clause first, and the laptopDeploy projectile-chain fallback. */
+	REQUIRE(bondgun.find("weaponGraphRuntimeGetEntityForProjectile") != std::string::npos);
+	REQUIRE(bondgun.find("gset->weaponnum == WEAPON_LAPTOPGUN || transitionentity != NULL") != std::string::npos);
+	REQUIRE(propobj.find("weaponGraphRuntimeGetEntityForProjectile(projectilerec)") != std::string::npos);
+
+	/* Laptop ammo-transfer literals replaced by the carrier weaponnum
+	 * (bit-identical for base WEAPON_LAPTOPGUN). */
+	REQUIRE(propobj.find("botactTryRemoveAmmoFromReserve(chr->aibot, carrierweaponnum") != std::string::npos);
+	REQUIRE(propobj.find("bgunGetAmmoQtyForWeapon(carrierweaponnum, FUNC_PRIMARY)") != std::string::npos);
+	REQUIRE(propobj.find("bgunSetAmmoQtyForWeapon(carrierweaponnum, FUNC_PRIMARY, qty)") != std::string::npos);
+	REQUIRE(propobj.find("botactTryRemoveAmmoFromReserve(chr->aibot, WEAPON_LAPTOPGUN") == std::string::npos);
+
+	/* Owner-cleanup: the pending mask beside g_PlayersDetonatingMines, the
+	 * player.c death-transition set site, BOTH reset sites, the weaponTick
+	 * consumer and the alarmTick thrown-laptop pass. */
+	REQUIRE(propobj.find("u32 g_PlayersOwnerCleanupPending") != std::string::npos);
+	REQUIRE(player.find("g_PlayersOwnerCleanupPending |= 1 << cleanupindex") != std::string::npos);
+	REQUIRE(propobj.find("g_PlayersOwnerCleanupPending = 0;") != std::string::npos);
+	REQUIRE(setup.find("g_PlayersOwnerCleanupPending = 0;") != std::string::npos);
+	REQUIRE(propobj.find("owner_death_behavior") != std::string::npos);
+	REQUIRE(propobj.find("ownerdeathmode") != std::string::npos);
+	REQUIRE(propobj.find("replace_existing_policy") != std::string::npos);
+	REQUIRE(propobj.find("max_active_per_owner == 0") != std::string::npos);
+
+	/* Sticky-device: the helper, the parse-latched gates at the stick
+	 * decision / armed-pickup / landing arms, and the runtime-side latch of
+	 * the four policy strings (sticky_attachment_filter et al). */
+	REQUIRE(propobj.find("weaponGetStickyDeviceGraph") != std::string::npos);
+	REQUIRE(propobj.find("sticky_attachment_bg_only") != std::string::npos);
+	REQUIRE(propobj.find("sticky_pickup_none") != std::string::npos);
+	REQUIRE(propobj.find("sticky_disable_shootable") != std::string::npos);
+	REQUIRE(propobj.find("sticky_visible_hidden") != std::string::npos);
+	REQUIRE(runtime.find("sticky_attachment_filter, \"background_only\"") != std::string::npos);
+	REQUIRE(runtime.find("runtime->max_active_per_owner = -1;") != std::string::npos);
+	REQUIRE(runtime.find("mission_behavior_ref") != std::string::npos);
+
+	/* Interaction: recover latch consumption (recoverweaponnum replaces the
+	 * WEAPON_LAPTOPGUN recover literals) and interaction_sound at the
+	 * generic propPickupByPlayer sound site. */
+	REQUIRE(propobj.find("recoverweaponnum") != std::string::npos);
+	REQUIRE(propobj.find("invGiveSingleWeapon(recoverweaponnum)") != std::string::npos);
+	REQUIRE(propobj.find("pickupentity->interaction_sound") != std::string::npos);
+	REQUIRE(propobj.find("latch->pickupsound") != std::string::npos);
+	REQUIRE(propobj.find("latch->interactanyone") != std::string::npos);
+	REQUIRE(propobj.find("latch->recoverammonone") != std::string::npos);
+}
+
 TEST_CASE("wave 5 unit 1 explosion resolver and autogun cadence are pure",
           "[modding][pdxxx][weapon_graph][c3849]") {
 	/* Canonical tokens (binding spec B2). */
@@ -3708,6 +3784,15 @@ TEST_CASE("wave 5 unit 1c latches derived entity modes and sentinels",
 		"      \"friendly_fire_suppression\": false,\n"
 		"      \"pickup_recover\": false,\n"
 		"      \"alternate_muzzles\": 0\n"
+		"    } },\n"
+		"    { \"id\": \"sticky\", \"kind\": \"entity.sticky_device\", \"params\": {\n"
+		"      \"attachment_filter\": \"background_only\",\n"
+		"      \"pickup_policy\": \"none\",\n"
+		"      \"disable_policy\": \"shootable\",\n"
+		"      \"visible_state\": \"hidden\"\n"
+		"    } },\n"
+		"    { \"id\": \"cleanup\", \"kind\": \"entity.owner_cleanup\", \"params\": {\n"
+		"      \"max_active_per_owner\": 0\n"
 		"    } }\n"
 		"  ],\n"
 		"  \"edges\": [],\n"
@@ -3738,6 +3823,14 @@ TEST_CASE("wave 5 unit 1c latches derived entity modes and sentinels",
 	REQUIRE(rich->autogun_pickup_recover == 0);
 	REQUIRE(rich->autogun_alternate_muzzles == 0);
 
+	/* c3849 Wave 5 Unit 7: sticky-device parse latches (B3) and the
+	 * authored-zero max_active_per_owner (deny at deploy). */
+	REQUIRE(rich->sticky_attachment_bg_only == 1);
+	REQUIRE(rich->sticky_pickup_none == 1);
+	REQUIRE(rich->sticky_disable_shootable == 1);
+	REQUIRE(rich->sticky_visible_hidden == 1);
+	REQUIRE(rich->max_active_per_owner == 0);
+
 	/* Minimal fixture: -1 sentinels hold when the params are absent. */
 	const std::string minimalGraph =
 		"{\n"
@@ -3747,7 +3840,8 @@ TEST_CASE("wave 5 unit 1c latches derived entity modes and sentinels",
 		"  \"nodes\": [\n"
 		"    { \"id\": \"armed\", \"kind\": \"entity.armed_explosive\", \"params\": {} },\n"
 		"    { \"id\": \"storm\", \"kind\": \"entity.nbomb_storm\", \"params\": {} },\n"
-		"    { \"id\": \"autogun\", \"kind\": \"entity.autogun\", \"params\": {} }\n"
+		"    { \"id\": \"autogun\", \"kind\": \"entity.autogun\", \"params\": {} },\n"
+		"    { \"id\": \"sticky\", \"kind\": \"entity.sticky_device\", \"params\": {} }\n"
 		"  ],\n"
 		"  \"edges\": [],\n"
 		"  \"exports\": [ { \"name\": \"main\", \"node\": \"armed\" } ]\n"
@@ -3769,6 +3863,15 @@ TEST_CASE("wave 5 unit 1c latches derived entity modes and sentinels",
 	REQUIRE(minimal->remote_signal_mode == 0);
 	REQUIRE(minimal->timed_on_expire_mode == 0);
 	REQUIRE(minimal->timed_starts_mode == 0);
+
+	/* c3849 Wave 5 Unit 7: empty sticky params latch 0 (OG: stick anywhere,
+	 * pickable, invincible flags, visible) and the absent max_active sentinel
+	 * stays -1 (never confused with the authored-0 deny). */
+	REQUIRE(minimal->sticky_attachment_bg_only == 0);
+	REQUIRE(minimal->sticky_pickup_none == 0);
+	REQUIRE(minimal->sticky_disable_shootable == 0);
+	REQUIRE(minimal->sticky_visible_hidden == 0);
+	REQUIRE(minimal->max_active_per_owner == -1);
 
 	weaponGraphRuntimeClearAll();
 }

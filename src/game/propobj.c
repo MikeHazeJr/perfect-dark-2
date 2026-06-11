@@ -83,6 +83,7 @@
 #include "types.h"
 #include "weapon_graph_runtime.h"
 #include "effect_graph_runtime.h"
+#include "assetcatalog.h"
 
 /* PC: persistent stats tracking */
 extern void statIncrement(const char *key, u64 amount);
@@ -141,6 +142,17 @@ u32 g_PlayersDetonatingMines = 0x00000000;
  * (alarmTick tail + setupReset), consumed by the custom remote sub-branch
  * via weaponGraphEntityRemoteSignalMatches. */
 s32 g_PlayersDetonatingWeaponnum[MAX_PLAYERS] = { -1, -1, -1, -1, -1, -1, -1, -1 };
+/* c3849 Wave 5 Unit 7 (entity-deployed Step 3): owner-cleanup pending mask,
+ * shaped exactly like g_PlayersDetonatingMines. Bit n is raised by
+ * playerDieByShooter inside the isdead transition for player n (server
+ * authority inherited from playerDie's NETMODE_CLIENT guard; an owner LOST to
+ * disconnect collapses onto the same hook because the net layer kills the chr
+ * on disconnect, so owner_lost_behavior needs no separate signal). Consumed
+ * in weaponTick by custom-slot weapons whose entity graph authored
+ * owner_cleanup, and applied to the per-player thrown-laptop slot at the
+ * alarmTick tail. Cleared at the SAME two sites as g_PlayersDetonatingMines
+ * (alarmTick tail + propsReset, setup.c). */
+u32 g_PlayersOwnerCleanupPending = 0x00000000;
 s32 g_NextWeaponSlot = 0;
 s32 g_NextHatSlot = 0;
 struct linkliftdoorobj *g_LiftDoors = NULL;
@@ -164,6 +176,64 @@ s32 g_LastPadEffectIndex = -1;
 struct autogunobj *g_ThrownLaptops = NULL;
 struct beam *g_ThrownLaptopBeams = NULL;
 s32 g_MaxThrownLaptops = 0;
+
+/* c3849 Wave 5 Unit 7 (entity-deployed): deploy-time graph latch sidecar for
+ * thrown laptops, indexed identically to g_ThrownLaptops (the deploying
+ * player/owner index). struct autogunobj must NOT grow: setupCreateAutogun
+ * reinterprets setup-segment bytes in place for level-placed autoguns
+ * (setup.c, B-323 stride class), so per-deployment graph state lives here
+ * (binding spec B4). All policy strings are latched to s32 at deploy; the
+ * per-tick consumers (autogunTickShoot) never strcmp.
+ *
+ * LIFECYCLE: the slot is rewritten UNCONDITIONALLY on every laptopDeploy that
+ * commits a deployment (valid = 0 when the deploy carries no entity graph),
+ * and valid is cleared in objFree for any OBJFLAG_THROWNLAPTOP autogun - that
+ * covers the laptopDeploy replace path (objFreePermanently -> objFree),
+ * recover via propobjInteract (OBJHFLAG_DELETING -> objFree), explosion
+ * deaths and the training.c free. Stage transitions reallocate
+ * g_ThrownLaptops, so propsReset (setup.c) calls thrownLaptopLatchResetAll
+ * beside the allocation. A stale latch can therefore never apply to a later
+ * deploy. */
+struct thrownlaptoplatch {
+	s32 valid;            /* 0 = no entity graph at deploy; every consumer reverts to OG */
+	s32 fireinterval;     /* weaponGraphAutogunFireInterval(rpm); 1 = OG cadence */
+	s32 alternate;        /* autogun_alternate_muzzles; -1 sentinel = OG modelGetPart gate */
+	s32 beaminterval;     /* authored beam_interval_ticks60 > 0, else OG literal 4 */
+	s32 ffsuppress;       /* autogun_friendly_fire_suppression; -1 sentinel = OG (suppress) */
+	s32 pickuprecover;    /* autogun_pickup_recover; -1 sentinel = OG (recoverable) */
+	s32 recoverweaponnum; /* weapon given on recover; gset->weaponnum fallback */
+	s32 recoverammonone;  /* recover_ammo_policy "none": skip the recover ammo merge */
+	s32 pickupsound;      /* resolved soundnum (> 0) replacing weaponPlayPickupSound */
+	s32 interactanyone;   /* interact_filter "anyone": relax the owner-slot equality */
+	s32 ownerdeathmode;   /* 0 persist (OG), 1 explode, 2 delete (owner_death_behavior) */
+};
+
+static struct thrownlaptoplatch g_ThrownLaptopLatch[12];
+
+/* Recovers the g_ThrownLaptops slot latch from a laptop pointer (the OG
+ * pointer-arithmetic idiom from propobjInteract). NULL when the pointer is
+ * not a live g_ThrownLaptops member. */
+static struct thrownlaptoplatch *thrownLaptopLatchGet(struct autogunobj *laptop)
+{
+	if (g_ThrownLaptops != NULL) {
+		s32 slot = laptop - g_ThrownLaptops;
+
+		if (slot >= 0 && slot < g_MaxThrownLaptops && slot < ARRAYCOUNT(g_ThrownLaptopLatch)) {
+			return &g_ThrownLaptopLatch[slot];
+		}
+	}
+
+	return NULL;
+}
+
+void thrownLaptopLatchResetAll(void)
+{
+	s32 i;
+
+	for (i = 0; i < ARRAYCOUNT(g_ThrownLaptopLatch); i++) {
+		g_ThrownLaptopLatch[i].valid = 0;
+	}
+}
 
 /**
  * Attempt to call a lift from the given door.
@@ -1429,6 +1499,23 @@ static const weapon_graph_projectile_runtime_t *weaponGetContactImpactGraph(stru
 
 	if (projectile && projectile->has_impact && projectile->impact_consume_on_hit) {
 		return projectile;
+	}
+
+	return NULL;
+}
+
+/* c3849 Wave 5 Unit 7 (entity-deployed Step 4): sticky-device sibling of
+ * weaponGetContactImpactGraph. Returns the entity runtime when this weaponobj
+ * is a CUSTOM graph weapon whose entity authored sticky_device, else NULL
+ * (custom-slot guard inherited from weaponGetEntityGraphForGameplay; base
+ * weapons keep their ECM/comms/tracer/amplifier weaponnum arms). */
+static const weapon_graph_entity_runtime_t *weaponGetStickyDeviceGraph(struct weaponobj *weapon)
+{
+	const weapon_graph_entity_runtime_t *entity =
+		weaponGetEntityGraphForGameplay(weapon);
+
+	if (entity && entity->has_sticky_device) {
+		return entity;
 	}
 
 	return NULL;
@@ -3024,6 +3111,19 @@ void objFree(struct defaultobj *obj, bool freeprop, bool canregen)
 				if (chr && chr->aibot && chr->aibot->skrocket == obj->prop) {
 					chr->aibot->skrocket = NULL;
 				}
+			}
+		}
+	} else if (obj->type == OBJTYPE_AUTOGUN) {
+		/* c3849 Wave 5 Unit 7: thrown-laptop latch lifecycle. Every death
+		 * path for a deployed laptop funnels through objFree (redeploy
+		 * replace, recover, explosion, training reset), so clearing valid
+		 * here guarantees a stale latch never applies to a later deploy. */
+		if (obj->flags & OBJFLAG_THROWNLAPTOP) {
+			struct thrownlaptoplatch *latch =
+				thrownLaptopLatchGet((struct autogunobj *) obj);
+
+			if (latch != NULL) {
+				latch->valid = 0;
 			}
 		}
 	} else if (obj->type == OBJTYPE_TINTEDGLASS) {
@@ -4715,6 +4815,29 @@ void objLand(struct prop *prop, struct coord *arg1, struct coord *arg2, bool *em
 			obj->flags |= OBJFLAG_INVINCIBLE;
 			obj->flags |= OBJFLAG_FORCENOBOUNCE;
 			obj->flags2 |= OBJFLAG2_IMMUNETOGUNFIRE;
+		} else {
+			/* c3849 Wave 5 Unit 7 (entity-deployed Step 4): custom sticky
+			 * devices land with the OG ECM-class flags unless the graph
+			 * authored disable_policy "shootable" (parse-latched). The
+			 * landing is a one-shot transition; no per-tick work. */
+			const weapon_graph_entity_runtime_t *stickydevice =
+				weaponGetStickyDeviceGraph(weapon);
+
+			if (stickydevice != NULL) {
+				if (!stickydevice->sticky_disable_shootable) {
+					obj->flags |= OBJFLAG_INVINCIBLE;
+					obj->flags |= OBJFLAG_FORCENOBOUNCE;
+					obj->flags2 |= OBJFLAG2_IMMUNETOGUNFIRE;
+				}
+
+				/* sticky_visible_state "hidden" (parse-latched): the render
+				 * gate consumes OBJFLAG2_INVISIBLE (the pass2 visibility
+				 * test in objTickPlayability skips drawing), verified before
+				 * wiring. Other values keep the OG visible deployment. */
+				if (stickydevice->sticky_visible_hidden) {
+					obj->flags2 |= OBJFLAG2_INVISIBLE;
+				}
+			}
 		}
 
 		objectiveCheckThrowInRoom(weapon->weaponnum, prop->rooms);
@@ -4863,6 +4986,33 @@ void weaponTick(struct prop *prop)
 	 * guard) and whenever Debug.WeaponGraphRuntime is off. */
 	const weapon_graph_projectile_runtime_t *customproj =
 		weaponGetCustomProjectileGraph(weapon);
+
+	/* c3849 Wave 5 Unit 7 (entity-deployed Step 3): owner-cleanup. Runs
+	 * BEFORE the arm chain so an "explode" zeroing of timer240 detonates via
+	 * the existing arms in this same tick. The top-of-function entitygraph
+	 * fetch has no custom-slot guard (base weapons get one with the toggle
+	 * ON), so the weaponnum gate carries the dormancy guarantee; base graphs
+	 * also never author owner_cleanup nodes (single-node base emitter). The
+	 * strcmp runs only on the one-shot death event frame
+	 * (mask bit set), never per tick. owner_lost_behavior (disconnect)
+	 * collapses onto this same hook: the net layer kills the chr on
+	 * disconnect, which raises the death mask. */
+	if (g_PlayersOwnerCleanupPending != 0
+			&& weapon->weaponnum >= WEAPON_CUSTOM_START
+			&& entitygraph != NULL && entitygraph->has_owner_cleanup) {
+		s32 cleanupownernum = (obj->hidden & 0xf0000000) >> 28;
+
+		if (g_PlayersOwnerCleanupPending & 1 << cleanupownernum) {
+			if (strcmp(entitygraph->owner_death_behavior, "explode") == 0) {
+				weapon->timer240 = 0;
+			} else if (strcmp(entitygraph->owner_death_behavior, "delete") == 0) {
+				propUnsetDangerous(prop);
+				obj->hidden |= OBJHFLAG_DELETING;
+			}
+			/* empty / "persist": no-op (OG parity - deployments outlive
+			 * their owner) */
+		}
+	}
 
 	// Handle grenade timers
 	if (((weapon->weaponnum == WEAPON_GRENADE && weapon->gunfunc == FUNC_PRIMARY)
@@ -8109,6 +8259,32 @@ s32 projectileTick(struct defaultobj *obj, bool *embedded)
 									&& !stickgraph->impact_consume_on_hit) {
 								stick = true;
 							}
+
+							/* c3849 Wave 5 Unit 7 (entity-deployed Step 4):
+							 * entity sticky-device stick gate. PRECEDENCE
+							 * (verified ordering): the Unit 4 projectile-record
+							 * clauses above run first and win when authored -
+							 * sticky_attach decides per hit class and
+							 * impact_stick_on_hit forces the stick - so this
+							 * clause only applies when the stick behavior is
+							 * entity-driven. attachment_filter
+							 * "background_only" (parse-latched) mirrors the
+							 * OBJTYPE_AUTOGUN branch: BG sticks, props never. */
+							if ((stickgraph == NULL || !stickgraph->has_sticky_attach)
+									&& !(stickgraph != NULL && stickgraph->has_impact
+										&& stickgraph->impact_stick_on_hit
+										&& !stickgraph->impact_consume_on_hit)) {
+								const weapon_graph_entity_runtime_t *stickydevice =
+									weaponGetStickyDeviceGraph(weapon2);
+
+								if (stickydevice != NULL) {
+									if (stickydevice->sticky_attachment_bg_only) {
+										stick = hitprop == NULL;
+									} else {
+										stick = true;
+									}
+								}
+							}
 						}
 
 						if (stick) {
@@ -10390,12 +10566,46 @@ void autogunTickShoot(struct prop *autogunprop)
 		bool friendly = false;
 
 		if (autogun->firing && (obj->flags & OBJFLAG_DEACTIVATED) == 0) {
+			/* c3849 Wave 5 Unit 7: thrown-laptop deploy latch, recovered from
+			 * the laptop pointer (NULL for level-placed autoguns and invalid
+			 * for deploys without an entity graph - every consumer below
+			 * keeps the OG expressions bit-identical in that case). All
+			 * values were latched at laptopDeploy; no strcmp runs here. */
+			const struct thrownlaptoplatch *latch = NULL;
+
+			if (obj->flags & OBJFLAG_THROWNLAPTOP) {
+				struct thrownlaptoplatch *slotlatch = thrownLaptopLatchGet(autogun);
+
+				if (slotlatch != NULL && slotlatch->valid) {
+					latch = slotlatch;
+				}
+			}
+
 			autogun->firecount++;
 
-			fireleft = (autogun->firecount % 2) == 0;
+			if (latch != NULL && latch->fireinterval > 1) {
+				/* authored fire_cadence (rpm -> integer interval at deploy,
+				 * B6.6): the OG two-phase alternation stretches by the
+				 * interval; the flash-part gate keeps its OG shape and
+				 * alternate_muzzles == 0 forces a single muzzle. */
+				s32 cadencephase = autogun->firecount % (2 * latch->fireinterval);
 
-			if (modelGetPart(model->definition, MODELPART_AUTOGUN_FLASHLEFT)) {
-				fireright = (autogun->firecount % 2) == 1;
+				fireleft = cadencephase == 0;
+
+				if (latch->alternate != 0
+						&& modelGetPart(model->definition, MODELPART_AUTOGUN_FLASHLEFT)) {
+					fireright = cadencephase == latch->fireinterval;
+				}
+			} else {
+				fireleft = (autogun->firecount % 2) == 0;
+
+				/* alternate_muzzles authored 0 forces a single muzzle
+				 * (fireright never set); the -1 sentinel and authored 1 keep
+				 * the OG modelGetPart gate verbatim. */
+				if ((latch == NULL || latch->alternate != 0)
+						&& modelGetPart(model->definition, MODELPART_AUTOGUN_FLASHLEFT)) {
+					fireright = (autogun->firecount % 2) == 1;
+				}
 			}
 
 			if (fireleft || fireright) {
@@ -10405,7 +10615,11 @@ void autogunTickShoot(struct prop *autogunprop)
 				bool missed = false;
 				struct coord hitpos;
 				RoomNum hitrooms[8];
-				bool makebeam = (autogun->firecount % 4) == 0;
+				/* c3849 Wave 5 Unit 7: the OG beam literal 4 routes through
+				 * the deploy latch (autogun_beam_interval_ticks60; deploy
+				 * defaults the latch to 4, bit-identical for base). */
+				bool makebeam = (autogun->firecount
+						% (latch != NULL && latch->beaminterval > 0 ? latch->beaminterval : 4)) == 0;
 				struct prop *targetprop = autogun->target;
 				struct modelnode *flashnode;
 				struct modelnode *posnode = NULL;
@@ -10514,7 +10728,13 @@ void autogunTickShoot(struct prop *autogunprop)
 								damage *= 0.5f;
 							}
 
-							if (ownerprop == hitprop || (ownerchr && hitchr && chrCompareTeams(hitchr, ownerchr, COMPARE_FRIENDS))) {
+							/* c3849 Wave 5 Unit 7: friendly_fire_suppression
+							 * authored 0 skips the suppression block (the
+							 * teammate takes the existing damage path below);
+							 * the -1 sentinel and authored 1 keep the OG
+							 * suppression verbatim. */
+							if ((latch == NULL || latch->ffsuppress != 0)
+									&& (ownerprop == hitprop || (ownerchr && hitchr && chrCompareTeams(hitchr, ownerchr, COMPARE_FRIENDS)))) {
 								// A teammate entered the line of fire
 								makebeam = false;
 								fireleft = false;
@@ -17669,6 +17889,14 @@ bool propobjInteract(struct prop *prop)
 		if (obj->type == OBJTYPE_AUTOGUN) {
 			struct autogunobj *laptop = (struct autogunobj *)obj;
 			s32 playernum;
+			/* c3849 Wave 5 Unit 7 (entity-deployed Step 5): deploy latch
+			 * (NULL/invalid = OG recover, bit-identical: the latch fallbacks
+			 * below all collapse to the WEAPON_LAPTOPGUN literals). */
+			struct thrownlaptoplatch *latch = thrownLaptopLatchGet(laptop);
+
+			if (latch != NULL && !latch->valid) {
+				latch = NULL;
+			}
 
 			if (g_Vars.normmplayerisrunning) {
 				playernum = mpPlayerGetIndex(g_Vars.currentplayer->prop->chr);
@@ -17676,15 +17904,43 @@ bool propobjInteract(struct prop *prop)
 				playernum = g_Vars.currentplayernum;
 			}
 
-			if (playernum >= 0 && laptop == &g_ThrownLaptops[playernum]) {
-				obj->hidden |= OBJHFLAG_DELETING;
-				invGiveSingleWeapon(WEAPON_LAPTOPGUN);
-				currentPlayerQueuePickupWeaponHudmsg(WEAPON_LAPTOPGUN, false);
-				weaponPlayPickupSound(WEAPON_LAPTOPGUN);
+			if (latch != NULL && latch->pickuprecover == 0) {
+				/* authored pickup_recover false: the deployment cannot be
+				 * recovered (-1 sentinel / authored true keep the OG arm) */
+			} else if (playernum >= 0
+					&& (laptop == &g_ThrownLaptops[playernum]
+						|| (latch != NULL && latch->interactanyone))) {
+				/* interact_filter "anyone" (latched at deploy) relaxes the
+				 * owner equality but still requires a live slot (the latch
+				 * only exists for a committed g_ThrownLaptops member).
+				 * recoverweaponnum replaces the OG WEAPON_LAPTOPGUN literals:
+				 * deploy resolves it from the projectile pickup record, then
+				 * the entity interaction transfer_payload, then the carrier
+				 * gset->weaponnum. transfer_payload needs nothing beyond this
+				 * latch - the carrier weaponnum is already the payload via
+				 * the OG inventory give. */
+				s32 recoverweaponnum = latch != NULL
+					? latch->recoverweaponnum : WEAPON_LAPTOPGUN;
 
-				if (laptop->ammoquantity > 0 && laptop->ammoquantity != 255) {
-					s32 newqty = bgunGetAmmoQtyForWeapon(WEAPON_LAPTOPGUN, FUNC_PRIMARY) + laptop->ammoquantity;
-					bgunSetAmmoQtyForWeapon(WEAPON_LAPTOPGUN, FUNC_PRIMARY, newqty);
+				obj->hidden |= OBJHFLAG_DELETING;
+				invGiveSingleWeapon(recoverweaponnum);
+				currentPlayerQueuePickupWeaponHudmsg(recoverweaponnum, false);
+
+				if (latch != NULL && latch->pickupsound > 0) {
+					/* interaction_sound (registration-resolved soundnum),
+					 * mirroring the weaponPlayPickupSound playerSndStart
+					 * pattern */
+					playerSndStart(var80095200, latch->pickupsound, NULL,
+							g_Vars.currentplayernum, -1, -1, -1);
+				} else {
+					weaponPlayPickupSound(recoverweaponnum);
+				}
+
+				/* recover_ammo_policy "none" (latched) skips the merge */
+				if ((latch == NULL || !latch->recoverammonone)
+						&& laptop->ammoquantity > 0 && laptop->ammoquantity != 255) {
+					s32 newqty = bgunGetAmmoQtyForWeapon(recoverweaponnum, FUNC_PRIMARY) + laptop->ammoquantity;
+					bgunSetAmmoQtyForWeapon(recoverweaponnum, FUNC_PRIMARY, newqty);
 				}
 			}
 		} else {
@@ -18771,7 +19027,21 @@ s32 propPickupByPlayer(struct prop *prop, bool showhudmsg)
 			}
 
 			if (!playerCurrentCutsceneInProgress()) {
-				weaponPlayPickupSound(weapon->weaponnum);
+				/* c3849 Wave 5 Unit 7 (entity-deployed Step 5): custom-slot
+				 * weapons whose entity graph authored an interaction sound
+				 * (registration-resolved soundnum) play it instead of the
+				 * keycard default that weaponPlayPickupSound gives every
+				 * weaponnum above WEAPON_PSYCHOSISGUN. */
+				const weapon_graph_entity_runtime_t *pickupentity =
+					weaponGetEntityGraphForGameplay(weapon);
+
+				if (pickupentity != NULL && pickupentity->has_interaction
+						&& pickupentity->interaction_sound > 0) {
+					playerSndStart(var80095200, pickupentity->interaction_sound,
+							NULL, g_Vars.currentplayernum, -1, -1, -1);
+				} else {
+					weaponPlayPickupSound(weapon->weaponnum);
+				}
 			}
 
 			if (obj->hidden & OBJHFLAG_HASTEXTOVERRIDE) {
@@ -19048,6 +19318,21 @@ s32 objTestForPickup(struct prop *prop)
 				|| weapon->weaponnum == WEAPON_ECMMINE) {
 			if (weapon->timer240 >= 0 || (obj->hidden & OBJHFLAG_DELETING)) {
 				return TICKOP_NONE;
+			}
+		}
+
+		/* c3849 Wave 5 Unit 7 (entity-deployed Step 4): armed sticky-device
+		 * pickup mirror. sticky_pickup_policy "none" (parse-latched s32; no
+		 * strcmp here) blocks pickup while deployed behind the same gate as
+		 * the OG ECM-class list above; empty / "anyone" keep the OG pickup. */
+		if (weapon->weaponnum >= WEAPON_CUSTOM_START) {
+			const weapon_graph_entity_runtime_t *stickydevice =
+				weaponGetStickyDeviceGraph(weapon);
+
+			if (stickydevice != NULL && stickydevice->sticky_pickup_none) {
+				if (weapon->timer240 >= 0 || (obj->hidden & OBJHFLAG_DELETING)) {
+					return TICKOP_NONE;
+				}
 			}
 		}
 
@@ -19981,12 +20266,36 @@ struct autogunobj *laptopDeploy(s32 modelnum, struct gset *gset, struct chrdata 
 	s32 index;
 	const weapon_graph_held_function_t *graph = NULL;
 	const weapon_graph_entity_runtime_t *entitygraph = NULL;
+	const weapon_graph_projectile_runtime_t *projectilerec = NULL;
+	const weapon_graph_projectile_runtime_t *transition = NULL;
 	s32 ammoreserve = 200;
+	/* c3849 Wave 5 Unit 7 (impact U5): the carrier weaponnum replaces the OG
+	 * WEAPON_LAPTOPGUN ammo-transfer literals below (bit-identical for the
+	 * base laptop). */
+	s32 carrierweaponnum = gset ? gset->weaponnum : WEAPON_LAPTOPGUN;
 
 	if (gset) {
 		graph = weaponGraphRuntimeGetHeldFunctionForGameplay(
 			gset->weaponnum, gset->weaponfunc);
 		entitygraph = weaponGraphRuntimeGetEntityForHeldFunction(graph);
+		projectilerec = weaponGraphRuntimeGetProjectileForHeldFunction(graph);
+
+		/* c3849 Wave 5 Unit 7 (impact U5 transition): the custom transition
+		 * route reaches this function through the projectile record's
+		 * entity_ref; when the held chain yields no entity, fall back to the
+		 * projectile-record chain. */
+		if (entitygraph == NULL) {
+			entitygraph = weaponGraphRuntimeGetEntityForProjectile(projectilerec);
+		}
+
+		/* transition semantics apply only to custom-slot carriers that
+		 * authored transition_to_entity (base WEAPON_LAPTOPGUN reaches this
+		 * function with a base entity graph when the toggle is ON and must
+		 * keep the OG transfer; binding spec B3). */
+		if (gset->weaponnum >= WEAPON_CUSTOM_START && projectilerec != NULL
+				&& projectilerec->has_transition_to_entity) {
+			transition = projectilerec;
+		}
 
 		if (entitygraph && entitygraph->has_projectile_modelnum) {
 			modelnum = entitygraph->projectile_modelnum;
@@ -20000,6 +20309,17 @@ struct autogunobj *laptopDeploy(s32 modelnum, struct gset *gset, struct chrdata 
 				ammoreserve = 254;
 			}
 		}
+
+		/* autogun_net_authority: only server-authoritative autoguns exist
+		 * (autogunTickShoot client early-return); any other authored value
+		 * warns once per deploy and behaves unchanged. */
+		if (entitygraph && entitygraph->has_autogun
+				&& entitygraph->autogun_net_authority[0]
+				&& strcmp(entitygraph->autogun_net_authority, "server") != 0) {
+			sysLogPrintf(LOG_WARNING,
+				"WEAPONGRAPH.DEPLOY: autogun net_authority '%s' unsupported; server-authoritative behavior unchanged",
+				entitygraph->autogun_net_authority);
+		}
 	}
 
 	if (g_Vars.normmplayerisrunning) {
@@ -20009,17 +20329,45 @@ struct autogunobj *laptopDeploy(s32 modelnum, struct gset *gset, struct chrdata 
 	}
 
 	if (index >= 0 && index < g_MaxThrownLaptops) {
+		/* c3849 Wave 5 Unit 7 (entity-deployed Step 3): owner-cleanup deploy
+		 * policies. Deploy is a one-shot transition (strcmps never run per
+		 * tick); without an authored owner_cleanup record the OG
+		 * explode-and-replace path below runs verbatim. max_active_per_owner
+		 * authored 0 denies the deployment outright (-1 sentinel = absent =
+		 * OG one slot per player; values > 1 deferred: one slot per player
+		 * regardless). */
+		if (entitygraph && entitygraph->has_owner_cleanup
+				&& entitygraph->max_active_per_owner == 0) {
+			return NULL;
+		}
+
 		setupLoadModeldef(modelnum);
 		modeldef = g_ModelStates[modelnum].modeldef;
 		laptop = &g_ThrownLaptops[index];
 
 		if (laptop->base.prop) {
+			if (entitygraph && entitygraph->has_owner_cleanup
+					&& entitygraph->replace_existing_policy[0]
+					&& strcmp(entitygraph->replace_existing_policy, "deny") == 0) {
+				/* "deny": the existing deployment stays; the new one is
+				 * refused */
+				return NULL;
+			}
+
+			if (entitygraph && entitygraph->has_owner_cleanup
+					&& entitygraph->replace_existing_policy[0]
+					&& strcmp(entitygraph->replace_existing_policy, "delete_existing") == 0) {
+				/* "delete_existing": the OG free without the explosion */
+				objFreePermanently(&laptop->base, true);
+			} else {
+				/* empty / "explode_existing": OG verbatim */
 #if VERSION >= VERSION_NTSC_1_0
-			explosionCreateSimple(NULL, &laptop->base.prop->pos, laptop->base.prop->rooms, EXPLOSIONTYPE_LAPTOP, index);
+				explosionCreateSimple(NULL, &laptop->base.prop->pos, laptop->base.prop->rooms, EXPLOSIONTYPE_LAPTOP, index);
 #else
-			explosionCreateSimple(NULL, &laptop->base.prop->pos, laptop->base.prop->rooms, EXPLOSIONTYPE_LAPTOP, 0);
+				explosionCreateSimple(NULL, &laptop->base.prop->pos, laptop->base.prop->rooms, EXPLOSIONTYPE_LAPTOP, 0);
 #endif
-			objFreePermanently(&laptop->base, true);
+				objFreePermanently(&laptop->base, true);
+			}
 		}
 
 		prop = propAllocate();
@@ -20082,14 +20430,27 @@ struct autogunobj *laptopDeploy(s32 modelnum, struct gset *gset, struct chrdata 
 			laptop->barrelrot = 0;
 			laptop->shotbondsum = 0;
 
-			if (chr->aibot) {
-				laptop->ammoquantity = botactTryRemoveAmmoFromReserve(chr->aibot, WEAPON_LAPTOPGUN, FUNC_PRIMARY, ammoreserve);
+			/* c3849 Wave 5 Unit 7 (impact U5 transition): the OG ammo
+			 * transfer keys on carrierweaponnum (the three WEAPON_LAPTOPGUN
+			 * literals replaced; bit-identical for base). transfer_ammo
+			 * authored false skips the carrier deduction and seeds the
+			 * deployment from autogun_ammo_reserve (OG default 200, cap
+			 * 254). transfer_owner / transfer_position true are the OG
+			 * behavior; authored false has no OG backend (registration
+			 * warned; deferred). delete_carrier is a structural no-op here:
+			 * the OG laptop throw consumes the held item and never spawns a
+			 * separate carrier prop. transition_when: every authored value
+			 * maps to the OG early instantiation (module spec sanctions). */
+			if (transition != NULL && transition->transfer_ammo == 0) {
+				laptop->ammoquantity = ammoreserve;
+			} else if (chr->aibot) {
+				laptop->ammoquantity = botactTryRemoveAmmoFromReserve(chr->aibot, carrierweaponnum, FUNC_PRIMARY, ammoreserve);
 			} else if (chr->prop->type == PROPTYPE_PLAYER) {
 				s32 qty;
 				s32 prevplayernum = g_Vars.currentplayernum;
 
 				setCurrentPlayerNum(playermgrGetPlayerNumByProp(chr->prop));
-				qty = bgunGetAmmoQtyForWeapon(WEAPON_LAPTOPGUN, FUNC_PRIMARY);
+				qty = bgunGetAmmoQtyForWeapon(carrierweaponnum, FUNC_PRIMARY);
 
 				if (qty >= ammoreserve) {
 					laptop->ammoquantity = ammoreserve;
@@ -20103,7 +20464,7 @@ struct autogunobj *laptopDeploy(s32 modelnum, struct gset *gset, struct chrdata 
 					qty -= laptop->ammoquantity;
 				}
 
-				bgunSetAmmoQtyForWeapon(WEAPON_LAPTOPGUN, FUNC_PRIMARY, qty);
+				bgunSetAmmoQtyForWeapon(carrierweaponnum, FUNC_PRIMARY, qty);
 				setCurrentPlayerNum(prevplayernum);
 			} else {
 				laptop->ammoquantity = 255;
@@ -20117,7 +20478,11 @@ struct autogunobj *laptopDeploy(s32 modelnum, struct gset *gset, struct chrdata 
 			laptop->xrot = 0;
 			laptop->ymaxleft = 12.56f;
 			laptop->ymaxright = -12.56f;
-			laptop->maxspeed = PALUPF(0.0697f);
+			/* c3849 Wave 5 Unit 7: autogun_turn_speed mirrors the aimdist
+			 * pattern (> 0.0f guard; OG PALUPF(0.0697f) fallback). */
+			laptop->maxspeed = entitygraph && entitygraph->has_autogun &&
+				entitygraph->autogun_turn_speed > 0.0f ?
+				PALUPF(entitygraph->autogun_turn_speed) : PALUPF(0.0697f);
 
 			if (entitygraph && entitygraph->has_autogun &&
 					entitygraph->autogun_team_policy[0] &&
@@ -20125,11 +20490,109 @@ struct autogunobj *laptopDeploy(s32 modelnum, struct gset *gset, struct chrdata 
 				laptop->targetteam = 0;
 			}
 
+			/* c3849 Wave 5 Unit 7: autogun_target_filter "players_only"
+			 * (deploy-time strcmp) clears the team mask like team_policy
+			 * "any"; the OG team_policy clause above stays first verbatim. */
+			if (entitygraph && entitygraph->has_autogun &&
+					entitygraph->autogun_target_filter[0] &&
+					strcmp(entitygraph->autogun_target_filter, "players_only") == 0) {
+				laptop->targetteam = 0;
+			}
+
 			prop->forcetick = true;
 
 			laptop->base.hidden |= OBJHFLAG_TAGGED;
 			laptop->base.flags |= OBJFLAG_THROWNLAPTOP | OBJFLAG_01000000 | OBJFLAG_WEAPON_AICANNOTUSE;
-			laptop->base.flags3 |= OBJFLAG3_INTERACTABLE | OBJFLAG3_08000000;
+
+			/* c3849 Wave 5 Unit 7 (Step 5): interaction_action "none"
+			 * (deploy-time strcmp) leaves the deployment non-interactable
+			 * (no recover prompt); any other value or no interaction record
+			 * keeps the OG flags verbatim. prompt_ref is lang-id based and
+			 * validation-only this wave (deferred). */
+			if (entitygraph && entitygraph->has_interaction
+					&& entitygraph->interaction_action[0]
+					&& strcmp(entitygraph->interaction_action, "none") == 0) {
+				laptop->base.flags3 |= OBJFLAG3_08000000;
+			} else {
+				laptop->base.flags3 |= OBJFLAG3_INTERACTABLE | OBJFLAG3_08000000;
+			}
+
+			/* c3849 Wave 5 Unit 7: deploy latch, rewritten on every committed
+			 * deploy (lifecycle documented at g_ThrownLaptopLatch). valid = 0
+			 * without an entity graph keeps every consumer on the OG
+			 * expressions; the -1 sentinels carry absent-vs-authored-0
+			 * through to the consumers (binding spec B3). */
+			{
+				struct thrownlaptoplatch *latch = &g_ThrownLaptopLatch[index];
+
+				memset(latch, 0, sizeof(*latch));
+				latch->recoverweaponnum = carrierweaponnum;
+
+				if (entitygraph != NULL) {
+					latch->valid = 1;
+					latch->fireinterval = weaponGraphAutogunFireInterval(
+						entitygraph->has_autogun
+							? entitygraph->autogun_fire_cadence : 0.0f);
+					latch->alternate = entitygraph->has_autogun
+						? entitygraph->autogun_alternate_muzzles : -1;
+					latch->ffsuppress = entitygraph->has_autogun
+						? entitygraph->autogun_friendly_fire_suppression : -1;
+					latch->pickuprecover = entitygraph->has_autogun
+						? entitygraph->autogun_pickup_recover : -1;
+					latch->beaminterval = entitygraph->has_autogun
+						&& entitygraph->autogun_beam_interval_ticks60 > 0
+						? entitygraph->autogun_beam_interval_ticks60 : 4;
+
+					/* recover weapon (impact U6, binding spec B4): the
+					 * registration-resolved projectile pickup record wins,
+					 * then the entity interaction transfer_payload (resolved
+					 * here at the one-shot deploy via catalogResolveWeapon),
+					 * then the carrier weaponnum (bit-identical for base). */
+					if (projectilerec != NULL && projectilerec->has_pickup_recover
+							&& projectilerec->recover_weaponnum >= 0) {
+						latch->recoverweaponnum = projectilerec->recover_weaponnum;
+					} else if (entitygraph->has_interaction
+							&& entitygraph->transfer_payload[0]) {
+						catalog_weapon_result_t payload;
+
+						if (catalogResolveWeapon(entitygraph->transfer_payload, &payload)
+								&& payload.weapon_num > 0) {
+							latch->recoverweaponnum = payload.weapon_num;
+						}
+					}
+
+					if (projectilerec != NULL && projectilerec->has_pickup_recover
+							&& projectilerec->recover_ammo_none) {
+						latch->recoverammonone = 1;
+					}
+
+					/* pickup sound: entity interaction_sound first, then the
+					 * projectile pickup record's sound (both already
+					 * registration-resolved soundnums). */
+					if (entitygraph->has_interaction
+							&& entitygraph->interaction_sound > 0) {
+						latch->pickupsound = entitygraph->interaction_sound;
+					} else if (projectilerec != NULL
+							&& projectilerec->has_pickup_recover
+							&& projectilerec->pickup_sound > 0) {
+						latch->pickupsound = projectilerec->pickup_sound;
+					}
+
+					if (entitygraph->has_interaction
+							&& entitygraph->interact_filter[0]
+							&& strcmp(entitygraph->interact_filter, "anyone") == 0) {
+						latch->interactanyone = 1;
+					}
+
+					if (entitygraph->has_owner_cleanup) {
+						if (strcmp(entitygraph->owner_death_behavior, "explode") == 0) {
+							latch->ownerdeathmode = 1;
+						} else if (strcmp(entitygraph->owner_death_behavior, "delete") == 0) {
+							latch->ownerdeathmode = 2;
+						}
+					}
+				}
+			}
 		} else {
 			if (model) {
 				modelmgrFreeModel(model);
@@ -22682,7 +23145,35 @@ void alarmTick(void)
 	countdownTimerTick();
 	chrsTriggerProxies();
 
+	/* c3849 Wave 5 Unit 7 (entity-deployed Step 3): apply pending owner-death
+	 * cleanup to the per-player thrown-laptop slots before the mask clears
+	 * (weaponobj consumers ran in weaponTick; the laptop is an autogunobj and
+	 * needs this direct slot pass). Latch ownerdeathmode 1 = explode (the OG
+	 * laptopDeploy replace routines: EXPLOSIONTYPE_LAPTOP + free), 2 = delete
+	 * (free only), 0 / invalid latch = persist (OG). objFreePermanently runs
+	 * the objFree latch reset. */
+	if (g_PlayersOwnerCleanupPending != 0 && g_ThrownLaptops != NULL) {
+		s32 i;
+
+		for (i = 0; i < g_MaxThrownLaptops && i < ARRAYCOUNT(g_ThrownLaptopLatch); i++) {
+			if ((g_PlayersOwnerCleanupPending & 1 << i)
+					&& g_ThrownLaptops[i].base.prop
+					&& g_ThrownLaptopLatch[i].valid
+					&& g_ThrownLaptopLatch[i].ownerdeathmode != 0) {
+				if (g_ThrownLaptopLatch[i].ownerdeathmode == 1) {
+					explosionCreateSimple(NULL, &g_ThrownLaptops[i].base.prop->pos,
+							g_ThrownLaptops[i].base.prop->rooms, EXPLOSIONTYPE_LAPTOP, i);
+				}
+
+				objFreePermanently(&g_ThrownLaptops[i].base, true);
+			}
+		}
+	}
+
 	g_PlayersDetonatingMines = 0;
+	/* c3849 Wave 5 Unit 7: owner-cleanup mask clears on the same frame
+	 * schedule as g_PlayersDetonatingMines (second site: propsReset). */
+	g_PlayersOwnerCleanupPending = 0;
 
 	/* c3849 Wave 5 Unit 6: provenance sidecar resets on the same frame
 	 * schedule as the mask (second site: setupReset, setup.c). */

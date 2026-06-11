@@ -486,6 +486,16 @@ typedef struct weapon_graph_entity_runtime {
 	s32 remote_signal_mode;         /* 0 detonate (OG), 1 storm */
 	s32 timed_on_expire_mode;       /* 0 detonate (OG), 1 storm, 2 delete */
 	s32 timed_starts_mode;          /* 0 thrown/armed (OG default) */
+
+	/* c3849 Wave 5 Unit 7 (entity-deployed): sticky-device policy strings
+	 * latch to s32 at parse so the stick gate / pickup gate / landing arm in
+	 * propobj.c never strcmp (binding spec B3). max_active_per_owner is
+	 * sentinel-preset to -1 in the registration path: absent = OG (one slot
+	 * per player); authored 0 = deployment denied. */
+	s32 sticky_attachment_bg_only;  /* sticky_attachment_filter == "background_only" */
+	s32 sticky_pickup_none;         /* sticky_pickup_policy == "none" */
+	s32 sticky_disable_shootable;   /* sticky_disable_policy == "shootable" */
+	s32 sticky_visible_hidden;      /* sticky_visible_state == "hidden" */
 } weapon_graph_entity_runtime_t;
 
 const char *weaponGraphSchemaForType(asset_type_e type);

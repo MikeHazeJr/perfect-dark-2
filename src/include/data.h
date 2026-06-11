@@ -200,6 +200,10 @@ extern bool g_CountdownTimerRunning;
 extern f32 g_CountdownTimerValue60;
 extern u32 g_PlayersDetonatingMines;
 extern s32 g_PlayersDetonatingWeaponnum[MAX_PLAYERS];
+/* c3849 Wave 5 Unit 7: owner-cleanup pending mask (set playerDieByShooter,
+ * consumed weaponTick + alarmTick laptop pass, cleared alarmTick tail +
+ * propsReset). */
+extern u32 g_PlayersOwnerCleanupPending;
 extern s32 g_NextWeaponSlot;
 extern s32 g_NextHatSlot;
 extern struct linkliftdoorobj *g_LiftDoors;

@@ -6637,6 +6637,31 @@ void playerDieByShooter(u32 shooter, bool force)
 		}
 
 		g_Vars.currentplayer->isdead = true;
+
+		/* c3849 Wave 5 Unit 7 (entity-deployed Step 3): raise the
+		 * owner-cleanup pending bit for this player. Server authority is
+		 * inherited from playerDie's NETMODE_CLIENT guard. The index mirrors
+		 * the owner-slot domain used by laptopDeploy / the thrown-projectile
+		 * hidden bits (mpPlayerGetIndex in MP, playernum otherwise).
+		 * Consumed by weaponTick (custom owner_cleanup graphs) and the
+		 * alarmTick thrown-laptop pass; cleared at the alarmTick tail and
+		 * propsReset alongside g_PlayersDetonatingMines. owner_lost_behavior
+		 * (disconnect) collapses onto this hook because the net layer kills
+		 * the chr on disconnect. */
+		{
+			s32 cleanupindex;
+
+			if (g_Vars.normmplayerisrunning) {
+				cleanupindex = mpPlayerGetIndex(g_Vars.currentplayer->prop->chr);
+			} else {
+				cleanupindex = g_Vars.currentplayernum;
+			}
+
+			if (cleanupindex >= 0 && cleanupindex < 32) {
+				g_PlayersOwnerCleanupPending |= 1 << cleanupindex;
+			}
+		}
+
 		g_Vars.currentplayer->bonddie = g_Vars.currentplayer->bond2;
 		g_Vars.currentplayer->thetadie = g_Vars.currentplayer->vv_theta;
 		g_Vars.currentplayer->vertadie = g_Vars.currentplayer->vv_verta;

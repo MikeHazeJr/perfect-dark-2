@@ -5314,37 +5314,60 @@ struct defaultobj *bgunCreateThrownProjectile2(struct chrdata *chr, struct gset 
 		mtxLoadRandomRotation(&mtx);
 	}
 
-	if (gset->weaponnum == WEAPON_LAPTOPGUN) {
-		autogun = laptopDeploy(projectilemodelnum, gset, chr);
+	/* c3849 Wave 5 Unit 7 (impact U5 transition, binding spec B4: the single
+	 * :5294 laptop-gate widen). A CUSTOM thrown projectile whose record
+	 * authored transition_to_entity routes into the laptopDeploy autogun
+	 * backend when the referenced entity authored autogun (first production
+	 * caller of weaponGraphRuntimeGetEntityForProjectile). transition_when:
+	 * every authored value maps to this OG early instantiation (module spec
+	 * sanctions). Base weapons never author transition records; the OG
+	 * WEAPON_LAPTOPGUN clause stays first and verbatim. */
+	{
+		const weapon_graph_entity_runtime_t *transitionentity = NULL;
 
-		if (autogun != NULL) {
-			obj = &autogun->base;
+		if (gset->weaponnum >= WEAPON_CUSTOM_START && projectilegraph != NULL
+				&& projectilegraph->has_transition_to_entity) {
+			transitionentity =
+				weaponGraphRuntimeGetEntityForProjectile(projectilegraph);
+
+			if (transitionentity != NULL && !transitionentity->has_autogun) {
+				/* non-autogun transition archetypes are deferred */
+				transitionentity = NULL;
+			}
 		}
-	} else {
-		weaponobj = weaponCreateProjectileFromGset(projectilemodelnum, gset, chr);
 
-		if (weaponobj != NULL) {
-			obj = &weaponobj->base;
+		if (gset->weaponnum == WEAPON_LAPTOPGUN || transitionentity != NULL) {
+			autogun = laptopDeploy(projectilemodelnum, gset, chr);
 
-			// Note this timer is converted to 240 time immediately below
-			weaponobj->timer240 = activatetime60;
-
-			if (weaponobj->timer240 >= 2) {
-				weaponobj->timer240 = TICKS(weaponobj->timer240 * 4);
+			if (autogun != NULL) {
+				obj = &autogun->base;
 			}
+		} else {
+			weaponobj = weaponCreateProjectileFromGset(projectilemodelnum, gset, chr);
 
-			if (weaponobj->weaponnum == WEAPON_GRENADE || weaponobj->weaponnum == WEAPON_NBOMB) {
-				propSetDangerous(weaponobj->base.prop);
+			if (weaponobj != NULL) {
+				obj = &weaponobj->base;
+
+				// Note this timer is converted to 240 time immediately below
+				weaponobj->timer240 = activatetime60;
+
+				if (weaponobj->timer240 >= 2) {
+					weaponobj->timer240 = TICKS(weaponobj->timer240 * 4);
+				}
+
+				if (weaponobj->weaponnum == WEAPON_GRENADE || weaponobj->weaponnum == WEAPON_NBOMB) {
+					propSetDangerous(weaponobj->base.prop);
+				}
+
+				if (projectilemodelnum == MODEL_CHRREMOTEMINE
+						|| projectilemodelnum == MODEL_CHRTIMEDMINE
+						|| projectilemodelnum == MODEL_CHRPROXIMITYMINE
+						|| projectilemodelnum == MODEL_CHRECMMINE) {
+					weaponobj->base.flags3 |= OBJFLAG3_00000008;
+				}
+
+				bgunApplyEntityGraphToWeapon(weaponobj, entitygraph);
 			}
-
-			if (projectilemodelnum == MODEL_CHRREMOTEMINE
-					|| projectilemodelnum == MODEL_CHRTIMEDMINE
-					|| projectilemodelnum == MODEL_CHRPROXIMITYMINE
-					|| projectilemodelnum == MODEL_CHRECMMINE) {
-				weaponobj->base.flags3 |= OBJFLAG3_00000008;
-			}
-
-			bgunApplyEntityGraphToWeapon(weaponobj, entitygraph);
 		}
 	}
 
