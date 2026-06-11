@@ -1,5 +1,5 @@
 schema=pdasset-fast-v1-20260521
-kind=pdmeta_table_backed_v10_pdscenario_v92_objectives_spawns_volumes_pads_paths_ai_lists_json_navtables_json
+kind=pdmeta_table_backed_v11_gamemode_botprofile_manifest_source_fields
 count=18
-total_bytes=47762
-latest_mtime=1780847763
+total_bytes=48195
+latest_mtime=1781124233

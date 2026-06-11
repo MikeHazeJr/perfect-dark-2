@@ -1,0 +1,14 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 7,
+  "asset_id": "base:animation_character_afk",
+  "mod_id": "base",
+  "kind": "animation",
+  "source": "data/ntsc-final/animations/base_animation_character_afk.pdanim::animation.gltf",
+  "source_size": 50136,
+  "source_sha256": "4a7e8fe030e71fd480420040722f44c8f5b4f092cb9fbcf623ac1e432f96d9d9",
+  "validation": "format=gltf animtableentry clips=1 frames=50 channels=36",
+  "normalized": "$S/mod-cache/base/base_animation_character_afk/animation-v7-4a7e8fe030e71fd480420040722f44c8f5b4f092cb9fbcf623ac1e432f96d9d9.pdanimation.json",
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

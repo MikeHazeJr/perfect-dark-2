@@ -1,0 +1,18 @@
+{
+  "schema": "pd2.modasset.animation.v1",
+  "compiler_version": 7,
+  "asset_id": "base:animation_character_amx",
+  "kind": "animation",
+  "source": "data/ntsc-final/animations/base_animation_character_amx.pdanim::animation.gltf",
+  "source_sha256": "872fb3d66c59afa500e8ff4e2df4ea96055b7240f7129cb167c66a5232b0c45d",
+  "runtime_boundary": "animtableentry",
+  "clip_name": "base:animation_character_amx",
+  "animation_count": 1,
+  "channel_count": 10,
+  "sampler_count": 10,
+  "frame_count": 45,
+  "header_length": -1,
+  "bytes_per_frame": -1,
+  "transform_policy": "gltf_skeletal_channel_pack",
+  "packed_channels": ["translation", "rotation", "scale"]
+}

@@ -1,5 +1,5 @@
 schema=pdasset-fast-v1-20260521
-kind=pdmeta_table_backed_v10_pdscenario_v92_objectives_spawns_volumes_pads_paths_ai_lists_json_navtables_json
+kind=pdtexture_png_v1_decoded_rom_rgba_manifest_texture_file
 count=3503
-total_bytes=15691742
-latest_mtime=1780847762
+total_bytes=15684305
+latest_mtime=1781124232

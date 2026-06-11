@@ -1,0 +1,14 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 7,
+  "asset_id": "base:animation_cut_dish_intro_cam",
+  "mod_id": "base",
+  "kind": "animation",
+  "source": "data/ntsc-final/animations/base_animation_cut_dish_intro_cam.pdanim::animation.gltf",
+  "source_size": 14159,
+  "source_sha256": "d8c1c3954b352a5428e9cf744a5067843286f65cbb4a9f863b59a92f42d7360c",
+  "validation": "format=gltf animtableentry clips=1 frames=301 channels=2",
+  "normalized": "$S/mod-cache/base/base_animation_cut_dish_intro_cam/animation-v7-d8c1c3954b352a5428e9cf744a5067843286f65cbb4a9f863b59a92f42d7360c.pdanimation.json",
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

@@ -1,0 +1,18 @@
+{
+  "schema": "pd2.modasset.animation.v1",
+  "compiler_version": 7,
+  "asset_id": "base:animation_character_tv",
+  "kind": "animation",
+  "source": "data/ntsc-final/animations/base_animation_character_tv.pdanim::animation.gltf",
+  "source_sha256": "a84be2ee931e40e3dafdf5bbf2adbbae45114224a22a48f22fc9ccf6e606b3db",
+  "runtime_boundary": "animtableentry",
+  "clip_name": "base:animation_character_tv",
+  "animation_count": 1,
+  "channel_count": 15,
+  "sampler_count": 15,
+  "frame_count": 22,
+  "header_length": -1,
+  "bytes_per_frame": -1,
+  "transform_policy": "gltf_skeletal_channel_pack",
+  "packed_channels": ["translation", "rotation", "scale"]
+}
