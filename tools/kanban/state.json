@@ -5601,21 +5601,21 @@
           "id": "c3849-s4",
           "order": 4000,
           "status": "done",
-          "notes": "DONE 2026-06-10 (Slice A per the map; agent-implemented, independently re-verified: client PASS empty err; [catalog][provider][static] 11,532/40; guard ok). KEY CORRECTION to the audit: the base texture emitter ALREADY existed inside romextract_pdmeta.c -- extracted to its own romextract_pdtexture.c with a WORKING fast-cache stamp (pdmeta wrote but never read its stamp; new kind <64 chars because the stamp reader fscanf %63s truncates -- pdmeta own 66-char kind flagged), own BOOT_PHASE_EMIT_TEXTURE, c3843 pins re-pointed. Agent evidence: 3,503/3,503 conformant archives (conformance PASS), fresh-boot written=3503 failed=0, warm boot fast-cache skip (7k zip opens gone), live texture intercepts in boot smoke (tex=427 queries). Slices B/C (bind verification pin, emit fan-out) remain map follow-ups."
+          "notes": "DONE 2026-06-10 (Slice A per the map; agent-implemented, independently re-verified: client PASS empty err; [catalog][provider][static] 11,532/40; guard ok). KEY CORRECTION to the audit: the base texture emitter ALREADY existed inside romextract_pdmeta.c -- extracted to its own romextract_pdtexture.c with a WORKING fast-cache stamp (pdmeta wrote but never read its stamp; new kind <64 chars because the stamp reader fscanf %63s truncates -- pdmeta own 66-char kind flagged), own BOOT_PHASE_EMIT_TEXTURE, c3843 pins re-pointed. Agent evidence: 3,503/3,503 conformant archives (conformance PASS), fresh-boot written=3503 failed=0, warm boot fast-cache skip (7k zip opens gone), live texture intercepts in boot smoke (tex=427 queries). Slices B/C (bind verification pin, emit fan-out) remain map follow-ups. Slice B landed 2026-06-10 (06e3cac1): TEXTURE.BIND stat-only verification both paths + slug unification (assetcatalog_slug.h) + B-918 pin repair."
         },
         {
           "title": "Wave 5: dead-IR consumers (impact refs, homing gains, trails, transitions)",
           "id": "c3849-s5",
           "order": 5000,
           "status": "active",
-          "notes": ""
+          "notes": "IN PROGRESS 2026-06-10 (this session): 8-agent mapping round + critic; binding specs B1-B8 preserved in c3849-wave-implementation-maps.md (b32833a3). Landed + build-verified: Unit 0 latent bugs B-915/916/917 (34f3a6e5); Units 1+3 substrate + guidance incl. AI-launcher widen + wrong-owner fix (c061a4d2); Units 4+5 combined custom projectile arm (wall-hugger/impact/fuse) + stick-gate + bounce + trail + impact filter/sound/spark seams (bb0c58ad); Unit 6 custom entity arm remote/timed/proxy/storm + detonator provenance + objDamage/objFree (96925f3a); Unit 7 deployed-entity autogun/transition/owner-cleanup/sticky-device/interaction (ee058887). Remaining: Unit 2+9 settings/variables/presentation + camera_effect + MPOPTION bit."
         },
         {
           "title": "Wave 6: meta-family consumers + .pdeffect runtime",
           "id": "c3849-s6",
           "order": 6000,
-          "status": "backlog",
-          "notes": ""
+          "status": "active",
+          "notes": "Wave 6a meta-family consumers (3 of 11: botprofile/gamemode/theme) landed 2026-06-10 (06e3cac1), value-identical + RUNTIME_MISS fallbacks. Wave 6b .pdeffect runtime: bridge stubs landed in c061a4d2; full runtime in progress."
         },
         {
           "title": "Wave 7: live-gated flips (fatal cutover + graph default) at B-801",
