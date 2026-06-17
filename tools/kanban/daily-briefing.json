@@ -2,65 +2,54 @@
   "schema_version": 1,
   "semantic_version": "0.1.0",
   "x_extensibility_rule": "Additive-only. Unknown fields tolerated. Reserved namespace: x_*. Bump schema_version only on a breaking change.",
-  "generated_at": "2026-05-18T06:07:01.846874-04:00",
-  "generated_display": "[05-18-2026 - 06:07]",
-  "for_date": "2026-05-18",
+  "generated_at": "2026-06-17T06:17:37.119014-04:00",
+  "generated_display": "[06-17-2026 - 06:17]",
+  "for_date": "2026-06-17",
   "partial": false,
   "headlines": [
-    "23 commits and 1 sessions in the last 24 h"
+    "No new commits, sessions, or state transitions overnight."
   ],
   "ready_to_resume": {
     "count": 0,
     "items": []
   },
   "blocker_bugs": {
-    "count": 2,
-    "items": [
-      {
-        "id": "B-323",
-        "title": "Post-boot AV in challengesInit: N64-vs-PC mpconfig/mpstrings stride mismatch",
-        "severity": "blocker"
-      },
-      {
-        "id": "B-324",
-        "title": "AV at boot in bgunCalculateBlend (weapon NULL via empty loader pool)",
-        "severity": "blocker"
-      }
-    ]
+    "count": 0,
+    "items": []
   },
   "focus": [
-    {
-      "kind": "bug",
-      "id": "B-323",
-      "title": "Post-boot AV in challengesInit: N64-vs-PC mpconfig/mpstrings stride mismatch",
-      "rationale": "open blocker severity, filed 2026-05-03"
-    },
     {
       "kind": "card",
       "id": "c3746",
       "title": "Player init architectural fixes",
-      "rationale": "engine card, column active"
+      "rationale": "engine card, column backlog"
     },
     {
       "kind": "card",
       "id": "c3738",
       "title": "Skedar surface-normal locomotion (Slices 4-5)",
-      "rationale": "engine card, column active"
+      "rationale": "engine card, column backlog"
     },
     {
       "kind": "card",
-      "id": "c054",
-      "title": "Networking: wire ICE peer candidate exchange",
-      "rationale": "networking card, column backlog"
+      "id": "c3827",
+      "title": "B-362: Falcon 2 mission-start beam stretches to center",
+      "rationale": "engine card, column backlog"
     },
     {
       "kind": "card",
-      "id": "c055",
-      "title": "Networking: publish STUN reflexive to peer",
-      "rationale": "networking card, column backlog"
+      "id": "c3823",
+      "title": "Startup extraction fast-cache and centered progress modal",
+      "rationale": "engine card, column backlog"
+    },
+    {
+      "kind": "card",
+      "id": "c3848",
+      "title": "Catalog: custom-model runtime-slot allocator for embedded weapon meshes (B-911)",
+      "rationale": "catalog card, column backlog"
     }
   ],
-  "daily_log_path": "context/daily-logs/2026-05-18.md",
+  "daily_log_path": "context/daily-logs/2026-06-17.md",
   "decisions_allocated": [],
   "morning_run_results": {
     "summary_line": "0 cards flipped, 0 bugs verified, 0 cascade advances, 0 decisions allocated",
@@ -69,8 +58,9 @@
     "cascade_advanced": [],
     "cascade_promoted_bugs": [],
     "decisions_allocated": [],
-    "daily_log_path": "context/daily-logs/2026-05-18.md"
+    "daily_log_path": "context/daily-logs/2026-06-17.md"
   },
   "x_failure_point": null,
-  "x_compaction_quality_review": false
+  "x_compaction_quality_review": false,
+  "x_orchestrator_note": "Pre-commit guard blockage (06-13 through 06-17) RESOLVED this run: working-tree c3844.priority was null (accidental board-reorg artifact); restored to 'critical' (HEAD value) so the asset-source guard pin passes and commits/pushes work again. state.json NOT committed; Mike's board reorg plus the ~300-file in-flight tree left untouched per dirty-tree protocol. Detail in context/daily-logs/2026-06-17.md."
 }
