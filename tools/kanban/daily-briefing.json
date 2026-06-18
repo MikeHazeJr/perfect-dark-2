@@ -2,12 +2,12 @@
   "schema_version": 1,
   "semantic_version": "0.1.0",
   "x_extensibility_rule": "Additive-only. Unknown fields tolerated. Reserved namespace: x_*. Bump schema_version only on a breaking change.",
-  "generated_at": "2026-06-17T06:17:37.119014-04:00",
-  "generated_display": "[06-17-2026 - 06:17]",
-  "for_date": "2026-06-17",
+  "generated_at": "2026-06-18T06:08:47.831036-04:00",
+  "generated_display": "[06-18-2026 - 06:08]",
+  "for_date": "2026-06-18",
   "partial": false,
   "headlines": [
-    "No new commits, sessions, or state transitions overnight."
+    "4 commits and 0 sessions in the last 24 h"
   ],
   "ready_to_resume": {
     "count": 0,
@@ -49,7 +49,7 @@
       "rationale": "catalog card, column backlog"
     }
   ],
-  "daily_log_path": "context/daily-logs/2026-06-17.md",
+  "daily_log_path": "context/daily-logs/2026-06-18.md",
   "decisions_allocated": [],
   "morning_run_results": {
     "summary_line": "0 cards flipped, 0 bugs verified, 0 cascade advances, 0 decisions allocated",
@@ -58,9 +58,8 @@
     "cascade_advanced": [],
     "cascade_promoted_bugs": [],
     "decisions_allocated": [],
-    "daily_log_path": "context/daily-logs/2026-06-17.md"
+    "daily_log_path": "context/daily-logs/2026-06-18.md"
   },
   "x_failure_point": null,
-  "x_compaction_quality_review": false,
-  "x_orchestrator_note": "Pre-commit guard blockage (06-13 through 06-17) RESOLVED this run: working-tree c3844.priority was null (accidental board-reorg artifact); restored to 'critical' (HEAD value) so the asset-source guard pin passes and commits/pushes work again. state.json NOT committed; Mike's board reorg plus the ~300-file in-flight tree left untouched per dirty-tree protocol. Detail in context/daily-logs/2026-06-17.md."
+  "x_compaction_quality_review": false
 }
