@@ -1373,7 +1373,7 @@ function Invoke-PruneOldZips {
     $zips = @(Get-ChildItem -Path $Directory -Filter "PerfectDark-*.zip" -File -ErrorAction SilentlyContinue `
         | Sort-Object LastWriteTime -Descending)
     if ($zips.Count -le $Keep) { return }
-    $victims = $zips | Select-Object -Skip $Keep
+    $victims = @($zips | Select-Object -Skip $Keep)
     $bytes = ($victims | Measure-Object -Property Length -Sum).Sum
     $mb = [math]::Round($bytes / 1MB, 1)
     Write-Host "  Pruning $Label zips: removing $($victims.Count) old file(s), $mb MB" -ForegroundColor Gray
