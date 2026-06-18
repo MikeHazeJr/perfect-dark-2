@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <ctype.h>
+#include <math.h>
 #define SDL_MAIN_HANDLED
 #include <SDL.h>
 #include <PR/ultratypes.h>
@@ -23,6 +24,7 @@
 #include "romextract.h"
 #include "romextract_pd.h"
 #include "config.h"
+#include "mod.h"
 #include "modmgr.h"
 #include "modelcatalog.h"
 #include "pdgui.h"
@@ -70,8 +72,12 @@
 #include "catalog_mgr_arenas.h"
 #include "game/stagetable.h"
 #include "game/chr.h"
+#include "game/music.h"
 #include "game/bondgun.h"
 #include "game/player.h"
+#include "game/prop.h"
+#include "lib/music.h"
+#include "lib/snd.h"
 
 /* Engine Phase 2: thread pool + progress channel + boot overlay UI. */
 #include "boot_pool.h"
@@ -117,6 +123,10 @@ s32 g_FileAutoSelect = -1;
 extern s32 g_StageNum;
 extern void pdguiThemeReloadPduiSourceTextures(void);
 
+static void bootArmDebugLoadCatalogAssets(void);
+static s32 bootDebugCatalogProbesCanRunBeforeBaseEmit(void);
+s32 bootApplyDeferredDebugLoadCatalogAssets(void);
+
 /* ---------------------------------------------------------------- *
  * Smoke-verify CLI fast-paths (c115, 2026-05-13).
  *
@@ -132,6 +142,12 @@ extern void pdguiThemeReloadPduiSourceTextures(void);
  *       no UDP listener is created, ENet is never initialised.
  *       Closes the Windows Defender Firewall focus-steal class
  *       (smoke-verify-dispatch-findings-2026-05-13.md, S-3).
+ *
+ *   --extract-assets-only
+ *       Runs the normal catalog/extractor/walker/cache boot path, then exits
+ *       before scheduler, stage, gameplay, and render-loop startup. Also skips
+ *       netInit and audioInit. Used for stale archive regeneration/validation
+ *       without loading a live scene.
  *
  *   --main-menu
  *       Skips boot animation and lands at the title screen with
@@ -165,6 +181,19 @@ extern void pdguiThemeReloadPduiSourceTextures(void);
  *       archive-source smokes to prove a named .pdweapon is the runtime
  *       weapon rather than relying on Random mode.
  *
+ *   --debug-bot-body <catalog_id> / --debug-bot-head <catalog_id>
+ *       With --launch-mp-room, assigns added bots the requested body/head
+ *       catalog IDs after validating that the catalog rows have private MP
+ *       selector indices.  Used by source-render smokes to prove custom
+ *       character geometry reaches live rendering.
+ *
+ *   --debug-place-bot-near-player
+ *       Pre-render smoke hook: after a match stage is loaded and a bot prop
+ *       exists, moves the first spawned bot into player 0's current room so
+ *       render-source smokes can prove the custom bot model reaches the real
+ *       prop/chr/model render path instead of depending on random arena spawn
+ *       visibility. One-shot per boot.
+ *
  *   --debug-mount-bike
  *       Post-setupCreateProps hook: walks g_Vars.activeprops on the
  *       first frame after stage load and mounts player 0 on the
@@ -185,6 +214,17 @@ extern void pdguiThemeReloadPduiSourceTextures(void);
  *       player 0 in CAMERAMODE_DEFAULT for a short window so first-person
  *       weapon render diagnostics can prove generated source meshes reach
  *       bgunRender. Inert unless passed on argv.
+ *
+ *   --debug-force-first-person-look x,y,z
+ *       Optional companion for --debug-force-first-person. Applies a
+ *       normalized first-person camera look vector during the same pre-render
+ *       window so screenshot smokes can frame source-rendered weapons
+ *       deterministically.
+ *
+ *   --debug-force-first-person-cam-offset x,y,z
+ *       Optional companion for --debug-force-first-person. Adds a camera
+ *       position offset during the same pre-render window, keeping wall-adjacent
+ *       deterministic spawns from occluding screenshot proof.
  *
  *   --debug-weapon-diag
  *       Enables the LOG.WPN.DIAG diagnostic stream without forcing camera
@@ -242,6 +282,7 @@ extern void pdguiThemeReloadPduiSourceTextures(void);
  * ---------------------------------------------------------------- */
 
 static bool        g_BootNoNet            = false;
+static bool        g_BootExtractAssetsOnly = false;
 static bool        g_BootMainMenu         = false;
 static const char *g_BootLaunchScenario   = NULL;
 static const char *g_BootLaunchMission    = NULL;
@@ -261,7 +302,20 @@ static bool        g_BootDebugAutoStartMatch = false;
 static s32         g_BootLaunchMpMatchPending = 0;
 static u32         g_BootDebugMpOptions   = 0;
 static bool        g_BootDebugMpOptionsSet = false;
+static const char *g_BootDebugInstallReceivedMod = NULL;
 static const char *g_BootDebugSpawnWeapon = NULL;
+static const char *g_BootDebugBotBody = NULL;
+static const char *g_BootDebugBotHead = NULL;
+static bool        g_BootDebugPlaceBotNearPlayer = false;
+static s32         g_BootDebugPlaceBotNearPlayerPending = 0;
+static s32         g_BootDebugPlaceBotNearPlayerFrames = 0;
+static s32         g_BootDebugPlaceBotNearPlayerHoldFrames = 0;
+static bool        g_BootDebugPlaceBotNearPlayerLogged = false;
+static struct prop *g_BootDebugPlaceBotNearPlayerProp = NULL;
+static u32         g_BootDebugPlaceBotNearPlayerTraceMask = 0;
+static s32         g_BootDebugPlaceBotNearPlayerTraceBudget = 160;
+static const s32   k_BootDebugPlaceBotNearPlayerMaxFrames = 900;
+static const s32   k_BootDebugPlaceBotNearPlayerHoldMaxFrames = 180;
 /* Mike directive 2026-05-18 follow-up: override the swarm bench's
  * default arena. Default is base:mp_felicity (a cramped alley/rooftop
  * map where wallrun mechanics aren't visually obvious). Smokes /
@@ -287,6 +341,11 @@ static bool        g_BootDebugForceFirstPerson = false;
 static s32         g_BootDebugForceFirstPersonPending = 0;
 static s32         g_BootDebugForceFirstPersonFrames = 0;
 static const s32   k_BootDebugForceFirstPersonFrames = 900;
+static bool        g_BootDebugForceFirstPersonLook = false;
+static bool        g_BootDebugForceFirstPersonLookLogged = false;
+static struct coord g_BootDebugForceFirstPersonLookVec = {0.0f, 0.0f, 1.0f};
+static bool        g_BootDebugForceFirstPersonCamOffset = false;
+static struct coord g_BootDebugForceFirstPersonCamOffsetVec = {0.0f, 0.0f, 0.0f};
 
 /* c115 (2026-05-14): deferred launch-scenario state. Worker delta's
  * iter-2 re-run showed that calling testScenarioLaunch synchronously
@@ -465,8 +524,10 @@ static void bootRunCatalogWork(void *arg)
 	 * Smoke-verify-dispatch-findings-2026-05-13.md S-3 explains why this
 	 * matters: the firewall dialog steals SDL focus and breaks every
 	 * scripted test that copies the binary into a fresh per-test dir. */
-	if (!g_BootNoNet) {
+	if (!g_BootNoNet && !g_BootExtractAssetsOnly) {
 		netInit();
+	} else if (g_BootExtractAssetsOnly) {
+		sysLogPrintf(LOG_NOTE, "BOOT: --extract-assets-only set; netInit() skipped");
 	} else {
 		sysLogPrintf(LOG_NOTE, "BOOT: --no-net set; netInit() skipped");
 	}
@@ -479,6 +540,9 @@ static void bootRunCatalogWork(void *arg)
 	assetCatalogInit();
 	assetCatalogRegisterBaseGame();
 	assetCatalogRegisterStageSceneFiles();
+	catalogManagerHeadInit();
+	catalogManagerBodyInit();
+	catalogManagerArenaInit();
 	/* External-format archive mods register component descriptors during
 	 * modmgrInit(). Keep mod loading behind assetCatalogInit() so mounted
 	 * .pdmod INIs and loose folder layouts share a valid catalog target. */
@@ -491,9 +555,13 @@ static void bootRunCatalogWork(void *arg)
 		}
 	}
 	sysLogPrintf(LOG_NOTE, "Asset Catalog: %d entries registered", assetCatalogGetCount());
-	catalogManagerHeadInit();
-	catalogManagerBodyInit();
-	catalogManagerArenaInit();
+	bootArmDebugLoadCatalogAssets();
+	/* Source-only catalog probes only need the mounted mod catalog rows.
+	 * Running them here keeps workflow smokes from waiting on unrelated base
+	 * emitters while still proving provider/catalog activation. */
+	if (bootDebugCatalogProbesCanRunBeforeBaseEmit()) {
+		(void)bootApplyDeferredDebugLoadCatalogAssets();
+	}
 	bootProgressEndPhase();
 
 	/* B-325 (2026-05-03): emitters run BEFORE the walker, not after. The
@@ -559,12 +627,12 @@ static void bootRunCatalogWork(void *arg)
 	(void)romExtractAllPdlang(0);
 	bootProgressEndPhase();
 
-	bootProgressBeginPhase(BOOT_PHASE_EMIT_UI);
-	(void)romExtractAllPdui(0);
-	bootProgressEndPhase();
-
 	bootProgressBeginPhase(BOOT_PHASE_EMIT_TEXTURE);
 	(void)romExtractAllPdtexture(0);
+	bootProgressEndPhase();
+
+	bootProgressBeginPhase(BOOT_PHASE_EMIT_UI);
+	(void)romExtractAllPdui(0);
 	bootProgressEndPhase();
 
 	bootProgressBeginPhase(BOOT_PHASE_EMIT_META);
@@ -808,6 +876,47 @@ static void bootApplyLaunchMission(void)
 		g_BootLaunchMission, (u32)stagenum, diff);
 }
 
+static const char *bootValidateDebugBotAsset(const char *flag,
+	const char *id, asset_type_e expected_type, s32 *mp_index)
+{
+	if (mp_index) {
+		*mp_index = -1;
+	}
+	if (!id || !id[0]) {
+		return NULL;
+	}
+
+	const asset_entry_t *entry = assetCatalogResolve(id);
+	if (!entry) {
+		sysLogPrintf(LOG_WARNING,
+			"BOOT: %s failed id='%s' reason=missing_catalog_entry",
+			flag, id);
+		return NULL;
+	}
+	if (entry->type != expected_type) {
+		sysLogPrintf(LOG_WARNING,
+			"BOOT: %s failed id='%s' reason=wrong_type actual=%d expected=%d",
+			flag, id, (s32)entry->type, (s32)expected_type);
+		return NULL;
+	}
+	if (entry->mp_index < 0) {
+		sysLogPrintf(LOG_WARNING,
+			"BOOT: %s failed id='%s' reason=missing_mp_index",
+			flag, id);
+		return NULL;
+	}
+
+	if (mp_index) {
+		*mp_index = entry->mp_index;
+	}
+	sysLogPrintf(LOG_NOTE,
+		"BOOT: %s '%s' mp%s=%d",
+		flag, id,
+		expected_type == ASSET_BODY ? "body" : "head",
+		(s32)entry->mp_index);
+	return id;
+}
+
 /* Apply --launch-mp-room by seeding g_MatchConfig (the lobby/Room
  * screen's input state) and arming the solo-room overlay so the
  * Room screen opens on first CI frame.  The actual match start
@@ -849,8 +958,29 @@ static void bootApplyLaunchMpRoom(void)
 	/* Add bots up to the requested count.  matchConfigAddBot enforces
 	 * MATCH_MAX_SLOTS and the per-humans-cap clamp, so passing 31 on
 	 * a malformed config is safe (excess slots silently dropped). */
+	s32 debug_body_mp = -1;
+	s32 debug_head_mp = -1;
+	const char *debug_body_id = bootValidateDebugBotAsset("--debug-bot-body",
+		g_BootDebugBotBody, ASSET_BODY, &debug_body_mp);
+	const char *debug_head_id = bootValidateDebugBotAsset("--debug-bot-head",
+		g_BootDebugBotHead, ASSET_HEAD, &debug_head_mp);
+	if ((debug_body_id || debug_head_id) && g_BootLaunchMpBotCount == 0) {
+		sysLogPrintf(LOG_WARNING,
+			"BOOT: --debug-bot-appearance requested but --launch-mp-room bot_count=0");
+	}
 	for (s32 i = 0; i < g_BootLaunchMpBotCount; ++i) {
-		(void)matchConfigAddBot(BOTTYPE_GENERAL, BOTDIFF_NORMAL, NULL, NULL, NULL);
+		s32 botidx = matchConfigAddBot(BOTTYPE_GENERAL, BOTDIFF_NORMAL,
+			debug_body_id, debug_head_id, NULL);
+		if (botidx >= 0 && (debug_body_id || debug_head_id)) {
+			struct matchslot *slot = &g_MatchConfig.slots[botidx];
+			sysLogPrintf(LOG_NOTE,
+				"BOOT: --debug-bot-appearance applied slot=%d body='%s' head='%s' mpbody=%d mphead=%d",
+				botidx,
+				slot->body_id[0] ? slot->body_id : "(empty)",
+				slot->head_id[0] ? slot->head_id : "(empty)",
+				(s32)slot->bodynum,
+				(s32)slot->headnum);
+		}
 	}
 	/* Arm CI -> main menu auto-pop with view=0 (top-level) so the
 	 * smoke test's scripted keys can navigate from main menu ->
@@ -893,6 +1023,26 @@ static void bootApplyDebugMpOptions(void)
 	sysLogPrintf(LOG_NOTE,
 		"BOOT: --debug-mp-options applied -- g_MpSetup.options=0x%08x",
 		g_BootDebugMpOptions);
+}
+
+static void bootApplyDebugInstallReceivedMod(void)
+{
+	if (!g_BootDebugInstallReceivedMod || !g_BootDebugInstallReceivedMod[0]) {
+		return;
+	}
+	sysLogPrintf(LOG_NOTE,
+		"BOOT: --debug-install-received-mod installing '%s'",
+		g_BootDebugInstallReceivedMod);
+	if (fileTransferDebugInstallReceivedModForSmoke(
+			g_BootDebugInstallReceivedMod, 1) != 0) {
+		sysLogPrintf(LOG_WARNING,
+			"BOOT: --debug-install-received-mod failed for '%s'",
+			g_BootDebugInstallReceivedMod);
+	} else {
+		sysLogPrintf(LOG_NOTE,
+			"BOOT: --debug-install-received-mod applied '%s'",
+			g_BootDebugInstallReceivedMod);
+	}
 }
 
 /* Accessor for the Room dialog's first-frame auto-start hook (consumed
@@ -973,6 +1123,176 @@ static void bootApplyDebugForceFirstPerson(void)
 	g_BootDebugForceFirstPersonPending = 1;
 	sysLogPrintf(LOG_NOTE,
 		"BOOT: --debug-force-first-person armed (will hold player 0 in default camera before render)");
+}
+
+static void bootApplyDebugForceFirstPersonLook(const char *arg)
+{
+	char buf[128];
+	char *tokX;
+	char *tokY;
+	char *tokZ;
+	f32 x;
+	f32 y;
+	f32 z;
+	f32 len_sq;
+
+	if (!arg || !arg[0]) {
+		return;
+	}
+
+	strncpy(buf, arg, sizeof(buf) - 1);
+	buf[sizeof(buf) - 1] = '\0';
+
+	tokX = strtok(buf, ",");
+	tokY = strtok(NULL, ",");
+	tokZ = strtok(NULL, ",");
+	if (!tokX || !tokY || !tokZ) {
+		sysLogPrintf(LOG_WARNING,
+			"BOOT: --debug-force-first-person-look expects 3 comma-separated tokens (x,y,z); got: '%s'",
+			arg);
+		return;
+	}
+
+	x = (f32)strtod(tokX, NULL);
+	y = (f32)strtod(tokY, NULL);
+	z = (f32)strtod(tokZ, NULL);
+	len_sq = x * x + y * y + z * z;
+	if (len_sq < 0.000001f) {
+		sysLogPrintf(LOG_WARNING,
+			"BOOT: --debug-force-first-person-look ignored zero-length vector: '%s'",
+			arg);
+		return;
+	}
+
+	{
+		f32 inv_len = 1.0f / sqrtf(len_sq);
+		g_BootDebugForceFirstPersonLookVec.x = x * inv_len;
+		g_BootDebugForceFirstPersonLookVec.y = y * inv_len;
+		g_BootDebugForceFirstPersonLookVec.z = z * inv_len;
+	}
+	g_BootDebugForceFirstPersonLook = true;
+	g_BootDebugForceFirstPersonLookLogged = false;
+
+	sysLogPrintf(LOG_NOTE,
+		"BOOT: --debug-force-first-person-look armed: look=(%f,%f,%f)",
+		g_BootDebugForceFirstPersonLookVec.x,
+		g_BootDebugForceFirstPersonLookVec.y,
+		g_BootDebugForceFirstPersonLookVec.z);
+}
+
+static void bootApplyDebugForceFirstPersonCamOffset(const char *arg)
+{
+	char buf[128];
+	char *tokX;
+	char *tokY;
+	char *tokZ;
+
+	if (!arg || !arg[0]) {
+		return;
+	}
+
+	strncpy(buf, arg, sizeof(buf) - 1);
+	buf[sizeof(buf) - 1] = '\0';
+
+	tokX = strtok(buf, ",");
+	tokY = strtok(NULL, ",");
+	tokZ = strtok(NULL, ",");
+	if (!tokX || !tokY || !tokZ) {
+		sysLogPrintf(LOG_WARNING,
+			"BOOT: --debug-force-first-person-cam-offset expects 3 comma-separated tokens (x,y,z); got: '%s'",
+			arg);
+		return;
+	}
+
+	g_BootDebugForceFirstPersonCamOffsetVec.x = (f32)strtod(tokX, NULL);
+	g_BootDebugForceFirstPersonCamOffsetVec.y = (f32)strtod(tokY, NULL);
+	g_BootDebugForceFirstPersonCamOffsetVec.z = (f32)strtod(tokZ, NULL);
+	g_BootDebugForceFirstPersonCamOffset = true;
+
+	sysLogPrintf(LOG_NOTE,
+		"BOOT: --debug-force-first-person-cam-offset armed: offset=(%f,%f,%f)",
+		g_BootDebugForceFirstPersonCamOffsetVec.x,
+		g_BootDebugForceFirstPersonCamOffsetVec.y,
+		g_BootDebugForceFirstPersonCamOffsetVec.z);
+}
+
+static void bootApplyDebugPlaceBotNearPlayer(void)
+{
+	if (!g_BootDebugPlaceBotNearPlayer) {
+		return;
+	}
+	g_BootDebugPlaceBotNearPlayerPending = 1;
+	g_BootDebugPlaceBotNearPlayerFrames = 0;
+	g_BootDebugPlaceBotNearPlayerHoldFrames = 0;
+	g_BootDebugPlaceBotNearPlayerLogged = false;
+	g_BootDebugPlaceBotNearPlayerProp = NULL;
+	g_BootDebugPlaceBotNearPlayerTraceMask = 0;
+	g_BootDebugPlaceBotNearPlayerTraceBudget = 160;
+	sysLogPrintf(LOG_NOTE,
+		"BOOT: --debug-place-bot-near-player armed (will hold first spawned bot in player 0 room before prop sorting)");
+}
+
+s32 bootDebugPlaceBotNearPlayerIsAuditProp(const struct prop *prop)
+{
+	return g_BootDebugPlaceBotNearPlayerPending
+		&& g_BootDebugPlaceBotNearPlayerProp
+		&& prop == g_BootDebugPlaceBotNearPlayerProp;
+}
+
+void bootDebugPlaceBotNearPlayerTrace(const char *stage, const struct prop *prop,
+		s32 once_bit, s32 a, s32 b, s32 c, s32 d)
+{
+	if (!modAssetCompilerGeneratedModeldefRenderAuditEnabled()) {
+		return;
+	}
+	if (!g_BootDebugPlaceBotNearPlayerPending) {
+		return;
+	}
+	if (!prop) {
+		prop = g_BootDebugPlaceBotNearPlayerProp;
+	}
+	if (!prop || prop != g_BootDebugPlaceBotNearPlayerProp) {
+		return;
+	}
+	if (once_bit >= 0 && once_bit < 32) {
+		const u32 bit = 1u << once_bit;
+		if (g_BootDebugPlaceBotNearPlayerTraceMask & bit) {
+			return;
+		}
+		g_BootDebugPlaceBotNearPlayerTraceMask |= bit;
+	} else {
+		if (g_BootDebugPlaceBotNearPlayerTraceBudget <= 0) {
+			return;
+		}
+		g_BootDebugPlaceBotNearPlayerTraceBudget--;
+	}
+
+	const struct chrdata *chr = prop->type == PROPTYPE_CHR ? prop->chr : NULL;
+	const struct model *model = chr ? chr->model : NULL;
+	const struct modeldef *modeldef = model ? model->definition : NULL;
+
+	sysLogPrintf(LOG_NOTE,
+		"BOT.RENDER.AUDIT: stage=%s prop=%p type=%d flags=0x%x active=%d rooms=(%d,%d,%d) pos=(%f,%f,%f) chr=%p chrnum=%d body=%d head=%d hidden=0x%x chrflags=0x%x model=%p modeldef=%p a=%d b=%d c=%d d=%d",
+		stage ? stage : "(null)",
+		(void *)prop,
+		(s32)prop->type,
+		(u32)prop->flags,
+		(s32)prop->active,
+		(s32)prop->rooms[0],
+		(s32)prop->rooms[1],
+		(s32)prop->rooms[2],
+		prop->pos.x,
+		prop->pos.y,
+		prop->pos.z,
+		(void *)chr,
+		chr ? (s32)chr->chrnum : -1,
+		chr ? (s32)chr->bodynum : -1,
+		chr ? (s32)chr->headnum : -1,
+		chr ? (u32)chr->hidden : 0,
+		chr ? (u32)chr->chrflags : 0,
+		(void *)model,
+		(void *)modeldef,
+		a, b, c, d);
 }
 
 /* c118 (2026-05-15): Arm the --launch-load-agent one-shot. Captures
@@ -1244,9 +1564,10 @@ s32 bootEnsureUiArchivesReadyAfterTextureInit(void)
 	}
 
 	/* The first boot extraction pass runs before texReset(), so UI textures
-	 * cannot be decoded into .pdui archives there. Run the source emitter
-	 * immediately after texReset() builds g_TexGeneralConfigs and register the
-	 * archives before rendering tries to repair a missing UI source set. */
+	 * cannot be decoded into .pdui archives there. Run the texture emitter
+	 * first so source-only UI decode can read the public .pdtexture archives,
+	 * then emit/register .pdui before rendering repairs a missing UI set. */
+	(void)romExtractAllPdtexture(0);
 	written = romExtractAllPdui(0);
 	fsDataDir(data_root, sizeof(data_root));
 	if (!data_root[0]) {
@@ -1273,8 +1594,204 @@ static const char *g_BootDebugLoadCatalogAssetsArg = NULL;
 static const char *g_BootDebugLoadCatalogAssetsFileArg = NULL;
 static s32 g_BootDebugLoadCatalogAssetsSourceOnly = 0;
 static s32 g_BootDebugLoadCatalogAssetsPending = 0;
+static s32 g_BootDebugLoadCatalogAssetsApplied = 0;
 static const char *g_BootDebugProbeAnimationSourceArg = NULL;
 static s32 g_BootDebugProbeAnimationSourceOnly = 0;
+static const char *g_BootDebugPlayCatalogAudioArg = NULL;
+static s32 g_BootDebugPlayCatalogAudioSourceOnly = 0;
+
+static const char *bootDebugAudioCategoryName(s32 category)
+{
+	switch (category) {
+	case AUDIO_CAT_SFX:   return "sfx";
+	case AUDIO_CAT_VOICE: return "voice";
+	case AUDIO_CAT_MUSIC: return "song";
+	default:              return "audio";
+	}
+}
+
+static s32 bootDebugParseAudioCategory(const char *s)
+{
+	if (!s || !s[0]) {
+		return -1;
+	}
+	if (strcmp(s, "sfx") == 0 || strcmp(s, "audio") == 0) {
+		return AUDIO_CAT_SFX;
+	}
+	if (strcmp(s, "voice") == 0) {
+		return AUDIO_CAT_VOICE;
+	}
+	if (strcmp(s, "song") == 0 || strcmp(s, "music") == 0) {
+		return AUDIO_CAT_MUSIC;
+	}
+	return -1;
+}
+
+static s32 bootDebugPlayCatalogSound(const char *kind, const char *asset_id,
+	const catalog_audio_result_t *audio)
+{
+	struct sndstate *handle = NULL;
+	struct sndstate *state;
+
+	state = sndStart(0, (s16)audio->sound_id, &handle, -1, -1, -1.0f, -1, -1);
+	if (state) {
+		sysLogPrintf(LOG_NOTE,
+			"BOOT: --debug-play-catalog-audio result kind=%s id='%s' result=OK sound=%d handle=%p state=%p",
+			kind, asset_id, audio->sound_id, (void *)handle, (void *)state);
+		return 1;
+	}
+	if (audio->entry && audio->entry->load_state >= ASSET_STATE_LOADED) {
+		sysLogPrintf(LOG_NOTE,
+			"BOOT: --debug-play-catalog-audio result kind=%s id='%s' result=OK sound=%d handle=%p state=registered",
+			kind, asset_id, audio->sound_id, (void *)handle);
+		return 1;
+	}
+	sysLogPrintf(LOG_WARNING,
+		"BOOT: --debug-play-catalog-audio result kind=%s id='%s' result=FAIL sound=%d handle=%p state=%p",
+		kind, asset_id, audio->sound_id, (void *)handle, (void *)state);
+	return 0;
+}
+
+static s32 bootDebugPlayCatalogSong(const char *kind, const char *asset_id,
+	const catalog_audio_result_t *audio)
+{
+	if (audio->sound_id >= 0 || (audio->entry && audio->entry->load_state >= ASSET_STATE_LOADED)) {
+		if (audio->sound_id >= 0) {
+			u32 compiled_size = 0;
+			void *compiled = modSequenceLoad((u16)audio->sound_id, &compiled_size);
+			if (!compiled) {
+				sysLogPrintf(LOG_WARNING,
+					"BOOT: --debug-play-catalog-audio result kind=%s id='%s' result=FAIL track=%d state=compile_failed",
+					kind, asset_id, audio->sound_id);
+				return 0;
+			}
+			sysMemFree(compiled);
+		}
+		sysLogPrintf(LOG_NOTE,
+			"BOOT: --debug-play-catalog-audio result kind=%s id='%s' result=OK track=%d state=registered",
+			kind, asset_id, audio->sound_id);
+		return 1;
+	}
+	sysLogPrintf(LOG_WARNING,
+		"BOOT: --debug-play-catalog-audio result kind=%s id='%s' result=FAIL track=%d state=unassigned",
+		kind, asset_id, audio->sound_id);
+	return 0;
+}
+
+static void bootApplyDebugPlayCatalogAudioToken(char *token,
+	s32 force_source_only)
+{
+	char *eq;
+	char *kind;
+	char *asset_id;
+	s32 expected_category;
+	catalog_audio_result_t audio;
+	asset_type_e prior_source_only;
+	s32 loaded;
+
+	token = bootTrimArgToken(token);
+	if (*token == '\0' || *token == '#') {
+		return;
+	}
+
+	eq = strchr(token, '=');
+	if (!eq) {
+		sysLogPrintf(LOG_WARNING,
+			"BOOT: --debug-play-catalog-audio token '%s' missing kind=id form",
+			token);
+		return;
+	}
+
+	*eq = '\0';
+	kind = bootTrimArgToken(token);
+	asset_id = bootTrimArgToken(eq + 1);
+	expected_category = bootDebugParseAudioCategory(kind);
+
+	if (expected_category < 0 || !asset_id[0]) {
+		sysLogPrintf(LOG_WARNING,
+			"BOOT: --debug-play-catalog-audio invalid token kind='%s' id='%s'",
+			kind, asset_id);
+		return;
+	}
+
+	sysLogPrintf(LOG_NOTE,
+		"BOOT: --debug-play-catalog-audio request kind=%s id='%s' source_only=%d",
+		kind, asset_id, force_source_only ? 1 : 0);
+
+	if (!catalogResolveAudio(asset_id, &audio)) {
+		sysLogPrintf(LOG_WARNING,
+			"BOOT: --debug-play-catalog-audio result kind=%s id='%s' result=MISSING",
+			kind, asset_id);
+		return;
+	}
+	if (audio.category != expected_category) {
+		sysLogPrintf(LOG_WARNING,
+			"BOOT: --debug-play-catalog-audio result kind=%s id='%s' result=CATEGORY_MISMATCH actual=%s",
+			kind, asset_id, bootDebugAudioCategoryName(audio.category));
+		return;
+	}
+
+	prior_source_only = assetSourceDebugOnlyType();
+	if (force_source_only) {
+		assetSourceDebugSetOnlyType(ASSET_AUDIO);
+	}
+	loaded = catalogLoadTypedAsset(ASSET_AUDIO, asset_id);
+	if (loaded && audio.category == AUDIO_CAT_MUSIC) {
+		loaded = bootDebugPlayCatalogSong(kind, asset_id, &audio);
+	} else if (loaded) {
+		loaded = bootDebugPlayCatalogSound(kind, asset_id, &audio);
+	}
+	if (force_source_only) {
+		assetSourceDebugSetOnlyType(prior_source_only);
+	}
+	if (!loaded) {
+		sysLogPrintf(LOG_WARNING,
+			"BOOT: --debug-play-catalog-audio playback kind=%s id='%s' result=FAIL",
+			kind, asset_id);
+	}
+}
+
+static void bootExitAfterCatalogProbesIfRequested(void)
+{
+	if (sysArgCheck("--debug-exit-after-catalog-probes")
+			&& smokeHarnessIsActive()) {
+		smokeHarnessExit(0, "scripted_exit");
+	}
+}
+
+static void bootApplyDebugPlayCatalogAudio(const char *arg,
+	s32 force_source_only)
+{
+	char buf[2048];
+	char *cursor;
+
+	if (!arg || !arg[0]) {
+		return;
+	}
+
+	if (strlen(arg) >= sizeof(buf)) {
+		sysLogPrintf(LOG_WARNING,
+			"BOOT: --debug-play-catalog-audio argument too long; max=%zu",
+			sizeof(buf) - 1);
+		return;
+	}
+
+	strncpy(buf, arg, sizeof(buf) - 1);
+	buf[sizeof(buf) - 1] = '\0';
+
+	cursor = buf;
+	while (cursor && *cursor) {
+		char *next = strchr(cursor, ',');
+
+		if (next) {
+			*next++ = '\0';
+		}
+
+		bootApplyDebugPlayCatalogAudioToken(cursor, force_source_only);
+		cursor = next;
+	}
+	bootExitAfterCatalogProbesIfRequested();
+}
 
 static void bootApplyDebugLoadCatalogAssetToken(char *token,
 	s32 force_source_only)
@@ -1412,9 +1929,16 @@ static void bootArmDebugLoadCatalogAssets(void)
 		sysArgGetString("--debug-load-catalog-assets-file");
 	const char *anim_probe =
 		sysArgGetString("--debug-probe-animation-source");
+	const char *audio_play =
+		sysArgGetString("--debug-play-catalog-audio");
+
+	if (g_BootDebugLoadCatalogAssetsApplied) {
+		return;
+	}
 
 	if ((!arg || !arg[0]) && (!file_arg || !file_arg[0])
-			&& (!anim_probe || !anim_probe[0])) {
+			&& (!anim_probe || !anim_probe[0])
+			&& (!audio_play || !audio_play[0])) {
 		return;
 	}
 
@@ -1426,7 +1950,65 @@ static void bootArmDebugLoadCatalogAssets(void)
 	g_BootDebugProbeAnimationSourceOnly =
 		sysArgCheck("--debug-probe-animation-source-only")
 		|| g_BootDebugLoadCatalogAssetsSourceOnly;
+	g_BootDebugPlayCatalogAudioArg = audio_play;
+	g_BootDebugPlayCatalogAudioSourceOnly =
+		sysArgCheck("--debug-play-catalog-audio-source-only")
+		|| g_BootDebugLoadCatalogAssetsSourceOnly;
 	g_BootDebugLoadCatalogAssetsPending = 1;
+}
+
+static s32 bootDebugArgMentionsBaseCatalogId(const char *arg)
+{
+	return arg && strstr(arg, "base:") != NULL;
+}
+
+static s32 bootDebugCatalogProbesCanRunBeforeBaseEmit(void)
+{
+	if (!g_BootDebugLoadCatalogAssetsPending) {
+		return 0;
+	}
+	if (!g_BootDebugLoadCatalogAssetsSourceOnly) {
+		return 0;
+	}
+	if (g_BootDebugLoadCatalogAssetsFileArg
+			&& g_BootDebugLoadCatalogAssetsFileArg[0]) {
+		return 0;
+	}
+	if (bootDebugArgMentionsBaseCatalogId(g_BootDebugLoadCatalogAssetsArg)
+			|| bootDebugArgMentionsBaseCatalogId(g_BootDebugProbeAnimationSourceArg)
+			|| bootDebugArgMentionsBaseCatalogId(g_BootDebugPlayCatalogAudioArg)) {
+		return 0;
+	}
+	return 1;
+}
+
+static s32 bootDebugCatalogProbesNeedCompletedBaseEmit(void)
+{
+	if (!g_BootDebugLoadCatalogAssetsPending) {
+		return 0;
+	}
+	if (!g_BootDebugLoadCatalogAssetsSourceOnly
+			&& !g_BootDebugProbeAnimationSourceOnly
+			&& !g_BootDebugPlayCatalogAudioSourceOnly) {
+		return 0;
+	}
+	return !bootDebugCatalogProbesCanRunBeforeBaseEmit();
+}
+
+static s32 bootDebugCatalogProbesNeedAnimationTable(void)
+{
+	if (!g_BootDebugLoadCatalogAssetsPending || g_Anims) {
+		return 0;
+	}
+	if (g_BootDebugProbeAnimationSourceArg
+			&& g_BootDebugProbeAnimationSourceArg[0]) {
+		return 1;
+	}
+	if (g_BootDebugLoadCatalogAssetsArg
+			&& strstr(g_BootDebugLoadCatalogAssetsArg, "animation=")) {
+		return 1;
+	}
+	return 0;
 }
 
 static f32 bootAbsF(f32 value)
@@ -1496,21 +2078,25 @@ static void bootApplyDebugProbeAnimationSource(void)
 		return;
 	}
 
+	old_source_only = (s32)assetSourceDebugOnlyType();
+	if (g_BootDebugProbeAnimationSourceOnly) {
+		assetSourceDebugSetOnlyType(ASSET_ANIMATION);
+	}
+
+	loaded = catalogLoadTypedAsset(ASSET_ANIMATION, asset_id);
 	animnum = entry->ext.anim.anim_id;
 	if (animnum < 0 || animnum >= animGetTotalCount() || !g_Anims) { /* c3849: customs too */
 		sysLogPrintf(LOG_WARNING,
 			"BOOT: --debug-probe-animation-source result id='%s' result=INVALID_ANIM anim=%d",
 			asset_id, animnum);
+		if (g_BootDebugProbeAnimationSourceOnly) {
+			assetSourceDebugSetOnlyType((asset_type_e)old_source_only);
+		}
 		return;
 	}
 
-	old_source_only = (s32)assetSourceDebugOnlyType();
-	if (g_BootDebugProbeAnimationSourceOnly) {
-		assetSourceDebugSetOnlyType(ASSET_ANIMATION);
-	}
 	source_path = catalogGetAnimOverride(animnum);
 
-	loaded = catalogLoadTypedAsset(ASSET_ANIMATION, asset_id);
 	if (!loaded) {
 		sysLogPrintf(LOG_WARNING,
 			"BOOT: --debug-probe-animation-source result id='%s' anim=%d result=LOAD_FAIL source=%s",
@@ -1562,11 +2148,20 @@ static void bootApplyDebugProbeAnimationSource(void)
 	if (g_BootDebugProbeAnimationSourceOnly) {
 		assetSourceDebugSetOnlyType((asset_type_e)old_source_only);
 	}
+	bootExitAfterCatalogProbesIfRequested();
 }
 
 s32 bootApplyDeferredDebugLoadCatalogAssets(void)
 {
 	if (!g_BootDebugLoadCatalogAssetsPending) {
+		return 0;
+	}
+
+	if (bootDebugCatalogProbesNeedCompletedBaseEmit()
+			&& !bootProgressIsComplete()) {
+		return 0;
+	}
+	if (bootDebugCatalogProbesNeedAnimationTable()) {
 		return 0;
 	}
 
@@ -1577,6 +2172,10 @@ s32 bootApplyDeferredDebugLoadCatalogAssets(void)
 	bootApplyDebugLoadCatalogAssetsFile(g_BootDebugLoadCatalogAssetsFileArg,
 		g_BootDebugLoadCatalogAssetsSourceOnly);
 	bootApplyDebugProbeAnimationSource();
+	bootApplyDebugPlayCatalogAudio(g_BootDebugPlayCatalogAudioArg,
+		g_BootDebugPlayCatalogAudioSourceOnly);
+	g_BootDebugLoadCatalogAssetsApplied = 1;
+	bootExitAfterCatalogProbesIfRequested();
 	return 1;
 }
 
@@ -1587,6 +2186,7 @@ static void bootApplyCliFastPaths(void)
 	if (sysArgCheck("--debug-generated-mesh-render-audit")) {
 		modAssetCompilerSetGeneratedModeldefRenderAudit(1);
 	}
+	bootApplyDebugInstallReceivedMod();
 	bootApplyMainMenu();
 	bootApplyLaunchScenario();
 	bootApplyLaunchMission();
@@ -1595,11 +2195,13 @@ static void bootApplyCliFastPaths(void)
 	bootApplyDebugMountBike();
 	bootApplyDebugSpawnAt(sysArgGetString("--debug-spawn-at"));
 	bootApplyDebugForceFirstPerson();
+	bootApplyDebugPlaceBotNearPlayer();
 	bootApplyLaunchLoadAgent(sysArgGetString("--launch-load-agent"));
 	bootApplyListenBind(sysArgGetString("--listen-bind"));
 	bootApplyConnectHost(sysArgGetString("--connect-host"));
 	bootApplyDumpSwarmState(sysArgGetString("--dump-swarm-state"));
 	bootArmDebugLoadCatalogAssets();
+	(void)bootApplyDeferredDebugLoadCatalogAssets();
 }
 
 /* Called once per frame from pdmain.c's mainTick when the
@@ -1784,6 +2386,126 @@ s32 bootDebugSpawnAtTick(void)
 	return 1;
 }
 
+s32 bootDebugPlaceBotNearPlayerPreRenderTick(void)
+{
+	struct chrdata *bot = NULL;
+	struct prop *playerprop = NULL;
+	struct coord target;
+	RoomNum rooms[2];
+	RoomNum room = (RoomNum)-1;
+
+	if (!g_BootDebugPlaceBotNearPlayerPending) {
+		return 0;
+	}
+	if (g_Vars.lvframenum < 4) {
+		return 0;
+	}
+	if (!g_Vars.players[0] || !g_Vars.players[0]->prop || !g_Vars.players[0]->prop->chr) {
+		return 0;
+	}
+
+	setCurrentPlayerNum(0);
+	if (!g_Vars.currentplayer || !g_Vars.currentplayer->prop) {
+		return 0;
+	}
+
+	playerprop = g_Vars.currentplayer->prop;
+	room = g_Vars.currentplayer->cam_room >= 0
+		? (RoomNum)g_Vars.currentplayer->cam_room
+		: playerprop->rooms[0];
+	if (room == (RoomNum)-1 && playerprop->rooms[0] >= 0) {
+		room = playerprop->rooms[0];
+	}
+	if (room == (RoomNum)-1 && g_Vars.currentplayer->cam_room >= 0) {
+		room = (RoomNum)g_Vars.currentplayer->cam_room;
+	}
+	if (room == (RoomNum)-1) {
+		goto wait_or_timeout;
+	}
+
+	for (s32 i = 0; i < MAX_BOTS; ++i) {
+		struct chrdata *candidate = g_MpBotChrPtrs[i];
+		if (candidate && candidate->prop && candidate->model) {
+			bot = candidate;
+			break;
+		}
+	}
+	if (!bot) {
+		goto wait_or_timeout;
+	}
+
+	target = g_Vars.currentplayer->cam_pos;
+	f32 forward_x = g_Vars.currentplayer->cam_look.x;
+	f32 forward_z = g_Vars.currentplayer->cam_look.z;
+	if (forward_x > -0.001f && forward_x < 0.001f &&
+			forward_z > -0.001f && forward_z < 0.001f) {
+		forward_x = g_Vars.currentplayer->vv_sintheta;
+		forward_z = g_Vars.currentplayer->vv_costheta;
+	}
+	target.x += forward_x * 240.0f;
+	target.y = playerprop->pos.y;
+	target.z += forward_z * 240.0f;
+	rooms[0] = room;
+	rooms[1] = -1;
+
+	bool ok = chrMoveToPos(bot, &target, rooms, 0.0f, true);
+	if (!ok) {
+		goto wait_or_timeout;
+	}
+
+	if (bot->prop) {
+		bot->prop->flags |= PROPFLAG_ENABLED
+			| PROPFLAG_ONTHISSCREENTHISTICK
+			| PROPFLAG_ONANYSCREENTHISTICK;
+		propActivateThisFrame(bot->prop);
+		g_BootDebugPlaceBotNearPlayerProp = bot->prop;
+		bootDebugPlaceBotNearPlayerTrace("placed", bot->prop, 0,
+			(s32)bot->prop->rooms[0],
+			(s32)bot->prop->flags,
+			(s32)bot->prop->active,
+			(s32)g_Vars.lvframenum);
+	}
+
+	if (!g_BootDebugPlaceBotNearPlayerLogged) {
+		sysLogPrintf(LOG_NOTE,
+			"BOOT: --debug-place-bot-near-player consumed: bot=%p chrnum=%d result=OK pos=(%f,%f,%f) room=%d player_room=%d camera_forward=(%f,%f) hold_frames=%d",
+			(void *)bot,
+			(s32)bot->chrnum,
+			target.x, target.y, target.z,
+			(s32)(bot->prop ? bot->prop->rooms[0] : (RoomNum)-1),
+			(s32)room,
+			forward_x, forward_z,
+			k_BootDebugPlaceBotNearPlayerHoldMaxFrames);
+		g_BootDebugPlaceBotNearPlayerLogged = true;
+	}
+
+	g_BootDebugPlaceBotNearPlayerHoldFrames++;
+	if (g_BootDebugPlaceBotNearPlayerHoldFrames >= k_BootDebugPlaceBotNearPlayerHoldMaxFrames) {
+		sysLogPrintf(LOG_NOTE,
+			"BOOT: --debug-place-bot-near-player hold complete: bot=%p chrnum=%d frames=%d room=%d flags=0x%x",
+			(void *)bot,
+			(s32)bot->chrnum,
+			g_BootDebugPlaceBotNearPlayerHoldFrames,
+			(s32)(bot->prop ? bot->prop->rooms[0] : (RoomNum)-1),
+			(u32)(bot->prop ? bot->prop->flags : 0));
+		g_BootDebugPlaceBotNearPlayerPending = 0;
+	}
+	return 1;
+
+wait_or_timeout:
+	g_BootDebugPlaceBotNearPlayerFrames++;
+	if (g_BootDebugPlaceBotNearPlayerFrames > k_BootDebugPlaceBotNearPlayerMaxFrames) {
+		sysLogPrintf(LOG_WARNING,
+			"BOOT: --debug-place-bot-near-player timed out: frame=%d stage=0x%02x player_room=%d",
+			(s32)g_Vars.lvframenum,
+			(u32)g_Vars.stagenum,
+			playerprop ? (s32)playerprop->rooms[0] : -1);
+		g_BootDebugPlaceBotNearPlayerPending = 0;
+		return 1;
+	}
+	return 0;
+}
+
 s32 bootDebugForceFirstPersonPreRenderTick(void)
 {
 	if (!g_BootDebugForceFirstPersonPending) {
@@ -1822,6 +2544,39 @@ s32 bootDebugForceFirstPersonPreRenderTick(void)
 		}
 	}
 	playerSetCameraMode(CAMERAMODE_DEFAULT);
+	if (g_BootDebugForceFirstPersonLook || g_BootDebugForceFirstPersonCamOffset) {
+		struct coord pos = g_Vars.currentplayer->cam_pos;
+		struct coord up = {0.0f, 1.0f, 0.0f};
+		if (g_Vars.currentplayer->prop) {
+			pos = g_Vars.currentplayer->prop->pos;
+			pos.y += g_Vars.currentplayer->vv_eyeheight;
+		}
+		if (g_BootDebugForceFirstPersonCamOffset) {
+			pos.x += g_BootDebugForceFirstPersonCamOffsetVec.x;
+			pos.y += g_BootDebugForceFirstPersonCamOffsetVec.y;
+			pos.z += g_BootDebugForceFirstPersonCamOffsetVec.z;
+		}
+		playerSetCamProperties(&pos,
+			&up,
+			g_BootDebugForceFirstPersonLook
+				? &g_BootDebugForceFirstPersonLookVec
+				: &g_Vars.currentplayer->cam_look,
+			g_Vars.currentplayer->cam_room);
+		if (!g_BootDebugForceFirstPersonLookLogged) {
+			g_BootDebugForceFirstPersonLookLogged = true;
+			sysLogPrintf(LOG_NOTE,
+				"BOOT: --debug-force-first-person-look active: stagenum=0x%02x frame=%d look=(%f,%f,%f) cam_offset=(%f,%f,%f) room=%d",
+				(u32)g_Vars.stagenum,
+				(s32)g_Vars.lvframenum,
+				g_BootDebugForceFirstPersonLookVec.x,
+				g_BootDebugForceFirstPersonLookVec.y,
+				g_BootDebugForceFirstPersonLookVec.z,
+				g_BootDebugForceFirstPersonCamOffsetVec.x,
+				g_BootDebugForceFirstPersonCamOffsetVec.y,
+				g_BootDebugForceFirstPersonCamOffsetVec.z,
+				(s32)g_Vars.currentplayer->cam_room);
+		}
+	}
 
 	if (g_BootDebugForceFirstPersonFrames <= 0) {
 		g_BootDebugForceFirstPersonFrames = k_BootDebugForceFirstPersonFrames;
@@ -2125,6 +2880,7 @@ int main(int argc, const char **argv)
 	 * the same captured values.  Each flag is opt-in; absent flags
 	 * leave the corresponding global at its zero-init default. */
 	g_BootNoNet            = sysArgCheck("--no-net") ? true : false;
+	g_BootExtractAssetsOnly = sysArgCheck("--extract-assets-only") ? true : false;
 	g_BootMainMenu         = sysArgCheck("--main-menu") ? true : false;
 	g_BootLaunchScenario   = sysArgGetString("--launch-scenario");
 	g_BootLaunchMission    = sysArgGetString("--launch-mission");
@@ -2132,11 +2888,18 @@ int main(int argc, const char **argv)
 	g_BootLaunchMpArena    = sysArgGetString("--launch-mp-room");
 	g_BootMountBike        = sysArgCheck("--debug-mount-bike") ? true : false;
 	g_BootDebugForceFirstPerson = sysArgCheck("--debug-force-first-person") ? true : false;
+	bootApplyDebugForceFirstPersonLook(sysArgGetString("--debug-force-first-person-look"));
+	bootApplyDebugForceFirstPersonCamOffset(sysArgGetString("--debug-force-first-person-cam-offset"));
 
 	/* Mike directive 2026-05-18: end-to-end CS smoke infra. */
 	g_BootDebugAutoStartMatch = sysArgCheck("--debug-auto-start-match") ? true : false;
 	g_BootDebugSwarmMap       = sysArgGetString("--debug-swarm-map");
+	g_BootDebugInstallReceivedMod =
+		sysArgGetString("--debug-install-received-mod");
 	g_BootDebugSpawnWeapon    = sysArgGetString("--debug-spawn-weapon");
+	g_BootDebugBotBody        = sysArgGetString("--debug-bot-body");
+	g_BootDebugBotHead        = sysArgGetString("--debug-bot-head");
+	g_BootDebugPlaceBotNearPlayer = sysArgCheck("--debug-place-bot-near-player") ? true : false;
 	{
 		const char *mpopts = sysArgGetString("--debug-mp-options");
 		if (mpopts && mpopts[0]) {
@@ -2216,36 +2979,41 @@ int main(int argc, const char **argv)
 	 * fine to run at boot. Everything else waits. */
 
 	/* D13: Start background update check (non-blocking) */
-	if (!sysArgCheck("--no-update-check")) {
+	if (!g_BootExtractAssetsOnly && !sysArgCheck("--no-update-check")) {
 		updaterCheckAsync();
 	}
-	videoInit();
-	pdguiInit(videoGetWindowHandle());
-	/* menuMgrInit() removed — P10 D5.7 OG Menu Removal */
-	statsInit();
-	achievementsInit();
-	/* S309: per-agent preferences sidecar.  prefsAgentLoad runs on agent
-	 * switch; this init just marks the subsystem live. */
-	prefsAgentInit();
+	if (!g_BootExtractAssetsOnly) {
+		videoInit();
+		pdguiInit(videoGetWindowHandle());
+		/* menuMgrInit() removed — P10 D5.7 OG Menu Removal */
+		statsInit();
+		achievementsInit();
+		/* S309: per-agent preferences sidecar.  prefsAgentLoad runs on agent
+		 * switch; this init just marks the subsystem live. */
+		prefsAgentInit();
 
-	/* D7: Discord Rich Presence — connects to Discord IPC pipe if running.
-	 * Fails silently if Discord is not open. */
-	discordInit();
-	inputInit();
+		/* D7: Discord Rich Presence — connects to Discord IPC pipe if running.
+		 * Fails silently if Discord is not open. */
+		discordInit();
+		inputInit();
 
-	/* Input context stack: must init after inputInit() (SDL event watch)
-	 * and push g_CtxGameplay as the base context before any menu/GUI code
-	 * that might reference the context stack. */
-	inputCtxInit();
-	inputCtxPush(&g_CtxGameplay);
+		/* Input context stack: must init after inputInit() (SDL event watch)
+		 * and push g_CtxGameplay as the base context before any menu/GUI code
+		 * that might reference the context stack. */
+		inputCtxInit();
+		inputCtxPush(&g_CtxGameplay);
 
-	audioInit();
+		audioInit();
+	} else {
+		sysLogPrintf(LOG_NOTE,
+			"BOOT: --extract-assets-only set; window/UI/input startup skipped");
+		sysLogPrintf(LOG_NOTE, "BOOT: --extract-assets-only set; audioInit() skipped");
+	}
 
 	/* Dedicated server: mute ALL audio — music and sound effects.
 	 * The server has no player, no need for any audio output. */
-	if (g_NetDedicated) {
+	if (g_NetDedicated && !g_BootExtractAssetsOnly) {
 		extern void optionsSetMusicVolume(s32 vol);
-		extern void sndSetSfxVolume(s32 vol);
 		optionsSetMusicVolume(0);
 		sndSetSfxVolume(0);
 	}
@@ -2255,7 +3023,9 @@ int main(int argc, const char **argv)
 	 * scheduling, and after configInit/sysLogSet* registration so the
 	 * test-declared channel mask + verbose flag override pd.ini cleanly.
 	 * No-op when --smoke is not present. */
-	(void)smokeHarnessInit();
+	if (!g_BootExtractAssetsOnly) {
+		(void)smokeHarnessInit();
+	}
 
 	/* Engine Phase 2 boot orchestrator (2026-05-03): the catalog work
 	 * block (romdataInit through modmgrCatalogChanged) runs on a worker
@@ -2269,27 +3039,45 @@ int main(int argc, const char **argv)
 	 * g_NetDedicated and the worker still runs through the orchestrator. */
 	bootProgressInit();
 	bootPoolInit();
-	pdguiBootOverlayInit();
+	if (!g_BootExtractAssetsOnly) {
+		pdguiBootOverlayInit();
+	}
 
 	bootPoolEnqueue(bootRunCatalogWork, NULL);
 
 	while (!bootProgressIsComplete()) {
-		pdguiBootOverlayPump();
+		if (!g_BootExtractAssetsOnly) {
+			pdguiBootOverlayPump();
+		} else {
+			SDL_Delay(1);
+		}
 		/* Smoke harness timeout coverage during boot: if the catalog work
 		 * thread hangs we still want to fire the timeout exit rather than
 		 * wait for some upstream watchdog. Cheap no-op when not in smoke
 		 * mode. Does not push input events here -- the boot overlay frame
 		 * does not consume SDL key events. */
-		smokeHarnessTick();
+		if (!g_BootExtractAssetsOnly) {
+			smokeHarnessTick();
+		}
 		/* Cooperative pause when not in dedicated mode; the dedicated
 		 * branch already inserts SDL_Delay inside the no-op pump path. */
 	}
 
 	bootPoolWaitIdle();
 
-	pdguiBootOverlayShutdown();
+	if (!g_BootExtractAssetsOnly) {
+		pdguiBootOverlayShutdown();
+	}
 	bootPoolShutdown();
 	bootProgressShutdown();
+
+	if (g_BootExtractAssetsOnly) {
+		sysLogPrintf(LOG_NOTE,
+			"BOOT: --extract-assets-only complete; exiting before scheduler/stage/gameplay init");
+		sysLogPrintf(LOG_NOTE,
+			"BOOT: --extract-assets-only shutdown; gameplay/window teardown skipped");
+		return 0;
+	}
 
 	atexit(cleanup);
 

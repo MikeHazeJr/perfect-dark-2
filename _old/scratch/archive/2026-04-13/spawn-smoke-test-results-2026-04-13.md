@@ -1,14 +1,14 @@
 # Spawn Pool Smoke Test — M-7.x Retroactive Validation
-**Date:** 2026-04-13  
-**Session:** gap-closure-smoke-test  
+**Date:** 2026-04-13
+**Session:** gap-closure-smoke-test
 **Status:** Infrastructure DONE — runtime results accumulate on play
 
 ---
 
 ## What Was Built
 
-`spawnPoolSmokeAll()` + `spawnPoolSmokeWriteCSV()` added to `spawnpool.c`.  
-"Run All" button added to Modding Hub → Map Import tab.  
+`spawnPoolSmokeAll()` + `spawnPoolSmokeWriteCSV()` added to `spawnpool.c`.
+"Run All" button added to Modding Hub → Map Import tab.
 CSV output: `Build/smoke-test-results.csv`
 
 ### How It Works
@@ -18,17 +18,17 @@ CSV output: `Build/smoke-test-results.csv`
 | Live gameplay | `L` | Automatic — logged every time `spawnPoolBuildGlobal()` runs |
 | Offline sweep | `O` | "Run All" button — iterates catalog arenas with zeroed pads, seed `0x5EC0BE45` |
 
-Live results overwrite offline results for the same stage.  
+Live results overwrite offline results for the same stage.
 Offline sweep confirms L2-L4 fallback guarantee even with zero declared pads.
 
-**CSV columns:** `stage_id, needed, produced, max_layer_used, source, time_ms, flag`  
+**CSV columns:** `stage_id, needed, produced, max_layer_used, source, time_ms, flag`
 **Flags:** `OK` (max_layer ≤ 2), `L3L4_RISK` (max_layer ≥ 3)
 
 ---
 
 ## Base Dark MP Arenas (13)
 
-These have declared INTROCMD_SPAWN pads; expected max_layer = L1.  
+These have declared INTROCMD_SPAWN pads; expected max_layer = L1.
 Offline sweep (no pads loaded) will show L4 until visited in gameplay.
 
 | stage_id | Name | Expected (live) | Risk |
@@ -61,8 +61,8 @@ Offline sweep (no pads loaded) will show L4 until visited in gameplay.
 
 ## Mod Stages (GEX / Kakariko / Goldfinger 64 / Dark Noon)
 
-**Not yet imported** — no mod stages in catalog at time of this session.  
-These stages would be registered via the Map Import Pipeline.  
+**Not yet imported** — no mod stages in catalog at time of this session.
+These stages would be registered via the Map Import Pipeline.
 Once imported, the "Run All" offline sweep will test them automatically.
 
 **For any mod stage that hits L3 or L4 in the CSV:**
@@ -80,11 +80,11 @@ The offline sweep calls `spawnPoolBuild()` with:
 - Empty room geometry (AABB invalid → fallback center `{0, 100, 0}`)
 - Test seed `0x5EC0BE45`
 
-Expected offline result for ALL stages: **max_layer = L4** (geometry not loaded).  
-This confirms the L4 guarantee fires and produces `needed=40` points in every case.  
+Expected offline result for ALL stages: **max_layer = L4** (geometry not loaded).
+This confirms the L4 guarantee fires and produces `needed=40` points in every case.
 The `L3L4_RISK` flag in offline rows is expected and does NOT indicate a real problem.
 
-**Only live (`L`) rows with `L3L4_RISK` are actionable.**  
+**Only live (`L`) rows with `L3L4_RISK` are actionable.**
 A live L3/L4 hit means the stage lacks declared pads and the fallback system engaged during real gameplay.
 
 ---
@@ -97,5 +97,5 @@ To get real per-map results:
 3. Check `Build/smoke-test-results.csv` — filter `source=L` rows
 4. Any `L3L4_RISK` in live rows = that map needs more declared spawn pads
 
-Expected: all 13 base Dark MP arenas show `L1` live.  
+Expected: all 13 base Dark MP arenas show `L1` live.
 If any base arena shows `L3+` live, file a new bug with the stage name.

@@ -2838,7 +2838,6 @@ void playerTickChrBody(void)
 			bodymodeldef = catalogGetBodyModeldef(bodynum); /* SA-5f */
 			public_source_generated_body = bodymodeldef != NULL
 				&& bodymodeldef->rootnode != NULL
-				&& bodymodeldef->numparts == 0
 				&& multi_body_id != NULL
 				&& catalogGetLoadedModeldef(multi_body_id) == bodymodeldef;
 

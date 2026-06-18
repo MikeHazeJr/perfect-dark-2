@@ -301,6 +301,24 @@ static s32 s_AggValidated = 0;
 static s32 s_AggRecovered = 0;
 static s32 s_AggUnrecoverable = 0;
 static s32 s_AggReportEmitted = 0;
+static s32 s_BootstrapDepth = 0;
+
+s32 romExtractIsBootstrapping(void)
+{
+    return s_BootstrapDepth > 0;
+}
+
+static void s_bootstrapEnter(void)
+{
+    s_BootstrapDepth++;
+}
+
+static void s_bootstrapLeave(void)
+{
+    if (s_BootstrapDepth > 0) {
+        s_BootstrapDepth--;
+    }
+}
 
 /* Extract the basename of a relative path (everything after the final
  * separator).  Stable buffer: caller may copy out of the returned
@@ -409,6 +427,7 @@ s32 romExtractAllFiles(void)
         "max_files=%d, target=data/%s/files/)",
         g_RomFileSize, ROMEXTRACT_MAX_FILES, VERSION_ROMID);
 
+    s_bootstrapEnter();
     bootProgressUpdate(0, ROMEXTRACT_MAX_FILES);
 
     for (s32 fileNum = 1; fileNum < ROMEXTRACT_MAX_FILES; fileNum++) {
@@ -481,6 +500,7 @@ s32 romExtractAllFiles(void)
 
         written++;
     }
+    s_bootstrapLeave();
 
     sysLogPrintf(LOG_NOTE,
         "ROMEXTRACT: complete. wrote=%d, skipped_existing=%d, "
@@ -791,6 +811,7 @@ s32 romExtractVerifyAll(void)
     sysLogPrintf(LOG_NOTE, "ROMEXTRACT.VERIFY: scanning data/%s/files/",
                  VERSION_ROMID);
 
+    s_bootstrapEnter();
     bootProgressUpdate(0, ROMEXTRACT_MAX_FILES);
 
     /* worker_count is the boot pool's thread count (cores - 2).  We
@@ -856,6 +877,7 @@ s32 romExtractVerifyAll(void)
             s_emitPerFileFailToast(e->kind, e->name);
         }
     }
+    s_bootstrapLeave();
 
     /* Pass D aggregates: validated = verified + baselined (both clean
      * from the user's perspective; baselined is a one-shot legacy

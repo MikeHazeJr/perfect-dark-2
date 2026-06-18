@@ -32,10 +32,14 @@ typedef struct scenario_source_objective_operand {
 
 const asset_entry_t *scenarioSourceFindEntryForStage(
 	const catalog_stage_result_t *stage, s32 prefer_mp);
+void scenarioSourceFatalRuntimeFallbackForStage(
+	const catalog_stage_result_t *stage, s32 prefer_mp,
+	const char *payload, s32 legacy_id, const char *reason);
 s32 scenarioSourceValidateBackgroundGeometryForStage(
 	const catalog_stage_result_t *stage, s32 prefer_mp);
 s32 scenarioSourceActivateGraphsForStage(const catalog_stage_result_t *stage,
 	s32 prefer_mp);
+s32 scenarioSourceLevelGraphRecordTick(const char *reason);
 s32 scenarioSourceLevelGraphCheckPadRoom(s32 pad, s32 room,
 	const char *reason, s32 *out_matches);
 s32 scenarioSourceSetupGraphRecordBehaviorLink(u8 type, s32 record_index,

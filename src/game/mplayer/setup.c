@@ -2339,7 +2339,10 @@ MenuItemHandlerResult mpCharacterHeadMenuHandler(s32 operation, struct menuitem 
 				if (headid && catalogResolveHead(headid, &result)) {
 					menuSetModelFileHandle(&g_Menus[g_MpPlayerNum].menumodel, result.filenum, result.handle);
 				} else {
-					g_Menus[g_MpPlayerNum].menumodel.newparams = MENUMODELPARAMS_SET_FILENUM(catalogGetHeadFilenumByIndex(headnum)); /* SA-5a */
+					sysLogPrintf(LOG_WARNING,
+						"CATALOG.MISS: MP head preview headnum=%d has no provider-backed catalog entry",
+						headnum);
+					menuUnsetModel(&g_Menus[g_MpPlayerNum].menumodel);
 				}
 			}
 			g_Menus[g_MpPlayerNum].menumodel.isperfecthead = false;
@@ -2353,7 +2356,10 @@ MenuItemHandlerResult mpCharacterHeadMenuHandler(s32 operation, struct menuitem 
 				if (headid && catalogResolveHead(headid, &result)) {
 					menuSetModelFileHandle(&g_Menus[g_MpPlayerNum].menumodel, result.filenum, result.handle);
 				} else {
-					g_Menus[g_MpPlayerNum].menumodel.newparams = MENUMODELPARAMS_SET_FILENUM(catalogGetHeadFilenumByIndex(headnum)); /* SA-5a */
+					sysLogPrintf(LOG_WARNING,
+						"CATALOG.MISS: MP perfect-head preview headnum=%d has no provider-backed catalog entry",
+						headnum);
+					menuUnsetModel(&g_Menus[g_MpPlayerNum].menumodel);
 				}
 			}
 			g_Menus[g_MpPlayerNum].menumodel.isperfecthead = true;

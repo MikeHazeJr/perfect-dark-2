@@ -1,7 +1,7 @@
 # Session State: MP Lobby Residual (S251-residual / 2026-04-13)
 
 > **Status: COMPLETE. All four punch-list items shipped. Build: both targets clean.**
-> Base commit at session start: `8e02a2ef`  
+> Base commit at session start: `8e02a2ef`
 > Final dev HEAD: `287b0bc4`
 
 ---

@@ -246,6 +246,86 @@ TEST_CASE("Gate 5: body/head field accessors surface in-range unregistered misse
 	REQUIRE(api.find("s_headFieldRecordChecked(headnum, \"catalogGetHeadHeight\")") != std::string::npos);
 }
 
+TEST_CASE("Gate 5: checked body/head spawn accessors accept private custom slots",
+          "[catalog][checked][static][regression][c3844]") {
+	/* Custom body/head slots live beyond the authored 0..151 base range. The
+	 * checked spawn/render accessors must validate against the catalog manager
+	 * TOTAL bounds and the source-backed manager records, not body/head authored
+	 * tables capped at 152. */
+	const std::string api = readTextFile("port/src/assetcatalog_api.c");
+
+	REQUIRE(api.find("s_bodyFieldRecordChecked(bodynum, \"catalogGetBodyScaleChecked\")") !=
+	        std::string::npos);
+	REQUIRE(api.find("s_bodyFieldRecordChecked(bodynum, \"catalogGetBodyAnimScaleChecked\")") !=
+	        std::string::npos);
+	REQUIRE(api.find("s_bodyFieldRecordChecked(bodynum, \"catalogGetBodyHandFilenumChecked\")") !=
+	        std::string::npos);
+	REQUIRE(api.find("s_bodyFieldRecordChecked(bodynum, \"catalogGetBodyModeldefChecked\")") !=
+	        std::string::npos);
+	REQUIRE(api.find("s_headFieldRecordChecked(headnum, \"catalogGetHeadModeldefChecked\")") !=
+	        std::string::npos);
+
+	REQUIRE(api.find("catalogCheckedValidateSlot(bodynum, CATALOG_MGR_BODY_TOTAL, b ? 1 : 0)") !=
+	        std::string::npos);
+	REQUIRE(api.find("catalogCheckedValidateSlot(headnum, CATALOG_MGR_HEAD_TOTAL, h ? 1 : 0)") !=
+	        std::string::npos);
+	REQUIRE(api.find("catalogCheckedValidateSlot(bodynum, 152") == std::string::npos);
+	REQUIRE(api.find("catalogCheckedValidateSlot(headnum, 152") == std::string::npos);
+	REQUIRE(api.find("bodyDataLookupByBodynum(bodynum)") == std::string::npos);
+	REQUIRE(api.find("headDataLookupByHeadnum(headnum)") == std::string::npos);
+}
+
+TEST_CASE("Gate 5: sparse loader-pool body/head slots fall back to authored records",
+          "[catalog][checked][static][regression][c3844]") {
+	/* A custom .pdbody/.pdhead can make the loader pool active while most base
+	 * body/head slots were never parsed into that pool. The getters must be
+	 * sparse-aware: an unpopulated active-pool slot returns NULL so the catalog
+	 * managers fall back to authored base records. Otherwise a valid base body
+	 * such as Skedar (slot 92) becomes an all-zero record and poisons
+	 * catalogAssertHealthy at stage-load. */
+	const std::string pool = readTextFile("port/src/loader_pool.c");
+	const std::string bodies = readTextFile("port/src/catalog_mgr_bodies.c");
+	const std::string heads = readTextFile("port/src/catalog_mgr_heads.c");
+
+	REQUIRE(pool.find("s_HeadsPoolPopulated[CATALOG_MGR_HEAD_TOTAL]") !=
+	        std::string::npos);
+	REQUIRE(pool.find("s_BodiesPoolPopulated[CATALOG_MGR_BODY_TOTAL]") !=
+	        std::string::npos);
+	REQUIRE(pool.find("memset(s_HeadsPoolPopulated, 0, sizeof(s_HeadsPoolPopulated))") !=
+	        std::string::npos);
+	REQUIRE(pool.find("memset(s_BodiesPoolPopulated, 0, sizeof(s_BodiesPoolPopulated))") !=
+	        std::string::npos);
+	REQUIRE(pool.find("if (!s_HeadsPoolPopulated[headnum])") !=
+	        std::string::npos);
+	REQUIRE(pool.find("s_HeadsPoolPopulated[headnum] = 1;") !=
+	        std::string::npos);
+	REQUIRE(pool.find("if (!s_BodiesPoolPopulated[bodynum])") !=
+	        std::string::npos);
+	REQUIRE(pool.find("s_BodiesPoolPopulated[bodynum] = 1;") !=
+	        std::string::npos);
+	REQUIRE(pool.find("if (!s_HeadsPoolPopulated[idx]) return NULL;") !=
+	        std::string::npos);
+	REQUIRE(pool.find("if (!s_BodiesPoolPopulated[idx]) return NULL;") !=
+	        std::string::npos);
+
+	REQUIRE(bodies.find("const body_data_t *src = loaderPoolGetBody(bodynum);") !=
+	        std::string::npos);
+	REQUIRE(bodies.find("if (bodynum >= CATALOG_MGR_BODY_CUSTOM_START)") !=
+	        std::string::npos);
+	REQUIRE(bodies.find("custom->filenum != 0 || custom->catalog_id[0] != '\\0'") !=
+	        std::string::npos);
+	REQUIRE(bodies.find("s_populateFromAuthored(bodynum);") !=
+	        std::string::npos);
+	REQUIRE(heads.find("const head_data_t *src = loaderPoolGetHead(headnum);") !=
+	        std::string::npos);
+	REQUIRE(heads.find("if (headnum >= CATALOG_MGR_HEAD_CUSTOM_START)") !=
+	        std::string::npos);
+	REQUIRE(heads.find("custom->filenum != 0 || custom->catalog_id[0] != '\\0'") !=
+	        std::string::npos);
+	REQUIRE(heads.find("s_populateFromAuthored(headnum);") !=
+	        std::string::npos);
+}
+
 TEST_CASE("Gate 5: validateSlot discriminator over the body/head TOTAL range",
           "[catalog][checked][regression][c3844]") {
 	/* The helper passes a "registered marker" (1 if filenum!=0 or catalog_id

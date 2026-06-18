@@ -53,13 +53,12 @@ TEST_CASE("Public Mods publishing is registry-backed and path-safe", "[social][p
 	REQUIRE(share.find("%s/mods/installed/%s") == std::string::npos);
 	REQUIRE(share.find("mod manifest offer") == std::string::npos);
 
-	REQUIRE(ft.find("#include \"modarchive.h\"") != std::string::npos);
 	REQUIRE(ft.find("#include \"modmgr.h\"") != std::string::npos);
 	REQUIRE(ft.find("static void fileTransferInstallReceivedMod") != std::string::npos);
-	REQUIRE(ft.find("modArchiveReadManifest(arc, &mfst_size)") != std::string::npos);
-	REQUIRE(ft.find("authored .bin payload") != std::string::npos);
-	REQUIRE(ft.find("snprintf(install_dir, sizeof(install_dir), \"%s/installed\", modsdir)") != std::string::npos);
-	REQUIRE(ft.find("modmgrRescanDirectory()") != std::string::npos);
+	REQUIRE(ft.find("modmgrValidateArchiveFile(path, err, sizeof(err))") != std::string::npos);
+	REQUIRE(ft.find("FT: received mod archive rejected") != std::string::npos);
+	REQUIRE(ft.find("modmgrInstallArchiveFile(inbox_path, enable_now, err, sizeof(err))") != std::string::npos);
+	REQUIRE(ft.find("through shared .pdmod installer") != std::string::npos);
 	REQUIRE(ft.find("if (r->kind == FT_KIND_MOD)") != std::string::npos);
 	REQUIRE(ft.find("fileTransferInstallReceivedMod(r->inbox_path, r->name, r->src_handle)") != std::string::npos);
 
@@ -83,12 +82,13 @@ TEST_CASE("Request-download installs use friend-aware enable policy",
 	REQUIRE(fth.find("fileTransferPendingModEnableDecline") != std::string::npos);
 
 	REQUIRE(ft.find("FT_PENDING_MOD_ENABLE_MAX") != std::string::npos);
-	REQUIRE(ft.find("ftFindInstalledArchiveModIndex(dst, safe)") != std::string::npos);
 	REQUIRE(ft.find("socialFriendByHandle(sender_handle)") != std::string::npos);
-	REQUIRE(ft.find("ftEnableModIndexNow(mod_index, \"friend request-download\")") != std::string::npos);
+	REQUIRE(ft.find("const s32 enable_now = socialFriendByHandle(sender_handle) ? 1 : 0") != std::string::npos);
+	REQUIRE(ft.find("enabled received mod '%s' (friend request-download)") != std::string::npos);
 	REQUIRE(ft.find("ftQueuePendingModEnable(sender_handle, mod)") != std::string::npos);
 	REQUIRE(ft.find("modmgrApplyChanges()") != std::string::npos);
 	REQUIRE(ft.find("installed disabled; enable prompt queue full") != std::string::npos);
+	REQUIRE(ft.find("fileTransferDebugInstallReceivedModForSmoke") != std::string::npos);
 
 	REQUIRE(ui.find("renderReceivedModEnableModal") != std::string::npos);
 	REQUIRE(ui.find("fileTransferPendingModEnableCount() > 0") != std::string::npos);
@@ -115,6 +115,66 @@ TEST_CASE("Public Mods install path refreshes manifest digests and registry",
 	REQUIRE(distrib.find("modsdir = modmgrGetModsDir()") != std::string::npos);
 	REQUIRE(distrib.find("modmgrRescanDirectory()") != std::string::npos);
 	REQUIRE(distrib.find("refreshed mod registry after installing") != std::string::npos);
+}
+
+TEST_CASE("received Public Mods validate strict archive payloads before install",
+          "[social][public_mods][static][c3844][s110]")
+{
+	const std::string ft = readTextFile("port/src/file_transfer.c");
+	const std::string modmgr = readTextFile("port/src/modmgr.c");
+	const std::string scanner = readTextFile("port/src/assetcatalog_scanner.c");
+
+	const size_t ft_received = ft.find("static void fileTransferInstallReceivedMod");
+	REQUIRE(ft_received != std::string::npos);
+	const size_t ft_validate = ft.find("if (!ftValidateReceivedModArchive(inbox_path)) return;", ft_received);
+	const size_t ft_install = ft.find("modmgrInstallArchiveFile(inbox_path, enable_now, err, sizeof(err))", ft_received);
+	REQUIRE(ft_validate != std::string::npos);
+	REQUIRE(ft_install != std::string::npos);
+	REQUIRE(ft_validate < ft_install);
+
+	const size_t install_fn = modmgr.find("s32 modmgrInstallArchiveFile");
+	REQUIRE(install_fn != std::string::npos);
+	const size_t install_validate = modmgr.find("modmgrValidateArchiveFile(archive_path, out_error, error_len)", install_fn);
+	const size_t install_copy = modmgr.find("modmgrCopyFileAtomic(archive_path, dst)", install_fn);
+	REQUIRE(install_validate != std::string::npos);
+	REQUIRE(install_copy != std::string::npos);
+	REQUIRE(install_validate < install_copy);
+
+	REQUIRE(modmgr.find("modmgrArchiveEntryHasForbiddenBinPayload(name)") != std::string::npos);
+	REQUIRE(modmgr.find("strncpy(out_kind, \"authored .bin\"") != std::string::npos);
+	REQUIRE(modmgr.find("modmgrArchiveEntryHasForbiddenPublicTsvPayload(name)") != std::string::npos);
+	REQUIRE(modmgr.find("strncpy(out_kind, \"public .tsv\"") != std::string::npos);
+	REQUIRE(modmgr.find("assetArchiveValidateBytes(nested, nested_size") != std::string::npos);
+	REQUIRE(modmgr.find("strncpy(out_kind, \"invalid typed archive\"") != std::string::npos);
+	REQUIRE(modmgr.find("External-format archives cannot contain %s payloads") != std::string::npos);
+
+	const size_t arena_case = scanner.find("case ASSET_ARENA:");
+	REQUIRE(arena_case != std::string::npos);
+	const size_t arena_scenario = scanner.find("iniGet(ini, \"scenario\"", arena_case);
+	const size_t arena_scenario_archive = scanner.find("iniGet(ini, \"scenario_archive\"", arena_case);
+	const size_t arena_archive = scanner.find("catalogSetPrimaryFile(e, e->ext.arena.scenario_archive)", arena_case);
+	const size_t arena_end = scanner.find("case ASSET_BODY:", arena_case);
+	REQUIRE(arena_scenario != std::string::npos);
+	REQUIRE(arena_scenario_archive != std::string::npos);
+	REQUIRE(arena_archive != std::string::npos);
+	REQUIRE(arena_end != std::string::npos);
+	REQUIRE(arena_scenario < arena_scenario_archive);
+	REQUIRE(arena_scenario_archive < arena_archive);
+	REQUIRE(scanner.find("geometry_file", arena_case) > arena_end);
+
+	const size_t head_case = scanner.find("case ASSET_HEAD:");
+	REQUIRE(head_case != std::string::npos);
+	const size_t head_mesh = scanner.find("const char *mesh = iniGet(ini, \"mesh_archive\"", head_case);
+	const size_t head_source_path = scanner.find("sourceModelPathFromMeshArchive(e->ext.head.mesh_archive", head_case);
+	const size_t head_archive = scanner.find("catalogSetPrimaryFile(e, source_path)", head_case);
+	const size_t head_end = scanner.find("case ASSET_MODEL:", head_case);
+	REQUIRE(head_mesh != std::string::npos);
+	REQUIRE(head_source_path != std::string::npos);
+	REQUIRE(head_archive != std::string::npos);
+	REQUIRE(head_end != std::string::npos);
+	REQUIRE(head_mesh < head_source_path);
+	REQUIRE(head_source_path < head_archive);
+	REQUIRE(scanner.find("model_file", head_case) > head_end);
 }
 
 TEST_CASE("missing mods-enabled json is treated as clean no-mods state",

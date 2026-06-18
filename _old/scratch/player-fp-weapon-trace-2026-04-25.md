@@ -222,4 +222,3 @@ if ((player->gunctrl.gunmemowner == GUNMEMOWNER_BONDGUN
 ```
 
 needs `bgunChangeGunMem(BONDGUN)` to succeed in switching ownership from CHRBODY (the post-bgunReset default). The unlock conditions in the CHRBODY case (line 3733-3746) require `mplayerisrunning` OR `!haschrbody` OR `newowner==INVMENU`. For SP without those, unlock fails. For MP it should succeed via mplayerisrunning, but the log evidence suggests otherwise -- maybe `haschrbody` isn't being cleared by `playerRemoveChrBody` in the NORMAL tick path quickly enough, or some other interaction. Round-3 raw fields (`gunmemowner`, `masterloadstate`) will tell us directly.
-

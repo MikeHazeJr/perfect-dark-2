@@ -75,6 +75,10 @@ s32 weaponGraphArchiveGraphRequired(asset_type_e type);
 
 s32 weaponGraphArchiveReadTextFile(const char *archive_path, const char *entry_name,
                                    char **out_text, u32 *out_size);
+void *weaponGraphArchiveReadBytesFile(const char *archive_path, u32 *out_size);
+void *weaponGraphArchiveExtractBinaryFile(const char *archive_path,
+                                          const char *entry_name,
+                                          u32 *out_size);
 s32 weaponGraphArchiveReadDescriptorFile(const char *archive_path,
                                          asset_type_e expected_type,
                                          weapon_graph_archive_descriptor_t *out,

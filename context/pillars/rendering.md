@@ -95,6 +95,20 @@ Per [audits/codebase-architecture-rating-2026-04-27.md](../audits/codebase-archi
 
 ## What is in flight
 
+- c3844 custom body render proof is green. Source-backed custom `.pdbody` /
+  `.pdhead` slots survive to match setup and bot allocation; the smoke runner
+  uses the isolated client and scoped mask; the signed head-slot overflow,
+  manifest-owned lifecycle unload, sparse loader-pool, manager lifetime, nested
+  mesh source, and generated body modeldef issues are all fixed. Final root
+  cause for B-923 was render-matrix timing: the debug-placed bot could reach
+  `chrRender` before normal character matrix allocation populated
+  `model->matrices`, so generated render audit crashed before `MODASSET.RENDER`.
+  `chrRender` now prepares matrices on demand before `modelRender` when needed.
+  Verification passed native-source guard, focused c3844 static tests, isolated
+  `c3844mat` all-target build, and bounded `custom_body_live_render_smoke`
+  41/41 with scripted exit and `MODASSET.RENDER` for `example:tri_body`.
+  Rendering follow-up under c3844 now moves to remaining family proof, not the
+  custom body/head handoff.
 - B-366 Falcon 2 first-person stretch is fixed pending Mike visual retest. The remaining in-game artifact after the OBJ exporter fix matched Mike's "tip stays fixed while the model moves" repro: the Falcon laser-sight near end followed the animated muzzle/root, while the far endpoint was projected from the crosshair. `bgunUpdateLasersight()` now transforms both near and far endpoints from the muzzle matrix/local forward vector before projection, and the steady-state laser gate keeps equip/busy stale beams hidden. Focused `[bondgun][laser][static]` passed 25 assertions / 4 cases in isolated session `falconbeam5`, the queued all-target build passed, and final `boot_smoke` passed 14/14.
 - B-346 credits/fog alpha artifact is fixed pending second playtest. Mike's first `gfxalpha` run showed the broad fog-alpha output-alpha path was wrong: characters/weapons became translucent and credits masks still rendered as solid colored quads. Fast3d now keeps `G_BL_A_FOG` as color-fog state only, material alpha is back to normal translucent `MEM,1MA`/texture-edge cases, strict `G_RM_ADD` additive fog uses only the exact `IN,FOG_ALPHA,MEM,1` tuple with additive blending, and `text0f153628()` explicitly resets texture enable/scale before CI4 glyph drawing. Mike is manually retesting credits particles/text and foggy stage effects from isolated build `gfxalpha`.
 - HUD layer order discipline per [designs/menus/hud-layer-order.md](../designs/menus/hud-layer-order.md) (implemented).
@@ -104,6 +118,14 @@ Per [audits/codebase-architecture-rating-2026-04-27.md](../audits/codebase-archi
 
 ## Known gaps
 
+- **Needler held-model source render proof refreshed (2026-06-17).** The
+  custom weapon path now resolves first-person held models through the catalog
+  model row registered from the source-owned `.pdmesh` in the installed
+  `.pdweapon` chain. Needler smoke proof
+  `.claude\smoke-verify-runs\results-20260617T214449Z.json` passed 40/40 with
+  `BONDGUN.SOURCE` and `MODASSET.RENDER` for `mod_needler:needler_model`.
+  The smoke runner captured screenshot artifacts for the proof, but the
+  authoritative rendering proof remains the scoped source/render log assertions.
 - **`gfx_sdl2.cpp` has 3 raw hotkeys.** Lines 335-345: Alt+Enter (fullscreen), F10 (mesh debug), backquote (console toggle). Processed before `pdguiProcessEvent`. Backquote duplicates `ACTION_CONSOLE_TOGGLE`. See [pillars/input.md](input.md) Known Gaps for full F-key bypass story.
 - **Renderer is OpenGL-only today.** The vtable supports a Vulkan or D3D12 backend, but only OpenGL is implemented. Adding a second backend is feasible (single file replacement) but not scoped.
 - **Theme system is large** (3298 lines in `pdgui_theme.cpp`). Mostly justified by the scope (chrome styles + palette + fonts + bundle + UI overrides + texture decode), but a candidate for split into `pdgui_theme_palette.cpp` + `pdgui_theme_chrome.cpp` + `pdgui_theme_loader.cpp` (loader is already split out).

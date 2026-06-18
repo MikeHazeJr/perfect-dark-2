@@ -10,26 +10,75 @@
 - Release notes now come from this running list instead of the old dedicated-server placeholder text.
 - Settings now has a simplified Input tab for profiles, connected devices, bindings, and tuning.
 - Dev Window v2 Run Tests now avoids blocking Windows `lib*.dll` system error popups by staging the test runtime DLL and suppressing loader modal dialogs.
+- Automated smoke runs now keep the game crash handler enabled, suppress native `PerfectDark.exe` application-error popups, and reap smoke-owned `PerfectDark` / `WerFault` leftovers so failed verification runs report through logs instead of blocking the desktop.
+- Automated smoke runs now exit cleanly after scripted shutdown instead of reporting a Windows heap-corruption exit from video display-mode cleanup.
+- Smoke firewall setup now reports non-admin permission failures as a controlled warning instead of a raw PowerShell error after successful tests.
 
 ## Added
 
 - Custom weapon behavior authored in `.pdweapon`/`.pdprojectile`/`.pdentity` graphs now actually drives gameplay (behind the developer graph-runtime toggle): homing steering gains, fly-by-wire tuning, trajectory clamps, wall-hugger and sticky behavior, bounce tuning, fuse timers, impact filters/sounds/sparks/explosions, smoke trails, carrier-to-turret transitions, proxy/remote/timed mine policies with detonator pairing, deployed-autogun cadence and muzzle behavior, owner-death cleanup, pickup/recover rules, weapon settings/variables with `$name` substitution, and an x-ray camera effect. Base-game behavior is bit-identical with the toggle off (and on, for base weapons).
 - Custom visual effects now have a runtime: `.pdeffect` graphs compile and drive the existing explosion/spark/smoke machinery, including custom-tinted spark types (the Needler's pink burst), with effects nested inside weapon archives now correctly discovered.
-- When a host enables the weapon graph runtime, clients now adopt it for that match automatically (no protocol change; never saved into MP setup files).
+- Weapon graph runtime is now on by default; the old debug toggle and transient MP option are retired, and mixed v50/v51 network builds are refused at connection time.
+- Custom `.pdweapon` archives can now render installed first-person model source directly from nested `.pdmesh` dependencies inside `.pdmod` packages, proven by the Needler visual smoke.
 - Fixed three latent bugs found by static analysis: base Timed Mines would have detonated instantly with the graph runtime enabled; weapon archive shared-context/settings/variables files were silently ignored; and a freed target could leave homing projectiles pointing at stale memory.
 - Bot profiles, game modes, and UI themes now read their authored archive data through the catalog runtime (with loud fallback to built-ins), the first of the meta asset families to do so.
 - Boot now verifies every texture archive binding with a cheap stat pass and reports missing archives loudly instead of crashing at first use; the texture filename slug logic is unified so the emitter and catalog can never drift apart.
 - Cleaned the Kanban Active lane so the current asset-parity completion path is the only active critical work, with unrelated cards deferred or marked done.
+- Refreshed the context system so stale audit files are archived out of the hot folder and preserved non-`c3844` card workspaces are explicitly historical or deferred.
 - Strengthened the asset-archive conformance check so numeric or legacy asset references (for example `model_catalog_id = 42` or a `MODEL_*` symbol) in JSON catalog-ID fields are now rejected like they already were in delimited tables, closing a gap in the primary public source format. Intra-archive member and dependency paths stay allowed.
 - Added a first-class `probe` build target and a repeatable scenario-scene CPU sweep so the source scene.glb path can be validated for every level without launching the game, GPU, or audio. The full extracted scenario set passes 87/87.
 - Catalog asset misses are now surfaced at a stage-load health checkpoint instead of being silently tolerated after a one-time log, and hard-fail under source-only enforcement so a missing extracted asset cannot quietly fall back to a default.
-- Fully custom characters now work like base ones: a user-created body or head with its own mesh source is assigned a private runtime slot automatically (no numeric slot for modders to manage), so it can be selected and assembled instead of failing to load. Base content is unchanged.
+- Custom body/head archives now have the catalog-owned private-slot foundation and live render proof. Direct body/head registration assigns private runtime slots, `mod.json` rows no longer overwrite them, and the custom body/head smoke now proves `example:tri_body` reaches `MODASSET.RENDER` from public source.
+- Removed legacy numeric bridge fields from mod authoring templates and external scan/distribution paths so custom assets use catalog IDs and source files publicly, with integer slots kept as private catalog-owned runtime bridges.
+- Removed private bridge/provenance fields from generated public texture, language, and MP3 voice descriptors; retained archives keep needed provenance under `_meta` and strict conformance now rejects those fields in public INI files.
+- Removed private mesh file-symbol provenance from generated public `.pdmesh::mesh.ini`; retained archives keep it under `_meta`, and strict conformance now rejects that bridge field in public mesh descriptors.
+- Fixed menu preview bridge fallbacks so MP head and weapon previews clear with a catalog warning instead of loading raw legacy file numbers when provider-backed source resolution fails.
+- Tightened `.pdmod` packaging and loading so public `.tsv` payloads are rejected like `.bin` payloads, including direct installed archives and Modding Hub pack output.
+- Replaced the active Modding Hub pack/import workflow with strict `.pdmod` import/install validation, sharing the same `.bin`, public `.tsv`, and nested typed-archive checks used by received Public Mods.
+- Fixed received Public Mods delivery so inbox `.pdmod` downloads validate, install, enable, and load through the same strict archive/runtime path as local installed mods.
+- Fixed installed `.pdmod` source-only workflow proof so custom typed geometry, texture/material, animation, audio, scenario/map, mission, and weapon assets load or register through catalog/provider paths without public TSV/bin, numeric public IDs, or ROM fallback.
+- Completed the c3844 live asset-source audit across Scenario geometry/textures, weapons/hands, custom body/head, props/vehicles/effects/material/UI/font/lang/theme, audio, and animation smoke paths with scoped logging and no runtime fallback signatures.
+- Fixed clean source-only audit startup so `.pdui` can resolve `.pdtexture` sources, base catalog probes wait for emitted archives, and generated private caches create parent folders with shorter Windows-safe names.
+- Fixed the final B-801 source-only readiness smokes so audio and animation probes wait for the right boot/catalog state, prove source-backed loads, and exit cleanly through the smoke harness.
+- Closed c3844 at 100% after the final all-family regression sweep passed source guards, retained asset conformance, CPU audio/mesh/animation validators, focused Public Mods and `.pdmod` tests, live smoke matrix proof, and an isolated all-target build.
+- Fixed source-backed `.pdsong` runtime compilation for extracted music sequences whose loops close at track end, preventing music fallback to legacy ROM sequences.
+- Fixed the custom head private-slot handoff so slot 152 no longer narrows through signed 8-bit `chrdata.headnum`; live render audit now preserves `head=152` through `chrRender-modelRender`.
+- Fixed MP manifest ownership for the custom-body live proof so the old stage diff no longer unloads manifest-owned custom body/head/weapon assets during base stage load, and body/head manager cached generated modeldefs are cleared before catalog unload.
+- Fixed sparse custom body/head loader-pool slots so unparsed base rows still fall back to authored base body/head data instead of looking like empty registered records.
+- Fixed typed body/head examples and walkers so nested `.pdmesh` archives carry material, hierarchy, render, face, and part sidecars and resolve OBJ, GLTF, or GLB model source.
+- Fixed hierarchy-generated body modeldefs so explicit wildcard mesh groups render GLTF triangles, body sources get character skeleton/root defaults, and generated-source body recognition no longer depends on zero parts.
+- Fixed a generated custom-body render crash by preparing character model matrices on demand before `modelRender` when a debug-placed/source-backed bot reaches render before the normal matrix allocation path.
 - Fixed the host "Start Match" button: when you host a game in the client (listen host), Combat Simulator, Campaign co-op, and Counter-Operative matches now actually start. Previously only a remote client could trigger the start.
 - Dev mods now ship from a git-tracked `dev-mods/` folder that is copied into the game's `mods/` on every build, so they survive clean builds, and builds/releases can include or exclude specific mods.
 - Fixed source-backed menu model previews so custom provider handles avoid the character-preview sentinel and weapon previews receive visual model source instead of split graph source.
 - Fixed unresolved character body source so it no longer renders as the wrong built-in body.
 - Fixed catalog-backed body/head selector identity so custom rows beyond the old base body/head counts keep their catalog IDs through selection, default-head, bot, and config paths.
+- Fixed custom body/head manager lifetime so mod-scanned `.pdbody` and `.pdhead` slots survive boot initialization through match setup and bot allocation.
 - Fixed body/head archive walking so user-authored meshes without private runtime slots no longer masquerade as built-in slot zero.
+- Added a CPU-only audio source verifier for `.pdsfx`, `.pdvoice`, and `.pdsong` archives so timing metadata, MP3/Vorbis headers, sequence events, loops, and pitch buckets can be checked before live audio tests.
+- Added a CPU-only mesh source verifier for `.pdmesh` archives so OBJ/GLTF/GLB geometry, integer-native quantization, hierarchy JSON, render-command coverage, and declared counts can be checked before live render tests.
+- Added a Dev Window v2 Assets tab and `devtools/pdxxx-asset-tool.ps1` so developers can crawl typed `.pdxxx` data archives, filter by type, extract selected assets to ignored `.pdxxx-dev-extracts/`, and open the output for Blender visibility checks without converting the stored archive data.
+- Added an all-family typed asset workflow verifier that packages the modder example set as `.pdmod`, unpacks it, and proves editable `.pdxxx` source archives round-trip unchanged.
+- Fixed the production `.pdmod` packer so the all-family typed source example packages through the same shared path as Modding Hub and sharing, including scenario-backed arenas and MIDI/source-backed music archives.
+- Fixed the Dev Window v2 Assets tab so `.pdxxx` rows bind as individual assets instead of `System.Object[]`, and moved archive crawling off the WPF UI thread to avoid hard freezes while changing filters.
+- Added CPU/static coverage proving custom body/head private slots stay source-backed through walker parsing, catalog lookup, public archive model conversion, and character assembly before live render tests.
+- Smoke tests can now use named log-channel masks, and the high-risk asset parity smokes use scoped logging instead of enabling every log channel.
+- Smoke tests that request a queued isolated build now install the freshly built session client instead of accidentally falling back to a stale shared build output.
+- Added a bounded live source-only audio smoke proving representative SFX, voice, and sequence music start from public typed archives without ROM fallback.
+- Added active-stage Scenario graph proof so `lvTick` asserts public `level.graph.json` global settings before logging the level tick source.
+- Fixed Scenario AI list extraction so every declared AI opcode gets a semantic `opcode_name` instead of collapsing to generic `"command"`, and strict conformance now rejects stale flattened Scenario AI rows.
+- Added an extractor-only boot mode that runs catalog extraction, archive walking, and runtime-cache generation, skips network/audio/window/UI/input startup, and exits before gameplay so stale archives can be regenerated safely without opening an OpenGL window.
+- Fixed Scenario archive regeneration currentness so rebuilt scenarios no longer flatten AI opcode names and the generated Scenario tree passes conformance.
+- Fixed Scenario level graphs so every AI command row now has a matching `scenario.ai.command` graph node and link from `scenario.ai.lists`; regenerated base Scenario archives now validate 75,920 command nodes and links.
+- Fixed Scenario normal-play stage loading so setup, pads, tiles, background geometry, and level graph activation fail closed after public `.pdscenario` source failure instead of falling back to legacy ROM payloads.
+- Fixed extractor-only UI archive regeneration so `.pdui` texture decode can find public `.pdtexture::texture.png` source before the normal catalog reverse index exists.
+- Refreshed retained generated assets so the full `Build\data\ntsc-final` archive tree now passes strict all-family conformance.
+- Raised the config registry capacity so current boot settings no longer hit the old 512-entry cap during extraction-only startup.
+- Fixed retained all-family/archive-walker source-gate smokes so they request the current extracted font archive and wait long enough for clean extraction before checking catalog source activation.
+- Fixed asset fallback telemetry so first-launch extraction bootstrap reads are not counted as runtime ROM fallback after extraction.
+- Added clearer generated-cache failure diagnostics for mod asset compilation, including expanded cache paths and OS error codes.
+- Extended high-risk source-gate smoke dwell windows so cold extraction has longer to finish before proof assertions run.
+- Fixed focused pd-tests linkage for weapon-graph archive VFS fallback coverage with an inert test `fsFileLoad` stub.
 - Fixed Forge prop, door, and weapon-pad model spawns so source-backed visual models use catalog/provider handles and `.pdmesh` inner model source instead of requiring positive legacy file numbers.
 - Fixed Training and Hangar model previews so source-backed weapon/vehicle rows use catalog/provider handles before legacy file-number fallback.
 - Fixed Map Import so it stages editable map source layouts or typed map archives instead of accepting native `.bg`/`.bin` map dumps.
@@ -743,3 +792,6 @@
 - Fixed more Scenario object-tag AI commands so room/object/weapon predicates, Investigation terminal selection, lift activators, object-backed audio, setup image/animation/door actions, object lifecycle, object-room/perception, inventory grab, and autogun target-team paths validate source-built setup object rows before using tag lookups.
 - Fixed Scenario setup-tag placement copying so Investigation terminal shuffling uses the guarded source-built setup-tag helper instead of the old raw tag-copy path.
 - Fixed Scenario setup-link registration so source graph failures stop linked guns, lift doors, safe items, padlocked doors, conditional scenery, and blocked paths before live link creation.
+- Fixed custom `.pdweapon` first-person held-model loading so custom weapon IDs resolve their source-owned `.pdmesh` model instead of falling back to a legacy weapon model.
+- Fixed the Needler sample mod to ship a distinct held weapon source model separate from the projectile needle mesh.
+- Fixed the weapon archive source smoke timing so cold source extraction/loading owns the c3844 pass/fail result instead of an early scripted exit.

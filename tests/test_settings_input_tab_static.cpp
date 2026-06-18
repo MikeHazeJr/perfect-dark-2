@@ -146,6 +146,11 @@ TEST_CASE("Settings Input binding table stays on the action map capture path",
 	requireContains(bindings, "PdCombo(\"Input\"");
 	requireContains(bindings, "resetTabDeviceToDefaults(tab, s_InputDeviceColumn)");
 	requireContains(bindings, "renderBindTable(s_InputDeviceColumn");
-	requireContains(bindings, "s_BindSearch");
 	requireNotContains(bindings, "renderControllerVisualMapper");
+
+	const std::string bindTable = sliceBetween(menu, "static void renderBindTable", "static void resetTabDeviceToDefaults");
+	REQUIRE(!bindTable.empty());
+	requireContains(bindTable, "s_BindSearch");
+	requireContains(bindTable, "ImGui::InputTextWithHint");
+	requireContains(bindTable, "stringIContains(s_BindableActions[row].name, s_BindSearch)");
 }

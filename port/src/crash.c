@@ -526,7 +526,9 @@ void crashInit(void)
 	crashBreadcrumbInit();
 
 #ifdef PLATFORM_WIN32
-	SetErrorMode(SEM_FAILCRITICALERRORS);
+	/* Automated smoke runs need faulting processes to return through logs and
+	 * exit codes instead of raising modal Windows error UI on the desktop. */
+	SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX | SEM_NOOPENFILEERRORBOX);
 	/* First-chance vectored handler: runs before the UEF, uses minimal stack.
 	 * Critical for catching stack overflow where the UEF can't run. */
 	AddVectoredExceptionHandler(1, crashVectoredHandler);

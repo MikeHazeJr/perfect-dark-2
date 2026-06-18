@@ -10,6 +10,7 @@ shape as the top-level samples.
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import math
 import struct
@@ -21,7 +22,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1] / "examples" / "modding" / "typed-pdxxx-basic"
 ZIP_TIME = (1980, 1, 1, 0, 0, 0)
 SCENARIO_GRAPH_CACHE_KIND = (
-    "pdscenario_scene_glb_clean_public_v95_standalone_backfill_collision_obj_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json"
+    "pdscenario_scene_glb_clean_public_v96_standalone_backfill_collision_obj_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json"
 )
 
 
@@ -55,6 +56,18 @@ def write_archive(rel: str, entries: Iterable[tuple[str, bytes | str]]) -> None:
             info = zipfile.ZipInfo(name, ZIP_TIME)
             info.compress_type = zipfile.ZIP_DEFLATED
             zf.writestr(info, data)
+
+
+def archive_bytes(entries: Iterable[tuple[str, bytes | str]]) -> bytes:
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        for name, data in entries:
+            if isinstance(data, str):
+                data = data.encode("utf-8")
+            info = zipfile.ZipInfo(name, ZIP_TIME)
+            info.compress_type = zipfile.ZIP_DEFLATED
+            zf.writestr(info, data)
+    return buffer.getvalue()
 
 
 def manifest(kind: str, catalog_id: str) -> str:
@@ -831,6 +844,7 @@ def update_scenario() -> bytes:
         "    { \"id\": \"scenario.pads\", \"kind\": \"scenario.pads.source\", \"source\": \"pads.json\", \"pads\": 1 },\n"
         "    { \"id\": \"navigation.paths\", \"kind\": \"scenario.navigation.paths.source\", \"source\": \"navigation/paths.json\", \"paths\": 1 },\n"
         "    { \"id\": \"scenario.ai.lists\", \"kind\": \"scenario.ai.lists.source\", \"source\": \"ai/ailists.json\", \"lists\": 1 },\n"
+        "    { \"id\": \"scenario.ai.ailist_0000.command.0000\", \"kind\": \"scenario.ai.command\", \"source\": \"ai/ailists.json\", \"ailist_ref\": \"ailist_0000\", \"list_id\": \"0x0000\", \"command_index\": 0, \"offset\": 0, \"opcode\": \"0x0004\", \"opcode_name\": \"end\", \"semantic_kind\": \"scenario.ai.control.end\" },\n"
         "    { \"id\": \"scenario.global.settings\", \"kind\": \"scenario.global.settings.source\", \"scenario\": \"example:tri_scenario\", \"source\": \"scenario.ini\", \"scene\": \"scene.glb\", \"collision\": \"collision.obj\", \"navigation\": \"navigation.ini\", \"pads\": 1, \"volumes\": 1 },\n"
         "    { \"id\": \"scenario.ai.action.set_list\", \"kind\": \"scenario.ai.action.set_list\", \"source\": \"ai/ailists.json\", \"target\": \"interpreter.ailist\", \"opcode\": \"0x0005\" },\n"
         "    { \"id\": \"scenario.ai.action.set_return_list\", \"kind\": \"scenario.ai.action.set_return_list\", \"source\": \"ai/ailists.json\", \"target\": \"chr.aireturnlist\", \"opcode\": \"0x0006\" },\n"
@@ -1801,9 +1815,10 @@ def update_scenario() -> bytes:
         "    { \"from\": \"source.scene\", \"to\": \"scenario.ai.action.release_cover\" },\n"
         "    { \"from\": \"navigation.generate\", \"to\": \"scenario.ai.condition.if_waypoint_within_quadrant\" },\n"
         "    { \"from\": \"navigation.generate\", \"to\": \"scenario.ai.action.set_pad_preset_to_target_quadrant\" },\n"
-        "    { \"from\": \"scenario.load\", \"to\": \"trigger.volume.0000\" }\n"
+        "    { \"from\": \"scenario.load\", \"to\": \"trigger.volume.0000\" },\n"
+        "    { \"from\": \"scenario.ai.lists\", \"to\": \"scenario.ai.ailist_0000.command.0000\" }\n"
         "  ],\n"
-        "  \"counts\": { \"rooms\": 1, \"triangles\": 1, \"portals\": 1, \"pads\": 1, \"volumes\": 1, \"objects\": 1, \"objectives\": 1, \"ai_lists\": 1, \"waypoints\": 0, \"waygroups\": 0, \"covers\": 0, \"paths\": 1 }\n"
+        "  \"counts\": { \"rooms\": 1, \"triangles\": 1, \"portals\": 1, \"pads\": 1, \"volumes\": 1, \"objects\": 1, \"objectives\": 1, \"ai_lists\": 1, \"ai_commands\": 1, \"waypoints\": 0, \"waygroups\": 0, \"covers\": 0, \"paths\": 1 }\n"
         "}\n"
     )
     scenario_ini = (
@@ -1886,7 +1901,7 @@ def update_scenario() -> bytes:
     return read_archive(rel)
 
 
-def update_mesh() -> bytes:
+def make_tri_mesh_archive(model_scale: float | None = None) -> bytes:
     rel = "meshes/tri_mesh.pdmesh"
     gltf = json.loads(read_entry(rel, "model.gltf").decode("utf-8"))
     gltf.pop("images", None)
@@ -1903,20 +1918,153 @@ def update_mesh() -> bytes:
         for primitive in mesh.get("primitives", []):
             primitive["material"] = 0
 
-    write_archive(rel, [
+    model_mtl = (
+        "# tri_mesh.pdmesh material sidecar\n"
+        "newmtl TriangleMaterial\n"
+        "Kd 0.2 0.8 1.0\n"
+        "d 1.0\n"
+    )
+    model_nodes = {
+        "schema": "pd2.mesh.nodes.v1",
+        "nodes": [
+            {
+                "id": 0,
+                "parent": -1,
+                "type": 2,
+                "partnum": 0,
+                "part": 0,
+                "mtx0": 0,
+                "mtx1": -1,
+                "mtx2": -1,
+                "position": {"x": 0.0, "y": 0.0, "z": 0.0},
+                "drawdist": 0.0,
+                "target": -1,
+                "group": "-",
+                "render_mtx": 0,
+                "mcount": 1,
+                "hitpart": 0,
+                "bounds": {
+                    "xmin": 0.0,
+                    "xmax": 1.0,
+                    "ymin": 0.0,
+                    "ymax": 1.0,
+                    "zmin": 0.0,
+                    "zmax": 0.0,
+                },
+                "distance": {"near": 0.0, "far": 0.0},
+                "reorder": {
+                    "pivot": {"x": 0.0, "y": 0.0, "z": 0.0},
+                    "axis": {"x": 0.0, "y": 1.0, "z": 0.0},
+                    "target_a": -1,
+                    "target_b": -1,
+                    "side": 0,
+                },
+            },
+            {
+                "id": 1,
+                "parent": 0,
+                "type": 24,
+                "partnum": -1,
+                "part": -1,
+                "mtx0": 0,
+                "mtx1": -1,
+                "mtx2": -1,
+                "position": {"x": 0.0, "y": 0.0, "z": 0.0},
+                "drawdist": 0.0,
+                "target": -1,
+                "group": "-",
+                "render_mtx": 0,
+                "mcount": 1,
+                "hitpart": 0,
+                "bounds": {
+                    "xmin": 0.0,
+                    "xmax": 1.0,
+                    "ymin": 0.0,
+                    "ymax": 1.0,
+                    "zmin": 0.0,
+                    "zmax": 0.0,
+                },
+                "distance": {"near": 0.0, "far": 0.0},
+                "reorder": {
+                    "pivot": {"x": 0.0, "y": 0.0, "z": 0.0},
+                    "axis": {"x": 0.0, "y": 1.0, "z": 0.0},
+                    "target_a": -1,
+                    "target_b": -1,
+                    "side": 0,
+                },
+            },
+        ],
+    }
+    model_parts = {
+        "schema": "pd2.mesh.parts.v1",
+        "parts": [
+            {"partnum": 0, "node": 0},
+        ],
+    }
+    model_faces = {
+        "schema": "pd2.mesh.faces.v1",
+        "faces": [
+            {"face_index": 0, "matrix_index": 0},
+        ],
+    }
+    model_render = {
+        "schema": "pd2.mesh.render.v1",
+        "pd_kind": "mesh_render_commands",
+        "commands": [
+            {
+                "group": "-",
+                "command": "tri",
+                "face_index": 0,
+                "matrix_index": 0,
+            },
+        ],
+    }
+
+    mesh_ini = (
+        "; tri_mesh.pdmesh - self-contained editable mesh asset\n"
+        "[mesh]\n"
+        "catalog_id = example:tri_mesh\n"
+        "model_file = model.gltf\n"
+        "material_file = model.mtl\n"
+        "hierarchy_file = model.nodes.json\n"
+        "parts_file = model.parts.json\n"
+        "faces_file = model.faces.json\n"
+        "render_stream_file = model.render.json\n"
+    )
+    manifest_fields: dict[str, object] = {
+        "geometry": "model.gltf",
+        "model_file": "model.gltf",
+        "material_file": "model.mtl",
+        "hierarchy_file": "model.nodes.json",
+        "parts_file": "model.parts.json",
+        "faces_file": "model.faces.json",
+        "render_stream_file": "model.render.json",
+    }
+    if model_scale is not None:
+        mesh_ini += f"model_scale = {model_scale:.9g}\n"
+        manifest_fields["model_scale"] = model_scale
+    mesh_ini += (
+        "\n[meta]\n"
+        "manifest = _meta/manifest.json\n"
+    )
+
+    return archive_bytes([
         ("mesh.ini",
-         "; tri_mesh.pdmesh - self-contained editable mesh asset\n"
-         "[mesh]\n"
-         "catalog_id = example:tri_mesh\n"
-         "model_file = model.gltf\n"
-         "\n[meta]\n"
-         "manifest = _meta/manifest.json\n"),
+         mesh_ini),
         ("model.gltf", json.dumps(gltf, indent=2) + "\n"),
-        ("_meta/manifest.json", manifest_with("mesh", "example:tri_mesh", {
-            "geometry": "model.gltf",
-            "model_file": "model.gltf",
-        })),
+        ("model.mtl", model_mtl),
+        ("model.nodes.json", json.dumps(model_nodes, indent=2) + "\n"),
+        ("model.parts.json", json.dumps(model_parts, indent=2) + "\n"),
+        ("model.faces.json", json.dumps(model_faces, indent=2) + "\n"),
+        ("model.render.json", json.dumps(model_render, indent=2) + "\n"),
+        ("_meta/manifest.json", manifest_with("mesh", "example:tri_mesh",
+                                               manifest_fields)),
     ])
+
+
+def update_mesh() -> bytes:
+    rel = "meshes/tri_mesh.pdmesh"
+    archive(rel).write_bytes(make_tri_mesh_archive())
     return read_archive(rel)
 
 
@@ -1942,6 +2090,7 @@ def update_texture() -> bytes:
 
 
 def update_head_and_body(mesh_bytes: bytes) -> tuple[bytes, bytes]:
+    body_mesh_bytes = make_tri_mesh_archive(1000.0)
     write_archive("heads/tri_head.pdhead", [
         ("head.ini",
          "; tri_head.pdhead - focused head asset with typed mesh dependency\n"
@@ -1951,7 +2100,7 @@ def update_head_and_body(mesh_bytes: bytes) -> tuple[bytes, bytes]:
          "mesh_archive = mesh.pdmesh\n"
          "\n[meta]\n"
          "manifest = _meta/manifest.json\n"),
-        ("mesh.pdmesh", mesh_bytes),
+        ("mesh.pdmesh", body_mesh_bytes),
         ("_meta/manifest.json", head_manifest("example:tri_head")),
     ])
     write_archive("bodies/tri_body.pdbody", [
@@ -1965,8 +2114,8 @@ def update_head_and_body(mesh_bytes: bytes) -> tuple[bytes, bytes]:
          "hand_archive = hand.pdmesh\n"
          "\n[meta]\n"
          "manifest = _meta/manifest.json\n"),
-        ("mesh.pdmesh", mesh_bytes),
-        ("hand.pdmesh", mesh_bytes),
+        ("mesh.pdmesh", body_mesh_bytes),
+        ("hand.pdmesh", body_mesh_bytes),
         ("_meta/manifest.json", body_manifest("example:tri_body")),
     ])
     return read_archive("heads/tri_head.pdhead"), read_archive("bodies/tri_body.pdbody")

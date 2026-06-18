@@ -426,7 +426,8 @@ function Add-SmokeFirewallAllowRule {
         if (-not $rule) {
             New-NetFirewallRule -DisplayName $displayName `
                 -Direction Inbound -Action Allow `
-                -Program $absProgram -Profile Any -Enabled True | Out-Null
+                -Program $absProgram -Profile Any -Enabled True `
+                -ErrorAction Stop | Out-Null
             Write-Host ("  firewall: allow rule added for {0}" -f $absProgram) -ForegroundColor DarkGray
             return $true
         }
@@ -436,7 +437,8 @@ function Add-SmokeFirewallAllowRule {
         $currentProgram = ""
         if ($appFilter -and $appFilter.Program) { $currentProgram = $appFilter.Program }
         if ([string]::Compare($currentProgram, $absProgram, $true) -ne 0) {
-            Set-NetFirewallRule -DisplayName $displayName -Program $absProgram | Out-Null
+            Set-NetFirewallRule -DisplayName $displayName -Program $absProgram `
+                -ErrorAction Stop | Out-Null
             Write-Host ("  firewall: allow rule updated to {0}" -f $absProgram) -ForegroundColor DarkGray
         }
         return $true

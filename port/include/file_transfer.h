@@ -97,6 +97,11 @@ s32 fileTransferPendingModEnablePeek(char *out_mod_id,
 s32 fileTransferPendingModEnableAccept(void);
 void fileTransferPendingModEnableDecline(void);
 
+/* Smoke/debug helper: drive the received-mod install path against an
+ * already-staged inbox .pdmod, then optionally accept the enable prompt. */
+s32 fileTransferDebugInstallReceivedModForSmoke(const char *inbox_path,
+                                                s32 accept_enable_prompt);
+
 /* -------------------------------------------------------------------------
  * Convert-to-mod modal back-end.
  *

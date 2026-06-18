@@ -124,6 +124,167 @@ if (-not ([System.Management.Automation.PSTypeName]'PdSmokeWinErrorMode').Type) 
     Add-Type -TypeDefinition $errorModeSource
 }
 
+$captureSource = @"
+using System;
+using System.IO;
+using System.Runtime.InteropServices;
+using System.Threading;
+
+public static class PdSmokeWindowCapture
+{
+    private const int SRCCOPY = 0x00CC0020;
+    private const int BI_RGB = 0;
+    private const int DIB_RGB_COLORS = 0;
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct RECT
+    {
+        public int Left;
+        public int Top;
+        public int Right;
+        public int Bottom;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct BITMAPINFOHEADER
+    {
+        public uint biSize;
+        public int biWidth;
+        public int biHeight;
+        public ushort biPlanes;
+        public ushort biBitCount;
+        public uint biCompression;
+        public uint biSizeImage;
+        public int biXPelsPerMeter;
+        public int biYPelsPerMeter;
+        public uint biClrUsed;
+        public uint biClrImportant;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct BITMAPINFO
+    {
+        public BITMAPINFOHEADER bmiHeader;
+    }
+
+    [DllImport("user32.dll")]
+    private static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
+
+    [DllImport("user32.dll")]
+    private static extern bool SetForegroundWindow(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetDC(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    private static extern int ReleaseDC(IntPtr hWnd, IntPtr hDC);
+
+    [DllImport("gdi32.dll")]
+    private static extern IntPtr CreateCompatibleDC(IntPtr hdc);
+
+    [DllImport("gdi32.dll")]
+    private static extern IntPtr CreateCompatibleBitmap(IntPtr hdc, int cx, int cy);
+
+    [DllImport("gdi32.dll")]
+    private static extern IntPtr SelectObject(IntPtr hdc, IntPtr h);
+
+    [DllImport("gdi32.dll")]
+    private static extern bool DeleteObject(IntPtr ho);
+
+    [DllImport("gdi32.dll")]
+    private static extern bool DeleteDC(IntPtr hdc);
+
+    [DllImport("gdi32.dll")]
+    private static extern bool BitBlt(IntPtr hdcDest, int xDest, int yDest, int wDest, int hDest,
+                                      IntPtr hdcSrc, int xSrc, int ySrc, int rop);
+
+    [DllImport("gdi32.dll")]
+    private static extern int GetDIBits(IntPtr hdc, IntPtr hbm, uint start, uint cLines,
+                                        byte[] lpvBits, ref BITMAPINFO lpbmi, uint usage);
+
+    public static bool Capture(IntPtr hWnd, string path)
+    {
+        if (hWnd == IntPtr.Zero) return false;
+        ShowWindow(hWnd, 5);
+        SetForegroundWindow(hWnd);
+        Thread.Sleep(300);
+        RECT rect;
+        if (!GetWindowRect(hWnd, out rect)) return false;
+        int width = rect.Right - rect.Left;
+        int height = rect.Bottom - rect.Top;
+        if (width <= 0 || height <= 0) return false;
+
+        string dir = Path.GetDirectoryName(path);
+        if (!String.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
+
+        IntPtr screenDc = GetDC(IntPtr.Zero);
+        IntPtr memoryDc = IntPtr.Zero;
+        IntPtr bitmap = IntPtr.Zero;
+        IntPtr oldObject = IntPtr.Zero;
+        try
+        {
+            memoryDc = CreateCompatibleDC(screenDc);
+            bitmap = CreateCompatibleBitmap(screenDc, width, height);
+            if (memoryDc == IntPtr.Zero || bitmap == IntPtr.Zero) return false;
+            oldObject = SelectObject(memoryDc, bitmap);
+            if (!BitBlt(memoryDc, 0, 0, width, height, screenDc, rect.Left, rect.Top, SRCCOPY)) return false;
+
+            int stride = width * 4;
+            byte[] pixels = new byte[stride * height];
+            BITMAPINFO info = new BITMAPINFO();
+            info.bmiHeader.biSize = (uint)Marshal.SizeOf(typeof(BITMAPINFOHEADER));
+            info.bmiHeader.biWidth = width;
+            info.bmiHeader.biHeight = -height;
+            info.bmiHeader.biPlanes = 1;
+            info.bmiHeader.biBitCount = 32;
+            info.bmiHeader.biCompression = BI_RGB;
+            info.bmiHeader.biSizeImage = (uint)pixels.Length;
+            if (GetDIBits(memoryDc, bitmap, 0, (uint)height, pixels, ref info, DIB_RGB_COLORS) == 0) return false;
+
+            using (FileStream fs = new FileStream(path, FileMode.Create, FileAccess.Write))
+            using (BinaryWriter bw = new BinaryWriter(fs))
+            {
+                int fileHeaderSize = 14;
+                int dibHeaderSize = 40;
+                int pixelOffset = fileHeaderSize + dibHeaderSize;
+                int fileSize = pixelOffset + pixels.Length;
+                bw.Write((byte)'B');
+                bw.Write((byte)'M');
+                bw.Write(fileSize);
+                bw.Write((ushort)0);
+                bw.Write((ushort)0);
+                bw.Write(pixelOffset);
+                bw.Write(dibHeaderSize);
+                bw.Write(width);
+                bw.Write(height);
+                bw.Write((ushort)1);
+                bw.Write((ushort)32);
+                bw.Write(BI_RGB);
+                bw.Write(pixels.Length);
+                bw.Write(0);
+                bw.Write(0);
+                bw.Write(0);
+                bw.Write(0);
+                for (int row = height - 1; row >= 0; row--) {
+                    bw.Write(pixels, row * stride, stride);
+                }
+            }
+            return true;
+        }
+        finally
+        {
+            if (oldObject != IntPtr.Zero && memoryDc != IntPtr.Zero) SelectObject(memoryDc, oldObject);
+            if (bitmap != IntPtr.Zero) DeleteObject(bitmap);
+            if (memoryDc != IntPtr.Zero) DeleteDC(memoryDc);
+            if (screenDc != IntPtr.Zero) ReleaseDC(IntPtr.Zero, screenDc);
+        }
+    }
+}
+"@
+
 $SEM_FAILCRITICALERRORS = 0x0001
 $SEM_NOGPFAULTERRORBOX = 0x0002
 $SEM_NOOPENFILEERRORBOX = 0x8000
@@ -135,6 +296,64 @@ $ResultsFile = ""
 
 . (Join-Path $LibDir "Test-Assertions.ps1")
 . (Join-Path $LibDir "Install-Harness.ps1")
+
+function Stop-SmokeOwnedFaultProcesses {
+    [CmdletBinding()] param([int[]] $KnownPids = @())
+
+    $known = @{}
+    foreach ($pidValue in @($KnownPids)) {
+        if ($pidValue -gt 0) { $known[[int]$pidValue] = $true }
+    }
+
+    $processes = @()
+    try {
+        $processes = @(Get-CimInstance Win32_Process -Filter "name = 'PerfectDark.exe' OR name = 'PerfectDarkServer.exe' OR name = 'WerFault.exe'" -ErrorAction SilentlyContinue)
+    } catch {
+        $processes = @()
+    }
+
+    foreach ($procInfo in $processes) {
+        $pidValue = [int]$procInfo.ProcessId
+        $name = [string]$procInfo.Name
+        $cmd = [string]$procInfo.CommandLine
+        $path = [string]$procInfo.ExecutablePath
+        $parent = 0
+        if ($null -ne $procInfo.ParentProcessId) {
+            $parent = [int]$procInfo.ParentProcessId
+        }
+
+        $owned = $false
+        if ($known.ContainsKey($pidValue) -or ($parent -gt 0 -and $known.ContainsKey($parent))) {
+            $owned = $true
+        }
+        if (-not $owned -and ($cmd -match '--smoke')) {
+            $owned = $true
+        }
+        if (-not $owned -and ($cmd -like "*.claude\smoke-verify*" -or $path -like "*.claude\smoke-verify*")) {
+            $owned = $true
+        }
+        if (-not $owned -and $name -ieq "WerFault.exe") {
+            foreach ($pidKey in $known.Keys) {
+                if ($cmd -match "(^|\D)$pidKey(\D|$)") {
+                    $owned = $true
+                    break
+                }
+            }
+            if (-not $owned -and $cmd -match 'PerfectDark(\.exe|Server\.exe)') {
+                $owned = $true
+            }
+        }
+
+        if ($owned) {
+            try {
+                Stop-Process -Id $pidValue -Force -ErrorAction Stop
+                Write-Host ("  reaped smoke-owned lingering process: {0} pid={1}" -f $name, $pidValue) -ForegroundColor Yellow
+            } catch {}
+        }
+    }
+}
+
+Stop-SmokeOwnedFaultProcesses
 
 try {
 
@@ -156,6 +375,80 @@ function Write-Info([string]$t) { Write-Host $t -ForegroundColor Gray }
 function Write-Ok([string]$t)   { Write-Host $t -ForegroundColor Green }
 function Write-Warn([string]$t) { Write-Host $t -ForegroundColor Yellow }
 function Write-Fail([string]$t) { Write-Host $t -ForegroundColor Red }
+
+function New-SmokeScreenshotSchedule {
+    [CmdletBinding()] param(
+        [psobject] $Definition,
+        [Parameter(Mandatory)] [string] $RunRoot,
+        [Parameter(Mandatory)] [string] $TestName
+    )
+
+    $events = @()
+    if ($Definition.PSObject.Properties.Match('screenshots').Count -eq 0 -or -not $Definition.screenshots) {
+        return @()
+    }
+
+    $safeName = ($TestName -replace '[^A-Za-z0-9_.-]', '_')
+    $artifactDir = Join-Path $RunRoot ("screenshots\{0:yyyyMMddTHHmmss}-{1}" -f (Get-Date), $safeName)
+    $ordinal = 0
+    foreach ($shot in @($Definition.screenshots)) {
+        $ordinal += 1
+        $atMs = 0
+        if ($shot.PSObject.Properties.Match('at_ms').Count -gt 0 -and $shot.at_ms) {
+            $atMs = [int]$shot.at_ms
+        }
+        $name = "shot-$ordinal"
+        if ($shot.PSObject.Properties.Match('name').Count -gt 0 -and $shot.name) {
+            $name = [string]$shot.name
+        }
+        $safeShot = ($name -replace '[^A-Za-z0-9_.-]', '_')
+        $events += [PSCustomObject]@{
+            AtMs = $atMs
+            Name = $name
+            Path = (Join-Path $artifactDir ("{0:000}-{1}.bmp" -f $ordinal, $safeShot))
+            Captured = $false
+            Success = $false
+        }
+    }
+    return @($events)
+}
+
+function Invoke-PendingSmokeScreenshots {
+    [CmdletBinding()] param(
+        [Parameter(Mandatory)] [System.Diagnostics.Process] $Process,
+        [Parameter(Mandatory)] [array] $Schedule,
+        [Parameter(Mandatory)] [datetime] $Started
+    )
+
+    if ($Schedule.Count -eq 0) { return }
+    $elapsedMs = [int](((Get-Date) - $Started).TotalMilliseconds)
+    foreach ($shot in $Schedule) {
+        if ($shot.Captured -or $elapsedMs -lt [int]$shot.AtMs) { continue }
+        $shot.Captured = $true
+        try { $Process.Refresh() } catch {}
+        if (-not ([System.Management.Automation.PSTypeName]'PdSmokeWindowCapture').Type) {
+            try {
+                Add-Type -TypeDefinition $captureSource
+            } catch {
+                Write-Warn ("  screenshot capture unavailable: {0}" -f $_.Exception.Message)
+                $shot.Success = $false
+                continue
+            }
+        }
+        $ok = $false
+        try {
+            $ok = [PdSmokeWindowCapture]::Capture($Process.MainWindowHandle, [string]$shot.Path)
+        } catch {
+            $ok = $false
+        }
+        $shot.Success = $ok
+        if ($ok) {
+            Write-Info ("  screenshot: {0}" -f $shot.Path)
+        } else {
+            Write-Warn ("  screenshot failed: {0}" -f $shot.Name)
+        }
+    }
+}
 
 # ----------------------------------------------------------------
 # Helper: enumerate tests
@@ -485,12 +778,12 @@ function Invoke-SmokeTestMultiProcess {
         # loads the same scripted schedule (typically just a single exit
         # event at timeout_seconds * 1000 ms). The boot_args of the
         # process override binary-level behaviour like --host /
-        # --connect-host.
-        # Keep default smokes in raw-exit mode, but allow crash-forensic runs
-        # to preserve the in-game crash handler and breadcrumb log.
-        $crashArgs = @("--no-crash-handler")
-        if ($env:PD_SMOKE_KEEP_CRASH_HANDLER -eq "1") {
-            $crashArgs = @()
+        # --connect-host. Keep the in-game crash handler enabled by
+        # default so smoke failures write logs instead of modal Windows
+        # fault dialogs.
+        $crashArgs = @()
+        if ($env:PD_SMOKE_DISABLE_CRASH_HANDLER -eq "1") {
+            $crashArgs = @("--no-crash-handler")
         }
         $allArgs = @("--smoke", $Test.Path) + $crashArgs + $pBootArgs
 
@@ -603,6 +896,8 @@ function Invoke-SmokeTestMultiProcess {
             $allExited = $false
         }
     }
+    $launchedPids = @($procs | ForEach-Object { try { [int]$_.Process.Id } catch { 0 } } | Where-Object { $_ -gt 0 })
+    Stop-SmokeOwnedFaultProcesses -KnownPids $launchedPids
 
     $elapsed = ((Get-Date) - $started).TotalSeconds
 
@@ -846,18 +1141,17 @@ function Invoke-SmokeTest {
     }
 
     # c115 server-pillar extension (2026-05-14). The "harness" strategy
-    # injects `--smoke <path>` and `--no-crash-handler` because the
-    # client smoke harness reads the JSON, schedules input/exit events,
-    # and emits the SMOKE: result=... sentinel on atexit. The
+    # injects `--smoke <path>` so the client smoke harness reads the JSON,
+    # schedules input/exit events, and emits the SMOKE: result=... sentinel
+    # on atexit. Keep the game crash handler enabled by default because it
+    # suppresses modal Windows fault dialogs and returns through logs. The
     # "timeout-kill" strategy is for binaries that do not link
     # smoke_harness.c (today: pd-server) -- the runner launches with
     # boot_args only and tears down the process after timeout_seconds.
     if ($runtimeStrategy -eq "harness") {
-        # Keep default smokes in raw-exit mode, but allow crash-forensic runs
-        # to preserve the in-game crash handler and breadcrumb log.
-        $crashArgs = @("--no-crash-handler")
-        if ($env:PD_SMOKE_KEEP_CRASH_HANDLER -eq "1") {
-            $crashArgs = @()
+        $crashArgs = @()
+        if ($env:PD_SMOKE_DISABLE_CRASH_HANDLER -eq "1") {
+            $crashArgs = @("--no-crash-handler")
         }
         $allArgs = @("--smoke", $Test.Path) + $crashArgs + $bootArgs
     } else {
@@ -869,6 +1163,7 @@ function Invoke-SmokeTest {
     $started = Get-Date
     $proc = $null
     $exitCode = -1
+    $screenshotSchedule = @(New-SmokeScreenshotSchedule -Definition $def -RunRoot $RunRoot -TestName $name)
 
     # c115 (2026-05-14): Start-Process -PassThru returns a Process object
     # whose .ExitCode property is unreliable for non-console GUI apps --
@@ -934,7 +1229,21 @@ function Invoke-SmokeTest {
                 Write-Info ("  timeout-kill: process exited early with code {0}." -f $exitCode)
             }
         } else {
-            if (-not $proc.WaitForExit($watchdogSeconds * 1000)) {
+            if ($screenshotSchedule.Count -gt 0) {
+                $deadline = $started.AddSeconds($watchdogSeconds)
+                while (-not $proc.HasExited -and (Get-Date) -lt $deadline) {
+                    Invoke-PendingSmokeScreenshots -Process $proc -Schedule $screenshotSchedule -Started $started
+                    Start-Sleep -Milliseconds 250
+                }
+                if (-not $proc.HasExited) {
+                    Write-Warn ("Watchdog firing after {0}s; terminating {1} (pid {2})." -f $watchdogSeconds, $exeLeaf, $proc.Id)
+                    try { $proc.Kill() } catch {}
+                    try { $proc.WaitForExit(5000) | Out-Null } catch {}
+                    $exitCode = -2
+                } else {
+                    $exitCode = $proc.ExitCode
+                }
+            } elseif (-not $proc.WaitForExit($watchdogSeconds * 1000)) {
                 Write-Warn ("Watchdog firing after {0}s; terminating {1} (pid {2})." -f $watchdogSeconds, $exeLeaf, $proc.Id)
                 try { $proc.Kill() } catch {}
                 try { $proc.WaitForExit(5000) | Out-Null } catch {}
@@ -946,6 +1255,11 @@ function Invoke-SmokeTest {
     } catch {
         Write-Fail ("Failed to launch {0}: {1}" -f $exeLeaf, $_.Exception.Message)
         $exitCode = -3
+    }
+    if ($proc) {
+        Stop-SmokeOwnedFaultProcesses -KnownPids @([int]$proc.Id)
+    } else {
+        Stop-SmokeOwnedFaultProcesses
     }
     $elapsed = ((Get-Date) - $started).TotalSeconds
 
@@ -1061,6 +1375,7 @@ function Invoke-SmokeTest {
         ExitCode = $exitCode
         ElapsedSeconds = $elapsed
         InstallDir = $installInfo.InstallDir
+        Screenshots = @($screenshotSchedule | Where-Object { $_.Captured -and $_.Success } | ForEach-Object { $_.Path })
         AssertionsTotal = $assertResult.Total
         AssertionsMet = $assertResult.Met
         Failures = @($assertResult.Failures)
@@ -1085,6 +1400,15 @@ if ($Build) {
     if ($rc -ne 0) {
         Write-Fail ("Build failed with exit code {0}. Aborting smoke run." -f $rc)
         exit $rc
+    }
+    if (-not $SourceBinary) {
+        $builtBinary = Join-Path $ProjectRoot (Join-Path ".claude\session-builds\$Session" "PerfectDark.exe")
+        if (Test-Path -LiteralPath $builtBinary) {
+            $SourceBinary = (Resolve-Path -LiteralPath $builtBinary).Path
+            Write-Info ("Using freshly built smoke binary: {0}" -f $SourceBinary)
+        } else {
+            Write-Warn ("Queued build completed but session binary was not found at {0}; smoke install will use normal binary discovery." -f $builtBinary)
+        }
     }
 }
 
@@ -1175,5 +1499,6 @@ Write-Info ("Results written to: {0}" -f $ResultsFile)
 
 exit $(if ($failCount -eq 0) { 0 } else { 1 })
 } finally {
+    Stop-SmokeOwnedFaultProcesses
     [void][PdSmokeWinErrorMode]::SetErrorMode($previousErrorMode)
 }

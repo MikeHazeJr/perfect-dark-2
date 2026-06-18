@@ -358,7 +358,6 @@ static s32 generateArenaIni(import_context_t *ctx, const char *outdir)
 	fprintf(f,
 		"[arena]\n"
 		"catalog_id = imported:%s\n"
-		"load_mode = 0\n"
 		"\n"
 		"[geometry]\n"
 		"geometry_file = %s\n",

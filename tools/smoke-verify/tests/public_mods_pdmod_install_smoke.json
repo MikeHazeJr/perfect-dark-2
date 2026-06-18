@@ -1,7 +1,7 @@
 {
   "scenario_name": "public_mods_pdmod_install_smoke",
-  "description": "c3809 runtime smoke for the Public Mods install landing path. A typed .pdxxx content tree is packed into a real .pdmod under mods/installed, then enabled and loaded through the normal registry/VFS path.",
-  "tags": ["modding", "pdmod", "pdxxx", "public-mods", "external", "c3809", "smoke", "pillar:modding"],
+  "description": "c3844 runtime smoke for the received Public Mods install path. A typed .pdxxx content tree is packed into a real .pdmod under the received-mod inbox, installed through the file-transfer/modmgr validation gate, enabled via the received-mod prompt path, then loaded through the normal registry/VFS path.",
+  "tags": ["modding", "pdmod", "pdxxx", "public-mods", "external", "c3809", "c3844", "smoke", "pillar:modding"],
   "paths_of_interest": [
     "port/src/file_transfer.c",
     "port/src/social_share.c",
@@ -15,21 +15,29 @@
     "tools/smoke-verify/run.ps1",
     "tests/fixtures/modpipe/**"
   ],
-  "log_channel_mask": "all",
+  "log_channel_mask": "Mods,Catalog,System,Game",
   "verbose": 0,
-  "timeout_seconds": 90,
+  "timeout_seconds": 120,
   "install_state": "clean",
   "remove_paths": [
     "mods/fixture_pdxxx_content.pdmod",
     "mods/fixture_pdxxx_content",
+    "mods/shared",
+    "mods/mods-enabled.json",
+    "mods-enabled.json",
+    "mods/installed/example_typed_pdxxx_basic.pdmod",
+    "social/inbox/mods",
+    "mods/scenario_generated_nav_fixture.pdmod",
+    "mods/test_smoke_skin.pdmod",
     "mods/installed/fixture_pdxxx_content.pdmod",
-    "mods/installed/fixture_pdxxx_content"
+    "mods/installed/fixture_pdxxx_content",
+    "mods/installed/example_typed_pdxxx_basic.pdmod",
+    "mods/installed/example_typed_pdxxx_basic"
   ],
   "fixtures": [
-    { "src": "tools/smoke-verify/fixtures/modpipe_pdxxx_content_enabled.json", "dst": "mods-enabled.json" }
   ],
   "packed_fixtures": [
-    { "src": "tests/fixtures/modpipe/pdxxx-content", "dst": "mods/installed/fixture_pdxxx_content.pdmod" }
+    { "src": "examples/modding/typed-pdxxx-basic", "dst": "social/inbox/mods/smoke-peer/example_typed_pdxxx_basic.pdmod" }
   ],
   "boot_args": [
     "--no-update-check",
@@ -37,32 +45,38 @@
     "--no-net",
     "--portable",
     "--skip-intro",
+    "--debug-install-received-mod",
+    "social/inbox/mods/smoke-peer/example_typed_pdxxx_basic.pdmod",
     "--debug-load-catalog-assets",
-    "head=tri_head,arena=tri_arena,animation=fixture:character_skeletal"
+    "head=example:tri_head,arena=example:tri_arena,animation=example:character_skeletal"
   ],
   "input_sequence": [
     { "at_ms": 0, "type": "wait", "comment": "modmgrInit scans the installed category folder, registers the .pdmod transport archive, and loads typed .pdxxx content through VFS." },
-    { "at_ms": 25000, "type": "exit", "comment": "scripted exit after forced typed catalog loads have emitted modeldef, colmesh, and animation payload logs." }
+    { "at_ms": 60000, "type": "exit", "comment": "scripted exit after forced typed catalog loads have emitted modeldef, colmesh, and animation payload logs." }
   ],
   "assertions": {
     "required_lines": [
       "SMOKE: scenario=public_mods_pdmod_install_smoke",
       "BOOT: --no-net set; netInit\\(\\) skipped",
-      "modmgr: parsed mod\\.json for 'fixture_pdxxx_content'.*archive=yes",
-      "modmgr: discovered mod \\[\\d+\\] 'fixture_pdxxx_content'.*\\[\\.pdmod\\] from 'installed' file=.*installed.*fixture_pdxxx_content\\.pdmod sha256=[0-9a-f]+\\.\\.",
-      "modmgr: loaded mods-enabled\\.json",
-      "modmgr: loading mod 'fixture_pdxxx_content' from archive '.*installed.*fixture_pdxxx_content\\.pdmod'",
-      "assetcatalog_scanner: archive fixture_pdxxx_content: 4 component descriptors registered",
-      "modmgr: initialized .+ 1 enabled",
-      "BOOT: --debug-load-catalog-assets request type=head id='tri_head'",
-      "CATALOG\\.LIFECYCLE\\.ACTIVATE: activated external head modeldef 'tri_head'.*normalized=.*\\.pdmodel\\.json",
-      "BOOT: --debug-load-catalog-assets result type=head id='tri_head' result=OK.*payload=2",
-      "BOOT: --debug-load-catalog-assets request type=arena id='tri_arena'",
-      "CATALOG\\.LIFECYCLE\\.ACTIVATE: activated arena OBJ colmesh 'tri_arena'.*mesh=.*\\.pdmesh\\.json",
-      "BOOT: --debug-load-catalog-assets result type=arena id='tri_arena' result=OK.*payload=3",
-      "BOOT: --debug-load-catalog-assets request type=animation id='fixture:character_skeletal'",
-      "CATALOG\\.LIFECYCLE\\.ACTIVATE: activated animation clip 'fixture:character_skeletal'.*generated=.*\\.pdanimation\\.json",
-      "BOOT: --debug-load-catalog-assets result type=animation id='fixture:character_skeletal' result=OK.*payload=4",
+      "BOOT: --debug-install-received-mod installing 'social/inbox/mods/smoke-peer/example_typed_pdxxx_basic\\.pdmod'",
+      "modmgr: installed \\.pdmod archive -> .*mods.*installed.*example_typed_pdxxx_basic\\.pdmod",
+      "FT: installed received mod archive 'example_typed_pdxxx_basic' through shared \\.pdmod installer",
+      "FT: queued enable prompt for received mod 'example_typed_pdxxx_basic' from 0x00000000",
+      "FT: enabled received mod 'example_typed_pdxxx_basic' \\(accepted received-mod prompt\\)",
+      "BOOT: --debug-install-received-mod applied 'social/inbox/mods/smoke-peer/example_typed_pdxxx_basic\\.pdmod'",
+      "modmgr: parsed mod\\.json for 'example_typed_pdxxx_basic'.*archive=yes",
+      "modmgr: discovered mod \\[\\d+\\] 'example_typed_pdxxx_basic'.*\\[\\.pdmod\\] from 'installed' file=.*installed.*example_typed_pdxxx_basic\\.pdmod sha256=[0-9a-f]+\\.\\.",
+      "modmgr: loading mod 'example_typed_pdxxx_basic' from archive '.*installed.*example_typed_pdxxx_basic\\.pdmod'",
+      "assetcatalog_scanner: archive example_typed_pdxxx_basic: \\d+ component descriptors registered",
+      "modmgr: saved config .*enabled mods: example_typed_pdxxx_basic",
+      "BOOT: --debug-load-catalog-assets request type=head id='example:tri_head'",
+      "CATALOG\\.LIFECYCLE\\.ACTIVATE: activated external head modeldef 'example:tri_head'.*normalized=.*\\.pdmodel\\.json",
+      "BOOT: --debug-load-catalog-assets result type=head id='example:tri_head' result=OK.*payload=2",
+      "BOOT: --debug-load-catalog-assets request type=arena id='example:tri_arena'",
+      "BOOT: --debug-load-catalog-assets result type=arena id='example:tri_arena' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=animation id='example:character_skeletal'",
+      "CATALOG\\.LIFECYCLE\\.ACTIVATE: activated animation clip 'example:character_skeletal'.*generated=.*\\.pdanimation\\.json",
+      "BOOT: --debug-load-catalog-assets result type=animation id='example:character_skeletal' result=OK.*payload=4",
       "SMOKE: result=scripted_exit"
     ],
     "forbidden_patterns": [
@@ -77,7 +91,7 @@
       "MODASSET\\.COMPILER: invalid external"
     ],
     "required_counts": [
-      { "pattern": "assetcatalog_scanner: archive fixture_pdxxx_content: 4 component descriptors registered", "min": 1, "max": 1 },
+      { "pattern": "assetcatalog_scanner: archive example_typed_pdxxx_basic: \\d+ component descriptors registered", "min": 1, "max": 1 },
       { "pattern": "BOOT: --debug-load-catalog-assets result type=.* result=OK", "min": 3, "max": 3 }
     ]
   }

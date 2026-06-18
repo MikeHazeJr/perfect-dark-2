@@ -580,14 +580,9 @@ s32 weaponGraphEntityRemoteSignalMatches(
 	const weapon_graph_entity_runtime_t *entity, s32 weaponnum);
 
 s32 weaponGraphRuntimeEnabled(void);
+/* Test hook: product builds ignore attempts to disable the runtime after the
+ * Wave 7 cutover. */
 void weaponGraphRuntimeSetEnabled(s32 enabled);
-
-/* c3849 Wave 5f Unit 9 (B6.5): MP authority latch for the runtime toggle.
- * The client saves its pre-match local toggle ONCE on the first latch, then
- * follows the host's MPOPTION_WEAPONGRAPH bit; restore is idempotent and a
- * no-op when nothing was latched (stage end + disconnect both call it). */
-void weaponGraphRuntimeNetLatchEnabled(s32 enabled);
-void weaponGraphRuntimeNetRestoreEnabled(void);
 
 void weaponGraphRuntimeClearWeapon(s32 weaponnum);
 void weaponGraphRuntimeClearAsset(const char *asset_id);

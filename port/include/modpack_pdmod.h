@@ -19,6 +19,9 @@
  * Both helpers:
  *   - Atomic: streams to <out_path>.tmp via modarchive's writer, renames
  *     on success, removes the temp on any failure.
+ *   - Reject authored `.bin` and public `.tsv` payloads at the transport
+ *     boundary. Typed `.pdxxx` entries are also release-validated before
+ *     they are accepted.
  *   - Compute the zip-level comment "defensive mirror" automatically from
  *     the manifest headline fields (name, creator/author, version, tags).
  *     See pdmod-unified-mod-format.md Section 4.5.5 for the rationale.

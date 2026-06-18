@@ -16,9 +16,12 @@
  *
  * assetFallbackRecord() is a pure O(1) counter (NO logging -- call sites own
  * per-hit loudness; audio/texture-rate sites must stay cheap). The aggregate
- * is consumed at the stage-load checkpoint beside catalogAssertHealthy():
- * assetFallbackReportAndReset() logs one ASSET.FALLBACK summary line plus one
- * line per family with a count and the first-offender snapshot, then clears.
+ * is consumed at the stage-load checkpoint beside catalogAssertHealthy().
+ *
+ * Wave 7 cutover: texture, animation, SFX, music, scenario, and bondgun model
+ * fallbacks are fatal in product builds once the report checkpoint sees them.
+ * The report still logs one ASSET.FALLBACK summary line plus one line per
+ * family with a count and the first-offender snapshot before the fatal.
  *
  * Telemetry deliberately does NOT reset with the catalog slot allocators: it
  * tracks play-session events, not catalog identity. The only reset is the
@@ -35,12 +38,15 @@ extern "C" {
 void assetFallbackRecord(asset_type_e family, s32 num, const char *what);
 
 /* Log the aggregate (silent when zero, mirroring catalogAssertHealthy's
- * quiet-healthy contract), clear all state, return the consumed total. */
+ * quiet-healthy contract), clear all state when it returns, and return the
+ * consumed total. Product builds do not return for Wave 7 fatal families. */
 s32 assetFallbackReportAndReset(const char *checkpoint);
 
 /* Test pins / dashboards. */
 s32 assetFallbackPendingTotal(void);
 s32 assetFallbackCountFor(asset_type_e family);
+s32 assetFallbackFamilyIsFatalCutover(asset_type_e family);
+s32 assetFallbackFatalCutoverPending(void);
 
 #ifdef __cplusplus
 }

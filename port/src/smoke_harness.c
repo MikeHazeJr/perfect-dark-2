@@ -69,6 +69,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <strings.h>
 #include <ctype.h>
 #include <SDL.h>
 
@@ -353,16 +354,48 @@ static s32 smokeKeyNameToScancode(const char *name)
 
 static u32 smokeParseChannelMask(const JTok *t)
 {
-    if (t->type == JT_STRING) {
-        char tmp[64];
-        j_tok_copy_str(t, tmp, sizeof(tmp));
-        if (!strcasecmp(tmp, "all"))  return 0xFFFFu;
-        if (!strcasecmp(tmp, "none")) return 0x0000u;
-        return (u32)strtoul(tmp, NULL, 0);
-    }
-    if (t->type == JT_NUMBER) {
-        return (u32)j_tok_int(t);
-    }
+	if (t->type == JT_STRING) {
+		char tmp[128];
+		j_tok_copy_str(t, tmp, sizeof(tmp));
+		if (!strcasecmp(tmp, "all"))  return 0xFFFFu;
+		if (!strcasecmp(tmp, "none")) return 0x0000u;
+
+		char *end = NULL;
+		u32 numeric = (u32)strtoul(tmp, &end, 0);
+		while (end && *end && isspace((unsigned char)*end)) {
+			end++;
+		}
+		if (end && end != tmp && *end == '\0') {
+			return numeric;
+		}
+
+		u32 mask = 0;
+		for (char *part = strtok(tmp, ",|+; ");
+		     part;
+		     part = strtok(NULL, ",|+; ")) {
+			u32 bit = 0;
+			for (s32 i = 0; i < LOG_CH_COUNT; i++) {
+				if (!strcasecmp(part, sysLogChannelNames[i])) {
+					bit = sysLogChannelBits[i];
+					break;
+				}
+			}
+			if (!bit && (!strcasecmp(part, "mod") || !strcasecmp(part, "mods"))) {
+				bit = LOG_CH_MOD;
+			} else if (!bit && (!strcasecmp(part, "test") || !strcasecmp(part, "testscen"))) {
+				bit = LOG_CH_TESTSCEN;
+			}
+			if (!bit) {
+				sysLogPrintf(LOG_WARNING, "SMOKE: unknown log_channel_mask token '%s'", part);
+				continue;
+			}
+			mask |= bit;
+		}
+		return mask;
+	}
+	if (t->type == JT_NUMBER) {
+		return (u32)j_tok_int(t);
+	}
     return 0xFFFFu;
 }
 

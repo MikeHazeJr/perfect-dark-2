@@ -17,7 +17,7 @@
     "tools/smoke-verify/fixtures/archive_walker_source_pd.ini",
     "tools/smoke-verify/tests/scenario_pads_source_gate_smoke.json"
   ],
-  "log_channel_mask": "all",
+  "log_channel_mask": "game,catalog,render,system",
   "verbose": 0,
   "timeout_seconds": 120,
   "install_state": "clean",

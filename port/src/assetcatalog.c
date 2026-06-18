@@ -29,6 +29,8 @@
 #include "assetcatalog_scanner.h"
 #include "assetcatalog_weapon_slots.h"
 #include "assetcatalog_body_head_slots.h"  /* c3844 Gate 2: reset custom body/head slots on rebuild */
+#include "catalog_mgr_bodies.h"
+#include "catalog_mgr_heads.h"
 #include "assetcatalog_model_slots.h"       /* B-911: reset custom model slots on rebuild */
 #include "assetcatalog_sound_slots.h"       /* c3849 Wave 2: reset custom sound slots on rebuild */
 #include "assetcatalog_texture_slots.h"     /* c3849 Wave 2: reset custom texture slots on rebuild */
@@ -669,6 +671,40 @@ asset_entry_t *assetCatalogRegisterArena(const char *id, s32 stagenum,
     return entry;
 }
 
+static s16 s_resolveBodyRegistrationSlot(const char *id, s16 bodynum)
+{
+    if (bodynum >= 0 && bodynum < CATALOG_MGR_BODY_TOTAL) {
+        return bodynum;
+    }
+
+    s32 custom = assetCatalogResolveBodyPrivateSlot(id);
+    if (custom >= 0 && custom < CATALOG_MGR_BODY_TOTAL) {
+        sysLogPrintf(LOG_NOTE,
+            "CATALOG.BODY.REGISTER.CUSTOM_SLOT: id=%s slot=%d",
+            id ? id : "(null)", custom);
+        return (s16)custom;
+    }
+
+    return -1;
+}
+
+static s16 s_resolveHeadRegistrationSlot(const char *id, s16 headnum)
+{
+    if (headnum >= 0 && headnum < CATALOG_MGR_HEAD_TOTAL) {
+        return headnum;
+    }
+
+    s32 custom = assetCatalogResolveHeadPrivateSlot(id);
+    if (custom >= 0 && custom < CATALOG_MGR_HEAD_TOTAL) {
+        sysLogPrintf(LOG_NOTE,
+            "CATALOG.HEAD.REGISTER.CUSTOM_SLOT: id=%s slot=%d",
+            id ? id : "(null)", custom);
+        return (s16)custom;
+    }
+
+    return -1;
+}
+
 asset_entry_t *assetCatalogRegisterBody(const char *id, s16 bodynum,
                                          s16 name_langid, s16 headnum,
                                          u8 requirefeature)
@@ -676,7 +712,11 @@ asset_entry_t *assetCatalogRegisterBody(const char *id, s16 bodynum,
     CATALOG_LOCK();
     asset_entry_t *entry = s_registerLocked(id, ASSET_BODY);
     if (entry) {
-        entry->ext.body.bodynum = bodynum;
+        s16 resolved_bodynum = s_resolveBodyRegistrationSlot(id, bodynum);
+        entry->ext.body.bodynum = resolved_bodynum;
+        if (resolved_bodynum >= 0) {
+            entry->runtime_index = resolved_bodynum;
+        }
         entry->ext.body.name_langid = name_langid;
         entry->ext.body.headnum = headnum;
         entry->ext.body.requirefeature = requirefeature;
@@ -725,7 +765,11 @@ asset_entry_t *assetCatalogRegisterHead(const char *id, s16 headnum,
     CATALOG_LOCK();
     asset_entry_t *entry = s_registerLocked(id, ASSET_HEAD);
     if (entry) {
-        entry->ext.head.headnum = headnum;
+        s16 resolved_headnum = s_resolveHeadRegistrationSlot(id, headnum);
+        entry->ext.head.headnum = resolved_headnum;
+        if (resolved_headnum >= 0) {
+            entry->runtime_index = resolved_headnum;
+        }
         entry->ext.head.requirefeature = requirefeature;
         entry->ext.head.rig_class[0] = '\0';
     }

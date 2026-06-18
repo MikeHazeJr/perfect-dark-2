@@ -20,7 +20,7 @@
 #include <dirent.h>
 #include <sys/stat.h>
 #include <errno.h>
-#ifdef PLATFORM_WIN32
+#if defined(PLATFORM_WIN32) || defined(_WIN32)
 #include <direct.h>
 #endif
 #include <PR/ultratypes.h>
@@ -143,15 +143,15 @@ static u32 buildCommentMirror(const char *manifest, char *out, u32 cap)
 	u32 pos = 0;
 	if (cap == 0) return 0;
 	out[pos++] = '{';
-	bool needsComma = false;
+	s32 needsComma = 0;
 	if (namePtr) {
 		EMIT_FIELD("name", namePtr, nameLen);
-		needsComma = true;
+		needsComma = 1;
 	}
 	if (creatorPtr) {
 		if (needsComma && pos < cap) out[pos++] = ',';
 		EMIT_FIELD("creator", creatorPtr, creatorLen);
-		needsComma = true;
+		needsComma = 1;
 	}
 	if (versionPtr) {
 		if (needsComma && pos < cap) out[pos++] = ',';
@@ -172,6 +172,31 @@ static int folderShouldSkip(const char *leaf, const char *fullPath, const char *
 static s32 entryHasForbiddenBinPayload(const char *name)
 {
 	return assetArchiveEntryIsForbiddenBinPayload(name);
+}
+
+static s32 entryHasForbiddenPublicTsvPayload(const char *name)
+{
+	return assetArchiveEntryIsForbiddenTsvPayload(name);
+}
+
+static s32 pathEndsWithNoCase(const char *value, const char *suffix)
+{
+	if (!value || !suffix) {
+		return 0;
+	}
+	size_t valueLen = strlen(value);
+	size_t suffixLen = strlen(suffix);
+	if (suffixLen > valueLen) {
+		return 0;
+	}
+	const char *start = value + valueLen - suffixLen;
+	for (size_t i = 0; i < suffixLen; i++) {
+		if (tolower((unsigned char)start[i]) !=
+				tolower((unsigned char)suffix[i])) {
+			return 0;
+		}
+	}
+	return 1;
 }
 
 static void pathJoin(char *out, size_t cap, const char *left, const char *right)
@@ -252,7 +277,7 @@ static s32 mkdirLocal(const char *path)
 	if (dirExistsLocal(path)) {
 		return 1;
 	}
-#ifdef PLATFORM_WIN32
+#if defined(PLATFORM_WIN32) || defined(_WIN32)
 	if (_mkdir(path) == 0) {
 		return 1;
 	}
@@ -585,8 +610,9 @@ static s32 writeTemplateIfMissing(const char *absPath, const char *relPath,
 	return MODPACK_PDMOD_OK;
 }
 
-static s32 validateNoForbiddenBinsRecurse(const char *fsRoot, const char *relRoot,
-                                           const char *destPath)
+static s32 validateNoForbiddenPublicPayloadsRecurse(const char *fsRoot,
+                                                    const char *relRoot,
+                                                    const char *destPath)
 {
 	char absDir[FS_MAXPATH + 1];
 	if (relRoot && relRoot[0]) {
@@ -624,7 +650,8 @@ static s32 validateNoForbiddenBinsRecurse(const char *fsRoot, const char *relRoo
 		}
 
 		if (S_ISDIR(st.st_mode)) {
-			s32 r = validateNoForbiddenBinsRecurse(fsRoot, childRel, destPath);
+			s32 r = validateNoForbiddenPublicPayloadsRecurse(fsRoot, childRel,
+				destPath);
 			if (r != MODPACK_PDMOD_OK) {
 				closedir(d);
 				return r;
@@ -637,6 +664,11 @@ static s32 validateNoForbiddenBinsRecurse(const char *fsRoot, const char *relRoo
 			}
 			if (entryHasForbiddenBinPayload(childRel)) {
 				pdmodSetLastError("Authored .bin files are not allowed in mod content or .pdmod transport archives: %s", childRel);
+				closedir(d);
+				return MODPACK_PDMOD_ERR_LAYOUT;
+			}
+			if (entryHasForbiddenPublicTsvPayload(childRel)) {
+				pdmodSetLastError("Public .tsv files are not allowed in mod content or .pdmod transport archives: %s", childRel);
 				closedir(d);
 				return MODPACK_PDMOD_ERR_LAYOUT;
 			}
@@ -685,6 +717,11 @@ static s32 validateReferencedPath(const char *srcFolder, const char *descriptorR
 			descriptorRel ? descriptorRel : "(descriptor)", key ? key : "(source)", sourceRel);
 		return MODPACK_PDMOD_ERR_LAYOUT;
 	}
+	if (entryHasForbiddenPublicTsvPayload(sourceRel)) {
+		pdmodSetLastError("%s points at forbidden public .tsv payload for %s: %s",
+			descriptorRel ? descriptorRel : "(descriptor)", key ? key : "(source)", sourceRel);
+		return MODPACK_PDMOD_ERR_LAYOUT;
+	}
 
 	char sourceAbs[FS_MAXPATH + 1];
 	pathJoin(sourceAbs, sizeof(sourceAbs), srcFolder, sourceRel);
@@ -721,6 +758,12 @@ static s32 validateArchiveReferencedPath(mod_archive_t *arc,
 	}
 	if (entryHasForbiddenBinPayload(value)) {
 		pdmodSetLastError("%s points at forbidden authored .bin payload for %s: %s",
+			descriptorRel ? descriptorRel : "(descriptor)",
+			key ? key : "(source)", value);
+		return MODPACK_PDMOD_ERR_LAYOUT;
+	}
+	if (entryHasForbiddenPublicTsvPayload(value)) {
+		pdmodSetLastError("%s points at forbidden public .tsv payload for %s: %s",
 			descriptorRel ? descriptorRel : "(descriptor)",
 			key ? key : "(source)", value);
 		return MODPACK_PDMOD_ERR_LAYOUT;
@@ -848,13 +891,18 @@ static s32 validateTypedPdDescriptorFile(const char *srcFolder, const char *desc
 		"body_archive", "bodyfile", "body_file", "head_archive", "headfile",
 		"head_file", "portrait_file"
 	};
-	static const char *arenaKeys[] = { "geometry_file", "geometry" };
+	static const char *arenaKeys[] = {
+		"scenario_archive", "geometry_file", "geometry"
+	};
 	static const char *scenarioKeys[] = {
 		"scene_file", "scene", "runtime_source_file",
 		"rooms_file", "rooms", "geometry_file", "geometry"
 	};
 	static const char *animationKeys[] = { "animation_file", "commands_file", "file_path" };
 	static const char *audioKeys[] = { "file_path" };
+	static const char *musicKeys[] = {
+		"music_file", "midi_file", "track_file", "file_path"
+	};
 	static const char *uiKeys[] = { "texture_file", "file_path", "texture" };
 	static const char *fontKeys[] = {
 		"font_file", "glyphs_file", "metrics_file", "file_path", "font"
@@ -1039,17 +1087,24 @@ static s32 validateTypedPdDescriptorFile(const char *srcFolder, const char *desc
 			animationKeys, (s32)(sizeof(animationKeys) / sizeof(animationKeys[0])),
 			NULL, 0);
 	case ASSET_AUDIO:
+	{
+		const char *const *requiredAudioKeys =
+			pathEndsWithNoCase(descriptorRel, ".pdsong") ? musicKeys : audioKeys;
+		s32 requiredAudioKeyCount = pathEndsWithNoCase(descriptorRel, ".pdsong")
+			? (s32)(sizeof(musicKeys) / sizeof(musicKeys[0]))
+			: (s32)(sizeof(audioKeys) / sizeof(audioKeys[0]));
 		if (typedArchive) {
 			s32 r = validateArchiveDescriptorSources(typedArchive,
-				archiveIniPtr, descriptorRel, audioKeys,
-				(s32)(sizeof(audioKeys) / sizeof(audioKeys[0])),
+				archiveIniPtr, descriptorRel, requiredAudioKeys,
+				requiredAudioKeyCount,
 				NULL, 0);
 			modArchiveClose(typedArchive);
 			return r;
 		}
 		return validateDescriptorSources(srcFolder, descriptorRel,
-			audioKeys, (s32)(sizeof(audioKeys) / sizeof(audioKeys[0])),
+			requiredAudioKeys, requiredAudioKeyCount,
 			NULL, 0);
+	}
 	case ASSET_TEXTURE:
 		if (typedArchive) {
 			s32 r = validateArchiveDescriptorSources(typedArchive,
@@ -1270,7 +1325,7 @@ static s32 validateExternalFolderLayout(const char *srcFolder, const char *destP
 	u32 generated = 0;
 	u32 typedChecked = 0;
 
-	s32 r = validateNoForbiddenBinsRecurse(srcFolder, "", destPath);
+	s32 r = validateNoForbiddenPublicPayloadsRecurse(srcFolder, "", destPath);
 	if (r != MODPACK_PDMOD_OK) {
 		return r;
 	}
@@ -1286,13 +1341,18 @@ static s32 validateExternalFolderLayout(const char *srcFolder, const char *destP
 		"body_archive", "bodyfile", "body_file", "head_archive", "headfile",
 		"head_file", "portrait_file"
 	};
-	static const char *arenaKeys[] = { "geometry_file", "geometry" };
+	static const char *arenaKeys[] = {
+		"scenario_archive", "geometry_file", "geometry"
+	};
 	static const char *scenarioKeys[] = {
 		"scene_file", "scene", "runtime_source_file",
 		"rooms_file", "rooms", "geometry_file", "geometry"
 	};
 	static const char *animationKeys[] = { "animation_file", "commands_file", "file_path" };
 	static const char *audioKeys[] = { "file_path" };
+	static const char *musicKeys[] = {
+		"music_file", "midi_file", "track_file", "file_path"
+	};
 	static const char *uiKeys[] = { "texture_file", "file_path", "texture" };
 	static const char *fontKeys[] = {
 		"font_file", "glyphs_file", "metrics_file", "file_path", "font"
@@ -1392,7 +1452,7 @@ static s32 validateExternalFolderLayout(const char *srcFolder, const char *destP
 	RUN_FAMILY_OPT("themes", "theme.ini", "theme", metadataOptionalKeys, NULL, 0);
 	RUN_FAMILY("audio/sfx", "sound.ini", "sfx", audioKeys, NULL, 0, NULL, 0);
 	RUN_FAMILY("audio/voice", "voice.ini", "voice", audioKeys, NULL, 0, NULL, 0);
-	RUN_FAMILY("audio/music", "music.ini", "music", audioKeys, NULL, 0, NULL, 0);
+	RUN_FAMILY("audio/music", "music.ini", "music", musicKeys, NULL, 0, NULL, 0);
 	RUN_FAMILY("ui", "ui.ini", "ui", uiKeys, NULL, 0, NULL, 0);
 	RUN_FAMILY("fonts", "font.ini", "font", fontKeys, NULL, 0, NULL, 0);
 	RUN_FAMILY("lang", "lang.ini", "lang", langKeys, NULL, 0, NULL, 0);
@@ -1442,6 +1502,11 @@ s32 modpackPdmodWriteSingle(const char *out_path,
 		}
 		if (entryHasForbiddenBinPayload(e->entry_name)) {
 			pdmodSetLastError("Authored .bin files are not allowed in mod content or .pdmod transport archives: %s",
+				e->entry_name);
+			return MODPACK_PDMOD_ERR_LAYOUT;
+		}
+		if (entryHasForbiddenPublicTsvPayload(e->entry_name)) {
+			pdmodSetLastError("Public .tsv files are not allowed in mod content or .pdmod transport archives: %s",
 				e->entry_name);
 			return MODPACK_PDMOD_ERR_LAYOUT;
 		}

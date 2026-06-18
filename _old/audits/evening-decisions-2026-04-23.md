@@ -98,4 +98,3 @@ Tracks judgement calls made while Mike is away. Each decision is reviewable and 
 - Rollback: delete the `if (g_Vars.normmplayerisrunning && g_TemporaryPrimaryTrack < 0)` block in `musicStartPrimary`.  One-block revert.
 - Follow-up for (b): the existing `SVC_MUSIC_ADVANCE` (v34) handles discrete track advancement between clients.  Speed-lerp sync would ride on top, polling a match-clock offset on each client and adjusting playback rate in a [0.97..1.03] range to ease back toward the authoritative timeline.  No hard seeks.
 - Timestamp: ~morning
-

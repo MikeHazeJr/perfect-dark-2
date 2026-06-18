@@ -84,7 +84,7 @@
 #define PDSCENARIO_BG_VISUAL_EXPORT_VERSION_FILE \
 	PDSCENARIO_BG_VISUAL_EXPORT_VERSION "\n"
 #define ROMEXTRACT_PDARENA_FAST_CACHE_KIND "pdarena_clean_public_v8_pdscenario_v91"
-#define ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND "pdscenario_scene_glb_clean_public_v95_standalone_backfill_collision_obj_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json"
+#define ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND "pdscenario_scene_glb_clean_public_v96_standalone_backfill_collision_obj_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json"
 
 /* Convert "base:arena_mp_skedar" -> "base_arena_mp_skedar". */
 static void s_idToFilename(const char *id, char *out, size_t n)
@@ -655,6 +655,8 @@ static void s_pdscenarioScratchFree(pdscenario_textbuf_t *rooms_obj,
                                     pdscenario_textbuf_t *objects_json,
                                     pdscenario_textbuf_t *setup_fields_json,
                                     pdscenario_textbuf_t *ai_lists_json,
+                                    pdscenario_textbuf_t *ai_command_nodes_json,
+                                    pdscenario_textbuf_t *ai_command_links_json,
                                     pdscenario_textbuf_t *objectives_json,
                                     pdscenario_textbuf_t *navigation_ini,
                                     pdscenario_textbuf_t *level_graph_json,
@@ -675,6 +677,8 @@ static void s_pdscenarioScratchFree(pdscenario_textbuf_t *rooms_obj,
 	s_textbufFree(objects_json);
 	s_textbufFree(setup_fields_json);
 	s_textbufFree(ai_lists_json);
+	s_textbufFree(ai_command_nodes_json);
+	s_textbufFree(ai_command_links_json);
 	s_textbufFree(objectives_json);
 	s_textbufFree(navigation_ini);
 	s_textbufFree(level_graph_json);
@@ -3578,7 +3582,356 @@ static const char *s_aiOpcodeName(u16 opcode)
 	case 0x01de:                 return "if_coop_mode";
 	case 0x01df:                 return "if_chr_same_floor_distance_to_pad_less_than";
 	case 0x01e0:                 return "remove_references_to_chr";
+	case 0x0000:                 return "go_to_next";
+	case 0x0001:                 return "go_to_first";
+	case 0x0003:                 return "yield";
+	case 0x0005:                 return "set_list";
+	case 0x0006:                 return "set_return_list";
+	case 0x0007:                 return "set_shot_list";
+	case 0x0008:                 return "return";
+	case 0x0009:                 return "stop";
+	case 0x000a:                 return "kneel";
+	case 0x000b:                 return "chr_do_animation";
+	case 0x000c:                 return "if_idle";
+	case 0x000d:                 return "be_surprised_one_hand";
+	case 0x000e:                 return "be_surprised_look_around";
+	case 0x000f:                 return "try_sidestep";
+	case 0x0010:                 return "try_jump_out";
+	case 0x0011:                 return "try_run_sideways";
+	case 0x0012:                 return "try_attack_walk";
+	case 0x0013:                 return "try_attack_run";
+	case 0x0014:                 return "try_attack_roll";
+	case 0x0015:                 return "try_attack_stand";
+	case 0x0016:                 return "try_attack_kneel";
+	case 0x0017:                 return "try_modify_attack";
+	case 0x0018:                 return "face_entity";
+	case 0x0019:                 return "ai_0019";
+	case 0x001a:                 return "chr_damage_chr";
+	case 0x001b:                 return "consider_grenade_throw";
+	case 0x001d:                 return "jog_to_pad";
+	case 0x001e:                 return "go_to_pad_preset";
+	case 0x001f:                 return "walk_to_pad";
+	case 0x0020:                 return "run_to_pad";
+	case 0x0021:                 return "set_path";
+	case 0x0022:                 return "start_patrol";
+	case 0x0023:                 return "if_patrolling";
+	case 0x0024:                 return "surrender";
+	case 0x0025:                 return "fade_out";
+	case 0x0026:                 return "remove_chr";
+	case 0x0027:                 return "try_start_alarm";
+	case 0x0028:                 return "activate_alarm";
+	case 0x0029:                 return "deactivate_alarm";
+	case 0x002a:                 return "try_run_from_target";
+	case 0x002b:                 return "try_jog_to_target_prop";
+	case 0x002c:                 return "try_walk_to_target_prop";
+	case 0x002d:                 return "try_run_to_target_prop";
+	case 0x002e:                 return "try_go_to_cover_prop";
+	case 0x002f:                 return "try_jog_to_chr";
+	case 0x0030:                 return "try_walk_to_chr";
+	case 0x0031:                 return "try_run_to_chr";
+	case 0x0032:                 return "if_stopped";
+	case 0x0033:                 return "if_chr_dead";
+	case 0x0034:                 return "if_chr_death_animation_finished";
+	case 0x0035:                 return "if_can_see_target";
+	case 0x0036:                 return "random";
+	case 0x0037:                 return "if_random_less_than";
+	case 0x0038:                 return "if_random_greater_than";
+	case 0x0039:                 return "if_can_hear_alarm";
+	case 0x003a:                 return "if_alarm_active";
+	case 0x003b:                 return "if_gas_active";
+	case 0x003c:                 return "if_hears_target";
+	case 0x003d:                 return "if_saw_injury";
+	case 0x003e:                 return "if_saw_death";
+	case 0x003f:                 return "if_los_to_target";
+	case 0x0040:                 return "if_target_nearly_in_sight";
+	case 0x0041:                 return "if_nearly_in_targets_sight";
+	case 0x0042:                 return "set_pad_preset_to_pad_on_route_to_target";
+	case 0x0043:                 return "if_saw_target_recently";
+	case 0x0044:                 return "if_heard_target_recently";
+	case 0x0045:                 return "if_los_to_chr";
+	case 0x0046:                 return "if_never_been_on_screen";
+	case 0x0047:                 return "if_on_screen";
+	case 0x0048:                 return "if_chr_in_on_screen_room";
+	case 0x0049:                 return "if_room_is_on_screen";
+	case 0x004a:                 return "if_target_aiming_at_me";
+	case 0x004b:                 return "if_near_miss";
+	case 0x004c:                 return "if_sees_suspicious_item";
+	case 0x004d:                 return "if_target_in_fov_left";
+	case 0x004e:                 return "if_check_fov_with_target";
+	case 0x004f:                 return "if_target_out_of_fov_left";
+	case 0x0050:                 return "if_target_in_fov";
+	case 0x0051:                 return "if_target_out_of_fov";
+	case 0x0052:                 return "if_distance_to_target_less_than";
+	case 0x0053:                 return "if_distance_to_target_greater_than";
+	case 0x0054:                 return "if_chr_distance_to_pad_less_than";
+	case 0x0055:                 return "if_chr_distance_to_pad_greater_than";
+	case 0x0056:                 return "if_distance_to_chr_less_than";
+	case 0x0057:                 return "if_distance_to_chr_greater_than";
+	case 0x0058:                 return "ai_0058";
+	case 0x0059:                 return "if_distance_from_target_to_pad_less_than";
+	case 0x005a:                 return "if_distance_from_target_to_pad_greater_than";
+	case 0x005b:                 return "if_chr_in_room";
+	case 0x005c:                 return "if_target_in_room";
+	case 0x005d:                 return "if_chr_has_object";
+	case 0x005e:                 return "if_weapon_thrown";
+	case 0x005f:                 return "if_weapon_thrown_on_object";
+	case 0x0060:                 return "if_chr_has_weapon_equipped";
+	case 0x0061:                 return "if_gun_unclaimed";
+	case 0x0062:                 return "if_object_healthy";
+	case 0x0063:                 return "if_chr_activated_object";
+	case 0x0065:                 return "obj_interact";
+	case 0x0066:                 return "destroy_object";
+	case 0x0067:                 return "ai_0067";
+	case 0x0068:                 return "chr_drop_items";
+	case 0x0069:                 return "chr_drop_weapon";
+	case 0x006a:                 return "give_object_to_chr";
+	case 0x006b:                 return "object_move_to_pad";
+	case 0x006c:                 return "open_door";
+	case 0x006d:                 return "close_door";
+	case 0x006e:                 return "if_door_state";
+	case 0x006f:                 return "if_object_is_door";
+	case 0x0070:                 return "lock_door";
+	case 0x0071:                 return "unlock_door";
+	case 0x0072:                 return "if_door_locked";
+	case 0x0075:                 return "ai_0075";
+	case 0x0076:                 return "set_pad_preset_to_target_quadrant";
+	case 0x007d:                 return "if_num_arghs_less_than";
+	case 0x007e:                 return "if_num_arghs_greater_than";
+	case 0x007f:                 return "if_num_close_arghs_less_than";
+	case 0x0080:                 return "if_num_close_arghs_greater_than";
+	case 0x0081:                 return "if_chr_health_greater_than";
+	case 0x0082:                 return "if_chr_health_less_than";
+	case 0x0083:                 return "if_injured";
+	case 0x0084:                 return "set_morale";
+	case 0x0085:                 return "add_morale";
+	case 0x0086:                 return "chr_add_morale";
+	case 0x0087:                 return "subtract_morale";
+	case 0x0088:                 return "if_morale_less_than";
+	case 0x0089:                 return "if_morale_less_than_random";
+	case 0x008a:                 return "set_alertness";
+	case 0x008b:                 return "add_alertness";
+	case 0x008c:                 return "chr_add_alertness";
+	case 0x008d:                 return "subtract_alertness";
+	case 0x008e:                 return "if_alertness";
+	case 0x008f:                 return "if_chr_alertness_less_than";
+	case 0x0090:                 return "if_alertness_less_than_random";
+	case 0x0092:                 return "set_hear_distance";
+	case 0x0093:                 return "set_view_distance";
+	case 0x0094:                 return "set_grenade_probability";
+	case 0x0095:                 return "set_chr_num";
+	case 0x0096:                 return "set_max_damage";
+	case 0x0097:                 return "add_health";
+	case 0x0098:                 return "set_reaction_speed";
+	case 0x0099:                 return "set_recovery_speed";
+	case 0x009a:                 return "set_accuracy";
+	case 0x009b:                 return "set_flag";
+	case 0x009c:                 return "unset_flag";
+	case 0x009d:                 return "if_has_flag";
+	case 0x009e:                 return "chr_set_flag";
+	case 0x009f:                 return "chr_unset_flag";
+	case 0x00a0:                 return "if_chr_has_flag";
+	case 0x00a1:                 return "set_stage_flag";
+	case 0x00a2:                 return "unset_stage_flag";
+	case 0x00a3:                 return "if_stage_flag_eq";
+	case 0x00a4:                 return "set_chrflag";
+	case 0x00a5:                 return "unset_chrflag";
+	case 0x00a6:                 return "if_has_chrflag";
+	case 0x00a7:                 return "chr_set_chrflag";
+	case 0x00a8:                 return "chr_unset_chrflag";
+	case 0x00a9:                 return "if_chr_has_chrflag";
+	case 0x00aa:                 return "set_obj_flag";
+	case 0x00ab:                 return "unset_obj_flag";
+	case 0x00ac:                 return "if_obj_has_flag";
+	case 0x00ad:                 return "set_obj_flag_2";
+	case 0x00ae:                 return "unset_obj_flag_2";
+	case 0x00af:                 return "if_obj_has_flag_2";
+	case 0x00b0:                 return "set_chr_preset";
+	case 0x00b1:                 return "set_chr_target";
+	case 0x00b2:                 return "set_pad_preset";
+	case 0x00b3:                 return "chr_set_pad_preset";
+	case 0x00b4:                 return "chr_copy_pad_preset";
+	case 0x00b6:                 return "restart_timer";
+	case 0x00b7:                 return "reset_timer";
+	case 0x00b8:                 return "pause_timer";
+	case 0x00b9:                 return "resume_timer";
+	case 0x00ba:                 return "if_timer_stopped";
+	case 0x00bb:                 return "if_timer_greater_than_random";
+	case 0x00bc:                 return "if_timer_less_than";
+	case 0x00bd:                 return "if_timer_greater_than";
+	case 0x00be:                 return "show_countdown_timer";
+	case 0x00bf:                 return "hide_countdown_timer";
+	case 0x00c0:                 return "set_countdown_timer_value";
+	case 0x00c1:                 return "stop_countdown_timer";
+	case 0x00c2:                 return "start_countdown_timer";
+	case 0x00c3:                 return "if_countdown_timer_stopped";
+	case 0x00c4:                 return "if_countdown_timer_less_than";
+	case 0x00c5:                 return "if_countdown_timer_greater_than";
+	case 0x00cb:                 return "show_hudmsg";
+	case 0x00cc:                 return "show_hudmsg_top_middle";
+	case 0x00d5:                 return "hovercar_begin_path";
+	case 0x00d6:                 return "set_vehicle_speed";
+	case 0x00d7:                 return "set_rotor_speed";
+	case 0x00f0:                 return "ai_00f0";
+	case 0x00f1:                 return "if_attacking";
+	case 0x00f2:                 return "switch_to_alt_sky";
+	case 0x00fb:                 return "chr_explosions";
+	case 0x00fe:                 return "kill_bond";
+	case 0x00ff:                 return "be_surprised_surrender";
+	case 0x0102:                 return "set_lights";
+	case 0x010e:                 return "set_shield";
+	case 0x010f:                 return "if_chr_shield_less_than";
+	case 0x0110:                 return "if_chr_shield_greater_than";
+	case 0x0118:                 return "set_obj_flag_3";
+	case 0x0119:                 return "unset_obj_flag_3";
+	case 0x011a:                 return "if_obj_has_flag_3";
+	case 0x011b:                 return "chr_set_hidden_flag";
+	case 0x011c:                 return "chr_unset_hidden_flag";
+	case 0x011d:                 return "if_chr_has_hidden_flag";
+	case 0x0120:                 return "if_safety_2_less_than";
+	case 0x0121:                 return "find_cover";
+	case 0x0122:                 return "find_cover_within_dist";
+	case 0x0123:                 return "find_cover_outside_dist";
+	case 0x0124:                 return "go_to_cover";
+	case 0x0125:                 return "check_cover_out_of_sight";
+	case 0x0126:                 return "if_player_using_cmp_or_ar_34";
+	case 0x0127:                 return "detect_enemy_on_same_floor";
+	case 0x0128:                 return "detect_enemy";
+	case 0x0129:                 return "if_safety_less_than";
+	case 0x012a:                 return "if_target_moving_slowly";
+	case 0x012b:                 return "if_target_moving_closer";
+	case 0x012c:                 return "if_target_moving_away";
+	case 0x0130:                 return "say_quip";
+	case 0x0131:                 return "increase_squadron_alertness";
+	case 0x0132:                 return "set_action";
+	case 0x0133:                 return "set_team_orders";
+	case 0x0136:                 return "retreat";
+	case 0x0139:                 return "ai_0139";
+	case 0x013a:                 return "set_chr_preset_to_unalerted_teammate";
+	case 0x013b:                 return "set_squadron";
+	case 0x013c:                 return "face_cover";
+	case 0x013e:                 return "ai_013e";
+	case 0x0145:                 return "rebuild_teams";
+	case 0x0146:                 return "rebuild_squadrons";
+	case 0x0147:                 return "if_squadron_is_dead";
+	case 0x0148:                 return "chr_set_listening";
+	case 0x014a:                 return "if_true";
+	case 0x0152:                 return "if_num_chrs_in_squadron_greater_than";
+	case 0x0157:                 return "set_tinted_glass_enabled";
+	case 0x0167:                 return "hovercopter_fire_rocket";
+	case 0x0168:                 return "if_shield_damaged";
+	case 0x0169:                 return "if_natural_anim";
+	case 0x016a:                 return "if_y";
+	case 0x016d:                 return "chr_adjust_motion_blur";
+	case 0x0173:                 return "chr_copy_properties";
+	case 0x0176:                 return "if_bot_respawning";
+	case 0x0177:                 return "player_auto_walk";
+	case 0x0178:                 return "if_player_auto_walk_finished";
+	case 0x017a:                 return "if_los_to_attack_target";
+	case 0x017b:                 return "if_chr_knocked_out";
+	case 0x0181:                 return "if_player_looking_at_object";
+	case 0x0182:                 return "punch_or_kick";
+	case 0x0183:                 return "if_target_is_player";
+	case 0x0185:                 return "mp_init_simulants";
+	case 0x0186:                 return "if_sound_timer";
+	case 0x0187:                 return "set_target_to_eyespy_if_in_sight";
+	case 0x0188:                 return "if_lift_stationary";
+	case 0x0189:                 return "lift_go_to_stop";
+	case 0x018a:                 return "if_lift_at_stop";
+	case 0x018b:                 return "configure_rain";
+	case 0x018c:                 return "chr_toggle_model_part";
+	case 0x018d:                 return "activate_lift";
+	case 0x018e:                 return "mini_skedar_try_pounce";
+	case 0x018f:                 return "if_object_distance_to_pad_less_than";
+	case 0x0190:                 return "set_savefile_flag";
+	case 0x0191:                 return "unset_savefile_flag";
+	case 0x0192:                 return "if_savefile_flag_is_set";
+	case 0x0193:                 return "if_savefile_flag_is_unset";
+	case 0x019e:                 return "if_obj_health_less_than";
+	case 0x019f:                 return "set_obj_health";
+	case 0x01a0:                 return "set_chr_special_death_animation";
+	case 0x01a1:                 return "set_room_to_search";
+	case 0x01a2:                 return "say_ci_staff_quip";
+	case 0x01a4:                 return "show_hudmsg_middle";
+	case 0x01a5:                 return "if_using_lift";
+	case 0x01a6:                 return "if_target_y_difference_less_than";
+	case 0x01b1:                 return "shuffle_ruins_pillars";
+	case 0x01b2:                 return "set_wind_speed";
+	case 0x01b6:                 return "configure_snow";
+	case 0x01b9:                 return "shuffle_pelagic_switches";
+	case 0x01ba:                 return "try_attack_lie";
+	case 0x01c1:                 return "set_punch_dodge_list";
+	case 0x01c2:                 return "set_shooting_at_me_list";
+	case 0x01c3:                 return "set_dark_room_list";
+	case 0x01c4:                 return "set_player_dead_list";
+	case 0x01c5:                 return "avoid";
+	case 0x01c6:                 return "set_dodge_rating";
+	case 0x01c7:                 return "set_unarmed_dodge_rating";
+	case 0x01c8:                 return "title_init_mode";
+	case 0x01c9:                 return "try_exit_title";
+	case 0x01d1:                 return "obj_set_model_part_visible";
+	case 0x01d2:                 return "chr_emit_sparks";
+	case 0x01d3:                 return "set_dr_caroll_images";
+	case 0x01d4:                 return "set_room_flag";
+	case 0x01d5:                 return "show_cutscene_chrs";
+	case 0x01d6:                 return "configure_environment";
+	case 0x01d7:                 return "if_distance_to_target_2_less_than";
+	case 0x01d8:                 return "if_distance_to_target_2_greater_than";
+	case 0x01d9:                 return "play_sound_from_prop";
+	case 0x01da:                 return "play_temporary_primary_track";
 	default:                     return "command";
+	}
+}
+
+static void s_aiOpcodeSemanticKind(u16 opcode, const char *opcode_name,
+	char *out, u32 out_size)
+{
+	const char *mapped = NULL;
+	if (!out || out_size == 0) {
+		return;
+	}
+	if (!opcode_name) {
+		opcode_name = "command";
+	}
+
+	switch (opcode) {
+	case CMD_LABEL: mapped = "scenario.ai.control.label"; break;
+	case AICMD_END: mapped = "scenario.ai.control.end"; break;
+	case 0x0000: mapped = "scenario.ai.control.go_to_next"; break;
+	case 0x0001: mapped = "scenario.ai.control.go_to_first"; break;
+	case 0x0003: mapped = "scenario.ai.control.yield"; break;
+	case 0x0008: mapped = "scenario.ai.control.return"; break;
+	case 0x0019: mapped = "scenario.ai.action.apply_gset_damage"; break;
+	case 0x0075: mapped = "scenario.ai.condition.if_waypoint_within_quadrant"; break;
+	case 0x00ad:
+	case 0x0118:
+		mapped = "scenario.ai.action.set_obj_flag";
+		break;
+	case 0x00ae:
+	case 0x0119:
+		mapped = "scenario.ai.action.unset_obj_flag";
+		break;
+	case 0x00af:
+	case 0x011a:
+		mapped = "scenario.ai.action.if_obj_has_flag";
+		break;
+	case 0x00c0: mapped = "scenario.ai.action.set_countdown_timer"; break;
+	case 0x0139: mapped = "scenario.ai.action.orbit_target"; break;
+	case 0x016c: mapped = "scenario.ai.action.noop"; break;
+	case 0x0192: mapped = "scenario.ai.action.if_savefile_flag_set"; break;
+	case 0x0193: mapped = "scenario.ai.action.if_savefile_flag_unset"; break;
+	default:
+		break;
+	}
+
+	if (mapped) {
+		snprintf(out, out_size, "%s", mapped);
+	} else if (strncmp(opcode_name, "if_", 3) == 0 ||
+			strncmp(opcode_name, "consider_", 9) == 0) {
+		snprintf(out, out_size, "scenario.ai.condition.%s", opcode_name);
+	} else if (strncmp(opcode_name, "noop_", 5) == 0) {
+		snprintf(out, out_size, "scenario.ai.action.noop");
+	} else {
+		snprintf(out, out_size, "scenario.ai.action.%s", opcode_name);
 	}
 }
 
@@ -3601,11 +3954,15 @@ static s32 s_appendAiOperandsJsonArray(pdscenario_textbuf_t *out,
 }
 
 static s32 s_buildAiListsTable(const u8 *data, u32 size,
-	pdscenario_textbuf_t *ai_lists_json, u32 *out_lists, u32 *out_commands)
+	pdscenario_textbuf_t *ai_lists_json,
+	pdscenario_textbuf_t *ai_command_nodes_json,
+	pdscenario_textbuf_t *ai_command_links_json,
+	u32 *out_lists, u32 *out_commands)
 {
 	if (out_lists) *out_lists = 0;
 	if (out_commands) *out_commands = 0;
-	if (!data || size < sizeof(struct stagesetup) || !ai_lists_json) {
+	if (!data || size < sizeof(struct stagesetup) || !ai_lists_json ||
+			!ai_command_nodes_json || !ai_command_links_json) {
 		return -1;
 	}
 
@@ -3659,10 +4016,14 @@ static s32 s_buildAiListsTable(const u8 *data, u32 size,
 			const char *weapon_id = "";
 			const char *body_id = "";
 			const char *head_id = "";
+			const char *opcode_name = s_aiOpcodeName(opcode);
 			char graph_node[64];
+			char semantic_kind[128];
 			snprintf(graph_node, sizeof(graph_node),
 				"scenario.ai.ailist_%04u.command.%04u",
 				(unsigned)i, (unsigned)command_index);
+			s_aiOpcodeSemanticKind(opcode, opcode_name, semantic_kind,
+				sizeof(semantic_kind));
 
 			if ((opcode == AICMD_DROPITEM || opcode == AICMD_EQUIPHAT) && len >= 4) {
 				s32 modelnum = ((s32)cmd[2] << 8) | cmd[3];
@@ -3688,8 +4049,7 @@ static s32 s_buildAiListsTable(const u8 *data, u32 size,
 					", \"command_index\": %u, \"offset\": %u, \"opcode\": \"0x%04x\", \"opcode_name\": ",
 					(unsigned)command_index, (unsigned)offset,
 					(unsigned)opcode) != 0 ||
-					s_textbufAppendJsonString(ai_lists_json,
-						s_aiOpcodeName(opcode)) != 0 ||
+					s_textbufAppendJsonString(ai_lists_json, opcode_name) != 0 ||
 					s_textbufAppend(ai_lists_json,
 						", \"operands\": ") != 0 ||
 					s_appendAiOperandsJsonArray(ai_lists_json, cmd, len) != 0 ||
@@ -3706,6 +4066,33 @@ static s32 s_buildAiListsTable(const u8 *data, u32 size,
 						", \"head_catalog_id\": ") != 0 ||
 					s_textbufAppendJsonString(ai_lists_json, head_id) != 0 ||
 					s_textbufAppend(ai_lists_json, " }") != 0) {
+				return -1;
+			}
+
+			if (s_textbufAppend(ai_command_nodes_json,
+					",\n    { \"id\": ") != 0 ||
+					s_textbufAppendJsonString(ai_command_nodes_json,
+						graph_node) != 0 ||
+					s_textbufAppend(ai_command_nodes_json,
+						", \"kind\": \"scenario.ai.command\", \"source\": \"ai/ailists.json\", \"ailist_ref\": ") != 0 ||
+					s_textbufAppendf(ai_command_nodes_json,
+						"\"ailist_%04u\", \"list_id\": \"0x%04x\", \"command_index\": %u, \"offset\": %u, \"opcode\": \"0x%04x\", \"opcode_name\": ",
+						(unsigned)i, (unsigned)(u16)lists[i].id,
+						(unsigned)command_index, (unsigned)offset,
+						(unsigned)opcode) != 0 ||
+					s_textbufAppendJsonString(ai_command_nodes_json,
+						opcode_name) != 0 ||
+					s_textbufAppend(ai_command_nodes_json,
+						", \"semantic_kind\": ") != 0 ||
+					s_textbufAppendJsonString(ai_command_nodes_json,
+						semantic_kind) != 0 ||
+					s_textbufAppend(ai_command_nodes_json, " }") != 0 ||
+					s_textbufAppend(ai_command_links_json,
+						",\n    { \"from\": \"scenario.ai.lists\", \"to\": ") != 0 ||
+					s_textbufAppendJsonString(ai_command_links_json,
+						graph_node) != 0 ||
+					s_textbufAppend(ai_command_links_json,
+						" }") != 0) {
 				return -1;
 			}
 
@@ -3734,6 +4121,7 @@ static s32 s_buildScenarioSourceFiles(const char *scenario_id,
                                       u32 pad_count, u32 object_count,
                                       u32 objective_count,
                                       u32 ai_list_count,
+                                      u32 ai_command_count,
                                       u32 waypoint_count,
                                       u32 waygroup_count,
                                       u32 cover_count,
@@ -3749,6 +4137,8 @@ static s32 s_buildScenarioSourceFiles(const char *scenario_id,
                                       const pdscenario_textbuf_t *waygroups_json,
                                       const pdscenario_textbuf_t *covers_json,
                                       const pdscenario_textbuf_t *paths_json,
+                                      const pdscenario_textbuf_t *ai_command_nodes_json,
+                                      const pdscenario_textbuf_t *ai_command_links_json,
                                       pdscenario_textbuf_t *navigation_ini,
                                       pdscenario_textbuf_t *level_graph_json,
                                       pdscenario_textbuf_t *collision_meta_json,
@@ -3766,7 +4156,8 @@ static s32 s_buildScenarioSourceFiles(const char *scenario_id,
 	char covers_hash[SHA256_HEX_SIZE];
 	char paths_hash[SHA256_HEX_SIZE];
 
-	if (!scenario_id || !navigation_ini || !level_graph_json ||
+	if (!scenario_id || !ai_command_nodes_json || !ai_command_links_json ||
+			!navigation_ini || !level_graph_json ||
 			!collision_meta_json || !navmesh_meta_json) {
 		return -1;
 	}
@@ -4260,6 +4651,12 @@ static s32 s_buildScenarioSourceFiles(const char *scenario_id,
 				i + 1 < pad_count ? "," : "") != 0) {
 			return -1;
 		}
+	}
+
+	if (ai_command_nodes_json->data &&
+			s_textbufAppend(level_graph_json,
+				ai_command_nodes_json->data) != 0) {
+		return -1;
 	}
 
 	if (s_textbufAppendf(level_graph_json,
@@ -4823,14 +5220,21 @@ static s32 s_buildScenarioSourceFiles(const char *scenario_id,
 		}
 	}
 
+	if (ai_command_links_json->data &&
+			s_textbufAppend(level_graph_json,
+				ai_command_links_json->data) != 0) {
+		return -1;
+	}
+
 	if (s_textbufAppendf(level_graph_json,
 			"  ],\n"
-			"  \"counts\": { \"rooms\": %u, \"triangles\": %u, \"pads\": %u, \"volumes\": %u, \"objects\": %u, \"objectives\": %u, \"ai_lists\": %u, \"waypoints\": %u, \"waygroups\": %u, \"covers\": %u, \"paths\": %u }\n"
+			"  \"counts\": { \"rooms\": %u, \"triangles\": %u, \"pads\": %u, \"volumes\": %u, \"objects\": %u, \"objectives\": %u, \"ai_lists\": %u, \"ai_commands\": %u, \"waypoints\": %u, \"waygroups\": %u, \"covers\": %u, \"paths\": %u }\n"
 			"}\n",
 			(unsigned)room_count, (unsigned)tri_count,
 			(unsigned)pad_count, (unsigned)pad_count,
 			(unsigned)object_count,
 			(unsigned)objective_count, (unsigned)ai_list_count,
+			(unsigned)ai_command_count,
 			(unsigned)waypoint_count,
 			(unsigned)waygroup_count, (unsigned)cover_count,
 			(unsigned)path_count) != 0) {
@@ -8323,6 +8727,8 @@ static s32 s_emitOnePdscenarioSpec(const pdscenario_emit_spec_t *spec,
 	pdscenario_textbuf_t objects_json = { 0 };
 	pdscenario_textbuf_t setup_fields_json = { 0 };
 	pdscenario_textbuf_t ai_lists_json = { 0 };
+	pdscenario_textbuf_t ai_command_nodes_json = { 0 };
+	pdscenario_textbuf_t ai_command_links_json = { 0 };
 	pdscenario_textbuf_t objectives_json = { 0 };
 	pdscenario_textbuf_t navigation_ini = { 0 };
 	pdscenario_textbuf_t level_graph_json = { 0 };
@@ -8410,6 +8816,7 @@ static s32 s_emitOnePdscenarioSpec(const pdscenario_emit_spec_t *spec,
 		}
 		if (has_setup > 0 &&
 				s_buildAiListsTable(setup_data, setup_size, &ai_lists_json,
+					&ai_command_nodes_json, &ai_command_links_json,
 					&ai_list_count, &ai_command_count) != 0) {
 			sysLogPrintf(LOG_WARNING,
 				"romextract pdscenario: AI list conversion failed for \"%s\"",
@@ -8498,11 +8905,12 @@ static s32 s_emitOnePdscenarioSpec(const pdscenario_emit_spec_t *spec,
 
 	if (s_buildScenarioSourceFiles(scenario_id, kind, room_count, tri_count,
 			portal_count, pad_count, object_count, objective_count,
-			ai_list_count,
+			ai_list_count, ai_command_count,
 			waypoint_count, waygroup_count, cover_count, path_count,
 			bg_scene.scene_glb, bg_scene.scene_glb_size, &rooms_obj,
 			&portals_json, &pads_json, &spawns_json, &volumes_json,
 			&waypoints_json, &waygroups_json, &covers_json, &paths_json,
+			&ai_command_nodes_json, &ai_command_links_json,
 			&navigation_ini,
 			&level_graph_json, &collision_meta_json,
 			&navmesh_meta_json) != 0) {
@@ -8515,7 +8923,7 @@ static s32 s_emitOnePdscenarioSpec(const pdscenario_emit_spec_t *spec,
 	if (has_tiles < 0 || has_pads < 0 || has_setup < 0 || has_bg < 0) {
 		s_pdscenarioScratchFree(&rooms_obj, &portals_json, &pads_json,
 			&spawns_json, &volumes_json, &waypoints_json, &waygroups_json,
-			&covers_json, &paths_json, &objects_json, &setup_fields_json, &ai_lists_json, &objectives_json,
+			&covers_json, &paths_json, &objects_json, &setup_fields_json, &ai_lists_json, &ai_command_nodes_json, &ai_command_links_json, &objectives_json,
 			&navigation_ini, &level_graph_json, &collision_meta_json,
 			&navmesh_meta_json,
 			&visual_mesh, &bg_scene);
@@ -8529,7 +8937,7 @@ static s32 s_emitOnePdscenarioSpec(const pdscenario_emit_spec_t *spec,
 				"scene") != MODARCHIVE_OK) {
 			s_pdscenarioScratchFree(&rooms_obj, &portals_json, &pads_json,
 				&spawns_json, &volumes_json, &waypoints_json, &waygroups_json,
-				&covers_json, &paths_json, &objects_json, &setup_fields_json, &ai_lists_json, &objectives_json,
+				&covers_json, &paths_json, &objects_json, &setup_fields_json, &ai_lists_json, &ai_command_nodes_json, &ai_command_links_json, &objectives_json,
 				&navigation_ini, &level_graph_json, &collision_meta_json,
 				&navmesh_meta_json,
 				&visual_mesh, &bg_scene);
@@ -8543,7 +8951,7 @@ static s32 s_emitOnePdscenarioSpec(const pdscenario_emit_spec_t *spec,
 				rooms_obj.data, rooms_obj.len, "collision") != MODARCHIVE_OK) {
 			s_pdscenarioScratchFree(&rooms_obj, &portals_json, &pads_json,
 				&spawns_json, &volumes_json, &waypoints_json, &waygroups_json,
-				&covers_json, &paths_json, &objects_json, &setup_fields_json, &ai_lists_json, &objectives_json,
+				&covers_json, &paths_json, &objects_json, &setup_fields_json, &ai_lists_json, &ai_command_nodes_json, &ai_command_links_json, &objectives_json,
 				&navigation_ini, &level_graph_json,
 				&collision_meta_json, &navmesh_meta_json,
 				&visual_mesh, &bg_scene);
@@ -8557,7 +8965,7 @@ static s32 s_emitOnePdscenarioSpec(const pdscenario_emit_spec_t *spec,
 				portals_json.data, portals_json.len, "portals") != MODARCHIVE_OK) {
 			s_pdscenarioScratchFree(&rooms_obj, &portals_json, &pads_json,
 				&spawns_json, &volumes_json, &waypoints_json, &waygroups_json,
-				&covers_json, &paths_json, &objects_json, &setup_fields_json, &ai_lists_json, &objectives_json,
+				&covers_json, &paths_json, &objects_json, &setup_fields_json, &ai_lists_json, &ai_command_nodes_json, &ai_command_links_json, &objectives_json,
 				&navigation_ini, &level_graph_json,
 				&collision_meta_json, &navmesh_meta_json,
 				&visual_mesh, &bg_scene);
@@ -8584,7 +8992,7 @@ static s32 s_emitOnePdscenarioSpec(const pdscenario_emit_spec_t *spec,
 				covers_json.len, "covers") != MODARCHIVE_OK) {
 			s_pdscenarioScratchFree(&rooms_obj, &portals_json, &pads_json,
 				&spawns_json, &volumes_json, &waypoints_json, &waygroups_json,
-				&covers_json, &paths_json, &objects_json, &setup_fields_json, &ai_lists_json, &objectives_json,
+				&covers_json, &paths_json, &objects_json, &setup_fields_json, &ai_lists_json, &ai_command_nodes_json, &ai_command_links_json, &objectives_json,
 				&navigation_ini, &level_graph_json, &collision_meta_json,
 				&navmesh_meta_json,
 				&visual_mesh, &bg_scene);
@@ -8613,7 +9021,7 @@ static s32 s_emitOnePdscenarioSpec(const pdscenario_emit_spec_t *spec,
 			navmesh_meta_json.data, navmesh_meta_json.len, "generated_navmesh") != MODARCHIVE_OK) {
 		s_pdscenarioScratchFree(&rooms_obj, &portals_json, &pads_json,
 			&spawns_json, &volumes_json, &waypoints_json, &waygroups_json,
-			&covers_json, &paths_json, &objects_json, &setup_fields_json, &ai_lists_json, &objectives_json,
+			&covers_json, &paths_json, &objects_json, &setup_fields_json, &ai_lists_json, &ai_command_nodes_json, &ai_command_links_json, &objectives_json,
 			&navigation_ini, &level_graph_json, &collision_meta_json,
 			&navmesh_meta_json,
 			&visual_mesh, &bg_scene);
@@ -8701,7 +9109,7 @@ static s32 s_emitOnePdscenarioSpec(const pdscenario_emit_spec_t *spec,
 			"manifest snprintf truncated for \"%s\"", scenario_id);
 		s_pdscenarioScratchFree(&rooms_obj, &portals_json, &pads_json,
 			&spawns_json, &volumes_json, &waypoints_json, &waygroups_json,
-			&covers_json, &paths_json, &objects_json, &setup_fields_json, &ai_lists_json, &objectives_json,
+			&covers_json, &paths_json, &objects_json, &setup_fields_json, &ai_lists_json, &ai_command_nodes_json, &ai_command_links_json, &objectives_json,
 			&navigation_ini, &level_graph_json, &collision_meta_json,
 			&navmesh_meta_json,
 			&visual_mesh, &bg_scene);
@@ -8751,7 +9159,7 @@ static s32 s_emitOnePdscenarioSpec(const pdscenario_emit_spec_t *spec,
 			"scenario.ini snprintf truncated for \"%s\"", scenario_id);
 		s_pdscenarioScratchFree(&rooms_obj, &portals_json, &pads_json,
 			&spawns_json, &volumes_json, &waypoints_json, &waygroups_json,
-			&covers_json, &paths_json, &objects_json, &setup_fields_json, &ai_lists_json, &objectives_json,
+			&covers_json, &paths_json, &objects_json, &setup_fields_json, &ai_lists_json, &ai_command_nodes_json, &ai_command_links_json, &objectives_json,
 			&navigation_ini, &level_graph_json, &collision_meta_json,
 			&navmesh_meta_json,
 			&visual_mesh, &bg_scene);
@@ -8765,7 +9173,7 @@ static s32 s_emitOnePdscenarioSpec(const pdscenario_emit_spec_t *spec,
 			"AddFileMem scenario.ini failed for \"%s\"", dst_full);
 		s_pdscenarioScratchFree(&rooms_obj, &portals_json, &pads_json,
 			&spawns_json, &volumes_json, &waypoints_json, &waygroups_json,
-			&covers_json, &paths_json, &objects_json, &setup_fields_json, &ai_lists_json, &objectives_json,
+			&covers_json, &paths_json, &objects_json, &setup_fields_json, &ai_lists_json, &ai_command_nodes_json, &ai_command_links_json, &objectives_json,
 			&navigation_ini, &level_graph_json, &collision_meta_json,
 			&navmesh_meta_json,
 			&visual_mesh, &bg_scene);
@@ -8778,7 +9186,7 @@ static s32 s_emitOnePdscenarioSpec(const pdscenario_emit_spec_t *spec,
 			"AddFileMem _meta/manifest.json failed for \"%s\"", dst_full);
 		s_pdscenarioScratchFree(&rooms_obj, &portals_json, &pads_json,
 			&spawns_json, &volumes_json, &waypoints_json, &waygroups_json,
-			&covers_json, &paths_json, &objects_json, &setup_fields_json, &ai_lists_json, &objectives_json,
+			&covers_json, &paths_json, &objects_json, &setup_fields_json, &ai_lists_json, &ai_command_nodes_json, &ai_command_links_json, &objectives_json,
 			&navigation_ini, &level_graph_json, &collision_meta_json,
 			&navmesh_meta_json,
 			&visual_mesh, &bg_scene);
@@ -8790,7 +9198,7 @@ static s32 s_emitOnePdscenarioSpec(const pdscenario_emit_spec_t *spec,
 			"assetArchiveWriterFinishMetadata failed for \"%s\"", dst_full);
 		s_pdscenarioScratchFree(&rooms_obj, &portals_json, &pads_json,
 			&spawns_json, &volumes_json, &waypoints_json, &waygroups_json,
-			&covers_json, &paths_json, &objects_json, &setup_fields_json, &ai_lists_json, &objectives_json,
+			&covers_json, &paths_json, &objects_json, &setup_fields_json, &ai_lists_json, &ai_command_nodes_json, &ai_command_links_json, &objectives_json,
 			&navigation_ini, &level_graph_json, &collision_meta_json,
 			&navmesh_meta_json,
 			&visual_mesh, &bg_scene);
@@ -8803,7 +9211,7 @@ static s32 s_emitOnePdscenarioSpec(const pdscenario_emit_spec_t *spec,
 			"modArchiveFinish failed for \"%s\"", dst_full);
 		s_pdscenarioScratchFree(&rooms_obj, &portals_json, &pads_json,
 			&spawns_json, &volumes_json, &waypoints_json, &waygroups_json,
-			&covers_json, &paths_json, &objects_json, &setup_fields_json, &ai_lists_json, &objectives_json,
+			&covers_json, &paths_json, &objects_json, &setup_fields_json, &ai_lists_json, &ai_command_nodes_json, &ai_command_links_json, &objectives_json,
 			&navigation_ini, &level_graph_json, &collision_meta_json,
 			&navmesh_meta_json,
 			&visual_mesh, &bg_scene);
@@ -8811,7 +9219,7 @@ static s32 s_emitOnePdscenarioSpec(const pdscenario_emit_spec_t *spec,
 	}
 	s_pdscenarioScratchFree(&rooms_obj, &portals_json, &pads_json,
 		&spawns_json, &volumes_json, &waypoints_json, &waygroups_json,
-		&covers_json, &paths_json, &objects_json, &setup_fields_json, &ai_lists_json, &objectives_json,
+		&covers_json, &paths_json, &objects_json, &setup_fields_json, &ai_lists_json, &ai_command_nodes_json, &ai_command_links_json, &objectives_json,
 		&navigation_ini, &level_graph_json, &collision_meta_json,
 		&navmesh_meta_json,
 		&visual_mesh, &bg_scene);

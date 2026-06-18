@@ -287,7 +287,8 @@ TEST_CASE("scene transition helper: centralizes manifest/menu cleanup before sta
 
     REQUIRE(impl.find("sceneFire(SCENE_EVENT_DISCONNECT, NULL);") != std::string::npos);
     REQUIRE(impl.find("menupoolReleaseAll();") != std::string::npos);
-    REQUIRE(cmake.find("port/src/scene_transition.c") != std::string::npos);
+    REQUIRE(cmake.find("file(GLOB_RECURSE SRC_PORT") != std::string::npos);
+    REQUIRE(cmake.find("port/src/*.c") != std::string::npos);
 }
 
 TEST_CASE("scene transition helper: priority transition sites use shared cleanup",

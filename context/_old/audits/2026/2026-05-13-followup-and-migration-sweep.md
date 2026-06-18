@@ -278,7 +278,7 @@ The .pdwpn / .pdscenario / etc. emitters and the catalog manager API are clean P
 (none in this scope)
 
 ### Positive Observations
-- Connect codes hide raw IPs in UI per constraints.md (NO_RAW_IP_IN_UI). 
+- Connect codes hide raw IPs in UI per constraints.md (NO_RAW_IP_IN_UI).
 - Persistent bans in `$S/bans.ini` are atomically written. `serverBansIsBanned(ip)` runs before any slot allocation in `netServerEvConnect`.
 - Admin RCON token stored as SHA-256 with domain salt; constant-time compare.
 - Room passwords hashed at create time (SEC-14, S393).

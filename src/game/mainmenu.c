@@ -3999,7 +3999,10 @@ void func0f105948(s32 weaponnum)
 			if (weaponid && catalogResolveWeapon(weaponid, &result)) {
 				menuSetModelFileHandle(&g_Menus[g_MpPlayerNum].menumodel, result.filenum, result.handle);
 			} else {
-				g_Menus[g_MpPlayerNum].menumodel.newparams = MENUMODELPARAMS_SET_FILENUM(weaponGetFileNum(weaponnum));
+				sysLogPrintf(LOG_WARNING,
+					"CATALOG.MISS: weapon menu preview weaponnum=%d has no provider-backed catalog entry",
+					weaponnum);
+				menuUnsetModel(&g_Menus[g_MpPlayerNum].menumodel);
 			}
 		}
 

@@ -157,3 +157,55 @@ TEST_CASE("game client logs are rooted under logs game client",
 	REQUIRE(system.find("pd-client.log") != std::string::npos);
 	REQUIRE(crash.find("CRASH_LOG_DIR \"logs/game client\"") != std::string::npos);
 }
+
+TEST_CASE("game client crash init suppresses modal fault dialogs for smoke runs",
+          "[logging][crash][static][b927]")
+{
+	const std::string crash = readSourceFile("port/src/crash.c");
+	const std::string smoke_runner = readSourceFile("tools/smoke-verify/run.ps1");
+	const std::string install_harness = readSourceFile("tools/smoke-verify/lib/Install-Harness.ps1");
+	REQUIRE(!crash.empty());
+	REQUIRE(!smoke_runner.empty());
+	REQUIRE(!install_harness.empty());
+
+	REQUIRE(crash.find("SEM_NOGPFAULTERRORBOX") != std::string::npos);
+	REQUIRE(crash.find("SEM_NOOPENFILEERRORBOX") != std::string::npos);
+	REQUIRE(crash.find("SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX | SEM_NOOPENFILEERRORBOX)") !=
+	        std::string::npos);
+	REQUIRE(smoke_runner.find("PdSmokeWinErrorMode") != std::string::npos);
+	REQUIRE(smoke_runner.find("$loaderErrorMode = $SEM_FAILCRITICALERRORS -bor $SEM_NOGPFAULTERRORBOX -bor $SEM_NOOPENFILEERRORBOX") !=
+	        std::string::npos);
+	REQUIRE(smoke_runner.find("Stop-SmokeOwnedFaultProcesses") != std::string::npos);
+	REQUIRE(smoke_runner.find("name = 'PerfectDark.exe' OR name = 'PerfectDarkServer.exe' OR name = 'WerFault.exe'") !=
+	        std::string::npos);
+	REQUIRE(smoke_runner.find("$crashArgs = @()") != std::string::npos);
+	REQUIRE(smoke_runner.find("$env:PD_SMOKE_DISABLE_CRASH_HANDLER -eq \"1\"") !=
+	        std::string::npos);
+	REQUIRE(smoke_runner.find("$crashArgs = @(\"--no-crash-handler\")") !=
+	        std::string::npos);
+	REQUIRE(smoke_runner.find("$crashArgs = @(\"--no-crash-handler\")\n\t\tif") ==
+	        std::string::npos);
+	REQUIRE(install_harness.find("New-NetFirewallRule -DisplayName $displayName `") !=
+	        std::string::npos);
+	REQUIRE(install_harness.find("-ErrorAction Stop | Out-Null") !=
+	        std::string::npos);
+}
+
+TEST_CASE("video shutdown only frees owned display mode storage",
+          "[video][shutdown][static][b928]")
+{
+	const std::string video = readSourceFile("port/src/video.c");
+	REQUIRE(!video.empty());
+
+	REQUIRE(video.find("static displaymode *vidModes = &vidModeDefault;") !=
+	        std::string::npos);
+	REQUIRE(video.find("static bool vidModesOwned = false;") != std::string::npos);
+	REQUIRE(video.find("displaymode *resizedModeList = sysMemRealloc") !=
+	        std::string::npos);
+	REQUIRE(video.find("sysMemFree(modeList);") != std::string::npos);
+	REQUIRE(video.find("if (vidModesOwned)") != std::string::npos);
+	REQUIRE(video.find("sysMemFree(vidModes);") != std::string::npos);
+	REQUIRE(video.find("vidModes = &vidModeDefault;") != std::string::npos);
+	REQUIRE(video.find("vidModesOwned = false;") != std::string::npos);
+	REQUIRE(video.find("free(vidModes);") == std::string::npos);
+}

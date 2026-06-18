@@ -8,7 +8,7 @@
  * table in src/game/mplayer/setup.c plus the s_ArenaNames[47] slug
  * table and s_ArenaGroupMap[5] category map in
  * port/src/assetcatalog_base.c. Catalog ID slugs match the prior
- * base/arenas.pdbase JSON archive so historical references survive.
+ * legacy aggregate arena JSON archive so historical references survive.
  *
  * load_mode: ARENA_LOADMODE_CANVAS for the "Solo Missions" group
  * (audit Section H.1 invariant); ARENA_LOADMODE_PLAYABLE otherwise.

@@ -29,7 +29,10 @@
 #include "constants.h"
 #include "asset_archive_policy.h"
 #include "assetcatalog.h"
+#include "assetcatalog_body_head_slots.h"
 #include "assetcatalog_weapon_slots.h"
+#include "catalog_mgr_bodies.h"
+#include "catalog_mgr_heads.h"
 #include "assetcatalog_sound_slots.h" /* c3849 Wave 2 */
 #include "assetcatalog_texture_slots.h" /* c3849 Wave 2 */
 #include "assetcatalog_anim_slots.h" /* c3849 Wave 2 */
@@ -410,7 +413,6 @@ const char *modiniTemplateForKind(const char *kind)
 			"; head.ini - external multiplayer head metadata\n"
 			"[head]\n"
 			"; catalog_id = mod:head_id\n"
-			"headnum = -1\n"
 			"rig_class = human_male_neck_standard\n"
 			"; requirefeature = 0\n"
 			"\n"
@@ -429,8 +431,6 @@ const char *modiniTemplateForKind(const char *kind)
 			"[body]\n"
 			"; catalog_id = mod:body_id\n"
 			"display_name = New Body\n"
-			"bodynum = -1\n"
-			"headnum = -1\n"
 			"rig_class = human_male_neck_standard\n"
 			"; name_langid = 0\n"
 			"; requirefeature = 0\n"
@@ -450,7 +450,6 @@ const char *modiniTemplateForKind(const char *kind)
 			"; arena.ini - external map/arena metadata\n"
 			"[arena]\n"
 			"; catalog_id = mod:arena_id\n"
-			"load_mode = 0\n"
 			"; name_langid = 0\n"
 			"; requirefeature = 0\n"
 			"\n"
@@ -557,7 +556,6 @@ const char *modiniTemplateForKind(const char *kind)
 			"[animation]\n"
 			"; catalog_id = mod:animation_id\n"
 			"name = New Animation\n"
-			"anim_id = -1\n"
 			"frame_count = 0\n"
 			"; target_body = mod:body_id\n"
 			"\n"
@@ -571,7 +569,6 @@ const char *modiniTemplateForKind(const char *kind)
 			"; voice.ini - external voice metadata\n"
 			"[audio]\n"
 			"name = New Voice Line\n"
-			"sound_id = -1\n"
 			"audio_category = voice\n"
 			"duration_ms = 0\n"
 			"\n"
@@ -592,7 +589,6 @@ const char *modiniTemplateForKind(const char *kind)
 			"; music.ini - external music metadata\n"
 			"[audio]\n"
 			"name = New Music Track\n"
-			"sound_id = -1\n"
 			"audio_category = music\n"
 			"duration_ms = 0\n"
 			"\n"
@@ -609,7 +605,6 @@ const char *modiniTemplateForKind(const char *kind)
 			"; sound.ini - external SFX metadata\n"
 			"[audio]\n"
 			"name = New Audio\n"
-			"sound_id = -1\n"
 			"audio_category = sfx\n"
 			"duration_ms = 0\n"
 			"\n"
@@ -817,8 +812,9 @@ static asset_type_e sectionToType(const char *section)
 	if (strcmp(section, "entity") == 0)       return ASSET_ENTITY;
 	if (strcmp(section, "material") == 0)     return ASSET_MATERIAL;
 	if (strcmp(section, "textures") == 0)     return ASSET_TEXTURES;
-	if (strcmp(section, "sfx") == 0)          return ASSET_SFX;
-	if (strcmp(section, "music") == 0)        return ASSET_MUSIC;
+	if (strcmp(section, "sfx") == 0)          return ASSET_AUDIO;
+	if (strcmp(section, "voice") == 0)        return ASSET_AUDIO;
+	if (strcmp(section, "music") == 0)        return ASSET_AUDIO;
 	if (strcmp(section, "prop") == 0)         return ASSET_PROP;
 	if (strcmp(section, "vehicle") == 0)      return ASSET_VEHICLE;
 	if (strcmp(section, "mission") == 0)      return ASSET_MISSION;
@@ -1505,6 +1501,241 @@ static void registerAnimationCommandSource(const char *id,
 	free(json);
 }
 
+static const char *findLastArchiveSeparator(const char *path)
+{
+	const char *last = NULL;
+	const char *p = path;
+
+	while (p && *p) {
+		const char *sep = strstr(p, "::");
+		if (!sep) {
+			break;
+		}
+		last = sep;
+		p = sep + 2;
+	}
+
+	return last;
+}
+
+static void sourceModelPathFromMeshArchive(const char *mesh_archive,
+                                           char *out,
+                                           size_t outsz)
+{
+	static const char *candidates[] = {
+		"model.obj",
+		"model.gltf",
+		"model.glb",
+	};
+	size_t i;
+
+	if (!out || outsz == 0) {
+		return;
+	}
+
+	out[0] = '\0';
+
+	if (!mesh_archive || !mesh_archive[0]) {
+		return;
+	}
+
+	for (i = 0; i < sizeof(candidates) / sizeof(candidates[0]); i++) {
+		snprintf(out, outsz, "%s::%s", mesh_archive, candidates[i]);
+		out[outsz - 1] = '\0';
+		if (fsFileSize(out) > 0) {
+			return;
+		}
+	}
+
+	snprintf(out, outsz, "%s::model.obj", mesh_archive);
+	out[outsz - 1] = '\0';
+}
+
+static s32 manifestPathFromMeshArchive(const char *mesh_archive,
+                                       char *out,
+                                       size_t outsz)
+{
+	if (!out || outsz == 0) {
+		return 0;
+	}
+
+	out[0] = '\0';
+
+	if (!mesh_archive || !mesh_archive[0]) {
+		return 0;
+	}
+
+	const char *sep = findLastArchiveSeparator(mesh_archive);
+	if (sep) {
+		size_t prefix_len = (size_t)(sep - mesh_archive);
+		if (prefix_len == 0 || prefix_len + strlen("::_meta/manifest.json") >= outsz) {
+			return 0;
+		}
+		snprintf(out, outsz, "%.*s::_meta/manifest.json",
+			(int)prefix_len, mesh_archive);
+		out[outsz - 1] = '\0';
+		return 1;
+	}
+
+	const char *slash = strrchr(mesh_archive, '/');
+	const char *backslash = strrchr(mesh_archive, '\\');
+	if (!slash || (backslash && backslash > slash)) {
+		slash = backslash;
+	}
+	if (!slash) {
+		return 0;
+	}
+
+	size_t dir_len = (size_t)(slash - mesh_archive);
+	if (dir_len == 0 || dir_len + strlen("/_meta/manifest.json") >= outsz) {
+		return 0;
+	}
+	snprintf(out, outsz, "%.*s/_meta/manifest.json",
+		(int)dir_len, mesh_archive);
+	out[outsz - 1] = '\0';
+	return 1;
+}
+
+static void parseBodyManifestForPrivateSlot(const char *id,
+                                            const char *mesh_archive,
+                                            s32 bodynum)
+{
+	char manifest_path[FS_MAXPATH + 64];
+	char *json;
+	u32 json_size = 0;
+
+	if (bodynum < CATALOG_MGR_BODY_CUSTOM_START) {
+		return;
+	}
+
+	if (!manifestPathFromMeshArchive(mesh_archive, manifest_path,
+			sizeof(manifest_path))) {
+		sysLogPrintf(LOG_WARNING,
+			"ASSETCATALOG.SCANNER.BODY.MANIFEST_PATH_MISSING: id=%s mesh=%s",
+			id ? id : "(null)", mesh_archive ? mesh_archive : "(null)");
+		return;
+	}
+
+	json = (char *)fsFileLoad(manifest_path, &json_size);
+	if (!json || json_size == 0) {
+		if (json) {
+			free(json);
+		}
+		sysLogPrintf(LOG_WARNING,
+			"ASSETCATALOG.SCANNER.BODY.MANIFEST_MISSING: id=%s path=%s",
+			id ? id : "(null)", manifest_path);
+		return;
+	}
+
+	if (loaderPoolParseBodyJsonForSlot(json, json_size, bodynum)) {
+		loaderPoolFinalize();
+		{
+			const body_data_t *body = loaderPoolGetBody(bodynum);
+			if (body) {
+				catalogManagerRegisterBody(id, body);
+			}
+		}
+		sysLogPrintf(LOG_NOTE,
+			"ASSETCATALOG.SCANNER.BODY.LOADER_SLOT: id=%s slot=%d manifest=%s",
+			id ? id : "(null)", bodynum, manifest_path);
+	}
+
+	free(json);
+}
+
+static void parseHeadManifestForPrivateSlot(const char *id,
+                                            const char *mesh_archive,
+                                            s32 headnum)
+{
+	char manifest_path[FS_MAXPATH + 64];
+	char *json;
+	u32 json_size = 0;
+
+	if (headnum < CATALOG_MGR_HEAD_CUSTOM_START) {
+		return;
+	}
+
+	if (!manifestPathFromMeshArchive(mesh_archive, manifest_path,
+			sizeof(manifest_path))) {
+		sysLogPrintf(LOG_WARNING,
+			"ASSETCATALOG.SCANNER.HEAD.MANIFEST_PATH_MISSING: id=%s mesh=%s",
+			id ? id : "(null)", mesh_archive ? mesh_archive : "(null)");
+		return;
+	}
+
+	json = (char *)fsFileLoad(manifest_path, &json_size);
+	if (!json || json_size == 0) {
+		if (json) {
+			free(json);
+		}
+		sysLogPrintf(LOG_WARNING,
+			"ASSETCATALOG.SCANNER.HEAD.MANIFEST_MISSING: id=%s path=%s",
+			id ? id : "(null)", manifest_path);
+		return;
+	}
+
+	if (loaderPoolParseHeadJsonForSlot(json, json_size, headnum)) {
+		loaderPoolFinalize();
+		{
+			const head_data_t *head = loaderPoolGetHead(headnum);
+			if (head) {
+				catalogManagerRegisterHead(id, head);
+			}
+		}
+		sysLogPrintf(LOG_NOTE,
+			"ASSETCATALOG.SCANNER.HEAD.LOADER_SLOT: id=%s slot=%d manifest=%s",
+			id ? id : "(null)", headnum, manifest_path);
+	}
+
+	free(json);
+}
+
+static s32 resolveBodyRuntimeSlotForScan(const char *id,
+                                         s32 declared_bodynum,
+                                         const char *dirpath)
+{
+	if (declared_bodynum >= 0 && declared_bodynum < CATALOG_MGR_BODY_COUNT) {
+		return declared_bodynum;
+	}
+
+	s32 custom = assetCatalogResolveBodyPrivateSlot(id);
+	if (custom >= 0) {
+		sysLogPrintf(LOG_NOTE,
+			"ASSETCATALOG.SCANNER.BODY.CUSTOM_SLOT: id=%s slot=%d path=%s",
+			id ? id : "(null)", custom, dirpath ? dirpath : "(null)");
+	} else {
+		sysLogPrintf(LOG_WARNING,
+			"ASSETCATALOG.SCANNER.BODY.RUNTIME_SLOT_MISSING: id=%s bodynum=%d path=%s",
+			id ? id : "(null)", declared_bodynum,
+			dirpath ? dirpath : "(null)");
+	}
+
+	return custom;
+}
+
+static s32 resolveHeadRuntimeSlotForScan(const char *id,
+                                         s32 declared_headnum,
+                                         const char *dirpath)
+{
+	if (declared_headnum >= 0 && declared_headnum < CATALOG_MGR_HEAD_COUNT) {
+		return declared_headnum;
+	}
+
+	s32 custom = assetCatalogResolveHeadPrivateSlot(id);
+	if (custom >= 0) {
+		sysLogPrintf(LOG_NOTE,
+			"ASSETCATALOG.SCANNER.HEAD.CUSTOM_SLOT: id=%s slot=%d path=%s",
+			id ? id : "(null)", custom, dirpath ? dirpath : "(null)");
+	} else {
+		sysLogPrintf(LOG_WARNING,
+			"ASSETCATALOG.SCANNER.HEAD.RUNTIME_SLOT_MISSING: id=%s headnum=%d path=%s",
+			id ? id : "(null)", declared_headnum,
+			dirpath ? dirpath : "(null)");
+	}
+
+	return custom;
+}
+
 /**
  * Register a single component from a parsed INI section.
  *
@@ -1556,6 +1787,7 @@ static s32 s_mintCustomStagenum(asset_entry_t *e, const char *mint_key)
 static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
                               const char *mod_id)
 {
+	enum { WEAPON_ID_UNASSIGNED = -1 };
 	ini_section_t local_ini;
 	if (ini) {
 		local_ini = *ini;
@@ -1585,7 +1817,7 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 	char idbuf[CATALOG_ID_LEN];
 	snprintf(idbuf, sizeof(idbuf), "%s", explicit_id[0] ? explicit_id : folder);
 
-	s32 preserved_weapon_id = -1;
+	s32 preserved_weapon_id = WEAPON_ID_UNASSIGNED;
 	s32 preserved_runtime_index = -1;
 	s16 preserved_mp_index = -1;
 	u8 preserved_weapon_requirefeature = 0;
@@ -1625,10 +1857,7 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 	/* Type-specific fields */
 	switch (type) {
 	case ASSET_MAP:
-		e->ext.map.stagenum = iniGetInt(ini, "stagenum", -1);
-		if (e->ext.map.stagenum < 0) {
-			e->ext.map.stagenum = s_mintCustomStagenum(e, e->id); /* c3849 */
-		}
+		e->ext.map.stagenum = s_mintCustomStagenum(e, e->id); /* c3849 */
 		e->ext.map.mode = parseModeString(iniGet(ini, "mode", ""));
 		{
 			const char *mf = iniGet(ini, "music_file", "");
@@ -1712,15 +1941,13 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 		break;
 
 	case ASSET_ARENA:
-		e->ext.arena.stagenum = iniGetInt(ini, "stagenum", -1);
+		e->ext.arena.stagenum = -1;
 		strncpy(e->ext.arena.scenario_id, iniGet(ini, "scenario", ""),
 			sizeof(e->ext.arena.scenario_id) - 1);
-		if (e->ext.arena.stagenum < 0) {
-			/* c3849: key the mint to the scenario so arena+scenario share
-			 * one stagenum (FindModMapByStagenum pairing holds). */
-			e->ext.arena.stagenum = s_mintCustomStagenum(e,
-				e->ext.arena.scenario_id[0] ? e->ext.arena.scenario_id : e->id);
-		}
+		/* c3849: key the mint to the scenario so arena+scenario share
+		 * one stagenum (FindModMapByStagenum pairing holds). */
+		e->ext.arena.stagenum = s_mintCustomStagenum(e,
+			e->ext.arena.scenario_id[0] ? e->ext.arena.scenario_id : e->id);
 		strncpy(e->ext.arena.scenario_archive,
 			iniGet(ini, "scenario_archive", ""),
 			sizeof(e->ext.arena.scenario_archive) - 1);
@@ -1733,9 +1960,13 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 		break;
 
 	case ASSET_BODY:
-		e->ext.body.bodynum = (s16)iniGetInt(ini, "bodynum", -1);
+		e->ext.body.bodynum = (s16)resolveBodyRuntimeSlotForScan(
+			e->id, -1, dirpath);
+		if (e->ext.body.bodynum >= 0) {
+			e->runtime_index = e->ext.body.bodynum;
+		}
 		e->ext.body.name_langid = (s16)iniGetInt(ini, "name_langid", 0);
-		e->ext.body.headnum = (s16)iniGetInt(ini, "headnum", -1);
+		e->ext.body.headnum = -1;
 		e->ext.body.requirefeature = (u8)iniGetInt(ini, "requirefeature", 0);
 		catalogSetBodyDisplayName(e, iniGet(ini, "display_name",
 			iniGet(ini, "name", "")));
@@ -1744,27 +1975,49 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 			const char *mesh = iniGet(ini, "mesh_archive", "");
 			const char *hand = iniGet(ini, "hand_archive", "");
 			if (mesh[0]) {
+				char source_path[FS_MAXPATH + 32];
 				strncpy(e->ext.body.mesh_archive, mesh,
 					sizeof(e->ext.body.mesh_archive) - 1);
-				catalogSetPrimaryFile(e, e->ext.body.mesh_archive);
+				e->ext.body.mesh_archive[
+					sizeof(e->ext.body.mesh_archive) - 1] = '\0';
+				sourceModelPathFromMeshArchive(e->ext.body.mesh_archive,
+					source_path, sizeof(source_path));
+				catalogSetPrimaryFile(e, source_path);
+				parseBodyManifestForPrivateSlot(e->id,
+					e->ext.body.mesh_archive,
+					e->ext.body.bodynum);
 			}
 			if (hand[0]) {
 				strncpy(e->ext.body.hand_archive, hand,
 					sizeof(e->ext.body.hand_archive) - 1);
+				e->ext.body.hand_archive[
+					sizeof(e->ext.body.hand_archive) - 1] = '\0';
 			}
 		}
 		break;
 
 	case ASSET_HEAD:
-		e->ext.head.headnum = (s16)iniGetInt(ini, "headnum", -1);
+		e->ext.head.headnum = (s16)resolveHeadRuntimeSlotForScan(
+			e->id, -1, dirpath);
+		if (e->ext.head.headnum >= 0) {
+			e->runtime_index = e->ext.head.headnum;
+		}
 		e->ext.head.requirefeature = (u8)iniGetInt(ini, "requirefeature", 0);
 		catalogSetHeadRigClass(e, iniGet(ini, "rig_class", ""));
 		{
 			const char *mesh = iniGet(ini, "mesh_archive", "");
 			if (mesh[0]) {
+				char source_path[FS_MAXPATH + 32];
 				strncpy(e->ext.head.mesh_archive, mesh,
 					sizeof(e->ext.head.mesh_archive) - 1);
-				catalogSetPrimaryFile(e, e->ext.head.mesh_archive);
+				e->ext.head.mesh_archive[
+					sizeof(e->ext.head.mesh_archive) - 1] = '\0';
+				sourceModelPathFromMeshArchive(e->ext.head.mesh_archive,
+					source_path, sizeof(source_path));
+				catalogSetPrimaryFile(e, source_path);
+				parseHeadManifestForPrivateSlot(e->id,
+					e->ext.head.mesh_archive,
+					e->ext.head.headnum);
 			}
 		}
 		break;
@@ -1783,14 +2036,14 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 		break;
 
 	case ASSET_WEAPON:
-		e->ext.weapon.weapon_id = iniGetInt(ini, "weapon_id", preserved_weapon_id);
+		e->ext.weapon.weapon_id = preserved_weapon_id;
 		if (e->ext.weapon.weapon_id >= 0
 				&& e->ext.weapon.weapon_id < NUM_MPWEAPONS) {
 			e->mp_index = (s16)e->ext.weapon.weapon_id;
 			e->runtime_index = catalogGetMpWeaponNum(e->ext.weapon.weapon_id);
 		} else {
-			s32 runtime_weapon_id = -1;
-			s32 mp_weapon_id = -1;
+			s32 runtime_weapon_id = WEAPON_ID_UNASSIGNED;
+			s32 mp_weapon_id = WEAPON_ID_UNASSIGNED;
 			if (assetCatalogResolveWeaponPrivateSlots(idbuf, -1, 0,
 					&runtime_weapon_id, &mp_weapon_id)) {
 				e->ext.weapon.weapon_id = mp_weapon_id;
@@ -1891,7 +2144,7 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 		break;
 
 	case ASSET_ANIMATION:
-		e->ext.anim.anim_id = iniGetInt(ini, "anim_id", -1);
+		e->ext.anim.anim_id = -1;
 		if (e->ext.anim.anim_id >= 0) {
 			e->source_animnum = e->ext.anim.anim_id;
 		} else {
@@ -1925,7 +2178,7 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 		break;
 
 	case ASSET_TEXTURE:
-		e->ext.texture.texture_id = iniGetInt(ini, "texture_id", -1);
+		e->ext.texture.texture_id = -1;
 		if (e->ext.texture.texture_id >= 0) {
 			e->source_texnum = e->ext.texture.texture_id;
 		} else {
@@ -1989,10 +2242,7 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 		break;
 
 	case ASSET_SCENARIO:
-		e->ext.scenario.stagenum = iniGetInt(ini, "stagenum", -1);
-		if (e->ext.scenario.stagenum < 0) {
-			e->ext.scenario.stagenum = s_mintCustomStagenum(e, e->id); /* c3849 */
-		}
+		e->ext.scenario.stagenum = s_mintCustomStagenum(e, e->id); /* c3849 */
 		e->ext.scenario.mode = parseModeString(iniGet(ini, "mode", ""));
 		{
 			const char *sf = iniGet(ini, "scene_file",
@@ -2066,7 +2316,7 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 		break;
 
 	case ASSET_AUDIO:
-		e->ext.audio.sound_id = iniGetInt(ini, "sound_id", -1);
+		e->ext.audio.sound_id = -1;
 		strncpy(e->ext.audio.name, iniGet(ini, "name", ""), sizeof(e->ext.audio.name) - 1);
 		e->ext.audio.category = parseAudioCategoryValue(
 			iniGet(ini, "audio_category",
@@ -3233,6 +3483,15 @@ s32 assetCatalogScanComponentsFromArchive(const char *mod_id, mod_archive_t *arc
 		if (!entry_name || !archiveEntryIsDescriptor(entry_name)) {
 			continue;
 		}
+		const char *archive_path = modArchiveGetPath(archive);
+		char entry_ref[FS_MAXPATH * 2 + 4];
+		if (archive_path && archive_path[0]) {
+			snprintf(entry_ref, sizeof(entry_ref), "%s::%s",
+				archive_path, entry_name);
+		} else {
+			snprintf(entry_ref, sizeof(entry_ref), "%s", entry_name);
+		}
+		entry_ref[sizeof(entry_ref) - 1] = '\0';
 
 		char component_dir[FS_MAXPATH];
 		if (typedPdContentTypeForPath(entry_name) != ASSET_NONE) {
@@ -3271,7 +3530,7 @@ s32 assetCatalogScanComponentsFromArchive(const char *mod_id, mod_archive_t *arc
 						nested_ini, nested_size, &ini);
 					free(nested_ini);
 					if (parsed) {
-						qualifyTypedArchiveSourcePaths(&ini, entry_name);
+						qualifyTypedArchiveSourcePaths(&ini, entry_ref);
 						typed_archive_sources_qualified = 1;
 					}
 				}

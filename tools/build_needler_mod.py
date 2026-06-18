@@ -24,7 +24,7 @@ The weapon archive embeds its entire dependency closure under
         behavior/{primary,secondary}.graph.json
         behavior/{settings,variables,shared-context}.json
         bindings/{material-slots,grip-sockets,presentation}.json
-        dependencies/assets/models/weapon.pdmesh          (needle spike)
+        dependencies/assets/models/weapon.pdmesh          (held Needler body)
         dependencies/assets/materials/default.pdmaterial  (pink crystalline)
         dependencies/assets/textures/body.pdtexture       (pink crystal body)
         dependencies/assets/projectiles/primary.pdprojectile    (homing needle)
@@ -40,7 +40,8 @@ known-catalog-ID gate is satisfied.
 
 Catalog IDs (namespace ``mod_needler`` == mod id ``needler``):
     mod_needler:needler                      the weapon (custom-slot bound on scan)
-    mod_needler:needle                       the needle spike mesh
+    mod_needler:needler_model                the held first-person weapon mesh
+    mod_needler:needle                       the projectile needle spike mesh
     mod_needler:needle_crystal               the pink crystalline material
     mod_needler:needle_body                  the pink crystal body texture
     mod_needler:needler__projectile_homing   primary tracking needle
@@ -48,10 +49,9 @@ Catalog IDs (namespace ``mod_needler`` == mod id ``needler``):
     mod_needler:pink_burst_effect            small pink contact explosion
     mod_needler:pink_spark                   pink impact spark texture
 
-The active homing of the primary needle depends on a separate runtime
-homing-gate adapter that is OUT OF SCOPE for this data-only mod; the
-``projectile.homing`` node here is the authored data half (target source,
-filter, lost-target behaviour, steering gains) that the adapter consumes.
+The primary needle homing and secondary impact effect are consumed by the
+default-on weapon graph runtime; this archive is the public source for both
+the gameplay behavior and the first-person presentation.
 """
 
 from __future__ import annotations
@@ -110,13 +110,15 @@ def cid(local: str) -> str:
 
 # Catalog IDs ---------------------------------------------------------------
 WEAPON_ID = cid("needler")
-MESH_ID = cid("needle")
+HELD_MESH_ID = cid("needler_model")
+NEEDLE_MESH_ID = cid("needle")
 MATERIAL_ID = cid("needle_crystal")
 BODY_TEXTURE_ID = cid("needle_body")
 HOMING_PROJECTILE_ID = cid("needler__projectile_homing")
 BURST_PROJECTILE_ID = cid("needler__projectile_burst")
 BURST_EFFECT_ID = cid("pink_burst_effect")
 SPARK_TEXTURE_ID = cid("pink_spark")
+HELD_WEAPON_SCALE = 14.0
 
 
 # ---------------------------------------------------------------------------
@@ -218,7 +220,7 @@ def needle_gltf() -> str:
     buffer = pad4(pos_bytes) + pad4(uv_bytes) + pad4(idx_bytes)
 
     gltf = {
-        "asset": {"version": "2.0", "generator": "build_needler_mod.py needle spike v1"},
+        "asset": {"version": "2.0", "generator": "build_needler_mod.py projectile needle v1"},
         "buffers": [{
             "uri": "data:application/octet-stream;base64," + base64.b64encode(buffer).decode("ascii"),
             "byteLength": len(buffer),
@@ -266,14 +268,261 @@ def build_needle_mesh() -> bytes:
         ("mesh.ini",
          "; needle.pdmesh - thin elongated needle spike (self-contained mesh)\n"
          "[mesh]\n"
-         f"catalog_id = {MESH_ID}\n"
+         f"catalog_id = {NEEDLE_MESH_ID}\n"
          "model_file = model.gltf\n"
          "\n[meta]\n"
          "manifest = _meta/manifest.json\n"),
         ("model.gltf", needle_gltf()),
-        ("_meta/manifest.json", manifest_with("mesh", MESH_ID, {
+        ("_meta/manifest.json", manifest_with("mesh", NEEDLE_MESH_ID, {
             "geometry": "model.gltf",
             "model_file": "model.gltf",
+        })),
+    ])
+
+
+# ---------------------------------------------------------------------------
+# Held Needler mesh -- a compact low-poly crystalline weapon body with a grip,
+# muzzle, side pods, and raised needle crystals. This is intentionally distinct
+# from the projectile needle so the first-person render proof cannot be
+# satisfied by the old stand-in spike.
+# ---------------------------------------------------------------------------
+def needler_weapon_gltf() -> str:
+    # Match native first-person weapon source scale. The renderer applies a
+    # 0.1 viewmodel scale, so tiny proving geometry is real but not inspectable.
+    positions: list[tuple[float, float, float]] = []
+    texcoords: list[tuple[float, float]] = []
+    indices: list[int] = []
+
+    def add_vertex(p: tuple[float, float, float], uv: tuple[float, float]) -> int:
+        positions.append((p[0] * HELD_WEAPON_SCALE, p[1] * HELD_WEAPON_SCALE,
+                          -p[2] * HELD_WEAPON_SCALE))
+        texcoords.append(uv)
+        return len(positions) - 1
+
+    def add_box(name: str, x0: float, y0: float, z0: float,
+                x1: float, y1: float, z1: float) -> None:
+        del name
+        faces = [
+            ((x0, y0, z1), (x1, y0, z1), (x1, y1, z1), (x0, y1, z1)),
+            ((x1, y0, z0), (x0, y0, z0), (x0, y1, z0), (x1, y1, z0)),
+            ((x0, y1, z0), (x0, y1, z1), (x1, y1, z1), (x1, y1, z0)),
+            ((x0, y0, z1), (x0, y0, z0), (x1, y0, z0), (x1, y0, z1)),
+            ((x1, y0, z1), (x1, y0, z0), (x1, y1, z0), (x1, y1, z1)),
+            ((x0, y0, z0), (x0, y0, z1), (x0, y1, z1), (x0, y1, z0)),
+        ]
+        for face in faces:
+            base = len(positions)
+            add_vertex(face[0], (0.0, 0.0))
+            add_vertex(face[1], (1.0, 0.0))
+            add_vertex(face[2], (1.0, 1.0))
+            add_vertex(face[3], (0.0, 1.0))
+            indices.extend([base, base + 1, base + 2, base, base + 2, base + 3])
+
+    def add_pyramid(base: list[tuple[float, float, float]],
+                    tip: tuple[float, float, float]) -> None:
+        base_indices = [add_vertex(p, uv) for p, uv in zip(base, [
+            (0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)
+        ])]
+        tip_index = add_vertex(tip, (0.5, 0.5))
+        indices.extend([base_indices[0], base_indices[1], tip_index])
+        indices.extend([base_indices[1], base_indices[2], tip_index])
+        indices.extend([base_indices[2], base_indices[3], tip_index])
+        indices.extend([base_indices[3], base_indices[0], tip_index])
+
+    # Main first-person silhouette: long body on +Z, lowered grip, forward muzzle.
+    add_box("body", -7.0, -3.0, -4.0, 7.0, 3.0, 18.0)
+    add_box("muzzle", -4.0, -1.5, 16.0, 4.0, 1.5, 26.0)
+    add_box("grip", -2.5, -9.0, -1.0, 2.5, -3.0, 8.0)
+    add_box("left_pod", -10.0, -1.5, -1.0, -6.0, 1.5, 14.0)
+    add_box("right_pod", 6.0, -1.5, -1.0, 10.0, 1.5, 14.0)
+
+    for z in (5.0, 9.0, 13.0, 17.0):
+        add_pyramid(
+            [(-2.0, 2.0, z - 1.0), (2.0, 2.0, z - 1.0),
+             (2.0, 2.0, z + 1.0), (-2.0, 2.0, z + 1.0)],
+            (0.0, 8.0, z),
+        )
+
+    # Large asymmetric dorsal crystal bank. The first-person weapon renderer
+    # uses the same public GLTF source as gameplay, so keep the visibility
+    # witness as actual Needler silhouette instead of a debug overlay.
+    add_box("dorsal_crystal_near", -8.0, 6.0, -2.0, 8.0, 18.0, 7.0)
+    add_box("dorsal_crystal_far", -3.0, 5.0, 6.0, 13.0, 17.0, 17.0)
+
+    pos_bytes = b"".join(struct.pack("<3f", *p) for p in positions)
+    uv_bytes = b"".join(struct.pack("<2f", *t) for t in texcoords)
+    idx_bytes = b"".join(struct.pack("<H", i) for i in indices)
+
+    def pad4(data: bytes) -> bytes:
+        rem = (-len(data)) % 4
+        return data + b"\x00" * rem
+
+    pos_off = 0
+    uv_off = pos_off + len(pos_bytes)
+    idx_off = uv_off + len(uv_bytes)
+    buffer = pad4(pos_bytes) + pad4(uv_bytes) + pad4(idx_bytes)
+
+    mins = [min(p[i] for p in positions) for i in range(3)]
+    maxs = [max(p[i] for p in positions) for i in range(3)]
+    gltf = {
+        "asset": {"version": "2.0", "generator": "build_needler_mod.py held weapon v3"},
+        "buffers": [{
+            "uri": "data:application/octet-stream;base64," + base64.b64encode(buffer).decode("ascii"),
+            "byteLength": len(buffer),
+        }],
+        "bufferViews": [
+            {"buffer": 0, "byteOffset": pos_off, "byteLength": len(pos_bytes), "target": 34962},
+            {"buffer": 0, "byteOffset": uv_off, "byteLength": len(uv_bytes), "target": 34962},
+            {"buffer": 0, "byteOffset": idx_off, "byteLength": len(idx_bytes), "target": 34963},
+        ],
+        "accessors": [
+            {"bufferView": 0, "componentType": 5126, "count": len(positions), "type": "VEC3",
+             "min": mins, "max": maxs},
+            {"bufferView": 1, "componentType": 5126, "count": len(texcoords), "type": "VEC2"},
+            {"bufferView": 2, "componentType": 5123, "count": len(indices), "type": "SCALAR"},
+        ],
+        "materials": [{
+            "name": "NeedlerBody",
+            "doubleSided": True,
+            "pbrMetallicRoughness": {
+                "baseColorFactor": [0.92, 0.20, 0.62, 1.0],
+                "metallicFactor": 0.15,
+                "roughnessFactor": 0.35,
+            },
+        }],
+        "meshes": [{
+            "name": "needler_weapon",
+            "primitives": [{
+                "attributes": {"POSITION": 0, "TEXCOORD_0": 1},
+                "indices": 2,
+                "material": 0,
+                "mode": 4,
+            }],
+        }],
+        "nodes": [{"name": "needler_weapon", "mesh": 0}],
+        "scenes": [{"nodes": [0]}],
+        "scene": 0,
+    }
+    return json.dumps(gltf, indent=2) + "\n"
+
+
+def build_held_weapon_mesh() -> bytes:
+    tri_count = 100
+    model_mtl = (
+        "# held Needler material sidecar\n"
+        "newmtl NeedlerBody\n"
+        "Kd 0.92 0.20 0.62\n"
+        "d 1.0\n"
+    )
+    bounds = {
+        "xmin": -10.0 * HELD_WEAPON_SCALE, "xmax": 13.0 * HELD_WEAPON_SCALE,
+        "ymin": -9.0 * HELD_WEAPON_SCALE, "ymax": 18.0 * HELD_WEAPON_SCALE,
+        "zmin": -26.0 * HELD_WEAPON_SCALE, "zmax": 4.0 * HELD_WEAPON_SCALE,
+    }
+    model_nodes = {
+        "schema": "pd2.mesh.nodes.v1",
+        "nodes": [
+            {
+                "id": 0,
+                "parent": -1,
+                "type": 2,
+                "partnum": 0,
+                "part": 0,
+                "mtx0": 0,
+                "mtx1": -1,
+                "mtx2": -1,
+                "position": {"x": 0.0, "y": 0.0, "z": 0.0},
+                "drawdist": 0.0,
+                "target": -1,
+                "group": "-",
+                "render_mtx": 0,
+                "mcount": 1,
+                "hitpart": 0,
+                "bounds": bounds,
+                "distance": {"near": 0.0, "far": 0.0},
+                "reorder": {
+                    "pivot": {"x": 0.0, "y": 0.0, "z": 0.0},
+                    "axis": {"x": 0.0, "y": 1.0, "z": 0.0},
+                    "target_a": -1,
+                    "target_b": -1,
+                    "side": 0,
+                },
+            },
+            {
+                "id": 1,
+                "parent": 0,
+                "type": 24,
+                "partnum": -1,
+                "part": -1,
+                "mtx0": 0,
+                "mtx1": -1,
+                "mtx2": -1,
+                "position": {"x": 0.0, "y": 0.0, "z": 0.0},
+                "drawdist": 0.0,
+                "target": -1,
+                "group": "-",
+                "render_mtx": 0,
+                "mcount": 1,
+                "hitpart": 0,
+                "bounds": bounds,
+                "distance": {"near": 0.0, "far": 0.0},
+                "reorder": {
+                    "pivot": {"x": 0.0, "y": 0.0, "z": 0.0},
+                    "axis": {"x": 0.0, "y": 1.0, "z": 0.0},
+                    "target_a": -1,
+                    "target_b": -1,
+                    "side": 0,
+                },
+            },
+        ],
+    }
+    model_parts = {
+        "schema": "pd2.mesh.parts.v1",
+        "parts": [{"partnum": 0, "node": 0}],
+    }
+    model_faces = {
+        "schema": "pd2.mesh.faces.v1",
+        "faces": [
+            {"face_index": i, "matrix_index": 0}
+            for i in range(tri_count)
+        ],
+    }
+    model_render = {
+        "schema": "pd2.mesh.render.v1",
+        "pd_kind": "mesh_render_commands",
+        "commands": [
+            {"group": "-", "command": "tri",
+             "face_index": i, "matrix_index": 0}
+            for i in range(tri_count)
+        ],
+    }
+    return build_archive_bytes([
+        ("mesh.ini",
+         "; weapon.pdmesh - held Needler first-person body (self-contained mesh)\n"
+         "[mesh]\n"
+         f"catalog_id = {HELD_MESH_ID}\n"
+         "model_file = model.gltf\n"
+         "material_file = model.mtl\n"
+         "hierarchy_file = model.nodes.json\n"
+         "parts_file = model.parts.json\n"
+         "faces_file = model.faces.json\n"
+         "render_stream_file = model.render.json\n"
+         "\n[meta]\n"
+         "manifest = _meta/manifest.json\n"),
+        ("model.gltf", needler_weapon_gltf()),
+        ("model.mtl", model_mtl),
+        ("model.nodes.json", json.dumps(model_nodes, indent=2) + "\n"),
+        ("model.parts.json", json.dumps(model_parts, indent=2) + "\n"),
+        ("model.faces.json", json.dumps(model_faces, indent=2) + "\n"),
+        ("model.render.json", json.dumps(model_render, indent=2) + "\n"),
+        ("_meta/manifest.json", manifest_with("mesh", HELD_MESH_ID, {
+            "geometry": "model.gltf",
+            "model_file": "model.gltf",
+            "material_file": "model.mtl",
+            "hierarchy_file": "model.nodes.json",
+            "parts_file": "model.parts.json",
+            "faces_file": "model.faces.json",
+            "render_stream_file": "model.render.json",
         })),
     ])
 
@@ -419,7 +668,7 @@ def build_homing_projectile(needle_mesh: bytes) -> bytes:
         "graph_id": "projectile",
         "nodes": [
             {"id": "spawn", "kind": "projectile.spawn_state", "params": {
-                "model_ref": MESH_ID,
+                "model_ref": NEEDLE_MESH_ID,
                 "source_mode": "primary",
                 "source_function_type": "shoot_projectile",
                 "scale": 1.0, "damage": 6.0}},
@@ -472,7 +721,7 @@ def build_burst_projectile(needle_mesh: bytes, burst_effect: bytes,
         "graph_id": "projectile",
         "nodes": [
             {"id": "spawn", "kind": "projectile.spawn_state", "params": {
-                "model_ref": MESH_ID,
+                "model_ref": NEEDLE_MESH_ID,
                 "source_mode": "secondary",
                 "source_function_type": "shoot_projectile",
                 "scale": 1.0, "damage": 5.0}},
@@ -515,7 +764,7 @@ def build_burst_projectile(needle_mesh: bytes, burst_effect: bytes,
 # ---------------------------------------------------------------------------
 # The weapon -- adapts update_weapon member-for-member.
 # ---------------------------------------------------------------------------
-def build_weapon(needle_mesh: bytes, crystal_material: bytes, body_texture: bytes,
+def build_weapon(held_weapon_mesh: bytes, crystal_material: bytes, body_texture: bytes,
                  homing_projectile: bytes, burst_projectile: bytes) -> bytes:
     # event.trigger_pressed + spawn.fired_projectile are live weapon node kinds
     # (weapon_graph_runtime.c s_modules lines 63, 76). The spawn node reads
@@ -523,6 +772,7 @@ def build_weapon(needle_mesh: bytes, crystal_material: bytes, body_texture: byte
     # "shoot_projectile") and "projectile_ref" (heldFunctionFromNode ~2495-2593).
     def weapon_graph(graph_id: str, trigger_id: str, mode: str,
                      projectile_ref: str) -> str:
+        spawn_id = f"{graph_id}_spawn_projectile"
         return dumps_graph({
             "schema": "pd.weapon_graph.v1",
             "asset_id": WEAPON_ID,
@@ -530,12 +780,12 @@ def build_weapon(needle_mesh: bytes, crystal_material: bytes, body_texture: byte
             "nodes": [
                 {"id": trigger_id, "kind": "event.trigger_pressed",
                  "params": {"mode": mode}},
-                {"id": "spawn_projectile", "kind": "spawn.fired_projectile",
+                {"id": spawn_id, "kind": "spawn.fired_projectile",
                  "params": {"mode": mode, "function_type": "shoot_projectile",
                             "projectile_ref": projectile_ref}},
             ],
-            "edges": [{"from": trigger_id, "to": "spawn_projectile"}],
-            "exports": [{"name": graph_id, "node": "spawn_projectile"}],
+            "edges": [{"from": trigger_id, "to": spawn_id}],
+            "exports": [{"name": graph_id, "node": spawn_id}],
         })
 
     primary_graph = weapon_graph(
@@ -550,6 +800,10 @@ def build_weapon(needle_mesh: bytes, crystal_material: bytes, body_texture: byte
          "name = Needler\n"
          "dual_wieldable = false\n"
          "model_file = dependencies/assets/models/weapon.pdmesh\n"
+         "muzzlez = 3.0\n"
+         "posx = 0.0\n"
+         "posy = 5.0\n"
+         "posz = -18.0\n"
          "primary_graph = behavior/primary.graph.json\n"
          "secondary_graph = behavior/secondary.graph.json\n"
          "settings_file = behavior/settings.json\n"
@@ -595,13 +849,17 @@ def build_weapon(needle_mesh: bytes, crystal_material: bytes, body_texture: byte
             "schema": "pd.weapon.presentation.v1",
             "crosshair": "default",
         })),
-        ("dependencies/assets/models/weapon.pdmesh", needle_mesh),
+        ("dependencies/assets/models/weapon.pdmesh", held_weapon_mesh),
         ("dependencies/assets/materials/default.pdmaterial", crystal_material),
         ("dependencies/assets/textures/body.pdtexture", body_texture),
         ("dependencies/assets/projectiles/primary.pdprojectile", homing_projectile),
         ("dependencies/assets/projectiles/secondary.pdprojectile", burst_projectile),
         ("_meta/manifest.json", manifest_with("weapon", WEAPON_ID, {
             "model_file": "dependencies/assets/models/weapon.pdmesh",
+            "muzzlez": 3.0,
+            "posx": 0.0,
+            "posy": 5.0,
+            "posz": -18.0,
             "primary_graph": "behavior/primary.graph.json",
             "secondary_graph": "behavior/secondary.graph.json",
             "settings_file": "behavior/settings.json",
@@ -641,16 +899,14 @@ def write_mod_json() -> None:
     mod = {
         "id": "needler",
         "name": "Needler",
-        "version": "0.3.0",
+        "version": "0.4.4",
         "author": "PD2",
         "description": (
-            "Halo-Needler-style custom weapon. Primary fire: tracking needles "
-            "(active homing depends on a separate runtime homing-gate adapter, "
-            "out of scope for this data-only mod). Secondary fire: non-tracking "
-            "needles that explode on contact with small pink explosions. "
-            "Pure data .pdmod: one self-contained needler.pdweapon embedding its "
-            "full typed dependency closure (mesh, material, textures, projectiles, "
-            "and the pink contact-explosion effect)."
+            "Halo-Needler-style custom weapon. Primary fire launches graph-driven "
+            "tracking needles; secondary fire launches graph-driven non-tracking "
+            "needles that explode on contact with small pink explosions. One "
+            "self-contained needler.pdweapon embeds the held weapon mesh, projectile "
+            "mesh, material, textures, projectiles, and pink contact-explosion effect."
         ),
         "contents": ["weapon"],
         "requires_restart": False,
@@ -668,6 +924,7 @@ def build() -> Path:
     MOD_DIR.mkdir(parents=True, exist_ok=True)
 
     # Leaf dependencies first.
+    held_weapon_mesh = build_held_weapon_mesh()
     needle_mesh = build_needle_mesh()
     body_texture = build_body_texture()
     spark_texture = build_spark_texture()
@@ -680,7 +937,7 @@ def build() -> Path:
 
     # The weapon embeds everything.
     build_weapon(
-        needle_mesh, crystal_material, body_texture,
+        held_weapon_mesh, crystal_material, body_texture,
         homing_projectile, burst_projectile,
     )
 

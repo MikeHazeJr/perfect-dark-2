@@ -1,6 +1,6 @@
 # Modding Examples
 
-These examples use typed `*.pdxxx` asset archives as the authoring surface. Change a typed file's extension to `.zip` to inspect or edit the descriptor, GLTF/OBJ source files, textures, audio, TSV, fonts, and supporting INI files inside it.
+These examples use typed `*.pdxxx` content files as the authoring surface; in this repo that means typed `*.pdxxx` asset archives as the authoring surface. Change a typed file's extension to `.zip` to inspect or edit the descriptor, GLTF/OBJ source files, textures, audio, TSV, fonts, and supporting INI files inside it.
 
 `.pdmod` is only the transport wrapper for Public Mods, online-required delivery, and sharing. Do not use `.pdmod` archives as the primary sample format, and do not add authored `*.bin` payloads.
 

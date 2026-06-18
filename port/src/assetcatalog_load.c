@@ -26,6 +26,8 @@
 #include "assetload.h"
 #include "mod.h"
 #include "modasset_compiler.h"
+#include "catalog_mgr_bodies.h"
+#include "catalog_mgr_heads.h"
 #include "weapon_graph_runtime.h"
 #include "effect_graph_runtime.h"  /* c3849 Unit 8: ASSET_EFFECT activation/clear hooks */
 #include "data.h"
@@ -855,31 +857,44 @@ static s32 s_catalogExtractTypedArchiveRoot(const char *source_path,
                                             char *out,
                                             size_t out_cap)
 {
-    const char *member_sep;
-    size_t root_len;
     size_t ext_len;
+    const char *segment;
+    const char *source_end;
 
     if (!source_path || !source_path[0] || !archive_ext || !archive_ext[0]
             || !out || out_cap == 0) {
         return 0;
     }
 
-    member_sep = strstr(source_path, "::");
-    root_len = member_sep ? (size_t)(member_sep - source_path)
-                          : strlen(source_path);
     ext_len = strlen(archive_ext);
+    source_end = source_path + strlen(source_path);
+    segment = source_path;
 
-    if (root_len == 0 || root_len >= out_cap || root_len < ext_len) {
-        return 0;
+    while (segment < source_end) {
+        const char *member_sep = strstr(segment, "::");
+        const char *segment_end = member_sep ? member_sep : source_end;
+        size_t segment_len = (size_t)(segment_end - segment);
+
+        if (segment_len >= ext_len
+                && strncmp(segment_end - ext_len, archive_ext, ext_len) == 0) {
+            size_t root_len = (size_t)(segment_end - source_path);
+
+            if (root_len == 0 || root_len >= out_cap) {
+                return 0;
+            }
+
+            memcpy(out, source_path, root_len);
+            out[root_len] = '\0';
+            return 1;
+        }
+
+        if (!member_sep) {
+            break;
+        }
+        segment = member_sep + 2;
     }
 
-    if (strncmp(source_path + root_len - ext_len, archive_ext, ext_len) != 0) {
-        return 0;
-    }
-
-    memcpy(out, source_path, root_len);
-    out[root_len] = '\0';
-    return 1;
+    return 0;
 }
 
 static s32 s_catalogLoadTextSource(const char *source_path,
@@ -1058,10 +1073,17 @@ static s32 s_catalogActivateWeaponGraphRuntime(asset_entry_t *entry,
             return 0;
         }
 
-        full = fsFullPath(archive_path, full_buf, sizeof(full_buf));
         err[0] = '\0';
         result = weaponGraphRuntimeRegisterWeaponArchive(entry->runtime_index,
-            full ? full : archive_path, err, sizeof(err));
+            archive_path, err, sizeof(err));
+        if (result != 0 && !fsPathIsAbsolute(archive_path)) {
+            full = fsFullPath(archive_path, full_buf, sizeof(full_buf));
+            if (full && strcmp(full, archive_path) != 0) {
+                err[0] = '\0';
+                result = weaponGraphRuntimeRegisterWeaponArchive(entry->runtime_index,
+                    full, err, sizeof(err));
+            }
+        }
         if (result != 0) {
             sysLogPrintf(LOG_WARNING,
                          "CATALOG.LIFECYCLE.ACTIVATE: '%s' held graph archive compile failed: %s",
@@ -1772,6 +1794,12 @@ static void s_catalogUnloadEntry(const char *assetId, asset_entry_t *entry)
 
             if (handle.provider == fileProvider()) {
                 source_path = fileProviderPath(handle);
+            }
+
+            if (entry->type == ASSET_BODY && entry->runtime_index >= 0) {
+                catalogManagerResetBodyModeldef(entry->runtime_index);
+            } else if (entry->type == ASSET_HEAD && entry->runtime_index >= 0) {
+                catalogManagerResetHeadModeldef(entry->runtime_index);
             }
 
             if (modAssetCompilerIsExternalSource(source_path)) {

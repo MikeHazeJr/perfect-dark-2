@@ -442,6 +442,8 @@ TEST_CASE("temporary ROM model fallbacks stay explicit and allowlisted", "[catal
 	const std::string bondgun = readTextFile("src/game/bondgun.c");
 	const std::string player = readTextFile("src/game/player.c");
 	const std::string menu = readTextFile("src/game/menu.c");
+	const std::string mainmenu = readTextFile("src/game/mainmenu.c");
+	const std::string mplayerSetup = readTextFile("src/game/mplayer/setup.c");
 	const std::string title = readTextFile("src/game/title.c");
 	const std::string modelcatalog = readTextFile("port/src/modelcatalog.c");
 	const std::string setuputils = readTextFile("src/game/setuputils.c");
@@ -460,6 +462,14 @@ TEST_CASE("temporary ROM model fallbacks stay explicit and allowlisted", "[catal
 	REQUIRE(menu.find("menuModelHandlePassesSourceOnlyCheck(ASSET_BODY") != std::string::npos);
 	REQUIRE(menu.find("menuModelHandlePassesSourceOnlyCheck(ASSET_HEAD") != std::string::npos);
 	REQUIRE(menu.find("menuModelHandlePassesSourceOnlyCheck(ASSET_MODEL") != std::string::npos);
+	REQUIRE(mainmenu.find("MENUMODELPARAMS_SET_FILENUM(weaponGetFileNum(weaponnum))") ==
+	        std::string::npos);
+	REQUIRE(mainmenu.find("weapon menu preview weaponnum=%d has no provider-backed catalog entry") !=
+	        std::string::npos);
+	REQUIRE(mplayerSetup.find("MENUMODELPARAMS_SET_FILENUM(catalogGetHeadFilenumByIndex(headnum))") ==
+	        std::string::npos);
+	REQUIRE(mplayerSetup.find("MP head preview headnum=%d has no provider-backed catalog entry") !=
+	        std::string::npos);
 	REQUIRE(title.find("temporary ROM fallback") == std::string::npos);
 	REQUIRE(title.find("return modeldefLoad((u16)modelresult.filenum") == std::string::npos);
 	REQUIRE(title.find("title model size") != std::string::npos);
@@ -889,6 +899,12 @@ TEST_CASE("music sequencer enforces source-only audio before legacy fallback", "
 	        std::string::npos);
 	REQUIRE(mod.find("AL_CMIDI_LOOPSTART_CODE") != std::string::npos);
 	REQUIRE(mod.find("AL_CMIDI_LOOPEND_CODE") != std::string::npos);
+	REQUIRE(mod.find("modSequenceCloseOpenLoopsAtTrackEnd") !=
+	        std::string::npos);
+	REQUIRE(mod.find("modSequenceEmitLoopEndBody(track, 0xff)") !=
+	        std::string::npos);
+	REQUIRE(mod.find("modSequenceCloseOpenLoopsAtTrackEnd(track)") <
+	        mod.find("AL_MIDI_META_EOT"));
 	REQUIRE(mod.find("streaming playback failed") != std::string::npos);
 	REQUIRE(mod.find("ASSET.SOURCE_ONLY: music sequence") !=
 	        std::string::npos);
@@ -1256,7 +1272,18 @@ TEST_CASE("base first-person hand model files populate provider handles", "[cata
 	REQUIRE(bodyWalker.find("catalogReadableModelIdForFile(hand_filenum, \"hand\", \"hand\"") != std::string::npos);
 	REQUIRE(bodyWalker.find("assetCatalogRegister(hand_model_id, ASSET_MODEL)") != std::string::npos);
 	REQUIRE(bodyWalker.find("hand_entry->source_filenum = hand_filenum") != std::string::npos);
+	REQUIRE(bodyWalker.find("s_sourceModelPathFromMeshArchive") != std::string::npos);
+	REQUIRE(bodyWalker.find("\"model.gltf\"") != std::string::npos);
+	REQUIRE(bodyWalker.find("\"model.glb\"") != std::string::npos);
+	REQUIRE(bodyWalker.find("fsFileSize(out)") != std::string::npos);
+	REQUIRE(bodyWalker.find("s_sourceModelPathFromMeshArchive(hand_archive_path") != std::string::npos);
+	REQUIRE(bodyWalker.find("s_sourceModelPathFromMeshArchive(mesh_archive_path") != std::string::npos);
 	REQUIRE(bodyWalker.find("catalogSetPrimaryFile(hand_entry, hand_source_path)") != std::string::npos);
+	REQUIRE(headWalker.find("s_sourceModelPathFromMeshArchive") != std::string::npos);
+	REQUIRE(headWalker.find("\"model.gltf\"") != std::string::npos);
+	REQUIRE(headWalker.find("\"model.glb\"") != std::string::npos);
+	REQUIRE(headWalker.find("fsFileSize(out)") != std::string::npos);
+	REQUIRE(headWalker.find("s_sourceModelPathFromMeshArchive(mesh_archive_path") != std::string::npos);
 	REQUIRE(bondgun.find("catalogHandleByModelSourceFilenum(ASSET_NONE, filenum)") != std::string::npos);
 	REQUIRE(bondgun.find("bgunQueuedLoadPassesSourceOnlyCheck") != std::string::npos);
 	REQUIRE(bondgun.find("assetSourceDebugFatalHandleFallback(ASSET_MODEL") != std::string::npos);
@@ -1350,9 +1377,9 @@ TEST_CASE("SP-in-MP setup overlay bounds-checks auxiliary setup props",
 	const std::string setup = readTextFile("src/game/setup.c");
 
 	REQUIRE(setup.find("setupResolvePropsInLoadedSetup") != std::string::npos);
-	REQUIRE(setup.find("assetSourceDebugHandleUsesPublicFileSource(spStage.setup_handle)") != std::string::npos);
-	REQUIRE(setup.find("public setup overlay source unavailable; skipping raw setup overlay") != std::string::npos);
-	REQUIRE(setup.find("assetLoadGetLoadedSize(spStage.setup_handle)") != std::string::npos);
+	REQUIRE(setup.find("scenarioSourceLoadSetupForStage(") != std::string::npos);
+	REQUIRE(setup.find("setupRequireScenarioSourceHandle(") != std::string::npos);
+	REQUIRE(setup.find("public setup overlay source unavailable; skipping setup overlay") != std::string::npos);
 	REQUIRE(setup.find("invalid SP setup props") != std::string::npos);
 	REQUIRE(setup.find("nextobj > spSetupEnd") != std::string::npos);
 	REQUIRE(setup.find("SP setup ended before OBJTYPE_END") != std::string::npos);

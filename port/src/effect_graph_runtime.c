@@ -4,10 +4,9 @@
  * c3849 Unit 8 (full runtime behind the Unit 1b bridge seams). Mirrors the
  * weapon_graph_runtime slot-array/clear/register/accessor layout, scaled
  * down: effect records key by asset_id string only (no runtime_index slots,
- * no owner bits). Everything is dormant behind Debug.WeaponGraphRuntime --
- * registration runs in either toggle state (data capture only), gameplay
- * reads go through GetForGameplay/the bridges, which return NULL/the OG
- * fallback verbatim while the toggle is off.
+ * no owner bits). Gameplay reads go through GetForGameplay/the bridges; in
+ * product builds the Wave 7 cutover keeps the shared runtime gate enabled,
+ * while tests can still disable it for parity coverage.
  *
  * Closure rule: the executor IS the OG explosion/spark/smoke machinery. The
  * compiler maps class words to EXISTING table indices (and, for tinted
@@ -536,7 +535,7 @@ s32 effectGraphResolveExplosionType(const char *effect_ref, s32 fallback_exptype
 	if (!effect_ref || !effect_ref[0]) {
 		return fallback_exptype;
 	}
-	/* Toggle gate: with Debug.WeaponGraphRuntime off every consumer must be
+	/* Test gate: with the shared runtime gate off every consumer must be
 	 * bit-identical to OG, so the fallback wins unconditionally. */
 	if (!weaponGraphRuntimeEnabled()) {
 		return fallback_exptype;

@@ -265,7 +265,7 @@ The 23-item compliance sweep (M-1..M-23) has landed on `dev`. This audit verifie
 ##### F-Hardcoded-Player-Caps — Local file-defines duplicate MAX_PLAYERS / MAX_TEAMS / MAX_MPCHRS
 - Severity: Low (currently consistent with canonical; drift hazard).
 - Confidence: Confirmed.
-- Location: 
+- Location:
   - `port/fast3d/pdgui_menu_room.cpp:107` — `#define MAX_PLAYERS 8`.
   - `port/fast3d/pdgui_menu_mpingame.cpp:51` — `#define MAX_MPCHRS_TICKER 40`. Team color palette `s_KfTeamColors[8]` at line 110.
   - `port/fast3d/pdgui_hud.cpp:46-47` — `MAX_MPCHRS_HUD 40`, `MAX_TEAMS_HUD 8`.

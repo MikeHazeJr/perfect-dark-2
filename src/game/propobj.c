@@ -1330,8 +1330,7 @@ void projectileApplyGraphRuntime(struct defaultobj *obj,
 	/* B-914 (Q1 homing widen): latch the graph's projectile.homing intent onto
 	 * the spawned projectile so the projectileTick steering gate can honor it
 	 * without a per-tick string-keyed runtime lookup. Runs at every spawn site
-	 * that passes the projectile runtime (player and AI), and is impossible to
-	 * set while Debug.WeaponGraphRuntime is off (runtime is NULL then). */
+	 * that passes the projectile runtime (player and AI). */
 	if (runtime->has_homing) {
 		projectile->flags |= PROJECTILEFLAG_HOMING;
 
@@ -1453,8 +1452,7 @@ void projectileApplyGraphRuntime(struct defaultobj *obj,
  * existing weaponnum-keyed arms: base-emitted graphs also carry projectile
  * records, and without the guard they would double-handle. The Held lookup
  * keys on gset.weaponnum/weaponfunc, which differ from weapon->weaponnum for
- * some base weapons. Gating on Debug.WeaponGraphRuntime is inherited from
- * the gameplay accessor. */
+ * some base weapons. Runtime gating is inherited from the gameplay accessor. */
 static const weapon_graph_projectile_runtime_t *weaponGetCustomProjectileGraph(struct weaponobj *weapon)
 {
 	const weapon_graph_held_function_t *graph;
@@ -4983,7 +4981,7 @@ void weaponTick(struct prop *prop)
 		weaponGraphRuntimeGetEntityForHeldFunction(graph);
 	/* c3849 Wave 5 (binding spec B1): resolved once per tick for the combined
 	 * custom projectile arm below. NULL for every base weapon (custom-slot
-	 * guard) and whenever Debug.WeaponGraphRuntime is off. */
+	 * guard) and whenever the runtime gate is off in tests. */
 	const weapon_graph_projectile_runtime_t *customproj =
 		weaponGetCustomProjectileGraph(weapon);
 
@@ -8056,7 +8054,7 @@ s32 projectileTick(struct defaultobj *obj, bool *embedded)
 							if (projectile->hominggain > 0.0f || projectile->homingdamping > 0.0f) {
 								/* c3849 guidance Slice A: graph-authored steering gains,
 								 * latched at spawn (projectileApplyGraphRuntime), so this
-								 * branch is unreachable with Debug.WeaponGraphRuntime off.
+								 * branch is unreachable with the runtime gate off.
 								 * Defaults are the OG composites (kkd/100)*(kkg/100) =
 								 * 0.006 and (kkp/100)*(kkg/100) = 0.036. Uses the
 								 * per-projectile homingpreverr and must NOT write

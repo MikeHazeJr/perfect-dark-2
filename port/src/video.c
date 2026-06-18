@@ -59,6 +59,7 @@ static f64 vidLastRenderTime;
 static s32 vidNumModes = 1;
 static displaymode vidModeDefault;
 static displaymode *vidModes = &vidModeDefault;
+static bool vidModesOwned = false;
 
 static s32 texFilter = FILTER_LINEAR;
 static s32 texFilter2D = true;
@@ -373,12 +374,18 @@ static s32 videoInitDisplayModes(void)
 		}
 	}
 
-	modeList = sysMemRealloc(modeList, numModes * sizeof(displaymode));
-	if (!modeList) {
+	displaymode *resizedModeList = sysMemRealloc(modeList, numModes * sizeof(displaymode));
+	if (!resizedModeList) {
+		sysMemFree(modeList);
 		return false;
 	}
 
+	modeList = resizedModeList;
+	if (vidModesOwned) {
+		sysMemFree(vidModes);
+	}
 	vidModes = modeList;
+	vidModesOwned = true;
 	vidNumModes = numModes;
 
 	return true;
@@ -605,7 +612,13 @@ void videoFreeCachedTexture(const void *texptr)
 
 void videoShutdown(void)
 {
-	free(vidModes);
+	if (vidModesOwned) {
+		sysMemFree(vidModes);
+	}
+	vidModes = &vidModeDefault;
+	vidModesOwned = false;
+	vidNumModes = 1;
+	initDone = false;
 }
 
 PD_CONSTRUCTOR static void videoConfigInit(void)

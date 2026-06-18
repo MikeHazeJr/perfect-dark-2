@@ -259,9 +259,11 @@ TEST_CASE("inputlayer: payload is threaded into on_push", "[inputlayer][callback
     ilpInit();
     s_observed = 0;
     s_argpayload = 0;
-    ilpPush(&def, (void *)(intptr_t)0xc0ffee);
+    IlpLayerHandle *h = ilpPush(&def, (void *)(intptr_t)0xc0ffee);
+    REQUIRE(h != nullptr);
     REQUIRE(s_observed == 1);
     REQUIRE(s_argpayload == 0xc0ffee);
+    REQUIRE(ilpPop(h, nullptr) == 0);
 }
 
 TEST_CASE("inputlayer: top type returns LAYER_TYPE_COUNT when stack empty", "[inputlayer][query]")

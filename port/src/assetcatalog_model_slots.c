@@ -68,3 +68,23 @@ s32 assetCatalogResolveModelPrivateSlot(const char *catalog_id)
 
     return MODEL_CUSTOM_START + idx;
 }
+
+s32 assetCatalogModelPrivateSourceFilenum(s32 runtime_model_slot)
+{
+    enum {
+        MODEL_CUSTOM_SOURCE_FILENUM_START = 0x7e0,
+        MODEL_CUSTOM_SOURCE_FILENUM_END =
+            MODEL_CUSTOM_SOURCE_FILENUM_START + MODEL_CUSTOM_COUNT
+    };
+
+    _Static_assert(MODEL_CUSTOM_SOURCE_FILENUM_END <= 0x800,
+        "custom model source filenums must stay inside ROMDATA_MAX_FILES");
+
+    if (runtime_model_slot < MODEL_CUSTOM_START
+            || runtime_model_slot >= MODEL_CUSTOM_END) {
+        return -1;
+    }
+
+    return MODEL_CUSTOM_SOURCE_FILENUM_START
+        + (runtime_model_slot - MODEL_CUSTOM_START);
+}

@@ -662,6 +662,31 @@ const char *catalogWeaponIdByRuntimeWeaponNum(s32 weapon_num)
     const char *id;
     s32 i;
 
+    if (weapon_num >= WEAPON_CUSTOM_START && weapon_num < WEAPON_CUSTOM_END) {
+        const char *source_match = NULL;
+
+        for (i = 0; i < assetCatalogGetPoolSize(); i++) {
+            const asset_entry_t *e = assetCatalogGetByIndex(i);
+            s32 mpw;
+
+            if (!e || !e->occupied) continue;
+            if (e->type != ASSET_WEAPON) continue;
+            if (e->bundled) continue;
+            if (e->source_filenum <= 0) continue;
+
+            mpw = e->ext.weapon.weapon_id;
+            if (e->runtime_index == weapon_num ||
+                    (mpw >= 0 && mpw < NUM_MPWEAPONS &&
+                        catalogGetMpWeaponNum(mpw) == weapon_num)) {
+                source_match = e->id;
+            }
+        }
+
+        if (source_match) {
+            return source_match;
+        }
+    }
+
     id = catalogIdByRuntime(ASSET_WEAPON, weapon_num);
     if (id) {
         return id;
@@ -1802,14 +1827,11 @@ s32 catalogGetBodyScaleChecked(s32 bodynum, f32 *out_value)
 {
     catalog_checked_result_e r;
     static s32 s_lastBadIdx = -1;
-    s32 sentinel;
+    const body_data_t *b;
 
     if (out_value) { *out_value = 1.0f; }
-    {
-        const body_authored_record_t *bd = (bodynum >= 0 && bodynum < 152) ? bodyDataLookupByBodynum(bodynum) : 0;
-        sentinel = bd ? (s32)bd->filenum : 0;
-    }
-    r = catalogCheckedValidateSlot(bodynum, 152, sentinel);
+    b = s_bodyFieldRecordChecked(bodynum, "catalogGetBodyScaleChecked");
+    r = catalogCheckedValidateSlot(bodynum, CATALOG_MGR_BODY_TOTAL, b ? 1 : 0);
     if (r != CATALOG_CHECKED_OK) {
         if (bodynum != s_lastBadIdx) {
             s_lastBadIdx = bodynum;
@@ -1825,14 +1847,11 @@ s32 catalogGetBodyAnimScaleChecked(s32 bodynum, f32 *out_value)
 {
     catalog_checked_result_e r;
     static s32 s_lastBadIdx = -1;
-    s32 sentinel;
+    const body_data_t *b;
 
     if (out_value) { *out_value = 1.0f; }
-    {
-        const body_authored_record_t *bd = (bodynum >= 0 && bodynum < 152) ? bodyDataLookupByBodynum(bodynum) : 0;
-        sentinel = bd ? (s32)bd->filenum : 0;
-    }
-    r = catalogCheckedValidateSlot(bodynum, 152, sentinel);
+    b = s_bodyFieldRecordChecked(bodynum, "catalogGetBodyAnimScaleChecked");
+    r = catalogCheckedValidateSlot(bodynum, CATALOG_MGR_BODY_TOTAL, b ? 1 : 0);
     if (r != CATALOG_CHECKED_OK) {
         if (bodynum != s_lastBadIdx) {
             s_lastBadIdx = bodynum;
@@ -1849,14 +1868,11 @@ s32 catalogGetBodyHandFilenumChecked(s32 bodynum, s32 *out_value)
 {
     catalog_checked_result_e r;
     static s32 s_lastBadIdx = -1;
-    s32 sentinel;
+    const body_data_t *b;
 
     if (out_value) { *out_value = 0; }
-    {
-        const body_authored_record_t *bd = (bodynum >= 0 && bodynum < 152) ? bodyDataLookupByBodynum(bodynum) : 0;
-        sentinel = bd ? (s32)bd->filenum : 0;
-    }
-    r = catalogCheckedValidateSlot(bodynum, 152, sentinel);
+    b = s_bodyFieldRecordChecked(bodynum, "catalogGetBodyHandFilenumChecked");
+    r = catalogCheckedValidateSlot(bodynum, CATALOG_MGR_BODY_TOTAL, b ? 1 : 0);
     if (r != CATALOG_CHECKED_OK) {
         if (bodynum != s_lastBadIdx) {
             s_lastBadIdx = bodynum;
@@ -1874,15 +1890,12 @@ s32 catalogGetBodyModeldefChecked(s32 bodynum, struct modeldef **out_md)
 {
     catalog_checked_result_e r;
     static s32 s_lastBadIdx = -1;
-    s32 sentinel;
+    const body_data_t *b;
     struct modeldef *md;
 
     if (out_md) { *out_md = NULL; }
-    {
-        const body_authored_record_t *bd = (bodynum >= 0 && bodynum < 152) ? bodyDataLookupByBodynum(bodynum) : 0;
-        sentinel = bd ? (s32)bd->filenum : 0;
-    }
-    r = catalogCheckedValidateSlot(bodynum, 152, sentinel);
+    b = s_bodyFieldRecordChecked(bodynum, "catalogGetBodyModeldefChecked");
+    r = catalogCheckedValidateSlot(bodynum, CATALOG_MGR_BODY_TOTAL, b ? 1 : 0);
     if (r != CATALOG_CHECKED_OK) {
         if (bodynum != s_lastBadIdx) {
             s_lastBadIdx = bodynum;
@@ -1910,17 +1923,14 @@ s32 catalogGetHeadModeldefChecked(s32 headnum, struct modeldef **out_md)
 {
     catalog_checked_result_e r;
     static s32 s_lastBadIdx = -1;
-    s32 sentinel;
+    const head_data_t *h;
     struct modeldef *md;
 
     if (out_md) { *out_md = NULL; }
     /* HEAD_RANDOM_GENDER is a sentinel-out-of-band, not a miss. */
     if (headnum == HEAD_RANDOM_GENDER) { return 0; }
-    {
-        const head_authored_record_t *hd = (headnum >= 0 && headnum < 152) ? headDataLookupByHeadnum(headnum) : 0;
-        sentinel = hd ? (s32)hd->filenum : 0;
-    }
-    r = catalogCheckedValidateSlot(headnum, 152, sentinel);
+    h = s_headFieldRecordChecked(headnum, "catalogGetHeadModeldefChecked");
+    r = catalogCheckedValidateSlot(headnum, CATALOG_MGR_HEAD_TOTAL, h ? 1 : 0);
     if (r != CATALOG_CHECKED_OK) {
         if (headnum != s_lastBadIdx) {
             s_lastBadIdx = headnum;

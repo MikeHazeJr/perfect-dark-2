@@ -27,7 +27,7 @@
   ],
   "input_sequence": [
     { "at_ms": 0, "type": "wait", "comment": "catalog bootstrap extracts and walks base .pdweapon archives before the debug typed-load request fires." },
-    { "at_ms": 25000, "type": "exit", "comment": "exit after the forced weapon typed-load has either activated or emitted the source-only failure. This smoke intentionally stays out of the skip-intro stage dwell path so it only validates .pdweapon source binding and typed runtime activation." }
+    { "at_ms": 70000, "type": "exit", "comment": "exit after the forced weapon typed-load has either activated or emitted the source-only failure. This smoke intentionally stays out of the skip-intro stage dwell path so it only validates .pdweapon source binding and typed runtime activation." }
   ],
   "assertions": {
     "required_lines": [

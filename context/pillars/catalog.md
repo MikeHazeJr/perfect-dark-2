@@ -120,6 +120,16 @@ The untyped wrappers `catalogLoadAsset` / `catalogUnloadAsset` / `catalogRetainA
 
 Any new typed payload path must add a matching payload kind or explicitly reuse an existing one.
 
+2026-06-11 c3844 lifecycle fix: MP/client-manifest-owned match assets must not
+be released by the older stage-category diff during a base stage load. The
+custom-body live smoke showed `example:tri_body`, `example:tri_head`, and
+`example:tri_weapon` being loaded by the match manifest and then immediately
+released by `CATALOG: stage 0x1d diff -- load:0 unload:3`. The fix skips the
+old stage-category diff while `g_ClientManifest` owns MP match assets and clears
+body/head manager cached modeldef slots before a catalog-owned generated
+modeldef is freed. Static/build verification pins this ownership boundary; the
+remaining custom-body smoke failure is later in generated-body render handoff.
+
 ---
 
 ## Source handles and providers
@@ -202,15 +212,17 @@ Audit: [audits/catalog-phase3-passd-self-heal-2026-05-02.md](../audits/catalog-p
 
 ---
 
-## Utilization program state (c3849, 2026-06-10)
+## Utilization program state (c3849, 2026-06-17)
 
-The measured-gaps audit ([audits/migration-utilization-measurement-2026-06-10.md](../audits/migration-utilization-measurement-2026-06-10.md)) drove a 7-wave closure program. As of 2026-06-10 evening, Waves 1-6 are SHIPPED and build-verified; Wave 7 (the live-gated flips) is staged to B-801:
+The measured-gaps audit ([audits/migration-utilization-measurement-2026-06-10.md](../audits/migration-utilization-measurement-2026-06-10.md)) drove a 7-wave closure program. As of 2026-06-17, Waves 1-7 are SHIPPED and verified for the current tree:
 
 - **Waves 1-4** (telemetry, soundnum/stagenum/animnum/texnum allocators, FONT consumer, texture emitter extraction + Slice B bind verification/slug unification): see the session log entries of 2026-06-10 and [designs/catalog/c3849-wave-implementation-maps.md](../designs/catalog/c3849-wave-implementation-maps.md).
-- **Wave 5 (dead-IR consumers)**: the ~115 dead weapon-graph IR fields now have production consumers feeding the EXISTING OG execution routines, all dormant behind `Debug.WeaponGraphRuntime` via the `*ForGameplay` accessors + custom-slot guards (binding specs B1-B8 in the maps doc). weaponTick now has a combined custom PROJECTILE arm (wall-hugger -> contact-impact -> fuse timer) and a custom ENTITY arm (remote w/ detonator provenance, timed, proxy w/ LOS, storm); stick gate honors sticky_attach/sticky-device records; bounce/trail/impact filter/hit-sound/spark/explosion refs consume; guidance gains/fbw numerics/trajectory clamp consume; deployed-autogun cadence/muzzles/beam/ffsuppress + transition-to-entity + owner-cleanup + interaction consume via the g_ThrownLaptopLatch sidecar; settings/variables/presentation parse with $name substitution and defaults layering; camera_effect xray consumes; MPOPTION_WEAPONGRAPH (0x20000000) rides the existing options u32 (masked at the MP-setup save site) so a host's toggle propagates to clients for the match.
+- **Wave 5 (dead-IR consumers)**: the ~115 weapon-graph IR fields now have production consumers feeding the existing OG execution routines through `*ForGameplay` accessors and custom-slot guards (binding specs B1-B8 in the maps doc). weaponTick has a combined custom PROJECTILE arm (wall-hugger -> contact-impact -> fuse timer) and a custom ENTITY arm (remote w/ detonator provenance, timed, proxy w/ LOS, storm); stick gate honors sticky_attach/sticky-device records; bounce/trail/impact filter/hit-sound/spark/explosion refs consume; guidance gains/fbw numerics/trajectory clamp consume; deployed-autogun cadence/muzzles/beam/ffsuppress + transition-to-entity + owner-cleanup + interaction consume via the g_ThrownLaptopLatch sidecar; settings/variables/presentation parse with $name substitution and defaults layering; camera_effect xray consumes.
 - **Wave 6a (meta families)**: first 3 of 11 assetRuntimeFind* gameplay consumers (botprofile, gamemode, theme), value-identical to native mirrors with once-per-session `CATALOG.<FAM>.RUNTIME_MISS` fallbacks. Remaining 8 ranked + deferred with reasons in the maps doc.
 - **Wave 6b (.pdeffect runtime)**: full compiler (canonical `pd.effect_graph.v1`, legacy accepted loudly) + effect_graph_runtime records + the four `effectGraphResolve*` bridges consumed at the Wave-5 WAVE6-EFFECT-HANDOFF seams + the custom spark-row registry (pink Needler spark achievable; explosion fireball tint is NOT OG-parameterizable - renderer slice deferred). Nested `.pdeffect` ingestion fixed at both levels (weapon -> projectile -> effect).
-- **Wave 7 (STAGED, B-801-gated, Mike's call at live-test time)**: (1) flip `Debug.WeaponGraphRuntime` default to ON after live parity proof; (2) per-family normal-play fatal cutover for the parity-by-fallback families (texture/animation/sfx/song/scenario/bondgun) - the ASSET.FALLBACK telemetry from Wave 1 is the regression instrument; (3) strict MP mismatch refusal (needs a NET_PROTOCOL_VER bump + test_versions pin; the MPOPTION bit is best-effort parity until then); (4) retire the toggle entirely per the cutover plan's closure state.
+- **Wave 7 (complete 2026-06-17)**: weapon graph runtime is product-default ON; `Debug.WeaponGraphRuntime`, the Settings debug checkbox, and `MPOPTION_WEAPONGRAPH` are retired; normal-play fallback cutover is fatal for the selected source-owned families (texture, animation, SFX, music, Scenario, model); and `NET_PROTOCOL_VER` is bumped to 51 so mixed v50/v51 peers are refused at auth. `weaponGraphRuntimeSetEnabled()` remains a `PD_TESTS` hook only.
+
+  2026-06-17 live proof: `needler_graph_runtime_visual_smoke` passed 40/40 in `.claude/smoke-verify-runs/results-20260617T193054Z.json` against isolated session build `wave7`. The log proves `mod_needler:needler` match spawn, held and projectile mesh ingestion from `.pdmod::needler.pdweapon` nested `.pdmesh::model.gltf` paths, `.pdeffect` ingestion, `BONDGUN.SOURCE` loading private source filenum 2016, and `MODASSET.RENDER` for skeletonless first-person Needler source geometry (12 vertices / 4 tris).
 
 Bug ledger from the program: B-915/916/917 fixed (Unit 0), B-918 fixed (test pin repair), B-919 open (decomp quirk, verify-before-fix).
 

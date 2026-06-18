@@ -94,3 +94,11 @@ TEST_CASE("model slots: custom range sits directly above the base model count",
 	s32 slot = assetCatalogResolveModelPrivateSlot("mod_a:first");
 	REQUIRE(slot == NUM_MODELS);
 }
+
+TEST_CASE("model slots: private runtime slots map to private source filenums",
+          "[catalog][model][slots][c3848][c3849]") {
+	REQUIRE(assetCatalogModelPrivateSourceFilenum(MODEL_CUSTOM_START) == 0x7e0);
+	REQUIRE(assetCatalogModelPrivateSourceFilenum(MODEL_CUSTOM_END - 1) == 0x7ff);
+	REQUIRE(assetCatalogModelPrivateSourceFilenum(MODEL_CUSTOM_START - 1) == -1);
+	REQUIRE(assetCatalogModelPrivateSourceFilenum(MODEL_CUSTOM_END) == -1);
+}

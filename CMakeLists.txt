@@ -889,6 +889,7 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/port/src/assetcatalog_deps.c
   ${CMAKE_SOURCE_DIR}/port/fast3d/pdgui_gameplay_graph_editor.cpp
   ${CMAKE_SOURCE_DIR}/port/src/modarchive.c
+  ${CMAKE_SOURCE_DIR}/port/src/modpack_pdmod.c
   ${CMAKE_SOURCE_DIR}/port/src/weapon_graph_archive.c
   ${CMAKE_SOURCE_DIR}/port/src/weapon_graph_runtime.c
   # c3849 Wave 6b Unit 8: full .pdeffect runtime (compiler, records, bridges)

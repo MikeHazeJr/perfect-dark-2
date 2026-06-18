@@ -13,6 +13,7 @@
 #include <ctype.h>
 #include <dirent.h>
 #include <sys/stat.h>
+#include <stdarg.h>
 #include <PR/ultratypes.h>
 #include "types.h"
 #include "platform.h"
@@ -23,6 +24,7 @@
 #include "modarchive.h"
 #include "modvfs.h"
 #include "modmigrate.h"
+#include "asset_archive_policy.h"
 #include "assetcatalog.h"
 #include "assetcatalog_scanner.h"
 #include "assetcatalog_load.h"
@@ -49,6 +51,8 @@ static s32  modmgrTryRegisterArchive(const char *archivePath, const char *displa
                                       const char *source_tag, bool dedupe_by_id);
 static int  modmgrIsReservedTopLevel(const char *name);
 static int  modmgrHasArchiveExtension(const char *name);
+static int  modmgrHasPdmodExtension(const char *name);
+static s32  modmgrCopyFileAtomic(const char *src, const char *dst);
 
 // ---------------------------------------------------------------------------
 // Globals
@@ -733,10 +737,8 @@ static void modmgrRegisterModJsonContentBuf(modinfo_t *mod, const char *src, u32
 	j.src = src;
 	j.pos = src;
 
-	// Determine starting runtime_index offsets — new entries slot in after
-	// all existing entries of each type (base game + prior mod registrations).
-	s32 body_start  = assetCatalogGetCountByType(ASSET_BODY);
-	s32 head_start  = assetCatalogGetCountByType(ASSET_HEAD);
+	// Body/head runtime slots are owned by the catalog registration helpers.
+	// Custom entries without legacy numbers get private slots there.
 	s32 arena_start = assetCatalogGetCountByType(ASSET_ARENA);
 	s32 body_reg = 0, head_reg = 0, arena_reg = 0;
 
@@ -854,15 +856,15 @@ static void modmgrRegisterModJsonContentBuf(modinfo_t *mod, const char *src, u32
 
 				asset_entry_t *e = NULL;
 
-				if (is_bodies && bodynum_field >= 0) {
-					s16 defhead = (headnum_field >= 0) ? (s16)headnum_field : 0;
+				if (is_bodies) {
+					s16 defhead = (headnum_field >= 0) ? (s16)headnum_field : -1;
 					e = assetCatalogRegisterBody(catid, (s16)bodynum_field,
 					        (s16)name_langid, defhead, (u8)requirefeature);
-					if (e) { e->runtime_index = body_start + body_reg++; }
-				} else if (is_heads && headnum_field >= 0) {
+					if (e) { body_reg++; }
+				} else if (is_heads) {
 					e = assetCatalogRegisterHead(catid, (s16)headnum_field,
 					        (u8)requirefeature);
-					if (e) { e->runtime_index = head_start + head_reg++; }
+					if (e) { head_reg++; }
 				} else if (is_arenas && stagenum_field >= 0) {
 					e = assetCatalogRegisterArena(catid, stagenum_field,
 					        (u8)requirefeature, name_langid);
@@ -1254,23 +1256,28 @@ static int modmgrHasArchiveExtension(const char *name)
 	return 0;
 }
 
-static int modmgrArchiveEntryHasForbiddenBinPayload(const char *name)
+static int modmgrHasPdmodExtension(const char *name)
 {
 	if (!name) return 0;
+	s32 n = (s32)strlen(name);
+	if (n < 6) return 0;
+	const char *tail = name + n - 6;
+	return (tail[0] == '.') &&
+	       (tail[1] == 'p' || tail[1] == 'P') &&
+	       (tail[2] == 'd' || tail[2] == 'D') &&
+	       (tail[3] == 'm' || tail[3] == 'M') &&
+	       (tail[4] == 'o' || tail[4] == 'O') &&
+	       (tail[5] == 'd' || tail[5] == 'D');
+}
 
-	for (const char *p = name; *p; p++) {
-		if (p[0] != '.') {
-			continue;
-		}
-		if ((p[1] == 'b' || p[1] == 'B') &&
-		    (p[2] == 'i' || p[2] == 'I') &&
-		    (p[3] == 'n' || p[3] == 'N') &&
-		    (p[4] == '\0' || p[4] == '.' || p[4] == '/')) {
-			return 1;
-		}
-	}
+static int modmgrArchiveEntryHasForbiddenBinPayload(const char *name)
+{
+	return assetArchiveEntryIsForbiddenBinPayload(name) != 0;
+}
 
-	return 0;
+static int modmgrArchiveEntryHasForbiddenPublicTsvPayload(const char *name)
+{
+	return assetArchiveEntryIsForbiddenTsvPayload(name) != 0;
 }
 
 static int modmgrArchiveEntryIsTypedPdAssetArchive(const char *name)
@@ -1302,9 +1309,11 @@ static int modmgrArchiveEntryIsTypedPdAssetArchive(const char *name)
 	return 0;
 }
 
-static int modmgrArchiveFindForbiddenBinPayload(mod_archive_t *arc,
-                                                 char *out_name,
-                                                 s32 out_name_cap)
+static int modmgrArchiveFindForbiddenPublicPayload(mod_archive_t *arc,
+                                                   char *out_name,
+                                                   s32 out_name_cap,
+                                                   char *out_kind,
+                                                   s32 out_kind_cap)
 {
 	if (!arc) return 0;
 
@@ -1316,6 +1325,21 @@ static int modmgrArchiveFindForbiddenBinPayload(mod_archive_t *arc,
 				strncpy(out_name, name, out_name_cap - 1);
 				out_name[out_name_cap - 1] = '\0';
 			}
+			if (out_kind && out_kind_cap > 0) {
+				strncpy(out_kind, "authored .bin", out_kind_cap - 1);
+				out_kind[out_kind_cap - 1] = '\0';
+			}
+			return 1;
+		}
+		if (modmgrArchiveEntryHasForbiddenPublicTsvPayload(name)) {
+			if (out_name && out_name_cap > 0) {
+				strncpy(out_name, name, out_name_cap - 1);
+				out_name[out_name_cap - 1] = '\0';
+			}
+			if (out_kind && out_kind_cap > 0) {
+				strncpy(out_kind, "public .tsv", out_kind_cap - 1);
+				out_kind[out_kind_cap - 1] = '\0';
+			}
 			return 1;
 		}
 
@@ -1324,6 +1348,22 @@ static int modmgrArchiveFindForbiddenBinPayload(mod_archive_t *arc,
 			void *nested = modArchiveExtractAlloc(arc, i, &nested_size);
 			if (!nested) {
 				continue;
+			}
+			char policyErr[256];
+			if (assetArchiveValidateBytes(nested, nested_size, name,
+					ASSET_ARCHIVE_VALIDATE_RELEASE,
+					policyErr, sizeof(policyErr)) != 0) {
+				if (out_name && out_name_cap > 0) {
+					snprintf(out_name, out_name_cap, "%s: %s",
+						name, policyErr[0] ? policyErr : "typed asset archive validation failed");
+					out_name[out_name_cap - 1] = '\0';
+				}
+				if (out_kind && out_kind_cap > 0) {
+					strncpy(out_kind, "invalid typed archive", out_kind_cap - 1);
+					out_kind[out_kind_cap - 1] = '\0';
+				}
+				free(nested);
+				return 1;
 			}
 			char nested_bad[FS_MAXPATH + 1];
 			s32 has_nested_bin = modArchiveMemFindForbiddenBinPayload(
@@ -1335,12 +1375,168 @@ static int modmgrArchiveFindForbiddenBinPayload(mod_archive_t *arc,
 						name, nested_bad);
 					out_name[out_name_cap - 1] = '\0';
 				}
+				if (out_kind && out_kind_cap > 0) {
+					strncpy(out_kind, "authored .bin", out_kind_cap - 1);
+					out_kind[out_kind_cap - 1] = '\0';
+				}
 				return 1;
 			}
 		}
 	}
 
 	return 0;
+}
+
+static void modmgrSetError(char *out_error, s32 error_len, const char *fmt, ...)
+{
+	if (!out_error || error_len <= 0) return;
+	va_list ap;
+	va_start(ap, fmt);
+	vsnprintf(out_error, (size_t)error_len, fmt, ap);
+	va_end(ap);
+	out_error[error_len - 1] = '\0';
+}
+
+static const char *modmgrPathLeaf(const char *path)
+{
+	const char *leaf = path ? path : "";
+	const char *slash = strrchr(leaf, '/');
+	if (slash && slash + 1 > leaf) leaf = slash + 1;
+	slash = strrchr(leaf, '\\');
+	if (slash && slash + 1 > leaf) leaf = slash + 1;
+	return leaf;
+}
+
+static void modmgrSanitizeInstallFilename(const char *src, char *out, u32 outsize)
+{
+	if (!out || outsize == 0) return;
+	const char *base = modmgrPathLeaf(src);
+	if (!base || !base[0]) base = "imported.pdmod";
+
+	u32 i = 0;
+	while (base[i] && i + 1 < outsize) {
+		char c = base[i];
+		if (c == '/' || c == '\\' || c == ':' || c == '?' ||
+		    c == '*' || c == '<' || c == '>' || c == '|' || c == '"') {
+			out[i] = '_';
+		} else {
+			out[i] = c;
+		}
+		i++;
+	}
+	out[i] = '\0';
+	if (i == 0) snprintf(out, outsize, "imported.pdmod");
+	if (!modmgrHasArchiveExtension(out)) {
+		strncat(out, MODMGR_PDMOD_EXT, outsize - strlen(out) - 1);
+	}
+}
+
+static s32 modmgrCharEqPathNoCase(char a, char b)
+{
+	if (a == '\\') a = '/';
+	if (b == '\\') b = '/';
+	return tolower((unsigned char)a) == tolower((unsigned char)b);
+}
+
+static s32 modmgrPathEqualsNoCase(const char *a, const char *b)
+{
+	if (!a || !b) return 0;
+	while (*a && *b) {
+		if (!modmgrCharEqPathNoCase(*a, *b)) return 0;
+		a++;
+		b++;
+	}
+	return *a == '\0' && *b == '\0';
+}
+
+static s32 modmgrCopyFileAtomic(const char *src, const char *dst)
+{
+	char tmp[FS_MAXPATH + 1];
+	snprintf(tmp, sizeof(tmp), "%s.tmp", dst);
+	remove(tmp);
+
+	FILE *in = fopen(src, "rb");
+	if (!in) return 0;
+	FILE *out = fopen(tmp, "wb");
+	if (!out) {
+		fclose(in);
+		return 0;
+	}
+
+	u8 buf[8192];
+	s32 ok = 1;
+	for (;;) {
+		size_t n = fread(buf, 1, sizeof(buf), in);
+		if (n > 0 && fwrite(buf, 1, n, out) != n) {
+			ok = 0;
+			break;
+		}
+		if (n < sizeof(buf)) {
+			if (ferror(in)) ok = 0;
+			break;
+		}
+	}
+
+	if (fclose(out) != 0) ok = 0;
+	fclose(in);
+
+	if (!ok) {
+		remove(tmp);
+		return 0;
+	}
+
+	remove(dst);
+	if (rename(tmp, dst) != 0) {
+		remove(tmp);
+		return 0;
+	}
+	return 1;
+}
+
+s32 modmgrValidateArchiveFile(const char *archive_path,
+                              char *out_error,
+                              s32 error_len)
+{
+	if (out_error && error_len > 0) out_error[0] = '\0';
+	if (!archive_path || !archive_path[0]) {
+		modmgrSetError(out_error, error_len, "No .pdmod archive path was provided");
+		return 0;
+	}
+	if (!modmgrHasPdmodExtension(archive_path)) {
+		modmgrSetError(out_error, error_len, "Expected a .pdmod archive");
+		return 0;
+	}
+
+	mod_archive_t *arc = modArchiveOpen(archive_path);
+	if (!arc) {
+		modmgrSetError(out_error, error_len,
+			"Archive could not be opened (err=%d)", modArchiveLastError());
+		return 0;
+	}
+
+	u32 mfst_size = 0;
+	char *mfst = modArchiveReadManifest(arc, &mfst_size);
+	if (!mfst) {
+		modmgrSetError(out_error, error_len, "Archive is missing root mod.json");
+		modArchiveClose(arc);
+		return 0;
+	}
+	free(mfst);
+	(void)mfst_size;
+
+	char badEntry[FS_MAXPATH + 1];
+	char badKind[64];
+	if (modmgrArchiveFindForbiddenPublicPayload(arc, badEntry,
+			sizeof(badEntry), badKind, sizeof(badKind))) {
+		modmgrSetError(out_error, error_len,
+			"External-format archives cannot contain %s payloads: %s",
+			badKind, badEntry);
+		modArchiveClose(arc);
+		return 0;
+	}
+
+	modArchiveClose(arc);
+	return 1;
 }
 
 /* Try to register a single archive at `archivePath`. The archive is opened,
@@ -1418,14 +1614,16 @@ static s32 modmgrTryRegisterArchive(const char *archivePath, const char *display
 
 	if (ok) {
 		char badEntry[FS_MAXPATH + 1];
-		if (modmgrArchiveFindForbiddenBinPayload(arc, badEntry, sizeof(badEntry))) {
+		char badKind[64];
+		if (modmgrArchiveFindForbiddenPublicPayload(arc, badEntry,
+				sizeof(badEntry), badKind, sizeof(badKind))) {
 			mod->valid = false;
 			snprintf(mod->validation_error, MODMGR_ERROR_LEN,
-				"External-format archives cannot contain .bin authoring payloads: %s",
-				badEntry);
+				"External-format archives cannot contain %s payloads: %s",
+				badKind, badEntry);
 			sysLogPrintf(LOG_ERROR,
-				"modmgr: archive '%s' rejected for authored .bin payload '%s'",
-				archivePath, badEntry);
+				"modmgr: archive '%s' rejected for %s payload '%s'",
+				archivePath, badKind, badEntry);
 		}
 	}
 
@@ -3105,6 +3303,89 @@ void modmgrCatalogChanged(void)
 const char *modmgrGetModsDir(void)
 {
 	return g_ModsDirPath[0] ? g_ModsDirPath : NULL;
+}
+
+s32 modmgrInstallArchiveFile(const char *archive_path,
+                             s32 enable_now,
+                             char *out_error,
+                             s32 error_len)
+{
+	if (out_error && error_len > 0) out_error[0] = '\0';
+	if (!modmgrValidateArchiveFile(archive_path, out_error, error_len)) {
+		return -1;
+	}
+
+	const char *modsdir = modmgrGetModsDir();
+	char fallback_mods[FS_MAXPATH + 1];
+	if (!modsdir || !modsdir[0]) {
+		fsFullPath("./" MODMGR_MODS_DIR, fallback_mods, sizeof(fallback_mods));
+		fsCreateDir(fallback_mods);
+		modsdir = fallback_mods;
+	}
+
+	char install_dir[FS_MAXPATH + 1];
+	snprintf(install_dir, sizeof(install_dir), "%s/installed", modsdir);
+	fsCreateDir(install_dir);
+
+	char safe[96];
+	modmgrSanitizeInstallFilename(archive_path, safe, sizeof(safe));
+
+	char dst[FS_MAXPATH + 1];
+	snprintf(dst, sizeof(dst), "%s/%s", install_dir, safe);
+	if (!modmgrCopyFileAtomic(archive_path, dst)) {
+		modmgrSetError(out_error, error_len,
+			"Archive could not be installed to %s", dst);
+		return -1;
+	}
+
+	modmgrRescanDirectory();
+
+	s32 found = -1;
+	s32 leaf_match = -1;
+	for (s32 i = 0; i < g_ModRegistryCount; i++) {
+		modinfo_t *mod = &g_ModRegistry[i];
+		if (!mod->is_archive || !mod->archive_path[0]) continue;
+		if (modmgrPathEqualsNoCase(mod->archive_path, dst)) {
+			found = i;
+			break;
+		}
+		if (modmgrPathEqualsNoCase(modmgrPathLeaf(mod->archive_path), safe)) {
+			leaf_match = i;
+		}
+	}
+	if (found < 0) found = leaf_match;
+	if (found < 0) {
+		modmgrSetError(out_error, error_len,
+			"Installed archive was not found in the mod registry");
+		return -1;
+	}
+
+	modinfo_t *mod = &g_ModRegistry[found];
+	if (!mod->valid) {
+		modmgrSetError(out_error, error_len, "%s",
+			mod->validation_error[0] ? mod->validation_error : "Installed archive is invalid");
+		return -1;
+	}
+
+	if (enable_now) {
+		char missing[256];
+		if (modmgrCheckDependencies(found, missing, sizeof(missing)) > 0) {
+			modmgrSetError(out_error, error_len,
+				"Installed archive is missing dependencies: %s", missing);
+			return -1;
+		}
+		if (!mod->enabled) {
+			modmgrSetEnabled(found, 1);
+			modmgrApplyChanges();
+		} else {
+			modmgrSyncCatalogToRegistry();
+		}
+	}
+
+	sysLogPrintf(LOG_NOTE,
+		"modmgr: installed .pdmod archive -> %s%s",
+		dst, enable_now ? " and applied" : "");
+	return found;
 }
 
 s32 modmgrGetSizeThresholdMB(void)

@@ -27,7 +27,7 @@
   ],
   "input_sequence": [
     { "at_ms": 0, "type": "wait", "comment": "catalog bootstrap extracts and walks base character animation archives before the source probe runs." },
-    { "at_ms": 33000, "type": "exit", "comment": "exit after the probe has loaded, compiled, installed, and decoded the source-built animation clip." }
+    { "at_ms": 90000, "type": "exit", "comment": "exit after cold catalog extraction plus the probe has loaded, compiled, installed, and decoded the source-built animation clip." }
   ],
   "assertions": {
     "required_lines": [

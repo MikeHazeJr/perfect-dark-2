@@ -19,10 +19,10 @@
  *
  * Reuses port/src/modarchive.c writer subset for ZIP atomic writes.
  *
- * Step 1 cross-reference convention: emits source_filenum_symbol with
- * the FILE_* enum string (provenance hint) and the catalog ID is
- * synthesized from the symbol (e.g. FILE_GFALCON2 ->
- * base:model_falcon2_hi). Numeric filenums remain provenance metadata.
+ * Step 1 cross-reference convention: emits source_filenum_symbol under
+ * _meta/manifest.json with the FILE_* enum string (private provenance hint)
+ * and the catalog ID is synthesized from the symbol (e.g. FILE_GFALCON2 ->
+ * base:model_falcon2_hi). Numeric filenums remain private provenance metadata.
  */
 
 #include <stdio.h>
@@ -2443,8 +2443,7 @@ static s32 s_emitOneMesh(u16 filenum, const char *hint_suffix,
 		"display_list_count = %u\n"
 		"render_command_count = %u\n"
 		"matrix_command_count = %u\n"
-		"model_matrix_reference_count = %u\n"
-		"source_filenum_symbol = %s\n",
+		"model_matrix_reference_count = %u\n",
 		catalog_id,
 		ROMEXTRACT_PDMESH_OBJ_EXPORT_VERSION_LABEL,
 		(double)stats.model_scale,
@@ -2458,8 +2457,7 @@ static s32 s_emitOneMesh(u16 filenum, const char *hint_suffix,
 		(unsigned)stats.gdl_count,
 		(unsigned)stats.render_cmd_count,
 		(unsigned)stats.mtx_cmd_count,
-		(unsigned)stats.mtx_model_ref_count,
-		sym_for_provenance ? sym_for_provenance : "");
+		(unsigned)stats.mtx_model_ref_count);
 	if (ini_len <= 0 || (size_t)ini_len >= sizeof(ini_buf)) {
 		s_textbufFree(&obj_buf);
 		s_textbufFree(&mtl_buf);

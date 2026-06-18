@@ -10,10 +10,10 @@
  * the bounded custom spark registry (src/game/sparks_custom.c).
  *
  * Bridge contract (frozen at Unit 1b, signatures unchanged): each bridge
- * returns the OG fallback verbatim unless the Debug.WeaponGraphRuntime
- * toggle is on AND the ref resolves to a registered record carrying the
- * requested field. With the toggle off every consumer is bit-identical
- * to OG.
+ * returns the OG fallback verbatim unless the shared weapon graph runtime
+ * gate is enabled AND the ref resolves to a registered record carrying the
+ * requested field. Product builds keep the gate enabled after Wave 7; tests
+ * can still disable it to prove OG fallback parity.
  */
 #ifndef _IN_EFFECT_GRAPH_RUNTIME_H
 #define _IN_EFFECT_GRAPH_RUNTIME_H
@@ -94,14 +94,14 @@ void effectGraphRuntimeClearAsset(const char *asset_id);
  * (sparksResetCustomTypes), so a full mod reload cannot leak rows. */
 void effectGraphRuntimeClearAll(void);
 
-/* Get is ungated (tests/tools); GetForGameplay returns NULL unless the
- * Debug.WeaponGraphRuntime toggle is on. */
+/* Get is ungated (tests/tools); GetForGameplay follows the shared weapon
+ * graph runtime gate. */
 const effect_graph_runtime_t *effectGraphRuntimeGet(const char *asset_id);
 const effect_graph_runtime_t *effectGraphRuntimeGetForGameplay(
 	const char *asset_id);
 
 /* Returns the EXPLOSIONTYPE_* for effect_ref when it resolves and the
- * runtime toggle is on; fallback_exptype otherwise. */
+ * runtime gate is enabled; fallback_exptype otherwise. */
 s32 effectGraphResolveExplosionType(const char *effect_ref, s32 fallback_exptype);
 
 /* Returns the SPARKTYPE_* (a custom registry row index for tinted sparks)

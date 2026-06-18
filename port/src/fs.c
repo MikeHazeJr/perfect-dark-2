@@ -285,7 +285,7 @@ const char *fsFullPath(const char *relPath, char *out, size_t outSize)
 	if (catResolved) {
 		snprintf(out, outSize, "%s", catResolved);
 		if (strstr(relPath, "bgdata/")) {
-			sysLogPrintf(LOG_NOTE, "FSPATH: \"%s\" -> CATALOG -> \"%s\"", relPath, out);
+			sysLogPrintf(LOG_VERBOSE, "FSPATH: \"%s\" -> CATALOG -> \"%s\"", relPath, out);
 		}
 		return out;
 	}
@@ -295,7 +295,7 @@ const char *fsFullPath(const char *relPath, char *out, size_t outSize)
 	if (modResolved) {
 		snprintf(out, outSize, "%s", modResolved);
 		if (strstr(relPath, "bgdata/")) {
-			sysLogPrintf(LOG_NOTE, "FSPATH: \"%s\" -> MODMGR -> \"%s\"", relPath, out);
+			sysLogPrintf(LOG_VERBOSE, "FSPATH: \"%s\" -> MODMGR -> \"%s\"", relPath, out);
 		}
 		return out;
 	}
@@ -305,7 +305,7 @@ const char *fsFullPath(const char *relPath, char *out, size_t outSize)
 		snprintf(out, outSize, "%s/%s", modDir, relPath);
 		if (fsFileSize(out) >= 0) {
 			if (strstr(relPath, "bgdata/")) {
-				sysLogPrintf(LOG_NOTE, "FSPATH: \"%s\" -> MODDIR -> \"%s\"", relPath, out);
+				sysLogPrintf(LOG_VERBOSE, "FSPATH: \"%s\" -> MODDIR -> \"%s\"", relPath, out);
 			}
 			return out;
 		}
@@ -314,7 +314,7 @@ const char *fsFullPath(const char *relPath, char *out, size_t outSize)
 	// fall back to basedir
 	snprintf(out, outSize, "%s/%s", baseDir, relPath);
 	if (strstr(relPath, "bgdata/")) {
-		sysLogPrintf(LOG_NOTE, "FSPATH: \"%s\" -> BASEDIR -> \"%s\"", relPath, out);
+		sysLogPrintf(LOG_VERBOSE, "FSPATH: \"%s\" -> BASEDIR -> \"%s\"", relPath, out);
 	}
 	return out;
 }

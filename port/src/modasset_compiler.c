@@ -7,6 +7,7 @@
  */
 
 #include <ctype.h>
+#include <errno.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdint.h>
@@ -3390,6 +3391,76 @@ static s32 cachePathExists(const char *path)
 	return path && path[0] && fsFileSize(path) >= 0;
 }
 
+static s32 ensureCacheFileParentDirs(const char *path)
+{
+	char dir[FS_MAXPATH];
+	char *slash;
+	char *p;
+
+	if (!path || !path[0]) {
+		return 0;
+	}
+
+	strncpy(dir, path, sizeof(dir) - 1);
+	dir[sizeof(dir) - 1] = '\0';
+
+	slash = strrchr(dir, '/');
+#ifdef PLATFORM_WIN32
+	{
+		char *backslash = strrchr(dir, '\\');
+		if (!slash || (backslash && backslash > slash)) {
+			slash = backslash;
+		}
+	}
+#endif
+	if (!slash) {
+		return 1;
+	}
+	*slash = '\0';
+
+	p = dir;
+	if (p[0] == '$' && p[1] != '\0') {
+		p += 2;
+	} else if (p[0] == '/' || p[0] == '\\') {
+		p += 1;
+#ifdef PLATFORM_WIN32
+	} else if (p[0] != '\0' && p[1] == ':') {
+		p += 2;
+#endif
+	}
+
+	for (; *p; p++) {
+		if (*p != '/' && *p != '\\') {
+			continue;
+		}
+		*p = '\0';
+		if (dir[0] && !fsCreateDir(dir)) {
+			*p = '/';
+			return 0;
+		}
+		*p = '/';
+	}
+
+	return fsCreateDir(dir);
+}
+
+static void logCacheOpenWriteFailure(const char *label, const char *path)
+{
+	char full_path[FS_MAXPATH + 1];
+
+	full_path[0] = '\0';
+	if (path && path[0]) {
+		fsFullPath(path, full_path, sizeof(full_path));
+	}
+
+	sysLogPrintf(LOG_WARNING,
+		"MODASSET.COMPILER: could not open %s cache '%s' for write full='%s' errno=%d",
+		label ? label : "normalized",
+		path ? path : "(null)",
+		full_path[0] ? full_path : "(unresolved)",
+		errno);
+}
+
 static s32 writeObjMeshJson(const char *path, const asset_entry_t *entry,
                             const char *asset_kind, const char *source_path,
                             const char *source_sha256, const obj_mesh_t *mesh)
@@ -3400,8 +3471,10 @@ static s32 writeObjMeshJson(const char *path, const asset_entry_t *entry,
 		return 0;
 	}
 
+	ensureCacheFileParentDirs(path);
 	f = fsFileOpenWrite(path);
 	if (!f) {
+		logCacheOpenWriteFailure("mesh", path);
 		return 0;
 	}
 
@@ -3465,8 +3538,10 @@ static s32 writeModelMeshJson(const char *path, const asset_entry_t *entry,
 		return 0;
 	}
 
+	ensureCacheFileParentDirs(path);
 	f = fsFileOpenWrite(path);
 	if (!f) {
+		logCacheOpenWriteFailure("model", path);
 		return 0;
 	}
 
@@ -3533,8 +3608,10 @@ static s32 writeAnimationClipJson(const char *path, const asset_entry_t *entry,
 		return 0;
 	}
 
+	ensureCacheFileParentDirs(path);
 	f = fsFileOpenWrite(path);
 	if (!f) {
+		logCacheOpenWriteFailure("animation", path);
 		return 0;
 	}
 
@@ -3590,8 +3667,10 @@ static s32 writeCacheDescriptor(const char *path,
 {
 	FILE *f;
 
+	ensureCacheFileParentDirs(path);
 	f = fsFileOpenWrite(path);
 	if (!f) {
+		logCacheOpenWriteFailure("descriptor", path);
 		return 0;
 	}
 
@@ -3676,6 +3755,8 @@ s32 modAssetCompilerCompileReadable(const asset_entry_t *entry,
 	void *source_bytes;
 	u8 digest[SHA256_DIGEST_SIZE];
 	char digest_hex[SHA256_HEX_SIZE];
+	char digest_key[33];
+	char animation_digest_key[17];
 	char mod_part[96];
 	char asset_part[96];
 	char kind_part[48];
@@ -3717,6 +3798,10 @@ s32 modAssetCompilerCompileReadable(const asset_entry_t *entry,
 
 	sha256Hash(source_bytes, (size_t)source_size, digest);
 	sha256ToHex(digest, digest_hex);
+	memcpy(digest_key, digest_hex, sizeof(digest_key) - 1);
+	digest_key[sizeof(digest_key) - 1] = '\0';
+	memcpy(animation_digest_key, digest_hex, sizeof(animation_digest_key) - 1);
+	animation_digest_key[sizeof(animation_digest_key) - 1] = '\0';
 
 	sanitizePathPart(entry->category[0] ? entry->category : "mod", mod_part, sizeof(mod_part));
 	sanitizePathPart(entry->id, asset_part, sizeof(asset_part));
@@ -3739,7 +3824,7 @@ s32 modAssetCompilerCompileReadable(const asset_entry_t *entry,
 	snprintf(cache_rel, sizeof(cache_rel),
 		"%s/%s/%s/%s-v%d-%s.pdmc",
 		cache_root, mod_part, asset_part, kind_part,
-		MODASSET_COMPILER_VERSION, digest_hex);
+		MODASSET_COMPILER_VERSION, digest_key);
 
 	normalized_rel[0] = '\0';
 	source_kind = sourceKindForPath(source_path);
@@ -3747,29 +3832,29 @@ s32 modAssetCompilerCompileReadable(const asset_entry_t *entry,
 		snprintf(normalized_rel, sizeof(normalized_rel),
 			"%s/%s/%s/%s-v%d-%s.pdmodel.json",
 			cache_root, mod_part, asset_part, kind_part,
-			MODASSET_COMPILER_MODELDEF_VERSION, digest_hex);
+			MODASSET_COMPILER_MODELDEF_VERSION, digest_key);
 	} else if (strcmp(source_kind, "obj") == 0) {
 		snprintf(normalized_rel, sizeof(normalized_rel),
 			"%s/%s/%s/%s-v%d-%s.pdmesh.json",
 			cache_root, mod_part, asset_part, kind_part,
-			MODASSET_COMPILER_VERSION, digest_hex);
+			MODASSET_COMPILER_VERSION, digest_key);
 	} else if ((strcmp(source_kind, "gltf") == 0 || strcmp(source_kind, "glb") == 0)
 			&& assetKindUsesGeneratedModeldef(asset_kind)) {
 		snprintf(normalized_rel, sizeof(normalized_rel),
 			"%s/%s/%s/%s-v%d-%s.pdmodel.json",
 			cache_root, mod_part, asset_part, kind_part,
-			MODASSET_COMPILER_MODELDEF_VERSION, digest_hex);
+			MODASSET_COMPILER_MODELDEF_VERSION, digest_key);
 	} else if ((strcmp(source_kind, "gltf") == 0 || strcmp(source_kind, "glb") == 0)
 			&& assetKindUsesGeneratedAnimationClip(asset_kind)) {
 		snprintf(normalized_rel, sizeof(normalized_rel),
 			"%s/%s/%s/%s-v%d-%s.pdanimation.json",
 			cache_root, mod_part, asset_part, kind_part,
-			MODASSET_COMPILER_VERSION, digest_hex);
+			MODASSET_COMPILER_VERSION, animation_digest_key);
 	} else if (strcmp(source_kind, "gltf") == 0 || strcmp(source_kind, "glb") == 0) {
 		snprintf(normalized_rel, sizeof(normalized_rel),
 			"%s/%s/%s/%s-v%d-%s.pdmesh.json",
 			cache_root, mod_part, asset_part, kind_part,
-			MODASSET_COMPILER_VERSION, digest_hex);
+			MODASSET_COMPILER_VERSION, digest_key);
 	}
 
 	if (cachePathExists(cache_rel)
@@ -4081,6 +4166,7 @@ typedef struct generated_render_stream {
 
 static generated_modeldef_t *s_GeneratedModeldefs = NULL;
 static s32 s_GeneratedModeldefRenderAuditEnabled = 0;
+static s32 s_NeedlerRenderAuditWitnessFrames = 0;
 
 static void generatedModeldefRegister(generated_modeldef_t *owner)
 {
@@ -4128,6 +4214,16 @@ void modAssetCompilerSetGeneratedModeldefRenderAudit(s32 enabled)
 s32 modAssetCompilerGeneratedModeldefRenderAuditEnabled(void)
 {
 	return s_GeneratedModeldefRenderAuditEnabled;
+}
+
+s32 modAssetCompilerNeedlerRenderAuditWitnessActive(void)
+{
+	if (s_NeedlerRenderAuditWitnessFrames > 0) {
+		--s_NeedlerRenderAuditWitnessFrames;
+		return 1;
+	}
+
+	return 0;
 }
 
 s32 modAssetCompilerModeldefIsGenerated(const struct modeldef *modeldef)
@@ -4198,6 +4294,12 @@ void modAssetCompilerTraceGeneratedModeldefRenderStep(
 		numvertices,
 		mcount,
 		owner->triangle_count);
+
+	if (stage && strcmp(stage, "dl-post-opa-displaylist") == 0
+			&& strcmp(owner->catalog_id, "mod_needler:needler_model") == 0) {
+		s_NeedlerRenderAuditWitnessFrames = 300;
+		sysLogPrintf(LOG_NOTE, "NEEDLER SOURCE MODEL RENDERED");
+	}
 }
 
 static s16 clampToS16(f32 value)
@@ -4417,7 +4519,7 @@ static void fillGeneratedVertex(Vtx *dst, const obj_vertex_t *src,
 	dst->x = clampToS16(src->x);
 	dst->y = clampToS16(src->y);
 	dst->z = clampToS16(src->z);
-	dst->colour = 0;
+	dst->colour = 0xffffffffu;
 	if (texcoord) {
 		dst->s = clampToS16(texcoord->u * 32.0f);
 		dst->t = clampToS16((1.0f - texcoord->v) * 32.0f);
@@ -5558,9 +5660,16 @@ static s32 generatedModeldefReadHierarchy(const char *source_path,
 }
 
 static s32 generatedModeldefTriangleUsesGroup(const obj_triangle_t *tri,
+                                              const char *group_name,
                                               s32 group_index)
 {
-	return group_index >= 0 && tri && tri->group_index == group_index;
+	if (!tri) {
+		return 0;
+	}
+	if (group_name && strcmp(group_name, "-") == 0) {
+		return 1;
+	}
+	return group_index >= 0 && tri->group_index == group_index;
 }
 
 static s32 generatedRenderRowUsesGroup(const generated_render_row_t *row,
@@ -5589,7 +5698,8 @@ static s32 generatedRenderStreamTriCount(
 				row->face < 0 ||
 				row->face >= mesh->triangle_count ||
 				!generatedModeldefTriangleUsesGroup(
-					&mesh->triangles[row->face], group_index)) {
+					&mesh->triangles[row->face],
+					group_name, group_index)) {
 			continue;
 		}
 		count++;
@@ -5645,7 +5755,8 @@ static s32 generatedModeldefBuildPayload(const obj_mesh_t *mesh,
 				continue;
 			}
 			tri = &mesh->triangles[row->face];
-			if (!generatedModeldefTriangleUsesGroup(tri, group_index)) {
+			if (!generatedModeldefTriangleUsesGroup(tri, group_name,
+					group_index)) {
 				continue;
 			}
 			if (tri->material_index != last_material) {
@@ -5656,7 +5767,8 @@ static s32 generatedModeldefBuildPayload(const obj_mesh_t *mesh,
 	} else {
 		for (s32 i = 0, last_material = -2; i < mesh->triangle_count; i++) {
 			const obj_triangle_t *tri = &mesh->triangles[i];
-			if (!generatedModeldefTriangleUsesGroup(tri, group_index)) {
+			if (!generatedModeldefTriangleUsesGroup(tri, group_name,
+					group_index)) {
 				continue;
 			}
 			tri_count++;
@@ -5682,7 +5794,8 @@ static s32 generatedModeldefBuildPayload(const obj_mesh_t *mesh,
 					continue;
 				}
 				tri = &mesh->triangles[row->face];
-				if (generatedModeldefTriangleUsesGroup(tri, group_index) &&
+				if (generatedModeldefTriangleUsesGroup(tri, group_name,
+							group_index) &&
 						tri->material_index == m) {
 					textured_material_count++;
 					break;
@@ -5691,7 +5804,8 @@ static s32 generatedModeldefBuildPayload(const obj_mesh_t *mesh,
 		} else {
 			for (s32 i = 0; i < mesh->triangle_count; i++) {
 				const obj_triangle_t *tri = &mesh->triangles[i];
-				if (generatedModeldefTriangleUsesGroup(tri, group_index) &&
+				if (generatedModeldefTriangleUsesGroup(tri, group_name,
+							group_index) &&
 						tri->material_index == m) {
 					textured_material_count++;
 					break;
@@ -5758,7 +5872,8 @@ static s32 generatedModeldefBuildPayload(const obj_mesh_t *mesh,
 				continue;
 			}
 			tri = &mesh->triangles[row->face];
-			if (!generatedModeldefTriangleUsesGroup(tri, group_index)) {
+			if (!generatedModeldefTriangleUsesGroup(tri, group_name,
+					group_index)) {
 				continue;
 			}
 			ta = objMeshTexcoord(mesh, tri->ta);
@@ -5778,7 +5893,8 @@ static s32 generatedModeldefBuildPayload(const obj_mesh_t *mesh,
 			const obj_texcoord_t *ta;
 			const obj_texcoord_t *tb;
 			const obj_texcoord_t *tc;
-			if (!generatedModeldefTriangleUsesGroup(tri, group_index)) {
+			if (!generatedModeldefTriangleUsesGroup(tri, group_name,
+					group_index)) {
 				continue;
 			}
 			ta = objMeshTexcoord(mesh, tri->ta);
@@ -5866,7 +5982,8 @@ static s32 generatedModeldefBuildPayload(const obj_mesh_t *mesh,
 			}
 
 			tri = &mesh->triangles[row->face];
-			if (!generatedModeldefTriangleUsesGroup(tri, group_index)) {
+			if (!generatedModeldefTriangleUsesGroup(tri, group_name,
+					group_index)) {
 				continue;
 			}
 
@@ -5904,7 +6021,8 @@ static s32 generatedModeldefBuildPayload(const obj_mesh_t *mesh,
 			const obj_material_t *material;
 			uintptr_t offset;
 			s32 tri_matrix;
-			if (!generatedModeldefTriangleUsesGroup(tri, group_index)) {
+			if (!generatedModeldefTriangleUsesGroup(tri, group_name,
+					group_index)) {
 				continue;
 			}
 			material = objMeshTriangleMaterial(mesh, tri);
@@ -6299,6 +6417,7 @@ static s32 buildGeneratedModeldefFromMeshHierarchy(const asset_entry_t *entry,
 	s32 max_mtx = -1;
 	s32 payload_count = 0;
 	struct skeleton *skeleton;
+	s32 chr_root;
 	s32 read_rc;
 	s32 render_stream_rc;
 
@@ -6344,7 +6463,9 @@ static s32 buildGeneratedModeldefFromMeshHierarchy(const asset_entry_t *entry,
 		return -1;
 	}
 	owner->dynamic_payload_count = hierarchy.row_count;
-	skeleton = generatedModeldefSkeletonFromMetadata(source_path);
+	chr_root = generatedModeldefNeedsChrRoot(entry);
+	skeleton = chr_root ? &g_SkelChr :
+		generatedModeldefSkeletonFromMetadata(source_path);
 
 	if (entry && entry->id[0]) {
 		strncpy(owner->catalog_id, entry->id, sizeof(owner->catalog_id) - 1);
@@ -6373,6 +6494,9 @@ static s32 buildGeneratedModeldefFromMeshHierarchy(const asset_entry_t *entry,
 		if (node_type == MODELNODETYPE_GUNDL &&
 				!generatedModeldefPreserveGunDlType(skeleton)) {
 			node_type = MODELNODETYPE_DL;
+		}
+		if (chr_root && i == 0) {
+			node_type = MODELNODETYPE_CHRINFO;
 		}
 
 		if (generatedModeldefTypeIsRender(node_type)) {

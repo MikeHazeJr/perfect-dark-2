@@ -48,6 +48,7 @@ src/generated
 devtools/dev-window-v2/settings.json
 devtools/dev-window-v2/dev-window-v2-debug.log
 devtools/dev-window-v2/dev-window-v2-console.log*
+.pdxxx-dev-extracts/
 
 # Tools
 tools/mkrom/mkrom
@@ -76,6 +77,11 @@ logs/
 
 # Claude Code per-session scratch (final reports, ad-hoc test scripts, etc.)
 .claude/scratch/
+
+# Smoke verification generated output and runtime caches
+.claude/smoke-verify-runs/
+.claude/smoke-verify-install/mod-cache/
+.claude/smoke-verify-install/logs/
 
 # Claude Code local settings (machine-specific, not committed)
 .claude/settings.local.json

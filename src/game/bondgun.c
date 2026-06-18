@@ -1,4 +1,5 @@
 #include <ultra64.h>
+#include <string.h>
 #include "constants.h"
 #include "memsizes.h"
 #include "asset_fallback_telemetry.h" /* c3849 Wave 1 */
@@ -68,6 +69,7 @@
 #include "net/net.h"
 #include "net/netmsg.h"
 #include "modasset_compiler.h"
+#include "fs.h"
 #include "loader_pool.h"
 #include "system.h" /* B-246 instrumentation: sysLogPrintf for LOG.WPN.DIAG lines */
 
@@ -4448,18 +4450,109 @@ static const char *bgunQueuedModelSourcePath(struct player *player)
 	return fileProviderPath(player->gunctrl.loadhandle);
 }
 
+static bool bgunPathEndsWithNoCase(const char *path, const char *suffix)
+{
+	size_t path_len;
+	size_t suffix_len;
+	size_t i;
+
+	if (!path || !suffix) {
+		return false;
+	}
+
+	path_len = strlen(path);
+	suffix_len = strlen(suffix);
+
+	if (suffix_len > path_len) {
+		return false;
+	}
+
+	path += path_len - suffix_len;
+
+	for (i = 0; i < suffix_len; i++) {
+		char a = path[i];
+		char b = suffix[i];
+
+		if (a >= 'A' && a <= 'Z') {
+			a = (char)(a - 'A' + 'a');
+		}
+
+		if (b >= 'A' && b <= 'Z') {
+			b = (char)(b - 'A' + 'a');
+		}
+
+		if (a != b) {
+			return false;
+		}
+	}
+
+	return true;
+}
+
+static bool bgunResolveCatalogModelSourcePath(const char *source_path, char *out, size_t out_cap)
+{
+	static const char *const members[] = {
+		"model.obj",
+		"model.gltf",
+		"model.glb",
+	};
+	size_t i;
+
+	if (!out || out_cap == 0) {
+		return false;
+	}
+
+	out[0] = '\0';
+
+	if (!source_path || source_path[0] == '\0') {
+		return false;
+	}
+
+	if (modAssetCompilerIsExternalSource(source_path)) {
+		snprintf(out, out_cap, "%s", source_path);
+		out[out_cap - 1] = '\0';
+		return true;
+	}
+
+	if (!bgunPathEndsWithNoCase(source_path, ".pdmesh")) {
+		return false;
+	}
+
+	for (i = 0; i < sizeof(members) / sizeof(members[0]); i++) {
+		char candidate[FS_MAXPATH + 1];
+
+		snprintf(candidate, sizeof(candidate), "%s::%s", source_path, members[i]);
+		candidate[sizeof(candidate) - 1] = '\0';
+
+		if (fsFileSize(candidate) > 0) {
+			snprintf(out, out_cap, "%s", candidate);
+			out[out_cap - 1] = '\0';
+			return true;
+		}
+	}
+
+	return false;
+}
+
 static bool bgunQueuedLoadUsesExternalModelSource(struct player *player)
 {
-	return modAssetCompilerIsExternalSource(bgunQueuedModelSourcePath(player)) != 0;
+	char resolved_source_path[FS_MAXPATH + 1];
+
+	return bgunResolveCatalogModelSourcePath(
+		bgunQueuedModelSourcePath(player),
+		resolved_source_path,
+		sizeof(resolved_source_path));
 }
 
 static struct modeldef *bgunQueuedLoadCatalogModelSource(struct player *player)
 {
 	const char *source_path = bgunQueuedModelSourcePath(player);
+	char resolved_source_path[FS_MAXPATH + 1];
 	const char *model_id;
 	struct modeldef *modeldef;
 
-	if (!modAssetCompilerIsExternalSource(source_path)) {
+	if (!bgunResolveCatalogModelSourcePath(source_path,
+			resolved_source_path, sizeof(resolved_source_path))) {
 		return NULL;
 	}
 
@@ -4469,7 +4562,7 @@ static struct modeldef *bgunQueuedLoadCatalogModelSource(struct player *player)
 		sysLogPrintf(LOG_WARNING,
 			"BONDGUN.SOURCE: external model source filenum=%d path=%s has no ASSET_MODEL catalog id",
 			(s32)player->gunctrl.loadfilenum,
-			source_path ? source_path : "(null)");
+			resolved_source_path[0] ? resolved_source_path : (source_path ? source_path : "(null)"));
 		return NULL;
 	}
 
@@ -4478,7 +4571,7 @@ static struct modeldef *bgunQueuedLoadCatalogModelSource(struct player *player)
 			"BONDGUN.SOURCE: catalog model source load failed filenum=%d id=%s path=%s",
 			(s32)player->gunctrl.loadfilenum,
 			model_id,
-			source_path ? source_path : "(null)");
+			resolved_source_path[0] ? resolved_source_path : (source_path ? source_path : "(null)"));
 		return NULL;
 	}
 
@@ -4489,7 +4582,7 @@ static struct modeldef *bgunQueuedLoadCatalogModelSource(struct player *player)
 			"BONDGUN.SOURCE: catalog model source produced NULL modeldef filenum=%d id=%s path=%s",
 			(s32)player->gunctrl.loadfilenum,
 			model_id,
-			source_path ? source_path : "(null)");
+			resolved_source_path[0] ? resolved_source_path : (source_path ? source_path : "(null)"));
 		return NULL;
 	}
 
@@ -4503,7 +4596,7 @@ static struct modeldef *bgunQueuedLoadCatalogModelSource(struct player *player)
 		"BONDGUN.SOURCE: loaded catalog model source filenum=%d id=%s path=%s",
 		(s32)player->gunctrl.loadfilenum,
 		model_id,
-		source_path ? source_path : "(null)");
+		resolved_source_path[0] ? resolved_source_path : (source_path ? source_path : "(null)"));
 
 	return modeldef;
 }
@@ -9082,6 +9175,10 @@ void bgun0f0a5550(s32 handnum)
 			struct coord sp74;
 			s32 stack;
 			s32 sp6c;
+			struct modeldef *gunmodeldef = hand->gunmodel.definition;
+			bool use_static_source_matrices = gunmodeldef != NULL
+				&& gunmodeldef->skel == NULL
+				&& modAssetCompilerModeldefIsGenerated(gunmodeldef);
 
 			renderdata.unk00 = &sp2c4;
 			renderdata.unk10 = hand->gunmodel.matrices;
@@ -9137,7 +9234,13 @@ void bgun0f0a5550(s32 handnum)
 				var8005efb0_2 = true;
 			}
 
-			modelSetMatricesWithAnim(&renderdata, &hand->gunmodel);
+			if (use_static_source_matrices) {
+				hand->gunmodel.matrices = renderdata.unk10;
+				renderdata.unk10 += hand->gunmodel.definition->nummatrices;
+				modelUpdateMatrices(&renderdata, &hand->gunmodel);
+			} else {
+				modelSetMatricesWithAnim(&renderdata, &hand->gunmodel);
+			}
 
 			var8005efd8_2 = false;
 
@@ -9145,7 +9248,13 @@ void bgun0f0a5550(s32 handnum)
 				var8005efb0_2 = false;
 			}
 #else
-			modelSetMatricesWithAnim(&renderdata, &hand->gunmodel);
+			if (use_static_source_matrices) {
+				hand->gunmodel.matrices = renderdata.unk10;
+				renderdata.unk10 += hand->gunmodel.definition->nummatrices;
+				modelUpdateMatrices(&renderdata, &hand->gunmodel);
+			} else {
+				modelSetMatricesWithAnim(&renderdata, &hand->gunmodel);
+			}
 #endif
 
 			/* B-246 round-8 instrumentation: bone-snapshot at IDLE<->FIRE
@@ -12431,6 +12540,12 @@ void bgunRender(Gfx **gdlptr)
 			}
 
 			renderdata.zbufferenabled = true;
+
+			if (hand->gunmodel.definition
+					&& hand->gunmodel.definition->skel == NULL
+					&& modAssetCompilerModeldefIsGenerated(hand->gunmodel.definition)) {
+				renderdata.zbufferenabled = false;
+			}
 
 			mtx00016760();
 

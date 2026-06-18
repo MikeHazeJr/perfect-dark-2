@@ -43,6 +43,12 @@ void assetCatalogResetCustomModelSlots(void);
  * when the private range is exhausted (logs CATALOG.MODEL.CUSTOM_SLOT_FAIL). */
 s32 assetCatalogResolveModelPrivateSlot(const char *catalog_id);
 
+/* Map a private model runtime slot to its matching private source_filenum.
+ * This is only for legacy loaders that still ask for a model by filenum
+ * (notably bgun first-person weapon models). The filenum is a catalog/provider
+ * bridge, not a public mod identity. */
+s32 assetCatalogModelPrivateSourceFilenum(s32 runtime_model_slot);
+
 #ifdef __cplusplus
 }
 #endif

@@ -1,7 +1,7 @@
 # Input System Repair Plan
 
-**Date**: 2026-04-09  
-**Status**: REVIEW — do not implement without Mike's approval  
+**Date**: 2026-04-09
+**Status**: REVIEW — do not implement without Mike's approval
 **Scope**: Compare original (working) input system with current (broken) action map migration
 
 ---
@@ -91,7 +91,7 @@ The mouse aim path must remain exclusively through `inputMouseGetScaledDelta()` 
 exactly as the original worked. The `ACTION_AXIS_AIM_X/Y` values should only come from
 controller right stick.
 
-**File**: `port/src/actionmap.cpp` lines 798-813  
+**File**: `port/src/actionmap.cpp` lines 798-813
 **Change**: Remove the mouse delta → AIM axis block entirely. Mouse aim is handled by
 the existing `inputMouseGetScaledDelta()` path in bondmove.c:1033.
 
@@ -117,7 +117,7 @@ WASD → `actionValue = ±1.0` → `× 80` = ±80. Original gave ±128/127.
 
 **Fix**: Change multiplier from `80.0f` to `127.0f` to match original range.
 
-**File**: `src/game/bondmove.c` lines 940-941  
+**File**: `src/game/bondmove.c` lines 940-941
 **Change**:
 ```c
 c1stickx = allowc1x ? (s8)(actionValue((s32)contpad1, ACTION_AXIS_MOVE_X) * 127.0f) : 0;

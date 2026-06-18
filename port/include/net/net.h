@@ -9,7 +9,13 @@
 /* Forward declaration — avoids pulling enet.h into every translation unit */
 typedef struct _ENetAddress ENetAddress;
 
-#define NET_PROTOCOL_VER 50  /* v50 (2026-06-08): SVC_CATALOG_INFO is now
+#define NET_PROTOCOL_VER 51  /* v51 (2026-06-17): c3849 Wave 7 cuts the
+                              * weapon graph runtime over to product-default
+                              * ON, retires the old user toggle plus its
+                              * transient stage-start options bit, and relies
+                              * on the auth handshake to reject mixed v50/v51
+                              * play.
+                              * v50 (2026-06-08): SVC_CATALOG_INFO is now
                               * batched as [u16 total_count][u16 batch_offset]
                               * [u16 count] plus id/category string rows, so
                               * large custom typed-archive packs are advertised

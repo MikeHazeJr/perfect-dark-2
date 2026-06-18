@@ -1,0 +1,101 @@
+{
+  "scenario_name": "custom_body_live_render_smoke",
+  "description": "c3844 B-801 runtime smoke: stage the checked-in typed .pdxxx example mod, assign its custom body/head to live Combat Simulator bots by catalog ID, and prove the generated body modeldef reaches live render diagnostics.",
+  "tags": ["modding", "pdxxx", "body", "head", "source-gate", "combat-sim", "match-start", "c3844", "smoke", "pillar:modding"],
+  "paths_of_interest": [
+    "port/src/main.c",
+    "port/src/net/matchsetup.c",
+    "port/src/assetcatalog_scanner.c",
+    "port/src/net/netdistrib.c",
+    "port/src/loader_walker_body.c",
+    "port/src/loader_walker_head.c",
+    "port/src/assetcatalog_body_head_slots.c",
+    "port/src/modasset_compiler.c",
+    "examples/modding/typed-pdxxx-basic"
+  ],
+  "log_channel_mask": "game,catalog,render,match,combat,network,system",
+  "verbose": 0,
+  "timeout_seconds": 140,
+  "install_state": "clean",
+  "remove_paths": [
+    "mods/installed/example_typed_pdxxx_basic.pdmod",
+    "mods/installed/example_typed_pdxxx_basic"
+  ],
+  "fixtures": [
+    { "src": "tools/smoke-verify/fixtures/typed_pdxxx_basic_enabled.json", "dst": "mods-enabled.json" },
+    { "src": "tools/smoke-verify/fixtures/pdmod_migration_done.txt", "dst": "mods/.pdmod-migration-done" },
+    { "src": "examples/modding/typed-pdxxx-basic", "dst": "mods/example_typed_pdxxx_basic" }
+  ],
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--portable",
+    "--debug-generated-mesh-render-audit",
+    "--launch-mp-room",
+    "base:arena_chicago",
+    "base:combat",
+    "12",
+    "--debug-bot-body",
+    "example:tri_body",
+    "--debug-bot-head",
+    "example:tri_head",
+    "--debug-place-bot-near-player",
+    "--debug-spawn-weapon",
+    "base:dy357",
+    "--debug-auto-start-match"
+  ],
+  "input_sequence": [
+    { "at_ms": 0, "type": "wait", "comment": "boot, stage typed example mod, seed Combat Simulator config with custom body/head bots, and fire direct debug match start." },
+    { "at_ms": 48000, "type": "exit", "comment": "leave enough time for mod scan, custom body/head slot allocation, Chicago stage load, bot spawn, source model conversion, and live render audit." }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=custom_body_live_render_smoke",
+      "modmgr: loaded mods-enabled\\.json",
+      "modmgr: loading mod 'example_typed_pdxxx_basic'",
+      "ASSETCATALOG\\.SCANNER\\.BODY\\.CUSTOM_SLOT: id=example:tri_body slot=\\d+ path=.*example_typed_pdxxx_basic/bodies",
+      "ASSETCATALOG\\.SCANNER\\.HEAD\\.CUSTOM_SLOT: id=example:tri_head slot=\\d+ path=.*example_typed_pdxxx_basic/heads",
+      "ASSETCATALOG\\.SCANNER\\.BODY\\.LOADER_SLOT: id=example:tri_body slot=\\d+ manifest=.*tri_body\\.pdbody::_meta/manifest\\.json",
+      "ASSETCATALOG\\.SCANNER\\.HEAD\\.LOADER_SLOT: id=example:tri_head slot=\\d+ manifest=.*tri_head\\.pdhead::_meta/manifest\\.json",
+      "BOOT: --debug-bot-body 'example:tri_body' mpbody=\\d+",
+      "BOOT: --debug-bot-head 'example:tri_head' mphead=\\d+",
+      "BOOT: --debug-bot-appearance applied slot=\\d+ body='example:tri_body' head='example:tri_head' mpbody=\\d+ mphead=\\d+",
+      "BOOT: --debug-place-bot-near-player consumed: bot=.* result=OK .*",
+      "BOT\\.RENDER\\.AUDIT: stage=propsSort-included .* body=\\d+ head=\\d+ .*",
+      "BOT\\.RENDER\\.AUDIT: stage=chrRender-matrix-ondemand .* body=\\d+ head=\\d+ .*",
+      "BOT\\.RENDER\\.AUDIT: stage=chrRender-modelRender .* body=\\d+ head=\\d+ .*",
+      "MATCHSETUP: bot slot \\d+: .* body='example:tri_body' head='example:tri_head' mpbody=\\d+ mphead=\\d+",
+      "MODASSET\\.COMPILER: built hierarchy modeldef 'example:tri_body' source=.*tri_body\\.pdbody::mesh\\.pdmesh::model\\.(obj|gltf|glb).*tris=[1-9]\\d*",
+      "MODASSET\\.RENDER: generated source modeldef rendered id=example:tri_body source=.*tri_body\\.pdbody::mesh\\.pdmesh::model\\.(obj|gltf|glb).*tris=[1-9]\\d*",
+      "BOOT: --debug-auto-start-match consumed",
+      "BOOT: --launch-mp-room direct match start",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "ASSET\\.SOURCE_ONLY",
+      "LOUDFAIL\\.FALLBACK",
+      "ASSET\\.FALLBACK",
+      "CATALOG: stage 0x[0-9a-fA-F]+ diff .*unload:[1-9]",
+      "MANIFEST: unload 'example:tri_body'",
+      "MANIFEST: unload 'example:tri_head'",
+      "MANIFEST: unload 'example:tri_weapon'",
+      "BODY\\.IDENTITY",
+      "refusing slot-0 visual fallback",
+      "typed '.*' Body has no public FileProvider source",
+      "typed '.*' Head has no public FileProvider source",
+      "MATCHSETUP: bot slot \\d+: .* body='base:dark_combat'"
+    ],
+    "required_counts": [
+      { "pattern": "BOOT: --debug-bot-appearance applied slot=\\d+ body='example:tri_body' head='example:tri_head'", "min": 1, "max": 12 },
+      { "pattern": "BOT\\.RENDER\\.AUDIT: stage=propsSort-included", "min": 1, "max": 1 },
+      { "pattern": "BOT\\.RENDER\\.AUDIT: stage=chrRender-matrix-ondemand", "min": 1, "max": 1 },
+      { "pattern": "BOT\\.RENDER\\.AUDIT: stage=chrRender-modelRender", "min": 1, "max": 12 },
+      { "pattern": "MODASSET\\.RENDER: generated source modeldef rendered id=example:tri_body", "min": 1, "max": 1 }
+    ]
+  }
+}

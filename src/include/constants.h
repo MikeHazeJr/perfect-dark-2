@@ -2996,13 +2996,6 @@
  * obstacle-only, NORMAL + reach, HARD + LOS, PERFECT/DARK + tactical).
  * Crouch-jump (+1.5 boost) is HARD+ only. */
 #define MPOPTION_BOTJUMP                0x10000000
-/* c3849 Wave 5f (B6.5): host's Debug.WeaponGraphRuntime toggle rides the
- * existing g_MpSetup.options u32 at SVC_STAGE_START (BOTJUMP precedent, no
- * wire bump). Clients latch their local toggle from this bit for the match
- * and restore the saved value at stage end / disconnect. TRANSIENT DEBUG
- * SEMANTICS: masked out at the mpsetupfileSaveWad save site so it never
- * persists into MP-setup saves. */
-#define MPOPTION_WEAPONGRAPH            0x20000000
 
 #define MPPAUSEMODE_UNPAUSED 0
 #define MPPAUSEMODE_PAUSED   1

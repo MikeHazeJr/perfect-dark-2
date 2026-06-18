@@ -13,9 +13,9 @@
  *   - Weapon static records were retired from src/game/invitems.c at S484
  *     F13 (2026-04-30, commit f670bd06) because the engine had migrated
  *     to the catalog manager pool, which was populated from
- *     base/weapons.pdbase JSON via loader_pdbase.
+ *     legacy aggregate weapon JSON via the removed aggregate loader.
  *   - Catalog Universality Pivot Step 5 (2026-05-03, commit b21f37fe)
- *     retired both base/*.pdbase and loader_pdbase. The runtime emitter
+ *     retired both aggregate archives and their loader. The runtime emitter
  *     was left with no source.
  *   - Path B / BYOR completion (this file, 2026-05-03): restore the
  *     authored data as a clearly-labeled emitter source-of-truth, NOT
@@ -5838,11 +5838,11 @@ const s32 g_WeaponDataCount = (s32)(sizeof(g_WeaponData) / sizeof(g_WeaponData[0
 
 /*
  * Catalog ID slug per weapon index. Matches the historical extractor
- * disambiguation rule (extract_weapons_pdbase.py): repeated invitem_*
+ * disambiguation rule from the legacy weapon aggregate extractor: repeated invitem_*
  * symbols (keycard x8, hammer x4, rocket x2) get a "_slot<N>" suffix
  * so each of the 86 weapons has a unique catalog ID. Index N is the
  * post-renumbering slot in g_WeaponData[]; the suffix uses the same
- * absolute slot the prior .pdbase JSON used so historical refs survive.
+ * absolute slot the prior aggregate JSON used so historical refs survive.
  */
 const char *const g_WeaponDataCatalogIds[] = {
 	"base:nothing",          /* 0x00 */

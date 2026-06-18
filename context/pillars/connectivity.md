@@ -1,6 +1,6 @@
 # Connectivity / Online
 
-> ENet UDP transport. Server-authoritative wire protocol at v50. 6-tier P2P NAT traversal (LAN -> DIRECT -> STUN -> UPnP -> ICE -> TURN). Connect codes hide raw IPs. Presence service (Ed25519 v3). Voice (libopus, optional). Listen-host is the current shipping target; dedicated server deferred.
+> ENet UDP transport. Server-authoritative wire protocol at v51. 6-tier P2P NAT traversal (LAN -> DIRECT -> STUN -> UPnP -> ICE -> TURN). Connect codes hide raw IPs. Presence service (Ed25519 v3). Voice (libopus, optional). Listen-host is the current shipping target; dedicated server deferred.
 
 ---
 
@@ -27,7 +27,7 @@ Code:
 
 ## Wire protocol
 
-`NET_PROTOCOL_VER 50` at [port/include/net/net.h:12](../../port/include/net/net.h:12). The header carries an in-source changelog from v27 through v50. The version is pinned by [tests/test_versions.cpp:46](../../tests/test_versions.cpp:46) (`g_TestExpectedNetProtocolVer`) which reads the live header.
+`NET_PROTOCOL_VER 51` at [port/include/net/net.h:12](../../port/include/net/net.h:12). The header carries an in-source changelog from v27 through v51. The version is pinned by [tests/test_versions.cpp:46](../../tests/test_versions.cpp:46) (`g_TestExpectedNetProtocolVer`) which reads the live header.
 
 Mixed-version play is rejected at the ENet auth handshake ([port/src/net/net.c:1560](../../port/src/net/net.c:1560) `enet_peer_disconnect(peer, DISCONNECT_VERSION)`) and at the presence-channel proto check ([port/src/group_session.c:212](../../port/src/group_session.c:212)).
 
@@ -35,6 +35,7 @@ Mixed-version play is rejected at the ENet auth handshake ([port/src/net/net.c:1
 
 | Bump | What changed |
 |------|--------------|
+| **v51 (2026-06-17)** | c3849 Wave 7: weapon graph runtime is product-default ON, the old user toggle plus transient stage-start option bit are retired, and mixed v50/v51 play is rejected at auth. |
 | **v50 (2026-06-08)** | `SVC_CATALOG_INFO` batches catalog advertisement with total/offset/count metadata, `CLC_CATALOG_DIFF` and `CLC_MANIFEST_STATUS` read heap-backed `u16` missing lists, and the distribution transfer queue grows so large custom typed-archive packs do not truncate during lobby or ready-gate asset sync. |
 | **v49 (2026-05-17)** | `CLC_LOBBY_RESYNC 0x18` lets a client request authoritative `SVC_ROOM_ASSIGN`, `SVC_ROOM_SETTINGS`, and `SVC_ROOM_PLAYLIST` after match end so post-match room return does not rely on stale client state. |
 | **v48 (c3807 Track 2d, 2026-05-16)** | `SVC_GPUSWARM_STATE 0x6c` -- listen-host-only Mode B broadcasts the GPU swarm state texture to all peers at 10 Hz; 20-byte packed_bot quantization (pos/vel s16 cm, surface_up s8 ratio, AI ints exact); 4 chunks of 1024 bots over the unreliable channel at SWARM_GPU_MAX = 4096. Receiver dequantizes via `swarmGpuApplyRemoteState` and skips local compute on `g_NetMode == NETMODE_CLIENT`. v1 limitations tracked in B-333. |
@@ -171,7 +172,7 @@ This static-test discipline catches the "trust client byte before validating" cl
 
 Per [constraints.md](../constraints.md):
 
-- **ENet protocol version v50** must match across clients.
+- **ENet protocol version v51** must match across clients.
 - **Server is not a player.** Dedicated server sets `g_NetLocalClient = NULL` and `g_NetNumClients = 0` at startup; slot 0 free for real players. All paths that dereference `g_NetLocalClient` must NULL-guard.
 - **No raw IP in any UI surface.** Connect codes only.
 - **Connect code byte order** is host-order, not network-order.

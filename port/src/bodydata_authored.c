@@ -7,7 +7,7 @@
  * 68 body entries (63 named MP/SP bodies + 5 SP-fallback bodies). Reverse-
  * engineered from the historical g_HeadsAndBodies[] table (body subset
  * filtered by filenum != 0, plus self-contained bodies that set
- * unk00_01 == 1). Catalog ID slugs match the prior base/bodies.pdbase
+ * unk00_01 == 1). Catalog ID slugs match the prior aggregate body
  * JSON archive so historical references survive.
  *
  * Engine-API constraint: nothing in src/ or port/ outside the catalog

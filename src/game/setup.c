@@ -47,7 +47,6 @@
 #include "system.h"
 #include "assetcatalog.h"
 #include "assetload.h"
-#include "asset_fallback_telemetry.h" /* c3849 Wave 1 */
 #include "asset_source_debug.h"
 #include "scenario_source_runtime.h"
 #include "net/matchsetup.h"
@@ -1768,27 +1767,26 @@ void setupLoadFiles(s32 stagenum)
 
 		sysLogPrintf(LOG_NOTE, "LOAD: loading setup file id=%d (mp=%d, sp=%d)", filenum, stage.mpsetupfileid, stage.setupfileid);
 		setup_handle = g_Vars.normmplayerisrunning ? stage.mpsetup_handle : stage.setup_handle;
-		(void)scenarioSourceActivateGraphsForStage(&stage,
-			g_Vars.normmplayerisrunning);
+		if (!scenarioSourceActivateGraphsForStage(&stage,
+				g_Vars.normmplayerisrunning)) {
+			scenarioSourceFatalRuntimeFallbackForStage(&stage,
+				g_Vars.normmplayerisrunning, "level graph",
+				(s32)(g_Vars.normmplayerisrunning ? stage.mpsetupfileid : stage.setupfileid),
+				"level graph activation failed");
+			return;
+		}
 		g_GeCreditsData = scenarioSourceLoadSetupForStage(&stage,
 			g_Vars.normmplayerisrunning, &setup_loaded_size);
 		if (!g_GeCreditsData) {
 			setupRequireScenarioSourceHandle(
 				g_Vars.normmplayerisrunning ? "mp setup" : "setup",
 				&stage, setup_handle);
-			/* c3849 Wave 1: record only when a scenario source is REGISTERED
-			 * and failed -- base stages without source are normal routing. */
-			if (scenarioSourceFindEntryForStage(&stage,
-					g_Vars.normmplayerisrunning) != NULL) {
-				sysLoudFailf("FALLBACK",
-					"setup fileid=%d scenario source failed -> ROM handle",
-					(s32)(g_Vars.normmplayerisrunning ? stage.mpsetupfileid : stage.setupfileid));
-				assetFallbackRecord(ASSET_SCENARIO,
-					(s32)(g_Vars.normmplayerisrunning ? stage.mpsetupfileid : stage.setupfileid),
-					"setup source -> ROM handle");
-			}
-			g_GeCreditsData = (u8 *)assetLoadToNew(setup_handle, FILELOADMETHOD_DEFAULT, LOADTYPE_SETUP);
-			setup_loaded_size = assetLoadGetLoadedSize(setup_handle);
+			scenarioSourceFatalRuntimeFallbackForStage(&stage,
+				g_Vars.normmplayerisrunning,
+				g_Vars.normmplayerisrunning ? "mp setup" : "setup",
+				(s32)(g_Vars.normmplayerisrunning ? stage.mpsetupfileid : stage.setupfileid),
+				"setup source compile failed");
+			return;
 		}
 		setup = (struct stagesetup *)g_GeCreditsData;
 		{
@@ -1865,16 +1863,10 @@ void setupLoadFiles(s32 stagenum)
 			setupSetPadFileDataSize(source_pad_size);
 		} else {
 			setupRequireScenarioSourceHandle("pads", &stage, stage.pads_handle);
-			if (scenarioSourceFindEntryForStage(&stage,
-					g_Vars.normmplayerisrunning) != NULL) {
-				sysLoudFailf("FALLBACK",
-					"pads fileid=%d scenario source failed -> ROM handle",
-					(s32)stage.padsfileid);
-				assetFallbackRecord(ASSET_SCENARIO, (s32)stage.padsfileid,
-					"pads source -> ROM handle");
-			}
-			g_StageSetup.padfiledata = assetLoadToNew(stage.pads_handle, FILELOADMETHOD_DEFAULT, LOADTYPE_PADS);
-			setupSetPadFileDataSize(g_StageSetup.padfiledata ? assetLoadGetLoadedSize(stage.pads_handle) : 0);
+			scenarioSourceFatalRuntimeFallbackForStage(&stage,
+				g_Vars.normmplayerisrunning, "pads",
+				(s32)stage.padsfileid, "pads source compile failed");
+			return;
 		}
 		if (!g_StageSetup.padfiledata) {
 			sysLogPrintf(LOG_ERROR, "SETUP: failed to load pads fileid=%d for stage index=%d",

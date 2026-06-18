@@ -150,7 +150,10 @@ Per-binary smoke fixtures that exercise the production exes end-to-end. Distinct
 
 - `swarm_gpu_b352_stress_smoke.json` focuses the B-352 GPU Swarm crash boundary: `base:mp_felicity`, GPU_FULL, 4 -> 8 -> 16 -> 32 -> 48 -> 64 -> 128 -> 256, asserts 256 respawn/readback evidence, forbids high-count `active=0`, and exits before the longer 512/768 ladder.
 - `Get-SmokeLogPath` now prefers the current centralized client log path `logs/game client/<leaf>` and falls back to historical root-level logs. The install clear path also removes both locations, which prevents false `log_missing` failures after B-349 moved client logs under `logs/`.
-- `PD_SMOKE_KEEP_CRASH_HANDLER=1` is a diagnostic-only runner override for crash investigations. Default smokes still launch with `--no-crash-handler`; setting the variable removes that flag so the in-game crash handler can write the PC, stack, and breadcrumb ring to the client log.
+- Smoke runs keep the in-game crash handler enabled by default so faults return through logs and exit codes instead of native Windows modal dialogs. `PD_SMOKE_DISABLE_CRASH_HANDLER=1` is diagnostic-only for raw fault behavior.
+- 2026-06-11: crash-dialog suppression is enforced in the child process as well as the runner. `crashInit()` sets `SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX | SEM_NOOPENFILEERRORBOX`, and `tools/smoke-verify/run.ps1` reaps smoke-owned `PerfectDark`, `PerfectDarkServer`, and `WerFault` processes before launch, after runs, and during teardown. B-928 fixed the separate clean-exit heap corruption by making `videoShutdown()` free only owned display-mode heap storage; fresh `boot_smoke` exits with OS code 0 and no `exit-code override`. Firewall-rule setup failures now route through the harness warning path when the runner is not elevated, instead of dumping a raw non-terminating PowerShell error after the smoke summary.
+- 2026-06-17: full `pd-tests` is green at 804 cases / 41,191 assertions after fixing two stale test issues surfaced during c3849 Wave 7 verification. `test_input_layer_stack` now pops the temporary local layer definition before the next test reset can abort a dangling stack pointer, and `test_settings_input_tab_static` now pins the shared `renderBindTable` search filter instead of expecting `s_BindSearch` inside the wrapper slice. The focused Wave 7 selector is green at 24 cases / 937 assertions.
+- 2026-06-17: `needler_graph_runtime_visual_smoke` is the current runtime proof for product-default weapon graph loading. The latest post-B-933 run passed 43/43 in `.claude/smoke-verify-runs/results-20260617T235837Z.json`, with log proof for nested `.pdweapon` / `.pdeffect` / `.pdmesh` ingestion, `BONDGUN.SOURCE` filenum 2016 for `mod_needler:needler_model`, `MODASSET.RENDER` with 300 vertices / 100 tris, and scripted exit. The two retained BMP screenshots in `.claude/smoke-verify-runs/screenshots/20260617T195640-needler_graph_runtime_visual_smoke/` were visually inspected and show the `NEEDLER SOURCE MODEL RENDERED` proof overlay.
 - B-353 is closed for the new B-352 machine gate: Swarm slots now prove a live prop/backlink before teardown, death polling, movement intent, and GPU handoff. The normal `swarm_gpu_b352_stress_smoke` runner passed twice after the fix (`results-20260519T194220Z.json`, `results-20260519T194503Z.json`), each with 24/24 assertions and exit 0.
 - `mission_escape_hoverbed_intro.json` is the B-345 rejected-card object gate: direct-launches Area 51 - Escape (`stagenum=0x19`) and asserts the mission-start setup path loads the Elvis hoverbed model (`file 214 (PhoverbedZ) loaded`) without crash/timeout. First verified `results-20260519T201545Z.json` with 13/13 assertions and exit 0.
 
@@ -185,6 +188,22 @@ Per-binary smoke fixtures that exercise the production exes end-to-end. Distinct
 ---
 
 ## Active invariants
+
+- **c3844 final sweep proof refreshed (2026-06-17).** The current all-family
+  closure evidence is: native-source guard PASS; modder workflow verifier PASS
+  with 27 families, 59 archives, 31 nested archives, and 229 public sources;
+  archive conformance PASS with 8,093 root / 9,125 checked archives including
+  retained `Build\data\ntsc-final`; audio/mesh/animation CPU verifiers PASS
+  with 2,111 / 734 / 1,062 archives; focused Public Mods / `.pdmod` / c3844 /
+  c3842 / weapon-graph tests PASS with 10,782 assertions / 77 cases; Needler
+  source-render smoke PASS 43/43 in
+  `.claude\smoke-verify-runs\results-20260617T235837Z.json`; full c3844 smoke
+  matrix PASS 9/9 and 421/421 in
+  `.claude\smoke-verify-runs\results-20260617T215555Z.json`; isolated
+  `final3844fix` all-target build PASS; board JSON parse PASS; final process
+  cleanup clean for `PerfectDark`, `PerfectDarkServer`, and `WerFault`. The
+  Needler screenshot channel now has retained, visually inspected proof BMPs
+  showing the source-render overlay.
 
 Per [constraints.md](../constraints.md), [procedures.md](../procedures.md), and the live test files:
 

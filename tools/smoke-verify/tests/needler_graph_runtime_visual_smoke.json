@@ -1,0 +1,112 @@
+{
+  "scenario_name": "needler_graph_runtime_visual_smoke",
+  "description": "c3849 Wave 7 runtime smoke: pack the Needler typed .pdweapon mod as a real .pdmod, enable it, force its custom catalog weapon into a first-person Combat Simulator match, and prove the default-on weapon graph runtime ingests held, projectile, mesh, and effect source without falling back.",
+  "tags": ["modding", "pdmod", "pdxxx", "weapon", "weapon-graph", "source-gate", "combat-sim", "match-start", "visual", "c3849", "wave7", "smoke", "pillar:modding"],
+  "paths_of_interest": [
+    "dev-mods/needler",
+    "port/src/weapon_graph_runtime.c",
+    "port/src/weapon_graph_archive.c",
+    "port/src/assetcatalog_load.c",
+    "port/src/assetcatalog_weapon_slots.c",
+    "src/game/bondgun.c",
+    "src/game/player.c",
+    "tools/smoke-verify/fixtures/needler_enabled.json"
+  ],
+  "log_channel_mask": "game,catalog,render,match,combat,mods,system",
+  "verbose": 0,
+  "timeout_seconds": 180,
+  "install_state": "prefilled",
+  "remove_paths": [
+    "mods/needler.pdmod",
+    "mods/needler",
+    "mods/installed/needler.pdmod",
+    "mods/installed/needler"
+  ],
+  "fixtures": [
+    { "src": "tools/smoke-verify/fixtures/needler_source_pd.ini", "dst": "pd.ini" },
+    { "src": "tools/smoke-verify/fixtures/needler_enabled.json", "dst": "mods-enabled.json" }
+  ],
+  "packed_fixtures": [
+    { "src": "dev-mods/needler", "dst": "mods/installed/needler.pdmod" }
+  ],
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--portable",
+    "--debug-generated-mesh-render-audit",
+    "--debug-force-first-person",
+    "--debug-force-first-person-look",
+    "0,-0.15,-1",
+    "--debug-force-first-person-cam-offset",
+    "0,180,-220",
+    "--launch-mp-room",
+    "base:arena_chicago",
+    "base:combat",
+    "12",
+    "--debug-spawn-weapon",
+    "mod_needler:needler",
+    "--debug-auto-start-match"
+  ],
+  "input_sequence": [
+    { "at_ms": 0, "type": "wait", "comment": "boot, pack and enable Needler .pdmod, ingest embedded typed dependencies, seed Combat Simulator, and force the custom weapon into first-person." },
+    { "at_ms": 80000, "type": "action", "name": "ACTION_FIRE_PRIMARY", "action": "tap", "comment": "exercise default-on primary graph projectile path after cold archive loading settles." },
+    { "at_ms": 85000, "type": "action", "name": "ACTION_FIRE_SECONDARY", "action": "tap", "comment": "exercise default-on secondary graph projectile/effect path after cold archive loading settles." },
+    { "at_ms": 115000, "type": "exit", "comment": "leave time for cold archive loading, held model render, screenshot capture, projectile graph lookups, and effect dependency ingestion." }
+  ],
+  "screenshots": [
+    { "at_ms": 102000, "name": "needler-held-loaded" },
+    { "at_ms": 108000, "name": "needler-held-visible" }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=needler_graph_runtime_visual_smoke",
+      "modmgr: loaded mods-enabled\\.json",
+      "modmgr: parsed mod\\.json for 'needler'.*archive=yes",
+      "modmgr: discovered mod \\[\\d+\\] 'needler'.*\\[\\.pdmod\\] from 'installed' file=.*installed.*needler\\.pdmod sha256=[0-9a-f]+\\.\\.",
+      "modmgr: loading mod 'needler' from archive '.*installed.*needler\\.pdmod'",
+      "assetcatalog_scanner: archive needler: \\d+ component descriptors registered",
+      "BOOT: --debug-auto-start-match consumed",
+      "BOOT: --launch-mp-room direct match start",
+      "BOOT: --debug-spawn-weapon 'mod_needler:needler' \\(SPECIFIC\\)",
+      "MATCHSTART\\.DIAG: entry stage_id='base:arena_chicago'.*spawn_weapon='mod_needler:needler'",
+      "SETUP: user-picked spawn weapon 'mod_needler:needler' num=\\d+ preserved",
+      "CATALOG\\.WEAPON\\.CUSTOM_SLOT_DEFAULTS: runtime=\\d+ mp=\\d+",
+      "CATALOG\\.LIFECYCLE\\.ACTIVATE: activated weapon metadata payload 'mod_needler:needler'",
+      "WEAPONGRAPH\\.MESH\\.INGEST: id=mod_needler:needler_model slot=\\d+ filenum=\\d+ source=.*needler\\.pdweapon::dependencies/assets/models/weapon\\.pdmesh::model\\.gltf",
+      "WEAPONGRAPH\\.EFFECT\\.INGEST: id=mod_needler:pink_burst_effect",
+      "BONDGUN\\.SOURCE: loaded catalog model source filenum=\\d+ id=mod_needler:needler_model path=.*needler\\.pdweapon::dependencies/assets/models/weapon\\.pdmesh::model\\.gltf",
+      "MODASSET\\.RENDER: generated source modeldef rendered id=mod_needler:needler_model source=.*dependencies/assets/models/weapon\\.pdmesh::model\\.gltf",
+      "SPAWN\\.WEAPON: player=0 weapon=\\d+",
+      "SPAWN: player 0 spawned with weapon \\d+ \\([^)]*\\) -- auto-equipped to right hand",
+      "BOOT: --debug-force-first-person armed",
+      "BOOT: --debug-force-first-person-look armed: look=\\(",
+      "BOOT: --debug-force-first-person-cam-offset armed: offset=\\(",
+      "BOOT: --debug-force-first-person-look active: stagenum=0x1d frame=\\d+ look=\\(.*cam_offset=\\(",
+      "BOOT: --debug-force-first-person active: stagenum=0x1d frame=\\d+ before=\\d+ after=0 frames=900",
+      "LOG\\.WPN\\.DIAG: playerRenderHud branch=fp_render cameramode=0",
+      "LOG\\.WPN\\.DIAG: bgunRender enter player=0",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "ASSET\\.SOURCE_ONLY",
+      "LOUDFAIL\\.FALLBACK",
+      "ASSET\\.FALLBACK",
+      "RomProvider:filenum",
+      "result=FAIL",
+      "result=MISSING",
+      "CATEGORY_MISMATCH",
+      "weapon_graph_runtime: held IR unavailable for mod_needler:needler",
+      "CATALOG\\.WEAPON\\.CUSTOM_SLOT_FAIL: id=\"mod_needler"
+    ],
+    "required_counts": [
+      { "pattern": "CATALOG\\.LIFECYCLE\\.ACTIVATE: activated weapon metadata payload 'mod_needler:needler'", "min": 1, "max": 1 },
+      { "pattern": "BONDGUN\\.SOURCE: loaded catalog model source filenum=\\d+ id=mod_needler:needler_model", "min": 1 },
+      { "pattern": "MODASSET\\.RENDER: generated source modeldef rendered id=mod_needler:needler_model", "min": 1 }
+    ]
+  }
+}

@@ -18,8 +18,8 @@
  * 2026-05-21 polish: in-code duration estimates let the overlay flow inside
  * phases that do not expose a reliable item count, and item-count phases are
  * cross-checked against wall-clock timing instead of only filling by list
- * position.  Keep these estimates out of pd.ini: the config registry is close
- * to its current 512-entry cap.
+ * position.  Keep these estimates out of pd.ini so boot pacing remains an
+ * internal heuristic rather than another user-facing config surface.
  *
  * Telemetry: when Boot.Telemetry pd.ini flag is non-zero, the boot
  * timing breakdown is logged at MarkComplete.  Default off.

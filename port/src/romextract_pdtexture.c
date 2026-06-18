@@ -194,10 +194,8 @@ static s32 s_emitTexture(const asset_entry_t *e, const char *out_dir,
 		"name = %s\n"
 		"width = %u\n"
 		"height = %u\n"
-		"empty_rom_slot = %s\n"
 		"texture_file = texture.png\n",
-		e->id, e->id, (unsigned)width, (unsigned)height,
-		empty_rom_slot ? "true" : "false");
+		e->id, e->id, (unsigned)width, (unsigned)height);
 	if (ini_len <= 0 || (size_t)ini_len >= sizeof(ini)) {
 		free(tga);
 		free(png);

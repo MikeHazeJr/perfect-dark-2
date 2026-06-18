@@ -113,12 +113,26 @@ static const head_data_t *s_get(s32 headnum)
 			s_Heads[headnum].modeldef = md;
 			return &s_Heads[headnum];
 		}
+		if (headnum >= CATALOG_MGR_HEAD_CUSTOM_START) {
+			const head_data_t *custom = &s_Heads[headnum];
+			if (custom->filenum != 0 || custom->catalog_id[0] != '\0') {
+				return custom;
+			}
+			return NULL;
+		}
 		/* Loader has no record for this slot (e.g. body slot or sentinel
 		 * entry that does not appear in the heads envelope). Fall through to
 		 * the legacy mirror so manager iteration over the full 152-slot
 		 * range still produces consistent values for non-head slots. */
 	}
 #endif
+	if (headnum >= CATALOG_MGR_HEAD_CUSTOM_START) {
+		const head_data_t *custom = &s_Heads[headnum];
+		if (custom->filenum != 0 || custom->catalog_id[0] != '\0') {
+			return custom;
+		}
+		return NULL;
+	}
 	/* Parity-period fallback: re-read from the legacy table so any
 	 * out-of-band mutation (e.g. lazy modeldef cache writes via the
 	 * legacy catalogGetHeadModeldef path that pre-dated F3) stays
@@ -417,6 +431,9 @@ void catalogManagerRegisterHead(const char *id, const head_data_t *data)
 			"CATALOG.MGR.HEAD.MISS: register id=\"%s\" headnum=%d invalid",
 			id, headnum);
 		return;
+	}
+	if (!s_HeadsInited) {
+		catalogManagerHeadInit();
 	}
 	memcpy(&s_Heads[headnum], data, sizeof(head_data_t));
 	s_Heads[headnum].headnum = (s16)headnum;

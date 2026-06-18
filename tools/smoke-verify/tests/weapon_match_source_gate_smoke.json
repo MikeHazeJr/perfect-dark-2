@@ -11,7 +11,7 @@
     "src/game/bondgun.c",
     "tools/smoke-verify/fixtures/weapon_archive_source_pd.ini"
   ],
-  "log_channel_mask": "all",
+  "log_channel_mask": "game,catalog,render,match,combat,network,system",
   "verbose": 0,
   "timeout_seconds": 120,
   "install_state": "clean",

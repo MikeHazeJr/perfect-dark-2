@@ -389,7 +389,6 @@ struct model *body0f02ce8c(s32 bodynum, s32 headnum, struct modeldef *bodymodeld
 
 	public_source_generated_modeldef = (bodymodeldef != NULL
 		&& bodymodeldef->rootnode != NULL
-		&& bodymodeldef->numparts == 0
 		&& body_source_id != NULL
 		&& catalogGetLoadedModeldef(body_source_id) == bodymodeldef);
 	public_source_static_modeldef = public_source_generated_modeldef

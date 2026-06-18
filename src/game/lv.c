@@ -454,11 +454,12 @@ void lvReset(s32 stagenum)
 	// For base game stages, this is a no-op (deactivates the resolver).
 	assetCatalogActivateStage(stagenum);
 
-	// C-9 / MEM-3: Stage transition diff — unload mod assets no longer needed,
+	// C-9 / MEM-3: Stage transition diff - unload mod assets no longer needed,
 	// load mod assets required for the new stage.  Base-game (bundled) assets
 	// are never touched.  If no mod map entry exists for this stagenum the diff
 	// produces an empty toLoad list and unloads any lingering mod assets from the
-	// previous stage.
+	// previous stage. MP match manifests own their own lifecycle, so the old
+	// stage-category diff must not release manifest-owned match assets.
 	const char *stageAssetCategory = NULL;
 	{
 #define STAGE_DIFF_MAX 64
@@ -471,20 +472,27 @@ void lvReset(s32 stagenum)
 		const char *stageAssetId = modMap ? modMap->id : NULL;
 		stageAssetCategory = (modMap && modMap->category[0]) ? modMap->category : NULL;
 
-		s32 diffTotal = catalogComputeStageDiff(stageAssetId,
-		                                        toLoad,  &loadCount,
-		                                        toUnload, &unloadCount,
-		                                        STAGE_DIFF_MAX);
-
-		if (diffTotal > 0) {
+		if (g_ClientManifest.num_entries > 0) {
 			sysLogPrintf(LOG_NOTE,
-			             "CATALOG: stage 0x%02x diff — load:%d unload:%d",
-			             stagenum, loadCount, unloadCount);
-			for (s32 i = 0; i < unloadCount; i++) {
-				catalogReleaseTypedAsset(lvCatalogAssetTypeForId(toUnload[i]), toUnload[i]);
-			}
-			for (s32 i = 0; i < loadCount; i++) {
-				catalogLoadTypedAsset(lvCatalogAssetTypeForId(toLoad[i]), toLoad[i]);
+			             "CATALOG: stage 0x%02x diff skipped during MP manifest ownership (manifest=%d netmode=%d normmplay=%d mplay=%d)",
+			             stagenum, (s32)g_ClientManifest.num_entries, g_NetMode,
+			             g_Vars.normmplayerisrunning, g_Vars.mplayerisrunning);
+		} else {
+			s32 diffTotal = catalogComputeStageDiff(stageAssetId,
+			                                        toLoad,  &loadCount,
+			                                        toUnload, &unloadCount,
+			                                        STAGE_DIFF_MAX);
+
+			if (diffTotal > 0) {
+				sysLogPrintf(LOG_NOTE,
+				             "CATALOG: stage 0x%02x diff load:%d unload:%d",
+				             stagenum, loadCount, unloadCount);
+				for (s32 i = 0; i < unloadCount; i++) {
+					catalogReleaseTypedAsset(lvCatalogAssetTypeForId(toUnload[i]), toUnload[i]);
+				}
+				for (s32 i = 0; i < loadCount; i++) {
+					catalogLoadTypedAsset(lvCatalogAssetTypeForId(toLoad[i]), toLoad[i]);
+				}
 			}
 		}
 #undef STAGE_DIFF_MAX
@@ -1597,6 +1605,10 @@ Gfx *lvRender(Gfx *gdl)
 				lightsTick();
 				propsTickPlayer(islastplayer);
 				scenarioTickChr(NULL);
+				{
+					extern s32 bootDebugPlaceBotNearPlayerPreRenderTick(void);
+					(void)bootDebugPlaceBotNearPlayerPreRenderTick();
+				}
 				propsSort();
 				autoaimTick();
 				handsTickAttack();
@@ -2474,6 +2486,7 @@ void lvTick(void)
 	if (s_LvTickFirstRun) {
 		sysLogPrintf(LOG_NOTE, "TICK: lvTick enter tick=%d stagenum=0x%02x g_MpNumChrs=%d", g_Vars.lvframe60, g_Vars.stagenum, g_MpNumChrs);
 		scenarioSourceMissionGraphRecordPhase("active", "lvTick.start");
+		scenarioSourceLevelGraphRecordTick("lvTick.start");
 		s_LvTickFirstRun = 0;
 	}
 

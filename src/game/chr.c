@@ -56,6 +56,10 @@
 #include "net/netmsg.h"
 #include "modasset_compiler.h"
 
+extern s32 bootDebugPlaceBotNearPlayerIsAuditProp(const struct prop *prop);
+extern void bootDebugPlaceBotNearPlayerTrace(const char *stage, const struct prop *prop,
+		s32 once_bit, s32 a, s32 b, s32 c, s32 d);
+
 void rng2SetSeed(u32 seed);
 
 s32 var8009ccc0[20];
@@ -3580,11 +3584,18 @@ Gfx *chrRender(struct prop *prop, Gfx *gdl, bool xlupass)
 	s32 shademode;
 	s32 sp100;
 	s32 alpha;
+	bool render_model;
 	struct eyespy *eyespy;
 	struct prop *child;
 	f32 xrayalphafrac;
 	u8 spec[4];
 	u8 speb = 0;
+
+	if (bootDebugPlaceBotNearPlayerIsAuditProp(prop)) {
+		bootDebugPlaceBotNearPlayerTrace("chrRender-enter", prop, -1,
+			xlupass ? 1 : 0, (s32)chr->fadealpha,
+			(s32)chr->bodynum, (s32)chr->headnum);
+	}
 
 	// Don't render the eyespy if we're the one controlling it
 	if (CHRRACE(chr) == RACE_EYESPY) {
@@ -3592,10 +3603,18 @@ Gfx *chrRender(struct prop *prop, Gfx *gdl, bool xlupass)
 
 		if (eyespy) {
 			if (!eyespy->deployed) {
+				if (bootDebugPlaceBotNearPlayerIsAuditProp(prop)) {
+					bootDebugPlaceBotNearPlayerTrace("chrRender-eyespy-undeployed-skip", prop, 5,
+						xlupass ? 1 : 0, 0, 0, 0);
+				}
 				return gdl;
 			}
 
 			if (eyespy == g_Vars.currentplayer->eyespy && eyespy->active) {
+				if (bootDebugPlaceBotNearPlayerIsAuditProp(prop)) {
+					bootDebugPlaceBotNearPlayerTrace("chrRender-eyespy-active-skip", prop, 6,
+						xlupass ? 1 : 0, 0, 0, 0);
+				}
 				return gdl;
 			}
 		}
@@ -3620,6 +3639,11 @@ Gfx *chrRender(struct prop *prop, Gfx *gdl, bool xlupass)
 		f32 chrdist = sqrtf(ERASERSQDIST(prop->pos.f));
 
 		if (chrdist > g_Vars.currentplayer->eraserpropdist) {
+			if (bootDebugPlaceBotNearPlayerIsAuditProp(prop)) {
+				bootDebugPlaceBotNearPlayerTrace("chrRender-xray-distance-skip", prop, 7,
+					(s32)chrdist, (s32)g_Vars.currentplayer->eraserpropdist,
+					xlupass ? 1 : 0, alpha);
+			}
 			return gdl;
 		}
 
@@ -3643,6 +3667,11 @@ Gfx *chrRender(struct prop *prop, Gfx *gdl, bool xlupass)
 
 	if (alpha < 0xff) {
 		if (!xlupass) {
+			if (bootDebugPlaceBotNearPlayerIsAuditProp(prop)) {
+				bootDebugPlaceBotNearPlayerTrace("chrRender-alpha-skip", prop, -1,
+					alpha, xlupass ? 1 : 0, (s32)chr->fadealpha,
+					chr->aibot ? (s32)chr->aibot->fadeintimer60 : -1);
+			}
 			return gdl;
 		}
 
@@ -3656,13 +3685,18 @@ Gfx *chrRender(struct prop *prop, Gfx *gdl, bool xlupass)
 	}
 
 	shademode = envGetObjShadeMode(prop, shadecolourfracs);
+	render_model = shademode != SHADEMODE_XLU && alpha > 0;
+	if (bootDebugPlaceBotNearPlayerIsAuditProp(prop)) {
+		bootDebugPlaceBotNearPlayerTrace("chrRender-shade", prop, -1,
+			shademode, alpha, xlupass ? 1 : 0, sp100);
+	}
 
 	if (chr->unk32c_18) {
 		propCalculateShadeColour(chr->prop, chr->nextcol, chr->floorcol);
 		chr->unk32c_18 = false;
 	}
 
-	if (shademode != SHADEMODE_XLU && alpha > 0) {
+	if (render_model) {
 		struct modelrenderdata renderdata = {0, 1, 3};
 		struct screenbox screenbox;
 		s32 colour[4]; // rgba levels, but allowing > 256 temporarily
@@ -3801,7 +3835,26 @@ Gfx *chrRender(struct prop *prop, Gfx *gdl, bool xlupass)
 			g_SurfaceLocoActiveChr = chr;
 		}
 
+		if (model->matrices == NULL) {
+			renderdata.unk00 = camGetWorldToScreenMtxf();
+			renderdata.unk10 = gfxAllocate(model->definition->nummatrices * sizeof(Mtxf));
+
+			if (bootDebugPlaceBotNearPlayerIsAuditProp(prop)) {
+				bootDebugPlaceBotNearPlayerTrace("chrRender-matrix-ondemand", prop, -1,
+					model->definition->nummatrices,
+					modAssetCompilerModeldefIsGenerated(model->definition),
+					xlupass ? 1 : 0, 0);
+			}
+
+			modelSetMatricesWithAnim(&renderdata, model);
+		}
+
 		// Render the chr's model
+		if (bootDebugPlaceBotNearPlayerIsAuditProp(prop)) {
+			bootDebugPlaceBotNearPlayerTrace("chrRender-modelRender", prop, -1,
+				shademode, alpha, xlupass ? 1 : 0,
+				model && model->definition ? model->definition->nummatrices : -1);
+		}
 		modelRender(&renderdata, model);
 
 		g_SurfaceLocoActiveChr = prev_loco_chr;
@@ -3878,6 +3931,11 @@ Gfx *chrRender(struct prop *prop, Gfx *gdl, bool xlupass)
 				gdl = chrRenderShield(gdl, chr, alpha);
 			}
 		}
+	}
+
+	if (!render_model && bootDebugPlaceBotNearPlayerIsAuditProp(prop)) {
+		bootDebugPlaceBotNearPlayerTrace("chrRender-model-skip", prop, -1,
+			shademode, alpha, xlupass ? 1 : 0, 0);
 	}
 
 	return gdl;

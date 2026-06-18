@@ -12,7 +12,6 @@
 #include <string.h>
 
 #include "assetcatalog_model_slots.h"  /* B-911: custom-model private slots for embedded meshes */
-#include "config.h"
 #include "system.h"  /* B-911/B-912: sysLogPrintf for the embedded-mesh ingest (pd-tests has no PCH) */
 #include "constants.h"
 #include "effect_graph_runtime.h"  /* c3849 Unit 8: nested .pdeffect ingestion */
@@ -40,11 +39,7 @@ typedef struct module_info {
 #define WEAPON_GRAPH_RUNTIME_OWNER_WORDS \
 	((WEAPON_GRAPH_RUNTIME_MAX_WEAPONS + 31) / 32)
 
-static s32 s_runtime_enabled = 0;
-/* c3849 Wave 5f Unit 9 (B6.5): MP latch state. s_net_latched flags that a
- * match latch is active; s_net_saved_enabled is the pre-match local toggle. */
-static s32 s_net_latched = 0;
-static s32 s_net_saved_enabled = 0;
+static s32 s_runtime_enabled = 1;
 static weapon_graph_held_function_t
 	s_held_functions[WEAPON_GRAPH_RUNTIME_MAX_WEAPONS][WEAPON_GRAPH_RUNTIME_MAX_FUNCS];
 /* c3849 Wave 5f Unit 2: per-weapon tunables beside the held records. */
@@ -179,13 +174,6 @@ static const weapon_graph_parity_module_t s_parity_modules[] = {
 	{ WEAPON_GRAPH_OP_EFFECT_SPARK, "og.effect.spark", "effect_spark", "sparks.c g_SparkTypes path", "tinted custom spark rows" },
 	{ WEAPON_GRAPH_OP_EFFECT_SMOKE, "og.effect.smoke", "effect_smoke", "smoke.c g_SmokeTypes path", "class to nearest SMOKETYPE_*" },
 };
-
-#ifndef PD_TESTS
-PD_CONSTRUCTOR static void weaponGraphRuntimeConfigInit(void)
-{
-	configRegisterInt("Debug.WeaponGraphRuntime", &s_runtime_enabled, 0, 1);
-}
-#endif
 
 static void setErr(char *err, size_t err_cap, const char *fmt, ...)
 {
@@ -503,36 +491,20 @@ const char *weaponGraphParityModuleNameForOpcode(weapon_graph_opcode_e opcode)
 
 s32 weaponGraphRuntimeEnabled(void)
 {
+#ifndef PD_TESTS
+	return 1;
+#else
 	return s_runtime_enabled ? 1 : 0;
+#endif
 }
 
 void weaponGraphRuntimeSetEnabled(s32 enabled)
 {
+#ifdef PD_TESTS
 	s_runtime_enabled = enabled ? 1 : 0;
-}
-
-/* c3849 Wave 5f Unit 9 (B6.5): client-side MP latch. The first latch of a
- * match saves the local toggle; repeat latches (resyncs, repeated stage
- * starts) keep the ORIGINAL saved value so the eventual restore returns to
- * the true pre-match state. */
-void weaponGraphRuntimeNetLatchEnabled(s32 enabled)
-{
-	if (!s_net_latched) {
-		s_net_latched = 1;
-		s_net_saved_enabled = s_runtime_enabled;
-	}
-	weaponGraphRuntimeSetEnabled(enabled);
-}
-
-/* Idempotent: a second restore (stage end followed by disconnect) and a
- * restore with no prior latch are both no-ops. */
-void weaponGraphRuntimeNetRestoreEnabled(void)
-{
-	if (!s_net_latched) {
-		return;
-	}
-	s_net_latched = 0;
-	weaponGraphRuntimeSetEnabled(s_net_saved_enabled);
+#else
+	(void)enabled;
+#endif
 }
 
 /* c3849 Unit 1b (binding spec B2): single explosion-ref table. Values mirror
@@ -3846,7 +3818,8 @@ s32 weaponGraphRuntimeRegisterHeldIr(s32 weaponnum, const weapon_graph_ir_t *ir,
  * pre-B-911 behavior. The private slot never crosses wire/save/manifest/UI. */
 static void s_registerEmbeddedMeshDeps(const char *archive_path,
 		const char *container_entry, const void *container_bytes,
-		u32 container_size, const char *parent_id)
+		u32 container_size, const char *parent_id,
+		s32 bind_weapon_model_source)
 {
 	weapon_graph_embedded_mesh_t meshes[WEAPON_GRAPH_EMBEDDED_MESH_MAX];
 	s32 count = weaponGraphArchiveScanEmbeddedMeshesBytes(container_bytes,
@@ -3862,7 +3835,17 @@ static void s_registerEmbeddedMeshDeps(const char *archive_path,
 			continue;
 		}
 
-		asset_entry_t *e = assetCatalogRegister(mesh->catalog_id, ASSET_MODEL);
+		asset_entry_t *e = assetCatalogGetMutable(mesh->catalog_id);
+		if (e && e->type != ASSET_MODEL) {
+			sysLogPrintf(LOG_WARNING,
+				"WEAPONGRAPH.MESH.INGEST: catalog id %s is type=%d, not ASSET_MODEL; skipped",
+				mesh->catalog_id, (s32)e->type);
+			continue;
+		}
+
+		if (!e) {
+			e = assetCatalogRegister(mesh->catalog_id, ASSET_MODEL);
+		}
 		if (!e) {
 			sysLogPrintf(LOG_WARNING,
 				"WEAPONGRAPH.MESH.INGEST: catalog register failed for %s",
@@ -3886,20 +3869,39 @@ static void s_registerEmbeddedMeshDeps(const char *archive_path,
 		}
 
 		char source_path[FS_MAXPATH + 1];
-		int written = snprintf(source_path, sizeof(source_path),
-			"%s::%s::%s::%s", archive_path, container_entry,
-			mesh->archive_entry, mesh->geometry);
+		int written = container_entry && container_entry[0]
+			? snprintf(source_path, sizeof(source_path),
+				"%s::%s::%s::%s", archive_path, container_entry,
+				mesh->archive_entry, mesh->geometry)
+			: snprintf(source_path, sizeof(source_path),
+				"%s::%s::%s", archive_path, mesh->archive_entry,
+				mesh->geometry);
 		if (written < 0 || (size_t)written >= sizeof(source_path)) {
 			sysLogPrintf(LOG_WARNING,
 				"WEAPONGRAPH.MESH.INGEST: source path for %s exceeds FS_MAXPATH; mesh not bound",
 				mesh->catalog_id);
 			continue;
 		}
-		catalogSetPrimaryFile(e, source_path);
+
+		if (bind_weapon_model_source || e->source.primary.provider == NULL) {
+			catalogSetPrimaryFile(e, source_path);
+		}
+
+		if (bind_weapon_model_source) {
+			s32 source_filenum = assetCatalogModelPrivateSourceFilenum(slot);
+			if (source_filenum > 0) {
+				asset_entry_t *parent = assetCatalogGetMutable(parent_id);
+				e->source_filenum = source_filenum;
+				if (parent && parent->type == ASSET_WEAPON
+						&& parent->source_filenum <= 0) {
+					parent->source_filenum = source_filenum;
+				}
+			}
+		}
 
 		sysLogPrintf(LOG_NOTE,
-			"WEAPONGRAPH.MESH.INGEST: id=%s slot=%d source=%s",
-			mesh->catalog_id, slot, source_path);
+			"WEAPONGRAPH.MESH.INGEST: id=%s slot=%d filenum=%d source=%s",
+			mesh->catalog_id, slot, e->source_filenum, source_path);
 	}
 }
 
@@ -4037,6 +4039,8 @@ static s32 weaponGraphRuntimeRegisterWeaponArchiveDependencies(
 	char registered[WEAPON_GRAPH_ARCHIVE_MAX_NESTED_PAYLOADS][CATALOG_ID_LEN];
 	s32 registered_count = 0;
 	mod_archive_t *arc;
+	void *archive_bytes = NULL;
+	u32 archive_size = 0;
 	s32 count;
 
 	if (!archive_path || !archive_path[0] || !parent_id || !parent_id[0]) {
@@ -4048,15 +4052,26 @@ static s32 weaponGraphRuntimeRegisterWeaponArchiveDependencies(
 	if (count < 0) {
 		return -1;
 	}
-	if (count == 0) {
-		return 0;
-	}
 
-	arc = modArchiveOpen(archive_path);
-	if (!arc) {
+	archive_bytes = weaponGraphArchiveReadBytesFile(archive_path, &archive_size);
+	arc = archive_bytes ? NULL : modArchiveOpen(archive_path);
+	if (!archive_bytes && !arc) {
 		setErr(err, err_cap, "could not reopen weapon archive %s",
 			archive_path);
 		return -1;
+	}
+
+	if (archive_bytes && archive_size > 0) {
+		s_registerEmbeddedMeshDeps(archive_path, "", archive_bytes,
+			archive_size, parent_id, 1);
+	}
+
+	if (count == 0) {
+		free(archive_bytes);
+		if (arc) {
+			modArchiveClose(arc);
+		}
+		return 0;
 	}
 
 	for (s32 i = 0; i < inventory.count; i++) {
@@ -4067,15 +4082,20 @@ static s32 weaponGraphRuntimeRegisterWeaponArchiveDependencies(
 			continue;
 		}
 
-		s32 idx = modArchiveFindEntry(arc, payload->archive_entry);
-		if (idx < 0) {
-			setErr(err, err_cap, "nested payload %s disappeared from %s",
-				payload->archive_entry, archive_path);
-			goto fail;
-		}
-
 		u32 nested_size = 0;
-		void *nested = modArchiveExtractAlloc(arc, idx, &nested_size);
+		void *nested = archive_bytes
+			? modArchiveExtractMemAlloc(archive_bytes, archive_size,
+				payload->archive_entry, &nested_size)
+			: NULL;
+		if (!archive_bytes) {
+			s32 idx = modArchiveFindEntry(arc, payload->archive_entry);
+			if (idx < 0) {
+				setErr(err, err_cap, "nested payload %s disappeared from %s",
+					payload->archive_entry, archive_path);
+				goto fail;
+			}
+			nested = modArchiveExtractAlloc(arc, idx, &nested_size);
+		}
 		if (!nested || nested_size == 0) {
 			free(nested);
 			setErr(err, err_cap, "could not read nested payload %s",
@@ -4105,7 +4125,7 @@ static s32 weaponGraphRuntimeRegisterWeaponArchiveDependencies(
 		 * payload IR is compiled/registered, so its model_ref resolves to the
 		 * custom slot during projectileRuntimeFromNode. */
 		s_registerEmbeddedMeshDeps(archive_path, payload->archive_entry,
-			nested, nested_size, parent_id);
+			nested, nested_size, parent_id, 0);
 
 		/* c3849 Unit 8: register effects embedded one level deeper (inside
 		 * the projectile/entity bytes), so the payload's impact spark and
@@ -4147,7 +4167,10 @@ static s32 weaponGraphRuntimeRegisterWeaponArchiveDependencies(
 		}
 	}
 
-	modArchiveClose(arc);
+	free(archive_bytes);
+	if (arc) {
+		modArchiveClose(arc);
+	}
 	return 0;
 
 fail:
@@ -4178,7 +4201,10 @@ fail:
 			weaponGraphRuntimeClearAsset(registered[i]);
 		}
 	}
-	modArchiveClose(arc);
+	free(archive_bytes);
+	if (arc) {
+		modArchiveClose(arc);
+	}
 	return -1;
 }
 

@@ -227,4 +227,3 @@ Governing spec: PD2_Catalog_Universality_Spec_v1.0.docx
 ## Stale Playtest Backlog (Pre-S68) — ARCHIVED
 
 The "Awaiting Build Test / Playtest" items from sessions S40–S67 (SPF-1/3, SP-6 null guards, B-36 skyReset, 2-player Combat Sim, D3R-7 Modding Hub, B-12 Phase 1, B-13, Update tab staged version, Player Stats) predate the current architecture (catalog universality, session catalog, manifest lifecycle, match startup pipeline). Most of the underlying systems have been completely rewritten. These items are archived rather than carried forward — any actual remaining work was re-captured in the current tasks-current.md.
-

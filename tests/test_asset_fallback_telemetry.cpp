@@ -10,7 +10,8 @@
  * fail loudly AND be tracked. Pinned behaviors: O(1) counting, per-family
  * buckets, first-offender snapshot semantics (count only -- the snapshot text
  * is log-only), out-of-range family bucketing to ASSET_NONE, quiet-when-zero
- * report, report consumes and clears.
+ * report, report consumes and clears under PD_TESTS, and the Wave 7 fatal
+ * cutover family set.
  */
 
 #include "catch.hpp"
@@ -32,6 +33,7 @@ TEST_CASE("fallback telemetry: record increments family and total",
 	REQUIRE(assetFallbackCountFor(ASSET_TEXTURE) == 2);
 	REQUIRE(assetFallbackCountFor(ASSET_ANIMATION) == 1);
 	REQUIRE(assetFallbackCountFor(ASSET_SFX) == 0);
+	REQUIRE(assetFallbackFatalCutoverPending() == 1);
 	assetFallbackReportAndReset("test-clear");
 }
 
@@ -56,6 +58,7 @@ TEST_CASE("fallback telemetry: out-of-range family buckets to ASSET_NONE",
 
 	REQUIRE(assetFallbackCountFor(ASSET_NONE) == 2);
 	REQUIRE(assetFallbackPendingTotal() == 2);
+	REQUIRE(assetFallbackFatalCutoverPending() == 0);
 	/* The pin accessor buckets identically. */
 	REQUIRE(assetFallbackCountFor((asset_type_e)9999) == 2);
 	assetFallbackReportAndReset("test-clear");
@@ -66,5 +69,20 @@ TEST_CASE("fallback telemetry: null what is tolerated",
 	assetFallbackReportAndReset("test-clear");
 	assetFallbackRecord(ASSET_SCENARIO, 3, NULL);
 	REQUIRE(assetFallbackCountFor(ASSET_SCENARIO) == 1);
+	REQUIRE(assetFallbackFatalCutoverPending() == 1);
 	REQUIRE(assetFallbackReportAndReset(NULL) == 1);
+}
+
+TEST_CASE("fallback telemetry: Wave 7 fatal cutover families are pinned",
+          "[catalog][fallback][telemetry][c3849][cutover]") {
+	REQUIRE(assetFallbackFamilyIsFatalCutover(ASSET_TEXTURE) == 1);
+	REQUIRE(assetFallbackFamilyIsFatalCutover(ASSET_ANIMATION) == 1);
+	REQUIRE(assetFallbackFamilyIsFatalCutover(ASSET_SFX) == 1);
+	REQUIRE(assetFallbackFamilyIsFatalCutover(ASSET_MUSIC) == 1);
+	REQUIRE(assetFallbackFamilyIsFatalCutover(ASSET_SCENARIO) == 1);
+	REQUIRE(assetFallbackFamilyIsFatalCutover(ASSET_MODEL) == 1);
+
+	REQUIRE(assetFallbackFamilyIsFatalCutover(ASSET_FONT) == 0);
+	REQUIRE(assetFallbackFamilyIsFatalCutover(ASSET_LANG) == 0);
+	REQUIRE(assetFallbackFamilyIsFatalCutover(ASSET_NONE) == 0);
 }

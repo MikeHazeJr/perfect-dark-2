@@ -43,6 +43,35 @@ static const char *s_familyName(asset_type_e family)
     }
 }
 
+s32 assetFallbackFamilyIsFatalCutover(asset_type_e family)
+{
+    switch (family) {
+    case ASSET_TEXTURE:
+    case ASSET_ANIMATION:
+    case ASSET_SFX:
+    case ASSET_MUSIC:
+    case ASSET_SCENARIO:
+    case ASSET_MODEL:
+        return 1;
+    default:
+        return 0;
+    }
+}
+
+s32 assetFallbackFatalCutoverPending(void)
+{
+    s32 f;
+
+    for (f = 0; f < ASSET_TYPE_COUNT; f++) {
+        if (s_Counts[f] > 0
+                && assetFallbackFamilyIsFatalCutover((asset_type_e)f)) {
+            return 1;
+        }
+    }
+
+    return 0;
+}
+
 void assetFallbackRecord(asset_type_e family, s32 num, const char *what)
 {
     s32 f = (s32)family;
@@ -83,6 +112,15 @@ s32 assetFallbackReportAndReset(const char *checkpoint)
             s_familyName((asset_type_e)f), s_Counts[f], s_FirstNum[f],
             s_FirstWhat[f]);
     }
+
+#ifndef PD_TESTS
+    if (assetFallbackFatalCutoverPending()) {
+        sysFatalError(
+            "ASSET.FALLBACK: fatal cutover saw %d fallback(s) at %s; "
+            "public typed archive source is required.",
+            total, checkpoint ? checkpoint : "(unnamed)");
+    }
+#endif
 
     memset(s_Counts, 0, sizeof(s_Counts));
     memset(s_FirstNum, 0, sizeof(s_FirstNum));

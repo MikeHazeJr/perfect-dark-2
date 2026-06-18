@@ -1,7 +1,7 @@
 /*
  * tests/test_uichrome_paths_pin.cpp -- Phase 3 Pass B Slice 13 path pin.
  *
- * Locks the migration of UI chrome textures to data/ui/textures/ (the
+ * Locks the migration of UI chrome textures to data/<romid>/ui/*.pdui (the
  * BYOR tier alongside per-romid segs).  Pre-Slice-13 they lived under
  * mods/base-ui/textures/ (the user-overlay tier); the initial Slice 13
  * commit moved them to base/ui/textures/ but that was a misclassi-
@@ -14,7 +14,7 @@
  * context/audits/catalog-phase3-passb-slice13-uichrome-2026-05-02.md.
  *
  * @SYNC: any future restructuring of pdgui_theme.cpp must keep the
- *        data/ui/textures/ path canonical.  Mods may overlay via the
+ *        data/<romid>/ui/*.pdui path canonical.  Mods may overlay via the
  *        modvfs path but the runtime extraction destination + catalog
  *        source-of-truth lives under data/.
  */
@@ -47,53 +47,54 @@ unsigned countOccurrences(const std::string &haystack, const std::string &needle
 
 } /* anonymous namespace */
 
-TEST_CASE("uichrome-paths: catalog entries point at data/ui/textures",
+TEST_CASE("uichrome-paths: catalog entries point at pdui archives",
           "[catalog][uichrome][slice13][pass-b]") {
 	const std::string src = readSourceFile("port/fast3d/pdgui_theme.cpp");
 	REQUIRE(!src.empty());
 
-	/* k_UiTextures[] entries -- 13 distinct catalog id / path pairs */
-	const char *expected_paths[] = {
-		"data/ui/textures/ui_bg_haze.tga",
-		"data/ui/textures/ui_particles.tga",
-		"data/ui/textures/ui_noise_sm.tga",
-		"data/ui/textures/ui_noise_lg.tga",
-		"data/ui/textures/ui_grad_bar.tga",
-		"data/ui/textures/ui_mirror_tile.tga",
-		"data/ui/textures/ui_dot_tile.tga",
-		"data/ui/textures/ui_nuke.tga",
-		"data/ui/textures/ui_bg_alt.tga",
-		"data/ui/textures/ui_deco.tga",
-		"data/ui/textures/ui_icon_a.tga",
-		"data/ui/textures/ui_icon_b.tga",
-		"data/ui/textures/ui_icon_c.tga",
+	/* k_PduiEntries[] entries -- catalog id / .pdui slug pairs. */
+	const char *expected_ids[] = {
+		"\"base:ui_bg_haze\"",
+		"\"base:ui_particles\"",
+		"\"base:ui_noise_sm\"",
+		"\"base:ui_noise_lg\"",
+		"\"base:ui_grad_bar\"",
+		"\"base:ui_mirror_tile\"",
+		"\"base:ui_dot_tile\"",
+		"\"base:ui_nuke\"",
+		"\"base:ui_bg_alt\"",
+		"\"base:ui_deco\"",
+		"\"base:ui_icon_a\"",
+		"\"base:ui_icon_b\"",
+		"\"base:ui_icon_c\"",
+		"\"base:ui_stars\"",
+		"\"base:ui_chrome_frame\"",
 	};
-	for (const char *p : expected_paths) {
-		INFO("expected catalog path: " << p);
-		REQUIRE(src.find(p) != std::string::npos);
+	for (const char *id : expected_ids) {
+		INFO("expected catalog id: " << id);
+		REQUIRE(src.find(id) != std::string::npos);
 	}
 }
 
-TEST_CASE("uichrome-paths: extraction destination writes to data/ui/textures",
+TEST_CASE("uichrome-paths: extraction destination writes pdui archives",
           "[catalog][uichrome][slice13][pass-b]") {
 	const std::string src = readSourceFile("port/fast3d/pdgui_theme.cpp");
 	REQUIRE(!src.empty());
 
-	/* TGA + PNG + 9slice JSON destination format strings.
-	 * Each appears at least once in the extraction code path. */
-	REQUIRE(src.find("data/ui/textures/%s.tga") != std::string::npos);
-	REQUIRE(src.find("data/ui/textures/%s.png") != std::string::npos);
-	REQUIRE(src.find("data/ui/textures/%s.9slice.json") != std::string::npos);
+	REQUIRE(src.find("#define PDUI_OUT_DIR \"ui\"") != std::string::npos);
+	REQUIRE(src.find("%s/%s/%s.pdui") != std::string::npos);
+	REQUIRE(src.find("assetArchiveWriterInit(&asset_writer, aw, \"ui\"") != std::string::npos);
+	REQUIRE(src.find("assetArchiveWriterAddPublicMem") != std::string::npos);
 }
 
-TEST_CASE("uichrome-paths: directory creation targets data/ui/textures",
+TEST_CASE("uichrome-paths: directory creation targets data rom ui dir",
           "[catalog][uichrome][slice13][pass-b]") {
 	const std::string src = readSourceFile("port/fast3d/pdgui_theme.cpp");
 	REQUIRE(!src.empty());
 
-	REQUIRE(src.find("fsCreateDir(\"data\")") != std::string::npos);
-	REQUIRE(src.find("fsCreateDir(\"data/ui\")") != std::string::npos);
-	REQUIRE(src.find("fsCreateDir(\"data/ui/textures\")") != std::string::npos);
+	REQUIRE(src.find("fsDataDirEnsure()") != std::string::npos);
+	REQUIRE(src.find("fsDataDir(dataDirBuf, sizeof(dataDirBuf))") != std::string::npos);
+	REQUIRE(src.find("fsCreateDir(ui_dir)") != std::string::npos);
 }
 
 TEST_CASE("uichrome-paths: legacy mods/base-ui paths fully retired in code",
@@ -142,17 +143,15 @@ TEST_CASE("uichrome-paths: mod.json autogen retired",
 	REQUIRE(src.find("Write mod.json manifest so the mod manager") == std::string::npos);
 }
 
-TEST_CASE("uichrome-paths: 13 catalog entries pinned, 14 extraction filenames pinned",
+TEST_CASE("uichrome-paths: 15 pdui entries pinned",
           "[catalog][uichrome][slice13][pass-b][counts]") {
 	const std::string src = readSourceFile("port/fast3d/pdgui_theme.cpp");
 	REQUIRE(!src.empty());
 
-	/* k_UiTextures[] has exactly 13 entries (catalog rows). */
-	REQUIRE(countOccurrences(src, "{ \"base:ui_") == 13u);
+	/* k_PduiEntries[] has 15 archive rows, including ui_stars and chrome_frame. */
+	REQUIRE(countOccurrences(src, "{ \"base:ui_") == 15u);
 
-	/* k_Extracts[] has 14 distinct filenames (the catalog row count
-	 * plus ui_stars which is extracted but not registered as ASSET_UI;
-	 * see audit Section A.6 for the asymmetry rationale). */
+	/* Each slug becomes data/<romid>/ui/<slug>.pdui. */
 	const char *extract_filenames[] = {
 		"\"ui_noise_sm\"",
 		"\"ui_particles\"",
@@ -168,6 +167,7 @@ TEST_CASE("uichrome-paths: 13 catalog entries pinned, 14 extraction filenames pi
 		"\"ui_icon_c\"",
 		"\"ui_deco\"",
 		"\"ui_stars\"",
+		"\"ui_chrome_frame\"",
 	};
 	for (const char *fn : extract_filenames) {
 		INFO("expected k_Extracts filename: " << fn);

@@ -9,10 +9,10 @@
       "pillar": "modding",
       "parked_date": "2026-04-17",
       "parked_from_session": "implementation-roadmap-apr16",
-      "last_state_snapshot": "Grid F1-F8 editor foundation shipped S311-S313 (in-game placement, property editor, doors, zones, weapon pads). Forge runtime wire-in complete S354 (props/weapons/geometry/zones/interactables live). Door lifecycle S356. Remaining F0-F8 extended scope (per designs/modding/forge-level-editor.md): property editor for arbitrary catalog props, save-as-mod pipeline polish, lighting/atmosphere passes, level settings UI, custom game type authoring, mission authoring nodes. No active session; exploration paused while catalog universality + input controller support take precedence.",
+      "last_state_snapshot": "Grid F1-F8 editor foundation shipped S311-S313 (in-game placement, property editor, doors, zones, weapon pads). Forge runtime wire-in complete S354 (props/weapons/geometry/zones/interactables live). Door lifecycle S356. Remaining F0-F8 extended scope (per designs/modding/forge-level-editor.md): property editor for arbitrary catalog props, save-as-mod pipeline polish, lighting/atmosphere passes, level settings UI, custom game type authoring, mission authoring nodes. No active session; exploration paused while catalog universality + input controller support take precedence.\n\nDeferred by board cleanup on 2026-06-11T05:59:20-04:00: do not resume while c3844 all-asset parity closure is the sole active lane.\n\nReverified by board cleanup on 2026-06-11T14:00:45-04:00: still parked/manual-resume only behind c3844-s107.\n\nReverified by board cleanup on 2026-06-11T15:37:36-04:00: still parked/manual-resume only behind c3844; c3844-s107 is done and c3844-s108 retained-output currentness is active.",
       "resume_condition": {
-        "type": "date",
-        "targets": "2026-06-10",
+        "type": "manual",
+        "targets": "after c3844 parity closure or explicit Mike priority change",
         "semantics": "all-of"
       },
       "context_refs": [
@@ -20,7 +20,7 @@
         "context/pillars/modding.md"
       ],
       "kanban_card_origin": null,
-      "last_checked": "2026-05-18",
+      "last_checked": "2026-06-17",
       "tags": [
         "editor",
         "forge",
@@ -35,18 +35,18 @@
       "pillar": "mod-infrastructure",
       "parked_date": "2026-04-20",
       "parked_from_session": "allinone-cleanup-investigation",
-      "last_state_snapshot": "AllInOneMods content (GEX, Kakariko, Goldfinger 64, Dark Noon) was bundled into the port during the initial merge. Mike directed retiring bundled content in favor of per-mod .pdmod packages. Removal blocked while catalog universality landed (Step 5 retired .pdbase and changed registration), then while BYOR completion settled (Option B authoring tables landed 2026-05-03). Now structurally unblocked; awaiting prioritization vs other modding lanes.",
+      "last_state_snapshot": "AllInOneMods content (GEX, Kakariko, Goldfinger 64, Dark Noon) was bundled into the port during the initial merge. Mike directed retiring bundled content in favor of per-mod .pdmod packages. Removal blocked while catalog universality landed (Step 5 retired .pdbase and changed registration), then while BYOR completion settled (Option B authoring tables landed 2026-05-03). Now structurally unblocked; awaiting prioritization vs other modding lanes.\n\nDeferred by board cleanup on 2026-06-11T05:59:20-04:00: do not resume while c3844 all-asset parity closure is the sole active lane.\n\nReverified by board cleanup on 2026-06-11T14:00:45-04:00: still parked/manual-resume only behind c3844-s107.\n\nReverified by board cleanup on 2026-06-11T15:37:36-04:00: still parked/manual-resume only behind c3844; c3844-s107 is done and c3844-s108 retained-output currentness is active.",
       "resume_condition": {
-        "type": "date",
-        "targets": "2026-06-10",
+        "type": "manual",
+        "targets": "after c3844 parity closure or explicit Mike priority change",
         "semantics": "all-of"
       },
       "context_refs": [
         "context/pillars/modding.md",
-        "context/audits/pdmod-verification-matrix-2026-04-25.md"
+        "context/_old/audits/2026/pdmod-verification-matrix-2026-04-25.md"
       ],
       "kanban_card_origin": null,
-      "last_checked": "2026-05-18",
+      "last_checked": "2026-06-17",
       "tags": [
         "cleanup",
         "modding",
@@ -61,12 +61,10 @@
       "pillar": "networking",
       "parked_date": "2026-04-22",
       "parked_from_session": "connectivity-replaces-dedicated",
-      "last_state_snapshot": "Dedicated-server pillar retired per AUDIT-C1 / MASTER-C5 policy call (2026-04-20 super audit recommended retiring in pillars.md for v0.1.0 over 4-8 week refactor). Replacement direction: P2P friend-play via the existing 6-tier ICE flow (LAN/DIRECT/STUN/UPnP/ICE/TURN). Phase 1+2 of designs/connectivity/connectivity-and-modern-main-menu.md shipped, but the broader friend-play UX (invite, presence, voice routing on the P2P path) is queued behind Input Controller Support Cohorts 5-8 per tasks.md critical path.",
+      "last_state_snapshot": "Dedicated-server pillar retired per AUDIT-C1 / MASTER-C5 policy call (2026-04-20 super audit recommended retiring in pillars.md for v0.1.0 over 4-8 week refactor). Replacement direction: P2P friend-play via the existing 6-tier ICE flow (LAN/DIRECT/STUN/UPnP/ICE/TURN). Phase 1+2 of designs/connectivity/connectivity-and-modern-main-menu.md shipped, but the broader friend-play UX (invite, presence, voice routing on the P2P path) is queued behind Input Controller Support Cohorts 5-8 per tasks.md critical path.\n\nDeferred by board cleanup on 2026-06-11T05:59:20-04:00: do not resume while c3844 all-asset parity closure is the sole active lane.\n\nReverified by board cleanup on 2026-06-11T14:00:45-04:00: still parked/manual-resume only behind c3844-s107.\n\nReverified by board cleanup on 2026-06-11T15:37:36-04:00: still parked/manual-resume only behind c3844; c3844-s107 is done and c3844-s108 retained-output currentness is active.",
       "resume_condition": {
-        "type": "dependency",
-        "targets": [
-          "c036"
-        ],
+        "type": "manual",
+        "targets": "after c3844 parity closure or explicit Mike priority change",
         "semantics": "all-of"
       },
       "context_refs": [
@@ -75,7 +73,7 @@
         "context/pillars/connectivity.md"
       ],
       "kanban_card_origin": null,
-      "last_checked": "2026-05-18",
+      "last_checked": "2026-06-17",
       "tags": [
         "connectivity",
         "p2p",
@@ -135,8 +133,7 @@
           "semantics": "all-of"
         },
         "context_refs": [
-          "context/designs/in-flight/player-init-architectural-fixes.md",
-          "context/audits/player-init-comparison-upstream-2026-04-26.md"
+          "context/designs/in-flight/player-init-architectural-fixes.md"
         ],
         "kanban_card_origin": null,
         "last_checked": "2026-05-12",
@@ -146,7 +143,8 @@
         ],
         "ready_to_resume": false,
         "stale": false
-      }
+      },
+      "x_cleanup_note": "Removed missing historical audit reference during context cleanup on 2026-06-11T12:34:40-04:00; retained existing design context refs. Rechecked during the 2026-06-11T13:19:35-04:00 cleanup refresh; no further archive metadata changes were needed."
     },
     {
       "id": "pt-005",
@@ -180,5 +178,11 @@
         "stale": false
       }
     }
-  ]
+  ],
+  "x_board_cleanup": {
+    "updated": "2026-06-11T16:11:45-04:00",
+    "rule": "Parked threads are manual-resume only until c3844 closes or Mike explicitly changes priority; c3844-s108 retained-output currentness does not reopen parked work.",
+    "ready_to_resume_count": 0,
+    "stale_count": 0
+  }
 }

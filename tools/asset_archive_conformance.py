@@ -26,6 +26,8 @@ from io import BytesIO
 from pathlib import Path
 
 
+REPO_ROOT = Path(__file__).resolve().parents[1]
+
 TYPED_DESCRIPTORS = {
     ".pdweapon": "weapon.ini",
     ".pdprojectile": "projectile.ini",
@@ -104,7 +106,7 @@ ROOT_METADATA = {
 }
 
 SCENARIO_GRAPH_CACHE_KIND = (
-    "pdscenario_scene_glb_clean_public_v95_standalone_backfill_collision_obj_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json"
+    "pdscenario_scene_glb_clean_public_v96_standalone_backfill_collision_obj_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json"
 )
 
 FORBIDDEN_COMMON_EXACT = {
@@ -423,6 +425,12 @@ FORBIDDEN_NUMERIC_ASSET_REF_KEYS = {
     "weapon_id",
     "weapon_ref",
     "weaponnum",
+}
+
+FORBIDDEN_PUBLIC_DESCRIPTOR_BRIDGE_FIELDS = {
+    "empty_rom_slot",
+    "source_filenum",
+    "source_filenum_symbol",
 }
 
 CATALOG_IDENTITY_KEYS = {
@@ -3813,6 +3821,35 @@ def scan_text_asset_refs(label: str, entry_name: str, text: str,
     return errors
 
 
+def scan_public_descriptor_bridge_fields(label: str, entry_name: str,
+                                         text: str) -> list[str]:
+    """Reject private migration/provenance bridge fields in public INI source.
+
+    `_meta/manifest.json` may retain provenance needed to rebuild current
+    runtime bridges. Public descriptors should describe editable source, not
+    legacy ROM slot/file-number identity.
+    """
+    errors: list[str] = []
+    if not entry_name.lower().endswith(".ini"):
+        return errors
+
+    for line_num, line in enumerate(text.splitlines(), 1):
+        stripped = line.strip()
+        if not stripped or stripped.startswith(("#", ";", "//")):
+            continue
+        match = KEY_VALUE_RE.match(line)
+        if not match:
+            continue
+        key = normalize_key(match.group(1))
+        if key in FORBIDDEN_PUBLIC_DESCRIPTOR_BRIDGE_FIELDS:
+            errors.append(
+                f"{label} public descriptor {entry_name}:{line_num} "
+                f"contains private bridge field {match.group(1)}; keep "
+                "legacy file/slot provenance under _meta"
+            )
+    return errors
+
+
 def scan_delimited_asset_refs(label: str, entry_name: str, text: str,
                               known_catalog_ids: set[str] | None = None) -> list[str]:
     errors: list[str] = []
@@ -3894,6 +3931,54 @@ def validate_simple_rows_json_schema(label: str, entry_name: str, text: str,
                 f"{label} {entry_name} row {idx} missing fields: {', '.join(missing)}"
             )
     return len(rows), errors
+
+
+def validate_scenario_ai_lists_json_schema(label: str, entry_name: str,
+                                           text: str) -> tuple[int, list[str]]:
+    required_fields = [
+        "ailist_ref",
+        "list_id",
+        "graph_node",
+        "command_index",
+        "offset",
+        "opcode",
+        "opcode_name",
+        "operands",
+        "model_catalog_id",
+        "weapon_catalog_id",
+        "body_catalog_id",
+        "head_catalog_id",
+    ]
+    row_count, errors = validate_simple_rows_json_schema(
+        label,
+        entry_name,
+        text,
+        "pd2.scenario.ai.lists.v1",
+        required_fields,
+    )
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError:
+        return row_count, errors
+    rows = parsed.get("rows") if isinstance(parsed, dict) else None
+    if not isinstance(rows, list):
+        return row_count, errors
+
+    for idx, row in enumerate(rows):
+        if not isinstance(row, dict):
+            continue
+        opcode_name = row.get("opcode_name")
+        if not isinstance(opcode_name, str) or not opcode_name.strip():
+            errors.append(
+                f"{label} {entry_name} row {idx} opcode_name must be a named command"
+            )
+        elif opcode_name == "command":
+            errors.append(
+                f"{label} {entry_name} row {idx} flattens opcode "
+                f"{clean_value(row.get('opcode'))} to generic command; regenerate "
+                "from named Scenario AI source"
+            )
+    return row_count, errors
 
 
 def validate_objectives_json_schema(label: str, entry_name: str, text: str,
@@ -4374,6 +4459,55 @@ def collect_archive_catalog_ids(data: bytes, ext: str,
     except zipfile.BadZipFile:
         return ids
     return ids
+
+
+SOURCE_CATALOG_ID_FILES = (
+    "port/src/bodydata_authored.c",
+    "port/src/headdata_authored.c",
+    "port/src/weapondata_authored.c",
+)
+
+
+def collect_source_catalog_ids(repo_root: Path = REPO_ROOT) -> set[str]:
+    ids: set[str] = set()
+    for rel in SOURCE_CATALOG_ID_FILES:
+        path = repo_root / rel
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        for match in re.finditer(r'"([^"]+)"', text):
+            value = match.group(1).strip()
+            if CATALOG_ID_RE.match(value):
+                ids.add(value)
+    return ids
+
+
+def iter_catalog_context_archives(root: Path) -> list[Path]:
+    candidates: list[Path] = []
+    if root.is_dir():
+        parent = root.parent
+        if parent.exists() and parent != root:
+            # Family-only checks such as --root data/ntsc-final/scenarios still
+            # need the sibling typed archives to know declared base model/body/
+            # weapon IDs. This seeds the ID universe without validating siblings.
+            candidates.append(parent)
+
+    archives: list[Path] = []
+    seen: set[Path] = set()
+    for candidate in candidates:
+        for path in candidate.rglob("*"):
+            if not path.is_file() or path.suffix.lower() not in TYPED_DESCRIPTORS:
+                continue
+            try:
+                resolved = path.resolve()
+            except OSError:
+                resolved = path
+            if resolved in seen:
+                continue
+            seen.add(resolved)
+            archives.append(path)
+    return archives
 
 
 def validate_manifest_dependency_refs(label: str, text: str,
@@ -4948,6 +5082,9 @@ def validate_archive_bytes(data: bytes, label: str, ext: str,
                     validate_no_stale_tsv_references(
                         label, name, text, result.errors
                     )
+                    result.errors.extend(scan_public_descriptor_bridge_fields(
+                        label, name, text
+                    ))
                     if name.lower().endswith(".csv"):
                         result.errors.extend(scan_delimited_asset_refs(
                             label, name, text, active_catalog_ids
@@ -5194,27 +5331,12 @@ def validate_archive_bytes(data: bytes, label: str, ext: str,
                     )
                     result.errors.extend(object_errors)
                 if "ai/ailists.json" in name_set:
-                    ai_row_count, ai_errors = validate_simple_rows_json_schema(
+                    ai_row_count, ai_errors = validate_scenario_ai_lists_json_schema(
                         label,
                         "ai/ailists.json",
                         zf.read("ai/ailists.json").decode(
                             "utf-8", errors="replace"
                         ),
-                        "pd2.scenario.ai.lists.v1",
-                        [
-                            "ailist_ref",
-                            "list_id",
-                            "graph_node",
-                            "command_index",
-                            "offset",
-                            "opcode",
-                            "opcode_name",
-                            "operands",
-                            "model_catalog_id",
-                            "weapon_catalog_id",
-                            "body_catalog_id",
-                            "head_catalog_id",
-                        ],
                     )
                     result.errors.extend(ai_errors)
                 path_row_count: int | None = None
@@ -5862,6 +5984,97 @@ def validate_archive_bytes(data: bytes, label: str, ext: str,
                                             str(link.get("from", "")),
                                             str(link.get("to", "")),
                                         )
+                                    )
+                        node_by_id = {
+                            str(node.get("id", "")): node
+                            for node in nodes
+                            if isinstance(node, dict)
+                        }
+                        command_node_count = sum(
+                            1
+                            for node in nodes
+                            if isinstance(node, dict)
+                            and node.get("kind") == "scenario.ai.command"
+                        )
+                        if "ai/ailists.json" in name_set:
+                            try:
+                                ai_doc = json.loads(
+                                    zf.read("ai/ailists.json").decode(
+                                        "utf-8", errors="replace"
+                                    )
+                                )
+                            except json.JSONDecodeError:
+                                ai_doc = {}
+                            ai_rows = ai_doc.get("rows") if isinstance(ai_doc, dict) else None
+                            if isinstance(ai_rows, list):
+                                counts = graph.get("counts")
+                                if (
+                                    isinstance(counts, dict)
+                                    and counts.get("ai_commands") != len(ai_rows)
+                                ):
+                                    result.errors.append(
+                                        f"{label} level.graph.json counts.ai_commands must match ai/ailists.json rows"
+                                    )
+                                if command_node_count != len(ai_rows):
+                                    result.errors.append(
+                                        f"{label} level.graph.json must include one scenario.ai.command node per ai/ailists.json row"
+                                    )
+                                command_graph_error_count = 0
+                                for row_idx, row in enumerate(ai_rows):
+                                    if not isinstance(row, dict):
+                                        continue
+                                    graph_node = row.get("graph_node")
+                                    if not isinstance(graph_node, str) or not graph_node:
+                                        continue
+                                    graph_entry = node_by_id.get(graph_node)
+                                    row_errors: list[str] = []
+                                    if graph_entry is None:
+                                        row_errors.append(
+                                            f"row {row_idx} graph_node {graph_node} missing from level.graph.json nodes"
+                                        )
+                                    else:
+                                        if graph_entry.get("kind") != "scenario.ai.command":
+                                            row_errors.append(
+                                                f"row {row_idx} graph_node {graph_node} must be kind scenario.ai.command"
+                                            )
+                                        if graph_entry.get("source") != "ai/ailists.json":
+                                            row_errors.append(
+                                                f"row {row_idx} graph_node {graph_node} must source ai/ailists.json"
+                                            )
+                                        for field in [
+                                            "ailist_ref",
+                                            "command_index",
+                                            "offset",
+                                            "opcode",
+                                            "opcode_name",
+                                        ]:
+                                            if graph_entry.get(field) != row.get(field):
+                                                row_errors.append(
+                                                    f"row {row_idx} graph_node {graph_node} must copy {field} from ai/ailists.json"
+                                                )
+                                                break
+                                        semantic_kind = graph_entry.get("semantic_kind")
+                                        if not (
+                                            isinstance(semantic_kind, str)
+                                            and semantic_kind.startswith("scenario.ai.")
+                                        ):
+                                            row_errors.append(
+                                                f"row {row_idx} graph_node {graph_node} must declare scenario.ai semantic_kind"
+                                            )
+                                    if ("scenario.ai.lists", graph_node) not in link_pairs:
+                                        row_errors.append(
+                                            f"row {row_idx} graph_node {graph_node} must be linked from scenario.ai.lists"
+                                        )
+                                    if row_errors:
+                                        command_graph_error_count += len(row_errors)
+                                        if command_graph_error_count <= 20:
+                                            result.errors.extend(
+                                                f"{label} level.graph.json {msg}"
+                                                for msg in row_errors
+                                            )
+                                if command_graph_error_count > 20:
+                                    result.errors.append(
+                                        f"{label} level.graph.json has {command_graph_error_count} AI command graph binding errors; first 20 shown"
                                     )
                         for pair in {
                             ("scenario.load", "scenario.pads"),
@@ -6575,7 +6788,13 @@ def validate_root(root: Path, require_all_families: bool = False,
         result.errors.append(f"{root} contains no typed asset archives")
         return result
 
-    known_catalog_ids: set[str] = set()
+    known_catalog_ids: set[str] = collect_source_catalog_ids()
+    for archive in sorted(iter_catalog_context_archives(root)):
+        known_catalog_ids.update(
+            collect_archive_catalog_ids(
+                archive.read_bytes(), archive.suffix, recurse=False
+            )
+        )
     for archive in sorted(archives):
         known_catalog_ids.update(
             collect_archive_catalog_ids(
@@ -6668,6 +6887,27 @@ def run_selftest() -> int:
     )
     if not nested:
         failures.append("RECURSION objects[0].model_catalog_id=9 not rejected")
+
+    bridge_errors = scan_public_descriptor_bridge_fields(
+        "selftest", "voice.ini", "[voice]\nsource_filenum = 123\n"
+    )
+    if not bridge_errors:
+        failures.append("PUBLIC-DESCRIPTOR voice.ini source_filenum not rejected")
+    bridge_errors = scan_public_descriptor_bridge_fields(
+        "selftest", "texture.ini", "[texture]\nempty_rom_slot = true\n"
+    )
+    if not bridge_errors:
+        failures.append("PUBLIC-DESCRIPTOR texture.ini empty_rom_slot not rejected")
+    bridge_errors = scan_public_descriptor_bridge_fields(
+        "selftest", "mesh.ini", "[model]\nsource_filenum_symbol = FILE_GUN\n"
+    )
+    if not bridge_errors:
+        failures.append("PUBLIC-DESCRIPTOR mesh.ini source_filenum_symbol not rejected")
+    bridge_errors = scan_public_descriptor_bridge_fields(
+        "selftest", "_meta/manifest.json", "{\"source_filenum\": 123}"
+    )
+    if bridge_errors:
+        failures.append("PUBLIC-DESCRIPTOR _meta source_filenum should be allowed")
 
     if failures:
         print("asset-archive scanner selftest FAILED:", file=sys.stderr)

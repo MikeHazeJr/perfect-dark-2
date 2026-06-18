@@ -1,6 +1,6 @@
 # Perfect Dark 2 - Project Context
 
-> **Live as of 2026-04-30 (rebuild Phase 2B Step 9).** All pillar docs in place, designs sub-bucketed, session-log cut to active rolling window, retention rules captured.
+> **Live as of 2026-06-17T15:45:00-04:00.** All pillar docs in place, designs sub-bucketed, session-log cut to active rolling window, retention rules captured. `c3844` is closed at 100% for the current tree, and the follow-on `c3849` Wave 7 weapon-graph/fatal/protocol cutover is implemented and verified.
 
 ---
 
@@ -24,15 +24,17 @@ Read in this order before doing any work in this project:
 
 Then load the pillar doc(s) for whatever you are touching.
 
+The canonical context source is this `context/` tree. Parent-level briefing files are convenience mirrors only and must be treated as stale unless explicitly synced from this directory.
+
 ---
 
 ## Live state at a glance
 
-- **Wire protocol**: v50 (per [pillars/save-wire-format.md](pillars/save-wire-format.md) and `port/include/net/net.h:12`).
+- **Wire protocol**: v51 (per [pillars/save-wire-format.md](pillars/save-wire-format.md) and `port/include/net/net.h:12`).
 - **Save format**: SAVE_VERSION=2, MPSETUP_VERSION=2.
 - **Build**: v0.0.175+ (per recent release tags). Build via `.\devtools\build-session.ps1 -Session <id> -Target all`; standalone `pd-server` is removed/deprecated, so use listen-host in the client.
 - **Active session range**: see [session-log.md](session-log.md).
-- **Critical path**: see [tasks.md](tasks.md). Current Active lane is intentionally narrowed to `c3844`: all-asset source/runtime parity closure to 100%.
+- **Critical path**: see [tasks.md](tasks.md). There is no active `c3844` work remaining. The board now has zero Active cards, Backlog remains deferred unless Mike reopens/promotes a card, and `c3844` is Done. The later `c3849` Wave 7 cutover is also complete for the current tree: weapon graph runtime is default ON, the old debug toggle/MP option is retired, selected source-owned fallback families fail closed, protocol v51 rejects mixed v50/v51 peers, and the Needler visual smoke proves installed `.pdweapon` source rendering through nested `.pdxxx` archives.
 - **Long-term roadmap**: [roadmap.md](roadmap.md).
 
 ---
@@ -48,7 +50,7 @@ Each pillar doc captures the live state, current invariants, and the code that o
 | Menus / UI / UX | [pillars/menus.md](pillars/menus.md) | ImGui menus (31 files), menu pool, menu graph, theme system |
 | Modding | [pillars/modding.md](pillars/modding.md) | `.pdmod` format, scanner, manifest, network distribution |
 | Connectivity | [pillars/connectivity.md](pillars/connectivity.md) | ENet, P2P 6-tier (LAN/DIRECT/STUN/UPnP/ICE/TURN), presence, voice |
-| Save / wire format | [pillars/save-wire-format.md](pillars/save-wire-format.md) | SAVE_VERSION=2, MPSETUP_VERSION=2, NET_PROTOCOL_VER=50, migration framework |
+| Save / wire format | [pillars/save-wire-format.md](pillars/save-wire-format.md) | SAVE_VERSION=2, MPSETUP_VERSION=2, NET_PROTOCOL_VER=51, migration framework |
 | Server / hosting | [pillars/server.md](pillars/server.md) | Listen vs dedicated, participant pool, RCON, bans, room passwords |
 | Build / dev tooling | [pillars/build-dev-tooling.md](pillars/build-dev-tooling.md) | CMake + MSYS2, build-headless / build-session, release pipeline, updater |
 | Tests | [pillars/tests.md](pillars/tests.md) | pd-tests, Catch2, 35 test files, pure mirrors, scope aliases |
@@ -112,20 +114,12 @@ Sub-bucketed by pillar. Designs that have shipped move to `_old/designs-shipped/
 
 ## Recent audits
 
-[audits/](audits/) holds point-in-time assessments within a 14-day window. Older audits live in `_old/audits/` per [retention.md](retention.md).
+[audits/](audits/) holds only current point-in-time assessments. Older audits live in `_old/audits/` per [retention.md](retention.md).
 
 Currently active:
-- [audits/incompleteness-sweep-input-context-extraction-jump-2026-05-13.md](audits/incompleteness-sweep-input-context-extraction-jump-2026-05-13.md) - input pillar / context system / file extraction + external accessibility / jump collision four-track sweep (proposes c132-c135 sprint sketches; awaits Mike's prioritisation)
-- [audits/2026-05-13-followup-and-migration-sweep.md](audits/2026-05-13-followup-and-migration-sweep.md)
-- [audits/rom-extraction-audit-2026-04-30.md](audits/rom-extraction-audit-2026-04-30.md)
-- [audits/ui-asset-pipeline-investigation-2026-04-30.md](audits/ui-asset-pipeline-investigation-2026-04-30.md) (Phase 1 findings + Phase 2 .pdui schema sketch)
-- [audits/infrastructure-pillars-status-2026-04-27.md](audits/infrastructure-pillars-status-2026-04-27.md)
-- [audits/codebase-architecture-rating-2026-04-27.md](audits/codebase-architecture-rating-2026-04-27.md)
-- [audits/catalog-universality-sweep-2026-04-27.md](audits/catalog-universality-sweep-2026-04-27.md)
-- [audits/post-implementation-audit-2026-04-25.md](audits/post-implementation-audit-2026-04-25.md)
-- [audits/sp-stage-mp-readiness-2026-04-24.md](audits/sp-stage-mp-readiness-2026-04-24.md)
-- [audits/flat-menu-navigation-audit-2026-04-25.md](audits/flat-menu-navigation-audit-2026-04-25.md)
-- [audits/pdmod-verification-matrix-2026-04-25.md](audits/pdmod-verification-matrix-2026-04-25.md)
+- [audits/migration-utilization-measurement-2026-06-10.md](audits/migration-utilization-measurement-2026-06-10.md) - measurement input for the c3849 utilization work. Waves 1-7 are now complete; use it as historical measurement context, not as the live route.
+
+Older audits that are no longer active entry points are either retained only where a live design still cites them or moved to `_old/audits/2026/` per retention policy. Do not use an older audit as current direction without verifying it against live source and [tasks.md](tasks.md).
 
 ---
 
@@ -138,8 +132,8 @@ Currently active:
 
 ## Sessions and history
 
-- [session-log.md](session-log.md) - rolling chronological log, last ~100 sessions.
-- `_old/session-log/` - older session tiers preserved.
+- [session-log.md](session-log.md) - rolling chronological log focused on the active asset-parity window.
+- `_old/session-log/` - older session tiers preserved, including the pre-2026-06-07 archive cut on 2026-06-11.
 
 ---
 

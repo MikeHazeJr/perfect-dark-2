@@ -488,7 +488,6 @@ static s32 s_emitOneLang(s32 bank, const char *locale_tag,
 		"string_count = %u\n"
 		"extract_version = %s\n"
 		"source_bank = %d\n"
-		"source_filenum = %u\n"
 		"source_symbol = %s\n",
 		catalog_id, locale_tag, category,
 		(unsigned)json_size,
@@ -496,7 +495,7 @@ static s32 s_emitOneLang(s32 bank, const char *locale_tag,
 		(unsigned)lang_source_size,
 		(unsigned)string_count,
 		PDLANG_EXTRACT_VERSION,
-		bank, (unsigned)file_id,
+		bank,
 		file_sym ? file_sym : "");
 	if (ini_len <= 0 || (size_t)ini_len >= sizeof(ini_buf)) {
 		sysLoudFailf("EXTRACT.PDLANG",

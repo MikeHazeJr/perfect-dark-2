@@ -10064,9 +10064,8 @@ const char var7f1a8ae4[] = "aimadjust=%d";
 /* c3849 guidance Slice C: custom-slot-guarded held -> projectile chain for
  * the AI launcher (mirrors propobj.c's weaponGetCustomProjectileGraph; this
  * one keys off a gset because chrTickShoot copies the weaponobj's gset by
- * value). Returns NULL for every base weapon, and always NULL when the
- * Debug.WeaponGraphRuntime toggle is off (inherited from the gameplay
- * accessor). */
+ * value). Returns NULL for every base weapon, and follows the shared runtime
+ * gameplay accessor gate. */
 static const weapon_graph_projectile_runtime_t *chrGsetCustomProjectileGraph(const struct gset *gset)
 {
 	const weapon_graph_held_function_t *graph;

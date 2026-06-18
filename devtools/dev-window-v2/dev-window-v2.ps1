@@ -168,6 +168,11 @@ $script:Python              = $(if (Test-Path -LiteralPath "C:/Python312/python.
 $script:ClientExeName       = "PerfectDark.exe"
 $script:ServerExeName       = "PerfectDarkServer.exe"
 $script:SoundsDir           = Join-Path $script:ProjectRoot "dist\build-sounds"
+$script:PdxxxAssetToolPath  = Join-Path (Split-Path $script:ScriptDir -Parent) "pdxxx-asset-tool.psm1"
+try { Import-Module $script:PdxxxAssetToolPath -Force } catch {}
+$script:PdxxxAssetRows      = @()
+$script:PdxxxLastExtractRoot = $null
+$script:PdxxxAssetScanBusy  = $false
 
 $script:BuildProcess        = $null
 $script:BuildStepQueue      = [System.Collections.ArrayList]::new()
@@ -1324,6 +1329,109 @@ function Refresh-LatestRelease {
                 </Grid>
             </TabItem>
 
+            <!-- ASSETS TAB: developer-only typed archive browser/extractor.
+                 Extraction preserves archive contents as stored. It does not
+                 convert or normalize mesh/material data; nested typed archives
+                 are preserved and also expanded beside the stored archive for
+                 inspection. Output lives under .pdxxx-dev-extracts/. -->
+            <TabItem Header="ASSETS">
+                <DockPanel Margin="14,12,14,12" LastChildFill="True">
+                    <Border DockPanel.Dock="Top" Background="#FFFFFF" CornerRadius="3"
+                            BorderBrush="#C0C8D2" BorderThickness="1" Padding="14,10" Margin="0,0,0,10">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="10"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="115"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="10"/>
+                                <ColumnDefinition Width="150"/>
+                                <ColumnDefinition Width="10"/>
+                                <ColumnDefinition Width="150"/>
+                            </Grid.ColumnDefinitions>
+
+                            <TextBlock Grid.Row="0" Grid.Column="0" Text="Data" Foreground="#7A8898"
+                                       FontFamily="Consolas" FontSize="22" FontWeight="Bold"
+                                       VerticalAlignment="Center"/>
+                            <TextBox x:Name="TxtAssetRoot" Grid.Row="0" Grid.Column="1"
+                                     Background="#F5F7FA" Foreground="#1A2434" BorderBrush="#C0C8D2"
+                                     FontFamily="Consolas" FontSize="22" Padding="8,5"/>
+                            <Button x:Name="BtnAssetBrowseRoot" Grid.Row="0" Grid.Column="3"
+                                    Content="Browse" Style="{StaticResource ToolBtn}" FontSize="22"
+                                    Padding="16,8"/>
+                            <Button x:Name="BtnAssetRefresh" Grid.Row="0" Grid.Column="5"
+                                    Content="Refresh" Style="{StaticResource AccentBtn}" FontSize="22"
+                                    Padding="16,8"/>
+
+                            <TextBlock Grid.Row="2" Grid.Column="0" Text="Filter" Foreground="#7A8898"
+                                       FontFamily="Consolas" FontSize="22" FontWeight="Bold"
+                                       VerticalAlignment="Center"/>
+                            <ComboBox x:Name="CmbAssetType" Grid.Row="2" Grid.Column="1"
+                                      Background="#FFFFFF" Foreground="#1A2434" BorderBrush="#C0C8D2"
+                                      FontFamily="Consolas" FontSize="22" Padding="8,4"/>
+                            <TextBox x:Name="TxtAssetSearch" Grid.Row="2" Grid.Column="3" Grid.ColumnSpan="3"
+                                     Background="#F5F7FA" Foreground="#1A2434" BorderBrush="#C0C8D2"
+                                     FontFamily="Consolas" FontSize="22" Padding="8,5"
+                                     Tag="Search name or path"/>
+                        </Grid>
+                    </Border>
+
+                    <Border DockPanel.Dock="Bottom" Background="#FFFFFF" CornerRadius="3"
+                            BorderBrush="#C0C8D2" BorderThickness="1" Padding="12,10" Margin="0,10,0,0">
+                        <DockPanel>
+                            <StackPanel Orientation="Horizontal" DockPanel.Dock="Right">
+                                <Button x:Name="BtnAssetExtract" Content="Extract Selected"
+                                        Style="{StaticResource GreenBtn}" FontSize="22"
+                                        Padding="18,10" MinWidth="210" Margin="0,0,8,0"/>
+                                <Button x:Name="BtnAssetOpenOutput" Content="Open Output"
+                                        Style="{StaticResource ToolBtn}" FontSize="22"
+                                        Padding="18,10" MinWidth="170"/>
+                            </StackPanel>
+                            <TextBlock x:Name="LblAssetStatus" Text="assets: --"
+                                       Foreground="#4A5868" FontFamily="Consolas"
+                                       FontSize="22" FontWeight="Bold"
+                                       VerticalAlignment="Center" TextWrapping="Wrap"/>
+                        </DockPanel>
+                    </Border>
+
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="10"/>
+                            <ColumnDefinition Width="360"/>
+                        </Grid.ColumnDefinitions>
+                        <DataGrid x:Name="AssetList" Grid.Column="0"
+                                  Background="#FFFFFF" Foreground="#1A2434"
+                                  BorderBrush="#C0C8D2" BorderThickness="1"
+                                  FontFamily="Consolas" FontSize="18"
+                                  AutoGenerateColumns="False" CanUserAddRows="False"
+                                  IsReadOnly="True" SelectionMode="Extended"
+                                  SelectionUnit="FullRow" HeadersVisibility="Column"
+                                  GridLinesVisibility="Horizontal"
+                                  HorizontalScrollBarVisibility="Auto"
+                                  VerticalScrollBarVisibility="Auto">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="Type" Binding="{Binding Type}" Width="90"/>
+                                <DataGridTextColumn Header="Id" Binding="{Binding Id}" Width="260"/>
+                                <DataGridTextColumn Header="Entries" Binding="{Binding Entries}" Width="85"/>
+                                <DataGridTextColumn Header="Meshes" Binding="{Binding Meshes}" Width="80"/>
+                                <DataGridTextColumn Header="Sources" Binding="{Binding Sources}" Width="300"/>
+                                <DataGridTextColumn Header="Path" Binding="{Binding RelativePath}" Width="420"/>
+                            </DataGrid.Columns>
+                        </DataGrid>
+                        <TextBox x:Name="TxtAssetDetails" Grid.Column="2"
+                                 Background="#FFFFFF" Foreground="#1A2434"
+                                 BorderBrush="#C0C8D2" BorderThickness="1"
+                                 IsReadOnly="True" TextWrapping="Wrap"
+                                 VerticalScrollBarVisibility="Auto"
+                                 FontFamily="Consolas" FontSize="18" Padding="8,6"/>
+                    </Grid>
+                </DockPanel>
+            </TabItem>
+
             <!-- CLI TAB: launcher only. Strips the old prompt-composition
                  workbench (actions / cards / prompt box / modes) down to the
                  two buttons that open a CLI session in the project root. -->
@@ -1395,6 +1503,8 @@ $namedElements = @(
     "BtnOpenGitHub","BtnOpenFolder","BtnOpenKanban","BtnStartKanbanServer","BtnStopKanbanServer","BtnCleanBuild","BtnPull","BtnPush","BtnPruneWorktrees",
     "BtnLogClear","BtnLogExport","ChkAutoScroll","TxtLogFilter","LogOutput",
     "DocList","DocContent",
+    "TxtAssetRoot","BtnAssetBrowseRoot","BtnAssetRefresh","CmbAssetType","TxtAssetSearch",
+    "AssetList","TxtAssetDetails","LblAssetStatus","BtnAssetExtract","BtnAssetOpenOutput",
     "BtnCliLaunch","BtnCliLaunchUltra","BtnCliLaunchCodex"
 )
 foreach ($name in $namedElements) {
@@ -1631,7 +1741,206 @@ $ui["DocList"].Add_SelectionChanged({
 })
 
 # ============================================================================
-# Section 14: Build pipeline
+# Section 14: Assets tab
+# ============================================================================
+
+function Set-PdxxxAssetStatus {
+    param(
+        [string]$Text,
+        [string]$Color = "#4A5868"
+    )
+    try {
+        if ($null -ne $ui["LblAssetStatus"]) {
+            $ui["LblAssetStatus"].Text = $Text
+            $ui["LblAssetStatus"].Foreground = (New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString($Color)))
+        }
+    } catch {}
+}
+
+function Get-PdxxxAssetOutputRootForUi {
+    if (Get-Command Get-PdxxxDefaultExtractRoot -ErrorAction SilentlyContinue) {
+        return (Get-PdxxxDefaultExtractRoot -ProjectRoot $script:ProjectRoot)
+    }
+    return [System.IO.Path]::GetFullPath((Join-Path $script:ProjectRoot ".pdxxx-dev-extracts"))
+}
+
+function Initialize-PdxxxAssetTab {
+    try {
+        if ($null -eq $ui["TxtAssetRoot"]) { return }
+        if (-not (Get-Command Get-PdxxxAssetList -ErrorAction SilentlyContinue)) {
+            Set-PdxxxAssetStatus "assets: tool module unavailable" "#B81818"
+            return
+        }
+        $ui["TxtAssetRoot"].Text = Get-PdxxxDefaultDataRoot -ProjectRoot $script:ProjectRoot
+        $script:PdxxxLastExtractRoot = Get-PdxxxAssetOutputRootForUi
+        $ui["CmbAssetType"].Items.Clear()
+        foreach ($type in (Get-PdxxxKnownTypes)) {
+            [void]$ui["CmbAssetType"].Items.Add($type)
+        }
+        $ui["CmbAssetType"].SelectedItem = "all"
+        Set-PdxxxAssetStatus ("assets: ready, output " + $script:PdxxxLastExtractRoot) "#4A5868"
+        Refresh-PdxxxAssetList
+    } catch {
+        Set-PdxxxAssetStatus ("assets: init failed: " + $_.Exception.Message) "#B81818"
+    }
+}
+
+function Refresh-PdxxxAssetList {
+    try {
+        if ($script:PdxxxAssetScanBusy) {
+            Set-PdxxxAssetStatus "assets: crawl already running..." "#0078A8"
+            return
+        }
+        if (-not (Get-Command Get-PdxxxAssetList -ErrorAction SilentlyContinue)) {
+            Set-PdxxxAssetStatus "assets: tool module unavailable" "#B81818"
+            return
+        }
+        $root = $ui["TxtAssetRoot"].Text
+        if (-not $root -or -not (Test-Path -LiteralPath $root)) {
+            Set-PdxxxAssetStatus ("assets: data folder not found: " + $root) "#B86810"
+            return
+        }
+        $type = [string]$ui["CmbAssetType"].SelectedItem
+        if (-not $type) { $type = "all" }
+        $search = ""
+        if ($null -ne $ui["TxtAssetSearch"]) { $search = $ui["TxtAssetSearch"].Text }
+        Set-PdxxxAssetStatus "assets: crawling..." "#0078A8"
+        $script:PdxxxAssetScanBusy = $true
+        if ($null -ne $ui["BtnAssetRefresh"]) { $ui["BtnAssetRefresh"].IsEnabled = $false }
+        if ($null -ne $ui["BtnAssetExtract"]) { $ui["BtnAssetExtract"].IsEnabled = $false }
+        Start-AsyncPoolAction `
+            -Script {
+                param($modulePath, $rootArg, $typeArg, $searchArg)
+                Import-Module $modulePath -Force
+                Get-PdxxxAssetList -Root $rootArg -Type $typeArg -Search $searchArg
+            } `
+            -Arguments @($script:PdxxxAssetToolPath, $root, $type, $search) `
+            -OnComplete {
+                param($result)
+                try {
+                    $rows = @()
+                    if ($null -ne $result) {
+                        foreach ($row in @($result)) {
+                            if ($null -ne $row -and ($row.PSObject.Properties.Name -contains "FullPath")) {
+                                $rows += $row
+                            }
+                        }
+                    }
+                    $script:PdxxxAssetRows = $rows
+                    $ui["AssetList"].ItemsSource = $null
+                    $ui["AssetList"].ItemsSource = $script:PdxxxAssetRows
+                    $ui["TxtAssetDetails"].Text = ""
+                    Set-PdxxxAssetStatus ("assets: " + $rows.Count + " shown from " + $ui["TxtAssetRoot"].Text) "#10783A"
+                } catch {
+                    Set-PdxxxAssetStatus ("assets: crawl failed: " + $_.Exception.Message) "#B81818"
+                }
+                $script:PdxxxAssetScanBusy = $false
+                try { if ($null -ne $ui["BtnAssetRefresh"]) { $ui["BtnAssetRefresh"].IsEnabled = $true } } catch {}
+                try { if ($null -ne $ui["BtnAssetExtract"]) { $ui["BtnAssetExtract"].IsEnabled = $true } } catch {}
+            }
+    } catch {
+        $script:PdxxxAssetScanBusy = $false
+        try { if ($null -ne $ui["BtnAssetRefresh"]) { $ui["BtnAssetRefresh"].IsEnabled = $true } } catch {}
+        try { if ($null -ne $ui["BtnAssetExtract"]) { $ui["BtnAssetExtract"].IsEnabled = $true } } catch {}
+        Set-PdxxxAssetStatus ("assets: crawl failed: " + $_.Exception.Message) "#B81818"
+    }
+}
+
+function Update-PdxxxAssetDetails {
+    try {
+        $row = $ui["AssetList"].SelectedItem
+        if ($null -eq $row) {
+            $ui["TxtAssetDetails"].Text = ""
+            return
+        }
+        $size = ""
+        try {
+            if ($row.SizeBytes -gt 0) { $size = [math]::Round(($row.SizeBytes / 1KB), 1).ToString() + " KB" }
+        } catch {}
+        $lines = @(
+            "Id: " + $row.Id,
+            "Type: " + $row.Type,
+            "Name: " + $row.Name,
+            "Entries: " + $row.Entries,
+            "Nested meshes: " + $row.Meshes,
+            "Size: " + $size,
+            "",
+            "Sources: " + $row.Sources,
+            "",
+            "Path:",
+            $row.RelativePath,
+            "",
+            "Full path:",
+            $row.FullPath
+        )
+        $ui["TxtAssetDetails"].Text = ($lines -join "`r`n")
+    } catch {}
+}
+
+function Export-SelectedPdxxxAssets {
+    try {
+        if (-not (Get-Command Export-PdxxxAssets -ErrorAction SilentlyContinue)) {
+            Set-PdxxxAssetStatus "assets: tool module unavailable" "#B81818"
+            return
+        }
+        $selected = @($ui["AssetList"].SelectedItems)
+        if ($selected.Count -eq 0) {
+            Set-PdxxxAssetStatus "assets: select one or more rows first" "#B86810"
+            return
+        }
+        $paths = @($selected | ForEach-Object { $_.FullPath } | Where-Object { $_ })
+        $outRoot = Get-PdxxxAssetOutputRootForUi
+        Set-PdxxxAssetStatus ("assets: extracting " + $paths.Count + " asset(s)...") "#0078A8"
+        $result = Export-PdxxxAssets -Paths $paths -OutputRoot $outRoot
+        $script:PdxxxLastExtractRoot = $result.Root
+        Set-PdxxxAssetStatus ("assets: extracted " + $result.Count + " asset(s) to " + $result.Root) "#10783A"
+        Add-LogSessionLine ("pdxxx assets: extracted " + $result.Count + " asset(s) to " + $result.Root) "#10783A"
+    } catch {
+        Set-PdxxxAssetStatus ("assets: extract failed: " + $_.Exception.Message) "#B81818"
+    }
+}
+
+function Open-PdxxxAssetOutput {
+    try {
+        $path = $script:PdxxxLastExtractRoot
+        if (-not $path) { $path = Get-PdxxxAssetOutputRootForUi }
+        if (Get-Command Open-PdxxxExtractRoot -ErrorAction SilentlyContinue) {
+            Open-PdxxxExtractRoot -Path $path
+        } else {
+            if (-not (Test-Path -LiteralPath $path)) { New-Item -ItemType Directory -Path $path -Force | Out-Null }
+            Start-Process "explorer.exe" $path
+        }
+    } catch {
+        Set-PdxxxAssetStatus ("assets: open failed: " + $_.Exception.Message) "#B81818"
+    }
+}
+
+$ui["BtnAssetBrowseRoot"].Add_Click({
+    try {
+        $dlg = New-Object System.Windows.Forms.FolderBrowserDialog
+        $dlg.Description = "Choose typed archive data folder"
+        $dlg.SelectedPath = $ui["TxtAssetRoot"].Text
+        if ($dlg.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
+            $ui["TxtAssetRoot"].Text = $dlg.SelectedPath
+            Refresh-PdxxxAssetList
+        }
+    } catch {}
+})
+$ui["BtnAssetRefresh"].Add_Click({ Refresh-PdxxxAssetList })
+$ui["BtnAssetExtract"].Add_Click({ Export-SelectedPdxxxAssets })
+$ui["BtnAssetOpenOutput"].Add_Click({ Open-PdxxxAssetOutput })
+$ui["CmbAssetType"].Add_SelectionChanged({ try { Refresh-PdxxxAssetList } catch {} })
+$ui["TxtAssetSearch"].Add_KeyDown({
+    param($sender, $e)
+    if ($e.Key -eq [System.Windows.Input.Key]::Enter) {
+        Refresh-PdxxxAssetList
+        $e.Handled = $true
+    }
+})
+$ui["AssetList"].Add_SelectionChanged({ Update-PdxxxAssetDetails })
+
+# ============================================================================
+# Section 15: Build pipeline
 # ============================================================================
 
 function Copy-AddinFiles {
@@ -4911,6 +5220,7 @@ $window.Add_Loaded({
 
         # Version
         Refresh-VersionDisplay
+        Initialize-PdxxxAssetTab
 
         # Release cache: prefer the on-disk cache for instant display, then
         # kick a background refresh so the label tracks the live GitHub

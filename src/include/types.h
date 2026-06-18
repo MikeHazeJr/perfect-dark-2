@@ -1123,25 +1123,25 @@ struct chrdata {
 	/*0x002*/ s8 accuracyrating;
 	/*0x003*/ s8 speedrating; // 0-100
 	/*0x004*/ u8 firecount[2];
-	/*0x006*/ s8 headnum;
-	/*0x007*/ s8 actiontype;
-	/*0x008*/ s8 sleep;
-	/*0x009*/ s8 invalidmove;
-	/*0x00a*/ s8 numclosearghs;
-	/*0x00b*/ s8 numarghs;
-	/*0x00c*/ u8 fadealpha;
-	/*0x00d*/ s8 arghrating;
-	/*0x00e*/ s8 aimendcount;
-	/*0x00f*/ u8 grenadeprob;
-	/*0x010*/ s16 bodynum;
-	/*0x012*/ s8 flinchcnt;
-	/*0x013*/ s8 path;
-	/*0x014*/ u32 hidden;
-	/*0x018*/ u32 chrflags;
-	/*0x01c*/ struct prop *prop;
-	/*0x020*/ struct model *model;
-	/*0x024*/ f32 radius;
-	/*0x028*/ f32 height;
+	/*0x006*/ s16 headnum;
+	/*0x008*/ s8 actiontype;
+	/*0x009*/ s8 sleep;
+	/*0x00a*/ s8 invalidmove;
+	/*0x00b*/ s8 numclosearghs;
+	/*0x00c*/ s8 numarghs;
+	/*0x00d*/ u8 fadealpha;
+	/*0x00e*/ s8 arghrating;
+	/*0x00f*/ s8 aimendcount;
+	/*0x010*/ u8 grenadeprob;
+	/*0x012*/ s16 bodynum;
+	/*0x014*/ s8 flinchcnt;
+	/*0x015*/ s8 path;
+	/*0x018*/ u32 hidden;
+	/*0x01c*/ u32 chrflags;
+	/*0x020*/ struct prop *prop;
+	/*0x024*/ struct model *model;
+	/*0x028*/ f32 radius;
+	/*0x02c*/ f32 height;
 
 	union {
 		struct act_stand act_stand;

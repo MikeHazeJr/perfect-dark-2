@@ -323,7 +323,7 @@ if (g_Vars.mplayerisrunning == false) {
 
 Remove the coop/anti branch that swaps config slots 8/9 into slots 0/1. This branch has been dead since S188 declared no splitscreen support. Its removal prevents future confusion about why slot 8 was ever special.
 
-**Scope**: 
+**Scope**:
 - Remove `if (g_Vars.coopplayernum >= 0 || g_Vars.antiplayernum >= 0) { ... }` block (lines 577–613)
 - The `else` block for normal MP (lines 615–629) stays — this sets up mp player slots 0..7 correctly
 

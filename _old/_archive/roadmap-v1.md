@@ -381,4 +381,4 @@ Sessions continue the existing S-numbering (currently at S174). Each session sho
 
 | Date | Change |
 |------|--------|
-| 2026-04-06 | v1.0 — Initial unified roadmap created from scattered phase plans, design docs, and memory. Consolidates D5 menu overhaul, catalog migration, mod 
+| 2026-04-06 | v1.0 — Initial unified roadmap created from scattered phase plans, design docs, and memory. Consolidates D5 menu overhaul, catalog migration, mod

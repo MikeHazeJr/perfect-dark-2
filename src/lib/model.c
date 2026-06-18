@@ -3372,7 +3372,7 @@ void modelRenderNodeDl(struct modelrenderdata *renderdata, struct model *model, 
 			rwdata ? rwdata->dl.colours : NULL,
 			rodata->dl.numvertices, rodata->dl.mcount);
 
-		if (rwdata->dl.gdl) {
+		if (rwdata && rwdata->dl.gdl) {
 			modAssetCompilerTraceGeneratedModeldefRender(model->definition, node);
 			gSPSegment(renderdata->gdl++, SPSEGMENT_MODEL_COL1, osVirtualToPhysical(rodata->dl.colours));
 
@@ -3421,7 +3421,7 @@ void modelRenderNodeDl(struct modelrenderdata *renderdata, struct model *model, 
 			rwdata ? rwdata->dl.colours : NULL,
 			rodata->dl.numvertices, rodata->dl.mcount);
 
-		if (rwdata->dl.gdl && rodata->dl.mcount == 4 && rodata->dl.xlugdl) {
+		if (rwdata && rwdata->dl.gdl && rodata->dl.mcount == 4 && rodata->dl.xlugdl) {
 			gSPSegment(renderdata->gdl++, SPSEGMENT_MODEL_COL1, osVirtualToPhysical(rodata->dl.colours));
 
 			if (renderdata->cullmode) {

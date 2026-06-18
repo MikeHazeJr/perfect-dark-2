@@ -1116,14 +1116,18 @@ u8 *romdataFileLoad(s32 fileNum, u32 *outSize)
 			}
 			// tried and failed, fall back to ROM
 			/* c3849 Wave 1: a present extracted cache is the normal Pass C
-			 * path; REACHING here means the cache is missing and the resident
-			 * ROM is being re-read raw -- always abnormal post-extraction. */
-			sysLoudFailf("FALLBACK",
-				"file %d (%s) extracted cache missing -> raw ROM re-read",
-				fileNum,
-				fileSlots[fileNum].name ? fileSlots[fileNum].name : "?");
-			assetFallbackRecord(ASSET_NONE, fileNum,
-				"extracted cache missing -> raw ROM");
+			 * runtime path. Reaching here is expected only while the boot
+			 * extractor/verify pass is intentionally reading ROM as bootstrap
+			 * input. After that scope, it is a post-extraction runtime
+			 * fallback and must stay loud + counted. */
+			if (!romExtractIsBootstrapping()) {
+				sysLoudFailf("FALLBACK",
+					"file %d (%s) extracted cache missing -> raw ROM re-read",
+					fileNum,
+					fileSlots[fileNum].name ? fileSlots[fileNum].name : "?");
+				assetFallbackRecord(ASSET_NONE, fileNum,
+					"extracted cache missing -> raw ROM");
+			}
 			fileSlots[fileNum].source = SRC_ROM;
 		}
 	}

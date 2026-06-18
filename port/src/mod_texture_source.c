@@ -63,10 +63,65 @@ static void modTextureFatalPublicSourceFailure(
 	              entry ? entry->id : "?", reason ? reason : "load failed");
 }
 
+static void modTextureFatalPublicEntryFailure(u16 num,
+	const asset_entry_t *entry, const char *path, const char *reason)
+{
+	sysFatalError("ASSET.SOURCE_ONLY: texture %d maps to public image source '%s' "
+	              "for texture '%s' but %s; refusing ROM/static fallback.",
+	              (s32)num, path ? path : "?",
+	              entry ? entry->id : "?", reason ? reason : "load failed");
+}
+
+static const asset_entry_t *modTextureFindDirectPublicSource(u16 num,
+	const char **out_path, s32 *out_catalog_id)
+{
+	s32 total = assetCatalogGetCount();
+
+	if (out_path) {
+		*out_path = NULL;
+	}
+	if (out_catalog_id) {
+		*out_catalog_id = -1;
+	}
+
+	for (s32 i = 0; i < total; i++) {
+		const asset_entry_t *entry = assetCatalogGetByIndex(i);
+		const char *path = NULL;
+
+		if (!entry || !entry->occupied || !entry->enabled
+				|| entry->type != ASSET_TEXTURE) {
+			continue;
+		}
+		if (entry->source_texnum != (s32)num
+				&& entry->ext.texture.texture_id != (s32)num) {
+			continue;
+		}
+
+		if (entry->source.primary.provider == fileProvider()) {
+			path = fileProviderPath(entry->source.primary);
+		}
+		if ((!path || !path[0]) && entry->ext.texture.file_path[0]) {
+			path = entry->ext.texture.file_path;
+		}
+
+		if (out_path) {
+			*out_path = path;
+		}
+		if (out_catalog_id) {
+			*out_catalog_id = i;
+		}
+		return entry;
+	}
+
+	return NULL;
+}
+
 s32 modTextureLoadRgba32Source(u16 num, mod_texture_rgba32_source_t *out)
 {
 	CatalogResolveResult r;
 	const asset_entry_t *entry;
+	const char *source_path;
+	s32 source_catalog_id;
 	u32 file_size = 0;
 	u8 *file_data;
 	int width = 0;
@@ -91,11 +146,26 @@ s32 modTextureLoadRgba32Source(u16 num, mod_texture_rgba32_source_t *out)
 		return -1;
 	}
 
-	if (!r.is_mod_override || !r.path) {
-		return 0;
+	source_path = r.path;
+	source_catalog_id = r.catalog_id;
+	if (r.is_mod_override && r.path) {
+		entry = assetCatalogGetByIndex(r.catalog_id);
+	} else {
+		entry = modTextureFindDirectPublicSource(num, &source_path,
+			&source_catalog_id);
+		if (!entry) {
+			return 0;
+		}
+		if (!source_path || !source_path[0]) {
+			if (assetSourceDebugIsEnabledFor(ASSET_TEXTURE)) {
+				modTextureFatalPublicEntryFailure(num, entry, source_path,
+					"the catalog entry has no public FileProvider image source");
+				return -1;
+			}
+			return 0;
+		}
 	}
 
-	entry = assetCatalogGetByIndex(r.catalog_id);
 	{
 		extern s32 g_NotLoadMod;
 		if (g_NotLoadMod && (!entry || !entry->bundled)) {
@@ -103,26 +173,33 @@ s32 modTextureLoadRgba32Source(u16 num, mod_texture_rgba32_source_t *out)
 		}
 	}
 
-	if (!modTexturePathHasImageExtension(r.path)) {
+	if (!modTexturePathHasImageExtension(source_path)) {
 		if (assetSourceDebugIsEnabledFor(ASSET_TEXTURE)) {
-			modTextureFatalPublicSourceFailure(num, &r,
-				"the selected public source is not an editable image source");
+			if (r.is_mod_override && r.path) {
+				modTextureFatalPublicSourceFailure(num, &r,
+					"the selected public source is not an editable image source");
+			} else {
+				modTextureFatalPublicEntryFailure(num, entry, source_path,
+					"the selected public source is not an editable image source");
+			}
 			return -1;
 		}
 		return 0;
 	}
 
-	file_data = (u8 *)fsFileLoad(r.path, &file_size);
+	file_data = (u8 *)fsFileLoad(source_path, &file_size);
 	if (!file_data || file_size == 0) {
 		if (file_data) {
 			sysMemFree(file_data);
 		}
-		modTextureFatalPublicSourceFailure(num, &r, "the image file could not be read");
+		modTextureFatalPublicEntryFailure(num, entry, source_path,
+			"the image file could not be read");
 		return -1;
 	}
 	if (file_size > 0x7fffffffu) {
 		sysMemFree(file_data);
-		modTextureFatalPublicSourceFailure(num, &r, "the image file is too large to decode");
+		modTextureFatalPublicEntryFailure(num, entry, source_path,
+			"the image file is too large to decode");
 		return -1;
 	}
 
@@ -133,27 +210,31 @@ s32 modTextureLoadRgba32Source(u16 num, mod_texture_rgba32_source_t *out)
 		if (rgba) {
 			stbi_image_free(rgba);
 		}
-		modTextureFatalPublicSourceFailure(num, &r, "the image could not be decoded");
+		modTextureFatalPublicEntryFailure(num, entry, source_path,
+			"the image could not be decoded");
 		return -1;
 	}
 
 	if (width > 255 || height > 255) {
 		stbi_image_free(rgba);
-		modTextureFatalPublicSourceFailure(num, &r, "the image exceeds the 255x255 runtime texture header limit");
+		modTextureFatalPublicEntryFailure(num, entry, source_path,
+			"the image exceeds the 255x255 runtime texture header limit");
 		return -1;
 	}
 
 	stride_pixels = (width + 3) & ~3;
 	if (height > 0x7fffffff / (stride_pixels * 4)) {
 		stbi_image_free(rgba);
-		modTextureFatalPublicSourceFailure(num, &r, "the image dimensions overflow runtime storage");
+		modTextureFatalPublicEntryFailure(num, entry, source_path,
+			"the image dimensions overflow runtime storage");
 		return -1;
 	}
 	data_size = stride_pixels * height * 4;
 	pixels = (u8 *)sysMemAlloc((u32)data_size);
 	if (!pixels) {
 		stbi_image_free(rgba);
-		modTextureFatalPublicSourceFailure(num, &r, "runtime texture allocation failed");
+		modTextureFatalPublicEntryFailure(num, entry, source_path,
+			"runtime texture allocation failed");
 		return -1;
 	}
 	memset(pixels, 0, (size_t)data_size);
@@ -177,12 +258,12 @@ s32 modTextureLoadRgba32Source(u16 num, mod_texture_rgba32_source_t *out)
 	out->height = height;
 	out->stride_pixels = stride_pixels;
 	out->data_size = data_size;
-	out->catalog_id = r.catalog_id;
-	out->path = r.path;
+	out->catalog_id = source_catalog_id;
+	out->path = source_path;
 
 	sysLogPrintf(LOG_NOTE,
 	             "CATALOG: tex %d -> public image source \"%s\" (entry %d, %dx%d RGBA32)",
-	             (s32)num, r.path, r.catalog_id, width, height);
+	             (s32)num, source_path, source_catalog_id, width, height);
 	return 1;
 }
 

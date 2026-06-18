@@ -170,9 +170,11 @@ static void s_poolEnsureMutex(void)
 /* c3844 Gate 2: sized to TOTAL so custom body/head slots [152, TOTAL)
  * populated by the walker's private-slot allocator have valid pool storage. */
 static head_data_t  s_HeadsPool[CATALOG_MGR_HEAD_TOTAL];
+static u8           s_HeadsPoolPopulated[CATALOG_MGR_HEAD_TOTAL];
 static s32          s_HeadsLoaderActive;
 static s32          s_HeadsRegistered;
 static body_data_t  s_BodiesPool[CATALOG_MGR_BODY_TOTAL];
+static u8           s_BodiesPoolPopulated[CATALOG_MGR_BODY_TOTAL];
 static s32          s_BodiesLoaderActive;
 static s32          s_BodiesRegistered;
 /* c3844 Gate 2: when >= 0, parseHead/parseBody use this forced slot instead
@@ -1715,6 +1717,7 @@ static void parseWeapon(jstream_t *s)
 	struct aibotweaponpreference bp;
 	s32 bp_present = 0;
 	char catalog_id[64] = {0};
+	char model_file[FS_MAXPATH + 1] = {0};
 	memset(&w, 0, sizeof(w));
 	memset(&bp, 0, sizeof(bp));
 	w.aimsettings = &s_DefaultAim;  /* default fallback */
@@ -1729,6 +1732,7 @@ static void parseWeapon(jstream_t *s)
 		if      (jstream_str_eq(&key, "id")) jread_string_buf(s, catalog_id, sizeof(catalog_id));
 		else if (jstream_str_eq(&key, "symbol")) jstream_skip_value(s);
 		else if (jstream_str_eq(&key, "weapon_id")) weapon_id = jread_int(s, -1);
+		else if (jstream_str_eq(&key, "model_file")) jread_string_buf(s, model_file, sizeof(model_file));
 		else if (jstream_str_eq(&key, "hi_model")) w.hi_model = (u16)jread_enum_or_int(s, JREF_FILE, 0, "weapon.hi_model");
 		else if (jstream_str_eq(&key, "lo_model")) w.lo_model = (u16)jread_enum_or_int(s, JREF_FILE, 0, "weapon.lo_model");
 		else if (jstream_str_eq(&key, "equip_animation")) {
@@ -1819,6 +1823,13 @@ static void parseWeapon(jstream_t *s)
 
 	if (s_ParseWeaponOverrideId >= 0) {
 		weapon_id = s_ParseWeaponOverrideId;
+	}
+
+	if (weapon_id >= WEAPON_CUSTOM_START && weapon_id < WEAPON_CUSTOM_END
+			&& model_file[0]) {
+		/* Public .pdweapon model_file is the authored first-person model
+		 * source; do not require authors to know the raw legacy draw bit. */
+		w.flags |= WEAPONFLAG_00000040;
 	}
 
 	if (weapon_id >= 0 && weapon_id < CATALOG_MGR_WEAPON_COUNT) {
@@ -1960,7 +1971,10 @@ static void parseHead(jstream_t *s)
 	}
 	h.headnum = (s16)headnum;
 	s_HeadsPool[headnum] = h;
-	s_HeadsRegistered++;
+	if (!s_HeadsPoolPopulated[headnum]) {
+		s_HeadsRegistered++;
+	}
+	s_HeadsPoolPopulated[headnum] = 1;
 }
 
 /* ------------------------------------------------------------------ */
@@ -2024,7 +2038,10 @@ static void parseBody(jstream_t *s)
 	}
 	b.bodynum = (s16)bodynum;
 	s_BodiesPool[bodynum] = b;
-	s_BodiesRegistered++;
+	if (!s_BodiesPoolPopulated[bodynum]) {
+		s_BodiesRegistered++;
+	}
+	s_BodiesPoolPopulated[bodynum] = 1;
 }
 
 /* ------------------------------------------------------------------ */
@@ -2150,7 +2167,9 @@ void loaderPoolReset(void)
 	memset(s_Animations, 0, sizeof(s_Animations));
 	memset(s_AnimFixups, 0, sizeof(s_AnimFixups));
 	memset(s_HeadsPool, 0, sizeof(s_HeadsPool));
+	memset(s_HeadsPoolPopulated, 0, sizeof(s_HeadsPoolPopulated));
 	memset(s_BodiesPool, 0, sizeof(s_BodiesPool));
+	memset(s_BodiesPoolPopulated, 0, sizeof(s_BodiesPoolPopulated));
 	memset(s_ArenasPool, 0, sizeof(s_ArenasPool));
 	s_GuncmdsUsed = 0;
 	s_GunviscmdsUsed = 0;
@@ -2371,6 +2390,7 @@ const head_data_t *loaderPoolGetHead(s32 idx)
 {
 	if (idx < 0 || idx >= CATALOG_MGR_HEAD_TOTAL) return NULL;
 	if (!s_HeadsLoaderActive) return NULL;
+	if (!s_HeadsPoolPopulated[idx]) return NULL;
 	return &s_HeadsPool[idx];
 }
 
@@ -2392,6 +2412,7 @@ const body_data_t *loaderPoolGetBody(s32 idx)
 {
 	if (idx < 0 || idx >= CATALOG_MGR_BODY_TOTAL) return NULL;
 	if (!s_BodiesLoaderActive) return NULL;
+	if (!s_BodiesPoolPopulated[idx]) return NULL;
 	return &s_BodiesPool[idx];
 }
 

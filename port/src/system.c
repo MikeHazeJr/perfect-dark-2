@@ -151,11 +151,16 @@ static u32 sysLogClassifyMessage(const char *msg)
 	if (strncmp(msg, "PLAYER:",  7) == 0) return LOG_CH_GAME;
 	if (strncmp(msg, "SIMULANT:",9) == 0) return LOG_CH_GAME;
 	if (strncmp(msg, "SETUP:",   6) == 0) return LOG_CH_GAME;
+	if (strncmp(msg, "TICK:",    5) == 0) return LOG_CH_GAME;
 	if (strncmp(msg, "JUMP:",    5) == 0) return LOG_CH_GAME;
 	if (strncmp(msg, "CAPSULE:", 8) == 0) return LOG_CH_GAME;
 
 	/* Match */
 	if (strncmp(msg, "MATCH:",    6) == 0) return LOG_CH_MATCH;
+	if (strncmp(msg, "MATCHSTART.", 11) == 0) return LOG_CH_MATCH;
+	if (strncmp(msg, "MATCHSTART:", 11) == 0) return LOG_CH_MATCH;
+	if (strncmp(msg, "SPAWN:",    6) == 0) return LOG_CH_MATCH;
+	if (strncmp(msg, "SPAWN.",    6) == 0) return LOG_CH_MATCH;
 	if (strncmp(msg, "CHRSLOTS:",  9) == 0) return LOG_CH_MATCH;
 	if (strncmp(msg, "BOT_ALLOC:",10) == 0) return LOG_CH_MATCH;
 
@@ -170,7 +175,9 @@ static u32 sysLogClassifyMessage(const char *msg)
 	/* Audio */
 	if (strncmp(msg, "SND:",   4) == 0) return LOG_CH_AUDIO;
 	if (strncmp(msg, "AUDIO:", 6) == 0) return LOG_CH_AUDIO;
+	if (strncmp(msg, "AUDIO.", 6) == 0) return LOG_CH_AUDIO;
 	if (strncmp(msg, "MUSIC:", 6) == 0) return LOG_CH_AUDIO;
+	if (strncmp(msg, "MUSIC.", 6) == 0) return LOG_CH_AUDIO;
 	if (strncmp(msg, "SFX:",   4) == 0) return LOG_CH_AUDIO;
 
 	/* Menu */
@@ -191,8 +198,17 @@ static u32 sysLogClassifyMessage(const char *msg)
 
 	/* Catalog / asset pipeline */
 	if (strncmp(msg, "CATALOG:",  8) == 0) return LOG_CH_CATALOG;
+	if (strncmp(msg, "CATALOG.",  8) == 0) return LOG_CH_CATALOG;
 	if (strncmp(msg, "MANIFEST:", 9) == 0) return LOG_CH_CATALOG;
+	if (strncmp(msg, "MANIFEST-", 9) == 0) return LOG_CH_CATALOG;
 	if (strncmp(msg, "ASSET:",    6) == 0) return LOG_CH_CATALOG;
+	if (strncmp(msg, "ASSET.",    6) == 0) return LOG_CH_CATALOG;
+	if (strncmp(msg, "LOADER.",   7) == 0) return LOG_CH_CATALOG;
+	if (strncmp(msg, "romextract ", 11) == 0) return LOG_CH_CATALOG;
+	if (strncmp(msg, "SCENARIO.SOURCE:", 16) == 0) return LOG_CH_CATALOG;
+	if (strncmp(msg, "SCENARIO.GRAPH:",  15) == 0) return LOG_CH_CATALOG;
+	if (strncmp(msg, "MISSION.GRAPH:",   14) == 0) return LOG_CH_CATALOG;
+	if (strncmp(msg, "MODASSET.COMPILER:", 18) == 0) return LOG_CH_CATALOG;
 
 	/* Distrib */
 	if (strncmp(msg, "DISTRIB:", 8) == 0) return LOG_CH_DISTRIB;
@@ -202,6 +218,13 @@ static u32 sysLogClassifyMessage(const char *msg)
 	if (strncmp(msg, "GFX:",     4) == 0) return LOG_CH_RENDER;
 	if (strncmp(msg, "TEXTURE:", 8) == 0) return LOG_CH_RENDER;
 	if (strncmp(msg, "FAST3D:",  7) == 0) return LOG_CH_RENDER;
+	if (strncmp(msg, "SCENARIO.RENDER:", 16) == 0) return LOG_CH_RENDER;
+	if (strncmp(msg, "MODASSET.RENDER:", 16) == 0) return LOG_CH_RENDER;
+	if (strncmp(msg, "MODELDEF.SOURCE:", 16) == 0) return LOG_CH_RENDER;
+	if (strncmp(msg, "BONDGUN.SOURCE:",  15) == 0) return LOG_CH_RENDER;
+	if (strncmp(msg, "BGUN.ANIM.SOURCE:", 17) == 0) return LOG_CH_RENDER;
+	if (strncmp(msg, "LOG.WPN.DIAG:",    13) == 0) return LOG_CH_RENDER;
+	if (strncmp(msg, "MESHCOL:",          8) == 0) return LOG_CH_RENDER;
 
 	/* System */
 	if (strncmp(msg, "SYS:",     4) == 0) return LOG_CH_SYSTEM;

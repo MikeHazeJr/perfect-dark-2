@@ -45,7 +45,6 @@
 #include "sha256.h"
 #include "system.h"
 #include "fs.h"
-#include "modarchive.h"
 #include "modmgr.h"
 
 #include <SDL.h>
@@ -361,17 +360,6 @@ static s32 ftCharEqPathNoCase(char a, char b)
 	return tolower((unsigned char)a) == tolower((unsigned char)b);
 }
 
-static s32 ftPathEqualsNoCase(const char *a, const char *b)
-{
-	if (!a || !b) return 0;
-	while (*a && *b) {
-		if (!ftCharEqPathNoCase(*a, *b)) return 0;
-		a++;
-		b++;
-	}
-	return *a == '\0' && *b == '\0';
-}
-
 static const char *ftPathLeaf(const char *path)
 {
 	if (!path) return "";
@@ -383,129 +371,17 @@ static const char *ftPathLeaf(const char *path)
 	return leaf;
 }
 
-static s32 ftStringEqualsNoCase(const char *a, const char *b)
-{
-	if (!a || !b) return 0;
-	while (*a && *b) {
-		if (tolower((unsigned char)*a) != tolower((unsigned char)*b)) {
-			return 0;
-		}
-		a++;
-		b++;
-	}
-	return *a == '\0' && *b == '\0';
-}
-
-static s32 ftArchiveEntryHasForbiddenBinPayload(const char *name)
-{
-	if (!name || !name[0]) return 0;
-	const char *leaf = strrchr(name, '/');
-	leaf = leaf ? leaf + 1 : name;
-	if (!leaf[0] || leaf[0] == '.') return 0;
-	return ftEndsWithNoCase(leaf, ".bin");
-}
-
 static s32 ftValidateReceivedModArchive(const char *path)
 {
-	mod_archive_t *arc = modArchiveOpen(path);
-	if (!arc) {
-		sysLogPrintf(LOG_WARNING,
-		             "FT: received mod archive did not open: %s err=%d",
-		             path ? path : "", modArchiveLastError());
-		return 0;
+	char err[MODMGR_ERROR_LEN];
+	if (modmgrValidateArchiveFile(path, err, sizeof(err))) {
+		return 1;
 	}
-
-	u32 mfst_size = 0;
-	char *mfst = modArchiveReadManifest(arc, &mfst_size);
-	if (!mfst) {
-		sysLogPrintf(LOG_WARNING,
-		             "FT: received mod archive has no root mod.json: %s",
-		             path ? path : "");
-		modArchiveClose(arc);
-		return 0;
-	}
-	free(mfst);
-	(void)mfst_size;
-
-	const s32 count = modArchiveGetEntryCount(arc);
-	for (s32 i = 0; i < count; i++) {
-		const char *entry = modArchiveGetEntryName(arc, i);
-		if (ftArchiveEntryHasForbiddenBinPayload(entry)) {
-			sysLogPrintf(LOG_WARNING,
-			             "FT: received mod archive rejected for authored .bin payload: %s",
-			             entry ? entry : "");
-			modArchiveClose(arc);
-			return 0;
-		}
-	}
-
-	modArchiveClose(arc);
-	return 1;
-}
-
-static s32 ftCopyFileAtomic(const char *src, const char *dst)
-{
-	char tmp[FS_MAXPATH + 1];
-	snprintf(tmp, sizeof(tmp), "%s.tmp", dst);
-	remove(tmp);
-
-	FILE *in = fopen(src, "rb");
-	if (!in) return 0;
-	FILE *out = fopen(tmp, "wb");
-	if (!out) {
-		fclose(in);
-		return 0;
-	}
-
-	u8 buf[8192];
-	s32 ok = 1;
-	for (;;) {
-		size_t n = fread(buf, 1, sizeof(buf), in);
-		if (n > 0 && fwrite(buf, 1, n, out) != n) {
-			ok = 0;
-			break;
-		}
-		if (n < sizeof(buf)) {
-			if (ferror(in)) ok = 0;
-			break;
-		}
-	}
-
-	if (fclose(out) != 0) ok = 0;
-	fclose(in);
-
-	if (!ok) {
-		remove(tmp);
-		return 0;
-	}
-
-	remove(dst);
-	if (rename(tmp, dst) != 0) {
-		remove(tmp);
-		return 0;
-	}
-	return 1;
-}
-
-static s32 ftFindInstalledArchiveModIndex(const char *archive_path,
-                                          const char *archive_leaf)
-{
-	s32 leaf_match = -1;
-	const s32 count = modmgrGetCount();
-	for (s32 i = 0; i < count; i++) {
-		modinfo_t *mod = modmgrGetMod(i);
-		if (!mod || !mod->is_archive || !mod->archive_path[0]) {
-			continue;
-		}
-		if (ftPathEqualsNoCase(mod->archive_path, archive_path)) {
-			return i;
-		}
-		if (archive_leaf && archive_leaf[0] &&
-		    ftStringEqualsNoCase(ftPathLeaf(mod->archive_path), archive_leaf)) {
-			leaf_match = i;
-		}
-	}
-	return leaf_match;
+	sysLogPrintf(LOG_WARNING,
+	             "FT: received mod archive rejected: %s (%s)",
+	             err[0] ? err : "invalid .pdmod archive",
+	             path ? path : "");
+	return 0;
 }
 
 static s32 ftFindModIndexById(const char *mod_id)
@@ -680,43 +556,15 @@ static void fileTransferInstallReceivedMod(const char *inbox_path,
 	if (!inbox_path || !inbox_path[0]) return;
 	if (!ftValidateReceivedModArchive(inbox_path)) return;
 
-	const char *modsdir = modmgrGetModsDir();
-	char fallback_mods[FS_MAXPATH + 1];
-	if (!modsdir || !modsdir[0]) {
-		fsFullPath("./mods", fallback_mods, sizeof(fallback_mods));
-		fsCreateDir(fallback_mods);
-		modsdir = fallback_mods;
-	}
-
-	char install_dir[FS_MAXPATH + 1];
-	snprintf(install_dir, sizeof(install_dir), "%s/installed", modsdir);
-	fsCreateDir(install_dir);
-
-	char safe[96];
-	sanitiseFilename(original_name, safe, sizeof(safe));
-	if (!ftEndsWithNoCase(safe, ".pdmod") && !ftEndsWithNoCase(safe, ".zip")) {
-		strncat(safe, ".pdmod", sizeof(safe) - strlen(safe) - 1);
-	}
-
-	char dst[FS_MAXPATH + 1];
-	snprintf(dst, sizeof(dst), "%s/%s", install_dir, safe);
-	if (!ftCopyFileAtomic(inbox_path, dst)) {
-		sysLogPrintf(LOG_WARNING,
-		             "FT: received mod archive could not install to %s",
-		             dst);
-		return;
-	}
-
-	modmgrRescanDirectory();
-	sysLogPrintf(LOG_NOTE,
-	             "FT: installed received mod archive -> %s and refreshed mod registry",
-	             dst);
-
-	const s32 mod_index = ftFindInstalledArchiveModIndex(dst, safe);
+	const s32 enable_now = socialFriendByHandle(sender_handle) ? 1 : 0;
+	char err[MODMGR_ERROR_LEN];
+	const s32 mod_index =
+		modmgrInstallArchiveFile(inbox_path, enable_now, err, sizeof(err));
 	if (mod_index < 0) {
 		sysLogPrintf(LOG_WARNING,
-		             "FT: installed received mod archive was not found in registry: %s",
-		             dst);
+		             "FT: received mod archive install failed: %s (%s)",
+		             err[0] ? err : "install failed",
+		             inbox_path);
 		return;
 	}
 
@@ -726,15 +574,33 @@ static void fileTransferInstallReceivedMod(const char *inbox_path,
 		             "FT: installed received mod archive is invalid: %s",
 		             mod && mod->validation_error[0]
 		                 ? mod->validation_error
-		                 : dst);
+		                 : inbox_path);
 		return;
 	}
 
-	if (socialFriendByHandle(sender_handle)) {
-		(void)ftEnableModIndexNow(mod_index, "friend request-download");
+	sysLogPrintf(LOG_NOTE,
+	             "FT: installed received mod archive '%s' through shared .pdmod installer",
+	             mod->id);
+
+	if (enable_now) {
+		sysLogPrintf(LOG_NOTE,
+		             "FT: enabled received mod '%s' (friend request-download)",
+		             mod->id);
 	} else {
 		ftQueuePendingModEnable(sender_handle, mod);
 	}
+	(void)original_name;
+}
+
+s32 fileTransferDebugInstallReceivedModForSmoke(const char *inbox_path,
+                                                s32 accept_enable_prompt)
+{
+	if (!inbox_path || !inbox_path[0]) return -1;
+	fileTransferInstallReceivedMod(inbox_path, ftPathLeaf(inbox_path), 0);
+	if (accept_enable_prompt) {
+		return fileTransferPendingModEnableAccept();
+	}
+	return 0;
 }
 
 /* Build the destination path: <home>/social/inbox/<kind>/<friend>/<file>.

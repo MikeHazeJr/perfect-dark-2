@@ -43,7 +43,10 @@
 #include "net/netenet.h"
 #include "net/netmanifest.h"
 #include "assetcatalog.h"
+#include "assetcatalog_body_head_slots.h"
 #include "assetcatalog_weapon_slots.h"
+#include "catalog_mgr_bodies.h"
+#include "catalog_mgr_heads.h"
 #include "assetcatalog_sound_slots.h" /* c3849 Wave 2 */
 #include "assetcatalog_texture_slots.h" /* c3849 Wave 2 */
 #include "assetcatalog_anim_slots.h" /* c3849 Wave 2 */
@@ -1381,6 +1384,269 @@ static void distribSetPrimaryFromFile(asset_entry_t *e, const char *dirpath, con
     catalogSetPrimaryFile(e, path);
 }
 
+static s32 distribQualifyFilePath(const char *dirpath,
+                                  const char *relpath,
+                                  char *out,
+                                  size_t outsz)
+{
+    if (!out || outsz == 0) {
+        return 0;
+    }
+
+    out[0] = '\0';
+
+    if (!relpath || !relpath[0]) {
+        return 0;
+    }
+
+    if (relpath[0] != '/'
+            && relpath[0] != '\\'
+            && !(relpath[0] && relpath[1] == ':')
+            && dirpath && dirpath[0]) {
+        snprintf(out, outsz, "%s/%s", dirpath, relpath);
+    } else {
+        snprintf(out, outsz, "%s", relpath);
+    }
+
+    out[outsz - 1] = '\0';
+    return out[0] != '\0';
+}
+
+static const char *distribFindLastArchiveSeparator(const char *path)
+{
+    const char *last = NULL;
+    const char *p = path;
+
+    while (p && *p) {
+        const char *sep = strstr(p, "::");
+        if (!sep) {
+            break;
+        }
+        last = sep;
+        p = sep + 2;
+    }
+
+    return last;
+}
+
+static void distribSourceModelPathFromMeshArchive(const char *mesh_archive,
+                                                  char *out,
+                                                  size_t outsz)
+{
+    static const char *candidates[] = {
+        "model.obj",
+        "model.gltf",
+        "model.glb",
+    };
+    size_t i;
+
+    if (!out || outsz == 0) {
+        return;
+    }
+
+    out[0] = '\0';
+
+    if (!mesh_archive || !mesh_archive[0]) {
+        return;
+    }
+
+    for (i = 0; i < sizeof(candidates) / sizeof(candidates[0]); i++) {
+        snprintf(out, outsz, "%s::%s", mesh_archive, candidates[i]);
+        out[outsz - 1] = '\0';
+        if (fsFileSize(out) > 0) {
+            return;
+        }
+    }
+
+    snprintf(out, outsz, "%s::model.obj", mesh_archive);
+    out[outsz - 1] = '\0';
+}
+
+static s32 distribManifestPathFromMeshArchive(const char *mesh_archive,
+                                              char *out,
+                                              size_t outsz)
+{
+    if (!out || outsz == 0) {
+        return 0;
+    }
+
+    out[0] = '\0';
+
+    if (!mesh_archive || !mesh_archive[0]) {
+        return 0;
+    }
+
+    const char *sep = distribFindLastArchiveSeparator(mesh_archive);
+    if (sep) {
+        size_t prefix_len = (size_t)(sep - mesh_archive);
+        if (prefix_len == 0 || prefix_len + strlen("::_meta/manifest.json") >= outsz) {
+            return 0;
+        }
+        snprintf(out, outsz, "%.*s::_meta/manifest.json",
+                 (int)prefix_len, mesh_archive);
+        out[outsz - 1] = '\0';
+        return 1;
+    }
+
+    const char *slash = strrchr(mesh_archive, '/');
+    const char *backslash = strrchr(mesh_archive, '\\');
+    if (!slash || (backslash && backslash > slash)) {
+        slash = backslash;
+    }
+    if (!slash) {
+        return 0;
+    }
+
+    size_t dir_len = (size_t)(slash - mesh_archive);
+    if (dir_len == 0 || dir_len + strlen("/_meta/manifest.json") >= outsz) {
+        return 0;
+    }
+    snprintf(out, outsz, "%.*s/_meta/manifest.json",
+             (int)dir_len, mesh_archive);
+    out[outsz - 1] = '\0';
+    return 1;
+}
+
+static void distribParseBodyManifestForPrivateSlot(const char *id,
+                                                   const char *mesh_archive,
+                                                   s32 bodynum)
+{
+    char manifest_path[FS_MAXPATH + 64];
+    char *json;
+    u32 json_size = 0;
+
+    if (bodynum < CATALOG_MGR_BODY_CUSTOM_START) {
+        return;
+    }
+
+    if (!distribManifestPathFromMeshArchive(mesh_archive, manifest_path,
+            sizeof(manifest_path))) {
+        sysLogPrintf(LOG_WARNING,
+                     "NETDISTRIB.BODY.MANIFEST_PATH_MISSING: id=%s mesh=%s",
+                     id ? id : "(null)", mesh_archive ? mesh_archive : "(null)");
+        return;
+    }
+
+    json = (char *)fsFileLoad(manifest_path, &json_size);
+    if (!json || json_size == 0) {
+        if (json) {
+            free(json);
+        }
+        sysLogPrintf(LOG_WARNING,
+                     "NETDISTRIB.BODY.MANIFEST_MISSING: id=%s path=%s",
+                     id ? id : "(null)", manifest_path);
+        return;
+    }
+
+    if (loaderPoolParseBodyJsonForSlot(json, json_size, bodynum)) {
+        loaderPoolFinalize();
+        {
+            const body_data_t *body = loaderPoolGetBody(bodynum);
+            if (body) {
+                catalogManagerRegisterBody(id, body);
+            }
+        }
+        sysLogPrintf(LOG_NOTE,
+                     "NETDISTRIB.BODY.LOADER_SLOT: id=%s slot=%d manifest=%s",
+                     id ? id : "(null)", bodynum, manifest_path);
+    }
+
+    free(json);
+}
+
+static void distribParseHeadManifestForPrivateSlot(const char *id,
+                                                   const char *mesh_archive,
+                                                   s32 headnum)
+{
+    char manifest_path[FS_MAXPATH + 64];
+    char *json;
+    u32 json_size = 0;
+
+    if (headnum < CATALOG_MGR_HEAD_CUSTOM_START) {
+        return;
+    }
+
+    if (!distribManifestPathFromMeshArchive(mesh_archive, manifest_path,
+            sizeof(manifest_path))) {
+        sysLogPrintf(LOG_WARNING,
+                     "NETDISTRIB.HEAD.MANIFEST_PATH_MISSING: id=%s mesh=%s",
+                     id ? id : "(null)", mesh_archive ? mesh_archive : "(null)");
+        return;
+    }
+
+    json = (char *)fsFileLoad(manifest_path, &json_size);
+    if (!json || json_size == 0) {
+        if (json) {
+            free(json);
+        }
+        sysLogPrintf(LOG_WARNING,
+                     "NETDISTRIB.HEAD.MANIFEST_MISSING: id=%s path=%s",
+                     id ? id : "(null)", manifest_path);
+        return;
+    }
+
+    if (loaderPoolParseHeadJsonForSlot(json, json_size, headnum)) {
+        loaderPoolFinalize();
+        {
+            const head_data_t *head = loaderPoolGetHead(headnum);
+            if (head) {
+                catalogManagerRegisterHead(id, head);
+            }
+        }
+        sysLogPrintf(LOG_NOTE,
+                     "NETDISTRIB.HEAD.LOADER_SLOT: id=%s slot=%d manifest=%s",
+                     id ? id : "(null)", headnum, manifest_path);
+    }
+
+    free(json);
+}
+
+static s32 distribResolveBodyRuntimeSlot(const char *id,
+                                         s32 declared_bodynum,
+                                         const char *dirpath)
+{
+    if (declared_bodynum >= 0 && declared_bodynum < CATALOG_MGR_BODY_COUNT) {
+        return declared_bodynum;
+    }
+
+    s32 custom = assetCatalogResolveBodyPrivateSlot(id);
+    if (custom >= 0) {
+        sysLogPrintf(LOG_NOTE,
+                     "NETDISTRIB.BODY.CUSTOM_SLOT: id=%s slot=%d path=%s",
+                     id ? id : "(null)", custom, dirpath ? dirpath : "(null)");
+    } else {
+        sysLogPrintf(LOG_WARNING,
+                     "NETDISTRIB.BODY.RUNTIME_SLOT_MISSING: id=%s bodynum=%d path=%s",
+                     id ? id : "(null)", declared_bodynum,
+                     dirpath ? dirpath : "(null)");
+    }
+
+    return custom;
+}
+
+static s32 distribResolveHeadRuntimeSlot(const char *id,
+                                         s32 declared_headnum,
+                                         const char *dirpath)
+{
+    if (declared_headnum >= 0 && declared_headnum < CATALOG_MGR_HEAD_COUNT) {
+        return declared_headnum;
+    }
+
+    s32 custom = assetCatalogResolveHeadPrivateSlot(id);
+    if (custom >= 0) {
+        sysLogPrintf(LOG_NOTE,
+                     "NETDISTRIB.HEAD.CUSTOM_SLOT: id=%s slot=%d path=%s",
+                     id ? id : "(null)", custom, dirpath ? dirpath : "(null)");
+    } else {
+        sysLogPrintf(LOG_WARNING,
+                     "NETDISTRIB.HEAD.RUNTIME_SLOT_MISSING: id=%s headnum=%d path=%s",
+                     id ? id : "(null)", declared_headnum,
+                     dirpath ? dirpath : "(null)");
+    }
+
+    return custom;
+}
+
 static void distribRegisterAnimationCommandSource(const char *id,
                                                   const char *dirpath,
                                                   const char *relpath)
@@ -1477,10 +1743,7 @@ static void populateExtFromIni(asset_entry_t *e, asset_type_e type, const char *
 {
     switch (type) {
     case ASSET_MAP:
-        e->ext.map.stagenum = iniGetInt(ini, "stagenum", -1);
-        if (e->ext.map.stagenum < 0) {
-            e->ext.map.stagenum = distribMintCustomStagenum(e, e->id); /* c3849 */
-        }
+        e->ext.map.stagenum = distribMintCustomStagenum(e, e->id); /* c3849 */
         e->ext.map.mode = (u8)distribParseModeString(iniGet(ini, "mode", ""));
         {
             const char *mf = iniGet(ini, "music_file", "");
@@ -1533,13 +1796,11 @@ static void populateExtFromIni(asset_entry_t *e, asset_type_e type, const char *
         e->ext.bot_variant.aggression    = iniGetFloat(ini, "aggression", 0.5f);
         break;
     case ASSET_ARENA:
-        e->ext.arena.stagenum = iniGetInt(ini, "stagenum", -1);
+        e->ext.arena.stagenum = -1;
         strncpy(e->ext.arena.scenario_id, iniGet(ini, "scenario", ""),
                 sizeof(e->ext.arena.scenario_id) - 1);
-        if (e->ext.arena.stagenum < 0) {
-            e->ext.arena.stagenum = distribMintCustomStagenum(e,
-                e->ext.arena.scenario_id[0] ? e->ext.arena.scenario_id : e->id); /* c3849 */
-        }
+        e->ext.arena.stagenum = distribMintCustomStagenum(e,
+            e->ext.arena.scenario_id[0] ? e->ext.arena.scenario_id : e->id); /* c3849 */
         strncpy(e->ext.arena.scenario_archive,
                 iniGet(ini, "scenario_archive", ""),
                 sizeof(e->ext.arena.scenario_archive) - 1);
@@ -1552,9 +1813,13 @@ static void populateExtFromIni(asset_entry_t *e, asset_type_e type, const char *
         }
         break;
     case ASSET_BODY:
-        e->ext.body.bodynum = (s16)iniGetInt(ini, "bodynum", -1);
+        e->ext.body.bodynum = (s16)distribResolveBodyRuntimeSlot(
+            e->id, -1, dirpath);
+        if (e->ext.body.bodynum >= 0) {
+            e->runtime_index = e->ext.body.bodynum;
+        }
         e->ext.body.name_langid = (s16)iniGetInt(ini, "name_langid", 0);
-        e->ext.body.headnum = (s16)iniGetInt(ini, "headnum", -1);
+        e->ext.body.headnum = -1;
         e->ext.body.requirefeature = (u8)iniGetInt(ini, "requirefeature", 0);
         catalogSetBodyDisplayName(e, iniGet(ini, "display_name",
             iniGet(ini, "name", "")));
@@ -1563,26 +1828,54 @@ static void populateExtFromIni(asset_entry_t *e, asset_type_e type, const char *
             const char *mesh = iniGet(ini, "mesh_archive", "");
             const char *hand = iniGet(ini, "hand_archive", "");
             if (mesh[0]) {
+                char mesh_full[FS_MAXPATH + 1];
+                char source_path[FS_MAXPATH + 32];
                 strncpy(e->ext.body.mesh_archive, mesh,
                     sizeof(e->ext.body.mesh_archive) - 1);
-                distribSetPrimaryFromFile(e, dirpath, e->ext.body.mesh_archive);
+                e->ext.body.mesh_archive[
+                    sizeof(e->ext.body.mesh_archive) - 1] = '\0';
+                if (distribQualifyFilePath(dirpath, e->ext.body.mesh_archive,
+                        mesh_full, sizeof(mesh_full))) {
+                    distribSourceModelPathFromMeshArchive(mesh_full,
+                        source_path, sizeof(source_path));
+                    catalogSetPrimaryFile(e, source_path);
+                    distribParseBodyManifestForPrivateSlot(e->id, mesh_full,
+                        e->ext.body.bodynum);
+                }
             }
             if (hand[0]) {
                 strncpy(e->ext.body.hand_archive, hand,
                     sizeof(e->ext.body.hand_archive) - 1);
+                e->ext.body.hand_archive[
+                    sizeof(e->ext.body.hand_archive) - 1] = '\0';
             }
         }
         break;
     case ASSET_HEAD:
-        e->ext.head.headnum = (s16)iniGetInt(ini, "headnum", -1);
+        e->ext.head.headnum = (s16)distribResolveHeadRuntimeSlot(
+            e->id, -1, dirpath);
+        if (e->ext.head.headnum >= 0) {
+            e->runtime_index = e->ext.head.headnum;
+        }
         e->ext.head.requirefeature = (u8)iniGetInt(ini, "requirefeature", 0);
         catalogSetHeadRigClass(e, iniGet(ini, "rig_class", ""));
         {
             const char *mesh = iniGet(ini, "mesh_archive", "");
             if (mesh[0]) {
+                char mesh_full[FS_MAXPATH + 1];
+                char source_path[FS_MAXPATH + 32];
                 strncpy(e->ext.head.mesh_archive, mesh,
                     sizeof(e->ext.head.mesh_archive) - 1);
-                distribSetPrimaryFromFile(e, dirpath, e->ext.head.mesh_archive);
+                e->ext.head.mesh_archive[
+                    sizeof(e->ext.head.mesh_archive) - 1] = '\0';
+                if (distribQualifyFilePath(dirpath, e->ext.head.mesh_archive,
+                        mesh_full, sizeof(mesh_full))) {
+                    distribSourceModelPathFromMeshArchive(mesh_full,
+                        source_path, sizeof(source_path));
+                    catalogSetPrimaryFile(e, source_path);
+                    distribParseHeadManifestForPrivateSlot(e->id, mesh_full,
+                        e->ext.head.headnum);
+                }
             }
         }
         break;
@@ -1617,7 +1910,7 @@ static void populateExtFromIni(asset_entry_t *e, asset_type_e type, const char *
                         sizeof(preserved_weapon_name) - 1);
                 preserved_weapon_name[sizeof(preserved_weapon_name) - 1] = '\0';
             }
-            e->ext.weapon.weapon_id = iniGetInt(ini, "weapon_id", preserved_weapon_id);
+            e->ext.weapon.weapon_id = preserved_weapon_id;
             if (e->ext.weapon.weapon_id >= 0
                     && e->ext.weapon.weapon_id < NUM_MPWEAPONS) {
                 e->mp_index = (s16)e->ext.weapon.weapon_id;
@@ -1709,7 +2002,7 @@ static void populateExtFromIni(asset_entry_t *e, asset_type_e type, const char *
         }
         break;
     case ASSET_ANIMATION:
-        e->ext.anim.anim_id = iniGetInt(ini, "anim_id", -1);
+        e->ext.anim.anim_id = -1;
         if (e->ext.anim.anim_id >= 0) {
             e->source_animnum = e->ext.anim.anim_id;
         } else {
@@ -1763,7 +2056,7 @@ static void populateExtFromIni(asset_entry_t *e, asset_type_e type, const char *
         e->ext.prop.health = iniGetFloat(ini, "health", 100.0f);
         break;
     case ASSET_TEXTURE:
-        e->ext.texture.texture_id = iniGetInt(ini, "texture_id", -1);
+        e->ext.texture.texture_id = -1;
         if (e->ext.texture.texture_id >= 0) {
             e->source_texnum = e->ext.texture.texture_id;
         } else {
@@ -1803,7 +2096,7 @@ static void populateExtFromIni(asset_entry_t *e, asset_type_e type, const char *
         }
         break;
     case ASSET_AUDIO:
-        e->ext.audio.sound_id = iniGetInt(ini, "sound_id", -1);
+        e->ext.audio.sound_id = -1;
         strncpy(e->ext.audio.name, iniGet(ini, "name", ""), sizeof(e->ext.audio.name) - 1);
         e->ext.audio.category = distribParseAudioCategoryValue(
             iniGet(ini, "audio_category",
@@ -1892,10 +2185,7 @@ static void populateExtFromIni(asset_entry_t *e, asset_type_e type, const char *
         }
         break;
     case ASSET_SCENARIO:
-        e->ext.scenario.stagenum = iniGetInt(ini, "stagenum", -1);
-        if (e->ext.scenario.stagenum < 0) {
-            e->ext.scenario.stagenum = distribMintCustomStagenum(e, e->id); /* c3849 */
-        }
+        e->ext.scenario.stagenum = distribMintCustomStagenum(e, e->id); /* c3849 */
         e->ext.scenario.mode = (u8)distribParseModeString(iniGet(ini, "mode", ""));
         {
             const char *sf = iniGet(ini, "scene_file",

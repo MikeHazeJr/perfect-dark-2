@@ -51,11 +51,14 @@
 #include "platform.h"
 #include "assetcatalog.h"
 #include "assetcatalog_load.h"
-#include "asset_fallback_telemetry.h" /* c3849 Wave 1 */
 #include "asset_source_debug.h"
 #include "lib/meshcollision.h"
 #include "scenario_scene_renderer.h"
 #include "scenario_source_runtime.h"
+
+extern s32 bootDebugPlaceBotNearPlayerIsAuditProp(const struct prop *prop);
+extern void bootDebugPlaceBotNearPlayerTrace(const char *stage, const struct prop *prop,
+		s32 once_bit, s32 a, s32 b, s32 c, s32 d);
 
 #define BGCMD_END                               0x00
 #define BGCMD_PUSH                              0x01
@@ -893,6 +896,8 @@ Gfx *bgRenderSceneInXray(Gfx *gdl)
 	struct prop *prop;
 	struct prop **ptr;
 	s32 k;
+	s32 first_room;
+	s32 first_room_flags;
 
 	roomnumptr = roomnumsbyprop;
 
@@ -910,6 +915,12 @@ Gfx *bgRenderSceneInXray(Gfx *gdl)
 				}
 
 				room++;
+			}
+			if (bootDebugPlaceBotNearPlayerIsAuditProp(prop)) {
+				first_room = (s32)prop->rooms[0];
+				first_room_flags = first_room >= 0 ? (s32)g_Rooms[first_room].flags : 0;
+				bootDebugPlaceBotNearPlayerTrace("bg-room-assign", prop, 3,
+					(s32)*roomnumptr, first_room, first_room_flags, g_BgNumDrawSlots);
 			}
 		}
 
@@ -995,6 +1006,8 @@ Gfx *bgRenderScene(Gfx *gdl)
 	RoomNum *room;
 	s16 roomorder[60];
 	RoomNum roomnums[60];
+	s32 first_room;
+	s32 first_room_flags;
 
 	if (sourcebg) {
 		struct zrange zrange;
@@ -1162,6 +1175,12 @@ Gfx *bgRenderScene(Gfx *gdl)
 				}
 
 				room++;
+			}
+			if (bootDebugPlaceBotNearPlayerIsAuditProp(prop)) {
+				first_room = (s32)prop->rooms[0];
+				first_room_flags = first_room >= 0 ? (s32)g_Rooms[first_room].flags : 0;
+				bootDebugPlaceBotNearPlayerTrace("bg-room-assign-main", prop, 4,
+					(s32)*roomnumptr, first_room, first_room_flags, g_BgNumDrawSlots);
 			}
 		}
 
@@ -1911,16 +1930,10 @@ void bgReset(s32 stagenum)
 			g_Vars.normmplayerisrunning)) {
 		return;
 	}
-	/* c3849 Wave 1: record only when a scenario source is registered and its
-	 * background activation failed -- base stages are normal routing. */
-	if (scenarioSourceFindEntryForStage(&stage,
-			g_Vars.normmplayerisrunning) != NULL) {
-		sysLoudFailf("FALLBACK",
-			"bg fileid=%d scenario source failed -> ROM bg cache",
-			(s32)stage.bgfileid);
-		assetFallbackRecord(ASSET_SCENARIO, (s32)stage.bgfileid,
-			"bg source -> ROM bg cache");
-	}
+	scenarioSourceFatalRuntimeFallbackForStage(&stage,
+		g_Vars.normmplayerisrunning, "background geometry",
+		(s32)stage.bgfileid, "background source renderer activation failed");
+	return;
 
 	// Copy section 1 header to stack and parse into variables
 	header = (u8 *)ALIGN16((uintptr_t)headerbuffer);

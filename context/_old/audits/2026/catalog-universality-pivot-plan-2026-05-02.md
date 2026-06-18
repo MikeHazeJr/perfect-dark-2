@@ -886,11 +886,11 @@ Mitigation: update test names + assertions as part of Step 4. Treat existing tes
 **Unbounded if not fenced:**
 
 - Step 3 (byte-payload classes). Specifically `.pdscenario`. Stages have many cross-references (geometry, tiles, setup, mpsetup, AI scripts, lang banks, music, ambient SFX). The schema decomposition is non-trivial. Possibility: scope balloons into a multi-session lane on its own.
-  
+
   Fence: ship one stage class at a time (`.pdseg` first, `.pdtiles` second, `.pdscenario` last). Or, defer `.pdscenario` to a follow-up lane and migrate the simpler stage sub-classes first.
 
 - Step 6 (mod system uplift). Possibility: the mod system has hidden coupling (theme bundle, audio mod, font mod) that resists clean uplift.
-  
+
   Fence: explicitly defer to a follow-up lane; the universality of base content is the priority, modding-side parity follows.
 
 ### 5.3 Rollback summaries
@@ -917,7 +917,7 @@ These were the open questions surfaced for Mike's call. All five were answered a
   1. Zero references found by grep audit. Bucket as junk; do not extract.
   2. Has references but purpose obscure. Investigate the consumer code, infer the asset class from how it's loaded, name appropriately (e.g. `base:tex_unknown_004f` if loaded as a texture).
   3. Has references with clear purpose. Name properly (`base:tex_carrington_logo` or similar).
-  
+
   Each unnamed slot's disposition is documented in an appendix produced as part of Step 1 emitter work.
 - **Q-5: parity period duration (RESOLVED: parity only, retired with `.pdbase` deletion).** Same shape as the F12 to F13 weapons migration: parity check runs while both formats coexist; gets removed at the step where `.pdbase` is deleted from the repo (Step 5). Mike validates after each migration step before the parity check retires.
 

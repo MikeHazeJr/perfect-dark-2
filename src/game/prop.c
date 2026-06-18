@@ -48,6 +48,10 @@
 #include "net/netmsg.h"
 #include "actionmap.h"
 
+extern s32 bootDebugPlaceBotNearPlayerIsAuditProp(const struct prop *prop);
+extern void bootDebugPlaceBotNearPlayerTrace(const char *stage, const struct prop *prop,
+		s32 once_bit, s32 a, s32 b, s32 c, s32 d);
+
 s16 *g_RoomPropListChunkIndexes;
 struct roomproplistchunk *g_RoomPropListChunks;
 struct prop *g_InteractProp;
@@ -75,13 +79,23 @@ void propsSort(void)
 	s32 i;
 	s32 j;
 	f32 depths[201];
+	bool included;
 
 	// Populate onscreenprops with the list of props
 	while (prop != g_Vars.pausedprops) {
-		if ((prop->flags & (PROPFLAG_ONTHISSCREENTHISTICK | PROPFLAG_ENABLED)) == (PROPFLAG_ONTHISSCREENTHISTICK | PROPFLAG_ENABLED)) {
+		included = (prop->flags & (PROPFLAG_ONTHISSCREENTHISTICK | PROPFLAG_ENABLED)) == (PROPFLAG_ONTHISSCREENTHISTICK | PROPFLAG_ENABLED);
+		if (bootDebugPlaceBotNearPlayerIsAuditProp(prop)) {
+			bootDebugPlaceBotNearPlayerTrace("propsSort-scan", prop, 1,
+				(s32)prop->flags, (s32)prop->active, count, included ? 1 : 0);
+		}
+		if (included) {
 			depths[count] = prop->z;
 			g_Vars.onscreenprops[count] = prop;
 			count++;
+			if (bootDebugPlaceBotNearPlayerIsAuditProp(prop)) {
+				bootDebugPlaceBotNearPlayerTrace("propsSort-included", prop, 2,
+					count, (s32)prop->z, (s32)g_Vars.lvframenum, 0);
+			}
 		}
 
 		prop = prop->next;
@@ -422,12 +436,20 @@ Gfx *propsRender(Gfx *gdl, RoomNum renderroomnum, s32 renderpass, RoomNum *roomn
 		proprooms--;
 
 		while (ptr >= g_Vars.onscreenprops) {
+			prop = *ptr;
+			if (prop && bootDebugPlaceBotNearPlayerIsAuditProp(prop)) {
+				bootDebugPlaceBotNearPlayerTrace("propsRender-scan", prop, -1,
+					(s32)renderroomnum, (s32)*proprooms, renderpass,
+					renderroomnum == *proprooms ? 1 : 0);
+			}
 			if (renderroomnum == *proprooms) {
-				prop = *ptr;
-
 				if (prop) {
 					if ((renderpass == RENDERPASS_OPA_PREBG && (prop->flags & (PROPFLAG_DRAWONTOP | PROPFLAG_RENDERPOSTBG)) == 0)
 							|| (renderpass == RENDERPASS_OPA_POSTBG && (prop->flags & (PROPFLAG_DRAWONTOP | PROPFLAG_RENDERPOSTBG)) == PROPFLAG_RENDERPOSTBG)) {
+						if (bootDebugPlaceBotNearPlayerIsAuditProp(prop)) {
+							bootDebugPlaceBotNearPlayerTrace("propsRender-call", prop, -1,
+								(s32)renderroomnum, (s32)*proprooms, renderpass, 0);
+						}
 						gdl = propRender(gdl, prop, false);
 					}
 				}
@@ -442,14 +464,26 @@ Gfx *propsRender(Gfx *gdl, RoomNum renderroomnum, s32 renderpass, RoomNum *roomn
 		proprooms = roomnumsbyprop;
 
 		while (ptr < g_Vars.endonscreenprops) {
+			prop = *ptr;
+			if (prop && bootDebugPlaceBotNearPlayerIsAuditProp(prop)) {
+				bootDebugPlaceBotNearPlayerTrace("propsRender-scan", prop, -1,
+					(s32)renderroomnum, (s32)*proprooms, renderpass,
+					renderroomnum == *proprooms ? 1 : 0);
+			}
 			if (renderroomnum == *proprooms) {
-				prop = *ptr;
-
 				if (prop) {
 					if (prop->flags & PROPFLAG_DRAWONTOP) {
+						if (bootDebugPlaceBotNearPlayerIsAuditProp(prop)) {
+							bootDebugPlaceBotNearPlayerTrace("propsRender-call", prop, -1,
+								(s32)renderroomnum, (s32)*proprooms, renderpass, 1);
+						}
 						gdl = propRender(gdl, prop, false);
 					}
 
+					if (bootDebugPlaceBotNearPlayerIsAuditProp(prop)) {
+						bootDebugPlaceBotNearPlayerTrace("propsRender-call", prop, -1,
+							(s32)renderroomnum, (s32)*proprooms, renderpass, 2);
+					}
 					gdl = propRender(gdl, prop, true);
 				}
 			}

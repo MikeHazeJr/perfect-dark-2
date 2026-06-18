@@ -259,7 +259,7 @@ Phase 1 (30 min): Switch to Ninja + unified build dir + ccache
   - Modify build-headless.ps1: -G Ninja, single build dir, ccache launcher
   - Modify build-gui.ps1 (or dev-window.ps1): same changes
   - Test: clean build, incremental build, both-targets build
-  
+
 Phase 2 (1-2 hours): PCH for core headers
   - Add target_precompile_headers for types.h, ultra64.h, data.h, constants.h
   - Test with both C and C++ files

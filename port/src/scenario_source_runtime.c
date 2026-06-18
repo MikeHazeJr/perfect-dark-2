@@ -1197,6 +1197,7 @@ typedef struct scenario_source_graph_state {
 	s32 ai_action_shuffle_pelagic_switches_logged;
 	s32 level_volume_eval_logged;
 	s32 level_volume_missing_logged;
+	s32 level_graph_tick_logged;
 	u32 mission_stage_flags;
 	s32 mission_stage_flags_valid;
 	s32 mission_stage_flags_logged;
@@ -7304,6 +7305,31 @@ const asset_entry_t *scenarioSourceFindEntryForStage(
 	const catalog_stage_result_t *stage, s32 prefer_mp)
 {
 	return s_findScenarioForStage(stage, prefer_mp);
+}
+
+void scenarioSourceFatalRuntimeFallbackForStage(
+	const catalog_stage_result_t *stage, s32 prefer_mp,
+	const char *payload, s32 legacy_id, const char *reason)
+{
+	const asset_entry_t *scenario;
+	const char *stageid;
+	const char *scenario_id;
+
+	stageid = stage && stage->entry && stage->entry->id[0]
+		? stage->entry->id : "?";
+	scenario = s_findScenarioForStage(stage, prefer_mp);
+	scenario_id = scenario && scenario->id[0]
+		? scenario->id : "(missing scenario source)";
+
+	sysFatalError(
+		"ASSET.FALLBACK: Scenario stage '%s' cannot use legacy %s id=%d "
+		"after public .pdscenario source activation failed for '%s' (%s); "
+		"runtime ROM/RomProvider fallback after extraction is an asset-chain failure.",
+		stageid,
+		payload && payload[0] ? payload : "payload",
+		legacy_id,
+		scenario_id,
+		reason && reason[0] ? reason : "source load failed");
 }
 
 s32 scenarioSourceValidateBackgroundGeometryForStage(
@@ -33291,6 +33317,68 @@ s32 scenarioSourceMissionGraphRecordPhase(const char *phase,
 		s_ActiveScenarioGraphs.mission_graph_path,
 		phase,
 		reason && reason[0] ? reason : "runtime");
+	return 1;
+}
+
+static s32 s_scenarioGraphRuntimeFailure(const char *action,
+	const char *reason)
+{
+	if (assetSourceDebugIsEnabledFor(ASSET_SCENARIO)) {
+		sysFatalError("ASSET.SOURCE_ONLY: level graph '%s' cannot %s "
+			"from public source '%s' (%s); refusing legacy-only level behavior.",
+			s_ActiveScenarioGraphs.scenario_id[0]
+				? s_ActiveScenarioGraphs.scenario_id : "?",
+			action && action[0] ? action : "execute",
+			s_ActiveScenarioGraphs.level_graph_path[0]
+				? s_ActiveScenarioGraphs.level_graph_path : "(missing)",
+			reason && reason[0] ? reason : "graph mismatch");
+	}
+
+	sysLogPrintf(LOG_WARNING,
+		"SCENARIO.GRAPH: cannot %s for '%s' from source '%s' (%s)",
+		action && action[0] ? action : "execute",
+		s_ActiveScenarioGraphs.scenario_id[0]
+			? s_ActiveScenarioGraphs.scenario_id : "?",
+		s_ActiveScenarioGraphs.level_graph_path[0]
+			? s_ActiveScenarioGraphs.level_graph_path : "(missing)",
+		reason && reason[0] ? reason : "graph mismatch");
+	return 0;
+}
+
+s32 scenarioSourceLevelGraphRecordTick(const char *reason)
+{
+	if (!s_ActiveScenarioGraphs.level_graph_active) {
+		return 1;
+	}
+	if (!s_ActiveScenarioGraphs.level_graph_path[0]) {
+		return s_scenarioGraphRuntimeFailure("level tick",
+			"missing level graph source path");
+	}
+	if (s_ActiveScenarioGraphs.level_global_settings_node_count != 1) {
+		return s_scenarioGraphRuntimeFailure("level tick",
+			"missing executable global settings source node");
+	}
+	if (!s_ActiveScenarioGraphs.level_global_settings_scenario[0] ||
+			!s_ActiveScenarioGraphs.level_global_settings_kind[0]) {
+		return s_scenarioGraphRuntimeFailure("level tick",
+			"missing global settings runtime identity");
+	}
+	if (strcmp(s_ActiveScenarioGraphs.level_global_settings_scenario,
+			s_ActiveScenarioGraphs.scenario_id) != 0) {
+		return s_scenarioGraphRuntimeFailure("level tick",
+			"global settings source scenario mismatch");
+	}
+
+	if (!s_ActiveScenarioGraphs.level_graph_tick_logged) {
+		sysLogPrintf(LOG_NOTE,
+			"SCENARIO.GRAPH: level tick from graph source '%s' scenario='%s' kind='%s' reason=%s backend=graph.global.settings+level.tick",
+			s_ActiveScenarioGraphs.level_graph_path,
+			s_ActiveScenarioGraphs.level_global_settings_scenario,
+			s_ActiveScenarioGraphs.level_global_settings_kind,
+			reason && reason[0] ? reason : "runtime");
+		s_ActiveScenarioGraphs.level_graph_tick_logged = 1;
+	}
+
 	return 1;
 }
 

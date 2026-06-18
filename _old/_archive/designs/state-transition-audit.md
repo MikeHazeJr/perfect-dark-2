@@ -203,7 +203,7 @@ ImGui menus that replace active menus (like the pick-target dialog) must ensure 
 
 The ImGui pause menu (`pdguiPauseMenuOpen`/`pdguiPauseMenuClose`) does NOT manage `g_PlayersWithControl` at all. It relies on the input context system to suppress input.
 
-**Risk**: If any game logic checks `g_PlayersWithControl[]` directly (rather than the input context system) to decide whether to process player input, the player could still receive input during MP pause. 
+**Risk**: If any game logic checks `g_PlayersWithControl[]` directly (rather than the input context system) to decide whether to process player input, the player could still receive input during MP pause.
 
 **Audit of consumers**: `g_PlayersWithControl` is read in:
 - `bondmove.c:2127` — gates the entire movement tick. If `g_PlayersWithControl[playernum]` is true AND `pausemode == PAUSEMODE_UNPAUSED`, movement processes.

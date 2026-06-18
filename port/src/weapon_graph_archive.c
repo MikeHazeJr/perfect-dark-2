@@ -8,7 +8,9 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "fs.h"
 #include "modarchive.h"
+#include "modvfs.h"
 #include "system.h"  /* B-911: loud-skip logging in the embedded-mesh scan */
 #include "weapon_graph_archive.h"
 
@@ -190,6 +192,44 @@ static void hashCanonicalEntry(sha256_ctx *ctx, const char *name,
 	}
 }
 
+void *weaponGraphArchiveReadBytesFile(const char *archive_path, u32 *out_size)
+{
+	if (out_size) *out_size = 0;
+	if (!archive_path || !archive_path[0]) return NULL;
+
+#ifndef PD_SERVER
+	{
+		void *bytes = modVfsResolveAnyAlloc(archive_path, out_size, NULL, 0);
+		if (bytes) {
+			return bytes;
+		}
+	}
+#endif
+
+	return fsFileLoad(archive_path, out_size);
+}
+
+void *weaponGraphArchiveExtractBinaryFile(const char *archive_path,
+                                          const char *entry_name,
+                                          u32 *out_size)
+{
+	if (out_size) *out_size = 0;
+	if (!archive_path || !entry_name || !entry_name[0]) return NULL;
+
+	u32 archive_size = 0;
+	void *archive_bytes = weaponGraphArchiveReadBytesFile(archive_path,
+		&archive_size);
+	if (!archive_bytes || archive_size == 0) {
+		free(archive_bytes);
+		return NULL;
+	}
+
+	void *raw = modArchiveExtractMemAlloc(archive_bytes, archive_size,
+		entry_name, out_size);
+	free(archive_bytes);
+	return raw;
+}
+
 static s32 memEntryCollectCb(const char *entryName, u32 uncompressedSize, void *user)
 {
 	(void)uncompressedSize;
@@ -202,6 +242,27 @@ s32 weaponGraphArchiveReadTextFile(const char *archive_path, const char *entry_n
 	if (out_text) *out_text = NULL;
 	if (out_size) *out_size = 0;
 	if (!archive_path || !entry_name || !out_text) return -1;
+
+	{
+		u32 entry_size = 0;
+		void *raw = weaponGraphArchiveExtractBinaryFile(archive_path,
+			entry_name, &entry_size);
+		if (raw) {
+			char *text = (char *)malloc((size_t)entry_size + 1);
+			if (!text) {
+				free(raw);
+				return -1;
+			}
+			if (entry_size > 0) {
+				memcpy(text, raw, entry_size);
+			}
+			free(raw);
+			text[entry_size] = '\0';
+			*out_text = text;
+			if (out_size) *out_size = entry_size;
+			return 0;
+		}
+	}
 
 	mod_archive_t *arc = modArchiveOpen(archive_path);
 	if (!arc) return -1;
@@ -690,6 +751,113 @@ s32 weaponGraphArchiveScanNestedPayloadsFile(const char *archive_path,
 		return -1;
 	}
 	memset(out, 0, sizeof(*out));
+
+	u32 archive_size = 0;
+	void *archive_bytes = weaponGraphArchiveReadBytesFile(archive_path,
+		&archive_size);
+	if (archive_bytes && archive_size > 0) {
+		name_list_t names;
+		memset(&names, 0, sizeof(names));
+		if (modArchiveMemForEachEntry(archive_bytes, archive_size,
+				memEntryCollectCb, &names) != MODARCHIVE_OK) {
+			nameListFree(&names);
+			free(archive_bytes);
+			setErr(err, err_cap, "could not enumerate archive %s", archive_path);
+			return -1;
+		}
+		qsort(names.names, (size_t)names.count, sizeof(names.names[0]), cmpNamePtr);
+
+		for (s32 i = 0; i < names.count; i++) {
+			const char *entry = names.names[i];
+			asset_type_e type = typeForNestedArchiveName(entry);
+			if (type == ASSET_NONE) continue;
+
+			u32 nested_size = 0;
+			void *nested_bytes = modArchiveExtractMemAlloc(archive_bytes,
+				archive_size, entry, &nested_size);
+			if (!nested_bytes || nested_size == 0) {
+				free(nested_bytes);
+				nameListFree(&names);
+				free(archive_bytes);
+				setErr(err, err_cap, "could not read nested payload %s", entry);
+				return -1;
+			}
+
+			char digest[SHA256_HEX_SIZE];
+			if (weaponGraphArchiveCanonicalSha256Bytes(nested_bytes,
+					nested_size, digest) != 0) {
+				free(nested_bytes);
+				nameListFree(&names);
+				free(archive_bytes);
+				setErr(err, err_cap, "nested payload %s is not a valid archive", entry);
+				return -1;
+			}
+
+			weapon_graph_archive_descriptor_t desc;
+			if (weaponGraphArchiveReadDescriptorBytes(nested_bytes,
+					nested_size, type, &desc, err, err_cap) != 0) {
+				free(nested_bytes);
+				nameListFree(&names);
+				free(archive_bytes);
+				return -1;
+			}
+			free(nested_bytes);
+
+			char local_slug[WEAPON_GRAPH_ARCHIVE_LOCAL_SLUG_LEN];
+			localSlugFromArchiveEntry(entry, type, local_slug, sizeof(local_slug));
+
+			char catalog_id[CATALOG_ID_LEN];
+			if (desc.catalog_id[0]) {
+				if (!sameNamespace(parent_id, desc.catalog_id)) {
+					nameListFree(&names);
+					free(archive_bytes);
+					setErr(err, err_cap,
+						"nested payload %s uses external catalog ID %s without explicit dependency support",
+						entry, desc.catalog_id);
+					return -1;
+				}
+				copyStr(catalog_id, sizeof(catalog_id), desc.catalog_id);
+			} else if (weaponGraphArchiveDerivedNestedId(parent_id, type, local_slug,
+					catalog_id, sizeof(catalog_id)) != 0) {
+				nameListFree(&names);
+				free(archive_bytes);
+				setErr(err, err_cap, "could not derive catalog ID for %s", entry);
+				return -1;
+			}
+
+			s32 existing = inventoryFindById(out, catalog_id);
+			if (existing >= 0) {
+				if (strcmp(out->payloads[existing].canonical_sha256, digest) != 0) {
+					nameListFree(&names);
+					free(archive_bytes);
+					setErr(err, err_cap,
+						"nested payload ID collision for %s with different content",
+						catalog_id);
+					return -1;
+				}
+				continue;
+			}
+			if (out->count >= WEAPON_GRAPH_ARCHIVE_MAX_NESTED_PAYLOADS) {
+				nameListFree(&names);
+				free(archive_bytes);
+				setErr(err, err_cap, "too many nested payloads in %s", archive_path);
+				return -1;
+			}
+
+			weapon_graph_archive_payload_t *p = &out->payloads[out->count++];
+			memset(p, 0, sizeof(*p));
+			p->type = type;
+			copyStr(p->archive_entry, sizeof(p->archive_entry), entry);
+			copyStr(p->local_slug, sizeof(p->local_slug), local_slug);
+			copyStr(p->catalog_id, sizeof(p->catalog_id), catalog_id);
+			copyStr(p->canonical_sha256, sizeof(p->canonical_sha256), digest);
+		}
+
+		nameListFree(&names);
+		free(archive_bytes);
+		return out->count;
+	}
+	free(archive_bytes);
 
 	mod_archive_t *arc = modArchiveOpen(archive_path);
 	if (!arc) {

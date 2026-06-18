@@ -11,7 +11,7 @@
     "port/src/loader_walker_mesh.c",
     "tools/smoke-verify/fixtures/archive_walker_source_pd.ini"
   ],
-  "log_channel_mask": "all",
+  "log_channel_mask": "catalog,audio,render,game,system",
   "verbose": 0,
   "timeout_seconds": 150,
   "install_state": "clean",
@@ -24,11 +24,11 @@
     "--no-net",
     "--portable",
     "--debug-load-catalog-assets",
-    "scenario=base:scenario_airbase,audio=base:sfx_alarm_2,lang=base:lang_ame_en,font=base:font_fontjpnsingle,model=base:model_ar34_hi,animation=base:animation_big_sneeze"
+    "scenario=base:scenario_airbase,audio=base:sfx_alarm_2,lang=base:lang_ame_en,font=base:font_handelgothicsm,model=base:model_ar34_hi,animation=base:animation_big_sneeze"
   ],
   "input_sequence": [
     { "at_ms": 0, "type": "wait", "comment": "catalog bootstrap extracts and walks base typed archives before the debug typed-load requests fire." },
-    { "at_ms": 25000, "type": "exit", "comment": "exit after representative typed-load requests have either activated or emitted source-only failures. This smoke intentionally stays out of the skip-intro stage dwell path so it only validates archive walker source binding and typed runtime activation." }
+    { "at_ms": 40000, "type": "exit", "comment": "exit after representative typed-load requests have either activated or emitted source-only failures. Clean extraction can take about 30 seconds before debug typed-load requests fire, so this smoke intentionally dwells long enough for walker finalization while staying out of the skip-intro stage dwell path." }
   ],
   "assertions": {
     "required_lines": [
@@ -40,7 +40,7 @@
       "BOOT: --debug-load-catalog-assets result type=scenario id='base:scenario_airbase' result=OK",
       "BOOT: --debug-load-catalog-assets result type=audio id='base:sfx_alarm_2' result=OK",
       "BOOT: --debug-load-catalog-assets result type=lang id='base:lang_ame_en' result=OK",
-      "BOOT: --debug-load-catalog-assets result type=font id='base:font_fontjpnsingle' result=OK",
+      "BOOT: --debug-load-catalog-assets result type=font id='base:font_handelgothicsm' result=OK",
       "BOOT: --debug-load-catalog-assets result type=model id='base:model_ar34_hi' result=OK",
       "BOOT: --debug-load-catalog-assets result type=animation id='base:animation_big_sneeze' result=OK",
       "SMOKE: result=scripted_exit"

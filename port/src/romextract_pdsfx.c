@@ -1048,7 +1048,6 @@ static s32 s_emitOneMp3VoiceAlias(s32 confignum, union soundnumhack mapped,
 		"source_format = MP3\n"
 		"file_path = sample.mp3\n"
 		"data_size = %u\n"
-		"source_filenum = %d\n"
 		"source_index = %d\n"
 		"mapped_soundnum = %d\n"
 		"mp3_priority = %u\n"
@@ -1060,7 +1059,6 @@ static s32 s_emitOneMp3VoiceAlias(s32 confignum, union soundnumhack mapped,
 		"context = \n",
 		catalog_id,
 		(unsigned)mp3_size,
-		(s32)mapped.id,
 		packed,
 		(s32)(u16)mapped.packed,
 		(unsigned)mapped.mp3priority,

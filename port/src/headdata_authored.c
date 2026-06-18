@@ -7,7 +7,7 @@
  * 84 head entries (75 named MP/SP heads + 9 SP-fallback heads). Reverse-
  * engineered from the historical g_HeadsAndBodies[] table (head subset
  * filtered by unk00_01 == 1). Catalog ID slugs match the prior
- * base/heads.pdbase JSON archive so historical references survive the
+ * legacy aggregate head JSON archive so historical references survive the
  * pivot.
  *
  * Engine-API constraint: nothing in src/ or port/ outside the catalog

@@ -761,4 +761,4 @@ Per-explosion fireball tint (renderer slice 2); custom explosiontype rows (18 si
 
 ---
 
-Sentinel: end of c3849 wave implementation maps. Waves 1-4 shipped; Wave 5/6 maps above are the live contract; Wave 7 (live-gated flips) remains staged to B-801.
+Sentinel: end of c3849 wave implementation maps. Waves 1-7 shipped for the current tree as of 2026-06-17. Wave 7 cutover made weapon graph runtime product-default ON, retired the old toggle/MP option, bumped the wire protocol to v51, and proved installed Needler `.pdweapon` source rendering through nested `.pdxxx` archives.

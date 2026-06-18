@@ -60,6 +60,13 @@ s32 romExtractVerifyAll(void);
 s32 romExtractRelPathForFilenum(s32 fileNum, char *outRel, s32 outRelLen);
 
 /**
+ * Returns non-zero while boot-time ROM extraction or extraction verification is
+ * intentionally reading the ROM as bootstrap input. Runtime fallback telemetry
+ * must not count those reads as post-extraction asset-chain failures.
+ */
+s32 romExtractIsBootstrapping(void);
+
+/**
  * Phase 3 Pass B Slices 2/5/6/8/11 (2026-05-02): segment extraction.
  *
  * Walks every loaded ROM segment (sfxctl, sfxtbl, seqctl, seqtbl,

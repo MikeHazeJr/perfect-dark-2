@@ -731,6 +731,3 @@ Recommendation: **Path 2**. Single-ROM extraction is the immediate goal. Hash ta
 - F11-F13 catalog cadence (just shipped): the `.pdbase` pattern (`base/weapons.pdbase` plus `loader_pdbase.c`) is structurally analogous to what `.pdui` should become for UI assets.
 
 <!-- SENTINEL: Document end -->
-
-
-

@@ -1900,5 +1900,3 @@ Forward-looking notes tracked: accessories system (FW-1), mod-driven character b
 - E-37. **Per-spawn-point weapon and pickup arrays in `.pdscenario`.** Mike asked the schema sketch to "explicitly document per-location weapon/pickup spawn declarations." I added `weapon_spawns` and `pickup_spawns` arrays with per-spawn `asset_id` (catalog ID), transform, ammo count, and respawn timer. Mike did not specify the field names; I picked these for clarity.
 
 End of audit.
-
-

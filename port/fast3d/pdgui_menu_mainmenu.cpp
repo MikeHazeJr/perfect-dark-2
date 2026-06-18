@@ -69,7 +69,6 @@ extern "C" {
 #include "net/matchsetup.h"
 #include "testscenarios.h"
 #include "swarm_test.h" /* S594h-Unit-A item 6 UI: team mode picker */
-#include "weapon_graph_runtime.h"
 }
 
 /* ========================================================================
@@ -4190,16 +4189,6 @@ static void renderSettingsDebug(float scale)
         }
         ImGui::SameLine();
         ImGui::TextDisabled("(64 – 4096)");
-    }
-
-    ImGui::Spacing();
-
-    {
-        bool graphRuntime = weaponGraphRuntimeEnabled() != 0;
-        if (ImGui::Checkbox("Weapon Graph Runtime", &graphRuntime)) {
-            weaponGraphRuntimeSetEnabled(graphRuntime ? 1 : 0);
-            configSave("pd.ini");
-        }
     }
 
     ImGui::Spacing();

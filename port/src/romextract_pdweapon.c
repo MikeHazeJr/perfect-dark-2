@@ -219,9 +219,7 @@ static void s_cleanupLegacyBaseWeaponSlugArchives(const char *out_dir)
 {
 	static const char *legacy_names[] = {
 		"base_falcon2silencer.pdweapon",
-		"base_falcon2silencer.pdwpn",
 		"base_falcon2scope.pdweapon",
-		"base_falcon2scope.pdwpn",
 	};
 
 	for (s32 i = 0; i < (s32)(sizeof(legacy_names) / sizeof(legacy_names[0])); i++) {
@@ -1137,8 +1135,7 @@ static void s_modelRef(s32 modelnum, char *out, size_t cap)
 	} else if (slug) {
 		snprintf(out, cap, "base:model_%s", slug);
 	} else {
-		snprintf(out, cap, "base:model_%04x",
-			(unsigned)(modelnum & 0xffff));
+		catalogReadableModelIdForFile(-1, NULL, "unlabeled", out, cap);
 	}
 	out[cap - 1] = '\0';
 }

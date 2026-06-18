@@ -22,15 +22,277 @@ Code:
 
 ## Current Completion Focus
 
+As of 2026-06-17T15:45:00-04:00, `c3844` is closed at 100% and the follow-on
+`c3849` Wave 7 cutover is implemented for the current tree. The final c3844
+regression sweep stayed green, and Wave 7 adds product-default weapon graph
+runtime, fatal source-owned fallback cutover, protocol v51 mixed-build refusal,
+and retirement of the old graph runtime user toggle/MP option. Every non-active
+card remains parked in Backlog/deferred or Done/history unless Mike explicitly
+reopens or promotes it.
+
 As of 2026-06-09, the Kanban Active lane is intentionally narrowed to `c3844`
 only: **Asset Pipeline: 100% source/runtime parity closure**. The archive/source
 format sweep is mostly complete; do not reopen broad format migration unless live
 evidence shows a specific family still loses authored source. Remaining work is
-runtime proof and closure: B-801 safe live visual/audio proof, custom body/head
-runtime equivalence, Scenario AI graph/runtime fallback closure, stale generated
-output regeneration, private integer bridge closure, and end-to-end modder
-workflow proof. Non-current gameplay, benchmark, input, and tooling cards are
+runtime proof and closure: B-801 safe live visual/audio proof, Scenario AI
+graph/runtime fallback closure, retained-output currentness, private
+integer bridge closure, and end-to-end modder workflow proof. Custom body/head
+runtime equivalence is now closed by live render proof. Non-current gameplay,
+benchmark, input, and tooling cards are
 deferred out of Active so sessions stay focused on this completion path.
+As of 2026-06-11, deferred cards may keep historical implementation notes, but
+their unfinished subtasks should be backlog unless they are folded into `c3844`.
+`c3844` owns the next active proof path. Saved card workspaces for completed or
+deferred cards are context only; they should not nominate a different active
+lane until the parity closure changes state. The board was refreshed again on
+2026-06-11 so every non-`c3844` Backlog card carries an explicit deferral note;
+those cards are parked for routing until Mike changes priority or the work is
+folded into `c3844`.
+As of 2026-06-12, the final c3844 all-family regression sweep is green for the
+current tree. The sweep passed the native-source guard, pdxxx workflow verifier,
+all-family conformance for checked-in examples and retained `Build\data`,
+audio/mesh/animation CPU validators, focused Public Mods/pdmod/source tests
+(10,341 assertions / 60 cases), the live smoke matrix (9/9 tests, 426/426
+assertions), and the isolated `c3844final` all-target build. Fixed sweep
+blockers were B-929 and B-930.
+As of 2026-06-17, the c3849 Wave 7 cutover is also green: full `pd-tests`
+passed 41,191 assertions / 804 cases; focused Wave 7 selectors passed 937
+assertions / 24 cases; `asset_native_source_guard.py` passed; Needler strict
+archive conformance passed 12 checked nested archives across `.pdeffect`,
+`.pdmaterial`, `.pdmesh`, `.pdprojectile`, `.pdtexture`, and `.pdweapon`; and
+`needler_graph_runtime_visual_smoke` passed 40/40 in
+`.claude/smoke-verify-runs/results-20260617T193054Z.json`.
+As of 2026-06-11, scoped smoke logging is ready for that proof path: smoke tests
+can name channels directly, and the retained Scenario/weapon live proof smokes
+use c3844-relevant game/catalog/render/match/combat/system masks instead of
+log-all.
+The board/context routing was reverified at 2026-06-11T16:11:45-04:00, before
+final closeout: `c3844` was still the only Active card, every non-`c3844`
+Backlog card was priority-5 deferred, Done cards were history-only, parked
+threads were manual-resume only, the only active/routing marker pointed at
+`c3844`, and no non-`c3844` Card Decisions workspace was live. `c3844-s105` is complete through live
+SFX/voice/music proof, custom body/head live render proof is green, Scenario
+command graph node-set completeness and normal-play fallback posture are done,
+`c3844-s108` retained-output currentness is now done for the current generated
+tree, and `c3844-s109` private integer bridge audit is closed for the current
+bridge sweep. The later closeout moved `c3844` to Done after `c3844-s110` and
+the final regression sweep passed.
+Also on 2026-06-11, the bounded no-sound `weapon_match_source_gate_smoke`
+passed 45/45 after the scoped mask included the existing `MATCHSETUP` network
+classification. That proves one live weapon/hand/model/command-animation path
+from public typed archive source into renderer diagnostics, but it does not close
+B-801. The later bounded `scenario_pads_source_gate_smoke` passed 154/154
+against the isolated `b801scenario` client and proved `base:scenario_chicago`
+loads and renders as a native source scene with zero fallback/failure signatures
+in the reviewed log. A later all-family non-Scenario source activation pass is
+also green: `all_family_source_gate_smoke` passed 36/36 and
+`archive_walker_source_gate_smoke` passed 19/19 after the retained smoke fixtures
+were corrected for the current extracted font ID and clean-extraction dwell time.
+That proves representative non-Scenario families activate from public archive
+source with scoped logs and zero reviewed fallback/source-only/missing/fatal/AV
+signatures, but it is not a live visual-quality or live audio-playback proof.
+Custom-body live render is now green. The same-day failure chain covered private
+slot allocation, sparse base-row fallback, nested `.pdbody/.pdhead` sidecars,
+generated body modeldef compilation, checked-accessor bounds, manager lifetime,
+smoke staging/log masks, signed head-slot width, MP manifest lifecycle, and
+finally render-matrix timing. The final B-923 root cause was not extraction or
+source loss: the debug-placed bot could reach `chrRender` before normal character
+matrix allocation populated `model->matrices`, so generated render audit crashed
+before `MODASSET.RENDER`. `chrRender` now prepares matrices on demand before
+`modelRender` when needed. Bounded `custom_body_live_render_smoke` now passes
+41/41 with scripted exit and `MODASSET.RENDER` for source-backed
+`example:tri_body`. Older same-day notes about `bodynum=-1`,
+`reason=unpopulated`, `head=-104`, stale smoke expectations, stage-diff unload,
+`0xC0000005`, or missing `MODASSET.RENDER` are historical and must not route the
+next investigation.
+
+The live SFX/voice/music playback proof is now green. On 2026-06-11,
+`audio_live_playback_source_smoke` passed 21/21 against the fresh isolated
+`c3844audio2` client with scoped `catalog,audio,game,system` logging. It proved
+source-only playback for representative SFX, voice, and sequence music:
+`base:sfx_alarm_2`, `base:voice_cover_me_aiw`, and `base:song_sequence_a`, with
+the song path logging public `sequence.mid` plus `sequence.json` source. The
+reviewed log contained no source-only failure, runtime fallback, missing/fail,
+category-mismatch, fatal, access-violation, `RomProvider:filenum`, or
+`--no-sound` signatures.
+
+Scenario AI graph/runtime fallback closure is now complete for the current
+normal-play stage-load source posture. On 2026-06-11, the Scenario extractor began emitting one explicit
+`scenario.ai.command` graph node for every `ai/ailists.json` row, including
+source, list id, command index, offset, opcode, opcode name, and semantic kind,
+plus a link from `scenario.ai.lists` to that command node. Strict conformance now
+requires `counts.ai_commands` to match `ai/ailists.json`, requires every command
+row's `graph_node` to exist in `level.graph.json`, and requires the graph link.
+The extractor-only regeneration path now skips window/UI/input startup and full
+gameplay/window teardown, so safe archive regeneration does not require OpenGL.
+Verification passed the native-source guard, checked-in all-family example
+conformance, focused c3844 static tests, isolated all-target build, extractor-only
+runtime run exit 0, strict Scenario conformance on session output and durable
+`Build\data\ntsc-final\scenarios`, and a direct count of 87 archives / 75,920 AI
+rows / 75,920 command nodes / 75,920 command links / zero generic or unlinked
+command rows. The subsequent normal-play fallback pass removed the remaining
+legacy ROM fallbacks after public Scenario source failure for level graph
+activation, setup source, pads source, tiles source, and background source
+renderer activation. Those failures now use a shared fatal that identifies the
+stage, payload, legacy id, and public `.pdscenario` source, and the native-source
+guard rejects the old setup/pads/tiles/background fallback signatures.
+
+The fallback telemetry seen in the first weapon run was classified and fixed as
+extraction-bootstrap instrumentation noise: first-launch ROM reads during
+extraction/verify no longer count as runtime fallback, while post-extraction
+ROM/RomProvider fallback remains loud and counted. The Scenario AI
+graph/runtime fallback closure is historical and closed for the current tree.
+The first
+`c3844-s107` active-runtime hook is closed: `lvTick` records the active level
+tick through public `.pdscenario::level.graph.json` global-settings source and
+the Scenario source matrix expects `backend=graph.global.settings+level.tick`.
+The Scenario AI extraction flattening gap is also closed at the source/validator
+layer: every declared `chraicommands.h` opcode now receives a semantic
+`ai/ailists.json` `opcode_name`, the native-source guard rejects missing names,
+and strict conformance rejects stale rows that still say `"command"`. The
+Scenario retained-output and command graph node-set blockers are now closed:
+headless `--extract-assets-only` runs the normal catalog/extraction/walker/cache
+path, the fresh run regenerated 87 `.pdscenario` archives, and durable
+`Build\data\ntsc-final\scenarios` validates 87/87 with complete command graph
+node/link coverage. The final Scenario normal-play fallback posture pass is also
+closed for setup/pads/tiles/background stage-load payloads; retained-output
+currentness is also closed for the current tree.
+
+Latest cleanup note, 2026-06-11T16:31:33-04:00: no additional Kanban cards were
+deleted or moved because the board is already strict. `c3844-s108`
+retained-output currentness is now closed for the current retained generated
+tree. Fresh extractor-only output validated across all public families, durable
+`Build\data\ntsc-final` was refreshed from that verified output, whole-tree
+strict conformance passes 8,066 root archives / 9,067 checked archives across
+all 26 families, and retained audio/animation/mesh CPU validators pass. The
+`.pdui` extractor gap was a source-resolution ordering issue before
+`catalogLoadInit()`, not a public archive shape failure; UI texture decode can
+now resolve public `.pdtexture::texture.png` rows directly from the enabled
+catalog during extraction-only runs. The route then advanced to `c3844-s110`
+end-to-end modder workflow proof, which is now closed.
+
+Latest s110 workflow note, 2026-06-11: the checked-in all-family modder example
+folder now has an offline workflow verifier. `tools/verify_pdxxx_modder_workflow.py`
+validates `examples\modding\typed-pdxxx-basic`, requires all 27 public typed
+families, rejects public `.bin` and `.tsv`, counts editable standard and
+semantic source members, packages the folder as `.pdmod`, unpacks it, and proves
+`mod.json` plus every typed archive round-trips unchanged. Current proof covers
+59 archives, 31 nested archives, 229 public source entries, 45 standard source
+entries, and 184 semantic source entries. This closes the all-family
+package/unpack/editability slice; live runtime proof remains covered by the
+representative source-gate and live smokes until the final 100% audit is closed.
+
+Latest s110 production packer note, 2026-06-11: the actual shared `.pdmod`
+packer used by Modding Hub and sharing now packages
+`examples\modding\typed-pdxxx-basic` through `modpackPdmodFromFolder()` and
+preserves every typed archive byte-for-byte inside the resulting transport
+archive. The packer now recognizes the current `scenario_archive`-backed
+`.pdarena` shape and `.pdsong` public music source keys
+(`music_file`/`midi_file`/`track_file`) instead of applying stale loose-geometry
+or SFX-style `file_path` requirements.
+
+Latest s110 import/install note, 2026-06-11: the active Modding Hub package
+tool now uses `.pdmod` only. It packs folders through `modpackPdmodFromFolder()`
+and imports `.pdmod` archives through shared `modmgrInstallArchiveFile()`.
+Received Public Mods now call the same `modmgrValidateArchiveFile()` gate before
+install, so Hub import, transfer install, and registry registration share the
+same public-source rejection rules for `.bin`, public `.tsv`, and invalid nested
+typed archives. Verification passed source guard, all-family workflow verifier,
+all-family conformance, focused pdmod/Public Mods tests, diff-check, board JSON
+parse, decision-request check, and isolated `s110import` all-target build.
+
+Latest s110 Public Mods runtime proof, 2026-06-12T02:08Z: received `.pdmod`
+downloads now have end-to-end runtime proof through the strict shared archive
+contract. The received inbox path validates with `modmgrValidateArchiveFile()`,
+installs with `modmgrInstallArchiveFile()`, enables through the received-mod
+prompt path, mounts through the registry/VFS path, and loads the same typed
+head, arena, and animation fixture content as local installed content. The
+runtime smoke uses scoped `Mods,Catalog,System,Game` logging and passed 34/34;
+focused static coverage pins the pre-install rejection path for public `.bin`,
+public `.tsv`, and invalid nested typed archives.
+
+Latest c3844-s110 installed `.pdmod` workflow proof, 2026-06-11/12: the
+representative custom-created asset workflow is green through runtime
+catalog/provider activation. `pdxxx_modder_workflow_smoke` packages
+`examples\modding\typed-pdxxx-basic` into `mods/installed`, enables it, and
+loads or registers custom geometry, texture/material, animation,
+arena/scenario/mission gameplay data, weapon, SFX, voice, and song assets from
+the installed archive under source-only rules. The proof forbids public TSV,
+authored `.bin`, public numeric identity, ROM/RomProvider fallback, source-only
+failures, fatal errors, and access violations. Runtime fixes landed for
+installed `.pdmod` audio section typing, VFS-backed nested `.pdweapon` reads
+and dependency scans, relative-first weapon runtime registration, deferred
+post-catalog debug probes, and smoke-only exit after the custom catalog probes.
+Verification passed the all-family workflow verifier, all-family example
+conformance, native-source guard, focused pdmod static tests, runtime smoke
+58/58, isolated `s110flow` all-target build, and session-build cleanup.
+
+Latest c3844 live visual correctness audit, 2026-06-12T03:00Z: rendered-asset
+source proof is green for the current tree under scoped logs. Passing smokes
+cover Scenario/level geometry and textures, weapons/hands, custom body/head,
+props/projectiles/entities/vehicles, materials/skins/effects, UI/HUD/fonts/
+lang/theme, audio, and animation:
+`scenario_pads_source_gate_smoke` 154/154, `weapon_match_source_gate_smoke`
+45/45, `custom_body_live_render_smoke` 41/41,
+`archive_walker_source_gate_smoke` 19/19, `all_family_source_gate_smoke` 36/36,
+`audio_live_playback_source_smoke` 21/21, and
+`base_animation_source_probe_smoke` 19/19. Fixes landed for UI texture-before-UI
+extraction ordering, generated-cache parent directories and shorter private
+cache filenames, deferred base catalog probes, scoped FSPATH tracing, and
+source-backed `.pdsong` loops that close at track end. Final verification
+passed focused c3844/c3809/static tests, native-source guard, all-family
+conformance, audio/mesh/animation source verifiers, isolated `c3844vis`
+all-target build, and process cleanup. No screenshot artifact channel is
+available in the current smoke harness; retained evidence is logs/result JSON.
+
+Latest B-801 fallback/fatal-cutover readiness, 2026-06-12T03:00Z: the runtime
+source-only fallback audit was green for the current tree. Reviewed runtime
+load/render/audio/animation/collision/catalog paths were eliminated,
+catalog/provider-owned private bridges, or loud/fatal under source-only
+enforcement. The prior B-929 grouped-smoke blocker was fixed by deferring base
+catalog probes until source emit completes, waiting for `g_Anims` before
+animation catalog activation, using smoke-exit hooks for proof-only probes, and
+shortening private generated animation cache names. That readiness proof used
+the isolated `b929` client and grouped
+`all_family_source_gate_smoke` 36/36, `audio_live_playback_source_smoke` 21/21,
+and `base_animation_source_probe_smoke` 19/19
+(`.claude/smoke-verify-runs/results-20260612T025658Z.json`). The explicit
+Wave 7 cutover work landed on 2026-06-17.
+
+Latest s109 bridge note, 2026-06-11: public mod templates and external
+scan/distribution paths no longer ask modders to supply legacy numeric bridge
+fields for custom body/head/audio/animation/texture/map/arena/scenario content.
+Those values are now catalog-owned private runtime details minted by the local
+scanner or network-distributed scanner. Custom weapon rows may still preserve an
+existing base-row override, but new custom weapons use the private weapon/MP
+slot bridge. Music keeps using catalog-ID source identity with a private virtual
+sequence slot only where the old sequencer still needs an integer. This keeps
+base content and mods on the same public archive contract: catalog IDs and
+source files outside, integer slots only inside runtime bridges. Follow-up:
+generated public descriptors also no longer expose private bridge/provenance
+fields such as `source_filenum`, `source_filenum_symbol`, or `empty_rom_slot`;
+`_meta/manifest.json` may retain that provenance for current runtime bridges,
+and conformance rejects putting those fields back into public INI descriptors.
+The retained generated tree was repaired after this cleanup, and the stale
+`*.pdcharacter extracted` inspection folder found during the audit was removed
+from retained output because it was not a canonical typed archive.
+
+Latest s109 runtime bridge follow-up, 2026-06-11: MP head preview and weapon
+menu preview no longer use raw legacy file-number fallbacks when catalog/provider
+resolution fails. They now clear the preview and log `CATALOG.MISS`; guard and
+static tests reject the old `catalogGetHeadFilenumByIndex(headnum)` and
+`weaponGetFileNum(weaponnum)` preview fallback signatures. Remaining integer
+bridges in this area are catalog-owned helpers, source-only guarded consumers,
+or diagnostics, not public authoring identity.
+
+The completion definition is family-wide, not mesh-only or Scenario-only. Base
+content and mods use the same public archive contract: accessible source files
+inside typed archives feed catalog/provider runtime loading, while generated
+renderer, collision, audio, animation, graph, room/portal, and other engine
+products are private rebuildable cache. Custom user content follows that same
+path through import, validation, catalog-ID dependency linking, packaging,
+distribution, and runtime use. Any family that needs ROM bytes, public TSV/bin
+dumps, or public numeric asset identity after extraction is still not complete.
 
 ---
 
@@ -73,6 +335,8 @@ The catalog dependency graph is part of public source closure, not a preview-onl
 
 Public `.pdweapon` source is split held-weapon graph source plus model/default metadata, not only a graph-runtime compile input. Weapon archives that declare model source, `primary_graph`, `secondary_graph`, `shared_context_file`, `settings_file`, `variables_file`, or preserved existing runtime defaults must keep those public source members visible after local scan, network delivery, base walking, catalog held-graph activation, and runtime adapter activation. `weapon.ini` and `_meta/manifest.json` must declare the same source members because base boot walking restores weapon source fields from the manifest. Base `.pdweapon` extraction currentness must require the manifest-visible `primary_graph`, `secondary_graph`, `settings_file`, `variables_file`, and `shared_context_file` fields before skipping, and must reject old `behavior_graph`, `shared_context`, `settings`, and `variables` descriptor names. `model_file` is required only when a held high-model mesh is actually embedded; model-less weapons must not advertise a fake `dependencies/assets/models/held_hi.pdmesh` source member, and model source cannot activate a weapon by itself. Runtime bindings expose the model source when present, graph/settings/variable members, private runtime slot, MP slot, weapon id, feature requirement, and dual-wield flag while catalog IDs remain the public asset identity. Catalog activation for loose/source-member weapons compiles held graph IR from the split `primary_graph` / `secondary_graph` / `shared_context_file` source bundle only; legacy single `behavior_graph` is not a valid release-format activation path. Fully custom user-created held weapons now get catalog-owned private runtime/MP slots in the current slot-indexed weapon runtime; that integer-only handoff is private migration debt and must not become a modder-authored field.
 
+2026-06-17 Wave 7 direct-source update: archive-backed `.pdweapon` activation now ingests the archive's declared held model dependency directly from the installed transport path, preserving chains such as `mods/installed/needler.pdmod::needler.pdweapon::dependencies/assets/models/weapon.pdmesh::model.gltf`. Embedded weapon meshes allocate private custom model slots, map those slots to private source filenums (`0x7e0..0x7ff`), and bind the parent weapon catalog row so first-person `bondgun` loading uses the same public `.pdmesh` source member instead of treating the `.pdmesh` archive bytes as a native modeldef. The Needler smoke proves this path with `BONDGUN.SOURCE` filenum 2016 and `MODASSET.RENDER` for `mod_needler:needle`.
+
 Checked-in/custom `.pdweapon` manifests must also carry optional dependency/source closure when the descriptor declares it. `material_slots_file`, `grip_sockets_file`, `presentation_file`, `primary_projectile_archive`, `deployed_entity_archive`, `fire_sound_archive`, `idle_animation_archive`, and `reticle_archive` are public archive source/dependency members, not hidden payloads. The current runtime only consumes some of these directly, but manifest-driven walking and tooling must still be able to discover the full closure from `_meta/manifest.json`. Conformance validates the actual declared `model_file` member and only requires optional dependency fields when that payload is embedded or declared.
 
 B-855 has a staged private-slot bridge: catalog-owned custom `.pdweapon` entries can allocate private `WEAPON_CUSTOM_START..WEAPON_CUSTOM_END - 1` and `MPWEAPON_CUSTOM_START..MPWEAPON_CUSTOM_END - 1` slots without exposing numeric slots to modders. The bridge also refreshes private custom MP row ammo/model defaults from parsed `.pdweapon` source when the loader pool installs a custom runtime slot, so spawn/bot consumers that still read `g_MpWeapons[]` receive derived defaults instead of an empty slot. Catalog full-clear and mod-clear reset the private custom weapon slot bridge because those slots are owned by catalog rows, not by public archive fields; removed custom `.pdweapon` rows must not leave stale private slots behind during mod rebuilds. Public custom weapon examples must compile through the held weapon graph runtime, not only carry graph files: checked-in `.pdweapon` graph source uses runtime-supported held action nodes such as `spawn.fired_projectile` and `spawn.thrown_physical`, compiler-facing node-id edges, and exports those action nodes for gameplay binding. Remaining custom-weapon base equivalence is direct catalog-ID consumer work or richer authored gameplay/default payload coverage for graph/runtime paths that still assume base weapon rows.
@@ -107,15 +371,27 @@ Network catalog-info advertisement must cover the same user-manageable catalog f
 
 Public `.pdtexture` archives must declare their image source member in both `texture.ini` and `_meta/manifest.json`. If an archive contains `texture.png`, `texture.tga`, `texture.jpg`, or `texture.jpeg`, the descriptor and manifest must identify it through `texture_file` or `file_path`; native extraction already emits this field, so a missing manifest value is stale custom/example debt. In `ASSET_TEXTURE` source-only mode, a selected public provider path that is not an editable image source must fail closed before the legacy compressed texture loader can consume archive bytes, descriptors, or other non-image members as fallback texture data.
 
-MP3 file use must consume typed public voice source before loose extracted files or ROM/static file playback/size metadata. Configured MP3 speech aliases emit `.pdvoice` archives with `sample.mp3` and `source_filenum` binding, so `sndStartMp3()` and `psGetDuration60()` resolve the packed MP3 file number through the catalog/provider path first, load or size `.pdvoice::sample.mp3`, and only use the old loose extracted bridge when source-only audio checking is disabled. In `ASSET_AUDIO` source-only mode, missing typed MP3 voice source must fatal before loose `files/*.bin`, ROM/static address, or ROM/static size reads.
+MP3 file use must consume typed public voice source before loose extracted files or ROM/static file playback/size metadata. Configured MP3 speech aliases emit `.pdvoice` archives with `sample.mp3` as the public audio source and keep the required `source_filenum` bridge only under `_meta/manifest.json`, so `sndStartMp3()` and `psGetDuration60()` resolve the packed MP3 file number through the catalog/provider path first, load or size `.pdvoice::sample.mp3`, and only use the old loose extracted bridge when source-only audio checking is disabled. In `ASSET_AUDIO` source-only mode, missing typed MP3 voice source must fatal before loose `files/*.bin`, ROM/static address, or ROM/static size reads.
 
 File-source SFX/voice playback must preserve native playback metadata before any ROM/static fallback. Public `.pdsfx` / `.pdvoice` archives carry editable `sample.wav` plus native `ALKeyMap` fields (`key_min`, `key_max`, `key_base`, `key_detune`, `velocity_min`, `velocity_max`), sample pan/volume, loop markers, and `ALEnvelope` fields (`attack_time_us`, `decay_time_us`, `release_time_us`, `attack_volume`, `decay_volume`). WAV-backed SFX/voice source must be PCM16 mono RIFF/WAVE for native playback parity, and descriptor/manifest `sample_rate_hz` plus `decoded_sample_count` must match the actual `sample.wav` header so catalog duration, loop scaling, and `SDL_LoadWAV` playback do not disagree. Standard imported audio sources that enter the shared WAV/MP3/OGG decoder must preserve decoded interleaved sample length; OGG decoders return samples per channel, so runtime conversion must multiply by channel count before playback. `sndStart()` resolves those FileProvider rows, combines native base pitch with gameplay pitch, applies sample pan/volume, passes native `fxmix`, `fxbus`, and the `ALKeyMap.keyMax` fxmix offset, and starts a live file-backed sound handle through `audioStartFileSound()` so public WAV sources can be stopped, repanned, repitched, looped, released, FX-event updated, and mixed through a bounded file-sound FX send/return path instead of being queued once and forgotten. If that source playback fails while `ASSET_AUDIO` source-only mode is active it must fatal before the legacy warning/fallback path. Existing audio archives without `key_base`, `attack_time_us`, `velocity_max`, or matching WAV header metadata are stale and must regenerate. Residual audio parity to watch in playtests: exact N64 aux/reverb tuning and any subtle ALSound mixer behavior remain broader audit targets.
 
 Public mesh and Scenario geometry source must honor the current integer-native runtime boundary. `.pdmesh` and `.pdscenario` sources may stay DCC-openable as GLTF/GLB/OBJ, but extraction must preserve original integer/fixed-point mesh semantics for coordinates, UV/tile units, room/portal membership, part/matrix bindings, and command order in source metadata, and user-created geometry import must explicitly quantize into documented native units with overflow/collapse checks. `.pdmesh` generated-modeldef builds now reject non-finite or out-of-range vertex/UV values before writing native `Vtx` arrays and warn when triangles collapse after native quantization; public `.pdmesh` conformance applies the same hard overflow checks to `model.obj`, `model.gltf`, and `model.glb`. Direct `.pdprop` and `.pdvehicle` model sources (`model.obj`, `model.gltf`, `model.glb`) are the same modeldef-bound geometry class and must run through the same conformance validator; body/head/weapon/projectile/entity visual geometry should route through `.pdmesh` dependencies. This is a geometry conversion constraint only; asset identity remains catalog-ID strings.
 
+Custom geometry authored outside the game should follow the same route as base
+content after extraction: import standard OBJ/GLTF/GLB source, validate and
+quantize it into the current native geometry domain, attach semantic JSON/INI
+metadata for materials, textures, rooms, parts, matrices, collision/nav, and
+render-command order, then link gameplay data by catalog ID. Mod tools should
+create or update the relevant typed archives instead of writing parallel runtime
+dumps: props, spawn pads/zones, music, volumes, triggers, objectives, behavior
+graphs, and Scenario setup relationships remain source members or catalog-linked
+dependencies.
+
 Mesh editing tools must use the public source descriptor, not native model byte offsets. `model_scale` lives in `.pdmesh::mesh.ini` and is also preserved in manifest metadata; UI/runtime tooling may inspect it through archive-member loading and the shared INI parser, but must not read or write the old native modeldef scale float at byte offset `0x10`. Editing source-backed meshes should update the public descriptor or route through a real archive rewrite/import path, never mutate hidden binary data.
 
 Mesh preview tools must also accept catalog provider handles, not only legacy file numbers. Weapon, vehicle, and prop preview panels may use file numbers for base rows, but custom source-backed rows with no ROM slot must still preview through their catalog FileProvider handle and public source compiler path. Training-family preview surfaces must follow the same rule: Device Training, Holo Training, and Hangar Holograph resolve current legacy selections back to catalog IDs or source provider handles before falling back to raw file numbers. A missing integer slot is not proof that source-backed geometry is missing, and a legacy file number is only a private base-content fallback.
+
+Developer archive inspection now has a non-shipping extraction surface. [devtools/pdxxx-asset-tool.ps1](../../devtools/pdxxx-asset-tool.ps1) and [devtools/pdxxx-asset-tool.psm1](../../devtools/pdxxx-asset-tool.psm1) crawl data folders for typed `.pdxxx` archives, filter by family, list source hints, and extract selected archives into ignored `.pdxxx-dev-extracts/` for Blender or file-level visibility checks. The Dev Window v2 Assets tab is the GUI surface. This tool is an extractor only: it preserves stored archive contents, keeps nested `.pdxxx` files intact, and creates adjacent expanded inspection folders without converting, translating, normalizing, or regenerating asset data. Asset creation from ROM content remains owned by the extraction/emitter sessions.
 
 Provider-backed menu model requests must not reuse legacy character sentinel values. `MENUMODELPARAMS` reserves low word `0xffff` for character body/head preview requests, so any valid source-backed model handle with no legacy file number must use the shared private `MENUMODEL_HANDLE_SENTINEL_FILENUM` key instead of encoding `-1` or another colliding value. Weapon catalog resolution is also split by use: held-weapon activation consumes the strict `primary_graph` bundle, while model-loading callers that receive `catalog_weapon_result_t.handle` expect the visual `model_file` / model-source handle.
 
@@ -134,6 +410,65 @@ Configured SFX aliases that map to packed MP3/file-backed speech are not `.pdsfx
 Public UI texture/layout/nine-slice source must remain catalog/provider-owned after extraction. Base `.pdui` archives and mod-authored UI archives both register as `ASSET_UI` rows with FileProvider archive-member texture sources such as `.pdui::texture.tga`, optional `layout.json`, and optional `nineslice.ini`; extracted base UI also preserves texture dimensions and nine-slice inset/mode metadata from `ui.ini` / `_meta/manifest.json`. The texture member is the activating UI visual source: layout and nine-slice members are visible metadata/dependencies, but they cannot stand in for a missing texture during scan, network delivery, or runtime activation. Theme application may upload those textures into the live GL cache, but it must not re-register catalog-owned rows while iterating them because that erases the public source handle needed by `catalogLoadTypedAsset(ASSET_UI, ...)` and source-only verification. Only loose mod texture import paths should create new UI catalog rows.
 
 Public `.pdsong` audio must route through public source before legacy sequence fallback. `catalogResolveMusicSequence()` exposes FileProvider paths for cataloged music rows, and `seqPlay()` must call `modSequencePlayAudioSource()` before `modSequenceLoad()` so public `track.wav`, `track.ogg`, or `track.mp3` source plays natively through `modMusicPlay()`. For sequence-only songs, public `sequence.mid` plus semantic `sequence.json` event source compiles into the compact ALC sequence buffer consumed by the existing sequencer. Local scan and network delivery must bind `music_file` / `midi_file` as the primary FileProvider source when no streaming `file_path` is declared, while leaving `ext.audio.file_path` empty so MIDI source is not treated as a direct WAV/MP3/OGG stream. Sequence-backed public songs must preserve `events_file`, `division`, and `event_count` in descriptors/manifests, and stale sequence archives without non-empty `sequence.json` events should fail conformance and regenerate. `catalogResolveMusicSequence()` must only set `source_only_blocked` when the selected music row has no public FileProvider source; a present public source whose stream playback or sequence compilation fails is a runtime fallback failure, not a missing-source classification. Failed stream loading or failed sequence compilation in `ASSET_AUDIO` source-only mode must fatal before ROM/static sequence fallback. Fully custom sequence-backed songs use catalog-ID-owned private virtual sequence slots while the old sequencer still needs an integer slot; this private bridge must not leak into public archive identity, playlist identity, manifests, config, or authored references.
+
+B-801 audio pre-flight uses `tools/verify_audio_sources.py` before any live audio smoke. The verifier scans `.pdsfx`, `.pdvoice`, and `.pdsong` archives without opening the game, validates WAV sample-rate/frame-count metadata against `sample.wav`, checks MP3 and OGG stream headers, validates sequence-song event counts, checks loop bounds in source sample units, and reports effective pitch buckets from keymap metadata. Use it on retained generated installs and Build data before live SFX/voice/music proof so fast/broken playback symptoms are separated into source metadata, decode/header, loop/pitch, or live mixer causes.
+
+B-801 animation pre-flight uses `tools/verify_pdanim_sources.py` before any live
+animation proof. The verifier scans character GLTF/GLB clips and weapon
+`commands.json` archives without launching the game, validates sampler/source
+shapes, target paths, command rows, and zero-frame placeholder handling, and
+passes current retained and Build generated animation trees.
+
+B-801 mesh pre-flight uses `tools/verify_pdmesh_sources.py` before any live
+render proof. The verifier scans zip and directory `.pdmesh` archives without
+launching the game, validates OBJ/GLTF/GLB source geometry against the current
+integer-native coordinate and UV boundary, checks semantic `model.nodes.json`,
+`model.parts.json`, `model.faces.json`, and `model.render.json`
+reconstruction data, proves every face is referenced exactly once by render
+commands, and compares declared descriptor/manifest counts against decoded
+source counts. It passes checked-in examples, retained and Build generated
+mesh trees, and nested Build character mesh archives.
+
+B-801 custom body/head assembly CPU/static proof is current as of 2026-06-11.
+Coverage ties private body/head slot allocation, walker forced-slot parsing,
+catalog reverse lookup by runtime index, public typed archive loading,
+source-backed modeldef conversion, slot-zero fallback refusal, and
+generated-modeldef instantiation into one chain. Non-base `.pdbody` and
+`.pdhead` entries now have a CPU/build-verified direct registration patch for
+private runtime slots, and the sparse-loader-pool slot-92 catalog-health failure
+is fixed. The B-920 nested mesh sidecar/source and generated body modeldef
+compile problems are also fixed: nested body/head `.pdmesh` archives carry
+material, hierarchy, parts, faces, and render sidecars; walkers resolve OBJ,
+GLTF, or GLB source; and generated body modeldefs receive character
+skeleton/root defaults. The checked body/head accessors also now accept private
+custom slots through the catalog-manager TOTAL range instead of the old base
+count. The later custom field-record lifetime loss is fixed by initializing
+body/head managers before external component scan and preserving durable custom
+manager records outside active loader-pool fallback. The live custom-body render
+smoke is now green. B-923 fixed the final generated-body render crash by
+preparing character model matrices on demand before `modelRender`; the smoke now
+requires and observes `chrRender-matrix-ondemand`, one `MODASSET.RENDER` line for
+`example:tri_body`, scripted exit, and no fallback/source-only/fatal/AV
+signatures. Treat custom body/head runtime equivalence as closed unless a future
+regression breaks that smoke.
+
+The first bounded weapon live proof is current as of 2026-06-11. It proves the
+DY357 held model, first-person hand model, and weapon command animation can load
+from public typed archive source and reach live render diagnostics. Treat it as
+partial B-801 evidence only. The follow-up classified the `LOUDFAIL.FALLBACK` /
+`ASSET.FALLBACK` startup telemetry as first-launch extraction bootstrap reads,
+not true post-extraction runtime fallback. `romdataFileLoad()` now suppresses
+those signatures only while `romExtractIsBootstrapping()` is true; a clean
+weapon smoke proved extraction ran, passed 45/45, and emitted zero fallback
+signatures.
+
+Replacing the original renderer remains feasible as a future direction and
+should make strict public archives easier to render directly. It does not
+simplify the asset archive contract by itself: the source archive still needs
+materials, textures, animation, collision, room/portal ownership, triggers,
+spawn data, music links, volumes, and gameplay graph relationships. A new
+renderer can consume cleaner archive source and rebuild less legacy-shaped
+cache, but it must not become a second authored data path.
 
 Public bitmap `.pdfont` source is a glyph atlas plus metrics pair, not a single selected file. Base extraction writes `glyphs.pgm` and `font.metrics.json`, and both must survive local scan, network delivery, boot-time base walking, and runtime adapter activation through `ext.font.font_file` and `ext.font.metrics_file`. Vector `font.ttf` / `font.otf` archives may remain single-source fonts, but bitmap archives without descriptor/manifest metrics fields or non-empty metrics glyphs are stale and must regenerate. Runtime activation requires the actual `font_file`; a bare selected primary path or `metrics_file` alone cannot make a font active. Runtime bindings must expose the metrics member beside the primary glyph source so future font import/render code can rebuild the native font data without reaching back to ROM or hidden cache.
 
@@ -479,12 +814,12 @@ Per [constraints.md](../constraints.md):
 - **Scenario navigation generate source/cache is runtime-bound** (2026-06-03, B-518/B-546; spawn/volume/path/nav-table/portal source updated 2026-06-07, B-781/B-782/B-784/B-785/B-786; submember propagation updated B-821). Scenario graph activation now requires the executable `navigation.generate` source node, loads public `navigation.ini`, checks the deterministic walk/jump/drop/wall/ceiling capability contract, and loads cache-only `_meta/generated-navmesh.json` as source-derived metadata. `navigation.ini` declares drop traversal explicitly, the generated navmesh metadata carries source row counts for public pads, volumes, waypoints, waygroups, covers, and paths plus source SHA-256 values for `scene.glb`, `collision.obj`, `navigation.ini`, `portals.json`, `pads.json`, `spawns.json`, `volumes.json`, `navigation/waypoints.json`, `navigation/waygroups.json`, `navigation/covers.json`, and `navigation/paths.json`. Scenario catalog rows and runtime bindings now carry the declared `waypoints_file`, `waygroups_file`, `covers_file`, and `paths_file` source members explicitly; direct runtime fallbacks prefer those fields before using the strict canonical archive names. Runtime activation rejects mismatched counts or hashes, strict conformance verifies the same metadata against public archive members, and the Scenario source matrix requires `source_counts=... source_hashes=sha256 backend=graph.navigation.generate+navigation.ini+generated-navmesh.json`, the public `navigation/paths.json` path-source proof line `backend=graph.navigation.paths+navigation/paths.json`, and the source setup compile line proving `navigation/paths.json` was consumed with setup/spawn/AI source into runtime setup data. Runtime padfile compilation now also treats missing public waypoint/waygroup/cover navigation JSON members as source failures and logs their loaded paths/counts before the padfile is accepted. Header-only waypoint/waygroup/cover sources are now compiled as deterministic runtime nav tables from public `pads.json`, producing one waypoint per pad and cover rows copied from public pad position/look vectors while explicit decoded nav rows remain authoritative. When public `navigation/paths.json` contains rows, generated waypoint/cover order follows each first-seen pad reference from the public path table before appending any remaining pads in raw pad order, generated waypoint neighbour edges are built from adjacent pad pairs in each public path row instead of a generic chain, public circular path rows close the generated waypoint loop, and generated waygroups are derived from connected components of that source-owned edge graph; zero-pad header-only scenarios compile to empty source-owned nav tables instead of failing or falling back to ROM. Source setup compilation also logs public path-flag counts after runtime setup data is built, so circular and flying rows are proven to survive into `g_StageSetup.paths`; the retained Scenario source matrix now requires those counts on every generated stage boot. A focused generated-nav fixture smoke now overrides Test Ash through an enabled `.pdmod` and proves the nonzero header-only path-topology branch produces 5 waypoints, 2 waygroups, 5 covers, 4 path edges, 1 branch waypoint, and `path_flags=circular:1,flying:1` from public `pads.json` plus `navigation/paths.json`; extraction fast-cache cleanliness also rejects existing `.pdscenario` outputs whose generated-nav metadata counts or hashes no longer match public source members. The Scenario matrix now also requires nav behavior graph proof for AI path, cover, player-navigation, quadrant pad-preset, and vehicle path surfaces. This is still a narrow nav metadata/cache/source-consumption and graph-surface proof closure; broader Scenario source-only/parity validation and full source-derived nav behavior completeness remain open under `c3844-s5`.
 - **Scenario generated nav preserves path segment direction** (2026-06-03, B-535). Public `navigation/paths.json` pad tokens can now carry `|outward` or `|inward` just like explicit waypoint neighbour refs. Runtime setup path pads still store plain pad ids, while generated header-only navigation applies those flags to waypoint neighbour segments and swaps the flag on reciprocal links. The generated-nav fixture now requires the directional proof line before the smoke can pass.
 - **Scenario generated nav movement capabilities are strict source contract** (2026-06-03, B-536). Public `navigation.ini` and `_meta/generated-navmesh.json` must both declare walk, jump, drop, wall, and ceiling capability support. Runtime activation validates the same contract, strict conformance rejects archive drift, and Scenario source smokes now require the capability proof line.
-- **Scenario trigger/global graph surfaces are retained matrix proof** (2026-06-03, B-537; volume source updated 2026-06-07, B-782). Source-only Scenario matrix boots must now prove trigger-volume graph nodes from public `level.graph.json` plus `volumes.json`, and AI mission/global action nodes from public `ai/ailists.json` plus mission graph source. This keeps broader trigger/global graph activation visible while c3844 remains open for deeper Scenario parity closure.
-- **Scenario graph-source surfaces are retained matrix proof** (2026-06-03, B-538; volume source updated 2026-06-07, B-782). Source-only Scenario matrix boots must now prove global settings from public `level.graph.json`, volume rows from public `volumes.json`, pad graph source from public `pads.json`, and AI list graph source from public `ai/ailists.json`. This keeps the graph source-table activation surfaces visible while c3844 remains open for deeper Scenario parity closure.
-- **Scenario core AI graph modules are retained matrix proof** (2026-06-03, B-539). Source-only Scenario matrix boots must now prove core AI graph activation for lifecycle, combat, target movement, perception, object interaction, animation, random, debug/no-op, and list-control modules from public `ai/ailists.json`. This keeps broad AI graph behavior source activation visible while c3844 remains open for deeper Scenario parity closure.
-- **Scenario AI state/order graph modules are retained matrix proof** (2026-06-03, B-540). Source-only Scenario matrix boots must now prove pad/preset, morale/alertness, character-state, lifecycle/perception, tuning, order, and intent/status graph modules from public Scenario graph source. This keeps another broad AI activation band visible while c3844 remains open for deeper Scenario parity closure.
+- **Scenario trigger/global graph surfaces are retained matrix proof** (2026-06-03, B-537; volume source updated 2026-06-07, B-782). Source-only Scenario matrix boots must now prove trigger-volume graph nodes from public `level.graph.json` plus `volumes.json`, and AI mission/global action nodes from public `ai/ailists.json` plus mission graph source. This kept broader trigger/global graph activation visible while c3844 was open for deeper Scenario parity closure.
+- **Scenario graph-source surfaces are retained matrix proof** (2026-06-03, B-538; volume source updated 2026-06-07, B-782). Source-only Scenario matrix boots must now prove global settings from public `level.graph.json`, volume rows from public `volumes.json`, pad graph source from public `pads.json`, and AI list graph source from public `ai/ailists.json`. This kept the graph source-table activation surfaces visible while c3844 was open for deeper Scenario parity closure.
+- **Scenario core AI graph modules are retained matrix proof** (2026-06-03, B-539). Source-only Scenario matrix boots must now prove core AI graph activation for lifecycle, combat, target movement, perception, object interaction, animation, random, debug/no-op, and list-control modules from public `ai/ailists.json`. This kept broad AI graph behavior source activation visible while c3844 was open for deeper Scenario parity closure.
+- **Scenario AI state/order graph modules are retained matrix proof** (2026-06-03, B-540). Source-only Scenario matrix boots must now prove pad/preset, morale/alertness, character-state, lifecycle/perception, tuning, order, and intent/status graph modules from public Scenario graph source. This kept another broad AI activation band visible while c3844 was open for deeper Scenario parity closure.
 
-- **Scenario late AI graph modules are retained matrix proof** (2026-06-03, B-541). Source-only Scenario matrix boots must now also prove late AI graph activation surfaces from public Scenario source: vehicle/investigation, safety/detection, miscellaneous branch/effect, quip/setup shuffle, team maintenance, alarm/flag, door/lift, weather/sky/lighting/room flags, cutscene visibility/presentation, environment, target-distance, audio/music, player weapon/cutscene/setup/entity, gun/character/object/perception/inventory/player-state, state/device, teleport/cutscene weapon, music mode, pad/reference, model-part, object-health, special-death, room-search, savefile flag, timer/countdown, and HUD modules. This is retained matrix proof only; c3844 remains open for deeper Scenario parity closure and source-derived nav behavior completeness.
+- **Scenario late AI graph modules are retained matrix proof** (2026-06-03, B-541). Source-only Scenario matrix boots must now also prove late AI graph activation surfaces from public Scenario source: vehicle/investigation, safety/detection, miscellaneous branch/effect, quip/setup shuffle, team maintenance, alarm/flag, door/lift, weather/sky/lighting/room flags, cutscene visibility/presentation, environment, target-distance, audio/music, player weapon/cutscene/setup/entity, gun/character/object/perception/inventory/player-state, state/device, teleport/cutscene weapon, music mode, pad/reference, model-part, object-health, special-death, room-search, savefile flag, timer/countdown, and HUD modules. This is retained matrix proof only; c3844 later closed after deeper Scenario parity closure and source-derived nav behavior completeness passed the final regression sweep.
 - **Scenario native background and generated-nav rows are retained matrix proof** (2026-06-03, B-542; JSON navigation source updated 2026-06-07, B-784/B-785). Source-only Scenario matrix boots now must prove native `scene.glb` background validation, renderer activation, dynamic-light skip, native room-table construction, and scene tile compilation for every generated stage smoke. The matrix also reads public navigation JSON row counts from each `.pdscenario` archive and conditionally requires the generated deterministic navigation proof line only when waypoint, waygroup, and cover source tables are header-only, so decoded navigation archives keep proving explicit table consumption instead of being forced through the generated branch. This is proof coverage; broader Scenario parity and source-derived nav behavior completeness remain open under `c3844-s5`.
 - **Campaign mission graph source is retained matrix proof** (2026-06-03, B-543/B-544; mission objective JSON updated 2026-06-07, B-779/B-780). Source-only Scenario matrix boots now detect matching public `base_mission_<slug>.pdmission` archives for campaign scenarios and require mission graph activation, public `objectives.json` source binding, mission phase source, load/active phase transitions, and mission objective runtime proof for insert, criteria evaluation, checks, mission flags, and object-state tracking when the public objective rows use object-backed criteria. Non-campaign, MP, firing range, and test scenarios skip these mission-only assertions. Deeper objective/phase behavior parity remains open under `c3844-s5`.
 - **Scenario setup behavior links are retained per-kind matrix proof** (2026-06-03/2026-06-04, B-545/B-746). Source-only Scenario matrix entries read each public `.pdscenario::setup.fields.json` table, detect setup rows that carry live behavior links (`linked_guns`, `lift_door_link`, `safe_item`, `padlocked_door`, `conditional_scenery`, and `blocked_path`), and require both graph setup-link source loading plus live registration proof only for archives whose public rows contain those link kinds. Runtime setup-link registration now logs the first registration for each authored kind instead of only the first link overall, and retained setup-link smokes require exact `kind=<name>` proof from `SetupBehaviorLinkKinds` rather than a generic `kind=[a-z_]+` line. This keeps the older runtime setup-link guard visible in retained smokes without forcing impossible assertions on stages that have no link rows. Broader Scenario parity and source-derived nav behavior completeness remain open under `c3844-s5`.
@@ -535,7 +870,7 @@ Per [constraints.md](../constraints.md):
 - **Scenario navigation tables consume public source** (2026-05-28, B-384; runtime empty-table generation added 2026-06-03, B-527/B-529; semantic JSON source updated 2026-06-07, B-785). `.pdscenario` requires decoded semantic `navigation/waypoints.json`, `navigation/waygroups.json`, and `navigation/covers.json`, and the stage loader compiles them from archive-member FileProvider paths into runtime waypoint/group/cover tables. Empty waypoint/waygroup/cover row arrays mean the authored scenario is opting into deterministic generation from public source inputs; runtime derives pad-owned waypoint/group/cover rows from `pads.json` for that case, orders them by public `navigation/paths.json` pad references when path rows exist, and accepts zero public pads as a valid empty generated nav set. Extracted base archives carry decoded OG data for parity, but use the same semantic JSON source shape as authored/modded scenarios.
 - **Scenario scene source feeds runtime tile cache** (2026-05-28, B-385). Generated `.pdscenario` `scene.glb` carries `_PD_ROOM` vertex metadata, the GLB compiler preserves room tags into colmesh triangles, and `tilesReset()` now compiles the runtime tile cache from the active Scenario scene/collision colmesh before legacy tile fallback. Chicago smoke verification proved 107 rooms / 6,661 tiles from `base_scenario_chicago.pdscenario::scene.glb`.
 - **Scenario GLB UVs are DCC-authorable while preserving runtime parity** (2026-05-30, tightened 2026-06-01, B-390/B-395/B-405/B-417/B-418/B-419/B-420/B-421/B-422/B-423/B-424/B-425/B-426/B-427/B-428/B-429/B-430/B-431/B-432/B-433/B-434/B-435/B-436/B-437/B-438/B-439/B-440/B-441/B-442/B-443/B-444/B-445/B-446/B-447/B-448/B-449/B-450/B-451/B-452/B-453/B-454/B-455/B-456/B-457/B-462/B-463/B-464/B-465/B-466/B-467/B-468/B-469/B-470/B-471/B-472/B-473/B-474/B-475/B-476/B-477/B-478/B-479/B-480/B-481). Generated `.pdscenario` `scene.glb` stores authoring-scale `TEXCOORD_0` so Blender/3DS Max open the level with inspectable textures, while `TEXCOORD_1` preserves the renderer/repeat UVs for future runtime visual parity. Visible material `baseColorTexture` entries must bind `texCoord 0`; runtime repeat UVs are retained as data, not the DCC preview channel. The exporter still applies decoded texture dimensions, RSP `G_TEXTURE` scale, material tile `shifts`/`shiftt`, and sampler wrap/mirror/clamp modes. Strict archive conformance and `tools/verify_scene_glb_texture_contract.py` require the v6 exporter stamp, reject any visible `TEXCOORD_0` range outside the DCC-authoring `0..1` window, require generated scenarios to retain `TEXCOORD_1`, and reject generated materials that point visible textures at any channel other than `TEXCOORD_0`. The verifier accepts `.glb`, `.pdscenario`, `.pdarena`, and directory inputs; directory mode recursively checks generated scenarios plus arena-nested scenario GLBs. The native-source guard scans existing generated scenario and arena archives in `Build/data/ntsc-final/{scenarios,arenas}` and `.claude/smoke-verify-install/data/ntsc-final/{scenarios,arenas}`, so stale shared-output Chicago-style scene GLBs fail before handoff. The visual export/cache stamps are `bg_visual_scene_glb_v6_dccuv_rsptexscale_texshift_samplerwrap` / `pdscenario_scene_glb_clean_public_v71_dccuv_rsptexscale_texshift_samplerwrap_quip_shuffle_graph` so old scene GLBs regenerate.
-- **Scenario AI graph coverage debt is explicit guard debt** (2026-06-01, B-451/B-452/B-453/B-454/B-455/B-456/B-457/B-462/B-463/B-464/B-465/B-466/B-467/B-468/B-469/B-470/B-471/B-472/B-473/B-474/B-475/B-476/B-477/B-478/B-479/B-480/B-481). The native-source guard scans `src/game/chraicommands.c` and fails any AI command routine that lacks `scenarioSourceAiGraphExecute*` coverage unless it is an interpreter-only control (`aiGoToNext`, `aiGoToFirst`, `aiLabel`, `aiYield`, `aiEndList`). `AI_GRAPH_PENDING_FUNCTIONS` is now empty after the final quip/shuffle slice. This closes explicit AI command guard debt, but c3844 remains open until broader trigger/global/phase behavior and family-owned runtime fallback closures are converted to source-owned graph/runtime paths.
+- **Scenario AI graph coverage debt is explicit guard debt** (2026-06-01, B-451/B-452/B-453/B-454/B-455/B-456/B-457/B-462/B-463/B-464/B-465/B-466/B-467/B-468/B-469/B-470/B-471/B-472/B-473/B-474/B-475/B-476/B-477/B-478/B-479/B-480/B-481). The native-source guard scans `src/game/chraicommands.c` and fails any AI command routine that lacks `scenarioSourceAiGraphExecute*` coverage unless it is an interpreter-only control (`aiGoToNext`, `aiGoToFirst`, `aiLabel`, `aiYield`, `aiEndList`). `AI_GRAPH_PENDING_FUNCTIONS` is now empty after the final quip/shuffle slice. The 2026-06-11 `lvTick` active-runtime hook now proves level-global settings from public `level.graph.json` during active stage runtime. This closed explicit AI command guard debt and the first level-global runtime hook; c3844 later closed after graph node-set completeness across campaign stages and normal-play fallback posture were verified.
 - **Scenario AI basic motion actions route through graph source** (2026-06-01, B-452). `.pdscenario::level.graph.json` now requires `scenario.ai.action.stop` and `scenario.ai.action.kneel` nodes linked to public `ai/ailists.json`; runtime AI opcodes `0x0009` and `0x000a` execute through the active level graph before calling existing parity behavior only when no graph is active. Strict generated-output conformance and direct scene GLB texture checks were rerun after refreshing both `.claude/smoke-verify-install` and `Build\data`, so Chicago-style tiny tiled DCC imports remain guarded while the new graph nodes are present in generated archives.
 - **Scenario AI animation actions route through graph source** (2026-06-01, B-453). `.pdscenario::level.graph.json` now requires `scenario.ai.action.chr_do_animation`, `be_surprised_one_hand`, and `be_surprised_look_around` nodes linked to public `ai/ailists.json`; runtime AI opcodes `0x000b`, `0x000d`, and `0x000e` execute through the active level graph before calling existing parity behavior only when no graph is active. Runtime parity preserves original character animation frame/end-frame handling, cutscene overrun adjustment, player ground update, surprise reactions, and AI offset semantics. Strict generated-output conformance was rerun after refreshing `.claude/smoke-verify-install`, `Build\data`, root scenarios, arena-nested scenarios, and mission-nested scenario dependencies; Chicago-style tiny tiled DCC imports remain guarded by the texture verifier across 64 generated/nested scene GLBs.
 - **Scenario AI random control routes through graph source** (2026-06-01, B-454). `.pdscenario::level.graph.json` now requires `scenario.ai.action.random`, `scenario.ai.condition.if_random_less_than`, and `scenario.ai.condition.if_random_greater_than` nodes linked to public `ai/ailists.json`; runtime AI opcodes `0x0036`, `0x0037`, and `0x0038` execute through the active level graph before calling existing parity behavior only when no graph is active. Runtime parity preserves original chr random byte assignment, hovercar random branch generation, label jumps, and AI offset semantics. Strict generated-output conformance was rerun after refreshing `.claude/smoke-verify-install`, `Build\data`, root scenarios, arena-nested scenarios, and mission-nested scenario dependencies; runtime logs prove Chicago executed `backend=graph.ai.control.random+ai/ailists.json`.
@@ -641,8 +976,9 @@ Per [constraints.md](../constraints.md):
 
 ## What is in flight
 
-The Asset Pipeline migration, weapon graph parity lane, c3842 native-source correction, definitive optional-slot hardening, and c3843 remaining-family base-output pass are closed. The enforced rule remains: editable public source files are also the native client load source, generated runtime products are cache only, any optional file slot must be justified as part of the schema rather than tolerated as extra content, and runtime ROM fallback after extraction is a failure of the asset chain. The active high-priority modding lanes are c3844 runtime ROM fallback failure removal and c3840 original weapon routine modularization.
+The Asset Pipeline migration, weapon graph parity lane, c3842 native-source correction, definitive optional-slot hardening, and c3843 remaining-family base-output pass are closed. The enforced rule remains: editable public source files are also the native client load source, generated runtime products are cache only, any optional file slot must be justified as part of the schema rather than tolerated as extra content, and runtime ROM fallback after extraction is a failure of the asset chain. The active high-priority modding lane is c3844 all-asset source/runtime parity closure; c3840 original weapon routine modularization is deferred backlog until this parity closure changes state.
 
+- **`.pdmod` transport rejects loose public TSV payloads (2026-06-11, c3844-s110).** Folder packing, in-memory `.pdmod` writing, and direct archive registration now reject public `.tsv` payloads at the same boundary as authored `.bin` payloads. Descriptor source refs cannot target TSV files, and direct `.pdmod` registration release-validates nested typed `.pdxxx` archives before accepting them. This keeps base content and mods on the same public archive contract: readable standard/semantic files are valid source, but TSV is not a final public authoring surface.
 - **Actual catalog-name validation done (2026-05-27, c3844/B-375; table coverage 2026-05-28).** The strict archive validator now rejects public refs that only look like catalog IDs but do not resolve to a declared root/nested archive ID, including public TSV/CSV table columns such as Scenario `objects.json` catalog-reference fields. The weapon extractor follow-up fixed high-bit SFX alias refs by resolving them to leaf `.pdsfx` catalog IDs before behavior graph, binding, dependency path, and manifest writes. Fresh extracted output passed strict conformance across 7,143 root / 8,143 total archives.
 - **Weapon archive source binding verified (2026-05-28, c3844/B-376).** The weapon walker binds each generated `.pdweapon` as the FileProvider primary source for its catalog row, so the Debug source gate can prove runtime use of extracted weapon archives. The fix also keeps runtime `WEAPON_*` ids separate from MPWEAPON selection slots and aligns base MP slugs with canonical generated IDs such as `base:dy357`; final `weapon_match_source_gate_smoke` loaded and spawned `base:dy357` from the extracted `.pdweapon`/FileProvider path with 31/31 assertions and zero source-only failures.
 - **DY-357 fire-mode language fix done (2026-05-28, c3844/B-379).** The reported `Falcon 2` text was a language enum/source-data issue, not corrupted DY-357 graph behavior. Missing `L_GUN_050` through `L_GUN_057` entries are restored across all source language sets, and the loader reverse enum helper now resolves the `L_GUN_*` range formulaically so generated weapon function labels remain stable.
@@ -667,7 +1003,7 @@ The Asset Pipeline migration, weapon graph parity lane, c3842 native-source corr
 - **Clean archive family formats and gates done (2026-05-24, c3824; extraction handoff c3838; `.pdlang`/`.pdfont`/`.pdui` JSON corrections 2026-06-07).** The umbrella contracts are recorded in [designs/modding/asset-archive-clean-formats.md](../designs/modding/asset-archive-clean-formats.md). The post-decision sweep now covers every approved game-content family through `.pdtheme`, explicitly defers `.pdtool` to a later secure tool/plugin package, and adds a per-family load/use closure matrix for extraction implementation. The final `.pdui`, `.pdfont`, and `.pdlang` decisions are approved: `.pdui` owns reusable UI visual/chrome textures with semantic `layout.json` or nine-slice metadata and GL upload guard notes in `_meta/`; `.pdfont` owns vector fonts or decoded bitmap `glyphs.pgm` plus semantic metric/kerning source; `.pdlang` owns editable UTF-8 `strings.json` text banks while `.pdvoice` owns spoken audio. `asset_archive_policy` is now the shared rule table for typed archive extensions/descriptors and migration-vs-release validation. Scanners prefer `_meta/manifest.json` while accepting legacy root metadata during migration; emitters write `_meta/manifest.json` and `_meta/*.sha256`; `.pdmesh` release output uses `mesh.ini` with `model.ini` accepted only in migration mode; `.pdmod` package validation rejects non-zip typed archives, `.pdwpn`, authored `.bin`, missing root descriptors, root machine metadata, and recursive descriptor/GLTF/OBJ/MTL/JSON/nested-archive references that do not resolve inside the archive. `examples/modding/typed-pdxxx-basic` now covers every frozen family with `_meta/manifest.json`, including projectile, entity, material, texture, and character samples. Release packaging now fails stale typed asset outputs before zipping if they are `.pdwpn`, non-zip, descriptor-less, legacy `.pdmesh` `model.ini`, root-metadata, `.bin`-backed archives, typed-family `.zip` inspection copies, or loose extracted typed archive folders.
 - **Clean `.pdweapon` archive format reconciled and closed (2026-05-25, c3832).** The target `.pdweapon` authoring layout is recorded in [designs/modding/weapon-archive-clean-format.md](../designs/modding/weapon-archive-clean-format.md), and the remaining implementation work has been absorbed by `c3824` family-format gates, `c3838` clean extraction/runtime/file-access implementation, and `c3814` graph runtime parity. Emitters, tests, validators, and release gates reject stale `.pdwpn`, root machine-metadata clutter, unresolved dependencies, authored `.bin`, descriptor-less archives, and numeric identity leaks.
 - **Per-family utility contracts and shared graph-editor foundation done (2026-05-25, c3834/c3835).** `asset_mod_utility_contract` records create/import/clone/edit/validate/package/preview/hot-enable/embed-dependency support for every current clean typed archive family, keeps `.pdtool` validate/package/secure-tool only, and exposes the contract table in the Modding Hub. `pdgui_gameplay_graph_editor` now owns reusable typed pins, pin-colored link helpers, compatibility checks, category colors, and asset-family adapter boundaries; the weapon graph editor consumes those shared helpers through its adapter. Focused `[c3834]` and `[c3835]` coverage pins both foundations.
-- **Original weapon routine modularization active (2026-05-25, c3840).** The safe wrapper/audit slice is implemented: `weaponGraphParityModule` maps current held/projectile/entity graph opcodes to named `og.*` parity modules, and held/projectile/entity runtime records expose `parity_module` for diagnostics and future replacement cuts. Do not remove or bypass OG Perfect Dark weapon routines wholesale; they remain the execution backend until each behavior family is replaced one at a time and verified by focused tests plus playtest parity.
+- **Original weapon routine modularization deferred (2026-05-25, c3840; deferred 2026-06-11).** The safe wrapper/audit slice is implemented: `weaponGraphParityModule` maps current held/projectile/entity graph opcodes to named `og.*` parity modules, and held/projectile/entity runtime records expose `parity_module` for diagnostics and future replacement cuts. Do not remove or bypass OG Perfect Dark weapon routines wholesale; they remain the execution backend until each behavior family is replaced one at a time and verified by focused tests plus playtest parity. This is future backlog while `c3844` owns the all-asset source/runtime parity closure.
 - **Scenario source cleanup and mission graph migration done (2026-05-25, c3841; setup-field follow-up 2026-05-28; objective/spawn/volume JSON follow-ups 2026-06-07).** `.pdscenario` extraction now emits `scene.glb` as the textured level source and catalog primary/runtime source, keeps OBJ/MTL/TGA only as compatibility exports, recognizes optional collision overrides, falls back to source-derived collision through `modAssetCompilerBuildColmesh()`, emits deterministic generated collision/navmesh metadata, and replaces raw setup/mpsetup/visual word dumps with `objects.json`, `setup.fields.json`, `objectives.json`, `pads.json`, `spawns.json`, `volumes.json`, `navigation.ini`, and `level.graph.json`. `.pdmission` scanner/distribution/runtime bindings now prefer `mission.graph.json`, and the example `.pdmission` carries that graph source. Original setup/objective runtime remains the parity backend until future behavior-module replacement is separately proven.
 - **Scenario path rows preserve native table order and native ids (2026-06-07, B-797).** `.pdscenario::navigation/paths.json` is not sorted or renumbered for readability. Public row order is the native physical path table order, while `path_ref` is the native `path.id` value and may be sparse or duplicated. Conformance/runtime validation must treat `path_ref` as preserved native data, not as a unique row key.
 - **Catalog identity readability repair done (2026-05-22).** Base catalog registration and generated typed archive references no longer synthesize numeric catalog IDs for animation, texture, SFX, voice, song, model, hand, weapon, cartridge, menu, or stage-scene assets. `catalog_readable_ids` owns generated readable fallbacks, Modding Hub catalog pickers inherit readable IDs from the catalog, and static coverage rejects the old numeric patterns.
@@ -705,6 +1041,18 @@ The Asset Pipeline migration, weapon graph parity lane, c3842 native-source corr
 
 ## Known gaps
 
+- **c3844 final all-family regression refresh passed (2026-06-17).** The
+  current tree re-sweep passed native-source guard, modder workflow validation,
+  conformance across the all-family examples plus retained `Build\data`,
+  audio/mesh/animation CPU validators, focused Public Mods / `.pdmod` / c3844 /
+  c3842 / weapon-graph tests, the full c3844 smoke matrix, isolated all-target
+  build, board parse, decision-request check, process cleanup, and session
+  build cleanup. The sweep fixed the custom `.pdweapon` held-model lookup so
+  custom weapon IDs resolve the source-owned held `.pdmesh` model row instead
+  of a legacy fallback. Needler proof now uses `mod_needler:needler_model` from
+  the installed `.pdmod::needler.pdweapon::dependencies/assets/models/weapon.pdmesh`
+  chain and passed 40/40 in
+  `.claude\smoke-verify-runs\results-20260617T214449Z.json`.
 - **Dead legacy manifest serializer.** `modmgrWriteManifest / modmgrReadManifest` ([modmgr.c:2456-2554](../../port/src/modmgr.c:2456)) implement a custom binary format that predates `match_manifest_t / manifestBuildForHost`. No live netplay caller. Content-hash compare uses CRC32 of `id:version` string at [modmgr.c:2534-2543](../../port/src/modmgr.c:2534), weaker than the SHA-256 path. Audit and remove or wire.
 - **`manifest_pure.c` is hand-synced.** [tests/manifest_pure.c:1-31](../../tests/manifest_pure.c:1) documents manual extraction with `@SYNC` line-number comments pointing into `netmanifest.c`. As `netmanifest.c` evolves (over 2000 lines), this drifts. Replace with compile-boundary approach: factor container/hash/diff/serialise into a TU that imports no globals; link both production and test against it.
 

@@ -118,6 +118,32 @@ extern "C" {
      * a pointer to the decompressed pixel data.
      */
     void texLoadFromConfig(struct PdTexConfig *config);
+
+    struct tex;
+    struct texpool {
+        uint8_t *start;
+        union {
+            struct tex *head;
+            struct tex *end;
+        };
+        uint8_t *leftpos;
+        struct tex *rightpos;
+    };
+
+    void texInitPool(struct texpool *pool, uint8_t *start, int32_t len);
+    void texLoadFromConfigs(struct PdTexConfig *configs, int32_t numconfigs,
+                            struct texpool *pool, uintptr_t arg3);
+
+    /**
+     * Static source table used by texReset() to populate g_TexGeneralConfigs.
+     * Extractor-only runs deliberately skip texReset/window startup, so the
+     * .pdui writer clones rows from this public source table and decodes the
+     * clone instead of requiring a render boot.
+     */
+    extern struct PdTexConfig g_TcGeneralConfigs[56];
+
+    int bootProgressIsActive(void);
+    int bootProgressIsComplete(void);
 }
 
 /* On a 64-bit build, a texnum like 0x0003 stored in the union gives
@@ -2731,6 +2757,36 @@ static uint8_t *s_decodeUiTexToRgba(const struct PdTexConfig *cfg,
     return rgba;
 }
 
+static uint8_t *s_decodeUiConfigWithTempPool(struct PdTexConfig *cfg,
+                                             uint32_t *out_w,
+                                             uint32_t *out_h)
+{
+    if (!cfg) return NULL;
+    if (s_isRealPtr(cfg)) return s_decodeUiTexToRgba(cfg, out_w, out_h);
+
+    const size_t pool_size = 128u * 1024u;
+    uint8_t *pool_mem = (uint8_t *)malloc(pool_size);
+    if (!pool_mem) {
+        sysLoudFailf("EXTRACT.PDUI",
+            "OOM allocating temporary UI texture pool (%zu bytes)", pool_size);
+        return NULL;
+    }
+
+    struct texpool pool;
+    texInitPool(&pool, pool_mem, (int32_t)pool_size);
+    texLoadFromConfigs(cfg, 1, &pool, 0);
+    uint8_t *rgba = NULL;
+    if (s_isRealPtr(cfg)) {
+        rgba = s_decodeUiTexToRgba(cfg, out_w, out_h);
+    } else {
+        sysLogPrintf(LOG_WARNING,
+            "PDGUI emit: temporary texture decode did not produce a pointer");
+    }
+
+    free(pool_mem);
+    return rgba;
+}
+
 /* Compute the default nineslice insets for a (w, h) texture: 25% from
  * each edge, minimum 2 px. */
 static void s_pduiNinesliceInsets(uint32_t w, uint32_t h,
@@ -2853,14 +2909,23 @@ static int s_emitOnePduiZip(const struct PduiEntry *e, int force_rewrite)
     uint8_t *rgba = NULL;
 
     if (e->tex_index >= 0) {
-        if (!g_TexGeneralConfigs) {
-            return 0;  /* texture system not ready; deferred to render-loop trigger */
+        struct PdTexConfig cfg_copy;
+        struct PdTexConfig *cfg = nullptr;
+
+        if (g_TexGeneralConfigs) {
+            cfg = &g_TexGeneralConfigs[e->tex_index];
+            if (!s_isRealPtr(cfg)) {
+                texLoadFromConfig(cfg);
+            }
+        } else {
+            cfg_copy = g_TcGeneralConfigs[e->tex_index];
+            cfg = &cfg_copy;
+            rgba = s_decodeUiConfigWithTempPool(cfg, &w, &h);
         }
-        struct PdTexConfig *cfg = &g_TexGeneralConfigs[e->tex_index];
-        if (!s_isRealPtr(cfg)) {
-            texLoadFromConfig(cfg);
+
+        if (!rgba) {
+            rgba = s_decodeUiTexToRgba(cfg, &w, &h);
         }
-        rgba = s_decodeUiTexToRgba(cfg, &w, &h);
     } else if (strcmp(e->catalog_id, "base:ui_chrome_frame") == 0) {
         w = 64;
         h = 64;
@@ -2994,12 +3059,15 @@ static int s_emitOnePduiZip(const struct PduiEntry *e, int force_rewrite)
  * Idempotent: skips files already on disk unless force is non-zero.
  *
  * Returns count of newly-written files. Returns 0 (not -1) when the
- * texture system is not yet ready (g_TexGeneralConfigs == NULL); this
- * is normal at boot main.c wiring point. The post-texReset boot hook reruns
- * the emitter, and the render-loop check remains a safety repair. -1 reserved
- * for infrastructure failure (data dir creation). */
+ * texture system is not yet ready (g_TexGeneralConfigs == NULL); extractor-only
+ * runs clone the static g_TcGeneralConfigs source rows instead so the full
+ * typed archive set can be regenerated without a window. -1 reserved for
+ * infrastructure failure (data dir creation). */
 extern "C" int pdguiThemeEmitPduiZips(int force)
 {
+    sysLogPrintf(LOG_NOTE,
+        "PDGUI emit: start force=%d total=%zu", force, K_PDUI_ENTRY_COUNT);
+
     if (!fsDataDirEnsure()) {
         sysLoudFailf("EXTRACT.PDUI", "fsDataDirEnsure failed");
         return -1;
@@ -3015,18 +3083,15 @@ extern "C" int pdguiThemeEmitPduiZips(int force)
         return -1;
     }
 
-    if (!g_TexGeneralConfigs) {
-        sysLogPrintf(LOG_NOTE,
-            "PDGUI emit: texture system not ready (g_TexGeneralConfigs NULL); "
-            "deferred to render-loop trigger");
-        return 0;
-    }
-
     int written = 0;
     int skipped = 0;
     int failed = 0;
 
     for (size_t i = 0; i < K_PDUI_ENTRY_COUNT; i++) {
+        sysLogPrintf(LOG_NOTE,
+            "PDGUI emit: entry %zu/%zu id='%s' tex_index=%d",
+            i + 1, K_PDUI_ENTRY_COUNT,
+            k_PduiEntries[i].catalog_id, k_PduiEntries[i].tex_index);
         int r = s_emitOnePduiZip(&k_PduiEntries[i], force);
         if (r > 0)        written++;
         else if (r == 0)  skipped++;
@@ -3471,6 +3536,9 @@ void pdguiThemeCheckExtract(void)
     if (s_checked) return;
 
     if (!g_TexGeneralConfigs) return;  /* texReset not yet called */
+    if (bootProgressIsActive() && !bootProgressIsComplete()) {
+        return;
+    }
 
     s_checked = true;
 

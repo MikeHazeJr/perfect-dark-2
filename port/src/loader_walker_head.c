@@ -21,6 +21,38 @@
 #include "loader_walker_common.h"
 #include "system.h"
 
+static void s_sourceModelPathFromMeshArchive(const char *mesh_archive,
+                                             char *out,
+                                             size_t outsz)
+{
+    static const char *candidates[] = {
+        "model.obj",
+        "model.gltf",
+        "model.glb",
+    };
+    size_t i;
+
+    if (!out || outsz == 0) {
+        return;
+    }
+
+    out[0] = '\0';
+    if (!mesh_archive || !mesh_archive[0]) {
+        return;
+    }
+
+    for (i = 0; i < sizeof(candidates) / sizeof(candidates[0]); i++) {
+        snprintf(out, outsz, "%s::%s", mesh_archive, candidates[i]);
+        out[outsz - 1] = '\0';
+        if (fsFileSize(out) > 0) {
+            return;
+        }
+    }
+
+    snprintf(out, outsz, "%s::model.obj", mesh_archive);
+    out[outsz - 1] = '\0';
+}
+
 static s32 s_register(const char *manifest, size_t manifest_len,
                       const char *pd_kind, const char *id,
                       const char *file_path)
@@ -74,7 +106,8 @@ static s32 s_register(const char *manifest, size_t manifest_len,
     }
     if (e && loaderWalkerArchiveMemberPath(file_path, mesh_member,
                                            mesh_archive_path, sizeof(mesh_archive_path))) {
-        snprintf(source_path, sizeof(source_path), "%s::model.obj", mesh_archive_path);
+        s_sourceModelPathFromMeshArchive(mesh_archive_path,
+            source_path, sizeof(source_path));
         catalogSetPrimaryFile(e, source_path);
     }
 

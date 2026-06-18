@@ -11,6 +11,7 @@
 #include "data.h"
 #include "types.h"
 #include "net/net.h"
+#include "assetcatalog.h"
 
 void playermgrInit(void)
 {
@@ -736,6 +737,23 @@ void playermgrSetAspectRatio(f32 aspect)
 s32 playermgrGetModelOfWeapon(s32 weapon)
 {
 	s32 model;
+
+	if (weapon >= WEAPON_CUSTOM_START && weapon < WEAPON_CUSTOM_END) {
+		const char *weapon_id = catalogWeaponIdByRuntimeWeaponNum(weapon);
+		catalog_weapon_result_t weapon_result;
+
+		if (weapon_id && catalogResolveWeapon(weapon_id, &weapon_result)
+				&& weapon_result.filenum > 0) {
+			const char *model_id =
+				catalogIdBySourceFilenum(ASSET_MODEL, weapon_result.filenum);
+			catalog_model_result_t model_result;
+
+			if (model_id && catalogResolveModel(model_id, &model_result)
+					&& model_result.modelnum >= 0) {
+				return model_result.modelnum;
+			}
+		}
+	}
 
 	switch (weapon) {
 	case WEAPON_NONE:

@@ -47,7 +47,7 @@ Top-level keys consumed by the harness:
 | `description`        | no       | Free-form note |
 | `tags`               | no       | Runner-side filter (`-Tag boot`) |
 | `paths_of_interest`  | no       | Reference for human reviewer |
-| `log_channel_mask`   | no       | `"all"`, `"none"`, or numeric mask |
+| `log_channel_mask`   | no       | `"all"`, `"none"`, numeric mask, or named channels such as `"game,catalog,render"` |
 | `verbose`            | no       | 0 / 1 |
 | `timeout_seconds`    | no       | Hard ceiling; default 90 s |
 | `install_state`      | no       | Runner-side hint (`"clean"`, `"upgraded"`) |

@@ -607,6 +607,9 @@ static s32 modSequenceLoadEventsJson(const char *path,
 	return events > 0 ? 0 : -1;
 }
 
+static s32 modSequenceEmitLoopEndBody(mod_seq_track_t *track, u32 loop_count);
+static s32 modSequenceCloseOpenLoopsAtTrackEnd(mod_seq_track_t *track);
+
 static s32 modSequenceEmitEvent(mod_seq_track_t *track,
 		const mod_seq_event_t *event)
 {
@@ -662,29 +665,16 @@ static s32 modSequenceEmitEvent(mod_seq_track_t *track,
 			return -1;
 		}
 	} else if (strcmp(event->type, "loop_end") == 0) {
-		u32 loop_start;
-		u32 event_end;
-		u32 offset;
 		u32 loop_count = event->loop_count ? event->loop_count : 0xff;
 
-		if (track->loop_start_count == 0 || loop_count > 0xff) {
-			return -1;
-		}
-		loop_start = track->loop_start_stack[--track->loop_start_count];
-		event_end = track->track.len + 8;
-		offset = event_end - loop_start;
-		if (modSequenceBufPut(&track->track, AL_MIDI_Meta) != 0 ||
-				modSequenceBufPut(&track->track, AL_CMIDI_LOOPEND_CODE) != 0 ||
-				modSequenceBufPut(&track->track, (u8)loop_count) != 0 ||
-				modSequenceBufPut(&track->track, (u8)loop_count) != 0 ||
-				modSequenceBufPut(&track->track, (u8)((offset >> 24) & 0xff)) != 0 ||
-				modSequenceBufPut(&track->track, (u8)((offset >> 16) & 0xff)) != 0 ||
-				modSequenceBufPut(&track->track, (u8)((offset >> 8) & 0xff)) != 0 ||
-				modSequenceBufPut(&track->track, (u8)(offset & 0xff)) != 0) {
+		if (modSequenceEmitLoopEndBody(track, loop_count) != 0) {
 			return -1;
 		}
 	} else if (strcmp(event->type, "track_end") == 0 ||
 			strcmp(event->type, "sequence_end") == 0) {
+		if (modSequenceCloseOpenLoopsAtTrackEnd(track) != 0) {
+			return -1;
+		}
 		if (modSequenceBufPut(&track->track, AL_MIDI_Meta) != 0 ||
 				modSequenceBufPut(&track->track, AL_MIDI_META_EOT) != 0) {
 			return -1;
@@ -694,6 +684,45 @@ static s32 modSequenceEmitEvent(mod_seq_track_t *track,
 	}
 
 	track->last_tick = event->tick;
+	return 0;
+}
+
+static s32 modSequenceEmitLoopEndBody(mod_seq_track_t *track, u32 loop_count)
+{
+	u32 loop_start;
+	u32 event_end;
+	u32 offset;
+
+	if (!track || track->loop_start_count == 0 || loop_count > 0xff) {
+		return -1;
+	}
+
+	loop_start = track->loop_start_stack[--track->loop_start_count];
+	event_end = track->track.len + 8;
+	offset = event_end - loop_start;
+
+	if (modSequenceBufPut(&track->track, AL_MIDI_Meta) != 0 ||
+			modSequenceBufPut(&track->track, AL_CMIDI_LOOPEND_CODE) != 0 ||
+			modSequenceBufPut(&track->track, (u8)loop_count) != 0 ||
+			modSequenceBufPut(&track->track, (u8)loop_count) != 0 ||
+			modSequenceBufPut(&track->track, (u8)((offset >> 24) & 0xff)) != 0 ||
+			modSequenceBufPut(&track->track, (u8)((offset >> 16) & 0xff)) != 0 ||
+			modSequenceBufPut(&track->track, (u8)((offset >> 8) & 0xff)) != 0 ||
+			modSequenceBufPut(&track->track, (u8)(offset & 0xff)) != 0) {
+		return -1;
+	}
+
+	return 0;
+}
+
+static s32 modSequenceCloseOpenLoopsAtTrackEnd(mod_seq_track_t *track)
+{
+	while (track && track->loop_start_count > 0) {
+		if (modSequenceEmitLoopEndBody(track, 0xff) != 0) {
+			return -1;
+		}
+	}
+
 	return 0;
 }
 

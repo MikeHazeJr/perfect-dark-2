@@ -142,6 +142,20 @@ void modmgrRescanDirectory(void);
 // Rebuild asset catalog + load gates from the current registry (after rescan).
 void modmgrSyncCatalogToRegistry(void);
 
+// Validate a .pdmod archive before it is installed or mounted. This checks
+// root mod.json plus the external-format public payload contract.
+s32 modmgrValidateArchiveFile(const char *archive_path,
+                              char *out_error,
+                              s32 error_len);
+
+// Install a validated .pdmod archive into mods/installed, rescan the registry,
+// and optionally enable/apply it immediately. Returns the registry index on
+// success, or -1 with out_error populated on failure.
+s32 modmgrInstallArchiveFile(const char *archive_path,
+                             s32 enable_now,
+                             char *out_error,
+                             s32 error_len);
+
 // ---- Registry queries ----
 
 s32         modmgrGetCount(void);

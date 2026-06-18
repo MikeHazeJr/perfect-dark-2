@@ -192,7 +192,7 @@ Additionally, `tasks-current.md` lists untracked open items:
 
 **Root Cause Hypothesis**: The solo mission select UI (`pdgui_menu_solomission.cpp`) iterates `g_SoloStages[]` linearly and presents all entries in a single flat list. Perfect Dark's original game distinguishes:
 - Missions 1-9 (main campaign)
-- Special Assignments (Challenge 1-4)  
+- Special Assignments (Challenge 1-4)
 - Deep Sea / Crash Site (unlockable bonus missions)
 
 The solo stage data has category information (via stage type or index range), but the ImGui mission list renderer doesn't use it to create section headers or visual grouping.

@@ -40,7 +40,7 @@ pdgui_menu_update.cpp — "Check Now" button onClick
               └── (same as startup path above)
 ```
 
-UI display: `UPDATER_CHECK_FAILED` → `ImGui::Text("Check failed: %s", updaterGetError())`  
+UI display: `UPDATER_CHECK_FAILED` → `ImGui::Text("Check failed: %s", updaterGetError())`
 Error string: `"Update check failed: could not parse response"` (displayed as "Couldn't parse update list")
 
 ### Server update check

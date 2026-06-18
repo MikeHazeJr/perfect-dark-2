@@ -115,11 +115,25 @@ static const body_data_t *s_get(s32 bodynum)
 			s_Bodies[bodynum].modeldef = md;
 			return &s_Bodies[bodynum];
 		}
+		if (bodynum >= CATALOG_MGR_BODY_CUSTOM_START) {
+			const body_data_t *custom = &s_Bodies[bodynum];
+			if (custom->filenum != 0 || custom->catalog_id[0] != '\0') {
+				return custom;
+			}
+			return NULL;
+		}
 		/* Loader has no record for this slot (head-only or sentinel).
 		 * Fall through to the legacy mirror so manager iteration over
 		 * the full 152-slot range still produces consistent values. */
 	}
 #endif
+	if (bodynum >= CATALOG_MGR_BODY_CUSTOM_START) {
+		const body_data_t *custom = &s_Bodies[bodynum];
+		if (custom->filenum != 0 || custom->catalog_id[0] != '\0') {
+			return custom;
+		}
+		return NULL;
+	}
 	/* Parity-period fallback: re-read from the legacy table so any
 	 * out-of-band mutation stays observable. F3+ owns the modeldef
 	 * cache; the rest of the fields are read-only during the parity
@@ -337,6 +351,9 @@ void catalogManagerRegisterBody(const char *id, const body_data_t *data)
 			"CATALOG.MGR.BODY.MISS: register id=\"%s\" bodynum=%d invalid",
 			id, bodynum);
 		return;
+	}
+	if (!s_BodiesInited) {
+		catalogManagerBodyInit();
 	}
 	memcpy(&s_Bodies[bodynum], data, sizeof(body_data_t));
 	s_Bodies[bodynum].bodynum = (s16)bodynum;

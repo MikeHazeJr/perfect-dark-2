@@ -15,6 +15,7 @@
 #include "bss.h"
 #include "data.h"
 #include "types.h"
+#include "assetcatalog.h"
 #include "catalog_mgr_weapons.h" /* S484 F2: route weaponFindById through catalog manager */
 #include "weapon_graph_runtime.h"
 
@@ -440,6 +441,15 @@ u16 weaponGetFileNum(s32 weaponnum)
 	struct weapon *weapon = weaponFindById(weaponnum);
 
 	if (weapon) {
+		if (weaponnum >= WEAPON_CUSTOM_START) {
+			const char *catalog_id = catalogWeaponIdByRuntimeWeaponNum(weaponnum);
+			catalog_weapon_result_t weapon_result;
+
+			if (catalog_id && catalogResolveWeapon(catalog_id, &weapon_result)
+					&& weapon_result.filenum > 0) {
+				return (u16)weapon_result.filenum;
+			}
+		}
 		return weapon->hi_model;
 	}
 

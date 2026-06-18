@@ -295,8 +295,6 @@ ASSET_EVIDENCE_PREFIXES = (
 GENERATED_SCENARIO_ROOTS = (
     "Build/data/ntsc-final/scenarios",
     "Build/data/ntsc-final/arenas",
-    ".claude/smoke-verify-install/data/ntsc-final/scenarios",
-    ".claude/smoke-verify-install/data/ntsc-final/arenas",
 )
 
 AI_INTERPRETER_ONLY_FUNCTIONS = {
@@ -308,6 +306,8 @@ AI_INTERPRETER_ONLY_FUNCTIONS = {
 }
 
 AI_GRAPH_PENDING_FUNCTIONS = set()
+
+AI_OPCODE_NAME_DEFAULT = "command"
 
 SCENARIO_RUNTIME_COUNT_RULES = {
     "s_countRuntimePaths": {
@@ -2064,6 +2064,8 @@ def scan_bondgun_model_source_only_guards(root: Path) -> list[str]:
 def scan_model_handle_source_only_guards(root: Path) -> list[str]:
     try:
         menu = read_text(root, "src/game/menu.c")
+        mainmenu = read_text(root, "src/game/mainmenu.c")
+        mplayer_setup = read_text(root, "src/game/mplayer/setup.c")
         player = read_text(root, "src/game/player.c")
         title = read_text(root, "src/game/title.c")
     except AssertionError as exc:
@@ -2084,6 +2086,21 @@ def scan_model_handle_source_only_guards(root: Path) -> list[str]:
                 "menuModelHandlePassesSourceOnlyCheck(ASSET_HEAD",
                 "menuModelHandlePassesSourceOnlyCheck(ASSET_MODEL",
                 "catalogIdBySourceHandle(ASSET_MODEL, modelhandle)",
+            ],
+        ),
+        "src/game/mainmenu.c": (
+            mainmenu,
+            [
+                "weapon menu preview weaponnum=%d has no provider-backed catalog entry",
+                "menuUnsetModel(&g_Menus[g_MpPlayerNum].menumodel)",
+            ],
+        ),
+        "src/game/mplayer/setup.c": (
+            mplayer_setup,
+            [
+                "MP head preview headnum=%d has no provider-backed catalog entry",
+                "MP perfect-head preview headnum=%d has no provider-backed catalog entry",
+                "menuUnsetModel(&g_Menus[g_MpPlayerNum].menumodel)",
             ],
         ),
         "src/game/player.c": (
@@ -2115,6 +2132,25 @@ def scan_model_handle_source_only_guards(root: Path) -> list[str]:
                 MODEL_HANDLE_SOURCE_ONLY_ERROR
                 + f": {path} missing "
                 + ", ".join(missing)
+            )
+
+    forbidden = [
+        (
+            "src/game/mainmenu.c",
+            mainmenu,
+            "MENUMODELPARAMS_SET_FILENUM(weaponGetFileNum(weaponnum))",
+        ),
+        (
+            "src/game/mplayer/setup.c",
+            mplayer_setup,
+            "MENUMODELPARAMS_SET_FILENUM(catalogGetHeadFilenumByIndex(headnum))",
+        ),
+    ]
+    for path, text, needle in forbidden:
+        if needle in text:
+            errors.append(
+                MODEL_HANDLE_SOURCE_ONLY_ERROR
+                + f": {path} still submits raw legacy preview filenum {needle}"
             )
 
     order_checks = [
@@ -2969,6 +3005,99 @@ def scan_ai_command_graph_coverage(root: Path) -> list[str]:
     ]
 
 
+def _parse_c_numeric_defines(text: str) -> dict[str, int]:
+    defines: dict[str, int] = {}
+    for match in re.finditer(r"(?m)^#define\s+([A-Za-z_]\w*)\s+(0x[0-9a-fA-F]+|\d+)\b", text):
+        defines[match.group(1)] = int(match.group(2), 0)
+    return defines
+
+
+def scan_ai_opcode_name_coverage(root: Path) -> list[str]:
+    """Reject Scenario AI extraction names that flatten known commands."""
+    header_path = root / "src/include/game/chraicommands.h"
+    constants_path = root / "src/include/constants.h"
+    extractor_path = root / "port/src/romextract_pdarena.c"
+    try:
+        header = header_path.read_text(encoding="utf-8")
+        constants = constants_path.read_text(encoding="utf-8")
+        extractor = extractor_path.read_text(encoding="utf-8")
+    except OSError as exc:
+        return [f"cannot read Scenario AI opcode source contract inputs: {exc}"]
+
+    declared: dict[int, str] = {}
+    for match in re.finditer(
+        r"/\*0x([0-9a-fA-F]{4})\*/\s+bool\s+(ai\w+)\s*\(",
+        header,
+    ):
+        declared[int(match.group(1), 16)] = match.group(2)
+
+    if not declared:
+        return [
+            "scenario AI opcode name coverage cannot find declared commands in "
+            f"{relpath(header_path, root)}"
+        ]
+
+    function_match = re.search(
+        r"static\s+const\s+char\s+\*s_aiOpcodeName\s*\([^)]*\)\s*\{(?P<body>.*?)\n\}",
+        extractor,
+        re.DOTALL,
+    )
+    if not function_match:
+        return [
+            "scenario AI opcode name coverage cannot find s_aiOpcodeName in "
+            f"{relpath(extractor_path, root)}"
+        ]
+
+    defines = _parse_c_numeric_defines(constants)
+    named: dict[int, str] = {}
+    unknown_cases: list[str] = []
+    for match in re.finditer(
+        r"case\s+([^:]+):\s*return\s+\"([^\"]+)\";",
+        function_match.group("body"),
+    ):
+        expr = match.group(1).strip()
+        if expr in defines:
+            opcode = defines[expr]
+        else:
+            try:
+                opcode = int(expr, 0)
+            except ValueError:
+                unknown_cases.append(expr)
+                continue
+        named[opcode] = match.group(2)
+
+    flattened = [
+        f"0x{opcode:04x}:{declared[opcode]}"
+        for opcode, name in sorted(named.items())
+        if opcode in declared and name == AI_OPCODE_NAME_DEFAULT
+    ]
+    missing = [
+        f"0x{opcode:04x}:{name}"
+        for opcode, name in sorted(declared.items())
+        if opcode not in named
+    ]
+
+    errors: list[str] = []
+    if unknown_cases:
+        errors.append(
+            "scenario AI opcode name coverage has unparseable case labels: "
+            + ", ".join(unknown_cases)
+        )
+    if missing:
+        errors.append(
+            "scenario AI opcode names must cover every declared command; "
+            "missing: "
+            + ", ".join(missing)
+        )
+    if flattened:
+        errors.append(
+            "scenario AI opcode names must not flatten declared commands to "
+            f"{AI_OPCODE_NAME_DEFAULT!r}: "
+            + ", ".join(flattened)
+        )
+    return errors
+
+
 def iter_c_function_blocks(text: str) -> list[tuple[str, int, int]]:
     pattern = re.compile(
         r"^(?:static\s+)?(?:[A-Za-z_]\w*\s+)+\*+\s*"
@@ -3031,6 +3160,88 @@ def scan_scenario_runtime_count_guards(root: Path) -> list[str]:
     if not errors:
         return []
     return [SCENARIO_RUNTIME_COUNT_ERROR + ": " + ", ".join(errors)]
+
+
+SCENARIO_NORMAL_PLAY_FALLBACK_ERROR = (
+    "scenario normal-play source failures must not fall back to legacy ROM payloads"
+)
+
+
+def scan_scenario_normal_play_fallback_guards(root: Path) -> list[str]:
+    """Keep normal stage loading fail-closed after public Scenario source fails."""
+    required_files = {
+        "setup": root / "src/game/setup.c",
+        "tiles": root / "src/game/tilesreset.c",
+        "bg": root / "src/game/bg.c",
+        "runtime": root / "port/src/scenario_source_runtime.c",
+        "runtime_h": root / "port/include/scenario_source_runtime.h",
+    }
+    texts: dict[str, str] = {}
+    errors: list[str] = []
+
+    for name, path in required_files.items():
+        try:
+            texts[name] = path.read_text(encoding="utf-8")
+        except OSError as exc:
+            errors.append(f"cannot read {relpath(path, root)}: {exc}")
+
+    if errors:
+        return [SCENARIO_NORMAL_PLAY_FALLBACK_ERROR + ": " + ", ".join(errors)]
+
+    forbidden = {
+        "setup": (
+            "assetLoadToNew(setup_handle",
+            "assetLoadToNew(stage.pads_handle",
+            "setup source -> ROM handle",
+            "pads source -> ROM handle",
+        ),
+        "tiles": (
+            "assetLoadToNew(stage.tile_handle",
+            "tiles source -> ROM handle",
+        ),
+        "bg": (
+            "bg source -> ROM bg cache",
+        ),
+    }
+
+    for name, patterns in forbidden.items():
+        for pattern in patterns:
+            if pattern in texts[name]:
+                errors.append(f"{name} still contains legacy fallback '{pattern}'")
+
+    required = {
+        "setup": (
+            "scenarioSourceFatalRuntimeFallbackForStage(&stage",
+            "level graph activation failed",
+            "setup source compile failed",
+            "pads source compile failed",
+        ),
+        "tiles": (
+            "scenarioSourceFatalRuntimeFallbackForStage(&stage",
+            "tile source compile failed",
+        ),
+        "bg": (
+            "scenarioSourceFatalRuntimeFallbackForStage(&stage",
+            "background source renderer activation failed",
+        ),
+        "runtime": (
+            "scenarioSourceFatalRuntimeFallbackForStage(",
+            "ASSET.FALLBACK: Scenario stage",
+            "runtime ROM/RomProvider fallback after extraction is an asset-chain failure",
+        ),
+        "runtime_h": (
+            "scenarioSourceFatalRuntimeFallbackForStage(",
+        ),
+    }
+
+    for name, patterns in required.items():
+        for pattern in patterns:
+            if pattern not in texts[name]:
+                errors.append(f"{name} is missing guard '{pattern}'")
+
+    if not errors:
+        return []
+    return [SCENARIO_NORMAL_PLAY_FALLBACK_ERROR + ": " + ", ".join(errors)]
 
 
 def scan_scenario_padfile_global_guards(root: Path) -> list[str]:
@@ -6726,6 +6937,8 @@ def main(argv: list[str]) -> int:
     errors.extend(scan_generated_scenario_texture_contracts(root))
     errors.extend(scan_ui_chrome_source_contract(root))
     errors.extend(scan_ai_command_graph_coverage(root))
+    errors.extend(scan_ai_opcode_name_coverage(root))
+    errors.extend(scan_scenario_normal_play_fallback_guards(root))
     errors.extend(scan_scenario_runtime_count_guards(root))
     errors.extend(scan_scenario_padfile_global_guards(root))
     errors.extend(scan_scenario_stage_setup_global_guards(root))

@@ -66,6 +66,7 @@
 /* M0.2 Phase A: Core action map system */
 #include "actionmap.h"
 #include "config.h"
+#include "modasset_compiler.h"
 #include "imgui/imgui_internal.h"
 
 /* Lobby sidebar — declared in pdgui_lobby.cpp */
@@ -1188,6 +1189,23 @@ void pdguiRender(void)
             fg->AddText(ImVec2(bx + pad, by + pad * 0.5f),
                         IM_COL32(255, 220, 120, 255), line);
         }
+    }
+
+    if (modAssetCompilerNeedlerRenderAuditWitnessActive()) {
+        ImDrawList *fg = ImGui::GetForegroundDrawList();
+        const char *line = "NEEDLER SOURCE MODEL RENDERED";
+        ImVec2 sz = ImGui::CalcTextSize(line);
+        float pad = 10.0f;
+        float bx = 16.0f;
+        float by = 42.0f;
+        fg->AddRectFilled(ImVec2(bx, by),
+                          ImVec2(bx + sz.x + pad * 2.0f, by + sz.y + pad),
+                          IM_COL32(8, 16, 24, 230), 4.0f);
+        fg->AddRect(ImVec2(bx, by),
+                    ImVec2(bx + sz.x + pad * 2.0f, by + sz.y + pad),
+                    IM_COL32(255, 64, 255, 255), 4.0f, 0, 1.5f);
+        fg->AddText(ImVec2(bx + pad, by + pad * 0.5f),
+                    IM_COL32(255, 220, 255, 255), line);
     }
 
     pdguiPopupDarkenFlush();

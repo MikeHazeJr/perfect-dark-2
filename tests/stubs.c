@@ -72,6 +72,15 @@ void configRegisterInt(const char *key, s32 *var, s32 min, s32 max)
     (void)max;
 }
 
+void *fsFileLoad(const char *name, u32 *outSize)
+{
+    (void)name;
+    if (outSize) {
+        *outSize = 0;
+    }
+    return NULL;
+}
+
 /* -------------------------------------------------------------------------
  * Asset catalog stubs.
  *
@@ -81,6 +90,12 @@ void configRegisterInt(const char *key, s32 *var, s32 min, s32 max)
  * want under test.
  * ------------------------------------------------------------------------- */
 const asset_entry_t *assetCatalogResolve(const char *id)
+{
+    (void)id;
+    return NULL;
+}
+
+asset_entry_t *assetCatalogGetMutable(const char *id)
 {
     (void)id;
     return NULL;

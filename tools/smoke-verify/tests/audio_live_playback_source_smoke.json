@@ -1,0 +1,59 @@
+{
+  "scenario_name": "audio_live_playback_source_smoke",
+  "description": "c3844 B-801 runtime smoke: source-only live playback proof for representative SFX, voice, and music archives.",
+  "tags": ["modding", "pdxxx", "audio", "source-gate", "c3844", "b801", "smoke", "pillar:modding"],
+  "paths_of_interest": [
+    "port/src/main.c",
+    "src/lib/snd.c",
+    "src/lib/music.c",
+    "port/src/mod.c",
+    "port/src/assetcatalog_load.c",
+    "tools/smoke-verify/tests/audio_live_playback_source_smoke.json"
+  ],
+  "log_channel_mask": "catalog,audio,game,system",
+  "verbose": 0,
+  "timeout_seconds": 180,
+  "install_state": "clean",
+  "boot_args": [
+    "--no-update-check",
+    "--no-net",
+    "--portable",
+    "--debug-play-catalog-audio-source-only",
+    "--debug-exit-after-catalog-probes",
+    "--debug-play-catalog-audio",
+    "sfx=base:sfx_alarm_2,voice=base:voice_cover_me_aiw,song=base:song_sequence_a"
+  ],
+  "input_sequence": [
+    { "at_ms": 0, "type": "wait", "comment": "catalog bootstrap extracts and walks base audio archives before live playback requests fire." },
+    { "at_ms": 90000, "type": "exit", "comment": "exit after cold catalog extraction plus SFX, voice, and music source-backed playback have started or failed loudly." }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=audio_live_playback_source_smoke",
+      "BOOT: --debug-play-catalog-audio request kind=sfx id='base:sfx_alarm_2' source_only=1",
+      "BOOT: --debug-play-catalog-audio result kind=sfx id='base:sfx_alarm_2' result=OK",
+      "BOOT: --debug-play-catalog-audio request kind=voice id='base:voice_cover_me_aiw' source_only=1",
+      "BOOT: --debug-play-catalog-audio result kind=voice id='base:voice_cover_me_aiw' result=OK",
+      "BOOT: --debug-play-catalog-audio request kind=song id='base:song_sequence_a' source_only=1",
+      "CATALOG: music sequence .* -> public sequence source mid=.*base_song_sequence_a\\.pdsong::sequence\\.mid.*events=.*base_song_sequence_a\\.pdsong::sequence\\.json",
+      "BOOT: --debug-play-catalog-audio result kind=song id='base:song_sequence_a' result=OK",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "ASSET\\.SOURCE_ONLY",
+      "LOUDFAIL\\.FALLBACK",
+      "ASSET\\.FALLBACK",
+      "result=FAIL",
+      "result=MISSING",
+      "CATEGORY_MISMATCH",
+      "RomProvider:filenum",
+      "--no-sound"
+    ],
+    "required_counts": [
+      { "pattern": "BOOT: --debug-play-catalog-audio result kind=.* result=OK", "min": 3, "max": 3 }
+    ]
+  }
+}
