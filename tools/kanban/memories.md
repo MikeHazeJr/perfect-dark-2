@@ -1,34 +1,266 @@
-# Task Group: Shanties n Such Unity Repo Orientation
-scope: Identifying the active `Shanties n Such` Unity workspace and reconstructing the current project and feature inventory from live repo files.
-applies_to: cwd=D:\Game Dev\Shanties n Such\Shanties n Such; reuse_rule=reuse for repo-orientation, "what project is this?", or feature-inventory requests in this checkout; re-check the live workspace and `README.md`/`docs/` before assuming the project root or feature set is unchanged.
+# Task Group: Shanties n Such Repo-local Codex Skill Lookup
+scope: Finding project-authored Codex skill artifacts in the D-drive `Shanties n Such` checkout and separating repo-local tools from global memory skills or unrelated gameplay code.
+applies_to: cwd=D:\Game Dev\Shanties n Such\Shanties n Such; reuse_rule=reuse for repo-local Codex skill/tooling discovery in this checkout or similar "is this in the project or only in global Codex memory?" questions; re-check the live checkout before assuming the same absence of repo-local skill files.
 
-## Task 1: Identify the active Unity project directory and describe the project/features, success
+## Task 1: Identify project-local custom Codex skills, success
 
 ### rollout_summary_files
 
-- rollout_summaries/2026-06-17T03-55-25-VOEt-shanties_n_such_project_directory_and_feature_overview.md (cwd=D:\Game Dev\Shanties n Such\Shanties n Such, rollout_path=C:\Users\mikeh\.codex\sessions\2026\06\16\rollout-2026-06-16T23-55-30-019ed3b8-33cd-7771-b02f-20c9d97ba12d.jsonl, updated_at=2026-06-17T03:56:55+00:00, thread_id=019ed3b8-33cd-7771-b02f-20c9d97ba12d, verified the live workspace and reconstructed the feature set from current repo files)
+- rollout_summaries/2026-06-21T14-17-15-g54b-project_local_custom_skill_lookup_shanties.md (cwd=D:\Game Dev\Shanties n Such\Shanties n Such, rollout_path=C:\Users\mikeh\.codex\sessions\2026\06\21\rollout-2026-06-21T10-17-20-019eea8a-f3af-79d0-be71-b1d77b882457.jsonl, updated_at=2026-06-21T14:19:22+00:00, thread_id=019eea8a-f3af-79d0-be71-b1d77b882457, confirmed the checkout had no repo-local Codex skill files and traced the remembered skill to global memory)
 
 ### keywords
 
-- Shanties n Such, Unity, README.md, ProjectSettings/ProjectVersion.txt, Packages/manifest.json, docs, HDRP, Netcode for GameObjects, Assets/Main.unity, procedural generation
+- SKILL.md, skills folder, .codex, .agents, project-local skill, repo-local skill, global memory skill, Skills.cs, CodexCoordination.ps1, CurrentTask, Title required
 
 ## User preferences
 
-- when the user asks "What is our project directory and what is our project? What features does it have?" -> give the directory first, then a concise but concrete feature inventory built from live workspace evidence rather than memory alone [Task 1]
-- when the user wants repo orientation rather than implementation help -> default to a concise workspace overview, not proposed edits [Task 1]
+- when the user corrected the request to "skills within our project directory" and "one that we made, not a standard Codex one" -> search the active repo checkout first instead of the session/global skill list [Task 1]
+- when the user is asking about skills or tooling that may exist in more than one layer -> answer explicitly whether each hit is repo-local or global, rather than mixing them together [Task 1]
 
 ## Reusable knowledge
 
-- The project root for this rollout was `D:\Game Dev\Shanties n Such\Shanties n Such`, and the project is `Shanties n Such` [Task 1]
-- `README.md` is the canonical high-level feature overview; `docs/*.md` are the detailed subsystem map to open next [Task 1]
-- `ProjectSettings/ProjectVersion.txt` shows Unity `6000.4.11f1`, and `Packages/manifest.json` confirms HDRP plus Netcode for GameObjects [Task 1]
-- The current project description from repo files is an open-world pirate sailing, survival, and crew-multiplayer adventure with a procedurally generated world, ships/sailing, quests, crafting/survival, settlements/world simulation, building, modding, and project tooling/docs [Task 1]
-- `Assets/Main.unity` is the main scene called out in the README [Task 1]
+- No repo-local Codex skill definition was present in `D:\Game Dev\Shanties n Such\Shanties n Such`: no `SKILL.md`, no tracked `skills/` directory, and empty `.codex` / `.agents` folders at the project root [Task 1]
+- Broad "skill" matches in this checkout can be false positives from Unity gameplay code; the concrete file hits were `Assets/Scripts/Player/Skills.cs` and `Assets/Tests/EditMode/SkillsAndCommissionTests.cs` [Task 1]
+- The remembered custom skill was likely the global memory skill at `C:\Users\mikeh\.codex\memories\skills\shanties-codex-coordination\SKILL.md`, not a project-authored file inside the checkout [Task 1]
+- `D:\Game Dev\Shanties n Such\Shanties n Such\Tools\CodexCoordination\CodexCoordination.ps1` is the canonical coordination manager here; it accepts `status`, `register`, `heartbeat`, `chat`, `queue`, `start`, `finish`, `flag-stale`, `clear-stale`, `complete`, `cleanup`, `prune-chat`, and `prompt` [Task 1]
+- `register` uses `-CurrentTask`, and `complete` requires `-Title` plus `-Summary` [Task 1]
+- Related skill: skills/shanties-codex-coordination/SKILL.md [Task 1]
 
 ## Failures and how to do differently
 
-- Do not answer repo-orientation questions from memory alone when the live workspace is available; verify the actual working directory, Unity project markers, and current `README.md`/`docs/` first [Task 1]
-- A related prior path under `C:\Users\mikeh\OneDrive\Documents\Shanties n Such` exists, so future orientation answers should verify the active workspace root before assuming which checkout the user means [Task 1]
+- If `CodexCoordination.ps1 register` fails with an invalid parameter, check the real script contract first; this repo uses `-CurrentTask`, not `-Task` [Task 1]
+- If `CodexCoordination.ps1 complete` says `Title is required for complete.`, include both `-Title` and `-Summary` instead of retrying the same call shape [Task 1]
+- If searching for repo-local Codex skills returns noisy gameplay code, narrow the search to `SKILL.md`, `skills/`, `.codex`, and `.agents` instead of grepping generic `skill` terms [Task 1]
+
+# Task Group: Shanties n Such Git Snapshot Commit and Push
+scope: Safe Git-only commit/push workflow for the `Shanties n Such` Unity repo when the user wants current unpushed work committed and pushed without disturbing shared Unity coordination.
+applies_to: cwd=D:\Game Dev\Shanties n Such\Shanties n Such; reuse_rule=reuse for Git snapshot commit/push work in this checkout when the task is repository-only and not Unity/editor/build/test/capture work; re-check live branch/remote state before reusing any exact commit assumptions.
+
+## Task 1: Commit and push all currently unpushed changes safely to GitHub, success
+
+### rollout_summary_files
+
+- rollout_summaries/2026-06-20T17-31-36-vG8C-commit_and_push_large_unity_worktree_safely.md (cwd=D:\Game Dev\Shanties n Such\Shanties n Such, rollout_path=C:\Users\mikeh\.codex\sessions\2026\06\20\rollout-2026-06-20T13-31-43-019ee616-865c-74e2-994a-3654dd83ec76.jsonl, updated_at=2026-06-20T17:45:05+00:00, thread_id=019ee616-865c-74e2-994a-3654dd83ec76, inspected the shared coordination state first, waited out slow LFS staging safely, and verified the pushed `main` head directly)
+
+### keywords
+
+- git push, git add -A, git-lfs, index.lock, origin/main, fast-forward, git ls-remote, Unity repo, large snapshot, LFS upload, fd9e490
+
+## User preferences
+
+- when the user asked to "Commit and push all currently unpushed changes safely to GH" -> default to an inspect-first safe-push workflow instead of a blind commit/push [Task 1]
+- when queue authority is in question for a Shanties task, the user asked: "Would it help for you to add yourself to the queue and do what you need to when it’s your turn and you have authority?" -> decide whether queueing is actually needed; do not take a queue slot for pure Git-only work [Task 1]
+
+## Reusable knowledge
+
+- `git fetch origin` only brought in a new tag (`v0.12.0`) here; `origin/main` still matched local `HEAD` before the commit [Task 1]
+- The mixed snapshot was large even before staging, with `3,381` untracked files and the biggest groups under `Assets/ThirdParty`, `docs/ProceduralBuildings`, and `Assets/ShantiesNSuch` [Task 1]
+- In this repo, `git add -A` across the full tree can take several minutes and may leave `git-lfs filter-process` running after a wrapper timeout; the finished index held `3,457` staged paths [Task 1]
+- The safe verification chain that worked was `git rev-parse HEAD`, `git rev-parse origin/main`, `git merge-base --is-ancestor origin/main HEAD`, `git status --short --branch`, `git push origin main`, then `git ls-remote origin refs/heads/main` [Task 1]
+- The push uploaded LFS objects successfully (`1150/1150`, about `1.1 GB`), and the final remote head matched commit `fd9e4901764cbcb3745a1d361768f1a23e805a5a` [Task 1]
+
+## Failures and how to do differently
+
+- If broad staging times out in this repo, assume slow LFS-heavy staging first and give it more time before treating it as a hard failure [Task 1]
+- If `.git/index.lock` appears after a timeout, check for live `git` or `git-lfs` processes before deleting the lock; in this run the underlying add was still active and waiting was the right fix [Task 1]
+- The Shanties coordination queue is for Unity/editor/build/test/capture authority, not for a pure Git snapshot commit/push [Task 1]
+
+# Task Group: PD2 Stable Release Publish and Repair
+scope: Stable release/publish work in the PD2 repo, including repo hygiene, release-script repair, and direct verification of the final GitHub release state.
+applies_to: cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike; reuse_rule=reuse for PD2 stable release/tag/publish work in this checkout when the goal is a real remote release, not just a local build; re-check live GitHub/tag state and repo-local `context/` before assuming the same version or script behavior.
+
+## Task 1: Build, tag, push, and publish Stable release `v0.1.102`, success
+
+### rollout_summary_files
+
+- rollout_summaries/2026-06-17T17-53-05-B6sQ-pd2_stable_release_commit_publish_and_release_script_repair.md (cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike, rollout_path=C:\Users\mikeh\.codex\sessions\2026\06\17\rollout-2026-06-17T13-53-10-019ed6b7-1c16-7ae3-bfaa-1d6e2e53522c.jsonl, updated_at=2026-06-18T02:49:10+00:00, thread_id=019ed6b7-1c16-7ae3-bfaa-1d6e2e53522c, ignored huge generated smoke artifacts, repaired the release path, and published the stable GitHub release)
+
+### keywords
+
+- release.ps1, v0.1.102, gh release create, gh release view, .gitignore, smoke-verify-runs, body too long, commit hook, Modding - c3844, d309521a
+
+## Task 2: Repair the release process and capture the verification rules, success
+
+### rollout_summary_files
+
+- rollout_summaries/2026-06-17T17-53-05-B6sQ-pd2_stable_release_commit_publish_and_release_script_repair.md (cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike, rollout_path=C:\Users\mikeh\.codex\sessions\2026\06\17\rollout-2026-06-17T13-53-10-019ed6b7-1c16-7ae3-bfaa-1d6e2e53522c.jsonl, updated_at=2026-06-18T02:49:10+00:00, thread_id=019ed6b7-1c16-7ae3-bfaa-1d6e2e53522c, diagnosed the failed script publish, fixed zip pruning, and verified the final public release directly)
+
+### keywords
+
+- devtools/release.ps1, Select-Object -Skip, gh auth status, gh release view, release not found, HTTP 422, UNRELEASED.md, concise release notes, backups\\PerfectDark-v0.1.102-win64.zip
+
+## User preferences
+
+- when a PD2 release/publish run is in scope -> treat the real remote release as part of done-state, not just a local build, pushed tag, or script banner [Task 1][Task 2]
+- when generated proof/cache trees under `.claude` are present during release work -> treat them as ephemeral by default and avoid bundling them into commits unless the user explicitly wants them preserved [Task 1]
+
+## Reusable knowledge
+
+- `git add -A` on this repo can be dominated by generated smoke/cache output; the release run measured about `474,297` untracked files and roughly `15 GB` under `.claude` before ignore rules were added [Task 1]
+- The durable ignore rules for release hygiene were `.claude/smoke-verify-runs/`, `.claude/smoke-verify-install/mod-cache/`, and `.claude/smoke-verify-install/logs/` [Task 1]
+- Release commit hooks enforce the exact pillar name from Kanban metadata plus a `Refs:` line that includes the subject card ID; this run required `Modding` for `c3844` [Task 1]
+- `devtools/release.ps1` had a single-victim pruning bug because `Select-Object -Skip` can yield a scalar; wrapping the result with `@(...)` fixed the cleanup path [Task 1][Task 2]
+- GitHub release creation can fail even when the build/sign/tag steps succeeded. The reliable post-script check is `gh release view <tag>` rather than trusting the script summary [Task 1][Task 2]
+- Full `UNRELEASED.md` release notes were too large for GitHub here (`HTTP 422 ... body is too long (maximum is 125000 characters)`), but concise manual notes plus the built assets succeeded [Task 1][Task 2]
+- Final published release state for this run: `v0.1.102`, target commit `d309521a1191616fc02922537b2dc5b0db5911a7`, published at `2026-06-18T02:48:42Z`, assets = zip, `.sha256`, `.sig`, `PerfectDark.exe`, `Updater.exe` [Task 1]
+- The stable backup zip lived at `backups\PerfectDark-v0.1.102-win64.zip`, and the build products came from `Build\PerfectDark.exe` and `Build\Updater.exe` [Task 1]
+- Keep a running simplified list of release-note bullets in `UNRELEASED.md` for completed PD2 tasks, using concise release-ready wording instead of session-log detail [ad-hoc note]
+
+## Failures and how to do differently
+
+- If `git add -A` stalls or times out during release prep, stage tracked changes first and only add the required untracked source/docs files after ignoring generated bulk [Task 1]
+- If a release commit is rejected, check `context/designs/commit-message-standard.md` and the live Kanban metadata before retrying; the wrong pillar name and missing subject-card `Refs:` were both real blockers here [Task 1]
+- If `gh release create --notes-file UNRELEASED.md` fails with `body is too long`, switch to concise notes instead of trying to force the full changelog through [Task 1][Task 2]
+- If the script says COMPLETE but `gh release view <tag>` says `release not found`, trust the GitHub query, repair the path, and verify the final public state directly [Task 1][Task 2]
+- Quote peeled-tag revspec checks carefully when validating retagged releases; a combined PowerShell command mangled `v0.1.102^{}` once during this run [Task 2]
+
+# Task Group: PD2 c3844 Final Proof and Readiness Closeout
+scope: Verified late-stage `c3844` proof work for Public Mods runtime delivery, B-801 source-only readiness, and the final Needler/runtime closeout sweep in the PD2 repo.
+applies_to: cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike; reuse_rule=reuse for PD2 parity/closeout work in this checkout when the user wants live-context-first proof, exact counts, scoped logging, screenshot evidence, and cleanup; re-check `tools/kanban/state.json` and repo-local `context/` before assuming the lane is still in the same state.
+
+## Task 1: Prove received Public Mods `.pdmod` delivery/runtime through the strict shared archive contract, success
+
+### rollout_summary_files
+
+- rollout_summaries/2026-06-12T01-29-52-8SKt-c3844_public_mods_pdmod_runtime_delivery_proof.md (cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike, rollout_path=C:\Users\mikeh\.codex\sessions\2026\06\11\rollout-2026-06-11T21-30-01-019eb973-2773-7143-8afe-4458430ff299.jsonl, updated_at=2026-06-12T02:14:55+00:00, thread_id=019eb973-2773-7143-8afe-4458430ff299, inbox install, enable/load parity, negative pre-install proof, and closeout hygiene were verified)
+
+### keywords
+
+- c3844, Public Mods, pdmod, modmgrValidateArchiveFile, modmgrInstallArchiveFile, public_mods_pdmod_install_smoke, scoped logging, mods/installed, WerFault
+
+## Task 2: Close B-801 source-only fallback readiness while leaving c3849 Wave 7 explicitly gated, success
+
+### rollout_summary_files
+
+- rollout_summaries/2026-06-12T01-31-10-qXjf-c3844_b801_source_only_readiness_closeout.md (cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike, rollout_path=C:\Users\mikeh\.codex\sessions\2026\06\11\rollout-2026-06-11T21-31-15-019eb974-5947-7572-a9af-825b5cdc4655.jsonl, updated_at=2026-06-12T03:04:47+00:00, thread_id=019eb974-5947-7572-a9af-825b5cdc4655, fixed narrow readiness gaps, re-ran grouped smokes, and preserved Wave 7 as an explicit future gate)
+
+### keywords
+
+- c3844, B-801, c3849, Wave 7, all_family_source_gate_smoke, audio_live_playback_source_smoke, base_animation_source_probe_smoke, results-20260612T025658Z.json, fatal cutover, toggle retirement
+
+## Task 3: Run the final Needler visual/runtime proof sweep and record the closeout evidence, success
+
+### rollout_summary_files
+
+- rollout_summaries/2026-06-12T03-06-34-0ISs-needler_visual_proof_final_c3844_sweep.md (cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike, rollout_path=C:\Users\mikeh\.codex\sessions\2026\06\11\rollout-2026-06-11T23-06-44-019eb9cb-b0cd-7023-911c-f784548fa7e0.jsonl, updated_at=2026-06-18T00:01:26+00:00, thread_id=019eb9cb-b0cd-7023-911c-f784548fa7e0, offline validators passed, stale Public Mods assertions were fixed, Needler runtime proof passed 43/43, and screenshot/context closeout landed)
+
+### keywords
+
+- c3844, needler, results-20260617T235837Z.json, needler_graph_runtime_visual_smoke, screenshot proof, BONDGUN.SOURCE, MODASSET.RENDER, NEEDLER SOURCE MODEL RENDERED, B-933, asset_native_source_guard.py
+
+## User preferences
+
+- when the user says "Read mandatory context first" for PD2 closeout work -> start from the live repo-local `context/` tree and `tools/kanban/state.json`, not from older summaries [Task 1][Task 2][Task 3]
+- when the user requires scoped logging and "prevent lingering PerfectDark/PerfectDarkServer/WerFault processes" -> treat log masks and explicit process cleanup as first-class proof criteria, not afterthoughts [Task 1][Task 3]
+- when the user asks for exact pass/fail counts -> preserve the per-gate and per-smoke totals instead of collapsing the report to "green" [Task 3]
+- when the user asks to "verify that things are loading properly via both logging and also visual inspection of screenshots" -> keep both log evidence and inspectable screenshot artifacts for final proof runs [Task 3]
+- when the user says "do not implement new feature work unless a regression blocks completion" -> stay in verification/fix mode during final sweeps and only patch true blockers [Task 3]
+- when the user requires updates to context, Kanban, and release notes -> treat those edits as part of the deliverable, not separate admin [Task 1][Task 2][Task 3]
+- when the user wants remaining integer-only runtime limits treated as private migration debt -> preserve that distinction in closeout artifacts and do not describe it as public archive behavior [Task 2]
+
+## Reusable knowledge
+
+- Received Public Mods `.pdmod` delivery only matches local install behavior when the inbox path is validated by `modmgrValidateArchiveFile()` and then installed through `modmgrInstallArchiveFile()`; keep that shared contract intact for both Hub import and received-mod install [Task 1]
+- The strongest runtime proof for this lane covered inbox delivery, enable prompt, install into `mods/installed`, catalog scan, and actual runtime loads from installed content, plus negative proof for public `.bin`, public `.tsv`, and invalid nested typed archives [Task 1]
+- The B-801 readiness closeout fixed narrow timing/state gaps without flipping the larger c3849 Wave 7 policy. Wave 7 remains explicitly gated on default flip criteria, per-family fatal cutover, MP mismatch refusal/protocol pins, and toggle retirement [Task 2]
+- The fast authoritative gate set for this lane was `python tools\asset_native_source_guard.py`, `python tools\verify_pdxxx_modder_workflow.py`, archive conformance selftest, checked-in example conformance, retained `Build\data\ntsc-final` conformance, audio/mesh/animation validators, focused tests, targeted smoke result JSON, and the isolated build-session wrapper [Task 2][Task 3]
+- The updated final proof artifact for this lane was `.claude/smoke-verify-runs/results-20260617T235837Z.json` plus screenshots in `.claude/smoke-verify-runs/screenshots/20260617T195640-needler_graph_runtime_visual_smoke/`, with `needler_graph_runtime_visual_smoke` passing `43/43` [Task 3]
+- The concise proof log chain to grep first was `BONDGUN.SOURCE`, `MODASSET.RENDER`, and `NEEDLER SOURCE MODEL RENDERED`; broad smoke-log greps were too noisy [Task 3]
+- Repo-local `context/` files are canonical first. Sync parent mirrors only when those files actually exist there and only after the repo-local copies are updated [Task 2][Task 3]
+- When Mike says the log is "in build", check `C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike\Build\logs\game client` first; when he says the release folder or install directory, check `C:\Users\mikeh\Downloads\Perfect Dark 2.0\logs\game client` first [ad-hoc note]
+- Related skill: skills/pd2-card-closeout/SKILL.md [Task 3]
+
+## Failures and how to do differently
+
+- If a Public Mods smoke exits too early, leave enough time for cold install/extraction/catalog activation before sentinel shutdown; the first run failed because the proof path had not finished [Task 1]
+- If grouped source-gate smokes stall, fix the timing/state boundary instead of forcing retries: wait for the right boot/source signals and shorten path-length-sensitive generated cache names where needed [Task 2]
+- If a final static guard fails after runtime work already looks correct, check for stale test-contract drift before changing runtime behavior; the `.pdarena` / `.pdhead` source-ownership failure was a stale expectation, not a new runtime regression [Task 3]
+- If screenshot-proof notes still say the visual inspection is incomplete after artifacts were reviewed, correct the context files before closing the lane [Task 3]
+- Broad `git status` and repo-wide hygiene checks can be noisy or slow in this workspace. Use narrower tracked-file checks, and do not pass parent paths outside the repo root to `git diff --check` [Task 3]
+
+# Task Group: Shanties n Such Codex Coordination Across Checkouts
+scope: Shared Codex session coordination, queueing, stale handling, and cross-checkout workflow wiring for the `Shanties n Such` Unity project.
+applies_to: cwd family=`D:\Game Dev\Shanties n Such\Shanties n Such` and `C:\Users\mikeh\OneDrive\Documents\Shanties n Such`; reuse_rule=reuse for Codex session startup, queue/compile coordination, or coordination-tooling changes across Shanties checkouts; verify which checkout is active and whether it shares the canonical `.codex-coordination` root before changing docs or queue behavior.
+
+## Task 1: Create and refine the canonical shared coordination hub with FIFO queueing, durable results, and stale handling, success
+
+### rollout_summary_files
+
+- rollout_summaries/2026-06-17T03-55-25-VOEt-shanties_codex_coordination_fifo_queue_stale_result_logging.md (cwd=D:\Game Dev\Shanties n Such\Shanties n Such, rollout_path=C:\Users\mikeh\.codex\sessions\2026\06\16\rollout-2026-06-16T23-55-30-019ed3b8-33cd-7771-b02f-20c9d97ba12d.jsonl, updated_at=2026-06-19T13:50:49+00:00, thread_id=019ed3b8-33cd-7771-b02f-20c9d97ba12d, canonical coordination hub with FIFO queue, queue-results log, and stale-flag validation)
+
+### keywords
+
+- Shanties n Such, Codex coordination, FIFO queue, queue-results.md, flag-stale, clear-stale, heartbeat, AGENTS.md, docs/CODEX_COORDINATION.md, schtasks.exe, SHANTIES_CODEX_COORDINATION_ROOT
+
+## Task 2: Port the shared coordination workflow into the OneDrive checkout and enforce queue use for future sessions, success
+
+### rollout_summary_files
+
+- rollout_summaries/2026-06-19T21-22-33-3oqK-shanties_asset_replacement_tracker_and_codex_queue_port.md (cwd=C:\Users\mikeh\OneDrive\Documents\Shanties n Such, rollout_path=C:\Users\mikeh\.codex\sessions\2026\06\19\rollout-2026-06-19T17-22-33-019ee1c3-9cf3-7871-924b-6788d8b5b722.jsonl, updated_at=2026-06-19T21:35:16+00:00, thread_id=019ee1c3-9cf3-7871-924b-6788d8b5b722, ported the wrapper/docs into the OneDrive checkout and pointed them at the canonical shared queue root)
+
+### keywords
+
+- OneDrive checkout, compile queue, shared queue root, Tools/CodexCoordination/CodexCoordination.ps1, Docs/CODEX_COORDINATION.md, AGENTS.md, codex-asset-tracker-019ee1c3, q_20260619210514275_44e2587d, q_20260619211319457_086c4cea
+
+## User preferences
+
+- when the user asks for a way for “different Codex sessions … to be able to communicate and coordinate,” including goals, plans, current tasks, chat, queueing, and completed-task archiving -> default to a durable repo-local shared hub, not ad hoc per-thread coordination [Task 1]
+- when the user asks for “hooks” so “all tasks use it” or says new sessions should “see and use it automatically” -> put the workflow in repo-surface files like `AGENTS.md` and `Docs/CODEX_COORDINATION.md`, not just in a chat explanation [Task 1][Task 2]
+- when the user asks for “a prompt I can then share with any sessions” -> keep a copy-pasteable startup prompt current in the repo docs/tool output [Task 1]
+- when queue behavior is being designed, the user corrected it to “queue at any time,” “behind whatever else is in front,” and “no timer” -> future queue changes should preserve FIFO visibility rather than time-sliced lease language [Task 1]
+- when compile/import/build/test/capture work is in scope for Shanties checkouts, the user expects the queue system to be mandatory so sessions do not collide [Task 2]
+
+## Reusable knowledge
+
+- The canonical coordination manager is `D:\Game Dev\Shanties n Such\Shanties n Such\Tools\CodexCoordination\CodexCoordination.ps1`, and the live shared state is `.codex-coordination\` under that checkout unless `SHANTIES_CODEX_COORDINATION_ROOT` overrides it for testing [Task 1]
+- Repo hooks live in `AGENTS.md` and `docs/CODEX_COORDINATION.md` in the canonical checkout; the OneDrive checkout mirrors the wrapper/docs under `Tools/CodexCoordination\` and `Docs/CODEX_COORDINATION.md` while sharing the canonical queue root [Task 1][Task 2]
+- The queue is FIFO per resource with a monotonic `order`; `status` reports `next` or queue position, `finish` immediately clears live occupancy, and durable results are appended to `.codex-coordination\queue-results.md` [Task 1]
+- `flag-stale` and `clear-stale` are part of the coordination contract, and `heartbeat` is the validation point that surfaces or auto-clears stale items only when the owner session is gone, done, or idle; `waiting_approval` sessions are intentionally preserved [Task 1]
+- The OneDrive checkout should reuse the canonical shared root at `D:\Game Dev\Shanties n Such\Shanties n Such\.codex-coordination` instead of creating a second queue, so sessions across both checkouts stay coordinated [Task 2]
+- The required session flow visible in the OneDrive port is `status`, `register`, queue expensive work, `start`, `finish`, `heartbeat`, `complete`, with compile/import verification explicitly queued [Task 2]
+- Related skill: skills/shanties-codex-coordination/SKILL.md [Task 1][Task 2]
+
+## Failures and how to do differently
+
+- If Windows task installation through `New-ScheduledTaskAction` / `New-ScheduledTaskTrigger` / `New-ScheduledTaskSettingsSet` fails with `Invalid class`, switch immediately to the working `schtasks.exe` fallback instead of assuming the cleanup task cannot be installed [Task 1]
+- If PowerShell JSON state lookups start failing with singleton-object errors like `The property 'Count' cannot be found on this object` or `The property 'status' cannot be found on this object`, normalize singleton results through helper accessors and wrap scalar results with `@(...)` where list behavior is required [Task 1]
+- If same-second queue requests both appear as `next`, the sort key is too weak; add or preserve a separate monotonic sequence instead of relying only on timestamps [Task 1]
+- If `status` prints blank stale lines, check PowerShell condition grouping; the fix here was explicit parentheses around whitespace/null checks [Task 1]
+- If a checkout appears to lack queue tooling, verify whether it should share another checkout’s canonical coordination root before creating new state; the OneDrive port only worked cleanly after reusing the older D-drive queue [Task 2]
+
+# Task Group: Shanties n Such Asset Replacement Tracker
+scope: Unity editor tooling and validation for tracking procedural stand-ins that still need authored assets in the OneDrive `Shanties n Such` checkout.
+applies_to: cwd=C:\Users\mikeh\OneDrive\Documents\Shanties n Such; reuse_rule=reuse for placeholder-art tracking, seeded replacement-request updates, or editor validation work in this checkout; verify the current asset-tracking paths and compile state before assuming the same menu items or tracker contents.
+
+## Task 1: Add the in-editor asset replacement tracker and placeholder validation hook, success
+
+### rollout_summary_files
+
+- rollout_summaries/2026-06-19T21-22-33-3oqK-shanties_asset_replacement_tracker_and_codex_queue_port.md (cwd=C:\Users\mikeh\OneDrive\Documents\Shanties n Such, rollout_path=C:\Users\mikeh\.codex\sessions\2026\06\19\rollout-2026-06-19T17-22-33-019ee1c3-9cf3-7871-924b-6788d8b5b722.jsonl, updated_at=2026-06-19T21:35:16+00:00, thread_id=019ee1c3-9cf3-7871-924b-6788d8b5b722, added the tracker asset, editor window, scene scan, and placeholder validation hook)
+
+### keywords
+
+- AssetReplacementTracker.asset, ReplacementAssetTrackerEditorUtility, PlaceholderAssetMarker, Tools/Shanties n Such/Asset Replacement Tracker, procedural stand-ins, mangrove, dock board, roof shingle, BuildingSettlementLayoutPlanner.cs, asset-replacement-tracker-import.log
+
+## User preferences
+
+- when the user said “use procedural ones for now and make a live tracker (accessible in Unity’s Shanties menu dropdown) where I can see what is needed to replace” -> future art-placeholder work should prefer a live in-editor tracker over informal notes or hidden TODOs [Task 1]
+- when the user named structures, mangrove trees, boards, shingles, ship/vehicle builder parts, player pieces, props, tools, weapons, and audio -> seed or update replacement requests by concrete asset/system buckets instead of one generic placeholder category [Task 1]
+- when the user asked to “create a hook to ensure ash sessions are using it appropriately” -> include an explicit validation/check flow, not just a data asset [Task 1]
+
+## Reusable knowledge
+
+- The tracker asset path is `Assets/ShantiesNSuch/AssetTracking/AssetReplacementTracker.asset`, and the editor menu path is `Tools/Shanties n Such/Asset Replacement Tracker/...` [Task 1]
+- New code introduced in this rollout included `ReplacementAssetRequest`, `ReplacementAssetTracker`, `PlaceholderAssetMarker`, `ReplacementAssetTrackerEditorUtility`, and `ReplacementAssetTrackerWindow` [Task 1]
+- The seeded starter requests covered thatch roof material, weathered board material, mangrove bark/leaf materials, dock board prefab, roof shingle prefab, ship/vehicle structural pieces, player building kit pieces, shared props/tools/weapons, and world/construction audio placeholders [Task 1]
+- The validation hook scans open scenes for `PlaceholderAssetMarker` usage and flags placeholder-looking renderer materials that are missing a marker [Task 1]
+- Unity batch verification succeeded after compile repair; the headless creation path is `ReplacementAssetTrackerEditorUtility.CreateOrRefreshTrackerAsset`, and the final log line confirmed `Seeded 9 starter request(s).` [Task 1]
+
+## Failures and how to do differently
+
+- If the first Unity batch run creates the tracker asset but seeds `0` requests, let import/compile finish and rerun the creation step; the first pass here executed before the newer seeding path was active [Task 1]
+- If Unity compilation fails while landing the tracker, check for pre-existing repo blockers before blaming the new feature; `BuildingSettlementLayoutPlanner.cs` was already broken until the missing terrain helper methods were restored [Task 1]
+- If broad source-search patterns miss tracker files, narrow the search to `Assets/ShantiesNSuch/AssetTracking` instead of assuming the files were not created [Task 1]
 
 # Task Group: Codex Mobile Windows Remote Control Pairing
 scope: Diagnosing and repairing Codex Mobile remote-control pairing on Windows when the phone can connect but the PC host is not recognized as connected.
@@ -72,69 +304,6 @@ applies_to: cwd=C:\Users\mikeh\Documents\Codex\2026-06-06\i-connected-my-phone-f
 - `codex remote-control start` is not the Windows fix path here; it failed because app-server daemon lifecycle support is Unix-only in that tool path [Task 1]
 - Restoring only the enrollment row was not enough; the real blocker was `tokens.account_id = null`, so check auth metadata before assuming the backend is broken [Task 1]
 - If a temporary helper app-server returns `409 Conflict` with "Remote app server already online", treat that as confirmation the packaged desktop host has taken over and stop the helper [Task 1]
-
-# Task Group: PD2 c3844 Final Proof and Readiness Closeout
-scope: Verified late-stage `c3844` proof work for Public Mods runtime delivery, B-801 source-only readiness, and the final regression sweep in the PD2 repo.
-applies_to: cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike; reuse_rule=reuse for PD2 parity/closeout work in this checkout when the user wants live-context-first proof, exact counts, scoped logging, and cleanup; re-check `tools/kanban/state.json` and repo-local `context/` before assuming the lane is still in the same state.
-
-## Task 1: Prove received Public Mods `.pdmod` delivery/runtime through the strict shared archive contract, success
-
-### rollout_summary_files
-
-- rollout_summaries/2026-06-12T01-29-52-8SKt-c3844_public_mods_pdmod_runtime_delivery_proof.md (cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike, rollout_path=C:\Users\mikeh\.codex\sessions\2026\06\11\rollout-2026-06-11T21-30-01-019eb973-2773-7143-8afe-4458430ff299.jsonl, updated_at=2026-06-12T02:14:55+00:00, thread_id=019eb973-2773-7143-8afe-4458430ff299, inbox install, enable/load parity, negative pre-install proof, and closeout hygiene were verified)
-
-### keywords
-
-- c3844, Public Mods, pdmod, modmgrValidateArchiveFile, modmgrInstallArchiveFile, public_mods_pdmod_install_smoke, scoped logging, mods/installed, WerFault
-
-## Task 2: Close B-801 source-only fallback readiness while leaving c3849 Wave 7 explicitly gated, success
-
-### rollout_summary_files
-
-- rollout_summaries/2026-06-12T01-31-10-qXjf-c3844_b801_source_only_readiness_closeout.md (cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike, rollout_path=C:\Users\mikeh\.codex\sessions\2026\06\11\rollout-2026-06-11T21-31-15-019eb974-5947-7572-a9af-825b5cdc4655.jsonl, updated_at=2026-06-12T03:04:47+00:00, thread_id=019eb974-5947-7572-a9af-825b5cdc4655, fixed narrow readiness gaps, re-ran grouped smokes, and preserved Wave 7 as an explicit future gate)
-
-### keywords
-
-- c3844, B-801, c3849, Wave 7, all_family_source_gate_smoke, audio_live_playback_source_smoke, base_animation_source_probe_smoke, results-20260612T025658Z.json, fatal cutover, toggle retirement
-
-## Task 3: Run the final all-family regression sweep and record the green proof set, success
-
-### rollout_summary_files
-
-- rollout_summaries/2026-06-12T03-06-34-0ISs-c3844_final_all_family_regression_sweep.md (cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike, rollout_path=C:\Users\mikeh\.codex\sessions\2026\06\11\rollout-2026-06-11T23-06-44-019eb9cb-b0cd-7023-911c-f784548fa7e0.jsonl, updated_at=2026-06-12T03:57:43+00:00, thread_id=019eb9cb-b0cd-7023-911c-f784548fa7e0, full validator/test/smoke/build matrix was re-run and the blockers were fixed)
-
-### keywords
-
-- c3844, final regression sweep, results-20260612T035120Z.json, asset_native_source_guard.py, verify_pdxxx_modder_workflow.py, asset_archive_conformance.py, verify_audio_sources.py, verify_pdmesh_sources.py, verify_pdanim_sources.py, 426/426
-
-## User preferences
-
-- when the user says "Read mandatory context first" for PD2 closeout work -> start from the live repo-local `context/` tree and `tools/kanban/state.json`, not from older summaries [Task 1][Task 2][Task 3]
-- when the user requires scoped logging and "prevent lingering PerfectDark/PerfectDarkServer/WerFault processes" -> treat log masks and explicit process cleanup as first-class proof criteria, not afterthoughts [Task 1][Task 3]
-- when the user asks for exact pass/fail counts -> preserve the per-gate and per-smoke totals instead of collapsing the report to "green" [Task 3]
-- when the user says "do not implement new feature work unless a regression blocks completion" -> stay in verification/fix mode during final sweeps and only patch true blockers [Task 3]
-- when the user requires updates to context, Kanban, and release notes -> treat those edits as part of the deliverable, not separate admin [Task 1][Task 2][Task 3]
-- when the user wants remaining integer-only runtime limits treated as private migration debt -> preserve that distinction in closeout artifacts and do not describe it as public archive behavior [Task 2]
-
-## Reusable knowledge
-
-- Received Public Mods `.pdmod` delivery only matches local install behavior when the inbox path is validated by `modmgrValidateArchiveFile()` and then installed through `modmgrInstallArchiveFile()`; keep that shared contract intact for both Hub import and received-mod install [Task 1]
-- The strongest runtime proof for this lane covered inbox delivery, enable prompt, install into `mods/installed`, catalog scan, and actual runtime loads from installed content, plus negative proof for public `.bin`, public `.tsv`, and invalid nested typed archives [Task 1]
-- The B-801 readiness closeout fixed narrow timing/state gaps without flipping the larger c3849 Wave 7 policy. Wave 7 remains explicitly gated on default flip criteria, per-family fatal cutover, MP mismatch refusal/protocol pins, and toggle retirement [Task 2]
-- The fast authoritative gate set for this lane was `python tools\asset_native_source_guard.py`, `python tools\verify_pdxxx_modder_workflow.py`, archive conformance selftest, checked-in example conformance, retained `Build\data\ntsc-final` conformance, audio/mesh/animation validators, focused tests, the smoke result JSON, and the isolated `-Target all` build [Task 2][Task 3]
-- The final smoke evidence artifact was `.claude/smoke-verify-runs/results-20260612T035120Z.json`, which summarized the matrix cleanly as 9/9 tests and 426/426 assertions [Task 3]
-- Repo-local `context/` files are canonical first. Sync parent mirrors only when those files actually exist there and only after the repo-local copies are updated [Task 2][Task 3]
-- Keep a running simplified list of release-note bullets in `UNRELEASED.md` for completed PD2 tasks, using concise release-ready wording instead of session-log detail [ad-hoc note]
-- When Mike says the log is "in build", check `C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike\Build\logs\game client` first; when he says the release folder or install directory, check `C:\Users\mikeh\Downloads\Perfect Dark 2.0\logs\game client` first [ad-hoc note]
-- Related skill: skills/pd2-card-closeout/SKILL.md [Task 3]
-
-## Failures and how to do differently
-
-- If a Public Mods smoke exits too early, leave enough time for cold install/extraction/catalog activation before sentinel shutdown; the first run failed because the proof path had not finished [Task 1]
-- If grouped source-gate smokes stall, fix the timing/state boundary instead of forcing retries: wait for the right boot/source signals and shorten path-length-sensitive generated cache names where needed [Task 2]
-- If a final static guard fails after runtime work already looks correct, check for stale test-contract drift before changing runtime behavior; the `.pdarena` / `.pdhead` source-ownership failure was a stale expectation, not a new runtime regression [Task 3]
-- If a smoke mixes installed `.pdmod` proof with a later loose-folder proof, clear stale installed fixture state first so the loose-folder path is actually exercised [Task 3]
-- Broad `git status` and repo-wide hygiene checks can be noisy or slow in this workspace. Use narrower tracked-file checks, and do not pass parent paths outside the repo root to `git diff --check` [Task 3]
 
 # Task Group: PD2 c3844 Workflow Hardening and Remaining-Work Planning
 scope: Pre-closeout `c3844` work that hardened the `.pdmod` transport path, corrected overly broad audits, and turned the remaining goal work into parallelizable, validated prompts.
