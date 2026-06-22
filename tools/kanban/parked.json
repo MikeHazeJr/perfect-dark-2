@@ -20,7 +20,7 @@
         "context/pillars/modding.md"
       ],
       "kanban_card_origin": null,
-      "last_checked": "2026-06-19",
+      "last_checked": "2026-06-22",
       "tags": [
         "editor",
         "forge",
@@ -46,7 +46,7 @@
         "context/_old/audits/2026/pdmod-verification-matrix-2026-04-25.md"
       ],
       "kanban_card_origin": null,
-      "last_checked": "2026-06-19",
+      "last_checked": "2026-06-22",
       "tags": [
         "cleanup",
         "modding",
@@ -73,7 +73,7 @@
         "context/pillars/connectivity.md"
       ],
       "kanban_card_origin": null,
-      "last_checked": "2026-06-19",
+      "last_checked": "2026-06-22",
       "tags": [
         "connectivity",
         "p2p",
