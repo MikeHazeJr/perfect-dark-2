@@ -4542,6 +4542,46 @@ static void emitGeneratedUntexturedState(Gfx **gdlptr)
 	*gdlptr = gdl;
 }
 
+/* c3844 fix B Slice 1 (activation): emit the render mode for a material's render
+ * class inline in the body DL, only when the class changes. The generated-mesh
+ * DL runs in the model's OPA pass under G_RM_AA_ZB_OPA_SURF (set by
+ * modelApplyRenderModeType1); for an XLU/TEX_EDGE material we override to the
+ * z-tested alpha-blend / alpha-compare render mode so translucent and masked
+ * materials (e.g. the CI glass table) blend instead of drawing opaque-black,
+ * then reset to OPA when the class returns to opaque. Opaque-only meshes never
+ * change class (last_class starts OPAQUE), so they emit nothing new and render
+ * byte-identically to before -- zero regression for the opaque case. The two
+ * commands per change stay within the bumped material_switch_count source-DL
+ * budget. (A dedicated mcount=4 XLU pass with back-to-front sorting is a later
+ * refinement; this inline mode fixes the opaque-black symptom first.) */
+static void emitGeneratedRenderClass(Gfx **gdlptr, s32 render_class,
+                                     s32 *last_class)
+{
+	Gfx *gdl;
+
+	if (!gdlptr || !*gdlptr || !last_class || render_class == *last_class) {
+		return;
+	}
+
+	gdl = *gdlptr;
+	switch (render_class) {
+	case PDMESH_RC_XLU:
+		gDPSetAlphaCompare(gdl++, G_AC_NONE);
+		gDPSetRenderMode(gdl++, G_RM_AA_ZB_XLU_SURF, G_RM_AA_ZB_XLU_SURF2);
+		break;
+	case PDMESH_RC_TEX_EDGE:
+		gDPSetAlphaCompare(gdl++, G_AC_THRESHOLD);
+		gDPSetRenderMode(gdl++, G_RM_AA_ZB_TEX_EDGE, G_RM_AA_ZB_TEX_EDGE2);
+		break;
+	default: /* PDMESH_RC_OPAQUE / PDMESH_RC_DECAL: reset to opaque surface */
+		gDPSetAlphaCompare(gdl++, G_AC_NONE);
+		gDPSetRenderMode(gdl++, G_RM_AA_ZB_OPA_SURF, G_RM_AA_ZB_OPA_SURF2);
+		break;
+	}
+	*last_class = render_class;
+	*gdlptr = gdl;
+}
+
 static void fillGeneratedVertex(Vtx *dst, const obj_vertex_t *src,
                                 const obj_texcoord_t *texcoord)
 {
@@ -5876,7 +5916,7 @@ static s32 generatedModeldefBuildPayload(const obj_mesh_t *mesh,
 		return 1;
 	}
 
-	source_gdl_count = tri_count * 3 + 7 + material_switch_count * 3 +
+	source_gdl_count = tri_count * 3 + 7 + material_switch_count * 8 +
 		render_stream_cmd_count * 2;
 	output_gdl_count = source_gdl_count
 		+ material_switch_count * 512
@@ -5963,7 +6003,7 @@ static s32 generatedModeldefBuildPayload(const obj_mesh_t *mesh,
 	emitted = 0;
 	if (use_render_stream) {
 		for (s32 i = 0, last_material = -2, last_textured = 0,
-				last_matrix = -0x40000000; i < stream->row_count; i++) {
+				last_matrix = -0x40000000, last_render_class = PDMESH_RC_OPAQUE; i < stream->row_count; i++) {
 			const generated_render_row_t *row = &stream->rows[i];
 			const obj_triangle_t *tri;
 			const obj_material_t *material;
@@ -6003,6 +6043,7 @@ static s32 generatedModeldefBuildPayload(const obj_mesh_t *mesh,
 						emitGeneratedUntexturedState(&gdl);
 						last_textured = 0;
 					}
+					emitGeneratedRenderClass(&gdl, material->render_class, &last_render_class);
 					last_material = row->material;
 				}
 				continue;
@@ -6040,6 +6081,7 @@ static s32 generatedModeldefBuildPayload(const obj_mesh_t *mesh,
 					emitGeneratedUntexturedState(&gdl);
 					last_textured = 0;
 				}
+				emitGeneratedRenderClass(&gdl, material->render_class, &last_render_class);
 				last_material = tri->material_index;
 			}
 			gSPVertex(gdl++, SEGADDR(vertex_segment | offset), 3, 0);
@@ -6795,7 +6837,7 @@ static s32 buildGeneratedModeldefFromMesh(const asset_entry_t *entry,
 	}
 
 	source_gdl_count = mesh->triangle_count * 2 + 7
-		+ material_switch_count * 3;
+		+ material_switch_count * 8;
 	output_gdl_count = source_gdl_count
 		+ material_switch_count * 512
 		+ textured_material_count * 256
