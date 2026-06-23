@@ -80,11 +80,11 @@
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "../external/stb_image_write.h"
 
-#define PDSCENARIO_BG_VISUAL_EXPORT_VERSION "bg_visual_scene_glb_v11_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_materialextras_dualtex"
+#define PDSCENARIO_BG_VISUAL_EXPORT_VERSION "bg_visual_scene_glb_v12_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_materialextras_dualtex_alphablend"
 #define PDSCENARIO_BG_VISUAL_EXPORT_VERSION_FILE \
 	PDSCENARIO_BG_VISUAL_EXPORT_VERSION "\n"
 #define ROMEXTRACT_PDARENA_FAST_CACHE_KIND "pdarena_clean_public_v8_pdscenario_v91"
-#define ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND "pdscenario_scene_glb_clean_public_v96_standalone_backfill_collision_obj_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json"
+#define ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND "pdscenario_scene_glb_clean_public_v97_standalone_backfill_collision_obj_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_alphablend_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json"
 
 /* Convert "base:arena_mp_skedar" -> "base_arena_mp_skedar". */
 static void s_idToFilename(const char *id, char *out, size_t n)
@@ -255,6 +255,21 @@ typedef struct {
 	s32 has_bounds;
 } pdscenario_visualmesh_t;
 
+/* c3844 glass fix: per-material alpha mode, captured at extract from which room
+ * block list (opablocks vs xlublocks) a material's triangles came from -- the same
+ * OPA/XLU split the .pdmesh extractor records via current_render_class. The glTF
+ * "alphaMode" written from this drives the renderer's opaque-vs-blend pass choice:
+ *   OPAQUE -> opaque pass, no discard           (solid walls/floors)
+ *   MASK   -> opaque pass + alphaCutoff discard  (cutout grates, masked decals)
+ *   BLEND  -> translucent blend pass             (glass, smoked panels)
+ * Default 0 (OPAQUE) keeps un-re-extracted scenes behaving as before for solids;
+ * texture has_alpha on an opaque-list material upgrades it to MASK at JSON build. */
+enum {
+	PDSCENARIO_ALPHA_OPAQUE = 0,
+	PDSCENARIO_ALPHA_MASK   = 1,
+	PDSCENARIO_ALPHA_BLEND  = 2,
+};
+
 typedef struct {
 	u16 texnum;
 	s32 used_by_geometry;
@@ -283,6 +298,7 @@ typedef struct {
 	s32 shiftt;
 	s32 min;
 	s32 flag;
+	s32 alpha_mode; /* PDSCENARIO_ALPHA_*; OPAQUE/MASK/BLEND, set from opa/xlu source */
 	u32 tri_count;
 	pdscenario_visual_vertex_t *vertices;
 	u32 vertex_count;
@@ -5457,7 +5473,8 @@ static s32 s_bgMaterialAddTri(pdscenario_bgmaterial_t *m,
 }
 
 static s32 s_bgSceneEnsureMaterial(pdscenario_bgscene_t *scene, s32 texnum,
-                                   s32 texnum2, s32 subcmd, u32 w0, u32 w1)
+                                   s32 texnum2, s32 subcmd, u32 w0, u32 w1,
+                                   s32 is_xlu)
 {
 	s32 smode = (s32)((w0 >> 22) & 3u);
 	s32 tmode = (s32)((w0 >> 20) & 3u);
@@ -5466,11 +5483,15 @@ static s32 s_bgSceneEnsureMaterial(pdscenario_bgscene_t *scene, s32 texnum,
 	s32 shiftt = (s32)((w0 >> 10) & 0x0fu);
 	s32 min = (s32)((w1 >> 24) & 0xffu);
 	s32 flag = (w0 & 0x200u) ? 1 : 0;
+	/* xlu-list geometry is translucent (BLEND); opaque-list defaults to OPAQUE and
+	 * is upgraded to MASK at JSON build time if its texture carries alpha (cutout). */
+	s32 alpha_mode = is_xlu ? PDSCENARIO_ALPHA_BLEND : PDSCENARIO_ALPHA_OPAQUE;
 
 	for (u32 i = 0; i < scene->material_count; i++) {
 		pdscenario_bgmaterial_t *m = &scene->materials[i];
 		if (m->texnum == texnum && m->texnum2 == texnum2 &&
-		    m->subcmd == subcmd && m->w0 == w0 && m->w1 == w1) {
+		    m->subcmd == subcmd && m->w0 == w0 && m->w1 == w1 &&
+		    m->alpha_mode == alpha_mode) {
 			return (s32)i;
 		}
 	}
@@ -5490,6 +5511,7 @@ static s32 s_bgSceneEnsureMaterial(pdscenario_bgscene_t *scene, s32 texnum,
 	m->shiftt = shiftt;
 	m->min = min;
 	m->flag = flag;
+	m->alpha_mode = alpha_mode;
 	if (texnum >= 0 && texnum2 >= 0) {
 		snprintf(m->name, sizeof(m->name), "mat_%03u_tex_%04x_%04x_c%d",
 			(unsigned)scene->material_count, (unsigned)texnum,
@@ -5522,7 +5544,7 @@ static s32 s_bgSceneInit(pdscenario_bgscene_t *scene)
 			"mtllib scene.mtl\n") != 0) {
 		return -1;
 	}
-	return s_bgSceneEnsureMaterial(scene, -1, -1, -1, 0, 0);
+	return s_bgSceneEnsureMaterial(scene, -1, -1, -1, 0, 0, 0);
 }
 
 static s32 s_bgSceneAddTri(pdscenario_bgscene_t *scene, s32 material_index,
@@ -6346,25 +6368,31 @@ static s32 s_bgSceneBuildSceneGlb(pdscenario_bgscene_t *scene)
 			(tex && tex->decoded) ? tex->path : "";
 		const char *secondary_image =
 			(tex2 && tex2->decoded) ? tex2->path : "";
+		/* c3844 glass fix: alphaMode is BLEND when the geometry came from the room's
+		 * xlu block list (translucent glass), MASK when it came from the opaque list
+		 * but its texture carries alpha (cutout grates/decals -> crisp edges), and
+		 * absent (-> glTF default OPAQUE) for solids. The renderer reads alphaMode to
+		 * choose the blend pass vs the opaque pass + alpha-test discard. */
+		s32 prim_has_alpha = (tex && tex->decoded && tex->has_alpha);
+		const char *alpha_attr = "";
+		if (m->alpha_mode == PDSCENARIO_ALPHA_BLEND) {
+			alpha_attr = "\"alphaMode\":\"BLEND\",";
+		} else if (prim_has_alpha) {
+			alpha_attr = "\"alphaMode\":\"MASK\",\"alphaCutoff\":0.01,";
+		}
 		if (i && s_textbufAppend(&json, ",") != 0) goto fail_json;
 		if (mr[i].texture_index != 0xffffffffu) {
-			if (tex && tex->decoded && tex->has_alpha) {
-				if (s_textbufAppendf(&json,
-						"{\"name\":\"%s\",\"alphaMode\":\"MASK\",\"alphaCutoff\":0.01,"
-						"\"pbrMetallicRoughness\":{\"baseColorTexture\":{\"index\":%d,\"texCoord\":0},"
-						"\"metallicFactor\":0.0,\"roughnessFactor\":1.0}",
-						m->name, (s32)mr[i].texture_index) != 0) goto fail_json;
-			} else if (s_textbufAppendf(&json,
-					"{\"name\":\"%s\","
+			if (s_textbufAppendf(&json,
+					"{\"name\":\"%s\",%s"
 					"\"pbrMetallicRoughness\":{\"baseColorTexture\":{\"index\":%d,\"texCoord\":0},"
 					"\"metallicFactor\":0.0,\"roughnessFactor\":1.0}",
-					m->name, (s32)mr[i].texture_index) != 0) goto fail_json;
+					m->name, alpha_attr, (s32)mr[i].texture_index) != 0) goto fail_json;
 		} else {
 			if (s_textbufAppendf(&json,
-					"{\"name\":\"%s\","
+					"{\"name\":\"%s\",%s"
 					"\"pbrMetallicRoughness\":{\"baseColorFactor\":[1.0,1.0,1.0,1.0],"
 					"\"metallicFactor\":0.0,\"roughnessFactor\":1.0}",
-					m->name) != 0) goto fail_json;
+					m->name, alpha_attr) != 0) goto fail_json;
 		}
 		if (s_textbufAppendf(&json,
 				",\"extras\":{\"pd2_material\":{\"texture_command\":\"%s\","
@@ -6690,7 +6718,7 @@ static s32 s_exportBgGdl(pdscenario_bgscene_t *scene, Gfx *gdl,
                          const Vtx *vertices, u32 vertex_span,
                          const Col *colours, u32 colour_span,
                          const struct coord *room_pos,
-                         u32 roomnum)
+                         u32 roomnum, s32 is_xlu)
 {
 	if (!gdl || !vertices || !room_pos) return 0;
 	if (!s_rangeInBuffer(room_base, room_size, gdl, (u32)sizeof(Gfx))) return 0;
@@ -6732,7 +6760,7 @@ static s32 s_exportBgGdl(pdscenario_bgscene_t *scene, Gfx *gdl,
 			if (texnum >= 0 && texnum < NUM_TEXTURES) {
 				s32 next_mat = s_bgSceneEnsureMaterial(scene, texnum,
 					(texnum2 >= 0 && texnum2 < NUM_TEXTURES) ? texnum2 : -1,
-					subcmd, w0, w1);
+					subcmd, w0, w1, is_xlu);
 				if (next_mat >= 0) material_index = next_mat;
 			}
 		} else if (op == G_COL) {
@@ -6814,19 +6842,28 @@ static s32 s_exportBgGdl(pdscenario_bgscene_t *scene, Gfx *gdl,
 	return 0;
 }
 
-static s32 s_exportBgRoomBlocks(pdscenario_bgscene_t *scene,
-                                struct roomgfxdata *gfx,
-                                const u8 *room_base, u32 room_size,
-                                const struct coord *room_pos,
-                                u32 roomnum)
+/* c3844 glass fix: walk one room block list (opablocks OR xlublocks) following the
+ * block->next chain and recursing into PARENT->child, exactly like the engine's
+ * bgGetNextGdlInBlock. opablocks and xlublocks are two roots into the SAME blocks[]
+ * array, so the prior linear block++ scan could not tell which leaves were opaque
+ * vs translucent -- it visited every leaf. By traversing per-list we can stamp the
+ * is_xlu flag (-> alpha_mode) onto each captured material correctly.
+ * visited/budget bounds recursion against malformed/cyclic data. */
+static s32 s_exportBgRoomBlockList(pdscenario_bgscene_t *scene,
+                                   struct roomgfxdata *gfx,
+                                   struct roomblock *block,
+                                   const u8 *room_base, u32 room_size,
+                                   const struct coord *room_pos,
+                                   u32 roomnum, s32 is_xlu, u32 *budget)
 {
-	if (!scene || !gfx || !gfx->vertices || !gfx->colours) return 0;
 	uintptr_t end = (uintptr_t)gfx->vertices;
-	struct roomblock *block = gfx->blocks;
-	while (s_rangeInBuffer(room_base, room_size, block, (u32)sizeof(*block)) &&
-	       (uintptr_t)(block + 1) <= end) {
-		if (block->type == ROOMBLOCKTYPE_LEAF && block->gdl && block->vertices) {
-			if (s_rangeInBuffer(room_base, room_size, block->vertices, (u32)sizeof(Vtx))) {
+	while (block &&
+	       s_rangeInBuffer(room_base, room_size, block, (u32)sizeof(*block))) {
+		if (*budget == 0) break;
+		(*budget)--;
+		if (block->type == ROOMBLOCKTYPE_LEAF) {
+			if (block->gdl && block->vertices &&
+			    s_rangeInBuffer(room_base, room_size, block->vertices, (u32)sizeof(Vtx))) {
 				u32 vertex_span = 0;
 				if (gfx->colours && (uintptr_t)gfx->colours > (uintptr_t)block->vertices) {
 					vertex_span = (u32)((uintptr_t)gfx->colours -
@@ -6843,19 +6880,47 @@ static s32 s_exportBgRoomBlocks(pdscenario_bgscene_t *scene,
 					if (s_exportBgGdl(scene, block->gdl, room_base,
 							room_size, block->vertices, vertex_span,
 							block->colours, colour_span,
-							room_pos, roomnum) != 0) {
+							room_pos, roomnum, is_xlu) != 0) {
 						return -1;
 					}
 				}
 			}
-		} else if (block->type == ROOMBLOCKTYPE_PARENT && block->unk0c &&
-		           (uintptr_t)block->unk0c < end) {
-			end = (uintptr_t)block->unk0c;
-		} else if (block->type != ROOMBLOCKTYPE_LEAF &&
-		           block->type != ROOMBLOCKTYPE_PARENT) {
+			block = block->next;
+		} else if (block->type == ROOMBLOCKTYPE_PARENT) {
+			if (block->child &&
+			    s_exportBgRoomBlockList(scene, gfx, block->child,
+					room_base, room_size, room_pos, roomnum,
+					is_xlu, budget) != 0) {
+				return -1;
+			}
+			block = block->next;
+		} else {
 			break;
 		}
-		block++;
+		if (block && (uintptr_t)block >= end) break;
+	}
+	return 0;
+}
+
+static s32 s_exportBgRoomBlocks(pdscenario_bgscene_t *scene,
+                                struct roomgfxdata *gfx,
+                                const u8 *room_base, u32 room_size,
+                                const struct coord *room_pos,
+                                u32 roomnum)
+{
+	if (!scene || !gfx || !gfx->vertices || !gfx->colours) return 0;
+	if ((uintptr_t)gfx->vertices <= (uintptr_t)gfx->blocks) return 0;
+	/* Shared recursion budget across both lists: bounds total leaf+parent visits
+	 * for this room to the block-array span, mirroring the old (block+1) <= end. */
+	u32 budget = (u32)(((uintptr_t)gfx->vertices - (uintptr_t)gfx->blocks) /
+		sizeof(struct roomblock)) + 1u;
+	if (s_exportBgRoomBlockList(scene, gfx, gfx->opablocks, room_base,
+			room_size, room_pos, roomnum, 0, &budget) != 0) {
+		return -1;
+	}
+	if (s_exportBgRoomBlockList(scene, gfx, gfx->xlublocks, room_base,
+			room_size, room_pos, roomnum, 1, &budget) != 0) {
+		return -1;
 	}
 	return 0;
 }

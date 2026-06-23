@@ -33,6 +33,17 @@ struct Accessor {
 	std::string type;
 };
 
+/* c3844 glass fix: glTF alphaMode, mirrored from the extract-side
+ * PDSCENARIO_ALPHA_* enum. Drives the per-material pass choice in the render loop:
+ * OPAQUE -> opaque pass, no discard; MASK -> opaque pass + alpha-test cutout;
+ * BLEND -> translucent blend pass. Replaces the texture-alpha-only uses_alpha
+ * heuristic so glass blends, grates cut out crisply, and solids stay opaque. */
+enum MaterialAlphaMode {
+	ALPHA_MODE_OPAQUE = 0,
+	ALPHA_MODE_MASK   = 1,
+	ALPHA_MODE_BLEND  = 2,
+};
+
 struct Material {
 	int image = -1;
 	int secondary_image = -1;
@@ -44,6 +55,8 @@ struct Material {
 	int secondary_texcoord = 1;
 	bool has_secondary = false;
 	bool uses_alpha = false;
+	int alpha_mode = ALPHA_MODE_OPAQUE;
+	float alpha_cutoff = 0.01f;
 };
 
 struct Image {
@@ -103,6 +116,9 @@ struct Scene {
 	size_t alpha_texture_count = 0;
 	size_t alpha_material_count = 0;
 	size_t secondary_material_count = 0;
+	size_t opaque_material_count = 0;
+	size_t mask_material_count = 0;
+	size_t blend_material_count = 0;
 	float view_projection[4][4] = {};
 };
 
@@ -168,6 +184,21 @@ static int intField(const crude_json::object &obj, const char *key,
 	auto it = obj.find(key);
 	return it != obj.end() && it->second.is_number()
 		? (int)it->second.get<crude_json::number>() : fallback;
+}
+
+static float floatField(const crude_json::object &obj, const char *key,
+	float fallback)
+{
+	auto it = obj.find(key);
+	return it != obj.end() && it->second.is_number()
+		? (float)it->second.get<crude_json::number>() : fallback;
+}
+
+static std::string stringField(const crude_json::object &obj, const char *key)
+{
+	auto it = obj.find(key);
+	return it != obj.end() && it->second.is_string()
+		? it->second.get<crude_json::string>() : std::string();
 }
 
 static bool probeLoggingEnabled()
@@ -444,6 +475,18 @@ static void parseMaterials(const crude_json::value &root,
 				mat.has_secondary = true;
 			}
 		}
+		/* c3844 glass fix: parse glTF alphaMode (default OPAQUE) so the render loop
+		 * can pick the opaque vs blend pass per material. BLEND -> translucent pass;
+		 * MASK -> opaque pass with alpha-test cutout at alphaCutoff; OPAQUE -> solid. */
+		if (mat_obj) {
+			std::string mode = stringField(*mat_obj, "alphaMode");
+			if (mode == "BLEND") {
+				mat.alpha_mode = ALPHA_MODE_BLEND;
+			} else if (mode == "MASK") {
+				mat.alpha_mode = ALPHA_MODE_MASK;
+				mat.alpha_cutoff = floatField(*mat_obj, "alphaCutoff", 0.5f);
+			}
+		}
 		materials.push_back(mat);
 		if (probeLoggingEnabled()) {
 			sysLogPrintf(LOG_NOTE,
@@ -499,6 +542,9 @@ static void markMaterialAlpha(Scene &scene)
 	scene.alpha_texture_count = 0;
 	scene.alpha_material_count = 0;
 	scene.secondary_material_count = 0;
+	scene.opaque_material_count = 0;
+	scene.mask_material_count = 0;
+	scene.blend_material_count = 0;
 	for (const Image &img : scene.images) {
 		if (img.has_nonopaque_alpha) {
 			scene.alpha_texture_count++;
@@ -511,12 +557,30 @@ static void markMaterialAlpha(Scene &scene)
 		bool secondary_alpha = mat.secondary_image >= 0
 			&& (size_t)mat.secondary_image < scene.images.size()
 			&& scene.images[(size_t)mat.secondary_image].has_nonopaque_alpha;
-		mat.uses_alpha = primary_alpha || secondary_alpha;
+		bool texture_alpha = primary_alpha || secondary_alpha;
+		/* Back-compat + safety: a material the glTF left OPAQUE but whose texture
+		 * actually carries non-opaque alpha is a cutout -> promote to MASK so it gets
+		 * the alpha-test discard (covers scenes extracted before alphaMode=BLEND, and
+		 * any opaque-list alpha texture). BLEND/MASK from the glTF are authoritative. */
+		if (mat.alpha_mode == ALPHA_MODE_OPAQUE && texture_alpha) {
+			mat.alpha_mode = ALPHA_MODE_MASK;
+		}
+		/* uses_alpha kept as a legacy alias = "draws in the translucent blend pass". */
+		mat.uses_alpha = (mat.alpha_mode == ALPHA_MODE_BLEND);
 		if (mat.has_secondary) {
 			scene.secondary_material_count++;
 		}
-		if (mat.uses_alpha) {
+		switch (mat.alpha_mode) {
+		case ALPHA_MODE_BLEND:
+			scene.blend_material_count++;
 			scene.alpha_material_count++;
+			break;
+		case ALPHA_MODE_MASK:
+			scene.mask_material_count++;
+			break;
+		default:
+			scene.opaque_material_count++;
+			break;
 		}
 	}
 }
@@ -1005,6 +1069,7 @@ static bool ensureShader(Scene &scene)
 		"uniform int u_HasTex2;\n"
 		"uniform int u_PrimaryTexcoord;\n"
 		"uniform int u_SecondaryTexcoord;\n"
+		"uniform float u_AlphaCutoff;\n"
 		"in vec2 v_Uv0;\n"
 		"in vec2 v_Uv1;\n"
 		"in vec4 v_Color;\n"
@@ -1019,7 +1084,9 @@ static bool ensureShader(Scene &scene)
 		"    sampled = mix(sampled, sampled2, 0.5);\n"
 		"  }\n"
 		"  vec4 outColor = sampled * v_Color;\n"
-		"  if (outColor.a <= 0.01) discard;\n"
+		/* c3844 glass fix: MASK passes a real cutoff (crisp cutout edges); OPAQUE and
+		 * BLEND pass ~0 so only fully-transparent texels drop. */
+		"  if (outColor.a < u_AlphaCutoff) discard;\n"
 		"  fragColor = outColor;\n"
 		"}\n";
 
@@ -1288,12 +1355,14 @@ extern "C" int scenarioSceneRendererActivate(const char *scenario_id,
 	next.active = true;
 	g_scene = std::move(next);
 	sysLogPrintf(LOG_NOTE,
-		"SCENARIO.RENDER: activated source scene '%s' source=%s vertices=%zu groups=%zu materials=%zu images=%zu alpha_textures=%zu alpha_materials=%zu secondary_materials=%zu uv=TEXCOORD_1 alpha=mask dualtex=extras",
+		"SCENARIO.RENDER: activated source scene '%s' source=%s vertices=%zu groups=%zu materials=%zu images=%zu alpha_textures=%zu alpha_materials=%zu secondary_materials=%zu uv=TEXCOORD_1 alpha_modes=opaque:%zu/mask:%zu/blend:%zu dualtex=extras",
 		scenario_id ? scenario_id : "?", scene_path,
 		g_scene.vertices.size(), g_scene.groups.size(),
 		g_scene.materials.size(), g_scene.images.size(),
 		g_scene.alpha_texture_count, g_scene.alpha_material_count,
-		g_scene.secondary_material_count);
+		g_scene.secondary_material_count,
+		g_scene.opaque_material_count, g_scene.mask_material_count,
+		g_scene.blend_material_count);
 	return 1;
 }
 
@@ -1434,6 +1503,8 @@ extern "C" void scenarioSceneRendererRender(int width, int height)
 		glGetUniformLocation(g_scene.shader, "u_PrimaryTexcoord");
 	GLint secondary_texcoord_loc =
 		glGetUniformLocation(g_scene.shader, "u_SecondaryTexcoord");
+	GLint alpha_cutoff_loc =
+		glGetUniformLocation(g_scene.shader, "u_AlphaCutoff");
 	glUniformMatrix4fv(vp_loc, 1, GL_FALSE,
 		(const float *)g_scene.view_projection);
 	glUniform1i(tex_loc, 0);
@@ -1454,6 +1525,9 @@ extern "C" void scenarioSceneRendererRender(int width, int height)
 		int has_tex2 = 0;
 		int primary_texcoord = 0;
 		int secondary_texcoord = 1;
+		/* MASK -> honor the material cutoff for crisp cutout edges; OPAQUE/BLEND ->
+		 * tiny floor so only fully-transparent texels drop. */
+		float alpha_cutoff = 0.01f;
 		if (group.material >= 0
 				&& (size_t)group.material < g_scene.materials.size()) {
 			const Material &mat = g_scene.materials[(size_t)group.material];
@@ -1463,6 +1537,9 @@ extern "C" void scenarioSceneRendererRender(int width, int height)
 			wrap_t = mat.wrap_t;
 			wrap2_s = mat.secondary_wrap_s;
 			wrap2_t = mat.secondary_wrap_t;
+			if (mat.alpha_mode == ALPHA_MODE_MASK) {
+				alpha_cutoff = mat.alpha_cutoff;
+			}
 			if (mat.image >= 0 && (size_t)mat.image < g_scene.images.size()
 					&& g_scene.images[(size_t)mat.image].gl) {
 				tex = g_scene.images[(size_t)mat.image].gl;
@@ -1474,6 +1551,7 @@ extern "C" void scenarioSceneRendererRender(int width, int height)
 				has_tex2 = 1;
 			}
 		}
+		glUniform1f(alpha_cutoff_loc, alpha_cutoff);
 		glUniform1i(has_tex2_loc, has_tex2);
 		glUniform1i(primary_texcoord_loc, primary_texcoord);
 		glUniform1i(secondary_texcoord_loc, secondary_texcoord);
@@ -1487,9 +1565,11 @@ extern "C" void scenarioSceneRendererRender(int width, int height)
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, wrap_t);
 		glDrawArrays(GL_TRIANGLES, (GLint)group.first, (GLsizei)group.count);
 	};
-	/* Pass 0: opaque materials (depth write on). Pass 1: translucent (uses_alpha)
-	 * materials, alpha-blended over the opaque scene with depth writes disabled so
-	 * the glass shows what's behind it (e.g. Joanna at the terminal). */
+	/* c3844 glass fix: alphaMode-driven two-pass. Pass 0 = OPAQUE + MASK materials
+	 * in the opaque pass (depth write on, no blend); MASK does its alpha-test cutout
+	 * in the shader via u_AlphaCutoff for crisp edges. Pass 1 = BLEND materials,
+	 * alpha-blended over the opaque scene with depth writes disabled so glass shows
+	 * what's behind it (e.g. Joanna at the terminal). */
 	for (int scene_pass = 0; scene_pass < 2; ++scene_pass) {
 		if (scene_pass == 1) {
 			glEnable(GL_BLEND);
@@ -1497,10 +1577,11 @@ extern "C" void scenarioSceneRendererRender(int width, int height)
 			glDepthMask(GL_FALSE);
 		}
 		for (const auto &group : g_scene.groups) {
-			bool group_alpha = group.material >= 0
+			bool group_blend = group.material >= 0
 				&& (size_t)group.material < g_scene.materials.size()
-				&& g_scene.materials[(size_t)group.material].uses_alpha;
-			if ((scene_pass == 0) == group_alpha) {
+				&& g_scene.materials[(size_t)group.material].alpha_mode
+					== ALPHA_MODE_BLEND;
+			if ((scene_pass == 0) == group_blend) {
 				continue;
 			}
 			renderSceneGroup(group);
