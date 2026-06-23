@@ -301,6 +301,18 @@ void menuTick(void)
 				var8009dfc0 = true;
 			}
 
+			/* CI MENU FIX (B-936): force the menu-bg flag false on the CI main-menu
+			 * backdrop (intro cutscene held by ciReadyForMenuOpen). var8009dfc0 true
+			 * here is the unified root: it removes the chrbody (just below), blocks
+			 * playerTickChrBody from rebuilding it (player.c ~2665), stops
+			 * playerTickCutscene (gated on haschrbody, player.c ~4943) so the cutscene
+			 * camera drops, and makes lv.c render the menu bg instead of the live world.
+			 * False (its intended state here) fixes all of that. */
+			if (g_Vars.stagenum == STAGE_CITRAINING &&
+					g_Vars.tickmode == TICKMODE_CUTSCENE) {
+				var8009dfc0 = false;
+			}
+
 			if (var8009dfc0 && g_Vars.currentplayer->gunmem2) {
 				playerRemoveChrBody();
 
@@ -309,7 +321,9 @@ void menuTick(void)
 		}
 	} else {
 		g_MenuData.unk010 = 0;
-		var8009dfc0 = g_MenuData.bg == 0 ? false : true;
+		var8009dfc0 = (g_MenuData.bg == 0 ||
+				(g_Vars.stagenum == STAGE_CITRAINING &&
+					g_Vars.tickmode == TICKMODE_CUTSCENE)) ? false : true;
 	}
 
 	// Check if returning from a multiplayer match

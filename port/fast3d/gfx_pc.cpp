@@ -138,6 +138,7 @@ static struct RSP {
     struct LoadedVertex loaded_vertices[MAX_VERTICES + 4];
 
     const struct NormalColor *vertex_colors; //[MAX_VERTEX_COLORS];
+    uint32_t num_vertex_colors; /* B-937: count, to bounds-check v->colour index */
 } rsp;
 
 /* Mesh debug: tint rendered geometry by surface normal direction (F9 toggle)
@@ -1392,6 +1393,21 @@ static void gfx_audit_generated_mesh_vertices(uintptr_t raw_addr, size_t n_verti
 static void gfx_sp_vertex(size_t n_vertices, size_t dest_index, const Vtx* vertices) {
     SUPPORT_CHECK(n_vertices <= MAX_VERTICES);
 
+    /* B-937 crash guard + diagnostic: the CI menu chr-body render faulted in here on
+     * a G_VTX from the generated-mesh DL. Skip + log obviously-bad args (NULL source
+     * pointer, or a destination index past the loaded-vertex buffer) instead of
+     * dereferencing them and faulting, so the frame survives and the bad values show. */
+    if (vertices == NULL || dest_index + n_vertices > MAX_VERTICES) {
+        static int s_badvtx = 0;
+        if (s_badvtx < 20) {
+            fprintf(stderr, "GFXVTX BAD: vertices=%p n=%zu dest=%zu MAX=%d\n",
+                (const void *)vertices, n_vertices, dest_index, (int)MAX_VERTICES);
+            fflush(stderr);
+            s_badvtx++;
+        }
+        return;
+    }
+
     for (size_t i = 0; i < n_vertices; i++, dest_index++) {
         const Vtx* v = &vertices[i];
         struct LoadedVertex* d = &rsp.loaded_vertices[dest_index];
@@ -1416,7 +1432,22 @@ static void gfx_sp_vertex(size_t n_vertices, size_t dest_index, const Vtx* verti
             }
             vcn = &s_vcn_white;
         } else {
-            vcn = &rsp.vertex_colors[v->colour >> 2];
+            uint32_t vci = (uint32_t)(v->colour >> 2);
+            if (vci < rsp.num_vertex_colors) {
+                vcn = &rsp.vertex_colors[vci];
+            } else {
+                /* B-937: generated-mesh vertices carry colour=0xffffffff (index
+                 * 0x3fffffff), out of range for the small per-mesh colour table;
+                 * fall back to white instead of an out-of-bounds read. */
+                static int s_vci_warn = 0;
+                if (s_vci_warn < 10) {
+                    fprintf(stderr, "GFXVTX colour idx %u >= count %u (colour=0x%08x)\n",
+                        vci, rsp.num_vertex_colors, (unsigned)v->colour);
+                    fflush(stderr);
+                    s_vci_warn++;
+                }
+                vcn = &s_vcn_white;
+            }
         }
 
         if (rsp.geometry_mode & G_LIGHTING) {
@@ -2653,6 +2684,7 @@ static void gfx_sp_set_vertex_colors(uint32_t count, const struct NormalColor *v
     //     rsp.vertex_colors[i] = vcn[i];
     // }
     rsp.vertex_colors = vcn;
+    rsp.num_vertex_colors = count;
 }
 
 static void gfx_dp_set_other_mode(uint32_t h, uint32_t l) {

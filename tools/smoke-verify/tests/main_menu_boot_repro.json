@@ -14,7 +14,7 @@
   ],
   "log_channel_mask": "all",
   "verbose": 0,
-  "timeout_seconds": 120,
+  "timeout_seconds": 200,
   "install_state": "clean",
   "boot_args": ["--no-update-check", "--no-sound", "--debug-generated-mesh-render-audit"],
   "input_sequence": [
@@ -23,7 +23,12 @@
     { "at_ms": 14000, "type": "key",  "key": "Return", "action": "tap", "comment": "advance intro" },
     { "at_ms": 16000, "type": "key",  "key": "Return", "action": "tap", "comment": "enter main menu (Carrington Institute)" },
     { "at_ms": 18000, "type": "wait", "comment": "SIT at the main menu - watch avatar load + intro camera pan + handoff; do NOT navigate" },
-    { "at_ms": 60000, "type": "exit", "comment": "menu-sit with generated-mesh render audit" }
+    { "at_ms": 165000, "type": "exit", "comment": "menu-sit with generated-mesh render audit + screenshots" }
+  ],
+  "screenshots": [
+    { "at_ms": 110000, "name": "ci_menu_a" },
+    { "at_ms": 130000, "name": "ci_menu_b" },
+    { "at_ms": 150000, "name": "ci_menu_c" }
   ],
   "assertions": {
     "required_lines": [
