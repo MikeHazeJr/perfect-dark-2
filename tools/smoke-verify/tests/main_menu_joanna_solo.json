@@ -1,0 +1,27 @@
+{
+  "scenario_name": "main_menu_joanna_solo",
+  "description": "Isolate the CI menu character: --debug-hide-menu (no overlay) + --debug-show-only-mesh combat (render only generated meshes whose catalog id contains 'combat' = the dark_combat body/head/hands, hiding all furniture). Confirms Joanna renders textured + un-occluded, independent of furniture occlusion.",
+  "boot_args": ["--debug-generated-mesh-render-audit", "--debug-hide-menu", "--debug-show-only-mesh", "combat"],
+  "timeout_seconds": 200,
+  "install_state": "clean",
+  "input_sequence": [
+    { "at_ms": 0,      "type": "wait", "comment": "boot; clean-install extraction runs first (~90s)" },
+    { "at_ms": 162000, "type": "exit", "comment": "done" }
+  ],
+  "screenshots": [
+    { "at_ms": 105000, "name": "solo_a" },
+    { "at_ms": 118000, "name": "solo_b" },
+    { "at_ms": 131000, "name": "solo_c" },
+    { "at_ms": 144000, "name": "solo_d" }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=main_menu_joanna_solo",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "SMOKE: result=timeout"
+    ],
+    "required_counts": []
+  }
+}

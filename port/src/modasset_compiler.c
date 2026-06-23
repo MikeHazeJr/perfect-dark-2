@@ -4305,6 +4305,44 @@ s32 modAssetCompilerModeldefIsGenerated(const struct modeldef *modeldef)
 	return generatedModeldefOwner(modeldef) != NULL;
 }
 
+/* c3844 debug capture: --debug-show-only-mesh <substr> renders ONLY generated
+ * meshes whose catalog id contains <substr>; --debug-hide-mesh <substr> hides
+ * matching ones. Used to isolate the menu character (e.g. show-only "combat")
+ * from occluding furniture, or to identify which mesh is an on-screen surface.
+ * Render-only; affects only generated (source-mesh) modeldefs. Args cached once. */
+s32 modAssetCompilerShouldHideGeneratedModeldef(const struct modeldef *modeldef)
+{
+	static s32 s_init = 0;
+	static const char *s_only = NULL;
+	static const char *s_hide = NULL;
+	generated_modeldef_t *owner;
+
+	if (!s_init) {
+		s_only = sysArgGetString("--debug-show-only-mesh");
+		s_hide = sysArgGetString("--debug-hide-mesh");
+		s_init = 1;
+	}
+
+	if ((!s_only || !s_only[0]) && (!s_hide || !s_hide[0])) {
+		return 0;
+	}
+
+	owner = generatedModeldefOwner(modeldef);
+	if (!owner) {
+		return 0;
+	}
+
+	if (s_only && s_only[0]) {
+		return strstr(owner->catalog_id, s_only) == NULL ? 1 : 0;
+	}
+
+	if (s_hide && s_hide[0]) {
+		return strstr(owner->catalog_id, s_hide) != NULL ? 1 : 0;
+	}
+
+	return 0;
+}
+
 void modAssetCompilerTraceGeneratedModeldefRender(
 	const struct modeldef *modeldef,
 	const struct modelnode *node)

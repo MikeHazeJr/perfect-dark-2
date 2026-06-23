@@ -3294,6 +3294,10 @@ void modelRenderNodeGundl(struct modelrenderdata *renderdata, struct model *mode
 		return;
 	}
 
+	if (modAssetCompilerShouldHideGeneratedModeldef(model->definition)) {
+		return;
+	}
+
 	if ((renderdata->flags & MODELRENDERFLAG_OPA) && rodata->opagdl) {
 		modAssetCompilerTraceGeneratedModeldefRender(model->definition, node);
 		modAssetCompilerTraceGeneratedModeldefRenderStep(model->definition,
@@ -3360,6 +3364,12 @@ void modelRenderNodeDl(struct modelrenderdata *renderdata, struct model *model, 
 	union modelrodata *rodata = node->rodata;
 
 	if (var8005efc4 && !var8005efc4(model, node)) {
+		return;
+	}
+
+	/* c3844 debug capture: skip generated meshes filtered by --debug-hide-mesh /
+	 * --debug-show-only-mesh, so a capture can isolate the menu character. */
+	if (modAssetCompilerShouldHideGeneratedModeldef(model->definition)) {
 		return;
 	}
 

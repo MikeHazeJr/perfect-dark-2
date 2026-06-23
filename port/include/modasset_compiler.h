@@ -112,6 +112,7 @@ void modAssetCompilerSetGeneratedModeldefRenderAudit(s32 enabled);
 s32 modAssetCompilerGeneratedModeldefRenderAuditEnabled(void);
 s32 modAssetCompilerNeedlerRenderAuditWitnessActive(void);
 s32 modAssetCompilerModeldefIsGenerated(const struct modeldef *modeldef);
+s32 modAssetCompilerShouldHideGeneratedModeldef(const struct modeldef *modeldef);
 void modAssetCompilerTraceGeneratedModeldefRender(
 	const struct modeldef *modeldef,
 	const struct modelnode *node);
