@@ -1,5 +1,46 @@
 # Session Log (Active)
 
+## 2026-06-23 - c3844 CI menu glass: universal alpha-mode fix
+
+Root-caused and fixed the Carrington Institute menu glass table rendering as an
+opaque black slab that occluded the live scene. Two layers:
+
+- **B-940 (immediate win):** the scenario scene renderer
+  (`port/fast3d/scenario_scene_renderer.cpp`) drew the whole CITRAINING
+  scene.glb in one opaque pass with `GL_BLEND` disabled. Added a two-pass blend
+  (opaque groups, then alpha groups with blend + depth-write off). Glass became
+  translucent (confirmed on screen).
+
+- **B-941 (universal root fix):** the `.pdscenario` extract
+  (`port/src/romextract_pdarena.c`) blanket-tagged every alpha-texture material
+  `alphaMode=MASK`, so translucent glass was a hard cutout, never blended. The
+  room's translucency actually lives in the opaque-vs-xlu block split (like the
+  `.pdmesh` render-class capture). Rewrote the scene walk to traverse
+  `gfx->opablocks` and `gfx->xlublocks` separately (following `block->next` +
+  `PARENT->child` exactly like `bgGetNextGdlInBlock`), stamping `is_xlu` onto
+  each material: xlu -> BLEND, opaque+alpha -> MASK cutout, else OPAQUE. The
+  renderer was generalized from the texture-alpha `uses_alpha` heuristic to
+  honor the glTF `alphaMode` per material (BLEND in the blend pass; MASK/OPAQUE
+  in the opaque pass, MASK alpha-testing via a new `u_AlphaCutoff` uniform).
+  Extract/cache versions bumped to force re-extraction.
+
+  CITRAINING now classifies **opaque:63 / mask:3 / blend:15** (was 0 BLEND / 12
+  MASK). The glass table renders translucent teal with the floor and pillars
+  visible through it. Fonts and particles render through the separate
+  render-mode-aware fast3d GBI path (`gfx_pc.cpp`: CVG_X_ALPHA cutout,
+  G_AC_THRESHOLD, blender translucency) and were already correct -- no change.
+
+Also added `--debug-cam-look-chr` (`src/game/player.c`), a gated aid that aims
+the camera at the player chrbody prop (cam_look written as a direction vector,
+since `playerAllocateMatrices` treats it as a forward vector). It frames the
+prop area but not Joanna's body directly -- the intro cutscene poses her body
+offset from the prop and at greater view depth, so a clean close portrait
+remains a follow-up. Her body provably renders every run (`MODASSET.RENDER`
+base:dark_combat 1803 verts / 601 tris).
+
+Commits: `1472789c` (universal alpha-mode fix), `91124983` (cam-aim aid). Bugs
+B-940, B-941 recorded in `context/bugs.md`.
+
 ## 2026-06-12 - c3844 live visual correctness audit closure
 
 Closed the c3844 live rendered-asset audit for the current tree without

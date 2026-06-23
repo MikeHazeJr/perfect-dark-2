@@ -14,6 +14,16 @@ Last updated: 2026-06-17
 |------|--------|---------|
 | None | Idle | `c3844` is closed, and the follow-on `c3849` Wave 7 cutover is implemented and verified for the current tree. |
 
+**CI menu render (c3844, 2026-06-23):** the glass-table opaque-black bug is fixed
+universally -- the `.pdscenario` extract now classifies glTF alphaMode from the
+opaque/xlu block split (B-941) and the scenario scene renderer honors it per
+material (B-940). Verified on screen: glass translucent, menu fonts crisp,
+CITRAINING classifies opaque:63/mask:3/blend:15 (was 0 BLEND / 12 MASK). Commits
+`1472789c`, `91124983`. Minor open follow-up: a clean close-up portrait of the
+menu Joanna chrbody -- she provably renders (1803 verts) but the intro cutscene
+poses her body offset from the player prop and at greater view depth, so the
+`--debug-cam-look-chr` aid frames the prop area, not her body directly.
+
 **c3849 status (2026-06-17):** Waves 1-7 are SHIPPED and verified for the current
 tree. Waves 1-6 delivered telemetry, the four private runtime allocators, FONT
 consumer, texture emitter/source binding, Wave-5 weapon/projectile/entity graph

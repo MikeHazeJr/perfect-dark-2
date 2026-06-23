@@ -1,0 +1,27 @@
+{
+  "scenario_name": "main_menu_joanna_withmenu",
+  "description": "Capture the Carrington Institute menu WITH the menu overlay visible (no --debug-hide-menu) to verify menu fonts render crisp (not squares) over the translucent CI scene whose glass table is BLEND-classified by the c3844 universal alpha-mode fix. Reuses the current install (data already extracted with the committed fix).",
+  "boot_args": ["--debug-generated-mesh-render-audit"],
+  "timeout_seconds": 200,
+  "install_state": "current",
+  "input_sequence": [
+    { "at_ms": 0,      "type": "wait", "comment": "boot; reuse current install (no re-extract)" },
+    { "at_ms": 162000, "type": "exit", "comment": "done" }
+  ],
+  "screenshots": [
+    { "at_ms": 60000,  "name": "withmenu_a" },
+    { "at_ms": 90000,  "name": "withmenu_b" },
+    { "at_ms": 120000, "name": "withmenu_c" },
+    { "at_ms": 145000, "name": "withmenu_d" }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=main_menu_joanna_withmenu",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "SMOKE: result=timeout"
+    ],
+    "required_counts": []
+  }
+}
