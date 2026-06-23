@@ -5777,9 +5777,20 @@ Gfx *menuRenderBackgroundLayer2(Gfx *gdl, u8 bg, f32 frac)
 	return gdl;
 }
 
+/* c3844 debug capture: suppress the menu overlay so a screenshot shows the live
+ * CI backdrop (the menu character, glass) un-occluded. Render-only skip -- the
+ * menu still ticks and handles input. sysArgCheck is defined in port system.c
+ * (linked into pd); declare it locally since the game-side system.h on the
+ * include path may not surface the port declaration. */
+extern s32 sysArgCheck(const char *name);
+
 Gfx *menuRender(Gfx *gdl)
 {
 	static u32 usepiece = 1;
+
+	if (sysArgCheck("--debug-hide-menu")) {
+		return gdl;
+	}
 
 	g_MpPlayerNum = 0;
 
