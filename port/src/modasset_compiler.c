@@ -4478,6 +4478,22 @@ static void emitGeneratedTextureMarker(Gfx **gdlptr,
 	}
 
 	gdl = *gdlptr;
+
+	/* c3844 texture/transparency regression fix: the body-DL prologue (5924/5928)
+	 * and emitGeneratedUntexturedState() leave the RDP on gSPTexture(OFF) +
+	 * G_CC_SHADE. The texture marker below loads the texture into TMEM, but until
+	 * now nothing re-enabled texturing or selected a texture-sampling combine, so
+	 * every textured generated mesh rendered shade-only (untextured): characters
+	 * wash out / vanish in fogged scenes (CI menu Joanna) and textured surfaces
+	 * lose their texture. Re-enable texturing and select the standard
+	 * modulate-with-alpha combine (matches modelApplyRenderModeType1's opaque
+	 * textured state) so the loaded texture is actually sampled. Untextured
+	 * materials are reset back to texture-off + G_CC_SHADE by
+	 * emitGeneratedUntexturedState(). These two extra commands stay within the
+	 * material_switch_count*3 source-DL budget (was 1 cmd/textured switch -> 3). */
+	gSPTexture(gdl++, 0xffff, 0xffff, 0, G_TX_RENDERTILE, G_ON);
+	gDPSetCombineMode(gdl++, G_CC_MODULATEIA, G_CC_MODULATEIA);
+
 	subcmd = material->subcmd >= 0 ? material->subcmd : 0;
 	w0 = ((u32)G_NOOP << 24)
 		| (((u32)material->smode & 3u) << 22)
