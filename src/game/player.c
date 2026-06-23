@@ -6935,27 +6935,31 @@ void playerSetCamProperties(struct coord *pos, struct coord *up, struct coord *l
 	 * player chrbody (the CI menu character) from a close offset, preserving the
 	 * current view angle, so a smoke capture frames her instead of the wide room. */
 	if (player->prop && sysArgCheck("--debug-cam-look-chr")) {
-		f32 dx = player->cam_pos.x - player->cam_look.x;
-		f32 dy = player->cam_pos.y - player->cam_look.y;
-		f32 dz = player->cam_pos.z - player->cam_look.z;
-		f32 len = sqrtf(dx * dx + dy * dy + dz * dz);
-		f32 dist = 280.0f;
-		f32 aimy = 90.0f;
-		if (len > 0.001f) {
-			dx /= len;
-			dy /= len;
-			dz /= len;
-		} else {
-			dx = 0.0f;
-			dy = 0.3f;
-			dz = 1.0f;
+		struct coord *cp = &player->prop->pos;
+		f32 px = cp->x + 220.0f;
+		f32 py = cp->y + 170.0f;
+		f32 pz = cp->z + 220.0f;
+		/* cam_look is a DIRECTION (playerAllocateMatrices uses target =
+		 * cam_pos + cam_look), NOT a target point -- point it from the cam
+		 * toward her chest, so a fixed diagonal-above shot frames her. */
+		f32 lx = cp->x - px;
+		f32 ly = (cp->y + 70.0f) - py;
+		f32 lz = cp->z - pz;
+		f32 ll = sqrtf(lx * lx + ly * ly + lz * lz);
+		if (ll > 0.001f) {
+			lx /= ll;
+			ly /= ll;
+			lz /= ll;
 		}
-		player->cam_look.x = player->prop->pos.x;
-		player->cam_look.y = player->prop->pos.y + aimy;
-		player->cam_look.z = player->prop->pos.z;
-		player->cam_pos.x = player->prop->pos.x + dx * dist;
-		player->cam_pos.y = player->prop->pos.y + aimy + dy * dist;
-		player->cam_pos.z = player->prop->pos.z + dz * dist;
+		player->cam_pos.x = px;
+		player->cam_pos.y = py;
+		player->cam_pos.z = pz;
+		player->cam_look.x = lx;
+		player->cam_look.y = ly;
+		player->cam_look.z = lz;
+		player->cam_up.x = 0.0f;
+		player->cam_up.y = 1.0f;
+		player->cam_up.z = 0.0f;
 	}
 }
 
