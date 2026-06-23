@@ -197,6 +197,18 @@ static s32 s_textbufAppendf(pdmesh_textbuf_t *b, const char *fmt, ...)
 	return 0;
 }
 
+/* c3844 fix B Slice 1: per-material render class (mirror of the enum in
+ * modasset_compiler.c -- separate translation unit). Captured at extract from
+ * which display list (opagdl vs xlugdl) a material's triangles came from, so the
+ * consume compiler can rebuild the OPA/XLU split the original model DLs encoded.
+ * Default 0 (OPAQUE) keeps un-re-extracted archives byte-identical to today. */
+enum {
+	PDMESH_RC_OPAQUE   = 0,
+	PDMESH_RC_XLU      = 1,
+	PDMESH_RC_TEX_EDGE = 2,
+	PDMESH_RC_DECAL    = 3,
+};
+
 typedef struct {
 	char name[64];
 	char texture_catalog_id[128];
@@ -214,6 +226,7 @@ typedef struct {
 	u32 w0;
 	u32 w1;
 	u32 triangle_count;
+	s32 render_class; /* PDMESH_RC_*; 0=OPAQUE default */
 } pdmesh_obj_material_t;
 
 typedef struct {
@@ -258,6 +271,7 @@ typedef struct {
 	s32             emitted_material;
 	char            current_group[64];
 	u32             material_switch_count;
+	s32             current_render_class; /* PDMESH_RC_* active during the current opa/xlu walk */
 } pdmesh_obj_export_t;
 
 typedef struct {
@@ -1113,6 +1127,13 @@ static s32 s_objFinalizeMaterials(pdmesh_obj_export_t *ctx)
 			return -1;
 		}
 
+		/* c3844 fix B: emit render class for ALL materials (textured or not) so
+		 * untextured translucent surfaces (e.g. glass) round-trip correctly. */
+		if (s_textbufAppendf(ctx->mtl, "pd_render_class = %d\n",
+				m->render_class) != 0) {
+			return -1;
+		}
+
 		if (m->texture_catalog_id[0]) {
 			if (s_textbufAppendf(ctx->mtl,
 					"pd_texture_catalog = %s\n"
@@ -1185,6 +1206,14 @@ static s32 s_objEmitTri(pdmesh_obj_export_t *ctx,
 			return -1;
 		}
 		ctx->current_material = material_index;
+	}
+	/* c3844 fix B: stamp the active render class onto this triangle's material so
+	 * the consume compiler can rebuild the OPA/XLU split. OPAQUE walks leave the
+	 * memset-zero default; XLU/TEX_EDGE walks mark the material translucent. */
+	if (ctx->current_render_class != PDMESH_RC_OPAQUE &&
+			material_index >= 0 &&
+			(u32)material_index < ctx->material_count) {
+		ctx->materials[material_index].render_class = ctx->current_render_class;
 	}
 	if (ctx->emitted_material != material_index) {
 		const pdmesh_obj_material_t *m = &ctx->materials[material_index];
@@ -1438,6 +1467,7 @@ static s32 s_exportGunDlToObj(pdmesh_obj_export_t *ctx,
 		trial.material_cap = ctx->material_count;
 	}
 
+	trial.current_render_class = PDMESH_RC_OPAQUE; /* fix B: gun models opaque for now */
 	if (s_exportGdlToObj(&trial, gundl->opagdl, gundl->vertices,
 			gundl->numvertices, 0) != 0 ||
 	    s_exportGdlToObj(&trial, gundl->xlugdl, gundl->vertices,
@@ -1533,8 +1563,13 @@ static s32 s_exportNodeObj(pdmesh_obj_export_t *ctx, struct modelnode *node,
 		snprintf(ctx->current_group, sizeof(ctx->current_group),
 			"node_%d_dl", node_id);
 		(void)s_textbufAppendf(ctx->obj, "g %s\n", ctx->current_group);
+		/* c3844 fix B: opaque DL -> OPAQUE class, translucent DL -> XLU class.
+		 * The field is inherited by the recursive G_DL walk; reset after. */
+		ctx->current_render_class = PDMESH_RC_OPAQUE;
 		if (s_exportGdlToObj(ctx, dl->opagdl, dl->vertices, dl->numvertices, 0) != 0) return -1;
+		ctx->current_render_class = PDMESH_RC_XLU;
 		if (s_exportGdlToObj(ctx, dl->xlugdl, dl->vertices, dl->numvertices, 0) != 0) return -1;
+		ctx->current_render_class = PDMESH_RC_OPAQUE;
 		ctx->current_node_mtx_index = saved_mtx;
 		strncpy(ctx->current_group, saved_group,
 			sizeof(ctx->current_group));
@@ -1566,6 +1601,7 @@ static s32 s_exportNodeObj(pdmesh_obj_export_t *ctx, struct modelnode *node,
 		snprintf(ctx->current_group, sizeof(ctx->current_group),
 			"node_%d_stargunfire", node_id);
 		(void)s_textbufAppendf(ctx->obj, "g %s\n", ctx->current_group);
+		ctx->current_render_class = PDMESH_RC_OPAQUE; /* fix B: effects opaque for now */
 		if (s_exportGdlToObj(ctx, star->gdl, star->vertices, 4, 0) != 0) return -1;
 		ctx->current_node_mtx_index = saved_mtx;
 		strncpy(ctx->current_group, saved_group,

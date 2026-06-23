@@ -259,6 +259,19 @@ typedef struct obj_texcoord {
 	f32 v;
 } obj_texcoord_t;
 
+/* c3844 fix B Slice 1: per-material render class. Carries the opaque-vs-
+ * translucent / alpha-mask classification the .pdmesh format previously dropped,
+ * so the consume compiler can rebuild the OPA/XLU display-list split that the
+ * original model DLs encoded. Default 0 (OPAQUE) keeps archives without a
+ * pd_render_class key byte-identical to today's opaque-only output. Mirror copy
+ * of the same enum lives in romextract_pdmesh.c (separate translation unit). */
+enum {
+	PDMESH_RC_OPAQUE   = 0, /* G_RM_AA_ZB_OPA_SURF (today's behaviour) */
+	PDMESH_RC_XLU      = 1, /* G_RM_AA_ZB_XLU_SURF* + alpha blend */
+	PDMESH_RC_TEX_EDGE = 2, /* G_RM_AA_ZB_TEX_EDGE* + gDPSetAlphaCompare(G_AC_THRESHOLD) */
+	PDMESH_RC_DECAL    = 3, /* deferred; treated as OPAQUE for now */
+};
+
 typedef struct obj_material {
 	char name[64];
 	char texture_catalog_id[CATALOG_ID_LEN];
@@ -273,6 +286,7 @@ typedef struct obj_material {
 	s32 shiftt;
 	s32 min;
 	s32 flag;
+	s32 render_class; /* PDMESH_RC_*; 0=OPAQUE default for back-compat */
 } obj_material_t;
 
 typedef struct obj_group {
@@ -5242,6 +5256,9 @@ static void generatedModeldefLoadMaterialMetadata(const char *source_path,
 		} else if (current && strncmp(p, "pd_texture_flag", 15) == 0) {
 			char *value = strchr(p, '=');
 			if (value) parseObjMaterialInt(value + 1, &current->flag);
+		} else if (current && strncmp(p, "pd_render_class", 15) == 0) {
+			char *value = strchr(p, '=');
+			if (value) parseObjMaterialInt(value + 1, &current->render_class);
 		}
 
 		line = next;
