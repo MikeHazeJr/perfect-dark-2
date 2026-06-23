@@ -1,0 +1,27 @@
+{
+  "scenario_name": "main_menu_joanna_camlook",
+  "description": "Camera-aim proof of the CI menu character: --debug-hide-menu (no overlay) + --debug-cam-look-chr (re-aim the menu camera directly at the player chrbody from a close offset) + --debug-show-only-mesh combat (hide furniture). Frames Joanna's body close for a definitive pixel, independent of the wide cutscene cam + occluding furniture.",
+  "boot_args": ["--debug-generated-mesh-render-audit", "--debug-hide-menu", "--debug-cam-look-chr", "--debug-show-only-mesh", "combat"],
+  "timeout_seconds": 200,
+  "install_state": "clean",
+  "input_sequence": [
+    { "at_ms": 0,      "type": "wait", "comment": "boot; clean-install extraction runs first (~90s)" },
+    { "at_ms": 162000, "type": "exit", "comment": "done" }
+  ],
+  "screenshots": [
+    { "at_ms": 105000, "name": "camlook_a" },
+    { "at_ms": 120000, "name": "camlook_b" },
+    { "at_ms": 135000, "name": "camlook_c" },
+    { "at_ms": 148000, "name": "camlook_d" }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=main_menu_joanna_camlook",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "SMOKE: result=timeout"
+    ],
+    "required_counts": []
+  }
+}

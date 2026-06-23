@@ -1440,7 +1440,11 @@ extern "C" void scenarioSceneRendererRender(int width, int height)
 	glUniform1i(tex2_loc, 1);
 
 	glBindVertexArray(g_scene.vao);
-	for (const auto &group : g_scene.groups) {
+	/* c3844 glass fix: render scene groups via a lambda so we can do two passes --
+	 * opaque first, then translucent (uses_alpha) materials with GL_BLEND on -- so
+	 * translucent scene materials (e.g. the CI menu glass table) blend instead of
+	 * being written opaque-black. The fragment shader already outputs texel alpha. */
+	auto renderSceneGroup = [&](const auto &group) {
 		GLuint tex = g_scene.white_tex;
 		GLuint tex2 = g_scene.white_tex;
 		int wrap_s = GL_REPEAT;
@@ -1482,7 +1486,28 @@ extern "C" void scenarioSceneRendererRender(int width, int height)
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, wrap_s);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, wrap_t);
 		glDrawArrays(GL_TRIANGLES, (GLint)group.first, (GLsizei)group.count);
+	};
+	/* Pass 0: opaque materials (depth write on). Pass 1: translucent (uses_alpha)
+	 * materials, alpha-blended over the opaque scene with depth writes disabled so
+	 * the glass shows what's behind it (e.g. Joanna at the terminal). */
+	for (int scene_pass = 0; scene_pass < 2; ++scene_pass) {
+		if (scene_pass == 1) {
+			glEnable(GL_BLEND);
+			glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+			glDepthMask(GL_FALSE);
+		}
+		for (const auto &group : g_scene.groups) {
+			bool group_alpha = group.material >= 0
+				&& (size_t)group.material < g_scene.materials.size()
+				&& g_scene.materials[(size_t)group.material].uses_alpha;
+			if ((scene_pass == 0) == group_alpha) {
+				continue;
+			}
+			renderSceneGroup(group);
+		}
 	}
+	glDepthMask(GL_TRUE);
+	glDisable(GL_BLEND);
 	glBindVertexArray(0);
 
 	if (!g_scene.logged_render) {

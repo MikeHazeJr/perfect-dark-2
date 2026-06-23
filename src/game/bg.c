@@ -2620,6 +2620,11 @@ void bgTick(void)
 #endif
 }
 
+/* c3844 debug capture: --debug-hide-bg skips room geometry so the chr (menu
+ * character) renders un-occluded for an isolate capture. sysArgCheck is linked
+ * from port system.c; declared locally since the game-side system.h may not. */
+extern s32 sysArgCheck(const char *name);
+
 Gfx *bgRender(Gfx *gdl)
 {
 	gdl = lightsSetDefault(gdl);
@@ -3675,7 +3680,11 @@ Gfx *bgRenderRoomOpaque(Gfx *gdl, s32 roomnum)
 	gdl = roomApplyMtx(gdl, roomnum);
 
 	gdl = lightsSetForRoom(gdl, roomnum);
-	gdl = bgRenderRoomPass(gdl, roomnum, g_Rooms[roomnum].gfxdata->opablocks, true);
+	/* c3844 debug capture: --debug-hide-bg skips room OPAQUE geometry (keeps
+	 * mtx/lights/state) so things (the menu chr) render un-occluded. */
+	if (!sysArgCheck("--debug-hide-bg") && !sysArgCheck("--debug-hide-bg-opa")) {
+		gdl = bgRenderRoomPass(gdl, roomnum, g_Rooms[roomnum].gfxdata->opablocks, true);
+	}
 	gdl = lightsSetDefault(gdl);
 
 	g_Rooms[roomnum].loaded240 = 1;
@@ -3705,7 +3714,11 @@ Gfx *bgRenderRoomXlu(Gfx *gdl, s32 roomnum)
 		if (g_Rooms[roomnum].gfxdata);
 
 		gdl = roomApplyMtx(gdl, roomnum);
-		gdl = bgRenderRoomPass(gdl, roomnum, g_Rooms[roomnum].gfxdata->xlublocks, true);
+		/* c3844 debug: --debug-hide-bg / --debug-hide-bg-xlu skip room XLU
+		 * geometry (identifies whether the black "glass table" is an XLU block). */
+		if (!sysArgCheck("--debug-hide-bg") && !sysArgCheck("--debug-hide-bg-xlu")) {
+			gdl = bgRenderRoomPass(gdl, roomnum, g_Rooms[roomnum].gfxdata->xlublocks, true);
+		}
 
 		g_Rooms[roomnum].loaded240 = 1;
 	} else {

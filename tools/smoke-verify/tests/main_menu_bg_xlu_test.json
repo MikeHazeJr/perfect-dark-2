@@ -1,0 +1,25 @@
+{
+  "scenario_name": "main_menu_bg_xlu_test",
+  "description": "Identify which room block the CI menu black table lives in: --debug-hide-menu + --debug-hide-bg-xlu skips ONLY the room XLU geometry. If the black table disappears, it's an XLU block (translucent-classed but rendering black -> fast3d blend/colour issue). If it remains, it's an OPA block (misfiled / opaque). Swap to --debug-hide-bg-opa to confirm the complement.",
+  "boot_args": ["--debug-hide-menu", "--debug-hide-bg-xlu"],
+  "timeout_seconds": 200,
+  "install_state": "clean",
+  "input_sequence": [
+    { "at_ms": 0,      "type": "wait", "comment": "boot + clean extract" },
+    { "at_ms": 150000, "type": "exit", "comment": "done" }
+  ],
+  "screenshots": [
+    { "at_ms": 110000, "name": "xlutest_a" },
+    { "at_ms": 128000, "name": "xlutest_b" }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=main_menu_bg_xlu_test",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "SMOKE: result=timeout"
+    ],
+    "required_counts": []
+  }
+}

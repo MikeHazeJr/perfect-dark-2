@@ -6912,6 +6912,10 @@ void playerSetCamPropertiesWithoutRoom(struct coord *pos, struct coord *up, stru
 	playerSetCamProperties(pos, up, look, room);
 }
 
+/* c3844 debug capture: sysArgCheck is linked from port system.c; declared
+ * locally since the game-side system.h may not surface the port declaration. */
+extern s32 sysArgCheck(const char *name);
+
 void playerSetCamProperties(struct coord *pos, struct coord *up, struct coord *look, s32 room)
 {
 	struct player *player = g_Vars.currentplayer;
@@ -6926,6 +6930,33 @@ void playerSetCamProperties(struct coord *pos, struct coord *up, struct coord *l
 	player->cam_look.y = look->y;
 	player->cam_look.z = look->z;
 	player->cam_room = room;
+
+	/* c3844 debug capture: --debug-cam-look-chr re-aims the camera directly at the
+	 * player chrbody (the CI menu character) from a close offset, preserving the
+	 * current view angle, so a smoke capture frames her instead of the wide room. */
+	if (player->prop && sysArgCheck("--debug-cam-look-chr")) {
+		f32 dx = player->cam_pos.x - player->cam_look.x;
+		f32 dy = player->cam_pos.y - player->cam_look.y;
+		f32 dz = player->cam_pos.z - player->cam_look.z;
+		f32 len = sqrtf(dx * dx + dy * dy + dz * dz);
+		f32 dist = 280.0f;
+		f32 aimy = 90.0f;
+		if (len > 0.001f) {
+			dx /= len;
+			dy /= len;
+			dz /= len;
+		} else {
+			dx = 0.0f;
+			dy = 0.3f;
+			dz = 1.0f;
+		}
+		player->cam_look.x = player->prop->pos.x;
+		player->cam_look.y = player->prop->pos.y + aimy;
+		player->cam_look.z = player->prop->pos.z;
+		player->cam_pos.x = player->prop->pos.x + dx * dist;
+		player->cam_pos.y = player->prop->pos.y + aimy + dy * dist;
+		player->cam_pos.z = player->prop->pos.z + dz * dist;
+	}
 }
 
 void playerClearMemCamRoom(void)

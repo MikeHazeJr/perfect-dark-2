@@ -1,0 +1,27 @@
+{
+  "scenario_name": "main_menu_joanna_onblack",
+  "description": "Definitive isolate of the CI menu character: --debug-hide-menu (no overlay) + --debug-hide-bg (skip room geometry, keep lights/projection) + --debug-show-only-mesh combat (only the dark_combat body/head/hands). Renders Joanna alone on the cleared framebuffer -- confirms she renders textured/lit/valid-geometry, un-occluded by the stage-bg table.",
+  "boot_args": ["--debug-generated-mesh-render-audit", "--debug-hide-menu", "--debug-hide-bg", "--debug-show-only-mesh", "combat"],
+  "timeout_seconds": 200,
+  "install_state": "clean",
+  "input_sequence": [
+    { "at_ms": 0,      "type": "wait", "comment": "boot; clean-install extraction runs first (~90s)" },
+    { "at_ms": 162000, "type": "exit", "comment": "done" }
+  ],
+  "screenshots": [
+    { "at_ms": 105000, "name": "onblack_a" },
+    { "at_ms": 120000, "name": "onblack_b" },
+    { "at_ms": 135000, "name": "onblack_c" },
+    { "at_ms": 148000, "name": "onblack_d" }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=main_menu_joanna_onblack",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "SMOKE: result=timeout"
+    ],
+    "required_counts": []
+  }
+}
