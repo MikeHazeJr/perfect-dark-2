@@ -19,10 +19,21 @@ universally -- the `.pdscenario` extract now classifies glTF alphaMode from the
 opaque/xlu block split (B-941) and the scenario scene renderer honors it per
 material (B-940). Verified on screen: glass translucent, menu fonts crisp,
 CITRAINING classifies opaque:63/mask:3/blend:15 (was 0 BLEND / 12 MASK). Commits
-`1472789c`, `91124983`. Minor open follow-up: a clean close-up portrait of the
-menu Joanna chrbody -- she provably renders (1803 verts) but the intro cutscene
-poses her body offset from the player prop and at greater view depth, so the
-`--debug-cam-look-chr` aid frames the prop area, not her body directly.
+`1472789c`, `91124983`.
+
+**Parked follow-up -- menu Joanna clean shot (data-vs-framing):** she provably
+renders every run (`MODASSET.RENDER` base:dark_combat 1803 verts / 601 tris) but
+no capture shows visible pixels of her. Breadcrumbs: under `--debug-cam-look-chr`
+(override cam at prop+offset) her body sampled to view-space z=-670 (far); under
+the NORMAL B-936 menu camera the dark_combat bone extent is view-space x[-44,0]
+y[-71,65] z[-334,0] (camera fovy=60, aspect=2.17) -- i.e. it projects roughly
+screen-CENTER / on-screen, which leans the diagnosis toward render/occlusion
+rather than off-screen framing (caveat: the withmenu log mixes the scene body
+with agent-preview bodies, so not yet isolated). Proper fix is a focused
+camera/pose + isolated-on-black test (disable the B-937 guard, suppress
+furniture/scene, camera at a known distance facing her) to settle data-vs-framing
+definitively. User can eyeball her in-game on rebuild meanwhile; not blocking the
+checkpoint.
 
 **c3849 status (2026-06-17):** Waves 1-7 are SHIPPED and verified for the current
 tree. Waves 1-6 delivered telemetry, the four private runtime allocators, FONT
