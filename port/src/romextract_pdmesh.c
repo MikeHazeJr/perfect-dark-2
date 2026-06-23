@@ -67,9 +67,9 @@
 #define ROMEXTRACT_PDMESH_MODEL_VMA 0x05000000u
 #define ROMEXTRACT_PDMESH_MTX_STACK_CAP 11
 #define ROMEXTRACT_PDMESH_NODE_DEPTH_CAP 2048
-#define ROMEXTRACT_PDMESH_OBJ_EXPORT_VERSION_LABEL "model_obj_mtx_v20_materials_hierarchy_parts_faces_json_relations_raw_mtx_render_commands_json"
+#define ROMEXTRACT_PDMESH_OBJ_EXPORT_VERSION_LABEL "model_obj_mtx_v20_materials_hierarchy_parts_faces_json_relations_raw_mtx_render_commands_json_vtxcolour"
 #define ROMEXTRACT_PDMESH_OBJ_EXPORT_VERSION ROMEXTRACT_PDMESH_OBJ_EXPORT_VERSION_LABEL "\n"
-#define ROMEXTRACT_PDMESH_FAST_CACHE_KIND "pdmesh_model_obj_mtx_v23_materials_hierarchy_parts_faces_json_relations_raw_mtx_render_commands_json_allmodels_menuhud_zero_tri_models"
+#define ROMEXTRACT_PDMESH_FAST_CACHE_KIND "pdmesh_model_obj_mtx_v23_materials_hierarchy_parts_faces_json_relations_raw_mtx_render_commands_json_allmodels_menuhud_zero_tri_models_vtxcolour"
 extern u16 g_CartFileNums[];
 static u16 s_SeenFilenums[ROMEXTRACT_PDMESH_SEEN_CAP];
 static s32 s_SeenCount;
@@ -272,6 +272,14 @@ typedef struct {
 	char            current_group[64];
 	u32             material_switch_count;
 	s32             current_render_class; /* PDMESH_RC_* active during the current opa/xlu walk */
+	/* c3844 vtxcolour: the per-DL colour table active for the DL currently being
+	 * walked. Vtx.colour is a u8 index ((colour>>2) selects colours[idx]) that
+	 * supplies the resolved RGBA the original DL used under G_CC_SHADE. We resolve
+	 * each vertex to RGBA at emit time and round-trip it via the OBJ v-line so the
+	 * consumer can rebuild a deduped colour table instead of inventing white.
+	 * NULL/0 for DL nodes with no table (gundl, stargunfire) -> white fallback. */
+	const Col      *current_colours;
+	s32             current_numcolours;
 } pdmesh_obj_export_t;
 
 typedef struct {
@@ -1168,6 +1176,25 @@ static s32 s_objFinalizeMaterials(pdmesh_obj_export_t *ctx)
 	return 0;
 }
 
+/* c3844 vtxcolour: resolve one vertex's final RGBA from the per-DL colour table.
+ * Vtx.colour is a u8; (colour>>2) indexes the table (matches the fast3d renderer
+ * at gfx_pc.cpp gfx_sp_set_vertex_colors / v->colour>>2). White when there is no
+ * table or the index is out of range -- byte-identical to the prior invented
+ * white for those vertices, and the dedup pass collapses an all-white mesh back
+ * to a single white entry so opaque/white meshes stay unchanged. */
+static Col s_objResolveVtxColour(const pdmesh_obj_export_t *ctx, const Vtx *v)
+{
+	Col col;
+	col.r = col.g = col.b = col.a = 255;
+	if (ctx && ctx->current_colours && v) {
+		s32 idx = (s32)((u32)v->colour >> 2);
+		if (idx >= 0 && idx < ctx->current_numcolours) {
+			col = ctx->current_colours[idx];
+		}
+	}
+	return col;
+}
+
 static s32 s_objEmitTri(pdmesh_obj_export_t *ctx,
                         const Vtx *a, const Vtx *b, const Vtx *c)
 {
@@ -1223,17 +1250,29 @@ static s32 s_objEmitTri(pdmesh_obj_export_t *ctx,
 		ctx->emitted_material = material_index;
 		ctx->material_switch_count++;
 	}
+	/* c3844 vtxcolour: resolve each vertex's RGBA from the active per-DL colour
+	 * table ((colour>>2) indexes ctx->current_colours) and append it to the OBJ
+	 * v-line as 4 ints 0-255 -> "v x y z r g b a". The consumer's v-parser reads
+	 * x/y/z then stops, so a 3-token v stays back-compatible; the new tokens are
+	 * additive. White (255,255,255,255) when no table or out-of-range index, which
+	 * matches today's invented-white behaviour for those vertices. */
+	Col ca = s_objResolveVtxColour(ctx, a);
+	Col cb = s_objResolveVtxColour(ctx, b);
+	Col cc = s_objResolveVtxColour(ctx, c);
 	if (s_textbufAppendf(ctx->obj,
-			"v %.6f %.6f %.6f\n"
-			"v %.6f %.6f %.6f\n"
-			"v %.6f %.6f %.6f\n"
+			"v %.6f %.6f %.6f %u %u %u %u\n"
+			"v %.6f %.6f %.6f %u %u %u %u\n"
+			"v %.6f %.6f %.6f %u %u %u %u\n"
 			"vt %.6f %.6f\n"
 			"vt %.6f %.6f\n"
 			"vt %.6f %.6f\n"
 			"f %u/%u %u/%u %u/%u\n",
 			(double)va[0], (double)va[1], (double)va[2],
+			(unsigned)ca.r, (unsigned)ca.g, (unsigned)ca.b, (unsigned)ca.a,
 			(double)vb[0], (double)vb[1], (double)vb[2],
+			(unsigned)cb.r, (unsigned)cb.g, (unsigned)cb.b, (unsigned)cb.a,
 			(double)vc[0], (double)vc[1], (double)vc[2],
+			(unsigned)cc.r, (unsigned)cc.g, (unsigned)cc.b, (unsigned)cc.a,
 			(double)a->s / 32.0, 1.0 - ((double)a->t / 32.0),
 			(double)b->s / 32.0, 1.0 - ((double)b->t / 32.0),
 			(double)c->s / 32.0, 1.0 - ((double)c->t / 32.0),
@@ -1563,6 +1602,11 @@ static s32 s_exportNodeObj(pdmesh_obj_export_t *ctx, struct modelnode *node,
 		snprintf(ctx->current_group, sizeof(ctx->current_group),
 			"node_%d_dl", node_id);
 		(void)s_textbufAppendf(ctx->obj, "g %s\n", ctx->current_group);
+		/* c3844 vtxcolour: this DL's per-vertex colour table. s_objEmitTri resolves
+		 * each vertex's (colour>>2) index against it. Inherited by the recursive
+		 * G_DL walk; cleared after. NULL-safe inside s_objEmitTri (white fallback). */
+		ctx->current_colours = dl->colours;
+		ctx->current_numcolours = (s32)dl->numcolours;
 		/* c3844 fix B: opaque DL -> OPAQUE class, translucent DL -> XLU class.
 		 * The field is inherited by the recursive G_DL walk; reset after. */
 		ctx->current_render_class = PDMESH_RC_OPAQUE;
@@ -1570,6 +1614,8 @@ static s32 s_exportNodeObj(pdmesh_obj_export_t *ctx, struct modelnode *node,
 		ctx->current_render_class = PDMESH_RC_XLU;
 		if (s_exportGdlToObj(ctx, dl->xlugdl, dl->vertices, dl->numvertices, 0) != 0) return -1;
 		ctx->current_render_class = PDMESH_RC_OPAQUE;
+		ctx->current_colours = NULL;
+		ctx->current_numcolours = 0;
 		ctx->current_node_mtx_index = saved_mtx;
 		strncpy(ctx->current_group, saved_group,
 			sizeof(ctx->current_group));
@@ -1583,6 +1629,10 @@ static s32 s_exportNodeObj(pdmesh_obj_export_t *ctx, struct modelnode *node,
 			ctx->mtx_stack_indices[ctx->mtx_stack_size - 1] =
 				ctx->current_node_mtx_index;
 		}
+		/* c3844 vtxcolour: gundl rodata has no colour table -> white fallback.
+		 * Set before s_exportGunDlToObj so the trial = *ctx copy inherits it. */
+		ctx->current_colours = NULL;
+		ctx->current_numcolours = 0;
 		if (s_exportGunDlToObj(ctx, node, gundl) != 0) return -1;
 		ctx->current_node_mtx_index = saved_mtx;
 	} else if (type == MODELNODETYPE_STARGUNFIRE && node->rodata &&
@@ -1601,8 +1651,13 @@ static s32 s_exportNodeObj(pdmesh_obj_export_t *ctx, struct modelnode *node,
 		snprintf(ctx->current_group, sizeof(ctx->current_group),
 			"node_%d_stargunfire", node_id);
 		(void)s_textbufAppendf(ctx->obj, "g %s\n", ctx->current_group);
+		/* c3844 vtxcolour: stargunfire rodata has no colour table -> white fallback. */
+		ctx->current_colours = NULL;
+		ctx->current_numcolours = 0;
 		ctx->current_render_class = PDMESH_RC_OPAQUE; /* fix B: effects opaque for now */
 		if (s_exportGdlToObj(ctx, star->gdl, star->vertices, 4, 0) != 0) return -1;
+		ctx->current_colours = NULL;
+		ctx->current_numcolours = 0;
 		ctx->current_node_mtx_index = saved_mtx;
 		strncpy(ctx->current_group, saved_group,
 			sizeof(ctx->current_group));

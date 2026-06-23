@@ -252,6 +252,12 @@ typedef struct obj_vertex {
 	f32 y;
 	f32 z;
 	s32 roomnum;
+	/* c3844 vtxcolour: per-vertex resolved RGBA carried on the OBJ v-line as
+	 * "v x y z r g b a" (ints 0-255). has_colour=0 when the v-line had no colour
+	 * tokens (user-authored GLTF/OBJ, or an archive predating the carrier) ->
+	 * defaults to white, byte-identical to the prior invented-white output. */
+	Col colour;
+	s32 has_colour;
 } obj_vertex_t;
 
 typedef struct obj_texcoord {
@@ -589,7 +595,8 @@ static s32 objMeshEnsureGroup(obj_mesh_t *mesh, const char *name)
 	return mesh->group_count - 1;
 }
 
-static s32 objMeshAddVertex(obj_mesh_t *mesh, f32 x, f32 y, f32 z, s32 roomnum)
+static s32 objMeshAddVertexColoured(obj_mesh_t *mesh, f32 x, f32 y, f32 z,
+	s32 roomnum, s32 has_colour, Col colour)
 {
 	obj_vertex_t *v;
 
@@ -602,7 +609,21 @@ static s32 objMeshAddVertex(obj_mesh_t *mesh, f32 x, f32 y, f32 z, s32 roomnum)
 	v->y = y;
 	v->z = z;
 	v->roomnum = roomnum > 0 ? roomnum : 0;
+	/* c3844 vtxcolour: default white when the source had no colour tokens. */
+	v->has_colour = has_colour;
+	if (has_colour) {
+		v->colour = colour;
+	} else {
+		v->colour.r = v->colour.g = v->colour.b = v->colour.a = 0xff;
+	}
 	return 1;
+}
+
+static s32 objMeshAddVertex(obj_mesh_t *mesh, f32 x, f32 y, f32 z, s32 roomnum)
+{
+	Col white;
+	white.r = white.g = white.b = white.a = 0xff;
+	return objMeshAddVertexColoured(mesh, x, y, z, roomnum, 0, white);
 }
 
 static s32 objMeshAddTexcoord(obj_mesh_t *mesh, f32 u, f32 v)
@@ -790,12 +811,29 @@ static s32 parseObjIndexToken(char **cursor, s32 vertex_count,
 	return 1;
 }
 
+static u8 objClampColourComponent(f32 v)
+{
+	if (v <= 0.0f) {
+		return 0;
+	}
+	if (v >= 255.0f) {
+		return 0xff;
+	}
+	return (u8)(v + 0.5f);
+}
+
 static s32 parseObjVertexLine(char *line, obj_mesh_t *mesh, s32 line_no,
 	s32 current_room)
 {
 	f32 x;
 	f32 y;
 	f32 z;
+	f32 r;
+	f32 g;
+	f32 b;
+	f32 a;
+	s32 has_colour = 0;
+	Col colour;
 	char *p = line + 1;
 
 	if (!parseObjFloat(&p, &x)
@@ -805,7 +843,28 @@ static s32 parseObjVertexLine(char *line, obj_mesh_t *mesh, s32 line_no,
 		return 0;
 	}
 
-	return objMeshAddVertex(mesh, x, y, z, current_room);
+	/* c3844 vtxcolour: optional trailing "r g b a" (ints 0-255) emitted by the
+	 * romextract pdmesh exporter. All-or-nothing: a 3-token v-line (user OBJ or a
+	 * pre-carrier archive) parses with no colour and defaults to white, keeping
+	 * back-compat. Partial tokens (e.g. r g with no b a) are ignored as if absent
+	 * rather than rejected, so hand-edited files never fail to load over colour. */
+	colour.r = colour.g = colour.b = colour.a = 0xff;
+	{
+		char *probe = p;
+		if (parseObjFloat(&probe, &r)
+				&& parseObjFloat(&probe, &g)
+				&& parseObjFloat(&probe, &b)
+				&& parseObjFloat(&probe, &a)) {
+			colour.r = objClampColourComponent(r);
+			colour.g = objClampColourComponent(g);
+			colour.b = objClampColourComponent(b);
+			colour.a = objClampColourComponent(a);
+			has_colour = 1;
+		}
+	}
+
+	return objMeshAddVertexColoured(mesh, x, y, z, current_room,
+		has_colour, colour);
 }
 
 static s32 parseObjTexcoordLine(char *line, obj_mesh_t *mesh, s32 line_no)
@@ -4110,6 +4169,7 @@ typedef struct generated_dl_payload {
 	size_t vertex_bytes;
 	s32 vertex_count;
 	s32 triangle_count;
+	s32 numcolours; /* c3844 vtxcolour: distinct entries in colours[] (>=1) */
 } generated_dl_payload_t;
 
 typedef struct generated_hierarchy_row {
@@ -4582,18 +4642,87 @@ static void emitGeneratedRenderClass(Gfx **gdlptr, s32 render_class,
 	*gdlptr = gdl;
 }
 
+/* c3844 vtxcolour: colour_index selects this vertex's entry in the deduped
+ * per-payload colour table. The fast3d renderer (gfx_pc.cpp) computes
+ * (v->colour >> 2) and indexes vertex_colors[], and gSPColor's count divides by
+ * 4 -- so the on-vertex byte is (index << 2). Callers pass index 0 for the
+ * back-compat single-white-entry case, producing colour byte 0 == the prior
+ * behaviour's effective index 0 (not the old 0xffffffff sentinel, which only
+ * ever resolved to white via the out-of-range fallback anyway). */
 static void fillGeneratedVertex(Vtx *dst, const obj_vertex_t *src,
-                                const obj_texcoord_t *texcoord)
+                                const obj_texcoord_t *texcoord,
+                                s32 colour_index)
 {
 	memset(dst, 0, sizeof(*dst));
 	dst->x = clampToS16(src->x);
 	dst->y = clampToS16(src->y);
 	dst->z = clampToS16(src->z);
-	dst->colour = 0xffffffffu;
+	if (colour_index < 0) {
+		colour_index = 0;
+	}
+	dst->colour = (u8)((u32)colour_index << 2);
 	if (texcoord) {
 		dst->s = clampToS16(texcoord->u * 32.0f);
 		dst->t = clampToS16((1.0f - texcoord->v) * 32.0f);
 	}
+}
+
+/* c3844 vtxcolour: Vtx.colour is a u8 index, (colour>>2), so the per-payload
+ * colour table is capped at 64 distinct entries. We dedup the emitted vertices'
+ * RGBA into one contiguous table laid out immediately after the vertices (the
+ * format the renderer's COL1/COL2 segments expect). An all-white mesh collapses
+ * to a single white entry, so opaque/white meshes stay byte-identical to the old
+ * one-white-entry output. */
+#define GENERATED_COLOUR_TABLE_CAP 64
+
+static s32 generatedColourEquals(Col a, Col b)
+{
+	return a.r == b.r && a.g == b.g && a.b == b.b && a.a == b.a;
+}
+
+/* Returns the table index for `colour`, appending it when new. When the table is
+ * full (>64 distinct colours -- rare; would need a hand-authored mesh well past
+ * what the integer-native runtime supports) it clamps to the nearest existing
+ * entry by squared RGBA distance and logs a one-line warning. `*warned` gates the
+ * warning to once per payload. */
+static s32 generatedColourTableIntern(Col *table, s32 *count, Col colour,
+                                      s32 *warned, const char *who)
+{
+	s32 i;
+	s32 best;
+	s32 bestdist;
+
+	for (i = 0; i < *count; i++) {
+		if (generatedColourEquals(table[i], colour)) {
+			return i;
+		}
+	}
+	if (*count < GENERATED_COLOUR_TABLE_CAP) {
+		table[*count] = colour;
+		return (*count)++;
+	}
+
+	/* Table full: clamp to nearest existing entry. */
+	best = 0;
+	bestdist = 0x7fffffff;
+	for (i = 0; i < *count; i++) {
+		s32 dr = (s32)table[i].r - (s32)colour.r;
+		s32 dg = (s32)table[i].g - (s32)colour.g;
+		s32 db = (s32)table[i].b - (s32)colour.b;
+		s32 da = (s32)table[i].a - (s32)colour.a;
+		s32 dist = dr * dr + dg * dg + db * db + da * da;
+		if (dist < bestdist) {
+			bestdist = dist;
+			best = i;
+		}
+	}
+	if (warned && !*warned) {
+		*warned = 1;
+		sysLogPrintf(LOG_WARNING,
+			"MODASSET.COMPILER: %s exceeds %d distinct vertex colours; clamping extras to nearest entry",
+			who ? who : "(mesh)", GENERATED_COLOUR_TABLE_CAP);
+	}
+	return best;
 }
 
 static s32 generatedModeldefNeedsChrRoot(const asset_entry_t *entry)
@@ -5804,6 +5933,8 @@ static s32 generatedModeldefBuildPayload(const obj_mesh_t *mesh,
 	s32 emitted = 0;
 	s32 use_render_stream = 0;
 	s32 render_stream_cmd_count = 0;
+	s32 colour_count = 0;       /* c3844 vtxcolour: distinct colours interned so far */
+	s32 colour_warned = 0;      /* one-shot >64-colour clamp warning */
 
 	if (!mesh || !payload) {
 		return 0;
@@ -5890,8 +6021,14 @@ static s32 generatedModeldefBuildPayload(const obj_mesh_t *mesh,
 	vtx_count = tri_count * 3;
 	vertex_bytes = (size_t)(vtx_count > 0 ? vtx_count : 1) *
 		sizeof(*payload->vertices);
+	/* c3844 vtxcolour: reserve room for up to GENERATED_COLOUR_TABLE_CAP deduped
+	 * colours immediately after the vertices (contiguous in one allocation, so the
+	 * existing free(payload->vertices) still releases everything, and the renderer's
+	 * COL1/COL2 segment bases land on this region). The actual distinct count is
+	 * filled below; entry 0 stays white so an all-white mesh is byte-identical to
+	 * the prior single-white-entry output. The cap reserve is 256 bytes -- trivial. */
 	vertex_colour_bytes = (size_t)ALIGN8(vertex_bytes) +
-		sizeof(*payload->colours);
+		(size_t)GENERATED_COLOUR_TABLE_CAP * sizeof(*payload->colours);
 	payload->vertices = calloc(1, vertex_colour_bytes);
 	if (!payload->vertices) {
 		return 0;
@@ -5901,6 +6038,7 @@ static s32 generatedModeldefBuildPayload(const obj_mesh_t *mesh,
 	payload->colours[0].g = 0xff;
 	payload->colours[0].b = 0xff;
 	payload->colours[0].a = 0xff;
+	payload->numcolours = 1;
 	payload->vertex_bytes = vertex_bytes;
 	payload->vertex_count = vtx_count;
 	payload->triangle_count = tri_count;
@@ -5953,11 +6091,17 @@ static s32 generatedModeldefBuildPayload(const obj_mesh_t *mesh,
 			tb = objMeshTexcoord(mesh, tri->tb);
 			tc = objMeshTexcoord(mesh, tri->tc);
 			fillGeneratedVertex(&payload->vertices[emitted * 3 + 0],
-				&mesh->vertices[tri->a], ta);
+				&mesh->vertices[tri->a], ta,
+				generatedColourTableIntern(payload->colours, &colour_count,
+					mesh->vertices[tri->a].colour, &colour_warned, group_name));
 			fillGeneratedVertex(&payload->vertices[emitted * 3 + 1],
-				&mesh->vertices[tri->b], tb);
+				&mesh->vertices[tri->b], tb,
+				generatedColourTableIntern(payload->colours, &colour_count,
+					mesh->vertices[tri->b].colour, &colour_warned, group_name));
 			fillGeneratedVertex(&payload->vertices[emitted * 3 + 2],
-				&mesh->vertices[tri->c], tc);
+				&mesh->vertices[tri->c], tc,
+				generatedColourTableIntern(payload->colours, &colour_count,
+					mesh->vertices[tri->c].colour, &colour_warned, group_name));
 			emitted++;
 		}
 	} else {
@@ -5974,14 +6118,25 @@ static s32 generatedModeldefBuildPayload(const obj_mesh_t *mesh,
 			tb = objMeshTexcoord(mesh, tri->tb);
 			tc = objMeshTexcoord(mesh, tri->tc);
 			fillGeneratedVertex(&payload->vertices[emitted * 3 + 0],
-				&mesh->vertices[tri->a], ta);
+				&mesh->vertices[tri->a], ta,
+				generatedColourTableIntern(payload->colours, &colour_count,
+					mesh->vertices[tri->a].colour, &colour_warned, group_name));
 			fillGeneratedVertex(&payload->vertices[emitted * 3 + 1],
-				&mesh->vertices[tri->b], tb);
+				&mesh->vertices[tri->b], tb,
+				generatedColourTableIntern(payload->colours, &colour_count,
+					mesh->vertices[tri->b].colour, &colour_warned, group_name));
 			fillGeneratedVertex(&payload->vertices[emitted * 3 + 2],
-				&mesh->vertices[tri->c], tc);
+				&mesh->vertices[tri->c], tc,
+				generatedColourTableIntern(payload->colours, &colour_count,
+					mesh->vertices[tri->c].colour, &colour_warned, group_name));
 			emitted++;
 		}
 	}
+	/* c3844 vtxcolour: the interned distinct count is the real table size.
+	 * colour_count is 0 only when no vertices were emitted (handled by the
+	 * tri_count==0 early return above), so clamp to at least 1 to preserve the
+	 * white entry seeded at allocation. */
+	payload->numcolours = colour_count > 0 ? colour_count : 1;
 
 	gdl = source_gdl;
 	if (matrix_index < 0) {
@@ -5993,7 +6148,7 @@ static s32 generatedModeldefBuildPayload(const obj_mesh_t *mesh,
 				((u32)matrix_index * (u32)sizeof(Mtxf))),
 			G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW);
 	}
-	gSPColor(gdl++, SEGADDR(colour_segment), 1);
+	gSPColor(gdl++, SEGADDR(colour_segment), payload->numcolours);
 	gSPTexture(gdl++, 0, 0, 0, 0, 0);
 	gSPClearGeometryMode(gdl++,
 		G_LIGHTING | G_TEXTURE_GEN | G_TEXTURE_GEN_LINEAR | G_CULL_BOTH);
@@ -6147,8 +6302,14 @@ static s32 generatedModeldefBuildPayload(const obj_mesh_t *mesh,
 		}
 		payload->gdl_bytes = (size_t)output_bytes;
 		if (model_segment == SPSEGMENT_MODEL_COL1) {
+			/* c3844 vtxcolour: the relocated baseaddr packs vertices, then the
+			 * deduped colour table (numcolours entries, not 1), then the gdl. The
+			 * COL1 segment offset (colour_segment, computed above) points at
+			 * colour_offset, and gSPColor reads numcolours entries from there. */
 			size_t colour_offset = ALIGN8(vertex_bytes);
-			size_t gdl_offset = ALIGN8(colour_offset + sizeof(*payload->colours));
+			size_t colour_bytes = (size_t)payload->numcolours *
+				sizeof(*payload->colours);
+			size_t gdl_offset = ALIGN8(colour_offset + colour_bytes);
 			size_t base_bytes = gdl_offset + payload->gdl_bytes;
 			payload->baseaddr = calloc(1, base_bytes);
 			if (!payload->baseaddr) {
@@ -6160,7 +6321,7 @@ static s32 generatedModeldefBuildPayload(const obj_mesh_t *mesh,
 			}
 			memcpy(payload->baseaddr, payload->vertices, vertex_bytes);
 			memcpy((u8 *)payload->baseaddr + colour_offset,
-				payload->colours, sizeof(*payload->colours));
+				payload->colours, colour_bytes);
 			memcpy((u8 *)payload->baseaddr + gdl_offset,
 				payload->gdl, payload->gdl_bytes);
 			payload->seg_gdl = (Gfx *)SEGADDR(
@@ -6659,7 +6820,7 @@ static s32 buildGeneratedModeldefFromMeshHierarchy(const asset_entry_t *entry,
 				rodata->dl.vertices = payload->vertices;
 				rodata->dl.numvertices = (s16)payload->vertex_count;
 				rodata->dl.mcount = row->mcount > 0 ? (s16)row->mcount : 1;
-				rodata->dl.numcolours = 1;
+				rodata->dl.numcolours = (u16)payload->numcolours; /* c3844 vtxcolour */
 			}
 			break;
 		case MODELNODETYPE_GUNDL:
@@ -6805,6 +6966,8 @@ static s32 buildGeneratedModeldefFromMesh(const asset_entry_t *entry,
 	s32 uv_vertex_count = 0;
 	s32 textured_material_count = 0;
 	s32 material_switch_count = 0;
+	s32 colour_count = 0;   /* c3844 vtxcolour: distinct colours interned */
+	s32 colour_warned = 0;  /* one-shot >64-colour clamp warning */
 	struct skeleton *skeleton;
 
 	if (out_modeldef) {
@@ -6848,7 +7011,11 @@ static s32 buildGeneratedModeldefFromMesh(const asset_entry_t *entry,
 	}
 
 	vertex_bytes = (size_t)vtx_count * sizeof(*owner->vertices);
-	vertex_colour_bytes = (size_t)ALIGN8(vertex_bytes) + sizeof(*owner->colours);
+	/* c3844 vtxcolour: reserve up to GENERATED_COLOUR_TABLE_CAP deduped colours
+	 * after the vertices in the same allocation (this path uses the COL2 segment,
+	 * which model.c binds directly to owner->colours at offset 0). */
+	vertex_colour_bytes = (size_t)ALIGN8(vertex_bytes) +
+		(size_t)GENERATED_COLOUR_TABLE_CAP * sizeof(*owner->colours);
 	owner->vertices = calloc(1, vertex_colour_bytes);
 	owner->colours = (Col *)((u8 *)owner->vertices + ALIGN8(vertex_bytes));
 	source_gdl = calloc((size_t)source_gdl_count, sizeof(*source_gdl));
@@ -6884,23 +7051,36 @@ static s32 buildGeneratedModeldefFromMesh(const asset_entry_t *entry,
 		uv_vertex_count += tb ? 1 : 0;
 		uv_vertex_count += tc ? 1 : 0;
 		fillGeneratedVertex(&owner->vertices[i * 3 + 0],
-			&mesh->vertices[tri->a], ta);
+			&mesh->vertices[tri->a], ta,
+			generatedColourTableIntern(owner->colours, &colour_count,
+				mesh->vertices[tri->a].colour, &colour_warned,
+				entry ? entry->id : source_path));
 		fillGeneratedVertex(&owner->vertices[i * 3 + 1],
-			&mesh->vertices[tri->b], tb);
+			&mesh->vertices[tri->b], tb,
+			generatedColourTableIntern(owner->colours, &colour_count,
+				mesh->vertices[tri->b].colour, &colour_warned,
+				entry ? entry->id : source_path));
 		fillGeneratedVertex(&owner->vertices[i * 3 + 2],
-			&mesh->vertices[tri->c], tc);
+			&mesh->vertices[tri->c], tc,
+			generatedColourTableIntern(owner->colours, &colour_count,
+				mesh->vertices[tri->c].colour, &colour_warned,
+				entry ? entry->id : source_path));
+	}
+	if (colour_count <= 0) {
+		colour_count = 1; /* preserve the seeded white entry */
 	}
 
 	gdl = source_gdl;
 	gSPMatrix(gdl++, SEGADDR(SPSEGMENT_MODEL_MTX << 24),
 		G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW);
-	gSPColor(gdl++, SEGADDR(SPSEGMENT_MODEL_COL2 << 24), 1);
+	gSPColor(gdl++, SEGADDR(SPSEGMENT_MODEL_COL2 << 24), colour_count);
 	gSPTexture(gdl++, 0, 0, 0, 0, 0);
 	gSPClearGeometryMode(gdl++,
 		G_LIGHTING | G_TEXTURE_GEN | G_TEXTURE_GEN_LINEAR | G_CULL_BOTH);
 	gSPSetGeometryMode(gdl++, G_SHADE | G_SHADING_SMOOTH);
 	gDPSetCombineMode(gdl++, G_CC_SHADE, G_CC_SHADE);
-	for (s32 i = 0, last_material = -2, last_textured = 0;
+	for (s32 i = 0, last_material = -2, last_textured = 0,
+			last_render_class = PDMESH_RC_OPAQUE;
 			i < mesh->triangle_count; i++) {
 		const obj_triangle_t *tri = &mesh->triangles[i];
 		const obj_material_t *material =
@@ -6914,6 +7094,13 @@ static s32 buildGeneratedModeldefFromMesh(const asset_entry_t *entry,
 				emitGeneratedUntexturedState(&gdl);
 				last_textured = 0;
 			}
+			/* c3844 vtxcolour + fix B: the hierarchy payload path already emits the
+			 * render-class mode per material; this static (hierarchy-less) path was
+			 * missing it, so XLU meshes here stayed opaque. Emit it now so a
+			 * translucent material's alpha (carried in the deduped colour table)
+			 * actually blends. Opaque materials never change class -> no new cmds. */
+			emitGeneratedRenderClass(&gdl, material ? material->render_class :
+				PDMESH_RC_OPAQUE, &last_render_class);
 			last_material = tri->material_index;
 		}
 		gSPVertex(gdl++, SEGADDR((SPSEGMENT_MODEL_VTX << 24) | offset), 3, 0);
@@ -6977,7 +7164,7 @@ static s32 buildGeneratedModeldefFromMesh(const asset_entry_t *entry,
 	owner->dl_rodata.dl.vertices = owner->vertices;
 	owner->dl_rodata.dl.numvertices = (s16)vtx_count;
 	owner->dl_rodata.dl.mcount = 1;
-	owner->dl_rodata.dl.numcolours = 1;
+	owner->dl_rodata.dl.numcolours = (u16)colour_count; /* c3844 vtxcolour */
 
 	owner->def.rootnode = &owner->root_node;
 	owner->def.skel = skeleton;

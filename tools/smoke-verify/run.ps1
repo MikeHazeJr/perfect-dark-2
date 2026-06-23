@@ -135,6 +135,7 @@ public static class PdSmokeWindowCapture
     private const int SRCCOPY = 0x00CC0020;
     private const int BI_RGB = 0;
     private const int DIB_RGB_COLORS = 0;
+    private const uint PW_RENDERFULLCONTENT = 2;
 
     [StructLayout(LayoutKind.Sequential)]
     public struct RECT
@@ -201,6 +202,9 @@ public static class PdSmokeWindowCapture
     private static extern bool BitBlt(IntPtr hdcDest, int xDest, int yDest, int wDest, int hDest,
                                       IntPtr hdcSrc, int xSrc, int ySrc, int rop);
 
+    [DllImport("user32.dll")]
+    private static extern bool PrintWindow(IntPtr hWnd, IntPtr hdcBlt, uint nFlags);
+
     [DllImport("gdi32.dll")]
     private static extern int GetDIBits(IntPtr hdc, IntPtr hbm, uint start, uint cLines,
                                         byte[] lpvBits, ref BITMAPINFO lpbmi, uint usage);
@@ -230,7 +234,14 @@ public static class PdSmokeWindowCapture
             bitmap = CreateCompatibleBitmap(screenDc, width, height);
             if (memoryDc == IntPtr.Zero || bitmap == IntPtr.Zero) return false;
             oldObject = SelectObject(memoryDc, bitmap);
-            if (!BitBlt(memoryDc, 0, 0, width, height, screenDc, rect.Left, rect.Top, SRCCOPY)) return false;
+            // PrintWindow grabs the window's own DWM-composited surface (incl. the
+            // OpenGL content) regardless of z-order, so a foreground Claude / other
+            // window no longer masks the game. Fall back to the screen BitBlt only if
+            // PrintWindow fails outright.
+            if (!PrintWindow(hWnd, memoryDc, PW_RENDERFULLCONTENT))
+            {
+                if (!BitBlt(memoryDc, 0, 0, width, height, screenDc, rect.Left, rect.Top, SRCCOPY)) return false;
+            }
 
             int stride = width * 4;
             byte[] pixels = new byte[stride * height];

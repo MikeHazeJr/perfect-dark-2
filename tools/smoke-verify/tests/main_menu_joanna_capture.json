@@ -1,0 +1,33 @@
+{
+  "scenario_name": "main_menu_joanna_capture",
+  "description": "Picture-prove the CI menu character (Joanna) renders. Burst-capture the title backdrop (least menu coverage) then press start + select an agent and capture the main-menu backdrop (where the intro cam frames her). No early Returns so the game holds at the title.",
+  "boot_args": ["--debug-generated-mesh-render-audit"],
+  "timeout_seconds": 210,
+  "install_state": "clean",
+  "input_sequence": [
+    { "at_ms": 0,      "type": "wait", "comment": "boot; clean-install extraction runs first (~90s)" },
+    { "at_ms": 112000, "type": "key",  "key": "Return", "action": "tap", "comment": "press start -> profile/agent select" },
+    { "at_ms": 117000, "type": "key",  "key": "Return", "action": "tap", "comment": "select highlighted agent -> main menu" },
+    { "at_ms": 168000, "type": "exit", "comment": "done" }
+  ],
+  "screenshots": [
+    { "at_ms": 92000,  "name": "title_a" },
+    { "at_ms": 97000,  "name": "title_b" },
+    { "at_ms": 102000, "name": "title_c" },
+    { "at_ms": 107000, "name": "title_d" },
+    { "at_ms": 128000, "name": "mainmenu_a" },
+    { "at_ms": 140000, "name": "mainmenu_b" },
+    { "at_ms": 152000, "name": "mainmenu_c" },
+    { "at_ms": 162000, "name": "mainmenu_d" }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=main_menu_joanna_capture",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "SMOKE: result=timeout"
+    ],
+    "required_counts": []
+  }
+}
