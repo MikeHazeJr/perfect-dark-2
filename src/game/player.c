@@ -2714,7 +2714,7 @@ void playerTickChrBody(void)
 			s32 body_filenum_1p;
 			s32 head_filenum_1p = -1;
 			if (!bodyid || !catalogResolveBody(bodyid, &bodyresult)) {
-				sysLogPrintf(LOG_WARNING, "PLAYER: cannot resolve body catalog entry for bodynum=%d",
+				sysLogPrintf(LOG_ERROR, "CHARACTER.LOAD.FAIL: cannot resolve body catalog entry for bodynum=%d -- character will be INVISIBLE (asset missing from catalog/data tree; try a Clean Build / re-extract)",
 					bodynum);
 				return;
 			}
@@ -2779,7 +2779,7 @@ void playerTickChrBody(void)
 				// Body model failed to load -- player will be invisible but won't crash
 				playerFatalSourceOnlyCharacterAssetFailure(ASSET_BODY, bodyid,
 					bodynum, "player chrbody body modeldef");
-				sysLogPrintf(LOG_WARNING, "PLAYER: bodymodeldef NULL for bodynum=%d filenum=0x%04x",
+				sysLogPrintf(LOG_ERROR, "CHARACTER.LOAD.FAIL: body modeldef NULL for bodynum=%d filenum=0x%04x -- character will be INVISIBLE (missing/stale/incompatible extracted asset; try a Clean Build / re-extract)",
 					bodynum, body_filenum_1p);
 				return;
 			}
@@ -5328,6 +5328,24 @@ void playerTick(bool arg0)
 			bmoveTick(1, 1, arg0, 0);
 		} else {
 			bmoveTick(0, 0, 0, 1);
+		}
+
+		/* MENU.CAM.PROBE (camera-drop diagnostic): the Carrington Institute main-menu
+		 * camera follows bond2.unk10; if the menu body is not grounded it falls under
+		 * gravity and the camera "drops to the floor and bounces". Log the eye/body/ground
+		 * Y at the menu (rate-limited) so the free-fall is objective in the log and the
+		 * menu-sit smoke can assert the camera stays attached (body_y must not sink). */
+		if (g_Vars.stagenum == STAGE_CITRAINING && g_Vars.normmplayerisrunning == false
+				&& g_Vars.currentplayer != NULL && g_Vars.currentplayer->prop != NULL
+				&& (g_Vars.lvframenum % 15) == 0 && g_Vars.lvframenum <= 1800) {
+			sysLogPrintf(LOG_NOTE,
+				"MENU.CAM.PROBE: frame=%d eye_y=%.1f body_y=%.1f ground=%.1f manground=%.1f haschrbody=%d",
+				g_Vars.lvframenum,
+				g_Vars.currentplayer->bond2.unk10.y,
+				g_Vars.currentplayer->prop->pos.y,
+				g_Vars.currentplayer->vv_ground,
+				g_Vars.currentplayer->vv_manground,
+				g_Vars.currentplayer->haschrbody ? 1 : 0);
 		}
 
 		playerUpdateShake();

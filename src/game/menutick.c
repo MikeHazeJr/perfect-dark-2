@@ -66,11 +66,20 @@ static bool ciReadyForMenuOpen(void)
 		return false;
 	}
 
-	if (g_Vars.tickmode == TICKMODE_CUTSCENE && !playerCurrentCutsceneInProgress()) {
-		playerEndCutscene();
+	/* CI MENU CHARACTER FIX: do NOT force-end the intro fly-in cutscene to open the
+	 * menu. The original opens the menu OVER the running cutscene, keeping Joanna (the
+	 * player chrbody) on screen with the camera held on her. Force-ending here (the
+	 * c131 SkipIntro black-screen workaround) flipped to TICKMODE_NORMAL, whose first
+	 * action is playerRemoveChrBody() -- removing the character -- while the FP camera
+	 * followed the ungrounded body and dropped/bounced. Stay in TICKMODE_CUTSCENE and
+	 * report ready once the fly-in anim has settled (its last frame, camera on Joanna),
+	 * or after a safety timeout so a SkipIntro/stuck cutscene still opens the menu (no
+	 * black-screen) WITHOUT ending the cutscene. */
+	if (g_Vars.tickmode == TICKMODE_CUTSCENE) {
+		return !playerCurrentCutsceneInProgress() || g_Vars.lvframenum > 300;
 	}
 
-	return g_Vars.tickmode != TICKMODE_CUTSCENE;
+	return true;
 }
 
 static void ciHoldMenuOpenUntilCameraReady(void)
@@ -119,6 +128,39 @@ void menuTick(void)
 #else
 	g_ScaleX = g_ViRes == VIRES_HI ? 2 : 1;
 #endif
+
+	/* MENU.CAM.PROBE (camera-drop diagnostic): menuTick runs every frame regardless of
+	 * tickmode/menu-pause, so this is the correct vantage point for the CI intro-cutscene
+	 * -> menu-open handoff. Logs the tickmode, whether the intro cutscene is still "in
+	 * progress", and the player camera/body/ground Y, so a stalled handoff and the camera
+	 * drop ("avatar fully absent, camera falls to floor") become objective in the log.
+	 * For the "CI typing body not drawn" case, cam and onscr are the two render gates that
+	 * must BOTH hold: cam==1 (CAMERAMODE_THIRDPERSON) lets chr.c pose/draw the player body
+	 * (0=CAMERAMODE_DEFAULT culls it), and onscr==0x6 means the player prop carries
+	 * PROPFLAG_ONTHISSCREENTHISTICK|PROPFLAG_ENABLED, i.e. it passed the propsSort inclusion
+	 * mask and is in g_Vars.onscreenprops (any other onscr value = culled before draw). */
+	{
+		static s32 s_ciProbeTicks = 0;
+		if (g_Vars.stagenum == STAGE_CITRAINING) {
+			if (((s_ciProbeTicks <= 700) || (s_ciProbeTicks % 30) == 0) && s_ciProbeTicks <= 3600 && g_Vars.currentplayer != NULL) {
+				sysLogPrintf(LOG_NOTE,
+					"MENU.CAM.PROBE: t=%d tickmode=%d cut=%d cam=%d eye_y=%.1f body_y=%.1f ground=%.1f hascb=%d pflags=0x%08x onscr=0x%x ctrl=%d",
+					s_ciProbeTicks, g_Vars.tickmode,
+					playerCurrentCutsceneInProgress() ? 1 : 0,
+					g_Vars.currentplayer->cameramode,
+					g_Vars.currentplayer->bond2.unk10.y,
+					(g_Vars.currentplayer->prop != NULL) ? g_Vars.currentplayer->prop->pos.y : -99999.0f,
+					g_Vars.currentplayer->vv_ground,
+					g_Vars.currentplayer->haschrbody ? 1 : 0,
+					(g_Vars.currentplayer->prop != NULL) ? (unsigned)g_Vars.currentplayer->prop->flags : 0u,
+					(g_Vars.currentplayer->prop != NULL) ? (unsigned)(g_Vars.currentplayer->prop->flags & (PROPFLAG_ONTHISSCREENTHISTICK | PROPFLAG_ENABLED)) : 0u,
+					g_PlayersWithControl[0] ? 1 : 0);
+			}
+			s_ciProbeTicks++;
+		} else {
+			s_ciProbeTicks = 0;
+		}
+	}
 
 	/* S304: detect stale pool slots once per frame. If the legacy stack is
 	 * empty but the pool still has active slots (leaked by a close path that

@@ -1,0 +1,38 @@
+{
+  "scenario_name": "main_menu_boot_repro",
+  "description": "Boot to the main menu (Carrington Institute / CITRAINING backdrop) and SIT there, watching the menu character avatar load and the intro camera pan + handoff. Repro for the camera-drop / avatar-not-loading bug observed on a normal single-player boot. Phase 2 harness-gap closure: existing smokes (combat_sim_entry, boot_smoke, combat_sim_chicago_match_start) all rush past the menu into a match or stop at title, so NONE verifies the menu avatar loads and the camera stays attached.",
+  "tags": ["menu", "boot", "camera", "avatar", "stability"],
+  "paths_of_interest": [
+    "src/game/mainmenu.c",
+    "src/game/menu.c",
+    "src/game/title.c",
+    "src/game/playerreset.c",
+    "src/game/bondview.c",
+    "src/game/lv.c",
+    "port/src/assetcatalog.c",
+    "port/src/assetload.c"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 120,
+  "install_state": "clean",
+  "boot_args": ["--no-update-check", "--no-sound", "--debug-generated-mesh-render-audit"],
+  "input_sequence": [
+    { "at_ms": 0,     "type": "wait", "comment": "boot to title; clean-install extraction may run first" },
+    { "at_ms": 12000, "type": "key",  "key": "Return", "action": "tap", "comment": "advance past PD logo / legal" },
+    { "at_ms": 14000, "type": "key",  "key": "Return", "action": "tap", "comment": "advance intro" },
+    { "at_ms": 16000, "type": "key",  "key": "Return", "action": "tap", "comment": "enter main menu (Carrington Institute)" },
+    { "at_ms": 18000, "type": "wait", "comment": "SIT at the main menu - watch avatar load + intro camera pan + handoff; do NOT navigate" },
+    { "at_ms": 60000, "type": "exit", "comment": "menu-sit with generated-mesh render audit" }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=main_menu_boot_repro",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "SMOKE: result=timeout"
+    ],
+    "required_counts": []
+  }
+}
