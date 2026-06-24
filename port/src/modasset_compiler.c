@@ -5997,7 +5997,8 @@ static s32 generatedModeldefBuildPayload(const obj_mesh_t *mesh,
                                          s32 model_segment,
                                          const generated_render_stream_t *stream,
                                          generated_dl_payload_t *payload,
-                                         const char *asset_id)
+                                         const char *asset_id,
+                                         s32 mcount)
 {
 	s32 tri_count = 0;
 	s32 material_switch_count = 0;
@@ -6235,6 +6236,19 @@ static s32 generatedModeldefBuildPayload(const obj_mesh_t *mesh,
 		}
 	}
 
+	/* B-936 fix: lit chr bodies (mcount==3) carry per-vertex NORMALS in this
+	 * "colour" table -- fast3d reads r,g,b as the signed normal (x,y,z) under
+	 * G_LIGHTING, but ALSO takes the per-vertex shade ALPHA from the 4th byte,
+	 * which on a normal is frequently 0. G_CC_MODULATEIA multiplies texture alpha
+	 * by shade alpha, so a 0 there renders parts of her transparent. Force the
+	 * table alpha opaque while leaving r,g,b (the normal direction) untouched, so
+	 * the normals still light correctly but the body stays solid. */
+	if (mcount == 3) {
+		for (s32 aci = 0; aci < payload->numcolours; aci++) {
+			payload->colours[aci].a = 0xff;
+		}
+	}
+
 	/* DIAGNOSTIC (B-936/B-934, temporary): per-material render-class + texture
 	 * flag + vertex-colour-table head for each generated mesh group. Verifies the
 	 * extracted .pdmesh carries XLU/TEX_EDGE classes and non-degenerate RGBA --
@@ -6289,9 +6303,23 @@ static s32 generatedModeldefBuildPayload(const obj_mesh_t *mesh,
 	}
 	gSPColor(gdl++, SEGADDR(colour_segment), payload->numcolours);
 	gSPTexture(gdl++, 0, 0, 0, 0, 0);
-	gSPClearGeometryMode(gdl++,
-		G_LIGHTING | G_TEXTURE_GEN | G_TEXTURE_GEN_LINEAR | G_CULL_BOTH);
-	gSPSetGeometryMode(gdl++, G_SHADE | G_SHADING_SMOOTH);
+	if (mcount == 3) {
+		/* B-936 fix: a chr body (Type3) carries per-vertex NORMALS in its colour
+		 * table, which the stock game lights via G_LIGHTING. Keep G_LIGHTING ON so
+		 * fast3d computes a lit shade from those normals using the scene lights
+		 * (the CI menu sets ambient 0x96 + white diffuse, menu.c:2031) -- instead of
+		 * clearing it and feeding the near-black normal bytes as raw vertex colours
+		 * (which rendered her dark + alpha-0 transparent). The per-material combine
+		 * stays G_CC_MODULATEIA, now modulating the texture by the bright lit shade;
+		 * props/scene meshes (other mcounts) keep the unlit vertex-colour path. */
+		gSPClearGeometryMode(gdl++,
+			G_TEXTURE_GEN | G_TEXTURE_GEN_LINEAR | G_CULL_BOTH);
+		gSPSetGeometryMode(gdl++, G_LIGHTING | G_SHADE | G_SHADING_SMOOTH);
+	} else {
+		gSPClearGeometryMode(gdl++,
+			G_LIGHTING | G_TEXTURE_GEN | G_TEXTURE_GEN_LINEAR | G_CULL_BOTH);
+		gSPSetGeometryMode(gdl++, G_SHADE | G_SHADING_SMOOTH);
+	}
 	gDPSetCombineMode(gdl++, G_CC_SHADE, G_CC_SHADE);
 	if (s_debugForceChrPrim()) {
 		gDPSetCycleType(gdl++, G_CYC_1CYCLE);
@@ -6894,7 +6922,7 @@ static s32 buildGeneratedModeldefFromMeshHierarchy(const asset_entry_t *entry,
 					row->group, row->render_mtx, payload_segment,
 					&render_stream,
 					&owner->dynamic_payloads[row->payload_index],
-					entry ? entry->id : NULL)) {
+					entry ? entry->id : NULL, row->mcount)) {
 				free(parts);
 				generatedRenderStreamFree(&render_stream);
 				generatedHierarchyFree(&hierarchy);

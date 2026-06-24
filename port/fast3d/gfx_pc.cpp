@@ -164,6 +164,11 @@ static inline int dbgHideScene(void) {
     if (s_dbgHideScene < 0) { s_dbgHideScene = sysArgCheck("--debug-hide-scene") ? 1 : 0; }
     return s_dbgHideScene;
 }
+static int s_dbgChrLight = -1;
+static inline int dbgChrLight(void) {
+    if (s_dbgChrLight < 0) { s_dbgChrLight = sysArgCheck("--debug-chr-light") ? 1 : 0; }
+    return s_dbgChrLight;
+}
 static float s_vpMatrix[4][4]; /* View-Projection matrix for collision mesh rendering */
 
 struct RawTexMetadata {
@@ -1514,6 +1519,25 @@ static void gfx_sp_vertex(size_t n_vertices, size_t dest_index, const Vtx* verti
             d->color.r = r > 255 ? 255 : r;
             d->color.g = g > 255 ? 255 : g;
             d->color.b = b > 255 ? 255 : b;
+
+            /* B-936 diag: confirm whether scene lights are actually active when a
+             * lit (G_LIGHTING) generated chr-body vertex is processed -- if
+             * num_lights/ambient are 0 the body renders black even with lighting
+             * enabled. Throttled; only for meshes carrying a vertex-colour table. */
+            if (i == 0 && dbgChrLight() && rsp.num_vertex_colors > 0) {
+                static int s_litLog = 0;
+                if (s_litLog < 30) {
+                    sysLogPrintf(LOG_NOTE,
+                        "CHRLIGHT: numlights=%d ambient=(%d,%d,%d) normal=(%d,%d,%d) lit=(%d,%d,%d)",
+                        rsp.current_num_lights,
+                        rsp.current_num_lights > 0 ? rsp.current_lights[rsp.current_num_lights - 1].col[0] : -1,
+                        rsp.current_num_lights > 0 ? rsp.current_lights[rsp.current_num_lights - 1].col[1] : -1,
+                        rsp.current_num_lights > 0 ? rsp.current_lights[rsp.current_num_lights - 1].col[2] : -1,
+                        (int)vcn->x, (int)vcn->y, (int)vcn->z,
+                        (int)d->color.r, (int)d->color.g, (int)d->color.b);
+                    s_litLog++;
+                }
+            }
 
             if (rsp.geometry_mode & G_TEXTURE_GEN) {
                 float dotx = 0, doty = 0;
