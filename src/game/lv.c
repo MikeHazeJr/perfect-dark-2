@@ -1575,6 +1575,38 @@ Gfx *lvRender(Gfx *gdl)
 				g_Vars.currentplayer->gunctrl.loadall = bgunLoadAll();
 			}
 
+			/* B-936/CI-menu-render DIAGNOSTIC (--debug-menu-render-state): at the
+			 * lvRender decision point, the var8009dfc0 menu-bg branch (just below)
+			 * SKIPS the live-world else block -- the only place props (desk PC /
+			 * desk / chairs via bgRender->propsRender) and the player chrbody
+			 * (chr0f028498/chrRender, i.e. Joanna) are submitted. This log prints
+			 * WHY var8009dfc0 is true at the visible CI-menu frame: the menu-bg flag,
+			 * the tickmode (the CI intro deliberately holds TICKMODE_CUTSCENE=6 but
+			 * may settle out of it), the stagenum, and whether the scenario scene.glb
+			 * backdrop is the active renderer. Player 0 only, fires a handful of times
+			 * then stops so it never floods the log. */
+			{
+				extern s32 scenarioSceneRendererIsActive(void);
+				static s32 s_menuRenderStateLogged = 0;
+				static s32 s_menuRenderStateEnabled = -1;
+
+				if (s_menuRenderStateEnabled < 0) {
+					s_menuRenderStateEnabled = sysArgCheck("--debug-menu-render-state") ? 1 : 0;
+				}
+
+				if (s_menuRenderStateEnabled && g_Vars.currentplayernum == 0
+						&& s_menuRenderStateLogged < 8) {
+					s_menuRenderStateLogged++;
+					sysLogPrintf(LOG_NOTE,
+						"MENU.RENDER.STATE: var8009dfc0=%d tickmode=%d stagenum=0x%02x sceneActive=%d lockscreen=%d frame=%d branch=%s",
+						(s32)var8009dfc0, (s32)g_Vars.tickmode, (s32)g_Vars.stagenum,
+						scenarioSceneRendererIsActive(), (s32)g_Vars.lockscreen,
+						(s32)g_Vars.lvframenum,
+						g_Vars.lockscreen ? "lockscreen"
+							: (var8009dfc0 ? "menu-bg(SKIPS props/chrs)" : "live-world(props/chrs)"));
+				}
+			}
+
 			if (g_Vars.lockscreen) {
 				gdl = bviewDrawMotionBlur(gdl, 0xffffffff, 255);
 				g_Vars.lockscreen--;

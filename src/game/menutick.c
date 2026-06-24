@@ -93,6 +93,51 @@ static void ciHoldMenuOpenUntilCameraReady(void)
 	g_PlayersWithControl[0] = false;
 }
 
+/* CI MENU RENDER FIX (B-936 follow-up): "is the Carrington Institute the MENU
+ * BACKDROP right now, as opposed to the playable firing range?"
+ *
+ * Why this exists: var8009dfc0 (the menu-bg flag) true at the CI main-menu
+ * backdrop makes lvRender (lv.c:1581) take the menu-bg branch and SKIP the
+ * live-world else block -- the only place props (desk PC MODEL_GOODPC + desk +
+ * chairs via bgRender->propsRender) AND the player chrbody (chrRender: Joanna)
+ * are submitted, and the only place the scene.glb camera is set
+ * (bgRenderScene -> scenarioSceneRendererSetCameraFrame). So both vanish.
+ * B-936's original force-false keyed only on TICKMODE_CUTSCENE; once the held
+ * intro settles OUT of cutscene at the visible menu frame, that gate stops
+ * firing and var8009dfc0 reverts true -> props/chrs disappear again.
+ *
+ * Discriminator (must hold for the menu backdrop, must be FALSE for firing-range
+ * gameplay -- CITRAINING is BOTH the menu backdrop AND the playable firing range
+ * stage, so stagenum alone cannot tell them apart):
+ *   - g_Vars.tickmode == TICKMODE_CUTSCENE  -> the intro fly-in (B-936's case), OR
+ *   - scenarioSceneRendererIsActive() && !g_PlayersWithControl[0] && !frIsInTraining()
+ *       -> the settled menu: the scene.glb backdrop is the active renderer, the
+ *          player has NO control (the menu owns the screen), and we are NOT in the
+ *          firing range.
+ *
+ * scenarioSceneRendererIsActive() alone does NOT distinguish (it is true for the
+ * whole CITRAINING stage because both states load the same scene.glb), so it is
+ * qualified by the control + firing-range guards. During firing-range gameplay
+ * g_PlayersWithControl[0] is true AND frIsInTraining() is true, so the second term
+ * is false and tickmode is not CUTSCENE -> the predicate is false and normal
+ * behavior (incl. the in-firing-range pause-menu blur) is preserved. */
+static bool ciMenuBackdropActive(void)
+{
+	extern s32 scenarioSceneRendererIsActive(void);
+
+	if (g_Vars.stagenum != STAGE_CITRAINING) {
+		return false;
+	}
+
+	if (g_Vars.tickmode == TICKMODE_CUTSCENE) {
+		return true;
+	}
+
+	return scenarioSceneRendererIsActive()
+		&& !g_PlayersWithControl[0]
+		&& !frIsInTraining();
+}
+
 const char var7f1a85b0[] = "lvup: %d\n";
 const char var7f1a85bc[] = "file id %x-%x";
 const char var7f1a85cc[] = " ticking: ";
@@ -302,14 +347,18 @@ void menuTick(void)
 			}
 
 			/* CI MENU FIX (B-936): force the menu-bg flag false on the CI main-menu
-			 * backdrop (intro cutscene held by ciReadyForMenuOpen). var8009dfc0 true
-			 * here is the unified root: it removes the chrbody (just below), blocks
-			 * playerTickChrBody from rebuilding it (player.c ~2665), stops
-			 * playerTickCutscene (gated on haschrbody, player.c ~4943) so the cutscene
-			 * camera drops, and makes lv.c render the menu bg instead of the live world.
-			 * False (its intended state here) fixes all of that. */
-			if (g_Vars.stagenum == STAGE_CITRAINING &&
-					g_Vars.tickmode == TICKMODE_CUTSCENE) {
+			 * backdrop. var8009dfc0 true here is the unified root: it removes the
+			 * chrbody (just below), blocks playerTickChrBody from rebuilding it
+			 * (player.c ~2665), stops playerTickCutscene (gated on haschrbody,
+			 * player.c ~4943) so the cutscene camera drops, and makes lv.c render the
+			 * menu bg instead of the live world (skipping props + chrs). False (its
+			 * intended state here) fixes all of that.
+			 *
+			 * B-936 follow-up: broadened from TICKMODE_CUTSCENE-only to
+			 * ciMenuBackdropActive() so the force ALSO holds once the held intro
+			 * settles OUT of cutscene at the visible menu frame (the firing-range
+			 * gameplay state is excluded -- see ciMenuBackdropActive). */
+			if (ciMenuBackdropActive()) {
 				var8009dfc0 = false;
 			}
 
@@ -321,9 +370,14 @@ void menuTick(void)
 		}
 	} else {
 		g_MenuData.unk010 = 0;
-		var8009dfc0 = (g_MenuData.bg == 0 ||
-				(g_Vars.stagenum == STAGE_CITRAINING &&
-					g_Vars.tickmode == TICKMODE_CUTSCENE)) ? false : true;
+		/* B-936 follow-up: this settled-bg path (nextbg == 255) is what fires at the
+		 * VISIBLE CI menu frame. ciMenuBackdropActive() keeps var8009dfc0 false across
+		 * the whole CI menu backdrop (intro cutscene AND the settled-out-of-cutscene
+		 * menu), so the live-world else block in lvRender keeps running -- submitting
+		 * the desk PC + furniture (propsRender) and Joanna (chrRender) and setting the
+		 * scene.glb camera. Firing-range gameplay is excluded (see ciMenuBackdropActive)
+		 * so it still gets the normal menu-bg blur. */
+		var8009dfc0 = (g_MenuData.bg == 0 || ciMenuBackdropActive()) ? false : true;
 	}
 
 	// Check if returning from a multiplayer match
