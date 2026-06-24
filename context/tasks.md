@@ -4,7 +4,7 @@
 > [session-log.md](session-log.md). Historical card and bug detail remains in the
 > Kanban card history and bug ledger.
 
-Last updated: 2026-06-23
+Last updated: 2026-06-24
 
 ---
 
@@ -12,7 +12,7 @@ Last updated: 2026-06-23
 
 | Card | Status | Purpose |
 |------|--------|---------|
-| `c3844` | Active | CI-menu generated-mesh render: root-cause the GBI texture-binding failure -> credits fonts/particles render as opaque squares (B-934/B-935) AND Joanna's body renders zero pixels (B-936). One fix likely unblocks both; re-test Joanna's body immediately after. Investigation agent running 2026-06-23. Then: MP relay (A+C) + other-modes. |
+| `c3844` | Parked (Joanna) | CI-menu Joanna render bug PARKED 2026-06-24: per-frame TRACK confirms she is dead-center IN-FRAME (view-space `(3,7.8,-157)`, vz<0, ~full screen height) yet renders ZERO pixels -> a real render bug, NOT framing. Cycle-type fix tested at her confirmed position + REFUTED. Submission fix banked (`44bf45cc`). NEXT: credits B-346 visual confirm -> MP relay (A+C) + other-modes. |
 
 **CI menu render (c3844, 2026-06-23):** the glass-table opaque-black bug is fixed
 universally -- the `.pdscenario` extract now classifies glTF alphaMode from the
@@ -21,23 +21,29 @@ material (B-940). Verified on screen: glass translucent, menu fonts crisp,
 CITRAINING classifies opaque:63/mask:3/blend:15 (was 0 BLEND / 12 MASK). Commits
 `1472789c`, `91124983`.
 
-**Parked follow-up -- menu Joanna renders ZERO pixels (body-RENDER bug, NOT
-framing) [data-vs-framing RESOLVED 2026-06-23]:** The `var8009dfc0` submission fix
-(commit `44bf45cc`, B-936) restores Joanna + the desk PC + furniture + camera to
-the live scene -- all provably submitted (`MODASSET.RENDER` base:dark_combat 1803
-verts every run; no crash; camera holds 798 frames; PASS 3/3). BUT she renders
-ZERO visible pixels while FRAMED: in the natural menu view her model matrix
-projects to screen ~47% across / 32% down (fully on-screen), yet a generous zoom
-of that exact spot shows only room geometry -- no figure, no blob. So this is NOT
-framing and NOT submission: her body is processed/drawn but produces no output.
-HYPOTHESIS (user + investigation): same GBI texture-binding class as the credits
-"squares" bug (B-934/B-935) -- textured XLU geometry failing to bind/sample in the
-live GBI path, here manifesting as invisible (vs the credits' opaque-square
-manifestation). ACTION: do NOT chase this via camera-aim (settled -- not framing).
-COUPLED to the squares/texture-binding fix (active critical path): root-cause the
-GBI texture-bind failure, fix it, then RE-TEST Joanna's body immediately -- if the
-texture path fix makes her render, Joanna closes too (the money shot). Full
-breadcrumb in B-936.
+**Parked follow-up -- menu Joanna renders ZERO pixels [FRAMING SOLVED, render bug
+CONFIRMED 2026-06-24]:** The `var8009dfc0` submission fix (`44bf45cc`, B-936)
+restores Joanna + PC + furniture + camera (all submitted; PASS 3/3). A per-frame
+body-origin tracker (`--debug-track-chr`, src/lib/model.c, gate `nummatrices>1`;
+UNCOMMITTED) finally instrumented her ACTUAL screen position: she settles and holds
+at view-space `(3.0, 7.8, -156.9)` through the whole capture window -- `vz=-157`
+(IN FRONT of cam), dead-center, ~full-screen-height. So she is DEFINITIVELY
+in-frame -- the user's spatial fact confirmed (she stands at the desk edge typing;
+framing was a RED HERRING: the `--debug-cam-look-chr` prop-aim is ~313u off her
+body AND the one-time matrix audit sampled at 34s/intro, not capture time, so every
+prior zoom hit the wrong spot). YET a zoom at her exact dead-center position shows
+only room geometry -- NO figure, textured or dark. So: framed + large + central,
+rendering ZERO pixels = a REAL render bug. The cycle-type fix
+(`gDPSetCycleType(G_CYC_1CYCLE)` in modasset_compiler.c texture/untextured markers;
+UNCOMMITTED) was tested AT her confirmed position and did NOT make her visible ->
+**cycle-type REFUTED** as the fix. Open candidates for the focused task: (i)
+occlusion by room geometry from the headless held-cam (real-play uses the live
+terminal cam -- which our headless capture cannot replicate, per user); (ii) a
+combine/blend/draw bug yielding no fragments for an opaque+textured chrbody. NOW
+UNBLOCKED: the TRACK tool gives before/after verification at her real position --
+diagnose occlusion-vs-draw next. Uncommitted candidates/tooling: cycle-type marker
+edit, `--debug-mesh-matclass`, `--debug-track-chr`. Real-play proof meanwhile = the
+user's own rebuild. Full breadcrumb in B-936.
 
 **c3849 status (2026-06-17):** Waves 1-7 are SHIPPED and verified for the current
 tree. Waves 1-6 delivered telemetry, the four private runtime allocators, FONT
