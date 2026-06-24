@@ -3682,6 +3682,48 @@ void modelRenderNodeChrGunfire(struct modelrenderdata *renderdata, struct model 
 	}
 }
 
+/* B-942 node-tree audit (--debug-dump-nodetree): dump the CONSUME-SET runtime
+ * node tree (traversal order via child/next, each node's mtxindex, its parent's
+ * mtxindex = the accumulation source, its animpart and rest pos) so it can be
+ * diffed against the .pdmesh model.nodes.json. This is the one link not yet
+ * verified: that the consume WRITES the (faithful) .pdmesh fields into the
+ * runtime modeldef correctly. A parent-index / mtxindex / part mismatch here is
+ * the "coherent matrices, scrambled verts" culprit. */
+static void s_dumpNodeTreeB942(struct modelnode *n, s32 depth, s32 *cnt)
+{
+	while (n != NULL && *cnt < 70) {
+		s32 t = n->type & 0xff;
+		s32 mtx = -1, part = -1, parmtx = -1;
+		f32 px = 0.0f, py = 0.0f, pz = 0.0f;
+		if (t == MODELNODETYPE_POSITION) {
+			mtx = n->rodata->position.mtxindex0;
+			part = n->rodata->position.part;
+			px = n->rodata->position.pos.x;
+			py = n->rodata->position.pos.y;
+			pz = n->rodata->position.pos.z;
+		} else if (t == MODELNODETYPE_CHRINFO) {
+			mtx = n->rodata->chrinfo.mtxindex;
+			part = n->rodata->chrinfo.animpart;
+		}
+		if (n->parent != NULL) {
+			s32 pt = n->parent->type & 0xff;
+			if (pt == MODELNODETYPE_POSITION) {
+				parmtx = n->parent->rodata->position.mtxindex0;
+			} else if (pt == MODELNODETYPE_CHRINFO) {
+				parmtx = n->parent->rodata->chrinfo.mtxindex;
+			}
+		}
+		sysLogPrintf(LOG_NOTE,
+			"DUMPNODE: #%d depth=%d type=%d mtx=%d parentmtx=%d animpart=%d pos=(%.0f,%.0f,%.0f)",
+			*cnt, depth, t, mtx, parmtx, part, px, py, pz);
+		(*cnt)++;
+		if (n->child != NULL) {
+			s_dumpNodeTreeB942(n->child, depth + 1, cnt);
+		}
+		n = n->next;
+	}
+}
+
 void modelRender(struct modelrenderdata *renderdata, struct model *model)
 {
 	union modelrodata *rodata;
@@ -3810,6 +3852,19 @@ void modelRender(struct modelrenderdata *renderdata, struct model *model)
 						m->m[2][0], m->m[2][1], m->m[2][2],
 						m->m[3][0], m->m[3][1], m->m[3][2]);
 				}
+			}
+		}
+
+		/* B-942 node-tree audit -- dump Joanna's generated body (nmat==19 =
+		 * cdark_combat) runtime node tree once, to diff vs model.nodes.json. */
+		if (sysArgCheck("--debug-dump-nodetree")
+				&& modAssetCompilerModeldefIsGenerated(model->definition)
+				&& model->definition->nummatrices == 19) {
+			static s32 s_dumpedTreeB942 = 0;
+			if (!s_dumpedTreeB942) {
+				s32 cnt = 0;
+				s_dumpNodeTreeB942(model->definition->rootnode, 0, &cnt);
+				s_dumpedTreeB942 = 1;
 			}
 		}
 	}

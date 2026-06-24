@@ -1311,6 +1311,11 @@ static s32 s_exportGdlToObj(pdmesh_obj_export_t *ctx, Gfx *raw_gdl,
 	ctx->gdl_count++;
 	const Vtx *slots[64];
 	memset(slots, 0, sizeof(slots));
+	/* B-942 stitch probe: per-slot active model-matrix at G_VTX time. Detects
+	 * per-vertex (multi-matrix) skinned triangles, which the per-FACE matrix
+	 * capture collapses to one matrix -> mis-placed cross-bone verts. */
+	s32 slots_mtx[64];
+	for (s32 si = 0; si < 64; si++) { slots_mtx[si] = -1; }
 	s32 numslots = 0;
 
 	for (s32 cmdidx = 0; cmdidx < 8192; cmdidx++) {
@@ -1410,6 +1415,8 @@ static s32 s_exportGdlToObj(pdmesh_obj_export_t *ctx, Gfx *raw_gdl,
 					s32 vi = srcidx + i;
 					if (vi >= 0 && vi < numverts) {
 						slots[v0 + i] = &vbuf[vi];
+						slots_mtx[v0 + i] = (ctx->mtx_stack_size > 0)
+							? ctx->mtx_stack_indices[ctx->mtx_stack_size - 1] : -1;
 						ctx->vtx_slot_count++;
 					}
 				}
@@ -1427,6 +1434,18 @@ static s32 s_exportGdlToObj(pdmesh_obj_export_t *ctx, Gfx *raw_gdl,
 			s32 i2 = ((w1 >> 0)  & 0xff) / 10;
 			if (i0 < numslots && i1 < numslots && i2 < numslots) {
 				ctx->tri_attempt_count++;
+				if (slots_mtx[i0] != slots_mtx[i1]
+						|| slots_mtx[i1] != slots_mtx[i2]) {
+					static s32 s_b942StitchTotal = 0, s_b942StitchLog = 0;
+					s_b942StitchTotal++;
+					if (s_b942StitchLog < 24) {
+						sysLogPrintf(LOG_NOTE,
+							"B942STITCH: tri verts span matrices=(%d,%d,%d) total=%d",
+							slots_mtx[i0], slots_mtx[i1], slots_mtx[i2],
+							s_b942StitchTotal);
+						s_b942StitchLog++;
+					}
+				}
 				if (s_objEmitTri(ctx, slots[i0], slots[i1], slots[i2]) != 0) return -1;
 			} else {
 				ctx->tri_missing_slot_count++;

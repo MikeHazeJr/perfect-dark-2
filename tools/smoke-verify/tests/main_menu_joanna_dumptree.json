@@ -1,0 +1,10 @@
+{
+  "scenario_name": "main_menu_joanna_dumptree",
+  "description": "B-942 node-tree audit: dump Joanna's generated runtime node tree to diff vs model.nodes.json.",
+  "boot_args": ["--debug-hide-menu", "--debug-track-chr", "--debug-dump-nodetree", "--debug-chr-skel"],
+  "timeout_seconds": 90,
+  "install_state": "clean",
+  "input_sequence": [ { "at_ms": 0, "type": "wait" }, { "at_ms": 55000, "type": "exit" } ],
+  "screenshots": [],
+  "assertions": { "required_lines": ["SMOKE: result=scripted_exit"], "forbidden_patterns": [], "required_counts": [] }
+}
