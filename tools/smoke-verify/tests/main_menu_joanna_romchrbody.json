@@ -1,0 +1,10 @@
+{
+  "scenario_name": "main_menu_joanna_romchrbody",
+  "description": "B-942 ROM A/B: load Joanna's body from ROM modeldef. Dump GEN vs ROM skeleton/structure + render the ROM body as control.",
+  "boot_args": ["--debug-hide-menu", "--debug-track-chr", "--debug-rom-chrbody"],
+  "timeout_seconds": 110,
+  "install_state": "clean",
+  "input_sequence": [ { "at_ms": 0, "type": "wait" }, { "at_ms": 85000, "type": "exit" } ],
+  "screenshots": [ { "at_ms": 60000, "name": "romchr_60" }, { "at_ms": 75000, "name": "romchr_75" } ],
+  "assertions": { "required_lines": ["SMOKE: result=scripted_exit"], "forbidden_patterns": [], "required_counts": [] }
+}

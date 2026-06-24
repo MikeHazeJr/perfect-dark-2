@@ -387,6 +387,41 @@ struct model *body0f02ce8c(s32 bodynum, s32 headnum, struct modeldef *bodymodeld
 		}
 	}
 
+	/* B-942 ROM A/B (--debug-rom-chrbody): load Joanna's body from the ORIGINAL ROM
+	 * modeldef and (a) dump which skeleton the ROM body binds vs the generated one
+	 * + the node/part/matrix structure, then (b) substitute it so the stock body
+	 * renders as the control. If the ROM body renders CLEAN while ours is wild, the
+	 * consume-built modeldef (skeleton binding / node structure) is the bug; if the
+	 * ROM body is ALSO wild, the load/skinning path is. Caveat: ROM chr-body runtime
+	 * preprocessing is untested post-migration and may load torn (root=NULL). */
+	if (sysArgCheck("--debug-rom-chrbody") && bodymodeldef != NULL) {
+		extern struct skeleton g_SkelChr;
+		extern struct modeldef *modeldefLoadToNew(u16 fileid);
+		s32 fnum = catalogGetBodyFilenumByIndex(bodynum);
+		struct modeldef *gen = bodymodeldef;
+		/* dump the GENERATED skel/structure FIRST -- the ROM load may crash in
+		 * modelPromoteOffsetsToPointers (broken ROM chr-body finalize), so capturing
+		 * the generated side before that is the durable half of the A/B. */
+		sysLogPrintf(LOG_NOTE,
+			"ROMCHRBODY.GEN: bodynum=%d filenum=%d g_SkelChr=%p(id=%d things=%d) | "
+			"GEN def=%p skel=%p(id=%d things=%d) root=%p roottype=%d parts=%d nmat=%d scale=%.1f",
+			bodynum, fnum,
+			(void *)&g_SkelChr, (s32)g_SkelChr.skel, (s32)g_SkelChr.numthings,
+			(void *)gen, (void *)(gen ? gen->skel : NULL),
+			(gen && gen->skel) ? (s32)gen->skel->skel : -1,
+			(gen && gen->skel) ? (s32)gen->skel->numthings : -1,
+			(void *)(gen ? gen->rootnode : NULL),
+			(gen && gen->rootnode) ? (s32)(gen->rootnode->type & 0xff) : -1,
+			gen ? (s32)gen->numparts : -1,
+			gen ? (s32)gen->nummatrices : -1, gen ? gen->scale : -1.0f);
+		/* ROM render A/B is BLOCKED: modeldefLoadToNew((u16)fnum) crashes in
+		 * modelPromoteOffsetsToPointers (model.c:4300, garbage numparts) -- the raw
+		 * ROM chr-body load is broken post-migration. So only the generated side is
+		 * dumped above; the ROM control would need the ROM-load path repaired first.
+		 * (void)fnum keeps it referenced. */
+		(void)fnum;
+	}
+
 	public_source_generated_modeldef = (bodymodeldef != NULL
 		&& bodymodeldef->rootnode != NULL
 		&& body_source_id != NULL
