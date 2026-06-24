@@ -1,0 +1,10 @@
+{
+  "scenario_name": "main_menu_joanna_firstdraw",
+  "description": "B-936 scene-desync: room visible. --debug-scene-glstate (scene exit state) + --debug-firstdraw-glstate (actual state of first world draws). Compare to find what hides Joanna's draw.",
+  "boot_args": ["--debug-hide-menu", "--debug-track-chr", "--debug-show-only-mesh", "combat", "--debug-scene-glstate", "--debug-firstdraw-glstate"],
+  "timeout_seconds": 90,
+  "install_state": "clean",
+  "input_sequence": [ { "at_ms": 0, "type": "wait" }, { "at_ms": 55000, "type": "exit" } ],
+  "screenshots": [],
+  "assertions": { "required_lines": ["SMOKE: result=scripted_exit"], "forbidden_patterns": [], "required_counts": [] }
+}

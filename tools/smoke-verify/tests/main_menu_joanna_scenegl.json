@@ -1,0 +1,13 @@
+{
+  "scenario_name": "main_menu_joanna_scenegl",
+  "description": "B-936 scene-desync: room VISIBLE (scene renderer active), Joanna submitted. --debug-scene-glstate dumps the actual GL state the raw-GL scene renderer leaves, to find what hides her first world draw. Screenshot to confirm she's hidden with the room.",
+  "boot_args": ["--debug-hide-menu", "--debug-track-chr", "--debug-show-only-mesh", "combat", "--debug-scene-glstate"],
+  "timeout_seconds": 100,
+  "install_state": "clean",
+  "input_sequence": [
+    { "at_ms": 0,     "type": "wait", "comment": "boot; scene renders ~30s" },
+    { "at_ms": 60000, "type": "exit", "comment": "done" }
+  ],
+  "screenshots": [ { "at_ms": 50000, "name": "scenegl_a" } ],
+  "assertions": { "required_lines": ["SMOKE: result=scripted_exit"], "forbidden_patterns": [], "required_counts": [] }
+}

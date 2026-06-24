@@ -1,0 +1,10 @@
+{
+  "scenario_name": "main_menu_joanna_roomprim",
+  "description": "B-936 decisive: room visible + force-chr-prim (bright magenta, no-Z). If magenta shows over the room she IS drawing (color/state issue); if hidden her fragments aren't landing.",
+  "boot_args": ["--debug-hide-menu", "--debug-track-chr", "--debug-show-only-mesh", "combat", "--debug-force-chr-prim", "--debug-firstdraw-glstate"],
+  "timeout_seconds": 90,
+  "install_state": "clean",
+  "input_sequence": [ { "at_ms": 0, "type": "wait" }, { "at_ms": 55000, "type": "exit" } ],
+  "screenshots": [ { "at_ms": 50000, "name": "roomprim_a" } ],
+  "assertions": { "required_lines": ["SMOKE: result=scripted_exit"], "forbidden_patterns": [], "required_counts": [] }
+}

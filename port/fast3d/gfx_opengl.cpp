@@ -863,9 +863,47 @@ static void gfx_opengl_apply_debug_state(void) {
     glPolygonMode(GL_FRONT_AND_BACK, s_DebugWireframe ? GL_LINE : GL_FILL);
 }
 
+extern int g_dbgWorldDrawLog;
+
 static void gfx_opengl_draw_triangles(float buf_vbo[], size_t buf_vbo_len, size_t buf_vbo_num_tris) {
     // printf("flushing %d tris\n", buf_vbo_num_tris);
     gfx_opengl_apply_debug_state();
+    /* B-936 scene-desync: dump the ACTUAL GL state of the first world draws after
+     * the scene renderer -- the state Joanna's draw really runs under. */
+    if (g_dbgWorldDrawLog > 0) {
+        GLint sciBox[4] = {0,0,0,0}, vp[4] = {0,0,0,0};
+        GLint prog = 0, vao = 0, fbo = 0, depthFunc = 0;
+        GLboolean sci = glIsEnabled(GL_SCISSOR_TEST), bl = glIsEnabled(GL_BLEND);
+        GLboolean cu = glIsEnabled(GL_CULL_FACE), de = glIsEnabled(GL_DEPTH_TEST);
+        GLboolean dm = 0; GLboolean cm[4] = {0,0,0,0};
+        glGetIntegerv(GL_SCISSOR_BOX, sciBox);
+        glGetIntegerv(GL_VIEWPORT, vp);
+        glGetIntegerv(GL_CURRENT_PROGRAM, &prog);
+        glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &vao);
+        glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &fbo);
+        glGetIntegerv(GL_DEPTH_FUNC, &depthFunc);
+        glGetBooleanv(GL_DEPTH_WRITEMASK, &dm);
+        glGetBooleanv(GL_COLOR_WRITEMASK, cm);
+        sysLogPrintf(LOG_NOTE,
+            "FIRSTDRAW: tris=%zu SCISSOR=%d box=(%d,%d,%d,%d) VP=(%d,%d,%d,%d) "
+            "BLEND=%d CULL=%d DEPTH=%d(func=0x%x mask=%d) COLORMASK=%d%d%d%d prog=%d vao=%d fbo=%d",
+            buf_vbo_num_tris, (int)sci, sciBox[0], sciBox[1], sciBox[2], sciBox[3],
+            vp[0], vp[1], vp[2], vp[3], (int)bl, (int)cu, (int)de,
+            (unsigned)depthFunc, (int)dm,
+            (int)cm[0], (int)cm[1], (int)cm[2], (int)cm[3], (int)prog, (int)vao, (int)fbo);
+        g_dbgWorldDrawLog--;
+    }
+    /* B-936 scene-desync FIX: re-bind fast3d's own VAO + VBO before every upload+draw.
+     * fast3d binds opengl_vao/opengl_vbo once at init and assumes they stay bound, but
+     * the raw-GL scenario scene renderer (drawn before the world DL each frame) leaves
+     * a different VAO/VBO bound on return. In a CORE profile, drawing with VAO 0 reads
+     * no attrib pointers, so Joanna's geometry rasterised nothing (her CPU clip was
+     * correct + on-screen, but the GPU read garbage) -- she was submitted + framed yet
+     * invisible whenever the room was visible. Rebinding here makes every fast3d draw
+     * self-sufficient regardless of external GL state. opengl_vao is 0 in a legacy
+     * non-VAO context (binds the default VAO, a no-op-equivalent). */
+    glBindVertexArray(opengl_vao);
+    glBindBuffer(GL_ARRAY_BUFFER, opengl_vbo);
     glBufferData(GL_ARRAY_BUFFER, sizeof(float) * buf_vbo_len, buf_vbo, GL_STREAM_DRAW);
     glDrawArrays(GL_TRIANGLES, 0, 3 * buf_vbo_num_tris);
 }

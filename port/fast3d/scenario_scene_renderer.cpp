@@ -1462,6 +1462,7 @@ extern "C" void scenarioSceneRendererRender(int width, int height)
 	GLint prev_texture1 = 0;
 	GLint prev_active_texture = GL_TEXTURE0;
 	GLint prev_vertex_array = 0;
+	GLint prev_array_buffer = 0;
 	GLint prev_viewport[4] = {};
 	GLint prev_depth_func = GL_LESS;
 	GLboolean prev_depth_mask = GL_TRUE;
@@ -1472,6 +1473,15 @@ extern "C" void scenarioSceneRendererRender(int width, int height)
 	glGetIntegerv(GL_CURRENT_PROGRAM, &prev_program);
 	glGetIntegerv(GL_TEXTURE_BINDING_2D, &prev_texture);
 	glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &prev_vertex_array);
+	/* B-936 scene-desync FIX: save the GL_ARRAY_BUFFER binding. fast3d binds its
+	 * vertex VBO once at init and assumes it stays bound -- gfx_opengl_draw_triangles
+	 * uploads via glBufferData(GL_ARRAY_BUFFER,...) with no glBindBuffer. This
+	 * renderer binds its own VBO and previously left GL_ARRAY_BUFFER at 0 on return,
+	 * so fast3d's next world draw (Joanna, then props) uploaded into buffer 0 and
+	 * read stale/garbage vertices -> she was submitted + framed yet invisible
+	 * whenever the room was visible. Restoring the entry binding (= fast3d's VBO,
+	 * which is why hide-scene worked) makes this renderer transparent to fast3d. */
+	glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &prev_array_buffer);
 	glGetIntegerv(GL_VIEWPORT, prev_viewport);
 	glGetIntegerv(GL_DEPTH_FUNC, &prev_depth_func);
 	glGetBooleanv(GL_DEPTH_WRITEMASK, &prev_depth_mask);
@@ -1591,6 +1601,26 @@ extern "C" void scenarioSceneRendererRender(int width, int height)
 	glDisable(GL_BLEND);
 	glBindVertexArray(0);
 
+	/* B-936 scene-desync (--debug-clear-depth-after-scene TEST): the room was just
+	 * drawn here with the scene renderer's OWN projection and depth writes. The
+	 * fast3d world draws that follow in the same frame (Joanna, desk, PC) use the
+	 * GAME projection, so sharing this depth buffer makes them depth-test against
+	 * the room's depth values (a different projection space) and get rejected --
+	 * she is submitted + framed dead-centre yet invisible whenever the room is
+	 * visible. Clearing depth (keeping the room's colour) lets fast3d draw against
+	 * a clean depth buffer; the room is the far backdrop so the foreground draws
+	 * correctly in front. depthmask is TRUE here so the clear takes effect. */
+	if (sysArgCheck("--debug-clear-depth-after-scene")) {
+		/* glClear respects GL_SCISSOR_TEST -- disable it so the WHOLE depth buffer
+		 * clears, not just whatever stale scissor box is active here. */
+		GLboolean wasScissor = glIsEnabled(GL_SCISSOR_TEST);
+		glDisable(GL_SCISSOR_TEST);
+		glClear(GL_DEPTH_BUFFER_BIT);
+		if (wasScissor) {
+			glEnable(GL_SCISSOR_TEST);
+		}
+	}
+
 	if (!g_scene.logged_render) {
 		g_scene.logged_render = true;
 		sysLogPrintf(LOG_NOTE,
@@ -1605,6 +1635,8 @@ extern "C" void scenarioSceneRendererRender(int width, int height)
 	glBindTexture(GL_TEXTURE_2D, (GLuint)prev_texture);
 	glActiveTexture((GLenum)prev_active_texture);
 	glBindVertexArray((GLuint)prev_vertex_array);
+	/* B-936 scene-desync FIX: restore fast3d's vertex VBO binding (see save site). */
+	glBindBuffer(GL_ARRAY_BUFFER, (GLuint)prev_array_buffer);
 	glViewport(prev_viewport[0], prev_viewport[1], prev_viewport[2],
 		prev_viewport[3]);
 	if (prev_depth_test) {
@@ -1630,4 +1662,45 @@ extern "C" void scenarioSceneRendererRender(int width, int height)
 		glDisable(GL_TEXTURE_2D);
 	}
 	glUseProgram((GLuint)prev_program);
+
+	/* B-936 scene-desync (--debug-scene-glstate): dump the ACTUAL GL state this
+	 * raw-GL renderer leaves on return, so we can compare it against what the first
+	 * fast3d world draw (Joanna) needs. fast3d caches only depth_mode/alpha_blend/
+	 * modulate/additive_blend/shader_program/textures and skips redundant GL sets;
+	 * any state left here that differs from that cache but which fast3d does NOT
+	 * re-set is the desync. The prior cache-invalidate covered depth/shader/texture
+	 * only -- blend and cull were never checked. Throttled. */
+	if (sysArgCheck("--debug-scene-glstate")) {
+		static int s_glStateLog = 0;
+		if (s_glStateLog < 6) {
+			GLboolean bBlend = glIsEnabled(GL_BLEND);
+			GLboolean bCull = glIsEnabled(GL_CULL_FACE);
+			GLboolean bDepth = glIsEnabled(GL_DEPTH_TEST);
+			GLboolean bScissor = glIsEnabled(GL_SCISSOR_TEST);
+			GLint cullMode = 0, frontFace = 0, blendSrc = 0, blendDst = 0;
+			GLint depthFunc = 0, curProg = 0, curVao = 0, curArrBuf = 0, drawFbo = 0;
+			GLboolean depthMask = 0; GLboolean colorMask[4] = {0,0,0,0};
+			glGetIntegerv(GL_CULL_FACE_MODE, &cullMode);
+			glGetIntegerv(GL_FRONT_FACE, &frontFace);
+			glGetIntegerv(GL_BLEND_SRC_RGB, &blendSrc);
+			glGetIntegerv(GL_BLEND_DST_RGB, &blendDst);
+			glGetIntegerv(GL_DEPTH_FUNC, &depthFunc);
+			glGetIntegerv(GL_CURRENT_PROGRAM, &curProg);
+			glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &curVao);
+			glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &curArrBuf);
+			glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &drawFbo);
+			glGetBooleanv(GL_DEPTH_WRITEMASK, &depthMask);
+			glGetBooleanv(GL_COLOR_WRITEMASK, colorMask);
+			sysLogPrintf(LOG_NOTE,
+				"SCENEGL: BLEND=%d(src=0x%x dst=0x%x) CULL=%d(mode=0x%x front=0x%x) "
+				"DEPTH=%d(func=0x%x mask=%d) SCISSOR=%d COLORMASK=%d%d%d%d "
+				"prog=%d vao=%d arrbuf=%d drawfbo=%d",
+				(int)bBlend, (unsigned)blendSrc, (unsigned)blendDst,
+				(int)bCull, (unsigned)cullMode, (unsigned)frontFace,
+				(int)bDepth, (unsigned)depthFunc, (int)depthMask, (int)bScissor,
+				(int)colorMask[0], (int)colorMask[1], (int)colorMask[2], (int)colorMask[3],
+				(int)curProg, (int)curVao, (int)curArrBuf, (int)drawFbo);
+			s_glStateLog++;
+		}
+	}
 }

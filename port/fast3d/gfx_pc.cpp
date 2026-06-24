@@ -248,6 +248,12 @@ static struct RenderingState {
     TextureCacheNode* textures[SHADER_MAX_TEXTURES];
 } rendering_state;
 
+/* B-936 scene-desync (--debug-firstdraw-glstate): when >0, gfx_opengl_draw_triangles
+ * dumps the ACTUAL GL state of the next world draw(s) after the scene renderer, so we
+ * capture the state Joanna's draw really runs under (post fast3d viewport/scissor
+ * setup) rather than the scene renderer's exit state. Set after the scene renderer. */
+int g_dbgWorldDrawLog = 0;
+
 struct GfxDimensions gfx_current_window_dimensions;
 int32_t gfx_current_window_position_x;
 int32_t gfx_current_window_position_y;
@@ -3261,6 +3267,9 @@ extern "C" void gfx_run(Gfx* commands) {
     if (!dbgHideScene()) {
         scenarioSceneRendererRender(gfx_current_dimensions.width,
             gfx_current_dimensions.height);
+        if (sysArgCheck("--debug-firstdraw-glstate")) {
+            g_dbgWorldDrawLog = 5;
+        }
     }
     gfx_run_dl(commands);
     gfx_flush();

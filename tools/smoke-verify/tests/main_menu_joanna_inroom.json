@@ -1,0 +1,10 @@
+{
+  "scenario_name": "main_menu_joanna_inroom",
+  "description": "B-936 MONEY SHOT: room visible + Joanna with the array-buffer scene-desync fix. She should now composite with the room (lit+textured at her terminal).",
+  "boot_args": ["--debug-hide-menu", "--debug-track-chr", "--debug-show-only-mesh", "combat"],
+  "timeout_seconds": 100,
+  "install_state": "clean",
+  "input_sequence": [ { "at_ms": 0, "type": "wait" }, { "at_ms": 60000, "type": "exit" } ],
+  "screenshots": [ { "at_ms": 42000, "name": "inroom_a" }, { "at_ms": 56000, "name": "inroom_b" } ],
+  "assertions": { "required_lines": ["SMOKE: result=scripted_exit"], "forbidden_patterns": [], "required_counts": [] }
+}

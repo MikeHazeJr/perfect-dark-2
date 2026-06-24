@@ -1,0 +1,13 @@
+{
+  "scenario_name": "main_menu_joanna_clrdepth",
+  "description": "B-936 scene-desync TEST: room visible + --debug-clear-depth-after-scene (clears the room depth so fast3d draws against clean depth). If Joanna appears WITH the room, depth-buffer inconsistency was the desync.",
+  "boot_args": ["--debug-hide-menu", "--debug-track-chr", "--debug-show-only-mesh", "combat", "--debug-clear-depth-after-scene"],
+  "timeout_seconds": 100,
+  "install_state": "clean",
+  "input_sequence": [
+    { "at_ms": 0, "type": "wait" },
+    { "at_ms": 60000, "type": "exit" }
+  ],
+  "screenshots": [ { "at_ms": 50000, "name": "clrdepth_a" } ],
+  "assertions": { "required_lines": ["SMOKE: result=scripted_exit"], "forbidden_patterns": [], "required_counts": [] }
+}
