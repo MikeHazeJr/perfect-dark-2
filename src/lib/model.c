@@ -3786,6 +3786,32 @@ void modelRender(struct modelrenderdata *renderdata, struct model *model)
 					m0->m[3][0], m0->m[3][1], m0->m[3][2]);
 			}
 		}
+
+		/* B-942 skeleton probe (--debug-chr-skel): dump every COMPUTED bone matrix's
+		 * view-space translation for a generated chr body. If these positions form a
+		 * coherent human (head up, arms out, legs down) the matrices are right and
+		 * the verts/matrix_index are applied wrong; if they are scattered/huge the
+		 * anim->matrix computation itself is producing garbage. The diag (m00,m11,m22)
+		 * flags a degenerate/huge basis (bad scale or rotation). */
+		if (sysArgCheck("--debug-chr-skel") &&
+				modAssetCompilerModeldefIsGenerated(model->definition) &&
+				model->definition->nummatrices > 1) {
+			static s32 s_skelThrottle = 0;
+			if ((s_skelThrottle++ % 40) == 0) {
+				s32 nm = model->definition->nummatrices;
+				if (nm > 20) { nm = 20; }
+				for (s32 mi = 0; mi < nm; mi++) {
+					const Mtxf *m = &model->matrices[mi];
+					sysLogPrintf(LOG_NOTE,
+						"MODASSET.SKELF: mtx[%2d] r0=(%.4f,%.4f,%.4f) r1=(%.4f,%.4f,%.4f) r2=(%.4f,%.4f,%.4f) t=(%.2f,%.2f,%.2f)",
+						mi,
+						m->m[0][0], m->m[0][1], m->m[0][2],
+						m->m[1][0], m->m[1][1], m->m[1][2],
+						m->m[2][0], m->m[2][1], m->m[2][2],
+						m->m[3][0], m->m[3][1], m->m[3][2]);
+				}
+			}
+		}
 	}
 
 	gSPSegment(renderdata->gdl++, SPSEGMENT_MODEL_MTX, osVirtualToPhysical(model->matrices));

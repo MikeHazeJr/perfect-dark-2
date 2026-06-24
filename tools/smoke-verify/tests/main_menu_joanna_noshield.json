@@ -1,0 +1,10 @@
+{
+  "scenario_name": "main_menu_joanna_noshield",
+  "description": "B-942 shield hypothesis: suppress chrRenderShield + log her shield value.",
+  "boot_args": ["--debug-hide-menu", "--debug-track-chr", "--debug-no-shield"],
+  "timeout_seconds": 100,
+  "install_state": "clean",
+  "input_sequence": [ { "at_ms": 0, "type": "wait" }, { "at_ms": 80000, "type": "exit" } ],
+  "screenshots": [ { "at_ms": 55000, "name": "noshield_55" }, { "at_ms": 70000, "name": "noshield_70" } ],
+  "assertions": { "required_lines": ["SMOKE: result=scripted_exit"], "forbidden_patterns": [], "required_counts": [] }
+}

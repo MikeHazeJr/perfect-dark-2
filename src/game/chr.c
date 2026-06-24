@@ -6853,6 +6853,28 @@ Gfx *chrRenderCloak(Gfx *gdl, struct prop *chrprop, struct prop *thisprop)
 
 Gfx *chrRenderShield(Gfx *gdl, struct chrdata *chr, u32 alpha)
 {
+	/* B-942 shield hypothesis (--debug-no-shield): chrRenderShield draws the
+	 * shield-hit hull (shieldhitRender) over the body when the chr has shield and
+	 * the periodic cmcount<10 flash window is open -- which fires for the player
+	 * chr (Joanna) in the held CI menu even though she is not being hit. Mike's
+	 * lead: the "wild extra geometry / spike" may be this second hull mesh drawn on
+	 * top of her otherwise-coherent body. This flag suppresses the shield render so
+	 * we can see the body alone; the log reports whether/why it WOULD have drawn. */
+	if (sysArgCheck("--debug-no-shield")) {
+		static s32 s_noShieldCall = 0;
+		s32 wouldRender = (chr->hidden2 & CHRH2FLAG_SHIELDHIT)
+				|| (chrGetShield(chr) > 0 && chr->cmcount < 10)
+				|| (chr->cloakfadefrac > 0 && !chr->cloakfadefinished);
+		if ((s_noShieldCall++ % 120) == 0) {
+			sysLogPrintf(LOG_NOTE,
+				"SHIELD: chrRenderShield CALLED (shield=%d cmcount=%d hitflag=%d cloak=%.2f wouldRender=%d) -- SUPPRESSED",
+				(s32)chrGetShield(chr), (s32)chr->cmcount,
+				(chr->hidden2 & CHRH2FLAG_SHIELDHIT) ? 1 : 0,
+				chr->cloakfadefrac, wouldRender);
+		}
+		return gdl;
+	}
+
 	if (chrGetShield(chr) > 0 && g_Vars.lvupdate240 > 0) {
 		chr->cmcount++;
 

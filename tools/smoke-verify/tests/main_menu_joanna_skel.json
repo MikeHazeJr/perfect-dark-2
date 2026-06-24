@@ -1,0 +1,10 @@
+{
+  "scenario_name": "main_menu_joanna_skel",
+  "description": "B-942 skeleton probe: log computed bone matrices for Joanna in the CI menu pose.",
+  "boot_args": ["--debug-hide-menu", "--debug-chr-skel"],
+  "timeout_seconds": 90,
+  "install_state": "clean",
+  "input_sequence": [ { "at_ms": 0, "type": "wait" }, { "at_ms": 55000, "type": "exit" } ],
+  "screenshots": [],
+  "assertions": { "required_lines": ["SMOKE: result=scripted_exit"], "forbidden_patterns": [], "required_counts": [] }
+}
