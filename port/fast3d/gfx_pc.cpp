@@ -169,6 +169,11 @@ static inline int dbgChrLight(void) {
     if (s_dbgChrLight < 0) { s_dbgChrLight = sysArgCheck("--debug-chr-light") ? 1 : 0; }
     return s_dbgChrLight;
 }
+static int s_dbgTexSample = -1;
+static inline int dbgTexSample(void) {
+    if (s_dbgTexSample < 0) { s_dbgTexSample = sysArgCheck("--debug-texsample") ? 1 : 0; }
+    return s_dbgTexSample;
+}
 static float s_vpMatrix[4][4]; /* View-Projection matrix for collision mesh rendering */
 
 struct RawTexMetadata {
@@ -670,6 +675,24 @@ static void import_texture_rgba32(int tile, const LoadedTexture& loaded_texture,
 
     const uint32_t width = rdp.texture_tile[tile].line_size_bytes / 2;
     const uint32_t height = (size_bytes / 2) / rdp.texture_tile[tile].line_size_bytes;
+
+    /* B-936 diag (--debug-texsample): is the texel DATA bright when it reaches
+     * the RGBA32 importer? If raw0/swap0 are bright but the body still renders
+     * near-black -> bind/select issue; if near-black here -> stale/bad data addr
+     * or wrong dims. line=line_size_bytes pins the tile-descriptor too. */
+    if (dbgTexSample() && addr) {
+        static int s_tsl = 0;
+        if (s_tsl < 40) {
+            uint32_t raw = ((const uint32_t *)addr)[0];
+            uint32_t mid = (size_bytes >= 8) ? ((const uint32_t *)addr)[size_bytes / 8] : raw;
+            sysLogPrintf(LOG_NOTE,
+                "TEXSAMPLE: rgba32 w=%u h=%u size=%u line=%u raw0=0x%08x swap0=0x%08x mid=0x%08x",
+                width, height, size_bytes, (unsigned)rdp.texture_tile[tile].line_size_bytes,
+                raw, (unsigned)PD_BE32(raw), mid);
+            s_tsl++;
+        }
+    }
+
     gfx_rapi->upload_texture(tex_upload_buffer, width, height);
     // DumpTexture(loaded_texture.otr_path, addr, width, height);
 }

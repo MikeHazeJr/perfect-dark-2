@@ -1,0 +1,13 @@
+{
+  "scenario_name": "main_menu_joanna_texsample",
+  "description": "B-936 texel-data probe: --debug-texsample logs the first/mid texel reaching import_texture_rgba32 + tile line_size, only-Joanna so it's her textures. Pins whether the bright loaded texture's DATA is bright at import (bind issue) or near-black (stale addr/wrong dims).",
+  "boot_args": ["--debug-hide-menu", "--debug-show-only-mesh", "combat", "--debug-hide-scene", "--debug-texsample"],
+  "timeout_seconds": 100,
+  "input_sequence": [
+    { "at_ms": 0,     "type": "wait", "comment": "boot; her textures import at render ~30s" },
+    { "at_ms": 60000, "type": "exit", "comment": "done" }
+  ],
+  "install_state": "clean",
+  "screenshots": [],
+  "assertions": { "required_lines": ["SMOKE: result=scripted_exit"], "forbidden_patterns": [], "required_counts": [] }
+}
