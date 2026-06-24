@@ -884,5 +884,12 @@ void viGrabRgb16(void)
 
 void viGrabRgb32(void)
 {
-	// empty
+	/* PC port: the in-game debug screenshot hook (g_DebugScreenshotRgb, debug2.c)
+	 * routes through the same focus/size-independent glReadPixels capture the
+	 * smoke harness uses. Writes pd_screenshot_NNN.bmp into the working dir. */
+	extern void gfxRequestSmokeScreenshot(const char *path);
+	static s32 s_shotCounter = 0;
+	char path[64];
+	snprintf(path, sizeof(path), "pd_screenshot_%03d.bmp", (int)s_shotCounter++);
+	gfxRequestSmokeScreenshot(path);
 }

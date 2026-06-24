@@ -135,6 +135,7 @@ typedef struct {
 typedef struct {
     s32          active;
     char         test_path[SMOKE_MAX_PATH];
+    char         screenshot_dir[SMOKE_MAX_PATH]; /* --smoke-screenshot-dir: glReadPixels output dir */
     char         scenario_name[SMOKE_MAX_NAME];
     s32          timeout_ms;
     u32          channel_mask;       /* applied via sysLogSetChannelMask */
@@ -593,6 +594,59 @@ static s32 smokeParseEvent(JParse *p, SmokeEvent *ev)
     return 0;
 }
 
+/* Parse one entry of the scenario's top-level `screenshots` array ({at_ms,name})
+ * into a SMOKE_EVENT_SCREENSHOT event whose path mirrors the runner's
+ * `<dir>/<ordinal:03>-<sanitized-name>.bmp`. This routes the standard scenario
+ * screenshots through the in-game glReadPixels capture (focus/size-independent)
+ * instead of the runner's PrintWindow/BitBlt path. Requires --smoke-screenshot-dir. */
+static s32 smokeBuildScreenshotEvent(JParse *p, SmokeEvent *ev, s32 ordinal)
+{
+    JTok t = p->cur;
+    char name_str[SMOKE_MAX_NAME] = {0};
+    s32 at_ms = 0;
+
+    if (t.type != JT_LBRACE) return 0;
+    t = j_next(p);
+    while (t.type != JT_RBRACE && t.type != JT_EOF) {
+        if (t.type != JT_STRING) { t = j_next(p); continue; }
+        char field[32]; j_tok_copy_str(&t, field, sizeof(field));
+        t = j_next(p);
+        if (t.type == JT_COLON) t = j_next(p);
+        if (!strcmp(field, "at_ms")) {
+            at_ms = (s32)j_tok_int(&t);
+        } else if (!strcmp(field, "name")) {
+            j_tok_copy_str(&t, name_str, sizeof(name_str));
+        } else {
+            j_skip_value(p);
+        }
+        t = j_next(p);
+        if (t.type == JT_COMMA) t = j_next(p);
+    }
+
+    if (!s_State.screenshot_dir[0]) return 0; /* no output dir -> nothing to do */
+    if (!name_str[0]) {
+        snprintf(name_str, sizeof(name_str), "shot-%d", (int)ordinal);
+    }
+    char safe[SMOKE_MAX_NAME];
+    s32 j = 0;
+    for (s32 i = 0; name_str[i] && j < (s32)sizeof(safe) - 1; i++) {
+        char c = name_str[i];
+        if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
+            (c >= '0' && c <= '9') || c == '_' || c == '.' || c == '-') {
+            safe[j++] = c;
+        } else {
+            safe[j++] = '_';
+        }
+    }
+    safe[j] = '\0';
+
+    ev->at_ms = at_ms;
+    ev->type = SMOKE_EVENT_SCREENSHOT;
+    snprintf(ev->path, sizeof(ev->path), "%s/%03d-%s.bmp",
+        s_State.screenshot_dir, (int)ordinal, safe);
+    return 1;
+}
+
 static s32 smokeParseJson(const char *src)
 {
     JParse p;
@@ -653,6 +707,29 @@ static s32 smokeParseJson(const char *src)
             } else {
                 j_skip_value(&p);
             }
+        } else if (!strcmp(field, "screenshots")) {
+            /* Standard scenario screenshots -> in-game glReadPixels events. */
+            if (t.type == JT_LBRACKET) {
+                s32 ordinal = 0;
+                t = j_next(&p);
+                while (t.type != JT_RBRACKET && t.type != JT_EOF) {
+                    if (t.type == JT_LBRACE) {
+                        ordinal++;
+                        if (s_State.event_count < SMOKE_MAX_EVENTS) {
+                            SmokeEvent *ev = &s_State.events[s_State.event_count];
+                            if (smokeBuildScreenshotEvent(&p, ev, ordinal)) {
+                                s_State.event_count++;
+                            }
+                        } else {
+                            j_skip_value(&p);
+                        }
+                    }
+                    t = j_next(&p);
+                    if (t.type == JT_COMMA) t = j_next(&p);
+                }
+            } else {
+                j_skip_value(&p);
+            }
         } else {
             /* assertions / description / tags / boot_args / paths_of_interest
              * are runner-side concerns; ignore them in the harness. */
@@ -661,6 +738,19 @@ static s32 smokeParseJson(const char *src)
 
         t = j_next(&p);
         if (t.type == JT_COMMA) t = j_next(&p);
+    }
+
+    /* Stable-sort events by at_ms: screenshots may be appended after the
+     * input_sequence yet need to interleave, and the dispatch loop stops at the
+     * first future event. Insertion sort keeps equal-time ordering stable. */
+    for (s32 i = 1; i < s_State.event_count; i++) {
+        SmokeEvent key = s_State.events[i];
+        s32 k = i - 1;
+        while (k >= 0 && s_State.events[k].at_ms > key.at_ms) {
+            s_State.events[k + 1] = s_State.events[k];
+            k--;
+        }
+        s_State.events[k + 1] = key;
     }
 
     return 1;
@@ -789,6 +879,16 @@ int smokeHarnessInit(void)
     sysLogPrintf(LOG_NOTE, "SMOKE: harness init, test=%s", path);
 
     strncpy(s_State.test_path, path, sizeof(s_State.test_path) - 1);
+
+    /* Optional: route the scenario's `screenshots` array through the in-game
+     * glReadPixels capture, written into this dir. Must be read before
+     * smokeParseJson (the parser builds the screenshot event paths from it). */
+    const char *shotdir = sysArgGetString("--smoke-screenshot-dir");
+    if (shotdir && shotdir[0]) {
+        strncpy(s_State.screenshot_dir, shotdir, sizeof(s_State.screenshot_dir) - 1);
+        sysLogPrintf(LOG_NOTE, "SMOKE: screenshot dir=%s (in-game glReadPixels)",
+            s_State.screenshot_dir);
+    }
 
     s32 sz = 0;
     char *src = smokeReadFile(path, &sz);

@@ -434,8 +434,21 @@ function Invoke-PendingSmokeScreenshots {
     if ($Schedule.Count -eq 0) { return }
     $elapsedMs = [int](((Get-Date) - $Started).TotalMilliseconds)
     foreach ($shot in $Schedule) {
-        if ($shot.Captured -or $elapsedMs -lt [int]$shot.AtMs) { continue }
+        if ($shot.Captured) { continue }
+        if ($elapsedMs -lt [int]$shot.AtMs) { continue }
+        # Prefer the in-game glReadPixels capture (focus/size/occlusion
+        # independent): if the harness already wrote the file, use it.
+        if (Test-Path -LiteralPath ([string]$shot.Path)) {
+            $shot.Captured = $true
+            $shot.Success  = $true
+            Write-Info ("  screenshot (glReadPixels): {0}" -f $shot.Path)
+            continue
+        }
+        # Grace: give the harness up to 2s past at_ms to write before falling
+        # back to PrintWindow (which returns black GL on small/occluded windows).
+        if ($elapsedMs -lt ([int]$shot.AtMs + 2000)) { continue }
         $shot.Captured = $true
+        Write-Warn ("  glReadPixels file absent for '{0}'; PrintWindow fallback" -f $shot.Name)
         try { $Process.Refresh() } catch {}
         if (-not ([System.Management.Automation.PSTypeName]'PdSmokeWindowCapture').Type) {
             try {
@@ -1159,12 +1172,23 @@ function Invoke-SmokeTest {
     # "timeout-kill" strategy is for binaries that do not link
     # smoke_harness.c (today: pd-server) -- the runner launches with
     # boot_args only and tears down the process after timeout_seconds.
+    # Screenshot schedule created early so the in-game glReadPixels capture
+    # (focus/size/occlusion-independent) can OWN the standard `screenshots`
+    # array via --smoke-screenshot-dir. The PrintWindow path stays as a
+    # fallback for any shot the harness didn't write.
+    $screenshotSchedule = @(New-SmokeScreenshotSchedule -Definition $def -RunRoot $RunRoot -TestName $name)
+    $screenshotDir = $null
+    if ($screenshotSchedule.Count -gt 0) {
+        $screenshotDir = Split-Path -Parent ([string]$screenshotSchedule[0].Path)
+        try { New-Item -ItemType Directory -Force -Path $screenshotDir | Out-Null } catch {}
+    }
     if ($runtimeStrategy -eq "harness") {
         $crashArgs = @()
         if ($env:PD_SMOKE_DISABLE_CRASH_HANDLER -eq "1") {
             $crashArgs = @("--no-crash-handler")
         }
         $allArgs = @("--smoke", $Test.Path) + $crashArgs + $bootArgs
+        if ($screenshotDir) { $allArgs += @("--smoke-screenshot-dir", $screenshotDir) }
     } else {
         $allArgs = @() + $bootArgs
     }
@@ -1174,7 +1198,6 @@ function Invoke-SmokeTest {
     $started = Get-Date
     $proc = $null
     $exitCode = -1
-    $screenshotSchedule = @(New-SmokeScreenshotSchedule -Definition $def -RunRoot $RunRoot -TestName $name)
 
     # c115 (2026-05-14): Start-Process -PassThru returns a Process object
     # whose .ExitCode property is unreliable for non-console GUI apps --
