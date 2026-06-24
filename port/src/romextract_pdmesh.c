@@ -1466,6 +1466,25 @@ static s32 s_exportGdlToObj(pdmesh_obj_export_t *ctx, Gfx *raw_gdl,
 						s_b942StitchLog++;
 					}
 				}
+				/* B-942: does the verts' LOAD-time matrix differ from the tri's
+				 * ACTIVE (recorded) matrix? B942STITCH only catches per-tri
+				 * disagreement; this catches all-3-verts-loaded-under matrix X
+				 * but active matrix at draw is Y -> face recorded as Y,
+				 * mis-binding X's verts (the spike). */
+				{
+					s32 active = (ctx->mtx_stack_size > 0)
+						? ctx->mtx_stack_indices[ctx->mtx_stack_size - 1] : -1;
+					if (slots_mtx[i0] >= 0 && slots_mtx[i0] != active) {
+						static s32 s_desyncLog = 0, s_desyncTotal = 0;
+						s_desyncTotal++;
+						if (s_desyncLog < 24) {
+							sysLogPrintf(LOG_NOTE,
+								"B942DESYNC: verts loaded mtx=%d but tri active mtx=%d total=%d",
+								slots_mtx[i0], active, s_desyncTotal);
+							s_desyncLog++;
+						}
+					}
+				}
 				if (s_objEmitTri(ctx, slots[i0], slots[i1], slots[i2]) != 0) return -1;
 			} else {
 				ctx->tri_missing_slot_count++;
