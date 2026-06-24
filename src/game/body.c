@@ -475,7 +475,17 @@ struct model *body0f02ce8c(s32 bodynum, s32 headnum, struct modeldef *bodymodeld
 
 	if (public_source_generated_modeldef) {
 		headmodeldef = NULL;
-	} else if (!catalogGetBodyIsComplete(bodynum)) { /* SA-5d */
+	}
+	/* B-942 (2026-06-24): generated bodies must ALSO load their separate head
+	 * model. The old `} else if` skipped the head load entirely for the
+	 * generated-modeldef path (every catalog body now), leaving INCOMPLETE
+	 * generated bodies (e.g. dark_combat, headnum>0) headless -- the body's own
+	 * head/neck geometry (node_6_dl) then rendered uncovered as the "spike" seen
+	 * on the CI-menu / title-cutscene Joanna. Splitting `else if` into `if` runs
+	 * the load for generated bodies too; the `skel == &g_SkelChr` guard below
+	 * already excludes skel-less / static generated modeldefs (head stays NULL),
+	 * and complete bodies skip via catalogGetBodyIsComplete. */
+	if (!catalogGetBodyIsComplete(bodynum)) { /* SA-5d */
 		if (bodymodeldef->skel == &g_SkelChr) {
 			node = modelGetPart(bodymodeldef, MODELPART_CHR_HEADSPOT);
 

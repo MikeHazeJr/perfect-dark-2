@@ -3597,6 +3597,28 @@ Gfx *chrRender(struct prop *prop, Gfx *gdl, bool xlupass)
 			(s32)chr->bodynum, (s32)chr->headnum);
 	}
 
+	/* B-942 head probe (--debug-chr-headinfo): for Joanna's generated body
+	 * (nmat==19) log her headnum + whether a head model is attached at the
+	 * HEADSPOT. headnum=0 / headmodeldef=NULL => her head model is absent and
+	 * node_6_dl (the body's head/neck geometry) shows uncovered = the spike. */
+	if (model != NULL && model->definition != NULL
+			&& model->definition->nummatrices == 19
+			&& sysArgCheck("--debug-chr-headinfo")) {
+		static s32 s_headInfoLogged = 0;
+		if (!s_headInfoLogged) {
+			struct modelnode *hsn = modelGetPart(model->definition, MODELPART_CHR_HEADSPOT);
+			void *hmd = NULL;
+			if (hsn != NULL && hsn->type == MODELNODETYPE_HEADSPOT) {
+				union modelrwdata *rw = modelGetNodeRwData(model, hsn);
+				if (rw != NULL) { hmd = (void *)rw->headspot.headmodeldef; }
+			}
+			sysLogPrintf(LOG_NOTE,
+				"CHRHEADINFO: bodynum=%d headnum=%d headspotnode=%p headmodeldef=%p",
+				(s32)chr->bodynum, (s32)chr->headnum, (void *)hsn, hmd);
+			s_headInfoLogged = 1;
+		}
+	}
+
 	// Don't render the eyespy if we're the one controlling it
 	if (CHRRACE(chr) == RACE_EYESPY) {
 		eyespy = chrToEyespy(chr);
