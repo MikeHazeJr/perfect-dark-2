@@ -31,6 +31,20 @@ Code:
 
 ---
 
+## Generated chr-body render path + scene-renderer compositing (B-936, live gotchas)
+
+The held CI menu backdrop composites two renderers into one framebuffer each frame, and several non-obvious rules fell out of fixing the months-long "Joanna not appearing" bug (B-936, all fixed on dev 2026-06-24):
+
+- **Frame order** (`gfx_pc.cpp` `gfx_run`): clear fbo -> `scenarioSceneRendererRender` (raw-GL room, its OWN projection) -> `gfx_run_dl` (the game's GBI world: bg/sky fill, props, chrs). The room is drawn FIRST, so anything fast3d draws afterward can cover it.
+- **CORE PROFILE / VAO discipline.** This is a core-profile GL context (GLSL 430 core), so fast3d MUST have its `opengl_vao` bound to draw -- VAO 0 reads no attrib pointers and rasterises nothing. The raw-GL scene renderer binds its own VAO/VBO and leaves `vao=0`/`arrbuf=0` on return. `gfx_opengl_draw_triangles` now **rebinds `opengl_vao`+`opengl_vbo` before every upload+draw** so each fast3d draw is self-sufficient regardless of external GL state. Any future raw-GL renderer is covered by this. The scene renderer also saves/restores `GL_ARRAY_BUFFER_BINDING` (state hygiene). Symptom if this regresses: world draws issue (correct CPU clip, `glDrawArrays` runs) but ZERO pixels.
+- **Generated chr bodies are lit, not flat.** `modasset_compiler.c` (`generatedModeldefBuildPayload`, gated `mcount==3`): a chr body's per-vertex "colour" table is NORMALS; keep `G_LIGHTING` ON so fast3d lights them. Don't override the stock 2-cycle `G_CC_CUSTOM_17/18` combine that `modelApplyRenderModeType3` set -- the per-material emitters (gated by `s_genLitChrBody`) only enable texturing. The combine is `[lerp(TEXEL0, ENV, shade_alpha)] * lit_shade`.
+- **Env-lift is DERIVED.** The stock lift of a dark combat suit is the per-chr room shade carried in FOG (`var80062a48`={64,10,10} env + `fogcolour`, traced via `--debug-chr-env`). The generated DL can't carry per-vertex fog, so we supply a derived env (160) + mid shade_alpha (140). Critically, the stock `G_RM_FOG_PRIM_A` mode WASHES the body to pure black when the scene fog colour is near-black, so generated chr bodies are forced to **fog-independent opaque** (`G_RM_PASS, G_RM_AA_ZB_OPA_SURF2`). Caveat: distant generated chr bodies won't fade into scene fog.
+- **Sky fill vs scene-renderer backdrop.** `skyRender` (sky.c:266) under `!clouds_enabled` (indoor) does a `G_CYC_FILL` fullscreen fill with the env sky colour (blue for CITRAINING). The `skyRender` call (lv.c:1658) is gated on `!scenarioSceneRendererIsActive()` so the scene-renderer's tiled room is the backdrop when it provides one.
+- **Diagnostics (gated, off by default):** `--debug-chr-env`, `--debug-scene-glstate` (scene renderer exit GL state), `--debug-firstdraw-glstate` (state of the first world draws), `--debug-clear-depth-after-scene`, `--debug-texsample`, plus the older `--debug-force-chr-prim` / `--debug-track-chr` / `--debug-hide-scene` / `--debug-show-only-mesh`.
+- **OPEN (B-942):** the generated chr body's held POSE is skeletally distorted (off-body spike-limb) -- a bone-weight/transform bug in the `.pdbody` skeletal pipeline, separate from the render path above. Model + textures are correct.
+
+---
+
 ## ImGui integration
 
 Dear ImGui v1.91.8 vendored at `port/include/imgui/`. Renders through the same SDL2 + OpenGL context as the game GBI translator, drawn after the game frame, with a foreground drawlist for overlays (toasts, glyphs, achievement banners).

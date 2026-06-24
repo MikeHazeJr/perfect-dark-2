@@ -1,5 +1,21 @@
 # Session Log (Active)
 
+## 2026-06-24 (cont.) - B-936 Joanna CRACKED end-to-end: she renders at her terminal in the CI room
+
+**The months-long "Joanna not appearing" bug is fully cracked -- 4 render root causes, all fixed on dev.** Continuing the same day from the fovy fix below, drove her from on-screen-but-dark to textured + lit + composited in the real CI menu backdrop.
+
+**Layers fixed this session (each instrumented, not guessed):**
+1. **Lighting** (`6da0e831`): generated chr bodies (mcount==3) cleared `G_LIGHTING` and fed per-vertex NORMALS as raw colours into MODULATEIA -> near-black. Keep `G_LIGHTING` on so fast3d lights the normals.
+2. **Env-lift / darkness** (`23ac8e6d`): traced the stock chr render (`--debug-chr-env`, chr.c:3766) -- the suit lift is the per-chr room shade carried in FOG under 2-cycle `G_CC_CUSTOM_17/18`, not a bright env. Replicated with a DERIVED env (160) + mid shade_alpha (140) keeping the stock combine. CRITICAL: stock `FOG_PRIM_A` washes her to pure BLACK when the room-shade fog is near-black -> made generated chr bodies fog-independent opaque. She reads textured isolated (tan skin, blue-grey suit).
+3. **Scene-desync** (`bc86441f`): she was invisible whenever the room rendered. Instrumented the GL state the raw-GL scene renderer leaves + her actual draw state; ruled out depth/scissor/colormask/blend/cull/FBO/array-buffer WITH DATA. Root cause: **core-profile build** -- fast3d binds its VAO/VBO once at init, the scene renderer leaves `vao=0`, and drawing with VAO 0 in core profile reads no attrib pointers (her 220-tri batches rasterised nothing despite a correct CPU clip). Fix: rebind `opengl_vao`+`opengl_vbo` per draw in `gfx_opengl_draw_triangles`.
+4. **Backdrop / money shot** (`08d32a45`): with fast3d drawing again, the world's `skyRender` G_CYC_FILL (env sky colour = blue, sky.c:266) covered the scene room. Gated the `skyRender` call (lv.c:1658) on `!scenarioSceneRendererIsActive()`. RESULT (`main_menu_joanna_moneyshot/002-shot_55.png`): tiled CI room backdrop + green-monitor desk PC + Joanna textured/lit at her terminal.
+
+**HONEST CAVEAT -> new bug B-942:** her held POSE is skeletally DISTORTED (an off-body spike-limb + contorted torso, frozen by the menu's cutscene hold -- all frames identical). The MODEL + TEXTURES are correct (zoom verified: it IS Joanna), but the pose is a bone-weight/transform bug in the generated chr body, newly visible now that she renders. A clean standing hero frame is blocked until B-942.
+
+**Caveats banked:** env/shade-alpha derived (not stock); fog disabled for generated chr bodies (distant ones won't fade into scene fog); the VAO/VBO rebind affects all fast3d draws (a correctness win -- self-sufficient draws). Diagnostics added (all gated, off by default): `--debug-chr-env`, `--debug-scene-glstate`, `--debug-firstdraw-glstate`, `--debug-clear-depth-after-scene`, `--debug-texsample`.
+
+**NEXT:** B-942 skeletal pose (instrument the 19 bone matrices / vertex weights of the generated chr body vs stock). Build-verify lesson reinforced: the wrapper reports SUCCESS even when ninja halts on a compile error -- verify a diagnostic string in the exe OR the binary relink mtime before trusting a run.
+
 ## 2026-06-24 - c3844 Joanna render bug ROOT-CAUSED + FIXED (degenerate fovy=0 projection)
 
 **The Joanna-invisible bug is solved at the root.** It was NEVER colour/combine/
