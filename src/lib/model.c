@@ -4697,6 +4697,34 @@ void modelAttachHead(struct model *bodymode, struct modeldef *bodymodeldef, stru
 	}
 
 	bodymodeldef->rwdatalen += modelCalculateRwDataIndexes(headspotnode->child);
+
+	/* B-942 (2026-06-24): the head bone carries the body's PLACEHOLDER head-region
+	 * geometry (a BBOX subtree that is a sibling of the headspot, e.g. node_6_dl).
+	 * It is always-render (its DISTANCE far is ~infinite) so it does not self-cull,
+	 * and the attach above only fills the headspot -- so without this the
+	 * placeholder renders as a "spike" above the real head model (the CI-menu
+	 * Joanna artifact). Now that the real head model is attached and provides the
+	 * head, unlink the placeholder BBOX sibling(s) of the headspot so they stop
+	 * rendering. Only runs on head-attach (incomplete bodies), where the body's
+	 * head-region geometry is redundant by construction. */
+	if (headspotnode->parent != NULL) {
+		struct modelnode *headbone = headspotnode->parent;
+		struct modelnode *prev = NULL;
+		struct modelnode *cur = headbone->child;
+		while (cur != NULL) {
+			struct modelnode *next = cur->next;
+			if (cur != headspotnode && (cur->type & 0xff) == MODELNODETYPE_BBOX) {
+				if (prev == NULL) {
+					headbone->child = next;
+				} else {
+					prev->next = next;
+				}
+			} else {
+				prev = cur;
+			}
+			cur = next;
+		}
+	}
 }
 
 /**
