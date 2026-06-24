@@ -6219,6 +6219,22 @@ static s32 generatedModeldefBuildPayload(const obj_mesh_t *mesh,
 	 * white entry seeded at allocation. */
 	payload->numcolours = colour_count > 0 ? colour_count : 1;
 
+	/* B-936 fix-direction test (--debug-chr-white-shade): the extracted vertex
+	 * "colour" table for chr bodies actually holds the original per-vertex NORMAL
+	 * bytes (signed components, alpha often 0), which the stock game lights via
+	 * G_LIGHTING but our generated DL feeds straight into G_CC_MODULATEIA as
+	 * SHADE -> texture x near-black/alpha-0 = dark/transparent. Force the whole
+	 * table to opaque white so the texture renders un-darkened; if the body then
+	 * appears bright + textured, that pins the darkness to the shade table. */
+	if (sysArgCheck("--debug-chr-white-shade")) {
+		for (s32 wci = 0; wci < payload->numcolours; wci++) {
+			payload->colours[wci].r = 0xff;
+			payload->colours[wci].g = 0xff;
+			payload->colours[wci].b = 0xff;
+			payload->colours[wci].a = 0xff;
+		}
+	}
+
 	/* DIAGNOSTIC (B-936/B-934, temporary): per-material render-class + texture
 	 * flag + vertex-colour-table head for each generated mesh group. Verifies the
 	 * extracted .pdmesh carries XLU/TEX_EDGE classes and non-degenerate RGBA --

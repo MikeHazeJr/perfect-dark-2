@@ -1,0 +1,20 @@
+{
+  "scenario_name": "main_menu_joanna_whiteshade",
+  "description": "B-936 fix-direction test: render ONLY Joanna (base:dark_combat) with real textures, room hidden, but with --debug-chr-white-shade forcing the generated vertex-colour (shade) table to opaque white. If she now renders BRIGHT + TEXTURED (vs near-black in main_menu_joanna_textured), it pins the darkness to the shade table holding the original NORMAL bytes (candidate b) fed into G_CC_MODULATEIA, and the fix is to stop using those normal-bytes as shade (light the body, or neutral white shade).",
+  "boot_args": ["--debug-generated-mesh-render-audit", "--debug-hide-menu", "--debug-track-chr", "--debug-show-only-mesh", "combat", "--debug-hide-scene", "--debug-chr-white-shade"],
+  "timeout_seconds": 150,
+  "install_state": "clean",
+  "input_sequence": [
+    { "at_ms": 0,      "type": "wait", "comment": "boot; settle by ~70s" },
+    { "at_ms": 120000, "type": "exit", "comment": "done" }
+  ],
+  "screenshots": [
+    { "at_ms": 90000,  "name": "ws_a" },
+    { "at_ms": 105000, "name": "ws_b" }
+  ],
+  "assertions": {
+    "required_lines": ["SMOKE: scenario=main_menu_joanna_whiteshade", "SMOKE: result=scripted_exit"],
+    "forbidden_patterns": ["SMOKE: result=timeout"],
+    "required_counts": []
+  }
+}

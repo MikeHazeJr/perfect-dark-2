@@ -589,6 +589,36 @@ struct modeldef *modeldefLoadFromHandle(asset_data_handle_t handle, s32 source_f
 
 	g_LoadType = LOADTYPE_MODEL;
 
+	/* B-936 A/B control (--debug-rom-modeldef): load the ORIGINAL N64 ROM
+	 * modeldef (its baked DL -- 2-cycle, G_LIGHTING on, fog+prim combine, lit
+	 * normals) instead of our custom generated-mesh modeldef, so the stock render
+	 * can be seen as a control and the divergence diffed. Bypasses the external
+	 * .pdmesh source replacement + the ROM-refuse fatal for this load only. Post-
+	 * extraction ROM reads are logged-as-fallback but not blocked, so this works. */
+	{
+		extern s32 sysArgCheck(const char *name);
+		extern asset_data_handle_t romProviderHandle(s32 filenum);
+		if (source_filenum > 0 && sysArgCheck("--debug-rom-modeldef")) {
+			/* source_filenum IS the ROM fileid (modeldefLoad passes fileid straight
+			 * through), so build the ROM provider handle directly -- the catalog's
+			 * own source-filenum lookup now returns the extracted .pdmesh handle, not
+			 * ROM, post-migration. */
+			asset_data_handle_t rom_handle = romProviderHandle(source_filenum);
+			if (!assetHandleIsNull(rom_handle)) {
+				struct modeldef *romdef = assetLoadToNew(rom_handle,
+					FILELOADMETHOD_EXTRAMEM, LOADTYPE_MODEL);
+				if (romdef != NULL) {
+					sysLogPrintf(LOG_NOTE,
+						"ROMCTRL: loaded ORIGINAL ROM modeldef source_filenum=%d", source_filenum);
+					return modeldefFinalizeLoaded(romdef, source_filenum, dst, arg3);
+				}
+				sysLogPrintf(LOG_WARNING,
+					"ROMCTRL: ROM modeldef load FAILED source_filenum=%d -- normal path", source_filenum);
+				g_LoadType = LOADTYPE_MODEL;
+			}
+		}
+	}
+
 	if (assetHandleIsNull(handle)) {
 		char desc[128];
 		g_LoadType = LOADTYPE_NONE;

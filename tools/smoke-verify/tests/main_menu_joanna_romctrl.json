@@ -1,0 +1,20 @@
+{
+  "scenario_name": "main_menu_joanna_romctrl",
+  "description": "B-936 A/B CONTROL: --debug-rom-modeldef loads the ORIGINAL N64 ROM modeldefs (baked DL: 2-cycle, G_LIGHTING on, fog+prim combine, lit normals) for the CI-menu world models instead of our custom generated-mesh modeldefs. Room hidden (--debug-hide-scene) so the fast3d world models (Joanna + desk PC + furniture) show against a bare framebuffer. If they render BRIGHT/correct here but DARK via the generated path (main_menu_joanna_textured), the disconnect is isolated to our custom .pdmesh extract/consume -- and the divergence (no G_LIGHTING + 1-cycle + MODULATEIA-on-Col-table-shade vs original 2-cycle + lit + fog/prim) is the bug.",
+  "boot_args": ["--debug-generated-mesh-render-audit", "--debug-hide-menu", "--debug-track-chr", "--debug-rom-modeldef", "--debug-hide-scene"],
+  "timeout_seconds": 150,
+  "install_state": "clean",
+  "input_sequence": [
+    { "at_ms": 0,      "type": "wait", "comment": "boot; settle by ~70s" },
+    { "at_ms": 120000, "type": "exit", "comment": "done" }
+  ],
+  "screenshots": [
+    { "at_ms": 90000,  "name": "rom_a" },
+    { "at_ms": 105000, "name": "rom_b" }
+  ],
+  "assertions": {
+    "required_lines": ["SMOKE: scenario=main_menu_joanna_romctrl", "SMOKE: result=scripted_exit"],
+    "forbidden_patterns": ["SMOKE: result=timeout"],
+    "required_counts": []
+  }
+}

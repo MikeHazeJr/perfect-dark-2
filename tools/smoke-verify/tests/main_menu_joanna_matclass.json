@@ -1,0 +1,17 @@
+{
+  "scenario_name": "main_menu_joanna_matclass",
+  "description": "B-936 shade probe: --debug-mesh-matclass dumps each generated mesh's per-material render-class + the vertex-colour (shade) table stats (numcol, nearblack count, col0/col1). Confirms whether dark_combat's generated shade table is near-black (candidate b: normals/dark values fed as vertex colours into G_CC_MODULATEIA -> texture x near-black = dark).",
+  "boot_args": ["--debug-mesh-matclass", "--debug-hide-menu"],
+  "timeout_seconds": 90,
+  "install_state": "clean",
+  "input_sequence": [
+    { "at_ms": 0,     "type": "wait", "comment": "boot; modeldef build (matclass) fires ~30s" },
+    { "at_ms": 55000, "type": "exit", "comment": "done" }
+  ],
+  "screenshots": [],
+  "assertions": {
+    "required_lines": ["SMOKE: scenario=main_menu_joanna_matclass", "SMOKE: result=scripted_exit"],
+    "forbidden_patterns": [],
+    "required_counts": []
+  }
+}
