@@ -1,0 +1,13 @@
+{
+  "scenario_name": "main_menu_joanna_chrenv",
+  "description": "B-936 env trace: --debug-chr-env logs the stock chr render's env/fog/unk30/shade for the menu chr body (dark_combat) so we replicate the real values, not a guess.",
+  "boot_args": ["--debug-hide-menu", "--debug-show-only-mesh", "combat", "--debug-hide-scene", "--debug-chr-env", "--debug-generated-mesh-render-audit"],
+  "timeout_seconds": 100,
+  "install_state": "clean",
+  "input_sequence": [
+    { "at_ms": 0,     "type": "wait", "comment": "boot; chr render ~30s" },
+    { "at_ms": 60000, "type": "exit", "comment": "done" }
+  ],
+  "screenshots": [],
+  "assertions": { "required_lines": ["SMOKE: result=scripted_exit"], "forbidden_patterns": [], "required_counts": [] }
+}

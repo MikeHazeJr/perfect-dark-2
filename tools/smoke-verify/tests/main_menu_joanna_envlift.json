@@ -1,0 +1,16 @@
+{
+  "scenario_name": "main_menu_joanna_envlift",
+  "description": "B-936 env-lift result: Joanna isolated (room hidden), env-lift applied (derived env 160 + shade_alpha 140 + stock CUSTOM_17/18). Screenshots at settle to verify she reads lit+textured (not near-black). TRACK logs her screen rect for measurement.",
+  "boot_args": ["--debug-hide-menu", "--debug-track-chr", "--debug-show-only-mesh", "combat", "--debug-hide-scene"],
+  "timeout_seconds": 110,
+  "install_state": "clean",
+  "input_sequence": [
+    { "at_ms": 0,     "type": "wait", "comment": "boot; chr settles ~30s" },
+    { "at_ms": 70000, "type": "exit", "comment": "done" }
+  ],
+  "screenshots": [
+    { "at_ms": 42000, "name": "envlift_a" },
+    { "at_ms": 58000, "name": "envlift_b" }
+  ],
+  "assertions": { "required_lines": ["SMOKE: result=scripted_exit"], "forbidden_patterns": [], "required_counts": [] }
+}

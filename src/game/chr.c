@@ -3773,6 +3773,27 @@ Gfx *chrRender(struct prop *prop, Gfx *gdl, bool xlupass)
 			renderdata.unk30 = 7;
 		}
 
+		/* B-936 diag (--debug-chr-env): the stock chr render's env (var80062a48,
+		 * default {64,10,10}) + fog (colour = the per-chr room shade) + unk30=7/8 ->
+		 * CUSTOM_17/18 + FOG_PRIM_A is what lifts a dark suit so she reads. Log the
+		 * REAL values this path sets for the menu chr body so the generated-mesh
+		 * consume can replicate them instead of guessing. modeldef correlates with
+		 * the MODASSET.RENDER id. */
+		if (sysArgCheck("--debug-chr-env")) {
+			static s32 s_chrEnvLog = 0;
+			if (s_chrEnvLog < 24) {
+				sysLogPrintf(LOG_NOTE,
+					"CHRENV: modeldef=%p env=0x%08x fog=0x%08x unk30=%d var80062a48=(%d,%d,%d) colour=(%d,%d,%d,%d) alpha=%d",
+					(void *)(model ? model->definition : NULL),
+					(unsigned)renderdata.envcolour, (unsigned)renderdata.fogcolour,
+					renderdata.unk30,
+					(int)var80062a48[0], (int)var80062a48[1], (int)var80062a48[2],
+					(int)colour[0], (int)colour[1], (int)colour[2], (int)colour[3],
+					(int)alpha);
+				s_chrEnvLog++;
+			}
+		}
+
 		// Set Skedar eyes open or closed
 		if (model->definition->skel == &g_SkelSkedar) {
 			struct modelnode *node1 = modelGetPart(model->definition, MODELPART_SKEDAR_EYESOPEN);

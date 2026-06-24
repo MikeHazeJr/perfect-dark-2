@@ -4597,6 +4597,15 @@ static s32 s_debugForceChrPrim(void)
 	return cached;
 }
 
+/* B-936 env-lift: set per generatedModeldefBuildPayload call -- 1 for a lit chr
+ * body (mcount==3). When set, the per-material emitters only enable texturing and
+ * do NOT override the stock Type3 2-cycle G_CC_CUSTOM_17/18 + FOG_PRIM_A combine
+ * that modelApplyRenderModeType3 set just before the DL; the prologue keeps
+ * G_LIGHTING and supplies the room-shade lift via a DERIVED env (the stock lifts
+ * the dark suit via the per-chr room shade carried in FOG, which the generated DL
+ * doesn't reproduce). Props/scene meshes (mcount!=3) keep the unlit MODULATEIA path. */
+static s32 s_genLitChrBody = 0;
+
 static void emitGeneratedTextureMarker(Gfx **gdlptr,
                                        const obj_material_t *material)
 {
@@ -4634,9 +4643,18 @@ static void emitGeneratedTextureMarker(Gfx **gdlptr,
 	 * pixels (invisible). gSPTexture + G_CC_MODULATEIA assume 1-cycle, so self-
 	 * establish it here regardless of the inherited state. mcount=1 props/scene
 	 * meshes were already 1-cycle, so this is byte-neutral for them. */
-	gDPSetCycleType(gdl++, G_CYC_1CYCLE);
-	gSPTexture(gdl++, 0xffff, 0xffff, 0, G_TX_RENDERTILE, G_ON);
-	gDPSetCombineMode(gdl++, G_CC_MODULATEIA, G_CC_MODULATEIA);
+	if (s_genLitChrBody) {
+		/* B-936 env-lift: a lit chr body (mcount==3) keeps the stock Type3 2-cycle
+		 * G_CC_CUSTOM_17/18 combine that modelApplyRenderModeType3 set just before
+		 * this DL ([lerp(TEXEL0,ENV,shade_alpha)] * lit_shade). Only enable texturing
+		 * and load the texture below -- do NOT force 1-cycle / MODULATEIA, which
+		 * would discard the env-lerp that lifts her dark suit into a readable range. */
+		gSPTexture(gdl++, 0xffff, 0xffff, 0, G_TX_RENDERTILE, G_ON);
+	} else {
+		gDPSetCycleType(gdl++, G_CYC_1CYCLE);
+		gSPTexture(gdl++, 0xffff, 0xffff, 0, G_TX_RENDERTILE, G_ON);
+		gDPSetCombineMode(gdl++, G_CC_MODULATEIA, G_CC_MODULATEIA);
+	}
 
 	subcmd = material->subcmd >= 0 ? material->subcmd : 0;
 	w0 = ((u32)G_NOOP << 24)
@@ -4667,6 +4685,17 @@ static void emitGeneratedUntexturedState(Gfx **gdlptr)
 	}
 	if (s_debugForceChrPrim()) {
 		return; /* prologue forces magenta PRIMITIVE; emit no per-material state */
+	}
+
+	if (s_genLitChrBody) {
+		/* B-936 env-lift: keep the stock Type3 2-cycle state for chr bodies. Just
+		 * disable texturing so an untextured material falls to the env-lerp (which
+		 * is env-dominant where shade_alpha is low) rather than re-establishing the
+		 * unlit 1-cycle G_CC_SHADE path and discarding the env lift. */
+		gdl = *gdlptr;
+		gSPTexture(gdl++, 0, 0, 0, G_TX_RENDERTILE, G_OFF);
+		*gdlptr = gdl;
+		return;
 	}
 
 	gdl = *gdlptr;
@@ -4701,6 +4730,9 @@ static void emitGeneratedRenderClass(Gfx **gdlptr, s32 render_class,
 	}
 	if (s_debugForceChrPrim()) {
 		return; /* prologue forces magenta PRIMITIVE + OPA no-Z render mode */
+	}
+	if (s_genLitChrBody) {
+		return; /* B-936: keep the stock Type3 FOG_PRIM_A render mode for chr bodies */
 	}
 
 	gdl = *gdlptr;
@@ -6236,16 +6268,22 @@ static s32 generatedModeldefBuildPayload(const obj_mesh_t *mesh,
 		}
 	}
 
-	/* B-936 fix: lit chr bodies (mcount==3) carry per-vertex NORMALS in this
+	/* B-936 env-lift: lit chr bodies (mcount==3) carry per-vertex NORMALS in this
 	 * "colour" table -- fast3d reads r,g,b as the signed normal (x,y,z) under
-	 * G_LIGHTING, but ALSO takes the per-vertex shade ALPHA from the 4th byte,
-	 * which on a normal is frequently 0. G_CC_MODULATEIA multiplies texture alpha
-	 * by shade alpha, so a 0 there renders parts of her transparent. Force the
-	 * table alpha opaque while leaving r,g,b (the normal direction) untouched, so
-	 * the normals still light correctly but the body stays solid. */
+	 * G_LIGHTING, and takes the per-vertex shade ALPHA from the 4th byte, which on
+	 * a normal is frequently 0. Under the stock 2-cycle G_CC_CUSTOM_17/18 we let
+	 * stand, that shade_alpha is the lerp factor between the texture and the env:
+	 *   out = [lerp(TEXEL0, ENV, shade_alpha)] * lit_shade
+	 * A 0 there would make her fully env (no texture); 0xff fully texture (the dark
+	 * suit, near-black, no lift). Force a DERIVED mid value so both contribute --
+	 * the env (mid-grey ~160, set in the prologue) lifts the dark suit while the
+	 * texture still reads. ~140/255 (~0.55) gives suit ~74, skin ~121 after the
+	 * lit-shade multiply. r,g,b (the normal direction) are left untouched so the
+	 * lighting is unchanged. This is a DERIVED approximation of the stock per-chr
+	 * fog-room-shade lift, which the generated DL cannot reproduce per-vertex. */
 	if (mcount == 3) {
 		for (s32 aci = 0; aci < payload->numcolours; aci++) {
-			payload->colours[aci].a = 0xff;
+			payload->colours[aci].a = 140;
 		}
 	}
 
@@ -6291,6 +6329,13 @@ static s32 generatedModeldefBuildPayload(const obj_mesh_t *mesh,
 			(int)(payload->numcolours > 1 ? payload->colours[1].a : 0));
 	}
 
+	/* B-936 env-lift: gate the per-material emitters (texture marker, untextured
+	 * reset, render class) and the prologue for a lit chr body, so they leave the
+	 * stock Type3 2-cycle G_CC_CUSTOM_17/18 + FOG_PRIM_A state in place instead of
+	 * overriding it with the 1-cycle MODULATEIA/SHADE prop path. forceprim still
+	 * wins (debug magenta override). */
+	s_genLitChrBody = (mcount == 3 && !s_debugForceChrPrim());
+
 	gdl = source_gdl;
 	if (matrix_index < 0) {
 		matrix_index = 0;
@@ -6309,18 +6354,42 @@ static s32 generatedModeldefBuildPayload(const obj_mesh_t *mesh,
 		 * fast3d computes a lit shade from those normals using the scene lights
 		 * (the CI menu sets ambient 0x96 + white diffuse, menu.c:2031) -- instead of
 		 * clearing it and feeding the near-black normal bytes as raw vertex colours
-		 * (which rendered her dark + alpha-0 transparent). The per-material combine
-		 * stays G_CC_MODULATEIA, now modulating the texture by the bright lit shade;
-		 * props/scene meshes (other mcounts) keep the unlit vertex-colour path. */
+		 * (which rendered her dark + alpha-0 transparent).
+		 *
+		 * B-936 env-lift: do NOT override the combine. modelApplyRenderModeType3 set
+		 * the stock 2-cycle G_CC_CUSTOM_17/18 just before this DL:
+		 *   out = [lerp(TEXEL0, ENV, shade_alpha)] * lit_shade
+		 * The stock lifts the dark suit (~49/255) into a readable range via the FOG
+		 * blend toward the per-chr room shade (~127, traced via --debug-chr-env:
+		 * env=(64,10,10), fog=colour). The generated DL can't carry that per-vertex
+		 * fog, so we instead supply the lift through a DERIVED env (mid-grey ~160)
+		 * combined with a DERIVED mid shade_alpha (~140, set on the colour table
+		 * above) so both the texture and the lift contribute: suit ~74, skin ~121
+		 * after the lit-shade multiply -- readable without blowing out the skin.
+		 * These are DERIVED values approximating the stock fog-room-shade lift, NOT
+		 * the stock env (64,10,10), which alone (no fog) renders near-black. The
+		 * stock CUSTOM_17/18 + 2-cycle + FOG_PRIM_A render mode are left to stand. */
 		gSPClearGeometryMode(gdl++,
 			G_TEXTURE_GEN | G_TEXTURE_GEN_LINEAR | G_CULL_BOTH);
 		gSPSetGeometryMode(gdl++, G_LIGHTING | G_SHADE | G_SHADING_SMOOTH);
+		gDPSetEnvColor(gdl++, 160, 160, 160, 255);
+		/* B-936 env-lift: the stock Type3 render mode is G_RM_FOG_PRIM_A, which
+		 * blends toward the per-chr room-shade FOG. In a backdrop/menu context where
+		 * that fog colour is near-black, FOG_PRIM_A WASHES the body to pure black
+		 * (observed: the 1-cycle MODULATEIA path read 6-9, but the stock 2-cycle
+		 * FOG_PRIM_A read 0). The generated DL can't carry the per-vertex fog the
+		 * stock relies on, so disable fog and draw opaque 2-cycle -- the env-lift
+		 * above supplies the readability the fog would have, independent of the
+		 * scene's fog state. (DERIVED, fog-independent: distant generated chr bodies
+		 * won't fade into scene fog; acceptable for the menu backdrop + readable
+		 * gameplay bodies.) Keeps the 2-cycle CUSTOM_17/18 combine intact. */
+		gDPSetRenderMode(gdl++, G_RM_PASS, G_RM_AA_ZB_OPA_SURF2);
 	} else {
 		gSPClearGeometryMode(gdl++,
 			G_LIGHTING | G_TEXTURE_GEN | G_TEXTURE_GEN_LINEAR | G_CULL_BOTH);
 		gSPSetGeometryMode(gdl++, G_SHADE | G_SHADING_SMOOTH);
+		gDPSetCombineMode(gdl++, G_CC_SHADE, G_CC_SHADE);
 	}
-	gDPSetCombineMode(gdl++, G_CC_SHADE, G_CC_SHADE);
 	if (s_debugForceChrPrim()) {
 		gDPSetCycleType(gdl++, G_CYC_1CYCLE);
 		gDPSetRenderMode(gdl++, G_RM_OPA_SURF, G_RM_OPA_SURF2);
