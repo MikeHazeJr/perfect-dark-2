@@ -113,8 +113,11 @@ typedef enum {
     SMOKE_EVENT_MOUSE_PRESS,
     SMOKE_EVENT_MOUSE_RELEASE,
     SMOKE_EVENT_MOUSE_TAP,
+    SMOKE_EVENT_SCREENSHOT,         /* in-game glReadPixels grab -> path */
     SMOKE_EVENT_EXIT
 } SmokeEventType;
+
+#define SMOKE_MAX_SHOTPATH 256
 
 typedef struct {
     s32            at_ms;
@@ -126,6 +129,7 @@ typedef struct {
     s32            mouse_button;      /* for mouse events: SDL_BUTTON_LEFT/RIGHT/MIDDLE */
     s32            release_at_ms;     /* for tap: scheduled release time */
     s32            released;          /* tap: 0 = press pending, 1 = release pending, 2 = done */
+    char           path[SMOKE_MAX_SHOTPATH]; /* for screenshot events: output file */
 } SmokeEvent;
 
 typedef struct {
@@ -486,6 +490,8 @@ static s32 smokeParseEvent(JParse *p, SmokeEvent *ev)
             j_tok_copy_str(&t, action_str, sizeof(action_str));
         } else if (!strcmp(field, "name")) {
             j_tok_copy_str(&t, name_str, sizeof(name_str));
+        } else if (!strcmp(field, "path")) {
+            j_tok_copy_str(&t, ev->path, sizeof(ev->path));
         } else if (!strcmp(field, "x")) {
             ev->mouse_x = (s32)j_tok_int(&t);
             has_x = 1;
@@ -508,6 +514,14 @@ static s32 smokeParseEvent(JParse *p, SmokeEvent *ev)
     }
     if (!strcmp(type_str, "exit")) {
         ev->type = SMOKE_EVENT_EXIT;
+        return 1;
+    }
+    if (!strcmp(type_str, "screenshot")) {
+        if (!ev->path[0]) {
+            sysLogPrintf(LOG_ERROR, "SMOKE: screenshot event missing 'path' (at_ms=%d)", ev->at_ms);
+            return 0;
+        }
+        ev->type = SMOKE_EVENT_SCREENSHOT;
         return 1;
     }
     if (!strcmp(type_str, "key")) {
@@ -894,6 +908,10 @@ void smokeHarnessTick(void)
                 ev->mouse_button, ev->mouse_x, ev->mouse_y, ev->at_ms);
             smokePushMouse(ev->mouse_x, ev->mouse_y, ev->mouse_button, 1);
             ev->released = 1;
+            break;
+        case SMOKE_EVENT_SCREENSHOT:
+            sysLogPrintf(LOG_NOTE, "SMOKE: screenshot at_ms=%d -> %s", ev->at_ms, ev->path);
+            gfxRequestSmokeScreenshot(ev->path);
             break;
         case SMOKE_EVENT_EXIT:
             sysLogPrintf(LOG_NOTE, "SMOKE: scripted exit at_ms=%d", ev->at_ms);

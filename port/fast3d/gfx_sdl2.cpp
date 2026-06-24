@@ -1,10 +1,14 @@
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include <SDL.h>
 #include <unistd.h>
 #include <time.h>
 
 #include "platform.h"
 #include "system.h"
+
+#include "glad/glad.h"
 
 #include "gfx_window_manager_api.h"
 #include "gfx_screen_config.h"
@@ -434,7 +438,86 @@ static inline void sync_framerate_with_timer(void) {
     previous_time = t;
 }
 
+/* B-942 / smoke infra: in-game glReadPixels screenshot. Grabs the GL back
+ * buffer directly, so it is independent of window size / focus / occlusion --
+ * unlike the harness's PrintWindow/BitBlt path, which returns black for GL
+ * content when the window is small or not screen-covering. Triggered by the
+ * smoke harness 'screenshot' event; captured here, just before the swap, so the
+ * back buffer holds the fully composited frame (world + ImGui overlay). */
+static char s_smokeShotPath[1024] = {0};
+static volatile int s_smokeShotPending = 0;
+
+extern "C" void gfxRequestSmokeScreenshot(const char *path) {
+    if (path && path[0]) {
+        strncpy(s_smokeShotPath, path, sizeof(s_smokeShotPath) - 1);
+        s_smokeShotPath[sizeof(s_smokeShotPath) - 1] = '\0';
+        s_smokeShotPending = 1;
+    }
+}
+
+/* 24-bit BMP, bottom-up -- which matches glReadPixels row order, so no vertical
+ * flip is needed. glReadPixels gives RGB; BMP stores BGR; rows pad to 4 bytes. */
+static void s_writeBmp24FromGlRgb(const char *path, int w, int h,
+                                  const unsigned char *rgb) {
+    FILE *f = fopen(path, "wb");
+    if (!f) {
+        sysLogPrintf(LOG_ERROR, "SMOKE.GLSHOT: fopen failed for '%s'", path);
+        return;
+    }
+    int rowsize = (w * 3 + 3) & ~3;
+    int imgsize = rowsize * h;
+    int filesize = 54 + imgsize;
+    unsigned char hdr[54];
+    memset(hdr, 0, sizeof(hdr));
+    hdr[0] = 'B'; hdr[1] = 'M';
+    hdr[2] = (unsigned char)(filesize); hdr[3] = (unsigned char)(filesize >> 8);
+    hdr[4] = (unsigned char)(filesize >> 16); hdr[5] = (unsigned char)(filesize >> 24);
+    hdr[10] = 54;
+    hdr[14] = 40;
+    hdr[18] = (unsigned char)(w); hdr[19] = (unsigned char)(w >> 8);
+    hdr[20] = (unsigned char)(w >> 16); hdr[21] = (unsigned char)(w >> 24);
+    hdr[22] = (unsigned char)(h); hdr[23] = (unsigned char)(h >> 8);
+    hdr[24] = (unsigned char)(h >> 16); hdr[25] = (unsigned char)(h >> 24);
+    hdr[26] = 1;
+    hdr[28] = 24;
+    fwrite(hdr, 1, 54, f);
+    unsigned char *row = (unsigned char *)malloc((size_t)rowsize);
+    if (row) {
+        for (int y = 0; y < h; y++) {
+            const unsigned char *src = rgb + (size_t)y * w * 3;
+            for (int x = 0; x < w; x++) {
+                row[x * 3 + 0] = src[x * 3 + 2];
+                row[x * 3 + 1] = src[x * 3 + 1];
+                row[x * 3 + 2] = src[x * 3 + 0];
+            }
+            for (int p = w * 3; p < rowsize; p++) row[p] = 0;
+            fwrite(row, 1, (size_t)rowsize, f);
+        }
+        free(row);
+    }
+    fclose(f);
+}
+
+static void gfx_sdl_capture_pending_screenshot(void) {
+    if (!s_smokeShotPending) return;
+    s_smokeShotPending = 0;
+    int w = 0, h = 0;
+    SDL_GL_GetDrawableSize(wnd, &w, &h);
+    if (w <= 0 || h <= 0) return;
+    size_t n = (size_t)w * (size_t)h * 3u;
+    unsigned char *buf = (unsigned char *)malloc(n);
+    if (!buf) return;
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    glReadBuffer(GL_BACK);
+    glPixelStorei(GL_PACK_ALIGNMENT, 1);
+    glReadPixels(0, 0, w, h, GL_RGB, GL_UNSIGNED_BYTE, buf);
+    s_writeBmp24FromGlRgb(s_smokeShotPath, w, h, buf);
+    free(buf);
+    sysLogPrintf(LOG_NOTE, "SMOKE.GLSHOT: captured %dx%d -> %s", w, h, s_smokeShotPath);
+}
+
 static void gfx_sdl_swap_buffers_begin(void) {
+    gfx_sdl_capture_pending_screenshot();
     if (target_fps) {
         sync_framerate_with_timer();
     }

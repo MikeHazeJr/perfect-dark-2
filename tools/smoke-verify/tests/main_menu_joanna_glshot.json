@@ -1,0 +1,15 @@
+{
+  "scenario_name": "main_menu_joanna_glshot",
+  "description": "B-942: in-game glReadPixels screenshot of Joanna (focus/size-independent capture).",
+  "boot_args": ["--debug-hide-menu", "--debug-track-chr"],
+  "timeout_seconds": 75,
+  "install_state": "clean",
+  "input_sequence": [
+    { "at_ms": 0, "type": "wait" },
+    { "at_ms": 42000, "type": "screenshot", "path": "C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/.claude/smoke-verify-runs/glshot/joanna_42.bmp" },
+    { "at_ms": 52000, "type": "screenshot", "path": "C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/.claude/smoke-verify-runs/glshot/joanna_52.bmp" },
+    { "at_ms": 60000, "type": "exit" }
+  ],
+  "screenshots": [],
+  "assertions": { "required_lines": ["SMOKE: result=scripted_exit"], "forbidden_patterns": [], "required_counts": [] }
+}

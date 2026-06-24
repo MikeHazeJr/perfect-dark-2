@@ -30,6 +30,13 @@ void gfxFullscreenToggle(void);
  * captured at ImGui_ImplSDL2_Init time. */
 SDL_Window *gfxGetSdlWindow(void);
 
+/* B-942 (2026-06-24): in-game glReadPixels screenshot. Requests a grab of the
+ * GL back buffer at the next swap, written as a 24-bit BMP to `path`. Unlike the
+ * harness's PrintWindow/BitBlt capture, this reads the framebuffer directly, so
+ * it is independent of window size / focus / occlusion. Driven by the smoke
+ * harness 'screenshot' event. */
+void gfxRequestSmokeScreenshot(const char *path);
+
 #ifdef __cplusplus
 }
 #endif
