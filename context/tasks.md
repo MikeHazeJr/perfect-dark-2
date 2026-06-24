@@ -12,7 +12,7 @@ Last updated: 2026-06-24
 
 | Card | Status | Purpose |
 |------|--------|---------|
-| `c3844` | In progress (MP relay) | Joanna render bug PARKED (framing SOLVED via TRACK -- dead-center in-frame yet zero pixels; cycle-type REFUTED; see B-936/session-log). Credits B-346 squares REOPENED (playtest failed, residual logged). MP relay (A+C): **Gap B** (onPairOpen honors relay addr, group_session.c) DONE/uncommitted; **NEXT = Gap A** relay forwarder in p2p_turn.c (recv ALLOC->ALLOC_ACK+bind; RELAY->forward w/ src/dst rewrite) + loopback-sim + VPS doc; then other-modes check (item d). |
+| `c3844` | In progress (MP relay) | Joanna render bug **ROOT-CAUSED + FIXED 2026-06-24** (degenerate fovy=0 -> projection P[0][0]=-32768 -> geometry 32768x off-screen; clamp in guPerspectiveF; magenta-isolate capture proves a clean Joanna silhouette dead-centre. See B-936/session-log). Remaining for textured-in-room: a SEPARATE fast3d render-state desync after the scene renderer + the pending B-934/B-935/B-938 colour work. Credits B-346 squares REOPENED (playtest failed, residual logged). MP relay (A+C): **Gap B** (onPairOpen honors relay addr, group_session.c) DONE/uncommitted; **NEXT = Gap A** relay forwarder in p2p_turn.c (recv ALLOC->ALLOC_ACK+bind; RELAY->forward w/ src/dst rewrite) + loopback-sim + VPS doc; then other-modes check (item d). |
 
 **CI menu render (c3844, 2026-06-23):** the glass-table opaque-black bug is fixed
 universally -- the `.pdscenario` extract now classifies glTF alphaMode from the
@@ -21,39 +21,40 @@ material (B-940). Verified on screen: glass translucent, menu fonts crisp,
 CITRAINING classifies opaque:63/mask:3/blend:15 (was 0 BLEND / 12 MASK). Commits
 `1472789c`, `91124983`.
 
-## Uncommitted working-tree candidates (2026-06-24) -- BUILD-VERIFY before committing
+## Joanna render bug -- ROOT-CAUSED + FIXED 2026-06-24 (degenerate fovy=0 projection)
 
-Left UNCOMMITTED on purpose as candidates/tooling from the 2026-06-24 session. They
-ARE in the working tree, so any build includes them -- build-verify + (re)assess before
-committing any of them (see session-log 2026-06-24):
-- `port/src/net/group_session.c` -- MP relay **Gap B** (onPairOpen honors `relay_ipv4/port` for `P2P_EP_RELAYED`). ALWAYS-active; NEEDED for the relay; pending build-verify with Gap A (the forwarder).
-- `port/src/modasset_compiler.c` -- Joanna **cycle-type** markers (`gDPSetCycleType(G_CYC_1CYCLE)`, ALWAYS-active, byte-neutral for mcount=1) -- **REFUTED** as the Joanna fix; + `--debug-mesh-matclass` diagnostic (flag-gated, harmless).
-- `src/lib/model.c` -- `--debug-track-chr` per-frame body tracker (flag-gated; the WORKING framing tool -- KEEP for the Joanna render-bug before/after diagnosis).
-- `tools/smoke-verify/tests/main_menu_joanna_nomenu.json` -- debug flags wiring the above (test scenario only).
+The "menu Joanna renders ZERO pixels" bug is solved at the root and the fix is
+committed. It was NOT colour/combine/cycle (B-934/B-935/B-938 all wrong layer) and
+NOT framing. Prior "in-frame" was VIEW-space only; CLIP-space instrumentation proved
+her vertices project to garbage (clip x/y in the millions, `onscreen=0`) because the
+world projection `P[0][0]=-32768` -- the CI intro-cutscene camera feeds `fovy=0` into
+`viSetFovY`, `guPerspectiveF` blows `cot(0/2)` to +inf, and `guMtxF2L` overflows the
+x/y scale to INT_MIN. **Fix:** clamp degenerate fovy in `src/lib/ultra/gu/perspective.c`
+(the same guard `scenario_scene_renderer.cpp:1018` already has). Verified: forced-magenta
+isolate capture shows a clean Joanna HUMAN SILHOUETTE dead-centre
+(`.claude/smoke-verify-runs/screenshots/20260624T092726-main_menu_joanna_isolate/iso2_a_full.png`).
+Full breadcrumb in **B-936**.
 
-**Parked follow-up -- menu Joanna renders ZERO pixels [FRAMING SOLVED, render bug
-CONFIRMED 2026-06-24]:** The `var8009dfc0` submission fix (`44bf45cc`, B-936)
-restores Joanna + PC + furniture + camera (all submitted; PASS 3/3). A per-frame
-body-origin tracker (`--debug-track-chr`, src/lib/model.c, gate `nummatrices>1`;
-UNCOMMITTED) finally instrumented her ACTUAL screen position: she settles and holds
-at view-space `(3.0, 7.8, -156.9)` through the whole capture window -- `vz=-157`
-(IN FRONT of cam), dead-center, ~full-screen-height. So she is DEFINITIVELY
-in-frame -- the user's spatial fact confirmed (she stands at the desk edge typing;
-framing was a RED HERRING: the `--debug-cam-look-chr` prop-aim is ~313u off her
-body AND the one-time matrix audit sampled at 34s/intro, not capture time, so every
-prior zoom hit the wrong spot). YET a zoom at her exact dead-center position shows
-only room geometry -- NO figure, textured or dark. So: framed + large + central,
-rendering ZERO pixels = a REAL render bug. The cycle-type fix
-(`gDPSetCycleType(G_CYC_1CYCLE)` in modasset_compiler.c texture/untextured markers;
-UNCOMMITTED) was tested AT her confirmed position and did NOT make her visible ->
-**cycle-type REFUTED** as the fix. Open candidates for the focused task: (i)
-occlusion by room geometry from the headless held-cam (real-play uses the live
-terminal cam -- which our headless capture cannot replicate, per user); (ii) a
-combine/blend/draw bug yielding no fragments for an opaque+textured chrbody. NOW
-UNBLOCKED: the TRACK tool gives before/after verification at her real position --
-diagnose occlusion-vs-draw next. Uncommitted candidates/tooling: cycle-type marker
-edit, `--debug-mesh-matclass`, `--debug-track-chr`. Real-play proof meanwhile = the
-user's own rebuild. Full breadcrumb in B-936.
+**Next for FULL textured-in-room visibility (two separate items, deferred):**
+1. **fast3d render-state desync after `scenarioSceneRendererRender`** -- with the room
+   visible, even no-Z (GL_ALWAYS) magenta is hidden; the raw-GL scene renderer leaves
+   GL state fast3d's `rendering_state` cache doesn't reflect (HUD fonts re-sync, the
+   first world draw doesn't). A depth/shader/texture cache-invalidate did NOT fix it ->
+   blocker is blend/VAO/framebuffer/other state. Probe with
+   `--debug-show-only-mesh combat --debug-force-chr-prim` (scene ON) -> still invisible.
+2. **B-934/B-935/B-938 colour/combine** -- so she renders textured, not dark.
+
+## Uncommitted working-tree candidates (2026-06-24)
+
+- `port/src/net/group_session.c` -- MP relay **Gap B** (onPairOpen honors `relay_ipv4/port`
+  for `P2P_EP_RELAYED`). ALWAYS-active; NEEDED for the relay; pending build-verify with
+  Gap A (the forwarder). LEFT UNCOMMITTED (unrelated to the B-936 fix commit).
+
+Committed with the B-936 fix (2026-06-24): the fovy clamp (`perspective.c`), the
+`--debug-track-chr` tracker (`model.c`), the `--debug-force-chr-prim` / `--debug-hide-scene`
+/ CLIPDBG diagnostics (`gfx_pc.cpp`, `modasset_compiler.c`), and the
+`main_menu_joanna_*` capture scenarios. The modasset_compiler cycle-type markers
+(REFUTED) + `--debug-mesh-matclass` rode along in that file (byte-neutral / flag-gated).
 
 **c3849 status (2026-06-17):** Waves 1-7 are SHIPPED and verified for the current
 tree. Waves 1-6 delivered telemetry, the four private runtime allocators, FONT

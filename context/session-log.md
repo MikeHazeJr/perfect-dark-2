@@ -1,5 +1,53 @@
 # Session Log (Active)
 
+## 2026-06-24 - c3844 Joanna render bug ROOT-CAUSED + FIXED (degenerate fovy=0 projection)
+
+**The Joanna-invisible bug is solved at the root.** It was NEVER colour/combine/
+cycle (B-934/B-935/B-938 were all the wrong layer) and NOT framing. The prior
+"in-frame" claim was VIEW-space only -- the TRACK reads the modelview
+(`model->matrices[0]` = sane view `(3,7.8,-157)`). I instrumented fast3d's CLIP
+space (a `--debug-force-chr-prim` clip log in `gfx_sp_vertex`) and proved her
+vertices project to GARBAGE: clip x/y in the MILLIONS, negative w, `onscreen=0`.
+A one-shot matrix dump pinned it: the world projection `rsp.P_matrix[0][0] =
+-32768` (= -2^15) vs the normal ~1.3 perspective x-scale, z/w sane.
+
+**Root cause:** the CI intro-cutscene camera feeds `fovy = animGetCameraValue(...)`
+= **0.0** into `viSetFovY` (player.c:3549/3592). `guPerspectiveF` then computes
+`cot = cos(0)/sin(0) = +inf` for `mf[0][0]=cot/aspect` + `mf[1][1]=cot`, and
+`guMtxF2L` overflows those to INT_MIN (0x80000000) -> fast3d reads -32768. Every
+world vertex projects ~32768x out of frame -> giant off-screen triangles, zero
+recognizable pixels (the desk PC + sofa + furniture vanish WITH her -- one shared
+cause, matching the long-standing "missing PC + missing Joanna" lead). The scene
+renderer (room) was immune because `scenario_scene_renderer.cpp:1018` ALREADY
+guards `fovy <= 1.0` and uses its own VP.
+
+**Fix (`src/lib/ultra/gu/perspective.c`):** clamp a degenerate fovy (<=0.5 or
+>=179, or non-finite) to 60.0 in `guPerspectiveF` with a rate-limited warning --
+the SAME guard the scene renderer already has, and a no-op for every valid view
+(incl. weapon zoom, smallest legit fov >> 0.5). **VERIFIED:** post-clamp CLIPDBG
+flips to `onscreen=1` at screen-centre for all samples, and a forced-magenta
+isolate capture renders a clean, recognizable Joanna HUMAN SILHOUETTE dead-centre
+(arm reaching toward the desk PC). Screenshot:
+`.claude/smoke-verify-runs/screenshots/20260624T092726-main_menu_joanna_isolate/iso2_a_full.png`.
+
+**Diagnostic tooling added (flag-gated, off by default):** `--debug-force-chr-prim`
+(forces every generated body DL to constant opaque-magenta PRIMITIVE in 1-cycle,
+no-Z -- the "does it draw at all / where" probe; modasset_compiler.c + the
+gfx_pc.cpp clip-space CLIPDBG log) and `--debug-hide-scene` (skips
+`scenarioSceneRendererRender` so a forced body shows against a bare framebuffer;
+gfx_pc.cpp). Scenarios `main_menu_joanna_forceprim.json` + `_isolate.json`.
+
+**REMAINING (separate bug, NOT the projection):** with the room visible, even
+no-Z (GL_ALWAYS) magenta is hidden -> a fast3d render-state desync after
+`scenarioSceneRendererRender` (the raw-GL room renderer leaves GL state that
+fast3d's `rendering_state` cache doesn't reflect; HUD fonts re-sync, the first
+world draw doesn't). A depth/shader/texture cache-invalidate after the scene did
+NOT fix it (so the blocker is blend/VAO/framebuffer/other state) -- design-
+uncertain, reverted, deferred as a focused follow-up. Full TEXTURED-in-room
+visibility also still rides on the pending B-934/B-935/B-938 colour/combine work.
+Committed the fovy fix + tooling; left the unrelated `group_session.c` MP-relay
+candidate untouched.
+
 ## 2026-06-24 - c3844 CI render saga (Joanna PARKED, credits residual) + MP relay (A+C) started
 
 **Joanna menu render -- PARKED (framing SOLVED, render bug CONFIRMED).** The

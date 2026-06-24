@@ -3766,6 +3766,28 @@ void modelRender(struct modelrenderdata *renderdata, struct model *model)
 		}
 	}
 
+	{
+		/* c3844 (B-936, temporary): per-frame body-origin tracker. The one-time
+		 * audit above samples each modeldef at FIRST render (intro/cutscene), but
+		 * the menu camera + pose differ at capture time -- so that sample is stale.
+		 * Log generated chr-skeleton modeldefs' bone-0 view-space origin (throttled)
+		 * so Joanna's ACTUAL screen position at the capture frame can be projected
+		 * offline + zoomed. Correlate modeldef=%p with the MODASSET.RENDER id. */
+		extern s32 sysArgCheck(const char *name);
+		if (sysArgCheck("--debug-track-chr") &&
+				modAssetCompilerModeldefIsGenerated(model->definition) &&
+				model->definition->nummatrices > 1) {
+			static s32 s_trackThrottle = 0;
+			if ((s_trackThrottle++ % 12) == 0) {
+				const Mtxf *m0 = &model->matrices[0];
+				sysLogPrintf(LOG_NOTE,
+					"MODASSET.TRACK: modeldef=%p nmat=%d origin_view=(%.1f,%.1f,%.1f)",
+					(void *)model->definition, model->definition->nummatrices,
+					m0->m[3][0], m0->m[3][1], m0->m[3][2]);
+			}
+		}
+	}
+
 	gSPSegment(renderdata->gdl++, SPSEGMENT_MODEL_MTX, osVirtualToPhysical(model->matrices));
 
 	while (node) {

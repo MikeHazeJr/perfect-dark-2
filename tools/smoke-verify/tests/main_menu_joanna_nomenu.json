@@ -1,19 +1,19 @@
 {
   "scenario_name": "main_menu_joanna_nomenu",
   "description": "Capture the Carrington Institute menu backdrop with the menu overlay suppressed via --debug-hide-menu, so the menu character (Joanna, the player chrbody) and the live CI scene render un-occluded. Pairs with the B-936/B-937/B-938 fixes: body present (B-936), no render crash (B-937), per-vertex colour restored (B-938).",
-  "boot_args": ["--debug-generated-mesh-render-audit", "--debug-hide-menu", "--debug-menu-render-state"],
-  "timeout_seconds": 200,
+  "boot_args": ["--debug-generated-mesh-render-audit", "--debug-hide-menu", "--debug-menu-render-state", "--debug-mesh-matclass", "--debug-track-chr"],
+  "timeout_seconds": 220,
   "install_state": "clean",
   "input_sequence": [
     { "at_ms": 0,      "type": "wait", "comment": "boot; clean-install extraction runs first (~90s)" },
-    { "at_ms": 162000, "type": "exit", "comment": "done" }
+    { "at_ms": 175000, "type": "exit", "comment": "done" }
   ],
   "screenshots": [
-    { "at_ms": 29500, "name": "nomenu_a" },
-    { "at_ms": 31000, "name": "nomenu_b" },
-    { "at_ms": 32500, "name": "nomenu_c" },
-    { "at_ms": 34000, "name": "nomenu_d" },
-    { "at_ms": 100000, "name": "nomenu_e" }
+    { "at_ms": 95000,  "name": "nomenu_a" },
+    { "at_ms": 110000, "name": "nomenu_b" },
+    { "at_ms": 125000, "name": "nomenu_c" },
+    { "at_ms": 140000, "name": "nomenu_d" },
+    { "at_ms": 155000, "name": "nomenu_e" }
   ],
   "assertions": {
     "required_lines": [

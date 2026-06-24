@@ -4577,6 +4577,26 @@ static s32 objMaterialHasTexture(const obj_material_t *material)
 	return material && material->texture_num >= 0;
 }
 
+/* c3844 (B-936, DIAGNOSTIC, flag-gated, OFF by default): when set, every
+ * generated-mesh body DL is forced to a constant opaque-magenta PRIMITIVE combine
+ * in 1-cycle with depth-compare OFF (see the prologue override). The per-material
+ * markers below are suppressed so nothing clobbers it. This isolates the
+ * un-disambiguated Joanna-invisible question (B-936): if a magenta silhouette
+ * appears at her TRACK'd screen-centre position, her geometry + matrices +
+ * submission are correct and the bug is colour/combine (texture=black or
+ * shade=black); if NOTHING appears, the geometry itself is not rasterizing
+ * (broken matrices/vertices or the DL never executes). No-Z so room occlusion
+ * cannot hide her. Clean-install regen bakes this into the cache per run. */
+static s32 s_debugForceChrPrim(void)
+{
+	static s32 cached = -1;
+	if (cached < 0) {
+		extern s32 sysArgCheck(const char *name);
+		cached = sysArgCheck("--debug-force-chr-prim") ? 1 : 0;
+	}
+	return cached;
+}
+
 static void emitGeneratedTextureMarker(Gfx **gdlptr,
                                        const obj_material_t *material)
 {
@@ -4587,6 +4607,9 @@ static void emitGeneratedTextureMarker(Gfx **gdlptr,
 
 	if (!gdlptr || !*gdlptr || !objMaterialHasTexture(material)) {
 		return;
+	}
+	if (s_debugForceChrPrim()) {
+		return; /* prologue forces magenta PRIMITIVE; emit no per-material state */
 	}
 
 	gdl = *gdlptr;
@@ -4603,6 +4626,15 @@ static void emitGeneratedTextureMarker(Gfx **gdlptr,
 	 * materials are reset back to texture-off + G_CC_SHADE by
 	 * emitGeneratedUntexturedState(). These two extra commands stay within the
 	 * material_switch_count*3 source-DL budget (was 1 cmd/textured switch -> 3). */
+	/* c3844 fix (2026-06-23, B-936 Joanna-invisible): force 1-cycle before the
+	 * texture-sampling combine. The generated body DL inherits whatever cycle
+	 * type the node render mode left set; an mcount=3 (Type3) chrbody such as
+	 * base:dark_combat runs in 2-CYCLE, where this 1-cycle MODULATEIA combine's
+	 * second cycle compiles to garbage -> the body draws but yields NO visible
+	 * pixels (invisible). gSPTexture + G_CC_MODULATEIA assume 1-cycle, so self-
+	 * establish it here regardless of the inherited state. mcount=1 props/scene
+	 * meshes were already 1-cycle, so this is byte-neutral for them. */
+	gDPSetCycleType(gdl++, G_CYC_1CYCLE);
 	gSPTexture(gdl++, 0xffff, 0xffff, 0, G_TX_RENDERTILE, G_ON);
 	gDPSetCombineMode(gdl++, G_CC_MODULATEIA, G_CC_MODULATEIA);
 
@@ -4633,8 +4665,15 @@ static void emitGeneratedUntexturedState(Gfx **gdlptr)
 	if (!gdlptr || !*gdlptr) {
 		return;
 	}
+	if (s_debugForceChrPrim()) {
+		return; /* prologue forces magenta PRIMITIVE; emit no per-material state */
+	}
 
 	gdl = *gdlptr;
+	/* c3844 fix (2026-06-23, B-936): match emitGeneratedTextureMarker -- force
+	 * 1-cycle so the untextured G_CC_SHADE path is correct under an inherited
+	 * 2-cycle (Type3) state too. */
+	gDPSetCycleType(gdl++, G_CYC_1CYCLE);
 	gSPTexture(gdl++, 0, 0, 0, G_TX_RENDERTILE, G_OFF);
 	gDPSetCombineMode(gdl++, G_CC_SHADE, G_CC_SHADE);
 	*gdlptr = gdl;
@@ -4659,6 +4698,9 @@ static void emitGeneratedRenderClass(Gfx **gdlptr, s32 render_class,
 
 	if (!gdlptr || !*gdlptr || !last_class || render_class == *last_class) {
 		return;
+	}
+	if (s_debugForceChrPrim()) {
+		return; /* prologue forces magenta PRIMITIVE + OPA no-Z render mode */
 	}
 
 	gdl = *gdlptr;
@@ -5954,7 +5996,8 @@ static s32 generatedModeldefBuildPayload(const obj_mesh_t *mesh,
                                          s32 matrix_index,
                                          s32 model_segment,
                                          const generated_render_stream_t *stream,
-                                         generated_dl_payload_t *payload)
+                                         generated_dl_payload_t *payload,
+                                         const char *asset_id)
 {
 	s32 tri_count = 0;
 	s32 material_switch_count = 0;
@@ -6176,6 +6219,48 @@ static s32 generatedModeldefBuildPayload(const obj_mesh_t *mesh,
 	 * white entry seeded at allocation. */
 	payload->numcolours = colour_count > 0 ? colour_count : 1;
 
+	/* DIAGNOSTIC (B-936/B-934, temporary): per-material render-class + texture
+	 * flag + vertex-colour-table head for each generated mesh group. Verifies the
+	 * extracted .pdmesh carries XLU/TEX_EDGE classes and non-degenerate RGBA --
+	 * drives the Joanna-invisible / fonts-squares root cause. Remove after fix. */
+	if (sysArgCheck("--debug-mesh-matclass")) {
+		s32 mc_opaque = 0, mc_xlu = 0, mc_texedge = 0, mc_decal = 0, mc_tex = 0;
+		s32 col_black = 0, col_alpha0 = 0; /* table entries near-black / alpha==0 */
+		for (s32 mi = 0; mi < mesh->material_count; mi++) {
+			const obj_material_t *m = &mesh->materials[mi];
+			switch (m->render_class) {
+			case PDMESH_RC_XLU: mc_xlu++; break;
+			case PDMESH_RC_TEX_EDGE: mc_texedge++; break;
+			case PDMESH_RC_DECAL: mc_decal++; break;
+			default: mc_opaque++; break;
+			}
+			if (objMaterialHasTexture(m)) {
+				mc_tex++;
+			}
+		}
+		for (s32 ci = 0; ci < payload->numcolours; ci++) {
+			const Col *c = &payload->colours[ci];
+			if ((s32)c->r + (s32)c->g + (s32)c->b < 24) {
+				col_black++;
+			}
+			if (c->a == 0) {
+				col_alpha0++;
+			}
+		}
+		sysLogPrintf(LOG_WARNING,
+			"MODASSET.MATCLASS: id=%s group=%s mats=%d opaque=%d xlu=%d texedge=%d decal=%d textured=%d numcol=%d nearblack=%d alpha0=%d col0=(%d,%d,%d,%d) col1=(%d,%d,%d,%d)",
+			asset_id ? asset_id : "(null)",
+			group_name ? group_name : "(null)", mesh->material_count,
+			mc_opaque, mc_xlu, mc_texedge, mc_decal, mc_tex,
+			payload->numcolours, col_black, col_alpha0,
+			(int)payload->colours[0].r, (int)payload->colours[0].g,
+			(int)payload->colours[0].b, (int)payload->colours[0].a,
+			(int)(payload->numcolours > 1 ? payload->colours[1].r : 0),
+			(int)(payload->numcolours > 1 ? payload->colours[1].g : 0),
+			(int)(payload->numcolours > 1 ? payload->colours[1].b : 0),
+			(int)(payload->numcolours > 1 ? payload->colours[1].a : 0));
+	}
+
 	gdl = source_gdl;
 	if (matrix_index < 0) {
 		matrix_index = 0;
@@ -6192,6 +6277,17 @@ static s32 generatedModeldefBuildPayload(const obj_mesh_t *mesh,
 		G_LIGHTING | G_TEXTURE_GEN | G_TEXTURE_GEN_LINEAR | G_CULL_BOTH);
 	gSPSetGeometryMode(gdl++, G_SHADE | G_SHADING_SMOOTH);
 	gDPSetCombineMode(gdl++, G_CC_SHADE, G_CC_SHADE);
+	if (s_debugForceChrPrim()) {
+		gDPSetCycleType(gdl++, G_CYC_1CYCLE);
+		gDPSetRenderMode(gdl++, G_RM_OPA_SURF, G_RM_OPA_SURF2);
+		gDPSetAlphaCompare(gdl++, G_AC_NONE);
+		gDPSetPrimColor(gdl++, 0, 0, 0xff, 0x00, 0xff, 0xff);
+		gDPSetCombineMode(gdl++, G_CC_PRIMITIVE, G_CC_PRIMITIVE);
+		sysLogPrintf(LOG_NOTE,
+			"MODASSET.FORCEPRIM: applied magenta override id=%s group=%s tris=%d seg=%d",
+			asset_id ? asset_id : "(null)",
+			group_name ? group_name : "(all)", tri_count, model_segment);
+	}
 
 	emitted = 0;
 	if (use_render_stream) {
@@ -6781,7 +6877,8 @@ static s32 buildGeneratedModeldefFromMeshHierarchy(const asset_entry_t *entry,
 			if (!generatedModeldefBuildPayload(mesh, group_index,
 					row->group, row->render_mtx, payload_segment,
 					&render_stream,
-					&owner->dynamic_payloads[row->payload_index])) {
+					&owner->dynamic_payloads[row->payload_index],
+					entry ? entry->id : NULL)) {
 				free(parts);
 				generatedRenderStreamFree(&render_stream);
 				generatedHierarchyFree(&hierarchy);
@@ -7117,6 +7214,13 @@ static s32 buildGeneratedModeldefFromMesh(const asset_entry_t *entry,
 		G_LIGHTING | G_TEXTURE_GEN | G_TEXTURE_GEN_LINEAR | G_CULL_BOTH);
 	gSPSetGeometryMode(gdl++, G_SHADE | G_SHADING_SMOOTH);
 	gDPSetCombineMode(gdl++, G_CC_SHADE, G_CC_SHADE);
+	if (s_debugForceChrPrim()) {
+		gDPSetCycleType(gdl++, G_CYC_1CYCLE);
+		gDPSetRenderMode(gdl++, G_RM_OPA_SURF, G_RM_OPA_SURF2);
+		gDPSetAlphaCompare(gdl++, G_AC_NONE);
+		gDPSetPrimColor(gdl++, 0, 0, 0xff, 0x00, 0xff, 0xff);
+		gDPSetCombineMode(gdl++, G_CC_PRIMITIVE, G_CC_PRIMITIVE);
+	}
 	for (s32 i = 0, last_material = -2, last_textured = 0,
 			last_render_class = PDMESH_RC_OPAQUE;
 			i < mesh->triangle_count; i++) {

@@ -148,6 +148,22 @@ extern "C" void meshDebugRenderCollisionMesh(float vp[4][4], int width, int heig
 extern "C" void scenarioSceneRendererRender(int width, int height);
 extern "C" int modAssetCompilerGeneratedModeldefRenderAuditEnabled(void);
 static int s_meshDebugModeCache = 0;
+
+/* B-936 diagnostic flags (off by default). --debug-force-chr-prim also turns on
+ * clip-space logging of 3D world vertices here so we can see WHERE the generated
+ * chr-body geometry projects. --debug-hide-scene skips the scenario scene (room)
+ * render so a forced-magenta body can be seen against a bare framebuffer. */
+extern "C" int sysArgCheck(const char *arg);
+static int s_dbgForcePrim = -1;
+static inline int dbgForcePrim(void) {
+    if (s_dbgForcePrim < 0) { s_dbgForcePrim = sysArgCheck("--debug-force-chr-prim") ? 1 : 0; }
+    return s_dbgForcePrim;
+}
+static int s_dbgHideScene = -1;
+static inline int dbgHideScene(void) {
+    if (s_dbgHideScene < 0) { s_dbgHideScene = sysArgCheck("--debug-hide-scene") ? 1 : 0; }
+    return s_dbgHideScene;
+}
 static float s_vpMatrix[4][4]; /* View-Projection matrix for collision mesh rendering */
 
 struct RawTexMetadata {
@@ -1416,6 +1432,22 @@ static void gfx_sp_vertex(size_t n_vertices, size_t dest_index, const Vtx* verti
         float y = v->v[0] * rsp.MP_matrix[0][1] + v->v[1] * rsp.MP_matrix[1][1] + v->v[2] * rsp.MP_matrix[2][1] + rsp.MP_matrix[3][1];
         float z = v->v[0] * rsp.MP_matrix[0][2] + v->v[1] * rsp.MP_matrix[1][2] + v->v[2] * rsp.MP_matrix[2][2] + rsp.MP_matrix[3][2];
         float w = v->v[0] * rsp.MP_matrix[0][3] + v->v[1] * rsp.MP_matrix[1][3] + v->v[2] * rsp.MP_matrix[2][3] + rsp.MP_matrix[3][3];
+
+        /* B-936 diag: log where 3D world geometry (w>50 filters out 2D ortho fonts)
+         * projects in clip/NDC space, so we can tell if the chr-body vertices land
+         * on-screen, off-screen, or behind the camera (w<=0). Throttled. */
+        if (i == 0 && dbgForcePrim() && (w > 50.0f || w < -50.0f)) {
+            static int s_clipLog = 0;
+            if (s_clipLog < 4000) {
+                float ndcx = (w != 0.0f) ? x / w : 0.0f;
+                float ndcy = (w != 0.0f) ? y / w : 0.0f;
+                sysLogPrintf(LOG_NOTE,
+                    "CLIPDBG: clip=(%.1f,%.1f,%.1f,%.1f) ndc=(%.2f,%.2f) onscreen=%d",
+                    x, y, z, w, ndcx, ndcy,
+                    (ndcx > -1.0f && ndcx < 1.0f && ndcy > -1.0f && ndcy < 1.0f && w > 0.0f) ? 1 : 0);
+                s_clipLog++;
+            }
+        }
 
         x = gfx_adjust_x_for_aspect_ratio(x, w);
 
@@ -3179,8 +3211,10 @@ extern "C" void gfx_run(Gfx* commands) {
     rdp.viewport_or_scissor_changed = true;
     rendering_state.viewport = {};
     rendering_state.scissor = {};
-    scenarioSceneRendererRender(gfx_current_dimensions.width,
-        gfx_current_dimensions.height);
+    if (!dbgHideScene()) {
+        scenarioSceneRendererRender(gfx_current_dimensions.width,
+            gfx_current_dimensions.height);
+    }
     gfx_run_dl(commands);
     gfx_flush();
     gfxFramebuffer = 0;

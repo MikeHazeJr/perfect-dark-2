@@ -1,0 +1,24 @@
+{
+  "scenario_name": "main_menu_joanna_forceprim",
+  "description": "B-936 DIAGNOSTIC: same CI menu backdrop as main_menu_joanna_nomenu but with --debug-force-chr-prim, which forces every generated-mesh body DL to a constant opaque-magenta PRIMITIVE combine in 1-cycle with depth-compare OFF. Disambiguates the un-resolved Joanna-invisible question: if a magenta silhouette appears at her TRACK'd dead-centre position (view ~(3,7.8,-157)), her geometry/matrices/submission are correct and the bug is colour/combine (texture or shade = black); if NOTHING appears, the geometry itself is not rasterizing. No-Z so room occlusion cannot hide her.",
+  "boot_args": ["--debug-generated-mesh-render-audit", "--debug-hide-menu", "--debug-menu-render-state", "--debug-track-chr", "--debug-force-chr-prim", "--debug-hide-scene"],
+  "timeout_seconds": 120,
+  "install_state": "clean",
+  "input_sequence": [
+    { "at_ms": 0,     "type": "wait", "comment": "boot; extraction ~3-9s, render audit + CLIPDBG fire by ~35s" },
+    { "at_ms": 70000, "type": "exit", "comment": "done -- matrix dump captured early" }
+  ],
+  "screenshots": [
+    { "at_ms": 55000,  "name": "prim_a" }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=main_menu_joanna_forceprim",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "SMOKE: result=timeout"
+    ],
+    "required_counts": []
+  }
+}

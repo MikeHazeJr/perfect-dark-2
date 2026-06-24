@@ -1,0 +1,20 @@
+{
+  "scenario_name": "main_menu_joanna_isolate",
+  "description": "B-936 fovy-fix verification: render ONLY Joanna (base:dark_combat body+head) via --debug-show-only-mesh combat, forced magenta, with the CI scene/room VISIBLE (depth present). After the guPerspectiveF degenerate-fovy clamp, a clean magenta Joanna silhouette should appear at her TRACK'd centre position IN the room. If occluded by the room, it's a depth-consistency issue between the scene renderer and fast3d; if a clean silhouette shows, the fix is complete and any remaining textured-darkness is a separate colour/combine matter.",
+  "boot_args": ["--debug-generated-mesh-render-audit", "--debug-hide-menu", "--debug-track-chr", "--debug-show-only-mesh", "combat", "--debug-force-chr-prim"],
+  "timeout_seconds": 150,
+  "install_state": "clean",
+  "input_sequence": [
+    { "at_ms": 0,      "type": "wait", "comment": "boot; settle by ~70s" },
+    { "at_ms": 120000, "type": "exit", "comment": "done" }
+  ],
+  "screenshots": [
+    { "at_ms": 90000,  "name": "iso_a" },
+    { "at_ms": 105000, "name": "iso_b" }
+  ],
+  "assertions": {
+    "required_lines": ["SMOKE: scenario=main_menu_joanna_isolate", "SMOKE: result=scripted_exit"],
+    "forbidden_patterns": ["SMOKE: result=timeout"],
+    "required_counts": []
+  }
+}
