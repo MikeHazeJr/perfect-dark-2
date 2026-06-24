@@ -1,5 +1,54 @@
 # Session Log (Active)
 
+## 2026-06-24 - c3844 CI render saga (Joanna PARKED, credits residual) + MP relay (A+C) started
+
+**Joanna menu render -- PARKED (framing SOLVED, render bug CONFIRMED).** The
+`var8009dfc0` submission fix (`44bf45cc`) restores Joanna+PC+furniture+camera
+(submitted, PASS 3/3). Built a per-frame body-origin tracker (`--debug-track-chr`,
+src/lib/model.c, gate `nummatrices>1`; UNCOMMITTED -- initial `>20` wrongly excluded
+her, her generated modeldef has `nummatrices=19`). It proves she settles dead-center
+IN-FRAME at view `(3.0,7.8,-156.9)` through the whole capture window (the user's
+spatial fact confirmed: she stands at the desk edge typing on the PC). So framing was
+a RED HERRING -- the `--debug-cam-look-chr` prop-aim is ~313u off her body AND the
+one-time audit matrix sampled at 34s/intro (she was at `(-24,65,-313)` then), so every
+prior zoom hit the wrong spot. YET she renders ZERO pixels at her confirmed position
+-> a real render bug (NOT framing/submission). Cycle-type candidate
+(`gDPSetCycleType(G_CYC_1CYCLE)` in modasset_compiler.c markers; UNCOMMITTED) tested
+AT her real position + REFUTED. MATCLASS: 35 mats, all opaque, 34 textured (not XLU).
+Open candidates: occlusion in the headless held-cam, or a combiner/draw bug. Tool now
+works for before/after verification at her real position. Real-play proof = user's
+rebuild (live terminal cam, not replicable headless). Full breadcrumb: B-936, tasks.md.
+Uncommitted candidates/tooling: cycle-type marker edit, `--debug-mesh-matclass`,
+`--debug-track-chr` (all src/lib/model.c + port/src/modasset_compiler.c).
+
+**Credits B-346 squares -- REOPENED (playtest FAILED).** Added `--launch-credits`
+(`85e13f01`, port/src/main.c bootApplyLaunchCredits) + the credits_alpha_smoke
+scenario. Visual confirm: Handel Gothic glyphs render as SOLID WHITE BLOCKS (texture
+alpha cutout lost), particles as cyan/blue bars. B-346's fog-alpha fix IS in the tree
+(gfx_pc.cpp:1704-1748 + both static tests) but does NOT close the credits squares.
+Focused follow-up: re-examine the additive-fog branch gfx_pc.cpp:1704/1747-1754 for the
+credits XLU glyph/particle case (SHADER_OPT_ALPHA_FROM_FOG wrongly set, or the CI4 glyph
+texture-state reset in text0f153628 not taking).
+
+**MP relay (A+C) -- SURVEYED + Gap B fixed; Gap A (forwarder) is the next build.** The
+NAT stack (ICE/STUN/TURN/hole-punch: p2p_ice/stun/turn/lan.c, p2p.c, netstun.c,
+netholepunch.c) is built. Two gaps for the symmetric-NAT relay: **(A) the relay
+FORWARDER (server) is MISSING** -- `p2pTurnPoll` (port/src/net/p2p_turn.c:257) only
+handles `KIND_ALLOC_ACK` (client receiving its relay addr); the SERVER side (recv
+`KIND_ALLOC` -> create binding {init_handle,src_addr} + reply `ALLOC_ACK` w/ relay's own
+public addr; recv `KIND_RELAY` -> look up dst binding + `sendto` payload with src/dst
+rewrite; `KIND_HANGUP` -> drop binding) is TODO -- add a bindings table beside s_Cands.
+**(B) onPairOpen** (group_session.c:293) used `ep->ipv4/port` (==0 for relayed
+endpoints), ignoring `ep->relay_ipv4/relay_port` -> **FIXED** (honors `P2P_EP_RELAYED`,
+dials the relay as the peer's proxy; UNCOMMITTED, pending build-verify with the
+forwarder). NEXT: build Gap A forwarder + loopback-sim test (forwarder + 2 clients on
+127.0.0.1, assert a RELAY packet forwards rewritten) + document the VPS deploy
+(forwarder binds `P2P_TURN_PORT 27104`; register its public IP via
+`p2pTurnRegisterRelayCandidate`). Then **other-modes check (item d)**: verify the 5
+c3845 listen-host fixes (roomsInit, ready-gate, null-peer netSend, host self-disconnect,
+no-free-slots) cover co-op/counter-op/etc. Protocol: KIND ALLOC=0/ALLOC_ACK=1/RELAY=2/
+HANGUP=3, magic `PDTRN`, hdr 24B, port 27104.
+
 ## 2026-06-23 - c3845 Tests/Connectivity: two-process END-TO-END match-lifecycle loopback smoke
 
 Authored (NOT built/run -- Mike compiles) the `listen_host_match_smoke.json`

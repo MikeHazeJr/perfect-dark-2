@@ -12,7 +12,7 @@ Last updated: 2026-06-24
 
 | Card | Status | Purpose |
 |------|--------|---------|
-| `c3844` | Parked (Joanna) | CI-menu Joanna render bug PARKED 2026-06-24: per-frame TRACK confirms she is dead-center IN-FRAME (view-space `(3,7.8,-157)`, vz<0, ~full screen height) yet renders ZERO pixels -> a real render bug, NOT framing. Cycle-type fix tested at her confirmed position + REFUTED. Submission fix banked (`44bf45cc`). NEXT: credits B-346 visual confirm -> MP relay (A+C) + other-modes. |
+| `c3844` | In progress (MP relay) | Joanna render bug PARKED (framing SOLVED via TRACK -- dead-center in-frame yet zero pixels; cycle-type REFUTED; see B-936/session-log). Credits B-346 squares REOPENED (playtest failed, residual logged). MP relay (A+C): **Gap B** (onPairOpen honors relay addr, group_session.c) DONE/uncommitted; **NEXT = Gap A** relay forwarder in p2p_turn.c (recv ALLOC->ALLOC_ACK+bind; RELAY->forward w/ src/dst rewrite) + loopback-sim + VPS doc; then other-modes check (item d). |
 
 **CI menu render (c3844, 2026-06-23):** the glass-table opaque-black bug is fixed
 universally -- the `.pdscenario` extract now classifies glTF alphaMode from the
