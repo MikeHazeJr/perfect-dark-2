@@ -1152,7 +1152,15 @@ void modelUpdatePositionNodeMtx(struct modelrenderdata *renderdata, struct model
 		animpart = rodata->part;
 		skel = model->definition->skel;
 
-		if (anim->animnum != 0) {
+		/* B-942 bindpose isolation (--debug-chr-bindpose): for a generated chr
+		 * body, force the no-anim branch (rot=0, translate=0 -> rest_pos only).
+		 * If the resulting figure is a recognizable (T-posed) human, the verts +
+		 * rest positions are sound and the anim ROTATIONS are what scramble it;
+		 * if still wild, the verts/rest are fundamentally mismatched. */
+		bool b942_forcebind = sysArgCheck("--debug-chr-bindpose")
+			&& modAssetCompilerModeldefIsGenerated(model->definition);
+
+		if (anim->animnum != 0 && !b942_forcebind) {
 			sp128 = (g_Anims[anim->animnum].flags & ANIMFLAG_ABSOLUTETRANSLATION) && node == model->definition->rootnode;
 
 			animGetRotTranslateScale(animpart, anim->flip, skel, anim->animnum, anim->frameslot1, &rot1, &translate1, &scale1);

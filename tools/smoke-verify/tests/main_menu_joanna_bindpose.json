@@ -1,0 +1,10 @@
+{
+  "scenario_name": "main_menu_joanna_bindpose",
+  "description": "B-942 bindpose isolation: force Joanna's generated body to rest pose (no anim rotation) to separate skinning vs assembly.",
+  "boot_args": ["--debug-hide-menu", "--debug-track-chr", "--debug-chr-bindpose"],
+  "timeout_seconds": 80,
+  "install_state": "clean",
+  "input_sequence": [ { "at_ms": 0, "type": "wait" }, { "at_ms": 60000, "type": "exit" } ],
+  "screenshots": [ { "at_ms": 42000, "name": "bind_42" }, { "at_ms": 52000, "name": "bind_52" } ],
+  "assertions": { "required_lines": ["SMOKE: result=scripted_exit"], "forbidden_patterns": [], "required_counts": [] }
+}

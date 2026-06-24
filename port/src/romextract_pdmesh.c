@@ -1222,6 +1222,26 @@ static s32 s_objEmitTri(pdmesh_obj_export_t *ctx,
 			face_mtx = 0;
 		}
 	}
+	/* B-942 spike detector: a face whose 3 emitted verts span a huge Y range is
+	 * the head-to-spike stretch (node #2 bimodal verts). Log which path produced
+	 * it -- A (raw) means the ROM verts genuinely have this (rest_pos/assignment
+	 * bug); B (xform) means the forward/inverse matrix transform leaked an
+	 * offset. Reveals the fix side. */
+	{
+		f32 maxy = va[1] > vb[1] ? (va[1] > vc[1] ? va[1] : vc[1])
+			: (vb[1] > vc[1] ? vb[1] : vc[1]);
+		f32 miny = va[1] < vb[1] ? (va[1] < vc[1] ? va[1] : vc[1])
+			: (vb[1] < vc[1] ? vb[1] : vc[1]);
+		static s32 s_b942SpikeLog = 0;
+		if (maxy - miny > 200.0f && s_b942SpikeLog < 30) {
+			s32 stacktop = ctx->mtx_stack_indices[ctx->mtx_stack_size - 1];
+			sysLogPrintf(LOG_NOTE,
+				"B942SPIKE: face_mtx=%d path=%s stacktop=%d current=%d y=(%.0f,%.0f,%.0f)",
+				face_mtx, s_objMtxIndexValid(ctx, stacktop) ? "A-raw" : "B-xform",
+				stacktop, ctx->current_node_mtx_index, va[1], vb[1], vc[1]);
+			s_b942SpikeLog++;
+		}
+	}
 	u32 i0 = ctx->next_index++;
 	u32 i1 = ctx->next_index++;
 	u32 i2 = ctx->next_index++;
