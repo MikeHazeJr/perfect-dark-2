@@ -1655,7 +1655,20 @@ Gfx *lvRender(Gfx *gdl)
 				 * own depth writes.  Clearing G_ZBUFFER ensures the PC renderer's
 				 * depth_test flag is false (gfx_pc.cpp checks geometry_mode). */
 				gSPClearGeometryMode(gdl++, G_ZBUFFER);
-				gdl = skyRender(gdl);
+				/* B-936 money shot: when the scenario scene renderer is providing the
+				 * CI room backdrop (held CI menu), skyRender's G_CYC_FILL fills the
+				 * whole viewport with the environment sky colour (blue for CITRAINING)
+				 * -- a fullscreen depth-off fill that draws AFTER the raw-GL scene
+				 * renderer and would cover its tiled room. Skip it so the scene room is
+				 * the backdrop. Outside the scene-renderer backdrop the sky fill is
+				 * unchanged; during the playable range the live-world room fills the
+				 * frame, so the skipped fill is not visible. */
+				{
+					extern s32 scenarioSceneRendererIsActive(void);
+					if (!scenarioSceneRendererIsActive()) {
+						gdl = skyRender(gdl);
+					}
+				}
 				gSPSetGeometryMode(gdl++, G_ZBUFFER);
 				bgTick();
 				lightsTick();

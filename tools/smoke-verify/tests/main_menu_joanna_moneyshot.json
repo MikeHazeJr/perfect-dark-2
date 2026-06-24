@@ -1,0 +1,15 @@
+{
+  "scenario_name": "main_menu_joanna_moneyshot",
+  "description": "B-936 MONEY SHOT: tiled CI room (scene renderer, sky-fill gated) + Joanna textured/lit at her terminal. Multiple frames to capture a clean settled pose.",
+  "boot_args": ["--debug-hide-menu", "--debug-track-chr"],
+  "timeout_seconds": 130,
+  "install_state": "clean",
+  "input_sequence": [ { "at_ms": 0, "type": "wait" }, { "at_ms": 95000, "type": "exit" } ],
+  "screenshots": [
+    { "at_ms": 40000, "name": "shot_40" },
+    { "at_ms": 55000, "name": "shot_55" },
+    { "at_ms": 70000, "name": "shot_70" },
+    { "at_ms": 85000, "name": "shot_85" }
+  ],
+  "assertions": { "required_lines": ["SMOKE: result=scripted_exit"], "forbidden_patterns": [], "required_counts": [] }
+}
