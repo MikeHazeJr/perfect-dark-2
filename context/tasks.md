@@ -4,7 +4,7 @@
 > [session-log.md](session-log.md). Historical card and bug detail remains in the
 > Kanban card history and bug ledger.
 
-Last updated: 2026-06-17
+Last updated: 2026-06-23
 
 ---
 
@@ -12,7 +12,7 @@ Last updated: 2026-06-17
 
 | Card | Status | Purpose |
 |------|--------|---------|
-| None | Idle | `c3844` is closed, and the follow-on `c3849` Wave 7 cutover is implemented and verified for the current tree. |
+| `c3844` | Active | CI-menu generated-mesh render: root-cause the GBI texture-binding failure -> credits fonts/particles render as opaque squares (B-934/B-935) AND Joanna's body renders zero pixels (B-936). One fix likely unblocks both; re-test Joanna's body immediately after. Investigation agent running 2026-06-23. Then: MP relay (A+C) + other-modes. |
 
 **CI menu render (c3844, 2026-06-23):** the glass-table opaque-black bug is fixed
 universally -- the `.pdscenario` extract now classifies glTF alphaMode from the
@@ -21,19 +21,23 @@ material (B-940). Verified on screen: glass translucent, menu fonts crisp,
 CITRAINING classifies opaque:63/mask:3/blend:15 (was 0 BLEND / 12 MASK). Commits
 `1472789c`, `91124983`.
 
-**Parked follow-up -- menu Joanna clean shot (data-vs-framing):** she provably
-renders every run (`MODASSET.RENDER` base:dark_combat 1803 verts / 601 tris) but
-no capture shows visible pixels of her. Breadcrumbs: under `--debug-cam-look-chr`
-(override cam at prop+offset) her body sampled to view-space z=-670 (far); under
-the NORMAL B-936 menu camera the dark_combat bone extent is view-space x[-44,0]
-y[-71,65] z[-334,0] (camera fovy=60, aspect=2.17) -- i.e. it projects roughly
-screen-CENTER / on-screen, which leans the diagnosis toward render/occlusion
-rather than off-screen framing (caveat: the withmenu log mixes the scene body
-with agent-preview bodies, so not yet isolated). Proper fix is a focused
-camera/pose + isolated-on-black test (disable the B-937 guard, suppress
-furniture/scene, camera at a known distance facing her) to settle data-vs-framing
-definitively. User can eyeball her in-game on rebuild meanwhile; not blocking the
-checkpoint.
+**Parked follow-up -- menu Joanna renders ZERO pixels (body-RENDER bug, NOT
+framing) [data-vs-framing RESOLVED 2026-06-23]:** The `var8009dfc0` submission fix
+(commit `44bf45cc`, B-936) restores Joanna + the desk PC + furniture + camera to
+the live scene -- all provably submitted (`MODASSET.RENDER` base:dark_combat 1803
+verts every run; no crash; camera holds 798 frames; PASS 3/3). BUT she renders
+ZERO visible pixels while FRAMED: in the natural menu view her model matrix
+projects to screen ~47% across / 32% down (fully on-screen), yet a generous zoom
+of that exact spot shows only room geometry -- no figure, no blob. So this is NOT
+framing and NOT submission: her body is processed/drawn but produces no output.
+HYPOTHESIS (user + investigation): same GBI texture-binding class as the credits
+"squares" bug (B-934/B-935) -- textured XLU geometry failing to bind/sample in the
+live GBI path, here manifesting as invisible (vs the credits' opaque-square
+manifestation). ACTION: do NOT chase this via camera-aim (settled -- not framing).
+COUPLED to the squares/texture-binding fix (active critical path): root-cause the
+GBI texture-bind failure, fix it, then RE-TEST Joanna's body immediately -- if the
+texture path fix makes her render, Joanna closes too (the money shot). Full
+breadcrumb in B-936.
 
 **c3849 status (2026-06-17):** Waves 1-7 are SHIPPED and verified for the current
 tree. Waves 1-6 delivered telemetry, the four private runtime allocators, FONT
