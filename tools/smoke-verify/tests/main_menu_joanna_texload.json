@@ -1,0 +1,13 @@
+{
+  "scenario_name": "main_menu_joanna_texload",
+  "description": "B-936 texture-binding probe: --debug-texload logs whether each generated-mesh texture actually loads into the pool (num/found/size/format). Pins whether dark_combat's bright textures (tex 775/769, 32x32 RGBA32) load-vs-fail when the generated DL compiles.",
+  "boot_args": ["--debug-hide-menu", "--debug-texload"],
+  "timeout_seconds": 80,
+  "install_state": "clean",
+  "input_sequence": [
+    { "at_ms": 0,     "type": "wait", "comment": "boot; texLoadFromGdl fires at modeldef compile ~30s" },
+    { "at_ms": 50000, "type": "exit", "comment": "done" }
+  ],
+  "screenshots": [],
+  "assertions": { "required_lines": ["SMOKE: result=scripted_exit"], "forbidden_patterns": [], "required_counts": [] }
+}

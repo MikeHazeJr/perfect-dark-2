@@ -1,4 +1,5 @@
 #include <ultra64.h>
+#include "system.h" /* sysLogPrintf / LOG_NOTE for the B-936 --debug-texload probe */
 #include "constants.h"
 #include "game/dyntex.h"
 #include "game/tex.h"
@@ -895,6 +896,27 @@ s32 texLoadFromGdl(Gfx *instart, s32 gdlsizeinbytes, Gfx *outstart, struct texpo
 			texLoadFromTextureNum(texturenum, pool);
 
 			tex1 = texFindInPool(texturenum, pool);
+
+			/* B-936 diag (--debug-texload): does the generated chr-body texture
+			 * actually load into the pool? num resolves + the .pdtexture is bright,
+			 * yet TEXEL0 samples near-black -- pin load-vs-sample. */
+			{
+				extern s32 sysArgCheck(const char *name);
+				if (sysArgCheck("--debug-texload")) {
+					static s32 s_tldiag = 0;
+					if (s_tldiag < 80) {
+						sysLogPrintf(LOG_NOTE,
+							"TEXLOAD: num=%d found=%d w=%d h=%d gbifmt=%d depth=%d data=%p",
+							texturenum, tex1 ? 1 : 0,
+							tex1 ? (s32)tex1->width : -1,
+							tex1 ? (s32)tex1->height : -1,
+							tex1 ? (s32)tex1->gbiformat : -1,
+							tex1 ? (s32)tex1->depth : -1,
+							tex1 ? (void *)tex1->data : NULL);
+						s_tldiag++;
+					}
+				}
+			}
 
 			if (tex1 != NULL) {
 				spf4 = tex1->unk0c_03;
