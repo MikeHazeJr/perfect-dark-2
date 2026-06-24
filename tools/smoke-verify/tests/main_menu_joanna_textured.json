@@ -1,0 +1,20 @@
+{
+  "scenario_name": "main_menu_joanna_textured",
+  "description": "B-936 fovy-fix: render ONLY Joanna (base:dark_combat) with her REAL textures/combine (no force-prim), room hidden (--debug-hide-scene) so she shows against a bare framebuffer. Tells us whether, post-fovy-fix, she renders textured-visible (then only the scene-interaction hides her in the room) or dark (then the B-934/B-935/B-938 colour/combine work is the remaining gap).",
+  "boot_args": ["--debug-generated-mesh-render-audit", "--debug-hide-menu", "--debug-track-chr", "--debug-show-only-mesh", "combat", "--debug-hide-scene"],
+  "timeout_seconds": 150,
+  "install_state": "clean",
+  "input_sequence": [
+    { "at_ms": 0,      "type": "wait", "comment": "boot; settle by ~70s" },
+    { "at_ms": 120000, "type": "exit", "comment": "done" }
+  ],
+  "screenshots": [
+    { "at_ms": 90000,  "name": "tex_a" },
+    { "at_ms": 105000, "name": "tex_b" }
+  ],
+  "assertions": {
+    "required_lines": ["SMOKE: scenario=main_menu_joanna_textured", "SMOKE: result=scripted_exit"],
+    "forbidden_patterns": ["SMOKE: result=timeout"],
+    "required_counts": []
+  }
+}
