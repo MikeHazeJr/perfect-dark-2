@@ -21,6 +21,16 @@ material (B-940). Verified on screen: glass translucent, menu fonts crisp,
 CITRAINING classifies opaque:63/mask:3/blend:15 (was 0 BLEND / 12 MASK). Commits
 `1472789c`, `91124983`.
 
+## Uncommitted working-tree candidates (2026-06-24) -- BUILD-VERIFY before committing
+
+Left UNCOMMITTED on purpose as candidates/tooling from the 2026-06-24 session. They
+ARE in the working tree, so any build includes them -- build-verify + (re)assess before
+committing any of them (see session-log 2026-06-24):
+- `port/src/net/group_session.c` -- MP relay **Gap B** (onPairOpen honors `relay_ipv4/port` for `P2P_EP_RELAYED`). ALWAYS-active; NEEDED for the relay; pending build-verify with Gap A (the forwarder).
+- `port/src/modasset_compiler.c` -- Joanna **cycle-type** markers (`gDPSetCycleType(G_CYC_1CYCLE)`, ALWAYS-active, byte-neutral for mcount=1) -- **REFUTED** as the Joanna fix; + `--debug-mesh-matclass` diagnostic (flag-gated, harmless).
+- `src/lib/model.c` -- `--debug-track-chr` per-frame body tracker (flag-gated; the WORKING framing tool -- KEEP for the Joanna render-bug before/after diagnosis).
+- `tools/smoke-verify/tests/main_menu_joanna_nomenu.json` -- debug flags wiring the above (test scenario only).
+
 **Parked follow-up -- menu Joanna renders ZERO pixels [FRAMING SOLVED, render bug
 CONFIRMED 2026-06-24]:** The `var8009dfc0` submission fix (`44bf45cc`, B-936)
 restores Joanna + PC + furniture + camera (all submitted; PASS 3/3). A per-frame
