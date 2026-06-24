@@ -907,6 +907,16 @@ s32 netStartServer(u16 port, s32 maxclients)
 	 * Also performs 2-probe NAT type detection for hole-punch viability. */
 	stunDiscoverAsync(port);
 
+	/* c3845: the room/hub subsystem is normally initialised by hubInit(), which
+	 * the in-client listen host never calls -- so the room pool kept its zeroed
+	 * BSS state (every slot ROOM_STATE_LOBBY=0, never ROOM_STATE_CLOSED=4) and
+	 * findFreeSlot() reported "no free slots" for every roomCreate, breaking room
+	 * hosting (not just the match smoke). Initialise it here at listen-host server
+	 * start; roomsInit() self-guards against a double-init. */
+	{
+		extern void roomsInit(void);
+		roomsInit();
+	}
 	lobbyInit();
 	netDistribInit();
 
@@ -1017,6 +1027,20 @@ void netServerStageStart(void)
 	}
 	crashBreadcrumbPush("SVC_STAGE_START sent mode=%d room=0x%02x",
 		(int)g_NetGameMode, (unsigned)g_NetMatchRoomId);
+
+	/* c3845 (2026-06-23): two-process match-smoke milestone. Fires on the
+	 * HOST as the authoritative stage-start signal is broadcast. */
+	{
+		s32 matchPlayers = 0;
+		for (s32 ci = 0; ci < NET_MAX_CLIENTS; ci++) {
+			if (g_NetClients[ci].state == CLSTATE_GAME) {
+				matchPlayers++;
+			}
+		}
+		sysLogPrintf(LOG_NOTE,
+			"MATCH: server stage start arena='%s' seed=0x%08x players=%d",
+			g_MpSetup.stage_id, (unsigned)g_NetMatchSeed, matchPlayers);
+	}
 
 	/* Dedicated server: allocate minimal bot stubs.  BOT_AUTHORITY is now deferred
 	 * until all clients confirm their stage is loaded via CLC_STAGE_READY, so that
@@ -2180,6 +2204,9 @@ void netEndFrame(void)
 		 * Guard with mplayerisrunning so the broadcast stops at match end. */
 		if ((g_NetTick % 300) == 0 && g_Vars.mplayerisrunning) {
 			netmsgSvcPlayerScoresWrite(&g_NetMsgRel);
+			/* c3845 (2026-06-23): two-process match-smoke milestone. Periodic
+			 * score broadcast from the HOST proves score replication is live. */
+			sysLogPrintf(LOG_NOTE, "MATCH: scores replicated tick=%u", g_NetTick);
 		}
 
 		// Handle pending resync requests from clients
@@ -2195,6 +2222,9 @@ void netEndFrame(void)
 			if (g_NetPendingResyncFlags & NET_RESYNC_FLAG_SCORES) {
 				sysLogPrintf(LOG_NOTE, "NET: sending score resync to all clients");
 				netmsgSvcPlayerScoresWrite(&g_NetMsgRel);
+				/* c3845 (2026-06-23): match-smoke milestone — the stage-start
+				 * resync fires a scores broadcast immediately at match start. */
+				sysLogPrintf(LOG_NOTE, "MATCH: scores replicated tick=%u", g_NetTick);
 			}
 			if (g_NetPendingResyncFlags & NET_RESYNC_FLAG_NPCS) {
 				u32 npccount = netNpcCount();
@@ -2298,12 +2328,19 @@ u32 netSend(struct netclient *dstcl, struct netbuf *buf, const s32 reliable, con
 
 		if (dstcl == NULL) {
 			enet_host_broadcast(g_NetHost, chan, p);
-		} else {
+		} else if (dstcl->peer) {
 			/* H-5: Check return value — on failure, ENet does not free the packet. */
 			if (enet_peer_send(dstcl->peer, chan, p) < 0) {
 				sysLogPrintf(LOG_WARNING, "NET: enet_peer_send failed (%u bytes, chan %d)", buf->wp, chan);
 				enet_packet_destroy(p);
 			}
+		} else {
+			/* c3845: a peer-less client is the in-client listen host's own local
+			 * slot -- it has no ENet wire to itself, so enet_peer_send(NULL) would
+			 * access-violate (the SVC_ROOM_ASSIGN-to-creator path during the
+			 * headless match auto-start hit exactly this). The host applies its own
+			 * authoritative state directly, so just drop the packet. */
+			enet_packet_destroy(p);
 		}
 	}
 

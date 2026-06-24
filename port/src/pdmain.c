@@ -779,6 +779,17 @@ void mainTick(void)
 		(void)bootConnectHostTick();
 	}
 
+	/* c3845 (2026-06-23): --host-autostart one-shot. On the listen HOST,
+	 * once a remote client has reached CLSTATE_LOBBY and a short settle
+	 * delay elapses, fires the lobby-leader Start Match path exactly once
+	 * (netLobbyRequestStartWithSims) so the two-process match smoke runs
+	 * the full networked match lifecycle with no Room-UI navigation.
+	 * Cheap no-op when the flag wasn't on the command line. */
+	{
+		extern s32 bootHostAutostartTick(void);
+		(void)bootHostAutostartTick();
+	}
+
 	/* Track 2c (c3807, 2026-05-16): --dump-swarm-state one-shot.
 	 * Periodically extracts the GPU swarm state texture and appends
 	 * to the configured file once a GPU swarm scenario is dispatching.

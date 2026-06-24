@@ -1,5 +1,55 @@
 # Session Log (Active)
 
+## 2026-06-23 - c3845 Tests/Connectivity: two-process END-TO-END match-lifecycle loopback smoke
+
+Authored (NOT built/run -- Mike compiles) the `listen_host_match_smoke.json`
+regression that extends the existing `listen_host_peer_smoke` two-process
+loopback from the join handshake to the full match lifecycle on 127.0.0.1:
+start -> spawn(both players) -> play -> score -> end -> endscreen.
+
+Integration approach (the riskiest part was the auto-start entry point):
+- **Host auto-start** drives the SAME high-level lobby-leader path the Room
+  "Start Match" button uses -- `netLobbyRequestStartWithSims(GAMEMODE_MP, ...)`
+  in `port/fast3d/pdgui_bridge.c:1086`, which on a listen host replays
+  `CLC_LOBBY_START` through the server handler locally. That performs the full
+  room-assign / manifest-broadcast / participant-playernum / ready-gate setup
+  that `netServerStageStart()` depends on. We deliberately do NOT call
+  `netServerStageStart()` raw (it presupposes that setup). New `--host-autostart`
+  flag + `bootHostAutostartTick()` (port/src/main.c) fires it EXACTLY ONCE once a
+  remote client reaches `CLSTATE_LOBBY` + ~2s settle. The client auto-follows:
+  `netmsgSvcStageStartRead` already calls `mpStartMatch()` and sends
+  `CLC_STAGE_READY`, and the client answers the manifest handshake READY so the
+  ready gate fires its 3s countdown (not the 30s timeout) -- NO `--auto-ready`
+  flag needed.
+- **Deterministic end:** the wire/config time limit (`g_MpSetup.timelimit`) is
+  MINUTES-only (6-bit; `mpApplyLimits` does `(tl+1)*60` s, 1-min floor). Chose
+  option (a): new `--match-timelimit-sec <n>` flag forces a seconds-granularity
+  `g_MpTimeLimit60 = SECSTOTIME60(n)` override at the `src/game/lv.c` MP
+  time-limit gate (the comparison reads `g_MpTimeLimit60` in 60Hz frame-units).
+  Match ends at ~35s. Cleaner than a 1-min real limit + longer budget.
+- **`MATCH:` log channel** at six seams (see tests.md harness-extensions list).
+  The load-bearing one is the player-spawn line in `lv.c`'s per-local-player
+  `playerSpawn()` loop: slot derived from `g_Vars.currentplayer->client->id`
+  (the wire client id == g_NetClients[] index), which is robust against
+  `netPlayersAllocate`'s client-side local-player->index-0 playernum swap
+  (net.c:2366-2372). Host's local player -> client id 0 -> `slot=0`; client's
+  local player -> client id 1 -> `slot=1`. `netPlayersAllocate` runs in
+  `playermgrAllocatePlayers` (src/lib/main.c:985) BEFORE `lvReset` (line 1012),
+  so `->client` is populated when the spawn loop runs.
+
+Seams that cooperated cleanly: 0 bots is valid (2 humans meet base:combat's
+min-players=2; the CLC_LOBBY_START handler builds player participants from
+connected clients, not from bot slots). `base:arena_mp_felicity` + `base:combat`
+verified to exist (arenadata_authored.c:67, assetcatalog_base_extended.c:328).
+
+Files: port/src/main.c (2 flags + tick + accessor), port/src/pdmain.c (tick
+wiring), src/game/lv.c (timelimit override + stage-end log + spawn log),
+port/src/net/net.c (server-stage-start + scores logs), port/src/net/netmsg.c
+(client-stage-start log), src/game/mplayer/mplayer.c (endscreen log),
+tools/smoke-verify/tests/listen_host_match_smoke.json (new).
+
+NOT yet build-verified or run. `timeout_seconds=240`, scripted exit at 200000ms.
+
 ## 2026-06-23 - c3844 CI menu glass: universal alpha-mode fix
 
 Root-caused and fixed the Carrington Institute menu glass table rendering as an

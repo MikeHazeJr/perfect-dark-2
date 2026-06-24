@@ -2884,6 +2884,12 @@ void mpEndMatch(void)
 		}
 	}
 
+	/* c3845 (2026-06-23): two-process match-smoke milestone. mpEndMatch runs
+	 * at match end on the host (time-limit path) and on the client (when it
+	 * processes SVC_STAGE_END -> mainEndStage), so the endscreen push fires
+	 * on both; the concatenated smoke log captures it. */
+	sysLogPrintf(LOG_NOTE, "MATCH: endscreen shown");
+
 	func0f0f820c(NULL, -6);
 }
 

@@ -1,0 +1,117 @@
+{
+  "scenario_name": "listen_host_match_smoke",
+  "description": "c3845 connectivity/server-pillar END-TO-END loopback match regression. Extends listen_host_peer_smoke (join handshake only) to the FULL match lifecycle on 127.0.0.1: start -> spawn(both players) -> play -> score -> end -> endscreen. Two PerfectDark.exe in one clean install: a listen-host (--host + --listen-bind 27200, writes pd-host.log) that seeds a Combat Sim on base:arena_mp_felicity via --launch-mp-room and auto-starts the match via --host-autostart once the remote client reaches CLSTATE_LOBBY plus a ~2s settle; and a client (--connect-host 127.0.0.1:27200, writes pd-client.log) that joins and auto-follows the host's SVC_STAGE_START (it sends CLC_STAGE_READY automatically on receipt, and answers the manifest handshake READY, so the ready gate fires its 3s countdown rather than the 30s timeout -- no --auto-ready flag needed). The match runs with --match-timelimit-sec 35 (a test-only seconds-granularity override of g_MpTimeLimit60 at the lv.c time-limit gate; the wire timelimit is minutes-only), so it ends deterministically in ~35s; the host's time-limit path fires mainEndStage -> mpEndMatch (endscreen) and broadcasts SVC_STAGE_END so the client also ends and shows its endscreen. The host auto-start fires the SAME high-level lobby-leader path the Room 'Start Match' button uses (netLobbyRequestStartWithSims), so room-assign / manifest-broadcast / participant-playernum / ready-gate setup all run -- no fragile Room-UI navigation (which crashes in deeper sub-screens; see mp_room_flow.json). Assertions run against the concatenation of pd-host.log and pd-client.log: the join lines (as in the peer smoke) PLUS 8 MATCH: milestones, with player-spawn appearing for BOTH slot=0 (host's player 0) and slot=1 (joined client's player 1). 0 bots -- two humans oppose each other. Sister to listen_host_peer_smoke (kept untouched as the join-handshake regression).",
+  "tags": ["connectivity", "net", "peer", "match", "smoke", "pillar:connectivity", "pillar:server", "multi-process", "lifecycle"],
+  "paths_of_interest": [
+    "port/src/net/net.c",
+    "port/src/net/netmsg.c",
+    "port/src/net/matchsetup.c",
+    "port/src/main.c",
+    "port/src/pdmain.c",
+    "port/fast3d/pdgui_bridge.c",
+    "src/game/lv.c",
+    "src/game/mplayer/mplayer.c",
+    "tools/smoke-verify/run.ps1",
+    "tools/smoke-verify/lib/Install-Harness.ps1"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 240,
+  "install_state": "clean",
+  "processes": [
+    {
+      "name": "host",
+      "log_file": "pd-host.log",
+      "boot_args": [
+        "--no-update-check",
+        "--no-sound",
+        "--skip-intro",
+        "--host",
+        "--listen-bind",
+        "27200",
+        "--launch-mp-room",
+        "base:arena_mp_felicity",
+        "base:combat",
+        "0",
+        "--host-autostart",
+        "--match-timelimit-sec",
+        "35"
+      ],
+      "wait_for": "NET: created server on port 27200",
+      "wait_timeout_seconds": 120
+    },
+    {
+      "name": "client",
+      "log_file": "pd-client.log",
+      "boot_args": [
+        "--no-update-check",
+        "--no-sound",
+        "--skip-intro",
+        "--connect-host",
+        "127.0.0.1:27200"
+      ]
+    }
+  ],
+  "input_sequence": [
+    { "at_ms": 0,      "type": "wait", "comment": "Both processes share this schedule. The host arms --listen-bind and fires netStartServer on the first mainTick where g_NetInit is true (-> 'NET: created server on port 27200', the runner's barrier), seeds g_MatchConfig from --launch-mp-room, and arms --host-autostart. The client arms --connect-host and connects after the barrier. Once the client reaches CLSTATE_LOBBY on the host (slot 1) and a ~2s settle elapses, --host-autostart fires netLobbyRequestStartWithSims exactly once; the ready gate runs a 3s countdown (client answers manifest READY), then SVC_STAGE_START loads the arena on both sides. The match ends at the forced 35s time limit." },
+    { "at_ms": 200000, "type": "exit", "comment": "Scripted clean exit at 200s. Budget: clean shared install (typed-archive validate/extract) can take tens of seconds before --listen-bind fires, then boot + connect + ~2s settle + 3s countdown + base:arena_mp_felicity stage load on both processes + ~35s match + endscreen. 200s leaves generous slack so the milestones land before the scripted exit; timeout_seconds=240 backstops it. The client emits SMOKE: result=scripted_exit; the host may be reaped by the runner watchdog after an active loopback session (same as the peer smoke) -- so the scripted-exit count is min:1 (client), not 2." }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=listen_host_match_smoke",
+      "BOOT: --listen-bind armed: port=27200",
+      "BOOT: --connect-host armed: addr='127.0.0.1:27200'",
+      "BOOT: --host-autostart armed",
+      "BOOT: --match-timelimit-sec armed: seconds=35",
+      "BOOT: --launch-mp-room arena='base:arena_mp_felicity'",
+      "BOOT: --listen-bind consumed: port=27200 .*result=OK rc=0",
+      "BOOT: --connect-host consumed: addr='127.0.0.1:27200' result=OK rc=0",
+      "NET: created server on port 27200",
+      "NET: connecting to 127\\.0\\.0\\.1:27200",
+      "NET: incoming connection",
+      "NET: connected to server, sending CLC_AUTH",
+      "NET: client slot \\d+ assigned to peer",
+      "BOOT: --host-autostart firing",
+      "BOOT: --host-autostart consumed: result=OK rc=0",
+      "MATCH: server stage start",
+      "MATCH: client stage start received",
+      "MATCH: player spawned slot=0",
+      "MATCH: player spawned slot=1",
+      "MATCH: scores replicated",
+      "MATCH: stage end reason=timelimit",
+      "MATCH: endscreen shown"
+    ],
+    "forbidden_patterns": [
+      "BOOT: --no-net set; netInit\\(\\) skipped",
+      "NET: could not init ENet, disabling networking",
+      "NET: could not create ENet host on port \\d+",
+      "NET: could not connect to ",
+      "NET: connection rejected: protocol mismatch",
+      "BOOT: --listen-bind cannot fire:",
+      "BOOT: --connect-host cannot fire:",
+      "BOOT: --listen-bind consumed: port=27200 .*result=FAILED",
+      "BOOT: --connect-host consumed: addr='127\\.0\\.0\\.1:27200' result=FAILED",
+      "BOOT: --host-autostart consumed: result=FAILED",
+      "MATCHSETUP: cannot resolve stage ",
+      "MATCHSETUP: no players configured",
+      "MATCHSTART\\.DIAG: BAILED",
+      "MATCHSTART\\.DIAG: abort reason=",
+      "SPAWN.ORCH: no pool slot",
+      "SPAWN.ORCH:.*unresolved duplicate",
+      "SPAWN: could not resolve room",
+      "EXCEPTION_ACCESS_VIOLATION",
+      "ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "LOUDFAIL\\.LOAD: .*unrecoverable"
+    ],
+    "required_counts": [
+      { "pattern": "NET: created server on port 27200", "min": 1, "max": 1 },
+      { "pattern": "NET: incoming connection", "min": 1 },
+      { "pattern": "NET: connected to server, sending CLC_AUTH", "min": 1, "max": 1 },
+      { "pattern": "MATCH: player spawned slot=\\d+", "min": 2 },
+      { "pattern": "MATCH: server stage start", "min": 1 },
+      { "pattern": "SMOKE: result=scripted_exit", "min": 1 }
+    ]
+  }
+}

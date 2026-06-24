@@ -300,6 +300,28 @@ static s32         g_BootLaunchMpBotCount = 0;
  * surface exists. */
 static bool        g_BootDebugAutoStartMatch = false;
 static s32         g_BootLaunchMpMatchPending = 0;
+/* c3845 (2026-06-23): two-process listen-host match smoke infra.
+ * --host-autostart fires the SAME high-level lobby-leader start path the
+ * Room "Start Match" button uses (netLobbyRequestStartWithSims), but on
+ * the HOST only and once a REMOTE client has reached CLSTATE_LOBBY plus a
+ * short settle delay. This drives the full networked match lifecycle
+ * (room assign -> manifest -> ready gate -> SVC_STAGE_START) without any
+ * Room-UI navigation, which crashes in deeper sub-screens (mp_room_flow).
+ * --match-timelimit-sec <n> forces a SECONDS-granularity time limit so a
+ * regression match ends deterministically in ~35 s; the wire timelimit is
+ * minutes-only (6-bit), so this overrides g_MpTimeLimit60 directly at the
+ * lv.c time-limit gate (test-only, gated on the latch). */
+static bool        g_BootHostAutostartArmed = false;
+static s32         g_BootHostAutostartFired = 0;
+static s32         g_BootHostAutostartSettleFrames = 0;
+/* c3845: auto-start sequencing state machine.
+ *   0 = waiting for remote-in-lobby + settle (handled by SettleFrames above)
+ *   1 = room created + remote clients added; spacing frames before start
+ *   2 = start fired (terminal; mirrored by g_BootHostAutostartFired) */
+static s32         g_BootHostAutostartPhase = 0;
+static s32         g_BootHostAutostartRoomId = 0xFF;
+static s32         g_BootHostAutostartPostJoinFrames = 0;
+static s32         g_BootMatchTimeLimitSec = 0; /* 0 = unset; >0 = forced seconds */
 static u32         g_BootDebugMpOptions   = 0;
 static bool        g_BootDebugMpOptionsSet = false;
 static const char *g_BootDebugInstallReceivedMod = NULL;
@@ -989,8 +1011,18 @@ static void bootApplyLaunchMpRoom(void)
 	 * pushes the s_SoloRoomActive flag which is only consumed inside
 	 * pdguiLobbyRender's NETMODE_NONE branch -- safer to walk the
 	 * normal main-menu path which the smoke harness already knows
-	 * how to drive. */
-	g_PostExitMainMenuView = 0;
+	 * how to drive.
+	 *
+	 * c3845: EXCEPT a listen-host that auto-starts (--host-autostart, the
+	 * two-process match smoke). It must stay in its native listen-host
+	 * lobby to accept the joining client -- auto-opening the main menu
+	 * navigates out of the session and tears down the listen server
+	 * (CHAT: NET: disconnected ~0.3s after bind), so the client times out
+	 * before it can connect. The --host-autostart hook starts the seeded
+	 * match directly once the peer has joined. */
+	if (!g_BootHostAutostartArmed) {
+		g_PostExitMainMenuView = 0;
+	}
 	/* Drop into CI like the other Room entry points. */
 	if (g_StageNum == STAGE_TITLE) {
 		g_StageNum = STAGE_CITRAINING;
@@ -2752,6 +2784,182 @@ s32 bootConnectHostTick(void)
 	return 1;
 }
 
+/* c3845 (2026-06-23): Called once per frame from pdmain.c's mainTick when
+ * --host-autostart is armed. On the listen HOST only, waits until a REMOTE
+ * client (any slot whose state is >= CLSTATE_LOBBY, excluding the host's own
+ * local-client slot) has finished the join handshake, holds a ~2 s settle
+ * delay so the manifest/catalog handshake state is stable, then fires the
+ * SAME high-level start path the Room "Start Match" button uses --
+ * netLobbyRequestStartWithSims(GAMEMODE_MP, ...) seeded from g_MatchConfig
+ * (which --launch-mp-room populated). The bridge replays CLC_LOBBY_START
+ * through the server handler locally, performing the full room-assign /
+ * manifest-broadcast / participant-playernum / ready-gate setup that
+ * netServerStageStart() depends on -- so we deliberately do NOT call
+ * netServerStageStart() raw.
+ *
+ * Fires EXACTLY ONCE via the g_BootHostAutostartFired guard.
+ *
+ * Gates:
+ *   - g_BootHostAutostartArmed set (caller pre-checks the latch is meaningful)
+ *   - g_NetInit true and g_NetMode == NETMODE_SERVER and listen (not dedicated)
+ *   - g_NetLocalClient present and in CLSTATE_LOBBY (host self in lobby)
+ *   - at least one OTHER client slot has reached CLSTATE_LOBBY
+ *   - settle delay (~120 frames @ 60 fps ≈ 2 s) elapsed since that condition
+ */
+s32 bootHostAutostartTick(void)
+{
+	if (!g_BootHostAutostartArmed || g_BootHostAutostartFired) {
+		return 0;
+	}
+
+	/* net.h (included above) provides g_NetMode, g_NetDedicated,
+	 * g_NetLocalClient, g_NetClients[], NET_MAX_CLIENTS, NETMODE_SERVER,
+	 * CLSTATE_LOBBY. g_NetInit is not in a header (externed locally like the
+	 * other boot ticks). netLobbyRequestStartWithSims lives in
+	 * pdgui_bridge.c with C linkage and has no public prototype. */
+	extern s32 g_NetInit;
+	extern s32 netLobbyRequestStartWithSims(u8 gamemode, const char *stage_id,
+		u8 difficulty, u8 antiClientId, u8 numSims, u8 simType, u8 timelimit,
+		u32 options, u8 scenario, u8 scorelimit, u16 teamscorelimit,
+		u8 weaponSetIndex);
+	/* c3845: listen-host room create + membership (pdgui_bridge.c, C linkage). */
+	extern u8  netLobbyRequestCreateRoom(void);
+	extern s32 netLobbyHostAddRemoteClientsToRoom(u8 room_id);
+
+	if (!g_NetInit || g_NetMode != NETMODE_SERVER || g_NetDedicated) {
+		return 0;
+	}
+	if (!g_NetLocalClient || g_NetLocalClient->state < CLSTATE_LOBBY) {
+		return 0;
+	}
+
+	/* Look for a remote client that has reached the lobby. The host's own
+	 * local client is g_NetLocalClient; skip it so we only fire once a real
+	 * peer has joined (slot 1 on a listen-host). */
+	s32 remoteInLobby = 0;
+	for (s32 ci = 0; ci < NET_MAX_CLIENTS; ci++) {
+		struct netclient *cl = &g_NetClients[ci];
+		if (cl == g_NetLocalClient) {
+			continue;
+		}
+		if (cl->state >= CLSTATE_LOBBY) {
+			remoteInLobby = 1;
+			break;
+		}
+	}
+	if (!remoteInLobby) {
+		g_BootHostAutostartSettleFrames = 0; /* reset settle if peer drops pre-fire */
+		return 0;
+	}
+
+	/* Peer is in lobby; hold a short settle window so the manifest/catalog
+	 * exchange that follows CLC_AUTH has time to quiesce before we fire. */
+	if (g_BootHostAutostartSettleFrames < 120) {
+		g_BootHostAutostartSettleFrames++;
+		return 0;
+	}
+
+	/* c3845 PHASE 1: settle complete — create the host's room and pull every
+	 * connected remote client into it BEFORE starting the match.
+	 *
+	 * Why this is needed: the listen-host boots into the global lounge
+	 * (room_id == 0xFF). CLC_LOBBY_START's leader check (netmsg.c:5268-5301)
+	 * accepts only the creator of the sender's room or the global lobby leader;
+	 * an un-roomed host satisfied neither, so the prior run logged
+	 * "CLC_LOBBY_START rejected ... not room creator". Creating a room makes the
+	 * host the creator (branch a). The match dispatch is then room-scoped
+	 * (netServerStageStart -> netSendToRoom, net.c:1008/2345; ready gate
+	 * netmsg.c:5766; CLSTATE_GAME transition net.c:971), so the joined client
+	 * must also be a room member or it never receives SVC_STAGE_START and
+	 * "MATCH: player spawned slot=1" never fires.
+	 *
+	 * Rate limit: CLC_ROOM_CREATE is 1/sec/client (netmsg.c:7672); the bridge
+	 * resets the host's bucket before replaying, and CLC_LOBBY_START is NOT a
+	 * room-mutation op (its handler never calls netmsgRoomRateAllow), so the
+	 * create + later start do not collide. The remote-client adds are pure
+	 * server-side (roomJoin + room_id + SVC_ROOM_ASSIGN), bypassing the limiter
+	 * entirely. We still space the start a few frames after the join so the
+	 * SVC_ROOM_ASSIGN round-trip and room state settle cleanly. */
+	if (g_BootHostAutostartPhase == 0) {
+		u8 roomId = netLobbyRequestCreateRoom();
+		if (roomId == 0xFF) {
+			/* Could not create/own a room — without it the start would be
+			 * rejected as "not room creator". Surface and bail (one-shot
+			 * latch is intentionally NOT set so a later frame can retry once
+			 * the host settles, but log so the failure is visible). */
+			sysLogPrintf(LOG_WARNING,
+				"BOOT: --host-autostart: room create failed — deferring start (host not room owner)");
+			return 0;
+		}
+		g_BootHostAutostartRoomId = roomId;
+
+		s32 addedClients = netLobbyHostAddRemoteClientsToRoom(roomId);
+		sysLogPrintf(LOG_NOTE,
+			"BOOT: --host-autostart: room %u ready, added %d remote client(s) to it",
+			(unsigned)roomId, (int)addedClients);
+
+		g_BootHostAutostartPhase = 1;
+		g_BootHostAutostartPostJoinFrames = 0;
+		return 0;
+	}
+
+	/* c3845 PHASE 1->2 spacing: let the room-assign / membership settle for a
+	 * few frames (and respect the 1 s room-mutation window margin) before the
+	 * start replay. */
+	if (g_BootHostAutostartPhase == 1) {
+		if (g_BootHostAutostartPostJoinFrames < 15) {
+			g_BootHostAutostartPostJoinFrames++;
+			return 0;
+		}
+		g_BootHostAutostartPhase = 2;
+		/* fall through to fire the start this frame */
+	}
+
+	g_BootHostAutostartFired = 1;
+
+	u8 weaponSet = (u8)(g_MatchConfig.weaponSetIndex >= 0
+		? g_MatchConfig.weaponSetIndex : 0xFF);
+	/* Bot count comes from --launch-mp-room's third positional arg (the
+	 * Combat Sim path the Room UI uses passes the room's bot count here as
+	 * numSims). With 0 bots and two connected humans (host + joined client)
+	 * the CLC_LOBBY_START handler builds 2 player participants, which is a
+	 * valid Combat Sim (base:combat min players = 2) -- no bots required. */
+	u8 numSims = (u8)(g_BootLaunchMpBotCount < 0 ? 0
+		: (g_BootLaunchMpBotCount > 31 ? 31 : g_BootLaunchMpBotCount));
+	/* simType 2 = Normal (matches getLeadSimType()'s no-bot default). */
+	sysLogPrintf(LOG_NOTE,
+		"BOOT: --host-autostart firing: stage='%s' scenario=%u timelimit=%u sims=%u",
+		g_MatchConfig.stage_id, (unsigned)g_MatchConfig.scenario,
+		(unsigned)g_MatchConfig.timelimit, (unsigned)numSims);
+
+	s32 rc = netLobbyRequestStartWithSims(
+		0 /* GAMEMODE_MP */,
+		g_MatchConfig.stage_id,
+		0,                              /* difficulty (unused for MP) */
+		0xFF,                           /* antiClientId = NET_NULL_CLIENT */
+		numSims,                        /* bot count from --launch-mp-room */
+		2,                              /* simType = Normal */
+		g_MatchConfig.timelimit,
+		g_MatchConfig.options,
+		g_MatchConfig.scenario,
+		g_MatchConfig.scorelimit,
+		g_MatchConfig.teamscorelimit,
+		weaponSet);
+
+	sysLogPrintf(rc == 0 ? LOG_NOTE : LOG_WARNING,
+		"BOOT: --host-autostart consumed: result=%s rc=%d",
+		rc == 0 ? "OK" : "FAILED", (int)rc);
+	return 1;
+}
+
+/* c3845 (2026-06-23): accessor for the lv.c time-limit gate. Returns the
+ * forced match time limit in SECONDS when --match-timelimit-sec was passed,
+ * or 0 when unset (engine uses the normal minutes-granularity limit). */
+s32 bootGetMatchTimeLimitSec(void)
+{
+	return g_BootMatchTimeLimitSec;
+}
+
 /* Track 2c (c3807, 2026-05-16): --dump-swarm-state deferred tick.
  *
  * Called once per frame from pdmain.c's mainTick when the latch is
@@ -2893,6 +3101,27 @@ int main(int argc, const char **argv)
 
 	/* Mike directive 2026-05-18: end-to-end CS smoke infra. */
 	g_BootDebugAutoStartMatch = sysArgCheck("--debug-auto-start-match") ? true : false;
+	/* c3845 (2026-06-23): listen-host two-process match smoke infra. */
+	g_BootHostAutostartArmed = sysArgCheck("--host-autostart") ? true : false;
+	if (g_BootHostAutostartArmed) {
+		sysLogPrintf(LOG_NOTE, "BOOT: --host-autostart armed");
+	}
+	{
+		const char *tlsec = sysArgGetString("--match-timelimit-sec");
+		if (tlsec && tlsec[0]) {
+			long v = strtol(tlsec, NULL, 0);
+			if (v > 0 && v <= 3600) {
+				g_BootMatchTimeLimitSec = (s32)v;
+				sysLogPrintf(LOG_NOTE,
+					"BOOT: --match-timelimit-sec armed: seconds=%d",
+					g_BootMatchTimeLimitSec);
+			} else {
+				sysLogPrintf(LOG_WARNING,
+					"BOOT: --match-timelimit-sec expects 1..3600; got: '%s'",
+					tlsec);
+			}
+		}
+	}
 	g_BootDebugSwarmMap       = sysArgGetString("--debug-swarm-map");
 	g_BootDebugInstallReceivedMod =
 		sysArgGetString("--debug-install-received-mod");

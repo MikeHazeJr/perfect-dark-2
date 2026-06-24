@@ -46,6 +46,7 @@
 #include "game/activemenu.h"
 #include <math.h>
 #include "net/netmanifest.h"  /* F-0.4: manifestClear */
+#include "room.h"             /* c3845: listen-host room create/membership for auto-start */
 
 /* F-1.2: Forward declaration — defined in pdgui_menu_solomission.cpp */
 void pdguiSoloMissionReset(void);
@@ -1081,6 +1082,174 @@ static s32 s_resolveStageIdToStagenum(const char *stage_id)
     sysLogPrintf(LOG_ERROR, "BRIDGE: stage_id '%s' is not ASSET_ARENA or ASSET_MAP (type=%d)",
                  stage_id, (int)ae->type);
     return -1;
+}
+
+/* c3845 (2026-06-23): Create a room for the in-client listen HOST so it owns
+ * a room and satisfies CLC_LOBBY_START branch (a) (sender is room creator).
+ *
+ * A listen-host (NETMODE_SERVER, !g_NetDedicated) starts in the global lounge
+ * (g_NetLocalClient->room_id == 0xFF). The CLC_LOBBY_START leader check
+ * (netmsg.c:5268-5301) accepts only (a) the creator of the sender's room, or
+ * (b) the global lobby leader when room_id == 0xFF. Branch (b) is unreliable
+ * once any lobbyGetLeader() exists, and the room-scoped match dispatch
+ * (netSendToRoom, net.c:2345) requires the host to actually own a room so the
+ * joined client can be added to it. So we create a room first.
+ *
+ * Implementation mirrors netLobbyRequestStartWithSims' local-replay pattern:
+ * write CLC_ROOM_CREATE into g_NetLocalClient->out, then replay it through
+ * netmsgClcRoomCreateRead() with g_NetLocalClient as the source. That handler
+ * (netmsg.c:7645) calls roomCreateConfigured() (which sets creator_client_id
+ * AND auto-joins the creator via roomJoin), sets srccl->room_id = room->id,
+ * and sends SVC_ROOM_ASSIGN. Net effect: the host is room creator + member.
+ *
+ * Defaults requested by the smoke task: empty name (server generates one),
+ * access=ROOM_ACCESS_OPEN, no password, maxPlayers=0 (handler clamps to
+ * HUB_MAX_CLIENTS default).
+ *
+ * Returns the new room id (0..HUB_MAX_ROOMS-1) on success, or 0xFF on failure
+ * (wrong mode, no local client, not in lobby, or room-create rejected). If the
+ * host already owns a room this is a no-op that returns the existing room id.
+ *
+ * Rate limit: netmsgClcRoomCreateRead consults netmsgRoomRateAllow (1/sec per
+ * client index). To make the create deterministic from the auto-start hook
+ * (which may also have driven other room ops on slot 0 within the same second),
+ * we reset the host's room-mutation bucket immediately before the replay. */
+u8 netLobbyRequestCreateRoom(void)
+{
+    const s32 isListenHost = (g_NetMode == NETMODE_SERVER && !g_NetDedicated);
+    if (!isListenHost || !g_NetLocalClient) {
+        return 0xFF;
+    }
+    if (g_NetLocalClient->state < CLSTATE_LOBBY) {
+        return 0xFF;
+    }
+
+    /* Idempotent: if the host is already in a room, reuse it. */
+    if (g_NetLocalClient->room_id != 0xFF) {
+        sysLogPrintf(LOG_NOTE,
+                     "BRIDGE: listen host already in room %u — reusing for auto-start",
+                     (unsigned)g_NetLocalClient->room_id);
+        return g_NetLocalClient->room_id;
+    }
+
+    /* Clear the host's room-mutation rate bucket so this create is never
+     * silently dropped by a prior op in the same 1 s window. */
+    netmsgRoomMutationRateReset((u32)(g_NetLocalClient - g_NetClients));
+
+    /* Write + local-replay CLC_ROOM_CREATE (empty name, OPEN, no password,
+     * default max players). */
+    netbufStartWrite(&g_NetLocalClient->out);
+    netmsgClcRoomCreateWrite(&g_NetLocalClient->out, "",
+                             (u8)ROOM_ACCESS_OPEN, "", 0);
+    {
+        struct netbuf rb;
+        netbufStartReadData(&rb, g_NetLocalClient->out.data, g_NetLocalClient->out.wp);
+        (void)netbufReadU8(&rb); /* skip the message-type byte */
+        netmsgClcRoomCreateRead(&rb, g_NetLocalClient);
+        netbufStartWrite(&g_NetLocalClient->out);
+    }
+
+    if (g_NetLocalClient->room_id == 0xFF) {
+        sysLogPrintf(LOG_WARNING,
+                     "BRIDGE: listen host CLC_ROOM_CREATE local-replay failed — host still in lounge");
+        return 0xFF;
+    }
+
+    sysLogPrintf(LOG_NOTE,
+                 "BRIDGE: listen host local-replayed CLC_ROOM_CREATE — now creator+member of room %u",
+                 (unsigned)g_NetLocalClient->room_id);
+    return g_NetLocalClient->room_id;
+}
+
+/* c3845 (2026-06-23): Host-side membership add — pull every connected REMOTE
+ * client into the host's room so the room-scoped match start includes them.
+ *
+ * The participant model is room-scoped for the joined client's spawn path:
+ *   - SVC_STAGE_START is dispatched via netSendToRoom(g_NetMatchRoomId) when a
+ *     room owns the match (net.c:1008-1012); netSendToRoom only reaches clients
+ *     whose cl->room_id == room_id (net.c:2345). A client outside the room
+ *     never receives the stage-start, so "MATCH: client stage start received"
+ *     and "MATCH: player spawned slot=1" would never fire.
+ *   - The ready gate (netmsg.c:5766-5776) and the CLSTATE_LOBBY/PREPARING ->
+ *     CLSTATE_GAME transition (net.c:971-979) both skip clients whose room_id
+ *     != matchRoomId.
+ * (The participant POOL itself, netmsg.c:5511, is all-clients and not
+ * room-filtered — but it is moot because the gate + dispatch are room-scoped.)
+ *
+ * This is a pure server-side operation, mirroring the state changes that
+ * netmsgClcRoomJoinRead performs (netmsg.c:7803-7827) but without going through
+ * the CLC handler, so the per-client room-mutation rate limiter is not consulted
+ * for the remote clients. For each connected remote client we:
+ *   1. roomLeave() its old room if any (keeps room rosters consistent),
+ *   2. roomJoin(room, id) (updates the room roster + client_count),
+ *   3. set cl->room_id = room->id (server-side membership — what netSendToRoom
+ *      and the ready gate read),
+ *   4. send SVC_ROOM_ASSIGN to that client so its own g_LocalRoomId / in-room UI
+ *      state agree with the server.
+ *
+ * Returns the number of remote clients added (0 if none/!host). */
+s32 netLobbyHostAddRemoteClientsToRoom(u8 room_id)
+{
+    const s32 isListenHost = (g_NetMode == NETMODE_SERVER && !g_NetDedicated);
+    if (!isListenHost) {
+        return 0;
+    }
+    hub_room_t *room = roomGetById(room_id);
+    if (!room) {
+        sysLogPrintf(LOG_WARNING,
+                     "BRIDGE: netLobbyHostAddRemoteClientsToRoom — room %u not found",
+                     (unsigned)room_id);
+        return 0;
+    }
+
+    s32 added = 0;
+    for (s32 ci = 0; ci < NET_MAX_CLIENTS; ci++) {
+        struct netclient *cl = &g_NetClients[ci];
+        if (cl == g_NetLocalClient) {
+            continue; /* host self is already creator+member */
+        }
+        if (cl->state < CLSTATE_LOBBY || !cl->peer) {
+            continue; /* only fully-joined remote peers */
+        }
+        if (cl->room_id == room_id) {
+            continue; /* already a member */
+        }
+
+        /* Leave previous room (if any) to keep rosters consistent. */
+        if (cl->room_id != 0xFF) {
+            hub_room_t *old = roomGetById(cl->room_id);
+            if (old) {
+                roomLeave(old, cl->id);
+            }
+        }
+
+        if (!roomJoin(room, cl->id)) {
+            sysLogPrintf(LOG_WARNING,
+                         "BRIDGE: could not add client %u to room %u (full?)",
+                         (unsigned)cl->id, (unsigned)room_id);
+            continue;
+        }
+        cl->room_id = room->id;
+
+        /* Tell the client about its new room so its local state agrees. */
+        {
+            struct netbuf assignBuf;
+            u8 assignData[8];
+            assignBuf.data = assignData;
+            assignBuf.size = sizeof(assignData);
+            netbufStartWrite(&assignBuf);
+            netmsgSvcRoomAssignWrite(&assignBuf, room->id);
+            netSend(cl, &assignBuf, true, NETCHAN_DEFAULT);
+        }
+
+        sysLogPrintf(LOG_NOTE,
+                     "BRIDGE: host added remote client %u (%s) to room %u for auto-start match",
+                     (unsigned)cl->id, cl->settings.name, (unsigned)room->id);
+        added++;
+    }
+
+    netRoomListMarkDirty();
+    return added;
 }
 
 s32 netLobbyRequestStartWithSims(u8 gamemode, const char *stage_id, u8 difficulty, u8 antiClientId, u8 numSims, u8 simType, u8 timelimit, u32 options, u8 scenario, u8 scorelimit, u16 teamscorelimit, u8 weaponSetIndex)

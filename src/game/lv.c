@@ -796,6 +796,30 @@ void lvReset(s32 stagenum)
 			sysLogPrintf(LOG_NOTE, "LOAD: calling playerSpawn for player %d", i);
 			playerSpawn();
 			sysLogPrintf(LOG_NOTE, "LOAD: playerSpawn done for player %d, calling bheadReset", i);
+
+			/* c3845 (2026-06-23): two-process match-smoke spawn milestone.
+			 * This loop runs for every LOCAL player on whichever process owns
+			 * it. The net client SLOT is the owning netclient's id (== its
+			 * g_NetClients[] index): the listen-host's local player is client
+			 * id 0 (-> slot=0), and the joined client's local player is client
+			 * id 1 (-> slot=1, after netmsg.c:1158 sets g_NetLocalClient =
+			 * &g_NetClients[id]). So the concatenated host+client log shows
+			 * BOTH slot=0 and slot=1. Using player->client->id (not the
+			 * playernum) is robust against netPlayersAllocate's client-side
+			 * local-player->index-0 swap (net.c:2366-2372). -1 in solo. */
+			if (g_Vars.normmplayerisrunning && g_Vars.currentplayer
+					&& g_Vars.currentplayer->prop) {
+				s32 netslot = -1;
+				if (g_NetMode && g_Vars.currentplayer->client) {
+					netslot = (s32)g_Vars.currentplayer->client->id;
+				}
+				sysLogPrintf(LOG_NOTE,
+					"MATCH: player spawned slot=%d playernum=%d pos=(%.0f,%.0f,%.0f)",
+					netslot, i,
+					g_Vars.currentplayer->prop->pos.f[0],
+					g_Vars.currentplayer->prop->pos.f[1],
+					g_Vars.currentplayer->prop->pos.f[2]);
+			}
 			bheadReset();
 
 			if (g_Vars.normmplayerisrunning && (g_MpSetup.options & MPOPTION_TEAMSENABLED)) {
@@ -2647,6 +2671,26 @@ void lvTick(void)
 
 	// Handle MP match ending
 	if (g_Vars.normmplayerisrunning && STAGE_IS_GAMEPLAY(g_Vars.stagenum)) {
+		/* c3845 (2026-06-23): test-only seconds-granularity time-limit
+		 * override for the two-process match smoke. The wire/config time
+		 * limit (g_MpSetup.timelimit) is minutes-only (6-bit), so a clean
+		 * ~35 s regression match is not expressible through it. When
+		 * --match-timelimit-sec <n> was passed, force g_MpTimeLimit60 to
+		 * SECSTOTIME60(n) frame-units here, once, so the comparison below
+		 * fires at n seconds. No effect (returns 0) when the flag is unset. */
+		{
+			extern s32 bootGetMatchTimeLimitSec(void);
+			s32 forced_sec = bootGetMatchTimeLimitSec();
+			if (forced_sec > 0) {
+				s32 forced60 = SECSTOTIME60(forced_sec);
+				if (g_MpTimeLimit60 != forced60) {
+					g_MpTimeLimit60 = forced60;
+					sysLogPrintf(LOG_NOTE,
+						"MATCH: timelimit override applied seconds=%d g_MpTimeLimit60=%d",
+						forced_sec, g_MpTimeLimit60);
+				}
+			}
+		}
 		if (g_MpTimeLimit60 > 0) {
 			s32 elapsed = g_StageTimeElapsed60;
 			s32 nexttime = g_Vars.lvupdate60 + g_StageTimeElapsed60;
@@ -2667,8 +2711,13 @@ void lvTick(void)
 
 			if (elapsed < TICKS(g_MpTimeLimit60) && nexttime >= TICKS(g_MpTimeLimit60)) {
 				// Match is ending due to time limit reached
-				if (g_NetMode != NETMODE_CLIENT)
-				mainEndStage();
+				if (g_NetMode != NETMODE_CLIENT) {
+					/* c3845: match-smoke end milestone. Fires on the host
+					 * (and solo); the networked client ends via SVC_STAGE_END
+					 * because its own time-limit gate is NETMODE_CLIENT-guarded. */
+					sysLogPrintf(LOG_NOTE, "MATCH: stage end reason=timelimit");
+					mainEndStage();
+				}
 			}
 
 			// Sound alarm at 10 seconds remaining

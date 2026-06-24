@@ -1432,6 +1432,10 @@ u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)
 	crashBreadcrumbPush("SVC_STAGE_START.read srccl=%d state=%u",
 		srccl ? srccl->id : -1, srccl ? srccl->state : 0xFFu);
 
+	/* c3845 (2026-06-23): two-process match-smoke milestone. This read path
+	 * runs on the CLIENT when it receives the host's SVC_STAGE_START. */
+	sysLogPrintf(LOG_NOTE, "MATCH: client stage start received");
+
 	if (!srccl) {
 		sysLogPrintf(LOG_WARNING,
 			"MATCHSTART.DIAG: SVC_STAGE reject — missing source client");
@@ -5781,6 +5785,27 @@ u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl)
 			s_ReadyGate.game_mode     = NETGAMEMODE_MP;
 			s_ReadyGate.difficulty    = 0;
 			s_ReadyGate.room_id       = matchRoomId;
+
+			/* c3845: pre-ready the listen-host's OWN local client.  When the
+			 * host is a room member (e.g. the in-client listen host that just
+			 * created a room and local-replayed CLC_LOBBY_START), its slot is
+			 * placed in expected_mask above — but the host never sends itself a
+			 * CLC_MANIFEST_STATUS, so without this its bit would never clear and
+			 * the gate would only fire on the 30 s timeout.  The host is
+			 * authoritative and inherently has every asset (it just built the
+			 * manifest), so mark it READY immediately.  Dedicated servers have
+			 * g_NetLocalClient == NULL and are unaffected; remote clients still
+			 * gate normally on their real CLC_MANIFEST_STATUS responses. */
+			if (g_NetMode == NETMODE_SERVER && !g_NetDedicated && g_NetLocalClient) {
+				s32 lci = (s32)(g_NetLocalClient - g_NetClients);
+				if (lci >= 0 && lci < NET_MAX_CLIENTS &&
+				    (expected_mask & (1u << lci))) {
+					s_ReadyGate.ready_mask |= (1u << lci);
+					sysLogPrintf(LOG_NOTE,
+						"NET: ready gate: listen-host local client %d pre-READY (authoritative)",
+						lci);
+				}
+			}
 
 			hub_room_t *room = (matchRoomId != 0xFF) ? roomGetById(matchRoomId) : roomGetById(0);
 			if (room) {
