@@ -156,6 +156,20 @@ s32 bootApplyDeferredDebugLoadCatalogAssets(void);
  *       g_PostExitMainMenuView so the main menu pops after the CI
  *       camera intro finishes.  --skip-intro is left untouched.
  *
+ *   --launch-credits
+ *       After catalog init, enters the NORMAL scrolling Perfect Dark
+ *       credits (NOT the alt-title path): mainChangeToStage(
+ *       STAGE_CREDITS=0x5c), setNumPlayers(1), bond/coop/anti playernum
+ *       seeding, and lvSetDifficulty(DIFF_A).  Deliberately does NOT call
+ *       creditsRequestAltTitle() -- that latches the alt-title branch in
+ *       creditsReset() which starts solid-black with slidesenabled=false
+ *       and only fades the "PERFECT DARK" wordmark in after ~60 frames,
+ *       never showing the credit slides.  The normal path keeps
+ *       slidesenabled=true so the scrolling credit slides + Handel Gothic
+ *       fonts + up-to-500 transparent particles render from frame 0,
+ *       letting a smoke capture them (exercises the c3844 universal
+ *       alpha-mode fix).  One-shot per boot.  See bootApplyLaunchCredits().
+ *
  *   --launch-scenario <empty_map|swarm_cpu|swarm_gpu>
  *       After catalog init, calls testScenarioLaunch(...) for the
  *       named scenario.  empty_map -> TESTSCEN_EMPTY_MAP,
@@ -284,6 +298,16 @@ s32 bootApplyDeferredDebugLoadCatalogAssets(void);
 static bool        g_BootNoNet            = false;
 static bool        g_BootExtractAssetsOnly = false;
 static bool        g_BootMainMenu         = false;
+/* c3844 (2026-06-23): --launch-credits one-shot. Latched at parse, consumed
+ * once after catalog init (same lifecycle point the other --launch-* fast-
+ * paths fire) by entering the NORMAL scrolling credits -- mainChangeToStage(
+ * STAGE_CREDITS) + numplayers/bond-coop-anti seeding + DIFF_A, WITHOUT
+ * creditsRequestAltTitle (the alt-title branch starts solid-black with slides
+ * disabled; see bootApplyLaunchCredits). Drives a deterministic credits-screen
+ * boot so a smoke can capture the credits' transparent particles + Handel
+ * Gothic fonts from frame 0 -- exercising the c3844 universal alpha-mode fix.
+ * Inert when absent from argv. */
+static bool        g_BootLaunchCredits    = false;
 static const char *g_BootLaunchScenario   = NULL;
 static const char *g_BootLaunchMission    = NULL;
 static const char *g_BootLaunchDifficulty = NULL;
@@ -736,6 +760,18 @@ extern s32 g_PostExitMainMenuView;
  * src/include/game/chraction.h:208 exactly. */
 extern bool chrMoveToPos(struct chrdata *chr, struct coord *pos, RoomNum *rooms, f32 angle, bool ignorebg);
 
+/* c3844 (2026-06-23): --launch-credits credits-entry shims. These live in
+ * src/game/{credits,title,lv}.c; declare extern shims rather than #include
+ * "game/credits.h" / "game/title.h" / "game/lv.h" to keep this PC-port file
+ * outside the game-header dependency surface (matching the chrMoveToPos /
+ * setCurrentPlayerNum shims above). mainChangeToStage is already reachable via
+ * the included "lib/main.h"; g_Vars + DIFF_A come in through bss.h/constants.h.
+ * Signatures must match src/include/game/title.h:68, game/lv.h:38 exactly.
+ * (creditsRequestAltTitle is intentionally NOT shimmed -- the --launch-credits
+ * fast-path uses the normal scrolling-credits path; see bootApplyLaunchCredits.) */
+extern void setNumPlayers(s32 numplayers);
+extern void lvSetDifficulty(s32 difficulty);
+
 /* Map a --difficulty string to the DIFF_* constants used by g_MissionConfig
  * and lvSetDifficulty.  Returns DIFF_A on unknown / NULL input. */
 static s32 bootResolveDifficulty(const char *name)
@@ -810,6 +846,55 @@ static void bootApplyMainMenu(void)
 	g_PostExitMainMenuView = 0;
 	sysLogPrintf(LOG_NOTE,
 		"BOOT: --main-menu armed g_PostExitMainMenuView=0 (top-level)");
+}
+
+/* c3844 (2026-06-23): Apply --launch-credits by entering the NORMAL scrolling
+ * credits, NOT the alt-title path. Fired once from bootApplyCliFastPaths after
+ * catalog init -- mainChangeToStage queues the STAGE_CREDITS (0x5c) transition
+ * the same way titleTickPdLogo does, so no deferred tick is needed (the credits
+ * screen has no player-prop dependency unlike the scenario / mp-room fast-paths).
+ *
+ * Root cause of the original black screen (fixed here): the first cut of this
+ * fast-path mirrored title.c:851-864's ALT-TITLE exit and called
+ * creditsRequestAltTitle(). That latches g_CreditsAltTitleRequested, so when
+ * creditsReset() runs at stage load (lv.c:764) it takes the alt-title branch
+ * (credits.c:1917-1922) which sets slidesenabled=false and blacktimer60=1140.
+ * The creditsDraw content gate (credits.c:1773-1775) only renders when
+ * `slidesenabled || blacktimer60 < TICKS(60) || blacktimer60 > TICKS(1200)`,
+ * so at blacktimer60=1140 with slides off NOTHING draws -- the framebuffer stays
+ * the solid-black fill from credits.c:1762. blacktimer60 then ticks up ~1/frame
+ * (credits.c:1737) and only after ~60 frames (>1200) does the slow "PERFECT
+ * DARK" wordmark fade in. The actual scrolling credit slides + Handel Gothic
+ * foreground text (creditsDrawSlide -> creditsDrawForegroundText) are gated on
+ * slidesenabled and NEVER appear on the alt-title path.
+ *
+ * The normal path (NO creditsRequestAltTitle) leaves slidesenabled=true
+ * (credits.c:1898), so creditsTickSlide/creditsDrawSlide run from frame 0:
+ * the first credit slide's Handel Gothic text + the up-to-500 XLU particles
+ * (creditsDrawParticles) render immediately and deterministically, with no
+ * blacktimer60 wait. This is what the c3844 universal alpha-mode capture needs.
+ *
+ * No save-flag gate applies: creditsReset() runs unconditionally for
+ * STAGE_CREDITS regardless of g_AltTitleEnabled (that flag only governs the
+ * title.c attract-loop auto-entry, which the direct mainChangeToStage bypasses).
+ * No-op unless --launch-credits was on the command line. */
+static void bootApplyLaunchCredits(void)
+{
+	if (!g_BootLaunchCredits) {
+		return;
+	}
+	/* Intentionally do NOT call creditsRequestAltTitle() -- see header comment.
+	 * The normal STAGE_CREDITS entry keeps slidesenabled=true so the scrolling
+	 * credit slides + Handel Gothic fonts render from frame 0. */
+	setNumPlayers(1);
+	mainChangeToStage(STAGE_CREDITS);
+	g_Vars.bondplayernum = 0;
+	g_Vars.coopplayernum = -1;
+	g_Vars.antiplayernum = -1;
+	lvSetDifficulty(DIFF_A);
+	sysLogPrintf(LOG_NOTE,
+		"BOOT: --launch-credits consumed -> mainChangeToStage(STAGE_CREDITS=0x%02x) numplayers=1 difficulty=%d (normal scrolling-credits path, slidesenabled=true)",
+		(u32)STAGE_CREDITS, DIFF_A);
 }
 
 /* Arm the --launch-scenario one-shot. Resolves the scenario id string
@@ -2220,6 +2305,7 @@ static void bootApplyCliFastPaths(void)
 	}
 	bootApplyDebugInstallReceivedMod();
 	bootApplyMainMenu();
+	bootApplyLaunchCredits();
 	bootApplyLaunchScenario();
 	bootApplyLaunchMission();
 	bootApplyLaunchMpRoom();
@@ -3090,6 +3176,12 @@ int main(int argc, const char **argv)
 	g_BootNoNet            = sysArgCheck("--no-net") ? true : false;
 	g_BootExtractAssetsOnly = sysArgCheck("--extract-assets-only") ? true : false;
 	g_BootMainMenu         = sysArgCheck("--main-menu") ? true : false;
+	/* c3844 (2026-06-23): --launch-credits boots straight into the credits
+	 * scroll for the transparent-particle + font alpha capture smoke. */
+	g_BootLaunchCredits    = sysArgCheck("--launch-credits") ? true : false;
+	if (g_BootLaunchCredits) {
+		sysLogPrintf(LOG_NOTE, "BOOT: --launch-credits armed");
+	}
 	g_BootLaunchScenario   = sysArgGetString("--launch-scenario");
 	g_BootLaunchMission    = sysArgGetString("--launch-mission");
 	g_BootLaunchDifficulty = sysArgGetString("--difficulty");

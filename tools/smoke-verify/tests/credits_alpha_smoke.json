@@ -1,0 +1,48 @@
+{
+  "scenario_name": "credits_alpha_smoke",
+  "description": "c3844 universal alpha-mode capture: boots straight into the NORMAL scrolling Perfect Dark credits via the --launch-credits fast-path (mainChangeToStage(STAGE_CREDITS=0x5c) WITHOUT creditsRequestAltTitle, so creditsReset leaves slidesenabled=true and the credit slides render from frame 0 -- the alt-title path starts solid-black with slides disabled and was the original black-screen bug). Captures four screenshots spaced across the credits scroll to picture-prove the credits' transparent particles (up to 500 G_RM_XLU_SURF particles, alpha-blended background gradient layers via creditsChooseBgColours/creditsDrawBackgroundLayer, and the alpha framebuffer fade in creditsFillFramebuffer) plus the Handel Gothic credit fonts (g_FontHandelGothicLg/Md/Sm selected per CREDITSTYLE_* in creditsDrawSlide -> creditsDrawForegroundText). install_state=current reuses the existing extracted install so the credits load within a few seconds of boot rather than waiting on a clean re-extract; --no-net keeps the firewall focus-steal class out and --no-sound keeps the run quiet. The first credit slide is visible immediately (first slide loadat is ~6s+) and the full roll lasts well over a minute, so all four captures (8/16/24/32s) land on live credit-slide content, not the post-credits black/wordmark scroll. Scripted exit at 44s, well after the four captures. Verifies the c3844 alpha-mode fix renders the credits' transparent fonts/particles without an access violation or fatal.",
+  "tags": ["rendering", "credits", "alpha", "particles", "fonts", "smoke", "c3844", "capture"],
+  "paths_of_interest": [
+    "src/game/credits.c",
+    "src/game/title.c",
+    "src/game/lv.c",
+    "port/src/main.c",
+    "port/src/pdmain.c"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 90,
+  "install_state": "current",
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--skip-intro",
+    "--launch-credits"
+  ],
+  "input_sequence": [
+    { "at_ms": 0,     "type": "wait", "comment": "boot path: --launch-credits enters the normal scrolling credits (mainChangeToStage(STAGE_CREDITS=0x5c) + setNumPlayers(1) + bond/coop/anti seeding + lvSetDifficulty(DIFF_A), NO creditsRequestAltTitle) once from bootApplyCliFastPaths after catalog init -- the same lifecycle point bootApplyMainMenu/bootApplyLaunchMission fire. On a warm install the credits stage loads within a few seconds; the credit slides (Handel Gothic fonts + XLU particles) scroll on their own from frame 0, no player input required. --skip-intro is overridden by the direct mainChangeToStage so the attract loop is never entered." },
+    { "at_ms": 44000, "type": "exit", "comment": "scripted exit at 44s -- after all four scroll captures (8s/16s/24s/32s). modmgr: shutdown on exit produces the SMOKE: result=scripted_exit sentinel." }
+  ],
+  "screenshots": [
+    { "at_ms": 8000,  "name": "credits_scroll_a" },
+    { "at_ms": 16000, "name": "credits_scroll_b" },
+    { "at_ms": 24000, "name": "credits_scroll_c" },
+    { "at_ms": 32000, "name": "credits_scroll_d" }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=credits_alpha_smoke",
+      "BOOT: --launch-credits armed",
+      "BOOT: --launch-credits consumed",
+      "LOAD: lv\\.c entering stage load sequence for stagenum=0x5c",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout"
+    ],
+    "required_counts": []
+  }
+}
