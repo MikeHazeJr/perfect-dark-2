@@ -3852,6 +3852,21 @@ void modelRender(struct modelrenderdata *renderdata, struct model *model)
 						m->m[2][0], m->m[2][1], m->m[2][2],
 						m->m[3][0], m->m[3][1], m->m[3][2]);
 				}
+				/* B-942: dump the ACTUAL anim instance driving these matrices --
+				 * the last unverified runtime input. If animnum is a sensible chr
+				 * idle/stand and frac is in range, the anim is right; a garbage or
+				 * unexpected animnum (or fracmerge blending two anims) would explain
+				 * wild rotations on faithful verts. */
+				if (model->anim != NULL) {
+					struct anim *an = model->anim;
+					sysLogPrintf(LOG_NOTE,
+						"MODASSET.ANIMDBG: animnum=%d frame1=%d frame2=%d frac=%.3f flip=%d "
+						"fracmerge=%.3f animnum2=%d animscale=%.4f speed=%.3f",
+						an->animnum, an->frameslot1, an->frameslot2, an->frac, an->flip,
+						an->fracmerge, an->animnum2, an->animscale, an->speed);
+				} else {
+					sysLogPrintf(LOG_NOTE, "MODASSET.ANIMDBG: model->anim == NULL");
+				}
 			}
 		}
 
