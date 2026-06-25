@@ -45,10 +45,12 @@
 #include "romextract_pd.h"
 #include "system.h"
 
-/* Stamp kind must stay under 64 chars (romextract_pd_cache.c reads it with
- * %63s); bump the label to invalidate and re-emit the whole family. */
+/* Stamp kind is read by romextract_pd_cache.c with a 511-wide fscanf into a
+ * 512-byte buffer (PDEXTRACT_CACHE_KIND_MAX); bump the label to invalidate and
+ * re-emit the whole family. The _cipalfix_b943 token forces a one-time
+ * re-decode so the CI palette-offset fix (B-943) propagates to texture.png. */
 #define ROMEXTRACT_PDTEXTURE_FAST_CACHE_KIND \
-	"pdtexture_png_v1_decoded_rom_rgba_manifest_texture_file"
+	"pdtexture_png_v1_decoded_rom_rgba_manifest_texture_file_cipalfix_b943"
 
 static const u8 k_Transparent1x1Png[] = {
 	0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,

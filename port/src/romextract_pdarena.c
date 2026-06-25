@@ -80,11 +80,11 @@
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "../external/stb_image_write.h"
 
-#define PDSCENARIO_BG_VISUAL_EXPORT_VERSION "bg_visual_scene_glb_v12_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_materialextras_dualtex_alphablend"
+#define PDSCENARIO_BG_VISUAL_EXPORT_VERSION "bg_visual_scene_glb_v12_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_materialextras_dualtex_alphablend_cipalfix_b943"
 #define PDSCENARIO_BG_VISUAL_EXPORT_VERSION_FILE \
 	PDSCENARIO_BG_VISUAL_EXPORT_VERSION "\n"
 #define ROMEXTRACT_PDARENA_FAST_CACHE_KIND "pdarena_clean_public_v10_pdscenario_v99"
-#define ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_alphablend_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json"
+#define ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_alphablend_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json_cipalfix_b943"
 
 /* Convert "base:arena_mp_skedar" -> "base_arena_mp_skedar". */
 static void s_idToFilename(const char *id, char *out, size_t n)
@@ -5771,7 +5771,8 @@ static u32 s_texFormatImageBytes(s32 format, u32 width, u32 height)
 	return s_texFormatStrideBytes(format, width) * height;
 }
 
-static s32 s_decodeTexToRgba(const struct tex *tex, u8 **out_rgba)
+static s32 s_decodeTexToRgba(const struct tex *tex, u32 total_bytes,
+	u8 **out_rgba)
 {
 	if (out_rgba) *out_rgba = NULL;
 	if (!tex || !tex->data || !tex->width || !tex->height) return -1;
@@ -5792,18 +5793,35 @@ static s32 s_decodeTexToRgba(const struct tex *tex, u8 **out_rgba)
 	const u8 *palette = NULL;
 	u32 palette_count = 0;
 	if (tex->lutmodeindex != 0) {
-		u32 lods = tex->numlods ? tex->numlods : 1u;
-		u32 pw = width;
-		u32 ph = height;
-		u32 palette_off = 0;
-		for (u32 lod = 0; lod < lods; lod++) {
-			palette_off += s_texFormatImageBytes(format, pw, ph);
-			if (pw > 1) pw = (pw + 1u) >> 1;
-			if (ph > 1) ph = (ph + 1u) >> 1;
-		}
-		palette = tex->data + palette_off;
 		palette_count = (u32)tex->unk0a + 1u;
 		if (palette_count > 256u) palette_count = 256u;
+
+		/* B-943: the colour palette is the LAST palette_count*2 bytes of the
+		 * decompressed buffer -- texInflateZlib writes every LOD image first,
+		 * then appends the 16-bit palette (texdecompress.c). Re-deriving the
+		 * palette offset by summing per-LOD image sizes here was wrong for
+		 * textures whose stored mip chain runs longer than tex->numlods
+		 * (e.g. tex 0x0269: derived 1136, real palette at 1160), so the
+		 * decoder sampled mip tail-padding as the palette -- crushing the
+		 * green channel to near-zero (blue-grey read as magenta). Anchoring
+		 * to the buffer END is layout-exact and format-correct for every
+		 * RGBA16/IA16 paletted texture. The per-LOD sum is kept only as a
+		 * lower-bound sanity floor in case total_bytes is unavailable. */
+		u32 palette_bytes = palette_count * 2u;
+		u32 palette_off = 0;
+		if (total_bytes >= palette_bytes) {
+			palette_off = total_bytes - palette_bytes;
+		} else {
+			u32 lods = tex->numlods ? tex->numlods : 1u;
+			u32 pw = width;
+			u32 ph = height;
+			for (u32 lod = 0; lod < lods; lod++) {
+				palette_off += s_texFormatImageBytes(format, pw, ph);
+				if (pw > 1) pw = (pw + 1u) >> 1;
+				if (ph > 1) ph = (ph + 1u) >> 1;
+			}
+		}
+		palette = tex->data + palette_off;
 	}
 
 	for (u32 y = 0; y < height; y++) {
@@ -5963,7 +5981,7 @@ s32 romExtractDecodeTextureImages(u16 texnum,
 	}
 
 	u8 *rgba = NULL;
-	if (s_decodeTexToRgba(tex, &rgba) != 0) {
+	if (s_decodeTexToRgba(tex, (u32)bytesout, &rgba) != 0) {
 		free(pool_mem);
 		return -1;
 	}
