@@ -6935,7 +6935,11 @@ void playerSetCamProperties(struct coord *pos, struct coord *up, struct coord *l
 	 * player chrbody (the CI menu character) from a close offset, preserving the
 	 * current view angle, so a smoke capture frames her instead of the wide room. */
 	if (player->prop && sysArgCheck("--debug-cam-look-chr")) {
-		struct coord *cp = &player->prop->pos;
+		/* B-942 gallery: if a clamped gallery bot (chrnum=0, dark_combat) exists,
+		 * frame IT instead of the player so the combat-sim leg-scope shot lands. */
+		extern s32 g_B942GallerySlotReady;
+		extern struct coord g_B942GallerySlotPos;
+		struct coord *cp = g_B942GallerySlotReady ? &g_B942GallerySlotPos : &player->prop->pos;
 		f32 px = cp->x + 220.0f;
 		f32 py = cp->y + 170.0f;
 		f32 pz = cp->z + 220.0f;

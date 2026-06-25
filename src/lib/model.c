@@ -1196,6 +1196,14 @@ void modelUpdatePositionNodeMtx(struct modelrenderdata *renderdata, struct model
 			sp128 = false;
 		}
 
+		/* B-942 gallery (--debug-chr-anim): pin the root horizontally so a forced
+		 * anim plays IN PLACE at the chr's base position regardless of its root
+		 * translation (run/walk/kneel all stay framed). Earlier sp128-gated pin
+		 * missed non-ABSOLUTETRANSLATION anims; this catches every anim. */
+		if (node == model->definition->rootnode && sysArgCheck("--debug-chr-anim")) {
+			translate1.f[0] = translate1.f[2] = 0.0f;
+		}
+
 		if (anim->fracmerge != 0.0f) {
 			animGetRotTranslateScale(animpart, anim->flip2, skel, anim->animnum2, anim->frameslot3, &rot3, &translate3, &scale3);
 

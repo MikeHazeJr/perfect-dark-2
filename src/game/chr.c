@@ -3576,6 +3576,9 @@ void chrGetBloodColour(s16 bodynum, u8 *colour1, u32 *colour2)
 	}
 }
 
+s32 g_B942GallerySlotReady = 0; /* B-942 gallery: latched once the world slot is captured */
+struct coord g_B942GallerySlotPos; /* B-942 gallery: the clamped bot's world slot (camera target) */
+
 Gfx *chrRender(struct prop *prop, Gfx *gdl, bool xlupass)
 {
 	struct chrdata *chr = prop->chr;
@@ -3595,6 +3598,26 @@ Gfx *chrRender(struct prop *prop, Gfx *gdl, bool xlupass)
 		bootDebugPlaceBotNearPlayerTrace("chrRender-enter", prop, -1,
 			xlupass ? 1 : 0, (s32)chr->fadealpha,
 			(s32)chr->bodynum, (s32)chr->headnum);
+	}
+
+	/* B-942 gallery (--debug-chr-anim): clamp this body to its first-settled world
+	 * slot every render so a forced gameplay anim runs IN PLACE instead of walking
+	 * off-frame. The slot is captured after ~30 renders (intro settled, pre-force =
+	 * at the terminal); the force in chrTickAnim waits on g_B942GallerySlotReady so
+	 * the captured slot is the un-drifted terminal position. */
+	if (model != NULL && model->definition != NULL
+			&& model->definition->nummatrices == 19
+			&& sysArgCheck("--debug-chr-anim")) {
+		static s32 s_galleryRenders = 0;
+		s_galleryRenders++;
+		if (s_galleryRenders >= 30) {
+			if (!g_B942GallerySlotReady) {
+				g_B942GallerySlotPos = prop->pos;
+				g_B942GallerySlotReady = 1;
+			} else {
+				prop->pos = g_B942GallerySlotPos;
+			}
+		}
 	}
 
 	/* B-942 head probe (--debug-chr-headinfo): for Joanna's generated body

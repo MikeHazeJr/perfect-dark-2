@@ -8310,6 +8310,33 @@ void chrTickKneel(struct chrdata *chr)
 
 void chrTickAnim(struct chrdata *chr)
 {
+	/* B-942 gallery (--debug-chr-anim <idx>): force the nmat=19 generated body to a
+	 * chosen anim to compare leg deformation across anims -- 0=CI cutscene 1157,
+	 * 1=run two-hand, 2=run one-hand, 3=kneel. Root is pinned in place (model.c). */
+	{
+		extern s32 g_B942GallerySlotReady;
+		const char *galleryArg = sysArgGetString("--debug-chr-anim");
+		if (galleryArg != NULL && g_B942GallerySlotReady && chr->model != NULL
+				&& chr->model->definition != NULL
+				&& chr->model->definition->nummatrices == 19) {
+			static const s16 s_galleryAnims[] = {
+				ANIM_CUT_DISH_INTRO_JO, ANIM_RUNNING_TWOHANDGUN,
+				ANIM_RUNNING_ONEHANDGUN, ANIM_KNEEL_TWO_HANDED_GUN,
+			};
+			s32 idx = (galleryArg[0] >= '0' && galleryArg[0] <= '9') ? galleryArg[0] - '0' : 0;
+			static s32 s_forceLogged = -1;
+			if (idx >= (s32) (sizeof(s_galleryAnims) / sizeof(s_galleryAnims[0]))) {
+				idx = 0;
+			}
+			chr->act_anim.animnum = s_galleryAnims[idx];
+			chr->hidden |= CHRHFLAG_NEEDANIM;
+			if (s_forceLogged != idx) {
+				s_forceLogged = idx;
+				sysLogPrintf(LOG_NOTE, "CHRANIMFORCE: idx=%d anim=%d", idx, (s32) s_galleryAnims[idx]);
+			}
+		}
+	}
+
 	if (chr->hidden & CHRHFLAG_NEEDANIM) {
 		if (modelIsAnimMerging(chr->model)) {
 			return;
