@@ -1432,7 +1432,7 @@ def validate_scene_glb_texture_contract(label: str, data: bytes,
     generator = asset.get("generator", "") if isinstance(asset, dict) else ""
     if (isinstance(generator, str)
             and generator.startswith("Perfect Dark 2 PDSCENARIO scene.glb exporter")
-            and "bg_visual_scene_glb_v11_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_materialextras_dualtex" not in generator):
+            and "bg_visual_scene_glb_v12_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_materialextras_dualtex_alphablend" not in generator):
         errors.append(
             f"{label} scene.glb uses stale scenario GLB exporter stamp {generator!r}"
         )

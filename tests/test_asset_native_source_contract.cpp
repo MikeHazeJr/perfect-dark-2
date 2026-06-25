@@ -14805,7 +14805,7 @@ TEST_CASE("c3843 remaining base asset families emit clean native archives",
 	        std::string::npos);
 	REQUIRE(conformance.find("level.graph.json must bind portals table to portals.json") !=
 	        std::string::npos);
-	REQUIRE(arena.find("PDSCENARIO_BG_VISUAL_EXPORT_VERSION \"bg_visual_scene_glb_v11_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_materialextras_dualtex\"") !=
+	REQUIRE(arena.find("PDSCENARIO_BG_VISUAL_EXPORT_VERSION \"bg_visual_scene_glb_v12_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_materialextras_dualtex_alphablend\"") !=
 	        std::string::npos);
 	REQUIRE(arena.find("s_rgbaHasNonOpaqueAlpha") !=
 	        std::string::npos);
@@ -14866,7 +14866,7 @@ TEST_CASE("c3843 remaining base asset families emit clean native archives",
 	REQUIRE(conformance.find("validate_scene_glb_texture_contract") !=
 	        std::string::npos);
 	REQUIRE(conformance.find("TEXCOORD_0 range") != std::string::npos);
-	REQUIRE(conformance.find("bg_visual_scene_glb_v11_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_materialextras_dualtex") !=
+	REQUIRE(conformance.find("bg_visual_scene_glb_v12_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_materialextras_dualtex_alphablend") !=
 	        std::string::npos);
 	REQUIRE(conformance.find("pd2_material extras for source renderer material parity") !=
 	        std::string::npos);

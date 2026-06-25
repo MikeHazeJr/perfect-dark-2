@@ -7312,7 +7312,7 @@ TEST_CASE("base scenario extractor emits standard map and text payloads",
 	REQUIRE(arena.find("texInflateNonZlib") != std::string::npos);
 	REQUIRE(arena.find("scene.glb") != std::string::npos);
 	REQUIRE(arena.find("stbi_write_png_to_mem") != std::string::npos);
-	REQUIRE(arena.find("bg_visual_scene_glb_v11_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_materialextras_dualtex") != std::string::npos);
+	REQUIRE(arena.find("bg_visual_scene_glb_v12_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_materialextras_dualtex_alphablend") != std::string::npos);
 	REQUIRE(arena.find("\\\"alphaMode\\\":\\\"MASK\\\",\\\"alphaCutoff\\\":0.01") != std::string::npos);
 	REQUIRE(arena.find("s_existingArchiveEntryContains(relpath, \"scene.glb\",") !=
 	        std::string::npos);

@@ -23,8 +23,8 @@ from asset_archive_conformance import (
 
 
 CURRENT_SCENARIO_GLB_STAMP = (
-    "bg_visual_scene_glb_v11_dccuv_rsptexscale_texshift_samplerwrap_"
-    "untextured_uvbound_color0_alphamask_materialextras_dualtex"
+    "bg_visual_scene_glb_v12_dccuv_rsptexscale_texshift_samplerwrap_"
+    "untextured_uvbound_color0_alphamask_materialextras_dualtex_alphablend"
 )
 
 
