@@ -530,6 +530,26 @@ Section 2.x for the canonical key name.
 
 ---
 
+## SP-17: Per-FACE matrix capture collapses N64 weighted-vertex (multi-matrix) skinning
+
+**Severity**: HIGH — silent geometry corruption on every animated generated chr body (NOT a crash; renders wrong)
+**Root cause**: N64 chr bodies skin limbs by **weighted vertices** — the DL interleaves matrix loads and vertex loads so a single triangle's three verts are transformed by *different* bone matrices (e.g. helper matrix 17 + bone matrix 10 across a knee seam). The `.pdmesh` data model records **one matrix per FACE** (`romextract_pdmesh.c::s_objEmitTri`, `model.faces.json` `{face_index, matrix_index}`) and writes all 3 verts RAW under that single (active/last-loaded) matrix. The consume (`modasset_compiler.c` ~6463-6494) emits `gSPVertex(3)` per tri under one matrix. So every weighted *seam* triangle mis-binds the verts that belong to the other bone.
+
+**Why it usually hides**: when the joint is near-straight (bind pose, idle/standing anims, small rotations) a bone and its half-angle helper matrix are nearly equal, so a mis-bound vert barely moves. It only becomes visible when a joint bends hard (large rotation), which makes the helper diverge from the bone and flings the mis-bound verts off-body. Pixel symptom: a faceted limb jumble under poses with sharp joint angles (B-942: dark_combat legs under cutscene anim 1157 bend ~90deg).
+
+**Scale (measured on cdark_combat / Joanna, filenum 0x42, 601 tris)**: **225/601 (37%) are seam triangles** (verts span >1 matrix); 137 (23%) have v0 loaded under a different matrix than the tri's active one; 106 are leg seams spanning every leg joint (pelvis-hip-kneeHelper-thigh-foot, both sides). Affects all generated chr bodies port-wide.
+
+**Instrumentation trap (why this was an impasse for ~4 sessions)**: the seam detectors `B942STITCH`/`B942DESYNC` were added ONLY to the `G_TRI1` handler. cdark_combat emits its triangles via **`G_TRI4`** (the 4-tri packed command, `romextract_pdmesh.c:1536`), which had NO seam check — so the probes reported 0 and the extraction looked "byte-faithful." **Audit rule: any per-vertex/per-tri invariant probe in the DL walk MUST cover both G_TRI1 and G_TRI4 (and G_TRI2 if present).**
+
+**Fix strategy**: carry a **per-vertex matrix index** through the pipeline. Extractor: the per-slot `slots_mtx[]` already tracked in `s_exportGdlToObj` is the source — emit it as a parallel per-vertex array (e.g. a 5th `model.obj` v-token or `model.vtxmtx.json`). Consume: group each DL's verts by their per-vertex matrix and reproduce the N64 interleave — load matrix, `gSPVertex` that batch, then tris referencing the multi-batch vertex cache (`render.json` already preserves the matrix-load ORDER; what's missing is which verts bind to which load). Bump EXPORT_VERSION + FAST_CACHE_KIND.
+
+**Search command**: `rg -n "s_objEmitTri|slots_mtx|matrix_index" port/src/romextract_pdmesh.c`; consume side `rg -n "gSPVertex|tri_matrix|matrix_index" port/src/modasset_compiler.c`.
+
+**Known instances**:
+- B-942 (2026-06-25): dark_combat (Joanna) legs scramble under cutscene anim 1157. Root-caused to this pattern; not yet fixed (the jointflags/type_hi fix was a partial that only addressed the near-straight standing case).
+
+---
+
 ## How to Use
 
 - Before starting any work that touches arrays, memory allocation, or stage indexing, scan this file for relevant patterns.
