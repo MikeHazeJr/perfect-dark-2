@@ -1471,6 +1471,51 @@ static s32 s_exportGdlToObj(pdmesh_obj_export_t *ctx, Gfx *raw_gdl,
 			continue;
 		}
 
+		/* B-942 root cause + fix: the original PD chr-body DL issues G_COL (cmd 7) to
+		 * DMA its per-vertex colour table from a SEGMENTED address into DMEM; each
+		 * Vtx.colour>>2 then indexes that loaded table. The renderer wires two colour
+		 * segments (model.c modelRenderNodeDl): COL1 (seg 5) = rodata->dl.colours =
+		 * the file base, and COL2 (seg 6) = rwdata->dl.colours = ALIGN8(vertices +
+		 * numvertices) -- the real per-vertex table that follows the vertex array.
+		 *
+		 * The extractor previously IGNORED G_COL and always resolved colours against
+		 * rodata->dl.colours (the COL1 file-base anchor). A lit chr body selects COL2,
+		 * so indexing (colour>>2) into the file base read whatever the relocated model
+		 * header held there -- RUNTIME POINTER bytes, which differ every load. That is
+		 * the non-determinism (B-942): the extracted model.obj per-vertex colour bytes
+		 * (=normals for a lit body) were garbage that changed run-to-run, so the body
+		 * modeldef cache hash churned and the legs (COL2-indexed verts) rendered as a
+		 * scrambled translucent box. Resolve G_COL exactly like the renderer so the
+		 * colour table is the correct, deterministic per-vertex data. */
+		if (cmd == (u8)G_COL) {
+			s32 ncol = (s32)((w0 & 0xffffu) / sizeof(Col));
+			u32 seg = (u32)((w1 >> 24) & 0x0fu);
+			/* Segmented address LSB (bit 0) is the segment marker; the real byte
+			 * offset within the segment masks it off (seg_addr() in gfx_pc.cpp). */
+			u32 off = (u32)(w1 & 0x00fffffeu);
+			const Col *table = NULL;
+			if (seg == SPSEGMENT_MODEL_COL2) {
+				/* COL2 = ALIGN8(vertices + numvertices), then + the byte offset. */
+				uintptr_t base = ALIGN8((uintptr_t)vbuf +
+					(size_t)numverts * sizeof(Vtx));
+				table = (const Col *)(base + off);
+			} else if (seg == SPSEGMENT_MODEL_COL1) {
+				/* COL1 = file base (rodata->dl.colours == fileramaddr), then + off. */
+				table = (const Col *)(ctx->base + off);
+			} else {
+				/* Unknown colour segment -> leave the per-node default in place. */
+				continue;
+			}
+			/* Only adopt the table when it (and the count) sit inside the loaded
+			 * model blob; otherwise fall back to the existing default (white-safe). */
+			if (ncol > 0 && s_ptrInModel(ctx, table,
+					(size_t)ncol * sizeof(Col))) {
+				ctx->current_colours = table;
+				ctx->current_numcolours = ncol;
+			}
+			continue;
+		}
+
 		if (cmd == (u8)G_TRI1) {
 			ctx->tri_cmd_count++;
 			s32 i0 = ((w1 >> 16) & 0xff) / 10;
