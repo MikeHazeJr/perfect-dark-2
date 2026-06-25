@@ -1,0 +1,4 @@
+{ "scenario_name": "main_menu_joanna_alpha", "description": "B-942 pin chr alpha components.",
+  "boot_args": ["--debug-hide-menu", "--debug-chr-alpha"], "timeout_seconds": 60, "install_state": "clean",
+  "input_sequence": [ { "at_ms": 0, "type": "wait" }, { "at_ms": 50000, "type": "exit" } ],
+  "screenshots": [], "assertions": { "required_lines": ["SMOKE: result=scripted_exit"], "forbidden_patterns": [], "required_counts": [] } }

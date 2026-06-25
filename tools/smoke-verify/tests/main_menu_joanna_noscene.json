@@ -1,0 +1,5 @@
+{ "scenario_name": "main_menu_joanna_noscene", "description": "B-942 legs on black after alpha fix.",
+  "boot_args": ["--debug-hide-menu", "--debug-hide-scene"], "timeout_seconds": 60, "install_state": "clean",
+  "input_sequence": [ { "at_ms": 0, "type": "wait" }, { "at_ms": 50000, "type": "exit" } ],
+  "screenshots": [ { "at_ms": 44000, "name": "ns2_44" } ],
+  "assertions": { "required_lines": ["SMOKE: result=scripted_exit"], "forbidden_patterns": [], "required_counts": [] } }

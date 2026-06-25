@@ -1655,7 +1655,15 @@ static void gfx_sp_vertex(size_t n_vertices, size_t dest_index, const Vtx* verti
             d->fog = rdp.fog_color.a;
         }
 
-        d->color.a = vcn->a; // can be required for SHADE_ALPHA even if fog is enabled
+        /* B-942 (2026-06-24): for LIT geometry (G_LIGHTING -- chr bodies) the
+         * colour slot holds the vertex NORMAL, so its 4th byte (vcn->a) is the
+         * normal's trailing byte (~40 on these bodies), NOT a real vertex alpha.
+         * Using it as SHADE_ALPHA rendered the chr translucent: the dense torso
+         * layered back to opaque (masking it) but the sparse legs blended
+         * see-through. Lit chr geometry is opaque per-vertex; any fade is applied
+         * via the env/prim alpha in the combiner. So force opaque when lit and
+         * keep the real vertex alpha (SHADE_ALPHA) only for unlit geometry. */
+        d->color.a = (rsp.geometry_mode & G_LIGHTING) ? 255 : vcn->a;
     }
 }
 

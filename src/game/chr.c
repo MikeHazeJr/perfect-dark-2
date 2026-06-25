@@ -3687,6 +3687,31 @@ Gfx *chrRender(struct prop *prop, Gfx *gdl, bool xlupass)
 		alpha = chrGetCloakAlpha(chr) * alpha * 0.0039215688593686f;
 	}
 
+	/* B-942: pin which alpha component drops the menu Joanna below opaque (which
+	 * pushes her into the XLU pass -> sparse legs blend see-through). */
+	if (model != NULL && model->definition != NULL
+			&& model->definition->nummatrices == 19
+			&& sysArgCheck("--debug-chr-alpha")) {
+		static s32 s_alphaLogged = 0;
+		if (!s_alphaLogged) {
+			s_alphaLogged = 1;
+			sysLogPrintf(LOG_NOTE,
+				"CHRALPHA: fadealpha=%d distfrac=%.3f cloak=%d finalalpha=%.1f xlupass=%d unplayable=%d",
+				(s32)chr->fadealpha,
+				objCalculateFadeDistOpacityFrac(prop, modelGetEffectiveScale(model)),
+				(s32)chrGetCloakAlpha(chr), (f32)alpha, (s32)xlupass,
+				(chr->chrflags & CHRCFLAG_UNPLAYABLE) ? 1 : 0);
+		}
+	}
+
+	/* B-942: isolate the translucent vertical "box" -- skip Joanna so the scene
+	 * (the console she leans on) renders alone. If the box stays, it's scene. */
+	if (model != NULL && model->definition != NULL
+			&& model->definition->nummatrices == 19
+			&& sysArgCheck("--debug-hide-chr")) {
+		return gdl;
+	}
+
 	if (alpha < 0xff) {
 		if (!xlupass) {
 			if (bootDebugPlaceBotNearPlayerIsAuditProp(prop)) {
