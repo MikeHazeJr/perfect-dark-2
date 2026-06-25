@@ -27,6 +27,10 @@
 #include "types.h"
 
 #define PDCHARACTER_MP_BODY_COUNT 63
+/* Bump the fast-cache kind to force re-extraction when the emitted field
+ * set changes. _b943fields adds the additive "name_langid" (mpbody::name
+ * display-name langbank id) to manifest.json + character.ini. */
+#define PDCHARACTER_FAST_CACHE_KIND "pdcharacter_b943fields"
 
 static void s_idToFilename(const char *id, char *out, size_t n)
 {
@@ -193,6 +197,7 @@ static s32 s_emitOneCharacter(s32 mpbody_idx, const char *out_dir,
 		"  \"body\": \"%s\",\n"
 		"  \"head\": %s%s%s,\n"
 		"  \"mp_body_index\": %d,\n"
+		"  \"name_langid\": %d,\n"
 		"  \"body_archive\": \"body.pdbody\",\n"
 		"  \"head_archive\": %s%s%s\n"
 		"}\n",
@@ -200,6 +205,7 @@ static s32 s_emitOneCharacter(s32 mpbody_idx, const char *out_dir,
 		body->catalog_id,
 		head ? "\"" : "", head ? head->catalog_id : "null", head ? "\"" : "",
 		mpbody_idx,
+		(s32)mpbody->name,
 		head ? "\"" : "", head ? "head.pdhead" : "null", head ? "\"" : "");
 	if (manifest_len <= 0 || (size_t)manifest_len >= sizeof(manifest_buf)) {
 		sysLoudFailf("EXTRACT.PDCHARACTER",
@@ -220,6 +226,7 @@ static s32 s_emitOneCharacter(s32 mpbody_idx, const char *out_dir,
 		"mp_body_index = %d\n"
 		"mp_bodynum = %d\n"
 		"mp_headnum = %d\n"
+		"name_langid = %d\n"
 		"requirefeature = %u\n",
 		character_id,
 		body->catalog_id,
@@ -228,6 +235,7 @@ static s32 s_emitOneCharacter(s32 mpbody_idx, const char *out_dir,
 		mpbody_idx,
 		(s32)mpbody->bodynum,
 		(s32)mpbody->headnum,
+		(s32)mpbody->name,
 		(unsigned)mpbody->requirefeature);
 	if (ini_len <= 0 || (size_t)ini_len >= sizeof(ini_buf)) {
 		sysLoudFailf("EXTRACT.PDCHARACTER",
@@ -344,7 +352,7 @@ s32 romExtractAllPdcharacter(s32 force_rewrite)
 		return -1;
 	}
 
-	if (romExtractPdFastCacheCanSkip("pdcharacter", characters_dir,
+	if (romExtractPdFastCacheCanSkip(PDCHARACTER_FAST_CACHE_KIND, characters_dir,
 			".pdcharacter", force_rewrite)) {
 		bootProgressUpdate(PDCHARACTER_MP_BODY_COUNT, PDCHARACTER_MP_BODY_COUNT);
 		sysLogPrintf(LOG_NOTE,
@@ -376,7 +384,7 @@ s32 romExtractAllPdcharacter(s32 force_rewrite)
 		written, skipped, failed, PDCHARACTER_MP_BODY_COUNT);
 
 	if (failed == 0) {
-		romExtractPdFastCacheWrite("pdcharacter", characters_dir, ".pdcharacter");
+		romExtractPdFastCacheWrite(PDCHARACTER_FAST_CACHE_KIND, characters_dir, ".pdcharacter");
 	}
 
 	return written;

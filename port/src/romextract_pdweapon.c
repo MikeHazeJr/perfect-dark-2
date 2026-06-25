@@ -44,7 +44,7 @@
 #include "animdata_authored.h"
 
 #define PDWEAPON_DEPENDENCY_CLOSURE_MARKER "embedded.v14"
-#define PDWEAPON_FAST_CACHE_KIND "pdweapon_embedded_v14_clean_public"
+#define PDWEAPON_FAST_CACHE_KIND "pdweapon_embedded_v14_clean_public_b943fields"
 #define PDWEAPON_MAX_ANIM_DEPS 128
 #define PDWEAPON_MAX_AUDIO_DEPS 128
 #define PDWEAPON_PRIMARY_GRAPH_ENTRY "behavior/primary.graph.json"
@@ -296,6 +296,28 @@ static void jw_field_f32(jw_t *w, const char *key, f32 val, s32 last)
 {
 	jw_indent(w);
 	fprintf(w->fp, "\"%s\": %.7g%s", key, (double)val, last ? "\n" : ",\n");
+}
+
+/* Emit a SHOOT_AUTOMATIC haptic-vibration ramp array (weaponfunc_shootauto
+ * ::vibrationstart / ::vibrationmax). The arrays are a fixed 12-element f32
+ * ramp consumed by bgun shoot state (bondgun.c floats[12]); only the Reaper
+ * authors non-NULL arrays. Round-trips back through loader_pool.c, which
+ * parses the matching "vibrationstart"/"vibrationmax" keys. */
+#define PDWEAPON_VIBRATION_LEN 12
+static void s_emitVibrationArray(jw_t *w, const char *key, const f32 *arr,
+                                  s32 last)
+{
+	if (!arr) {
+		jw_field_str(w, key, NULL, last);
+		return;
+	}
+	jw_indent(w);
+	fprintf(w->fp, "\"%s\": [", key);
+	for (s32 i = 0; i < PDWEAPON_VIBRATION_LEN; i++) {
+		fprintf(w->fp, "%.7g%s", (double)arr[i],
+			i + 1 == PDWEAPON_VIBRATION_LEN ? "" : ", ");
+	}
+	fputs(last ? "]\n" : "],\n", w->fp);
 }
 
 /* Emit `"key": "<NAME>"` if the integer resolves to a FILE_* name,
@@ -918,6 +940,8 @@ static void s_emitWeaponFunc(jw_t *w, const void *func_ptr, s32 last)
 		jw_field_uint(w, "penetration", sh->penetration, 0);
 		jw_field_f32(w, "initialrpm", sa->initialrpm, 0);
 		jw_field_f32(w, "maxrpm",     sa->maxrpm, 0);
+		s_emitVibrationArray(w, "vibrationstart", sa->vibrationstart, 0);
+		s_emitVibrationArray(w, "vibrationmax",   sa->vibrationmax, 0);
 		jw_field_int(w, "turretaccel", sa->turretaccel, 0);
 		jw_field_int(w, "turretdecel", sa->turretdecel, 1);
 		break;
@@ -943,6 +967,11 @@ static void s_emitWeaponFunc(jw_t *w, const void *func_ptr, s32 last)
 		jw_field_int(w, "traveldist", sp->traveldist, 0);
 		jw_field_int(w, "timer60",    sp->timer60, 0);
 		jw_field_f32(w, "reflectangle", sp->reflectangle, 0);
+		/* unk50 (0x50): post-bounce slide friction, consumed by the
+		 * propobj bounce/slide path and re-parsed by loader_pool.c into
+		 * weaponfunc_shootprojectile::unk50. Devastator (both modes) and
+		 * the SuperDragon grenade launcher author 0.08. */
+		jw_field_f32(w, "unk50", sp->unk50, 0);
 		jw_field_int(w, "soundnum", sp->soundnum, 1);
 		break;
 	}
@@ -1679,6 +1708,7 @@ static s32 s_writeProjectileArchive(const pdweapon_nested_payload_t *p)
 	f32 scale = 1.0f;
 	f32 reflectangle = 0.0f;
 	f32 damage = 0.0f;
+	f32 slide_friction = 0.0f; /* weaponfunc_shootprojectile::unk50 (0x50) */
 	s32 activatetime60 = 0;
 	s32 recoverytime60 = 0;
 
@@ -1692,6 +1722,7 @@ static s32 s_writeProjectileArchive(const pdweapon_nested_payload_t *p)
 		scale = sp->scale;
 		reflectangle = sp->reflectangle;
 		damage = sh->damage;
+		slide_friction = sp->unk50;
 	} else if (f && f->type == INVENTORYFUNCTYPE_THROW) {
 		const struct weaponfunc_throw *tw = (const struct weaponfunc_throw *)f;
 		activatetime60 = tw->activatetime60;
@@ -1716,6 +1747,26 @@ static s32 s_writeProjectileArchive(const pdweapon_nested_payload_t *p)
 		p->entity_ref[0] ? p->entity_ref : "",
 		p->entity_ref[0] ? "\n" : "");
 	if (ini_len <= 0 || (size_t)ini_len >= sizeof(projectile_ini)) return -1;
+
+	/* Optional projectile.bounce_slide node (weaponfunc_shootprojectile
+	 * ::unk50 != 0). The runtime (weapon_graph_runtime.c
+	 * WEAPON_GRAPH_OP_PROJECTILE_BOUNCE_SLIDE) scans every node and reads
+	 * the "slide_friction" param to drive the propobj bounce/slide path.
+	 * Each fragment self-prefixes ",\n    " so it appends after the always-
+	 * present "motion" node/edge regardless of the other optional nodes. */
+	char bounce_node[256];
+	char bounce_edge[96];
+	bounce_node[0] = '\0';
+	bounce_edge[0] = '\0';
+	if (slide_friction != 0.0f) {
+		snprintf(bounce_node, sizeof(bounce_node),
+			",\n    {\n      \"id\": \"bounce_slide\",\n"
+			"      \"kind\": \"projectile.bounce_slide\",\n"
+			"      \"params\": { \"slide_friction\": %.7g }\n    }",
+			(double)slide_friction);
+		snprintf(bounce_edge, sizeof(bounce_edge),
+			",\n    { \"from\": \"motion\", \"to\": \"bounce_slide\" }");
+	}
 
 	char graph[4096];
 	int graph_len = snprintf(graph, sizeof(graph),
@@ -1751,10 +1802,10 @@ static s32 s_writeProjectileArchive(const pdweapon_nested_payload_t *p)
 		"        \"powered\": %s,\n"
 		"        \"calculate_trajectory\": %s\n"
 		"      }\n"
-		"    }%s%s%s\n"
+		"    }%s%s%s%s\n"
 		"  ],\n"
 		"  \"edges\": [\n"
-		"    { \"from\": \"spawn_state\", \"to\": \"motion\" }%s%s%s\n"
+		"    { \"from\": \"spawn_state\", \"to\": \"motion\" }%s%s%s%s\n"
 		"  ],\n"
 		"  \"exports\": [\n"
 		"    { \"name\": \"main\", \"node\": \"%s\" }\n"
@@ -1780,10 +1831,12 @@ static s32 s_writeProjectileArchive(const pdweapon_nested_payload_t *p)
 		(flags & FUNCFLAG_HOMINGROCKET) ? ",\n    {\n      \"id\": \"homing\",\n      \"kind\": \"projectile.homing\",\n      \"params\": { \"target_source\": \"current_lock\", \"runtime_constants\": \"extract_in_runtime_adapter\" }\n    }" : "",
 		(flags & FUNCFLAG_FLYBYWIRE) ? ",\n    {\n      \"id\": \"fly_by_wire\",\n      \"kind\": \"projectile.fly_by_wire\",\n      \"params\": { \"control_source\": \"owner\", \"bot_route_policy\": \"runtime_existing\" }\n    }" : "",
 		(flags & FUNCFLAG_STICKTOWALL) ? ",\n    {\n      \"id\": \"wall_hugger\",\n      \"kind\": \"projectile.wall_hugger\",\n      \"params\": { \"stick_surface_filter\": \"background\", \"post_fall_timer60\": 360 }\n    }" : "",
+		bounce_node,
 		(flags & FUNCFLAG_HOMINGROCKET) ? ",\n    " : "",
 		(flags & FUNCFLAG_HOMINGROCKET) ? "{ \"from\": \"motion\", \"to\": \"homing\" }" : "",
 		(flags & FUNCFLAG_FLYBYWIRE) ? ",\n    { \"from\": \"motion\", \"to\": \"fly_by_wire\" }" :
 			((flags & FUNCFLAG_STICKTOWALL) ? ",\n    { \"from\": \"motion\", \"to\": \"wall_hugger\" }" : ""),
+		bounce_edge,
 		(flags & FUNCFLAG_FLYBYWIRE) ? "fly_by_wire" :
 			((flags & FUNCFLAG_HOMINGROCKET) ? "homing" :
 			((flags & FUNCFLAG_STICKTOWALL) ? "wall_hugger" : "motion")));
@@ -2050,6 +2103,10 @@ static void s_emitWeaponGraphParams(jw_t *w, const char *catalog_id,
 		s_emitShootGraphParams(w, &sa->base, 1);
 		jw_field_f32(w, "initial_rpm", sa->initialrpm, 0);
 		jw_field_f32(w, "max_rpm", sa->maxrpm, 0);
+		/* Haptic vibration ramp (12-element f32, Reaper-only). Descriptive
+		 * mirror of the manifest vibrationstart/vibrationmax arrays. */
+		s_emitVibrationArray(w, "vibration_start", sa->vibrationstart, 0);
+		s_emitVibrationArray(w, "vibration_max",   sa->vibrationmax, 0);
 		jw_field_int(w, "turret_accel", sa->turretaccel, 0);
 		jw_field_int(w, "turret_decel", sa->turretdecel, 1);
 		break;
@@ -2068,6 +2125,9 @@ static void s_emitWeaponGraphParams(jw_t *w, const char *catalog_id,
 		jw_field_int(w, "travel_distance", sp->traveldist, 0);
 		jw_field_int(w, "timer_ticks60", sp->timer60, 0);
 		jw_field_f32(w, "reflect_angle", sp->reflectangle, 0);
+		/* unk50 (0x50): post-bounce slide friction. Mirrors the
+		 * projectile.bounce_slide graph node's slide_friction param. */
+		jw_field_f32(w, "slide_friction", sp->unk50, 0);
 		s_emitSfxCatalogField(w, "projectile_sound_catalog_id",
 			sp->soundnum, 1);
 		break;

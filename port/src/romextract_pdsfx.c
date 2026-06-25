@@ -570,6 +570,12 @@ static s32 s_emitOneSound(s32 sfx_idx,
 	 * envelope. */
 	s32 has_loop = 0;
 	u32 loop_start = 0, loop_end = 0, loop_count = 0;
+	/* ADPCM loop predictor restart vector (ALADPCMloop::state, ADPCM_STATE
+	 * = short[16]). Consumed by the runtime at n_load.c for click-free loop
+	 * seams; already byte-swapped into host order by the ctl preprocess
+	 * (segaudio.c convertAudioAdpcmLoop). Only emitted for ALADPCM loops. */
+	s32 has_loop_state = 0;
+	const short *loop_state = NULL;
 	if (wt->type == AL_ADPCM_WAVE) {
 		u32 loop_off = s_offsetFromPointer(wt->waveInfo.adpcmWave.loop);
 		if (loop_off != 0 && loop_off + sizeof(ALADPCMloop) <= ctl_size) {
@@ -578,6 +584,8 @@ static s32 s_emitOneSound(s32 sfx_idx,
 			loop_start = lp->start;
 			loop_end   = lp->end;
 			loop_count = lp->count;
+			loop_state = lp->state;
+			has_loop_state = 1;
 			has_loop = 1;
 		}
 	} else if (wt->type == AL_RAW16_WAVE) {
@@ -668,6 +676,29 @@ static s32 s_emitOneSound(s32 sfx_idx,
 	u8 decay_volume = envelope ? envelope->decayVolume : 127;
 	s32 has_envelope = envelope != NULL;
 
+	/* Build the optional ADPCM loop_state line (16 signed int16). Empty for
+	 * non-ALADPCM or non-looping sounds; otherwise a full manifest line
+	 * self-terminated with ",\n" so it slots after the has_loop field. */
+	char loop_state_json[256];
+	loop_state_json[0] = '\0';
+	if (has_loop_state && loop_state) {
+		size_t pos = 0;
+		int n = snprintf(loop_state_json, sizeof(loop_state_json),
+			"  \"loop_state\": [");
+		if (n > 0) pos = (size_t)n;
+		for (s32 i = 0; i < ADPCMFSIZE && pos < sizeof(loop_state_json); i++) {
+			n = snprintf(loop_state_json + pos, sizeof(loop_state_json) - pos,
+				"%d%s", (int)loop_state[i],
+				i + 1 == ADPCMFSIZE ? "" : ", ");
+			if (n <= 0) break;
+			pos += (size_t)n;
+		}
+		if (pos < sizeof(loop_state_json)) {
+			snprintf(loop_state_json + pos, sizeof(loop_state_json) - pos,
+				"],\n");
+		}
+	}
+
 	char manifest_buf[3072];
 	int manifest_len;
 	if (mode == PDAUDIO_WALK_VOICE) {
@@ -691,6 +722,7 @@ static s32 s_emitOneSound(s32 sfx_idx,
 			"  \"loop_end_samples\": %u,\n"
 			"  \"loop_count\": %u,\n"
 			"  \"has_loop\": %s,\n"
+			"%s"
 			"  \"sample_pan\": %u,\n"
 			"  \"sample_volume\": %u,\n"
 			"  \"sound_flags\": %u,\n"
@@ -717,6 +749,7 @@ static s32 s_emitOneSound(s32 sfx_idx,
 			(unsigned)decoded_sample_count,
 			(unsigned)loop_start, (unsigned)loop_end, (unsigned)loop_count,
 			has_loop ? "true" : "false",
+			loop_state_json,
 			(unsigned)snd->samplePan,
 			(unsigned)snd->sampleVolume,
 			(unsigned)snd->flags,
@@ -752,6 +785,7 @@ static s32 s_emitOneSound(s32 sfx_idx,
 			"  \"loop_end_samples\": %u,\n"
 			"  \"loop_count\": %u,\n"
 			"  \"has_loop\": %s,\n"
+			"%s"
 			"  \"sample_pan\": %u,\n"
 			"  \"sample_volume\": %u,\n"
 			"  \"sound_flags\": %u,\n"
@@ -778,6 +812,7 @@ static s32 s_emitOneSound(s32 sfx_idx,
 			(unsigned)decoded_sample_count,
 			(unsigned)loop_start, (unsigned)loop_end, (unsigned)loop_count,
 			has_loop ? "true" : "false",
+			loop_state_json,
 			(unsigned)snd->samplePan,
 			(unsigned)snd->sampleVolume,
 			(unsigned)snd->flags,
@@ -1278,6 +1313,11 @@ s32 romextract_pdaudio_walkBank(pdaudio_walk_mode_t mode, s32 force_rewrite)
 	const char *out_subdir = (mode == PDAUDIO_WALK_VOICE)
 		? PDSFX_OUT_DIR_VOICE : PDSFX_OUT_DIR_SFX;
 	const char *kind_label = (mode == PDAUDIO_WALK_VOICE) ? "pdvoice" : "pdsfx";
+	/* Fast-cache kind is bumped independently of the log label so a field
+	 * change forces the directory stamp stale without polluting log output.
+	 * _b943fields adds the additive ALADPCM "loop_state" predictor vector. */
+	const char *cache_kind = (mode == PDAUDIO_WALK_VOICE)
+		? "pdvoice_b943fields" : "pdsfx_b943fields";
 
 	const u8 *ctl_data = NULL;
 	u32 ctl_size = 0;
@@ -1388,7 +1428,7 @@ s32 romextract_pdaudio_walkBank(pdaudio_walk_mode_t mode, s32 force_rewrite)
 
 	{
 		const char *ext = (mode == PDAUDIO_WALK_VOICE) ? ".pdvoice" : ".pdsfx";
-		if (romExtractPdFastCacheCanSkip(kind_label, out_dir,
+		if (romExtractPdFastCacheCanSkip(cache_kind, out_dir,
 				ext, force_rewrite) &&
 				(mode != PDAUDIO_WALK_SFX ||
 					s_configuredAliasArchivesComplete(out_dir)) &&
@@ -1461,7 +1501,7 @@ s32 romextract_pdaudio_walkBank(pdaudio_walk_mode_t mode, s32 force_rewrite)
 
 	if (failed == 0) {
 		const char *ext = (mode == PDAUDIO_WALK_VOICE) ? ".pdvoice" : ".pdsfx";
-		romExtractPdFastCacheWrite(kind_label, out_dir, ext);
+		romExtractPdFastCacheWrite(cache_kind, out_dir, ext);
 	}
 
 	return written;
