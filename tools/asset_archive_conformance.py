@@ -704,6 +704,8 @@ SCHEMAS: dict[str, Schema] = {
             "pads.json",
             "spawns.json",
             "volumes.json",
+            "collision.flags.json",  # decoded collision GEOFLAG/floortype sidecar (c3844 B-943)
+            "room_lights.json",      # decoded BG room-lights sidecar (c3844 B-943)
             "navigation/waypoints.json",
             "navigation/waygroups.json",
             "navigation/covers.json",
@@ -1036,6 +1038,8 @@ OPTIONAL_PUBLIC_SLOT_CONTRACT: dict[str, dict[str, SlotJustification]] = {
         "scene.gltf": slot("text DCC-openable scene source", "scenario importer", "loads level mesh/materials as runtime source and cache seed", "scene.glb must be present"),
         "collision.glb": slot("binary collision override source", "scenario collision importer", "uses explicit collision mesh instead of deriving collision from scene source", "collision is deterministically generated from the scene source"),
         "collision.obj": slot("OBJ collision override source", "scenario collision importer", "uses explicit collision mesh instead of deriving collision from scene source", "collision is deterministically generated from the scene source"),
+        "collision.flags.json": slot("per-triangle collision GEOFLAG/floortype sidecar", "scenario collision importer", "applies authoritative per-tri GEOFLAGs (DIE/LADDER/UNDERWATER/STEP/BLOCK_SIGHT/SHOOT) + footstep floortype to the collision tile cache", "collision flags are reconstructed from face normals via classifyTriFlags (FLOOR/WALL only)"),
+        "room_lights.json": slot("decoded BG per-room lights sidecar", "scenario room-lights importer", "rebuilds g_BgLightsFileData for per-room dynamic brightness + shoot-out-the-lights", "extracted stages run with static lighting, no per-room dynamic light precompute"),
         "mission.graph.json": slot("scenario-local mission behavior graph", "mission graph importer", "loads mission/script graph when the scenario carries its own mission logic", "mission behavior comes from a linked .pdmission or base fallback"),
     },
     ".pdmesh": {
