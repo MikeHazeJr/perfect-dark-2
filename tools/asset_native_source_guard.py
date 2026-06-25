@@ -1733,6 +1733,10 @@ SCENARIO_RUNTIME_EXTERNAL_GLOBAL_MAX_COUNTS = {
     "g_GuardQuipBank": 4,
     "g_SourceWidePadFile": 4,
     "g_BgNumPortalCameraCacheItems": 3,
+    # B-943: scenarioSourceLoadRoomLightsForStage produces the flat struct
+    # light[] backing for g_BgLightsFileData (assigned in bg.c); the references
+    # here are explanatory comments documenting that source boundary.
+    "g_BgLightsFileData": 2,
     "g_MissionConfig": 3,
     "g_MpAllChrPtrs": 2,
     "g_MpNumChrs": 4,

@@ -34916,3 +34916,257 @@ u8 *scenarioSourceLoadPadsForStage(const catalog_stage_result_t *stage,
 	}
 	return padfile;
 }
+
+/*
+ * B-943 (gap #1 part-2): rebuild the BG per-room LIGHT table from the
+ * room_lights.json sidecar (schema pd2.scenario.room.lights.v1) emitted by the
+ * pdarena extractor. Without this, scenario-source (extracted) stages load with
+ * g_BgLightsFileData == NULL and every room->numlights == 0, so the
+ * shoot-out-the-lights / dimming mechanic and per-room dynamic brightness are
+ * silently dead. The extractor captures every `struct light` field; this loader
+ * reconstructs them 1:1 into the flat, room-ordered `struct light` array that
+ * dlights.c indexes via room->lightindex (record stride 0x22).
+ *
+ * Returns a stage-pool buffer of (count * sizeof(struct light)) bytes (the
+ * g_BgLightsFileData backing) or NULL when there is no usable light data.
+ * *out_count = total light records; *out_max_room = highest roomnum seen. The
+ * caller (bgBuildScenarioSourceTables) derives per-room lightindex/numlights
+ * from each record's roomnum, mirroring the legacy section-3 light-count walk.
+ */
+static s32 s_jsonReadIntArrayInRange(const char *start, const char *end,
+	const char *key, s32 *out, s32 count)
+{
+	const char *cursor = s_jsonValueAfterKey(start, end, key);
+	s32 i;
+
+	if (!out || !cursor || cursor >= end || *cursor != '[') {
+		return 0;
+	}
+	cursor++;
+	for (i = 0; i < count; i++) {
+		char *next;
+		long value;
+		while (cursor < end && isspace((unsigned char)*cursor)) {
+			cursor++;
+		}
+		if (cursor >= end) {
+			return 0;
+		}
+		value = strtol(cursor, &next, 0);
+		if (next == cursor || next > end) {
+			return 0;
+		}
+		out[i] = (s32)value;
+		cursor = next;
+		while (cursor < end && isspace((unsigned char)*cursor)) {
+			cursor++;
+		}
+		if (i < count - 1) {
+			if (cursor >= end || *cursor != ',') {
+				return 0;
+			}
+			cursor++;
+		}
+	}
+	while (cursor < end && isspace((unsigned char)*cursor)) {
+		cursor++;
+	}
+	return cursor < end && *cursor == ']';
+}
+
+u8 *scenarioSourceLoadRoomLightsForStage(const catalog_stage_result_t *stage,
+	s32 prefer_mp, s32 *out_count, s32 *out_max_room)
+{
+	const asset_entry_t *scenario;
+	char lights_path[FS_MAXPATH + 1];
+	u32 text_size;
+	char *text;
+	char *rows_open;
+	char *rows_close;
+	char *cursor;
+	char *text_end;
+	s32 capacity = 0;
+	s32 count = 0;
+	s32 max_room = 0;
+	struct light *lights = NULL;
+	u8 *data = NULL;
+	const char *stageid;
+
+	if (out_count) {
+		*out_count = 0;
+	}
+	if (out_max_room) {
+		*out_max_room = 0;
+	}
+
+	scenario = s_findScenarioForStage(stage, prefer_mp);
+	if (!scenario || !scenario->id[0] ||
+			!s_scenarioMemberPath(scenario, "room_lights.json", lights_path,
+				sizeof(lights_path))) {
+		return NULL;
+	}
+
+	text = s_loadOptionalText(lights_path, &text_size);
+	if (!text) {
+		/* Pre-B943 archives have no room_lights.json: not an error, the legacy
+		 * dynamic-light precompute is simply skipped (as it was before). */
+		if (assetSourceDebugIsEnabledFor(ASSET_SCENARIO)) {
+			sysLogPrintf(LOG_NOTE,
+				"SCENARIO.SOURCE: no room_lights.json for '%s' at %s (pre-B943 archive; lights skipped)",
+				scenario->id, lights_path);
+		}
+		return NULL;
+	}
+	text_end = text + text_size;
+
+	if (!strstr(text, "pd2.scenario.room.lights.v1")) {
+		sysLogPrintf(LOG_ERROR,
+			"SCENARIO.SOURCE: room_lights.json schema mismatch for '%s' at %s",
+			scenario->id, lights_path);
+		free(text);
+		return NULL;
+	}
+
+	rows_open = strstr(text, "\"rows\"");
+	if (rows_open) {
+		rows_open = strchr(rows_open, '[');
+	}
+	if (!rows_open) {
+		free(text);
+		return NULL;
+	}
+	/* The rows array is the only place '{' objects appear; everything after the
+	 * closing ']' ("light_count": N }) is brace-free of '{', so bounding the
+	 * row scan by end-of-text is safe and avoids a separate bracket matcher. */
+	rows_close = text_end;
+
+	/* First pass: count row objects so we can size the stage allocation once. */
+	cursor = rows_open + 1;
+	while (cursor < rows_close) {
+		char *obj_open = strchr(cursor, '{');
+		char *obj_close;
+		if (!obj_open || obj_open >= rows_close) {
+			break;
+		}
+		obj_close = s_jsonFindObjectEnd(obj_open, rows_close);
+		if (!obj_close) {
+			break;
+		}
+		capacity++;
+		cursor = obj_close + 1;
+	}
+
+	if (capacity <= 0) {
+		free(text);
+		if (assetSourceDebugIsEnabledFor(ASSET_SCENARIO)) {
+			sysLogPrintf(LOG_NOTE,
+				"SCENARIO.SOURCE: room_lights.json has zero lights for '%s'",
+				scenario->id);
+		}
+		return NULL;
+	}
+
+	data = mempAlloc(ALIGN16((u32)capacity * (u32)sizeof(struct light)),
+		MEMPOOL_STAGE);
+	if (!data) {
+		sysLogPrintf(LOG_ERROR,
+			"SCENARIO.SOURCE: room light allocation failed for '%s' lights=%d",
+			scenario->id, capacity);
+		free(text);
+		return NULL;
+	}
+	memset(data, 0, ALIGN16((u32)capacity * (u32)sizeof(struct light)));
+	lights = (struct light *)data;
+
+	/* Second pass: parse each row object into a struct light. */
+	cursor = rows_open + 1;
+	while (cursor < rows_close && count < capacity) {
+		char *obj_open = strchr(cursor, '{');
+		const char *obj_close;
+		struct light *l = &lights[count];
+		s32 ivalue;
+		s32 dir[3] = { 0, 0, 0 };
+		s32 bbox[12];
+		s32 j;
+
+		if (!obj_open || obj_open >= rows_close) {
+			break;
+		}
+		obj_close = s_jsonFindObjectEnd(obj_open, rows_close);
+		if (!obj_close) {
+			break;
+		}
+
+		if (!s_jsonReadS32Value(obj_open, obj_close, "roomnum", &ivalue)) {
+			/* roomnum is mandatory; skip malformed rows rather than abort. */
+			cursor = (char *)obj_close + 1;
+			continue;
+		}
+		l->roomnum = (u16)ivalue;
+		if (ivalue > max_room) {
+			max_room = ivalue;
+		}
+
+		if (s_jsonReadS32Value(obj_open, obj_close, "colour", &ivalue)) {
+			l->colour = (u16)ivalue;
+		}
+		if (s_jsonReadS32Value(obj_open, obj_close, "brightness", &ivalue)) {
+			l->brightness = (u8)ivalue;
+		}
+		if (s_jsonReadS32Value(obj_open, obj_close, "sparkable", &ivalue)) {
+			l->sparkable = ivalue ? 1 : 0;
+		}
+		if (s_jsonReadS32Value(obj_open, obj_close, "healthy", &ivalue)) {
+			l->healthy = ivalue ? 1 : 0;
+		}
+		if (s_jsonReadS32Value(obj_open, obj_close, "on", &ivalue)) {
+			l->on = ivalue ? 1 : 0;
+		}
+		if (s_jsonReadS32Value(obj_open, obj_close, "sparking", &ivalue)) {
+			l->sparking = ivalue ? 1 : 0;
+		}
+		if (s_jsonReadS32Value(obj_open, obj_close, "vulnerable", &ivalue)) {
+			l->vulnerable = ivalue ? 1 : 0;
+		}
+		if (s_jsonReadS32Value(obj_open, obj_close, "brightnessmult",
+				&ivalue)) {
+			l->brightnessmult = (u8)ivalue;
+		}
+		if (s_jsonReadIntArrayInRange(obj_open, obj_close, "dir", dir, 3)) {
+			l->dirx = (s8)dir[0];
+			l->diry = (s8)dir[1];
+			l->dirz = (s8)dir[2];
+		}
+		if (s_jsonReadIntArrayInRange(obj_open, obj_close, "bbox", bbox, 12)) {
+			for (j = 0; j < 4; j++) {
+				l->bbox[j].x = (s16)bbox[j * 3 + 0];
+				l->bbox[j].y = (s16)bbox[j * 3 + 1];
+				l->bbox[j].z = (s16)bbox[j * 3 + 2];
+			}
+		}
+
+		count++;
+		cursor = (char *)obj_close + 1;
+	}
+
+	free(text);
+
+	if (count <= 0) {
+		return NULL;
+	}
+
+	stageid = (stage && stage->entry && stage->entry->id[0])
+		? stage->entry->id : "?";
+	sysLogPrintf(LOG_NOTE,
+		"SCENARIO.SOURCE: compiled room_lights.json '%s' for stage '%s' as %d lights (max_room=%d, %u bytes)",
+		lights_path, stageid, count, max_room,
+		(unsigned)((u32)count * (u32)sizeof(struct light)));
+
+	if (out_count) {
+		*out_count = count;
+	}
+	if (out_max_room) {
+		*out_max_room = max_room;
+	}
+	return data;
+}

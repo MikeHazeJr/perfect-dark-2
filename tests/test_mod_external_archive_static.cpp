@@ -6048,7 +6048,7 @@ TEST_CASE("modder examples are zip-openable typed pdxxx asset archives",
 	REQUIRE(mission.find("catalog_id = example:tri_mission") != std::string::npos);
 	REQUIRE(mission.find("mission_graph_file = mission.graph.json") != std::string::npos);
 	REQUIRE(mission.find("scenario_archive = dependencies/assets/scenarios/tri_scenario.pdscenario") != std::string::npos);
-	REQUIRE(mission.find("scenario_graph_cache = pdscenario_scene_glb_clean_public_v98_standalone_backfill_collision_obj_collision_flags_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json") != std::string::npos);
+	REQUIRE(mission.find("scenario_graph_cache = pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json") != std::string::npos);
 	REQUIRE(mission.find("objectives_file = objectives.json") != std::string::npos);
 	REQUIRE(mission.find("briefing_file = briefing.json") != std::string::npos);
 	REQUIRE(missionManifest.find("\"objectives_file\": \"objectives.json\"") != std::string::npos);

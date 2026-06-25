@@ -1666,6 +1666,46 @@ static void bgBuildScenarioSourceTables(s32 stagenum)
 
 	mtx00016748(1);
 	bgBuildScenarioSourcePortalTables(&stage);
+
+	/* B-943 (gap #1 part-2): rebuild the per-room dynamic-light table from the
+	 * room_lights.json sidecar. The flat struct light[] array is room-ordered
+	 * (matching the ROM layout dlights.c indexes via room->lightindex); derive
+	 * each room's lightindex/numlights from the records' roomnum, mirroring the
+	 * legacy section-3 light-count walk in bgBuildTables(). */
+	{
+		s32 light_count = 0;
+		s32 light_max_room = 0;
+		u8 *lightdata = scenarioSourceLoadRoomLightsForStage(&stage,
+			g_Vars.normmplayerisrunning, &light_count, &light_max_room);
+
+		if (lightdata && light_count > 0) {
+			struct light *lights = (struct light *)lightdata;
+			s32 li;
+			s32 applied = 0;
+
+			g_BgLightsFileData = lightdata;
+
+			for (li = 0; li < light_count; li++) {
+				s32 room = lights[li].roomnum;
+				if (room <= 0 || room >= g_Vars.roomcount) {
+					continue;
+				}
+				if (g_Rooms[room].numlights == 0) {
+					/* First record for this room: records are contiguous +
+					 * room-ordered, so this is the room's lightindex. */
+					g_Rooms[room].lightindex = (u16)li;
+				}
+				g_Rooms[room].numlights++;
+				applied++;
+			}
+
+			sysLogPrintf(LOG_NOTE,
+				"SCENARIO.SOURCE: B-943 room lights '%s' lights=%d applied=%d max_room=%d rooms=%d source=room_lights.json",
+				g_BgScenarioSourceId[0] ? g_BgScenarioSourceId : "?",
+				light_count, applied, light_max_room, g_Vars.roomcount);
+		}
+	}
+
 	roomsReset();
 	dyntexReset();
 	var800a41a0 = NULL;

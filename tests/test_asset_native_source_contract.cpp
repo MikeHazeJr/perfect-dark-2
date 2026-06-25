@@ -9903,7 +9903,7 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 	        std::string::npos);
 	REQUIRE(meta_extractor.find("PDMETA_SCENARIO_DEP_CACHE_KIND") !=
 	        std::string::npos);
-	REQUIRE(meta_extractor.find("pdscenario_scene_glb_clean_public_v98_standalone_backfill_collision_obj_collision_flags_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json") !=
+	REQUIRE(meta_extractor.find("pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json") !=
 	        std::string::npos);
 	REQUIRE(meta_extractor.find("pdscenario_scene_glb_clean_public_v96_") ==
 	        std::string::npos);
@@ -10769,6 +10769,27 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 	REQUIRE(scenario_runtime.find("tile->floortype = src->floortype;") !=
 	        std::string::npos);
 	REQUIRE(scenario_runtime.find("tile->floorcol = src->floorcol;") !=
+	        std::string::npos);
+	// B-943 (gap #1 part-2): the BG per-room LIGHT table is emitted as a
+	// schema-versioned room_lights.json sidecar, required for a clean archive
+	// (forces re-extraction of pre-lights archives), and rebuilt at runtime into
+	// g_BgLightsFileData so the shoot-out-lights / dimming mechanic survives the
+	// scenario-source path.
+	REQUIRE(scenario_extractor.find("assetArchiveWriterAddPublicMem(&asset_writer, \"room_lights.json\"") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("pd2.scenario.room.lights.v1") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("s_existingArchiveHasEntry(relpath, \"room_lights.json\")") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("s_buildBgRoomLightsJson") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceLoadRoomLightsForStage") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime_h.find("scenarioSourceLoadRoomLightsForStage") !=
+	        std::string::npos);
+	REQUIRE(bg_runtime.find("scenarioSourceLoadRoomLightsForStage") !=
+	        std::string::npos);
+	REQUIRE(bg_runtime.find("g_BgLightsFileData = lightdata;") !=
 	        std::string::npos);
 	REQUIRE(scenario_extractor.find("collision_source = collision.obj") !=
 	        std::string::npos);
@@ -14758,9 +14779,9 @@ TEST_CASE("c3843 remaining base asset families emit clean native archives",
 	REQUIRE(meta.find("\"element_type = %d") == std::string::npos);
 	REQUIRE(meta.find("\"effect_type = %d") == std::string::npos);
 	REQUIRE(meta.find("\"prop_type = %d") == std::string::npos);
-	REQUIRE(arena.find("ROMEXTRACT_PDARENA_FAST_CACHE_KIND \"pdarena_clean_public_v9_pdscenario_v98\"") !=
+	REQUIRE(arena.find("ROMEXTRACT_PDARENA_FAST_CACHE_KIND \"pdarena_clean_public_v10_pdscenario_v99\"") !=
 	        std::string::npos);
-	REQUIRE(arena.find("ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND \"pdscenario_scene_glb_clean_public_v98_standalone_backfill_collision_obj_collision_flags_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_alphablend_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json\"") !=
+	REQUIRE(arena.find("ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND \"pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_alphablend_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json\"") !=
 	        std::string::npos);
 	REQUIRE(arena.find("s_aiOpcodeSemanticKind") != std::string::npos);
 	REQUIRE(arena.find("ai_command_nodes_json") != std::string::npos);
