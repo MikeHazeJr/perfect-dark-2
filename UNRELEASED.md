@@ -16,6 +16,7 @@
 
 ## Added
 
+- Extracted character animations now preserve root-motion (translation + facing) and cutscene camera channels in the public `.pdanim`. 439 root-motion and 98 camera animations that previously survived only in the private runtime cache now round-trip losslessly, so modded and extracted anims keep their movement and camera data.
 - Custom weapon behavior authored in `.pdweapon`/`.pdprojectile`/`.pdentity` graphs now actually drives gameplay (behind the developer graph-runtime toggle): homing steering gains, fly-by-wire tuning, trajectory clamps, wall-hugger and sticky behavior, bounce tuning, fuse timers, impact filters/sounds/sparks/explosions, smoke trails, carrier-to-turret transitions, proxy/remote/timed mine policies with detonator pairing, deployed-autogun cadence and muzzle behavior, owner-death cleanup, pickup/recover rules, weapon settings/variables with `$name` substitution, and an x-ray camera effect. Base-game behavior is bit-identical with the toggle off (and on, for base weapons).
 - Custom visual effects now have a runtime: `.pdeffect` graphs compile and drive the existing explosion/spark/smoke machinery, including custom-tinted spark types (the Needler's pink burst), with effects nested inside weapon archives now correctly discovered.
 - Weapon graph runtime is now on by default; the old debug toggle and transient MP option are retired, and mixed v50/v51 network builds are refused at connection time.

@@ -64,9 +64,19 @@ extern double cos(double);
  * count (already byte-swapped by preprocessAnimations), followed by
  * `count` struct animtableentry records (also byte-swapped). */
 #define PDANIM_CHR_TABLE_TAIL_BYTES 0x38a0
-#define PDANIM_CHR_SCHEMA_VERSION 4
-#define PDANIM_CHR_GENERATOR "Perfect Dark 2 pdanim_chr semantic extractor v4"
+/* Schema v5 (2026-06-25, B-772/B-943 gap #2): adds versioned capture of
+ * ANIMFIELD_08 (pos-angle root-motion: translate X/Y/Z + Y-rotation) and
+ * ANIMFIELD_CAMERA (cutscene FOV-Y / blur-frac) part channels into the
+ * gltf-extras `pd_special_parts` array. These bit-packed native fields have
+ * no clean GLTF transform-channel analogue, so they are captured as the
+ * verbatim per-part header descriptor bytes plus the raw per-frame bit-field
+ * values -- a byte-exact, lossless round-trip rebuilt by the consume. */
+#define PDANIM_CHR_SCHEMA_VERSION 5
+#define PDANIM_CHR_GENERATOR "Perfect Dark 2 pdanim_chr semantic extractor v5"
 #define PDANIM_MAX_TAIL_VALUES 512
+/* Per-part raw field cap: 4 (ANIMFIELD_08 x/y/z/angle) + 3 (rotate) + 1
+ * (camera) + 3 (scale) = 11 fields max for any single part descriptor. */
+#define PDANIM_MAX_PART_FIELDS 11
 
 static s32 s_memContains(const char *data, u32 size, const char *needle)
 {
@@ -137,7 +147,7 @@ static s32 s_existingArchiveHasAnimPayloads(const char *relpath)
 			&manifest_size);
 		ok = manifest
 			&& s_memContains(manifest, manifest_size,
-				"\"pd_schema_version\": 4")
+				"\"pd_schema_version\": 5")
 			&& s_memContains(manifest, manifest_size,
 				"\"animation\": \"animation.gltf\"");
 		free(manifest);
@@ -467,6 +477,107 @@ static f32 s_animReadF32Bits(const u8 *framebytes, s32 bitoffset)
 	return v.f;
 }
 
+/* Decode one part's raw per-frame bit-field values in canonical native
+ * order, for the special-part (ANIMFIELD_08 / ANIMFIELD_CAMERA) capture.
+ *
+ * Fields emitted (only those the part's flags select), in the exact order
+ * the native frame data packs them:
+ *   ANIMFIELD_08          : 4 fields (x, y, z, angle)  -- signed-short reads
+ *   ANIMFIELD_S16_TRANSLATE: 3 fields (x, y, z)        -- signed-short reads
+ *   ANIMFIELD_S32_TRANSLATE: 3 fields (x, y, z)        -- unsigned bit reads
+ *   ANIMFIELD_S16_ROTATE  : 3 fields (rx, ry, rz)      -- unsigned bit reads
+ *   ANIMFIELD_F32_ROTATE  : 3 fields (rx, ry, rz)      -- 32-bit raw reads
+ *   ANIMFIELD_CAMERA      : 1 field  (value)           -- unsigned bit read
+ *   ANIMFIELD_F32_SCALE   : 3 fields (sx, sy, sz)      -- 32-bit raw reads
+ * The captured values are the raw `animReadBits` results (pre-base-add), so
+ * combined with the verbatim header descriptor they reconstruct the exact
+ * native frame bits regardless of base/sign. Returns the field count. */
+static u32 s_decodeRawPartFields(const u8 *header, u8 flags,
+                                 const u8 *framebytes, s32 bit_offset,
+                                 u32 out_values[PDANIM_MAX_PART_FIELDS])
+{
+	const u8 *ptr = header;
+	s32 bitoffset = bit_offset;
+	u32 n = 0;
+	u8 readbitlen;
+
+	if (flags & ANIMFIELD_08) {
+		readbitlen = ptr[2];
+		out_values[n++] = (u16)s_animReadSignedShort(framebytes, readbitlen, bitoffset);
+		bitoffset += readbitlen;
+		readbitlen = ptr[5];
+		out_values[n++] = (u16)s_animReadSignedShort(framebytes, readbitlen, bitoffset);
+		bitoffset += readbitlen;
+		readbitlen = ptr[8];
+		out_values[n++] = (u16)s_animReadSignedShort(framebytes, readbitlen, bitoffset);
+		bitoffset += readbitlen;
+		readbitlen = ptr[11];
+		out_values[n++] = (u16)s_animReadSignedShort(framebytes, readbitlen, bitoffset);
+		bitoffset += readbitlen;
+		ptr += 12;
+	} else if (flags & ANIMFIELD_S16_TRANSLATE) {
+		readbitlen = ptr[2];
+		out_values[n++] = (u16)s_animReadSignedShort(framebytes, readbitlen, bitoffset);
+		bitoffset += readbitlen;
+		readbitlen = ptr[5];
+		out_values[n++] = (u16)s_animReadSignedShort(framebytes, readbitlen, bitoffset);
+		bitoffset += readbitlen;
+		readbitlen = ptr[8];
+		out_values[n++] = (u16)s_animReadSignedShort(framebytes, readbitlen, bitoffset);
+		bitoffset += readbitlen;
+		ptr += 9;
+	} else if (flags & ANIMFIELD_S32_TRANSLATE) {
+		readbitlen = ptr[0];
+		out_values[n++] = s_animReadBits(framebytes, readbitlen, bitoffset);
+		bitoffset += readbitlen;
+		readbitlen = ptr[5];
+		out_values[n++] = s_animReadBits(framebytes, readbitlen, bitoffset);
+		bitoffset += readbitlen;
+		readbitlen = ptr[10];
+		out_values[n++] = s_animReadBits(framebytes, readbitlen, bitoffset);
+		bitoffset += readbitlen;
+		ptr += 15;
+	}
+
+	if (flags & ANIMFIELD_S16_ROTATE) {
+		readbitlen = ptr[2];
+		out_values[n++] = s_animReadBits(framebytes, readbitlen, bitoffset);
+		bitoffset += readbitlen;
+		readbitlen = ptr[5];
+		out_values[n++] = s_animReadBits(framebytes, readbitlen, bitoffset);
+		bitoffset += readbitlen;
+		readbitlen = ptr[8];
+		out_values[n++] = s_animReadBits(framebytes, readbitlen, bitoffset);
+		bitoffset += readbitlen;
+		ptr += 9;
+	} else if (flags & ANIMFIELD_F32_ROTATE) {
+		out_values[n++] = s_animReadBits(framebytes, 32, bitoffset);
+		bitoffset += 32;
+		out_values[n++] = s_animReadBits(framebytes, 32, bitoffset);
+		bitoffset += 32;
+		out_values[n++] = s_animReadBits(framebytes, 32, bitoffset);
+		bitoffset += 32;
+	}
+
+	if (flags & ANIMFIELD_CAMERA) {
+		readbitlen = ptr[0];
+		out_values[n++] = s_animReadBits(framebytes, readbitlen, bitoffset);
+		bitoffset += readbitlen;
+		ptr += 5;
+	}
+
+	if (flags & ANIMFIELD_F32_SCALE) {
+		out_values[n++] = s_animReadBits(framebytes, 32, bitoffset);
+		bitoffset += 32;
+		out_values[n++] = s_animReadBits(framebytes, 32, bitoffset);
+		bitoffset += 32;
+		out_values[n++] = s_animReadBits(framebytes, 32, bitoffset);
+		bitoffset += 32;
+	}
+
+	return n;
+}
+
 static const u8 *s_animSkipPartHeader(const u8 *ptr, u8 flags,
                                       u32 *bits_per_frame)
 {
@@ -731,6 +842,90 @@ static s32 s_base64Encode(const u8 *data, u32 len, pdanim_textbuf_t *out)
 	return 0;
 }
 
+/* True if any part carries a channel class the standard GLTF transform path
+ * cannot represent (ANIMFIELD_08 pos-angle root-motion, ANIMFIELD_CAMERA
+ * FOV/blur). Such parts are captured verbatim in the versioned extras. */
+static s32 s_animHasSpecialParts(const pdanim_part_desc_t *parts, u32 part_count)
+{
+	for (u32 p = 0; p < part_count; p++) {
+		if (parts[p].flags & (ANIMFIELD_08 | ANIMFIELD_CAMERA)) {
+			return 1;
+		}
+	}
+	return 0;
+}
+
+/* Emit the versioned `pd_special_parts` extras array (schema v5).
+ *
+ * When an animation contains ANY ANIMFIELD_08 / ANIMFIELD_CAMERA part (which
+ * the lossy GLTF transform path cannot represent), EVERY part is captured
+ * here verbatim -- its raw header descriptor bytes (hex) plus the raw
+ * per-frame bit-field values -- so the consume rebuilds the entire native
+ * header + frame stream byte-for-byte, with no interplay between the verbatim
+ * special parts and the re-encoded standard channels. Standard-only clips do
+ * not emit this array and keep the existing GLTF-channel rebuild.
+ *
+ * Per entry: part index, flags byte, header_hex (verbatim descriptor), and
+ * frames[] (frame-major arrays of raw `animReadBits` field values in native
+ * order). The caller has validated frame_count / bytes_per_frame and the part
+ * bit accounting. Returns 0 on success, -1 on alloc failure. */
+static s32 s_emitSpecialPartsJson(const u8 *anim_data,
+                                  u32 header_len,
+                                  u32 frame_count,
+                                  u32 bytes_per_frame,
+                                  const pdanim_part_desc_t *parts,
+                                  u32 part_count,
+                                  pdanim_textbuf_t *out)
+{
+	if (s_textbufAppend(out, "[") != 0) return -1;
+
+	for (u32 p = 0; p < part_count; p++) {
+		u8 flags = parts[p].flags;
+
+		/* Verbatim header descriptor byte span for this part. */
+		u32 scratch_bits = 0;
+		const u8 *hdr_end = s_animSkipPartHeader(parts[p].header, flags,
+			&scratch_bits);
+		u32 hdr_len = (u32)(hdr_end - parts[p].header);
+
+		if (s_textbufAppendf(out,
+				"%s{ \"part\": %u, \"flags\": %u, \"header_hex\": \"",
+				p ? ", " : "", (unsigned)p, (unsigned)flags) != 0) {
+			return -1;
+		}
+		for (u32 b = 0; b < hdr_len; b++) {
+			if (s_textbufAppendf(out, "%02x",
+					(unsigned)parts[p].header[b]) != 0) {
+				return -1;
+			}
+		}
+
+		/* Raw per-frame field values, frame-major, in canonical order. */
+		if (s_textbufAppend(out, "\", \"frames\": [") != 0) return -1;
+		for (u32 f = 0; f < frame_count; f++) {
+			const u8 *framebytes = anim_data + header_len
+				+ f * bytes_per_frame;
+			u32 vals[PDANIM_MAX_PART_FIELDS];
+			u32 nvals = s_decodeRawPartFields(parts[p].header, flags,
+				framebytes, (s32)parts[p].bit_offset, vals);
+			if (s_textbufAppendf(out, "%s[", f ? ", " : "") != 0) {
+				return -1;
+			}
+			for (u32 v = 0; v < nvals; v++) {
+				if (s_textbufAppendf(out, "%s%u", v ? ", " : "",
+						(unsigned)vals[v]) != 0) {
+					return -1;
+				}
+			}
+			if (s_textbufAppend(out, "]") != 0) return -1;
+		}
+		if (s_textbufAppend(out, "] }") != 0) return -1;
+	}
+
+	if (s_textbufAppend(out, "]") != 0) return -1;
+	return 0;
+}
+
 static s32 s_buildAnimationGltf(const u8 *anim_data,
                                 u32 header_len,
                                 u32 frame_count,
@@ -799,6 +994,11 @@ static s32 s_buildAnimationGltf(const u8 *anim_data,
 	}
 	if (stats) stats->channel_count = channel_count;
 
+	/* Schema v5: capture ANIMFIELD_08 / ANIMFIELD_CAMERA parts before the
+	 * zero-frame path can remap part_count to its synthetic 1. */
+	const u32 orig_part_count = part_count;
+	const s32 has_special_parts = s_animHasSpecialParts(parts, orig_part_count);
+
 	if (frame_count == 0 || bytes_per_frame == 0) {
 		if (stats) {
 			stats->channel_count = 0;
@@ -843,7 +1043,20 @@ static s32 s_buildAnimationGltf(const u8 *anim_data,
 				goto fail;
 			}
 		}
-		if (s_textbufAppend(out, "] }\n") != 0) goto fail;
+		if (has_special_parts) {
+			if (s_textbufAppendf(out, "], \"pd_schema_version\": %d, \"pd_special_parts\": ",
+					PDANIM_CHR_SCHEMA_VERSION) != 0) goto fail;
+			/* frame_count is 0 here: header descriptors captured, no frames. */
+			if (s_emitSpecialPartsJson(anim_data, header_len, 0,
+					bytes_per_frame, parts, orig_part_count, out) != 0) {
+				s_buildReason(reason, reason_n,
+					"special-parts emit failed (zero-frame)");
+				goto fail;
+			}
+			if (s_textbufAppend(out, " }\n") != 0) goto fail;
+		} else {
+			if (s_textbufAppend(out, "] }\n") != 0) goto fail;
+		}
 		if (s_textbufAppend(out, "}\n") != 0) goto fail;
 		free(parts);
 		return 0;
@@ -1028,7 +1241,18 @@ static s32 s_buildAnimationGltf(const u8 *anim_data,
 			goto fail;
 		}
 	}
-	if (s_textbufAppend(out, "] }\n") != 0) goto fail;
+	if (has_special_parts) {
+		if (s_textbufAppendf(out, "], \"pd_schema_version\": %d, \"pd_special_parts\": ",
+				PDANIM_CHR_SCHEMA_VERSION) != 0) goto fail;
+		if (s_emitSpecialPartsJson(anim_data, header_len, frame_count,
+				bytes_per_frame, parts, orig_part_count, out) != 0) {
+			s_buildReason(reason, reason_n, "special-parts emit failed");
+			goto fail;
+		}
+		if (s_textbufAppend(out, " }\n") != 0) goto fail;
+	} else {
+		if (s_textbufAppend(out, "] }\n") != 0) goto fail;
+	}
 	if (s_textbufAppend(out, "}\n") != 0) goto fail;
 
 	free(parts);

@@ -18,7 +18,7 @@ from pathlib import Path
 CATALOG_ID_RE = re.compile(r"^[a-z0-9_]+:[a-z0-9_./-]+$")
 GLB_MAGIC = 0x46546C67
 GLB_JSON_CHUNK = 0x4E4F534A
-PDANIM_CHR_GENERATOR = "Perfect Dark 2 pdanim_chr semantic extractor v4"
+PDANIM_CHR_GENERATOR = "Perfect Dark 2 pdanim_chr semantic extractor v5"
 
 
 @dataclass

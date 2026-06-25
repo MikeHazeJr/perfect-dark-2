@@ -1081,10 +1081,33 @@ typedef struct gltf_anim_channel {
 
 #define GLTF_ANIM_MAX_TAIL_VALUES 512
 
+/* Per-part raw field cap: 4 (ANIMFIELD_08 x/y/z/angle) + 3 (rotate) + 1
+ * (camera) + 3 (scale) = 11; mirrors PDANIM_MAX_PART_FIELDS in the
+ * extractor (romextract_pdanim_chr.c). */
+#define GLTF_ANIM_MAX_PART_FIELDS 11
+/* Cap on the verbatim per-part header descriptor byte length: ANIMFIELD_08
+ * (12) + S16_ROTATE (9) + CAMERA (5) = 26; round up for safety. */
+#define GLTF_ANIM_MAX_PART_HEADER 32
+
 typedef struct gltf_anim_repeat_range {
 	s16 repeattoframe;
 	s16 repeatfromframe;
 } gltf_anim_repeat_range_t;
+
+/* Schema-v5 verbatim capture of a single native animation part (used when
+ * the clip contains ANIMFIELD_08 / ANIMFIELD_CAMERA fields). header[] holds
+ * the exact native header descriptor bytes; field_values is a frame-major
+ * [frame_count][field_count] array of raw bit-field integers in native
+ * order. See romextract_pdanim_chr.c::s_emitSpecialPartsJson. */
+typedef struct gltf_anim_special_part {
+	s32 part;
+	u8  flags;
+	u8  header[GLTF_ANIM_MAX_PART_HEADER];
+	s32 header_len;
+	s32 field_count;     /* fields per frame (from header flags) */
+	u32 *field_values;   /* frame_count * field_count, frame-major */
+	s32 captured_frames; /* frames actually present in the JSON */
+} gltf_anim_special_part_t;
 
 typedef struct gltf_animation_clip {
 	gltf_animation_info_t info;
@@ -1098,6 +1121,11 @@ typedef struct gltf_animation_clip {
 	s32 repeat_range_count;
 	s16 cut_skip_frames[GLTF_ANIM_MAX_TAIL_VALUES];
 	s32 cut_skip_count;
+	/* Schema v5: verbatim per-part capture (NULL when absent). When present,
+	 * it covers ALL parts and the native frame stream is rebuilt from it. */
+	s32 schema_version;
+	gltf_anim_special_part_t *special_parts;
+	s32 special_part_count;
 } gltf_animation_clip_t;
 
 static const char *jsonSkipWs(const char *p, const char *end)
@@ -1450,6 +1478,45 @@ static s32 jsonArrayObjectCount(json_span_t array)
 	}
 
 	return count;
+}
+
+/* Iterate the next "[ ... ]" element of an array (e.g. the frame rows of
+ * pd_special_parts[].frames, where each element is itself an array). Mirrors
+ * jsonArrayNextObject but matches '[' instead of '{'. */
+static s32 jsonArrayNextArray(json_span_t array, const char **cursor,
+                              json_span_t *out)
+{
+	const char *p;
+
+	if (!cursor || !out) {
+		return 0;
+	}
+
+	p = *cursor ? *cursor : array.start;
+	while (p < array.end) {
+		p = jsonSkipWs(p, array.end);
+		if (p < array.end && *p == ',') {
+			p++;
+			continue;
+		}
+		if (p >= array.end) {
+			break;
+		}
+		if (*p == '[') {
+			const char *m = jsonFindMatching(p, array.end, '[', ']');
+			if (!m) {
+				return 0;
+			}
+			out->start = p + 1;
+			out->end = m;
+			*cursor = m + 1;
+			return 1;
+		}
+		p = jsonValueEnd(p, array.end);
+	}
+
+	*cursor = array.end;
+	return 0;
 }
 
 static s32 jsonArrayNextInt(json_span_t array, const char **cursor,
@@ -2754,6 +2821,12 @@ static void gltfAnimationClipFree(gltf_animation_clip_t *clip)
 	}
 	free(clip->channels);
 	free(clip->owned_bin);
+	if (clip->special_parts) {
+		for (s32 i = 0; i < clip->special_part_count; i++) {
+			free(clip->special_parts[i].field_values);
+		}
+		free(clip->special_parts);
+	}
 	memset(clip, 0, sizeof(*clip));
 }
 
@@ -2791,6 +2864,176 @@ static s32 gltfAnimationChannelDuplicate(const gltf_animation_clip_t *clip,
 	return 0;
 }
 
+/* Decode a hex nibble; -1 if not a hex digit. */
+static s32 hexNibble(char c)
+{
+	if (c >= '0' && c <= '9') return c - '0';
+	if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+	if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+	return -1;
+}
+
+/* Number of raw per-frame field values a part with these flags packs, in the
+ * native order. Mirrors romextract_pdanim_chr.c::s_decodeRawPartFields. */
+static s32 animPartFieldCount(u8 flags)
+{
+	s32 n = 0;
+	if (flags & ANIMFIELD_08) {
+		n += 4;
+	} else if (flags & ANIMFIELD_S16_TRANSLATE) {
+		n += 3;
+	} else if (flags & ANIMFIELD_S32_TRANSLATE) {
+		n += 3;
+	}
+	if (flags & ANIMFIELD_S16_ROTATE) {
+		n += 3;
+	} else if (flags & ANIMFIELD_F32_ROTATE) {
+		n += 3;
+	}
+	if (flags & ANIMFIELD_CAMERA) {
+		n += 1;
+	}
+	if (flags & ANIMFIELD_F32_SCALE) {
+		n += 3;
+	}
+	return n;
+}
+
+/* Parse the schema-v5 `pd_special_parts` extras array into clip->special_parts.
+ * Each entry carries a verbatim native header descriptor (header_hex) and a
+ * frame-major frames[] of raw bit-field integers. On any malformation the
+ * partial capture is discarded (special_parts left NULL) so the caller falls
+ * back to the standard GLTF-channel rebuild. */
+static void parseGltfAnimationSpecialParts(json_span_t extras,
+                                           gltf_animation_clip_t *clip)
+{
+	json_span_t parts_array;
+	const char *cursor;
+	json_span_t part_obj;
+	s32 count;
+	s32 idx = 0;
+
+	if (!jsonObjectArray(extras, "pd_special_parts", &parts_array)) {
+		return;
+	}
+
+	count = jsonArrayObjectCount(parts_array);
+	if (count <= 0 || count > 4096) {
+		return;
+	}
+
+	clip->special_parts = calloc((size_t)count, sizeof(*clip->special_parts));
+	if (!clip->special_parts) {
+		return;
+	}
+
+	cursor = NULL;
+	while (idx < count && jsonArrayNextObject(parts_array, &cursor, &part_obj)) {
+		gltf_anim_special_part_t *sp = &clip->special_parts[idx];
+		char hex[GLTF_ANIM_MAX_PART_HEADER * 2 + 1];
+		s32 part_index = 0;
+		s32 flags_int = 0;
+		json_span_t frames_array;
+		const char *frame_cursor;
+		json_span_t frame_row;
+		size_t hex_len;
+		s32 expect_fields;
+		s32 frame_idx = 0;
+
+		if (!jsonObjectInt(part_obj, "part", &part_index)
+				|| !jsonObjectInt(part_obj, "flags", &flags_int)) {
+			goto bad;
+		}
+		sp->part = part_index;
+		sp->flags = (u8)flags_int;
+
+		/* header_hex -> raw bytes */
+		if (!jsonObjectString(part_obj, "header_hex", hex, sizeof(hex))) {
+			goto bad;
+		}
+		hex_len = strlen(hex);
+		if (hex_len == 0 || (hex_len & 1)
+				|| hex_len / 2 > GLTF_ANIM_MAX_PART_HEADER) {
+			goto bad;
+		}
+		sp->header_len = (s32)(hex_len / 2);
+		for (s32 b = 0; b < sp->header_len; b++) {
+			s32 hi = hexNibble(hex[b * 2]);
+			s32 lo = hexNibble(hex[b * 2 + 1]);
+			if (hi < 0 || lo < 0) {
+				goto bad;
+			}
+			sp->header[b] = (u8)((hi << 4) | lo);
+		}
+
+		expect_fields = animPartFieldCount(sp->flags);
+		sp->field_count = expect_fields;
+
+		/* frames[] -> [captured_frames][expect_fields] raw values. The row
+		 * count is derived here (a counting pre-pass) so this parse does not
+		 * depend on channel-derived clip->frame_count, which is not yet set
+		 * when extras are parsed. */
+		if (jsonObjectArray(part_obj, "frames", &frames_array)) {
+			s32 cap_frames = 0;
+
+			frame_cursor = NULL;
+			while (jsonArrayNextArray(frames_array, &frame_cursor,
+					&frame_row)) {
+				cap_frames++;
+			}
+			if (cap_frames < 0 || cap_frames > 0xffff) {
+				goto bad;
+			}
+			if (cap_frames > 0 && expect_fields > 0) {
+				sp->field_values = calloc(
+					(size_t)cap_frames * (size_t)expect_fields, sizeof(u32));
+				if (!sp->field_values) {
+					goto bad;
+				}
+			}
+			frame_cursor = NULL;
+			while (frame_idx < cap_frames
+					&& jsonArrayNextArray(frames_array, &frame_cursor,
+						&frame_row)) {
+				const char *vc = NULL;
+				s32 v;
+				s32 fi = 0;
+				while (fi < expect_fields
+						&& jsonArrayNextInt(frame_row, &vc, &v)) {
+					sp->field_values[frame_idx * expect_fields + fi] = (u32)v;
+					fi++;
+				}
+				if (fi != expect_fields) {
+					goto bad;
+				}
+				frame_idx++;
+			}
+			/* All special parts share the same frame count; track the max so
+			 * the rebuild knows the native numframes even for the zero-channel
+			 * GLTF where no sampler input establishes it. */
+			if (frame_idx > clip->frame_count) {
+				clip->frame_count = frame_idx;
+			}
+		}
+		sp->captured_frames = frame_idx;
+		idx++;
+		continue;
+
+	bad:
+		/* Discard the whole capture: any malformed part forces the
+		 * standard-channel fallback rather than a half-built native frame. */
+		for (s32 i = 0; i <= idx; i++) {
+			free(clip->special_parts[i].field_values);
+		}
+		free(clip->special_parts);
+		clip->special_parts = NULL;
+		clip->special_part_count = 0;
+		return;
+	}
+
+	clip->special_part_count = idx;
+}
+
 static void parseGltfAnimationNativeExtras(json_span_t root,
                                            gltf_animation_clip_t *clip)
 {
@@ -2803,6 +3046,10 @@ static void parseGltfAnimationNativeExtras(json_span_t root,
 
 	if (!clip || !jsonObjectObject(root, "extras", &extras)) {
 		return;
+	}
+
+	if (jsonObjectInt(extras, "pd_schema_version", &value)) {
+		clip->schema_version = value;
 	}
 
 	if (jsonObjectInt(extras, "pd_anim_flags", &value)) {
@@ -2835,6 +3082,11 @@ static void parseGltfAnimationNativeExtras(json_span_t root,
 			clip->cut_skip_frames[clip->cut_skip_count++] = (s16)value;
 		}
 	}
+
+	/* Schema v5: verbatim per-part native capture (ANIMFIELD_08 root-motion
+	 * + ANIMFIELD_CAMERA FOV/blur). When present it drives a byte-exact
+	 * native rebuild in gltfBuildAnimationClipPayload. */
+	parseGltfAnimationSpecialParts(extras, clip);
 }
 
 static s32 parseGltfAnimationClipFromJson(const char *json,
@@ -7990,6 +8242,252 @@ s32 modAssetCompilerBuildObjColmesh(const char *source_path,
 	return modAssetCompilerBuildColmesh(source_path, out_mesh);
 }
 
+/* Write `bitlen` bits of `value` (MSB-first) into `dst` at bit position
+ * `bitoffset`. The bit order mirrors the native reader animReadBits(), so a
+ * value captured by the extractor round-trips byte-exact. */
+static void writeBitsMsb(u8 *dst, s32 bitoffset, u8 bitlen, u32 value)
+{
+	for (s32 i = 0; i < bitlen; i++) {
+		s32 bit = (value >> (bitlen - 1 - i)) & 1u;
+		s32 pos = bitoffset + i;
+		if (bit) {
+			dst[pos >> 3] |= (u8)(0x80u >> (pos & 7));
+		}
+	}
+}
+
+/* Per-part native header descriptor byte length for the given flags. Mirrors
+ * romextract_pdanim_chr.c::s_animSkipPartHeader (byte advances only). */
+static s32 animPartHeaderLen(u8 flags)
+{
+	s32 n = 0;
+	if (flags & ANIMFIELD_08) {
+		n += 12;
+	} else if (flags & ANIMFIELD_S16_TRANSLATE) {
+		n += 9;
+	} else if (flags & ANIMFIELD_S32_TRANSLATE) {
+		n += 15;
+	}
+	if (flags & ANIMFIELD_S16_ROTATE) {
+		n += 9;
+	} /* ANIMFIELD_F32_ROTATE: 0 header bytes (fixed 96-bit frame field) */
+	if (flags & ANIMFIELD_CAMERA) {
+		n += 5;
+	}
+	/* ANIMFIELD_F32_SCALE: 0 header bytes */
+	return n;
+}
+
+/* Per-part frame bit width for the given header descriptor + flags. Mirrors
+ * the *bits_per_frame accounting in s_animSkipPartHeader: read-bit-lengths
+ * come from the header bytes for the variable fields, fixed 96 for f32. */
+static s32 animPartFrameBits(const u8 *hdr, u8 flags)
+{
+	s32 bits = 0;
+	const u8 *ptr = hdr;
+	if (flags & ANIMFIELD_08) {
+		bits += ptr[2] + ptr[5] + ptr[8] + ptr[11];
+		ptr += 12;
+	} else if (flags & ANIMFIELD_S16_TRANSLATE) {
+		bits += ptr[2] + ptr[5] + ptr[8];
+		ptr += 9;
+	} else if (flags & ANIMFIELD_S32_TRANSLATE) {
+		bits += ptr[0] + ptr[5] + ptr[10];
+		ptr += 15;
+	}
+	if (flags & ANIMFIELD_S16_ROTATE) {
+		bits += ptr[2] + ptr[5] + ptr[8];
+		ptr += 9;
+	} else if (flags & ANIMFIELD_F32_ROTATE) {
+		bits += 96;
+	}
+	if (flags & ANIMFIELD_CAMERA) {
+		bits += ptr[0];
+		ptr += 5;
+	}
+	if (flags & ANIMFIELD_F32_SCALE) {
+		bits += 96;
+	}
+	return bits;
+}
+
+/* Per-field bit widths for a part, in the canonical native order that
+ * s_decodeRawPartFields / animPartFieldCount produce. Writes up to
+ * GLTF_ANIM_MAX_PART_FIELDS entries; returns the field count. */
+static s32 animPartFieldBitWidths(const u8 *hdr, u8 flags,
+                                  u8 out_widths[GLTF_ANIM_MAX_PART_FIELDS])
+{
+	const u8 *ptr = hdr;
+	s32 n = 0;
+	if (flags & ANIMFIELD_08) {
+		out_widths[n++] = ptr[2];
+		out_widths[n++] = ptr[5];
+		out_widths[n++] = ptr[8];
+		out_widths[n++] = ptr[11];
+		ptr += 12;
+	} else if (flags & ANIMFIELD_S16_TRANSLATE) {
+		out_widths[n++] = ptr[2];
+		out_widths[n++] = ptr[5];
+		out_widths[n++] = ptr[8];
+		ptr += 9;
+	} else if (flags & ANIMFIELD_S32_TRANSLATE) {
+		out_widths[n++] = ptr[0];
+		out_widths[n++] = ptr[5];
+		out_widths[n++] = ptr[10];
+		ptr += 15;
+	}
+	if (flags & ANIMFIELD_S16_ROTATE) {
+		out_widths[n++] = ptr[2];
+		out_widths[n++] = ptr[5];
+		out_widths[n++] = ptr[8];
+		ptr += 9;
+	} else if (flags & ANIMFIELD_F32_ROTATE) {
+		out_widths[n++] = 32;
+		out_widths[n++] = 32;
+		out_widths[n++] = 32;
+	}
+	if (flags & ANIMFIELD_CAMERA) {
+		out_widths[n++] = ptr[0];
+		ptr += 5;
+	}
+	if (flags & ANIMFIELD_F32_SCALE) {
+		out_widths[n++] = 32;
+		out_widths[n++] = 32;
+		out_widths[n++] = 32;
+	}
+	return n;
+}
+
+/* Rebuild the byte-exact native animation payload from the schema-v5
+ * verbatim per-part capture (clip->special_parts). Used when ANIMFIELD_08 /
+ * ANIMFIELD_CAMERA channels are present, which the lossy GLTF-channel path
+ * cannot represent. The capture covers ALL parts, so the entire native
+ * header + frame stream is reproduced here; the repeat/cut-skip tail is
+ * appended exactly as the standard path does. Returns 1 on success, 0 on
+ * failure (caller falls back to the GLTF-channel rebuild). */
+static s32 gltfBuildNativeFromSpecialParts(gltf_animation_clip_t *clip,
+                                           s32 frame_count,
+                                           struct animtableentry *out_entry,
+                                           u8 **out_data,
+                                           u32 *out_data_size)
+{
+	s32 part_count = clip->special_part_count;
+	s32 descriptor_header_len = 0;
+	s32 bits_per_frame = 0;
+	s32 bytes_per_frame;
+	s32 header_len;
+	s32 tail_len;
+	s32 has_repeat_tail;
+	s32 has_cut_skip_tail;
+	u32 total_size;
+	u8 *data;
+
+	if (part_count <= 0 || !clip->special_parts) {
+		return 0;
+	}
+
+	/* Parts must be contiguous 0..part_count-1 in order, and each capture
+	 * must carry the expected frame count -- otherwise the native frame bit
+	 * accounting is ambiguous; bail to the fallback. */
+	for (s32 i = 0; i < part_count; i++) {
+		gltf_anim_special_part_t *sp = &clip->special_parts[i];
+		if (sp->part != i || sp->header_len <= 0
+				|| sp->header_len != animPartHeaderLen(sp->flags)) {
+			return 0;
+		}
+		if (sp->field_count > 0 && sp->captured_frames != frame_count) {
+			return 0;
+		}
+		descriptor_header_len += sp->header_len;
+		bits_per_frame += animPartFrameBits(sp->header, sp->flags);
+	}
+
+	has_repeat_tail = (clip->native_flags & ANIMFLAG_HASREPEATFRAMES)
+		|| clip->repeat_range_count > 0;
+	has_cut_skip_tail = (clip->native_flags & ANIMFLAG_HASCUTSKIPFRAMES)
+		|| clip->cut_skip_count > 0;
+
+	tail_len = (has_cut_skip_tail ? 2 + clip->cut_skip_count * 2 : 0)
+		+ (has_repeat_tail ? 2 + clip->repeat_range_count * 4 : 0);
+	header_len = descriptor_header_len + tail_len;
+	bytes_per_frame = (bits_per_frame + 7) / 8;
+
+	if (header_len <= 0 || header_len > 0xffff || bytes_per_frame <= 0) {
+		return 0;
+	}
+
+	total_size = (u32)header_len + (u32)frame_count * (u32)bytes_per_frame;
+	data = calloc(1, total_size);
+	if (!data) {
+		return 0;
+	}
+
+	/* Header: verbatim per-part descriptor bytes in order, then the tail. */
+	{
+		u8 *p = data;
+		for (s32 i = 0; i < part_count; i++) {
+			gltf_anim_special_part_t *sp = &clip->special_parts[i];
+			memcpy(p, sp->header, (size_t)sp->header_len);
+			p += sp->header_len;
+		}
+		p = data + descriptor_header_len;
+		if (has_cut_skip_tail) {
+			writeBe16(p, 0xffff);
+			p += 2;
+			for (s32 i = 0; i < clip->cut_skip_count; i++) {
+				writeBe16(p, (u16)clip->cut_skip_frames[i]);
+				p += 2;
+			}
+		}
+		if (has_repeat_tail) {
+			writeBe16(p, 0xffff);
+			p += 2;
+			for (s32 i = 0; i < clip->repeat_range_count; i++) {
+				writeBe16(p, (u16)clip->repeat_ranges[i].repeattoframe);
+				writeBe16(p + 2,
+					(u16)clip->repeat_ranges[i].repeatfromframe);
+				p += 4;
+			}
+		}
+	}
+
+	/* Frames: pack each part's raw field values at their header bit widths,
+	 * MSB-first, in part order -- reproducing the native bit stream. */
+	for (s32 frame = 0; frame < frame_count; frame++) {
+		u8 *framebytes = data + header_len + (u32)frame * (u32)bytes_per_frame;
+		s32 bitoffset = 0;
+		for (s32 i = 0; i < part_count; i++) {
+			gltf_anim_special_part_t *sp = &clip->special_parts[i];
+			u8 widths[GLTF_ANIM_MAX_PART_FIELDS];
+			s32 nwidths = animPartFieldBitWidths(sp->header, sp->flags, widths);
+			if (nwidths != sp->field_count) {
+				free(data);
+				return 0;
+			}
+			for (s32 f = 0; f < nwidths; f++) {
+				u32 v = sp->field_values
+					? sp->field_values[frame * sp->field_count + f] : 0;
+				writeBitsMsb(framebytes, bitoffset, widths[f], v);
+				bitoffset += widths[f];
+			}
+		}
+	}
+
+	memset(out_entry, 0, sizeof(*out_entry));
+	out_entry->numframes = (u16)frame_count;
+	out_entry->bytesperframe = (u16)bytes_per_frame;
+	out_entry->data = 0xffffffff;
+	out_entry->headerlen = (u16)header_len;
+	out_entry->framelen = 16;
+	out_entry->flags = (u8)(clip->native_flags
+		| (has_repeat_tail ? ANIMFLAG_HASREPEATFRAMES : 0)
+		| (has_cut_skip_tail ? ANIMFLAG_HASCUTSKIPFRAMES : 0));
+
+	*out_data = data;
+	*out_data_size = total_size;
+	return 1;
+}
+
 static s32 gltfBuildAnimationClipPayload(gltf_animation_clip_t *clip,
                                          s32 requested_frame_count,
                                          struct animtableentry *out_entry,
@@ -8022,6 +8520,17 @@ static s32 gltfBuildAnimationClipPayload(gltf_animation_clip_t *clip,
 	}
 	if (frame_count > 0xffff) {
 		frame_count = 0xffff;
+	}
+
+	/* Schema v5: if the clip carries a verbatim per-part native capture
+	 * (ANIMFIELD_08 root-motion / ANIMFIELD_CAMERA FOV-blur), rebuild the
+	 * native payload byte-exact from it. On any inconsistency this returns 0
+	 * and we fall through to the lossy GLTF-channel rebuild below. */
+	if (clip->special_parts && clip->special_part_count > 0) {
+		if (gltfBuildNativeFromSpecialParts(clip, frame_count, out_entry,
+				out_data, out_data_size)) {
+			return 1;
+		}
 	}
 
 	has_repeat_tail = (clip->native_flags & ANIMFLAG_HASREPEATFRAMES)

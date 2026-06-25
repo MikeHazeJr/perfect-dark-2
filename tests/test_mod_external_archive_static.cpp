@@ -5328,6 +5328,16 @@ TEST_CASE("external models maps and animations compile from standard sources",
 	REQUIRE(compiler.find("ANIMFIELD_S32_TRANSLATE") != std::string::npos);
 	REQUIRE(compiler.find("ANIMFIELD_F32_ROTATE") != std::string::npos);
 	REQUIRE(compiler.find("ANIMFIELD_F32_SCALE") != std::string::npos);
+	/* Schema v5 (B-772/B-943 gap #2): verbatim per-part native capture of
+	 * ANIMFIELD_08 root-motion + ANIMFIELD_CAMERA so the public .pdanim
+	 * round-trips those dropped channels byte-exact (not just via the
+	 * native cache). */
+	REQUIRE(compiler.find("pd_special_parts") != std::string::npos);
+	REQUIRE(compiler.find("gltfBuildNativeFromSpecialParts") != std::string::npos);
+	REQUIRE(compiler.find("parseGltfAnimationSpecialParts") != std::string::npos);
+	REQUIRE(compiler.find("writeBitsMsb") != std::string::npos);
+	REQUIRE(compiler.find("ANIMFIELD_08") != std::string::npos);
+	REQUIRE(compiler.find("ANIMFIELD_CAMERA") != std::string::npos);
 	REQUIRE(compiler.find("gltf_animation_weights_not_supported") != std::string::npos);
 	REQUIRE(compiler.find("gltf_animation_channels_not_supported_yet") == std::string::npos);
 	REQUIRE(compiler.find("runtime_boundary\\\": \\\"animtableentry") != std::string::npos);
@@ -8053,12 +8063,20 @@ TEST_CASE("base character animation extractor emits semantic gltf payloads",
 	REQUIRE(anim.find("s_animDescriptorHeaderLen") != std::string::npos);
 	REQUIRE(anim.find("s_existingArchiveHasAnimPayloads") !=
 	        std::string::npos);
-	REQUIRE(anim.find("PDANIM_CHR_SCHEMA_VERSION 4") !=
+	REQUIRE(anim.find("PDANIM_CHR_SCHEMA_VERSION 5") !=
 	        std::string::npos);
 	REQUIRE(anim.find("PDANIM_CHR_GENERATOR") != std::string::npos);
 	REQUIRE(anim.find("pd_zero_frame_placeholder") !=
 	        std::string::npos);
-	REQUIRE(anim.find("semantic extractor v4") != std::string::npos);
+	REQUIRE(anim.find("semantic extractor v5") != std::string::npos);
+	/* Schema v5 (B-772/B-943 gap #2): the dropped ANIMFIELD_08 root-motion
+	 * + ANIMFIELD_CAMERA channels are now captured verbatim in the versioned
+	 * pd_special_parts extras for a byte-exact public round-trip. */
+	REQUIRE(anim.find("pd_special_parts") != std::string::npos);
+	REQUIRE(anim.find("s_emitSpecialPartsJson") != std::string::npos);
+	REQUIRE(anim.find("s_decodeRawPartFields") != std::string::npos);
+	REQUIRE(anim.find("ANIMFIELD_08") != std::string::npos);
+	REQUIRE(anim.find("ANIMFIELD_CAMERA") != std::string::npos);
 	REQUIRE(anim.find("\\\"runtime_source\\\": \\\"animation.gltf\\\"") !=
 	        std::string::npos);
 	REQUIRE(anim.find("animation.gltf") != std::string::npos);
