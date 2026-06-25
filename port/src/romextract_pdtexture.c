@@ -353,6 +353,13 @@ s32 romExtractAllPdtexture(s32 force_rewrite)
 		return 0;
 	}
 
+	/* In-place cache-kind bump (B-943): force a one-time per-file rewrite when
+	 * the stored kind differs from the current one (no-op on clean install or
+	 * unchanged kind). See romExtractPdFastCacheKindMismatch. */
+	s32 effective_force = force_rewrite |
+		romExtractPdFastCacheKindMismatch(ROMEXTRACT_PDTEXTURE_FAST_CACHE_KIND,
+			textures_dir);
+
 	s32 written = 0;
 	s32 skipped = 0;
 	s32 failed = 0;
@@ -364,7 +371,7 @@ s32 romExtractAllPdtexture(s32 force_rewrite)
 		if (!e || !e->occupied || !e->bundled || e->type != ASSET_TEXTURE) {
 			continue;
 		}
-		s32 r = s_emitTexture(e, textures_dir, force_rewrite);
+		s32 r = s_emitTexture(e, textures_dir, effective_force);
 		if (r > 0) written++;
 		else if (r == 0) skipped++;
 		else failed++;

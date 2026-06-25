@@ -442,6 +442,19 @@ s32 romExtractTextureSlotIsEmpty(u16 texnum);
  */
 s32 romExtractPdFastCacheCanSkip(const char *kind, const char *abs_dir,
                                  const char *ext, s32 force_rewrite);
+/* In-place re-extract guard (B-943 deploy nuance).
+ *
+ * Returns 1 iff a prior stamp exists in abs_dir whose recorded extractor kind
+ * differs from the current `kind` (a cache-kind bump applied over an existing
+ * install). The per-file emitters' own archive validators only catch drift in
+ * markers they were told to check; when a fix bumps FAST_CACHE_KIND but not a
+ * per-file marker, an in-place update would otherwise keep the stale files. An
+ * extractor ORs this into its per-file force_rewrite so a kind bump re-extracts
+ * exactly that one directory's files in place. Returns 0 on a clean install (no
+ * stamp), on a matching kind (no regression), on schema-rev change, or on a
+ * corrupt/unparseable stamp.
+ */
+s32 romExtractPdFastCacheKindMismatch(const char *kind, const char *abs_dir);
 void romExtractPdFastCacheWrite(const char *kind, const char *abs_dir,
                                 const char *ext);
 

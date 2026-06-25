@@ -3139,13 +3139,21 @@ s32 romExtractAllPdmesh(s32 force_rewrite)
 		return 0;
 	}
 
+	/* In-place cache-kind bump (B-943): if a prior stamp recorded a different
+	 * extractor kind, force a one-time rewrite of this directory's files so an
+	 * in-place update re-extracts them with the new fields (e.g. per-vertex
+	 * matrix). No-op on a clean install or when the kind is unchanged. */
+	s32 effective_force = force_rewrite |
+		romExtractPdFastCacheKindMismatch(ROMEXTRACT_PDMESH_FAST_CACHE_KIND,
+			meshes_dir);
+
 	/* Phase 2: emit the per-mesh work. */
 	pdmesh_fanout_ctx_t mctx;
 	memset(&mctx, 0, sizeof(mctx));
 	mctx.jobs          = jobs;
 	mctx.count         = job_count;
 	mctx.out_dir       = meshes_dir;
-	mctx.force_rewrite = force_rewrite;
+	mctx.force_rewrite = effective_force;
 	SDL_AtomicSet(&mctx.written,   0);
 	SDL_AtomicSet(&mctx.skipped,   0);
 	SDL_AtomicSet(&mctx.failed,    0);

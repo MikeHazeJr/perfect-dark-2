@@ -1472,7 +1472,11 @@ s32 romextract_pdaudio_walkBank(pdaudio_walk_mode_t mode, s32 force_rewrite)
 	fxctx.mode          = mode;
 	fxctx.out_dir       = out_dir;
 	fxctx.channel       = channel;
-	fxctx.force_rewrite = force_rewrite;
+	/* In-place cache-kind bump (B-943): force a one-time per-file rewrite when
+	 * the stored kind differs from the current one (no-op on clean install or
+	 * unchanged kind). cache_kind varies by mode (voice/sfx). */
+	fxctx.force_rewrite = force_rewrite |
+		romExtractPdFastCacheKindMismatch(cache_kind, out_dir);
 	fxctx.voice_cache   = voice_cache;
 	fxctx.want_voice    = (mode == PDAUDIO_WALK_VOICE) ? 1 : 0;
 	fxctx.sound_count   = sound_count;

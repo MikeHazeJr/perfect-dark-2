@@ -1049,7 +1049,8 @@ s32 romExtractAllPdsong(s32 force_rewrite)
 		return -1;
 	}
 
-	if (romExtractPdFastCacheCanSkip("pdsong_sequence_json_v1", out_dir,
+	const char *cache_kind = "pdsong_sequence_json_v1";
+	if (romExtractPdFastCacheCanSkip(cache_kind, out_dir,
 			".pdsong", force_rewrite)) {
 		bootProgressUpdate((s32)count, (s32)count);
 		sysLogPrintf(LOG_NOTE,
@@ -1059,13 +1060,19 @@ s32 romExtractAllPdsong(s32 force_rewrite)
 		return 0;
 	}
 
+	/* In-place cache-kind bump (B-943): force a one-time per-file rewrite when
+	 * the stored kind differs from the current one (no-op on clean install or
+	 * unchanged kind). See romExtractPdFastCacheKindMismatch. */
+	s32 effective_force = force_rewrite |
+		romExtractPdFastCacheKindMismatch(cache_kind, out_dir);
+
 	pdsong_fanout_ctx_t sctx;
 	memset(&sctx, 0, sizeof(sctx));
 	sctx.table         = table;
 	sctx.seg_data      = seg_data;
 	sctx.seg_size      = seg_size;
 	sctx.out_dir       = out_dir;
-	sctx.force_rewrite = force_rewrite;
+	sctx.force_rewrite = effective_force;
 	sctx.count         = (s32)count;
 	SDL_AtomicSet(&sctx.written,   0);
 	SDL_AtomicSet(&sctx.skipped,   0);

@@ -2904,10 +2904,16 @@ s32 romExtractAllPdweapon(s32 force_rewrite)
 		return 0;
 	}
 
+	/* In-place cache-kind bump (B-943): force a one-time per-file rewrite when
+	 * the stored kind differs from the current one (no-op on clean install or
+	 * unchanged kind). See romExtractPdFastCacheKindMismatch. */
+	s32 effective_force = force_rewrite |
+		romExtractPdFastCacheKindMismatch(PDWEAPON_FAST_CACHE_KIND, weapons_dir);
+
 	pdweapon_fanout_ctx_t wctx;
 	memset(&wctx, 0, sizeof(wctx));
 	wctx.weapons_dir   = weapons_dir;
-	wctx.force_rewrite = force_rewrite;
+	wctx.force_rewrite = effective_force;
 	wctx.count         = g_WeaponDataCount;
 	SDL_AtomicSet(&wctx.written,   0);
 	SDL_AtomicSet(&wctx.skipped,   0);

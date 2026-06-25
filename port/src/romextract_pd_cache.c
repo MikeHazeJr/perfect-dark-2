@@ -12,6 +12,16 @@
 #define PDEXTRACT_CACHE_NAME ".pdextract-cache"
 #define PDEXTRACT_CACHE_PATH_LEN 1024
 
+/* Some extractor kinds are long (the pdscenario kind is ~356 chars). The
+ * stamp writer emits the full kind, so the readers MUST size their buffer to
+ * hold it -- a short buffer truncates the kind, making every kind compare
+ * mismatch (silent always-miss for the directory fast-cache, and a false
+ * "kind changed" for the in-place re-extract guard, which would re-extract
+ * those dirs every boot). 512 covers the current longest kind with headroom.
+ * Keep the fscanf width specifiers (PDEXTRACT_CACHE_KIND_SCANF) in sync. */
+#define PDEXTRACT_CACHE_KIND_MAX 512
+#define PDEXTRACT_CACHE_KIND_SCANF "511"
+
 typedef struct {
 	s32 count;
 	unsigned long long total_bytes;
@@ -87,12 +97,13 @@ static s32 s_readStamp(const char *path, const char *kind,
 	if (f == NULL) return 0;
 
 	char schema[128] = {0};
-	char stamp_kind[64] = {0};
+	char stamp_kind[PDEXTRACT_CACHE_KIND_MAX] = {0};
 	pdextract_dir_fingerprint_t disk;
 	memset(&disk, 0, sizeof(disk));
 
 	int matched = fscanf(f,
-		"schema=%127s\nkind=%63s\ncount=%d\ntotal_bytes=%llu\nlatest_mtime=%llu\n",
+		"schema=%127s\nkind=%" PDEXTRACT_CACHE_KIND_SCANF "s\n"
+		"count=%d\ntotal_bytes=%llu\nlatest_mtime=%llu\n",
 		schema, stamp_kind, &disk.count, &disk.total_bytes, &disk.latest_mtime);
 	fclose(f);
 
@@ -141,6 +152,53 @@ s32 romExtractPdFastCacheCanSkip(const char *kind, const char *abs_dir,
 		"(stamp count=%d bytes=%llu mtime=%llu; live count=%d bytes=%llu mtime=%llu)",
 		kind, stamp.count, stamp.total_bytes, stamp.latest_mtime,
 		live.count, live.total_bytes, live.latest_mtime);
+	return 0;
+}
+
+s32 romExtractPdFastCacheKindMismatch(const char *kind, const char *abs_dir)
+{
+	if (kind == NULL || abs_dir == NULL) {
+		return 0;
+	}
+
+	char stamp_path[PDEXTRACT_CACHE_PATH_LEN];
+	if (!s_cachePath(abs_dir, stamp_path, sizeof(stamp_path))) {
+		return 0;
+	}
+
+	FILE *f = fopen(stamp_path, "rb");
+	if (f == NULL) {
+		/* No prior stamp -> clean install, not an in-place kind change. */
+		return 0;
+	}
+
+	char schema[128] = {0};
+	char stamp_kind[PDEXTRACT_CACHE_KIND_MAX] = {0};
+	int matched = fscanf(f,
+		"schema=%127s\nkind=%" PDEXTRACT_CACHE_KIND_SCANF "s\n",
+		schema, stamp_kind);
+	fclose(f);
+
+	if (matched != 2) {
+		/* Unparseable stamp: let the directory fast-cache treat it as a
+		 * miss and the per-file validators decide; don't force a rewrite
+		 * off a corrupt marker. */
+		return 0;
+	}
+	if (strcmp(schema, PDEXTRACT_CACHE_SCHEMA) != 0) {
+		/* Schema rev is its own re-extraction trigger handled elsewhere;
+		 * a kind comparison across schema revisions is meaningless. */
+		return 0;
+	}
+
+	if (strcmp(stamp_kind, kind) != 0) {
+		sysLogPrintf(LOG_NOTE,
+			"romextract %s: cache-kind changed in place "
+			"(stamp kind=\"%s\"); forcing per-file re-extract",
+			kind, stamp_kind);
+		return 1;
+	}
+
 	return 0;
 }
 

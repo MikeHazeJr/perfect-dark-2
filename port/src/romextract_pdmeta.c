@@ -1857,7 +1857,21 @@ s32 romExtractAllPdmeta(s32 force_rewrite)
 	ctx.props_dir = props_dir;
 	ctx.vehicles_dir = vehicles_dir;
 	ctx.meshes_dir = meshes_dir;
-	ctx.force_rewrite = force_rewrite;
+	/* In-place cache-kind bump (B-943): pdmeta has no directory-level
+	 * CanSkip, but its per-file workers self-skip on existing archives whose
+	 * own marker may lag a FAST_CACHE_KIND bump. Force a one-time rewrite when
+	 * any stamped dir recorded a different kind. No-op on clean install or
+	 * unchanged kind. All dirs share PDMETA_FAST_CACHE_KIND. */
+	ctx.force_rewrite = force_rewrite |
+		romExtractPdFastCacheKindMismatch(PDMETA_FAST_CACHE_KIND, gamemodes_dir) |
+		romExtractPdFastCacheKindMismatch(PDMETA_FAST_CACHE_KIND, botprofiles_dir) |
+		romExtractPdFastCacheKindMismatch(PDMETA_FAST_CACHE_KIND, missions_dir) |
+		romExtractPdFastCacheKindMismatch(PDMETA_FAST_CACHE_KIND, materials_dir) |
+		romExtractPdFastCacheKindMismatch(PDMETA_FAST_CACHE_KIND, skins_dir) |
+		romExtractPdFastCacheKindMismatch(PDMETA_FAST_CACHE_KIND, effects_dir) |
+		romExtractPdFastCacheKindMismatch(PDMETA_FAST_CACHE_KIND, props_dir) |
+		romExtractPdFastCacheKindMismatch(PDMETA_FAST_CACHE_KIND, vehicles_dir) |
+		romExtractPdFastCacheKindMismatch(PDMETA_FAST_CACHE_KIND, hud_dir);
 	SDL_AtomicSet(&ctx.written, 0);
 	SDL_AtomicSet(&ctx.skipped, 0);
 	SDL_AtomicSet(&ctx.failed, 0);

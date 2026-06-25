@@ -361,10 +361,19 @@ s32 romExtractAllPdcharacter(s32 force_rewrite)
 		return 0;
 	}
 
+	/* In-place cache-kind bump (B-943): the directory fast-cache already
+	 * fell through above, but the per-file validator keys on its own
+	 * "embedded.vN" marker, which can lag a FAST_CACHE_KIND bump. Force a
+	 * one-time rewrite of this directory's files when the stored kind differs
+	 * from the current one so in-place updates pick up the new fields. */
+	s32 effective_force = force_rewrite |
+		romExtractPdFastCacheKindMismatch(PDCHARACTER_FAST_CACHE_KIND,
+			characters_dir);
+
 	pdcharacter_fanout_ctx_t ctx;
 	memset(&ctx, 0, sizeof(ctx));
 	ctx.characters_dir = characters_dir;
-	ctx.force_rewrite = force_rewrite;
+	ctx.force_rewrite = effective_force;
 	SDL_AtomicSet(&ctx.written, 0);
 	SDL_AtomicSet(&ctx.skipped, 0);
 	SDL_AtomicSet(&ctx.failed, 0);

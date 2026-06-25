@@ -670,11 +670,17 @@ s32 romExtractAllPdlang(s32 force_rewrite)
 		return 0;
 	}
 
+	/* In-place cache-kind bump (B-943): force a one-time per-file rewrite when
+	 * the stored kind differs from the current one (no-op on clean install or
+	 * unchanged kind). See romExtractPdFastCacheKindMismatch. */
+	s32 effective_force = force_rewrite |
+		romExtractPdFastCacheKindMismatch(PDLANG_FAST_CACHE_KIND, lang_dir);
+
 	pdlang_fanout_ctx_t lctx;
 	memset(&lctx, 0, sizeof(lctx));
 	lctx.locale_tag    = locale_tag;
 	lctx.lang_dir      = lang_dir;
-	lctx.force_rewrite = force_rewrite;
+	lctx.force_rewrite = effective_force;
 	lctx.count         = PDLANG_BANK_MAX;
 	SDL_AtomicSet(&lctx.written,   0);
 	SDL_AtomicSet(&lctx.skipped,   0);

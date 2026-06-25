@@ -417,10 +417,16 @@ s32 romExtractAllPdbody(s32 force_rewrite)
 		return 0;
 	}
 
+	/* In-place cache-kind bump (B-943): force a one-time per-file rewrite when
+	 * the stored kind differs from the current one (no-op on clean install or
+	 * unchanged kind). See romExtractPdFastCacheKindMismatch. */
+	s32 effective_force = force_rewrite |
+		romExtractPdFastCacheKindMismatch(PDBODY_FAST_CACHE_KIND, bodies_dir);
+
 	pdbody_fanout_ctx_t bctx;
 	memset(&bctx, 0, sizeof(bctx));
 	bctx.bodies_dir    = bodies_dir;
-	bctx.force_rewrite = force_rewrite;
+	bctx.force_rewrite = effective_force;
 	bctx.count         = g_BodyDataCount;
 	SDL_AtomicSet(&bctx.written,   0);
 	SDL_AtomicSet(&bctx.skipped,   0);

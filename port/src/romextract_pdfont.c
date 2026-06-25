@@ -732,10 +732,16 @@ s32 romExtractAllPdfont(s32 force_rewrite)
 		return 0;
 	}
 
+	/* In-place cache-kind bump (B-943): force a one-time per-file rewrite when
+	 * the stored kind differs from the current one (no-op on clean install or
+	 * unchanged kind). See romExtractPdFastCacheKindMismatch. */
+	s32 effective_force = force_rewrite |
+		romExtractPdFastCacheKindMismatch(PDFONT_FAST_CACHE_KIND, fonts_dir);
+
 	pdfont_fanout_ctx_t fctx;
 	memset(&fctx, 0, sizeof(fctx));
 	fctx.fonts_dir     = fonts_dir;
-	fctx.force_rewrite = force_rewrite;
+	fctx.force_rewrite = effective_force;
 	fctx.count         = (s32)K_FONT_FACE_COUNT;
 	SDL_AtomicSet(&fctx.written,   0);
 	SDL_AtomicSet(&fctx.skipped,   0);

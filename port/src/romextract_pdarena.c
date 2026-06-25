@@ -9664,11 +9664,24 @@ s32 romExtractAllPdarena(s32 force_rewrite)
 		return 0;
 	}
 
+	/* In-place cache-kind bump (B-943): force a one-time per-file rewrite of
+	 * the arenas/scenarios dirs when a prior stamp recorded a different kind,
+	 * so in-place updates re-extract with new fields (collision.flags.json /
+	 * room_lights.json). The per-file scenario validator is already
+	 * version-aware, so this is belt-and-suspenders for it and the cure for
+	 * any per-file marker that lags a FAST_CACHE_KIND bump. No-op on a clean
+	 * install or when both kinds are unchanged. */
+	s32 effective_force = force_rewrite |
+		romExtractPdFastCacheKindMismatch(ROMEXTRACT_PDARENA_FAST_CACHE_KIND,
+			arenas_dir) |
+		romExtractPdFastCacheKindMismatch(ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND,
+			scenarios_dir);
+
 	pdarena_fanout_ctx_t actx;
 	memset(&actx, 0, sizeof(actx));
 	actx.arenas_dir    = arenas_dir;
 	actx.scenarios_dir = scenarios_dir;
-	actx.force_rewrite = force_rewrite;
+	actx.force_rewrite = effective_force;
 	actx.arena_count   = g_ArenaDataCount;
 	actx.count         = total_work;
 	SDL_AtomicSet(&actx.arenas_written,    0);
