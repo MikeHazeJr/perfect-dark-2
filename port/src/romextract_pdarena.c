@@ -83,8 +83,8 @@
 #define PDSCENARIO_BG_VISUAL_EXPORT_VERSION "bg_visual_scene_glb_v12_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_materialextras_dualtex_alphablend"
 #define PDSCENARIO_BG_VISUAL_EXPORT_VERSION_FILE \
 	PDSCENARIO_BG_VISUAL_EXPORT_VERSION "\n"
-#define ROMEXTRACT_PDARENA_FAST_CACHE_KIND "pdarena_clean_public_v8_pdscenario_v91"
-#define ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND "pdscenario_scene_glb_clean_public_v97_standalone_backfill_collision_obj_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_alphablend_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json"
+#define ROMEXTRACT_PDARENA_FAST_CACHE_KIND "pdarena_clean_public_v9_pdscenario_v98"
+#define ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND "pdscenario_scene_glb_clean_public_v98_standalone_backfill_collision_obj_collision_flags_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_alphablend_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json"
 
 /* Convert "base:arena_mp_skedar" -> "base_arena_mp_skedar". */
 static void s_idToFilename(const char *id, char *out, size_t n)
@@ -660,6 +660,7 @@ static s32 s_visualMeshAddTri(pdscenario_visualmesh_t *m,
 }
 
 static void s_pdscenarioScratchFree(pdscenario_textbuf_t *rooms_obj,
+                                    pdscenario_textbuf_t *collision_flags_json,
                                     pdscenario_textbuf_t *portals_json,
                                     pdscenario_textbuf_t *pads_json,
                                     pdscenario_textbuf_t *spawns_json,
@@ -682,6 +683,7 @@ static void s_pdscenarioScratchFree(pdscenario_textbuf_t *rooms_obj,
                                     pdscenario_bgscene_t *bg_scene)
 {
 	s_textbufFree(rooms_obj);
+	s_textbufFree(collision_flags_json);
 	s_textbufFree(portals_json);
 	s_textbufFree(pads_json);
 	s_textbufFree(spawns_json);
@@ -852,8 +854,27 @@ static s32 s_tilesGeoStride(const struct geo *geo)
 	return -1;
 }
 
+/* Emit one collision.flags.json row per OBJ triangle, in the SAME order the
+ * triangle is appended to collision.obj. The runtime colmesh loader consumes
+ * this array by OBJ triangle index, so the per-triangle order here is the
+ * contract: the row count MUST equal the collision.obj triangle count. */
+static s32 s_tilesFlagsEmit(pdscenario_textbuf_t *flags_json, u32 *flag_rows,
+                            u16 geoflags, u32 floortype, u32 floorcol)
+{
+	if (!flags_json) return 0;
+	if (*flag_rows > 0 && s_textbufAppend(flags_json, ",\n") != 0) return -1;
+	if (s_textbufAppendf(flags_json,
+			"    { \"flags\": \"0x%04x\", \"floortype\": %u, \"floorcol\": %u }",
+			(unsigned)geoflags, (unsigned)floortype, (unsigned)floorcol) != 0) {
+		return -1;
+	}
+	(*flag_rows)++;
+	return 0;
+}
+
 static s32 s_buildTilesExports(const u8 *data, u32 size,
                                pdscenario_textbuf_t *obj,
+                               pdscenario_textbuf_t *flags_json,
                                pdscenario_visualmesh_t *visual,
                                u32 *out_rooms, u32 *out_geos,
                                u32 *out_tris)
@@ -881,9 +902,18 @@ static s32 s_buildTilesExports(const u8 *data, u32 size,
 		return -1;
 	}
 
+	if (flags_json && s_textbufAppend(flags_json,
+			"{\n"
+			"  \"schema\": \"pd2.scenario.collision.flags.v1\",\n"
+			"  \"note\": \"Per-triangle GEOFLAGs + floortype/floorcol, parallel to collision.obj triangle order. The authoritative collision flag source (collision.obj normals only recover FLOOR1/FLOOR2/WALL).\",\n"
+			"  \"rows\": [\n") != 0) {
+		return -1;
+	}
+
 	u32 next_index = 1;
 	u32 geos = 0;
 	u32 tris = 0;
+	u32 flag_rows = 0;
 
 	static const f32 cylx[8] = { 1.0f, 0.707107f, 0.0f, -0.707107f, -1.0f, -0.707107f, 0.0f, 0.707107f };
 	static const f32 cylz[8] = { 0.0f, 0.707107f, 1.0f, 0.707107f, 0.0f, -0.707107f, -1.0f, -0.707107f };
@@ -907,6 +937,8 @@ static s32 s_buildTilesExports(const u8 *data, u32 size,
 							(f32)tile->vertices[0][0], (f32)tile->vertices[0][1], (f32)tile->vertices[0][2],
 							(f32)tile->vertices[i][0], (f32)tile->vertices[i][1], (f32)tile->vertices[i][2],
 							(f32)tile->vertices[i + 1][0], (f32)tile->vertices[i + 1][1], (f32)tile->vertices[i + 1][2]) != 0) return -1;
+					if (s_tilesFlagsEmit(flags_json, &flag_rows, geo->flags,
+							tile->floortype, tile->floorcol) != 0) return -1;
 					tris++;
 				}
 			} else if (geo->type == GEOTYPE_TILE_F) {
@@ -919,6 +951,8 @@ static s32 s_buildTilesExports(const u8 *data, u32 size,
 							v0->x, v0->y, v0->z,
 							v1->x, v1->y, v1->z,
 							v2->x, v2->y, v2->z) != 0) return -1;
+					if (s_tilesFlagsEmit(flags_json, &flag_rows, geo->flags,
+							tile->floortype, tile->floorcol) != 0) return -1;
 					tris++;
 				}
 			} else if (geo->type == GEOTYPE_BLOCK) {
@@ -929,6 +963,9 @@ static s32 s_buildTilesExports(const u8 *data, u32 size,
 					f32 x1 = block->vertices[j][0], z1 = block->vertices[j][1];
 					if (s_objEmitTri(obj, visual, &next_index, x0, block->ymin, z0, x1, block->ymin, z1, x1, block->ymax, z1) != 0 ||
 					    s_objEmitTri(obj, visual, &next_index, x0, block->ymin, z0, x1, block->ymax, z1, x0, block->ymax, z0) != 0) return -1;
+					/* BLOCK/CYL carry geo->flags but have no floortype/floorcol. */
+					if (s_tilesFlagsEmit(flags_json, &flag_rows, geo->flags, 0, 0) != 0 ||
+					    s_tilesFlagsEmit(flags_json, &flag_rows, geo->flags, 0, 0) != 0) return -1;
 					tris += 2;
 				}
 				for (s32 i = 1; i < geo->numvertices - 1; i++) {
@@ -936,6 +973,7 @@ static s32 s_buildTilesExports(const u8 *data, u32 size,
 							block->vertices[0][0], block->ymax, block->vertices[0][1],
 							block->vertices[i][0], block->ymax, block->vertices[i][1],
 							block->vertices[i + 1][0], block->ymax, block->vertices[i + 1][1]) != 0) return -1;
+					if (s_tilesFlagsEmit(flags_json, &flag_rows, geo->flags, 0, 0) != 0) return -1;
 					tris++;
 				}
 			} else if (geo->type == GEOTYPE_CYL) {
@@ -948,12 +986,29 @@ static s32 s_buildTilesExports(const u8 *data, u32 size,
 					f32 z1 = cyl->z + cylz[j] * cyl->radius;
 					if (s_objEmitTri(obj, visual, &next_index, x0, cyl->ymin, z0, x1, cyl->ymin, z1, x1, cyl->ymax, z1) != 0 ||
 					    s_objEmitTri(obj, visual, &next_index, x0, cyl->ymin, z0, x1, cyl->ymax, z1, x0, cyl->ymax, z0) != 0) return -1;
+					if (s_tilesFlagsEmit(flags_json, &flag_rows, geo->flags, 0, 0) != 0 ||
+					    s_tilesFlagsEmit(flags_json, &flag_rows, geo->flags, 0, 0) != 0) return -1;
 					tris += 2;
 				}
 			}
 
 			ptr += stride;
 			geo_index++;
+		}
+	}
+
+	if (flags_json) {
+		/* Contract: one flags row per collision.obj triangle, same order. */
+		if (flag_rows != tris) {
+			sysLogPrintf(LOG_ERROR,
+				"romextract pdscenario: collision.flags row/tri mismatch rows=%u tris=%u",
+				(unsigned)flag_rows, (unsigned)tris);
+			return -1;
+		}
+		if (s_textbufAppendf(flags_json,
+				"%s  ],\n  \"triangle_count\": %u\n}\n",
+				flag_rows > 0 ? "\n" : "", (unsigned)flag_rows) != 0) {
+			return -1;
 		}
 	}
 
@@ -5263,11 +5318,13 @@ static s32 s_buildScenarioSourceFiles(const char *scenario_id,
 			"  \"scenario\": \"%s\",\n"
 			"  \"derived_from\": \"collision.obj\",\n"
 			"  \"override\": \"collision.obj\",\n"
+			"  \"flags_source\": \"collision.flags.json\",\n"
 			"  \"generator\": \"deterministic.collision_obj.v1\",\n"
 			"  \"policy\": {\n"
 			"    \"default_collidable\": true,\n"
 			"    \"material_tags\": true,\n"
 			"    \"node_tags\": true,\n"
+			"    \"authoritative_flags\": true,\n"
 			"    \"fallback_when_missing_override\": false\n"
 			"  }\n"
 			"}\n",
@@ -7604,6 +7661,9 @@ static s32 s_existingPdscenarioArchiveIsClean(const char *relpath)
 		s_existingArchiveHasEntry(relpath, "_meta/manifest.json") &&
 		s_existingArchiveHasEntry(relpath, "scene.glb") &&
 		s_existingArchiveHasEntry(relpath, "collision.obj") &&
+		s_existingArchiveHasEntry(relpath, "collision.flags.json") &&
+		s_existingArchiveEntryContains(relpath, "collision.flags.json",
+			"pd2.scenario.collision.flags.v1") &&
 		s_existingArchiveHasEntry(relpath, "portals.json") &&
 		!s_existingArchiveHasEntry(relpath, "portals.tsv") &&
 		s_existingArchiveHasEntry(relpath, "pads.json") &&
@@ -8781,6 +8841,7 @@ static s32 s_emitOnePdscenarioSpec(const pdscenario_emit_spec_t *spec,
 		spec->provenance_index, spec->slug);
 
 	pdscenario_textbuf_t rooms_obj = { 0 };
+	pdscenario_textbuf_t collision_flags_json = { 0 };
 	pdscenario_textbuf_t portals_json = { 0 };
 	pdscenario_textbuf_t pads_json = { 0 };
 	pdscenario_textbuf_t spawns_json = { 0 };
@@ -8825,6 +8886,7 @@ static s32 s_emitOnePdscenarioSpec(const pdscenario_emit_spec_t *spec,
 		&tiles_data, &tiles_size);
 	if (has_tiles > 0) {
 		if (s_buildTilesExports(tiles_data, tiles_size, &rooms_obj,
+				&collision_flags_json,
 				&visual_mesh, &room_count, &geo_count, &tri_count) != 0) {
 			sysLogPrintf(LOG_WARNING,
 				"romextract pdscenario: tile conversion failed for \"%s\"",
@@ -8986,7 +9048,7 @@ static s32 s_emitOnePdscenarioSpec(const pdscenario_emit_spec_t *spec,
 	}
 
 	if (has_tiles < 0 || has_pads < 0 || has_setup < 0 || has_bg < 0) {
-		s_pdscenarioScratchFree(&rooms_obj, &portals_json, &pads_json,
+		s_pdscenarioScratchFree(&rooms_obj, &collision_flags_json, &portals_json, &pads_json,
 			&spawns_json, &volumes_json, &waypoints_json, &waygroups_json,
 			&covers_json, &paths_json, &objects_json, &setup_fields_json, &ai_lists_json, &ai_command_nodes_json, &ai_command_links_json, &objectives_json,
 			&navigation_ini, &level_graph_json, &collision_meta_json,
@@ -9000,7 +9062,7 @@ static s32 s_emitOnePdscenarioSpec(const pdscenario_emit_spec_t *spec,
 		if (assetArchiveWriterAddPublicMem(&asset_writer, "scene.glb",
 				bg_scene.scene_glb, bg_scene.scene_glb_size,
 				"scene") != MODARCHIVE_OK) {
-			s_pdscenarioScratchFree(&rooms_obj, &portals_json, &pads_json,
+			s_pdscenarioScratchFree(&rooms_obj, &collision_flags_json, &portals_json, &pads_json,
 				&spawns_json, &volumes_json, &waypoints_json, &waygroups_json,
 				&covers_json, &paths_json, &objects_json, &setup_fields_json, &ai_lists_json, &ai_command_nodes_json, &ai_command_links_json, &objectives_json,
 				&navigation_ini, &level_graph_json, &collision_meta_json,
@@ -9013,8 +9075,11 @@ static s32 s_emitOnePdscenarioSpec(const pdscenario_emit_spec_t *spec,
 
 	if (has_tiles > 0) {
 		if (assetArchiveWriterAddPublicMem(&asset_writer, "collision.obj",
-				rooms_obj.data, rooms_obj.len, "collision") != MODARCHIVE_OK) {
-			s_pdscenarioScratchFree(&rooms_obj, &portals_json, &pads_json,
+				rooms_obj.data, rooms_obj.len, "collision") != MODARCHIVE_OK ||
+		    assetArchiveWriterAddPublicMem(&asset_writer, "collision.flags.json",
+				collision_flags_json.data, collision_flags_json.len,
+				"collision_flags") != MODARCHIVE_OK) {
+			s_pdscenarioScratchFree(&rooms_obj, &collision_flags_json, &portals_json, &pads_json,
 				&spawns_json, &volumes_json, &waypoints_json, &waygroups_json,
 				&covers_json, &paths_json, &objects_json, &setup_fields_json, &ai_lists_json, &ai_command_nodes_json, &ai_command_links_json, &objectives_json,
 				&navigation_ini, &level_graph_json,
@@ -9028,7 +9093,7 @@ static s32 s_emitOnePdscenarioSpec(const pdscenario_emit_spec_t *spec,
 	if (has_bg > 0) {
 		if (assetArchiveWriterAddPublicMem(&asset_writer, "portals.json",
 				portals_json.data, portals_json.len, "portals") != MODARCHIVE_OK) {
-			s_pdscenarioScratchFree(&rooms_obj, &portals_json, &pads_json,
+			s_pdscenarioScratchFree(&rooms_obj, &collision_flags_json, &portals_json, &pads_json,
 				&spawns_json, &volumes_json, &waypoints_json, &waygroups_json,
 				&covers_json, &paths_json, &objects_json, &setup_fields_json, &ai_lists_json, &ai_command_nodes_json, &ai_command_links_json, &objectives_json,
 				&navigation_ini, &level_graph_json,
@@ -9055,7 +9120,7 @@ static s32 s_emitOnePdscenarioSpec(const pdscenario_emit_spec_t *spec,
 		    assetArchiveWriterAddPublicMem(&asset_writer,
 				"navigation/covers.json", covers_json.data,
 				covers_json.len, "covers") != MODARCHIVE_OK) {
-			s_pdscenarioScratchFree(&rooms_obj, &portals_json, &pads_json,
+			s_pdscenarioScratchFree(&rooms_obj, &collision_flags_json, &portals_json, &pads_json,
 				&spawns_json, &volumes_json, &waypoints_json, &waygroups_json,
 				&covers_json, &paths_json, &objects_json, &setup_fields_json, &ai_lists_json, &ai_command_nodes_json, &ai_command_links_json, &objectives_json,
 				&navigation_ini, &level_graph_json, &collision_meta_json,
@@ -9084,7 +9149,7 @@ static s32 s_emitOnePdscenarioSpec(const pdscenario_emit_spec_t *spec,
 			collision_meta_json.data, collision_meta_json.len, "generated_collision") != MODARCHIVE_OK ||
 	    assetArchiveWriterAddBundledMem(&asset_writer, "_meta/generated-navmesh.json",
 			navmesh_meta_json.data, navmesh_meta_json.len, "generated_navmesh") != MODARCHIVE_OK) {
-		s_pdscenarioScratchFree(&rooms_obj, &portals_json, &pads_json,
+		s_pdscenarioScratchFree(&rooms_obj, &collision_flags_json, &portals_json, &pads_json,
 			&spawns_json, &volumes_json, &waypoints_json, &waygroups_json,
 			&covers_json, &paths_json, &objects_json, &setup_fields_json, &ai_lists_json, &ai_command_nodes_json, &ai_command_links_json, &objectives_json,
 			&navigation_ini, &level_graph_json, &collision_meta_json,
@@ -9122,6 +9187,7 @@ static s32 s_emitOnePdscenarioSpec(const pdscenario_emit_spec_t *spec,
 		scenario_id, kind, spec->stagenum, spec->slug);
 
 	if (has_tiles > 0) n += snprintf(manifest_buf + n, sizeof(manifest_buf) - n,
+		",\n  \"collision_flags\": \"collision.flags.json\""
 		",\n  \"room_count\": %u"
 		",\n  \"geo_count\": %u"
 		",\n  \"triangle_count\": %u",
@@ -9172,7 +9238,7 @@ static s32 s_emitOnePdscenarioSpec(const pdscenario_emit_spec_t *spec,
 	if (n <= 0 || (size_t)n >= sizeof(manifest_buf)) {
 		sysLoudFailf("EXTRACT.PDSCENARIO",
 			"manifest snprintf truncated for \"%s\"", scenario_id);
-		s_pdscenarioScratchFree(&rooms_obj, &portals_json, &pads_json,
+		s_pdscenarioScratchFree(&rooms_obj, &collision_flags_json, &portals_json, &pads_json,
 			&spawns_json, &volumes_json, &waypoints_json, &waygroups_json,
 			&covers_json, &paths_json, &objects_json, &setup_fields_json, &ai_lists_json, &ai_command_nodes_json, &ai_command_links_json, &objectives_json,
 			&navigation_ini, &level_graph_json, &collision_meta_json,
@@ -9222,7 +9288,7 @@ static s32 s_emitOnePdscenarioSpec(const pdscenario_emit_spec_t *spec,
 	if (ini_len <= 0 || (size_t)ini_len >= sizeof(ini_buf)) {
 		sysLoudFailf("EXTRACT.PDSCENARIO",
 			"scenario.ini snprintf truncated for \"%s\"", scenario_id);
-		s_pdscenarioScratchFree(&rooms_obj, &portals_json, &pads_json,
+		s_pdscenarioScratchFree(&rooms_obj, &collision_flags_json, &portals_json, &pads_json,
 			&spawns_json, &volumes_json, &waypoints_json, &waygroups_json,
 			&covers_json, &paths_json, &objects_json, &setup_fields_json, &ai_lists_json, &ai_command_nodes_json, &ai_command_links_json, &objectives_json,
 			&navigation_ini, &level_graph_json, &collision_meta_json,
@@ -9236,7 +9302,7 @@ static s32 s_emitOnePdscenarioSpec(const pdscenario_emit_spec_t *spec,
 			ini_buf, (u32)ini_len) != MODARCHIVE_OK) {
 		sysLoudFailf("EXTRACT.PDSCENARIO",
 			"AddFileMem scenario.ini failed for \"%s\"", dst_full);
-		s_pdscenarioScratchFree(&rooms_obj, &portals_json, &pads_json,
+		s_pdscenarioScratchFree(&rooms_obj, &collision_flags_json, &portals_json, &pads_json,
 			&spawns_json, &volumes_json, &waypoints_json, &waygroups_json,
 			&covers_json, &paths_json, &objects_json, &setup_fields_json, &ai_lists_json, &ai_command_nodes_json, &ai_command_links_json, &objectives_json,
 			&navigation_ini, &level_graph_json, &collision_meta_json,
@@ -9249,7 +9315,7 @@ static s32 s_emitOnePdscenarioSpec(const pdscenario_emit_spec_t *spec,
 			manifest_buf, (u32)n) != MODARCHIVE_OK) {
 		sysLoudFailf("EXTRACT.PDSCENARIO",
 			"AddFileMem _meta/manifest.json failed for \"%s\"", dst_full);
-		s_pdscenarioScratchFree(&rooms_obj, &portals_json, &pads_json,
+		s_pdscenarioScratchFree(&rooms_obj, &collision_flags_json, &portals_json, &pads_json,
 			&spawns_json, &volumes_json, &waypoints_json, &waygroups_json,
 			&covers_json, &paths_json, &objects_json, &setup_fields_json, &ai_lists_json, &ai_command_nodes_json, &ai_command_links_json, &objectives_json,
 			&navigation_ini, &level_graph_json, &collision_meta_json,
@@ -9261,7 +9327,7 @@ static s32 s_emitOnePdscenarioSpec(const pdscenario_emit_spec_t *spec,
 	if (assetArchiveWriterFinishMetadata(&asset_writer) != MODARCHIVE_OK) {
 		sysLoudFailf("EXTRACT.PDSCENARIO",
 			"assetArchiveWriterFinishMetadata failed for \"%s\"", dst_full);
-		s_pdscenarioScratchFree(&rooms_obj, &portals_json, &pads_json,
+		s_pdscenarioScratchFree(&rooms_obj, &collision_flags_json, &portals_json, &pads_json,
 			&spawns_json, &volumes_json, &waypoints_json, &waygroups_json,
 			&covers_json, &paths_json, &objects_json, &setup_fields_json, &ai_lists_json, &ai_command_nodes_json, &ai_command_links_json, &objectives_json,
 			&navigation_ini, &level_graph_json, &collision_meta_json,
@@ -9274,7 +9340,7 @@ static s32 s_emitOnePdscenarioSpec(const pdscenario_emit_spec_t *spec,
 	if (modArchiveFinish(aw) != 0) {
 		sysLoudFailf("EXTRACT.PDSCENARIO",
 			"modArchiveFinish failed for \"%s\"", dst_full);
-		s_pdscenarioScratchFree(&rooms_obj, &portals_json, &pads_json,
+		s_pdscenarioScratchFree(&rooms_obj, &collision_flags_json, &portals_json, &pads_json,
 			&spawns_json, &volumes_json, &waypoints_json, &waygroups_json,
 			&covers_json, &paths_json, &objects_json, &setup_fields_json, &ai_lists_json, &ai_command_nodes_json, &ai_command_links_json, &objectives_json,
 			&navigation_ini, &level_graph_json, &collision_meta_json,
@@ -9282,7 +9348,7 @@ static s32 s_emitOnePdscenarioSpec(const pdscenario_emit_spec_t *spec,
 			&visual_mesh, &bg_scene);
 		return -1;
 	}
-	s_pdscenarioScratchFree(&rooms_obj, &portals_json, &pads_json,
+	s_pdscenarioScratchFree(&rooms_obj, &collision_flags_json, &portals_json, &pads_json,
 		&spawns_json, &volumes_json, &waypoints_json, &waygroups_json,
 		&covers_json, &paths_json, &objects_json, &setup_fields_json, &ai_lists_json, &ai_command_nodes_json, &ai_command_links_json, &objectives_json,
 		&navigation_ini, &level_graph_json, &collision_meta_json,

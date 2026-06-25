@@ -34649,9 +34649,15 @@ u8 *scenarioSourceLoadTilesForStage(const catalog_stage_result_t *stage,
 			tile = (struct geotilef *)(data + cursor);
 			tile->header.type = GEOTYPE_TILE_F;
 			tile->header.numvertices = 3;
+			/* B-943: carry the authoritative GEOFLAGs + floortype/floorcol from
+			 * the colmesh (loaded from collision.flags.json). Previously flags
+			 * came only from classifyTriFlags (FLOOR1/FLOOR2/WALL) and
+			 * floortype/floorcol were hardcoded 0, so extracted stages lost
+			 * DIE death-floors, LADDERs, footstep materials, and AI sight/shoot
+			 * blocking. */
 			tile->header.flags = src->flags;
-			tile->floortype = 0;
-			tile->floorcol = 0;
+			tile->floortype = src->floortype;
+			tile->floorcol = src->floorcol;
 			tile->vertices[0] = src->v0;
 			tile->vertices[1] = src->v1;
 			tile->vertices[2] = src->v2;
@@ -34671,6 +34677,46 @@ u8 *scenarioSourceLoadTilesForStage(const catalog_stage_result_t *stage,
 		scenario->id, stageid, max_room + 1, source_tiles,
 		(unsigned)cursor,
 		source_path && source_path[0] ? source_path : "(none)");
+
+	/* B-943 round-trip diagnostic: prove the runtime tiles now carry the real
+	 * GEOFLAGs (not just the 3-bit FLOOR1/FLOOR2/WALL normal reconstruction)
+	 * and non-zero floortypes. Logged once per scenario id per process. */
+	{
+		static char s_b943LoggedScenario[CATALOG_ID_LEN];
+		if (strncmp(s_b943LoggedScenario, scenario->id,
+				sizeof(s_b943LoggedScenario)) != 0) {
+			u32 flags_or = 0;
+			u32 advanced_tiles = 0;   /* tiles with bits beyond FLOOR1/2/WALL */
+			u32 floortype_tiles = 0;  /* tiles with a non-zero floortype */
+			s32 shown = 0;
+			for (s32 ri = 0; ri <= max_room; ri++) {
+				u32 a = rooms[ri];
+				u32 b = rooms[ri + 1];
+				while (a + tile_stride <= b) {
+					struct geotilef *t = (struct geotilef *)(data + a);
+					u16 f = t->header.flags;
+					flags_or |= f;
+					if (f & ~(u16)0x0007) advanced_tiles++;
+					if (t->floortype) floortype_tiles++;
+					if (shown < 8 && ((f & ~(u16)0x0007) || t->floortype)) {
+						sysLogPrintf(LOG_NOTE,
+							"SCENARIO.SOURCE: B-943 tile room=%d flags=0x%04x floortype=%u floorcol=%u",
+							ri, (unsigned)f, (unsigned)t->floortype,
+							(unsigned)t->floorcol);
+						shown++;
+					}
+					a += tile_stride;
+				}
+			}
+			sysLogPrintf(LOG_NOTE,
+				"SCENARIO.SOURCE: B-943 collision-flags summary '%s' tiles=%d flags_union=0x%04x advanced_flag_tiles=%u floortype_tiles=%u",
+				scenario->id, source_tiles, (unsigned)flags_or,
+				(unsigned)advanced_tiles, (unsigned)floortype_tiles);
+			strncpy(s_b943LoggedScenario, scenario->id,
+				sizeof(s_b943LoggedScenario) - 1);
+			s_b943LoggedScenario[sizeof(s_b943LoggedScenario) - 1] = '\0';
+		}
+	}
 
 	if (out_size) {
 		*out_size = (s32)cursor;

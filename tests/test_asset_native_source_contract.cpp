@@ -9903,9 +9903,9 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 	        std::string::npos);
 	REQUIRE(meta_extractor.find("PDMETA_SCENARIO_DEP_CACHE_KIND") !=
 	        std::string::npos);
-	REQUIRE(meta_extractor.find("pdscenario_scene_glb_clean_public_v96_standalone_backfill_collision_obj_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json") !=
+	REQUIRE(meta_extractor.find("pdscenario_scene_glb_clean_public_v98_standalone_backfill_collision_obj_collision_flags_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json") !=
 	        std::string::npos);
-	REQUIRE(meta_extractor.find("pdscenario_scene_glb_clean_public_v95_") ==
+	REQUIRE(meta_extractor.find("pdscenario_scene_glb_clean_public_v96_") ==
 	        std::string::npos);
 	REQUIRE(meta_extractor.find("scenario_graph_cache = \" PDMETA_SCENARIO_DEP_CACHE_KIND") !=
 	        std::string::npos);
@@ -10754,6 +10754,21 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 	REQUIRE(scenario_runtime.find("SCENARIO.SOURCE: compiled scene tiles") !=
 	        std::string::npos);
 	REQUIRE(scenario_extractor.find("assetArchiveWriterAddPublicMem(&asset_writer, \"collision.obj\"") !=
+	        std::string::npos);
+	// B-943: the per-triangle GEOFLAG/floortype/floorcol sidecar is emitted
+	// alongside collision.obj, schema-versioned, and required for an archive to
+	// be considered clean (forces re-extraction of pre-B-943 archives).
+	REQUIRE(scenario_extractor.find("assetArchiveWriterAddPublicMem(&asset_writer, \"collision.flags.json\"") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("pd2.scenario.collision.flags.v1") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("s_existingArchiveHasEntry(relpath, \"collision.flags.json\")") !=
+	        std::string::npos);
+	// Runtime must consume the sidecar as the authoritative flag source and
+	// carry floortype/floorcol into the tile cache (not hardcode 0).
+	REQUIRE(scenario_runtime.find("tile->floortype = src->floortype;") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("tile->floorcol = src->floorcol;") !=
 	        std::string::npos);
 	REQUIRE(scenario_extractor.find("collision_source = collision.obj") !=
 	        std::string::npos);
@@ -14743,9 +14758,9 @@ TEST_CASE("c3843 remaining base asset families emit clean native archives",
 	REQUIRE(meta.find("\"element_type = %d") == std::string::npos);
 	REQUIRE(meta.find("\"effect_type = %d") == std::string::npos);
 	REQUIRE(meta.find("\"prop_type = %d") == std::string::npos);
-	REQUIRE(arena.find("ROMEXTRACT_PDARENA_FAST_CACHE_KIND \"pdarena_clean_public_v8_pdscenario_v91\"") !=
+	REQUIRE(arena.find("ROMEXTRACT_PDARENA_FAST_CACHE_KIND \"pdarena_clean_public_v9_pdscenario_v98\"") !=
 	        std::string::npos);
-	REQUIRE(arena.find("ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND \"pdscenario_scene_glb_clean_public_v96_standalone_backfill_collision_obj_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json\"") !=
+	REQUIRE(arena.find("ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND \"pdscenario_scene_glb_clean_public_v98_standalone_backfill_collision_obj_collision_flags_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_alphablend_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json\"") !=
 	        std::string::npos);
 	REQUIRE(arena.find("s_aiOpcodeSemanticKind") != std::string::npos);
 	REQUIRE(arena.find("ai_command_nodes_json") != std::string::npos);

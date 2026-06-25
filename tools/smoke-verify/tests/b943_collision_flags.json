@@ -1,0 +1,14 @@
+{
+  "scenario_name": "b943_collision_flags",
+  "description": "B-943: verify extracted Chicago carries authoritative collision GEOFLAGs/floortype through the runtime tile cache (collision.flags.json round-trip).",
+  "boot_args": ["--no-update-check", "--no-sound", "--no-net", "--portable", "--launch-mp-room", "base:arena_chicago", "base:combat", "1", "--debug-auto-start-match"],
+  "timeout_seconds": 90,
+  "install_state": "clean",
+  "input_sequence": [{"at_ms": 0, "type": "wait"}, {"at_ms": 30000, "type": "exit"}],
+  "assertions": {
+    "required_lines": ["SMOKE: result=scripted_exit"],
+    "required_patterns": ["SCENARIO.SOURCE: B-943 collision-flags summary"],
+    "forbidden_patterns": [],
+    "required_counts": []
+  }
+}

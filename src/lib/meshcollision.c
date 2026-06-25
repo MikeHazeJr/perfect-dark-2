@@ -139,6 +139,8 @@ static bool addTriToMesh(struct colmesh *mesh,
 	tri->v1.x = x1; tri->v1.y = y1; tri->v1.z = z1;
 	tri->v2.x = x2; tri->v2.y = y2; tri->v2.z = z2;
 	tri->flags = flags;
+	tri->floortype = 0;
+	tri->floorcol = 0;
 	tri->roomnum = 0;
 	meshComputeNormal(&tri->v0, &tri->v1, &tri->v2, &tri->normal);
 
@@ -528,7 +530,13 @@ void meshWorldAddMesh(struct colmesh *mesh, Mtxf *transform)
 				dv->z = sv->x * transform->m[0][2] + sv->y * transform->m[1][2] + sv->z * transform->m[2][2] + transform->m[3][2];
 			}
 			meshComputeNormal(&dst->v0, &dst->v1, &dst->v2, &dst->normal);
+			/* Rotation can change floor/wall classification, so re-derive flags
+			 * from the transformed normal. floortype/floorcol are material
+			 * properties that are rotation-invariant -- carry them through. */
 			dst->flags = classifyTriFlags(&dst->normal);
+			dst->floortype = src->floortype;
+			dst->floorcol = src->floorcol;
+			dst->roomnum = src->roomnum;
 		} else {
 			*dst = *src;
 		}

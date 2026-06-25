@@ -28,7 +28,15 @@ struct meshtri {
 	struct coord v1;
 	struct coord v2;
 	struct coord normal;   /* precomputed face normal */
-	u16 flags;             /* GEOFLAG_* for floor/wall/ceiling classification */
+	u16 flags;             /* GEOFLAG_* for floor/wall/ceiling classification.
+	                        * Authoritative when loaded from a collision.flags.json
+	                        * sidecar (carries the full 15-bit GEOFLAG set incl.
+	                        * DIE/LADDER/BLOCK_SIGHT/...); otherwise reconstructed
+	                        * from the face normal by classifyTriFlags (FLOOR1/
+	                        * FLOOR2/WALL only). */
+	u16 floortype;         /* GEO floortype (footstep material, 9 types); 0 when
+	                        * unknown or not a TILE geo. From collision.flags.json. */
+	u16 floorcol;          /* GEO floorcol (room colour band); 0 when unknown. */
 	RoomNum roomnum;       /* source room tag, or 0 when unknown/global */
 };
 

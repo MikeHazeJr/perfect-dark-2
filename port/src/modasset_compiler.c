@@ -7542,6 +7542,182 @@ void modAssetCompilerFreeModeldef(struct modeldef *modeldef)
 	free(owner);
 }
 
+/* ------------------------------------------------------------------------ */
+/* collision.flags.json sidecar (B-943)                                       */
+/*                                                                            */
+/* The .pdscenario extractor writes a parallel per-triangle GEOFLAG /         */
+/* floortype / floorcol array (schema pd2.scenario.collision.flags.v1) in the */
+/* exact same order collision.obj emits its triangles. collision.obj normals  */
+/* only recover 3 of 15 GEOFLAG bits (FLOOR1/FLOOR2/WALL), losing DIE death-  */
+/* floors, LADDER, BLOCK_SIGHT/SHOOT, footstep floortype, etc. This sidecar   */
+/* is the authoritative flag source; classifyTriFlags stays as the fallback   */
+/* for archives that predate it.                                              */
+
+typedef struct colflags_row {
+	u16 flags;
+	u16 floortype;
+	u16 floorcol;
+} colflags_row_t;
+
+typedef struct colflags_sidecar {
+	colflags_row_t *rows;
+	s32 count;
+} colflags_sidecar_t;
+
+/* Read an unsigned integer that may be a JSON number (123) or a quoted hex
+ * string ("0x004f"). Returns 1 on success, value via *out. */
+static s32 colflagsReadUint(const char *p, const char *end, u32 *out)
+{
+	while (p < end && (*p == ' ' || *p == '\t' || *p == ':')) {
+		p++;
+	}
+	if (p < end && *p == '"') {
+		p++;
+	}
+	while (p < end && (*p == ' ' || *p == '\t')) {
+		p++;
+	}
+	if (p >= end) {
+		return 0;
+	}
+	if (p + 1 < end && p[0] == '0' && (p[1] == 'x' || p[1] == 'X')) {
+		*out = (u32)strtoul(p, NULL, 16);
+	} else {
+		*out = (u32)strtoul(p, NULL, 10);
+	}
+	return 1;
+}
+
+/* Locate `"<key>"` within [p,end) and return the pointer just after the key's
+ * closing quote (i.e. at the colon/value), or NULL. */
+static const char *colflagsFindKey(const char *p, const char *end,
+                                   const char *key)
+{
+	size_t keylen = strlen(key);
+	while (p && p < end) {
+		const char *q = (const char *)memchr(p, '"', (size_t)(end - p));
+		if (!q) {
+			return NULL;
+		}
+		if ((size_t)(end - q) > keylen + 1 &&
+				strncmp(q + 1, key, keylen) == 0 && q[1 + keylen] == '"') {
+			return q + 1 + keylen + 1;
+		}
+		p = q + 1;
+	}
+	return NULL;
+}
+
+static void colflagsFree(colflags_sidecar_t *s)
+{
+	if (!s) {
+		return;
+	}
+	free(s->rows);
+	s->rows = NULL;
+	s->count = 0;
+}
+
+/* Load + parse the collision.flags.json sibling of source_path. Returns 1 if
+ * parsed (out->rows owned by caller, free with colflagsFree), 0 if the sidecar
+ * is absent or unparseable (caller falls back to classifyTriFlags). */
+static s32 colflagsLoadSidecar(const char *source_path, colflags_sidecar_t *out)
+{
+	char sidecar_path[FS_MAXPATH + 1];
+	u32 size = 0;
+	char *text;
+	const char *end;
+	const char *rows;
+	const char *cursor;
+	s32 cap = 0;
+	s32 n = 0;
+
+	if (!out) {
+		return 0;
+	}
+	out->rows = NULL;
+	out->count = 0;
+
+	if (!generatedModeldefMetadataPath(source_path, "collision.flags.json",
+			sidecar_path, sizeof(sidecar_path))) {
+		return 0;
+	}
+
+	text = (char *)fsFileLoad(sidecar_path, &size);
+	if (!text || size == 0) {
+		if (text) {
+			free(text);
+		}
+		return 0;
+	}
+	end = text + size;
+
+	rows = colflagsFindKey(text, end, "rows");
+	if (!rows) {
+		free(text);
+		return 0;
+	}
+	rows = (const char *)memchr(rows, '[', (size_t)(end - rows));
+	if (!rows) {
+		free(text);
+		return 0;
+	}
+	cursor = rows + 1;
+
+	while (cursor < end) {
+		const char *obj_open = (const char *)memchr(cursor, '{',
+			(size_t)(end - cursor));
+		const char *obj_close;
+		const char *kp;
+		u32 flags = 0, floortype = 0, floorcol = 0;
+
+		if (!obj_open) {
+			break;
+		}
+		obj_close = (const char *)memchr(obj_open, '}',
+			(size_t)(end - obj_open));
+		if (!obj_close) {
+			break;
+		}
+
+		kp = colflagsFindKey(obj_open, obj_close, "flags");
+		if (kp) {
+			(void)colflagsReadUint(kp, obj_close, &flags);
+		}
+		kp = colflagsFindKey(obj_open, obj_close, "floortype");
+		if (kp) {
+			(void)colflagsReadUint(kp, obj_close, &floortype);
+		}
+		kp = colflagsFindKey(obj_open, obj_close, "floorcol");
+		if (kp) {
+			(void)colflagsReadUint(kp, obj_close, &floorcol);
+		}
+
+		if (n >= cap) {
+			s32 newcap = cap ? cap * 2 : 256;
+			colflags_row_t *np = (colflags_row_t *)realloc(out->rows,
+				(size_t)newcap * sizeof(*np));
+			if (!np) {
+				colflagsFree(out);
+				free(text);
+				return 0;
+			}
+			out->rows = np;
+			cap = newcap;
+		}
+		out->rows[n].flags = (u16)flags;
+		out->rows[n].floortype = (u16)floortype;
+		out->rows[n].floorcol = (u16)floorcol;
+		n++;
+
+		cursor = obj_close + 1;
+	}
+
+	free(text);
+	out->count = n;
+	return n > 0 ? 1 : 0;
+}
+
 s32 modAssetCompilerBuildColmesh(const char *source_path,
                                  struct colmesh *out_mesh)
 {
@@ -7589,6 +7765,24 @@ s32 modAssetCompilerBuildColmesh(const char *source_path,
 	free(source_bytes);
 	meshInit(out_mesh);
 
+	/* B-943: load the authoritative per-triangle GEOFLAG / floortype / floorcol
+	 * sidecar. Indexed by OBJ triangle index (same order the extractor emitted
+	 * collision.obj), so it stays aligned even though degenerate triangles are
+	 * skipped below (they were never emitted to either file). Absent sidecar =>
+	 * classifyTriFlags fallback for back-compat with pre-B-943 archives. */
+	colflags_sidecar_t colflags;
+	s32 have_colflags = colflagsLoadSidecar(source_path, &colflags);
+	s32 colflags_applied = 0;
+	if (have_colflags && colflags.count != obj_mesh.triangle_count) {
+		/* Order contract broken (count must match the OBJ triangle count). Do
+		 * not risk mis-tagging geometry -- drop to the normal-based fallback. */
+		sysLogPrintf(LOG_WARNING,
+			"MODASSET.COMPILER: collision.flags.json count=%d != obj triangles=%d for %s; using normal fallback",
+			colflags.count, obj_mesh.triangle_count, source_path);
+		colflagsFree(&colflags);
+		have_colflags = 0;
+	}
+
 	for (s32 i = 0; i < obj_mesh.triangle_count; i++) {
 		const obj_triangle_t *tri = &obj_mesh.triangles[i];
 		const obj_vertex_t *a = &obj_mesh.vertices[tri->a];
@@ -7630,17 +7824,32 @@ s32 modAssetCompilerBuildColmesh(const char *source_path,
 				out_mesh->capacity, skipped_degenerate, len2);
 			meshFree(out_mesh);
 			objMeshFree(&obj_mesh);
+			if (have_colflags) {
+				colflagsFree(&colflags);
+			}
 			return -1;
 		}
-		out_mesh->tris[out_mesh->numtris - 1].roomnum =
-			(RoomNum)tri->roomnum;
+		struct meshtri *added = &out_mesh->tris[out_mesh->numtris - 1];
+		added->roomnum = (RoomNum)tri->roomnum;
+		if (have_colflags) {
+			/* Authoritative: overwrite the normal-derived flags with the full
+			 * GEOFLAG set and carry floortype/floorcol. Indexed by OBJ tri i. */
+			added->flags = colflags.rows[i].flags;
+			added->floortype = colflags.rows[i].floortype;
+			added->floorcol = colflags.rows[i].floorcol;
+			colflags_applied++;
+		}
 	}
 
 	sysLogPrintf(LOG_NOTE,
-		"MODASSET.COMPILER: built colmesh source=%s format=%s vertices=%d tris=%d skipped_degenerate=%d",
+		"MODASSET.COMPILER: built colmesh source=%s format=%s vertices=%d tris=%d skipped_degenerate=%d colflags=%s applied=%d",
 		source_path, source_kind, obj_mesh.vertex_count, out_mesh->numtris,
-		skipped_degenerate);
+		skipped_degenerate, have_colflags ? "sidecar" : "normal-fallback",
+		colflags_applied);
 	objMeshFree(&obj_mesh);
+	if (have_colflags) {
+		colflagsFree(&colflags);
+	}
 	return out_mesh->numtris > 0 ? 1 : -1;
 }
 
