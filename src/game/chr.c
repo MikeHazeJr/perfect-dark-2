@@ -3607,7 +3607,7 @@ Gfx *chrRender(struct prop *prop, Gfx *gdl, bool xlupass)
 	 * the captured slot is the un-drifted terminal position. */
 	if (model != NULL && model->definition != NULL
 			&& model->definition->nummatrices == 19
-			&& sysArgCheck("--debug-chr-anim")) {
+			&& (sysArgCheck("--debug-chr-anim") || sysArgCheck("--debug-chr-clamp"))) {
 		static s32 s_galleryRenders = 0;
 		s_galleryRenders++;
 		if (s_galleryRenders >= 30) {

@@ -67,9 +67,9 @@
 #define ROMEXTRACT_PDMESH_MODEL_VMA 0x05000000u
 #define ROMEXTRACT_PDMESH_MTX_STACK_CAP 11
 #define ROMEXTRACT_PDMESH_NODE_DEPTH_CAP 2048
-#define ROMEXTRACT_PDMESH_OBJ_EXPORT_VERSION_LABEL "model_obj_mtx_v20_materials_hierarchy_parts_faces_json_relations_raw_mtx_render_commands_json_vtxcolour"
+#define ROMEXTRACT_PDMESH_OBJ_EXPORT_VERSION_LABEL "model_obj_mtx_v20_materials_hierarchy_parts_faces_json_relations_raw_mtx_render_commands_json_vtxcolour_jointflags"
 #define ROMEXTRACT_PDMESH_OBJ_EXPORT_VERSION ROMEXTRACT_PDMESH_OBJ_EXPORT_VERSION_LABEL "\n"
-#define ROMEXTRACT_PDMESH_FAST_CACHE_KIND "pdmesh_model_obj_mtx_v23_materials_hierarchy_parts_faces_json_relations_raw_mtx_render_commands_json_allmodels_menuhud_zero_tri_models_vtxcolour"
+#define ROMEXTRACT_PDMESH_FAST_CACHE_KIND "pdmesh_model_obj_mtx_v23_materials_hierarchy_parts_faces_json_relations_raw_mtx_render_commands_json_allmodels_menuhud_zero_tri_models_vtxcolour_jointflags"
 extern u16 g_CartFileNums[];
 static u16 s_SeenFilenums[ROMEXTRACT_PDMESH_SEEN_CAP];
 static s32 s_SeenCount;
@@ -1758,6 +1758,12 @@ static s32 s_writeNodeHierarchyJson(pdmesh_obj_export_t *ctx)
 	for (s32 i = 0; i < ctx->node_count; i++) {
 		const struct modelnode *node = ctx->node_ptrs[i];
 		u32 type = node ? (node->type & 0xff) : 0;
+		/* B-942: the high node-type bits carry the N64 joint-smoothing flags
+		 * (MODELNODETYPE_0100/0200) that modelUpdatePositionNodeMtx needs to
+		 * compute the half-angle helper matrices for 3-matrix-skinned limbs
+		 * (knees/elbows). The `type & 0xff` category mask above drops them, so
+		 * preserve them separately and round-trip via "type_hi". */
+		u32 type_hi = node ? (node->type & 0xff00) : 0;
 		s32 parent = node ? s_objNodeId(ctx, node->parent) : -1;
 		s32 partnum = s_objPartNumForNode(ctx, node);
 		s32 part = -1;
@@ -1897,12 +1903,12 @@ static s32 s_writeNodeHierarchyJson(pdmesh_obj_export_t *ctx)
 			return -1;
 		}
 		if (s_textbufAppendf(ctx->nodes,
-				"    { \"id\": %d, \"parent\": %d, \"type\": %u, "
+				"    { \"id\": %d, \"parent\": %d, \"type\": %u, \"type_hi\": %u, "
 				"\"partnum\": %d, \"part\": %d, "
 				"\"mtx0\": %d, \"mtx1\": %d, \"mtx2\": %d, "
 				"\"position\": { \"x\": %.6f, \"y\": %.6f, \"z\": %.6f }, "
 				"\"drawdist\": %.6f, \"target\": %d, \"group\": ",
-				i, parent, (unsigned)type, partnum, part, mtx0, mtx1, mtx2,
+				i, parent, (unsigned)type, (unsigned)type_hi, partnum, part, mtx0, mtx1, mtx2,
 				(double)pos_x, (double)pos_y, (double)pos_z,
 				(double)drawdist, target) != 0 ||
 				s_textbufAppendJsonString(ctx->nodes, group) != 0 ||

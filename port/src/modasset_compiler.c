@@ -4176,6 +4176,7 @@ typedef struct generated_hierarchy_row {
 	s32 id;
 	s32 parent;
 	s32 type;
+	s32 type_hi; /* B-942: high node-type flags (0x0100/0x0200 joint smoothing), OR'd back onto node->type */
 	s32 partnum;
 	s32 part;
 	s32 mtx0;
@@ -5912,6 +5913,8 @@ static s32 generatedModeldefReadHierarchy(const char *source_path,
 		json_span_t axis;
 		memset(&row, 0, sizeof(row));
 		row.payload_index = -1;
+		/* B-942: optional -- absent in pre-jointflags archives, defaults to 0. */
+		jsonObjectInt(object, "type_hi", &row.type_hi);
 		if (!jsonObjectInt(object, "id", &row.id) ||
 				!jsonObjectInt(object, "parent", &row.parent) ||
 				!jsonObjectInt(object, "type", &row.type) ||
@@ -7008,6 +7011,11 @@ static s32 buildGeneratedModeldefFromMeshHierarchy(const asset_entry_t *entry,
 		}
 
 		node->type = (u16)node_type;
+		/* B-942: restore the N64 joint-smoothing flags (0x0100/0x0200) that the
+		 * extractor's category mask dropped, so modelUpdatePositionNodeMtx builds
+		 * the half-angle helper matrices for 3-matrix-skinned limbs (knees/elbows)
+		 * -- without these the feet/hands detach when animated. */
+		node->type |= (u16)(row->type_hi & 0xff00);
 		node->rodata = rodata;
 
 		switch (node_type) {
