@@ -4,7 +4,7 @@
 > [session-log.md](session-log.md). Historical card and bug detail remains in the
 > Kanban card history and bug ledger.
 
-Last updated: 2026-06-24
+Last updated: 2026-06-25
 
 ---
 
@@ -20,6 +20,18 @@ opaque/xlu block split (B-941) and the scenario scene renderer honors it per
 material (B-940). Verified on screen: glass translucent, menu fonts crisp,
 CITRAINING classifies opaque:63/mask:3/blend:15 (was 0 BLEND / 12 MASK). Commits
 `1472789c`, `91124983`.
+
+**B-942 chr-body skeletal scramble -- RESOLVED 2026-06-25 (`07676f76`).** Joanna's
+held-pose leg/limb scramble was per-FACE matrix capture collapsing N64
+weighted-vertex skinning (225/601 seam tris mis-bound; the bent CI hold anim 1157
+exposed it). Fixed by a per-VERTEX matrix channel in `.pdmesh` extract+consume --
+RENDER-VERIFIED, her whole figure (head/torso/arms/legs/feet) connects cleanly on
+black and in-scene. Port-wide (all generated chr bodies; systemic SP-17). Diagnosis
+`922d8217`; conformance-pin unblock `a3019c57` (scene.glb v11->v12, also clears the
+standing 8/804 test drift). REMAINING: a translucent box around her legs IN-SCENE is
+a SCENE element (gone under `--debug-hide-scene`, NOT the chr) -- untraced (likely
+the desk/table); plus the deferred chr backlog (BG room lights, anim channels B-772,
+pdtexture fidelity).
 
 ## Joanna render bug -- ROOT-CAUSED + FIXED 2026-06-24 (degenerate fovy=0 projection)
 

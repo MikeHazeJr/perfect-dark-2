@@ -1,5 +1,23 @@
 # Session Log (Active)
 
+## 2026-06-25 (cont.) - B-942 RESOLVED: Joanna's whole figure renders clean (per-vertex skinning)
+
+**The multi-session chr-body leg/limb scramble (B-942) is FIXED + render-verified.** Per Mike: "chase the 1157 menu-foot -- it needs fixed or our task isn't complete."
+
+**Root cause (systemic SP-17 -- per-vertex matrix seam collapse):** the generated dark_combat body uses N64 weighted-vertex skinning -- a single limb seam triangle's 3 verts bind DIFFERENT bone matrices, but `.pdmesh` recorded ONE matrix per FACE, mis-binding 225/601 seam tris (106 leg seams). Straight legs hid it; the bent CI hold (anim 1157) flew the mis-bound verts off-body. The earlier joint-flag (type_hi) fix computed the helper matrices but the seam verts stayed mis-bound -- a needed precursor, insufficient alone.
+
+**The impasse broke when two instrumentation blind spots were caught:** (1) the combat-sim AI (`chrChooseStandAnimation`) re-set the anim every tick AFTER the gallery force, so prior "run vs 1157" compares were anim 106 vs itself; (2) the STITCH/DESYNC seam probes only covered `G_TRI1`, but this body emits `G_TRI4` -> a false 0 made the per-face capture look byte-faithful.
+
+**Fix (`07676f76`; diagnosis `922d8217`):** per-VERTEX bind matrix through extract+consume -- extractor writes `model.faces.json` vtx_matrix triplets + G_TRI4 probes; consumer rebuilds the N64 multi-batch gSPMatrix/gSPVertex interleave. Single-matrix tris collapse to 1 batch = byte-identical (no prop/head regression). Port-wide: all generated chr bodies' weighted joints.
+
+**RENDER-VERIFIED on pixels:** re-extract (601 triplets, 225 seams) -> CI-menu Joanna's whole figure (head/torso/arms/legs/feet) connects cleanly on black (`glshot/VTX_fullfig.png`) AND in-scene (`MONEY_VTX_joanna.png`).
+
+**Prerequisite unblock (`a3019c57`):** the commit hit the asset-archive conformance guard, which (+ verify script + 2 contract tests) still pinned scene.glb at v11 while the live exporter ships v12 (`..._dualtex_alphablend`, per `1472789c`). Bumped all 4 v11->v12 -- also clears the standing 8/804 test drift.
+
+**REMAINING (separate, minor):** a translucent box around her lower legs IN-SCENE is a SCENE element (gone under `--debug-hide-scene`, NOT the chr) -- untraced; likely the desk/table or a scene mesh (Mike's earlier "trace from draw data" ask). Deferred chr backlog (BG room lights, anim channels B-772, pdtexture fidelity) still waits.
+
+**NEXT:** Mike's call -- trace+fix the in-scene box for a pristine menu, or move to the deferred backlog.
+
 ## 2026-06-24 (cont.) - B-936 Joanna CRACKED end-to-end: she renders at her terminal in the CI room
 
 **The months-long "Joanna not appearing" bug is fully cracked -- 4 render root causes, all fixed on dev.** Continuing the same day from the fovy fix below, drove her from on-screen-but-dark to textured + lit + composited in the real CI menu backdrop.
