@@ -310,6 +310,13 @@ typedef struct obj_triangle {
 	s32 material_index;
 	s32 group_index;
 	s32 matrix_index;
+	/* B-942 / SP-17: per-corner bind matrix for N64 weighted-vertex skinning. A
+	 * single chr-body triangle can have its three verts loaded under DIFFERENT bone
+	 * matrices (a "seam" tri); the single matrix_index above mis-binds them. Read
+	 * from model.faces.json "vtx_matrix":[m0,m1,m2]. -1 = unknown -> falls back to
+	 * the resolved face matrix, which collapses a single-matrix tri to exactly the
+	 * pre-B942 one-batch emit (non-weighted props/hands unchanged). */
+	s32 vtx_matrix[3];
 } obj_triangle_t;
 
 typedef struct obj_mesh {
@@ -661,6 +668,7 @@ static s32 objMeshAddTriangleWithTexcoords(obj_mesh_t *mesh,
 	tri->material_index = material_index >= 0 ? material_index : -1;
 	tri->group_index = group_index >= 0 ? group_index : -1;
 	tri->matrix_index = -1;
+	tri->vtx_matrix[0] = tri->vtx_matrix[1] = tri->vtx_matrix[2] = -1;
 	if (a >= 0 && b >= 0 && c >= 0
 			&& a < mesh->vertex_count
 			&& b < mesh->vertex_count
@@ -4780,6 +4788,68 @@ static void fillGeneratedVertex(Vtx *dst, const obj_vertex_t *src,
 	}
 }
 
+/* B-942 / SP-17: N64 weighted-vertex (per-corner matrix) batching plan for one
+ * triangle. The chr-body DL interleaves matrix loads and vertex loads so a single
+ * triangle's three verts can each bind a different bone matrix. To reproduce that
+ * on the generated DL, the tri's 3 verts are laid into the vertex buffer GROUPED by
+ * matrix (equal-matrix corners contiguous) and emitted as one gSPMatrix(LOAD) +
+ * gSPVertex per group, then a single gSPTri referencing the remapped cache slots.
+ *
+ *   slot[k]      = which original corner (0=a,1=b,2=c) occupies buffer/cache slot k
+ *   slot_mtx[k]  = the bind matrix to load before slot k's run
+ *   run_count    = number of contiguous equal-matrix runs (1..3)
+ *   run_start[r] / run_len[r] = slot span of run r
+ *
+ * A non-weighted triangle (all three corners share a matrix, or vtx_matrix is the
+ * unknown -1 default) collapses to run_count==1, slot=={0,1,2} -> byte-identical to
+ * the pre-B942 single gSPVertex(3) emit. So props/hands/static models do not regress. */
+typedef struct generated_tri_batch {
+	s32 slot[3];      /* slot k <- original corner slot[k] */
+	s32 corner_slot[3]; /* original corner j is in cache slot corner_slot[j] */
+	s32 slot_mtx[3];
+	s32 run_start[3];
+	s32 run_len[3];
+	s32 run_count;
+} generated_tri_batch_t;
+
+static void generatedTriComputeBatch(const obj_triangle_t *tri,
+                                     s32 face_matrix,
+                                     generated_tri_batch_t *out)
+{
+	s32 corner_mtx[3];
+	s32 used[3] = { 0, 0, 0 };
+	s32 next_slot = 0;
+
+	/* Resolve each corner's bind matrix: its own vtx_matrix if known, else the
+	 * triangle's resolved single face matrix (the pre-B942 behaviour). */
+	for (s32 j = 0; j < 3; j++) {
+		s32 m = tri->vtx_matrix[j];
+		corner_mtx[j] = (m >= 0) ? m : face_matrix;
+	}
+
+	out->run_count = 0;
+	for (s32 j = 0; j < 3; j++) {
+		if (used[j]) {
+			continue;
+		}
+		/* Start a new run for corner j's matrix, then sweep the remaining corners
+		 * and pull in any that share the same matrix so the run stays contiguous. */
+		s32 run = out->run_count++;
+		out->run_start[run] = next_slot;
+		s32 m = corner_mtx[j];
+		out->slot_mtx[run] = m;
+		for (s32 k = j; k < 3; k++) {
+			if (!used[k] && corner_mtx[k] == m) {
+				used[k] = 1;
+				out->slot[next_slot] = k;     /* slot next_slot holds corner k */
+				out->corner_slot[k] = next_slot;
+				next_slot++;
+			}
+		}
+		out->run_len[run] = next_slot - out->run_start[run];
+	}
+}
+
 /* c3844 vtxcolour: Vtx.colour is a u8 index, (colour>>2), so the per-payload
  * colour table is capped at 64 distinct entries. We dedup the emitted vertices'
  * RGBA into one contiguous table laid out immediately after the vertices (the
@@ -4836,6 +4906,28 @@ static s32 generatedColourTableIntern(Col *table, s32 *count, Col colour,
 			who ? who : "(mesh)", GENERATED_COLOUR_TABLE_CAP);
 	}
 	return best;
+}
+
+/* B-942: fill one triangle's three verts into dst[0..2] in matrix-grouped slot
+ * order (per the batch's slot[] permutation), so each contiguous matrix run can be
+ * loaded with a single gSPVertex. dst points at &payload->vertices[emitted*3].
+ * Mirrors the original per-corner fill (position + texcoord + interned colour). */
+static void fillGeneratedTriVertices(Vtx *dst, const obj_mesh_t *mesh,
+                                     const obj_triangle_t *tri,
+                                     const generated_tri_batch_t *batch,
+                                     Col *colour_table, s32 *colour_count,
+                                     s32 *colour_warned, const char *group_name)
+{
+	s32 corner_vtx[3] = { tri->a, tri->b, tri->c };
+	s32 corner_tc[3]  = { tri->ta, tri->tb, tri->tc };
+	for (s32 k = 0; k < 3; k++) {
+		s32 corner = batch->slot[k];
+		const obj_vertex_t *v = &mesh->vertices[corner_vtx[corner]];
+		const obj_texcoord_t *tc = objMeshTexcoord(mesh, corner_tc[corner]);
+		fillGeneratedVertex(&dst[k], v, tc,
+			generatedColourTableIntern(colour_table, colour_count,
+				v->colour, colour_warned, group_name));
+	}
 }
 
 static s32 generatedModeldefNeedsChrRoot(const asset_entry_t *entry)
@@ -6171,7 +6263,12 @@ static s32 generatedModeldefBuildPayload(const obj_mesh_t *mesh,
 		return 1;
 	}
 
-	source_gdl_count = tri_count * 3 + 7 + material_switch_count * 8 +
+	/* B-942: a weighted-vertex (seam) triangle now emits up to 3 matrix loads + 3
+	 * vertex loads + 1 tri = 7 commands instead of the prior fixed 3 (1 mtx + 1 vtx
+	 * + 1 tri). Size the source buffer for that worst case so seam-heavy chr bodies
+	 * (e.g. cdark_combat: 225/601 seams) cannot overflow. Non-weighted tris still
+	 * emit <=3 commands, so this is pure headroom for them (calloc, cheap). */
+	source_gdl_count = tri_count * 7 + 7 + material_switch_count * 8 +
 		render_stream_cmd_count * 2;
 	output_gdl_count = source_gdl_count
 		+ material_switch_count * 512
@@ -6190,9 +6287,6 @@ static s32 generatedModeldefBuildPayload(const obj_mesh_t *mesh,
 		for (s32 i = 0; i < stream->row_count; i++) {
 			const generated_render_row_t *row = &stream->rows[i];
 			const obj_triangle_t *tri;
-			const obj_texcoord_t *ta;
-			const obj_texcoord_t *tb;
-			const obj_texcoord_t *tc;
 			if (row->op != GENERATED_RENDER_OP_TRI ||
 					!generatedRenderRowUsesGroup(row, group_name) ||
 					row->face < 0 ||
@@ -6204,48 +6298,37 @@ static s32 generatedModeldefBuildPayload(const obj_mesh_t *mesh,
 					group_index)) {
 				continue;
 			}
-			ta = objMeshTexcoord(mesh, tri->ta);
-			tb = objMeshTexcoord(mesh, tri->tb);
-			tc = objMeshTexcoord(mesh, tri->tc);
-			fillGeneratedVertex(&payload->vertices[emitted * 3 + 0],
-				&mesh->vertices[tri->a], ta,
-				generatedColourTableIntern(payload->colours, &colour_count,
-					mesh->vertices[tri->a].colour, &colour_warned, group_name));
-			fillGeneratedVertex(&payload->vertices[emitted * 3 + 1],
-				&mesh->vertices[tri->b], tb,
-				generatedColourTableIntern(payload->colours, &colour_count,
-					mesh->vertices[tri->b].colour, &colour_warned, group_name));
-			fillGeneratedVertex(&payload->vertices[emitted * 3 + 2],
-				&mesh->vertices[tri->c], tc,
-				generatedColourTableIntern(payload->colours, &colour_count,
-					mesh->vertices[tri->c].colour, &colour_warned, group_name));
+			{
+				/* B-942: lay the 3 verts grouped by per-corner matrix. The fallback
+				 * face matrix MUST match what the emit pass below resolves for this
+				 * tri so both passes agree on the slot permutation. */
+				s32 face_matrix = row->matrix >= 0 ? row->matrix :
+					(tri->matrix_index >= 0 ? tri->matrix_index :
+						(matrix_index >= 0 ? matrix_index : 0));
+				generated_tri_batch_t batch;
+				generatedTriComputeBatch(tri, face_matrix, &batch);
+				fillGeneratedTriVertices(&payload->vertices[emitted * 3],
+					mesh, tri, &batch, payload->colours, &colour_count,
+					&colour_warned, group_name);
+			}
 			emitted++;
 		}
 	} else {
 		for (s32 i = 0; i < mesh->triangle_count; i++) {
 			const obj_triangle_t *tri = &mesh->triangles[i];
-			const obj_texcoord_t *ta;
-			const obj_texcoord_t *tb;
-			const obj_texcoord_t *tc;
 			if (!generatedModeldefTriangleUsesGroup(tri, group_name,
 					group_index)) {
 				continue;
 			}
-			ta = objMeshTexcoord(mesh, tri->ta);
-			tb = objMeshTexcoord(mesh, tri->tb);
-			tc = objMeshTexcoord(mesh, tri->tc);
-			fillGeneratedVertex(&payload->vertices[emitted * 3 + 0],
-				&mesh->vertices[tri->a], ta,
-				generatedColourTableIntern(payload->colours, &colour_count,
-					mesh->vertices[tri->a].colour, &colour_warned, group_name));
-			fillGeneratedVertex(&payload->vertices[emitted * 3 + 1],
-				&mesh->vertices[tri->b], tb,
-				generatedColourTableIntern(payload->colours, &colour_count,
-					mesh->vertices[tri->b].colour, &colour_warned, group_name));
-			fillGeneratedVertex(&payload->vertices[emitted * 3 + 2],
-				&mesh->vertices[tri->c], tc,
-				generatedColourTableIntern(payload->colours, &colour_count,
-					mesh->vertices[tri->c].colour, &colour_warned, group_name));
+			{
+				s32 face_matrix = tri->matrix_index >= 0 ? tri->matrix_index :
+					(matrix_index >= 0 ? matrix_index : 0);
+				generated_tri_batch_t batch;
+				generatedTriComputeBatch(tri, face_matrix, &batch);
+				fillGeneratedTriVertices(&payload->vertices[emitted * 3],
+					mesh, tri, &batch, payload->colours, &colour_count,
+					&colour_warned, group_name);
+			}
 			emitted++;
 		}
 	}
@@ -6470,27 +6553,45 @@ static s32 generatedModeldefBuildPayload(const obj_mesh_t *mesh,
 			offset = (uintptr_t)(emitted * 3 * (s32)sizeof(Vtx));
 			tri_matrix = row->matrix >= 0 ? row->matrix :
 				(tri->matrix_index >= 0 ? tri->matrix_index :
-					matrix_index);
-			if (tri_matrix != last_matrix) {
-				gSPMatrix(gdl++,
-					SEGADDR((SPSEGMENT_MODEL_MTX << 24) |
-						((u32)tri_matrix * (u32)sizeof(Mtxf))),
-					G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW);
-				last_matrix = tri_matrix;
-			}
-			if (tri->material_index != last_material) {
-				if (objMaterialHasTexture(material)) {
-					emitGeneratedTextureMarker(&gdl, material);
-					last_textured = 1;
-				} else if (last_textured) {
-					emitGeneratedUntexturedState(&gdl);
-					last_textured = 0;
+					(matrix_index >= 0 ? matrix_index : 0));
+			/* B-942: rebuild the N64 weighted-vertex interleave. The 3 verts were
+			 * laid into the buffer grouped by per-corner matrix; emit one
+			 * gSPMatrix(LOAD)+gSPVertex per matrix run, then a single gSPTri over the
+			 * remapped cache slots. A single-matrix tri yields run_count==1 and the
+			 * exact pre-B942 matrix->material->vtx(3)->tri sequence. */
+			{
+				generated_tri_batch_t batch;
+				generatedTriComputeBatch(tri, tri_matrix, &batch);
+				for (s32 r = 0; r < batch.run_count; r++) {
+					s32 run_mtx = batch.slot_mtx[r];
+					if (run_mtx != last_matrix) {
+						gSPMatrix(gdl++,
+							SEGADDR((SPSEGMENT_MODEL_MTX << 24) |
+								((u32)run_mtx * (u32)sizeof(Mtxf))),
+							G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW);
+						last_matrix = run_mtx;
+					}
+					if (r == 0 && tri->material_index != last_material) {
+						if (objMaterialHasTexture(material)) {
+							emitGeneratedTextureMarker(&gdl, material);
+							last_textured = 1;
+						} else if (last_textured) {
+							emitGeneratedUntexturedState(&gdl);
+							last_textured = 0;
+						}
+						emitGeneratedRenderClass(&gdl,
+							material->render_class, &last_render_class);
+						last_material = tri->material_index;
+					}
+					gSPVertex(gdl++,
+						SEGADDR(vertex_segment | (offset +
+							(uintptr_t)(batch.run_start[r] * (s32)sizeof(Vtx)))),
+						batch.run_len[r], batch.run_start[r]);
 				}
-				emitGeneratedRenderClass(&gdl, material->render_class, &last_render_class);
-				last_material = tri->material_index;
+				gSP1Triangle(gdl++,
+					batch.corner_slot[0], batch.corner_slot[1],
+					batch.corner_slot[2], 0);
 			}
-			gSPVertex(gdl++, SEGADDR(vertex_segment | offset), 3, 0);
-			gSP1Triangle(gdl++, 0, 1, 2, 0);
 			emitted++;
 		}
 	} else {
@@ -6508,26 +6609,40 @@ static s32 generatedModeldefBuildPayload(const obj_mesh_t *mesh,
 			material = objMeshTriangleMaterial(mesh, tri);
 			offset = (uintptr_t)(emitted * 3 * (s32)sizeof(Vtx));
 			tri_matrix = tri->matrix_index >= 0 ?
-				tri->matrix_index : matrix_index;
-			if (tri_matrix != last_matrix) {
-				gSPMatrix(gdl++,
-					SEGADDR((SPSEGMENT_MODEL_MTX << 24) |
-						((u32)tri_matrix * (u32)sizeof(Mtxf))),
-					G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW);
-				last_matrix = tri_matrix;
-			}
-			if (tri->material_index != last_material) {
-				if (objMaterialHasTexture(material)) {
-					emitGeneratedTextureMarker(&gdl, material);
-					last_textured = 1;
-				} else if (last_textured) {
-					emitGeneratedUntexturedState(&gdl);
-					last_textured = 0;
+				tri->matrix_index : (matrix_index >= 0 ? matrix_index : 0);
+			/* B-942: same per-corner-matrix batching as the render-stream path.
+			 * run_count==1 reproduces the pre-B942 single-batch emit exactly. */
+			{
+				generated_tri_batch_t batch;
+				generatedTriComputeBatch(tri, tri_matrix, &batch);
+				for (s32 r = 0; r < batch.run_count; r++) {
+					s32 run_mtx = batch.slot_mtx[r];
+					if (run_mtx != last_matrix) {
+						gSPMatrix(gdl++,
+							SEGADDR((SPSEGMENT_MODEL_MTX << 24) |
+								((u32)run_mtx * (u32)sizeof(Mtxf))),
+							G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW);
+						last_matrix = run_mtx;
+					}
+					if (r == 0 && tri->material_index != last_material) {
+						if (objMaterialHasTexture(material)) {
+							emitGeneratedTextureMarker(&gdl, material);
+							last_textured = 1;
+						} else if (last_textured) {
+							emitGeneratedUntexturedState(&gdl);
+							last_textured = 0;
+						}
+						last_material = tri->material_index;
+					}
+					gSPVertex(gdl++,
+						SEGADDR(vertex_segment | (offset +
+							(uintptr_t)(batch.run_start[r] * (s32)sizeof(Vtx)))),
+						batch.run_len[r], batch.run_start[r]);
 				}
-				last_material = tri->material_index;
+				gSP1Triangle(gdl++,
+					batch.corner_slot[0], batch.corner_slot[1],
+					batch.corner_slot[2], 0);
 			}
-			gSPVertex(gdl++, SEGADDR(vertex_segment | offset), 3, 0);
-			gSP1Triangle(gdl++, 0, 1, 2, 0);
 			emitted++;
 		}
 	}
@@ -6757,6 +6872,9 @@ static s32 generatedModeldefReadFaces(const char *source_path,
 
 	for (s32 i = 0; i < mesh->triangle_count; i++) {
 		mesh->triangles[i].matrix_index = -1;
+		mesh->triangles[i].vtx_matrix[0] = -1;
+		mesh->triangles[i].vtx_matrix[1] = -1;
+		mesh->triangles[i].vtx_matrix[2] = -1;
 	}
 
 	root.start = copy;
@@ -6770,6 +6888,7 @@ static s32 generatedModeldefReadFaces(const char *source_path,
 	while (jsonArrayNextObject(faces_array, &cursor, &object)) {
 		s32 face_index;
 		s32 matrix_index;
+		json_span_t vtx_array;
 		if (!jsonObjectInt(object, "face_index", &face_index) ||
 				!jsonObjectInt(object, "matrix_index", &matrix_index) ||
 				face_index < 0 ||
@@ -6781,6 +6900,18 @@ static s32 generatedModeldefReadFaces(const char *source_path,
 			return -1;
 		}
 		mesh->triangles[face_index].matrix_index = matrix_index;
+		/* B-942: optional per-corner bind matrices. Absent in archives predating the
+		 * vtxmtx carrier -> leaves the -1 defaults, so the consumer falls back to the
+		 * single matrix_index and emits exactly the pre-B942 one-batch tri. */
+		if (jsonObjectArray(object, "vtx_matrix", &vtx_array)) {
+			const char *vcursor = NULL;
+			s32 vval;
+			for (s32 vi = 0; vi < 3; vi++) {
+				if (jsonArrayNextInt(vtx_array, &vcursor, &vval) && vval >= 0) {
+					mesh->triangles[face_index].vtx_matrix[vi] = vval;
+				}
+			}
+		}
 		seen[face_index] = 1;
 		parsed_rows++;
 	}

@@ -67,9 +67,9 @@
 #define ROMEXTRACT_PDMESH_MODEL_VMA 0x05000000u
 #define ROMEXTRACT_PDMESH_MTX_STACK_CAP 11
 #define ROMEXTRACT_PDMESH_NODE_DEPTH_CAP 2048
-#define ROMEXTRACT_PDMESH_OBJ_EXPORT_VERSION_LABEL "model_obj_mtx_v20_materials_hierarchy_parts_faces_json_relations_raw_mtx_render_commands_json_vtxcolour_jointflags"
+#define ROMEXTRACT_PDMESH_OBJ_EXPORT_VERSION_LABEL "model_obj_mtx_v20_materials_hierarchy_parts_faces_json_relations_raw_mtx_render_commands_json_vtxcolour_jointflags_vtxmtx"
 #define ROMEXTRACT_PDMESH_OBJ_EXPORT_VERSION ROMEXTRACT_PDMESH_OBJ_EXPORT_VERSION_LABEL "\n"
-#define ROMEXTRACT_PDMESH_FAST_CACHE_KIND "pdmesh_model_obj_mtx_v23_materials_hierarchy_parts_faces_json_relations_raw_mtx_render_commands_json_allmodels_menuhud_zero_tri_models_vtxcolour_jointflags"
+#define ROMEXTRACT_PDMESH_FAST_CACHE_KIND "pdmesh_model_obj_mtx_v23_materials_hierarchy_parts_faces_json_relations_raw_mtx_render_commands_json_allmodels_menuhud_zero_tri_models_vtxcolour_jointflags_vtxmtx"
 extern u16 g_CartFileNums[];
 static u16 s_SeenFilenums[ROMEXTRACT_PDMESH_SEEN_CAP];
 static s32 s_SeenCount;
@@ -256,6 +256,7 @@ typedef struct {
 	u32             mtx_model_ref_count;
 	u32             mtx_bad_addr_count;
 	u32             transformed_vertex_count;
+	u32             seam_face_count; /* B-942: faces whose 3 verts span >1 matrix */
 	f32           (*model_matrices)[4][4];
 	s32             model_matrix_count;
 	const struct modelnode *node_ptrs[ROMEXTRACT_PDMESH_NODE_DEPTH_CAP];
@@ -297,6 +298,7 @@ typedef struct {
 	u32 mtx_model_ref_count;
 	u32 mtx_bad_addr_count;
 	u32 transformed_vertex_count;
+	u32 seam_face_count; /* B-942: faces whose 3 verts span >1 matrix */
 	char skeleton_symbol[64];
 	u32 material_count;
 	u32 textured_material_count;
@@ -1195,8 +1197,18 @@ static Col s_objResolveVtxColour(const pdmesh_obj_export_t *ctx, const Vtx *v)
 	return col;
 }
 
+/* B-942 / SP-17: per-VERTEX skinning matrix carrier. The N64 chr body interleaves
+ * matrix loads and vertex loads so a single triangle's three verts can each bind a
+ * DIFFERENT bone matrix (a weighted "seam" tri). The per-FACE matrix_index alone
+ * collapses that to one matrix and mis-binds the cross-bone verts. The G_VTX walk
+ * already records each loaded slot's active matrix in slots_mtx[]; s_objEmitTri now
+ * receives the three corner matrices (mi_a/mi_b/mi_c, -1 when unknown) and writes
+ * them to model.faces.json as an optional "vtx_matrix":[m0,m1,m2] triplet alongside
+ * the existing per-face matrix_index (kept for back-compat). The consume compiler
+ * groups a tri's verts by these matrices into N64-faithful matrix-load batches. */
 static s32 s_objEmitTri(pdmesh_obj_export_t *ctx,
-                        const Vtx *a, const Vtx *b, const Vtx *c)
+                        const Vtx *a, const Vtx *b, const Vtx *c,
+                        s32 mi_a, s32 mi_b, s32 mi_c)
 {
 	if (!a || !b || !c) return 0;
 	if (ctx->mtx_stack_size <= 0) {
@@ -1304,10 +1316,22 @@ static s32 s_objEmitTri(pdmesh_obj_export_t *ctx,
 	ctx->triangle_count++;
 	if (ctx->faces) {
 		u32 face_index = ctx->triangle_count - 1u;
+		/* B-942: resolve each corner's own bind matrix from its G_VTX load matrix;
+		 * fall back to the face's stack-top matrix when the slot matrix is unknown
+		 * (-1) or out of range. Emit the per-face matrix_index (back-compat) PLUS a
+		 * vtx_matrix triplet so the consumer can rebuild the weighted-seam batches. */
+		s32 vm0 = s_objMtxIndexValid(ctx, mi_a) ? mi_a : face_mtx;
+		s32 vm1 = s_objMtxIndexValid(ctx, mi_b) ? mi_b : face_mtx;
+		s32 vm2 = s_objMtxIndexValid(ctx, mi_c) ? mi_c : face_mtx;
+		if (vm0 != vm1 || vm1 != vm2) {
+			ctx->seam_face_count++;
+		}
 		if ((face_index > 0 && s_textbufAppend(ctx->faces, ",\n") != 0) ||
 				s_textbufAppendf(ctx->faces,
-					"    { \"face_index\": %u, \"matrix_index\": %d }",
-					(unsigned)face_index, face_mtx) != 0) {
+					"    { \"face_index\": %u, \"matrix_index\": %d, "
+					"\"vtx_matrix\": [%d, %d, %d] }",
+					(unsigned)face_index, face_mtx,
+					vm0, vm1, vm2) != 0) {
 			return -1;
 		}
 	}
@@ -1485,7 +1509,8 @@ static s32 s_exportGdlToObj(pdmesh_obj_export_t *ctx, Gfx *raw_gdl,
 						}
 					}
 				}
-				if (s_objEmitTri(ctx, slots[i0], slots[i1], slots[i2]) != 0) return -1;
+				if (s_objEmitTri(ctx, slots[i0], slots[i1], slots[i2],
+						slots_mtx[i0], slots_mtx[i1], slots_mtx[i2]) != 0) return -1;
 			} else {
 				ctx->tri_missing_slot_count++;
 			}
@@ -1507,7 +1532,38 @@ static s32 s_exportGdlToObj(pdmesh_obj_export_t *ctx, Gfx *raw_gdl,
 				if (i0 == i1 && i1 == i2) continue;
 				if (i0 < numslots && i1 < numslots && i2 < numslots) {
 					ctx->tri_attempt_count++;
-					if (s_objEmitTri(ctx, slots[i0], slots[i1], slots[i2]) != 0) return -1;
+					/* B-942: the seam/desync probes previously lived ONLY on the
+					 * G_TRI1 handler; cdark_combat emits via G_TRI4, so they
+					 * reported 0 for four sessions. Mirror them here so weighted
+					 * (multi-matrix) tris are counted on this path too. */
+					if (slots_mtx[i0] != slots_mtx[i1]
+							|| slots_mtx[i1] != slots_mtx[i2]) {
+						static s32 s_b942StitchTotal4 = 0, s_b942StitchLog4 = 0;
+						s_b942StitchTotal4++;
+						if (s_b942StitchLog4 < 24) {
+							sysLogPrintf(LOG_NOTE,
+								"B942STITCH(TRI4): tri verts span matrices=(%d,%d,%d) total=%d",
+								slots_mtx[i0], slots_mtx[i1], slots_mtx[i2],
+								s_b942StitchTotal4);
+							s_b942StitchLog4++;
+						}
+					}
+					{
+						s32 active = (ctx->mtx_stack_size > 0)
+							? ctx->mtx_stack_indices[ctx->mtx_stack_size - 1] : -1;
+						if (slots_mtx[i0] >= 0 && slots_mtx[i0] != active) {
+							static s32 s_desyncLog4 = 0, s_desyncTotal4 = 0;
+							s_desyncTotal4++;
+							if (s_desyncLog4 < 24) {
+								sysLogPrintf(LOG_NOTE,
+									"B942DESYNC(TRI4): verts loaded mtx=%d but tri active mtx=%d total=%d",
+									slots_mtx[i0], active, s_desyncTotal4);
+								s_desyncLog4++;
+							}
+						}
+					}
+					if (s_objEmitTri(ctx, slots[i0], slots[i1], slots[i2],
+							slots_mtx[i0], slots_mtx[i1], slots_mtx[i2]) != 0) return -1;
 				} else {
 					ctx->tri_missing_slot_count++;
 				}
@@ -2232,6 +2288,7 @@ static s32 s_buildModelObj(const u8 *src, u32 src_size,
 		out_stats->mtx_model_ref_count = ctx.mtx_model_ref_count;
 		out_stats->mtx_bad_addr_count = ctx.mtx_bad_addr_count;
 		out_stats->transformed_vertex_count = ctx.transformed_vertex_count;
+		out_stats->seam_face_count = ctx.seam_face_count;
 		out_stats->material_count = ctx.material_count;
 		out_stats->material_switch_count = ctx.material_switch_count;
 		out_stats->node_count = (u32)ctx.node_count;
@@ -2503,14 +2560,15 @@ static s32 s_emitOneMesh(u16 filenum, const char *hint_suffix,
 			(unsigned)stats.mtx_bad_addr_count);
 	}
 	sysLogPrintf(LOG_NOTE,
-		"romextract pdmesh: exported filenum=0x%04x loadtype=%u tris=%u gdls=%u materials=%u textured_materials=%u material_switches=%u mtxcmds=%u mtxrefs=%u",
+		"romextract pdmesh: exported filenum=0x%04x loadtype=%u tris=%u gdls=%u materials=%u textured_materials=%u material_switches=%u mtxcmds=%u mtxrefs=%u seamtris=%u",
 		(unsigned)filenum, (unsigned)loadtype,
 		(unsigned)stats.triangle_count, (unsigned)stats.gdl_count,
 		(unsigned)stats.material_count,
 		(unsigned)stats.textured_material_count,
 		(unsigned)stats.material_switch_count,
 		(unsigned)stats.mtx_cmd_count,
-		(unsigned)stats.mtx_model_ref_count);
+		(unsigned)stats.mtx_model_ref_count,
+		(unsigned)stats.seam_face_count);
 	sysMemFree(model_bytes);
 
 	const char *sym_for_provenance = loaderEnumNameForFileEnum(filenum);
