@@ -731,9 +731,12 @@ s32 fontCatalogBuildFace(const char *face, u8 **out_payload, u32 *out_len)
             chars[i].kerningindex = g->kerning_index;
             chars[i].pixeldata = (u8 *)(uintptr_t)cursor_off;
 
-            /* Pack at most 16 columns (8-byte CI4 row stride); wider
-             * declared widths are advance-only, validated above. */
-            s32 packw = g->width;
+            /* Pack width+1 columns to match the renderer, which samples
+             * width+1 texels (game_1531a0.c) -- a glyph whose ink reaches
+             * column `width` (overhang past the advance) needs that column.
+             * Capped at 16 (8-byte CI4 row stride); wider declared widths
+             * are advance-only, validated above. */
+            s32 packw = g->width + 1;
             if (packw > FONTCAT_MAX_GLYPH_WIDTH) {
                 packw = FONTCAT_MAX_GLYPH_WIDTH;
             }

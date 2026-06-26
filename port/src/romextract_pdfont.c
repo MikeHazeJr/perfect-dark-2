@@ -69,7 +69,7 @@
  * so every v1 archive on disk is absent or garbage. The kind bump plus
  * the manifest pd_schema_version=2 early-skip gate below force stale
  * installs to regenerate. */
-#define PDFONT_FAST_CACHE_KIND "pdfont_metrics_json_v2"
+#define PDFONT_FAST_CACHE_KIND "pdfont_metrics_json_v3_glyphwidthplus1"
 #define PDFONT_SCHEMA_VERSION 2
 
 #define PDFONT_KERNING_DIM 13
@@ -336,8 +336,15 @@ static s32 s_buildFontExports(const char *face, const u8 *src, u32 src_size,
 		if (pixel_offset > 0 &&
 		    pixel_offset + (u32)height * PDFONT_GLYPH_ROW_BYTES <= src_size) {
 			const u8 *glyph = src + pixel_offset;
+			/* x <= width (not < width): the runtime text renderer samples
+			 * width+1 texels (game_1531a0.c gDPSetTextureImage + the
+			 * (width+1)<<6 texcoord), so a glyph whose ink reaches column
+			 * `width` -- overhang past the advance, common in tight fonts
+			 * like tahoma where 'O'/'D'/'B'/'R' lose their right edge --
+			 * would otherwise drop its rightmost column. Capped at the
+			 * 16-col (8-byte CI4) row stride; the +1 fits the cell padding. */
 			for (u32 y = 0; y < height; y++) {
-				for (u32 x = 0; x < width && x < 16u; x++) {
+				for (u32 x = 0; x <= width && x < 16u; x++) {
 					u8 packed = glyph[y * PDFONT_GLYPH_ROW_BYTES + x / 2u];
 					u8 nibble = (x & 1u) ? (packed & 0x0f) : (packed >> 4);
 					pgm[pgm_header_len + (atlas_y + y) * atlas_w + atlas_x + x] =

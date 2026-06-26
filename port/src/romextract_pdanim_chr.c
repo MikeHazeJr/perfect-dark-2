@@ -425,7 +425,11 @@ static s32 s_binbufAppendFloat(pdanim_binbuf_t *b, f32 value)
 	return s_binbufAppend(b, bytes, sizeof(bytes));
 }
 
-static u32 s_animReadBits(const u8 *ptr, u8 remainingbits, s32 bitoffset)
+/* Returns s32 to mirror the runtime decoder (src/lib/anim.c animReadBits): the
+ * ANIMFIELD_S32_TRANSLATE path adds a signed 4-byte anchor, and a u32 return
+ * would force that add unsigned, wrapping negative positions to ~4.29e9
+ * (*0.001 -> ~4294967.5). Sign-agnostic callers (S16_ROTATE u16-cast) unaffected. */
+static s32 s_animReadBits(const u8 *ptr, u8 remainingbits, s32 bitoffset)
 {
 	u32 result = 0;
 	u32 mask;
