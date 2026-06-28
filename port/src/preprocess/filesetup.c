@@ -49,7 +49,7 @@ static inline u32 objSizeN64(struct n64_defaultobj *obj)
 	case OBJTYPE_GLASS:              return sizeof(struct n64_glassobj) / sizeof(u32);
 	case OBJTYPE_TINTEDGLASS:        return sizeof(struct n64_tintedglassobj) / sizeof(u32);
 	case OBJTYPE_SAFE:               return sizeof(struct n64_safeobj) / sizeof(u32);
-	case OBJTYPE_GASBOTTLE:          return sizeof(struct gasbottleobj) / sizeof(u32);
+	case OBJTYPE_GASBOTTLE:          return sizeof(struct n64_defaultobj) / sizeof(u32); // gasbottle = bare defaultobj; no n64_gasbottleobj (cf. SAFE/n64_safeobj)
 	case OBJTYPE_KEY:                return sizeof(struct n64_keyobj) / sizeof(u32);
 	case OBJTYPE_ALARM:              return sizeof(struct n64_alarmobj) / sizeof(u32);
 	case OBJTYPE_CCTV:               return sizeof(struct n64_cctvobj) / sizeof(u32);
@@ -531,9 +531,7 @@ static u32 convertProps(u8* dst, u8* src)
 			case OBJTYPE_ENDOBJECTIVE:
 			case OBJECTIVETYPE_1F:
 			case OBJTYPE_22:
-			case OBJTYPE_GASBOTTLE:
 			case OBJTYPE_29:
-			case OBJTYPE_SAFE:
 			{
 				struct n64_stdobjective* srcobj = (struct n64_stdobjective*)cmd;
 				struct n64_stdobjective* dstobj = (struct n64_stdobjective*)dst;
@@ -541,6 +539,28 @@ static u32 convertProps(u8* dst, u8* src)
 				convertDefaultObjHdr((struct defaultobj*)dstobj, cmd);
 
 				dst += sizeof(struct n64_stdobjective);
+				break;
+			}
+			case OBJTYPE_GASBOTTLE:
+			{
+				// gasbottleobj is { struct defaultobj base; } -- a full defaultobj,
+				// not a 4-byte stdobjective. Convert the whole object and stride by
+				// the PC struct so the consumer (setuputils.c objSize) stays aligned.
+				struct gasbottleobj* dstobj = (struct gasbottleobj*)dst;
+
+				convertDefaultObj(&dstobj->base, cmd);
+
+				dst += sizeof(struct gasbottleobj);
+				break;
+			}
+			case OBJTYPE_SAFE:
+			{
+				// safeobj is { struct defaultobj base; } -- see OBJTYPE_GASBOTTLE.
+				struct safeobj* dstobj = (struct safeobj*)dst;
+
+				convertDefaultObj(&dstobj->base, cmd);
+
+				dst += sizeof(struct safeobj);
 				break;
 			}
 			case OBJECTIVETYPE_DESTROYOBJ:
