@@ -105,8 +105,17 @@ ROOT_METADATA = {
     "hashes.json",
 }
 
-SCENARIO_GRAPH_CACHE_KIND = (
-    "pdscenario_scene_glb_clean_public_v96_standalone_backfill_collision_obj_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json"
+# The extractor emits TWO scenario cache-kinds that legitimately differ: an arena
+# embeds the full rendered scenario (so its stamp tracks texture/material changes
+# like _alphablend / _cipalfix_b943), while a mission carries only a scenario-
+# DEPENDENCY stamp. Keep these in lockstep with the C sources:
+#   ARENA   -> ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND  (port/src/romextract_pdarena.c)
+#   MISSION -> PDMETA_SCENARIO_DEP_CACHE_KIND         (port/src/romextract_pdmeta.c)
+ARENA_SCENARIO_GRAPH_CACHE_KIND = (
+    "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_alphablend_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json_cipalfix_b943"
+)
+MISSION_SCENARIO_DEP_CACHE_KIND = (
+    "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json"
 )
 
 FORBIDDEN_COMMON_EXACT = {
@@ -2105,9 +2114,9 @@ def validate_mission_source_contract(label: str, zf: zipfile.ZipFile,
             f"{scenario_archives}"
         )
     scenario_graph_cache = descriptor_values.get("scenario_graph_cache")
-    if scenario_graph_cache != SCENARIO_GRAPH_CACHE_KIND:
+    if scenario_graph_cache != MISSION_SCENARIO_DEP_CACHE_KIND:
         errors.append(
-            f"{label} mission.ini must declare scenario_graph_cache = {SCENARIO_GRAPH_CACHE_KIND}"
+            f"{label} mission.ini must declare scenario_graph_cache = {MISSION_SCENARIO_DEP_CACHE_KIND}"
         )
 
     if "_meta/manifest.json" in name_set:
@@ -6641,9 +6650,9 @@ def validate_archive_bytes(data: bytes, label: str, ext: str,
                         result.errors.append(
                             f"{label} arena.ini cannot declare scenario = null when a scenario dependency is present"
                         )
-                    if scenario_graph_cache != SCENARIO_GRAPH_CACHE_KIND:
+                    if scenario_graph_cache != ARENA_SCENARIO_GRAPH_CACHE_KIND:
                         result.errors.append(
-                            f"{label} arena.ini must declare scenario_graph_cache = {SCENARIO_GRAPH_CACHE_KIND}"
+                            f"{label} arena.ini must declare scenario_graph_cache = {ARENA_SCENARIO_GRAPH_CACHE_KIND}"
                         )
                 else:
                     is_random_selector = category == "random" and "random" in slug
