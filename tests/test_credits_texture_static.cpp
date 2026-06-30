@@ -52,3 +52,46 @@ TEST_CASE("credits particle masks still use textured alpha",
 	REQUIRE(gfx.find("const uint8_t alpha = SCALE_4_8(addr[i] & 0xf);") != std::string::npos);
 	REQUIRE(gfx.find("dest[3] = alpha;") != std::string::npos);
 }
+
+TEST_CASE("credits tlut fallback does not move subsequent glyph loads",
+          "[rendering][credits][texture][static][b346]")
+{
+	const std::string gfx = readTextFileForCreditsTexture("port/fast3d/gfx_pc.cpp");
+	const std::size_t fn = gfx.find("static void gfx_dp_load_tlut");
+	REQUIRE(fn != std::string::npos);
+
+	const std::size_t end = gfx.find("static void gfx_dp_load_block", fn);
+	REQUIRE(end != std::string::npos);
+
+	const std::string body = gfx.substr(fn, end - fn);
+	REQUIRE(body.find("if (tmem < 256)") != std::string::npos);
+	REQUIRE(body.find("tmem = 256;") != std::string::npos);
+	REQUIRE(body.find("rdp.texture_tile[tile].tmem = tmem;") == std::string::npos);
+}
+
+TEST_CASE("ci texture cache key includes palette format",
+          "[rendering][credits][texture][static][b346]")
+{
+	const std::string header = readTextFileForCreditsTexture("port/fast3d/gfx_pc.h");
+	const std::string gfx = readTextFileForCreditsTexture("port/fast3d/gfx_pc.cpp");
+
+	REQUIRE(header.find("uint32_t palette_fmt;") != std::string::npos);
+	REQUIRE(gfx.find("{ orig_addr, { rdp.palette_addrs[0], rdp.palette_addrs[1] }, rdp.palette_fmt, fmt, siz, palette_index }") != std::string::npos);
+	REQUIRE(gfx.find("{ orig_addr, {}, 0, fmt, siz, palette_index }") != std::string::npos);
+}
+
+TEST_CASE("frame start invalidates cached fast3d alpha blend state",
+          "[rendering][credits][texture][static][b346]")
+{
+	const std::string gfx = readTextFileForCreditsTexture("port/fast3d/gfx_pc.cpp");
+	const std::size_t start = gfx.find("gfx_rapi->start_frame();");
+	REQUIRE(start != std::string::npos);
+
+	const std::size_t draw = gfx.find("gfx_rapi->start_draw_to_framebuffer", start);
+	REQUIRE(draw != std::string::npos);
+
+	const std::string body = gfx.substr(start, draw - start);
+	REQUIRE(body.find("rendering_state.alpha_blend = false;") != std::string::npos);
+	REQUIRE(body.find("rendering_state.modulate = false;") != std::string::npos);
+	REQUIRE(body.find("rendering_state.additive_blend = false;") != std::string::npos);
+}

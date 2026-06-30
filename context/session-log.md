@@ -1,5 +1,34 @@
 # Session Log (Active)
 
+## 2026-06-30 - B-346 credits solid squares visually fixed
+
+Closed the reopened credits solid-block layer with a frame-start Fast3D/OpenGL
+state-cache fix. Diagnostics proved the CI4 glyph path was decoding correctly:
+the credits font palette was IA16, `use_alpha=1`, palette alpha entries had the
+expected transparent/opaque values, and uploaded glyph rows had shaped alpha
+masks. The visible white/cyan rectangles were stale blend state instead:
+`gfx_opengl_start_frame()` disables `GL_BLEND`, while Fast3D's cached
+`rendering_state.alpha_blend` could still be true from the previous frame, so
+the first translucent credits draw skipped re-enabling blending.
+
+Fix: after backend frame start, invalidate Fast3D's alpha/modulate/additive blend
+cache so the first translucent draw must call `set_use_alpha()` again. Kept the
+related hardening from the investigation: TLUT fallback stays local to palette
+loading, CI texture cache keys include palette format, and focused static tests
+pin those cases plus the frame-start cache invalidation.
+
+Verification: isolated `b346tlut` all-target build passed with logs inspected
+for compile failures; focused
+`.claude\session-builds\b346tlut\pd-tests.exe "[rendering][credits][texture][static][b346]"`
+passed 27 assertions / 4 cases; `python tools\asset_native_source_guard.py`
+passed; no temporary `B346DBG`/`s_b346` probes remain. Delayed visual smoke
+captured four frames in
+`.claude\smoke-verify-runs\screenshots\20260630T025340-credits_alpha_smoke_delayed_local\`
+showing shaped Handel Gothic glyphs and masked blue particle trails instead of
+solid quads. Harness caveat: `results-20260630T065537Z.json` is 7/8 assertions
+with exit code 0 because only the stale required-line pattern
+`LOAD: lv\.c entering stage load sequence for stagenum=0x5c` was missing.
+
 ## 2026-06-25 (cont.) - B-942 RESOLVED: Joanna's whole figure renders clean (per-vertex skinning)
 
 **The multi-session chr-body leg/limb scramble (B-942) is FIXED + render-verified.** Per Mike: "chase the 1157 menu-foot -- it needs fixed or our task isn't complete."

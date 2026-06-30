@@ -4,7 +4,7 @@
 > [session-log.md](session-log.md). Historical card and bug detail remains in the
 > Kanban card history and bug ledger.
 
-Last updated: 2026-06-25
+Last updated: 2026-06-30
 
 ---
 
@@ -12,7 +12,23 @@ Last updated: 2026-06-25
 
 | Card | Status | Purpose |
 |------|--------|---------|
-| `c3844` | In progress (MP relay) | Joanna render bug **ROOT-CAUSED + FIXED 2026-06-24** (degenerate fovy=0 -> projection P[0][0]=-32768 -> geometry 32768x off-screen; clamp in guPerspectiveF; magenta-isolate capture proves a clean Joanna silhouette dead-centre. See B-936/session-log). Remaining for textured-in-room: a SEPARATE fast3d render-state desync after the scene renderer + the pending B-934/B-935/B-938 colour work. Credits B-346 squares REOPENED (playtest failed, residual logged). MP relay (A+C): **Gap B** (onPairOpen honors relay addr, group_session.c) DONE/uncommitted; **NEXT = Gap A** relay forwarder in p2p_turn.c (recv ALLOC->ALLOC_ACK+bind; RELAY->forward w/ src/dst rewrite) + loopback-sim + VPS doc; then other-modes check (item d). |
+| `c3844` | In progress (MP relay) | Joanna render bug **ROOT-CAUSED + FIXED 2026-06-24** (degenerate fovy=0 -> projection P[0][0]=-32768 -> geometry 32768x off-screen; clamp in guPerspectiveF; magenta-isolate capture proves a clean Joanna silhouette dead-centre. See B-936/session-log). Remaining for textured-in-room: a SEPARATE fast3d render-state desync after the scene renderer + the pending B-934/B-935/B-938 colour work. Credits B-346 squares PATCHED + visually proved 2026-06-30 (shaped glyphs/masked trails; Mike playtest still welcome). MP relay (A+C): **Gap B** (onPairOpen honors relay addr, group_session.c) DONE/uncommitted; **NEXT = Gap A** relay forwarder in p2p_turn.c (recv ALLOC->ALLOC_ACK+bind; RELAY->forward w/ src/dst rewrite) + loopback-sim + VPS doc; then other-modes check (item d). |
+
+**B-346 credits squares patch (2026-06-30):** diagnostics pin the
+solid credits glyphs to a Fast3D/OpenGL state-cache desync at frame start.
+`gfx_opengl_start_frame()` disables `GL_BLEND`, but Fast3D's cached
+`rendering_state.alpha_blend` could still be true from the prior frame, so the
+first translucent credits draw skipped re-enabling blending. The CI4 glyph data
+and IA16 palette decode were already correct (`use_alpha=1`, shaped alpha rows);
+the visible failure was stale blend state. Patch invalidates the Fast3D
+alpha/modulate/additive cache after backend frame start and keeps the earlier
+TLUT/cache-key hardening as a guard. Verified: focused static B-346 tests PASS
+(27 assertions / 4 cases), `asset_native_source_guard.py` PASS, isolated build
+PASS, and delayed credits capture
+`.claude/smoke-verify-runs/screenshots/20260630T025340-credits_alpha_smoke_delayed_local/`
+shows shaped glyphs and masked particle trails. Harness note: the smoke result
+was 7/8 assertions with exit code 0, failing only the stale required log-line
+pattern `LOAD: lv\.c entering stage load sequence for stagenum=0x5c`.
 
 **CI menu render (c3844, 2026-06-23):** the glass-table opaque-black bug is fixed
 universally -- the `.pdscenario` extract now classifies glTF alphaMode from the

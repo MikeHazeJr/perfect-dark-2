@@ -615,7 +615,7 @@ void gfx_texture_cache_delete(const uint8_t* orig_addr) {
     }
 
     while (gfx_texture_cache.map.bucket_count() > 0) {
-        TextureCacheKey key = { orig_addr, { 0 }, 0, 0 }; // bucket index only depends on the address
+        TextureCacheKey key = { orig_addr, { 0 }, 0, 0, 0, 0 }; // bucket index only depends on the address
         size_t bucket = gfx_texture_cache.map.bucket(key);
         bool again = false;
         for (auto it = gfx_texture_cache.map.begin(bucket); it != gfx_texture_cache.map.end(bucket); ++it) {
@@ -868,19 +868,18 @@ static void import_texture_ci4(int tile, const LoadedTexture& loaded_texture, bo
     const uint16_t* palette = (const uint16_t *)(rdp.palette + pal_idx * 16); // 16 pixel entries, 16 bits each
     SUPPORT_CHECK(full_image_line_size_bytes == line_size_bytes);
 
+    uint32_t result_line_size = rdp.texture_tile[tile].line_size_bytes;
+    if (metadata->h_byte_scale != 1) {
+        result_line_size *= metadata->h_byte_scale;
+    }
+    const uint32_t width = result_line_size * 2;
+    const uint32_t height = result_line_size != 0 ? size_bytes / result_line_size : 0;
+
     for (uint32_t i = 0; i < size_bytes * 2; i++) {
         const uint8_t byte = addr[i / 2];
         const uint8_t idx = (byte >> (4 - (i % 2) * 4)) & 0xf;
         palette_to_rgba32(palette[idx], tex_upload_buffer +4 * i);
     }
-
-    uint32_t result_line_size = rdp.texture_tile[tile].line_size_bytes;
-    if (metadata->h_byte_scale != 1) {
-        result_line_size *= metadata->h_byte_scale;
-    }
-
-    const uint32_t width = result_line_size * 2;
-    const uint32_t height = size_bytes / result_line_size;
 
     gfx_rapi->upload_texture(tex_upload_buffer, width, height);
 }
@@ -1018,9 +1017,9 @@ static void import_texture(int i, int tile, bool importReplacement) {
         if (orig_addr) {
             TextureCacheKey key;
             if (fmt == G_IM_FMT_CI) {
-                key = { orig_addr, { rdp.palette_addrs[0], rdp.palette_addrs[1] }, fmt, siz, palette_index };
+                key = { orig_addr, { rdp.palette_addrs[0], rdp.palette_addrs[1] }, rdp.palette_fmt, fmt, siz, palette_index };
             } else {
-                key = { orig_addr, {}, fmt, siz, palette_index };
+                key = { orig_addr, {}, 0, fmt, siz, palette_index };
             }
             (void)gfx_texture_cache_lookup(i, key);
             if (rendering_state.textures[i]) {
@@ -1078,9 +1077,9 @@ static void import_texture(int i, int tile, bool importReplacement) {
 
     TextureCacheKey key;
     if (fmt == G_IM_FMT_CI) {
-        key = { orig_addr, { rdp.palette_addrs[0], rdp.palette_addrs[1] }, fmt, siz, palette_index };
+        key = { orig_addr, { rdp.palette_addrs[0], rdp.palette_addrs[1] }, rdp.palette_fmt, fmt, siz, palette_index };
     } else {
-        key = { orig_addr, {}, fmt, siz, palette_index };
+        key = { orig_addr, {}, 0, fmt, siz, palette_index };
     }
 
     if (gfx_texture_cache_lookup(i, key)) {
@@ -2357,7 +2356,6 @@ static void gfx_dp_load_tlut(uint8_t tile, uint32_t uls, uint32_t ult, uint32_t 
     uint32_t tmem = rdp.texture_tile[tile].tmem;
     if (tmem < 256) {
         tmem = 256;
-        rdp.texture_tile[tile].tmem = tmem;
     }
 
     rdp.texture_tile[tile].uls = uls;
@@ -3266,6 +3264,11 @@ extern "C" void gfx_run(Gfx* commands) {
                                             gfx_current_window_dimensions.height, 1, false, true, true,
                                             !game_renders_to_framebuffer);
     gfx_rapi->start_frame();
+    /* gfx_opengl_start_frame resets GL_BLEND; invalidate the matching Fast3D
+     * cache so the first translucent draw in a new frame re-applies blend state. */
+    rendering_state.alpha_blend = false;
+    rendering_state.modulate = false;
+    rendering_state.additive_blend = false;
     gfx_rapi->start_draw_to_framebuffer(game_renders_to_framebuffer ? game_framebuffer : 0,
                                         (float)gfx_current_dimensions.height / SCREEN_HEIGHT);
     gfx_rapi->clear_framebuffer(true, false);
