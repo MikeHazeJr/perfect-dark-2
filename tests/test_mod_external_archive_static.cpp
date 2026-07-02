@@ -5381,7 +5381,9 @@ TEST_CASE("external models maps and animations compile from standard sources",
 	REQUIRE(conformance.find("vertex cannot quantize to native s16 coordinates") != std::string::npos);
 	REQUIRE(conformance.find("texcoord cannot quantize to native s16 UV units") != std::string::npos);
 	REQUIRE(compiler.find("gSPTexture(gdl++, 0, 0, 0, 0, 0)") != std::string::npos);
-	REQUIRE(compiler.find("dst->colour = 0xffffffffu") != std::string::npos);
+	/* B-938: the compiler no longer invents an all-white vertex colour -- it
+	 * dedups authored per-vertex RGBA into a Col table and stores the index. */
+	REQUIRE(compiler.find("dst->colour = (u8)((u32)colour_index << 2)") != std::string::npos);
 	REQUIRE(compiler.find("dst->s = clampToS16(texcoord->u * 32.0f)") != std::string::npos);
 	REQUIRE(compiler.find("dst->t = clampToS16((1.0f - texcoord->v) * 32.0f)") != std::string::npos);
 	REQUIRE(compiler.find("uv_vertices=%d") != std::string::npos);
@@ -8252,9 +8254,9 @@ TEST_CASE("base mesh extractor emits standard obj geometry payloads",
 
 	REQUIRE(mesh.find("s_buildModelObj") != std::string::npos);
 	REQUIRE(mesh.find("s_exportGdlToObj") != std::string::npos);
-	REQUIRE(mesh.find("ROMEXTRACT_PDMESH_OBJ_EXPORT_VERSION_LABEL \"model_obj_mtx_v20_materials_hierarchy_parts_faces_json_relations_raw_mtx_render_commands_json\"") !=
+	REQUIRE(mesh.find("ROMEXTRACT_PDMESH_OBJ_EXPORT_VERSION_LABEL \"model_obj_mtx_v20_materials_hierarchy_parts_faces_json_relations_raw_mtx_render_commands_json_vtxcolour_jointflags_vtxmtx\"") !=
 	        std::string::npos);
-	REQUIRE(mesh.find("ROMEXTRACT_PDMESH_FAST_CACHE_KIND \"pdmesh_model_obj_mtx_v23_materials_hierarchy_parts_faces_json_relations_raw_mtx_render_commands_json_allmodels_menuhud_zero_tri_models\"") !=
+	REQUIRE(mesh.find("ROMEXTRACT_PDMESH_FAST_CACHE_KIND \"pdmesh_model_obj_mtx_v23_materials_hierarchy_parts_faces_json_relations_raw_mtx_render_commands_json_allmodels_menuhud_zero_tri_models_vtxcolour_jointflags_vtxmtx\"") !=
 	        std::string::npos);
 	REQUIRE(mesh.find("catalogReadableModelIdForFile((s32)FILE_GHUDPIECE, \"menu\", \"menu\"") !=
 	        std::string::npos);

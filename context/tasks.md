@@ -30,6 +30,24 @@ shows shaped glyphs and masked particle trails. Harness note: the smoke result
 was 7/8 assertions with exit code 0, failing only the stale required log-line
 pattern `LOAD: lv\.c entering stage load sequence for stagenum=0x5c`.
 
+**B-346 recurrence RESOLVED AT ROOT 2026-07-02 (B-945 + B-946).** Mike reported
+the credits motes/font still rendered as solid opaque rectangles after the
+blend-cache patch. Root cause was in EXTRACTION, not render state: the
+native-texel decode wrote I4/I8 textures with forced-opaque alpha (RDP
+replicates intensity into alpha -- the motes are I-format soft blobs), swapped
+IA16's big-endian I/A byte pair (transparent glow sprites decoded as opaque
+BLACK -- Mike's "some textures are black"), and scrambled RGBA32 channel order.
+Fixed via the shared pure decoder `port/src/texture_decode_pure.{c,h}` with
+fast3d bit-replication parity, stored-alpha-only alphaMode classification,
+explicit `"alphaMode":"OPAQUE"` emission plus a renderer guard so regenerated
+scenes never re-promote, and `_iafix_b945` cache-kind bumps forcing a one-time
+re-extract. B-946 additionally killed a per-boot 87-scenario re-extraction loop
+(strstr-on-binary-GLB clean-check + unconditional texCoord probe + smoke
+harness deleting the data tree for install_state=current): warm boot now
+reaches the credits in ~6s and `credits_alpha_smoke` PASSES 8/8 with captures
+showing shaped glyphs, soft fog planes, and round motes. Full pd-tests
+819/819. Details in bugs.md B-945/B-946.
+
 **CI menu render (c3844, 2026-06-23):** the glass-table opaque-black bug is fixed
 universally -- the `.pdscenario` extract now classifies glTF alphaMode from the
 opaque/xlu block split (B-941) and the scenario scene renderer honors it per

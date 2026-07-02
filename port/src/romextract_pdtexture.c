@@ -48,9 +48,12 @@
 /* Stamp kind is read by romextract_pd_cache.c with a 511-wide fscanf into a
  * 512-byte buffer (PDEXTRACT_CACHE_KIND_MAX); bump the label to invalidate and
  * re-emit the whole family. The _cipalfix_b943 token forces a one-time
- * re-decode so the CI palette-offset fix (B-943) propagates to texture.png. */
+ * re-decode so the CI palette-offset fix (B-943) propagates to texture.png.
+ * The _iafix_b945 token propagates the RDP-parity decode fixes: I4/I8
+ * intensity-replicated alpha (credits motes were solid squares), IA16 I/A
+ * byte order (opaque black glow sprites), RGBA32 channel order. */
 #define ROMEXTRACT_PDTEXTURE_FAST_CACHE_KIND \
-	"pdtexture_png_v1_decoded_rom_rgba_manifest_texture_file_cipalfix_b943"
+	"pdtexture_png_v1_decoded_rom_rgba_manifest_texture_file_cipalfix_b943_iafix_b945"
 
 static const u8 k_Transparent1x1Png[] = {
 	0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,

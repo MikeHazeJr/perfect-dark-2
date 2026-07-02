@@ -324,8 +324,14 @@ function New-SmokeSharedInstall {
         Copy-Item -LiteralPath $rom -Destination $destRom -Force
         $romId = Get-RomIdFromName -RomPath $rom
 
+        # B-945 harness fix: only reset the extracted data tree for states that
+        # re-seed deterministically. "current" means REUSE the existing
+        # extracted install (its whole point is skipping the multi-minute
+        # clean re-extract); unconditionally deleting here made every
+        # install_state=current smoke re-extract from ROM each run, so timed
+        # captures landed on the extraction progress UI instead of gameplay.
         $existingDataDir = Join-Path $installDir "data\$romId"
-        if (Test-Path -LiteralPath $existingDataDir) {
+        if ($InstallState -ne "current" -and (Test-Path -LiteralPath $existingDataDir)) {
             Remove-Item -LiteralPath $existingDataDir -Recurse -Force -ErrorAction SilentlyContinue
         }
 

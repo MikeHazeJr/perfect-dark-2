@@ -594,16 +594,17 @@ struct modeldef *modeldefLoadFromHandle(asset_data_handle_t handle, s32 source_f
 	 * normals) instead of our custom generated-mesh modeldef, so the stock render
 	 * can be seen as a control and the divergence diffed. Bypasses the external
 	 * .pdmesh source replacement + the ROM-refuse fatal for this load only. Post-
-	 * extraction ROM reads are logged-as-fallback but not blocked, so this works. */
+	 * extraction ROM reads are logged-as-fallback but not blocked, so this works.
+	 * The handle comes from the catalog-owned catalogDebugRomModeldefHandle
+	 * bridge (null unless the flag is set) -- game code must not call
+	 * romProviderHandle() directly. */
 	{
-		extern s32 sysArgCheck(const char *name);
-		extern asset_data_handle_t romProviderHandle(s32 filenum);
-		if (source_filenum > 0 && sysArgCheck("--debug-rom-modeldef")) {
+		if (source_filenum > 0) {
 			/* source_filenum IS the ROM fileid (modeldefLoad passes fileid straight
-			 * through), so build the ROM provider handle directly -- the catalog's
-			 * own source-filenum lookup now returns the extracted .pdmesh handle, not
-			 * ROM, post-migration. */
-			asset_data_handle_t rom_handle = romProviderHandle(source_filenum);
+			 * through), so ask the catalog bridge for the ROM handle directly -- the
+			 * catalog's own source-filenum lookup now returns the extracted .pdmesh
+			 * handle, not ROM, post-migration. */
+			asset_data_handle_t rom_handle = catalogDebugRomModeldefHandle(source_filenum);
 			if (!assetHandleIsNull(rom_handle)) {
 				struct modeldef *romdef = assetLoadToNew(rom_handle,
 					FILELOADMETHOD_EXTRAMEM, LOADTYPE_MODEL);

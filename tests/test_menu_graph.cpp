@@ -1508,7 +1508,11 @@ TEST_CASE("main menu entries wait for the CI camera before opening input", "[inp
     REQUIRE(ready.find("g_Vars.lvframenum < 4") != std::string::npos);
     REQUIRE(ready.find("g_Vars.tickmode == TICKMODE_CUTSCENE") != std::string::npos);
     REQUIRE(ready.find("!playerCurrentCutsceneInProgress()") != std::string::npos);
-    REQUIRE(ready.find("playerEndCutscene()") != std::string::npos);
+    /* CI MENU CHARACTER FIX: ciReadyForMenuOpen must NOT force-end the intro
+     * fly-in cutscene -- doing so flipped to TICKMODE_NORMAL and removed the
+     * player chrbody (Joanna) from the menu backdrop. The menu opens OVER the
+     * running cutscene instead. */
+    REQUIRE(ready.find("playerEndCutscene()") == std::string::npos);
     REQUIRE(hold.find("g_PlayersWithControl[0] = false") != std::string::npos);
 
     REQUIRE(tick.find("var80087260 > 0") != std::string::npos);

@@ -56,6 +56,11 @@ struct Material {
 	bool has_secondary = false;
 	bool uses_alpha = false;
 	int alpha_mode = ALPHA_MODE_OPAQUE;
+	/* B-945: true when the glTF carried an explicit alphaMode key. Explicit
+	 * classification (including explicit OPAQUE from the fixed extractor) is
+	 * authoritative; the has-alpha->MASK promotion below only applies to
+	 * legacy scenes that predate alphaMode emission. */
+	bool alpha_mode_explicit = false;
 	float alpha_cutoff = 0.01f;
 };
 
@@ -482,9 +487,16 @@ static void parseMaterials(const crude_json::value &root,
 			std::string mode = stringField(*mat_obj, "alphaMode");
 			if (mode == "BLEND") {
 				mat.alpha_mode = ALPHA_MODE_BLEND;
+				mat.alpha_mode_explicit = true;
 			} else if (mode == "MASK") {
 				mat.alpha_mode = ALPHA_MODE_MASK;
 				mat.alpha_cutoff = floatField(*mat_obj, "alphaCutoff", 0.5f);
+				mat.alpha_mode_explicit = true;
+			} else if (mode == "OPAQUE") {
+				/* B-945: fixed extractor writes OPAQUE explicitly; trust it and
+				 * keep the legacy MASK promotion off for this material. */
+				mat.alpha_mode = ALPHA_MODE_OPAQUE;
+				mat.alpha_mode_explicit = true;
 			}
 		}
 		materials.push_back(mat);
@@ -558,11 +570,15 @@ static void markMaterialAlpha(Scene &scene)
 			&& (size_t)mat.secondary_image < scene.images.size()
 			&& scene.images[(size_t)mat.secondary_image].has_nonopaque_alpha;
 		bool texture_alpha = primary_alpha || secondary_alpha;
-		/* Back-compat + safety: a material the glTF left OPAQUE but whose texture
-		 * actually carries non-opaque alpha is a cutout -> promote to MASK so it gets
-		 * the alpha-test discard (covers scenes extracted before alphaMode=BLEND, and
-		 * any opaque-list alpha texture). BLEND/MASK from the glTF are authoritative. */
-		if (mat.alpha_mode == ALPHA_MODE_OPAQUE && texture_alpha) {
+		/* Back-compat only: a material with NO explicit glTF alphaMode whose texture
+		 * carries non-opaque alpha is a cutout -> promote to MASK so it gets the
+		 * alpha-test discard (covers scenes extracted before alphaMode emission).
+		 * B-945: explicit alphaMode (including explicit OPAQUE) is authoritative --
+		 * regenerated scenes decode I4/I8 textures with replicated-intensity alpha
+		 * for blend parity, and promoting those would punch alpha-test holes into
+		 * solid geometry. */
+		if (mat.alpha_mode == ALPHA_MODE_OPAQUE && !mat.alpha_mode_explicit
+				&& texture_alpha) {
 			mat.alpha_mode = ALPHA_MODE_MASK;
 		}
 		/* uses_alpha kept as a legacy alias = "draws in the translucent blend pass". */

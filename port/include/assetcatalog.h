@@ -1421,6 +1421,14 @@ s32 catalogResolveModelByModelnum(s32 modelnum, catalog_model_result_t *out);
 /** Phase 4: Effective provider handle for a model by runtime MODEL_* index. */
 asset_data_handle_t catalogGetModelHandle(s32 modelnum);
 
+/**
+ * B-936 A/B control (--debug-rom-modeldef): catalog-owned bridge that hands
+ * out the ORIGINAL ROM modeldef handle for a fileid, only while the debug
+ * flag is active (null handle otherwise). Exists so game code never calls
+ * romProviderHandle() directly; not a normal-play load path.
+ */
+asset_data_handle_t catalogDebugRomModeldefHandle(s32 filenum);
+
 /** [DEPRECATED] Prefer catalogResolveModelByModelnum() when the filenum is required. */
 s32 catalogGetModelFilenumByModelnum(s32 modelnum);
 

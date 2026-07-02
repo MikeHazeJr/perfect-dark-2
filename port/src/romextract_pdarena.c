@@ -67,6 +67,7 @@
 #include "romextract_pd.h"
 #include "sha256.h"
 #include "system.h"
+#include "texture_decode_pure.h"
 #include "memsizes.h"
 #include "game/stagetable.h"
 #include "game/chrai.h"
@@ -80,11 +81,11 @@
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "../external/stb_image_write.h"
 
-#define PDSCENARIO_BG_VISUAL_EXPORT_VERSION "bg_visual_scene_glb_v12_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_materialextras_dualtex_alphablend_cipalfix_b943"
+#define PDSCENARIO_BG_VISUAL_EXPORT_VERSION "bg_visual_scene_glb_v12_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_materialextras_dualtex_alphablend_cipalfix_b943_iafix_b945"
 #define PDSCENARIO_BG_VISUAL_EXPORT_VERSION_FILE \
 	PDSCENARIO_BG_VISUAL_EXPORT_VERSION "\n"
-#define ROMEXTRACT_PDARENA_FAST_CACHE_KIND "pdarena_clean_public_v10_pdscenario_v99"
-#define ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_alphablend_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json_cipalfix_b943"
+#define ROMEXTRACT_PDARENA_FAST_CACHE_KIND "pdarena_clean_public_v10_pdscenario_v99_iafix_b945"
+#define ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_alphablend_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json_cipalfix_b943_iafix_b945"
 
 /* Convert "base:arena_mp_skedar" -> "base_arena_mp_skedar". */
 static void s_idToFilename(const char *id, char *out, size_t n)
@@ -5705,17 +5706,6 @@ static s32 s_tgaFromRgba(const u8 *rgba, u32 width, u32 height,
 	return 0;
 }
 
-static void s_rgba16ToRgba(u16 p, u8 *out)
-{
-	u8 r = (u8)((((p >> 11) & 0x1f) * 255u) / 31u);
-	u8 g = (u8)((((p >> 6) & 0x1f) * 255u) / 31u);
-	u8 b = (u8)((((p >> 1) & 0x1f) * 255u) / 31u);
-	out[0] = r;
-	out[1] = g;
-	out[2] = b;
-	out[3] = (p & 1u) ? 255u : 0u;
-}
-
 static s32 s_texExportFormat(const struct tex *tex)
 {
 	if (!tex) return -1;
@@ -5771,13 +5761,39 @@ static u32 s_texFormatImageBytes(s32 format, u32 width, u32 height)
 	return s_texFormatStrideBytes(format, width) * height;
 }
 
+/* TEXFORMAT_* (texdecompress.c pool layouts) -> PD_TEXDEC_* (pure decoder).
+ * Explicit map so texture_decode_pure.{c,h} stays free of game headers and
+ * remains linkable in pd-tests (B-945). */
+static s32 s_texFormatToPure(s32 format)
+{
+	switch (format) {
+	case TEXFORMAT_RGBA32:     return PD_TEXDEC_RGBA32;
+	case TEXFORMAT_RGB24:      return PD_TEXDEC_RGB24;
+	case TEXFORMAT_RGBA16:     return PD_TEXDEC_RGBA16;
+	case TEXFORMAT_RGB15:      return PD_TEXDEC_RGB15;
+	case TEXFORMAT_IA16:       return PD_TEXDEC_IA16;
+	case TEXFORMAT_IA8:        return PD_TEXDEC_IA8;
+	case TEXFORMAT_IA4:        return PD_TEXDEC_IA4;
+	case TEXFORMAT_I8:         return PD_TEXDEC_I8;
+	case TEXFORMAT_I4:         return PD_TEXDEC_I4;
+	case TEXFORMAT_RGBA16_CI8: return PD_TEXDEC_RGBA16_CI8;
+	case TEXFORMAT_IA16_CI8:   return PD_TEXDEC_IA16_CI8;
+	case TEXFORMAT_RGBA16_CI4: return PD_TEXDEC_RGBA16_CI4;
+	case TEXFORMAT_IA16_CI4:   return PD_TEXDEC_IA16_CI4;
+	}
+	return -1;
+}
+
 static s32 s_decodeTexToRgba(const struct tex *tex, u32 total_bytes,
-	u8 **out_rgba)
+	u8 **out_rgba, s32 *out_pure_format)
 {
 	if (out_rgba) *out_rgba = NULL;
+	if (out_pure_format) *out_pure_format = -1;
 	if (!tex || !tex->data || !tex->width || !tex->height) return -1;
 	s32 format = s_texExportFormat(tex);
 	if (format < 0) return -1;
+	s32 pure_format = s_texFormatToPure(format);
+	if (pure_format < 0) return -1;
 	u32 width = tex->width;
 	u32 height = tex->height;
 	if (width > 4096 || height > 4096) return -1;
@@ -5824,92 +5840,20 @@ static s32 s_decodeTexToRgba(const struct tex *tex, u32 total_bytes,
 		palette = tex->data + palette_off;
 	}
 
-	for (u32 y = 0; y < height; y++) {
-		const u8 *row = tex->data + y * stride;
-		for (u32 x = 0; x < width; x++) {
-			u8 *dst = rgba + ((size_t)y * width + x) * 4u;
-			switch (format) {
-			case TEXFORMAT_RGBA32:
-			case TEXFORMAT_RGB24: {
-				u32 p = 0;
-				memcpy(&p, row + x * 4u, 4);
-				dst[0] = (u8)((p >> 24) & 0xffu);
-				dst[1] = (u8)((p >> 16) & 0xffu);
-				dst[2] = (u8)((p >> 8) & 0xffu);
-				dst[3] = format == TEXFORMAT_RGB24 ? 255u : (u8)(p & 0xffu);
-				break;
-			}
-			case TEXFORMAT_RGBA16:
-			case TEXFORMAT_RGB15:
-				s_rgba16ToRgba(s_readBe16(row + x * 2u), dst);
-				if (format == TEXFORMAT_RGB15) dst[3] = 255u;
-				break;
-			case TEXFORMAT_IA16: {
-				u16 p = 0;
-				memcpy(&p, row + x * 2u, 2);
-				dst[0] = dst[1] = dst[2] = (u8)((p >> 8) & 0xffu);
-				dst[3] = (u8)(p & 0xffu);
-				break;
-			}
-			case TEXFORMAT_IA8: {
-				u8 p = row[x];
-				u8 i = (u8)(((p >> 4) & 0x0fu) * 17u);
-				u8 a = (u8)((p & 0x0fu) * 17u);
-				dst[0] = dst[1] = dst[2] = i;
-				dst[3] = a;
-				break;
-			}
-			case TEXFORMAT_I8:
-				dst[0] = dst[1] = dst[2] = row[x];
-				dst[3] = 255u;
-				break;
-			case TEXFORMAT_IA4: {
-				u8 p = row[x >> 1];
-				u8 n = (x & 1u) ? (p & 0x0fu) : (p >> 4);
-				u8 i = (u8)((((n >> 1) & 0x07u) * 255u) / 7u);
-				dst[0] = dst[1] = dst[2] = i;
-				dst[3] = (n & 1u) ? 255u : 0u;
-				break;
-			}
-			case TEXFORMAT_I4: {
-				u8 p = row[x >> 1];
-				u8 n = (x & 1u) ? (p & 0x0fu) : (p >> 4);
-				dst[0] = dst[1] = dst[2] = (u8)(n * 17u);
-				dst[3] = 255u;
-				break;
-			}
-			case TEXFORMAT_RGBA16_CI8:
-			case TEXFORMAT_IA16_CI8:
-			case TEXFORMAT_RGBA16_CI4:
-			case TEXFORMAT_IA16_CI4: {
-				u32 idx;
-				if (format == TEXFORMAT_RGBA16_CI8 ||
-				    format == TEXFORMAT_IA16_CI8) {
-					idx = row[x];
-				} else {
-					u8 p = row[x >> 1];
-					idx = (x & 1u) ? (p & 0x0fu) : (p >> 4);
-				}
-				if (!palette || idx >= palette_count) {
-					dst[0] = 255u; dst[1] = 0u; dst[2] = 255u; dst[3] = 255u;
-				} else if (format == TEXFORMAT_RGBA16_CI8 ||
-				           format == TEXFORMAT_RGBA16_CI4) {
-					s_rgba16ToRgba(s_readBe16(palette + idx * 2u), dst);
-				} else {
-					u16 p = s_readBe16(palette + idx * 2u);
-					dst[0] = dst[1] = dst[2] = (u8)((p >> 8) & 0xffu);
-					dst[3] = (u8)(p & 0xffu);
-				}
-				break;
-			}
-			default:
-				dst[0] = 255u; dst[1] = 0u; dst[2] = 255u; dst[3] = 255u;
-				break;
-			}
-		}
+	/* B-945: the per-pixel format switch that used to live here decoded I4/I8
+	 * with forced-opaque alpha (credits motes -> solid squares), read IA16
+	 * through a host-endian u16 (I/A swapped -> opaque black glow sprites),
+	 * and unpacked RGBA32 host-endian (channels scrambled to A,B,G,R). The
+	 * shared pure decoder carries the fast3d-parity semantics and is pinned
+	 * by tests/test_texture_decode_pure.cpp. */
+	if (pdTexDecodeToRgba32(pure_format, tex->data, width, height, stride,
+			palette, palette_count, rgba) != 0) {
+		free(rgba);
+		return -1;
 	}
 
 	*out_rgba = rgba;
+	if (out_pure_format) *out_pure_format = pure_format;
 	return 0;
 }
 
@@ -5981,11 +5925,18 @@ s32 romExtractDecodeTextureImages(u16 texnum,
 	}
 
 	u8 *rgba = NULL;
-	if (s_decodeTexToRgba(tex, (u32)bytesout, &rgba) != 0) {
+	s32 pure_format = -1;
+	if (s_decodeTexToRgba(tex, (u32)bytesout, &rgba, &pure_format) != 0) {
 		free(pool_mem);
 		return -1;
 	}
-	s32 has_alpha = s_rgbaHasNonOpaqueAlpha(rgba, tex->width, tex->height);
+	/* B-945: has_alpha means STORED alpha only. I4/I8 decode with replicated
+	 * intensity in the alpha channel for runtime blend parity, but they carry
+	 * no authored alpha -- reporting them as alpha textures would flip
+	 * opaque-list scene materials to alphaMode=MASK at glTF build and punch
+	 * alpha-test holes into solid geometry. */
+	s32 has_alpha = pdTexFormatHasStoredAlpha(pure_format)
+		? s_rgbaHasNonOpaqueAlpha(rgba, tex->width, tex->height) : 0;
 	u8 *tga = NULL;
 	u32 tga_size = 0;
 	s32 ok = s_tgaFromRgba(rgba, tex->width, tex->height, &tga, &tga_size);
@@ -6447,11 +6398,13 @@ static s32 s_bgSceneBuildSceneGlb(pdscenario_bgscene_t *scene)
 			(tex2 && tex2->decoded) ? tex2->path : "";
 		/* c3844 glass fix: alphaMode is BLEND when the geometry came from the room's
 		 * xlu block list (translucent glass), MASK when it came from the opaque list
-		 * but its texture carries alpha (cutout grates/decals -> crisp edges), and
-		 * absent (-> glTF default OPAQUE) for solids. The renderer reads alphaMode to
-		 * choose the blend pass vs the opaque pass + alpha-test discard. */
+		 * but its texture carries STORED alpha (cutout grates/decals -> crisp edges;
+		 * B-945: I4/I8 replicated-intensity alpha no longer counts), and explicit
+		 * OPAQUE for solids. Writing OPAQUE explicitly (B-945) tells the renderer
+		 * the classification is authoritative, so its legacy has-alpha->MASK
+		 * promotion heuristic stays disabled for regenerated scenes. */
 		s32 prim_has_alpha = (tex && tex->decoded && tex->has_alpha);
-		const char *alpha_attr = "";
+		const char *alpha_attr = "\"alphaMode\":\"OPAQUE\",";
 		if (m->alpha_mode == PDSCENARIO_ALPHA_BLEND) {
 			alpha_attr = "\"alphaMode\":\"BLEND\",";
 		} else if (prim_has_alpha) {
@@ -7502,6 +7455,30 @@ static s32 s_existingArchiveHasEntry(const char *relpath, const char *entry)
 	return has_entry;
 }
 
+/* B-946: size-aware substring search. The old implementation copied the
+ * member into a NUL-terminated buffer and used strstr, which stops at the
+ * FIRST NUL byte -- scene.glb is binary GLB whose header has NULs at offset
+ * 5, so every scene.glb content probe (export-version tag, texCoord/COLOR_0
+ * markers) silently returned false. That made s_existingPdscenarioArchiveIsClean
+ * and the per-entry emit skip both report every scenario as stale, so all 87
+ * .pdscenario archives re-extracted on EVERY boot (~13s "Extracting arenas"
+ * modal each launch) and the family fast-cache could never validate. */
+static s32 s_bytesContain(const u8 *hay, u32 hay_len, const char *needle)
+{
+	size_t nlen;
+	u32 i;
+	if (!hay || !needle) return 0;
+	nlen = strlen(needle);
+	if (nlen == 0 || (u32)nlen > hay_len) return 0;
+	for (i = 0; i + (u32)nlen <= hay_len; i++) {
+		if (hay[i] == (u8)needle[0] &&
+				memcmp(hay + i, needle, nlen) == 0) {
+			return 1;
+		}
+	}
+	return 0;
+}
+
 static s32 s_existingArchiveEntryContains(const char *relpath,
                                           const char *entry,
                                           const char *needle)
@@ -7518,15 +7495,9 @@ static s32 s_existingArchiveEntryContains(const char *relpath,
 	s32 idx = modArchiveFindEntry(arc, entry);
 	if (idx >= 0) {
 		u32 size = 0;
-		char *bytes = (char *)modArchiveExtractAlloc(arc, idx, &size);
+		u8 *bytes = (u8 *)modArchiveExtractAlloc(arc, idx, &size);
 		if (bytes && size > 0) {
-			char *text = (char *)malloc((size_t)size + 1u);
-			if (text) {
-				memcpy(text, bytes, size);
-				text[size] = '\0';
-				found = strstr(text, needle) != NULL;
-				free(text);
-			}
+			found = s_bytesContain(bytes, size, needle);
 		}
 		if (bytes) free(bytes);
 	}
@@ -7874,8 +7845,14 @@ static s32 s_existingPdscenarioArchiveIsClean(const char *relpath)
 		s_existingArchiveHasEntry(relpath, "level.graph.json") &&
 		s_existingArchiveEntryContains(relpath, "scene.glb",
 			PDSCENARIO_BG_VISUAL_EXPORT_VERSION) &&
+		/* B-946: the texCoord:0 DCC-UV marker only exists on textured
+		 * materials. Untextured test stages (base:scenario_test_ash) have no
+		 * baseColorTexture at all; demanding the marker unconditionally made
+		 * them permanently "stale" and re-extracted every boot. */
+		(!s_existingArchiveEntryContains(relpath, "scene.glb",
+			"baseColorTexture") ||
 		s_existingArchiveEntryContains(relpath, "scene.glb",
-			"\"texCoord\":0") &&
+			"\"texCoord\":0")) &&
 		s_existingArchiveEntryContains(relpath, "scene.glb",
 			"\"TEXCOORD_1\"") &&
 		s_existingArchiveEntryContains(relpath, "scene.glb",
@@ -8774,6 +8751,72 @@ static s32 s_pdarenaOutputsCleanForFastCache(const char *arenas_dir,
 	return 1;
 }
 
+/* B-946: content-verified marker. s_pdarenaOutputsCleanForFastCache opens
+ * every arena/scenario archive dozens of times (thousands of ZIP member
+ * probes); the marker memoizes a passing verdict so warm boots skip it. The
+ * marker is only consulted AFTER the fingerprint stamps validate, and any
+ * archive change invalidates those stamps first, so content re-verification
+ * still runs after every emit, kind bump, or external modification. */
+#define PDARENA_CLEAN_MARKER_NAME ".pdextract-clean"
+#define PDARENA_CLEAN_MARKER_SCHEMA "pdarena-clean-v1"
+
+static s32 s_pdarenaCleanMarkerPath(const char *arenas_dir, char *out,
+	size_t out_n)
+{
+	int n;
+	if (!arenas_dir || !out || out_n == 0) return 0;
+	n = snprintf(out, out_n, "%s/%s", arenas_dir, PDARENA_CLEAN_MARKER_NAME);
+	if (n <= 0 || (size_t)n >= out_n) {
+		out[0] = '\0';
+		return 0;
+	}
+	return 1;
+}
+
+static s32 s_pdarenaCleanMarkerIsValid(const char *arenas_dir)
+{
+	char path[FS_MAXPATH + 1];
+	char schema[64] = {0};
+	char arena_kind[512] = {0};
+	char scenario_kind[512] = {0};
+	FILE *f;
+	int matched;
+
+	if (!s_pdarenaCleanMarkerPath(arenas_dir, path, sizeof(path))) return 0;
+	f = fopen(path, "rb");
+	if (!f) return 0;
+	matched = fscanf(f,
+		"schema=%63s\narena_kind=%511s\nscenario_kind=%511s\n",
+		schema, arena_kind, scenario_kind);
+	fclose(f);
+	if (matched != 3) return 0;
+	if (strcmp(schema, PDARENA_CLEAN_MARKER_SCHEMA) != 0) return 0;
+	if (strcmp(arena_kind, ROMEXTRACT_PDARENA_FAST_CACHE_KIND) != 0) return 0;
+	if (strcmp(scenario_kind, ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND) != 0) {
+		return 0;
+	}
+	return 1;
+}
+
+static void s_pdarenaCleanMarkerWrite(const char *arenas_dir)
+{
+	char path[FS_MAXPATH + 1];
+	FILE *f;
+
+	if (!s_pdarenaCleanMarkerPath(arenas_dir, path, sizeof(path))) return;
+	f = fopen(path, "wb");
+	if (!f) {
+		sysLogPrintf(LOG_WARNING,
+			"romextract pdarena: could not write clean marker \"%s\"", path);
+		return;
+	}
+	fprintf(f, "schema=%s\narena_kind=%s\nscenario_kind=%s\n",
+		PDARENA_CLEAN_MARKER_SCHEMA,
+		ROMEXTRACT_PDARENA_FAST_CACHE_KIND,
+		ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND);
+	fclose(f);
+}
+
 static s32 s_addScenarioArchiveDependency(asset_archive_writer_t *writer,
                                           const char *src_rel,
                                           const char *scenario_id)
@@ -9666,12 +9709,22 @@ s32 romExtractAllPdarena(s32 force_rewrite)
 		&stage_specs);
 	s32 total_work = g_ArenaDataCount + stage_specs.count;
 
-	if (s_pdarenaOutputsCleanForFastCache(arenas_dir, scenarios_dir,
-			&stage_specs) &&
-	    romExtractPdFastCacheCanSkip(ROMEXTRACT_PDARENA_FAST_CACHE_KIND, arenas_dir,
+	/* B-946 boot-time fix: check the cheap fingerprint stamps FIRST, and
+	 * memoize the expensive per-archive content scan behind a marker file.
+	 * s_pdarenaOutputsCleanForFastCache opens every arena/scenario ZIP dozens
+	 * of times (~5,000 member probes); running it unconditionally on every
+	 * boot cost ~20s even when everything was current. Any archive change
+	 * invalidates the fingerprint stamps (count/bytes/mtime), which also
+	 * invalidates the marker, so content re-verification still happens after
+	 * every emit or external modification. */
+	if (romExtractPdFastCacheCanSkip(ROMEXTRACT_PDARENA_FAST_CACHE_KIND, arenas_dir,
 			".pdarena", force_rewrite) &&
 	    romExtractPdFastCacheCanSkip(ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND, scenarios_dir,
-			".pdscenario", force_rewrite)) {
+			".pdscenario", force_rewrite) &&
+	    (s_pdarenaCleanMarkerIsValid(arenas_dir) ||
+	     (s_pdarenaOutputsCleanForFastCache(arenas_dir, scenarios_dir,
+			&stage_specs) &&
+	      (s_pdarenaCleanMarkerWrite(arenas_dir), 1)))) {
 		bootProgressUpdate(total_work, total_work);
 		sysLogPrintf(LOG_NOTE,
 			"romextract pdarena: arenas written=0 skipped=%d failed=0 total=%d (fast-cache)",
@@ -9741,6 +9794,10 @@ s32 romExtractAllPdarena(s32 force_rewrite)
 			arenas_dir, ".pdarena");
 		romExtractPdFastCacheWrite(ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND,
 			scenarios_dir, ".pdscenario");
+		/* B-946: a completed emit pass leaves clean-by-construction output;
+		 * refresh the content-verified marker so the next boot's fast-cache
+		 * gate does not pay the full per-archive content scan once more. */
+		s_pdarenaCleanMarkerWrite(arenas_dir);
 	}
 
 	return arenas_written + scenarios_written;

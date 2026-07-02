@@ -2461,3 +2461,47 @@ and `NEEDLER SOURCE MODEL RENDERED`. Both retained BMP screenshots in
 were visually inspected and show the source-render proof overlay. Final process
 scan before cleanup found no lingering `PerfectDark`, `PerfectDarkServer`, or
 `WerFault` processes.
+
+## 2026-07-02 - B-945/B-946: RDP-parity texture decode + per-boot re-extract loop
+
+Mike reported the credits motes/font still drew as solid opaque rectangles
+after the 2026-06-30 blend-cache patch, plus "some textures are black". Root
+cause was extraction, not render state: `s_decodeTexToRgba` decoded I4/I8 with
+forced-opaque alpha (the RDP replicates intensity into alpha; the motes are
+I-format soft blobs sampled through TEXEL0 alpha), read IA16 through a
+host-endian u16 (swapping the big-endian I/A pair, turning transparent glow
+regions into opaque black), and unpacked RGBA32 host-endian (A,B,G,R
+scramble). Fixed via a new shared pure decoder (`port/src/texture_decode_pure`,
+fast3d bit-replication parity, behaviorally pinned by
+tests/test_texture_decode_pure.cpp as a real linked TU), stored-alpha-only
+`has_alpha` so I-replication cannot flip opaque scene materials to
+alphaMode=MASK, explicit `"alphaMode":"OPAQUE"` emission with a renderer
+explicit-mode guard, and `_iafix_b945` cache-kind bumps (pins updated in the
+contract test, conformance, and the examples generator; tri_arena
+regenerated).
+
+B-946 fell out of verification: every boot re-extracted all 87 `.pdscenario`
+archives (~40s per launch) because the archive clean-check probed binary
+scene.glb content with strstr on a NUL-terminated copy -- the GLB header's
+NUL at byte 5 made every probe false forever. Fixed with a size-aware byte
+search (pdarena + the duplicate helper in pdmeta), made the texCoord:0 probe
+conditional on textured materials (base:scenario_test_ash is untextured and
+looped forever), memoized the heavy per-archive content scan behind a
+`.pdextract-clean` marker gated by the fingerprint stamps, and fixed the
+smoke harness deleting the extracted data tree for `install_state=current`
+runs. Also fixed a real constraint violation the suite caught: modeldef.c
+called romProviderHandle() directly (B-936 debug path); now routed through a
+catalog-owned `catalogDebugRomModeldefHandle()` bridge. Reconciled four stale
+source-pin test drifts (B-938 vertex-colour pin, two pdmesh version pins, and
+menu_graph's playerEndCutscene pin inverted to match the intentional CI-menu
+behavior).
+
+Verification: focused `[b945]` 12 cases / 92 assertions PASS; full pd-tests
+819 cases / 41,352 assertions PASS; `asset_native_source_guard.py` PASS;
+conformance selftest + examples PASS (28 root / 59 checked, 27 families);
+isolated `b945` all-target builds PASS; `credits_alpha_smoke` PASS 8/8 twice
+with captures showing shaped glyphs, soft fog planes, and round motes; warm
+boot reaches the credits in ~6s with `pdscenario: written=0 skipped=89
+(fast-cache)` at ~2s. Build/data/ntsc-final refreshed from the verified
+re-extracted install. Next: extraction/utilization audit consolidation, test
+suite + build queue rebuild, Dev Window v3.

@@ -905,6 +905,12 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/tests/test_fast3d_blender_static.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_credits_texture_static.cpp
 
+  # B-945: shared native-texel -> RGBA32 decoder (RDP sampling parity for
+  # extracted .pdtexture / scene.glb PNGs). Pure TU, behaviorally tested --
+  # the I8 alpha-replication case is the credits-motes solid-squares pin.
+  ${CMAKE_SOURCE_DIR}/port/src/texture_decode_pure.c
+  ${CMAKE_SOURCE_DIR}/tests/test_texture_decode_pure.cpp
+
   # c038 jump capsule guards (physics-collision pillar, 2026-05-18):
   # source-level pins for the live multi-sample rendered-surface sweep and
   # pure checks for normal classification.

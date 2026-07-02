@@ -100,14 +100,20 @@ static s32 s_existingArchiveEntryContains(const char *relpath,
 	s32 found = 0;
 	if (idx >= 0) {
 		u32 size = 0;
-		char *bytes = (char *)modArchiveExtractAlloc(arc, idx, &size);
+		u8 *bytes = (u8 *)modArchiveExtractAlloc(arc, idx, &size);
 		if (bytes && size > 0) {
-			char *text = malloc((size_t)size + 1u);
-			if (text) {
-				memcpy(text, bytes, size);
-				text[size] = '\0';
-				found = strstr(text, needle) != NULL;
-				free(text);
+			/* B-946: size-aware scan, NOT strstr on a NUL-terminated copy --
+			 * strstr stops at the first NUL, so probing any binary member
+			 * (e.g. GLB) would silently return false and loop re-extraction
+			 * every boot. Mirrors s_bytesContain in romextract_pdarena.c. */
+			size_t nlen = strlen(needle);
+			if (nlen > 0 && (u32)nlen <= size) {
+				for (u32 i = 0; !found && i + (u32)nlen <= size; i++) {
+					if (bytes[i] == (u8)needle[0] &&
+							memcmp(bytes + i, needle, nlen) == 0) {
+						found = 1;
+					}
+				}
 			}
 			free(bytes);
 		}

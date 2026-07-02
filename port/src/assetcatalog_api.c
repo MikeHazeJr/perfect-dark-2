@@ -1974,3 +1974,19 @@ s32 catalogGetStageResultByIndexChecked(s32 stageindex, catalog_stage_result_t *
     }
     return 1;
 }
+
+/* B-936 A/B control accessor (--debug-rom-modeldef). Game code must not call
+ * romProviderHandle() directly (see constraints: RomProvider handles are
+ * catalog/provider-owned), so the debug ROM-modeldef control path gets this
+ * narrow catalog-owned bridge instead. Returns a null handle unless the debug
+ * flag is active; never used in normal play. */
+asset_data_handle_t catalogDebugRomModeldefHandle(s32 filenum)
+{
+    asset_data_handle_t null_handle;
+
+    memset(&null_handle, 0, sizeof(null_handle));
+    if (filenum <= 0 || !sysArgCheck("--debug-rom-modeldef")) {
+        return null_handle;
+    }
+    return romProviderHandle(filenum);
+}

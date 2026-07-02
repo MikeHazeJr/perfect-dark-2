@@ -35,7 +35,7 @@
       "SMOKE: scenario=credits_alpha_smoke",
       "BOOT: --launch-credits armed",
       "BOOT: --launch-credits consumed",
-      "LOAD: lv\\.c entering stage load sequence for stagenum=0x5c",
+      "STAGE: titleSetNextStage\\(0x26\\)",
       "SMOKE: result=scripted_exit"
     ],
     "forbidden_patterns": [
