@@ -1,5 +1,56 @@
 # Session Log (Active)
 
+## 2026-07-03 - Weekly Super Audit (scheduled) on dev at d3cc67ac
+
+Scheduled weekly Super Audit landed. Report:
+[audits/2026-07-03-full.md](audits/2026-07-03-full.md). Delta window
+`2e86ad99..d3cc67ac` (9 commits, 35 files, ~2k insertions) is small and
+remedial — dominated by B-945/B-946 asset-decode + boot re-extract
+loop, c068 progress-aware watchdog, c3818 Dev Window v3.
+
+Pillar integrity is BETTER than at 06-26: Catalog SOT strengthened
+(`catalogDebugRomModeldefHandle` closes the last direct
+`romProviderHandle()` call from game code), Grid consent-before-
+dispatch fixed in `social_share.c`, mod-native parity intact, Phase
+2.5 discipline held (GASBOTTLE/SAFE stride fix is exemplary).
+
+**Two elevated findings** worth acting on:
+- **CONNECT-CODE-DUPLICATES** (High, Confirmed): the four connect-code
+  word tables in `port/src/connectcode.c` contain 13 duplicate entries
+  across `s_Adjectives/Nouns/Actions/Places`. The decoder returns the
+  first match on ties, so ~4.4% of random IPv4 addresses cannot
+  round-trip through connect codes — the sole join mechanism per
+  `constraints.md:62`. Silent misroute is a privacy concern too.
+  Recommend: replace duplicates + add uniqueness `_Static_assert`.
+- **SAVE-MIGRATE-NOT-WIRED** (High, Confirmed): `SAVE_VERSION=2` at
+  `port/include/savefile.h:41`, `saveMigrateFile()` defined at
+  `port/src/savemigrate.c:145` but never called from anywhere.
+  `port/src/savefile.c:230-244` `saveCheckFileVersion` only logs
+  `LOG_NOTE` for `fileVersion < SAVE_VERSION`. v1 saves silently
+  consumed as v2 → character/scenario identity lost.
+  Recommend: wire the migration hook OR switch to loud-fail.
+
+**New scaling / Phase 2.5 findings** (both Medium):
+- **NET-WIRE-CLIENTID-CEILING**: `netclient.id` widened to u32
+  in-memory but still `netbufWriteU8` on wire. Effective 254-client
+  ceiling; no `_Static_assert`. Recommend
+  `_Static_assert(NET_MAX_CLIENTS < NET_NULL_CLIENT)` in `net.h:224`.
+- **PDEFFECT-N64-STRIDE-LATENT**: `OBJTYPE_PADEFFECT` in
+  `filesetup.c:97` returns PC-struct `sizeof` with no
+  `n64_padeffectobj` sibling. Safe today by structural coincidence;
+  any future PC edit adds a pointer → silent corruption. Recommend
+  adding `n64_padeffectobj` mirror for symmetry.
+
+Carry-over status: **2 FIXED** (Grid consent, Catalog SOT last-caller),
+**1 PARTIAL** (MODASSET overflow guard), **1 ELEVATED** (connect-code
+duplicates confirmed), **12 UNCHANGED**. SMOKE-COMPILED-IN, mod
+distribution signing, save migration, STUN entropy, per-IP bans all
+remain open.
+
+**Scorecard**: Design 7.5, Code 7.5, Security 6.0, Arch Discipline
+**8.5 (new high)**. Total budget to remediate Critical/High:
+~2.5–4.5 weeks; new-in-delta findings ~3–5 days.
+
 ## 2026-06-30 - B-346 credits solid squares visually fixed
 
 Closed the reopened credits solid-block layer with a frame-start Fast3D/OpenGL
@@ -2587,3 +2638,27 @@ every claim against source before acting.
 
 Verified: client build SUCCESS, full pd-tests 820/820 (41,358 assertions),
 credits_alpha_smoke 8/8 on the refactored launch path.
+
+## 2026-07-03 - Frozen static corpse store (c132, bake foundation)
+
+Mike approved offloading persisted campaign corpses off the chr pool. Research
+(agents + reads) established the key facts: modelRender takes a struct model*
+without a chrdata; the death pose lives in the bone matrices (verts stay local,
+transformed by a loaded matrix on the fast3d side); model rwdatas are
+MEMPOOL_STAGE (survive detach); the render is prop/chr-coupled only for lighting
+(snapshottable since a corpse is static). Surfaced the render-cost finding to
+Mike (offload frees the slot but re-skins each frame; true GPU batching is a
+separate layer) -- he chose "land the frozen-pose foundation now."
+
+Built src/game/corpsestore.c + header: settle (off-screen, death-anim-done) ->
+snapshot model/pos/rooms/lighting + detach model + mark chr for the normal safe
+reap (frees the slot) -> per-room static render via the model's real display
+lists with frozen matrices (correct materials, frozen pose). Gated OFF
+(--campaign-corpse-bake); headroom-cap path owns corpses otherwise. Hooks:
+chrTickDead (settle), bg.c OPA_POSTBG (render), lvReset (stage lifecycle).
+
+Verified: client build + full pd-tests 820/820 + boot_smoke 14/14 (gated off,
+zero risk to normal play). VISUAL correctness of the frozen render needs Mike's
+in-game playtest with the flag. Next layer (deferred): GPU vertex-merge batching
+for same-body corpses (the hundreds-of-corpses perf win) + dynamic room-light
+response.
