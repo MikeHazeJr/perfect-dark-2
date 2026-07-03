@@ -1,0 +1,54 @@
+# Dev Window v3
+
+A clean, quick, efficient rebuild of the Perfect Dark 2 Dev Window. Launch it
+with `Dev Window v3.bat` (or `powershell -File dev-window-v3.ps1`).
+
+## What it does
+
+- **Header**: current branch, version (parsed from `CMakeLists.txt`), and a
+  dirty-file count. `Refresh` re-reads them. Git status runs on a background
+  runspace so the window never stalls waiting on git.
+- **BUILD (all)**: git-syncs (add -A, commit only if staged, best-effort push),
+  then shells out to `devtools/build-headless.ps1 -Target all`. Output streams
+  live into the log; `Stop` kills the child process tree.
+- **Run Game**: launches `Build/PerfectDark.exe` (working dir `Build/`),
+  disabled until it exists.
+- **Run Tests**: runs `devtools/run-pd-tests.ps1 -Session devwin`.
+- **Release...**: confirm dialog, git-sync (push required), then
+  `devtools/release.ps1 -Version X.Y.Z`.
+- **Build Queue panel**: shows the active build and any queued requests from
+  `.claude/session-builds/.queue/`, refreshed every 2s. `Clean stale builds`
+  runs `build-session.ps1 -RemoveAll`, but only after confirming no build is
+  active.
+- **Log**: monospace, autoscroll toggle, `Copy All` / `Copy Errors`
+  (errors = lines matching error/failed/fatal), `Clear`.
+- Window size/position persist to `settings.json`.
+
+## How it differs from v2
+
+- **One build tool, honored structurally.** v2 kept its own `Get-BuildSteps`
+  that duplicated the CMake configure/compile flags, so it could silently
+  drift from `build-headless.ps1`. v3 defines **no** build steps at all -- every
+  build path shells out to `build-headless.ps1` / `release.ps1` / `run-pd-tests.ps1`.
+  There is nothing to keep in sync.
+- **Lean.** ~630 lines vs ~5,300. One log pane, one queue panel, six actions.
+  No worktree pruner, no docs tab, no embedded Kanban, no ninja-progress
+  re-implementation (the headless build already prints progress; v3 just
+  streams it).
+- **Same proven internals.** WPF software rendering (S482 workaround),
+  the single consolidated `Add-Type` compile for fast cold start, the
+  `AsyncLineReader` streaming pattern, and a background runspace pool for all
+  git/build/test work so the UI thread never blocks.
+
+## Constraints preserved
+
+- No CMake flags defined here (one build tool, two interfaces).
+- Git sync before Build and Release.
+- WPF `ProcessRenderMode = SoftwareOnly`.
+- ASCII only, no em-dashes (PowerShell Windows-1252 truncation hazard).
+- Clean-build semantics come from `build-headless.ps1`, unchanged.
+
+## Status
+
+v2 remains in place and is not modified. v3 is additive; adopt it when you are
+ready and retire v2 at your discretion.

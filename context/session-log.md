@@ -2524,3 +2524,24 @@ Added `-SelfTest` (14 build-free checks, sub-second) covering session-name
 sanitization, timeout resolution, and the progress-signal/advance logic.
 Verified: parse-check clean; `-SelfTest` 14/14 PASS; clean `all` build ran the
 full 193s to SUCCESS with no watchdog kill (was killed at 60s before).
+
+## 2026-07-02 - Dev Window v3 (c3818)
+
+Built devtools/dev-window-v3/ as a clean rebuild of the v2 GUI (~630 lines vs
+~5,300). The headline structural fix: v2 kept its own Get-BuildSteps that
+duplicated the CMake configure/compile flags and could silently drift from
+build-headless.ps1 (the earlier tooling inventory flagged this as the #1
+jank/risk). v3 defines NO build steps -- every action shells out to
+build-headless.ps1 / release.ps1 / run-pd-tests.ps1, so there is nothing to
+keep in sync. Six actions (Build, Stop, Run Game, Run Tests, Release, Clean
+Queue), a live queue panel reading .claude/session-builds/.queue, and a
+streaming log with copy/copy-errors. Kept the proven v2 internals: WPF
+software rendering (S482), the single consolidated Add-Type compile for fast
+cold start, AsyncLineReader streaming, and a background runspace pool so the
+UI thread never blocks. git-sync before Build/Release preserved (lighter than
+v2 -- no WSL/cygwin lock dance). Dropped the worktree pruner, docs tab,
+embedded Kanban, and the ninja-progress re-implementation. Verified headless
+in STA: parse-check 0 errors, ASCII-only / no em-dashes, the WPF window
+constructs with all named elements resolving, the version parser reads
+CMakeLists (0.1.102), and the queue panel reads. v2 left in place untouched;
+v3 is additive.
