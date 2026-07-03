@@ -10,6 +10,39 @@ worked or explicitly deferred.
 
 ---
 
+## Validation results (2026-07-02, rigorous re-check per Mike's goal)
+
+Two-way translation (ROM -> `.pdxxx` extract, `.pdxxx` -> runtime consume) proven
+for all 27 families:
+
+- **Conformance** (extract side, format): whole-tree `Build/data/ntsc-final`
+  passes 8,065 root / 9,066 checked archives across all 27 families.
+- **CPU verifiers** (extract side, content): audio 2,108 (1,768 sfx / 221 voice /
+  119 song, 238,486 sequence events), mesh 733 (zero-triangle=0), anim 1,060
+  (950 character GLTF / 110 weapon, 15,734 channels). All pass.
+- **Not skipping anything**: every family emits with `failed=0`, all named (no
+  generic-opcode/name drops); on-disk counts are healthy and non-zero for all 27
+  families. Skips are fast-cache or legitimately-empty ROM slots, never errors.
+- **Utilization** (consume side): `all_family_source_gate_smoke` PASS 36/36 --
+  every family loads from `.pdxxx` source at runtime on the re-extracted data.
+- **Credits (the acute concern), proven on BOTH sides**:
+  - Extract: the two mote textures (`g_TexGeneralConfigs[0x2a/0x2b]` =
+    texturenums 0x0c9e/0x0c9f, format **IA8**) decode to a correct soft 4-point
+    star alpha in `texture.png` -- 16 alpha levels, center=255, corners=0. Not an
+    opaque rectangle. IA8 alpha was already correct pre-B-945; the credits fix was
+    dominated by B-946 (the boot re-extract loop that made timed captures land on
+    the extraction modal) plus B-945 correctness for the other formats.
+  - Consume: the mote combiner is `alpha = TEXEL0.alpha * SHADE.alpha` under
+    `G_RM_XLU_SURF` (credits.c:918), and `texSelect` reconciles the runtime tex to
+    RGBA32 via `tex->gbiformat` (texselect.c:323). A soft-star TEXEL0.alpha through
+    an XLU multiply CANNOT produce an opaque rectangle.
+  - On screen: four capture frames (steve malpass / chris tilston / grant
+    kirkhope / perfect dark) show shaped Handel Gothic glyphs with the intended
+    trailing echo, and soft translucent horizontal BG gradient bands -- no opaque
+    rectangles anywhere. `credits_alpha_smoke` PASS 8/8.
+
+---
+
 ## Headline
 
 The two runtime-visible defects Mike reported (credits motes/font as opaque
