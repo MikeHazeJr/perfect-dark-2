@@ -80,6 +80,13 @@ f32 g_AttackWalkDurationScale = 1;
 
 #define CHR_TINY_MODE_MOVEMENT_SPEED_SCALE 1.3f
 
+// PC campaign body persistence (chraTickBg): free g_ChrSlots kept in reserve so
+// corpse persistence can never starve live spawns. Corpses persist up to
+// (g_NumChrSlots - this); beyond that the OG on-screen fade recycles the excess
+// so a pathological spawn-wave mission still spawns new enemies. Real campaign
+// missions spawn far fewer than the pool holds, so bodies stay for the whole run.
+#define CHR_CORPSE_PERSIST_HEADROOM 48
+
 static f32 chrApplyTinyModeMovementSpeed(struct chrdata *chr, f32 speed)
 {
 	if (chr != NULL && (chr->chrflags & CHRCFLAG_TINYMODE_MOVESPEED)) {
@@ -13979,6 +13986,9 @@ void chraTickBg(void)
 #endif
 	s32 writeindex;
 	s32 maxdeadonscreen;
+	// PC: >= 0 in solo campaign to persist corpses; < 0 keeps OG fading (MP /
+	// CITRAINING). See the corpsePersistCap block below.
+	s32 corpsePersistCap;
 
 #if VERSION >= VERSION_NTSC_1_0
 	static u32 var80068454 = 0;
@@ -14075,6 +14085,22 @@ void chraTickBg(void)
 		}
 	}
 
+	// PC (modern HW): dead bodies persist in solo campaign rather than fading
+	// out, per Mike's directive. The corpse caps below (spawned=10, on-screen=5,
+	// off-screen=5) are an N64 4MB/8MB memory + polygon-budget constraint that no
+	// longer applies. corpsePersistCap >= 0 means "persist"; it is bounded to
+	// leave CHR_CORPSE_PERSIST_HEADROOM free g_ChrSlots so a pathological
+	// spawn-wave mission still recycles rather than starving new spawns. MP keeps
+	// the OG caps (netplay parity); CITRAINING keeps them (the firing range
+	// recycles targets). corpsePersistCap < 0 means "OG fading".
+	corpsePersistCap = -1;
+	if (!g_Vars.normmplayerisrunning && g_Vars.stagenum != STAGE_CITRAINING) {
+		corpsePersistCap = g_NumChrSlots - CHR_CORPSE_PERSIST_HEADROOM;
+		if (corpsePersistCap < 5) {
+			corpsePersistCap = 5;
+		}
+	}
+
 	// Calculate alive/dead counters. For *spawned* chrs that have died,
 	// allow 10 corpses and start fading if there's more.
 	{
@@ -14103,7 +14129,11 @@ void chraTickBg(void)
 #if VERSION >= VERSION_NTSC_1_0
 				if (chr->actiontype == ACT_DEAD
 						|| (chr->actiontype == ACT_DRUGGEDKO && (chr->chrflags & CHRCFLAG_KEEPCORPSEKO) == 0)) {
-					if (chr->hidden2 & CHRH2FLAG_SPAWNED) {
+					// PC: skip the 10-spawned-corpse fade in solo campaign so
+					// AI-spawned (ailist) enemy bodies persist. The spawns[]
+					// scratch array is fixed at 10, so persistence is achieved
+					// by skipping this block, not by raising the threshold.
+					if ((chr->hidden2 & CHRH2FLAG_SPAWNED) && corpsePersistCap < 0) {
 						spawns[spawnslen] = chr;
 						spawnslen++;
 
@@ -14139,6 +14169,15 @@ void chraTickBg(void)
 
 	if (maxdeadonscreen < 0) {
 		maxdeadonscreen = 0;
+	}
+
+	// PC campaign body persistence (see corpsePersistCap above): raise the
+	// on-screen corpse limit so on-screen bodies are not force-faded. This path
+	// calls chrFadeCorpse directly (no fixed scratch array), so a high cap is
+	// safe; the on-screen fade only re-engages if the corpse count approaches
+	// the pool headroom.
+	if (corpsePersistCap >= 0) {
+		maxdeadonscreen = corpsePersistCap;
 	}
 
 #if VERSION >= VERSION_JPN_FINAL
@@ -14192,9 +14231,15 @@ void chraTickBg(void)
 							if (numdeadonscreen > maxdeadonscreen || chr->aibot) {
 								chrFadeCorpse(chr);
 								numdeadonscreen--;
-							} else if (!chr->act_dead.fadewheninvis) {
+							} else if (!chr->act_dead.fadewheninvis && corpsePersistCap < 0) {
 								// If there are 2 or more corpses on screen,
-								// start marking them to be removed once off screen
+								// start marking them to be removed once off screen.
+								// PC: skipped in solo campaign (corpsePersistCap
+								// >= 0) so on-screen bodies are never marked to
+								// fade -- they persist. The onscreen[] scratch
+								// array is fixed at 5, so this block must stay on
+								// the OG threshold; persistence is achieved by
+								// skipping it, not by raising the threshold.
 								onscreen[onscreenlen] = chr;
 								onscreenlen++;
 
@@ -14208,11 +14253,17 @@ void chraTickBg(void)
 						}
 					} else {
 						// Off-screen
-						if (!chr->act_dead.fadewheninvis) {
+						// PC: skipped in solo campaign (corpsePersistCap >= 0) so
+						// off-screen bodies are never marked to fade -- they stay
+						// rather than disappearing once out of view. The
+						// offscreen[] scratch array is fixed at 5, so persistence
+						// is achieved by skipping this block, not by raising the
+						// threshold.
+						if (!chr->act_dead.fadewheninvis && corpsePersistCap < 0) {
 							offscreen[offscreenlen] = chr;
 							offscreenlen++;
 
-							// Allow up to 5 corpses off-screen
+							// Allow up to 5 corpses off-screen.
 							if (offscreenlen >= (VERSION >= VERSION_NTSC_1_0 ? 5 : 6)) {
 								writeindex = rngRandom() % offscreenlen;
 
