@@ -4,7 +4,21 @@
 > [session-log.md](session-log.md). Historical card and bug detail remains in the
 > Kanban card history and bug ledger.
 
-Last updated: 2026-06-30
+Last updated: 2026-07-02
+
+**2026-07-02 asset-decode + tooling pass (committed to dev).** B-945 fixed the
+extractor's native-texel decode at the root (RDP-parity I4/I8 alpha, IA16 byte
+order, RGBA32 channel order via the shared `port/src/texture_decode_pure.{c,h}`)
+-- this was the true cause of the credits opaque squares (the B-346 recurrence)
+AND the "textures are black" class. B-946 killed a per-boot 87-scenario
+re-extraction loop (strstr-on-binary-GLB clean-check + smoke-harness
+install_state=current data deletion); warm boot to credits 44s+ -> ~6s.
+`credits_alpha_smoke` PASS 8/8, full pd-tests 819/819. Build queue watchdog made
+progress-aware (c068, was killing active builds at 60s). Dev Window v3 added
+(c3818, `devtools/dev-window-v3/`). Asset pipeline audit consolidated
+([audits/asset-pipeline-audit-2026-07-02.md](audits/asset-pipeline-audit-2026-07-02.md)):
+remaining extraction gaps are fidelity/BYOR only, no actionable bloat,
+utilization sound. Commits: 496b4119, 887df5aa, 3416efb8, 257ec624.
 
 ---
 
