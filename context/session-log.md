@@ -2505,3 +2505,22 @@ boot reaches the credits in ~6s with `pdscenario: written=0 skipped=89
 (fast-cache)` at ~2s. Build/data/ntsc-final refreshed from the verified
 re-extracted install. Next: extraction/utilization audit consolidation, test
 suite + build queue rebuild, Dev Window v3.
+
+## 2026-07-02 - Build queue: progress-aware watchdog (c068)
+
+The build-session queue killed builds on ABSOLUTE elapsed time -- a clean
+`all` build (~193s) was reaped at the 60s default mid-compile (I hit this
+myself during B-945 verification, which silently ran a stale binary). Rewrote
+the watchdog to be IDLE-based: `Get-BuildProgressSignal` sums output-log bytes
++ newest mtime across the session logs, `.ninja_log`, and per-step headless
+logs; the watchdog only trips after the build produces NO output for the
+timeout window, so an actively-compiling build runs as long as it needs.
+Applied to both the live watchdog (Invoke-QueuedBuildChild) and the
+cross-session orphan-reaper (Clear-StaleQueueState, stateless mtime idle
+check). Default bumped 60s->120s idle (covers the slowest single TU,
+romextract_pdarena.c ~9.7k lines). Poll cadence tightened 5s->2s in both the
+queue-wait loop and the child-exit loop for snappier pickup/completion.
+Added `-SelfTest` (14 build-free checks, sub-second) covering session-name
+sanitization, timeout resolution, and the progress-signal/advance logic.
+Verified: parse-check clean; `-SelfTest` 14/14 PASS; clean `all` build ran the
+full 193s to SUCCESS with no watchdog kill (was killed at 60s before).

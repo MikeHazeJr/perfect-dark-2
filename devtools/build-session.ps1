@@ -39,11 +39,16 @@ param(
     [switch]$Verbose,
     [switch]$NoQueue,
     [int]$QueueStatusSeconds = 30,
-    # Queued builds that exceed this active runtime are treated as hung. Use 0
-    # only for an intentional no-watchdog run.
-    [int]$BuildTimeoutSeconds = 60,
+    # Idle-based watchdog (2026-07-02): a queued build is treated as hung only
+    # after it produces NO output (no log/ninja growth) for this many seconds --
+    # NOT after this much total build time. 120s comfortably covers the slowest
+    # single translation unit (e.g. the ~9.7k-line romextract_pdarena.c) while
+    # still catching a genuinely wedged cc1. Use 0 for an intentional
+    # no-watchdog run.
+    [int]$BuildTimeoutSeconds = 120,
 
     # Maintenance modes.
+    [switch]$SelfTest,
     [switch]$List,
     [switch]$Tail,
     [int]$TailLines = 80,
@@ -217,6 +222,46 @@ function Get-HeadlessStepLogFiles([string]$buildDir) {
         Sort-Object LastWriteTime -Descending)
 }
 
+function Get-BuildProgressSignal([string]$buildDir) {
+    # Progress-aware watchdog (2026-07-02): a build that is actively compiling
+    # must NOT be killed just because it crossed an absolute wall-clock timeout.
+    # This returns a cheap monotone "are we making progress" signal -- the sum
+    # of output-log bytes plus the newest write time across the session logs,
+    # ninja's build log, and the per-step headless logs. Any forward motion in
+    # bytes or mtime resets the idle timer, so only a genuinely wedged build
+    # (no output for the whole idle window) trips the watchdog.
+    $bytes = [long]0
+    $newestTicks = [long]0
+    $paths = New-Object System.Collections.Generic.List[string]
+    $paths.Add((Get-BuildStdoutLogPath $buildDir))
+    $paths.Add((Get-BuildStderrLogPath $buildDir))
+    $paths.Add((Join-Path $buildDir ".ninja_log"))
+    foreach ($stepLog in (Get-HeadlessStepLogFiles $buildDir)) {
+        $paths.Add($stepLog.FullName)
+    }
+    foreach ($path in $paths) {
+        try {
+            $info = Get-Item -LiteralPath $path -ErrorAction Stop
+            $bytes += [long]$info.Length
+            $ticks = [long]$info.LastWriteTimeUtc.Ticks
+            if ($ticks -gt $newestTicks) { $newestTicks = $ticks }
+        } catch {
+            # Missing log (not created yet / rotated) contributes nothing.
+        }
+    }
+    return [PSCustomObject]@{
+        Bytes = $bytes
+        NewestTicks = $newestTicks
+    }
+}
+
+function Test-BuildProgressAdvanced($previous, $current) {
+    if ($null -eq $previous) { return $true }
+    if ($current.Bytes -gt $previous.Bytes) { return $true }
+    if ($current.NewestTicks -gt $previous.NewestTicks) { return $true }
+    return $false
+}
+
 function Show-HeadlessStepLogTail([string]$buildDir, [int]$lines = 40, [int]$maxFiles = 4) {
     $files = @(Get-HeadlessStepLogFiles $buildDir | Select-Object -First $maxFiles)
     if ($files.Count -eq 0) { return }
@@ -334,11 +379,23 @@ function Clear-StaleQueueState {
     if (-not $wrapperAlive -and $childAlive) {
         $timeoutSeconds = Get-QueueTimeoutSeconds $active
         if ($timeoutSeconds -gt 0) {
-            $started = ConvertTo-UtcDateTime (Get-ObjectValue $active "StartedUtc" ([DateTime]::UtcNow.ToString("o")))
-            $elapsed = ([DateTime]::UtcNow - $started).TotalSeconds
-            if ($elapsed -ge $timeoutSeconds) {
+            # Orphaned child (its wrapper died) but still alive: only reap it if
+            # it has ALSO gone idle. A stateless idle check -- newest build-log
+            # write vs now -- avoids killing a legitimate long build whose
+            # wrapper crashed while ninja is still producing objects. Falls back
+            # to StartedUtc when no logs exist yet.
+            $buildDir = [string](Get-ObjectValue $active "BuildDir" "")
+            $newestUtc = ConvertTo-UtcDateTime (Get-ObjectValue $active "StartedUtc" ([DateTime]::UtcNow.ToString("o")))
+            if ($buildDir -ne "") {
+                $signal = Get-BuildProgressSignal $buildDir
+                if ($signal.NewestTicks -gt 0) {
+                    $newestUtc = [DateTime]::new($signal.NewestTicks, [DateTimeKind]::Utc)
+                }
+            }
+            $idle = ([DateTime]::UtcNow - $newestUtc).TotalSeconds
+            if ($idle -ge $timeoutSeconds) {
                 $session = Get-ObjectValue $active "Session" "unknown"
-                Write-Warn ("Clearing stale over-timeout build queue active record for '{0}' after {1}; stopping child process tree pid {2}." -f $session, (Format-DurationShort $elapsed), $childPid)
+                Write-Warn ("Clearing stale build queue active record for '{0}' (owner gone, no output for {1}); stopping child process tree pid {2}." -f $session, (Format-DurationShort $idle), $childPid)
                 Stop-ProcessTree $childPid
                 Remove-Item -LiteralPath $QueueActivePath -Force -ErrorAction SilentlyContinue
                 return
@@ -476,7 +533,9 @@ function Enter-BuildQueue([string]$sessionName, [string]$target, [string]$buildD
             Write-QueueWaitStatus $snapshot
             $lastStatusUtc = [DateTime]::UtcNow
         }
-        Start-Sleep -Seconds 5
+        # 2s poll (was 5s) so a queued build claims the freed slot faster; the
+        # queue-state lock keeps this cheap and contention-safe.
+        Start-Sleep -Seconds 2
     }
 }
 
@@ -553,15 +612,29 @@ function Invoke-QueuedBuildChild([string[]]$childArgs, $queueToken, [int]$timeou
     $child = Start-Process -FilePath "powershell.exe" -ArgumentList $childArgs -NoNewWindow -PassThru `
         -RedirectStandardOutput $stdoutLog -RedirectStandardError $stderrLog
     $startedUtc = [DateTime]::UtcNow
+    # Idle-based watchdog: $timeoutSeconds is the max time with NO build output
+    # (compile stalled / cc1 wedged), not a cap on total build time. A build
+    # that keeps writing logs runs as long as it needs. See Get-BuildProgressSignal.
+    $lastProgress = Get-BuildProgressSignal $buildDir
+    $lastProgressUtc = [DateTime]::UtcNow
     Update-BuildQueueActive $queueToken $child.Id $stdoutLog $stderrLog
-    while (-not $child.WaitForExit(5000)) {
+    # Poll every 2s (was 5s) for snappier completion detection; the cost is one
+    # cheap file-stat sum per tick.
+    while (-not $child.WaitForExit(2000)) {
         Update-BuildQueueActive $queueToken $child.Id $stdoutLog $stderrLog
-        $elapsed = ([DateTime]::UtcNow - $startedUtc).TotalSeconds
-        if ($timeoutSeconds -gt 0 -and $elapsed -ge $timeoutSeconds) {
-            Write-Warn ("Build watchdog: session '{0}' target '{1}' exceeded {2}; stopping child process tree pid {3}." -f `
+        $progress = Get-BuildProgressSignal $buildDir
+        if (Test-BuildProgressAdvanced $lastProgress $progress) {
+            $lastProgress = $progress
+            $lastProgressUtc = [DateTime]::UtcNow
+        }
+        $idle = ([DateTime]::UtcNow - $lastProgressUtc).TotalSeconds
+        if ($timeoutSeconds -gt 0 -and $idle -ge $timeoutSeconds) {
+            $totalElapsed = ([DateTime]::UtcNow - $startedUtc).TotalSeconds
+            Write-Warn ("Build watchdog: session '{0}' target '{1}' produced no output for {2} (total elapsed {3}); treating as hung and stopping child process tree pid {4}." -f `
                 (Get-ObjectValue $queueToken "Session" "unknown"),
                 (Get-ObjectValue $queueToken "Target" "unknown"),
-                (Format-DurationShort $timeoutSeconds),
+                (Format-DurationShort $idle),
+                (Format-DurationShort $totalElapsed),
                 $child.Id)
             Write-Warn "Build output log: $stdoutLog"
             Write-Warn "Build error log: $stderrLog"
@@ -843,6 +916,67 @@ function Remove-SessionBuild([string]$name) {
         Remove-Item -LiteralPath $lockPath -Force
         Write-Ok "Removed stale lock: $lockPath"
     }
+}
+
+if ($SelfTest) {
+    # Fast, build-free unit checks for the queue's pure helpers (2026-07-02).
+    # Runs in well under a second, spawns nothing, touches only a temp dir.
+    # Invoke: .\devtools\build-session.ps1 -SelfTest
+    $failures = 0
+    function Assert-QueueTrue([bool]$cond, [string]$name) {
+        if ($cond) {
+            Write-Host ("  [PASS] {0}" -f $name) -ForegroundColor Green
+        } else {
+            Write-Host ("  [FAIL] {0}" -f $name) -ForegroundColor Red
+            $script:failures++
+        }
+    }
+
+    Write-Host "build-session queue self-test" -ForegroundColor Cyan
+
+    # ConvertTo-SafeSessionName: sanitization, truncation, reserved names.
+    Assert-QueueTrue ((ConvertTo-SafeSessionName "a b/c") -eq "a-b-c") "session name spaces/slashes collapse"
+    Assert-QueueTrue ((ConvertTo-SafeSessionName "..dots..") -eq "dots") "session name trims leading/trailing dots"
+    Assert-QueueTrue ((ConvertTo-SafeSessionName "NUL") -eq "session-NUL") "reserved device name is prefixed"
+    Assert-QueueTrue ((ConvertTo-SafeSessionName ("x" * 200)).Length -le 64) "session name capped at 64 chars"
+    $threw = $false
+    try { [void](ConvertTo-SafeSessionName "   ") } catch { $threw = $true }
+    Assert-QueueTrue $threw "blank session name throws"
+
+    # Get-QueueTimeoutSeconds: default, explicit, negative -> 0 (no watchdog).
+    Assert-QueueTrue ((Get-QueueTimeoutSeconds ([PSCustomObject]@{})) -eq $BuildTimeoutSeconds) "timeout defaults to BuildTimeoutSeconds"
+    Assert-QueueTrue ((Get-QueueTimeoutSeconds ([PSCustomObject]@{ TimeoutSeconds = 45 })) -eq 45) "explicit timeout honored"
+    Assert-QueueTrue ((Get-QueueTimeoutSeconds ([PSCustomObject]@{ TimeoutSeconds = -1 })) -eq 0) "negative timeout means no watchdog"
+
+    # Progress signal + advance detection (the watchdog's core).
+    $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ("pdq-selftest-" + [System.Guid]::NewGuid().ToString("N"))
+    New-Item -ItemType Directory -Path $tmp -Force | Out-Null
+    try {
+        $sig0 = Get-BuildProgressSignal $tmp
+        Assert-QueueTrue ($sig0.Bytes -eq 0) "empty build dir has zero progress bytes"
+        Assert-QueueTrue (-not (Test-BuildProgressAdvanced $sig0 $sig0)) "identical signal is not advanced"
+        Assert-QueueTrue (Test-BuildProgressAdvanced $null $sig0) "null previous always counts as advanced"
+
+        $stdout = Get-BuildStdoutLogPath $tmp
+        Set-Content -LiteralPath $stdout -Value "compiling..." -Encoding UTF8
+        $sig1 = Get-BuildProgressSignal $tmp
+        Assert-QueueTrue ($sig1.Bytes -gt $sig0.Bytes) "writing a log grows the byte signal"
+        Assert-QueueTrue (Test-BuildProgressAdvanced $sig0 $sig1) "byte growth is detected as progress"
+
+        Add-Content -LiteralPath $stdout -Value "more output" -Encoding UTF8
+        $sig2 = Get-BuildProgressSignal $tmp
+        Assert-QueueTrue (Test-BuildProgressAdvanced $sig1 $sig2) "appending more output is progress"
+    } finally {
+        Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
+    }
+
+    Write-Host ""
+    if ($failures -eq 0) {
+        Write-Ok "build-session self-test: all checks passed"
+        exit 0
+    }
+    Write-Warn ("build-session self-test: {0} check(s) failed" -f $failures)
+    exit 1
 }
 
 if ($Tail) {
