@@ -40,6 +40,7 @@
 #include "game/inv.h"
 #include "game/lang.h"
 #include "game/lv.h"
+#include "game/corpsestore.h"
 
 /* B-204/B-205: cap catch-up simulation ticks after tab-out / long frames so
  * CHR/bot work cannot spiral unbounded in one mainTick (stability + audio). */
@@ -723,6 +724,9 @@ void lvReset(s32 stagenum)
 	propsReset();
 	sysLogPrintf(LOG_NOTE, "LOAD: calling chrmgrReset");
 	chrmgrReset();
+	/* PC (c132): re-acquire the frozen corpse store from the fresh stage pool so
+	 * campaign corpses persist for this mission and never leak across a stage. */
+	corpseStoreReset();
 	sysLogPrintf(LOG_NOTE, "LOAD: calling bodiesReset stagenum=0x%02x", stagenum);
 	bodiesReset(stagenum);
 	sysLogPrintf(LOG_NOTE, "LOAD: calling setupCreateProps stagenum=0x%02x normmplayerisrunning=%d activeMask=0x%04llx g_MpNumChrs=%d",

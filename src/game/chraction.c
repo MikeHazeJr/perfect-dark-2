@@ -13,6 +13,7 @@
 #include "game/camera.h"
 #include "game/chr.h"
 #include "game/chraction.h"
+#include "game/corpsestore.h"
 #include "game/chrai.h"
 #include "game/debug.h"
 #include "game/dlights.h"
@@ -8436,6 +8437,15 @@ void chrFadeCorpseWhenOffScreen(struct chrdata *chr)
 void chrTickDead(struct chrdata *chr)
 {
 	struct aibot *aibot = chr->aibot;
+
+	/* PC (c132): once a solo-campaign corpse has settled off-screen, hand it to
+	 * the frozen corpse store -- it detaches the model, renders the frozen pose
+	 * statically, and frees this chr slot back to the pool. Gated off by default
+	 * (corpseStoreShouldFreeze returns false), so the OG / headroom-cap path
+	 * owns corpses unless the store is enabled. */
+	if (corpseStoreShouldFreeze(chr) && corpseStoreFreeze(chr)) {
+		return;
+	}
 
 	// If fade is active, handle it
 	if (chr->act_dead.fadetimer60 >= 0) {

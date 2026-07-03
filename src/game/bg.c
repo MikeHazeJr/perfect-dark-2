@@ -9,6 +9,7 @@
 #include "game/room.h"
 #include "game/chr.h"
 #include "game/prop.h"
+#include "game/corpsestore.h"
 #include "game/ceil.h"
 #include "game/bondgun.h"
 #include "game/tex.h"
@@ -1233,6 +1234,10 @@ Gfx *bgRenderScene(Gfx *gdl)
 			}
 
 			gdl = propsRender(gdl, thing->roomnum, RENDERPASS_OPA_POSTBG, roomnumsbyprop);
+
+			/* PC (c132): frozen static corpses for this room, opaque + z-buffered
+			 * alongside the props. No-op unless the corpse store is enabled. */
+			gdl = corpseStoreRenderRoom(gdl, thing->roomnum);
 		}
 	}
 
