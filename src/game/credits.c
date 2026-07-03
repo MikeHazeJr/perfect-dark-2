@@ -1932,3 +1932,24 @@ void creditsRequestAltTitle(void)
 {
 	g_CreditsAltTitleRequested = true;
 }
+
+/**
+ * Enter the NORMAL scrolling credits (Handel Gothic slides + XLU particles).
+ *
+ * Shared launcher for both the --launch-credits boot fast-path
+ * (port/src/main.c bootApplyLaunchCredits) and the ImGui main-menu "Credits"
+ * button. Deliberately does NOT call creditsRequestAltTitle(): the alt-title
+ * branch starts solid-black with slidesenabled=false, whereas the normal path
+ * leaves slidesenabled=true so the credit slides and particles render from
+ * frame 0. Mirrors the single-player seeding the attract-loop credits entry
+ * uses (numplayers=1, Bond player 0, no coop/anti, DIFF_A).
+ */
+void creditsEnterNormalScroll(void)
+{
+	setNumPlayers(1);
+	mainChangeToStage(STAGE_CREDITS);
+	g_Vars.bondplayernum = 0;
+	g_Vars.coopplayernum = -1;
+	g_Vars.antiplayernum = -1;
+	lvSetDifficulty(DIFF_A);
+}

@@ -7,6 +7,7 @@
 Gfx *creditsDraw(Gfx *gdl);
 void creditsReset(void);
 void creditsRequestAltTitle(void);
+void creditsEnterNormalScroll(void);
 void credits0f13ae04(Mtxf *mtx);
 
 #endif

@@ -771,6 +771,10 @@ extern bool chrMoveToPos(struct chrdata *chr, struct coord *pos, RoomNum *rooms,
  * fast-path uses the normal scrolling-credits path; see bootApplyLaunchCredits.) */
 extern void setNumPlayers(s32 numplayers);
 extern void lvSetDifficulty(s32 difficulty);
+/* Shared normal-scrolling-credits launcher (src/game/credits.c). Single source
+ * of truth for the seeding sequence used by BOTH this boot fast-path and the
+ * ImGui main-menu Credits button. Signature must match game/credits.h. */
+extern void creditsEnterNormalScroll(void);
 
 /* Map a --difficulty string to the DIFF_* constants used by g_MissionConfig
  * and lvSetDifficulty.  Returns DIFF_A on unknown / NULL input. */
@@ -883,15 +887,11 @@ static void bootApplyLaunchCredits(void)
 	if (!g_BootLaunchCredits) {
 		return;
 	}
-	/* Intentionally do NOT call creditsRequestAltTitle() -- see header comment.
-	 * The normal STAGE_CREDITS entry keeps slidesenabled=true so the scrolling
-	 * credit slides + Handel Gothic fonts render from frame 0. */
-	setNumPlayers(1);
-	mainChangeToStage(STAGE_CREDITS);
-	g_Vars.bondplayernum = 0;
-	g_Vars.coopplayernum = -1;
-	g_Vars.antiplayernum = -1;
-	lvSetDifficulty(DIFF_A);
+	/* Intentionally does NOT take the alt-title branch -- see header comment.
+	 * creditsEnterNormalScroll keeps slidesenabled=true so the scrolling credit
+	 * slides + Handel Gothic fonts render from frame 0. Shared with the ImGui
+	 * main-menu Credits button so both entry points behave identically. */
+	creditsEnterNormalScroll();
 	sysLogPrintf(LOG_NOTE,
 		"BOOT: --launch-credits consumed -> mainChangeToStage(STAGE_CREDITS=0x%02x) numplayers=1 difficulty=%d (normal scrolling-credits path, slidesenabled=true)",
 		(u32)STAGE_CREDITS, DIFF_A);

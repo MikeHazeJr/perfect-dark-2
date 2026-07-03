@@ -140,6 +140,10 @@ struct missionconfig {
 s32 menuIsDialogOpen(struct menudialogdef *dialogdef);
 s32 menuDialogIsCurrent(const struct menudialog *dialog);
 void mainChangeToStage(s32 stagenum);
+/* Normal-scrolling-credits launcher (src/game/credits.c) -- shared with the
+ * --launch-credits boot fast-path so the main-menu Credits button seeds the
+ * credits stage identically (numplayers=1, Bond player 0, DIFF_A). */
+void creditsEnterNormalScroll(void);
 
 /* Pause/control restoration — needed when ImGui menu close bypasses
  * the legacy menutick bg-transition that normally calls func0f0fa6ac. */
@@ -4269,7 +4273,9 @@ static void renderSettingsDebug(float scale)
     if (!creditsEnabled) ImGui::BeginDisabled();
     if (ImGui::Button("Go to Credits", ImVec2(btnW * 1.5f, btnH))) {
         sysLogPrintf(LOG_NOTE, "SETTINGS_DEBUG: Go to Credits");
-        mainChangeToStage(GRID_STAGE_CREDITS);
+        /* Use the shared normal-scroll launcher (numplayers/DIFF_A seeding)
+         * rather than a bare mainChangeToStage, matching the main-menu button. */
+        creditsEnterNormalScroll();
     }
     if (!creditsEnabled) ImGui::EndDisabled();
     if (!creditsEnabled) {
@@ -6020,6 +6026,24 @@ static s32 renderMainMenu(struct menudialog *dialog,
                 menuGraphFirePushOp(MENU_TYPE_MAIN_STATS_VIEW, "open_panel",
                     pdguiMainMenuGraphOpenStatsPanel, NULL);
             }
+        }
+
+        ImGui::Dummy(ImVec2(0, spacing));
+
+        /* Credits -- enter the normal scrolling credits from the main menu.
+         * creditsEnterNormalScroll() (shared with the --launch-credits boot
+         * fast-path) queues the STAGE_CREDITS transition, which tears down the
+         * menu the same way the Settings-tab debug shortcut does. Disabled in
+         * netplay: a local stage change would desync an active match. */
+        {
+            const bool creditsEnabled = (g_NetMode == NETMODE_NONE);
+            if (!creditsEnabled) ImGui::BeginDisabled();
+            if (PdButton("Credits", ImVec2(buttonW, buttonH * 1.2f))) {
+                sysLogPrintf(LOG_NOTE, "MENU_STACK: Credits -> creditsEnterNormalScroll()");
+                pdguiPlaySound(PDGUI_SND_OPENDIALOG);
+                creditsEnterNormalScroll();
+            }
+            if (!creditsEnabled) ImGui::EndDisabled();
         }
 
         ImGui::Dummy(ImVec2(0, spacing));
