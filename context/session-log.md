@@ -2662,3 +2662,30 @@ zero risk to normal play). VISUAL correctness of the frozen render needs Mike's
 in-game playtest with the flag. Next layer (deferred): GPU vertex-merge batching
 for same-body corpses (the hundreds-of-corpses perf win) + dynamic room-light
 response.
+
+## 2026-07-03 - Corpse store: pre-ungate correctness audit (c132)
+
+Mike: "verify it makes sense in function and placement, not overridden... don't
+gate it." Audited before ungating; found + fixed two real crash bugs:
+- modelmgrFreeModel(NULL) dereferenced NULL: a NULL model matched the first
+  EMPTY binding slot (also NULL) then ran model->rwdatas = NULL. Added a NULL
+  guard (freeing NULL is a no-op). This would have crashed on the first corpse.
+- Reworked detach: keep chr->model valid through the tick; the reap (chrRemove)
+  now calls corpseStoreOwnsModel and SKIPS modelmgrFreeModel for corpse-owned
+  models. Removes the earlier NULL-chr->model-in-tick hazard.
+
+Verified render is safe standalone: model.c never derefs model->chr; chrRender
+guards model==NULL; var8005efc4 is a node-visibility fn ptr (NULL + null-checked
+during the corpse pass), not a current-chr global; chrAllocateVertices is
+chr-independent; joint hook null-checked; chr-body binding table is NUMTYPE3=4500
+(ample; graceful NULL on exhaustion); reap does not free the anim.
+
+Activated by default (--no-campaign-corpse-bake opts out). CORPSE.FREEZE log
+added. Verified: client build + pd-tests 820/820 + auto_campaign_infiltration
+14/14 (clean through robot combat with the store active). NOT yet seen firing:
+the auto-campaign smokes did not produce OFF-SCREEN settled corpses (0 freezes),
+so the freeze->static-render path needs a manual playtest (kill a guard, look
+away 0.5s, return -- expect it to persist; CORPSE.FREEZE logs the event).
+auto_campaign_first_cycle failed 10/20 but that is the known-flaky full-campaign
+state-machine assertion set (historically 16-17/20), 0 corpse involvement, 0
+crash signatures -- not a regression from this work.
