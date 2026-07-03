@@ -8,6 +8,7 @@
 #include "game/chraction.h"
 #include "game/debug.h"
 #include "game/chr.h"
+#include "game/corpsestore.h"
 #include "game/env.h"
 #include "game/prop.h"
 #include "game/propsnd.h"
@@ -1626,7 +1627,11 @@ void chrRemove(struct prop *prop, bool free)
 		child = next;
 	}
 
-	modelmgrFreeModel(model);
+	/* c132: a frozen corpse has claimed this model -- keep it allocated (with
+	 * its rwdata binding) for the static corpse render; only detach the chr. */
+	if (!corpseStoreOwnsModel(model)) {
+		modelmgrFreeModel(model);
+	}
 	chr->model = NULL;
 
 	if (free) {

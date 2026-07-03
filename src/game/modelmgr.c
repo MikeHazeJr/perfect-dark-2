@@ -317,6 +317,16 @@ void modelmgrFreeModel(struct model *model)
 	bool done = false;
 	s32 i;
 
+	/* Freeing NULL must be a no-op. Without this, a NULL model matches the
+	 * first EMPTY binding slot (whose .model is also NULL) and then executes
+	 * `model->rwdatas = NULL`, dereferencing NULL. This matters for the frozen
+	 * corpse store (c132), which nulls chr->model before the chr is reaped so
+	 * the detached corpse model survives -- the reap's modelmgrFreeModel then
+	 * gets NULL and must simply do nothing. */
+	if (model == NULL) {
+		return;
+	}
+
 	for (i = 0; i < NUMTYPE1(); i++) {
 		if (g_ModelRwdataBindings[0][i].model == model) {
 			g_ModelRwdataBindings[0][i].model = NULL;

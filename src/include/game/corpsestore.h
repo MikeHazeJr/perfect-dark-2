@@ -54,6 +54,13 @@ bool corpseStoreFreeze(struct chrdata *chr);
  */
 Gfx *corpseStoreRenderRoom(Gfx *gdl, RoomNum roomnum);
 
+/**
+ * True if `model` has been claimed by the corpse store (a detached corpse).
+ * The chr reap (chrRemove) calls this and SKIPS modelmgrFreeModel for owned
+ * models, so a frozen corpse keeps its model + rwdata binding for rendering.
+ */
+bool corpseStoreOwnsModel(struct model *model);
+
 /** Number of frozen corpses currently stored (diagnostics). */
 s32 corpseStoreGetCount(void);
 

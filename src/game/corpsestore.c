@@ -17,6 +17,7 @@
 #include "bss.h"
 #include "lib/memp.h"
 #include "lib/model.h"
+#include "system.h"
 
 extern s32 sysArgCheck(const char *arg);
 
@@ -68,10 +69,10 @@ void corpseStoreReset(void)
 			s_Corpses[i].occupied = false;
 		}
 	}
-	/* Gate: default OFF (the OG / headroom-cap corpse path owns corpses). Pass
-	 * --campaign-corpse-bake to enable the frozen static corpse store for
-	 * playtest. Re-read each stage load; the flag is constant so this is stable. */
-	s_Enabled = sysArgCheck("--campaign-corpse-bake") != 0;
+	/* Active by default (Mike, 2026-07-03): solo-campaign corpses freeze into
+	 * the store. --no-campaign-corpse-bake opts out to the OG / headroom-cap
+	 * path if a corpse issue is ever seen in play. Re-read each stage load. */
+	s_Enabled = (sysArgCheck("--no-campaign-corpse-bake") == 0);
 }
 
 bool corpseStoreShouldFreeze(struct chrdata *chr)
@@ -155,19 +156,38 @@ bool corpseStoreFreeze(struct chrdata *chr)
 	rec->envcolour = 0;
 	rec->unk30 = 7;
 
-	/* Detach the model so the chr free does not free it, and drop the model's
-	 * back-reference to the soon-freed chr. The model's rwdatas live in
-	 * MEMPOOL_STAGE and survive; nothing ticks the anim now, so the pose stays
-	 * frozen at the death frame. */
+	/* Drop the model's back-reference to the soon-freed chr (model.c never
+	 * derefs it, but do not leave it dangling). chr->model is deliberately left
+	 * valid so every tick/render between here and the reap stays NULL-safe; the
+	 * reap (chrRemove) consults corpseStoreOwnsModel and SKIPS freeing this
+	 * model, handing it to the store. The model's rwdatas live in MEMPOOL_STAGE
+	 * and survive; nothing ticks the detached anim, so the pose stays frozen. */
 	model->chr = NULL;
-	chr->model = NULL;
 
-	/* Reuse the proven safe reap: the normal delete path returns the chr slot
-	 * to the pool at a safe point. It will not touch the (now NULL) model. */
+	/* Reuse the proven safe reap: it returns the chr slot to the pool and nulls
+	 * chr->model itself, but leaves this (corpse-owned) model allocated. */
 	chr->hidden |= CHRHFLAG_DELETING;
 
 	s_CorpseCount++;
+	sysLogPrintf(LOG_NOTE,
+		"CORPSE.FREEZE: stored corpse #%d bodynum=%d pos=(%d,%d,%d) matrices=%d",
+		s_CorpseCount, (s32)chr->bodynum,
+		(s32)rec->pos.x, (s32)rec->pos.y, (s32)rec->pos.z, (s32)rec->nummatrices);
 	return true;
+}
+
+bool corpseStoreOwnsModel(struct model *model)
+{
+	s32 i;
+	if (model == NULL || s_Corpses == NULL || s_CorpseCount == 0) {
+		return false;
+	}
+	for (i = 0; i < CORPSE_STORE_MAX; i++) {
+		if (s_Corpses[i].occupied && s_Corpses[i].model == model) {
+			return true;
+		}
+	}
+	return false;
 }
 
 static bool corpseRoomVisible(const corpse_record_t *rec, RoomNum roomnum)
