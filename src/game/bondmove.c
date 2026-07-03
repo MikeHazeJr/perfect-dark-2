@@ -730,6 +730,18 @@ void bmoveApplyMoveData(struct movedata *data)
 			if (data->weaponbackoffset || data->weaponforwardoffset) {
 				g_Vars.currentplayer->ucmd |= UCMD_SELECT;
 			}
+			/* Jump (PC-added ability) over the wire. wantsjump was set this frame
+			 * by the local jump-input path (bmoveProcessInput ~line 2413) and is
+			 * not consumed until bwalkUpdateVertical (physics), so it still holds
+			 * the jump intent here. Without this, a client's jump was predicted
+			 * locally but never reached the server, so the server never applied it
+			 * and remote players never saw the jump (jump broken in netplay). The
+			 * remote side already decodes it: bmoveProcessRemoteInput sets
+			 * wantsjump from UCMD_JUMP, and bwalkUpdateVertical enforces the
+			 * grounded check on both sides. */
+			if (g_Vars.currentplayer->wantsjump) {
+				g_Vars.currentplayer->ucmd |= UCMD_JUMP;
+			}
 		}
 	}
 }
