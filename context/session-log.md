@@ -2545,3 +2545,45 @@ in STA: parse-check 0 errors, ASCII-only / no em-dashes, the WPF window
 constructs with all named elements resolving, the version parser reads
 CMakeLists (0.1.102), and the queue panel reads. v2 left in place untouched;
 v3 is additive.
+
+## 2026-07-03 - Gameplay-behavior goal: credits menu, jump netplay, campaign bodies + audits
+
+Broad multi-front goal. Dispatched four parallel audit agents (behavior graphs +
+manifests, cheats/ImGui, Tiny Mode + campaign bodies, jump/player) and verified
+every claim against source before acting.
+
+**Concrete changes (committed to dev):**
+- **Credits main-menu option (c134, 2688523a):** added a Credits button to the
+  ImGui main menu screen. Factored the tested launch seeding into a shared
+  `creditsEnterNormalScroll()` (credits.c) used by the boot fast-path, the debug
+  shortcut, AND the new button. Disabled in netplay.
+- **Jump netplay fix (B-947, c038, ea6d33ab):** `UCMD_JUMP` was never set in the
+  local move-recording block, so jump worked in single-player but never
+  transmitted -- broken in netplay. Set it from `wantsjump`. Agent-found,
+  source-verified.
+- **Campaign body persistence (c132, 289646d0):** dead bodies now stay in solo
+  campaign (the N64 corpse caps were a removed memory constraint). Gated the
+  three fade-marking blocks in chraTickBg to skip in solo campaign; bounded by
+  a pool-headroom cap so spawn-heavy missions can't starve new spawns. The
+  fixed onscreen[5]/offscreen[5]/spawns[10] arrays are left on OG thresholds
+  (persistence = skipping the blocks, never raising an array threshold). MP and
+  CITRAINING keep OG fading.
+
+**Verified working, NO change needed (audit conclusions):**
+- **Behavior graphs:** FULL for weapons/projectiles/entities/effects (graph IR
+  feeds OG execution backends -- intentional c3849 design). Scenario/mission AI
+  stays legacy-opcode by the cutover plan's explicit deferral (c3840).
+- **Asset manifests:** MP + SP Phase 1/2 + Menu all covered with paired
+  load/unload; cinema dynamic spawns caught by the manifestEnsureLoaded safety
+  net; audio/font/lang intentionally subsystem-owned.
+- **Cheats:** fully in the ImGui hub (renderCheatsHub, 5 tabs, wired to real
+  cheat state, unlock-on-completion + save/load intact). BOTH push sites (main
+  menu + CI-training via func0f0f85e0) route to ImGui via hotswap -- the audit
+  agent's "training-mode legacy leak" was a misdiagnosis (hotswap intercepts by
+  dialog pointer regardless of push mechanism; zero native cheat rendering).
+- **Tiny Mode (CHEAT_SMALLJO):** working -- 3x multi-spawn of non-unique guards
+  (bodyTinyModeIsGenericEnemy), 0.4x scale, 1.6x per-chr voice pitch, each a full
+  independent chr (own weapon/health/death). No breakage.
+
+Verified: client build SUCCESS, full pd-tests 820/820 (41,358 assertions),
+credits_alpha_smoke 8/8 on the refactored launch path.
