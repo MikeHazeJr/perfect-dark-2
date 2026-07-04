@@ -1,9 +1,0 @@
-{
-  "asset": { "version": "2.0" },
-  "nodes": [ { "name": "weapon_root" } ],
-  "animations": [
-    { "name": "idle", "channels": [], "samplers": [] }
-  ],
-  "scenes": [ { "nodes": [0] } ],
-  "scene": 0
-}

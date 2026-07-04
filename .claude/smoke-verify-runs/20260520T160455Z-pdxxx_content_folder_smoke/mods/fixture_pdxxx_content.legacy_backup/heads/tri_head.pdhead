@@ -1,9 +1,0 @@
-; tri_head.pdhead - typed external head content descriptor
-[head]
-headnum = -1
-requirefeature = 0
-rig_class = human_male_neck_standard
-
-[model]
-model_file = model.gltf
-model_scale = 1.0

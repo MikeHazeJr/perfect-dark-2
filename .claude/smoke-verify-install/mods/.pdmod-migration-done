@@ -1,2 +1,0 @@
-# Smoke fixtures can pre-create this sentinel to keep loose folder mods from
-# being auto-migrated while a folder-layout test is running.

@@ -1,9 +1,0 @@
-[animation]
-catalog_id = fixture:weapon_idle
-name = Weapon Idle Fixture
-anim_id = 102
-frame_count = 1
-
-[source]
-animation_file = animation.gltf
-category = weapon_animation

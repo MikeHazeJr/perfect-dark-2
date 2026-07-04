@@ -1,7 +1,0 @@
-{
-  "id": "fixture_pdxxx_content",
-  "name": "Typed PD Content Fixture",
-  "version": "1.0.0",
-  "author": "PD2 tests",
-  "description": "Fixture for typed .pdxxx content units wrapped by folder or .pdmod transport."
-}

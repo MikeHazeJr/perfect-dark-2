@@ -78,10 +78,26 @@ logs/
 # Claude Code per-session scratch (final reports, ad-hoc test scripts, etc.)
 .claude/scratch/
 
-# Smoke verification generated output and runtime caches
+# Smoke verification generated output and runtime caches (whole install +
+# extraction cache is a full game install -- multi-GB, never committed).
 .claude/smoke-verify-runs/
-.claude/smoke-verify-install/mod-cache/
-.claude/smoke-verify-install/logs/
+.claude/smoke-verify-install/
+.claude/smoke-verify-cache/
+
+# Claude Code transient session artifacts (logs, audit/codex/orchestrator runs,
+# sprint reports, scratch tmp). The Dev Window git add -A used to sweep these in;
+# some grew past GitHub's 100MB limit and blocked the push.
+.claude/*.log
+.claude/audit-logs/
+.claude/codex-runs/
+.claude/orchestrator/
+.claude/sprint-reports/
+.claude/tmp/
+.claude/texview/
+.claude/glshot/
+
+# Root-level ad-hoc texture diagnostics (from decode/render debugging)
+/tex_*.png
 
 # Claude Code local settings (machine-specific, not committed)
 .claude/settings.local.json

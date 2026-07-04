@@ -1,1 +1,0 @@
-model_obj_mtx_v2

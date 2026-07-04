@@ -1,7 +1,0 @@
-{
-  "id": "scenario_generated_nav_fixture",
-  "name": "Scenario Generated Nav Fixture",
-  "version": "1.0.0",
-  "author": "PD2 tests",
-  "description": "Smoke fixture that overrides base:scenario_test_ash with public pads.tsv, navigation/paths.tsv, generated navigation source, and live AI nav command rows."
-}
