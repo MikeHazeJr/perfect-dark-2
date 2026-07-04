@@ -38,15 +38,23 @@ STALL was already fixed by the progress-aware watchdog 887df5aa); **c041** archi
 the two aged-out weekly super-audits (06-12, 06-19) to `_old/audits/2026/` per
 retention.md, keeping the within-window + tasks.md/design-cited ones; **c040** added
 a worktree-count label to the dev-window-v3 header (read-only, `git worktree list`
--backed, parse + count-logic verified). The ONLY genuinely-deferred tractable card is
-**c065** (replace 7 hand-synced `*_pure.c` mirrors with shared compile-boundary TUs):
-a drift-detection test can't compare hand-ADAPTED mirrors, so the real fix is the
-multi-file *production* TU refactor (netmanifest.c 2172 lines, savebuffer, inputlayer,
-...) -- genuinely high-risk, no safe bounded slice, exactly the work a saturated
-context degrades. It wants a focused fresh session with full test verification.
-Everything else AI-tractable is now DONE: **17 cards this push** (c139-c144, c073,
-c143, c056, c042, c074, c064, c069, c070, c068, c041, c040) + c066 moot + systemic
-audits + 5 flagged bugs.
+-backed, parse + count-logic verified). Then **c065** too, once scoped properly --
+my "no safe slice" read was wrong. The card's STATED problem is "drift is not enforced
+by CI", so I added `tests/test_pure_mirror_sync.cpp`: a drift guard asserting every
+@SYNC production-file reference in the mirrors is live (20 refs / 17 mirrors, `[sync]`
+green, runs in the c042 CI). That closes the enforcement gap; the full mirror-
+ELIMINATION refactor (globals-free shared TUs) is now an optional maintainability
+optimization, not a correctness gap.
+
+**18 cards resolved this push** (c139-c144, c073, c143, c056, c042, c074, c064, c069,
+c070, c068, c041, c040, c065) + c066 moot + systemic audits SP-1/2/3/6/8 + 5 flagged
+bugs. Final full suite: **829 cases / 46,551 assertions green**. EVERY AI-tractable
+backlog card is now resolved; the entire remainder is genuinely Mike-gated -- ~19
+stale-done cards (need a playtest to formally close), the NAT tier + c058 (network
+verification + the protected group_session.c), the 5 Wave-2 bugs (playtest/ROM), and
+the Wave-6 designs (Forge/Studio excluded per Mike; the rest playtest/design-decision
+gated). Lesson reinforced: scope every card before declaring it too risky -- c065,
+c069, c070, c040 all turned out to have clean, verifiable slices.
 
 ## 2026-07-04 - Backlog push: partial (goal boundary, superseded by wave 5 above)
 
