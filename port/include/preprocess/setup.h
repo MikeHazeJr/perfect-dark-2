@@ -355,6 +355,17 @@ struct n64_padlockeddoorobj {
 	u32 ptr_next;
 };
 
+/* N64 wire/segment layout mirror of struct padeffectobj (types.h). It carries
+ * no pointers, so it is byte-identical to the PC struct today -- but reads of
+ * the ROM setup segment MUST size/stride on this mirror, never the editable PC
+ * struct, so a future PC-side field addition cannot silently corrupt the
+ * segment walk (feedback_n64_vs_pc_struct_stride). See filesetup.c. */
+struct n64_padeffectobj {
+	u32 unk00;
+	s32 effect;
+	s32 pad;
+};
+
 struct n64_truckobj {
 	struct n64_defaultobj base;
 	u32 ptr_ailist;

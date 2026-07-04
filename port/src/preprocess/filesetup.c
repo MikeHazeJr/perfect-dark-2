@@ -94,7 +94,7 @@ static inline u32 objSizeN64(struct n64_defaultobj *obj)
 	case OBJTYPE_FAN:                return sizeof(struct n64_fanobj) / sizeof(u32);
 	case OBJTYPE_HOVERCAR:           return sizeof(struct n64_hovercarobj) / sizeof(u32);
 	case OBJTYPE_CHOPPER:            return sizeof(struct n64_chopperobj) / sizeof(u32);
-	case OBJTYPE_PADEFFECT:          return sizeof(struct padeffectobj) / sizeof(u32);
+	case OBJTYPE_PADEFFECT:          return sizeof(struct n64_padeffectobj) / sizeof(u32);
 	case OBJTYPE_MINE:               return sizeof(struct n64_weaponobj) / sizeof(u32);
 	case OBJTYPE_ESCASTEP:           return sizeof(struct n64_escalatorobj) / sizeof(u32);
 	}
@@ -936,7 +936,7 @@ static u32 convertProps(u8* dst, u8* src)
 			}
 			case OBJTYPE_PADEFFECT:
 			{
-				struct padeffectobj* srcobj = (struct padeffectobj*)cmd;
+				struct n64_padeffectobj* srcobj = (struct n64_padeffectobj*)cmd;
 				struct padeffectobj* dstobj = (struct padeffectobj*)dst;
 
 				convertDefaultObjHdr((struct defaultobj*)dstobj, cmd);
