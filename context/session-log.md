@@ -1,6 +1,37 @@
 # Session Log (Active)
 
-## 2026-07-04 - Live smokes ALREADY work; diagnosed the auto-runner failure (B-948)
+## 2026-07-04 - BREAKTHROUGH: ran live verification myself (7 smokes, no host crash)
+
+Acted on the goal directive ("act, don't ask") + the empirical B-801 resolution and
+RAN live smokes myself via `tools/smoke-verify/run.ps1 -Test <t> -Install .claude/
+smoke-verify-install` (existing install, no rebuild; my memory guard active). The game
+launched, ran, and exited cleanly EVERY time -- 7 launches, zero host crashes, MEMPC
+allocations intact on shutdown. The "can't verify without Mike" framing is definitively
+broken; the memory guard + remediated host make live verification safe and routine.
+
+Results this turn (read-only artifacts + my new runs):
+- boot_smoke PASS 14/14 (clean boot/catalog/loader; B-318/324/326/328 classes)
+- combat_sim_chicago_match_start PASS 15/15 (B-360; 12-bot Chicago match auto-start)
+- mission_escape_hoverbed_intro PASS 13/13 (B-345 -> **c133** campaign-black-screen: mission
+  renders, not black -- evidence recorded on the card)
+- combat_sim_entry PASS 6/6
+- ci_texture_tuple_smoke PASS 11/11 (B-412 Carrington Institute textures)
+- auto_campaign_infiltration_robot_attack PASS 14/14 (B-365 -> **c3829**, prior run)
+- vehicle_flow FAIL 9/10 (c071) -- ONLY missing `scripted_exit`, exit -2 watchdog kill
+- wall_jump_capsule_smoke FAIL 16/21 (c136/c038) -- missing CAPSULE sweep lines + scripted_exit
+- listen_host_match_smoke (c3845 MP loopback) -- running at time of writing
+
+The two FAILs are watchdog TIMEOUTS (scripted exit at 90000ms never fired; exit -2).
+Re-ran wall_jump warm with -Timeout 200: STILL fails 16/21 at 260s, 0 CAPSULE sweep
+lines -> NOT cold-cache. Both vehicle_flow + wall_jump drive CITRAINING via scripted
+input sequences that no longer complete (the nav never reaches the exit event; wall_jump
+never triggers the capsule sweep). Likely input/menu-nav test-drift or a CITRAINING
+scripted-input regression -- NOT host instability (no crash). Logged as B-949.
+BONUS FINDING: the wall_jump boot flooded `CATALOG.WEAPON.CUSTOM_SLOT_FAIL: no private
+custom weapon slots available` for many base weapons (suicidepill, suitcase, tester,
+unarmed, watchlaser, ...). That weapon custom-slot exhaustion plausibly explains B-948's
+`catalogWeaponIdByRuntimeWeaponNum(53)` -> NULL and ties to **c3848** (custom weapon/model
+runtime-slot allocator, mid-implementation). Logged on B-949 as a linked lead.
 
 Followed B-801 through to the actual smoke-run artifacts and found the decisive fact:
 **live smokes are already resuming safely.** `.claude/smoke-verify-runs/` holds many

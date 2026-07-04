@@ -3177,8 +3177,10 @@
           "port/src/bodydata_authored.c",
           "tests/test_integrated_head_guard.cpp",
           "tools/smoke-verify/tests/mission_escape_hoverbed_intro.json",
-          "context/session-log.md#main-checkout-2026-05-19-b345-f6-credits-followup"
-        ]
+          "context/session-log.md#main-checkout-2026-05-19-b345-f6-credits-followup",
+          ".claude/smoke-verify-runs/results-20260704T200924Z.json (mission_escape_hoverbed_intro PASS 13/13)"
+        ],
+        "verify_notes": " | FRESH EVIDENCE 2026-07-04 (ran live on current build): mission_escape_hoverbed_intro smoke PASSED 13/13, exit 0. Launches Area 51 Escape directly and confirms the mission renders (not the B-345 black screen); no ACCESS_VIOLATION/timeout. Ready for Mike's Confirm."
       },
       "updatedAt": "2026-06-09T00:00:00-04:00",
       "updated_at": "2026-06-09T00:00:00-04:00",
