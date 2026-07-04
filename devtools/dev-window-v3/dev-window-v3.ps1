@@ -238,6 +238,7 @@ function Resolve-GitExe {
           <TextBlock Name="LblBranch" Text="  branch --" FontSize="14" Foreground="#8A94A2" VerticalAlignment="Center" Margin="12,0,0,0"/>
           <TextBlock Name="LblVersion" Text="  v--" FontSize="14" Foreground="#8A94A2" VerticalAlignment="Center" Margin="12,0,0,0"/>
           <TextBlock Name="LblDirty" Text="" FontSize="14" Foreground="#C98A3A" VerticalAlignment="Center" Margin="12,0,0,0"/>
+          <TextBlock Name="LblWorktrees" Text="" FontSize="14" Foreground="#9A8AD0" VerticalAlignment="Center" Margin="12,0,0,0"/>
         </StackPanel>
         <Button Grid.Column="1" Name="BtnRefresh" Content="Refresh" Margin="0"/>
       </Grid>
@@ -312,7 +313,7 @@ $reader = New-Object System.Xml.XmlNodeReader $xaml
 $win = [System.Windows.Markup.XamlReader]::Load($reader)
 
 $ui = @{}
-foreach ($name in @('LblBranch','LblVersion','LblDirty','BtnRefresh','BtnBuild','BtnStop','BtnRun','BtnTests',
+foreach ($name in @('LblBranch','LblVersion','LblDirty','LblWorktrees','BtnRefresh','BtnBuild','BtnStop','BtnRun','BtnTests',
     'BtnRelease','LblStatus','LblElapsed','ChkAutoscroll','BtnCopyLog','BtnCopyErrors','BtnClearLog',
     'LogScroll','LogBox','QueueBox','BtnCleanQueue','LblFooter')) {
     $ui[$name] = $win.FindName($name)
@@ -371,18 +372,26 @@ function Refresh-Header {
     $root = $script:ProjectRoot
     Start-Bg -Script {
         param($git, $root)
-        $branch = "?"; $dirty = 0
+        $branch = "?"; $dirty = 0; $worktrees = 0
         if ($git) {
             try { $b = & $git -C $root rev-parse --abbrev-ref HEAD 2>$null; if ($b) { $branch = "$b".Trim() } } catch {}
             try { $st = @(& $git -C $root status --porcelain 2>$null); $dirty = @($st | Where-Object { $_ -ne "" }).Count } catch {}
+            # c040: count LINKED worktrees. `git worktree list` includes the main
+            # working tree as its first entry, so subtract it. Surfaces active
+            # .claude/worktrees builds in the header so they are visible at a glance.
+            try {
+                $wt = @(& $git -C $root worktree list --porcelain 2>$null | Where-Object { $_ -like 'worktree *' })
+                $worktrees = [Math]::Max(0, $wt.Count - 1)
+            } catch {}
         }
-        [PSCustomObject]@{ Branch = $branch; Dirty = $dirty }
+        [PSCustomObject]@{ Branch = $branch; Dirty = $dirty; Worktrees = $worktrees }
     } -Arguments @($git, $root) -OnComplete {
         param($result)
         $r = if ($result -and $result.Count -gt 0) { $result[0] } else { $result }
         if ($r) {
             $ui['LblBranch'].Text = "  branch " + $r.Branch
             $ui['LblDirty'].Text = if ($r.Dirty -gt 0) { "* " + $r.Dirty + " changed" } else { "clean" }
+            $ui['LblWorktrees'].Text = if ($r.Worktrees -gt 0) { "* " + $r.Worktrees + " worktree(s)" } else { "" }
         }
     }
     $ui['LblVersion'].Text = "  v" + (Get-ProjectVersionString)
