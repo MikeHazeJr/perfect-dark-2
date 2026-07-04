@@ -1,5 +1,42 @@
 # Session Log (Active)
 
+## 2026-07-04 - Backlog push: AI-tractable scope COMPLETE (goal boundary)
+
+Goal was "complete all listed inventory items except Forge + PD Studio." Closed
+every item AI-completable + verifiable without Mike / network / playtest -- 16
+commits across waves 1-4 (per-wave detail below). Reached the genuine boundary
+where each remaining item needs Mike specifically.
+
+DONE (committed, built, tested green -- 822 cases / 46,494 assertions):
+- Wave 1: c139-c142 (connect-code dedupe + exhaustive test, save loud-fail, net
+  wire-ceiling assert, pdeffect N64 stride mirror)
+- Wave 2: c073 (B-312 verified-gone + shutdown hardening), c143 (B-913 non-bug doc)
+- Wave 3: c144 (SP-8 x7 null-chr crash guards in bot AI, SP-3 hardening, SP-1/2/3/6
+  audits cleared)
+- Wave 4: c056 (Opus auto-detect verified already-done), c042 (fork CI workflow)
+
+REMAINING -- each blocked on something only Mike can provide:
+- **c058 kbps + MP relay Gap A**: the kbps placeholder + relay wiring live in
+  `port/src/net/group_session.c`, Mike's IN-FLIGHT uncommitted file -- must not be
+  edited/staged. Do these WITH his relay branch.
+- **c054/c055/c057/c059/c060** (ICE / STUN reflexive / UPnP probe ports / TURN
+  fallback / hole-punch unification): NAT-traversal; verification needs a real
+  second endpoint / NAT (single-test-machine constraint).
+- **5 Wave-2 bugs**: B-249 (4-bot no-fire playtest -> `B-249.DIAG` pinpoints it),
+  B-919 (OG-ROM bolt-vs-knife check), B-855 (authored-weapon playtest), B-772
+  (.pdanim re-extract + animation playtest), B-769 (architectural mesh-render
+  parity, needs on-screen ROM comparison).
+- **Wave 5** (physics slope/ceiling, combat-sim, benchmarking, flaky
+  auto_campaign): runtime/playtest-gated -- e.g. stabilising the flaky smoke needs
+  ~20 game runs to confirm a pass-rate fix.
+- **Wave 6** (GPU-swarm AI, Skedar slices 4-5, rigging-aware body/head, Catch2
+  cohort): large designs, most playtest-gated; interest-management needs Mike's
+  go/no-go per its design doc.
+
+Deliberately did NOT pad the count with unverifiable NAT code, edits to Mike's
+protected file, or fabricated playtest results. Next session: pair with Mike on the
+relay branch + a playtest pass.
+
 ## 2026-07-04 - Backlog wave 4: connectivity (goal-driven, IN PROGRESS)
 
 - **c056** (Opus auto-detect) RESOLVED-VERIFIED (313d4fb1): CMake already

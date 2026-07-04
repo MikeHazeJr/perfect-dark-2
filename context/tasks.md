@@ -6,6 +6,15 @@
 
 Last updated: 2026-07-04
 
+**2026-07-04 backlog push -- AI-tractable scope COMPLETE (16 commits, boundary reached).**
+Closed every inventory item completable + verifiable without Mike/network/playtest
+(waves 1-3 fully; wave 4 c056+c042). c042 fork CI added (9c952b69). Remaining is all
+Mike-gated: c058+relay live in Mike's in-flight group_session.c (must not touch);
+c054/055/057/059/060 need real-network NAT verification; the 5 Wave-2 bugs need
+playtest/ROM; Wave 5/6 are runtime/playtest-gated + large designs. See session-log
+top entry for the precise per-item blocker list. Next session pairs with Mike on the
+relay branch + a playtest pass.
+
 **2026-07-04 backlog wave 4 -- connectivity (IN PROGRESS).** c056 Opus auto-detect
 verified already-done (CMake pkg_check_modules); stale doc corrected (313d4fb1).
 Remaining: c058 (kbps) + MP relay Gap A (p2p_turn.c) are writeable/loopback-testable
