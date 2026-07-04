@@ -407,6 +407,17 @@ function Start-GitSync([string]$commitMessage, [bool]$requirePush, [scriptblock]
         $branch = "HEAD"
         try { $b = & $git -C $root rev-parse --abbrev-ref HEAD 2>$null; if ($b) { $branch = "$b".Trim() } } catch {}
         [void]$logs.Add("branch: $branch")
+        # Reap stale transient .claude/ debris (smoke installs, multi-GB caches,
+        # 200MB render logs) BEFORE `git add -A` so it never gets swept into a
+        # commit -- and never bloats disk. Best-effort; a failure never blocks
+        # the build. See devtools/clean-claude-workspace.ps1.
+        $cleaner = Join-Path $root "devtools\clean-claude-workspace.ps1"
+        if (Test-Path -LiteralPath $cleaner) {
+            try {
+                & powershell -NoProfile -ExecutionPolicy Bypass -File $cleaner -Root $root -Quiet 2>&1 |
+                    ForEach-Object { [void]$logs.Add("$_") }
+            } catch { [void]$logs.Add("cleanup skipped: $($_.Exception.Message)") }
+        }
         & $git -C $root add -A 2>&1 | ForEach-Object { [void]$logs.Add("$_") }
         if ($LASTEXITCODE -ne 0) { return [PSCustomObject]@{ Ok = $false; Logs = $logs } }
         & $git -C $root diff --cached --quiet 2>$null

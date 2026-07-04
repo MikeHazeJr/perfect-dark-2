@@ -8,9 +8,10 @@ with `Dev Window v3.bat` (or `powershell -File dev-window-v3.ps1`).
 - **Header**: current branch, version (parsed from `CMakeLists.txt`), and a
   dirty-file count. `Refresh` re-reads them. Git status runs on a background
   runspace so the window never stalls waiting on git.
-- **BUILD (all)**: git-syncs (add -A, commit only if staged, best-effort push),
-  then shells out to `devtools/build-headless.ps1 -Target all`. Output streams
-  live into the log; `Stop` kills the child process tree.
+- **BUILD (all)**: reaps stale `.claude/` transients (see below), git-syncs
+  (add -A, commit only if staged, best-effort push), then shells out to
+  `devtools/build-headless.ps1 -Target all`. Output streams live into the log;
+  `Stop` kills the child process tree.
 - **Run Game**: launches `Build/PerfectDark.exe` (working dir `Build/`),
   disabled until it exists.
 - **Run Tests**: runs `devtools/run-pd-tests.ps1 -Session devwin`.
@@ -23,6 +24,25 @@ with `Dev Window v3.bat` (or `powershell -File dev-window-v3.ps1`).
 - **Log**: monospace, autoscroll toggle, `Copy All` / `Copy Errors`
   (errors = lines matching error/failed/fatal), `Clear`.
 - Window size/position persist to `settings.json`.
+
+## Transient-workspace reaping
+
+Before every `git add -A`, BUILD/Release run
+`devtools/clean-claude-workspace.ps1 -Quiet`, which removes stale regenerable
+`.claude/` debris -- multi-GB smoke installs / extraction caches, per-session
+build dirs, and ad-hoc `*.log` files (render/extract logs can top 200 MB). This
+keeps two problems from recurring:
+
+1. **Push rejection.** A 219 MB render log once got swept into a commit and
+   blew past GitHub's 100 MB file limit, bouncing the whole push.
+2. **Disk bloat.** The tree had grown ~2 GB of week-old logs.
+
+The reaper works off an **explicit allowlist** and an mtime threshold (default
+24h), so it only ever touches known-regenerable paths and leaves anything
+touched inside the window alone. It never touches config (`settings.json`,
+`skills/`, `launch.json`) or `.claude/worktrees/` (in-flight work). Run it by
+hand any time: `-DryRun` to preview, `-MaxAgeHours 0` to reap everything
+transient now.
 
 ## How it differs from v2
 
