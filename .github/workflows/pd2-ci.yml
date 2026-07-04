@@ -1,0 +1,74 @@
+# Perfect Dark 2 (fork) CI -- builds the actual fork targets on the actual
+# branch and RUNS the unit-test suite. This is distinct from the upstream
+# .github/workflows/c-cpp.yml, which targets the original decomp (i686 / Switch /
+# multi-OS packaging on the `port` branch) and runs no tests. PC-only x86_64
+# MinGW build via the same Ninja/CMake path devtools/build-headless.ps1 uses.
+name: PD2 CI
+
+on:
+  push:
+    branches: [ dev ]
+  pull_request:
+    branches: [ dev ]
+  workflow_dispatch:
+
+# Keep only the newest in-flight run per branch; cancel superseded pushes.
+concurrency:
+  group: pd2-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    name: Build (MinGW x86_64) + unit tests
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - name: Set up MSYS2 / MINGW64
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          # Mirrors the toolchain devtools/build-headless.ps1 expects, plus the
+          # find_package() deps in CMakeLists.txt (SDL2, zlib, curl) and the
+          # optional voice codec (opus) so HAVE_OPUS is exercised in CI.
+          install: >-
+            git
+            mingw-w64-x86_64-toolchain
+            mingw-w64-x86_64-cmake
+            mingw-w64-x86_64-ninja
+            mingw-w64-x86_64-ccache
+            mingw-w64-x86_64-python
+            mingw-w64-x86_64-SDL2
+            mingw-w64-x86_64-zlib
+            mingw-w64-x86_64-curl
+            mingw-w64-x86_64-opus
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure (CMake + Ninja)
+        run: cmake -G Ninja -B Build .
+
+      # `pd` pulls in the pd_headers codegen (add_custom_target ... ALL) as a
+      # dependency, so no separate generate step is needed. pd-tests links the
+      # port/game sources under test.
+      - name: Build client + tests
+        run: cmake --build Build --target pd pd-tests -j
+
+      - name: Run unit tests
+        run: |
+          exe="$(find Build -maxdepth 3 -name 'pd-tests.exe' | head -n1)"
+          if [ -z "$exe" ]; then echo "pd-tests.exe not found under Build/"; exit 1; fi
+          echo "Running $exe"
+          "$exe" --reporter compact
+
+      - name: Upload client artifact
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: PerfectDark-x86_64-windows
+          path: Build/PerfectDark.exe
+          if-no-files-found: warn
+          retention-days: 7
