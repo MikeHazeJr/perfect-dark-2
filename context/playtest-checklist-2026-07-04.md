@@ -10,6 +10,27 @@ Full repro/root-cause detail for any item lives in `context/bugs.md` under its B
 
 ---
 
+## Preflight -- B-801 memory safety (do this once before launching)
+
+B-801 (the reason live testing was paused) was host virtual-memory exhaustion from a
+**2 GB pagefile**, not an app bug. That is now remediated: this host measured **11 GB
+pagefile / ~23 GB free commit** on 2026-07-04, and the smoke harness now carries a
+**memory-risk control** -- `tools/smoke-verify/lib/Test-MemorySafety.ps1` gates every
+live launch in `run.ps1` and refuses to start the game if commit/pagefile headroom is
+low. It runs automatically; you don't have to do anything. To confirm readiness by hand:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/smoke-verify/test-memory-guard.ps1
+```
+
+Expect `ALL MEMGUARD CHECKS PASSED` and a "free commit / pagefile" line well above the
+floors. Everything else is staged: `.claude/smoke-verify-install/` already has
+PerfectDark.exe + the ROM + extracted `data/`. The live-launch go is yours; the machine
+crash risk that stopped this before is now controlled, and all session work is pushed to
+`origin/dev`, so a worst-case launch cannot lose committed progress.
+
+---
+
 ## Session 1 -- Main menu close (30 seconds)
 
 - **c3826 / B-361** -- Start game, main menu appears, press **Esc** (or click the title X).
