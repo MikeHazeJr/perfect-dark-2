@@ -6,6 +6,12 @@
 
 Last updated: 2026-07-04
 
+**2026-07-04 backlog wave 3 -- systemic crash-audit (committed to dev).** SP-8: 7
+unguarded prop->chr null derefs in bot AI targeting fixed (botinv.c + bot.c,
+c144/492dd809); SP-3 jump-height bound hardened to MAX_LOCAL_PLAYERS; SP-1/2/3/6
+remaining-audit sites re-verified + cleared (stale refs already fixed). Client build
+green. Next: Wave 4 connectivity wiring c054-c060.
+
 **2026-07-04 backlog wave 2 -- open-bug triage (committed to dev).** Two AI-fixable
 bugs closed: B-312 inputlayer SIGSEGV RESOLVED-VERIFIED + shutdown stale-pointer
 hardening (c073, 94a821da); B-913 mod.json contents/assets documented as forward

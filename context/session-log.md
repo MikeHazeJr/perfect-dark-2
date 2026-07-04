@@ -1,5 +1,27 @@
 # Session Log (Active)
 
+## 2026-07-04 - Backlog wave 3: systemic crash-audit SP-1/2/3/6/8 (goal-driven)
+
+Cleared the systemic array-index / null-deref audit debt (crash-class patterns):
+- **SP-8** (null prop->chr): 7 unguarded `chrGetTargetProp(chr)->chr` / `target->chr`
+  derefs in bot AI targeting FIXED + adversarially verified -- botinv.c (chrsinsight
+  x2 @540/557, chrdistances @890, crossbow blur @589, tranq blur @603) + bot.c
+  `botGetTargetsWeaponNum` @1276. A bot's target prop can be a PROPTYPE_PLAYER whose
+  chr is NULL during MP load / late-join / cleanup; `botGetWeaponNum(NULL)` crashed
+  at `chr->aibot`. `chrGetTargetProp` is non-NULL for target != -1, so only `->chr`
+  needed guarding; guards are behaviour-neutral when chr is set. (c144, 492dd809)
+- **SP-3**: jump-height read (bondwalk.c) hardened `MAX_PLAYERS` -> `MAX_LOCAL_PLAYERS`.
+- **SP-1/2/3/6 remaining-audit CLEARED** (stale line refs already fixed): player.c:5094
+  is a per-player action map (not a MAX_PLAYERS index); no live `% MAX_PLAYERS` alias;
+  player.c/mplayer.c extcfg already MAX_LOCAL-bounded; mplayer/* player loops all
+  null-guarded (mpspawn_orchestrate.c, scenarios.c) or g_MpNumChrs-bounded.
+
+Client build green throughout; systemic-bugs.md updated with every clearance. Next:
+Wave 4 (connectivity wiring c054-c060: ICE / STUN / TURN / UPnP / Opus / kbps /
+hole-punch unification). NOTE the SINGLE-test-machine constraint limits live NAT
+verification -- I'll do the code + static/unit verification and flag runtime checks
+for Mike.
+
 ## 2026-07-04 - Backlog wave 2: open-bug triage (goal-driven)
 
 Triaged the seven "genuinely open" bugs from the inventory (scoped by an Explore
