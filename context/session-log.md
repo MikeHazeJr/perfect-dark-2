@@ -33,6 +33,21 @@ session. Lesson: don't trust a reconciliation agent's "gated" label wholesale, A
 don't over-fear a refactor before scoping it -- the c3844-deferral reason was stale
 and c069/c070 were clean.
 
+Continued through the rest of the tail: **c068** stale-done (the pd_headers watchdog
+STALL was already fixed by the progress-aware watchdog 887df5aa); **c041** archived
+the two aged-out weekly super-audits (06-12, 06-19) to `_old/audits/2026/` per
+retention.md, keeping the within-window + tasks.md/design-cited ones; **c040** added
+a worktree-count label to the dev-window-v3 header (read-only, `git worktree list`
+-backed, parse + count-logic verified). The ONLY genuinely-deferred tractable card is
+**c065** (replace 7 hand-synced `*_pure.c` mirrors with shared compile-boundary TUs):
+a drift-detection test can't compare hand-ADAPTED mirrors, so the real fix is the
+multi-file *production* TU refactor (netmanifest.c 2172 lines, savebuffer, inputlayer,
+...) -- genuinely high-risk, no safe bounded slice, exactly the work a saturated
+context degrades. It wants a focused fresh session with full test verification.
+Everything else AI-tractable is now DONE: **17 cards this push** (c139-c144, c073,
+c143, c056, c042, c074, c064, c069, c070, c068, c041, c040) + c066 moot + systemic
+audits + 5 flagged bugs.
+
 ## 2026-07-04 - Backlog push: partial (goal boundary, superseded by wave 5 above)
 
 Goal was "complete all listed inventory items except Forge + PD Studio." Closed
