@@ -1,5 +1,38 @@
 # Session Log (Active)
 
+## 2026-07-04 - Backlog wave 1: audit-finding correctness fixes (goal-driven)
+
+Started a multi-wave push to clear the outstanding inventory (goal: complete all
+listed incomplete items EXCEPT Forge + PD Studio). Wave 1 resolved the four
+actionable findings from the 2026-07-03 Super Audit, each a focused card-anchored
+commit, built (client + tests SUCCESS) and tested:
+
+- **c139 / CONNECT-CODE-DUPLICATES** (e351d1ac): removed all 14 duplicate words
+  across the `connectcode.c` slot tables (audit said 13; actual 14 -- "the
+  colosseum" appeared 3x). The decoder maps a repeated word to its lowest index,
+  so higher-index dupes never round-tripped. Added `_Static_assert` size guards
+  plus an EXHAUSTIVE test round-tripping all 256 values in every byte position
+  (IP + port paths); the old sampled test never landed on the dup indices.
+  `[connectcode]` 5263 assertions green.
+- **c141 / SAVE-MIGRATE-NOT-WIRED** (c0393a81): `saveCheckFileVersion` now
+  loud-fails older-format saves (SAVE_VERSION=2, no v1->v2 migration registered)
+  instead of silently loading them under the v2 string-ID loader and dropping
+  character/scenario identity. File is preserved for later migration. Stale
+  "SAVE_VERSION = 1" comments in `savemigrate.c` corrected. `[save]` 45 green.
+  STILL OPEN follow-up: write + register the real v1->v2 data transform for
+  upgrade-on-load (needs the old integer-ID schema).
+- **c140 / NET-WIRE-CLIENTID-CEILING** (3a95a257): `_Static_assert(NET_MAX_CLIENTS
+  < NET_NULL_CLIENT)` in `net.h` so a future bump past the 254 u8-wire ceiling
+  fails the build.
+- **c142 / PDEFFECT-N64-STRIDE-LATENT** (2590a36c): added `struct n64_padeffectobj`
+  and strided the `OBJTYPE_PADEFFECT` setup-segment read on it (every other type
+  already uses an n64_ mirror). Latent-safe today, robust to future PC-struct
+  growth.
+
+Cards c139-c142 created and moved to done. Next: Wave 2 (genuinely-open bugs
+B-249/B-769/B-772/B-855/B-913/B-919/B-312), then systemic audits SP-1/2/3/6/8,
+then connectivity wiring c054-c060.
+
 ## 2026-07-03 - Weekly Super Audit (scheduled) on dev at d3cc67ac
 
 Scheduled weekly Super Audit landed. Report:

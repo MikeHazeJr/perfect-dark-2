@@ -4,7 +4,18 @@
 > [session-log.md](session-log.md). Historical card and bug detail remains in the
 > Kanban card history and bug ledger.
 
-Last updated: 2026-07-02
+Last updated: 2026-07-04
+
+**2026-07-04 backlog wave 1 -- audit-finding correctness fixes (committed to dev).**
+Cleared the four actionable findings from the 2026-07-03 Super Audit as focused
+card-anchored commits (client + tests build SUCCESS): connect-code slot dedupe +
+exhaustive round-trip test (c139, e351d1ac); older-save loud-fail to stop silent
+identity loss (c141, c0393a81); NET_MAX_CLIENTS wire-ceiling `_Static_assert`
+(c140, 3a95a257); `n64_padeffectobj` setup-segment stride mirror (c142, 2590a36c).
+Part of a goal-driven multi-wave backlog push (excludes Forge + PD Studio). One
+follow-up still open: the real v1->v2 save data-migration transform (c141). Next
+waves: open bugs B-249/B-769/B-772/B-855/B-913/B-919/B-312, then systemic audits
+SP-1/2/3/6/8, then connectivity wiring c054-c060.
 
 **2026-07-02 asset-decode + tooling pass (committed to dev).** B-945 fixed the
 extractor's native-texel decode at the root (RDP-parity I4/I8 alpha, IA16 byte
