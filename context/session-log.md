@@ -48,6 +48,16 @@ runtime-slot allocator, mid-implementation). Logged on B-949 as a linked lead.
 RUNNING TOTAL: 15 live smokes, 12 PASS/known-baseline, 3 FAIL (all the B-949 exit-stall).
 Zero host crashes across all 15. The backlog is genuinely being verified.
 
+**swarm_cpu_smoke (c029/B-307) -> B-950, a real live-repro.** Ran the CPU bot ladder: it
+ramped to ~297 respawn slots on base:scenario_mp_felicity then hit `FATAL: Unknown GBI
+opcode 0x80` in the fast3d translator (exit 1) -- but CONTROLLED (MEMPC intact, machine
+fine), NOT an access violation. So B-307's "256-bot crash" is (partly) a RENDERING fault:
+a bad/unhandled display-list opcode under heavy swarm, not just bot-array overflow. Logged
+B-950. This ALSO justifies HOLDING the GPU-swarm smokes (c080/c031/c032/c033): the render
+path already faults under CPU swarm, so a GPU-swarm run is higher-risk + less contained --
+that category stays Mike's-call / needs the B-950 fix first. 16 smokes total, still zero
+HOST crashes (the one FATAL was a contained game-process exit).
+
 Followed B-801 through to the actual smoke-run artifacts and found the decisive fact:
 **live smokes are already resuming safely.** `.claude/smoke-verify-runs/` holds many
 Jul 2-3 runs; the most recent (`results-20260703T185914Z.json`, `auto_campaign_first_cycle`)
