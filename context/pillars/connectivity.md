@@ -129,7 +129,7 @@ When undefined: module is no-op shell with state, settings, PTT toggle, UI hooks
 
 When defined: SDL capture device 16 kHz mono S16, per-peer `OpusDecoder`, friend allowlist + handle binding + per-friend mute.
 
-`HAVE_OPUS` is currently set manually via `pacman -S` per a comment at [voice.c:16-19](../../port/src/voice.c:16). Build script does not auto-detect; gap noted in [audits/infrastructure-pillars-status-2026-04-27.md](../audits/infrastructure-pillars-status-2026-04-27.md) Section 5.
+`HAVE_OPUS` is **auto-detected by CMake** via `pkg_check_modules(OPUS QUIET opus)` ([CMakeLists.txt:376-394](../../CMakeLists.txt)): when libopus is found it sets `HAVE_OPUS=1`, static-links `libopus.a` on Windows (else via pkg-config), and otherwise disables the codec with a clear `OPUS: not found` message. `pacman -S mingw-w64-x86_64-opus` just installs the `opus.pc` the detection reads. (c056, 2026-07-04: the earlier "manual flag" note was stale. A `find_package(Opus)` fallback for pkg-config-less environments remains an optional refinement.)
 
 ---
 
@@ -221,7 +221,7 @@ Per [audits/infrastructure-pillars-status-2026-04-27.md](../audits/infrastructur
 - **UPnP only maps the ENet port.** [p2p_upnp.c:75-76](../../port/src/net/p2p_upnp.c:75) calls `netUpnpSetup(g_NetServerPort ? ... : NET_DEFAULT_PORT)`. Direct probe (27102), ICE (27103), TURN (27104) sockets remain unmapped. Tier 3 UPnP success is partial.
 - **TURN has no public fallback.** [p2p_turn.c:211-213](../../port/src/net/p2p_turn.c:211) reports "no relay available" when `s_Cands` is empty. Brand-new server with no players in group session fails at tier 5.
 - **netholepunch parallel to tier machine.** Two systems overlap. The handoff from `p2pPairGetEndpoint` to `enet_host_connect` is not visible in surveyed files. Unify.
-- **Voice silent without `HAVE_OPUS`.** [voice.c:16-19](../../port/src/voice.c:16) documents the manual `pacman -S` step. Build script does not check or auto-set the flag. Detect Opus via CMake `find_package` and auto-set.
+- **Voice silent without `HAVE_OPUS`.** RESOLVED (c056, 2026-07-04): CMake already auto-detects libopus via `pkg_check_modules` ([CMakeLists.txt:376-394](../../CMakeLists.txt)) and auto-sets `HAVE_OPUS`; the `pacman -S` step only installs the lib + its pkg-config file. Optional refinement: add a `find_package(Opus)` fallback for environments lacking pkg-config.
 
 These NAT/ICE/TURN/UPnP gaps remain real connectivity backlog, but they are tracked by the existing networking cards (`c054`, `c055`, `c057`, `c058`, `c059`, `c060`) rather than by the closed c3813 gameplay-stability card.
 
