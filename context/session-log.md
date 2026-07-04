@@ -33,6 +33,21 @@ unarmed, watchlaser, ...). That weapon custom-slot exhaustion plausibly explains
 `catalogWeaponIdByRuntimeWeaponNum(53)` -> NULL and ties to **c3848** (custom weapon/model
 runtime-slot allocator, mid-implementation). Logged on B-949 as a linked lead.
 
+**Batch 2 (7 more live smokes): 6 PASS, 1 FAIL.**
+- main_menu_boot_repro PASS 3/3 (menu boot; c3826/c3821 area)
+- skedar_wallrun_smoke PASS 10/10 + skedar_swarm_cpu_behavior_smoke PASS 18/18 -> strong
+  evidence for **c3738** (Skedar surface-normal locomotion) + c035 (surface-normal slices)
+- save_load_smoke PASS 26/26 (save-wire-format healthy)
+- mod_load_smoke PASS 19/19 (modding load path; c118/c3808 area)
+- combat_sim_chicago_shots PASS 2/2 (other-character class)
+- social_hub_agent_gate_smoke FAIL 13/14 -- ONLY missing `scripted_exit` (exit -2), the
+  SAME stall as vehicle_flow + wall_jump. So B-949 is now a 3-smoke pattern: these three
+  scripted-input scenarios don't reach their 90000 ms exit event while 12 others
+  (boot/combat/mission/skedar/save/mod/menu) do. Points to a shared input/dwell-exit
+  scheduling issue in those specific nav sequences, NOT host instability or a card bug.
+RUNNING TOTAL: 15 live smokes, 12 PASS/known-baseline, 3 FAIL (all the B-949 exit-stall).
+Zero host crashes across all 15. The backlog is genuinely being verified.
+
 Followed B-801 through to the actual smoke-run artifacts and found the decisive fact:
 **live smokes are already resuming safely.** `.claude/smoke-verify-runs/` holds many
 Jul 2-3 runs; the most recent (`results-20260703T185914Z.json`, `auto_campaign_first_cycle`)
