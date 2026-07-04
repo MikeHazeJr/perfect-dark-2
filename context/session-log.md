@@ -1,5 +1,40 @@
 # Session Log (Active)
 
+## 2026-07-04 - Backlog wave 2: open-bug triage (goal-driven)
+
+Triaged the seven "genuinely open" bugs from the inventory (scoped by an Explore
+pass over bugs.md + source). Two were AI-completable and are now fixed + verified
++ committed; the other five are genuinely Mike-gated (playtest / ROM check /
+gameplay authoring) and are flagged in bugs.md:
+
+- **B-312** RESOLVED-VERIFIED (c073, 94a821da): the cross-test `[inputlayer]`
+  SIGSEGV no longer reproduces (full pd-tests 822 cases / 46494 assertions +
+  `[inputlayer]` 24 cases both green). Added defense-in-depth: `inputLayerShutdown`
+  now memsets `s_Stack` symmetric with `inputLayerInit` (mirrored into the
+  `inputlayer_pure.c` @SYNC copy) so the stale-def-pointer class cannot resurface.
+- **B-913** RESOLVED-DOCUMENTED (c143, 1bedb5e8): not a functional bug -- the
+  mod.json parser correctly skips the forward-looking `contents`/`assets` keys.
+  Documented inline in `modmgr.c` + the modding pillar doc so nobody "fixes" the
+  non-bug; wiring point marked for the future mod-manager subtype UI.
+
+Mike-gated (code cannot be safely completed by an AI alone; details in bugs.md):
+- **B-249** (kill attribution -> player 0): re-audited; `mpstatsRecordDeath` is
+  correct, the defect is an upstream `aplayernum` default a static trace can't
+  locate. The `B-249.DIAG` warning is in place -- needs a 4-bot no-fire playtest to
+  pinpoint. A blind fix risks regressing real player-0 kills.
+- **B-919** (propobj.c duplicate `WEAPON_COMBATKNIFE` operand): one-liner but
+  explicitly "do not fix blind" -- needs OG-ROM verification of bolt-vs-knife
+  hit-sound behaviour.
+- **B-855** (custom .pdweapon runtime): code already landed + unit-tested; only
+  gameplay validation with an authored weapon remains.
+- **B-772** (.pdanim v4 GLTF): code applied; needs base-tree re-extraction + an
+  animation playtest.
+- **B-769** (source-only .pdmesh render parity): architectural, multi-file, needs
+  on-screen comparison to native ROM geometry -- effectively its own project.
+
+Wave 2's AI-completable code is DONE. Next: Wave 3 (systemic array-index /
+null-check audits SP-1/2/3/6/8), then Wave 4 (connectivity wiring c054-c060).
+
 ## 2026-07-04 - Backlog wave 1: audit-finding correctness fixes (goal-driven)
 
 Started a multi-wave push to clear the outstanding inventory (goal: complete all

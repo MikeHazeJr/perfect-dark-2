@@ -6,6 +6,16 @@
 
 Last updated: 2026-07-04
 
+**2026-07-04 backlog wave 2 -- open-bug triage (committed to dev).** Two AI-fixable
+bugs closed: B-312 inputlayer SIGSEGV RESOLVED-VERIFIED + shutdown stale-pointer
+hardening (c073, 94a821da); B-913 mod.json contents/assets documented as forward
+affordances, not a bug (c143, 1bedb5e8). Five bugs confirmed Mike-gated and flagged
+in bugs.md: B-249 (kill-attribution -> player 0; playtest-gated, B-249.DIAG in
+place), B-919 (do-not-fix-blind, needs OG-ROM check), B-855 (code done, needs
+gameplay validation), B-772 (needs .pdanim re-extract + animation playtest), B-769
+(architectural mesh-render parity, needs on-screen ROM comparison). Next: Wave 3
+systemic audits SP-1/2/3/6/8, then Wave 4 connectivity wiring c054-c060.
+
 **2026-07-04 backlog wave 1 -- audit-finding correctness fixes (committed to dev).**
 Cleared the four actionable findings from the 2026-07-03 Super Audit as focused
 card-anchored commits (client + tests build SUCCESS): connect-code slot dedupe +
