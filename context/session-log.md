@@ -1,5 +1,29 @@
 # Session Log (Active)
 
+## 2026-07-04 - Live smokes ALREADY work; diagnosed the auto-runner failure (B-948)
+
+Followed B-801 through to the actual smoke-run artifacts and found the decisive fact:
+**live smokes are already resuming safely.** `.claude/smoke-verify-runs/` holds many
+Jul 2-3 runs; the most recent (`results-20260703T185914Z.json`, `auto_campaign_first_cycle`)
+ran the game LIVE for the full 300 s, loading the real `base:defection` Scenario mission,
+with NO host crash and NO Kernel-Power event. So the "playtest-gated, can't verify"
+framing is obsolete -- the harness works on the remediated host. Updated B-801 to
+empirically resolved (residual = only the original Chicago scene.glb parity path).
+
+That run FAILED on assertions (10/20), not stability -- so I read its `pd-client.log` and
+root-caused the failure (new bug **B-948**, card `cmpbhfdir2lxo`): the auto-runner boots
+mission 1, reaches `CAMPAIGN.AUTO` `WAIT_LOAD`, and never advances to `DWELL_PRE`. Two
+distinct causes: (1) the auto-runner's load-complete predicate stays unsatisfied for
+defection despite the stage loading; (2) `base:scenario_defection`'s `if_weapon_thrown_on_object`
+AI condition can't resolve runtime weapon 53 (`catalogWeaponIdByRuntimeWeaponNum(53)`
+-> NULL) and the FAILURE path (`scenario_source_runtime.c:12853`, `s_aiGraphRuntimeFailure`)
+logs a WARNING every frame -- unlike the SUCCESS path, which throttles via
+`ai_condition_*_logged` flags. Systemic angle: scenario-AI resolution-failure paths should
+throttle like the success paths. Both live in Mike's active c3844 scenario-source +
+campaign-auto-runner domain, so I DOCUMENTED the precise root cause (file:line, fix path)
+rather than patch the bit-exact-validated 17k-line core for a symptom. Precise diagnosis
+in bugs.md B-948 gives the next focused session an immediate start.
+
 ## 2026-07-04 - B-801 breakthrough: root cause was host pagefile, now remediated
 
 Chased the ONE meta-blocker behind the entire playtest-gated backlog category (~19
