@@ -1829,7 +1829,7 @@
       "flag": null,
       "flagged_at": null,
       "created": "2026-05-03T00:00:00Z",
-      "updated": "2026-06-11T03:19:28-04:00",
+      "updated": "2026-07-04T00:00:00Z",
       "updated_at": "2026-06-11T03:19:28-04:00",
       "x_deferred_original_priority": 2,
       "x_deferred": {
@@ -1839,7 +1839,41 @@
         "verified": "2026-06-11T14:56:38-04:00"
       },
       "x_deferred_at": "2026-06-11T14:56:38-04:00",
-      "x_deferred_reason": "Deferred after c3844 closeout; do not route unless Mike explicitly reopens or promotes it."
+      "x_deferred_reason": "Deferred after c3844 closeout; do not route unless Mike explicitly reopens or promotes it.",
+      "open_questions": [
+        {
+          "id": "q-c081-01",
+          "question": "Queue Match stores/cycles an array of match-start settings with a host-visible queued-count badge (behavior is designed in the grammar doc). The one open architectural axis: should the queue STATE be host-local or synced to all clients? This decides whether c081 needs a new SVC_QUEUE_STATE net message + a NET_PROTOCOL_VER bump.",
+          "asked_by": "session-goal-2026-07-04",
+          "asked_date": "2026-07-04T00:00:00Z",
+          "choices": [
+            {
+              "id": "a",
+              "label": "Host-local queue (no net message)",
+              "rationale": "Queue Match is a host-convenience feature; the host cycles settings as matches end and clients simply load whatever the next match is. Simplest to ship, no protocol change, fits the P3-deferred scope.",
+              "implication": "The queued-count badge is host-screen-only; joined clients cannot see how many matches are queued or what is coming. No SVC_QUEUE_STATE, no protocol bump, no resync-path changes."
+            },
+            {
+              "id": "b",
+              "label": "Networked queue (SVC_QUEUE_STATE + protocol bump)",
+              "rationale": "Every player sees the queued count and upcoming settings, which suits organized/tournament play and matches the 'badge displays queued count' intent for all participants.",
+              "implication": "Adds a new SVC_QUEUE_STATE message, a NET_PROTOCOL_VER increment (must update g_TestExpectedNetProtocolVer in tests/test_versions.cpp in the same change per the silent-bump guard), queue state in the resync path, and a larger test surface."
+            }
+          ],
+          "allow_custom": true,
+          "answer": null,
+          "answer_type": null,
+          "answered_date": null,
+          "answered_at": null,
+          "resolved_at": null,
+          "resolved": false,
+          "resolution_note": null,
+          "custom_text": null,
+          "interpretation": null,
+          "interpretation_confirmed": false,
+          "follow_up_question_ids": []
+        }
+      ]
     },
     {
       "id": "c082",

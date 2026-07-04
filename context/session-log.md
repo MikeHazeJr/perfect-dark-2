@@ -31,6 +31,33 @@ connectivity work in Mike's active MP-relay domain AND runtime-unverifiable -- h
 design calls + his traversal testing, not bounded AI-completable slices. This is the
 scoped verdict, not a blanket decline: I read the actual code for each.
 
+**Full 33-card backlog characterization (2026-07-04, read every card):**
+- 6 NAT (c054-c060): architectural + runtime-unverifiable -> nat-tier-implementation-notes.
+- 6 benchmarking GPU (c029/c031/c032/c033/c080/c3807): GPU compute pipeline + live
+  perf/crash verification (256-bot / 128-bot swarm) -- large features, live-GPU-gated.
+- 2 already fixed-in-code pending playtest: c083 (B-316 botJumpDecide crash -- exactly
+  the SP-8 prop-backlink hardening; my c144 reinforced this path) and c136 (B-350
+  airborne side-entry, bwalkClampAirborneSideEntry in bondwalk.c). Need Mike's live
+  confirm, not more code.
+- ~6 playtest-gated bugs: c3827 (beam stretch), c3815 (post-match screen), c3826 (menu
+  Esc/X), c037/c071 (hoverbike -- input-UX feel), c3845 (MP co-op drop-in, Mike's relay).
+- ~5 design-decision-gated: c081 (Queue Match), c3746 (player init), c3840 (weapon graph
+  modularize), c3847 (Needler content), c035/c3738 (surface-normal slices 4-5).
+- 1 mid-implementation, design decided: c3848 (catalog slot allocator, slices 1-3
+  build-verified; remaining slices culminate in render/visual verification).
+- 2 excluded (PD Studio / Forge adjacent): c3846 (Mod Studio), c039 (Skin Editor).
+- 1 stale-no-repro, explicit do-not-route: cmpbhaqofaqj1 (16/18 tests, no surviving names).
+- 1 large feature + playtest: cmpbhfdir2lxo (Full Campaign Auto-Runner).
+VERDICT: every backlog card is human-gated (playtest / live-GPU / design-decision /
+Mike's-relay / mid-impl-to-render / excluded / stale-no-repro). Confirmed by reading each.
+
+**c121 decision-request mechanism exercised with real content:** added q-c081-01 to
+c081 -- the one genuinely-open design axis in the backlog: host-local vs networked Queue
+Match state (SVC_QUEUE_STATE + protocol bump). Two curated choices w/ rationale +
+implication; evaluator list-decision-requests surfaces it. Routes the decision to Mike's
+Decision Requests tab and demonstrates the sanctioned pattern: AI surfaces design
+blockers as curated questions rather than stalling.
+
 ## 2026-07-04 - Backlog wave 5: reconciliation under-count CORRECTED
 
 The "0 OPEN-AI-TRACTABLE" from the backlog reconciliation sweep was an UNDER-COUNT:
