@@ -1,5 +1,23 @@
 # Session Log (Active)
 
+## 2026-07-04 - Backlog wave 4: connectivity (goal-driven, IN PROGRESS)
+
+- **c056** (Opus auto-detect) RESOLVED-VERIFIED (313d4fb1): CMake already
+  auto-detects libopus via `pkg_check_modules` (CMakeLists.txt:376-394) and sets
+  `HAVE_OPUS`; voice.c gates every path on it. The pillar's "build script doesn't
+  auto-detect" note was stale (2026-04-27) -- corrected. `find_package(Opus)` is an
+  optional pkg-config-less refinement.
+- **Remaining c054/c055/c057/c058/c059/c060** split two ways: **c058** (kbps
+  measurement) and the **MP relay Gap A forwarder** (p2p_turn.c, has a loopback-sim
+  path) are writeable + statically/loopback-verifiable in a focused session;
+  **c054** (ICE candidate exchange), **c055** (STUN reflexive publish), **c057**
+  (UPnP probe-port mapping), **c059** (TURN public fallback), **c060** (hole-punch /
+  tier-machine unification) are genuine NAT-traversal wiring whose VERIFICATION
+  needs real network/NAT or a second endpoint -- limited by the SINGLE-test-machine
+  constraint (project_mp_track). These are the same "code-can-land-but-proof-needs-
+  Mike/network" gating class as the Wave-2 bugs. Recommend a dedicated connectivity
+  session with network/VPS test access rather than landing unverifiable NAT code.
+
 ## 2026-07-04 - Backlog wave 3: systemic crash-audit SP-1/2/3/6/8 (goal-driven)
 
 Cleared the systemic array-index / null-deref audit debt (crash-class patterns):

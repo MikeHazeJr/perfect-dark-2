@@ -6,6 +6,13 @@
 
 Last updated: 2026-07-04
 
+**2026-07-04 backlog wave 4 -- connectivity (IN PROGRESS).** c056 Opus auto-detect
+verified already-done (CMake pkg_check_modules); stale doc corrected (313d4fb1).
+Remaining: c058 (kbps) + MP relay Gap A (p2p_turn.c) are writeable/loopback-testable
+next; c054/c055/c057/c059/c060 are NAT-traversal wiring whose proof needs real
+network / second endpoint (single-machine constraint) -- best in a dedicated
+connectivity session with network/VPS access, not landed blind.
+
 **2026-07-04 backlog wave 3 -- systemic crash-audit (committed to dev).** SP-8: 7
 unguarded prop->chr null derefs in bot AI targeting fixed (botinv.c + bot.c,
 c144/492dd809); SP-3 jump-height bound hardened to MAX_LOCAL_PLAYERS; SP-1/2/3/6
