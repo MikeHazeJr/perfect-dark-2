@@ -1,5 +1,23 @@
 # Session Log (Active)
 
+## 2026-07-04 - NAT-tier re-scope + honest correction
+
+`git status port/src/net/` is CLEAN -- `group_session.c` is NOT currently uncommitted
+(the "in-flight, never stage" note from session start was stale; it was committed
+earlier this long session). So the COLLISION argument I repeatedly cited for deferring
+the NAT tier is RETIRED -- it was wrong. Re-scoped c055 + c057 in the real code: the
+LAN announce (`p2p_lan.c sendAnnounce`, line 296) correctly writes `listen_ipv4=0`
+(LAN uses packet src), so c055's real target is the INTERNET presence SERVICE
+(Ed25519-signed social presence) -- a complex subsystem, not a one-field populate;
+c057 needs `netupnp` multi-port support. The CORRECT deferral reason for c054-c060 is
+now: (a) Mike's ACTIVE MP-relay/connectivity architecture (project_mp_track end-to-end
+goal; the 6-tier machine he is evolving), and (b) runtime UNVERIFIABLE (real NAT / two
+internet peers required) -- NOT uncommitted-collision. Low-blast-radius ones (esp. c057
+additive UPnP port maps with graceful fallback) ARE landable build-verified if Mike
+wants them; he would test traversal. The collision blocker is gone, so this is now
+Mike's call, not a hard constraint. Constraint memory to update: group_session.c is
+committed; "leave uncommitted" no longer applies unless he re-opens uncommitted work.
+
 ## 2026-07-04 - Backlog wave 5: reconciliation under-count CORRECTED
 
 The "0 OPEN-AI-TRACTABLE" from the backlog reconciliation sweep was an UNDER-COUNT:
