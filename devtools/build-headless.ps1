@@ -74,6 +74,22 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
+# Worktree-redirect guard (c070): pure resolver, unit-tested via -SelfTest.
+# Builds are NEVER allowed to operate on a .claude\worktrees\<name> copy -- if the
+# script is invoked from inside one, strip back to the real repo root so builds
+# always hit the main working files. Returns $Path unchanged when it is not a
+# worktree path. (The deprecated dev-window-v2.ps1 / _dev-window.ps1 keep their own
+# inline copies; fold them onto this helper if either is ever revived.)
+function Resolve-RealProjectRoot {
+    param([Parameter(Mandatory)][string]$Path)
+    $marker = [regex]::Escape('.claude\worktrees\')
+    if ($Path -match $marker) {
+        $Path = $Path -replace ($marker + '[^\\]+$'), ''
+        $Path = $Path.TrimEnd('\')
+    }
+    return $Path
+}
+
 # ============================================================================
 # Configuration  -  mirrors dev-window-v2.ps1 Get-BuildSteps exactly
 #
@@ -83,17 +99,14 @@ $ErrorActionPreference = "Stop"
 # produce identical binaries given the same version string.
 # ============================================================================
 
-# Resolve project root from script location (devtools/ parent).
-# Guard: if running from inside a .claude/worktrees/ path, redirect to the
-# real working copy. Worktree builds are NEVER allowed -- builds must operate
-# on the main project files.
+# Resolve project root from script location (devtools/ parent). Worktree builds are
+# never allowed -- redirect to the real working copy via Resolve-RealProjectRoot.
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ProjectDir = Split-Path -Parent $ScriptDir
-if ($ProjectDir -match [regex]::Escape('.claude\worktrees\')) {
-    # Strip everything from .claude onward to get the real repo root
-    $ProjectDir = $ProjectDir -replace ([regex]::Escape('.claude\worktrees\') + '[^\\]+$'), ''
-    $ProjectDir = $ProjectDir.TrimEnd('\')
-    Write-Warning "Worktree path detected -- redirecting build to main working copy: $ProjectDir"
+$realProjectDir = Resolve-RealProjectRoot -Path $ProjectDir
+if ($realProjectDir -ne $ProjectDir) {
+    Write-Warning "Worktree path detected -- redirecting build to main working copy: $realProjectDir"
+    $ProjectDir = $realProjectDir
 }
 
 # Unified build directory for client/updater/tests.
@@ -667,13 +680,18 @@ function Invoke-BuildHeadlessSelfTest {
              ($sp9Keep.Count -eq 0) -and ($sp9Gone.Count -eq 1) -and `
              ($sp9Multi.Count -eq 1) -and ($sp9Multi[0] -like "*a.c*")
 
-    if ($warnOk -and $failDetected -and $exitOk -and $sp9Ok) {
+    # Worktree-redirect resolver (c070): pure path guard unit checks.
+    $wtRedir = Resolve-RealProjectRoot -Path 'C:\repo\.claude\worktrees\feature-x'
+    $wtKeep  = Resolve-RealProjectRoot -Path 'C:\repo\sub\dir'
+    $wtOk = ($wtRedir -eq 'C:\repo') -and ($wtKeep -eq 'C:\repo\sub\dir')
+
+    if ($warnOk -and $failDetected -and $exitOk -and $sp9Ok -and $wtOk) {
         Write-Ok "  Build wrapper self-test passed."
         return $true
     }
 
     Write-Err "  Build wrapper self-test failed."
-    Write-Err "  warnOk=$warnOk failDetected=$failDetected exitCodes=$($exitCodes -join ',') sp9Ok=$sp9Ok"
+    Write-Err "  warnOk=$warnOk failDetected=$failDetected exitCodes=$($exitCodes -join ',') sp9Ok=$sp9Ok wtOk=$wtOk"
     return $false
 }
 
