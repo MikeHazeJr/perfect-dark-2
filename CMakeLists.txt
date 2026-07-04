@@ -808,6 +808,7 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/tests/test_versions.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_versions_pin.c
   ${CMAKE_SOURCE_DIR}/tests/test_connectcode.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_pure_mirror_sync.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_savebuffer.cpp
   ${CMAKE_SOURCE_DIR}/tests/savebuffer_pure.c
   ${CMAKE_SOURCE_DIR}/tests/test_save_migration.cpp
