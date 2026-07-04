@@ -255,6 +255,36 @@ function Write-Err([string]$text)  { Write-Host $text -ForegroundColor Red }
 function Write-Info([string]$text) { Write-Host $text -ForegroundColor Gray }
 function Write-Warn([string]$text) { Write-Host $text -ForegroundColor Yellow }
 
+# SP-9 truncation guard (c069): factored out of the auto-commit path into named,
+# unit-tested helpers (see -SelfTest). Get-Sp9FlagsFromNumstat is the PURE parser
+# over `git diff --numstat` lines; Get-Sp9TruncationFlags runs it against the
+# working tree. Flags any file whose diff-vs-HEAD is mostly-deletion (net < -20
+# AND additions below a third of deletions) -- the AI-pipeline truncation
+# signature, distinct from a legitimate large rewrite (which adds many lines too).
+function Get-Sp9FlagsFromNumstat {
+    param([string[]]$NumstatLines)
+    $flagged = @()
+    foreach ($numLine in $NumstatLines) {
+        if ($numLine -match '^(\d+)\s+(\d+)\s+(.+)$') {
+            $added     = [int]$Matches[1]
+            $deleted   = [int]$Matches[2]
+            $file      = $Matches[3].Trim()
+            $net       = $added - $deleted
+            $threshold = [Math]::Max(1, [Math]::Floor($deleted / 3))
+            if ($net -lt -20 -and $added -lt $threshold) {
+                $flagged += "    $file  (net ${net}: +$added / -$deleted)"
+            }
+        }
+    }
+    return $flagged   # callers wrap with @() for a correct .Count in all cases
+}
+
+function Get-Sp9TruncationFlags {
+    param([Parameter(Mandatory)][string]$ProjectDir)
+    $numstat = & git -C $ProjectDir diff HEAD --numstat 2>$null
+    return (Get-Sp9FlagsFromNumstat -NumstatLines $numstat)
+}
+
 function Get-StepChildProcessIds([int]$parentPid) {
     $result = @()
     try {
@@ -628,13 +658,22 @@ function Invoke-BuildHeadlessSelfTest {
     }
     $exitOk = ($exitCodes -contains "0") -and ($exitCodes -contains "7")
 
-    if ($warnOk -and $failDetected -and $exitOk) {
+    # SP-9 truncation-guard helper (c069): pure numstat parser unit checks.
+    $sp9Flag  = @(Get-Sp9FlagsFromNumstat -NumstatLines @("5 100 foo.c"))          # net -95, +5 < floor(100/3)=33 -> FLAG
+    $sp9Keep  = @(Get-Sp9FlagsFromNumstat -NumstatLines @("200 210 big.c"))        # net -10 (> -20) -> keep
+    $sp9Gone  = @(Get-Sp9FlagsFromNumstat -NumstatLines @("0 50 gone.c"))          # net -50, +0 < 16 -> FLAG
+    $sp9Multi = @(Get-Sp9FlagsFromNumstat -NumstatLines @("5 100 a.c","80 90 b.c","0 3 c.c"))  # only a.c
+    $sp9Ok = ($sp9Flag.Count -eq 1) -and ($sp9Flag[0] -like "*foo.c*") -and `
+             ($sp9Keep.Count -eq 0) -and ($sp9Gone.Count -eq 1) -and `
+             ($sp9Multi.Count -eq 1) -and ($sp9Multi[0] -like "*a.c*")
+
+    if ($warnOk -and $failDetected -and $exitOk -and $sp9Ok) {
         Write-Ok "  Build wrapper self-test passed."
         return $true
     }
 
     Write-Err "  Build wrapper self-test failed."
-    Write-Err "  warnOk=$warnOk failDetected=$failDetected exitCodes=$($exitCodes -join ',')"
+    Write-Err "  warnOk=$warnOk failDetected=$failDetected exitCodes=$($exitCodes -join ',') sp9Ok=$sp9Ok"
     return $false
 }
 
@@ -766,24 +805,8 @@ if ($AutoCommit) {
     $commitMsg = "Build v$VerMajor.$VerMinor.$VerPatch - auto-commit before build"
     $stChanges = & git -C $ProjectDir status --porcelain 2>$null
     if ($stChanges) {
-        # SP-9 truncation guard: flag any file where net line delta < -20 AND
-        # additions < 1/3 of deletions.  That pattern (mostly-deleted, few-added)
-        # matches every known AI-pipeline truncation incident; it does NOT match
-        # legitimate large rewrites (which have high additions too).
-        $numstatOut  = & git -C $ProjectDir diff HEAD --numstat 2>$null
-        $flaggedFiles = @()
-        foreach ($numLine in $numstatOut) {
-            if ($numLine -match '^(\d+)\s+(\d+)\s+(.+)$') {
-                $added    = [int]$Matches[1]
-                $deleted  = [int]$Matches[2]
-                $file     = $Matches[3].Trim()
-                $net      = $added - $deleted
-                $threshold = [Math]::Max(1, [Math]::Floor($deleted / 3))
-                if ($net -lt -20 -and $added -lt $threshold) {
-                    $flaggedFiles += "    $file  (net ${net}: +$added / -$deleted)"
-                }
-            }
-        }
+        # SP-9 truncation guard (see Get-Sp9TruncationFlags; unit-tested via -SelfTest).
+        $flaggedFiles = @(Get-Sp9TruncationFlags -ProjectDir $ProjectDir)
         if ($flaggedFiles.Count -gt 0) {
             Write-Warn ""
             Write-Warn "  [SP-9 GUARD] Auto-commit SKIPPED -- unexpected file shrinkage:"
