@@ -12850,6 +12850,44 @@ static s32 s_aiGraphRuntimeFailure(const char *action, const char *reason)
 			reason && reason[0] ? reason : "graph mismatch");
 	}
 
+	/* B-948: throttle this per-frame WARNING flood. An unresolved AI action
+	 * (e.g. if_weapon_thrown_on_object with an unresolvable runtime weapon)
+	 * is re-evaluated every frame, so without a guard it emits thousands of
+	 * identical lines that bury real diagnostics and pressure log I/O. Warn
+	 * ONCE per unique (action|reason) per active scenario -- mirroring the
+	 * success path's ai_condition_*_logged one-shot flags. Reset when the
+	 * active scenario changes. Logging-only: no asset/parity/behaviour effect. */
+	{
+		const char *act = action && action[0] ? action : "execute";
+		const char *rsn = reason && reason[0] ? reason : "graph mismatch";
+		const char *sid = s_ActiveScenarioGraphs.scenario_id[0]
+			? s_ActiveScenarioGraphs.scenario_id : "?";
+		static u32 s_warnedKeys[24];
+		static s32 s_warnedCount = 0;
+		static char s_warnedScenario[64] = {0};
+		u32 h = 5381u;
+		const char *p;
+		s32 k;
+
+		if (strncmp(s_warnedScenario, sid, sizeof(s_warnedScenario)) != 0) {
+			s_copyString(s_warnedScenario, sizeof(s_warnedScenario), sid);
+			s_warnedCount = 0;
+		}
+		for (p = act; *p; ++p) { h = ((h << 5) + h) ^ (u32)(u8)*p; }
+		h = ((h << 5) + h) ^ (u32)(u8)'|';
+		for (p = rsn; *p; ++p) { h = ((h << 5) + h) ^ (u32)(u8)*p; }
+		for (k = 0; k < s_warnedCount; ++k) {
+			if (s_warnedKeys[k] == h) {
+				return 1; /* already warned this scenario -- suppress the flood */
+			}
+		}
+		if (s_warnedCount < (s32)(sizeof(s_warnedKeys) / sizeof(s_warnedKeys[0]))) {
+			s_warnedKeys[s_warnedCount++] = h;
+		}
+		/* set full (>24 distinct failures): fall through and log so nothing is
+		 * silently hidden -- bounded in practice. */
+	}
+
 	sysLogPrintf(LOG_WARNING,
 		"SCENARIO.GRAPH: cannot %s AI action for '%s' (%s)",
 		action && action[0] ? action : "execute",
