@@ -1214,6 +1214,34 @@ static void removeDirRecursive(const char *dir)
 	RemoveDirectoryA(dir);
 }
 
+/* c138: send a user-visible install path (file OR dir tree) to the Recycle Bin so
+ * a mistaken cleanup can be undone. SHFileOperation recurses into dirs; pFrom is a
+ * double-NUL-terminated list. Falls back to permanent removal if recycling fails. */
+static void recyclePath(const char *path)
+{
+	char from[MAX_PATH + 2];
+	size_t n = strlen(path);
+	if (n >= MAX_PATH) {
+		DWORD a = GetFileAttributesA(path);
+		if (a != INVALID_FILE_ATTRIBUTES && (a & FILE_ATTRIBUTE_DIRECTORY)) removeDirRecursive(path);
+		else DeleteFileA(path);
+		return;
+	}
+	memcpy(from, path, n);
+	from[n]     = '\0';
+	from[n + 1] = '\0';
+	SHFILEOPSTRUCTA op;
+	memset(&op, 0, sizeof(op));
+	op.wFunc  = FO_DELETE;
+	op.pFrom  = from;
+	op.fFlags = FOF_ALLOWUNDO | FOF_NOCONFIRMATION | FOF_NOERRORUI | FOF_SILENT;
+	if (SHFileOperationA(&op) != 0 || op.fAnyOperationsAborted) {
+		DWORD a = GetFileAttributesA(path);
+		if (a != INVALID_FILE_ATTRIBUTES && (a & FILE_ATTRIBUTE_DIRECTORY)) removeDirRecursive(path);
+		else DeleteFileA(path);
+	}
+}
+
 static void cleanupStaleFiles(const char *installDir, const char *stagingDir, const char *relBase)
 {
 	char searchPath[MAX_PATH];
@@ -1253,15 +1281,15 @@ static void cleanupStaleFiles(const char *installDir, const char *stagingDir, co
 			} else {
 				char full[MAX_PATH];
 				snprintf(full, sizeof(full), "%s\\%s", installDir, relPath);
-				removeDirRecursive(full);
-				updaterLog("Removed stale dir: %s", relPath);
+				recyclePath(full); /* c138: recycle, don't permanently delete */
+				updaterLog("Recycled stale dir: %s", relPath);
 			}
 		} else {
 			if (!inStaging) {
 				char full[MAX_PATH];
 				snprintf(full, sizeof(full), "%s\\%s", installDir, relPath);
-				DeleteFileA(full);
-				updaterLog("Removed stale file: %s", relPath);
+				recyclePath(full); /* c138: recycle, don't permanently delete */
+				updaterLog("Recycled stale file: %s", relPath);
 			}
 		}
 	} while (FindNextFileA(h, &fd));

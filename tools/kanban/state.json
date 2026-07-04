@@ -3472,10 +3472,10 @@
       "title": "Updater stale cleanup should recycle user-visible removals",
       "description": "Follow-up from Mike's question: when updater cleanup removes stale install-root files or folders, user-visible payload cleanup should send items to the Windows Recycle Bin instead of permanently deleting them.",
       "pillar": "tooling",
-      "column": "backlog",
+      "column": "done",
       "order": 5000,
       "priority": 5,
-      "notes": "Recommended policy: stale install payload paths use the Windows shell recycle/undo delete path; generated updater internals such as downloaded zips, sidecar version files, .old updater exe cleanup, and staging/temp files can remain permanent deletes. If recycle fails for a user-visible stale path, log it and leave the file in place rather than falling back to permanent deletion.\n\nBoard cleanup 2026-06-11: attention flag cleared because c3844 is the only active parity-closure lane; history retained in this card.\n\nBoard refresh 2026-06-11: explicitly deferred during c3844 all-asset source/runtime parity closure; not an active routing target until c3844 changes state.\n\nPost-c3844 closeout 2026-06-12: still deferred. Do not route this card unless Mike explicitly reopens or promotes it.",
+      "notes": "Recommended policy: stale install payload paths use the Windows shell recycle/undo delete path; generated updater internals such as downloaded zips, sidecar version files, .old updater exe cleanup, and staging/temp files can remain permanent deletes. If recycle fails for a user-visible stale path, log it and leave the file in place rather than falling back to permanent deletion.\n\nBoard cleanup 2026-06-11: attention flag cleared because c3844 is the only active parity-closure lane; history retained in this card.\n\nBoard refresh 2026-06-11: explicitly deferred during c3844 all-asset source/runtime parity closure; not an active routing target until c3844 changes state.\n\nPost-c3844 closeout 2026-06-12: still deferred. Do not route this card unless Mike explicitly reopens or promotes it.\n\n2026-07-04 (wave 5): DONE. Updater cleanup now recycles user-visible stale install files/dirs (SHFileOperation FOF_ALLOWUNDO, permanent-delete fallback) in both updater.c (client) and updater_gui.c (standalone Updater.exe); transient .zip/.ver/.old still permanent-delete. Both targets link clean.",
       "subtasks": [
         {
           "id": "c138-s1",
@@ -3509,7 +3509,7 @@
       "flag": null,
       "flagged_at": null,
       "created": "2026-05-19T18:16:45Z",
-      "updated": "2026-06-11T03:19:28-04:00",
+      "updated": "2026-07-04T00:00:00Z",
       "updated_at": "2026-06-11T03:19:28-04:00",
       "x_deferred_original_priority": 2,
       "x_deferred": {
@@ -3519,7 +3519,8 @@
         "verified": "2026-06-11T14:56:38-04:00"
       },
       "x_deferred_at": "2026-06-11T14:56:38-04:00",
-      "x_deferred_reason": "Deferred after c3844 closeout; do not route unless Mike explicitly reopens or promotes it."
+      "x_deferred_reason": "Deferred after c3844 closeout; do not route unless Mike explicitly reopens or promotes it.",
+      "pending_completion": false
     },
     {
       "id": "c3809",

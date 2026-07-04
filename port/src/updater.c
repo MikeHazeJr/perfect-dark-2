@@ -1112,6 +1112,7 @@ static s32 readStagedVersionFile(pdversion_t *out)
 
 #ifdef _WIN32
 #include <windows.h>
+#include <shellapi.h>  /* SHFileOperationA -- recycle-bin cleanup (c138) */
 static void detectExePath(void)
 {
 	GetModuleFileNameA(NULL, s_Updater.exePath, sizeof(s_Updater.exePath));
@@ -1606,6 +1607,39 @@ static void removeDirRecursive(const char *dir)
 	RemoveDirectoryA(dir);
 }
 
+/* Send a user-visible install-root path (file OR whole directory tree) to the
+ * Windows Recycle Bin instead of permanently deleting it, so a mistaken update
+ * cleanup can be undone (c138). SHFileOperation recurses into directories itself;
+ * pFrom is a double-NUL-terminated list. On failure (e.g. a volume with no Recycle
+ * Bin) it falls back to a permanent removal so cleanup still completes rather than
+ * leaving stale files behind. */
+static void recyclePath(const char *path)
+{
+	char from[MAX_PATH + 2];
+	size_t n = strlen(path);
+	if (n >= MAX_PATH) { /* too long for the fixed buffer -- permanent fallback */
+		DWORD a = GetFileAttributesA(path);
+		if (a != INVALID_FILE_ATTRIBUTES && (a & FILE_ATTRIBUTE_DIRECTORY)) removeDirRecursive(path);
+		else DeleteFileA(path);
+		return;
+	}
+	memcpy(from, path, n);
+	from[n]     = '\0'; /* end this entry */
+	from[n + 1] = '\0'; /* double-NUL end the list */
+
+	SHFILEOPSTRUCTA op;
+	memset(&op, 0, sizeof(op));
+	op.wFunc  = FO_DELETE;
+	op.pFrom  = from;
+	op.fFlags = FOF_ALLOWUNDO | FOF_NOCONFIRMATION | FOF_NOERRORUI | FOF_SILENT;
+
+	if (SHFileOperationA(&op) != 0 || op.fAnyOperationsAborted) {
+		DWORD a = GetFileAttributesA(path); /* recycle failed -> permanent fallback */
+		if (a != INVALID_FILE_ATTRIBUTES && (a & FILE_ATTRIBUTE_DIRECTORY)) removeDirRecursive(path);
+		else DeleteFileA(path);
+	}
+}
+
 /* Walk installDir, deleting any file/dir that is absent from stagingDir
  * and not under a protected path. relBase is "" for the root pass. */
 static void cleanupStaleFiles(const char *installDir, const char *stagingDir, const char *relBase)
@@ -1655,17 +1689,17 @@ static void cleanupStaleFiles(const char *installDir, const char *stagingDir, co
 			} else {
 				char fullPath[MAX_PATH];
 				snprintf(fullPath, sizeof(fullPath), "%s\\%s", installDir, relPath);
-				removeDirRecursive(fullPath);
-				sysLogPrintf(LOG_NOTE, "UPDATER: Removed stale dir: %s", relPath);
-				fprintf(stderr, "UPDATER: Removed stale dir: %s\n", relPath);
+				recyclePath(fullPath); /* c138: recycle, don't permanently delete */
+				sysLogPrintf(LOG_NOTE, "UPDATER: Recycled stale dir: %s", relPath);
+				fprintf(stderr, "UPDATER: Recycled stale dir: %s\n", relPath);
 			}
 		} else {
 			if (!inStaging) {
 				char fullPath[MAX_PATH];
 				snprintf(fullPath, sizeof(fullPath), "%s\\%s", installDir, relPath);
-				DeleteFileA(fullPath);
-				sysLogPrintf(LOG_NOTE, "UPDATER: Removed stale file: %s", relPath);
-				fprintf(stderr, "UPDATER: Removed stale file: %s\n", relPath);
+				recyclePath(fullPath); /* c138: recycle, don't permanently delete */
+				sysLogPrintf(LOG_NOTE, "UPDATER: Recycled stale file: %s", relPath);
+				fprintf(stderr, "UPDATER: Recycled stale file: %s\n", relPath);
 			}
 		}
 	} while (FindNextFileA(h, &fd));
