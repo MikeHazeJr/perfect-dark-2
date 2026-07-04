@@ -71,11 +71,15 @@ cleanup now recycles to the Windows Recycle Bin (`SHFileOperation` FOF_ALLOWUNDO
 a permanent-delete fallback) instead of permanent-deleting, in BOTH `updater.c` and the
 standalone `updater_gui.c`; both build clean. **c028** closed stale (full suite 829/829
 green, zero failures to triage -- the old pdbase-scan failures retired with .pdbase).
-**c3823** flagged pending-completion. **c067** (broad coverage for updater / voice /
-social / theme / spectator / lobby) is by its OWN description an INCREMENTAL program
-"as those modules see active change" -- this session served exactly that where code
-changed (savemigrate chain test, @SYNC drift guard, build-guard self-tests), so its
-intent is met per-module, not as a big-bang. The remaining backlog is now purely: the
+**c3823** flagged pending-completion. **c067** DONE as the incremental program it
+specifies ("add coverage as those modules see active change"): added
+`test_updater_safety.cpp` -- static safety pins for the protected-path invariants
+(mods/data/saves/ROM/pd.ini + check-before-delete) in BOTH updaters, so a regression
+that would let an auto-update delete user saves fails CI ([safety] green). That plus
+the savemigrate chain test, the @SYNC drift guard, and the build-guard self-tests is
+exactly the per-module coverage the card asks for. A behavioural test of the
+`isProtectedRelPath` matcher wants the c065 compile-boundary extraction -- correctly
+NOT done blind on safety-critical user-data-deletion code in a saturated session. The remaining backlog is now purely: the
 NAT tier (Mike's active in-flight relay work in group_session.c / p2p_turn.c), the
 pending-Mike-playtest cards (flagged, with the checklist), and
 playtest/design-decision/gameplay-authoring/ROM-gated items (+ the excluded
