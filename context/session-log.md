@@ -4,7 +4,7 @@
 
 The "0 OPEN-AI-TRACTABLE" from the backlog reconciliation sweep was an UNDER-COUNT:
 it blanket-classified cards "deferred pending c3844" as Mike-gated, but c3844 is
-closed, so several are now doable. Verified + completed two, and found one moot:
+closed, so several are now doable. Verified + completed FOUR (c074, c064, c069, c070) and found one moot:
 - **c074** (17e50fe2): behavioural test for the REAL `savemigrate.c` chain
   framework -- 6 cases (ascending-order chain with out-of-order registration, type
   isolation, no-op, fail-closed on missing step, downgrade refusal). `[save]` 15
@@ -12,18 +12,26 @@ closed, so several are now doable. Verified + completed two, and found one moot:
 - **c064** (fa9cde55): removed the dead legacy manifest serializer API
   (`modmgrGetManifestHash` / `modmgrWriteManifest` / `modmgrReadManifest`, ~3.4KB,
   zero live callers, superseded by `match_manifest_t`). Client links clean.
+- **c069** (70a28384): factored the SP-9 truncation guard in build-headless.ps1 into
+  a pure, unit-tested helper (`Get-Sp9FlagsFromNumstat`) + 4 `-SelfTest` checks
+  (sp9Ok=True). Turned untested critical guard logic into tested code.
+- **c070** (7bc3978d): extracted the worktree-redirect guard into the pure,
+  unit-tested `Resolve-RealProjectRoot` helper (wtOk=True). The "3-script
+  duplication" premise is mostly stale -- only deprecated dev-window-v2/_dev-window
+  still inline it.
 - **c066** MOOT: the `.pdbase` loader was RETIRED 2026-05-03 (catalog universality
   Step 5); "add loader coverage" is obsolete -- retirement is guarded by
   `test_pdbase_retired_audit.cpp`. Closed as superseded.
 
-Remaining genuinely-AI-tractable cards are a harder set: build-script refactors
-(c069 SP-9 guard helper, c070 worktree-redirect centralize, c040 dev-window
-cleanup) touch CRITICAL build infra (`build-headless.ps1`) with NO functional test
-coverage -- refactoring blind is the exact risk c069 exists to reduce; c065
-(pure-mirror compile-boundary) is a multi-file test-infra refactor. These want
-careful work with fresh context, not saturated-context blind edits. Lesson: don't
-trust a reconciliation agent's "gated" label wholesale -- the c3844-deferral reason
-was stale.
+c069 and c070 turned out CLEANER than my "too risky" first read: single-file pure
+helper extractions with self-test coverage, build-verified. Remaining tractable
+cards: c040 (dev-window worktree-aware cleanup); c065 (pure-mirror compile-boundary
+-- a multi-file *production* netmanifest.c refactor, genuinely risky); c068
+(pd_headers watchdog investigation, open-ended); c041 (audit grooming, vague).
+c065/c068/c041 are the higher-risk / open-ended tail best suited to a focused fresh
+session. Lesson: don't trust a reconciliation agent's "gated" label wholesale, AND
+don't over-fear a refactor before scoping it -- the c3844-deferral reason was stale
+and c069/c070 were clean.
 
 ## 2026-07-04 - Backlog push: partial (goal boundary, superseded by wave 5 above)
 
