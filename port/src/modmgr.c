@@ -442,7 +442,14 @@ static bool modmgrParseModJsonBuf(modinfo_t *mod, const char *src, u32 size,
 				}
 			}
 		} else {
-			// Unknown key — skip value
+			/* Unknown key -- skip value. NOTE (B-913): `contents` (plural, a
+			 * top-level tag array like ["palette","menubg","shimmer",...]) and
+			 * `assets` are recognised FORWARD-LOOKING schema affordances, not
+			 * yet consumed -- the future mod-manager sub-type green-dot
+			 * indicators will read `contents`. Skipping them here is intentional
+			 * and correct, NOT a parser bug: current mods register via loose-file
+			 * auto-discovery plus the singular `content` counts above. Wire real
+			 * consumers here when that UI lands. */
 			json_skip_value(&j);
 		}
 	}

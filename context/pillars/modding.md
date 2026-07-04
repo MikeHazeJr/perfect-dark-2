@@ -316,6 +316,8 @@ Path-traversal sanitization at parse time ([modarchive.c:13-17](../../port/src/m
 
 `mod.json` content array supports embedded body / head / arena declarations alongside the file-based INI scan. Both paths converge on the same catalog registration API.
 
+The parser reads only the **singular** `content` object (bodies/heads/arenas count arrays). The **plural** `contents` tag array (e.g. `["palette","menubg","shimmer",...]`) and the `assets` array are recognised FORWARD-LOOKING schema affordances with no runtime consumer yet -- they are intentionally `json_skip_value`'d at the unknown-key branch (documented inline in `modmgr.c`). `contents` is the documented source for the future mod-manager sub-type green-dot indicators; wire real consumers at that skip site when the UI lands. This is deliberate, not a parser bug (B-913). Public editable `mod.json` source stays the native client source; the skipped keys are author-facing metadata, not generated cache.
+
 `mods-enabled.json` is optional clean-install state. The mod manager checks for the file before calling the generic file loader so missing no-mod state does not log as a file-load error; when the file exists, it remains the primary ordered enable list.
 
 ---
