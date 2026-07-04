@@ -58,6 +58,22 @@ path already faults under CPU swarm, so a GPU-swarm run is higher-risk + less co
 that category stays Mike's-call / needs the B-950 fix first. 16 smokes total, still zero
 HOST crashes (the one FATAL was a contained game-process exit).
 
+**FIXES LANDED (verify->fix->build->re-verify loop):**
+- **B-948 log flood FIXED** (commit dad07ea6): added a log-once throttle to
+  `s_aiGraphRuntimeFailure` (scenario_source_runtime.c) -- warn once per unique
+  (action|reason) per scenario. Build PASS; re-ran auto_campaign on the new build ->
+  weapon-53 warnings dropped from THOUSANDS to 1. (Auto-runner WAIT_LOAD stall +
+  weapon-53 RESOLUTION remain -- the latter is the c3848 10-slot pool, below.)
+- **B-949 narrowed**: re-ran the 3 stalling smokes on the new build -- **vehicle_flow
+  now PASSES 10/10** (resolved). wall_jump + social_hub STILL stall (real per-scenario,
+  not flood/cache). Down to 2.
+- **B-949 weapon-slot root scoped to c3848**: assetcatalog_weapon_slots.c has a FIXED
+  10-slot custom pool (MPWEAPON_CUSTOM_COUNT=0x0a, PINNED in tests) that base weapons
+  exhaust; a bump shifts weapon-numbering/save/net -> c3848 allocator design (Mike's).
+- **B-950 root found**: swarm_gpu.cpp:1938 documents it (chrvtxstore pool pressure under
+  the anim-switch wave); fix is a c029 decision (throttle/pool/fatal), not blind-patched.
+Harness task queue synced (#26-34) to this verify-and-fix work.
+
 Followed B-801 through to the actual smoke-run artifacts and found the decisive fact:
 **live smokes are already resuming safely.** `.claude/smoke-verify-runs/` holds many
 Jul 2-3 runs; the most recent (`results-20260703T185914Z.json`, `auto_campaign_first_cycle`)
