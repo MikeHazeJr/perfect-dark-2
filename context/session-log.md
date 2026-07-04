@@ -1,5 +1,34 @@
 # Session Log (Active)
 
+## 2026-07-04 - B-801 breakthrough: root cause was host pagefile, now remediated
+
+Chased the ONE meta-blocker behind the entire playtest-gated backlog category (~19
+cards): B-801, "live smoke crashes the PC." Read its full bugs.md entry -- it was NEVER
+an app crash. The Windows Event Log showed host-level virtual-memory EXHAUSTION:
+Kernel-Power 41, bugcheck 0x000000ef, repeated "paging file is too small", stornvme
+allocation warnings, failures cascading across DWM/Git/NVIDIA/PowerToys. Root cause: a
+**2 GB pagefile** -- too small for game + assets + concurrent dev tooling, so the system
+ran out of COMMIT and took the machine (and the git index) down.
+
+Built the memory-risk control the bug entry required before live testing can resume:
+`tools/smoke-verify/lib/Test-MemorySafety.ps1` (`Test-SmokeMemorySafety`) -- a read-only
+preflight that gates BOTH live-launch paths in `run.ps1` and refuses to start
+PerfectDark.exe when available commit or pagefile is below safe floors (2048 MB commit /
+4096 MB pagefile defaults; env-overridable via PD_SMOKE_MIN_FREE_COMMIT_MB /
+PD_SMOKE_MIN_PAGEFILE_MB / PD_SMOKE_SKIP_MEMORY_GUARD). No system changes, no launch.
+Durable regression test: `tools/smoke-verify/test-memory-guard.ps1` (parse-check + real
+probe + impossible-floor-refuses + bypass-overrides) -- PASSES.
+
+**KEY MEASURED FINDING:** running the guard against this host shows the root cause is
+GONE: pagefile now **11,161 MB** (was 2 GB), free commit **23,816 MB**, free RAM
+**20,553 MB**. The 2 GB-pagefile crash condition no longer exists here. So B-801 moved
+from hard blocker to materially de-risked: memory-risk control in place + host
+remediated + guard confirms safe state. Remaining to fully close: the bounded non-visual
+renderer-activation proof, and Mike's deliberate go to resume live smokes (running the
+game stays his call, but is now much lower risk). This is the concrete path to unblocking
+the ~19 playtest-gated cards -- the playtest checklist can now run behind the guard on a
+host whose memory is measured safe. bugs.md B-801 updated with the evidence.
+
 ## 2026-07-04 - NAT-tier re-scope + honest correction
 
 `git status port/src/net/` is CLEAN -- `group_session.c` is NOT currently uncommitted

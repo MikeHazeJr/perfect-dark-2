@@ -307,6 +307,7 @@ $ResultsFile = ""
 
 . (Join-Path $LibDir "Test-Assertions.ps1")
 . (Join-Path $LibDir "Install-Harness.ps1")
+. (Join-Path $LibDir "Test-MemorySafety.ps1")
 
 function Stop-SmokeOwnedFaultProcesses {
     [CmdletBinding()] param([int[]] $KnownPids = @())
@@ -754,6 +755,19 @@ function Invoke-SmokeTestMultiProcess {
         throw "$exeLeaf missing inside install dir after seeding: $exe"
     }
 
+    # B-801 memory-risk control: refuse to launch a live game process when host
+    # commit/pagefile headroom is dangerously low. A live Scenario smoke once
+    # exhausted commit (2 GB pagefile) and crashed the machine + corrupted the git
+    # index. This is a read-only probe (no system changes, no game launch); it is
+    # env-overridable. See lib/Test-MemorySafety.ps1 and B-801 in context/bugs.md.
+    $memSafety = Test-SmokeMemorySafety
+    foreach ($m in $memSafety.Info) { Write-Info ("  mem: {0}" -f $m) }
+    if (-not $memSafety.Safe) {
+        foreach ($r in $memSafety.Reasons) { Write-Fail ("  MEMORY GUARD: {0}" -f $r) }
+        if ($memSafety.Remediation) { Write-Fail ("  {0}" -f $memSafety.Remediation) }
+        throw "B-801 memory guard refused live launch (unsafe host memory); set PD_SMOKE_SKIP_MEMORY_GUARD=1 to override."
+    }
+
     # Pre-clear known log files in the install dir so wait-for polling
     # is deterministic. The shared-install harness already wipes
     # pd-client.log; ensure pd-host.log is wiped too if it exists from a
@@ -1157,6 +1171,19 @@ function Invoke-SmokeTest {
     $exe = Join-Path $installInfo.InstallDir $exeLeaf
     if (-not (Test-Path -LiteralPath $exe)) {
         throw "$exeLeaf missing inside install dir after seeding: $exe"
+    }
+
+    # B-801 memory-risk control: refuse to launch a live game process when host
+    # commit/pagefile headroom is dangerously low. A live Scenario smoke once
+    # exhausted commit (2 GB pagefile) and crashed the machine + corrupted the git
+    # index. This is a read-only probe (no system changes, no game launch); it is
+    # env-overridable. See lib/Test-MemorySafety.ps1 and B-801 in context/bugs.md.
+    $memSafety = Test-SmokeMemorySafety
+    foreach ($m in $memSafety.Info) { Write-Info ("  mem: {0}" -f $m) }
+    if (-not $memSafety.Safe) {
+        foreach ($r in $memSafety.Reasons) { Write-Fail ("  MEMORY GUARD: {0}" -f $r) }
+        if ($memSafety.Remediation) { Write-Fail ("  {0}" -f $memSafety.Remediation) }
+        throw "B-801 memory guard refused live launch (unsafe host memory); set PD_SMOKE_SKIP_MEMORY_GUARD=1 to override."
     }
 
     $bootArgs = @()
