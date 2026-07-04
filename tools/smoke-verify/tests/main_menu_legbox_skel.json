@@ -1,0 +1,9 @@
+{
+  "scenario_name": "main_menu_legbox_skel",
+  "description": "moneyshot + --debug-chr-skel: dump Joanna's bone matrices to test leg skinning explosion (H1/H3).",
+  "boot_args": ["--debug-hide-menu","--debug-track-chr","--debug-chr-skel"],
+  "timeout_seconds": 110,
+  "install_state": "clean",
+  "input_sequence": [ {"at_ms":0,"type":"wait"}, {"at_ms":90000,"type":"exit"} ],
+  "screenshots": [ {"at_ms":85000,"name":"skel_85"} ]
+}

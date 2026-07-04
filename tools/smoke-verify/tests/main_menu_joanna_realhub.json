@@ -1,0 +1,9 @@
+{
+  "scenario_name": "main_menu_joanna_realhub",
+  "description": "moneyshot CI-room scene WITHOUT --debug-hide-menu = the REAL menu code path, Joanna + computer behind the live UI.",
+  "boot_args": ["--debug-track-chr", "--debug-generated-mesh-render-audit"],
+  "timeout_seconds": 115,
+  "install_state": "clean",
+  "input_sequence": [ {"at_ms":0,"type":"wait"}, {"at_ms":95000,"type":"exit"} ],
+  "screenshots": [ {"at_ms":45000,"name":"hub_45"}, {"at_ms":60000,"name":"hub_60"}, {"at_ms":75000,"name":"hub_75"}, {"at_ms":88000,"name":"hub_88"} ]
+}

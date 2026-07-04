@@ -1,0 +1,15 @@
+{
+  "scenario_name": "main_menu_joanna_hub",
+  "description": "Navigate (3x Return) to the CI main menu hub where Joanna is at her terminal - the REAL frame Mike sees.",
+  "boot_args": ["--no-update-check","--no-sound","--debug-track-chr","--debug-generated-mesh-render-audit"],
+  "timeout_seconds": 90,
+  "install_state": "clean",
+  "input_sequence": [
+    {"at_ms":0,"type":"wait"},
+    {"at_ms":12000,"type":"key","key":"Return","action":"tap"},
+    {"at_ms":13500,"type":"key","key":"Return","action":"tap"},
+    {"at_ms":15000,"type":"key","key":"Return","action":"tap"},
+    {"at_ms":70000,"type":"exit"}
+  ],
+  "screenshots": [ {"at_ms":22000,"name":"H22"}, {"at_ms":35000,"name":"H35"}, {"at_ms":50000,"name":"H50"}, {"at_ms":62000,"name":"H62"} ]
+}

@@ -1,0 +1,9 @@
+{
+  "scenario_name": "main_menu_legbox_hidechr",
+  "description": "moneyshot framing + --debug-hide-chr: if the leg-box vanishes it is HER chr lower body, not scene. Decisive re-trace.",
+  "boot_args": ["--debug-hide-menu","--debug-hide-chr","--debug-track-chr"],
+  "timeout_seconds": 115,
+  "install_state": "clean",
+  "input_sequence": [ {"at_ms":0,"type":"wait"}, {"at_ms":95000,"type":"exit"} ],
+  "screenshots": [ {"at_ms":70000,"name":"hc_70"}, {"at_ms":85000,"name":"hc_85"} ]
+}

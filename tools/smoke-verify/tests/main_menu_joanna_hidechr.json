@@ -1,0 +1,9 @@
+{
+  "scenario_name": "main_menu_joanna_hidechr",
+  "description": "REAL menu with --debug-hide-chr: if the cable+cluster vanishes it is the chr body, not a scene prop.",
+  "boot_args": ["--debug-hide-chr","--debug-generated-mesh-render-audit"],
+  "timeout_seconds": 90,
+  "install_state": "clean",
+  "input_sequence": [ {"at_ms":0,"type":"wait"}, {"at_ms":75000,"type":"exit"} ],
+  "screenshots": [ {"at_ms":58000,"name":"hidechr_58"}, {"at_ms":68000,"name":"hidechr_68"} ]
+}

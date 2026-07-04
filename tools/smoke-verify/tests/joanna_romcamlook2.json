@@ -1,0 +1,21 @@
+{
+  "scenario_name": "joanna_romcamlook2",
+  "description": "ROM-CONTROL v2: ROM-path Joanna body (--debug-rom-chrbody, body.c:397 loads Joanna from the original ROM) framed by the camlook camera (--debug-cam-look-chr), WITHOUT --debug-show-only-mesh (which in v1 hid the ROM body because it only renders GENERATED meshes). Furniture is visible but the body is centered, for a leg/proportion comparison vs the migrated camlook render.",
+  "boot_args": ["--debug-generated-mesh-render-audit", "--debug-hide-menu", "--debug-cam-look-chr", "--debug-rom-chrbody", "combat"],
+  "timeout_seconds": 200,
+  "install_state": "current",
+  "input_sequence": [
+    { "at_ms": 0,      "type": "wait" },
+    { "at_ms": 100000, "type": "exit" }
+  ],
+  "screenshots": [
+    { "at_ms": 60000, "name": "romcam2_a" },
+    { "at_ms": 75000, "name": "romcam2_b" },
+    { "at_ms": 90000, "name": "romcam2_c" }
+  ],
+  "assertions": {
+    "required_lines": ["SMOKE: scenario=joanna_romcamlook2", "SMOKE: result=scripted_exit"],
+    "forbidden_patterns": ["SMOKE: result=timeout"],
+    "required_counts": []
+  }
+}

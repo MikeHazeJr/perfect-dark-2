@@ -1,0 +1,22 @@
+{
+  "scenario_name": "combat_sim_chicago_shots",
+  "description": "Other-character class check: Chicago combat sim with bots (same boot as combat_sim_chicago_match_start) plus in-match screenshots, to confirm OTHER chr bodies (not just dark_combat) render solid -- i.e. the COL2 colour-segment leg-box fix is class-wide, not instance-only.",
+  "boot_args": ["--no-update-check", "--no-sound", "--no-net", "--launch-mp-room", "base:arena_chicago", "base:combat", "12", "--debug-auto-start-match"],
+  "timeout_seconds": 120,
+  "install_state": "current",
+  "input_sequence": [
+    { "at_ms": 0,     "type": "wait" },
+    { "at_ms": 80000, "type": "exit", "comment": "done" }
+  ],
+  "screenshots": [
+    { "at_ms": 35000, "name": "csim_a" },
+    { "at_ms": 48000, "name": "csim_b" },
+    { "at_ms": 61000, "name": "csim_c" },
+    { "at_ms": 72000, "name": "csim_d" }
+  ],
+  "assertions": {
+    "required_lines": ["SMOKE: scenario=combat_sim_chicago_shots"],
+    "forbidden_patterns": ["SMOKE: result=timeout"],
+    "required_counts": []
+  }
+}

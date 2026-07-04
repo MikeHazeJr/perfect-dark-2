@@ -292,8 +292,16 @@ void groupSessionDropPeer(u32 handle)
 
 static void onPairOpen(group_peer_t *p, const p2p_endpoint_t *ep)
 {
-	p->ipv4 = ep->ipv4;
-	p->port = ep->port;
+	/* c-relay (A+C): a TURN/relayed endpoint reports ep->ipv4/port == 0 and carries
+	 * the relay address in ep->relay_ipv4/relay_port (flag P2P_EP_RELAYED). Connect
+	 * to the relay as the peer's proxy -- the relay forwarder rewrites src/dst and
+	 * forwards to the actual peer. Direct/reflexive endpoints use ep->ipv4/port. */
+	const s32 relayed = (ep->flags & P2P_EP_RELAYED) != 0;
+	const u32 conn_ipv4 = relayed ? ep->relay_ipv4 : ep->ipv4;
+	const u16 conn_port = relayed ? ep->relay_port : ep->port;
+
+	p->ipv4 = conn_ipv4;
+	p->port = conn_port;
 	enterState(p, GROUP_PEER_CONNECTED);
 
 	/* Hand off to the existing match-start flow.  Format the resolved
@@ -305,11 +313,11 @@ static void onPairOpen(group_peer_t *p, const p2p_endpoint_t *ep)
 	 * handles the rest. */
 	char addr[64];
 	snprintf(addr, sizeof(addr), "%u.%u.%u.%u:%u",
-	         (unsigned)((ep->ipv4 >> 24) & 0xFF),
-	         (unsigned)((ep->ipv4 >> 16) & 0xFF),
-	         (unsigned)((ep->ipv4 >>  8) & 0xFF),
-	         (unsigned)((ep->ipv4 >>  0) & 0xFF),
-	         (unsigned)ep->port);
+	         (unsigned)((conn_ipv4 >> 24) & 0xFF),
+	         (unsigned)((conn_ipv4 >> 16) & 0xFF),
+	         (unsigned)((conn_ipv4 >>  8) & 0xFF),
+	         (unsigned)((conn_ipv4 >>  0) & 0xFF),
+	         (unsigned)conn_port);
 
 	/* If we are not yet talking to anyone via ENet, become the joining
 	 * peer. If a client connect is already in flight, this is harmless

@@ -1,0 +1,22 @@
+{
+  "scenario_name": "otherbody_class",
+  "description": "Other-character class check for the COL2 leg-box fix: spawn a bot with a DIFFERENT body (base:cisoldier) right next to the player in a combat sim, so it lands in the first-person view, to confirm a non-dark_combat body also renders solid (the fix lives in shared mesh-export code).",
+  "boot_args": ["--no-update-check", "--no-sound", "--no-net", "--launch-mp-room", "base:arena_chicago", "base:combat", "2", "--debug-auto-start-match", "--debug-place-bot-near-player", "--debug-bot-body", "base:cisoldier"],
+  "timeout_seconds": 110,
+  "install_state": "current",
+  "input_sequence": [
+    { "at_ms": 0,     "type": "wait" },
+    { "at_ms": 44000, "type": "exit" }
+  ],
+  "screenshots": [
+    { "at_ms": 32000, "name": "ob_a" },
+    { "at_ms": 32800, "name": "ob_b" },
+    { "at_ms": 33600, "name": "ob_c" },
+    { "at_ms": 34300, "name": "ob_d" }
+  ],
+  "assertions": {
+    "required_lines": ["SMOKE: scenario=otherbody_class"],
+    "forbidden_patterns": ["SMOKE: result=timeout"],
+    "required_counts": []
+  }
+}

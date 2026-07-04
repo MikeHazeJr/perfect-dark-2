@@ -1,0 +1,9 @@
+{
+  "scenario_name": "main_menu_joanna_msdense",
+  "description": "dense moneyshot frames to catch the centered Joanna-at-terminal state; verify solid legs after the COL2 colour fix.",
+  "boot_args": ["--debug-hide-menu","--debug-track-chr"],
+  "timeout_seconds": 130,
+  "install_state": "clean",
+  "input_sequence": [ {"at_ms":0,"type":"wait"}, {"at_ms":118000,"type":"exit"} ],
+  "screenshots": [ {"at_ms":40000,"name":"d40"},{"at_ms":52000,"name":"d52"},{"at_ms":64000,"name":"d64"},{"at_ms":78000,"name":"d78"},{"at_ms":92000,"name":"d92"},{"at_ms":106000,"name":"d106"} ]
+}

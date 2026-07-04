@@ -1,0 +1,9 @@
+{
+  "scenario_name": "main_menu_joanna_intro",
+  "description": "Real path EARLY frames - catch the CI-room intro where Joanna types at the computer, before the menu advances. No --debug-hide-menu.",
+  "boot_args": ["--debug-track-chr","--debug-generated-mesh-render-audit"],
+  "timeout_seconds": 70,
+  "install_state": "clean",
+  "input_sequence": [ {"at_ms":0,"type":"wait"}, {"at_ms":55000,"type":"exit"} ],
+  "screenshots": [ {"at_ms":16000,"name":"i16"}, {"at_ms":24000,"name":"i24"}, {"at_ms":32000,"name":"i32"}, {"at_ms":40000,"name":"i40"} ]
+}

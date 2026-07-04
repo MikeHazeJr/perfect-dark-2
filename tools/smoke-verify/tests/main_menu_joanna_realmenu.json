@@ -1,0 +1,10 @@
+{
+  "scenario_name": "main_menu_joanna_realmenu",
+  "description": "REAL Carrington Institute menu (no --debug-hide-menu) - the frame Mike actually opens; clean re-extract for latest committed data; audit logging on.",
+  "boot_args": ["--debug-generated-mesh-render-audit"],
+  "timeout_seconds": 175,
+  "install_state": "clean",
+  "input_sequence": [ {"at_ms":0,"type":"wait"}, {"at_ms":150000,"type":"exit"} ],
+  "screenshots": [ {"at_ms":58000,"name":"real_58"}, {"at_ms":85000,"name":"real_85"}, {"at_ms":115000,"name":"real_115"}, {"at_ms":140000,"name":"real_140"} ],
+  "assertions": { "required_lines": ["SMOKE: result=scripted_exit"], "forbidden_patterns": [], "required_counts": [] }
+}
