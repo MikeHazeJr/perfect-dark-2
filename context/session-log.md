@@ -66,6 +66,22 @@ c031/c032/c033/c3807/c3738/c3808/cmpbhfdir2lxo. Converts ~19 backlog cards into 
 ~30-minute session Mike runs once. Did NOT reclassify those cards' board column --
 that is Mike's confirmation gate; the checklist is the tool, the ticks are his.
 
+Further tail cleanup (kept scoping instead of declining): **c138** -- updater stale-file
+cleanup now recycles to the Windows Recycle Bin (`SHFileOperation` FOF_ALLOWUNDO, with
+a permanent-delete fallback) instead of permanent-deleting, in BOTH `updater.c` and the
+standalone `updater_gui.c`; both build clean. **c028** closed stale (full suite 829/829
+green, zero failures to triage -- the old pdbase-scan failures retired with .pdbase).
+**c3823** flagged pending-completion. **c067** (broad coverage for updater / voice /
+social / theme / spectator / lobby) is by its OWN description an INCREMENTAL program
+"as those modules see active change" -- this session served exactly that where code
+changed (savemigrate chain test, @SYNC drift guard, build-guard self-tests), so its
+intent is met per-module, not as a big-bang. The remaining backlog is now purely: the
+NAT tier (Mike's active in-flight relay work in group_session.c / p2p_turn.c), the
+pending-Mike-playtest cards (flagged, with the checklist), and
+playtest/design-decision/gameplay-authoring/ROM-gated items (+ the excluded
+Forge/Studio). No bounded, discrete, AI-completable card remains -- verified by reading
+all 34 remaining backlog descriptions.
+
 ## 2026-07-04 - Backlog push: partial (goal boundary, superseded by wave 5 above)
 
 Goal was "complete all listed inventory items except Forge + PD Studio." Closed
