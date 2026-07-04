@@ -6,6 +6,15 @@
 
 Last updated: 2026-07-04
 
+**2026-07-04 backlog wave 5 -- reconciliation correction + tooling (committed).** The
+"scope COMPLETE" note below was PREMATURE -- the reconciliation sweep under-counted
+(c3844-deferred cards were no longer gated). Completed FOUR more: c074 (savemigrate
+chain test), c064 (dead manifest-serializer removal), c069 (SP-9 guard -> unit-tested
+helper), c070 (worktree-redirect -> unit-tested resolver); c066 moot (.pdbase retired).
+Build/self-test verified (22 commits total). Remaining tractable tail is risky/open-
+ended: c040 (worktree-DELETION cleanup), c065 (production netmanifest.c refactor),
+c068/c041. Those + Mike-gated work (playtests, NAT, group_session.c) are the remainder.
+
 **2026-07-04 backlog push -- AI-tractable scope COMPLETE (16 commits, boundary reached).**
 Closed every inventory item completable + verifiable without Mike/network/playtest
 (waves 1-3 fully; wave 4 c056+c042). c042 fork CI added (9c952b69). Remaining is all
