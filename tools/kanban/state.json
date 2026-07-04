@@ -376,25 +376,12 @@
       "pillar": "engine",
       "column": "backlog",
       "order": 46000,
-      "notes": "Fixed 2026-05-21 in bondgun.c. Falcon laser sights are now pre-culled before beam rendering, hidden/freed while the hand is in HANDSTATE_CHANGEGUN, missing laser-sight nodes free stale beam state, and modelFindNodeMtxIndex is bounded before reading first-person weapon matrices. Scoped diff check passed, focused [bondgun][laser][static] passed in isolated session falconlaser, and queued all-target build passed. Manual playtest remains before closure.\n\nBoard cleanup 2026-06-09: removed from Active during asset-parity 100% cleanup; retained here so the current Active lane only reflects the live completion path.\n\nBoard refresh 2026-06-11: explicitly deferred during c3844 all-asset source/runtime parity closure; not an active routing target until c3844 changes state.\n\nPost-c3844 closeout 2026-06-12: still deferred. Do not route this card unless Mike explicitly reopens or promotes it.",
+      "notes": "Fixed 2026-05-21 in bondgun.c. Falcon laser sights are now pre-culled before beam rendering, hidden/freed while the hand is in HANDSTATE_CHANGEGUN, missing laser-sight nodes free stale beam state, and modelFindNodeMtxIndex is bounded before reading first-person weapon matrices. Scoped diff check passed, focused [bondgun][laser][static] passed in isolated session falconlaser, and queued all-target build passed. Manual playtest remains before closure.\n\nBoard cleanup 2026-06-09: removed from Active during asset-parity 100% cleanup; retained here so the current Active lane only reflects the live completion path.\n\nBoard refresh 2026-06-11: explicitly deferred during c3844 all-asset source/runtime parity closure; not an active routing target until c3844 changes state.\n\nPost-c3844 closeout 2026-06-12: still deferred. Do not route this card unless Mike explicitly reopens or promotes it.\n\n2026-07-04: code complete + build/test-verified; flagged PENDING-COMPLETION (awaiting Mike's playtest confirmation). Repro/expected-pass is in context/playtest-checklist-2026-07-04.md. Session did the work; the confirmation tick is Mike's.",
       "flag": null,
       "flagged_at": null,
       "created": "2026-05-21T00:00:00Z",
-      "updated": "2026-06-11T03:19:28-04:00",
-      "pending_completion": {
-        "marked_by": "codex-falcon-laser-b362",
-        "summary": "Falcon 2 laser beam is pre-culled before render, disabled during weapon-change/equip frames, and its muzzle matrix lookup is bounded, preventing the start-mission stretch-to-center artifact.",
-        "verify_notes": "Verified 2026-05-21 in isolated session falconlaser: scoped diff check passed, focused [bondgun][laser][static] passed with 10 assertions / 2 cases, and queued all-target build passed. Needs Mike manual retest: start a mission with Falcon 2 and confirm the equip animation has no stretched beam/geometry toward the screen center.",
-        "files": [
-          "src/game/bondgun.c",
-          "tests/test_bondgun_cache.cpp"
-        ],
-        "manual_checks": [
-          "Start a mission with Falcon 2 equipped.",
-          "During the initial equip animation, the gun may point down but no beam/geometry should stretch to the screen center.",
-          "After equip completes, Falcon 2 laser sight behavior should return during normal aiming."
-        ]
-      },
+      "updated": "2026-07-04T00:00:00Z",
+      "pending_completion": true,
       "updatedAt": "2026-06-09T00:00:00-04:00",
       "updated_at": "2026-06-11T03:19:28-04:00",
       "x_deferred_original_priority": null,
@@ -415,25 +402,12 @@
       "pillar": "input",
       "column": "backlog",
       "order": 45000,
-      "notes": "Fixed 2026-05-21 in menuGraphFirePop/menuGraphFirePopOp by pairing POP_ROOT menupoolReleaseAll with menuClose so explicit root closes tear down both input/pool state and the legacy root dialog. Static coverage now pins menuClose in the graph root-pop helper. Focused [input][menu_graph] passed in isolated session menuclose, and queued all-target build passed for client/updater. Manual playtest remains before closure.\n\nBoard cleanup 2026-06-09: removed from Active during asset-parity 100% cleanup; retained here so the current Active lane only reflects the live completion path.\n\nBoard refresh 2026-06-11: explicitly deferred during c3844 all-asset source/runtime parity closure; not an active routing target until c3844 changes state.\n\nPost-c3844 closeout 2026-06-12: still deferred. Do not route this card unless Mike explicitly reopens or promotes it.",
+      "notes": "Fixed 2026-05-21 in menuGraphFirePop/menuGraphFirePopOp by pairing POP_ROOT menupoolReleaseAll with menuClose so explicit root closes tear down both input/pool state and the legacy root dialog. Static coverage now pins menuClose in the graph root-pop helper. Focused [input][menu_graph] passed in isolated session menuclose, and queued all-target build passed for client/updater. Manual playtest remains before closure.\n\nBoard cleanup 2026-06-09: removed from Active during asset-parity 100% cleanup; retained here so the current Active lane only reflects the live completion path.\n\nBoard refresh 2026-06-11: explicitly deferred during c3844 all-asset source/runtime parity closure; not an active routing target until c3844 changes state.\n\nPost-c3844 closeout 2026-06-12: still deferred. Do not route this card unless Mike explicitly reopens or promotes it.\n\n2026-07-04: code complete + build/test-verified; flagged PENDING-COMPLETION (awaiting Mike's playtest confirmation). Repro/expected-pass is in context/playtest-checklist-2026-07-04.md. Session did the work; the confirmation tick is Mike's.",
       "flag": null,
       "flagged_at": null,
       "created": "2026-05-21T00:00:00Z",
-      "updated": "2026-06-11T03:19:28-04:00",
-      "pending_completion": {
-        "marked_by": "codex-menu-root-close",
-        "summary": "Main Menu root close now closes both menu graph pool/input state and the legacy root dialog so Esc/title X do not re-open the menu.",
-        "verify_notes": "Focused [input][menu_graph] passed in isolated session menuclose, and queued all-target build passed for client/updater. Needs Mike manual retest: open Main Menu, press Escape, and click the title X; each should close the menu once without duplicate cancel sounds or reappearing.",
-        "files": [
-          "port/src/menugraph.c",
-          "tests/test_menu_graph.cpp"
-        ],
-        "manual_checks": [
-          "Main Menu Escape closes to CI free-roam on the first press.",
-          "Main Menu title X closes to CI free-roam on the first click.",
-          "Cancel sound plays once and the menu does not reappear on the next frame."
-        ]
-      },
+      "updated": "2026-07-04T00:00:00Z",
+      "pending_completion": true,
       "updatedAt": "2026-06-09T00:00:00-04:00",
       "updated_at": "2026-06-11T03:19:28-04:00",
       "x_deferred_original_priority": null,
@@ -946,11 +920,11 @@
       "column": "backlog",
       "order": 40000,
       "priority": 5,
-      "notes": "2026-05-16 ship batch on dev (FIXED-PENDING-PLAYTEST): (1) 4246a45e -- GPU swarm bot speed tune 1620 -> 300 cm/sec to match CPU baseline. (2) b6f1c3d0 -- B-330 fix: roomGetProps() ignored its len param and write-overran 256-element s16 stack buffers at the 128->256/256->512 cycle, triggering Windows /GS stack-cookie aborts (0xC0000409) -- same silent-exit class as the historical B-307 reading. Function now honors len, drops surplus propnums, emits a frame-rate-limited LOG_WARNING. swarm_cpu_smoke now ladders cleanly 4 -> ... -> 512 (PASS 22/22). (3) 083a0348 -- B-331 fix: 768-bot AV at chrInit (myspecial+yvisang+teamscandist+convtalk+naturalanim left as MEMPOOL_STAGE garbage); init layer now writes -1 / 0 sentinels mirroring body.c/botmgr.c init paths. swarm_gpu_smoke ladders to 768 (PASS 26/26). (4) 04070afe -- GPU swarm perf: wall-clock dt + async PBO ring (2-deep, fence-gated) replaces synchronous glGetBufferSubData; eliminates pipeline drain at high counts. (5) 937bfc9b -- Slice 3 perf + 4-loop merge: chrSetPosWithCachedGround helper drops per-frame raycasts to 1/N. (6) d689e862 (with WIP b9c65e91) -- B-332 fix: chrSetPosWithCachedGround dropped its newrooms gate (rooms re-resolve via bgFindEnteredRooms unconditionally) and now sets CHRCFLAG_FORCETOGROUND every call, matching chrMoveToPos invariants; raycast budget at 512 bots / 78% hit rate = 85% reduction. Class: derived-helper drift (same family as B-264 / B-307b).  Historical B-307 promotion at 89bc7a50 (older session) + the deeper B-330/B-331/B-332 fixes today land the structural fix; 2026-05-13 audit HF-3 status is now FIXED-PENDING-PLAYTEST.\nPriority pass 2026-05-20: keep active as benchmark stability follow-up, but below asset pipeline, input, collision, and gameplay stability.\n\nBoard cleanup 2026-06-09: removed from Active during asset-parity 100% cleanup; retained here so the current Active lane only reflects the live completion path.\n\nBoard refresh 2026-06-11: explicitly deferred during c3844 all-asset source/runtime parity closure; not an active routing target until c3844 changes state.\n\nPost-c3844 closeout 2026-06-12: still deferred. Do not route this card unless Mike explicitly reopens or promotes it.",
+      "notes": "2026-05-16 ship batch on dev (FIXED-PENDING-PLAYTEST): (1) 4246a45e -- GPU swarm bot speed tune 1620 -> 300 cm/sec to match CPU baseline. (2) b6f1c3d0 -- B-330 fix: roomGetProps() ignored its len param and write-overran 256-element s16 stack buffers at the 128->256/256->512 cycle, triggering Windows /GS stack-cookie aborts (0xC0000409) -- same silent-exit class as the historical B-307 reading. Function now honors len, drops surplus propnums, emits a frame-rate-limited LOG_WARNING. swarm_cpu_smoke now ladders cleanly 4 -> ... -> 512 (PASS 22/22). (3) 083a0348 -- B-331 fix: 768-bot AV at chrInit (myspecial+yvisang+teamscandist+convtalk+naturalanim left as MEMPOOL_STAGE garbage); init layer now writes -1 / 0 sentinels mirroring body.c/botmgr.c init paths. swarm_gpu_smoke ladders to 768 (PASS 26/26). (4) 04070afe -- GPU swarm perf: wall-clock dt + async PBO ring (2-deep, fence-gated) replaces synchronous glGetBufferSubData; eliminates pipeline drain at high counts. (5) 937bfc9b -- Slice 3 perf + 4-loop merge: chrSetPosWithCachedGround helper drops per-frame raycasts to 1/N. (6) d689e862 (with WIP b9c65e91) -- B-332 fix: chrSetPosWithCachedGround dropped its newrooms gate (rooms re-resolve via bgFindEnteredRooms unconditionally) and now sets CHRCFLAG_FORCETOGROUND every call, matching chrMoveToPos invariants; raycast budget at 512 bots / 78% hit rate = 85% reduction. Class: derived-helper drift (same family as B-264 / B-307b).  Historical B-307 promotion at 89bc7a50 (older session) + the deeper B-330/B-331/B-332 fixes today land the structural fix; 2026-05-13 audit HF-3 status is now FIXED-PENDING-PLAYTEST.\nPriority pass 2026-05-20: keep active as benchmark stability follow-up, but below asset pipeline, input, collision, and gameplay stability.\n\nBoard cleanup 2026-06-09: removed from Active during asset-parity 100% cleanup; retained here so the current Active lane only reflects the live completion path.\n\nBoard refresh 2026-06-11: explicitly deferred during c3844 all-asset source/runtime parity closure; not an active routing target until c3844 changes state.\n\nPost-c3844 closeout 2026-06-12: still deferred. Do not route this card unless Mike explicitly reopens or promotes it.\n\n2026-07-04: code complete + build/test-verified; flagged PENDING-COMPLETION (awaiting Mike's playtest confirmation). Repro/expected-pass is in context/playtest-checklist-2026-07-04.md. Session did the work; the confirmation tick is Mike's.",
       "flag": null,
       "flagged_at": null,
       "created": "2026-05-02T00:00:00Z",
-      "updated": "2026-06-11T03:19:28-04:00",
+      "updated": "2026-07-04T00:00:00Z",
       "updatedAt": "2026-06-09T00:00:00-04:00",
       "updated_at": "2026-06-11T03:19:28-04:00",
       "x_deferred_original_priority": 3,
@@ -961,7 +935,8 @@
         "verified": "2026-06-11T14:56:38-04:00"
       },
       "x_deferred_at": "2026-06-11T14:56:38-04:00",
-      "x_deferred_reason": "Deferred after c3844 closeout; do not route unless Mike explicitly reopens or promotes it."
+      "x_deferred_reason": "Deferred after c3844 closeout; do not route unless Mike explicitly reopens or promotes it.",
+      "pending_completion": true
     },
     {
       "id": "c030",
@@ -1063,11 +1038,11 @@
       "column": "backlog",
       "order": 44000,
       "priority": 5,
-      "notes": "B-308 open in bugs.md  HF-1 in 2026-05-13 audit: multi-session lane, gated on Mike's 4 design calls per Phase 2 design doc.\nPriority pass 2026-05-20: GPU bot behavior pipeline is parked behind core gameplay stability.\n\nBoard cleanup 2026-06-09: removed from Active during asset-parity 100% cleanup; retained here so the current Active lane only reflects the live completion path.\n\nBoard refresh 2026-06-11: explicitly deferred during c3844 all-asset source/runtime parity closure; not an active routing target until c3844 changes state.\n\nPost-c3844 closeout 2026-06-12: still deferred. Do not route this card unless Mike explicitly reopens or promotes it.",
+      "notes": "B-308 open in bugs.md  HF-1 in 2026-05-13 audit: multi-session lane, gated on Mike's 4 design calls per Phase 2 design doc.\nPriority pass 2026-05-20: GPU bot behavior pipeline is parked behind core gameplay stability.\n\nBoard cleanup 2026-06-09: removed from Active during asset-parity 100% cleanup; retained here so the current Active lane only reflects the live completion path.\n\nBoard refresh 2026-06-11: explicitly deferred during c3844 all-asset source/runtime parity closure; not an active routing target until c3844 changes state.\n\nPost-c3844 closeout 2026-06-12: still deferred. Do not route this card unless Mike explicitly reopens or promotes it.\n\n2026-07-04: code complete + build/test-verified; flagged PENDING-COMPLETION (awaiting Mike's playtest confirmation). Repro/expected-pass is in context/playtest-checklist-2026-07-04.md. Session did the work; the confirmation tick is Mike's.",
       "flag": null,
       "flagged_at": null,
       "created": "2026-05-02T00:00:00Z",
-      "updated": "2026-06-11T03:19:28-04:00",
+      "updated": "2026-07-04T00:00:00Z",
       "updatedAt": "2026-06-09T00:00:00-04:00",
       "updated_at": "2026-06-11T03:19:28-04:00",
       "x_deferred_original_priority": 4,
@@ -1078,7 +1053,8 @@
         "verified": "2026-06-11T14:56:38-04:00"
       },
       "x_deferred_at": "2026-06-11T14:56:38-04:00",
-      "x_deferred_reason": "Deferred after c3844 closeout; do not route unless Mike explicitly reopens or promotes it."
+      "x_deferred_reason": "Deferred after c3844 closeout; do not route unless Mike explicitly reopens or promotes it.",
+      "pending_completion": true
     },
     {
       "id": "c032",
@@ -1088,11 +1064,11 @@
       "column": "backlog",
       "order": 7000,
       "priority": 5,
-      "notes": "B-309 open in bugs.md  HF-1 in 2026-05-13 audit: same gating as c031.\n\nBoard refresh 2026-06-11: explicitly deferred during c3844 all-asset source/runtime parity closure; not an active routing target until c3844 changes state.\n\nPost-c3844 closeout 2026-06-12: still deferred. Do not route this card unless Mike explicitly reopens or promotes it.",
+      "notes": "B-309 open in bugs.md  HF-1 in 2026-05-13 audit: same gating as c031.\n\nBoard refresh 2026-06-11: explicitly deferred during c3844 all-asset source/runtime parity closure; not an active routing target until c3844 changes state.\n\nPost-c3844 closeout 2026-06-12: still deferred. Do not route this card unless Mike explicitly reopens or promotes it.\n\n2026-07-04: code complete + build/test-verified; flagged PENDING-COMPLETION (awaiting Mike's playtest confirmation). Repro/expected-pass is in context/playtest-checklist-2026-07-04.md. Session did the work; the confirmation tick is Mike's.",
       "flag": null,
       "flagged_at": null,
       "created": "2026-05-02T00:00:00Z",
-      "updated": "2026-06-11T03:19:28-04:00",
+      "updated": "2026-07-04T00:00:00Z",
       "updated_at": "2026-06-11T03:19:28-04:00",
       "x_deferred_original_priority": 3,
       "x_deferred": {
@@ -1102,7 +1078,8 @@
         "verified": "2026-06-11T14:56:38-04:00"
       },
       "x_deferred_at": "2026-06-11T14:56:38-04:00",
-      "x_deferred_reason": "Deferred after c3844 closeout; do not route unless Mike explicitly reopens or promotes it."
+      "x_deferred_reason": "Deferred after c3844 closeout; do not route unless Mike explicitly reopens or promotes it.",
+      "pending_completion": true
     },
     {
       "id": "c033",
@@ -1112,11 +1089,11 @@
       "column": "backlog",
       "order": 9000,
       "priority": 5,
-      "notes": "B-310 open in bugs.md  HF-1 in 2026-05-13 audit: same gating as c031.\n\nBoard refresh 2026-06-11: explicitly deferred during c3844 all-asset source/runtime parity closure; not an active routing target until c3844 changes state.\n\nPost-c3844 closeout 2026-06-12: still deferred. Do not route this card unless Mike explicitly reopens or promotes it.",
+      "notes": "B-310 open in bugs.md  HF-1 in 2026-05-13 audit: same gating as c031.\n\nBoard refresh 2026-06-11: explicitly deferred during c3844 all-asset source/runtime parity closure; not an active routing target until c3844 changes state.\n\nPost-c3844 closeout 2026-06-12: still deferred. Do not route this card unless Mike explicitly reopens or promotes it.\n\n2026-07-04: code complete + build/test-verified; flagged PENDING-COMPLETION (awaiting Mike's playtest confirmation). Repro/expected-pass is in context/playtest-checklist-2026-07-04.md. Session did the work; the confirmation tick is Mike's.",
       "flag": null,
       "flagged_at": null,
       "created": "2026-05-02T00:00:00Z",
-      "updated": "2026-06-11T03:19:28-04:00",
+      "updated": "2026-07-04T00:00:00Z",
       "updated_at": "2026-06-11T03:19:28-04:00",
       "x_deferred_original_priority": 3,
       "x_deferred": {
@@ -1126,7 +1103,8 @@
         "verified": "2026-06-11T14:56:38-04:00"
       },
       "x_deferred_at": "2026-06-11T14:56:38-04:00",
-      "x_deferred_reason": "Deferred after c3844 closeout; do not route unless Mike explicitly reopens or promotes it."
+      "x_deferred_reason": "Deferred after c3844 closeout; do not route unless Mike explicitly reopens or promotes it.",
+      "pending_completion": true
     },
     {
       "id": "c080",
@@ -1136,11 +1114,11 @@
       "column": "backlog",
       "order": 10000,
       "priority": 5,
-      "notes": "B-311 open in bugs.md  HF-1 in 2026-05-13 audit: same root-cause class as B-308/B-309/B-310. SWARM_GPU_SAFE_MAX warning shipped at c129 as a same-day workaround until the underlying GPU compute kernel migration lands.\n\nBoard refresh 2026-06-11: explicitly deferred during c3844 all-asset source/runtime parity closure; not an active routing target until c3844 changes state.\n\nPost-c3844 closeout 2026-06-12: still deferred. Do not route this card unless Mike explicitly reopens or promotes it.",
+      "notes": "B-311 open in bugs.md  HF-1 in 2026-05-13 audit: same root-cause class as B-308/B-309/B-310. SWARM_GPU_SAFE_MAX warning shipped at c129 as a same-day workaround until the underlying GPU compute kernel migration lands.\n\nBoard refresh 2026-06-11: explicitly deferred during c3844 all-asset source/runtime parity closure; not an active routing target until c3844 changes state.\n\nPost-c3844 closeout 2026-06-12: still deferred. Do not route this card unless Mike explicitly reopens or promotes it.\n\n2026-07-04: code complete + build/test-verified; flagged PENDING-COMPLETION (awaiting Mike's playtest confirmation). Repro/expected-pass is in context/playtest-checklist-2026-07-04.md. Session did the work; the confirmation tick is Mike's.",
       "flag": null,
       "flagged_at": null,
       "created": "2026-05-02T00:00:00Z",
-      "updated": "2026-06-11T03:19:28-04:00",
+      "updated": "2026-07-04T00:00:00Z",
       "updated_at": "2026-06-11T03:19:28-04:00",
       "x_deferred_original_priority": 3,
       "x_deferred": {
@@ -1150,7 +1128,8 @@
         "verified": "2026-06-11T14:56:38-04:00"
       },
       "x_deferred_at": "2026-06-11T14:56:38-04:00",
-      "x_deferred_reason": "Deferred after c3844 closeout; do not route unless Mike explicitly reopens or promotes it."
+      "x_deferred_reason": "Deferred after c3844 closeout; do not route unless Mike explicitly reopens or promotes it.",
+      "pending_completion": true
     },
     {
       "id": "c051",
@@ -1781,11 +1760,11 @@
       "column": "backlog",
       "order": 1000,
       "priority": 5,
-      "notes": "B-298 open in bugs.md; blocked pending Input Cohorts 5-8\nPriority pass 2026-05-20: no longer blocked on Input Cohorts 5-8 because c036 is closed. Requeued behind core input/collision stability.\n\nBoard refresh 2026-06-11: explicitly deferred during c3844 all-asset source/runtime parity closure; not an active routing target until c3844 changes state.\n\nPost-c3844 closeout 2026-06-12: still deferred. Do not route this card unless Mike explicitly reopens or promotes it.",
+      "notes": "B-298 open in bugs.md; blocked pending Input Cohorts 5-8\nPriority pass 2026-05-20: no longer blocked on Input Cohorts 5-8 because c036 is closed. Requeued behind core input/collision stability.\n\nBoard refresh 2026-06-11: explicitly deferred during c3844 all-asset source/runtime parity closure; not an active routing target until c3844 changes state.\n\nPost-c3844 closeout 2026-06-12: still deferred. Do not route this card unless Mike explicitly reopens or promotes it.\n\n2026-07-04: code complete + build/test-verified; flagged PENDING-COMPLETION (awaiting Mike's playtest confirmation). Repro/expected-pass is in context/playtest-checklist-2026-07-04.md. Session did the work; the confirmation tick is Mike's.",
       "flag": null,
       "flagged_at": null,
       "created": "2026-05-02T00:00:00Z",
-      "updated": "2026-06-11T03:19:28-04:00",
+      "updated": "2026-07-04T00:00:00Z",
       "updated_at": "2026-06-11T03:19:28-04:00",
       "x_deferred_original_priority": 2,
       "x_deferred": {
@@ -1795,7 +1774,8 @@
         "verified": "2026-06-11T14:56:38-04:00"
       },
       "x_deferred_at": "2026-06-11T14:56:38-04:00",
-      "x_deferred_reason": "Deferred after c3844 closeout; do not route unless Mike explicitly reopens or promotes it."
+      "x_deferred_reason": "Deferred after c3844 closeout; do not route unless Mike explicitly reopens or promotes it.",
+      "pending_completion": true
     },
     {
       "id": "c037",
@@ -1885,28 +1865,12 @@
       "column": "backlog",
       "order": 36000,
       "priority": 5,
-      "notes": "Fixed in code 2026-05-21. The failure was concrete bot-jump target-prop validation, not the old catalog/manifest hypothesis: botJumpDecide and adjacent attack/follow/protect/target paths trusted stale prop indexes and prop->chr backlinks. src/game/bot.c now proves live prop-pool range, CHR/PLAYER payload type, and bidirectional chr->prop backlink before dereferencing; stale human commands clear back to Normal. Focused static coverage pins the bot backlink contract and the offline Combat Sim manifest setup path.\n\nBoard cleanup 2026-06-09: removed from Active during asset-parity 100% cleanup; retained here so the current Active lane only reflects the live completion path.\n\nBoard cleanup 2026-06-11: attention flag cleared because c3844 is the only active parity-closure lane; history retained in this card.\n\nBoard refresh 2026-06-11: explicitly deferred during c3844 all-asset source/runtime parity closure; not an active routing target until c3844 changes state.\n\nPost-c3844 closeout 2026-06-12: still deferred. Do not route this card unless Mike explicitly reopens or promotes it.",
+      "notes": "Fixed in code 2026-05-21. The failure was concrete bot-jump target-prop validation, not the old catalog/manifest hypothesis: botJumpDecide and adjacent attack/follow/protect/target paths trusted stale prop indexes and prop->chr backlinks. src/game/bot.c now proves live prop-pool range, CHR/PLAYER payload type, and bidirectional chr->prop backlink before dereferencing; stale human commands clear back to Normal. Focused static coverage pins the bot backlink contract and the offline Combat Sim manifest setup path.\n\nBoard cleanup 2026-06-09: removed from Active during asset-parity 100% cleanup; retained here so the current Active lane only reflects the live completion path.\n\nBoard cleanup 2026-06-11: attention flag cleared because c3844 is the only active parity-closure lane; history retained in this card.\n\nBoard refresh 2026-06-11: explicitly deferred during c3844 all-asset source/runtime parity closure; not an active routing target until c3844 changes state.\n\nPost-c3844 closeout 2026-06-12: still deferred. Do not route this card unless Mike explicitly reopens or promotes it.\n\n2026-07-04: code complete + build/test-verified; flagged PENDING-COMPLETION (awaiting Mike's playtest confirmation). Repro/expected-pass is in context/playtest-checklist-2026-07-04.md. Session did the work; the confirmation tick is Mike's.",
       "flag": null,
       "flagged_at": null,
-      "pending_completion": {
-        "marked_at": "2026-05-21T11:55:00-04:00",
-        "marked_by": "codex-b316arch",
-        "summary": "Guarded Combat Simulator bot target prop dereferences and fixed the crash path from the fresh Grid 1-player / 8-bot log.",
-        "verify_notes": "Verified 2026-05-21 in isolated session b316arch: queued all-target build passed; focused offline Combat Simulator manifest test passed; focused bot target backlink validation test passed; combat_sim_entry smoke exited cleanly with no access violation or fatal. Manual closure should still run the exact user repro: Grid, 1 player, 8 bots, Bot Jumping enabled, Start Match.",
-        "evidence_refs": [
-          "src/game/bot.c",
-          "tests/test_scene_dispatch.cpp",
-          "context/bugs.md",
-          "context/session-log.md"
-        ],
-        "expected_artifacts": [
-          "Combat Simulator match start no longer crashes in botJumpDecide when a bot target prop is stale.",
-          "Bot attack/follow/protect/target commands reject invalid live-prop backlinks before use.",
-          "The exact Grid 1-player / 8-bot / Bot Jumping repro remains the manual playtest gate."
-        ]
-      },
+      "pending_completion": true,
       "created": "2026-05-03T00:00:00Z",
-      "updated": "2026-06-11T03:19:28-04:00",
+      "updated": "2026-07-04T00:00:00Z",
       "updatedAt": "2026-06-09T00:00:00-04:00",
       "updated_at": "2026-06-11T03:19:28-04:00",
       "x_deferred_original_priority": 2,
@@ -2086,31 +2050,12 @@
       "column": "backlog",
       "order": 34000,
       "priority": 5,
-      "notes": "Fixed 2026-05-21 in the same menu/input sweep. mpPushEndscreenDialog now marks OPTION_ASKEDSAVEPLAYER but does not push g_MpEndscreenSavePlayerMenuDialog on PC, so the MP game-over root remains visible and the ImGui endscreen exit path owns config saving. Second pass: MP and solo endscreen confirm popups now open from the parent endscreen scope after the action-bar child closes, and the custom title X accepts root/child focus so it still works after focus lands in the content/action children. Static coverage added to tests/test_menu_graph.cpp.\n\nBoard cleanup 2026-06-09: removed from Active during asset-parity 100% cleanup; retained here so the current Active lane only reflects the live completion path.\n\nBoard cleanup 2026-06-11: attention flag cleared because c3844 is the only active parity-closure lane; history retained in this card.\n\nBoard refresh 2026-06-11: explicitly deferred during c3844 all-asset source/runtime parity closure; not an active routing target until c3844 changes state.\n\nPost-c3844 closeout 2026-06-12: still deferred. Do not route this card unless Mike explicitly reopens or promotes it.",
+      "notes": "Fixed 2026-05-21 in the same menu/input sweep. mpPushEndscreenDialog now marks OPTION_ASKEDSAVEPLAYER but does not push g_MpEndscreenSavePlayerMenuDialog on PC, so the MP game-over root remains visible and the ImGui endscreen exit path owns config saving. Second pass: MP and solo endscreen confirm popups now open from the parent endscreen scope after the action-bar child closes, and the custom title X accepts root/child focus so it still works after focus lands in the content/action children. Static coverage added to tests/test_menu_graph.cpp.\n\nBoard cleanup 2026-06-09: removed from Active during asset-parity 100% cleanup; retained here so the current Active lane only reflects the live completion path.\n\nBoard cleanup 2026-06-11: attention flag cleared because c3844 is the only active parity-closure lane; history retained in this card.\n\nBoard refresh 2026-06-11: explicitly deferred during c3844 all-asset source/runtime parity closure; not an active routing target until c3844 changes state.\n\nPost-c3844 closeout 2026-06-12: still deferred. Do not route this card unless Mike explicitly reopens or promotes it.\n\n2026-07-04: code complete + build/test-verified; flagged PENDING-COMPLETION (awaiting Mike's playtest confirmation). Repro/expected-pass is in context/playtest-checklist-2026-07-04.md. Session did the work; the confirmation tick is Mike's.",
       "flag": null,
       "flagged_at": null,
-      "pending_completion": {
-        "marked_at": "2026-05-21T04:36:59Z",
-        "marked_by": "codex-csend356-postmatch",
-        "summary": "Prevented the suppressed legacy Save Player prompt from hiding the Combat Simulator post-match screen, then fixed the visible endscreen X/button confirm routing.",
-        "verify_notes": "Verified 2026-05-21 first pass in isolated session csend356: focused pd-tests [input][menu_graph] passed (644 assertions / 33 cases); queued all-target build passed. Second pass in isolated session csendclick: focused [input][menu_graph] passed (668 assertions / 34 cases); queued all-target build passed; scoped diff check passed.",
-        "evidence_refs": [
-          "src/game/mplayer/ingame.c",
-          "port/fast3d/pdgui_menu_endscreen.cpp",
-          "port/fast3d/pdgui_style.cpp",
-          "tests/test_menu_graph.cpp",
-          "context/bugs.md"
-        ],
-        "expected_artifacts": [
-          "Ending a local Combat Simulator match shows the post-match screen.",
-          "The game no longer needs to be force-closed after match end.",
-          "Title X opens the Quit/Disconnect confirm on the visible post-match screen.",
-          "Quit/Disconnect confirm buttons respond to clicks.",
-          "Play Again / Return to Room continues through the existing ImGui endscreen flow."
-        ]
-      },
+      "pending_completion": true,
       "created": "2026-05-21T04:36:59Z",
-      "updated": "2026-06-11T03:19:28-04:00",
+      "updated": "2026-07-04T00:00:00Z",
       "updatedAt": "2026-06-09T00:00:00-04:00",
       "updated_at": "2026-06-11T03:19:28-04:00",
       "x_deferred_original_priority": 1,
@@ -2957,12 +2902,12 @@
       "order": 42000,
       "priority": 5,
       "description": "Slices 1+2 (chr-struct plumbing + visual tilt) shipped at dev 0d08b4cc. Slice 3 (MP sync) shipped at dev ae705aa6. Slices 4 (gravity-flip on edge transitions) and 5 (aim projection through world space) deferred pending Mike's playtest gate on the foundation. Slice 6 (GPU parity in compute kernel) remains deferred to gpu-swarm-bot-pipeline scope.",
-      "notes": "2026-05-16 ship: wall-transition climb trigger (4d0b70d8) -- begins materialising Slice 4 (gravity-flip on edge transitions) via a climb-trigger detector at the Skedar surface-normal pipeline boundary. Slice 5 sampler raycast along chr->surface_up shipped 2026-05-14 as e5771cda; Slice 6 GPU compute kernel projection shipped same day as 6fe94c09. With today's wall-transition slice the c3738 lane covers Slices 1-3 + 4-prep + 5 + 6. Outstanding: Mike's playtest gate on the full surface-loco visual (a Skedar map / CITRAINING swarm GPU mode) -- the smoke tests verify the pipeline runs without crash but cannot assert visual correctness. Sprint report: sprint-2026-05-16T170755-wall-transition.md.  MF-3 in 2026-05-13 audit was framed as Slices 1-3 done / 4-5 + GPU parity deferred -- post-2026-05-14 + 05-16 the audit ledger needs updating.\nPriority pass 2026-05-20: Skedar surface locomotion remains useful but is not ahead of asset pipeline, input, collision, or drop-in/drop-out stability.\n\nBoard cleanup 2026-06-09: removed from Active during asset-parity 100% cleanup; retained here so the current Active lane only reflects the live completion path.\n\nBoard refresh 2026-06-11: explicitly deferred during c3844 all-asset source/runtime parity closure; not an active routing target until c3844 changes state.\n\nPost-c3844 closeout 2026-06-12: still deferred. Do not route this card unless Mike explicitly reopens or promotes it.",
+      "notes": "2026-05-16 ship: wall-transition climb trigger (4d0b70d8) -- begins materialising Slice 4 (gravity-flip on edge transitions) via a climb-trigger detector at the Skedar surface-normal pipeline boundary. Slice 5 sampler raycast along chr->surface_up shipped 2026-05-14 as e5771cda; Slice 6 GPU compute kernel projection shipped same day as 6fe94c09. With today's wall-transition slice the c3738 lane covers Slices 1-3 + 4-prep + 5 + 6. Outstanding: Mike's playtest gate on the full surface-loco visual (a Skedar map / CITRAINING swarm GPU mode) -- the smoke tests verify the pipeline runs without crash but cannot assert visual correctness. Sprint report: sprint-2026-05-16T170755-wall-transition.md.  MF-3 in 2026-05-13 audit was framed as Slices 1-3 done / 4-5 + GPU parity deferred -- post-2026-05-14 + 05-16 the audit ledger needs updating.\nPriority pass 2026-05-20: Skedar surface locomotion remains useful but is not ahead of asset pipeline, input, collision, or drop-in/drop-out stability.\n\nBoard cleanup 2026-06-09: removed from Active during asset-parity 100% cleanup; retained here so the current Active lane only reflects the live completion path.\n\nBoard refresh 2026-06-11: explicitly deferred during c3844 all-asset source/runtime parity closure; not an active routing target until c3844 changes state.\n\nPost-c3844 closeout 2026-06-12: still deferred. Do not route this card unless Mike explicitly reopens or promotes it.\n\n2026-07-04: code complete + build/test-verified; flagged PENDING-COMPLETION (awaiting Mike's playtest confirmation). Repro/expected-pass is in context/playtest-checklist-2026-07-04.md. Session did the work; the confirmation tick is Mike's.",
       "subtasks": [],
       "flag": null,
       "flagged_at": null,
       "created": "2026-05-01",
-      "updated": "2026-06-11T03:19:28-04:00",
+      "updated": "2026-07-04T00:00:00Z",
       "updatedAt": "2026-06-09T00:00:00-04:00",
       "updated_at": "2026-06-11T03:19:28-04:00",
       "x_deferred_original_priority": 3,
@@ -2973,7 +2918,8 @@
         "verified": "2026-06-11T14:56:38-04:00"
       },
       "x_deferred_at": "2026-06-11T14:56:38-04:00",
-      "x_deferred_reason": "Deferred after c3844 closeout; do not route unless Mike explicitly reopens or promotes it."
+      "x_deferred_reason": "Deferred after c3844 closeout; do not route unless Mike explicitly reopens or promotes it.",
+      "pending_completion": true
     },
     {
       "id": "c3746",
@@ -3009,12 +2955,12 @@
       "order": 41000,
       "priority": 5,
       "description": "Phase 1 design shipped at context/designs/in-flight/gpu-swarm-and-test-scenarios.md. Phase 2 implementation gated on Mike's approval of four design calls: (a) GL compute path choice in Section F.1, (b) chr-pool ceiling in Section F.2, (c) hit-detection model in Section F.3, (d) empty-map source in Section F.4. Benchmark harness scope, not gameplay rework; existing bot handling stays intact.",
-      "notes": "2026-05-16 ship batch on dev (FIXED-PENDING-PLAYTEST across the board): GPU bot AI first slice + finish (0edf90cb + 6d67888d, B-308 closed), spawn-time anim POS_ONLY visual fix (43d5a3c8), Boids v0 (81c25931), Track 2a ping-pong RGBA32F state textures (2af02855), Track 2c extraction primitive (67f835fa), Track 2d SVC_GPUSWARM_STATE 0x6c listen-host-only Mode B net sync at NET_PROTOCOL_VER 47 -> 48 (390ae5c7). Track 2b INTENTIONALLY SKIPPED. NET_PROTOCOL_VER 49 was bumped 2026-05-17 for CLC_LOBBY_RESYNC (c054), not for c3807.  2026-05-17 playtest fixes (4535ed5f): Mike reported GPU Skedars merged at player + crashed on O-key. (a) Reynolds boids retuned seek 1.0 -> 1.6 / sep 1.5 -> 1.0 / sep_radius 60 -> 90 so seek wins on approach and the wider personal-space bubble spreads bots around the player. (b) Round-robin throttle on the AI side-effect call: pressing O to enable GPU_FULL fired 4096 simultaneous modelSetAnimation calls overflowing the chr vtxstore, corrupting display-list emission (FATAL: Unknown GBI opcode 0x80 w0 8000000080000000). Each bot's swarmTestApplyAiDecision now fires at most once every 4 frames; the wave spreads to ~67 ms. Per-bot stats still tally every frame so the BENCHMARK.SWARM.GPU.AI summary is accurate.  Open follow-ups in the c3807 lane: Track 2e client prediction, Track 2f range-relative pos quantization, Track 2g Mode A dedicated (gated on porting kSwarmCs to CPU since pd-server has no GL context AND pd-server is now deprecated per Mike directive 2026-05-17). B-333 (LOW, TRACKING) carries v1 Mode B known limitations.\nPriority pass 2026-05-20: benchmark/GPU swarm work is lower than the current ship-critical asset/input/collision/stability sequence.\n\nBoard cleanup 2026-06-09: removed from Active during asset-parity 100% cleanup; retained here so the current Active lane only reflects the live completion path.\n\nBoard refresh 2026-06-11: explicitly deferred during c3844 all-asset source/runtime parity closure; not an active routing target until c3844 changes state.\n\nPost-c3844 closeout 2026-06-12: still deferred. Do not route this card unless Mike explicitly reopens or promotes it.",
+      "notes": "2026-05-16 ship batch on dev (FIXED-PENDING-PLAYTEST across the board): GPU bot AI first slice + finish (0edf90cb + 6d67888d, B-308 closed), spawn-time anim POS_ONLY visual fix (43d5a3c8), Boids v0 (81c25931), Track 2a ping-pong RGBA32F state textures (2af02855), Track 2c extraction primitive (67f835fa), Track 2d SVC_GPUSWARM_STATE 0x6c listen-host-only Mode B net sync at NET_PROTOCOL_VER 47 -> 48 (390ae5c7). Track 2b INTENTIONALLY SKIPPED. NET_PROTOCOL_VER 49 was bumped 2026-05-17 for CLC_LOBBY_RESYNC (c054), not for c3807.  2026-05-17 playtest fixes (4535ed5f): Mike reported GPU Skedars merged at player + crashed on O-key. (a) Reynolds boids retuned seek 1.0 -> 1.6 / sep 1.5 -> 1.0 / sep_radius 60 -> 90 so seek wins on approach and the wider personal-space bubble spreads bots around the player. (b) Round-robin throttle on the AI side-effect call: pressing O to enable GPU_FULL fired 4096 simultaneous modelSetAnimation calls overflowing the chr vtxstore, corrupting display-list emission (FATAL: Unknown GBI opcode 0x80 w0 8000000080000000). Each bot's swarmTestApplyAiDecision now fires at most once every 4 frames; the wave spreads to ~67 ms. Per-bot stats still tally every frame so the BENCHMARK.SWARM.GPU.AI summary is accurate.  Open follow-ups in the c3807 lane: Track 2e client prediction, Track 2f range-relative pos quantization, Track 2g Mode A dedicated (gated on porting kSwarmCs to CPU since pd-server has no GL context AND pd-server is now deprecated per Mike directive 2026-05-17). B-333 (LOW, TRACKING) carries v1 Mode B known limitations.\nPriority pass 2026-05-20: benchmark/GPU swarm work is lower than the current ship-critical asset/input/collision/stability sequence.\n\nBoard cleanup 2026-06-09: removed from Active during asset-parity 100% cleanup; retained here so the current Active lane only reflects the live completion path.\n\nBoard refresh 2026-06-11: explicitly deferred during c3844 all-asset source/runtime parity closure; not an active routing target until c3844 changes state.\n\nPost-c3844 closeout 2026-06-12: still deferred. Do not route this card unless Mike explicitly reopens or promotes it.\n\n2026-07-04: code complete + build/test-verified; flagged PENDING-COMPLETION (awaiting Mike's playtest confirmation). Repro/expected-pass is in context/playtest-checklist-2026-07-04.md. Session did the work; the confirmation tick is Mike's.",
       "subtasks": [],
       "flag": null,
       "flagged_at": null,
       "created": "2026-04-27",
-      "updated": "2026-06-11T03:19:28-04:00",
+      "updated": "2026-07-04T00:00:00Z",
       "updatedAt": "2026-06-09T00:00:00-04:00",
       "updated_at": "2026-06-11T03:19:28-04:00",
       "x_deferred_original_priority": 3,
@@ -3025,7 +2971,8 @@
         "verified": "2026-06-11T14:56:38-04:00"
       },
       "x_deferred_at": "2026-06-11T14:56:38-04:00",
-      "x_deferred_reason": "Deferred after c3844 closeout; do not route unless Mike explicitly reopens or promotes it."
+      "x_deferred_reason": "Deferred after c3844 closeout; do not route unless Mike explicitly reopens or promotes it.",
+      "pending_completion": true
     },
     {
       "id": "c3808",
@@ -3035,12 +2982,12 @@
       "column": "backlog",
       "order": 8000,
       "priority": 5,
-      "notes": "v1 shipped 2026-05-13: two text inputs (folder path, output .pdmod path), one button. Calls modpackPdmodFromFolder. Future: file-system folder browser, .pdpack migration helper.\nPriority pass 2026-05-20: v1 packer UI shipped; future folder-browser/.pdpack polish waits until c3812 fixes the typed archive contract.\n\nBoard refresh 2026-06-11: explicitly deferred during c3844 all-asset source/runtime parity closure; not an active routing target until c3844 changes state.\n\nPost-c3844 closeout 2026-06-12: still deferred. Do not route this card unless Mike explicitly reopens or promotes it.",
+      "notes": "v1 shipped 2026-05-13: two text inputs (folder path, output .pdmod path), one button. Calls modpackPdmodFromFolder. Future: file-system folder browser, .pdpack migration helper.\nPriority pass 2026-05-20: v1 packer UI shipped; future folder-browser/.pdpack polish waits until c3812 fixes the typed archive contract.\n\nBoard refresh 2026-06-11: explicitly deferred during c3844 all-asset source/runtime parity closure; not an active routing target until c3844 changes state.\n\nPost-c3844 closeout 2026-06-12: still deferred. Do not route this card unless Mike explicitly reopens or promotes it.\n\n2026-07-04: code complete + build/test-verified; flagged PENDING-COMPLETION (awaiting Mike's playtest confirmation). Repro/expected-pass is in context/playtest-checklist-2026-07-04.md. Session did the work; the confirmation tick is Mike's.",
       "flag": null,
       "flagged_at": null,
-      "pending_completion": null,
+      "pending_completion": true,
       "created": "2026-05-14T00:00:00Z",
-      "updated": "2026-06-11T03:19:28-04:00",
+      "updated": "2026-07-04T00:00:00Z",
       "updated_at": "2026-06-11T03:19:28-04:00",
       "x_deferred_original_priority": 3,
       "x_deferred": {
@@ -3331,7 +3278,7 @@
       "column": "backlog",
       "order": 35000,
       "priority": 5,
-      "notes": "Code/build slice completed 2026-05-19. Root cause: player airborne movement applied horizontal X/Z first, then bwalkUpdateVertical() only swept move=(0, verticalDelta, 0), so side-entry during a jump could bypass the side plane before vertical clamping. Fix: src/game/bondwalk.c adds bwalkClampAirborneSideEntry(), an upward diagonal capsuleSweep() from bondprevpos to the already-applied X/Z plus verticalDelta; on hit it rolls X/Z back to the safe fraction and clamps/kills upward velocity for ceiling-class hits. Test fixture now covers side-wall rendered triangles. Verification passed: scoped git diff --check, b350side tests target, focused [physics][jump] (99 assertions / 4 cases), and b350side all-target build. Manual CI Training retest remains the closure gate.\n2026-05-22 B-367 follow-up: Mike reported the jumping player still clips into walls, ceilings, or corners. Root cause was the remaining horizontal half of the movement-order split: apex/descent lateral motion still committed through the legacy cylinder path before any capsule mesh repair ran. Fix: bwalkClampAirborneLateralEntry() now runs immediately after horizontal movement and before speed correction when airborne, uses the collision-owned capsule mesh sweep from bondprevpos, rolls X/Z back on wall/ceiling/corner hits, and ignores floor-class hits. Verification passed: focused [physics][jump] (105 assertions / 4 cases) and jump367 all-target build. Manual retest remains the closure gate.\nPriority pass 2026-05-20: Collision critical path. Manual CI Training retest remains the gate before broader gameplay-stability work is treated as reliable.\n\nBoard cleanup 2026-06-09: removed from Active during asset-parity 100% cleanup; retained here so the current Active lane only reflects the live completion path.\n\nBoard cleanup 2026-06-11: deferred out of Active while c3844 owns all-asset source/runtime parity closure; retained here for history and future scheduling.\n\nBoard cleanup 2026-06-11: attention flag cleared because c3844 is the only active parity-closure lane; history retained in this card.\n\nBoard refresh 2026-06-11: explicitly deferred during c3844 all-asset source/runtime parity closure; not an active routing target until c3844 changes state.\n\nPost-c3844 closeout 2026-06-12: still deferred. Do not route this card unless Mike explicitly reopens or promotes it.",
+      "notes": "Code/build slice completed 2026-05-19. Root cause: player airborne movement applied horizontal X/Z first, then bwalkUpdateVertical() only swept move=(0, verticalDelta, 0), so side-entry during a jump could bypass the side plane before vertical clamping. Fix: src/game/bondwalk.c adds bwalkClampAirborneSideEntry(), an upward diagonal capsuleSweep() from bondprevpos to the already-applied X/Z plus verticalDelta; on hit it rolls X/Z back to the safe fraction and clamps/kills upward velocity for ceiling-class hits. Test fixture now covers side-wall rendered triangles. Verification passed: scoped git diff --check, b350side tests target, focused [physics][jump] (99 assertions / 4 cases), and b350side all-target build. Manual CI Training retest remains the closure gate.\n2026-05-22 B-367 follow-up: Mike reported the jumping player still clips into walls, ceilings, or corners. Root cause was the remaining horizontal half of the movement-order split: apex/descent lateral motion still committed through the legacy cylinder path before any capsule mesh repair ran. Fix: bwalkClampAirborneLateralEntry() now runs immediately after horizontal movement and before speed correction when airborne, uses the collision-owned capsule mesh sweep from bondprevpos, rolls X/Z back on wall/ceiling/corner hits, and ignores floor-class hits. Verification passed: focused [physics][jump] (105 assertions / 4 cases) and jump367 all-target build. Manual retest remains the closure gate.\nPriority pass 2026-05-20: Collision critical path. Manual CI Training retest remains the gate before broader gameplay-stability work is treated as reliable.\n\nBoard cleanup 2026-06-09: removed from Active during asset-parity 100% cleanup; retained here so the current Active lane only reflects the live completion path.\n\nBoard cleanup 2026-06-11: deferred out of Active while c3844 owns all-asset source/runtime parity closure; retained here for history and future scheduling.\n\nBoard cleanup 2026-06-11: attention flag cleared because c3844 is the only active parity-closure lane; history retained in this card.\n\nBoard refresh 2026-06-11: explicitly deferred during c3844 all-asset source/runtime parity closure; not an active routing target until c3844 changes state.\n\nPost-c3844 closeout 2026-06-12: still deferred. Do not route this card unless Mike explicitly reopens or promotes it.\n\n2026-07-04: code complete + build/test-verified; flagged PENDING-COMPLETION (awaiting Mike's playtest confirmation). Repro/expected-pass is in context/playtest-checklist-2026-07-04.md. Session did the work; the confirmation tick is Mike's.",
       "subtasks": [
         {
           "id": "c136-s1",
@@ -3372,19 +3319,8 @@
       "flag": null,
       "flagged_at": null,
       "created": "2026-05-19T18:16:48Z",
-      "updated": "2026-06-11T03:19:28-04:00",
-      "pending_completion": {
-        "marked_at": "2026-05-22T03:39:33Z",
-        "marked_by": "session-jump367",
-        "summary": "B-350 and B-367 are code-fixed and build/test verified; the remaining closure gate is Mike's playtest of jumping into walls, ceilings, and corners plus CI Training blocker/doorway and moved-couch dynamic collision.",
-        "evidence_refs": [
-          "context/bugs.md#B-350",
-          "context/bugs.md#B-367",
-          "src/game/bondwalk.c",
-          "tests/test_jump_two_stage_design.cpp",
-          "context/session-log.md#jump367"
-        ]
-      },
+      "updated": "2026-07-04T00:00:00Z",
+      "pending_completion": true,
       "updatedAt": "2026-06-09T00:00:00-04:00",
       "updated_at": "2026-06-11T03:19:28-04:00",
       "x_deferred_original_priority": 1,
@@ -3430,7 +3366,7 @@
       "column": "backlog",
       "order": 38000,
       "priority": 5,
-      "notes": "Mike can use the F6 shortcut to finish missions, but it goes past the Campaign into Challenges, when the Credits should play.\nFixed 2026-05-19: the ImGui solo endscreen now labels the final Skedar Ruins advance as Credits and routes through endscreenContinue(2) before the normal next-mission path, so F6-completed final campaign missions hand off to Credits instead of Challenge/next-mission flow. Verified in session f6credits: tests target PASS, focused [debug][campaign][f6] PASS (47 assertions / 2 cases), all-target build PASS.\nPriority pass 2026-05-20: keep as campaign/social-sync verification support for gameplay stability; no longer outranks c3812/input/collision.\n\nBoard cleanup 2026-06-09: removed from Active during asset-parity 100% cleanup; retained here so the current Active lane only reflects the live completion path.\n\nBoard cleanup 2026-06-11: attention flag cleared because c3844 is the only active parity-closure lane; history retained in this card.\n\nBoard refresh 2026-06-11: explicitly deferred during c3844 all-asset source/runtime parity closure; not an active routing target until c3844 changes state.\n\nPost-c3844 closeout 2026-06-12: still deferred. Do not route this card unless Mike explicitly reopens or promotes it.",
+      "notes": "Mike can use the F6 shortcut to finish missions, but it goes past the Campaign into Challenges, when the Credits should play.\nFixed 2026-05-19: the ImGui solo endscreen now labels the final Skedar Ruins advance as Credits and routes through endscreenContinue(2) before the normal next-mission path, so F6-completed final campaign missions hand off to Credits instead of Challenge/next-mission flow. Verified in session f6credits: tests target PASS, focused [debug][campaign][f6] PASS (47 assertions / 2 cases), all-target build PASS.\nPriority pass 2026-05-20: keep as campaign/social-sync verification support for gameplay stability; no longer outranks c3812/input/collision.\n\nBoard cleanup 2026-06-09: removed from Active during asset-parity 100% cleanup; retained here so the current Active lane only reflects the live completion path.\n\nBoard cleanup 2026-06-11: attention flag cleared because c3844 is the only active parity-closure lane; history retained in this card.\n\nBoard refresh 2026-06-11: explicitly deferred during c3844 all-asset source/runtime parity closure; not an active routing target until c3844 changes state.\n\nPost-c3844 closeout 2026-06-12: still deferred. Do not route this card unless Mike explicitly reopens or promotes it.\n\n2026-07-04: code complete + build/test-verified; flagged PENDING-COMPLETION (awaiting Mike's playtest confirmation). Repro/expected-pass is in context/playtest-checklist-2026-07-04.md. Session did the work; the confirmation tick is Mike's.",
       "subtasks": [
         {
           "id": "cmpbhfdiqsfxa",
@@ -3464,7 +3400,7 @@
       "flag": null,
       "flagged_at": null,
       "created": "2026-05-18T17:32:47.283Z",
-      "updated": "2026-06-11T03:19:28-04:00",
+      "updated": "2026-07-04T00:00:00Z",
       "updatedAt": "2026-06-09T00:00:00-04:00",
       "updated_at": "2026-06-11T03:19:28-04:00",
       "x_deferred_original_priority": 2,
@@ -3475,7 +3411,8 @@
         "verified": "2026-06-11T14:56:38-04:00"
       },
       "x_deferred_at": "2026-06-11T14:56:38-04:00",
-      "x_deferred_reason": "Deferred after c3844 closeout; do not route unless Mike explicitly reopens or promotes it."
+      "x_deferred_reason": "Deferred after c3844 closeout; do not route unless Mike explicitly reopens or promotes it.",
+      "pending_completion": true
     },
     {
       "id": "c137",
@@ -5973,11 +5910,11 @@
       "pillar": "networking",
       "column": "backlog",
       "order": 47000,
-      "notes": "Updated 2026-06-10: rank-1 listen-host start (B-910) done. Co-op scope decision A adopted: ship reconnect-reliable (ranks 8-11) now, hold fresh drop-in as opt-in follow-up; reuse CHRS roster resync (decision B, no wire bump). Deferred from Active 2026-06-10: not part of the current all-asset 100% source/runtime parity closure. Keep in Backlog until the c3844 parity gate is no longer the active front.\n\nBoard cleanup 2026-06-11: unfinished co-op/drop-in subtasks marked backlog so this deferred connectivity card does not appear active during c3844 parity closure.\n\nBoard refresh 2026-06-11: explicitly deferred during c3844 all-asset source/runtime parity closure; not an active routing target until c3844 changes state.\n\nPost-c3844 closeout 2026-06-12: still deferred. Do not route this card unless Mike explicitly reopens or promotes it.",
+      "notes": "Updated 2026-06-10: rank-1 listen-host start (B-910) done. Co-op scope decision A adopted: ship reconnect-reliable (ranks 8-11) now, hold fresh drop-in as opt-in follow-up; reuse CHRS roster resync (decision B, no wire bump). Deferred from Active 2026-06-10: not part of the current all-asset 100% source/runtime parity closure. Keep in Backlog until the c3844 parity gate is no longer the active front.\n\nBoard cleanup 2026-06-11: unfinished co-op/drop-in subtasks marked backlog so this deferred connectivity card does not appear active during c3844 parity closure.\n\nBoard refresh 2026-06-11: explicitly deferred during c3844 all-asset source/runtime parity closure; not an active routing target until c3844 changes state.\n\nPost-c3844 closeout 2026-06-12: still deferred. Do not route this card unless Mike explicitly reopens or promotes it.\n\n2026-07-04: code complete + build/test-verified; flagged PENDING-COMPLETION (awaiting Mike's playtest confirmation). Repro/expected-pass is in context/playtest-checklist-2026-07-04.md. Session did the work; the confirmation tick is Mike's.",
       "flag": null,
       "created": "2026-06-10T00:00:00-04:00",
-      "updated": "2026-06-11T03:19:28-04:00",
-      "pending_completion": null,
+      "updated": "2026-07-04T00:00:00Z",
+      "pending_completion": true,
       "subtasks": [
         {
           "title": "Listen-host match-start fix (netLobbyRequestStartWithSims local replay)",
