@@ -5,8 +5,11 @@
  * save's JSON from version N to N+1. The chain runs automatically on load
  * when a save's version is older than SAVE_VERSION.
  *
- * Currently SAVE_VERSION = 1, so no migrations are registered yet.
- * This file establishes the framework for future version bumps.
+ * SAVE_VERSION is 2 (SA-4: string IDs replaced raw integer body/head/scenario
+ * IDs), but NO v1->v2 migration is registered here yet, so v1 saves cannot be
+ * upgraded. Until one is written, savefile.c loud-fails older saves rather than
+ * loading them lossily (see saveCheckFileVersion). This file establishes the
+ * framework; register the v1->v2 transforms in saveMigrateInit to enable it.
  *
  * When SAVE_VERSION is bumped to 2, add a migration function:
  *   static char *migrateAgent_1to2(char *json, s32 jsonlen, s32 bufsize) { ... }
@@ -247,9 +250,11 @@ void saveMigrateInit(void)
 	s_MigrationCount = 0;
 
 	/* ----------------------------------------------------------------
-	 * Currently SAVE_VERSION = 1. No migrations needed yet.
-	 *
-	 * When SAVE_VERSION is bumped to 2, add migrations here:
+	 * SAVE_VERSION is now 2 (SA-4), but the v1->v2 data migration is NOT
+	 * yet written, so no migrations are registered and v1 saves are
+	 * loud-failed on load (savefile.c saveCheckFileVersion) instead of
+	 * silently losing identity. To enable v1->v2 upgrade-on-load, implement
+	 * and register the transforms here:
 	 *
 	 *   saveMigrateRegister(SAVETYPE_AGENT,  1, 2, migrateAgent_1to2);
 	 *   saveMigrateRegister(SAVETYPE_PLAYER, 1, 2, migratePlayer_1to2);

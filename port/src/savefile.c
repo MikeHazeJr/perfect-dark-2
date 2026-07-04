@@ -236,9 +236,22 @@ static s32 saveCheckFileVersion(s32 fileVersion, const char *kind, const char *p
 		return -1;
 	}
 	if (fileVersion > 0 && fileVersion < SAVE_VERSION) {
-		sysLogPrintf(LOG_NOTE,
-			"SAVE: %s '%s' is v%d (current v%d) — loading with forward-compat fallthrough",
+		/* Older-format save. The v1->v2 bump (SA-4, savefile.h) replaced raw
+		 * integer body/head/scenario IDs with string IDs, so the current
+		 * loader's unknown-key skip would silently DROP a v1 file's identity
+		 * fields and substitute defaults -- silent data loss (character /
+		 * scenario identity). No saveMigrateFile() data migration is
+		 * registered for this step yet (savemigrate.c registers none), and
+		 * migration cannot run at this mid-parse point, so refuse the load
+		 * LOUDLY and leave the on-disk file untouched. It is preserved so a
+		 * future v1->v2 migration can still upgrade it, instead of being
+		 * consumed lossily now. When that migration is wired at load entry
+		 * (before parse), relax this branch to migrate-then-load. */
+		sysLogPrintf(LOG_WARNING,
+			"SAVE: refusing to load %s '%s' — file is v%d but current SAVE_VERSION is %d and no "
+			"migration is registered; loading would silently lose identity data. File preserved.",
 			kind, path, fileVersion, SAVE_VERSION);
+		return -1;
 	}
 	return 0;
 }
