@@ -37,6 +37,23 @@ Deliberately did NOT pad the count with unverifiable NAT code, edits to Mike's
 protected file, or fabricated playtest results. Next session: pair with Mike on the
 relay branch + a playtest pass.
 
+**Reconciliation sweep (systematic, evidence-backed) confirms the boundary.** A full
+pass over all 45 backlog cards vs bugs.md + code found **0 OPEN-AI-TRACTABLE cards** --
+nothing remains that an AI can complete AND verify without Mike. Breakdown:
+- **19 STALE-DONE** (code complete + build/test-verified, mostly May 2026, awaiting
+  Mike's PLAYTEST gate to formally close): c029, c031, c032, c033, c071, c080, c083
+  (B-316), c136 (B-350), c3738, c3807, c3808, c3815 (B-356), c3823, c3826 (B-361),
+  c3827 (B-362), c3840, c3845 (B-910), cmpbhfdir2lxo. These are the highest-value
+  "close on next playtest" set.
+- **26 MIKE-GATED** (playtest / ROM check / real-network / design decision / edits to
+  the protected group_session.c): the c054-c060 net tier, c028/c035/c037/c039/c040/
+  c041/c064-c070/c074/c081/c138/c3746/c3846 (deferred pending the now-closed c3844),
+  c3847 (gameplay authoring), c3848 (B-801 live render), cmpbhaqofaqj1.
+Did NOT mass-close the stale-done cards: FIXED-PENDING-PLAYTEST is Mike's gate, and
+one classification (c054 "ICE shipped") conflicts with the pillar sweep ("ICE not
+wired") -- verify before closing. Mutating the board on unverified agent output would
+misrepresent state.
+
 ## 2026-07-04 - Backlog wave 4: connectivity (goal-driven, IN PROGRESS)
 
 - **c056** (Opus auto-detect) RESOLVED-VERIFIED (313d4fb1): CMake already
