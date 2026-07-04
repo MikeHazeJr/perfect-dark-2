@@ -233,6 +233,16 @@ typedef struct _ENetAddress ENetAddress;
 #define NET_NULL_CLIENT 0xFF
 #define NET_NULL_PROP 0
 
+/* Client ids are sent on the wire as a u8 (netbufWriteU8) and NET_NULL_CLIENT
+ * (0xFF) is the reserved "none/unused" sentinel. Every assignable client id
+ * must therefore be strictly below the sentinel, so NET_MAX_CLIENTS is capped
+ * under it. Guard the invariant at compile time (the effective ceiling is 254
+ * even though ids live in wider ints in memory). */
+#ifndef __cplusplus
+_Static_assert(NET_MAX_CLIENTS < NET_NULL_CLIENT,
+	"NET_MAX_CLIENTS must stay below the NET_NULL_CLIENT (0xFF) wire sentinel");
+#endif
+
 #define NET_RESYNC_FLAG_CHRS   (1 << 0)
 #define NET_RESYNC_FLAG_PROPS  (1 << 1)
 #define NET_RESYNC_FLAG_SCORES (1 << 2)
