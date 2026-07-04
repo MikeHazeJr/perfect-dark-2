@@ -537,6 +537,7 @@ void botinvScoreWeapon(struct chrdata *chr, s32 weaponnum, s32 funcnum, s32 arg3
 				if (chr->aibot->config->difficulty > BOTDIFF_MEAT) {
 					if (comparewithtarget) {
 						if (chr->target != -1
+								&& chrGetTargetProp(chr)->chr
 								&& chr->aibot->chrsinsight[mpPlayerGetIndex(chrGetTargetProp(chr)->chr)] == 0
 								&& (chr->aibot->random1 % 2) == 0) {
 							score1 += 10;
@@ -554,6 +555,7 @@ void botinvScoreWeapon(struct chrdata *chr, s32 weaponnum, s32 funcnum, s32 arg3
 				if (chr->aibot->config->difficulty >= BOTDIFF_NORMAL) {
 					if (comparewithtarget) {
 						if (chr->target != -1
+								&& chrGetTargetProp(chr)->chr
 								&& chr->aibot->chrsinsight[mpPlayerGetIndex(chrGetTargetProp(chr)->chr)] == 0
 								&& (chr->aibot->random1 % 2) == 0) {
 							score1 = 178;
@@ -586,7 +588,7 @@ void botinvScoreWeapon(struct chrdata *chr, s32 weaponnum, s32 funcnum, s32 arg3
 				score2 = 0;
 			}
 		} else {
-			if (comparewithtarget && chr->target != -1 && chrGetTargetProp(chr)->chr->blurdrugamount > TICKS(3500)) {
+			if (comparewithtarget && chr->target != -1 && chrGetTargetProp(chr)->chr && chrGetTargetProp(chr)->chr->blurdrugamount > TICKS(3500)) {
 				score1 = 0;
 				score2 = 0;
 			} else {
@@ -600,7 +602,9 @@ void botinvScoreWeapon(struct chrdata *chr, s32 weaponnum, s32 funcnum, s32 arg3
 			s32 bluramount = 0;
 
 			if (chr->target != -1) {
-				bluramount = chrGetTargetProp(chr)->chr->blurdrugamount;
+				if (chrGetTargetProp(chr)->chr) {
+					bluramount = chrGetTargetProp(chr)->chr->blurdrugamount;
+				}
 			}
 
 			if (funcnum != FUNC_PRIMARY) {
@@ -887,6 +891,7 @@ void botinvTick(struct chrdata *chr)
 		if (newweaponnum == WEAPON_COMBATKNIFE
 				&& botactGetAmmoQuantityByWeapon(aibot, WEAPON_COMBATKNIFE, FUNC_SECONDARY, true) >= 2
 				&& chr->target != -1
+				&& chrGetTargetProp(chr)->chr
 				&& chr->aibot->chrdistances[mpPlayerGetIndex(chrGetTargetProp(chr)->chr)] > 200
 				&& chr->aibot->chrdistances[mpPlayerGetIndex(chrGetTargetProp(chr)->chr)] < 1500) {
 			newfuncnum = FUNC_SECONDARY;

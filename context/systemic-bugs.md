@@ -22,7 +22,7 @@
 
 **Files fixed (S15)**: ingame.c, mplayer.c, bondview.c, menutick.c
 **Files fixed (P6-A / Tier 6)**: menu.c (`currentPlayerIsMenuOpenInSoloOrMp`, `func0f0f8120`), activemenu.c (`amOpen`, `amOpenPickTarget`, `amRender`)
-**Files still needing audit**: player.c:5094 (and any remaining `g_Menus[` / `g_AmMenus[` index sites per grep)
+**Files still needing audit**: NONE as of 2026-07-04 (backlog wave 3). `player.c:5094` was refactored to a per-player action map (`actionHeld(slayerplayeridx, ...)`), not a MAX_PLAYERS array index; the `g_Menus[` / `g_AmMenus[` index sites are bounds-checked (see the `menu.c:3820` SP-1/SP-2 comment). **Audit CLEARED.**
 
 **Search command**: `grep -rn 'g_MpPlayerNum\|% MAX_PLAYERS\|AVOID_UB' src/`
 
@@ -35,7 +35,7 @@
 
 **Correct approach**: Bounds-check and skip, not modulo-alias.
 
-**Files known affected**: bondview.c (fixed S15), mplayer.c:704/3754
+**Files known affected**: bondview.c (fixed S15), mplayer.c:704/3754. 2026-07-04 (wave 3): a repo-wide grep for `% MAX_PLAYERS` / `% MAX_LOCAL` found NO live modulo-alias bounds hacks (only benign `#ifdef AVOID_UB` decomp array-size blocks). **Audit CLEARED.**
 
 **Search command**: `grep -rn 'AVOID_UB\|% MAX_PLAYERS\|% MAX_LOCAL' src/`
 
@@ -48,7 +48,7 @@
 
 **Correct approach**: Use `MAX_LOCAL_PLAYERS` (4) as bound, or `PLAYER_EXTCFG()` macro (masks with `& 3`).
 
-**Files known**: mplayer.c:704/3754, bondwalk.c:908
+**Files known**: mplayer.c:704/3754, bondwalk.c:908. 2026-07-04 (wave 3): all live `g_PlayerExtCfg` indexers verified -- `player.c` fov getters (7714/7730) and `mplayer.c` extcontrols (766/4153) already bound by `MAX_LOCAL_PLAYERS`; the `bondwalk.c` jump-height read was hardened from `MAX_PLAYERS` to `MAX_LOCAL_PLAYERS`. **Audit CLEARED.**
 
 ---
 
@@ -85,7 +85,7 @@ if (chr) { ... }
 - `explosions.c:379` — exproom OOB when rooms[0]=-1 (HIGH)
 - `smoke.c:210` — rooms[0] OOB in roomGetFinalBrightnessForPlayer (HIGH)
 
-**Remaining audit**: bot.c, botinv.c (Audit 3), mplayer/*.c (Audit 4).
+**Remaining audit**: mplayer/*.c (Audit 4) -- spot-checked clean 2026-07-04. **2026-07-04 (wave 3): bot.c + botinv.c CLEARED** -- 7 unguarded `chrGetTargetProp(chr)->chr` / `target->chr` dereferences fixed (botinv.c chrsinsight x2 @540/557, chrdistances @890, crossbow blur @589, tranq blur @603; bot.c `botGetTargetsWeaponNum` @1276). `chrGetTargetProp` returns a valid non-NULL prop when `target != -1`, so only `->chr` (a player prop whose chr is unbound during load/late-join/cleanup) needed guarding; `botGetWeaponNum(NULL)` genuinely crashed at `chr->aibot`. Guards are behaviour-neutral when chr is non-NULL (the common case).
 
 **Search command**: `grep -n "->chr->\|->chr\." src/game/*.c | grep -v "if.*chr\|chr =\|chr=\|NULL"`
 
@@ -119,7 +119,10 @@ for (i = 0; i < LOCALPLAYERCOUNT(); i++) {
 - `playermgr.c:700` — `playermgrGetPlayerNumByProp()` prop scan (HIGH)
 
 **Remaining audit**: bondwalk.c/bondmove.c currentplayer early-return guards (Audit 2),
-g_ChrSlots[] and g_MpAllChrPtrs[] (Audit 3), mplayer/*.c participant interactions (Audit 4).
+g_ChrSlots[] and g_MpAllChrPtrs[] (Audit 3). **2026-07-04 (wave 3): mplayer/*.c CLEARED**
+-- participant loops over `g_Vars.players[i]` / `g_MpAllChrPtrs[i]` are all null-guarded
+(mpspawn_orchestrate.c:106/396, scenarios.c) or bounded by `g_MpNumChrs` (live-slot
+contract, entries non-NULL); no unguarded sparse-loop deref found.
 See `context/null-guard-audit-players.md` for full findings.
 
 **Search command**: `grep -rn "players\[i\]->\|players\[j\]->" src/game/`

@@ -6416,6 +6416,22 @@
       "updated": "2026-07-04T00:00:00Z",
       "pending_completion": false,
       "subtasks": []
+    },
+    {
+      "id": "c144",
+      "pillar": "engine",
+      "column": "done",
+      "order": 550,
+      "priority": 4,
+      "title": "Engine: systemic array-index + null-deref audit (SP-1/2/3/6/8)",
+      "description": "Wave 3 crash-class audit: fixed 7 SP-8 unguarded prop->chr derefs in bot AI targeting (botinv.c, bot.c); hardened SP-3 jump-height bound to MAX_LOCAL_PLAYERS (bondwalk.c); re-verified and cleared SP-1/SP-2/SP-3/SP-6 remaining-audit sites (stale line refs already fixed). systemic-bugs.md updated.",
+      "notes": "Backlog wave 3, 2026-07-04.",
+      "flag": null,
+      "flagged_at": null,
+      "created": "2026-07-04T00:00:00Z",
+      "updated": "2026-07-04T00:00:00Z",
+      "pending_completion": false,
+      "subtasks": []
     }
   ],
   "x_special_notes": {

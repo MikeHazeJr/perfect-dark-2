@@ -1112,8 +1112,12 @@ void bwalkUpdateVertical(void)
 		/* Apply per-player jump height override from extplayerconfig.
 		 * jumpheight > 0 = direct impulse override, 0 = use match default. */
 		{
+			/* SP-3: g_PlayerExtCfg is only meaningful for LOCAL players (0..3);
+			 * bound by MAX_LOCAL_PLAYERS, not MAX_PLAYERS, so a stray index can
+			 * never read uninitialised extcfg for a remote/bot slot. currentplayerindex
+			 * is always a local index today, so this is behaviour-neutral hardening. */
 			s32 pidx = g_Vars.currentplayerindex;
-			if (pidx >= 0 && pidx < MAX_PLAYERS && g_PlayerExtCfg[pidx].jumpheight > 0.0f) {
+			if (pidx >= 0 && pidx < MAX_LOCAL_PLAYERS && g_PlayerExtCfg[pidx].jumpheight > 0.0f) {
 				impulse = g_PlayerExtCfg[pidx].jumpheight;
 			}
 		}

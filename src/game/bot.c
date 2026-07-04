@@ -1272,7 +1272,7 @@ u8 botGetTargetsWeaponNum(struct chrdata *chr)
 	struct prop *target = chrGetTargetProp(chr);
 	u8 weaponnum = WEAPON_NONE;
 
-	if (target) {
+	if (target && target->chr) {
 		weaponnum = botGetWeaponNum(target->chr);
 	}
 
