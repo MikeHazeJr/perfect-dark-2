@@ -1,6 +1,31 @@
 # Session Log (Active)
 
-## 2026-07-04 - Backlog push: AI-tractable scope COMPLETE (goal boundary)
+## 2026-07-04 - Backlog wave 5: reconciliation under-count CORRECTED
+
+The "0 OPEN-AI-TRACTABLE" from the backlog reconciliation sweep was an UNDER-COUNT:
+it blanket-classified cards "deferred pending c3844" as Mike-gated, but c3844 is
+closed, so several are now doable. Verified + completed two, and found one moot:
+- **c074** (17e50fe2): behavioural test for the REAL `savemigrate.c` chain
+  framework -- 6 cases (ascending-order chain with out-of-order registration, type
+  isolation, no-op, fail-closed on missing step, downgrade refusal). `[save]` 15
+  cases / 63 assertions green. Complements the c141 loud-fail fix.
+- **c064** (fa9cde55): removed the dead legacy manifest serializer API
+  (`modmgrGetManifestHash` / `modmgrWriteManifest` / `modmgrReadManifest`, ~3.4KB,
+  zero live callers, superseded by `match_manifest_t`). Client links clean.
+- **c066** MOOT: the `.pdbase` loader was RETIRED 2026-05-03 (catalog universality
+  Step 5); "add loader coverage" is obsolete -- retirement is guarded by
+  `test_pdbase_retired_audit.cpp`. Closed as superseded.
+
+Remaining genuinely-AI-tractable cards are a harder set: build-script refactors
+(c069 SP-9 guard helper, c070 worktree-redirect centralize, c040 dev-window
+cleanup) touch CRITICAL build infra (`build-headless.ps1`) with NO functional test
+coverage -- refactoring blind is the exact risk c069 exists to reduce; c065
+(pure-mirror compile-boundary) is a multi-file test-infra refactor. These want
+careful work with fresh context, not saturated-context blind edits. Lesson: don't
+trust a reconciliation agent's "gated" label wholesale -- the c3844-deferral reason
+was stale.
+
+## 2026-07-04 - Backlog push: partial (goal boundary, superseded by wave 5 above)
 
 Goal was "complete all listed inventory items except Forge + PD Studio." Closed
 every item AI-completable + verifiable without Mike / network / playtest -- 16
