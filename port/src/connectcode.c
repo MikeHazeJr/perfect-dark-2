@@ -54,7 +54,7 @@ static const char *s_Adjectives[256] = {
     "fragile","sturdy","tough","brittle","elastic","rigid","flexible","dense",
     "luminous","radiant","glowing","dim","faint","vivid","pale","deep",
     "rotten","fresh","stale","ripe","raw","mature","vintage","antique",
-    "spectral","ghostly","ethereal","primal","feral","savage","regal","noble",
+    "spectral","ghostly","ethereal","primal","feral","savage","regal","stoic",
     "volatile","stable","reactive","inert","active","dormant","kinetic","static",
     "heroic","villainous","legendary","mythic","infamous","unknown","famous","obscure",
     "grumpy","cheerful","nervous","relaxed","frantic","peaceful","chaotic","orderly",
@@ -90,11 +90,11 @@ static const char *s_Nouns[256] = {
     "statue","gargoyle","scarecrow","mannequin","puppet","doll","teddy","mask",
     "sandwich","burrito","dumpling","croissant","strudel","brownie","truffle","popcorn",
     "toaster","blender","spatula","bucket","mop","broom","wrench","plunger",
-    "parrot","flamingo","toucan","pelican","stork","heron","finch","sparrow",
+    "hawk","flamingo","toucan","pelican","stork","heron","finch","sparrow",
     "centaur","minotaur","sphinx","hydra","kraken","chimera","basilisk","djinn",
     "laptop","phone","tablet","modem","printer","camera","speaker","headset",
     "marble","pebble","boulder","brick","plank","rope","chain","wire",
-    "candle","torch","matchstick","firecracker","sparkler","flare","beacon","lantern",
+    "candle","torch","matchstick","firecracker","sparkler","flare","beacon","ember",
     "acorn","pinecone","seashell","feather","fossil","bone","tusk","horn",
     "trophy","medal","crown","scepter","chalice","amulet","scroll","tome",
 };
@@ -160,10 +160,10 @@ static const char *s_Actions[256] = {
     "materializing at","appearing at","arriving at","landing at",
     "departing from","vanishing from","fading from","dissolving from",
     "emerging from","erupting from","launching from","blasting from",
-    "marching toward","dashing toward","stampeding toward","charging toward",
+    "galloping toward","dashing toward","stampeding toward","barreling toward",
     "bouncing toward","leaping toward","sprinting toward","diving toward",
     "tumbling around","cartwheeling around","pirouetting around","moonwalking to",
-    "materializing at","manifesting at","disappearing from","evaporating from",
+    "assembling at","manifesting at","disappearing from","evaporating from",
     "melting from","crumbling from","parachuting into","cannonballing into",
     "belly-flopping into","tightrope-walking over","parasailing over","hang-gliding over",
     "burrowing through","phasing through","warping through","catapulting toward",
@@ -212,7 +212,7 @@ static const char *s_Places[256] = {
     "tokyo","paris","london","new york",
     "chicago","mumbai","cairo","sydney",
     "the white house","the pentagon","area 51","the kremlin",
-    "buckingham palace","the colosseum","the pyramids","stonehenge",
+    "buckingham palace","the amphitheater","the pyramids","stonehenge",
     "mount everest","the grand canyon","niagara falls","the bermuda triangle",
     "atlantis","el dorado","shangri-la","narnia",
     "hogwarts","mordor","gotham","wakanda",
@@ -223,9 +223,9 @@ static const char *s_Places[256] = {
     "the future","the past","another dimension","a parallel universe",
     "a dream","a nightmare","reality","the afterlife",
     "the beginning","the end","the middle","the edge",
-    "a volcano","a glacier","a desert","an oasis",
+    "a geyser","an iceberg","a desert","an oasis",
     "a swamp","a jungle","a rainforest","a savanna",
-    "the pentagon","the louvre","the colosseum","the kremlin",
+    "the capitol","the louvre","the forum","the vatican",
     "wall street","broadway","bourbon street","rodeo drive",
     "a spaceship","a submarine","a helicopter","a hot air balloon",
     "a treehouse","an igloo","a teepee","a yurt",
@@ -236,10 +236,21 @@ static const char *s_Places[256] = {
     "a dumpster","a phone booth","an elevator","a closet",
     "a rooftop","a balcony","a fire escape","a windowsill",
     "a highway","a roundabout","a dead end","a crossroads",
-    "the bermuda triangle","roswell","loch ness","shangri-la",
+    "the mariana trench","roswell","loch ness","camelot",
     "a cornfield","a vineyard","an orchard","a greenhouse",
     "a parking garage","a bus stop","a train station","a laundromat",
 };
+
+/* Each slot encodes exactly one byte, so every list MUST hold 256 entries.
+ * These guard against a slot silently drifting off 256 (which would desync
+ * the byte<->word mapping). Per-entry UNIQUENESS -- the invariant a duplicate
+ * word breaks, since the decoder maps a repeated word to its lowest index --
+ * is verified exhaustively by tests/test_connectcode.cpp (all 256 values in
+ * every byte position must round-trip). Keep both guards. */
+_Static_assert(sizeof(s_Adjectives) / sizeof(s_Adjectives[0]) == 256, "adjective slot must have exactly 256 entries");
+_Static_assert(sizeof(s_Nouns)      / sizeof(s_Nouns[0])      == 256, "noun slot must have exactly 256 entries");
+_Static_assert(sizeof(s_Actions)    / sizeof(s_Actions[0])    == 256, "action slot must have exactly 256 entries");
+_Static_assert(sizeof(s_Places)     / sizeof(s_Places[0])     == 256, "place slot must have exactly 256 entries");
 
 /* ========================================================================
  * Slot pointers: [adjective] [creature] [action] [place]

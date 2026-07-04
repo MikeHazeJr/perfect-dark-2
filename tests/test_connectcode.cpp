@@ -318,3 +318,60 @@ TEST_CASE("connectcode: byte 0 (LSB) drives adjective slot",
     };
     REQUIRE(first_token(s) == first_token(s2));
 }
+
+TEST_CASE("connectcode: exhaustive per-slot roundtrip (all 256 values, every byte)",
+          "[connectcode]") {
+    /* Every slot dictionary has 256 entries and the decoder must map each
+     * word back to its exact index. A DUPLICATE word in any slot breaks this:
+     * the decoder's longest-match keeps the first (lowest) index, so any byte
+     * that selected the higher-index duplicate cannot round-trip. The sampled
+     * IP test above never lands on those indices, so it missed 14 real dupes
+     * (fixed 2026-07-04). This exhaustive sweep is the permanent guard: it
+     * varies one byte across all 256 values while holding the others at 0, for
+     * each of the four slots, and requires an exact round-trip every time. */
+    for (int slot = 0; slot < 4; ++slot) {
+        for (int v = 0; v < 256; ++v) {
+            u8 b[4] = {0, 0, 0, 0};
+            b[slot] = (u8)v;
+            const u32 ip = packIp(b[0], b[1], b[2], b[3]);
+            char buf[CONNECT_CODE_MAX];
+            REQUIRE(connectCodeEncode(ip, buf, sizeof(buf)) > 0);
+            u32 decoded = 0xDEADBEEFu;
+            const s32 dec = connectCodeDecode(buf, &decoded);
+            INFO("slot=" << slot << " value=" << v << " code='" << buf << "'");
+            REQUIRE(dec == 0);
+            REQUIRE(decoded == ip);
+        }
+    }
+}
+
+TEST_CASE("connectcode: exhaustive port roundtrip covers adjective+noun port slots",
+          "[connectcode]") {
+    /* Ports encode as adjective(high byte) + noun(low byte) appended as two
+     * extra words. Sweep every value of each byte so a duplicate in either
+     * dictionary is caught in the port path too. Skip CONNECT_DEFAULT_PORT
+     * (that takes the 4-word path with no port words). */
+    const u32 ip = packIp(203, 0, 113, 7);
+    for (int lo = 0; lo < 256; ++lo) {             /* noun slot */
+        const u16 port = (u16)((1u << 8) | (u32)lo);
+        if (port == CONNECT_DEFAULT_PORT) continue;
+        char buf[CONNECT_CODE_MAX];
+        REQUIRE(connectCodeEncodeWithPort(ip, port, buf, sizeof(buf)) > 0);
+        u32 outIp = 0; u16 outPort = 0;
+        INFO("port=" << port << " code='" << buf << "'");
+        REQUIRE(connectCodeDecodeWithPort(buf, &outIp, &outPort) == 0);
+        REQUIRE(outIp == ip);
+        REQUIRE(outPort == port);
+    }
+    for (int hi = 0; hi < 256; ++hi) {             /* adjective slot */
+        const u16 port = (u16)(((u32)hi << 8) | 3u);
+        if (port == CONNECT_DEFAULT_PORT) continue;
+        char buf[CONNECT_CODE_MAX];
+        REQUIRE(connectCodeEncodeWithPort(ip, port, buf, sizeof(buf)) > 0);
+        u32 outIp = 0; u16 outPort = 0;
+        INFO("port=" << port << " code='" << buf << "'");
+        REQUIRE(connectCodeDecodeWithPort(buf, &outIp, &outPort) == 0);
+        REQUIRE(outIp == ip);
+        REQUIRE(outPort == port);
+    }
+}
