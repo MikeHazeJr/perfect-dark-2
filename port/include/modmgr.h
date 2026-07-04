@@ -197,17 +197,9 @@ void modmgrSaveComponentState(void);
 void modmgrLoadComponentState(void);
 
 // ---- Network ----
-
-// Combined CRC32 of all enabled mod IDs+versions, for quick manifest compare
-u32  modmgrGetManifestHash(void);
-
-// Serialize enabled mod list into buffer. Returns bytes written.
-s32  modmgrWriteManifest(u8 *buf, s32 maxlen);
-
-// Compare received manifest against local mods.
-// Returns 0 if compatible, >0 = number of missing mods.
-// Writes human-readable missing mod list into `missing` buffer.
-s32  modmgrReadManifest(const u8 *buf, s32 len, char *missing, s32 misslen);
+// The legacy binary manifest API (modmgrGetManifestHash / modmgrWriteManifest /
+// modmgrReadManifest) was removed 2026-07-04 (c064) -- no live caller, superseded
+// by the match_manifest_t / manifestBuildForHost path. See net/netmanifest.c.
 
 // ---- Filesystem integration ----
 

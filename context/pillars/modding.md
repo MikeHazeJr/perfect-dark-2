@@ -1055,7 +1055,7 @@ The Asset Pipeline migration, weapon graph parity lane, c3842 native-source corr
   the installed `.pdmod::needler.pdweapon::dependencies/assets/models/weapon.pdmesh`
   chain and passed 40/40 in
   `.claude\smoke-verify-runs\results-20260617T214449Z.json`.
-- **Dead legacy manifest serializer.** `modmgrWriteManifest / modmgrReadManifest` ([modmgr.c:2456-2554](../../port/src/modmgr.c:2456)) implement a custom binary format that predates `match_manifest_t / manifestBuildForHost`. No live netplay caller. Content-hash compare uses CRC32 of `id:version` string at [modmgr.c:2534-2543](../../port/src/modmgr.c:2534), weaker than the SHA-256 path. Audit and remove or wire.
+- **Dead legacy manifest serializer -- REMOVED 2026-07-04 (c064).** `modmgrGetManifestHash / modmgrWriteManifest / modmgrReadManifest` (the CRC32-based custom binary format predating `match_manifest_t / manifestBuildForHost`) had no live caller and were deleted from `modmgr.c` + `modmgr.h`. Client links clean (proof they were dead). The `match_manifest_t / manifestBuildForHost` path (SHA-256, per-asset granularity) is the sole manifest mechanism.
 - **`manifest_pure.c` is hand-synced.** [tests/manifest_pure.c:1-31](../../tests/manifest_pure.c:1) documents manual extraction with `@SYNC` line-number comments pointing into `netmanifest.c`. As `netmanifest.c` evolves (over 2000 lines), this drifts. Replace with compile-boundary approach: factor container/hash/diff/serialise into a TU that imports no globals; link both production and test against it.
 
 ---

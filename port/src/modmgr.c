@@ -2775,121 +2775,12 @@ void modmgrApplyChanges(void)
 
 // ---------------------------------------------------------------------------
 // Public API: Network
+//
+// The legacy binary manifest API (modmgrGetManifestHash / modmgrWriteManifest /
+// modmgrReadManifest, CRC32-based) was removed 2026-07-04 (c064): it had no live
+// caller and was superseded by the match_manifest_t / manifestBuildForHost path
+// (SHA-256, per-asset granularity). See port/src/net/netmanifest.c.
 // ---------------------------------------------------------------------------
-
-u32 modmgrGetManifestHash(void)
-{
-	// Build a combined hash of all enabled mod IDs and versions
-	u32 hash = 0;
-	for (s32 i = 0; i < g_ModRegistryCount; i++) {
-		if (g_ModRegistry[i].enabled) {
-			hash ^= g_ModRegistry[i].contenthash;
-			// Rotate to avoid order-independence
-			hash = (hash << 7) | (hash >> 25);
-		}
-	}
-	return hash;
-}
-
-s32 modmgrWriteManifest(u8 *buf, s32 maxlen)
-{
-	s32 pos = 0;
-
-	// Count enabled mods
-	u16 count = 0;
-	for (s32 i = 0; i < g_ModRegistryCount; i++) {
-		if (g_ModRegistry[i].enabled) count++;
-	}
-
-	if (pos + 2 > maxlen) return -1;
-	buf[pos++] = (count >> 8) & 0xFF;
-	buf[pos++] = count & 0xFF;
-
-	for (s32 i = 0; i < g_ModRegistryCount; i++) {
-		if (!g_ModRegistry[i].enabled) continue;
-
-		s32 idlen = (s32)strlen(g_ModRegistry[i].id);
-		s32 verlen = (s32)strlen(g_ModRegistry[i].version);
-
-		if (pos + 1 + idlen + 1 + verlen + 8 > maxlen) return -1;
-
-		buf[pos++] = (u8)idlen;
-		memcpy(&buf[pos], g_ModRegistry[i].id, idlen);
-		pos += idlen;
-
-		buf[pos++] = (u8)verlen;
-		memcpy(&buf[pos], g_ModRegistry[i].version, verlen);
-		pos += verlen;
-
-		// Content hash (4 bytes)
-		buf[pos++] = (g_ModRegistry[i].contenthash >> 24) & 0xFF;
-		buf[pos++] = (g_ModRegistry[i].contenthash >> 16) & 0xFF;
-		buf[pos++] = (g_ModRegistry[i].contenthash >> 8) & 0xFF;
-		buf[pos++] = g_ModRegistry[i].contenthash & 0xFF;
-
-		// size_bytes (4 bytes) — total mod directory size for download estimation
-		buf[pos++] = (g_ModRegistry[i].size_bytes >> 24) & 0xFF;
-		buf[pos++] = (g_ModRegistry[i].size_bytes >> 16) & 0xFF;
-		buf[pos++] = (g_ModRegistry[i].size_bytes >>  8) & 0xFF;
-		buf[pos++] = g_ModRegistry[i].size_bytes & 0xFF;
-	}
-
-	return pos;
-}
-
-s32 modmgrReadManifest(const u8 *buf, s32 len, char *missing, s32 misslen)
-{
-	s32 pos = 0;
-	s32 missingCount = 0;
-	s32 misspos = 0;
-
-	if (pos + 2 > len) return -1;
-	u16 count = ((u16)buf[pos] << 8) | buf[pos + 1];
-	pos += 2;
-
-	for (u16 i = 0; i < count; i++) {
-		if (pos + 1 > len) return -1;
-		s32 idlen = buf[pos++];
-		if (pos + idlen > len) return -1;
-
-		char modid[MODMGR_ID_LEN];
-		s32 cplen = idlen < (s32)(MODMGR_ID_LEN - 1) ? idlen : (s32)(MODMGR_ID_LEN - 1);
-		memcpy(modid, &buf[pos], cplen);
-		modid[cplen] = '\0';
-		pos += idlen;
-
-		if (pos + 1 > len) return -1;
-		s32 verlen = buf[pos++];
-		if (pos + verlen > len) return -1;
-
-		char modver[MODMGR_VERSION_LEN];
-		s32 vlen = verlen < (s32)(MODMGR_VERSION_LEN - 1) ? verlen : (s32)(MODMGR_VERSION_LEN - 1);
-		memcpy(modver, &buf[pos], vlen);
-		modver[vlen] = '\0';
-		pos += verlen;
-
-		if (pos + 8 > len) return -1;
-		u32 remotehash = ((u32)buf[pos] << 24) | ((u32)buf[pos+1] << 16) |
-		                 ((u32)buf[pos+2] << 8) | buf[pos+3];
-		pos += 4;
-		/* size_bytes — decoded but not used in compatibility check */
-		/* u32 remote_size = ((u32)buf[pos]<<24)|((u32)buf[pos+1]<<16)|((u32)buf[pos+2]<<8)|buf[pos+3]; */
-		pos += 4;
-
-		// Check if we have this mod
-		modinfo_t *local = modmgrFindMod(modid);
-		if (!local || !local->enabled || local->contenthash != remotehash) {
-			missingCount++;
-			if (missing && misspos < misslen - 1) {
-				s32 wrote = snprintf(&missing[misspos], misslen - misspos,
-					"%s%s v%s", misspos > 0 ? ", " : "", modid, modver);
-				if (wrote > 0) misspos += wrote;
-			}
-		}
-	}
-
-	return missingCount;
-}
 
 // ---------------------------------------------------------------------------
 // Public API: Filesystem integration
