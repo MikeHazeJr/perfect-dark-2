@@ -56,6 +56,16 @@ the Wave-6 designs (Forge/Studio excluded per Mike; the rest playtest/design-dec
 gated). Lesson reinforced: scope every card before declaring it too risky -- c065,
 c069, c070, c040 all turned out to have clean, verifiable slices.
 
+To make the Mike-gated remainder frictionless (rather than just declaring it
+blocked), compiled the ~19 playtest-gated stale-done cards + B-249 into a single
+grouped verification pass: **context/playtest-checklist-2026-07-04.md**. One Combat
+Sim Grid/8-bots/jumping match closes c083 + c3815; one CI Training mission closes
+c136; a passive 4-bot match resolves B-249 (its `B-249.DIAG` log names the call
+site); a CPU swarm ladder closes c029/c080; plus quick load-smokes for
+c031/c032/c033/c3807/c3738/c3808/cmpbhfdir2lxo. Converts ~19 backlog cards into a
+~30-minute session Mike runs once. Did NOT reclassify those cards' board column --
+that is Mike's confirmation gate; the checklist is the tool, the ticks are his.
+
 ## 2026-07-04 - Backlog push: partial (goal boundary, superseded by wave 5 above)
 
 Goal was "complete all listed inventory items except Forge + PD Studio." Closed
