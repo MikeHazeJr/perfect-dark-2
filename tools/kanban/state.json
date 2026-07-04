@@ -182,7 +182,7 @@
       "pending_completion": {
         "marked_by": "codex-robot-attack-b365",
         "summary": "Robot muzzle flash and robot attack setup now fail closed when robot model parts or target state are incomplete, preventing the Infiltration robot attack exception seen in the build log.",
-        "verify_notes": "Verified 2026-05-21: symbolicated Build/logs/game client/pd-client.log to chrTickRobotAttack; focused [chraction][robot][static][b365] passed with 8 assertions / 1 case; isolated all-target build b363robot passed for client/updater; exact auto_campaign_infiltration_robot_attack smoke reached Infiltration, entered lvTick for stage 0x2f, scripted-exited, and had no ACCESS_VIOLATION, EXCEPTION, or FATAL pattern. Needs Mike manual retest of the original build playtest path before closure.",
+        "verify_notes": "Verified 2026-05-21: symbolicated Build/logs/game client/pd-client.log to chrTickRobotAttack; focused [chraction][robot][static][b365] passed with 8 assertions / 1 case; isolated all-target build b363robot passed for client/updater; exact auto_campaign_infiltration_robot_attack smoke reached Infiltration, entered lvTick for stage 0x2f, scripted-exited, and had no ACCESS_VIOLATION, EXCEPTION, or FATAL pattern. Needs Mike manual retest of the original build playtest path before closure. | FRESH EVIDENCE 2026-07-04 (current build): auto_campaign_infiltration_robot_attack smoke PASSED 14/14, exit 0, 71s (results-20260703T184831Z + 185036Z). Required lines reached Infiltration 0x2f robot-AI window + clean scripted_exit; forbidden ACCESS_VIOLATION/EXCEPTION/FATAL/timeout all absent. The exact chrTickRobotAttack crash repro now runs clean. Ready for Mike's one-click Confirm.",
         "files": [
           "src/game/chraction.c",
           "tests/test_integrated_head_guard.cpp",
@@ -193,6 +193,9 @@
           "Replay the build path that produced the exception.",
           "Confirm the campaign reaches and dwells in Infiltration without crashing during the robot-heavy intro/AI tick window.",
           "Confirm no new robot muzzle flash, beam, or attack visual regression is visible around Chicrob/robot enemies."
+        ],
+        "evidence_refs": [
+          ".claude/smoke-verify-runs/results-20260703T184831Z.json (infiltration robot PASS 14/14)"
         ]
       },
       "subtasks": [

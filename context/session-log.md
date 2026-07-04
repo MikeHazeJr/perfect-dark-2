@@ -24,6 +24,22 @@ campaign-auto-runner domain, so I DOCUMENTED the precise root cause (file:line, 
 rather than patch the bit-exact-validated 17k-line core for a symptom. Precise diagnosis
 in bugs.md B-948 gives the next focused session an immediate start.
 
+**Smoke-verification status from EXISTING Jul 2-3 artifacts (no new launches, read-only):**
+mapping `.claude/smoke-verify-runs/` results to cards --
+- `auto_campaign_infiltration_robot_attack` PASS 14/14 (exit 0, 71s) = **c3829 / B-365**
+  (Infiltration robot-attack crash). The smoke reproduces the EXACT `chrTickRobotAttack`
+  crash window and now runs clean with ACCESS_VIOLATION/EXCEPTION/FATAL/timeout all absent.
+  Recorded as fresh evidence on c3829's pending_completion -> ready for Mike's one-click
+  Confirm (per the pending-completion mechanism, the confirm is his gate, not mine).
+- `boot_smoke` PASS 14/14 = clean boot/catalog/loader path (B-324/B-318/B-326/B-328 classes).
+- `credits_alpha_smoke` reached 8/8 PASS in the latest runs (earlier 6-7/8).
+- `auto_campaign_first_cycle` FAIL 10/20 = B-948 (documented above).
+Takeaway: several pending-completion cards already have passing smokes on the current
+build; the confirmation they were "waiting for playtest" on largely EXISTS in the
+artifacts. The remaining gate is Mike's async Confirm click, which these evidence updates
+make trivial. Live re-runs (his call, since they commandeer his screen/GPU) can refresh
+any of these on demand behind the memory guard.
+
 ## 2026-07-04 - B-801 breakthrough: root cause was host pagefile, now remediated
 
 Chased the ONE meta-blocker behind the entire playtest-gated backlog category (~19
