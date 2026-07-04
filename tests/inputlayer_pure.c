@@ -117,6 +117,10 @@ void ilpShutdown(void)
     if (s_Depth > 0) {
         ilpAbort(s_Depth, -2);
     }
+    /* @SYNC inputlayer.c inputLayerShutdown: clear the whole stack, symmetric
+     * with ilpInit, so no stale def/payload/generation entries linger after
+     * shutdown (B-312 stale-pointer hazard). */
+    memset(s_Stack, 0, sizeof(s_Stack));
     s_Depth = 0;
     s_NextGeneration = 1;
 }

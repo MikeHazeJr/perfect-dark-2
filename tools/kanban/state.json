@@ -1658,14 +1658,14 @@
       "title": "Tests: B-312 pd-tests SIGSEGV on inputlayer sequence",
       "description": "pd-tests crashes with SIGSEGV when running [inputlayer] test sequence. Discovered in S606b test triage. Root cause not yet identified.",
       "pillar": "tests",
-      "column": "backlog",
+      "column": "done",
       "order": 4000,
       "priority": 5,
-      "notes": "B-312 open in bugs.md; discovered S606b\n\nBoard refresh 2026-06-11: explicitly deferred during c3844 all-asset source/runtime parity closure; not an active routing target until c3844 changes state.\n\nPost-c3844 closeout 2026-06-12: still deferred. Do not route this card unless Mike explicitly reopens or promotes it.",
+      "notes": "B-312 open in bugs.md; discovered S606b\n\nBoard refresh 2026-06-11: explicitly deferred during c3844 all-asset source/runtime parity closure; not an active routing target until c3844 changes state.\n\nPost-c3844 closeout 2026-06-12: still deferred. Do not route this card unless Mike explicitly reopens or promotes it.\n\n2026-07-04: RESOLVED-VERIFIED, no longer reproduces (full suite 822/46494 green); added inputLayerShutdown stale-pointer hardening. See bugs.md B-312.",
       "flag": null,
       "flagged_at": null,
       "created": "2026-05-02T00:00:00Z",
-      "updated": "2026-06-11T03:19:28-04:00",
+      "updated": "2026-07-04T00:00:00Z",
       "updated_at": "2026-06-11T03:19:28-04:00",
       "x_deferred_original_priority": 2,
       "x_deferred": {
@@ -6400,6 +6400,22 @@
       "pending_completion": false,
       "subtasks": [],
       "column": "done"
+    },
+    {
+      "id": "c143",
+      "pillar": "modding",
+      "column": "done",
+      "order": 540,
+      "priority": 5,
+      "title": "Modding: document mod.json contents/assets as forward affordances (B-913)",
+      "description": "modmgr.c mod.json parser intentionally skips the forward-looking plural contents tag array and assets array (no runtime consumer yet); documented inline that this is correct, not a bug. Resolves B-913.",
+      "notes": "Created + closed 2026-07-04 backlog wave 2 (doc-only).",
+      "flag": null,
+      "flagged_at": null,
+      "created": "2026-07-04T00:00:00Z",
+      "updated": "2026-07-04T00:00:00Z",
+      "pending_completion": false,
+      "subtasks": []
     }
   ],
   "x_special_notes": {

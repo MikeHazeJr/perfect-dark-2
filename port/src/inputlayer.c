@@ -348,6 +348,13 @@ void inputLayerShutdown(void)
     if (s_Depth > 0) {
         inputLayerAbort(s_Depth, /* INPUTLAYER_ABORT_SHUTDOWN */ -2);
     }
+    /* Clear the whole stack, symmetric with inputLayerInit. Leaving stale def /
+     * payload / generation entries behind is the stale-pointer hazard behind
+     * B-312: a caller can push a def with automatic storage, shut down, and a
+     * later stray read would dereference freed memory. Zeroing keeps shutdown a
+     * clean slate. (Behaviourally invisible via the depth-guarded public API, so
+     * the 822-case suite stays green; this is defense in depth.) */
+    memset(s_Stack, 0, sizeof(s_Stack));
     s_Depth = 0;
     s_NextGeneration = 1;
 }
