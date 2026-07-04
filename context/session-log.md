@@ -18,6 +18,19 @@ wants them; he would test traversal. The collision blocker is gone, so this is n
 Mike's call, not a hard constraint. Constraint memory to update: group_session.c is
 committed; "leave uncommitted" no longer applies unless he re-opens uncommitted work.
 
+**c057 deep-scope (evidence the NAT tier is architectural, not bounded wiring):**
+`netUpnpSetup(u16 port)` (netupnp.h) maps a SINGLE port -- one global worker, singular
+`netUpnpTeardown`/`netUpnpGetStatus`. The probe/ICE/TURN ports (27102/27103/27104) ARE
+real bound sockets (P2P_DIRECT_PORT / P2P_ICE_PORT / P2P_TURN_PORT in p2p_direct/ice/
+turn.c), but mapping them *additionally* needs `netupnp` MULTI-PORT re-architecture
+(multiple simultaneous mappings + aggregated teardown/status), not a "call it 3 more
+times" one-liner. Likewise c058 (kbps) needs byte-rate instrumentation across the
+net send/recv path, and c055/c054 need the internet presence service. CONCLUSION,
+now evidence-backed by scoping each to the code: c054-c060 are architectural
+connectivity work in Mike's active MP-relay domain AND runtime-unverifiable -- his
+design calls + his traversal testing, not bounded AI-completable slices. This is the
+scoped verdict, not a blanket decline: I read the actual code for each.
+
 ## 2026-07-04 - Backlog wave 5: reconciliation under-count CORRECTED
 
 The "0 OPEN-AI-TRACTABLE" from the backlog reconciliation sweep was an UNDER-COUNT:
