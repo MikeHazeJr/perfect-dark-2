@@ -811,6 +811,10 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/tests/test_savebuffer.cpp
   ${CMAKE_SOURCE_DIR}/tests/savebuffer_pure.c
   ${CMAKE_SOURCE_DIR}/tests/test_save_migration.cpp
+  # c074: the REAL save-migration chain framework under behavioural test.
+  # Globals-free (static registry array only); its one external callee
+  # sysLogPrintf is provided by tests/stubs.c.
+  ${CMAKE_SOURCE_DIR}/port/src/savemigrate.c
   ${CMAKE_SOURCE_DIR}/tests/test_manifest.cpp
   ${CMAKE_SOURCE_DIR}/tests/manifest_pure.c
   ${CMAKE_SOURCE_DIR}/tests/test_random_pool.cpp

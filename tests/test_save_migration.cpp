@@ -222,3 +222,123 @@ TEST_CASE("save migration: production weapon-cull migration remains version-gate
     REQUIRE(block.find("g_MpSetup.weapons[i] = MPWEAPON_DISABLED") != std::string::npos);
     REQUIRE(block.find("g_MpWeaponSetRandomFilters[i] = 0") != std::string::npos);
 }
+
+/* ========================================================================
+ * c074: behavioural coverage of the REAL save-migration chain framework
+ * (port/src/savemigrate.c, linked into pd-tests). The tests above pin the
+ * v1->v2 weapon-cull RULE as a pure replica; these exercise the actual chain
+ * executor -- registration, ascending-version ordering, type isolation,
+ * no-op/downgrade guards, and fail-closed on a missing step -- so the
+ * production framework cannot drift unnoticed.
+ * ======================================================================== */
+
+#include <cstdio>
+#include "savemigrate.h"
+
+namespace {
+/* Dummy migrations tag the JSON so chain ORDER is observable in the output. */
+char *sm_tag(char *json, s32 bufsize, const char *tag) {
+    std::size_t cur = std::strlen(json);
+    if (cur + std::strlen(tag) + 1 < (std::size_t)bufsize) std::strcat(json, tag);
+    return json;
+}
+char *sm_1to2(char *j, s32, s32 b) { return sm_tag(j, b, "|1to2"); }
+char *sm_2to3(char *j, s32, s32 b) { return sm_tag(j, b, "|2to3"); }
+char *sm_3to4(char *j, s32, s32 b) { return sm_tag(j, b, "|3to4"); }
+
+void sm_write(const std::string &path, const std::string &s) {
+    std::ofstream out(path, std::ios::binary | std::ios::trunc);
+    out << s;
+}
+std::string sm_read(const std::string &path) {
+    std::ifstream in(path, std::ios::binary);
+    std::ostringstream ss; ss << in.rdbuf(); return ss.str();
+}
+/* RAII cleanup of the temp save + any .vN.bak the framework writes. */
+struct SmTmp {
+    std::string path;
+    explicit SmTmp(const char *p) : path(p) {}
+    ~SmTmp() {
+        std::remove(path.c_str());
+        for (int v = 1; v <= 9; v++) {
+            std::remove((path + ".v" + std::to_string(v) + ".bak").c_str());
+        }
+    }
+};
+} /* anon */
+
+TEST_CASE("savemigrate framework: version-check arithmetic", "[save][migration]") {
+    REQUIRE(saveMigrateCheck(2, 2) == 0);   /* already at target */
+    REQUIRE(saveMigrateCheck(3, 3) == 0);
+    REQUIRE(saveMigrateCheck(1, 4) == 1);   /* older -> migration available */
+    REQUIRE(saveMigrateCheck(2, 4) == 1);
+    REQUIRE(saveMigrateCheck(5, 4) == -1);  /* newer than target -> downgrade */
+}
+
+TEST_CASE("savemigrate framework: chain runs steps in ascending version order",
+          "[save][migration]") {
+    saveMigrateInit();  /* clears the registry */
+    /* Register OUT of order to prove the executor sequences by version, not by
+     * registration order. */
+    saveMigrateRegister(SAVETYPE_AGENT, 3, 4, sm_3to4);
+    saveMigrateRegister(SAVETYPE_AGENT, 1, 2, sm_1to2);
+    saveMigrateRegister(SAVETYPE_AGENT, 2, 3, sm_2to3);
+
+    SmTmp t("pd_test_savemigrate_chain.json");
+    sm_write(t.path, "{\"version\":1}");
+    REQUIRE(saveMigrateFile(t.path.c_str(), SAVETYPE_AGENT, 1, 4) == 0);
+
+    const std::string out = sm_read(t.path);
+    const std::size_t p12 = out.find("|1to2");
+    const std::size_t p23 = out.find("|2to3");
+    const std::size_t p34 = out.find("|3to4");
+    INFO("migrated content: " << out);
+    REQUIRE(p12 != std::string::npos);
+    REQUIRE(p23 != std::string::npos);
+    REQUIRE(p34 != std::string::npos);
+    REQUIRE(p12 < p23);   /* 1->2 ran before 2->3 */
+    REQUIRE(p23 < p34);   /* 2->3 ran before 3->4 */
+}
+
+TEST_CASE("savemigrate framework: type isolation -- other types are not run",
+          "[save][migration]") {
+    saveMigrateInit();
+    saveMigrateRegister(SAVETYPE_AGENT,  1, 2, sm_1to2);
+    saveMigrateRegister(SAVETYPE_PLAYER, 1, 2, sm_2to3);  /* different type, same step */
+
+    SmTmp t("pd_test_savemigrate_type.json");
+    sm_write(t.path, "{}");
+    REQUIRE(saveMigrateFile(t.path.c_str(), SAVETYPE_AGENT, 1, 2) == 0);
+    const std::string out = sm_read(t.path);
+    REQUIRE(out.find("|1to2") != std::string::npos);  /* AGENT step ran */
+    REQUIRE(out.find("|2to3") == std::string::npos);  /* PLAYER step did NOT */
+}
+
+TEST_CASE("savemigrate framework: already-at-target is a no-op success",
+          "[save][migration]") {
+    saveMigrateInit();
+    saveMigrateRegister(SAVETYPE_AGENT, 1, 2, sm_1to2);
+    SmTmp t("pd_test_savemigrate_noop.json");
+    sm_write(t.path, "{\"version\":4}");
+    REQUIRE(saveMigrateFile(t.path.c_str(), SAVETYPE_AGENT, 4, 4) == 1);
+    REQUIRE(sm_read(t.path) == "{\"version\":4}");  /* untouched */
+}
+
+TEST_CASE("savemigrate framework: missing chain step fails closed",
+          "[save][migration]") {
+    saveMigrateInit();
+    saveMigrateRegister(SAVETYPE_AGENT, 1, 2, sm_1to2);  /* no 2->3 registered */
+    SmTmp t("pd_test_savemigrate_gap.json");
+    sm_write(t.path, "{\"version\":1}");
+    /* 1->2 exists, 2->3 does not: the chain must abort with an error, not
+     * silently stop at v2 and claim success. */
+    REQUIRE(saveMigrateFile(t.path.c_str(), SAVETYPE_AGENT, 1, 4) == -1);
+}
+
+TEST_CASE("savemigrate framework: newer-than-target refuses to downgrade",
+          "[save][migration]") {
+    saveMigrateInit();
+    SmTmp t("pd_test_savemigrate_down.json");
+    sm_write(t.path, "{\"version\":9}");
+    REQUIRE(saveMigrateFile(t.path.c_str(), SAVETYPE_AGENT, 9, 4) == -2);
+}
