@@ -1,5 +1,29 @@
 # Session Log (Active)
 
+## 2026-07-05 - B-951 REAL fix: build wrapper's prior fix was ineffective; false-SUCCESS closed for real
+
+Went to verify B-951 (bugs.md marked it OPEN despite a committed fix b162ec79) and
+PROVED the prior fix did nothing: added a temp `src/game/_b951_wrapper_verify.c` with
+`#error`, built -> ninja genuinely failed (exit 1, "ninja: build stopped") yet the
+wrapper STILL printed `Result: SUCCESS`. So build-verify could silently run stale
+binaries after ANY compile error -- the exact trap that cost hours earlier this session.
+
+**Real root cause:** `Invoke-BuildStep` runs ninja via `Start-Process -PassThru` and reads
+`$proc.ExitCode`. A -PassThru Process returns `.ExitCode=0/null` after the child exits
+UNLESS its OS `.Handle` was cached while the child was alive -> ninja's exit 1 read back
+as 0 -> `.exit`=0 -> SUCCESS. The 2026-07-04 patch (Refresh()+trust-non-zero) could not
+help because `.ExitCode` was genuinely 0.
+
+**Fix (072420ed, build-headless.ps1):** (1) cache `$proc.Handle` right after Start-Process
+so `.ExitCode` is authoritative; (2) defense-in-depth -- if exitCode==0 but output has
+`ninja: build stopped`/`^FAILED: `, force FAILED (backstops any future exit-capture
+regression). **VERIFIED:** pre-fix SUCCESS/exit0; post-fix FAILED/exit1 on 2/2 runs; clean
+build still SUCCESS (no false-positive). Also caught + fixed a StrictMode `.Count` bug in
+my own scan mid-verification. This protects every future build-verify.
+
+META-LESSON: a committed "fix" can be inert. For safety-critical tooling, verify the fix
+actually changes behaviour with a controlled failing case, not just that it compiles.
+
 ## 2026-07-05 - B-952 skedarruins crash: 4 hypotheses disproven, 2 safe fixes committed, crash handed off
 
 Acted on Mike's directive ("limits should be dynamic, not the N64's constraints") against
