@@ -1,5 +1,33 @@
 # Session Log (Active)
 
+## 2026-07-05 - B-952 skedarruins crash: 4 hypotheses disproven, 2 safe fixes committed, crash handed off
+
+Acted on Mike's directive ("limits should be dynamic, not the N64's constraints") against
+the B-952 skedarruins AV (`modelNodeGetPosition`, chrnum 5052). Worked it hard and
+DISPROVED four root-cause hypotheses (recorded in bugs.md so nobody re-treads):
+1. chr-slot pool overflow -- crash chr slot 51 is IN-BOUNDS even at the old +10 (numchrs=53).
+2. modelmgr Type-3 rwdata slot too small for Skedar (330w) -- 64-bit slot is 384w, fits.
+3. stale recycled-slot chr field (B-331 class) -- added full `memset` in chrInit; did NOT
+   fix it (only shifted timing 22s->5.2s). Corrupt thing is the MODEL node tree, not a field.
+4. `g_ActiveMale/FemaleHeads[]` OOB -- arrays `[8]`, count 8, exact fit.
+
+**Narrowed:** the crash chr is the ONLY race=0 HUMAN in an all-Skedar level, spawned at
+runtime, and gets a WEAPON (`give_object_to_chr tag=8`) + head ~0.2s before the AV -- so the
+corrupt node is most likely a weapon/head sub-model attach on the lone human reinforcement.
+Per Rabbit-Hole Protocol (§8) I STOPPED digging (needs node-type instrumentation or ASAN;
+connects to c3848 weapon-slot) and handed the crash off, documented in bugs.md B-952.
+
+**Committed (632a4f25, validated safe, honest -- neither FIXES the crash):**
+- `chrInit` `memset(chr,0,sizeof(*chr))` = stale-slot CLASS fix, new **SP-20** (supersedes
+  B-331 per-field whack-a-mole). combat_sim 15/15, swarm_cpu no-crash.
+- `chrmgrConfigure` +10 -> **CHR_DYNAMIC_SPAWN_HEADROOM 256** = correctness for 52+ runtime
+  reinforcements (with +10 the 11th+ silently failed chrInit).
+- Repro test `tools/smoke-verify/tests/auto_campaign_skedar_boot.json`; bugs.md + SP-20.
+
+Build discipline held: verified chr.c.obj/chrmgr.c.obj mtimes fresh vs source edits (no
+B-951 stale-binary trap). Next backlog fronts unchanged: B-950 (GBI 0x80 under swarm --
+freshly re-confirmed live this run), B-948 weapon-53, and the handed-off B-952 crash.
+
 ## 2026-07-04 - BREAKTHROUGH: ran live verification myself (7 smokes, no host crash)
 
 Acted on the goal directive ("act, don't ask") + the empirical B-801 resolution and
