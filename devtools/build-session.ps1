@@ -611,6 +611,13 @@ function Invoke-QueuedBuildChild([string[]]$childArgs, $queueToken, [int]$timeou
     Write-Info "Build errors: $stderrLog"
     $child = Start-Process -FilePath "powershell.exe" -ArgumentList $childArgs -NoNewWindow -PassThru `
         -RedirectStandardOutput $stdoutLog -RedirectStandardError $stderrLog
+    # B-951 propagation (2026-07-05): cache the child's OS handle so the
+    # `return [int]$child.ExitCode` at the end of this function is authoritative.
+    # Start-Process -PassThru returns a Process whose .ExitCode reads back 0/null
+    # after exit unless its Handle was retained while alive -- the same class of bug
+    # that made build-headless.ps1 report a failed ninja compile as SUCCESS. Without
+    # this, the queue could mark a FAILED child build as exit 0 = success. Additive.
+    try { $childHandle = $child.Handle } catch {}
     $startedUtc = [DateTime]::UtcNow
     # Idle-based watchdog: $timeoutSeconds is the max time with NO build output
     # (compile stalled / cc1 wedged), not a cap on total build time. A build
