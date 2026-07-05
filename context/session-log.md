@@ -74,6 +74,23 @@ HOST crashes (the one FATAL was a contained game-process exit).
   the anim-switch wave); fix is a c029 decision (throttle/pool/fatal), not blind-patched.
 Harness task queue synced (#26-34) to this verify-and-fix work.
 
+**wall_jump_capsule_smoke (c038) RESOLVED + SP-1 fix (later 2026-07-04):**
+- Deep-traced why its CAPSULE assertions failed: jumps + sweeps ALWAYS happened, but the
+  CAPSULE: markers honor Debug.JumpLogging (g_JumpLoggingEnabled, default 0) and no smoke
+  enabled it -- the unconditional JUMP: lines masked this. Fix: per-test `"jump_logging": 1`
+  opt-in -> smokeHarnessInit sets the flag (per-test, so swarm smokes do not flood).
+  wall_jump now **21/21** when it exits (c038 pipeline proven live; commit 5d0438d4).
+- Tracing the residual intermittent hang surfaced an **SP-1 OOB**: the CI-staff quip tables
+  g_Ci{Greeting,Main,Annoyed,Thanks}Quips are indexed by chr->morale (u8 0-255) but have
+  only 6-10 rows -> OOB garbage sound id -32720. Bounds-checked both call sites
+  (chraicommands.c + scenario_source_runtime.c, counts exported + added to the native-source
+  guard inventory; commit 697986b7). Pass rate ~50%->~75%.
+- REMAINING: an intermittent (~25%) frame-loop hang after the CITRAINING CI-staff sequence
+  (do_preset_animation base:animation_character_yc + say_ci_staff_quip, sound leaf 1940
+  absent from catalog). The quip handler returns cleanly, so the hang is the animation /
+  next action, NOT audio. Needs frame-loop heartbeat instrumentation + many runs (intermittent)
+  = focused c3844/CITRAINING session. social_hub is the analogous intermittent stall.
+
 Followed B-801 through to the actual smoke-run artifacts and found the decisive fact:
 **live smokes are already resuming safely.** `.claude/smoke-verify-runs/` holds many
 Jul 2-3 runs; the most recent (`results-20260703T185914Z.json`, `auto_campaign_first_cycle`)
