@@ -604,6 +604,42 @@ small original levels but now fed larger/modded graphs. Search: `grep -rn "func.
 
 ---
 
+## SP-20: Recycled pool slot inherits stale fields (partial re-init)
+
+**Severity: HIGH (0xc0000005 use-after-stale-value).** An object is allocated from a
+recycled pool slot (bump-allocated `MEMPOOL_STAGE` memory) and its init function sets
+fields ONE BY ONE rather than zeroing the whole slot first. Every field the init MISSES
+keeps the bytes of the PREVIOUS occupant of that slot. When a later read treats that
+stale value as an index / tagnum / pointer, it dereferences freed or unrelated memory and
+AVs. The bug is invisible at low reuse (slots happen to land on fresh-zeroed memory) and
+only appears when reuse crosses into memory previously used by a different data structure
+-- so it presents as count-/order-dependent and layout-sensitive, easy to misattribute.
+
+**Known instances (same class, `chrInit` in `src/game/chr.c`):**
+- **B-331:** `chr->myspecial` un-inited -> tagnum-shaped garbage -> `objFindByTagId` stale
+  `tag->obj` deref -> AV at `chrCalculatePushPos` (fixed 2026-05-16 by adding
+  myspecial/yvisang/teamscandist/convtalk/naturalanim defaults -- the INSTANCE).
+- The whack-a-mole of adding one field per crash is the anti-pattern.
+
+**Fix applied (the CLASS fix, 2026-07-05):** `memset(chr, 0, sizeof(*chr))` at the top of
+`chrInit` (right after the slot is found/NULL-checked, before the explicit inits). Every
+field now starts at 0; the existing explicit `-1`/sentinel inits still run and override
+where a non-zero default is required. Safe because all callers (chr0f020b14, body.c MP/AI
+paths, botmgr.c, playerreset.c) customize AFTER chrInit returns. Modern HW does not need
+the N64's skip-the-memset micro-optimization (project rule: correctness > micro-opt).
+Validated: combat_sim 15/15, swarm_cpu clean (no crash). NOTE: this did NOT fix B-952
+(whose crash is a corrupt MODEL node tree, a different class) -- it prevents the whole
+stale-chr-FIELD class going forward.
+
+**Audit checklist:** any `*Init`/`*Reset`/`*Allocate` that (a) takes a slot from a pooled/
+recycled array or `mempAlloc`'d region and (b) assigns fields individually instead of
+`memset(0)`-first. If a new field is added to the struct but not to the init, it silently
+inherits garbage. Prefer zero-then-set-sentinels over enumerate-every-field. Search:
+`grep -rn "mempAlloc\|g_.*Slots\[" src/game/*.c` and check the matching init zeroes the
+whole record before per-field assignment.
+
+---
+
 ## How to Use
 
 - Before starting any work that touches arrays, memory allocation, or stage indexing, scan this file for relevant patterns.

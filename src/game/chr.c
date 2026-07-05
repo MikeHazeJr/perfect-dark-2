@@ -1,4 +1,5 @@
 #include <ultra64.h>
+#include <string.h>
 #include "lib/sched.h"
 #include "constants.h"
 #include "system.h"
@@ -1236,6 +1237,27 @@ void chrInit(struct prop *prop, u8 *ailist)
 		sysLogPrintf(LOG_ERROR, "chrInit: out of chr slots (g_NumChrSlots=%d) - cannot allocate", g_NumChrSlots);
 		return;
 	}
+
+	/* B-952 (2026-07-05): zero the recycled slot before init -- fix the CLASS.
+	 *
+	 * g_ChrSlots[] entries are recycled from MEMPOOL_STAGE. chrInit sets many
+	 * fields explicitly, but every field it MISSES inherits stale bytes from the
+	 * chr that previously occupied this slot. B-331 (see chrCalculatePushPos
+	 * comment above) was one instance: `myspecial` inherited a tagnum-shaped
+	 * garbage value and AV'd at 0xc0000005; it was patched by adding
+	 * myspecial/yvisang/... defaults -- the instance, not the class. B-952 is the
+	 * same mechanism landing on a different un-inited field: base:skedarruins
+	 * recycles a slot into a runtime reinforcement chr (chrnum >= 5000) whose
+	 * stale field steers modelNodeGetPosition into a freed node -> 0xc0000005 on
+	 * the first full tick. Rather than chase each field forever, zero the whole
+	 * slot so NO field can ever inherit garbage again. Modern HW does not need the
+	 * N64's skip-the-memset micro-optimization; correctness wins (project rule:
+	 * prefer correctness over micro-optimization). Every caller (chr0f020b14,
+	 * body.c MP/AI paths, botmgr.c, playerreset.c) customizes AFTER chrInit
+	 * returns, so this cannot clobber caller-set state, and the explicit
+	 * -1/sentinel inits below still run and override the zeros where a non-zero
+	 * default is required. */
+	memset(chr, 0, sizeof(*chr));
 
 	chr->chrnum = chrsGetNextUnusedChrnum();
 	chrRegister(chr->chrnum, i);
