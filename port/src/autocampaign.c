@@ -148,6 +148,7 @@ static bool s_retried_force_end = false;
 #define AC_DWELL_BRIEF_FRAMES 240u
 #define AC_DWELL_LOAD_TIMEOUT 3600u  /* 60 sec safety */
 #define AC_DWELL_END_TIMEOUT  600u   /* 10 sec watchdog after force-end */
+#define AC_DWELL_CUTSCENE_TIMEOUT 1800u /* 30 sec: force past a stuck/overlong intro */
 #define AC_FAST_DWELL          30u   /* 0.5 sec @ 60 Hz */
 
 static u32 dwellFor(u32 base)
@@ -302,8 +303,12 @@ void autocampaignTick(void)
 		break;
 
 	case AC_STATE_DWELL_PRE:
-		/* While the intro cutscene is playing, let it run. */
-		if (playerAnyInCutscene()) {
+		/* While the intro cutscene is playing, let it run -- but NOT forever.
+		 * B-948: base:defection's intro kept playerAnyInCutscene() true past the
+		 * test window, hanging the unattended runner. DWELL_PRE was the only
+		 * wait-state without a watchdog (WAIT_LOAD/WAIT_END both have one).
+		 * Force past a stuck/overlong intro after AC_DWELL_CUTSCENE_TIMEOUT. */
+		if (playerAnyInCutscene() && s_frames_in_state < AC_DWELL_CUTSCENE_TIMEOUT) {
 			break;
 		}
 		if (s_dwell_frames > 0u) {
