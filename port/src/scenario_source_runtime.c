@@ -89,6 +89,12 @@ extern s16 g_CiMainQuips[][3];
 extern s16 g_CiGreetingQuips[][3];
 extern s16 g_CiAnnoyedQuips[][3];
 extern s16 g_CiThanksQuips[];
+/* Row counts exported by chraicommands.c (sizeof does not work on the incomplete
+ * extern arrays above). Used to bounds-check chr->morale -- B-949 / SP-1. */
+extern const s32 g_CiMainQuipsCount;
+extern const s32 g_CiGreetingQuipsCount;
+extern const s32 g_CiAnnoyedQuipsCount;
+extern const s32 g_CiThanksQuipsCount;
 extern struct animtablerow g_SpecialDieAnims[];
 
 typedef struct scenario_source_pad_row {
@@ -23273,16 +23279,20 @@ s32 scenarioSourceAiGraphExecuteSayCiStaffQuip(struct chrdata *chr,
 			chr, &chr_count, &target_chrnum)) {
 		return 1;
 	}
-	if (quip_type == CIQUIP_GREETING) {
+	/* SP-1: bounds-check chr->morale (u8, 0-255) against each table's row count
+	 * before indexing. An out-of-range morale otherwise reads OOB garbage (e.g.
+	 * sound id -32720), which failed audio resolution and flooded the AI-graph
+	 * failure path (B-949). Out-of-range -> leave quip 0 (no quip spoken). */
+	if (quip_type == CIQUIP_GREETING && chr->morale < g_CiGreetingQuipsCount) {
 		quip = g_CiGreetingQuips[chr->morale][rngRandom() % 3];
 	}
-	if (quip_type == CIQUIP_MAIN) {
+	if (quip_type == CIQUIP_MAIN && chr->morale < g_CiMainQuipsCount) {
 		quip = g_CiMainQuips[chr->morale][rngRandom() % 3];
 	}
-	if (quip_type == CIQUIP_ANNOYED) {
+	if (quip_type == CIQUIP_ANNOYED && chr->morale < g_CiAnnoyedQuipsCount) {
 		quip = g_CiAnnoyedQuips[chr->morale][rngRandom() % 3];
 	}
-	if (quip_type == CIQUIP_THANKS) {
+	if (quip_type == CIQUIP_THANKS && chr->morale < g_CiThanksQuipsCount) {
 		quip = g_CiThanksQuips[chr->morale];
 	}
 	if (quip) {

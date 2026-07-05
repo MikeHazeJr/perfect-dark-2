@@ -10365,6 +10365,17 @@ s16 g_CiThanksQuips[] = {
 	MP3_CIFEM_THANKS3,
 };
 
+/* Row counts for the CI-staff quip tables, exported so the scenario-source
+ * runtime (which sees these arrays only as incomplete `extern s16 [][3]` types,
+ * where sizeof does not work) can bounds-check chr->morale before indexing.
+ * B-949 / SP-1: chr->morale is u8 (0-255) but these tables have 6-10 rows; an
+ * out-of-range morale read out-of-bounds garbage (e.g. sound id -32720) that
+ * then flooded the AI-graph audio-resolution failure path. */
+const s32 g_CiMainQuipsCount     = ARRAYCOUNT(g_CiMainQuips);
+const s32 g_CiGreetingQuipsCount = ARRAYCOUNT(g_CiGreetingQuips);
+const s32 g_CiAnnoyedQuipsCount  = ARRAYCOUNT(g_CiAnnoyedQuips);
+const s32 g_CiThanksQuipsCount   = ARRAYCOUNT(g_CiThanksQuips);
+
 /**
  * @cmd 01a2
  */
@@ -10378,22 +10389,24 @@ bool aiSayCiStaffQuip(void)
 		return false;
 	}
 
-	if (cmd[2] == CIQUIP_GREETING) {
+	/* SP-1: bounds-check chr->morale (u8, 0-255) against each table's row count
+	 * before indexing; an out-of-range morale otherwise reads OOB garbage. */
+	if (cmd[2] == CIQUIP_GREETING && g_Vars.chrdata->morale < ARRAYCOUNT(g_CiGreetingQuips)) {
 		quip = g_CiGreetingQuips[g_Vars.chrdata->morale][rngRandom() % 3];
 		psPlayFromProp((s8)cmd[3], quip, 0, g_Vars.chrdata->prop, PSTYPE_CHRTALK, 0);
 	}
 
-	if (cmd[2] == CIQUIP_MAIN) {
+	if (cmd[2] == CIQUIP_MAIN && g_Vars.chrdata->morale < ARRAYCOUNT(g_CiMainQuips)) {
 		quip = g_CiMainQuips[g_Vars.chrdata->morale][rngRandom() % 3];
 		psPlayFromProp((s8)cmd[3], quip, 0, g_Vars.chrdata->prop, PSTYPE_CHRTALK, 0);
 	}
 
-	if (cmd[2] == CIQUIP_ANNOYED) {
+	if (cmd[2] == CIQUIP_ANNOYED && g_Vars.chrdata->morale < ARRAYCOUNT(g_CiAnnoyedQuips)) {
 		quip = g_CiAnnoyedQuips[g_Vars.chrdata->morale][rngRandom() % 3];
 		psPlayFromProp((s8)cmd[3], quip, 0, g_Vars.chrdata->prop, PSTYPE_CHRTALK, 0);
 	}
 
-	if (cmd[2] == CIQUIP_THANKS) {
+	if (cmd[2] == CIQUIP_THANKS && g_Vars.chrdata->morale < ARRAYCOUNT(g_CiThanksQuips)) {
 		quip = g_CiThanksQuips[g_Vars.chrdata->morale];
 		psPlayFromProp((s8)cmd[3], quip, 0, g_Vars.chrdata->prop, PSTYPE_CHRTALK, 0);
 	}
