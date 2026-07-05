@@ -510,6 +510,18 @@ function Invoke-BuildStep {
         return $false
     }
 
+    # B-951 ROOT FIX (2026-07-05): cache the OS process handle NOW, while the process
+    # is still alive. Start-Process -PassThru returns a Process whose .ExitCode reads
+    # back as 0/null after the process exits UNLESS its Handle was retained during the
+    # run (documented PowerShell behaviour). Without this, a failed ninja compile
+    # (exit 1, "ninja: build stopped: subcommand failed") was captured as ExitCode 0,
+    # the .exit file recorded 0, and the build reported SUCCESS while running a STALE
+    # binary. Touching .Handle forces the SafeHandle to be cached so .ExitCode is
+    # authoritative after WaitForExit. The prior B-951 patch (Refresh()+trust-non-zero,
+    # below) could not help because .ExitCode was genuinely 0 -- the handle was gone.
+    $procHandle = $null
+    try { $procHandle = $proc.Handle } catch {}
+
     $spinChars = @('|', '/', '-', '\')
     $spinIdx   = 0
     $lastSpin  = [DateTime]::Now
@@ -607,6 +619,23 @@ function Invoke-BuildStep {
         Write-Warn "Step exit code was not recorded for '$StepName'; treating it as failed. hasExited=$hasExitedText exitLog=$stepExitLog cmdline=$stepCmdLineLog"
         $exitCode = 1
     }
+
+    # B-951 DEFENSE-IN-DEPTH (2026-07-05): even with the handle fix above, never let a
+    # genuine build failure be reported as SUCCESS. ninja prints unambiguous failure
+    # markers ("ninja: build stopped: subcommand failed", "FAILED: <target>"); if one
+    # is present while the exit code looks clean, force FAILED. This backstops ANY
+    # future exit-capture regression in this wrapper -- the class of bug that made the
+    # first B-951 patch silently ineffective.
+    if ($exitCode -eq 0) {
+        $failMarker = @(@($stdoutLines) + @($stderrLines) | Where-Object {
+            $_ -match 'ninja: build stopped' -or $_ -cmatch '^FAILED: '
+        })
+        if ($failMarker.Count -gt 0) {
+            Write-Warn "Step '$StepName': exit code 0 but output shows a build failure (`"$($failMarker[0])`"); forcing FAILED (B-951 defense-in-depth)."
+            $exitCode = 1
+        }
+    }
+
     try { $proc.Dispose() } catch {}
 
     $elapsed = [math]::Floor(([DateTime]::Now - $script:StepStart).TotalSeconds)
