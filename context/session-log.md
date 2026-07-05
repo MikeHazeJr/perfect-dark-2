@@ -85,11 +85,15 @@ Harness task queue synced (#26-34) to this verify-and-fix work.
   only 6-10 rows -> OOB garbage sound id -32720. Bounds-checked both call sites
   (chraicommands.c + scenario_source_runtime.c, counts exported + added to the native-source
   guard inventory; commit 697986b7). Pass rate ~50%->~75%.
-- REMAINING: an intermittent (~25%) frame-loop hang after the CITRAINING CI-staff sequence
-  (do_preset_animation base:animation_character_yc + say_ci_staff_quip, sound leaf 1940
-  absent from catalog). The quip handler returns cleanly, so the hang is the animation /
-  next action, NOT audio. Needs frame-loop heartbeat instrumentation + many runs (intermittent)
-  = focused c3844/CITRAINING session. social_hub is the analogous intermittent stall.
+- **HANG ROOT-CAUSED + FIXED (c874cce9):** it was an INFINITE LOOP in the ailist dispatcher
+  (chrai.c), NOT a rendering/animation hang. The dispatcher re-runs a command that returns 0
+  ("continue") until g_Vars.aioffset advances; say_ci_staff_quip's audio-unresolved path
+  returned "handled" WITHOUT its aioffset advance, so the same command re-dispatched forever
+  and hung the frame. Intermittent because it only fires when the quip audio fails to resolve
+  (sound leaf 1940 absent). Fixed the CLASS with a dispatcher no-progress guard (force-advance
+  if a continue-returning command left aioffset unchanged) -> new **SP-18**. B-949 FULLY
+  RESOLVED: vehicle_flow PASS, wall_jump **6/6** PASS (was ~50%), social_hub **2/2** PASS
+  14/14 (was 13/14). The morale OOB + jump_logging fixes stand as the other two layers.
 
 Followed B-801 through to the actual smoke-run artifacts and found the decisive fact:
 **live smokes are already resuming safely.** `.claude/smoke-verify-runs/` holds many

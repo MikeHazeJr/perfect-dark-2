@@ -556,6 +556,30 @@ Section 2.x for the canonical key name.
 **Known instances**:
 - B-942 (2026-06-25): dark_combat (Joanna) legs scramble under cutscene anim 1157. Root-caused to this pattern. **Fix landed + structure-verified (per-vertex matrix carried through extract+consume); awaiting human render verification.** The jointflags/type_hi work was a prior partial (computed the helper matrices but the seam verts were still mis-bound to one matrix).
 
+## SP-18: AI ailist command returns "continue" without advancing `g_Vars.aioffset`
+
+**Severity: HIGH (frame hang).** The ailist dispatcher (`src/game/chrai.c`, the
+`while (g_Vars.ailist)` loop) executes `g_CommandPointers[type]()`; a return of 0 means
+"continue processing this frame" and the command is REQUIRED to have advanced
+`g_Vars.aioffset` itself. Any command whose early "handled" return path skips its advance
+makes the loop re-dispatch the same command forever -> the whole frame hangs (watchdog
+kill; no crash, MEMPC intact). Found as B-949 (2026-07-04): `aiSayCiStaffQuip` ->
+`scenarioSourceAiGraphExecuteSayCiStaffQuip` returned 1 (audio unresolved / char-ptr fail
+/ required<0) WITHOUT the `g_Vars.aioffset += 4` that its success path does; intermittent
+because it only fires when the quip audio fails to resolve.
+
+**Fix applied (the class, not the instance):** a no-progress guard in the dispatcher --
+capture `prevoffset` before the call; if the command returns 0 and left `aioffset`
+unchanged, force-advance by `chraiGetCommandLength`. Commands that intentionally move
+aioffset (jump/goto/label) already differ and are untouched.
+
+**Audit checklist:** any `scenarioSourceAiGraphExecute*` (or legacy `ai*`) handler that has
+BOTH a `g_Vars.aioffset += N` success path AND early `return` paths -- confirm the early
+returns either advance aioffset or return the "break" value (non-zero from the command).
+Search: `grep -n "return 1;" port/src/scenario_source_runtime.c` near `aioffset +=` sites.
+The dispatcher guard now backstops all of them, but the root handlers should still be
+correct so the intent (skip vs re-run-next-frame) is explicit.
+
 ---
 
 ## How to Use
