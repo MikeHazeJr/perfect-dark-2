@@ -580,6 +580,28 @@ Search: `grep -n "return 1;" port/src/scenario_source_runtime.c` near `aioffset 
 The dispatcher guard now backstops all of them, but the root handlers should still be
 correct so the intent (skip vs re-run-next-frame) is explicit.
 
+## SP-19: Recursive graph flood with a depth cap but no visited-set
+
+**Severity: HIGH (load/frame hang).** A recursion that walks a graph (rooms via portals,
+nodes via edges) and guards only with a DEPTH cap -- not a visited-set -- revisits the
+same nodes via every distinct path. On a highly-connected graph the call count is
+branching^depth, which for real data (e.g. `base:villa`, 304 portals, depth cap 20)
+explodes into billions of calls = an effective hang, even though it is technically
+"bounded". Found as B-948 villa (`func0f001c0c -> func0f00215c -> func0f002844` in
+`src/game/dlights.c`): the light-flood recursed with `arg2 < 20` but no visited-set.
+
+**Fix applied:** a total-call cap on the existing per-call counter (`DLIGHTS_FLOOD_CALL_CAP
+= 3,000,000` on `var80061440`); normal levels finish far below it (291-683,952), the
+pathological level caps + continues (approximate result + WARNING) instead of hanging.
+The cleaner-but-bigger alternative is a real visited-set; the cap is the minimal,
+behaviour-preserving guard for legacy N64 flood algorithms.
+
+**Audit checklist:** any self-recursive function whose only recursion guard is a depth/
+count compare on a parameter, walking geometry/graph data whose connectivity is
+data-driven (portals, waypoints, AI links). Especially N64-era algorithms tuned for
+small original levels but now fed larger/modded graphs. Search: `grep -rn "func.*(.*arg2
++ 1" src/` and look for recursive calls guarded only by `arg < MAX`.
+
 ---
 
 ## How to Use
