@@ -780,8 +780,22 @@ void chraiExecute(void *entity, s32 proptype)
 			s32 type = (cmd[0] << 8) + cmd[1];
 
 			if (type >= 0 && type < ARRAYCOUNT(g_CommandPointers)) {
+				u32 prevoffset = g_Vars.aioffset;
+
 				if (g_CommandPointers[type]()) {
 					break;
+				}
+
+				/* B-949: a command returning 0 ("continue this frame") is
+				 * required to have advanced g_Vars.aioffset. If it did NOT (an
+				 * early "handled" return that skipped its own advance -- e.g.
+				 * say_ci_staff_quip when the quip audio is unresolved), the
+				 * loop would re-dispatch the same command forever and hang the
+				 * whole frame. Guarantee forward progress by force-advancing
+				 * the command length; any command that intentionally moved
+				 * aioffset (jump/goto/label) already differs and is untouched. */
+				if (g_Vars.aioffset == prevoffset) {
+					g_Vars.aioffset += chraiGetCommandLength(g_Vars.ailist, g_Vars.aioffset);
 				}
 			} else {
 				// This is attempting to handle situations where the command
