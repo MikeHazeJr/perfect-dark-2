@@ -580,6 +580,19 @@ function Invoke-BuildStep {
             $exitCode = [int]$exitText
         }
     }
+    # B-951: the .exit file has been observed to contain 0 while the child process
+    # (ninja) actually FAILED ("ninja: build stopped: subcommand failed"), which
+    # masked a broken compile as a SUCCESS build and ran a stale binary. A non-zero
+    # OS-reported process ExitCode is authoritative -- if it disagrees with the file
+    # and is non-zero, trust the process exit so the build correctly reports FAILED.
+    try {
+        $proc.Refresh()
+        $procExit = $proc.ExitCode
+        if ($null -ne $procExit -and [int]$procExit -ne 0 -and [int]$procExit -ne $exitCode) {
+            Write-Warn "Step '$StepName': exit-file=$exitCode but process ExitCode=$procExit; trusting the non-zero process exit (B-951)."
+            $exitCode = [int]$procExit
+        }
+    } catch {}
     if ($null -eq $exitCode) {
         try {
             $proc.Refresh()
