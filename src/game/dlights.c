@@ -1,5 +1,6 @@
 #include <ultra64.h>
 #include "constants.h"
+#include "system.h"
 #include "game/cheats.h"
 #include "game/dlights.h"
 #include "game/gfxmemory.h"
@@ -29,6 +30,12 @@
 #include "data.h"
 #include "types.h"
 #include "platform.h"
+
+/* B-948: cap on total recursive portal light-flood calls per stage precompute
+ * (func0f002844). Prevents highly-connected portal graphs (base:villa, 304
+ * portals) from exploding the depth-capped-but-visited-guardless recursion into
+ * a load-time hang. Normal stages finish well under this. */
+#define DLIGHTS_FLOOD_CALL_CAP 3000000
 
 const char var7f1a78e0[] = "LIGHTS : Hit occured on light %d in room %d\n";
 const char var7f1a7910[] = "L2(%d) -> ";
@@ -654,6 +661,12 @@ void func0f001c0c(void)
 	}
 
 	func0f00215c(sp48);
+	if (var80061440 >= DLIGHTS_FLOOD_CALL_CAP) {
+		sysLogPrintf(LOG_WARNING,
+			"DLIGHTS: portal light-flood hit the call cap (%d) at stagenum=0x%02x -- "
+			"lighting is approximate for this highly-connected level (B-948, was a hang).",
+			DLIGHTS_FLOOD_CALL_CAP, (u32)g_Vars.stagenum);
+	}
 
 	for (i = 1, table3size = 0; i < g_Vars.roomcount; i++) {
 		sp44[i] = func0f177a54((void *)(i * var8009cae0 + sp48), g_Vars.roomcount, (void *)(&s5[i * var8009cae0]), 1);
@@ -857,6 +870,17 @@ void func0f002844(s32 roomnum, f32 arg1, s32 arg2, s32 portalnum)
 	s32 otherroomnum = -1;
 
 	var80061440++;
+
+	/* B-948: bound the recursive portal light-flood. This walk has a depth cap
+	 * (arg2 < var8009cae4=20) but NO visited-set, so a highly-connected portal
+	 * graph (e.g. base:villa, 304 portals) revisits rooms via many cyclic paths
+	 * and explodes into billions of calls -> the stage-load frame hangs. Cap the
+	 * total flood calls per precompute; normal levels finish far below this, so
+	 * the lighting is unchanged for them and merely approximate for pathological
+	 * geometry instead of hanging the whole game. */
+	if (var80061440 > DLIGHTS_FLOOD_CALL_CAP) {
+		return;
+	}
 
 	if (portalnum != -1) {
 		if (roomnum == g_BgPortals[portalnum].roomnum1) {
