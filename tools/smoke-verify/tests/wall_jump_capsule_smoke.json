@@ -13,6 +13,7 @@
   ],
   "log_channel_mask": "all",
   "verbose": 0,
+  "jump_logging": 1,
   "timeout_seconds": 120,
   "install_state": "clean",
   "boot_args": [

@@ -140,6 +140,7 @@ typedef struct {
     s32          timeout_ms;
     u32          channel_mask;       /* applied via sysLogSetChannelMask */
     s32          verbose;
+    s32          jump_logging;       /* test opt-in: enable JUMP:/CAPSULE: markers */
     SmokeEvent   events[SMOKE_MAX_EVENTS];
     s32          event_count;
     s32          next_event_idx;
@@ -664,6 +665,7 @@ static s32 smokeParseJson(const char *src)
     /* Sensible defaults so the harness still works for a near-empty test */
     s_State.channel_mask = 0xFFFFu;
     s_State.verbose      = 0;
+    s_State.jump_logging = 0;
     s_State.timeout_ms   = SMOKE_DEFAULT_TIMEOUT_MS;
     s_State.event_count  = 0;
     strcpy(s_State.scenario_name, "(unnamed)");
@@ -680,6 +682,8 @@ static s32 smokeParseJson(const char *src)
             s_State.channel_mask = smokeParseChannelMask(&t);
         } else if (!strcmp(field, "verbose")) {
             s_State.verbose = (s32)j_tok_int(&t);
+        } else if (!strcmp(field, "jump_logging")) {
+            s_State.jump_logging = (s32)j_tok_int(&t);
         } else if (!strcmp(field, "timeout_seconds")) {
             s64 secs = j_tok_int(&t);
             if (secs <= 0) secs = (s64)(SMOKE_DEFAULT_TIMEOUT_MS / 1000);
@@ -865,6 +869,12 @@ int smokeHarnessIsActive(void)
     return s_State.active ? 1 : 0;
 }
 
+/* Debug.JumpLogging gate (defined in port/src/main.c, default 0). The JUMP: and
+ * CAPSULE: physics diagnostic markers honor this flag so normal play does not
+ * flood the log; a running smoke is their intended consumer (see src/lib/capsule.c
+ * comment), so smokeHarnessInit enables it below. */
+extern s32 g_JumpLoggingEnabled;
+
 int smokeHarnessInit(void)
 {
     memset(&s_State, 0, sizeof(s_State));
@@ -919,6 +929,18 @@ int smokeHarnessInit(void)
     s_State.next_event_idx = 0;
     s_State.events_fired = 0;
     s_State.start_ticks_ms = SDL_GetTicks();
+
+    /* Per-test opt-in: enable the JUMP:/CAPSULE: physics diagnostic markers,
+     * which are gated behind Debug.JumpLogging (default 0 so normal play does
+     * not flood the log). A test sets "jump_logging": 1 when it asserts on those
+     * markers -- e.g. wall_jump_capsule_smoke (c038) needs "CAPSULE: sweep
+     * enter/result", which capsule.c only emits when this flag is set. Kept
+     * per-test on purpose: a swarm smoke (297 bots sweeping) would otherwise
+     * flood the log. Process exits at smoke end, so no restore is needed. */
+    if (s_State.jump_logging) {
+        g_JumpLoggingEnabled = 1;
+        sysLogPrintf(LOG_NOTE, "SMOKE: jump_logging enabled (JUMP:/CAPSULE: markers on)");
+    }
 
     return 1;
 }
