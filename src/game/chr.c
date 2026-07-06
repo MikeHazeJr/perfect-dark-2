@@ -2635,6 +2635,10 @@ s32 chrTick(struct prop *prop)
 		if (g_Vars.lvframenum != s_b952canaryframe) {
 			s_b952canaryframe = g_Vars.lvframenum;
 			mempCheckCanaries();
+			if ((g_Vars.lvframenum % 20) == 0) {
+				extern void memWatchRefresh(void);
+				memWatchRefresh(); /* B-952: re-cover loader threads spawned after arm */
+			}
 		}
 	}
 
@@ -2658,6 +2662,31 @@ s32 chrTick(struct prop *prop)
 	model = chr->model;
 	model_has_anim = (model->anim != NULL);
 	race = CHRRACE(chr);
+
+	/* B-952: on the first tick of the lone human reinforcement (skedarruins
+	 * chrnum >= 5000, race HUMAN) arm a hardware write-watchpoint on ITS modeldef
+	 * rootnode. Modeldefs are per-chr and chrnums recycle, so we cannot pre-pick
+	 * the address at spawn -- but the crash chr ticks many times before its
+	 * rootnode is nulled, so arming here (rootnode still valid) catches the later
+	 * write and logs the exact RIP. Deduped, 4 DR slots, --memp-watch gated. */
+	{
+		extern int memWatchEnabled(void);
+		extern void memWatchAddr(void *addr, s32 chrnum, s32 bodynum);
+		extern void memWatchSelfTest(void);
+		if (memWatchEnabled() && race == RACE_HUMAN && chr->chrnum >= 5000
+				&& model->definition != NULL && model->definition->rootnode != NULL) {
+			static s32 s_selftested = 0;
+			if (!s_selftested) {
+				s_selftested = 1;
+				memWatchSelfTest(); /* confirm DRs actually fire in this environment */
+			}
+			/* Watch all three links of chr->model->definition->rootnode across ALL
+			 * threads (the write may be on an async loader thread). */
+			memWatchAddr(&chr->model, chr->chrnum, chr->bodynum);
+			memWatchAddr(&model->definition, chr->chrnum, chr->bodynum);
+			memWatchAddr(&model->definition->rootnode, chr->chrnum, chr->bodynum);
+		}
+	}
 
 	if (prop->flags & PROPFLAG_NOTYETTICKED) {
 		fulltick = true;
