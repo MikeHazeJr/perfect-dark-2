@@ -16078,10 +16078,35 @@ bool objDrop(struct prop *prop, bool lazy)
 			f32 spa0;
 
 			node1 = objFindBboxNode(obj);
-			modelNodeGetPosition(obj->model, modelNodeFindMtxNode(node1), &spb8);
-
 			node2 = objFindBboxNode(rootobj);
-			modelNodeGetPosition(rootobj->model, modelNodeFindMtxNode(node2), &spa8);
+
+			{
+				struct modelnode *mtx1 = modelNodeFindMtxNode(node1);
+				struct modelnode *mtx2 = modelNodeFindMtxNode(node2);
+
+				/* B-952: modelNodeFindMtxNode returns NULL when the model's bbox node
+				 * has no CHRINFO/POSITION/POSITIONHELD ancestor -- then
+				 * modelNodeGetPosition derefs NULL->type and AVs. base:skedarruins
+				 * dropped such an object (via objTickPlayer -> objDropRecursively)
+				 * and crashed at ~5.2s. Fall back to a zero bbox-relative offset so
+				 * the object still drops (at the root position) instead of crashing. */
+				if (mtx1 != NULL && mtx2 != NULL) {
+					modelNodeGetPosition(obj->model, mtx1, &spb8);
+					modelNodeGetPosition(rootobj->model, mtx2, &spa8);
+				} else {
+					static s32 s_objdropWarned;
+					if (s_objdropWarned < 8) {
+						s_objdropWarned++;
+						sysLogPrintf(LOG_WARNING,
+							"OBJDROP.GUARD: droptype5 no mtx node -- obj model=%p def=%p bbox=%p mtx=%p | rootobj model=%p bbox=%p mtx=%p; using zero offset",
+							(void *)obj->model, (void *)(obj->model ? obj->model->definition : NULL),
+							(void *)node1, (void *)mtx1,
+							(void *)rootobj->model, (void *)node2, (void *)mtx2);
+					}
+					spb8.x = spb8.y = spb8.z = 0.0f;
+					spa8.x = spa8.y = spa8.z = 0.0f;
+				}
+			}
 
 			spe4.x = spb8.x - spa8.x;
 			spe4.y = spb8.y - spa8.y;
