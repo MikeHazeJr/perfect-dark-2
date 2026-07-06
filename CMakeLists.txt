@@ -823,6 +823,12 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/tests/test_spawn_weapon_mode.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_swarm_boid_sim.cpp
 
+  # Task #37 (c120, 2026-07-06): pointer-stable reserve-and-commit growable
+  # arena -- backing store for dynamically-growing game pools (chr/model/anim/
+  # projectile/effect/object). Windows VirtualAlloc; sysLogPrintf from stubs.c.
+  ${CMAKE_SOURCE_DIR}/port/src/memarena.c
+  ${CMAKE_SOURCE_DIR}/tests/test_memarena.cpp
+
   # Track 2d (c3807, 2026-05-16): GPU swarm state network sync.
   # Round-trip tests for the s16/s8 quantizer used by SVC_GPUSWARM_STATE.
   # Pure-C encoder/decoder lives at port/src/net/swarm_sync_quant.c so it
