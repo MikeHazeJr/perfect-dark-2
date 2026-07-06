@@ -435,6 +435,20 @@ void *modelGetNodeRwData(struct model *model, struct modelnode *node)
 
 void modelNodeGetPosition(struct model *model, struct modelnode *node, struct coord *pos)
 {
+	/* B-952 (class fix): modelNodeFindMtxNode() legitimately returns NULL when a
+	 * bbox node has no CHRINFO/POSITION/POSITIONHELD ancestor, and callers pass
+	 * that result straight in here (e.g. objDrop's DROPTYPE_5 path on a bbox-less
+	 * projectile root object -> the skedarruins AV). Treat a NULL node exactly like
+	 * the `default` case below: no usable position, return the origin rather than
+	 * dereferencing node->type. This makes the primitive null-safe for every caller
+	 * instead of guarding each site. */
+	if (node == NULL) {
+		pos->x = 0;
+		pos->y = 0;
+		pos->z = 0;
+		return;
+	}
+
 	switch (node->type & 0xff) {
 	case MODELNODETYPE_CHRINFO:
 		{
