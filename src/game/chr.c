@@ -2625,19 +2625,19 @@ s32 chrTick(struct prop *prop)
 	struct hoverbikeobj *bike;
 	u8 stack[0x28];
 
-	/* B-952: once per frame, scan STAGE red-zone canaries to catch the heap
-	 * overrun that nulls a chr modeldef's rootnode (skedarruins chrnum 5052).
-	 * No-op unless --memp-canary was passed; scanning at chrTick's chokepoint
-	 * (throttled per lvframenum) pinpoints the overrun allocation just before the
-	 * crashing tick. */
+	/* Heap-corruption diagnostic hook (general infra, from the B-952 hunt). Once
+	 * per frame at chrTick's chokepoint, scan STAGE red-zone canaries to catch an
+	 * overrun, and periodically re-arm the hardware watchpoint to cover loader
+	 * threads spawned after the initial arm. Both are no-ops unless --memp-canary /
+	 * --memp-watch are passed. */
 	{
-		static s32 s_b952canaryframe = -1;
-		if (g_Vars.lvframenum != s_b952canaryframe) {
-			s_b952canaryframe = g_Vars.lvframenum;
+		static s32 s_canaryframe = -1;
+		if (g_Vars.lvframenum != s_canaryframe) {
+			s_canaryframe = g_Vars.lvframenum;
 			mempCheckCanaries();
 			if ((g_Vars.lvframenum % 20) == 0) {
 				extern void memWatchRefresh(void);
-				memWatchRefresh(); /* B-952: re-cover loader threads spawned after arm */
+				memWatchRefresh(); /* re-cover loader threads spawned after arm */
 			}
 		}
 	}
@@ -2663,17 +2663,19 @@ s32 chrTick(struct prop *prop)
 	model_has_anim = (model->anim != NULL);
 	race = CHRRACE(chr);
 
-	/* B-952: on the first tick of the lone human reinforcement (skedarruins
-	 * chrnum >= 5000, race HUMAN) arm a hardware write-watchpoint on ITS modeldef
-	 * rootnode. Modeldefs are per-chr and chrnums recycle, so we cannot pre-pick
-	 * the address at spawn -- but the crash chr ticks many times before its
-	 * rootnode is nulled, so arming here (rootnode still valid) catches the later
-	 * write and logs the exact RIP. Deduped, 4 DR slots, --memp-watch gated. */
+	/* Heap-corruption watchpoint arm (general infra, from the B-952 hunt). When
+	 * --memp-watch-chrnum=N names a chr, arm a hardware write-watchpoint on ITS
+	 * model->definition->rootnode chain. Modeldefs are per-chr and chrnums recycle,
+	 * so we cannot pre-pick the address at spawn -- but a target chr usually ticks
+	 * many times before a corrupting write lands, so arming here (rootnode still
+	 * valid) catches the later write and logs the exact RIP. Deduped, 4 DR slots,
+	 * --memp-watch gated; inert unless a target chrnum is named. */
 	{
 		extern int memWatchEnabled(void);
+		extern s32 memWatchChrnum(void);
 		extern void memWatchAddr(void *addr, s32 chrnum, s32 bodynum);
 		extern void memWatchSelfTest(void);
-		if (memWatchEnabled() && race == RACE_HUMAN && chr->chrnum >= 5000
+		if (memWatchEnabled() && chr->chrnum == memWatchChrnum()
 				&& model->definition != NULL && model->definition->rootnode != NULL) {
 			static s32 s_selftested = 0;
 			if (!s_selftested) {

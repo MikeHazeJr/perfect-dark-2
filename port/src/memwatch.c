@@ -1,8 +1,11 @@
 /*
- * B-952 hardware write-watchpoint harness (Windows DR0-DR3 debug registers).
+ * Hardware write-watchpoint harness (Windows DR0-DR3 debug registers).
  * See port/include/memwatch.h. Enabled by --memp-watch. No-op otherwise.
+ * Originally built to hunt the B-952 skedarruins crash; kept as general-purpose
+ * heap-corruption infra (which chr to arm is now selected with --memp-watch-chrnum=N
+ * rather than a hardcoded heuristic).
  *
- * The write that corrupts a chr modeldef can occur on any thread (game logic OR
+ * A write that corrupts a watched address can occur on any thread (game logic OR
  * an async asset-loader thread), and debug registers are PER-THREAD, so each arm
  * spawns a helper thread that enumerates every thread in the process and sets DRn
  * on all of them (suspend -> set -> resume). A process-wide vectored exception
@@ -29,6 +32,18 @@ int memWatchEnabled(void)
 		s_enabled = sysArgCheck("--memp-watch") ? 1 : 0;
 	}
 	return s_enabled;
+}
+
+s32 memWatchChrnum(void)
+{
+	/* Which chr to arm the watchpoint on, from --memp-watch-chrnum=N. Default -1
+	 * (arm on no chr) so the harness is inert until a target is named, even with
+	 * --memp-watch set. Parsed once. */
+	static s32 s_chrnum = -2;
+	if (s_chrnum == -2) {
+		s_chrnum = sysArgGetInt("--memp-watch-chrnum", -1);
+	}
+	return s_chrnum;
 }
 
 static LONG CALLBACK memWatchVeh(PEXCEPTION_POINTERS ep)
