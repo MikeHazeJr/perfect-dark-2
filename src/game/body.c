@@ -538,6 +538,17 @@ struct model *body0f02ce8c(s32 bodynum, s32 headnum, struct modeldef *bodymodeld
 					 * rather than dereferencing NULL. */
 					if (headmodeldef != NULL) {
 						modelAllocateRwData(headmodeldef);
+						/* Per-instance HEAD clone (completes the body clone above).
+						 * modelmgrAttachHead rewrites the head modeldef's node ->parent
+						 * pointers to the body headspot; the head modeldef is a shared
+						 * cache, so with chrnum recycling those parents get repointed at
+						 * different (freed) body-clone headspots -> a WILD parent node.
+						 * Cloning the head makes the attach mutate a private copy.
+						 * (bodyCalculateHeadOffset already ran on the shared head above
+						 * and is copied into the clone.) This is a latent-correctness fix
+						 * for the shared-cache mutation -- NOT the B-952 crash fix (that
+						 * was the objDrop NULL-mtx guard in propobj.c). */
+						headmodeldef = modeldefCloneForChr(headmodeldef);
 						bodymodeldef->rwdatalen += headmodeldef->rwdatalen;
 					} else {
 						bodyFatalSourceOnlyCharacterAssetFailure(ASSET_HEAD,

@@ -4712,11 +4712,19 @@ void animInit(struct anim *anim)
  * so it CANNOT be written), so mutating it was safe. The PC port instead caches
  * ONE modeldef per bodynum (catalogGetBodyModeldef -> s_Bodies[bodynum].modeldef)
  * and shares it across all chrs of that body -- so every modular chr corrupts the
- * shared modeldef, and the drifting rwdatalen eventually writes head rwdata out
- * of bounds into an adjacent modeldef's rootnode (-> NULL -> the skedarruins
- * chrnum-5052 crash, B-952). Cloning per chr restores the correct N64 semantics
- * AND sizes the rwdata to that chr's actual body(+head) need -- never touching
- * the shared cache. rodata (read-only geometry/DL) is intentionally shared. */
+ * shared modeldef: the headspot child and head-node parents get repointed at
+ * whichever body instance attached LAST, and `rwdatalen` drifts upward on every
+ * re-attach. Under chrnum recycling this leaves earlier chrs' heads wired to a
+ * freed body instance (wild parent nodes) and mis-sizes rwdata. Cloning per chr
+ * restores the correct N64 per-instance semantics AND sizes the rwdata to that
+ * chr's actual body(+head) need -- never touching the shared cache. rodata
+ * (read-only geometry/DL) is intentionally shared.
+ *
+ * NOTE: this is a real latent-correctness fix (shared-cache mutation), but it is
+ * NOT the fix for the B-952 skedarruins crash -- that crash was objDrop (propobj.c)
+ * dereferencing a NULL matrix node on a bbox-less projectile root object; see the
+ * OBJDROP.GUARD there. This clone was written while chasing the crash and is kept
+ * because the shared-mutation bug is genuine. */
 #define MODELDEF_CLONE_MAX_NODES 512
 
 static struct modelnode *modeldefCloneMap(struct modelnode *old,
