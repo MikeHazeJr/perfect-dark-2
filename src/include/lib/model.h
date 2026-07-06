@@ -105,6 +105,9 @@ void modelInitRwData(struct model *model, struct modelnode *node);
 void modelInit(struct model *model, struct modeldef *modeldef, u32 *rwdatas, bool resetanim);
 void animInit(struct anim *anim);
 void modelAttachHead(struct model *model, struct modeldef *arg1, struct modelnode *node, struct modeldef *arg3);
+/* B-952: deep-copy a modeldef + node tree so a modular chr gets a per-instance
+ * modeldef, and modelAttachHead mutates that copy rather than the shared cache. */
+struct modeldef *modeldefCloneForChr(struct modeldef *src);
 void modelIterateDisplayLists(struct modeldef *modeldef, struct modelnode **nodeptr, Gfx **gdlptr);
 void modelNodeReplaceGdl(struct modeldef *modeldef, struct modelnode *node, Gfx *find, Gfx *replacement);
 

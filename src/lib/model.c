@@ -17,6 +17,7 @@
 #include "lib/rng.h"
 #include "lib/mtx.h"
 #include "lib/anim.h"
+#include "lib/memp.h"
 #include "lib/model.h"
 #include "data.h"
 #include "types.h"
@@ -4698,6 +4699,104 @@ void animInit(struct anim *anim)
 	anim->speed2 = 1;
 	anim->playspeed = 1;
 	anim->animscale = 1;
+}
+
+/* B-952 (2026-07-06): deep-copy a modeldef + its node tree so a modular chr gets
+ * a PER-INSTANCE modeldef.
+ *
+ * modelAttachHead (below) MUTATES the modeldef in place -- it rewrites the
+ * headspot node's child, the head nodes' parent pointers, unlinks placeholder
+ * BBOX siblings, and grows `rwdatalen`, which it then uses as an index into the
+ * model's rwdata buffer (`&bodymode->rwdatas[bodymodeldef->rwdatalen]`). On N64
+ * every chr had its own RAM copy of the modeldef (the ROM original is read-only,
+ * so it CANNOT be written), so mutating it was safe. The PC port instead caches
+ * ONE modeldef per bodynum (catalogGetBodyModeldef -> s_Bodies[bodynum].modeldef)
+ * and shares it across all chrs of that body -- so every modular chr corrupts the
+ * shared modeldef, and the drifting rwdatalen eventually writes head rwdata out
+ * of bounds into an adjacent modeldef's rootnode (-> NULL -> the skedarruins
+ * chrnum-5052 crash, B-952). Cloning per chr restores the correct N64 semantics
+ * AND sizes the rwdata to that chr's actual body(+head) need -- never touching
+ * the shared cache. rodata (read-only geometry/DL) is intentionally shared. */
+#define MODELDEF_CLONE_MAX_NODES 512
+
+static struct modelnode *modeldefCloneMap(struct modelnode *old,
+		struct modelnode **oldnodes, struct modelnode *newnodes, s32 count)
+{
+	s32 i;
+
+	if (old == NULL) {
+		return NULL;
+	}
+	for (i = 0; i < count; i++) {
+		if (oldnodes[i] == old) {
+			return &newnodes[i];
+		}
+	}
+	return old; /* reference outside the cloned subtree (e.g. rootnode->parent) */
+}
+
+struct modeldef *modeldefCloneForChr(struct modeldef *src)
+{
+	struct modelnode *oldnodes[MODELDEF_CLONE_MAX_NODES];
+	struct modelnode *stackbuf[MODELDEF_CLONE_MAX_NODES];
+	struct modeldef *dst;
+	struct modelnode *newnodes;
+	struct modelnode *n;
+	s32 count = 0;
+	s32 sp = 0;
+	s32 i;
+
+	if (src == NULL || src->rootnode == NULL) {
+		return src;
+	}
+
+	/* collect every node reachable via child/next from the root */
+	stackbuf[sp++] = src->rootnode;
+	while (sp > 0) {
+		n = stackbuf[--sp];
+		while (n != NULL) {
+			if (count >= MODELDEF_CLONE_MAX_NODES) {
+				sysLogPrintf(LOG_WARNING,
+					"modeldefCloneForChr: >%d nodes -- keeping shared modeldef", MODELDEF_CLONE_MAX_NODES);
+				return src;
+			}
+			oldnodes[count++] = n;
+			if (n->child != NULL && sp < MODELDEF_CLONE_MAX_NODES) {
+				stackbuf[sp++] = n->child;
+			}
+			n = n->next;
+		}
+	}
+
+	dst = mempAlloc(ALIGN16(sizeof(struct modeldef)), MEMPOOL_STAGE);
+	newnodes = mempAlloc(ALIGN16(count * sizeof(struct modelnode)), MEMPOOL_STAGE);
+	if (dst == NULL || newnodes == NULL) {
+		return src; /* out of stage memory -- degrade to shared (old behaviour) */
+	}
+
+	for (i = 0; i < count; i++) {
+		newnodes[i] = *oldnodes[i]; /* rodata pointer copied -> shared geometry */
+		newnodes[i].parent = modeldefCloneMap(oldnodes[i]->parent, oldnodes, newnodes, count);
+		newnodes[i].next   = modeldefCloneMap(oldnodes[i]->next, oldnodes, newnodes, count);
+		newnodes[i].prev   = modeldefCloneMap(oldnodes[i]->prev, oldnodes, newnodes, count);
+		newnodes[i].child  = modeldefCloneMap(oldnodes[i]->child, oldnodes, newnodes, count);
+	}
+
+	*dst = *src;
+	dst->rootnode = modeldefCloneMap(src->rootnode, oldnodes, newnodes, count);
+
+	if (src->parts != NULL && src->numparts > 0) {
+		struct modelnode **newparts =
+			mempAlloc(ALIGN16(src->numparts * sizeof(struct modelnode *)), MEMPOOL_STAGE);
+		if (newparts != NULL) {
+			for (i = 0; i < src->numparts; i++) {
+				newparts[i] = modeldefCloneMap(src->parts[i], oldnodes, newnodes, count);
+			}
+			dst->parts = newparts;
+		}
+	}
+
+	return dst;
 }
 
 void modelAttachHead(struct model *bodymode, struct modeldef *bodymodeldef, struct modelnode *headspotnode, struct modeldef *headmodeldef)

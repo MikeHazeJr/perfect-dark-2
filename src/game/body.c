@@ -471,6 +471,20 @@ struct model *body0f02ce8c(s32 bodynum, s32 headnum, struct modeldef *bodymodeld
 		             bodynum, catalogGetBodyFilenumByIndex(bodynum), bodymodeldef->scale); /* SA-5f */
 	}
 
+	/* B-952: modular chrs (SkelChr body + a separately-loaded head, incomplete
+	 * body) get a PER-INSTANCE modeldef so the head attach below mutates a private
+	 * copy, never the shared catalog cache (catalogGetBodyModeldef returns one
+	 * modeldef per bodynum). Without this, every modular chr corrupted the shared
+	 * body modeldef -- the drifting rwdatalen eventually wrote head rwdata out of
+	 * bounds into an adjacent modeldef's rootnode (skedarruins chrnum 5052 crash).
+	 * Only the fresh path (model == NULL: regular chr spawns); the reused-model
+	 * player/menu paths keep their existing model->definition. */
+	if (bodymodeldef != NULL
+			&& bodymodeldef->skel == &g_SkelChr
+			&& !catalogGetBodyIsComplete(bodynum)) {
+		bodymodeldef = modeldefCloneForChr(bodymodeldef);
+	}
+
 	modelAllocateRwData(bodymodeldef);
 
 	if (public_source_generated_modeldef) {
@@ -563,7 +577,26 @@ struct model *body0f02ce8c(s32 bodynum, s32 headnum, struct modeldef *bodymodeld
 	}
 
 	if (model) {
-		if (model->rwdatalen < bodymodeldef->rwdatalen);
+		/* B-952: a REUSED model (player/menu, or a chr re-bodied via a non-NULL
+		 * model arg -- e.g. skedarruins chrnum 5052) must be pointed at the
+		 * per-instance clone AND have its rwdata buffer grown to the body(+head)
+		 * need, or modelmgrAttachHead below writes the head rwdata past the end
+		 * of a buffer that was sized for the model's PREVIOUS (smaller) body,
+		 * corrupting an adjacent modeldef's rootnode. The original resize here was
+		 * decompiled/neutered to an empty statement -- this is that resize, done
+		 * with dynamic sizing to the actual need (per Mike's directive). */
+		if (model->rwdatalen < bodymodeldef->rwdatalen) {
+			u32 *newrwdatas = mempAlloc(ALIGN16(bodymodeldef->rwdatalen * 4), MEMPOOL_STAGE);
+			if (newrwdatas != NULL) {
+				s32 k;
+				for (k = 0; k < model->rwdatalen; k++) {
+					newrwdatas[k] = model->rwdatas[k];
+				}
+				model->rwdatas = newrwdatas;
+				model->rwdatalen = bodymodeldef->rwdatalen;
+			}
+		}
+		model->definition = bodymodeldef;
 	} else {
 		model = public_source_static_modeldef
 			? modelmgrInstantiateModelWithoutAnim(bodymodeldef)

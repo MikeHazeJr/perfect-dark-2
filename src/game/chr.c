@@ -2754,9 +2754,10 @@ s32 chrTick(struct prop *prop)
 				 * At 32 bots * 60Hz = 1920 pushes/s, the ring holds ~130ms of
 				 * entries — exactly what we want for "what was the last chr
 				 * alive before the crash". */
-				crashBreadcrumbPush("CHR.TICK slot=%d chrnum=%d action=%d race=%d model=%p",
+				crashBreadcrumbPush("CHR.TICK slot=%d chrnum=%d action=%d race=%d body=%d head=%d model=%p",
 					g_ChrLastTickedIndex, (int)chr->chrnum,
 					(int)chr->actiontype, (int)CHRRACE(chr),
+					(int)chr->bodynum, (int)chr->headnum,
 					(void *)chr->model);
 				chraTick(chr);
 				g_ChrLastTickedIndex = -1; /* clear: no longer in chraTick */
