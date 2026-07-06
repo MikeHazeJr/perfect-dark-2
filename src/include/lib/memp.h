@@ -10,6 +10,9 @@ void mempSetHeap(u8 *heapstart, u32 heaplen);
 void mempSetLockFns(void (*lockFn)(void), void (*unlockFn)(void));
 u32 mempGetStageFree(void);
 void *mempGetNextStageAllocation(void);
+/* B-952: scan STAGE-pool red-zone canaries (enabled by --memp-canary) and log any
+ * overrun allocation + its caller. Call ~once/frame. No-op unless the flag is set. */
+void mempCheckCanaries(void);
 void *mempAlloc(u32 len, u8 pool);
 s32 mempRealloc(void *allocation, s32 newsize, u8 poolnum);
 u32 mempGetPoolFree(u8 poolnum, u32 bank);

@@ -1,6 +1,7 @@
 #include <ultra64.h>
 #include <string.h>
 #include "lib/sched.h"
+#include "lib/memp.h"
 #include "constants.h"
 #include "system.h"
 #include "crashbreadcrumb.h"
@@ -2623,6 +2624,19 @@ s32 chrTick(struct prop *prop)
 	f32 sp178;
 	struct hoverbikeobj *bike;
 	u8 stack[0x28];
+
+	/* B-952: once per frame, scan STAGE red-zone canaries to catch the heap
+	 * overrun that nulls a chr modeldef's rootnode (skedarruins chrnum 5052).
+	 * No-op unless --memp-canary was passed; scanning at chrTick's chokepoint
+	 * (throttled per lvframenum) pinpoints the overrun allocation just before the
+	 * crashing tick. */
+	{
+		static s32 s_b952canaryframe = -1;
+		if (g_Vars.lvframenum != s_b952canaryframe) {
+			s_b952canaryframe = g_Vars.lvframenum;
+			mempCheckCanaries();
+		}
+	}
 
 	/* B-264 (2026-04-30): defense-in-depth.  A chr that has been through
 	 * chrRemove (chrnum=-1, model=NULL) but whose prop was NOT freed

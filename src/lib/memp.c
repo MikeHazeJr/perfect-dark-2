@@ -210,15 +210,89 @@ void *mempAllocFromBank(struct memorypool *pool, u32 size, u8 poolnum)
 	return (void *)allocation;
 }
 
+/* -------------------------------------------------------------------------
+ * B-952 heap-corruption hunt: red-zone canaries on STAGE-pool allocations.
+ *
+ * A stray write overruns some STAGE allocation and clobbers an adjacent one --
+ * it nulls a chr modeldef's rootnode between spawn and first tick (skedarruins
+ * chrnum 5052) and corrupts other model memory. The corruption is a sub-region
+ * of the single 40 MB MEMPOOL_STAGE bump block, so stock ASAN can't see it.
+ * Enabled by `--memp-canary`. Each STAGE alloc gets MEMP_CANARY_BYTES of magic
+ * appended; mempCheckCanaries() (called ~once/frame from chrTick) scans them and
+ * logs the FIRST corrupted allocation + the caller that allocated it -- the
+ * overflowing edge, whose caller is the likely culprit. Debug-only; off unless
+ * the flag is passed, so zero cost in normal builds/runs. */
+#define MEMP_CANARY_MAGIC 0xb952b952u
+#define MEMP_CANARY_WORDS 4
+#define MEMP_CANARY_BYTES (MEMP_CANARY_WORDS * 4)
+#define MEMP_CANARY_MAX   131072
+struct mempcanary { u8 *loc; u32 size; void *caller; };
+static struct mempcanary s_MempCanaries[MEMP_CANARY_MAX];
+static s32 s_MempCanaryCount = 0;
+static s8 s_MempCanaryEnabled = -1; /* -1 = not yet resolved from args */
+
+void mempCheckCanaries(void)
+{
+	s32 i, j;
+	static s32 s_firstscan = -1;
+
+	if (s_MempCanaryCount <= 0) {
+		return;
+	}
+
+	if (s_firstscan < 0) {
+		s_firstscan = s_MempCanaryCount;
+		sysLogPrintf(LOG_NOTE, "MEMP.CANARY.SCAN: active, %d STAGE canaries at first scan", s_MempCanaryCount);
+	}
+
+	for (i = 0; i < s_MempCanaryCount; i++) {
+		u32 *c = (u32 *)s_MempCanaries[i].loc;
+
+		for (j = 0; j < MEMP_CANARY_WORDS; j++) {
+			if (c[j] != MEMP_CANARY_MAGIC) {
+				sysLogPrintf(LOG_ERROR,
+					"MEMP.CANARY.CORRUPT: alloc#%d loc=%p size=%u caller=%p word%d=0x%08x -- this STAGE allocation was overrun (its caller/the next writer is the B-952 culprit)",
+					i, (void *)s_MempCanaries[i].loc, s_MempCanaries[i].size,
+					(void *)s_MempCanaries[i].caller, j, c[j]);
+				c[j] = MEMP_CANARY_MAGIC; /* repair so each corruption logs once */
+				break;
+			}
+		}
+	}
+}
+
 void *mempAlloc(u32 len, u8 pool)
 {
 	void *allocation;
+	u32 alloclen = len;
+
+	/* s_MempCanaryEnabled is resolved once per stage reset (post-args) in
+	 * mempResetPool, so this hot path stays a single cached compare when off. */
+	if (s_MempCanaryEnabled > 0 && pool == MEMPOOL_STAGE && len > 0) {
+		alloclen = len + MEMP_CANARY_BYTES;
+	}
 
 	MEMP_LOCK();
-	allocation = mempAllocFromBank(g_MempOnboardPools, len, pool);
+	allocation = mempAllocFromBank(g_MempOnboardPools, alloclen, pool);
 
 	if (!allocation) {
-		allocation = mempAllocFromBank(g_MempExpansionPools, len, pool);
+		allocation = mempAllocFromBank(g_MempExpansionPools, alloclen, pool);
+	}
+
+	if (allocation && alloclen != len) {
+		u8 *canary = (u8 *)allocation + len;
+		s32 i;
+
+		for (i = 0; i < MEMP_CANARY_WORDS; i++) {
+			((u32 *)canary)[i] = MEMP_CANARY_MAGIC;
+		}
+
+		if (s_MempCanaryCount < MEMP_CANARY_MAX) {
+			s_MempCanaries[s_MempCanaryCount].loc = canary;
+			s_MempCanaries[s_MempCanaryCount].size = len;
+			s_MempCanaries[s_MempCanaryCount].caller = __builtin_return_address(0);
+			s_MempCanaryCount++;
+		}
 	}
 	MEMP_UNLOCK();
 
@@ -359,6 +433,17 @@ void mempResetPool(u8 pool)
 	g_MempExpansionPools[pool].leftpos = g_MempExpansionPools[pool].start;
 	g_MempOnboardPools[pool].prevallocation = 0;
 	g_MempExpansionPools[pool].prevallocation = 0;
+
+	if (pool == MEMPOOL_STAGE) {
+		s32 want = sysArgCheck("--memp-canary") ? 1 : 0;
+		s_MempCanaryCount = 0; /* B-952: old canaries point into the wiped pool */
+		if (s_MempCanaryEnabled != want) {
+			s_MempCanaryEnabled = want; /* resolved post-args, cached for the hot path */
+			if (want) {
+				sysLogPrintf(LOG_NOTE, "MEMP.CANARY: enabled -- %d-byte red zone per STAGE alloc", MEMP_CANARY_BYTES);
+			}
+		}
+	}
 
 	MEMP_UNLOCK();
 }
