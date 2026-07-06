@@ -1,5 +1,43 @@
 # Session Log (Active)
 
+## 2026-07-06 - Block-allocator: memarena built (#37) + chr pool converted (#38); B-950 scoped
+
+After the B-952 fix (below), Mike directed the block-allocator arc (#37-39) + B-950,
+and later: "High churn... if it is the right way to do things, we should do it. I want
+solid infrastructure."
+
+**Design call (arena, NOT block-list).** Measured the access patterns: the chr pool has
+~100 `g_ChrSlots[i]` index sites AND `chr - g_ChrSlots` pointer arithmetic that feeds the
+SERIALIZED network chrindex, alert fan-out, and range checks. That mandates a CONTIGUOUS,
+pointer-stable backing. A linked block-list would break `chr - g_ChrSlots` everywhere (a
+desync risk + ~100-site refactor) for the sole benefit of no cap -- more churn, weaker
+infra. So the right shape is a reserve-and-commit virtual arena: reserve a large virtual
+range once (zero RAM), commit pages on demand, base never moves. The reservation is an
+address-space budget (generous, loud-failing), not the silent runtime cap Mike disliked.
+
+**#37 memarena (commit 565606ec):** `port/src/memarena.c` + tests/test_memarena.cpp
+(6 cases/90 assertions -- base stable across growth to 200k, interior pointers + index
+arithmetic survive, graceful over-reservation failure). Full pd-tests 836/836.
+
+**#38 chr pool (commit 5e512630):** g_ChrSlots + g_Chrnums/g_ChrIndexes are now arena-
+backed; chrInit overflow calls chrmgrGrowSlots() (commit more pages, init new slots) instead
+of failing. Audited: nothing outside chrmgr sizes an allocation to g_NumChrSlots (all other
+uses read it live), so growth is safe. Verified combat_sim 15/15, skedar 3/3 (B-952 intact),
+swarm_cpu 21/22 (only pre-existing B-950; MEMPC intact at 4107 slots). Growth PROVEN in-game
+via a forced 3-slot pool: chrmgrGrowSlots fired 3->67 twice, zero out-of-slots, skedar 3/3.
+
+**#39 (pending):** extend the arena to model (g_ModelSlots), anim (g_Anims), projectile
+(g_Projectiles), effect, object pools -- each a distinct load-bearing conversion, to be
+done + verified per-pool like chr was. Held for a fresh focused effort (this turn was large).
+
+**B-950 (investigated, commit 32b6e45d):** confirmed it's DL CORRUPTION, not an unimplemented
+opcode (0x80 invalid in F3DEX2 command space) -> fix is prevention, not implement/soften.
+Ruled out the vtxstore/chrDisfigure path (NULL-safe). The corruption is in the anim-churn
+pool; pinning it needs a live gfx-buffer capture under 297-bot swarm. CONVERGENCE: if that
+pool is one of the #39 pools, arena-backing it (dynamic growth) is the fail-loud fix -- so
+#39 (anim/model) may resolve B-950 as a side effect. Recommend pairing the B-950 capture
+with #39's anim/model conversion.
+
 ## 2026-07-06 - B-952 skedarruins crash FIXED (it was objDrop, not the chr modeldef)
 
 Mike's directive: "Stop worrying about the budget. Let's fix it. Properly. /debug." Ran
