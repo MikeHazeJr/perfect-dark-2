@@ -154,9 +154,15 @@ TEST_CASE("body0f02ce8c gates head catalog misses before rw allocation",
 
 	REQUIRE(body.find("catalogGetHeadModeldefChecked(headnum, &headmodeldef)") != std::string::npos);
 	REQUIRE(body.find("modelAllocateRwData(headmodeldef);\n\n\t\t\t\t\t/* B-163") == std::string::npos);
+	// The head rw-allocation is gated behind the NULL check (B-163). The
+	// per-instance head clone (task #37, commit 24d24a56) legitimately sits
+	// BETWEEN modelAllocateRwData and the rwdatalen accumulation, so assert the
+	// gated allocate and the accumulation separately rather than pinning their
+	// exact adjacency (which the clone insertion would otherwise break).
 	REQUIRE(body.find(
 		"if (headmodeldef != NULL) {\n"
-		"\t\t\t\t\t\tmodelAllocateRwData(headmodeldef);\n"
+		"\t\t\t\t\t\tmodelAllocateRwData(headmodeldef);\n") != std::string::npos);
+	REQUIRE(body.find("headmodeldef = modeldefCloneForChr(headmodeldef);\n"
 		"\t\t\t\t\t\tbodymodeldef->rwdatalen += headmodeldef->rwdatalen;") != std::string::npos);
 }
 
