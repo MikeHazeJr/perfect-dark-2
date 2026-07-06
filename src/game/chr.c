@@ -1232,6 +1232,19 @@ void chrInit(struct prop *prop, u8 *ailist)
 		}
 	}
 
+	if (chr == NULL) {
+		/* Pool full of live chrs -- GROW it instead of failing the spawn (task #38
+		 * dynamic pool). chrmgrGrowSlots commits more arena pages (the pool base is
+		 * stable, so every live chr pointer and g_ChrSlots[i] index is untouched)
+		 * and returns the first new slot index, or -1 if the reservation is
+		 * exhausted. `i` becomes that index for chrRegister below. */
+		extern s32 chrmgrGrowSlots(void);
+		i = chrmgrGrowSlots();
+		if (i >= 0) {
+			chr = &g_ChrSlots[i];
+		}
+	}
+
 	prop->chr = chr;
 
 	if (chr == NULL) {
