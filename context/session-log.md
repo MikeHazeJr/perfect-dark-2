@@ -1,5 +1,44 @@
 # Session Log (Active)
 
+## 2026-07-06 - B-952 skedarruins crash FIXED (it was objDrop, not the chr modeldef)
+
+Mike's directive: "Stop worrying about the budget. Let's fix it. Properly. /debug." Ran
+the engineering:debug flow and the FIRST disciplined step -- symbolize the crash RETURN
+STACK -- broke a hunt that had run all of the prior session down the wrong subsystem.
+
+**The stack:** `modelNodeGetPosition <- objDrop <- objDropRecursively <- objTickPlayer <-
+propsTickPlayer`. The crash was an OBJECT DROP, never the chr modeldef path (chrnum 5052
+was merely the last chr ticked -- a RED HERRING breadcrumb). `objDrop`'s DROPTYPE_5 branch
+(propobj.c:16071) drops a projectile relative to its ROOT PARENT object's bbox;
+base:skedarruins parents such a projectile to a root object whose model has NO bbox node,
+so `objFindBboxNode(rootobj)=NULL -> modelNodeFindMtxNode(NULL)=NULL ->
+modelNodeGetPosition(rootobj->model, NULL)` derefs `NULL->type` and AVs at 5.2s. The model
+is structurally VALID (the tree walk just finds no bbox) -- a legitimate content variation
+the N64 droptype-5 code never guarded, not corruption.
+
+**Fixes committed (dev):**
+- `b70f5a7a` objDrop NULL-mtx guard (propobj.c) -- the crash fix; zero bbox-offset fallback
+  + throttled OBJDROP.GUARD log identifying the bbox-less object.
+- `8aa4b2ca` CLASS fix (SP-21): NULL guard in `modelNodeGetPosition` matching its own
+  `default:` case, so the primitive is null-safe like its 3 `while(node)` siblings. Audit:
+  it was the ONLY unguarded member of the node-position family.
+- `24d24a56` per-instance HEAD modeldef clone (completes body clone 09e3b552) -- a REAL
+  orthogonal fix for the shared-cache head-attach mutation, honestly NOT the crash fix; the
+  model.c/body.c comments were corrected to stop mis-attributing the crash to it.
+- `c0e98814` bugs.md B-952 -> RESOLVED with the corrected root + full trail preserved.
+
+**Verified:** skedarruins 8/9 x 3/3 (deterministic 5.2s crash eliminated; 1 non-recurring
+9.5s flake in 9 runs; a run advanced past skedar into citraining), combat_sim 15/15.
+
+**Lessons (-> SP-21):** (1) pull + symbolize the crash STACK before trusting a domain
+breadcrumb; 8 hypotheses + 3 custom tools (memp canary, DR0 watchpoint, modeldef clone)
+were spent on the wrong subsystem before a 1-step symbolize. (2) When one member of an
+accessor family accepts NULL by design, guard ALL members reachable from the same finder.
+
+**Open housekeeping:** the flag-gated debug harness (memwatch DR0 + memp canary) and its
+hardcoded chrnum-5052 arm in chr.c (2671-2689, 2627-2642) are now stale wiring -- pending
+Mike's call on keep-as-reusable-infra vs. remove. CHR.TICK breadcrumb kept (general).
+
 ## 2026-07-05 - B-951 REAL fix: build wrapper's prior fix was ineffective; false-SUCCESS closed for real
 
 Went to verify B-951 (bugs.md marked it OPEN despite a committed fix b162ec79) and

@@ -640,6 +640,47 @@ whole record before per-field assignment.
 
 ---
 
+## SP-21: Sibling accessor functions with inconsistent NULL handling
+
+**Severity: MEDIUM-HIGH (0xc0000005 on a legitimately-NULL argument).** A family of
+related accessor/traversal functions shares a contract where one of them accepts a NULL
+node/pointer as a valid "nothing here" input, but one member of the family forgot the
+guard. Callers that legitimately produce NULL (from a finder that returns NULL by design)
+pass it into whichever family member they need; the guarded members degrade gracefully,
+the unguarded one dereferences NULL and AVs. Presents as content-specific (only fires when
+a particular asset/scenario yields the NULL) and is easy to misattribute to the caller's
+subsystem instead of the primitive.
+
+**Known instance (B-952, `src/lib/model.c`):** `modelNodeFindMtxNode()` returns NULL by
+design when a bbox node has no CHRINFO/POSITION/POSITIONHELD ancestor. Its result is fed
+directly into the node-position family:
+- `modelNodeGetModelRelativePosition` -- guarded (`while (node)`), NULL-safe.
+- `modelFindNodeMtxIndex` / `modelFindNodeMtx` -- guarded (`while (node)`), NULL-safe.
+- `modelNodeGetPosition` -- **NOT guarded**: bare `switch (node->type & 0xff)` -> AV on
+  NULL. base:skedarruins parents a DROPTYPE_5 projectile to a bbox-less root object, so
+  `objDrop` fed NULL in and crashed at 5.2s (deterministic). Fixed by adding a NULL guard
+  that mirrors the function's own `default:` case (zero position, return), plus a
+  caller-side guard in `objDrop` (propobj.c) that logs WHICH object is bbox-less.
+
+**Fix strategy:** when one member of an accessor family treats NULL as valid input, ALL
+members reachable from the same finder must. Guard the primitive to match the family's
+weakest-precondition member, not just the crashing call site.
+
+**Audit checklist:** for any finder that can return NULL by design (`*Find*` returning a
+pointer), grep its call sites and confirm every consumer tolerates NULL. Search:
+`grep -rn "modelNodeFindMtxNode\|modelFindBboxNode\|objFindBboxNode" src/` and verify each
+result flows only into NULL-tolerant callees.
+
+**Debugging-method note (why this cost a whole session):** the crash breadcrumb pointed at
+`chrTick`/chrnum-5052 (the last chr ticked), and 8 hypotheses + 3 custom debug tools
+(memp canary, DR0 hardware watchpoint, per-instance modeldef clone) were spent chasing the
+CHR subsystem. A 1-step symbolize of the crash RETURN STACK immediately showed
+`modelNodeGetPosition <- objDrop <- objDropRecursively <- objTickPlayer` -- an object drop,
+not a chr. **Pull and symbolize the crash stack BEFORE trusting a domain breadcrumb**; a
+breadcrumb tells you what ran last, not what crashed.
+
+---
+
 ## How to Use
 
 - Before starting any work that touches arrays, memory allocation, or stage indexing, scan this file for relevant patterns.
