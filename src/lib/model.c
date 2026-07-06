@@ -509,6 +509,19 @@ void modelNodeSetPosition(struct model *model, struct modelnode *node, struct co
 
 void modelGetRootPosition(struct model *model, struct coord *pos)
 {
+	/* B-952 guard: a chr's modeldef can end up with a NULL rootnode by first tick
+	 * (base:skedarruins chrnum 5052: definition is a valid pointer but its rootnode
+	 * field reads 0 -- overwritten to NULL between spawn and tick). Dereferencing it
+	 * AVs in modelNodeGetPosition. NULL-check definition + rootnode before the deref
+	 * and skip gracefully. NULL-check (not a pool check) is correct: valid STATIC
+	 * modeldefs live in the EXE image (outside the stage pool) with a non-NULL
+	 * rootnode, so they pass; only genuinely-empty/corrupt (NULL rootnode) skip.
+	 * This is a defensive layer -- the underlying corruption (see bugs.md B-952) is
+	 * a separate heap-corruption bug that needs ASAN to pinpoint the writer. */
+	if (model == NULL || model->definition == NULL
+			|| model->definition->rootnode == NULL) {
+		return;
+	}
 	modelNodeGetPosition(model, model->definition->rootnode, pos);
 }
 

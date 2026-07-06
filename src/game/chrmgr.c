@@ -45,20 +45,23 @@ void chrmgrReset(void)
 	resetSomeStageThings();
 }
 
-/* B-952: dynamic-spawn headroom above the stage's declared (setup) chr count.
- * The original "+10" was an N64-era constant -- "N64 only had 8 total characters
- * so the +10 buffer in chrmgrConfigure was always enough" (setup.c). On modern
- * hardware, stages like base:skedarruins spawn DOZENS of reinforcement chrs at
- * RUNTIME (chrnum >= g_NextChrnum = 5000) that are NOT in the setup count:
- * skedarruins declares numchrs=53 yet spawns 52+ reinforcements. With only +10
- * headroom, the 11th runtime spawn onward fails chrInit's slot scan and hits
- * "out of chr slots" -- the spawn is silently dropped, so most reinforcements
- * never appear and the mission plays wrong. This grows the small chrdata slot
- * array generously for modern HW (256 covers any realistic wave; ~370 KB of the
- * 40 MB stage pool). NOTE: this is a CORRECTNESS fix for missing reinforcements,
- * NOT the B-952 crash fix -- the crash chr (slot 51) is in-bounds even at +10.
- * The crash itself is a stale-recycled-slot bug fixed in chrInit (chr.c). */
-#define CHR_DYNAMIC_SPAWN_HEADROOM 256
+/* Chr-slot headroom above the stage's declared (setup) chr count, for runtime
+ * spawns (reinforcements, chrnum >= g_NextChrnum).
+ *
+ * Restored to the vanilla +10 on 2026-07-05: my earlier +256 "correctness fix"
+ * (B-952) was WRONG. I assumed runtime spawns beyond +10 fail, but instrumenting
+ * base:skedarruins shows only ~52 chrs alive SIMULTANEOUSLY (mostly the 53 setup
+ * chrs -- the idle auto-campaign player kills nothing, 0 death events), which fits
+ * the +10 pool (PLAYERCOUNT + numchrs + 10 = 64). Vanilla never overflowed;
+ * "out of chr slots" was never logged. The pool ALREADY scales with the mod's
+ * declared numchrs, so the magic +256 bought nothing and masked the real issue.
+ *
+ * TODO (Mike directive "limits should be dynamic, not hard-coded"): replace this
+ * fixed headroom with genuinely dynamic growth so large mods grow as needed.
+ * Constraint: chrs are pointer-referenced (prop->chr) at 97+ g_ChrSlots[] index
+ * sites, so the backing store cannot realloc-move without dangling those pointers
+ * -- needs a stable growable allocator (block list), a scoped refactor. */
+#define CHR_DYNAMIC_SPAWN_HEADROOM 10
 
 void chrmgrConfigure(s32 numchrs)
 {
