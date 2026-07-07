@@ -1,6 +1,6 @@
 # Session Log (Active)
 
-## 2026-07-06 - Block-allocator: memarena built (#37) + chr pool converted (#38); B-950 scoped
+## 2026-07-06 - Block-allocator: memarena (#37) + chr (#38) + all single-array pools (#39); model/anim deferred
 
 After the B-952 fix (below), Mike directed the block-allocator arc (#37-39) + B-950,
 and later: "High churn... if it is the right way to do things, we should do it. I want
@@ -28,20 +28,30 @@ via a forced 3-slot pool: chrmgrGrowSlots fired 3->67 twice, zero out-of-slots, 
 
 **#39 (in progress):** built `arenapool` (port/src/arenapool.c + tests, 5 cases/22
 assertions) -- a growable slot pool over memarena, the uniform shape for the fixed-size
-stage pools. Converted the PROJECTILE pool to it (commit cda25fa9): g_MaxProjectiles=200
-used to EVICT a live projectile when full; now projectileAllocate grows instead (evict
-kept only as a reservation-exhausted last resort).
+stage pools. Converted ALL single-array stage pools to it, each verified combat_sim 15/15 +
+skedar 3/3: PROJECTILE (cda25fa9, was evict-a-live-projectile at 200), EMBEDMENT + DEBRIS
+(729e98f0; embedment was HARD-LIMIT -- returned NULL at 160 so a projectile could not embed),
+EXPLOSION (c5a18790, was recycle-oldest-bullethole). Each grows instead of failing/evicting;
+the old behaviour is kept only as a reservation-exhausted last resort. Per-pool growth-safety
+audited (no external g_MaxX sizing, no pointer arithmetic on the base).
 
-Reassessed the rest and found the value is concentrated, not uniform:
-- **chr + projectile = the only HARD-LIMIT pools** (fixed-fail / evict-on-full). Both DONE.
-- **model** (g_ModelSlots): already has a graceful HEAP FALLBACK (modelmgr.c:194) for
-  over-cap models, and is tangled with per-slot rwdata pre-sizing + the g_ModelRwdataBindings
-  cache. Converting = replace the heap fallback with pooled growth: complex, load-bearing
-  rendering state, lower urgency. Best done as a focused effort PAIRED with the B-950 live
-  capture (if the swarm-pressured pool is this one, arena-backing it is the fail-loud fix).
-- **anim** (g_Anims): NOT a mempAlloc slot pool -- it points into the ROM anim table
-  (g_RomAnims, anim.c:67/143) and is grown for custom anims via the catalog allocator
-  (c3849). The arena does not apply.
+Value was concentrated: chr + projectile + embedment were the HARD-LIMIT pools (fail/evict);
+debris + explosion recycle gracefully (converted for uniformity). The remaining pools:
+- **chr** (#38) -- the exemplar, done separately below.
+- **model + anim instances** (g_ModelSlots + g_AnimSlots): these are NOT standalone arrays
+  -- modelmgrreset.c:107-137 does ONE monolithic `mempAlloc(totalsize)` and carves it into
+  g_ModelRwdataBindings[0..2] + g_ModelSlots + g_AnimSlots. Making them growable means
+  UNBUNDLING that combined buffer into separate arenas (+ handling the type1/2/3 rwdata
+  binding caches), a real restructure of critical rendering state -- NOT a mechanical helper
+  application. Model also already has a graceful heap fallback (modelmgr.c:194), so it does
+  not hard-fail. Deferred to a focused effort (evidence-backed: the monolithic carve is the
+  blocker), best PAIRED with the B-950 live capture: if the swarm-pressured pool is one of
+  these, unbundling + arena-backing it is the fail-loud fix (arena over heap-fallback hack).
+  No g_ModelSlots pointer arithmetic + no external g_MaxModels sizing found, so the growth
+  itself is safe once unbundled.
+- **anim TABLE** (g_Anims, distinct from g_AnimSlots): NOT a mempAlloc slot pool -- points
+  into the ROM anim table (g_RomAnims, anim.c:67/143), grown for custom anims via the catalog
+  allocator (c3849). The arena does not apply.
 - **effect/object** (g_Explosions, g_DebrisSlots, g_Embedments): recycle-oldest on full
   (transient/imperceptible). Arena-backing is pure uniformity, near-zero practical value.
 
