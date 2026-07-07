@@ -414,11 +414,10 @@ void propsReset(void)
 	if (g_MaxProjectiles == 0) {
 		g_Projectiles = NULL;
 	} else {
-		g_Projectiles = mempAlloc(ALIGN16(g_MaxProjectiles * sizeof(struct projectile)), MEMPOOL_STAGE);
-
-		for (i = 0; i < g_MaxProjectiles; i++) {
-			g_Projectiles[i].flags = PROJECTILEFLAG_FREE;
-		}
+		/* task #39: arena-backed growable pool (grows on overflow instead of
+		 * evicting a live projectile). */
+		extern void projectileSetupPool(s32 count);
+		projectileSetupPool(g_MaxProjectiles);
 	}
 
 	if (g_MaxEmbedments == 0) {

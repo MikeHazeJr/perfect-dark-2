@@ -829,6 +829,11 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/port/src/memarena.c
   ${CMAKE_SOURCE_DIR}/tests/test_memarena.cpp
 
+  # Task #39 (c120, 2026-07-06): arenapool -- growable slot pool over memarena,
+  # the uniform shape the fixed-size stage pools convert to.
+  ${CMAKE_SOURCE_DIR}/port/src/arenapool.c
+  ${CMAKE_SOURCE_DIR}/tests/test_arenapool.cpp
+
   # Track 2d (c3807, 2026-05-16): GPU swarm state network sync.
   # Round-trip tests for the s16/s8 quantizer used by SVC_GPUSWARM_STATE.
   # Pure-C encoder/decoder lives at port/src/net/swarm_sync_quant.c so it

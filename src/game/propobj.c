@@ -1,6 +1,7 @@
 #include <ultra64.h>
 #include "constants.h"
 #include "system.h"
+#include "arenapool.h"
 #include "game/bondmove.h"
 #include "game/bondwalk.h"
 #include "game/cheats.h"
@@ -1208,6 +1209,47 @@ void projectileReset(struct projectile *projectile)
 	projectile->graphtrailinterval240 = 0;
 }
 
+/* Projectile pool backing (task #39): an arenapool so the pool GROWS instead of
+ * evicting a live projectile (a rocket/grenade mid-flight) when full. Pointer-
+ * stable: obj->projectile references survive growth. */
+static struct arenapool s_ProjectilePool;
+
+/* Per-stage setup (called from propsReset). Commits `count` slots, marks them all
+ * free, and points g_Projectiles at the stable base (NULL on failure). */
+void projectileSetupPool(s32 count)
+{
+	s32 i;
+
+	g_Projectiles = arenaPoolSetup(&s_ProjectilePool, "projectiles",
+		sizeof(struct projectile), 65536, 64, count);
+
+	if (g_Projectiles != NULL) {
+		for (i = 0; i < count; i++) {
+			g_Projectiles[i].flags = PROJECTILEFLAG_FREE;
+		}
+	}
+}
+
+/* Grow the pool by one chunk, init the new slots free, advance g_MaxProjectiles,
+ * and return the first new slot index (or -1 if the reservation is exhausted). */
+static s32 projectileGrowSlots(void)
+{
+	s32 first;
+	struct projectile *base = arenaPoolGrow(&s_ProjectilePool, &first);
+	s32 i;
+
+	if (base == NULL || first < 0) {
+		return -1;
+	}
+
+	g_Projectiles = base;
+	for (i = first; i < s_ProjectilePool.count; i++) {
+		g_Projectiles[i].flags = PROJECTILEFLAG_FREE;
+	}
+	g_MaxProjectiles = s_ProjectilePool.count;
+	return first;
+}
+
 struct projectile *projectileAllocate(void)
 {
 	s32 bestindex = -1;
@@ -1218,6 +1260,17 @@ struct projectile *projectileAllocate(void)
 		if (g_Projectiles[i].flags & PROJECTILEFLAG_FREE) {
 			projectileReset(&g_Projectiles[i]);
 			return &g_Projectiles[i];
+		}
+	}
+
+	// No free slot -- GROW the pool (task #39) rather than evicting a live
+	// projectile in the recycle fallback below. Only falls through to recycling
+	// if growth fails (reservation exhausted).
+	{
+		s32 newidx = projectileGrowSlots();
+		if (newidx >= 0) {
+			projectileReset(&g_Projectiles[newidx]);
+			return &g_Projectiles[newidx];
 		}
 	}
 
