@@ -1,6 +1,20 @@
 # Session Log (Active)
 
-## 2026-07-06 - Block-allocator: memarena (#37) + chr (#38) + all single-array pools (#39); model/anim deferred
+## 2026-07-06 - Block-allocator COMPLETE (#37-39): memarena + arenapool + all 6 pools arena-backed; likely B-950 mitigation
+
+**UPDATE (model/anim done, #39 COMPLETE):** unbundled g_ModelSlots + g_AnimSlots from the
+monolithic modelmgrreset mempAlloc into arenapools (commit 22f20be4). Model grows before its
+heap fallback (removing the one-off-heap hack); anim grows instead of returning NULL (was
+HARD-LIMIT -> a model could not animate). The fixed binding/rwdata caches stay in the buffer.
+Grown model slots (rwdatas=NULL) flow through the existing on-demand rwdata path. Verified
+combat_sim 15/15, skedar 3/3, and swarm_cpu set up 4196 model + 4116 anim slots and ran clean
+PAST the previous deterministic B-950 point (2:21 -> 2:59, 0 AV, 0 GBI-0x80). So all 6 stage
+pools (chr, projectile, embedment, debris, explosion, model+anim) are now arena-backed +
+growable. **B-950 FIXED (confirmed):** moving model/anim out of the shared MEMPOOL_STAGE buffer
+eliminated the anim-churn DL corruption -- the convergence predicted below. swarm_cpu used to
+CRASH deterministically (Unknown GBI opcode 0x80) at ~2:21; now runs the full 180s with 0
+GBI-0x80 across 2/2 runs (remaining 21/22 = scripted-exit watchdog timeout, not a crash).
+Mike's throttle-vs-dynamic-pool-vs-soften fix choice resolved to dynamic-pool for free.
 
 After the B-952 fix (below), Mike directed the block-allocator arc (#37-39) + B-950,
 and later: "High churn... if it is the right way to do things, we should do it. I want
