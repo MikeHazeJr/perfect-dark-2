@@ -1,6 +1,29 @@
 # Session Log (Active)
 
-## 2026-07-06 - Block-allocator COMPLETE (#37-39): memarena + arenapool + all 6 pools arena-backed; likely B-950 mitigation
+## 2026-07-07 - Character-loading + camera verification (post pool-conversion); chrCalculateAutoAim crash fixed
+
+Mike asked to verify, after the chr/model/anim arena conversions: (1) characters load with
+the camera looking at them, (2) spawn into a match with the camera at an appropriate height
+(not unrooted/floored).
+
+**Characters load: VERIFIED.** darkcombat_gameplay 1/1 (dark_combat body renders),
+combat_sim 15/15 (12 bots), valid model breadcrumbs. The camera-look scenario
+(darkcombat_1157_cam, --debug-cam-look-chr) was CRASHING at ~13s -- symbolized to
+chrCalculateAutoAim (chr.c:5589) dereferencing model->matrices[1]. model->matrices is
+RENDER-scratch (model.c:1734, set in modelRender), so it is NULL until a chr first renders;
+--debug-cam-look-chr aims at a just-placed bot pre-render -> NULL deref. NOT a pool-conversion
+regression (matrices untouched; darkcombat_gameplay + combat_sim auto-aim both fine). Fixed
+with a NULL guard (return false = not-yet-auto-aimable), SP-21 class, commit b7b71238 ->
+darkcombat_1157_cam PASS 1/1 (12/12 screenshot events), combat_sim still 15/15.
+
+**Camera height: VERIFIED rooted, not floored.** Added a temp cam_pos.y-vs-feet diagnostic,
+ran the game VISIBLY: the spawn camera reads cam_pos.y=484 feetY=325 eyeAboveFeet=+159 (a
+correct eye height). The `cam_pos.y=0` seen in-match is the chicago INTRO CUTSCENE camera
+(scenario `set_camera_animation base:animation_cut_pete_intro_cam_01`) in a no-input
+auto-start match, not a rooting bug. Diagnostic reverted; combat_sim 15/15 on the clean
+binary. Rooting LOGIC proven correct; a sustained interactive post-cutscene camera is Mike's
+in-game confirmation (the no-input smoke goes cutscene -> AI death, never sustained
+first-person). Net: the arena conversions did NOT break character loading or camera rooting.
 
 **UPDATE (model/anim done, #39 COMPLETE):** unbundled g_ModelSlots + g_AnimSlots from the
 monolithic modelmgrreset mempAlloc into arenapools (commit 22f20be4). Model grows before its
