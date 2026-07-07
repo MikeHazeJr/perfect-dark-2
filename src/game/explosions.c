@@ -1,5 +1,6 @@
 #include <ultra64.h>
 #include "constants.h"
+#include "arenapool.h"
 #include "game/chraction.h"
 #include "game/dlights.h"
 #include "game/chr.h"
@@ -235,6 +236,52 @@ void explosionAlertChrs(f32 *radius, struct coord *noisepos)
 #endif
 }
 
+/* Explosion pool backing (task #39): arenapool so explosions GROW instead of
+ * recycling the oldest bullethole flame when full. */
+static struct arenapool s_ExplosionPool;
+
+static void explosionInitSlot(s32 i)
+{
+	s32 j;
+
+	g_Explosions[i].prop = NULL;
+	for (j = 0; j < ARRAYCOUNT(g_Explosions[i].parts); j++) {
+		g_Explosions[i].parts[j].frame = 0;
+	}
+}
+
+void explosionSetupPool(s32 count)
+{
+	s32 i;
+
+	g_Explosions = arenaPoolSetup(&s_ExplosionPool, "explosions",
+		sizeof(struct explosion), 65536, 64, count);
+
+	if (g_Explosions != NULL) {
+		for (i = 0; i < count; i++) {
+			explosionInitSlot(i);
+		}
+	}
+}
+
+static s32 explosionGrowSlots(void)
+{
+	s32 first;
+	struct explosion *base = arenaPoolGrow(&s_ExplosionPool, &first);
+	s32 i;
+
+	if (base == NULL || first < 0) {
+		return -1;
+	}
+
+	g_Explosions = base;
+	for (i = first; i < s_ExplosionPool.count; i++) {
+		explosionInitSlot(i);
+	}
+	g_MaxExplosions = s_ExplosionPool.count;
+	return first;
+}
+
 bool explosionCreate(struct prop *sourceprop, struct coord *exppos, RoomNum *exprooms,
 		s16 type, s32 playernum, bool makescorch, struct coord *arg6, RoomNum room, struct coord *arg8)
 {
@@ -273,6 +320,14 @@ bool explosionCreate(struct prop *sourceprop, struct coord *exppos, RoomNum *exp
 		if (g_Explosions[i].prop == NULL) {
 			exp = &g_Explosions[i];
 			break;
+		}
+	}
+
+	// No free slot -- GROW the pool (task #39) before recycling a live bullethole.
+	if (exp == NULL) {
+		s32 grownidx = explosionGrowSlots();
+		if (grownidx >= 0) {
+			exp = &g_Explosions[grownidx];
 		}
 	}
 

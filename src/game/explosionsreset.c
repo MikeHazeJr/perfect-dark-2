@@ -23,14 +23,12 @@ void explosionsReset(void)
 	if (g_MaxExplosions == 0) {
 		g_Explosions = NULL;
 	} else {
-		g_Explosions = mempAlloc((g_MaxExplosions * sizeof(struct explosion) + 0xf) & ~0xf, MEMPOOL_STAGE);
-
-		for (i = 0; i < g_MaxExplosions; i++) {
-			g_Explosions[i].prop = NULL;
-
-			for (j = 0; j < ARRAYCOUNT(g_Explosions[i].parts); j++) {
-				g_Explosions[i].parts[j].frame = 0;
-			}
-		}
+		/* task #39: arena-backed growable pool (grows before recycling a live
+		 * bullethole flame). */
+		extern void explosionSetupPool(s32 count);
+		explosionSetupPool(g_MaxExplosions);
 	}
+
+	(void)i;
+	(void)j;
 }
