@@ -1577,6 +1577,43 @@ void embedmentFree(struct embedment *embedment)
 	embedment->flags |= EMBEDMENTFLAG_FREE;
 }
 
+/* Embedment pool backing (task #39): arenapool so embeds GROW instead of failing
+ * (embedmentAllocate used to return NULL at the cap -> a projectile could not
+ * embed in a surface). */
+static struct arenapool s_EmbedmentPool;
+
+void embedmentSetupPool(s32 count)
+{
+	s32 i;
+
+	g_Embedments = arenaPoolSetup(&s_EmbedmentPool, "embedments",
+		sizeof(struct embedment), 65536, 64, count);
+
+	if (g_Embedments != NULL) {
+		for (i = 0; i < count; i++) {
+			g_Embedments[i].flags = EMBEDMENTFLAG_FREE;
+		}
+	}
+}
+
+static s32 embedmentGrowSlots(void)
+{
+	s32 first;
+	struct embedment *base = arenaPoolGrow(&s_EmbedmentPool, &first);
+	s32 i;
+
+	if (base == NULL || first < 0) {
+		return -1;
+	}
+
+	g_Embedments = base;
+	for (i = first; i < s_EmbedmentPool.count; i++) {
+		g_Embedments[i].flags = EMBEDMENTFLAG_FREE;
+	}
+	g_MaxEmbedments = s_EmbedmentPool.count;
+	return first;
+}
+
 struct embedment *embedmentAllocate(void)
 {
 	s32 i;
@@ -1588,6 +1625,14 @@ struct embedment *embedmentAllocate(void)
 
 			return &g_Embedments[i];
 		}
+	}
+
+	// Pool full -- GROW instead of failing the embed (task #39).
+	i = embedmentGrowSlots();
+	if (i >= 0) {
+		g_Embedments[i].flags = 0;
+		g_Embedments[i].projectile = NULL;
+		return &g_Embedments[i];
 	}
 
 	return NULL;
@@ -20014,6 +20059,42 @@ struct ammocrateobj *ammocrateAllocate(void)
 	return NULL;
 }
 
+/* Debris pool backing (task #39): arenapool so debris GROWS instead of recycling
+ * a live piece when full. */
+static struct arenapool s_DebrisPool;
+
+void debrisSetupPool(s32 count)
+{
+	s32 i;
+
+	g_DebrisSlots = arenaPoolSetup(&s_DebrisPool, "debris",
+		sizeof(struct defaultobj), 65536, 64, count);
+
+	if (g_DebrisSlots != NULL) {
+		for (i = 0; i < count; i++) {
+			g_DebrisSlots[i].prop = NULL;
+		}
+	}
+}
+
+static s32 debrisGrowSlots(void)
+{
+	s32 first;
+	struct defaultobj *base = arenaPoolGrow(&s_DebrisPool, &first);
+	s32 i;
+
+	if (base == NULL || first < 0) {
+		return -1;
+	}
+
+	g_DebrisSlots = base;
+	for (i = first; i < s_DebrisPool.count; i++) {
+		g_DebrisSlots[i].prop = NULL;
+	}
+	g_MaxDebrisSlots = s_DebrisPool.count;
+	return first;
+}
+
 struct defaultobj *debrisAllocate(void)
 {
 	s32 i;
@@ -20023,6 +20104,12 @@ struct defaultobj *debrisAllocate(void)
 		if (g_DebrisSlots[i].prop == NULL) {
 			return &g_DebrisSlots[i];
 		}
+	}
+
+	// Pool full -- GROW instead of recycling live debris (task #39).
+	i = debrisGrowSlots();
+	if (i >= 0) {
+		return &g_DebrisSlots[i]; // grown slot has prop == NULL
 	}
 
 	// Try to find one that's landed and offscreen

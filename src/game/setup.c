@@ -404,11 +404,9 @@ void propsReset(void)
 	if (g_MaxDebrisSlots == 0) {
 		g_DebrisSlots = NULL;
 	} else {
-		g_DebrisSlots = mempAlloc(ALIGN16(g_MaxDebrisSlots * sizeof(struct defaultobj)), MEMPOOL_STAGE);
-
-		for (i = 0; i < g_MaxDebrisSlots; i++) {
-			g_DebrisSlots[i].prop = NULL;
-		}
+		/* task #39: arena-backed growable pool. */
+		extern void debrisSetupPool(s32 count);
+		debrisSetupPool(g_MaxDebrisSlots);
 	}
 
 	if (g_MaxProjectiles == 0) {
@@ -423,11 +421,9 @@ void propsReset(void)
 	if (g_MaxEmbedments == 0) {
 		g_Embedments = NULL;
 	} else {
-		g_Embedments = mempAlloc(ALIGN16(g_MaxEmbedments * sizeof(struct embedment)), MEMPOOL_STAGE);
-
-		for (i = 0; i < g_MaxEmbedments; i++) {
-			g_Embedments[i].flags = EMBEDMENTFLAG_FREE;
-		}
+		/* task #39: arena-backed growable pool (grows instead of failing embeds). */
+		extern void embedmentSetupPool(s32 count);
+		embedmentSetupPool(g_MaxEmbedments);
 	}
 
 	g_LiftDoors = NULL;
