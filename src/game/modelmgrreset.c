@@ -104,7 +104,10 @@ void modelmgrAllocateSlots(s32 numobjs, s32 numchrs)
 	modelssize = ALIGN16(g_MaxModels * sizeof(struct model));
 	animssize = ALIGN16(g_MaxAnims * sizeof(struct anim));
 
-	totalsize = ALIGN16(bindingssize + rwdata1sizetotal + rwdata2sizetotal + rwdata3sizetotal + modelssize + animssize);
+	/* task #39: model + anim instance slots are arena-backed (growable) now and
+	 * are NOT part of this monolithic buffer -- only the fixed binding + rwdata
+	 * caches remain here. (modelssize/animssize are now unused but harmless.) */
+	totalsize = ALIGN16(bindingssize + rwdata1sizetotal + rwdata2sizetotal + rwdata3sizetotal);
 
 	g_ModelRwdataBindings[0] = NULL;
 	g_ModelRwdataBindings[1] = NULL;
@@ -132,11 +135,6 @@ void modelmgrAllocateSlots(s32 numobjs, s32 numchrs)
 		ptr += NUMTYPE3() * sizeof(struct modelrwdatabinding);
 	}
 
-	g_ModelSlots = (struct model *) ptr;
-	ptr += modelssize;
-	g_AnimSlots = (struct anim *) ptr;
-	ptr += animssize;
-
 	for (i = 0; i < NUMTYPE1(); i++) {
 		g_ModelRwdataBindings[0][i].rwdata = ptr;
 		g_ModelRwdataBindings[0][i].model = NULL;
@@ -158,13 +156,13 @@ void modelmgrAllocateSlots(s32 numobjs, s32 numchrs)
 		ptr += rwdata3sizeeach;
 	}
 
-	for (i = 0; i < g_MaxModels; i++) {
-		g_ModelSlots[i].definition = NULL;
-		g_ModelSlots[i].rwdatas = NULL;
-	}
-
-	for (i = 0; i < g_MaxAnims; i++) {
-		g_AnimSlots[i].animnum = -1;
+	/* task #39: set up the arena-backed (growable) model + anim slot pools; the
+	 * setup functions also do the per-slot init that used to run inline here. */
+	{
+		extern void modelmgrSetupModelSlots(s32 count);
+		extern void modelmgrSetupAnimSlots(s32 count);
+		modelmgrSetupModelSlots(g_MaxModels);
+		modelmgrSetupAnimSlots(g_MaxAnims);
 	}
 
 	g_ModelMostType1 = 0;

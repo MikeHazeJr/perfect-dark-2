@@ -1,5 +1,6 @@
 #include <ultra64.h>
 #include "constants.h"
+#include "arenapool.h"
 #include "game/modelmgr.h"
 #include "bss.h"
 #include "lib/memp.h"
@@ -71,6 +72,79 @@ s32 g_ModelMostAnims = 0;
  * NPCs + ~356 headroom = 4500. Cost: 4500 * (256+128 words * 4 bytes)
  * = ~6.75 MB rwdata. Acceptable on PC (stage-pool budget is ample). */
 #define NUMTYPE3() 4500
+
+/* Model + anim instance pools (task #39): arena-backed so they GROW instead of
+ * heap-allocating a one-off model (the old modelmgr fallback) or returning NULL
+ * for an anim (a model that then could not animate). Split out of the monolithic
+ * modelmgrreset buffer; the fixed rwdata binding caches stay there. No pointer
+ * arithmetic on the bases and nothing external sizes to g_MaxModels/g_MaxAnims,
+ * so growth is safe. */
+static struct arenapool s_ModelPool;
+static struct arenapool s_AnimPool;
+
+void modelmgrSetupModelSlots(s32 count)
+{
+	s32 i;
+
+	g_ModelSlots = arenaPoolSetup(&s_ModelPool, "modelslots", sizeof(struct model), 65536, 64, count);
+
+	if (g_ModelSlots != NULL) {
+		for (i = 0; i < count; i++) {
+			g_ModelSlots[i].definition = NULL;
+			g_ModelSlots[i].rwdatas = NULL;
+		}
+	}
+}
+
+void modelmgrSetupAnimSlots(s32 count)
+{
+	s32 i;
+
+	g_AnimSlots = arenaPoolSetup(&s_AnimPool, "animslots", sizeof(struct anim), 65536, 64, count);
+
+	if (g_AnimSlots != NULL) {
+		for (i = 0; i < count; i++) {
+			g_AnimSlots[i].animnum = -1;
+		}
+	}
+}
+
+static s32 modelmgrGrowModelSlots(void)
+{
+	s32 first;
+	struct model *base = arenaPoolGrow(&s_ModelPool, &first);
+	s32 i;
+
+	if (base == NULL || first < 0) {
+		return -1;
+	}
+
+	g_ModelSlots = base;
+	for (i = first; i < s_ModelPool.count; i++) {
+		g_ModelSlots[i].definition = NULL;
+		g_ModelSlots[i].rwdatas = NULL;
+	}
+	g_MaxModels = s_ModelPool.count;
+	return first;
+}
+
+static s32 modelmgrGrowAnimSlots(void)
+{
+	s32 first;
+	struct anim *base = arenaPoolGrow(&s_AnimPool, &first);
+	s32 i;
+
+	if (base == NULL || first < 0) {
+		return -1;
+	}
+
+	g_AnimSlots = base;
+	for (i = first; i < s_AnimPool.count; i++) {
+		g_AnimSlots[i].animnum = -1;
+	}
+	g_MaxAnims = s_AnimPool.count;
+	return first;
+}
 
 bool modelmgrCanSlotFitRwdata(struct model *modelslot, struct modeldef *modeldef)
 {
@@ -186,6 +260,17 @@ struct model *modelmgrInstantiateModel(struct modeldef *modeldef, bool withanim)
 			if (g_ModelSlots[i].definition == NULL) {
 				model = &g_ModelSlots[i];
 				break;
+			}
+		}
+
+		// task #39: pool full -- GROW it (pooled) before heap-allocating a one-off
+		// model. The heap fallback below now only triggers if the reservation is
+		// exhausted. Grown slots have rwdatas=NULL, so the rwdata allocation below
+		// handles them exactly like any freshly-freed slot.
+		if (model == NULL) {
+			s32 grownidx = modelmgrGrowModelSlots();
+			if (grownidx >= 0) {
+				model = &g_ModelSlots[grownidx];
 			}
 		}
 
@@ -402,6 +487,15 @@ struct anim *modelmgrInstantiateAnim(void)
 		if (g_AnimSlots[i].animnum == -1) {
 			anim = &g_AnimSlots[i];
 			break;
+		}
+	}
+
+	// task #39: pool full -- GROW rather than returning NULL (no anim slot means
+	// the model cannot animate).
+	if (anim == NULL) {
+		s32 grownidx = modelmgrGrowAnimSlots();
+		if (grownidx >= 0) {
+			anim = &g_AnimSlots[grownidx];
 		}
 	}
 
