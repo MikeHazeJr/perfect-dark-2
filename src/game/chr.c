@@ -5583,6 +5583,16 @@ bool chrCalculateAutoAim(struct prop *prop, struct coord *arg1, f32 *arg2, f32 *
 		Mtxf *mtx1;
 		Mtxf *mtx2;
 
+		/* model->matrices is render-scratch (set in modelRender, model.c:1734), so
+		 * it is NULL until the chr first renders. Normal auto-aim only sees chrs
+		 * that are on-screen this tick (already rendered), but --debug-cam-look-chr
+		 * can aim at a just-placed bot before its first render -> NULL matrices.
+		 * Treat an un-rendered chr as not-yet-auto-aimable instead of dereferencing
+		 * NULL (was an ACCESS_VIOLATION at matrices[1]). */
+		if (model->matrices == NULL) {
+			return false;
+		}
+
 		if (model->definition->skel == &g_SkelChr) {
 			mtx1 = &model->matrices[0];
 			mtx2 = &model->matrices[1];
