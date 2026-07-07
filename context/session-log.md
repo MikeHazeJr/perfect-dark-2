@@ -26,9 +26,29 @@ uses read it live), so growth is safe. Verified combat_sim 15/15, skedar 3/3 (B-
 swarm_cpu 21/22 (only pre-existing B-950; MEMPC intact at 4107 slots). Growth PROVEN in-game
 via a forced 3-slot pool: chrmgrGrowSlots fired 3->67 twice, zero out-of-slots, skedar 3/3.
 
-**#39 (pending):** extend the arena to model (g_ModelSlots), anim (g_Anims), projectile
-(g_Projectiles), effect, object pools -- each a distinct load-bearing conversion, to be
-done + verified per-pool like chr was. Held for a fresh focused effort (this turn was large).
+**#39 (in progress):** built `arenapool` (port/src/arenapool.c + tests, 5 cases/22
+assertions) -- a growable slot pool over memarena, the uniform shape for the fixed-size
+stage pools. Converted the PROJECTILE pool to it (commit cda25fa9): g_MaxProjectiles=200
+used to EVICT a live projectile when full; now projectileAllocate grows instead (evict
+kept only as a reservation-exhausted last resort).
+
+Reassessed the rest and found the value is concentrated, not uniform:
+- **chr + projectile = the only HARD-LIMIT pools** (fixed-fail / evict-on-full). Both DONE.
+- **model** (g_ModelSlots): already has a graceful HEAP FALLBACK (modelmgr.c:194) for
+  over-cap models, and is tangled with per-slot rwdata pre-sizing + the g_ModelRwdataBindings
+  cache. Converting = replace the heap fallback with pooled growth: complex, load-bearing
+  rendering state, lower urgency. Best done as a focused effort PAIRED with the B-950 live
+  capture (if the swarm-pressured pool is this one, arena-backing it is the fail-loud fix).
+- **anim** (g_Anims): NOT a mempAlloc slot pool -- it points into the ROM anim table
+  (g_RomAnims, anim.c:67/143) and is grown for custom anims via the catalog allocator
+  (c3849). The arena does not apply.
+- **effect/object** (g_Explosions, g_DebrisSlots, g_Embedments): recycle-oldest on full
+  (transient/imperceptible). Arena-backing is pure uniformity, near-zero practical value.
+
+So the pools with the "magic hard limit" Mike objects to are converted; the remainder either
+degrade gracefully already or don't fit the pattern. Remaining #39 is (a) the complex model
+conversion + B-950 capture (fresh focus), and (b) optional uniformity sweeps of the
+graceful pools if desired.
 
 **B-950 (investigated, commit 32b6e45d):** confirmed it's DL CORRUPTION, not an unimplemented
 opcode (0x80 invalid in F3DEX2 command space) -> fix is prevention, not implement/soften.
