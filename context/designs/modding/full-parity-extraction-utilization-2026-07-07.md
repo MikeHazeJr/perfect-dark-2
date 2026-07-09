@@ -89,9 +89,36 @@ change here breaks all texture rendering.
   consumes the same `texture.png`). Verified: `asset_archive_conformance`
   3503/3503 `.pdtexture`, `all_family_source_gate_smoke` 36/36, sampled manifests show
   `num_lods=5` preserved on mip-carrying textures across varied `n64_format` ids.
-- **Next:** emit the CI palette (TLUT) and the actual LOD image data as new archive
-  files (extend the conformance `allowed`-list for `.pdtexture`), then Phase 2 renderer
-  mipmapping.
+- **DESCOPE (Mike, 2026-07-07): LODs are OUT.** "We don't need the LODs. The hero
+  models are low enough poly counts that they can be rendered without the LOD
+  fallbacks, we just need to be sure they are used instead of letting it break
+  things." So: NO LOD image emission, NO Phase-2a renderer mipmapping. The
+  requirement is reframed as **hero assets always used + LOD machinery can never
+  break anything**, which was then AUDITED AND PROVEN (see below). The v2
+  `num_lods` manifest field stays (harmless provenance).
+- **HERO-ALWAYS AUDIT (2026-07-07, PROVEN SAFE):**
+  1. The port already forces hero: `pdmain.c:426 modelSetDistanceChecksDisabled(1)`.
+     Verified semantics in `modelUpdateDistanceRelations` (model.c:1349-1368):
+     disabled -> `distance=0` -> every `near==0` (hero) DISTANCE variant is VISIBLE
+     and every `near>0` (low-poly far) variant is HIDDEN -- correct selection, no
+     double-render/z-fighting, `modelApplyDistanceRelations` consistent.
+  2. The one breakage vector would be geometry existing ONLY in a far variant
+     (never rendered under forced-hero). Scanned ALL extracted meshes -- 1,099
+     archives (standalone + nested in bodies/heads/weapons), 26,577 DISTANCE
+     nodes: **0 far-only groups**. Every DISTANCE switch has a near==0 hero
+     variant. Forced-hero cannot hide any base content.
+  3. No second LOD mechanism: other `camGetLodScaleZ` users are effect/cull
+     scaling (eraser depth, explosion scale, prop draw distance), not variant
+     selection; fast3d `G_TL_LOD` is a combiner shade input (prim_lod_fraction),
+     not a mip-texel consumer -- nothing consumes the un-extracted LOD1-4 data.
+  4. Mods-equal-to-base holds: the extractor PRESERVES DISTANCE nodes (near/far in
+     model.nodes.json, romextract_pdmesh.c:2022) and the compiler consumes them
+     back (modasset_compiler.c:7428/7510), so nothing is lost in the archives;
+     mod-authored flat meshes are hero-only by construction.
+- **Next (remaining scope after descope):** emit the CI palette (TLUT) as a new
+  archive file (extend the conformance `allowed`-list for `.pdtexture`); then
+  Phase 1b pdmesh face->collision binding + 1c pdweapon public meshes; Phase 2
+  reduces to the consumption side of 1b/1c (mipmapping cancelled).
 - **NB (tooling):** the B-801 smoke memory guard mis-refused a launch with ~18 GB free
   of 32 GB (`run.ps1:1186`); overridden with `PD_SMOKE_SKIP_MEMORY_GUARD=1` for this
   verification. Worth checking which metric it reads.
