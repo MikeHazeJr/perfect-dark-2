@@ -17,10 +17,13 @@ requirement reframed as hero-assets-always-used + LOD machinery never breaks, an
 (pdmain.c:426 forced-hero semantics verified; 1,099 meshes / 26,577 DISTANCE nodes scanned,
 0 far-only groups; no second LOD mechanism; extractor preserves DISTANCE nodes for
 round-trip). DONE: Phase 1a step 1 (schema-v2 manifest: n64_format/num_lods/has_alpha,
-re-extracted 3,503, conformance 3503/3503, source-gate 36/36, commit 3c669893). Remaining:
-CI palette (TLUT) emission (extend .pdtexture conformance allowed-list), pdmesh
-face->collision binding, pdweapon public meshes, + their consumption. Each increment
-leaves the pipeline WORKING; verify conformance + source-gate + render smokes.
+re-extracted 3,503, conformance 3503/3503, source-gate 36/36, commit 3c669893). DONE:
+step 2 CI palette (8180fa04) -- 2,886 CI textures carry exact TLUT as palette.json
+(accessible format; *.bin forbidden by contract), whole-tree conformance ok 9,066,
+combat_sim 15/15. **pdtexture is now fully lossless** (format + LOD-count + palette;
+LOD image data descoped by Mike). Remaining: Phase 1b pdmesh face->collision binding,
+1c pdweapon public meshes, + their consumption. Each increment leaves the pipeline
+WORKING; verify conformance + source-gate + render smokes.
 
 **2026-07-04 backlog wave 5 -- reconciliation correction + tooling (committed).** The
 "scope COMPLETE" note below was PREMATURE -- the reconciliation sweep under-counted
