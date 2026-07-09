@@ -4,7 +4,23 @@
 > [session-log.md](session-log.md). Historical card and bug detail remains in the
 > Kanban card history and bug ledger.
 
-Last updated: 2026-07-04
+Last updated: 2026-07-07
+
+**2026-07-07 FULL-PARITY EXTRACTION + UTILIZATION (active, phased, NOT yet started).**
+Mike directive: make `.pdxxx` a LOSSLESS, fully-utilized representation of the ROM so
+mods = base content, nothing lost, no omitted functionality. Chose full parity (extract
++ utilize). Spec: `context/designs/modding/full-parity-extraction-utilization-2026-07-07.md`.
+Gaps (per 2026-07-02 audit + live scope): pdtexture loses N64 format id + CI palette/TLUT
+(82% of textures) + mip LOD1-4 (renderer does NO mipmapping -> omitted functionality, not
+just round-trip); pdmesh loses per-face collision binding; pdweapon loses public custom
+meshes. Plan: Phase 1 lossless extraction (additive, safe, all 3 families) then Phase 2
+utilization (renderer mipmapping, CI palette, collision round-trip, weapon meshes). Each
+phase leaves the pipeline WORKING + is independently committable; verify via whole-tree
+conformance (9,066) + source-gate smoke + render/collision/weapon smokes. FOCUSED
+multi-session effort by design -- a half-applied change to the texture path breaks all
+rendering, so it must NOT be crammed into a session tail. Start: Phase 1a pdtexture (extend
+romExtractDecodeTextureImages to expose format/palette/all-LODs; schema-v2 additive; bump
+cache token; re-extract; conformance).
 
 **2026-07-04 backlog wave 5 -- reconciliation correction + tooling (committed).** The
 "scope COMPLETE" note below was PREMATURE -- the reconciliation sweep under-counted
