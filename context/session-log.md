@@ -1,5 +1,42 @@
 # Session Log (Active)
 
+## 2026-07-07 - Full-parity extraction project COMPLETE (1a/1b/1c + LOD descope + closures)
+
+Mike's directive: mods-equal-to-base, lossless ROM extraction in accessible .pdxxx
+formats, nothing lost or utilized in a way that omits functionality. Spec:
+`context/designs/modding/full-parity-extraction-utilization-2026-07-07.md`. All landed:
+
+- **1a pdtexture** (3c669893 + 8180fa04): schema-v2 manifest (n64_format/num_lods/
+  has_alpha) + 2,886 CI textures carry their exact TLUT as palette.json (accessible
+  JSON; the conformance contract itself rejected the palette.bin draft -- *.bin
+  forbidden in public archives).
+- **LOD descope** (a0d033bb, Mike's call): no mip emission, no renderer mipmapping.
+  Reframed as hero-assets-always-used and PROVEN: pdmain.c:426 forced-hero semantics
+  verified; 1,099 meshes / 26,577 DISTANCE nodes scanned -> 0 far-only groups; no
+  second LOD mechanism; extractor round-trips DISTANCE nodes.
+- **1b pdmesh collision** (f3141fd5): type-0x19 quads (parts 0x65 floor / 0x66 wall)
+  emitted into nodes.json (schema v2) AND consumed by the compiler -> generated
+  modeldefs reproduce prop collision (round-trip). BOTH pdmesh gates needed bumping
+  (directory KIND + per-archive export LABEL). 733/733 meshes v2, 24/24 quads real;
+  inner body/head/weapon meshes have zero type19 (nothing lost at v1).
+- **1c pdweapon** (a231ee44): audit showed held meshes already public+complete
+  (86/86, 0 missing) and all nested projectile refs resolving; the REAL gap was the
+  fire-model reference being a naked int. Now weaponfunc rows emit projectile_model
+  (catalog id) beside the int and loader_pool resolves ref-first (int fallback, loud
+  RESOLVE_FAIL). 20/20 weapons with projectile models carry resolving refs.
+- **2b closed as documented no-op** (9b01e670): base content does NOT palette-animate
+  (TLUT read once at load; only UI colour tables elsewhere; fast3d could handle
+  changes, nothing exercises it). palette.json = round-trip provenance.
+- **B-801 guard misfire FIXED** (9b01e670): the 4096 MB pagefile floor was applied to
+  a SYSTEM-MANAGED pagefile's current size (3,456 MB) on a healthy host. Now the
+  floor applies only to FIXED pagefiles by their configured MAXIMUM (the real B-801
+  ceiling); auto-managed hosts rely on the commit-headroom gate. Verified live
+  without the bypass; combat_sim launches through it.
+
+Every increment gated on: whole-tree conformance ok (9,066 archives, 27 families),
+all_family_source_gate 36/36, combat_sim 15/15, pd-tests 841/841 (5 token pins
+reconciled across the arc, incl. one stale pdtexture pin from 8180fa04).
+
 ## 2026-07-07 - Character-loading + camera verification (post pool-conversion); chrCalculateAutoAim crash fixed
 
 Mike asked to verify, after the chr/model/anim arena conversions: (1) characters load with
