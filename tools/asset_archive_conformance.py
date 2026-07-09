@@ -640,7 +640,11 @@ SCHEMAS: dict[str, Schema] = {
     ".pdtexture": schema(
         required=["texture.ini"],
         require_any=[["texture.png", "texture.tga", "texture.jpg", "texture.jpeg"]],
-        allowed=["texture.ini", "texture.png", "texture.tga", "texture.jpg", "texture.jpeg"],
+        # palette.json: exact 16-bit TLUT of a colour-indexed ROM texture as
+        # accessible JSON (full-parity 2026-07-07) -- optional, emitted only
+        # when the source texture is CI.
+        allowed=["texture.ini", "texture.png", "texture.tga", "texture.jpg", "texture.jpeg",
+                 "palette.json"],
     ),
     ".pdcharacter": schema(
         required=["character.ini"],
@@ -1012,6 +1016,7 @@ OPTIONAL_PUBLIC_SLOT_CONTRACT: dict[str, dict[str, SlotJustification]] = {
         "texture.tga": slot("TGA source image", "texture importer", "decodes standard image source into runtime texture cache", "one of the other image source slots must be present"),
         "texture.jpg": slot("JPEG source image", "texture importer", "decodes standard image source into runtime texture cache", "one of the other image source slots must be present"),
         "texture.jpeg": slot("JPEG source image", "texture importer", "decodes standard image source into runtime texture cache", "one of the other image source slots must be present"),
+        "palette.json": slot("exact 16-bit TLUT of a colour-indexed ROM texture as accessible JSON (full-parity 2026-07-07)", "modding round-trip tooling", "preserves the exact N64 palette so re-encoding a CI texture can reproduce the original", "texture is consumed from the decoded RGBA image; palette is provenance for round-trip"),
     },
     ".pdcharacter": {
         "portrait.png": slot("character portrait source", "character/UI importer", "loads portrait for menus and character pickers", "menus use generated/default portrait"),

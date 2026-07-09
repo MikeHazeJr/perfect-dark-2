@@ -5785,10 +5785,15 @@ static s32 s_texFormatToPure(s32 format)
 }
 
 static s32 s_decodeTexToRgba(const struct tex *tex, u32 total_bytes,
-	u8 **out_rgba, s32 *out_pure_format)
+	u8 **out_rgba, s32 *out_pure_format,
+	/* Full-parity: the CI TLUT located during decode (pointer INTO tex->data --
+	 * only valid until the caller frees its pool; copy before free). NULL ok. */
+	const u8 **out_palette, u32 *out_palette_count)
 {
 	if (out_rgba) *out_rgba = NULL;
 	if (out_pure_format) *out_pure_format = -1;
+	if (out_palette) *out_palette = NULL;
+	if (out_palette_count) *out_palette_count = 0;
 	if (!tex || !tex->data || !tex->width || !tex->height) return -1;
 	s32 format = s_texExportFormat(tex);
 	if (format < 0) return -1;
@@ -5854,6 +5859,8 @@ static s32 s_decodeTexToRgba(const struct tex *tex, u32 total_bytes,
 
 	*out_rgba = rgba;
 	if (out_pure_format) *out_pure_format = pure_format;
+	if (out_palette) *out_palette = palette;
+	if (out_palette_count) *out_palette_count = palette ? palette_count : 0;
 	return 0;
 }
 
@@ -5871,7 +5878,7 @@ s32 romExtractDecodeTextureImages(u16 texnum,
                                   u8 **out_png, u32 *out_png_size,
                                   u32 *out_width, u32 *out_height,
                                   s32 *out_has_alpha,
-                                  s32 *out_n64_format, s32 *out_numlods)
+                                  struct pdtexdecodemeta *out_meta)
 {
 	if (out_tga) *out_tga = NULL;
 	if (out_tga_size) *out_tga_size = 0;
@@ -5880,8 +5887,10 @@ s32 romExtractDecodeTextureImages(u16 texnum,
 	if (out_width) *out_width = 0;
 	if (out_height) *out_height = 0;
 	if (out_has_alpha) *out_has_alpha = 0;
-	if (out_n64_format) *out_n64_format = -1;
-	if (out_numlods) *out_numlods = 0;
+	if (out_meta) {
+		memset(out_meta, 0, sizeof(*out_meta));
+		out_meta->n64_format = -1;
+	}
 
 	u8 *list_data = romdataSegGetData("textureslist");
 	u8 *data = romdataSegGetData("texturesdata");
@@ -5929,7 +5938,10 @@ s32 romExtractDecodeTextureImages(u16 texnum,
 
 	u8 *rgba = NULL;
 	s32 pure_format = -1;
-	if (s_decodeTexToRgba(tex, (u32)bytesout, &rgba, &pure_format) != 0) {
+	const u8 *tlut = NULL;
+	u32 tlut_count = 0;
+	if (s_decodeTexToRgba(tex, (u32)bytesout, &rgba, &pure_format,
+			&tlut, &tlut_count) != 0) {
 		free(pool_mem);
 		return -1;
 	}
@@ -5961,8 +5973,21 @@ s32 romExtractDecodeTextureImages(u16 texnum,
 	if (out_width) *out_width = tex->width;
 	if (out_height) *out_height = tex->height;
 	if (out_has_alpha) *out_has_alpha = has_alpha;
-	if (out_n64_format) *out_n64_format = pure_format;
-	if (out_numlods) *out_numlods = numlods;
+	if (out_meta) {
+		out_meta->n64_format = pure_format;
+		out_meta->numlods = numlods;
+		out_meta->lutmode = tex->lutmodeindex;
+		/* Copy the TLUT out of the temp pool BEFORE free(pool_mem) below. */
+		if (tlut != NULL && tlut_count > 0) {
+			u32 bytes = tlut_count * 2u;
+			if (bytes > sizeof(out_meta->palette)) {
+				bytes = sizeof(out_meta->palette);
+				tlut_count = bytes / 2u;
+			}
+			memcpy(out_meta->palette, tlut, bytes);
+			out_meta->palette_count = tlut_count;
+		}
+	}
 	*out_tga = tga;
 	*out_tga_size = tga_size;
 	*out_png = png;
@@ -5991,7 +6016,7 @@ static void s_bgSceneDecodeTextures(pdscenario_bgscene_t *scene)
 				&tex->tga, &tex->tga_size,
 				&tex->png, &tex->png_size,
 				&tex->width, &tex->height,
-				&tex->has_alpha, NULL, NULL) == 0) {
+				&tex->has_alpha, NULL) == 0) {
 			tex->decoded = 1;
 			scene->decoded_texture_count++;
 		} else {

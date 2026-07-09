@@ -425,16 +425,26 @@ s32 romExtractAllPdtheme(s32 force_rewrite);
 
 /* Shared ROM texture decoder used by .pdscenario material export and the
  * standalone .pdtexture emitter. Returns heap buffers that the caller frees. */
+/* Full-parity (2026-07-07): ROM-source texture metadata captured during decode,
+ * for lossless .pdtexture emission. All fields are what the ROM actually held;
+ * palette is the raw 16-bit TLUT exactly as stored (palette_count entries,
+ * 2 bytes each; 256 max -> 512 bytes). */
+struct pdtexdecodemeta {
+	s32 n64_format;     /* pure-format enum; -1 = unknown/empty slot */
+	s32 numlods;        /* mip LOD count in the ROM (1..5); 0 = unknown */
+	s32 lutmode;        /* tex lutmodeindex (0 = not colour-indexed)  */
+	u32 palette_count;  /* TLUT entry count (0 = no palette)          */
+	u8 palette[512];    /* raw TLUT bytes (palette_count * 2 used)    */
+};
+
 s32 romExtractDecodeTextureImages(u16 texnum,
                                   u8 **out_tga, u32 *out_tga_size,
                                   u8 **out_png, u32 *out_png_size,
                                   u32 *out_width, u32 *out_height,
                                   s32 *out_has_alpha,
-                                  /* Full-parity (2026-07-07): the N64 source format id
-                                   * (pure-format enum) and mip LOD count, both already
-                                   * known during decode. NULL to ignore -- additive, so
-                                   * existing callers can pass NULL. */
-                                  s32 *out_n64_format, s32 *out_numlods);
+                                  /* NULL to ignore -- additive; the bg-scene caller
+                                   * passes NULL. */
+                                  struct pdtexdecodemeta *out_meta);
 s32 romExtractTextureSlotIsEmpty(u16 texnum);
 
 /* Fast cached-boot guard shared by typed base-asset emitters.

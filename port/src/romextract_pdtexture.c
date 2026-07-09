@@ -52,10 +52,13 @@
  * The _iafix_b945 token propagates the RDP-parity decode fixes: I4/I8
  * intensity-replicated alpha (credits motes were solid squares), IA16 I/A
  * byte order (opaque black glow sprites), RGBA32 channel order.
- * The _fmtmeta_v2 token (2026-07-07 full-parity Phase 1a) forces a re-emit so
- * the schema-v2 manifest records the N64 format id + mip LOD count. */
+ * The _fmtmeta_palv3_json token (2026-07-07 full-parity Phase 1a) forces a
+ * re-emit so the schema-v2 manifest records the N64 format id + mip LOD count,
+ * and colour-indexed textures carry their exact TLUT as palette.json (an
+ * accessible format; *.bin payloads are forbidden in public archives -- the v2
+ * intermediate that wrote palette.bin is superseded by this token). */
 #define ROMEXTRACT_PDTEXTURE_FAST_CACHE_KIND \
-	"pdtexture_png_v1_decoded_rom_rgba_manifest_texture_file_cipalfix_b943_iafix_b945_fmtmeta_v2"
+	"pdtexture_png_v1_decoded_rom_rgba_manifest_texture_file_cipalfix_b943_iafix_b945_fmtmeta_palv3_json"
 
 static const u8 k_Transparent1x1Png[] = {
 	0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
@@ -169,11 +172,12 @@ static s32 s_emitTexture(const asset_entry_t *e, const char *out_dir,
 	u32 height = 0;
 	s32 empty_rom_slot = 0;
 	s32 tex_has_alpha = 0;
-	s32 tex_n64_format = -1;  /* N64 pure-format enum; -1 = unknown/empty slot */
-	s32 tex_numlods = 0;      /* mip LOD count in the ROM (1..5)                */
+	struct pdtexdecodemeta meta;
+	memset(&meta, 0, sizeof(meta));
+	meta.n64_format = -1;
 	if (romExtractDecodeTextureImages((u16)e->ext.texture.texture_id,
 			&tga, &tga_size, &png, &png_size, &width, &height,
-			&tex_has_alpha, &tex_n64_format, &tex_numlods) != 0 ||
+			&tex_has_alpha, &meta) != 0 ||
 			!png || png_size == 0) {
 		if (tga) { free(tga); tga = NULL; }
 		if (png) { free(png); png = NULL; }
@@ -214,6 +218,51 @@ static s32 s_emitTexture(const asset_entry_t *e, const char *out_dir,
 	}
 
 	char manifest[1024];
+	/* Optional CI palette: only when the ROM texture is colour-indexed. The
+	 * TLUT is emitted as palette.json -- the exact 16-bit entries as hex, an
+	 * ACCESSIBLE format per the archive contract (*.bin payloads are forbidden
+	 * in public archives), with zero information loss. */
+	char palette_ref_json[128];
+	palette_ref_json[0] = '\0';
+	char palette_file[4096];
+	int palette_file_len = 0;
+	if (meta.palette_count > 0) {
+		int pj = snprintf(palette_ref_json, sizeof(palette_ref_json),
+			"  \"palette\": { \"file\": \"palette.json\", \"count\": %u, \"lut_mode\": %d },\n",
+			(unsigned)meta.palette_count, meta.lutmode);
+		if (pj <= 0 || (size_t)pj >= sizeof(palette_ref_json)) {
+			free(tga);
+			free(png);
+			return -1;
+		}
+
+		int off = snprintf(palette_file, sizeof(palette_file),
+			"{\n"
+			"  \"pd_kind\": \"texture_palette\",\n"
+			"  \"lut_mode\": %d,\n"
+			"  \"count\": %u,\n"
+			/* entries are the raw big-endian u16 TLUT values exactly as stored
+			 * in the ROM (RGBA5551 or IA16 per lut_mode) */
+			"  \"entries\": [",
+			meta.lutmode, (unsigned)meta.palette_count);
+		for (u32 pi = 0; pi < meta.palette_count && off > 0 &&
+				(size_t)off < sizeof(palette_file); pi++) {
+			u16 entry = (u16)((meta.palette[pi * 2u] << 8) | meta.palette[pi * 2u + 1u]);
+			off += snprintf(palette_file + off, sizeof(palette_file) - (size_t)off,
+				"%s\"0x%04x\"", pi ? ", " : "", entry);
+		}
+		if (off > 0 && (size_t)off < sizeof(palette_file)) {
+			off += snprintf(palette_file + off, sizeof(palette_file) - (size_t)off,
+				"]\n}\n");
+		}
+		if (off <= 0 || (size_t)off >= sizeof(palette_file)) {
+			free(tga);
+			free(png);
+			return -1;
+		}
+		palette_file_len = off;
+	}
+
 	int manifest_len = snprintf(manifest, sizeof(manifest),
 		"{\n"
 		"  \"pd_kind\": \"texture\",\n"
@@ -222,17 +271,19 @@ static s32 s_emitTexture(const asset_entry_t *e, const char *out_dir,
 		"  \"texture_file\": \"texture.png\",\n"
 		"  \"source_state\": \"%s\",\n"
 		"  \"size\": { \"width\": %u, \"height\": %u },\n"
-		/* Full-parity schema-v2 (2026-07-07): preserve the N64 source format id
-		 * and mip LOD count so the .pdtexture records what the ROM actually held
-		 * (round-trip + omitted-mipmap fidelity). Additive over v1. */
+		/* Full-parity schema-v2 (2026-07-07): preserve the N64 source format id,
+		 * mip LOD count, and (when colour-indexed) the raw TLUT so the .pdtexture
+		 * records what the ROM actually held. Additive over v1. */
 		"  \"n64_format\": %d,\n"
 		"  \"num_lods\": %d,\n"
+		"%s"
 		"  \"has_alpha\": %s\n"
 		"}\n",
 		e->id,
 		empty_rom_slot ? "empty_rom_slot" : "decoded_rom_texture",
 		(unsigned)width, (unsigned)height,
-		tex_n64_format, tex_numlods,
+		meta.n64_format, meta.numlods,
+		palette_ref_json,
 		tex_has_alpha ? "true" : "false");
 	if (manifest_len <= 0 || (size_t)manifest_len >= sizeof(manifest)) {
 		free(tga);
@@ -254,7 +305,12 @@ static s32 s_emitTexture(const asset_entry_t *e, const char *out_dir,
 			assetArchiveWriterAddManifestJson(&writer,
 			manifest, (u32)manifest_len) != MODARCHIVE_OK ||
 			assetArchiveWriterAddPublicMem(&writer, "texture.png",
-			png, png_size, "texture") != MODARCHIVE_OK) {
+			png, png_size, "texture") != MODARCHIVE_OK ||
+			/* Full-parity: exact TLUT of colour-indexed textures as accessible
+			 * JSON (raw big-endian u16 entries verbatim -- zero loss). */
+			(palette_file_len > 0 &&
+			assetArchiveWriterAddPublicMem(&writer, "palette.json",
+			(const u8 *)palette_file, (u32)palette_file_len, "texture") != MODARCHIVE_OK)) {
 		modArchiveAbort(aw);
 		free(tga);
 		free(png);

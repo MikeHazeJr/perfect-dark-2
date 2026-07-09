@@ -115,10 +115,25 @@ change here breaks all texture rendering.
      model.nodes.json, romextract_pdmesh.c:2022) and the compiler consumes them
      back (modasset_compiler.c:7428/7510), so nothing is lost in the archives;
      mod-authored flat meshes are hero-only by construction.
-- **Next (remaining scope after descope):** emit the CI palette (TLUT) as a new
-  archive file (extend the conformance `allowed`-list for `.pdtexture`); then
-  Phase 1b pdmesh face->collision binding + 1c pdweapon public meshes; Phase 2
-  reduces to the consumption side of 1b/1c (mipmapping cancelled).
+- **Phase 1a step 2 DONE (2026-07-07): CI palette preserved.** Colour-indexed
+  textures now carry their exact TLUT as `palette.json` (raw big-endian u16
+  entries verbatim as hex -- zero loss, human-editable). Chosen over palette.bin
+  because the archive contract FORBIDS `*.bin` public payloads (the tool enforcing
+  the accessible-formats principle -- correctly). Decode metadata consolidated into
+  `struct pdtexdecodemeta` (n64_format, numlods, lutmode, palette) instead of
+  accreting out-params; `s_decodeTexToRgba` exposes the B-943-anchored TLUT
+  pointer; the emitter copies it out of the temp pool before free. Conformance
+  schema + OPTIONAL_PUBLIC_SLOT_CONTRACT extended for palette.json. Cache token
+  `_fmtmeta_palv3_json` (supersedes the transient palette.bin v2 -- writer
+  rebuilds archives so no stale entries; verified stale-bin=0). VERIFIED:
+  whole-tree conformance 8,065/9,066 across all 27 families OK; 2,886/2,886 CI
+  textures json-consistent (count/lut_mode/entries match manifest; entries match
+  the raw-byte dump verbatim); all_family_source_gate 36/36; combat_sim 15/15.
+  The public editable source remains the native client source (runtime still
+  consumes texture.png; palette.json is round-trip provenance).
+- **Next (remaining scope):** Phase 1b pdmesh face->collision binding + 1c
+  pdweapon public meshes; Phase 2 reduces to the consumption side of 1b/1c
+  (mipmapping cancelled per the LOD descope).
 - **NB (tooling):** the B-801 smoke memory guard mis-refused a launch with ~18 GB free
   of 32 GB (`run.ps1:1186`); overridden with `PD_SMOKE_SKIP_MEMORY_GUARD=1` for this
   verification. Worth checking which metric it reads.
