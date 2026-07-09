@@ -51,9 +51,11 @@
  * re-decode so the CI palette-offset fix (B-943) propagates to texture.png.
  * The _iafix_b945 token propagates the RDP-parity decode fixes: I4/I8
  * intensity-replicated alpha (credits motes were solid squares), IA16 I/A
- * byte order (opaque black glow sprites), RGBA32 channel order. */
+ * byte order (opaque black glow sprites), RGBA32 channel order.
+ * The _fmtmeta_v2 token (2026-07-07 full-parity Phase 1a) forces a re-emit so
+ * the schema-v2 manifest records the N64 format id + mip LOD count. */
 #define ROMEXTRACT_PDTEXTURE_FAST_CACHE_KIND \
-	"pdtexture_png_v1_decoded_rom_rgba_manifest_texture_file_cipalfix_b943_iafix_b945"
+	"pdtexture_png_v1_decoded_rom_rgba_manifest_texture_file_cipalfix_b943_iafix_b945_fmtmeta_v2"
 
 static const u8 k_Transparent1x1Png[] = {
 	0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
@@ -166,8 +168,12 @@ static s32 s_emitTexture(const asset_entry_t *e, const char *out_dir,
 	u32 width = 0;
 	u32 height = 0;
 	s32 empty_rom_slot = 0;
+	s32 tex_has_alpha = 0;
+	s32 tex_n64_format = -1;  /* N64 pure-format enum; -1 = unknown/empty slot */
+	s32 tex_numlods = 0;      /* mip LOD count in the ROM (1..5)                */
 	if (romExtractDecodeTextureImages((u16)e->ext.texture.texture_id,
-			&tga, &tga_size, &png, &png_size, &width, &height, NULL) != 0 ||
+			&tga, &tga_size, &png, &png_size, &width, &height,
+			&tex_has_alpha, &tex_n64_format, &tex_numlods) != 0 ||
 			!png || png_size == 0) {
 		if (tga) { free(tga); tga = NULL; }
 		if (png) { free(png); png = NULL; }
@@ -211,15 +217,23 @@ static s32 s_emitTexture(const asset_entry_t *e, const char *out_dir,
 	int manifest_len = snprintf(manifest, sizeof(manifest),
 		"{\n"
 		"  \"pd_kind\": \"texture\",\n"
-		"  \"pd_schema_version\": 1,\n"
+		"  \"pd_schema_version\": 2,\n"
 		"  \"id\": \"%s\",\n"
 		"  \"texture_file\": \"texture.png\",\n"
 		"  \"source_state\": \"%s\",\n"
-		"  \"size\": { \"width\": %u, \"height\": %u }\n"
+		"  \"size\": { \"width\": %u, \"height\": %u },\n"
+		/* Full-parity schema-v2 (2026-07-07): preserve the N64 source format id
+		 * and mip LOD count so the .pdtexture records what the ROM actually held
+		 * (round-trip + omitted-mipmap fidelity). Additive over v1. */
+		"  \"n64_format\": %d,\n"
+		"  \"num_lods\": %d,\n"
+		"  \"has_alpha\": %s\n"
 		"}\n",
 		e->id,
 		empty_rom_slot ? "empty_rom_slot" : "decoded_rom_texture",
-		(unsigned)width, (unsigned)height);
+		(unsigned)width, (unsigned)height,
+		tex_n64_format, tex_numlods,
+		tex_has_alpha ? "true" : "false");
 	if (manifest_len <= 0 || (size_t)manifest_len >= sizeof(manifest)) {
 		free(tga);
 		free(png);

@@ -429,7 +429,12 @@ s32 romExtractDecodeTextureImages(u16 texnum,
                                   u8 **out_tga, u32 *out_tga_size,
                                   u8 **out_png, u32 *out_png_size,
                                   u32 *out_width, u32 *out_height,
-                                  s32 *out_has_alpha);
+                                  s32 *out_has_alpha,
+                                  /* Full-parity (2026-07-07): the N64 source format id
+                                   * (pure-format enum) and mip LOD count, both already
+                                   * known during decode. NULL to ignore -- additive, so
+                                   * existing callers can pass NULL. */
+                                  s32 *out_n64_format, s32 *out_numlods);
 s32 romExtractTextureSlotIsEmpty(u16 texnum);
 
 /* Fast cached-boot guard shared by typed base-asset emitters.

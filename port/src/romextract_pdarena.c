@@ -5870,7 +5870,8 @@ s32 romExtractDecodeTextureImages(u16 texnum,
                                   u8 **out_tga, u32 *out_tga_size,
                                   u8 **out_png, u32 *out_png_size,
                                   u32 *out_width, u32 *out_height,
-                                  s32 *out_has_alpha)
+                                  s32 *out_has_alpha,
+                                  s32 *out_n64_format, s32 *out_numlods)
 {
 	if (out_tga) *out_tga = NULL;
 	if (out_tga_size) *out_tga_size = 0;
@@ -5879,6 +5880,8 @@ s32 romExtractDecodeTextureImages(u16 texnum,
 	if (out_width) *out_width = 0;
 	if (out_height) *out_height = 0;
 	if (out_has_alpha) *out_has_alpha = 0;
+	if (out_n64_format) *out_n64_format = -1;
+	if (out_numlods) *out_numlods = 0;
 
 	u8 *list_data = romdataSegGetData("textureslist");
 	u8 *data = romdataSegGetData("texturesdata");
@@ -5958,6 +5961,8 @@ s32 romExtractDecodeTextureImages(u16 texnum,
 	if (out_width) *out_width = tex->width;
 	if (out_height) *out_height = tex->height;
 	if (out_has_alpha) *out_has_alpha = has_alpha;
+	if (out_n64_format) *out_n64_format = pure_format;
+	if (out_numlods) *out_numlods = numlods;
 	*out_tga = tga;
 	*out_tga_size = tga_size;
 	*out_png = png;
@@ -5986,7 +5991,7 @@ static void s_bgSceneDecodeTextures(pdscenario_bgscene_t *scene)
 				&tex->tga, &tex->tga_size,
 				&tex->png, &tex->png_size,
 				&tex->width, &tex->height,
-				&tex->has_alpha) == 0) {
+				&tex->has_alpha, NULL, NULL) == 0) {
 			tex->decoded = 1;
 			scene->decoded_texture_count++;
 		} else {

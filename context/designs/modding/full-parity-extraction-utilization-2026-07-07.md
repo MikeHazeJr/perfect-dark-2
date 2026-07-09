@@ -76,3 +76,22 @@ foundation everything else consumes, and it is the safe half. Within Phase 1, do
 pdtexture first (the bulk + the omitted-functionality driver). This is a focused
 multi-session effort, NOT a tail-of-session sprint, precisely because a half-applied
 change here breaks all texture rendering.
+
+## Progress
+
+- **Phase 1a step 1 DONE (2026-07-07):** pdtexture is now schema-v2 and emits
+  `n64_format` + `num_lods` + `has_alpha`. `romExtractDecodeTextureImages` exposes the
+  N64 pure-format enum and mip LOD count via two additive out-params (both already
+  computed during decode; the arena caller passes NULL). The **public `.pdtexture`
+  source archive** now records what the ROM held -- the game continues to load from
+  that editable source (native-source contract intact: the change is in the emitter
+  that PRODUCES the public source, not a new ROM/cache read path; the runtime still
+  consumes the same `texture.png`). Verified: `asset_archive_conformance`
+  3503/3503 `.pdtexture`, `all_family_source_gate_smoke` 36/36, sampled manifests show
+  `num_lods=5` preserved on mip-carrying textures across varied `n64_format` ids.
+- **Next:** emit the CI palette (TLUT) and the actual LOD image data as new archive
+  files (extend the conformance `allowed`-list for `.pdtexture`), then Phase 2 renderer
+  mipmapping.
+- **NB (tooling):** the B-801 smoke memory guard mis-refused a launch with ~18 GB free
+  of 32 GB (`run.ps1:1186`); overridden with `PD_SMOKE_SKIP_MEMORY_GUARD=1` for this
+  verification. Worth checking which metric it reads.
