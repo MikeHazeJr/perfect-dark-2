@@ -159,9 +159,30 @@ change here breaks all texture rendering.
   841/841. Phase 2d (consumption) is thereby ALSO done.
 - **PHASE 1 + consumable Phase 2 COMPLETE.** All four audited gaps are closed
   (pdtexture format/palette, pdmesh collision, pdweapon fire refs; LOD data
-  descoped by Mike with the hero-always proof). Remaining Phase 2 items: 2a
-  mipmapping CANCELLED (descope); 2b CI palette runtime use = investigate
-  whether base uses palette animation at all (likely no-op, document if so).
+  descoped by Mike with the hero-always proof). 2a mipmapping CANCELLED
+  (descope).
+- **2b RESOLVED as a documented no-op (2026-07-07): base content does NOT
+  palette-animate.** Audited: texdecompress.c reads the TLUT ONCE at
+  decompress (`palette[i] = texReadBits(16)`, :193); tex.c only ever sets the
+  LUT *mode* for rendering (gDPSetTextureLUT); no game code writes/cycles TLUT
+  entries after load (the only "palette" hits are UI colour tables in
+  credits.c/menu.c, unrelated to texture TLUTs). fast3d even keys its texture
+  cache by palette content (gfx_pc.cpp palette_addrs), so it COULD handle a
+  changing TLUT -- nothing exercises it. PD animates via texture scroll and
+  frame-swap, not palette cycling. The preserved palette.json is therefore
+  pure round-trip provenance, exactly as scoped. **The full-parity project is
+  CLOSED.**
+- **B-801 guard misfire FIXED (Test-MemorySafety.ps1):** the static
+  4096 MB pagefile floor was applied to Win32_PageFileUsage.AllocatedBaseSize,
+  which for a SYSTEM-MANAGED pagefile is just the current demand-driven size
+  (3456 MB on a healthy 32 GB host -> refused with 18 GB RAM free). B-801's
+  real root cause was a FIXED 2 GB pagefile that could not grow. Fix: when
+  AutomaticManagedPagefile is true the floor is not applied (the pagefile
+  grows; the commit-headroom check remains the real gate); when manual, the
+  floor now judges the configured MAXIMUM (Win32_PageFileSetting), the actual
+  B-801 failure ceiling. Verified live: guard passes WITHOUT
+  PD_SMOKE_SKIP_MEMORY_GUARD and combat_sim launches through it 15/15; a
+  fixed-small-pagefile host still blocks.
 - **NB (tooling):** the B-801 smoke memory guard mis-refused a launch with ~18 GB free
   of 32 GB (`run.ps1:1186`); overridden with `PD_SMOKE_SKIP_MEMORY_GUARD=1` for this
   verification. Worth checking which metric it reads.

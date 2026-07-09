@@ -78,19 +78,48 @@ function Test-SmokeMemorySafety {
     }
 
     try {
-        $pfUsage = @(Get-CimInstance -ClassName Win32_PageFileUsage -ErrorAction Stop)
-        $pfMB = 0
-        foreach ($p in $pfUsage) { $pfMB += [int]$p.AllocatedBaseSize }
-        if ($pfUsage.Count -gt 0 -and $pfMB -gt 0) {
-            $result.Info += ("pagefile allocated {0} MB" -f $pfMB)
-            if ($pfMB -lt $MinPagefileMB) {
-                $result.Safe = $false
-                $result.Reasons += ("pagefile {0} MB is below the {1} MB floor -- B-801 root cause was a 2 GB pagefile" -f $pfMB, $MinPagefileMB)
-            }
+        # B-801 was a FIXED 2 GB pagefile that could not grow under commit
+        # pressure. A SYSTEM-MANAGED pagefile grows on demand, so its current
+        # AllocatedBaseSize (often small while demand is low) must NOT be held
+        # against the static floor -- that misfired on healthy hosts (refused
+        # to launch with 18 GB RAM free because the auto pagefile happened to
+        # sit at 3.4 GB). Apply the floor only to manually-sized pagefiles,
+        # and to their configured MAXIMUM (the growth ceiling B-801 actually
+        # hit), not the current allocation. The commit-headroom check above
+        # remains the real gate either way.
+        $autoManaged = $false
+        try {
+            $cs = Get-CimInstance -ClassName Win32_ComputerSystem -ErrorAction Stop
+            $autoManaged = [bool]$cs.AutomaticManagedPagefile
+        } catch {}
+
+        if ($autoManaged) {
+            $pfUsage = @(Get-CimInstance -ClassName Win32_PageFileUsage -ErrorAction SilentlyContinue)
+            $pfMB = 0
+            foreach ($p in $pfUsage) { $pfMB += [int]$p.AllocatedBaseSize }
+            $result.Info += ("pagefile system-managed (grows on demand; currently {0} MB) -- static floor not applied" -f $pfMB)
         } else {
-            # Empty/zero can mean a system-managed pagefile CIM does not enumerate.
-            # Do not block on that alone; the commit check above is the real gate.
-            $result.Info += "pagefile size not reported (may be system-managed)"
+            # Manually-sized pagefile(s): judge by the configured MAXIMUM.
+            # MaximumSize 0 in Win32_PageFileSetting means "system managed
+            # size" for that file -- treat as growable.
+            $pfSettings = @(Get-CimInstance -ClassName Win32_PageFileSetting -ErrorAction Stop)
+            $maxMB = 0
+            $anyGrowable = $false
+            foreach ($p in $pfSettings) {
+                if ([int]$p.MaximumSize -eq 0) { $anyGrowable = $true }
+                $maxMB += [int]$p.MaximumSize
+            }
+            if ($pfSettings.Count -gt 0 -and -not $anyGrowable -and $maxMB -gt 0) {
+                $result.Info += ("pagefile fixed maximum {0} MB" -f $maxMB)
+                if ($maxMB -lt $MinPagefileMB) {
+                    $result.Safe = $false
+                    $result.Reasons += ("fixed pagefile maximum {0} MB is below the {1} MB floor -- B-801 root cause was a fixed 2 GB pagefile" -f $maxMB, $MinPagefileMB)
+                }
+            } else {
+                # No settings rows / growable entries: cannot prove a fixed
+                # small ceiling. Do not block; the commit check is the gate.
+                $result.Info += "pagefile growable or size not reported -- static floor not applied"
+            }
         }
     } catch {
         $result.Info += ("pagefile probe unavailable: {0}" -f $_.Exception.Message)
