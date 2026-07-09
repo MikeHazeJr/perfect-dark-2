@@ -67,9 +67,9 @@
 #define ROMEXTRACT_PDMESH_MODEL_VMA 0x05000000u
 #define ROMEXTRACT_PDMESH_MTX_STACK_CAP 11
 #define ROMEXTRACT_PDMESH_NODE_DEPTH_CAP 2048
-#define ROMEXTRACT_PDMESH_OBJ_EXPORT_VERSION_LABEL "model_obj_mtx_v20_materials_hierarchy_parts_faces_json_relations_raw_mtx_render_commands_json_vtxcolour_jointflags_vtxmtx"
+#define ROMEXTRACT_PDMESH_OBJ_EXPORT_VERSION_LABEL "model_obj_mtx_v20_materials_hierarchy_parts_faces_json_relations_raw_mtx_render_commands_json_vtxcolour_jointflags_vtxmtx_collision19"
 #define ROMEXTRACT_PDMESH_OBJ_EXPORT_VERSION ROMEXTRACT_PDMESH_OBJ_EXPORT_VERSION_LABEL "\n"
-#define ROMEXTRACT_PDMESH_FAST_CACHE_KIND "pdmesh_model_obj_mtx_v23_materials_hierarchy_parts_faces_json_relations_raw_mtx_render_commands_json_allmodels_menuhud_zero_tri_models_vtxcolour_jointflags_vtxmtx"
+#define ROMEXTRACT_PDMESH_FAST_CACHE_KIND "pdmesh_model_obj_mtx_v23_materials_hierarchy_parts_faces_json_relations_raw_mtx_render_commands_json_allmodels_menuhud_zero_tri_models_vtxcolour_jointflags_vtxmtx_collision19"
 extern u16 g_CartFileNums[];
 static u16 s_SeenFilenums[ROMEXTRACT_PDMESH_SEEN_CAP];
 static s32 s_SeenCount;
@@ -1851,7 +1851,9 @@ static s32 s_writeNodeHierarchyJson(pdmesh_obj_export_t *ctx)
 	if (s_textbufAppend(ctx->nodes,
 			"{\n"
 			"  \"pd_kind\": \"mesh_nodes\",\n"
-			"  \"pd_schema_version\": 1,\n"
+			/* v2 (full-parity 1b, 2026-07-07): rows gain "collision" -- the
+			 * type-0x19 quad under parts 0x65/0x66. Additive over v1. */
+			"  \"pd_schema_version\": 2,\n"
 			"  \"nodes\": [\n") != 0) {
 		return -1;
 	}
@@ -1887,6 +1889,8 @@ static s32 s_writeNodeHierarchyJson(pdmesh_obj_export_t *ctx)
 		f32 reorder_x = 0.0f, reorder_y = 0.0f, reorder_z = 0.0f;
 		f32 reorder_axis_x = 0.0f, reorder_axis_y = 0.0f, reorder_axis_z = 0.0f;
 		s32 reorder_target_a = -1, reorder_target_b = -1, reorder_side = 0;
+		s32 col_numvertices = 0;
+		f32 col_v[4][3] = {{0}};
 
 		if (!node || !s_ptrInModel(ctx, node, sizeof(*node))) {
 			continue;
@@ -1975,6 +1979,25 @@ static s32 s_writeNodeHierarchyJson(pdmesh_obj_export_t *ctx)
 				zmax = bbox->zmax;
 			}
 			break;
+		case MODELNODETYPE_TYPE19:
+			/* Full-parity 1b (2026-07-07): the face->collision binding. A type-0x19
+			 * node under part 0x0065 (floor) / 0x0066 (wall) carries the collision
+			 * quad objInit builds prop collision from (func0f069b4c ->
+			 * func0f070ca0). Without this the quad was dropped on extraction and a
+			 * mesh edit lost its collision definition. */
+			if (node->rodata &&
+					s_ptrInModel(ctx, node->rodata,
+						sizeof(struct modelrodata_type19))) {
+				struct modelrodata_type19 *t19 = &node->rodata->type19;
+				s32 vi;
+				col_numvertices = t19->numvertices;
+				for (vi = 0; vi < 4; vi++) {
+					col_v[vi][0] = t19->vertices[vi].x;
+					col_v[vi][1] = t19->vertices[vi].y;
+					col_v[vi][2] = t19->vertices[vi].z;
+				}
+			}
+			break;
 		case MODELNODETYPE_DL:
 			if (node->rodata &&
 					s_ptrInModel(ctx, node->rodata,
@@ -2023,7 +2046,12 @@ static s32 s_writeNodeHierarchyJson(pdmesh_obj_export_t *ctx)
 					"\"reorder\": { "
 					"\"pivot\": { \"x\": %.6f, \"y\": %.6f, \"z\": %.6f }, "
 					"\"axis\": { \"x\": %.6f, \"y\": %.6f, \"z\": %.6f }, "
-					"\"target_a\": %d, \"target_b\": %d, \"side\": %d } }",
+					"\"target_a\": %d, \"target_b\": %d, \"side\": %d }, "
+					"\"collision\": { \"numvertices\": %d, \"vertices\": ["
+					"{ \"x\": %.6f, \"y\": %.6f, \"z\": %.6f }, "
+					"{ \"x\": %.6f, \"y\": %.6f, \"z\": %.6f }, "
+					"{ \"x\": %.6f, \"y\": %.6f, \"z\": %.6f }, "
+					"{ \"x\": %.6f, \"y\": %.6f, \"z\": %.6f }] } }",
 					render_mtx, mcount, hitpart,
 					(double)xmin, (double)xmax, (double)ymin,
 					(double)ymax, (double)zmin, (double)zmax,
@@ -2031,7 +2059,12 @@ static s32 s_writeNodeHierarchyJson(pdmesh_obj_export_t *ctx)
 					(double)reorder_x, (double)reorder_y, (double)reorder_z,
 					(double)reorder_axis_x, (double)reorder_axis_y,
 					(double)reorder_axis_z, reorder_target_a,
-					reorder_target_b, reorder_side) != 0) {
+					reorder_target_b, reorder_side,
+					col_numvertices,
+					(double)col_v[0][0], (double)col_v[0][1], (double)col_v[0][2],
+					(double)col_v[1][0], (double)col_v[1][1], (double)col_v[1][2],
+					(double)col_v[2][0], (double)col_v[2][1], (double)col_v[2][2],
+					(double)col_v[3][0], (double)col_v[3][1], (double)col_v[3][2]) != 0) {
 			return -1;
 		}
 	}

@@ -8254,9 +8254,9 @@ TEST_CASE("base mesh extractor emits standard obj geometry payloads",
 
 	REQUIRE(mesh.find("s_buildModelObj") != std::string::npos);
 	REQUIRE(mesh.find("s_exportGdlToObj") != std::string::npos);
-	REQUIRE(mesh.find("ROMEXTRACT_PDMESH_OBJ_EXPORT_VERSION_LABEL \"model_obj_mtx_v20_materials_hierarchy_parts_faces_json_relations_raw_mtx_render_commands_json_vtxcolour_jointflags_vtxmtx\"") !=
+	REQUIRE(mesh.find("ROMEXTRACT_PDMESH_OBJ_EXPORT_VERSION_LABEL \"model_obj_mtx_v20_materials_hierarchy_parts_faces_json_relations_raw_mtx_render_commands_json_vtxcolour_jointflags_vtxmtx_collision19\"") !=
 	        std::string::npos);
-	REQUIRE(mesh.find("ROMEXTRACT_PDMESH_FAST_CACHE_KIND \"pdmesh_model_obj_mtx_v23_materials_hierarchy_parts_faces_json_relations_raw_mtx_render_commands_json_allmodels_menuhud_zero_tri_models_vtxcolour_jointflags_vtxmtx\"") !=
+	REQUIRE(mesh.find("ROMEXTRACT_PDMESH_FAST_CACHE_KIND \"pdmesh_model_obj_mtx_v23_materials_hierarchy_parts_faces_json_relations_raw_mtx_render_commands_json_allmodels_menuhud_zero_tri_models_vtxcolour_jointflags_vtxmtx_collision19\"") !=
 	        std::string::npos);
 	REQUIRE(mesh.find("catalogReadableModelIdForFile((s32)FILE_GHUDPIECE, \"menu\", \"menu\"") !=
 	        std::string::npos);

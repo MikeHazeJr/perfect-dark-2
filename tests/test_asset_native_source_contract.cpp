@@ -14721,9 +14721,11 @@ TEST_CASE("c3843 remaining base asset families emit clean native archives",
 	 * gates on the family fast-cache stamp pdmeta wrote but never read. */
 	REQUIRE(texture_extractor.find("s_emitTexture") != std::string::npos);
 	REQUIRE(meta.find("s_emitTexture") == std::string::npos);
+	/* Full-parity Phase 1a (2026-07-07): token gained _fmtmeta_palv3_json when
+	 * the schema-v2 manifest + palette.json emission landed (commit 8180fa04). */
 	REQUIRE(texture_extractor.find(
 	                "ROMEXTRACT_PDTEXTURE_FAST_CACHE_KIND \\\n"
-	                "\t\"pdtexture_png_v1_decoded_rom_rgba_manifest_texture_file_cipalfix_b943_iafix_b945\"") !=
+	                "\t\"pdtexture_png_v1_decoded_rom_rgba_manifest_texture_file_cipalfix_b943_iafix_b945_fmtmeta_palv3_json\"") !=
 	        std::string::npos);
 	REQUIRE(texture_extractor.find(
 	                "romExtractPdFastCacheCanSkip(ROMEXTRACT_PDTEXTURE_FAST_CACHE_KIND") !=

@@ -4468,6 +4468,10 @@ typedef struct generated_hierarchy_row {
 	s32 reorder_target_a;
 	s32 reorder_target_b;
 	s32 reorder_side;
+	/* Full-parity 1b (2026-07-07): type-0x19 collision quad (parts 0x65/0x66).
+	 * Optional in nodes.json (absent in pre-collision19 archives -> zeros). */
+	s32 col_numvertices;
+	f32 col_v[4][3];
 	s32 payload_index;
 } generated_hierarchy_row_t;
 
@@ -6307,6 +6311,26 @@ static s32 generatedModeldefReadHierarchy(const char *source_path,
 			generatedHierarchyFree(hierarchy);
 			return -1;
 		}
+		/* Full-parity 1b: optional -- absent in pre-collision19 (schema v1)
+		 * archives, defaults to zeros (matching the pre-1b zeroed rodata). */
+		{
+			json_span_t collision;
+			if (jsonObjectObject(object, "collision", &collision)) {
+				json_span_t verts;
+				jsonObjectInt(collision, "numvertices", &row.col_numvertices);
+				if (jsonObjectArray(collision, "vertices", &verts)) {
+					const char *vcursor = NULL;
+					json_span_t vert;
+					s32 vi = 0;
+					while (vi < 4 && jsonArrayNextObject(verts, &vcursor, &vert)) {
+						jsonObjectFloat(vert, "x", &row.col_v[vi][0]);
+						jsonObjectFloat(vert, "y", &row.col_v[vi][1]);
+						jsonObjectFloat(vert, "z", &row.col_v[vi][2]);
+						vi++;
+					}
+				}
+			}
+		}
 		if (!generatedHierarchyGrow(hierarchy, 1)) {
 			free(copy);
 			generatedHierarchyFree(hierarchy);
@@ -7448,6 +7472,18 @@ static s32 buildGeneratedModeldefFromMeshHierarchy(const asset_entry_t *entry,
 			rodata->bbox.ymax = row->ymax;
 			rodata->bbox.zmin = row->zmin;
 			rodata->bbox.zmax = row->zmax;
+			break;
+		case MODELNODETYPE_TYPE19:
+			/* Full-parity 1b: collision quad (parts 0x65 floor / 0x66 wall).
+			 * objInit -> func0f069b4c reads this rodata via modelGetPartRodata
+			 * to build prop floor/wall collision -- generated modeldefs now
+			 * reproduce it instead of a zeroed quad. */
+			rodata->type19.numvertices = row->col_numvertices;
+			for (s32 tv = 0; tv < 4; tv++) {
+				rodata->type19.vertices[tv].x = row->col_v[tv][0];
+				rodata->type19.vertices[tv].y = row->col_v[tv][1];
+				rodata->type19.vertices[tv].z = row->col_v[tv][2];
+			}
 			break;
 		case MODELNODETYPE_DL:
 			if (row->payload_index >= 0) {
