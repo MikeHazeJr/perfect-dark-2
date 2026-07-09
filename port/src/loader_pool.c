@@ -1464,6 +1464,37 @@ static void *parseWeaponFunc(jstream_t *s)
 				out->tw.projectilemodelnum = v;
 			}
 		}
+		/* Full-parity 1c (2026-07-07): the fire/projectile model as a CATALOG
+		 * id, emitted beside the raw modelnum. A resolving ref WINS over the
+		 * int (the portable form -- a custom weapon names its own mesh by id);
+		 * on resolve failure keep whatever projectilemodelnum gave and warn.
+		 * Same variant-offset discipline as projectilemodelnum above. */
+		else if (jstream_str_eq(&key, "projectile_model")) {
+			char refbuf[64];
+			refbuf[0] = '\0';
+			if (s->cur.kind == JT_STRING) {
+				jstream_str_copy(&s->cur, refbuf, sizeof(refbuf));
+				jstream_advance(s);
+			} else {
+				jstream_skip_value(s);
+			}
+			if (refbuf[0] != '\0') {
+				catalog_model_result_t r;
+				if (catalogResolveModel(refbuf, &r) && r.modelnum >= 0) {
+					if (struct_name[0] != '\0'
+							&& strcmp(struct_name, "weaponfunc_shootprojectile") == 0) {
+						out->sp.projectilemodelnum = r.modelnum;
+					} else if (struct_name[0] != '\0'
+							&& strcmp(struct_name, "weaponfunc_throw") == 0) {
+						out->tw.projectilemodelnum = r.modelnum;
+					}
+				} else {
+					sysLogPrintf(LOG_WARNING,
+						"LOADER.POOL.WEAPON.RESOLVE_FAIL: weaponfunc.projectile_model id=\"%s\"",
+						refbuf);
+				}
+			}
+		}
 		else if (jstream_str_eq(&key, "unk44") && struct_name[0]) {
 			if (strcmp(struct_name, "weaponfunc_shootprojectile") == 0) out->sp.unk44 = (u32)jread_int(s, 0);
 			else if (strcmp(struct_name, "weaponfunc_melee") == 0) out->me.unk44 = jread_float(s, 0);

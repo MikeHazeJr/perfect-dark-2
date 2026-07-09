@@ -43,8 +43,8 @@
 #include "weapondata_authored.h"
 #include "animdata_authored.h"
 
-#define PDWEAPON_DEPENDENCY_CLOSURE_MARKER "embedded.v14"
-#define PDWEAPON_FAST_CACHE_KIND "pdweapon_embedded_v14_clean_public_b943fields"
+#define PDWEAPON_DEPENDENCY_CLOSURE_MARKER "embedded.v15"
+#define PDWEAPON_FAST_CACHE_KIND "pdweapon_embedded_v14_clean_public_b943fields_projref"
 #define PDWEAPON_MAX_ANIM_DEPS 128
 #define PDWEAPON_MAX_AUDIO_DEPS 128
 #define PDWEAPON_PRIMARY_GRAPH_ENTRY "behavior/primary.graph.json"
@@ -882,6 +882,10 @@ static void s_emitWeaponFuncBase(jw_t *w, const struct weaponfunc *f)
 	jw_field_uint(w, "flags", f->flags, 0);
 }
 
+/* Defined below (model catalog-ref helper); used by s_emitWeaponFunc for the
+ * full-parity 1c projectile_model field. */
+static void s_modelRef(s32 modelnum, char *out, size_t cap);
+
 /* Emit one weaponfunc element. f may be NULL (emits null). The struct
  * type is taken from f->type (matches struct weaponfunc::type). */
 static void s_emitWeaponFunc(jw_t *w, const void *func_ptr, s32 last)
@@ -962,6 +966,15 @@ static void s_emitWeaponFunc(jw_t *w, const void *func_ptr, s32 last)
 		jw_field_sfx_or_int(w, "shootsound", sh->shootsound, 0);
 		jw_field_uint(w, "penetration", sh->penetration, 0);
 		jw_field_int(w, "projectilemodelnum", sp->projectilemodelnum, 0);
+		/* Full-parity 1c (2026-07-07): the fire/projectile model as a CATALOG
+		 * reference beside the raw modelnum so the public settings.json is
+		 * catalog-addressable -- a custom weapon can name its own projectile
+		 * mesh (loader_pool resolves via catalogResolveModel). */
+		if (sp->projectilemodelnum > 0) {
+			char model_ref[64];
+			s_modelRef(sp->projectilemodelnum, model_ref, sizeof(model_ref));
+			jw_field_str(w, "projectile_model", model_ref, 0);
+		}
 		jw_field_f32(w, "scale", sp->scale, 0);
 		jw_field_int(w, "speed", sp->speed, 0);
 		jw_field_int(w, "traveldist", sp->traveldist, 0);
@@ -979,6 +992,13 @@ static void s_emitWeaponFunc(jw_t *w, const void *func_ptr, s32 last)
 		const struct weaponfunc_throw *tw =
 			(const struct weaponfunc_throw *)f;
 		jw_field_int(w, "projectilemodelnum", tw->projectilemodelnum, 0);
+		/* Full-parity 1c: catalog ref beside the raw modelnum (see the
+		 * SHOOT_PROJECTILE case above). */
+		if (tw->projectilemodelnum > 0) {
+			char model_ref[64];
+			s_modelRef(tw->projectilemodelnum, model_ref, sizeof(model_ref));
+			jw_field_str(w, "projectile_model", model_ref, 0);
+		}
 		jw_field_int(w, "activatetime60",    tw->activatetime60, 0);
 		jw_field_int(w, "recoverytime60",    tw->recoverytime60, 0);
 		jw_field_f32(w, "damage", tw->damage, 1);
