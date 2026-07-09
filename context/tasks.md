@@ -21,9 +21,16 @@ re-extracted 3,503, conformance 3503/3503, source-gate 36/36, commit 3c669893). 
 step 2 CI palette (8180fa04) -- 2,886 CI textures carry exact TLUT as palette.json
 (accessible format; *.bin forbidden by contract), whole-tree conformance ok 9,066,
 combat_sim 15/15. **pdtexture is now fully lossless** (format + LOD-count + palette;
-LOD image data descoped by Mike). Remaining: Phase 1b pdmesh face->collision binding,
-1c pdweapon public meshes, + their consumption. Each increment leaves the pipeline
-WORKING; verify conformance + source-gate + render smokes.
+LOD image data descoped by Mike). DONE: Phase 1b pdmesh collision (f3141fd5) -- type-0x19
+quads (parts 0x65/0x66) emitted into nodes.json (schema v2) AND consumed by the compiler
+(round-trip; 733/733 meshes, 24/24 quads real, inner body/head/weapon meshes have zero
+type19 = nothing lost). DONE: Phase 1c pdweapon (a231ee44) -- fire models catalog-
+addressable ("projectile_model" ref beside the raw int, loader resolves ref-first;
+held meshes audited already-complete; 20/20 refs resolve to public meshes). **FULL-PARITY
+PROJECT COMPLETE** (all four audited gaps closed; 2a mipmapping cancelled by descope;
+2b = check whether base uses palette animation at all, likely documented no-op). Every
+step verified: conformance 9,066 ok, source-gate 36/36, combat_sim 15/15, pd-tests
+841/841.
 
 **2026-07-04 backlog wave 5 -- reconciliation correction + tooling (committed).** The
 "scope COMPLETE" note below was PREMATURE -- the reconciliation sweep under-counted

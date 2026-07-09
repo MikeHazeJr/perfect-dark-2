@@ -131,9 +131,37 @@ change here breaks all texture rendering.
   the raw-byte dump verbatim); all_family_source_gate 36/36; combat_sim 15/15.
   The public editable source remains the native client source (runtime still
   consumes texture.png; palette.json is round-trip provenance).
-- **Next (remaining scope):** Phase 1b pdmesh face->collision binding + 1c
-  pdweapon public meshes; Phase 2 reduces to the consumption side of 1b/1c
-  (mipmapping cancelled per the LOD descope).
+- **Phase 1b DONE (2026-07-07, commit f3141fd5): pdmesh collision preserved +
+  round-tripped.** The type-0x19 collision quad (parts 0x65 floor / 0x66 wall,
+  the rodata objInit builds prop collision from) is emitted into every
+  nodes.json row ("collision" object, mesh_nodes schema v2) AND consumed back
+  by the modasset compiler (optional parse -- old archives/third-party meshes
+  default to zeros = the old behavior; generated modeldefs now reproduce the
+  quad instead of a zeroed one). BOTH pdmesh gates bumped (_collision19 on the
+  directory KIND and the per-archive export LABEL -- the kind alone does not
+  re-emit). VERIFIED: 733/733 standalone meshes at schema v2; 24/24 type-0x19
+  nodes carry real quads (0 degenerate); body/head/weapon inner meshes have
+  ZERO type19 nodes (nothing to preserve; no parent-family bump needed);
+  conformance ok 9,066; source-gate 36/36; combat_sim 15/15; pd-tests 841/841
+  (2 pdmesh pins + 1 stale pdtexture pin reconciled). Phase 2c (consumption) is
+  thereby ALSO done -- the compiler consumes the binding.
+- **Phase 1c DONE (2026-07-07, commit a231ee44): pdweapon fire models
+  catalog-addressable.** Audit first: held meshes were already public+complete
+  (86 weapons, 76 embed held_hi/lo, 0 declared-but-missing) and all 28 nested
+  projectile refs resolve -- the REAL gap was the weaponfunc fire-model
+  reference being a naked int (projectilemodelnum), inexpressible for custom
+  weapons. Now SHOOT_PROJECTILE/THROW rows emit "projectile_model" (catalog id)
+  beside the int, and loader_pool resolves it (catalogResolveModel; ref wins,
+  int fallback, loud RESOLVE_FAIL). Tokens: KIND +_projref, closure marker
+  embedded.v15; 4 test pins updated. VERIFIED: 86/86 re-emitted; 20/20 weapons
+  with a projectile model carry the ref, 0 unresolved (all land on public
+  meshes/); conformance ok; source-gate 36/36; combat_sim 15/15; pd-tests
+  841/841. Phase 2d (consumption) is thereby ALSO done.
+- **PHASE 1 + consumable Phase 2 COMPLETE.** All four audited gaps are closed
+  (pdtexture format/palette, pdmesh collision, pdweapon fire refs; LOD data
+  descoped by Mike with the hero-always proof). Remaining Phase 2 items: 2a
+  mipmapping CANCELLED (descope); 2b CI palette runtime use = investigate
+  whether base uses palette animation at all (likely no-op, document if so).
 - **NB (tooling):** the B-801 smoke memory guard mis-refused a launch with ~18 GB free
   of 32 GB (`run.ps1:1186`); overridden with `PD_SMOKE_SKIP_MEMORY_GUARD=1` for this
   verification. Worth checking which metric it reads.
