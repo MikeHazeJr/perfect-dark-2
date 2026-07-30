@@ -6438,7 +6438,7 @@ TEST_CASE("modder examples are zip-openable typed pdxxx asset archives",
 
 	const std::string gamemode = readArchiveEntryText(gamemodeArchivePath.c_str(), "gamemode.ini");
 	REQUIRE(gamemode.find("catalog_id = example:tri_gamemode") != std::string::npos);
-	REQUIRE(gamemode.find("mode_key = custom") != std::string::npos);
+	REQUIRE(gamemode.find("mode_key = combat") != std::string::npos);
 	REQUIRE(gamemode.find("mode_id") == std::string::npos);
 	REQUIRE(gamemode.find("rules_file = rules.json") != std::string::npos);
 
@@ -8726,6 +8726,10 @@ TEST_CASE("base mesh extractor emits standard obj geometry payloads",
 	        std::string::npos);
 	const std::string compiler = readFile("port/src/modasset_compiler.c");
 	REQUIRE(compiler.find("node_id < 0 && node_unresolved") !=
+	        std::string::npos);
+	REQUIRE(compiler.find("tri->material_index >= 0 &&") !=
+	        std::string::npos);
+	REQUIRE(compiler.find("material ? material->render_class :") !=
 	        std::string::npos);
 	REQUIRE(mesh.find("\\\"node_unresolved\\\": %s") != std::string::npos);
 	REQUIRE(mesh.find("model.nodes.tsv") == std::string::npos);

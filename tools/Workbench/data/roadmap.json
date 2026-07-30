@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "project": "Perfect Dark 2",
-  "updated": "2026-07-30T18:23:11.960Z",
+  "updated": "2026-07-30T18:38:24.698Z",
   "items": [
     {
       "type": "task",
@@ -1360,27 +1360,27 @@
       ],
       "evidence": [
         "context/bugs.md:B-959",
+        "context/bugs.md:B-969",
         "context/audits/2026/asset-pipeline-full-chain-audit-2026-07-30.md",
         "port/src/asset_runtime.c",
         "port/src/assetcatalog_load.c",
+        "tools/build_typed_pdxxx_examples.py",
         "tools/asset_archive_conformance.py",
         "tests/test_asset_runtime_adapters.cpp:[b959]",
         "tests/test_asset_native_source_contract.cpp:[b959]",
-        ".claude/session-builds/pd2assetaudit/_build-session.out.log",
-        "pd-tests [b959]: 2 cases / 69 assertions PASS 2026-07-30",
+        ".claude/session-builds/pd2assetaudit4/_build-session.out.log",
+        "pd-tests [b959]: 2 cases / 108 assertions PASS 2026-07-30",
         "strict creator examples: 28 root / 59 recursive archives / 27 families PASS 2026-07-30",
-        "asset_native_source_guard.py PASS 2026-07-30",
-        "port/src/romextract_pdmeta.c:s_emitMaterial",
-        "src/game/chr.c:assetRuntimeSkinAppearance"
+        "asset_native_source_guard.py PASS 2026-07-30"
       ],
-      "detail": "B-959 slice implemented: canonical editable material values hydrate at catalog activation and skin/material appearance drives character rendering. Automated mutation, schema, focused behavior, guard, and isolated test-build evidence passes. Live edited-render receipt remains before validated.",
+      "detail": "Canonical editable material values hydrate at catalog activation and skin/material appearance drives character rendering. The broad regression suite caught generated creator examples omitting editable texture_slots and effect dependencies; generation now preserves those relationships. Automated mutation/schema/focused behavior/guard/build evidence passes. Live edited-render receipt remains before validated.",
       "tags": [
         "asset-family",
         "asset-family:pdmaterial",
         "descriptor:material.ini"
       ],
       "id": "A-ASSETS-005",
-      "updated": "2026-07-30T18:14:09.413Z",
+      "updated": "2026-07-30T18:34:18.885Z",
       "created": "2026-07-30T15:32:27.734Z",
       "model": "Codex GPT-5"
     },
@@ -1545,16 +1545,22 @@
         "T-ASSETS-001"
       ],
       "evidence": [
-        "context/audits/2026/asset-pipeline-full-chain-audit-2026-07-30.md"
+        "context/audits/2026/asset-pipeline-full-chain-audit-2026-07-30.md",
+        "context/bugs.md:B-969",
+        "port/src/modasset_compiler.c:generatedModeldefBuildPayload",
+        ".claude/session-builds/pd2assetaudit5/_build-session.out.log",
+        ".claude/smoke-verify-runs/results-20260730T183739Z.json",
+        "pd-tests [modding][pdxxx]: 141 cases / 15633 assertions PASS",
+        "pdxxx_modder_workflow_smoke: 58/58 PASS"
       ],
-      "detail": "Full-chain audit 2026-07-30: Readable mesh source feeds model/world compilation and rendering; full runtime validation remains pending.",
+      "detail": "Readable mesh source feeds the production model compiler and renderer. B-969 fixed the render-stream material/null-triangle crash found by the first live creator workflow. Fresh all-target/test builds, 141-case archive regression, all-family conformance, and the exact rebuilt all-family .pdmod smoke pass 58/58. Broader visual parity remains a separate validation concern.",
       "tags": [
         "asset-family",
         "asset-family:pdmesh",
         "descriptor:mesh.ini"
       ],
       "id": "A-ASSETS-012",
-      "updated": "2026-07-30T16:22:11.182Z",
+      "updated": "2026-07-30T18:38:24.698Z",
       "created": "2026-07-30T15:32:27.765Z",
       "model": "gpt-5"
     },

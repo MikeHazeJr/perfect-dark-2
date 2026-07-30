@@ -66,6 +66,17 @@ default indices, and clears partial state on failure. Verification passes the
 all-target build, 19 focused assertions, 139 `.pdxxx` cases / 15,517
 assertions, version pins, and the native-source guard.
 
+The first full creator-workflow smoke then found B-969: an external `.pdmesh`
+with a render-stream material command and material-less triangle rows crashed
+in `generatedModeldefBuildPayload`. The fix preserves the explicit stream
+material unless a triangle provides a valid override; the other material
+dereference paths were audited for the same class. The broad regression suite
+also caught generated `.pdmaterial` examples dropping their editable texture
+and effect dependency slots, which are now restored. Fresh isolated all-target
+and test builds pass; `[modding][pdxxx]` passes 141 cases / 15,633 assertions;
+all-family conformance passes 28 root / 59 recursive archives; and the rebuilt
+`pdxxx_modder_workflow_smoke` passes 58/58 with no crash.
+
 ## 2026-07-07 - Full-parity extraction project COMPLETE (1a/1b/1c + LOD descope + closures)
 
 Mike's directive: mods-equal-to-base, lossless ROM extraction in accessible .pdxxx

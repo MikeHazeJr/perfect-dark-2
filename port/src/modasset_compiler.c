@@ -6847,7 +6847,16 @@ static s32 generatedModeldefBuildPayload(const obj_mesh_t *mesh,
 							G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW);
 						last_matrix = run_mtx;
 					}
-					if (r == 0 && tri->material_index != last_material) {
+					/*
+					 * A readable render stream can carry the material as its own
+					 * preceding MATERIAL row while the referenced triangle has no
+					 * material index. In that case the stream state remains
+					 * authoritative. Do not dereference a missing triangle material
+					 * or replace the explicit stream material with an implicit
+					 * default.
+					 */
+					if (r == 0 && tri->material_index >= 0 &&
+							tri->material_index != last_material) {
 						if (objMaterialHasTexture(material)) {
 							emitGeneratedTextureMarker(&gdl, material);
 							last_textured = 1;

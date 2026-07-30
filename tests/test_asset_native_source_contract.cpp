@@ -15190,7 +15190,7 @@ TEST_CASE("c3843 remaining base asset families emit clean native archives",
 		REQUIRE(lang_case.find("binding->primary_path") ==
 		        std::string::npos);
 	}
-	REQUIRE(examples.find("mode_key = custom") != std::string::npos);
+	REQUIRE(examples.find("mode_key = combat") != std::string::npos);
 	REQUIRE(examples.find("manifest_with(\"gamemode\"") != std::string::npos);
 	REQUIRE(examples.find("\"rules_file\": \"rules.json\"") != std::string::npos);
 	REQUIRE(examples.find("\"max_players\": 8") != std::string::npos);
