@@ -1,8 +1,8 @@
-"""Read-only Workbench briefing mode for the legacy daily-flow entrypoint.
+"""Read-only Workbench briefing mode for the scheduled daily-flow entrypoint.
 
 Durable Workbench mutation remains API-only. This module replaces the old
-Kanban-mutating daily pipeline with a compact current-truth export that the
-scheduled entrypoint can produce without creating a second task store.
+tracker-mutating daily pipeline with a compact current-truth export that the
+scheduled entrypoint can produce without creating a second project-truth store.
 """
 
 from __future__ import annotations

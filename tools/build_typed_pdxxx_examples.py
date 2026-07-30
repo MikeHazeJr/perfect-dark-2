@@ -2432,7 +2432,33 @@ def update_material() -> None:
 
 
 def update_theme() -> None:
-    theme_json = read_entry("themes/tri_theme.pdtheme", "theme.json")
+    # Keep this example on the exact schema consumed by
+    # pdgui_theme_loader.cpp. The former accent/chrome keys looked plausible
+    # but were ignored by the production parser.
+    theme_json = (
+        "{\n"
+        "  \"schema\": \"pd2.theme.v1\",\n"
+        "  \"catalog_id\": \"example:tri_theme\",\n"
+        "  \"name\": \"Triangle Theme\",\n"
+        "  \"author\": \"Perfect Dark 2 example pack\",\n"
+        "  \"version\": \"1\",\n"
+        "  \"palette\": {\n"
+        "    \"dialog_border1\": \"66ccffff\",\n"
+        "    \"dialog_titlebg\": \"102030ff\",\n"
+        "    \"dialog_border2\": \"99ddffff\",\n"
+        "    \"dialog_titlefg\": \"ffffffff\",\n"
+        "    \"dialog_bodybg\": \"081018e8\",\n"
+        "    \"item_unfocused\": \"b8d8e8ff\",\n"
+        "    \"item_disabled\": \"607080ff\",\n"
+        "    \"item_focused_inner\": \"204860ff\",\n"
+        "    \"checkbox_checked\": \"66ccffff\",\n"
+        "    \"item_focused_outer\": \"99ddffff\",\n"
+        "    \"listgroup_headerbg\": \"183040ff\",\n"
+        "    \"listgroup_headerfg\": \"d8f4ffff\",\n"
+        "    \"title_glow\": \"66ccffff\"\n"
+        "  }\n"
+        "}\n"
+    )
     ui = read_archive("ui/tri_reticle.pdui")
     font = read_archive("fonts/tri_font.pdfont")
     audio = read_archive("audio/sfx/tri_click.pdsfx")

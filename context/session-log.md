@@ -77,6 +77,31 @@ and test builds pass; `[modding][pdxxx]` passes 141 cases / 15,633 assertions;
 all-family conformance passes 28 root / 59 recursive archives; and the rebuilt
 `pdxxx_modder_workflow_smoke` passes 58/58 with no crash.
 
+The closeout sweep found two more defects. B-970 removed a still-callable
+retired-tracker pipeline from the scheduled daily entrypoint; scheduled runs
+now export one read-only briefing from Workbench and cannot merge, push, or
+mutate the archived board. B-971 found that the creator `.pdtheme` example's
+`accent` and `chrome` keys were ignored by the production parser. The generator
+and committed archive now use the parser's real identity and named palette
+schema, with regression assertions.
+
+The mission audit was also corrected: `ASSET_MISSION` graphs, objective source
+rows, phase transitions and parity-backend dispatch are production-consumed by
+`scenario_source_runtime`, and the nested Scenario reconstructs the briefing
+records read by `setupLoadBriefing`. The redundant placeholder
+`briefing.json` is still not an independent authority, so that public-contract
+edge remains partial rather than being mislabeled complete.
+
+Final automated receipts: isolated `pd2assetaudit6` client/updater build PASS;
+isolated `pd2assetaudit7` test build PASS; `[modding][pdxxx]` 141 cases /
+15,643 assertions PASS; `[menu],[input]` 68 cases / 1,483 assertions PASS;
+native-source guard PASS; conformance 28 root / 59 recursive archives across
+all 27 families PASS; conformance selftest PASS; Workbench API tests PASS; and
+the rebuilt all-family `pdxxx_modder_workflow_smoke` PASS 58/58 at
+`.claude/smoke-verify-runs/results-20260730T185923Z.json`. Live physical-device
+menu/input proof and residual partial-family semantics remain explicitly open
+in Workbench.
+
 ## 2026-07-07 - Full-parity extraction project COMPLETE (1a/1b/1c + LOD descope + closures)
 
 Mike's directive: mods-equal-to-base, lossless ROM extraction in accessible .pdxxx

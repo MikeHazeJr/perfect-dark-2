@@ -6,6 +6,29 @@
 
 ---
 
+## SP-30: Public examples can pass archive structure while using runtime-ignored fields
+
+**Severity**: HIGH — creator edits appear valid but cannot affect production
+
+**Pattern:** A typed archive can be structurally valid and catalog-visible yet
+teach creators keys that the production parser never reads. B-971's
+`.pdtheme` `accent`/`chrome` example was the concrete instance.
+
+**Audit:** Cross-check every generated/example source key against its production
+parser and downstream consumer, not only descriptor/manifest conformance.
+
+```powershell
+python tools/build_typed_pdxxx_examples.py
+python tools/asset_archive_conformance.py --root examples/modding/typed-pdxxx-basic --require-all-families
+rg -n "parse_.*json|strcmp\\(key" port src
+```
+
+**Rule:** Example generation tests must pin parser-recognized keys for any
+structured file. A family remains `partial` until every advertised field has a
+production consumer or an explicit validation error.
+
+---
+
 ## SP-29: User-facing control surfaces drift from the action map
 
 **Severity**: HIGH — controls remain in code but become undiscoverable,

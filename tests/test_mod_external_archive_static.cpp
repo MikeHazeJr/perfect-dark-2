@@ -6461,6 +6461,7 @@ TEST_CASE("modder examples are zip-openable typed pdxxx asset archives",
 	REQUIRE(hudManifest.find("\"layout_file\": \"layout.json\"") != std::string::npos);
 
 	const std::string theme = readArchiveEntryText(themeArchivePath.c_str(), "theme.ini");
+	const std::string themeJson = readArchiveEntryText(themeArchivePath.c_str(), "theme.json");
 	REQUIRE(theme.find("catalog_id = example:tri_theme") != std::string::npos);
 	REQUIRE(theme.find("theme_file = theme.json") != std::string::npos);
 	REQUIRE(theme.find("ui_archive = dependencies/assets/ui/tri_reticle.pdui") != std::string::npos);
@@ -6472,6 +6473,13 @@ TEST_CASE("modder examples are zip-openable typed pdxxx asset archives",
 	REQUIRE(themeManifest.find("\"audio_archive\": \"dependencies/assets/audio/tri_click.pdsfx\"") != std::string::npos);
 	REQUIRE(themeManifest.find("\"music_archive\": \"dependencies/assets/music/tri_song.pdsong\"") != std::string::npos);
 	REQUIRE(themeManifest.find("\"effect_archive\": \"dependencies/assets/effects/tri_effect.pdeffect\"") != std::string::npos);
+	REQUIRE(themeJson.find("\"schema\": \"pd2.theme.v1\"") != std::string::npos);
+	REQUIRE(themeJson.find("\"name\": \"Triangle Theme\"") != std::string::npos);
+	REQUIRE(themeJson.find("\"palette\"") != std::string::npos);
+	REQUIRE(themeJson.find("\"dialog_border1\": \"66ccffff\"") != std::string::npos);
+	REQUIRE(themeJson.find("\"title_glow\": \"66ccffff\"") != std::string::npos);
+	REQUIRE(themeJson.find("\"accent\"") == std::string::npos);
+	REQUIRE(themeJson.find("\"chrome\"") == std::string::npos);
 
 	const std::string entity = readArchiveEntryText(entityArchivePath.c_str(), "entity.ini");
 	const std::string bindings = readArchiveEntryText(entityArchivePath.c_str(), "bindings.json");

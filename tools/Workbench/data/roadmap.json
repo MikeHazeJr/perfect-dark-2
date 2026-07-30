@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "project": "Perfect Dark 2",
-  "updated": "2026-07-30T18:38:24.698Z",
+  "updated": "2026-07-30T19:00:54.315Z",
   "items": [
     {
       "type": "task",
@@ -834,16 +834,17 @@
       "evidence": [
         "Tools/Workbench/test-workbench.js: API mutation, duplicate, dependency, truth-evidence, decision, note-transition, audit, atomic-write, and static-serving tests passed.",
         "tools/install-githooks.ps1 self-test passed with the Workbench-aware commit hook and asset-native-source guard.",
-        "Browser QA exercised Board, Graph, Timeline, Decisions, Assets, Validation, Performance, Notes, Activity, and Hub against 53 migrated/bootstrap records.",
-        "context/_old/kanban-legacy preserves 127 Done records plus retired server/evaluators; 33 current/deferred cards, 3 parked threads, and 1 open decision migrated through the API.",
-        "AGENTS.md, context procedures/preferences/tasks, Dev Window v2/v3, daily-flow, project-state sync, and coordination hub now route to Workbench."
+        "Browser QA exercised Board, Graph, Timeline, Decisions, Assets, Validation, Performance, Notes, Activity, and Hub.",
+        "context/_old/kanban-legacy preserves immutable migration history.",
+        "tools/daily_flow/orchestrator.py is Workbench-only, refuses a missing roadmap, and exposes no merge/push/retired-store mutation path.",
+        "python -m tools.daily_flow.orchestrator --no-merge --no-push exported Tools/Workbench/exports/daily-briefing.json from 93 items."
       ],
       "detail": "Install typed durable truth, append-only notes and changelog, atomic validated API mutations, unified views, and a separate coordination hub. Archive the retired Kanban after migration.",
       "tags": [
         "workbench-key:workbench-migration"
       ],
       "id": "T-TOOLING-001",
-      "updated": "2026-07-30T15:29:50.393Z",
+      "updated": "2026-07-30T18:50:48.220Z",
       "created": "2026-07-30T15:16:40.114Z",
       "model": "Codex GPT-5"
     },
@@ -858,13 +859,21 @@
       "deps": [
         "T-TOOLING-001"
       ],
-      "evidence": [],
-      "detail": "Build a current-tree family matrix covering source extraction, public .pdxxx representation, self-containment, runtime provider/adapter consumption, generated caches, ROM fallback, tests, and creator workflows.",
+      "evidence": [
+        "context/audits/2026/asset-pipeline-full-chain-audit-2026-07-30.md",
+        "context/bugs.md:B-953-B-971",
+        "pd-tests [modding][pdxxx]: 141 cases / 15643 assertions PASS",
+        "asset conformance: 28 root / 59 recursive archives / all 27 families PASS",
+        "asset conformance selftest: 16 parity + recursion + 7 structured contracts PASS",
+        "asset-native-source guard PASS",
+        ".claude/smoke-verify-runs/results-20260730T185923Z.json: 58/58 PASS"
+      ],
+      "detail": "Current-tree full-chain matrix covers all 27 public families from extraction through catalog/provider, production consumers, creator flow and fallback boundaries. Cross-cutting fixes B-953 through B-971 are recorded. Implemented families and residual partial contracts remain separated; live device/source-mutation validation is still open.",
       "tags": [
         "workbench-key:asset-current-tree-audit"
       ],
       "id": "T-ASSETS-001",
-      "updated": "2026-07-30T15:16:40.119Z",
+      "updated": "2026-07-30T19:00:54.294Z",
       "created": "2026-07-30T15:16:40.119Z"
     },
     {
@@ -1144,20 +1153,20 @@
       "evidence": [
         "tests/test_menu_graph.cpp",
         "tests/test_settings_input_tab_static.cpp",
-        ".claude/session-builds/pd2assetaudit/_build-session.out.log",
-        "pd-tests [b966],[b967],[b968]: 4 cases / 77 assertions PASS",
-        "pd-tests [input],[menus]: 66 cases / 1463 assertions PASS"
+        ".claude/session-builds/pd2assetaudit6/_build-session.out.log: client/updater PASS",
+        ".claude/session-builds/pd2assetaudit7/_build-session.out.log: tests PASS",
+        "pd-tests [menu],[input]: 68 cases / 1483 assertions PASS"
       ],
       "verdict": "not_run",
       "artifacts": [
         ".claude/session-builds/pd2assetaudit/_build-session.out.log"
       ],
-      "detail": "Automated verification passes: B-966/B-967/B-968 focused coverage (4 cases / 77 assertions), the full input/menu band (66 cases / 1,463 assertions), and isolated all-target client/updater compile. The required ordinary-client validation remains not run: mouse, MKB, controller focus/scroll/back, profile save/reload, vehicle mount, Forge E/Q, and live device-switch glyph evidence.",
+      "detail": "Automated production-path coverage passes: all 117 bindable actions plus four visible derived axes, generic list/carousel/ranking/stats dialog fallback, Forge/vehicle bindings, and dynamic glyph hint assertions. Ordinary-client physical-device validation remains not run: mouse, MKB, controller focus/scroll/back, profile save/reload, vehicle mount, Forge E/Q, and live device-switch glyph evidence.",
       "tags": [
         "workbench-key:validation-menu-input"
       ],
       "id": "V-004",
-      "updated": "2026-07-30T17:46:08.434Z",
+      "updated": "2026-07-30T19:00:54.315Z",
       "created": "2026-07-30T15:16:40.176Z"
     },
     {
@@ -1888,16 +1897,18 @@
       ],
       "evidence": [
         "context/audits/2026/asset-pipeline-full-chain-audit-2026-07-30.md",
+        "port/src/scenario_source_runtime.c",
+        "src/game/setup.c:setupLoadBriefing",
         "context/bugs.md:B-959"
       ],
-      "detail": "Full-chain audit 2026-07-30: Scenario owns substantial mission execution, but standalone mission wrapper/briefing is not authoritative campaign source. B-959.",
+      "detail": "Mission graph, objective-source rows, phase transitions and parity-backend dispatch are production-consumed by scenario_source_runtime; the nested Scenario reconstructs briefing/objective setup records used by setupLoadBriefing. The remaining partial contract is the redundant placeholder briefing.json, which is not an independent runtime authority.",
       "tags": [
         "asset-family",
         "asset-family:pdmission",
         "descriptor:mission.ini"
       ],
       "id": "A-ASSETS-024",
-      "updated": "2026-07-30T16:22:11.099Z",
+      "updated": "2026-07-30T18:50:48.231Z",
       "created": "2026-07-30T15:32:27.865Z"
     },
     {
@@ -2024,16 +2035,23 @@
         "T-ASSETS-001"
       ],
       "evidence": [
-        "context/audits/2026/asset-pipeline-full-chain-audit-2026-07-30.md"
+        "tools/build_typed_pdxxx_examples.py:update_theme",
+        "examples/modding/typed-pdxxx-basic/themes/tri_theme.pdtheme",
+        "port/fast3d/pdgui_theme_loader.cpp:parse_theme_json",
+        "tests/test_mod_external_archive_static.cpp: creator theme parser-schema assertions",
+        "context/bugs.md:B-971",
+        "pd-tests [modding][pdxxx]: 141 cases / 15643 assertions PASS",
+        "27-family recursive conformance PASS",
+        ".claude/smoke-verify-runs/results-20260730T185923Z.json: 58/58 PASS"
       ],
-      "detail": "Full-chain audit 2026-07-30: Theme style loading is live, but dependency archives and missing-binding fallback are not fully authoritative.",
+      "detail": "Theme JSON palette/style loading is production-live. B-971 corrected the creator example from ignored accent/chrome keys to the exact pd2.theme.v1 identity and named palette schema. Optional dependency ownership and missing-binding fallback remain partial.",
       "tags": [
         "asset-family",
         "asset-family:pdtheme",
         "descriptor:theme.ini"
       ],
       "id": "A-ASSETS-028",
-      "updated": "2026-07-30T16:22:11.136Z",
+      "updated": "2026-07-30T19:00:54.311Z",
       "created": "2026-07-30T15:32:27.881Z"
     },
     {

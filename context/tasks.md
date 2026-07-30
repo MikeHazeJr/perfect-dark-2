@@ -69,6 +69,20 @@ families. `A-ASSETS-025` and `A-ASSETS-026` may be marked implemented;
 is still open. Mission briefing/wrapper and the residual weapon, character,
 voice, effect and theme fields remain in the active audit.
 
+Final audit verification checkpoint, 2026-07-30: B-969's creator-workflow fix
+remains live-smoke validated, and the regenerated all-family package again
+passes 58/58. B-970 removes the last callable retired-tracker mutation path
+from the scheduled daily entrypoint; it is now a Workbench-only read-only
+briefing exporter. B-971 corrects the `.pdtheme` creator example from ignored
+`accent`/`chrome` keys to the exact production palette schema. Fresh isolated
+client/updater and test builds pass; `[modding][pdxxx]` passes 141 cases /
+15,643 assertions; `[menu],[input]` passes 68 cases / 1,483 assertions; the
+native-source guard, Workbench API tests, conformance selftests, and all 27
+archive families pass. Workbench retains the truthful open gates: live
+mouse/MKB/controller/device-switch proof and the residual partial fields in
+weapon, character, voice, effect, prop, mission briefing, and theme dependency
+semantics are not marked validated.
+
 **2026-07-07 FULL-PARITY EXTRACTION + UTILIZATION (historical completion evidence;
 current claims are being re-audited under `T-ASSETS-001`).**
 Mike directive: make `.pdxxx` a LOSSLESS, fully-utilized representation of the ROM so

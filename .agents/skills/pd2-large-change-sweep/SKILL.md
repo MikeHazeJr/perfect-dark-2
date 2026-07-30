@@ -17,7 +17,7 @@ Always use `context-manager` first when this repo's `context/` directory exists.
 2. **Check source of truth first.** Read live headers, constants, APIs, and build targets before trusting docs. For protocol work, verify `NET_PROTOCOL_VER` in `port/include/net/net.h`; for build targets, verify CMake and active build scripts.
 3. **Map runtime evidence.** Find the code paths that prove each flow step works, using `rg` before broader file reads. Prefer concrete handlers, dispatch tables, state transitions, tests, and call sites over comments.
 4. **Find drift and stubs.** Search for stale versions, deprecated targets, old product paths, `TODO`, `stub`, `placeholder`, `not wired`, `future`, `deprecated`, and historical assumptions that now contradict live behavior.
-5. **Separate fix-now from sprint-ledger.** Patch low-risk source-of-truth drift immediately. Record larger runtime gaps as explicit ordered follow-ups tied to the active card instead of leaving them implicit.
+5. **Separate fix-now from Workbench follow-up.** Patch low-risk source-of-truth drift immediately. Record larger runtime gaps as explicit ordered follow-ups tied to the active Workbench item instead of leaving them implicit.
 6. **Update project context as part of the work.** Update Workbench items/evidence/notes, `context/tasks.md`, relevant `context/pillars/*.md`, and `context/session-log.md` when the session closes. If user-visible behavior changed, update `UNRELEASED.md`.
 7. **Verify the edited state.** Run focused tests or static checks proportional to the change. For docs/JSON-only sweeps, run JSON parsing and whitespace/diff checks; for code behavior, use the isolated build/test session workflow.
 
@@ -31,7 +31,7 @@ For any asset-pipeline sweep, extraction change, catalog/provider load change, r
 - Reject public asset-reference fields that carry numeric or legacy-symbol identities such as `model_id = 42`, `model = MODEL_*`, `filenum`, `modelnum`, `weapon_id`, `sound_id`, or `texnum`; authored references use catalog IDs only.
 - Treat runtime ROM/RomProvider fallback after extraction as an asset-chain failure, not a valid fallback. Record and fix it under `c3844` at the owning asset-family boundary.
 - Before closeout, run `python tools/asset_native_source_guard.py` and focused `[modding][pdxxx][c3842]` tests when code/test changes are involved.
-- Any exception must be recorded as an explicit c3842 gap on the active card before proceeding.
+- Any exception must be recorded as an explicit c3842 gap on the active Workbench item before proceeding.
 
 ## Required Surfaces
 

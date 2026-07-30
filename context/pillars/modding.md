@@ -59,6 +59,15 @@ default body derive from the readable public binding. Workbench
 MKB/controller/save/listen-host/gameplay receipt exists. `T-ASSETS-004`
 remains the durable truth for the unfinished per-family production paths.
 
+Closeout update, 2026-07-30: B-969's exact rebuilt creator package passes the
+normal installed-mod runtime workflow 58/58. B-971 corrected the public
+`.pdtheme` example to the production parser's actual palette schema. The audit
+also confirmed that mission graphs/objectives/phases are production-consumed,
+while the duplicate mission `briefing.json` is not authoritative. Residual
+weapon, character, voice, effect, prop-behavior, mission-briefing, and theme
+dependency semantics remain partial in Workbench; do not promote them from
+archive presence alone.
+
 As of 2026-06-17T15:45:00-04:00, `c3844` is closed at 100% and the follow-on
 `c3849` Wave 7 cutover is implemented for the current tree. The final c3844
 regression sweep stayed green, and Wave 7 adds product-default weapon graph
