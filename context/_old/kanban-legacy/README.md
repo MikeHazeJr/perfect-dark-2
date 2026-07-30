@@ -1,4 +1,8 @@
-# PD2 Kanban
+# PD2 Kanban (Retired Archive)
+
+> Retired 2026-07-30. This directory is immutable migration history. The
+> repo-local Workbench in `Tools/Workbench/` is the only live project-truth
+> system. Do not run this server or mutate these records.
 
 Bidirectional task board. Mike edits via browser. AI reads and writes `state.json` directly.
 

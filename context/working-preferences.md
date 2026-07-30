@@ -17,8 +17,8 @@ Mike is the architect / designer. Claude is the intermediary / interpreter. Sess
 
 ## Decision responses
 
-- New sessions check Kanban Decision Requests before choosing work and read Mike's answered responses first.
-- If Mike's newest message gives a specific task, do that task; otherwise unresolved or newly answered decision requests are the first context check.
+- New sessions process Workbench notes affecting their lane and review open decision items before choosing work.
+- If Mike's newest message gives a specific task, do that task; otherwise unresolved or newly resolved Workbench decisions are the first context check.
 
 ## Focus discipline
 

@@ -207,9 +207,10 @@ Before writing any code or making any changes:
 3. Read [constraints.md](constraints.md) (active and removed invariants).
 4. Read this file (procedures.md).
 5. Read [tasks.md](tasks.md) (current punch list) and the relevant pillar(s) for whatever you are touching.
-6. Check Kanban Decision Requests before selecting work: `python tools/kanban_evaluator.py list-decision-requests`. Read Mike's answered responses first unless the newest user message specifically directs the session to do something else.
-7. Summarize to Mike: where we are, what's next, any blockers.
-8. Confirm direction before starting.
+6. Read `Tools/Workbench/data/roadmap.json`, fold `notes.jsonl`, process new notes affecting your lane, and review open decision items. Read Mike's resolved decisions first unless the newest user message specifically directs the session elsewhere.
+7. Run `Tools/CodexCoordination/CodexCoordination.ps1 status`, then register the session.
+8. Summarize to Mike: where we are, what's next, any blockers.
+9. Confirm direction before starting.
 
 ---
 
@@ -217,10 +218,11 @@ Before writing any code or making any changes:
 
 When the user wraps up or a major task completes:
 
-1. Update [session-log.md](session-log.md) with: focus, what was done, decisions, next steps.
-2. Update [tasks.md](tasks.md) with current status and any new blockers.
-3. Update any pillar doc whose live state shifted.
-4. Brief summary to the user of what was recorded.
+1. Update Workbench status, evidence, notes, and any decisions or gates.
+2. Update [session-log.md](session-log.md) with: focus, what was done, decisions, next steps.
+3. Keep [tasks.md](tasks.md) consistent with Workbench and record any new blockers.
+4. Update any pillar doc whose live state shifted.
+5. Brief summary to the user of what was recorded.
 
 ---
 

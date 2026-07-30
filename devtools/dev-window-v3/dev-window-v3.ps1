@@ -250,6 +250,7 @@ function Resolve-GitExe {
       <Button Name="BtnStop" Content="Stop" Padding="16,12" Foreground="#E08A8A" IsEnabled="False"/>
       <Button Name="BtnRun" Content="Run Game" Padding="16,12"/>
       <Button Name="BtnTests" Content="Run Tests" Padding="16,12"/>
+      <Button Name="BtnWorkbench" Content="Workbench" Padding="16,12"/>
       <Button Name="BtnRelease" Content="Release..." Padding="16,12" Foreground="#C9A86A"/>
     </StackPanel>
 
@@ -314,7 +315,7 @@ $win = [System.Windows.Markup.XamlReader]::Load($reader)
 
 $ui = @{}
 foreach ($name in @('LblBranch','LblVersion','LblDirty','LblWorktrees','BtnRefresh','BtnBuild','BtnStop','BtnRun','BtnTests',
-    'BtnRelease','LblStatus','LblElapsed','ChkAutoscroll','BtnCopyLog','BtnCopyErrors','BtnClearLog',
+    'BtnWorkbench','BtnRelease','LblStatus','LblElapsed','ChkAutoscroll','BtnCopyLog','BtnCopyErrors','BtnClearLog',
     'LogScroll','LogBox','QueueBox','BtnCleanQueue','LblFooter')) {
     $ui[$name] = $win.FindName($name)
 }
@@ -431,7 +432,7 @@ function Start-GitSync([string]$commitMessage, [bool]$requirePush, [scriptblock]
         if ($LASTEXITCODE -ne 0) { return [PSCustomObject]@{ Ok = $false; Logs = $logs } }
         & $git -C $root diff --cached --quiet 2>$null
         if ($LASTEXITCODE -ne 0) {
-            $co = @(& $git -C $root commit -m $commitMessage -m "Refs: c120" 2>&1)
+            $co = @(& $git -C $root commit -m $commitMessage -m "Dev Window synchronized the live project state before this operation." -m "Refs: T-TOOLING-001" 2>&1)
             foreach ($l in $co) { [void]$logs.Add("$l") }
             if ($LASTEXITCODE -ne 0) { return [PSCustomObject]@{ Ok = $false; Logs = $logs } }
         } else {
@@ -459,7 +460,7 @@ function Start-GitSync([string]$commitMessage, [bool]$requirePush, [scriptblock]
 function Do-Build {
     if ($script:Busy) { return }
     Set-Busy $true "Git: syncing before build..."
-    Start-GitSync "Tooling - c120: Sync live project state before build" $false {
+    Start-GitSync "Tooling - T-TOOLING-001: Sync project state before build" $false {
         param($ok)
         $ver = Get-ProjectVersionString
         Set-Busy $true ("Building v" + $ver + " (all targets)...")
@@ -497,6 +498,58 @@ function Do-RunTests {
     }
 }
 
+function Do-OpenWorkbench {
+    $url = "http://127.0.0.1:8378/"
+    $ready = $false
+    try {
+        $response = Invoke-WebRequest -UseBasicParsing -Uri ($url + "api/meta") -TimeoutSec 1
+        $ready = ($response.StatusCode -eq 200 -and $response.Content -match '"items"')
+    } catch {}
+
+    if (-not $ready) {
+        $node = Get-Command node.exe -ErrorAction SilentlyContinue
+        $server = Join-Path $script:ProjectRoot "Tools\Workbench\server.js"
+        if (-not $node -or -not (Test-Path -LiteralPath $server)) {
+            [System.Windows.MessageBox]::Show(
+                "Node.js or Tools\Workbench\server.js was not found.",
+                "Open Workbench", "OK", "Error"
+            ) | Out-Null
+            return
+        }
+        $logDir = Join-Path $script:ProjectRoot ".claude\scratch\workbench"
+        New-Item -ItemType Directory -Force -Path $logDir | Out-Null
+        try {
+            Start-Process -FilePath $node.Source -ArgumentList @($server) `
+                -WorkingDirectory (Split-Path -Parent $server) -WindowStyle Hidden `
+                -RedirectStandardOutput (Join-Path $logDir "server.out.log") `
+                -RedirectStandardError (Join-Path $logDir "server.err.log") | Out-Null
+        } catch {
+            [System.Windows.MessageBox]::Show(
+                "Failed to start Workbench: $_",
+                "Open Workbench", "OK", "Error"
+            ) | Out-Null
+            return
+        }
+        for ($attempt = 0; $attempt -lt 25 -and -not $ready; $attempt++) {
+            Start-Sleep -Milliseconds 100
+            try {
+                $response = Invoke-WebRequest -UseBasicParsing -Uri ($url + "api/meta") -TimeoutSec 1
+                $ready = ($response.StatusCode -eq 200)
+            } catch {}
+        }
+    }
+
+    if (-not $ready) {
+        [System.Windows.MessageBox]::Show(
+            "Workbench did not start. Check .claude\scratch\workbench\server.err.log.",
+            "Open Workbench", "OK", "Warning"
+        ) | Out-Null
+        return
+    }
+    Start-Process $url | Out-Null
+    Enqueue-Log ">>> opened Workbench at $url"
+}
+
 function Do-Release {
     if ($script:Busy) { return }
     $ver = Get-ProjectVersionString
@@ -504,7 +557,7 @@ function Do-Release {
     $ok = [System.Windows.MessageBox]::Show($msg, "Release v" + $ver, "YesNo", "Warning")
     if ($ok -ne [System.Windows.MessageBoxResult]::Yes) { return }
     Set-Busy $true "Git: syncing before release..."
-    Start-GitSync "Tooling - c120: Sync live project state before release" $true {
+    Start-GitSync "Tooling - T-TOOLING-001: Sync project state before release" $true {
         param($ok)
         if (-not $ok) { Set-Busy $false "Release aborted (git sync failed)."; return }
         Set-Busy $true ("Release v" + $ver + ": running release.ps1...")
@@ -610,6 +663,7 @@ $ui['BtnBuild'].Add_Click({ Do-Build })
 $ui['BtnStop'].Add_Click({ Stop-ActiveProcess })
 $ui['BtnRun'].Add_Click({ Do-RunGame })
 $ui['BtnTests'].Add_Click({ Do-RunTests })
+$ui['BtnWorkbench'].Add_Click({ Do-OpenWorkbench })
 $ui['BtnRelease'].Add_Click({ Do-Release })
 $ui['BtnCleanQueue'].Add_Click({ Do-CleanQueue })
 $ui['BtnCopyLog'].Add_Click({ try { [System.Windows.Clipboard]::SetText(($script:LogLines -join "`r`n")) } catch {} })

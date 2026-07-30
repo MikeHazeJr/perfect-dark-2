@@ -1132,12 +1132,10 @@ function Refresh-LatestRelease {
                             <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                                 <Button x:Name="BtnOpenGitHub" Content="GitHub" Style="{StaticResource ToolBtn}" Margin="0,0,8,0"/>
                                 <Button x:Name="BtnOpenFolder" Content="Project Folder" Style="{StaticResource ToolBtn}" Margin="0,0,8,0"/>
-                                <Button x:Name="BtnOpenKanban" Content="Open Kanban" Style="{StaticResource ToolBtn}" Margin="0,0,8,0"
-                                        ToolTip="Start the local kanban server if needed, then open the Active / Parked / Bugs board in the default browser (http://localhost:7531/)"/>
-                                <Button x:Name="BtnStartKanbanServer" Content="Start Kanban Server" Style="{StaticResource ToolBtn}" Margin="0,0,8,0"
-                                        ToolTip="Start remote phone access for Kanban only, then copy and show the join link."/>
-                                <Button x:Name="BtnStopKanbanServer" Content="Stop Kanban Server" Style="{StaticResource ToolBtn}" Margin="0,0,8,0"
-                                        ToolTip="Stop the tracked remote Kanban server and Cloudflare tunnel."/>
+                                <Button x:Name="BtnOpenKanban" Content="Open Workbench" Style="{StaticResource ToolBtn}" Margin="0,0,8,0"
+                                        ToolTip="Start the repo-local Workbench server if needed and open it in the default browser."/>
+                                <Button x:Name="BtnStartKanbanServer" Content="Retired" Visibility="Collapsed"/>
+                                <Button x:Name="BtnStopKanbanServer" Content="Retired" Visibility="Collapsed"/>
                                 <Button x:Name="BtnCleanBuild" Content="Clean Build" Style="{StaticResource ToolBtn}" Margin="0,0,8,0"/>
                                 <Button x:Name="BtnPull" Content="Pull" Style="{StaticResource ToolBtn}" Margin="0,0,8,0"
                                         ToolTip="git pull (current branch, upstream)"/>
@@ -3046,87 +3044,39 @@ function Select-LocalKanbanTarget {
 }
 
 function Invoke-OpenKanban {
-    $target = Select-LocalKanbanTarget
-    if ($null -eq $target) {
-        Add-LogLine "Open Kanban: no free local port found in 7531-7541." "#B81818"
-        [System.Windows.MessageBox]::Show("No free local Kanban port was found in 7531-7541.", "Open Kanban", "OK", "Warning") | Out-Null
-        return
-    }
-    $port = [int]$target.Port
-    $url = "http://localhost:$port/"
-    $serverScript = Join-Path $script:ProjectRoot "tools\kanban\server.py"
-
-    if ($target.Running) {
-        Add-LogSessionLine ">>> Open Kanban: tokenless local server already running on $port; opening browser." "#0078A8"
-        try { Start-Process $url } catch {
-            Add-LogLine ("Open Kanban: Start-Process failed: " + $_.Exception.Message) "#B81818"
-            [System.Windows.MessageBox]::Show("Could not open browser at $url. See the Log tab for details.", "Open Kanban", "OK", "Warning") | Out-Null
-        }
-        return
-    }
-
-    if (-not (Test-Path -LiteralPath $serverScript)) {
-        Add-LogLine ("Open Kanban: server script not found at " + $serverScript) "#B81818"
-        [System.Windows.MessageBox]::Show("Kanban server script not found:`n$serverScript", "Open Kanban", "OK", "Warning") | Out-Null
-        return
-    }
-    if (-not $script:Python -or -not (Test-Path -LiteralPath $script:Python)) {
-        Add-LogLine ("Open Kanban: python interpreter not found at " + $script:Python) "#B81818"
-        [System.Windows.MessageBox]::Show("Python interpreter not found at:`n$($script:Python)", "Open Kanban", "OK", "Warning") | Out-Null
-        return
-    }
-
-    Add-LogSessionLine "" "#C0C8D2"
-    Add-LogSessionLine ">>> Open Kanban: starting tokenless local server on port $port..." "#0078A8"
-
-    try {
-        $localStateDir = Join-Path $script:ProjectRoot ".claude\scratch\kanban-local"
-        if (-not (Test-Path -LiteralPath $localStateDir)) { New-Item -ItemType Directory -Force -Path $localStateDir | Out-Null }
-        $stdoutPath = Join-Path $localStateDir "kanban-local.out.log"
-        $stderrPath = Join-Path $localStateDir "kanban-local.err.log"
-        $psExe = (Get-Command powershell.exe -ErrorAction Stop).Source
-        $startupCommand = @(
-            "Remove-Item Env:KANBAN_REMOTE_TOKEN -ErrorAction SilentlyContinue",
-            "`$env:KANBAN_HOST = 'localhost'",
-            "`$env:KANBAN_PORT = '$port'",
-            "Set-Location -LiteralPath '$($script:ProjectRoot)'",
-            "& '$($script:Python)' '$serverScript'"
-        ) -join "; "
-        $encodedStartupCommand = [Convert]::ToBase64String([System.Text.Encoding]::Unicode.GetBytes($startupCommand))
-        $proc = Start-Process -FilePath $psExe `
-                              -ArgumentList @("-NoProfile", "-ExecutionPolicy", "Bypass", "-EncodedCommand", $encodedStartupCommand) `
-                              -WorkingDirectory $script:ProjectRoot `
-                              -WindowStyle Hidden `
-                              -RedirectStandardOutput $stdoutPath `
-                              -RedirectStandardError $stderrPath `
-                              -PassThru
-        Add-LogLine ("Open Kanban: spawned local launcher pid=" + $proc.Id) "#44586C"
-    } catch {
-        Add-LogLine ("Open Kanban: failed to launch server: " + $_.Exception.Message) "#B81818"
-        [System.Windows.MessageBox]::Show("Failed to start kanban server:`n" + $_.Exception.Message, "Open Kanban", "OK", "Warning") | Out-Null
-        return
-    }
-
-    # Poll for port readiness. Server startup is normally well under a second
-    # (single Python HTTPServer bind), but allow up to ~5s to cover slow disk
-    # / Defender first-run scan.
-    $deadline = [DateTime]::Now.AddSeconds(5)
+    $url = "http://127.0.0.1:8378/"
+    $serverScript = Join-Path $script:ProjectRoot "Tools\Workbench\server.js"
     $ready = $false
-    while ([DateTime]::Now -lt $deadline) {
-        if (Test-KanbanServerUp -Port $port -TimeoutMs 200) { $ready = $true; break }
-        Start-Sleep -Milliseconds 150
-    }
-
+    try {
+        $response = Invoke-WebRequest -UseBasicParsing -Uri ($url + "api/meta") -TimeoutSec 1
+        $ready = ($response.StatusCode -eq 200)
+    } catch {}
     if (-not $ready) {
-        Add-LogLine "Open Kanban: server did not come up within 5s. Opening browser anyway; refresh once it is up." "#A07810"
-    } else {
-        Add-LogLine ("Open Kanban: server listening on port " + $port + ".") "#1A8A1A"
+        $node = Get-Command node.exe -ErrorAction SilentlyContinue
+        if (-not $node -or -not (Test-Path -LiteralPath $serverScript)) {
+            [System.Windows.MessageBox]::Show("Node.js or the Workbench server was not found.", "Open Workbench", "OK", "Error") | Out-Null
+            return
+        }
+        $logDir = Join-Path $script:ProjectRoot ".claude\scratch\workbench"
+        New-Item -ItemType Directory -Force -Path $logDir | Out-Null
+        Start-Process -FilePath $node.Source -ArgumentList @($serverScript) `
+            -WorkingDirectory (Split-Path -Parent $serverScript) -WindowStyle Hidden `
+            -RedirectStandardOutput (Join-Path $logDir "server.out.log") `
+            -RedirectStandardError (Join-Path $logDir "server.err.log") | Out-Null
+        for ($attempt = 0; $attempt -lt 25 -and -not $ready; $attempt++) {
+            Start-Sleep -Milliseconds 100
+            try {
+                $response = Invoke-WebRequest -UseBasicParsing -Uri ($url + "api/meta") -TimeoutSec 1
+                $ready = ($response.StatusCode -eq 200)
+            } catch {}
+        }
     }
-
-    try { Start-Process $url } catch {
-        Add-LogLine ("Open Kanban: Start-Process failed: " + $_.Exception.Message) "#B81818"
-        [System.Windows.MessageBox]::Show("Could not open browser at $url. See the Log tab for details.", "Open Kanban", "OK", "Warning") | Out-Null
+    if (-not $ready) {
+        [System.Windows.MessageBox]::Show("Workbench did not start. Check .claude\scratch\workbench\server.err.log.", "Open Workbench", "OK", "Warning") | Out-Null
+        return
     }
+    Add-LogSessionLine ">>> Open Workbench: $url" "#0078A8"
+    Start-Process $url | Out-Null
 }
 
 function Test-KanbanRemotePidAlive {

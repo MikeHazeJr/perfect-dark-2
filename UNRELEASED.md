@@ -5,9 +5,14 @@
 
 ## Highlights
 
+- Replaced the legacy Kanban with a repo-local Workbench that keeps permanent
+  typed IDs, audited atomic roadmap mutations, append-only feedback/activity,
+  dependency/timeline/decision/asset/proof views, and a separate live
+  coordination/queue hub.
 - Fixed the end credits rendering dust motes and text as solid opaque squares, and fixed glow/gradient textures that rendered as opaque black boxes: extracted textures now decode with N64-accurate alpha and channel order (I4/I8 intensity-alpha, IA16 byte order, RGBA32 channel order). Existing installs re-extract affected textures and scenes once automatically.
 - Fixed a bug that silently re-extracted all 87 level scenarios on every game launch (a binary-file probe always reported them stale). Warm boots now skip straight past extraction, cutting roughly 40 seconds off every launch after the first.
-- Dev Window v2 now treats the Kanban board, Codex memory mirror, and release-note source as live project state that should commit with the code.
+- Dev Window v2 and v3 now open the Workbench and treat its roadmap, notes,
+  changelog, Codex memory mirror, and release notes as live project state.
 - Git Pull in Dev Window v2 now fetches remote commits first and lets the operator choose the exact commit to fast-forward to.
 - Release notes now come from this running list instead of the old dedicated-server placeholder text.
 - Settings now has a simplified Input tab for profiles, connected devices, bindings, and tuning.

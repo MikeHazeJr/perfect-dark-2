@@ -33,7 +33,7 @@ def repo_root() -> Path:
 
     root = Path.cwd()
     while root != root.parent:
-        if (root / "AGENTS.md").exists() and (root / "tools/kanban/state.json").exists():
+        if (root / "AGENTS.md").exists() and (root / "Tools/Workbench/data/roadmap.json").exists():
             return root
         root = root.parent
     raise RuntimeError("could not locate repo root from current directory")

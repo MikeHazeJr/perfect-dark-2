@@ -25,7 +25,7 @@ from asset_archive_conformance import (
 )
 
 
-ROOT_MARKERS = ("AGENTS.md", "tools/kanban/state.json")
+ROOT_MARKERS = ("AGENTS.md", "Tools/Workbench/data/roadmap.json")
 
 TYPED_DESCRIPTORS = {
     ".pdweapon": "weapon.ini",
@@ -1819,77 +1819,57 @@ def require_sentinals(root: Path) -> list[str]:
     return errors
 
 
-def require_kanban(root: Path) -> list[str]:
+def require_workbench(root: Path) -> list[str]:
     errors: list[str] = []
     try:
-        data = json.loads(read_text(root, "tools/kanban/state.json"))
+        data = json.loads(read_text(root, "Tools/Workbench/data/roadmap.json"))
     except (json.JSONDecodeError, AssertionError) as exc:
-        return [f"tools/kanban/state.json invalid or missing: {exc}"]
+        return [f"Tools/Workbench/data/roadmap.json invalid or missing: {exc}"]
 
-    cards = data.get("cards", [])
-    card = next((c for c in cards if c.get("id") == "c3842"), None)
-    if not card:
-        return ["tools/kanban/state.json missing c3842 card"]
-    column = card.get("column")
-    if column not in {"active", "done"}:
-        errors.append("c3842 must stay active or done after the native-source audit closes")
-    if card.get("priority") != 1:
-        errors.append("c3842 must stay priority 1")
-    subtasks = card.get("subtasks", [])
-    status_by_id = {
-        str(s.get("id", "")): s.get("status")
-        for s in subtasks
-        if str(s.get("id", "")).startswith("c3842-s")
-    }
-    definitive_ids = ("c3842-s7", "c3842-s8", "c3842-s9")
-    for subtask_id in definitive_ids:
-        if subtask_id not in status_by_id:
-            errors.append(f"{subtask_id} definitive optional-slot subtask is missing")
+    items = data.get("items")
+    if not isinstance(items, list):
+        return ["Tools/Workbench/data/roadmap.json missing items[]"]
+    ids = [str(item.get("id", "")) for item in items]
+    duplicates = sorted(item_id for item_id, count in Counter(ids).items() if item_id and count > 1)
+    if duplicates:
+        errors.append("Workbench has duplicate permanent IDs: " + ", ".join(duplicates))
 
-    if column == "active":
-        definitive_statuses = [status_by_id.get(s) for s in definitive_ids]
-        if not all(status in {"active", "todo", "done"} for status in definitive_statuses):
-            errors.append("c3842 definitive optional-slot subtasks have invalid status")
-        if (not all(status == "done" for status in definitive_statuses) and
-                "active" not in definitive_statuses):
-            errors.append(
-                "one of c3842-s7 through c3842-s9 must be active while c3842 is active"
-            )
-    else:
-        incomplete = [
-            subtask_id
-            for subtask_id, status in status_by_id.items()
-            if status != "done"
-        ]
-        if incomplete:
-            errors.append(
-                "c3842 is done but has incomplete native-source subtasks: "
-                + ", ".join(incomplete)
-            )
-    rom_card = next((c for c in cards if c.get("id") == "c3844"), None)
-    if not rom_card:
-        errors.append("tools/kanban/state.json missing c3844 card")
-    else:
-        if rom_card.get("priority") not in (1, "critical"):
-            errors.append("c3844 must stay priority 1 or critical")
-        if rom_card.get("column") not in {"active", "done"}:
-            errors.append("c3844 must stay active or done until runtime ROM fallback removal closes")
-        # The ROM-fallback-as-asset-chain-failure framing lives in
-        # context/tasks.md (checked by require_sentinals). The c3844 card itself
-        # must still track runtime ROM/RomProvider fallback removal in its text
-        # or its subtasks.
-        rom_text = " ".join(
-            str(rom_card.get(k, ""))
-            for k in ("title", "description", "notes")
+    def item_by_key(key: str) -> dict[str, object] | None:
+        needle = f"workbench-key:{key}"
+        return next(
+            (item for item in items if needle in item.get("tags", [])),
+            None,
         )
-        rom_text += " " + " ".join(
-            str(s.get("title", "")) + " " + str(s.get("notes", ""))
-            for s in rom_card.get("subtasks", [])
+
+    archive_item = item_by_key("asset-public-archives")
+    runtime_item = item_by_key("asset-native-runtime")
+    validation_item = item_by_key("validation-native-source-guard")
+    for key, item in (
+        ("asset-public-archives", archive_item),
+        ("asset-native-runtime", runtime_item),
+        ("validation-native-source-guard", validation_item),
+    ):
+        if item is None:
+            errors.append(f"Workbench missing required asset contract item {key}")
+        elif item.get("status") == "cut":
+            errors.append(f"Workbench asset contract item {key} cannot be cut")
+
+    if runtime_item is not None:
+        runtime_text = " ".join(
+            str(runtime_item.get(field, ""))
+            for field in ("title", "detail")
         )
-        if "ROM fallback" not in rom_text and "ROM/RomProvider fallback" not in rom_text:
-            errors.append("c3844 must explicitly track ROM fallback removal")
-        if not any(str(s.get("id", "")).startswith("c3844-s") for s in rom_card.get("subtasks", [])):
-            errors.append("c3844 must carry ordered ROM fallback removal subtasks")
+        if "ROM/RomProvider fallback" not in runtime_text and "ROM fallback" not in runtime_text:
+            errors.append(
+                "Workbench asset-native-runtime item must explicitly track ROM fallback removal"
+            )
+
+    for item in items:
+        if item.get("status") in {"implemented", "validated"}:
+            if not item.get("evidence"):
+                errors.append(f"{item.get('id')} claims {item.get('status')} without evidence")
+            if not item.get("model"):
+                errors.append(f"{item.get('id')} claims {item.get('status')} without model attribution")
     return errors
 
 
@@ -6930,7 +6910,7 @@ def main(argv: list[str]) -> int:
     root = repo_root()
     errors: list[str] = []
     errors.extend(require_sentinals(root))
-    errors.extend(require_kanban(root))
+    errors.extend(require_workbench(root))
     errors.extend(scan_bondgun_model_source_only_guards(root))
     errors.extend(scan_model_handle_source_only_guards(root))
     errors.extend(scan_modelcatalog_source_only_guards(root))

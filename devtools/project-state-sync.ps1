@@ -21,7 +21,7 @@ function Sync-ProjectMindState {
     }
 
     $memorySource = Join-Path $profileRoot ".codex\memories\MEMORY.md"
-    $memoryMirror = Join-Path $ProjectRoot "tools\kanban\memories.md"
+    $memoryMirror = Join-Path $ProjectRoot "Tools\Workbench\exports\codex-memory-snapshot.md"
     $result.MemorySource = $memorySource
     $result.MemoryMirror = $memoryMirror
 
@@ -46,7 +46,7 @@ function Sync-ProjectMindState {
             $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
             [System.IO.File]::WriteAllText($memoryMirror, $sourceText, $utf8NoBom)
             $result.MemoryCopied = $true
-            if (-not $Quiet) { Write-Host "  [state-sync] mirrored Codex memory to tools/kanban/memories.md" -ForegroundColor Gray }
+            if (-not $Quiet) { Write-Host "  [state-sync] mirrored Codex memory to Tools/Workbench/exports/codex-memory-snapshot.md" -ForegroundColor Gray }
         } elseif (-not $Quiet) {
             Write-Host "  [state-sync] Codex memory mirror already current" -ForegroundColor Gray
         }
@@ -69,14 +69,14 @@ function Get-ProjectStateCommitBody {
     } catch {}
 
     $stateFiles = @(
-        "tools/kanban/state.json",
-        "tools/kanban/memory-review.json",
-        "tools/kanban/memories.md",
+        "Tools/Workbench/data/roadmap.json",
+        "Tools/Workbench/data/notes.jsonl",
+        "Tools/Workbench/data/changelog.jsonl",
         "UNRELEASED.md"
     )
 
     $lines = New-Object System.Collections.Generic.List[string]
-    $lines.Add("Dev Window staged pending changes during $ActionLabel so code, Kanban board state, Codex memory, and release-note state can move together.")
+    $lines.Add("Dev Window staged pending changes during $ActionLabel so code, Workbench state, Codex memory, and release-note state can move together.")
     $lines.Add("")
     $lines.Add("Live state included:")
     foreach ($file in $stateFiles) {

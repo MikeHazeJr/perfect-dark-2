@@ -21,6 +21,8 @@ Read in this order before doing any work in this project:
 5. [tasks.md](tasks.md) - what is open right now.
 6. [session-log.md](session-log.md) - last few sessions.
 7. [retention.md](retention.md) - the rules that keep this tree clean.
+8. `Tools/Workbench/data/roadmap.json` and `notes.jsonl` - durable live work,
+   decisions, ownership, evidence, and feedback state.
 
 Then load the pillar doc(s) for whatever you are touching.
 
@@ -34,7 +36,9 @@ The canonical context source is this `context/` tree. Parent-level briefing file
 - **Save format**: SAVE_VERSION=2, MPSETUP_VERSION=2.
 - **Build**: v0.0.175+ (per recent release tags). Build via `.\devtools\build-session.ps1 -Session <id> -Target all`; standalone `pd-server` is removed/deprecated, so use listen-host in the client.
 - **Active session range**: see [session-log.md](session-log.md).
-- **Critical path**: see [tasks.md](tasks.md). There is no active `c3844` work remaining. The board now has zero Active cards, Backlog remains deferred unless Mike reopens/promotes a card, and `c3844` is Done. The later `c3849` Wave 7 cutover is also complete for the current tree: weapon graph runtime is default ON, the old debug toggle/MP option is retired, selected source-owned fallback families fail closed, protocol v51 rejects mixed v50/v51 peers, and the Needler visual smoke proves installed `.pdweapon` source rendering through nested `.pdxxx` archives.
+- **Critical path**: the repo-local Workbench is authoritative for active work,
+  decisions, evidence, and gates. The former Kanban is retired migration history.
+  See [tasks.md](tasks.md) for the concise context summary.
 - **Long-term roadmap**: [roadmap.md](roadmap.md).
 
 ---

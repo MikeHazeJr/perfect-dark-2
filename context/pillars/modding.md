@@ -22,6 +22,12 @@ Code:
 
 ## Current Completion Focus
 
+As of 2026-07-30, current project truth lives in Workbench. Historical c3844/
+c3849 closure evidence below is an audit input, not a present-tense guarantee.
+`T-ASSETS-001` is rechecking every public family, production consumer, cache
+boundary, creator flow, and runtime fallback; only durable current evidence may
+promote the associated Workbench validation gates.
+
 As of 2026-06-17T15:45:00-04:00, `c3844` is closed at 100% and the follow-on
 `c3849` Wave 7 cutover is implemented for the current tree. The final c3844
 regression sweep stayed green, and Wave 7 adds product-default weapon graph
