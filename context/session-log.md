@@ -102,6 +102,12 @@ the rebuilt all-family `pdxxx_modder_workflow_smoke` PASS 58/58 at
 menu/input proof and residual partial-family semantics remain explicitly open
 in Workbench.
 
+The post-merge line-count/status audit caught B-972 before handoff: B-962's
+fixture OBJ ignore exception was too broad and exposed an intentionally
+forbidden old loose arena source in the user's tree. The rule now names only
+the two required external creator-source fixtures. The pre-existing local file
+was preserved and returned to ignored status.
+
 ## 2026-07-07 - Full-parity extraction project COMPLETE (1a/1b/1c + LOD descope + closures)
 
 Mike's directive: mods-equal-to-base, lossless ROM extraction in accessible .pdxxx
