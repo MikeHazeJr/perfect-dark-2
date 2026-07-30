@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "project": "Perfect Dark 2",
-  "updated": "2026-07-30T15:29:50.394Z",
+  "updated": "2026-07-30T16:45:35.216Z",
   "items": [
     {
       "type": "task",
@@ -891,20 +891,23 @@
       "type": "task",
       "title": "Make every .pdxxx archive self-contained and creator-accessible",
       "area": "ARCHIVES",
-      "status": "missing",
+      "status": "partial",
       "phase": 2,
       "lane": "implementation",
       "owner": "codex-pd2-workbench-assets-20260730",
       "deps": [
         "T-ASSETS-001"
       ],
-      "evidence": [],
-      "detail": "Public typed archives are the editable source of truth. Schemas must be understandable, catalog-addressed, lossless, comprehensive, and free of opaque runtime payloads.",
+      "evidence": [
+        "context/bugs.md:B-955",
+        "port/src/modarchive.c:modArchiveFinish"
+      ],
+      "detail": "Public typed archives are the editable source of truth. Schemas must be understandable, catalog-addressed, lossless, comprehensive, and free of opaque runtime payloads.\n\nB-955 found the writer pre-deleted the existing archive before rename. A durable atomic replacement fix and member-preserving rewrite helper are implemented; validation is pending.",
       "tags": [
         "workbench-key:asset-public-archives"
       ],
       "id": "T-ARCHIVES-001",
-      "updated": "2026-07-30T15:16:40.130Z",
+      "updated": "2026-07-30T15:42:42.329Z",
       "created": "2026-07-30T15:16:40.130Z"
     },
     {
@@ -940,13 +943,16 @@
         "T-ARCHIVES-001",
         "T-RUNTIME-001"
       ],
-      "evidence": [],
-      "detail": "Ensure Modding Hub and documented workflows let creators edit existing content and add new catalog-addressed content without parallel authored runtime files.",
+      "evidence": [
+        "context/bugs.md:B-954",
+        "port/fast3d/pdgui_menu_moddinghub.cpp:493"
+      ],
+      "detail": "Ensure Modding Hub and documented workflows let creators edit existing content and add new catalog-addressed content without parallel authored runtime files.\n\nB-954: the INI Editor cannot read or rewrite archive members and maps ASSET_AUDIO to obsolete descriptors. Typed-archive authoring is not complete until this production UI path is fixed and interaction-tested.",
       "tags": [
         "workbench-key:asset-modding-hub"
       ],
       "id": "T-MODDING-004",
-      "updated": "2026-07-30T15:16:40.137Z",
+      "updated": "2026-07-30T15:41:13.545Z",
       "created": "2026-07-30T15:16:40.137Z"
     },
     {
@@ -1230,6 +1236,1041 @@
       "id": "T-NETWORKING-008",
       "updated": "2026-07-30T15:23:10.655Z",
       "created": "2026-07-30T15:23:10.655Z"
+    },
+    {
+      "type": "asset",
+      "title": ".pdweapon public source and production runtime chain",
+      "area": "ASSETS",
+      "status": "partial",
+      "phase": 1,
+      "lane": "family-audit",
+      "owner": "codex-pd2-workbench-assets-20260730",
+      "deps": [
+        "T-ASSETS-001"
+      ],
+      "evidence": [
+        "context/audits/2026/asset-pipeline-full-chain-audit-2026-07-30.md"
+      ],
+      "detail": "Full-chain audit 2026-07-30: Held graph/model production paths are live, but optional settings/presentation/dependency fields still include stored-only or ignored semantics.",
+      "tags": [
+        "asset-family",
+        "asset-family:pdweapon",
+        "descriptor:weapon.ini"
+      ],
+      "id": "A-ASSETS-002",
+      "updated": "2026-07-30T16:22:11.168Z",
+      "created": "2026-07-30T15:32:27.720Z"
+    },
+    {
+      "type": "asset",
+      "title": ".pdprojectile public source and production runtime chain",
+      "area": "ASSETS",
+      "status": "implemented",
+      "phase": 1,
+      "lane": "family-audit",
+      "owner": "codex-pd2-workbench-assets-20260730",
+      "deps": [
+        "T-ASSETS-001"
+      ],
+      "evidence": [
+        "context/audits/2026/asset-pipeline-full-chain-audit-2026-07-30.md"
+      ],
+      "detail": "Full-chain audit 2026-07-30: Projectile behavior graph and metadata feed custom projectile production paths; full runtime validation remains pending.",
+      "tags": [
+        "asset-family",
+        "asset-family:pdprojectile",
+        "descriptor:projectile.ini"
+      ],
+      "id": "A-ASSETS-003",
+      "updated": "2026-07-30T16:22:11.186Z",
+      "created": "2026-07-30T15:32:27.725Z",
+      "model": "gpt-5"
+    },
+    {
+      "type": "asset",
+      "title": ".pdentity public source and production runtime chain",
+      "area": "ASSETS",
+      "status": "implemented",
+      "phase": 1,
+      "lane": "family-audit",
+      "owner": "codex-pd2-workbench-assets-20260730",
+      "deps": [
+        "T-ASSETS-001"
+      ],
+      "evidence": [
+        "context/audits/2026/asset-pipeline-full-chain-audit-2026-07-30.md"
+      ],
+      "detail": "Full-chain audit 2026-07-30: Entity behavior graph/archetype feed deployed and sticky-device production paths; full runtime validation remains pending.",
+      "tags": [
+        "asset-family",
+        "asset-family:pdentity",
+        "descriptor:entity.ini"
+      ],
+      "id": "A-ASSETS-004",
+      "updated": "2026-07-30T16:22:11.116Z",
+      "created": "2026-07-30T15:32:27.729Z",
+      "model": "gpt-5"
+    },
+    {
+      "type": "asset",
+      "title": ".pdmaterial public source and production runtime chain",
+      "area": "ASSETS",
+      "status": "missing",
+      "phase": 1,
+      "lane": "family-audit",
+      "owner": "codex-pd2-workbench-assets-20260730",
+      "deps": [
+        "T-ASSETS-001"
+      ],
+      "evidence": [
+        "context/audits/2026/asset-pipeline-full-chain-audit-2026-07-30.md",
+        "context/bugs.md:B-959"
+      ],
+      "detail": "Full-chain audit 2026-07-30: Standalone material source is synthetic and has no renderer consumer. B-959.",
+      "tags": [
+        "asset-family",
+        "asset-family:pdmaterial",
+        "descriptor:material.ini"
+      ],
+      "id": "A-ASSETS-005",
+      "updated": "2026-07-30T16:22:11.163Z",
+      "created": "2026-07-30T15:32:27.734Z"
+    },
+    {
+      "type": "asset",
+      "title": ".pdtexture public source and production runtime chain",
+      "area": "ASSETS",
+      "status": "implemented",
+      "phase": 1,
+      "lane": "family-audit",
+      "owner": "codex-pd2-workbench-assets-20260730",
+      "deps": [
+        "T-ASSETS-001"
+      ],
+      "evidence": [
+        "context/audits/2026/asset-pipeline-full-chain-audit-2026-07-30.md"
+      ],
+      "detail": "Full-chain audit 2026-07-30: Editable image source feeds the texture compiler/runtime path and now fails closed; full runtime validation remains pending.",
+      "tags": [
+        "asset-family",
+        "asset-family:pdtexture",
+        "descriptor:texture.ini"
+      ],
+      "id": "A-ASSETS-006",
+      "updated": "2026-07-30T16:22:11.177Z",
+      "created": "2026-07-30T15:32:27.739Z",
+      "model": "gpt-5"
+    },
+    {
+      "type": "asset",
+      "title": ".pdcharacter public source and production runtime chain",
+      "area": "ASSETS",
+      "status": "partial",
+      "phase": 1,
+      "lane": "family-audit",
+      "owner": "codex-pd2-workbench-assets-20260730",
+      "deps": [
+        "T-ASSETS-001"
+      ],
+      "evidence": [
+        "context/audits/2026/asset-pipeline-full-chain-audit-2026-07-30.md"
+      ],
+      "detail": "Full-chain audit 2026-07-30: Body model source is live, but character-level head and portrait contracts lack comprehensive production use.",
+      "tags": [
+        "asset-family",
+        "asset-family:pdcharacter",
+        "descriptor:character.ini"
+      ],
+      "id": "A-ASSETS-007",
+      "updated": "2026-07-30T16:22:11.197Z",
+      "created": "2026-07-30T15:32:27.744Z"
+    },
+    {
+      "type": "asset",
+      "title": ".pdhead public source and production runtime chain",
+      "area": "ASSETS",
+      "status": "implemented",
+      "phase": 1,
+      "lane": "family-audit",
+      "owner": "codex-pd2-workbench-assets-20260730",
+      "deps": [
+        "T-ASSETS-001"
+      ],
+      "evidence": [
+        "context/audits/2026/asset-pipeline-full-chain-audit-2026-07-30.md"
+      ],
+      "detail": "Full-chain audit 2026-07-30: Head source feeds selector, compatibility, slots, and model loading; full runtime validation remains pending.",
+      "tags": [
+        "asset-family",
+        "asset-family:pdhead",
+        "descriptor:head.ini"
+      ],
+      "id": "A-ASSETS-008",
+      "updated": "2026-07-30T16:22:11.131Z",
+      "created": "2026-07-30T15:32:27.748Z",
+      "model": "gpt-5"
+    },
+    {
+      "type": "asset",
+      "title": ".pdbody public source and production runtime chain",
+      "area": "ASSETS",
+      "status": "implemented",
+      "phase": 1,
+      "lane": "family-audit",
+      "owner": "codex-pd2-workbench-assets-20260730",
+      "deps": [
+        "T-ASSETS-001"
+      ],
+      "evidence": [
+        "context/audits/2026/asset-pipeline-full-chain-audit-2026-07-30.md"
+      ],
+      "detail": "Full-chain audit 2026-07-30: Body source feeds selector, compatibility, slots, and model loading; full runtime validation remains pending.",
+      "tags": [
+        "asset-family",
+        "asset-family:pdbody",
+        "descriptor:body.ini"
+      ],
+      "id": "A-ASSETS-009",
+      "updated": "2026-07-30T16:22:11.190Z",
+      "created": "2026-07-30T15:32:27.752Z",
+      "model": "gpt-5"
+    },
+    {
+      "type": "asset",
+      "title": ".pdarena public source and production runtime chain",
+      "area": "ASSETS",
+      "status": "implemented",
+      "phase": 1,
+      "lane": "family-audit",
+      "owner": "codex-pd2-workbench-assets-20260730",
+      "deps": [
+        "T-ASSETS-001"
+      ],
+      "evidence": [
+        "context/audits/2026/asset-pipeline-full-chain-audit-2026-07-30.md"
+      ],
+      "detail": "Full-chain audit 2026-07-30: Arena wrapper and Scenario dependency feed MP arena/stage loading; full runtime validation remains pending.",
+      "tags": [
+        "asset-family",
+        "asset-family:pdarena",
+        "descriptor:arena.ini"
+      ],
+      "id": "A-ASSETS-010",
+      "updated": "2026-07-30T16:22:11.094Z",
+      "created": "2026-07-30T15:32:27.757Z",
+      "model": "gpt-5"
+    },
+    {
+      "type": "asset",
+      "title": ".pdscenario public source and production runtime chain",
+      "area": "ASSETS",
+      "status": "implemented",
+      "phase": 1,
+      "lane": "family-audit",
+      "owner": "codex-pd2-workbench-assets-20260730",
+      "deps": [
+        "T-ASSETS-001"
+      ],
+      "evidence": [
+        "context/audits/2026/asset-pipeline-full-chain-audit-2026-07-30.md"
+      ],
+      "detail": "Full-chain audit 2026-07-30: Scenario public tables feed stage geometry/collision and scenario_source_runtime; full runtime validation remains pending.",
+      "tags": [
+        "asset-family",
+        "asset-family:pdscenario",
+        "descriptor:scenario.ini"
+      ],
+      "id": "A-ASSETS-011",
+      "updated": "2026-07-30T16:22:11.076Z",
+      "created": "2026-07-30T15:32:27.761Z",
+      "model": "gpt-5"
+    },
+    {
+      "type": "asset",
+      "title": ".pdmesh public source and production runtime chain",
+      "area": "ASSETS",
+      "status": "implemented",
+      "phase": 1,
+      "lane": "family-audit",
+      "owner": "codex-pd2-workbench-assets-20260730",
+      "deps": [
+        "T-ASSETS-001"
+      ],
+      "evidence": [
+        "context/audits/2026/asset-pipeline-full-chain-audit-2026-07-30.md"
+      ],
+      "detail": "Full-chain audit 2026-07-30: Readable mesh source feeds model/world compilation and rendering; full runtime validation remains pending.",
+      "tags": [
+        "asset-family",
+        "asset-family:pdmesh",
+        "descriptor:mesh.ini"
+      ],
+      "id": "A-ASSETS-012",
+      "updated": "2026-07-30T16:22:11.182Z",
+      "created": "2026-07-30T15:32:27.765Z",
+      "model": "gpt-5"
+    },
+    {
+      "type": "asset",
+      "title": ".pdanim public source and production runtime chain",
+      "area": "ASSETS",
+      "status": "implemented",
+      "phase": 1,
+      "lane": "family-audit",
+      "owner": "codex-pd2-workbench-assets-20260730",
+      "deps": [
+        "T-ASSETS-001"
+      ],
+      "evidence": [
+        "context/audits/2026/asset-pipeline-full-chain-audit-2026-07-30.md"
+      ],
+      "detail": "Full-chain audit 2026-07-30: Editable clip/weapon-command source feeds animation production paths; full runtime validation remains pending.",
+      "tags": [
+        "asset-family",
+        "asset-family:pdanim",
+        "descriptor:animation.ini"
+      ],
+      "id": "A-ASSETS-013",
+      "updated": "2026-07-30T16:22:11.158Z",
+      "created": "2026-07-30T15:32:27.768Z",
+      "model": "gpt-5"
+    },
+    {
+      "type": "asset",
+      "title": ".pdsfx public source and production runtime chain",
+      "area": "ASSETS",
+      "status": "implemented",
+      "phase": 1,
+      "lane": "family-audit",
+      "owner": "codex-pd2-workbench-assets-20260730",
+      "deps": [
+        "T-ASSETS-001"
+      ],
+      "evidence": [
+        "context/bugs.md:B-956",
+        "context/audits/2026/asset-pipeline-full-chain-audit-2026-07-30.md"
+      ],
+      "detail": "Full-chain audit 2026-07-30: PCM source and native playback metadata feed sound playback/mixing; B-956/B-960 fixed omission/fallback.",
+      "tags": [
+        "asset-family",
+        "asset-family:pdsfx",
+        "descriptor:sound.ini"
+      ],
+      "id": "A-ASSETS-014",
+      "updated": "2026-07-30T16:22:11.121Z",
+      "created": "2026-07-30T15:32:27.773Z",
+      "model": "gpt-5"
+    },
+    {
+      "type": "asset",
+      "title": ".pdvoice public source and production runtime chain",
+      "area": "ASSETS",
+      "status": "partial",
+      "phase": 1,
+      "lane": "family-audit",
+      "owner": "codex-pd2-workbench-assets-20260730",
+      "deps": [
+        "T-ASSETS-001"
+      ],
+      "evidence": [
+        "context/bugs.md:B-956",
+        "context/audits/2026/asset-pipeline-full-chain-audit-2026-07-30.md"
+      ],
+      "detail": "Full-chain audit 2026-07-30: Voice audio playback is live, but actor/transcript/language metadata has no identified dialogue/localization consumer.",
+      "tags": [
+        "asset-family",
+        "asset-family:pdvoice",
+        "descriptor:voice.ini"
+      ],
+      "id": "A-ASSETS-015",
+      "updated": "2026-07-30T16:22:11.201Z",
+      "created": "2026-07-30T15:32:27.777Z"
+    },
+    {
+      "type": "asset",
+      "title": ".pdsong public source and production runtime chain",
+      "area": "ASSETS",
+      "status": "implemented",
+      "phase": 1,
+      "lane": "family-audit",
+      "owner": "codex-pd2-workbench-assets-20260730",
+      "deps": [
+        "T-ASSETS-001"
+      ],
+      "evidence": [
+        "context/audits/2026/asset-pipeline-full-chain-audit-2026-07-30.md"
+      ],
+      "detail": "Full-chain audit 2026-07-30: Music source feeds selection, sequence compile or streaming playback; full runtime validation remains pending.",
+      "tags": [
+        "asset-family",
+        "asset-family:pdsong",
+        "descriptor:music.ini"
+      ],
+      "id": "A-ASSETS-016",
+      "updated": "2026-07-30T16:22:11.106Z",
+      "created": "2026-07-30T15:32:27.780Z",
+      "model": "gpt-5"
+    },
+    {
+      "type": "asset",
+      "title": ".pdui public source and production runtime chain",
+      "area": "ASSETS",
+      "status": "implemented",
+      "phase": 1,
+      "lane": "family-audit",
+      "owner": "codex-pd2-workbench-assets-20260730",
+      "deps": [
+        "T-ASSETS-001"
+      ],
+      "evidence": [
+        "context/audits/2026/asset-pipeline-full-chain-audit-2026-07-30.md"
+      ],
+      "detail": "Full-chain audit 2026-07-30: UI image/nine-slice source feeds ImGui/theme UI rendering; full runtime validation remains pending.",
+      "tags": [
+        "asset-family",
+        "asset-family:pdui",
+        "descriptor:ui.ini"
+      ],
+      "id": "A-ASSETS-017",
+      "updated": "2026-07-30T16:22:11.066Z",
+      "created": "2026-07-30T15:32:27.806Z",
+      "model": "gpt-5"
+    },
+    {
+      "type": "asset",
+      "title": ".pdfont public source and production runtime chain",
+      "area": "ASSETS",
+      "status": "implemented",
+      "phase": 1,
+      "lane": "family-audit",
+      "owner": "codex-pd2-workbench-assets-20260730",
+      "deps": [
+        "T-ASSETS-001"
+      ],
+      "evidence": [
+        "context/audits/2026/asset-pipeline-full-chain-audit-2026-07-30.md"
+      ],
+      "detail": "Full-chain audit 2026-07-30: Glyph/metrics source feeds runtime font construction; B-960 removed ROM fallback.",
+      "tags": [
+        "asset-family",
+        "asset-family:pdfont",
+        "descriptor:font.ini"
+      ],
+      "id": "A-ASSETS-018",
+      "updated": "2026-07-30T16:22:11.206Z",
+      "created": "2026-07-30T15:32:27.809Z",
+      "model": "gpt-5"
+    },
+    {
+      "type": "asset",
+      "title": ".pdlang public source and production runtime chain",
+      "area": "ASSETS",
+      "status": "implemented",
+      "phase": 1,
+      "lane": "family-audit",
+      "owner": "codex-pd2-workbench-assets-20260730",
+      "deps": [
+        "T-ASSETS-001"
+      ],
+      "evidence": [
+        "context/audits/2026/asset-pipeline-full-chain-audit-2026-07-30.md"
+      ],
+      "detail": "Full-chain audit 2026-07-30: strings.json feeds langManifest/langLoad and already fails closed; full runtime validation remains pending.",
+      "tags": [
+        "asset-family",
+        "asset-family:pdlang",
+        "descriptor:lang.ini"
+      ],
+      "id": "A-ASSETS-019",
+      "updated": "2026-07-30T16:22:11.082Z",
+      "created": "2026-07-30T15:32:27.812Z",
+      "model": "gpt-5"
+    },
+    {
+      "type": "asset",
+      "title": ".pdskin public source and production runtime chain",
+      "area": "ASSETS",
+      "status": "missing",
+      "phase": 1,
+      "lane": "family-audit",
+      "owner": "codex-pd2-workbench-assets-20260730",
+      "deps": [
+        "T-ASSETS-001"
+      ],
+      "evidence": [
+        "context/audits/2026/asset-pipeline-full-chain-audit-2026-07-30.md",
+        "context/bugs.md:B-959"
+      ],
+      "detail": "Full-chain audit 2026-07-30: Skin payload is synthetic and no character/model renderer binding consumer exists. B-959.",
+      "tags": [
+        "asset-family",
+        "asset-family:pdskin",
+        "descriptor:skin.ini"
+      ],
+      "id": "A-ASSETS-020",
+      "updated": "2026-07-30T16:22:11.089Z",
+      "created": "2026-07-30T15:32:27.815Z"
+    },
+    {
+      "type": "asset",
+      "title": ".pdeffect public source and production runtime chain",
+      "area": "ASSETS",
+      "status": "partial",
+      "phase": 1,
+      "lane": "family-audit",
+      "owner": "codex-pd2-workbench-assets-20260730",
+      "deps": [
+        "T-ASSETS-001"
+      ],
+      "evidence": [
+        "context/audits/2026/asset-pipeline-full-chain-audit-2026-07-30.md"
+      ],
+      "detail": "Full-chain audit 2026-07-30: Effect graphs have production bridges, but complete shader/timeline semantics and fallback retirement remain open.",
+      "tags": [
+        "asset-family",
+        "asset-family:pdeffect",
+        "descriptor:effect.ini"
+      ],
+      "id": "A-ASSETS-021",
+      "updated": "2026-07-30T16:22:11.210Z",
+      "created": "2026-07-30T15:32:27.818Z"
+    },
+    {
+      "type": "asset",
+      "title": ".pdprop public source and production runtime chain",
+      "area": "ASSETS",
+      "status": "partial",
+      "phase": 1,
+      "lane": "family-audit",
+      "owner": "codex-pd2-workbench-assets-20260730",
+      "deps": [
+        "T-ASSETS-001"
+      ],
+      "evidence": [
+        "context/audits/2026/asset-pipeline-full-chain-audit-2026-07-30.md",
+        "context/bugs.md:B-959"
+      ],
+      "detail": "Full-chain audit 2026-07-30: Prop model/type have consumers, but health/flags/behavior are not a comprehensive standalone prop adapter. B-959.",
+      "tags": [
+        "asset-family",
+        "asset-family:pdprop",
+        "descriptor:prop.ini"
+      ],
+      "id": "A-ASSETS-022",
+      "updated": "2026-07-30T16:22:11.141Z",
+      "created": "2026-07-30T15:32:27.822Z"
+    },
+    {
+      "type": "asset",
+      "title": ".pdvehicle public source and production runtime chain",
+      "area": "ASSETS",
+      "status": "missing",
+      "phase": 1,
+      "lane": "family-audit",
+      "owner": "codex-pd2-workbench-assets-20260730",
+      "deps": [
+        "T-ASSETS-001"
+      ],
+      "evidence": [
+        "context/audits/2026/asset-pipeline-full-chain-audit-2026-07-30.md",
+        "context/bugs.md:B-959"
+      ],
+      "detail": "Full-chain audit 2026-07-30: Vehicle model can load, but placeholder physics/behavior source is not executed by the vehicle runtime. B-959.",
+      "tags": [
+        "asset-family",
+        "asset-family:pdvehicle",
+        "descriptor:vehicle.ini"
+      ],
+      "id": "A-ASSETS-023",
+      "updated": "2026-07-30T16:22:11.126Z",
+      "created": "2026-07-30T15:32:27.825Z"
+    },
+    {
+      "type": "asset",
+      "title": ".pdmission public source and production runtime chain",
+      "area": "ASSETS",
+      "status": "partial",
+      "phase": 1,
+      "lane": "family-audit",
+      "owner": "codex-pd2-workbench-assets-20260730",
+      "deps": [
+        "T-ASSETS-001"
+      ],
+      "evidence": [
+        "context/audits/2026/asset-pipeline-full-chain-audit-2026-07-30.md",
+        "context/bugs.md:B-959"
+      ],
+      "detail": "Full-chain audit 2026-07-30: Scenario owns substantial mission execution, but standalone mission wrapper/briefing is not authoritative campaign source. B-959.",
+      "tags": [
+        "asset-family",
+        "asset-family:pdmission",
+        "descriptor:mission.ini"
+      ],
+      "id": "A-ASSETS-024",
+      "updated": "2026-07-30T16:22:11.099Z",
+      "created": "2026-07-30T15:32:27.865Z"
+    },
+    {
+      "type": "asset",
+      "title": ".pdgamemode public source and production runtime chain",
+      "area": "ASSETS",
+      "status": "partial",
+      "phase": 1,
+      "lane": "family-audit",
+      "owner": "codex-pd2-workbench-assets-20260730",
+      "deps": [
+        "T-ASSETS-001"
+      ],
+      "evidence": [
+        "context/bugs.md:B-953",
+        "src/game/mplayer/scenarios.c:353",
+        "tests/test_asset_native_source_contract.cpp:15627",
+        "context/audits/2026/asset-pipeline-full-chain-audit-2026-07-30.md",
+        "context/bugs.md:B-959"
+      ],
+      "detail": "Full-chain audit 2026-07-30: Only team flag reaches production; name/description/player bounds/rules and fallback retirement remain open. B-953/B-959.",
+      "tags": [
+        "asset-family",
+        "asset-family:pdgamemode",
+        "descriptor:gamemode.ini"
+      ],
+      "id": "A-ASSETS-025",
+      "updated": "2026-07-30T16:22:11.145Z",
+      "created": "2026-07-30T15:32:27.869Z"
+    },
+    {
+      "type": "asset",
+      "title": ".pdbotprofile public source and production runtime chain",
+      "area": "ASSETS",
+      "status": "partial",
+      "phase": 1,
+      "lane": "family-audit",
+      "owner": "codex-pd2-workbench-assets-20260730",
+      "deps": [
+        "T-ASSETS-001"
+      ],
+      "evidence": [
+        "context/audits/2026/asset-pipeline-full-chain-audit-2026-07-30.md",
+        "context/bugs.md:B-959"
+      ],
+      "detail": "Full-chain audit 2026-07-30: Type/difficulty/body reach bot creation, but profile payload/target/name/unlock and fallback retirement remain open. B-959.",
+      "tags": [
+        "asset-family",
+        "asset-family:pdbotprofile",
+        "descriptor:botprofile.ini"
+      ],
+      "id": "A-ASSETS-026",
+      "updated": "2026-07-30T16:22:11.173Z",
+      "created": "2026-07-30T15:32:27.873Z"
+    },
+    {
+      "type": "asset",
+      "title": ".pdhud public source and production runtime chain",
+      "area": "ASSETS",
+      "status": "missing",
+      "phase": 1,
+      "lane": "family-audit",
+      "owner": "codex-pd2-workbench-assets-20260730",
+      "deps": [
+        "T-ASSETS-001"
+      ],
+      "evidence": [
+        "context/audits/2026/asset-pipeline-full-chain-audit-2026-07-30.md",
+        "context/bugs.md:B-959"
+      ],
+      "detail": "Full-chain audit 2026-07-30: HUD emits an empty slots placeholder and no HUD renderer binding consumer exists. B-959.",
+      "tags": [
+        "asset-family",
+        "asset-family:pdhud",
+        "descriptor:hud.ini"
+      ],
+      "id": "A-ASSETS-027",
+      "updated": "2026-07-30T16:22:11.110Z",
+      "created": "2026-07-30T15:32:27.876Z"
+    },
+    {
+      "type": "asset",
+      "title": ".pdtheme public source and production runtime chain",
+      "area": "ASSETS",
+      "status": "partial",
+      "phase": 1,
+      "lane": "family-audit",
+      "owner": "codex-pd2-workbench-assets-20260730",
+      "deps": [
+        "T-ASSETS-001"
+      ],
+      "evidence": [
+        "context/audits/2026/asset-pipeline-full-chain-audit-2026-07-30.md"
+      ],
+      "detail": "Full-chain audit 2026-07-30: Theme style loading is live, but dependency archives and missing-binding fallback are not fully authoritative.",
+      "tags": [
+        "asset-family",
+        "asset-family:pdtheme",
+        "descriptor:theme.ini"
+      ],
+      "id": "A-ASSETS-028",
+      "updated": "2026-07-30T16:22:11.136Z",
+      "created": "2026-07-30T15:32:27.881Z"
+    },
+    {
+      "title": "B-953: connect every pdgamemode source field to production behavior",
+      "owner": "codex-pd2-workbench-assets-20260730",
+      "phase": 2,
+      "tags": [
+        "bug:B-953",
+        "asset-family:pdgamemode",
+        "systemic:SP-22"
+      ],
+      "status": "implemented",
+      "detail": "Production scenario selection now requires an active readable public rules binding, uses the binding runtime mode, enforces public min/max participant bounds and team requirements, and renders the public name/description. Missing binding/source no longer falls back to ext or g_MpScenarioOverviews. Base non-team modes declare a one-participant minimum. Status remains implemented until live source-edited menu and match behavior are proven; richer rules.json behavior is tracked under B-959.",
+      "type": "task",
+      "deps": [
+        "T-ASSETS-001"
+      ],
+      "evidence": [
+        "context/bugs.md:B-953",
+        "src/game/mplayer/scenarios.c:scenarioBindingForEntry",
+        "src/game/mplayer/scenarios.c:scenarioCtxAccepts",
+        "src/game/mplayer/scenarios.c:mpMenuTextScenarioName/Description",
+        "port/src/assetcatalog_base_extended.c:s_BaseGameModes",
+        "tests/test_mod_external_archive_static.cpp:[b953]",
+        "tests/test_asset_native_source_contract.cpp:[c3849][meta][static]",
+        ".claude/session-builds/pd2assetaudit/_build-session.out.log",
+        "pd-tests gamemode/archive/meta suite: 162 assertions / 8 cases passed 2026-07-30"
+      ],
+      "area": "RUNTIME",
+      "lane": "family-runtime-fixes",
+      "id": "T-RUNTIME-002",
+      "updated": "2026-07-30T16:26:24.843Z",
+      "created": "2026-07-30T15:39:01.459Z",
+      "model": "gpt-5"
+    },
+    {
+      "status": "implemented",
+      "evidence": [
+        "context/bugs.md:B-954",
+        "port/include/assetcatalog.h:asset_entry.descriptor_path",
+        "port/src/assetcatalog_scanner.c:registerComponent",
+        "port/fast3d/pdgui_menu_moddinghub.cpp:iniResolveDescriptor",
+        "port/fast3d/pdgui_menu_moddinghub.cpp:iniLoadFile",
+        "port/fast3d/pdgui_menu_moddinghub.cpp:iniSaveFile",
+        "port/src/modarchive.c:modArchiveReplaceFileMem",
+        "tests/test_mod_external_archive_static.cpp:[b954]",
+        ".claude/session-builds/pd2assetaudit/_build-session.out.log",
+        "pd-tests [b954]: focused assertions passed 2026-07-30"
+      ],
+      "tags": [
+        "bug:B-954",
+        "creator-flow",
+        "typed-archive",
+        "menus",
+        "input"
+      ],
+      "owner": "codex-pd2-workbench-assets-20260730",
+      "lane": "creator-workflow",
+      "detail": "Catalog entries now retain the canonical descriptor source path, including archive::member chains. The Modding Hub resolves descriptors per entry and audio category, loads loose/standalone/nested sources through fsFileLoad without a line-count cap, rejects unsafe partial loads, preserves comments/blanks/raw lines, and atomically rewrites standalone typed archives. Transport-packaged content is explicitly clone-first/read-only. The isolated test build and focused b954 contract passed; status remains implemented until live MKB/controller editor proof passes.",
+      "deps": [
+        "T-MODDING-004",
+        "T-ASSETS-001"
+      ],
+      "type": "task",
+      "phase": 2,
+      "title": "B-954: make Modding Hub edit typed archive descriptors safely",
+      "area": "MODDING",
+      "id": "T-MODDING-006",
+      "updated": "2026-07-30T16:05:50.845Z",
+      "created": "2026-07-30T15:41:13.497Z",
+      "model": "gpt-5"
+    },
+    {
+      "type": "task",
+      "status": "implemented",
+      "owner": "codex-pd2-workbench-assets-20260730",
+      "evidence": [
+        "context/bugs.md:B-955",
+        "port/src/modarchive.c:modArchiveFinish",
+        "port/src/modarchive.c:modArchiveReplaceFileMem",
+        "port/include/modarchive.h:modArchiveReplaceFileMem",
+        "tests/test_mod_external_archive_static.cpp:[b955]",
+        ".claude/session-builds/pd2assetaudit/_build-session.out.log",
+        "pd-tests [b955]: replacement, preserved member/comment, and unchanged-on-notfound assertions passed 2026-07-30"
+      ],
+      "phase": 2,
+      "lane": "archive-integrity",
+      "deps": [
+        "T-ARCHIVES-001"
+      ],
+      "model": "gpt-5",
+      "title": "B-955: make archive replacement genuinely atomic",
+      "detail": "The prior writer deleted the good destination before rename. The implemented path durably flushes the temp archive and atomically replaces the destination without a destructive pre-delete. Replacement preserves every non-target member and zip comment. The isolated test build and focused b955 behavior test passed; status remains implemented until the complete asset-chain validation run closes.",
+      "area": "ARCHIVES",
+      "tags": [
+        "bug:B-955",
+        "archive-integrity",
+        "atomic-write"
+      ],
+      "id": "T-ARCHIVES-002",
+      "updated": "2026-07-30T16:05:50.863Z",
+      "created": "2026-07-30T15:42:42.258Z"
+    },
+    {
+      "tags": [
+        "bug:B-956",
+        "descriptor-parser",
+        "no-omission"
+      ],
+      "status": "implemented",
+      "type": "task",
+      "phase": 2,
+      "evidence": [
+        "context/bugs.md:B-956",
+        "port/include/assetcatalog_scanner.h:INI_MAX_PAIRS",
+        "port/src/assetcatalog_scanner.c:iniParseBuffer",
+        "examples/modding/typed-pdxxx-basic/audio/voice/tri_voice.pdvoice::voice.ini",
+        "tests/test_mod_external_archive_static.cpp:[b956]",
+        ".claude/session-builds/pd2assetaudit/_build-session.out.log",
+        "pd-tests [b956]: all 37 fields survived and over-cap descriptor rejected 2026-07-30"
+      ],
+      "area": "ARCHIVES",
+      "model": "gpt-5",
+      "owner": "codex-pd2-workbench-assets-20260730",
+      "title": "B-956: prevent descriptor parser field omission",
+      "deps": [
+        "T-ARCHIVES-001"
+      ],
+      "detail": "The shared parser silently capped valid descriptors at 32 pairs. Current examples prove real omissions. Capacity now covers all defined schemas and overflow/overlength rejects rather than truncates. The isolated test build and focused b956 behavior test passed; status remains implemented until all-family validation closes.",
+      "lane": "archive-integrity",
+      "id": "T-ARCHIVES-003",
+      "updated": "2026-07-30T16:05:50.869Z",
+      "created": "2026-07-30T15:45:03.521Z"
+    },
+    {
+      "type": "task",
+      "area": "ASSETS",
+      "title": "B-957: make extraction and walker failure reporting authoritative",
+      "status": "implemented",
+      "phase": 2,
+      "lane": "extraction-integrity",
+      "deps": [
+        "T-ASSETS-001"
+      ],
+      "owner": "codex-pd2-workbench-assets-20260730",
+      "evidence": [
+        "context/bugs.md:B-957",
+        "port/src/main.c:bootRecordAssetPhase",
+        "port/src/main.c:bootRunCatalogWork",
+        "port/src/romextract.c:romExtractAllFiles",
+        "port/src/romextract.c:romExtractVerifyAll",
+        "port/include/loader_walker.h:loader_walker_result_t",
+        "tests/test_mod_external_archive_static.cpp:[b957]",
+        ".claude/session-builds/pd2assetaudit/_build-session.out.log",
+        "pd-tests [b957]: orchestration failure accounting contract passed 2026-07-30"
+      ],
+      "detail": "All raw-file, segment, typed-family emitter, and universal-walker failures now feed one authoritative boot failure count. Raw extraction/verification returns -1 on any per-entry failure after completing the reporting walk. Runtime caches are skipped for a known-incomplete chain, and both normal boot and extract-only return nonzero instead of claiming success. The incremental client and isolated test builds plus focused b957 test passed; status remains implemented until source guard and an extractor-only runtime receipt pass.",
+      "tags": [
+        "bug:B-957",
+        "extraction-integrity",
+        "no-omission",
+        "boot"
+      ],
+      "id": "T-ASSETS-002",
+      "updated": "2026-07-30T16:05:50.874Z",
+      "created": "2026-07-30T15:57:55.948Z",
+      "model": "gpt-5"
+    },
+    {
+      "phase": 2,
+      "tags": [
+        "bug:B-958",
+        "extraction-integrity",
+        "all-families",
+        "no-omission"
+      ],
+      "status": "implemented",
+      "owner": "codex-pd2-workbench-assets-20260730",
+      "deps": [
+        "T-ASSETS-002"
+      ],
+      "evidence": [
+        "context/bugs.md:B-958",
+        "context/systemic-bugs.md:SP-23",
+        "all romExtractAllPd* emitter tails",
+        "port/fast3d/pdgui_theme.cpp:pdguiThemeEmitPduiZips",
+        "port/src/main.c:bootEnsureUiArchivesReadyAfterTextureInit",
+        "tests/test_mod_external_archive_static.cpp:[b958]",
+        ".claude/session-builds/pd2assetaudit/_build-session.out.log",
+        "pd-tests [b954]-[b958]: 87 assertions / 5 cases passed 2026-07-30"
+      ],
+      "area": "ASSETS",
+      "lane": "extraction-integrity",
+      "type": "task",
+      "detail": "Every affected typed-family emitter now completes its reporting walk but returns -1 when any required member failed. The late UI repair path propagates texture, UI archive, envelope, and registration failures into the authoritative boot state. Incremental isolated client/test builds and the exhaustive b958 guard passed. Status remains implemented until source guard and clean/induced extractor runtime receipts pass.",
+      "title": "B-958: make every typed-family emitter fail closed",
+      "id": "T-ASSETS-003",
+      "updated": "2026-07-30T16:11:04.536Z",
+      "created": "2026-07-30T16:08:27.519Z",
+      "model": "gpt-5"
+    },
+    {
+      "type": "task",
+      "area": "ASSETS",
+      "detail": "Several typed meta families currently emit synthetic placeholders or OG-backend labels and stop at generic runtime binding. Complete this as per-family slices: reconstruct actual source state, implement native production consumers, fail closed after extraction, and prove source edits affect behavior. A binding or preview is not completion.",
+      "title": "B-959: replace placeholder metadata families with source-faithful production paths",
+      "phase": 3,
+      "lane": "runtime-utilization",
+      "tags": [
+        "bug:B-959",
+        "all-families",
+        "source-fidelity",
+        "production-path"
+      ],
+      "status": "missing",
+      "evidence": [
+        "context/bugs.md:B-959",
+        "context/systemic-bugs.md:SP-24",
+        "port/src/romextract_pdmeta.c",
+        "port/src/asset_runtime.c",
+        "production assetRuntimeFind call-site inventory"
+      ],
+      "owner": "codex-pd2-workbench-assets-20260730",
+      "deps": [
+        "T-ASSETS-001"
+      ],
+      "id": "T-ASSETS-004",
+      "updated": "2026-07-30T16:14:32.236Z",
+      "created": "2026-07-30T16:14:32.236Z"
+    },
+    {
+      "type": "task",
+      "phase": 2,
+      "title": "B-960: make selected public-source failures unconditional",
+      "status": "implemented",
+      "owner": "codex-pd2-workbench-assets-20260730",
+      "deps": [
+        "T-ASSETS-001",
+        "T-ASSETS-002"
+      ],
+      "area": "RUNTIME",
+      "detail": "Selected public font, direct/legacy texture, music-sequence, animation, SFX/voice, MP3 playback, and MP3-duration sources fail unconditionally before native, ROM, loose-cache, compressed, or opaque fallback. All-target build, 63-case/11,744-assertion suite, and source guard pass. Induced missing-source runtime receipts remain before validated.",
+      "tags": [
+        "bug:B-960",
+        "runtime-fallback",
+        "public-source",
+        "no-omission"
+      ],
+      "lane": "runtime-utilization",
+      "evidence": [
+        "context/bugs.md:B-960",
+        "context/bugs.md:B-963",
+        "context/systemic-bugs.md:SP-25",
+        "src/game/game_1531a0.c:textLoadFont",
+        "port/src/mod.c",
+        "port/src/mod_texture_source.c:modTextureLoadRgba32Source",
+        "src/lib/snd.c:sndStart/sndMp3LoadPublicSourceFile",
+        "src/game/propsnd.c:psMp3DurationGetPublicSourceSize",
+        "tools/asset_native_source_guard.py PASS 2026-07-30",
+        ".claude/session-builds/pd2assetaudit/_build-session.out.log",
+        "pd-tests asset/archive/provider suite: 63 cases / 11,744 assertions passed 2026-07-30"
+      ],
+      "id": "T-RUNTIME-003",
+      "updated": "2026-07-30T16:45:35.216Z",
+      "created": "2026-07-30T16:15:49.768Z",
+      "model": "gpt-5"
+    },
+    {
+      "status": "missing",
+      "type": "task",
+      "title": "B-961: make bot-profile catalog identity end-to-end authoritative",
+      "detail": "Custom .pdbotprofile rows are counted/displayed but collapse to mp_index -1 and lose identity. Carry catalog ID through selector, bot config, copy/name generation, save/migration, match config, manifest/distribution, lobby and stage-start wire, then resolve legacy gameplay fields only at the final boundary. Validate with custom-profile MKB/controller selection, save/reload, listen-host/client reconstruction, and gameplay.",
+      "owner": "codex-pd2-workbench-assets-20260730",
+      "deps": [
+        "T-ASSETS-004"
+      ],
+      "evidence": [
+        "context/bugs.md:B-961",
+        "context/systemic-bugs.md:SP-26",
+        "src/game/mplayer/setup.c:botprofilePickByIndexCb",
+        "src/include/types.h:mpbotconfig",
+        "port/include/net/matchsetup.h:matchslot"
+      ],
+      "lane": "runtime-utilization",
+      "area": "ASSETS",
+      "phase": 3,
+      "tags": [
+        "bug:B-961",
+        "systemic:SP-26",
+        "asset-family:pdbotprofile",
+        "catalog-identity",
+        "save-wire"
+      ],
+      "id": "T-ASSETS-005",
+      "updated": "2026-07-30T16:30:23.432Z",
+      "created": "2026-07-30T16:30:23.432Z"
+    },
+    {
+      "deps": [
+        "T-ARCHIVES-001"
+      ],
+      "type": "task",
+      "model": "gpt-5",
+      "tags": [
+        "bug:B-962",
+        "creator-source",
+        "archive-completeness",
+        "asset-family:pdarena",
+        "asset-family:pdmesh"
+      ],
+      "phase": 2,
+      "evidence": [
+        "context/bugs.md:B-962",
+        ".gitignore",
+        "tests/fixtures/modpipe/external-folder/maps/tri_arena/geometry.obj",
+        "tests/fixtures/modpipe/external-archive-entries/maps/tri_arena/geometry.obj",
+        ".claude/session-builds/pd2assetaudit/_build-session.out.log",
+        "pd-tests asset/archive/provider suite: 63 cases / 11,744 assertions passed 2026-07-30",
+        "tools/asset_native_source_guard.py PASS 2026-07-30"
+      ],
+      "area": "ASSETS",
+      "status": "validated",
+      "title": "B-962: preserve public OBJ source under fixtures and examples",
+      "lane": "archive-integrity",
+      "detail": "Blanket OBJ ignore no longer swallows checked-in creator source under fixtures/examples. Both required arena OBJ sources are restored. All-target build, external archive contract, combined 63-case/11,744-assertion suite, and source guard passed.",
+      "owner": "codex-pd2-workbench-assets-20260730",
+      "id": "T-ASSETS-006",
+      "updated": "2026-07-30T16:45:35.188Z",
+      "created": "2026-07-30T16:34:53.622Z"
+    },
+    {
+      "deps": [
+        "T-RUNTIME-003"
+      ],
+      "evidence": [
+        "context/bugs.md:B-963",
+        "tools/asset_native_source_guard.py",
+        "src/game/propsnd.c:psMp3DurationGetPublicSourceSize",
+        "port/src/mod_texture_source.c:modTextureLoadRgba32Source",
+        ".claude/session-builds/pd2assetaudit/_build-session.out.log",
+        "pd-tests asset/archive/provider suite: 63 cases / 11,744 assertions passed 2026-07-30",
+        "tools/asset_native_source_guard.py PASS 2026-07-30"
+      ],
+      "area": "RUNTIME",
+      "model": "gpt-5",
+      "title": "B-963: align source guard with unconditional production fail-closed behavior",
+      "type": "task",
+      "lane": "runtime-utilization",
+      "detail": "Guard now enforces unconditional production behavior. MP3 duration and direct RGBA texture adapters fail closed without debug gates. All-target build, 63-case/11,744-assertion provider/archive suite, and source guard pass; induced missing-source runtime receipts remain before validated.",
+      "owner": "codex-pd2-workbench-assets-20260730",
+      "status": "implemented",
+      "phase": 2,
+      "tags": [
+        "bug:B-963",
+        "source-guard",
+        "audio",
+        "runtime-fallback"
+      ],
+      "id": "T-RUNTIME-004",
+      "updated": "2026-07-30T16:45:35.206Z",
+      "created": "2026-07-30T16:40:24.906Z"
     }
   ]
 }

@@ -334,8 +334,9 @@ void textLoadFont(u8 *romstart, u8 *romend, struct font **fontptr, struct fontch
 		} else {
 			catalogpayload = NULL;
 			cataloglen = 0;
-			sysLogPrintf(LOG_WARNING, "FONT: face %s public source unavailable -> ROM segment", face);
-			assetFallbackRecord(ASSET_FONT, 0, "font source -> ROM segment");
+			sysFatalError("ASSET.CHAIN: font face %s has no usable public "
+				".pdfont source; refusing ROM segment fallback.", face);
+			return;
 		}
 	}
 

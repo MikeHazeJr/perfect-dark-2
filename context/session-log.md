@@ -28,6 +28,26 @@ the separated Notes/Activity pages, dependency SVG, and the live coordination
 session. `T-TOOLING-001` records the migration. The current audit umbrella is
 `T-ASSETS-001`, with implementation and proof dependencies assigned beneath it.
 
+The first production-path hardening checkpoint is complete. The audit found
+and fixed failure masking in extractor-only startup and twelve child emitters;
+non-atomic archive replacement; silent 32-row descriptor truncation;
+filesystem-only Modding Hub descriptor editing; production game-mode, bot, and
+theme fallback to built-ins; selected font/texture/sequence/animation/SFX/
+voice/MP3 fallbacks to ROM, native, loose, or opaque sources; an outdated
+native-source guard that still required debug-gated fallback; and public OBJ
+fixtures silently excluded by the repository ignore rules. Focused regression
+proof passes 63 cases / 11,744 assertions, the current native-source guard
+passes, and isolated session build `pd2assetaudit` passes all targets.
+
+Workbench records preserve the remaining truth: `B-959` tracks placeholder or
+incompletely executed material/skin/vehicle/prop/bot/game-mode/mission/HUD
+families, and `B-961` tracks custom bot profiles losing catalog identity at the
+base-slot selector bridge and therefore lacking save/wire/runtime support.
+Fail-closed runtime lanes are implemented but not yet validated because their
+induced missing-source receipts are still outstanding. The next bounded change
+is catalog-ID-safe bot-profile identity, followed by the remaining family
+adapters and the MKB/controller/glyph menu sweep.
+
 ## 2026-07-07 - Full-parity extraction project COMPLETE (1a/1b/1c + LOD descope + closures)
 
 Mike's directive: mods-equal-to-base, lossless ROM extraction in accessible .pdxxx

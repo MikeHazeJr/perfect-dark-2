@@ -88,6 +88,9 @@ extern "C" s32 iniParseBuffer(const char *label,
 		if (text.front() == '[' && text.back() == ']') {
 			if (out->type[0] == '\0') {
 				std::string section = trimIniStub(text.substr(1, text.size() - 2));
+				if (section.size() >= sizeof(out->type)) {
+					return 0;
+				}
 				strncpy(out->type, section.c_str(), sizeof(out->type) - 1);
 			}
 			continue;
@@ -97,7 +100,7 @@ extern "C" s32 iniParseBuffer(const char *label,
 			continue;
 		}
 		if (out->count >= INI_MAX_PAIRS) {
-			break;
+			return 0;
 		}
 		std::string key = trimIniStub(text.substr(0, eq));
 		std::string value = trimIniStub(text.substr(eq + 1));
@@ -106,6 +109,10 @@ extern "C" s32 iniParseBuffer(const char *label,
 		}
 		if (key.empty()) {
 			continue;
+		}
+		if (key.size() >= sizeof(out->pairs[out->count].key)
+				|| value.size() >= sizeof(out->pairs[out->count].value)) {
+			return 0;
 		}
 		strncpy(out->pairs[out->count].key, key.c_str(),
 			sizeof(out->pairs[out->count].key) - 1);
@@ -218,6 +225,267 @@ TempArchive writeTypedArchiveEntries(const std::string &stem,
 	}
 	REQUIRE(modArchiveFinish(writer) == MODARCHIVE_OK);
 	return out;
+}
+
+std::string extractArchiveEntry(mod_archive_t *archive, const char *name) {
+	const s32 idx = modArchiveFindEntry(archive, name);
+	REQUIRE(idx >= 0);
+	u32 size = 0;
+	char *bytes = static_cast<char *>(modArchiveExtractAlloc(archive, idx, &size));
+	REQUIRE(bytes != nullptr);
+	std::string result(bytes, bytes + size);
+	free(bytes);
+	return result;
+}
+
+TEST_CASE("typed archive member replacement is atomic and preserves all other content",
+          "[modding][pdxxx][archive][b955]") {
+	const auto stamp =
+		std::chrono::high_resolution_clock::now().time_since_epoch().count();
+	TempArchive archive{
+		std::filesystem::temp_directory_path()
+			/ ("pd2-archive-replace-" + std::to_string(stamp) + ".pdweapon")
+	};
+
+	mod_archive_writer_t *writer = modArchiveBegin(archive.path.string().c_str());
+	REQUIRE(writer != nullptr);
+	const std::string originalDescriptor =
+		"[weapon]\ncatalog_id = example:before\nmodel_file = model.obj\n";
+	const std::string payload = "o model\nv 0 0 0\n";
+	REQUIRE(modArchiveAddFileMem(writer, "weapon.ini",
+		originalDescriptor.data(), static_cast<u32>(originalDescriptor.size()))
+		== MODARCHIVE_OK);
+	REQUIRE(modArchiveAddFileMem(writer, "model.obj",
+		payload.data(), static_cast<u32>(payload.size())) == MODARCHIVE_OK);
+	modArchiveSetComment(writer, "{\"creator\":\"archive-test\"}");
+	REQUIRE(modArchiveFinish(writer) == MODARCHIVE_OK);
+
+	const std::string replacement =
+		"[weapon]\ncatalog_id = example:after\nmodel_file = model.obj\n";
+	REQUIRE(modArchiveReplaceFileMem(archive.path.string().c_str(), "weapon.ini",
+		replacement.data(), static_cast<u32>(replacement.size())) == MODARCHIVE_OK);
+
+	{
+		OpenArchive opened;
+		opened.archive = modArchiveOpen(archive.path.string().c_str());
+		REQUIRE(opened.archive != nullptr);
+		REQUIRE(extractArchiveEntry(opened.archive, "weapon.ini") == replacement);
+		REQUIRE(extractArchiveEntry(opened.archive, "model.obj") == payload);
+		REQUIRE(std::string(modArchiveGetComment(opened.archive))
+			== "{\"creator\":\"archive-test\"}");
+	}
+
+	const std::string bytesBeforeMissingReplace =
+		readFile(archive.path.string().c_str());
+	REQUIRE(modArchiveReplaceFileMem(archive.path.string().c_str(), "wrong.ini",
+		replacement.data(), static_cast<u32>(replacement.size()))
+		== MODARCHIVE_ERR_NOTFOUND);
+	REQUIRE(readFile(archive.path.string().c_str()) == bytesBeforeMissingReplace);
+}
+
+TEST_CASE("shared INI contract retains full audio descriptors and rejects overflow",
+          "[modding][pdxxx][ini][b956]") {
+	STATIC_REQUIRE(INI_MAX_PAIRS >= 37);
+
+	std::ostringstream valid;
+	valid << "[voice]\n";
+	for (int i = 0; i < 37; i++) {
+		valid << "field_" << i << " = value_" << i << "\n";
+	}
+	ini_section_t parsed = {};
+	const std::string validText = valid.str();
+	REQUIRE(iniParseBuffer("voice.ini", validText.data(),
+		static_cast<u32>(validText.size()), &parsed) == 1);
+	REQUIRE(parsed.count == 37);
+	REQUIRE(std::string(iniGet(&parsed, "field_36", "")) == "value_36");
+
+	std::ostringstream overflow;
+	overflow << "[voice]\n";
+	for (int i = 0; i <= INI_MAX_PAIRS; i++) {
+		overflow << "field_" << i << " = value_" << i << "\n";
+	}
+	const std::string overflowText = overflow.str();
+	REQUIRE(iniParseBuffer("overflow.ini", overflowText.data(),
+		static_cast<u32>(overflowText.size()), &parsed) == 0);
+}
+
+TEST_CASE("Modding Hub edits the catalog entry descriptor instead of inventing a loose path",
+          "[modding][pdxxx][hub][b954]") {
+	const std::string catalog = readFile("port/include/assetcatalog.h");
+	const std::string scanner = readFile("port/src/assetcatalog_scanner.c");
+	const std::string hub = readFile("port/fast3d/pdgui_menu_moddinghub.cpp");
+
+	REQUIRE(catalog.find("char descriptor_path[FS_MAXPATH]") !=
+		std::string::npos);
+	REQUIRE(scanner.find("e->descriptor_path, descriptor_path") !=
+		std::string::npos);
+	REQUIRE(hub.find("iniNameForEntry") != std::string::npos);
+	REQUIRE(hub.find("case AUDIO_CAT_VOICE: return \"voice.ini\"") !=
+		std::string::npos);
+	REQUIRE(hub.find("case AUDIO_CAT_MUSIC: return \"music.ini\"") !=
+		std::string::npos);
+	REQUIRE(hub.find("default:              return \"sound.ini\"") !=
+		std::string::npos);
+	REQUIRE(hub.find("fsFileLoad(ie.descriptor_ref") != std::string::npos);
+	REQUIRE(hub.find("modArchiveReplaceFileMem(") != std::string::npos);
+	REQUIRE(hub.find("std::vector<IniKV> s_IniPairs") != std::string::npos);
+	REQUIRE(hub.find("s_IniNumPairs < HUB_INI_MAX_KEYS") ==
+		std::string::npos);
+	REQUIRE(hub.find("\"%s/%s\", ie.dirpath, iniName") ==
+		std::string::npos);
+	REQUIRE(hub.find("selected.nested_archive") != std::string::npos);
+}
+
+TEST_CASE("gamemode public metadata controls the production selector and menu",
+          "[modding][pdxxx][runtime][b953]") {
+	const std::string scenarios = readFile("src/game/mplayer/scenarios.c");
+	REQUIRE(scenarios.find("scenarioBindingForEntry") != std::string::npos);
+	REQUIRE(scenarios.find("assetRuntimePrimaryFileAccessible(binding)") !=
+		std::string::npos);
+	REQUIRE(scenarios.find("binding->gamemode_team_based") !=
+		std::string::npos);
+	REQUIRE(scenarios.find("binding->gamemode_min_players") !=
+		std::string::npos);
+	REQUIRE(scenarios.find("binding->gamemode_max_players") !=
+		std::string::npos);
+	REQUIRE(scenarios.find("binding->gamemode_name") != std::string::npos);
+	REQUIRE(scenarios.find("binding->gamemode_description") !=
+		std::string::npos);
+	REQUIRE(scenarios.find("(uintptr_t)&mpMenuTextScenarioDescription") !=
+		std::string::npos);
+	REQUIRE(scenarios.find("CATALOG.GAMEMODE.RUNTIME_MISS") ==
+		std::string::npos);
+	REQUIRE(scenarios.find("using ext.gamemode.team_based") ==
+		std::string::npos);
+}
+
+TEST_CASE("boot fails closed when any extraction or walker phase is incomplete",
+          "[modding][pdxxx][boot][b957]") {
+	const std::string main = readFile("port/src/main.c");
+	const std::string extract = readFile("port/src/romextract.c");
+
+	REQUIRE(main.find("bootRecordAssetPhase(\"rom-files\"") !=
+		std::string::npos);
+	REQUIRE(main.find("bootRecordAssetPhase(\"pdmesh\"") !=
+		std::string::npos);
+	REQUIRE(main.find("bootRecordAssetPhase(\"pdweapon-projectile-entity\"") !=
+		std::string::npos);
+	REQUIRE(main.find("bootRecordAssetPhase(\"pdarena-pdscenario\"") !=
+		std::string::npos);
+	REQUIRE(main.find("bootRecordAssetPhase(\"pdtheme\"") !=
+		std::string::npos);
+	REQUIRE(main.find("walker_result.total_envelope_failures") !=
+		std::string::npos);
+	REQUIRE(main.find("walker_result.total_register_failures") !=
+		std::string::npos);
+	REQUIRE(main.find("runtime cache build skipped") != std::string::npos);
+	REQUIRE(main.find("return 2;") != std::string::npos);
+
+	REQUIRE(extract.find("return failed > 0 ? -1 : written;") !=
+		std::string::npos);
+	REQUIRE(extract.find("return failed > 0 ? -1 : corrected;") !=
+		std::string::npos);
+}
+
+TEST_CASE("every typed-family emitter reports partial output as failure",
+          "[modding][pdxxx][boot][b958]") {
+	const std::vector<std::string> singleFamilyEmitters = {
+		"port/src/romextract_pdanim_chr.c",
+		"port/src/romextract_pdanim.c",
+		"port/src/romextract_pdbody.c",
+		"port/src/romextract_pdcharacter.c",
+		"port/src/romextract_pdfont.c",
+		"port/src/romextract_pdhead.c",
+		"port/src/romextract_pdlang.c",
+		"port/src/romextract_pdmesh.c",
+		"port/src/romextract_pdsfx.c",
+		"port/src/romextract_pdsong.c",
+		"port/src/romextract_pdweapon.c",
+	};
+	for (const auto &path : singleFamilyEmitters) {
+		INFO(path);
+		const std::string source = readFile(path.c_str());
+		REQUIRE(source.find("return failed ? -1 : written;") !=
+			std::string::npos);
+	}
+
+	const std::string arena = readFile("port/src/romextract_pdarena.c");
+	REQUIRE(arena.find("return (arenas_failed || scenarios_failed)") !=
+		std::string::npos);
+
+	const std::string ui = readFile("port/fast3d/pdgui_theme.cpp");
+	REQUIRE(ui.find("return failed ? -1 : written;") != std::string::npos);
+
+	/* These families already had the correct aggregate contract when B-958
+	 * was found. Keep them in the enumeration so the all-family guard stays
+	 * exhaustive rather than protecting only the originally broken files. */
+	const std::string texture = readFile("port/src/romextract_pdtexture.c");
+	const std::string metadata = readFile("port/src/romextract_pdmeta.c");
+	const std::string theme =
+		readFile("port/fast3d/pdgui_theme_loader.cpp");
+	REQUIRE(texture.find("return failed ? -1 : written;") !=
+		std::string::npos);
+	REQUIRE(metadata.find("return failed ? -1 : written;") !=
+		std::string::npos);
+	REQUIRE(theme.find("return failed ? -1 : written;") !=
+		std::string::npos);
+
+	const std::string main = readFile("port/src/main.c");
+	REQUIRE(main.find(
+		"bootRecordAssetPhase(\"pdtexture-late-ui-repair\", texture_result)") !=
+		std::string::npos);
+	REQUIRE(main.find(
+		"bootRecordAssetPhase(\"pdui-late-repair\", written)") !=
+		std::string::npos);
+	REQUIRE(main.find("kr.envelope_failures + kr.register_failures") !=
+		std::string::npos);
+	REQUIRE(main.find("late UI walker rejected") != std::string::npos);
+}
+
+TEST_CASE("selected public sources never fall through to native or opaque data",
+          "[modding][pdxxx][runtime][b960]") {
+	const std::string fonts = readFile("src/game/game_1531a0.c");
+	REQUIRE(fonts.find("ASSET.CHAIN: font face") != std::string::npos);
+	REQUIRE(fonts.find("assetFallbackRecord(ASSET_FONT") ==
+		std::string::npos);
+	REQUIRE(fonts.find("public source unavailable -> ROM segment") ==
+		std::string::npos);
+
+	const std::string mod = readFile("port/src/mod.c");
+	const std::string texture_source =
+		readFile("port/src/mod_texture_source.c");
+	REQUIRE(mod.find("assetSourceDebugIsEnabledFor") ==
+		std::string::npos);
+	REQUIRE(texture_source.find("assetSourceDebugIsEnabledFor") ==
+		std::string::npos);
+	REQUIRE(mod.find("fsFileLoadTo(r.path") == std::string::npos);
+	REQUIRE(mod.find("sequence source compile failed -> legacy") ==
+		std::string::npos);
+	REQUIRE(mod.find("falling back to legacy sequence") ==
+		std::string::npos);
+	REQUIRE(mod.find("fsFileLoad(r.path") == std::string::npos);
+
+	const std::string sound = readFile("src/lib/snd.c");
+	REQUIRE(sound.find("assetSourceDebugIsEnabledFor") ==
+		std::string::npos);
+	REQUIRE(sound.find("falling back to ROM") == std::string::npos);
+	REQUIRE(sound.find("romExtractRelPathForFilenum") ==
+		std::string::npos);
+	REQUIRE(sound.find("loose extracted source") == std::string::npos);
+	REQUIRE(sound.find("fileGetRomAddress(filenum)") == std::string::npos);
+	REQUIRE(sound.find("fileGetRomSize(filenum)") == std::string::npos);
+	REQUIRE(sound.find("sndMp3ResolvePublicSource") != std::string::npos);
+
+	const std::string propsnd = readFile("src/game/propsnd.c");
+	REQUIRE(propsnd.find("assetSourceDebugIsEnabledFor") ==
+		std::string::npos);
+	REQUIRE(propsnd.find("romExtractRelPathForFilenum") ==
+		std::string::npos);
+	REQUIRE(propsnd.find("fileGetRomSize(filenum)") ==
+		std::string::npos);
+	REQUIRE(propsnd.find("psMp3DurationGetPublicSourceSize") !=
+		std::string::npos);
+	REQUIRE(propsnd.find("ASSET.CHAIN: MP3 file") != std::string::npos);
 }
 
 TEST_CASE("typed asset archive policy enforces the two-zone migration boundary",
@@ -4986,7 +5254,9 @@ TEST_CASE("external UI font and language descriptors use standard files",
 	std::string theme_loader = readFile("port/fast3d/pdgui_theme_loader.cpp");
 	REQUIRE(theme_loader.find("assetCatalogRegister(k_BuiltinIds[i], ASSET_THEME)") != std::string::npos);
 	REQUIRE(theme_loader.find("assetCatalogIterateByType(ASSET_THEME, register_catalog_theme_entry") != std::string::npos);
-	REQUIRE(theme_loader.find("fileProviderPath(entry->source.primary)") != std::string::npos);
+	REQUIRE(theme_loader.find("assetRuntimeFindByTypeAndId(ASSET_THEME") != std::string::npos);
+	REQUIRE(theme_loader.find("ASSET.CHAIN: enabled theme") != std::string::npos);
+	REQUIRE(theme_loader.find("fileProviderPath(entry->source.primary)") == std::string::npos);
 
 	std::string lang = readFile("port/src/langmanifest.c");
 	REQUIRE(lang.find("langManifestLoadExternalJson") != std::string::npos);
@@ -5034,7 +5304,8 @@ TEST_CASE("catalog game mode and bot profile assets drive live runtime selectors
 	REQUIRE(setup.find("assetCatalogIterateUnlockedByType(ASSET_BOT_PROFILE, botprofileCountCb, &ctx)") != std::string::npos);
 	REQUIRE(setup.find("assetCatalogIterateUnlockedByType(ASSET_BOT_PROFILE, botprofilePickByIndexCb, &ctx)") != std::string::npos);
 	REQUIRE(setup.find("mpCreateBotFromProfile(botnum, profnum)") != std::string::npos);
-	REQUIRE(setup.find("g_BotConfigsArray[botnum].type = g_BotProfiles[profnum].type") != std::string::npos);
+	REQUIRE(setup.find("g_BotConfigsArray[botnum].type = (u8)profile->bot_profile_type") != std::string::npos);
+	REQUIRE(setup.find("g_BotProfiles[profnum]") == std::string::npos);
 	REQUIRE(setup.find("assetCatalogIterateUnlockedByType(ASSET_BOT_PROFILE, botdiffCountCb, &ctx)") != std::string::npos);
 	REQUIRE(setup.find("return (uintptr_t)langGet(L_MISC_082 + ctx.result_diffidx)") != std::string::npos);
 
@@ -5595,7 +5866,9 @@ TEST_CASE("external models maps and animations compile from standard sources",
 	std::string mod = readFile("port/src/mod.c");
 	REQUIRE(mod.find("modAnimationLoadCatalogClip") != std::string::npos);
 	REQUIRE(mod.find("catalogGetLoadedAnimationClip(entry->id") != std::string::npos);
-	REQUIRE(mod.find("External animation %04x failed to compile") != std::string::npos);
+	REQUIRE(mod.find("modAnimationFatalPublicSourceFailure") != std::string::npos);
+	REQUIRE(mod.find("refusing ROM/static fallback") != std::string::npos);
+	REQUIRE(mod.find("External animation %04x failed to compile") == std::string::npos);
 
 	std::string weapon_archive = readFile("port/src/weapon_graph_archive.c");
 	REQUIRE(weapon_archive.find("#include \"modvfs.h\"") != std::string::npos);

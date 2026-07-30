@@ -24,10 +24,8 @@
 #include "data.h"
 #include "types.h"
 #include "asset_fallback_telemetry.h" /* c3849 Wave 1 */
-#include "asset_source_debug.h"
 #include "system.h"
 #include "fs.h"
-#include "romextract.h"
 #include "assetcatalog_load.h"
 #include "audio.h"
 #include "preprocess.h"
@@ -2340,17 +2338,10 @@ struct sndstate *sndStart(s32 arg0, s16 sound, struct sndstate **handle, s32 vol
 					return file_state;
 				}
 			}
-			if (assetSourceDebugIsEnabledFor(ASSET_AUDIO)) {
-				const asset_entry_t *entry = assetCatalogGetByIndex(r.catalog_id);
-				sysFatalError("ASSET.SOURCE_ONLY: sound %d maps to public file source '%s' "
-				              "but file playback failed; refusing ROM/static fallback.",
-				              (s32)sp40.id, entry ? entry->id : "?");
-				return NULL;
-			}
-			sysLogPrintf(LOG_WARNING, "MOD: sound %d catalog override failed (%s), falling back to ROM",
-			             (s32)sp40.id, r.path);
-			assetFallbackRecord(ASSET_SFX, (s32)sp40.id,
-				"catalog override failed -> native bank");
+			sysFatalError("ASSET.CHAIN: sound %d maps to public file source '%s' "
+				"for audio '%s' but file playback failed; refusing native bank fallback.",
+				(s32)sp40.id, r.path, entry ? entry->id : "?");
+			return NULL;
 		} else if (r.catalog_id >= 0) {
 			sysLogPrintf(LOG_NOTE, "CATALOG: sound %d → ROM (entry %d)", (s32)sp40.id, r.catalog_id);
 		} else {
@@ -2404,7 +2395,6 @@ static void sndMp3FreeSourceBuffer(void)
 
 static s32 sndMp3LoadPublicSourceFile(s32 filenum, uintptr_t *outaddr, u32 *outsize)
 {
-	char relpath[FS_MAXPATH + 1];
 	u32 size = 0;
 	void *bytes;
 	CatalogResolveResult source;
@@ -2432,62 +2422,20 @@ static s32 sndMp3LoadPublicSourceFile(s32 filenum, uintptr_t *outaddr, u32 *outs
 		}
 	}
 
-	if (assetSourceDebugIsEnabledFor(ASSET_AUDIO)) {
+	{
 		const asset_entry_t *entry = assetCatalogGetByIndex(source.catalog_id);
-		sysFatalError("ASSET.SOURCE_ONLY: MP3 file %d has no readable typed "
-		              "public audio source%s%s; refusing loose extracted file or ROM/static playback fallback.",
-		              filenum,
-		              entry ? " for " : "",
-		              entry ? entry->id : "");
-		return 0;
+		sysFatalError("ASSET.CHAIN: MP3 file %d has no readable typed "
+			"public audio source%s%s; refusing loose extracted file or ROM playback fallback.",
+			filenum,
+			entry ? " for " : "",
+			entry ? entry->id : "");
 	}
-
-	if (romExtractRelPathForFilenum(filenum, relpath, (s32)sizeof(relpath)) <= 0) {
-		return 0;
-	}
-
-	bytes = fsFileLoad(relpath, &size);
-	if (!bytes || size == 0) {
-		if (bytes) {
-			sysMemFree(bytes);
-		}
-		return 0;
-	}
-
-	sndMp3FreeSourceBuffer();
-	g_SndMp3SourceBytes = bytes;
-	g_SndMp3SourceSize = size;
-	*outaddr = (uintptr_t)g_SndMp3SourceBytes;
-	*outsize = g_SndMp3SourceSize;
-	sysLogPrintf(LOG_NOTE, "CATALOG: MP3 file %d -> loose extracted source \"%s\" (%u bytes)",
-	             filenum, relpath, g_SndMp3SourceSize);
-	if (source.path && source.path[0]) {
-		/* c3849 Wave 1: a typed public source existed and failed; the loose
-		 * raw cache is not public source (B-382). Base routing (no typed
-		 * source at all) is deliberately not recorded. */
-		assetFallbackRecord(ASSET_MUSIC, filenum,
-			"MP3 typed source missing -> loose extracted cache");
-	}
-	return 1;
+	return 0;
 }
 
-static s32 sndMp3ResolveSourceOrFallback(s32 filenum, uintptr_t *outaddr, u32 *outsize)
+static s32 sndMp3ResolvePublicSource(s32 filenum, uintptr_t *outaddr, u32 *outsize)
 {
-	if (sndMp3LoadPublicSourceFile(filenum, outaddr, outsize)) {
-		return 1;
-	}
-
-	/* c3849 Wave 1: no typed source AND no loose cache -- raw ROM bytes.
-	 * Always abnormal after extraction; loud + tracked. */
-	sysLoudFailf("FALLBACK",
-		"MP3 file %d -> raw ROM bytes (no typed source, no loose cache)",
-		filenum);
-	assetFallbackRecord(ASSET_MUSIC, filenum, "MP3 -> raw ROM bytes");
-
-	sndMp3FreeSourceBuffer();
-	*outaddr = fileGetRomAddress(filenum);
-	*outsize = fileGetRomSize(filenum);
-	return 1;
+	return sndMp3LoadPublicSourceFile(filenum, outaddr, outsize);
 }
 
 void sndStartMp3(s16 soundnum, s32 volume, s32 pan, s32 responseflags)
@@ -2528,7 +2476,7 @@ void sndStartMp3(s16 soundnum, s32 volume, s32 pan, s32 responseflags)
 
 			volume = volume * snd0000e9dc() / AL_VOL_FULL;
 
-			if (!sndMp3ResolveSourceOrFallback((s32)sp20.id,
+			if (!sndMp3ResolvePublicSource((s32)sp20.id,
 					&g_SndCurMp3.romaddr, &g_SndCurMp3.romsize)) {
 				return;
 			}

@@ -93,11 +93,10 @@ struct mpchrconfig *mpGetChrConfigBySlotNum(s32 slot);
 s32 mpGetChrIndexBySlotNum(s32 slot);
 s32 mpGetNumChrs(void);
 u8 mpFindUnusedTeamNum(void);
-/* c3849 Wave 6a (Unit 10): botprofile meta-family runtime consumer.
- * Resolves the catalog runtime binding for a g_BotProfiles[] index, or
- * NULL after a once-per-session CATALOG.BOTPROFILE.RUNTIME_MISS warning;
- * callers fall back to g_BotProfiles[]. Forward-declared so this header
- * does not pull in asset_runtime.h for every multiplayer TU. */
+/* Resolves the active public-source binding for a base bot-profile runtime
+ * slot. Missing or unreadable source is an asset-chain failure; callers must
+ * never fall back to g_BotProfiles[]. Forward-declared so this header does not
+ * pull in asset_runtime.h for every multiplayer TU. */
 struct asset_runtime_binding;
 const struct asset_runtime_binding *mpBotProfileRuntimeBinding(s32 profilenum);
 void mpCreateBotFromProfile(s32 botnum, u8 difficulty);

@@ -188,6 +188,19 @@ s32 modArchiveAddFileDisk(mod_archive_writer_t *w, const char *name,
                           const char *srcpath);
 
 /**
+ * Atomically replace one existing archive member while preserving every
+ * other member and the zip comment. The source archive is fully copied to
+ * the writer's sibling temp file, closed, and then replaced through the same
+ * durable Finish path as a new archive.
+ *
+ * Returns MODARCHIVE_ERR_NOTFOUND when `name` is not already present. This
+ * deliberately does not add unexpected members when an editor resolved the
+ * wrong descriptor name.
+ */
+s32 modArchiveReplaceFileMem(const char *path, const char *name,
+                             const void *data, u32 len);
+
+/**
  * Set the zip-level comment string (truncated to 65535 bytes if longer).
  * Used for the defensive metadata mirror per design 4.5.5.
  */

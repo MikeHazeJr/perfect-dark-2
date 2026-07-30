@@ -29,6 +29,15 @@
 #include <stdint.h>
 #include <ctype.h>
 #include <sys/stat.h>
+#if defined(_WIN32)
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <io.h>
+#include <windows.h>
+#else
+#include <unistd.h>
+#endif
 #include <zlib.h>
 #include <PR/ultratypes.h>
 
@@ -1247,6 +1256,76 @@ s32 modArchiveAddFileDisk(mod_archive_writer_t *w, const char *name,
 	return r;
 }
 
+s32 modArchiveReplaceFileMem(const char *path, const char *name,
+                             const void *data, u32 len)
+{
+	mod_archive_t *source = NULL;
+	mod_archive_writer_t *writer = NULL;
+	s32 result = MODARCHIVE_ERR_IO;
+	s32 replaced = 0;
+
+	if (!path || !path[0] || !name || !name[0] || (len > 0 && !data)) {
+		return MODARCHIVE_ERR_OPEN;
+	}
+
+	source = modArchiveOpen(path);
+	if (!source) {
+		return modArchiveLastError();
+	}
+	if (modArchiveFindEntry(source, name) < 0) {
+		modArchiveClose(source);
+		return MODARCHIVE_ERR_NOTFOUND;
+	}
+
+	writer = modArchiveBegin(path);
+	if (!writer) {
+		modArchiveClose(source);
+		return modArchiveLastError();
+	}
+	modArchiveSetComment(writer, modArchiveGetComment(source));
+
+	for (s32 i = 0; i < modArchiveGetEntryCount(source); i++) {
+		const char *entry_name = modArchiveGetEntryName(source, i);
+		const void *entry_data = data;
+		u32 entry_size = len;
+		void *owned = NULL;
+
+		if (!entry_name) {
+			result = MODARCHIVE_ERR_FORMAT;
+			goto fail;
+		}
+		if (strcmp(entry_name, name) == 0) {
+			replaced++;
+		} else {
+			owned = modArchiveExtractAlloc(source, i, &entry_size);
+			if (!owned) {
+				result = modArchiveLastError();
+				goto fail;
+			}
+			entry_data = owned;
+		}
+
+		result = modArchiveAddFileMem(writer, entry_name, entry_data, entry_size);
+		free(owned);
+		if (result != MODARCHIVE_OK) {
+			goto fail;
+		}
+	}
+
+	modArchiveClose(source);
+	source = NULL;
+	if (replaced != 1) {
+		result = replaced == 0 ? MODARCHIVE_ERR_NOTFOUND : MODARCHIVE_ERR_FORMAT;
+		goto fail;
+	}
+	return modArchiveFinish(writer);
+
+fail:
+	modArchiveClose(source);
+	modArchiveAbort(writer);
+	return result;
+}
+
 void modArchiveSetComment(mod_archive_writer_t *w, const char *comment)
 {
 	if (!w) return;
@@ -1315,12 +1394,23 @@ s32 modArchiveFinish(mod_archive_writer_t *w)
 	if (!writerWrite(w, eocd, sizeof(eocd))) goto fail;
 	if (w->commentLen > 0 && !writerWrite(w, w->comment, w->commentLen)) goto fail;
 
+	if (fflush(w->fp) != 0) goto fail;
+#if defined(_WIN32)
+	if (_commit(_fileno(w->fp)) != 0) goto fail;
+#else
+	if (fsync(fileno(w->fp)) != 0) goto fail;
+#endif
 	if (fclose(w->fp) != 0) goto fail_after_close;
 	w->fp = NULL;
 
-	/* Atomic rename: remove any existing target so rename succeeds on Win. */
-	remove(w->finalPath);
+	/* Replace the existing target atomically. Never unlink the good archive
+	 * before the new temp file has been durably written and moved. */
+#if defined(_WIN32)
+	if (!MoveFileExA(w->tempPath, w->finalPath,
+			MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+#else
 	if (rename(w->tempPath, w->finalPath) != 0) {
+#endif
 		remove(w->tempPath);
 		for (s32 i = 0; i < w->entry_count; i++) free(w->entries[i].name);
 		free(w->entries);

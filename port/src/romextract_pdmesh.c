@@ -3259,5 +3259,5 @@ s32 romExtractAllPdmesh(s32 force_rewrite)
 			meshes_dir, ".pdmesh");
 	}
 
-	return written;
+	return failed ? -1 : written;
 }

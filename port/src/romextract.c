@@ -507,7 +507,7 @@ s32 romExtractAllFiles(void)
         "skipped_empty=%d, failed=%d",
         written, skippedExisting, skippedEmpty, failed);
 
-    return written;
+    return failed > 0 ? -1 : written;
 }
 
 /* ========================================================================
@@ -892,7 +892,7 @@ s32 romExtractVerifyAll(void)
 
     SDL_DestroyMutex(batch.mutex);
     SDL_DestroyCond(batch.cv_done);
-    return corrected;
+    return failed > 0 ? -1 : corrected;
 }
 
 /* ========================================================================
@@ -1024,7 +1024,7 @@ s32 romExtractAllSegments(void)
         "skipped_empty=%d, failed=%d",
         written, skippedExisting, skippedEmpty, failed);
 
-    return written;
+    return failed > 0 ? -1 : written;
 }
 
 s32 romExtractVerifyAllSegments(void)
@@ -1160,7 +1160,7 @@ s32 romExtractVerifyAllSegments(void)
     s_AggRecovered += corrected;
     s_AggUnrecoverable += failed;
 
-    return corrected;
+    return failed > 0 ? -1 : corrected;
 }
 
 /* ========================================================================

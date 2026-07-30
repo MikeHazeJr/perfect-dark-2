@@ -858,7 +858,7 @@ TEST_CASE("music sequencer enforces source-only audio before legacy fallback", "
 
 	REQUIRE(mod.find("catalogResolveMusicSequence((s32)num)") !=
 	        std::string::npos);
-	REQUIRE(mod.find("#include \"asset_source_debug.h\"") !=
+	REQUIRE(mod.find("#include \"asset_source_debug.h\"") ==
 	        std::string::npos);
 	REQUIRE(mod.find("#define MOD_SEQUENCE_VIRTUAL_BASE 0x4000") !=
 	        std::string::npos);
@@ -912,13 +912,11 @@ TEST_CASE("music sequencer enforces source-only audio before legacy fallback", "
 	        std::string::npos);
 	REQUIRE(mod.find("sequencer-native ") != std::string::npos);
 	REQUIRE(mod.find("public source compile failed") != std::string::npos);
-	REQUIRE(mod.find("assetSourceDebugIsEnabledFor(ASSET_AUDIO)") !=
+	REQUIRE(mod.find("assetSourceDebugIsEnabledFor(ASSET_AUDIO)") ==
 	        std::string::npos);
 	REQUIRE(modSequenceLoad.find("catalogResolveMusicSequence((s32)num)") <
 	        modSequenceLoad.find("modSequenceCompilePublicSource(&r, num, outSize)"));
 	REQUIRE(modSequenceLoad.find("modSequenceCompilePublicSource(&r, num, outSize)") <
-	        modSequenceLoad.find("assetSourceDebugIsEnabledFor(ASSET_AUDIO)"));
-	REQUIRE(modSequenceLoad.find("assetSourceDebugIsEnabledFor(ASSET_AUDIO)") <
 	        modSequenceLoad.find("r.source_only_blocked"));
 	REQUIRE(modSequenceLoad.find("modSequenceCompilePublicSource(&r, num, outSize)") <
 	        modSequenceLoad.find("fsFileSize(MOD_SEQUENCES_DIR \"/\")"));
@@ -964,27 +962,25 @@ TEST_CASE("animation source-only refuses ROM DMA fallback after public source fa
 	REQUIRE(load_data.find("catalogResolveAnim((s32)num)") !=
 	        std::string::npos);
 	REQUIRE(load_data.find("r.source_only_blocked") != std::string::npos);
-	REQUIRE(load_data.find("assetSourceDebugIsEnabledFor(ASSET_ANIMATION)") !=
+	REQUIRE(load_data.find("assetSourceDebugIsEnabledFor(ASSET_ANIMATION)") ==
 	        std::string::npos);
 	REQUIRE(load_data.find("runtime clip compilation failed") !=
 	        std::string::npos);
 	REQUIRE(load_data.find("the selected public source is not editable GLTF/GLB animation source") !=
 	        std::string::npos);
-	REQUIRE(load_data.find("assetSourceDebugIsEnabledFor(ASSET_ANIMATION)") <
-	        load_data.find("void *data = fsFileLoad(r.path, NULL)"));
+	REQUIRE(load_data.find("fsFileLoad(r.path") == std::string::npos);
 
 	REQUIRE(try_override.find("catalogResolveAnim((s32)num)") !=
 	        std::string::npos);
 	REQUIRE(try_override.find("catalogGetAnimOverride") == std::string::npos);
 	REQUIRE(try_override.find("r.source_only_blocked") != std::string::npos);
-	REQUIRE(try_override.find("assetSourceDebugIsEnabledFor(ASSET_ANIMATION)") !=
+	REQUIRE(try_override.find("assetSourceDebugIsEnabledFor(ASSET_ANIMATION)") ==
 	        std::string::npos);
 	REQUIRE(try_override.find("runtime clip compilation failed") !=
 	        std::string::npos);
 	REQUIRE(try_override.find("the selected public source is not editable GLTF/GLB animation source") !=
 	        std::string::npos);
-	REQUIRE(try_override.find("assetSourceDebugIsEnabledFor(ASSET_ANIMATION)") <
-	        try_override.find("void *data = fsFileLoad(path, NULL)"));
+	REQUIRE(try_override.find("fsFileLoad(path") == std::string::npos);
 
 	REQUIRE(load_frame.find("modAnimationTryCatalogOverride(animnum)") <
 	        load_frame.find("animDma(&g_AnimFrameByteSlots"));
@@ -999,12 +995,12 @@ TEST_CASE("MP3 file use enforces source-only audio before ROM fallback", "[catal
 	const std::string guard = readTextFile("tools/asset_native_source_guard.py");
 	const std::string snd_start_mp3 = functionBlock(snd, "void sndStartMp3(s16");
 	const std::string snd_mp3_resolve =
-		functionBlock(snd, "static s32 sndMp3ResolveSourceOrFallback");
+		functionBlock(snd, "static s32 sndMp3ResolvePublicSource");
 
-	REQUIRE(snd.find("#include \"asset_source_debug.h\"") !=
+	REQUIRE(snd.find("#include \"asset_source_debug.h\"") ==
 	        std::string::npos);
 	REQUIRE(snd.find("#include \"fs.h\"") != std::string::npos);
-	REQUIRE(snd.find("#include \"romextract.h\"") != std::string::npos);
+	REQUIRE(snd.find("#include \"romextract.h\"") == std::string::npos);
 	REQUIRE(snd.find("#include \"assetcatalog_load.h\"") !=
 	        std::string::npos);
 	REQUIRE(snd.find("static void *g_SndMp3SourceBytes = NULL") !=
@@ -1013,58 +1009,50 @@ TEST_CASE("MP3 file use enforces source-only audio before ROM fallback", "[catal
 	        std::string::npos);
 	REQUIRE(snd.find("static s32 sndMp3LoadPublicSourceFile") !=
 	        std::string::npos);
-	REQUIRE(snd.find("static s32 sndMp3ResolveSourceOrFallback") !=
+	REQUIRE(snd.find("static s32 sndMp3ResolvePublicSource") !=
 	        std::string::npos);
 	REQUIRE(snd.find("catalogResolveFile(filenum)") != std::string::npos);
 	REQUIRE(snd.find("fsFileLoad(source.path, &size)") != std::string::npos);
-	REQUIRE(snd.find("romExtractRelPathForFilenum(filenum, relpath") !=
-	        std::string::npos);
-	REQUIRE(snd.find("fsFileLoad(relpath, &size)") != std::string::npos);
+	REQUIRE(snd.find("romExtractRelPathForFilenum") == std::string::npos);
 	REQUIRE(snd.find("g_SndMp3SourceBytes = bytes") != std::string::npos);
-	REQUIRE(snd.find("assetSourceDebugIsEnabledFor(ASSET_AUDIO)") !=
+	REQUIRE(snd.find("assetSourceDebugIsEnabledFor(ASSET_AUDIO)") ==
 	        std::string::npos);
-	REQUIRE(snd.find("ASSET.SOURCE_ONLY: MP3 file") !=
+	REQUIRE(snd.find("ASSET.CHAIN: MP3 file") !=
 	        std::string::npos);
-	REQUIRE(snd.find("refusing loose extracted file or ROM/static playback fallback") !=
+	REQUIRE(snd.find("refusing loose extracted file or ROM playback fallback") !=
 	        std::string::npos);
-	REQUIRE(snd_start_mp3.find("sndMp3ResolveSourceOrFallback((s32)sp20.id") <
+	REQUIRE(snd_start_mp3.find("sndMp3ResolvePublicSource((s32)sp20.id") <
 	        snd_start_mp3.find("mp3PlayFile(g_SndCurMp3.romaddr, g_SndCurMp3.romsize)"));
-	REQUIRE(snd_mp3_resolve.find("sndMp3LoadPublicSourceFile(filenum, outaddr, outsize)") <
-	        snd_mp3_resolve.find("fileGetRomAddress(filenum)"));
+	REQUIRE(snd_mp3_resolve.find(
+		"return sndMp3LoadPublicSourceFile(filenum, outaddr, outsize)") !=
+	        std::string::npos);
 	const std::string snd_mp3_load =
 		functionBlock(snd, "static s32 sndMp3LoadPublicSourceFile");
 	REQUIRE(snd_mp3_load.find("catalogResolveFile(filenum)") <
-	        snd_mp3_load.find("romExtractRelPathForFilenum(filenum, relpath"));
-	REQUIRE(snd_mp3_load.find("assetSourceDebugIsEnabledFor(ASSET_AUDIO)") <
-	        snd_mp3_load.find("romExtractRelPathForFilenum(filenum, relpath"));
-	REQUIRE(propsnd.find("#include \"asset_source_debug.h\"") !=
+	        snd_mp3_load.find("fsFileLoad(source.path, &size)"));
+	REQUIRE(propsnd.find("#include \"asset_source_debug.h\"") ==
 	        std::string::npos);
 	REQUIRE(propsnd.find("#include \"fs.h\"") != std::string::npos);
-	REQUIRE(propsnd.find("#include \"romextract.h\"") != std::string::npos);
+	REQUIRE(propsnd.find("#include \"romextract.h\"") == std::string::npos);
 	REQUIRE(propsnd.find("#include \"assetcatalog_load.h\"") !=
 	        std::string::npos);
-	REQUIRE(propsnd.find("static s32 psMp3DurationGetSourceOrFallbackSize") !=
+	REQUIRE(propsnd.find("static s32 psMp3DurationGetPublicSourceSize") !=
 	        std::string::npos);
 	REQUIRE(propsnd.find("catalogResolveFile(filenum)") != std::string::npos);
 	REQUIRE(propsnd.find("fsFileSize(source.path)") != std::string::npos);
-	REQUIRE(propsnd.find("romExtractRelPathForFilenum(filenum, relpath") !=
+	REQUIRE(propsnd.find("romExtractRelPathForFilenum") ==
 	        std::string::npos);
-	REQUIRE(propsnd.find("fsFileSize(relpath)") != std::string::npos);
-	REQUIRE(propsnd.find("assetSourceDebugIsEnabledFor(ASSET_AUDIO)") !=
+	REQUIRE(propsnd.find("assetSourceDebugIsEnabledFor(ASSET_AUDIO)") ==
 	        std::string::npos);
-	REQUIRE(propsnd.find("ASSET.SOURCE_ONLY: MP3 file") !=
+	REQUIRE(propsnd.find("ASSET.CHAIN: MP3 file") !=
 	        std::string::npos);
-	REQUIRE(propsnd.find("refusing loose extracted file or ROM/static") !=
+	REQUIRE(propsnd.find("ROM/static file-size fallback.") !=
 	        std::string::npos);
-	REQUIRE(propsnd.find("psMp3DurationGetSourceOrFallbackSize((s32)soundnum.id)") !=
+	REQUIRE(propsnd.find("psMp3DurationGetPublicSourceSize((s32)soundnum.id)") !=
 	        std::string::npos);
 	REQUIRE(propsnd.find("catalogResolveFile(filenum)") <
-	        propsnd.find("romExtractRelPathForFilenum(filenum, relpath"));
-	REQUIRE(propsnd.find("assetSourceDebugIsEnabledFor(ASSET_AUDIO)") <
-	        propsnd.find("romExtractRelPathForFilenum(filenum, relpath"));
-	REQUIRE(propsnd.find("assetSourceDebugIsEnabledFor(ASSET_AUDIO)") <
-	        propsnd.find("fileGetRomSize(filenum)"));
-	REQUIRE(propsnd.find("fileGetRomSize(soundnum.id)") == std::string::npos);
+	        propsnd.find("fsFileSize(source.path)"));
+	REQUIRE(propsnd.find("fileGetRomSize(") == std::string::npos);
 
 	REQUIRE(guard.find("scan_mp3_audio_source_only_guard(root)") !=
 	        std::string::npos);
@@ -1120,13 +1108,13 @@ TEST_CASE("file-source sound playback failure refuses source-only ROM fallback",
 	        std::string::npos);
 	REQUIRE(snd.find("fxmix,\n\t\t\t\t\tfxbus,\n\t\t\t\t\tfile_fxmix_key_offset") !=
 	        std::string::npos);
-	REQUIRE(snd.find("ASSET.SOURCE_ONLY: sound %d maps to public file source") !=
+	REQUIRE(snd.find("ASSET.CHAIN: sound %d maps to public file source") !=
 	        std::string::npos);
-	REQUIRE(snd.find("but file playback failed; refusing ROM/static fallback") !=
+	REQUIRE(snd.find("but file playback failed; refusing native bank fallback") !=
 	        std::string::npos);
-	REQUIRE(snd.find("assetSourceDebugIsEnabledFor(ASSET_AUDIO)",
-		snd.find("audioStartFileSound(r.path, volume, pan")) <
-	        snd.find("MOD: sound %d catalog override failed (%s), falling back to ROM"));
+	REQUIRE(snd.find("assetSourceDebugIsEnabledFor(ASSET_AUDIO)") ==
+	        std::string::npos);
+	REQUIRE(snd.find("falling back to ROM") == std::string::npos);
 
 	REQUIRE(guard.find("scan_sound_file_source_only_guard(root)") !=
 	        std::string::npos);
@@ -1709,13 +1697,13 @@ TEST_CASE("typed catalog texture lifecycle activates texture payloads", "[catalo
 	REQUIRE(netdistrib.find("e->source_texnum = e->ext.texture.texture_id") != std::string::npos);
 	REQUIRE(source.find("stbi_load_from_memory") != std::string::npos);
 	REQUIRE(source.find("g_NotLoadMod && (!entry || !entry->bundled)") != std::string::npos);
-	REQUIRE(source.find("assetSourceDebugIsEnabledFor(ASSET_TEXTURE)") != std::string::npos);
+	REQUIRE(source.find("assetSourceDebugIsEnabledFor(ASSET_TEXTURE)") == std::string::npos);
 	REQUIRE(source.find("the selected public source is not an editable image source") != std::string::npos);
 	REQUIRE(tex.find("texLoadPublicRgba32Source") != std::string::npos);
 	REQUIRE(tex.find("tex->gbiformat = G_IM_FMT_RGBA") != std::string::npos);
 	REQUIRE(tex.find("tex->depth = G_IM_SIZ_32b") != std::string::npos);
 	REQUIRE(mod.find("skipping legacy compressed texture loader") != std::string::npos);
-	REQUIRE(mod.find("assetSourceDebugIsEnabledFor(ASSET_TEXTURE)") != std::string::npos);
+	REQUIRE(mod.find("assetSourceDebugIsEnabledFor(ASSET_TEXTURE)") == std::string::npos);
 	REQUIRE(mod.find("refusing legacy compressed texture fallback") != std::string::npos);
 }
 

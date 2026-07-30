@@ -15,6 +15,21 @@ evidence identifies and connects them. Required closure gates are `V-001`
 through `V-004` and `P-001`. Workbench statuses are verified truth, not the
 old board's aspirations.
 
+First hardening checkpoint, 2026-07-30: extractor failure aggregation
+(`T-ASSETS-002`), all-family child-emitter propagation (`T-ASSETS-003`),
+catalog-native meta loading (`T-RUNTIME-002`), archive-safe Modding Hub editing
+(`T-MODDING-006`), atomic archive mutation (`T-ARCHIVES-002`), and fail-loud
+descriptor parsing (`T-ARCHIVES-003`) are production-connected. Selected
+font/texture/sequence/animation/SFX/voice/MP3 paths (`T-RUNTIME-003`) and the
+guarded source contract (`T-RUNTIME-004`) now fail closed. The focused suite
+passes 63 cases / 11,744 assertions, the native-source guard passes, and the
+isolated all-target build passes. `T-ASSETS-006` is validated after restoring
+the ignored OBJ fixtures. Remaining critical implementation work includes
+`B-959` (placeholder/incomplete public meta families), `B-961` (custom bot
+profile catalog identity through selection/save/wire/runtime), induced
+runtime-failure receipts for the fail-closed lanes, and the full menu/input
+production-path sweep.
+
 **2026-07-07 FULL-PARITY EXTRACTION + UTILIZATION (historical completion evidence;
 current claims are being re-audited under `T-ASSETS-001`).**
 Mike directive: make `.pdxxx` a LOSSLESS, fully-utilized representation of the ROM so

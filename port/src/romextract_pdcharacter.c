@@ -396,5 +396,5 @@ s32 romExtractAllPdcharacter(s32 force_rewrite)
 		romExtractPdFastCacheWrite(PDCHARACTER_FAST_CACHE_KIND, characters_dir, ".pdcharacter");
 	}
 
-	return written;
+	return failed ? -1 : written;
 }

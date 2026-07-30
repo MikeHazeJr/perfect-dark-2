@@ -772,6 +772,6 @@ s32 romExtractAllPdfont(s32 force_rewrite)
 		romExtractPdFastCacheWrite(PDFONT_FAST_CACHE_KIND, fonts_dir, ".pdfont");
 	}
 
-	return written;
+	return failed ? -1 : written;
 #endif
 }

@@ -704,6 +704,6 @@ s32 romExtractAllPdlang(s32 force_rewrite)
 		romExtractPdFastCacheWrite(PDLANG_FAST_CACHE_KIND, lang_dir, ".pdlang");
 	}
 
-	return written;
+	return failed ? -1 : written;
 #endif
 }

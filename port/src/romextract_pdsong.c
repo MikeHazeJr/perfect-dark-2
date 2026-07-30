@@ -1096,5 +1096,5 @@ s32 romExtractAllPdsong(s32 force_rewrite)
 		romExtractPdFastCacheWrite("pdsong_sequence_json_v1", out_dir, ".pdsong");
 	}
 
-	return written;
+	return failed ? -1 : written;
 }

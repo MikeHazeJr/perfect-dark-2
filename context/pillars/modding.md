@@ -28,6 +28,34 @@ c3849 closure evidence below is an audit input, not a present-tense guarantee.
 boundary, creator flow, and runtime fallback; only durable current evidence may
 promote the associated Workbench validation gates.
 
+B-953/SP-22 has already disproved the old comprehensive-closure claim for the
+current tree: `.pdgamemode` fields reach extraction, registration, and a runtime
+binding, but several never reach production behavior, while a binding miss
+silently reuses the catalog mirror. Historical activation/source-presence
+receipts remain useful slice evidence; they cannot promote a family without
+field-level production-consumption proof.
+
+The 2026-07-30 propagation pass has now fixed B-953 through B-958 and the
+fail-closed runtime class B-960/B-963 at implementation level. Extraction and
+late UI repair aggregate every child failure; typed emitters return failure
+after completing their reporting walks; descriptor parsing fails instead of
+silently truncating; archive replacement no longer deletes the last good file
+before rename; Modding Hub edits canonical archive members; selected public
+font, texture, sequence, animation, SFX/voice, MP3 playback, and MP3-duration
+sources cannot re-enter native/ROM/loose-cache data. The updated source guard,
+isolated all-target build, and combined provider/archive suite pass (63 cases,
+11,744 assertions). These rows remain `implemented`, not `validated`, where a
+clean extractor receipt, induced failure receipt, or live MKB/controller path is
+still required. B-962 is validated: checked-in fixture/example OBJ creator
+source is no longer swallowed by the global build-object ignore.
+
+The same audit opened B-959 and B-961. B-959 covers metadata families whose
+public payloads are placeholder/synthetic or stop at generic bindings. B-961
+proves a catalog-extensible selector bug: custom `.pdbotprofile` entries are
+display-counted but converted back to `mp_index = -1`, and bot config/save/wire
+state has no profile catalog ID. Workbench `T-ASSETS-004` and `T-ASSETS-005`
+remain the durable truth for those unfinished production paths.
+
 As of 2026-06-17T15:45:00-04:00, `c3844` is closed at 100% and the follow-on
 `c3849` Wave 7 cutover is implemented for the current tree. The final c3844
 regression sweep stayed green, and Wave 7 adds product-default weapon graph

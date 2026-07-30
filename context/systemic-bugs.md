@@ -6,6 +6,31 @@
 
 ---
 
+## SP-26: Catalog-Extensible Selectors Collapse Back to Native Indices
+
+**Severity**: CRITICAL — advertised mod content appears in a selector but cannot be selected, persisted, or reconstructed
+
+**Root cause**: a selector correctly iterates catalog entries, then converts the chosen entry back to a legacy `runtime_index`, `mp_index`, table offset, enum, or type/difficulty tuple as its authoritative result. Base rows appear to work because their catalog rows mirror native tables. Creator-added rows have no native slot, normally carry `-1`, or collide with an existing tuple, so their catalog identity is lost immediately after selection.
+
+**Known instance (B-961)**:
+- `src/game/mplayer/setup.c::botprofilePickByIndexCb` returns `asset_entry.mp_index`.
+- Custom `.pdbotprofile` entries therefore turn into `-1` even though they were counted and displayed.
+- Downstream bot config/save/wire state stores legacy type/difficulty rather than the profile catalog ID.
+
+**Correct approach**:
+- Keep the full catalog ID as authoritative selector result and runtime state.
+- Persist and transmit the catalog ID through save/wire/manifest boundaries.
+- Resolve any legacy numeric value only at the final private gameplay boundary.
+- A custom catalog row must have an end-to-end test that selects it, survives save/reload and host/client reconstruction, and changes production behavior.
+
+**Propagation search**:
+```text
+rg -n "IterateUnlockedByType|runtime_index|mp_index|result_.*num|GETOPTIONTEXT|MENUOP_SET" src port
+```
+For each catalog-backed selector, compare the identity used for display with the identity stored by `MENUOP_SET`; they must be the same catalog ID domain.
+
+---
+
 ## SP-1: MAX_PLAYERS Array Indexed by Bot mpindex
 
 **Severity**: CRITICAL — ACCESS_VIOLATION crash
@@ -678,6 +703,144 @@ CHR subsystem. A 1-step symbolize of the crash RETURN STACK immediately showed
 `modelNodeGetPosition <- objDrop <- objDropRecursively <- objTickPlayer` -- an object drop,
 not a chr. **Pull and symbolize the crash stack BEFORE trusting a domain breadcrumb**; a
 breadcrumb tells you what ran last, not what crashed.
+
+---
+
+## SP-22: Public asset source fields stop at registration or silently fall back
+
+**Severity: HIGH — author edits can be accepted and activated without affecting
+production behavior.**
+
+The typed-archive pipeline has several independently successful layers:
+extraction, descriptor/manifest parsing, catalog registration, generic runtime
+binding, and the final native gameplay/renderer/audio consumer. Tests that stop
+at an accessible binding can report a family green even when no production
+consumer reads the binding, only a subset of fields is read, or a missing
+binding silently falls back to a parallel native/catalog table.
+
+**Known instance (B-953, `.pdgamemode`):** all public fields reach
+`asset_runtime_binding_t`, but `scenarioCtxAccepts` consumes only
+`gamemode_team_based`. `min_players`, `max_players`, public name/description,
+and the authored rules file do not control the scenario picker/rules path. The
+test suite explicitly pinned min/max as unwired. A missing binding warns once
+and uses `ext.gamemode.team_based`, so the source-chain failure is masked.
+
+**Related sites requiring propagation audit:** bot-profile creation/setup falls
+back to `g_BotProfiles`; theme registration falls back to a catalog
+FileProvider path; the generic runtime layer supports 21 metadata families, but
+direct `assetRuntimeFind*` production queries currently exist only for game
+modes, bot profiles, and themes. Specialized catalog/compiler consumers may be
+valid and must be credited separately; a binding with no consumer is not proof
+of production use.
+
+**Fix strategy:**
+
+1. Inventory every public field for every typed family.
+2. Trace each field through extractor, archive, scanner/walker, catalog,
+   provider, runtime adapter/cache builder, and a real production consumer.
+3. Add behavior-focused tests that change the public value and observe the
+   production result; do not accept source-presence/static-string assertions as
+   utilization proof.
+4. Remove or clearly reject unsupported fields instead of advertising inert
+   author controls.
+5. Under public-source ownership, treat a missing post-extraction binding/source
+   product as an asset-chain failure; do not silently substitute ROM or a
+   hand-maintained native mirror.
+
+**Search commands:**
+
+`rg -n "assetRuntimeFind|RUNTIME_MISS|using g_|using ext\\." port src`
+
+`rg -n "entry->ext\\.|binding->" port/src/asset_runtime.c <production-consumer>`
+
+---
+
+## SP-23: Aggregate operations log child failures but return success
+
+**Severity: CRITICAL — partial asset sets can receive success receipts.**
+
+A batch extractor, converter, loader, or registration walk tracks per-item
+failures and may even suppress its success cache, but returns only the number
+of successful writes/loads. Its caller therefore receives a nonnegative result
+for a partial data set and can publish a false completion receipt.
+
+**Known instance (B-958):** 12 typed-family emitter implementations and the
+post-texture UI repair path.
+
+**Fix strategy:**
+
+1. Continue the batch far enough to report every child failure.
+2. Return a negative aggregate result when any required child failed.
+3. Return a success/skip count only when the failure count is zero.
+4. Write fast-cache and completion receipts only after complete success.
+5. Preserve the same contract in late repair and retry paths.
+6. Enumerate every family in focused tests so a new emitter cannot silently
+   reintroduce the pattern.
+
+**Search command:**
+
+`rg -n "failed|failures|return written|return .*_written" port/src/romextract_pd*.c port/fast3d/pdgui_theme*.cpp`
+
+---
+
+## SP-24: Placeholder public source presented as extracted content
+
+**Severity: CRITICAL — creators can edit files that do not represent the game
+state and that the game does not execute.**
+
+An emitter creates a well-formed typed archive whose payload names an original
+backend, uses empty arrays, default colors, generic tuning, or prose such as
+`"source": "original_perfect_dark"`. The archive passes envelope and catalog
+tests, but it neither contains the complete source state nor drives the native
+production path. This is more dangerous than an absent format because the UI
+and validation surface imply mod support that does not exist.
+
+**Known instance (B-959):** `.pdhud`, `.pdmaterial`, `.pdskin`, `.pdvehicle`,
+`.pdprop`, `.pdbotprofile`, `.pdgamemode`, and parts of `.pdmission`.
+
+**Fix strategy:**
+
+1. Inventory the native state and behavior that each advertised family owns.
+2. Extract every supported field into an editable, named, source-faithful
+   schema; reject unsupported fields rather than filling placeholders.
+3. Compile or apply that same public source into the existing production
+   consumer, with source-hashed engine products only as private cache.
+4. Remove generic-activation-only claims; a binding without a consumer is
+   `partial`, not implemented.
+5. Add change-the-source/observe-production behavior tests and live evidence.
+
+**Search commands:**
+
+`rg -n "slots.: \\[\\]|source.*original_perfect_dark|parity_backend|default.*material|no consumer yet|ignored" port/src/romextract_pdmeta.c port/src port/fast3d src/game`
+
+`rg -n "assetRuntimeFind" port src -g "!asset_runtime.c" -g "!tests/**"`
+
+---
+
+## SP-25: Public-source failure gated only by optional debug mode
+
+**Severity: CRITICAL — production can silently ignore a broken or edited
+public archive.**
+
+A consumer resolves a FileProvider/public typed source, attempts to compile or
+play it, and only refuses the native fallback when `assetSourceDebugIsEnabled`
+is true. Normal builds therefore accept a source-chain break that source-only
+tests reject.
+
+**Known instance (B-960):** font segments, music sequences, animation clips,
+file-backed SFX/voice, and MP3 source.
+
+**Fix strategy:**
+
+- Once a typed public source is selected, failure is unconditional.
+- Optional debug flags may add diagnostics, never determine correctness.
+- Native/ROM/loose-cache paths are allowed only for a route that has not yet
+  selected a public source and is explicitly outside the migrated family.
+- Induced-failure tests must run without debug flags.
+
+**Search command:**
+
+`rg -n "assetSourceDebugIsEnabledFor|falling back|fallback to ROM|loose extracted|raw ROM bytes" port/src src/game src/lib`
 
 ---
 

@@ -156,14 +156,14 @@ s32 assetCatalogScanBotVariants(const char *modsdir);
  * INI key-value pair (parsed from .ini file).
  */
 typedef struct ini_pair {
-	char key[64];
-	char value[256];
+	char key[128];
+	char value[FS_MAXPATH + 1];
 } ini_pair_t;
 
 /**
  * Parsed INI section.
  */
-#define INI_MAX_PAIRS 32
+#define INI_MAX_PAIRS 96
 
 typedef struct ini_section {
 	char type[32];           /* section header: "map", "character", "textures", etc. */

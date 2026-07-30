@@ -4,7 +4,6 @@
 #include <PR/ultratypes.h>
 #include "assetcatalog.h"
 #include "assetcatalog_load.h"
-#include "asset_source_debug.h"
 #include "fs.h"
 #include "mod.h"
 #include "system.h"
@@ -157,12 +156,9 @@ s32 modTextureLoadRgba32Source(u16 num, mod_texture_rgba32_source_t *out)
 			return 0;
 		}
 		if (!source_path || !source_path[0]) {
-			if (assetSourceDebugIsEnabledFor(ASSET_TEXTURE)) {
-				modTextureFatalPublicEntryFailure(num, entry, source_path,
-					"the catalog entry has no public FileProvider image source");
-				return -1;
-			}
-			return 0;
+			modTextureFatalPublicEntryFailure(num, entry, source_path,
+				"the catalog entry has no public FileProvider image source");
+			return -1;
 		}
 	}
 
@@ -174,17 +170,14 @@ s32 modTextureLoadRgba32Source(u16 num, mod_texture_rgba32_source_t *out)
 	}
 
 	if (!modTexturePathHasImageExtension(source_path)) {
-		if (assetSourceDebugIsEnabledFor(ASSET_TEXTURE)) {
-			if (r.is_mod_override && r.path) {
-				modTextureFatalPublicSourceFailure(num, &r,
-					"the selected public source is not an editable image source");
-			} else {
-				modTextureFatalPublicEntryFailure(num, entry, source_path,
-					"the selected public source is not an editable image source");
-			}
-			return -1;
+		if (r.is_mod_override && r.path) {
+			modTextureFatalPublicSourceFailure(num, &r,
+				"the selected public source is not an editable image source");
+		} else {
+			modTextureFatalPublicEntryFailure(num, entry, source_path,
+				"the selected public source is not an editable image source");
 		}
-		return 0;
+		return -1;
 	}
 
 	file_data = (u8 *)fsFileLoad(source_path, &file_size);

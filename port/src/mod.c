@@ -13,7 +13,6 @@
 #include "assetcatalog_load.h"
 #include "asset_fallback_telemetry.h" /* c3849 Wave 1 */
 #include "lib/anim.h"   /* c3849 Wave 2: animGetTotalCount */
-#include "asset_source_debug.h"
 #include "modmusic.h"
 #include "modasset_compiler.h"
 
@@ -895,23 +894,11 @@ s32 modTextureLoad(u16 num, void *dst, u32 dstSize)
 				             (s32)num, r.path);
 				return -1;
 			}
-			if (assetSourceDebugIsEnabledFor(ASSET_TEXTURE)) {
-				sysFatalError("ASSET.SOURCE_ONLY: texture %d maps to public source '%s' "
-				              "but the catalog path is not an editable image source; "
-				              "refusing legacy compressed texture fallback.",
-				              (s32)num, r.path);
-				return -1;
-			}
-			const s32 ret = fsFileLoadTo(r.path, dst, dstSize);
-			if (ret > 0) {
-				sysLogPrintf(LOG_NOTE, "CATALOG: tex %d → mod override \"%s\" (entry %d)",
-				             (s32)num, r.path, r.catalog_id);
-				return ret;
-			}
-			sysLogPrintf(LOG_WARNING, "MOD: texture %d catalog override failed (%s), falling back to legacy path",
-			             (s32)num, r.path);
-			assetFallbackRecord(ASSET_TEXTURE, (s32)num,
-				"catalog override failed -> legacy/segment");
+			sysFatalError("ASSET.CHAIN: texture %d maps to public source '%s' "
+				"but the catalog path is not an editable image source; "
+				"refusing legacy compressed texture fallback.",
+				(s32)num, r.path);
+			return -1;
 		} else if (r.catalog_id >= 0) {
 			sysLogPrintf(LOG_NOTE, "CATALOG: tex %d → base (entry %d)", (s32)num, r.catalog_id);
 		} else {
@@ -947,19 +934,14 @@ void *modSequenceLoad(u16 num, u32 *outSize)
 		if (compiled) {
 			return compiled;
 		}
-		if (assetSourceDebugIsEnabledFor(ASSET_AUDIO)) {
+		{
 			const asset_entry_t *entry = assetCatalogGetByIndex(r.catalog_id);
-			sysFatalError("ASSET.SOURCE_ONLY: music sequence %d maps to public "
-			              "audio source '%s' for audio '%s' but sequencer-native "
-			              "public source compile failed; refusing ROM/static fallback.",
-			              (s32)num, r.path, entry ? entry->id : "?");
+			sysFatalError("ASSET.CHAIN: music sequence %d maps to public "
+				"audio source '%s' for audio '%s' but sequencer-native "
+				"public source compile failed; refusing legacy sequence fallback.",
+				(s32)num, r.path, entry ? entry->id : "?");
 			return NULL;
 		}
-		sysLoudFailf("FALLBACK",
-			"music sequence %d public source compile failed -> legacy sequence",
-			(s32)num);
-		assetFallbackRecord(ASSET_MUSIC, (s32)num,
-			"sequence source compile failed -> legacy");
 	}
 
 	if (r.source_only_blocked) {
@@ -1003,18 +985,11 @@ s32 modSequencePlayAudioSource(u16 num)
 	modMusicPlay(r.path);
 
 	if (!modMusicIsPlaying()) {
-		if (assetSourceDebugIsEnabledFor(ASSET_AUDIO)) {
-			const asset_entry_t *entry = assetCatalogGetByIndex(r.catalog_id);
-			sysFatalError("ASSET.SOURCE_ONLY: music sequence %d maps to public audio "
-			              "source '%s' for audio '%s' but streaming playback failed; "
-			              "refusing ROM/static fallback.",
-			              (s32)num, r.path, entry ? entry->id : "?");
-		}
-		sysLogPrintf(LOG_WARNING,
-		             "MOD: music sequence %d catalog audio source failed (%s), falling back to legacy sequence",
-		             (s32)num, r.path);
-		assetFallbackRecord(ASSET_MUSIC, (s32)num,
-			"audio source playback failed -> legacy sequence");
+		const asset_entry_t *entry = assetCatalogGetByIndex(r.catalog_id);
+		sysFatalError("ASSET.CHAIN: music sequence %d maps to public audio "
+			"source '%s' for audio '%s' but streaming playback failed; "
+			"refusing legacy sequence fallback.",
+			(s32)num, r.path, entry ? entry->id : "?");
 		return 0;
 	}
 
@@ -1094,26 +1069,13 @@ void *modAnimationLoadData(u16 num)
 				if (clip) {
 					return clip;
 				}
-				if (assetSourceDebugIsEnabledFor(ASSET_ANIMATION)) {
-					modAnimationFatalPublicSourceFailure(num, &r,
-						"runtime clip compilation failed");
-					return NULL;
-				}
-				sysFatalError("External animation %04x failed to compile from %s.", num, r.path);
-			}
-			if (assetSourceDebugIsEnabledFor(ASSET_ANIMATION)) {
 				modAnimationFatalPublicSourceFailure(num, &r,
-					"the selected public source is not editable GLTF/GLB animation source");
+					"runtime clip compilation failed");
 				return NULL;
 			}
-			void *data = fsFileLoad(r.path, NULL);
-			if (data) {
-				sysLogPrintf(LOG_NOTE, "CATALOG: anim %d → mod override \"%s\" (entry %d)",
-				             (s32)num, r.path, r.catalog_id);
-				return data;
-			}
-			sysLogPrintf(LOG_WARNING, "MOD: animation %d catalog override failed (%s), falling back to legacy path",
-			             (s32)num, r.path);
+			modAnimationFatalPublicSourceFailure(num, &r,
+				"the selected public source is not editable GLTF/GLB animation source");
+			return NULL;
 		} else if (r.catalog_id >= 0) {
 			sysLogPrintf(LOG_NOTE, "CATALOG: anim %d → base (entry %d)", (s32)num, r.catalog_id);
 		} else {
@@ -1153,31 +1115,13 @@ void *modAnimationTryCatalogOverride(u16 num)
 			if (clip) {
 				return clip;
 			}
-			if (assetSourceDebugIsEnabledFor(ASSET_ANIMATION)) {
-				modAnimationFatalPublicSourceFailure(num, &r,
-					"runtime clip compilation failed");
-				return NULL;
-			}
-			sysLogPrintf(LOG_WARNING,
-				"C-6: generated clip for ROM anim %d failed to build: %s",
-				(s32)num, path);
-			assetFallbackRecord(ASSET_ANIMATION, (s32)num,
-				"clip compile failed -> ROM segment");
-			return NULL;
-		}
-		if (assetSourceDebugIsEnabledFor(ASSET_ANIMATION)) {
 			modAnimationFatalPublicSourceFailure(num, &r,
-				"the selected public source is not editable GLTF/GLB animation source");
+				"runtime clip compilation failed");
 			return NULL;
 		}
-		void *data = fsFileLoad(path, NULL);
-		if (data) {
-			sysLogPrintf(LOG_NOTE, "CATALOG: anim %d → mod override (ROM base) \"%s\"", (s32)num, path);
-			return data;
-		}
-		sysLogPrintf(LOG_WARNING, "C-6: catalog override for ROM anim %d failed to load: %s", (s32)num, path);
-		assetFallbackRecord(ASSET_ANIMATION, (s32)num,
-			"override load failed -> ROM segment");
+		modAnimationFatalPublicSourceFailure(num, &r,
+			"the selected public source is not editable GLTF/GLB animation source");
+		return NULL;
 	}
 	return NULL;
 }

@@ -3674,27 +3674,18 @@ static void s_mpCollectBotHead(const asset_entry_t *e, void *userdata)
 	ctx->count++;
 }
 
-/* c3849 Wave 6a (Unit 10): botprofile meta-family runtime consumer.
- *
- * Resolves the catalog runtime binding for a g_BotProfiles[] index:
- * catalogIdByRuntime(ASSET_BOT_PROFILE, profilenum) maps the runtime
- * slot to a catalog id, then assetRuntimeFindByTypeAndId returns the
- * activated binding. Base profiles mirror g_BotProfiles[] exactly
- * (registered in assetcatalog_base_extended.c, copied verbatim by
- * assetRuntimeActivateCatalogEntry), so consumers may use binding
- * values directly without a gate.
- *
- * Binding presence is NOT guaranteed -- the bundled preload requires a
- * fileProvider primary -- so this is never a hard dependence: on miss
- * we log CATALOG.BOTPROFILE.RUNTIME_MISS once per session and return
- * NULL, and callers fall back to g_BotProfiles[]. */
+/* Public-source-owned bot profile lookup. Once extraction/catalog activation
+ * has completed, every base profile slot must resolve to its .pdbotprofile
+ * binding. A miss is an asset-chain failure, never permission to re-enter
+ * g_BotProfiles[]. */
 const struct asset_runtime_binding *mpBotProfileRuntimeBinding(s32 profilenum)
 {
-	static bool warned = false;
 	const char *asset_id;
 	const asset_runtime_binding_t *binding;
 
 	if (profilenum < 0 || profilenum >= (s32)ARRAYCOUNT(g_BotProfiles)) {
+		sysFatalError("ASSET.CHAIN: invalid bot profile runtime slot %d.",
+			profilenum);
 		return NULL;
 	}
 
@@ -3704,12 +3695,15 @@ const struct asset_runtime_binding *mpBotProfileRuntimeBinding(s32 profilenum)
 		: NULL;
 
 	if (!binding) {
-		if (!warned) {
-			warned = true;
-			sysLogPrintf(LOG_WARNING,
-				"CATALOG.BOTPROFILE.RUNTIME_MISS: profile %d (id %s) has no runtime binding; using g_BotProfiles",
-				profilenum, asset_id ? asset_id : "(none)");
-		}
+		sysFatalError("ASSET.CHAIN: bot profile %d (id %s) has no active "
+			"public-source binding; refusing g_BotProfiles fallback.",
+			profilenum, asset_id ? asset_id : "(none)");
+		return NULL;
+	}
+	if (!assetRuntimePrimaryFileAccessible(binding)) {
+		sysFatalError("ASSET.CHAIN: bot profile %d (id %s) source '%s' is "
+			"unreadable; refusing g_BotProfiles fallback.",
+			profilenum, asset_id, binding->primary_path);
 		return NULL;
 	}
 
@@ -3723,14 +3717,14 @@ void mpCreateBotFromProfile(s32 botnum, u8 profilenum)
 	u8 team = mpFindUnusedTeamNum();
 	s32 i;
 
-	/* c3849 Wave 6a: profile values come from the catalog runtime binding
-	 * (catalogIdByRuntime -> assetRuntimeFindByTypeAndId inside
-	 * mpBotProfileRuntimeBinding); value-identical to g_BotProfiles[] for
-	 * base profiles, with a logged native fallback on binding miss. */
+	/* Profile values come only from the active public-source binding. */
 	const struct asset_runtime_binding *profile = mpBotProfileRuntimeBinding(profilenum);
-	s32 profiletype = profile ? profile->bot_profile_type : g_BotProfiles[profilenum].type;
-	s32 profilediff = profile ? profile->bot_profile_difficulty : g_BotProfiles[profilenum].difficulty;
-	s32 profilebody = profile ? profile->bot_profile_body : g_BotProfiles[profilenum].body;
+	if (!profile) {
+		return;
+	}
+	s32 profiletype = profile->bot_profile_type;
+	s32 profilediff = profile->bot_profile_difficulty;
+	s32 profilebody = profile->bot_profile_body;
 
 	g_BotConfigsArray[botnum].type = (u8)profiletype;
 	g_BotConfigsArray[botnum].difficulty = (u8)profilediff;
@@ -3897,13 +3891,17 @@ s32 mpFindBotProfile(s32 type, s32 difficulty)
 
 	if (type == BOTTYPE_GENERAL) {
 		for (i = 0; i < ARRAYCOUNT(g_BotProfiles); i++) {
-			if (g_BotProfiles[i].difficulty == difficulty) {
+			const asset_runtime_binding_t *profile =
+				mpBotProfileRuntimeBinding(i);
+			if (profile && profile->bot_profile_difficulty == difficulty) {
 				break;
 			}
 		}
 	} else {
 		for (i = 0; i < ARRAYCOUNT(g_BotProfiles); i++) {
-			if (g_BotProfiles[i].type == type) {
+			const asset_runtime_binding_t *profile =
+				mpBotProfileRuntimeBinding(i);
+			if (profile && profile->bot_profile_type == type) {
 				break;
 			}
 		}
@@ -3956,7 +3954,10 @@ void mpGenerateBotNames(void)
 		if (profilenum >= 0 && profilenum < ARRAYCOUNT(g_BotProfiles)) {
 			// P2: Check for mod-provided bot name override
 			const char *modName = modmgrGetBotProfileName(profilenum);
-			const char *baseName = modName ? modName : langGet(g_BotProfiles[profilenum].name);
+			const asset_runtime_binding_t *profile =
+				mpBotProfileRuntimeBinding(profilenum);
+			const char *baseName = modName ? modName :
+				langGet(profile ? profile->bot_profile_name_langid : 0);
 
 			if (counts[profilenum] >= 0) {
 				// Multiple bots using this profile - append the number
@@ -4717,7 +4718,14 @@ void mpsetupfileSaveWad(struct savebuffer *buffer)
 				profilenum = 0;
 			}
 
-			mpbodynum = g_BotProfiles[profilenum].body;
+			{
+				const asset_runtime_binding_t *profile =
+					mpBotProfileRuntimeBinding(profilenum);
+				if (!profile) {
+					return;
+				}
+				mpbodynum = profile->bot_profile_body;
+			}
 		} else {
 			mpbodynum = g_BotConfigsArray[i].base.mpbodynum;
 		}

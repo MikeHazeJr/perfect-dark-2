@@ -9830,5 +9830,7 @@ s32 romExtractAllPdarena(s32 force_rewrite)
 		s_pdarenaCleanMarkerWrite(arenas_dir);
 	}
 
-	return arenas_written + scenarios_written;
+	return (arenas_failed || scenarios_failed)
+		? -1
+		: arenas_written + scenarios_written;
 }

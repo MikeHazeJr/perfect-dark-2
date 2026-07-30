@@ -203,6 +203,8 @@ typedef struct asset_entry {
 
     /* Filesystem */
     char dirpath[FS_MAXPATH];          /* absolute path to component folder */
+    char descriptor_path[FS_MAXPATH];  /* canonical editable source descriptor;
+                                        * may use archive::member chains */
 
     /* Common metadata */
     f32  model_scale;                  /* from .ini (default 1.0) */

@@ -24,6 +24,8 @@
 #include <stdint.h>
 #include <errno.h>
 #include <stdarg.h>
+#include <string>
+#include <vector>
 
 #include "glad/glad.h"
 #include "imgui/imgui.h"
@@ -41,6 +43,7 @@
 #include "pdgui_weapon_graph_node_editor.h"
 #include "system.h"
 #include "asset_mod_utility_contract.h"
+#include "asset_archive_policy.h"
 #include "assetcatalog.h"
 #include "assetcatalog_load.h"
 #include "assetcatalog_scanner.h"
@@ -112,9 +115,8 @@ void spawnPoolSmokeWriteCSV(const char *path);
 
 #define HUB_DIALOG_W     900.0f
 #define HUB_DIALOG_H     560.0f
-#define HUB_INI_MAX_KEYS  64
-#define HUB_INI_KEY_LEN   128
-#define HUB_INI_VAL_LEN   256
+#define HUB_INI_KEY_LEN   (FS_MAXPATH + 1)
+#define HUB_INI_VAL_LEN   (FS_MAXPATH + 1)
 #define HUB_MAX_ENTRIES   256
 
 /* ========================================================================
@@ -253,8 +255,13 @@ static s32    s_ChromePreviewTexH = 0;
 struct IniEntry {
     char id[CATALOG_ID_LEN];
     char dirpath[FS_MAXPATH];
+    char descriptor_ref[FS_MAXPATH];
+    char archive_path[FS_MAXPATH];
+    char descriptor_name[128];
     asset_type_e type;
     int  bundled;
+    int  archive_backed;
+    int  nested_archive;
 };
 
 struct IniKV {
@@ -262,15 +269,16 @@ struct IniKV {
     char val[HUB_INI_VAL_LEN];
     bool is_comment;   /* line was a comment — displayed greyed, not editable */
     bool is_blank;     /* blank line — preserved in save */
+    bool is_raw;       /* non-key line — preserved verbatim */
 };
 
 static IniEntry s_IniEntries[HUB_MAX_ENTRIES];
 static int      s_IniNumEntries = 0;
 static int      s_IniSelected   = -1;
 
-static IniKV    s_IniPairs[HUB_INI_MAX_KEYS];
-static int      s_IniNumPairs   = 0;
+static std::vector<IniKV> s_IniPairs;
 static bool     s_IniDirty      = false;
+static bool     s_IniLoadComplete = false;
 static char     s_IniStatusMsg[128] = "";
 static bool     s_IniStatusOk  = true;
 static bool     s_IniEmptyLogged = false;
@@ -382,9 +390,9 @@ static const char *iniNameForType(asset_type_e t)
         case ASSET_TEXTURES:    return "textures.ini";
         case ASSET_TEXTURE:     return "texture.ini";
         case ASSET_EFFECT:      return "effect.ini";
-        case ASSET_SFX:         return "sfx.ini";
+        case ASSET_SFX:         return "sound.ini";
         case ASSET_MUSIC:       return "music.ini";
-        case ASSET_AUDIO:       return "audio.ini";
+        case ASSET_AUDIO:       return "";
         case ASSET_PROP:        return "prop.ini";
         case ASSET_VEHICLE:     return "vehicle.ini";
         case ASSET_MISSION:     return "mission.ini";
@@ -399,6 +407,73 @@ static const char *iniNameForType(asset_type_e t)
         case ASSET_TOOL:        return "tool.ini";
         default:                return "";
     }
+}
+
+static const char *iniNameForEntry(const asset_entry_t *e)
+{
+    if (!e) return "";
+    if (e->type != ASSET_AUDIO) return iniNameForType(e->type);
+
+    switch (e->ext.audio.category) {
+        case AUDIO_CAT_MUSIC: return "music.ini";
+        case AUDIO_CAT_VOICE: return "voice.ini";
+        case AUDIO_CAT_SFX:
+        default:              return "sound.ini";
+    }
+}
+
+static const char *iniPathLeaf(const char *path)
+{
+    if (!path) return "";
+    const char *leaf = path;
+    for (const char *p = path; *p; p++) {
+        if (*p == '/' || *p == '\\') {
+            leaf = p + 1;
+        } else if (p[0] == ':' && p[1] == ':') {
+            leaf = p + 2;
+            p++;
+        }
+    }
+    return leaf;
+}
+
+static bool iniResolveDescriptor(const asset_entry_t *e, IniEntry *ie)
+{
+    if (!e || !ie) return false;
+
+    const char *canonicalName = iniNameForEntry(e);
+    if (!canonicalName[0]) return false;
+
+    if (e->descriptor_path[0]) {
+        snprintf(ie->descriptor_ref, sizeof(ie->descriptor_ref), "%s",
+                 e->descriptor_path);
+    } else {
+        snprintf(ie->descriptor_ref, sizeof(ie->descriptor_ref), "%s/%s",
+                 e->dirpath, canonicalName);
+    }
+    ie->descriptor_ref[sizeof(ie->descriptor_ref) - 1] = '\0';
+
+    snprintf(ie->descriptor_name, sizeof(ie->descriptor_name), "%s",
+             iniPathLeaf(ie->descriptor_ref));
+    ie->descriptor_name[sizeof(ie->descriptor_name) - 1] = '\0';
+
+    const char *sep = strstr(ie->descriptor_ref, "::");
+    if (!sep) return true;
+
+    size_t physicalLen = (size_t)(sep - ie->descriptor_ref);
+    if (physicalLen == 0 || physicalLen >= sizeof(ie->archive_path)) {
+        return false;
+    }
+    memcpy(ie->archive_path, ie->descriptor_ref, physicalLen);
+    ie->archive_path[physicalLen] = '\0';
+    ie->archive_backed = 1;
+
+    /* A standalone typed archive can be rewritten atomically. A descriptor
+     * inside a .pdmod transport (or another archive chain) is readable, but
+     * editing it in-place would mutate the transport package and potentially
+     * invalidate its manifest/signature. Keep that case clone-first. */
+    ie->nested_archive = !assetArchivePathIsTyped(ie->archive_path);
+    return true;
 }
 
 static const char *hubToolName(int tool)
@@ -426,14 +501,17 @@ static void iniCollectCallback(const asset_entry_t *e, void *ud)
     int *n = (int *)ud;
     if (*n >= HUB_MAX_ENTRIES) return;
     /* Only list entries that have an associated .ini */
-    if (iniNameForType(e->type)[0] == '\0') return;
-    IniEntry &ie = s_IniEntries[(*n)++];
+    if (iniNameForEntry(e)[0] == '\0') return;
+    IniEntry &ie = s_IniEntries[*n];
+    memset(&ie, 0, sizeof(ie));
     strncpy(ie.id, e->id, CATALOG_ID_LEN - 1);
     ie.id[CATALOG_ID_LEN - 1] = '\0';
     strncpy(ie.dirpath, e->dirpath, FS_MAXPATH - 1);
     ie.dirpath[FS_MAXPATH - 1] = '\0';
     ie.type    = e->type;
     ie.bundled = e->bundled;
+    if (!iniResolveDescriptor(e, &ie)) return;
+    (*n)++;
 }
 
 static const asset_type_e s_AllTypes[] = {
@@ -480,8 +558,9 @@ static void iniRefreshEntries(void)
     }
 
     s_IniSelected = -1;
-    s_IniNumPairs = 0;
+    s_IniPairs.clear();
     s_IniDirty    = false;
+    s_IniLoadComplete = false;
     s_IniStatusMsg[0] = '\0';
     s_IniEmptyLogged = false;
 
@@ -494,126 +573,189 @@ static void iniLoadFile(int idx)
 {
     if (idx < 0 || idx >= s_IniNumEntries) return;
     const IniEntry &ie = s_IniEntries[idx];
-    const char *iniName = iniNameForType(ie.type);
-    if (iniName[0] == '\0') return;
+    if (!ie.descriptor_ref[0]) return;
 
-    char path[FS_MAXPATH + 32];
-    snprintf(path, sizeof(path), "%s/%s", ie.dirpath, iniName);
-
-    FILE *f = fopen(path, "r");
-    if (!f) {
-        s_IniNumPairs = 0;
-        snprintf(s_IniStatusMsg, sizeof(s_IniStatusMsg), "File not found: %s", iniName);
+    u32 sourceSize = 0;
+    char *source = (char *)fsFileLoad(ie.descriptor_ref, &sourceSize);
+    if (!source) {
+        s_IniPairs.clear();
+        s_IniLoadComplete = false;
+        snprintf(s_IniStatusMsg, sizeof(s_IniStatusMsg), "Descriptor not found: %s",
+                 ie.descriptor_name);
         s_IniStatusOk = false;
         sysLogPrintf(LOG_WARNING,
                      "modhub.ini: load failed id='%s' path='%s' (not found)",
-                     ie.id, path);
+                     ie.id, ie.descriptor_ref);
         return;
     }
 
     sysLogPrintf(LOG_NOTE,
                  "modhub.ini: loading id='%s' path='%s'",
-                 ie.id, path);
+                 ie.id, ie.descriptor_ref);
 
-    s_IniNumPairs = 0;
-    char line[HUB_INI_KEY_LEN + HUB_INI_VAL_LEN + 4];
-    while (fgets(line, sizeof(line), f) && s_IniNumPairs < HUB_INI_MAX_KEYS) {
-        /* Strip trailing newline */
-        int len = (int)strlen(line);
-        while (len > 0 && (line[len-1] == '\n' || line[len-1] == '\r')) {
-            line[--len] = '\0';
-        }
+    s_IniPairs.clear();
+    s_IniLoadComplete = true;
+    size_t cursor = 0;
+    while (cursor < sourceSize) {
+        size_t end = cursor;
+        while (end < sourceSize && source[end] != '\n') end++;
+        size_t len = end - cursor;
+        if (len > 0 && source[cursor + len - 1] == '\r') len--;
 
-        IniKV &kv = s_IniPairs[s_IniNumPairs++];
-        kv.is_comment = false;
-        kv.is_blank   = false;
-
+        IniKV kv = {};
         if (len == 0) {
-            kv.key[0] = '\0'; kv.val[0] = '\0';
             kv.is_blank = true;
-            continue;
-        }
-        if (line[0] == '#' || line[0] == ';') {
-            strncpy(kv.key, line, HUB_INI_KEY_LEN - 1);
-            kv.key[HUB_INI_KEY_LEN - 1] = '\0';
-            kv.val[0] = '\0';
+        } else if (source[cursor] == '#' || source[cursor] == ';') {
+            if (len >= sizeof(kv.key)) {
+                s_IniLoadComplete = false;
+                break;
+            }
+            memcpy(kv.key, source + cursor, len);
+            kv.key[len] = '\0';
             kv.is_comment = true;
-            continue;
-        }
-        /* Parse key = value */
-        char *eq = strchr(line, '=');
-        if (eq) {
-            int klen = (int)(eq - line);
-            /* Trim trailing spaces from key */
-            while (klen > 0 && line[klen-1] == ' ') klen--;
-            strncpy(kv.key, line, klen < HUB_INI_KEY_LEN ? klen : HUB_INI_KEY_LEN - 1);
-            kv.key[klen < HUB_INI_KEY_LEN ? klen : HUB_INI_KEY_LEN - 1] = '\0';
-            /* Trim leading spaces from value */
-            const char *vstart = eq + 1;
-            while (*vstart == ' ') vstart++;
-            strncpy(kv.val, vstart, HUB_INI_VAL_LEN - 1);
-            kv.val[HUB_INI_VAL_LEN - 1] = '\0';
         } else {
-            strncpy(kv.key, line, HUB_INI_KEY_LEN - 1);
-            kv.key[HUB_INI_KEY_LEN - 1] = '\0';
-            kv.val[0] = '\0';
+            const char *lineStart = source + cursor;
+            const char *eq = (const char *)memchr(lineStart, '=', len);
+            if (!eq) {
+                if (len >= sizeof(kv.key)) {
+                    s_IniLoadComplete = false;
+                    break;
+                }
+                memcpy(kv.key, lineStart, len);
+                kv.key[len] = '\0';
+                kv.is_raw = true;
+            } else {
+                const char *keyStart = lineStart;
+                const char *keyEnd = eq;
+                const char *valueStart = eq + 1;
+                const char *valueEnd = lineStart + len;
+                while (keyStart < keyEnd
+                        && (*keyStart == ' ' || *keyStart == '\t')) keyStart++;
+                while (keyEnd > keyStart
+                        && (keyEnd[-1] == ' ' || keyEnd[-1] == '\t')) keyEnd--;
+                while (valueStart < valueEnd
+                        && (*valueStart == ' ' || *valueStart == '\t')) valueStart++;
+                while (valueEnd > valueStart
+                        && (valueEnd[-1] == ' ' || valueEnd[-1] == '\t')) valueEnd--;
+                size_t keyLen = (size_t)(keyEnd - keyStart);
+                size_t valueLen = (size_t)(valueEnd - valueStart);
+                if (keyLen == 0 || keyLen >= sizeof(kv.key)
+                        || valueLen >= sizeof(kv.val)) {
+                    s_IniLoadComplete = false;
+                    break;
+                }
+                memcpy(kv.key, keyStart, keyLen);
+                kv.key[keyLen] = '\0';
+                memcpy(kv.val, valueStart, valueLen);
+                kv.val[valueLen] = '\0';
+            }
         }
+        s_IniPairs.push_back(kv);
+        cursor = end < sourceSize ? end + 1 : end;
     }
-    fclose(f);
+    free(source);
+
+    if (!s_IniLoadComplete) {
+        s_IniPairs.clear();
+        s_IniDirty = false;
+        snprintf(s_IniStatusMsg, sizeof(s_IniStatusMsg),
+                 "Descriptor contains an overlong or invalid line; no partial edit allowed");
+        s_IniStatusOk = false;
+        sysLogPrintf(LOG_WARNING,
+                     "modhub.ini: rejected partial load id='%s' path='%s'",
+                     ie.id, ie.descriptor_ref);
+        return;
+    }
+
     s_IniDirty = false;
-    snprintf(s_IniStatusMsg, sizeof(s_IniStatusMsg), "Loaded: %s", iniName);
+    snprintf(s_IniStatusMsg, sizeof(s_IniStatusMsg), "Loaded: %s",
+             ie.descriptor_name);
     s_IniStatusOk = true;
 
     int editable = 0;
     int comments = 0;
     int blanks = 0;
-    for (int i = 0; i < s_IniNumPairs; i++) {
+    int raw = 0;
+    for (size_t i = 0; i < s_IniPairs.size(); i++) {
         if (s_IniPairs[i].is_blank) blanks++;
         else if (s_IniPairs[i].is_comment) comments++;
+        else if (s_IniPairs[i].is_raw) raw++;
         else editable++;
     }
     sysLogPrintf(LOG_NOTE,
-                 "modhub.ini: loaded id='%s' pairs=%d editable=%d comments=%d blanks=%d",
-                 ie.id, s_IniNumPairs, editable, comments, blanks);
+                 "modhub.ini: loaded id='%s' pairs=%u editable=%d comments=%d blanks=%d raw=%d",
+                 ie.id, (unsigned)s_IniPairs.size(), editable, comments, blanks, raw);
 }
 
 static bool iniSaveFile(int idx)
 {
     if (idx < 0 || idx >= s_IniNumEntries) return false;
     const IniEntry &ie = s_IniEntries[idx];
-    const char *iniName = iniNameForType(ie.type);
-    if (iniName[0] == '\0') return false;
-
-    char path[FS_MAXPATH + 32];
-    snprintf(path, sizeof(path), "%s/%s", ie.dirpath, iniName);
-
-    FILE *f = fopen(path, "w");
-    if (!f) {
-        snprintf(s_IniStatusMsg, sizeof(s_IniStatusMsg), "Save failed (read-only?)");
+    if (!ie.descriptor_ref[0] || !s_IniLoadComplete) return false;
+    if (ie.nested_archive) {
+        snprintf(s_IniStatusMsg, sizeof(s_IniStatusMsg),
+                 "Packaged .pdmod content is read-only here; clone it to a standalone asset first");
         s_IniStatusOk = false;
-        sysLogPrintf(LOG_WARNING,
-                     "modhub.ini: save failed id='%s' path='%s' (open failed)",
-                     ie.id, path);
         return false;
     }
 
-    for (int i = 0; i < s_IniNumPairs; i++) {
+    std::string output;
+    output.reserve(s_IniPairs.size() * 48);
+    for (size_t i = 0; i < s_IniPairs.size(); i++) {
         const IniKV &kv = s_IniPairs[i];
         if (kv.is_blank) {
-            fprintf(f, "\n");
-        } else if (kv.is_comment) {
-            fprintf(f, "%s\n", kv.key);
+            output += '\n';
+        } else if (kv.is_comment || kv.is_raw) {
+            output += kv.key;
+            output += '\n';
         } else {
-            fprintf(f, "%s = %s\n", kv.key, kv.val);
+            output += kv.key;
+            output += " = ";
+            output += kv.val;
+            output += '\n';
         }
     }
-    fclose(f);
+
+    bool saved = false;
+    s32 archiveResult = MODARCHIVE_OK;
+    if (ie.archive_backed) {
+        archiveResult = modArchiveReplaceFileMem(
+            ie.archive_path, ie.descriptor_name,
+            output.data(), (u32)output.size());
+        saved = archiveResult == MODARCHIVE_OK;
+    } else {
+        FILE *f = fopen(ie.descriptor_ref, "wb");
+        if (f) {
+            bool writeOk = output.empty()
+                || fwrite(output.data(), 1, output.size(), f) == output.size();
+            bool flushOk = fflush(f) == 0;
+            bool closeOk = fclose(f) == 0;
+            saved = writeOk && flushOk && closeOk;
+        }
+    }
+
+    if (!saved) {
+        snprintf(s_IniStatusMsg, sizeof(s_IniStatusMsg),
+                 "Save failed (%s, code %d)",
+                 ie.archive_backed ? "archive replace" : "file write",
+                 ie.archive_backed ? (int)archiveResult : errno);
+        s_IniStatusOk = false;
+        sysLogPrintf(LOG_WARNING,
+                     "modhub.ini: save failed id='%s' path='%s' code=%d",
+                     ie.id, ie.descriptor_ref,
+                     ie.archive_backed ? (int)archiveResult : errno);
+        return false;
+    }
+
     s_IniDirty = false;
-    snprintf(s_IniStatusMsg, sizeof(s_IniStatusMsg), "Saved: %s", iniName);
+    snprintf(s_IniStatusMsg, sizeof(s_IniStatusMsg),
+             "Saved: %s (Apply Changes to reload runtime)",
+             ie.descriptor_name);
     s_IniStatusOk = true;
     sysLogPrintf(LOG_NOTE,
-                 "modhub.ini: saved id='%s' path='%s' pairs=%d",
-                 ie.id, path, s_IniNumPairs);
+                 "modhub.ini: saved id='%s' path='%s' pairs=%u archive=%d",
+                 ie.id, ie.descriptor_ref, (unsigned)s_IniPairs.size(),
+                 ie.archive_backed);
     return true;
 }
 
@@ -3932,17 +4074,17 @@ static void renderIniEditor(float contentW, float contentH, float scale)
         ImGui::PushStyleColor(ImGuiCol_Text, pdguiVec4TitleGlow());
         ImGui::Text("%s", ie.id);
         ImGui::PopStyleColor();
-        ImGui::TextDisabled("[%s]", iniNameForType(ie.type));
+        ImGui::TextDisabled("[%s]", ie.descriptor_name);
         ImGui::Separator();
 
-        if (s_IniNumPairs == 0) {
+        if (s_IniPairs.empty()) {
             ImGui::TextDisabled("(empty or not found)");
         }
 
         float inputW = editW - 200.0f * scale;
         if (inputW < 80.0f * scale) inputW = 80.0f * scale;
 
-        for (int i = 0; i < s_IniNumPairs; i++) {
+        for (size_t i = 0; i < s_IniPairs.size(); i++) {
             IniKV &kv = s_IniPairs[i];
             if (kv.is_blank) {
                 ImGui::Spacing();
@@ -3954,6 +4096,10 @@ static void renderIniEditor(float contentW, float contentH, float scale)
                 ImGui::PopStyleColor();
                 continue;
             }
+            if (kv.is_raw) {
+                ImGui::TextUnformatted(kv.key);
+                continue;
+            }
             /* Key label (right-aligned in 130px column) */
             ImGui::PushStyleColor(ImGuiCol_Text, pdguiVec4TextWarning(200));
             ImGui::Text("%-20s", kv.key);
@@ -3961,7 +4107,7 @@ static void renderIniEditor(float contentW, float contentH, float scale)
             ImGui::SameLine();
 
             char inputId[32];
-            snprintf(inputId, sizeof(inputId), "##ini_v%d", i);
+            snprintf(inputId, sizeof(inputId), "##ini_v%u", (unsigned)i);
             ImGui::SetNextItemWidth(inputW);
             if (ImGui::InputText(inputId, kv.val, HUB_INI_VAL_LEN)) {
                 bool wasDirty = s_IniDirty;
@@ -3990,13 +4136,21 @@ static void renderIniEditor(float contentW, float contentH, float scale)
     }
 
     if (s_IniSelected >= 0 && !s_IniEntries[s_IniSelected].bundled) {
+        const IniEntry &selected = s_IniEntries[s_IniSelected];
         ImGui::SameLine(contentW - 90.0f * scale);
-        bool saveDisabled = !s_IniDirty;
+        bool saveDisabled = !s_IniDirty || !s_IniLoadComplete
+            || selected.nested_archive;
         if (saveDisabled) ImGui::BeginDisabled();
         if (PdButton("Save", ImVec2(80.0f * scale, 28.0f * scale))) {
             iniSaveFile(s_IniSelected);
         }
         if (saveDisabled) ImGui::EndDisabled();
+        if (selected.nested_archive && ImGui::IsItemHovered(
+                ImGuiHoveredFlags_AllowWhenDisabled)) {
+            ImGui::SetTooltip(
+                "This asset is inside a transport package. Clone it to a "
+                "standalone typed archive before editing.");
+        }
     }
 }
 

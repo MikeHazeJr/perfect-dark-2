@@ -449,5 +449,5 @@ s32 romExtractAllPdbody(s32 force_rewrite)
 		romExtractPdFastCacheWrite(PDBODY_FAST_CACHE_KIND, bodies_dir, ".pdbody");
 	}
 
-	return written;
+	return failed ? -1 : written;
 }

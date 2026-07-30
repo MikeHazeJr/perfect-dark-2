@@ -3102,7 +3102,7 @@ extern "C" int pdguiThemeEmitPduiZips(int force)
         "PDGUI emit: pdui written=%d skipped=%d failed=%d total=%zu (out=%s)",
         written, skipped, failed, K_PDUI_ENTRY_COUNT, ui_dir);
 
-    return written;
+    return failed ? -1 : written;
 }
 
 void pdguiThemeExtractRomTextures(void)

@@ -1,0 +1,9 @@
+# Creator-source OBJ fixture: one UV-mapped triangle.
+o tri_arena
+v 0.0 0.0 0.0
+v 100.0 0.0 0.0
+v 0.0 0.0 100.0
+vt 0.0 0.0
+vt 1.0 0.0
+vt 0.0 1.0
+f 1 2 3

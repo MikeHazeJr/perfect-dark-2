@@ -2434,6 +2434,59 @@ def scan_character_manager_modeldef_source_only_guards(root: Path) -> list[str]:
     return errors
 
 
+def scan_texture_source_fail_closed_guard(root: Path) -> list[str]:
+    try:
+        source = read_text(root, "port/src/mod_texture_source.c")
+        mod = read_text(root, "port/src/mod.c")
+    except AssertionError as exc:
+        return [str(exc)]
+
+    error = (
+        "public texture source must fail closed before native or compressed "
+        "texture fallback"
+    )
+    required = [
+        "s32 modTextureLoadRgba32Source(u16 num",
+        "modTextureFatalPublicEntryFailure(num, entry, source_path",
+        "the catalog entry has no public FileProvider image source",
+        "modTextureFatalPublicSourceFailure(num, &r",
+        "the selected public source is not an editable image source",
+        "the image file could not be read",
+        "the image could not be decoded",
+    ]
+    missing = [needle for needle in required if needle not in source]
+    errors: list[str] = []
+    if missing:
+        errors.append(error + ": missing " + ", ".join(missing))
+
+    for path, text in (
+        ("port/src/mod_texture_source.c", source),
+        ("port/src/mod.c", mod),
+    ):
+        if "assetSourceDebugIsEnabledFor(ASSET_TEXTURE)" in text:
+            errors.append(
+                error + f": {path} retains optional texture debug gating"
+            )
+
+    blocks = {
+        name: source[start:end]
+        for name, start, end in iter_c_function_blocks(source)
+    }
+    block = blocks.get("modTextureLoadRgba32Source", "")
+    for reason in (
+        "the catalog entry has no public FileProvider image source",
+        "the selected public source is not an editable image source",
+    ):
+        reason_index = block.find(reason)
+        fail_index = block.find("return -1;", reason_index)
+        if reason_index == -1 or fail_index == -1:
+            errors.append(
+                error + f": adapter does not return failure after {reason}"
+            )
+
+    return errors
+
+
 def scan_music_sequence_source_only_guard(root: Path) -> list[str]:
     try:
         load_h = read_text(root, "port/include/assetcatalog_load.h")
@@ -2467,7 +2520,6 @@ def scan_music_sequence_source_only_guard(root: Path) -> list[str]:
         "port/src/mod.c": (
             mod,
             [
-                "#include \"asset_source_debug.h\"",
                 "catalogResolveMusicSequence((s32)num)",
                 "modSequencePlayAudioSource(u16 num)",
                     "modSequencePathHasAudioExtension(r.path)",
@@ -2490,8 +2542,8 @@ def scan_music_sequence_source_only_guard(root: Path) -> list[str]:
                     "sequencer-native ",
                     "public source compile failed",
                     "but has no public FileProvider source",
-                    "assetSourceDebugIsEnabledFor(ASSET_AUDIO)",
-                    "refusing ROM/static fallback",
+                    "ASSET.CHAIN: music sequence",
+                    "refusing legacy sequence fallback",
                 ],
             ),
         "src/lib/snd.c": (
@@ -2546,18 +2598,6 @@ def scan_music_sequence_source_only_guard(root: Path) -> list[str]:
               "port/src/mod.c",
               mod_sequence,
               "modSequenceCompilePublicSource(&r, num, outSize)",
-              "assetSourceDebugIsEnabledFor(ASSET_AUDIO)",
-          ),
-          (
-              "port/src/mod.c",
-              mod_sequence,
-              "assetSourceDebugIsEnabledFor(ASSET_AUDIO)",
-              "r.source_only_blocked",
-          ),
-          (
-              "port/src/mod.c",
-              mod_sequence,
-              "modSequenceCompilePublicSource(&r, num, outSize)",
               "fsFileSize(MOD_SEQUENCES_DIR \"/\")",
           ),
         (
@@ -2581,8 +2621,8 @@ def scan_music_sequence_source_only_guard(root: Path) -> list[str]:
         (
             "port/src/mod.c",
             mod_sequence_audio,
-            "assetSourceDebugIsEnabledFor(ASSET_AUDIO)",
-            "falling back to legacy sequence",
+            "modMusicIsPlaying()",
+            "sysFatalError(\"ASSET.CHAIN: music sequence",
         ),
         (
             "src/lib/snd.c",
@@ -2641,10 +2681,8 @@ def scan_sound_file_source_only_guard(root: Path) -> list[str]:
         "entry ? entry->ext.audio.has_envelope : 0",
         "entry ? entry->ext.audio.attack_time_us : 0",
         "entry ? entry->ext.audio.release_time_us : 0",
-        "assetSourceDebugIsEnabledFor(ASSET_AUDIO)",
-        "ASSET.SOURCE_ONLY: sound %d maps to public file source",
-        "but file playback failed; refusing ROM/static fallback",
-        "MOD: sound %d catalog override failed (%s), falling back to ROM",
+        "ASSET.CHAIN: sound %d maps to public file source",
+        "but file playback failed; refusing native bank fallback",
     ]
     missing = [needle for needle in required if needle not in text]
     errors: list[str] = []
@@ -2659,21 +2697,29 @@ def scan_sound_file_source_only_guard(root: Path) -> list[str]:
     }
     block = blocks.get("sndStart", "")
     play = "audioStartFileSound(r.path, volume, pan"
-    before = "assetSourceDebugIsEnabledFor(ASSET_AUDIO)"
-    after = "MOD: sound %d catalog override failed (%s), falling back to ROM"
+    fail = "ASSET.CHAIN: sound %d maps to public file source"
     play_index = block.find(play)
-    before_index = block.find(before, play_index if play_index >= 0 else 0)
-    after_index = block.find(after)
+    fail_index = block.find(fail, play_index if play_index >= 0 else 0)
+    return_index = block.find("return NULL;", fail_index if fail_index >= 0 else 0)
     if (
         play_index == -1
-        or before_index == -1
-        or after_index == -1
-        or not (play_index < before_index < after_index)
+        or fail_index == -1
+        or return_index == -1
+        or not (play_index < fail_index < return_index)
     ):
         errors.append(
             SOUND_FILE_SOURCE_ONLY_ERROR
-            + ": sndStart must refuse source-only fallback after file playback failure"
+            + ": sndStart must fail closed after public file playback failure"
         )
+    for forbidden in (
+        "assetSourceDebugIsEnabledFor(ASSET_AUDIO)",
+        "falling back to ROM",
+    ):
+        if forbidden in block:
+            errors.append(
+                SOUND_FILE_SOURCE_ONLY_ERROR
+                + f": sndStart retains forbidden fallback gate/text {forbidden}"
+            )
 
     return errors
 
@@ -2686,44 +2732,31 @@ def scan_mp3_audio_source_only_guard(root: Path) -> list[str]:
         return [str(exc)]
 
     snd_required = [
-        '#include "asset_source_debug.h"',
         '#include "fs.h"',
-        '#include "romextract.h"',
         '#include "assetcatalog_load.h"',
         "static void *g_SndMp3SourceBytes = NULL",
         "static void sndMp3FreeSourceBuffer(void)",
         "static s32 sndMp3LoadPublicSourceFile(s32 filenum",
-        "static s32 sndMp3ResolveSourceOrFallback(s32 filenum",
+        "static s32 sndMp3ResolvePublicSource(s32 filenum",
         "catalogResolveFile(filenum)",
         "fsFileLoad(source.path, &size)",
-        "romExtractRelPathForFilenum(filenum, relpath",
-        "fsFileLoad(relpath, &size)",
         "g_SndMp3SourceBytes = bytes",
         "sndMp3FreeSourceBuffer()",
-        "assetSourceDebugIsEnabledFor(ASSET_AUDIO)",
-        "ASSET.SOURCE_ONLY: MP3 file",
-        "refusing loose extracted file or ROM/static playback fallback",
-        "sndMp3ResolveSourceOrFallback((s32)sp20.id",
-        "fileGetRomAddress(filenum)",
-        "fileGetRomSize(filenum)",
+        "ASSET.CHAIN: MP3 file",
+        "refusing loose extracted file or ROM playback fallback",
+        "sndMp3ResolvePublicSource((s32)sp20.id",
         "mp3PlayFile(g_SndCurMp3.romaddr, g_SndCurMp3.romsize)",
     ]
 
     propsnd_required = [
-        '#include "asset_source_debug.h"',
         '#include "fs.h"',
-        '#include "romextract.h"',
         '#include "assetcatalog_load.h"',
-        "static s32 psMp3DurationGetSourceOrFallbackSize(s32 filenum)",
+        "static s32 psMp3DurationGetPublicSourceSize(s32 filenum)",
         "catalogResolveFile(filenum)",
         "fsFileSize(source.path)",
-        "romExtractRelPathForFilenum(filenum, relpath",
-        "fsFileSize(relpath)",
-        "assetSourceDebugIsEnabledFor(ASSET_AUDIO)",
-        "ASSET.SOURCE_ONLY: MP3 file",
-        "refusing loose extracted file or ROM/static",
-        "psMp3DurationGetSourceOrFallbackSize((s32)soundnum.id)",
-        "fileGetRomSize(filenum)",
+        "ASSET.CHAIN: MP3 file",
+        "ROM/static file-size fallback.",
+        "psMp3DurationGetPublicSourceSize((s32)soundnum.id)",
     ]
 
     missing = [needle for needle in snd_required if needle not in snd_text]
@@ -2744,7 +2777,7 @@ def scan_mp3_audio_source_only_guard(root: Path) -> list[str]:
     blocks = {name: snd_text[start:end]
               for name, start, end in iter_c_function_blocks(snd_text)}
     start_block = blocks.get("sndStartMp3", "")
-    resolve_block = blocks.get("sndMp3ResolveSourceOrFallback", "")
+    resolve_block = blocks.get("sndMp3ResolvePublicSource", "")
     load_block = blocks.get("sndMp3LoadPublicSourceFile", "")
 
     if "g_AudioConfigs[sp24.confignum]" in start_block:
@@ -2773,26 +2806,20 @@ def scan_mp3_audio_source_only_guard(root: Path) -> list[str]:
         (
             "sndStartMp3",
             start_block,
-            "sndMp3ResolveSourceOrFallback((s32)sp20.id",
+            "sndMp3ResolvePublicSource((s32)sp20.id",
             "mp3PlayFile(g_SndCurMp3.romaddr, g_SndCurMp3.romsize)",
         ),
         (
-            "sndMp3ResolveSourceOrFallback",
+            "sndMp3ResolvePublicSource",
             resolve_block,
+            "return sndMp3LoadPublicSourceFile",
             "sndMp3LoadPublicSourceFile(filenum, outaddr, outsize)",
-            "fileGetRomAddress(filenum)",
         ),
         (
             "sndMp3LoadPublicSourceFile",
             load_block,
             "catalogResolveFile(filenum)",
-            "romExtractRelPathForFilenum(filenum, relpath",
-        ),
-        (
-            "sndMp3LoadPublicSourceFile",
-            load_block,
-            "assetSourceDebugIsEnabledFor(ASSET_AUDIO)",
-            "romExtractRelPathForFilenum(filenum, relpath",
+            "fsFileLoad(source.path, &size)",
         ),
         (
             "sndMp3LoadPublicSourceFile",
@@ -2814,31 +2841,19 @@ def scan_mp3_audio_source_only_guard(root: Path) -> list[str]:
         name: propsnd_text[start:end]
         for name, start, end in iter_c_function_blocks(propsnd_text)
     }
-    duration_block = blocks.get("psMp3DurationGetSourceOrFallbackSize", "")
+    duration_block = blocks.get("psMp3DurationGetPublicSourceSize", "")
     ps_block = blocks.get("psGetDuration60", "")
     duration_checks = [
         (
-            "psMp3DurationGetSourceOrFallbackSize",
+            "psMp3DurationGetPublicSourceSize",
             duration_block,
             "catalogResolveFile(filenum)",
-            "romExtractRelPathForFilenum(filenum, relpath",
-        ),
-        (
-            "psMp3DurationGetSourceOrFallbackSize",
-            duration_block,
-            "assetSourceDebugIsEnabledFor(ASSET_AUDIO)",
-            "romExtractRelPathForFilenum(filenum, relpath",
-        ),
-        (
-            "psMp3DurationGetSourceOrFallbackSize",
-            duration_block,
-            "assetSourceDebugIsEnabledFor(ASSET_AUDIO)",
-            "fileGetRomSize(filenum)",
+            "fsFileSize(source.path)",
         ),
         (
             "psGetDuration60",
             ps_block,
-            "psMp3DurationGetSourceOrFallbackSize((s32)soundnum.id)",
+            "psMp3DurationGetPublicSourceSize((s32)soundnum.id)",
             "* 60 / (1024 * 24 / 8)",
         ),
     ]
@@ -2851,11 +2866,23 @@ def scan_mp3_audio_source_only_guard(root: Path) -> list[str]:
                 + f": {block_name} must check {before} before {after}"
             )
 
-    if "fileGetRomSize(soundnum.id)" in ps_block:
-        errors.append(
-            MP3_DURATION_SOURCE_ONLY_ERROR
-            + ": psGetDuration60 must not read ROM size directly"
-        )
+    for path, text in (
+        ("src/lib/snd.c", snd_text),
+        ("src/game/propsnd.c", propsnd_text),
+    ):
+        for forbidden in (
+            "assetSourceDebugIsEnabledFor(ASSET_AUDIO)",
+            "romExtractRelPathForFilenum",
+            "fileGetRomAddress(filenum)",
+            "fileGetRomSize(filenum)",
+            "sndMp3ResolveSourceOrFallback",
+            "psMp3DurationGetSourceOrFallbackSize",
+        ):
+            if forbidden in text:
+                errors.append(
+                    MP3_AUDIO_SOURCE_ONLY_ERROR
+                    + f": {path} retains forbidden MP3 fallback {forbidden}"
+                )
 
     return errors
 
@@ -6918,6 +6945,7 @@ def main(argv: list[str]) -> int:
     errors.extend(scan_forge_runtime_source_only_guards(root))
     errors.extend(scan_setup_modeldef_source_only_guard(root))
     errors.extend(scan_character_manager_modeldef_source_only_guards(root))
+    errors.extend(scan_texture_source_fail_closed_guard(root))
     errors.extend(scan_music_sequence_source_only_guard(root))
     errors.extend(scan_sound_file_source_only_guard(root))
     errors.extend(scan_mp3_audio_source_only_guard(root))

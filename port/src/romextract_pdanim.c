@@ -544,5 +544,5 @@ s32 romExtractAllPdanim(s32 force_rewrite)
 		"romextract pdanim: written=%d skipped=%d failed=%d total=%d",
 		written, skipped, failed, g_AnimDataCount);
 
-	return written;
+	return failed ? -1 : written;
 }

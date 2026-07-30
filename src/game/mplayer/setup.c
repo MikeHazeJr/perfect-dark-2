@@ -3361,19 +3361,15 @@ MenuItemHandlerResult mpAddChangeSimulantMenuHandler(s32 operation, struct menui
 			if (creating) {
 				mpCreateBotFromProfile(botnum, profnum);
 			} else {
-				/* c3849 Wave 6a: prefer the catalog runtime binding
-				 * (value-identical to g_BotProfiles[] for base profiles);
-				 * logged native fallback when the binding is missing. */
+				/* Public-source-owned bot profile values. */
 				const struct asset_runtime_binding *profile = mpBotProfileRuntimeBinding(profnum);
-				if (profile) {
-					g_BotConfigsArray[botnum].type = (u8)profile->bot_profile_type;
-				} else {
-					g_BotConfigsArray[botnum].type = g_BotProfiles[profnum].type;
+				if (!profile) {
+					break;
 				}
+				g_BotConfigsArray[botnum].type = (u8)profile->bot_profile_type;
 				if (g_BotConfigsArray[botnum].type == BOTTYPE_GENERAL) {
-					mpSetBotDifficulty(botnum, profile
-						? profile->bot_profile_difficulty
-						: g_BotProfiles[profnum].difficulty);
+					mpSetBotDifficulty(botnum,
+						profile->bot_profile_difficulty);
 				}
 			}
 		}
@@ -3606,7 +3602,11 @@ MenuItemHandlerResult menuhandlerMpChangeSimulantType(s32 operation, struct menu
 				g_BotConfigsArray[g_Menus[g_MpPlayerNum].mpsetup.slotindex].difficulty);
 
 		for (i = 0; i < profilenum; i++) {
-			if (challengeIsFeatureUnlocked(g_BotProfiles[i].requirefeature)) {
+			const struct asset_runtime_binding *profile =
+				mpBotProfileRuntimeBinding(i);
+			if (profile
+					&& challengeIsFeatureUnlocked(
+						profile->bot_profile_requirefeature)) {
 				count++;
 			}
 		}
@@ -5759,7 +5759,11 @@ MenuItemHandlerResult mpQuickTeamSimulantDifficultyHandler(s32 operation, struct
 	switch (operation) {
 	case MENUOP_GETOPTIONCOUNT:
 		for (i = 0; i < NUM_BOTDIFFS; i++) {
-			if (challengeIsFeatureUnlocked(g_BotProfiles[i].requirefeature)) {
+			const struct asset_runtime_binding *profile =
+				mpBotProfileRuntimeBinding(i);
+			if (profile
+					&& challengeIsFeatureUnlocked(
+						profile->bot_profile_requirefeature)) {
 				count++;
 			}
 		}
@@ -5768,7 +5772,11 @@ MenuItemHandlerResult mpQuickTeamSimulantDifficultyHandler(s32 operation, struct
 		break;
 	case MENUOP_GETOPTIONTEXT:
 		for (i = 0; i < NUM_BOTDIFFS; i++) {
-			if (challengeIsFeatureUnlocked(g_BotProfiles[i].requirefeature)) {
+			const struct asset_runtime_binding *profile =
+				mpBotProfileRuntimeBinding(i);
+			if (profile
+					&& challengeIsFeatureUnlocked(
+						profile->bot_profile_requirefeature)) {
 				if (count == data->dropdown.value) {
 					return (uintptr_t) langGet(i + L_MISC_082);
 				}
