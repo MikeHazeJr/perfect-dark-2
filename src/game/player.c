@@ -1,5 +1,6 @@
 #include <ultra64.h>
 #include "constants.h"
+#include "asset_runtime.h"
 #include "game/bondeyespy.h"
 #include "game/bondmove.h"
 #include "game/cheats.h"
@@ -4299,6 +4300,9 @@ void playerDisplayDamage(void)
 
 Gfx *playerRenderHealthBar(Gfx *gdl)
 {
+	if (!assetRuntimeHudElementEnabled(HUD_ELEM_HEALTH)) {
+		return gdl;
+	}
 	Mtxf matrix;
 	Mtxf *addr = gfxAllocateMatrix();
 

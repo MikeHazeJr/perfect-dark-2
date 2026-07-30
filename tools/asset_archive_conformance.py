@@ -1663,6 +1663,37 @@ def parse_ini_values(text: str) -> dict[str, str]:
     return values
 
 
+def is_finite_json_number(value: object) -> bool:
+    return (
+        isinstance(value, (int, float))
+        and not isinstance(value, bool)
+        and math.isfinite(float(value))
+    )
+
+
+def validate_catalog_bound_json(
+    label: str,
+    member: str,
+    value: dict[str, object],
+    expected_schema: str,
+    catalog_id: str,
+    errors: list[str],
+) -> bool:
+    if not value:
+        errors.append(f"{label} {member} must be a readable JSON object")
+        return False
+    if value.get("schema") != expected_schema:
+        errors.append(
+            f"{label} {member} must declare schema {expected_schema}"
+        )
+    if value.get("catalog_id") != catalog_id:
+        errors.append(
+            f"{label} {member} catalog_id must match the public descriptor "
+            f"catalog_id {catalog_id!r}"
+        )
+    return True
+
+
 def validate_prop_source_contract(label: str, zf: zipfile.ZipFile,
                                   name_set: set[str],
                                   errors: list[str]) -> None:
@@ -2031,6 +2062,68 @@ def validate_vehicle_source_contract(label: str, zf: zipfile.ZipFile,
         errors.append(
             f"{label} vehicle.ini must declare behavior_graph = behavior.graph.json"
         )
+
+    catalog_id = descriptor_values.get("catalog_id", "")
+    physics = read_json_member(zf, "physics.json")
+    if validate_catalog_bound_json(
+            label, "physics.json", physics, "pd2.vehicle.physics.v2",
+            catalog_id, errors):
+        if physics.get("archetype") != "hoverbike":
+            errors.append(
+                f"{label} physics.json archetype must be 'hoverbike'"
+            )
+        numeric_fields = (
+            "turn_input_scale",
+            "reverse_turn_gain",
+            "steering_response_ntsc",
+            "steering_response_pal",
+            "turn_visual_scale",
+            "input_response",
+            "forward_input_scale",
+            "lateral_input_scale",
+            "lean_response",
+            "forward_base",
+            "forward_accel_gain",
+            "reverse_base",
+            "drag_ntsc",
+            "drag_pal",
+            "forward_thrust",
+            "lateral_thrust",
+            "forward_tilt",
+            "lateral_tilt",
+            "tilt_response_ntsc",
+            "tilt_response_pal",
+            "yaw_response_ntsc",
+            "yaw_response_pal",
+            "boost_speed",
+            "boost_time_ticks60",
+        )
+        for field_name in numeric_fields:
+            value = physics.get(field_name)
+            if not is_finite_json_number(value) or float(value) < 0.0:
+                errors.append(
+                    f"{label} physics.json {field_name} must be a finite "
+                    "non-negative number"
+                )
+        hover = physics.get("hover")
+        if (
+            not isinstance(hover, list)
+            or len(hover) != 13
+            or not all(is_finite_json_number(value) for value in hover)
+        ):
+            errors.append(
+                f"{label} physics.json hover must contain exactly 13 finite numbers"
+            )
+
+    behavior = read_json_member(zf, "behavior.graph.json")
+    if validate_catalog_bound_json(
+            label, "behavior.graph.json", behavior,
+            "pd2.vehicle.behavior.v2", catalog_id, errors):
+        for field_name in ("allow_mount", "allow_drive", "allow_dismount"):
+            if not isinstance(behavior.get(field_name), bool):
+                errors.append(
+                    f"{label} behavior.graph.json {field_name} must be boolean"
+                )
 
     if "_meta/manifest.json" not in name_set:
         return
@@ -2471,6 +2564,31 @@ def validate_hud_source_contract(label: str, zf: zipfile.ZipFile,
             f"{label} hud.ini must declare texture_file as one of {texture_members}"
         )
 
+    catalog_id = descriptor_values.get("catalog_id", "")
+    hud_key = descriptor_values.get("hud_key", "")
+    layout = read_json_member(zf, "layout.json")
+    if validate_catalog_bound_json(
+            label, "layout.json", layout, "pd2.hud.layout.v1",
+            catalog_id, errors):
+        if layout.get("element") != hud_key:
+            errors.append(
+                f"{label} layout.json element must match hud.ini hud_key "
+                f"{hud_key!r}"
+            )
+        if not isinstance(layout.get("visible"), bool):
+            errors.append(f"{label} layout.json visible must be boolean")
+        opacity = layout.get("opacity")
+        if hud_key in {"score", "timer"} and opacity is None:
+            errors.append(
+                f"{label} layout.json must provide opacity for {hud_key}"
+            )
+        if opacity is not None and (
+                not is_finite_json_number(opacity)
+                or not 0.0 <= float(opacity) <= 1.0):
+            errors.append(
+                f"{label} layout.json opacity must be a number from 0 to 1"
+            )
+
     if "_meta/manifest.json" not in name_set:
         return
     manifest = read_json_member(zf, "_meta/manifest.json")
@@ -2720,6 +2838,44 @@ def validate_material_source_contract(label: str, zf: zipfile.ZipFile,
             f"{effect_archives}"
         )
 
+    catalog_id = descriptor_values.get("catalog_id", "")
+    material = read_json_member(zf, "material.json")
+    if validate_catalog_bound_json(
+            label, "material.json", material, "pd2.material.v1",
+            catalog_id, errors):
+        if material.get("shading_model") not in {
+                "classic_lit", "classic_alpha", "classic_emissive"}:
+            errors.append(
+                f"{label} material.json shading_model must be one of "
+                "classic_lit, classic_alpha, or classic_emissive"
+            )
+        base_color = material.get("base_color")
+        if (
+            not isinstance(base_color, list)
+            or len(base_color) != 4
+            or not all(
+                is_finite_json_number(value)
+                and 0.0 <= float(value) <= 1.0
+                for value in base_color
+            )
+        ):
+            errors.append(
+                f"{label} material.json base_color must contain four numbers "
+                "from 0 to 1"
+            )
+        if not isinstance(material.get("emissive"), bool):
+            errors.append(f"{label} material.json emissive must be boolean")
+        for field_name in ("roughness", "metallic"):
+            value = material.get(field_name)
+            if (
+                not is_finite_json_number(value)
+                or not 0.0 <= float(value) <= 1.0
+            ):
+                errors.append(
+                    f"{label} material.json {field_name} must be a number "
+                    "from 0 to 1"
+                )
+
     if "_meta/manifest.json" not in name_set:
         return
     try:
@@ -2743,6 +2899,149 @@ def validate_material_source_contract(label: str, zf: zipfile.ZipFile,
         errors.append(
             f"{label} _meta/manifest.json must declare effect_archive as one of "
             f"{effect_archives}"
+        )
+
+
+def validate_skin_source_contract(label: str, zf: zipfile.ZipFile,
+                                  name_set: set[str],
+                                  errors: list[str]) -> None:
+    descriptor_values: dict[str, str] = {}
+    if "skin.ini" in name_set:
+        try:
+            descriptor_values = parse_ini_values(
+                zf.read("skin.ini").decode("utf-8", errors="replace")
+            )
+        except KeyError:
+            descriptor_values = {}
+
+    if descriptor_values.get("skin_file") != "skin.json":
+        errors.append(f"{label} skin.ini must declare skin_file = skin.json")
+    if descriptor_values.get("swatches_file") != "swatches.json":
+        errors.append(
+            f"{label} skin.ini must declare swatches_file = swatches.json"
+        )
+
+    catalog_id = descriptor_values.get("catalog_id", "")
+    target = descriptor_values.get("target", "")
+    if not CATALOG_ID_RE.match(target):
+        errors.append(
+            f"{label} skin.ini target must be a catalog ID string"
+        )
+
+    skin = read_json_member(zf, "skin.json")
+    if validate_catalog_bound_json(
+            label, "skin.json", skin, "pd2.skin.v1", catalog_id, errors):
+        if skin.get("target") != target:
+            errors.append(
+                f"{label} skin.json target must match skin.ini target {target!r}"
+            )
+        slots = skin.get("material_slots")
+        if not isinstance(slots, list) or not slots:
+            errors.append(
+                f"{label} skin.json material_slots must be a non-empty list"
+            )
+        else:
+            seen_slots: set[str] = set()
+            for index, slot in enumerate(slots):
+                if not isinstance(slot, dict):
+                    errors.append(
+                        f"{label} skin.json material_slots[{index}] must be an object"
+                    )
+                    continue
+                slot_name = slot.get("slot")
+                material_id = slot.get("material")
+                if not isinstance(slot_name, str) or not slot_name:
+                    errors.append(
+                        f"{label} skin.json material_slots[{index}] missing slot"
+                    )
+                elif slot_name in seen_slots:
+                    errors.append(
+                        f"{label} skin.json duplicates material slot {slot_name!r}"
+                    )
+                else:
+                    seen_slots.add(slot_name)
+                if not isinstance(material_id, str) or not CATALOG_ID_RE.match(
+                        material_id):
+                    errors.append(
+                        f"{label} skin.json material_slots[{index}].material "
+                        "must be a catalog ID string"
+                    )
+            if "default" not in seen_slots:
+                errors.append(
+                    f"{label} skin.json must define a default material slot"
+                )
+
+    swatches = read_json_member(zf, "swatches.json")
+    if not swatches:
+        errors.append(f"{label} swatches.json must be a readable JSON object")
+    else:
+        if swatches.get("schema") != "pd2.skin.swatches.v1":
+            errors.append(
+                f"{label} swatches.json must declare schema "
+                "pd2.skin.swatches.v1"
+            )
+        rows = swatches.get("swatches")
+        if not isinstance(rows, list) or not rows:
+            errors.append(
+                f"{label} swatches.json swatches must be a non-empty list"
+            )
+        else:
+            seen_names: set[str] = set()
+            for index, row in enumerate(rows):
+                if not isinstance(row, dict):
+                    errors.append(
+                        f"{label} swatches.json swatches[{index}] must be an object"
+                    )
+                    continue
+                name = row.get("name")
+                rgba = row.get("rgba")
+                if not isinstance(name, str) or not name:
+                    errors.append(
+                        f"{label} swatches.json swatches[{index}] missing name"
+                    )
+                elif name in seen_names:
+                    errors.append(
+                        f"{label} swatches.json duplicates swatch {name!r}"
+                    )
+                else:
+                    seen_names.add(name)
+                if (
+                    not isinstance(rgba, list)
+                    or len(rgba) != 4
+                    or not all(
+                        is_finite_json_number(value)
+                        and 0.0 <= float(value) <= 1.0
+                        for value in rgba
+                    )
+                ):
+                    errors.append(
+                        f"{label} swatches.json swatches[{index}].rgba must "
+                        "contain four numbers from 0 to 1"
+                    )
+            if "default" not in seen_names:
+                errors.append(
+                    f"{label} swatches.json must define a default swatch"
+                )
+
+    if "_meta/manifest.json" not in name_set:
+        return
+    manifest = read_json_member(zf, "_meta/manifest.json")
+    if not manifest:
+        errors.append(f"{label} _meta/manifest.json is invalid JSON")
+        return
+    if manifest.get("skin_file") != "skin.json":
+        errors.append(
+            f"{label} _meta/manifest.json must declare skin_file = skin.json"
+        )
+    if manifest.get("swatches_file") != "swatches.json":
+        errors.append(
+            f"{label} _meta/manifest.json must declare "
+            "swatches_file = swatches.json"
+        )
+    if manifest.get("target") != target:
+        errors.append(
+            f"{label} _meta/manifest.json target must match skin.ini target "
+            f"{target!r}"
         )
 
 
@@ -5178,6 +5477,8 @@ def validate_archive_bytes(data: bytes, label: str, ext: str,
                 validate_effect_source_contract(label, zf, name_set, result.errors)
             if ext == ".pdmaterial":
                 validate_material_source_contract(label, zf, name_set, result.errors)
+            if ext == ".pdskin":
+                validate_skin_source_contract(label, zf, name_set, result.errors)
             if ext == ".pdtheme":
                 validate_theme_source_contract(label, zf, name_set, result.errors)
 
@@ -6927,12 +7228,152 @@ def run_selftest() -> int:
     if bridge_errors:
         failures.append("PUBLIC-DESCRIPTOR _meta source_filenum should be allowed")
 
+    def contract_errors(validator, entries: dict[str, str]) -> list[str]:
+        data = BytesIO()
+        with zipfile.ZipFile(data, "w") as archive:
+            for entry_name, entry_text in entries.items():
+                archive.writestr(entry_name, entry_text)
+        data.seek(0)
+        errors: list[str] = []
+        with zipfile.ZipFile(data, "r") as archive:
+            validator("selftest", archive, set(entries), errors)
+        return errors
+
+    structured_contracts = [
+        (
+            "HUD",
+            validate_hud_source_contract,
+            {
+                "hud.ini": (
+                    "[hud]\ncatalog_id = test:hud\nhud_key = score\n"
+                    "layout_file = layout.json\n"
+                ),
+                "layout.json": json.dumps({
+                    "schema": "pd2.hud.layout.v1",
+                    "catalog_id": "test:hud",
+                    "element": "score",
+                    "visible": True,
+                    "opacity": 0.5,
+                }),
+            },
+            ("layout.json", '"opacity": 0.5', '"opacity": 2.0'),
+            "opacity must be a number from 0 to 1",
+        ),
+        (
+            "MATERIAL",
+            validate_material_source_contract,
+            {
+                "material.ini": (
+                    "[material]\ncatalog_id = test:material\n"
+                    "material_file = material.json\n"
+                ),
+                "material.json": json.dumps({
+                    "schema": "pd2.material.v1",
+                    "catalog_id": "test:material",
+                    "shading_model": "classic_lit",
+                    "base_color": [1.0, 1.0, 1.0, 1.0],
+                    "emissive": False,
+                    "roughness": 0.5,
+                    "metallic": 0.0,
+                }),
+            },
+            ("material.json", '"roughness": 0.5', '"roughness": -1.0'),
+            "roughness must be a number from 0 to 1",
+        ),
+        (
+            "SKIN",
+            validate_skin_source_contract,
+            {
+                "skin.ini": (
+                    "[skin]\ncatalog_id = test:skin\ntarget = test:body\n"
+                    "skin_file = skin.json\nswatches_file = swatches.json\n"
+                ),
+                "skin.json": json.dumps({
+                    "schema": "pd2.skin.v1",
+                    "catalog_id": "test:skin",
+                    "target": "test:body",
+                    "material_slots": [
+                        {"slot": "default", "material": "test:material"}
+                    ],
+                }),
+                "swatches.json": json.dumps({
+                    "schema": "pd2.skin.swatches.v1",
+                    "swatches": [
+                        {"name": "default", "rgba": [1.0, 1.0, 1.0, 1.0]}
+                    ],
+                }),
+            },
+            ("skin.json", '"test:material"', '"not-a-catalog-id"'),
+            "must be a catalog ID string",
+        ),
+        (
+            "VEHICLE",
+            validate_vehicle_source_contract,
+            {
+                "vehicle.ini": (
+                    "[vehicle]\ncatalog_id = test:vehicle\n"
+                    "physics_file = physics.json\n"
+                    "behavior_graph = behavior.graph.json\n"
+                ),
+                "physics.json": json.dumps({
+                    "schema": "pd2.vehicle.physics.v2",
+                    "catalog_id": "test:vehicle",
+                    "archetype": "hoverbike",
+                    **{
+                        field_name: 1.0
+                        for field_name in (
+                            "turn_input_scale", "reverse_turn_gain",
+                            "steering_response_ntsc", "steering_response_pal",
+                            "turn_visual_scale", "input_response",
+                            "forward_input_scale", "lateral_input_scale",
+                            "lean_response", "forward_base",
+                            "forward_accel_gain", "reverse_base", "drag_ntsc",
+                            "drag_pal", "forward_thrust", "lateral_thrust",
+                            "forward_tilt", "lateral_tilt",
+                            "tilt_response_ntsc", "tilt_response_pal",
+                            "yaw_response_ntsc", "yaw_response_pal",
+                            "boost_speed", "boost_time_ticks60",
+                        )
+                    },
+                    "hover": [1.0] * 13,
+                }),
+                "behavior.graph.json": json.dumps({
+                    "schema": "pd2.vehicle.behavior.v2",
+                    "catalog_id": "test:vehicle",
+                    "allow_mount": True,
+                    "allow_drive": True,
+                    "allow_dismount": True,
+                }),
+            },
+            ("behavior.graph.json", '"allow_drive": true', '"allow_drive": 1'),
+            "allow_drive must be boolean",
+        ),
+    ]
+    for name, validator, entries, mutation, expected_error in structured_contracts:
+        valid_errors = contract_errors(validator, entries)
+        if valid_errors:
+            failures.append(
+                f"{name} structured contract rejected valid source: "
+                + "; ".join(valid_errors)
+            )
+        member, before, after = mutation
+        mutated = dict(entries)
+        mutated[member] = mutated[member].replace(before, after)
+        invalid_errors = contract_errors(validator, mutated)
+        if not any(expected_error in error for error in invalid_errors):
+            failures.append(
+                f"{name} structured contract accepted invalid source mutation"
+            )
+
     if failures:
         print("asset-archive scanner selftest FAILED:", file=sys.stderr)
         for f in failures:
             print(f"  - {f}", file=sys.stderr)
         return 1
-    print(f"asset-archive scanner selftest ok: {len(cases)} parity cases + recursion")
+    print(
+        f"asset-archive scanner selftest ok: {len(cases)} parity cases + "
+        f"recursion + {len(structured_contracts)} structured source contracts"
+    )
     return 0
 
 

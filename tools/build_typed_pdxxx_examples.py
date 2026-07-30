@@ -2390,12 +2390,11 @@ def update_material() -> None:
         "  \"schema\": \"pd2.material.v1\",\n"
         "  \"catalog_id\": \"example:tri_material\",\n"
         "  \"name\": \"Triangle Material\",\n"
-        "  \"shading_model\": \"pd2_unlit\",\n"
-        "  \"base_color\": [1.0, 1.0, 1.0, 1.0],\n"
-        "  \"texture_slots\": [\n"
-        "    { \"name\": \"base_color\", \"archive\": \"dependencies/assets/texture/tri_texture.pdtexture\" }\n"
-        "  ],\n"
-        "  \"effect\": \"dependencies/assets/effects/tri_effect.pdeffect\"\n"
+        "  \"shading_model\": \"classic_lit\",\n"
+        "  \"base_color\": [0.8, 0.9, 1.0, 1.0],\n"
+        "  \"emissive\": false,\n"
+        "  \"roughness\": 0.45,\n"
+        "  \"metallic\": 0.25\n"
         "}\n"
     )
     write_archive("materials/tri_material.pdmaterial", [
@@ -2465,8 +2464,47 @@ def update_prop() -> None:
 
 def update_vehicle() -> None:
     model = read_entry("meshes/tri_mesh.pdmesh", "model.gltf")
-    physics = read_entry("vehicles/tri_vehicle.pdvehicle", "physics.json")
-    behavior = read_entry("vehicles/tri_vehicle.pdvehicle", "behavior.graph.json")
+    physics = (
+        "{\n"
+        "  \"schema\": \"pd2.vehicle.physics.v2\",\n"
+        "  \"catalog_id\": \"example:tri_vehicle\",\n"
+        "  \"archetype\": \"hoverbike\",\n"
+        "  \"turn_input_scale\": 0.05,\n"
+        "  \"reverse_turn_gain\": 0.6,\n"
+        "  \"steering_response_ntsc\": 0.08,\n"
+        "  \"steering_response_pal\": 0.09,\n"
+        "  \"turn_visual_scale\": 10.0,\n"
+        "  \"input_response\": 0.4,\n"
+        "  \"forward_input_scale\": 0.7,\n"
+        "  \"lateral_input_scale\": 0.3,\n"
+        "  \"lean_response\": 4.0,\n"
+        "  \"forward_base\": 0.25,\n"
+        "  \"forward_accel_gain\": 0.75,\n"
+        "  \"reverse_base\": 0.45,\n"
+        "  \"drag_ntsc\": 0.96,\n"
+        "  \"drag_pal\": 0.95,\n"
+        "  \"forward_thrust\": 1.2,\n"
+        "  \"lateral_thrust\": 0.8,\n"
+        "  \"forward_tilt\": 0.2,\n"
+        "  \"lateral_tilt\": 0.3,\n"
+        "  \"tilt_response_ntsc\": 0.05,\n"
+        "  \"tilt_response_pal\": 0.06,\n"
+        "  \"yaw_response_ntsc\": 0.16,\n"
+        "  \"yaw_response_pal\": 0.18,\n"
+        "  \"boost_speed\": 7.0,\n"
+        "  \"boost_time_ticks60\": 1800,\n"
+        "  \"hover\": [82, 1, 3, 0.0025, 0.1, 0.01, 0.02, 0.00002, 0.0006, 0.01, 0.02, 0.00002, 0.0006]\n"
+        "}\n"
+    )
+    behavior = (
+        "{\n"
+        "  \"schema\": \"pd2.vehicle.behavior.v2\",\n"
+        "  \"catalog_id\": \"example:tri_vehicle\",\n"
+        "  \"allow_mount\": true,\n"
+        "  \"allow_drive\": true,\n"
+        "  \"allow_dismount\": true\n"
+        "}\n"
+    )
     write_archive("vehicles/tri_vehicle.pdvehicle", [
         ("vehicle.ini",
          "[vehicle]\n"
@@ -2509,7 +2547,14 @@ def update_gamemode() -> None:
 
 
 def update_hud() -> None:
-    layout = read_entry("hud/tri_hud.pdhud", "layout.json")
+    layout = (
+        "{\n"
+        "  \"schema\": \"pd2.hud.layout.v1\",\n"
+        "  \"catalog_id\": \"example:tri_hud\",\n"
+        "  \"element\": \"ammo\",\n"
+        "  \"visible\": true\n"
+        "}\n"
+    )
     texture = read_entry("hud/tri_hud.pdhud", "texture.png")
     write_archive("hud/tri_hud.pdhud", [
         ("hud.ini",
@@ -2615,11 +2660,23 @@ def update_skin() -> None:
         "  ]\n"
         "}\n"
     )
+    skin_source = (
+        "{\n"
+        "  \"schema\": \"pd2.skin.v1\",\n"
+        "  \"catalog_id\": \"example:tri_skin\",\n"
+        "  \"target\": \"example:tri_body\",\n"
+        "  \"material_slots\": [\n"
+        "    { \"slot\": \"default\", \"material\": \"example:tri_material\" }\n"
+        "  ]\n"
+        "}\n"
+    )
     skin_manifest = (
         "{\n"
         "  \"schema\": \"pd.asset_archive.manifest.v1\",\n"
         "  \"pd_kind\": \"skin\",\n"
         "  \"catalog_id\": \"example:tri_skin\",\n"
+        "  \"target\": \"example:tri_body\",\n"
+        "  \"skin_file\": \"skin.json\",\n"
         "  \"texture_file\": \"texture.tga\",\n"
         "  \"swatches_file\": \"swatches.json\",\n"
         "  \"material_archive\": \"dependencies/assets/material/tri_material.pdmaterial\",\n"
@@ -2631,11 +2688,13 @@ def update_skin() -> None:
          "[skin]\n"
          "catalog_id = example:tri_skin\n"
          "name = Triangle Skin\n"
-         "target = example:tri_character\n"
+         "target = example:tri_body\n"
+         "skin_file = skin.json\n"
          "texture_file = texture.tga\n"
          "swatches_file = swatches.json\n"
          "material_archive = dependencies/assets/material/tri_material.pdmaterial\n"
          "texture_archive = dependencies/assets/texture/tri_texture.pdtexture\n"),
+        ("skin.json", skin_source),
         ("texture.tga", texture),
         ("swatches.json", swatches),
         ("dependencies/assets/material/tri_material.pdmaterial", material),

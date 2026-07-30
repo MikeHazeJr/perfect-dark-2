@@ -1,5 +1,6 @@
 #include <ultra64.h>
 #include "constants.h"
+#include "asset_runtime.h"
 #include "game/cheats.h"
 #include "game/chraction.h"
 #include "game/atan2f.h"
@@ -248,6 +249,9 @@ Gfx *radarDrawDot(Gfx *gdl, struct prop *prop, struct coord *dist, u32 colour1, 
 
 Gfx *radarRender(Gfx *gdl)
 {
+	if (!assetRuntimeHudElementEnabled(HUD_ELEM_RADAR)) {
+		return gdl;
+	}
 	s32 stack;
 	s32 stack2;
 	s32 playercount;

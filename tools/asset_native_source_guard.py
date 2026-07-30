@@ -6887,6 +6887,74 @@ def scan_scenario_runtime_external_global_inventory(root: Path) -> list[str]:
     ]
 
 
+def scan_structured_family_runtime_guards(root: Path) -> list[str]:
+    """Keep B-959's structured public sources on their production paths."""
+    required_by_file = {
+        "port/src/assetcatalog_load.c": (
+            "assetRuntimeHydrateCatalogEntry(entry)",
+        ),
+        "port/src/asset_runtime.c": (
+            "case ASSET_HUD:      ok = s_hydrateHud(binding);",
+            "case ASSET_MATERIAL: ok = s_hydrateMaterial(binding);",
+            "case ASSET_SKIN:     ok = s_hydrateSkin(binding);",
+            "case ASSET_VEHICLE:  ok = s_hydrateVehicle(binding);",
+            "if (!binding || !action) return 0;",
+        ),
+        "src/game/bondgun.c": (
+            "assetRuntimeHudElementEnabled(HUD_ELEM_AMMO)",
+            "assetRuntimeHudElementEnabled(HUD_ELEM_CROSSHAIR)",
+        ),
+        "src/game/player.c": (
+            "assetRuntimeHudElementEnabled(HUD_ELEM_HEALTH)",
+        ),
+        "src/game/radar.c": (
+            "assetRuntimeHudElementEnabled(HUD_ELEM_RADAR)",
+        ),
+        "port/fast3d/pdgui_hud.cpp": (
+            "assetRuntimeHudElement(HUD_ELEM_SCORE)",
+            "assetRuntimeHudElement(HUD_ELEM_TIMER)",
+        ),
+        "src/game/propobj.c": (
+            "assetRuntimeVehicleForModelnum",
+            "assetRuntimeVehicleHover",
+            'assetRuntimeVehicleAllows(obj->modelnum, "mount")',
+        ),
+        "src/game/bondbike.c": (
+            'assetRuntimeVehicleAllows(vehicle->modelnum, "dismount")',
+        ),
+        "src/game/chr.c": (
+            "assetRuntimeSkinAppearance",
+        ),
+        "tools/asset_archive_conformance.py": (
+            "validate_vehicle_source_contract",
+            "pd2.vehicle.physics.v2",
+            "pd2.vehicle.behavior.v2",
+            "validate_hud_source_contract",
+            "pd2.hud.layout.v1",
+            "validate_material_source_contract",
+            "pd2.material.v1",
+            "validate_skin_source_contract",
+            "pd2.skin.v1",
+            "pd2.skin.swatches.v1",
+        ),
+    }
+    errors: list[str] = []
+    for rel, needles in required_by_file.items():
+        path = root / rel
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except OSError as exc:
+            errors.append(f"cannot read {rel} for structured source guard: {exc}")
+            continue
+        for needle in needles:
+            if needle not in text:
+                errors.append(
+                    f"{rel} lost B-959 structured public-source production "
+                    f"consumer {needle!r}"
+                )
+    return errors
+
+
 def staged_files(root: Path) -> list[str]:
     try:
         result = subprocess.run(
@@ -6949,6 +7017,7 @@ def main(argv: list[str]) -> int:
     errors.extend(scan_music_sequence_source_only_guard(root))
     errors.extend(scan_sound_file_source_only_guard(root))
     errors.extend(scan_mp3_audio_source_only_guard(root))
+    errors.extend(scan_structured_family_runtime_guards(root))
     errors.extend(scan_example_archives(root))
     errors.extend(scan_generated_scenario_texture_contracts(root))
     errors.extend(scan_ui_chrome_source_contract(root))

@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "project": "Perfect Dark 2",
-  "updated": "2026-07-30T17:46:08.434Z",
+  "updated": "2026-07-30T18:14:09.442Z",
   "items": [
     {
       "type": "task",
@@ -1351,7 +1351,7 @@
       "type": "asset",
       "title": ".pdmaterial public source and production runtime chain",
       "area": "ASSETS",
-      "status": "missing",
+      "status": "implemented",
       "phase": 1,
       "lane": "family-audit",
       "owner": "codex-pd2-workbench-assets-20260730",
@@ -1359,18 +1359,30 @@
         "T-ASSETS-001"
       ],
       "evidence": [
+        "context/bugs.md:B-959",
         "context/audits/2026/asset-pipeline-full-chain-audit-2026-07-30.md",
-        "context/bugs.md:B-959"
+        "port/src/asset_runtime.c",
+        "port/src/assetcatalog_load.c",
+        "tools/asset_archive_conformance.py",
+        "tests/test_asset_runtime_adapters.cpp:[b959]",
+        "tests/test_asset_native_source_contract.cpp:[b959]",
+        ".claude/session-builds/pd2assetaudit/_build-session.out.log",
+        "pd-tests [b959]: 2 cases / 69 assertions PASS 2026-07-30",
+        "strict creator examples: 28 root / 59 recursive archives / 27 families PASS 2026-07-30",
+        "asset_native_source_guard.py PASS 2026-07-30",
+        "port/src/romextract_pdmeta.c:s_emitMaterial",
+        "src/game/chr.c:assetRuntimeSkinAppearance"
       ],
-      "detail": "Full-chain audit 2026-07-30: Standalone material source is synthetic and has no renderer consumer. B-959.",
+      "detail": "B-959 slice implemented: canonical editable material values hydrate at catalog activation and skin/material appearance drives character rendering. Automated mutation, schema, focused behavior, guard, and isolated test-build evidence passes. Live edited-render receipt remains before validated.",
       "tags": [
         "asset-family",
         "asset-family:pdmaterial",
         "descriptor:material.ini"
       ],
       "id": "A-ASSETS-005",
-      "updated": "2026-07-30T16:22:11.163Z",
-      "created": "2026-07-30T15:32:27.734Z"
+      "updated": "2026-07-30T18:14:09.413Z",
+      "created": "2026-07-30T15:32:27.734Z",
+      "model": "Codex GPT-5"
     },
     {
       "type": "asset",
@@ -1726,7 +1738,7 @@
       "type": "asset",
       "title": ".pdskin public source and production runtime chain",
       "area": "ASSETS",
-      "status": "missing",
+      "status": "implemented",
       "phase": 1,
       "lane": "family-audit",
       "owner": "codex-pd2-workbench-assets-20260730",
@@ -1734,18 +1746,30 @@
         "T-ASSETS-001"
       ],
       "evidence": [
+        "context/bugs.md:B-959",
         "context/audits/2026/asset-pipeline-full-chain-audit-2026-07-30.md",
-        "context/bugs.md:B-959"
+        "port/src/asset_runtime.c",
+        "port/src/assetcatalog_load.c",
+        "tools/asset_archive_conformance.py",
+        "tests/test_asset_runtime_adapters.cpp:[b959]",
+        "tests/test_asset_native_source_contract.cpp:[b959]",
+        ".claude/session-builds/pd2assetaudit/_build-session.out.log",
+        "pd-tests [b959]: 2 cases / 69 assertions PASS 2026-07-30",
+        "strict creator examples: 28 root / 59 recursive archives / 27 families PASS 2026-07-30",
+        "asset_native_source_guard.py PASS 2026-07-30",
+        "port/src/romextract_pdmeta.c:s_emitSkin",
+        "src/game/chr.c:assetRuntimeSkinAppearance"
       ],
-      "detail": "Full-chain audit 2026-07-30: Skin payload is synthetic and no character/model renderer binding consumer exists. B-959.",
+      "detail": "B-959 slice implemented: editable target/material slots and swatches hydrate at catalog activation and drive character render appearance. Automated mutation, schema, focused behavior, guard, and isolated test-build evidence passes. Live edited-body receipt remains before validated.",
       "tags": [
         "asset-family",
         "asset-family:pdskin",
         "descriptor:skin.ini"
       ],
       "id": "A-ASSETS-020",
-      "updated": "2026-07-30T16:22:11.089Z",
-      "created": "2026-07-30T15:32:27.815Z"
+      "updated": "2026-07-30T18:14:09.432Z",
+      "created": "2026-07-30T15:32:27.815Z",
+      "model": "Codex GPT-5"
     },
     {
       "type": "asset",
@@ -1800,7 +1824,7 @@
       "type": "asset",
       "title": ".pdvehicle public source and production runtime chain",
       "area": "ASSETS",
-      "status": "missing",
+      "status": "implemented",
       "phase": 1,
       "lane": "family-audit",
       "owner": "codex-pd2-workbench-assets-20260730",
@@ -1808,18 +1832,31 @@
         "T-ASSETS-001"
       ],
       "evidence": [
+        "context/bugs.md:B-959",
         "context/audits/2026/asset-pipeline-full-chain-audit-2026-07-30.md",
-        "context/bugs.md:B-959"
+        "port/src/asset_runtime.c",
+        "port/src/assetcatalog_load.c",
+        "tools/asset_archive_conformance.py",
+        "tests/test_asset_runtime_adapters.cpp:[b959]",
+        "tests/test_asset_native_source_contract.cpp:[b959]",
+        ".claude/session-builds/pd2assetaudit/_build-session.out.log",
+        "pd-tests [b959]: 2 cases / 69 assertions PASS 2026-07-30",
+        "strict creator examples: 28 root / 59 recursive archives / 27 families PASS 2026-07-30",
+        "asset_native_source_guard.py PASS 2026-07-30",
+        "port/src/romextract_pdmeta.c:s_emitVehicle",
+        "src/game/propobj.c",
+        "src/game/bondbike.c"
       ],
-      "detail": "Full-chain audit 2026-07-30: Vehicle model can load, but placeholder physics/behavior source is not executed by the vehicle runtime. B-959.",
+      "detail": "B-959 slice implemented: editable hoverbike movement, hover, mount, drive, and dismount policy hydrates and feeds the real vehicle paths; missing public source fails closed. Automated mutation, schema, focused behavior, guard, and build evidence passes. Live tuned-vehicle receipt remains before validated.",
       "tags": [
         "asset-family",
         "asset-family:pdvehicle",
         "descriptor:vehicle.ini"
       ],
       "id": "A-ASSETS-023",
-      "updated": "2026-07-30T16:22:11.126Z",
-      "created": "2026-07-30T15:32:27.825Z"
+      "updated": "2026-07-30T18:14:09.438Z",
+      "created": "2026-07-30T15:32:27.825Z",
+      "model": "Codex GPT-5"
     },
     {
       "type": "asset",
@@ -1906,7 +1943,7 @@
       "type": "asset",
       "title": ".pdhud public source and production runtime chain",
       "area": "ASSETS",
-      "status": "missing",
+      "status": "implemented",
       "phase": 1,
       "lane": "family-audit",
       "owner": "codex-pd2-workbench-assets-20260730",
@@ -1914,18 +1951,33 @@
         "T-ASSETS-001"
       ],
       "evidence": [
+        "context/bugs.md:B-959",
         "context/audits/2026/asset-pipeline-full-chain-audit-2026-07-30.md",
-        "context/bugs.md:B-959"
+        "port/src/asset_runtime.c",
+        "port/src/assetcatalog_load.c",
+        "tools/asset_archive_conformance.py",
+        "tests/test_asset_runtime_adapters.cpp:[b959]",
+        "tests/test_asset_native_source_contract.cpp:[b959]",
+        ".claude/session-builds/pd2assetaudit/_build-session.out.log",
+        "pd-tests [b959]: 2 cases / 69 assertions PASS 2026-07-30",
+        "strict creator examples: 28 root / 59 recursive archives / 27 families PASS 2026-07-30",
+        "asset_native_source_guard.py PASS 2026-07-30",
+        "port/src/romextract_pdmeta.c:s_emitHud",
+        "src/game/bondgun.c",
+        "src/game/player.c",
+        "src/game/radar.c",
+        "port/fast3d/pdgui_hud.cpp"
       ],
-      "detail": "Full-chain audit 2026-07-30: HUD emits an empty slots placeholder and no HUD renderer binding consumer exists. B-959.",
+      "detail": "B-959 slice implemented: editable visibility and score/timer opacity hydrate and feed all six production HUD surfaces. Automated mutation, schema, focused behavior, guard, and build evidence passes. Live edited-HUD receipt remains before validated.",
       "tags": [
         "asset-family",
         "asset-family:pdhud",
         "descriptor:hud.ini"
       ],
       "id": "A-ASSETS-027",
-      "updated": "2026-07-30T16:22:11.110Z",
-      "created": "2026-07-30T15:32:27.876Z"
+      "updated": "2026-07-30T18:14:09.442Z",
+      "created": "2026-07-30T15:32:27.876Z",
+      "model": "Codex GPT-5"
     },
     {
       "type": "asset",

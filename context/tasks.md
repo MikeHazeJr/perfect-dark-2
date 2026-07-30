@@ -44,6 +44,20 @@ binary setup reads/writes reject truncation, future versions, or invalid
 counts/default indices. The updated `.pdxxx` band passes 139 cases / 15,517
 assertions.
 
+`B-959` first implementation slice, 2026-07-30: `.pdhud`, `.pdmaterial`,
+`.pdskin`, and `.pdvehicle` no longer stop at descriptor-only activation.
+Catalog load hydrates their structured public JSON and rejects invalid rows.
+All six HUD production surfaces consume visibility/opacity; character rendering
+consumes skin/material appearance; hoverbike movement, hover, mount, drive and
+dismount consume editable vehicle source and fail closed if it is absent.
+Strict conformance now checks schema, catalog identity, types and ranges and
+its selftest rejects one mutation per family. Focused B-959 passes 2 cases /
+69 assertions; all 27 creator-example families pass strict conformance and
+byte-preserving `.pdmod` round-trip; the native-source guard and isolated test
+build pass. Workbench assets `A-ASSETS-005`, `A-ASSETS-020`, `A-ASSETS-023`,
+and `A-ASSETS-027` may be marked implemented, not validated; live edited-source
+receipts and the remaining B-959 families are still active.
+
 **2026-07-07 FULL-PARITY EXTRACTION + UTILIZATION (historical completion evidence;
 current claims are being re-audited under `T-ASSETS-001`).**
 Mike directive: make `.pdxxx` a LOSSLESS, fully-utilized representation of the ROM so

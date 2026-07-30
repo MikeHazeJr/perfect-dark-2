@@ -4,6 +4,7 @@
 #include "memsizes.h"
 #include "asset_fallback_telemetry.h" /* c3849 Wave 1 */
 #include "asset_source_debug.h"
+#include "asset_runtime.h"
 #include "assetcatalog.h" /* Catalog-owned asset identity and source handles */
 #include "assetcatalog_load.h"
 #include "assetload.h"    /* Provider-aware asset load bridge */
@@ -14306,6 +14307,9 @@ Gfx *bgunDrawHudGauge(Gfx *gdl, s32 x1, s32 y1, s32 x2, s32 y2, struct abmag *ab
 
 Gfx *bgunDrawHud(Gfx *gdl)
 {
+	if (!assetRuntimeHudElementEnabled(HUD_ELEM_AMMO)) {
+		return gdl;
+	}
 	struct player *player = g_Vars.currentplayer;
 	s32 bottom = viGetViewTop() + viGetViewHeight() - 13;
 	s32 playercount = LOCALPLAYERCOUNT();
@@ -14806,6 +14810,9 @@ void bgunSetSightVisible(u32 reason, bool visible)
 
 Gfx *bgunDrawSight(Gfx *gdl)
 {
+	if (!assetRuntimeHudElementEnabled(HUD_ELEM_CROSSHAIR)) {
+		return gdl;
+	}
 	if (g_Vars.currentplayer->gunsightoff == 0 && !g_Vars.currentplayer->mpmenuon) {
 		// Player is aiming with R
 		gdl = sightDraw(gdl, true, currentPlayerGetSight());

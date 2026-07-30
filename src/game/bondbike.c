@@ -1,6 +1,7 @@
 #include <ultra64.h>
 #include "constants.h"
 #include "actionmap.h"
+#include "asset_runtime.h"
 #include "game/bondbike.h"
 #include "game/bondmove.h"
 #include "game/camera.h"
@@ -190,7 +191,10 @@ void bbikeHandleActivate(void)
 	s32 _bbContrMode = (g_Vars.currentplayerstats != NULL)
 		? optionsGetControlMode(g_Vars.currentplayerstats->mpindex)
 		: -1;
-	if (g_Vars.currentplayer->bondvehiclemode == VEHICLEMODE_RUNNING
+	struct defaultobj *vehicle = g_Vars.currentplayer->hoverbike
+		? g_Vars.currentplayer->hoverbike->obj : NULL;
+	if (vehicle && g_Vars.currentplayer->bondvehiclemode == VEHICLEMODE_RUNNING
+			&& assetRuntimeVehicleAllows(vehicle->modelnum, "dismount")
 			&& (_bbContrMode == CONTROLMODE_PC
 				|| g_Vars.lvframe60 - g_Vars.currentplayer->activatetimelast < TICKS(25))) {
 		struct hoverbikeobj *bike = (struct hoverbikeobj *)g_Vars.currentplayer->hoverbike->obj;

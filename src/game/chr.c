@@ -3,6 +3,7 @@
 #include "lib/sched.h"
 #include "lib/memp.h"
 #include "constants.h"
+#include "asset_runtime.h"
 #include "system.h"
 #include "crashbreadcrumb.h"
 #include "game/bondmove.h"
@@ -3669,6 +3670,13 @@ Gfx *chrRender(struct prop *prop, Gfx *gdl, bool xlupass)
 {
 	struct chrdata *chr = prop->chr;
 	struct model *model = chr->model;
+	const char *skin_target = catalogBodyIdByBodynum(chr->bodynum);
+	f32 skin_rgba[4] = {1.0f, 1.0f, 1.0f, 1.0f};
+	f32 skin_roughness = 0.0f;
+	f32 skin_metallic = 0.0f;
+	s32 skin_emissive = 0;
+	s32 has_skin_source = assetRuntimeSkinAppearance(skin_target,
+		skin_rgba, &skin_roughness, &skin_metallic, &skin_emissive);
 	f32 shadecolourfracs[4];
 	s32 shademode;
 	s32 sp100;
@@ -3795,6 +3803,9 @@ Gfx *chrRender(struct prop *prop, Gfx *gdl, bool xlupass)
 	if (!USINGDEVICE(DEVICE_IRSCANNER)) {
 		alpha = chrGetCloakAlpha(chr) * alpha * 0.0039215688593686f;
 	}
+	if (has_skin_source) {
+		alpha = (s32)((f32)alpha * skin_rgba[3]);
+	}
 
 	/* B-942: pin which alpha component drops the menu Joanna below opaque (which
 	 * pushes her into the XLU pass -> sparse legs blend see-through). */
@@ -3919,7 +3930,48 @@ Gfx *chrRender(struct prop *prop, Gfx *gdl, bool xlupass)
 			colour[3] = 0xff;
 		}
 
+		/*
+		 * B-959: .pdskin selects a hydrated .pdmaterial and swatch for
+		 * the body catalog ID. Apply it after ordinary room/vision colour
+		 * construction so the public source modulates the production
+		 * character render rather than existing only in the editor.
+		 */
+		if (has_skin_source && !USINGDEVICE(DEVICE_IRSCANNER) &&
+				g_Vars.currentplayer->visionmode != VISIONMODE_XRAY) {
+			f32 highlight = skin_metallic * (1.0f - skin_roughness);
+			for (s32 i = 0; i < 3; i++) {
+				s32 tinted = (s32)((f32)colour[i] * skin_rgba[i]);
+				if (skin_emissive) {
+					s32 emissive = (s32)(skin_rgba[i] * 255.0f);
+					if (tinted < emissive) tinted = emissive;
+				} else if (highlight > 0.0f) {
+					tinted += (s32)(skin_rgba[i] * highlight * 96.0f);
+				}
+				if (tinted < 0) tinted = 0;
+				if (tinted > 255) tinted = 255;
+				colour[i] = tinted;
+			}
+		}
+
 		renderdata.envcolour = var80062a48[0] << 24 | var80062a48[1] << 16 | var80062a48[2] << 8;
+		if (has_skin_source && !USINGDEVICE(DEVICE_IRSCANNER) &&
+				g_Vars.currentplayer->visionmode != VISIONMODE_XRAY) {
+			u32 env = 0;
+			f32 highlight = skin_metallic * (1.0f - skin_roughness);
+			for (s32 i = 0; i < 3; i++) {
+				s32 base = var80062a48[i];
+				s32 value = (s32)((f32)base * skin_rgba[i]);
+				if (skin_emissive) {
+					value = (s32)(skin_rgba[i] * 255.0f);
+				} else {
+					value += (s32)(skin_rgba[i] * highlight * 128.0f);
+				}
+				if (value < 0) value = 0;
+				if (value > 255) value = 255;
+				env |= (u32)value << (24 - i * 8);
+			}
+			renderdata.envcolour = env;
+		}
 		renderdata.fogcolour = colour[0] << 24 | colour[1] << 16 | colour[2] << 8 | colour[3];
 
 		if (alpha < 0xff) {

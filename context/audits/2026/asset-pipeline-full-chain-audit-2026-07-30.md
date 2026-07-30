@@ -22,7 +22,7 @@ Truth rules:
 | A-ASSETS-002 | `.pdweapon` | Split held graphs, settings, variables, presentation, optional model/dependency closure | Weapon walker, catalog slots, FileProvider, weapon graph activation | Held graph execution and model/runtime slot integration are live | Hub graph/template/editor paths | **partial** — optional presentation/dependency fields and arbitrary settings still include stored-only/ignored cases; do not call the whole advertised contract complete |
 | A-ASSETS-003 | `.pdprojectile` | Behavior graph, visual dependency, transition entity | Weapon/dependency walker and graph runtime | Custom projectile spawn, timers, impact, trail, pickup and related graph records feed `propobj.c` | Typed archive and graph templates | **implemented, validation pending** |
 | A-ASSETS-004 | `.pdentity` | Behavior graph, archetype, visual dependency | Weapon/dependency walker and graph runtime | Deployed/sticky-device graph records feed weapon/prop lifecycle paths | Typed archive and graph templates | **implemented, validation pending** |
-| A-ASSETS-005 | `.pdmaterial` | Synthetic material preset today | Metadata walker + generic binding | No standalone material binding consumer found | Generic descriptor editor only | **missing (B-959)** — emitted PBR-like values are not extracted native combiner/material state and do not drive rendering |
+| A-ASSETS-005 | `.pdmaterial` | Canonical base material preset with editable base color, emissive, roughness and metallic | Metadata walker hydrates and validates `material.json`; invalid source deactivates the row | Character rendering consumes the bound material through skin appearance composition | Archive-aware descriptor editor plus readable JSON | **implemented (B-959 slice), validation pending** — focused source mutation/behavior, strict conformance and build pass; live edited render receipt remains |
 | A-ASSETS-006 | `.pdtexture` | Editable image plus descriptor/manifest metadata | Texture walker, FileProvider, texture slot/compiler path | Runtime texture source/decoder path is live and now fails closed | Hub preview/import/editor paths | **implemented, validation pending** |
 | A-ASSETS-007 | `.pdcharacter` | Body/head archive refs and portrait | Metadata walker + model activation | Body model source reaches model loading | Hub template/scale tools | **partial** — no complete production use was found for the character-level head and portrait contract |
 | A-ASSETS-008 | `.pdhead` | Mesh source, rig class, selector metadata | Head walker, private slots, manager | MP selector, compatibility and model loading consume the row | Hub model/scale flow | **implemented, validation pending** |
@@ -37,14 +37,14 @@ Truth rules:
 | A-ASSETS-017 | `.pdui` | Editable image, dimensions and nine-slice metadata | UI walker/catalog and theme UI iterator | ImGui/theme texture path consumes public UI assets | Theme/Hub preview and editor | **implemented, validation pending** |
 | A-ASSETS-018 | `.pdfont` | Glyph atlas plus metrics/kerning source | Font walker and `fontCatalogBuildFace` | Text renderer builds segment-shaped runtime font from public source | Hub/font manager | **implemented, validation pending**; B-960 removed ROM fallback |
 | A-ASSETS-019 | `.pdlang` | Editable `strings.json` bank | Language walker and `langManifest` | `langLoad` consumes catalog source and already fails closed | Hub language editing | **implemented, validation pending** |
-| A-ASSETS-020 | `.pdskin` | One synthetic default material slot and white swatch today | Metadata walker + generic binding; editor can save texture rows | No character/model renderer skin-binding consumer found | Skin editor exists | **missing (B-959)** — editor/catalog presence is not runtime skin utilization |
+| A-ASSETS-020 | `.pdskin` | Editable target-body material slots and swatches | Metadata walker hydrates `skin.json` plus `swatches.json`, validates catalog identity, and resolves the material binding | Character rendering composes material color and swatch alpha plus material shading controls | Skin editor plus archive-aware source editing | **implemented (B-959 slice), validation pending** — mutation/behavior and strict-schema proof pass; live body-appearance receipt remains |
 | A-ASSETS-021 | `.pdeffect` | Effect graph/timeline and metadata | Effect walker and effect graph runtime | Effect graph references reach gameplay/render bridges | Hub effect source | **partial** — production bridges exist, but parity-backend/fallback paths and full shader/timeline semantics still require closure |
 | A-ASSETS-022 | `.pdprop` | Synthetic archetype JSON, model/behavior refs, flags/health | Metadata walker + generic binding; model source can load | Model path and selected type metadata have consumers | Generic descriptor editor | **partial (B-959)** — health, flags and behavior source do not form a complete standalone prop production adapter |
-| A-ASSETS-023 | `.pdvehicle` | Model plus placeholder physics and three-node behavior graph | Metadata walker + generic binding; model source can load | Vehicle visual model can resolve | Generic descriptor editor | **missing (B-959)** — physics and behavior files are not executed by the hoverbike runtime |
+| A-ASSETS-023 | `.pdvehicle` | Model plus complete named hoverbike movement, hover and mount/drive/dismount policy source | Metadata walker hydrates both source documents and rejects invalid/missing bindings | Real hoverbike movement, collision bob, hover tick, mount, drive and dismount paths consume the hydrated values and fail closed | Archive-aware descriptor/JSON editing | **implemented (B-959 slice), validation pending** — focused source mutation/behavior and compile proof pass; live tuned-vehicle receipt remains |
 | A-ASSETS-024 | `.pdmission` | Scenario dependency, objectives/mission graph, placeholder briefing | Metadata walker + generic binding | Scenario owns substantial mission execution, but no standalone `ASSET_MISSION` selector/runtime consumer was found | Generic descriptor editor | **partial (B-959)** — mission wrapper/briefing is not authoritative campaign source |
 | A-ASSETS-025 | `.pdgamemode` | Selector metadata plus OG-backend rules wrapper | Metadata walker + generic binding | Team flag reaches selector | Generic descriptor editor | **partial (B-953/B-959)** — name/description, player bounds and rules source are not comprehensively consumed; missing bindings still fall back |
 | A-ASSETS-026 | `.pdbotprofile` | Selector mirrors plus OG-backend profile wrapper | Metadata walker + generic binding | Permanent profile ID now reaches both menus, bot/match runtime, saves, manifests, and v52 wire; traits/body derive from the readable binding | Archive-aware descriptor editor; live interaction proof pending | **partial (B-959; B-961 implemented)** — identity no longer collapses to native indices, but `profile.json` is still not a comprehensive creator-authored behavior/tuning source |
-| A-ASSETS-027 | `.pdhud` | Empty `slots` array plus renderer label today | Metadata walker + generic binding | No HUD renderer consumer of the binding/layout was found | Generic descriptor editor | **missing (B-959)** |
+| A-ASSETS-027 | `.pdhud` | Editable element identity, visibility and score/timer opacity | Metadata walker hydrates and validates `layout.json` | Ammo, crosshair, health, radar, score and timer production render paths consume the binding | Archive-aware descriptor/JSON editing | **implemented (B-959 slice), validation pending** — all six consumers are statically pinned and focused runtime hydration passes; live HUD edit receipt remains |
 | A-ASSETS-028 | `.pdtheme` | Theme style/tokens plus optional dependencies | Theme walker/catalog and theme loader | Theme JSON and catalog UI assets drive ImGui styling | Theme editor and Hub | **partial** — direct style loading is live; dependency archives are not yet all authoritative runtime inputs and missing bindings fall back |
 
 ## Cross-cutting defects found in this audit
@@ -58,7 +58,9 @@ Truth rules:
 - **B-958:** most typed emitters logged partial failures but still returned
   success.
 - **B-959:** placeholder public source and generic-binding-only runtime claims
-  across metadata families.
+  across metadata families. HUD/material/skin/vehicle are now implemented with
+  strict structured schemas and production consumers; the remaining named
+  families and live edited-source receipts stay open.
 - **B-960:** runtime fallback correctness depended on optional debug mode.
 - **B-961:** catalog-backed bot-profile selection discarded custom identity at
   `mp_index = -1`. The permanent ID now survives UI, runtime/match state,
@@ -75,8 +77,8 @@ Truth rules:
 1. Preserve the verified archive-integrity and fail-closed fixes with full build,
    guard, and runtime receipts.
 2. Complete B-953 for game-mode metadata/rules without a native mirror fallback.
-3. Split B-959 into per-family source-fidelity/runtime slices, starting with
-   HUD, material/skin, vehicle/prop, mission, and bot profile.
+3. Continue B-959 after the implemented HUD/material/skin/vehicle slice:
+   prop, mission, game mode, bot profile, then residual partial fields.
 4. Close residual partial fields in weapon, character, voice, effect and theme.
 5. Run the menu/input/glyph sweep and live MKB/controller creator workflows.
 6. Mark a family validated only after an edited public source demonstrably

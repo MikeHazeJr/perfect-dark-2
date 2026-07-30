@@ -9907,7 +9907,7 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 	        std::string::npos);
 	REQUIRE(lv_runtime.find("scenarioSourceLevelGraphRecordTick(\"lvTick.start\")") !=
 	        std::string::npos);
-	REQUIRE(meta_extractor.find("PDMETA_FAST_CACHE_KIND \"pdmeta_table_backed_v11_gamemode_botprofile_manifest_source_fields\"") !=
+	REQUIRE(meta_extractor.find("PDMETA_FAST_CACHE_KIND \"pdmeta_table_backed_v12_hydrated_hud_material_skin_vehicle_source\"") !=
 	        std::string::npos);
 	REQUIRE(meta_extractor.find("PDMETA_SCENARIO_DEP_CACHE_KIND") !=
 	        std::string::npos);
@@ -14737,7 +14737,7 @@ TEST_CASE("c3843 remaining base asset families emit clean native archives",
 	REQUIRE(meta.find("s_emitEffect") != std::string::npos);
 	REQUIRE(meta.find("s_emitProp") != std::string::npos);
 	REQUIRE(meta.find("s_emitVehicle") != std::string::npos);
-	REQUIRE(meta.find("PDMETA_FAST_CACHE_KIND \"pdmeta_table_backed_v11_gamemode_botprofile_manifest_source_fields\"") !=
+	REQUIRE(meta.find("PDMETA_FAST_CACHE_KIND \"pdmeta_table_backed_v12_hydrated_hud_material_skin_vehicle_source\"") !=
 	        std::string::npos);
 	REQUIRE(texture_extractor.find("texture.png") != std::string::npos);
 	REQUIRE(meta.find("material.json") != std::string::npos);
@@ -15653,5 +15653,67 @@ TEST_CASE("c3849 Wave 6a: meta-family runtime consumers feed native systems",
 	REQUIRE(theme_reg.find("CATALOG.THEME.RUNTIME_MISS") ==
 	        std::string::npos);
 	REQUIRE(theme_reg.find("fileProviderPath(entry->source.primary)") ==
+	        std::string::npos);
+}
+
+TEST_CASE("B-959 HUD material skin and vehicle public source owns production behavior",
+          "[modding][pdxxx][b959][static]") {
+	const std::string loader = readTextFile("port/src/assetcatalog_load.c");
+	const std::string runtime = readTextFile("port/src/asset_runtime.c");
+	const std::string conformance =
+		readTextFile("tools/asset_archive_conformance.py");
+	const std::string bondgun = readTextFile("src/game/bondgun.c");
+	const std::string player = readTextFile("src/game/player.c");
+	const std::string radar = readTextFile("src/game/radar.c");
+	const std::string hud = readTextFile("port/fast3d/pdgui_hud.cpp");
+	const std::string propobj = readTextFile("src/game/propobj.c");
+	const std::string bondbike = readTextFile("src/game/bondbike.c");
+	const std::string chr = readTextFile("src/game/chr.c");
+
+	REQUIRE(loader.find("assetRuntimeHydrateCatalogEntry(entry)") !=
+	        std::string::npos);
+	REQUIRE(runtime.find("binding->active = 0") != std::string::npos);
+	REQUIRE(runtime.find("if (!binding || !action) return 0;") !=
+	        std::string::npos);
+
+	REQUIRE(bondgun.find("assetRuntimeHudElementEnabled(HUD_ELEM_AMMO)") !=
+	        std::string::npos);
+	REQUIRE(bondgun.find("assetRuntimeHudElementEnabled(HUD_ELEM_CROSSHAIR)") !=
+	        std::string::npos);
+	REQUIRE(player.find("assetRuntimeHudElementEnabled(HUD_ELEM_HEALTH)") !=
+	        std::string::npos);
+	REQUIRE(radar.find("assetRuntimeHudElementEnabled(HUD_ELEM_RADAR)") !=
+	        std::string::npos);
+	REQUIRE(hud.find("assetRuntimeHudElement(HUD_ELEM_SCORE)") !=
+	        std::string::npos);
+	REQUIRE(hud.find("assetRuntimeHudElement(HUD_ELEM_TIMER)") !=
+	        std::string::npos);
+
+	REQUIRE(propobj.find("assetRuntimeVehicleForModelnum") !=
+	        std::string::npos);
+	REQUIRE(propobj.find("assetRuntimeVehicleHover") != std::string::npos);
+	REQUIRE(propobj.find("assetRuntimeVehicleAllows(obj->modelnum, \"mount\")") !=
+	        std::string::npos);
+	REQUIRE(bondbike.find(
+		"assetRuntimeVehicleAllows(vehicle->modelnum, \"dismount\")") !=
+	        std::string::npos);
+	REQUIRE(chr.find("assetRuntimeSkinAppearance") != std::string::npos);
+
+	REQUIRE(conformance.find("validate_vehicle_source_contract") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("pd2.vehicle.physics.v2") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("pd2.vehicle.behavior.v2") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("validate_hud_source_contract") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("pd2.hud.layout.v1") != std::string::npos);
+	REQUIRE(conformance.find("validate_material_source_contract") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("pd2.material.v1") != std::string::npos);
+	REQUIRE(conformance.find("validate_skin_source_contract") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("pd2.skin.v1") != std::string::npos);
+	REQUIRE(conformance.find("pd2.skin.swatches.v1") !=
 	        std::string::npos);
 }

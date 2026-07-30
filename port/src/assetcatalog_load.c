@@ -1408,6 +1408,26 @@ static s32 s_catalogLoadEntryMetadataPayload(asset_entry_t *entry)
         return 0;
     }
 
+    /*
+     * B-959: descriptor registration is not runtime utilization. Families
+     * with structured public source must parse and validate their selected
+     * archive members before the catalog row is considered active. The
+     * hydration call is a no-op success for families whose dedicated runtime
+     * loader already owns their source.
+     */
+    if (assetRuntimeSupportsType(entry->type)
+            && !assetRuntimeHydrateCatalogEntry(entry)) {
+        assetRuntimeReleaseCatalogEntry(entry->id);
+        entry->loaded_data     = NULL;
+        entry->payload_kind    = ASSET_PAYLOAD_NONE;
+        entry->load_state      = ASSET_STATE_ENABLED;
+        entry->ref_count       = 0;
+        sysLogPrintf(LOG_WARNING,
+                     "CATALOG.LIFECYCLE.ACTIVATE: '%s' %s public source failed hydration",
+                     entry->id, s_catalogPayloadKind(entry->type));
+        return 0;
+    }
+
     sysLogPrintf(LOG_NOTE,
                  "CATALOG.LIFECYCLE.ACTIVATE: activated %s metadata payload '%s'",
                  s_catalogPayloadKind(entry->type), entry->id);

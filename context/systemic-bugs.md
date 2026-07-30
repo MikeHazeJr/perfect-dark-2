@@ -903,8 +903,12 @@ tests, but it neither contains the complete source state nor drives the native
 production path. This is more dangerous than an absent format because the UI
 and validation surface imply mod support that does not exist.
 
-**Known instance (B-959):** `.pdhud`, `.pdmaterial`, `.pdskin`, `.pdvehicle`,
-`.pdprop`, `.pdbotprofile`, `.pdgamemode`, and parts of `.pdmission`.
+**Known instance (B-959):** `.pdprop`, `.pdbotprofile`, `.pdgamemode`, and
+parts of `.pdmission` remain open, along with residual partial fields in
+weapon/character/voice/effect/theme. The `.pdhud`, `.pdmaterial`, `.pdskin`,
+and `.pdvehicle` slice now has structured source hydration, strict schema
+validation, production consumers, and focused mutation/behavior proof; live
+edited-source receipts are still required before those families are validated.
 
 **Fix strategy:**
 
