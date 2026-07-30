@@ -27,7 +27,7 @@
 #include "romextract_pd.h"
 #include "system.h"
 
-#define PDMETA_FAST_CACHE_KIND "pdmeta_table_backed_v12_hydrated_hud_material_skin_vehicle_source"
+#define PDMETA_FAST_CACHE_KIND "pdmeta_table_backed_v13_hydrated_metadata_source"
 #define PDMETA_SCENARIO_DEP_CACHE_KIND \
 	"pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json"
 
@@ -941,18 +941,20 @@ static s32 s_emitGamemode(const asset_entry_t *e, const char *out_dir,
 	char rules[1536];
 	int rules_len = snprintf(rules, sizeof(rules),
 		"{\n"
-		"  \"schema\": \"pd2.gamemode.rules.v1\",\n"
+		"  \"schema\": \"pd2.gamemode.rules.v2\",\n"
 		"  \"catalog_id\": \"%s\",\n"
 		"  \"mode_key\": \"%s\",\n"
+		"  \"name\": \"%s\",\n"
+		"  \"description\": \"%s\",\n"
 		"  \"players\": { \"min\": %d, \"max\": %d },\n"
 		"  \"teams\": { \"required\": %s },\n"
-		"  \"score\": { \"source\": \"original_perfect_dark_rules\" },\n"
-		"  \"runtime\": { \"parity_backend\": \"og.mpscenario.%s\" }\n"
+		"  \"requirefeature\": %u\n"
 		"}\n",
 		e->id, s_modeKey(e->ext.gamemode.mode_id),
+		e->ext.gamemode.name, e->ext.gamemode.description,
 		e->ext.gamemode.min_players, e->ext.gamemode.max_players,
 		e->ext.gamemode.team_based ? "true" : "false",
-		s_modeKey(e->ext.gamemode.mode_id));
+		(unsigned)e->ext.gamemode.requirefeature);
 	if (rules_len <= 0 || (size_t)rules_len >= sizeof(rules)) return -1;
 
 	char manifest[1024];
@@ -1034,14 +1036,15 @@ static s32 s_emitBotProfile(const asset_entry_t *e, const char *out_dir,
 	char profile[1536];
 	int profile_len = snprintf(profile, sizeof(profile),
 		"{\n"
-		"  \"schema\": \"pd2.botprofile.v1\",\n"
+		"  \"schema\": \"pd2.botprofile.v2\",\n"
 		"  \"catalog_id\": \"%s\",\n"
 		"  \"type_key\": \"%s\",\n"
 		"  \"difficulty_key\": \"%s\",\n"
 		"  \"target_body\": \"%s\",\n"
-		"  \"runtime\": { \"parity_backend\": \"og.botprofile.%s.%s\" }\n"
+		"  \"requirefeature\": %u\n"
 		"}\n",
-		e->id, type_key, diff_key, body_id, type_key, diff_key);
+		e->id, type_key, diff_key, body_id,
+		(unsigned)e->ext.bot_profile.requirefeature);
 	if (profile_len <= 0 || (size_t)profile_len >= sizeof(profile)) return -1;
 
 	char manifest[1024];
@@ -1420,14 +1423,15 @@ static s32 s_emitProp(const asset_entry_t *e, const char *out_dir,
 	char prop[1536];
 	int prop_len = snprintf(prop, sizeof(prop),
 		"{\n"
-		"  \"schema\": \"pd2.prop.v1\",\n"
+		"  \"schema\": \"pd2.prop.v2\",\n"
 		"  \"catalog_id\": \"%s\",\n"
 		"  \"prop_key\": \"%s\",\n"
 		"  \"display_name\": \"%s\",\n"
 		"  \"health\": %.3f,\n"
-		"  \"runtime\": { \"parity_backend\": \"og.prop.%s\" }\n"
+		"  \"flags\": %u\n"
 		"}\n",
-		e->id, prop_key, e->ext.prop.name, e->ext.prop.health, prop_key);
+		e->id, prop_key, e->ext.prop.name, e->ext.prop.health,
+		(unsigned)e->ext.prop.flags);
 	if (prop_len <= 0 || (size_t)prop_len >= sizeof(prop)) return -1;
 
 	char manifest[1024];

@@ -821,8 +821,8 @@ SCHEMAS: dict[str, Schema] = {
         ],
     ),
     ".pdprop": schema(
-        required=["prop.ini"],
-        require_any=[["prop.json", "model.gltf", "model.glb", "model.obj", "mesh.pdmesh", "dependencies/assets/models/*.pdmesh"]],
+        required=["prop.ini", "prop.json"],
+        require_any=[["model.gltf", "model.glb", "model.obj", "mesh.pdmesh", "dependencies/assets/models/*.pdmesh", "prop.json"]],
         allowed=["prop.ini", "prop.json", "model.gltf", "model.glb", "model.obj", "behavior.graph.json", "mesh.pdmesh"],
         allowed_globs=[
             "dependencies/assets/models/*.pdmesh",
@@ -1127,7 +1127,6 @@ OPTIONAL_PUBLIC_SLOT_CONTRACT: dict[str, dict[str, SlotJustification]] = {
         "dependencies/assets/audio/*.pdsfx": slot("effect sound dependencies", "effect importer", DEPENDENCY_LOADER, DEPENDENCY_ABSENT),
     },
     ".pdprop": {
-        "prop.json": slot("prop archetype source", "prop importer", "loads prop category/archetype behavior source", "concrete visual props must supply a model source or typed model dependency"),
         "model.gltf": slot("prop GLTF model source", "prop importer", "loads prop model source directly", "mesh.pdmesh or another model source must be present"),
         "model.glb": slot("prop GLB model source", "prop importer", "loads prop model source directly", "mesh.pdmesh or another model source must be present"),
         "model.obj": slot("prop OBJ model source", "prop importer", "loads prop model source directly", "mesh.pdmesh or another model source must be present"),
@@ -1717,6 +1716,30 @@ def validate_prop_source_contract(label: str, zf: zipfile.ZipFile,
             f"{label} prop.ini must declare behavior_graph = behavior.graph.json"
         )
 
+    if descriptor_values.get("prop_file") != "prop.json":
+        errors.append(f"{label} prop.ini must declare prop_file = prop.json")
+    prop = read_json_member(zf, "prop.json")
+    if validate_catalog_bound_json(
+            label, "prop.json", prop, "pd2.prop.v2",
+            descriptor_values.get("catalog_id", ""), errors):
+        if prop.get("prop_key") not in {
+                "object", "door", "character", "weapon_pickup", "eyespy",
+                "player", "explosion", "smoke"}:
+            errors.append(f"{label} prop.json prop_key is unsupported")
+        if not isinstance(prop.get("display_name"), str) or not prop.get(
+                "display_name"):
+            errors.append(f"{label} prop.json display_name must be non-empty")
+        health = prop.get("health")
+        if not is_finite_json_number(health) or float(health) < 0.0:
+            errors.append(
+                f"{label} prop.json health must be a finite non-negative number"
+            )
+        flags = prop.get("flags")
+        if not isinstance(flags, int) or isinstance(flags, bool) or flags < 0:
+            errors.append(
+                f"{label} prop.json flags must be a non-negative integer"
+            )
+
     if "_meta/manifest.json" not in name_set:
         return
     try:
@@ -1730,6 +1753,10 @@ def validate_prop_source_contract(label: str, zf: zipfile.ZipFile,
     if direct_sources and manifest.get("model_file") not in direct_sources:
         errors.append(
             f"{label} _meta/manifest.json must declare model_file as one of {direct_sources}"
+        )
+    if manifest.get("prop_file") != "prop.json":
+        errors.append(
+            f"{label} _meta/manifest.json must declare prop_file = prop.json"
         )
     if ("behavior.graph.json" in name_set and
             manifest.get("behavior_graph") != "behavior.graph.json"):
@@ -2422,10 +2449,12 @@ def validate_gamemode_source_contract(label: str, zf: zipfile.ZipFile,
     text = zf.read("gamemode.ini").decode("utf-8", errors="replace")
     expected = {
         "name": "display name",
+        "description": "display description",
         "mode_key": "readable mode key",
         "min_players": "minimum player count",
         "max_players": "maximum player count",
         "team_based": "team flag",
+        "requirefeature": "unlock feature",
         "rules_file": "rules source member",
     }
     for field, description in expected.items():
@@ -2433,6 +2462,56 @@ def validate_gamemode_source_contract(label: str, zf: zipfile.ZipFile,
             errors.append(f"{label} gamemode.ini must declare {field} ({description})")
     if descriptor_value(text, "rules_file") != "rules.json":
         errors.append(f"{label} gamemode.ini must declare rules_file = rules.json")
+
+    descriptor_values = parse_ini_values(text)
+    rules = read_json_member(zf, "rules.json")
+    if validate_catalog_bound_json(
+            label, "rules.json", rules, "pd2.gamemode.rules.v2",
+            descriptor_values.get("catalog_id", ""), errors):
+        if rules.get("mode_key") not in {
+                "combat", "hold_the_briefcase", "hacker_central",
+                "pop_a_cap", "king_of_the_hill", "capture_the_case"}:
+            errors.append(f"{label} rules.json mode_key is unsupported")
+        for field in ("name", "description"):
+            if not isinstance(rules.get(field), str) or not rules.get(field):
+                errors.append(
+                    f"{label} rules.json {field} must be a non-empty string"
+                )
+        players = rules.get("players")
+        if not isinstance(players, dict):
+            errors.append(f"{label} rules.json players must be an object")
+        else:
+            minimum = players.get("min")
+            maximum = players.get("max")
+            if (
+                not isinstance(minimum, int)
+                or isinstance(minimum, bool)
+                or not isinstance(maximum, int)
+                or isinstance(maximum, bool)
+                or minimum < 1
+                or maximum < minimum
+                or maximum > 32
+            ):
+                errors.append(
+                    f"{label} rules.json players min/max must satisfy "
+                    "1 <= min <= max <= 32"
+                )
+        teams = rules.get("teams")
+        if not isinstance(teams, dict) or not isinstance(
+                teams.get("required"), bool):
+            errors.append(
+                f"{label} rules.json teams.required must be boolean"
+            )
+        requirefeature = rules.get("requirefeature")
+        if (
+            not isinstance(requirefeature, int)
+            or isinstance(requirefeature, bool)
+            or not 0 <= requirefeature <= 255
+        ):
+            errors.append(
+                f"{label} rules.json requirefeature must be an integer "
+                "from 0 to 255"
+            )
 
     if "_meta/manifest.json" not in name_set:
         return
@@ -2468,6 +2547,7 @@ def validate_botprofile_source_contract(label: str, zf: zipfile.ZipFile,
         "type_key": "readable bot type",
         "difficulty_key": "readable difficulty",
         "target_body": "catalog body reference",
+        "requirefeature": "unlock feature",
         "profile_file": "profile source member",
     }
     for field, description in expected.items():
@@ -2475,6 +2555,38 @@ def validate_botprofile_source_contract(label: str, zf: zipfile.ZipFile,
             errors.append(f"{label} botprofile.ini must declare {field} ({description})")
     if descriptor_value(text, "profile_file") != "profile.json":
         errors.append(f"{label} botprofile.ini must declare profile_file = profile.json")
+
+    descriptor_values = parse_ini_values(text)
+    profile = read_json_member(zf, "profile.json")
+    if validate_catalog_bound_json(
+            label, "profile.json", profile, "pd2.botprofile.v2",
+            descriptor_values.get("catalog_id", ""), errors):
+        if profile.get("type_key") not in {
+                "general", "peace", "shield", "rocket", "kaze", "fist",
+                "prey", "coward", "judge", "feud", "speed", "turtle",
+                "venge"}:
+            errors.append(f"{label} profile.json type_key is unsupported")
+        if profile.get("difficulty_key") not in {
+                "meat", "easy", "normal", "hard", "perfect", "dark"}:
+            errors.append(
+                f"{label} profile.json difficulty_key is unsupported"
+            )
+        target_body = profile.get("target_body")
+        if not isinstance(target_body, str) or not CATALOG_ID_RE.match(
+                target_body):
+            errors.append(
+                f"{label} profile.json target_body must be a catalog ID string"
+            )
+        requirefeature = profile.get("requirefeature")
+        if (
+            not isinstance(requirefeature, int)
+            or isinstance(requirefeature, bool)
+            or not 0 <= requirefeature <= 255
+        ):
+            errors.append(
+                f"{label} profile.json requirefeature must be an integer "
+                "from 0 to 255"
+            )
 
     if "_meta/manifest.json" not in name_set:
         return
@@ -7279,6 +7391,72 @@ def run_selftest() -> int:
             },
             ("material.json", '"roughness": 0.5', '"roughness": -1.0'),
             "roughness must be a number from 0 to 1",
+        ),
+        (
+            "PROP",
+            validate_prop_source_contract,
+            {
+                "prop.ini": (
+                    "[prop]\ncatalog_id = test:prop\nprop_key = object\n"
+                    "prop_file = prop.json\n"
+                ),
+                "prop.json": json.dumps({
+                    "schema": "pd2.prop.v2",
+                    "catalog_id": "test:prop",
+                    "prop_key": "object",
+                    "display_name": "Test Prop",
+                    "health": 100.0,
+                    "flags": 0,
+                }),
+            },
+            ("prop.json", '"health": 100.0', '"health": -1.0'),
+            "health must be a finite non-negative number",
+        ),
+        (
+            "GAMEMODE",
+            validate_gamemode_source_contract,
+            {
+                "gamemode.ini": (
+                    "[gamemode]\ncatalog_id = test:gamemode\nname = Test\n"
+                    "description = Test mode\nmode_key = combat\n"
+                    "min_players = 1\nmax_players = 8\nteam_based = 0\n"
+                    "requirefeature = 0\nrules_file = rules.json\n"
+                ),
+                "rules.json": json.dumps({
+                    "schema": "pd2.gamemode.rules.v2",
+                    "catalog_id": "test:gamemode",
+                    "mode_key": "combat",
+                    "name": "Test",
+                    "description": "Test mode",
+                    "players": {"min": 1, "max": 8},
+                    "teams": {"required": False},
+                    "requirefeature": 0,
+                }),
+            },
+            ("rules.json", '"max": 8', '"max": 99'),
+            "1 <= min <= max <= 32",
+        ),
+        (
+            "BOTPROFILE",
+            validate_botprofile_source_contract,
+            {
+                "botprofile.ini": (
+                    "[botprofile]\ncatalog_id = test:bot\ntype_key = general\n"
+                    "difficulty_key = normal\ntarget_body = test:body\n"
+                    "requirefeature = 0\nprofile_file = profile.json\n"
+                ),
+                "profile.json": json.dumps({
+                    "schema": "pd2.botprofile.v2",
+                    "catalog_id": "test:bot",
+                    "type_key": "general",
+                    "difficulty_key": "normal",
+                    "target_body": "test:body",
+                    "requirefeature": 0,
+                }),
+            },
+            ("profile.json", '"difficulty_key": "normal"',
+             '"difficulty_key": "impossible"'),
+            "difficulty_key is unsupported",
         ),
         (
             "SKIN",

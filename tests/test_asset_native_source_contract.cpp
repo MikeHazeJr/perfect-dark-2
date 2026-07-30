@@ -9907,7 +9907,7 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 	        std::string::npos);
 	REQUIRE(lv_runtime.find("scenarioSourceLevelGraphRecordTick(\"lvTick.start\")") !=
 	        std::string::npos);
-	REQUIRE(meta_extractor.find("PDMETA_FAST_CACHE_KIND \"pdmeta_table_backed_v12_hydrated_hud_material_skin_vehicle_source\"") !=
+	REQUIRE(meta_extractor.find("PDMETA_FAST_CACHE_KIND \"pdmeta_table_backed_v13_hydrated_metadata_source\"") !=
 	        std::string::npos);
 	REQUIRE(meta_extractor.find("PDMETA_SCENARIO_DEP_CACHE_KIND") !=
 	        std::string::npos);
@@ -14737,7 +14737,7 @@ TEST_CASE("c3843 remaining base asset families emit clean native archives",
 	REQUIRE(meta.find("s_emitEffect") != std::string::npos);
 	REQUIRE(meta.find("s_emitProp") != std::string::npos);
 	REQUIRE(meta.find("s_emitVehicle") != std::string::npos);
-	REQUIRE(meta.find("PDMETA_FAST_CACHE_KIND \"pdmeta_table_backed_v12_hydrated_hud_material_skin_vehicle_source\"") !=
+	REQUIRE(meta.find("PDMETA_FAST_CACHE_KIND \"pdmeta_table_backed_v13_hydrated_metadata_source\"") !=
 	        std::string::npos);
 	REQUIRE(texture_extractor.find("texture.png") != std::string::npos);
 	REQUIRE(meta.find("material.json") != std::string::npos);
@@ -15669,11 +15669,21 @@ TEST_CASE("B-959 HUD material skin and vehicle public source owns production beh
 	const std::string propobj = readTextFile("src/game/propobj.c");
 	const std::string bondbike = readTextFile("src/game/bondbike.c");
 	const std::string chr = readTextFile("src/game/chr.c");
+	const std::string forge = readTextFile("port/src/forge/forge_runtime.c");
+	const std::string scenarios = readTextFile("src/game/mplayer/scenarios.c");
+	const std::string mplayer = readTextFile("src/game/mplayer/mplayer.c");
 
 	REQUIRE(loader.find("assetRuntimeHydrateCatalogEntry(entry)") !=
 	        std::string::npos);
 	REQUIRE(runtime.find("binding->active = 0") != std::string::npos);
 	REQUIRE(runtime.find("if (!binding || !action) return 0;") !=
+	        std::string::npos);
+	REQUIRE(runtime.find("case ASSET_PROP:     ok = s_hydrateProp(binding);") !=
+	        std::string::npos);
+	REQUIRE(runtime.find("case ASSET_GAMEMODE: ok = s_hydrateGamemode(binding);") !=
+	        std::string::npos);
+	REQUIRE(runtime.find(
+		"case ASSET_BOT_PROFILE: ok = s_hydrateBotProfile(binding);") !=
 	        std::string::npos);
 
 	REQUIRE(bondgun.find("assetRuntimeHudElementEnabled(HUD_ELEM_AMMO)") !=
@@ -15698,7 +15708,16 @@ TEST_CASE("B-959 HUD material skin and vehicle public source owns production beh
 		"assetRuntimeVehicleAllows(vehicle->modelnum, \"dismount\")") !=
 	        std::string::npos);
 	REQUIRE(chr.find("assetRuntimeSkinAppearance") != std::string::npos);
+	REQUIRE(forge.find("source->prop_health * 10.0f") != std::string::npos);
+	REQUIRE(forge.find("source->prop_flags") != std::string::npos);
+	REQUIRE(scenarios.find("!binding || !binding->source_hydrated") !=
+	        std::string::npos);
+	REQUIRE(mplayer.find("!binding || !binding->source_hydrated") !=
+	        std::string::npos);
 
+	REQUIRE(conformance.find("pd2.prop.v2") != std::string::npos);
+	REQUIRE(conformance.find("pd2.gamemode.rules.v2") != std::string::npos);
+	REQUIRE(conformance.find("pd2.botprofile.v2") != std::string::npos);
 	REQUIRE(conformance.find("validate_vehicle_source_contract") !=
 	        std::string::npos);
 	REQUIRE(conformance.find("pd2.vehicle.physics.v2") !=

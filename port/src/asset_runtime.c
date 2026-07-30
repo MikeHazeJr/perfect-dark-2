@@ -995,6 +995,171 @@ static s32 s_hydrateSkin(asset_runtime_binding_t *binding)
     return ok;
 }
 
+static s32 s_propKindFromKey(const char *key)
+{
+    static const char *keys[] = {
+        "", "object", "door", "character", "weapon_pickup",
+        "eyespy", "player", "explosion", "smoke"
+    };
+    if (!key) return -1;
+    for (s32 i = 1; i < (s32)(sizeof(keys) / sizeof(keys[0])); i++) {
+        if (strcmp(key, keys[i]) == 0) return i;
+    }
+    return -1;
+}
+
+static s32 s_gamemodeFromKey(const char *key)
+{
+    static const char *keys[] = {
+        "combat", "hold_the_briefcase", "hacker_central",
+        "pop_a_cap", "king_of_the_hill", "capture_the_case"
+    };
+    if (!key) return -1;
+    for (s32 i = 0; i < (s32)(sizeof(keys) / sizeof(keys[0])); i++) {
+        if (strcmp(key, keys[i]) == 0) return i;
+    }
+    return -1;
+}
+
+static s32 s_botTypeFromKey(const char *key)
+{
+    static const char *keys[] = {
+        "general", "peace", "shield", "rocket", "kaze", "fist", "prey",
+        "coward", "judge", "feud", "speed", "turtle", "venge"
+    };
+    if (!key) return -1;
+    for (s32 i = 0; i < (s32)(sizeof(keys) / sizeof(keys[0])); i++) {
+        if (strcmp(key, keys[i]) == 0) return i;
+    }
+    return -1;
+}
+
+static s32 s_botDifficultyFromKey(const char *key)
+{
+    static const char *keys[] = {
+        "meat", "easy", "normal", "hard", "perfect", "dark"
+    };
+    if (!key) return -1;
+    for (s32 i = 0; i < (s32)(sizeof(keys) / sizeof(keys[0])); i++) {
+        if (strcmp(key, keys[i]) == 0) return i;
+    }
+    return -1;
+}
+
+static s32 s_hydrateProp(asset_runtime_binding_t *binding)
+{
+    u32 size = 0;
+    char *json = s_loadSourceMember(binding, binding->dependency_a[0]
+        ? binding->dependency_a : binding->authored_file, &size);
+    char schema[48];
+    char key[32];
+    s32 flags = 0;
+    s32 kind;
+    s32 ok;
+
+    if (!json) return 0;
+    ok = s_jsonReadString(json, size, "schema", schema, sizeof(schema)) &&
+        strcmp(schema, "pd2.prop.v2") == 0 &&
+        s_sourceCatalogIdMatches(binding, json, size) &&
+        s_jsonReadString(json, size, "prop_key", key, sizeof(key)) &&
+        (kind = s_propKindFromKey(key)) >= 0 &&
+        s_jsonReadString(json, size, "display_name", binding->display_name,
+            sizeof(binding->display_name)) &&
+        s_jsonReadFloat(json, size, "health", &binding->prop_health) &&
+        binding->prop_health >= 0.0f &&
+        s_jsonReadInt(json, size, "flags", &flags) && flags >= 0;
+    free(json);
+    if (ok) {
+        binding->kind = kind;
+        binding->runtime_id = kind;
+        binding->prop_flags = (u32)flags;
+        binding->source_hydrated = 1;
+    }
+    return ok;
+}
+
+static s32 s_hydrateGamemode(asset_runtime_binding_t *binding)
+{
+    u32 size = 0;
+    char *json = s_loadSourceMember(binding, binding->authored_file, &size);
+    char schema[48];
+    char mode_key[32];
+    s32 required = 0;
+    s32 min_players = 0;
+    s32 max_players = 0;
+    s32 requirefeature = 0;
+    s32 mode;
+    s32 ok;
+
+    if (!json) return 0;
+    ok = s_jsonReadString(json, size, "schema", schema, sizeof(schema)) &&
+        strcmp(schema, "pd2.gamemode.rules.v2") == 0 &&
+        s_sourceCatalogIdMatches(binding, json, size) &&
+        s_jsonReadString(json, size, "mode_key", mode_key,
+            sizeof(mode_key)) &&
+        (mode = s_gamemodeFromKey(mode_key)) >= 0 &&
+        s_jsonReadString(json, size, "name", binding->gamemode_name,
+            sizeof(binding->gamemode_name)) &&
+        s_jsonReadString(json, size, "description",
+            binding->gamemode_description,
+            sizeof(binding->gamemode_description)) &&
+        s_jsonReadInt(json, size, "min", &min_players) &&
+        s_jsonReadInt(json, size, "max", &max_players) &&
+        min_players >= 1 && max_players >= min_players && max_players <= 32 &&
+        s_jsonReadBool(json, size, "required", &required) &&
+        s_jsonReadInt(json, size, "requirefeature", &requirefeature) &&
+        requirefeature >= 0 && requirefeature <= 255;
+    free(json);
+    if (ok) {
+        binding->runtime_id = mode;
+        binding->gamemode_min_players = min_players;
+        binding->gamemode_max_players = max_players;
+        binding->gamemode_team_based = required;
+        binding->gamemode_requirefeature = requirefeature;
+        binding->source_hydrated = 1;
+    }
+    return ok;
+}
+
+static s32 s_hydrateBotProfile(asset_runtime_binding_t *binding)
+{
+    u32 size = 0;
+    char *json = s_loadSourceMember(binding, binding->authored_file, &size);
+    char schema[48];
+    char type_key[32];
+    char difficulty_key[32];
+    s32 requirefeature = 0;
+    s32 type;
+    s32 difficulty;
+    s32 ok;
+
+    if (!json) return 0;
+    ok = s_jsonReadString(json, size, "schema", schema, sizeof(schema)) &&
+        strcmp(schema, "pd2.botprofile.v2") == 0 &&
+        s_sourceCatalogIdMatches(binding, json, size) &&
+        s_jsonReadString(json, size, "type_key", type_key,
+            sizeof(type_key)) &&
+        (type = s_botTypeFromKey(type_key)) >= 0 &&
+        s_jsonReadString(json, size, "difficulty_key", difficulty_key,
+            sizeof(difficulty_key)) &&
+        (difficulty = s_botDifficultyFromKey(difficulty_key)) >= 0 &&
+        s_jsonReadString(json, size, "target_body", binding->target_id,
+            sizeof(binding->target_id)) &&
+        strchr(binding->target_id, ':') != NULL &&
+        s_jsonReadInt(json, size, "requirefeature", &requirefeature) &&
+        requirefeature >= 0 && requirefeature <= 255;
+    free(json);
+    if (ok) {
+        binding->runtime_id = type;
+        binding->kind = difficulty;
+        binding->bot_profile_type = type;
+        binding->bot_profile_difficulty = difficulty;
+        binding->bot_profile_requirefeature = requirefeature;
+        binding->source_hydrated = 1;
+    }
+    return ok;
+}
+
 static s32 s_hydrateVehicle(asset_runtime_binding_t *binding)
 {
     u32 physics_size = 0;
@@ -1110,7 +1275,10 @@ s32 assetRuntimeHydrateCatalogEntry(const asset_entry_t *entry)
     case ASSET_HUD:      ok = s_hydrateHud(binding); break;
     case ASSET_MATERIAL: ok = s_hydrateMaterial(binding); break;
     case ASSET_SKIN:     ok = s_hydrateSkin(binding); break;
+    case ASSET_PROP:     ok = s_hydrateProp(binding); break;
     case ASSET_VEHICLE:  ok = s_hydrateVehicle(binding); break;
+    case ASSET_GAMEMODE: ok = s_hydrateGamemode(binding); break;
+    case ASSET_BOT_PROFILE: ok = s_hydrateBotProfile(binding); break;
     default:
         return 1;
     }

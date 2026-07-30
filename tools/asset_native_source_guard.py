@@ -6897,7 +6897,10 @@ def scan_structured_family_runtime_guards(root: Path) -> list[str]:
             "case ASSET_HUD:      ok = s_hydrateHud(binding);",
             "case ASSET_MATERIAL: ok = s_hydrateMaterial(binding);",
             "case ASSET_SKIN:     ok = s_hydrateSkin(binding);",
+            "case ASSET_PROP:     ok = s_hydrateProp(binding);",
             "case ASSET_VEHICLE:  ok = s_hydrateVehicle(binding);",
+            "case ASSET_GAMEMODE: ok = s_hydrateGamemode(binding);",
+            "case ASSET_BOT_PROFILE: ok = s_hydrateBotProfile(binding);",
             "if (!binding || !action) return 0;",
         ),
         "src/game/bondgun.c": (
@@ -6925,7 +6928,20 @@ def scan_structured_family_runtime_guards(root: Path) -> list[str]:
         "src/game/chr.c": (
             "assetRuntimeSkinAppearance",
         ),
+        "port/src/forge/forge_runtime.c": (
+            "source->prop_health * 10.0f",
+            "source->prop_flags",
+        ),
+        "src/game/mplayer/scenarios.c": (
+            "!binding || !binding->source_hydrated",
+        ),
+        "src/game/mplayer/mplayer.c": (
+            "!binding || !binding->source_hydrated",
+        ),
         "tools/asset_archive_conformance.py": (
+            "pd2.prop.v2",
+            "pd2.gamemode.rules.v2",
+            "pd2.botprofile.v2",
             "validate_vehicle_source_contract",
             "pd2.vehicle.physics.v2",
             "pd2.vehicle.behavior.v2",

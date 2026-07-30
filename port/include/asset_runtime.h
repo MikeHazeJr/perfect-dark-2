@@ -85,6 +85,8 @@ typedef struct asset_runtime_binding {
     s32 material_emissive;
     char skin_material_id[CATALOG_ID_LEN];
     f32 skin_swatch_color[4];
+    u32 prop_flags;
+    f32 prop_health;
     f32 vehicle_turn_input_scale;
     f32 vehicle_reverse_turn_gain;
     f32 vehicle_steering_response_ntsc;

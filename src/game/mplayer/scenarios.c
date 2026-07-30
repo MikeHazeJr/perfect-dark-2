@@ -389,9 +389,9 @@ static const asset_runtime_binding_t *scenarioBindingForEntry(
 {
 	const asset_runtime_binding_t *binding =
 		assetRuntimeFindByTypeAndId(ASSET_GAMEMODE, e->id);
-	if (!binding) {
+	if (!binding || !binding->source_hydrated) {
 		sysFatalError("ASSET.CHAIN: gamemode '%s' has no active public-source "
-			"runtime binding; refusing native catalog mirror fallback.", e->id);
+			"rules binding; refusing descriptor/catalog mirror fallback.", e->id);
 		return NULL;
 	}
 	if (!assetRuntimePrimaryFileAccessible(binding)) {

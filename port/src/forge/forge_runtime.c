@@ -33,6 +33,7 @@
 
 #include "system.h"
 #include "assetcatalog.h"
+#include "asset_runtime.h"
 #include "asset_source_debug.h"
 
 #include "game/botmgr.h"
@@ -355,7 +356,9 @@ static void s_ensure_door_pool(void)
 /* Returns 1 if catalog_id identifies a forge interactive door. */
 static s32 s_is_forge_door(const char *catalog_id)
 {
-    return strstr(catalog_id, ":door_") != NULL;
+    const asset_runtime_binding_t *binding =
+        assetRuntimeFindByTypeAndId(ASSET_PROP, catalog_id);
+    return binding && binding->source_hydrated && binding->kind == 2;
 }
 
 /*
@@ -380,12 +383,19 @@ static void s_spawn_door(const forge_object_t *o)
 	}
 
 	catalog_prop_result_t pr;
+	const asset_runtime_binding_t *source =
+		assetRuntimeFindByTypeAndId(ASSET_PROP, o->catalog_id);
 	if (!catalogResolveProp(o->catalog_id, &pr) || assetHandleIsNull(pr.handle)) {
 		sysLogPrintf(LOG_WARNING,
 				"GRID.RUNTIME: door uid=%u -- cannot resolve '%s'",
 				o->uid, o->catalog_id);
         return;
     }
+	if (!source || !source->source_hydrated) {
+		sysFatalError("ASSET.CHAIN: forge door '%s' has no hydrated prop.json; "
+			"refusing synthetic door defaults.", o->catalog_id);
+		return;
+	}
 
     if (!s_forgeModelHandlePassesSourceOnlyCheck(ASSET_PROP, o->catalog_id,
             "forge door modeldef", pr.handle)) {
@@ -404,7 +414,8 @@ static void s_spawn_door(const forge_object_t *o)
     memset(door, 0, sizeof(*door));
 
     door->base.type       = OBJTYPE_DOOR;
-    door->base.maxdamage  = 1000;
+    door->base.maxdamage  = (s32)(source->prop_health * 10.0f);
+    door->base.flags      = source->prop_flags;
     door->base.extrascale = 256;
     door->base.floorcol   = 0x0fff;
     if (o->collision_mode != FORGE_COLLISION_SOLID) {
@@ -639,12 +650,19 @@ static void s_spawn_prop(const forge_object_t *o)
     }
 
 	catalog_prop_result_t pr;
+	const asset_runtime_binding_t *source =
+		assetRuntimeFindByTypeAndId(ASSET_PROP, o->catalog_id);
 	if (!catalogResolveProp(o->catalog_id, &pr) || assetHandleIsNull(pr.handle)) {
 		sysLogPrintf(LOG_WARNING,
 				"GRID.RUNTIME: prop uid=%u -- cannot resolve '%s'",
 				o->uid, o->catalog_id);
         return;
     }
+	if (!source || !source->source_hydrated) {
+		sysFatalError("ASSET.CHAIN: forge prop '%s' has no hydrated prop.json; "
+			"refusing synthetic health/flags.", o->catalog_id);
+		return;
+	}
 
     if (!s_forgeModelHandlePassesSourceOnlyCheck(ASSET_PROP, o->catalog_id,
             "forge prop modeldef", pr.handle)) {
@@ -662,7 +680,8 @@ static void s_spawn_prop(const forge_object_t *o)
     struct defaultobj *obj = &s_prop_pool[s_prop_count];
     memset(obj, 0, sizeof(*obj));
     obj->type       = OBJTYPE_BASIC;
-    obj->maxdamage  = 1000;
+    obj->maxdamage  = (s32)(source->prop_health * 10.0f);
+    obj->flags      = source->prop_flags;
     obj->floorcol   = 0x0fff;
     obj->extrascale = 256;
     if (o->collision_mode != FORGE_COLLISION_SOLID) {

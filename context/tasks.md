@@ -58,6 +58,17 @@ build pass. Workbench assets `A-ASSETS-005`, `A-ASSETS-020`, `A-ASSETS-023`,
 and `A-ASSETS-027` may be marked implemented, not validated; live edited-source
 receipts and the remaining B-959 families are still active.
 
+`B-959` second implementation slice, 2026-07-30: game-mode and bot-profile
+JSON are now authoritative production source rather than placeholder backend
+labels or descriptor mirrors. Prop JSON now owns archetype, display name,
+health and flags; Forge door/prop dispatch and initialization consume the
+hydrated values and fail closed. Focused B-959 expands to 108 assertions and
+strict conformance selftests now reject mutations across seven structured
+families. `A-ASSETS-025` and `A-ASSETS-026` may be marked implemented;
+`A-ASSETS-022` remains partial because arbitrary prop behavior-graph execution
+is still open. Mission briefing/wrapper and the residual weapon, character,
+voice, effect and theme fields remain in the active audit.
+
 **2026-07-07 FULL-PARITY EXTRACTION + UTILIZATION (historical completion evidence;
 current claims are being re-audited under `T-ASSETS-001`).**
 Mike directive: make `.pdxxx` a LOSSLESS, fully-utilized representation of the ROM so

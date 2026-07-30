@@ -105,6 +105,7 @@ def prop_manifest(catalog_id: str) -> str:
         "  \"pd_kind\": \"prop\",\n"
         f"  \"catalog_id\": \"{catalog_id}\",\n"
         "  \"model_file\": \"model.gltf\",\n"
+        "  \"prop_file\": \"prop.json\",\n"
         "  \"behavior_graph\": \"behavior.graph.json\"\n"
         "}\n"
     )
@@ -2332,7 +2333,16 @@ def update_weapon(mesh_bytes: bytes) -> None:
 
 
 def update_botprofile() -> None:
-    profile = read_entry("botprofiles/tri_botprofile.pdbotprofile", "profile.json")
+    profile = (
+        "{\n"
+        "  \"schema\": \"pd2.botprofile.v2\",\n"
+        "  \"catalog_id\": \"example:tri_botprofile\",\n"
+        "  \"type_key\": \"general\",\n"
+        "  \"difficulty_key\": \"normal\",\n"
+        "  \"target_body\": \"example:tri_body\",\n"
+        "  \"requirefeature\": 0\n"
+        "}\n"
+    )
     write_archive("botprofiles/tri_botprofile.pdbotprofile", [
         ("botprofile.ini",
          "[bot_profile]\n"
@@ -2340,6 +2350,7 @@ def update_botprofile() -> None:
          "type_key = general\n"
          "difficulty_key = normal\n"
          "target_body = example:tri_body\n"
+         "requirefeature = 0\n"
          "profile_file = profile.json\n"),
         ("profile.json", profile),
         ("_meta/manifest.json", manifest_with("botprofile", "example:tri_botprofile", {
@@ -2447,6 +2458,16 @@ def update_theme() -> None:
 def update_prop() -> None:
     model = read_entry("meshes/tri_mesh.pdmesh", "model.gltf")
     behavior = read_entry("props/tri_prop.pdprop", "behavior.graph.json")
+    prop_source = (
+        "{\n"
+        "  \"schema\": \"pd2.prop.v2\",\n"
+        "  \"catalog_id\": \"example:tri_prop\",\n"
+        "  \"prop_key\": \"object\",\n"
+        "  \"display_name\": \"Triangle Prop\",\n"
+        "  \"health\": 125.0,\n"
+        "  \"flags\": 0\n"
+        "}\n"
+    )
     write_archive("props/tri_prop.pdprop", [
         ("prop.ini",
          "[prop]\n"
@@ -2454,9 +2475,12 @@ def update_prop() -> None:
          "name = Triangle Prop\n"
          "prop_key = object\n"
          "model_file = model.gltf\n"
-         "health = 100\n"
+         "health = 125\n"
+         "flags = 0\n"
+         "prop_file = prop.json\n"
          "behavior_graph = behavior.graph.json\n"),
         ("model.gltf", model),
+        ("prop.json", prop_source),
         ("behavior.graph.json", behavior),
         ("_meta/manifest.json", prop_manifest("example:tri_prop")),
     ])
@@ -2521,23 +2545,36 @@ def update_vehicle() -> None:
 
 
 def update_gamemode() -> None:
-    rules = read_entry("gamemodes/tri_gamemode.pdgamemode", "rules.json")
+    rules = (
+        "{\n"
+        "  \"schema\": \"pd2.gamemode.rules.v2\",\n"
+        "  \"catalog_id\": \"example:tri_gamemode\",\n"
+        "  \"mode_key\": \"combat\",\n"
+        "  \"name\": \"Triangle Combat\",\n"
+        "  \"description\": \"Free-for-all combat using editable public rules.\",\n"
+        "  \"players\": { \"min\": 1, \"max\": 8 },\n"
+        "  \"teams\": { \"required\": false },\n"
+        "  \"requirefeature\": 0\n"
+        "}\n"
+    )
     write_archive("gamemodes/tri_gamemode.pdgamemode", [
         ("gamemode.ini",
          "[gamemode]\n"
          "catalog_id = example:tri_gamemode\n"
-         "name = Triangle Rules\n"
-         "mode_key = custom\n"
-         "min_players = 2\n"
+         "name = Triangle Combat\n"
+         "description = Free-for-all combat using editable public rules.\n"
+         "mode_key = combat\n"
+         "min_players = 1\n"
          "max_players = 8\n"
          "team_based = 0\n"
+         "requirefeature = 0\n"
          "rules_file = rules.json\n"),
         ("rules.json", rules),
         ("_meta/manifest.json", manifest_with("gamemode", "example:tri_gamemode", {
-            "name": "Triangle Rules",
-            "description": "",
-            "mode_key": "custom",
-            "min_players": 2,
+            "name": "Triangle Combat",
+            "description": "Free-for-all combat using editable public rules.",
+            "mode_key": "combat",
+            "min_players": 1,
             "max_players": 8,
             "team_based": 0,
             "requirefeature": 0,

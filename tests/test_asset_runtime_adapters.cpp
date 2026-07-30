@@ -143,6 +143,73 @@ TEST_CASE("B-959 structured metadata source hydrates production-facing state",
 	REQUIRE(materialBinding->material_metallic == Approx(0.75f));
 	REQUIRE(materialBinding->material_emissive == 1);
 
+	asset_entry_t propSource;
+	initEntry(propSource, ASSET_PROP, "mod:prop_crate");
+	std::strncpy(propSource.ext.prop.model_file, "crate.gltf",
+		sizeof(propSource.ext.prop.model_file) - 1);
+	std::strncpy(propSource.ext.prop.prop_file, "prop.json",
+		sizeof(propSource.ext.prop.prop_file) - 1);
+	std::string propPath = dir.write("crate.gltf", "{}");
+	dir.write("prop.json",
+		"{\"schema\":\"pd2.prop.v2\",\"catalog_id\":\"mod:prop_crate\","
+		"\"prop_key\":\"object\",\"display_name\":\"Cobalt Crate\","
+		"\"health\":325.0,\"flags\":16}");
+	REQUIRE(assetRuntimeActivateCatalogEntry(&propSource, propPath.c_str()) == 1);
+	REQUIRE(assetRuntimeHydrateCatalogEntry(&propSource) == 1);
+	const asset_runtime_binding_t *propBinding =
+		assetRuntimeFindByTypeAndId(ASSET_PROP, "mod:prop_crate");
+	REQUIRE(propBinding != nullptr);
+	REQUIRE(propBinding->source_hydrated == 1);
+	REQUIRE(propBinding->kind == 1);
+	REQUIRE(propBinding->prop_health == Approx(325.0f));
+	REQUIRE(propBinding->prop_flags == 16);
+	REQUIRE(str(propBinding->display_name) == "Cobalt Crate");
+
+	asset_entry_t gameMode;
+	initEntry(gameMode, ASSET_GAMEMODE, "mod:mode_team_case");
+	std::strncpy(gameMode.ext.gamemode.rules_file, "rules.json",
+		sizeof(gameMode.ext.gamemode.rules_file) - 1);
+	std::string rulesPath = dir.write("rules.json",
+		"{\"schema\":\"pd2.gamemode.rules.v2\","
+		"\"catalog_id\":\"mod:mode_team_case\","
+		"\"mode_key\":\"capture_the_case\",\"name\":\"Cobalt Case\","
+		"\"description\":\"Two-team case capture.\","
+		"\"players\":{\"min\":4,\"max\":12},"
+		"\"teams\":{\"required\":true},\"requirefeature\":7}");
+	REQUIRE(assetRuntimeActivateCatalogEntry(&gameMode, rulesPath.c_str()) == 1);
+	REQUIRE(assetRuntimeHydrateCatalogEntry(&gameMode) == 1);
+	const asset_runtime_binding_t *modeBinding =
+		assetRuntimeFindByTypeAndId(ASSET_GAMEMODE, "mod:mode_team_case");
+	REQUIRE(modeBinding != nullptr);
+	REQUIRE(modeBinding->source_hydrated == 1);
+	REQUIRE(modeBinding->runtime_id == 5);
+	REQUIRE(modeBinding->gamemode_min_players == 4);
+	REQUIRE(modeBinding->gamemode_max_players == 12);
+	REQUIRE(modeBinding->gamemode_team_based == 1);
+	REQUIRE(modeBinding->gamemode_requirefeature == 7);
+	REQUIRE(str(modeBinding->gamemode_name) == "Cobalt Case");
+
+	asset_entry_t botProfile;
+	initEntry(botProfile, ASSET_BOT_PROFILE, "mod:bot_vengeful");
+	std::strncpy(botProfile.ext.bot_profile.profile_file, "profile.json",
+		sizeof(botProfile.ext.bot_profile.profile_file) - 1);
+	std::string profilePath = dir.write("profile.json",
+		"{\"schema\":\"pd2.botprofile.v2\","
+		"\"catalog_id\":\"mod:bot_vengeful\",\"type_key\":\"venge\","
+		"\"difficulty_key\":\"hard\",\"target_body\":\"base:body_dark_combat\","
+		"\"requirefeature\":3}");
+	REQUIRE(assetRuntimeActivateCatalogEntry(&botProfile,
+		profilePath.c_str()) == 1);
+	REQUIRE(assetRuntimeHydrateCatalogEntry(&botProfile) == 1);
+	const asset_runtime_binding_t *profileBinding =
+		assetRuntimeFindByTypeAndId(ASSET_BOT_PROFILE, "mod:bot_vengeful");
+	REQUIRE(profileBinding != nullptr);
+	REQUIRE(profileBinding->source_hydrated == 1);
+	REQUIRE(profileBinding->bot_profile_type == 12);
+	REQUIRE(profileBinding->bot_profile_difficulty == 3);
+	REQUIRE(profileBinding->bot_profile_requirefeature == 3);
+	REQUIRE(str(profileBinding->target_id) == "base:body_dark_combat");
+
 	asset_entry_t skin;
 	initEntry(skin, ASSET_SKIN, "mod:skin_cobalt");
 	std::strncpy(skin.ext.skin.target_id, "base:body_dark_combat",

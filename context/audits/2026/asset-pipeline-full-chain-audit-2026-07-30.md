@@ -39,11 +39,11 @@ Truth rules:
 | A-ASSETS-019 | `.pdlang` | Editable `strings.json` bank | Language walker and `langManifest` | `langLoad` consumes catalog source and already fails closed | Hub language editing | **implemented, validation pending** |
 | A-ASSETS-020 | `.pdskin` | Editable target-body material slots and swatches | Metadata walker hydrates `skin.json` plus `swatches.json`, validates catalog identity, and resolves the material binding | Character rendering composes material color and swatch alpha plus material shading controls | Skin editor plus archive-aware source editing | **implemented (B-959 slice), validation pending** — mutation/behavior and strict-schema proof pass; live body-appearance receipt remains |
 | A-ASSETS-021 | `.pdeffect` | Effect graph/timeline and metadata | Effect walker and effect graph runtime | Effect graph references reach gameplay/render bridges | Hub effect source | **partial** — production bridges exist, but parity-backend/fallback paths and full shader/timeline semantics still require closure |
-| A-ASSETS-022 | `.pdprop` | Synthetic archetype JSON, model/behavior refs, flags/health | Metadata walker + generic binding; model source can load | Model path and selected type metadata have consumers | Generic descriptor editor | **partial (B-959)** — health, flags and behavior source do not form a complete standalone prop production adapter |
+| A-ASSETS-022 | `.pdprop` | Editable v2 archetype, display name, health and flags plus model/behavior refs | Metadata walker hydrates and validates `prop.json`; model source can load | Forge door/prop dispatch, max damage and flags consume hydrated source and fail closed | Archive-aware descriptor/JSON editing | **partial (B-959)** — core state is production-connected with focused proof; arbitrary `behavior.graph.json` execution remains open |
 | A-ASSETS-023 | `.pdvehicle` | Model plus complete named hoverbike movement, hover and mount/drive/dismount policy source | Metadata walker hydrates both source documents and rejects invalid/missing bindings | Real hoverbike movement, collision bob, hover tick, mount, drive and dismount paths consume the hydrated values and fail closed | Archive-aware descriptor/JSON editing | **implemented (B-959 slice), validation pending** — focused source mutation/behavior and compile proof pass; live tuned-vehicle receipt remains |
 | A-ASSETS-024 | `.pdmission` | Scenario dependency, objectives/mission graph, placeholder briefing | Metadata walker + generic binding | Scenario owns substantial mission execution, but no standalone `ASSET_MISSION` selector/runtime consumer was found | Generic descriptor editor | **partial (B-959)** — mission wrapper/briefing is not authoritative campaign source |
-| A-ASSETS-025 | `.pdgamemode` | Selector metadata plus OG-backend rules wrapper | Metadata walker + generic binding | Team flag reaches selector | Generic descriptor editor | **partial (B-953/B-959)** — name/description, player bounds and rules source are not comprehensively consumed; missing bindings still fall back |
-| A-ASSETS-026 | `.pdbotprofile` | Selector mirrors plus OG-backend profile wrapper | Metadata walker + generic binding | Permanent profile ID now reaches both menus, bot/match runtime, saves, manifests, and v52 wire; traits/body derive from the readable binding | Archive-aware descriptor editor; live interaction proof pending | **partial (B-959; B-961 implemented)** — identity no longer collapses to native indices, but `profile.json` is still not a comprehensive creator-authored behavior/tuning source |
+| A-ASSETS-025 | `.pdgamemode` | Editable v2 mode, display text, participant bounds, team requirement and unlock feature | Metadata walker hydrates/validates `rules.json` and rejects invalid rows | Production menus and selector consume hydrated source without descriptor/native fallback | Archive-aware descriptor/JSON editing | **implemented (B-953/B-959), validation pending** — focused mutation/runtime and compile proof pass; live MKB/controller selection receipt remains |
+| A-ASSETS-026 | `.pdbotprofile` | Editable v2 bot type, difficulty, target body and unlock feature | Metadata walker hydrates/validates `profile.json`; permanent ID survives save/wire | Menus, bot creation, match state, saves, manifests and v52 wire consume identity and hydrated traits/body | Archive-aware descriptor/JSON editing | **implemented (B-959/B-961), validation pending** — focused mutation/runtime and compile proof pass; live custom-profile/network receipt remains |
 | A-ASSETS-027 | `.pdhud` | Editable element identity, visibility and score/timer opacity | Metadata walker hydrates and validates `layout.json` | Ammo, crosshair, health, radar, score and timer production render paths consume the binding | Archive-aware descriptor/JSON editing | **implemented (B-959 slice), validation pending** — all six consumers are statically pinned and focused runtime hydration passes; live HUD edit receipt remains |
 | A-ASSETS-028 | `.pdtheme` | Theme style/tokens plus optional dependencies | Theme walker/catalog and theme loader | Theme JSON and catalog UI assets drive ImGui styling | Theme editor and Hub | **partial** — direct style loading is live; dependency archives are not yet all authoritative runtime inputs and missing bindings fall back |
 
@@ -60,7 +60,9 @@ Truth rules:
 - **B-959:** placeholder public source and generic-binding-only runtime claims
   across metadata families. HUD/material/skin/vehicle are now implemented with
   strict structured schemas and production consumers; the remaining named
-  families and live edited-source receipts stay open.
+  families and live edited-source receipts stay open. Game mode and bot profile
+  are now implemented from their JSON; prop core state is connected while its
+  arbitrary behavior graph remains partial.
 - **B-960:** runtime fallback correctness depended on optional debug mode.
 - **B-961:** catalog-backed bot-profile selection discarded custom identity at
   `mp_index = -1`. The permanent ID now survives UI, runtime/match state,
@@ -77,8 +79,8 @@ Truth rules:
 1. Preserve the verified archive-integrity and fail-closed fixes with full build,
    guard, and runtime receipts.
 2. Complete B-953 for game-mode metadata/rules without a native mirror fallback.
-3. Continue B-959 after the implemented HUD/material/skin/vehicle slice:
-   prop, mission, game mode, bot profile, then residual partial fields.
+3. Continue B-959 after the implemented structured-source slices: prop
+   behavior, mission briefing/wrapper integration, then residual partial fields.
 4. Close residual partial fields in weapon, character, voice, effect and theme.
 5. Run the menu/input/glyph sweep and live MKB/controller creator workflows.
 6. Mark a family validated only after an edited public source demonstrably

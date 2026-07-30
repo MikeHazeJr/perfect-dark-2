@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "project": "Perfect Dark 2",
-  "updated": "2026-07-30T18:14:09.442Z",
+  "updated": "2026-07-30T18:23:11.960Z",
   "items": [
     {
       "type": "task",
@@ -1807,18 +1807,29 @@
         "T-ASSETS-001"
       ],
       "evidence": [
+        "context/bugs.md:B-959",
         "context/audits/2026/asset-pipeline-full-chain-audit-2026-07-30.md",
-        "context/bugs.md:B-959"
+        "port/src/asset_runtime.c",
+        "port/src/romextract_pdmeta.c",
+        "tools/asset_archive_conformance.py",
+        "tests/test_asset_runtime_adapters.cpp:[b959]",
+        "tests/test_asset_native_source_contract.cpp:[b959]",
+        "pd-tests [b959]: 2 cases / 108 assertions PASS 2026-07-30",
+        "strict source conformance: 28 root / 59 recursive archives / 27 families PASS",
+        "asset native source guard PASS",
+        "isolated tests build pd2assetaudit2 PASS",
+        "port/src/forge/forge_runtime.c"
       ],
-      "detail": "Full-chain audit 2026-07-30: Prop model/type have consumers, but health/flags/behavior are not a comprehensive standalone prop adapter. B-959.",
+      "detail": "B-959 core slice implemented: prop.json v2 owns archetype, display name, health and flags; Forge dispatch/spawn consumes hydrated values and fails closed. Strict mutation/runtime/build proof passes. Status remains partial because arbitrary behavior.graph.json execution is still open.",
       "tags": [
         "asset-family",
         "asset-family:pdprop",
         "descriptor:prop.ini"
       ],
       "id": "A-ASSETS-022",
-      "updated": "2026-07-30T16:22:11.141Z",
-      "created": "2026-07-30T15:32:27.822Z"
+      "updated": "2026-07-30T18:23:11.938Z",
+      "created": "2026-07-30T15:32:27.822Z",
+      "model": "Codex GPT-5"
     },
     {
       "type": "asset",
@@ -1887,7 +1898,7 @@
       "type": "asset",
       "title": ".pdgamemode public source and production runtime chain",
       "area": "ASSETS",
-      "status": "partial",
+      "status": "implemented",
       "phase": 1,
       "lane": "family-audit",
       "owner": "codex-pd2-workbench-assets-20260730",
@@ -1895,27 +1906,35 @@
         "T-ASSETS-001"
       ],
       "evidence": [
-        "context/bugs.md:B-953",
-        "src/game/mplayer/scenarios.c:353",
-        "tests/test_asset_native_source_contract.cpp:15627",
+        "context/bugs.md:B-959",
         "context/audits/2026/asset-pipeline-full-chain-audit-2026-07-30.md",
-        "context/bugs.md:B-959"
+        "port/src/asset_runtime.c",
+        "port/src/romextract_pdmeta.c",
+        "tools/asset_archive_conformance.py",
+        "tests/test_asset_runtime_adapters.cpp:[b959]",
+        "tests/test_asset_native_source_contract.cpp:[b959]",
+        "pd-tests [b959]: 2 cases / 108 assertions PASS 2026-07-30",
+        "strict source conformance: 28 root / 59 recursive archives / 27 families PASS",
+        "asset native source guard PASS",
+        "isolated tests build pd2assetaudit2 PASS",
+        "src/game/mplayer/scenarios.c"
       ],
-      "detail": "Full-chain audit 2026-07-30: Only team flag reaches production; name/description/player bounds/rules and fallback retirement remain open. B-953/B-959.",
+      "detail": "B-959/B-953 implemented: rules.json v2 owns mode, name, description, player bounds, team requirement and unlock feature. Production menus/selector require hydrated source and refuse descriptor/native fallback. Live MKB/controller edited-rules receipt remains before validated.",
       "tags": [
         "asset-family",
         "asset-family:pdgamemode",
         "descriptor:gamemode.ini"
       ],
       "id": "A-ASSETS-025",
-      "updated": "2026-07-30T16:22:11.145Z",
-      "created": "2026-07-30T15:32:27.869Z"
+      "updated": "2026-07-30T18:23:11.954Z",
+      "created": "2026-07-30T15:32:27.869Z",
+      "model": "Codex GPT-5"
     },
     {
       "type": "asset",
       "title": ".pdbotprofile public source and production runtime chain",
       "area": "ASSETS",
-      "status": "partial",
+      "status": "implemented",
       "phase": 1,
       "lane": "family-audit",
       "owner": "codex-pd2-workbench-assets-20260730",
@@ -1923,21 +1942,29 @@
         "T-ASSETS-001"
       ],
       "evidence": [
-        "context/audits/2026/asset-pipeline-full-chain-audit-2026-07-30.md",
         "context/bugs.md:B-959",
-        "context/bugs.md:B-961",
-        "T-ASSETS-005",
-        "tests/test_mod_external_archive_static.cpp:[bot_profile]"
+        "context/audits/2026/asset-pipeline-full-chain-audit-2026-07-30.md",
+        "port/src/asset_runtime.c",
+        "port/src/romextract_pdmeta.c",
+        "tools/asset_archive_conformance.py",
+        "tests/test_asset_runtime_adapters.cpp:[b959]",
+        "tests/test_asset_native_source_contract.cpp:[b959]",
+        "pd-tests [b959]: 2 cases / 108 assertions PASS 2026-07-30",
+        "strict source conformance: 28 root / 59 recursive archives / 27 families PASS",
+        "asset native source guard PASS",
+        "isolated tests build pd2assetaudit2 PASS",
+        "src/game/mplayer/mplayer.c"
       ],
-      "detail": "Full-chain audit update 2026-07-30: B-961 is production-connected, so the selected public profile catalog ID now survives both menus, runtime/match state, save formats, manifests, and v52 network reconstruction. The family remains partial under B-959 because profile.json still names an OG parity backend and does not yet expose/execute a comprehensive creator-authored behavior/tuning schema; live custom-profile proof is also pending.",
+      "detail": "B-959/B-961 implemented: profile.json v2 owns bot type, difficulty, target body and unlock feature. Bot creation requires hydrated source and permanent identity survives saves/manifests/v52 wire. Live custom-profile network/gameplay receipt remains before validated.",
       "tags": [
         "asset-family",
         "asset-family:pdbotprofile",
         "descriptor:botprofile.ini"
       ],
       "id": "A-ASSETS-026",
-      "updated": "2026-07-30T17:15:29.468Z",
-      "created": "2026-07-30T15:32:27.873Z"
+      "updated": "2026-07-30T18:23:11.960Z",
+      "created": "2026-07-30T15:32:27.873Z",
+      "model": "Codex GPT-5"
     },
     {
       "type": "asset",

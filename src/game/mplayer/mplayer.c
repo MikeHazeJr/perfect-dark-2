@@ -3736,9 +3736,9 @@ const struct asset_runtime_binding *mpBotProfileRuntimeBindingById(
 	}
 
 	binding = assetRuntimeFindByTypeAndId(ASSET_BOT_PROFILE, profile_id);
-	if (!binding) {
+	if (!binding || !binding->source_hydrated) {
 		sysFatalError("ASSET.CHAIN: bot profile '%s' has no active "
-			"public-source binding.", profile_id);
+			"hydrated profile.json binding.", profile_id);
 		return NULL;
 	}
 	if (!assetRuntimePrimaryFileAccessible(binding)) {
