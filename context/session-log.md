@@ -28,6 +28,80 @@ the separated Notes/Activity pages, dependency SVG, and the live coordination
 session. `T-TOOLING-001` records the migration. The current audit umbrella is
 `T-ASSETS-001`, with implementation and proof dependencies assigned beneath it.
 
+The first production-path hardening checkpoint is complete. The audit found
+and fixed failure masking in extractor-only startup and twelve child emitters;
+non-atomic archive replacement; silent 32-row descriptor truncation;
+filesystem-only Modding Hub descriptor editing; production game-mode, bot, and
+theme fallback to built-ins; selected font/texture/sequence/animation/SFX/
+voice/MP3 fallbacks to ROM, native, loose, or opaque sources; an outdated
+native-source guard that still required debug-gated fallback; and public OBJ
+fixtures silently excluded by the repository ignore rules. Focused regression
+proof passes 63 cases / 11,744 assertions, the current native-source guard
+passes, and isolated session build `pd2assetaudit` passes all targets.
+
+Workbench records preserve the remaining truth: `B-959` tracks placeholder or
+incompletely executed material/skin/vehicle/prop/bot/game-mode/mission/HUD
+families. Fail-closed runtime lanes are implemented but not yet validated
+because their induced missing-source receipts are still outstanding.
+
+`B-961` is now production-connected. Permanent bot-profile IDs survive the
+legacy Simulant picker, modern Room UI, `mpbotconfig`/`matchslot`, copy/name/
+difficulty flows, challenge/Forge creation, JSON scenario and setup files, v3
+binary setup blocks with v0-v2 migration, match manifests, v52 lobby-start
+IDs, and stage-start session references. Runtime traits and default body are
+derived from the active readable public profile binding. Verification passes
+the all-target build, 137 `.pdxxx` cases / 15,497 assertions, version pins,
+and native-source guard. Live custom-profile MKB/controller/save/network/
+gameplay proof remains, followed by the remaining family adapters and full
+menu/input/glyph sweep.
+
+The save/wire review also found and fixed B-964/SP-27 and B-965. MP setup JSON
+had written catalog `weapon_ids` plus a deprecated numeric array and then let
+the later numeric field overwrite the canonical selection on load; catalog-
+only creator weapons could disappear. Writers now emit only catalog IDs,
+legacy numbers are migration-only when canonical IDs are absent, and missing
+weapon/profile records reject the load. Binary setup IO now requires exact
+header/block reads and writes, rejects future versions and invalid counts/
+default indices, and clears partial state on failure. Verification passes the
+all-target build, 19 focused assertions, 139 `.pdxxx` cases / 15,517
+assertions, version pins, and the native-source guard.
+
+The first full creator-workflow smoke then found B-969: an external `.pdmesh`
+with a render-stream material command and material-less triangle rows crashed
+in `generatedModeldefBuildPayload`. The fix preserves the explicit stream
+material unless a triangle provides a valid override; the other material
+dereference paths were audited for the same class. The broad regression suite
+also caught generated `.pdmaterial` examples dropping their editable texture
+and effect dependency slots, which are now restored. Fresh isolated all-target
+and test builds pass; `[modding][pdxxx]` passes 141 cases / 15,633 assertions;
+all-family conformance passes 28 root / 59 recursive archives; and the rebuilt
+`pdxxx_modder_workflow_smoke` passes 58/58 with no crash.
+
+The closeout sweep found two more defects. B-970 removed a still-callable
+retired-tracker pipeline from the scheduled daily entrypoint; scheduled runs
+now export one read-only briefing from Workbench and cannot merge, push, or
+mutate the archived board. B-971 found that the creator `.pdtheme` example's
+`accent` and `chrome` keys were ignored by the production parser. The generator
+and committed archive now use the parser's real identity and named palette
+schema, with regression assertions.
+
+The mission audit was also corrected: `ASSET_MISSION` graphs, objective source
+rows, phase transitions and parity-backend dispatch are production-consumed by
+`scenario_source_runtime`, and the nested Scenario reconstructs the briefing
+records read by `setupLoadBriefing`. The redundant placeholder
+`briefing.json` is still not an independent authority, so that public-contract
+edge remains partial rather than being mislabeled complete.
+
+Final automated receipts: isolated `pd2assetaudit6` client/updater build PASS;
+isolated `pd2assetaudit7` test build PASS; `[modding][pdxxx]` 141 cases /
+15,643 assertions PASS; `[menu],[input]` 68 cases / 1,483 assertions PASS;
+native-source guard PASS; conformance 28 root / 59 recursive archives across
+all 27 families PASS; conformance selftest PASS; Workbench API tests PASS; and
+the rebuilt all-family `pdxxx_modder_workflow_smoke` PASS 58/58 at
+`.claude/smoke-verify-runs/results-20260730T185923Z.json`. Live physical-device
+menu/input proof and residual partial-family semantics remain explicitly open
+in Workbench.
+
 ## 2026-07-07 - Full-parity extraction project COMPLETE (1a/1b/1c + LOD descope + closures)
 
 Mike's directive: mods-equal-to-base, lossless ROM extraction in accessible .pdxxx

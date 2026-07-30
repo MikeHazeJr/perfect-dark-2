@@ -26,6 +26,7 @@
 #include "pdgui_audio.h"
 #include "pdgui_layout.h"
 #include "pdgui_nav.h"
+#include "pdgui_glyphs.h"
 #include "menugraph.h"
 #include "system.h"
 
@@ -44,6 +45,9 @@ extern "C" {
 #define MENUITEMTYPE_SEPARATOR   0x0b
 #define MENUITEMTYPE_DROPDOWN    0x0c
 #define MENUITEMTYPE_KEYBOARD    0x0d
+#define MENUITEMTYPE_RANKING     0x0e
+#define MENUITEMTYPE_PLAYERSTATS 0x0f
+#define MENUITEMTYPE_CAROUSEL    0x12
 #define MENUITEMTYPE_MARQUEE     0x17
 #define MENUITEMTYPE_END         0x1a
 
@@ -60,6 +64,7 @@ extern "C" {
 #define MENUOP_GETSLIDER          9
 #define MENUOP_GETSLIDERLABEL    10
 #define MENUOP_CHECKDISABLED     12
+#define MENUOP_LISTITEMFOCUS     16
 #define MENUOP_GETTEXT           17
 
 /* Dialog types */
@@ -105,11 +110,25 @@ struct handlerdata_dropdown {
     uintptr_t unk04;
 };
 
+struct handlerdata_list {
+    union {
+        uintptr_t value;
+        intptr_t values32;
+    };
+    union {
+        s32 unk04;
+        u32 unk04u32;
+    };
+    s32 groupstartindex;
+    s32 unk0c;
+};
+
 union handlerdata {
     struct handlerdata_keyboard  keyboard;
     struct handlerdata_slider    slider;
     struct handlerdata_checkbox  checkbox;
     struct handlerdata_dropdown  dropdown;
+    struct handlerdata_list      list;
     u8 _pad[256];
 };
 
@@ -132,6 +151,42 @@ s32 viGetHeight(void);
 /* Dialog flags */
 #define MENUDIALOGFLAG_LITERAL_TEXT   0x2000
 #define MENUDIALOGFLAG_CLOSEONSELECT 0x0001
+
+#define MAX_PLAYERS 4
+#define MAX_MPCHRS 12
+
+struct mpchrconfig_warning {
+    char name[15];
+    char head_id[64];
+    char body_id[64];
+    u8 mpheadnum;
+    u8 mpbodynum;
+    u8 team;
+    u8 _pad0[2];
+    u32 displayoptions;
+    u16 unk18;
+    u16 unk1a;
+    u16 unk1c;
+    s8 placement;
+    u8 _pad1;
+    s32 rankablescore;
+    s16 killcounts[MAX_MPCHRS];
+    s16 numdeaths;
+    s16 numpoints;
+    s16 unk40;
+};
+
+struct ranking_warning {
+    struct mpchrconfig_warning *mpchr;
+    union { u32 teamnum; u32 chrnum; };
+    u32 positionindex;
+    u8 unk0c;
+    s32 score;
+};
+
+s32 mpGetPlayerRankings(struct ranking_warning *rankings);
+s32 mpGetTeamRankings(struct ranking_warning *rankings);
+const char *pdguiMppGetTeamName(u32 team);
 
 } /* extern "C" */
 
@@ -206,6 +261,263 @@ static const char *getItemLabel(struct menuitem *item)
     ItemLabelFn fn = (ItemLabelFn)item->param2;
     char *s = fn(item);
     return (s && s[0]) ? s : "";
+}
+
+static void copyPdName(char *dst, size_t cap, const char *src)
+{
+    size_t i = 0;
+    if (!dst || cap == 0) return;
+    if (src) {
+        while (i + 1 < cap && src[i] && src[i] != '\n') {
+            dst[i] = src[i];
+            i++;
+        }
+    }
+    dst[i] = '\0';
+}
+
+static s32 handlerListValue(struct menuitem *item, s32 operation, s32 value,
+                            const char **outText)
+{
+    union handlerdata hd;
+    uintptr_t result = 0;
+    memset(&hd, 0, sizeof(hd));
+    hd.list.value = (uintptr_t)value;
+    if (item && item->handler) {
+        result = item->handler(operation, item, &hd);
+    }
+    if (outText) {
+        /* MENUOP_GETOPTIONTEXT returns the pointer.  handlerdata_list's
+         * second field is intentionally only 32 bits in the game ABI and
+         * must never be reinterpreted as a pointer in this 64-bit port. */
+        *outText = (const char *)result;
+    }
+    return (s32)hd.list.value;
+}
+
+static void renderHandlerList(struct menuitem *item, bool carousel)
+{
+    if (!item || !item->handler) {
+        ImGui::TextDisabled("This list has no data provider.");
+        return;
+    }
+
+    s32 count = handlerListValue(item, MENUOP_GETOPTIONCOUNT, 0, nullptr);
+    s32 selected = handlerListValue(item, MENUOP_GETSELECTEDINDEX, 0, nullptr);
+    if (count <= 0) {
+        ImGui::TextDisabled("No entries available.");
+        return;
+    }
+    if (selected < 0 || selected >= count) selected = 0;
+
+    if (carousel) {
+        const char *selectedText = nullptr;
+        handlerListValue(item, MENUOP_GETOPTIONTEXT, selected, &selectedText);
+        char fallback[32];
+        if (!selectedText || !selectedText[0]) {
+            snprintf(fallback, sizeof(fallback), "Item %d", selected + 1);
+            selectedText = fallback;
+        }
+
+        ImGui::PushID((const void *)item);
+        if (ImGui::ArrowButton("##previous", ImGuiDir_Left)) {
+            s32 next = selected > 0 ? selected - 1 : count - 1;
+            handlerListValue(item, MENUOP_SET, next, nullptr);
+            handlerListValue(item, MENUOP_LISTITEMFOCUS, next, nullptr);
+            pdguiPlaySound(PDGUI_SND_SUBFOCUS);
+        }
+        ImGui::SameLine();
+        float textWidth = ImGui::CalcTextSize(selectedText).x;
+        float avail = ImGui::GetContentRegionAvail().x;
+        if (avail > textWidth) {
+            ImGui::SetCursorPosX(ImGui::GetCursorPosX() +
+                                 (avail - textWidth) * 0.5f);
+        }
+        ImGui::TextUnformatted(selectedText);
+        ImGui::SameLine();
+        ImGui::SetCursorPosX(ImGui::GetWindowContentRegionMax().x -
+                             ImGui::GetFrameHeight());
+        if (ImGui::ArrowButton("##next", ImGuiDir_Right)) {
+            s32 next = selected + 1 < count ? selected + 1 : 0;
+            handlerListValue(item, MENUOP_SET, next, nullptr);
+            handlerListValue(item, MENUOP_LISTITEMFOCUS, next, nullptr);
+            pdguiPlaySound(PDGUI_SND_SUBFOCUS);
+        }
+        ImGui::PopID();
+        return;
+    }
+
+    float listHeight = ImGui::GetContentRegionAvail().y;
+    if (listHeight > pdguiScale(190.0f)) listHeight = pdguiScale(190.0f);
+    if (listHeight < pdguiScale(70.0f)) listHeight = pdguiScale(70.0f);
+    ImGui::PushID((const void *)item);
+    if (ImGui::BeginChild("##typed_list", ImVec2(0, listHeight), true,
+                          ImGuiWindowFlags_NavFlattened)) {
+        for (s32 i = 0; i < count; i++) {
+            const char *optionText = nullptr;
+            handlerListValue(item, MENUOP_GETOPTIONTEXT, i, &optionText);
+            char fallback[32];
+            if (!optionText || !optionText[0]) {
+                snprintf(fallback, sizeof(fallback), "Item %d", i + 1);
+                optionText = fallback;
+            }
+            bool isSelected = i == selected;
+            if (ImGui::Selectable(optionText, isSelected)) {
+                handlerListValue(item, MENUOP_SET, i, nullptr);
+                handlerListValue(item, MENUOP_LISTITEMFOCUS, i, nullptr);
+                pdguiPlaySound(PDGUI_SND_SELECT);
+            }
+            if (ImGui::IsItemFocused() && !isSelected) {
+                handlerListValue(item, MENUOP_LISTITEMFOCUS, i, nullptr);
+            }
+            if (isSelected && ImGui::IsWindowAppearing()) {
+                ImGui::SetScrollHereY(0.5f);
+                ImGui::SetItemDefaultFocus();
+            }
+        }
+    }
+    ImGui::EndChild();
+    ImGui::PopID();
+}
+
+static void renderRankingTable(bool teams)
+{
+    struct ranking_warning rows[MAX_MPCHRS];
+    memset(rows, 0, sizeof(rows));
+    s32 count = teams ? mpGetTeamRankings(rows) : mpGetPlayerRankings(rows);
+    if (count <= 0) {
+        ImGui::TextDisabled("No ranking data is available yet.");
+        return;
+    }
+    if (count > MAX_MPCHRS) count = MAX_MPCHRS;
+
+    ImGuiTableFlags flags = ImGuiTableFlags_RowBg |
+                            ImGuiTableFlags_BordersInnerH |
+                            ImGuiTableFlags_SizingStretchProp |
+                            ImGuiTableFlags_ScrollY;
+    if (ImGui::BeginTable("##ranking", teams ? 2 : 3, flags,
+                          ImVec2(0, pdguiScale(190.0f)))) {
+        ImGui::TableSetupScrollFreeze(0, 1);
+        ImGui::TableSetupColumn(teams ? "Team" : "Player",
+                                ImGuiTableColumnFlags_WidthStretch);
+        if (!teams) {
+            ImGui::TableSetupColumn("Deaths",
+                                    ImGuiTableColumnFlags_WidthFixed,
+                                    pdguiScale(72.0f));
+        }
+        ImGui::TableSetupColumn("Score", ImGuiTableColumnFlags_WidthFixed,
+                                pdguiScale(72.0f));
+        ImGui::TableHeadersRow();
+
+        for (s32 i = 0; i < count; i++) {
+            char name[32];
+            if (teams) {
+                copyPdName(name, sizeof(name),
+                           pdguiMppGetTeamName(rows[i].teamnum));
+            } else if (rows[i].mpchr) {
+                copyPdName(name, sizeof(name), rows[i].mpchr->name);
+            } else {
+                snprintf(name, sizeof(name), "Player %d", i + 1);
+            }
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            ImGui::Text("%d. %s", i + 1, name);
+            if (!teams) {
+                ImGui::TableNextColumn();
+                ImGui::Text("%d", rows[i].mpchr
+                    ? (s32)rows[i].mpchr->numdeaths : 0);
+            }
+            ImGui::TableNextColumn();
+            ImGui::Text("%d", rows[i].score);
+        }
+        ImGui::EndTable();
+    }
+}
+
+static void renderPlayerStats(struct menuitem *item)
+{
+    s32 selected = handlerListValue(item, MENUOP_GETSELECTEDINDEX, 0, nullptr);
+    struct ranking_warning rows[MAX_MPCHRS];
+    memset(rows, 0, sizeof(rows));
+    s32 count = mpGetPlayerRankings(rows);
+    if (count > MAX_MPCHRS) count = MAX_MPCHRS;
+
+    const char *preview = nullptr;
+    handlerListValue(item, MENUOP_GETOPTIONTEXT, selected, &preview);
+    ImGui::PushID((const void *)item);
+    if (ImGui::BeginCombo("Player", preview && preview[0] ? preview : "Select")) {
+        s32 optionCount =
+            handlerListValue(item, MENUOP_GETOPTIONCOUNT, 0, nullptr);
+        for (s32 i = 0; i < optionCount; i++) {
+            const char *name = nullptr;
+            handlerListValue(item, MENUOP_GETOPTIONTEXT, i, &name);
+            char fallback[32];
+            if (!name || !name[0]) {
+                snprintf(fallback, sizeof(fallback), "Player %d", i + 1);
+                name = fallback;
+            }
+            if (ImGui::Selectable(name, i == selected)) {
+                handlerListValue(item, MENUOP_SET, i, nullptr);
+                handlerListValue(item, MENUOP_LISTITEMFOCUS, i, nullptr);
+                selected = i;
+                pdguiPlaySound(PDGUI_SND_SUBFOCUS);
+            }
+            if (i == selected) ImGui::SetItemDefaultFocus();
+        }
+        ImGui::EndCombo();
+    }
+    ImGui::PopID();
+
+    struct ranking_warning *row = nullptr;
+    for (s32 i = 0; i < count; i++) {
+        if ((s32)rows[i].chrnum == selected) {
+            row = &rows[i];
+            break;
+        }
+    }
+    if (!row && selected >= 0 && selected < count) row = &rows[selected];
+    if (!row || !row->mpchr) return;
+
+    char name[32];
+    copyPdName(name, sizeof(name), row->mpchr->name);
+    ImGui::SeparatorText(name[0] ? name : "Player");
+    ImGui::Text("Score: %d", row->score);
+    ImGui::SameLine();
+    ImGui::Text("Deaths: %d", (s32)row->mpchr->numdeaths);
+    ImGui::SameLine();
+    ImGui::Text("Suicides: %d",
+                selected >= 0 && selected < MAX_MPCHRS
+                    ? (s32)row->mpchr->killcounts[selected] : 0);
+
+    if (ImGui::BeginTable("##player_kills", 3,
+                          ImGuiTableFlags_RowBg |
+                          ImGuiTableFlags_BordersInnerH |
+                          ImGuiTableFlags_SizingStretchProp)) {
+        ImGui::TableSetupColumn("Opponent");
+        ImGui::TableSetupColumn("Kills", ImGuiTableColumnFlags_WidthFixed,
+                                pdguiScale(60.0f));
+        ImGui::TableSetupColumn("Deaths", ImGuiTableColumnFlags_WidthFixed,
+                                pdguiScale(60.0f));
+        ImGui::TableHeadersRow();
+        for (s32 i = 0; i < count; i++) {
+            s32 chr = (s32)rows[i].chrnum;
+            if (chr == selected || chr < 0 || chr >= MAX_MPCHRS ||
+                    !rows[i].mpchr) {
+                continue;
+            }
+            char opponent[32];
+            copyPdName(opponent, sizeof(opponent), rows[i].mpchr->name);
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            ImGui::TextUnformatted(opponent);
+            ImGui::TableNextColumn();
+            ImGui::Text("%d", (s32)row->mpchr->killcounts[chr]);
+            ImGui::TableNextColumn();
+            ImGui::Text("%d", selected >= 0 && selected < MAX_MPCHRS
+                ? (s32)rows[i].mpchr->killcounts[selected] : 0);
+        }
+        ImGui::EndTable();
+    }
 }
 
 /* ========================================================================
@@ -308,11 +620,20 @@ static s32 renderTypedDialog(struct menudialog *dialog,
     /* ---- Iterate menu items ---- */
     if (def->items) {
         s32 selectableIdx = 0;
-        bool hasAnySelectable = false;
+        bool hasAnyInteractive = false;
 
-        /* Count selectables */
+        /* Count interactive rows. List/ranking/stat screens own their body
+         * and must not receive the generic fallback OK button. */
         for (struct menuitem *it = def->items; it->type != MENUITEMTYPE_END; it++) {
-            if (it->type == MENUITEMTYPE_SELECTABLE) hasAnySelectable = true;
+            if (it->type == MENUITEMTYPE_SELECTABLE ||
+                    it->type == MENUITEMTYPE_LIST ||
+                    it->type == MENUITEMTYPE_DROPDOWN ||
+                    it->type == MENUITEMTYPE_KEYBOARD ||
+                    it->type == MENUITEMTYPE_RANKING ||
+                    it->type == MENUITEMTYPE_PLAYERSTATS ||
+                    it->type == MENUITEMTYPE_CAROUSEL) {
+                hasAnyInteractive = true;
+            }
         }
 
         /* Render items */
@@ -336,6 +657,22 @@ static s32 renderTypedDialog(struct menudialog *dialog,
                     ImGui::Spacing();
                     ImGui::Separator();
                     ImGui::Spacing();
+                    break;
+
+                case MENUITEMTYPE_LIST:
+                    renderHandlerList(item, false);
+                    break;
+
+                case MENUITEMTYPE_CAROUSEL:
+                    renderHandlerList(item, true);
+                    break;
+
+                case MENUITEMTYPE_RANKING:
+                    renderRankingTable(item->param2 == 1);
+                    break;
+
+                case MENUITEMTYPE_PLAYERSTATS:
+                    renderPlayerStats(item);
                     break;
 
                 case MENUITEMTYPE_KEYBOARD: {
@@ -631,7 +968,7 @@ static s32 renderTypedDialog(struct menudialog *dialog,
         }
 
         /* Fallback OK if no selectables */
-        if (!hasAnySelectable) {
+        if (!hasAnyInteractive) {
             ImGui::Spacing();
             float buttonW = 100.0f * scale;
             float availW = dialogW - ImGui::GetStyle().WindowPadding.x * 2.0f;
@@ -884,8 +1221,16 @@ static s32 renderMpEndGameDialog(struct menudialog *dialog,
 
     /* ---- Keybinding hints ---- */
     {
-        const char *hintL = "[Enter/Space/(A)] Confirm";
-        const char *hintR = "[Esc/(B)] Cancel";
+        char acceptGlyph[24];
+        char cancelGlyph[24];
+        char hintL[64];
+        char hintR[64];
+        pdguiGlyphGetActionLabel(ACTION_MENU_ACCEPT, acceptGlyph,
+                                 (s32)sizeof(acceptGlyph));
+        pdguiGlyphGetActionLabel(ACTION_CANCEL_USE, cancelGlyph,
+                                 (s32)sizeof(cancelGlyph));
+        snprintf(hintL, sizeof(hintL), "[%s] Confirm", acceptGlyph);
+        snprintf(hintR, sizeof(hintR), "[%s] Cancel", cancelGlyph);
 
         float hintY = dialogH - pdguiScale(22.0f);
         if (hintY < ImGui::GetCursorPosY() + 4.0f * scale) {
@@ -1250,19 +1595,14 @@ void pdguiMenuWarningRegister(void)
      *                             All item types covered by B4 extensions.
      *   MpPlayerOptions        — CHECKBOX + DROPDOWN + SELECTABLE.  Covered.
      *   MpPauseInventory       — LIST (weapons) + MARQUEE (description).
-     *                             LIST shows as [placeholder] — DEFERRED for
-     *                             a future batch that adds LIST support.
-     *   MpPausePlayerStats     — PLAYERSTATS type — DEFERRED.
-     *   MpPausePlayerRanking   — RANKING type — DEFERRED.
-     *   MpPauseTeamRankings    — RANKING type — DEFERRED.
+     *   MpPausePlayerStats     — PLAYERSTATS type.
+     *   MpPausePlayerRanking   — RANKING type.
+     *   MpPauseTeamRankings    — RANKING type.
      *
      * All six are registered via renderDefaultDialog so the PD-authentic
-     * frame + scrim + controller nav work, and the items that our
-     * extended typed-dialog primitive supports (LABEL / SEPARATOR /
-     * SELECTABLE / DROPDOWN / CHECKBOX / MARQUEE) render natively.  The
-     * special types (LIST / PLAYERSTATS / RANKING) fall to the default
-     * case which shows `[label]` — a visible DEFERRED marker the player
-     * can see and the developer can track. */
+     * frame + scrim + controller nav work. The generic renderer now covers
+     * LIST / PLAYERSTATS / RANKING as a complete fallback; the purpose-built
+     * Batch 8 renderers register later and remain authoritative. */
     extern struct menudialogdef g_MpPauseControlMenuDialog;
     extern struct menudialogdef g_MpPauseInventoryMenuDialog;
     extern struct menudialogdef g_MpPausePlayerStatsMenuDialog;
@@ -1278,30 +1618,26 @@ void pdguiMenuWarningRegister(void)
                           "MP Player Options (Batch 8)");
     pdguiHotswapRegister(&g_MpPauseInventoryMenuDialog,
                           renderDefaultDialog,
-                          "MP Pause Inventory (Batch 8 partial - LIST deferred)");
+                          "MP Pause Inventory (generic typed fallback)");
     pdguiHotswapRegister(&g_MpPausePlayerStatsMenuDialog,
                           renderDefaultDialog,
-                          "MP Pause Player Stats (Batch 8 partial - PLAYERSTATS deferred)");
+                          "MP Pause Player Stats (generic typed fallback)");
     pdguiHotswapRegister(&g_MpPausePlayerRankingMenuDialog,
                           renderDefaultDialog,
-                          "MP Pause Player Ranking (Batch 8 partial - RANKING deferred)");
+                          "MP Pause Player Ranking (generic typed fallback)");
     pdguiHotswapRegister(&g_MpPauseTeamRankingsMenuDialog,
                           renderDefaultDialog,
-                          "MP Pause Team Rankings (Batch 8 partial - RANKING deferred)");
+                          "MP Pause Team Rankings (generic typed fallback)");
 
     /* S195 Batch 11 — MP Player Config & Stats.
      *
-     * g_MpCharacterMenuDialog: LIST of characters (bodies/heads).  DEFERRED
-     *   behind LIST primitive.  Character selection already exists in the
-     *   modern room.cpp flow via pdgui_menu_agentcreate; the legacy screen
-     *   is only reached via the legacy MP setup tree.
-     * g_MpPlayerStatsMenuDialog: PLAYERSTATS type — same DEFERRED as pause.
-     * g_MpLoadSettings / LoadPreset / LoadPlayer: LIST of saved items —
-     *   DEFERRED behind LIST primitive.
+     * g_MpCharacterMenuDialog: LIST of characters plus head CAROUSEL.
+     * g_MpPlayerStatsMenuDialog: PLAYERSTATS type.
+     * g_MpLoadSettings / LoadPreset / LoadPlayer: LIST of saved items.
      *
-     * Registering with renderDefaultDialog gives the PD frame + scrim and
-     * a visible placeholder for the complex items, marking the work item
-     * without hiding the dialog. */
+     * The generic typed renderer is a functional fallback for all of these
+     * item types. The purpose-built Player Config renderers register later
+     * and remain authoritative for their richer production layouts. */
     extern struct menudialogdef g_MpCharacterMenuDialog;
     extern struct menudialogdef g_MpPlayerStatsMenuDialog;
     extern struct menudialogdef g_MpLoadSettingsMenuDialog;
@@ -1310,19 +1646,19 @@ void pdguiMenuWarningRegister(void)
 
     pdguiHotswapRegister(&g_MpCharacterMenuDialog,
                           renderDefaultDialog,
-                          "MP Character (Batch 11 partial - LIST deferred)");
+                          "MP Character (generic typed fallback)");
     pdguiHotswapRegister(&g_MpPlayerStatsMenuDialog,
                           renderDefaultDialog,
-                          "MP Player Stats (Batch 11 partial - PLAYERSTATS deferred)");
+                          "MP Player Stats (generic typed fallback)");
     pdguiHotswapRegister(&g_MpLoadSettingsMenuDialog,
                           renderDefaultDialog,
-                          "MP Load Settings (Batch 11 partial - LIST deferred)");
+                          "MP Load Settings (generic typed fallback)");
     pdguiHotswapRegister(&g_MpLoadPresetMenuDialog,
                           renderDefaultDialog,
-                          "MP Load Preset (Batch 11 partial - LIST deferred)");
+                          "MP Load Preset (generic typed fallback)");
     pdguiHotswapRegister(&g_MpLoadPlayerMenuDialog,
                           renderDefaultDialog,
-                          "MP Load Player (Batch 11 partial - LIST deferred)");
+                          "MP Load Player (generic typed fallback)");
 
     /* S209 Batch 12 — Music & Misc: the 4 Batch 12 dialogs
      * (g_MpSelectTunesMenuDialog, g_MpSoundtrackMenuDialog,

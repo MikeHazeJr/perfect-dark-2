@@ -247,10 +247,10 @@ static const ControlModeInfo g_ControlModes[9] = {
     },
     {
         "Ext (PC)",
-        "Mouse + keyboard routing.  Bindings managed through\n"
-        "Settings -> Controls / Rebind UI.\n\n"
-        "Left stick = WASD by default.  Look = mouse.\n"
-        "Jump = Space.  Use = F.  Fire = LMB.\n\n"
+        "Mouse, keyboard, and controller routing. Bindings are managed\n"
+        "through Settings -> Input and may be changed per profile.\n\n"
+        "Movement, look, jump, use, fire, vehicle, menu, and editor\n"
+        "controls all use the active action-map profile.\n\n"
         "This is the recommended mode for PC players.",
         1
     },

@@ -2767,6 +2767,11 @@ static void setupGameplayDefaults(s32 player)
         addBind(imc, ACTION_SCORECARD,      43); /* 43 = SDL_SCANCODE_TAB */
         addBind(imc, ACTION_SCORECARD,      JOY_BTN(0, JBTN_BACK));
         addBind(imc, ACTION_VOICE_PTT,      VKL_V);
+        /* Optional direct activation path used by the vehicle-mount action.
+         * The normal ACTION_USE hold (F / X) still activates every prop and
+         * remains the controller default. E is a distinct, rebindable
+         * on-foot activation shortcut. */
+        addBind(imc, ACTION_VEHICLE_USE,    VKL_E);
 
         /* The Grid mode toggle (Forge <-> Playtest), keyboard binding.
          * Moved from F7 to F11 (2026-04-26) to split the dual-bind with
@@ -2791,8 +2796,6 @@ static void setupGameplayDefaults(s32 player)
          *     g_ImcForge. Old binds here lost to SPRINT / CROUCH
          *     (lower enum) and never fired even on keyboard. */
         addBind(imc, ACTION_FORGE_TOGGLE,    (u32)VKL_F11);
-        addBind(imc, ACTION_FORGE_ASCEND,    VKL_E);
-        addBind(imc, ACTION_FORGE_DESCEND,   VKL_Q);
 
         /* S483: Test Scenarios swarm benchmark cycler (PD_DEV_BUILD only).
          * KEY_0 (SDL scan 39) and gamepad D-pad-down. Action only does
@@ -2911,9 +2914,8 @@ static void setupVehicleDefaults(s32 player)
     /* Vehicle expansion (Mike directive 2026-05-17). LOOK_X/Y mirror the
      * right-stick + arrow-key shape of ACTION_AIM_* so mounted yaw/pitch
      * uses the analog stick the user already trained on for on-foot aim.
-     * HANDBRAKE on Space / A-button. USE (on-foot mount trigger) on E /
-     * A-button; this binding lives on g_ImcGameplay below as well so an
-     * on-foot player can press E to board a nearby hoverbike. */
+     * HANDBRAKE on Space / A-button. The on-foot mount/use shortcut lives
+     * on g_ImcGameplay because this vehicle IMC is inactive until mounted. */
     addBind(imc, ACTION_VEHICLE_LOOK_X,      JOY_BTN(0, JOFS_RSTICK_RIGHT));
     addBind(imc, ACTION_VEHICLE_LOOK_X,      JOY_BTN(0, JOFS_RSTICK_LEFT));
     addBind(imc, ACTION_VEHICLE_LOOK_X,      VKL_RIGHT);
@@ -2988,6 +2990,8 @@ static void setupForgeDefaults(s32 player)
     addBind(imc, ACTION_FORGE_DESCEND,          JOY_BTN(0, JOFS_LTRIG));
 
     /* ---- Camera modifiers (keyboard, also FREEFLY-only) ---- */
+    addBind(imc, ACTION_FORGE_ASCEND,           VKL_E);
+    addBind(imc, ACTION_FORGE_DESCEND,          VKL_Q);
     addBind(imc, ACTION_FORGE_BOOST,            VK_LSHIFT);
     addBind(imc, ACTION_FORGE_PRECISION,        VK_LCTRL);
 
@@ -3179,6 +3183,8 @@ static void setupDebugOverlayDefaults(void)
     addBind(imc, ACTION_CANCEL_USE,     VK_ESCAPE); /* close/cancel */
     addBind(imc, ACTION_CONSOLE_TOGGLE, VK_GRAVE);
     addBind(imc, ACTION_SCREENSHOT,     VKL_F5);
+    addBind(imc, ACTION_HOTSWAP_TOGGLE, VKL_F8);
+    addBind(imc, ACTION_HOTSWAP_TOGGLE, JOY_BTN(0, JBTN_RSTICK));
     addBind(imc, ACTION_VOICE_PTT,      VKL_V);
 }
 
@@ -3379,8 +3385,7 @@ void actionmapInit(void)
 
 /* ACTION_* enum-identifier lookup table. Covers every enum value in
  * actionmap.h. Kept separate from s_ActionNames because s_ActionNames
- * uses CamelCase short names (for pd.ini keys) and only spans
- * indices 0-104. */
+ * uses CamelCase short names for persisted pd.ini keys. */
 struct SmokeActionEntry {
     const char *name;
     s32         action;

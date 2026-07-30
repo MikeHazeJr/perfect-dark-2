@@ -14,6 +14,8 @@ backups/
 *.dll
 *.o
 *.obj
+!tests/fixtures/**/*.obj
+!examples/modding/**/*.obj
 *.a
 *.pdb
 *.pyc

@@ -1668,5 +1668,5 @@ s32 romExtractAllPdanimChr(s32 force_rewrite)
 		"total=%u named=%d (anim_chr lump emitted to %s)",
 		written, skipped, failed, (unsigned)anim_count, named, anims_dir);
 
-	return written;
+	return failed ? -1 : written;
 }

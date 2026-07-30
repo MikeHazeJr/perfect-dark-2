@@ -1,6 +1,5 @@
 #include <ultra64.h>
 #include "constants.h"
-#include "asset_source_debug.h"
 #include "game/chraicommands.h"
 #include "game/dlights.h"
 #include "game/propsnd.h"
@@ -19,7 +18,6 @@
 #include "types.h"
 #include "system.h"
 #include "fs.h"
-#include "romextract.h"
 #include "assetcatalog_load.h"
 #include "assetcatalog.h"
 
@@ -1527,9 +1525,8 @@ void ps0f095270(void)
  * All MP3 files are 24 kilobits per second
  * so this is just math based on the filesize.
  */
-static s32 psMp3DurationGetSourceOrFallbackSize(s32 filenum)
+static s32 psMp3DurationGetPublicSourceSize(s32 filenum)
 {
-	char relpath[FS_MAXPATH + 1];
 	s32 size;
 	CatalogResolveResult source = catalogResolveFile(filenum);
 
@@ -1540,24 +1537,16 @@ static s32 psMp3DurationGetSourceOrFallbackSize(s32 filenum)
 		}
 	}
 
-	if (assetSourceDebugIsEnabledFor(ASSET_AUDIO)) {
+	{
 		const asset_entry_t *entry = assetCatalogGetByIndex(source.catalog_id);
-		sysFatalError("ASSET.SOURCE_ONLY: MP3 file %d has no readable typed "
-		              "public audio source%s%s for duration; refusing loose extracted file or ROM/static file-size fallback.",
-		              filenum,
-		              entry ? " for " : "",
-		              entry ? entry->id : "");
-		return 0;
+		sysFatalError("ASSET.CHAIN: MP3 file %d has no readable typed public "
+			"audio source%s%s for duration; refusing loose extracted file or "
+			"ROM/static file-size fallback.",
+			filenum,
+			entry ? " for " : "",
+			entry ? entry->id : "");
 	}
-
-	if (romExtractRelPathForFilenum(filenum, relpath, (s32)sizeof(relpath)) > 0) {
-		size = fsFileSize(relpath);
-		if (size > 0) {
-			return size;
-		}
-	}
-
-	return fileGetRomSize(filenum);
+	return 0;
 }
 
 s32 psGetDuration60(s32 channelnum)
@@ -1570,7 +1559,8 @@ s32 psGetDuration60(s32 channelnum)
 		union soundnumhack soundnum;
 		soundnum.packed = channel->soundnum26;
 
-		return psMp3DurationGetSourceOrFallbackSize((s32)soundnum.id) * 60 / (1024 * 24 / 8);
+		return psMp3DurationGetPublicSourceSize((s32)soundnum.id)
+			* 60 / (1024 * 24 / 8);
 	}
 
 	return -1;

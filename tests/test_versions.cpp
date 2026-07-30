@@ -18,8 +18,9 @@
  *   "Save format (MPSETUP_VERSION 1 -> 2): WAD save/load roundtrip +
  *    v1 -> v2 migration"
  *
- * Bumped 2026-06-17 to NET_PROTOCOL_VER 51 for the c3849 Wave 7 weapon
- * graph runtime cutover. MPSETUP_VERSION unchanged.
+ * Bumped 2026-07-30 to NET_PROTOCOL_VER 52 and MPSETUP_VERSION 3 so the
+ * permanent public .pdbotprofile catalog ID survives network match start
+ * and all multiplayer setup save formats.
  */
 
 #include "catch.hpp"
@@ -42,8 +43,8 @@ extern const u32 g_TestExpectedMpsetupVersion;
 extern const u32 g_TestLiveMpsetupVersion;
 }
 
-const u32 g_TestExpectedNetProtocolVer  = 51;
-const u32 g_TestExpectedMpsetupVersion  = 2;
+const u32 g_TestExpectedNetProtocolVer  = 52;
+const u32 g_TestExpectedMpsetupVersion  = 3;
 
 TEST_CASE("version pin: NET_PROTOCOL_VER is the version this test was written against",
           "[versions]") {
@@ -53,18 +54,18 @@ TEST_CASE("version pin: NET_PROTOCOL_VER is the version this test was written ag
      * verifying the bump is intentional, update g_TestExpectedNetProtocolVer
      * to match and re-run.
      *
-     * As of 2026-06-17 the live value is 51. v51 cuts weapon graph runtime
-     * over to product-default ON and removes the retired match option toggle
-     * path. v50 batches catalog-info and widens distribution missing-list
-     * counts so large typed-archive packs do not truncate. Prior bumps remain
-     * documented in port/include/net/net.h. MPSETUP_VERSION stays at 2. */
+     * As of 2026-07-30 the live value is 52. v52 carries a bot-profile
+     * catalog ID/session reference in both match-start directions so custom
+     * public profiles cannot collapse back to legacy type/difficulty traits.
+     * Prior bumps remain documented in port/include/net/net.h. */
     REQUIRE(g_TestLiveNetProtocolVer == g_TestExpectedNetProtocolVer);
 }
 
 TEST_CASE("version pin: MPSETUP_VERSION is the version this test was written against",
           "[versions]") {
-    /* Same discipline as above. As of 2026-04-26 the live value is 2
-     * (post-cull save format with the v1 -> v2 weapon clamp migration). */
+    /* Same discipline as above. As of 2026-07-30 the live value is 3:
+     * setup blocks are large enough for permanent bot-profile catalog IDs,
+     * and v0-v2 blocks are migrated on load. */
     REQUIRE(g_TestLiveMpsetupVersion == g_TestExpectedMpsetupVersion);
 }
 
@@ -86,13 +87,11 @@ TEST_CASE("version pin: cross-version mismatch is detectable",
 
 TEST_CASE("version pin: MPSETUP_VERSION is monotonically growing",
           "[versions]") {
-    /* The save loader migrates v < 2 by clamping out-of-range weapon
-     * values. The migration code lives at src/game/mplayer/mplayer.c
-     * (mpsetupfileLoadWad, the `if (version < 2)` block as of
-     * 2026-04-26). New save versions should always be greater than
-     * historical ones — the loader's version comparison logic depends
-     * on this. */
-    REQUIRE(g_TestLiveMpsetupVersion >= 2);
+    /* The save loader preserves the v1 -> v2 weapon clamp and now migrates
+     * all v0-v2 blocks to v3 bot-profile identity records. New versions must
+     * always grow monotonically. */
+    REQUIRE(g_TestLiveMpsetupVersion >= 3);
+    REQUIRE(g_TestLiveMpsetupVersion > 2);
     REQUIRE(g_TestLiveMpsetupVersion > 1);
     REQUIRE(g_TestLiveMpsetupVersion > 0);
 }

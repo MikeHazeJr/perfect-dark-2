@@ -142,7 +142,14 @@ Per [constraints.md](../constraints.md):
 - **Main Menu Play cleanup.** Code/build verified 2026-05-21 under `c3828`, pending Mike+Chris live social playtest. The top-level `Solo Play` button is now `Play`, the obsolete `Online Play` button/view/graph edge was removed, and static coverage pins that `MENU_TYPE_MAIN_ONLINE_VIEW` is retired from the active Main Menu surface. Verification: isolated `[c3828]`, `[connectcode][security][static]`, `[input][menu_graph][static]`, and all-target build passed.
 - **Settings Input tab rebuild.** Code/build verified 2026-05-21 under c3819, pending Mike UI/hardware playtest. Settings now exposes `Input` instead of the old `Controls` tab. The active UI avoids the old nested IMC/device tab stack and visual controller mapper; it uses top-level Profiles, Devices, Bindings, and Tuning sections with a single Scheme selector plus a single Input selector for the binding table.
 - **Cheats menu controller parity.** Code/build verified 2026-05-23, pending Mike controller retest. The Cheats hub now treats focused checkbox/radio rows and action-bar buttons as controller-activatable through `pdguiMenuAcceptPressed()`, and the action bar tracks focus across `Turn Off All`, `Unlock All...`, and `Back` instead of hard-coding Back as the only focused action. The Fun tab exposes one small-character row, `Tiny Mode`, while the old Small Characters id remains hidden as a legacy slot.
-- **Three deferred MENUITEM types.** [pdgui_menu_warning.cpp:1247-1258](../../port/fast3d/pdgui_menu_warning.cpp:1247) explicitly DEFERRED: `MENUITEMTYPE_LIST` (MP Pause Inventory, MP Character body/head, MP Load Settings/Preset/Player), `MENUITEMTYPE_PLAYERSTATS` (MP Pause Player Stats), `MENUITEMTYPE_RANKING` (MP Pause Player Ranking, MP Pause Team Rankings). Fallback at lines 622-629 outputs `[label]` placeholder text. The in-match inventory and ranking screens are placeholders.
+- **Generic typed-dialog completeness.** B-966 implemented functional generic
+  `LIST`, `CAROUSEL`, `PLAYERSTATS`, and `RANKING` renderers over the live
+  handler ABI. The purpose-built MP Pause and Player Config renderers still
+  register later and remain authoritative for their richer layouts. Focused
+  and live verification is tracked in Workbench `T-MENUS-001` / `V-004`.
+- **Binding-aware instructions.** B-968 replaced fixed keyboard/Xbox hint
+  strings in Agent Select, Cheats, Solo mission flows, MP End Game, and the PC
+  control diagram with current action glyphs or binding-neutral prose.
 - **Action bar adoption.** Used in 19 of 31 files. Remaining 12 (`solomission`, `training`, `mpsettings` partially, `mpadvanced`, `challenges`, `logviewer`, `audiomod`, `stats`, `theme_editor`, `modmgr`, `endscreen`, `mpsetup` partially) place CTAs in scroll body. UX inconsistency.
 - **Widget helper adoption.** Used in 12 of 31 files. 19 menus still use raw ImGui widgets with default label-right.
 
@@ -154,12 +161,22 @@ Per [constraints.md](../constraints.md):
 - **Right-stick scroll spec decoupled from runtime.** Same gap as input system. [tests/test_right_stick_scroll.cpp:14-17](../../tests/test_right_stick_scroll.cpp:14) is the spec; runtime is `pdguiDriveImGuiNav` with no static link.
 - **Single-slot unregistered fallback.** [menupool.c:370-393](../../port/src/menupool.c:370) tracks one unregistered dialog at a time via `s_UnregisteredOwnedDef / s_UnregisteredOwnedCtx`. Two concurrent unregistered dialogs would silently leak the first's ctx. Comment acknowledges design choice; still a real gap if mod dialogs register late.
 - **`pdgui_menu_audiomod.cpp` is absent from primitive counts.** Did not appear in action bar, widget helper, or nav helper grep results. May be a stub or fully manual layout. Audit and migrate.
+- **Generic typed dialogs and binding-aware hints need ordinary-play proof.**
+  Static/build evidence can establish connection to action-map and ImGui
+  navigation paths, but `V-004` remains non-green until representative MKB,
+  controller, mouse, focus, scrolling, device-switch, and glyph transitions
+  are captured in the real client.
 
 ---
 
 ## Tests
 
-Coverage at `tests/`: `test_menu_stack` (9 cases), `test_menu_reachability` (6 synthetic trees), `test_menu_graph` (static source guard, including c086 Room parity and c087/c088 Y-Social guards), `test_right_stick_scroll` (math spec), `test_nested_scroll` (innermost scroll target), `menupool_pure.c` (pure mirror).
+Coverage at `tests/`: `test_menu_stack` (9 cases), `test_menu_reachability`
+(6 synthetic trees), `test_menu_graph` (static source guard, including generic
+typed item coverage and binding-aware hints), `test_settings_input_tab_static`
+(all bindable action IDs surfaced), `test_right_stick_scroll` (math spec),
+`test_nested_scroll` (innermost scroll target), and `menupool_pure.c`
+(pure mirror).
 
 ---
 

@@ -51,6 +51,7 @@
 #include "scenario_save.h"
 #include "scenario_source_runtime.h"
 #include "assetcatalog.h"
+#include "asset_runtime.h"
 #include "audio.h"
 #include "modmusic.h"
 #if !defined(PD_SERVER)
@@ -1374,6 +1375,8 @@ u32 netmsgSvcStageStartWrite(struct netbuf *dst)
 			{
 				const char *body_canon = NULL;
 				const char *head_canon = NULL;
+				const char *profile_canon = bc->profile_id[0]
+					? bc->profile_id : NULL;
 
 				/* Map bot array index to actual slot position */
 				s32 slotIdx = (botidx < botMapCount) ? botSlotMap[botidx] : -1;
@@ -1382,6 +1385,11 @@ u32 netmsgSvcStageStartWrite(struct netbuf *dst)
 				}
 				if (slotIdx >= 0 && g_MatchConfig.slots[slotIdx].head_id[0]) {
 					head_canon = g_MatchConfig.slots[slotIdx].head_id;
+				}
+				if (slotIdx >= 0
+						&& g_MatchConfig.slots[slotIdx].profile_id[0]) {
+					profile_canon =
+						g_MatchConfig.slots[slotIdx].profile_id;
 				}
 
 				/* Fallback: resolve from mpbodynum/mpheadnum via the mp_idx
@@ -1409,6 +1417,20 @@ u32 netmsgSvcStageStartWrite(struct netbuf *dst)
 
 				catalogWriteAssetRef(dst, body_canon ? sessionCatalogGetId(body_canon) : 0);
 				catalogWriteAssetRef(dst, head_canon ? sessionCatalogGetId(head_canon) : 0);
+				if (!profile_canon) {
+					sysFatalError("NET: active bot %d has no public "
+						"profile catalog identity.", botidx);
+				}
+				{
+					u16 profile_session =
+						sessionCatalogGetId(profile_canon);
+					if (profile_session == 0) {
+						sysFatalError("NET: active bot %d profile '%s' is "
+							"absent from the session catalog.", botidx,
+							profile_canon);
+					}
+					catalogWriteAssetRef(dst, profile_session);
+				}
 			}
 
 			netbufWriteU8(dst, bc->difficulty);
@@ -1831,7 +1853,8 @@ u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)
 
 		/* Receive per-bot configs from wire as catalog/session references.
 		 * The write side (netmsgSvcStageStartWrite) serialises name + body/head
-		 * session refs + difficulty/type for every active bot slot. */
+		 * session refs + profile ref + derived difficulty/type for every
+		 * active bot slot. */
 		for (s32 botidx = 0; botidx < MAX_BOTS; botidx++) {
 			if (!mpIsParticipantActive(botidx + MAX_PLAYERS)) {
 				continue;
@@ -1841,11 +1864,13 @@ u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)
 			g_BotConfigsArray[botidx].base.mpheadnum = 0;
 			g_BotConfigsArray[botidx].base.body_id[0] = '\0';
 			g_BotConfigsArray[botidx].base.head_id[0] = '\0';
+			g_BotConfigsArray[botidx].profile_id[0] = '\0';
 
 			/* SA-3: bot body/head as session IDs */
 			const char *botname = netbufReadStr(src);
 			const u16 body_session = catalogReadAssetRef(src);
 			const u16 head_session = catalogReadAssetRef(src);
+			const u16 profile_session = catalogReadAssetRef(src);
 			const u8 difficulty = netbufReadU8(src);
 			const u8 bottype = netbufReadU8(src);
 			if (src->error) {
@@ -1857,13 +1882,16 @@ u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)
 				        sizeof(g_BotConfigsArray[botidx].base.name) - 1);
 				g_BotConfigsArray[botidx].base.name[sizeof(g_BotConfigsArray[botidx].base.name) - 1] = '\0';
 			}
-			g_BotConfigsArray[botidx].difficulty = difficulty;
-			g_BotConfigsArray[botidx].type = bottype;
-
-			/* Phase 8: resolve session → catalog ID, validate, derive mp_index */
+			/* Resolve session → catalog ID and public profile binding. The
+			 * transmitted traits are compatibility diagnostics only. */
 			{
 				const asset_entry_t *be = sessionCatalogLocalResolve(body_session);
 				const asset_entry_t *he = sessionCatalogLocalResolve(head_session);
+				const asset_entry_t *pe = sessionCatalogLocalResolve(profile_session);
+				const asset_runtime_binding_t *profile =
+					(pe && pe->type == ASSET_BOT_PROFILE)
+						? mpBotProfileRuntimeBindingById(pe->id)
+						: NULL;
 				const char *vbody = (be && be->type == ASSET_BODY) ? catalogValidateBodyId(be->id) : "base:dark_combat";
 				const char *vhead = (he && he->type == ASSET_HEAD) ? catalogValidateHeadId(he->id) : "base:head_dark_combat";
 				const asset_entry_t *vbe = assetCatalogResolve(vbody);
@@ -1874,14 +1902,41 @@ u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)
 				g_BotConfigsArray[botidx].base.body_id[sizeof(g_BotConfigsArray[botidx].base.body_id) - 1] = '\0';
 				strncpy(g_BotConfigsArray[botidx].base.head_id, vhead, sizeof(g_BotConfigsArray[botidx].base.head_id) - 1);
 				g_BotConfigsArray[botidx].base.head_id[sizeof(g_BotConfigsArray[botidx].base.head_id) - 1] = '\0';
+				if (!profile) {
+					sysLogPrintf(LOG_ERROR,
+						"NET: SVC_STAGE bot %d profile session %u is "
+						"missing or invalid", botidx,
+						(unsigned)profile_session);
+					return 1;
+				}
+				strncpy(g_BotConfigsArray[botidx].profile_id, pe->id,
+					sizeof(g_BotConfigsArray[botidx].profile_id) - 1);
+				g_BotConfigsArray[botidx].profile_id[
+					sizeof(g_BotConfigsArray[botidx].profile_id) - 1] = '\0';
+				g_BotConfigsArray[botidx].difficulty =
+					(u8)profile->bot_profile_difficulty;
+				g_BotConfigsArray[botidx].type =
+					(u8)profile->bot_profile_type;
+				if (difficulty != g_BotConfigsArray[botidx].difficulty
+						|| bottype != g_BotConfigsArray[botidx].type) {
+					sysLogPrintf(LOG_WARNING,
+						"NET: bot %d cached traits %u/%u differ from "
+						"profile '%s' %u/%u; using public profile",
+						botidx, (unsigned)bottype,
+						(unsigned)difficulty, pe->id,
+						(unsigned)g_BotConfigsArray[botidx].type,
+						(unsigned)g_BotConfigsArray[botidx].difficulty);
+				}
 			}
-			sysLogPrintf(LOG_NOTE, "NET: bot %d name='%s' body='%s'->%u head='%s'->%u (sessions %u/%u)",
+			sysLogPrintf(LOG_NOTE, "NET: bot %d name='%s' profile='%s' body='%s'->%u head='%s'->%u (sessions %u/%u/%u)",
 				botidx, g_BotConfigsArray[botidx].base.name,
+				g_BotConfigsArray[botidx].profile_id,
 				sessionCatalogLocalResolve(body_session) ? sessionCatalogLocalResolve(body_session)->id : "?",
 				g_BotConfigsArray[botidx].base.mpbodynum,
 				sessionCatalogLocalResolve(head_session) ? sessionCatalogLocalResolve(head_session)->id : "?",
 				g_BotConfigsArray[botidx].base.mpheadnum,
-				(unsigned)body_session, (unsigned)head_session);
+				(unsigned)body_session, (unsigned)head_session,
+				(unsigned)profile_session);
 		}
 #endif /* !PD_SERVER */
 
@@ -4876,8 +4931,8 @@ void netSendLobbyResync(void)
  *          timelimit (u8), options (u32), scenario_id (str catalog ID), scorelimit (u8), teamscorelimit (u16),
  *          weaponSetIndex (u8, 0xFF = custom/default),
  *          weapons (str[NUM_MPWEAPONSLOTS]) — per-slot ASSET_WEAPON catalog ID string
- *          Per-bot (repeated numSims times): name (str), body_id (str), head_id (str),
- *          botDifficulty (u8), botType (u8)
+ *          Per-bot (repeated numSims times): name (str), body_id (str),
+ *          head_id (str), profile_id (str), botDifficulty (u8), botType (u8)
  *
  * v27: all asset references are catalog ID strings — no u32 net_hash on wire.
  * stage_id written from g_MatchConfig.stage_id (Single Source of Truth).
@@ -4965,6 +5020,11 @@ u32 netmsgClcLobbyStartWrite(struct netbuf *dst, u8 gamemode, u8 stagenum, u8 di
 			netbufWriteStr(dst, sl->name[0] ? sl->name : "Bot");
 			netbufWriteStr(dst, sl->body_id[0] ? sl->body_id : "base:dark_combat");
 			netbufWriteStr(dst, sl->head_id[0] ? sl->head_id : "base:head_dark_combat");
+			if (!sl->profile_id[0]) {
+				sysFatalError("NET: lobby bot slot %d has no public profile "
+					"catalog identity.", si);
+			}
+			netbufWriteStr(dst, sl->profile_id);
 			netbufWriteU8(dst, sl->botDifficulty);
 			netbufWriteU8(dst, sl->botType);
 			botIdx++;
@@ -4975,6 +5035,7 @@ u32 netmsgClcLobbyStartWrite(struct netbuf *dst, u8 gamemode, u8 stagenum, u8 di
 		netbufWriteStr(dst, "Bot");
 		netbufWriteStr(dst, "base:dark_combat");
 		netbufWriteStr(dst, "base:head_dark_combat");
+		netbufWriteStr(dst, "base:bot_normal");
 		netbufWriteU8(dst, 2);  /* BOTDIFF_NORMAL */
 		netbufWriteU8(dst, simType);
 	}
@@ -5552,20 +5613,35 @@ u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl)
 			const char *botName    = netbufReadStr(src);
 			const char *body_id    = netbufReadStr(src); /* catalog ID e.g. "base:dark_combat" */
 			const char *head_id    = netbufReadStr(src); /* catalog ID e.g. "base:head_dark_combat" */
+			const char *profile_id = netbufReadStr(src); /* catalog ID e.g. "base:bot_normal" */
 			const u8 botDifficulty = netbufReadU8(src);
 			const u8 botType       = netbufReadU8(src);
+			const asset_runtime_binding_t *profile;
 			/* L-S3: NULL guard on netbufReadStr results */
 			if (!botName) botName = "";
 			if (!body_id) body_id = "";
 			if (!head_id) head_id = "";
+			if (!profile_id) profile_id = "";
 			if (src->error) {
-				/* Malformed — fall back to global simType, normal difficulty */
-				g_BotConfigsArray[bi].type       = simType;
-				g_BotConfigsArray[bi].difficulty = 2;
-				continue;
+				sysLogPrintf(LOG_WARNING,
+					"NET: malformed bot profile payload for bot %d", bi);
+				return 1;
 			}
-			g_BotConfigsArray[bi].type       = botType;
-			g_BotConfigsArray[bi].difficulty = botDifficulty;
+			profile = mpBotProfileRuntimeBindingById(profile_id);
+			if (!profile) {
+				sysLogPrintf(LOG_ERROR,
+					"NET: lobby bot %d profile '%s' is unavailable",
+					bi, profile_id);
+				return 1;
+			}
+			g_BotConfigsArray[bi].type =
+				(u8)profile->bot_profile_type;
+			g_BotConfigsArray[bi].difficulty =
+				(u8)profile->bot_profile_difficulty;
+			strncpy(g_BotConfigsArray[bi].profile_id, profile_id,
+				sizeof(g_BotConfigsArray[bi].profile_id) - 1);
+			g_BotConfigsArray[bi].profile_id[
+				sizeof(g_BotConfigsArray[bi].profile_id) - 1] = '\0';
 
 			/* FIX-PLAYTEST-1: Store body_id/head_id into g_MatchConfig.slots[]
 			 * so SVC_STAGE_START write can find them.  Without this, the write
@@ -5573,8 +5649,15 @@ u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl)
 			 * dark_combat for every bot. */
 			if (slot < MATCH_MAX_SLOTS) {
 				g_MatchConfig.slots[slot].type = SLOT_BOT;
-				g_MatchConfig.slots[slot].botType = botType;
-				g_MatchConfig.slots[slot].botDifficulty = botDifficulty;
+				g_MatchConfig.slots[slot].botType =
+					(u8)profile->bot_profile_type;
+				g_MatchConfig.slots[slot].botDifficulty =
+					(u8)profile->bot_profile_difficulty;
+				strncpy(g_MatchConfig.slots[slot].profile_id,
+					profile_id,
+					sizeof(g_MatchConfig.slots[slot].profile_id) - 1);
+				g_MatchConfig.slots[slot].profile_id[
+					sizeof(g_MatchConfig.slots[slot].profile_id) - 1] = '\0';
 				if (body_id && body_id[0]) {
 					strncpy(g_MatchConfig.slots[slot].body_id, body_id,
 					        sizeof(g_MatchConfig.slots[slot].body_id) - 1);
@@ -5631,13 +5714,24 @@ u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl)
 			} else {
 				g_BotConfigsArray[bi].base.name[0] = '\0';
 			}
-			sysLogPrintf(LOG_NOTE, "NET: bot %d: name='%s' body_id='%s' head_id='%s' mpbody=%u mphead=%u type=%u diff=%u",
+			if (botType != g_BotConfigsArray[bi].type
+					|| botDifficulty != g_BotConfigsArray[bi].difficulty) {
+				sysLogPrintf(LOG_WARNING,
+					"NET: bot %d cached traits %u/%u differ from profile "
+					"'%s' %u/%u; using public profile", bi,
+					(unsigned)botType, (unsigned)botDifficulty,
+					profile_id, (unsigned)g_BotConfigsArray[bi].type,
+					(unsigned)g_BotConfigsArray[bi].difficulty);
+			}
+			sysLogPrintf(LOG_NOTE, "NET: bot %d: name='%s' profile='%s' body_id='%s' head_id='%s' mpbody=%u mphead=%u type=%u diff=%u",
 			             bi,
 			             g_BotConfigsArray[bi].base.name[0] ? g_BotConfigsArray[bi].base.name : "(empty)",
+			             profile_id,
 			             body_id ? body_id : "", head_id ? head_id : "",
 			             g_BotConfigsArray[bi].base.mpbodynum,
 			             g_BotConfigsArray[bi].base.mpheadnum,
-			             botType, botDifficulty);
+			             g_BotConfigsArray[bi].type,
+			             g_BotConfigsArray[bi].difficulty);
 		}
 
 		if (clampedSims < numSims) {
@@ -5645,6 +5739,7 @@ u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl)
 				netbufReadStr(src); /* bot name */
 				netbufReadStr(src); /* body catalog ID */
 				netbufReadStr(src); /* head catalog ID */
+				netbufReadStr(src); /* bot profile catalog ID */
 				netbufReadU8(src);  /* difficulty */
 				netbufReadU8(src);  /* type */
 				if (src->error) {

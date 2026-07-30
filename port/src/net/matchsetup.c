@@ -28,6 +28,7 @@
 #include "romdata.h"
 #include "modelcatalog.h"
 #include "assetcatalog.h"
+#include "asset_runtime.h"
 #include "game/mplayer/participant.h"
 #include "net/matchsetup.h"
 #include "input.h"
@@ -531,8 +532,100 @@ u8 matchConfigChooseBotTeam(s32 numTeams)
 	return (u8)bestTeam;
 }
 
-s32 matchConfigAddBot(u8 botType, u8 botDifficulty, const char *body_id,
-                      const char *head_id, const char *name)
+static s32 s_matchSlotApplyBotProfile(struct matchslot *slot,
+		const char *profile_id, s32 apply_profile_body)
+{
+	const asset_runtime_binding_t *profile;
+	const asset_entry_t *body;
+
+	if (!slot || !profile_id || !profile_id[0]) {
+		return -1;
+	}
+
+	profile = mpBotProfileRuntimeBindingById(profile_id);
+	if (!profile) {
+		return -1;
+	}
+
+	strncpy(slot->profile_id, profile_id, sizeof(slot->profile_id) - 1);
+	slot->profile_id[sizeof(slot->profile_id) - 1] = '\0';
+	slot->botType = (u8)profile->bot_profile_type;
+	slot->botDifficulty = (u8)profile->bot_profile_difficulty;
+
+	if (!apply_profile_body) {
+		return 0;
+	}
+	if (!profile->target_id[0]) {
+		sysLogPrintf(LOG_ERROR,
+			"MATCHSETUP: bot profile '%s' has no target_body catalog ID",
+			profile_id);
+		return -1;
+	}
+
+	body = assetCatalogResolve(profile->target_id);
+	if (!body || body->type != ASSET_BODY) {
+		sysLogPrintf(LOG_ERROR,
+			"MATCHSETUP: bot profile '%s' target body '%s' is unavailable",
+			profile_id, profile->target_id);
+		return -1;
+	}
+
+	strncpy(slot->body_id, body->id, sizeof(slot->body_id) - 1);
+	slot->body_id[sizeof(slot->body_id) - 1] = '\0';
+	{
+		const char *head = pickHeadIdForBody(slot->body_id);
+		if (!head || !head[0]) {
+			head = "base:head_dark_combat";
+		}
+		strncpy(slot->head_id, head, sizeof(slot->head_id) - 1);
+		slot->head_id[sizeof(slot->head_id) - 1] = '\0';
+	}
+	return 0;
+}
+
+s32 matchConfigSetBotProfile(s32 idx, const char *profile_id)
+{
+	struct matchslot *slot;
+
+	if (idx < 0 || idx >= g_MatchConfig.numSlots) {
+		return -1;
+	}
+	slot = &g_MatchConfig.slots[idx];
+	if (slot->type != SLOT_BOT
+			|| s_matchSlotApplyBotProfile(slot, profile_id, 1) != 0) {
+		return -1;
+	}
+
+	slot->bodynum = 0;
+	slot->headnum = 0;
+	{
+		const asset_entry_t *body = assetCatalogResolve(slot->body_id);
+		const asset_entry_t *head = assetCatalogResolve(slot->head_id);
+		if (body && body->type == ASSET_BODY && body->mp_index >= 0) {
+			slot->bodynum = (u8)body->mp_index;
+		}
+		if (head && head->type == ASSET_HEAD && head->mp_index >= 0) {
+			slot->headnum = (u8)head->mp_index;
+		}
+	}
+	return 0;
+}
+
+s32 matchConfigSetBotTraits(s32 idx, u8 botType, u8 botDifficulty)
+{
+	const char *profile_id = mpBotProfileIdForTraits(botType, botDifficulty);
+
+	if (!profile_id) {
+		sysLogPrintf(LOG_ERROR,
+			"MATCHSETUP: no unlocked bot profile for type=%u difficulty=%u",
+			(unsigned)botType, (unsigned)botDifficulty);
+		return -1;
+	}
+	return matchConfigSetBotProfile(idx, profile_id);
+}
+
+s32 matchConfigAddBotWithProfile(const char *profile_id, const char *body_id,
+		const char *head_id, const char *name)
 {
 	if (g_MatchConfig.numSlots >= MATCH_MAX_SLOTS) {
 		return -1;
@@ -544,14 +637,18 @@ s32 matchConfigAddBot(u8 botType, u8 botDifficulty, const char *body_id,
 
 	s32 idx = g_MatchConfig.numSlots;
 	struct matchslot *slot = &g_MatchConfig.slots[idx];
+	memset(slot, 0, sizeof(*slot));
 	slot->type = SLOT_BOT;
-	slot->botType = botType;
-	slot->botDifficulty = botDifficulty;
 	slot->team = (g_MatchConfig.options & MPOPTION_TEAMSENABLED)
 		? matchConfigChooseBotTeam(2)
 		: 0;
+	if (s_matchSlotApplyBotProfile(slot, profile_id, 1) != 0) {
+		memset(slot, 0, sizeof(*slot));
+		return -1;
+	}
 
-	/* Set catalog IDs as PRIMARY identity. Random if not specified. */
+	/* Explicit body/head are creator or saved-match overrides. Otherwise the
+	 * public profile's target_body and body-default head remain authoritative. */
 	if (body_id && body_id[0]) {
 		strncpy(slot->body_id, body_id, sizeof(slot->body_id) - 1);
 		slot->body_id[sizeof(slot->body_id) - 1] = '\0';
@@ -568,9 +665,6 @@ s32 matchConfigAddBot(u8 botType, u8 botDifficulty, const char *body_id,
 			strncpy(slot->head_id, h, sizeof(slot->head_id) - 1);
 			slot->head_id[sizeof(slot->head_id) - 1] = '\0';
 		}
-	} else {
-		pickRandomBodyHead(slot->body_id, sizeof(slot->body_id),
-		                   slot->head_id, sizeof(slot->head_id));
 	}
 
 	/* Derive cached mpbodynum/mpheadnum from catalog for legacy path.
@@ -599,6 +693,21 @@ s32 matchConfigAddBot(u8 botType, u8 botDifficulty, const char *body_id,
 
 	g_MatchConfig.numSlots++;
 	return idx;
+}
+
+s32 matchConfigAddBot(u8 botType, u8 botDifficulty, const char *body_id,
+                      const char *head_id, const char *name)
+{
+	const char *profile_id = mpBotProfileIdForTraits(botType, botDifficulty);
+
+	if (!profile_id) {
+		sysLogPrintf(LOG_ERROR,
+			"MATCHSETUP: cannot add bot without an unlocked profile for "
+			"type=%u difficulty=%u", (unsigned)botType,
+			(unsigned)botDifficulty);
+		return -1;
+	}
+	return matchConfigAddBotWithProfile(profile_id, body_id, head_id, name);
 }
 
 s32 matchConfigRemoveSlot(s32 idx)
@@ -1012,6 +1121,24 @@ s32 matchStart(void)
 			playerSlot++;
 
 		} else if (ms->type == SLOT_BOT && botSlot < MAX_BOTS) {
+			const char *profile_id = ms->profile_id[0]
+				? ms->profile_id
+				: mpBotProfileIdForTraits(ms->botType,
+					ms->botDifficulty);
+			const asset_runtime_binding_t *profile = profile_id
+				? mpBotProfileRuntimeBindingById(profile_id)
+				: NULL;
+
+			if (!profile) {
+				sysLogPrintf(LOG_ERROR,
+					"MATCHSETUP: bot match slot %d has no valid public "
+					"profile (id='%s' type=%u diff=%u)",
+					i, profile_id ? profile_id : "",
+					(unsigned)ms->botType,
+					(unsigned)ms->botDifficulty);
+				return -1;
+			}
+
 			mpAddParticipantAt(botSlot + MAX_PLAYERS, PARTICIPANT_BOT, ms->team, -1, 0xFF);
 
 			struct mpbotconfig *bot = &g_BotConfigsArray[botSlot];
@@ -1042,16 +1169,20 @@ s32 matchStart(void)
 			bot->base.body_id[sizeof(bot->base.body_id) - 1] = '\0';
 			strncpy(bot->base.head_id, ms->head_id, sizeof(bot->base.head_id) - 1);
 			bot->base.head_id[sizeof(bot->base.head_id) - 1] = '\0';
+			strncpy(bot->profile_id, profile_id,
+				sizeof(bot->profile_id) - 1);
+			bot->profile_id[sizeof(bot->profile_id) - 1] = '\0';
 			bot->base.team = ms->team;
-			bot->type = ms->botType;
-			bot->difficulty = ms->botDifficulty;
+			bot->type = (u8)profile->bot_profile_type;
+			bot->difficulty = (u8)profile->bot_profile_difficulty;
 
 			strncpy(bot->base.name, ms->name, 14);
 			bot->base.name[14] = '\0';
 
 			sysLogPrintf(LOG_NOTE,
-			    "MATCHSETUP: bot slot %d: %s type=%d diff=%d body='%s' head='%s' mpbody=%d mphead=%d",
-			    botSlot, bot->base.name, ms->botType, ms->botDifficulty,
+			    "MATCHSETUP: bot slot %d: %s profile='%s' type=%d diff=%d body='%s' head='%s' mpbody=%d mphead=%d",
+			    botSlot, bot->base.name, profile_id, bot->type,
+			    bot->difficulty,
 			    ms->body_id, ms->head_id,
 			    bot->base.mpbodynum, bot->base.mpheadnum);
 			botSlot++;

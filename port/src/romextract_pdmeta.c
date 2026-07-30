@@ -17,6 +17,7 @@
 #include "arenadata_authored.h"
 #include "asset_archive_writer.h"
 #include "assetcatalog.h"
+#include "assetcatalog_scanner.h"
 #include "boot_pool.h"
 #include "boot_progress.h"
 #include "constants.h"
@@ -26,7 +27,7 @@
 #include "romextract_pd.h"
 #include "system.h"
 
-#define PDMETA_FAST_CACHE_KIND "pdmeta_table_backed_v11_gamemode_botprofile_manifest_source_fields"
+#define PDMETA_FAST_CACHE_KIND "pdmeta_table_backed_v13_hydrated_metadata_source"
 #define PDMETA_SCENARIO_DEP_CACHE_KIND \
 	"pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json"
 
@@ -890,20 +891,6 @@ static const char *s_effectTargetKey(s32 target)
 	}
 }
 
-static const char *s_materialPresetKey(const char *id)
-{
-	if (id && strstr(id, "translucent")) return "classic_alpha";
-	if (id && strstr(id, "emissive")) return "classic_emissive";
-	return "classic_lit";
-}
-
-static const char *s_materialName(const char *id)
-{
-	if (id && strstr(id, "translucent")) return "Translucent Material";
-	if (id && strstr(id, "emissive")) return "Emissive Material";
-	return "Default Material";
-}
-
 static const char *s_pathBaseName(const char *path)
 {
 	const char *slash;
@@ -954,18 +941,20 @@ static s32 s_emitGamemode(const asset_entry_t *e, const char *out_dir,
 	char rules[1536];
 	int rules_len = snprintf(rules, sizeof(rules),
 		"{\n"
-		"  \"schema\": \"pd2.gamemode.rules.v1\",\n"
+		"  \"schema\": \"pd2.gamemode.rules.v2\",\n"
 		"  \"catalog_id\": \"%s\",\n"
 		"  \"mode_key\": \"%s\",\n"
+		"  \"name\": \"%s\",\n"
+		"  \"description\": \"%s\",\n"
 		"  \"players\": { \"min\": %d, \"max\": %d },\n"
 		"  \"teams\": { \"required\": %s },\n"
-		"  \"score\": { \"source\": \"original_perfect_dark_rules\" },\n"
-		"  \"runtime\": { \"parity_backend\": \"og.mpscenario.%s\" }\n"
+		"  \"requirefeature\": %u\n"
 		"}\n",
 		e->id, s_modeKey(e->ext.gamemode.mode_id),
+		e->ext.gamemode.name, e->ext.gamemode.description,
 		e->ext.gamemode.min_players, e->ext.gamemode.max_players,
 		e->ext.gamemode.team_based ? "true" : "false",
-		s_modeKey(e->ext.gamemode.mode_id));
+		(unsigned)e->ext.gamemode.requirefeature);
 	if (rules_len <= 0 || (size_t)rules_len >= sizeof(rules)) return -1;
 
 	char manifest[1024];
@@ -1047,14 +1036,15 @@ static s32 s_emitBotProfile(const asset_entry_t *e, const char *out_dir,
 	char profile[1536];
 	int profile_len = snprintf(profile, sizeof(profile),
 		"{\n"
-		"  \"schema\": \"pd2.botprofile.v1\",\n"
+		"  \"schema\": \"pd2.botprofile.v2\",\n"
 		"  \"catalog_id\": \"%s\",\n"
 		"  \"type_key\": \"%s\",\n"
 		"  \"difficulty_key\": \"%s\",\n"
 		"  \"target_body\": \"%s\",\n"
-		"  \"runtime\": { \"parity_backend\": \"og.botprofile.%s.%s\" }\n"
+		"  \"requirefeature\": %u\n"
 		"}\n",
-		e->id, type_key, diff_key, body_id, type_key, diff_key);
+		e->id, type_key, diff_key, body_id,
+		(unsigned)e->ext.bot_profile.requirefeature);
 	if (profile_len <= 0 || (size_t)profile_len >= sizeof(profile)) return -1;
 
 	char manifest[1024];
@@ -1120,10 +1110,12 @@ static s32 s_emitHud(const asset_entry_t *e, const char *out_dir,
 		"  \"schema\": \"pd2.hud.layout.v1\",\n"
 		"  \"catalog_id\": \"%s\",\n"
 		"  \"element\": \"%s\",\n"
-		"  \"renderer\": \"original_perfect_dark_hud\",\n"
-		"  \"slots\": []\n"
+		"  \"visible\": true%s\n"
 		"}\n",
-		e->id, element_key);
+		e->id, element_key,
+		(e->ext.hud.element_type == HUD_ELEM_TIMER ||
+		 e->ext.hud.element_type == HUD_ELEM_SCORE)
+			? ",\n  \"opacity\": 0.6" : "");
 	if (layout_len <= 0 || (size_t)layout_len >= sizeof(layout)) return -1;
 
 	char manifest[1024];
@@ -1173,10 +1165,17 @@ static s32 s_emitMaterial(const asset_entry_t *e, const char *out_dir,
 		return 0;
 	}
 
-	const char *preset = s_materialPresetKey(e->id);
-	const char *name = s_materialName(e->id);
-	const char *alpha = strstr(preset, "alpha") ? "0.5" : "1.0";
-	const char *emissive = strstr(preset, "emissive") ? "true" : "false";
+	const char *name = NULL;
+	const char *preset = NULL;
+	f32 base_color[4];
+	f32 roughness;
+	f32 metallic;
+	if (!assetCatalogGetBaseMaterialSource(e->runtime_index, &name, &preset,
+			base_color, &roughness, &metallic)) {
+		return -1;
+	}
+	const char *emissive = strcmp(preset, "classic_emissive") == 0
+		? "true" : "false";
 	char ini[1024];
 	int ini_len = snprintf(ini, sizeof(ini),
 		"[material]\n"
@@ -1194,12 +1193,14 @@ static s32 s_emitMaterial(const asset_entry_t *e, const char *out_dir,
 		"  \"catalog_id\": \"%s\",\n"
 		"  \"name\": \"%s\",\n"
 		"  \"shading_model\": \"%s\",\n"
-		"  \"base_color\": [1.0, 1.0, 1.0, %s],\n"
+		"  \"base_color\": [%.9g, %.9g, %.9g, %.9g],\n"
 		"  \"emissive\": %s,\n"
-		"  \"roughness\": 0.55,\n"
-		"  \"metallic\": 0.0\n"
+		"  \"roughness\": %.9g,\n"
+		"  \"metallic\": %.9g\n"
 		"}\n",
-		e->id, name, preset, alpha, emissive);
+		e->id, name, preset,
+		base_color[0], base_color[1], base_color[2], base_color[3],
+		emissive, roughness, metallic);
 	if (material_len <= 0 || (size_t)material_len >= sizeof(material)) {
 		return -1;
 	}
@@ -1422,14 +1423,15 @@ static s32 s_emitProp(const asset_entry_t *e, const char *out_dir,
 	char prop[1536];
 	int prop_len = snprintf(prop, sizeof(prop),
 		"{\n"
-		"  \"schema\": \"pd2.prop.v1\",\n"
+		"  \"schema\": \"pd2.prop.v2\",\n"
 		"  \"catalog_id\": \"%s\",\n"
 		"  \"prop_key\": \"%s\",\n"
 		"  \"display_name\": \"%s\",\n"
 		"  \"health\": %.3f,\n"
-		"  \"runtime\": { \"parity_backend\": \"og.prop.%s\" }\n"
+		"  \"flags\": %u\n"
 		"}\n",
-		e->id, prop_key, e->ext.prop.name, e->ext.prop.health, prop_key);
+		e->id, prop_key, e->ext.prop.name, e->ext.prop.health,
+		(unsigned)e->ext.prop.flags);
 	if (prop_len <= 0 || (size_t)prop_len >= sizeof(prop)) return -1;
 
 	char manifest[1024];
@@ -1501,23 +1503,57 @@ static s32 s_emitVehicle(const asset_entry_t *e, const char *out_dir,
 		has_model ? "\n" : "");
 	if (ini_len <= 0 || (size_t)ini_len >= sizeof(ini)) return -1;
 
-	const char *physics =
+	char physics[4096];
+	int physics_len = snprintf(physics, sizeof(physics),
 		"{\n"
-		"  \"schema\": \"pd2.vehicle.physics.v1\",\n"
+		"  \"schema\": \"pd2.vehicle.physics.v2\",\n"
+		"  \"catalog_id\": \"%s\",\n"
 		"  \"archetype\": \"hoverbike\",\n"
-		"  \"movement\": { \"mode\": \"hover\", \"source\": \"original_perfect_dark\" },\n"
-		"  \"collision\": { \"shape\": \"geocyl\", \"source\": \"original_perfect_dark\" }\n"
-		"}\n";
-	const char *behavior =
+		"  \"turn_input_scale\": 0.0436262824,\n"
+		"  \"reverse_turn_gain\": 0.5,\n"
+		"  \"steering_response_ntsc\": 0.075,\n"
+		"  \"steering_response_pal\": 0.0893,\n"
+		"  \"turn_visual_scale\": 12.0,\n"
+		"  \"input_response\": 0.3,\n"
+		"  \"forward_input_scale\": 0.5,\n"
+		"  \"lateral_input_scale\": 0.4,\n"
+		"  \"lean_response\": 5.0,\n"
+		"  \"forward_base\": 0.3,\n"
+		"  \"forward_accel_gain\": 0.7,\n"
+		"  \"reverse_base\": 0.5,\n"
+		"  \"drag_ntsc\": 0.97,\n"
+		"  \"drag_pal\": 0.964,\n"
+		"  \"forward_thrust\": 1.08,\n"
+		"  \"lateral_thrust\": 0.72,\n"
+		"  \"forward_tilt\": 0.251287401,\n"
+		"  \"lateral_tilt\": 0.251287401,\n"
+		"  \"tilt_response_ntsc\": 0.04,\n"
+		"  \"tilt_response_pal\": 0.0478,\n"
+		"  \"yaw_response_ntsc\": 0.15,\n"
+		"  \"yaw_response_pal\": 0.177,\n"
+		"  \"boost_speed\": 5.0,\n"
+		"  \"boost_time_ticks60\": 2400,\n"
+		"  \"hover\": [80.0, 1.0, 3.0, 0.0025, 0.1, "
+			"0.0125643704, 0.0188465547, 0.0000209406171, "
+			"0.00062821852, 0.0125643704, 0.0188465547, "
+			"0.0000209406171, 0.00062821852]\n"
+		"}\n", e->id);
+	if (physics_len <= 0 || (size_t)physics_len >= sizeof(physics)) {
+		return -1;
+	}
+
+	char behavior[1024];
+	int behavior_len = snprintf(behavior, sizeof(behavior),
 		"{\n"
-		"  \"schema\": \"pd2.vehicle.behavior_graph.v1\",\n"
-		"  \"nodes\": [\n"
-		"    { \"id\": \"mount\", \"kind\": \"vehicle.mount\" },\n"
-		"    { \"id\": \"drive\", \"kind\": \"vehicle.hoverbike.drive\" },\n"
-		"    { \"id\": \"dismount\", \"kind\": \"vehicle.dismount\" }\n"
-		"  ],\n"
-		"  \"edges\": []\n"
-		"}\n";
+		"  \"schema\": \"pd2.vehicle.behavior.v2\",\n"
+		"  \"catalog_id\": \"%s\",\n"
+		"  \"allow_mount\": true,\n"
+		"  \"allow_drive\": true,\n"
+		"  \"allow_dismount\": true\n"
+		"}\n", e->id);
+	if (behavior_len <= 0 || (size_t)behavior_len >= sizeof(behavior)) {
+		return -1;
+	}
 
 	char manifest[1536];
 	int manifest_len = snprintf(manifest, sizeof(manifest),
@@ -1547,10 +1583,10 @@ static s32 s_emitVehicle(const asset_entry_t *e, const char *out_dir,
 			ini, (u32)ini_len) != MODARCHIVE_OK ||
 			assetArchiveWriterAddManifestJson(&writer,
 			manifest, (u32)manifest_len) != MODARCHIVE_OK ||
-			assetArchiveWriterAddPublicMem(&writer, "physics.json",
-			physics, (u32)strlen(physics), "vehicle-physics") != MODARCHIVE_OK ||
-			assetArchiveWriterAddPublicMem(&writer, "behavior.graph.json",
-			behavior, (u32)strlen(behavior), "vehicle-graph") != MODARCHIVE_OK) {
+		assetArchiveWriterAddPublicMem(&writer, "physics.json",
+			physics, (u32)physics_len, "vehicle-physics") != MODARCHIVE_OK ||
+		assetArchiveWriterAddPublicMem(&writer, "behavior.graph.json",
+			behavior, (u32)behavior_len, "vehicle-graph") != MODARCHIVE_OK) {
 		modArchiveAbort(aw);
 		return -1;
 	}

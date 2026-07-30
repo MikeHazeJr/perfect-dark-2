@@ -398,5 +398,5 @@ s32 romExtractAllPdhead(s32 force_rewrite)
 		romExtractPdFastCacheWrite(PDHEAD_FAST_CACHE_KIND, heads_dir, ".pdhead");
 	}
 
-	return written;
+	return failed ? -1 : written;
 }

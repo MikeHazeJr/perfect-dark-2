@@ -22,6 +22,7 @@
 #include <string.h>
 
 #include "imgui/imgui.h"
+#include "asset_runtime.h"
 #include "pdgui_hud.h"
 #include "pdgui_style.h"
 #include "pdgui_scaling.h"
@@ -183,16 +184,25 @@ void pdguiHudRender(s32 winW, s32 winH)
     /* Build score data                                                     */
     /* ------------------------------------------------------------------ */
 
+    const asset_runtime_binding_t *scoreSource =
+        assetRuntimeHudElement(HUD_ELEM_SCORE);
+    const asset_runtime_binding_t *timerSource =
+        assetRuntimeHudElement(HUD_ELEM_TIMER);
+    const bool scoreVisible = !scoreSource || scoreSource->source_enabled;
+    const bool timerVisible = !timerSource || timerSource->source_enabled;
+    const float scoreAlpha = scoreSource ? scoreSource->source_opacity : 0.60f;
+    const float timerAlpha = timerSource ? timerSource->source_opacity : 0.60f;
+
     HudScoreRow rows[2];
     s32 scoreLimit = 0;
-    s32 rowCount = buildScoreRows(rows, 2, &scoreLimit);
+    s32 rowCount = scoreVisible ? buildScoreRows(rows, 2, &scoreLimit) : 0;
 
     /* ------------------------------------------------------------------ */
     /* Build time data                                                      */
     /* ------------------------------------------------------------------ */
 
     s32 limitTicks = pdguiHudGetTimeLimitTicks();
-    bool hasTimer  = (limitTicks > 0);
+    bool hasTimer  = timerVisible && (limitTicks > 0);
     s32 remainSecs = 0;
 
     if (hasTimer) {
@@ -208,7 +218,6 @@ void pdguiHudRender(s32 winW, s32 winH)
     /* Position: dock below radar or top-right fallback                      */
     /* ------------------------------------------------------------------ */
 
-    const float ALPHA = 0.60f;
     float scale = (float)winW / 640.0f;
 
     float panelW = pdguiScale(150.0f);
@@ -282,9 +291,9 @@ void pdguiHudRender(s32 winW, s32 winH)
             snprintf(scoreBuf, sizeof(scoreBuf), "%d", row.score);
 
             ImVec4 nameCol = rgba32ToImVec4(row.color);
-            nameCol.w = ALPHA;
+            nameCol.w = scoreAlpha;
 
-            ImVec4 scoreCol(1.0f, 1.0f, 1.0f, ALPHA);
+            ImVec4 scoreCol(1.0f, 1.0f, 1.0f, scoreAlpha);
 
             /* Name (left-aligned) */
             dl->AddText(ImVec2(posX + padX, curY), ImGui::ColorConvertFloat4ToU32(nameCol), row.name);
@@ -317,14 +326,14 @@ void pdguiHudRender(s32 winW, s32 winH)
             dl->AddRectFilled(
                 ImVec2(barLeft, curY),
                 ImVec2(barRight, curY + barH),
-                IM_COL32(40, 40, 40, (int)(ALPHA * 120.0f)));
+                IM_COL32(40, 40, 40, (int)(scoreAlpha * 120.0f)));
 
             /* Bar fill */
             if (ratio > 0.0f) {
                 dl->AddRectFilled(
                     ImVec2(barLeft, curY),
                     ImVec2(barLeft + barWidth * ratio, curY + barH),
-                    rgba32ToImU32(row.color, ALPHA));
+                    rgba32ToImU32(row.color, scoreAlpha));
             }
 
             curY += barH;
@@ -340,11 +349,11 @@ void pdguiHudRender(s32 winW, s32 winH)
 
             ImVec4 timerColor;
             if (remainSecs > 60) {
-                timerColor = ImVec4(1.0f, 1.0f,  1.0f,  ALPHA);  /* white */
+                timerColor = ImVec4(1.0f, 1.0f,  1.0f,  timerAlpha);  /* white */
             } else if (remainSecs > 15) {
-                timerColor = ImVec4(1.0f, 0.85f, 0.0f,  ALPHA);  /* yellow */
+                timerColor = ImVec4(1.0f, 0.85f, 0.0f,  timerAlpha);  /* yellow */
             } else {
-                timerColor = ImVec4(1.0f, 0.25f, 0.15f, ALPHA);  /* red */
+                timerColor = ImVec4(1.0f, 0.25f, 0.15f, timerAlpha);  /* red */
             }
 
             char timeBuf[16];

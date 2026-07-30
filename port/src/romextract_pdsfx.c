@@ -1508,7 +1508,7 @@ s32 romextract_pdaudio_walkBank(pdaudio_walk_mode_t mode, s32 force_rewrite)
 		romExtractPdFastCacheWrite(cache_kind, out_dir, ext);
 	}
 
-	return written;
+	return failed ? -1 : written;
 }
 
 s32 romExtractAllPdsfx(s32 force_rewrite)

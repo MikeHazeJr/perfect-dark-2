@@ -277,6 +277,23 @@ static const struct {
 
 #define NUM_BASE_MATERIALS (sizeof(s_BaseMaterials) / sizeof(s_BaseMaterials[0]))
 
+s32 assetCatalogGetBaseMaterialSource(s32 index, const char **name,
+		const char **shading_model, f32 base_color[4], f32 *roughness,
+		f32 *metallic)
+{
+	if (index < 0 || index >= (s32)NUM_BASE_MATERIALS || !name ||
+			!shading_model || !base_color || !roughness || !metallic) {
+		return 0;
+	}
+	*name = s_BaseMaterials[index].name;
+	*shading_model = s_BaseMaterials[index].shading_model;
+	memcpy(base_color, s_BaseMaterials[index].base_color,
+		sizeof(s_BaseMaterials[index].base_color));
+	*roughness = s_BaseMaterials[index].roughness;
+	*metallic = s_BaseMaterials[index].metallic;
+	return 1;
+}
+
 static const struct {
 	const char *slug;
 	const char *name;
@@ -329,22 +346,22 @@ static const struct {
 	  "combat",
 	  "Combat Simulator",
 	  "Eliminate opponents to score points.",
-	  2, 8, 0 },
+	  1, 8, 0 },
 	{ 1 /* MPSCENARIO_HOLDTHEBRIEFCASE */,
 	  "hold_the_briefcase",
 	  "Hold the Briefcase",
 	  "Carry the briefcase as long as possible to accumulate points.",
-	  2, 8, 0 },
+	  1, 8, 0 },
 	{ 2 /* MPSCENARIO_HACKERCENTRAL */,
 	  "hacker_central",
 	  "Hacker Central",
 	  "Hack terminals across the level. Points awarded per hack.",
-	  2, 8, 0 },
+	  1, 8, 0 },
 	{ 3 /* MPSCENARIO_POPACAP */,
 	  "pop_a_cap",
 	  "Pop a Cap",
 	  "Score points by eliminating the designated target.",
-	  2, 8, 0 },
+	  1, 8, 0 },
 	{ 4 /* MPSCENARIO_KINGOFTHEHILL */,
 	  "king_of_the_hill",
 	  "King of the Hill",

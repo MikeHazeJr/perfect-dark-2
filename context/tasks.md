@@ -10,10 +10,78 @@ Last updated: 2026-07-30
 every asset family from extraction through public `.pdxxx`, catalog/provider
 loading, production adapters, generated-cache boundaries, creator workflows,
 and no-ROM-fallback enforcement. Parallel production-path audits cover
-`T-MENUS-001` and `T-INPUT-004`; fixes remain `missing` until current-tree
-evidence identifies and connects them. Required closure gates are `V-001`
+`T-MENUS-001` and `T-INPUT-004`. B-966/B-967/B-968 are implemented in the
+current tree: generic typed dialogs no longer omit list/carousel/ranking/stats
+content, Settings surfaces all 117 bindable actions (four derived analog
+channels remain in global stick tuning), vehicle direct-use and Forge E/Q
+reach their correct production contexts, and audited menu hints resolve live
+glyphs. Focused/build proof and ordinary-client MKB/controller proof remain.
+Required closure gates are `V-001`
 through `V-004` and `P-001`. Workbench statuses are verified truth, not the
 old board's aspirations.
+
+First hardening checkpoint, 2026-07-30: extractor failure aggregation
+(`T-ASSETS-002`), all-family child-emitter propagation (`T-ASSETS-003`),
+catalog-native meta loading (`T-RUNTIME-002`), archive-safe Modding Hub editing
+(`T-MODDING-006`), atomic archive mutation (`T-ARCHIVES-002`), and fail-loud
+descriptor parsing (`T-ARCHIVES-003`) are production-connected. Selected
+font/texture/sequence/animation/SFX/voice/MP3 paths (`T-RUNTIME-003`) and the
+guarded source contract (`T-RUNTIME-004`) now fail closed. The focused suite
+passes 63 cases / 11,744 assertions, the native-source guard passes, and the
+isolated all-target build passes. `T-ASSETS-006` is validated after restoring
+the ignored OBJ fixtures. Remaining critical implementation work includes
+`B-959` (placeholder/incomplete public meta families), induced runtime-failure
+receipts for the fail-closed lanes, and the full menu/input production-path
+sweep. `B-961` is now production-connected: permanent bot-profile IDs survive
+both menu systems, runtime/match state, JSON and v3 binary setup saves,
+manifest distribution, and v52 lobby/stage-start reconstruction. The
+all-target build, 137-case/15,497-assertion `.pdxxx` band, version pins, and
+native-source guard pass; a custom-profile live interaction/network receipt
+remains before validation. The same save-path review fixed `B-964` and `B-965`:
+MP setup JSON has one catalog-native weapon identity with legacy numbers
+accepted only for migration, required bot records cannot be omitted, and
+binary setup reads/writes reject truncation, future versions, or invalid
+counts/default indices. The updated `.pdxxx` band passes 139 cases / 15,517
+assertions.
+
+`B-959` first implementation slice, 2026-07-30: `.pdhud`, `.pdmaterial`,
+`.pdskin`, and `.pdvehicle` no longer stop at descriptor-only activation.
+Catalog load hydrates their structured public JSON and rejects invalid rows.
+All six HUD production surfaces consume visibility/opacity; character rendering
+consumes skin/material appearance; hoverbike movement, hover, mount, drive and
+dismount consume editable vehicle source and fail closed if it is absent.
+Strict conformance now checks schema, catalog identity, types and ranges and
+its selftest rejects one mutation per family. Focused B-959 passes 2 cases /
+69 assertions; all 27 creator-example families pass strict conformance and
+byte-preserving `.pdmod` round-trip; the native-source guard and isolated test
+build pass. Workbench assets `A-ASSETS-005`, `A-ASSETS-020`, `A-ASSETS-023`,
+and `A-ASSETS-027` may be marked implemented, not validated; live edited-source
+receipts and the remaining B-959 families are still active.
+
+`B-959` second implementation slice, 2026-07-30: game-mode and bot-profile
+JSON are now authoritative production source rather than placeholder backend
+labels or descriptor mirrors. Prop JSON now owns archetype, display name,
+health and flags; Forge door/prop dispatch and initialization consume the
+hydrated values and fail closed. Focused B-959 expands to 108 assertions and
+strict conformance selftests now reject mutations across seven structured
+families. `A-ASSETS-025` and `A-ASSETS-026` may be marked implemented;
+`A-ASSETS-022` remains partial because arbitrary prop behavior-graph execution
+is still open. Mission briefing/wrapper and the residual weapon, character,
+voice, effect and theme fields remain in the active audit.
+
+Final audit verification checkpoint, 2026-07-30: B-969's creator-workflow fix
+remains live-smoke validated, and the regenerated all-family package again
+passes 58/58. B-970 removes the last callable retired-tracker mutation path
+from the scheduled daily entrypoint; it is now a Workbench-only read-only
+briefing exporter. B-971 corrects the `.pdtheme` creator example from ignored
+`accent`/`chrome` keys to the exact production palette schema. Fresh isolated
+client/updater and test builds pass; `[modding][pdxxx]` passes 141 cases /
+15,643 assertions; `[menu],[input]` passes 68 cases / 1,483 assertions; the
+native-source guard, Workbench API tests, conformance selftests, and all 27
+archive families pass. Workbench retains the truthful open gates: live
+mouse/MKB/controller/device-switch proof and the residual partial fields in
+weapon, character, voice, effect, prop, mission briefing, and theme dependency
+semantics are not marked validated.
 
 **2026-07-07 FULL-PARITY EXTRACTION + UTILIZATION (historical completion evidence;
 current claims are being re-audited under `T-ASSETS-001`).**

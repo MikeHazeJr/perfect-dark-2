@@ -1310,7 +1310,13 @@ static s32 renderMissionSelect(struct menudialog *dialog,
          * always visible even as objectives/briefing scroll.  Preserves
          * the UX hint from the pre-Batch-0 bottom-of-panel placement. */
         if (s_DetailPanelFocus) {
-            ImGui::TextDisabled("A: Select   B: Back   D-Pad: Navigate");
+            char accept[24], cancel[24], up[24], down[24];
+            pdguiGlyphGetActionLabel(ACTION_MENU_ACCEPT, accept, (s32)sizeof(accept));
+            pdguiGlyphGetActionLabel(ACTION_CANCEL_USE, cancel, (s32)sizeof(cancel));
+            pdguiGlyphGetActionLabel(ACTION_MENU_UP, up, (s32)sizeof(up));
+            pdguiGlyphGetActionLabel(ACTION_MENU_DOWN, down, (s32)sizeof(down));
+            ImGui::TextDisabled("[%s] Select  [%s] Back  [%s]/[%s] Navigate",
+                                accept, cancel, up, down);
         } else {
             ImGui::TextDisabled("Select a mission from the list");
         }
@@ -2381,7 +2387,13 @@ static s32 renderBriefingImpl(struct menudialog *dialog,
     ImGui::EndChild();
 
     ImGui::Separator();
-    ImGui::TextDisabled("D-Pad/Scroll: Read   B/Esc: Close");
+    {
+        char up[24], down[24], cancel[24];
+        pdguiGlyphGetActionLabel(ACTION_MENU_UP, up, (s32)sizeof(up));
+        pdguiGlyphGetActionLabel(ACTION_MENU_DOWN, down, (s32)sizeof(down));
+        pdguiGlyphGetActionLabel(ACTION_CANCEL_USE, cancel, (s32)sizeof(cancel));
+        ImGui::TextDisabled("[%s]/[%s]/Scroll Read   [%s] Close", up, down, cancel);
+    }
 
     ImGui::End();
     return 1;
@@ -2480,7 +2492,11 @@ static s32 renderInventory(struct menudialog *dialog,
     ImGui::EndChild();
 
     ImGui::Separator();
-    ImGui::TextDisabled("B/Esc: Back");
+    {
+        char cancel[24];
+        pdguiGlyphGetActionLabel(ACTION_CANCEL_USE, cancel, (s32)sizeof(cancel));
+        ImGui::TextDisabled("[%s] Back", cancel);
+    }
 
     /* B / Escape = back */
     if (pdguiMenuCancelPressed()) {
@@ -3141,8 +3157,11 @@ static s32 renderAbortMission(struct menudialog *dialog,
 
     /* Keybinding hints */
     {
-        const char *hintL = "[Enter/Space/(A)] Confirm";
-        const char *hintR = "[Esc/(B)] Cancel";
+        char accept[24], cancel[24], hintL[64], hintR[64];
+        pdguiGlyphGetActionLabel(ACTION_MENU_ACCEPT, accept, (s32)sizeof(accept));
+        pdguiGlyphGetActionLabel(ACTION_CANCEL_USE, cancel, (s32)sizeof(cancel));
+        snprintf(hintL, sizeof(hintL), "[%s] Confirm", accept);
+        snprintf(hintR, sizeof(hintR), "[%s] Cancel", cancel);
 
         float hintY = dialogH - pdguiScale(22.0f);
         if (hintY < ImGui::GetCursorPosY() + 4.0f * scale) {

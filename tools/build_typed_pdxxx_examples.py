@@ -105,6 +105,7 @@ def prop_manifest(catalog_id: str) -> str:
         "  \"pd_kind\": \"prop\",\n"
         f"  \"catalog_id\": \"{catalog_id}\",\n"
         "  \"model_file\": \"model.gltf\",\n"
+        "  \"prop_file\": \"prop.json\",\n"
         "  \"behavior_graph\": \"behavior.graph.json\"\n"
         "}\n"
     )
@@ -2332,7 +2333,16 @@ def update_weapon(mesh_bytes: bytes) -> None:
 
 
 def update_botprofile() -> None:
-    profile = read_entry("botprofiles/tri_botprofile.pdbotprofile", "profile.json")
+    profile = (
+        "{\n"
+        "  \"schema\": \"pd2.botprofile.v2\",\n"
+        "  \"catalog_id\": \"example:tri_botprofile\",\n"
+        "  \"type_key\": \"general\",\n"
+        "  \"difficulty_key\": \"normal\",\n"
+        "  \"target_body\": \"example:tri_body\",\n"
+        "  \"requirefeature\": 0\n"
+        "}\n"
+    )
     write_archive("botprofiles/tri_botprofile.pdbotprofile", [
         ("botprofile.ini",
          "[bot_profile]\n"
@@ -2340,6 +2350,7 @@ def update_botprofile() -> None:
          "type_key = general\n"
          "difficulty_key = normal\n"
          "target_body = example:tri_body\n"
+         "requirefeature = 0\n"
          "profile_file = profile.json\n"),
         ("profile.json", profile),
         ("_meta/manifest.json", manifest_with("botprofile", "example:tri_botprofile", {
@@ -2390,12 +2401,15 @@ def update_material() -> None:
         "  \"schema\": \"pd2.material.v1\",\n"
         "  \"catalog_id\": \"example:tri_material\",\n"
         "  \"name\": \"Triangle Material\",\n"
-        "  \"shading_model\": \"pd2_unlit\",\n"
-        "  \"base_color\": [1.0, 1.0, 1.0, 1.0],\n"
+        "  \"shading_model\": \"classic_lit\",\n"
+        "  \"base_color\": [0.8, 0.9, 1.0, 1.0],\n"
         "  \"texture_slots\": [\n"
         "    { \"name\": \"base_color\", \"archive\": \"dependencies/assets/texture/tri_texture.pdtexture\" }\n"
         "  ],\n"
-        "  \"effect\": \"dependencies/assets/effects/tri_effect.pdeffect\"\n"
+        "  \"effect\": \"dependencies/assets/effects/tri_effect.pdeffect\",\n"
+        "  \"emissive\": false,\n"
+        "  \"roughness\": 0.45,\n"
+        "  \"metallic\": 0.25\n"
         "}\n"
     )
     write_archive("materials/tri_material.pdmaterial", [
@@ -2418,7 +2432,33 @@ def update_material() -> None:
 
 
 def update_theme() -> None:
-    theme_json = read_entry("themes/tri_theme.pdtheme", "theme.json")
+    # Keep this example on the exact schema consumed by
+    # pdgui_theme_loader.cpp. The former accent/chrome keys looked plausible
+    # but were ignored by the production parser.
+    theme_json = (
+        "{\n"
+        "  \"schema\": \"pd2.theme.v1\",\n"
+        "  \"catalog_id\": \"example:tri_theme\",\n"
+        "  \"name\": \"Triangle Theme\",\n"
+        "  \"author\": \"Perfect Dark 2 example pack\",\n"
+        "  \"version\": \"1\",\n"
+        "  \"palette\": {\n"
+        "    \"dialog_border1\": \"66ccffff\",\n"
+        "    \"dialog_titlebg\": \"102030ff\",\n"
+        "    \"dialog_border2\": \"99ddffff\",\n"
+        "    \"dialog_titlefg\": \"ffffffff\",\n"
+        "    \"dialog_bodybg\": \"081018e8\",\n"
+        "    \"item_unfocused\": \"b8d8e8ff\",\n"
+        "    \"item_disabled\": \"607080ff\",\n"
+        "    \"item_focused_inner\": \"204860ff\",\n"
+        "    \"checkbox_checked\": \"66ccffff\",\n"
+        "    \"item_focused_outer\": \"99ddffff\",\n"
+        "    \"listgroup_headerbg\": \"183040ff\",\n"
+        "    \"listgroup_headerfg\": \"d8f4ffff\",\n"
+        "    \"title_glow\": \"66ccffff\"\n"
+        "  }\n"
+        "}\n"
+    )
     ui = read_archive("ui/tri_reticle.pdui")
     font = read_archive("fonts/tri_font.pdfont")
     audio = read_archive("audio/sfx/tri_click.pdsfx")
@@ -2448,6 +2488,16 @@ def update_theme() -> None:
 def update_prop() -> None:
     model = read_entry("meshes/tri_mesh.pdmesh", "model.gltf")
     behavior = read_entry("props/tri_prop.pdprop", "behavior.graph.json")
+    prop_source = (
+        "{\n"
+        "  \"schema\": \"pd2.prop.v2\",\n"
+        "  \"catalog_id\": \"example:tri_prop\",\n"
+        "  \"prop_key\": \"object\",\n"
+        "  \"display_name\": \"Triangle Prop\",\n"
+        "  \"health\": 125.0,\n"
+        "  \"flags\": 0\n"
+        "}\n"
+    )
     write_archive("props/tri_prop.pdprop", [
         ("prop.ini",
          "[prop]\n"
@@ -2455,9 +2505,12 @@ def update_prop() -> None:
          "name = Triangle Prop\n"
          "prop_key = object\n"
          "model_file = model.gltf\n"
-         "health = 100\n"
+         "health = 125\n"
+         "flags = 0\n"
+         "prop_file = prop.json\n"
          "behavior_graph = behavior.graph.json\n"),
         ("model.gltf", model),
+        ("prop.json", prop_source),
         ("behavior.graph.json", behavior),
         ("_meta/manifest.json", prop_manifest("example:tri_prop")),
     ])
@@ -2465,8 +2518,47 @@ def update_prop() -> None:
 
 def update_vehicle() -> None:
     model = read_entry("meshes/tri_mesh.pdmesh", "model.gltf")
-    physics = read_entry("vehicles/tri_vehicle.pdvehicle", "physics.json")
-    behavior = read_entry("vehicles/tri_vehicle.pdvehicle", "behavior.graph.json")
+    physics = (
+        "{\n"
+        "  \"schema\": \"pd2.vehicle.physics.v2\",\n"
+        "  \"catalog_id\": \"example:tri_vehicle\",\n"
+        "  \"archetype\": \"hoverbike\",\n"
+        "  \"turn_input_scale\": 0.05,\n"
+        "  \"reverse_turn_gain\": 0.6,\n"
+        "  \"steering_response_ntsc\": 0.08,\n"
+        "  \"steering_response_pal\": 0.09,\n"
+        "  \"turn_visual_scale\": 10.0,\n"
+        "  \"input_response\": 0.4,\n"
+        "  \"forward_input_scale\": 0.7,\n"
+        "  \"lateral_input_scale\": 0.3,\n"
+        "  \"lean_response\": 4.0,\n"
+        "  \"forward_base\": 0.25,\n"
+        "  \"forward_accel_gain\": 0.75,\n"
+        "  \"reverse_base\": 0.45,\n"
+        "  \"drag_ntsc\": 0.96,\n"
+        "  \"drag_pal\": 0.95,\n"
+        "  \"forward_thrust\": 1.2,\n"
+        "  \"lateral_thrust\": 0.8,\n"
+        "  \"forward_tilt\": 0.2,\n"
+        "  \"lateral_tilt\": 0.3,\n"
+        "  \"tilt_response_ntsc\": 0.05,\n"
+        "  \"tilt_response_pal\": 0.06,\n"
+        "  \"yaw_response_ntsc\": 0.16,\n"
+        "  \"yaw_response_pal\": 0.18,\n"
+        "  \"boost_speed\": 7.0,\n"
+        "  \"boost_time_ticks60\": 1800,\n"
+        "  \"hover\": [82, 1, 3, 0.0025, 0.1, 0.01, 0.02, 0.00002, 0.0006, 0.01, 0.02, 0.00002, 0.0006]\n"
+        "}\n"
+    )
+    behavior = (
+        "{\n"
+        "  \"schema\": \"pd2.vehicle.behavior.v2\",\n"
+        "  \"catalog_id\": \"example:tri_vehicle\",\n"
+        "  \"allow_mount\": true,\n"
+        "  \"allow_drive\": true,\n"
+        "  \"allow_dismount\": true\n"
+        "}\n"
+    )
     write_archive("vehicles/tri_vehicle.pdvehicle", [
         ("vehicle.ini",
          "[vehicle]\n"
@@ -2483,23 +2575,36 @@ def update_vehicle() -> None:
 
 
 def update_gamemode() -> None:
-    rules = read_entry("gamemodes/tri_gamemode.pdgamemode", "rules.json")
+    rules = (
+        "{\n"
+        "  \"schema\": \"pd2.gamemode.rules.v2\",\n"
+        "  \"catalog_id\": \"example:tri_gamemode\",\n"
+        "  \"mode_key\": \"combat\",\n"
+        "  \"name\": \"Triangle Combat\",\n"
+        "  \"description\": \"Free-for-all combat using editable public rules.\",\n"
+        "  \"players\": { \"min\": 1, \"max\": 8 },\n"
+        "  \"teams\": { \"required\": false },\n"
+        "  \"requirefeature\": 0\n"
+        "}\n"
+    )
     write_archive("gamemodes/tri_gamemode.pdgamemode", [
         ("gamemode.ini",
          "[gamemode]\n"
          "catalog_id = example:tri_gamemode\n"
-         "name = Triangle Rules\n"
-         "mode_key = custom\n"
-         "min_players = 2\n"
+         "name = Triangle Combat\n"
+         "description = Free-for-all combat using editable public rules.\n"
+         "mode_key = combat\n"
+         "min_players = 1\n"
          "max_players = 8\n"
          "team_based = 0\n"
+         "requirefeature = 0\n"
          "rules_file = rules.json\n"),
         ("rules.json", rules),
         ("_meta/manifest.json", manifest_with("gamemode", "example:tri_gamemode", {
-            "name": "Triangle Rules",
-            "description": "",
-            "mode_key": "custom",
-            "min_players": 2,
+            "name": "Triangle Combat",
+            "description": "Free-for-all combat using editable public rules.",
+            "mode_key": "combat",
+            "min_players": 1,
             "max_players": 8,
             "team_based": 0,
             "requirefeature": 0,
@@ -2509,7 +2614,14 @@ def update_gamemode() -> None:
 
 
 def update_hud() -> None:
-    layout = read_entry("hud/tri_hud.pdhud", "layout.json")
+    layout = (
+        "{\n"
+        "  \"schema\": \"pd2.hud.layout.v1\",\n"
+        "  \"catalog_id\": \"example:tri_hud\",\n"
+        "  \"element\": \"ammo\",\n"
+        "  \"visible\": true\n"
+        "}\n"
+    )
     texture = read_entry("hud/tri_hud.pdhud", "texture.png")
     write_archive("hud/tri_hud.pdhud", [
         ("hud.ini",
@@ -2615,11 +2727,23 @@ def update_skin() -> None:
         "  ]\n"
         "}\n"
     )
+    skin_source = (
+        "{\n"
+        "  \"schema\": \"pd2.skin.v1\",\n"
+        "  \"catalog_id\": \"example:tri_skin\",\n"
+        "  \"target\": \"example:tri_body\",\n"
+        "  \"material_slots\": [\n"
+        "    { \"slot\": \"default\", \"material\": \"example:tri_material\" }\n"
+        "  ]\n"
+        "}\n"
+    )
     skin_manifest = (
         "{\n"
         "  \"schema\": \"pd.asset_archive.manifest.v1\",\n"
         "  \"pd_kind\": \"skin\",\n"
         "  \"catalog_id\": \"example:tri_skin\",\n"
+        "  \"target\": \"example:tri_body\",\n"
+        "  \"skin_file\": \"skin.json\",\n"
         "  \"texture_file\": \"texture.tga\",\n"
         "  \"swatches_file\": \"swatches.json\",\n"
         "  \"material_archive\": \"dependencies/assets/material/tri_material.pdmaterial\",\n"
@@ -2631,11 +2755,13 @@ def update_skin() -> None:
          "[skin]\n"
          "catalog_id = example:tri_skin\n"
          "name = Triangle Skin\n"
-         "target = example:tri_character\n"
+         "target = example:tri_body\n"
+         "skin_file = skin.json\n"
          "texture_file = texture.tga\n"
          "swatches_file = swatches.json\n"
          "material_archive = dependencies/assets/material/tri_material.pdmaterial\n"
          "texture_archive = dependencies/assets/texture/tri_texture.pdtexture\n"),
+        ("skin.json", skin_source),
         ("texture.tga", texture),
         ("swatches.json", swatches),
         ("dependencies/assets/material/tri_material.pdmaterial", material),

@@ -2604,6 +2604,20 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 
 	s32 usereloads = (controlmode != CONTROLMODE_PC);
 	usereloads = usereloads || PLAYER_EXTCFG().usereloads;
+	/* ACTION_VEHICLE_USE is an optional direct on-foot activation binding.
+	 * It feeds the same authoritative activation path as a completed
+	 * ACTION_USE hold, so mounting a hoverbike still goes through
+	 * currentPlayerTryMountHoverbike and all ordinary range/collision gates.
+	 * While mounted, ACTION_VEHICLE_EXIT owns dismount instead. */
+	if (controlmode == CONTROLMODE_PC
+			&& g_Vars.currentplayer->bondmovemode != MOVEMODE_BIKE
+			&& actionPressed(actionPlayer, ACTION_VEHICLE_USE)) {
+		g_Vars.currentplayer->activatetimelast = g_Vars.currentplayer->activatetimethis;
+		g_Vars.currentplayer->activatetimethis = g_Vars.lvframe60;
+		g_Vars.currentplayer->pcinteractusekind = 2;
+		g_Vars.currentplayer->bondactivateorreload |= JO_ACTION_ACTIVATE;
+		bmoveHandleActivate();
+	}
 	if (controlmode == CONTROLMODE_PC && movedata.alt1tapcount) {
 		/* PC: X_BUTTON here is ACTION_RELOAD (R) or long-USE no-prompt release — not USE tap. */
 		g_Vars.currentplayer->bondactivateorreload |= JO_ACTION_RELOAD;

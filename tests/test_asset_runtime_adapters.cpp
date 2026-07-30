@@ -48,6 +48,35 @@ private:
 	std::filesystem::path path;
 };
 
+class TempRuntimeDir {
+public:
+	explicit TempRuntimeDir(const char *name)
+	{
+		path = std::filesystem::temp_directory_path() / name;
+		std::error_code ec;
+		std::filesystem::remove_all(path, ec);
+		std::filesystem::create_directories(path);
+	}
+
+	~TempRuntimeDir()
+	{
+		std::error_code ec;
+		std::filesystem::remove_all(path, ec);
+	}
+
+	std::string write(const char *name, const char *contents)
+	{
+		std::filesystem::path file = path / name;
+		std::ofstream out(file, std::ios::binary);
+		out << contents;
+		out.close();
+		return file.string();
+	}
+
+private:
+	std::filesystem::path path;
+};
+
 static void fillStrictScenario(asset_entry_t &scenario)
 {
 	std::strncpy(scenario.ext.scenario.scene_file, "scene.glb",
@@ -86,6 +115,208 @@ static void fillStrictScenario(asset_entry_t &scenario)
 		sizeof(scenario.ext.scenario.navigation_paths_file) - 1);
 	std::strncpy(scenario.ext.scenario.level_graph_file, "level.graph.json",
 		sizeof(scenario.ext.scenario.level_graph_file) - 1);
+}
+
+TEST_CASE("B-959 structured metadata source hydrates production-facing state",
+          "[modding][pdxxx][runtime][b959]") {
+	assetRuntimeReset();
+	TempRuntimeDir dir("pd2_asset_runtime_b959");
+
+	asset_entry_t material;
+	initEntry(material, ASSET_MATERIAL, "mod:material_cobalt");
+	std::strncpy(material.ext.material.material_file, "material.json",
+		sizeof(material.ext.material.material_file) - 1);
+	std::string materialPath = dir.write("material.json",
+		"{\"schema\":\"pd2.material.v1\","
+		"\"catalog_id\":\"mod:material_cobalt\","
+		"\"shading_model\":\"classic_emissive\","
+		"\"base_color\":[0.25,0.5,1.0,0.8],"
+		"\"emissive\":true,\"roughness\":0.2,\"metallic\":0.75}");
+	REQUIRE(assetRuntimeActivateCatalogEntry(&material, materialPath.c_str()) == 1);
+	REQUIRE(assetRuntimeHydrateCatalogEntry(&material) == 1);
+	const asset_runtime_binding_t *materialBinding =
+		assetRuntimeFind("mod:material_cobalt");
+	REQUIRE(materialBinding != nullptr);
+	REQUIRE(materialBinding->source_hydrated == 1);
+	REQUIRE(materialBinding->material_base_color[2] == Approx(1.0f));
+	REQUIRE(materialBinding->material_roughness == Approx(0.2f));
+	REQUIRE(materialBinding->material_metallic == Approx(0.75f));
+	REQUIRE(materialBinding->material_emissive == 1);
+
+	asset_entry_t propSource;
+	initEntry(propSource, ASSET_PROP, "mod:prop_crate");
+	std::strncpy(propSource.ext.prop.model_file, "crate.gltf",
+		sizeof(propSource.ext.prop.model_file) - 1);
+	std::strncpy(propSource.ext.prop.prop_file, "prop.json",
+		sizeof(propSource.ext.prop.prop_file) - 1);
+	std::string propPath = dir.write("crate.gltf", "{}");
+	dir.write("prop.json",
+		"{\"schema\":\"pd2.prop.v2\",\"catalog_id\":\"mod:prop_crate\","
+		"\"prop_key\":\"object\",\"display_name\":\"Cobalt Crate\","
+		"\"health\":325.0,\"flags\":16}");
+	REQUIRE(assetRuntimeActivateCatalogEntry(&propSource, propPath.c_str()) == 1);
+	REQUIRE(assetRuntimeHydrateCatalogEntry(&propSource) == 1);
+	const asset_runtime_binding_t *propBinding =
+		assetRuntimeFindByTypeAndId(ASSET_PROP, "mod:prop_crate");
+	REQUIRE(propBinding != nullptr);
+	REQUIRE(propBinding->source_hydrated == 1);
+	REQUIRE(propBinding->kind == 1);
+	REQUIRE(propBinding->prop_health == Approx(325.0f));
+	REQUIRE(propBinding->prop_flags == 16);
+	REQUIRE(str(propBinding->display_name) == "Cobalt Crate");
+
+	asset_entry_t gameMode;
+	initEntry(gameMode, ASSET_GAMEMODE, "mod:mode_team_case");
+	std::strncpy(gameMode.ext.gamemode.rules_file, "rules.json",
+		sizeof(gameMode.ext.gamemode.rules_file) - 1);
+	std::string rulesPath = dir.write("rules.json",
+		"{\"schema\":\"pd2.gamemode.rules.v2\","
+		"\"catalog_id\":\"mod:mode_team_case\","
+		"\"mode_key\":\"capture_the_case\",\"name\":\"Cobalt Case\","
+		"\"description\":\"Two-team case capture.\","
+		"\"players\":{\"min\":4,\"max\":12},"
+		"\"teams\":{\"required\":true},\"requirefeature\":7}");
+	REQUIRE(assetRuntimeActivateCatalogEntry(&gameMode, rulesPath.c_str()) == 1);
+	REQUIRE(assetRuntimeHydrateCatalogEntry(&gameMode) == 1);
+	const asset_runtime_binding_t *modeBinding =
+		assetRuntimeFindByTypeAndId(ASSET_GAMEMODE, "mod:mode_team_case");
+	REQUIRE(modeBinding != nullptr);
+	REQUIRE(modeBinding->source_hydrated == 1);
+	REQUIRE(modeBinding->runtime_id == 5);
+	REQUIRE(modeBinding->gamemode_min_players == 4);
+	REQUIRE(modeBinding->gamemode_max_players == 12);
+	REQUIRE(modeBinding->gamemode_team_based == 1);
+	REQUIRE(modeBinding->gamemode_requirefeature == 7);
+	REQUIRE(str(modeBinding->gamemode_name) == "Cobalt Case");
+
+	asset_entry_t botProfile;
+	initEntry(botProfile, ASSET_BOT_PROFILE, "mod:bot_vengeful");
+	std::strncpy(botProfile.ext.bot_profile.profile_file, "profile.json",
+		sizeof(botProfile.ext.bot_profile.profile_file) - 1);
+	std::string profilePath = dir.write("profile.json",
+		"{\"schema\":\"pd2.botprofile.v2\","
+		"\"catalog_id\":\"mod:bot_vengeful\",\"type_key\":\"venge\","
+		"\"difficulty_key\":\"hard\",\"target_body\":\"base:body_dark_combat\","
+		"\"requirefeature\":3}");
+	REQUIRE(assetRuntimeActivateCatalogEntry(&botProfile,
+		profilePath.c_str()) == 1);
+	REQUIRE(assetRuntimeHydrateCatalogEntry(&botProfile) == 1);
+	const asset_runtime_binding_t *profileBinding =
+		assetRuntimeFindByTypeAndId(ASSET_BOT_PROFILE, "mod:bot_vengeful");
+	REQUIRE(profileBinding != nullptr);
+	REQUIRE(profileBinding->source_hydrated == 1);
+	REQUIRE(profileBinding->bot_profile_type == 12);
+	REQUIRE(profileBinding->bot_profile_difficulty == 3);
+	REQUIRE(profileBinding->bot_profile_requirefeature == 3);
+	REQUIRE(str(profileBinding->target_id) == "base:body_dark_combat");
+
+	asset_entry_t skin;
+	initEntry(skin, ASSET_SKIN, "mod:skin_cobalt");
+	std::strncpy(skin.ext.skin.target_id, "base:body_dark_combat",
+		sizeof(skin.ext.skin.target_id) - 1);
+	std::strncpy(skin.ext.skin.skin_file, "skin.json",
+		sizeof(skin.ext.skin.skin_file) - 1);
+	std::strncpy(skin.ext.skin.swatches_file, "swatches.json",
+		sizeof(skin.ext.skin.swatches_file) - 1);
+	std::string skinPath = dir.write("skin.json",
+		"{\"schema\":\"pd2.skin.v1\",\"catalog_id\":\"mod:skin_cobalt\","
+		"\"target\":\"base:body_dark_combat\","
+		"\"material_slots\":[{\"slot\":\"default\","
+		"\"material\":\"mod:material_cobalt\"}]}");
+	dir.write("swatches.json",
+		"{\"schema\":\"pd2.skin.swatches.v1\","
+		"\"swatches\":[{\"name\":\"default\","
+		"\"rgba\":[0.5,1.0,0.25,0.5]}]}");
+	REQUIRE(assetRuntimeActivateCatalogEntry(&skin, skinPath.c_str()) == 1);
+	REQUIRE(assetRuntimeHydrateCatalogEntry(&skin) == 1);
+	f32 rgba[4] = {};
+	f32 roughness = 0.0f;
+	f32 metallic = 0.0f;
+	s32 emissive = 0;
+	REQUIRE(assetRuntimeSkinAppearance("base:body_dark_combat", rgba,
+		&roughness, &metallic, &emissive) == 1);
+	REQUIRE(rgba[0] == Approx(0.125f));
+	REQUIRE(rgba[1] == Approx(0.5f));
+	REQUIRE(rgba[2] == Approx(0.25f));
+	REQUIRE(rgba[3] == Approx(0.4f));
+	REQUIRE(roughness == Approx(0.2f));
+	REQUIRE(metallic == Approx(0.75f));
+	REQUIRE(emissive == 1);
+
+	asset_entry_t hud;
+	initEntry(hud, ASSET_HUD, "mod:hud_score_minimal");
+	hud.ext.hud.hud_id = HUD_ELEM_SCORE;
+	hud.ext.hud.element_type = HUD_ELEM_SCORE;
+	std::strncpy(hud.ext.hud.layout_file, "layout.json",
+		sizeof(hud.ext.hud.layout_file) - 1);
+	std::string hudPath = dir.write("layout.json",
+		"{\"schema\":\"pd2.hud.layout.v1\","
+		"\"catalog_id\":\"mod:hud_score_minimal\","
+		"\"element\":\"score\",\"visible\":false,\"opacity\":0.35}");
+	REQUIRE(assetRuntimeActivateCatalogEntry(&hud, hudPath.c_str()) == 1);
+	REQUIRE(assetRuntimeHydrateCatalogEntry(&hud) == 1);
+	REQUIRE(assetRuntimeHudElementEnabled(HUD_ELEM_SCORE) == 0);
+	REQUIRE(assetRuntimeHudElement(HUD_ELEM_SCORE)->source_opacity ==
+		Approx(0.35f));
+
+	asset_entry_t vehicle;
+	initEntry(vehicle, ASSET_VEHICLE, "mod:vehicle_tuned_bike");
+	vehicle.runtime_index = 58;
+	std::strncpy(vehicle.ext.vehicle.model_file, "model.gltf",
+		sizeof(vehicle.ext.vehicle.model_file) - 1);
+	std::strncpy(vehicle.ext.vehicle.physics_file, "physics.json",
+		sizeof(vehicle.ext.vehicle.physics_file) - 1);
+	std::strncpy(vehicle.ext.vehicle.behavior_graph, "behavior.graph.json",
+		sizeof(vehicle.ext.vehicle.behavior_graph) - 1);
+	std::string vehiclePath = dir.write("model.gltf", "{}");
+	dir.write("physics.json",
+		"{\"schema\":\"pd2.vehicle.physics.v2\","
+		"\"catalog_id\":\"mod:vehicle_tuned_bike\","
+		"\"turn_input_scale\":0.05,\"reverse_turn_gain\":0.6,"
+		"\"steering_response_ntsc\":0.08,\"steering_response_pal\":0.09,"
+		"\"turn_visual_scale\":10,\"input_response\":0.4,"
+		"\"forward_input_scale\":0.7,\"lateral_input_scale\":0.3,"
+		"\"lean_response\":4,\"forward_base\":0.25,"
+		"\"forward_accel_gain\":0.75,\"reverse_base\":0.45,"
+		"\"drag_ntsc\":0.96,\"drag_pal\":0.95,"
+		"\"forward_thrust\":1.2,\"lateral_thrust\":0.8,"
+		"\"forward_tilt\":0.2,\"lateral_tilt\":0.3,"
+		"\"tilt_response_ntsc\":0.05,\"tilt_response_pal\":0.06,"
+		"\"yaw_response_ntsc\":0.16,\"yaw_response_pal\":0.18,"
+		"\"boost_speed\":7,\"boost_time_ticks60\":1800,"
+		"\"hover\":[82,1,3,0.0025,0.1,0.01,0.02,0.00002,0.0006,"
+		"0.01,0.02,0.00002,0.0006]}");
+	dir.write("behavior.graph.json",
+		"{\"schema\":\"pd2.vehicle.behavior.v2\","
+		"\"catalog_id\":\"mod:vehicle_tuned_bike\","
+		"\"allow_mount\":true,\"allow_drive\":true,"
+		"\"allow_dismount\":false}");
+	REQUIRE(assetRuntimeActivateCatalogEntry(&vehicle, vehiclePath.c_str()) == 1);
+	REQUIRE(assetRuntimeHydrateCatalogEntry(&vehicle) == 1);
+	const asset_runtime_binding_t *vehicleBinding =
+		assetRuntimeVehicleForModelnum(58);
+	REQUIRE(vehicleBinding != nullptr);
+	REQUIRE(vehicleBinding->vehicle_forward_thrust == Approx(1.2f));
+	REQUIRE(vehicleBinding->vehicle_boost_speed == Approx(7.0f));
+	REQUIRE(assetRuntimeVehicleAllows(58, "mount") == 1);
+	REQUIRE(assetRuntimeVehicleAllows(58, "dismount") == 0);
+	REQUIRE(assetRuntimeVehicleAllows(59, "mount") == 0);
+	f32 hover[13] = {};
+	REQUIRE(assetRuntimeVehicleHover(58, hover) == 1);
+	REQUIRE(hover[0] == Approx(82.0f));
+
+	asset_entry_t invalidHud;
+	initEntry(invalidHud, ASSET_HUD, "mod:hud_invalid");
+	invalidHud.ext.hud.element_type = HUD_ELEM_RADAR;
+	std::strncpy(invalidHud.ext.hud.layout_file, "bad-layout.json",
+		sizeof(invalidHud.ext.hud.layout_file) - 1);
+	std::string invalidPath = dir.write("bad-layout.json",
+		"{\"catalog_id\":\"mod:wrong\",\"element\":\"radar\","
+		"\"visible\":true}");
+	REQUIRE(assetRuntimeActivateCatalogEntry(&invalidHud,
+		invalidPath.c_str()) == 1);
+	REQUIRE(assetRuntimeHydrateCatalogEntry(&invalidHud) == 0);
+	REQUIRE(assetRuntimeFind("mod:hud_invalid") == nullptr);
 }
 
 TEST_CASE("asset runtime adapters bind C-3838 file-backed families",

@@ -9,7 +9,14 @@
 /* Forward declaration — avoids pulling enet.h into every translation unit */
 typedef struct _ENetAddress ENetAddress;
 
-#define NET_PROTOCOL_VER 51  /* v51 (2026-06-17): c3849 Wave 7 cuts the
+#define NET_PROTOCOL_VER 52  /* v52 (2026-07-30): bot profile identity is a
+                              * catalog ID in CLC_LOBBY_START and a session
+                              * catalog ref in SVC_STAGE_START. Profile assets
+                              * are included in the match manifest, and
+                              * type/difficulty are derived from the selected
+                              * public .pdbotprofile source. Mixed v51/v52 play
+                              * is rejected at the auth handshake.
+                              * v51 (2026-06-17): c3849 Wave 7 cuts the
                               * weapon graph runtime over to product-default
                               * ON, retires the old user toggle plus its
                               * transient stage-start options bit, and relies

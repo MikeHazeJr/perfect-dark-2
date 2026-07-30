@@ -8,7 +8,7 @@
 
 The input system has three principal subsystems sitting on top of SDL2:
 
-1. **Action map** ([port/include/actionmap.h](../../port/include/actionmap.h), [port/src/actionmap.cpp](../../port/src/actionmap.cpp), 2912 lines). 103 named `InputAction` values, 12 `InputMappingContext` (IMC) singletons stacked by priority, deterministic dispatch. Every game-side input read goes through `actionPressed/Held/Value`.
+1. **Action map** ([port/include/actionmap.h](../../port/include/actionmap.h), [port/src/actionmap.cpp](../../port/src/actionmap.cpp)). 121 named `InputAction` values, 12 `InputMappingContext` (IMC) singletons stacked by priority, deterministic dispatch. Every game-side input read goes through `actionPressed/Held/Value`.
 2. **Input context stack** ([port/include/inputctx.h](../../port/include/inputctx.h), [port/src/inputctx.c](../../port/src/inputctx.c), 974 lines). 16-slot pushdown stack of input contexts (`g_CtxGameplay`, `g_CtxImGuiMenu`, `g_CtxPauseMenu`, `g_CtxDebugOverlay`). Owns SDL mouse mode and the `gameplayInputSuppressed()` single-truth-source predicate.
 3. **Layer stack** ([port/include/inputlayer.h](../../port/include/inputlayer.h), [port/src/inputlayer.c](../../port/src/inputlayer.c), 421 lines). 7 typed layers with handle-based push/pop, generation counters, scene-event integration.
 
@@ -20,7 +20,7 @@ Single SDL event entry point: [port/fast3d/pdgui_backend.cpp:1272](../../port/fa
 
 ### Action enum
 
-103 actions defined at [port/include/actionmap.h:54-248](../../port/include/actionmap.h:54). Categories:
+121 actions defined at [port/include/actionmap.h](../../port/include/actionmap.h). Categories:
 
 - **Movement**: forward/back/strafe/jump/crouch/sprint
 - **Analog aim**: 4 axes (move_x/y, aim_x/y) + look invert/sensitivity
@@ -128,7 +128,7 @@ Live bindings using this pattern:
 - `ACTION_WEAPON_PREV`: mouse-wheel-up / LB cycle backward through the same PC gameplay consumer.
 - `ACTION_CROUCH`: drives the existing `CROUCHPOS_{STAND, DUCK, SQUAT}` state machine directly (STAND tap → DUCK, DUCK tap → STAND, any hold → SQUAT, SQUAT tap → DUCK, ACTION_JUMP press → STAND).
 
-Natural-stop cases stay consumer-owned. The input primitive does not need a separate ammo-empty, door-open, full-charge, beam, overheat, or cooldown primitive; those consumers use the same threshold/consume APIs and decide when their own interaction or weapon behavior has naturally stopped. Remaining projectile/entity and presentation behavior adoption is tracked under Kanban `c3814-s16`, `c3814-s17`, and `c3814-s19`.
+Natural-stop cases stay consumer-owned. The input primitive does not need a separate ammo-empty, door-open, full-charge, beam, overheat, or cooldown primitive; those consumers use the same threshold/consume APIs and decide when their own interaction or weapon behavior has naturally stopped. Historical `c3814-s16` / `s17` / `s19` references are migration provenance only; current work must be represented in the repo-local Workbench.
 
 The hold-ring visual (`pdguiDrawHoldProgressRingAroundBox`) decays the smoothed value toward 0 on every `pdguiInteractPromptRender` early-return (menu open, CI intro, prop label NULL) so a re-entry doesn't flash from a stale value.
 
@@ -142,7 +142,7 @@ Crouch-jump: `ACTION_JUMP` latches `g_BondCrouchJumpActive[pi]`; a fresh `ACTION
 
 ## Custom / accessibility controller foundation
 
-Kanban `c3816` adds the first-class foundation for non-standard controllers without exposing raw hardware identity:
+Historical item `c3816` added the first-class foundation for non-standard controllers without exposing raw hardware identity; current status and follow-ups belong in the Workbench:
 
 - `ACTIONMAP_INPUT_CLASS_*` categories distinguish MKB, Controller, Custom, Accessibility, HOTAS, HOSAS, and Mixed as privacy-safe UI/presence metadata.
 - SDL raw joystick devices that are not `SDL_GameController` are opened beside normal controllers.
@@ -150,7 +150,8 @@ Kanban `c3816` adds the first-class foundation for non-standard controllers with
 - Actionmap dispatch routes raw joystick buttons/axes through player-1 virtual keys, while standard controllers continue through the SDL_GameController path to avoid duplicate events.
 - Social presence and friend rows show only coarse input class labels, never GUID/vendor/name.
 
-The next accessibility layer is tracked by c3819.
+The next accessibility layer originated in historical item `c3819`; any
+remaining work is tracked in the Workbench rather than the retired Kanban.
 
 `c3819` adds the first Settings-side profile layer on top of that foundation:
 
@@ -178,7 +179,14 @@ Per [constraints.md](../constraints.md):
 
 ## What is done (per [audits/infrastructure-pillars-status-2026-04-27.md](../audits/infrastructure-pillars-status-2026-04-27.md) Section 2)
 
-- 103-action enum with full coverage across movement, combat, weapons, vehicle, menu nav, system, forge, observer, voice PTT, skin editor, cutscene skip.
+- 121-action enum across movement, combat, weapons, vehicle, menu nav, system,
+  forge, observer, voice PTT, skin editor, cutscene skip, and developer/test
+  controls.
+- B-967 classifies all 121 IDs: 117 user-bindable actions are visible in
+  Settings -> Input, while four derived continuous axis channels are
+  represented by the visible stick-layout, deadzone, inversion, and
+  sensitivity controls. Vehicle direct-use now has a production consumer;
+  Forge E/Q are scoped to the Forge IMC.
 - Deterministic dispatch (priority + slot + id ordering).
 - Single suppression predicate gating every query API call.
 - Flush discipline at every transition boundary.
@@ -204,6 +212,11 @@ Per [constraints.md](../constraints.md):
 - **Cutscene hold-to-skip prompt.** Code/build verified 2026-05-21, pending Mike playtest. Cutscenes now skip only after a deliberate hold against `ACTION_SKIP_CUTSCENE_HOLD_THRESHOLD_MS`, display a contextual Hold [glyph] Skip prompt with the existing radial fill/unfill ring while a skip-related button is held, and suppress gameplay interact prompts during all active cutscenes.
 - **Custom/accessibility controller foundation.** Code/build verified 2026-05-21 under c3816, pending manual custom-device retest. Raw non-SDL_GameController devices now bridge into rebind capture and actionmap dispatch through existing JOY virtual keys, glyphs fall back to generic labels for custom-class devices, and Social displays privacy-safe input class.
 - **Settings Input tab rebuild.** Code/build verified 2026-05-21 under c3819, pending Mike UI/hardware playtest. The old Settings -> Controls tab is gone from the active UI and Settings -> Input now handles profile naming, connected-device nicknames/profile assignments, simplified Scheme/Input binding selection, and global tuning. Static coverage pins the tab rename, simplified renderer, profile metadata persistence, actionmap profile save/load, and continued actionmap capture path.
+- **All-action Settings coverage and live glyph audit.** B-967/B-968 are
+  implemented in the current tree. Focused/build results and ordinary-client
+  proof are tracked under Workbench `T-INPUT-004` and `V-004`; do not call
+  this validated until profile save/reload plus MKB/controller/device-switch
+  evidence exists.
 
 ---
 

@@ -298,6 +298,7 @@ s32 bootApplyDeferredDebugLoadCatalogAssets(void);
 static bool        g_BootNoNet            = false;
 static bool        g_BootExtractAssetsOnly = false;
 static bool        g_BootMainMenu         = false;
+static SDL_atomic_t g_BootAssetChainFailures;
 /* c3844 (2026-06-23): --launch-credits one-shot. Latched at parse, consumed
  * once after catalog init (same lifecycle point the other --launch-* fast-
  * paths fire) by entering the NORMAL scrolling credits -- mainChangeToStage(
@@ -537,6 +538,16 @@ static void gameInit(void)
  * context/designs/engine/startup-acceleration.md): one job runs the
  * entire sequence serially.  Phase 3 will rewrite romExtractVerifyAll
  * to fan out per-file SHA-256 across the pool's worker threads. */
+static void bootRecordAssetPhase(const char *phase, s32 result)
+{
+	if (result < 0) {
+		SDL_AtomicAdd(&g_BootAssetChainFailures, 1);
+		sysLoudFailf("ASSETCHAIN",
+			"phase '%s' reported an incomplete extraction/load result (%d)",
+			phase ? phase : "unknown", result);
+	}
+}
+
 static void bootRunCatalogWork(void *arg)
 {
 	(void)arg;
@@ -544,19 +555,19 @@ static void bootRunCatalogWork(void *arg)
 	bootProgressBeginPhase(BOOT_PHASE_EXTRACT_FILES);
 	romdataInit();
 	catalogCacheVerifyRom(g_RomName, NULL);
-	romExtractAllFiles();
+	bootRecordAssetPhase("rom-files", romExtractAllFiles());
 	bootProgressEndPhase();
 
 	bootProgressBeginPhase(BOOT_PHASE_VERIFY_FILES);
-	romExtractVerifyAll();
+	bootRecordAssetPhase("rom-files-verify", romExtractVerifyAll());
 	bootProgressEndPhase();
 
 	bootProgressBeginPhase(BOOT_PHASE_EXTRACT_SEGS);
-	romExtractAllSegments();
+	bootRecordAssetPhase("rom-segments", romExtractAllSegments());
 	bootProgressEndPhase();
 
 	bootProgressBeginPhase(BOOT_PHASE_VERIFY_SEGS);
-	romExtractVerifyAllSegments();
+	bootRecordAssetPhase("rom-segments-verify", romExtractVerifyAllSegments());
 	romExtractEmitBootIntegrityReport();
 	bootProgressEndPhase();
 
@@ -622,75 +633,88 @@ static void bootRunCatalogWork(void *arg)
 	 * the weapon pool being populated) -> build caches. */
 
 	bootProgressBeginPhase(BOOT_PHASE_EMIT_MESH);
-	(void)romExtractAllPdmesh(0);
+	bootRecordAssetPhase("pdmesh", romExtractAllPdmesh(0));
 	bootProgressEndPhase();
 
 	bootProgressBeginPhase(BOOT_PHASE_EMIT_ANIM);
-	(void)romExtractAllPdanim(0);
+	bootRecordAssetPhase("pdanim-weapon", romExtractAllPdanim(0));
 	bootProgressEndPhase();
 
 	bootProgressBeginPhase(BOOT_PHASE_EMIT_SFX);
-	(void)romExtractAllPdsfx(0);
+	bootRecordAssetPhase("pdsfx", romExtractAllPdsfx(0));
 	bootProgressEndPhase();
 
 	bootProgressBeginPhase(BOOT_PHASE_EMIT_VOICE);
-	(void)romExtractAllPdvoice(0);
+	bootRecordAssetPhase("pdvoice", romExtractAllPdvoice(0));
 	bootProgressEndPhase();
 
 	bootProgressBeginPhase(BOOT_PHASE_EMIT_SONG);
-	(void)romExtractAllPdsong(0);
+	bootRecordAssetPhase("pdsong", romExtractAllPdsong(0));
 	bootProgressEndPhase();
 
 	bootProgressBeginPhase(BOOT_PHASE_EMIT_WPN);
-	(void)romExtractAllPdweapon(0);
+	bootRecordAssetPhase("pdweapon-projectile-entity",
+		romExtractAllPdweapon(0));
 	bootProgressEndPhase();
 
 	bootProgressBeginPhase(BOOT_PHASE_EMIT_HEAD);
-	(void)romExtractAllPdhead(0);
+	bootRecordAssetPhase("pdhead", romExtractAllPdhead(0));
 	bootProgressEndPhase();
 
 	bootProgressBeginPhase(BOOT_PHASE_EMIT_BODY);
-	(void)romExtractAllPdbody(0);
+	bootRecordAssetPhase("pdbody", romExtractAllPdbody(0));
 	bootProgressEndPhase();
 
 	bootProgressBeginPhase(BOOT_PHASE_EMIT_BODY);
-	(void)romExtractAllPdcharacter(0);
+	bootRecordAssetPhase("pdcharacter", romExtractAllPdcharacter(0));
 	bootProgressEndPhase();
 
 	bootProgressBeginPhase(BOOT_PHASE_EMIT_ARENA);
-	(void)romExtractAllPdarena(0);
+	bootRecordAssetPhase("pdarena-pdscenario", romExtractAllPdarena(0));
 	bootProgressEndPhase();
 
 	bootProgressBeginPhase(BOOT_PHASE_EMIT_ANIMCHR);
-	(void)romExtractAllPdanimChr(0);
+	bootRecordAssetPhase("pdanim-character", romExtractAllPdanimChr(0));
 	bootProgressEndPhase();
 
 	bootProgressBeginPhase(BOOT_PHASE_EMIT_FONT);
-	(void)romExtractAllPdfont(0);
+	bootRecordAssetPhase("pdfont", romExtractAllPdfont(0));
 	bootProgressEndPhase();
 
 	bootProgressBeginPhase(BOOT_PHASE_EMIT_LANG);
-	(void)romExtractAllPdlang(0);
+	bootRecordAssetPhase("pdlang", romExtractAllPdlang(0));
 	bootProgressEndPhase();
 
 	bootProgressBeginPhase(BOOT_PHASE_EMIT_TEXTURE);
-	(void)romExtractAllPdtexture(0);
+	bootRecordAssetPhase("pdtexture", romExtractAllPdtexture(0));
 	bootProgressEndPhase();
 
 	bootProgressBeginPhase(BOOT_PHASE_EMIT_UI);
-	(void)romExtractAllPdui(0);
+	bootRecordAssetPhase("pdui", romExtractAllPdui(0));
 	bootProgressEndPhase();
 
 	bootProgressBeginPhase(BOOT_PHASE_EMIT_META);
-	(void)romExtractAllPdmeta(0);
-	(void)romExtractAllPdtheme(0);
+	bootRecordAssetPhase(
+		"pdgamemode-pdbotprofile-pdhud-pdmission-pdmaterial-pdskin-"
+		"pdeffect-pdprop-pdvehicle",
+		romExtractAllPdmeta(0));
+	bootRecordAssetPhase("pdtheme", romExtractAllPdtheme(0));
 	bootProgressEndPhase();
 
 	bootProgressBeginPhase(BOOT_PHASE_WALKER);
 	{
 		loader_walker_result_t walker_result;
 		loaderWalkerLoadAll(&walker_result);
-		(void)walker_result;
+		s32 walker_failures = walker_result.total_envelope_failures
+			+ walker_result.total_register_failures;
+		if (walker_failures > 0) {
+			SDL_AtomicAdd(&g_BootAssetChainFailures, walker_failures);
+			sysLoudFailf("ASSETCHAIN",
+				"universal walker rejected %d archive envelope(s) and "
+				"%d catalog registration(s)",
+				walker_result.total_envelope_failures,
+				walker_result.total_register_failures);
+		}
 		if (loaderPoolIsActive()) {
 			assetCatalogRegisterWeaponModelFiles();
 		}
@@ -698,10 +722,17 @@ static void bootRunCatalogWork(void *arg)
 	bootProgressEndPhase();
 
 	bootProgressBeginPhase(BOOT_PHASE_BUILD_CACHES);
-	catalogBuildRuntimeCaches();
-	catalogLoadInit();
-	modmgrLoadComponentState();
-	modmgrCatalogChanged();
+	if (SDL_AtomicGet(&g_BootAssetChainFailures) == 0) {
+		catalogBuildRuntimeCaches();
+		catalogLoadInit();
+		modmgrLoadComponentState();
+		modmgrCatalogChanged();
+	} else {
+		sysLoudFailf("ASSETCHAIN",
+			"runtime cache build skipped because %d extraction/load "
+			"failure(s) left the public asset chain incomplete",
+			SDL_AtomicGet(&g_BootAssetChainFailures));
+	}
 	bootProgressEndPhase();
 
 	bootProgressMarkComplete();
@@ -1674,6 +1705,7 @@ s32 bootEnsureUiArchivesReadyAfterTextureInit(void)
 	static s32 s_ready = 0;
 	char data_root[FS_MAXPATH + 1];
 	loader_walker_kind_result_t kr;
+	s32 texture_result;
 	s32 written;
 
 	if (s_ready) {
@@ -1684,13 +1716,28 @@ s32 bootEnsureUiArchivesReadyAfterTextureInit(void)
 	 * cannot be decoded into .pdui archives there. Run the texture emitter
 	 * first so source-only UI decode can read the public .pdtexture archives,
 	 * then emit/register .pdui before rendering repairs a missing UI set. */
-	(void)romExtractAllPdtexture(0);
+	texture_result = romExtractAllPdtexture(0);
 	written = romExtractAllPdui(0);
+	if (texture_result < 0 || written < 0) {
+		bootRecordAssetPhase("pdtexture-late-ui-repair", texture_result);
+		bootRecordAssetPhase("pdui-late-repair", written);
+		return -1;
+	}
 	fsDataDir(data_root, sizeof(data_root));
 	if (!data_root[0]) {
+		bootRecordAssetPhase("pdui-late-data-root", -1);
 		return 0;
 	}
 	loaderWalkerScanUi(data_root, &kr);
+	if (kr.envelope_failures > 0 || kr.register_failures > 0) {
+		SDL_AtomicAdd(&g_BootAssetChainFailures,
+			kr.envelope_failures + kr.register_failures);
+		sysLoudFailf("ASSETCHAIN",
+			"late UI walker rejected %d archive envelope(s) and "
+			"%d catalog registration(s)",
+			kr.envelope_failures, kr.register_failures);
+		return -1;
+	}
 	if (kr.entries_scanned > 0 || kr.entries_registered > 0 || written > 0) {
 		s_ready = 1;
 		modmgrCatalogChanged();
@@ -3364,6 +3411,7 @@ int main(int argc, const char **argv)
 		pdguiBootOverlayInit();
 	}
 
+	SDL_AtomicSet(&g_BootAssetChainFailures, 0);
 	bootPoolEnqueue(bootRunCatalogWork, NULL);
 
 	while (!bootProgressIsComplete()) {
@@ -3391,6 +3439,20 @@ int main(int argc, const char **argv)
 	}
 	bootPoolShutdown();
 	bootProgressShutdown();
+
+	s32 assetChainFailures = SDL_AtomicGet(&g_BootAssetChainFailures);
+	if (assetChainFailures > 0) {
+		sysLoudFailf("ASSETCHAIN",
+			"boot stopped: %d extraction/load failure(s); see earlier "
+			"per-phase diagnostics", assetChainFailures);
+		if (!g_BootExtractAssetsOnly) {
+			/* The ordinary boot path initialized UI/input/audio/mod systems
+			 * before the worker started. Register the normal teardown before
+			 * returning the nonzero process result. */
+			atexit(cleanup);
+		}
+		return 2;
+	}
 
 	if (g_BootExtractAssetsOnly) {
 		sysLogPrintf(LOG_NOTE,

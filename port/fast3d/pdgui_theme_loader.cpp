@@ -1618,18 +1618,10 @@ static void register_catalog_theme_entry(const asset_entry_t *entry, void *userd
         return;
     }
 
-    /* c3849 Wave 6a: prefer the catalog runtime binding's resolved paths.
-     * Activation ordering: pdguiThemeLoaderInit runs at pdguiInit time
-     * (main.c), BEFORE the boot worker's catalogLoadInit bundled preload
-     * creates theme bindings via assetRuntimeActivateCatalogEntry -- so
-     * at init this scan sees no catalog-only entries (the 7 builtins are
-     * filtered by find_entry above) and no bindings. The binding path is
-     * live on pdguiThemeRescanMods (mod apply / theme editor save), which
-     * runs after catalogLoadInit has activated the entries. Tolerate both
-     * orders: a missing binding falls back to the entry's native source
-     * resolution below, with a once-per-session warning for enabled
-     * entries. binding->primary_path is value-identical to
-     * fileProviderPath(entry->source.primary) (entryGetFilePath). */
+    /* Catalog-only entries reach this callback after lifecycle activation.
+     * Built-ins registered during early UI init are filtered by find_entry
+     * above. Any remaining enabled entry must therefore have a public-source
+     * runtime binding; do not fall back to a parallel catalog path. */
     const char *theme_path = nullptr;
     const asset_runtime_binding_t *binding =
         assetRuntimeFindByTypeAndId(ASSET_THEME, entry->id);
@@ -1640,18 +1632,10 @@ static void register_catalog_theme_entry(const asset_entry_t *entry, void *userd
             theme_path = binding->authored_file;
         }
     } else if (entry->enabled) {
-        static bool s_WarnedThemeRuntimeMiss = false;
-        if (!s_WarnedThemeRuntimeMiss) {
-            s_WarnedThemeRuntimeMiss = true;
-            sysLogPrintf(LOG_WARNING,
-                "CATALOG.THEME.RUNTIME_MISS: enabled catalog theme '%s' has no runtime binding; using native source resolution",
-                entry->id);
-        }
-    }
-
-    if ((!theme_path || !theme_path[0])
-            && entry->source.primary.provider == fileProvider()) {
-        theme_path = fileProviderPath(entry->source.primary);
+        sysFatalError("ASSET.CHAIN: enabled theme '%s' has no active "
+            "public-source runtime binding; refusing catalog path fallback.",
+            entry->id);
+        return;
     }
     if (!theme_path || !theme_path[0]) {
         sysLogPrintf(LOG_WARNING,

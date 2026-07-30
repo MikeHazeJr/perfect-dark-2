@@ -2957,5 +2957,5 @@ s32 romExtractAllPdweapon(s32 force_rewrite)
 			weapons_dir, ".pdweapon");
 	}
 
-	return written;
+	return failed ? -1 : written;
 }

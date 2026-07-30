@@ -48,6 +48,16 @@ s32 assetCatalogRegisterBaseGame(void);
  */
 s32 assetCatalogRegisterBaseGameExtended(void);
 
+/*
+ * Base material authored-source accessor used by extraction. Keeping this
+ * table behind one API prevents the public .pdmaterial defaults from drifting
+ * away from the catalog's seeded material definitions.
+ */
+s32 assetCatalogGetBaseMaterialSource(s32 index, const char **name,
+                                      const char **shading_model,
+                                      f32 base_color[4], f32 *roughness,
+                                      f32 *metallic);
+
 /**
  * S484-followup (2026-05-01): register weapon hi_model / lo_model files
  * as ASSET_MODEL catalog entries with source_filenum binding so the
@@ -156,14 +166,14 @@ s32 assetCatalogScanBotVariants(const char *modsdir);
  * INI key-value pair (parsed from .ini file).
  */
 typedef struct ini_pair {
-	char key[64];
-	char value[256];
+	char key[128];
+	char value[FS_MAXPATH + 1];
 } ini_pair_t;
 
 /**
  * Parsed INI section.
  */
-#define INI_MAX_PAIRS 32
+#define INI_MAX_PAIRS 96
 
 typedef struct ini_section {
 	char type[32];           /* section header: "map", "character", "textures", etc. */

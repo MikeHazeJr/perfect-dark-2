@@ -1,5 +1,6 @@
 #include <ultra64.h>
 #include "constants.h"
+#include "asset_runtime.h"
 #include "system.h"
 #include "arenapool.h"
 #include "game/bondmove.h"
@@ -2306,6 +2307,18 @@ void objMergeColourFracs(s32 *colour, s32 shademode, f32 fracs[4])
 
 struct hovtype g_HovTypes[];
 
+static f32 hoverbikeSourceBobYMid(struct defaultobj *obj)
+{
+	f32 hover[13];
+	if (obj && assetRuntimeVehicleHover(obj->modelnum, hover)) {
+		return hover[0];
+	}
+	sysLoudFailf("VEHICLE.SOURCE",
+		"hoverbike modelnum=%d has no hydrated .pdvehicle hover source",
+		obj ? obj->modelnum : -1);
+	return 0.0f;
+}
+
 void func0f069850(struct defaultobj *obj, struct coord *pos, f32 rot[3][3], struct geocyl *cyl)
 {
 	Mtxf mtx;
@@ -2330,7 +2343,8 @@ void func0f069850(struct defaultobj *obj, struct coord *pos, f32 rot[3][3], stru
 
 		if (obj->type == OBJTYPE_HOVERBIKE) {
 			hoverbike = (struct hoverbikeobj *)obj;
-			cyl->ymax = hoverbike->hov.ground + g_HovTypes[hoverbike->hov.type].bobymid + objGetLocalYMax(bbox) * obj->model->scale;
+			cyl->ymax = hoverbike->hov.ground + hoverbikeSourceBobYMid(obj) +
+				objGetLocalYMax(bbox) * obj->model->scale;
 			cyl->ymin = hoverbike->hov.ground + 20.0f;
 		} else if (obj->type == OBJTYPE_HOVERPROP) {
 			hoverprop = (struct hoverpropobj *)obj;
@@ -2361,7 +2375,8 @@ void func0f069850(struct defaultobj *obj, struct coord *pos, f32 rot[3][3], stru
 
 		if (obj->type == OBJTYPE_HOVERBIKE) {
 			hoverbike = (struct hoverbikeobj *)obj;
-			cyl->ymax = hoverbike->hov.ground + g_HovTypes[hoverbike->hov.type].bobymid + objGetLocalYMax(bbox) * obj->model->scale;
+			cyl->ymax = hoverbike->hov.ground + hoverbikeSourceBobYMid(obj) +
+				objGetLocalYMax(bbox) * obj->model->scale;
 			cyl->ymin = hoverbike->hov.ground + 20.0f;
 		} else if (obj->type == OBJTYPE_HOVERPROP) {
 			hoverprop = (struct hoverpropobj *)obj;
@@ -6525,6 +6540,8 @@ void hovTick(struct defaultobj *obj, struct hov *hov)
 	Mtxf spc8;
 	s32 i;
 	struct hovtype *type;
+	struct hovtype authoredtype;
+	f32 authoredhover[13];
 	f32 spbc;
 	f32 spb8;
 	f32 groundangle;
@@ -6541,6 +6558,16 @@ void hovTick(struct defaultobj *obj, struct hov *hov)
 		prop = obj->prop;
 		bbox = objFindBboxRodata(obj);
 		type = &g_HovTypes[hov->type];
+		if (obj->type == OBJTYPE_HOVERBIKE) {
+			if (!assetRuntimeVehicleHover(obj->modelnum, authoredhover)) {
+				sysLoudFailf("VEHICLE.SOURCE",
+					"hoverbike modelnum=%d cannot tick without hydrated hover source",
+					obj->modelnum);
+				return;
+			}
+			memcpy(&authoredtype, authoredhover, sizeof(authoredtype));
+			type = &authoredtype;
+		}
 		moved = false;
 
 		if (g_Vars.lvframe60 > hov->prevgroundframe60) {
@@ -7087,6 +7114,7 @@ f32 objCollide(struct defaultobj *movingobj, struct coord *movingvel, f32 rotati
 
 void hoverbikeUpdateMovement(struct hoverbikeobj *bike, f32 speedforwards, f32 speedsideways, f32 speedtheta)
 {
+	const asset_runtime_binding_t *source;
 	f32 f12;
 	f32 angle;
 	f32 sinangle;
@@ -7099,38 +7127,56 @@ void hoverbikeUpdateMovement(struct hoverbikeobj *bike, f32 speedforwards, f32 s
 	u32 stack[6];
 	f32 tmp;
 
-	tmp = speedtheta * 0.04362628236413f;
+	if (!bike) {
+		return;
+	}
+	source = assetRuntimeVehicleForModelnum(bike->base.modelnum);
+	if (!source) {
+		sysLoudFailf("VEHICLE.SOURCE",
+			"hoverbike modelnum=%d has no hydrated .pdvehicle physics source",
+			bike->base.modelnum);
+		return;
+	}
+	if (!source->vehicle_allow_drive) {
+		return;
+	}
+
+	tmp = speedtheta * source->vehicle_turn_input_scale;
 
 	if (speedforwards < 0) {
-		tmp *= 1.0f - speedforwards * 0.5f;
+		tmp *= 1.0f - speedforwards * source->vehicle_reverse_turn_gain;
 	}
 
 	for (i = 0; i < g_Vars.lvupdate60; i++) {
-		bike->w += (tmp - bike->w) * (PAL ? 0.0893f : 0.075f);
+		bike->w += (tmp - bike->w) * (PAL
+			? source->vehicle_steering_response_pal
+			: source->vehicle_steering_response_ntsc);
 	}
 
-	sp6c += bike->w * 12;
+	sp6c += bike->w * source->vehicle_turn_visual_scale;
 	angle = hoverpropGetTurnAngle(&bike->base);
 	sinangle = sinf(angle);
 	cosangle = cosf(angle);
 
 	if (speedforwards >= 0) {
-		f2 = (speedforwards + 0.1f) * 0.3f * g_Vars.lvupdate60freal;
+		f2 = (speedforwards + 0.1f) * source->vehicle_input_response *
+			g_Vars.lvupdate60freal;
 	} else {
-		f2 = (0.1f - speedforwards) * 0.3f * g_Vars.lvupdate60freal;
+		f2 = (0.1f - speedforwards) * source->vehicle_input_response *
+			g_Vars.lvupdate60freal;
 	}
 
-	if (bike->rels[1] < speedforwards * 0.5f) {
+	if (bike->rels[1] < speedforwards * source->vehicle_forward_input_scale) {
 		bike->rels[1] += f2;
 
-		if (bike->rels[1] > speedforwards * 0.5f) {
-			bike->rels[1] = speedforwards * 0.5f;
+		if (bike->rels[1] > speedforwards * source->vehicle_forward_input_scale) {
+			bike->rels[1] = speedforwards * source->vehicle_forward_input_scale;
 		}
 	} else {
 		bike->rels[1] -= f2;
 
-		if (bike->rels[1] < speedforwards * 0.5f) {
-			bike->rels[1] = speedforwards * 0.5f;
+		if (bike->rels[1] < speedforwards * source->vehicle_forward_input_scale) {
+			bike->rels[1] = speedforwards * source->vehicle_forward_input_scale;
 		}
 	}
 
@@ -7138,7 +7184,7 @@ void hoverbikeUpdateMovement(struct hoverbikeobj *bike, f32 speedforwards, f32 s
 	bike->leandiff += speedforwards - bike->leanspeed;
 	bike->leanspeed = speedforwards;
 
-	f2 = bike->leandiff * 5;
+	f2 = bike->leandiff * source->vehicle_lean_response;
 
 	if (f2 > 1.0f) {
 		f2 = 1.0f;
@@ -7148,62 +7194,75 @@ void hoverbikeUpdateMovement(struct hoverbikeobj *bike, f32 speedforwards, f32 s
 
 	if (speedforwards >= 0) {
 		if (f2 > 0) {
-			f12 = speedforwards * 0.3f + speedforwards * 0.7f * f2;
+			f12 = speedforwards * source->vehicle_forward_base +
+				speedforwards * source->vehicle_forward_accel_gain * f2;
 		} else {
-			f12 = speedforwards * 0.3f;
+			f12 = speedforwards * source->vehicle_forward_base;
 		}
 	} else {
 		if (f2 < 0) {
-			f12 = speedforwards * 0.5f - speedforwards * 0.5f * f2;
+			f12 = speedforwards * source->vehicle_reverse_base -
+				speedforwards * source->vehicle_reverse_base * f2;
 		} else {
-			f12 = speedforwards * 0.5f;
+			f12 = speedforwards * source->vehicle_reverse_base;
 		}
 	}
 
-	sp70 += f12 * 0.04f * M_BADTAU;
+	sp70 += f12 * source->vehicle_forward_tilt;
 
 	if (speedsideways >= 0) {
-		f12 = (speedsideways + 0.1f) * 0.3f * g_Vars.lvupdate60freal;
+		f12 = (speedsideways + 0.1f) * source->vehicle_input_response *
+			g_Vars.lvupdate60freal;
 	} else {
-		f12 = (0.1f - speedsideways) * 0.3f * g_Vars.lvupdate60freal;
+		f12 = (0.1f - speedsideways) * source->vehicle_input_response *
+			g_Vars.lvupdate60freal;
 	}
 
-	if (bike->rels[0] < 0.4f * speedsideways) {
+	if (bike->rels[0] < source->vehicle_lateral_input_scale * speedsideways) {
 		bike->rels[0] += f12;
 
-		if (bike->rels[0] > speedsideways * 0.4f) {
-			bike->rels[0] = speedsideways * 0.4f;
+		if (bike->rels[0] > speedsideways * source->vehicle_lateral_input_scale) {
+			bike->rels[0] = speedsideways * source->vehicle_lateral_input_scale;
 		}
 	} else {
 		bike->rels[0] -= f12;
 
-		if (bike->rels[0] < speedsideways * 0.4f) {
-			bike->rels[0] = speedsideways * 0.4f;
+		if (bike->rels[0] < speedsideways * source->vehicle_lateral_input_scale) {
+			bike->rels[0] = speedsideways * source->vehicle_lateral_input_scale;
 		}
 	}
 
-	sp68 += speedsideways * 0.2512874007225f;
+	sp68 += speedsideways * source->vehicle_lateral_tilt;
 
 	for (i = 0; i < g_Vars.lvupdate60; i++) {
-		bike->speedabs[1] *= PAL ? 0.964f : 0.97f;
-		bike->speedabs[0] *= PAL ? 0.964f : 0.97f;
-		bike->speedabs[1] += bike->rels[1] * cosangle * PALUPF(1.08f);
-		bike->speedabs[0] += bike->rels[1] * sinangle * PALUPF(1.08f);
-		bike->speedabs[1] += bike->rels[0] * sinangle * PALUPF(0.72f);
-		bike->speedabs[0] += -bike->rels[0] * cosangle * PALUPF(0.72f);
+		f32 drag = PAL ? source->vehicle_drag_pal : source->vehicle_drag_ntsc;
+		bike->speedabs[1] *= drag;
+		bike->speedabs[0] *= drag;
+		bike->speedabs[1] += bike->rels[1] * cosangle *
+			PALUPF(source->vehicle_forward_thrust);
+		bike->speedabs[0] += bike->rels[1] * sinangle *
+			PALUPF(source->vehicle_forward_thrust);
+		bike->speedabs[1] += bike->rels[0] * sinangle *
+			PALUPF(source->vehicle_lateral_thrust);
+		bike->speedabs[0] += -bike->rels[0] * cosangle *
+			PALUPF(source->vehicle_lateral_thrust);
 	}
 
 	for (i = 0; i < g_Vars.lvupdate60; i++) {
-		bike->exreal += (sp70 - bike->exreal) * (PAL ? 0.0478f : 0.04f);
-		bike->ezreal += (sp6c - bike->ezreal) * (PAL ? 0.177f : 0.15f);
-		bike->ezreal2 += (sp68 - bike->ezreal2) * (PAL ? 0.0478f : 0.04f);
+		f32 tilt_response = PAL ? source->vehicle_tilt_response_pal :
+			source->vehicle_tilt_response_ntsc;
+		f32 yaw_response = PAL ? source->vehicle_yaw_response_pal :
+			source->vehicle_yaw_response_ntsc;
+		bike->exreal += (sp70 - bike->exreal) * tilt_response;
+		bike->ezreal += (sp6c - bike->ezreal) * yaw_response;
+		bike->ezreal2 += (sp68 - bike->ezreal2) * tilt_response;
 	}
 
 	if (speedforwards >= 0.99f) {
 		bike->maxspeedtime240 += g_Vars.lvupdate240;
 
-		if (bike->maxspeedtime240 > TICKS(2400)) {
-			bike->maxspeedtime240 = TICKS(2400);
+		if (bike->maxspeedtime240 > TICKS(source->vehicle_boost_time_ticks60)) {
+			bike->maxspeedtime240 = TICKS(source->vehicle_boost_time_ticks60);
 		}
 	} else if (bike->maxspeedtime240 > 0) {
 		if (speedforwards >= 0.8f) {
@@ -7219,7 +7278,9 @@ void hoverbikeUpdateMovement(struct hoverbikeobj *bike, f32 speedforwards, f32 s
 		}
 	}
 
-	bike->speedrel[1] = bike->maxspeedtime240 * 5000.0f / TICKS(2400000);
+	bike->speedrel[1] = bike->maxspeedtime240 *
+		source->vehicle_boost_speed /
+		TICKS(source->vehicle_boost_time_ticks60);
 
 	bike->speed[1] = bike->speedabs[1] + bike->speedrel[1] * cosangle + bike->speedrel[0] * sinangle;
 	bike->speed[0] = bike->speedabs[0] + bike->speedrel[1] * sinangle - bike->speedrel[0] * cosangle;
@@ -17888,6 +17949,7 @@ bool currentPlayerTryMountHoverbike(struct prop *prop)
 	u32 stack[2];
 
 	if (obj->type == OBJTYPE_HOVERBIKE
+			&& assetRuntimeVehicleAllows(obj->modelnum, "mount")
 			&& (optionsGetControlMode(g_Vars.currentplayerstats->mpindex) == CONTROLMODE_PC
 				|| g_Vars.lvframe60 - g_Vars.currentplayer->activatetimelast < TICKS(30))
 			&& (obj->hidden & OBJHFLAG_MOUNTED) == 0) {

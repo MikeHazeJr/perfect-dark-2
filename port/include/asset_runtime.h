@@ -68,12 +68,60 @@ typedef struct asset_runtime_binding {
     s32 target_kind;
     f32 value0;
     f32 params[4];
+    /*
+     * Parsed public-source state. Descriptor fields above locate authored
+     * members; these fields are populated only by
+     * assetRuntimeHydrateCatalogEntry after the selected .pdxxx member has
+     * been read and validated. Production consumers must not infer these
+     * values from legacy tables.
+     */
+    s32 source_hydrated;
+    s32 source_enabled;
+    f32 source_opacity;
+    char material_shading_model[32];
+    f32 material_base_color[4];
+    f32 material_roughness;
+    f32 material_metallic;
+    s32 material_emissive;
+    char skin_material_id[CATALOG_ID_LEN];
+    f32 skin_swatch_color[4];
+    u32 prop_flags;
+    f32 prop_health;
+    f32 vehicle_turn_input_scale;
+    f32 vehicle_reverse_turn_gain;
+    f32 vehicle_steering_response_ntsc;
+    f32 vehicle_steering_response_pal;
+    f32 vehicle_turn_visual_scale;
+    f32 vehicle_input_response;
+    f32 vehicle_forward_input_scale;
+    f32 vehicle_lateral_input_scale;
+    f32 vehicle_lean_response;
+    f32 vehicle_forward_base;
+    f32 vehicle_forward_accel_gain;
+    f32 vehicle_reverse_base;
+    f32 vehicle_drag_ntsc;
+    f32 vehicle_drag_pal;
+    f32 vehicle_forward_thrust;
+    f32 vehicle_lateral_thrust;
+    f32 vehicle_forward_tilt;
+    f32 vehicle_lateral_tilt;
+    f32 vehicle_tilt_response_ntsc;
+    f32 vehicle_tilt_response_pal;
+    f32 vehicle_yaw_response_ntsc;
+    f32 vehicle_yaw_response_pal;
+    f32 vehicle_boost_speed;
+    s32 vehicle_boost_time_ticks60;
+    s32 vehicle_allow_mount;
+    s32 vehicle_allow_drive;
+    s32 vehicle_allow_dismount;
+    f32 vehicle_hover[13];
 } asset_runtime_binding_t;
 
 void assetRuntimeReset(void);
 s32 assetRuntimeSupportsType(asset_type_e type);
 s32 assetRuntimeActivateCatalogEntry(const asset_entry_t *entry,
                                      const char *primary_path);
+s32 assetRuntimeHydrateCatalogEntry(const asset_entry_t *entry);
 void assetRuntimeReleaseCatalogEntry(const char *asset_id);
 const asset_runtime_binding_t *assetRuntimeFind(const char *asset_id);
 const asset_runtime_binding_t *assetRuntimeFindByTypeAndId(asset_type_e type,
@@ -82,6 +130,16 @@ const asset_runtime_binding_t *assetRuntimeFindByTypeKind(asset_type_e type,
                                                          s32 kind);
 const asset_runtime_binding_t *assetRuntimeFindByTarget(asset_type_e type,
                                                        const char *target_id);
+const asset_runtime_binding_t *assetRuntimeFindByRuntimeId(asset_type_e type,
+                                                          s32 runtime_id);
+const asset_runtime_binding_t *assetRuntimeHudElement(s32 element_type);
+const asset_runtime_binding_t *assetRuntimeVehicleForModelnum(s32 modelnum);
+s32 assetRuntimeHudElementEnabled(s32 element_type);
+s32 assetRuntimeVehicleAllows(s32 modelnum, const char *action);
+s32 assetRuntimeVehicleHover(s32 modelnum, f32 out_values[13]);
+s32 assetRuntimeSkinAppearance(const char *target_id, f32 out_rgba[4],
+                               f32 *out_roughness, f32 *out_metallic,
+                               s32 *out_emissive);
 s32 assetRuntimePrimaryFileAccessible(const asset_runtime_binding_t *binding);
 void *assetRuntimeLoadPrimaryFile(const asset_runtime_binding_t *binding,
                                   u32 *out_size);

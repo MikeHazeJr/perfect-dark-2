@@ -203,10 +203,9 @@ static char *readFileContents(const char *path, s32 *outLen)
 	return buf;
 }
 
-static void writeJsonString(FILE *fp, const char *key, const char *value)
+static void writeJsonStringValue(FILE *fp, const char *value)
 {
-	/* Escape special chars in value */
-	fprintf(fp, "  \"%s\": \"", key);
+	fputc('"', fp);
 	for (const char *c = value; *c; c++) {
 		switch (*c) {
 		case '"':  fprintf(fp, "\\\""); break;
@@ -217,7 +216,13 @@ static void writeJsonString(FILE *fp, const char *key, const char *value)
 		default:   fputc(*c, fp);       break;
 		}
 	}
-	fprintf(fp, "\"");
+	fputc('"', fp);
+}
+
+static void writeJsonString(FILE *fp, const char *key, const char *value)
+{
+	fprintf(fp, "  \"%s\": ", key);
+	writeJsonStringValue(fp, value);
 }
 
 /* LAYOUT-4: dispatch on the save's version field.
@@ -858,27 +863,53 @@ s32 saveSaveMpSetup(const char *name)
 	fprintf(fp, "  \"teamscorelimit\": %u,\n", g_MpSetup.teamscorelimit);
 	fprintf(fp, "  \"options\": %u,\n", g_MpSetup.options);
 
-	/* FIX-21: Weapons as catalog string IDs (universality principle).
-	 * "weapon_ids" is the catalog string array (new format); "weapons" is kept as
-	 * raw MPWEAPON_* integers for backward-compat reading of old saves. */
+	/* B-964: write one authoritative representation. The prior writer emitted
+	 * both weapon_ids and numeric weapons, and the reader then let the later
+	 * legacy array overwrite the catalog-native selection. */
 	fprintf(fp, "  \"weapon_ids\": [");
 	for (s32 i = 0; i < NUM_MPWEAPONSLOTS; i++) {
-		/* Resolve MPWEAPON_* integer to catalog ID by scanning ASSET_WEAPON entries */
-		const char *wid = NULL;
-		s32 wval = (s32)g_MpSetup.weapons[i];
-		for (s32 wi = 0; ; wi++) {
-			const asset_entry_t *we = assetCatalogGetByIndex(wi);
-			if (!we) break;
-			if (we->type == ASSET_WEAPON && we->ext.weapon.weapon_id == wval) { wid = we->id; break; }
+		const char *wid = g_MatchConfig.weapon_ids[i][0]
+			? g_MatchConfig.weapon_ids[i]
+			: catalogWeaponIdByMpWeaponId((s32)g_MpSetup.weapons[i]);
+		writeJsonStringValue(fp, wid ? wid : "");
+		if (i < NUM_MPWEAPONSLOTS - 1) {
+			fprintf(fp, ", ");
 		}
-		fprintf(fp, "\"%s\"%s", wid ? wid : "", i < NUM_MPWEAPONSLOTS - 1 ? ", " : "");
 	}
 	fprintf(fp, "],\n");
-	fprintf(fp, "  \"weapons\": [");
-	for (s32 i = 0; i < NUM_MPWEAPONSLOTS; i++) {
-		fprintf(fp, "%u%s", g_MpSetup.weapons[i], i < NUM_MPWEAPONSLOTS - 1 ? ", " : "");
+
+	/* Bot profiles are catalog-ID-native. type/difficulty are retained as
+	 * derived compatibility fields, never as the authored identity. */
+	fprintf(fp, "  \"bots\": [\n");
+	{
+		s32 first = 1;
+		for (s32 i = 0; i < g_MatchConfig.numSlots
+				&& i < MATCH_MAX_SLOTS; i++) {
+			const struct matchslot *slot = &g_MatchConfig.slots[i];
+			if (slot->type != SLOT_BOT) {
+				continue;
+			}
+			if (!first) {
+				fprintf(fp, ",\n");
+			}
+			first = 0;
+			fprintf(fp, "    {\"profile_id\": ");
+			writeJsonStringValue(fp, slot->profile_id);
+			fprintf(fp, ", \"name\": ");
+			writeJsonStringValue(fp, slot->name);
+			fprintf(fp, ", \"body_id\": ");
+			writeJsonStringValue(fp, slot->body_id);
+			fprintf(fp, ", \"head_id\": ");
+			writeJsonStringValue(fp, slot->head_id);
+			fprintf(fp, ", \"team\": %u, \"type\": %u, \"difficulty\": %u}",
+				(unsigned)slot->team, (unsigned)slot->botType,
+				(unsigned)slot->botDifficulty);
+		}
+		if (!first) {
+			fprintf(fp, "\n");
+		}
 	}
-	fprintf(fp, "]\n");
+	fprintf(fp, "  ]\n");
 
 	fprintf(fp, "}\n");
 	fclose(fp);
@@ -896,11 +927,14 @@ s32 saveLoadMpSetup(const char *name)
 	char *data = readFileContents(path, &len);
 	if (!data) return -1;
 
+	matchConfigInit();
+
 	sparse_t p = { data, { NULL, 0, STOK_NONE } };
 	stok_t tok = s_next(&p);
 	if (tok.type != STOK_LBRACE) { free(data); return -1; }
 
 	char key[64];
+	s32 saw_weapon_ids = 0;
 	while ((tok = s_next(&p)).type == STOK_STRING) {
 		s_tok_str(&tok, key, sizeof(key));
 		s_next(&p);
@@ -938,8 +972,16 @@ s32 saveLoadMpSetup(const char *name)
 			tok = s_next(&p);
 			s_tok_str(&tok, id_buf, sizeof(id_buf));
 			idx = assetCatalogResolveStageIndex(id_buf);
-			if (idx >= 0)
+			if (idx >= 0) {
 				g_MpSetup.stagenum = (u8)idx;
+				strncpy(g_MpSetup.stage_id, id_buf,
+					sizeof(g_MpSetup.stage_id) - 1);
+				g_MpSetup.stage_id[sizeof(g_MpSetup.stage_id) - 1] = '\0';
+				strncpy(g_MatchConfig.stage_id, id_buf,
+					sizeof(g_MatchConfig.stage_id) - 1);
+				g_MatchConfig.stage_id[
+					sizeof(g_MatchConfig.stage_id) - 1] = '\0';
+			}
 		} else if (strcmp(key, "stagenum") == 0) {
 			/* SA-4 v1 fallback: legacy integer field */
 			tok = s_next(&p); g_MpSetup.stagenum = s_tok_int(&tok);
@@ -952,31 +994,160 @@ s32 saveLoadMpSetup(const char *name)
 		} else if (strcmp(key, "options") == 0) {
 			tok = s_next(&p); g_MpSetup.options = s_tok_uint(&tok);
 		} else if (strcmp(key, "weapon_ids") == 0) {
-			/* FIX-21: catalog string IDs take precedence over raw "weapons" integers. */
+			/* Catalog IDs are authoritative whenever this field is present. */
 			tok = s_next(&p);
 			if (tok.type == STOK_LBRACKET) {
+				saw_weapon_ids = 1;
 				for (s32 i = 0; i < NUM_MPWEAPONSLOTS; i++) {
 					char wid_buf[128];
 					tok = s_next(&p);
 					s_tok_str(&tok, wid_buf, sizeof(wid_buf));
 					if (wid_buf[0]) {
 						const asset_entry_t *we = assetCatalogResolve(wid_buf);
-						if (we && we->type == ASSET_WEAPON)
-							g_MpSetup.weapons[i] = (u8)we->ext.weapon.weapon_id;
+						if (!we || we->type != ASSET_WEAPON) {
+							sysLogPrintf(LOG_ERROR,
+								"SAVE: MP setup weapon slot %d catalog ID '%s' "
+								"is unavailable", i, wid_buf);
+							free(data);
+							return -1;
+						}
+						strncpy(g_MatchConfig.weapon_ids[i], we->id,
+							sizeof(g_MatchConfig.weapon_ids[i]) - 1);
+						g_MatchConfig.weapon_ids[i][
+							sizeof(g_MatchConfig.weapon_ids[i]) - 1] = '\0';
+						if (we->ext.weapon.weapon_id >= 0
+								&& we->ext.weapon.weapon_id < NUM_MPWEAPONS) {
+							g_MpSetup.weapons[i] =
+								(u8)we->ext.weapon.weapon_id;
+						} else {
+							g_MpSetup.weapons[i] = MPWEAPON_DISABLED;
+						}
+					} else {
+						g_MatchConfig.weapon_ids[i][0] = '\0';
 					}
 					tok = s_next(&p);
 					if (tok.type == STOK_RBRACKET) break;
 				}
 			}
 		} else if (strcmp(key, "weapons") == 0) {
-			/* Legacy fallback: raw MPWEAPON_* integers from old saves. */
+			/* Read-only migration input. Parse it in all cases so token state
+			 * remains correct, but never overwrite canonical weapon_ids. */
 			tok = s_next(&p);
 			if (tok.type == STOK_LBRACKET) {
 				for (s32 i = 0; i < NUM_MPWEAPONSLOTS; i++) {
 					tok = s_next(&p);
-					g_MpSetup.weapons[i] = s_tok_int(&tok);
+					s32 legacy_weapon = s_tok_int(&tok);
+					if (!saw_weapon_ids) {
+						if (legacy_weapon < 0
+								|| legacy_weapon >= NUM_MPWEAPONS) {
+							sysLogPrintf(LOG_ERROR,
+								"SAVE: legacy MP setup weapon slot %d value "
+								"%d is out of range", i, legacy_weapon);
+							free(data);
+							return -1;
+						}
+						const char *wid =
+							catalogWeaponIdByMpWeaponId(legacy_weapon);
+						if (!wid) {
+							sysLogPrintf(LOG_ERROR,
+								"SAVE: legacy MP setup weapon slot %d value "
+								"%d has no catalog identity", i,
+								legacy_weapon);
+							free(data);
+							return -1;
+						}
+						g_MpSetup.weapons[i] = (u8)legacy_weapon;
+						strncpy(g_MatchConfig.weapon_ids[i], wid,
+							sizeof(g_MatchConfig.weapon_ids[i]) - 1);
+						g_MatchConfig.weapon_ids[i][
+							sizeof(g_MatchConfig.weapon_ids[i]) - 1] = '\0';
+					}
 					tok = s_next(&p);
 					if (tok.type == STOK_RBRACKET) break;
+				}
+			}
+		} else if (strcmp(key, "bots") == 0) {
+			tok = s_next(&p);
+			if (tok.type == STOK_LBRACKET) {
+				for (;;) {
+					char profile_id[CATALOG_ID_LEN] = {0};
+					char bot_name[SAVE_NAME_MAX] = {0};
+					char body_id[CATALOG_ID_LEN] = {0};
+					char head_id[CATALOG_ID_LEN] = {0};
+					s32 team = 0;
+					s32 type = BOTTYPE_GENERAL;
+					s32 difficulty = BOTDIFF_NORMAL;
+
+					tok = s_next(&p);
+					if (tok.type == STOK_RBRACKET) {
+						break;
+					}
+					if (tok.type == STOK_COMMA) {
+						tok = s_next(&p);
+					}
+					if (tok.type != STOK_LBRACE) {
+						s_skip_value(&p, 0);
+						continue;
+					}
+
+					for (;;) {
+						char bot_key[64];
+						tok = s_next(&p);
+						if (tok.type == STOK_RBRACE) {
+							break;
+						}
+						if (tok.type == STOK_COMMA) {
+							tok = s_next(&p);
+						}
+						if (tok.type != STOK_STRING) {
+							s_skip_value(&p, 0);
+							continue;
+						}
+						s_tok_str(&tok, bot_key, sizeof(bot_key));
+						s_next(&p);
+						tok = s_next(&p);
+
+						if (strcmp(bot_key, "profile_id") == 0) {
+							s_tok_str(&tok, profile_id,
+								sizeof(profile_id));
+						} else if (strcmp(bot_key, "name") == 0) {
+							s_tok_str(&tok, bot_name,
+								sizeof(bot_name));
+						} else if (strcmp(bot_key, "body_id") == 0) {
+							s_tok_str(&tok, body_id,
+								sizeof(body_id));
+						} else if (strcmp(bot_key, "head_id") == 0) {
+							s_tok_str(&tok, head_id,
+								sizeof(head_id));
+						} else if (strcmp(bot_key, "team") == 0) {
+							team = s_tok_int(&tok);
+						} else if (strcmp(bot_key, "type") == 0) {
+							type = s_tok_int(&tok);
+						} else if (strcmp(bot_key, "difficulty") == 0) {
+							difficulty = s_tok_int(&tok);
+						}
+					}
+
+					s32 slot = profile_id[0]
+						? matchConfigAddBotWithProfile(profile_id,
+							body_id[0] ? body_id : NULL,
+							head_id[0] ? head_id : NULL,
+							bot_name[0] ? bot_name : NULL)
+						: matchConfigAddBot((u8)type, (u8)difficulty,
+							body_id[0] ? body_id : NULL,
+							head_id[0] ? head_id : NULL,
+							bot_name[0] ? bot_name : NULL);
+					if (slot >= 0) {
+						g_MatchConfig.slots[slot].team =
+							(u8)(team >= 0 && team < MAX_TEAMS ? team : 0);
+					} else {
+						sysLogPrintf(LOG_ERROR,
+							"SAVE: MP setup bot profile '%s' could not be "
+							"reconstructed", profile_id[0]
+								? profile_id : "(legacy traits)");
+						free(data);
+						return -1;
+					}
 				}
 			}
 		} else {

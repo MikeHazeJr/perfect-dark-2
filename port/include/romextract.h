@@ -21,10 +21,10 @@ extern "C" {
  *
  * Server build: returns 0 immediately (g_RomFile is NULL server-side).
  *
- * Returns: number of files newly written (excludes skipped_existing,
- * skipped_empty, failed); -1 on infrastructure failure (e.g. data dir
- * could not be created).  Per-file failures are logged via
- * LOUDFAIL.EXTRACT but do not abort the walk.
+ * Returns: number of files newly written (excludes skipped_existing and
+ * skipped_empty); -1 when infrastructure or any per-file write failed.
+ * The walk continues after a per-file failure so one run reports every
+ * omission, but callers must treat the final -1 as an incomplete extraction.
  */
 s32 romExtractAllFiles(void);
 
@@ -39,9 +39,9 @@ s32 romExtractAllFiles(void);
  *
  * Server build: returns 0 immediately.
  *
- * Returns: number of files self-healed (corrected via re-extract);
- * legacy/baselined entries count separately in the LOG_NOTE summary
- * but not in the return value.
+ * Returns: number of files self-healed (corrected via re-extract), or -1
+ * when any corrupted file could not be recovered. Legacy/baselined entries
+ * count separately in the LOG_NOTE summary but not in the return value.
  */
 s32 romExtractVerifyAll(void);
 
@@ -85,9 +85,8 @@ s32 romExtractIsBootstrapping(void);
  * Server build: returns 0 immediately (g_RomFile is NULL server-side
  * and segments are never loaded).
  *
- * Returns: number of segments newly written.  -1 on infrastructure
- * failure (e.g. data dir creation failed).  Per-segment failures emit
- * LOUDFAIL.EXTRACT but do not abort the walk.
+ * Returns: number of segments newly written; -1 when infrastructure or any
+ * per-segment write failed. The walk continues to report every omission.
  */
 s32 romExtractAllSegments(void);
 
@@ -99,7 +98,8 @@ s32 romExtractAllSegments(void);
  *
  * Server build: returns 0 immediately.
  *
- * Returns: number of segments self-healed (corrected via re-extract).
+ * Returns: number of segments self-healed (corrected via re-extract), or -1
+ * when any corrupted segment could not be recovered.
  */
 s32 romExtractVerifyAllSegments(void);
 

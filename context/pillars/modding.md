@@ -28,6 +28,46 @@ c3849 closure evidence below is an audit input, not a present-tense guarantee.
 boundary, creator flow, and runtime fallback; only durable current evidence may
 promote the associated Workbench validation gates.
 
+B-953/SP-22 has already disproved the old comprehensive-closure claim for the
+current tree: `.pdgamemode` fields reach extraction, registration, and a runtime
+binding, but several never reach production behavior, while a binding miss
+silently reuses the catalog mirror. Historical activation/source-presence
+receipts remain useful slice evidence; they cannot promote a family without
+field-level production-consumption proof.
+
+The 2026-07-30 propagation pass has now fixed B-953 through B-958 and the
+fail-closed runtime class B-960/B-963 at implementation level. Extraction and
+late UI repair aggregate every child failure; typed emitters return failure
+after completing their reporting walks; descriptor parsing fails instead of
+silently truncating; archive replacement no longer deletes the last good file
+before rename; Modding Hub edits canonical archive members; selected public
+font, texture, sequence, animation, SFX/voice, MP3 playback, and MP3-duration
+sources cannot re-enter native/ROM/loose-cache data. The updated source guard,
+isolated all-target build, and combined provider/archive suite pass (63 cases,
+11,744 assertions). These rows remain `implemented`, not `validated`, where a
+clean extractor receipt, induced failure receipt, or live MKB/controller path is
+still required. B-962 is validated: checked-in fixture/example OBJ creator
+source is no longer swallowed by the global build-object ignore.
+
+The same audit opened B-959 and B-961. B-959 remains open for metadata
+families whose public payloads are placeholder/synthetic or stop at generic
+bindings. B-961 is now production-connected: custom `.pdbotprofile` catalog
+IDs survive both menu systems, bot/match state, JSON and v3 binary saves,
+manifest distribution, and v52 lobby/stage-start messages; runtime traits and
+default body derive from the readable public binding. Workbench
+`T-ASSETS-005` is `implemented`, not `validated`, until a custom-profile
+MKB/controller/save/listen-host/gameplay receipt exists. `T-ASSETS-004`
+remains the durable truth for the unfinished per-family production paths.
+
+Closeout update, 2026-07-30: B-969's exact rebuilt creator package passes the
+normal installed-mod runtime workflow 58/58. B-971 corrected the public
+`.pdtheme` example to the production parser's actual palette schema. The audit
+also confirmed that mission graphs/objectives/phases are production-consumed,
+while the duplicate mission `briefing.json` is not authoritative. Residual
+weapon, character, voice, effect, prop-behavior, mission-briefing, and theme
+dependency semantics remain partial in Workbench; do not promote them from
+archive presence alone.
+
 As of 2026-06-17T15:45:00-04:00, `c3844` is closed at 100% and the follow-on
 `c3849` Wave 7 cutover is implemented for the current tree. The final c3844
 regression sweep stayed green, and Wave 7 adds product-default weapon graph
@@ -814,6 +854,8 @@ Per [constraints.md](../constraints.md):
 - **External-format content authoring + `.pdmod` transport** (2026-05-19, c3809; updated 2026-06-07, B-779). Typed `.pd*` files remain the preferred content-unit family, and modder-facing asset payloads are standard files plus grouped `.ini`, semantic `.json`, graph, and common media/model documents. TSV is not a valid final public authored source format; row-style data belongs only in private generated/cache or temporary diagnostics while source contracts move to semantic files. Authored content packages and `.pdmod` transport archives must not contain `.bin` files; any engine-native binary data must be generated as private runtime cache from external sources. `.pdmod` is used for packaging, sharing, Public Mods, and online-required content delivery. See [designs/modding/external-format-pdmod-pipeline.md](../designs/modding/external-format-pdmod-pipeline.md).
 - **Fully self-contained typed asset archives** (2026-05-21, c3812/c3814). Each typed `*.pdxxx` content unit embeds its authored dependency closure on disk. Duplicate textures, materials, audio, meshes, animation targets, nested typed archives, and equivalent payloads across archives are acceptable for sharing and modding; catalog build/runtime dedupe by SHA-256 and catalog identity handles RAM waste after ingestion. Reference-only fields are metadata, not closure, unless the referenced authored payload is also embedded in the archive or carried as a contained nested dependency archive.
 - **Public asset source is the native game source** (2026-05-25, c3842). For every asset family, the user-editable public files inside the typed archive are the source the game client consumes through catalog/provider loading. Engine-ready products may be generated as source-hashed cache for performance, but the final contract must not require parallel authored runtime files, opaque preprocessed dumps, or hand-maintained duplicates. This applies equally to extracted base assets and user mods.
+- **Structured metadata families hydrate before activation** (2026-07-30, B-959 partial). HUD, material, skin, and vehicle catalog rows must parse and validate their public JSON during catalog activation; a schema/catalog mismatch or incomplete record deactivates the row. HUD visibility/opacity, character skin/material appearance, and hoverbike movement/hover/action policy consume that hydrated state on production paths. `asset_archive_conformance.py` and `asset_native_source_guard.py` pin the creator contract and consumers; focused tests prove edited values alter runtime-facing state. These four families remain `implemented`, not `validated`, until live edited-source receipts are durable.
+- **Game-mode, bot-profile, and prop core source hydrate before use** (2026-07-30, B-959 partial). `rules.json` owns game-mode identity, text, participant/team bounds and unlock feature; `profile.json` owns bot type, difficulty, target body and unlock feature; `prop.json` owns archetype, display name, health and flags. Production selectors/bot creation/Forge spawning require hydrated rows and refuse descriptor or synthetic defaults. Game mode and bot profile are implemented pending live proof. Prop remains partial until its arbitrary behavior graph is a production input.
 - **Shared, metadata, and Scenario JSON source archives are moving off TSV** (2026-06-07, B-779/B-780/B-781/B-782/B-783/B-786/B-787/B-788/B-789). The shared writer emits `_meta/hashes.json` instead of `_meta/hashes.tsv`; `.pdskin` emits `swatches.json`; `.pdvoice` reserves `subtitle.json`; `.pdmission` emits and consumes `objectives.json` plus `briefing.json`; and `.pdscenario` now emits semantic `objectives.json` with schema `pd2.scenario.objectives.v1`, `spawns.json` with schema `pd2.scenario.spawns.v1`, `volumes.json` with schema `pd2.scenario.volumes.v1`, `pads.json` with schema `pd2.scenario.pads.v1`, `portals.json` with schema `pd2.scenario.portals.v1`, `objects.json` with schema `pd2.scenario.objects.v1`, `setup.fields.json` with schema `pd2.scenario.setup.fields.v1`, and `ai/ailists.json` with schema `pd2.scenario.ai.lists.v1` instead of public objective/spawn/volume/pad/portal/object/setup/AI TSV tables. Remaining no-public-TSV work is audit-driven rather than a known Scenario table bridge.
 - **Runtime ROM fallback is an asset-chain failure** (2026-05-27, c3844). ROM is bootstrap/source input only. After extraction/verification, runtime loads must resolve through extracted typed archive source, FileProvider/catalog provider source, or deterministic source-derived cache. Any ROM/RomProvider fallback needed because that chain is missing must fail loudly and be tracked as a migration defect at the owning asset-family boundary.
 - **Scenario background rendering is sourced from public `scene.glb`** (2026-06-01, B-495/B-501). Mission startup can now activate a source-native Scenario renderer from `.pdscenario::scene.glb`, build room tables from the compiled source colmesh, and bypass legacy BG room byte reads/render passes while keeping prop rendering intact. Ground resolution can fall through to the native world mesh built from public Scenario source when room-local tile lookup has no floor, and player body sync repairs transient cutscene body-ground sentinels from the authoritative player ground state without ROM fallback. Public archives still must not add authored BG binaries or treat ROM BG files as fallback. Remaining Scenario parity work is broader nav behavior completeness plus full Scenario source-only/parity validation, so do not call the full Scenario cutover complete until those are resolved.

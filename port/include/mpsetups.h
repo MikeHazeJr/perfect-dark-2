@@ -12,11 +12,14 @@
  *     0x27/0x28. Loader migrates v < 2 saves: clamps weapons[] values
  *     in the now-removed range to MPWEAPON_DISABLED and clears the
  *     random-filter mask. See mpsetupfileLoadWad in mplayer.c.
+ * v3 (2026-07-30): each bot stores its authoritative .pdbotprofile catalog
+ *     ID. The PC-only block grows from 80 to 4096 bytes; v0-v2 blocks remain
+ *     readable and are upgraded by deriving base profile IDs from traits.
  *
  * Promoted from a file-local #define in port/src/mpsetups.c so the
  * test pin (tests/test_versions_pin.c) can read the live value through
  * the public header rather than hand-mirroring it. */
-#define MPSETUP_VERSION 2
+#define MPSETUP_VERSION 3
 
 s32 mpsetupLoadCurrentFile(void);
 s32 mpsetupSaveCurrentFile(void);

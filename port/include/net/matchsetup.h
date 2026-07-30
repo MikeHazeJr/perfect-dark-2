@@ -57,10 +57,11 @@ struct matchslot {
 	 * matchStart() time via entry->mp_index. */
 	char body_id[64]; /* PRIMARY: catalog ID e.g. "base:dark_combat", "base:theking" */
 	char head_id[64]; /* PRIMARY: catalog ID e.g. "base:head_dark_combat" */
+	char profile_id[64]; /* PRIMARY: public .pdbotprofile identity (SLOT_BOT only) */
 	u8 headnum;       /* DEPRECATED: integer g_MpHeads[] index. Use head_id instead. Kept temporarily for unmigrated consumers. */
 	u8 bodynum;       /* DEPRECATED: integer g_MpBodies[] index. Use body_id instead. Kept temporarily for unmigrated consumers. */
-	u8 botType;       /* BOTTYPE_* (only for SLOT_BOT) */
-	u8 botDifficulty; /* BOTDIFF_* (only for SLOT_BOT) */
+	u8 botType;       /* DERIVED from profile_id (only for SLOT_BOT) */
+	u8 botDifficulty; /* DERIVED from profile_id (only for SLOT_BOT) */
 	char name[MAX_PLAYER_NAME];  /* display name */
 };
 
@@ -180,6 +181,10 @@ void matchConfigInit(void);
  * the default (base:dark_combat / base:head_dark_combat). */
 s32 matchConfigAddBot(u8 botType, u8 botDifficulty, const char *body_id,
                       const char *head_id, const char *name);
+s32 matchConfigAddBotWithProfile(const char *profile_id, const char *body_id,
+                                 const char *head_id, const char *name);
+s32 matchConfigSetBotProfile(s32 idx, const char *profile_id);
+s32 matchConfigSetBotTraits(s32 idx, u8 botType, u8 botDifficulty);
 s32 matchConfigRemoveSlot(s32 idx);
 void matchConfigRerollBot(s32 idx);
 /* Re-roll the bot's name only (body/head untouched). */

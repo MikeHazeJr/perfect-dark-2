@@ -869,6 +869,7 @@ void func0f1881d4(s32 index)
 	}
 	g_BotConfigsArray[index].type = BOTTYPE_GENERAL;
 	g_BotConfigsArray[index].difficulty = BOTDIFF_DISABLED;
+	g_BotConfigsArray[index].profile_id[0] = '\0';
 }
 
 void mpInit(bool resetplayers)
@@ -3674,66 +3675,140 @@ static void s_mpCollectBotHead(const asset_entry_t *e, void *userdata)
 	ctx->count++;
 }
 
-/* c3849 Wave 6a (Unit 10): botprofile meta-family runtime consumer.
- *
- * Resolves the catalog runtime binding for a g_BotProfiles[] index:
- * catalogIdByRuntime(ASSET_BOT_PROFILE, profilenum) maps the runtime
- * slot to a catalog id, then assetRuntimeFindByTypeAndId returns the
- * activated binding. Base profiles mirror g_BotProfiles[] exactly
- * (registered in assetcatalog_base_extended.c, copied verbatim by
- * assetRuntimeActivateCatalogEntry), so consumers may use binding
- * values directly without a gate.
- *
- * Binding presence is NOT guaranteed -- the bundled preload requires a
- * fileProvider primary -- so this is never a hard dependence: on miss
- * we log CATALOG.BOTPROFILE.RUNTIME_MISS once per session and return
- * NULL, and callers fall back to g_BotProfiles[]. */
-const struct asset_runtime_binding *mpBotProfileRuntimeBinding(s32 profilenum)
+struct s_botProfileTraitsCtx {
+	s32 type;
+	s32 difficulty;
+	const char *id;
+};
+
+static void s_botProfileFindTraitsCb(const asset_entry_t *entry, void *userdata)
 {
-	static bool warned = false;
-	const char *asset_id;
+	struct s_botProfileTraitsCtx *ctx = userdata;
+
+	if (!entry || !ctx || entry->type != ASSET_BOT_PROFILE) {
+		return;
+	}
+	if (entry->ext.bot_profile.type != ctx->type
+			|| entry->ext.bot_profile.difficulty != ctx->difficulty) {
+		return;
+	}
+
+	/* Base profiles are the deterministic compatibility choice when multiple
+	 * authored profiles intentionally share the same runtime traits. An
+	 * explicitly selected custom profile never uses this helper. */
+	if (!ctx->id || (strncmp(entry->id, "base:", 5) == 0
+			&& strncmp(ctx->id, "base:", 5) != 0)) {
+		ctx->id = entry->id;
+	}
+}
+
+const char *mpBotProfileIdForTraits(s32 type, s32 difficulty)
+{
+	struct s_botProfileTraitsCtx ctx;
+
+	ctx.type = type;
+	ctx.difficulty = difficulty;
+	ctx.id = NULL;
+	assetCatalogIterateUnlockedByType(ASSET_BOT_PROFILE,
+		s_botProfileFindTraitsCb, &ctx);
+	return ctx.id;
+}
+
+/* Public-source-owned bot profile lookup. The catalog ID is the primary
+ * identity for both base and custom profiles. A miss is an asset-chain
+ * failure, never permission to re-enter g_BotProfiles[]. */
+const struct asset_runtime_binding *mpBotProfileRuntimeBindingById(
+		const char *profile_id)
+{
+	const asset_entry_t *entry;
 	const asset_runtime_binding_t *binding;
 
-	if (profilenum < 0 || profilenum >= (s32)ARRAYCOUNT(g_BotProfiles)) {
+	if (!profile_id || !profile_id[0]) {
+		sysFatalError("ASSET.CHAIN: empty bot profile catalog ID.");
 		return NULL;
 	}
 
-	asset_id = catalogIdByRuntime(ASSET_BOT_PROFILE, profilenum);
-	binding = asset_id
-		? assetRuntimeFindByTypeAndId(ASSET_BOT_PROFILE, asset_id)
-		: NULL;
+	entry = assetCatalogResolve(profile_id);
+	if (!entry || entry->type != ASSET_BOT_PROFILE) {
+		sysFatalError("ASSET.CHAIN: bot profile '%s' is missing or has the "
+			"wrong catalog type.", profile_id);
+		return NULL;
+	}
 
-	if (!binding) {
-		if (!warned) {
-			warned = true;
-			sysLogPrintf(LOG_WARNING,
-				"CATALOG.BOTPROFILE.RUNTIME_MISS: profile %d (id %s) has no runtime binding; using g_BotProfiles",
-				profilenum, asset_id ? asset_id : "(none)");
-		}
+	binding = assetRuntimeFindByTypeAndId(ASSET_BOT_PROFILE, profile_id);
+	if (!binding || !binding->source_hydrated) {
+		sysFatalError("ASSET.CHAIN: bot profile '%s' has no active "
+			"hydrated profile.json binding.", profile_id);
+		return NULL;
+	}
+	if (!assetRuntimePrimaryFileAccessible(binding)) {
+		sysFatalError("ASSET.CHAIN: bot profile '%s' source '%s' is "
+			"unreadable.", profile_id, binding->primary_path);
 		return NULL;
 	}
 
 	return binding;
 }
 
-void mpCreateBotFromProfile(s32 botnum, u8 profilenum)
+const struct asset_runtime_binding *mpBotProfileRuntimeBinding(s32 profilenum)
+{
+	const char *asset_id;
+
+	if (profilenum < 0 || profilenum >= (s32)ARRAYCOUNT(g_BotProfiles)) {
+		sysFatalError("ASSET.CHAIN: invalid bot profile runtime slot %d.",
+			profilenum);
+		return NULL;
+	}
+
+	asset_id = catalogIdByRuntime(ASSET_BOT_PROFILE, profilenum);
+	if (!asset_id) {
+		sysFatalError("ASSET.CHAIN: bot profile runtime slot %d has no "
+			"catalog identity.", profilenum);
+		return NULL;
+	}
+
+	return mpBotProfileRuntimeBindingById(asset_id);
+}
+
+s32 mpCreateBotFromProfileId(s32 botnum, const char *profile_id)
 {
 	s32 headnum = 0;
 	const char *headIdResolved = NULL;
+	const char *bodyIdResolved = NULL;
+	const asset_entry_t *bodyEntry = NULL;
 	u8 team = mpFindUnusedTeamNum();
 	s32 i;
 
-	/* c3849 Wave 6a: profile values come from the catalog runtime binding
-	 * (catalogIdByRuntime -> assetRuntimeFindByTypeAndId inside
-	 * mpBotProfileRuntimeBinding); value-identical to g_BotProfiles[] for
-	 * base profiles, with a logged native fallback on binding miss. */
-	const struct asset_runtime_binding *profile = mpBotProfileRuntimeBinding(profilenum);
-	s32 profiletype = profile ? profile->bot_profile_type : g_BotProfiles[profilenum].type;
-	s32 profilediff = profile ? profile->bot_profile_difficulty : g_BotProfiles[profilenum].difficulty;
-	s32 profilebody = profile ? profile->bot_profile_body : g_BotProfiles[profilenum].body;
+	/* Profile values come only from the active public-source binding. */
+	const struct asset_runtime_binding *profile =
+		mpBotProfileRuntimeBindingById(profile_id);
+	if (!profile) {
+		return -1;
+	}
+	s32 profiletype = profile->bot_profile_type;
+	s32 profilediff = profile->bot_profile_difficulty;
+
+	if (!profile->target_id[0]) {
+		sysFatalError("ASSET.CHAIN: bot profile '%s' has no public "
+			"target_body catalog ID.", profile_id);
+		return -1;
+	}
+	bodyIdResolved = profile->target_id;
+	bodyEntry = bodyIdResolved ? assetCatalogResolve(bodyIdResolved) : NULL;
+
+	if (!bodyEntry || bodyEntry->type != ASSET_BODY) {
+		sysFatalError("ASSET.CHAIN: bot profile '%s' target body '%s' is "
+			"missing or invalid.", profile_id,
+			bodyIdResolved ? bodyIdResolved : "(none)");
+		return -1;
+	}
 
 	g_BotConfigsArray[botnum].type = (u8)profiletype;
 	g_BotConfigsArray[botnum].difficulty = (u8)profilediff;
+	strncpy(g_BotConfigsArray[botnum].profile_id, profile_id,
+		sizeof(g_BotConfigsArray[botnum].profile_id) - 1);
+	g_BotConfigsArray[botnum].profile_id[
+		sizeof(g_BotConfigsArray[botnum].profile_id) - 1] = '\0';
 
 	for (i = 0; i < MAX_PLAYERS; i++) {
 		g_MpSimulantDifficultiesPerNumPlayers[botnum][i] = g_BotConfigsArray[botnum].difficulty;
@@ -3786,19 +3861,28 @@ void mpCreateBotFromProfile(s32 botnum, u8 profilenum)
 	} else {
 		g_BotConfigsArray[botnum].base.head_id[0] = '\0';
 	}
-	{
-		const char *cid = catalogMpBodyId(profilebody);
-		if (cid) {
-			strncpy(g_BotConfigsArray[botnum].base.body_id, cid,
-				sizeof(g_BotConfigsArray[botnum].base.body_id) - 1);
-			g_BotConfigsArray[botnum].base.body_id[sizeof(g_BotConfigsArray[botnum].base.body_id) - 1] = '\0';
-		} else {
-			g_BotConfigsArray[botnum].base.body_id[0] = '\0';
-		}
-	}
+	strncpy(g_BotConfigsArray[botnum].base.body_id, bodyIdResolved,
+		sizeof(g_BotConfigsArray[botnum].base.body_id) - 1);
+	g_BotConfigsArray[botnum].base.body_id[
+		sizeof(g_BotConfigsArray[botnum].base.body_id) - 1] = '\0';
 	/* DERIVED: set deprecated integer indices */
 	g_BotConfigsArray[botnum].base.mpheadnum = (u8)headnum;
-	g_BotConfigsArray[botnum].base.mpbodynum = (u8)profilebody;
+	g_BotConfigsArray[botnum].base.mpbodynum =
+		bodyEntry->mp_index >= 0 ? (u8)bodyEntry->mp_index : 0;
+	return 0;
+}
+
+void mpCreateBotFromProfile(s32 botnum, u8 profilenum)
+{
+	const char *profile_id = catalogIdByRuntime(ASSET_BOT_PROFILE,
+		(s32)profilenum);
+
+	if (!profile_id) {
+		sysFatalError("ASSET.CHAIN: bot profile runtime slot %u has no "
+			"catalog identity.", (unsigned)profilenum);
+		return;
+	}
+	(void)mpCreateBotFromProfileId(botnum, profile_id);
 }
 
 void mpSetBotDifficulty(s32 botnum, s32 difficulty)
@@ -3806,6 +3890,22 @@ void mpSetBotDifficulty(s32 botnum, s32 difficulty)
 	s32 i;
 
 	g_BotConfigsArray[botnum].difficulty = difficulty;
+	{
+		const char *profile_id = mpBotProfileIdForTraits(
+			g_BotConfigsArray[botnum].type, difficulty);
+		if (difficulty == BOTDIFF_DISABLED) {
+			g_BotConfigsArray[botnum].profile_id[0] = '\0';
+		} else if (profile_id) {
+			strncpy(g_BotConfigsArray[botnum].profile_id, profile_id,
+				sizeof(g_BotConfigsArray[botnum].profile_id) - 1);
+			g_BotConfigsArray[botnum].profile_id[
+				sizeof(g_BotConfigsArray[botnum].profile_id) - 1] = '\0';
+		} else {
+			sysFatalError("ASSET.CHAIN: bot type=%d difficulty=%d has no "
+				"public profile identity.", g_BotConfigsArray[botnum].type,
+				difficulty);
+		}
+	}
 
 	for (i = 0; i < MAX_PLAYERS; i++) {
 		g_MpSimulantDifficultiesPerNumPlayers[botnum][i] = g_BotConfigsArray[botnum].difficulty;
@@ -3847,6 +3947,9 @@ void mpCopySimulant(s32 index)
 	/* Phase 2: copy PRIMARY catalog ID string fields */
 	strncpy(g_BotConfigsArray[dest].base.head_id, g_BotConfigsArray[index].base.head_id, sizeof(g_BotConfigsArray[dest].base.head_id));
 	strncpy(g_BotConfigsArray[dest].base.body_id, g_BotConfigsArray[index].base.body_id, sizeof(g_BotConfigsArray[dest].base.body_id));
+	strncpy(g_BotConfigsArray[dest].profile_id,
+		g_BotConfigsArray[index].profile_id,
+		sizeof(g_BotConfigsArray[dest].profile_id));
 	g_BotConfigsArray[dest].type = g_BotConfigsArray[index].type;
 	g_BotConfigsArray[dest].difficulty = g_BotConfigsArray[index].difficulty;
 	mpGenerateBotNames();
@@ -3897,13 +4000,17 @@ s32 mpFindBotProfile(s32 type, s32 difficulty)
 
 	if (type == BOTTYPE_GENERAL) {
 		for (i = 0; i < ARRAYCOUNT(g_BotProfiles); i++) {
-			if (g_BotProfiles[i].difficulty == difficulty) {
+			const asset_runtime_binding_t *profile =
+				mpBotProfileRuntimeBinding(i);
+			if (profile && profile->bot_profile_difficulty == difficulty) {
 				break;
 			}
 		}
 	} else {
 		for (i = 0; i < ARRAYCOUNT(g_BotProfiles); i++) {
-			if (g_BotProfiles[i].type == type) {
+			const asset_runtime_binding_t *profile =
+				mpBotProfileRuntimeBinding(i);
+			if (profile && profile->bot_profile_type == type) {
 				break;
 			}
 		}
@@ -3918,57 +4025,66 @@ s32 mpFindBotProfile(s32 type, s32 difficulty)
 
 void mpGenerateBotNames(void)
 {
-	s32 counts[ARRAYCOUNT(g_BotProfiles)];
-	s32 profilenum;
 	s32 i;
 	char name[16];
 
 	sysLogPrintf(LOG_NOTE, "BOT_NAMES: generating, activeMask=0x%016llx MAX_PLAYERS=%d MAX_MPCHRS=%d",
 		(unsigned long long)mpParticipantsEncodeActiveMask(), MAX_PLAYERS, MAX_MPCHRS);
 
-	for (i = 0; i < ARRAYCOUNT(g_BotProfiles); i++) {
-		counts[i] = 0;
-	}
-
-	// Count the number of bots using each profile (MeatSim, TurtleSim etc)
 	for (i = mpParticipantFirstOfType(PARTICIPANT_BOT); i >= 0; i = mpParticipantNextOfType(i, PARTICIPANT_BOT)) { /* B-12 Phase 2 */
-		profilenum = mpFindBotProfile(g_BotConfigsArray[i - MAX_PLAYERS].type, g_BotConfigsArray[i - MAX_PLAYERS].difficulty);
+		struct mpbotconfig *bot = &g_BotConfigsArray[i - MAX_PLAYERS];
+		const char *profile_id = bot->profile_id[0]
+			? bot->profile_id
+			: mpBotProfileIdForTraits(bot->type, bot->difficulty);
+		const asset_runtime_binding_t *profile = profile_id
+			? mpBotProfileRuntimeBindingById(profile_id)
+			: NULL;
+		const asset_entry_t *entry = profile_id
+			? assetCatalogResolve(profile_id)
+			: NULL;
+		const char *baseName = NULL;
+		s32 total = 0;
+		s32 ordinal = 0;
+		s32 other;
 
-		if (profilenum >= 0 && profilenum < ARRAYCOUNT(g_BotProfiles)) {
-			counts[profilenum]++;
+		if (!profile) {
+			continue;
 		}
-	}
-
-	// Profiles with only one bot don't need to have to number appended to the
-	// name, so mark those as -1. For profiles with multiple bots, reset them
-	// to 0 because they'll be a counter for the final loop.
-	for (i = 0; i < ARRAYCOUNT(g_BotProfiles); i++) {
-		if (counts[i] <= 1) {
-			counts[i] = -1;
-		} else {
-			counts[i] = 0;
+		if (entry && entry->mp_index >= 0) {
+			baseName = modmgrGetBotProfileName((s32)entry->mp_index);
 		}
-	}
+		if ((!baseName || !baseName[0])
+				&& profile->bot_profile_name_langid) {
+			baseName = langGet(profile->bot_profile_name_langid);
+		}
+		if (!baseName || !baseName[0]) {
+			baseName = profile_id;
+		}
 
-	for (i = mpParticipantFirstOfType(PARTICIPANT_BOT); i >= 0; i = mpParticipantNextOfType(i, PARTICIPANT_BOT)) { /* B-12 Phase 2 */
-		profilenum = mpFindBotProfile(g_BotConfigsArray[i - MAX_PLAYERS].type, g_BotConfigsArray[i - MAX_PLAYERS].difficulty);
-
-		if (profilenum >= 0 && profilenum < ARRAYCOUNT(g_BotProfiles)) {
-			// P2: Check for mod-provided bot name override
-			const char *modName = modmgrGetBotProfileName(profilenum);
-			const char *baseName = modName ? modName : langGet(g_BotProfiles[profilenum].name);
-
-			if (counts[profilenum] >= 0) {
-				// Multiple bots using this profile - append the number
-				counts[profilenum]++;
-				snprintf(name, sizeof(name), "%s:%d\n", baseName, counts[profilenum]);
-				strncpy(g_BotConfigsArray[i - MAX_PLAYERS].base.name, name, 14); g_BotConfigsArray[i - MAX_PLAYERS].base.name[14] = '\0';
-			} else {
-				// One bot using this profile - just use the profile name
-				snprintf(name, sizeof(name), "%s\n", baseName);
-				strncpy(g_BotConfigsArray[i - MAX_PLAYERS].base.name, name, 14); g_BotConfigsArray[i - MAX_PLAYERS].base.name[14] = '\0';
+		for (other = mpParticipantFirstOfType(PARTICIPANT_BOT);
+				other >= 0;
+				other = mpParticipantNextOfType(other, PARTICIPANT_BOT)) {
+			struct mpbotconfig *candidate =
+				&g_BotConfigsArray[other - MAX_PLAYERS];
+			const char *candidate_id = candidate->profile_id[0]
+				? candidate->profile_id
+				: mpBotProfileIdForTraits(candidate->type,
+					candidate->difficulty);
+			if (candidate_id && strcmp(candidate_id, profile_id) == 0) {
+				total++;
+				if (other <= i) {
+					ordinal++;
+				}
 			}
 		}
+
+		if (total > 1) {
+			snprintf(name, sizeof(name), "%s:%d\n", baseName, ordinal);
+		} else {
+			snprintf(name, sizeof(name), "%s\n", baseName);
+		}
+		strncpy(bot->base.name, name, 14);
+		bot->base.name[14] = '\0';
 	}
 }
 
@@ -4475,6 +4591,19 @@ void mpApplyConfig(struct mpconfigfull *config)
 		}
 
 		g_BotConfigsArray[i].difficulty = g_MpSimulantDifficultiesPerNumPlayers[i][0];
+		{
+			const char *profile_id = mpBotProfileIdForTraits(
+				g_BotConfigsArray[i].type,
+				g_BotConfigsArray[i].difficulty);
+			if (profile_id) {
+				strncpy(g_BotConfigsArray[i].profile_id, profile_id,
+					sizeof(g_BotConfigsArray[i].profile_id) - 1);
+				g_BotConfigsArray[i].profile_id[
+					sizeof(g_BotConfigsArray[i].profile_id) - 1] = '\0';
+			} else {
+				g_BotConfigsArray[i].profile_id[0] = '\0';
+			}
+		}
 
 		strncpy(g_BotConfigsArray[i].base.name, config->strings.aibotnames[i], 14); g_BotConfigsArray[i].base.name[14] = '\0';
 
@@ -4634,6 +4763,40 @@ void mpsetupfileLoadWad(struct savebuffer *buffer, u8 version)
 			else { g_BotConfigsArray[i].base.body_id[0] = '\0'; }
 		}
 		g_BotConfigsArray[i].base.team = savebufferReadBits(buffer, 3);
+		if (version >= 3) {
+			savebufferReadString_ext(buffer,
+				g_BotConfigsArray[i].profile_id, false,
+				sizeof(g_BotConfigsArray[i].profile_id));
+			if (g_BotConfigsArray[i].difficulty != BOTDIFF_DISABLED) {
+				const asset_runtime_binding_t *profile =
+					mpBotProfileRuntimeBindingById(
+						g_BotConfigsArray[i].profile_id);
+				if (!profile) {
+					return;
+				}
+				g_BotConfigsArray[i].type =
+					(u8)profile->bot_profile_type;
+				g_BotConfigsArray[i].difficulty =
+					(u8)profile->bot_profile_difficulty;
+			}
+		} else if (g_BotConfigsArray[i].difficulty != BOTDIFF_DISABLED) {
+			const char *profile_id = mpBotProfileIdForTraits(
+				g_BotConfigsArray[i].type,
+				g_BotConfigsArray[i].difficulty);
+			if (!profile_id) {
+				sysFatalError("MPSETUP: legacy bot %d traits type=%u "
+					"difficulty=%u have no public profile.",
+					i, (unsigned)g_BotConfigsArray[i].type,
+					(unsigned)g_BotConfigsArray[i].difficulty);
+				return;
+			}
+			strncpy(g_BotConfigsArray[i].profile_id, profile_id,
+				sizeof(g_BotConfigsArray[i].profile_id) - 1);
+			g_BotConfigsArray[i].profile_id[
+				sizeof(g_BotConfigsArray[i].profile_id) - 1] = '\0';
+		} else {
+			g_BotConfigsArray[i].profile_id[0] = '\0';
+		}
 	}
 
 	if (version > 0) {
@@ -4717,13 +4880,34 @@ void mpsetupfileSaveWad(struct savebuffer *buffer)
 				profilenum = 0;
 			}
 
-			mpbodynum = g_BotProfiles[profilenum].body;
+			{
+				const asset_runtime_binding_t *profile =
+					mpBotProfileRuntimeBinding(profilenum);
+				if (!profile) {
+					return;
+				}
+				mpbodynum = profile->bot_profile_body;
+			}
 		} else {
 			mpbodynum = g_BotConfigsArray[i].base.mpbodynum;
 		}
 
 		savebufferOr(buffer, mpbodynum, 7);
 		savebufferOr(buffer, g_BotConfigsArray[i].base.team, 3);
+		if (mpIsParticipantActive(i + MAX_PLAYERS)) {
+			const char *profile_id = g_BotConfigsArray[i].profile_id[0]
+				? g_BotConfigsArray[i].profile_id
+				: mpBotProfileIdForTraits(g_BotConfigsArray[i].type,
+					g_BotConfigsArray[i].difficulty);
+			if (!profile_id) {
+				sysFatalError("MPSETUP: active bot %d has no public "
+					"profile identity.", i);
+				return;
+			}
+			savebufferWriteString_ext(buffer, (char *)profile_id, 64);
+		} else {
+			savebufferWriteString_ext(buffer, "", 64);
+		}
 	}
 
 	for (i = 0; i < ARRAYCOUNT(g_MpSetup.weapons); i++) {

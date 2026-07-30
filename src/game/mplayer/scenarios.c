@@ -313,14 +313,48 @@ MenuDialogHandlerResult mpOptionsMenuDialog(s32 operation, struct menudialogdef 
 char *mpMenuTextScenarioShortName(struct menuitem *item)
 {
 	s32 scenario = scenarioGetSafeIndex("mpMenuTextScenarioShortName");
-	snprintf(g_StringPointer, 300, "%s\n", langGet(g_MpScenarioOverviews[scenario].shortname));
+	const char *asset_id = catalogIdByRuntime(ASSET_GAMEMODE, scenario);
+	const asset_runtime_binding_t *binding = asset_id
+		? assetRuntimeFindByTypeAndId(ASSET_GAMEMODE, asset_id)
+		: NULL;
+	if (!binding || !binding->gamemode_name[0]) {
+		sysFatalError("ASSET.CHAIN: selected gamemode %d has no public name "
+			"binding; refusing native overview fallback.", scenario);
+		return "";
+	}
+	snprintf(g_StringPointer, 300, "%s\n", binding->gamemode_name);
 	return g_StringPointer;
 }
 
 char *mpMenuTextScenarioName(struct menuitem *item)
 {
 	s32 scenario = scenarioGetSafeIndex("mpMenuTextScenarioName");
-	snprintf(g_StringPointer, 300, "%s\n", langGet(g_MpScenarioOverviews[scenario].name));
+	const char *asset_id = catalogIdByRuntime(ASSET_GAMEMODE, scenario);
+	const asset_runtime_binding_t *binding = asset_id
+		? assetRuntimeFindByTypeAndId(ASSET_GAMEMODE, asset_id)
+		: NULL;
+	if (!binding || !binding->gamemode_name[0]) {
+		sysFatalError("ASSET.CHAIN: selected gamemode %d has no public name "
+			"binding; refusing native overview fallback.", scenario);
+		return "";
+	}
+	snprintf(g_StringPointer, 300, "%s\n", binding->gamemode_name);
+	return g_StringPointer;
+}
+
+static char *mpMenuTextScenarioDescription(struct menuitem *item)
+{
+	s32 scenario = scenarioGetSafeIndex("mpMenuTextScenarioDescription");
+	const char *asset_id = catalogIdByRuntime(ASSET_GAMEMODE, scenario);
+	const asset_runtime_binding_t *binding = asset_id
+		? assetRuntimeFindByTypeAndId(ASSET_GAMEMODE, asset_id)
+		: NULL;
+	if (!binding || !binding->gamemode_description[0]) {
+		sysFatalError("ASSET.CHAIN: selected gamemode %d has no public "
+			"description binding.", scenario);
+		return "";
+	}
+	snprintf(g_StringPointer, 300, "%s", binding->gamemode_description);
 	return g_StringPointer;
 }
 
@@ -347,41 +381,42 @@ struct scenario_pick_ctx {
 	s32  cur;            /* running count */
 	s32  max_mp_index;   /* upper bound for GETGROUPSTARTINDEX */
 	s32  scenario_match; /* MPSCENARIO_* result for SET / GETOPTIONTEXT */
-	s16  name_langid;    /* langid result for GETOPTIONTEXT */
+	char option_text[64]; /* public gamemode name for GETOPTIONTEXT */
 };
+
+static const asset_runtime_binding_t *scenarioBindingForEntry(
+	const asset_entry_t *e)
+{
+	const asset_runtime_binding_t *binding =
+		assetRuntimeFindByTypeAndId(ASSET_GAMEMODE, e->id);
+	if (!binding || !binding->source_hydrated) {
+		sysFatalError("ASSET.CHAIN: gamemode '%s' has no active public-source "
+			"rules binding; refusing descriptor/catalog mirror fallback.", e->id);
+		return NULL;
+	}
+	if (!assetRuntimePrimaryFileAccessible(binding)) {
+		sysFatalError("ASSET.CHAIN: gamemode '%s' rules source '%s' is "
+			"unreadable; refusing native rules fallback.",
+			e->id, binding->primary_path);
+		return NULL;
+	}
+	return binding;
+}
 
 static bool scenarioCtxAccepts(const asset_entry_t *e, const struct scenario_pick_ctx *ctx)
 {
-	s32 team_based;
+	const asset_runtime_binding_t *binding = scenarioBindingForEntry(e);
+	s32 participant_count = mpGetActiveParticipantCount();
 
-	if (!scenarioIndexIsValid(e->ext.gamemode.mode_id)) {
+	if (!binding || !scenarioIndexIsValid(binding->runtime_id)) {
 		return false;
 	}
 
-	/* c3849 Wave 6a: prefer the catalog runtime binding's
-	 * gamemode_team_based (value-identical to ext for base entries,
-	 * copied by assetRuntimeActivateCatalogEntry). Binding presence is
-	 * not guaranteed (preload needs a fileProvider primary), so fall
-	 * back to the native ext mirror with a once-per-session warning.
-	 * This runs per menu frame -- never warn per call. */
-	{
-		const asset_runtime_binding_t *binding =
-			assetRuntimeFindByTypeAndId(ASSET_GAMEMODE, e->id);
-		if (binding) {
-			team_based = binding->gamemode_team_based;
-		} else {
-			static bool warned = false;
-			if (!warned) {
-				warned = true;
-				sysLogPrintf(LOG_WARNING,
-					"CATALOG.GAMEMODE.RUNTIME_MISS: '%s' has no runtime binding; using ext.gamemode.team_based",
-					e->id);
-			}
-			team_based = e->ext.gamemode.team_based;
-		}
+	if (!ctx->teamgame && binding->gamemode_team_based) {
+		return false;
 	}
-
-	if (!ctx->teamgame && team_based) {
+	if (participant_count < binding->gamemode_min_players
+			|| participant_count > binding->gamemode_max_players) {
 		return false;
 	}
 	return true;
@@ -402,8 +437,11 @@ static void scenarioPickByIndexCb(const asset_entry_t *e, void *userdata)
 	if (!scenarioCtxAccepts(e, ctx)) return;
 	if (ctx->scenario_match >= 0) return;
 	if (ctx->cur == ctx->needle_idx) {
-		ctx->scenario_match = e->ext.gamemode.mode_id;
-		ctx->name_langid = (s16)g_MpScenarioOverviews[e->ext.gamemode.mode_id].name;
+		const asset_runtime_binding_t *binding = scenarioBindingForEntry(e);
+		if (!binding) return;
+		ctx->scenario_match = binding->runtime_id;
+		snprintf(ctx->option_text, sizeof(ctx->option_text), "%s",
+			binding->gamemode_name);
 	}
 	ctx->cur++;
 }
@@ -414,8 +452,10 @@ static void scenarioFindByModeIdCb(const asset_entry_t *e, void *userdata)
 	if (e->type != ASSET_GAMEMODE) return;
 	if (!scenarioCtxAccepts(e, ctx)) return;
 	if (ctx->scenario_match >= 0) return;
-	if (e->ext.gamemode.mode_id == ctx->needle_idx) {
-		ctx->scenario_match = e->ext.gamemode.mode_id;
+	const asset_runtime_binding_t *binding = scenarioBindingForEntry(e);
+	if (!binding) return;
+	if (binding->runtime_id == ctx->needle_idx) {
+		ctx->scenario_match = binding->runtime_id;
 		return; /* mark found; subsequent calls return early */
 	}
 	ctx->cur++;
@@ -426,7 +466,8 @@ static void scenarioGroupStartCb(const asset_entry_t *e, void *userdata)
 	struct scenario_pick_ctx *ctx = (struct scenario_pick_ctx *)userdata;
 	if (e->type != ASSET_GAMEMODE) return;
 	if (!scenarioCtxAccepts(e, ctx)) return;
-	if (e->ext.gamemode.mode_id < ctx->max_mp_index) {
+	const asset_runtime_binding_t *binding = scenarioBindingForEntry(e);
+	if (binding && binding->runtime_id < ctx->max_mp_index) {
 		ctx->cur++;
 	}
 }
@@ -444,7 +485,7 @@ MenuItemHandlerResult scenarioScenarioMenuHandler(s32 operation, struct menuitem
 	ctx.cur = 0;
 	ctx.max_mp_index = 0;
 	ctx.scenario_match = -1;
-	ctx.name_langid = 0;
+	ctx.option_text[0] = '\0';
 
 	if (item->param) {
 		if (g_Vars.mpquickteam == MPQUICKTEAM_PLAYERSONLY || g_Vars.mpquickteam == MPQUICKTEAM_PLAYERSANDSIMS) {
@@ -461,7 +502,8 @@ MenuItemHandlerResult scenarioScenarioMenuHandler(s32 operation, struct menuitem
 		ctx.needle_idx = data->list.value;
 		assetCatalogIterateUnlockedByType(ASSET_GAMEMODE, scenarioPickByIndexCb, &ctx);
 		if (ctx.scenario_match >= 0) {
-			return (uintptr_t)langGet(ctx.name_langid);
+			snprintf(g_StringPointer, 300, "%s", ctx.option_text);
+			return (uintptr_t)g_StringPointer;
 		}
 		break;
 	case MENUOP_SET:
@@ -1096,6 +1138,14 @@ struct menuitem g_MpScenarioMenuItems[] = {
 		0x0000004d,
 		scenarioScenarioMenuHandler,
 	},
+	{
+		MENUITEMTYPE_LABEL,
+		0,
+		MENUITEMFLAG_LESSLEFTPADDING | MENUITEMFLAG_SMALLFONT,
+		(uintptr_t)&mpMenuTextScenarioDescription,
+		0,
+		NULL,
+	},
 	{ MENUITEMTYPE_END },
 };
 
@@ -1116,6 +1166,14 @@ struct menuitem g_MpQuickTeamScenarioMenuItems[] = {
 		0x00000078,
 		0x0000004d,
 		scenarioScenarioMenuHandler,
+	},
+	{
+		MENUITEMTYPE_LABEL,
+		0,
+		MENUITEMFLAG_LESSLEFTPADDING | MENUITEMFLAG_SMALLFONT,
+		(uintptr_t)&mpMenuTextScenarioDescription,
+		0,
+		NULL,
 	},
 	{ MENUITEMTYPE_END },
 };

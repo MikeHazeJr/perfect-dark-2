@@ -256,7 +256,7 @@ s32 scenarioSave(const char *name)
 
     /* --- Write JSON --- */
     fprintf(fp, "{\n");
-    fprintf(fp, "  \"version\": 2,\n");
+    fprintf(fp, "  \"version\": 3,\n");
     fprintf(fp, "  \"name\": \"");
     jsonEscapeStr(fp, name);
     fprintf(fp, "\",\n");
@@ -328,6 +328,8 @@ s32 scenarioSave(const char *name)
         {
             fprintf(fp, "    {\"name\": \"");
             jsonEscapeStr(fp, sl->name);
+            fprintf(fp, "\", \"profileId\": \"");
+            jsonEscapeStr(fp, sl->profile_id);
             fprintf(fp, "\", \"difficulty\": %u"
                         ", \"bodyId\": \"",
                     (unsigned)sl->botDifficulty);
@@ -383,7 +385,7 @@ s32 scenarioLoad(const char *filepath, s32 humanCount)
     /* --- Parse version check --- */
     s32 version = 0;
     jsonFindInt(buf, "version", &version);
-    if (version != 1 && version != 2) {
+    if (version != 1 && version != 2 && version != 3) {
         sysLogPrintf(LOG_WARNING, "SCENARIO: unsupported version %d in '%s'",
                      version, filepath);
         free(buf);
@@ -547,17 +549,18 @@ s32 scenarioLoad(const char *filepath, s32 humanCount)
 
                 /* Copy bot object into a null-terminated scratch buffer */
                 s32 objLen = (s32)(objEnd - objStart + 1);
-                if (objLen < 2 || objLen > 512) {
+                if (objLen < 2 || objLen > 768) {
                     p = objEnd + 1;
                     continue;
                 }
 
-                char obj[512];
+                char obj[768];
                 memcpy(obj, objStart, (size_t)objLen);
                 obj[objLen] = '\0';
 
                 /* Extract fields */
                 char botName[MAX_PLAYER_NAME];
+                char profile_id[CATALOG_ID_LEN];
                 char body_id[CATALOG_ID_LEN];
                 char head_id[CATALOG_ID_LEN];
                 s32 difficulty = 2; /* NormalSim default */
@@ -565,10 +568,12 @@ s32 scenarioLoad(const char *filepath, s32 humanCount)
                 s32 head       = 0;
 
                 botName[0] = '\0';
+                profile_id[0] = '\0';
                 body_id[0] = '\0';
                 head_id[0] = '\0';
 
                 jsonFindString(obj, "name",       botName, MAX_PLAYER_NAME);
+                jsonFindString(obj, "profileId",  profile_id, sizeof(profile_id));
                 jsonFindInt   (obj, "difficulty", &difficulty);
                 jsonFindInt   (obj, "body",        &body);
                 jsonFindInt   (obj, "head",        &head);
@@ -597,11 +602,21 @@ s32 scenarioLoad(const char *filepath, s32 humanCount)
                     }
                 }
 
-                matchConfigAddBot(0 /* BOTTYPE_NORMAL */,
-                                  (u8)difficulty,
-                                  body_id[0] ? body_id : NULL,
-                                  head_id[0] ? head_id : NULL,
-                                  botName[0] ? botName : NULL);
+                if (profile_id[0]) {
+                    matchConfigAddBotWithProfile(
+                        profile_id,
+                        body_id[0] ? body_id : NULL,
+                        head_id[0] ? head_id : NULL,
+                        botName[0] ? botName : NULL);
+                } else {
+                    /* v1/v2 migration: derive the base catalog profile from
+                     * the legacy general-simulant difficulty. */
+                    matchConfigAddBot(0 /* BOTTYPE_GENERAL */,
+                                      (u8)difficulty,
+                                      body_id[0] ? body_id : NULL,
+                                      head_id[0] ? head_id : NULL,
+                                      botName[0] ? botName : NULL);
+                }
                 botCount++;
                 p = objEnd + 1;
             }

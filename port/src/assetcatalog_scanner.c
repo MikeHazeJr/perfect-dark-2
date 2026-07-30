@@ -120,6 +120,13 @@ s32 iniParseBuffer(const char *label, const char *data, u32 len, ini_section_t *
 			if (end) {
 				*end = '\0';
 				if (out->type[0] == '\0') {
+					if (strlen(p + 1) >= sizeof(out->type)) {
+						sysLogPrintf(LOG_ERROR,
+							"assetcatalog_scanner: INI section name too long in '%s'",
+							label ? label : "(memory)");
+						free(buf);
+						return 0;
+					}
 					strncpy(out->type, p + 1, sizeof(out->type) - 1);
 				}
 				in_section = 1;
@@ -139,13 +146,26 @@ s32 iniParseBuffer(const char *label, const char *data, u32 len, ini_section_t *
 			char *key = trimWhitespace(p);
 			char *val = trimWhitespace(eq + 1);
 
-			if (out->count < INI_MAX_PAIRS) {
-				strncpy(out->pairs[out->count].key, key,
-					sizeof(out->pairs[0].key) - 1);
-				strncpy(out->pairs[out->count].value, val,
-					sizeof(out->pairs[0].value) - 1);
-				out->count++;
+			if (out->count >= INI_MAX_PAIRS) {
+				sysLogPrintf(LOG_ERROR,
+					"assetcatalog_scanner: INI pair limit %d exceeded in '%s'",
+					INI_MAX_PAIRS, label ? label : "(memory)");
+				free(buf);
+				return 0;
 			}
+			if (strlen(key) >= sizeof(out->pairs[0].key)
+					|| strlen(val) >= sizeof(out->pairs[0].value)) {
+				sysLogPrintf(LOG_ERROR,
+					"assetcatalog_scanner: INI key/value too long in '%s' (key '%s')",
+					label ? label : "(memory)", key);
+				free(buf);
+				return 0;
+			}
+			strncpy(out->pairs[out->count].key, key,
+				sizeof(out->pairs[0].key) - 1);
+			strncpy(out->pairs[out->count].value, val,
+				sizeof(out->pairs[0].value) - 1);
+			out->count++;
 		}
 
 		line = next;
@@ -1785,7 +1805,7 @@ static s32 s_mintCustomStagenum(asset_entry_t *e, const char *mint_key)
 }
 
 static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
-                              const char *mod_id)
+                              const char *mod_id, const char *descriptor_path)
 {
 	enum { WEAPON_ID_UNASSIGNED = -1 };
 	ini_section_t local_ini;
@@ -1848,6 +1868,11 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 	/* Common fields */
 	strncpy(e->category, category, CATALOG_CATEGORY_LEN - 1);
 	strncpy(e->dirpath, dirpath, FS_MAXPATH - 1);
+	if (descriptor_path) {
+		strncpy(e->descriptor_path, descriptor_path,
+			sizeof(e->descriptor_path) - 1);
+		e->descriptor_path[sizeof(e->descriptor_path) - 1] = '\0';
+	}
 	e->model_scale = iniGetFloat(ini, "model_scale", 1.0f);
 	e->enabled = iniGetInt(ini, "enabled", 1);
 	e->bundled = iniGetInt(ini, "bundled", 0);
@@ -2643,7 +2668,8 @@ static s32 isDirectory(const char *path)
  * Find and parse the .ini file in a component directory.
  * Looks for any file ending in .ini (there should be exactly one).
  */
-static s32 findAndParseIni(const char *component_dir, ini_section_t *out)
+static s32 findAndParseIni(const char *component_dir, ini_section_t *out,
+                           char *out_path, size_t out_path_cap)
 {
 	DIR *dp = opendir(component_dir);
 	if (!dp) {
@@ -2661,6 +2687,10 @@ static s32 findAndParseIni(const char *component_dir, ini_section_t *out)
 		if (len > 4 && strcmp(name + len - 4, ".ini") == 0) {
 			snprintf(inibuf, sizeof(inibuf), "%s/%s", component_dir, name);
 			found = iniParse(inibuf, out);
+			if (found && out_path && out_path_cap > 0) {
+				strncpy(out_path, inibuf, out_path_cap - 1);
+				out_path[out_path_cap - 1] = '\0';
+			}
 			break;
 		}
 	}
@@ -2697,7 +2727,7 @@ static s32 registerComponentIniFile(const char *component_dir,
 			label ? label : ini_path, expected, ini.type, ini_type);
 	}
 
-	return registerComponent(&ini, component_dir, mod_id) ? 1 : 0;
+	return registerComponent(&ini, component_dir, mod_id, ini_path) ? 1 : 0;
 }
 
 static s32 scanExternalDescriptorChildren(const char *base_dir,
@@ -2820,7 +2850,15 @@ static s32 registerTypedPdDescriptorFile(const char *descriptor_path,
 		return 0;
 	}
 
-	return registerComponent(&ini, component_dir, mod_id) ? 1 : 0;
+	{
+		char descriptor_ref[FS_MAXPATH];
+		snprintf(descriptor_ref, sizeof(descriptor_ref), "%s::%s",
+			descriptor_path,
+			assetArchiveDescriptorForPath(descriptor_path));
+		descriptor_ref[sizeof(descriptor_ref) - 1] = '\0';
+		return registerComponent(&ini, component_dir, mod_id,
+			descriptor_ref) ? 1 : 0;
+	}
 }
 
 static s32 scanTypedPdDescriptorsRecurse(const char *root_dir,
@@ -2922,7 +2960,9 @@ static s32 scanCategoryDir(const char *category_dir, const char *category_name,
 
 		/* Parse the .ini in this component directory */
 		ini_section_t ini;
-		if (!findAndParseIni(pathbuf, &ini)) {
+		char descriptor_path[FS_MAXPATH];
+		if (!findAndParseIni(pathbuf, &ini,
+				descriptor_path, sizeof(descriptor_path))) {
 			sysLogPrintf(LOG_WARNING,
 				"assetcatalog_scanner: no valid .ini in component '%s/%s'",
 				category_name, ent->d_name);
@@ -2939,7 +2979,7 @@ static s32 scanCategoryDir(const char *category_dir, const char *category_name,
 			/* Register anyway -- the INI section type takes precedence */
 		}
 
-		if (registerComponent(&ini, pathbuf, mod_id)) {
+		if (registerComponent(&ini, pathbuf, mod_id, descriptor_path)) {
 			count++;
 		}
 	}
@@ -3558,7 +3598,18 @@ s32 assetCatalogScanComponentsFromArchive(const char *mod_id, mod_archive_t *arc
 			qualifyArchiveIniPaths(&ini, component_dir);
 		}
 
-		if (registerComponent(&ini, component_dir, mod_id)) {
+		char descriptor_ref[FS_MAXPATH * 2 + 132];
+		if (typed_archive_entry) {
+			const char *descriptor_leaf =
+				assetArchiveDescriptorForPath(entry_name);
+			snprintf(descriptor_ref, sizeof(descriptor_ref), "%s::%s",
+				entry_ref, descriptor_leaf ? descriptor_leaf : "");
+		} else {
+			snprintf(descriptor_ref, sizeof(descriptor_ref), "%s", entry_ref);
+		}
+		descriptor_ref[sizeof(descriptor_ref) - 1] = '\0';
+
+		if (registerComponent(&ini, component_dir, mod_id, descriptor_ref)) {
 			total++;
 		}
 	}
@@ -3621,7 +3672,9 @@ s32 assetCatalogScanBotVariants(const char *modsdir)
 		}
 
 		ini_section_t ini;
-		if (!findAndParseIni(pathbuf, &ini)) {
+		char descriptor_path[FS_MAXPATH];
+		if (!findAndParseIni(pathbuf, &ini,
+				descriptor_path, sizeof(descriptor_path))) {
 			sysLogPrintf(LOG_WARNING,
 				"assetcatalog_scanner: no valid .ini in bot_variants/%s",
 				ent->d_name);
@@ -3629,7 +3682,7 @@ s32 assetCatalogScanBotVariants(const char *modsdir)
 		}
 
 		/* Use "custom" as the mod_id for user-created variants */
-		if (registerComponent(&ini, pathbuf, "custom")) {
+		if (registerComponent(&ini, pathbuf, "custom", descriptor_path)) {
 			count++;
 		}
 	}

@@ -3280,10 +3280,15 @@ struct menudialogdef g_MpReadyMenuDialog = {
 struct botprofile_pick_ctx {
 	s32 needle_idx;       /* "give me the N-th unlocked entry" */
 	s32 cur;              /* running count */
-	s32 max_mp_index;     /* upper bound for GETGROUPSTARTINDEX */
+	s32 count_general;    /* size of the Normal Simulants group */
 	s32 result_profnum;   /* g_BotProfiles[] index, or -1 */
 	s16 result_namelang;  /* langid for GETOPTIONTEXT */
+	const char *result_id;
+	const char *result_text;
 };
+
+static char s_SelectedBotProfileId[CATALOG_ID_LEN];
+static char s_SelectedBotProfileDescription[CATALOG_ID_LEN + 16];
 
 static void botprofileCountCb(const asset_entry_t *e, void *userdata)
 {
@@ -3295,11 +3300,23 @@ static void botprofileCountCb(const asset_entry_t *e, void *userdata)
 static void botprofilePickByIndexCb(const asset_entry_t *e, void *userdata)
 {
 	struct botprofile_pick_ctx *ctx = (struct botprofile_pick_ctx *)userdata;
+	s32 wants_general;
+	s32 target;
+
 	if (e->type != ASSET_BOT_PROFILE) return;
-	if (ctx->result_profnum >= 0) return;
-	if (ctx->cur == ctx->needle_idx) {
+	if (ctx->result_id) return;
+	wants_general = ctx->needle_idx < ctx->count_general;
+	if ((e->ext.bot_profile.type == BOTTYPE_GENERAL) != wants_general) {
+		return;
+	}
+	target = wants_general
+		? ctx->needle_idx
+		: ctx->needle_idx - ctx->count_general;
+	if (ctx->cur == target) {
 		ctx->result_profnum = (s32)e->mp_index;
 		ctx->result_namelang = e->ext.bot_profile.name_langid;
+		ctx->result_id = e->id;
+		ctx->result_text = e->id;
 	}
 	ctx->cur++;
 }
@@ -3308,9 +3325,20 @@ static void botprofileGroupStartCb(const asset_entry_t *e, void *userdata)
 {
 	struct botprofile_pick_ctx *ctx = (struct botprofile_pick_ctx *)userdata;
 	if (e->type != ASSET_BOT_PROFILE) return;
-	if ((s32)e->mp_index < ctx->max_mp_index) {
-		ctx->cur++;
+	if (e->ext.bot_profile.type == BOTTYPE_GENERAL) {
+		ctx->count_general++;
 	}
+}
+
+static void botprofilePickLogical(struct botprofile_pick_ctx *ctx)
+{
+	ctx->count_general = 0;
+	ctx->cur = 0;
+	assetCatalogIterateUnlockedByType(ASSET_BOT_PROFILE,
+		botprofileGroupStartCb, ctx);
+	ctx->cur = 0;
+	assetCatalogIterateUnlockedByType(ASSET_BOT_PROFILE,
+		botprofilePickByIndexCb, ctx);
 }
 
 MenuItemHandlerResult mpAddChangeSimulantMenuHandler(s32 operation, struct menuitem *item, union handlerdata *data)
@@ -3326,9 +3354,11 @@ MenuItemHandlerResult mpAddChangeSimulantMenuHandler(s32 operation, struct menui
 
 	ctx.needle_idx = 0;
 	ctx.cur = 0;
-	ctx.max_mp_index = 0;
+	ctx.count_general = 0;
 	ctx.result_profnum = -1;
 	ctx.result_namelang = 0;
+	ctx.result_id = NULL;
+	ctx.result_text = NULL;
 
 	switch (operation) {
 	case MENUOP_GETOPTIONCOUNT:
@@ -3337,9 +3367,11 @@ MenuItemHandlerResult mpAddChangeSimulantMenuHandler(s32 operation, struct menui
 		break;
 	case MENUOP_GETOPTIONTEXT:
 		ctx.needle_idx = data->list.value;
-		assetCatalogIterateUnlockedByType(ASSET_BOT_PROFILE, botprofilePickByIndexCb, &ctx);
-		if (ctx.result_profnum >= 0) {
-			return (uintptr_t)langGet(ctx.result_namelang);
+		botprofilePickLogical(&ctx);
+		if (ctx.result_id) {
+			return ctx.result_namelang
+				? (uintptr_t)langGet(ctx.result_namelang)
+				: (uintptr_t)ctx.result_text;
 		}
 		break;
 	case MENUOP_SET:
@@ -3354,26 +3386,28 @@ MenuItemHandlerResult mpAddChangeSimulantMenuHandler(s32 operation, struct menui
 		}
 
 		ctx.needle_idx = data->list.value;
-		assetCatalogIterateUnlockedByType(ASSET_BOT_PROFILE, botprofilePickByIndexCb, &ctx);
+		botprofilePickLogical(&ctx);
 
-		if (ctx.result_profnum >= 0) {
-			s32 profnum = ctx.result_profnum;
+		if (ctx.result_id) {
+			const struct asset_runtime_binding *profile =
+				mpBotProfileRuntimeBindingById(ctx.result_id);
+			if (!profile) {
+				break;
+			}
 			if (creating) {
-				mpCreateBotFromProfile(botnum, profnum);
+				mpCreateBotFromProfileId(botnum, ctx.result_id);
 			} else {
-				/* c3849 Wave 6a: prefer the catalog runtime binding
-				 * (value-identical to g_BotProfiles[] for base profiles);
-				 * logged native fallback when the binding is missing. */
-				const struct asset_runtime_binding *profile = mpBotProfileRuntimeBinding(profnum);
-				if (profile) {
-					g_BotConfigsArray[botnum].type = (u8)profile->bot_profile_type;
-				} else {
-					g_BotConfigsArray[botnum].type = g_BotProfiles[profnum].type;
-				}
-				if (g_BotConfigsArray[botnum].type == BOTTYPE_GENERAL) {
-					mpSetBotDifficulty(botnum, profile
-						? profile->bot_profile_difficulty
-						: g_BotProfiles[profnum].difficulty);
+				strncpy(g_BotConfigsArray[botnum].profile_id,
+					ctx.result_id,
+					sizeof(g_BotConfigsArray[botnum].profile_id) - 1);
+				g_BotConfigsArray[botnum].profile_id[
+					sizeof(g_BotConfigsArray[botnum].profile_id) - 1] = '\0';
+				g_BotConfigsArray[botnum].type = (u8)profile->bot_profile_type;
+				g_BotConfigsArray[botnum].difficulty =
+					(u8)profile->bot_profile_difficulty;
+				for (s32 pi = 0; pi < MAX_PLAYERS; pi++) {
+					g_MpSimulantDifficultiesPerNumPlayers[botnum][pi] =
+						g_BotConfigsArray[botnum].difficulty;
 				}
 			}
 		}
@@ -3383,7 +3417,15 @@ MenuItemHandlerResult mpAddChangeSimulantMenuHandler(s32 operation, struct menui
 		break;
 	case MENUOP_LISTITEMFOCUS:
 		ctx.needle_idx = data->list.value;
-		assetCatalogIterateUnlockedByType(ASSET_BOT_PROFILE, botprofilePickByIndexCb, &ctx);
+		botprofilePickLogical(&ctx);
+		if (ctx.result_id) {
+			strncpy(s_SelectedBotProfileId, ctx.result_id,
+				sizeof(s_SelectedBotProfileId) - 1);
+			s_SelectedBotProfileId[
+				sizeof(s_SelectedBotProfileId) - 1] = '\0';
+		} else {
+			s_SelectedBotProfileId[0] = '\0';
+		}
 		if (ctx.result_profnum >= 0) {
 			g_Menus[g_MpPlayerNum].mpsetup.unke24 = ctx.result_profnum;
 		} else {
@@ -3402,9 +3444,13 @@ MenuItemHandlerResult mpAddChangeSimulantMenuHandler(s32 operation, struct menui
 	case MENUOP_GETOPTGROUPTEXT:
 		return (uintptr_t)langGet(groups[data->list.value].name);
 	case MENUOP_GETGROUPSTARTINDEX:
-		ctx.max_mp_index = groups[data->list.value].offset;
-		assetCatalogIterateUnlockedByType(ASSET_BOT_PROFILE, botprofileGroupStartCb, &ctx);
-		data->list.groupstartindex = ctx.cur;
+		if (data->list.value == 0) {
+			data->list.groupstartindex = 0;
+		} else {
+			assetCatalogIterateUnlockedByType(ASSET_BOT_PROFILE,
+				botprofileGroupStartCb, &ctx);
+			data->list.groupstartindex = ctx.count_general;
+		}
 		break;
 	}
 
@@ -3413,7 +3459,17 @@ MenuItemHandlerResult mpAddChangeSimulantMenuHandler(s32 operation, struct menui
 
 char *mpMenuTextSimulantDescription(struct menuitem *item)
 {
-	return langGet(L_MISC_106 + g_Menus[g_MpPlayerNum].mpsetup.unke24);
+	if (g_Menus[g_MpPlayerNum].mpsetup.unke24
+			< (u32)ARRAYCOUNT(g_BotProfiles)) {
+		return langGet(L_MISC_106
+			+ g_Menus[g_MpPlayerNum].mpsetup.unke24);
+	}
+
+	snprintf(s_SelectedBotProfileDescription,
+		sizeof(s_SelectedBotProfileDescription), "Profile: %s",
+		s_SelectedBotProfileId[0]
+			? s_SelectedBotProfileId : "Unavailable");
+	return s_SelectedBotProfileDescription;
 }
 
 MenuItemHandlerResult menuhandlerMpSimulantHead(s32 operation, struct menuitem *item, union handlerdata *data)
@@ -3606,7 +3662,11 @@ MenuItemHandlerResult menuhandlerMpChangeSimulantType(s32 operation, struct menu
 				g_BotConfigsArray[g_Menus[g_MpPlayerNum].mpsetup.slotindex].difficulty);
 
 		for (i = 0; i < profilenum; i++) {
-			if (challengeIsFeatureUnlocked(g_BotProfiles[i].requirefeature)) {
+			const struct asset_runtime_binding *profile =
+				mpBotProfileRuntimeBinding(i);
+			if (profile
+					&& challengeIsFeatureUnlocked(
+						profile->bot_profile_requirefeature)) {
 				count++;
 			}
 		}
@@ -5759,7 +5819,11 @@ MenuItemHandlerResult mpQuickTeamSimulantDifficultyHandler(s32 operation, struct
 	switch (operation) {
 	case MENUOP_GETOPTIONCOUNT:
 		for (i = 0; i < NUM_BOTDIFFS; i++) {
-			if (challengeIsFeatureUnlocked(g_BotProfiles[i].requirefeature)) {
+			const struct asset_runtime_binding *profile =
+				mpBotProfileRuntimeBinding(i);
+			if (profile
+					&& challengeIsFeatureUnlocked(
+						profile->bot_profile_requirefeature)) {
 				count++;
 			}
 		}
@@ -5768,7 +5832,11 @@ MenuItemHandlerResult mpQuickTeamSimulantDifficultyHandler(s32 operation, struct
 		break;
 	case MENUOP_GETOPTIONTEXT:
 		for (i = 0; i < NUM_BOTDIFFS; i++) {
-			if (challengeIsFeatureUnlocked(g_BotProfiles[i].requirefeature)) {
+			const struct asset_runtime_binding *profile =
+				mpBotProfileRuntimeBinding(i);
+			if (profile
+					&& challengeIsFeatureUnlocked(
+						profile->bot_profile_requirefeature)) {
 				if (count == data->dropdown.value) {
 					return (uintptr_t) langGet(i + L_MISC_082);
 				}
