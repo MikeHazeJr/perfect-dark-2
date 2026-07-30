@@ -32,6 +32,7 @@ import traceback
 from typing import Any
 
 from .lib import fsutil, gitutil, timefmt
+from . import workbench_mode
 from .steps import (
     step1_audit,
     step2_state_sync,
@@ -305,6 +306,20 @@ def main(argv: list[str] | None = None) -> int:
     preflight = _run_lock_cleanup(reason="preflight")
     if preflight.get("deferred_fresh") and args.skip_on_fresh_lock:
         _print(f"{LOG_PREFIX}.LOCK_FRESH.SKIP", {"deferred_fresh": preflight.get("deferred_fresh"), "live_git_processes": preflight.get("live_git_processes")})
+        return 0
+
+    # Workbench is the durable project-truth system. Once present, the old
+    # Kanban-mutating seven-step pipeline must not run: it would create a
+    # conflicting state store. Preserve the scheduled entrypoint as a safe,
+    # read-only current-truth briefing exporter.
+    if workbench_mode.available():
+        result = workbench_mode.run()
+        _print(f"{LOG_PREFIX}.WORKBENCH", result)
+        _record_last_run(
+            timefmt.today_et().isoformat(),
+            status="ok",
+            failure_point=None,
+        )
         return 0
 
     today = timefmt.today_et() if args.for_date is None else dt.date.fromisoformat(args.for_date)

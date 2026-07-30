@@ -62,6 +62,53 @@ or `-Tail -Follow` for the active build.
 
 ---
 
+## STANDING ORDERS - Workbench and Coordination
+
+The repo-local Workbench replaces Kanban as the durable project source of
+truth. The coordination hub is separate operational state for active sessions
+and exclusive-resource queues.
+
+Canonical tooling:
+
+- Workbench: `Tools/Workbench/`
+- Durable data: `Tools/Workbench/data/roadmap.json`, `notes.jsonl`,
+  `changelog.jsonl`
+- Coordination: `Tools/CodexCoordination/CodexCoordination.ps1`
+- Coordination guide: `docs/CODEX_COORDINATION.md`
+
+Every agent session must:
+
+1. Read `Tools/Workbench/README.md` and `Tools/Workbench/SCHEMAS.md`.
+2. Run coordination `status`, then `register` with session id, goal, current
+   task, plan, and ETA.
+3. Read the Workbench roadmap and fold notes affecting its lane.
+4. Process every `new` note affecting its lane before implementation:
+   `acknowledged`, then `incorporated`, `rejected_with_reason`,
+   `needs_clarification`, `waiting_user_decision`, or `superseded`.
+5. Record ownership and dependencies before editing shared surfaces. Respect
+   other active owners; use coordination chat for short operational conflicts.
+6. Before builds, tests, game runs, smoke/multiplayer runs, extraction runs,
+   captures, editors, or deployments, enter the appropriate coordination FIFO,
+   wait until the item is next, run `start`, and run `finish` immediately after.
+   The existing `build-session.ps1` queue remains an additional build safety
+   layer and must not be bypassed.
+7. Update Workbench evidence and status as truth changes. `implemented` means
+   connected to the production path and requires evidence plus model
+   attribution. `validated` requires durable passing evidence; validation and
+   performance items additionally require a passing verdict and artifacts.
+8. Questions requiring a user choice become decision items with two to four
+   concise options and trade-offs. Do not hide user decisions in free-text
+   notes.
+9. Use Workbench notes for durable handoffs whenever ownership changes or work
+   pauses. Use coordination chat only for short live-session messages.
+10. Never hand-count, reuse, rename, or delete Workbench IDs. Ask the server for
+    the next ID or let `POST /api/roadmap/item` assign it.
+
+All Workbench views use the same underlying records. Never create a parallel
+per-view task list or revive the retired Kanban as live state.
+
+---
+
 ## STANDING ORDERS — Context System
 
 **This section is mandatory. Every AI session, every tool, every agent must follow these rules.**
@@ -81,9 +128,11 @@ Before writing any code or making any changes:
 4. Read `context/procedures.md` (build verify, git safety, worktree, truncation discipline)
 5. Read `context/tasks.md` (active punch list)
 6. Read `context/session-log.md` (last 2-3 sessions)
-7. Summarize to the user: where we are, what's next, any blockers
-8. **Present all active work fronts** - don't assume the last task is the next task
-9. Confirm direction before starting work
+7. Read the Workbench roadmap and process new notes affecting your lane.
+8. Check the coordination hub, then register.
+9. Summarize to the user: where we are, what's next, any blockers
+10. **Present all active work fronts** - don't assume the last task is the next task
+11. Confirm direction before starting work
 
 **Only load pillar docs** (`context/pillars/<pillar>.md`) **when the current task requires them.** Don't waste context loading everything. The 11 pillars: catalog, input, menus, modding, connectivity, save-wire-format, server, build-dev-tooling, tests, rendering, physics-collision.
 
@@ -99,7 +148,8 @@ Before implementing anything complex, check `context/constraints.md`:
 - Decision made -> update `context/constraints.md` or relevant pillar doc **immediately**
 - Bug found -> add to `context/bugs.md` **immediately**
 - Bug reveals a pattern -> add to `context/systemic-bugs.md`
-- Task completed -> update `context/tasks.md` **immediately**
+- Work item state changed -> update the Workbench **immediately**
+- Task summary changed -> keep `context/tasks.md` consistent with Workbench
 - Pillar status changed -> update `context/pillars/<pillar>.md` in the same commit as the code change
 - Constraint removed -> add to Removed section of constraints.md with date and rationale
 
@@ -109,7 +159,7 @@ Before implementing anything complex, check `context/constraints.md`:
 
 When the user wraps up or a major task completes:
 1. Update `context/session-log.md` with: focus, what was done, decisions, next steps
-2. Update `context/tasks.md` with current status and any new blockers
+2. Update Workbench status/evidence/notes and keep `context/tasks.md` consistent
 3. Update any pillar doc whose live state shifted
 4. Brief summary to the user of what was recorded
 

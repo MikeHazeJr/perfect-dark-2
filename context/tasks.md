@@ -1,12 +1,22 @@
 # Tasks
 
 > Live punch list only. Completed implementation narratives belong in
-> [session-log.md](session-log.md). Historical card and bug detail remains in the
-> Kanban card history and bug ledger.
+> [session-log.md](session-log.md). The Workbench is the durable live tracker.
+> Historical card detail remains in the retired Kanban archive and bug ledger.
 
-Last updated: 2026-07-07
+Last updated: 2026-07-30
 
-**2026-07-07 FULL-PARITY EXTRACTION + UTILIZATION (active, phased, NOT yet started).**
+**2026-07-30 CURRENT ACTIVE PROGRAM — Workbench `T-ASSETS-001`.** Re-audit
+every asset family from extraction through public `.pdxxx`, catalog/provider
+loading, production adapters, generated-cache boundaries, creator workflows,
+and no-ROM-fallback enforcement. Parallel production-path audits cover
+`T-MENUS-001` and `T-INPUT-004`; fixes remain `missing` until current-tree
+evidence identifies and connects them. Required closure gates are `V-001`
+through `V-004` and `P-001`. Workbench statuses are verified truth, not the
+old board's aspirations.
+
+**2026-07-07 FULL-PARITY EXTRACTION + UTILIZATION (historical completion evidence;
+current claims are being re-audited under `T-ASSETS-001`).**
 Mike directive: make `.pdxxx` a LOSSLESS, fully-utilized representation of the ROM so
 mods = base content, nothing lost, no omitted functionality. Chose full parity (extract
 + utilize). Spec: `context/designs/modding/full-parity-extraction-utilization-2026-07-07.md`.
@@ -27,7 +37,7 @@ quads (parts 0x65/0x66) emitted into nodes.json (schema v2) AND consumed by the 
 type19 = nothing lost). DONE: Phase 1c pdweapon (a231ee44) -- fire models catalog-
 addressable ("projectile_model" ref beside the raw int, loader resolves ref-first;
 held meshes audited already-complete; 20/20 refs resolve to public meshes). **FULL-PARITY
-PROJECT COMPLETE** (all four audited gaps closed; 2a mipmapping cancelled by descope;
+PROJECT COMPLETE for that 2026-07-07 scope** (all four audited gaps closed; 2a mipmapping cancelled by descope;
 2b = check whether base uses palette animation at all, likely documented no-op). Every
 step verified: conformance 9,066 ok, source-gate 36/36, combat_sim 15/15, pd-tests
 841/841.

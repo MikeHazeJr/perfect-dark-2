@@ -1,5 +1,33 @@
 # Session Log (Active)
 
+## 2026-07-30 - Workbench replaces Kanban; comprehensive asset/input audit begins
+
+Mike replaced the repo's Kanban procedure with a Shanties-style Workbench and
+directed that the all-family extraction/archive/runtime plus menus/input/glyph
+audit proceed through it. The implementation is now repo-local under
+`Tools/Workbench/`: atomic `roadmap.json` mutation through a validated Node API,
+append-only note/changelog ledgers, permanent server-assigned IDs, typed
+task/decision/risk/asset/validation/performance records, truth-status evidence
+gates, the complete note lifecycle, and unified Board/Graph/Timeline/Decisions/
+Assets/Validation/Performance/Notes/Activity views.
+
+The separate `Tools/CodexCoordination` hub owns active sessions and FIFO
+exclusive-resource queues; Workbench reads it for the Hub view but never writes
+operational state. AGENTS, context procedures/preferences, the commit-message
+hook, native-source guard, Dev Window v2/v3, and daily-flow entrypoint now route
+to Workbench. The old board/server/evaluators/remote launcher moved intact to
+`context/_old/kanban-legacy/`; 33 non-Done cards, 3 parked threads, and the one
+unresolved Queue Match choice migrated through the API. The 127 Done records
+remain immutable history instead of being promoted to current truth.
+
+Verification: Workbench API contract test passed; Node/Python/PowerShell parse
+checks passed; hook self-test passed; `asset_native_source_guard.py` passed;
+the daily entrypoint emitted a read-only Workbench briefing; and browser QA
+exercised every view, including decision option trade-offs, activity titles,
+the separated Notes/Activity pages, dependency SVG, and the live coordination
+session. `T-TOOLING-001` records the migration. The current audit umbrella is
+`T-ASSETS-001`, with implementation and proof dependencies assigned beneath it.
+
 ## 2026-07-07 - Full-parity extraction project COMPLETE (1a/1b/1c + LOD descope + closures)
 
 Mike's directive: mods-equal-to-base, lossless ROM extraction in accessible .pdxxx

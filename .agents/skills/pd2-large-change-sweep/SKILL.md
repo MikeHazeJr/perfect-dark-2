@@ -7,7 +7,7 @@ description: Use for Perfect Dark 2 when making or auditing broad cross-system c
 
 ## Overview
 
-Use this skill to turn a broad change into a source-of-truth audit before or during implementation. The goal is to catch disconnects between runtime code, tests, context docs, Kanban state, release notes, and user-facing flow before they become follow-up bugs.
+Use this skill to turn a broad change into a source-of-truth audit before or during implementation. The goal is to catch disconnects between runtime code, tests, context docs, Workbench state, release notes, and user-facing flow before they become follow-up bugs.
 
 Always use `context-manager` first when this repo's `context/` directory exists. Treat this skill as the sweep layer that runs after the normal context start, constraint check, and decision-request check.
 
@@ -18,7 +18,7 @@ Always use `context-manager` first when this repo's `context/` directory exists.
 3. **Map runtime evidence.** Find the code paths that prove each flow step works, using `rg` before broader file reads. Prefer concrete handlers, dispatch tables, state transitions, tests, and call sites over comments.
 4. **Find drift and stubs.** Search for stale versions, deprecated targets, old product paths, `TODO`, `stub`, `placeholder`, `not wired`, `future`, `deprecated`, and historical assumptions that now contradict live behavior.
 5. **Separate fix-now from sprint-ledger.** Patch low-risk source-of-truth drift immediately. Record larger runtime gaps as explicit ordered follow-ups tied to the active card instead of leaving them implicit.
-6. **Update project context as part of the work.** Update `context/tasks.md`, relevant `context/pillars/*.md`, `context/session-log.md` when the session closes, and the Kanban card/subtasks. If user-visible behavior changed, update `UNRELEASED.md`.
+6. **Update project context as part of the work.** Update Workbench items/evidence/notes, `context/tasks.md`, relevant `context/pillars/*.md`, and `context/session-log.md` when the session closes. If user-visible behavior changed, update `UNRELEASED.md`.
 7. **Verify the edited state.** Run focused tests or static checks proportional to the change. For docs/JSON-only sweeps, run JSON parsing and whitespace/diff checks; for code behavior, use the isolated build/test session workflow.
 
 ## Asset Pipeline c3842 Gate
@@ -40,7 +40,7 @@ For every large-change sweep, inspect at least these surfaces:
 - **Runtime code:** live constants, dispatch handlers, state machines, lifecycle calls, ownership boundaries, and teardown/return paths.
 - **Tests:** focused unit/static tests, smoke selectors, and any tests that still mention removed targets or old protocol versions.
 - **Context:** `context/README.md`, `context/constraints.md`, `context/tasks.md`, affected pillar docs, and `context/session-log.md` at closeout.
-- **Kanban:** active card notes, status, subtasks, and completed-vs-incomplete split if the user is preparing a sprint handoff.
+- **Workbench:** active item ownership, dependencies, notes, status, evidence, validation/performance gates, and the completed-vs-incomplete split.
 - **Release notes:** `UNRELEASED.md` for user-visible fixes or capabilities.
 - **Historical docs:** roadmaps, audits, or bug records only when they are currently presented as live guidance. Do not rewrite historical records just to remove old wording.
 
@@ -74,5 +74,5 @@ End the sweep with:
 - What was corrected immediately.
 - What runtime evidence proves the flow today.
 - What gaps remain, ordered for the next sprint.
-- What context/Kanban/release-note surfaces were updated.
+- What Workbench/context/release-note surfaces were updated.
 - What verification was run, and what was intentionally not run.

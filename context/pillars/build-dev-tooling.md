@@ -10,11 +10,17 @@ The dev tooling is the bridge between AI sessions writing code and Mike running 
 
 Code:
 
+- Project Workbench: [Tools/Workbench/](../../Tools/Workbench/) (validated
+  Node API, durable typed records, append-only notes/activity, unified web UI).
+- Session/queue coordination:
+  [Tools/CodexCoordination/](../../Tools/CodexCoordination/).
 - Build entry: [devtools/build-headless.ps1](../../devtools/build-headless.ps1) (715 lines).
 - Per-session isolated build: [devtools/build-session.ps1](../../devtools/build-session.ps1) (847 lines).
 - Bash equivalent prelude: [devtools/build-env.sh](../../devtools/build-env.sh).
 - PowerShell prelude: [devtools/_build-env-prelude.ps1](../../devtools/_build-env-prelude.ps1).
 - Dev Window v2 (WPF GUI): [devtools/dev-window-v2/](../../devtools/dev-window-v2/) plus [devtools/dev-window-v2.ps1](../../devtools/dev-window-v2.ps1).
+- Dev Window v3 (supported lean GUI):
+  [devtools/dev-window-v3/](../../devtools/dev-window-v3/).
 - Release pipeline: [devtools/release.ps1](../../devtools/release.ps1) (1021 lines).
 - Test runner: [devtools/run-pd-tests.ps1](../../devtools/run-pd-tests.ps1) (sets canonical build env, suppresses Windows loader popups, runs isolated `pd-tests.exe`).
 - Update system: [port/src/updater.c](../../port/src/updater.c), [port/src/updater_standalone/](../../port/src/updater_standalone/).
@@ -64,6 +70,9 @@ S582 added the active-build watchdog and observable logs: queued child builds de
 
 ### Dev Window v2
 
+The supported v3 window and retained v2 compatibility window both open
+Workbench. The former Kanban phone/start/stop controls are retired.
+
 WPF GUI (`devtools/dev-window-v2/`) for build / run / version / status / git Pull and Push. DPI-aware (S255). Async RunspacePool (1-3 threads) for non-blocking UI updates (S361). Pre-build git sync (S257) via `Invoke-GitSyncBeforeBuild`. Single-exe consistency rules (S270).
 
 S570 made the Push button stage-commit-push-refresh in one click; warm BUILD/RUN TESTS paths skip configure when cache/version/Python tool are current; CMake builds in parallel; addin data mirrored with `robocopy` when available.
@@ -76,9 +85,16 @@ B-372 release-hook fix (2026-05-26): Dev Window v2 Release can reach a successfu
 
 **Codex CLI admin launcher** (2026-05-21): the existing CLI tab still preserves the Claude prompt-composition surface for historical/sprint-report use, but it now also has a separate `Codex CLI Admin` button. That button does not read or require the prompt box. It resolves `codex` from common Windows npm/app install paths or PATH, then opens an elevated profileless PowerShell console in the project root and runs Codex CLI interactively. The launch sets `TERM=xterm-256color`, `COLORTERM=truecolor`, and a temp per-process PSReadLine history path so the button avoids common stale profile/history input glitches without changing Windows registry or deleting user cache files.
 
-**Live-state Git sync** (2026-05-21): Dev Window v2 treats Kanban, Codex memory, and release notes as commit-worthy project state. Before build, release, or push sync commits it mirrors `C:\Users\mikeh\.codex\memories\MEMORY.md` into tracked `tools/kanban/memories.md`, stages the repo, and generates an auto-commit body listing live-state paths plus staged files. The Pull button now fetches the current branch, lists remote commits that are not local yet, and fast-forwards only to the selected commit.
+**Live-state Git sync** (updated 2026-07-30): Dev Window treats Workbench
+roadmap/notes/changelog, Codex memory, and release notes as project state. The
+memory mirror is an ignored Workbench export; roadmap mutations remain API-only.
+The Pull button fetches the current branch, lists remote commits that are not
+local yet, and fast-forwards only to the selected commit.
 
-**Remote Kanban phone launcher** (2026-05-24): Dev Window v2 has `Start Kanban Server` and `Stop Kanban Server` utility buttons for phones that are not on the local network. Start calls [devtools/start-kanban-remote.ps1](../../devtools/start-kanban-remote.ps1) asynchronously, copies/shows the generated `https://*.trycloudflare.com/?token=...` join URL as soon as the helper writes it, and logs the startup output; Stop calls the same script with `-Stop` to shut down the tracked Kanban process and Cloudflare tunnel. The remote starter runs only the Kanban HTTP service at `127.0.0.1`, keeps local port `7531` free for the normal tokenless board, prefers remote port `7533`, and chooses the next free localhost port if needed, with `KANBAN_REMOTE_TOKEN` and `KANBAN_IDLE_TIMEOUT_S=0`; it then starts `cloudflared tunnel --url <local-kanban-url>`. It intentionally does not enable WARP, set a system proxy, configure an exit node, or modify OS routes. Local `Open Kanban` now verifies tokenless `/api/state` before reusing a listener; if a token-gated remote server is listening, it skips that port and starts/opens a separate tokenless board on `7531` or the next free local port. The phone breakpoint is list-first: desktop tabs/filter/sidebar are hidden, a `Filters` modal owns status/pillar selection plus new-card creation, and tapping a card opens a full-screen editor with save/delete, Move Up/Move Down, and card-scoped `Start Session`. The session API starts `codex exec --json --sandbox workspace-write`, records output under `.claude/scratch/kanban-sessions/`, extracts the Codex `thread_id`, and exposes a full-screen phone session view with a response-only transcript, durable queued prompts, selected queued-prompt steering, plan-mode choice-question buttons, and a composer that resumes the same thread through `codex exec resume`. Command/stdout/stderr/raw event details remain on disk for diagnostics but are hidden from the phone transcript. Sessions can be card-scoped or ad-hoc; both launch with context about Active cards and other running sessions.
+**Legacy tracker archive** (2026-07-30): the former remote-board server,
+Cloudflare launcher, evaluators, state, and UI are immutable migration history
+under `context/_old/kanban-legacy/`. Do not run them. Workbench is local-only by
+default; expose it remotely only through a separately reviewed secure design.
 
 **Card Decisions workspace** (2026-05-24): The prior `Asset Decisions` tab is now a selected-card workspace labeled `Card Decisions`. It stores progress state, context, card memories, Codex recommendations, Mike decisions, next-action notes, and decision/progress rows under `x_card_task_context.cards[card_id]`, so switching the selected card stashes inactive-card information instead of deleting it. The old `x_asset_archive_decisions` data remains intact and was copied into the `c3824` card workspace for continuity.
 

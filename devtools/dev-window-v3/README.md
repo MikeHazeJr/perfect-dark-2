@@ -15,6 +15,9 @@ with `Dev Window v3.bat` (or `powershell -File dev-window-v3.ps1`).
 - **Run Game**: launches `Build/PerfectDark.exe` (working dir `Build/`),
   disabled until it exists.
 - **Run Tests**: runs `devtools/run-pd-tests.ps1 -Session devwin`.
+- **Workbench**: starts the repo-local Workbench server if needed and opens
+  its Board/Graph/Timeline/Decisions/Assets/Validation/Performance/Notes/
+  Activity/Hub views.
 - **Release...**: confirm dialog, git-sync (push required), then
   `devtools/release.ps1 -Version X.Y.Z`.
 - **Build Queue panel**: shows the active build and any queued requests from
@@ -52,7 +55,7 @@ transient now.
   build path shells out to `build-headless.ps1` / `release.ps1` / `run-pd-tests.ps1`.
   There is nothing to keep in sync.
 - **Lean.** ~630 lines vs ~5,300. One log pane, one queue panel, six actions.
-  No worktree pruner, no docs tab, no embedded Kanban, no ninja-progress
+  No worktree pruner, no docs tab, no embedded legacy tracker, no ninja-progress
   re-implementation (the headless build already prints progress; v3 just
   streams it).
 - **Same proven internals.** WPF software rendering (S482 workaround),
@@ -70,5 +73,5 @@ transient now.
 
 ## Status
 
-v2 remains in place and is not modified. v3 is additive; adopt it when you are
-ready and retire v2 at your discretion.
+v2 remains only for historical compatibility. v3 is the supported Dev Window,
+and Workbench replaces v2's Kanban controls.
