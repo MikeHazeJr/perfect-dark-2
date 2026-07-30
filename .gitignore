@@ -14,8 +14,8 @@ backups/
 *.dll
 *.o
 *.obj
-!tests/fixtures/**/*.obj
-!examples/modding/**/*.obj
+!tests/fixtures/modpipe/external-folder/maps/tri_arena/geometry.obj
+!tests/fixtures/modpipe/external-archive-entries/maps/tri_arena/geometry.obj
 *.a
 *.pdb
 *.pyc

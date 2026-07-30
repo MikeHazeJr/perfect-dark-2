@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "project": "Perfect Dark 2",
-  "updated": "2026-07-30T19:00:54.315Z",
+  "updated": "2026-07-30T19:03:24.584Z",
   "items": [
     {
       "type": "task",
@@ -866,14 +866,15 @@
         "asset conformance: 28 root / 59 recursive archives / all 27 families PASS",
         "asset conformance selftest: 16 parity + recursion + 7 structured contracts PASS",
         "asset-native-source guard PASS",
-        ".claude/smoke-verify-runs/results-20260730T185923Z.json: 58/58 PASS"
+        ".claude/smoke-verify-runs/results-20260730T185923Z.json: 58/58 PASS",
+        "context/bugs.md:B-972 exact-scope OBJ retention rule"
       ],
       "detail": "Current-tree full-chain matrix covers all 27 public families from extraction through catalog/provider, production consumers, creator flow and fallback boundaries. Cross-cutting fixes B-953 through B-971 are recorded. Implemented families and residual partial contracts remain separated; live device/source-mutation validation is still open.",
       "tags": [
         "workbench-key:asset-current-tree-audit"
       ],
       "id": "T-ASSETS-001",
-      "updated": "2026-07-30T19:00:54.294Z",
+      "updated": "2026-07-30T19:03:24.584Z",
       "created": "2026-07-30T15:16:40.119Z"
     },
     {
