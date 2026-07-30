@@ -6,16 +6,52 @@
 
 ---
 
+## SP-27: Canonical Catalog IDs Are Shadowed by Writable Legacy Fields
+
+**Severity**: HIGH — creator-selected identity can change or disappear after a
+save, network, or configuration round trip
+
+**Root cause**: a format writes both the canonical catalog ID and a deprecated
+numeric mirror, then a reader applies both in file order. The later legacy
+field silently wins despite the nominal migration policy. Keeping both writable
+also creates two hand-maintained representations that can drift.
+
+**Fixed instance (B-964, 2026-07-30)**:
+- MP setup JSON now writes only `weapon_ids`, preferring the canonical
+  `g_MatchConfig` strings so catalog-only weapons survive.
+- The deprecated numeric `weapons` array is accepted only as read-only
+  migration input when `weapon_ids` is absent, regardless of field order.
+- Unresolved canonical IDs, invalid legacy numbers, and failed bot-profile
+  reconstruction reject the whole load instead of reporting partial success.
+
+**Correct approach**:
+- Writers emit only canonical catalog IDs.
+- Readers accept legacy numeric fields for migration only when the canonical
+  field is absent.
+- A nonempty unresolved canonical ID or failed required record makes the whole
+  load fail; it must never be skipped or replaced silently.
+
+**Propagation search**:
+```text
+rg -n "\".*_ids?\"|legacy|fallback|catalog.*id|weapons\\[" port/src src/game
+```
+For each persisted or wire object, identify one authoritative identity field,
+verify deprecated fields are read-only migration inputs, and prove field-order
+independence.
+
+---
+
 ## SP-26: Catalog-Extensible Selectors Collapse Back to Native Indices
 
 **Severity**: CRITICAL — advertised mod content appears in a selector but cannot be selected, persisted, or reconstructed
 
 **Root cause**: a selector correctly iterates catalog entries, then converts the chosen entry back to a legacy `runtime_index`, `mp_index`, table offset, enum, or type/difficulty tuple as its authoritative result. Base rows appear to work because their catalog rows mirror native tables. Creator-added rows have no native slot, normally carry `-1`, or collide with an existing tuple, so their catalog identity is lost immediately after selection.
 
-**Known instance (B-961)**:
-- `src/game/mplayer/setup.c::botprofilePickByIndexCb` returns `asset_entry.mp_index`.
-- Custom `.pdbotprofile` entries therefore turn into `-1` even though they were counted and displayed.
-- Downstream bot config/save/wire state stores legacy type/difficulty rather than the profile catalog ID.
+**Fixed instance (B-961, 2026-07-30)**:
+- The legacy selector now returns and stores the full profile catalog ID; the modern Room UI exposes the same profile domain.
+- `mpbotconfig`, `matchslot`, JSON and binary setup formats, manifests, and both match-start wire directions retain that ID.
+- Type, difficulty, and default body are derived only from the active readable public binding. v0-v2 binary setup blocks migrate to v3 by deriving base IDs from their legacy traits.
+- Focused static/contract coverage and the all-target build are green. A custom-profile MKB/controller/save/network/gameplay receipt remains the validation gate.
 
 **Correct approach**:
 - Keep the full catalog ID as authoritative selector result and runtime state.

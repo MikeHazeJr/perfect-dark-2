@@ -4894,7 +4894,11 @@ enum weaponnum {
 
 #define MPSETUP_MAXSETUPS 128
 #define MPSETUP_MAXNAME 17
-#define MPSETUP_BLOCKSIZE 80
+#define MPSETUP_LEGACY_BLOCKSIZE 80
+/* v3 stores 32 creator-selectable catalog profile IDs in addition to the
+ * legacy bit fields. PC-only saves use a roomy fixed block; v0-v2 files are
+ * still read with MPSETUP_LEGACY_BLOCKSIZE and upgraded in memory. */
+#define MPSETUP_BLOCKSIZE 4096
 
 #define NETMODE_NONE 0
 #define NETMODE_SERVER 1

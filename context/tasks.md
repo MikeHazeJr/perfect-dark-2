@@ -25,10 +25,19 @@ guarded source contract (`T-RUNTIME-004`) now fail closed. The focused suite
 passes 63 cases / 11,744 assertions, the native-source guard passes, and the
 isolated all-target build passes. `T-ASSETS-006` is validated after restoring
 the ignored OBJ fixtures. Remaining critical implementation work includes
-`B-959` (placeholder/incomplete public meta families), `B-961` (custom bot
-profile catalog identity through selection/save/wire/runtime), induced
-runtime-failure receipts for the fail-closed lanes, and the full menu/input
-production-path sweep.
+`B-959` (placeholder/incomplete public meta families), induced runtime-failure
+receipts for the fail-closed lanes, and the full menu/input production-path
+sweep. `B-961` is now production-connected: permanent bot-profile IDs survive
+both menu systems, runtime/match state, JSON and v3 binary setup saves,
+manifest distribution, and v52 lobby/stage-start reconstruction. The
+all-target build, 137-case/15,497-assertion `.pdxxx` band, version pins, and
+native-source guard pass; a custom-profile live interaction/network receipt
+remains before validation. The same save-path review fixed `B-964` and `B-965`:
+MP setup JSON has one catalog-native weapon identity with legacy numbers
+accepted only for migration, required bot records cannot be omitted, and
+binary setup reads/writes reject truncation, future versions, or invalid
+counts/default indices. The updated `.pdxxx` band passes 139 cases / 15,517
+assertions.
 
 **2026-07-07 FULL-PARITY EXTRACTION + UTILIZATION (historical completion evidence;
 current claims are being re-audited under `T-ASSETS-001`).**

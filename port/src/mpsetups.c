@@ -18,9 +18,9 @@ MP Setup File Format
 	[defaultsetup{1}]
 	[numsetups{1}]
 	# setups
-	[setup_1{80}]
+	[setup_1{4096}] (v3; v0-v2 use 80-byte blocks)
 	...
-	[setup_n{80}]
+	[setup_n{4096}] (v3; v0-v2 use 80-byte blocks)
  */
 
 /* MPSETUP_VERSION moved to port/include/mpsetups.h so the test-binary
@@ -361,32 +361,87 @@ static struct menudialogdef g_ImportOverrideDialog = {
 
 static s32 mpsetupDeserialize(FILE *f, struct mpsetupfile *setupfile)
 {
-	s32 rx = 0;
+	size_t blocksize;
 
-	rx += fread(&setupfile->version, sizeof(setupfile->version), 1, f);
-	rx += fread(&setupfile->defaultsetup, sizeof(setupfile->defaultsetup), 1, f);
-	rx += fread(&setupfile->numsetups, sizeof(setupfile->numsetups), 1, f);
-
-	for (int i = 0; i < setupfile->numsetups; ++i) {
-		rx += fread(setupfile->setups[i].bytes, sizeof(setupfile->setups[i].bytes), 1, f);
+	memset(setupfile, 0, sizeof(*setupfile));
+	if (fread(&setupfile->version, sizeof(setupfile->version), 1, f) != 1
+			|| fread(&setupfile->defaultsetup,
+				sizeof(setupfile->defaultsetup), 1, f) != 1
+			|| fread(&setupfile->numsetups,
+				sizeof(setupfile->numsetups), 1, f) != 1) {
+		sysLogPrintf(LOG_ERROR, "MPSETUP: truncated setup-file header");
+		memset(setupfile, 0, sizeof(*setupfile));
+		return -1;
+	}
+	if (setupfile->version > MPSETUP_VERSION) {
+		sysLogPrintf(LOG_ERROR,
+			"MPSETUP: file version %u is newer than supported version %u",
+			(unsigned)setupfile->version, (unsigned)MPSETUP_VERSION);
+		memset(setupfile, 0, sizeof(*setupfile));
+		return -1;
+	}
+	if (setupfile->numsetups > MPSETUP_MAXSETUPS) {
+		sysLogPrintf(LOG_ERROR,
+			"MPSETUP: refusing %u setups (max %u)",
+			(unsigned)setupfile->numsetups,
+			(unsigned)MPSETUP_MAXSETUPS);
+		memset(setupfile, 0, sizeof(*setupfile));
+		return -1;
+	}
+	if (setupfile->defaultsetup > setupfile->numsetups) {
+		sysLogPrintf(LOG_ERROR,
+			"MPSETUP: default setup %u exceeds setup count %u",
+			(unsigned)setupfile->defaultsetup,
+			(unsigned)setupfile->numsetups);
+		memset(setupfile, 0, sizeof(*setupfile));
+		return -1;
 	}
 
-	return rx;
+	blocksize = setupfile->version >= 3
+		? (size_t)MPSETUP_BLOCKSIZE
+		: (size_t)MPSETUP_LEGACY_BLOCKSIZE;
+
+	for (int i = 0; i < setupfile->numsetups; ++i) {
+		if (fread(setupfile->setups[i].bytes, blocksize, 1, f) != 1) {
+			sysLogPrintf(LOG_ERROR,
+				"MPSETUP: truncated setup block %d of %u", i,
+				(unsigned)setupfile->numsetups);
+			memset(setupfile, 0, sizeof(*setupfile));
+			return -1;
+		}
+	}
+
+	return 0;
 }
 
 static s32 mpsetupSerialize(FILE *f, struct mpsetupfile *setupfile)
 {
-	s32 wx = 0;
-
-	wx += fwrite(&setupfile->version, sizeof(setupfile->version), 1, f);
-	wx += fwrite(&setupfile->defaultsetup, sizeof(setupfile->defaultsetup), 1, f);
-	wx += fwrite(&setupfile->numsetups, sizeof(setupfile->numsetups), 1, f);
-
-	for (int i = 0; i < setupfile->numsetups; ++i) {
-		wx += fwrite(setupfile->setups[i].bytes, sizeof(setupfile->setups[i].bytes), 1, f);
+	if (setupfile->version != MPSETUP_VERSION
+			|| setupfile->numsetups > MPSETUP_MAXSETUPS
+			|| setupfile->defaultsetup > setupfile->numsetups) {
+		sysLogPrintf(LOG_ERROR, "MPSETUP: refusing invalid setup-file state");
+		return -1;
+	}
+	if (fwrite(&setupfile->version, sizeof(setupfile->version), 1, f) != 1
+			|| fwrite(&setupfile->defaultsetup,
+				sizeof(setupfile->defaultsetup), 1, f) != 1
+			|| fwrite(&setupfile->numsetups,
+				sizeof(setupfile->numsetups), 1, f) != 1) {
+		sysLogPrintf(LOG_ERROR, "MPSETUP: failed to write setup-file header");
+		return -1;
 	}
 
-	return wx;
+	for (int i = 0; i < setupfile->numsetups; ++i) {
+		if (fwrite(setupfile->setups[i].bytes,
+				sizeof(setupfile->setups[i].bytes), 1, f) != 1) {
+			sysLogPrintf(LOG_ERROR,
+				"MPSETUP: failed to write setup block %d of %u", i,
+				(unsigned)setupfile->numsetups);
+			return -1;
+		}
+	}
+
+	return 0;
 }
 
 static FILE *mpsetupOpenFile(bool write, u8 op) {
@@ -436,7 +491,7 @@ static s32 mpsetupSaveFile(u8 op, struct mpsetupfile *setupfile)
 	}
 
 	s32 nwritten = mpsetupSerialize(f, setupfile);
-	if (nwritten < 1) {
+	if (nwritten < 0) {
 		fsFileFree(f);
 		sysLogPrintf(LOG_ERROR, "Unable to write the MP setup file");
 		snprintf(g_StatusText, sizeof(g_StatusText), "Unable to write the setup file\n");
@@ -454,7 +509,29 @@ static s32 mpsetupLoadFile(struct mpsetupfile *setupfile, u8 op)
 		return -1;
 	}
 
-	mpsetupDeserialize(f, setupfile);
+	if (mpsetupDeserialize(f, setupfile) < 0) {
+		fsFileFree(f);
+		return -1;
+	}
+
+	/* Upgrade every legacy block before the file version changes. Otherwise
+	 * saving one v3 setup would relabel untouched v2 blocks and corrupt them. */
+	if (setupfile->version < MPSETUP_VERSION) {
+		u8 oldversion = setupfile->version;
+		for (s32 i = 0; i < setupfile->numsetups; i++) {
+			struct savebuffer oldbuf;
+			struct savebuffer newbuf;
+			savebufferClear(&oldbuf);
+			savebufferClear(&newbuf);
+			memcpy(oldbuf.bytes, setupfile->setups[i].bytes,
+				MPSETUP_LEGACY_BLOCKSIZE);
+			mpsetupfileLoadWad(&oldbuf, oldversion);
+			mpsetupfileSaveWad(&newbuf);
+			memcpy(setupfile->setups[i].bytes, newbuf.bytes,
+				MPSETUP_BLOCKSIZE);
+		}
+		setupfile->version = MPSETUP_VERSION;
+	}
 
 	if (op == MPSETUP_OP_DEFAULT && setupfile->defaultsetup > 0) {
 		mpsetupLoadSetup(setupfile->defaultsetup - 1);

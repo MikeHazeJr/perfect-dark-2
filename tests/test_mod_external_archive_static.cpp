@@ -4968,11 +4968,106 @@ TEST_CASE("weapon graph MP agreement is protocol-versioned after cutover",
 	REQUIRE(net.find("weaponGraphRuntimeNetRestoreEnabled()") == std::string::npos);
 
 	const std::string netHeader = readFile("port/include/net/net.h");
-	REQUIRE(netHeader.find("#define NET_PROTOCOL_VER 51") != std::string::npos);
-	REQUIRE(netHeader.find("v50/v51") != std::string::npos);
+	REQUIRE(netHeader.find("#define NET_PROTOCOL_VER 52") != std::string::npos);
+	REQUIRE(netHeader.find("v51/v52") != std::string::npos);
 
 	const std::string versions = readFile("tests/test_versions.cpp");
-	REQUIRE(versions.find("g_TestExpectedNetProtocolVer  = 51") != std::string::npos);
+	REQUIRE(versions.find("g_TestExpectedNetProtocolVer  = 52") != std::string::npos);
+}
+
+TEST_CASE("bot-profile catalog identity reaches UI save wire manifest and runtime",
+          "[modding][pdxxx][bot_profile][identity][static]") {
+	const std::string types = readFile("src/include/types.h");
+	REQUIRE(types.find("char profile_id[64]") != std::string::npos);
+
+	const std::string matchHeader = readFile("port/include/net/matchsetup.h");
+	REQUIRE(matchHeader.find("char profile_id[64]") != std::string::npos);
+	REQUIRE(matchHeader.find("matchConfigAddBotWithProfile") != std::string::npos);
+	REQUIRE(matchHeader.find("matchConfigSetBotProfile") != std::string::npos);
+
+	const std::string mplayer = readFile("src/game/mplayer/mplayer.c");
+	REQUIRE(mplayer.find("mpBotProfileRuntimeBindingById") != std::string::npos);
+	REQUIRE(mplayer.find("mpCreateBotFromProfileId") != std::string::npos);
+	REQUIRE(mplayer.find("savebufferWriteString_ext(buffer, (char *)profile_id, 64)") != std::string::npos);
+	REQUIRE(mplayer.find("savebufferReadString_ext(buffer,") != std::string::npos);
+
+	const std::string legacyMenu = readFile("src/game/mplayer/setup.c");
+	REQUIRE(legacyMenu.find("ctx.result_id") != std::string::npos);
+	REQUIRE(legacyMenu.find("mpCreateBotFromProfileId(botnum, ctx.result_id)") != std::string::npos);
+
+	const std::string room = readFile("port/fast3d/pdgui_menu_room.cpp");
+	REQUIRE(room.find("Set Profile") != std::string::npos);
+	REQUIRE(room.find("matchConfigSetBotProfile") != std::string::npos);
+	REQUIRE(room.find("matchConfigAddBotWithProfile(src->profile_id") != std::string::npos);
+
+	const std::string match = readFile("port/src/net/matchsetup.c");
+	REQUIRE(match.find("s_matchSlotApplyBotProfile") != std::string::npos);
+	REQUIRE(match.find("mpBotProfileRuntimeBindingById(profile_id)") != std::string::npos);
+	REQUIRE(match.find("strncpy(bot->profile_id, profile_id") != std::string::npos);
+
+	const std::string scenario = readFile("port/src/scenario_save.c");
+	REQUIRE(scenario.find("\"profileId\"") != std::string::npos);
+	REQUIRE(scenario.find("matchConfigAddBotWithProfile(") != std::string::npos);
+
+	const std::string save = readFile("port/src/savefile.c");
+	REQUIRE(save.find("\"profile_id\"") != std::string::npos);
+	REQUIRE(save.find("matchConfigAddBotWithProfile(profile_id") != std::string::npos);
+
+	const std::string netmsg = readFile("port/src/net/netmsg.c");
+	REQUIRE(netmsg.find("netbufWriteStr(dst, sl->profile_id)") != std::string::npos);
+	REQUIRE(netmsg.find("lobby bot slot %d has no public profile") != std::string::npos);
+	REQUIRE(netmsg.find("const u16 profile_session = catalogReadAssetRef(src)") != std::string::npos);
+	REQUIRE(netmsg.find("sessionCatalogGetId(profile_canon)") != std::string::npos);
+
+	const std::string manifest = readFile("port/src/net/netmanifest.c");
+	REQUIRE(manifest.find("sl->profile_id[0] ? assetCatalogResolve(sl->profile_id)") != std::string::npos);
+	REQUIRE(manifest.find("pe && pe->type == ASSET_BOT_PROFILE") != std::string::npos);
+
+	const std::string setupHeader = readFile("port/include/mpsetups.h");
+	REQUIRE(setupHeader.find("#define MPSETUP_VERSION 3") != std::string::npos);
+	const std::string constants = readFile("src/include/constants.h");
+	REQUIRE(constants.find("#define MPSETUP_BLOCKSIZE 4096") != std::string::npos);
+}
+
+TEST_CASE("MP setup JSON has one catalog-native weapon identity",
+          "[modding][pdxxx][weapon][save][b964][static]") {
+	const std::string save = readFile("port/src/savefile.c");
+
+	REQUIRE(save.find("B-964: write one authoritative representation") !=
+	        std::string::npos);
+	REQUIRE(save.find("g_MatchConfig.weapon_ids[i][0]") !=
+	        std::string::npos);
+	REQUIRE(save.find("writeJsonStringValue(fp, wid ? wid : \"\")") !=
+	        std::string::npos);
+	REQUIRE(save.find("fprintf(fp, \"  \\\"weapons\\\": [\")") ==
+	        std::string::npos);
+	REQUIRE(save.find("s32 saw_weapon_ids = 0") != std::string::npos);
+	REQUIRE(save.find("if (!saw_weapon_ids)") != std::string::npos);
+	REQUIRE(save.find("is unavailable\", i, wid_buf)") !=
+	        std::string::npos);
+	REQUIRE(save.find("SAVE: MP setup bot profile") != std::string::npos);
+}
+
+TEST_CASE("binary MP setup files reject partial unsupported or invalid state",
+          "[modding][pdxxx][save][b965][static]") {
+	const std::string setups = readFile("port/src/mpsetups.c");
+
+	REQUIRE(setups.find("truncated setup-file header") != std::string::npos);
+	REQUIRE(setups.find("setupfile->version > MPSETUP_VERSION") !=
+	        std::string::npos);
+	REQUIRE(setups.find("setupfile->defaultsetup > setupfile->numsetups") !=
+	        std::string::npos);
+	REQUIRE(setups.find("truncated setup block %d of %u") !=
+	        std::string::npos);
+	REQUIRE(setups.find("memset(setupfile, 0, sizeof(*setupfile))") !=
+	        std::string::npos);
+	REQUIRE(setups.find("setupfile->version != MPSETUP_VERSION") !=
+	        std::string::npos);
+	REQUIRE(setups.find("failed to write setup-file header") !=
+	        std::string::npos);
+	REQUIRE(setups.find("failed to write setup block %d of %u") !=
+	        std::string::npos);
+	REQUIRE(setups.find("if (nwritten < 0)") != std::string::npos);
 }
 
 TEST_CASE("archive-backed typed weapon sources keep transport-root chain",
@@ -5298,12 +5393,13 @@ TEST_CASE("catalog game mode and bot profile assets drive live runtime selectors
 	REQUIRE(scenarios.find("assetCatalogIterateUnlockedByType(ASSET_GAMEMODE, scenarioPickByIndexCb, &ctx)") != std::string::npos);
 	REQUIRE(scenarios.find("g_MpSetup.scenario = ctx.scenario_match") != std::string::npos);
 	REQUIRE(scenarios.find("scenarioInit()") != std::string::npos);
-	REQUIRE(scenarios.find("g_MpScenarioOverviews[e->ext.gamemode.mode_id].name") != std::string::npos);
+	REQUIRE(scenarios.find("binding->gamemode_name") != std::string::npos);
+	REQUIRE(scenarios.find("scenarioBindingForEntry") != std::string::npos);
 
 	std::string setup = readFile("src/game/mplayer/setup.c");
 	REQUIRE(setup.find("assetCatalogIterateUnlockedByType(ASSET_BOT_PROFILE, botprofileCountCb, &ctx)") != std::string::npos);
-	REQUIRE(setup.find("assetCatalogIterateUnlockedByType(ASSET_BOT_PROFILE, botprofilePickByIndexCb, &ctx)") != std::string::npos);
-	REQUIRE(setup.find("mpCreateBotFromProfile(botnum, profnum)") != std::string::npos);
+	REQUIRE(setup.find("botprofilePickByIndexCb, ctx") != std::string::npos);
+	REQUIRE(setup.find("mpCreateBotFromProfileId(botnum, ctx.result_id)") != std::string::npos);
 	REQUIRE(setup.find("g_BotConfigsArray[botnum].type = (u8)profile->bot_profile_type") != std::string::npos);
 	REQUIRE(setup.find("g_BotProfiles[profnum]") == std::string::npos);
 	REQUIRE(setup.find("assetCatalogIterateUnlockedByType(ASSET_BOT_PROFILE, botdiffCountCb, &ctx)") != std::string::npos);

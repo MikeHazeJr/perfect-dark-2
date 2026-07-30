@@ -43,7 +43,7 @@ Truth rules:
 | A-ASSETS-023 | `.pdvehicle` | Model plus placeholder physics and three-node behavior graph | Metadata walker + generic binding; model source can load | Vehicle visual model can resolve | Generic descriptor editor | **missing (B-959)** — physics and behavior files are not executed by the hoverbike runtime |
 | A-ASSETS-024 | `.pdmission` | Scenario dependency, objectives/mission graph, placeholder briefing | Metadata walker + generic binding | Scenario owns substantial mission execution, but no standalone `ASSET_MISSION` selector/runtime consumer was found | Generic descriptor editor | **partial (B-959)** — mission wrapper/briefing is not authoritative campaign source |
 | A-ASSETS-025 | `.pdgamemode` | Selector metadata plus OG-backend rules wrapper | Metadata walker + generic binding | Team flag reaches selector | Generic descriptor editor | **partial (B-953/B-959)** — name/description, player bounds and rules source are not comprehensively consumed; missing bindings still fall back |
-| A-ASSETS-026 | `.pdbotprofile` | Selector mirrors plus OG-backend profile wrapper | Metadata walker + generic binding | Type/difficulty/body reach bot creation/menu | Generic descriptor editor | **partial (B-959)** — profile payload/target/name/unlock are not a complete source-owned bot profile runtime and binding misses fall back |
+| A-ASSETS-026 | `.pdbotprofile` | Selector mirrors plus OG-backend profile wrapper | Metadata walker + generic binding | Permanent profile ID now reaches both menus, bot/match runtime, saves, manifests, and v52 wire; traits/body derive from the readable binding | Archive-aware descriptor editor; live interaction proof pending | **partial (B-959; B-961 implemented)** — identity no longer collapses to native indices, but `profile.json` is still not a comprehensive creator-authored behavior/tuning source |
 | A-ASSETS-027 | `.pdhud` | Empty `slots` array plus renderer label today | Metadata walker + generic binding | No HUD renderer consumer of the binding/layout was found | Generic descriptor editor | **missing (B-959)** |
 | A-ASSETS-028 | `.pdtheme` | Theme style/tokens plus optional dependencies | Theme walker/catalog and theme loader | Theme JSON and catalog UI assets drive ImGui styling | Theme editor and Hub | **partial** — direct style loading is live; dependency archives are not yet all authoritative runtime inputs and missing bindings fall back |
 
@@ -60,6 +60,15 @@ Truth rules:
 - **B-959:** placeholder public source and generic-binding-only runtime claims
   across metadata families.
 - **B-960:** runtime fallback correctness depended on optional debug mode.
+- **B-961:** catalog-backed bot-profile selection discarded custom identity at
+  `mp_index = -1`. The permanent ID now survives UI, runtime/match state,
+  v3 setup migration, manifests, and v52 network reconstruction; live custom
+  profile interaction/network/gameplay proof remains.
+- **B-964:** MP setup JSON dual-wrote catalog weapon IDs and a later numeric
+  mirror that overwrote them on load; writers now emit one catalog-native
+  representation and old numbers are migration-only.
+- **B-965:** binary MP setup IO accepted truncated, future-version, and invalid
+  index state; exact IO and schema/index validation now reject partial files.
 
 ## Required closure sequence
 

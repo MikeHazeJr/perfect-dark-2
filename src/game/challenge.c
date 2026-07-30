@@ -1,4 +1,5 @@
 #include <ultra64.h>
+#include <string.h>
 #include "constants.h"
 #include "assetcatalog.h" /* SA-5e: catalogGetMpWeaponNum / catalogGetMpWeaponUnlockFeature */
 #include "asset_runtime.h"
@@ -20,6 +21,7 @@
 #include "lib/dma.h"
 #include "lib/rng.h"
 #include "data.h"
+#include "system.h"
 #include "types.h"
 #include "modmgr.h"
 #include "game/mplayer/participant.h"
@@ -260,6 +262,24 @@ void challengePerformSanityChecks(void)
 
 		for (i = 0; i < MAX_BOTS; i++) {
 			g_BotConfigsArray[i].difficulty = g_MpSimulantDifficultiesPerNumPlayers[i][numplayers - 1];
+			if (g_BotConfigsArray[i].difficulty != BOTDIFF_DISABLED) {
+				const char *profile_id = mpBotProfileIdForTraits(
+					g_BotConfigsArray[i].type,
+					g_BotConfigsArray[i].difficulty);
+				if (!profile_id) {
+					sysFatalError("CHALLENGE: bot %d traits type=%u "
+						"difficulty=%u have no public profile.", i,
+						(unsigned)g_BotConfigsArray[i].type,
+						(unsigned)g_BotConfigsArray[i].difficulty);
+					return;
+				}
+				strncpy(g_BotConfigsArray[i].profile_id, profile_id,
+					sizeof(g_BotConfigsArray[i].profile_id) - 1);
+				g_BotConfigsArray[i].profile_id[
+					sizeof(g_BotConfigsArray[i].profile_id) - 1] = '\0';
+			} else {
+				g_BotConfigsArray[i].profile_id[0] = '\0';
+			}
 
 			if (g_BotConfigsArray[i].difficulty != BOTDIFF_DISABLED) {
 				mpAddParticipantAt(i + MAX_PLAYERS, PARTICIPANT_BOT, 0, -1, 0xFF);

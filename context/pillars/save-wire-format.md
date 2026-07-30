@@ -9,8 +9,8 @@
 Two persisted formats and one transient format share the same versioning discipline:
 
 1. **Save format** - PC-native JSON files at known paths (`agent_<name>.json`, `player_<name>.json`, `mpsetup_<name>.json`, `system.json`). Replaces N64 EEPROM. `SAVE_VERSION = 2`.
-2. **MP setup format** - binary WAD format for MP setup blocks. `MPSETUP_VERSION = 2`.
-3. **Wire format** - ENet UDP frames. `NET_PROTOCOL_VER = 51`.
+2. **MP setup format** - binary WAD format for MP setup blocks. `MPSETUP_VERSION = 3`.
+3. **Wire format** - ENet UDP frames. `NET_PROTOCOL_VER = 52`.
 
 All three are version-pinned in headers and verified in tests; mixed-version mismatches are rejected at handshake.
 
@@ -32,7 +32,7 @@ Four save types:
 
 - **`saveagent`** ([savefile.h:55-110](../../port/include/savefile.h:55)) - per-agent profile. Version, name, totaltime, `besttimes[60][3]` (60 stages x 3 difficulties), `coopcompletions[3]` bitmask, `firingrangescores[9]`, `weaponsfound[6]`, control mode arrays, audio volumes, `challengecompleted[128]`. Generous allocations explicitly to escape N64 bit-pack limits.
 - **`savemplayer`** ([savefile.h:116-157](../../port/include/savefile.h:116)) - per-MP-player profile. `head_id[CATALOG_ID_LEN]` and `body_id[CATALOG_ID_LEN]` are the SA-4 string IDs, not raw indices. Stats are u32 (no truncation). Medals u32. Playtime u32 seconds.
-- **`savempsetup`** ([savefile.h:172-194](../../port/include/savefile.h:172)) - MP match setup. `stage_id[CATALOG_ID_LEN]`, `weapons[8]` (expanded from 6), `bots[SAVE_MAX_BOTS]` (32), `playerTeams[SAVE_MAX_PLAYERSLOTS]` (8).
+- **`savempsetup`** ([savefile.h:172-194](../../port/include/savefile.h:172)) - MP match setup. `stage_id[CATALOG_ID_LEN]`, `weapons[8]` (expanded from 6), `bots[SAVE_MAX_BOTS]` (32), `playerTeams[SAVE_MAX_PLAYERSLOTS]` (8). Every saved bot includes its authoritative `profile_id`; body/head IDs and the cached type/difficulty remain presentation/runtime derivations.
 - **`savesystem`** - system-wide settings (controls, audio, video, etc.).
 
 JSON parsing: minimal hand-written tokenizer at [savefile.c:40-100+](../../port/src/savefile.c:40), same approach as [modmgr.c](../../port/src/modmgr.c) and [updater.c](../../port/src/updater.c).
@@ -61,17 +61,29 @@ A static guard in the test pins the live loader's gate ordering: random-filter u
 
 ## MP setup format
 
-`MPSETUP_VERSION = 2` at [port/include/mpsetups.h:19](../../port/include/mpsetups.h:19), bumped from 1 on 2026-04-26 alongside `NET_PROTOCOL_VER 43 -> 44` for the Goldfinger 64 weapon cull.
+`MPSETUP_VERSION = 3` at [port/include/mpsetups.h](../../port/include/mpsetups.h), bumped on 2026-07-30 so each bot's permanent public `.pdbotprofile` catalog ID survives a binary setup round trip. PC blocks grow from 80 to 4096 bytes.
 
 The constant lives in the **public header** (not file-local in [port/src/mpsetups.c](../../port/src/mpsetups.c)) so the test pin (`tests/test_versions_pin.c`) can read the live value through the public header. (Promoted 2026-04-26.)
 
-v < 2 saves migrate via the clamp rule in `mpsetupfileLoadWad`: weapon values >= 0x27 (the old PP9I slot) are clamped to `MPWEAPON_DISABLED` (now 0x28, formerly 0x30); the random-filter mask is cleared.
+v0-v2 files are read using the historical 80-byte block size. The loader preserves the v < 2 weapon clamp, derives a base profile ID from each legacy bot's type/difficulty, expands every block in memory, and writes v3 on the next save.
+
+B-965 hardening (2026-07-30): binary setup files require exact header and
+per-block reads/writes. Files with truncated data, versions newer than the
+current schema, excessive setup counts, or an invalid one-based default setup
+index are rejected with partial state cleared.
+
+B-964 hardening (2026-07-30): JSON MP setup writers emit only canonical
+`weapon_ids`, preferring `g_MatchConfig.weapon_ids` so catalog-only creator
+weapons survive. The deprecated numeric `weapons` array is read-only migration
+input and applies only when the canonical field is absent. An unresolved
+nonempty catalog ID, invalid legacy weapon, or unreconstructable required bot
+rejects the entire load.
 
 ---
 
 ## Wire protocol
 
-`NET_PROTOCOL_VER = 51` at [port/include/net/net.h:12](../../port/include/net/net.h:12). Latest bump 2026-06-17: c3849 Wave 7 makes weapon graph runtime product-default ON, retires the old user toggle plus transient stage-start options bit, and uses the existing auth handshake to reject mixed v50/v51 peers. v50 (2026-06-08) batched `SVC_CATALOG_INFO` with total/offset/count metadata, made catalog diff and manifest-status missing lists use `u16` heap-backed counts, and grew the distribution queue for large custom typed-archive packs. v49 (2026-05-17) carried `CLC_LOBBY_RESYNC 0x18` so post-match room return can request authoritative `SVC_ROOM_ASSIGN`, `SVC_ROOM_SETTINGS`, and `SVC_ROOM_PLAYLIST`. v48 (2026-05-16, c3807 Track 2d) carried `SVC_GPUSWARM_STATE 0x6c` listen-host GPU swarm state broadcast. v47 carried Skedar surface-normal locomotion MP sync (`chr->surface_up` over the wire). v46 (S507/S511, 2026-04-28) added mandatory SHA-256 digest on `SVC_DISTRIB_BEGIN` and cutscene network semantics.
+`NET_PROTOCOL_VER = 52` at [port/include/net/net.h:12](../../port/include/net/net.h:12). The 2026-07-30 bump carries bot-profile catalog identity in both match-start directions and requires the selected `.pdbotprofile` plus dependencies in the match manifest. Receivers resolve the public profile and derive type/difficulty; stale transmitted traits are diagnostic only. Mixed v51/v52 peers are rejected at auth. Earlier bumps remain documented in `net.h` and [pillars/connectivity.md](connectivity.md).
 
 See [pillars/connectivity.md](connectivity.md) for the full changelog and protocol details.
 
@@ -98,7 +110,7 @@ Test coverage at [tests/test_savebuffer.cpp](../../tests/test_savebuffer.cpp): 1
 Per [constraints.md](../constraints.md):
 
 - **Save file format compatibility** - config values stored in `pd.ini` via `configRegisterInt / UInt`. Save migration framework exists for future format changes.
-- **MPSETUP_VERSION = 2** (S468, 2026-04-26).
+- **MPSETUP_VERSION = 3** (2026-07-30 bot-profile catalog identity).
 - **Catalog ID strings at all interface boundaries** (since 2026-04-02). Wire, save, public APIs use full catalog ID strings; raw N64 array indices (bodynum, headnum, filenum, stagenum, texnum, animnum) must not cross boundaries.
 - **`matchslot` / match config: catalog ID strings are primary identity.** `body_id` and `head_id` as strings; integer derivation only at `matchStart` last-mile handoff.
 - **30 agent save slots** - hardcoded in filelist struct layout. Cannot increase without breaking save format.

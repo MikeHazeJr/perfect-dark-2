@@ -1,6 +1,6 @@
 # Connectivity / Online
 
-> ENet UDP transport. Server-authoritative wire protocol at v51. 6-tier P2P NAT traversal (LAN -> DIRECT -> STUN -> UPnP -> ICE -> TURN). Connect codes hide raw IPs. Presence service (Ed25519 v3). Voice (libopus, optional). Listen-host is the current shipping target; dedicated server deferred.
+> ENet UDP transport. Server-authoritative wire protocol at v52. 6-tier P2P NAT traversal (LAN -> DIRECT -> STUN -> UPnP -> ICE -> TURN). Connect codes hide raw IPs. Presence service (Ed25519 v3). Voice (libopus, optional). Listen-host is the current shipping target; dedicated server deferred.
 
 ---
 
@@ -27,7 +27,7 @@ Code:
 
 ## Wire protocol
 
-`NET_PROTOCOL_VER 51` at [port/include/net/net.h:12](../../port/include/net/net.h:12). The header carries an in-source changelog from v27 through v51. The version is pinned by [tests/test_versions.cpp:46](../../tests/test_versions.cpp:46) (`g_TestExpectedNetProtocolVer`) which reads the live header.
+`NET_PROTOCOL_VER 52` at [port/include/net/net.h:12](../../port/include/net/net.h:12). The header carries an in-source changelog from v27 through v52. The version is pinned by [tests/test_versions.cpp](../../tests/test_versions.cpp) (`g_TestExpectedNetProtocolVer`) which reads the live header.
 
 Mixed-version play is rejected at the ENet auth handshake ([port/src/net/net.c:1560](../../port/src/net/net.c:1560) `enet_peer_disconnect(peer, DISCONNECT_VERSION)`) and at the presence-channel proto check ([port/src/group_session.c:212](../../port/src/group_session.c:212)).
 
@@ -35,6 +35,7 @@ Mixed-version play is rejected at the ENet auth handshake ([port/src/net/net.c:1
 
 | Bump | What changed |
 |------|--------------|
+| **v52 (2026-07-30)** | Selected bot-profile identity is a public `.pdbotprofile` catalog ID in `CLC_LOBBY_START`, a session-catalog reference in `SVC_STAGE_START`, and a required manifest entry. Receivers derive bot type/difficulty from the profile and reject missing public bindings. |
 | **v51 (2026-06-17)** | c3849 Wave 7: weapon graph runtime is product-default ON, the old user toggle plus transient stage-start option bit are retired, and mixed v50/v51 play is rejected at auth. |
 | **v50 (2026-06-08)** | `SVC_CATALOG_INFO` batches catalog advertisement with total/offset/count metadata, `CLC_CATALOG_DIFF` and `CLC_MANIFEST_STATUS` read heap-backed `u16` missing lists, and the distribution transfer queue grows so large custom typed-archive packs do not truncate during lobby or ready-gate asset sync. |
 | **v49 (2026-05-17)** | `CLC_LOBBY_RESYNC 0x18` lets a client request authoritative `SVC_ROOM_ASSIGN`, `SVC_ROOM_SETTINGS`, and `SVC_ROOM_PLAYLIST` after match end so post-match room return does not rely on stale client state. |

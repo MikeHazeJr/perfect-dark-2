@@ -36,6 +36,7 @@
 #include "asset_source_debug.h"
 
 #include "game/botmgr.h"
+#include "game/mplayer/mplayer.h"
 #include "game/prop.h"
 #include "game/propobj.h"
 #include "game/modeldef.h"
@@ -214,6 +215,18 @@ static void s_fillBotSlot(s32 slot, const forge_object_t *o)
     case 1:  bc->difficulty = BOTDIFF_HARD;   break;
     case 2:  bc->difficulty = BOTDIFF_NORMAL; break;
     default: bc->difficulty = BOTDIFF_EASY;   break;
+    }
+    bc->type = BOTTYPE_GENERAL;
+    {
+        const char *profile_id = mpBotProfileIdForTraits(
+            bc->type, bc->difficulty);
+        if (!profile_id) {
+            sysFatalError("FORGE: no public bot profile for difficulty %u",
+                (unsigned)bc->difficulty);
+            return;
+        }
+        strncpy(bc->profile_id, profile_id, sizeof(bc->profile_id) - 1);
+        bc->profile_id[sizeof(bc->profile_id) - 1] = '\0';
     }
 }
 

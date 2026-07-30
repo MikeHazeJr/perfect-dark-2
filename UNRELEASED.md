@@ -36,6 +36,14 @@
   ignore rule had silently excluded, and strengthened the native-source guard
   so debug-gated or direct runtime fallback paths cannot satisfy the public
   archive contract.
+- Preserved custom `.pdbotprofile` catalog identity through both multiplayer
+  menu systems, match/runtime state, scenario and setup saves, manifests, and
+  network match start; older binary setups migrate to the new profile-aware
+  format and mixed v51/v52 peers are rejected.
+- Made multiplayer setup saves catalog-native and fail-loud: JSON no longer
+  writes a numeric weapon mirror that can overwrite creator weapon IDs, and
+  binary setup files reject partial reads/writes, unsupported versions, and
+  invalid setup indices.
 - Extracted character animations now preserve root-motion (translation + facing) and cutscene camera channels in the public `.pdanim`. 439 root-motion and 98 camera animations that previously survived only in the private runtime cache now round-trip losslessly, so modded and extracted anims keep their movement and camera data.
 - Custom weapon behavior authored in `.pdweapon`/`.pdprojectile`/`.pdentity` graphs now actually drives gameplay (behind the developer graph-runtime toggle): homing steering gains, fly-by-wire tuning, trajectory clamps, wall-hugger and sticky behavior, bounce tuning, fuse timers, impact filters/sounds/sparks/explosions, smoke trails, carrier-to-turret transitions, proxy/remote/timed mine policies with detonator pairing, deployed-autogun cadence and muzzle behavior, owner-death cleanup, pickup/recover rules, weapon settings/variables with `$name` substitution, and an x-ray camera effect. Base-game behavior is bit-identical with the toggle off (and on, for base weapons).
 - Custom visual effects now have a runtime: `.pdeffect` graphs compile and drive the existing explosion/spark/smoke machinery, including custom-tinted spark types (the Needler's pink burst), with effects nested inside weapon archives now correctly discovered.

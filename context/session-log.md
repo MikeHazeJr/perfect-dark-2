@@ -41,12 +41,30 @@ passes, and isolated session build `pd2assetaudit` passes all targets.
 
 Workbench records preserve the remaining truth: `B-959` tracks placeholder or
 incompletely executed material/skin/vehicle/prop/bot/game-mode/mission/HUD
-families, and `B-961` tracks custom bot profiles losing catalog identity at the
-base-slot selector bridge and therefore lacking save/wire/runtime support.
-Fail-closed runtime lanes are implemented but not yet validated because their
-induced missing-source receipts are still outstanding. The next bounded change
-is catalog-ID-safe bot-profile identity, followed by the remaining family
-adapters and the MKB/controller/glyph menu sweep.
+families. Fail-closed runtime lanes are implemented but not yet validated
+because their induced missing-source receipts are still outstanding.
+
+`B-961` is now production-connected. Permanent bot-profile IDs survive the
+legacy Simulant picker, modern Room UI, `mpbotconfig`/`matchslot`, copy/name/
+difficulty flows, challenge/Forge creation, JSON scenario and setup files, v3
+binary setup blocks with v0-v2 migration, match manifests, v52 lobby-start
+IDs, and stage-start session references. Runtime traits and default body are
+derived from the active readable public profile binding. Verification passes
+the all-target build, 137 `.pdxxx` cases / 15,497 assertions, version pins,
+and native-source guard. Live custom-profile MKB/controller/save/network/
+gameplay proof remains, followed by the remaining family adapters and full
+menu/input/glyph sweep.
+
+The save/wire review also found and fixed B-964/SP-27 and B-965. MP setup JSON
+had written catalog `weapon_ids` plus a deprecated numeric array and then let
+the later numeric field overwrite the canonical selection on load; catalog-
+only creator weapons could disappear. Writers now emit only catalog IDs,
+legacy numbers are migration-only when canonical IDs are absent, and missing
+weapon/profile records reject the load. Binary setup IO now requires exact
+header/block reads and writes, rejects future versions and invalid counts/
+default indices, and clears partial state on failure. Verification passes the
+all-target build, 19 focused assertions, 139 `.pdxxx` cases / 15,517
+assertions, version pins, and the native-source guard.
 
 ## 2026-07-07 - Full-parity extraction project COMPLETE (1a/1b/1c + LOD descope + closures)
 

@@ -647,6 +647,7 @@ void manifestBuild(match_manifest_t *out, struct hub_room_s *room,
         {
             const asset_entry_t *be = sl->body_id[0] ? assetCatalogResolve(sl->body_id) : NULL;
             const asset_entry_t *he = sl->head_id[0] ? assetCatalogResolve(sl->head_id) : NULL;
+            const asset_entry_t *pe = sl->profile_id[0] ? assetCatalogResolve(sl->profile_id) : NULL;
             if (be) {
                 manifestAddEntry(out, be->id,
                                  MANIFEST_TYPE_BODY, slot_index);
@@ -656,6 +657,10 @@ void manifestBuild(match_manifest_t *out, struct hub_room_s *room,
                 manifestAddEntry(out, he->id,
                                  MANIFEST_TYPE_HEAD, slot_index);
                 s_manifestExpandDeps(out, he->id, slot_index);
+            }
+            if (pe && pe->type == ASSET_BOT_PROFILE) {
+                s_manifestAddCatalogEntry(out, pe, slot_index);
+                s_manifestExpandDeps(out, pe->id, slot_index);
             }
         }
         slot_index++;
@@ -979,6 +984,7 @@ void manifestBuildForHost(match_manifest_t *out)
         {
             const asset_entry_t *be = sl->body_id[0] ? assetCatalogResolve(sl->body_id) : NULL;
             const asset_entry_t *he = sl->head_id[0] ? assetCatalogResolve(sl->head_id) : NULL;
+            const asset_entry_t *pe = sl->profile_id[0] ? assetCatalogResolve(sl->profile_id) : NULL;
             if (be) {
                 manifestAddEntry(out, be->id, MANIFEST_TYPE_BODY, slot_index);
                 s_manifestExpandDeps(out, be->id, slot_index);
@@ -986,6 +992,10 @@ void manifestBuildForHost(match_manifest_t *out)
             if (he) {
                 manifestAddEntry(out, he->id, MANIFEST_TYPE_HEAD, slot_index);
                 s_manifestExpandDeps(out, he->id, slot_index);
+            }
+            if (pe && pe->type == ASSET_BOT_PROFILE) {
+                s_manifestAddCatalogEntry(out, pe, slot_index);
+                s_manifestExpandDeps(out, pe->id, slot_index);
             }
         }
         slot_index++;

@@ -4128,6 +4128,9 @@ struct mpplayerconfig {
 
 struct mpbotconfig {
 	struct mpchrconfig base;
+	/* PRIMARY: catalog identity for the public .pdbotprofile source.
+	 * type/difficulty below are derived runtime fields. */
+	char profile_id[64];
 	u8 unk44[3];
 	u8 type;
 	u8 difficulty;
@@ -4191,7 +4194,7 @@ struct bossfile {
 
 struct savebuffer {
 	u32 bitpos;
-	u8 bytes[220];
+	u8 bytes[MPSETUP_BLOCKSIZE];
 };
 
 struct mparena {

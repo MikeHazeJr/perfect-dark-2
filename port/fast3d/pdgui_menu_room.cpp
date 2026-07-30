@@ -886,6 +886,65 @@ static const char *s_BotTypeNames[] = {
 };
 static const int s_NumBotTypes = 13;
 
+/* Public bot-profile picker. Unlike the old type/difficulty-only controls,
+ * this retains custom .pdbotprofile catalog identity through match setup. */
+#define MAX_ROOM_BOT_PROFILES 256
+struct RoomBotProfileEntry {
+    char id[CATALOG_ID_LEN];
+    char name[96];
+    u8 type;
+    u8 difficulty;
+};
+static RoomBotProfileEntry s_RoomBotProfiles[MAX_ROOM_BOT_PROFILES];
+static s32 s_RoomBotProfileCount = 0;
+
+static void roomBotProfileCollect(const asset_entry_t *entry, void *userdata)
+{
+    (void)userdata;
+    if (!entry || s_RoomBotProfileCount >= MAX_ROOM_BOT_PROFILES) return;
+    RoomBotProfileEntry *out = &s_RoomBotProfiles[s_RoomBotProfileCount++];
+    strncpy(out->id, entry->id, sizeof(out->id) - 1);
+    out->id[sizeof(out->id) - 1] = '\0';
+    out->type = entry->ext.bot_profile.type;
+    out->difficulty = entry->ext.bot_profile.difficulty;
+    if (entry->ext.bot_profile.name_langid) {
+        snprintf(out->name, sizeof(out->name), "%s",
+                 langGet(entry->ext.bot_profile.name_langid));
+    } else if (out->type == 0 && out->difficulty < s_NumSimDiffs) {
+        snprintf(out->name, sizeof(out->name), "%s", s_SimDiffNames[out->difficulty]);
+    } else if (out->type < s_NumBotTypes) {
+        snprintf(out->name, sizeof(out->name), "%s", s_BotTypeNames[out->type]);
+    } else {
+        snprintf(out->name, sizeof(out->name), "%s", entry->id);
+    }
+}
+
+static void rebuildRoomBotProfileCache(void)
+{
+    s_RoomBotProfileCount = 0;
+    assetCatalogIterateUnlockedByType(ASSET_BOT_PROFILE,
+                                      roomBotProfileCollect, nullptr);
+    std::sort(s_RoomBotProfiles,
+              s_RoomBotProfiles + s_RoomBotProfileCount,
+              [](const RoomBotProfileEntry &a, const RoomBotProfileEntry &b) {
+                  const bool ag = a.type == 0;
+                  const bool bg = b.type == 0;
+                  if (ag != bg) return ag;
+                  return strcasecmp(a.name, b.name) < 0;
+              });
+}
+
+static const char *roomBotProfileName(const char *profile_id)
+{
+    if (!profile_id || !profile_id[0]) return "Unavailable";
+    for (s32 i = 0; i < s_RoomBotProfileCount; i++) {
+        if (strcmp(s_RoomBotProfiles[i].id, profile_id) == 0) {
+            return s_RoomBotProfiles[i].name;
+        }
+    }
+    return profile_id;
+}
+
 static void botPresetCacheCb(const asset_entry_t *entry, void *userdata)
 {
     (void)userdata;
@@ -2593,6 +2652,7 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
             /* Determine common settings across selected bots for checkmarks.
              * If all selected share the same value, mark it; otherwise -1. */
             int commonDiff = -1, commonType = -1, commonBody = -1;
+            char commonProfile[CATALOG_ID_LEN] = {0};
             {
                 bool first = true;
                 for (int j = 1; j < g_MatchConfig.numSlots; j++) {
@@ -2600,13 +2660,49 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
                     int d = (int)g_MatchConfig.slots[j].botDifficulty;
                     int t = (int)g_MatchConfig.slots[j].botType;
                     int b = (int)g_MatchConfig.slots[j].bodynum;
-                    if (first) { commonDiff = d; commonType = t; commonBody = b; first = false; }
+                    if (first) {
+                        commonDiff = d;
+                        commonType = t;
+                        commonBody = b;
+                        strncpy(commonProfile,
+                                g_MatchConfig.slots[j].profile_id,
+                                sizeof(commonProfile) - 1);
+                        first = false;
+                    }
                     else {
                         if (commonDiff != d) commonDiff = -1;
                         if (commonType != t) commonType = -1;
                         if (commonBody != b) commonBody = -1;
+                        if (strcmp(commonProfile,
+                                   g_MatchConfig.slots[j].profile_id) != 0) {
+                            commonProfile[0] = '\0';
+                        }
                     }
                 }
+            }
+
+            if (isLeader && ImGui::BeginMenu("Set Profile")) {
+                rebuildRoomBotProfileCache();
+                for (s32 pi = 0; pi < s_RoomBotProfileCount; pi++) {
+                    const RoomBotProfileEntry &profile =
+                        s_RoomBotProfiles[pi];
+                    const bool selected = commonProfile[0]
+                        && strcmp(commonProfile, profile.id) == 0;
+                    char label[CATALOG_ID_LEN + 112];
+                    snprintf(label, sizeof(label), "%s##profile_%s",
+                             profile.name, profile.id);
+                    if (ImGui::MenuItem(label, nullptr, selected)) {
+                        for (int j = 1; j < g_MatchConfig.numSlots; j++) {
+                            if (s_BotSelected[j]
+                                && g_MatchConfig.slots[j].type == SLOT_BOT) {
+                                matchConfigSetBotProfile(j, profile.id);
+                            }
+                        }
+                        pdguiPlaySound(PDGUI_SND_SUBFOCUS);
+                        s_RoomSettingsDirty = true;
+                    }
+                }
+                ImGui::EndMenu();
             }
 
             /* Set AI Type — simulant difficulty preset. Applies to every
@@ -2615,8 +2711,11 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
                 for (int d = 0; d < s_NumSimDiffs; d++) {
                     if (ImGui::MenuItem(s_SimDiffNames[d], NULL, d == commonDiff)) {
                         for (int j = 1; j < g_MatchConfig.numSlots; j++) {
-                            if (s_BotSelected[j] && g_MatchConfig.slots[j].type == SLOT_BOT)
-                                g_MatchConfig.slots[j].botDifficulty = (u8)d;
+                            if (s_BotSelected[j]
+                                && g_MatchConfig.slots[j].type == SLOT_BOT) {
+                                matchConfigSetBotTraits(j,
+                                    g_MatchConfig.slots[j].botType, (u8)d);
+                            }
                         }
                         pdguiPlaySound(PDGUI_SND_SUBFOCUS);
                         s_RoomSettingsDirty = true;
@@ -2631,8 +2730,11 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
                 for (int t = 0; t < s_NumBotTypes; t++) {
                     if (ImGui::MenuItem(s_BotTypeNames[t], NULL, t == commonType)) {
                         for (int j = 1; j < g_MatchConfig.numSlots; j++) {
-                            if (s_BotSelected[j] && g_MatchConfig.slots[j].type == SLOT_BOT)
-                                g_MatchConfig.slots[j].botType = (u8)t;
+                            if (s_BotSelected[j]
+                                && g_MatchConfig.slots[j].type == SLOT_BOT) {
+                                matchConfigSetBotTraits(j, (u8)t,
+                                    g_MatchConfig.slots[j].botDifficulty);
+                            }
                         }
                         pdguiPlaySound(PDGUI_SND_SUBFOCUS);
                         s_RoomSettingsDirty = true;
@@ -2805,8 +2907,9 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
                         if (!s_BotSelected[j] || g_MatchConfig.slots[j].type != SLOT_BOT) continue;
                         if (countBots() >= botLimit) { skipped++; continue; }
                         struct matchslot *src = &g_MatchConfig.slots[j];
-                        if (matchConfigAddBot(src->botType, src->botDifficulty,
-                                              src->body_id, src->head_id, NULL) >= 0) {
+                        if (matchConfigAddBotWithProfile(src->profile_id,
+                                              src->body_id, src->head_id,
+                                              NULL) >= 0) {
                             added++;
                         }
                     }
@@ -4240,6 +4343,33 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
             ImGui::SetNextItemWidth(-1);
             ImGui::InputText("##botmodalname", sl->name, MAX_PLAYER_NAME);
 
+            /* Public profile source. Selecting a profile derives the runtime
+             * type/difficulty and its default character from one catalog ID. */
+            rebuildRoomBotProfileCache();
+            ImGui::Text("Profile:");
+            ImGui::SameLine(labelCol);
+            ImGui::SetNextItemWidth(-1);
+            if (ImGui::BeginCombo("##botmodalprofile",
+                                  roomBotProfileName(sl->profile_id))) {
+                for (s32 pi = 0; pi < s_RoomBotProfileCount; pi++) {
+                    const RoomBotProfileEntry &profile =
+                        s_RoomBotProfiles[pi];
+                    bool selected = strcmp(sl->profile_id, profile.id) == 0;
+                    char label[CATALOG_ID_LEN + 112];
+                    snprintf(label, sizeof(label), "%s##modal_profile_%s",
+                             profile.name, profile.id);
+                    if (ImGui::Selectable(label, selected)) {
+                        if (matchConfigSetBotProfile(s_EditBotSlotIdx,
+                                                     profile.id) == 0) {
+                            s_RoomSettingsDirty = true;
+                            pdguiPlaySound(PDGUI_SND_SUBFOCUS);
+                        }
+                    }
+                    if (selected) ImGui::SetItemDefaultFocus();
+                }
+                ImGui::EndCombo();
+            }
+
             /* Difficulty */
             ImGui::Text("Difficulty:");
             ImGui::SameLine(labelCol);
@@ -4249,8 +4379,11 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
                 for (int d = 0; d < s_NumSimDiffs; d++) {
                     bool sel = (d == (int)sl->botDifficulty);
                     if (ImGui::Selectable(s_SimDiffNames[d], sel)) {
-                        sl->botDifficulty = (u8)d;
-                        pdguiPlaySound(PDGUI_SND_SUBFOCUS);
+                        if (matchConfigSetBotTraits(s_EditBotSlotIdx,
+                                                   sl->botType, (u8)d) == 0) {
+                            s_RoomSettingsDirty = true;
+                            pdguiPlaySound(PDGUI_SND_SUBFOCUS);
+                        }
                     }
                     if (sel) ImGui::SetItemDefaultFocus();
                 }

@@ -99,7 +99,10 @@ u8 mpFindUnusedTeamNum(void);
  * pull in asset_runtime.h for every multiplayer TU. */
 struct asset_runtime_binding;
 const struct asset_runtime_binding *mpBotProfileRuntimeBinding(s32 profilenum);
+const struct asset_runtime_binding *mpBotProfileRuntimeBindingById(const char *profile_id);
+const char *mpBotProfileIdForTraits(s32 type, s32 difficulty);
 void mpCreateBotFromProfile(s32 botnum, u8 difficulty);
+s32 mpCreateBotFromProfileId(s32 botnum, const char *profile_id);
 void mpSetBotDifficulty(s32 botnum, s32 difficulty);
 s32 mpGetSlotForNewBot(void);
 void mpRemoveSimulant(s32 index);

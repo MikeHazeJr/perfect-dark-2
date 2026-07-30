@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "project": "Perfect Dark 2",
-  "updated": "2026-07-30T16:45:35.216Z",
+  "updated": "2026-07-30T17:25:15.327Z",
   "items": [
     {
       "type": "task",
@@ -1249,16 +1249,19 @@
         "T-ASSETS-001"
       ],
       "evidence": [
-        "context/audits/2026/asset-pipeline-full-chain-audit-2026-07-30.md"
+        "context/audits/2026/asset-pipeline-full-chain-audit-2026-07-30.md",
+        "context/bugs.md:B-964",
+        "T-ASSETS-007",
+        "tests/test_mod_external_archive_static.cpp:[b964]"
       ],
-      "detail": "Full-chain audit 2026-07-30: Held graph/model production paths are live, but optional settings/presentation/dependency fields still include stored-only or ignored semantics.",
+      "detail": "Full-chain audit update 2026-07-30: Held graph/model production paths are live, and B-964 now preserves catalog-only weapon IDs through MP setup JSON without a numeric mirror override. The family remains partial because optional settings/presentation/dependency fields still include stored-only or ignored semantics and live catalog-only save/reload proof is pending.",
       "tags": [
         "asset-family",
         "asset-family:pdweapon",
         "descriptor:weapon.ini"
       ],
       "id": "A-ASSETS-002",
-      "updated": "2026-07-30T16:22:11.168Z",
+      "updated": "2026-07-30T17:25:15.327Z",
       "created": "2026-07-30T15:32:27.720Z"
     },
     {
@@ -1851,16 +1854,19 @@
       ],
       "evidence": [
         "context/audits/2026/asset-pipeline-full-chain-audit-2026-07-30.md",
-        "context/bugs.md:B-959"
+        "context/bugs.md:B-959",
+        "context/bugs.md:B-961",
+        "T-ASSETS-005",
+        "tests/test_mod_external_archive_static.cpp:[bot_profile]"
       ],
-      "detail": "Full-chain audit 2026-07-30: Type/difficulty/body reach bot creation, but profile payload/target/name/unlock and fallback retirement remain open. B-959.",
+      "detail": "Full-chain audit update 2026-07-30: B-961 is production-connected, so the selected public profile catalog ID now survives both menus, runtime/match state, save formats, manifests, and v52 network reconstruction. The family remains partial under B-959 because profile.json still names an OG parity backend and does not yet expose/execute a comprehensive creator-authored behavior/tuning schema; live custom-profile proof is also pending.",
       "tags": [
         "asset-family",
         "asset-family:pdbotprofile",
         "descriptor:botprofile.ini"
       ],
       "id": "A-ASSETS-026",
-      "updated": "2026-07-30T16:22:11.173Z",
+      "updated": "2026-07-30T17:15:29.468Z",
       "created": "2026-07-30T15:32:27.873Z"
     },
     {
@@ -2178,10 +2184,10 @@
       "model": "gpt-5"
     },
     {
-      "status": "missing",
+      "status": "implemented",
       "type": "task",
       "title": "B-961: make bot-profile catalog identity end-to-end authoritative",
-      "detail": "Custom .pdbotprofile rows are counted/displayed but collapse to mp_index -1 and lose identity. Carry catalog ID through selector, bot config, copy/name generation, save/migration, match config, manifest/distribution, lobby and stage-start wire, then resolve legacy gameplay fields only at the final boundary. Validate with custom-profile MKB/controller selection, save/reload, listen-host/client reconstruction, and gameplay.",
+      "detail": "Permanent public .pdbotprofile catalog identity now survives the legacy Simulant picker, modern Room UI, mpbotconfig/matchslot, copy/name/difficulty paths, challenge/Forge creation, JSON scenario and setup files, MPSETUP v3 binary blocks with v0-v2 migration, match manifests, NET v52 CLC_LOBBY_START IDs, and SVC_STAGE_START session references. Runtime type/difficulty/default body derive from the active readable public binding and missing profiles fail closed. Implementation evidence is green; live custom-profile MKB/controller, save/reload, listen-host/client, and gameplay proof remains before validated.",
       "owner": "codex-pd2-workbench-assets-20260730",
       "deps": [
         "T-ASSETS-004"
@@ -2189,9 +2195,20 @@
       "evidence": [
         "context/bugs.md:B-961",
         "context/systemic-bugs.md:SP-26",
-        "src/game/mplayer/setup.c:botprofilePickByIndexCb",
-        "src/include/types.h:mpbotconfig",
-        "port/include/net/matchsetup.h:matchslot"
+        "src/game/mplayer/setup.c:mpAddChangeSimulantMenuHandler",
+        "port/fast3d/pdgui_menu_room.cpp:roomBotProfileCollect",
+        "src/game/mplayer/mplayer.c:mpCreateBotFromProfileId",
+        "port/src/net/matchsetup.c:s_matchSlotApplyBotProfile",
+        "port/src/net/netmanifest.c",
+        "port/src/net/netmsg.c",
+        "port/src/scenario_save.c",
+        "port/src/savefile.c",
+        "port/src/mpsetups.c",
+        "tests/test_mod_external_archive_static.cpp:[bot_profile]",
+        "tests/test_versions.cpp",
+        ".claude/session-builds/pd2assetaudit/_build-session.out.log",
+        "python tools/asset_native_source_guard.py PASS",
+        "pd-tests [modding][pdxxx]: 137 cases / 15497 assertions PASS"
       ],
       "lane": "runtime-utilization",
       "area": "ASSETS",
@@ -2204,8 +2221,9 @@
         "save-wire"
       ],
       "id": "T-ASSETS-005",
-      "updated": "2026-07-30T16:30:23.432Z",
-      "created": "2026-07-30T16:30:23.432Z"
+      "updated": "2026-07-30T17:15:16.091Z",
+      "created": "2026-07-30T16:30:23.432Z",
+      "model": "Codex GPT-5"
     },
     {
       "deps": [
@@ -2271,6 +2289,72 @@
       "id": "T-RUNTIME-004",
       "updated": "2026-07-30T16:45:35.206Z",
       "created": "2026-07-30T16:40:24.906Z"
+    },
+    {
+      "id": "T-ASSETS-007",
+      "evidence": [
+        "context/bugs.md:B-964",
+        "context/systemic-bugs.md:SP-27",
+        "port/src/savefile.c:saveSaveMpSetup",
+        "port/src/savefile.c:saveLoadMpSetup",
+        "tests/test_mod_external_archive_static.cpp:[b964]",
+        ".claude/session-builds/pd2assetaudit/_build-session.out.log",
+        "pd-tests [b964],[b965]: 19 assertions PASS",
+        "pd-tests [modding][pdxxx]: 139 cases / 15517 assertions PASS"
+      ],
+      "title": "B-964: remove dual-written legacy weapon identity from MP setup saves",
+      "owner": "codex-pd2-workbench-assets-20260730",
+      "deps": [
+        "T-ASSETS-001"
+      ],
+      "area": "ASSETS",
+      "phase": 3,
+      "tags": [
+        "bug:B-964",
+        "systemic:SP-27",
+        "catalog-identity",
+        "save-wire",
+        "asset-family:pdweapon"
+      ],
+      "type": "task",
+      "detail": "MP setup JSON now writes only canonical weapon_ids, preferring g_MatchConfig strings so catalog-only creator weapons survive. Deprecated numeric weapons are accepted only as migration input when canonical IDs are absent. Unresolved IDs, invalid legacy values, or failed bot reconstruction reject the load. Live catalog-only save/reload remains before validated.",
+      "lane": "save-wire",
+      "status": "implemented",
+      "updated": "2026-07-30T17:24:52.930Z",
+      "created": "2026-07-30T17:17:30.278Z",
+      "model": "Codex GPT-5"
+    },
+    {
+      "evidence": [
+        "context/bugs.md:B-965",
+        "port/src/mpsetups.c:mpsetupDeserialize",
+        "port/src/mpsetups.c:mpsetupSerialize",
+        "tests/test_mod_external_archive_static.cpp:[b965]",
+        ".claude/session-builds/pd2assetaudit/_build-session.out.log",
+        "pd-tests [b964],[b965]: 19 assertions PASS",
+        "python tools/asset_native_source_guard.py PASS"
+      ],
+      "area": "ASSETS",
+      "type": "task",
+      "id": "T-ASSETS-008",
+      "phase": 3,
+      "owner": "codex-pd2-workbench-assets-20260730",
+      "detail": "Binary MP setup IO now requires exact header/block reads and writes, rejects versions newer than MPSETUP_VERSION, excessive setup counts, invalid one-based default indices, and clears partial state on failure. Corrupt-file runtime receipt remains before validated.",
+      "deps": [
+        "T-ASSETS-005"
+      ],
+      "lane": "save-wire",
+      "status": "implemented",
+      "title": "B-965: reject truncated or unsupported binary MP setup files",
+      "tags": [
+        "bug:B-965",
+        "save-wire",
+        "integrity",
+        "migration"
+      ],
+      "updated": "2026-07-30T17:24:52.948Z",
+      "created": "2026-07-30T17:22:02.725Z",
+      "model": "Codex GPT-5"
     }
   ]
 }

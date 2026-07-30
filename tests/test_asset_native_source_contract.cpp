@@ -158,9 +158,12 @@ TEST_CASE("asset native-source guard is tracked by tests and source docs",
 	        std::string::npos);
 	REQUIRE(guard.find("asset_archive_conformance.py") !=
 	        std::string::npos);
-	REQUIRE(guard.find("c3842-s7") != std::string::npos);
-	REQUIRE(guard.find("c3842-s8") != std::string::npos);
-	REQUIRE(guard.find("c3842-s9") != std::string::npos);
+	REQUIRE(guard.find("\"Tools/Workbench/data/roadmap.json\"") !=
+	        std::string::npos);
+	REQUIRE(guard.find("\".pdbotprofile\": \"botprofile.ini\"") !=
+	        std::string::npos);
+	REQUIRE(guard.find("\".pdtheme\": \"theme.ini\"") !=
+	        std::string::npos);
 	REQUIRE(guard.find("SCENARIO_RUNTIME_COUNT_RULES") !=
 	        std::string::npos);
 	REQUIRE(guard.find("scan_scenario_runtime_count_guards") !=
@@ -823,13 +826,16 @@ TEST_CASE("c3842 source-of-truth docs stay aligned",
 	REQUIRE(tasks.find("source-hashed cache only") != std::string::npos);
 	REQUIRE(tasks.find("c3844") != std::string::npos);
 
-	const std::string kanban = readTextFile("tools/kanban/state.json");
-	REQUIRE(kanban.find("\"id\": \"c3842\"") != std::string::npos);
-	REQUIRE(kanban.find("\"priority\": 1") != std::string::npos);
-	REQUIRE(kanban.find("\"id\": \"c3842-s7\"") != std::string::npos);
-	REQUIRE(kanban.find("\"id\": \"c3842-s8\"") != std::string::npos);
-	REQUIRE(kanban.find("\"id\": \"c3842-s9\"") != std::string::npos);
-	REQUIRE(kanban.find("definitive optional-slot") != std::string::npos);
+	const std::string workbench =
+		readTextFile("tools/Workbench/data/roadmap.json");
+	REQUIRE(workbench.find("\"id\": \"T-ASSETS-001\"") !=
+	        std::string::npos);
+	REQUIRE(workbench.find("\"id\": \"A-ASSETS-001\"") !=
+	        std::string::npos);
+	REQUIRE(workbench.find("\"id\": \"V-001\"") != std::string::npos);
+	REQUIRE(workbench.find("Public asset source guard passes") !=
+	        std::string::npos);
+	REQUIRE(workbench.find("source-hashed") != std::string::npos);
 }
 
 TEST_CASE("runtime ROM fallback is tracked as an asset-chain failure",
@@ -839,7 +845,8 @@ TEST_CASE("runtime ROM fallback is tracked as an asset-chain failure",
 	const std::string modding = readTextFile("context/pillars/modding.md");
 	const std::string catalog = readTextFile("context/pillars/catalog.md");
 	const std::string guard = readTextFile("tools/asset_native_source_guard.py");
-	const std::string kanban = readTextFile("tools/kanban/state.json");
+	const std::string workbench =
+		readTextFile("tools/Workbench/data/roadmap.json");
 
 	REQUIRE(constraints.find("Runtime ROM fallback is an asset-chain failure") !=
 	        std::string::npos);
@@ -850,12 +857,13 @@ TEST_CASE("runtime ROM fallback is tracked as an asset-chain failure",
 	        std::string::npos);
 	REQUIRE(catalog.find("runtime ROM/RomProvider fallback after extraction is an asset-chain failure") !=
 	        std::string::npos);
-	REQUIRE(guard.find("c3844 must explicitly track ROM fallback") !=
+	REQUIRE(guard.find("Runtime ROM fallback is an asset-chain failure") !=
 	        std::string::npos);
-	REQUIRE(kanban.find("\"id\": \"c3844\"") != std::string::npos);
-	REQUIRE(kanban.find("Asset Pipeline: 100% source/runtime parity closure") !=
+	REQUIRE(workbench.find("\"id\": \"T-ASSETS-001\"") !=
 	        std::string::npos);
-	REQUIRE(kanban.find("\"id\": \"c3844-s1\"") != std::string::npos);
+	REQUIRE(workbench.find("Audit every asset family from extraction through production use") !=
+	        std::string::npos);
+	REQUIRE(workbench.find("\"id\": \"V-003\"") != std::string::npos);
 }
 
 TEST_CASE("scenario object-backed room object weapon predicates validate source before runtime tags",
@@ -12358,14 +12366,14 @@ TEST_CASE("Settings Debug can force one asset family to public file source",
 	REQUIRE(main_c.find("bootEnsureUiArchivesReadyAfterTextureInit") !=
 	        std::string::npos);
 	REQUIRE(main_c.find("written = romExtractAllPdui(0)") != std::string::npos);
-	REQUIRE(main_c.find("(void)romExtractAllPdtexture(0)") <
-	        main_c.find("(void)romExtractAllPdui(0)"));
+	REQUIRE(main_c.find("texture_result = romExtractAllPdtexture(0)") <
+	        main_c.find("written = romExtractAllPdui(0)"));
 	{
 		const std::string ui_ready = functionBlock(main_c,
 			"s32 bootEnsureUiArchivesReadyAfterTextureInit");
 		REQUIRE(!ui_ready.empty());
 		requireTokenOrder(ui_ready,
-			"(void)romExtractAllPdtexture(0)",
+			"texture_result = romExtractAllPdtexture(0)",
 			"written = romExtractAllPdui(0)");
 	}
 	REQUIRE(pdgui_theme.find("g_TcGeneralConfigs") != std::string::npos);
@@ -15567,13 +15575,12 @@ TEST_CASE("c3849 Wave 6a: meta-family runtime consumers feed native systems",
 		"const struct asset_runtime_binding *mpBotProfileRuntimeBinding(s32 profilenum)") !=
 		std::string::npos);
 
-	/* botprofile helper resolves catalog runtime identity, requires a readable
-	 * binding, and fails closed instead of using g_BotProfiles. */
+	/* Bot-profile lookup by permanent catalog ID requires a readable binding
+	 * and fails closed instead of using g_BotProfiles as authored truth. */
 	const std::string helper = functionBlock(mplayer,
-		"const struct asset_runtime_binding *mpBotProfileRuntimeBinding");
+		"const struct asset_runtime_binding *mpBotProfileRuntimeBindingById");
 	REQUIRE(!helper.empty());
-	REQUIRE(helper.find("catalogIdByRuntime(ASSET_BOT_PROFILE") !=
-	        std::string::npos);
+	REQUIRE(helper.find("assetCatalogResolve(profile_id)") != std::string::npos);
 	REQUIRE(helper.find("assetRuntimeFindByTypeAndId(ASSET_BOT_PROFILE") !=
 	        std::string::npos);
 	REQUIRE(helper.find("assetRuntimePrimaryFileAccessible") !=
@@ -15582,19 +15589,21 @@ TEST_CASE("c3849 Wave 6a: meta-family runtime consumers feed native systems",
 	REQUIRE(helper.find("CATALOG.BOTPROFILE.RUNTIME_MISS") ==
 	        std::string::npos);
 
-	/* mpCreateBotFromProfile consumes only binding values. */
+	/* mpCreateBotFromProfileId consumes only binding values and retains ID. */
 	const std::string create =
-		functionBlock(mplayer, "void mpCreateBotFromProfile");
+		functionBlock(mplayer, "s32 mpCreateBotFromProfileId");
 	REQUIRE(!create.empty());
-	REQUIRE(create.find("mpBotProfileRuntimeBinding(profilenum)") !=
+	REQUIRE(create.find("mpBotProfileRuntimeBindingById(profile_id)") !=
 	        std::string::npos);
 	REQUIRE(create.find("bot_profile_type") != std::string::npos);
 	REQUIRE(create.find("bot_profile_difficulty") != std::string::npos);
-	REQUIRE(create.find("bot_profile_body") != std::string::npos);
+	REQUIRE(create.find("profile->target_id") != std::string::npos);
+	REQUIRE(create.find("g_BotConfigsArray[botnum].profile_id") !=
+	        std::string::npos);
 	REQUIRE(create.find("g_BotProfiles[profilenum]") == std::string::npos);
 
 	/* Simulant menu apply site consumes the same helper without fallback. */
-	REQUIRE(setup.find("mpBotProfileRuntimeBinding(profnum)") !=
+	REQUIRE(setup.find("mpBotProfileRuntimeBindingById(ctx.result_id)") !=
 	        std::string::npos);
 	REQUIRE(setup.find("profile->bot_profile_type") != std::string::npos);
 	REQUIRE(setup.find("g_BotProfiles[profnum]") == std::string::npos);

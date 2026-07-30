@@ -49,12 +49,15 @@ clean extractor receipt, induced failure receipt, or live MKB/controller path is
 still required. B-962 is validated: checked-in fixture/example OBJ creator
 source is no longer swallowed by the global build-object ignore.
 
-The same audit opened B-959 and B-961. B-959 covers metadata families whose
-public payloads are placeholder/synthetic or stop at generic bindings. B-961
-proves a catalog-extensible selector bug: custom `.pdbotprofile` entries are
-display-counted but converted back to `mp_index = -1`, and bot config/save/wire
-state has no profile catalog ID. Workbench `T-ASSETS-004` and `T-ASSETS-005`
-remain the durable truth for those unfinished production paths.
+The same audit opened B-959 and B-961. B-959 remains open for metadata
+families whose public payloads are placeholder/synthetic or stop at generic
+bindings. B-961 is now production-connected: custom `.pdbotprofile` catalog
+IDs survive both menu systems, bot/match state, JSON and v3 binary saves,
+manifest distribution, and v52 lobby/stage-start messages; runtime traits and
+default body derive from the readable public binding. Workbench
+`T-ASSETS-005` is `implemented`, not `validated`, until a custom-profile
+MKB/controller/save/listen-host/gameplay receipt exists. `T-ASSETS-004`
+remains the durable truth for the unfinished per-family production paths.
 
 As of 2026-06-17T15:45:00-04:00, `c3844` is closed at 100% and the follow-on
 `c3849` Wave 7 cutover is implemented for the current tree. The final c3844

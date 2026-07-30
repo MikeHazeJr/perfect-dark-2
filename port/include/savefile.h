@@ -165,6 +165,7 @@ struct savempbot {
     u8  difficulty;                    /* BOTDIFF_* */
     u8  team;
     char name[SAVE_NAME_MAX];          /* bot display name */
+    char profile_id[CATALOG_ID_LEN];   /* PRIMARY: public .pdbotprofile ID */
     char head_id[CATALOG_ID_LEN];      /* SA-4: catalog string ID for head */
     char body_id[CATALOG_ID_LEN];      /* SA-4: catalog string ID for body */
 };
