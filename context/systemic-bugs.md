@@ -6,6 +6,78 @@
 
 ---
 
+## SP-29: User-facing control surfaces drift from the action map
+
+**Severity**: HIGH — controls remain in code but become undiscoverable,
+mislabelled, or impossible to rebind
+
+**Root cause**: the action enum, default IMC bindings, Settings binding rows,
+runtime consumers, and glyph hints are maintained as independent lists. Adding
+an action to one list does not require its appearance in the others. Fixed
+keyboard/controller strings also go stale after rebinding or device changes.
+
+**Fixed instances (B-967/B-968, 2026-07-30)**:
+
+- Settings now surfaces every one of the 117 user-bindable actions. The four
+  derived continuous axis channels are explicitly represented by the global
+  stick-layout, sensitivity, inversion, and deadzone controls.
+- Forge E/Q bindings live in the Forge IMC, not the always-active Gameplay IMC.
+- Direct vehicle use has a default mapping and production activation consumer.
+- Player-facing menu hints resolve current action glyphs instead of fixed
+  Xbox/default-key labels.
+
+**Correct approach**:
+
+- Every new `InputAction` must be classified as user-bindable or a derived
+  channel in focused coverage.
+- A user-bindable action requires an owning IMC row, persistence, default or
+  explicit unbound state, and a production consumer.
+- Hints use `pdguiGlyphGetActionLabel` or `pdguiDrawActionPrompt`; prose must
+  not claim a fixed binding.
+- Duplicate physical bindings must be checked under the action map's
+  first-winner rule and the relevant active IMC stack.
+
+**Propagation search**:
+
+```text
+rg -n "ACTION_[A-Z0-9_]+|addBind\\(|s_BindableActions|Enter/Space|B/Esc|D-Pad" port src tests
+```
+
+---
+
+## SP-28: Generic menu fallback omits interactive item types
+
+**Severity**: HIGH — a reachable menu can render chrome while silently losing
+its actual controls and content
+
+**Root cause**: the generic typed-dialog renderer handled only a subset of the
+legacy item enum and displayed a placeholder/default OK for unhandled items.
+Dedicated later registrations hid the defect on common routes, leaving any
+unregistered or mod-adjacent dialog incomplete.
+
+**Fixed instance (B-966, 2026-07-30)**: LIST, CAROUSEL, PLAYERSTATS, and RANKING
+now have functional generic renderers over the live handler/data ABI. Dedicated
+renderers remain last-registration-wins for richer screens.
+
+**Correct approach**:
+
+- Exhaustively switch every interactive `MENUITEMTYPE_*` supported by active
+  dialog definitions.
+- Unknown interactive types fail visibly in diagnostics but must not be
+  represented as successful/complete UX.
+- Preserve handler ABI widths; never reinterpret 32-bit fields as pointers on
+  this 64-bit port.
+- Keep a focused test that compares supported enum types with generic or
+  dedicated production renderers.
+
+**Propagation search**:
+
+```text
+rg -n "MENUITEMTYPE_|DEFERRED|placeholder|default OK|unk04u32" src/game port/fast3d tests
+```
+
+---
+
 ## SP-27: Canonical Catalog IDs Are Shadowed by Writable Legacy Fields
 
 **Severity**: HIGH — creator-selected identity can change or disappear after a

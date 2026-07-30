@@ -11,6 +11,8 @@
 #include "catch.hpp"
 
 #include <fstream>
+#include <regex>
+#include <set>
 #include <sstream>
 #include <string>
 
@@ -153,4 +155,85 @@ TEST_CASE("Settings Input binding table stays on the action map capture path",
 	requireContains(bindTable, "s_BindSearch");
 	requireContains(bindTable, "ImGui::InputTextWithHint");
 	requireContains(bindTable, "stringIContains(s_BindableActions[row].name, s_BindSearch)");
+}
+
+TEST_CASE("Settings Input surfaces every user-bindable action",
+          "[input][settings][static][b967]")
+{
+	const std::string menu = readTextFile("port/fast3d/pdgui_menu_mainmenu.cpp");
+	const std::string actionmapH = readTextFile("port/include/actionmap.h");
+	REQUIRE(!menu.empty());
+	REQUIRE(!actionmapH.empty());
+
+	const std::string enumBlock =
+		sliceBetween(actionmapH, "typedef enum InputAction {", "ACTION_COUNT");
+	const std::string table =
+		sliceBetween(menu, "static const BindableAction s_BindableActions[] = {",
+		             "#define NUM_BINDABLE_ACTIONS");
+	REQUIRE(!enumBlock.empty());
+	REQUIRE(!table.empty());
+
+	const std::regex enumRow("^\\s*(ACTION_[A-Z0-9_]+)(?:\\s*=.*)?\\s*,");
+	const std::regex tableRow("^\\s*\\{\\s*(ACTION_[A-Z0-9_]+)\\s*,");
+	std::set<std::string> declared;
+	std::set<std::string> surfaced;
+	std::string line;
+	std::smatch match;
+	std::istringstream enumLines(enumBlock);
+	while (std::getline(enumLines, line)) {
+		if (std::regex_search(line, match, enumRow)) {
+			declared.insert(match[1].str());
+		}
+	}
+	std::istringstream tableLines(table);
+	while (std::getline(tableLines, line)) {
+		if (std::regex_search(line, match, tableRow)) {
+			surfaced.insert(match[1].str());
+		}
+	}
+
+	/* These are derived continuous channels, not independently bindable
+	 * controls. Their producers are the surfaced digital direction rows and
+	 * the Settings -> Input global stick-layout/deadzone/sensitivity UI. */
+	const char *derivedAnalog[] = {
+		"ACTION_AXIS_MOVE_X",
+		"ACTION_AXIS_MOVE_Y",
+		"ACTION_AXIS_AIM_X",
+		"ACTION_AXIS_AIM_Y",
+	};
+	for (const char *action : derivedAnalog) {
+		REQUIRE(declared.erase(action) == 1);
+	}
+
+	INFO("Every non-derived InputAction must have at least one Settings -> Input row");
+	REQUIRE(declared == surfaced);
+	requireContains(menu, "renderControlsGlobalSticks();");
+	requireContains(menu, "Move stick");
+	requireContains(menu, "Look stick");
+	requireContains(menu, "Move deadzone");
+	requireContains(menu, "Look deadzone");
+}
+
+TEST_CASE("Vehicle direct-use and Forge camera keys have distinct production contexts",
+          "[input][vehicle][forge][static][b967]")
+{
+	const std::string actionmap = readTextFile("port/src/actionmap.cpp");
+	const std::string bondmove = readTextFile("src/game/bondmove.c");
+	REQUIRE(!actionmap.empty());
+	REQUIRE(!bondmove.empty());
+
+	const std::string gameplay =
+		sliceBetween(actionmap, "static void setupGameplayDefaults", "static void setupMissionDefaults");
+	const std::string forge =
+		sliceBetween(actionmap, "static void setupForgeDefaults", "static void setupObserverDefaults");
+	REQUIRE(!gameplay.empty());
+	REQUIRE(!forge.empty());
+
+	requireContains(gameplay, "addBind(imc, ACTION_VEHICLE_USE,    VKL_E)");
+	requireNotContains(gameplay, "addBind(imc, ACTION_FORGE_ASCEND,    VKL_E)");
+	requireNotContains(gameplay, "addBind(imc, ACTION_FORGE_DESCEND,   VKL_Q)");
+	requireContains(forge, "addBind(imc, ACTION_FORGE_ASCEND,           VKL_E)");
+	requireContains(forge, "addBind(imc, ACTION_FORGE_DESCEND,          VKL_Q)");
+	requireContains(bondmove, "actionPressed(actionPlayer, ACTION_VEHICLE_USE)");
+	requireContains(bondmove, "bmoveHandleActivate();");
 }

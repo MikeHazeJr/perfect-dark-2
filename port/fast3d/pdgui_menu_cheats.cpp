@@ -45,6 +45,7 @@
 #include "pdgui_scaling.h"
 #include "pdgui_audio.h"
 #include "pdgui_nav.h"
+#include "pdgui_glyphs.h"
 #include "pdgui_layout.h"
 #include "pdgui.h"        /* langSafe */
 #include "system.h"
@@ -986,8 +987,11 @@ static s32 renderCheatsConfirmUnlock(struct menudialog *dialog,
 
     /* Keybinding hints */
     {
-        const char *hintL = "[Enter/Space/(A)] Confirm";
-        const char *hintR = "[Esc/(B)] Cancel";
+        char accept[24], cancel[24], hintL[64], hintR[64];
+        pdguiGlyphGetActionLabel(ACTION_MENU_ACCEPT, accept, (s32)sizeof(accept));
+        pdguiGlyphGetActionLabel(ACTION_CANCEL_USE, cancel, (s32)sizeof(cancel));
+        snprintf(hintL, sizeof(hintL), "[%s] Confirm", accept);
+        snprintf(hintR, sizeof(hintR), "[%s] Cancel", cancel);
 
         float hintY = dialogH - pdguiScale(22.0f);
         if (hintY < ImGui::GetCursorPosY() + 4.0f * scale) {

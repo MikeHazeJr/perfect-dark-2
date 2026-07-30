@@ -1647,6 +1647,7 @@ static const BindableAction s_BindableActions[] = {
     { ACTION_USE,                 "Use / Interact",     BG_COMBAT,        "Doors, terminals, pickups. Tap reloads, hold interacts (threshold tunable in Per-action hold overrides).", &g_ImcGameplay },
     { ACTION_CANCEL_USE,          "Cancel / Drop",      BG_COMBAT,        "Abort an interaction or drop weapon.",                                                                &g_ImcGameplay },
     { ACTION_THROW_WEAPON,        "Throw Weapon",       BG_COMBAT,        NULL,                                                                                                  &g_ImcGameplay },
+    { ACTION_VEHICLE_USE,         "Direct Use / Mount", BG_COMBAT,        "Optional direct on-foot activation. The normal Use / Interact hold also mounts vehicles.",             &g_ImcGameplay },
 
     /* --- Weapons (Gameplay) --- */
     { ACTION_WEAPON_PREV,         "Previous Weapon",    BG_WEAPONS,       NULL,                                                                                                  &g_ImcGameplay },
@@ -1683,6 +1684,11 @@ static const BindableAction s_BindableActions[] = {
     { ACTION_VEHICLE_STEER_LEFT,  "Steer Left",         BG_VEHICLE,       NULL,                                                                                                  &g_ImcVehicle },
     { ACTION_VEHICLE_STEER_RIGHT, "Steer Right",        BG_VEHICLE,       NULL,                                                                                                  &g_ImcVehicle },
     { ACTION_VEHICLE_EXIT,        "Exit Vehicle",       BG_VEHICLE,       NULL,                                                                                                  &g_ImcVehicle },
+    { ACTION_VEHICLE_LOOK_X,      "Vehicle Look X",     BG_VEHICLE,       "Mounted camera yaw axis/direction.",                                                                   &g_ImcVehicle },
+    { ACTION_VEHICLE_LOOK_Y,      "Vehicle Look Y",     BG_VEHICLE,       "Mounted camera pitch axis/direction.",                                                                 &g_ImcVehicle },
+    { ACTION_VEHICLE_HANDBRAKE,   "Handbrake",          BG_VEHICLE,       NULL,                                                                                                  &g_ImcVehicle },
+    { ACTION_PAUSE,               "Pause",              BG_VEHICLE,       NULL,                                                                                                  &g_ImcVehicle },
+    { ACTION_VOICE_PTT,           "Voice Push-to-Talk", BG_VEHICLE,       NULL,                                                                                                  &g_ImcVehicle },
 
     /* --- Forge Session (entire Grid session) --- */
     { ACTION_FORGE_TOGGLE,        "Mode Toggle (Forge / Playtest)", BG_FORGE_SESSION, "Enter or leave Freefly. Active for the entire Grid session.",                              &g_ImcForgeSession },
@@ -1739,6 +1745,13 @@ static const BindableAction s_BindableActions[] = {
     { ACTION_MENU_RIGHT,          "Menu Right",         BG_MENU,          NULL,                                                                                                  &g_ImcMenu },
     { ACTION_MENU_TAB_PREV,       "Prev Tab",           BG_MENU,          "LB / PageUp in settings tabs.",                                                                       &g_ImcMenu },
     { ACTION_MENU_TAB_NEXT,       "Next Tab",           BG_MENU,          "RB / PageDown in settings tabs.",                                                                     &g_ImcMenu },
+    { ACTION_MENU_SECONDARY,      "Context Action",     BG_MENU,          "Screen-specific secondary action.",                                                                    &g_ImcMenu },
+    { ACTION_MENU_TERTIARY,       "Tertiary / Social",  BG_MENU,          "Screen-specific tertiary action; opens Social on supported roots.",                                    &g_ImcMenu },
+    { ACTION_MENU_DELETE,         "Delete",             BG_MENU,          "Delete the focused item where supported.",                                                             &g_ImcMenu },
+    { ACTION_MENU_SKIPUP,         "Previous Group",     BG_MENU,          "Move to the previous group or page within the focused panel.",                                         &g_ImcMenu },
+    { ACTION_MENU_SKIPDOWN,       "Next Group",         BG_MENU,          "Move to the next group or page within the focused panel.",                                             &g_ImcMenu },
+    { ACTION_SOCIAL_TOGGLE,       "Social Toggle",      BG_MENU,          "Open or close the Social surface where allowed.",                                                      &g_ImcMenu },
+    { ACTION_VOICE_PTT,           "Voice Push-to-Talk", BG_MENU,          NULL,                                                                                                  &g_ImcMenu },
 
     /* --- Pause Menu IMC (in-game pause overlay) --- */
     { ACTION_USE,                 "Accept",             BG_PAUSEMENU,     "UI accept while paused.",                                                                             &g_ImcPauseMenu },
@@ -1750,6 +1763,13 @@ static const BindableAction s_BindableActions[] = {
     { ACTION_MENU_RIGHT,          "Menu Right",         BG_PAUSEMENU,     NULL,                                                                                                  &g_ImcPauseMenu },
     { ACTION_MENU_TAB_PREV,       "Prev Tab",           BG_PAUSEMENU,     NULL,                                                                                                  &g_ImcPauseMenu },
     { ACTION_MENU_TAB_NEXT,       "Next Tab",           BG_PAUSEMENU,     NULL,                                                                                                  &g_ImcPauseMenu },
+    { ACTION_MENU_SECONDARY,      "Context Action",     BG_PAUSEMENU,     "Screen-specific secondary action.",                                                                    &g_ImcPauseMenu },
+    { ACTION_MENU_TERTIARY,       "Tertiary / Social",  BG_PAUSEMENU,     "Screen-specific tertiary action; opens Social on supported roots.",                                    &g_ImcPauseMenu },
+    { ACTION_MENU_DELETE,         "Delete",             BG_PAUSEMENU,     "Delete the focused item where supported.",                                                             &g_ImcPauseMenu },
+    { ACTION_MENU_SKIPUP,         "Previous Group",     BG_PAUSEMENU,     "Move to the previous group or page within the focused panel.",                                         &g_ImcPauseMenu },
+    { ACTION_MENU_SKIPDOWN,       "Next Group",         BG_PAUSEMENU,     "Move to the next group or page within the focused panel.",                                             &g_ImcPauseMenu },
+    { ACTION_SOCIAL_TOGGLE,       "Social Toggle",      BG_PAUSEMENU,     "Open or close the Social surface where allowed.",                                                      &g_ImcPauseMenu },
+    { ACTION_VOICE_PTT,           "Voice Push-to-Talk", BG_PAUSEMENU,     NULL,                                                                                                  &g_ImcPauseMenu },
 
     /* --- Debug Overlay IMC (F12 overlay) --- */
     { ACTION_DEBUG_TOGGLE,        "Debug Overlay",      BG_DEBUG_OVERLAY, "Toggle the F12 debug overlay.",                                                                       &g_ImcDebugOverlay },
@@ -1757,11 +1777,14 @@ static const BindableAction s_BindableActions[] = {
     { ACTION_CANCEL_USE,          "Close",              BG_DEBUG_OVERLAY, NULL,                                                                                                  &g_ImcDebugOverlay },
     { ACTION_CONSOLE_TOGGLE,      "Console Toggle",     BG_DEBUG_OVERLAY, NULL,                                                                                                  &g_ImcDebugOverlay },
     { ACTION_SCREENSHOT,          "Screenshot",         BG_DEBUG_OVERLAY, NULL,                                                                                                  &g_ImcDebugOverlay },
+    { ACTION_HOTSWAP_TOGGLE,      "Menu Renderer Toggle", BG_DEBUG_OVERLAY, "Toggle the legacy/ImGui renderer while the debug overlay is active.",                               &g_ImcDebugOverlay },
+    { ACTION_VOICE_PTT,           "Voice Push-to-Talk", BG_DEBUG_OVERLAY, NULL,                                                                                                  &g_ImcDebugOverlay },
 
     /* --- Text Input IMC (chat / rebind / cheat field) --- */
     { ACTION_USE,                 "Confirm",            BG_TEXT_INPUT,    NULL,                                                                                                  &g_ImcTextInput },
     { ACTION_CANCEL_USE,          "Cancel",             BG_TEXT_INPUT,    NULL,                                                                                                  &g_ImcTextInput },
     { ACTION_CHEAT_ENTER,         "Submit Cheat",       BG_TEXT_INPUT,    NULL,                                                                                                  &g_ImcTextInput },
+    { ACTION_TEXT_PASTE,          "Paste",              BG_TEXT_INPUT,    NULL,                                                                                                  &g_ImcTextInput },
 
     /* --- System Hotkeys (Gameplay): screenshot etc fire from gameplay --- */
     { ACTION_SCREENSHOT,          "Screenshot",         BG_SYSTEM,        "Save a .png of the current frame.",                                                                   &g_ImcGameplay },
@@ -1769,6 +1792,22 @@ static const BindableAction s_BindableActions[] = {
     { ACTION_DEBUG_TOGGLE,        "Debug Overlay",      BG_SYSTEM,        "F12 by default.",                                                                                     &g_ImcGameplay },
     { ACTION_CHEAT_ENTER,         "Enter Cheat",        BG_SYSTEM,        "Open the cheat-code entry dialog.",                                                                   &g_ImcGameplay },
     { ACTION_VOICE_PTT,           "Voice Push-to-Talk", BG_SYSTEM,        "Hold while voice chat is enabled.",                                                                   &g_ImcGameplay },
+    { ACTION_TESTSCEN_CYCLE_COUNT, "Test Count Next",   BG_SYSTEM,        "Development test-scenario population step forward.",                                                   &g_ImcGameplay },
+    { ACTION_TESTSCEN_CYCLE_PREV, "Test Count Previous", BG_SYSTEM,       "Development test-scenario population step backward.",                                                  &g_ImcGameplay },
+    { ACTION_TESTSCEN_VIS_TOGGLE, "Test Visibility",    BG_SYSTEM,        "Development test-scenario visibility mode.",                                                           &g_ImcGameplay },
+    { ACTION_TESTSCEN_GPU_FULL_TOGGLE, "Test GPU Mode", BG_SYSTEM,        "Development GPU swarm mode toggle.",                                                                  &g_ImcGameplay },
+    { ACTION_DEBUG_BOT_FREEZE,    "Debug Bot Freeze",   BG_SYSTEM,        "Development-only action.",                                                                            &g_ImcGameplay },
+    { ACTION_DEBUG_INVINCIBILITY, "Debug Invincibility", BG_SYSTEM,       "Development-only action.",                                                                            &g_ImcGameplay },
+    { ACTION_DEBUG_OVERLAY_TOGGLE, "Debug Overlay Toggle", BG_SYSTEM,     "Development overlay action.",                                                                         &g_ImcGameplay },
+    { ACTION_DEBUG_MESH_TOGGLE,   "Debug Mesh Toggle",  BG_SYSTEM,        "Collision-mesh visualization.",                                                                       &g_ImcGameplay },
+    { ACTION_DEBUG_CULL_MODE_CYCLE, "Debug Cull Mode",  BG_SYSTEM,        "Cycle renderer culling mode.",                                                                         &g_ImcGameplay },
+    { ACTION_DEBUG_TESTFIRE,      "Debug Test Fire",    BG_SYSTEM,        "Development test-fire pulse.",                                                                         &g_ImcGameplay },
+    { ACTION_DEBUG_WIREFRAME_TOGGLE, "Debug Wireframe", BG_SYSTEM,        "Toggle wireframe visualization.",                                                                      &g_ImcGameplay },
+    { ACTION_HOTSWAP_TOGGLE,      "Menu Renderer Toggle", BG_SYSTEM,      "Toggle the legacy/ImGui renderer.",                                                                     &g_ImcGameplay },
+    { ACTION_TOGGLE_FULLSCREEN,   "Toggle Fullscreen",  BG_SYSTEM,        NULL,                                                                                                  &g_ImcGameplay },
+    { ACTION_SKIP_CUTSCENE,       "Skip Cutscene",      BG_SYSTEM,        "Hold to skip while the cutscene input context is active.",                                             &g_ImcCutscene },
+    { ACTION_PAUSE,               "Pause in Cutscene",  BG_SYSTEM,        NULL,                                                                                                  &g_ImcCutscene },
+    { ACTION_VOICE_PTT,           "Voice Push-to-Talk in Cutscene", BG_SYSTEM, NULL,                                                                                             &g_ImcCutscene },
 };
 #define NUM_BINDABLE_ACTIONS (sizeof(s_BindableActions) / sizeof(s_BindableActions[0]))
 
@@ -1789,7 +1828,7 @@ static InputMappingContext *s_ResetImcsVehicle[]   = { &g_ImcVehicle };
 static InputMappingContext *s_ResetImcsGrid[]      = { &g_ImcForgeSession, &g_ImcForge };
 static InputMappingContext *s_ResetImcsObserver[]  = { &g_ImcObserver };
 static InputMappingContext *s_ResetImcsMenu[]      = { &g_ImcMenu, &g_ImcPauseMenu };
-static InputMappingContext *s_ResetImcsSystem[]    = { &g_ImcDebugOverlay, &g_ImcTextInput, &g_ImcGameplay };
+static InputMappingContext *s_ResetImcsSystem[]    = { &g_ImcDebugOverlay, &g_ImcTextInput, &g_ImcCutscene, &g_ImcGameplay };
 
 static const ImcTabDesc s_ImcTabs[] = {
     {
@@ -1834,7 +1873,7 @@ static const ImcTabDesc s_ImcTabs[] = {
         "System",
         "F12 debug overlay, text-input fields, and gameplay-scope system hotkeys.",
         (1u << BG_DEBUG_OVERLAY) | (1u << BG_TEXT_INPUT) | (1u << BG_SYSTEM),
-        s_ResetImcsSystem, 3,
+        s_ResetImcsSystem, 4,
     },
 };
 #define NUM_IMC_TABS (sizeof(s_ImcTabs) / sizeof(s_ImcTabs[0]))

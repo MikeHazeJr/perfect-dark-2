@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "project": "Perfect Dark 2",
-  "updated": "2026-07-30T17:25:15.327Z",
+  "updated": "2026-07-30T17:46:08.434Z",
   "items": [
     {
       "type": "task",
@@ -959,41 +959,66 @@
       "type": "task",
       "title": "Audit and fix all production menu behavior",
       "area": "MENUS",
-      "status": "partial",
+      "status": "implemented",
       "phase": 2,
       "lane": "implementation",
       "owner": "codex-pd2-workbench-assets-20260730",
       "deps": [
         "T-TOOLING-001"
       ],
-      "evidence": [],
-      "detail": "Exercise the real ImGui menu graph and modal flows, including focus, back/cancel, mouse hit testing, scrolling, disabled actions, transitions, and load/import surfaces.",
+      "evidence": [
+        "context/bugs.md:B-966",
+        "context/bugs.md:B-968",
+        "port/fast3d/pdgui_menu_warning.cpp",
+        "port/fast3d/pdgui_menu_agentselect.cpp",
+        "port/fast3d/pdgui_menu_cheats.cpp",
+        "port/fast3d/pdgui_menu_solomission.cpp",
+        "tests/test_menu_graph.cpp:[b966][b968]",
+        ".claude/session-builds/pd2assetaudit/_build-session.out.log",
+        "pd-tests [b966],[b968]: 2 cases PASS",
+        "pd-tests [input],[menus]: 66 cases / 1463 assertions PASS"
+      ],
+      "detail": "Production menu audit closed the generic typed-dialog omissions for LIST, CAROUSEL, PLAYERSTATS, and RANKING while preserving later dedicated MP renderers. Audited confirmation/instruction surfaces now resolve current glyphs instead of fixed Xbox/default-key text. Automated and compile evidence is green; ordinary-client focus, mouse, MKB, controller, scrolling, and device-switch capture remains in V-004.",
       "tags": [
         "workbench-key:menus-production-audit"
       ],
       "id": "T-MENUS-001",
-      "updated": "2026-07-30T15:16:40.142Z",
-      "created": "2026-07-30T15:16:40.142Z"
+      "updated": "2026-07-30T17:45:52.026Z",
+      "created": "2026-07-30T15:16:40.142Z",
+      "model": "Codex GPT-5"
     },
     {
       "type": "task",
       "title": "Preserve every input action across MKB and controller with correct glyphs",
       "area": "INPUT",
-      "status": "partial",
+      "status": "implemented",
       "phase": 2,
       "lane": "implementation",
       "owner": "codex-pd2-workbench-assets-20260730",
       "deps": [
         "T-TOOLING-001"
       ],
-      "evidence": [],
-      "detail": "Trace every action through InputAction authority, contexts, rebinding, persistence, prompts, glyph selection, controller navigation, and MKB parity. No action may be silently omitted or removed.",
+      "evidence": [
+        "context/bugs.md:B-967",
+        "context/bugs.md:B-968",
+        "context/systemic-bugs.md:SP-29",
+        "port/fast3d/pdgui_menu_mainmenu.cpp:s_BindableActions",
+        "port/src/actionmap.cpp",
+        "src/game/bondmove.c",
+        "tests/test_settings_input_tab_static.cpp:[b967]",
+        "tests/test_menu_graph.cpp:[b968]",
+        ".claude/session-builds/pd2assetaudit/_build-session.out.log",
+        "pd-tests [b966],[b967],[b968]: 4 cases / 77 assertions PASS",
+        "pd-tests [input],[menus]: 66 cases / 1463 assertions PASS"
+      ],
+      "detail": "All 121 InputAction IDs are classified: 117 user-bindable actions now appear in Settings Input and four derived continuous axes are represented by stick layout/deadzone/inversion/sensitivity controls. Missing menu, vehicle, cutscene, text, system, debug, and test controls are surfaced. Forge E/Q are correctly Forge-scoped, direct vehicle-use has an on-foot production consumer, and audited hints resolve active glyphs. Build/static regression proof passes; live rebinding/profile/device proof remains in V-004.",
       "tags": [
         "workbench-key:input-controller-glyph-audit"
       ],
       "id": "T-INPUT-004",
-      "updated": "2026-07-30T15:16:40.146Z",
-      "created": "2026-07-30T15:16:40.146Z"
+      "updated": "2026-07-30T17:45:52.042Z",
+      "created": "2026-07-30T15:16:40.146Z",
+      "model": "Codex GPT-5"
     },
     {
       "type": "asset",
@@ -1108,7 +1133,7 @@
       "type": "validation",
       "title": "Menus, MKB, controller navigation, rebinding, and glyphs pass",
       "area": "INPUT",
-      "status": "missing",
+      "status": "partial",
       "phase": 4,
       "lane": "verification",
       "owner": "codex-pd2-workbench-assets-20260730",
@@ -1116,15 +1141,23 @@
         "T-MENUS-001",
         "T-INPUT-004"
       ],
-      "evidence": [],
+      "evidence": [
+        "tests/test_menu_graph.cpp",
+        "tests/test_settings_input_tab_static.cpp",
+        ".claude/session-builds/pd2assetaudit/_build-session.out.log",
+        "pd-tests [b966],[b967],[b968]: 4 cases / 77 assertions PASS",
+        "pd-tests [input],[menus]: 66 cases / 1463 assertions PASS"
+      ],
       "verdict": "not_run",
-      "artifacts": [],
-      "detail": "Automated coverage plus ordinary game-client evidence must cover every action, focus path, pointer path, controller path, and dynamic glyph transition.",
+      "artifacts": [
+        ".claude/session-builds/pd2assetaudit/_build-session.out.log"
+      ],
+      "detail": "Automated verification passes: B-966/B-967/B-968 focused coverage (4 cases / 77 assertions), the full input/menu band (66 cases / 1,463 assertions), and isolated all-target client/updater compile. The required ordinary-client validation remains not run: mouse, MKB, controller focus/scroll/back, profile save/reload, vehicle mount, Forge E/Q, and live device-switch glyph evidence.",
       "tags": [
         "workbench-key:validation-menu-input"
       ],
       "id": "V-004",
-      "updated": "2026-07-30T15:16:40.176Z",
+      "updated": "2026-07-30T17:46:08.434Z",
       "created": "2026-07-30T15:16:40.176Z"
     },
     {

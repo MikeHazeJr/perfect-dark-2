@@ -27,6 +27,7 @@
 #include "pdgui_audio.h"
 #include "pdgui_layout.h"       /* pdguiPopupDarkenBehind (M-4 confirm modal) */
 #include "pdgui_nav.h"
+#include "pdgui_glyphs.h"
 #include "pdgui_charpreview.h"
 #include "screenmfst.h"
 #include "net/netmanifest.h"
@@ -348,7 +349,7 @@ static s32 renderAgentSelect(struct menudialog *dialog,
     bool confirmActive = (s_ConfirmMode != CONFIRM_NONE &&
                           s_ConfirmIdx >= 0 && s_ConfirmIdx < fl->numfiles);
 
-    /* A / Enter = load/select — disabled while confirm modal is open so
+    /* Menu Accept = load/select — disabled while confirm modal is open so
      * the modal owns input. */
     if (!confirmActive && pdguiMenuAcceptPressed()) {
         if (s_SelectedIdx == fl->numfiles) {
@@ -379,7 +380,8 @@ static s32 renderAgentSelect(struct menudialog *dialog,
             pdguiPlaySound(PDGUI_SND_TOGGLEOFF);
         }
     }
-    /* Y / Delete = delete (with confirmation) */
+    /* Menu Delete = delete (with confirmation). Controller users can reach
+     * Delete through the Menu Secondary context menu when Delete is unbound. */
     if (!confirmActive && pdguiMenuDeletePressed()) {
         if (s_SelectedIdx >= 0 && s_SelectedIdx < fl->numfiles) {
             pdguiPlaySound(PDGUI_SND_ERROR);
@@ -389,7 +391,7 @@ static s32 renderAgentSelect(struct menudialog *dialog,
             ImGui::OpenPopup(AGENTSEL_CONFIRM_POPUP_ID);
         }
     }
-    /* D / RB = set as default agent */
+    /* Menu Tertiary = set as default agent. */
     if (!confirmActive && pdguiMenuTertiaryPressed()) {
         if (s_SelectedIdx >= 0 && s_SelectedIdx < fl->numfiles) {
             struct filelistfile *file = &fl->files[s_SelectedIdx];
@@ -628,9 +630,25 @@ static s32 renderAgentSelect(struct menudialog *dialog,
      * ================================================================ */
     ImGui::Separator();
     if (s_SelectedIdx >= 0 && s_SelectedIdx < fl->numfiles) {
-        ImGui::TextDisabled("A/Enter: Load  X/RClick: Menu  Y/Del: Delete  D/RB: Default");
+        char accept[24], context[24], remove[24], tertiary[24];
+        pdguiGlyphGetActionLabel(ACTION_MENU_ACCEPT, accept, (s32)sizeof(accept));
+        pdguiGlyphGetActionLabel(ACTION_MENU_SECONDARY, context, (s32)sizeof(context));
+        s32 hasDelete =
+            pdguiGlyphGetActionLabel(ACTION_MENU_DELETE, remove, (s32)sizeof(remove));
+        pdguiGlyphGetActionLabel(ACTION_MENU_TERTIARY, tertiary, (s32)sizeof(tertiary));
+        if (hasDelete) {
+            ImGui::TextDisabled("[%s] Load  [%s]/Right-click Menu  [%s] Delete  [%s] Default",
+                                accept, context, remove, tertiary);
+        } else {
+            ImGui::TextDisabled("[%s] Load  [%s]/Right-click Menu (Copy/Delete)  [%s] Default",
+                                accept, context, tertiary);
+        }
     } else {
-        ImGui::TextDisabled("A/Enter: Select   D-Pad/Arrows: Navigate");
+        char accept[24], up[24], down[24];
+        pdguiGlyphGetActionLabel(ACTION_MENU_ACCEPT, accept, (s32)sizeof(accept));
+        pdguiGlyphGetActionLabel(ACTION_MENU_UP, up, (s32)sizeof(up));
+        pdguiGlyphGetActionLabel(ACTION_MENU_DOWN, down, (s32)sizeof(down));
+        ImGui::TextDisabled("[%s] Select   [%s]/[%s] Navigate", accept, up, down);
     }
 
     ImGui::End();
@@ -793,8 +811,11 @@ static s32 renderAgentSelect(struct menudialog *dialog,
 
             /* Keybinding hints */
             {
-                const char *hintL = "[Enter/Space/(A)] Confirm";
-                const char *hintR = "[Esc/(B)] Cancel";
+                char accept[24], cancel[24], hintL[64], hintR[64];
+                pdguiGlyphGetActionLabel(ACTION_MENU_ACCEPT, accept, (s32)sizeof(accept));
+                pdguiGlyphGetActionLabel(ACTION_CANCEL_USE, cancel, (s32)sizeof(cancel));
+                snprintf(hintL, sizeof(hintL), "[%s] Confirm", accept);
+                snprintf(hintR, sizeof(hintR), "[%s] Cancel", cancel);
 
                 float hintY = modalH - pdguiScale(22.0f);
                 if (hintY < ImGui::GetCursorPosY() + 4.0f * scale) {

@@ -10,8 +10,13 @@ Last updated: 2026-07-30
 every asset family from extraction through public `.pdxxx`, catalog/provider
 loading, production adapters, generated-cache boundaries, creator workflows,
 and no-ROM-fallback enforcement. Parallel production-path audits cover
-`T-MENUS-001` and `T-INPUT-004`; fixes remain `missing` until current-tree
-evidence identifies and connects them. Required closure gates are `V-001`
+`T-MENUS-001` and `T-INPUT-004`. B-966/B-967/B-968 are implemented in the
+current tree: generic typed dialogs no longer omit list/carousel/ranking/stats
+content, Settings surfaces all 117 bindable actions (four derived analog
+channels remain in global stick tuning), vehicle direct-use and Forge E/Q
+reach their correct production contexts, and audited menu hints resolve live
+glyphs. Focused/build proof and ordinary-client MKB/controller proof remain.
+Required closure gates are `V-001`
 through `V-004` and `P-001`. Workbench statuses are verified truth, not the
 old board's aspirations.
 

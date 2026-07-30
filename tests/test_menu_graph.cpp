@@ -1029,6 +1029,65 @@ TEST_CASE("menu graph: warning modal close paths use graph pop edges", "[input][
     REQUIRE(warning.find("void menuPopDialog") == std::string::npos);
 }
 
+TEST_CASE("generic typed dialogs render list, carousel, ranking, and stats without placeholders",
+          "[input][menus][static][b966]")
+{
+    const std::string warning = readTextFile("port/fast3d/pdgui_menu_warning.cpp");
+    REQUIRE_FALSE(warning.empty());
+
+    REQUIRE(warning.find("#define MENUITEMTYPE_LIST") != std::string::npos);
+    REQUIRE(warning.find("#define MENUITEMTYPE_RANKING") != std::string::npos);
+    REQUIRE(warning.find("#define MENUITEMTYPE_PLAYERSTATS") != std::string::npos);
+    REQUIRE(warning.find("#define MENUITEMTYPE_CAROUSEL") != std::string::npos);
+    REQUIRE_FALSE(functionBlock(warning, "renderHandlerList").empty());
+    REQUIRE_FALSE(functionBlock(warning, "renderRankingTable").empty());
+    REQUIRE_FALSE(functionBlock(warning, "renderPlayerStats").empty());
+
+    const std::string typed = functionBlock(warning, "renderTypedDialog");
+    REQUIRE(typed.find("case MENUITEMTYPE_LIST:") != std::string::npos);
+    REQUIRE(typed.find("case MENUITEMTYPE_CAROUSEL:") != std::string::npos);
+    REQUIRE(typed.find("case MENUITEMTYPE_RANKING:") != std::string::npos);
+    REQUIRE(typed.find("case MENUITEMTYPE_PLAYERSTATS:") != std::string::npos);
+    REQUIRE(typed.find("hasAnyInteractive") != std::string::npos);
+    REQUIRE(warning.find("DEFERRED") == std::string::npos);
+    REQUIRE(warning.find("partial - LIST deferred") == std::string::npos);
+
+    const std::string listValue = functionBlock(warning, "handlerListValue");
+    REQUIRE(listValue.find("(uintptr_t)hd.list.unk04u32") == std::string::npos);
+    REQUIRE(warning.find("#include \"pdgui_glyphs.h\"") != std::string::npos);
+    REQUIRE(warning.find("pdguiGlyphGetActionLabel(ACTION_MENU_ACCEPT") != std::string::npos);
+    REQUIRE(warning.find("pdguiGlyphGetActionLabel(ACTION_CANCEL_USE") != std::string::npos);
+}
+
+TEST_CASE("menu instructions resolve active glyphs instead of hard-coded device labels",
+          "[input][menus][glyphs][static][b968]")
+{
+    const char *paths[] = {
+        "port/fast3d/pdgui_menu_agentselect.cpp",
+        "port/fast3d/pdgui_menu_cheats.cpp",
+        "port/fast3d/pdgui_menu_solomission.cpp",
+        "port/fast3d/pdgui_menu_warning.cpp",
+    };
+    for (const char *path : paths) {
+        const std::string source = readTextFile(path);
+        REQUIRE_FALSE(source.empty());
+        REQUIRE(source.find("#include \"pdgui_glyphs.h\"") != std::string::npos);
+        REQUIRE(source.find("pdguiGlyphGetActionLabel(") != std::string::npos);
+        REQUIRE(source.find("[Enter/Space/(A)]") == std::string::npos);
+        REQUIRE(source.find("[Esc/(B)]") == std::string::npos);
+        REQUIRE(source.find("A/Enter:") == std::string::npos);
+        REQUIRE(source.find("B/Esc:") == std::string::npos);
+    }
+
+    const std::string diagram =
+        readTextFile("port/fast3d/pdgui_menu_controldiagram.cpp");
+    REQUIRE_FALSE(diagram.empty());
+    REQUIRE(diagram.find("Settings -> Input") != std::string::npos);
+    REQUIRE(diagram.find("Jump = Space") == std::string::npos);
+    REQUIRE(diagram.find("Use = F") == std::string::npos);
+    REQUIRE(diagram.find("Fire = LMB") == std::string::npos);
+}
+
 TEST_CASE("menu graph: solo endscreen scene transitions use graph edges", "[input][menu_graph][endscreen][static]")
 {
     const std::string endscreen = readTextFile("port/fast3d/pdgui_menu_endscreen.cpp");
