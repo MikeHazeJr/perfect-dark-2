@@ -1,5 +1,65 @@
 # Session Log (Active)
 
+## 2026-08-01 - Remaining asset/menu/input work split for Ultra and Lina
+
+Mike asked for every remaining item from the comprehensive asset extraction,
+public `.pdxxx`, production utilization, creator workflow, menu, MKB,
+controller, and glyph audit to be recorded in Workbench for Ultra and Lina to
+finish. The prior tracker had the correct seven partial asset rows and broad
+validation umbrellas, but the residual work was not yet ownership-ready.
+
+Workbench now contains seven permanent implementation tasks: `T-ASSETS-009`
+through `T-ASSETS-015` for weapon settings/presentation/dependencies,
+character head/portrait use, voice actor/transcript/language use, complete
+effect shader/timeline semantics, arbitrary prop behavior graphs, canonical
+mission briefing source, and authoritative theme dependencies. Ultra owns the
+weapon/effect/prop/mission and aggregate runtime lanes; Lina owns the
+character/voice/theme and creator/menu/input lanes. Each affected partial
+`A-ASSETS-*` record depends on its explicit completion task.
+
+Four permanent validation gates were added. `V-005` requires an edited-public-
+source production receipt for all 27 families. `V-006` requires induced
+extraction, emitter, missing-source, and corrupt-save failures to reject
+cleanly without ROM/native/loose fallback. `V-007` requires ordinary-client
+archive edit/save/add/pack/import/reload proof with mouse, keyboard, controller,
+and live glyph switching. `V-008` requires custom `.pdgamemode` and
+`.pdbotprofile` identity to survive selection, JSON and v3 binary save/reload,
+listen-host manifest/v52 reconstruction, and gameplay. `V-004` now enumerates
+all remaining physical input checks, including all 117 bindings, four derived
+axes, generic typed dialogs, vehicle controls, Forge E/Q, context transitions,
+and device-switch glyphs. `P-001` now lists the cold/warm extraction,
+validation, cache, creator, activation, and load measurements still required.
+
+Truth status was reconciled at the same time. `V-001` and `V-002` retain the
+passing `cb5d49d9` source-guard, 27-family conformance/round-trip, and 58/58
+creator-runtime baseline as validated. `T-ARCHIVES-001` and `T-MODDING-004`
+are production-implemented, with physical interaction held in `V-007`.
+`T-EXTRACTION-001`, `T-ASSETS-004`, `T-RUNTIME-001`, and `V-003` are partial
+and point at their exact children instead of claiming missing foundations.
+Risk `R-001` is mitigated by the current-tree matrix and explicit residual
+records. User note `N-0002` is incorporated; new handoff note `N-0003` remains
+new so both successor agents must process it before taking ownership.
+
+The handoff exposed new critical tooling bug `B-973`: the default Workbench
+port was being served by a stale process rooted in the retired audit worktree,
+so successful API calls initially mutated a 93-item noncanonical store. The
+duplicate roadmap/note/changelog changes were removed from that worktree, its
+unrelated updater key change was preserved, and port 8378 was restarted from
+the canonical checkout with the then-current 104-item handoff store.
+`T-TOOLING-002` and risk `R-002` brought the final roadmap to 106 items; new
+handoff note `N-0004` assigns Ultra the durable fix: enforce and expose
+canonical root identity while preserving an explicit isolated test/recovery
+mode.
+
+No game code was changed and no build or game run was used. Workbench mutations
+went through the canonical API, which assigned IDs, validated dependencies,
+wrote `roadmap.json` atomically, and appended note/changelog events. A stale
+server attached to the old audit worktree was found and replaced with the
+canonical-checkout server; duplicate mutations were removed from that worktree
+while preserving its unrelated updater key change. The only queued test-runner
+use was the mandatory `python tools/asset_native_source_guard.py` handoff check,
+which passed on the canonical tree.
+
 ## 2026-07-30 - Workbench replaces Kanban; comprehensive asset/input audit begins
 
 Mike replaced the repo's Kanban procedure with a Shanties-style Workbench and

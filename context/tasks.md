@@ -4,7 +4,33 @@
 > [session-log.md](session-log.md). The Workbench is the durable live tracker.
 > Historical card detail remains in the retired Kanban archive and bug ledger.
 
-Last updated: 2026-07-30
+Last updated: 2026-08-01
+
+**2026-08-01 ULTRA/LINA COMPLETION HANDOFF - Workbench `T-ASSETS-001`.**
+The remaining asset program is no longer hidden in umbrella prose. Ultra owns
+overall closure plus `.pdweapon` (`T-ASSETS-009`), `.pdeffect`
+(`T-ASSETS-012`), `.pdprop` behavior graphs (`T-ASSETS-013`), `.pdmission`
+briefing authority (`T-ASSETS-014`), negative-path proof (`V-006`), the
+27-family edited-source matrix (`V-005`), aggregate runtime validation
+(`V-003`), and performance measurement (`P-001`). Lina owns `.pdcharacter`
+head/portrait use (`T-ASSETS-010`), `.pdvoice` metadata use (`T-ASSETS-011`),
+`.pdtheme` dependency authority (`T-ASSETS-015`), physical menu/input proof
+(`V-004`), live creator workflow proof (`V-007`), and custom game-mode/bot-
+profile save/listen-host proof (`V-008`). The durable handoff is Workbench note
+`N-0003`; each agent must acknowledge it and replace the handoff owner label
+with its registered session ID before editing. Ultra also owns Workbench
+split-truth fix `T-TOOLING-002` / `B-973`; `N-0004` is its mandatory handoff
+note and `R-002` remains open until canonical-root enforcement is proven.
+
+`V-001` and `V-002` now preserve the verified `cb5d49d9` source-guard,
+all-family conformance, round-trip, and 58/58 creator-smoke baseline. They must
+be reopened if later edits regress those receipts. `T-ARCHIVES-001` and
+`T-MODDING-004` are correctly recorded as production-implemented with live
+interaction proof separated into `V-007`. `T-EXTRACTION-001`, `T-ASSETS-004`,
+and `T-RUNTIME-001` are partial, not missing: their exact remaining semantics
+are the seven family tasks above. No other asset, menu, input, glyph, creator,
+negative-path, network-identity, or performance work is implicit in this
+handoff.
 
 **2026-07-30 CURRENT ACTIVE PROGRAM — Workbench `T-ASSETS-001`.** Re-audit
 every asset family from extraction through public `.pdxxx`, catalog/provider

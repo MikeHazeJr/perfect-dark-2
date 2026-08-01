@@ -82,11 +82,17 @@ Truth rules:
 ## Required closure sequence
 
 1. Preserve the verified archive-integrity and fail-closed fixes with full build,
-   guard, and runtime receipts.
-2. Complete B-953 for game-mode metadata/rules without a native mirror fallback.
-3. Continue B-959 after the implemented structured-source slices: prop
-   behavior, mission briefing/wrapper integration, then residual partial fields.
-4. Close residual partial fields in weapon, character, voice, effect and theme.
-5. Run the menu/input/glyph sweep and live MKB/controller creator workflows.
+   guard, and runtime receipts. Baseline gates are `V-001` and `V-002`; induced
+   failure proof remains `V-006`.
+2. Ultra closes weapon (`T-ASSETS-009`), effect (`T-ASSETS-012`), prop behavior
+   (`T-ASSETS-013`), and mission briefing authority (`T-ASSETS-014`).
+3. Lina closes character head/portrait (`T-ASSETS-010`), voice metadata
+   (`T-ASSETS-011`), and theme dependencies (`T-ASSETS-015`).
+4. Lina runs physical menu/input/glyph proof (`V-004`), live creator workflow
+   proof (`V-007`), and custom game-mode/bot-profile save/listen-host proof
+   (`V-008`).
+5. Ultra completes the 27-family edited-source production matrix (`V-005`),
+   folds the subordinate gates into aggregate runtime validation (`V-003`),
+   and records cold/warm performance measurements and budgets (`P-001`).
 6. Mark a family validated only after an edited public source demonstrably
    changes its production behavior and the evidence is stored durably.

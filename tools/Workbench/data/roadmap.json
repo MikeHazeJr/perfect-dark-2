@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "project": "Perfect Dark 2",
-  "updated": "2026-07-30T19:03:24.584Z",
+  "updated": "2026-08-01T12:58:41.725Z",
   "items": [
     {
       "type": "task",
@@ -855,9 +855,10 @@
       "status": "partial",
       "phase": 1,
       "lane": "audit",
-      "owner": "codex-pd2-workbench-assets-20260730",
+      "owner": "ultra",
       "deps": [
-        "T-TOOLING-001"
+        "T-TOOLING-001",
+        "T-TOOLING-002"
       ],
       "evidence": [
         "context/audits/2026/asset-pipeline-full-chain-audit-2026-07-30.md",
@@ -869,101 +870,140 @@
         ".claude/smoke-verify-runs/results-20260730T185923Z.json: 58/58 PASS",
         "context/bugs.md:B-972 exact-scope OBJ retention rule"
       ],
-      "detail": "Current-tree full-chain matrix covers all 27 public families from extraction through catalog/provider, production consumers, creator flow and fallback boundaries. Cross-cutting fixes B-953 through B-971 are recorded. Implemented families and residual partial contracts remain separated; live device/source-mutation validation is still open.",
+      "detail": "Current-tree full-chain audit covers all 27 public families from extraction through catalog/provider, production consumers, creator flow and fallback boundaries. Cross-cutting B-953 through B-972 fixes and passing automated baselines are recorded. Ultra owns overall closure; Lina owns character/voice/theme and physical creator/menu/input proof. Explicit remaining implementation is T-ASSETS-009 through T-ASSETS-015. Explicit remaining proof is V-003 through V-008 and P-001. Status remains partial until every family task and gate is truthfully closed.",
       "tags": [
         "workbench-key:asset-current-tree-audit"
       ],
       "id": "T-ASSETS-001",
-      "updated": "2026-07-30T19:03:24.584Z",
+      "updated": "2026-08-01T12:58:41.725Z",
       "created": "2026-07-30T15:16:40.119Z"
     },
     {
       "type": "task",
       "title": "Make extraction lossless and comprehensive for every asset family",
       "area": "EXTRACTION",
-      "status": "missing",
+      "status": "partial",
       "phase": 2,
       "lane": "implementation",
-      "owner": "codex-pd2-workbench-assets-20260730",
+      "owner": "ultra",
       "deps": [
         "T-ASSETS-001"
       ],
-      "evidence": [],
-      "detail": "Fix every confirmed omission, stale conversion, raw dump, unsupported record, and identity/provenance gap found by the current-tree audit.",
+      "evidence": [
+        "context/audits/2026/asset-pipeline-full-chain-audit-2026-07-30.md",
+        "V-002",
+        "V-006",
+        "T-ASSETS-009",
+        "T-ASSETS-010",
+        "T-ASSETS-011",
+        "T-ASSETS-012",
+        "T-ASSETS-013",
+        "T-ASSETS-014",
+        "T-ASSETS-015"
+      ],
+      "detail": "All 27 archive families currently emit and pass strict conformance/package round-trip. Remaining extraction work is semantic rather than missing-family scaffolding: reconstruct or normalize any stored-only/synthetic fields closed by T-ASSETS-009 through T-ASSETS-015, re-extract affected base content, and prove induced child-emitter failures propagate through V-006.",
       "tags": [
         "workbench-key:asset-lossless-extraction"
       ],
       "id": "T-EXTRACTION-001",
-      "updated": "2026-07-30T15:16:40.124Z",
+      "updated": "2026-08-01T12:52:59.781Z",
       "created": "2026-07-30T15:16:40.124Z"
     },
     {
       "type": "task",
       "title": "Make every .pdxxx archive self-contained and creator-accessible",
       "area": "ARCHIVES",
-      "status": "partial",
+      "status": "implemented",
       "phase": 2,
       "lane": "implementation",
-      "owner": "codex-pd2-workbench-assets-20260730",
+      "owner": "lina",
       "deps": [
         "T-ASSETS-001"
       ],
       "evidence": [
+        "context/bugs.md:B-954",
         "context/bugs.md:B-955",
-        "port/src/modarchive.c:modArchiveFinish"
+        "context/bugs.md:B-956",
+        "context/bugs.md:B-969",
+        "T-ARCHIVES-002",
+        "T-ARCHIVES-003",
+        "T-MODDING-006",
+        "V-002",
+        ".claude/smoke-verify-runs/results-20260730T185923Z.json",
+        "context/session-log.md:2026-07-30"
       ],
-      "detail": "Public typed archives are the editable source of truth. Schemas must be understandable, catalog-addressed, lossless, comprehensive, and free of opaque runtime payloads.\n\nB-955 found the writer pre-deleted the existing archive before rename. A durable atomic replacement fix and member-preserving rewrite helper are implemented; validation is pending.",
+      "detail": "Public typed archives are self-contained, readable creator source; descriptor parsing is unbounded/fail-loud, member-preserving rewrite is atomic, nested archives round-trip byte-for-byte, and the creator package/runtime smoke passed 58/58. Archive implementation is connected. Lina owns the remaining ordinary-client creator interaction proof in V-007; family semantic gaps are tracked separately in T-ASSETS-009 through T-ASSETS-015.",
       "tags": [
         "workbench-key:asset-public-archives"
       ],
       "id": "T-ARCHIVES-001",
-      "updated": "2026-07-30T15:42:42.329Z",
-      "created": "2026-07-30T15:16:40.130Z"
+      "updated": "2026-08-01T12:52:59.790Z",
+      "created": "2026-07-30T15:16:40.130Z",
+      "model": "Codex GPT-5"
     },
     {
       "type": "task",
       "title": "Consume public asset source comprehensively in the production runtime",
       "area": "RUNTIME",
-      "status": "missing",
+      "status": "partial",
       "phase": 3,
       "lane": "implementation",
-      "owner": "codex-pd2-workbench-assets-20260730",
+      "owner": "ultra",
       "deps": [
         "T-EXTRACTION-001",
         "T-ARCHIVES-001"
       ],
-      "evidence": [],
-      "detail": "Catalog/provider loading must drive every production adapter. Engine-ready products are private source-hashed caches; any runtime ROM/RomProvider fallback is a chain failure.",
+      "evidence": [
+        "context/audits/2026/asset-pipeline-full-chain-audit-2026-07-30.md",
+        "T-RUNTIME-002",
+        "T-RUNTIME-003",
+        "T-RUNTIME-004",
+        "T-ASSETS-009",
+        "T-ASSETS-010",
+        "T-ASSETS-011",
+        "T-ASSETS-012",
+        "T-ASSETS-013",
+        "T-ASSETS-014",
+        "T-ASSETS-015",
+        "V-003",
+        "V-005",
+        "V-006"
+      ],
+      "detail": "Catalog/provider production loading and fail-closed source ownership are connected for the implemented families, with a broad 58/58 runtime smoke baseline. Runtime parity remains partial only for the seven explicit family tasks T-ASSETS-009 through T-ASSETS-015 and the durable production/negative-path gates V-003, V-005, and V-006. No ROM/RomProvider fallback after extraction is acceptable.",
       "tags": [
         "workbench-key:asset-native-runtime"
       ],
       "id": "T-RUNTIME-001",
-      "updated": "2026-07-30T15:16:40.133Z",
+      "updated": "2026-08-01T12:52:59.800Z",
       "created": "2026-07-30T15:16:40.133Z"
     },
     {
       "type": "task",
       "title": "Complete creator save, import, add-content, and validation flows",
       "area": "MODDING",
-      "status": "missing",
+      "status": "implemented",
       "phase": 3,
       "lane": "implementation",
-      "owner": "codex-pd2-workbench-assets-20260730",
+      "owner": "lina",
       "deps": [
         "T-ARCHIVES-001",
         "T-RUNTIME-001"
       ],
       "evidence": [
         "context/bugs.md:B-954",
-        "port/fast3d/pdgui_menu_moddinghub.cpp:493"
+        "context/bugs.md:B-969",
+        "T-MODDING-006",
+        "context/session-log.md:2026-07-30",
+        ".claude/smoke-verify-runs/results-20260730T185923Z.json"
       ],
-      "detail": "Ensure Modding Hub and documented workflows let creators edit existing content and add new catalog-addressed content without parallel authored runtime files.\n\nB-954: the INI Editor cannot read or rewrite archive members and maps ASSET_AUDIO to obsolete descriptors. Typed-archive authoring is not complete until this production UI path is fixed and interaction-tested.",
+      "detail": "Production Modding Hub descriptor editing now reads and rewrites standalone or nested typed archives without dropping untouched members, and pack/import/install/runtime workflow passed 58/58. The implementation is connected. Remaining mouse/MKB/controller/glyph and representative add-content interaction evidence is isolated in V-007.",
       "tags": [
         "workbench-key:asset-modding-hub"
       ],
       "id": "T-MODDING-004",
-      "updated": "2026-07-30T15:41:13.545Z",
-      "created": "2026-07-30T15:16:40.137Z"
+      "updated": "2026-08-01T12:52:59.795Z",
+      "created": "2026-07-30T15:16:40.137Z",
+      "model": "Codex GPT-5"
     },
     {
       "type": "task",
@@ -1037,9 +1077,17 @@
       "status": "partial",
       "phase": 1,
       "lane": "audit",
-      "owner": "codex-pd2-workbench-assets-20260730",
+      "owner": "ultra",
       "deps": [
-        "T-ASSETS-001"
+        "T-ASSETS-001",
+        "T-ASSETS-009",
+        "T-ASSETS-010",
+        "T-ASSETS-011",
+        "T-ASSETS-012",
+        "T-ASSETS-013",
+        "T-ASSETS-014",
+        "T-ASSETS-015",
+        "V-005"
       ],
       "evidence": [],
       "detail": "One row per public family will record extractor, schema, dependencies, round-trip fidelity, runtime consumer, cache boundary, creator example, and durable proof.",
@@ -1047,96 +1095,135 @@
         "workbench-key:asset-family-matrix"
       ],
       "id": "A-ASSETS-001",
-      "updated": "2026-07-30T15:16:40.150Z",
+      "updated": "2026-08-01T12:52:59.835Z",
       "created": "2026-07-30T15:16:40.150Z"
     },
     {
       "type": "risk",
       "title": "Historical parity closure may not match the current production tree",
       "area": "ASSETS",
-      "status": "open",
+      "status": "mitigated",
       "phase": 1,
       "lane": "audit",
-      "owner": "codex-pd2-workbench-assets-20260730",
+      "owner": "ultra",
       "deps": [
         "T-ASSETS-001"
       ],
-      "evidence": [],
+      "evidence": [
+        "T-ASSETS-001",
+        "context/audits/2026/asset-pipeline-full-chain-audit-2026-07-30.md",
+        "T-ASSETS-009",
+        "T-ASSETS-010",
+        "T-ASSETS-011",
+        "T-ASSETS-012",
+        "T-ASSETS-013",
+        "T-ASSETS-014",
+        "T-ASSETS-015",
+        "V-005",
+        "V-006",
+        "V-007",
+        "V-008"
+      ],
       "severity": "high",
-      "detail": "Prior Done claims are inputs, not present-tense proof. Current source, tests, produced archives, and default runtime paths must be rechecked before retaining implemented/validated truth.",
+      "detail": "The 2026-07-30 current-tree audit invalidated stale blanket parity claims, separated implemented from partial families, and recorded every known residual as explicit Workbench implementation or validation items. Risk remains mitigated only while agents update this same matrix and do not rely on historical c3844 closure claims.",
       "tags": [
         "workbench-key:risk-stale-parity"
       ],
       "id": "R-001",
-      "updated": "2026-07-30T15:16:40.162Z",
+      "updated": "2026-08-01T12:52:59.830Z",
       "created": "2026-07-30T15:16:40.162Z"
     },
     {
       "type": "validation",
       "title": "Public asset source guard passes",
       "area": "ASSETS",
-      "status": "missing",
+      "status": "validated",
       "phase": 4,
       "lane": "verification",
-      "owner": "codex-pd2-workbench-assets-20260730",
+      "owner": "ultra",
       "deps": [
         "T-RUNTIME-001"
       ],
-      "evidence": [],
-      "verdict": "not_run",
-      "artifacts": [],
-      "detail": "Run tools/asset_native_source_guard.py and retain durable output after all source/runtime changes.",
+      "evidence": [
+        "tools/asset_native_source_guard.py",
+        "asset_native_source_guard.py PASS 2026-08-01 on canonical handoff tree",
+        "context/session-log.md:2026-08-01 handoff"
+      ],
+      "verdict": "pass",
+      "artifacts": [
+        "context/session-log.md",
+        "context/audits/2026/asset-pipeline-full-chain-audit-2026-07-30.md"
+      ],
+      "detail": "The native-source guard passed after the final B-972 scope correction at cb5d49d9 and again on the canonical 2026-08-01 handoff tree. Re-run it after any Ultra/Lina asset change; a later failure reopens this gate.",
       "tags": [
         "workbench-key:validation-native-source-guard"
       ],
       "id": "V-001",
-      "updated": "2026-07-30T15:16:40.166Z",
-      "created": "2026-07-30T15:16:40.166Z"
+      "updated": "2026-08-01T12:57:03.417Z",
+      "created": "2026-07-30T15:16:40.166Z",
+      "model": "Codex GPT-5"
     },
     {
       "type": "validation",
       "title": "All-family extraction and typed-archive round-trip passes",
       "area": "ARCHIVES",
-      "status": "missing",
+      "status": "validated",
       "phase": 4,
       "lane": "verification",
-      "owner": "codex-pd2-workbench-assets-20260730",
+      "owner": "lina",
       "deps": [
         "T-EXTRACTION-001",
         "T-ARCHIVES-001"
       ],
-      "evidence": [],
-      "verdict": "not_run",
-      "artifacts": [],
-      "detail": "Focused tests must prove complete source fields survive public archive conversion and feed native runtime use for every family.",
+      "evidence": [
+        "context/session-log.md:2026-07-30 final automated receipts",
+        "context/audits/2026/asset-pipeline-full-chain-audit-2026-07-30.md",
+        ".claude/smoke-verify-runs/results-20260730T185923Z.json"
+      ],
+      "verdict": "pass",
+      "artifacts": [
+        "context/session-log.md",
+        "context/audits/2026/asset-pipeline-full-chain-audit-2026-07-30.md"
+      ],
+      "detail": "At cb5d49d9 all 27 families passed strict recursive conformance (28 root / 59 recursive archives), conformance selftest, byte-preserving package round-trip, and the creator runtime smoke passed 58/58. Re-run affected coverage after subsequent archive/extractor changes; semantic edited-source proof remains V-005.",
       "tags": [
         "workbench-key:validation-all-family-roundtrip"
       ],
       "id": "V-002",
-      "updated": "2026-07-30T15:16:40.169Z",
-      "created": "2026-07-30T15:16:40.169Z"
+      "updated": "2026-08-01T12:52:59.810Z",
+      "created": "2026-07-30T15:16:40.169Z",
+      "model": "Codex GPT-5"
     },
     {
       "type": "validation",
       "title": "Catalog/provider production runtime uses every asset family",
       "area": "RUNTIME",
-      "status": "missing",
+      "status": "partial",
       "phase": 4,
       "lane": "verification",
-      "owner": "codex-pd2-workbench-assets-20260730",
+      "owner": "ultra",
       "deps": [
         "T-RUNTIME-001",
-        "T-MODDING-004"
+        "T-MODDING-004",
+        "V-005",
+        "V-006",
+        "V-007",
+        "V-008"
       ],
-      "evidence": [],
+      "evidence": [
+        "context/audits/2026/asset-pipeline-full-chain-audit-2026-07-30.md",
+        ".claude/smoke-verify-runs/results-20260730T185923Z.json"
+      ],
       "verdict": "not_run",
-      "artifacts": [],
-      "detail": "Durable production-path tests and runtime artifacts must prove no family is preview-only, disconnected, or falling back to ROM.",
+      "artifacts": [
+        "context/session-log.md"
+      ],
+      "detail": "Representative all-family activation and creator runtime smoke passed 58/58, but complete validation remains open. Close only after V-005 proves an edited public source changes production behavior for every family, V-006 proves all negative paths fail closed, V-007 proves live creator UX, and V-008 proves custom save/wire/listen-host identity. No preview-only, disconnected, native-mirror, loose-cache, or ROM fallback path may remain.",
       "tags": [
         "workbench-key:validation-production-runtime"
       ],
       "id": "V-003",
-      "updated": "2026-07-30T15:16:40.172Z",
+      "updated": "2026-08-01T12:52:59.815Z",
       "created": "2026-07-30T15:16:40.172Z"
     },
     {
@@ -1146,7 +1233,7 @@
       "status": "partial",
       "phase": 4,
       "lane": "verification",
-      "owner": "codex-pd2-workbench-assets-20260730",
+      "owner": "lina",
       "deps": [
         "T-MENUS-001",
         "T-INPUT-004"
@@ -1162,12 +1249,17 @@
       "artifacts": [
         ".claude/session-builds/pd2assetaudit/_build-session.out.log"
       ],
-      "detail": "Automated production-path coverage passes: all 117 bindable actions plus four visible derived axes, generic list/carousel/ranking/stats dialog fallback, Forge/vehicle bindings, and dynamic glyph hint assertions. Ordinary-client physical-device validation remains not run: mouse, MKB, controller focus/scroll/back, profile save/reload, vehicle mount, Forge E/Q, and live device-switch glyph evidence.",
+      "detail": "Automated coverage passes for all 117 bindable actions, four visible derived axes, generic LIST/CAROUSEL/RANKING/PLAYERSTATS dialogs, Forge/vehicle bindings, and dynamic hint glyphs. Ordinary-client physical proof must cover: mouse focus/click/scroll/back; keyboard navigation and all Settings binding-profile save/reload paths; controller focus/scroll/confirm/back; vehicle mount/use/handbrake/direct-use; Forge E/Q contextual actions; no lost input across modal/context transitions; and live keyboard/controller device-switch glyph updates. Retain video/screenshots, config/save receipts, logs, and controller identity.",
       "tags": [
-        "workbench-key:validation-menu-input"
+        "workbench-key:validation-menu-input",
+        "handoff:lina",
+        "physical-device",
+        "mkb",
+        "controller",
+        "glyphs"
       ],
       "id": "V-004",
-      "updated": "2026-07-30T19:00:54.315Z",
+      "updated": "2026-08-01T12:52:59.820Z",
       "created": "2026-07-30T15:16:40.176Z"
     },
     {
@@ -1177,7 +1269,7 @@
       "status": "missing",
       "phase": 4,
       "lane": "performance",
-      "owner": "codex-pd2-workbench-assets-20260730",
+      "owner": "ultra",
       "deps": [
         "T-RUNTIME-001"
       ],
@@ -1187,12 +1279,15 @@
       "budget": "Budgets will be derived from current baselines before optimization; no regression is acceptable.",
       "measurements": [],
       "metric": "wall-clock extraction, validation, cache rebuild, and stage-load time",
-      "detail": "Measure cold and warm creator/runtime paths separately and record asset count and cache state.",
+      "detail": "Measure cold extraction, warm no-op verification, strict all-family validation, source-hashed cache rebuild, first catalog activation, creator save/pack/import, and representative stage/match load separately. Record host, asset count, cache state, p50/max, failures, and stalls. Establish current baselines first, then replace the provisional no-regression statement with explicit approved budgets before any optimization and retain raw timing artifacts.",
       "tags": [
-        "workbench-key:performance-asset-load"
+        "workbench-key:performance-asset-load",
+        "handoff:ultra",
+        "cold-warm",
+        "no-regression"
       ],
       "id": "P-001",
-      "updated": "2026-07-30T15:16:40.179Z",
+      "updated": "2026-08-01T12:52:59.825Z",
       "created": "2026-07-30T15:16:40.179Z"
     },
     {
@@ -1287,9 +1382,10 @@
       "status": "partial",
       "phase": 1,
       "lane": "family-audit",
-      "owner": "codex-pd2-workbench-assets-20260730",
+      "owner": "ultra",
       "deps": [
-        "T-ASSETS-001"
+        "T-ASSETS-001",
+        "T-ASSETS-009"
       ],
       "evidence": [
         "context/audits/2026/asset-pipeline-full-chain-audit-2026-07-30.md",
@@ -1304,7 +1400,7 @@
         "descriptor:weapon.ini"
       ],
       "id": "A-ASSETS-002",
-      "updated": "2026-07-30T17:25:15.327Z",
+      "updated": "2026-08-01T12:52:59.858Z",
       "created": "2026-07-30T15:32:27.720Z"
     },
     {
@@ -1426,9 +1522,10 @@
       "status": "partial",
       "phase": 1,
       "lane": "family-audit",
-      "owner": "codex-pd2-workbench-assets-20260730",
+      "owner": "lina",
       "deps": [
-        "T-ASSETS-001"
+        "T-ASSETS-001",
+        "T-ASSETS-010"
       ],
       "evidence": [
         "context/audits/2026/asset-pipeline-full-chain-audit-2026-07-30.md"
@@ -1440,7 +1537,7 @@
         "descriptor:character.ini"
       ],
       "id": "A-ASSETS-007",
-      "updated": "2026-07-30T16:22:11.197Z",
+      "updated": "2026-08-01T12:52:59.853Z",
       "created": "2026-07-30T15:32:27.744Z"
     },
     {
@@ -1632,9 +1729,10 @@
       "status": "partial",
       "phase": 1,
       "lane": "family-audit",
-      "owner": "codex-pd2-workbench-assets-20260730",
+      "owner": "lina",
       "deps": [
-        "T-ASSETS-001"
+        "T-ASSETS-001",
+        "T-ASSETS-011"
       ],
       "evidence": [
         "context/bugs.md:B-956",
@@ -1647,7 +1745,7 @@
         "descriptor:voice.ini"
       ],
       "id": "A-ASSETS-015",
-      "updated": "2026-07-30T16:22:11.201Z",
+      "updated": "2026-08-01T12:52:59.848Z",
       "created": "2026-07-30T15:32:27.777Z"
     },
     {
@@ -1794,9 +1892,10 @@
       "status": "partial",
       "phase": 1,
       "lane": "family-audit",
-      "owner": "codex-pd2-workbench-assets-20260730",
+      "owner": "ultra",
       "deps": [
-        "T-ASSETS-001"
+        "T-ASSETS-001",
+        "T-ASSETS-012"
       ],
       "evidence": [
         "context/audits/2026/asset-pipeline-full-chain-audit-2026-07-30.md"
@@ -1808,7 +1907,7 @@
         "descriptor:effect.ini"
       ],
       "id": "A-ASSETS-021",
-      "updated": "2026-07-30T16:22:11.210Z",
+      "updated": "2026-08-01T12:52:59.843Z",
       "created": "2026-07-30T15:32:27.818Z"
     },
     {
@@ -1818,9 +1917,10 @@
       "status": "partial",
       "phase": 1,
       "lane": "family-audit",
-      "owner": "codex-pd2-workbench-assets-20260730",
+      "owner": "ultra",
       "deps": [
-        "T-ASSETS-001"
+        "T-ASSETS-001",
+        "T-ASSETS-013"
       ],
       "evidence": [
         "context/bugs.md:B-959",
@@ -1843,7 +1943,7 @@
         "descriptor:prop.ini"
       ],
       "id": "A-ASSETS-022",
-      "updated": "2026-07-30T18:23:11.938Z",
+      "updated": "2026-08-01T12:52:59.866Z",
       "created": "2026-07-30T15:32:27.822Z",
       "model": "Codex GPT-5"
     },
@@ -1892,9 +1992,10 @@
       "status": "partial",
       "phase": 1,
       "lane": "family-audit",
-      "owner": "codex-pd2-workbench-assets-20260730",
+      "owner": "ultra",
       "deps": [
-        "T-ASSETS-001"
+        "T-ASSETS-001",
+        "T-ASSETS-014"
       ],
       "evidence": [
         "context/audits/2026/asset-pipeline-full-chain-audit-2026-07-30.md",
@@ -1909,7 +2010,7 @@
         "descriptor:mission.ini"
       ],
       "id": "A-ASSETS-024",
-      "updated": "2026-07-30T18:50:48.231Z",
+      "updated": "2026-08-01T12:52:59.870Z",
       "created": "2026-07-30T15:32:27.865Z"
     },
     {
@@ -2031,9 +2132,10 @@
       "status": "partial",
       "phase": 1,
       "lane": "family-audit",
-      "owner": "codex-pd2-workbench-assets-20260730",
+      "owner": "lina",
       "deps": [
-        "T-ASSETS-001"
+        "T-ASSETS-001",
+        "T-ASSETS-015"
       ],
       "evidence": [
         "tools/build_typed_pdxxx_examples.py:update_theme",
@@ -2052,7 +2154,7 @@
         "descriptor:theme.ini"
       ],
       "id": "A-ASSETS-028",
-      "updated": "2026-07-30T19:00:54.311Z",
+      "updated": "2026-08-01T12:52:59.862Z",
       "created": "2026-07-30T15:32:27.881Z"
     },
     {
@@ -2257,7 +2359,7 @@
     {
       "type": "task",
       "area": "ASSETS",
-      "detail": "Several typed meta families currently emit synthetic placeholders or OG-backend labels and stop at generic runtime binding. Complete this as per-family slices: reconstruct actual source state, implement native production consumers, fail closed after extraction, and prove source edits affect behavior. A binding or preview is not completion.",
+      "detail": "B-959 is partially implemented: HUD, material, skin, vehicle, game mode, bot profile, and prop core state are connected to production. The seven explicit remaining family contracts are T-ASSETS-009 through T-ASSETS-015. Do not close this umbrella until each public field is either production-consumed or deliberately removed/versioned, selected-source failures are fail-closed, and V-005 proves edited-source behavior.",
       "title": "B-959: replace placeholder metadata families with source-faithful production paths",
       "phase": 3,
       "lane": "runtime-utilization",
@@ -2267,20 +2369,31 @@
         "source-fidelity",
         "production-path"
       ],
-      "status": "missing",
+      "status": "partial",
       "evidence": [
         "context/bugs.md:B-959",
         "context/systemic-bugs.md:SP-24",
-        "port/src/romextract_pdmeta.c",
-        "port/src/asset_runtime.c",
-        "production assetRuntimeFind call-site inventory"
+        "A-ASSETS-005",
+        "A-ASSETS-020",
+        "A-ASSETS-022",
+        "A-ASSETS-023",
+        "A-ASSETS-025",
+        "A-ASSETS-026",
+        "A-ASSETS-027",
+        "T-ASSETS-009",
+        "T-ASSETS-010",
+        "T-ASSETS-011",
+        "T-ASSETS-012",
+        "T-ASSETS-013",
+        "T-ASSETS-014",
+        "T-ASSETS-015"
       ],
-      "owner": "codex-pd2-workbench-assets-20260730",
+      "owner": "ultra",
       "deps": [
         "T-ASSETS-001"
       ],
       "id": "T-ASSETS-004",
-      "updated": "2026-07-30T16:14:32.236Z",
+      "updated": "2026-08-01T12:52:59.786Z",
       "created": "2026-07-30T16:14:32.236Z"
     },
     {
@@ -2492,6 +2605,388 @@
       "updated": "2026-07-30T17:24:52.948Z",
       "created": "2026-07-30T17:22:02.725Z",
       "model": "Codex GPT-5"
+    },
+    {
+      "status": "missing",
+      "phase": 3,
+      "owner": "ultra",
+      "title": "Complete .pdweapon settings, presentation, and dependency runtime semantics",
+      "area": "ASSETS",
+      "deps": [
+        "T-ASSETS-004"
+      ],
+      "lane": "runtime-utilization",
+      "evidence": [
+        "A-ASSETS-002",
+        "context/audits/2026/asset-pipeline-full-chain-audit-2026-07-30.md"
+      ],
+      "tags": [
+        "handoff:ultra",
+        "asset-family:pdweapon",
+        "bug:B-959",
+        "production-path"
+      ],
+      "detail": "Inventory every public .pdweapon settings, presentation, variable, model, and dependency field. Connect each supported field to the real weapon graph/render/gameplay production path, remove or explicitly version fields that are not part of the contract, preserve catalog-ID authority, fail closed when selected public source is invalid, and retain edited-source runtime proof. Completion requires A-ASSETS-002 implemented plus focused and live evidence.",
+      "type": "task",
+      "id": "T-ASSETS-009",
+      "updated": "2026-08-01T12:51:42.422Z",
+      "created": "2026-08-01T12:51:42.422Z"
+    },
+    {
+      "status": "missing",
+      "phase": 3,
+      "owner": "lina",
+      "title": "Complete .pdcharacter head and portrait production utilization",
+      "area": "ASSETS",
+      "deps": [
+        "T-ASSETS-004"
+      ],
+      "lane": "runtime-utilization",
+      "evidence": [
+        "A-ASSETS-007",
+        "context/audits/2026/asset-pipeline-full-chain-audit-2026-07-30.md"
+      ],
+      "tags": [
+        "handoff:lina",
+        "asset-family:pdcharacter",
+        "bug:B-959",
+        "production-path"
+      ],
+      "detail": "Make the character-level head and portrait contracts authoritative and visibly consumed by character selection, preview, roster, match/gameplay, save, and network reconstruction where applicable. Preserve nested catalog identities, reject missing required bindings, avoid numeric or ROM fallback, and prove an edited public character changes the production UI/model path.",
+      "type": "task",
+      "id": "T-ASSETS-010",
+      "updated": "2026-08-01T12:51:42.443Z",
+      "created": "2026-08-01T12:51:42.443Z"
+    },
+    {
+      "status": "missing",
+      "phase": 3,
+      "owner": "lina",
+      "title": "Connect .pdvoice actor, transcript, and language metadata to dialogue and localization",
+      "area": "ASSETS",
+      "deps": [
+        "T-ASSETS-004"
+      ],
+      "lane": "runtime-utilization",
+      "evidence": [
+        "A-ASSETS-015",
+        "context/audits/2026/asset-pipeline-full-chain-audit-2026-07-30.md"
+      ],
+      "tags": [
+        "handoff:lina",
+        "asset-family:pdvoice",
+        "bug:B-959",
+        "localization",
+        "production-path"
+      ],
+      "detail": "Define and implement production consumers for public actor, transcript, and language metadata, including subtitle/dialogue presentation and localization selection where relevant. Keep audio playback source-native, make required metadata validation explicit, prevent native/loose/ROM fallback, and prove edits affect the live dialogue/subtitle path.",
+      "type": "task",
+      "id": "T-ASSETS-011",
+      "updated": "2026-08-01T12:51:42.449Z",
+      "created": "2026-08-01T12:51:42.449Z"
+    },
+    {
+      "status": "missing",
+      "phase": 3,
+      "owner": "ultra",
+      "title": "Complete .pdeffect shader, timeline, graph, and fallback semantics",
+      "area": "ASSETS",
+      "deps": [
+        "T-ASSETS-004"
+      ],
+      "lane": "runtime-utilization",
+      "evidence": [
+        "A-ASSETS-021",
+        "context/audits/2026/asset-pipeline-full-chain-audit-2026-07-30.md"
+      ],
+      "tags": [
+        "handoff:ultra",
+        "asset-family:pdeffect",
+        "bug:B-959",
+        "production-path"
+      ],
+      "detail": "Trace every public effect graph, timeline, shader/material, dependency, and parameter field into the real gameplay/render path. Retire parity-backend or native fallback for selected public effects, preserve source-hashed cache boundaries, fail closed on incomplete bindings, and prove edited timing/shader/graph source changes a live effect.",
+      "type": "task",
+      "id": "T-ASSETS-012",
+      "updated": "2026-08-01T12:51:42.454Z",
+      "created": "2026-08-01T12:51:42.454Z"
+    },
+    {
+      "status": "missing",
+      "phase": 3,
+      "owner": "ultra",
+      "title": "Execute arbitrary .pdprop behavior graphs in production",
+      "area": "ASSETS",
+      "deps": [
+        "T-ASSETS-004"
+      ],
+      "lane": "runtime-utilization",
+      "evidence": [
+        "A-ASSETS-022",
+        "context/bugs.md:B-959",
+        "port/src/forge/forge_runtime.c"
+      ],
+      "tags": [
+        "handoff:ultra",
+        "asset-family:pdprop",
+        "bug:B-959",
+        "behavior-graph",
+        "production-path"
+      ],
+      "detail": "Extend the implemented prop core-state adapter so arbitrary public behavior.graph.json content is validated, catalog-resolved, instantiated, ticked, and dispatched through the production prop/Forge lifecycle. Preserve archetype, display name, health, flags and model semantics; reject unknown or invalid required nodes without silent native behavior fallback; add focused graph coverage and a live edited-behavior receipt.",
+      "type": "task",
+      "id": "T-ASSETS-013",
+      "updated": "2026-08-01T12:51:42.461Z",
+      "created": "2026-08-01T12:51:42.461Z"
+    },
+    {
+      "status": "missing",
+      "phase": 3,
+      "owner": "ultra",
+      "title": "Make .pdmission briefing and wrapper source canonical and comprehensive",
+      "area": "ASSETS",
+      "deps": [
+        "T-ASSETS-004"
+      ],
+      "lane": "public-contract",
+      "evidence": [
+        "A-ASSETS-024",
+        "port/src/scenario_source_runtime.c",
+        "src/game/setup.c:setupLoadBriefing"
+      ],
+      "tags": [
+        "handoff:ultra",
+        "asset-family:pdmission",
+        "bug:B-959",
+        "public-contract",
+        "production-path"
+      ],
+      "detail": "Resolve the redundant placeholder briefing.json contract so creators see exactly one truthful editable authority. Either make the member feed setupLoadBriefing and mission UI directly or remove/version it in favor of the canonical nested Scenario source; do not retain duplicate authored state. Re-extract base missions, update schemas/tools, and prove briefing, objectives, graph, phases, and parity dispatch round-trip and run from public source.",
+      "type": "task",
+      "id": "T-ASSETS-014",
+      "updated": "2026-08-01T12:51:42.466Z",
+      "created": "2026-08-01T12:51:42.466Z"
+    },
+    {
+      "status": "missing",
+      "phase": 3,
+      "owner": "lina",
+      "title": "Make .pdtheme dependencies authoritative and fail closed",
+      "area": "ASSETS",
+      "deps": [
+        "T-ASSETS-004"
+      ],
+      "lane": "runtime-utilization",
+      "evidence": [
+        "A-ASSETS-028",
+        "context/bugs.md:B-971",
+        "port/fast3d/pdgui_theme_loader.cpp:parse_theme_json"
+      ],
+      "tags": [
+        "handoff:lina",
+        "asset-family:pdtheme",
+        "bug:B-959",
+        "bug:B-971",
+        "production-path"
+      ],
+      "detail": "Connect every declared optional theme UI, font, texture, palette, chrome, and style dependency to the production theme loader through catalog IDs. Define optional versus required bindings in the public schema, eliminate silent missing-binding fallback, keep creator examples aligned with the exact parser contract, and prove edited dependencies and live device glyph surfaces render from public source.",
+      "type": "task",
+      "id": "T-ASSETS-015",
+      "updated": "2026-08-01T12:51:42.471Z",
+      "created": "2026-08-01T12:51:42.471Z"
+    },
+    {
+      "phase": 4,
+      "owner": "ultra",
+      "artifacts": [],
+      "detail": "Maintain a 27-row validation matrix covering .pdweapon, .pdprojectile, .pdentity, .pdmaterial, .pdtexture, .pdcharacter, .pdhead, .pdbody, .pdarena, .pdscenario, .pdmesh, .pdanim, .pdsfx, .pdvoice, .pdsong, .pdui, .pdfont, .pdlang, .pdskin, .pdeffect, .pdprop, .pdvehicle, .pdmission, .pdgamemode, .pdbotprofile, .pdhud, and .pdtheme. Each row needs a controlled public-source edit, catalog/provider activation, observable production behavior change, no forbidden fallback, and a durable log/screenshot/audio/save/network artifact. Existing broad 58/58 smoke is baseline evidence, not completion for unproven per-family edits.",
+      "status": "missing",
+      "verdict": "not_run",
+      "type": "validation",
+      "tags": [
+        "handoff:ultra",
+        "all-families",
+        "edited-source",
+        "production-proof"
+      ],
+      "deps": [
+        "T-RUNTIME-001",
+        "T-MODDING-004",
+        "T-ASSETS-009",
+        "T-ASSETS-010",
+        "T-ASSETS-011",
+        "T-ASSETS-012",
+        "T-ASSETS-013",
+        "T-ASSETS-014",
+        "T-ASSETS-015"
+      ],
+      "evidence": [
+        "context/audits/2026/asset-pipeline-full-chain-audit-2026-07-30.md",
+        ".claude/smoke-verify-runs/results-20260730T185923Z.json"
+      ],
+      "title": "Prove edited public source changes production behavior for all 27 asset families",
+      "area": "ASSETS",
+      "lane": "verification",
+      "id": "V-005",
+      "updated": "2026-08-01T12:52:08.416Z",
+      "created": "2026-08-01T12:52:08.416Z"
+    },
+    {
+      "phase": 4,
+      "owner": "ultra",
+      "artifacts": [],
+      "detail": "Retain separate negative-path receipts for: extractor-only aggregate failure and nonzero exit; each typed child emitter propagating failure; missing or corrupt selected public font, texture, sequence, animation, SFX, voice, MP3 and duration source rejecting use without ROM/native/loose fallback; malformed MP setup JSON rejecting missing canonical weapons/bots; and truncated, future-version, invalid-count, or invalid-index binary setup rejecting atomically. Record commands, logs, expected error signatures, exit codes, and cleanup state.",
+      "status": "missing",
+      "verdict": "not_run",
+      "type": "validation",
+      "tags": [
+        "handoff:ultra",
+        "negative-path",
+        "fail-closed",
+        "no-rom-fallback"
+      ],
+      "deps": [
+        "T-ASSETS-002",
+        "T-ASSETS-003",
+        "T-RUNTIME-003",
+        "T-RUNTIME-004",
+        "T-ASSETS-007",
+        "T-ASSETS-008"
+      ],
+      "evidence": [
+        "context/bugs.md:B-957",
+        "context/bugs.md:B-958",
+        "context/bugs.md:B-960",
+        "context/bugs.md:B-963",
+        "context/bugs.md:B-964",
+        "context/bugs.md:B-965"
+      ],
+      "title": "Prove extraction, source-load, and save failures are fail-closed",
+      "area": "RUNTIME",
+      "lane": "verification",
+      "id": "V-006",
+      "updated": "2026-08-01T12:52:08.433Z",
+      "created": "2026-08-01T12:52:08.433Z"
+    },
+    {
+      "phase": 4,
+      "owner": "lina",
+      "artifacts": [],
+      "detail": "In an ordinary client, use mouse, keyboard, and controller to browse standalone and nested typed archives, edit descriptors and structured members without dropping untouched entries, save atomically, add new catalog-addressed content, pack to .pdmod, import/install it, reload/edit it, and activate it through the production catalog/provider path. Capture focus, scrolling, confirmation/back behavior, validation errors, active-device glyph changes, and byte-preservation receipts. Exercise representative geometry, audio, animation, metadata/graph, UI/theme, and gameplay assets.",
+      "status": "missing",
+      "verdict": "not_run",
+      "type": "validation",
+      "tags": [
+        "handoff:lina",
+        "creator-workflow",
+        "mkb",
+        "controller",
+        "glyphs"
+      ],
+      "deps": [
+        "T-MODDING-004",
+        "T-MODDING-006",
+        "T-MENUS-001",
+        "T-INPUT-004"
+      ],
+      "evidence": [
+        ".claude/smoke-verify-runs/results-20260730T185923Z.json",
+        "context/bugs.md:B-954",
+        "context/bugs.md:B-969"
+      ],
+      "title": "Validate live creator archive editing, save, pack, import, and add-content UX",
+      "area": "MODDING",
+      "lane": "verification",
+      "id": "V-007",
+      "updated": "2026-08-01T12:52:08.438Z",
+      "created": "2026-08-01T12:52:08.438Z"
+    },
+    {
+      "phase": 4,
+      "owner": "lina",
+      "artifacts": [],
+      "detail": "Create source-edited .pdgamemode and .pdbotprofile assets, select them with mouse/MKB/controller, verify displayed name/rules/traits/body and glyphs, save and reload JSON plus v3 binary setup, host a listen-server match, reconstruct on a joining client through manifests and v52 messages, and prove gameplay uses the same permanent catalog IDs. Include corrupted-source/save rejection and no numeric/native fallback evidence.",
+      "status": "missing",
+      "verdict": "not_run",
+      "type": "validation",
+      "tags": [
+        "handoff:lina",
+        "pdgamemode",
+        "pdbotprofile",
+        "save-wire",
+        "listen-host",
+        "controller"
+      ],
+      "deps": [
+        "T-RUNTIME-002",
+        "T-ASSETS-005",
+        "T-ASSETS-007",
+        "T-ASSETS-008"
+      ],
+      "evidence": [
+        "context/bugs.md:B-953",
+        "context/bugs.md:B-961",
+        "context/bugs.md:B-964",
+        "context/bugs.md:B-965"
+      ],
+      "title": "Validate custom game-mode and bot-profile identity through save and listen-host networking",
+      "area": "RUNTIME",
+      "lane": "verification",
+      "id": "V-008",
+      "updated": "2026-08-01T12:52:08.443Z",
+      "created": "2026-08-01T12:52:08.443Z"
+    },
+    {
+      "status": "missing",
+      "phase": 1,
+      "owner": "ultra",
+      "deps": [
+        "T-TOOLING-001"
+      ],
+      "detail": "Prevent a linked worktree or stale process from silently becoming the default Workbench authority. Resolve and expose the canonical project/data root, git common directory, worktree path, branch and HEAD in /api/meta; make the launcher reject noncanonical/default-port startup unless explicit isolated mode is requested; detect an existing server for another root; and add tests proving API mutations reach the canonical roadmap. Preserve supported explicit isolation for recovery/testing.",
+      "lane": "workbench-integrity",
+      "tags": [
+        "bug:B-973",
+        "handoff:ultra",
+        "workbench",
+        "canonical-root",
+        "data-integrity"
+      ],
+      "area": "TOOLING",
+      "type": "task",
+      "evidence": [
+        "context/bugs.md:B-973",
+        "2026-08-01 observed port 8378 serving 93-item stale worktree while canonical roadmap held 104 items"
+      ],
+      "title": "B-973: bind Workbench server to canonical project truth",
+      "id": "T-TOOLING-002",
+      "updated": "2026-08-01T12:58:41.683Z",
+      "created": "2026-08-01T12:58:41.683Z"
+    },
+    {
+      "status": "open",
+      "phase": 1,
+      "owner": "ultra",
+      "deps": [
+        "T-TOOLING-002"
+      ],
+      "detail": "A default-port server can serve a worktree-local roadmap while agents believe they are mutating the canonical checkout. This can lose or fork tasks, notes, and changelog history. Mitigate only when T-TOOLING-002 makes root identity visible and rejects accidental split authority.",
+      "lane": "workbench-integrity",
+      "tags": [
+        "bug:B-973",
+        "handoff:ultra",
+        "data-loss",
+        "workbench"
+      ],
+      "area": "TOOLING",
+      "type": "risk",
+      "evidence": [
+        "context/bugs.md:B-973"
+      ],
+      "title": "Stale worktree Workbench server can split durable project truth",
+      "id": "R-002",
+      "updated": "2026-08-01T12:58:41.700Z",
+      "created": "2026-08-01T12:58:41.700Z"
     }
   ]
 }
