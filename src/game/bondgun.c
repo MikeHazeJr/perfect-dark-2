@@ -4568,7 +4568,7 @@ static struct modeldef *bgunQueuedLoadCatalogModelSource(struct player *player)
 		return NULL;
 	}
 
-	if (!catalogLoadTypedAsset(ASSET_MODEL, model_id)) {
+	if (!catalogLoadStageAsset(ASSET_MODEL, model_id)) {
 		sysLogPrintf(LOG_WARNING,
 			"BONDGUN.SOURCE: catalog model source load failed filenum=%d id=%s path=%s",
 			(s32)player->gunctrl.loadfilenum,

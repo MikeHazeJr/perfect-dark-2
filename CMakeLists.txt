@@ -925,9 +925,11 @@ set(SRC_TESTS
   # table it indexes is provided by tests/stubs.c in this target.
   ${CMAKE_SOURCE_DIR}/port/src/effect_graph_runtime.c
   ${CMAKE_SOURCE_DIR}/port/src/pdeffect_source.c
+  ${CMAKE_SOURCE_DIR}/port/src/pdeffect_source_parser.cpp
   ${CMAKE_SOURCE_DIR}/src/game/sparks_custom.c
   ${CMAKE_SOURCE_DIR}/tests/test_effect_graph_runtime.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_pdeffect_source.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_pdeffect_source_parser.cpp
   ${CMAKE_SOURCE_DIR}/port/src/loader_enum_reverse.c
   ${CMAKE_SOURCE_DIR}/port/src/modvfs.c
   ${CMAKE_SOURCE_DIR}/port/src/sha256.c
@@ -987,6 +989,11 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/tests/test_anim_slots.cpp
   ${CMAKE_SOURCE_DIR}/port/src/assetcatalog_stage_slots.c
   ${CMAKE_SOURCE_DIR}/tests/test_stage_slots.cpp
+  # T-CATALOG-002: pure stage-owner ledger keeps stage diff references
+  # independent from explicit UI/editor/manifest/typed lifecycle owners.
+  ${CMAKE_SOURCE_DIR}/port/src/catalog_stage_ownership.c
+  ${CMAKE_SOURCE_DIR}/tests/test_catalog_stage_ownership.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_asset_path_contract.cpp
 
   # S484 F1: catalog manager for weapons (pure validators + variant spec).
   # Live router lives in port/src/catalog_mgr_weapons.c and pulls in

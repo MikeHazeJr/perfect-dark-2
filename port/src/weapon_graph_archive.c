@@ -1096,7 +1096,7 @@ s32 weaponGraphArchiveScanEmbeddedMeshesBytes(const void *container_bytes,
 		}
 
 		char catalog_id[CATALOG_ID_LEN];
-		char geometry[128];
+		char geometry[FS_MAXPATH];
 		s32 parsed = readMeshIniIdAndGeometry((const char *)ini_bytes, ini_size,
 			catalog_id, sizeof(catalog_id), geometry, sizeof(geometry));
 		free(ini_bytes);

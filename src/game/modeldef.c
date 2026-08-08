@@ -497,7 +497,7 @@ static struct modeldef *modeldefLoadExternalCatalogSource(asset_data_handle_t ha
 	}
 
 	if (modeldefTypeUsesLoadedModelPayload(model_type)) {
-		if (!catalogLoadTypedAsset(model_type, entry->id)) {
+		if (!catalogLoadStageAsset(model_type, entry->id)) {
 			sysLogPrintf(LOG_WARNING,
 				"MODELDEF.SOURCE: catalog model source load failed type=%d filenum=%d id=%s path=%s",
 				(s32)model_type,

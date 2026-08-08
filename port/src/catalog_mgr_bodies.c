@@ -260,7 +260,7 @@ struct modeldef *catalogManagerGetBodyModeldef(s32 bodynum)
 		e = id ? assetCatalogResolve(id) : NULL;
 		fallback_filenum = e ? e->source_filenum : -1;
 
-		if (id && catalogLoadTypedAsset(ASSET_BODY, id)) {
+		if (id && catalogLoadStageAsset(ASSET_BODY, id)) {
 			s_Bodies[bodynum].modeldef = catalogGetLoadedModeldef(id);
 		}
 		if (s_Bodies[bodynum].modeldef) {

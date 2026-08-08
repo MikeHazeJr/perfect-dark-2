@@ -120,6 +120,10 @@ s32 loaderWalkerEnvelopeInt(const char *json, size_t json_len,
 s32 loaderWalkerEnvelopeStrCopy(const char *json, size_t json_len,
                                  const char *key, char *out, size_t out_n);
 
+/* Path-only variants reject overflow and clear out instead of truncating. */
+s32 loaderWalkerEnvelopePathCopy(const char *json, size_t json_len,
+                                 const char *key, char *out, size_t out_n);
+
 /* Build a FileProvider path for a member inside a typed archive. If member is
  * NULL/empty, the archive path itself is copied. Returns 1 on success. */
 s32 loaderWalkerArchiveMemberPath(const char *archive_path,
@@ -139,6 +143,9 @@ s32 loaderWalkerArchiveTextMember(const char *archive_path,
 s32 loaderWalkerIniValueCopy(const char *text, size_t text_len,
                              const char *section, const char *key,
                              char *out, size_t out_n);
+s32 loaderWalkerIniPathCopy(const char *text, size_t text_len,
+                            const char *section, const char *key,
+                            char *out, size_t out_n);
 
 /* Mark a row discovered under data/<romid>/ as base extracted content. */
 void loaderWalkerMarkBaseArchiveEntry(asset_entry_t *entry);

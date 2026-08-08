@@ -30,6 +30,7 @@
 #include "boot_progress.h"
 #include "fs.h"
 #include "loader_walker_common.h"
+#include "asset_path_contract.h"
 #include "modarchive.h"
 #include "system.h"
 
@@ -110,6 +111,20 @@ s32 loaderWalkerEnvelopeStrCopy(const char *json, size_t json_len,
     return 1;
 }
 
+s32 loaderWalkerEnvelopePathCopy(const char *json, size_t json_len,
+                                 const char *key, char *out, size_t out_n)
+{
+    const char *value = NULL;
+    size_t value_len = 0;
+    if (!out || out_n == 0) return 0;
+    out[0] = '\0';
+    if (!loaderWalkerEnvelopeStr(json, json_len, key, &value, &value_len)
+            || value_len >= out_n) return 0;
+    memcpy(out, value, value_len);
+    out[value_len] = '\0';
+    return 1;
+}
+
 s32 loaderWalkerEnvelopeInt(const char *json, size_t json_len,
                             const char *key, s64 *out_value)
 {
@@ -145,11 +160,8 @@ s32 loaderWalkerArchiveMemberPath(const char *archive_path,
         return 0;
     }
 
-    if (!member || !member[0]) {
-        snprintf(out, out_n, "%s", archive_path);
-        out[out_n - 1] = '\0';
-        return out[0] != '\0';
-    }
+    if (!member || !member[0]) return assetPathCopyChecked(out, out_n,
+        archive_path);
 
     while (*member == '/' || *member == '\\') {
         member++;
@@ -160,9 +172,7 @@ s32 loaderWalkerArchiveMemberPath(const char *archive_path,
         return 0;
     }
 
-    snprintf(out, out_n, "%s::%s", archive_path, member);
-    out[out_n - 1] = '\0';
-    return out[0] != '\0';
+    return assetPathJoinChecked(out, out_n, archive_path, "::", member);
 }
 
 s32 loaderWalkerArchiveTextMember(const char *archive_path,
@@ -267,6 +277,49 @@ s32 loaderWalkerIniValueCopy(const char *text, size_t text_len,
             }
         }
         cursor = line_end < end ? line_end + 1 : end;
+    }
+    return 0;
+}
+
+s32 loaderWalkerIniPathCopy(const char *text, size_t text_len,
+                            const char *section, const char *key,
+                            char *out, size_t out_n)
+{
+    const char *cursor;
+    const char *end;
+    s32 in_section = 0;
+    size_t section_len;
+    size_t key_len;
+    if (!out || out_n == 0 || !text || !section || !key) return 0;
+    out[0] = '\0';
+    cursor = text;
+    end = text + text_len;
+    section_len = strlen(section);
+    key_len = strlen(key);
+    while (cursor < end) {
+        const char *line_end = cursor;
+        const char *value_end;
+        while (line_end < end && *line_end != '\n' && *line_end != '\r') line_end++;
+        const char *line = s_trimIniSpan(cursor, line_end, &value_end);
+        if (line < value_end && *line != ';' && *line != '#') {
+            if (*line == '[' && value_end > line + 2 && value_end[-1] == ']') {
+                in_section = (size_t)(value_end - line - 2) == section_len &&
+                    memcmp(line + 1, section, section_len) == 0;
+            } else if (in_section && (size_t)(value_end - line) > key_len &&
+                    memcmp(line, key, key_len) == 0) {
+                const char *p = line + key_len;
+                while (p < value_end && isspace((unsigned char)*p)) p++;
+                if (p < value_end && *p == '=') {
+                    p = s_trimIniSpan(p + 1, value_end, &value_end);
+                    if ((size_t)(value_end - p) >= out_n) return 0;
+                    memcpy(out, p, (size_t)(value_end - p));
+                    out[value_end - p] = '\0';
+                    return 1;
+                }
+            }
+        }
+        cursor = line_end;
+        while (cursor < end && (*cursor == '\n' || *cursor == '\r')) cursor++;
     }
     return 0;
 }

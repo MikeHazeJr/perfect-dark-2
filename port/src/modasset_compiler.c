@@ -5438,8 +5438,15 @@ static s32 generatedModeldefMetadataPath(const char *source_path,
 		return 0;
 	}
 
-	return snprintf(out, out_n, "%.*s::%s", prefix_len, source_path,
-		member) > 0;
+	{
+		int wrote = snprintf(out, out_n, "%.*s::%s", prefix_len, source_path,
+			member);
+		if (wrote < 0 || (size_t)wrote >= out_n) {
+			out[0] = '\0';
+			return 0;
+		}
+		return 1;
+	}
 }
 
 static s32 generatedModeldefReadStringValue(const char *text,

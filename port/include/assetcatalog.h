@@ -239,9 +239,9 @@ typedef struct asset_entry {
         } character;
         struct {
             char target_id[CATALOG_ID_LEN];  /* soft reference to target char */
-            char skin_file[128];             /* editable skin/material binding source */
-            char texture_file[128];          /* appearance payload for this skin */
-            char swatches_file[128];         /* editable color swatch source */
+            char skin_file[FS_MAXPATH];       /* editable skin/material binding source */
+            char texture_file[FS_MAXPATH];    /* appearance payload for this skin */
+            char swatches_file[FS_MAXPATH];   /* editable color swatch source */
             char material_archive[FS_MAXPATH]; /* typed material dependency archive */
             char texture_archive[FS_MAXPATH];  /* typed texture dependency archive */
         } skin;
@@ -310,14 +310,14 @@ typedef struct asset_entry {
         struct {
             s32 weapon_id;             /* MPWEAPON_* slot, not runtime WEAPON_* */
             char name[64];             /* human-readable display name */
-            char model_file[128];      /* model file path (empty for base game) */
-            char behavior_graph[128];  /* optional single held behavior graph source */
-            char primary_graph[128];   /* primary function graph source */
-            char secondary_graph[128]; /* secondary function graph source */
-            char shared_context[128];  /* shared context source for split graphs */
-            char settings_file[128];   /* editable weapon settings source */
-            char variables_file[128];  /* editable weapon variable source */
-            char presentation_file[128]; /* c3849 Wave 5f: bindings/presentation.json (sight/zoom_fov defaults) */
+            char model_file[FS_MAXPATH];
+            char behavior_graph[FS_MAXPATH];
+            char primary_graph[FS_MAXPATH];
+            char secondary_graph[FS_MAXPATH];
+            char shared_context[FS_MAXPATH];
+            char settings_file[FS_MAXPATH];
+            char variables_file[FS_MAXPATH];
+            char presentation_file[FS_MAXPATH];
             s32  dual_wieldable;       /* bool: can be dual-wielded */
             u8   requirefeature;       /* unlock check (0 = always available) */
             /* S484 F9 / Mike I.2 (2026-04-27): the legacy headline
@@ -331,15 +331,15 @@ typedef struct asset_entry {
         } weapon;
         struct {
             char name[64];             /* human-readable display name */
-            char model_file[128];      /* visual model for the in-flight object */
-            char behavior_graph[128];  /* behavior.graph.json source path */
+            char model_file[FS_MAXPATH];
+            char behavior_graph[FS_MAXPATH];
             char entity_ref[CATALOG_ID_LEN]; /* optional transition target */
         } projectile;
         struct {
             char name[64];             /* human-readable display name */
             char archetype[64];        /* armed_mine, autogun, sensor, etc. */
-            char model_file[128];      /* visual model for the deployed object */
-            char behavior_graph[128];  /* behavior.graph.json source path */
+            char model_file[FS_MAXPATH];
+            char behavior_graph[FS_MAXPATH];
         } entity;
         struct {
             s32 anim_id;               /* animation table index */
@@ -356,14 +356,14 @@ typedef struct asset_entry {
             s32 width;                 /* width in pixels (0 = unknown) */
             s32 height;                /* height in pixels (0 = unknown) */
             s32 format;                /* texture format constant (0 = unknown) */
-            char file_path[128];       /* path to texture file */
+            char file_path[FS_MAXPATH];
         } texture;
         struct {
             s32 prop_type;             /* PROPTYPE_* constant */
             char name[64];             /* human-readable display name */
-            char prop_file[128];       /* editable prop/archetype source */
-            char model_file[128];      /* model file path (empty for base game) */
-            char behavior_graph[128];  /* behavior.graph.json source path */
+            char prop_file[FS_MAXPATH];
+            char model_file[FS_MAXPATH];
+            char behavior_graph[FS_MAXPATH];
             u32  flags;                /* prop flags bitmask */
             f32  health;               /* base health value (0 = indestructible) */
         } prop;
@@ -375,7 +375,7 @@ typedef struct asset_entry {
             s32 max_players;           /* maximum players supported */
             s32 team_based;            /* bool: requires teams */
             u8  requirefeature;        /* unlock check (0 = always available) */
-            char rules_file[128];      /* authored rule/source payload */
+            char rules_file[FS_MAXPATH];
         } gamemode;
         struct {
             s32 stagenum;              /* logical stage ID this scenario content backs */
@@ -403,7 +403,7 @@ typedef struct asset_entry {
             char name[64];             /* human-readable display name */
             s32 category;              /* AUDIO_CAT_SFX / AUDIO_CAT_MUSIC / AUDIO_CAT_VOICE */
             s32 duration_ms;           /* duration in milliseconds (0 = unknown) */
-            char file_path[128];       /* path to audio file (empty = ROM-embedded) */
+            char file_path[FS_MAXPATH];
             s32 has_keymap;            /* SFX/voice source carries native ALKeyMap fields */
             s32 key_min;
             s32 key_max;
@@ -439,8 +439,8 @@ typedef struct asset_entry {
             s32 hud_id;                /* HUD element ID */
             char name[64];             /* human-readable display name */
             s32 element_type;          /* HUD_ELEM_* constant */
-            char texture_file[128];    /* texture file path (empty = uses default) */
-            char layout_file[128];     /* layout/source path for engine-rendered HUD */
+            char texture_file[FS_MAXPATH];
+            char layout_file[FS_MAXPATH];
         } hud;
         struct {
             char texture_file[FS_MAXPATH];    /* public image source, usually texture.png/tga */
@@ -461,29 +461,29 @@ typedef struct asset_entry {
             char name[64];             /* human-readable display name */
             s32 effect_type;           /* EFFECT_TYPE_* constant */
             s32 target;                /* EFFECT_TARGET_* constant */
-            char effect_file[128];     /* graph payload for runtime adapter */
-            char timeline_file[128];   /* optional effect timeline source */
+            char effect_file[FS_MAXPATH];
+            char timeline_file[FS_MAXPATH];
             char shader_id[64];        /* shader identifier for the renderer */
             f32 intensity;             /* effect strength 0.0-1.0 */
             f32 params[4];             /* generic effect parameters */
         } effect;
         struct {
-            char material_file[128];    /* material definition JSON/source */
+            char material_file[FS_MAXPATH];
             char texture_archive[FS_MAXPATH]; /* embedded texture dependency archive */
             char effect_archive[FS_MAXPATH];  /* optional embedded effect archive */
         } material;
         struct {
-            char model_file[128];       /* visual model source */
-            char physics_file[128];     /* handling/collision tuning source */
-            char behavior_graph[128];   /* optional vehicle behavior graph */
+            char model_file[FS_MAXPATH];
+            char physics_file[FS_MAXPATH];
+            char behavior_graph[FS_MAXPATH];
         } vehicle;
         struct {
             char scenario_archive[FS_MAXPATH]; /* required scenario dependency */
-            char objectives_file[128];  /* mission objective authoring source */
-            char mission_graph_file[128]; /* campaign flow graph source */
+            char objectives_file[FS_MAXPATH];
+            char mission_graph_file[FS_MAXPATH];
         } mission;
         struct {
-            char theme_file[128];       /* theme token/style source */
+            char theme_file[FS_MAXPATH];
             char ui_archive[FS_MAXPATH];   /* optional UI chrome dependency */
             char font_archive[FS_MAXPATH]; /* optional font dependency */
             char audio_archive[FS_MAXPATH]; /* optional theme SFX dependency */
@@ -495,7 +495,7 @@ typedef struct asset_entry {
             char locale[16];           /* locale tag for this language source */
             char lang_category[32];    /* stage / mp_ui / system */
             u32 string_count;          /* authored strings.json row count */
-            char strings_file[128];    /* Editable JSON source for mod language banks */
+            char strings_file[FS_MAXPATH];
         } lang;
         struct {
             char font_file[FS_MAXPATH];    /* vector font or bitmap glyph atlas */
@@ -508,7 +508,7 @@ typedef struct asset_entry {
             s16  name_langid;          /* langbank string ID for display name */
             u8   requirefeature;       /* unlock check (0 = always available) */
             char target_body[CATALOG_ID_LEN]; /* catalog body ID for authored profiles */
-            char profile_file[128];    /* authored profile/tuning payload */
+            char profile_file[FS_MAXPATH];
         } bot_profile;
     } ext;
 
@@ -536,6 +536,7 @@ typedef struct asset_entry {
     u32                data_size_bytes;/* size of loaded_data in bytes (0 if not loaded) */
     asset_payload_kind_t payload_kind; /* ownership/activation policy for loaded_data */
     s32                ref_count;      /* reference count; ASSET_REF_BUNDLED = never evict */
+    s32                stage_ref_count;/* refs acquired by stage-category ownership (0 or 1) */
 
     /* Catalog internals */
     s32 occupied;                      /* bool: hash table slot in use */

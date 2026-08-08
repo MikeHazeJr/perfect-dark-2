@@ -17,6 +17,7 @@
 #include "fs.h"
 #include "loader_walker.h"
 #include "loader_walker_common.h"
+#include "pdeffect_source.h"
 #include "system.h"
 
 typedef struct {
@@ -311,6 +312,48 @@ static s32 s_applyThemePublicDescriptor(asset_entry_t *entry,
 done:
 	sysMemFree(ini);
 	return ok;
+}
+
+static s32 s_applyEffectPublicDescriptor(asset_entry_t *entry,
+	const char *archive_path)
+{
+	pd_effect_source_info_t source;
+	char error[256];
+
+	if (!entry || !pdEffectSourceParseArchiveFile(archive_path, entry->id,
+			&source, error, sizeof(error))) {
+		sysLogPrintf(LOG_ERROR,
+			"LOADER.UNIVERSAL.META: invalid public effect source '%s': %s",
+			archive_path, error);
+		return 0;
+	}
+	strncpy(entry->ext.effect.name, source.name,
+		sizeof(entry->ext.effect.name) - 1);
+	entry->ext.effect.name[sizeof(entry->ext.effect.name) - 1] = '\0';
+	if (!loaderWalkerArchiveMemberPath(archive_path, source.effect_file,
+			entry->ext.effect.effect_file,
+			sizeof(entry->ext.effect.effect_file))) {
+		return 0;
+	}
+	entry->ext.effect.timeline_file[0] = '\0';
+	if (source.timeline_file[0] && !loaderWalkerArchiveMemberPath(archive_path,
+			source.timeline_file, entry->ext.effect.timeline_file,
+			sizeof(entry->ext.effect.timeline_file))) {
+		return 0;
+	}
+	strncpy(entry->ext.effect.shader_id, source.shader_id,
+		sizeof(entry->ext.effect.shader_id) - 1);
+	entry->ext.effect.shader_id[sizeof(entry->ext.effect.shader_id) - 1] = '\0';
+	entry->ext.effect.intensity = source.intensity;
+	if (source.format == PD_EFFECT_SOURCE_FORMAT_PROFILE_LIBRARY) {
+		entry->ext.effect.effect_type =
+			source.profile_kind == PD_EFFECT_PROFILE_EXPLOSION
+			? EFFECT_TYPE_EXPLOSION
+			: source.profile_kind == PD_EFFECT_PROFILE_SPARK
+				? EFFECT_TYPE_SPARK : EFFECT_TYPE_SMOKE;
+		entry->ext.effect.target = EFFECT_TARGET_CALLSITE;
+	}
+	return 1;
 }
 
 static asset_entry_t *s_getOrRegisterMetaEntry(const char *id, asset_type_e type)
@@ -622,31 +665,8 @@ static void s_applyTypeFields(asset_entry_t *entry,
 		}
 		break;
 	case ASSET_EFFECT:
-		s_clearPath(entry->ext.effect.effect_file,
-			sizeof(entry->ext.effect.effect_file));
-		s_clearPath(entry->ext.effect.timeline_file,
-			sizeof(entry->ext.effect.timeline_file));
-		if (!s_copyManifestMemberPath(manifest, manifest_len, "effect_file",
-				archive_path, entry->ext.effect.effect_file,
-				sizeof(entry->ext.effect.effect_file))
-				&& !s_copyManifestMemberPath(manifest, manifest_len,
-				"behavior_graph", archive_path,
-				entry->ext.effect.effect_file,
-				sizeof(entry->ext.effect.effect_file))) {
-			strncpy(entry->ext.effect.effect_file, source_path,
-				sizeof(entry->ext.effect.effect_file) - 1);
-			entry->ext.effect.effect_file[
-				sizeof(entry->ext.effect.effect_file) - 1] = '\0';
-		}
-		if (!s_copyManifestMemberPath(manifest, manifest_len,
-				"timeline_file", archive_path,
-				entry->ext.effect.timeline_file,
-				sizeof(entry->ext.effect.timeline_file))) {
-			s_copyManifestMemberPath(manifest, manifest_len,
-				"timeline", archive_path,
-				entry->ext.effect.timeline_file,
-				sizeof(entry->ext.effect.timeline_file));
-		}
+		/* T-ASSETS-017: deliberately empty. Public effect.ini plus its declared
+		 * graph are the only authored authority; _meta is identity/provenance. */
 		break;
 	case ASSET_MATERIAL:
 		s_clearPath(entry->ext.material.material_file,
@@ -698,7 +718,16 @@ static s32 s_registerMeta(const char *manifest, size_t manifest_len,
 		return -1;
 	}
 
-	if (meta->type == ASSET_THEME) {
+	if (meta->type == ASSET_EFFECT) {
+		if (!s_applyEffectPublicDescriptor(entry, file_path)) {
+			entry->enabled = 0;
+			entry->load_state = ASSET_STATE_REGISTERED;
+			return -1;
+		}
+		strncpy(source_path, entry->ext.effect.effect_file,
+			sizeof(source_path) - 1);
+		source_path[sizeof(source_path) - 1] = '\0';
+	} else if (meta->type == ASSET_THEME) {
 		strncpy(member, "theme.json", sizeof(member) - 1);
 		member[sizeof(member) - 1] = '\0';
 	} else if (meta->type == ASSET_MISSION) {
@@ -709,12 +738,13 @@ static s32 s_registerMeta(const char *manifest, size_t manifest_len,
 		return -1;
 	}
 
-	if (!loaderWalkerArchiveMemberPath(file_path, member,
-			source_path, sizeof(source_path))) {
-		return -1;
+	if (meta->type != ASSET_EFFECT) {
+		if (!loaderWalkerArchiveMemberPath(file_path, member,
+				source_path, sizeof(source_path))) {
+			return -1;
+		}
+		s_applyTypeFields(entry, manifest, manifest_len, source_path, file_path);
 	}
-
-	s_applyTypeFields(entry, manifest, manifest_len, source_path, file_path);
 	if (meta->type == ASSET_MISSION &&
 			!s_applyMissionPublicDescriptor(entry, file_path)) {
 		entry->enabled = 0;

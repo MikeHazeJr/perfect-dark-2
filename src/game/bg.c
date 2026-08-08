@@ -1388,7 +1388,7 @@ static s32 bgTryActivateScenarioSourceBackground(const catalog_stage_result_t *s
 		return 0;
 	}
 
-	if (!catalogLoadTypedAsset(ASSET_SCENARIO, scenario->id)) {
+	if (!catalogLoadStageAsset(ASSET_SCENARIO, scenario->id)) {
 		return 0;
 	}
 

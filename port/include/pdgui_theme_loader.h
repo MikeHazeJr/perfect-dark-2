@@ -64,6 +64,11 @@ void pdguiThemeLoaderOnCatalogReady(void);
 /** Shutdown: free any loaded theme data. */
 void pdguiThemeLoaderShutdown(void);
 
+/** Diagnostic receipt for smoke verification. Logs the active lifecycle
+ *  parent's aggregate/stage ownership followed by each declared dependency,
+ *  and returns the number of rows logged. This never acquires or releases. */
+s32 pdguiThemeLoaderLogActiveOwnership(const char *label);
+
 /** Rescan mods/ for new/updated theme.json files.
  *  Call after modmgrApplyChanges() so newly-installed mod themes appear
  *  without requiring a restart.  Safe to call at any time after init. */

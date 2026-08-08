@@ -1562,7 +1562,7 @@ TEST_CASE("archive mods scan INI descriptors through the shared catalog scanner"
 	REQUIRE(scanner.find("typedPdDescriptorComponentDir(entry_name") != std::string::npos);
 	REQUIRE(scanner.find("typedPdArchiveDescriptorLeaf(entry_name)") != std::string::npos);
 	REQUIRE(scanner.find("assetArchiveExtractDescriptorMemAlloc") != std::string::npos);
-	REQUIRE(scanner.find("snprintf(entry_ref, sizeof(entry_ref), \"%s::%s\"") != std::string::npos);
+	REQUIRE(scanner.find("assetPathJoinChecked(entry_ref, FS_MAXPATH, archive_path, \"::\",") != std::string::npos);
 	REQUIRE(scanner.find("qualifyTypedArchiveSourcePaths(&ini, entry_ref)") != std::string::npos);
 	REQUIRE(scanner.find("qualifyTypedArchiveSourcePaths(&ini, entry_name)") == std::string::npos);
 	REQUIRE(scanner.find("\"theme_file\"") != std::string::npos);
@@ -1586,11 +1586,12 @@ TEST_CASE("archive mods scan INI descriptors through the shared catalog scanner"
 TEST_CASE("typed archive source path qualification covers strict archive members",
           "[modding][pdxxx][c3842][source][static]") {
 	const std::string scanner = readFile("port/src/assetcatalog_scanner.c");
-	const auto typedStart = scanner.find("static void qualifyTypedArchiveSourcePaths");
+	const std::string pathContract = readFile("port/include/asset_path_contract.h");
+	const auto typedStart = scanner.find("static s32 qualifyTypedArchiveSourcePaths");
 	const auto typedEnd = scanner.find("/* ========================================================================\n * Component Registration", typedStart);
-	const auto folderStart = scanner.find("static void qualifyIniSourcePaths");
+	const auto folderStart = scanner.find("static s32 qualifyIniSourcePaths");
 	const auto folderEnd = scanner.find("static s32 archiveInnerPathIsSafe", folderStart);
-	const auto archiveStart = scanner.find("static void qualifyArchiveIniPaths");
+	const auto archiveStart = scanner.find("static s32 qualifyArchiveIniPaths");
 	const auto archiveEnd = scanner.find("#endif", archiveStart);
 
 	REQUIRE(typedStart != std::string::npos);
@@ -1633,10 +1634,14 @@ TEST_CASE("typed archive source path qualification covers strict archive members
 	};
 
 	for (const char *key : requiredKeys) {
-		REQUIRE(typedBlock.find(key) != std::string::npos);
-		REQUIRE(folderBlock.find(key) != std::string::npos);
-		REQUIRE(archiveBlock.find(key) != std::string::npos);
+		REQUIRE(pathContract.find(key) != std::string::npos);
 	}
+	REQUIRE(typedBlock.find("g_AssetPathSourceKeys") != std::string::npos);
+	REQUIRE(folderBlock.find("g_AssetPathSourceKeys") != std::string::npos);
+	REQUIRE(archiveBlock.find("g_AssetPathSourceKeys") != std::string::npos);
+	REQUIRE(typedBlock.find("qualifyTypedArchiveSourcePath") != std::string::npos);
+	REQUIRE(folderBlock.find("qualifyIniSourcePath") != std::string::npos);
+	REQUIRE(archiveBlock.find("qualifyArchiveIniPath") != std::string::npos);
 }
 
 TEST_CASE("folder and archive fixtures use the same external descriptor layout",
@@ -2409,7 +2414,9 @@ TEST_CASE("projectile and entity asset kinds are catalog and manifest visible",
 	}
 	REQUIRE(distrib.find("const asset_entry_t *existing = assetCatalogResolve(slot->id)") != std::string::npos);
 	REQUIRE(distrib.find("preserved_entry = *existing") != std::string::npos);
-	REQUIRE(distrib.find("populateExtFromIni(e, type, destdir, &ini, preserved_entry_ptr)") != std::string::npos);
+	REQUIRE(distrib.find("if (!populateExtFromIni(e, type, destdir, &ini,") != std::string::npos);
+	REQUIRE(distrib.find("if (existing) *e = preserved_entry;") != std::string::npos);
+	REQUIRE(distrib.find("else assetCatalogUnregister(slot->id);") != std::string::npos);
 	REQUIRE(distrib.find("preserved_weapon_requirefeature") != std::string::npos);
 	REQUIRE(distrib.find("iniGetInt(ini, \"dual_wieldable\",\n"
 	                     "                    preserved_dual_wieldable)") != std::string::npos);
@@ -5181,7 +5188,7 @@ TEST_CASE("archive-backed typed weapon sources keep transport-root chain",
           "[modding][pdxxx][weapon_graph][c3849][static][archive_vfs]") {
 	const std::string scanner = readFile("port/src/assetcatalog_scanner.c");
 	REQUIRE(scanner.find("modArchiveGetPath(archive)") != std::string::npos);
-	REQUIRE(scanner.find("snprintf(entry_ref, sizeof(entry_ref), \"%s::%s\"") != std::string::npos);
+	REQUIRE(scanner.find("assetPathJoinChecked(entry_ref, FS_MAXPATH, archive_path, \"::\",") != std::string::npos);
 	REQUIRE(scanner.find("qualifyTypedArchiveSourcePaths(&ini, entry_ref)") != std::string::npos);
 	REQUIRE(scanner.find("qualifyTypedArchiveSourcePaths(&ini, entry_name)") == std::string::npos);
 
@@ -5253,7 +5260,7 @@ TEST_CASE("presentation_file mirrors and camera clause pins stay wired",
 	/* ext.weapon.presentation_file exists and all THREE mirror sites copy it
 	 * (field-for-field parity discipline). */
 	const std::string catalog_h = readFile("port/include/assetcatalog.h");
-	REQUIRE(catalog_h.find("char presentation_file[128]") != std::string::npos);
+	REQUIRE(catalog_h.find("char presentation_file[FS_MAXPATH]") != std::string::npos);
 
 	const std::string scanner = readFile("port/src/assetcatalog_scanner.c");
 	REQUIRE(scanner.find("e->ext.weapon.presentation_file") != std::string::npos);
@@ -5465,7 +5472,7 @@ TEST_CASE("external UI font and language descriptors use standard files",
 	REQUIRE(catalog.find("ASSET_FONT") != std::string::npos);
 	REQUIRE(catalog.find("char nineslice_file[FS_MAXPATH]") != std::string::npos);
 	REQUIRE(catalog.find("s32 nineslice_left") != std::string::npos);
-	REQUIRE(catalog.find("char strings_file[128]") != std::string::npos);
+	REQUIRE(catalog.find("char strings_file[FS_MAXPATH]") != std::string::npos);
 	REQUIRE(catalog.find("char locale[16]") != std::string::npos);
 	REQUIRE(catalog.find("char lang_category[32]") != std::string::npos);
 	REQUIRE(catalog.find("u32 string_count") != std::string::npos);
@@ -5553,9 +5560,9 @@ TEST_CASE("catalog game mode and bot profile assets drive live runtime selectors
 	REQUIRE(scanner.find("e->ext.bot_profile.profile_file") != std::string::npos);
 
 	std::string catalog = readFile("port/include/assetcatalog.h");
-	REQUIRE(catalog.find("char rules_file[128]") != std::string::npos);
+	REQUIRE(catalog.find("char rules_file[FS_MAXPATH]") != std::string::npos);
 	REQUIRE(catalog.find("char target_body[CATALOG_ID_LEN]") != std::string::npos);
-	REQUIRE(catalog.find("char profile_file[128]") != std::string::npos);
+	REQUIRE(catalog.find("char profile_file[FS_MAXPATH]") != std::string::npos);
 
 	std::string runtime = readFile("port/src/asset_runtime.c");
 	REQUIRE(runtime.find("entry->ext.gamemode.rules_file") != std::string::npos);
@@ -5581,8 +5588,8 @@ TEST_CASE("catalog game mode and bot profile assets drive live runtime selectors
 TEST_CASE("skin assets expose saved texture payloads through catalog provider paths",
           "[modding][pdxxx][runtime][c3838][skin]") {
 	const std::string catalog = readFile("port/include/assetcatalog.h");
-	REQUIRE(catalog.find("char texture_file[128];          /* appearance payload for this skin */") != std::string::npos);
-	REQUIRE(catalog.find("char swatches_file[128];         /* editable color swatch source */") != std::string::npos);
+	REQUIRE(catalog.find("char texture_file[FS_MAXPATH];    /* appearance payload for this skin */") != std::string::npos);
+	REQUIRE(catalog.find("char swatches_file[FS_MAXPATH];   /* editable color swatch source */") != std::string::npos);
 	REQUIRE(catalog.find("char material_archive[FS_MAXPATH]; /* typed material dependency archive */") != std::string::npos);
 	REQUIRE(catalog.find("char texture_archive[FS_MAXPATH];  /* typed texture dependency archive */") != std::string::npos);
 
@@ -6144,7 +6151,8 @@ TEST_CASE("external models maps and animations compile from standard sources",
 	REQUIRE(distrib.find("\"animation.ini\"") != std::string::npos);
 	REQUIRE(distrib.find("case ASSET_ANIMATION:") != std::string::npos);
 	REQUIRE(distrib.find("#include \"loader_pool.h\"") != std::string::npos);
-	REQUIRE(distrib.find("distribRegisterAnimationCommandSource(e->id, dirpath, cf)") != std::string::npos);
+	REQUIRE(distrib.find("if (!distribRegisterAnimationCommandSource(e->id, dirpath,") != std::string::npos);
+	REQUIRE(distrib.find("cf)) return 0;") != std::string::npos);
 	REQUIRE(distrib.find("loaderPoolParseAnimationSourceJson(json, json_size, path)") != std::string::npos);
 	REQUIRE(distrib.find("e->ext.anim.bytes_per_frame = iniGetInt(ini, \"bytes_per_frame\", 0)") != std::string::npos);
 	REQUIRE(distrib.find("e->ext.anim.header_len = iniGetInt(ini, \"header_len\", 0)") != std::string::npos);

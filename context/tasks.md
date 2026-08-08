@@ -6,24 +6,41 @@
 
 Last updated: 2026-08-08
 
-`T-ASSETS-030` now passes its automated `.pdtheme` bands and an ordinary-client
-24/24 smoke: edited public theme source applied custom UI/font/SFX/music,
-nested MIDI compiled from `.pdmod::pdsong`, MKB Down/Up traversed SDL, two
-1280x720 frames rendered, and shutdown was clean. It remains `partial` for
-three explicit dependencies. `T-CATALOG-002` owns the critical systemic fix
-for stage diff releasing active typed references it did not acquire (observed
-theme plus four children ref `1->0`). `T-MENUS-002` owns the vertically clipped
-MKB/controller action-label footer visible in both frames. Real controller,
-device-switch, restart, and peer-network proof remain open; enumeration and
-synthetic input are not substitutes.
+`T-ASSETS-030` now passes its automated `.pdtheme` bands and ordinary-client
+theme receipts. `T-MENUS-002` is implemented: source-frozen geometry tests,
+the adjacent input/menu suite, 24/24 default-scale smoke, and 19/19
+1024x576/200% smoke pass; all four delayed frames keep the dynamic MKB footer
+inside the themed panel after real SDL Down/Up events. `T-CATALOG-002` also
+passes its final 33/33 stage-transition/shutdown receipt. Real controller and
+keyboard/controller device-switch proof remain open under `V-004`, while
+restart and peer-network proof remain open for the theme validation program;
+enumeration and synthetic input are not substitutes.
 
-`T-CATALOG-003` records the remaining systemic archive-qualified source-path
-work under the asset/runtime umbrellas: 34 path-bearing catalog fields still
-use 128-byte storage, and unchecked copy/join sites can preserve truncated
-prefixes across scanner, walker, network, provider, runtime, and weapon-archive
-boundaries. Its Wave A/B/C acceptance requires path-only capacity migration,
-checked fail-closed propagation, and an all-family boundary matrix; B-985 and
-B-996 are focused evidence, not systemic closure.
+`T-CATALOG-002` implementation is now connected to the production stage path:
+each non-bundled catalog row carries an independent 0/1 stage-owner ledger,
+stage load/release calls are idempotent, and `catalogComputeStageDiff` compares
+the destination category only against rows actually acquired by that owner.
+Explicit theme, dependency-closure, screen, editor, manifest, network, and
+other typed references no longer qualify for stage cleanup merely because
+their aggregate payload is loaded. The source-frozen client/updater/test build,
+focused 5-case/74-assertion ownership band, full 901-case/48,165-assertion
+suite, and native-source guard pass. B-1001 also wires the activation
+transaction into production shutdown. The dedicated ordinary-client
+CI-to-credits receipt passes 33/33: all five active theme rows remain `ref=1
+stage_ref=0` after the real transition, emit five shutdown-specific
+pre-release markers, and release exactly once at shutdown. Workbench
+T-CATALOG-002 is `implemented`; broader typed-family replacement, editor, and
+network-owner stress remains validation work.
+
+`T-CATALOG-003` has a verified partial milestone: all 34 path-bearing catalog
+fields and the audited walker/weapon mirrors now use the repository path
+capacity, while checked path-specific copy/join and the canonical shared key
+inventory fail closed through loose/typed scanning, base walking, network
+hot-registration rollback, runtime/provider admission, and generated model
+metadata. Isolated builds, 399 focused assertions, guard, and all 27-family
+conformance pass. It remains partial until real standalone, nested `.pdmod`,
+and received-network fixtures prove each affected family at 127, 128, 1023,
+and over-capacity lengths plus a final descriptor-traversal join sweep.
 
 **2026-08-08 ACTIVE ROADMAP EXECUTION.** The canonical Workbench routes the
 live asset program ahead of 36 explicitly deferred historical/manual-resume
@@ -184,9 +201,17 @@ all 26 explosion, 27 spark, and 23 smoke rows. The v2 public graph separates
 stored, consumer-derived, and callsite-owned state and uses catalog audio IDs.
 Focused tests pass 181 assertions / 3 cases, existing effect runtime tests pass
 235 / 8, the native-source guard passes, and isolated `assetwave5` builds pass.
-The item remains partial because T-ASSETS-017 through T-ASSETS-020 still own
-shared parsing, execution, dependencies, fail-closed behavior, and live edited-
-source proof.
+T-ASSETS-017 is implemented as of 2026-08-08. One strict public descriptor +
+graph parser now gates base walking, local/network typed scanning before catalog
+mutation, and runtime activation. It validates v2 identity/schema/types/ranges,
+exact fields and permanent row sets, preserves catalog-ID versus explicit-null
+audio semantics, validates legacy v1 identity and safe member references, and
+prevents `_meta/manifest.json` from selecting effect/timeline source fields.
+Source-frozen client/updater/test builds pass; focused T017 passes 34 assertions
+/ 5 cases, the legacy/nested archive regression passes 21 / 1, the full suite
+passes 48,155 / 900, and the native-source guard passes. T-ASSETS-018 through
+T-ASSETS-020 still own execution, dependencies/fail-closed behavior, and live
+edited-source proof; v2 validation success does not yet apply profile rows.
 
 Final audit verification checkpoint, 2026-07-30: B-969's creator-workflow fix
 remains live-smoke validated, and the regenerated all-family package again

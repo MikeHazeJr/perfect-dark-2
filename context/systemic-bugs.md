@@ -24,6 +24,16 @@ loader walkers, network distribution ingestion, runtime path mirrors, and
 weapon-graph archive descriptors. Workbench `T-CATALOG-003` owns the systemic
 Wave A/B/C implementation and boundary proof.
 
+**2026-08-08 safe milestone:** Wave A is complete for all 34 fields and the
+shared checked path-key/copy/join contract is connected across scanner,
+walkers, weapon mirrors, network hot-registration, runtime, FileProvider, and
+generated-model metadata. Network overflow restores the prior row or removes a
+new candidate before dependency commit. Isolated builds, 399 focused
+assertions, guard, and 27-family conformance pass. SP-32 remains open because
+Wave C still needs real per-family standalone/nested/network fixtures at all
+four boundary lengths and a final traversal-join sweep. See
+`context/evidence/2026-08-08-catalog-path-capacity-milestone.md`.
+
 **Semantic boundary:** Widen and validate only fields that carry filesystem or
 qualified archive-member paths. Do not widen IDs, names, descriptions,
 archetypes, shader IDs, voice contexts, or other bounded metadata merely
@@ -83,6 +93,22 @@ rg -n "catalogComputeStageDiff|catalogApplyStageDiff" port src tests
 **Rule:** Stage diff may release only references acquired by stage loading.
 Aggregate `load_state` or `ref_count` is not ownership evidence. Workbench
 `T-CATALOG-002` owns the systemic fix and blocks T-ASSETS-030 validation.
+
+**Implementation source-frozen 2026-08-08:** `asset_entry_t.stage_ref_count` and
+the pure `catalog_stage_ownership` ledger distinguish the one stage-category
+owner from aggregate typed lifecycle references. `lvReset` now uses the
+owner-scoped stage load/release API, and the diff enumerates only ledger-owned
+rows. This protects every typed family without changing its explicit owner.
+The propagation audit also fixed weapon dependency release to balance children
+on every parent decrement. B-1001 wires the explicit theme transaction into
+production shutdown before theme/backend teardown. Source-frozen builds,
+focused native tests (5/74), the full suite (901/48,165), and the native-source
+guard pass. The final source-frozen ordinary-client receipt passes 33/33: the
+theme plus four-child closure remains `ref=1 stage_ref=0` across the real
+CI-to-credits transition, then logs five shutdown-specific pre-release rows and
+five final `1->0` releases. SP-31 is fixed for the production stage-owner
+boundary. Remaining typed-family replacement, editor, and network-owner stress
+is validation work.
 
 ---
 

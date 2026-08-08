@@ -29,6 +29,7 @@
 #include "constants.h"
 #include "effect_graph_runtime.h"
 #include "modarchive.h"
+#include "pdeffect_source.h"
 #include "system.h"
 #include "weapon_graph_archive.h"
 #include "weapon_graph_runtime.h"
@@ -459,6 +460,7 @@ s32 effectGraphRuntimeRegisterArchiveBytes(const void *archive_bytes,
                                            u32 archive_size,
                                            char *err, size_t err_cap)
 {
+	pd_effect_source_info_t public_source;
 	weapon_graph_archive_descriptor_t desc;
 	void *graph = NULL;
 	u32 graph_size = 0;
@@ -467,6 +469,16 @@ s32 effectGraphRuntimeRegisterArchiveBytes(const void *archive_bytes,
 	if (!archive_bytes || archive_size == 0) {
 		setErr(err, err_cap, "effect archive bytes register called with null input");
 		return -1;
+	}
+	if (!pdEffectSourceParseArchiveBytes(archive_bytes, archive_size, NULL,
+			&public_source, err, err_cap)) {
+		return -1;
+	}
+	/* T-ASSETS-017 validates v2 at the real activation boundary. T-ASSETS-018
+	 * owns applying these rows to native executor tables; do not silently feed
+	 * the profile library to the legacy node compiler. */
+	if (public_source.format == PD_EFFECT_SOURCE_FORMAT_PROFILE_LIBRARY) {
+		return 0;
 	}
 	if (weaponGraphArchiveReadDescriptorBytes(archive_bytes, archive_size,
 			ASSET_EFFECT, &desc, err, err_cap) != 0) {
@@ -493,6 +505,7 @@ s32 effectGraphRuntimeRegisterArchiveBytes(const void *archive_bytes,
 s32 effectGraphRuntimeRegisterArchive(const char *archive_path,
                                       char *err, size_t err_cap)
 {
+	pd_effect_source_info_t public_source;
 	weapon_graph_archive_descriptor_t desc;
 	char *graph = NULL;
 	u32 graph_size = 0;
@@ -501,6 +514,13 @@ s32 effectGraphRuntimeRegisterArchive(const char *archive_path,
 	if (!archive_path || !archive_path[0]) {
 		setErr(err, err_cap, "effect archive register called with null input");
 		return -1;
+	}
+	if (!pdEffectSourceParseArchiveFile(archive_path, NULL, &public_source,
+			err, err_cap)) {
+		return -1;
+	}
+	if (public_source.format == PD_EFFECT_SOURCE_FORMAT_PROFILE_LIBRARY) {
+		return 0;
 	}
 	if (weaponGraphArchiveReadDescriptorFile(archive_path, ASSET_EFFECT,
 			&desc, err, err_cap) != 0) {

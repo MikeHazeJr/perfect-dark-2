@@ -136,6 +136,62 @@ void pdguiEndActionBar(void);
 s32 pdguiActionBarButton(const char *label, s32 isFocused, f32 width);
 
 /* ========================================================================
+ * Docked dynamic hint footer
+ * ======================================================================== */
+
+/**
+ * Geometry result for a non-interactive hint footer.  The pure resolver is
+ * intentionally header-local so pd-tests can exercise resolution/scale
+ * boundaries without linking ImGui.
+ */
+typedef struct pdgui_hint_footer_layout {
+    f32 body_height;
+    f32 footer_height;
+    s32 footer_fits;
+} pdgui_hint_footer_layout;
+
+/**
+ * Split remaining vertical space between a body and a measured footer.
+ * The body keeps at least min_body_height whenever possible.  On a
+ * physically impossible viewport the result still never exceeds
+ * available_height; footer_fits reports that the caller would need to omit
+ * content or enable scrolling instead of silently drawing outside its panel.
+ */
+static inline pdgui_hint_footer_layout pdguiResolveHintFooterLayout(
+        f32 available_height, f32 desired_footer_height, f32 min_body_height)
+{
+    pdgui_hint_footer_layout result;
+
+    if (available_height < 0.0f) available_height = 0.0f;
+    if (desired_footer_height < 0.0f) desired_footer_height = 0.0f;
+    if (min_body_height < 0.0f) min_body_height = 0.0f;
+    if (min_body_height > available_height) min_body_height = available_height;
+
+    result.footer_height = desired_footer_height;
+    result.footer_fits = 1;
+
+    if (result.footer_height > available_height - min_body_height) {
+        result.footer_height = available_height - min_body_height;
+        if (result.footer_height < 0.0f) result.footer_height = 0.0f;
+        result.footer_fits = 0;
+    }
+
+    result.body_height = available_height - result.footer_height;
+    return result;
+}
+
+/**
+ * Measure a wrapped dynamic hint using the current ImGui font and style.
+ * width is the parent content width.  The result includes separator and
+ * theme padding, so reserving it before the body keeps the entire footer
+ * inside the parent at any supported resolution/UI scale/theme font.
+ */
+f32 pdguiHintFooterHeight(const char *text, f32 width);
+
+/** Draw a measured, non-scrolling hint footer at the current cursor. */
+void pdguiDrawHintFooter(const char *id, const char *text, f32 height);
+
+/* ========================================================================
  * Popup scrim (darken background behind modal popups)
  * ======================================================================== */
 

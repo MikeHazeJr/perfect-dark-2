@@ -265,7 +265,7 @@ struct modeldef *catalogManagerGetHeadModeldef(s32 headnum)
 		const char *id = catalogHeadIdByHeadnum(headnum);
 		s32 filenum = catalogGetHeadFilenumByIndex(headnum);
 
-		if (id && catalogLoadTypedAsset(ASSET_HEAD, id)) {
+		if (id && catalogLoadStageAsset(ASSET_HEAD, id)) {
 			s_Heads[headnum].modeldef = catalogGetLoadedModeldef(id);
 		}
 		if (s_Heads[headnum].modeldef) {

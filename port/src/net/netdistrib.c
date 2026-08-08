@@ -43,6 +43,7 @@
 #include "net/netenet.h"
 #include "net/netmanifest.h"
 #include "assetcatalog.h"
+#include "asset_path_contract.h"
 #include "asset_archive_policy.h"
 #include "assetcatalog_body_head_slots.h"
 #include "assetcatalog_weapon_slots.h"
@@ -1453,24 +1454,32 @@ static s32 distribParseModeString(const char *val)
     return mode;
 }
 
-static void distribSetPrimaryFromFile(asset_entry_t *e, const char *dirpath, const char *relpath)
+static s32 distribSetPrimaryFromFileChecked(asset_entry_t *e,
+                                            const char *dirpath,
+                                            const char *relpath)
 {
     char fullpath[FS_MAXPATH];
     const char *path = relpath;
 
     if (!relpath || !relpath[0]) {
-        return;
+        return 0;
     }
 
     if (relpath[0] != '/'
             && relpath[0] != '\\'
             && !(relpath[0] && relpath[1] == ':')
             && dirpath && dirpath[0]) {
-        snprintf(fullpath, sizeof(fullpath), "%s/%s", dirpath, relpath);
+        if (!assetPathJoinChecked(fullpath, sizeof(fullpath), dirpath, "/",
+                relpath)) {
+            sysLogPrintf(LOG_WARNING,
+                "DISTRIB.ASSET.PATH.REJECT: over-capacity source path");
+            return 0;
+        }
         path = fullpath;
     }
 
     catalogSetPrimaryFile(e, path);
+    return e && e->source.primary.provider == fileProvider();
 }
 
 static s32 distribQualifyFilePath(const char *dirpath,
@@ -1492,12 +1501,10 @@ static s32 distribQualifyFilePath(const char *dirpath,
             && relpath[0] != '\\'
             && !(relpath[0] && relpath[1] == ':')
             && dirpath && dirpath[0]) {
-        snprintf(out, outsz, "%s/%s", dirpath, relpath);
+        if (!assetPathJoinChecked(out, outsz, dirpath, "/", relpath)) return 0;
     } else {
-        snprintf(out, outsz, "%s", relpath);
+        if (!assetPathCopyChecked(out, outsz, relpath)) return 0;
     }
-
-    out[outsz - 1] = '\0';
     return out[0] != '\0';
 }
 
@@ -1518,7 +1525,7 @@ static const char *distribFindLastArchiveSeparator(const char *path)
     return last;
 }
 
-static void distribSourceModelPathFromMeshArchive(const char *mesh_archive,
+static s32 distribSourceModelPathFromMeshArchiveChecked(const char *mesh_archive,
                                                   char *out,
                                                   size_t outsz)
 {
@@ -1530,25 +1537,24 @@ static void distribSourceModelPathFromMeshArchive(const char *mesh_archive,
     size_t i;
 
     if (!out || outsz == 0) {
-        return;
+        return 0;
     }
 
     out[0] = '\0';
 
     if (!mesh_archive || !mesh_archive[0]) {
-        return;
+        return 0;
     }
 
     for (i = 0; i < sizeof(candidates) / sizeof(candidates[0]); i++) {
-        snprintf(out, outsz, "%s::%s", mesh_archive, candidates[i]);
-        out[outsz - 1] = '\0';
+        if (!assetPathJoinChecked(out, outsz, mesh_archive, "::",
+                candidates[i])) return 0;
         if (fsFileSize(out) > 0) {
-            return;
+            return 1;
         }
     }
 
-    snprintf(out, outsz, "%s::model.obj", mesh_archive);
-    out[outsz - 1] = '\0';
+    return assetPathJoinChecked(out, outsz, mesh_archive, "::", "model.obj");
 }
 
 static s32 distribManifestPathFromMeshArchive(const char *mesh_archive,
@@ -1736,7 +1742,7 @@ static s32 distribResolveHeadRuntimeSlot(const char *id,
     return custom;
 }
 
-static void distribRegisterAnimationCommandSource(const char *id,
+static s32 distribRegisterAnimationCommandSource(const char *id,
                                                   const char *dirpath,
                                                   const char *relpath)
 {
@@ -1746,14 +1752,15 @@ static void distribRegisterAnimationCommandSource(const char *id,
     u32 json_size = 0;
 
     if (!relpath || !relpath[0]) {
-        return;
+        return 1;
     }
 
     if (relpath[0] != '/'
             && relpath[0] != '\\'
             && !(relpath[0] && relpath[1] == ':')
             && dirpath && dirpath[0]) {
-        snprintf(fullpath, sizeof(fullpath), "%s/%s", dirpath, relpath);
+        if (!assetPathJoinChecked(fullpath, sizeof(fullpath), dirpath, "/",
+                relpath)) return 0;
         path = fullpath;
     }
 
@@ -1765,7 +1772,7 @@ static void distribRegisterAnimationCommandSource(const char *id,
         sysLogPrintf(LOG_WARNING,
                      "DISTRIB: animation command source missing for '%s': %s",
                      id ? id : "", path);
-        return;
+        return 0;
     }
 
     if (!loaderPoolParseAnimationSourceJson(json, json_size, path)) {
@@ -1773,7 +1780,7 @@ static void distribRegisterAnimationCommandSource(const char *id,
                      "DISTRIB: animation command source rejected for '%s': %s",
                      id ? id : "", path);
         free(json);
-        return;
+        return 0;
     }
 
     loaderPoolFinalize();
@@ -1781,6 +1788,7 @@ static void distribRegisterAnimationCommandSource(const char *id,
                  "DISTRIB: animation command source registered for '%s': %s",
                  id ? id : "", path);
     free(json);
+    return 1;
 }
 
 /* Populate the asset_entry_t ext union from the parsed INI, mirroring the
@@ -1826,10 +1834,47 @@ static s32 distribMintCustomStagenum(asset_entry_t *e, const char *mint_key)
     return stagenum;
 }
 
-static void populateExtFromIni(asset_entry_t *e, asset_type_e type, const char *dirpath,
+#define distribSetPrimaryFromFile(e, dirpath, relpath) do { \
+    if (!distribSetPrimaryFromFileChecked((e), (dirpath), (relpath))) return 0; \
+} while (0)
+#define distribSourceModelPathFromMeshArchive(mesh, out, outsz) do { \
+    if (!distribSourceModelPathFromMeshArchiveChecked((mesh), (out), (outsz))) return 0; \
+} while (0)
+
+static s32 distribIniKeyIsSourcePath(const char *key)
+{
+    return assetPathKeyIsSource(key);
+}
+
+static s32 distribIniSourcePathsFit(const ini_section_t *ini,
+                                    const char *dirpath)
+{
+    char checked[FS_MAXPATH];
+    if (!ini) return 0;
+    for (s32 i = 0; i < ini->count; i++) {
+        const char *value = ini->pairs[i].value;
+        if (!distribIniKeyIsSourcePath(ini->pairs[i].key) || !value[0]) continue;
+        if (value[0] != '/' && value[0] != '\\'
+                && !(value[0] && value[1] == ':') && dirpath && dirpath[0]) {
+            if (!assetPathJoinChecked(checked, sizeof(checked), dirpath, "/",
+                    value)) return 0;
+        } else if (!assetPathCopyChecked(checked, sizeof(checked), value)) {
+            return 0;
+        }
+        if (strcmp(ini->pairs[i].key, "mesh_archive") == 0) {
+            char source_model[FS_MAXPATH];
+            if (!assetPathJoinChecked(source_model, sizeof(source_model),
+                    checked, "::", "model.obj")) return 0;
+        }
+    }
+    return 1;
+}
+
+static s32 populateExtFromIni(asset_entry_t *e, asset_type_e type, const char *dirpath,
                                const ini_section_t *ini,
                                const asset_entry_t *preserved_entry)
 {
+    if (!e || !distribIniSourcePathsFit(ini, dirpath)) return 0;
     switch (type) {
     case ASSET_MAP:
         e->ext.map.stagenum = distribMintCustomStagenum(e, e->id); /* c3849 */
@@ -2121,7 +2166,8 @@ static void populateExtFromIni(asset_entry_t *e, asset_type_e type, const char *
             {
                 const char *cf = iniGet(ini, "commands_file", "");
                 if (cf[0]) {
-                    distribRegisterAnimationCommandSource(e->id, dirpath, cf);
+                    if (!distribRegisterAnimationCommandSource(e->id, dirpath,
+                            cf)) return 0;
                 }
             }
         }
@@ -2583,7 +2629,11 @@ static void populateExtFromIni(asset_entry_t *e, asset_type_e type, const char *
         /* ASSET_TEXTURES, ASSET_SFX, ASSET_MUSIC: no extra ext fields. */
         break;
     }
+    return 1;
 }
+
+#undef distribSourceModelPathFromMeshArchive
+#undef distribSetPrimaryFromFile
 
 static void distribMarkRegisteredTree(const char *root_dir, s32 temporary)
 {
@@ -2742,7 +2792,16 @@ void netDistribClientHandleEnd(const char *catalog_id, u8 success)
                     s32 dur = iniGetInt(&ini, "duration_ms", 0);
                     const char *fpath = iniGet(&ini, "file_path", "");
                     char fullfile[FS_MAXPATH];
-                    snprintf(fullfile, sizeof(fullfile), "%s/%s", destdir, fpath);
+                    if (fpath[0] && !assetPathJoinChecked(fullfile,
+                            sizeof(fullfile), destdir, "/", fpath)) {
+                        sysLogPrintf(LOG_WARNING,
+                            "DISTRIB.ASSET.PATH.REJECT: audio candidate %s",
+                            slot->id);
+                        continue;
+                    }
+                    asset_entry_t prior_entry;
+                    const asset_entry_t *prior = assetCatalogResolve(slot->id);
+                    if (prior) prior_entry = *prior;
                     asset_entry_t *e = assetCatalogRegisterAudio(
                         slot->id, 0, aname, cat, dur, fpath[0] ? fullfile : "");
                     if (e) {
@@ -2750,7 +2809,15 @@ void netDistribClientHandleEnd(const char *catalog_id, u8 success)
                         e->enabled = 1;
                         e->temporary = slot->temporary;
                         e->bundled = 0;
-                        populateExtFromIni(e, ASSET_AUDIO, destdir, &ini, NULL);
+                        if (!populateExtFromIni(e, ASSET_AUDIO, destdir, &ini,
+                                prior ? &prior_entry : NULL)) {
+                            if (prior) *e = prior_entry;
+                            else assetCatalogUnregister(slot->id);
+                            sysLogPrintf(LOG_WARNING,
+                                "DISTRIB.ASSET.PATH.REJECT: audio candidate %s",
+                                slot->id);
+                            continue;
+                        }
                         distribRegisterDependencyList(e->id, iniGet(&ini, "deps", ""), e->bundled);
                         sysLogPrintf(LOG_NOTE, "DISTRIB: hot-registered audio '%s' from %s", slot->id, destdir);
                         registered = 1;
@@ -2768,13 +2835,11 @@ void netDistribClientHandleEnd(const char *catalog_id, u8 success)
                             ini_names[k], slot->id);
                     }
                     asset_entry_t preserved_entry;
+                    const asset_entry_t *existing = assetCatalogResolve(slot->id);
                     const asset_entry_t *preserved_entry_ptr = NULL;
-                    if (type == ASSET_WEAPON) {
-                        const asset_entry_t *existing = assetCatalogResolve(slot->id);
-                        if (existing && existing->type == ASSET_WEAPON) {
-                            preserved_entry = *existing;
-                            preserved_entry_ptr = &preserved_entry;
-                        }
+                    if (existing) {
+                        preserved_entry = *existing;
+                        preserved_entry_ptr = &preserved_entry;
                     }
                     asset_entry_t *e = assetCatalogRegister(slot->id, type);
                     if (e) {
@@ -2785,7 +2850,15 @@ void netDistribClientHandleEnd(const char *catalog_id, u8 success)
                         e->temporary = slot->temporary;
                         e->bundled = 0;
                         e->model_scale = iniGetFloat(&ini, "model_scale", 1.0f);
-                        populateExtFromIni(e, type, destdir, &ini, preserved_entry_ptr);
+                        if (!populateExtFromIni(e, type, destdir, &ini,
+                                preserved_entry_ptr)) {
+                            if (existing) *e = preserved_entry;
+                            else assetCatalogUnregister(slot->id);
+                            sysLogPrintf(LOG_WARNING,
+                                "DISTRIB.ASSET.PATH.REJECT: candidate %s type=%d",
+                                slot->id, (int)type);
+                            continue;
+                        }
                         distribRegisterDependencyList(e->id, iniGet(&ini, "deps", ""), e->bundled);
                         if (type == ASSET_PROJECTILE && e->ext.projectile.entity_ref[0]) {
                             catalogDepRegister(e->id, e->ext.projectile.entity_ref, e->bundled);

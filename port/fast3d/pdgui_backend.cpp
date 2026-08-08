@@ -1345,6 +1345,7 @@ void pdguiShutdown(void)
     pdguiWeaponGraphNodeEditorShutdown();
     pdguiEffectsShutdown();
     pdguiNinesliceShutdown();
+    pdguiThemeLoaderShutdown();
     pdguiThemeShutdown();
     pdguiHotswapShutdown();
 

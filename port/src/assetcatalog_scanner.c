@@ -41,8 +41,10 @@
 #include "game/stagetable.h" /* c3849 Wave 2: stageTableAppend for minted stagenums */
 #include "assetcatalog_deps.h"
 #include "assetcatalog_scanner.h"
+#include "asset_path_contract.h"
 #include "loader_pool.h"
 #include "modarchive.h"
+#include "pdeffect_source.h"
 #include "weapon_graph_archive.h"
 #include "romdata.h"
 #include "system.h"
@@ -986,11 +988,11 @@ static s32 sourcePathNeedsComponentPrefix(const char *value)
 	return 1;
 }
 
-static void qualifyIniSourcePath(ini_section_t *ini, const char *key,
+static s32 qualifyIniSourcePath(ini_section_t *ini, const char *key,
                                  const char *component_dir)
 {
 	if (!ini || !key || !component_dir || !component_dir[0]) {
-		return;
+		return 0;
 	}
 
 	for (s32 i = 0; i < ini->count; i++) {
@@ -998,20 +1000,25 @@ static void qualifyIniSourcePath(ini_section_t *ini, const char *key,
 			continue;
 		}
 		if (!sourcePathNeedsComponentPrefix(ini->pairs[i].value)) {
+			char checked[sizeof(ini->pairs[i].value)];
+			if (!assetPathCopyChecked(checked, FS_MAXPATH,
+					ini->pairs[i].value)) return 0;
 			continue;
 		}
 
 		char full[sizeof(ini->pairs[i].value)];
-		snprintf(full, sizeof(full), "%s/%s", component_dir, ini->pairs[i].value);
-		strncpy(ini->pairs[i].value, full, sizeof(ini->pairs[i].value) - 1);
-		ini->pairs[i].value[sizeof(ini->pairs[i].value) - 1] = '\0';
+		if (!assetPathJoinChecked(full, FS_MAXPATH, component_dir, "/",
+				ini->pairs[i].value) ||
+				!assetPathCopyChecked(ini->pairs[i].value,
+					sizeof(ini->pairs[i].value), full)) return 0;
 	}
+	return 1;
 }
 
-static void qualifyIniNestedVoiceSourcePath(ini_section_t *ini, const char *key,
+static s32 qualifyIniNestedVoiceSourcePath(ini_section_t *ini, const char *key,
 	const char *component_dir)
 {
-	if (!ini || !key || !component_dir || !component_dir[0]) return;
+	if (!ini || !key || !component_dir || !component_dir[0]) return 0;
 	for (s32 i = 0; i < ini->count; i++) {
 		const char *value = ini->pairs[i].value;
 		if (strcmp(ini->pairs[i].key, key) != 0 || !value[0]
@@ -1021,13 +1028,14 @@ static void qualifyIniNestedVoiceSourcePath(ini_section_t *ini, const char *key,
 			continue;
 		}
 		char full[sizeof(ini->pairs[i].value)];
-		snprintf(full, sizeof(full), "%s/%s", component_dir, value);
-		strncpy(ini->pairs[i].value, full, sizeof(ini->pairs[i].value) - 1);
-		ini->pairs[i].value[sizeof(ini->pairs[i].value) - 1] = '\0';
+		if (!assetPathJoinChecked(full, FS_MAXPATH, component_dir, "/", value)
+				|| !assetPathCopyChecked(ini->pairs[i].value,
+					sizeof(ini->pairs[i].value), full)) return 0;
 	}
+	return 1;
 }
 
-static void qualifyIniSourcePaths(ini_section_t *ini, const char *component_dir)
+static s32 qualifyIniSourcePaths(ini_section_t *ini, const char *component_dir)
 {
 	static const char *keys[] = {
 		"bodyfile",
@@ -1138,8 +1146,10 @@ static void qualifyIniSourcePaths(ini_section_t *ini, const char *component_dir)
 		NULL
 	};
 
-	for (s32 i = 0; keys[i]; i++) {
-		qualifyIniSourcePath(ini, keys[i], component_dir);
+	(void)keys; /* inventory lives in asset_path_contract.h */
+	for (size_t i = 0; i < ASSET_PATH_SOURCE_KEY_COUNT; i++) {
+		if (!qualifyIniSourcePath(ini, g_AssetPathSourceKeys[i], component_dir))
+			return 0;
 	}
 	static const char *voice_keys[] = {
 		"subtitle_file", "locale_en_file", "locale_fr_file",
@@ -1147,8 +1157,10 @@ static void qualifyIniSourcePaths(ini_section_t *ini, const char *component_dir)
 		"locale_ja_file", NULL
 	};
 	for (s32 i = 0; voice_keys[i]; i++) {
-		qualifyIniNestedVoiceSourcePath(ini, voice_keys[i], component_dir);
+		if (!qualifyIniNestedVoiceSourcePath(ini, voice_keys[i], component_dir))
+			return 0;
 	}
+	return 1;
 }
 
 static s32 archiveInnerPathIsSafe(const char *value)
@@ -1179,11 +1191,11 @@ static s32 archiveInnerPathIsSafe(const char *value)
 	return 1;
 }
 
-static void qualifyTypedArchiveSourcePath(ini_section_t *ini, const char *key,
+static s32 qualifyTypedArchiveSourcePath(ini_section_t *ini, const char *key,
                                           const char *archive_ref)
 {
 	if (!ini || !key || !archive_ref || !archive_ref[0]) {
-		return;
+		return 0;
 	}
 
 	for (s32 i = 0; i < ini->count; i++) {
@@ -1195,13 +1207,15 @@ static void qualifyTypedArchiveSourcePath(ini_section_t *ini, const char *key,
 		}
 
 		char full[sizeof(ini->pairs[i].value)];
-		snprintf(full, sizeof(full), "%s::%s", archive_ref, ini->pairs[i].value);
-		strncpy(ini->pairs[i].value, full, sizeof(ini->pairs[i].value) - 1);
-		ini->pairs[i].value[sizeof(ini->pairs[i].value) - 1] = '\0';
+		if (!assetPathJoinChecked(full, FS_MAXPATH, archive_ref, "::",
+				ini->pairs[i].value) ||
+				!assetPathCopyChecked(ini->pairs[i].value,
+					sizeof(ini->pairs[i].value), full)) return 0;
 	}
+	return 1;
 }
 
-static void qualifyTypedArchiveSourcePaths(ini_section_t *ini,
+static s32 qualifyTypedArchiveSourcePaths(ini_section_t *ini,
                                            const char *archive_ref)
 {
 	static const char *keys[] = {
@@ -1313,9 +1327,12 @@ static void qualifyTypedArchiveSourcePaths(ini_section_t *ini,
 		NULL
 	};
 
-	for (s32 i = 0; keys[i]; i++) {
-		qualifyTypedArchiveSourcePath(ini, keys[i], archive_ref);
+	(void)keys;
+	for (size_t i = 0; i < ASSET_PATH_SOURCE_KEY_COUNT; i++) {
+		if (!qualifyTypedArchiveSourcePath(ini, g_AssetPathSourceKeys[i],
+				archive_ref)) return 0;
 	}
+	return 1;
 }
 
 /* ========================================================================
@@ -1585,7 +1602,7 @@ static const char *findLastArchiveSeparator(const char *path)
 	return last;
 }
 
-static void sourceModelPathFromMeshArchive(const char *mesh_archive,
+static s32 sourceModelPathFromMeshArchive(const char *mesh_archive,
                                            char *out,
                                            size_t outsz)
 {
@@ -1597,25 +1614,24 @@ static void sourceModelPathFromMeshArchive(const char *mesh_archive,
 	size_t i;
 
 	if (!out || outsz == 0) {
-		return;
+		return 0;
 	}
 
 	out[0] = '\0';
 
 	if (!mesh_archive || !mesh_archive[0]) {
-		return;
+		return 0;
 	}
 
 	for (i = 0; i < sizeof(candidates) / sizeof(candidates[0]); i++) {
-		snprintf(out, outsz, "%s::%s", mesh_archive, candidates[i]);
-		out[outsz - 1] = '\0';
+		if (!assetPathJoinChecked(out, outsz, mesh_archive, "::",
+				candidates[i])) return 0;
 		if (fsFileSize(out) > 0) {
-			return;
+			return 1;
 		}
 	}
 
-	snprintf(out, outsz, "%s::model.obj", mesh_archive);
-	out[outsz - 1] = '\0';
+	return assetPathJoinChecked(out, outsz, mesh_archive, "::", "model.obj");
 }
 
 static s32 manifestPathFromMeshArchive(const char *mesh_archive,
@@ -1858,7 +1874,12 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 	ini_section_t local_ini;
 	if (ini) {
 		local_ini = *ini;
-		qualifyIniSourcePaths(&local_ini, dirpath);
+		if (!qualifyIniSourcePaths(&local_ini, dirpath)) {
+			sysLogPrintf(LOG_WARNING,
+				"ASSET.PATH.REJECT: source path exceeds repository capacity in %s",
+				dirpath ? dirpath : "<unknown>");
+			return 0;
+		}
 		ini = &local_ini;
 	}
 
@@ -1867,6 +1888,17 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 		sysLogPrintf(LOG_WARNING, "assetcatalog_scanner: unknown section type '%s' in %s",
 			ini->type, dirpath);
 		return 0;
+	}
+	if (type == ASSET_BODY || type == ASSET_HEAD) {
+		const char *mesh = iniGet(ini, "mesh_archive", "");
+		char source_probe[FS_MAXPATH];
+		if (mesh[0] && !assetPathJoinChecked(source_probe,
+				sizeof(source_probe), mesh, "::", "model.obj")) {
+			sysLogPrintf(LOG_WARNING,
+				"ASSET.PATH.REJECT: mesh source chain exceeds repository capacity in %s",
+				dirpath ? dirpath : "<unknown>");
+			return 0;
+		}
 	}
 
 	/* T-ASSETS-024: these proposed binding files never acquired a production
@@ -2081,8 +2113,8 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 					sizeof(e->ext.body.mesh_archive) - 1);
 				e->ext.body.mesh_archive[
 					sizeof(e->ext.body.mesh_archive) - 1] = '\0';
-				sourceModelPathFromMeshArchive(e->ext.body.mesh_archive,
-					source_path, sizeof(source_path));
+				if (!sourceModelPathFromMeshArchive(e->ext.body.mesh_archive,
+						source_path, sizeof(source_path))) return 0;
 				catalogSetPrimaryFile(e, source_path);
 				parseBodyManifestForPrivateSlot(e->id,
 					e->ext.body.mesh_archive,
@@ -2113,8 +2145,8 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 					sizeof(e->ext.head.mesh_archive) - 1);
 				e->ext.head.mesh_archive[
 					sizeof(e->ext.head.mesh_archive) - 1] = '\0';
-				sourceModelPathFromMeshArchive(e->ext.head.mesh_archive,
-					source_path, sizeof(source_path));
+				if (!sourceModelPathFromMeshArchive(e->ext.head.mesh_archive,
+						source_path, sizeof(source_path))) return 0;
 				catalogSetPrimaryFile(e, source_path);
 				parseHeadManifestForPrivateSlot(e->id,
 					e->ext.head.mesh_archive,
@@ -2981,11 +3013,16 @@ s32 assetCatalogRegisterWeaponNestedDependencies(const char *weapon_id,
 			}
 		}
 		strncpy(p->catalog_id, catalog_id, sizeof(p->catalog_id) - 1);
-		snprintf(p->archive_ref, sizeof(p->archive_ref), "%s::%s",
-			weapon_archive, entry_name);
-		snprintf(p->descriptor_ref, sizeof(p->descriptor_ref), "%s::%s",
-			p->archive_ref, descriptor_leaf ? descriptor_leaf
-				: assetArchiveDescriptorForPath(entry_name));
+		if (!assetPathJoinChecked(p->archive_ref, FS_MAXPATH, weapon_archive,
+				"::", entry_name) ||
+				!assetPathJoinChecked(p->descriptor_ref, FS_MAXPATH,
+					p->archive_ref, "::", descriptor_leaf ? descriptor_leaf
+						: assetArchiveDescriptorForPath(entry_name))) {
+			nestedSetErr(err, err_cap,
+				"nested dependency archive chain exceeds capacity: %s%s",
+				entry_name, "");
+			goto rollback;
+		}
 		const asset_entry_t *existing = assetCatalogResolve(p->catalog_id);
 		if (existing) {
 			if (existing->type != expected_type || (!existing->bundled
@@ -3010,7 +3047,12 @@ s32 assetCatalogRegisterWeaponNestedDependencies(const char *weapon_id,
 	for (s32 i = 0; i < pending_count; i++) {
 		weapon_nested_preflight_t *p = &pending[i];
 		if (!p->existing) {
-			qualifyTypedArchiveSourcePaths(&p->ini, p->archive_ref);
+			if (!qualifyTypedArchiveSourcePaths(&p->ini, p->archive_ref)) {
+				nestedSetErr(err, err_cap,
+					"nested dependency path exceeds repository capacity: %s%s",
+					p->catalog_id, "");
+				goto rollback;
+			}
 			p->created = 1; /* rollback even if registerComponent fails late */
 			if (!registerComponent(&p->ini, p->archive_ref,
 					bundled ? "base" : weapon_id, p->descriptor_ref)) {
@@ -3238,12 +3280,22 @@ s32 assetCatalogRegisterThemeNestedDependencies(const char *theme_id,
 	for (s32 i = 0; i < pending_count; i++) {
 		char archive_ref[FS_MAXPATH * 2 + 4];
 		char descriptor_ref[FS_MAXPATH * 2 + 132];
-		snprintf(archive_ref, sizeof(archive_ref), "%s::%s", theme_archive,
-			pending[i].member);
-		snprintf(descriptor_ref, sizeof(descriptor_ref), "%s::%s", archive_ref,
-			pending[i].descriptor_leaf);
+		if (!assetPathJoinChecked(archive_ref, FS_MAXPATH, theme_archive, "::",
+				pending[i].member) ||
+				!assetPathJoinChecked(descriptor_ref, FS_MAXPATH, archive_ref, "::",
+					pending[i].descriptor_leaf)) {
+			nestedSetErr(err, err_cap,
+				"theme dependency archive chain exceeds capacity: %s%s",
+				pending[i].catalog_id, "");
+			goto done;
+		}
 		if (!pending[i].existing) {
-			qualifyTypedArchiveSourcePaths(&pending[i].ini, archive_ref);
+			if (!qualifyTypedArchiveSourcePaths(&pending[i].ini, archive_ref)) {
+				nestedSetErr(err, err_cap,
+					"theme dependency path exceeds repository capacity: %s%s",
+					pending[i].catalog_id, "");
+				goto done;
+			}
 			if (!registerComponent(&pending[i].ini, archive_ref,
 					bundled ? "base" : theme_id, descriptor_ref)) {
 				nestedSetErr(err, err_cap,
@@ -3269,8 +3321,13 @@ s32 assetCatalogRegisterThemeNestedDependencies(const char *theme_id,
 	/* Commit ownership edges only after every new child row is registered. */
 	for (s32 i = 0; i < pending_count; i++) {
 		char archive_ref[FS_MAXPATH * 2 + 4];
-		snprintf(archive_ref, sizeof(archive_ref), "%s::%s", theme_archive,
-			pending[i].member);
+		if (!assetPathJoinChecked(archive_ref, FS_MAXPATH, theme_archive, "::",
+				pending[i].member)) {
+			nestedSetErr(err, err_cap,
+				"theme dependency commit path exceeds capacity: %s%s",
+				pending[i].catalog_id, "");
+			goto done;
+		}
 		catalogDepRegister(theme_id, pending[i].catalog_id,
 			bundled ? 1 : 0);
 		if (pending[i].registered) {
@@ -3441,6 +3498,20 @@ static s32 registerTypedPdDescriptorFile(const char *descriptor_path,
                                          asset_type_e expected,
                                          const char *mod_id)
 {
+	pd_effect_source_info_t effect_source;
+	s32 has_effect_source = 0;
+	if (expected == ASSET_EFFECT) {
+		char effect_error[256];
+		effect_error[0] = '\0';
+		if (!pdEffectSourceParseArchiveFile(descriptor_path, NULL, &effect_source,
+				effect_error, sizeof(effect_error))) {
+			sysLogPrintf(LOG_ERROR,
+				"assetcatalog_scanner: invalid public .pdeffect source '%s': %s",
+				descriptor_path, effect_error);
+			return 0;
+		}
+		has_effect_source = 1;
+	}
 	ini_section_t ini;
 	if (!iniParse(descriptor_path, &ini)) {
 		const char *descriptor_leaf = typedPdArchiveDescriptorLeaf(descriptor_path);
@@ -3481,7 +3552,12 @@ static s32 registerTypedPdDescriptorFile(const char *descriptor_path,
 			return 0;
 		}
 
-		qualifyTypedArchiveSourcePaths(&ini, descriptor_path);
+		if (!qualifyTypedArchiveSourcePaths(&ini, descriptor_path)) {
+			sysLogPrintf(LOG_WARNING,
+				"ASSET.PATH.REJECT: typed source chain exceeds repository capacity: %s",
+				descriptor_path);
+			return 0;
+		}
 	}
 
 	asset_type_e ini_type = sectionToType(ini.type);
@@ -3503,12 +3579,23 @@ static s32 registerTypedPdDescriptorFile(const char *descriptor_path,
 
 	{
 		char descriptor_ref[FS_MAXPATH];
-		snprintf(descriptor_ref, sizeof(descriptor_ref), "%s::%s",
-			descriptor_path,
-			assetArchiveDescriptorForPath(descriptor_path));
-		descriptor_ref[sizeof(descriptor_ref) - 1] = '\0';
+		if (!assetPathJoinChecked(descriptor_ref, sizeof(descriptor_ref),
+				descriptor_path, "::",
+				assetArchiveDescriptorForPath(descriptor_path))) return 0;
 		if (!registerComponent(&ini, component_dir, mod_id, descriptor_ref)) {
 			return 0;
+		}
+		if (has_effect_source) {
+			asset_entry_t *effect = assetCatalogGetMutable(effect_source.catalog_id);
+			if (!effect) return 0;
+			if (effect_source.format == PD_EFFECT_SOURCE_FORMAT_PROFILE_LIBRARY) {
+				effect->ext.effect.effect_type =
+					effect_source.profile_kind == PD_EFFECT_PROFILE_EXPLOSION
+					? EFFECT_TYPE_EXPLOSION
+					: effect_source.profile_kind == PD_EFFECT_PROFILE_SPARK
+						? EFFECT_TYPE_SPARK : EFFECT_TYPE_SMOKE;
+				effect->ext.effect.target = EFFECT_TARGET_CALLSITE;
+			}
 		}
 		if (expected == ASSET_WEAPON) {
 			const char *weapon_id = iniGet(&ini, "catalog_id",
@@ -4019,11 +4106,11 @@ static s32 archivePathNeedsComponentPrefix(const char *value)
 	return 1;
 }
 
-static void qualifyArchiveIniPath(ini_section_t *ini, const char *key,
+static s32 qualifyArchiveIniPath(ini_section_t *ini, const char *key,
                                   const char *component_dir)
 {
 	if (!ini || !key || !component_dir || !component_dir[0]) {
-		return;
+		return 0;
 	}
 
 	for (s32 i = 0; i < ini->count; i++) {
@@ -4031,17 +4118,22 @@ static void qualifyArchiveIniPath(ini_section_t *ini, const char *key,
 			continue;
 		}
 		if (!archivePathNeedsComponentPrefix(ini->pairs[i].value)) {
+			char checked[FS_MAXPATH];
+			if (!assetPathCopyChecked(checked, sizeof(checked),
+					ini->pairs[i].value)) return 0;
 			continue;
 		}
 
 		char full[sizeof(ini->pairs[i].value)];
-		snprintf(full, sizeof(full), "%s/%s", component_dir, ini->pairs[i].value);
-		strncpy(ini->pairs[i].value, full, sizeof(ini->pairs[i].value) - 1);
-		ini->pairs[i].value[sizeof(ini->pairs[i].value) - 1] = '\0';
+		if (!assetPathJoinChecked(full, FS_MAXPATH, component_dir, "/",
+				ini->pairs[i].value) ||
+				!assetPathCopyChecked(ini->pairs[i].value,
+					sizeof(ini->pairs[i].value), full)) return 0;
 	}
+	return 1;
 }
 
-static void qualifyArchiveIniPaths(ini_section_t *ini, const char *component_dir)
+static s32 qualifyArchiveIniPaths(ini_section_t *ini, const char *component_dir)
 {
 	static const char *keys[] = {
 		"bodyfile",
@@ -4153,9 +4245,12 @@ static void qualifyArchiveIniPaths(ini_section_t *ini, const char *component_dir
 		NULL
 	};
 
-	for (s32 i = 0; keys[i]; i++) {
-		qualifyArchiveIniPath(ini, keys[i], component_dir);
+	(void)keys;
+	for (size_t i = 0; i < ASSET_PATH_SOURCE_KEY_COUNT; i++) {
+		if (!qualifyArchiveIniPath(ini, g_AssetPathSourceKeys[i], component_dir))
+			return 0;
 	}
+	return 1;
 }
 #endif
 
@@ -4229,12 +4324,11 @@ s32 assetCatalogScanComponentsFromArchive(const char *mod_id, mod_archive_t *arc
 		const char *archive_path = modArchiveGetPath(archive);
 		char entry_ref[FS_MAXPATH * 2 + 4];
 		if (archive_path && archive_path[0]) {
-			snprintf(entry_ref, sizeof(entry_ref), "%s::%s",
-				archive_path, entry_name);
-		} else {
-			snprintf(entry_ref, sizeof(entry_ref), "%s", entry_name);
+			if (!assetPathJoinChecked(entry_ref, FS_MAXPATH, archive_path, "::",
+					entry_name)) continue;
+		} else if (!assetPathCopyChecked(entry_ref, FS_MAXPATH, entry_name)) {
+			continue;
 		}
-		entry_ref[sizeof(entry_ref) - 1] = '\0';
 
 		char component_dir[FS_MAXPATH];
 		if (typedPdContentTypeForPath(entry_name) != ASSET_NONE) {
@@ -4273,7 +4367,13 @@ s32 assetCatalogScanComponentsFromArchive(const char *mod_id, mod_archive_t *arc
 						nested_ini, nested_size, &ini);
 					free(nested_ini);
 					if (parsed) {
-						qualifyTypedArchiveSourcePaths(&ini, entry_ref);
+						if (!qualifyTypedArchiveSourcePaths(&ini, entry_ref)) {
+							sysLogPrintf(LOG_WARNING,
+								"ASSET.PATH.REJECT: nested archive chain exceeds repository capacity: %s",
+								entry_ref);
+							free(ini_bytes);
+							continue;
+						}
 						typed_archive_sources_qualified = 1;
 					}
 				}
@@ -4298,19 +4398,18 @@ s32 assetCatalogScanComponentsFromArchive(const char *mod_id, mod_archive_t *arc
 		}
 
 		if (!typed_archive_sources_qualified) {
-			qualifyArchiveIniPaths(&ini, component_dir);
+			if (!qualifyArchiveIniPaths(&ini, component_dir)) continue;
 		}
 
 		char descriptor_ref[FS_MAXPATH * 2 + 132];
 		if (typed_archive_entry) {
 			const char *descriptor_leaf =
 				assetArchiveDescriptorForPath(entry_name);
-			snprintf(descriptor_ref, sizeof(descriptor_ref), "%s::%s",
-				entry_ref, descriptor_leaf ? descriptor_leaf : "");
+			if (!assetPathJoinChecked(descriptor_ref, FS_MAXPATH, entry_ref, "::",
+					descriptor_leaf ? descriptor_leaf : "")) continue;
 		} else {
-			snprintf(descriptor_ref, sizeof(descriptor_ref), "%s", entry_ref);
+			if (!assetPathCopyChecked(descriptor_ref, FS_MAXPATH, entry_ref)) continue;
 		}
-		descriptor_ref[sizeof(descriptor_ref) - 1] = '\0';
 
 		if (registerComponent(&ini, component_dir, mod_id, descriptor_ref)) {
 			s32 accepted = 1;

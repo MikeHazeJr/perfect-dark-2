@@ -45,7 +45,7 @@ static s32 s_register(const char *manifest, size_t manifest_len,
     s64 attack_volume = 127;
     s64 decay_volume = 127;
     s32 has_envelope = 0;
-    char source_member[128];
+    char source_member[FS_MAXPATH];
     char source_path[FS_MAXPATH + 1];
     char *voice_ini = NULL;
     size_t voice_ini_len = 0;
@@ -53,9 +53,9 @@ static s32 s_register(const char *manifest, size_t manifest_len,
     char transcript[512] = "";
     char language[16] = "";
     char context[128] = "";
-    char subtitle_member[128] = "";
+    char subtitle_member[FS_MAXPATH] = "";
     char fallback_locale[16] = "";
-    char locale_members[6][128] = {{0}};
+    char locale_members[6][FS_MAXPATH] = {{0}};
     loaderWalkerEnvelopeInt(manifest, manifest_len, "source_index", &source_index);
     loaderWalkerEnvelopeInt(manifest, manifest_len, "source_filenum", &source_filenum);
     loaderWalkerEnvelopeInt(manifest, manifest_len, "sample_rate_hz", &sample_rate_hz);
@@ -77,7 +77,7 @@ static s32 s_register(const char *manifest, size_t manifest_len,
     has_envelope = loaderWalkerEnvelopeInt(manifest, manifest_len, "release_time_us", &release_time_us) || has_envelope;
     has_envelope = loaderWalkerEnvelopeInt(manifest, manifest_len, "attack_volume", &attack_volume) || has_envelope;
     has_envelope = loaderWalkerEnvelopeInt(manifest, manifest_len, "decay_volume", &decay_volume) || has_envelope;
-    if (!loaderWalkerEnvelopeStrCopy(manifest, manifest_len, "data",
+    if (!loaderWalkerEnvelopePathCopy(manifest, manifest_len, "data",
                                      source_member, sizeof(source_member))) {
         strncpy(source_member, "sample.wav", sizeof(source_member) - 1);
         source_member[sizeof(source_member) - 1] = '\0';
@@ -92,7 +92,7 @@ static s32 s_register(const char *manifest, size_t manifest_len,
                                  language, sizeof(language));
         loaderWalkerIniValueCopy(voice_ini, voice_ini_len, "voice", "context",
                                  context, sizeof(context));
-        loaderWalkerIniValueCopy(voice_ini, voice_ini_len, "voice", "subtitle_file",
+        loaderWalkerIniPathCopy(voice_ini, voice_ini_len, "voice", "subtitle_file",
                                  subtitle_member, sizeof(subtitle_member));
         loaderWalkerIniValueCopy(voice_ini, voice_ini_len, "voice", "fallback_locale",
                                  fallback_locale, sizeof(fallback_locale));
@@ -102,7 +102,7 @@ static s32 s_register(const char *manifest, size_t manifest_len,
                 "locale_it_file", "locale_es_file", "locale_ja_file"
             };
             for (s32 i = 0; i < 6; i++) {
-                loaderWalkerIniValueCopy(voice_ini, voice_ini_len, "voice",
+                loaderWalkerIniPathCopy(voice_ini, voice_ini_len, "voice",
                     locale_keys[i], locale_members[i], sizeof(locale_members[i]));
             }
         }

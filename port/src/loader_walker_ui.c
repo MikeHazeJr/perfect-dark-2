@@ -24,9 +24,9 @@ static s32 s_register(const char *manifest, size_t manifest_len,
 {
     (void)pd_kind;
 
-    char source_member[128];
-    char layout_member[128];
-    char nineslice_member[128];
+    char source_member[FS_MAXPATH];
+    char layout_member[FS_MAXPATH];
+    char nineslice_member[FS_MAXPATH];
     char source_path[FS_MAXPATH + 1];
     char text_value[64];
     s64 int_value = 0;
@@ -39,7 +39,7 @@ static s32 s_register(const char *manifest, size_t manifest_len,
     }
     loaderWalkerMarkBaseArchiveEntry(e);
     memset(&e->ext.ui, 0, sizeof(e->ext.ui));
-    if (!loaderWalkerEnvelopeStrCopy(manifest, manifest_len, "file",
+    if (!loaderWalkerEnvelopePathCopy(manifest, manifest_len, "file",
                                      source_member, sizeof(source_member))) {
         snprintf(source_member, sizeof(source_member), "texture.tga");
     }
@@ -50,7 +50,7 @@ static s32 s_register(const char *manifest, size_t manifest_len,
                 sizeof(e->ext.ui.texture_file) - 1);
         e->ext.ui.texture_file[sizeof(e->ext.ui.texture_file) - 1] = '\0';
     }
-    if (loaderWalkerEnvelopeStrCopy(manifest, manifest_len, "layout_file",
+    if (loaderWalkerEnvelopePathCopy(manifest, manifest_len, "layout_file",
                                     layout_member, sizeof(layout_member))
             && loaderWalkerArchiveMemberPath(file_path, layout_member,
                                              source_path, sizeof(source_path))) {
@@ -58,7 +58,7 @@ static s32 s_register(const char *manifest, size_t manifest_len,
                 sizeof(e->ext.ui.layout_file) - 1);
         e->ext.ui.layout_file[sizeof(e->ext.ui.layout_file) - 1] = '\0';
     }
-    if (loaderWalkerEnvelopeStrCopy(manifest, manifest_len, "nineslice_file",
+    if (loaderWalkerEnvelopePathCopy(manifest, manifest_len, "nineslice_file",
                                     nineslice_member, sizeof(nineslice_member))
             && loaderWalkerArchiveMemberPath(file_path, nineslice_member,
                                              source_path, sizeof(source_path))) {

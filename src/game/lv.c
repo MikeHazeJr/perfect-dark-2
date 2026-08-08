@@ -213,7 +213,7 @@ static s32 lvAddScenarioSourceColmesh(s32 stagenum, s32 prefer_mp,
 		return 0;
 	}
 
-	if (!catalogLoadTypedAsset(ASSET_SCENARIO, scenario->id)) {
+	if (!catalogLoadStageAsset(ASSET_SCENARIO, scenario->id)) {
 		sysLogPrintf(LOG_WARNING,
 			"SCENARIO.SOURCE: failed to activate scene source '%s'",
 			scenario->id);
@@ -489,10 +489,10 @@ void lvReset(s32 stagenum)
 				             "CATALOG: stage 0x%02x diff load:%d unload:%d",
 				             stagenum, loadCount, unloadCount);
 				for (s32 i = 0; i < unloadCount; i++) {
-					catalogReleaseTypedAsset(lvCatalogAssetTypeForId(toUnload[i]), toUnload[i]);
+					catalogReleaseStageAsset(lvCatalogAssetTypeForId(toUnload[i]), toUnload[i]);
 				}
 				for (s32 i = 0; i < loadCount; i++) {
-					catalogLoadTypedAsset(lvCatalogAssetTypeForId(toLoad[i]), toLoad[i]);
+					catalogLoadStageAsset(lvCatalogAssetTypeForId(toLoad[i]), toLoad[i]);
 				}
 			}
 		}

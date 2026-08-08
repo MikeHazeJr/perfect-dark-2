@@ -29,16 +29,16 @@ typedef struct weapon_graph_archive_descriptor {
 	char descriptor_entry[32];
 	char section[32];
 	char catalog_id[CATALOG_ID_LEN];
-	char behavior_graph[128];
-	char primary_graph[128];
-	char secondary_graph[128];
-	char shared_context[128];
-	char settings[128];
-	char variables[128];
-	char presentation[128];  /* c3849 Wave 5f: bindings/presentation.json */
-	char manifest[128];
-	char nested_payloads[128];
-	char model_file[128];
+	char behavior_graph[FS_MAXPATH];
+	char primary_graph[FS_MAXPATH];
+	char secondary_graph[FS_MAXPATH];
+	char shared_context[FS_MAXPATH];
+	char settings[FS_MAXPATH];
+	char variables[FS_MAXPATH];
+	char presentation[FS_MAXPATH];
+	char manifest[FS_MAXPATH];
+	char nested_payloads[FS_MAXPATH];
+	char model_file[FS_MAXPATH];
 	char entity_ref[CATALOG_ID_LEN];
 	char archetype[64];
 } weapon_graph_archive_descriptor_t;
@@ -65,7 +65,7 @@ typedef struct weapon_graph_archive_inventory {
 typedef struct weapon_graph_embedded_mesh {
 	char archive_entry[FS_MAXPATH];   /* member path of the .pdmesh inside the container */
 	char catalog_id[CATALOG_ID_LEN];  /* declared in mesh.ini ([mesh] catalog_id) */
-	char geometry[128];               /* mesh.ini model_file ("model.obj" when absent) */
+	char geometry[FS_MAXPATH];
 } weapon_graph_embedded_mesh_t;
 
 const char *weaponGraphArchiveDescriptorForType(asset_type_e type);

@@ -1,0 +1,14 @@
+{
+  "Name": "theme_stage_ownership_smoke",
+  "Category": "scenario",
+  "BugId": null,
+  "RegressionFor": null,
+  "Passed": true,
+  "ExitCode": 0,
+  "ElapsedSeconds": 101.6382428,
+  "InstallDir": "C:\\Users\\mikeh\\Perfect-Dark-2\\perfect_dark-mike\\.claude\\smoke-verify-install",
+  "Screenshots": [],
+  "AssertionsTotal": 33,
+  "AssertionsMet": 33,
+  "Failures": []
+}

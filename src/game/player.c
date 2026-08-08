@@ -2951,7 +2951,7 @@ void playerTickChrBody(void)
 					weaponmodeldef = NULL;
 				} else if (!assetHandleIsNull(weapon_handle)) {
 					if (weapon_model_file_source_1p) {
-						if (weapon_model_id_1p != NULL && catalogLoadTypedAsset(ASSET_MODEL, weapon_model_id_1p)) {
+						if (weapon_model_id_1p != NULL && catalogLoadStageAsset(ASSET_MODEL, weapon_model_id_1p)) {
 							weaponmodeldef = catalogGetLoadedModeldef(weapon_model_id_1p);
 						} else {
 							sysLogPrintf(LOG_WARNING,

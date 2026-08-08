@@ -7353,7 +7353,7 @@ s32 scenarioSourceValidateBackgroundGeometryForStage(
 		return 0;
 	}
 
-	if (!catalogLoadTypedAsset(ASSET_SCENARIO, scenario->id)) {
+	if (!catalogLoadStageAsset(ASSET_SCENARIO, scenario->id)) {
 		if (assetSourceDebugIsEnabledFor(ASSET_SCENARIO)) {
 			sysLogPrintf(LOG_ERROR,
 				"SCENARIO.SOURCE: background geometry cannot activate public scene source '%s'",
@@ -14542,7 +14542,7 @@ static const char *s_aiGraphResolveAnimationCatalogId(const char *action,
 			clip = catalogGetLoadedAnimationClip(entry->id, NULL,
 				&clip_size);
 			if (!clip || clip_size == 0) {
-				if (!catalogLoadTypedAsset(ASSET_ANIMATION, entry->id)) {
+				if (!catalogLoadStageAsset(ASSET_ANIMATION, entry->id)) {
 					snprintf(reason, sizeof(reason),
 						"%s animation %s failed public .pdanim load",
 						role, entry->id);
@@ -34666,7 +34666,7 @@ u8 *scenarioSourceLoadTilesForStage(const catalog_stage_result_t *stage,
 		return NULL;
 	}
 
-	if (!catalogLoadTypedAsset(ASSET_SCENARIO, scenario->id)) {
+	if (!catalogLoadStageAsset(ASSET_SCENARIO, scenario->id)) {
 		if (assetSourceDebugIsEnabledFor(ASSET_SCENARIO)) {
 			sysLogPrintf(LOG_ERROR,
 				"SCENARIO.SOURCE: failed to activate scene source for tiles '%s'",

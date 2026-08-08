@@ -199,8 +199,13 @@ TEST_CASE("catalog lifecycle call sites use typed wrappers", "[catalog][provider
 		REQUIRE(stripped.find("catalogUnloadAsset(") == std::string::npos);
 		REQUIRE(stripped.find("catalogReleaseAsset(") == std::string::npos);
 		REQUIRE(stripped.find("catalogRetainAsset(") == std::string::npos);
-		REQUIRE(stripped.find("catalogLoadTypedAsset(") != std::string::npos);
-		REQUIRE(stripped.find("catalogReleaseTypedAsset(") != std::string::npos);
+		if (std::string(path) == "src/game/lv.c") {
+			REQUIRE(stripped.find("catalogLoadStageAsset(") != std::string::npos);
+			REQUIRE(stripped.find("catalogReleaseStageAsset(") != std::string::npos);
+		} else {
+			REQUIRE(stripped.find("catalogLoadTypedAsset(") != std::string::npos);
+			REQUIRE(stripped.find("catalogReleaseTypedAsset(") != std::string::npos);
+		}
 	}
 }
 
@@ -685,7 +690,7 @@ TEST_CASE("weapon graph and prop model files populate provider handles", "[catal
 	REQUIRE(distrib.find("e->ext.vehicle.behavior_graph") != std::string::npos);
 	REQUIRE(distrib.find("e->ext.vehicle.behavior_graph : e->ext.vehicle.physics_file") == std::string::npos);
 	REQUIRE(distrib.find("case ASSET_MODEL:") != std::string::npos);
-	REQUIRE(distrib.find("snprintf(fullpath, sizeof(fullpath), \"%s/%s\", dirpath, relpath)") != std::string::npos);
+	REQUIRE(distrib.find("assetPathJoinChecked(fullpath, sizeof(fullpath), dirpath, \"/\",") != std::string::npos);
 	REQUIRE(distrib.find("catalogSetPrimaryFile(e, path)") != std::string::npos);
 	REQUIRE(distrib.find("preserved_weapon_id = preserved_entry->ext.weapon.weapon_id") != std::string::npos);
 	REQUIRE(distrib.find("preserved_runtime_index = preserved_entry->runtime_index") != std::string::npos);
@@ -1249,7 +1254,7 @@ TEST_CASE("base first-person hand model files populate provider handles", "[cata
 	REQUIRE(baseExtended.find("e->runtime_index = -handfilenum") != std::string::npos);
 	REQUIRE(baseExtended.find("e->source_filenum = handfilenum") != std::string::npos);
 	REQUIRE(baseExtended.find("catalogBindPrimaryFromDiskOrRom(e, e->source_filenum)") != std::string::npos);
-	REQUIRE(bodyWalker.find("loaderWalkerEnvelopeStrCopy(manifest, manifest_len, \"hand_archive\"") != std::string::npos);
+	REQUIRE(bodyWalker.find("loaderWalkerEnvelopePathCopy(manifest, manifest_len, \"hand_archive\"") != std::string::npos);
 	REQUIRE(bodyWalker.find("s64 bodynum = -1;") != std::string::npos);
 	REQUIRE(bodyWalker.find("s64 bodynum = 0;") == std::string::npos);
 	REQUIRE(bodyWalker.find("LOADER.WALKER.BODY.RUNTIME_SLOT_MISSING") != std::string::npos);
@@ -1390,7 +1395,8 @@ TEST_CASE("texture audio and hud file fields populate provider handles", "[catal
 	REQUIRE(distrib.find("distribSetPrimaryFromFile(e, dirpath, primary_file)") != std::string::npos);
 	REQUIRE(distrib.find("distribSetPrimaryFromFile(e, dirpath, e->ext.hud.layout_file)") != std::string::npos);
 	REQUIRE(distrib.find("slot->id, 0, aname, cat, dur, fpath[0] ? fullfile : \"\")") != std::string::npos);
-	REQUIRE(distrib.find("populateExtFromIni(e, ASSET_AUDIO, destdir, &ini, NULL)") != std::string::npos);
+	REQUIRE(distrib.find("if (!populateExtFromIni(e, ASSET_AUDIO, destdir, &ini,") != std::string::npos);
+	REQUIRE(distrib.find("if (prior) *e = prior_entry;") != std::string::npos);
 	REQUIRE(distrib.find("distribParseAudioCategoryValue(") != std::string::npos);
 }
 

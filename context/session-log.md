@@ -1,5 +1,61 @@
 # Session Log (Active)
 
+## 2026-08-08 - T-CATALOG-003 checked public-source path milestone
+
+Completed Wave A for all 34 audited path fields and connected a shared checked
+path-key/copy/join contract through scanners, base walkers, weapon descriptors,
+network hot-registration, runtime, FileProvider, and generated-model metadata.
+Overflow clears the candidate path; network admission restores an existing row
+or unregisters a new row before dependency edges. Semantic metadata remains at
+its original capacities.
+
+Verification passes isolated client/updater/tests builds, 399 focused
+assertions in 4 cases, native-source guard, the 16-case conformance selftest,
+and 28-root/52-recursive conformance across all 27 families. T-CATALOG-003 and
+SP-32 remain partial/open because Wave C still needs actual per-family
+standalone, nested `.pdmod`, and network fixtures at 127/128/1023/over-capacity
+plus a final scanner/network traversal-join sweep.
+
+## 2026-08-08 - Scale-safe themed action footers
+
+Implemented Workbench `T-MENUS-002` and fixed B-999. Agent Select previously
+allocated its list from the complete dialog height after ImGui's cursor had
+already advanced below the title/header, so the scrolling body consumed the
+live action-hint footer's real space. A shared docked footer primitive now
+measures wrapped text using the active theme font/style and partitions the
+actual remaining content region without overflow. Agent Select, Solo Briefing,
+and Solo Inventory use it while preserving every existing dynamic action-map
+label and input handler.
+
+The source-frozen client/updater build passes, as do the 46-assertion layout
+matrix and adjacent 1,523-assertion input/menu suite. Ordinary-client custom-
+theme receipts pass 24/24 at 1280x720 and 19/19 at 1024x576/200%; all four
+inspected frames keep the MKB footer fully inside the panel after real SDL
+Down/Up events. The coordinated catalog lifecycle receipt also passes 33/33
+with five retained post-stage owners and five balanced shutdown releases. A
+physical controller and live keyboard/controller device-switch remain open in
+`V-004`; enumeration or scripted input was not claimed as device proof.
+
+## 2026-08-08 - Authoritative public `.pdeffect` parser
+
+Implemented Workbench `T-ASSETS-017` and recorded the underlying authority gap
+as B-1000. A shared parser now validates public `effect.ini` together with its
+declared graph across base walking, local/network typed scanning, and runtime
+activation. V2 profile libraries reject unknown, duplicate, omitted, wrong-
+typed, out-of-range, nonfinite, identity-mismatched, unsafe-member, and wrong-
+row inputs. Explosion audio accepts only a valid catalog ID or explicit JSON
+`null`, with silence retained distinctly. Legacy v1 archives keep their current
+executor only after exact public identity/schema/member validation.
+
+The metadata walker now bypasses private-manifest effect fields completely; a
+mutation archive with disagreeing private effect/behavior/timeline aliases
+proves the public descriptor wins. V2 activation validates successfully but
+does not synthesize legacy nodes or apply native profile rows; that remains
+T-ASSETS-018. Source-frozen verification passes client/updater/test builds,
+T017 focused tests (34 assertions / 5 cases), legacy/nested effect archive
+regression (21 / 1), the complete suite (48,155 / 900), and the native-source
+guard.
+
 ## 2026-08-08 - Archive-qualified path-capacity propagation audit
 
 Completed a read-only propagation audit after B-996. Exactly 34 remaining
@@ -3903,3 +3959,24 @@ server-assigned Workbench T-CATALOG-002. Both renders show the dynamic MKB
 footer vertically clipped at the panel bottom; T-MENUS-002 owns the layout and
 V-004 remains partial. Physical controller/device-switch, restart, and real
 peer-network proof were not available and were not replaced with simulation.
+
+## 2026-08-08 - T-CATALOG-002 owner-scoped stage lifecycle (source-frozen)
+
+Separated stage-category ownership from aggregate typed references through a
+small per-entry 0/1 ledger and paired stage load/release APIs. The production
+stage diff now releases only references it acquired, and all audited lazy
+stage-lifetime typed consumers use the same owner boundary. Propagation found
+and fixed B-990's repeated-owner weapon dependency imbalance. Live theme logs
+also exposed B-1001: normal backend shutdown never called the theme loader's
+activation shutdown, leaving the parent plus four children at one reference.
+The backend now releases that transaction before theme/backend teardown.
+
+The source-frozen client/updater/test builds pass. Focused T-CATALOG-002 tests
+pass 5 cases / 74 assertions, the complete suite passes 901 cases / 48,165
+assertions, and the native-source guard passes. A dedicated ordinary-client
+smoke queues a real CI-to-credits `mainChangeToStage` and observes all five
+active rows without mutating ownership. The final receipt passes 33/33: every
+row survives at `ref=1 stage_ref=0`, then five shutdown-specific pre-release
+markers and five named `1->0` frees balance the closure. Workbench
+T-CATALOG-002 is implemented and handed back to root; broader typed-family
+replacement, editor, and network-owner stress remains validation work.

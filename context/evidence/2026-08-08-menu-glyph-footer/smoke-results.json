@@ -1,0 +1,117 @@
+[
+  {
+    "Name": "theme_archive_runtime_smoke",
+    "Category": "scenario",
+    "BugId": null,
+    "RegressionFor": null,
+    "Passed": true,
+    "ExitCode": 0,
+    "ElapsedSeconds": 86.6907582,
+    "InstallDir": "C:\\Users\\mikeh\\Perfect-Dark-2\\perfect_dark-mike\\.claude\\smoke-verify-install",
+    "Screenshots": [
+      "C:\\Users\\mikeh\\Perfect-Dark-2\\perfect_dark-mike\\.claude\\smoke-verify-runs\\screenshots\\20260808T182203-theme_archive_runtime_smoke\\001-tri-theme-main-menu.bmp",
+      "C:\\Users\\mikeh\\Perfect-Dark-2\\perfect_dark-mike\\.claude\\smoke-verify-runs\\screenshots\\20260808T182203-theme_archive_runtime_smoke\\002-tri-theme-main-menu-focus.bmp"
+    ],
+    "AssertionsTotal": 24,
+    "AssertionsMet": 24,
+    "Failures": []
+  },
+  {
+    "Name": "theme_menu_footer_scale_smoke",
+    "Category": "scenario",
+    "BugId": null,
+    "RegressionFor": null,
+    "Passed": true,
+    "ExitCode": 0,
+    "ElapsedSeconds": 89.8719555,
+    "InstallDir": "C:\\Users\\mikeh\\Perfect-Dark-2\\perfect_dark-mike\\.claude\\smoke-verify-install",
+    "Screenshots": [
+      "C:\\Users\\mikeh\\Perfect-Dark-2\\perfect_dark-mike\\.claude\\smoke-verify-runs\\screenshots\\20260808T182333-theme_menu_footer_scale_smoke\\001-tri-theme-footer-ui200.bmp",
+      "C:\\Users\\mikeh\\Perfect-Dark-2\\perfect_dark-mike\\.claude\\smoke-verify-runs\\screenshots\\20260808T182333-theme_menu_footer_scale_smoke\\002-tri-theme-footer-ui200-focus.bmp"
+    ],
+    "AssertionsTotal": 19,
+    "AssertionsMet": 19,
+    "Failures": []
+  },
+  {
+    "Name": "theme_stage_ownership_smoke",
+    "Category": "scenario",
+    "BugId": null,
+    "RegressionFor": null,
+    "Passed": false,
+    "ExitCode": 0,
+    "ElapsedSeconds": 37.0039524,
+    "InstallDir": "C:\\Users\\mikeh\\Perfect-Dark-2\\perfect_dark-mike\\.claude\\smoke-verify-install",
+    "Screenshots": [],
+    "AssertionsTotal": 28,
+    "AssertionsMet": 13,
+    "Failures": [
+      {
+        "Kind": "required_line_missing",
+        "Pattern": "PDGUI theme loader: applied 'example:tri_theme' from '"
+      },
+      {
+        "Kind": "required_line_missing",
+        "Pattern": "BOOT: --debug-theme-stage-transition-proof queueing ordinary transition from=0x26 to=0x5c closure=5"
+      },
+      {
+        "Kind": "required_line_missing",
+        "Pattern": "CATALOG\\.OWNER\\.PROOF: label=post_stage_transition id=example:tri_theme ref=1 stage_ref=0"
+      },
+      {
+        "Kind": "required_line_missing",
+        "Pattern": "CATALOG\\.OWNER\\.PROOF: label=post_stage_transition id=example:tri_reticle ref=1 stage_ref=0"
+      },
+      {
+        "Kind": "required_line_missing",
+        "Pattern": "CATALOG\\.OWNER\\.PROOF: label=post_stage_transition id=example:tri_theme_font ref=1 stage_ref=0"
+      },
+      {
+        "Kind": "required_line_missing",
+        "Pattern": "CATALOG\\.OWNER\\.PROOF: label=post_stage_transition id=example:tri_click ref=1 stage_ref=0"
+      },
+      {
+        "Kind": "required_line_missing",
+        "Pattern": "CATALOG\\.OWNER\\.PROOF: label=post_stage_transition id=example:tri_song ref=1 stage_ref=0"
+      },
+      {
+        "Kind": "required_line_missing",
+        "Pattern": "BOOT: --debug-theme-stage-transition-proof consumed: from=0x26 to=0x5c closure=5"
+      },
+      {
+        "Kind": "required_line_missing",
+        "Pattern": "MANIFEST: unload 'example:tri_reticle' ref=1->0 \\(freed\\)"
+      },
+      {
+        "Kind": "required_line_missing",
+        "Pattern": "MANIFEST: unload 'example:tri_theme_font' ref=1->0 \\(freed\\)"
+      },
+      {
+        "Kind": "required_line_missing",
+        "Pattern": "MANIFEST: unload 'example:tri_click' ref=1->0 \\(freed\\)"
+      },
+      {
+        "Kind": "required_line_missing",
+        "Pattern": "MANIFEST: unload 'example:tri_song' ref=1->0 \\(freed\\)"
+      },
+      {
+        "Kind": "required_line_missing",
+        "Pattern": "MANIFEST: unload 'example:tri_theme' ref=1->0 \\(freed\\)"
+      },
+      {
+        "Kind": "required_count_out_of_range",
+        "Pattern": "CATALOG\\.OWNER\\.PROOF: label=post_stage_transition id=",
+        "Count": 0,
+        "Min": 5,
+        "Max": 5
+      },
+      {
+        "Kind": "required_count_out_of_range",
+        "Pattern": "MANIFEST: unload 'example:tri_.*' ref=1->0 \\(freed\\)",
+        "Count": 0,
+        "Min": 5,
+        "Max": 5
+      }
+    ]
+  }
+]

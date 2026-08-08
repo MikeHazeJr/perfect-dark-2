@@ -1,5 +1,41 @@
 # Catalog System
 
+## 2026-08-08 archive-qualified path capacity milestone
+
+Workbench `T-CATALOG-003` now applies one explicit public-source path contract
+to all 34 previously narrow catalog fields and their audited walker, weapon,
+network, runtime, provider, and compiler mirrors. Checked copy/join operations
+never return a plausible prefix. Network candidates preflight the same
+canonical path-key inventory as local/typed scanning and restore or unregister
+the row before dependency commit on failure. Semantic metadata capacities did
+not change. The isolated all-target/test builds, 399 focused assertions,
+native-source guard, conformance selftest, and 28-root/52-recursive all-family
+example conformance pass. The Workbench item remains partial pending real
+per-family standalone/nested/network boundary fixtures and traversal-join
+propagation proof.
+
+## 2026-08-08 stage-owner lifecycle separation
+
+Workbench `T-CATALOG-002` separates stage-category ownership from the
+aggregate typed-asset reference count. Every non-bundled catalog row carries a
+single 0/1 stage-owner ledger maintained by `catalogLoadStageAsset` and
+`catalogReleaseStageAsset`; repeated acquisition for the same stage is a
+truthful no-op. `catalogComputeStageDiff` compares the destination category
+only against ledger-owned rows, never every loaded payload. As a result, a
+normal stage transition cannot release theme/UI/font/audio, editor, screen,
+manifest, network, or other explicit references it did not acquire. Generic
+typed lifecycle APIs remain the owner boundary for those subsystems, while the
+stage API composes over the same production load/unload implementation.
+
+The source-frozen client/updater/test build, focused ownership band (5 cases /
+74 assertions), full suite (901 cases / 48,165 assertions), and source guard
+pass. Production shutdown now releases the active theme transaction before
+theme/backend teardown (B-1001). The final source-frozen ordinary-client
+CI-to-credits smoke passes 33/33: all five active theme rows survive at `ref=1
+stage_ref=0`, emit five shutdown-specific pre-release markers, and balance to
+zero. T-CATALOG-002 is `implemented`; broader typed-family live stress remains
+a validation gate.
+
 ## 2026-08-08 typed character, voice, and weapon-reticle handoff
 
 Top-level `.pdcharacter` rows now retain public body/head catalog IDs and a
@@ -258,6 +294,7 @@ The measured-gaps audit ([audits/migration-utilization-measurement-2026-06-10.md
 - **Wave 5 (dead-IR consumers)**: the ~115 weapon-graph IR fields now have production consumers feeding the existing OG execution routines through `*ForGameplay` accessors and custom-slot guards (binding specs B1-B8 in the maps doc). weaponTick has a combined custom PROJECTILE arm (wall-hugger -> contact-impact -> fuse timer) and a custom ENTITY arm (remote w/ detonator provenance, timed, proxy w/ LOS, storm); stick gate honors sticky_attach/sticky-device records; bounce/trail/impact filter/hit-sound/spark/explosion refs consume; guidance gains/fbw numerics/trajectory clamp consume; deployed-autogun cadence/muzzles/beam/ffsuppress + transition-to-entity + owner-cleanup + interaction consume via the g_ThrownLaptopLatch sidecar; settings/variables/presentation parse with $name substitution and defaults layering; camera_effect xray consumes.
 - **Wave 6a (meta families)**: first 3 of 11 assetRuntimeFind* gameplay consumers (botprofile, gamemode, theme), value-identical to native mirrors with once-per-session `CATALOG.<FAM>.RUNTIME_MISS` fallbacks. Remaining 8 ranked + deferred with reasons in the maps doc.
 - **Wave 6b (.pdeffect runtime)**: full compiler (canonical `pd.effect_graph.v1`, legacy accepted loudly) + effect_graph_runtime records + the four `effectGraphResolve*` bridges consumed at the Wave-5 WAVE6-EFFECT-HANDOFF seams + the custom spark-row registry (pink Needler spark achievable; explosion fireball tint is NOT OG-parameterizable - renderer slice deferred). Nested `.pdeffect` ingestion fixed at both levels (weapon -> projectile -> effect).
+- **2026-08-08 public `.pdeffect` authority (T-ASSETS-017/B-1000)**: one strict public descriptor + graph parser now gates base walking, local/network scan admission, and activation. V2 profile libraries require exact identity, schema, field/type/range shape, permanent row sets, safe members, and catalog-ID-or-null audio; v1 retains its existing executor after exact identity/member validation. The metadata walker no longer reads effect/timeline authority from `_meta`. T-ASSETS-018 still owns applying validated v2 profile rows to native tables.
 - **Wave 7 (complete 2026-06-17)**: weapon graph runtime is product-default ON; `Debug.WeaponGraphRuntime`, the Settings debug checkbox, and `MPOPTION_WEAPONGRAPH` are retired; normal-play fallback cutover is fatal for the selected source-owned families (texture, animation, SFX, music, Scenario, model); and `NET_PROTOCOL_VER` is bumped to 51 so mixed v50/v51 peers are refused at auth. `weaponGraphRuntimeSetEnabled()` remains a `PD_TESTS` hook only.
 
   2026-06-17 live proof: `needler_graph_runtime_visual_smoke` passed 40/40 in `.claude/smoke-verify-runs/results-20260617T193054Z.json` against isolated session build `wave7`. The log proves `mod_needler:needler` match spawn, held and projectile mesh ingestion from `.pdmod::needler.pdweapon` nested `.pdmesh::model.gltf` paths, `.pdeffect` ingestion, `BONDGUN.SOURCE` loading private source filenum 2016, and `MODASSET.RENDER` for skeletonless first-person Needler source geometry (12 vertices / 4 tris).

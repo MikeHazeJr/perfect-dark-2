@@ -27,7 +27,7 @@ static s32 s_register(const char *manifest, size_t manifest_len,
 
     s64 source_bank = -1;
     s64 string_count = 0;
-    char source_member[128];
+    char source_member[FS_MAXPATH];
     char source_path[FS_MAXPATH + 1];
     char locale[16];
     char category[32];
@@ -46,7 +46,7 @@ static s32 s_register(const char *manifest, size_t manifest_len,
                 sizeof(e->ext.lang.lang_category) - 1);
         e->ext.lang.lang_category[sizeof(e->ext.lang.lang_category) - 1] = '\0';
     }
-    if (!loaderWalkerEnvelopeStrCopy(manifest, manifest_len, "data",
+    if (!loaderWalkerEnvelopePathCopy(manifest, manifest_len, "data",
                                      source_member, sizeof(source_member))) {
         strncpy(source_member, "strings.json", sizeof(source_member) - 1);
         source_member[sizeof(source_member) - 1] = '\0';

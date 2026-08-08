@@ -56,6 +56,12 @@ static s32 fileProviderInternPath(const char *path)
     if (!path || !path[0]) {
         return 0;
     }
+    if (strlen(path) >= FS_MAXPATH) {
+        sysLogPrintf(LOG_WARNING,
+            "FileProvider: rejecting over-capacity public asset path (%u >= %u)",
+            (unsigned)strlen(path), (unsigned)FS_MAXPATH);
+        return 0;
+    }
 
     fileProviderEnsureMutex();
     if (s_PathMutex) {

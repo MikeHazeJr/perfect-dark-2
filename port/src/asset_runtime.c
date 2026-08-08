@@ -4,6 +4,7 @@
 #include <ctype.h>
 #include <sys/stat.h>
 #include "asset_runtime.h"
+#include "asset_path_contract.h"
 #include "prop_graph_runtime.h"
 #ifndef PD_TESTS
 #include "fs.h"
@@ -168,9 +169,7 @@ static s32 s_sourceMemberPath(const char *primary_path, const char *member,
     }
 
     if (strstr(member, "::")) {
-        if (strlen(member) + 1 > out_cap) return 0;
-        memcpy(out, member, strlen(member) + 1);
-        return 1;
+        return assetPathCopyChecked(out, out_cap, member);
     }
 
     sep = strstr(primary_path, "::");
@@ -179,8 +178,8 @@ static s32 s_sourceMemberPath(const char *primary_path, const char *member,
         if (prefix_len + 2 + strlen(member) + 1 > out_cap) return 0;
         memcpy(out, primary_path, prefix_len);
         out[prefix_len] = '\0';
-        snprintf(out + prefix_len, out_cap - prefix_len, "::%s", member);
-        return 1;
+        return assetPathJoinChecked(out + prefix_len, out_cap - prefix_len,
+            "", "::", member);
     }
 
     slash = strrchr(primary_path, '/');

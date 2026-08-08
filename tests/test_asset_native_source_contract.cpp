@@ -1431,7 +1431,7 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 	        std::string::npos);
 	REQUIRE(scenario_runtime.find("scenarioSourceValidateBackgroundGeometryForStage") !=
 	        std::string::npos);
-	REQUIRE(scenario_runtime.find("catalogLoadTypedAsset(ASSET_SCENARIO, scenario->id)") !=
+	REQUIRE(scenario_runtime.find("catalogLoadStageAsset(ASSET_SCENARIO, scenario->id)") !=
 	        std::string::npos);
 	REQUIRE(scenario_runtime.find("catalogGetLoadedColmesh(scenario->id)") !=
 	        std::string::npos);
@@ -4590,7 +4590,7 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 	        std::string::npos);
 	REQUIRE(anim_id_helper.find("has no public .pdanim source") !=
 	        std::string::npos);
-	REQUIRE(anim_id_helper.find("catalogLoadTypedAsset(ASSET_ANIMATION") !=
+	REQUIRE(anim_id_helper.find("catalogLoadStageAsset(ASSET_ANIMATION") !=
 	        std::string::npos);
 	REQUIRE(anim_id_helper.find("catalogGetLoadedAnimationClip") !=
 	        std::string::npos);
@@ -10869,7 +10869,7 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 	REQUIRE(lv.find("lvAddScenarioSourceColmesh") != std::string::npos);
 	REQUIRE(lv.find("scenarioSourceFindEntryForStage(&stage") !=
 	        std::string::npos);
-	REQUIRE(lv.find("catalogLoadTypedAsset(ASSET_SCENARIO") !=
+	REQUIRE(lv.find("catalogLoadStageAsset(ASSET_SCENARIO") !=
 	        std::string::npos);
 	REQUIRE(lv.find("catalogGetLoadedColmesh(scenario->id)") !=
 	        std::string::npos);
@@ -12841,7 +12841,7 @@ TEST_CASE("universal extracted archive walkers bind public source members",
 
 	REQUIRE(common_h.find("loaderWalkerArchiveMemberPath") != std::string::npos);
 	REQUIRE(common_h.find("loaderWalkerMarkBaseArchiveEntry") != std::string::npos);
-	REQUIRE(common.find("snprintf(out, out_n, \"%s::%s\", archive_path, member)") !=
+	REQUIRE(common.find("assetPathJoinChecked(out, out_n, archive_path, \"::\", member)") !=
 	        std::string::npos);
 	REQUIRE(common.find("register_mutex") != std::string::npos);
 	REQUIRE(common.find("SDL_LockMutex(ctx->register_mutex)") != std::string::npos);
@@ -13428,11 +13428,11 @@ TEST_CASE("universal extracted archive walkers bind public source members",
 	REQUIRE(head.find("mesh_archive_path") != std::string::npos);
 	REQUIRE(head.find("\"%s::model.obj\"") != std::string::npos);
 
-	REQUIRE(body_mgr.find("catalogLoadTypedAsset(ASSET_BODY, id)") !=
+	REQUIRE(body_mgr.find("catalogLoadStageAsset(ASSET_BODY, id)") !=
 	        std::string::npos);
 	REQUIRE(body_mgr.find("s_Bodies[bodynum].modeldef = catalogGetLoadedModeldef(id)") !=
 	        std::string::npos);
-	REQUIRE(head_mgr.find("catalogLoadTypedAsset(ASSET_HEAD, id)") !=
+	REQUIRE(head_mgr.find("catalogLoadStageAsset(ASSET_HEAD, id)") !=
 	        std::string::npos);
 	REQUIRE(head_mgr.find("s_Heads[headnum].modeldef = catalogGetLoadedModeldef(id)") !=
 	        std::string::npos);
@@ -13510,7 +13510,7 @@ TEST_CASE("universal extracted archive walkers bind public source members",
 	        std::string::npos);
 	REQUIRE(player.find("assetSourceDebugHandleRequiresPublicFileSource(ASSET_MODEL, weapon_handle)") !=
 	        std::string::npos);
-	REQUIRE(player.find("catalogLoadTypedAsset(ASSET_MODEL, weapon_model_id_1p)") !=
+	REQUIRE(player.find("catalogLoadStageAsset(ASSET_MODEL, weapon_model_id_1p)") !=
 	        std::string::npos);
 	REQUIRE(menu.find("#include \"asset_source_debug.h\"") !=
 	        std::string::npos);
@@ -13614,7 +13614,7 @@ TEST_CASE("universal extracted archive walkers bind public source members",
 	        std::string::npos);
 	REQUIRE(bondgun.find("catalogIdBySourceHandle(ASSET_MODEL, player->gunctrl.loadhandle)") !=
 	        std::string::npos);
-	REQUIRE(bondgun.find("catalogLoadTypedAsset(ASSET_MODEL, model_id)") !=
+	REQUIRE(bondgun.find("catalogLoadStageAsset(ASSET_MODEL, model_id)") !=
 	        std::string::npos);
 	REQUIRE(bondgun.find("catalogGetLoadedModeldef(model_id)") !=
 	        std::string::npos);
@@ -13697,7 +13697,7 @@ TEST_CASE("universal extracted archive walkers bind public source members",
 	        std::string::npos);
 	REQUIRE(modeldef.find("modeldefTypeUsesLoadedModelPayload(model_type)") !=
 	        std::string::npos);
-	REQUIRE(modeldef.find("catalogLoadTypedAsset(model_type, entry->id)") !=
+	REQUIRE(modeldef.find("catalogLoadStageAsset(model_type, entry->id)") !=
 	        std::string::npos);
 	REQUIRE(modeldef.find("modAssetCompilerBuildModeldef(entry, resolved_source_path") !=
 	        std::string::npos);
@@ -14131,10 +14131,10 @@ TEST_CASE("custom body/head assembly chain stays source-backed through the priva
 	 * fails, FileProvider rows fail closed instead of falling through to a ROM
 	 * handle or native bytes. */
 	requireTokenOrder(body_mgr,
-		"catalogLoadTypedAsset(ASSET_BODY, id)",
+		"catalogLoadStageAsset(ASSET_BODY, id)",
 		"modeldefLoadToNewFromHandle(handle");
 	requireTokenOrder(head_mgr,
-		"catalogLoadTypedAsset(ASSET_HEAD, id)",
+		"catalogLoadStageAsset(ASSET_HEAD, id)",
 		"modeldefLoadToNewFromHandle(handle");
 	REQUIRE(body_mgr.find("e->source.primary.provider == fileProvider()") !=
 	        std::string::npos);

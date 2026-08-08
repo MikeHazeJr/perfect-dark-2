@@ -59,14 +59,14 @@ static void s_copyManifestMember(char *out, size_t out_n,
                                  const char *manifest_key,
                                  const char *default_member)
 {
-    char member[128];
+    char member[FS_MAXPATH];
 
     if (!out || out_n == 0) {
         return;
     }
     out[0] = '\0';
 
-    if (!loaderWalkerEnvelopeStrCopy(manifest, manifest_len, manifest_key,
+    if (!loaderWalkerEnvelopePathCopy(manifest, manifest_len, manifest_key,
                                      member, sizeof(member))) {
         strncpy(member, default_member, sizeof(member) - 1);
         member[sizeof(member) - 1] = '\0';
@@ -83,26 +83,26 @@ static s32 s_register(const char *manifest, size_t manifest_len,
 
     s64 stagenum = 0;
     char kind[32];
-    char scene_member[128];
-    char collision_member[128];
-    char graph_member[128];
+    char scene_member[FS_MAXPATH];
+    char collision_member[FS_MAXPATH];
+    char graph_member[FS_MAXPATH];
     char member_path[FS_MAXPATH + 1];
     loaderWalkerEnvelopeInt(manifest, manifest_len, "stagenum", &stagenum);
     loaderWalkerEnvelopeStrCopy(manifest, manifest_len, "kind",
                                  kind, sizeof(kind));
-    if (!loaderWalkerEnvelopeStrCopy(manifest, manifest_len, "runtime_source",
+    if (!loaderWalkerEnvelopePathCopy(manifest, manifest_len, "runtime_source",
                                      scene_member, sizeof(scene_member))) {
-        if (!loaderWalkerEnvelopeStrCopy(manifest, manifest_len, "scene",
+        if (!loaderWalkerEnvelopePathCopy(manifest, manifest_len, "scene",
                                          scene_member, sizeof(scene_member))) {
             strncpy(scene_member, "scene.glb", sizeof(scene_member) - 1);
             scene_member[sizeof(scene_member) - 1] = '\0';
         }
     }
-    if (!loaderWalkerEnvelopeStrCopy(manifest, manifest_len, "collision_source",
+    if (!loaderWalkerEnvelopePathCopy(manifest, manifest_len, "collision_source",
                                      collision_member, sizeof(collision_member))) {
         collision_member[0] = '\0';
     }
-    if (!loaderWalkerEnvelopeStrCopy(manifest, manifest_len, "level_graph",
+    if (!loaderWalkerEnvelopePathCopy(manifest, manifest_len, "level_graph",
                                      graph_member, sizeof(graph_member))) {
         strncpy(graph_member, "level.graph.json", sizeof(graph_member) - 1);
         graph_member[sizeof(graph_member) - 1] = '\0';

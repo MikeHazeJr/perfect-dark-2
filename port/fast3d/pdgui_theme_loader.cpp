@@ -37,6 +37,7 @@
 #include "pdgui_audio.h"
 #include "pdgui.h"
 #include "assetcatalog.h"
+#include "assetcatalog_deps.h"
 #include "assetcatalog_load.h"
 #include "asset_runtime.h"    /* c3849 Wave 6a: theme meta-family consumer */
 #include "asset_archive_writer.h"
@@ -2004,10 +2005,47 @@ void pdguiThemeLoaderOnCatalogReady(void)
 
 void pdguiThemeLoaderShutdown(void)
 {
+    (void)pdguiThemeLoaderLogActiveOwnership("shutdown_release_before");
     pdthemeActivationShutdown(&s_ActivationState, themeLifecycleRelease, nullptr);
     s_ThemeCount = 0;
     s_LoaderInitDone = 0;
     s_CatalogReadyApplied = 0;
+}
+
+struct theme_ownership_log_context {
+    const char *label;
+    s32 count;
+};
+
+static void log_theme_dependency_ownership(const char *dep_id, void *userdata)
+{
+    struct theme_ownership_log_context *ctx =
+        (struct theme_ownership_log_context *)userdata;
+    const asset_entry_t *entry = assetCatalogResolve(dep_id);
+    sysLogPrintf(entry ? LOG_NOTE : LOG_WARNING,
+        "CATALOG.OWNER.PROOF: label=%s id=%s ref=%d stage_ref=%d state=%d",
+        ctx->label, dep_id,
+        entry ? entry->ref_count : -1,
+        entry ? entry->stage_ref_count : -1,
+        entry ? (s32)entry->load_state : -1);
+    ctx->count++;
+}
+
+s32 pdguiThemeLoaderLogActiveOwnership(const char *label)
+{
+    const char *active_id = s_ActivationState.active_id;
+    struct theme_ownership_log_context ctx = {
+        (label && label[0]) ? label : "active_theme", 0
+    };
+    if (!active_id[0]) {
+        sysLogPrintf(LOG_WARNING,
+            "CATALOG.OWNER.PROOF: label=%s active_theme=(none)", ctx.label);
+        return 0;
+    }
+
+    log_theme_dependency_ownership(active_id, &ctx);
+    catalogDepForEach(active_id, log_theme_dependency_ownership, &ctx);
+    return ctx.count;
 }
 
 /** Issue 2/8: Rescan mods/ for new theme.json files after modmgrApplyChanges().

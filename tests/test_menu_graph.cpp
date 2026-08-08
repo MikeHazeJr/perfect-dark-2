@@ -7,6 +7,7 @@
  */
 
 #include "catch.hpp"
+#include "pdgui_layout.h"
 
 #include <fstream>
 #include <sstream>
@@ -1086,6 +1087,84 @@ TEST_CASE("menu instructions resolve active glyphs instead of hard-coded device 
     REQUIRE(diagram.find("Jump = Space") == std::string::npos);
     REQUIRE(diagram.find("Use = F") == std::string::npos);
     REQUIRE(diagram.find("Fire = LMB") == std::string::npos);
+}
+
+TEST_CASE("themed Agent Select footer stays inside remaining panel geometry",
+          "[input][menus][glyphs][layout][t-menus-002]")
+{
+    struct BoundaryCase {
+        float available;
+        float desiredFooter;
+        float minBody;
+    };
+    const BoundaryCase supported[] = {
+        { 500.0f, 33.0f, 17.0f },  // 1280x720, default scale/font
+        { 500.0f, 66.0f, 34.0f },  // 1280x720, 200% UI/theme font
+        { 320.0f, 40.0f, 20.0f },  // short supported viewport
+        { 1700.0f, 90.0f, 45.0f }, // 4K/high-density theme font
+    };
+
+    for (const BoundaryCase &boundary : supported) {
+        pdgui_hint_footer_layout layout = pdguiResolveHintFooterLayout(
+            boundary.available, boundary.desiredFooter, boundary.minBody);
+        REQUIRE(layout.footer_fits == 1);
+        REQUIRE(layout.footer_height == Approx(boundary.desiredFooter));
+        REQUIRE(layout.body_height >= boundary.minBody);
+        REQUIRE(layout.body_height + layout.footer_height ==
+                Approx(boundary.available));
+    }
+
+    const pdgui_hint_footer_layout degenerate =
+        pdguiResolveHintFooterLayout(24.0f, 40.0f, 12.0f);
+    REQUIRE(degenerate.footer_fits == 0);
+    REQUIRE(degenerate.body_height == Approx(12.0f));
+    REQUIRE(degenerate.footer_height == Approx(12.0f));
+    REQUIRE(degenerate.body_height + degenerate.footer_height == Approx(24.0f));
+
+    const std::string agent =
+        readTextFile("port/fast3d/pdgui_menu_agentselect.cpp");
+    const std::string solo =
+        readTextFile("port/fast3d/pdgui_menu_solomission.cpp");
+    const std::string layout = readTextFile("port/fast3d/pdgui_layout.cpp");
+    REQUIRE_FALSE(agent.empty());
+    REQUIRE_FALSE(solo.empty());
+    REQUIRE_FALSE(layout.empty());
+
+    const std::string render = functionBlock(agent, "renderAgentSelect");
+    const std::string footer = functionBlock(agent, "buildAgentSelectFooter");
+    REQUIRE(render.find("ImGui::GetContentRegionAvail()") != std::string::npos);
+    REQUIRE(render.find("pdguiHintFooterHeight(footerText, contentAvail.x)") !=
+            std::string::npos);
+    REQUIRE(render.find("pdguiDrawHintFooter(\"##agent_select_footer\"") !=
+            std::string::npos);
+    REQUIRE(render.find("dialogH - pdTitleH") == std::string::npos);
+
+    REQUIRE(footer.find("ACTION_MENU_ACCEPT") != std::string::npos);
+    REQUIRE(footer.find("ACTION_MENU_SECONDARY") != std::string::npos);
+    REQUIRE(footer.find("ACTION_MENU_DELETE") != std::string::npos);
+    REQUIRE(footer.find("ACTION_MENU_TERTIARY") != std::string::npos);
+    REQUIRE(footer.find("ACTION_MENU_UP") != std::string::npos);
+    REQUIRE(footer.find("ACTION_MENU_DOWN") != std::string::npos);
+    REQUIRE(footer.find("Right-click Menu") != std::string::npos);
+    REQUIRE(footer.find("Copy/Delete") != std::string::npos);
+
+    const std::string briefing = functionBlock(solo, "renderBriefingImpl");
+    const std::string inventory = functionBlock(solo, "renderInventory");
+    REQUIRE(briefing.find("pdguiDrawHintFooter(\"##briefing_hint_footer\"") !=
+            std::string::npos);
+    REQUIRE(briefing.find("ACTION_MENU_UP") != std::string::npos);
+    REQUIRE(briefing.find("ACTION_MENU_DOWN") != std::string::npos);
+    REQUIRE(briefing.find("ACTION_CANCEL_USE") != std::string::npos);
+    REQUIRE(briefing.find("mh - titleH") == std::string::npos);
+    REQUIRE(inventory.find("pdguiDrawHintFooter(\"##inventory_hint_footer\"") !=
+            std::string::npos);
+    REQUIRE(inventory.find("ACTION_CANCEL_USE") != std::string::npos);
+    REQUIRE(inventory.find("mh - titleH") == std::string::npos);
+
+    const std::string measure = functionBlock(layout, "pdguiHintFooterHeight");
+    REQUIRE(measure.find("ImGui::CalcTextSize") != std::string::npos);
+    REQUIRE(measure.find("style.WindowPadding") != std::string::npos);
+    REQUIRE(measure.find("style.ItemSpacing") != std::string::npos);
 }
 
 TEST_CASE("menu graph: solo endscreen scene transitions use graph edges", "[input][menu_graph][endscreen][static]")

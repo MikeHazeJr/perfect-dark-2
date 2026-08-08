@@ -61,7 +61,7 @@ static s32 s_register(const char *manifest, size_t manifest_len,
 
     s64 headnum = -1;
     s64 requirefeature = 0;
-    char mesh_member[128];
+    char mesh_member[FS_MAXPATH];
     char mesh_archive_path[FS_MAXPATH + 1];
     char source_path[FS_MAXPATH + 1];
     if (!loaderWalkerEnvelopeInt(manifest, manifest_len, "headnum", &headnum)
@@ -84,7 +84,7 @@ static s32 s_register(const char *manifest, size_t manifest_len,
         }
     }
     loaderWalkerEnvelopeInt(manifest, manifest_len, "requirefeature", &requirefeature);
-    if (!loaderWalkerEnvelopeStrCopy(manifest, manifest_len, "mesh_archive",
+    if (!loaderWalkerEnvelopePathCopy(manifest, manifest_len, "mesh_archive",
                                      mesh_member, sizeof(mesh_member))) {
         strncpy(mesh_member, "mesh.pdmesh", sizeof(mesh_member) - 1);
         mesh_member[sizeof(mesh_member) - 1] = '\0';

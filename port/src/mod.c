@@ -974,7 +974,7 @@ static void *modAnimationLoadCatalogClip(const CatalogResolveResult *r, u16 num)
 		return NULL;
 	}
 
-	if (!catalogLoadTypedAsset(ASSET_ANIMATION, entry->id)) {
+	if (!catalogLoadStageAsset(ASSET_ANIMATION, entry->id)) {
 		return NULL;
 	}
 

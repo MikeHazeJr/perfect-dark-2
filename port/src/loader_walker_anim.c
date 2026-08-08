@@ -47,23 +47,23 @@ static s32 s_register(const char *manifest, size_t manifest_len,
 
     char category[32];
     char target_body[64];
-    char source_member[128];
+    char source_member[FS_MAXPATH];
     char source_path[FS_MAXPATH + 1] = {0};
     loaderWalkerEnvelopeStrCopy(manifest, manifest_len, "category",
                                  category, sizeof(category));
     loaderWalkerEnvelopeStrCopy(manifest, manifest_len, "target_body",
                                  target_body, sizeof(target_body));
-    if (!loaderWalkerEnvelopeStrCopy(manifest, manifest_len, "animation",
+    if (!loaderWalkerEnvelopePathCopy(manifest, manifest_len, "animation",
                                      source_member, sizeof(source_member))) {
         if (strcmp(category, "weapon_animation") == 0) {
-            if (!loaderWalkerEnvelopeStrCopy(manifest, manifest_len, "command_source",
+            if (!loaderWalkerEnvelopePathCopy(manifest, manifest_len, "command_source",
                                              source_member, sizeof(source_member))
-                    && !loaderWalkerEnvelopeStrCopy(manifest, manifest_len, "commands_file",
+                    && !loaderWalkerEnvelopePathCopy(manifest, manifest_len, "commands_file",
                                                     source_member, sizeof(source_member))) {
                 strncpy(source_member, "commands.json", sizeof(source_member) - 1);
                 source_member[sizeof(source_member) - 1] = '\0';
             }
-        } else if (!loaderWalkerEnvelopeStrCopy(manifest, manifest_len, "runtime_source",
+        } else if (!loaderWalkerEnvelopePathCopy(manifest, manifest_len, "runtime_source",
                                                 source_member, sizeof(source_member))) {
             strncpy(source_member, "animation.gltf", sizeof(source_member) - 1);
             source_member[sizeof(source_member) - 1] = '\0';

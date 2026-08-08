@@ -1,0 +1,80 @@
+{
+  "scenario_name": "theme_stage_ownership_smoke",
+  "description": "T-CATALOG-002 ordinary-client proof: activate the creator-facing typed theme, queue a real stage transition, verify its explicit parent/dependency closure remains singly owned, then balance all five references during normal shutdown.",
+  "tags": ["modding", "pdxxx", "pdtheme", "catalog", "lifecycle", "ownership", "T-CATALOG-002"],
+  "paths_of_interest": [
+    "port/src/assetcatalog_load.c",
+    "src/game/lv.c",
+    "port/fast3d/pdgui_theme_loader.cpp",
+    "port/fast3d/pdgui_backend.cpp"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 125,
+  "install_state": "prefilled",
+  "remove_paths": [
+    "mods/example_typed_pdxxx_basic.pdmod",
+    "mods/example_typed_pdxxx_basic",
+    "mods/installed/example_typed_pdxxx_basic.pdmod",
+    "mods/installed/example_typed_pdxxx_basic"
+  ],
+  "fixtures": [
+    { "src": "tools/smoke-verify/fixtures/theme_archive_source_pd.ini", "dst": "pd.ini" },
+    { "src": "tools/smoke-verify/fixtures/typed_pdxxx_basic_enabled.json", "dst": "mods-enabled.json" }
+  ],
+  "packed_fixtures": [
+    { "src": "examples/modding/typed-pdxxx-basic", "dst": "mods/installed/example_typed_pdxxx_basic.pdmod" }
+  ],
+  "boot_args": [
+    "--no-update-check",
+    "--no-net",
+    "--portable",
+    "--skip-intro",
+    "--debug-theme-stage-transition-proof"
+  ],
+  "input_sequence": [
+    { "at_ms": 0, "type": "wait", "comment": "Clean-state extraction and catalog discovery take roughly 70 seconds before catalog-ready theme activation and the queued transition can run." },
+    { "at_ms": 100000, "type": "exit", "comment": "Exercise production backend shutdown and balance the active theme closure after the destination stage receipt." }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=theme_stage_ownership_smoke",
+      "PDGUI theme loader: applied 'example:tri_theme' from '",
+      "BOOT: --debug-theme-stage-transition-proof queueing ordinary transition from=0x26 to=0x5c closure=5",
+      "CATALOG\\.OWNER\\.PROOF: label=post_stage_transition id=example:tri_theme ref=1 stage_ref=0",
+      "CATALOG\\.OWNER\\.PROOF: label=post_stage_transition id=example:tri_reticle ref=1 stage_ref=0",
+      "CATALOG\\.OWNER\\.PROOF: label=post_stage_transition id=example:tri_theme_font ref=1 stage_ref=0",
+      "CATALOG\\.OWNER\\.PROOF: label=post_stage_transition id=example:tri_click ref=1 stage_ref=0",
+      "CATALOG\\.OWNER\\.PROOF: label=post_stage_transition id=example:tri_song ref=1 stage_ref=0",
+      "BOOT: --debug-theme-stage-transition-proof consumed: from=0x26 to=0x5c closure=5",
+      "CATALOG\\.OWNER\\.PROOF: label=shutdown_release_before id=example:tri_theme ref=1 stage_ref=0",
+      "CATALOG\\.OWNER\\.PROOF: label=shutdown_release_before id=example:tri_reticle ref=1 stage_ref=0",
+      "CATALOG\\.OWNER\\.PROOF: label=shutdown_release_before id=example:tri_theme_font ref=1 stage_ref=0",
+      "CATALOG\\.OWNER\\.PROOF: label=shutdown_release_before id=example:tri_click ref=1 stage_ref=0",
+      "CATALOG\\.OWNER\\.PROOF: label=shutdown_release_before id=example:tri_song ref=1 stage_ref=0",
+      "MANIFEST: unload 'example:tri_reticle' ref=1->0 \\(freed\\)",
+      "MANIFEST: unload 'example:tri_theme_font' ref=1->0 \\(freed\\)",
+      "MANIFEST: unload 'example:tri_click' ref=1->0 \\(freed\\)",
+      "MANIFEST: unload 'example:tri_song' ref=1->0 \\(freed\\)",
+      "MANIFEST: unload 'example:tri_theme' ref=1->0 \\(freed\\)",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "CATALOG\\.OWNER\\.PROOF: label=post_stage_transition .* ref=(?!1 )",
+      "CATALOG\\.OWNER\\.PROOF: label=post_stage_transition .* stage_ref=(?!0)",
+      "PDGUI theme loader: lifecycle load failed",
+      "ASSET\\.SOURCE_ONLY",
+      "LOUDFAIL\\.FALLBACK",
+      "ASSET\\.FALLBACK",
+      "RomProvider:filenum"
+    ],
+    "required_counts": [
+      { "pattern": "CATALOG\\.OWNER\\.PROOF: label=post_stage_transition id=", "min": 5, "max": 5 },
+      { "pattern": "CATALOG\\.OWNER\\.PROOF: label=shutdown_release_before id=", "min": 5, "max": 5 }
+    ]
+  }
+}

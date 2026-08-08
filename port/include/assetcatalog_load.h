@@ -169,6 +169,14 @@ const char *catalogGetSoundOverride(s32 soundnum);
 s32 catalogLoadTypedAsset(asset_type_e expected_type, const char *assetId);
 
 /**
+ * Acquire/release the current stage's owner-scoped typed reference.
+ * These calls are idempotent for one stage and keep the stage ledger separate
+ * from UI, editor, manifest, network, and explicit parent lifecycle owners.
+ */
+s32 catalogLoadStageAsset(asset_type_e expected_type, const char *assetId);
+void catalogReleaseStageAsset(asset_type_e expected_type, const char *assetId);
+
+/**
  * Return a catalog-owned activated model payload for a loaded model-like asset.
  * Only entries loaded through the typed lifecycle model path return non-NULL.
  */
@@ -215,8 +223,9 @@ void catalogLoadLogStats(void);
  * Compute which assets to load and unload for a stage transition.
  *
  * Collects all non-bundled, enabled catalog entries whose category matches
- * the map entry identified by newStageId.  Compares against all currently
- * LOADED non-bundled entries to produce two disjoint sets.
+ * the map entry identified by newStageId.  Compares against only references
+ * owned by the stage-category loader to produce two disjoint sets. Other
+ * loaded owners never enter toUnload.
  *
  * @param newStageId   Catalog asset ID of the destination map (e.g.,
  *                     "gf64_map_caverns").  Pass NULL when transitioning

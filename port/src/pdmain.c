@@ -720,6 +720,14 @@ void mainTick(void)
 		(void)bootLaunchScenarioTick();
 	}
 
+	/* T-CATALOG-002: opt-in source-frozen lifecycle proof. The hook queues
+	 * the ordinary mainChangeToStage path and only observes ownership after
+	 * the destination stage is live. */
+	{
+		extern s32 bootDebugThemeStageTransitionProofTick(void);
+		(void)bootDebugThemeStageTransitionProofTick();
+	}
+
 	/* B-360: --launch-mp-room plus --debug-auto-start-match one-shot.
 	 * Runs after the boot CI stage has initialized so matchStart sees
 	 * the same MP runtime state as the Room Start Match button path. */

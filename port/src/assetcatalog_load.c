@@ -20,6 +20,7 @@
 #include "assetcatalog.h"
 #include "assetcatalog_load.h"
 #include "assetcatalog_deps.h"
+#include "catalog_stage_ownership.h"
 #include "asset_source_debug.h"
 #include "asset_runtime.h"
 #include "assetprovider.h"
@@ -1798,6 +1799,35 @@ s32 catalogLoadTypedAsset(asset_type_e expected_type, const char *assetId)
     return s_catalogLoadEntry(entry, expected_type);
 }
 
+s32 catalogLoadStageAsset(asset_type_e expected_type, const char *assetId)
+{
+    asset_entry_t *entry;
+
+    if (!s_catalogValidateTypedLifecycle("STAGE_LOAD", expected_type, assetId)) {
+        return 0;
+    }
+    entry = assetCatalogGetMutable(assetId);
+    if (!entry) {
+        return 0;
+    }
+
+    /* One stage can own at most one reference to an entry. A repeated diff is
+     * therefore a truthful no-op rather than aggregate ref-count growth. */
+    if (catalogStageOwnershipHasRef(entry)) {
+        return 1;
+    }
+    if (!catalogLoadTypedAsset(expected_type, assetId)) {
+        return 0;
+    }
+    if (catalogStageOwnershipAcquire(entry) != 1) {
+        /* Single-threaded catalog code should never race this branch. Keep the
+         * aggregate reference balanced if the ledger still rejects ownership. */
+        catalogReleaseTypedAsset(expected_type, assetId);
+        return 0;
+    }
+    return 1;
+}
+
 struct modeldef *catalogGetLoadedModeldef(const char *assetId)
 {
     const asset_entry_t *entry;
@@ -1900,7 +1930,7 @@ static void s_catalogUnloadEntry(const char *assetId, asset_entry_t *entry)
 {
     s32 old_ref;
     s32 new_ref;
-    s32 theme_deps_released = 0;
+    s32 per_ref_deps_released = 0;
 
     /* Never evict bundled assets — their catalog-owned source remains process-lifetime. */
     if (entry->bundled || entry->ref_count == ASSET_REF_BUNDLED) {
@@ -1915,12 +1945,14 @@ static void s_catalogUnloadEntry(const char *assetId, asset_entry_t *entry)
 
     new_ref = entry->ref_count;
 
-    /* T-ASSETS-027 themes load/retain their dependency edges on every parent
-     * reference, so balance every theme decrement rather than waiting until
-     * the final parent payload free. */
-    if (entry->type == ASSET_THEME && old_ref != new_ref) {
+    /* Themes and weapons load/retain their dependency edges on every parent
+     * reference, so balance every decrement rather than waiting until the
+     * final parent payload free. Otherwise overlapping stage plus explicit
+     * ownership leaks one child reference after both parent owners release. */
+    if ((entry->type == ASSET_THEME || entry->type == ASSET_WEAPON)
+            && old_ref != new_ref) {
         catalogDepForEach(assetId, s_catalogUnloadDepCallback, NULL);
-        theme_deps_released = 1;
+        per_ref_deps_released = 1;
     }
 
     if (new_ref <= 0 && entry->loaded_data) {
@@ -1928,7 +1960,7 @@ static void s_catalogUnloadEntry(const char *assetId, asset_entry_t *entry)
          * For each dep: decrement its ref_count; free if that also hits zero.
          * Bundled dep pairs are skipped by catalogDepForEach (they are always
          * process-lifetime and never registered with is_bundled=0). */
-        if (!theme_deps_released) {
+        if (!per_ref_deps_released) {
             catalogDepForEach(assetId, s_catalogUnloadDepCallback, NULL);
         }
 
@@ -2028,6 +2060,26 @@ void catalogReleaseTypedAsset(asset_type_e expected_type, const char *assetId)
     s_catalogUnloadEntry(assetId, entry);
 }
 
+void catalogReleaseStageAsset(asset_type_e expected_type, const char *assetId)
+{
+    asset_entry_t *entry;
+
+    if (!s_catalogValidateTypedLifecycle("STAGE_RELEASE", expected_type, assetId)) {
+        return;
+    }
+    entry = assetCatalogGetMutable(assetId);
+    if (!entry) {
+        return;
+    }
+    if (catalogStageOwnershipRelease(entry) != 1) {
+        sysLogPrintf(LOG_WARNING,
+                     "CATALOG.LIFECYCLE.STAGE_RELEASE: '%s' has no stage-owned reference",
+                     assetId);
+        return;
+    }
+    s_catalogUnloadEntry(assetId, entry);
+}
+
 static void s_catalogRetainEntry(asset_entry_t *entry)
 {
     if (entry->bundled || entry->ref_count == ASSET_REF_BUNDLED) {
@@ -2071,7 +2123,7 @@ void catalogRetainTypedAsset(asset_type_e expected_type, const char *assetId)
  * MEM-3 / C-9: Stage Transition Diff
  *
  * The diff separates the full entry pool into three buckets:
- *   - "currently loaded non-bundled" (load_state >= LOADED, !bundled)
+ *   - "currently stage-owned non-bundled" (stage_ref_count == 1, !bundled)
  *   - "needed for new stage" (same category as newStageId's map entry,
  *                             enabled, !bundled)
  *   - shared = intersection → no-op (assets remain resident)
@@ -2131,7 +2183,7 @@ s32 catalogComputeStageDiff(const char *newStageId,
         if (!e || !e->occupied || e->bundled) {
             continue;
         }
-        if (e->load_state >= ASSET_STATE_LOADED) {
+        if (catalogStageOwnershipHasRef(e)) {
             s_LoadedIds[loadedCount++] = e->id;
         }
     }

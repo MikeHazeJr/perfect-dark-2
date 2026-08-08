@@ -224,6 +224,35 @@ static void formatPlayTime(char *buf, size_t bufsize, u32 totalSeconds)
     }
 }
 
+static void buildAgentSelectFooter(bool existingAgent, char *buf, size_t bufSize)
+{
+    char accept[24];
+    pdguiGlyphGetActionLabel(ACTION_MENU_ACCEPT, accept, (s32)sizeof(accept));
+
+    if (existingAgent) {
+        char context[24], remove[24], tertiary[24];
+        pdguiGlyphGetActionLabel(ACTION_MENU_SECONDARY, context, (s32)sizeof(context));
+        s32 hasDelete =
+            pdguiGlyphGetActionLabel(ACTION_MENU_DELETE, remove, (s32)sizeof(remove));
+        pdguiGlyphGetActionLabel(ACTION_MENU_TERTIARY, tertiary, (s32)sizeof(tertiary));
+
+        if (hasDelete) {
+            snprintf(buf, bufSize,
+                     "[%s] Load  [%s]/Right-click Menu  [%s] Delete  [%s] Default",
+                     accept, context, remove, tertiary);
+        } else {
+            snprintf(buf, bufSize,
+                     "[%s] Load  [%s]/Right-click Menu (Copy/Delete)  [%s] Default",
+                     accept, context, tertiary);
+        }
+    } else {
+        char up[24], down[24];
+        pdguiGlyphGetActionLabel(ACTION_MENU_UP, up, (s32)sizeof(up));
+        pdguiGlyphGetActionLabel(ACTION_MENU_DOWN, down, (s32)sizeof(down));
+        snprintf(buf, bufSize, "[%s] Select   [%s]/[%s] Navigate", accept, up, down);
+    }
+}
+
 /* ========================================================================
  * ImGui Render Callback
  * ======================================================================== */
@@ -430,8 +459,19 @@ static s32 renderAgentSelect(struct menudialog *dialog,
     /* ================================================================
      * Agent List
      * ================================================================ */
-    float footerH = 44.0f * scale;
-    float listH = dialogH - pdTitleH - 36.0f * scale - footerH;
+    char footerText[320];
+    buildAgentSelectFooter(s_SelectedIdx >= 0 && s_SelectedIdx < fl->numfiles,
+                           footerText, sizeof(footerText));
+
+    /* The cursor is already below the title/header.  Measure from the actual
+     * remaining content region instead of subtracting title constants from
+     * the full window height (B-999/T-MENUS-002).  The footer measurement uses
+     * the active theme font and wrapped dynamic glyph labels. */
+    ImVec2 contentAvail = ImGui::GetContentRegionAvail();
+    float desiredFooterH = pdguiHintFooterHeight(footerText, contentAvail.x);
+    pdgui_hint_footer_layout footerLayout = pdguiResolveHintFooterLayout(
+        contentAvail.y, desiredFooterH, ImGui::GetTextLineHeightWithSpacing());
+    float listH = footerLayout.body_height;
     float rowH = 64.0f * scale;
 
     if (ImGui::BeginChild("##agent_list", ImVec2(0, listH), true, 0)) {
@@ -625,31 +665,11 @@ static s32 renderAgentSelect(struct menudialog *dialog,
     }
     s_PrevSelectedIdx = s_SelectedIdx;
 
-    /* ================================================================
-     * Footer — input hints
-     * ================================================================ */
-    ImGui::Separator();
-    if (s_SelectedIdx >= 0 && s_SelectedIdx < fl->numfiles) {
-        char accept[24], context[24], remove[24], tertiary[24];
-        pdguiGlyphGetActionLabel(ACTION_MENU_ACCEPT, accept, (s32)sizeof(accept));
-        pdguiGlyphGetActionLabel(ACTION_MENU_SECONDARY, context, (s32)sizeof(context));
-        s32 hasDelete =
-            pdguiGlyphGetActionLabel(ACTION_MENU_DELETE, remove, (s32)sizeof(remove));
-        pdguiGlyphGetActionLabel(ACTION_MENU_TERTIARY, tertiary, (s32)sizeof(tertiary));
-        if (hasDelete) {
-            ImGui::TextDisabled("[%s] Load  [%s]/Right-click Menu  [%s] Delete  [%s] Default",
-                                accept, context, remove, tertiary);
-        } else {
-            ImGui::TextDisabled("[%s] Load  [%s]/Right-click Menu (Copy/Delete)  [%s] Default",
-                                accept, context, tertiary);
-        }
-    } else {
-        char accept[24], up[24], down[24];
-        pdguiGlyphGetActionLabel(ACTION_MENU_ACCEPT, accept, (s32)sizeof(accept));
-        pdguiGlyphGetActionLabel(ACTION_MENU_UP, up, (s32)sizeof(up));
-        pdguiGlyphGetActionLabel(ACTION_MENU_DOWN, down, (s32)sizeof(down));
-        ImGui::TextDisabled("[%s] Select   [%s]/[%s] Navigate", accept, up, down);
-    }
+    /* Docked, wrapped, font-measured hints remain wholly inside the PD frame.
+     * Labels still come from the live action map, so MKB/controller switching
+     * changes text without changing or dropping any input behavior. */
+    pdguiDrawHintFooter("##agent_select_footer", footerText,
+                        footerLayout.footer_height);
 
     ImGui::End();
 

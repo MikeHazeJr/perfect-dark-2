@@ -30,7 +30,7 @@ static s32 s_register(const char *manifest, size_t manifest_len,
 {
     (void)pd_kind;
 
-    char geometry_member[128];
+    char geometry_member[FS_MAXPATH];
     char source_symbol[64];
     char source_path[FS_MAXPATH + 1];
     s32 source_filenum = -1;
@@ -40,7 +40,7 @@ static s32 s_register(const char *manifest, size_t manifest_len,
     f32 preserved_model_scale = existing ? existing->model_scale : 1.0f;
     s32 preserved_source_filenum = existing ? existing->source_filenum : -1;
 
-    if (!loaderWalkerEnvelopeStrCopy(manifest, manifest_len, "geometry",
+    if (!loaderWalkerEnvelopePathCopy(manifest, manifest_len, "geometry",
                                      geometry_member, sizeof(geometry_member))) {
         strncpy(geometry_member, "model.obj", sizeof(geometry_member) - 1);
         geometry_member[sizeof(geometry_member) - 1] = '\0';

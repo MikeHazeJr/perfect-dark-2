@@ -311,6 +311,12 @@ static SDL_atomic_t g_BootAssetChainFailures;
  * Gothic fonts from frame 0 -- exercising the c3844 universal alpha-mode fix.
  * Inert when absent from argv. */
 static bool        g_BootLaunchCredits    = false;
+/* T-CATALOG-002: opt-in ordinary-client proof. Once a live stage and the
+ * configured theme lifecycle are ready, queue a real mainChangeToStage and
+ * log the active parent/dependency ownership after the new stage initializes.
+ * The diagnostic is observational: it never acquires or releases assets. */
+static s32         g_BootDebugThemeStageTransitionProof = 0;
+static s32         g_BootDebugThemeStageTransitionFrom = -1;
 static const char *g_BootLaunchScenario   = NULL;
 static const char *g_BootLaunchMission    = NULL;
 static const char *g_BootLaunchDifficulty = NULL;
@@ -2409,6 +2415,48 @@ s32 bootLaunchScenarioTick(void)
 	return 1;
 }
 
+s32 bootDebugThemeStageTransitionProofTick(void)
+{
+    if (!g_BootDebugThemeStageTransitionProof) {
+        return 0;
+    }
+
+    if (g_BootDebugThemeStageTransitionProof == 1) {
+        if (g_Vars.lvframenum < 4) {
+            return 0;
+        }
+
+        s32 closure_count = pdguiThemeLoaderLogActiveOwnership(
+            "pre_stage_transition");
+        if (closure_count <= 0) {
+            sysLogPrintf(LOG_WARNING,
+                "BOOT: --debug-theme-stage-transition-proof has no active lifecycle closure");
+            g_BootDebugThemeStageTransitionProof = 0;
+            return 1;
+        }
+
+        g_BootDebugThemeStageTransitionFrom = g_Vars.stagenum;
+        g_BootDebugThemeStageTransitionProof = 2;
+        sysLogPrintf(LOG_NOTE,
+            "BOOT: --debug-theme-stage-transition-proof queueing ordinary transition from=0x%02x to=0x%02x closure=%d",
+            g_BootDebugThemeStageTransitionFrom, STAGE_CREDITS, closure_count);
+        mainChangeToStage(STAGE_CREDITS);
+        return 1;
+    }
+
+    if (g_Vars.stagenum != STAGE_CREDITS || g_Vars.lvframenum < 4) {
+        return 0;
+    }
+
+    s32 closure_count = pdguiThemeLoaderLogActiveOwnership(
+        "post_stage_transition");
+    sysLogPrintf(LOG_NOTE,
+        "BOOT: --debug-theme-stage-transition-proof consumed: from=0x%02x to=0x%02x closure=%d",
+        g_BootDebugThemeStageTransitionFrom, g_Vars.stagenum, closure_count);
+    g_BootDebugThemeStageTransitionProof = 0;
+    return 1;
+}
+
 /* Called once per frame from pdmain.c's mainTick when --launch-mp-room
  * is paired with --debug-auto-start-match. Defers matchStart until the
  * CI boot stage has created the player prop, then starts the match before
@@ -3230,6 +3278,12 @@ int main(int argc, const char **argv)
 	g_BootLaunchCredits    = sysArgCheck("--launch-credits") ? true : false;
 	if (g_BootLaunchCredits) {
 		sysLogPrintf(LOG_NOTE, "BOOT: --launch-credits armed");
+	}
+	g_BootDebugThemeStageTransitionProof =
+		sysArgCheck("--debug-theme-stage-transition-proof") ? 1 : 0;
+	if (g_BootDebugThemeStageTransitionProof) {
+		sysLogPrintf(LOG_NOTE,
+			"BOOT: --debug-theme-stage-transition-proof armed");
 	}
 	g_BootLaunchScenario   = sysArgGetString("--launch-scenario");
 	g_BootLaunchMission    = sysArgGetString("--launch-mission");

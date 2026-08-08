@@ -143,6 +143,45 @@ s32 pdguiActionBarButton(const char *label, s32 isFocused, f32 width)
     return 0;
 }
 
+f32 pdguiHintFooterHeight(const char *text, f32 width)
+{
+    const ImGuiStyle &style = ImGui::GetStyle();
+    f32 wrapW = width - style.WindowPadding.x * 2.0f;
+    if (wrapW < 1.0f) wrapW = 1.0f;
+
+    const char *safeText = text ? text : "";
+    ImVec2 textSize = ImGui::CalcTextSize(safeText, NULL, false, wrapW);
+
+    /* BeginChild uses AlwaysUseWindowPadding below.  Separator advances by
+     * one physical pixel plus ItemSpacing.y; use the live font measurement
+     * rather than pdguiScale constants so custom vector/bitmap fonts and the
+     * user's UI scale cannot push the last baseline outside the panel. */
+    return style.WindowPadding.y * 2.0f
+         + style.ItemSpacing.y
+         + 1.0f
+         + textSize.y;
+}
+
+void pdguiDrawHintFooter(const char *id, const char *text, f32 height)
+{
+    if (height <= 0.0f) return;
+
+    ImGuiWindowFlags flags = ImGuiWindowFlags_NoScrollbar
+                           | ImGuiWindowFlags_NoScrollWithMouse;
+    bool visible = ImGui::BeginChild(id ? id : "##pdgui_hint_footer",
+                                     ImVec2(0.0f, height),
+                                     ImGuiChildFlags_AlwaysUseWindowPadding,
+                                     flags);
+    if (visible) {
+        ImGui::Separator();
+        f32 wrapX = ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x;
+        ImGui::PushTextWrapPos(wrapX);
+        ImGui::TextDisabled("%s", text ? text : "");
+        ImGui::PopTextWrapPos();
+    }
+    ImGui::EndChild();
+}
+
 void pdguiPopupDarkenBeginFrame(void)
 {
     s_PopupDarkenMaxAlpha = -1.0f;

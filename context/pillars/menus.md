@@ -1,5 +1,23 @@
 # Menus / UI / UX
 
+## 2026-08-08 scale-safe action-hint footers
+
+Workbench `T-MENUS-002` replaces Agent Select's full-dialog height arithmetic
+with a shared docked hint-footer layout that measures wrapped text using the
+active theme font and style, then divides the actual remaining ImGui content
+region between the scrolling body and fixed footer. Solo Briefing and Inventory
+use the same primitive, closing the matching bug class without converting
+unrelated button/action bars. The footer text still comes from the live action
+map: Accept, Secondary/context/right-click, Delete, Tertiary, Up, Down, and
+Cancel controls were not removed or hardcoded.
+
+Executable geometry coverage passes at 720p, 200% UI/font scale, a short
+viewport, and 4K. Ordinary-client custom-theme receipts pass 24/24 at 1280x720
+and 19/19 at 1024x576/200%; all four delayed frames show the MKB footer wholly
+inside the panel after real SDL Down/Up events. A real physical controller
+and keyboard/controller device transition remain open under `V-004`; controller
+enumeration or synthetic input is not accepted as that evidence.
+
 ## 2026-08-08 localized Voice creator
 
 Audio Mods Voice import now produces the real self-contained localized

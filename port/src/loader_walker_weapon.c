@@ -78,7 +78,7 @@ static void s_copyManifestMemberPath(const char *manifest, size_t manifest_len,
         return;
     }
     out[0] = '\0';
-    if (!loaderWalkerEnvelopeStrCopy(manifest, manifest_len, key,
+    if (!loaderWalkerEnvelopePathCopy(manifest, manifest_len, key,
             member, sizeof(member)) || !member[0]) {
         return;
     }

@@ -5,6 +5,12 @@
 
 ## Highlights
 
+- Kept live keyboard/controller action hints inside themed menu panels across
+  resolution, UI scale, wrapping, and custom fonts.
+- Kept stage transitions from releasing mod assets owned by active themes,
+  menus, editors, manifests, or other explicit typed-asset lifecycles.
+- Released active theme UI, font, sound, and music references cleanly during
+  normal game shutdown.
 - Made saved custom themes activate after real catalog discovery, retain full
   nested font paths, and compile nested `.pdsong` sources at ordinary menu use.
 - Made repeated theme startup activation idempotent and transactional across

@@ -26,12 +26,12 @@ static s32 s_register(const char *manifest, size_t manifest_len,
     if (!e) return -1;
     loaderWalkerMarkBaseArchiveEntry(e);
 
-    char source_member[128];
-    char metrics_member[128];
+    char source_member[FS_MAXPATH];
+    char metrics_member[FS_MAXPATH];
     char source_path[FS_MAXPATH + 1];
-    if (!loaderWalkerEnvelopeStrCopy(manifest, manifest_len, "font",
+    if (!loaderWalkerEnvelopePathCopy(manifest, manifest_len, "font",
                                      source_member, sizeof(source_member))
-            && !loaderWalkerEnvelopeStrCopy(manifest, manifest_len, "glyphs",
+            && !loaderWalkerEnvelopePathCopy(manifest, manifest_len, "glyphs",
                                             source_member, sizeof(source_member))) {
         snprintf(source_member, sizeof(source_member), "font.otf");
     }
@@ -41,7 +41,7 @@ static s32 s_register(const char *manifest, size_t manifest_len,
         strncpy(e->ext.font.font_file, source_path,
                 sizeof(e->ext.font.font_file) - 1);
     }
-    if (loaderWalkerEnvelopeStrCopy(manifest, manifest_len, "metrics",
+    if (loaderWalkerEnvelopePathCopy(manifest, manifest_len, "metrics",
                                     metrics_member, sizeof(metrics_member))
             && loaderWalkerArchiveMemberPath(file_path, metrics_member,
                                              source_path, sizeof(source_path))) {

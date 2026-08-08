@@ -2370,9 +2370,22 @@ static s32 renderBriefingImpl(struct menudialog *dialog,
         menuGraphFirePop(MENU_TYPE_SOLO_MISSION, "back");
     }
 
-    /* Scrollable briefing text */
-    float footerH = pdguiScale(48.0f);
-    float bodyH   = mh - titleH - pdguiScale(36.0f) - footerH;
+    /* Scrollable briefing text with a docked, live-binding footer. */
+    char briefingUp[24], briefingDown[24], briefingCancel[24];
+    char briefingFooter[128];
+    pdguiGlyphGetActionLabel(ACTION_MENU_UP, briefingUp, (s32)sizeof(briefingUp));
+    pdguiGlyphGetActionLabel(ACTION_MENU_DOWN, briefingDown, (s32)sizeof(briefingDown));
+    pdguiGlyphGetActionLabel(ACTION_CANCEL_USE, briefingCancel,
+                             (s32)sizeof(briefingCancel));
+    snprintf(briefingFooter, sizeof(briefingFooter),
+             "[%s]/[%s]/Scroll Read   [%s] Close",
+             briefingUp, briefingDown, briefingCancel);
+
+    ImVec2 briefingAvail = ImGui::GetContentRegionAvail();
+    float briefingFooterH = pdguiHintFooterHeight(briefingFooter, briefingAvail.x);
+    pdgui_hint_footer_layout briefingLayout = pdguiResolveHintFooterLayout(
+        briefingAvail.y, briefingFooterH, ImGui::GetTextLineHeightWithSpacing());
+    float bodyH = briefingLayout.body_height;
 
     if (ImGui::BeginChild("##briefing_scroll", ImVec2(0, bodyH), false,
                            ImGuiWindowFlags_AlwaysVerticalScrollbar)) {
@@ -2386,14 +2399,8 @@ static s32 renderBriefingImpl(struct menudialog *dialog,
     }
     ImGui::EndChild();
 
-    ImGui::Separator();
-    {
-        char up[24], down[24], cancel[24];
-        pdguiGlyphGetActionLabel(ACTION_MENU_UP, up, (s32)sizeof(up));
-        pdguiGlyphGetActionLabel(ACTION_MENU_DOWN, down, (s32)sizeof(down));
-        pdguiGlyphGetActionLabel(ACTION_CANCEL_USE, cancel, (s32)sizeof(cancel));
-        ImGui::TextDisabled("[%s]/[%s]/Scroll Read   [%s] Close", up, down, cancel);
-    }
+    pdguiDrawHintFooter("##briefing_hint_footer", briefingFooter,
+                        briefingLayout.footer_height);
 
     ImGui::End();
     return 1;
@@ -2452,9 +2459,16 @@ static s32 renderInventory(struct menudialog *dialog,
     pdguiSetCursorBelowTitle(titleH);
     ImGui::Separator();
 
-    /* Scrollable weapon/item list */
-    float footerH = pdguiScale(48.0f);
-    float bodyH   = mh - titleH - pdguiScale(36.0f) - footerH;
+    /* Scrollable weapon/item list with a measured live-binding footer. */
+    char inventoryCancel[24], inventoryFooter[64];
+    pdguiGlyphGetActionLabel(ACTION_CANCEL_USE, inventoryCancel,
+                             (s32)sizeof(inventoryCancel));
+    snprintf(inventoryFooter, sizeof(inventoryFooter), "[%s] Back", inventoryCancel);
+    ImVec2 inventoryAvail = ImGui::GetContentRegionAvail();
+    float inventoryFooterH = pdguiHintFooterHeight(inventoryFooter, inventoryAvail.x);
+    pdgui_hint_footer_layout inventoryLayout = pdguiResolveHintFooterLayout(
+        inventoryAvail.y, inventoryFooterH, ImGui::GetTextLineHeightWithSpacing());
+    float bodyH = inventoryLayout.body_height;
 
     if (ImGui::BeginChild("##inv_scroll", ImVec2(0, bodyH), false, 0)) {
         s32 count = invGetCount();
@@ -2491,12 +2505,8 @@ static s32 renderInventory(struct menudialog *dialog,
     }
     ImGui::EndChild();
 
-    ImGui::Separator();
-    {
-        char cancel[24];
-        pdguiGlyphGetActionLabel(ACTION_CANCEL_USE, cancel, (s32)sizeof(cancel));
-        ImGui::TextDisabled("[%s] Back", cancel);
-    }
+    pdguiDrawHintFooter("##inventory_hint_footer", inventoryFooter,
+                        inventoryLayout.footer_height);
 
     /* B / Escape = back */
     if (pdguiMenuCancelPressed()) {
