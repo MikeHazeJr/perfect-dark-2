@@ -1,5 +1,34 @@
 # Session Log (Active)
 
+## 2026-08-08 - Canonical Workbench authority validated
+
+Continued the Ultra/Lina handoff by closing the critical Workbench integrity
+prerequisite before any further asset work. `T-TOOLING-002` now resolves the
+Git common directory and canonical checkout, uses the canonical durable store
+for normal startup, and exposes project root, worktree root, branch, HEAD,
+canonical identity, isolation state, and data directory through `/api/meta`.
+Normal startup from a linked worktree is rejected. Recovery and test instances
+remain supported only with explicit isolated mode, an explicit data directory,
+and a nondefault port. Startup also probes an occupied port and refuses to
+mistake another Workbench root for the requested authority.
+
+`node Tools/Workbench/test-workbench.js` passed after adding checks against the
+repository's real linked worktree, isolated-mode validation, and a competing
+server with a different data store. A duplicate canonical launch correctly
+recognized the live matching server and exited successfully. Live port 8378
+reported the canonical checkout on branch `dev` and its canonical
+`Tools/Workbench/data` directory. Bug `B-973` is validated, risk `R-002` is
+closed, and handoff note `N-0004` is incorporated. The broad handoff note
+`N-0003` was incorporated and replaced by independent new notes `N-0005` for
+Ultra and `N-0006` for Lina, avoiding one agent's acknowledgement hiding the
+other agent's lane. The remaining asset, creator, menu, MKB/controller, glyph,
+validation, and performance work remains explicitly tracked under
+`T-ASSETS-001`.
+
+A post-commit live check also caught and fixed startup-cached HEAD metadata.
+`/api/meta` now refreshes Git identity on every request, so a long-running
+server reports the current branch and commit after repository changes.
+
 ## 2026-08-01 - Remaining asset/menu/input work split for Ultra and Lina
 
 Mike asked for every remaining item from the comprehensive asset extraction,

@@ -4,7 +4,7 @@
 > [session-log.md](session-log.md). The Workbench is the durable live tracker.
 > Historical card detail remains in the retired Kanban archive and bug ledger.
 
-Last updated: 2026-08-01
+Last updated: 2026-08-08
 
 **2026-08-01 ULTRA/LINA COMPLETION HANDOFF - Workbench `T-ASSETS-001`.**
 The remaining asset program is no longer hidden in umbrella prose. Ultra owns
@@ -16,11 +16,15 @@ briefing authority (`T-ASSETS-014`), negative-path proof (`V-006`), the
 head/portrait use (`T-ASSETS-010`), `.pdvoice` metadata use (`T-ASSETS-011`),
 `.pdtheme` dependency authority (`T-ASSETS-015`), physical menu/input proof
 (`V-004`), live creator workflow proof (`V-007`), and custom game-mode/bot-
-profile save/listen-host proof (`V-008`). The durable handoff is Workbench note
-`N-0003`; each agent must acknowledge it and replace the handoff owner label
-with its registered session ID before editing. Ultra also owns Workbench
-split-truth fix `T-TOOLING-002` / `B-973`; `N-0004` is its mandatory handoff
-note and `R-002` remains open until canonical-root enforcement is proven.
+profile save/listen-host proof (`V-008`). `N-0003` is incorporated and its
+remaining work is split into lane-specific new notes: Ultra must process
+`N-0005`, Lina must process `N-0006`, and each must replace the handoff owner
+label with its registered session ID before editing. Workbench split-truth fix
+`T-TOOLING-002` / `B-973` is validated: default startup now binds to the
+canonical checkout, explicit isolated instances require their own data path
+and nondefault port, and `/api/meta` exposes repository identity. `R-002` is
+closed and `N-0004` is incorporated. The remaining work is the asset,
+creator, menu, input, glyph, validation, and performance program above.
 
 `V-001` and `V-002` now preserve the verified `cb5d49d9` source-guard,
 all-family conformance, round-trip, and 58/58 creator-smoke baseline. They must

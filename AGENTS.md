@@ -79,29 +79,33 @@ Canonical tooling:
 Every agent session must:
 
 1. Read `Tools/Workbench/README.md` and `Tools/Workbench/SCHEMAS.md`.
-2. Run coordination `status`, then `register` with session id, goal, current
+2. Before any Workbench API mutation, inspect `GET /api/meta` and verify
+   `canonical=true`, `isolated=false`, and that `projectRoot`/`dataDir` point at
+   the canonical checkout. The default server refuses linked-worktree startup;
+   isolated tests require an explicit nondefault port and data directory.
+3. Run coordination `status`, then `register` with session id, goal, current
    task, plan, and ETA.
-3. Read the Workbench roadmap and fold notes affecting its lane.
-4. Process every `new` note affecting its lane before implementation:
+4. Read the Workbench roadmap and fold notes affecting its lane.
+5. Process every `new` note affecting its lane before implementation:
    `acknowledged`, then `incorporated`, `rejected_with_reason`,
    `needs_clarification`, `waiting_user_decision`, or `superseded`.
-5. Record ownership and dependencies before editing shared surfaces. Respect
+6. Record ownership and dependencies before editing shared surfaces. Respect
    other active owners; use coordination chat for short operational conflicts.
-6. Before builds, tests, game runs, smoke/multiplayer runs, extraction runs,
+7. Before builds, tests, game runs, smoke/multiplayer runs, extraction runs,
    captures, editors, or deployments, enter the appropriate coordination FIFO,
    wait until the item is next, run `start`, and run `finish` immediately after.
    The existing `build-session.ps1` queue remains an additional build safety
    layer and must not be bypassed.
-7. Update Workbench evidence and status as truth changes. `implemented` means
+8. Update Workbench evidence and status as truth changes. `implemented` means
    connected to the production path and requires evidence plus model
    attribution. `validated` requires durable passing evidence; validation and
    performance items additionally require a passing verdict and artifacts.
-8. Questions requiring a user choice become decision items with two to four
+9. Questions requiring a user choice become decision items with two to four
    concise options and trade-offs. Do not hide user decisions in free-text
    notes.
-9. Use Workbench notes for durable handoffs whenever ownership changes or work
+10. Use Workbench notes for durable handoffs whenever ownership changes or work
    pauses. Use coordination chat only for short live-session messages.
-10. Never hand-count, reuse, rename, or delete Workbench IDs. Ask the server for
+11. Never hand-count, reuse, rename, or delete Workbench IDs. Ask the server for
     the next ID or let `POST /api/roadmap/item` assign it.
 
 All Workbench views use the same underlying records. Never create a parallel

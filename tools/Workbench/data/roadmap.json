@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "project": "Perfect Dark 2",
-  "updated": "2026-08-01T12:58:41.725Z",
+  "updated": "2026-08-08T16:13:48.999Z",
   "items": [
     {
       "type": "task",
@@ -2937,9 +2937,9 @@
       "created": "2026-08-01T12:52:08.443Z"
     },
     {
-      "status": "missing",
+      "status": "validated",
       "phase": 1,
-      "owner": "ultra",
+      "owner": "codex-pd2-continue-20260808",
       "deps": [
         "T-TOOLING-001"
       ],
@@ -2955,18 +2955,23 @@
       "area": "TOOLING",
       "type": "task",
       "evidence": [
-        "context/bugs.md:B-973",
-        "2026-08-01 observed port 8378 serving 93-item stale worktree while canonical roadmap held 104 items"
+        "Tools/Workbench/repo-identity.js resolves Git common-directory identity and canonical checkout.",
+        "Tools/Workbench/server.js binds normal startup to canonical data, exposes identity in /api/meta, and rejects different-root port conflicts.",
+        "node Tools/Workbench/test-workbench.js passed 2026-08-08, including the repository real linked-worktree rejection and competing-store port refusal.",
+        "Live http://127.0.0.1:8378/api/meta reported canonical=true, branch=dev, and canonical Tools/Workbench/data on 2026-08-08.",
+        "A duplicate canonical server launch recognized the existing matching /api/meta authority and exited 0.",
+        "context/bugs.md:B-973 records validated root cause, fix, and verification."
       ],
       "title": "B-973: bind Workbench server to canonical project truth",
       "id": "T-TOOLING-002",
-      "updated": "2026-08-01T12:58:41.683Z",
-      "created": "2026-08-01T12:58:41.683Z"
+      "updated": "2026-08-08T16:13:48.982Z",
+      "created": "2026-08-01T12:58:41.683Z",
+      "model": "Codex GPT-5"
     },
     {
-      "status": "open",
+      "status": "closed",
       "phase": 1,
-      "owner": "ultra",
+      "owner": "codex-pd2-continue-20260808",
       "deps": [
         "T-TOOLING-002"
       ],
@@ -2981,12 +2986,16 @@
       "area": "TOOLING",
       "type": "risk",
       "evidence": [
-        "context/bugs.md:B-973"
+        "T-TOOLING-002 validated 2026-08-08.",
+        "Default startup rejects linked worktrees; explicit isolation requires a separate data directory and nondefault port.",
+        "Occupied-port identity probe rejects a server for another root and accepts only a matching canonical authority.",
+        "context/bugs.md:B-973 is VALIDATED."
       ],
       "title": "Stale worktree Workbench server can split durable project truth",
       "id": "R-002",
-      "updated": "2026-08-01T12:58:41.700Z",
-      "created": "2026-08-01T12:58:41.700Z"
+      "updated": "2026-08-08T16:13:48.999Z",
+      "created": "2026-08-01T12:58:41.700Z",
+      "model": "Codex GPT-5"
     }
   ]
 }

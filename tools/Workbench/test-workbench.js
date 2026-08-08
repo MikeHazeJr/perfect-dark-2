@@ -6,6 +6,10 @@ const childProcess = require('child_process');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const {
+  resolveRepoIdentity,
+  validateStartupIdentity,
+} = require('./repo-identity');
 
 const root = __dirname;
 const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pd2-workbench-test-'));
@@ -20,7 +24,12 @@ fs.writeFileSync(path.join(dataDir, 'changelog.jsonl'), '');
 
 const child = childProcess.spawn(process.execPath, [path.join(root, 'server.js')], {
   cwd: root,
-  env: { ...process.env, WORKBENCH_PORT: String(port), WORKBENCH_DATA_DIR: dataDir },
+  env: {
+    ...process.env,
+    WORKBENCH_ISOLATED: '1',
+    WORKBENCH_PORT: String(port),
+    WORKBENCH_DATA_DIR: dataDir,
+  },
   stdio: ['ignore', 'pipe', 'pipe'],
 });
 
@@ -51,8 +60,80 @@ async function waitForServer() {
   throw new Error(`server did not start\n${serverOutput}`);
 }
 
+function waitForExit(processHandle, timeoutMs = 3000) {
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error('child process did not exit')), timeoutMs);
+    processHandle.once('exit', code => {
+      clearTimeout(timeout);
+      resolve(code);
+    });
+  });
+}
+
 async function run() {
   await waitForServer();
+
+  const meta = await (await fetch(base + '/api/meta')).json();
+  const projectRoot = path.resolve(root, '..', '..');
+  assert.equal(meta.isolated, true);
+  assert.equal(meta.canonical, true);
+  assert.equal(path.resolve(meta.projectRoot), projectRoot);
+  assert.equal(path.resolve(meta.worktreeRoot), projectRoot);
+  assert.equal(path.resolve(meta.dataDir), path.resolve(dataDir));
+  assert.ok(meta.gitCommonDir.endsWith(`${path.sep}.git`));
+  assert.equal(typeof meta.branch, 'string');
+  assert.match(meta.head, /^[0-9a-f]{40}$/);
+
+  const worktreeList = childProcess.execFileSync('git', ['worktree', 'list', '--porcelain'], {
+    cwd: projectRoot,
+    encoding: 'utf8',
+  });
+  let linked = worktreeList.split(/\r?\n/)
+    .filter(line => line.startsWith('worktree '))
+    .map(line => line.slice('worktree '.length))
+    .find(candidate => fs.existsSync(candidate) && path.resolve(candidate) !== projectRoot);
+  if (!linked) {
+    linked = path.join(dataDir, 'linked-worktree-fixture');
+    const linkedGitDir = path.join(dataDir, 'linked-gitdir-fixture');
+    fs.mkdirSync(linked, { recursive: true });
+    fs.mkdirSync(linkedGitDir, { recursive: true });
+    fs.writeFileSync(path.join(linked, '.git'), `gitdir: ${linkedGitDir}\n`);
+    fs.writeFileSync(path.join(linkedGitDir, 'commondir'), `${path.join(projectRoot, '.git')}\n`);
+    fs.writeFileSync(path.join(linkedGitDir, 'HEAD'), `ref: refs/heads/${meta.canonicalBranch}\n`);
+  }
+  const linkedIdentity = resolveRepoIdentity(linked);
+  assert.equal(linkedIdentity.canonical, false);
+  assert.equal(path.resolve(linkedIdentity.projectRoot), projectRoot);
+  assert.throws(() => validateStartupIdentity(linkedIdentity, {
+    isolated: false, port: 8378, hasDataOverride: false,
+  }), /Refusing noncanonical Workbench startup/);
+  assert.doesNotThrow(() => validateStartupIdentity(linkedIdentity, {
+    isolated: true, port, hasDataOverride: true,
+  }));
+  assert.throws(() => validateStartupIdentity(meta, {
+    isolated: false, port: 8378, hasDataOverride: true,
+  }), /requires explicit WORKBENCH_ISOLATED/);
+  assert.throws(() => validateStartupIdentity(meta, {
+    isolated: true, port: 8378, hasDataOverride: true,
+  }), /must use a nondefault WORKBENCH_PORT/);
+
+  const contenderDir = path.join(dataDir, 'contender');
+  const contender = childProcess.spawn(process.execPath, [path.join(root, 'server.js')], {
+    cwd: root,
+    env: {
+      ...process.env,
+      WORKBENCH_ISOLATED: '1',
+      WORKBENCH_PORT: String(port),
+      WORKBENCH_DATA_DIR: contenderDir,
+    },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  let contenderOutput = '';
+  contender.stdout.on('data', chunk => { contenderOutput += chunk; });
+  contender.stderr.on('data', chunk => { contenderOutput += chunk; });
+  const contenderCode = await waitForExit(contender);
+  assert.notEqual(contenderCode, 0);
+  assert.match(contenderOutput, /serving a different Workbench root/);
 
   const created = await request('/api/roadmap/item', {
     by: 'test', reason: 'create fixture',

@@ -1,6 +1,8 @@
 # Perfect Dark 2 - Project Context
 
-> **Live as of 2026-06-17T15:45:00-04:00.** All pillar docs in place, designs sub-bucketed, session-log cut to active rolling window, retention rules captured. `c3844` is closed at 100% for the current tree, and the follow-on `c3849` Wave 7 weapon-graph/fatal/protocol cutover is implemented and verified.
+> **Live as of 2026-08-08.** The repo-local Workbench is durable project truth.
+> The current asset audit preserves implemented baselines while explicit family,
+> live-device, negative-path, and performance gates remain open.
 
 ---
 
@@ -32,8 +34,8 @@ The canonical context source is this `context/` tree. Parent-level briefing file
 
 ## Live state at a glance
 
-- **Wire protocol**: v51 (per [pillars/save-wire-format.md](pillars/save-wire-format.md) and `port/include/net/net.h:12`).
-- **Save format**: SAVE_VERSION=2, MPSETUP_VERSION=2.
+- **Wire protocol**: v52 (per [constraints.md](constraints.md) and `port/include/net/net.h`).
+- **Save format**: SAVE_VERSION=2, MPSETUP_VERSION=3.
 - **Build**: v0.0.175+ (per recent release tags). Build via `.\devtools\build-session.ps1 -Session <id> -Target all`; standalone `pd-server` is removed/deprecated, so use listen-host in the client.
 - **Active session range**: see [session-log.md](session-log.md).
 - **Critical path**: the repo-local Workbench is authoritative for active work,

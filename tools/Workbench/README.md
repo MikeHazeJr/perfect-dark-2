@@ -27,6 +27,27 @@ node .\Tools\Workbench\server.js
 Open `http://127.0.0.1:8378`. Set `WORKBENCH_PORT` to override the port. Set
 `WORKBENCH_HOST=0.0.0.0` only when LAN access is intentionally wanted.
 
+The default server is canonical-checkout only. It resolves the Git common
+directory, binds data to the main project's `Tools/Workbench/data/`, and refuses
+startup from a linked worktree. `GET /api/meta` reports `projectRoot`,
+`worktreeRoot`, `gitCommonDir`, branch/HEAD, `canonical`, `isolated`, and
+`dataDir`; repository identity is refreshed per request so a long-running
+server does not report a stale HEAD. Verify these fields before API mutations
+after inheriting an old server.
+
+Tests or recovery tools that require a separate store must opt in explicitly:
+
+```powershell
+$env:WORKBENCH_ISOLATED = '1'
+$env:WORKBENCH_PORT = '18378' # never 8378
+$env:WORKBENCH_DATA_DIR = 'C:\path\to\isolated-data'
+node .\Tools\Workbench\server.js
+```
+
+An isolated server requires both a nondefault port and an explicit data
+directory. A normal server rejects `WORKBENCH_DATA_DIR` so an override cannot
+silently replace durable project truth.
+
 ## Durable data
 
 - `data/roadmap.json`: the single mutable item store.
@@ -47,16 +68,17 @@ separate task store.
 ## Required agent flow
 
 1. Read `AGENTS.md`, this file, and `SCHEMAS.md`.
-2. Run coordination `status`, then `register`.
-3. Read `data/roadmap.json` and fold `data/notes.jsonl`.
-4. Process every `new` note affecting your lane before implementation.
-5. Claim item ownership and record dependencies before editing shared surfaces.
-6. Use the coordination FIFO before builds, tests, game runs, captures, editor
+2. Verify `/api/meta` reports the canonical project/data root.
+3. Run coordination `status`, then `register`.
+4. Read `data/roadmap.json` and fold `data/notes.jsonl`.
+5. Process every `new` note affecting your lane before implementation.
+6. Claim item ownership and record dependencies before editing shared surfaces.
+7. Use the coordination FIFO before builds, tests, game runs, captures, editor
    sessions, deployments, or other exclusive work.
-7. Update Workbench items as facts change. Use `implemented` only after the
+8. Update Workbench items as facts change. Use `implemented` only after the
    production path is connected. Use `validated` only with durable passing
    evidence.
-8. Add a handoff note when ownership changes or work pauses.
+9. Add a handoff note when ownership changes or work pauses.
 
 Use the API whenever the server is running. Offline edits to `roadmap.json` are
 allowed only for recovery or bootstrap and must include a matching append-only

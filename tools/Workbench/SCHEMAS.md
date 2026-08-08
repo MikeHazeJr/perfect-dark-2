@@ -153,5 +153,11 @@ requiring user choice are dedicated decision items, not bare notes.
 | `GET /api/meta` | Counts and duplicate-ID diagnostics |
 | `POST /api/export` | Generate Markdown exports |
 
+`GET /api/meta` also exposes the canonical project root, current worktree root,
+Git common directory, current and canonical branch/HEAD, canonical/isolated
+mode, and active data directory. The default port accepts only the canonical
+checkout and canonical data store. Explicit isolated mode requires
+`WORKBENCH_ISOLATED=1`, a nondefault port, and `WORKBENCH_DATA_DIR`.
+
 `id` and `type` are immutable after creation. Unknown update fields are
 rejected. Dependencies must exist and cannot point to the item itself.

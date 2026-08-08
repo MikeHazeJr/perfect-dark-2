@@ -73,6 +73,18 @@ S582 added the active-build watchdog and observable logs: queued child builds de
 The supported v3 window and retained v2 compatibility window both open
 Workbench. The former Kanban phone/start/stop controls are retired.
 
+**Canonical Workbench root (B-973, 2026-08-08):** the server resolves the Git
+common directory and treats its parent checkout as the only default durable
+root. A linked-worktree launch is rejected before binding; a normal launch
+cannot override `WORKBENCH_DATA_DIR`; tests/recovery must opt into isolated mode
+with a nondefault port and explicit data directory. `/api/meta` exposes project,
+worktree, common-dir, branch/HEAD, canonical/isolated, and data-root identity so
+agents can verify authority before mutation. Startup also probes an occupied
+port and refuses a server for a different project/data root. Regression coverage
+lives in `Tools/Workbench/test-workbench.js` and exercises the repository's
+actual linked worktree. Metadata resolves identity per request so branch/HEAD
+remain current after commits without restarting the server.
+
 WPF GUI (`devtools/dev-window-v2/`) for build / run / version / status / git Pull and Push. DPI-aware (S255). Async RunspacePool (1-3 threads) for non-blocking UI updates (S361). Pre-build git sync (S257) via `Invoke-GitSyncBeforeBuild`. Single-exe consistency rules (S270).
 
 S570 made the Push button stage-commit-push-refresh in one click; warm BUILD/RUN TESTS paths skip configure when cache/version/Python tool are current; CMake builds in parallel; addin data mirrored with `robocopy` when available.

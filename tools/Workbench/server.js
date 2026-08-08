@@ -18,14 +18,26 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const { nextIndexedId, findDuplicateIds } = require('./ids');
+const {
+  resolveRepoIdentity,
+  samePath,
+  validateStartupIdentity,
+} = require('./repo-identity');
 
 const PORT = Number.parseInt(process.env.WORKBENCH_PORT || '8378', 10);
 const HOST = process.env.WORKBENCH_HOST || '127.0.0.1';
 const ROOT = __dirname;
-const REPO_ROOT = path.resolve(ROOT, '..', '..');
-const PUBLIC_DIR = path.join(ROOT, 'public');
-const DATA_DIR = path.resolve(process.env.WORKBENCH_DATA_DIR || path.join(ROOT, 'data'));
-const EXPORTS_DIR = path.join(ROOT, 'exports');
+const WORKTREE_ROOT = path.resolve(ROOT, '..', '..');
+const REPO_IDENTITY = resolveRepoIdentity(WORKTREE_ROOT);
+const ISOLATED = process.env.WORKBENCH_ISOLATED === '1';
+const HAS_DATA_OVERRIDE = Boolean(process.env.WORKBENCH_DATA_DIR);
+const REPO_ROOT = REPO_IDENTITY.projectRoot;
+const WORKBENCH_ROOT = ISOLATED ? ROOT : path.join(REPO_ROOT, 'Tools', 'Workbench');
+const PUBLIC_DIR = path.join(WORKBENCH_ROOT, 'public');
+const DATA_DIR = ISOLATED
+  ? path.resolve(process.env.WORKBENCH_DATA_DIR)
+  : path.join(WORKBENCH_ROOT, 'data');
+const EXPORTS_DIR = ISOLATED ? path.join(DATA_DIR, 'exports') : path.join(WORKBENCH_ROOT, 'exports');
 const ROADMAP_PATH = path.join(DATA_DIR, 'roadmap.json');
 const NOTES_PATH = path.join(DATA_DIR, 'notes.jsonl');
 const CHANGELOG_PATH = path.join(DATA_DIR, 'changelog.jsonl');
@@ -381,6 +393,7 @@ const routes = {
   'GET /api/meta': async (req, res) => {
     const doc = readRoadmap();
     const notes = foldNotes();
+    const liveIdentity = resolveRepoIdentity(WORKTREE_ROOT);
     const counts = { byType: {}, byStatus: {}, byArea: {} };
     for (const item of doc.items) {
       counts.byType[item.type] = (counts.byType[item.type] || 0) + 1;
@@ -391,6 +404,17 @@ const routes = {
       port: PORT, host: HOST, hostname: os.hostname(), items: doc.items.length,
       notes: notes.length, openNotes: notes.filter(x => ['new', 'needs_clarification', 'waiting_user_decision'].includes(x.state)).length,
       updated: doc.updated, counts, duplicateIds: findDuplicateIds(doc.items),
+      projectRoot: liveIdentity.projectRoot,
+      worktreeRoot: liveIdentity.worktreeRoot,
+      gitCommonDir: liveIdentity.gitCommonDir,
+      gitDir: liveIdentity.gitDir,
+      branch: liveIdentity.branch,
+      head: liveIdentity.head,
+      canonicalBranch: liveIdentity.canonicalBranch,
+      canonicalHead: liveIdentity.canonicalHead,
+      canonical: liveIdentity.canonical,
+      isolated: ISOLATED,
+      dataDir: DATA_DIR,
     });
   },
   'POST /api/export': async (req, res) => {
@@ -411,8 +435,62 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-server.listen(PORT, HOST, () => {
-  console.log(`Perfect Dark 2 Workbench: http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT}`);
-  console.log(`Data: ${DATA_DIR}`);
-  console.log(`Coordination state (read-only): ${COORD_STATE}`);
+function probeExistingServer() {
+  return new Promise(resolve => {
+    const request = http.get({ host: '127.0.0.1', port: PORT, path: '/api/meta', timeout: 500 }, response => {
+      let body = '';
+      response.on('data', chunk => { body += chunk; });
+      response.on('end', () => {
+        try {
+          resolve({ status: response.statusCode, meta: JSON.parse(body) });
+        } catch (_) {
+          resolve({ status: response.statusCode, meta: null });
+        }
+      });
+    });
+    request.on('timeout', () => request.destroy());
+    request.on('error', () => resolve(null));
+  });
+}
+
+async function startServer() {
+  validateStartupIdentity(REPO_IDENTITY, {
+    isolated: ISOLATED,
+    port: PORT,
+    hasDataOverride: HAS_DATA_OVERRIDE,
+  });
+  const existing = await probeExistingServer();
+  if (existing) {
+    const meta = existing.meta;
+    if (!meta || !meta.projectRoot) {
+      throw new Error(`Port ${PORT} is already occupied by a Workbench without canonical root identity.`);
+    }
+    if (!samePath(meta.projectRoot, REPO_ROOT) || Boolean(meta.isolated) !== ISOLATED ||
+        !samePath(meta.dataDir, DATA_DIR)) {
+      throw new Error(
+        `Port ${PORT} is serving a different Workbench root. ` +
+        `Existing project=${meta.projectRoot}, data=${meta.dataDir}; ` +
+        `requested project=${REPO_ROOT}, data=${DATA_DIR}.`
+      );
+    }
+    console.log(`Perfect Dark 2 Workbench is already running on http://127.0.0.1:${PORT}.`);
+    return;
+  }
+
+  server.on('error', error => {
+    console.error(`Workbench startup failed: ${error.message}`);
+    process.exitCode = 1;
+  });
+  server.listen(PORT, HOST, () => {
+    console.log(`Perfect Dark 2 Workbench: http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT}`);
+    console.log(`Project root: ${REPO_ROOT}`);
+    console.log(`Worktree root: ${REPO_IDENTITY.worktreeRoot}`);
+    console.log(`Data: ${DATA_DIR}`);
+    console.log(`Coordination state (read-only): ${COORD_STATE}`);
+  });
+}
+
+startServer().catch(error => {
+  console.error(`Workbench startup refused: ${error.message}`);
+  process.exitCode = 1;
 });

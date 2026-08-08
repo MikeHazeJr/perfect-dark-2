@@ -5,6 +5,9 @@
 
 ## Highlights
 
+- Pinned the local project Workbench to the canonical checkout, exposed its
+  repository identity, and rejected linked-worktree or conflicting-port
+  startups that could silently split roadmap truth.
 - Replaced the legacy Kanban with a repo-local Workbench that keeps permanent
   typed IDs, audited atomic roadmap mutations, append-only feedback/activity,
   dependency/timeline/decision/asset/proof views, and a separate live
