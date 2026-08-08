@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "project": "Perfect Dark 2",
-  "updated": "2026-08-08T19:51:38.906Z",
+  "updated": "2026-08-08T20:34:07.320Z",
   "items": [
     {
       "type": "task",
@@ -2199,18 +2199,22 @@
         "tests/test_pdtheme_source.cpp:3 cases / 19 assertions PASS",
         "strict theme conformance: 1 root / 6 recursive PASS",
         "combined preflight: 28 root / 53 recursive / 27 families + native-source guard PASS",
-        "context/bugs.md:B-980"
+        "context/bugs.md:B-980",
+        "T-ASSETS-027",
+        "T-ASSETS-028",
+        "T-ASSETS-029",
+        "context/evidence/2026-08-08-theme-wave-verification.md"
       ],
-      "detail": "Public theme.ini/theme.json authority and strict pd2.theme.v1 discovery/activation parsing are implemented under T-ASSETS-026, including fail-closed identity/schema/type/range/cap validation and removal of private-manifest, duplicate-palette, raw-font-path, and broken-source built-in substitution behavior. The family remains partial: T-ASSETS-027 through T-ASSETS-030 still own recursive dependency lifecycle, retained field consumers, self-contained creator output, network/restart parity, and ordinary-client MKB/controller glyph proof.",
+      "detail": "Strict public theme authority, typed UI/font/SFX/music dependency ownership, every retained production consumer, and self-contained Theme Editor output are implemented under T-ASSETS-026 through T-ASSETS-029 with frozen automated evidence. The family remains partial only for T-ASSETS-030 ordinary-client edited-source, corrupt/missing dependency, restart, listen-host/network, rendered theme-swap, physical MKB/controller, and device-switch glyph proof.",
       "tags": [
         "asset-family",
         "asset-family:pdtheme",
         "descriptor:theme.ini"
       ],
       "id": "A-ASSETS-028",
-      "updated": "2026-08-08T19:36:10.948Z",
+      "updated": "2026-08-08T20:31:16.420Z",
       "created": "2026-07-30T15:32:27.881Z",
-      "model": "GPT-5.6"
+      "model": "gpt-5.6"
     },
     {
       "title": "B-953: connect every pdgamemode source field to production behavior",
@@ -3181,7 +3185,7 @@
         "handoff:ultra"
       ],
       "lane": "extraction-schema",
-      "owner": "unassigned",
+      "owner": "luna-effect-schema-20260808",
       "type": "task",
       "phase": 3,
       "area": "ASSETS",
@@ -3190,10 +3194,11 @@
       "evidence": [
         "T-ASSETS-012 field-level audit 2026-08-08",
         "context/bugs.md:B-959",
-        "context/systemic-bugs.md:SP-24"
+        "context/systemic-bugs.md:SP-24",
+        "2026-08-08 luna-effect-schema-20260808 claimed source-faithful base archive and exact public schema lane; dependent T-ASSETS-017 through T-ASSETS-020 excluded."
       ],
       "id": "T-ASSETS-016",
-      "updated": "2026-08-08T17:00:38.126Z",
+      "updated": "2026-08-08T20:33:29.517Z",
       "created": "2026-08-08T17:00:38.126Z"
     },
     {
@@ -3353,7 +3358,7 @@
       "deps": [
         "T-ASSETS-004"
       ],
-      "owner": "codex-roadmap-continuation-20260808",
+      "owner": "luna-weapon-nested-harness-20260808",
       "type": "task",
       "title": "Hot-register nested-only .pdweapon animation and audio dependencies",
       "status": "partial",
@@ -3375,7 +3380,7 @@
         "dependencies"
       ],
       "id": "T-ASSETS-022",
-      "updated": "2026-08-08T19:14:59.014Z",
+      "updated": "2026-08-08T20:33:34.007Z",
       "created": "2026-08-08T17:05:35.611Z",
       "model": "gpt-5.6-sol"
     },
@@ -3425,14 +3430,28 @@
       "deps": [
         "T-ASSETS-004"
       ],
-      "owner": "unassigned",
+      "owner": "luna-weapon-overrides-20260808",
       "type": "task",
       "title": "Implement truthful weapon-level material and grip override consumers",
-      "status": "missing",
+      "status": "implemented",
       "lane": "weapon-presentation",
-      "evidence": [],
+      "evidence": [
+        "context/bugs.md:B-988",
+        "port/src/assetcatalog_scanner.c:PDWEAPON.BINDINGS.REJECT",
+        "port/src/weapon_graph_runtime.c:weaponGraphRejectRetiredWeaponBindings",
+        "tools/asset_archive_conformance.py:retired_weapon_bindings",
+        "tools/upgrade_generated_manifest_archives.py:WEAPON_RETIRED_MEMBERS",
+        "tools/build_needler_mod.py",
+        "dev-mods/needler/needler.pdweapon",
+        ".claude/session-builds/luna-weapon-t024/_build-session.out.log",
+        ".claude/session-builds/luna-weapon-t024/t-assets-024.log",
+        ".claude/session-builds/luna-weapon-t024/conformance-selftest.log",
+        ".claude/session-builds/luna-weapon-t024/needler-conformance.log",
+        ".claude/session-builds/luna-weapon-t024/native-source-guard-final.log",
+        "context/evidence/2026-08-08-theme-wave-verification.md"
+      ],
       "phase": 3,
-      "detail": "Define production semantics for weapon-level material slots and grip sockets beyond the nested .pdmesh defaults, or explicitly version them out. Connect retained fields to held/world model assembly and animation grip attachment, reject unknown slots, and prove edited overrides.",
+      "detail": "Audit proved material_slots_file and grip_sockets_file had no held/world renderer or hand-animation attachment consumer. Weapon v1 now explicitly versions them out: scanner, graph-runtime, and conformance reject descriptor, manifest, and member forms across memory-backed and direct-file archives, including empty members; repair tooling removes them; creator output omits them. Nested .pdmesh materials/hierarchy and established weapon placement fields remain authoritative. Source-frozen pd-tests build passes, [t-assets-024] passes 12 assertions, conformance selftest passes, regenerated Needler recursively passes 1 root / 9 checked archives, and the final 27-family suite/native-source guard pass.",
       "tags": [
         "asset-family:pdweapon",
         "handoff:ultra",
@@ -3441,8 +3460,9 @@
         "production-path"
       ],
       "id": "T-ASSETS-024",
-      "updated": "2026-08-08T17:05:35.629Z",
-      "created": "2026-08-08T17:05:35.629Z"
+      "updated": "2026-08-08T20:32:30.539Z",
+      "created": "2026-08-08T17:05:35.629Z",
+      "model": "GPT-5.6"
     },
     {
       "area": "ASSETS",
@@ -3510,18 +3530,32 @@
       "model": "GPT-5.6"
     },
     {
-      "deps": [],
-      "status": "missing",
+      "deps": [
+        "T-ASSETS-026"
+      ],
+      "status": "implemented",
       "title": "Load and own nested .pdtheme dependencies",
       "area": "ASSETS",
       "type": "task",
       "lane": "runtime-utilization",
       "evidence": [
         "T-ASSETS-015",
-        "A-ASSETS-028"
+        "A-ASSETS-028",
+        "port/include/assetcatalog_scanner.h:assetCatalogRegisterThemeNestedDependencies",
+        "port/src/assetcatalog_scanner.c:T-ASSETS-027 transactional role registrar",
+        "port/src/loader_walker_meta.c:base public theme descriptor + nested registration",
+        "port/src/loader_walker.c:dependency-first base ordering",
+        "port/src/assetcatalog_load.c:theme dependency load/retain/release balance",
+        "tests/test_mod_external_archive_static.cpp:[T-ASSETS-027]",
+        ".claude/session-builds/theme-consumers/_build-session.out.log:final frozen client/updater PASS",
+        ".claude/session-builds/theme-consumers/_build-headless-20260808-162104-compile-tests.out.log:pd-tests compiled",
+        ".codex-coordination/queue-results.md:2026-08-08T20:21:11Z [T-ASSETS-027] 2 cases/30 assertions PASS",
+        ".codex-coordination/queue-results.md:2026-08-08T20:29:40Z pdtheme 103/103; full pdxxx 165/15938; 28 root/52 recursive/27 families; native-source guard PASS",
+        "port/src/assetcatalog_deps.c:catalogDepReserve",
+        "tests/test_assetcatalog_deps.cpp:[T-ASSETS-027] reserve behavior"
       ],
-      "detail": "Recursively register declared .pdui, .pdfont, .pdsfx, .pdsong and .pdeffect archives across base, local, pdmod and network paths. Resolve catalog IDs and role types, create dependency edges, retain and release them with the theme, and fail the parent transaction on missing, malformed, hash-mismatched or type-mismatched declared dependencies.",
-      "owner": "unassigned",
+      "detail": "Implemented and source-frozen automated verification passed. Public theme.ini declares four supported optional typed child roles: .pdui, .pdfont, .pdsfx and .pdsong. The shared registrar release-validates the parent and every declared child before mutation, enforces exact role extension/public descriptor type/catalog identity and content equality on ID collisions, permits compositional namespaces, registers archive-chain source rows and dependency edges, and fails the parent closed across base, local, mounted .pdmod and network-extracted paths. Theme load/retain/release balances those edges with rollback. Newly created rows remain disabled until the complete transaction commits and remain inert on registration failure. effect_archive is retired/rejected because production theme effects are inline caustics/borderEffects. Final frozen client/updater/tests pass; focused T027 is 2 cases/30 assertions; strict recursive conformance and native-source guard pass. T-ASSETS-030 retains ordinary-client edited/network/restart/MKB/controller/glyph validation.",
+      "owner": "luna-theme-deps-20260808",
       "tags": [
         "asset-family:pdtheme",
         "dependencies",
@@ -3531,22 +3565,38 @@
       ],
       "phase": 3,
       "id": "T-ASSETS-027",
-      "updated": "2026-08-08T18:58:02.273Z",
-      "created": "2026-08-08T18:58:02.273Z"
+      "updated": "2026-08-08T20:31:24.596Z",
+      "created": "2026-08-08T18:58:02.273Z",
+      "model": "GPT-5.6"
     },
     {
-      "deps": [],
-      "status": "missing",
+      "deps": [
+        "T-ASSETS-026",
+        "T-ASSETS-027"
+      ],
+      "status": "implemented",
       "title": "Connect every supported .pdtheme field to production menus",
       "area": "ASSETS",
       "type": "task",
       "lane": "runtime-utilization",
       "evidence": [
-        "T-ASSETS-015",
-        "A-ASSETS-028"
+        "port/src/pdtheme_source.cpp: strict retained fields and catalog-ID effect targets",
+        "port/fast3d/pdgui_theme_loader.cpp: fail-closed consumer preflight and active-state replacement",
+        "port/fast3d/pdgui_audio.cpp: fixed semantic catalog SFX roles",
+        "port/fast3d/pdgui_font_mod.cpp + port/fast3d/pdgui_backend.cpp: nested vector pdfont atlas rebuild",
+        "port/fast3d/pdgui_style.cpp + pdgui_effects.cpp + pdgui_nineslice.cpp: active chrome/effects and capacity preflight",
+        "src/game/music.c: themed catalog sequence menu track",
+        "port/fast3d/pdgui_glyphs.cpp: active palette styles live action-map glyph pills",
+        "tests [T-ASSETS-028]: 1 case / 16 assertions PASS",
+        "tests [pdtheme]: 8 cases / 103 assertions PASS",
+        "tests [modding][pdxxx]: 165 cases / 15938 assertions PASS",
+        "strict conformance: 28 root / 52 recursive / all 27 families PASS",
+        "tools/asset_native_source_guard.py PASS",
+        "context/evidence/2026-08-08-theme-wave-verification.md",
+        "context/bugs.md:B-989"
       ],
-      "detail": "Wire theme textures, chrome, nineslices, font, scanline interval, sound roles, menu music and effect archives into real menu draw, audio, music and effect paths. Remove unsupported fields instead of storing them inert. Ensure theme-scoped UI and font selection, controller and MKB glyph rendering, runtime swap rollback, and no procedural or unrelated-enabled-asset fallback for declared roles.",
-      "owner": "unassigned",
+      "detail": "Every retained public theme field is connected to production menu, font, audio, music, effect, palette, scanline/glow, or glyph styling. Activation validates all declared catalog sources and registry capacity before replacing state, clears omitted prior-theme state, loads nested vector font bytes into the live atlas, assigns custom sequence menu tracks, and refuses native/procedural fallback for broken declared roles. soundPack, arbitrary texture roles, and effect_archive are rejected. Frozen automated evidence passes; ordinary-client restart/network/render and physical MKB/controller/device-switch proof remains T-ASSETS-030 before validation.",
+      "owner": "codex-roadmap-continuation-20260808",
       "tags": [
         "asset-family:pdtheme",
         "runtime-utilization",
@@ -3558,22 +3608,34 @@
       ],
       "phase": 3,
       "id": "T-ASSETS-028",
-      "updated": "2026-08-08T18:58:02.279Z",
-      "created": "2026-08-08T18:58:02.279Z"
+      "updated": "2026-08-08T20:31:53.632Z",
+      "created": "2026-08-08T18:58:02.279Z",
+      "model": "gpt-5.6"
     },
     {
-      "deps": [],
-      "status": "missing",
+      "deps": [
+        "T-ASSETS-026",
+        "T-ASSETS-027",
+        "T-ASSETS-028"
+      ],
+      "status": "implemented",
       "title": "Make Theme Editor create real self-contained .pdtheme archives",
       "area": "ASSETS",
       "type": "task",
       "lane": "runtime-utilization",
       "evidence": [
         "T-ASSETS-015",
-        "A-ASSETS-028"
+        "A-ASSETS-028",
+        "port/fast3d/pdgui_menu_theme_editor.cpp: loose mod.json/theme.json save and pdmod pack paths",
+        "port/src/theme_archive_authoring.c: staged strict self-contained archive implementation in progress",
+        "context/bugs.md:B-986",
+        "port/src/theme_archive_authoring.c: staged release-validated atomic self-contained .pdtheme writer with typed dependency identity checks and last-good preservation",
+        "port/fast3d/pdgui_menu_theme_editor.cpp: real folder .pdtheme and nested .pdmod save paths, authoritative rescan, filtered typed dependency selectors, dynamic accept/cancel glyph labels",
+        "tests/test_theme_archive_authoring.cpp: 2 cases / 29 assertions PASS",
+        "context/evidence/2026-08-08-theme-wave-verification.md: client/updater/pd-tests PASS; pdtheme 103/103; full pdxxx 165 cases/15,938 assertions; conformance 28 roots/52 recursive/all 27; native-source guard PASS"
       ],
-      "detail": "Replace loose mod.json plus theme.json export with validated .pdtheme authoring. Expose every supported dependency role, embed selected typed archives, emit theme.ini and manifest from the same records, validate before save, and prove save/reload roundtrip through the production parser/provider.",
-      "owner": "unassigned",
+      "detail": "Theme Editor now emits strict catalog-identified self-contained .pdtheme archives through a shared staged release validator, embeds only selected production-supported .pdui/vector .pdfont/.pdsfx/.pdsong dependencies with exact descriptor identities, atomically preserves the last-good archive and folder manifest, packs the .pdtheme inside .pdmod, rescans through the authoritative catalog path, rejects unusable selections, escapes creator text, and shows live MKB/controller accept/cancel binding labels. Automated builds, focused creator/theme tests, full archive suite, strict conformance, and native-source guard pass. Ordinary-client save/restart/network/render/device proof remains T-ASSETS-030.",
+      "owner": "codex-roadmap-continuation-20260808",
       "tags": [
         "asset-family:pdtheme",
         "creator",
@@ -3582,11 +3644,16 @@
       ],
       "phase": 3,
       "id": "T-ASSETS-029",
-      "updated": "2026-08-08T18:58:02.284Z",
-      "created": "2026-08-08T18:58:02.284Z"
+      "updated": "2026-08-08T20:34:07.320Z",
+      "created": "2026-08-08T18:58:02.284Z",
+      "model": "GPT-5"
     },
     {
-      "deps": [],
+      "deps": [
+        "T-ASSETS-027",
+        "T-ASSETS-028",
+        "T-ASSETS-029"
+      ],
       "status": "missing",
       "title": "Validate edited .pdtheme source across devices and distribution",
       "area": "ASSETS",
@@ -3608,7 +3675,7 @@
       ],
       "phase": 3,
       "id": "T-ASSETS-030",
-      "updated": "2026-08-08T18:58:02.288Z",
+      "updated": "2026-08-08T19:53:37.275Z",
       "created": "2026-08-08T18:58:02.288Z"
     },
     {

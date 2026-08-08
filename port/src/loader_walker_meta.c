@@ -12,6 +12,7 @@
 #include <PR/ultratypes.h>
 
 #include "assetcatalog.h"
+#include "assetcatalog_scanner.h"
 #include "constants.h"
 #include "fs.h"
 #include "loader_walker.h"
@@ -239,6 +240,70 @@ static s32 s_applyMissionPublicDescriptor(asset_entry_t *entry,
 			fsFileSize(entry->ext.mission.scenario_archive) <= 0 ||
 			fsFileSize(entry->ext.mission.objectives_file) <= 0 ||
 			fsFileSize(entry->ext.mission.mission_graph_file) <= 0) {
+		goto done;
+	}
+	ok = 1;
+
+done:
+	sysMemFree(ini);
+	return ok;
+}
+
+static s32 s_themePublicMemberPath(const char *ini, size_t ini_len,
+	const char *archive_path, const char *key, char *out, size_t out_n)
+{
+	char member[FS_MAXPATH + 1];
+
+	if (!out || out_n == 0) return 0;
+	out[0] = '\0';
+	if (!loaderWalkerIniValueCopy(ini, ini_len, "theme", key,
+			member, sizeof(member)) || !member[0]) {
+		return 1;
+	}
+	return loaderWalkerArchiveMemberPath(archive_path, member, out, out_n)
+		&& fsFileSize(out) > 0;
+}
+
+static s32 s_applyThemePublicDescriptor(asset_entry_t *entry,
+	const char *archive_path)
+{
+	char *ini = NULL;
+	size_t ini_len = 0;
+	char catalog_id[CATALOG_ID_LEN];
+	char theme_member[FS_MAXPATH + 1];
+	s32 ok = 0;
+
+	if (!entry || !loaderWalkerArchiveTextMember(archive_path, "theme.ini",
+			&ini, &ini_len)) {
+		return 0;
+	}
+	catalog_id[0] = '\0';
+	theme_member[0] = '\0';
+	if (!loaderWalkerIniValueCopy(ini, ini_len, "theme", "catalog_id",
+			catalog_id, sizeof(catalog_id))
+			|| strcmp(catalog_id, entry->id) != 0
+			|| !loaderWalkerIniValueCopy(ini, ini_len, "theme", "theme_file",
+				theme_member, sizeof(theme_member))
+			|| strcmp(theme_member, "theme.json") != 0
+			|| !loaderWalkerArchiveMemberPath(archive_path, theme_member,
+				entry->ext.theme.theme_file,
+				sizeof(entry->ext.theme.theme_file))
+			|| fsFileSize(entry->ext.theme.theme_file) <= 0
+			|| loaderWalkerIniValueCopy(ini, ini_len, "theme",
+				"effect_archive", theme_member, sizeof(theme_member))
+			|| !s_themePublicMemberPath(ini, ini_len, archive_path,
+				"ui_archive", entry->ext.theme.ui_archive,
+				sizeof(entry->ext.theme.ui_archive))
+			|| !s_themePublicMemberPath(ini, ini_len, archive_path,
+				"font_archive", entry->ext.theme.font_archive,
+				sizeof(entry->ext.theme.font_archive))
+			|| !s_themePublicMemberPath(ini, ini_len, archive_path,
+				"audio_archive", entry->ext.theme.audio_archive,
+				sizeof(entry->ext.theme.audio_archive))
+			|| !s_themePublicMemberPath(ini, ini_len, archive_path,
+				"music_archive", entry->ext.theme.music_archive,
+				sizeof(entry->ext.theme.music_archive))
+			) {
 		goto done;
 	}
 	ok = 1;
@@ -658,6 +723,21 @@ static s32 s_registerMeta(const char *manifest, size_t manifest_len,
 			file_path);
 		return -1;
 	}
+	if (meta->type == ASSET_THEME) {
+		char nested_err[256];
+		nested_err[0] = '\0';
+		if (!s_applyThemePublicDescriptor(entry, file_path)
+				|| assetCatalogRegisterThemeNestedDependencies(id, file_path,
+					1, nested_err, sizeof(nested_err)) < 0) {
+			entry->enabled = 0;
+			entry->load_state = ASSET_STATE_REGISTERED;
+			sysLogPrintf(LOG_ERROR,
+				"LOADER.UNIVERSAL.META: invalid public theme source '%s': %s",
+				file_path, nested_err[0] ? nested_err :
+					"descriptor/dependency validation failed");
+			return -1;
+		}
+	}
 	loaderWalkerMarkBaseArchiveEntry(entry);
 	catalogSetPrimaryFile(entry, source_path);
 	return 1;
@@ -677,7 +757,7 @@ static const meta_walker_desc_t s_MetaFamilies[] = {
 	{ ASSET_HUD,         "hud",        "hud",         ".pdhud",        "layout.json",   { "layout_file", "texture_file", NULL, NULL } },
 	{ ASSET_EFFECT,      "effect",     "effects",     ".pdeffect",     "effect.graph.json", { "effect_file", "behavior_graph", "timeline_file", "timeline" } },
 	{ ASSET_MATERIAL,    "material",   "materials",   ".pdmaterial",   "material.json", { "material_file", "file_path", "texture_archive", "effect_archive" } },
-	{ ASSET_THEME,       "theme",      "themes",      ".pdtheme",      "theme.json",    { "theme_file", "ui_archive", "font_archive", "audio_archive", "music_archive", "effect_archive" } },
+	{ ASSET_THEME,       "theme",      "themes",      ".pdtheme",      "theme.json",    { "theme_file", "ui_archive", "font_archive", "audio_archive", "music_archive", NULL } },
 };
 
 static const meta_walker_desc_t *s_ActiveMeta;

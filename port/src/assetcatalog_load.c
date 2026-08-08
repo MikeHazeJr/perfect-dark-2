@@ -1668,6 +1668,25 @@ static s32 s_catalogValidateTypedLifecycle(const char *op, asset_type_e expected
     return 1;
 }
 
+typedef struct theme_dep_load {
+    char ids[4][CATALOG_ID_LEN];
+    s32 count;
+    s32 overflow;
+} theme_dep_load_t;
+
+static void s_catalogCollectThemeDep(const char *dep_id, void *userdata)
+{
+    theme_dep_load_t *ctx = (theme_dep_load_t *)userdata;
+    if (!ctx || !dep_id || !dep_id[0]) return;
+    if (ctx->count >= 4) {
+        ctx->overflow = 1;
+        return;
+    }
+    strncpy(ctx->ids[ctx->count], dep_id, CATALOG_ID_LEN - 1);
+    ctx->ids[ctx->count][CATALOG_ID_LEN - 1] = '\0';
+    ctx->count++;
+}
+
 s32 catalogLoadTypedAsset(asset_type_e expected_type, const char *assetId)
 {
     asset_entry_t *entry;
@@ -1679,6 +1698,40 @@ s32 catalogLoadTypedAsset(asset_type_e expected_type, const char *assetId)
     entry = assetCatalogGetMutable(assetId);
     if (!entry) {
         return 0;
+    }
+
+    if (entry->type == ASSET_THEME) {
+        theme_dep_load_t deps = {0};
+        catalogDepForEach(assetId, s_catalogCollectThemeDep, &deps);
+        if (deps.overflow) {
+            sysLogPrintf(LOG_WARNING,
+                "CATALOG.LIFECYCLE.LOAD: theme '%s' exceeds dependency roles",
+                assetId);
+            return 0;
+        }
+        s32 loaded = 0;
+        for (; loaded < deps.count; loaded++) {
+            asset_entry_t *dep = assetCatalogGetMutable(deps.ids[loaded]);
+            if (!dep || !s_catalogLoadEntry(dep, dep->type)) break;
+        }
+        if (loaded != deps.count) {
+            while (loaded-- > 0) {
+                const asset_entry_t *dep = assetCatalogResolve(deps.ids[loaded]);
+                if (dep) catalogReleaseTypedAsset(dep->type, deps.ids[loaded]);
+            }
+            sysLogPrintf(LOG_WARNING,
+                "CATALOG.LIFECYCLE.LOAD: theme '%s' dependency load failed",
+                assetId);
+            return 0;
+        }
+        if (!s_catalogLoadEntry(entry, expected_type)) {
+            while (loaded-- > 0) {
+                const asset_entry_t *dep = assetCatalogResolve(deps.ids[loaded]);
+                if (dep) catalogReleaseTypedAsset(dep->type, deps.ids[loaded]);
+            }
+            return 0;
+        }
+        return 1;
     }
 
     return s_catalogLoadEntry(entry, expected_type);
@@ -1786,8 +1839,9 @@ static void s_catalogUnloadEntry(const char *assetId, asset_entry_t *entry)
 {
     s32 old_ref;
     s32 new_ref;
+    s32 theme_deps_released = 0;
 
-    /* Never evict bundled assets — they are ROM-resident for the process lifetime. */
+    /* Never evict bundled assets — their catalog-owned source remains process-lifetime. */
     if (entry->bundled || entry->ref_count == ASSET_REF_BUNDLED) {
         return;
     }
@@ -1800,12 +1854,22 @@ static void s_catalogUnloadEntry(const char *assetId, asset_entry_t *entry)
 
     new_ref = entry->ref_count;
 
+    /* T-ASSETS-027 themes load/retain their dependency edges on every parent
+     * reference, so balance every theme decrement rather than waiting until
+     * the final parent payload free. */
+    if (entry->type == ASSET_THEME && old_ref != new_ref) {
+        catalogDepForEach(assetId, s_catalogUnloadDepCallback, NULL);
+        theme_deps_released = 1;
+    }
+
     if (new_ref <= 0 && entry->loaded_data) {
         /* ref_count reached zero — cascade to registered deps before freeing.
          * For each dep: decrement its ref_count; free if that also hits zero.
          * Bundled dep pairs are skipped by catalogDepForEach (they are always
-         * ROM-resident and never registered with is_bundled=0). */
-        catalogDepForEach(assetId, s_catalogUnloadDepCallback, NULL);
+         * process-lifetime and never registered with is_bundled=0). */
+        if (!theme_deps_released) {
+            catalogDepForEach(assetId, s_catalogUnloadDepCallback, NULL);
+        }
 
         sysLogPrintf(LOG_NOTE,
                      "MANIFEST: unload '%s' ref=%d->%d (freed)",
@@ -1914,6 +1978,13 @@ static void s_catalogRetainEntry(asset_entry_t *entry)
     }
 }
 
+static void s_catalogRetainThemeDepCallback(const char *dep_id, void *userdata)
+{
+    asset_entry_t *dep = assetCatalogGetMutable(dep_id);
+    (void)userdata;
+    if (dep) s_catalogRetainEntry(dep);
+}
+
 void catalogRetainTypedAsset(asset_type_e expected_type, const char *assetId)
 {
     asset_entry_t *entry;
@@ -1928,6 +1999,9 @@ void catalogRetainTypedAsset(asset_type_e expected_type, const char *assetId)
     }
 
     s_catalogRetainEntry(entry);
+    if (entry->type == ASSET_THEME) {
+        catalogDepForEach(assetId, s_catalogRetainThemeDepCallback, NULL);
+    }
 }
 
 /* ========================================================================

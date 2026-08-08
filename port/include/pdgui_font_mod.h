@@ -20,6 +20,7 @@
  */
 
 #include <PR/ultratypes.h>
+#include <stddef.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -49,13 +50,19 @@ const char *pdguiFontModGetPath(s32 index);
 /** The catalog ID of the currently-active font, or "" for the built-in. */
 const char *pdguiFontModGetActiveId(void);
 
-/** Persist the new active font; takes effect on next app restart (atlas
- *  rebuild on the fly is not supported by ImGui without backend reinit). */
+/** Select the active font ID. Call pdguiRequestFontAtlasRebuild() after a live
+ *  selection change; theme activation does this automatically. */
 void pdguiFontModSetActiveId(const char *catalog_id);
 
-/** Resolve the absolute path for the active font, or NULL if the active
- *  selection is the built-in (or the mod path is missing). */
+/** Resolve the public vector face source for the active font. This may be an
+ *  archive::member chain, not only an absolute filesystem path. Returns NULL
+ *  for the built-in selection, bitmap-only .pdfont, or missing source. */
 const char *pdguiFontModGetActivePath(void);
+
+/* Validate a catalog-backed vector .pdfont source for theme activation.
+ * This does not mutate the active selection. */
+s32 pdguiFontModValidateCatalogId(const char *catalog_id,
+                                  char *error, size_t error_cap);
 
 #ifdef __cplusplus
 }

@@ -79,6 +79,9 @@ s32 pdguiThemeLoadFromCatalog(const char *catalog_id);
  *  Returns 1 on success, 0 on failure. */
 s32 pdguiThemeLoadFromFile(const char *filepath);
 
+/** Active theme-owned menu music runtime track, or -1 for normal menu music. */
+s32 pdguiThemeGetMenuMusicTrack(void);
+
 /** Register a theme.json file at `filepath` under catalog ID `mod:<slug>`.
  *  The display name is read from the JSON's "name" field, falling back to
  *  the slug if the JSON is malformed.  Safe to call from the theme editor

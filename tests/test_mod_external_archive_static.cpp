@@ -1613,8 +1613,6 @@ TEST_CASE("typed archive source path qualification covers strict archive members
 		"\"settings_file\"",
 		"\"variables_file\"",
 		"\"shared_context_file\"",
-		"\"material_slots_file\"",
-		"\"grip_sockets_file\"",
 		"\"presentation_file\"",
 		"\"primary_projectile_archive\"",
 		"\"deployed_entity_archive\"",
@@ -2200,7 +2198,7 @@ TEST_CASE("legacy pd asset walkers remain registered during external pdmod migra
 	REQUIRE(metaWalker.find("entry->ext.theme.audio_archive") != std::string::npos);
 	REQUIRE(metaWalker.find("entry->ext.theme.music_archive") != std::string::npos);
 	REQUIRE(metaWalker.find("entry->ext.theme.effect_archive") != std::string::npos);
-	REQUIRE(metaWalker.find("\"theme_file\", \"ui_archive\", \"font_archive\", \"audio_archive\", \"music_archive\", \"effect_archive\"") != std::string::npos);
+	REQUIRE(metaWalker.find("\"theme_file\", \"ui_archive\", \"font_archive\", \"audio_archive\", \"music_archive\", NULL") != std::string::npos);
 	REQUIRE(metaWalker.find("entry->ext.vehicle.physics_file, source_path") == std::string::npos);
 	REQUIRE(metaWalker.find("entry->ext.hud.texture_file, source_path") == std::string::npos);
 	REQUIRE(metaWalker.find("entry->ext.material.texture_archive, source_path") == std::string::npos);
@@ -4566,6 +4564,57 @@ const char *kW5fWeaponIni =
 
 }  /* anonymous namespace */
 
+TEST_CASE("weapon archives reject retired material and grip binding surfaces",
+		  "[modding][pdxxx][weapon_graph][t-assets-024]") {
+	const std::string settingsJson =
+		"{ \"schema\": \"pd.weapon_settings.v1\" }\n";
+	const std::string variablesJson =
+		"{ \"schema\": \"pd.weapon_variables.v1\", \"variables\": [] }\n";
+	auto archiveEntries = [&](const std::string &weaponIni) {
+		return std::vector<std::pair<std::string, std::string>>{
+			{ "weapon.ini", weaponIni },
+			{ "behavior/primary.graph.json", kW5fPrimaryGraph },
+			{ "behavior/secondary.graph.json", kW5fSecondaryGraph },
+			{ "behavior/shared-context.json", kW5fSharedContext },
+			{ "behavior/settings.json", settingsJson },
+			{ "behavior/variables.json", variablesJson },
+		};
+	};
+
+	char err[256] = {};
+	{
+		auto entries = archiveEntries(std::string(kW5fWeaponIni) +
+			"material_slots_file = bindings/material-slots.json\n");
+		TempArchive weapon = writeArchiveEntries("t-assets-024-descriptor", entries);
+		REQUIRE(weaponGraphRuntimeRegisterWeaponArchive(70,
+			weapon.path.string().c_str(), err, sizeof(err)) != 0);
+		REQUIRE(std::string(err).find("retired weapon binding material_slots_file") !=
+			std::string::npos);
+	}
+	{
+		auto entries = archiveEntries(kW5fWeaponIni);
+		entries.push_back({ "_meta/manifest.json",
+			"{ \"material_slots_file\": \"bindings/material-slots.json\" }\n" });
+		err[0] = '\0';
+		TempArchive weapon = writeArchiveEntries("t-assets-024-manifest", entries);
+		REQUIRE(weaponGraphRuntimeRegisterWeaponArchive(70,
+			weapon.path.string().c_str(), err, sizeof(err)) != 0);
+		REQUIRE(std::string(err).find("retired weapon manifest binding material_slots_file") !=
+			std::string::npos);
+	}
+	{
+		auto entries = archiveEntries(kW5fWeaponIni);
+		entries.push_back({ "bindings/grip-sockets.json",
+			"{ \"schema\": \"pd.weapon.grip_sockets.v1\" }\n" });
+		err[0] = '\0';
+		TempArchive weapon = writeArchiveEntries("t-assets-024-member", entries);
+		REQUIRE(weaponGraphRuntimeRegisterWeaponArchive(70,
+			weapon.path.string().c_str(), err, sizeof(err)) != 0);
+		REQUIRE(std::string(err).find("retired weapon binding member bindings/grip-sockets.json") !=
+			std::string::npos);
+	}
+}
+
 TEST_CASE("weapon settings, variables and presentation register from real *_file archive",
           "[modding][pdxxx][weapon_graph][c3849][settings]") {
 	/* Real archive contract: *_file descriptor spellings, canonical schema
@@ -5826,6 +5875,8 @@ TEST_CASE("external models maps and animations compile from standard sources",
 	REQUIRE(conformance.find("direct_model_source_members(name_set)") != std::string::npos);
 	REQUIRE(conformance.find("weapon.ini model_file member {model_file} is missing") != std::string::npos);
 	REQUIRE(conformance.find("optional_source_members =") != std::string::npos);
+	REQUIRE(conformance.find("retired_weapon_bindings =") != std::string::npos);
+	REQUIRE(conformance.find("contains retired member {member} with no production consumer") != std::string::npos);
 	REQUIRE(conformance.find("manifest.get(key)") != std::string::npos);
 	REQUIRE(conformance.find("vertex cannot quantize to native s16 coordinates") != std::string::npos);
 	REQUIRE(conformance.find("texcoord cannot quantize to native s16 UV units") != std::string::npos);
@@ -6563,10 +6614,10 @@ TEST_CASE("modder examples are zip-openable typed pdxxx asset archives",
 	REQUIRE(theme.find("catalog_id = example:tri_theme") != std::string::npos);
 	REQUIRE(theme.find("theme_file = theme.json") != std::string::npos);
 	REQUIRE(theme.find("ui_archive = dependencies/assets/ui/tri_reticle.pdui") != std::string::npos);
-	REQUIRE(theme.find("font_archive = dependencies/assets/font/tri_font.pdfont") != std::string::npos);
+	REQUIRE(theme.find("font_archive = dependencies/assets/font/tri_theme_font.pdfont") != std::string::npos);
 	REQUIRE(theme.find("audio_archive = dependencies/assets/audio/tri_click.pdsfx") != std::string::npos);
 	REQUIRE(theme.find("music_archive = dependencies/assets/music/tri_song.pdsong") != std::string::npos);
-	REQUIRE(theme.find("effect_archive = dependencies/assets/effects/tri_effect.pdeffect") != std::string::npos);
+	REQUIRE(theme.find("effect_archive") == std::string::npos);
 	const std::string themeManifest = readArchiveEntryText(themeArchivePath.c_str(), "_meta/manifest.json");
 	REQUIRE(themeManifest.find("\"catalog_id\": \"example:tri_theme\"") != std::string::npos);
 	REQUIRE(themeManifest.find("\"theme_file\"") == std::string::npos);
@@ -6629,6 +6680,17 @@ TEST_CASE("modder examples are zip-openable typed pdxxx asset archives",
 	REQUIRE(weaponManifest.find("\"shared_context_file\": \"behavior/shared-context.json\"") != std::string::npos);
 	REQUIRE(weapon.find("material_slots_file") == std::string::npos);
 	REQUIRE(weapon.find("grip_sockets_file") == std::string::npos);
+	REQUIRE(weaponManifest.find("material_slots_file") == std::string::npos);
+	REQUIRE(weaponManifest.find("grip_sockets_file") == std::string::npos);
+	{
+		OpenArchive opened;
+		opened.archive = modArchiveOpen(weaponArchiveFullPath.c_str());
+		REQUIRE(opened.archive != nullptr);
+		REQUIRE_FALSE(archiveHasEntry(opened.archive,
+			"bindings/material-slots.json"));
+		REQUIRE_FALSE(archiveHasEntry(opened.archive,
+			"bindings/grip-sockets.json"));
+	}
 	REQUIRE(weapon.find("presentation_file = bindings/presentation.json") != std::string::npos);
 	REQUIRE(weaponManifest.find("\"presentation_file\": \"bindings/presentation.json\"") != std::string::npos);
 	REQUIRE(weapon.find("primary_projectile_archive = dependencies/assets/projectiles/primary.pdprojectile") != std::string::npos);
@@ -6898,10 +6960,9 @@ TEST_CASE("typed pdxxx example archives carry the implemented asset payloads",
 			"themes/tri_theme.pdtheme",
 			{ "theme.ini", "theme.json",
 			  "dependencies/assets/ui/tri_reticle.pdui",
-			  "dependencies/assets/font/tri_font.pdfont",
+			  "dependencies/assets/font/tri_theme_font.pdfont",
 			  "dependencies/assets/audio/tri_click.pdsfx",
 			  "dependencies/assets/music/tri_song.pdsong",
-			  "dependencies/assets/effects/tri_effect.pdeffect",
 			  "_meta/manifest.json" },
 		},
 		{
@@ -9151,4 +9212,55 @@ TEST_CASE("custom weapon reticle reaches production HUD through catalog pdui",
 		std::string::npos);
 	REQUIRE(generator.find("\\\"crosshair\\\": \\\"example:tri_reticle\\\"") !=
 		std::string::npos);
+}
+
+TEST_CASE("pdtheme nested roles register fail closed across every transport",
+		"[modding][network][pdxxx][pdtheme][dependencies][T-ASSETS-027]") {
+	const std::string header = readFile("port/include/assetcatalog_scanner.h");
+	const std::string scanner = readFile("port/src/assetcatalog_scanner.c");
+	const std::string walker = readFile("port/src/loader_walker_meta.c");
+	const std::string distrib = readFile("port/src/net/netdistrib.c");
+	const std::string load = readFile("port/src/assetcatalog_load.c");
+
+	/* One registrar owns strict role/type/source validation for local typed
+	 * archives, mounted pdmods, network-extracted archives and base walking. */
+	REQUIRE(header.find("assetCatalogRegisterThemeNestedDependencies") !=
+		std::string::npos);
+	REQUIRE(scanner.find("s_ThemeNestedRoles") != std::string::npos);
+	REQUIRE(scanner.find("{ \"ui_archive\", \".pdui\", ASSET_UI }") !=
+		std::string::npos);
+	REQUIRE(scanner.find("{ \"font_archive\", \".pdfont\", ASSET_FONT }") !=
+		std::string::npos);
+	REQUIRE(scanner.find("{ \"audio_archive\", \".pdsfx\", ASSET_AUDIO }") !=
+		std::string::npos);
+	REQUIRE(scanner.find("{ \"music_archive\", \".pdsong\", ASSET_AUDIO }") !=
+		std::string::npos);
+	REQUIRE(scanner.find("theme effect_archive is retired") !=
+		std::string::npos);
+	REQUIRE(scanner.find("ASSET_ARCHIVE_VALIDATE_RELEASE") != std::string::npos);
+	REQUIRE(scanner.find("theme catalog identity mismatch") != std::string::npos);
+	REQUIRE(scanner.find("theme dependency ID/content collision") !=
+		std::string::npos);
+	REQUIRE(scanner.find("catalogDepReserve(pending_count)") !=
+		std::string::npos);
+	REQUIRE(scanner.find("catalogDepRegister(theme_id, pending[i].catalog_id") !=
+		std::string::npos);
+	REQUIRE(scanner.find("if (result < 0)") != std::string::npos);
+	REQUIRE(scanner.find("PDTHEME.NESTED.REJECT") != std::string::npos);
+	REQUIRE(scanner.find("scanExternalDescriptorPath(mod_dir, \"themes\"") ==
+		std::string::npos);
+	REQUIRE(walker.find("s_applyThemePublicDescriptor") != std::string::npos);
+	REQUIRE(walker.find("assetCatalogRegisterThemeNestedDependencies(id, file_path") !=
+		std::string::npos);
+	REQUIRE(distrib.find("assetCatalogScanExternalLayoutFolder(") !=
+		std::string::npos);
+	REQUIRE(scanner.find("typed_archive_entry && ini_type == ASSET_THEME") !=
+		std::string::npos);
+
+	/* Catalog edges are the production retain/release and manifest-expansion
+	 * ownership mechanism; dependencies are not theme-loader side storage. */
+	REQUIRE(load.find("catalogDepForEach(assetId, s_catalogUnloadDepCallback") !=
+		std::string::npos);
+	REQUIRE(load.find("s_catalogCollectThemeDep") != std::string::npos);
+	REQUIRE(load.find("s_catalogRetainThemeDepCallback") != std::string::npos);
 }

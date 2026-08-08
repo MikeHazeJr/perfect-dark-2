@@ -157,6 +157,12 @@ s32 pdguiEffectsSetBorderFx(const char *element_id, const border_fx_def_t *def)
     return 1;
 }
 
+s32 pdguiEffectsCanSet(const char *element_id)
+{
+    if (!element_id || !element_id[0]) return 0;
+    return s_findFx(element_id) != nullptr || s_FxCount < FX_MAX_ELEMENTS;
+}
+
 void pdguiEffectsClear(const char *element_id)
 {
     if (!element_id) return;

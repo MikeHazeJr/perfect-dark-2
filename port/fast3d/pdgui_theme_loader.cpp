@@ -33,7 +33,10 @@
 #include "pdgui_effects.h"
 #include "pdgui_fontmgr.h"
 #include "pdgui_font_mod.h"   /* S305 P4: theme → font-mod bundling */
+#include "pdgui_audio.h"
+#include "pdgui.h"
 #include "assetcatalog.h"
+#include "assetcatalog_load.h"
 #include "asset_runtime.h"    /* c3849 Wave 6a: theme meta-family consumer */
 #include "asset_archive_writer.h"
 #include "boot_progress.h"
@@ -53,7 +56,6 @@
 #define THEME_AUTHOR_LEN      64
 #define THEME_VERSION_LEN     32
 #define THEME_FILEPATH_LEN    256
-#define THEME_SOUNDPACK_LEN   64
 #define THEME_TEX_SLOTS       16
 #define THEME_TEX_SLOTNAME    64
 #define THEME_TEX_PATH_LEN    256
@@ -100,8 +102,10 @@ struct theme_def {
     u32  glow_color;
     s32  has_glow;
 
-    /* Sound pack */
-    char sound_pack[THEME_SOUNDPACK_LEN];
+    /* Fixed semantic menu sound roles and menu music. */
+    pdgui_theme_sound_role_t sound_roles[PDTHEME_SOURCE_MAX_SOUND_ROLES];
+    s32 num_sound_roles;
+    char menu_music_id[THEME_CATALOG_ID_LEN];
 
     /* S305 P4: bundled component references. When a theme is loaded, any
      * non-empty id here is forwarded to the matching subsystem so one
@@ -140,12 +144,6 @@ struct theme_def {
         f32  scroll_x, scroll_y;
     } border_effects[8];
     s32 num_border_effects;
-
-    /* P4: Font override */
-    char font_name[THEME_NAME_LEN];
-    char font_path[THEME_FILEPATH_LEN];
-    f32  font_size;
-    s32  has_font;
 
     /* P4: Font shadow */
     f32 shadow_offset_x, shadow_offset_y;
@@ -186,6 +184,9 @@ static s32 s_ThemeCount = 0;
 static char s_ActiveThemeId[THEME_CATALOG_ID_LEN] = THEME_DEFAULT_ID;
 static char s_CfgThemeId[THEME_CATALOG_ID_LEN] = THEME_DEFAULT_ID;
 static s32 s_LoaderInitDone = 0;
+static s32 s_ActiveMenuMusicTrack = -1;
+static char s_ActiveEffectIds[PDTHEME_SOURCE_MAX_EFFECTS * 2][THEME_CATALOG_ID_LEN];
+static s32 s_ActiveEffectIdCount = 0;
 
 /* Comma-separated list of mod theme slugs seen in prior sessions.
  * Used to detect first-sight themes for default-enabled auto-apply. */
@@ -376,6 +377,24 @@ static int palette_field_index(const char *name) {
  * JSON theme parser
  * ========================================================================= */
 
+static s32 theme_sound_role_id(const char *role)
+{
+    struct role_map { const char *name; s32 id; };
+    static const role_map roles[] = {
+        { "swipe", PDGUI_SND_SWIPE }, { "open", PDGUI_SND_OPENDIALOG },
+        { "focus", PDGUI_SND_FOCUS }, { "select", PDGUI_SND_SELECT },
+        { "error", PDGUI_SND_ERROR }, { "toggle_on", PDGUI_SND_TOGGLEON },
+        { "toggle_off", PDGUI_SND_TOGGLEOFF },
+        { "subfocus", PDGUI_SND_SUBFOCUS },
+        { "keyboard_focus", PDGUI_SND_KBFOCUS },
+        { "cancel", PDGUI_SND_KBCANCEL }, { "success", PDGUI_SND_SUCCESS }
+    };
+    for (const role_map &item : roles) {
+        if (strcmp(item.name, role) == 0) return item.id;
+    }
+    return -1;
+}
+
 static s32 parse_theme_json(const char *src, const char *expected_catalog_id,
                             struct theme_def *def, char *error, size_t error_cap)
 {
@@ -411,9 +430,29 @@ static s32 parse_theme_json(const char *src, const char *expected_catalog_id,
         } else if (strcmp(key, "version") == 0) {
             tok = jnext(&jp);
             jstr(&tok, def->version, sizeof(def->version));
-        } else if (strcmp(key, "soundPack") == 0) {
+        } else if (strcmp(key, "sounds") == 0) {
             tok = jnext(&jp);
-            jstr(&tok, def->sound_pack, sizeof(def->sound_pack));
+            if (tok.type != JT_LBRACE) { jskip_value(&jp); continue; }
+            while (true) {
+                tok = jnext(&jp);
+                if (tok.type == JT_RBRACE || tok.type == JT_EOF) break;
+                if (tok.type == JT_COMMA) continue;
+                if (tok.type != JT_STRING) break;
+                char role[64];
+                jstr(&tok, role, sizeof(role));
+                tok = jnext(&jp);
+                if (tok.type != JT_COLON) break;
+                tok = jnext(&jp);
+                if (def->num_sound_roles < PDTHEME_SOURCE_MAX_SOUND_ROLES) {
+                    pdgui_theme_sound_role_t *sound =
+                        &def->sound_roles[def->num_sound_roles++];
+                    sound->sound_id = theme_sound_role_id(role);
+                    jstr(&tok, sound->catalog_id, sizeof(sound->catalog_id));
+                }
+            }
+        } else if (strcmp(key, "menuMusic") == 0) {
+            tok = jnext(&jp);
+            jstr(&tok, def->menu_music_id, sizeof(def->menu_music_id));
         } else if (strcmp(key, "menuStyle") == 0) {
             /* S305 P4: theme bundle — "menuStyle" (user-facing name) or
              * the legacy "chromeStyle" alias references a registered
@@ -758,9 +797,117 @@ extern "C" void pdguiSetPaletteExtensions(u32 toolbarTint, u32 textPositive,
                                           u32 buttonActive);
 extern "C" void pdguiSetPaletteExtensions2(u32 titleGlow, u32 tintSuccess,
                                            u32 tintDanger, u32 tintInfo);
+extern "C" void musicStartTrackAsMenu(s32 tracknum);
+extern "C" s32 modSequenceVirtualTrackForCatalogId(const char *catalog_id);
+extern "C" s32 g_MenuTrack;
 
-static void apply_theme_def(const struct theme_def *def)
+static bool theme_def_has_nineslice(const struct theme_def *def, const char *id)
 {
+    for (s32 i = 0; i < def->num_nineslices; i++) {
+        if (strcmp(def->nineslices[i].catalog_id, id) == 0) return true;
+    }
+    return false;
+}
+
+static bool theme_texture_ready(const char *id)
+{
+    const asset_entry_t *entry = assetCatalogGetMutable(id);
+    return entry && entry->type == ASSET_UI && entry->enabled;
+}
+
+static s32 validate_theme_def_consumers(const struct theme_def *def,
+                                        s32 *out_menu_track,
+                                        char *error, size_t error_cap)
+{
+    if (error && error_cap) error[0] = '\0';
+    if (out_menu_track) *out_menu_track = -1;
+
+    for (s32 i = 0; i < def->num_textures; i++) {
+        if (strcmp(def->textures[i].slot_name, "dialog_background") != 0 ||
+                !theme_texture_ready(def->textures[i].file_path)) {
+            snprintf(error, error_cap, "texture role '%s' is missing or wrong-type",
+                def->textures[i].slot_name);
+            return 0;
+        }
+    }
+
+    if (def->bundle_chrome_id[0]) {
+        if (!theme_texture_ready(def->bundle_chrome_id) ||
+                (!pdguiNinesliceGet(def->bundle_chrome_id) &&
+                 !theme_def_has_nineslice(def, def->bundle_chrome_id))) {
+            snprintf(error, error_cap, "menuStyle source is missing, wrong-type, or lacks nineslice data");
+            return 0;
+        }
+    }
+
+    for (s32 i = 0; i < def->num_nineslices; i++) {
+        if (!theme_texture_ready(def->nineslices[i].catalog_id) ||
+                !pdguiNinesliceCanRegister(def->nineslices[i].catalog_id)) {
+            snprintf(error, error_cap, "nineslice '%s' has no active UI texture or registry capacity",
+                def->nineslices[i].catalog_id);
+            return 0;
+        }
+    }
+
+    if (def->bundle_font_id[0] &&
+            !pdguiFontModValidateCatalogId(def->bundle_font_id, error, error_cap)) {
+        return 0;
+    }
+
+    for (s32 i = 0; i < def->num_sound_roles; i++) {
+        if (!pdguiAudioValidateThemeRole(def->sound_roles[i].sound_id,
+                def->sound_roles[i].catalog_id, error, error_cap)) return 0;
+    }
+
+    if (def->menu_music_id[0]) {
+        catalog_audio_result_t audio;
+        if (!catalogResolveAudio(def->menu_music_id, &audio) ||
+                audio.category != AUDIO_CAT_MUSIC ||
+                !catalogLoadTypedAsset(ASSET_AUDIO, def->menu_music_id)) {
+            snprintf(error, error_cap, "menuMusic source is missing, wrong-type, or not playable");
+            return 0;
+        }
+        s32 track = audio.sound_id;
+        if (track < 0) {
+            /* Public sequence-backed .pdsong rows intentionally have no
+             * legacy numeric ID. Allocate the catalog-owned private track
+             * that musicStartTrackAsMenu/catResolveMusicSequence consume. */
+            track = modSequenceVirtualTrackForCatalogId(def->menu_music_id);
+        }
+        if (track < 0) {
+            snprintf(error, error_cap,
+                "menuMusic has no playable public sequence track");
+            return 0;
+        }
+        if (out_menu_track) *out_menu_track = track;
+    }
+
+    for (s32 i = 0; i < def->num_caustics; i++) {
+        if (!def->bundle_chrome_id[0] ||
+                strcmp(def->caustics[i].element_id, def->bundle_chrome_id) != 0 ||
+                !theme_texture_ready(def->caustics[i].texture_id) ||
+                !pdguiEffectsCanSet(def->caustics[i].element_id)) {
+            snprintf(error, error_cap, "caustic must target menuStyle, use active UI, and fit registry capacity");
+            return 0;
+        }
+    }
+    for (s32 i = 0; i < def->num_border_effects; i++) {
+        if (!def->bundle_chrome_id[0] ||
+                strcmp(def->border_effects[i].element_id, def->bundle_chrome_id) != 0 ||
+                !theme_texture_ready(def->border_effects[i].mask_texture_id) ||
+                !pdguiEffectsCanSet(def->border_effects[i].element_id)) {
+            snprintf(error, error_cap, "border effect must target menuStyle, use active UI, and fit registry capacity");
+            return 0;
+        }
+    }
+    return 1;
+}
+
+static s32 apply_theme_def(const struct theme_def *def, char *error, size_t error_cap)
+{
+    s32 menu_track = -1;
+    if (!validate_theme_def_consumers(def, &menu_track, error, error_cap)) return 0;
+
     /* Apply palette if present */
     if (def->has_palette) {
         pdguiSetPaletteCustom(def->palette);
@@ -776,12 +923,26 @@ static void apply_theme_def(const struct theme_def *def)
                                    def->palette[21],
                                    def->palette[22],
                                    def->palette[23]);
+    } else {
+        pdguiSetPalette(1);
     }
+
+    const char *background = "base:ui_bg_haze";
+    for (s32 i = 0; i < def->num_textures; i++) {
+        if (strcmp(def->textures[i].slot_name, "dialog_background") == 0)
+            background = def->textures[i].file_path;
+    }
+    pdguiThemeSetBgTexId(background);
 
     /* Apply scanline settings */
     if (def->has_scanline) {
         pdguiThemeSetScanlineEnabled(def->scanline_enabled);
         pdguiThemeSetScanlineAlpha(def->scanline_alpha);
+        pdguiThemeSetScanlineVerticalScale((f32)def->scanline_interval / 2.0f);
+    } else {
+        pdguiThemeSetScanlineEnabled(1);
+        pdguiThemeSetScanlineAlpha(0.5f);
+        pdguiThemeSetScanlineVerticalScale(1.0f);
     }
 
     /* Apply text glow settings */
@@ -791,15 +952,11 @@ static void apply_theme_def(const struct theme_def *def)
         } else {
             pdguiThemeSetTextGlow(0.0f, 0);
         }
+    } else {
+        pdguiThemeSetTextGlow(0.0f, 0);
     }
 
-    /* Apply sound pack */
-    if (def->sound_pack[0]) {
-        if (strcmp(def->sound_pack, "default") == 0) {
-            pdguiThemeSetSoundPack(0);
-        }
-        /* Future: named sound pack lookup */
-    }
+    pdguiAudioReplaceThemeRoles(def->sound_roles, def->num_sound_roles);
 
     /* P4: Apply 9-slice definitions */
     for (s32 i = 0; i < def->num_nineslices; i++) {
@@ -812,8 +969,16 @@ static void apply_theme_def(const struct theme_def *def)
         ns.edge_mode   = def->nineslices[i].edge_tile ? NINESLICE_TILE : NINESLICE_STRETCH;
         ns.center_mode = def->nineslices[i].center_tile ? NINESLICE_TILE : NINESLICE_STRETCH;
         /* pdguiNinesliceRegister back-fills src/dst/per-edge from legacy short form. */
-        pdguiNinesliceRegister(def->nineslices[i].catalog_id, &ns);
+        if (!pdguiNinesliceRegister(def->nineslices[i].catalog_id, &ns)) {
+            snprintf(error, error_cap, "nineslice registry refused '%s'",
+                def->nineslices[i].catalog_id);
+            return 0;
+        }
     }
+
+    for (s32 i = 0; i < s_ActiveEffectIdCount; i++)
+        pdguiEffectsClear(s_ActiveEffectIds[i]);
+    s_ActiveEffectIdCount = 0;
 
     /* P4: Apply caustic effects */
     for (s32 i = 0; i < def->num_caustics; i++) {
@@ -826,6 +991,8 @@ static void apply_theme_def(const struct theme_def *def)
         cd.blend_mode  = def->caustics[i].blend_mode;
         cd.scale       = def->caustics[i].scale;
         pdguiEffectsSetCaustic(def->caustics[i].element_id, &cd);
+        snprintf(s_ActiveEffectIds[s_ActiveEffectIdCount++], THEME_CATALOG_ID_LEN,
+            "%s", def->caustics[i].element_id);
     }
 
     /* P4: Apply border effects */
@@ -840,6 +1007,11 @@ static void apply_theme_def(const struct theme_def *def)
         bd.scroll_speed_x = def->border_effects[i].scroll_x;
         bd.scroll_speed_y = def->border_effects[i].scroll_y;
         pdguiEffectsSetBorderFx(def->border_effects[i].element_id, &bd);
+        bool seen = false;
+        for (s32 j = 0; j < s_ActiveEffectIdCount; j++)
+            if (!strcmp(s_ActiveEffectIds[j], def->border_effects[i].element_id)) seen = true;
+        if (!seen) snprintf(s_ActiveEffectIds[s_ActiveEffectIdCount++],
+            THEME_CATALOG_ID_LEN, "%s", def->border_effects[i].element_id);
     }
 
     /* S305 P4: Apply bundled components.  A theme mod may name a chrome
@@ -853,20 +1025,20 @@ static void apply_theme_def(const struct theme_def *def)
         pdguiChromeSetEnabled(1);
         sysLogPrintf(LOG_NOTE,
             "PDGUI theme bundle: menuStyle='%s' applied", def->bundle_chrome_id);
+    } else {
+        pdguiThemeSetUiChromeEnabled(0);
+        pdguiSetPanelNineSlice("");
+        pdguiChromeSetEnabled(0);
     }
     if (def->bundle_font_id[0]) {
         pdguiFontModSetActiveId(def->bundle_font_id);
+        pdguiRequestFontAtlasRebuild();
         sysLogPrintf(LOG_NOTE,
-            "PDGUI theme bundle: font='%s' applied (restart to take effect)",
+            "PDGUI theme bundle: font='%s' applied",
             def->bundle_font_id);
-    }
-
-    /* P4: Apply font override */
-    if (def->has_font && def->font_path[0]) {
-        s32 slot = pdguiFontMgrLoadFont(def->font_name, def->font_path, def->font_size);
-        if (slot > 0) {
-            pdguiFontMgrSetActive(slot);
-        }
+    } else {
+        pdguiFontModSetActiveId("");
+        pdguiRequestFontAtlasRebuild();
     }
 
     /* P4: Apply font shadow */
@@ -875,6 +1047,9 @@ static void apply_theme_def(const struct theme_def *def)
         sh.offset_x = def->shadow_offset_x;
         sh.offset_y = def->shadow_offset_y;
         sh.color    = def->shadow_color;
+        pdguiFontMgrSetShadow(&sh);
+    } else {
+        font_shadow_def_t sh = { 1.0f, 1.0f, 0x000000A0u };
         pdguiFontMgrSetShadow(&sh);
     }
 
@@ -886,7 +1061,14 @@ static void apply_theme_def(const struct theme_def *def)
         fg.color     = def->font_glow_color;
         fg.passes    = def->font_glow_passes;
         pdguiFontMgrSetGlow(&fg);
+    } else {
+        font_glow_def_t fg = { 0.0f, 0.0f, 0x0080ffffu, 2 };
+        pdguiFontMgrSetGlow(&fg);
     }
+
+    s_ActiveMenuMusicTrack = menu_track;
+    if (menu_track >= 0 && g_MenuTrack >= 0) musicStartTrackAsMenu(menu_track);
+    return 1;
 }
 
 /* =========================================================================
@@ -1831,7 +2013,12 @@ s32 pdguiThemeLoadFromCatalog(const char *catalog_id)
         return 0;
     }
 
-    apply_theme_def(&def);
+    if (!apply_theme_def(&def, error, sizeof(error))) {
+        sysLogPrintf(LOG_WARNING,
+            "PDGUI theme loader: consumer preflight failed for '%s': %s",
+            catalog_id, error);
+        return 0;
+    }
 
     /* Persist */
     snprintf(s_ActiveThemeId, sizeof(s_ActiveThemeId), "%s", catalog_id);
@@ -1871,12 +2058,22 @@ s32 pdguiThemeLoadFromFile(const char *filepath)
         return 0;
     }
 
-    apply_theme_def(&def);
+    if (!apply_theme_def(&def, error, sizeof(error))) {
+        sysLogPrintf(LOG_WARNING,
+            "PDGUI theme loader: consumer preflight failed for '%s': %s",
+            filepath, error);
+        return 0;
+    }
 
     sysLogPrintf(LOG_NOTE,
         "PDGUI theme loader: applied theme from '%s' (%s)",
         filepath, def.name[0] ? def.name : "unnamed");
     return 1;
+}
+
+s32 pdguiThemeGetMenuMusicTrack(void)
+{
+    return s_ActiveMenuMusicTrack;
 }
 
 s32 pdguiThemeGetCount(void)

@@ -23,8 +23,6 @@ behavior/
   variables.json
   shared-context.json
 bindings/
-  material-slots.json
-  grip-sockets.json
   presentation.json
 dependencies/
   assets/
@@ -75,15 +73,23 @@ Authored mods provide one weapon model by default. If an author supplies additio
 
 Base-game extraction may know a hi/lo source relationship. That relationship is provenance, not a burden on mod authors. The clean output should name the authored intent, such as `models/weapon.glb` and optional `models/world.glb`, while source slots and original hi/lo labels stay under `_meta/provenance.json`.
 
-Hands are character-owned, not weapon-owned. The weapon declares grip sockets, pose requirements, and animation rig expectations. Character hands, hand skins, and character-specific hand material choices come from the character/body asset family.
+Hands are character-owned, not weapon-owned. Weapon placement uses the established
+`posx`, `posy`, `posz`, and `muzzlez` fields plus the nested model hierarchy.
+Weapon-level grip-socket declarations are not part of v1 because no production
+hand-animation attachment backend exists. Archives declaring
+`grip_sockets_file` or `bindings/grip-sockets.json` are rejected rather than
+silently ignored. Character hands, hand skins, and character-specific hand
+material choices come from the character/body asset family.
 
 ## Materials And Skins
 
-The model exposes named material slots such as `body`, `grip`, `scope`, `magazine`, or `display`.
-
-`bindings/material-slots.json` records the named weapon slots and the model material elements they bind to. Default material and texture values live in embedded `.pdmaterial` and `.pdtexture` dependencies, not loose weapon-owned folders.
-
-Skins override material slots rather than replacing the weapon model. A weapon may include a default skin assignment, but reusable skins should become their own typed asset family when that format is defined.
+The nested `.pdmesh` owns its authored material elements and typed material and
+texture dependencies. Weapon-level `material_slots_file` and
+`bindings/material-slots.json` are not part of v1 because the held/world model
+compiler has no second material-override consumer. Such declarations are
+rejected. A future reusable weapon-skin contract must version the archive and
+connect one named-slot authority to both held and world rendering before it is
+advertised.
 
 ## Behavior
 
@@ -132,6 +138,8 @@ The migration must remove new emissions and examples of the older weapon layout:
 - `models/`, `materials/`, `textures/`, `animations/`, `sounds/`, `projectiles/`, `entities/`, and `ui/` as canonical loose cross-family payload folders.
 - `audio/` as the canonical sound folder.
 - Weapon-owned `hand.gltf` or hand model descriptors.
+- `bindings/material-slots.json`, `bindings/grip-sockets.json`,
+  `material_slots_file`, and `grip_sockets_file` in v1 archives.
 - Reference-only dependency manifests where custom dependencies are not embedded or packaged.
 - Generated archive entries named from raw numeric slots rather than human-readable catalog IDs.
 

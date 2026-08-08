@@ -2,6 +2,23 @@
 
 ## 2026-08-08 residual typed-archive contracts
 
+Theme dependency ownership is implemented with source-frozen automated
+evidence under `T-ASSETS-027`. Public `theme.ini` may declare
+embedded `.pdui`, `.pdfont`, `.pdsfx`, and `.pdsong` roles. One shared
+registrar validates all declared archives and exact role types before catalog
+mutation, permits compositional catalog namespaces only when identity/content
+do not collide, registers archive-chain source rows and dependency edges
+across base, local, mounted `.pdmod`, and network-extracted paths, and fails
+the parent closed. Catalog theme load/retain/release balances the same edges.
+The write-only `effect_archive` role is retired; theme effects are inline
+`caustics`/`borderEffects`. `T-ASSETS-028` is implemented with a source-frozen
+automated receipt: the strict public fields now preflight and transactionally replace the
+real background, chrome, effects, scanline/text glow, catalog font, semantic UI
+sounds, menu music, palette, and glyph styling, with omitted prior-theme state
+cleared and broken declarations failing closed. Creator workflow and
+live/network/MKB/controller/device-switch proof remain under `T-ASSETS-029` and
+`T-ASSETS-030`.
+
 Weapon v1 now rejects unknown settings and presentation keys and refuses
 incomplete selected sources. The truthful creator example retains only
 production-backed settings/presentation and source dependencies. Nested custom
@@ -11,8 +28,11 @@ under `T-ASSETS-023`: `reticle_archive` embeds editable `.pdui`, the scanner
 registers UI before weapon parsing, presentation retains the catalog ID, and
 the actual sight/HUD path draws the selected image. Missing, corrupt, disabled,
 or type-mismatched declared reticles fail registration instead of falling back
-to the native crosshair. Weapon-level material/grip overrides and aggregate
-live proof remain `T-ASSETS-024` and `T-ASSETS-025`.
+to the native crosshair. `T-ASSETS-024` retires the unimplemented
+`material_slots_file` and `grip_sockets_file` surfaces from weapon v1: runtime,
+scanner, conformance, upgrade tooling, and creator output reject or remove them.
+Nested `.pdmesh` materials/hierarchy and established weapon placement fields are
+the sole production authorities. Aggregate live proof remains `T-ASSETS-025`.
 Character public IDs and portraits are production-connected. Voice metadata,
 `subtitle.json`, and declared `locales/<tag>.wav|ogg|mp3` are production-
 connected through local, base-walker, and network catalog paths. The active
@@ -431,7 +451,7 @@ Public `.pdweapon` source is split held-weapon graph source plus model/default m
 
 2026-06-17 Wave 7 direct-source update: archive-backed `.pdweapon` activation now ingests the archive's declared held model dependency directly from the installed transport path, preserving chains such as `mods/installed/needler.pdmod::needler.pdweapon::dependencies/assets/models/weapon.pdmesh::model.gltf`. Embedded weapon meshes allocate private custom model slots, map those slots to private source filenums (`0x7e0..0x7ff`), and bind the parent weapon catalog row so first-person `bondgun` loading uses the same public `.pdmesh` source member instead of treating the `.pdmesh` archive bytes as a native modeldef. The Needler smoke proves this path with `BONDGUN.SOURCE` filenum 2016 and `MODASSET.RENDER` for `mod_needler:needle`.
 
-Checked-in/custom `.pdweapon` manifests must also carry optional dependency/source closure when the descriptor declares it. `material_slots_file`, `grip_sockets_file`, `presentation_file`, `primary_projectile_archive`, `deployed_entity_archive`, `fire_sound_archive`, `idle_animation_archive`, and `reticle_archive` are public archive source/dependency members, not hidden payloads. The current runtime only consumes some of these directly, but manifest-driven walking and tooling must still be able to discover the full closure from `_meta/manifest.json`. Conformance validates the actual declared `model_file` member and only requires optional dependency fields when that payload is embedded or declared.
+Checked-in/custom `.pdweapon` manifests must also carry optional dependency/source closure when the descriptor declares it. `presentation_file`, `primary_projectile_archive`, `deployed_entity_archive`, `fire_sound_archive`, `idle_animation_archive`, and `reticle_archive` are public archive source/dependency members, not hidden payloads. `material_slots_file` and `grip_sockets_file` were metadata-only and are retired from v1; retaining either field or member is a validation and runtime error. Manifest-driven walking and tooling must discover every retained closure member from `_meta/manifest.json`. Conformance validates the actual declared `model_file` member and only requires retained optional dependency fields when that payload is embedded or declared.
 
 B-855 has a staged private-slot bridge: catalog-owned custom `.pdweapon` entries can allocate private `WEAPON_CUSTOM_START..WEAPON_CUSTOM_END - 1` and `MPWEAPON_CUSTOM_START..MPWEAPON_CUSTOM_END - 1` slots without exposing numeric slots to modders. The bridge also refreshes private custom MP row ammo/model defaults from parsed `.pdweapon` source when the loader pool installs a custom runtime slot, so spawn/bot consumers that still read `g_MpWeapons[]` receive derived defaults instead of an empty slot. Catalog full-clear and mod-clear reset the private custom weapon slot bridge because those slots are owned by catalog rows, not by public archive fields; removed custom `.pdweapon` rows must not leave stale private slots behind during mod rebuilds. Public custom weapon examples must compile through the held weapon graph runtime, not only carry graph files: checked-in `.pdweapon` graph source uses runtime-supported held action nodes such as `spawn.fired_projectile` and `spawn.thrown_physical`, compiler-facing node-id edges, and exports those action nodes for gameplay binding. Remaining custom-weapon base equivalence is direct catalog-ID consumer work or richer authored gameplay/default payload coverage for graph/runtime paths that still assume base weapon rows.
 
@@ -580,7 +600,7 @@ MP body/head selector positions are private runtime bridge indices, not public a
 
 Public `.pdmaterial` archives require authored `material.json` source. Texture and effect dependency archives are real material source members, not optional archive decoration, but they cannot stand in for the material source itself. A material archive that embeds texture or effect dependency archives must declare `material_file = material.json`, plus `texture_archive` and `effect_archive` as applicable, in both `material.ini` and `_meta/manifest.json`; scan/distribution primary selection and runtime activation require `material_file` / `material.json` while metadata walking and runtime bindings keep texture and effect dependency archives distinct so material import/render work can compile effects without hidden cache or ROM fallback.
 
-Public `.pdtheme` dependency archives are real theme source members, not optional archive decoration. `theme.ini` is the sole public authority for identity, `theme_file = theme.json`, and the optional `ui_archive`, `font_archive`, `audio_archive`, `music_archive`, and `effect_archive` roles; `_meta/manifest.json` is compatibility identity/inventory only and must not mirror those authored fields. The shared `pdthemeSourceParse` contract strictly validates `pd2.theme.v1`, catalog identity, known fields, types, ranges, catalog references, and fixed caps before discovery or activation. Dependency archives cannot stand in for authored theme source. Complete recursive registration/ownership across local, base, `.pdmod`, and network paths remains `T-ASSETS-027`; field-level production consumers remain `T-ASSETS-028`.
+Public `.pdtheme` dependency archives are real theme source members, not optional archive decoration. `theme.ini` is the sole public authority for identity, `theme_file = theme.json`, and the optional `ui_archive`, `font_archive`, `audio_archive`, and `music_archive` roles; `_meta/manifest.json` is compatibility identity/inventory only and must not mirror those authored fields. The old `effect_archive` role is rejected because no production compositor consumed it; supported effects are inline `caustics` and `borderEffects`. The shared `pdthemeSourceParse` contract strictly validates `pd2.theme.v1`, catalog identity, known fields, types, ranges, catalog references, and fixed caps before discovery or activation. Dependency archives cannot stand in for authored theme source. Registration validates all supported children before mutation and connects their catalog lifetime under `T-ASSETS-027`. Activation preflights every retained reference and applies the real menu/font/audio/music/effect consumers under `T-ASSETS-028`; arbitrary texture roles and the old inert `soundPack` field are rejected rather than preserved as false public promises.
 
 Public Scenario `scene.glb` source must carry editable texture coordinates, runtime room shading data, native material metadata, and material alpha behavior. Generated `.pdscenario` and nested `.pdarena` scenes use `TEXCOORD_0` for DCC authoring scale, `TEXCOORD_1` for runtime-repeat parity, `COLOR_0` for the room color/shade payload, and `alphaMode=MASK` / `alphaCutoff=0.01` for textures with non-opaque alpha consumed by the source renderer. Every material must carry `extras.pd2_material` with a texture command, primary/secondary image names, legal wrap modes, integer native material fields (`offset`, `shift_s`, `shift_t`, `min_lod`, `tile_flag`), and any secondary texture binding on runtime UV set 1. The source renderer must preserve both UV sets through CPU scene build, GPU upload, and shader sampling: PD-authored material extras keep primary sampling on runtime UV 1, standard/custom GLB materials may use their declared base texture coordinate, and secondary textures must honor their archived coordinate binding instead of flattening all layers onto one UV. Runtime source-scene drawing also requires a valid camera projection from the live player/VI camera path; if the VI FOV is temporarily unusable, the bridge may fall back through player FOV, zoom FOV, and the 60-degree default so a public `scene.glb` is not silently dropped. Stale Scenario GLBs without the current exporter stamp, `COLOR_0`, alpha-mask material metadata, or complete `pd2_material` extras must fail conformance and regenerate instead of rendering as flat texture-only, opaque-dark transparent geometry, or float-only preview geometry detached from native material semantics.
 

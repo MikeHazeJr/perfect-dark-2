@@ -9,8 +9,8 @@
  *   3. weapons       (refer to meshes + animations; refs resolve at consume-time)
  *   4. heads + bodies + arenas + scenarios   (refer to meshes / scenarios)
  *   5. audio (sfx/voice/song)
- *   6. metadata families added after the original 13-kind walker
- *   7. ui + fonts + lang
+ *   6. ui + fonts + lang
+ *   7. metadata families added after the original 13-kind walker
  *
  * Cross-references between catalog IDs do NOT need to resolve at scan
  * time; consumers (e.g. catalog managers, weapon spawn paths) resolve
@@ -126,14 +126,9 @@ s32 loaderWalkerLoadAll(loader_walker_result_t *out)
     local.total_envelope_failures += kr.envelope_failures;
     local.total_register_failures += kr.register_failures;
 
-    loader_walker_metadata_result_t mr;
-    loaderWalkerScanMetadataFamilies(data_root, &mr);
-    local.metadata_registered    += mr.entries_registered;
-    local.total_files_scanned    += mr.entries_scanned;
-    local.total_envelope_failures += mr.envelope_failures;
-    local.total_register_failures += mr.register_failures;
-
-    /* Dependency tier 4: UI / fonts / lang. */
+    /* Dependency tier 4: UI / fonts / lang.  These run before metadata
+     * themes so a theme's embedded dependency can be content-compared with
+     * and deduplicated against the canonical standalone base archive. */
     loaderWalkerScanUi(data_root, &kr);
     local.uis_registered        += kr.entries_registered;
     local.total_files_scanned   += kr.entries_scanned;
@@ -151,6 +146,13 @@ s32 loaderWalkerLoadAll(loader_walker_result_t *out)
     local.total_files_scanned   += kr.entries_scanned;
     local.total_envelope_failures += kr.envelope_failures;
     local.total_register_failures += kr.register_failures;
+
+    loader_walker_metadata_result_t mr;
+    loaderWalkerScanMetadataFamilies(data_root, &mr);
+    local.metadata_registered    += mr.entries_registered;
+    local.total_files_scanned    += mr.entries_scanned;
+    local.total_envelope_failures += mr.envelope_failures;
+    local.total_register_failures += mr.register_failures;
 
     s32 total_registered = local.weapons_registered + local.heads_registered
                         + local.bodies_registered + local.arenas_registered

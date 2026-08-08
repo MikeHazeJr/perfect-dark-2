@@ -3,6 +3,7 @@
 #include "game/menu.h"
 #include "game/lv.h"
 #include "game/music.h"
+#include "pdgui_theme_loader.h"
 #include "game/options.h"
 #include "game/stagemusic.h"
 #include "bss.h"
@@ -513,7 +514,8 @@ void musicDeactivateNrg(void)
  */
 void musicStartMenu(void)
 {
-	musicStartTrackAsMenu(menuChooseMusic());
+	s32 themedtrack = pdguiThemeGetMenuMusicTrack();
+	musicStartTrackAsMenu(themedtrack >= 0 ? themedtrack : menuChooseMusic());
 }
 
 void musicEndMenu(void)

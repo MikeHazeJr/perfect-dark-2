@@ -12,6 +12,7 @@ extern "C" {
 #define PDTHEME_SOURCE_MAX_TEXTURES 16
 #define PDTHEME_SOURCE_MAX_NINESLICES 16
 #define PDTHEME_SOURCE_MAX_EFFECTS 8
+#define PDTHEME_SOURCE_MAX_SOUND_ROLES 11
 
 typedef struct pdtheme_source_info {
 	char catalog_id[64];
@@ -20,6 +21,7 @@ typedef struct pdtheme_source_info {
 	char version[32];
 	s32 palette_fields;
 	s32 texture_roles;
+	s32 sound_roles;
 	s32 nineslices;
 	s32 caustics;
 	s32 border_effects;

@@ -84,6 +84,9 @@ s32 pdguiEffectsSetCaustic(const char *element_id, const caustic_def_t *def);
 /** Bind a border effect to a UI element's catalog ID. */
 s32 pdguiEffectsSetBorderFx(const char *element_id, const border_fx_def_t *def);
 
+/** Read-only capacity preflight used by transactional theme activation. */
+s32 pdguiEffectsCanSet(const char *element_id);
+
 /** Clear all effects for an element. */
 void pdguiEffectsClear(const char *element_id);
 

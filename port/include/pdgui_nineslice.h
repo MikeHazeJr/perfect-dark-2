@@ -111,6 +111,9 @@ void pdguiNinesliceShutdown(void);
  *  Returns 1 on success, 0 on failure (registry full). */
 s32 pdguiNinesliceRegister(const char *catalog_id, const nineslice_def_t *def);
 
+/** Read-only capacity preflight used by transactional theme activation. */
+s32 pdguiNinesliceCanRegister(const char *catalog_id);
+
 /** Get the 9-slice definition for a catalog texture ID.
  *  Returns NULL if no definition registered. */
 const nineslice_def_t *pdguiNinesliceGet(const char *catalog_id);

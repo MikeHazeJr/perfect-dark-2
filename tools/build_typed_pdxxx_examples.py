@@ -2475,14 +2475,45 @@ def update_theme() -> None:
         "    \"listgroup_headerbg\": \"183040ff\",\n"
         "    \"listgroup_headerfg\": \"d8f4ffff\",\n"
         "    \"title_glow\": \"66ccffff\"\n"
-        "  }\n"
+        "  },\n"
+        "  \"textures\": { \"dialog_background\": \"example:tri_reticle\" },\n"
+        "  \"menuStyle\": \"example:tri_reticle\",\n"
+        "  \"font\": \"example:tri_theme_font\",\n"
+        "  \"sounds\": {\n"
+        "    \"swipe\": \"example:tri_click\", \"open\": \"example:tri_click\",\n"
+        "    \"focus\": \"example:tri_click\", \"select\": \"example:tri_click\",\n"
+        "    \"error\": \"example:tri_click\", \"toggle_on\": \"example:tri_click\",\n"
+        "    \"toggle_off\": \"example:tri_click\", \"subfocus\": \"example:tri_click\",\n"
+        "    \"keyboard_focus\": \"example:tri_click\", \"cancel\": \"example:tri_click\",\n"
+        "    \"success\": \"example:tri_click\"\n"
+        "  },\n"
+        "  \"menuMusic\": \"example:tri_song\",\n"
+        "  \"scanline\": { \"enabled\": true, \"alpha\": 0.8, \"interval\": 2 },\n"
+        "  \"textGlow\": { \"enabled\": true, \"intensity\": 0.6, \"color\": \"66ccffff\" },\n"
+        "  \"nineslices\": [{ \"id\": \"example:tri_reticle\", \"left\": 2, \"right\": 2, \"top\": 2, \"bottom\": 2, \"edgeMode\": \"stretch\", \"centerMode\": \"tile\" }],\n"
+        "  \"caustics\": [{ \"elementId\": \"example:tri_reticle\", \"textureId\": \"example:tri_reticle\", \"frameCount\": 1, \"speed\": 1, \"opacity\": 0.4, \"scale\": 1, \"blendMode\": \"screen\" }],\n"
+        "  \"borderEffects\": [{ \"elementId\": \"example:tri_reticle\", \"maskTextureId\": \"example:tri_reticle\", \"opacity\": 0.5, \"blendMode\": \"additive\", \"tintColor\": \"66ccffff\", \"scrollX\": 0, \"scrollY\": 0 }],\n"
+        "  \"fontShadow\": { \"offsetX\": 1, \"offsetY\": 1, \"color\": \"00000080\" },\n"
+        "  \"fontGlow\": { \"radius\": 2, \"intensity\": 0.6, \"color\": \"66ccffff\", \"passes\": 2 }\n"
         "}\n"
     )
     ui = read_archive("ui/tri_reticle.pdui")
-    font = read_archive("fonts/tri_font.pdfont")
+    font_bytes = (ROOT.parents[2] / "fonts" / "Menus" /
+                  "Handel Gothic Regular" / "Handel Gothic Regular.otf").read_bytes()
+    font = archive_bytes([
+        ("font.ini",
+         "[font]\n"
+         "catalog_id = example:tri_theme_font\n"
+         "name = Triangle Theme Font\n"
+         "font_format = opentype\n"
+         "font_file = font.otf\n"),
+        ("font.otf", font_bytes),
+        ("_meta/manifest.json", manifest_with("font", "example:tri_theme_font", {
+            "font_file": "font.otf",
+        })),
+    ])
     audio = read_archive("audio/sfx/tri_click.pdsfx")
     music = read_archive("audio/music/tri_song.pdsong")
-    effect = read_archive("effects/tri_effect.pdeffect")
     write_archive("themes/tri_theme.pdtheme", [
         ("theme.ini",
          "[theme]\n"
@@ -2490,16 +2521,14 @@ def update_theme() -> None:
          "name = Triangle Theme\n"
          "theme_file = theme.json\n"
          "ui_archive = dependencies/assets/ui/tri_reticle.pdui\n"
-         "font_archive = dependencies/assets/font/tri_font.pdfont\n"
+         "font_archive = dependencies/assets/font/tri_theme_font.pdfont\n"
          "audio_archive = dependencies/assets/audio/tri_click.pdsfx\n"
-         "music_archive = dependencies/assets/music/tri_song.pdsong\n"
-         "effect_archive = dependencies/assets/effects/tri_effect.pdeffect\n"),
+         "music_archive = dependencies/assets/music/tri_song.pdsong\n"),
         ("theme.json", theme_json),
         ("dependencies/assets/ui/tri_reticle.pdui", ui),
-        ("dependencies/assets/font/tri_font.pdfont", font),
+        ("dependencies/assets/font/tri_theme_font.pdfont", font),
         ("dependencies/assets/audio/tri_click.pdsfx", audio),
         ("dependencies/assets/music/tri_song.pdsong", music),
-        ("dependencies/assets/effects/tri_effect.pdeffect", effect),
         ("_meta/manifest.json", theme_manifest("example:tri_theme")),
     ])
 

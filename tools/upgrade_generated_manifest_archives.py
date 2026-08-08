@@ -46,14 +46,17 @@ WEAPON_REQUIRED_MEMBERS = {
 }
 
 WEAPON_OPTIONAL_MEMBERS = {
-    "material_slots_file": "bindings/material-slots.json",
-    "grip_sockets_file": "bindings/grip-sockets.json",
     "presentation_file": "bindings/presentation.json",
     "primary_projectile_archive": "dependencies/assets/projectiles/primary.pdprojectile",
     "deployed_entity_archive": "dependencies/assets/entities/deployed.pdentity",
     "fire_sound_archive": "dependencies/assets/audio/fire.pdsfx",
     "idle_animation_archive": "dependencies/assets/animations/idle.pdanim",
     "reticle_archive": "dependencies/assets/ui/reticle.pdui",
+}
+
+WEAPON_RETIRED_MEMBERS = {
+    "material_slots_file": "bindings/material-slots.json",
+    "grip_sockets_file": "bindings/grip-sockets.json",
 }
 
 
@@ -98,6 +101,9 @@ def rewrite_weapon_ini(text: str) -> tuple[str, bool]:
             continue
         key, value = raw.split("=", 1)
         stripped_key = key.strip()
+        if stripped_key in WEAPON_RETIRED_MEMBERS:
+            changed = True
+            continue
         new_key = WEAPON_KEY_RENAMES.get(stripped_key, stripped_key)
         if new_key != stripped_key:
             changed = True
@@ -212,6 +218,10 @@ def update_manifest(ext: str, manifest: dict, values: dict[str, str],
         return changed
 
     if ext == ".pdweapon":
+        for key in WEAPON_RETIRED_MEMBERS:
+            if key in manifest:
+                manifest.pop(key)
+                changed = True
         changed |= copy_string(manifest, values, "model_file")
         for key in WEAPON_REQUIRED_MEMBERS:
             changed |= copy_string(manifest, values, key)
@@ -238,7 +248,9 @@ def upgrade_zip_bytes(data: bytes, ext: str, dry_run: bool) -> tuple[str, bytes 
 
         descriptor_text = archive.read(descriptor).decode("utf-8")
         descriptor_changed = False
+        retired_names: set[str] = set()
         if ext == ".pdweapon":
+            retired_names = set(WEAPON_RETIRED_MEMBERS.values()) & name_set
             descriptor_text, descriptor_changed = rewrite_weapon_ini(descriptor_text)
             values_for_model = parse_ini(descriptor_text)
             model_file = values_for_model.get("model_file")
@@ -272,7 +284,8 @@ def upgrade_zip_bytes(data: bytes, ext: str, dry_run: bool) -> tuple[str, bytes 
                     if nested_bytes is not None:
                         replacements[name] = nested_bytes
 
-        if not descriptor_changed and not manifest_changed and nested_changed == 0:
+        if (not descriptor_changed and not manifest_changed and
+                nested_changed == 0 and not retired_names):
             return "skip:current", None
 
         descriptor_data = descriptor_text.encode("utf-8")
@@ -298,6 +311,8 @@ def upgrade_zip_bytes(data: bytes, ext: str, dry_run: bool) -> tuple[str, bytes 
         out_io = io.BytesIO()
         with zipfile.ZipFile(out_io, "w", compression=zipfile.ZIP_DEFLATED) as out:
             for name in names:
+                if name in retired_names:
+                    continue
                 out.writestr(name, replacements.get(name, archive.read(name)))
         if descriptor_changed:
             return "descriptor+manifest", out_io.getvalue()

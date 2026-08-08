@@ -55,6 +55,21 @@ TEST_CASE("catalog dependency graph grows past its initial allocation",
 	catalogDepClear();
 }
 
+TEST_CASE("catalog dependency graph reservation does not mutate truth",
+		"[modding][pdxxx][pdtheme][deps][T-ASSETS-027]")
+{
+	catalogDepClear();
+	REQUIRE(catalogDepReserve(4) == 1);
+	REQUIRE(catalogDepCount() == 0);
+	for (int i = 0; i < 4; i++) {
+		char dep[64];
+		std::snprintf(dep, sizeof(dep), "example:theme_dep_%d", i);
+		catalogDepRegister("example:theme", dep, 0);
+	}
+	REQUIRE(catalogDepCount() == 4);
+	catalogDepClear();
+}
+
 TEST_CASE("catalog dependency graph skips bundled pairs during manifest expansion",
           "[modding][pdxxx][deps][c3844][source][static]")
 {

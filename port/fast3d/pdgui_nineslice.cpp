@@ -445,6 +445,12 @@ s32 pdguiNinesliceRegister(const char *catalog_id, const nineslice_def_t *def)
     return 1;
 }
 
+s32 pdguiNinesliceCanRegister(const char *catalog_id)
+{
+    if (!catalog_id || !catalog_id[0]) return 0;
+    return s_findEntry(catalog_id) != nullptr || s_NsCount < NS_MAX_DEFS;
+}
+
 const nineslice_def_t *pdguiNinesliceGet(const char *catalog_id)
 {
     if (!catalog_id) return nullptr;

@@ -12,6 +12,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <limits.h>
 #include <PR/ultratypes.h>
 #include "types.h"
 #include "system.h"
@@ -55,6 +56,33 @@ static u32 s_fnv1a(const char *str)
  * Public API
  * ========================================================================= */
 
+s32 catalogDepReserve(s32 additional)
+{
+    s32 required;
+    s32 newCap;
+    s_DepPair *newTable;
+
+    if (additional <= 0) return 1;
+    if (s_NumDepPairs > INT_MAX - additional) return 0;
+    required = s_NumDepPairs + additional;
+    if (required <= s_DepCap) return 1;
+
+    newCap = s_DepCap > 0 ? s_DepCap : CATALOG_INITIAL_DEP_PAIRS;
+    while (newCap < required) {
+        if (newCap > INT_MAX / 2) {
+            newCap = required;
+            break;
+        }
+        newCap *= 2;
+    }
+    newTable = (s_DepPair *)realloc(s_DepTable,
+        (size_t)newCap * sizeof(s_DepPair));
+    if (!newTable) return 0;
+    s_DepTable = newTable;
+    s_DepCap = newCap;
+    return 1;
+}
+
 void catalogDepRegister(const char *owner_id, const char *dep_id,
                         s32 is_bundled)
 {
@@ -78,18 +106,12 @@ void catalogDepRegister(const char *owner_id, const char *dep_id,
     }
 
     if (s_NumDepPairs >= s_DepCap) {
-        /* Grow by doubling; initial alloc uses CATALOG_INITIAL_DEP_PAIRS. */
-        s32 newCap = (s_DepCap > 0) ? s_DepCap * 2 : CATALOG_INITIAL_DEP_PAIRS;
-        s_DepPair *newTable = (s_DepPair *)realloc(s_DepTable,
-                                                    (size_t)newCap * sizeof(s_DepPair));
-        if (!newTable) {
+        if (!catalogDepReserve(1)) {
             sysLogPrintf(LOG_WARNING,
                          "CATALOG-DEPS: realloc failed (cap=%d), dropping dep '%s' -> '%s'",
                          s_DepCap, owner_id, dep_id);
             return;
         }
-        s_DepTable = newTable;
-        s_DepCap   = newCap;
     }
 
     s_DepTable[s_NumDepPairs].owner_hash = ohash;

@@ -28,8 +28,20 @@ extern "C" {
 #define PDGUI_SND_KBCANCEL       0x0d  /* Keyboard cancel */
 #define PDGUI_SND_SUCCESS        0x0e  /* Success chime */
 
+typedef struct pdgui_theme_sound_role {
+    int sound_id;
+    char catalog_id[64];
+} pdgui_theme_sound_role_t;
+
 /* Play a menu sound effect. Calls menuPlaySound() in the game engine. */
 void pdguiPlaySound(int soundId);
+
+/* Replace all active theme-owned menu sound roles atomically. An empty list
+ * restores the native menu sounds. Declared roles fail closed at playback;
+ * they never fall through to an unrelated native sound. */
+void pdguiAudioReplaceThemeRoles(const pdgui_theme_sound_role_t *roles, int count);
+int pdguiAudioValidateThemeRole(int soundId, const char *catalogId,
+                                char *error, unsigned long errorCap);
 
 #ifdef __cplusplus
 }

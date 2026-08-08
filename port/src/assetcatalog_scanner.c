@@ -29,6 +29,7 @@
 #include "constants.h"
 #include "asset_archive_policy.h"
 #include "assetcatalog.h"
+#include "assetprovider.h"
 #include "assetcatalog_body_head_slots.h"
 #include "assetcatalog_weapon_slots.h"
 #include "catalog_mgr_bodies.h"
@@ -1051,8 +1052,6 @@ static void qualifyIniSourcePaths(ini_section_t *ini, const char *component_dir)
 		"variables",
 		"shared_context_file",
 		"shared_context",
-		"material_slots_file",
-		"grip_sockets_file",
 		"presentation_file",
 		"primary_projectile_archive",
 		"deployed_entity_archive",
@@ -1228,8 +1227,6 @@ static void qualifyTypedArchiveSourcePaths(ini_section_t *ini,
 		"variables",
 		"shared_context_file",
 		"shared_context",
-		"material_slots_file",
-		"grip_sockets_file",
 		"presentation_file",
 		"primary_projectile_archive",
 		"deployed_entity_archive",
@@ -1869,6 +1866,19 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 	if (type == ASSET_NONE) {
 		sysLogPrintf(LOG_WARNING, "assetcatalog_scanner: unknown section type '%s' in %s",
 			ini->type, dirpath);
+		return 0;
+	}
+
+	/* T-ASSETS-024: these proposed binding files never acquired a production
+	 * renderer or hand-animation consumer. Reject them instead of qualifying
+	 * and silently dropping them. Nested .pdmesh owns rendered materials and
+	 * hierarchy; the established weapon placement fields own held position. */
+	if (type == ASSET_WEAPON &&
+			(iniGet(ini, "material_slots_file", "")[0] ||
+			 iniGet(ini, "grip_sockets_file", "")[0])) {
+		sysLogPrintf(LOG_WARNING,
+			"PDWEAPON.BINDINGS.REJECT: %s declares retired material_slots_file or grip_sockets_file",
+			dirpath ? dirpath : "<unknown>");
 		return 0;
 	}
 
@@ -2820,27 +2830,34 @@ static s32 nestedContentMatchesExisting(const asset_entry_t *existing,
 		const void *nested, u32 nested_size)
 {
 	char archive_ref[sizeof(existing->descriptor_path)];
+	const char *source_ref;
 	const char *separator;
 	u32 existing_size = 0;
 	void *existing_bytes;
 	char existing_digest[SHA256_HEX_SIZE];
 	char nested_digest[SHA256_HEX_SIZE];
 
-	if (!existing || !nested || nested_size == 0
-			|| !existing->descriptor_path[0]) {
+	if (!existing || !nested || nested_size == 0) {
 		return 0;
 	}
-	separator = strrchr(existing->descriptor_path, ':');
-	if (!separator || separator == existing->descriptor_path
+	source_ref = existing->descriptor_path;
+	if (!source_ref[0]) {
+		asset_data_handle_t handle = catalogEffectiveHandle(existing);
+		if (handle.provider != fileProvider()) return 0;
+		source_ref = fileProviderPath(handle);
+	}
+	if (!source_ref || !source_ref[0]) return 0;
+	separator = strrchr(source_ref, ':');
+	if (!separator || separator == source_ref
 			|| separator[-1] != ':') {
 		return 0;
 	}
 	separator--;
-	size_t len = (size_t)(separator - existing->descriptor_path);
+	size_t len = (size_t)(separator - source_ref);
 	if (len == 0 || len >= sizeof(archive_ref)) {
 		return 0;
 	}
-	memcpy(archive_ref, existing->descriptor_path, len);
+	memcpy(archive_ref, source_ref, len);
 	archive_ref[len] = '\0';
 	existing_bytes = fsFileLoad(archive_ref, &existing_size);
 	if (!existing_bytes || existing_size == 0) {
@@ -3016,6 +3033,253 @@ s32 assetCatalogRegisterWeaponNestedDependencies(const char *weapon_id,
 fail:
 	sysMemFree(weapon_bytes);
 	return -1;
+}
+
+/* ========================================================================
+ * Nested theme dependency registration
+ * ======================================================================== */
+
+#define THEME_NESTED_ROLE_COUNT 4
+
+typedef struct theme_nested_role {
+	const char *key;
+	const char *extension;
+	asset_type_e expected_type;
+} theme_nested_role_t;
+
+typedef struct theme_nested_preflight {
+	char member[FS_MAXPATH];
+	char catalog_id[CATALOG_ID_LEN];
+	char descriptor_leaf[64];
+	ini_section_t ini;
+	asset_type_e expected_type;
+	s32 existing;
+	s32 registered;
+} theme_nested_preflight_t;
+
+static const theme_nested_role_t s_ThemeNestedRoles[THEME_NESTED_ROLE_COUNT] = {
+	{ "ui_archive", ".pdui", ASSET_UI },
+	{ "font_archive", ".pdfont", ASSET_FONT },
+	{ "audio_archive", ".pdsfx", ASSET_AUDIO },
+	{ "music_archive", ".pdsong", ASSET_AUDIO },
+};
+
+s32 assetCatalogRegisterThemeNestedDependencies(const char *theme_id,
+		const char *theme_archive, s32 bundled, char *err, size_t err_cap)
+{
+	u32 theme_size = 0;
+	void *theme_bytes = NULL;
+	u32 descriptor_size = 0;
+	const char *descriptor_leaf = NULL;
+	char *descriptor = NULL;
+	ini_section_t theme_ini;
+	theme_nested_preflight_t pending[THEME_NESTED_ROLE_COUNT];
+	s32 pending_count = 0;
+	s32 result = -1;
+
+	if (err && err_cap) err[0] = '\0';
+	memset(pending, 0, sizeof(pending));
+	if (!theme_id || !theme_id[0] || !theme_archive || !theme_archive[0]) {
+		nestedSetErr(err, err_cap, "theme dependency scan missing %s%s",
+			theme_id, theme_archive);
+		return -1;
+	}
+
+	theme_bytes = fsFileLoad(theme_archive, &theme_size);
+	if (!theme_bytes || theme_size == 0) {
+		nestedSetErr(err, err_cap, "could not read theme archive %s%s",
+			theme_archive, "");
+		goto done;
+	}
+	if (assetArchiveValidateBytes(theme_bytes, theme_size, theme_archive,
+			ASSET_ARCHIVE_VALIDATE_RELEASE, err, err_cap) != 0) {
+		goto done;
+	}
+	descriptor = assetArchiveExtractDescriptorMemAlloc(theme_bytes, theme_size,
+		theme_archive, ASSET_ARCHIVE_VALIDATE_RELEASE, &descriptor_size,
+		&descriptor_leaf);
+	if (!descriptor || !descriptor_leaf
+			|| !iniParseBuffer(descriptor_leaf, descriptor, descriptor_size,
+				&theme_ini)
+			|| sectionToType(theme_ini.type) != ASSET_THEME) {
+		nestedSetErr(err, err_cap, "invalid public theme descriptor in %s%s",
+			theme_archive, "");
+		goto done;
+	}
+	{
+		const char *declared_id = iniGet(&theme_ini, "catalog_id",
+			iniGet(&theme_ini, "id", ""));
+		if (!declared_id[0] || strcmp(declared_id, theme_id) != 0) {
+			nestedSetErr(err, err_cap,
+				"theme catalog identity mismatch %s%s", theme_id, declared_id);
+			goto done;
+		}
+	}
+	if (iniGet(&theme_ini, "effect_archive", "")[0]) {
+		nestedSetErr(err, err_cap,
+			"theme effect_archive is retired; use inline %s%s",
+			"caustics/borderEffects", "");
+		goto done;
+	}
+
+	/* Validate every declaration and collision before registering any child or
+	 * edge.  User/data errors therefore cannot expose a partially owned theme. */
+	for (s32 role_index = 0; role_index < THEME_NESTED_ROLE_COUNT;
+			role_index++) {
+		const theme_nested_role_t *role = &s_ThemeNestedRoles[role_index];
+		const char *member = iniGet(&theme_ini, role->key, "");
+		u32 nested_size = 0;
+		void *nested = NULL;
+		u32 nested_descriptor_size = 0;
+		const char *nested_descriptor_leaf = NULL;
+		char *nested_descriptor = NULL;
+		const char *catalog_id;
+		const asset_entry_t *existing;
+
+		if (!member[0]) continue;
+		if (!archiveInnerPathIsSafe(member)
+				|| !pathEndsWithNoCase(member, role->extension)) {
+			nestedSetErr(err, err_cap, "theme role has invalid archive %s%s",
+				role->key, member);
+			goto done;
+		}
+		nested = modArchiveExtractMemAlloc(theme_bytes, theme_size, member,
+			&nested_size);
+		if (!nested || nested_size == 0) {
+			free(nested);
+			nestedSetErr(err, err_cap, "theme dependency is missing %s%s",
+				role->key, member);
+			goto done;
+		}
+		if (assetArchiveValidateBytes(nested, nested_size, member,
+				ASSET_ARCHIVE_VALIDATE_RELEASE, err, err_cap) != 0) {
+			free(nested);
+			goto done;
+		}
+		nested_descriptor = assetArchiveExtractDescriptorMemAlloc(nested,
+			nested_size, member, ASSET_ARCHIVE_VALIDATE_RELEASE,
+			&nested_descriptor_size, &nested_descriptor_leaf);
+		if (!nested_descriptor || !nested_descriptor_leaf
+				|| !iniParseBuffer(nested_descriptor_leaf, nested_descriptor,
+					nested_descriptor_size, &pending[pending_count].ini)
+				|| sectionToType(pending[pending_count].ini.type)
+					!= role->expected_type) {
+			free(nested_descriptor);
+			free(nested);
+			nestedSetErr(err, err_cap, "theme dependency type mismatch %s%s",
+				role->key, member);
+			goto done;
+		}
+		free(nested_descriptor);
+		catalog_id = iniGet(&pending[pending_count].ini, "catalog_id",
+			iniGet(&pending[pending_count].ini, "id", ""));
+		if (!catalog_id[0]) {
+			free(nested);
+			nestedSetErr(err, err_cap,
+				"theme dependency has missing catalog ID %s%s",
+				role->key, catalog_id);
+			goto done;
+		}
+		for (s32 i = 0; i < pending_count; i++) {
+			if (strcmp(pending[i].catalog_id, catalog_id) == 0) {
+				free(nested);
+				nestedSetErr(err, err_cap,
+					"theme roles reuse dependency ID %s%s", catalog_id, "");
+				goto done;
+			}
+		}
+		existing = assetCatalogResolve(catalog_id);
+		if (existing && (existing->type != role->expected_type
+				|| !nestedContentMatchesExisting(existing, nested, nested_size))) {
+			free(nested);
+			nestedSetErr(err, err_cap,
+				"theme dependency ID/content collision %s%s", catalog_id, "");
+			goto done;
+		}
+
+		strncpy(pending[pending_count].member, member,
+			sizeof(pending[pending_count].member) - 1);
+		strncpy(pending[pending_count].catalog_id, catalog_id,
+			sizeof(pending[pending_count].catalog_id) - 1);
+		strncpy(pending[pending_count].descriptor_leaf,
+			nested_descriptor_leaf,
+			sizeof(pending[pending_count].descriptor_leaf) - 1);
+		pending[pending_count].expected_type = role->expected_type;
+		pending[pending_count].existing = existing ? 1 : 0;
+		pending_count++;
+		free(nested);
+	}
+	if (!catalogDepReserve(pending_count)) {
+		nestedSetErr(err, err_cap,
+			"could not reserve theme dependency edges %s%s", theme_id, "");
+		goto done;
+	}
+
+	for (s32 i = 0; i < pending_count; i++) {
+		char archive_ref[FS_MAXPATH * 2 + 4];
+		char descriptor_ref[FS_MAXPATH * 2 + 132];
+		snprintf(archive_ref, sizeof(archive_ref), "%s::%s", theme_archive,
+			pending[i].member);
+		snprintf(descriptor_ref, sizeof(descriptor_ref), "%s::%s", archive_ref,
+			pending[i].descriptor_leaf);
+		if (!pending[i].existing) {
+			qualifyTypedArchiveSourcePaths(&pending[i].ini, archive_ref);
+			if (!registerComponent(&pending[i].ini, archive_ref,
+					bundled ? "base" : theme_id, descriptor_ref)) {
+				nestedSetErr(err, err_cap,
+					"could not register theme dependency %s%s",
+					pending[i].catalog_id, "");
+				goto done;
+			}
+			asset_entry_t *child = assetCatalogGetMutable(pending[i].catalog_id);
+			if (!child || child->type != pending[i].expected_type) {
+				nestedSetErr(err, err_cap,
+					"theme dependency disappeared after register %s%s",
+					pending[i].catalog_id, "");
+				goto done;
+			}
+			child->bundled = bundled ? 1 : 0;
+			/* Keep newly created rows inert until every child has registered and
+			 * every ownership edge can be committed. */
+			child->enabled = 0;
+			child->temporary = 0;
+			pending[i].registered = 1;
+		}
+	}
+	/* Commit ownership edges only after every new child row is registered. */
+	for (s32 i = 0; i < pending_count; i++) {
+		char archive_ref[FS_MAXPATH * 2 + 4];
+		snprintf(archive_ref, sizeof(archive_ref), "%s::%s", theme_archive,
+			pending[i].member);
+		catalogDepRegister(theme_id, pending[i].catalog_id,
+			bundled ? 1 : 0);
+		if (pending[i].registered) {
+			asset_entry_t *child = assetCatalogGetMutable(pending[i].catalog_id);
+			if (child) child->enabled = 1;
+		}
+		sysLogPrintf(LOG_NOTE,
+			"PDTHEME.NESTED.REGISTER: owner=%s id=%s type=%d source=%s",
+			theme_id, pending[i].catalog_id, (s32)pending[i].expected_type,
+			archive_ref);
+	}
+	result = pending_count;
+
+done:
+	if (result < 0) {
+		/* Catalog rows are stable-address records and cannot be removed safely.
+		 * Any row created by a failed transaction remains disabled and therefore
+		 * cannot become a partially owned production dependency. */
+		for (s32 i = 0; i < pending_count; i++) {
+			if (pending[i].registered) {
+				asset_entry_t *child = assetCatalogGetMutable(
+					pending[i].catalog_id);
+				if (child) child->enabled = 0;
+			}
+		}
+	}
+	free(descriptor);
+	if (theme_bytes) sysMemFree(theme_bytes);
+	return result;
 }
 
 /* ========================================================================
@@ -3248,6 +3512,28 @@ static s32 registerTypedPdDescriptorFile(const char *descriptor_path,
 				return 0;
 			}
 		}
+		if (expected == ASSET_THEME) {
+			const char *theme_id = iniGet(&ini, "catalog_id",
+				iniGet(&ini, "id", ""));
+			char nested_err[256];
+			nested_err[0] = '\0';
+			if (!theme_id[0]
+					|| assetCatalogRegisterThemeNestedDependencies(theme_id,
+						descriptor_path, 0, nested_err,
+						sizeof(nested_err)) < 0) {
+				asset_entry_t *theme = theme_id[0]
+					? assetCatalogGetMutable(theme_id) : NULL;
+				if (theme) {
+					theme->enabled = 0;
+					theme->load_state = ASSET_STATE_REGISTERED;
+				}
+				sysLogPrintf(LOG_WARNING,
+					"PDTHEME.NESTED.REJECT: owner=%s source=%s error=%s",
+					theme_id[0] ? theme_id : "<missing>", descriptor_path,
+					nested_err[0] ? nested_err : "nested registration failed");
+				return 0;
+			}
+		}
 		return 1;
 	}
 }
@@ -3475,8 +3761,9 @@ s32 assetCatalogScanExternalLayoutFolder(const char *mod_id, const char *mod_dir
 		"effect.ini", ASSET_EFFECT, mod_id);
 	total += scanExternalDescriptorPath(mod_dir, "hud",
 		"hud.ini", ASSET_HUD, mod_id);
-	total += scanExternalDescriptorPath(mod_dir, "themes",
-		"theme.ini", ASSET_THEME, mod_id);
+	/* .pdtheme is the only public theme content unit. A loose themes/<id>/
+	 * theme.ini bypasses archive release validation and dependency ownership,
+	 * so it is intentionally not accepted as a compatibility layout. */
 	total += scanExternalDescriptorPath(mod_dir, "audio/sfx",
 		"sound.ini", ASSET_AUDIO, mod_id);
 	total += scanExternalDescriptorPath(mod_dir, "audio/sfx",
@@ -3759,8 +4046,6 @@ static void qualifyArchiveIniPaths(ini_section_t *ini, const char *component_dir
 		"variables",
 		"shared_context_file",
 		"shared_context",
-		"material_slots_file",
-		"grip_sockets_file",
 		"presentation_file",
 		"primary_projectile_archive",
 		"deployed_entity_archive",
@@ -4008,7 +4293,31 @@ s32 assetCatalogScanComponentsFromArchive(const char *mod_id, mod_archive_t *arc
 		descriptor_ref[sizeof(descriptor_ref) - 1] = '\0';
 
 		if (registerComponent(&ini, component_dir, mod_id, descriptor_ref)) {
-			total++;
+			s32 accepted = 1;
+			if (typed_archive_entry && ini_type == ASSET_THEME) {
+				const char *theme_id = iniGet(&ini, "catalog_id",
+					iniGet(&ini, "id", ""));
+				char nested_err[256];
+				nested_err[0] = '\0';
+				if (!theme_id[0]
+						|| assetCatalogRegisterThemeNestedDependencies(theme_id,
+							entry_ref, 0, nested_err,
+							sizeof(nested_err)) < 0) {
+					asset_entry_t *theme = theme_id[0]
+						? assetCatalogGetMutable(theme_id) : NULL;
+					if (theme) {
+						theme->enabled = 0;
+						theme->load_state = ASSET_STATE_REGISTERED;
+					}
+					sysLogPrintf(LOG_WARNING,
+						"PDTHEME.NESTED.REJECT: owner=%s source=%s error=%s",
+						theme_id[0] ? theme_id : "<missing>", entry_ref,
+						nested_err[0] ? nested_err :
+							"nested registration failed");
+					accepted = 0;
+				}
+			}
+			if (accepted) total++;
 		}
 	}
 

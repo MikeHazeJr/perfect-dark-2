@@ -4331,6 +4331,136 @@ static void weaponGraphWarnTimerOverlap(s32 weaponnum)
 	}
 }
 
+/* T-ASSETS-024: these proposed binding files were published as optional
+ * metadata but had no held/world renderer or hand-animation consumer. Retire
+ * them at the production archive seam instead of accepting deceptive source.
+ * Nested .pdmesh remains the material/hierarchy authority and weapon.ini's
+ * established placement fields remain the held-transform authority. */
+static s32 weaponGraphIniHasKey(const char *text, const char *key)
+{
+	size_t key_len = strlen(key);
+	for (const char *line = text; line && *line; ) {
+		const char *p = line;
+		while (*p == ' ' || *p == '\t' || *p == '\r') p++;
+		if (*p != ';' && *p != '#' && strncmp(p, key, key_len) == 0) {
+			p += key_len;
+			while (*p == ' ' || *p == '\t') p++;
+			if (*p == '=') return 1;
+		}
+		line = strchr(line, '\n');
+		if (line) line++;
+	}
+	return 0;
+}
+
+typedef struct weapon_graph_member_scan {
+	const char *member;
+	s32 found;
+} weapon_graph_member_scan_t;
+
+static s32 weaponGraphFindArchiveMemberCb(const char *entry_name,
+		u32 uncompressed_size, void *user)
+{
+	weapon_graph_member_scan_t *scan = (weapon_graph_member_scan_t *)user;
+	(void)uncompressed_size;
+	if (scan && entry_name && strcmp(entry_name, scan->member) == 0) {
+		scan->found = 1;
+		return 1;
+	}
+	return 0;
+}
+
+static s32 weaponGraphArchiveHasMember(const char *archive_path,
+		const char *member)
+{
+	weapon_graph_member_scan_t scan = { member, 0 };
+	u32 archive_size = 0;
+	void *archive_bytes = weaponGraphArchiveReadBytesFile(archive_path,
+		&archive_size);
+
+	if (archive_bytes && archive_size > 0) {
+		(void)modArchiveMemForEachEntry(archive_bytes, archive_size,
+			weaponGraphFindArchiveMemberCb, &scan);
+		free(archive_bytes);
+		if (scan.found) {
+			return 1;
+		}
+	} else {
+		free(archive_bytes);
+	}
+
+	/* Local authoring/test paths are not always resolvable through fsFileLoad,
+	 * so mirror weaponGraphArchiveReadTextFile's direct archive fallback. This
+	 * also detects empty retired members without depending on extraction. */
+	mod_archive_t *arc = modArchiveOpen(archive_path);
+	if (!arc) {
+		return 0;
+	}
+	s32 found = modArchiveFindEntry(arc, member) >= 0;
+	modArchiveClose(arc);
+	return found;
+}
+
+static s32 weaponGraphRejectRetiredWeaponBindings(const char *archive_path,
+		char *err, size_t err_cap)
+{
+	static const char *retired_keys[] = {
+		"material_slots_file",
+		"grip_sockets_file",
+	};
+	static const char *retired_members[] = {
+		"bindings/material-slots.json",
+		"bindings/grip-sockets.json",
+	};
+	char *text = NULL;
+	u32 text_size = 0;
+
+	if (weaponGraphArchiveReadTextFile(archive_path, "weapon.ini",
+			&text, &text_size) != 0 || !text) {
+		setErr(err, err_cap, "weapon archive is missing weapon.ini");
+		free(text);
+		return -1;
+	}
+	for (size_t i = 0; i < sizeof(retired_keys) / sizeof(retired_keys[0]); i++) {
+		if (weaponGraphIniHasKey(text, retired_keys[i])) {
+			setErr(err, err_cap,
+				"retired weapon binding %s has no production consumer",
+				retired_keys[i]);
+			free(text);
+			return -1;
+		}
+	}
+	free(text);
+
+	text = NULL;
+	text_size = 0;
+	if (weaponGraphArchiveReadTextFile(archive_path, "_meta/manifest.json",
+			&text, &text_size) == 0 && text) {
+		for (size_t i = 0; i < sizeof(retired_keys) / sizeof(retired_keys[0]); i++) {
+			char quoted_key[64];
+			snprintf(quoted_key, sizeof(quoted_key), "\"%s\"", retired_keys[i]);
+			if (strstr(text, quoted_key)) {
+				setErr(err, err_cap,
+					"retired weapon manifest binding %s has no production consumer",
+					retired_keys[i]);
+				free(text);
+				return -1;
+			}
+		}
+	}
+	free(text);
+
+	for (size_t i = 0; i < sizeof(retired_members) / sizeof(retired_members[0]); i++) {
+		if (weaponGraphArchiveHasMember(archive_path, retired_members[i])) {
+			setErr(err, err_cap,
+				"retired weapon binding member %s has no production consumer",
+				retired_members[i]);
+			return -1;
+		}
+	}
+	return 0;
+}
+
 s32 weaponGraphRuntimeRegisterWeaponArchive(s32 weaponnum,
                                             const char *archive_path,
                                             char *err, size_t err_cap)
@@ -4338,6 +4468,10 @@ s32 weaponGraphRuntimeRegisterWeaponArchive(s32 weaponnum,
 	weapon_graph_ir_t ir;
 	weapon_graph_archive_descriptor_t desc;
 	weapon_graph_weapon_settings_t tunables;
+
+	if (weaponGraphRejectRetiredWeaponBindings(archive_path, err, err_cap) != 0) {
+		return -1;
+	}
 
 	/* c3849 Wave 5f Unit 2: parse the tunables trio (settings/variables/
 	 * presentation, via the B-917-fixed *_file descriptor aliases) BEFORE the

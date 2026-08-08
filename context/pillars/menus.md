@@ -21,11 +21,28 @@ Workbench `T-ASSETS-026` through `T-ASSETS-030` hold the complete theme repair.
 the shared parser strictly validates schema, identity, fields, types, ranges,
 catalog references, and caps, and malformed or missing declared source fails
 closed without private-manifest or built-in-data substitution. The remaining
-`.pdtheme` work is still explicit in `T-ASSETS-027` through `T-ASSETS-030`: typed
-dependency ownership, every retained production consumer, self-contained Theme
+`.pdtheme` work stays explicit in `T-ASSETS-027` through `T-ASSETS-030`: typed
+dependency ownership, retained production consumers, self-contained Theme
 Editor output, network/restart proof, and physical MKB/controller glyph evidence.
-Active themes can still fail to scope unrelated enabled UI/font assets, and
-visible glyphs remain hardcoded text pills rather than theme dependency output.
+
+`T-ASSETS-027` is implemented with a source-frozen automated receipt: supported
+typed roles are validated and catalog-registered transactionally on every transport,
+and their catalog edges follow the active theme's load, retain, and release
+lifetime. The inert `.pdeffect` slot is rejected in favor of inline theme
+effects. This does not claim field-level rendering or input proof;
+`T-ASSETS-028` owns menu consumers and `T-ASSETS-030` owns ordinary-client
+MKB/controller/device-switch evidence.
+
+`T-ASSETS-028` is implemented with a source-frozen automated receipt. Theme activation
+preflights every retained catalog reference before replacing active state,
+clears fields omitted by a subsequent theme, and drives the real menu
+background, chrome/nine-slice, inline effects, scanline/text glow, font atlas,
+semantic UI sounds, menu music, palette, and glyph-pill styling. Broken
+declared chrome cannot fall through to procedural output, and broken declared
+sound/font/music/UI source rejects activation. Fixed action-map glyph lookup is
+unchanged, so theme styling does not take ownership from live MKB/controller
+device resolution. Physical-device and device-switch evidence remains
+truthfully open under `T-ASSETS-030`.
 
 ## 2026-08-08 character archive utilization
 

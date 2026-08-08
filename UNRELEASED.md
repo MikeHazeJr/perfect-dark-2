@@ -5,6 +5,16 @@
 
 ## Highlights
 
+- Made Theme Editor save real atomic self-contained `.pdtheme` archives (and
+  embed them in `.pdmod`) with selected UI, vector font, sound, and music assets.
+- Made theme backgrounds, chrome, inline effects, fonts, menu sounds, music,
+  colors, and glyph styling update together from public `.pdtheme` source;
+  broken declared content now rejects the theme instead of silently falling back.
+- Made embedded theme UI, font, sound, and music archives typed catalog
+  dependencies that reject the whole theme when invalid; removed the inert
+  standalone effect-archive slot in favor of inline theme effects.
+- Removed unsupported weapon material/grip binding files from `.pdweapon` v1;
+  old declarations now fail clearly instead of appearing to work while ignored.
 - Removed the unused duplicate `.pdmission` briefing payload so creator edits
   flow through the nested public scenario source the game actually loads.
 - Preserved full nested `.pdui` archive-chain paths so embedded weapon reticles

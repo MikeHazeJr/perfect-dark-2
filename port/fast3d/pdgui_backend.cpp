@@ -338,12 +338,21 @@ static void pdguiLoadFontsIntoAtlas(ImGuiIO &io)
     const char *userFontPath = pdguiFontModGetActivePath();
     if (userFontPath && userFontPath[0]) {
         ImFontConfig cfg;
+        u32 userFontSize = 0;
+        void *userFontData = fsFileLoad(userFontPath, &userFontSize);
         cfg.OversampleV = 2;
+        cfg.FontDataOwnedByAtlas = true;
         snprintf(cfg.Name, sizeof(cfg.Name), "User font (%s)",
                  pdguiFontModGetActiveId());
 
-        ImFont *userFont = io.Fonts->AddFontFromFileTTF(
-            userFontPath, 24.0f, &cfg);
+        ImFont *userFont = nullptr;
+        if (userFontData && userFontSize > 0) {
+            userFont = io.Fonts->AddFontFromMemoryTTF(
+                userFontData, (int)userFontSize, 24.0f, &cfg);
+            if (!userFont) {
+                free(userFontData);
+            }
+        }
 
         if (userFont) {
             io.FontDefault = userFont;
@@ -449,15 +458,17 @@ void pdguiInit(void *sdlWindow)
     /* D5.0: decode ROM UI textures → GL, register ASSET_UI catalog entries */
     pdguiThemeInit();
 
-    /* Register built-in + mod themes in the theme loader registry.
-     * Must run after pdguiThemeInit (which sets up the palette system)
-     * and after pdguiMenusRegisterAll (which may reference theme APIs). */
-    pdguiThemeLoaderInit();
-
-    /* P4: Initialize 9-slice, effects, and font manager subsystems */
+    /* Initialize theme consumer registries before the loader applies the
+     * configured theme. Applying first used to populate registries and then
+     * immediately clear them during Init. */
     pdguiNinesliceInit();
     pdguiEffectsInit();
     pdguiFontMgrInit();
+
+    /* Register built-in + catalog themes after every consumer registry is
+     * ready, so the configured theme transaction reaches production state. */
+    pdguiThemeLoaderInit();
+
     pdguiWeaponGraphNodeEditorInit();
 
     /* D5 Phase 2: Register the C++ wrap trampoline so pdguiNavTickWrap()

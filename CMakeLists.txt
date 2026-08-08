@@ -900,12 +900,14 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/tests/test_character_archive_utilization_static.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_voice_locale_source.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_pdtheme_source.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_theme_archive_authoring.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_voice_archive_authoring.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_assetcatalog_deps.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_public_mods_static.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_mod_external_archive_static.cpp
   ${CMAKE_SOURCE_DIR}/port/src/asset_archive_policy.c
   ${CMAKE_SOURCE_DIR}/port/src/asset_archive_writer.c
+  ${CMAKE_SOURCE_DIR}/port/src/theme_archive_authoring.c
   ${CMAKE_SOURCE_DIR}/port/src/voice_archive_authoring.c
   ${CMAKE_SOURCE_DIR}/port/src/asset_mod_utility_contract.c
   ${CMAKE_SOURCE_DIR}/port/src/asset_runtime.c

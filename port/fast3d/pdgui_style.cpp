@@ -681,6 +681,9 @@ extern "C" void pdguiDrawPdDialog(float x, float y, float w, float h,
     void *chromeTex = nullptr;
     u32 chromeTw = 0, chromeTh = 0;
     bool useChrome = s_resolveActiveChrome(&chromeDef, &chromeTex, &chromeTw, &chromeTh);
+    const char *activeChromeId = pdguiGetPanelNineSlice();
+    bool declaredChromeFailed = pdguiChromeIsEnabled() && activeChromeId &&
+        activeChromeId[0] && !useChrome;
 
     if (useChrome) {
         /* Tint with the palette's bright accent color (dialog_border1) but
@@ -695,7 +698,7 @@ extern "C" void pdguiDrawPdDialog(float x, float y, float w, float h,
         /* Chrome replaces the procedural body background + haze overlay +
          * border lines + perimeter shimmer.  Fall through to caustic /
          * border effect placeholders at the bottom of the function. */
-    } else {
+    } else if (!declaredChromeFailed) {
         /* === Body background ===
          * menugfxRenderDialogBackground: gDPFillRectangleScaled with dialog_bodybg */
         dl->AddRectFilled(
@@ -829,15 +832,14 @@ extern "C" void pdguiDrawPdDialog(float x, float y, float w, float h,
         pdguiDrawShimmerExact(dl, x,         y + h - 1, x + w, y + h, borderAlpha, 10, false);
     }
 
-    /* === P4: Caustic overlay (optional) ===
-     * Placeholder — when a caustic mask texture is configured in the active theme,
-     * this will composite it over the body region. Currently a no-op until
-     * theme config exposes a "causticEnabled" runtime flag. */
-
-    /* === P4: Border effect (optional) ===
-     * Placeholder — when a border effect is configured in the active theme,
-     * this will draw an animated border glow around the dialog frame.
-     * Currently a no-op until theme config exposes a "borderFxEnabled" flag. */
+    /* Theme effects are scoped to the active chrome element and composite
+     * after its nineslice. A declared but unresolved chrome does not fall
+     * through to procedural body artwork. */
+    if (useChrome && activeChromeId && activeChromeId[0]) {
+        pdguiEffectsDrawAll(activeChromeId, x, bodyTop, w, (y + h) - bodyTop,
+            (float)chromeDef->dst_left, (float)chromeDef->dst_right,
+            (float)chromeDef->dst_top, (float)chromeDef->dst_bottom);
+    }
 }
 
 /* -----------------------------------------------------------------------

@@ -782,6 +782,10 @@ TEST_CASE("stale generated metadata and weapon manifests have an offline source 
 	REQUIRE(upgrader.find("\"variables\": \"variables_file\"") !=
 	        std::string::npos);
 	REQUIRE(upgrader.find("WEAPON_REQUIRED_MEMBERS") != std::string::npos);
+	REQUIRE(upgrader.find("WEAPON_RETIRED_MEMBERS") != std::string::npos);
+	REQUIRE(upgrader.find("material_slots_file") != std::string::npos);
+	REQUIRE(upgrader.find("grip_sockets_file") != std::string::npos);
+	REQUIRE(upgrader.find("if name in retired_names") != std::string::npos);
 	REQUIRE(upgrader.find("\"objectives_file\"") != std::string::npos);
 	REQUIRE(upgrader.find("\"briefing_file\"") == std::string::npos);
 	REQUIRE(upgrader.find("\"type_key\"") != std::string::npos);

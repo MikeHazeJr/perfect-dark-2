@@ -109,7 +109,7 @@ The extraction implementation should treat this as the minimum "can load and can
 
 | Family | Must be present to load | Must be present to utilize |
 |--------|-------------------------|----------------------------|
-| `.pdweapon` | `weapon.ini`, behavior entry files, dependency manifests, model/audio/projectile/entity refs | Held and AI fire-mode bindings, ammo/display defaults, model/material slots, sounds, animations, UI refs, projectiles/entities. |
+| `.pdweapon` | `weapon.ini`, behavior entry files, dependency manifests, model/audio/projectile/entity refs | Held and AI fire-mode bindings, ammo/display defaults, nested-model materials/hierarchy, established held placement, sounds, animations, UI refs, projectiles/entities. Weapon-level material/grip override files are retired from v1 until a real renderer/attachment backend exists. |
 | `.pdprojectile` | `projectile.ini`, motion, collision, damage, lifecycle, optional behavior graph | Owner/damage credit, impact rules, visual/audio/effect dependencies, entity transition or spawned payload refs. |
 | `.pdentity` | `entity.ini`, bindings/composition, optional behavior graph | Lifecycle state, interaction rules, ownership/team context, prop/mesh/effect/audio dependencies. |
 | `.pdmaterial` | `material.ini`, render/surface params, slot and texture/effect refs | Variants, compatibility tags, classic fields, optional PBR-ready fields; PBR material payloads remain standalone material assets. |

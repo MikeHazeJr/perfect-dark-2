@@ -73,29 +73,43 @@ void configRegisterInt(const char *key, s32 *var, s32 min, s32 max)
     (void)max;
 }
 
-static const char *s_TestFsPath;
-static const void *s_TestFsBytes;
-static u32 s_TestFsSize;
+typedef struct test_fs_entry {
+    const char *path;
+    const void *bytes;
+    u32 size;
+} test_fs_entry_t;
+
+static test_fs_entry_t s_TestFsEntries[8];
+static s32 s_TestFsEntryCount;
 
 void testStubFsFileLoadWith(const char *path, const void *bytes, u32 size)
 {
-    s_TestFsPath = path;
-    s_TestFsBytes = bytes;
-    s_TestFsSize = size;
+    s_TestFsEntryCount = 0;
+    if (path && bytes && size > 0) {
+        s_TestFsEntries[s_TestFsEntryCount++] = (test_fs_entry_t){ path, bytes, size };
+    }
+}
+
+void testStubFsFileLoadAdd(const char *path, const void *bytes, u32 size)
+{
+    if (path && bytes && size > 0 && s_TestFsEntryCount < 8) {
+        s_TestFsEntries[s_TestFsEntryCount++] = (test_fs_entry_t){ path, bytes, size };
+    }
 }
 
 void *fsFileLoad(const char *name, u32 *outSize)
 {
-    if (name && s_TestFsPath && strcmp(name, s_TestFsPath) == 0 &&
-            s_TestFsBytes && s_TestFsSize > 0) {
-        void *copy = malloc(s_TestFsSize);
-        if (!copy) {
-            if (outSize) *outSize = 0;
-            return NULL;
+    for (s32 i = 0; name && i < s_TestFsEntryCount; i++) {
+        if (strcmp(name, s_TestFsEntries[i].path) == 0) {
+            void *copy = malloc(s_TestFsEntries[i].size);
+            if (!copy) {
+                if (outSize) *outSize = 0;
+                return NULL;
+            }
+            memcpy(copy, s_TestFsEntries[i].bytes, s_TestFsEntries[i].size);
+            if (outSize) *outSize = s_TestFsEntries[i].size;
+            return copy;
         }
-        memcpy(copy, s_TestFsBytes, s_TestFsSize);
-        if (outSize) *outSize = s_TestFsSize;
-        return copy;
     }
     if (outSize) {
         *outSize = 0;

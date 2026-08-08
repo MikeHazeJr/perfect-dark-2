@@ -28,14 +28,33 @@ reticles are production-connected under `T-ASSETS-023`: the public
 real sight/HUD path renders it without taking input or glyph ownership. The
 source-frozen combined build is green, including the fix for truncated nested
 UI archive-chain paths. Ordinary-client edited/corrupt/type-mismatch,
-MKB/controller, target-tracking, and live-glyph proof remain. Weapon-level
-material/grip consumers and the aggregate live proof remain `T-ASSETS-024`
-and `T-ASSETS-025`; temporary distributed-asset crash recovery is explicit in
+MKB/controller, target-tracking, and live-glyph proof remain. `T-ASSETS-024`
+truthfully retires the unsupported weapon-level material/grip binding files;
+nested `.pdmesh` materials/hierarchy and existing placement fields remain the
+production source, and old declarations now fail closed across memory-backed
+and direct-file archives. Its source-frozen build, focused 12-assertion test,
+regenerated Needler recursive conformance, full 27-family suite, and source
+guard pass; the item is implemented. The aggregate live
+proof remains `T-ASSETS-025`; temporary distributed-asset crash recovery is explicit in
 `T-NETWORKING-009`. Effect completion remains split across `T-ASSETS-016`
 through `T-ASSETS-020`. Theme public-source authority and the strict shared
 schema/parser are implemented under `T-ASSETS-026`; nested lifecycle,
 production consumers, creator output, and MKB/controller/glyph validation
-remain explicit in `T-ASSETS-027` through `T-ASSETS-030`.
+remain explicit in `T-ASSETS-027` through `T-ASSETS-030`. `T-ASSETS-027` is
+implemented with a source-frozen automated receipt: UI/font/SFX/music child
+archives are validated and registered through base/local/pdmod/network paths,
+owned by catalog dependency edges, and balanced across theme load/retain/release.
+The inert `effect_archive` slot is rejected; inline caustics/borderEffects remain.
+`T-ASSETS-028` is implemented with the final frozen automated receipt. Every
+retained theme field now reaches the production background, chrome, effects,
+scanline/text glow, font atlas, semantic UI sounds, menu music, palette, or
+glyph style; activation preflights declared catalog source, clears omitted
+prior-theme state, and rejects broken declared roles without native/procedural
+fallback. `T-ASSETS-029` is implemented: Theme Editor now emits and rescans a
+strict, atomic, self-contained `.pdtheme` (or embeds that archive in `.pdmod`)
+with selected production-supported typed dependencies and live action-map
+labels. Ordinary-client network/restart plus physical MKB/controller/device-
+switch proof remains `T-ASSETS-030`.
 Mission briefing authority is implemented under `T-ASSETS-014`: nested public
 `.pdscenario` setup fields are the sole authored source consumed by
 `setupLoadBriefing`, and the synthetic unused `briefing.json` duplicate is

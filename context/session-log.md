@@ -1,5 +1,89 @@
 # Session Log (Active)
 
+## 2026-08-08 - Self-contained Theme Editor archives
+
+Implemented Workbench `T-ASSETS-029`. Theme Editor folder saves now create a
+strict catalog-identified `.pdtheme` under the mod's `themes/` directory, and
+`.pdmod` export embeds that complete archive. A shared writer release-validates
+and atomically replaces the candidate, preserves the last good archive and
+folder manifest, embeds only selected usable `.pdui`, vector `.pdfont`,
+`.pdsfx`, and `.pdsong` sources, verifies public descriptor identities, and
+rescans the real typed archive. Creator strings are escaped and visible
+accept/cancel labels follow the active action map for MKB/controller use.
+
+Final source-frozen verification passes client/updater/test builds, creator
+coverage (2 cases / 29 assertions), `[pdtheme]` (103 assertions), full
+`[modding][pdxxx]` (165 cases / 15,938 assertions), 28-root/52-recursive
+27-family conformance, and the native-source guard. Bug `B-986` records the
+old loose-output, non-atomic, and scanner-bypass defects. Live author/restart,
+network, rendering, and physical device proof remains `T-ASSETS-030`.
+
+## 2026-08-08 - Weapon material/grip schema retirement
+
+Implemented Workbench `T-ASSETS-024` by retiring the deceptive weapon-v1
+`material_slots_file` and `grip_sockets_file` surfaces. Neither field had a
+held/world renderer or hand-animation attachment consumer; nested `.pdmesh`
+materials/hierarchy and the existing weapon placement fields remain the real
+production authorities. Scanner registration, graph-runtime registration,
+conformance, upgrade tooling, and creator output now reject or remove the old
+descriptor, manifest, and member forms. The checked-in Needler archive was
+regenerated as a self-contained archive without the retired members.
+
+The first focused run caught a real fallback gap: direct-file archives could
+escape retired-member detection when in-memory extraction failed. Exact entry
+existence now uses memory enumeration plus the normal direct archive index
+fallback, including empty members. The source-frozen test build passes;
+`[t-assets-024]` passes 12 assertions; scanner/conformance selftest passes;
+Needler recursive conformance passes 1 root / 9 checked archives; the final
+27-family suite and native-source guard pass. Bug `B-988` records the finding.
+
+## 2026-08-08 - Theme production field consumers
+
+Implemented the source path for Workbench `T-ASSETS-028`. The strict public
+theme contract now retains only fields with production consumers. Activation
+preflights catalog UI, font, SFX, and music references before replacing the
+active theme; clears state omitted by the next theme; and drives the real menu
+background, chrome/nine-slice compositor, inline caustics/border effects,
+scanline/text glow, font atlas rebuild, semantic menu sounds, menu music,
+palette, and glyph-pill styling. Broken declared source rejects activation,
+declared chrome cannot fall through to procedural drawing, and the old inert
+`soundPack`, arbitrary texture roles, and nested `effect_archive` are rejected.
+The production action-map glyph resolver remains authoritative for live
+MKB/controller labels.
+
+Bug B-989 records the disconnected-field, stale-state, and fallback class.
+After repairing archive-native vector font loading, custom sequence menu-track
+allocation, effect catalog identity, and registry-capacity preflight, the final
+source-frozen client/updater/test builds pass. `[T-ASSETS-028]` passes 16
+assertions, `[pdtheme]` passes 103, full `[modding][pdxxx]` passes 165 cases /
+15,938 assertions, strict conformance passes all 27 families, and the native
+source guard passes. Durable receipt:
+`context/evidence/2026-08-08-theme-wave-verification.md`. Ordinary-client
+MKB/controller/device-switch, restart, network, and rendered proof remains
+before validation.
+
+## 2026-08-08 - Theme typed dependency ownership
+
+Implemented the source path for Workbench `T-ASSETS-027`. Public `.pdtheme`
+registration now release-validates all declared supported nested archives
+before mutation, resolves exact UI/font/SFX/music role types and catalog IDs,
+compares content on collisions, registers source-qualified child rows and
+catalog edges, and fails the parent closed across base, local, mounted
+`.pdmod`, and network-extracted paths. Theme load/retain/release balances those
+edges with rollback. Compositional child namespaces remain valid; only missing
+identity or different-content collisions reject. The write-only
+`effect_archive` field is retired in favor of inline `caustics` and
+`borderEffects`.
+
+The first isolated compile receipt was rejected because source changed during
+the run. The final integrated source-frozen client, updater, and test builds
+pass; focused `[T-ASSETS-027]` passes 2 cases / 30 assertions. The archive
+selftest, 28-root/52-recursive 27-family strict conformance, and native-source
+guard also pass after the guard exposed and the theme lane corrected a
+generator/schema mismatch for `sounds` and `menuMusic`. `T-ASSETS-027` is now
+implemented; ordinary-client edited/network/restart/device proof stays in
+`T-ASSETS-030` and the validation gates.
+
 ## 2026-08-08 - Roadmap wave 3: mission, reticle, theme, and Voice creator
 
 Completed the third source-frozen Workbench wave. `T-ASSETS-014` removed the

@@ -27,12 +27,35 @@ paths without registering or consuming any of them and accepted many inert
 fields. A non-empty example and recursive typed-dependency proof are now part
 of this pattern's closure checklist.
 
+**2026-08-08 dependency propagation:** B-987 confirms that preserving a nested
+archive path is not dependency ownership. Each supported typed child must be
+release-validated, role/type/catalog resolved, source-qualified, registered,
+connected by a catalog edge, and balanced through load/retain/release on every
+local, base, package, and network path. Parent registration must fail before
+exposing partial dependency state when any declared child is invalid; inert
+dependency slots should be rejected instead of registered without a consumer.
+
 **2026-08-08 creator propagation:** B-982 exposed the creator-side equivalent:
 an in-game tool can advertise a typed family while writing a parallel legacy
 loose format and transient catalog row. Creator audits must inspect the exact
 saved artifact, restart discovery, hot registration, network distribution,
 field-level runtime consumption, and last-good-file behavior. A menu label such
 as "Voice" is not evidence that the tool writes or reloads `.pdvoice`.
+
+**2026-08-08 unsupported-schema propagation:** B-988 found weapon material and
+grip binding files in path qualification, manifests, upgrade tooling, and a dev
+mod despite zero held/world material or hand-attachment consumers. When a
+truthful production contract is not ready, version the field out and reject it
+at both archive validation and runtime registration rather than preserving an
+aspirational source slot.
+
+**2026-08-08 active-theme propagation:** B-989 found that parsing and even
+calling a setter is insufficient when omitted values leak from the previous
+theme, declared roles fall through to procedural/native output, effects never
+reach the compositor, fonts wait for restart, or glyph pills bypass the active
+palette. Theme changes require one preflighted transaction that replaces every
+theme-owned consumer and clears omitted state; unsupported dependency classes
+must be rejected rather than retained as decoration.
 
 **Audit:** Cross-check every generated/example source key against its production
 parser and downstream consumer, not only descriptor/manifest conformance.

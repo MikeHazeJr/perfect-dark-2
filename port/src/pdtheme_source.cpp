@@ -256,26 +256,47 @@ static bool parse_palette(Parser &p, pdtheme_source_info_t &info)
 	return !p.failed;
 }
 
-static bool parse_catalog_map(Parser &p, pdtheme_source_info_t &info)
+static bool valid_texture_role(const char *key)
 {
-	if (!object_begin(p, "textures")) return false;
+	return strcmp(key, "dialog_background") == 0;
+}
+
+static bool valid_sound_role(const char *key)
+{
+	static const char *const roles[] = {
+		"swipe", "open", "focus", "select", "error", "toggle_on",
+		"toggle_off", "subfocus", "keyboard_focus", "cancel", "success"
+	};
+	for (const char *role : roles) if (strcmp(key, role) == 0) return true;
+	return false;
+}
+
+static bool parse_catalog_map(Parser &p, pdtheme_source_info_t &info, int kind)
+{
+	const char *field = kind == 0 ? "textures" : "sounds";
+	const int cap = kind == 0 ? PDTHEME_SOURCE_MAX_TEXTURES : PDTHEME_SOURCE_MAX_SOUND_ROLES;
+	int &count = kind == 0 ? info.texture_roles : info.sound_roles;
+	if (!object_begin(p, field)) return false;
 	bool first = true; char keys[PDTHEME_SOURCE_MAX_TEXTURES][64] = {{0}};
 	char key[64];
-	while (!p.failed && next_key(p, first, key, sizeof(key), "textures")) {
-		if (!valid_semantic_id(key)) { fail(p, "textures has invalid role '%s'", key); break; }
-		if (info.texture_roles >= PDTHEME_SOURCE_MAX_TEXTURES) {
-			fail(p, "textures exceeds capacity %d", PDTHEME_SOURCE_MAX_TEXTURES); break;
+	while (!p.failed && next_key(p, first, key, sizeof(key), field)) {
+		if ((kind == 0 && !valid_texture_role(key)) ||
+				(kind == 1 && !valid_sound_role(key))) {
+			fail(p, "%s has unsupported role '%s'", field, key); break;
 		}
-		for (int i = 0; i < info.texture_roles; i++) if (strcmp(keys[i], key) == 0) {
-			fail(p, "textures has duplicate role '%s'", key); break;
+		if (count >= cap) {
+			fail(p, "%s exceeds capacity %d", field, cap); break;
+		}
+		for (int i = 0; i < count; i++) if (strcmp(keys[i], key) == 0) {
+			fail(p, "%s has duplicate role '%s'", field, key); break;
 		}
 		if (p.failed) break;
 		char id[64];
 		if (!string_value(p, id, sizeof(id), key) || !valid_catalog_id(id)) {
 			if (!p.failed) fail(p, "textures.%s must be a catalog ID", key); break;
 		}
-		strncpy(keys[info.texture_roles], key, sizeof(keys[0]) - 1);
-		info.texture_roles++;
+		strncpy(keys[count], key, sizeof(keys[0]) - 1);
+		count++;
 	}
 	return !p.failed;
 }
@@ -289,7 +310,7 @@ static bool parse_simple_object(Parser &p, const char *field, int kind)
 		if (kind == 0) { /* scanline */
 			if (!strcmp(key,"enabled")) { bit=0; type=1; }
 			else if (!strcmp(key,"alpha")) { bit=1; type=2; }
-			else if (!strcmp(key,"interval")) { bit=2; type=2; lo=1; hi=16; integer=true; }
+			else if (!strcmp(key,"interval")) { bit=2; type=2; lo=1; hi=8; integer=true; }
 		} else if (kind == 1) { /* textGlow */
 			if (!strcmp(key,"enabled")) { bit=0; type=1; }
 			else if (!strcmp(key,"intensity")) { bit=1; type=2; hi=4; }
@@ -332,7 +353,7 @@ static bool parse_effect_array(Parser &p, const char *field, int kind,
 		while (!p.failed && next_key(p, first, key, sizeof(key), field)) {
 			int bit=-1, type=0; double lo=0, hi=4096; bool integer=false;
 			if (kind == 0) {
-				if (!strcmp(key,"id")) {bit=0;type=1;}
+				if (!strcmp(key,"id")) {bit=0;type=4;}
 				else if (!strcmp(key,"left")){bit=1;type=2;integer=true;}
 				else if (!strcmp(key,"right")){bit=2;type=2;integer=true;}
 				else if (!strcmp(key,"top")){bit=3;type=2;integer=true;}
@@ -340,7 +361,7 @@ static bool parse_effect_array(Parser &p, const char *field, int kind,
 				else if (!strcmp(key,"edgeMode")){bit=5;type=3;}
 				else if (!strcmp(key,"centerMode")){bit=6;type=3;}
 			} else if (kind == 1) {
-				if (!strcmp(key,"elementId")){bit=0;type=1;}
+				if (!strcmp(key,"elementId")){bit=0;type=4;}
 				else if (!strcmp(key,"textureId")){bit=1;type=4;}
 				else if (!strcmp(key,"frameCount")){bit=2;type=2;lo=1;hi=1024;integer=true;}
 				else if (!strcmp(key,"speed")){bit=3;type=2;hi=1000;}
@@ -348,7 +369,7 @@ static bool parse_effect_array(Parser &p, const char *field, int kind,
 				else if (!strcmp(key,"scale")){bit=5;type=2;lo=0.01;hi=100;}
 				else if (!strcmp(key,"blendMode")){bit=6;type=3;}
 			} else {
-				if (!strcmp(key,"elementId")){bit=0;type=1;}
+				if (!strcmp(key,"elementId")){bit=0;type=4;}
 				else if (!strcmp(key,"maskTextureId")){bit=1;type=4;}
 				else if (!strcmp(key,"opacity")){bit=2;type=2;hi=1;}
 				else if (!strcmp(key,"blendMode")){bit=3;type=3;}
@@ -391,11 +412,11 @@ extern "C" s32 pdthemeSourceParse(const char *json, size_t json_size,
 		else if(!strcmp(key,"name"))bit=2; else if(!strcmp(key,"author"))bit=3;
 		else if(!strcmp(key,"version"))bit=4; else if(!strcmp(key,"palette"))bit=5;
 		else if(!strcmp(key,"textures"))bit=6; else if(!strcmp(key,"scanline"))bit=7;
-		else if(!strcmp(key,"textGlow"))bit=8; else if(!strcmp(key,"soundPack"))bit=9;
+		else if(!strcmp(key,"textGlow"))bit=8; else if(!strcmp(key,"sounds"))bit=9;
 		else if(!strcmp(key,"menuStyle"))bit=10; else if(!strcmp(key,"font"))bit=11;
 		else if(!strcmp(key,"nineslices"))bit=12; else if(!strcmp(key,"caustics"))bit=13;
 		else if(!strcmp(key,"borderEffects"))bit=14; else if(!strcmp(key,"fontShadow"))bit=15;
-		else if(!strcmp(key,"fontGlow"))bit=16;
+		else if(!strcmp(key,"fontGlow"))bit=16; else if(!strcmp(key,"menuMusic"))bit=17;
 		if(bit<0 || (seen&(1u<<bit))){fail(p,"theme root has %s field '%s'",bit<0?"unknown":"duplicate",key);break;}
 		seen|=1u<<bit;
 		if(bit==0){char s[32];if(string_value(p,s,sizeof(s),key)&&strcmp(s,PDTHEME_SOURCE_SCHEMA))fail(p,"schema must be %s",PDTHEME_SOURCE_SCHEMA);}
@@ -403,9 +424,10 @@ extern "C" s32 pdthemeSourceParse(const char *json, size_t json_size,
 		else if(bit==2)string_value(p,info.name,sizeof(info.name),key);
 		else if(bit==3)string_value(p,info.author,sizeof(info.author),key);
 		else if(bit==4)string_value(p,info.version,sizeof(info.version),key);
-		else if(bit==5)parse_palette(p,info); else if(bit==6)parse_catalog_map(p,info);
+		else if(bit==5)parse_palette(p,info); else if(bit==6)parse_catalog_map(p,info,0);
 		else if(bit==7)parse_simple_object(p,key,0); else if(bit==8)parse_simple_object(p,key,1);
-		else if(bit==9||bit==10||bit==11){char id[64];if(string_value(p,id,sizeof(id),key)&&!valid_catalog_id(id))fail(p,"%s must be a catalog ID",key);}
+		else if(bit==9)parse_catalog_map(p,info,1);
+		else if(bit==10||bit==11||bit==17){char id[64];if(string_value(p,id,sizeof(id),key)&&!valid_catalog_id(id))fail(p,"%s must be a catalog ID",key);}
 		else if(bit==12)parse_effect_array(p,key,0,info); else if(bit==13)parse_effect_array(p,key,1,info);
 		else if(bit==14)parse_effect_array(p,key,2,info); else if(bit==15)parse_simple_object(p,key,2);
 		else if(bit==16)parse_simple_object(p,key,3);

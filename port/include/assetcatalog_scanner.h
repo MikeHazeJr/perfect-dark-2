@@ -166,6 +166,26 @@ s32 assetCatalogRegisterWeaponNestedDependencies(const char *weapon_id,
                                                   size_t err_cap);
 
 /**
+ * Register the four supported optional typed dependency roles declared by a public
+ * .pdtheme::theme.ini.  The parent descriptor and every declared child are
+ * release-validated before catalog state is mutated.  Role extension/type,
+ * existing-content identity and source paths must agree; otherwise the whole
+ * parent registration fails closed. Child IDs may use another namespace so a
+ * creator can compose a theme from already-installed typed archives.
+ *
+ * The retired effect_archive slot is rejected because theme effects are
+ * inline caustics/borderEffects, not a separately consumed .pdeffect.
+ * Successful registration creates catalog dependency edges so normal typed
+ * load/retain/release and manifest expansion own the children with the theme.
+ * Returns the number of declared dependencies registered or reused, or -1.
+ */
+s32 assetCatalogRegisterThemeNestedDependencies(const char *theme_id,
+                                                 const char *theme_archive,
+                                                 s32 bundled,
+                                                 char *err,
+                                                 size_t err_cap);
+
+/**
  * Scan the flat bot_variants/ directory directly under modsdir.
  *
  * Handles user-created bot variants saved by the in-game Bot Customizer:

@@ -14,8 +14,8 @@
  *   - Scanner and distribution ingestion also call catalogDepRegister() in reverse when an
  *     ASSET_ANIMATION entry declares a non-empty "target_body" field, so
  *     mods only need to annotate the animation side if preferred.
- *   - Base-game (bundled) entries are never given deps; their assets are
- *     always ROM-resident and the load/unload calls are no-ops.
+ *   - Bundled dependency pairs may record public source closure, but manifest
+ *     expansion skips them because bundled catalog rows are process-lifetime.
  *
  * Manifest integration:
  *   - manifestBuildMission() and manifestBuild() call
@@ -72,15 +72,19 @@ typedef void (*CatalogDepIterFn)(const char *dep_id, void *userdata);
  * same manifest.  Both arguments are catalog string IDs.
  *
  * is_bundled: 1 if the owner is a base-game (bundled) asset.  Bundled
- *   owners never have meaningful deps since their assets are always
- *   ROM-resident; pass 1 to allow consistent code paths but note that
- *   catalogDepForEach() skips bundled pairs during manifest expansion.
+ *   owners are process-lifetime; pass 1 to record source closure while
+ *   catalogDepForEach() skips those pairs during manifest expansion.
  *
  * Duplicate (owner_id, dep_id) pairs are silently ignored. Allocation failure
  * logs a warning and drops only that pair.
  */
 void catalogDepRegister(const char *owner_id, const char *dep_id,
                         s32 is_bundled);
+
+/** Ensure capacity for additional dependency pairs without mutating graph
+ * truth. Transactional composite registrars reserve before child rows become
+ * visible so later edge commits cannot be dropped by allocation failure. */
+s32 catalogDepReserve(s32 additional);
 
 /**
  * Iterate all deps registered for owner_id.

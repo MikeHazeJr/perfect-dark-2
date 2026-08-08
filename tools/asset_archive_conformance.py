@@ -870,7 +870,6 @@ SCHEMAS: dict[str, Schema] = {
             "dependencies/assets/fonts/*.pdfont",
             "dependencies/assets/audio/*.pdsfx",
             "dependencies/assets/music/*.pdsong",
-            "dependencies/assets/effects/*.pdeffect",
         ],
     ),
 }
@@ -1136,7 +1135,6 @@ OPTIONAL_PUBLIC_SLOT_CONTRACT: dict[str, dict[str, SlotJustification]] = {
         "dependencies/assets/fonts/*.pdfont": slot("theme font dependencies", "theme importer", DEPENDENCY_LOADER, "theme.json uses the active/base font"),
         "dependencies/assets/audio/*.pdsfx": slot("theme sound dependencies", "theme importer", DEPENDENCY_LOADER, "theme has no private sounds"),
         "dependencies/assets/music/*.pdsong": slot("theme music dependencies", "theme importer", DEPENDENCY_LOADER, "theme has no private music"),
-        "dependencies/assets/effects/*.pdeffect": slot("theme effect dependencies", "theme importer", DEPENDENCY_LOADER, "theme has no private effects"),
     },
 }
 
@@ -3290,7 +3288,7 @@ def validate_theme_source_contract(label: str, zf: zipfile.ZipFile,
     descriptor_keys: set[str] = set()
     allowed_descriptor = {
         "catalog_id", "name", "theme_file", "category", "ui_archive",
-        "font_archive", "audio_archive", "music_archive", "effect_archive",
+        "font_archive", "audio_archive", "music_archive",
     }
     if "theme.ini" in name_set:
         try:
@@ -3373,14 +3371,6 @@ def validate_theme_source_contract(label: str, zf: zipfile.ZipFile,
                 and name.endswith(".pdsong")
             ),
         ),
-        (
-            "effect_archive",
-            sorted(
-                name for name in name_set
-                if name.startswith("dependencies/assets/effects/")
-                and name.endswith(".pdeffect")
-            ),
-        ),
     ]
 
     for field, archives in archive_groups:
@@ -3418,9 +3408,9 @@ def validate_theme_source_contract(label: str, zf: zipfile.ZipFile,
     if theme is not None:
         allowed_top = {
             "schema", "catalog_id", "name", "author", "version", "palette",
-            "textures", "scanline", "textGlow", "soundPack", "menuStyle",
-            "font", "nineslices", "caustics", "borderEffects", "fontShadow",
-            "fontGlow",
+            "textures", "scanline", "textGlow", "sounds", "menuMusic",
+            "menuStyle", "font", "nineslices", "caustics", "borderEffects",
+            "fontShadow", "fontGlow",
         }
         unknown = set(theme) - allowed_top
         if unknown:
@@ -3445,7 +3435,7 @@ def validate_theme_source_contract(label: str, zf: zipfile.ZipFile,
                     not isinstance(value, str) or not value or len(value) > cap):
                 errors.append(f"{label} theme.json {field} is invalid")
 
-        catalog_ref_fields = ("soundPack", "menuStyle", "font")
+        catalog_ref_fields = ("menuMusic", "menuStyle", "font")
         for field in catalog_ref_fields:
             value = theme.get(field)
             if value is not None and (
@@ -3478,21 +3468,169 @@ def validate_theme_source_contract(label: str, zf: zipfile.ZipFile,
         if "textures" in theme:
             textures = pairs_to_unique(theme["textures"], "theme.json textures")
             if textures is not None:
-                if len(textures) > 16:
-                    errors.append(f"{label} theme.json textures exceeds capacity 16")
+                if set(textures) - {"dialog_background"}:
+                    errors.append(
+                        f"{label} theme.json textures supports only dialog_background"
+                    )
                 for role, value in textures.items():
-                    if not re.fullmatch(r"[A-Za-z0-9_.-]+", role):
-                        errors.append(f"{label} theme.json texture role {role} is invalid")
                     if not isinstance(value, str) or not CATALOG_ID_RE.fullmatch(value):
                         errors.append(
                             f"{label} theme.json textures.{role} must be a catalog ID"
                         )
+
+        if "sounds" in theme:
+            sounds = pairs_to_unique(theme["sounds"], "theme.json sounds")
+            sound_roles = {
+                "swipe", "open", "focus", "select", "error", "toggle_on",
+                "toggle_off", "subfocus", "keyboard_focus", "cancel", "success",
+            }
+            if sounds is not None:
+                unknown_roles = set(sounds) - sound_roles
+                if unknown_roles:
+                    errors.append(
+                        f"{label} theme.json sounds has unknown roles "
+                        + ", ".join(sorted(unknown_roles))
+                    )
+                for role, value in sounds.items():
+                    if not isinstance(value, str) or not CATALOG_ID_RE.fullmatch(value):
+                        errors.append(
+                            f"{label} theme.json sounds.{role} must be a catalog ID"
+                        )
+
+        if "scanline" in theme:
+            scanline = pairs_to_unique(theme["scanline"], "theme.json scanline")
+            if scanline is not None:
+                unknown_scanline = set(scanline) - {"enabled", "alpha", "interval"}
+                if unknown_scanline:
+                    errors.append(f"{label} theme.json scanline has unknown fields")
+                if "enabled" in scanline and not isinstance(scanline["enabled"], bool):
+                    errors.append(f"{label} theme.json scanline.enabled must be boolean")
+                alpha = scanline.get("alpha")
+                if alpha is not None and (isinstance(alpha, bool)
+                        or not isinstance(alpha, (int, float)) or not 0 <= alpha <= 1):
+                    errors.append(f"{label} theme.json scanline.alpha must be in range 0..1")
+                interval = scanline.get("interval")
+                if interval is not None and (not isinstance(interval, int)
+                        or isinstance(interval, bool) or not 1 <= interval <= 8):
+                    errors.append(f"{label} theme.json scanline.interval must be 1..8")
+
+        simple_objects = {
+            "textGlow": {
+                "enabled": (bool, None), "intensity": ((int, float), (0, 4)),
+                "color": (str, "color"),
+            },
+            "fontShadow": {
+                "offsetX": ((int, float), (-32, 32)),
+                "offsetY": ((int, float), (-32, 32)), "color": (str, "color"),
+            },
+            "fontGlow": {
+                "radius": ((int, float), (0, 32)),
+                "intensity": ((int, float), (0, 4)), "color": (str, "color"),
+                "passes": (int, (1, 8)),
+            },
+        }
+        for field, contract in simple_objects.items():
+            if field not in theme:
+                continue
+            values = pairs_to_unique(theme[field], f"theme.json {field}")
+            if values is None:
+                continue
+            if set(values) - set(contract):
+                errors.append(f"{label} theme.json {field} has unknown fields")
+            for key, value in values.items():
+                if key not in contract:
+                    continue
+                expected, rule = contract[key]
+                if expected is bool:
+                    valid = isinstance(value, bool)
+                elif expected is str:
+                    valid = isinstance(value, str) and bool(
+                        re.fullmatch(r"[0-9A-Fa-f]{8}", value))
+                else:
+                    valid = (not isinstance(value, bool)
+                             and isinstance(value, expected))
+                    if valid and rule is not None:
+                        valid = rule[0] <= value <= rule[1]
+                    if valid and expected is int:
+                        valid = isinstance(value, int)
+                if not valid:
+                    errors.append(f"{label} theme.json {field}.{key} is invalid")
 
         array_caps = {"nineslices": 16, "caustics": 8, "borderEffects": 8}
         for field, cap in array_caps.items():
             value = theme.get(field)
             if value is not None and (not isinstance(value, list) or len(value) > cap):
                 errors.append(f"{label} theme.json {field} must contain at most {cap} rows")
+
+        row_contracts = {
+            "nineslices": {
+                "required": {"id", "left", "right", "top", "bottom", "edgeMode", "centerMode"},
+                "catalog": {"id"}, "modes": {"edgeMode", "centerMode"},
+            },
+            "caustics": {
+                "required": {"elementId", "textureId", "frameCount", "speed", "opacity", "scale", "blendMode"},
+                "catalog": {"elementId", "textureId"}, "modes": {"blendMode"},
+            },
+            "borderEffects": {
+                "required": {"elementId", "maskTextureId", "opacity", "blendMode", "tintColor", "scrollX", "scrollY"},
+                "catalog": {"elementId", "maskTextureId"}, "modes": {"blendMode"},
+            },
+        }
+        for field, contract in row_contracts.items():
+            rows = theme.get(field)
+            if not isinstance(rows, list):
+                continue
+            for index, raw_row in enumerate(rows):
+                row = pairs_to_unique(raw_row, f"theme.json {field}[{index}]")
+                if row is None:
+                    continue
+                if set(row) != contract["required"]:
+                    errors.append(
+                        f"{label} theme.json {field}[{index}] fields do not match schema"
+                    )
+                for key in contract["catalog"] & set(row):
+                    value = row[key]
+                    if not isinstance(value, str) or not CATALOG_ID_RE.fullmatch(value):
+                        errors.append(
+                            f"{label} theme.json {field}[{index}].{key} must be a catalog ID"
+                        )
+                for key in contract["modes"] & set(row):
+                    allowed_modes = {"stretch", "tile"} if field == "nineslices" else {
+                        "multiply", "additive", "screen"
+                    }
+                    if row[key] not in allowed_modes:
+                        errors.append(
+                            f"{label} theme.json {field}[{index}].{key} is invalid"
+                        )
+                numeric_ranges = {
+                    "nineslices": {
+                        "left": (0, 4096, True), "right": (0, 4096, True),
+                        "top": (0, 4096, True), "bottom": (0, 4096, True),
+                    },
+                    "caustics": {
+                        "frameCount": (1, 1024, True), "speed": (0, 1000, False),
+                        "opacity": (0, 1, False), "scale": (0.01, 100, False),
+                    },
+                    "borderEffects": {
+                        "opacity": (0, 1, False), "scrollX": (-1000, 1000, False),
+                        "scrollY": (-1000, 1000, False),
+                    },
+                }[field]
+                for key, (low, high, integer) in numeric_ranges.items():
+                    value = row.get(key)
+                    if (isinstance(value, bool) or not isinstance(value, (int, float))
+                            or not low <= value <= high
+                            or (integer and not isinstance(value, int))):
+                        errors.append(
+                            f"{label} theme.json {field}[{index}].{key} is out of range"
+                        )
+                if field == "borderEffects":
+                    tint = row.get("tintColor")
+                    if not isinstance(tint, str) or not re.fullmatch(
+                            r"[0-9A-Fa-f]{8}", tint):
+                        errors.append(
+                            f"{label} theme.json borderEffects[{index}].tintColor must be 8 hex digits"
+                        )
 
     if "_meta/manifest.json" not in name_set:
         return
@@ -3506,7 +3644,7 @@ def validate_theme_source_contract(label: str, zf: zipfile.ZipFile,
 
     private_authority = {
         "theme_file", "ui_archive", "font_archive", "audio_archive",
-        "music_archive", "effect_archive",
+        "music_archive",
     } & set(manifest)
     if private_authority:
         errors.append(
@@ -7525,8 +7663,6 @@ def validate_archive_bytes(data: bytes, label: str, ext: str,
                     ("shared_context_file", "behavior/shared-context.json"),
                 )
                 optional_source_members = (
-                    ("material_slots_file", "bindings/material-slots.json"),
-                    ("grip_sockets_file", "bindings/grip-sockets.json"),
                     ("presentation_file", "bindings/presentation.json"),
                     ("primary_projectile_archive", "dependencies/assets/projectiles/primary.pdprojectile"),
                     ("deployed_entity_archive", "dependencies/assets/entities/deployed.pdentity"),
@@ -7542,6 +7678,23 @@ def validate_archive_bytes(data: bytes, label: str, ext: str,
                     if manifest.get(key) != member:
                         result.errors.append(
                             f"{label} _meta/manifest.json must declare {key} = {member}"
+                        )
+                retired_weapon_bindings = (
+                    ("material_slots_file", "bindings/material-slots.json"),
+                    ("grip_sockets_file", "bindings/grip-sockets.json"),
+                )
+                for key, member in retired_weapon_bindings:
+                    if descriptor_value(text, key):
+                        result.errors.append(
+                            f"{label} weapon.ini declares retired {key}; nested .pdmesh materials/hierarchy and weapon placement fields are authoritative"
+                        )
+                    if manifest.get(key):
+                        result.errors.append(
+                            f"{label} _meta/manifest.json declares retired {key}"
+                        )
+                    if member in name_set:
+                        result.errors.append(
+                            f"{label} contains retired member {member} with no production consumer"
                         )
                 for key, member in optional_source_members:
                     declared = (

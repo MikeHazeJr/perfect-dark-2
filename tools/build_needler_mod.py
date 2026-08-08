@@ -23,10 +23,8 @@ The weapon archive embeds its entire dependency closure under
         weapon.ini
         behavior/{primary,secondary}.graph.json
         behavior/{settings,variables,shared-context}.json
-        bindings/{material-slots,grip-sockets,presentation}.json
+        bindings/presentation.json
         dependencies/assets/models/weapon.pdmesh          (held Needler body)
-        dependencies/assets/materials/default.pdmaterial  (pink crystalline)
-        dependencies/assets/textures/body.pdtexture       (pink crystal body)
         dependencies/assets/projectiles/primary.pdprojectile    (homing needle)
         dependencies/assets/projectiles/secondary.pdprojectile  (burst needle)
         _meta/manifest.json
@@ -42,8 +40,6 @@ Catalog IDs (namespace ``mod_needler`` == mod id ``needler``):
     mod_needler:needler                      the weapon (custom-slot bound on scan)
     mod_needler:needler_model                the held first-person weapon mesh
     mod_needler:needle                       the projectile needle spike mesh
-    mod_needler:needle_crystal               the pink crystalline material
-    mod_needler:needle_body                  the pink crystal body texture
     mod_needler:needler__projectile_homing   primary tracking needle
     mod_needler:needler__projectile_burst    secondary non-tracking needle
     mod_needler:pink_burst_effect            small pink contact explosion
@@ -75,9 +71,6 @@ from pathlib import Path
 #   ZIP_TIME        -- fixed (1980,1,1) timestamp -> deterministic archives
 #   manifest_with   -- canonical pd.asset_archive.manifest.v1 builder
 #   effect_manifest -- canonical effect manifest (effect_file + timeline_file)
-# material_manifest() is intentionally NOT imported: it hardcodes the example's
-# tri_texture/tri_effect dependency paths, so the needler material manifest is
-# built with manifest_with() declaring THIS archive's own member paths instead.
 # ---------------------------------------------------------------------------
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from build_typed_pdxxx_examples import (  # noqa: E402  (after sys.path tweak)
@@ -112,8 +105,6 @@ def cid(local: str) -> str:
 WEAPON_ID = cid("needler")
 HELD_MESH_ID = cid("needler_model")
 NEEDLE_MESH_ID = cid("needle")
-MATERIAL_ID = cid("needle_crystal")
-BODY_TEXTURE_ID = cid("needle_body")
 HOMING_PROJECTILE_ID = cid("needler__projectile_homing")
 BURST_PROJECTILE_ID = cid("needler__projectile_burst")
 BURST_EFFECT_ID = cid("pink_burst_effect")
@@ -527,25 +518,6 @@ def build_held_weapon_mesh() -> bytes:
     ])
 
 
-def build_body_texture() -> bytes:
-    png = solid_rgba_png(2, 2, (236, 64, 168, 255))  # pink crystal body
-    return build_archive_bytes([
-        ("texture.ini",
-         "; needle_body.pdtexture - pink crystal body texture (self-contained)\n"
-         "[texture]\n"
-         f"catalog_id = {BODY_TEXTURE_ID}\n"
-         "name = Needle Crystal Body\n"
-         "\n[source]\n"
-         "texture_file = texture.png\n"
-         "\n[meta]\n"
-         "manifest = _meta/manifest.json\n"),
-        ("texture.png", png),
-        ("_meta/manifest.json", manifest_with("texture", BODY_TEXTURE_ID, {
-            "texture_file": "texture.png",
-        })),
-    ])
-
-
 def build_spark_texture() -> bytes:
     png = solid_rgba_png(2, 2, (255, 128, 210, 255))  # bright pink spark
     return build_archive_bytes([
@@ -561,44 +533,6 @@ def build_spark_texture() -> bytes:
         ("texture.png", png),
         ("_meta/manifest.json", manifest_with("texture", SPARK_TEXTURE_ID, {
             "texture_file": "texture.png",
-        })),
-    ])
-
-
-def build_crystal_material(body_texture: bytes) -> bytes:
-    material_json = json.dumps({
-        "schema": "pd2.material.v1",
-        "catalog_id": MATERIAL_ID,
-        "name": "Needle Crystal",
-        "shading_model": "pd2_unlit",
-        "base_color": [1.0, 0.35, 0.75, 1.0],
-        "texture_slots": [
-            # "archive" is an intra-archive member path, not a catalog-ref key
-            # (does not end in _ref/_catalog_id), so the conformance ref scanner
-            # leaves it alone -- matching the example tri_material's slot shape.
-            {"name": "base_color",
-             "archive": "dependencies/assets/texture/body.pdtexture"},
-        ],
-    }, indent=2) + "\n"
-    return build_archive_bytes([
-        ("material.ini",
-         "; needle_crystal.pdmaterial - pink crystalline needle material\n"
-         "[material]\n"
-         f"catalog_id = {MATERIAL_ID}\n"
-         "name = Needle Crystal\n"
-         "shader = pd2_unlit\n"
-         "material_file = material.json\n"
-         "texture_archive = dependencies/assets/texture/body.pdtexture\n"
-         "\n[meta]\n"
-         "manifest = _meta/manifest.json\n"),
-        ("material.json", material_json),
-        ("dependencies/assets/texture/body.pdtexture", body_texture),
-        # material_manifest() hardcodes the example texture path; declare the
-        # texture_archive/material_file fields explicitly instead so the
-        # manifest matches THIS archive's member layout.
-        ("_meta/manifest.json", manifest_with("material", MATERIAL_ID, {
-            "material_file": "material.json",
-            "texture_archive": "dependencies/assets/texture/body.pdtexture",
         })),
     ])
 
@@ -764,8 +698,8 @@ def build_burst_projectile(needle_mesh: bytes, burst_effect: bytes,
 # ---------------------------------------------------------------------------
 # The weapon -- adapts update_weapon member-for-member.
 # ---------------------------------------------------------------------------
-def build_weapon(held_weapon_mesh: bytes, crystal_material: bytes, body_texture: bytes,
-                 homing_projectile: bytes, burst_projectile: bytes) -> bytes:
+def build_weapon(held_weapon_mesh: bytes, homing_projectile: bytes,
+                 burst_projectile: bytes) -> bytes:
     # event.trigger_pressed + spawn.fired_projectile are live weapon node kinds
     # (weapon_graph_runtime.c s_modules lines 63, 76). The spawn node reads
     # "mode", "function_type" (-> INVENTORYFUNCTYPE_SHOOT_PROJECTILE for
@@ -809,8 +743,6 @@ def build_weapon(held_weapon_mesh: bytes, crystal_material: bytes, body_texture:
          "settings_file = behavior/settings.json\n"
          "variables_file = behavior/variables.json\n"
          "shared_context_file = behavior/shared-context.json\n"
-         "material_slots_file = bindings/material-slots.json\n"
-         "grip_sockets_file = bindings/grip-sockets.json\n"
          "presentation_file = bindings/presentation.json\n"
          "primary_projectile_archive = dependencies/assets/projectiles/primary.pdprojectile\n"
          "\n[meta]\n"
@@ -834,24 +766,11 @@ def build_weapon(held_weapon_mesh: bytes, crystal_material: bytes, body_texture:
             "contexts": ["owner_player", "owner_team",
                          "weapon_instance", "damage_credit_player"],
         })),
-        # "material" here is an intra-archive member path (not a catalog-ref
-        # key), matching the example tri_weapon material-slots shape exactly.
-        ("bindings/material-slots.json", dumps_graph({
-            "schema": "pd.weapon.material_slots.v1",
-            "slots": [{"name": "body",
-                       "material": "dependencies/assets/materials/default.pdmaterial"}],
-        })),
-        ("bindings/grip-sockets.json", dumps_graph({
-            "schema": "pd.weapon.grip_sockets.v1",
-            "sockets": [{"name": "primary_grip", "mesh_socket": "grip"}],
-        })),
         ("bindings/presentation.json", dumps_graph({
             "schema": "pd.weapon.presentation.v1",
             "crosshair": "default",
         })),
         ("dependencies/assets/models/weapon.pdmesh", held_weapon_mesh),
-        ("dependencies/assets/materials/default.pdmaterial", crystal_material),
-        ("dependencies/assets/textures/body.pdtexture", body_texture),
         ("dependencies/assets/projectiles/primary.pdprojectile", homing_projectile),
         ("dependencies/assets/projectiles/secondary.pdprojectile", burst_projectile),
         ("_meta/manifest.json", manifest_with("weapon", WEAPON_ID, {
@@ -865,8 +784,6 @@ def build_weapon(held_weapon_mesh: bytes, crystal_material: bytes, body_texture:
             "settings_file": "behavior/settings.json",
             "variables_file": "behavior/variables.json",
             "shared_context_file": "behavior/shared-context.json",
-            "material_slots_file": "bindings/material-slots.json",
-            "grip_sockets_file": "bindings/grip-sockets.json",
             "presentation_file": "bindings/presentation.json",
             "primary_projectile_archive": "dependencies/assets/projectiles/primary.pdprojectile",
             # Spawn-path bridge (B-912): the player fire path dispatches through
@@ -926,9 +843,7 @@ def build() -> Path:
     # Leaf dependencies first.
     held_weapon_mesh = build_held_weapon_mesh()
     needle_mesh = build_needle_mesh()
-    body_texture = build_body_texture()
     spark_texture = build_spark_texture()
-    crystal_material = build_crystal_material(body_texture)
     burst_effect = build_pink_burst_effect(spark_texture)
 
     # Projectiles embed their own closures.
@@ -937,8 +852,7 @@ def build() -> Path:
 
     # The weapon embeds everything.
     build_weapon(
-        held_weapon_mesh, crystal_material, body_texture,
-        homing_projectile, burst_projectile,
+        held_weapon_mesh, homing_projectile, burst_projectile,
     )
 
     write_mod_json()

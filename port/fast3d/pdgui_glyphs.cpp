@@ -364,10 +364,10 @@ static f32 drawPromptInternal(InputAction action, f32 x, f32 y, const char *labe
 	const float pillH = ts.y + padY * 2.0f;
 	const float rounding = 3.0f * scale;
 
-	const ImU32 bgCol     = IM_COL32(8, 14, 24, 230);
-	const ImU32 borderCol = pdguiGetTitleGlow();
-	const ImU32 keyFg     = IM_COL32(235, 245, 255, 240);
-	const ImU32 labelFg   = IM_COL32(210, 225, 240, 230);
+	const ImU32 bgCol     = pdguiPalImU32(PDPAL_BODYBG, 230);
+	const ImU32 borderCol = pdguiImU32TitleGlow(220);
+	const ImU32 keyFg     = pdguiPalImU32(PDPAL_TITLEFG, 240);
+	const ImU32 labelFg   = pdguiPalImU32(PDPAL_ITEM_UNFOCUSED, 230);
 
 	fg->AddRectFilled(ImVec2(x, y), ImVec2(x + pillW, y + pillH), bgCol, rounding);
 	fg->AddRect(ImVec2(x, y), ImVec2(x + pillW, y + pillH), borderCol, rounding, 0, 1.2f * scale);
@@ -439,10 +439,10 @@ extern "C" f32 pdguiDrawActionPromptCenteredWithHold(InputAction action, f32 cx,
 	const float totalW = holdSz.x + gap + pillW + gap + verbSz.x;
 	const float x0 = cx - totalW * 0.5f;
 
-	const ImU32 bgCol   = IM_COL32(8, 14, 24, 230);
-	const ImU32 borderCol = pdguiGetTitleGlow();
-	const ImU32 keyFg   = IM_COL32(235, 245, 255, 240);
-	const ImU32 labelFg = IM_COL32(210, 225, 240, 230);
+	const ImU32 bgCol   = pdguiPalImU32(PDPAL_BODYBG, 230);
+	const ImU32 borderCol = pdguiImU32TitleGlow(220);
+	const ImU32 keyFg   = pdguiPalImU32(PDPAL_TITLEFG, 240);
+	const ImU32 labelFg = pdguiPalImU32(PDPAL_ITEM_UNFOCUSED, 230);
 
 	fg->AddText(ImVec2(x0, y + padY), labelFg, holdPrefix);
 

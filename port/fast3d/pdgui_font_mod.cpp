@@ -19,6 +19,8 @@
 #include "system.h"
 #include "fs.h"
 #include "modmgr.h"   /* B-238 follow-up: MODMGR_RESERVED_NAMES_LIST */
+#include "assetcatalog.h"
+#include "assetprovider.h"
 
 #define FONTMOD_MAX             32
 #define FONTMOD_NAME_LEN        96
@@ -342,7 +344,60 @@ const char *pdguiFontModGetActivePath(void)
             return s_Fonts[i].path;
         }
     }
+
+    const asset_entry_t *entry = assetCatalogGetMutable(s_CfgId);
+    if (entry && entry->type == ASSET_FONT && entry->enabled) {
+        /* Catalog font_file is the public face member, including archive
+         * chains such as theme.pdtheme::font.pdfont::font.ttf. The primary
+         * provider path names the .pdfont container and is not itself a
+         * loadable vector face. */
+        const char *path = entry->ext.font.font_file;
+        if (path && (has_ext(path, ".ttf") || has_ext(path, ".otf"))) {
+            return path;
+        }
+    }
     return nullptr;
+}
+
+s32 pdguiFontModValidateCatalogId(const char *catalog_id,
+                                  char *error, size_t error_cap)
+{
+    if (error && error_cap) error[0] = '\0';
+    if (!catalog_id || !catalog_id[0]) return 1;
+    const asset_entry_t *entry = assetCatalogGetMutable(catalog_id);
+    if (!entry || entry->type != ASSET_FONT || !entry->enabled) {
+        if (error && error_cap) snprintf(error, error_cap,
+            "font source is missing, disabled, or wrong-type");
+        return 0;
+    }
+    const char *path = entry->ext.font.font_file;
+    if (!path || (!has_ext(path, ".ttf") && !has_ext(path, ".otf"))) {
+        if (error && error_cap) snprintf(error, error_cap,
+            "theme fonts require a public TTF or OTF source");
+        return 0;
+    }
+    u32 size = 0;
+    void *bytes = fsFileLoad(path, &size);
+    if (!bytes || size < 12) {
+        if (bytes) free(bytes);
+        if (error && error_cap) snprintf(error, error_cap,
+            "theme font public source is unreadable");
+        return 0;
+    }
+    const u8 *sig = (const u8 *)bytes;
+    const bool sfnt = (sig[0] == 0x00 && sig[1] == 0x01 &&
+                       sig[2] == 0x00 && sig[3] == 0x00) ||
+                      !memcmp(sig, "OTTO", 4) ||
+                      !memcmp(sig, "true", 4) ||
+                      !memcmp(sig, "typ1", 4) ||
+                      !memcmp(sig, "ttcf", 4);
+    free(bytes);
+    if (!sfnt) {
+        if (error && error_cap) snprintf(error, error_cap,
+            "theme font public source is not a valid SFNT face");
+        return 0;
+    }
+    return 1;
 }
 
 } /* extern "C" */

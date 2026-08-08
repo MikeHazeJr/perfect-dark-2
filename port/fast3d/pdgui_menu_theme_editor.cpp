@@ -23,6 +23,10 @@
 #include <errno.h>
 #include <PR/ultratypes.h>
 
+#ifdef _WIN32
+#include <windows.h>
+#endif
+
 #include "imgui/imgui.h"
 #include "pdgui_menu_theme_editor.h"
 #include "pdgui_style.h"
@@ -34,8 +38,11 @@
 #include "system.h"
 #include "fs.h"
 #include "pdgui_audio.h"
+#include "pdgui_glyphs.h"
 #include "pdgui_widgets.h"      /* Priority L: shared label-left widget helpers */
 #include "modpack_pdmod.h"   /* Priority M / B-238 / M-3.2 */
+#include "assetcatalog_scanner.h"
+#include "theme_archive_authoring.h"
 
 /* =========================================================================
  * State
@@ -70,6 +77,8 @@ static bool s_SaveSuccess = false;
 #define THEME_EDITOR_CATALOG_ID_LEN 64
 static char s_SaveBundleChromeId[THEME_EDITOR_CATALOG_ID_LEN] = "";
 static char s_SaveBundleFontId[THEME_EDITOR_CATALOG_ID_LEN]   = "";
+static char s_SaveBundleAudioId[THEME_EDITOR_CATALOG_ID_LEN]  = "";
+static char s_SaveBundleMusicId[THEME_EDITOR_CATALOG_ID_LEN]  = "";
 
 /* =========================================================================
  * Palette field metadata for the UI
@@ -185,139 +194,178 @@ static void palToHex(u32 rgba, char *out, int maxlen)
     snprintf(out, maxlen, "%08x", rgba);
 }
 
+static bool jsonEscape(const char *input, char *output, size_t outputCap)
+{
+    size_t used = 0;
+    if (!input || !output || outputCap == 0) return false;
+    for (const unsigned char *p = (const unsigned char *)input; *p; p++) {
+        const char *escape = nullptr;
+        char unicode[7];
+        switch (*p) {
+        case '"': escape = "\\\""; break;
+        case '\\': escape = "\\\\"; break;
+        case '\b': escape = "\\b"; break;
+        case '\f': escape = "\\f"; break;
+        case '\n': escape = "\\n"; break;
+        case '\r': escape = "\\r"; break;
+        case '\t': escape = "\\t"; break;
+        default:
+            if (*p < 0x20) {
+                snprintf(unicode, sizeof(unicode), "\\u%04x", (unsigned)*p);
+                escape = unicode;
+            }
+            break;
+        }
+        if (escape) {
+            size_t add = strlen(escape);
+            if (used + add >= outputCap) return false;
+            memcpy(output + used, escape, add);
+            used += add;
+        } else {
+            if (used + 1 >= outputCap) return false;
+            output[used++] = (char)*p;
+        }
+    }
+    output[used] = '\0';
+    return true;
+}
+
+static bool makeThemeIdentity(const char *name, char *slug, size_t slugCap,
+                              char *catalogId, size_t catalogCap)
+{
+    size_t used = 0;
+    if (!name || !name[0] || !slug || slugCap < 2 || !catalogId) return false;
+    for (const char *p = name; *p && used + 1 < slugCap; p++) {
+        char c = *p;
+        if (c == ' ') c = '-';
+        else c = (char)tolower((unsigned char)c);
+        if ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')
+                || c == '-' || c == '_') {
+            slug[used++] = c;
+        }
+    }
+    slug[used] = '\0';
+    if (used == 0) return false;
+    int n = snprintf(catalogId, catalogCap, "%s:theme", slug);
+    return n > 0 && (size_t)n < catalogCap;
+}
+
+struct ThemeDependencySelection {
+    theme_archive_dependency_role_e role;
+    asset_type_e type;
+    const char *extension;
+    const char *label;
+    char *catalogId;
+};
+
+static ThemeDependencySelection k_DependencySelections[] = {
+    { THEME_ARCHIVE_DEP_UI, ASSET_UI, ".pdui", "Menu UI", s_SaveBundleChromeId },
+    { THEME_ARCHIVE_DEP_FONT, ASSET_FONT, ".pdfont", "Font", s_SaveBundleFontId },
+    { THEME_ARCHIVE_DEP_AUDIO, ASSET_AUDIO, ".pdsfx", "Menu sounds", s_SaveBundleAudioId },
+    { THEME_ARCHIVE_DEP_MUSIC, ASSET_AUDIO, ".pdsong", "Menu music", s_SaveBundleMusicId },
+};
+
+static bool catalogArchivePathForSelection(
+    const ThemeDependencySelection &selection, const char *catalogId,
+    char *out, size_t outCap)
+{
+    const asset_entry_t *entry = assetCatalogResolve(catalogId);
+    if (!entry || !entry->enabled || entry->type != selection.type) return false;
+    const char *sources[] = { entry->dirpath, entry->descriptor_path };
+    for (const char *source : sources) {
+        if (!source || !source[0]) continue;
+        const char *match = nullptr;
+        for (const char *p = strstr(source, selection.extension); p;
+                p = strstr(p + 1, selection.extension)) {
+            match = p;
+        }
+        if (!match) continue;
+        size_t length = (size_t)(match - source) + strlen(selection.extension);
+        char trailing = source[length];
+        if (trailing != '\0' && !(trailing == ':' && source[length + 1] == ':')) {
+            continue;
+        }
+        if (length >= outCap) return false;
+        memcpy(out, source, length);
+        out[length] = '\0';
+        return true;
+    }
+    return false;
+}
+
+static bool themeSelectionUsable(const ThemeDependencySelection &selection,
+                                 const char *catalogId, char *archivePath,
+                                 size_t archivePathCap)
+{
+    if (!catalogArchivePathForSelection(selection, catalogId, archivePath,
+                                        archivePathCap)) return false;
+    if (selection.role == THEME_ARCHIVE_DEP_FONT) {
+        char error[192];
+        if (!pdguiFontModValidateCatalogId(catalogId, error, sizeof(error))) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static size_t collectThemeDependencies(theme_archive_dependency_t *out,
+                                       char paths[][FS_MAXPATH],
+                                       char *error, size_t errorCap)
+{
+    size_t count = 0;
+    for (const ThemeDependencySelection &selection : k_DependencySelections) {
+        if (!selection.catalogId[0]) continue;
+        if (!themeSelectionUsable(selection, selection.catalogId,
+                paths[count], FS_MAXPATH)) {
+            snprintf(error, errorCap, "%s '%s' is not an enabled typed archive",
+                     selection.label, selection.catalogId);
+            return (size_t)-1;
+        }
+        out[count] = { selection.role, selection.catalogId, paths[count] };
+        count++;
+    }
+    return count;
+}
+
+static void renderDependencyCombo(const ThemeDependencySelection &selection,
+                                  float scale)
+{
+    const asset_entry_t *choices[64];
+    s32 count = 0;
+    for (s32 i = 0; i < assetCatalogGetPoolSize() && count < 64; i++) {
+        const asset_entry_t *entry = assetCatalogGetByIndex(i);
+        char path[FS_MAXPATH];
+        if (entry && entry->enabled && entry->type == selection.type
+                && themeSelectionUsable(selection, entry->id,
+                    path, sizeof(path))) {
+            choices[count++] = entry;
+        }
+    }
+    const char *preview = selection.catalogId[0] ? selection.catalogId : "(none)";
+    char comboLabel[96];
+    snprintf(comboLabel, sizeof(comboLabel), "%s##theme_dep_%d",
+             selection.label, (int)selection.role);
+    ImGui::SetNextItemWidth(300.0f * scale);
+    if (ImGui::BeginCombo(comboLabel, preview)) {
+        if (ImGui::Selectable("(none)", !selection.catalogId[0])) {
+            selection.catalogId[0] = '\0';
+        }
+        for (s32 i = 0; i < count; i++) {
+            bool selected = strcmp(selection.catalogId, choices[i]->id) == 0;
+            if (ImGui::Selectable(choices[i]->id, selected)) {
+                snprintf(selection.catalogId, THEME_EDITOR_CATALOG_ID_LEN,
+                         "%s", choices[i]->id);
+            }
+        }
+        ImGui::EndCombo();
+    }
+}
+
 /* =========================================================================
  * Save theme as mod
  * ========================================================================= */
 
-static bool saveThemeAsMod(const char *name, const char *author)
-{
-    if (!name || !name[0]) return false;
-
-    /* Sanitize name for directory: lowercase, replace spaces with dashes */
-    char dirName[64];
-    int len = 0;
-    for (int i = 0; name[i] && len < 62; i++) {
-        char c = name[i];
-        if (c == ' ') c = '-';
-        else if (c >= 'A' && c <= 'Z') c = c + 32;
-        else if (!((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' || c == '_'))
-            continue;
-        dirName[len++] = c;
-    }
-    dirName[len] = '\0';
-    if (!len) return false;
-
-    /* Create mod directory (and parent mods/ if needed) */
-    char modDir[256];
-    snprintf(modDir, sizeof(modDir), "mods/%s", dirName);
-
-    if (!fsCreateDir("mods")) {
-        sysLogPrintf(LOG_WARNING, "Theme editor: cannot create 'mods/' directory (errno %d)", errno);
-        return false;
-    }
-    if (!fsCreateDir(modDir)) {
-        sysLogPrintf(LOG_WARNING, "Theme editor: cannot create '%s/' directory (errno %d)", modDir, errno);
-        return false;
-    }
-
-    /* Write mod.json */
-    char modJsonPath[280];
-    snprintf(modJsonPath, sizeof(modJsonPath), "%s/mod.json", modDir);
-
-    FILE *f = fsFileOpenWrite(modJsonPath);
-    if (!f) {
-        sysLogPrintf(LOG_WARNING, "Theme editor: cannot open '%s' for write (errno %d)", modJsonPath, errno);
-        return false;
-    }
-
-    fprintf(f, "{\n");
-    fprintf(f, "  \"id\": \"%s\",\n", dirName);
-    fprintf(f, "  \"name\": \"%s\",\n", name);
-    fprintf(f, "  \"version\": \"1.0\",\n");
-    fprintf(f, "  \"author\": \"%s\",\n", author[0] ? author : "User");
-    fprintf(f, "  \"description\": \"Custom theme created with Theme Editor\",\n");
-    fprintf(f, "  \"base_fallback\": \"base:theme_blue\"\n");
-    fprintf(f, "}\n");
-    if (ferror(f)) {
-        sysLogPrintf(LOG_WARNING, "Theme editor: write error on '%s'", modJsonPath);
-        fclose(f);
-        return false;
-    }
-    fclose(f);
-
-    /* Write theme.json */
-    char themeJsonPath[280];
-    snprintf(themeJsonPath, sizeof(themeJsonPath), "%s/theme.json", modDir);
-
-    f = fsFileOpenWrite(themeJsonPath);
-    if (!f) {
-        sysLogPrintf(LOG_WARNING, "Theme editor: cannot open '%s' for write (errno %d)", themeJsonPath, errno);
-        return false;
-    }
-
-    fprintf(f, "{\n");
-    fprintf(f, "  \"name\": \"%s\",\n", name);
-    fprintf(f, "  \"author\": \"%s\",\n", author[0] ? author : "User");
-    fprintf(f, "  \"version\": \"1.0\",\n");
-    fprintf(f, "  \"palette\": {\n");
-
-    /* S306: palette block now includes both legacy 15 fields and the five
-     * extension fields. A field is emitted only when non-zero so older
-     * loaders that don't know about the extensions skip them quietly
-     * (parse_theme_json ignores unknown keys), and derived defaults
-     * kick in for any extension the user never touched. Comma placement
-     * is computed up-front from how many non-zero fields we'll emit. */
-    int nWrite = 0;
-    for (int i = 0; i < NUM_FIELDS; i++) {
-        int idx = k_Fields[i].index;
-        if (idx < 15) { nWrite++; continue; }
-        if (s_WorkPalette[idx] != 0) nWrite++;
-    }
-
-    int written = 0;
-    for (int i = 0; i < NUM_FIELDS; i++) {
-        int idx = k_Fields[i].index;
-        /* Skip zero extensions so viewers see a tidy file */
-        if (idx >= 15 && s_WorkPalette[idx] == 0) continue;
-        char hex[16];
-        palToHex(s_WorkPalette[idx], hex, sizeof(hex));
-        written++;
-        fprintf(f, "    \"%s\": \"%s\"%s\n",
-                k_Fields[i].jsonKey, hex,
-                (written < nWrite) ? "," : "");
-    }
-
-    fprintf(f, "  },\n");
-    /* S306: emit bundle fields when the user picked a Menu Style / Font. */
-    if (s_SaveBundleChromeId[0]) {
-        fprintf(f, "  \"menuStyle\": \"%s\",\n", s_SaveBundleChromeId);
-    }
-    if (s_SaveBundleFontId[0]) {
-        fprintf(f, "  \"font\": \"%s\",\n", s_SaveBundleFontId);
-    }
-    fprintf(f, "  \"scanline\": { \"enabled\": true, \"alpha\": 0.8 },\n");
-    fprintf(f, "  \"textGlow\": { \"enabled\": true, \"intensity\": 0.6, \"color\": \"0080ffff\" },\n");
-    fprintf(f, "  \"soundPack\": \"default\"\n");
-    fprintf(f, "}\n");
-    if (ferror(f)) {
-        sysLogPrintf(LOG_WARNING, "Theme editor: write error on '%s'", themeJsonPath);
-        fclose(f);
-        return false;
-    }
-    fclose(f);
-
-    sysLogPrintf(LOG_NOTE, "Theme editor: saved theme '%s' to %s/", name, modDir);
-
-    /* 2026-04-11: register the newly written theme with the loader so it
-     * appears in this session's Load Theme dropdown AND the Settings UI
-     * Theme selector without requiring a restart.  pdguiThemeRegisterModDir
-     * is idempotent — if the slug is already registered the call is a
-     * no-op.  See pdgui_theme_loader.cpp. */
-    pdguiThemeRegisterModDir(dirName, themeJsonPath);
-
-    return true;
-}
-
+static bool saveThemeAsMod(const char *name, const char *author);
 /* =========================================================================
  * M-3.2: Save theme as a .pdmod archive (canonical mod format per B-238).
  *
@@ -330,13 +378,22 @@ static bool saveThemeAsMod(const char *name, const char *author)
 /* Compose theme.json into a fresh malloc'd, NUL-terminated buffer.
  * Returns NULL on allocation failure. *outLen is the byte length excluding
  * the trailing NUL. */
-static char *buildThemeJsonBuffer(const char *name, const char *author, u32 *outLen)
+static char *buildThemeJsonBuffer(const char *name, const char *author,
+                                  const char *catalogId, u32 *outLen)
 {
     /* Worst-case: 32 fields x 60 chars + bundle/scanline/glow/sound = ~3 KiB.
      * 8 KiB buffer is plenty headroom. */
     const u32 cap = 8192;
     char *buf = (char *)malloc(cap);
     if (!buf) return NULL;
+    char escapedName[256];
+    char escapedAuthor[256];
+    if (!jsonEscape(name, escapedName, sizeof(escapedName))
+            || !jsonEscape(author && author[0] ? author : "User",
+                escapedAuthor, sizeof(escapedAuthor))) {
+        free(buf);
+        return NULL;
+    }
 
     int written = 0;
     int n;
@@ -347,9 +404,11 @@ static char *buildThemeJsonBuffer(const char *name, const char *author, u32 *out
     } while (0)
 
     APPEND("{\n");
-    APPEND("  \"name\": \"%s\",\n", name);
-    APPEND("  \"author\": \"%s\",\n", author && author[0] ? author : "User");
-    APPEND("  \"version\": \"1.0\",\n");
+    APPEND("  \"schema\": \"pd2.theme.v1\",\n");
+    APPEND("  \"catalog_id\": \"%s\",\n", catalogId);
+    APPEND("  \"name\": \"%s\",\n", escapedName);
+    APPEND("  \"author\": \"%s\",\n", escapedAuthor);
+    APPEND("  \"version\": \"1\",\n");
     APPEND("  \"palette\": {\n");
 
     int nWrite = 0;
@@ -372,11 +431,32 @@ static char *buildThemeJsonBuffer(const char *name, const char *author, u32 *out
     }
 
     APPEND("  },\n");
-    if (s_SaveBundleChromeId[0]) APPEND("  \"menuStyle\": \"%s\",\n", s_SaveBundleChromeId);
-    if (s_SaveBundleFontId[0])   APPEND("  \"font\": \"%s\",\n", s_SaveBundleFontId);
-    APPEND("  \"scanline\": { \"enabled\": true, \"alpha\": 0.8 },\n");
+    if (s_SaveBundleChromeId[0]) {
+        APPEND("  \"textures\": { \"dialog_background\": \"%s\" },\n",
+               s_SaveBundleChromeId);
+        APPEND("  \"menuStyle\": \"%s\",\n", s_SaveBundleChromeId);
+    }
+    if (s_SaveBundleFontId[0]) APPEND("  \"font\": \"%s\",\n", s_SaveBundleFontId);
+    if (s_SaveBundleAudioId[0]) {
+        static const char *soundRoles[] = {
+            "swipe", "open", "focus", "select", "error", "toggle_on",
+            "toggle_off", "subfocus", "keyboard_focus", "cancel", "success"
+        };
+        APPEND("  \"sounds\": {\n");
+        for (size_t i = 0; i < sizeof(soundRoles) / sizeof(soundRoles[0]); i++) {
+            APPEND("    \"%s\": \"%s\"%s\n", soundRoles[i],
+                   s_SaveBundleAudioId,
+                   i + 1 < sizeof(soundRoles) / sizeof(soundRoles[0]) ? "," : "");
+        }
+        APPEND("  },\n");
+    }
+    if (s_SaveBundleMusicId[0]) {
+        APPEND("  \"menuMusic\": \"%s\",\n", s_SaveBundleMusicId);
+    }
+    APPEND("  \"scanline\": { \"enabled\": true, \"alpha\": 0.8, \"interval\": 2 },\n");
     APPEND("  \"textGlow\": { \"enabled\": true, \"intensity\": 0.6, \"color\": \"0080ffff\" },\n");
-    APPEND("  \"soundPack\": \"default\"\n");
+    APPEND("  \"fontShadow\": { \"offsetX\": 1, \"offsetY\": 1, \"color\": \"00000080\" },\n");
+    APPEND("  \"fontGlow\": { \"radius\": 2, \"intensity\": 0.6, \"color\": \"0080ffff\", \"passes\": 2 }\n");
     APPEND("}\n");
 
 #undef APPEND
@@ -391,6 +471,14 @@ static char *buildModJsonBuffer(const char *name, const char *dirName, const cha
     const u32 cap = 1024;
     char *buf = (char *)malloc(cap);
     if (!buf) return NULL;
+    char escapedName[256];
+    char escapedAuthor[256];
+    if (!jsonEscape(name, escapedName, sizeof(escapedName))
+            || !jsonEscape(author && author[0] ? author : "User",
+                escapedAuthor, sizeof(escapedAuthor))) {
+        free(buf);
+        return NULL;
+    }
     int n = snprintf(buf, cap,
         "{\n"
         "  \"id\": \"%s\",\n"
@@ -400,59 +488,165 @@ static char *buildModJsonBuffer(const char *name, const char *dirName, const cha
         "  \"description\": \"Custom theme created with Theme Editor\",\n"
         "  \"base_fallback\": \"base:theme_blue\"\n"
         "}\n",
-        dirName, name, author && author[0] ? author : "User");
+        dirName, escapedName, escapedAuthor);
     if (n < 0 || (u32)n >= cap) { free(buf); return NULL; }
     if (outLen) *outLen = (u32)n;
     return buf;
 }
 
+static bool authorThemeArchive(const char *archivePath, const char *name,
+                               const char *author, const char *catalogId, char *error,
+                               size_t errorCap)
+{
+    theme_archive_dependency_t dependencies[THEME_ARCHIVE_DEP_COUNT];
+    char dependencyPaths[THEME_ARCHIVE_DEP_COUNT][FS_MAXPATH];
+    size_t dependencyCount = collectThemeDependencies(
+        dependencies, dependencyPaths, error, errorCap);
+    if (dependencyCount == (size_t)-1) return false;
+
+    u32 themeLen = 0;
+    char *theme = buildThemeJsonBuffer(name, author, catalogId, &themeLen);
+    if (!theme) {
+        snprintf(error, errorCap, "could not compose strict theme.json");
+        return false;
+    }
+
+    theme_archive_author_request_t request = {};
+    request.archive_path = archivePath;
+    request.catalog_id = catalogId;
+    request.display_name = name;
+    request.theme_json = theme;
+    request.theme_json_size = themeLen;
+    request.dependencies = dependencies;
+    request.dependency_count = dependencyCount;
+    s32 result = themeArchiveAuthor(&request, error, errorCap);
+    free(theme);
+    return result != 0;
+}
+
+static bool writeModManifest(const char *path, const char *name,
+                             const char *slug, const char *author)
+{
+    char candidate[FS_MAXPATH];
+    char candidateFull[FS_MAXPATH + 1];
+    char pathFull[FS_MAXPATH + 1];
+    int candidateLen = snprintf(candidate, sizeof(candidate), "%s.candidate", path);
+    if (candidateLen <= 0 || candidateLen >= (int)sizeof(candidate)) return false;
+    u32 length = 0;
+    char *manifest = buildModJsonBuffer(name, slug, author, &length);
+    if (!manifest) return false;
+    fsFullPath(candidate, candidateFull, sizeof(candidateFull));
+    fsFullPath(path, pathFull, sizeof(pathFull));
+    remove(candidateFull);
+    FILE *file = fsFileOpenWrite(candidate);
+    bool ok = file && fwrite(manifest, 1, length, file) == length
+                   && fflush(file) == 0;
+    if (file && fclose(file) != 0) ok = false;
+    free(manifest);
+    if (!ok) {
+        remove(candidateFull);
+        return false;
+    }
+#ifdef _WIN32
+    ok = MoveFileExA(candidateFull, pathFull,
+                     MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != 0;
+#else
+    ok = rename(candidateFull, pathFull) == 0;
+#endif
+    if (!ok) remove(candidateFull);
+    return ok;
+}
+
+static bool saveThemeAsMod(const char *name, const char *author)
+{
+    char slug[64];
+    char catalogId[THEME_EDITOR_CATALOG_ID_LEN];
+    char modDir[FS_MAXPATH];
+    char themeDir[FS_MAXPATH];
+    char archivePath[FS_MAXPATH];
+    char archiveFull[FS_MAXPATH + 1];
+    char manifestPath[FS_MAXPATH];
+    char error[256] = {};
+    if (!makeThemeIdentity(name, slug, sizeof(slug), catalogId,
+                           sizeof(catalogId))) return false;
+    if (!fsCreateDir("mods")
+            || snprintf(modDir, sizeof(modDir), "mods/%s", slug) >= (int)sizeof(modDir)
+            || !fsCreateDir(modDir)
+            || snprintf(themeDir, sizeof(themeDir), "%s/themes", modDir) >= (int)sizeof(themeDir)
+            || !fsCreateDir(themeDir)
+            || snprintf(archivePath, sizeof(archivePath), "%s/%s.pdtheme",
+                        themeDir, slug) >= (int)sizeof(archivePath)
+            || snprintf(manifestPath, sizeof(manifestPath), "%s/mod.json",
+                        modDir) >= (int)sizeof(manifestPath)) {
+        sysLogPrintf(LOG_WARNING, "Theme editor: cannot prepare mod folder for '%s'", slug);
+        return false;
+    }
+    fsFullPath(archivePath, archiveFull, sizeof(archiveFull));
+    if (!authorThemeArchive(archiveFull, name, author, catalogId, error, sizeof(error))) {
+        sysLogPrintf(LOG_WARNING, "Theme editor: .pdtheme authoring failed: %s", error);
+        return false;
+    }
+    if (!writeModManifest(manifestPath, name, slug, author)) {
+        sysLogPrintf(LOG_WARNING, "Theme editor: could not write '%s'", manifestPath);
+        return false;
+    }
+    if (!assetCatalogScanExternalLayoutFolder(slug, modDir)) {
+        sysLogPrintf(LOG_WARNING, "Theme editor: catalog rejected '%s'", archivePath);
+        return false;
+    }
+    const asset_entry_t *entry = assetCatalogResolve(catalogId);
+    if (!entry || !entry->enabled || entry->type != ASSET_THEME) {
+        sysLogPrintf(LOG_WARNING, "Theme editor: authored theme '%s' did not resolve", catalogId);
+        return false;
+    }
+    sysLogPrintf(LOG_NOTE, "Theme editor: saved production .pdtheme '%s'", archivePath);
+    return true;
+}
+
 static bool saveThemeAsPdmod(const char *name, const char *author)
 {
-    if (!name || !name[0]) return false;
-
-    /* Same slug rules as the folder save so users see consistent ids. */
-    char dirName[64];
-    int len = 0;
-    for (int i = 0; name[i] && len < 62; i++) {
-        char c = name[i];
-        if (c == ' ') c = '-';
-        else if (c >= 'A' && c <= 'Z') c = c + 32;
-        else if (!((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' || c == '_'))
-            continue;
-        dirName[len++] = c;
-    }
-    dirName[len] = '\0';
-    if (!len) return false;
-
-    if (!fsCreateDir("mods")) {
-        sysLogPrintf(LOG_WARNING, "Theme editor: cannot create 'mods/' directory (errno %d)", errno);
+    char slug[64];
+    char catalogId[THEME_EDITOR_CATALOG_ID_LEN];
+    char tempArchive[FS_MAXPATH];
+    char tempArchiveFull[FS_MAXPATH + 1];
+    char outPath[FS_MAXPATH];
+    char entryName[128];
+    char error[256] = {};
+    if (!makeThemeIdentity(name, slug, sizeof(slug), catalogId,
+                           sizeof(catalogId)) || !fsCreateDir("mods")) return false;
+    if (snprintf(tempArchive, sizeof(tempArchive), "mods/.%s-theme-export.pdtheme", slug)
+            >= (int)sizeof(tempArchive)
+            || snprintf(outPath, sizeof(outPath), "mods/%s.pdmod", slug)
+            >= (int)sizeof(outPath)
+            || snprintf(entryName, sizeof(entryName), "themes/%s.pdtheme", slug)
+            >= (int)sizeof(entryName)) return false;
+    fsFullPath(tempArchive, tempArchiveFull, sizeof(tempArchiveFull));
+    if (!authorThemeArchive(tempArchiveFull, name, author, catalogId, error, sizeof(error))) {
+        sysLogPrintf(LOG_WARNING, "Theme editor: .pdmod theme authoring failed: %s", error);
         return false;
     }
 
-    char outPath[256];
-    snprintf(outPath, sizeof(outPath), "mods/%s.pdmod", dirName);
-
-    u32 mfstLen = 0, themeLen = 0;
-    char *mfst  = buildModJsonBuffer(name, dirName, author, &mfstLen);
-    char *theme = buildThemeJsonBuffer(name, author, &themeLen);
-    if (!mfst || !theme) {
-        free(mfst);
-        free(theme);
-        sysLogPrintf(LOG_WARNING, "Theme editor: out-of-memory composing .pdmod");
+    u32 archiveLen = 0;
+    void *archive = fsFileLoad(tempArchiveFull, &archiveLen);
+    u32 manifestLen = 0;
+    char *manifest = buildModJsonBuffer(name, slug, author, &manifestLen);
+    if (!archive || !manifest) {
+        if (archive) sysMemFree(archive);
+        free(manifest);
+        remove(tempArchiveFull);
         return false;
     }
-
-    modpack_entry_t entry = { "theme.json", theme, themeLen };
-    s32 r = modpackPdmodWriteSingle(outPath, mfst, mfstLen, &entry, 1);
-    free(mfst);
-    free(theme);
-
-    if (r != MODPACK_PDMOD_OK) {
-        sysLogPrintf(LOG_WARNING, "Theme editor: modpackPdmodWriteSingle failed (err=%d) for '%s'", r, outPath);
+    modpack_entry_t entry = { entryName, archive, archiveLen };
+    s32 result = modpackPdmodWriteSingle(outPath, manifest, manifestLen, &entry, 1);
+    sysMemFree(archive);
+    free(manifest);
+    remove(tempArchiveFull);
+    if (result != MODPACK_PDMOD_OK) {
+        sysLogPrintf(LOG_WARNING, "Theme editor: .pdmod write failed (%d): %s",
+                     result, modpackPdmodLastError());
         return false;
     }
-
-    sysLogPrintf(LOG_NOTE, "Theme editor: saved theme '%s' as %s", name, outPath);
+    sysLogPrintf(LOG_NOTE, "Theme editor: saved self-contained theme as '%s'", outPath);
     return true;
 }
 
@@ -651,8 +845,12 @@ static void renderThemeEditor(s32 winW, s32 winH)
         float rowSpacing = ImGui::GetStyle().ItemSpacing.y;
         float inputH  = ImGui::GetFrameHeightWithSpacing();
         float statusH = s_SaveStatus[0] ? ImGui::GetTextLineHeightWithSpacing() : 0.0f;
+        float dependencyH = (float)(sizeof(k_DependencySelections)
+                                  / sizeof(k_DependencySelections[0])) * inputH;
         float footerH = inputH              /* "Save as Mod:" heading line */
                       + inputH              /* Name + Author row */
+                      + dependencyH         /* typed dependency selectors */
+                      + ImGui::GetTextLineHeightWithSpacing() * 2.0f
                       + btnH + rowSpacing   /* Reset / Close row */
                       + statusH
                       + ImGui::GetStyle().ItemSpacing.y * 2.0f
@@ -805,92 +1003,22 @@ static void renderThemeEditor(s32 winW, s32 winH)
          * are docked together. Previously Save was inline after Author, which
          * pushed it off to the side (partly clipped on narrow windows) and
          * meant it was only reachable via Tab. S305 fix. */
-        ImGui::Text("Save as Mod:");
+        ImGui::Text("Save self-contained theme:");
         ImGui::PushItemWidth(200.0f * scale);
         ImGui::InputText("Name##save", s_SaveName, sizeof(s_SaveName));
         ImGui::SameLine();
         ImGui::InputText("Author##save", s_SaveAuthor, sizeof(s_SaveAuthor));
         ImGui::PopItemWidth();
 
-        /* S306: theme-bundle dropdowns. Picking a Menu Style / Font here
-         * writes those ids into the theme.json `menuStyle` / `font` keys
-         * so one theme activation swaps the full visual identity (palette
-         * + chrome + font). Both fields are optional — leaving them on
-         * "(none)" emits no bundle key. THEME_CATALOG_ID_LEN mirrors the
-         * loader's value so the catalog-id string fits. */
+        /* The archive writer embeds the selected public typed archives and
+         * records their catalog ids in strict theme source. A declared but
+         * invalid dependency rejects the save instead of falling back. */
         ImGui::Spacing();
-        ImGui::TextDisabled("Bundle (optional) — ship the full look together:");
-        {
-            /* Menu Style combo — "(none)" + every registered chrome style. */
-            s32 styleCount = pdguiThemeGetChromeStyleCount();
-            const s32 maxStyles = 31;
-            const s32 usedStyles = styleCount < maxStyles ? styleCount : maxStyles;
-            const char *opts[1 + maxStyles];
-            opts[0] = "(none)";
-            for (s32 i = 0; i < usedStyles; i++) {
-                opts[i + 1] = pdguiThemeGetChromeStyleName(i);
-            }
-            int idx = 0;
-            if (s_SaveBundleChromeId[0]) {
-                for (s32 i = 0; i < usedStyles; i++) {
-                    const char *id = pdguiThemeGetChromeStyleId(i);
-                    if (id && strcmp(id, s_SaveBundleChromeId) == 0) {
-                        idx = (int)(i + 1); break;
-                    }
-                }
-            }
-            ImGui::SetNextItemWidth(260.0f * scale);
-            if (ImGui::BeginCombo("Menu Style##bundle", opts[idx])) {
-                for (int i = 0; i < 1 + usedStyles; i++) {
-                    bool sel = (i == idx);
-                    if (ImGui::Selectable(opts[i], sel)) {
-                        if (i == 0) s_SaveBundleChromeId[0] = '\0';
-                        else {
-                            snprintf(s_SaveBundleChromeId, sizeof(s_SaveBundleChromeId),
-                                     "%s", pdguiThemeGetChromeStyleId(i - 1));
-                        }
-                    }
-                }
-                ImGui::EndCombo();
-            }
+        ImGui::TextDisabled("Embedded typed assets (optional):");
+        for (const ThemeDependencySelection &selection : k_DependencySelections) {
+            renderDependencyCombo(selection, scale);
         }
-        {
-            /* Font combo — "(none)" + every registered mod font. Hand-
-             * placed fonts are registered by pdgui_font_mod.c. */
-            s32 fontCount = pdguiFontModGetCount();
-            const s32 maxFonts = 32;
-            const char *opts[1 + maxFonts];
-            opts[0] = "(none)";
-            s32 cnt = 1;
-            for (s32 i = 0; i < fontCount && cnt < (s32)(sizeof(opts) / sizeof(opts[0])); i++) {
-                opts[cnt++] = pdguiFontModGetName(i);
-            }
-            int idx = 0;
-            if (s_SaveBundleFontId[0]) {
-                for (s32 i = 0; i < fontCount; i++) {
-                    const char *id = pdguiFontModGetId(i);
-                    if (id && strcmp(id, s_SaveBundleFontId) == 0) {
-                        idx = (int)(i + 1); break;
-                    }
-                }
-            }
-            ImGui::SetNextItemWidth(260.0f * scale);
-            if (ImGui::BeginCombo("Font##bundle", opts[idx])) {
-                for (int i = 0; i < cnt; i++) {
-                    bool sel = (i == idx);
-                    if (ImGui::Selectable(opts[i], sel)) {
-                        if (i == 0) s_SaveBundleFontId[0] = '\0';
-                        else {
-                            snprintf(s_SaveBundleFontId, sizeof(s_SaveBundleFontId),
-                                     "%s", pdguiFontModGetId(i - 1));
-                        }
-                    }
-                }
-                ImGui::EndCombo();
-            }
-            ImGui::SameLine();
-            ImGui::TextDisabled("(applies on restart)");
-        }
+        ImGui::TextDisabled("Menu UI supplies style/background; one SFX archive supplies all menu sound roles.");
 
         if (s_SaveStatus[0]) {
             ImVec4 statusCol = s_SaveSuccess
@@ -899,12 +1027,24 @@ static void renderThemeEditor(s32 winW, s32 winH)
             ImGui::TextColored(statusCol, "%s", s_SaveStatus);
         }
 
-        /* Action row (row 2): [Save | Save as .pdmod | Reset | Close] */
-        if (ImGui::Button("Save", ImVec2(btnW, btnH))) {
+        char acceptGlyph[64] = {};
+        char cancelGlyph[64] = {};
+        char saveLabel[128];
+        char closeLabel[128];
+        pdguiGlyphGetActionLabel(ACTION_MENU_ACCEPT, acceptGlyph, (s32)sizeof(acceptGlyph));
+        pdguiGlyphGetActionLabel(ACTION_MENU_CANCEL, cancelGlyph, (s32)sizeof(cancelGlyph));
+        snprintf(saveLabel, sizeof(saveLabel), "Save .pdtheme [%s]##save_theme",
+                 acceptGlyph[0] ? acceptGlyph : "Accept");
+        snprintf(closeLabel, sizeof(closeLabel), "Close [%s]##close_theme",
+                 cancelGlyph[0] ? cancelGlyph : "Cancel");
+
+        /* Action row: ImGui navigation preserves mouse/keyboard/controller
+         * activation; visible labels track the current device bindings. */
+        if (ImGui::Button(saveLabel, ImVec2(btnW * 1.35f, btnH))) {
             s_SaveSuccess = saveThemeAsMod(s_SaveName, s_SaveAuthor);
             if (s_SaveSuccess) {
                 snprintf(s_SaveStatus, sizeof(s_SaveStatus),
-                         "Saved to mods/");
+                         "Saved self-contained .pdtheme");
                 pdguiPlaySound(PDGUI_SND_SUCCESS);
                 /* S305: refresh theme registry so the newly-saved theme
                  * appears in Settings → Debug → Themes list immediately
@@ -949,7 +1089,7 @@ static void renderThemeEditor(s32 winW, s32 winH)
 
         ImGui::SameLine();
 
-        if (ImGui::Button("Close", ImVec2(btnW, btnH))) {
+        if (ImGui::Button(closeLabel, ImVec2(btnW * 1.25f, btnH))) {
             sysLogPrintf(LOG_NOTE, "Theme editor: exit — Close button");
             wantClose = true;
         }
