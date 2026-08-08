@@ -566,7 +566,7 @@ TEST_CASE("unit 8 effect runtime static pins stay wired",
 	/* Canonical schema string in the base emitter (legacy string gone from
 	 * the emitted graph body). */
 	const std::string meta = readFile("port/src/romextract_pdmeta.c");
-	REQUIRE(meta.find("\\\"schema\\\": \\\"pd.effect_graph.v1\\\"") != std::string::npos);
+	REQUIRE(meta.find("pd.effect_graph.v2") != std::string::npos);
 	REQUIRE(meta.find("\\\"schema\\\": \\\"pd2.effect.graph.v1\\\"") == std::string::npos);
 
 	/* sparkTypeFor at all three read sites; no direct table indexing left. */

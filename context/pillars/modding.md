@@ -2,6 +2,18 @@
 
 ## 2026-08-08 residual typed-archive contracts
 
+`T-ASSETS-030` automated field/transport/negative/lifecycle coverage passes,
+including 218 focused assertions, 321 `.pdtheme` assertions, the frozen
+47,986-assertion/890-case suite, strict 27-family conformance, and the native
+source guard. The ordinary client now discovers the saved custom theme only
+after the catalog walk, preserves nested vector-font source paths, resolves
+sequenced-music siblings after the deepest archive boundary, applies custom
+UI/font/SFX/music, renders the theme, processes MKB navigation, and exits
+cleanly (24/24 smoke). Validation remains partial: `T-CATALOG-002` must stop
+stage diff from releasing explicit lifecycle references, `T-MENUS-002` must
+repair the clipped action-label footer, and physical controller/device-switch
+plus real peer distribution/restart proof remain open.
+
 Theme dependency ownership is implemented with source-frozen automated
 evidence under `T-ASSETS-027`. Public `theme.ini` may declare
 embedded `.pdui`, `.pdfont`, `.pdsfx`, and `.pdsong` roles. One shared
@@ -22,8 +34,12 @@ live/network/MKB/controller/device-switch proof remain under `T-ASSETS-029` and
 Weapon v1 now rejects unknown settings and presentation keys and refuses
 incomplete selected sources. The truthful creator example retains only
 production-backed settings/presentation and source dependencies. Nested custom
-animation/audio registration is connected but still lacks native lifecycle and
-live proof under `T-ASSETS-022`. Catalog reticles are production-connected
+animation/audio registration is connected and its production-linked native
+harness passes direct and manifest-style ownership plus unresolved/corrupt
+transactional rejection under `T-ASSETS-022`. Ordinary gameplay remains open,
+and B-992 proves a complete base catalog currently leaves no free private
+custom-weapon slot; the debug harness borrows AR34 indices only in an
+exit-after-test process and is not allocation proof. Catalog reticles are production-connected
 under `T-ASSETS-023`: `reticle_archive` embeds editable `.pdui`, the scanner
 registers UI before weapon parsing, presentation retains the catalog ID, and
 the actual sight/HUD path draws the selected image. Missing, corrupt, disabled,

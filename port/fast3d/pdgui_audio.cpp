@@ -108,7 +108,11 @@ int pdguiAudioValidateThemeRole(int soundId, const char *catalogId,
             "menu sound role source is missing, wrong-type, or has no public file");
         return 0;
     }
-    return catalogLoadTypedAsset(ASSET_AUDIO, catalogId) != 0;
+    /* Validation is deliberately read-only. The selected .pdtheme parent
+     * owns and loads its declared audio children through the catalog
+     * dependency lifecycle before consumer preflight runs. Loading here used
+     * to leak a reference on every failed or repeated theme activation. */
+    return 1;
 }
 
 void pdguiAudioReplaceThemeRoles(const pdgui_theme_sound_role_t *roles, int count)

@@ -1555,6 +1555,17 @@ static s32 s_catalogLoadEntry(asset_entry_t *entry, asset_type_e expected_type)
         return 0;
     }
 
+    /* Loaded payloads retain before any type-specific activation. Audio and
+     * animation activators initialise ref_count to one; calling them again
+     * would otherwise clobber an explicit manifest reference when a weapon
+     * subsequently loads the same dependency closure. */
+    if (entry->load_state >= ASSET_STATE_LOADED && entry->loaded_data) {
+        if (!entry->bundled && entry->ref_count != ASSET_REF_BUNDLED) {
+            entry->ref_count++;
+        }
+        return 1;
+    }
+
     if (entry->type == ASSET_ANIMATION) {
         s32 animation_payload = s_catalogLoadEntryAnimationPayload(entry);
         if (animation_payload != 0) {
@@ -1687,6 +1698,25 @@ static void s_catalogCollectThemeDep(const char *dep_id, void *userdata)
     ctx->count++;
 }
 
+typedef struct weapon_dep_load {
+    char ids[64][CATALOG_ID_LEN];
+    s32 count;
+    s32 overflow;
+} weapon_dep_load_t;
+
+static void s_catalogCollectWeaponDep(const char *dep_id, void *userdata)
+{
+    weapon_dep_load_t *ctx = (weapon_dep_load_t *)userdata;
+    if (!ctx || !dep_id || !dep_id[0]) return;
+    if (ctx->count >= 64) {
+        ctx->overflow = 1;
+        return;
+    }
+    strncpy(ctx->ids[ctx->count], dep_id, CATALOG_ID_LEN - 1);
+    ctx->ids[ctx->count][CATALOG_ID_LEN - 1] = '\0';
+    ctx->count++;
+}
+
 s32 catalogLoadTypedAsset(asset_type_e expected_type, const char *assetId)
 {
     asset_entry_t *entry;
@@ -1698,6 +1728,37 @@ s32 catalogLoadTypedAsset(asset_type_e expected_type, const char *assetId)
     entry = assetCatalogGetMutable(assetId);
     if (!entry) {
         return 0;
+    }
+
+    /* B-990 / T-ASSETS-022: direct weapon lifecycle must own the same
+     * dependency closure as manifest-driven loads. Load every registered
+     * child in scanner order (UI, audio, animation), roll back the prefix on
+     * failure, then activate the parent. Release already cascades these edges. */
+    if (entry->type == ASSET_WEAPON) {
+        weapon_dep_load_t deps = {0};
+        catalogDepForEach(assetId, s_catalogCollectWeaponDep, &deps);
+        if (deps.overflow) {
+            sysLogPrintf(LOG_WARNING,
+                "CATALOG.LIFECYCLE.LOAD: weapon '%s' exceeds dependency limit",
+                assetId);
+            return 0;
+        }
+        s32 loaded = 0;
+        for (; loaded < deps.count; loaded++) {
+            asset_entry_t *dep = assetCatalogGetMutable(deps.ids[loaded]);
+            if (!dep || !s_catalogLoadEntry(dep, dep->type)) break;
+        }
+        if (loaded != deps.count || !s_catalogLoadEntry(entry, expected_type)) {
+            while (loaded-- > 0) {
+                const asset_entry_t *dep = assetCatalogResolve(deps.ids[loaded]);
+                if (dep) catalogReleaseTypedAsset(dep->type, deps.ids[loaded]);
+            }
+            sysLogPrintf(LOG_WARNING,
+                "CATALOG.LIFECYCLE.LOAD: weapon '%s' dependency load failed",
+                assetId);
+            return 0;
+        }
+        return 1;
     }
 
     if (entry->type == ASSET_THEME) {
@@ -2000,6 +2061,8 @@ void catalogRetainTypedAsset(asset_type_e expected_type, const char *assetId)
 
     s_catalogRetainEntry(entry);
     if (entry->type == ASSET_THEME) {
+        catalogDepForEach(assetId, s_catalogRetainThemeDepCallback, NULL);
+    } else if (entry->type == ASSET_WEAPON) {
         catalogDepForEach(assetId, s_catalogRetainThemeDepCallback, NULL);
     }
 }

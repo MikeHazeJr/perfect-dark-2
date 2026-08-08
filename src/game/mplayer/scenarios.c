@@ -313,7 +313,7 @@ MenuDialogHandlerResult mpOptionsMenuDialog(s32 operation, struct menudialogdef 
 char *mpMenuTextScenarioShortName(struct menuitem *item)
 {
 	s32 scenario = scenarioGetSafeIndex("mpMenuTextScenarioShortName");
-	const char *asset_id = catalogIdByRuntime(ASSET_GAMEMODE, scenario);
+	const char *asset_id = catalogGameModeIdByScenarioIndex(scenario);
 	const asset_runtime_binding_t *binding = asset_id
 		? assetRuntimeFindByTypeAndId(ASSET_GAMEMODE, asset_id)
 		: NULL;
@@ -329,7 +329,7 @@ char *mpMenuTextScenarioShortName(struct menuitem *item)
 char *mpMenuTextScenarioName(struct menuitem *item)
 {
 	s32 scenario = scenarioGetSafeIndex("mpMenuTextScenarioName");
-	const char *asset_id = catalogIdByRuntime(ASSET_GAMEMODE, scenario);
+	const char *asset_id = catalogGameModeIdByScenarioIndex(scenario);
 	const asset_runtime_binding_t *binding = asset_id
 		? assetRuntimeFindByTypeAndId(ASSET_GAMEMODE, asset_id)
 		: NULL;
@@ -345,7 +345,7 @@ char *mpMenuTextScenarioName(struct menuitem *item)
 static char *mpMenuTextScenarioDescription(struct menuitem *item)
 {
 	s32 scenario = scenarioGetSafeIndex("mpMenuTextScenarioDescription");
-	const char *asset_id = catalogIdByRuntime(ASSET_GAMEMODE, scenario);
+	const char *asset_id = catalogGameModeIdByScenarioIndex(scenario);
 	const asset_runtime_binding_t *binding = asset_id
 		? assetRuntimeFindByTypeAndId(ASSET_GAMEMODE, asset_id)
 		: NULL;

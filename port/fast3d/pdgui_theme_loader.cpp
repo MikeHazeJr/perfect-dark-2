@@ -27,6 +27,7 @@
 
 #include "pdgui_theme_loader.h"
 #include "pdtheme_source.h"
+#include "pdtheme_activation.h"
 #include "pdgui_theme.h"
 #include "pdgui_style.h"
 #include "pdgui_nineslice.h"
@@ -62,7 +63,7 @@
 #define THEME_CATALOG_ID_LEN  64
 #define THEME_CFG_KEY         "Theme.ActiveTheme"
 #define THEME_DEFAULT_ID      "base:theme_blue"
-#define PDTHEME_FAST_CACHE_KIND "pdtheme_builtin_v2_strict_source"
+#define PDTHEME_FAST_CACHE_KIND "pdtheme_builtin_v3_manifest_identity"
 
 /* =========================================================================
  * Theme definition structure
@@ -182,8 +183,20 @@ struct theme_entry {
 static struct theme_entry s_Themes[THEME_MAX_REGISTERED];
 static s32 s_ThemeCount = 0;
 static char s_ActiveThemeId[THEME_CATALOG_ID_LEN] = THEME_DEFAULT_ID;
+static pdtheme_activation_state_t s_ActivationState = {};
+
+static s32 themeLifecycleLoad(const char *catalog_id, void *)
+{
+    return catalogLoadTypedAsset(ASSET_THEME, catalog_id);
+}
+
+static void themeLifecycleRelease(const char *catalog_id, void *)
+{
+    catalogReleaseTypedAsset(ASSET_THEME, catalog_id);
+}
 static char s_CfgThemeId[THEME_CATALOG_ID_LEN] = THEME_DEFAULT_ID;
 static s32 s_LoaderInitDone = 0;
+static s32 s_CatalogReadyApplied = 0;
 static s32 s_ActiveMenuMusicTrack = -1;
 static char s_ActiveEffectIds[PDTHEME_SOURCE_MAX_EFFECTS * 2][THEME_CATALOG_ID_LEN];
 static s32 s_ActiveEffectIdCount = 0;
@@ -862,8 +875,7 @@ static s32 validate_theme_def_consumers(const struct theme_def *def,
     if (def->menu_music_id[0]) {
         catalog_audio_result_t audio;
         if (!catalogResolveAudio(def->menu_music_id, &audio) ||
-                audio.category != AUDIO_CAT_MUSIC ||
-                !catalogLoadTypedAsset(ASSET_AUDIO, def->menu_music_id)) {
+                audio.category != AUDIO_CAT_MUSIC) {
             snprintf(error, error_cap, "menuMusic source is missing, wrong-type, or not playable");
             return 0;
         }
@@ -1227,8 +1239,10 @@ static s32 emit_builtin_theme_archive(s32 index, const char *themes_dir,
         "  \"schema\": \"pd.asset_archive.manifest.v1\",\n"
         "  \"pd_kind\": \"theme\",\n"
         "  \"pd_schema_version\": 1,\n"
+        "  \"id\": \"%s\",\n"
         "  \"catalog_id\": \"%s\"\n"
         "}\n",
+        k_BuiltinIds[index],
         k_BuiltinIds[index]);
     if (manifest_len <= 0 || (size_t)manifest_len >= sizeof(manifest)) {
         return -1;
@@ -1741,15 +1755,38 @@ static void register_catalog_theme_entry(const asset_entry_t *entry, void *userd
      * above. Any remaining enabled entry must therefore have a public-source
      * runtime binding; do not fall back to a parallel catalog path. */
     const char *theme_path = nullptr;
+    char authoritative_path[THEME_FILEPATH_LEN] = {0};
+    s32 discovery_ref = 0;
     const asset_runtime_binding_t *binding =
         assetRuntimeFindByTypeAndId(ASSET_THEME, entry->id);
+    if (!binding && entry->enabled) {
+        /* B-995: discovery cannot require the binding that normal activation
+         * only creates after discovery. Take a balanced temporary parent +
+         * dependency-closure reference, copy only authoritative binding data,
+         * then release it before parsing/registering the UI entry. */
+        if (!catalogLoadTypedAsset(ASSET_THEME, entry->id)) {
+            sysFatalError("ASSET.CHAIN: enabled theme '%s' could not activate "
+                "its public-source binding during discovery.", entry->id);
+            return;
+        }
+        discovery_ref = 1;
+        binding = assetRuntimeFindByTypeAndId(ASSET_THEME, entry->id);
+    }
     if (binding) {
         if (binding->primary_path[0]) {
-            theme_path = binding->primary_path;
+            snprintf(authoritative_path, sizeof(authoritative_path), "%s",
+                binding->primary_path);
         } else if (binding->authored_file[0]) {
-            theme_path = binding->authored_file;
+            snprintf(authoritative_path, sizeof(authoritative_path), "%s",
+                binding->authored_file);
         }
-    } else if (entry->enabled) {
+    }
+    if (discovery_ref) {
+        catalogReleaseTypedAsset(ASSET_THEME, entry->id);
+        discovery_ref = 0;
+    }
+    theme_path = authoritative_path;
+    if (!binding && entry->enabled) {
         sysFatalError("ASSET.CHAIN: enabled theme '%s' has no active "
             "public-source runtime binding; refusing catalog path fallback.",
             entry->id);
@@ -1919,9 +1956,24 @@ void pdguiThemeLoaderInit(void)
         "PDGUI theme loader: init — %d themes registered (built-in + mods), active='%s'",
         s_ThemeCount, s_ActiveThemeId);
 
+    /* Catalog/mod discovery runs later on the boot worker. Do not reject the
+     * saved choice or take lifecycle references here: assetCatalogInit() and
+     * the universal walker have not established the production rows yet.
+     * pdguiThemeLoaderOnCatalogReady() performs the one main-thread apply. */
+}
+
+void pdguiThemeLoaderOnCatalogReady(void)
+{
+    if (!s_LoaderInitDone || s_CatalogReadyApplied) return;
+    s_CatalogReadyApplied = 1;
+
+    /* Fold the rows registered by the mod scan and universal typed-archive
+     * walker into the UI registry before resolving the persisted ID. */
+    scan_catalog_for_themes();
+
     /* Default-enabled policy: auto-apply the first newly-detected mod theme.
      * "First-sight" means this slug was not in Theme.SeenMods from a prior
-     * session.  Only one theme auto-applies per init (the first found). */
+     * session. Only one theme auto-applies per catalog-ready transition. */
     for (s32 i = 0; i < s_ThemeCount; i++) {
         if (s_Themes[i].palette_index < 0 && s_Themes[i].first_sight
             && s_Themes[i].enabled) {
@@ -1934,29 +1986,28 @@ void pdguiThemeLoaderInit(void)
         }
     }
 
-    /* S305: apply the configured theme (if no first-sight override already
-     * applied one).  Previously only built-in palette themes were applied on
-     * startup, because the fallback only called pdguiThemeSetPalette directly;
-     * mod themes (file-based theme.json under mods/) resolved via
-     * pdguiThemeLoadFromCatalog were silently skipped on every restart,
-     * reverting the user to the default built-in palette.  Route through
-     * pdguiThemeLoadFromCatalog so BOTH builtin and mod themes apply. */
-    if (s_ActiveThemeId[0]) {
+    /* Apply the persisted selection only after its production catalog row and
+     * nested dependency closure exist. A genuine post-catalog rejection keeps
+     * the saved choice intact and leaves the current/default theme active so a
+     * later corrected mod can recover without rewriting user preference. */
+    if (s_ActiveThemeId[0]
+        && strcmp(s_ActivationState.active_id, s_ActiveThemeId) != 0) {
         s32 ok = pdguiThemeLoadFromCatalog(s_ActiveThemeId);
         if (!ok) {
             sysLogPrintf(LOG_WARNING,
-                "PDGUI theme loader: saved theme '%s' not resolvable on startup — "
-                "falling back to default palette",
+                "PDGUI theme loader: saved theme '%s' not resolvable after catalog ready; "
+                "keeping current theme and saved selection",
                 s_ActiveThemeId);
-            pdguiThemeLoadFromCatalog(THEME_DEFAULT_ID);
         }
     }
 }
 
 void pdguiThemeLoaderShutdown(void)
 {
+    pdthemeActivationShutdown(&s_ActivationState, themeLifecycleRelease, nullptr);
     s_ThemeCount = 0;
     s_LoaderInitDone = 0;
+    s_CatalogReadyApplied = 0;
 }
 
 /** Issue 2/8: Rescan mods/ for new theme.json files after modmgrApplyChanges().
@@ -1977,6 +2028,18 @@ s32 pdguiThemeLoadFromCatalog(const char *catalog_id)
         return 0;
     }
 
+    /* Own the complete public .pdtheme dependency closure before parsing or
+     * consumer preflight. The activation transaction keeps the previous
+     * parent alive until the candidate has applied successfully, releases the
+     * candidate on every failure, and balances repeated activation of the
+     * same ID without reference growth. */
+    if (!pdthemeActivationBegin(&s_ActivationState, catalog_id,
+            themeLifecycleLoad, nullptr)) {
+        sysLogPrintf(LOG_WARNING,
+            "PDGUI theme loader: lifecycle load failed for '%s'", catalog_id);
+        return 0;
+    }
+
     /* B-238 follow-up: archive-sourced themes hold their JSON bytes in
      * embed_data. Apply directly without going through fsFileLoad. */
     char *json = nullptr;
@@ -1984,7 +2047,11 @@ s32 pdguiThemeLoadFromCatalog(const char *catalog_id)
     if (entry->embed_data && entry->embed_size > 0) {
         fileSize = entry->embed_size;
         json = (char *)malloc(fileSize + 1);
-        if (!json) return 0;
+        if (!json) {
+            pdthemeActivationAbort(&s_ActivationState,
+                themeLifecycleRelease, nullptr);
+            return 0;
+        }
         memcpy(json, entry->embed_data, fileSize);
         json[fileSize] = '\0';
     } else {
@@ -1992,10 +2059,17 @@ s32 pdguiThemeLoadFromCatalog(const char *catalog_id)
         if (!data) {
             sysLogPrintf(LOG_WARNING,
                 "PDGUI theme loader: failed to load '%s'", entry->filepath);
+            pdthemeActivationAbort(&s_ActivationState,
+                themeLifecycleRelease, nullptr);
             return 0;
         }
         json = (char *)malloc(fileSize + 1);
-        if (!json) { free(data); return 0; }
+        if (!json) {
+            free(data);
+            pdthemeActivationAbort(&s_ActivationState,
+                themeLifecycleRelease, nullptr);
+            return 0;
+        }
         memcpy(json, data, fileSize);
         json[fileSize] = '\0';
         free(data);
@@ -2010,6 +2084,8 @@ s32 pdguiThemeLoadFromCatalog(const char *catalog_id)
         sysLogPrintf(LOG_WARNING,
             "PDGUI theme loader: parse failed for '%s': %s",
             entry->filepath, error);
+        pdthemeActivationAbort(&s_ActivationState,
+            themeLifecycleRelease, nullptr);
         return 0;
     }
 
@@ -2017,8 +2093,13 @@ s32 pdguiThemeLoadFromCatalog(const char *catalog_id)
         sysLogPrintf(LOG_WARNING,
             "PDGUI theme loader: consumer preflight failed for '%s': %s",
             catalog_id, error);
+        pdthemeActivationAbort(&s_ActivationState,
+            themeLifecycleRelease, nullptr);
         return 0;
     }
+
+    pdthemeActivationCommit(&s_ActivationState,
+        themeLifecycleRelease, nullptr);
 
     /* Persist */
     snprintf(s_ActiveThemeId, sizeof(s_ActiveThemeId), "%s", catalog_id);

@@ -2873,166 +2873,186 @@ static s32 nestedContentMatchesExisting(const asset_entry_t *existing,
 	return ok;
 }
 
+typedef struct weapon_nested_preflight {
+	char catalog_id[CATALOG_ID_LEN];
+	char archive_ref[FS_MAXPATH * 2 + 4];
+	char descriptor_ref[FS_MAXPATH * 2 + 132];
+	ini_section_t ini;
+	void *bytes;
+	u32 size;
+	asset_type_e expected_type;
+	s32 existing;
+	s32 created;
+	s32 edge_created;
+} weapon_nested_preflight_t;
+
 s32 assetCatalogRegisterWeaponNestedDependencies(const char *weapon_id,
 		const char *weapon_archive, s32 bundled, char *err, size_t err_cap)
 {
 	u32 weapon_size = 0;
 	void *weapon_bytes = NULL;
 	weapon_nested_media_scan_t scan;
-	s32 registered = 0;
+	weapon_nested_preflight_t pending[WEAPON_NESTED_MEDIA_MAX];
+	s32 pending_count = 0;
+	s32 result = -1;
 
 	if (err && err_cap) err[0] = '\0';
+	memset(&scan, 0, sizeof(scan));
+	memset(pending, 0, sizeof(pending));
 	if (!weapon_id || !weapon_id[0] || !weapon_archive || !weapon_archive[0]) {
 		nestedSetErr(err, err_cap, "nested dependency scan missing %s%s",
 			weapon_id, weapon_archive);
 		return -1;
 	}
-
 	weapon_bytes = fsFileLoad(weapon_archive, &weapon_size);
 	if (!weapon_bytes || weapon_size == 0) {
-		if (weapon_bytes) sysMemFree(weapon_bytes);
 		nestedSetErr(err, err_cap, "could not read weapon archive %s%s",
 			weapon_archive, "");
-		return -1;
+		goto done;
 	}
-
-	memset(&scan, 0, sizeof(scan));
 	if (modArchiveMemForEachEntry(weapon_bytes, weapon_size,
 			collectWeaponNestedMedia, &scan) != MODARCHIVE_OK) {
-		sysMemFree(weapon_bytes);
 		nestedSetErr(err, err_cap, "could not enumerate weapon archive %s%s",
 			weapon_archive, "");
-		return -1;
+		goto done;
 	}
 	if (scan.overflow) {
-		sysMemFree(weapon_bytes);
 		nestedSetErr(err, err_cap, "weapon %s exceeds nested media limit %s",
 			weapon_id, "64");
-		return -1;
+		goto done;
 	}
 
-	/* UI is registered first so presentation validation can resolve a declared
-	 * reticle before the owning weapon is activated. Audio must be catalog-
-	 * visible before animation command JSON is parsed:
-	 * weapon animations can name contained SFX/voice catalog IDs directly.
-	 * The second pass then resolves those IDs into their private sound slots. */
+	/* Preflight the complete closure without mutating catalog state. Keep the
+	 * production order explicit: UI, then audio, then animation command source.
+	 * A corrupt late animation therefore cannot leak an earlier audio row. */
 	for (s32 pass = 0; pass < 3; pass++) {
 	for (s32 i = 0; i < scan.count; i++) {
-		const char *entry_name = scan.entries[i];
 		asset_type_e expected_type = ASSET_NONE;
-		u32 nested_size = 0;
-		void *nested = NULL;
+		const char *entry_name = scan.entries[i];
+		weapon_nested_preflight_t *p;
 		u32 descriptor_size = 0;
 		const char *descriptor_leaf = NULL;
 		char *descriptor = NULL;
-		ini_section_t ini;
 		const char *catalog_id;
-		char archive_ref[FS_MAXPATH * 2 + 4];
-		char descriptor_ref[FS_MAXPATH * 2 + 132];
 
 		weaponNestedMediaType(entry_name, &expected_type);
 		if ((pass == 0 && expected_type != ASSET_UI)
 				|| (pass == 1 && expected_type != ASSET_AUDIO)
-				|| (pass == 2 && expected_type != ASSET_ANIMATION)) {
-			continue;
-		}
-		nested = modArchiveExtractMemAlloc(weapon_bytes, weapon_size,
-			entry_name, &nested_size);
-		if (!nested || nested_size == 0) {
-			free(nested);
+				|| (pass == 2 && expected_type != ASSET_ANIMATION)) continue;
+		p = &pending[pending_count];
+		p->expected_type = expected_type;
+		p->bytes = modArchiveExtractMemAlloc(weapon_bytes, weapon_size,
+			entry_name, &p->size);
+		if (!p->bytes || p->size == 0) {
 			nestedSetErr(err, err_cap, "could not read nested dependency %s%s",
 				entry_name, "");
-			goto fail;
+			goto rollback;
 		}
-		if (assetArchiveValidateBytes(nested, nested_size, entry_name,
-				ASSET_ARCHIVE_VALIDATE_RELEASE, err, err_cap) != 0) {
-			free(nested);
-			goto fail;
-		}
-		descriptor = assetArchiveExtractDescriptorMemAlloc(nested, nested_size,
+		if (assetArchiveValidateBytes(p->bytes, p->size, entry_name,
+				ASSET_ARCHIVE_VALIDATE_RELEASE, err, err_cap) != 0) goto rollback;
+		descriptor = assetArchiveExtractDescriptorMemAlloc(p->bytes, p->size,
 			entry_name, ASSET_ARCHIVE_VALIDATE_RELEASE, &descriptor_size,
 			&descriptor_leaf);
 		if (!descriptor || !iniParseBuffer(descriptor_leaf, descriptor,
-				descriptor_size, &ini)) {
+				descriptor_size, &p->ini)) {
 			free(descriptor);
-			free(nested);
 			nestedSetErr(err, err_cap, "invalid public descriptor in %s%s",
 				entry_name, "");
-			goto fail;
+			goto rollback;
 		}
 		free(descriptor);
-
-		if (sectionToType(ini.type) != expected_type) {
-			free(nested);
+		if (sectionToType(p->ini.type) != expected_type) {
 			nestedSetErr(err, err_cap, "nested dependency type mismatch %s%s",
 				entry_name, "");
-			goto fail;
+			goto rollback;
 		}
-		catalog_id = iniGet(&ini, "catalog_id", iniGet(&ini, "id", ""));
+		catalog_id = iniGet(&p->ini, "catalog_id", iniGet(&p->ini, "id", ""));
 		if (!catalog_id[0] || !catalogIdSharesNamespace(weapon_id, catalog_id)) {
-			free(nested);
 			nestedSetErr(err, err_cap,
 				"nested dependency %s has missing or foreign catalog ID %s",
 				entry_name, catalog_id);
-			goto fail;
+			goto rollback;
 		}
-
-		snprintf(archive_ref, sizeof(archive_ref), "%s::%s",
+		for (s32 prior = 0; prior < pending_count; prior++) {
+			if (strcmp(pending[prior].catalog_id, catalog_id) == 0) {
+				nestedSetErr(err, err_cap, "duplicate nested dependency ID %s%s",
+					catalog_id, "");
+				goto rollback;
+			}
+		}
+		strncpy(p->catalog_id, catalog_id, sizeof(p->catalog_id) - 1);
+		snprintf(p->archive_ref, sizeof(p->archive_ref), "%s::%s",
 			weapon_archive, entry_name);
-		archive_ref[sizeof(archive_ref) - 1] = '\0';
-		snprintf(descriptor_ref, sizeof(descriptor_ref), "%s::%s",
-			archive_ref, descriptor_leaf ? descriptor_leaf
+		snprintf(p->descriptor_ref, sizeof(p->descriptor_ref), "%s::%s",
+			p->archive_ref, descriptor_leaf ? descriptor_leaf
 				: assetArchiveDescriptorForPath(entry_name));
-		descriptor_ref[sizeof(descriptor_ref) - 1] = '\0';
-
-		const asset_entry_t *existing = assetCatalogResolve(catalog_id);
+		const asset_entry_t *existing = assetCatalogResolve(p->catalog_id);
 		if (existing) {
 			if (existing->type != expected_type || (!existing->bundled
 					&& (!strstr(existing->dirpath, "::")
-						|| !nestedContentMatchesExisting(existing, nested,
-							nested_size)))) {
-				free(nested);
+						|| !nestedContentMatchesExisting(existing, p->bytes,
+							p->size)))) {
 				nestedSetErr(err, err_cap,
-					"nested dependency ID collision %s%s", catalog_id, "");
-				goto fail;
+					"nested dependency ID collision %s%s", p->catalog_id, "");
+				goto rollback;
 			}
-		} else {
-			qualifyTypedArchiveSourcePaths(&ini, archive_ref);
-			if (!registerComponent(&ini, archive_ref,
-					bundled ? "base" : weapon_id, descriptor_ref)) {
-				free(nested);
+			p->existing = 1;
+		}
+		pending_count++;
+	}
+	}
+	if (!catalogDepReserve(pending_count)) {
+		nestedSetErr(err, err_cap, "could not reserve nested edges for %s%s",
+			weapon_id, "");
+		goto rollback;
+	}
+
+	for (s32 i = 0; i < pending_count; i++) {
+		weapon_nested_preflight_t *p = &pending[i];
+		if (!p->existing) {
+			qualifyTypedArchiveSourcePaths(&p->ini, p->archive_ref);
+			p->created = 1; /* rollback even if registerComponent fails late */
+			if (!registerComponent(&p->ini, p->archive_ref,
+					bundled ? "base" : weapon_id, p->descriptor_ref)) {
 				nestedSetErr(err, err_cap,
-					"could not register nested dependency %s%s", catalog_id, "");
-				goto fail;
+					"could not register nested dependency %s%s", p->catalog_id, "");
+				goto rollback;
 			}
-			asset_entry_t *mutable_entry = assetCatalogGetMutable(catalog_id);
-			if (!mutable_entry) {
-				free(nested);
+			asset_entry_t *entry = assetCatalogGetMutable(p->catalog_id);
+			if (!entry) {
 				nestedSetErr(err, err_cap,
 					"nested dependency disappeared after register %s%s",
-					catalog_id, "");
-				goto fail;
+					p->catalog_id, "");
+				goto rollback;
 			}
-			mutable_entry->bundled = bundled ? 1 : 0;
-			mutable_entry->enabled = 1;
-			mutable_entry->temporary = 0;
+			entry->bundled = bundled ? 1 : 0;
+			entry->enabled = 1;
+			entry->temporary = 0;
 		}
-
-		catalogDepRegister(weapon_id, catalog_id, bundled ? 1 : 0);
+		if (!catalogDepContains(weapon_id, p->catalog_id)) {
+			catalogDepRegister(weapon_id, p->catalog_id, bundled ? 1 : 0);
+			p->edge_created = 1;
+		}
 		sysLogPrintf(LOG_NOTE,
 			"PDWEAPON.NESTED.REGISTER: owner=%s id=%s type=%d source=%s",
-			weapon_id, catalog_id, (s32)expected_type, archive_ref);
-		registered++;
-		free(nested);
+			weapon_id, p->catalog_id, (s32)p->expected_type, p->archive_ref);
 	}
+	result = pending_count;
+	goto done;
+
+rollback:
+	for (s32 i = pending_count - 1; i >= 0; i--) {
+		if (pending[i].edge_created) {
+			catalogDepUnregister(weapon_id, pending[i].catalog_id);
+		}
+		if (pending[i].created) {
+			assetCatalogUnregister(pending[i].catalog_id);
+		}
 	}
-
-	sysMemFree(weapon_bytes);
-	return registered;
-
-fail:
-	sysMemFree(weapon_bytes);
-	return -1;
+done:
+	for (s32 i = 0; i < WEAPON_NESTED_MEDIA_MAX; i++) free(pending[i].bytes);
+	if (weapon_bytes) sysMemFree(weapon_bytes);
+	return result;
 }
 
 /* ========================================================================

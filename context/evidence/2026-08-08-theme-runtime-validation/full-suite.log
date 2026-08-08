@@ -1,0 +1,45 @@
+[stub-log L2] CATALOG.STAGE.CUSTOM_SLOT_FAIL: id="mod_x:stage_overflow" no private custom stage slots available (32)
+[stub-log L2] CATALOG.ANIM.CUSTOM_SLOT_FAIL: id="mod_x:anim_overflow" no private custom anim slots available (32)
+[stub-log L2] CATALOG.TEXTURE.CUSTOM_SLOT_FAIL: id="mod_x:tex_overflow" no private custom texture slots available (64)
+[stub-log L2] CATALOG.SOUND.CUSTOM_SLOT_FAIL: id="mod_x:sfx_overflow" no private custom sound slots available (64)
+[stub-log L2] ASSET.FALLBACK: 3 fallback(s) since last checkpoint, at test-clear:
+[stub-log L2] ASSET.FALLBACK:   animation count=1 first(num=7, anim fallback)
+[stub-log L2] ASSET.FALLBACK:   texture count=2 first(num=42, test fallback)
+[stub-log L2] ASSET.FALLBACK: 2 fallback(s) since last checkpoint, at test-checkpoint:
+[stub-log L2] ASSET.FALLBACK:   music count=2 first(num=11, seq fallback)
+[stub-log L2] ASSET.FALLBACK: 2 fallback(s) since last checkpoint, at test-clear:
+[stub-log L2] ASSET.FALLBACK:   file count=2 first(num=1, bogus family)
+[stub-log L2] ASSET.FALLBACK: 1 fallback(s) since last checkpoint, at (unnamed):
+[stub-log L2] ASSET.FALLBACK:   scenario count=1 first(num=3, )
+[stub-log L2] CATALOG.MODEL.CUSTOM_SLOT_FAIL: id="mod_a:mesh_overflow" no private custom model slots available (32)
+[stub-log L2] CATALOG.BODY.CUSTOM_SLOT_FAIL: id="mod_x:body_overflow" no private custom body slots available (32)
+[stub-log L2] CATALOG.HEAD.CUSTOM_SLOT_FAIL: id="mod_x:head_31" no private custom head slots available (32)
+[stub-log L2] CATALOG.HEAD.CUSTOM_SLOT_FAIL: id="mod_x:head_overflow" no private custom head slots available (32)
+[stub-log L2] EFFECTGRAPH.PARSE: schema 'pd2.effect.graph.v1' is deprecated; use 'pd.effect_graph.v1'
+[stub-log L2] EFFECTGRAPH.PARSE: 'modx:smoke_bogus' unknown smoke class 'volcanic'; smoke keeps the OG fallback
+[stub-log L2] SPARK.CUSTOM_ROW_FAIL: custom spark registry exhausted (cap 16); row not registered
+[stub-log L2] WEAPONGRAPH.PARSE: unknown impact_filter 'solid_or_chr'; latching OG default
+[stub-log L2] WEAPONGRAPH.PARSE: unknown impact_filter 'solid_or_chr'; latching OG default
+[stub-log L2] WEAPONGRAPH.PARSE: explosion ref 'base:explosion_small' is deprecated; use 'base:explosion_phoenix'
+[stub-log L2] WEAPONGRAPH.PARSE: explosion ref 'base:explosion_laptop' is deprecated; use the canonical EXPLOSIONTYPE token vocabulary
+[stub-log L2] WEAPONGRAPH.PARSE: unknown timer_starts 'whenever'; latching OG default
+[stub-log L2] WEAPONGRAPH.PARSE: unknown timer_on_expire 'confetti'; latching OG default
+[stub-log L2] WEAPONGRAPH.PARSE: unknown fall_vector 'purple'; latching OG default
+[stub-log L2] WEAPONGRAPH.PARSE: unknown trail_type 'sparkles'; latching OG default
+[stub-log L2] WEAPONGRAPH.RUNTIME: detonator_ref 'base:remotemine' unresolved at signal time; remote signal rejected
+[stub-log L2] WEAPONGRAPH.SETTINGS: schema 'pd.weapon.settings.v1' is deprecated; use 'pd.weapon_settings.v1' (B6.4)
+[stub-log L2] WEAPONGRAPH.SETTINGS: schema 'pd.weapon.variables.v1' is deprecated; use 'pd.weapon_variables.v1' (B6.4)
+[stub-log L2] WEAPONGRAPH.MESH.SCAN: embedded mesh dependencies/assets/models/foreign.pdmesh id other_ns:stolen_mesh is outside parent namespace example:weapon; skipped
+[stub-log L2] WEAPONGRAPH.MESH.SCAN: embedded mesh dependencies/assets/models/anon.pdmesh declares no catalog_id; skipped
+[stub-log L3] arenaEnsure(small): need 544 elements (8192 bytes) exceeds reservation of 4096 bytes -- raise the reserve cap for this pool
+[stub-log L3] arenaPoolGrow(small): cannot grow past 480 slots (reservation exhausted)
+[stub-log L3] arenaEnsure(capped): need 100000 elements (802816 bytes) exceeds reservation of 8192 bytes -- raise the reserve cap for this pool
+[stub-log L2] NET: could not read 1 bytes (rp=15 wp=15)
+[stub-log L3] SAVEMIGRATE: No migration found for v2 → v3 (pd_test_savemigrate_gap.json)
+[stub-log L2] SAVEMIGRATE: pd_test_savemigrate_down.json is version 9, game is version 4 — loading read-only (cannot downgrade)
+[stub-log L2] NET: malformed string missing terminator (len=5 rp=2)
+[stub-log L2] NET: could not read 1 bytes (rp=1 wp=1)
+[stub-log L2] NET: could not read 4 bytes (rp=0 wp=3)
+===============================================================================
+All tests passed (47963 assertions in 889 test cases)
+

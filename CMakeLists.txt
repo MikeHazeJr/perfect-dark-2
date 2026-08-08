@@ -900,6 +900,7 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/tests/test_character_archive_utilization_static.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_voice_locale_source.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_pdtheme_source.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_pdtheme_activation.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_theme_archive_authoring.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_voice_archive_authoring.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_assetcatalog_deps.cpp
@@ -923,8 +924,10 @@ set(SRC_TESTS
   # sparks_custom.c is pure (table + constants + log); the base g_SparkTypes
   # table it indexes is provided by tests/stubs.c in this target.
   ${CMAKE_SOURCE_DIR}/port/src/effect_graph_runtime.c
+  ${CMAKE_SOURCE_DIR}/port/src/pdeffect_source.c
   ${CMAKE_SOURCE_DIR}/src/game/sparks_custom.c
   ${CMAKE_SOURCE_DIR}/tests/test_effect_graph_runtime.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_pdeffect_source.cpp
   ${CMAKE_SOURCE_DIR}/port/src/loader_enum_reverse.c
   ${CMAKE_SOURCE_DIR}/port/src/modvfs.c
   ${CMAKE_SOURCE_DIR}/port/src/sha256.c
@@ -937,6 +940,8 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/port/src/texture_decode_pure.c
   ${CMAKE_SOURCE_DIR}/port/src/voice_locale_source.c
   ${CMAKE_SOURCE_DIR}/port/src/pdtheme_source.cpp
+  ${CMAKE_SOURCE_DIR}/port/src/pdtheme_activation.c
+  ${CMAKE_SOURCE_DIR}/port/src/mod_sequence_path.c
   ${CMAKE_SOURCE_DIR}/tests/test_texture_decode_pure.cpp
 
   # c038 jump capsule guards (physics-collision pillar, 2026-05-18):

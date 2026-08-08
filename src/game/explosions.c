@@ -85,6 +85,9 @@ struct explosiontype g_ExplosionTypes[] = {
 	/*25*/ { 640, 480, 32,  11.2, 1600, 1000, 1000, 180, 2, 5, SMOKETYPE_NONE,         0x80a4, 4     },
 };
 
+_Static_assert(ARRAYCOUNT(g_ExplosionTypes) == EXPLOSIONTYPE_BASE_COUNT,
+	"g_ExplosionTypes row count must match the public extraction contract");
+
 bool explosionCreateSimple(struct prop *prop, struct coord *pos, RoomNum *rooms, s16 type, s32 playernum)
 {
 	return explosionCreate(prop, pos, rooms, type, playernum, false, NULL, 0, NULL);

@@ -56,6 +56,11 @@ extern "C" {
  *  Call after pdguiThemeInit() and catalogInit(). */
 void pdguiThemeLoaderInit(void);
 
+/** Complete startup theme discovery and apply the saved selection after the
+ * universal catalog/mod walk has finished. Must be called on the main thread;
+ * idempotent for one loader lifetime. */
+void pdguiThemeLoaderOnCatalogReady(void);
+
 /** Shutdown: free any loaded theme data. */
 void pdguiThemeLoaderShutdown(void);
 

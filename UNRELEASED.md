@@ -5,6 +5,10 @@
 
 ## Highlights
 
+- Made saved custom themes activate after real catalog discovery, retain full
+  nested font paths, and compile nested `.pdsong` sources at ordinary menu use.
+- Made repeated theme startup activation idempotent and transactional across
+  rejection, replacement, reapply, and shutdown.
 - Made Theme Editor save real atomic self-contained `.pdtheme` archives (and
   embed them in `.pdmod`) with selected UI, vector font, sound, and music assets.
 - Made theme backgrounds, chrome, inline effects, fonts, menu sounds, music,
@@ -35,6 +39,8 @@
   being preserved but ignored.
 - Registered nested weapon animation and audio archives before production
   weapon parsing and carried them through local and network dependency paths.
+- Made nested weapon media registration transactional, rejected unresolved
+  animation sounds, and balanced direct plus manifest-driven load ownership.
 - Made creator `.pdcharacter` body/head identity, names, and optional portraits
   drive the production character picker and lobby roster, with declared portrait
   failures refusing silent generated fallback.

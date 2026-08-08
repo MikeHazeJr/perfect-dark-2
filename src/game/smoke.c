@@ -84,6 +84,9 @@ struct smoketype g_SmokeTypes[] = {
 #endif
 };
 
+_Static_assert(ARRAYCOUNT(g_SmokeTypes) == SMOKETYPE_BASE_COUNT,
+	"g_SmokeTypes row count must match the public extraction contract");
+
 Gfx *smokeRenderPart(struct smoke *smoke, struct smokepart *part, Gfx *gdl, struct coord *coord, f32 size)
 {
 	Vtx *vertices = gfxAllocateVertices(4);

@@ -4,6 +4,10 @@
 #include "data.h"
 #include "types.h"
 
+#define SMOKETYPE_BASE_COUNT 23
+
+extern struct smoketype g_SmokeTypes[SMOKETYPE_BASE_COUNT];
+
 void smokesInit(void);
 
 void smokeReset(void);

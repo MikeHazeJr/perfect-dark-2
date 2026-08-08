@@ -28,6 +28,7 @@
 #include "modmgr.h"
 #include "modelcatalog.h"
 #include "pdgui.h"
+#include "pdgui_theme_loader.h"
 /* menumgr.h removed — P10 D5.7 OG Menu Removal */
 #include "playerstats.h"
 #include "achievements.h"
@@ -63,6 +64,7 @@
 #include "assetcatalog_scanner.h"
 #include "assetcatalog_load.h"
 #include "assetcatalog_cache.h"
+#include "weapon_nested_runtime_harness.h"
 #include "asset_source_debug.h"
 #include "modasset_compiler.h"
 #include "loader_pool.h"
@@ -3441,6 +3443,15 @@ int main(int argc, const char **argv)
 	bootProgressShutdown();
 
 	s32 assetChainFailures = SDL_AtomicGet(&g_BootAssetChainFailures);
+	const char *weaponNestedPlan =
+		sysArgGetString("--debug-weapon-nested-harness");
+	if (weaponNestedPlan && weaponNestedPlan[0]) {
+		s32 pass = weaponNestedRuntimeHarnessRun(weaponNestedPlan);
+		if (smokeHarnessIsActive()) {
+			smokeHarnessExit(pass ? 0 : 1,
+				pass ? "weapon_nested_harness_pass" : "weapon_nested_harness_fail");
+		}
+	}
 	if (assetChainFailures > 0) {
 		sysLoudFailf("ASSETCHAIN",
 			"boot stopped: %d extraction/load failure(s); see earlier "
@@ -3461,6 +3472,11 @@ int main(int argc, const char **argv)
 			"BOOT: --extract-assets-only shutdown; gameplay/window teardown skipped");
 		return 0;
 	}
+
+	/* B-994: UI initializes before the background catalog/mod walk. Resolve
+	 * and activate the persisted public .pdtheme exactly once here, on the
+	 * main thread, after the worker has joined and before ordinary UI use. */
+	pdguiThemeLoaderOnCatalogReady();
 
 	atexit(cleanup);
 

@@ -302,12 +302,9 @@ static const struct {
 	const char *shader_id;
 	f32 intensity;
 } s_BaseEffects[] = {
-	{ "effect_tint", "Tint", EFFECT_TYPE_TINT, EFFECT_TARGET_SCENE, "classic_tint", 1.0f },
-	{ "effect_glow", "Glow", EFFECT_TYPE_GLOW, EFFECT_TARGET_PROP, "classic_glow", 1.0f },
-	{ "effect_shimmer", "Shimmer", EFFECT_TYPE_SHIMMER, EFFECT_TARGET_PROP, "classic_shimmer", 1.0f },
-	{ "effect_darken", "Darken", EFFECT_TYPE_DARKEN, EFFECT_TARGET_SCENE, "classic_darken", 1.0f },
-	{ "effect_screen", "Screen Effect", EFFECT_TYPE_SCREEN, EFFECT_TARGET_PLAYER, "classic_screen", 1.0f },
-	{ "effect_particle", "Particle", EFFECT_TYPE_PARTICLE, EFFECT_TARGET_PROP, "classic_particle", 1.0f },
+	{ "effect_explosion_profiles", "Classic Explosion Profiles", EFFECT_TYPE_EXPLOSION, EFFECT_TARGET_CALLSITE, "native_explosion_parts", 1.0f },
+	{ "effect_spark_profiles", "Classic Spark Profiles", EFFECT_TYPE_SPARK, EFFECT_TARGET_CALLSITE, "native_spark_streak", 1.0f },
+	{ "effect_smoke_profiles", "Classic Smoke Profiles", EFFECT_TYPE_SMOKE, EFFECT_TARGET_CALLSITE, "native_smoke_billboard", 1.0f },
 };
 
 #define NUM_BASE_EFFECTS (sizeof(s_BaseEffects) / sizeof(s_BaseEffects[0]))

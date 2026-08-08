@@ -137,6 +137,9 @@ typedef enum {
 #define EFFECT_TYPE_DARKEN      3   /* darken/shadow entire scene */
 #define EFFECT_TYPE_SCREEN      4   /* full-screen post-process */
 #define EFFECT_TYPE_PARTICLE    5   /* particle emitter attached to target */
+#define EFFECT_TYPE_EXPLOSION   6   /* native explosion profile library */
+#define EFFECT_TYPE_SPARK       7   /* native spark profile library */
+#define EFFECT_TYPE_SMOKE       8   /* native smoke profile library */
 
 /* Effect target constants for ext.effect.target */
 #define EFFECT_TARGET_SCENE     0   /* applies to full rendered scene */
@@ -145,6 +148,7 @@ typedef enum {
 #define EFFECT_TARGET_PROP      3   /* applies to a prop/object */
 #define EFFECT_TARGET_WEAPON    4   /* applies to a weapon model */
 #define EFFECT_TARGET_LEVEL     5   /* applies to all level geometry */
+#define EFFECT_TARGET_CALLSITE  6   /* target/attachment are chosen by caller */
 #define HUD_ELEM_TIMER     4   /* game timer */
 #define HUD_ELEM_SCORE     5   /* score display */
 
@@ -494,8 +498,8 @@ typedef struct asset_entry {
             char strings_file[128];    /* Editable JSON source for mod language banks */
         } lang;
         struct {
-            char font_file[128];       /* vector font or bitmap glyph atlas */
-            char metrics_file[128];    /* bitmap glyph metrics/kerning source */
+            char font_file[FS_MAXPATH];    /* vector font or bitmap glyph atlas */
+            char metrics_file[FS_MAXPATH]; /* bitmap glyph metrics/kerning source */
         } font;
         struct {
             s32  type;                 /* BOTTYPE_* constant (e.g. BOTTYPE_GENERAL) */
@@ -611,6 +615,12 @@ s32 assetCatalogGetPoolSize(void);
  * Returns NULL if the entry is not found or the catalog is not initialised.
  */
 asset_entry_t *assetCatalogGetMutable(const char *id);
+
+/* Remove one catalog row by exact ID and rebuild the lookup table. This is
+ * intentionally narrow: transactional compound-archive registration uses it
+ * to roll back rows created earlier in the same failed commit. Existing rows
+ * must never be passed here as part of rollback. Returns 1 when removed. */
+s32 assetCatalogUnregister(const char *id);
 
 /* ========================================================================
  * Registration API

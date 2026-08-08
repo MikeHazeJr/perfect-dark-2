@@ -1,0 +1,17 @@
+{
+  "Name": "theme_archive_runtime_smoke",
+  "Category": "scenario",
+  "BugId": null,
+  "RegressionFor": null,
+  "Passed": true,
+  "ExitCode": 0,
+  "ElapsedSeconds": 86.662696,
+  "InstallDir": "C:\\Users\\mikeh\\Perfect-Dark-2\\perfect_dark-mike\\.claude\\smoke-verify-install",
+  "Screenshots": [
+    "C:\\Users\\mikeh\\Perfect-Dark-2\\perfect_dark-mike\\.claude\\smoke-verify-runs\\screenshots\\20260808T174522-theme_archive_runtime_smoke\\001-tri-theme-main-menu.bmp",
+    "C:\\Users\\mikeh\\Perfect-Dark-2\\perfect_dark-mike\\.claude\\smoke-verify-runs\\screenshots\\20260808T174522-theme_archive_runtime_smoke\\002-tri-theme-main-menu-focus.bmp"
+  ],
+  "AssertionsTotal": 24,
+  "AssertionsMet": 24,
+  "Failures": []
+}

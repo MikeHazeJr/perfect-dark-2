@@ -8,6 +8,7 @@
 #include "fs.h"
 #include "utils.h"
 #include "mod.h"
+#include "mod_sequence_path.h"
 #include "data.h"
 #include "assetcatalog.h"
 #include "assetcatalog_load.h"
@@ -239,49 +240,6 @@ static s32 modSequenceBufPutVarLen(mod_seq_buf_t *b, u32 value)
 			return -1;
 		}
 	}
-	return 0;
-}
-
-static s32 modSequenceSiblingPath(const char *path, const char *member,
-		char *out, size_t out_n)
-{
-	const char *sep;
-	const char *slash;
-	size_t prefix_len;
-
-	if (!path || !member || !out || out_n == 0) {
-		return -1;
-	}
-
-	sep = strstr(path, "::");
-	if (sep) {
-		prefix_len = (size_t)(sep - path) + 2;
-		if (prefix_len + strlen(member) >= out_n) {
-			return -1;
-		}
-		memcpy(out, path, prefix_len);
-		strcpy(out + prefix_len, member);
-		return 0;
-	}
-
-	slash = strrchr(path, '/');
-	if (!slash) {
-		slash = strrchr(path, '\\');
-	}
-	if (slash) {
-		prefix_len = (size_t)(slash - path) + 1;
-		if (prefix_len + strlen(member) >= out_n) {
-			return -1;
-		}
-		memcpy(out, path, prefix_len);
-		strcpy(out + prefix_len, member);
-		return 0;
-	}
-
-	if (strlen(member) >= out_n) {
-		return -1;
-	}
-	strcpy(out, member);
 	return 0;
 }
 

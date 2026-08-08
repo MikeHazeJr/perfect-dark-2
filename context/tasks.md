@@ -6,15 +6,38 @@
 
 Last updated: 2026-08-08
 
+`T-ASSETS-030` now passes its automated `.pdtheme` bands and an ordinary-client
+24/24 smoke: edited public theme source applied custom UI/font/SFX/music,
+nested MIDI compiled from `.pdmod::pdsong`, MKB Down/Up traversed SDL, two
+1280x720 frames rendered, and shutdown was clean. It remains `partial` for
+three explicit dependencies. `T-CATALOG-002` owns the critical systemic fix
+for stage diff releasing active typed references it did not acquire (observed
+theme plus four children ref `1->0`). `T-MENUS-002` owns the vertically clipped
+MKB/controller action-label footer visible in both frames. Real controller,
+device-switch, restart, and peer-network proof remain open; enumeration and
+synthetic input are not substitutes.
+
+`T-CATALOG-003` records the remaining systemic archive-qualified source-path
+work under the asset/runtime umbrellas: 34 path-bearing catalog fields still
+use 128-byte storage, and unchecked copy/join sites can preserve truncated
+prefixes across scanner, walker, network, provider, runtime, and weapon-archive
+boundaries. Its Wave A/B/C acceptance requires path-only capacity migration,
+checked fail-closed propagation, and an all-family boundary matrix; B-985 and
+B-996 are focused evidence, not systemic closure.
+
 **2026-08-08 ACTIVE ROADMAP EXECUTION.** The canonical Workbench routes the
 live asset program ahead of 36 explicitly deferred historical/manual-resume
 items. Character (`T-ASSETS-010`), voice metadata/localization
 (`T-ASSETS-011`/`T-ASSETS-021`), and executable prop graphs (`T-ASSETS-013`)
 are production-connected with source-frozen automated evidence; ordinary-client
 edited-source and negative-path receipts remain validation work. Nested weapon
-animation/audio registration is connected but truthfully partial under
-`T-ASSETS-022` until a native lifecycle harness and live edited/corrupt-media
-proof pass. `T-ASSETS-031` now has production parser and automated coverage
+animation/audio registration is connected and its native production-linked
+behavioral harness passes 3/3 under `T-ASSETS-022`: direct and manifest-style
+ownership balance, unresolved selected audio rejects without numeric fallback,
+and late corruption rolls back every row and edge. The item remains truthfully
+partial because B-992 exhausts private custom-weapon slots after the complete
+base catalog and ordinary edited/corrupt-media gameplay remains under
+`T-ASSETS-025`. `T-ASSETS-031` now has production parser and automated coverage
 for JSON non-BMP surrogate pairs and malformed-pair rejection.
 `T-MODDING-007` now has a production-connected Audio Mods Voice creator that
 emits a validated, self-contained localized `.pdvoice`, atomically preserves
@@ -154,6 +177,16 @@ families. `A-ASSETS-025` and `A-ASSETS-026` may be marked implemented;
 `A-ASSETS-022` remains partial because arbitrary prop behavior-graph execution
 is still open. Mission briefing/wrapper and the residual weapon, character,
 voice, effect and theme fields remain in the active audit.
+
+`B-959` `.pdeffect` extraction/schema slice, 2026-08-08: T-ASSETS-016
+replaces six synthetic base presets with source-faithful profile libraries for
+all 26 explosion, 27 spark, and 23 smoke rows. The v2 public graph separates
+stored, consumer-derived, and callsite-owned state and uses catalog audio IDs.
+Focused tests pass 181 assertions / 3 cases, existing effect runtime tests pass
+235 / 8, the native-source guard passes, and isolated `assetwave5` builds pass.
+The item remains partial because T-ASSETS-017 through T-ASSETS-020 still own
+shared parsing, execution, dependencies, fail-closed behavior, and live edited-
+source proof.
 
 Final audit verification checkpoint, 2026-07-30: B-969's creator-workflow fix
 remains live-smoke validated, and the regenerated all-family package again

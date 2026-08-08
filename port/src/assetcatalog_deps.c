@@ -126,6 +126,37 @@ void catalogDepRegister(const char *owner_id, const char *dep_id,
     s_NumDepPairs++;
 }
 
+s32 catalogDepUnregister(const char *owner_id, const char *dep_id)
+{
+    if (!owner_id || !owner_id[0] || !dep_id || !dep_id[0]) return 0;
+    u32 ohash = s_fnv1a(owner_id);
+    for (s32 i = 0; i < s_NumDepPairs; i++) {
+        if (s_DepTable[i].owner_hash == ohash
+                && strcmp(s_DepTable[i].owner_id, owner_id) == 0
+                && strcmp(s_DepTable[i].dep_id, dep_id) == 0) {
+            if (i + 1 < s_NumDepPairs) {
+                memmove(&s_DepTable[i], &s_DepTable[i + 1],
+                    (size_t)(s_NumDepPairs - i - 1) * sizeof(s_DepTable[0]));
+            }
+            s_NumDepPairs--;
+            return 1;
+        }
+    }
+    return 0;
+}
+
+s32 catalogDepContains(const char *owner_id, const char *dep_id)
+{
+    if (!owner_id || !owner_id[0] || !dep_id || !dep_id[0]) return 0;
+    u32 ohash = s_fnv1a(owner_id);
+    for (s32 i = 0; i < s_NumDepPairs; i++) {
+        if (s_DepTable[i].owner_hash == ohash
+                && strcmp(s_DepTable[i].owner_id, owner_id) == 0
+                && strcmp(s_DepTable[i].dep_id, dep_id) == 0) return 1;
+    }
+    return 0;
+}
+
 void catalogDepForEach(const char *owner_id,
                        CatalogDepIterFn fn, void *userdata)
 {

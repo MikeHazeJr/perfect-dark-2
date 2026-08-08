@@ -4,6 +4,10 @@
 #include "data.h"
 #include "types.h"
 
+#define EXPLOSIONTYPE_BASE_COUNT 26
+
+extern struct explosiontype g_ExplosionTypes[EXPLOSIONTYPE_BASE_COUNT];
+
 void explosionsReset(void);
 
 void explosionsStop(void);

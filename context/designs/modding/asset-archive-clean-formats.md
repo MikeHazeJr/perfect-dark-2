@@ -184,6 +184,27 @@ Raw preprocessed setup dumps are not acceptable public payloads. The extractor n
 
 The extraction session should not emit descriptor-only stubs just to cover a family. Emit a typed archive only when the public zone contains enough authored data to load and use that asset, or when the descriptor explicitly declares an approved base dependency that provides the missing runtime payload through catalog/on-disk provider source.
 
+### `.pdeffect` base profile graph v2
+
+Base extraction emits three real profile-library archives instead of generic
+tint/glow/shimmer/darken/screen/particle stand-ins:
+
+- `base:effect_explosion_profiles` contains all 26 `g_ExplosionTypes` rows.
+- `base:effect_spark_profiles` contains all 27 `g_SparkTypes` rows.
+- `base:effect_smoke_profiles` contains all 23 `g_SmokeTypes` rows.
+
+`effect.ini` fixes `schema = pd.effect_graph.v2`, `profile_kind`, and
+`effect_file = effect.graph.json`. The graph separates `stored` fields copied
+from the native table, `source_derived` constants/formulas proven by the native
+consumer, and `callsite_owned` policy. Base target, attachment, priority,
+enable, owner, and scorch-enable are callsite decisions and must not be
+synthesized as table values. Explosion audio uses catalog IDs, never numeric
+sound identity. Explosion, spark, and smoke are the native particle systems;
+the base game has no independent beam or screen profile table, so v2 declares
+those tables absent instead of emitting fake assets. T-ASSETS-017 through
+T-ASSETS-020 own shared parsing, execution, dependencies, and fail-closed
+activation of this public source.
+
 ## Final Batch Details
 
 ### `.pdui`

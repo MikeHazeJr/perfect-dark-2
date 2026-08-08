@@ -1,5 +1,61 @@
 # Session Log (Active)
 
+## 2026-08-08 - Archive-qualified path-capacity propagation audit
+
+Completed a read-only propagation audit after B-996. Exactly 34 remaining
+catalog fields can carry filesystem or qualified `archive::member` paths while
+still using 128-byte storage. The same silent-prefix failure class also remains
+in scanner qualification, shared loader walkers, network distribution ingestion,
+runtime mirrors, provider admission, and weapon-graph archive descriptors.
+
+Created canonical Workbench task `T-CATALOG-003` with dependencies on
+`T-ASSETS-001` and `T-RUNTIME-001`, then acknowledged and incorporated durable
+handoff note `N-0017`. The task divides implementation into path-only storage
+migration, checked copy/join propagation, and an all-family local/nested/network
+boundary matrix. No production code was changed; the B-985 UI and B-996 font
+fixes remain focused evidence rather than proof that the bug class is closed.
+
+## 2026-08-08 - Nested `.pdweapon` transaction and lifecycle proof
+
+Completed B-990's automated production path for Workbench `T-ASSETS-022`.
+Nested weapon media now preflights the complete closure before mutation,
+registers audio before dependent animation, reserves capacity, rolls back all
+created rows and edges on failure, and rejects unresolved animation-command
+audio instead of compiling fallback slot zero. Direct weapon load owns the same
+closure as manifest-driven load, and the propagation fix retains any
+already-loaded audio or animation before type-specific activation.
+
+The isolated production client harness passes 3/3: direct ownership releases
+1->0, explicit child plus parent ownership balances 2->1->0, and both an
+unresolved sound and a corrupt late animation reject with no catalog or edge
+leak. Durable receipt:
+`context/evidence/2026-08-08-weapon-nested-native-verification.md`.
+
+The real run exposed B-992: after the complete base catalog loads, no private
+custom-weapon slot remains. The exit-after-test harness therefore borrows
+AR34's loaded indices and cannot serve as ordinary new-weapon allocation proof.
+`T-ASSETS-022` remains partial; custom-slot capacity and ordinary edited-media
+gameplay/restart/network proof remain open under `T-ASSETS-009`/`025`.
+
+## 2026-08-08 - Source-faithful base `.pdeffect` schema slice
+
+Advanced Workbench `T-ASSETS-016` from missing to partial. The base catalog and
+extractor no longer advertise six invented generic effect presets. Three public
+v2 profile libraries now serialize every production table row: 26 explosions,
+27 sparks, and 23 smoke profiles. Stored values remain field-exact, numeric
+explosion sounds become catalog audio IDs, and fixed native consumer behavior is
+recorded separately from callsite-owned target, attachment, priority, enable,
+owner, and scorch policy. Beam and screen tables are explicitly absent rather
+than synthesized.
+
+Verification passes isolated `assetwave5` client/updater/test builds,
+`[t-assets-016]` (181 assertions / 3 cases), existing `[effect_graph]` coverage
+(235 / 8), native-source guard, and diff check. Two harness-only compile errors
+were corrected before the passing receipt and are retained in coordination
+history. T-ASSETS-017 through T-ASSETS-020 remain the parser, execution,
+dependency, fail-closed, and live-proof boundary, so T-ASSETS-016 is not marked
+implemented or validated.
+
 ## 2026-08-08 - Self-contained Theme Editor archives
 
 Implemented Workbench `T-ASSETS-029`. Theme Editor folder saves now create a
@@ -3827,3 +3883,23 @@ away 0.5s, return -- expect it to persist; CORPSE.FREEZE logs the event).
 auto_campaign_first_cycle failed 10/20 but that is the known-flaky full-campaign
 state-machine assertion set (historically 16-17/20), 0 corpse involvement, 0
 crash signatures -- not a regression from this work.
+## 2026-08-08 - T-ASSETS-030 ordinary-client theme validation and lifecycle audit
+
+Completed the automated and ordinary-client `.pdtheme` validation lane. Added
+transactional production theme ownership; read-only consumer preflight; strict
+base manifest identity with versioned cache refresh; post-catalog saved-theme
+activation; balanced discovery probes; full nested font path capacity; and a
+pure deepest-archive sibling resolver for sequenced music. Fixed B-991 and
+B-994 through B-998. Focused T030 passed 218 assertions/6 cases, `[pdtheme]`
+passed 321/14, the frozen full suite passed 47,986/890, 27-family conformance
+and native-source guard passed, and final ordinary-client smoke passed 24/24.
+The client applied custom UI/font/SFX/music, compiled the nested custom MIDI,
+processed MKB Down/Up, captured two 1280x720 renders, and exited cleanly.
+
+Kept T-ASSETS-030 partial after live evidence exposed two residual blockers.
+Stage diff dropped the active theme and four children from ref 1->0 despite
+explicit lifecycle ownership; this systemic owner-conflation is SP-31 and
+server-assigned Workbench T-CATALOG-002. Both renders show the dynamic MKB
+footer vertically clipped at the panel bottom; T-MENUS-002 owns the layout and
+V-004 remains partial. Physical controller/device-switch, restart, and real
+peer-network proof were not available and were not replaced with simulation.

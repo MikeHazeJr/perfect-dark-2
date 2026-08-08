@@ -1,0 +1,75 @@
+Build env: TEMP=C:\Users\mikeh\AppData\Local\Temp | mingw64 on PATH | ccache sloppy
+WARNING: ccache compiler probe failed or timed out; building without ccache launcher.
+
+  Perfect Dark PC Port  -  Headless Build
+  Target:     client
+  Version:    0.1.102
+  Next ver:   False (-UseNextVersion)
+  Clean:      False
+  AutoCommit: False (-AutoCommit / -CommitPush)
+  Verbose:    False
+  Cores:      24
+  Generator:  Ninja
+  BuildDir:   C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike\.claude\session-builds\t022native
+  ProjectDir: C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike
+
+  Auto-commit disabled (pass -AutoCommit to enable).
+
+  [smart-clean] Incremental build (no clean needed)
+
+------------------------------------------------------------
+  Configure (CMake - Ninja + ccache)
+------------------------------------------------------------
+  [step-log] stdout: C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike\.claude\session-builds\t022native\_build-headless-20260808-170024-configure-cmake---ninja-ccache.out.log
+  [step-log] stderr: C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike\.claude\session-builds\t022native\_build-headless-20260808-170024-configure-cmake---ninja-ccache.err.log
+  [step-log] heartbeat: C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike\.claude\session-builds\t022native\_build-headless-20260808-170024-configure-cmake---ninja-ccache.heartbeat.log
+  [step-log] exit:   C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike\.claude\session-builds\t022native\_build-headless-20260808-170024-configure-cmake---ninja-ccache.exit
+  [step-log] cmdline: C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike\.claude\session-builds\t022native\_build-headless-20260808-170024-configure-cmake---ninja-ccache.cmdline.txt
+  [heartbeat] [2026-08-08T17:00:25] Configure (CMake - Ninja + ccache) running 0s pid=81704 stdout=574b stderr=0b ninja_log=110646b
+ +                                                                          + >>> Configure (CMake - Ninja + ccache) OK (0s) <<<
+
+------------------------------------------------------------
+  Generate Headers [pd_headers]
+------------------------------------------------------------
+  [step-log] stdout: C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike\.claude\session-builds\t022native\_build-headless-20260808-170025-generate-headers-pd_headers.out.log
+  [step-log] stderr: C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike\.claude\session-builds\t022native\_build-headless-20260808-170025-generate-headers-pd_headers.err.log
+  [step-log] heartbeat: C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike\.claude\session-builds\t022native\_build-headless-20260808-170025-generate-headers-pd_headers.heartbeat.log
+  [step-log] exit:   C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike\.claude\session-builds\t022native\_build-headless-20260808-170025-generate-headers-pd_headers.exit
+  [step-log] cmdline: C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike\.claude\session-builds\t022native\_build-headless-20260808-170025-generate-headers-pd_headers.cmdline.txt
+ +                                                                          + >>> Generate Headers [pd_headers] OK (0s) <<<
+
+============================================================
+  Building: Client  (target: pd)
+  Dir:      C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike\.claude\session-builds\t022native
+============================================================
+
+------------------------------------------------------------
+  Compile [Client]
+------------------------------------------------------------
+  [step-log] stdout: C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike\.claude\session-builds\t022native\_build-headless-20260808-170025-compile-client.out.log
+  [step-log] stderr: C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike\.claude\session-builds\t022native\_build-headless-20260808-170025-compile-client.err.log
+  [step-log] heartbeat: C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike\.claude\session-builds\t022native\_build-headless-20260808-170025-compile-client.heartbeat.log
+  [step-log] exit:   C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike\.claude\session-builds\t022native\_build-headless-20260808-170025-compile-client.exit
+  [step-log] cmdline: C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike\.claude\session-builds\t022native\_build-headless-20260808-170025-compile-client.cmdline.txt
+  [heartbeat] [2026-08-08T17:00:25] Compile [Client] running 0s pid=87760 stdout=266b stderr=0b ninja_log=110484b
+ +                                                                          + >>> Compile [Client] OK (2s) <<<
+
+------------------------------------------------------------
+  Post-Build: Copy Addin Files
+------------------------------------------------------------
+  Copied addin\data -> C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike\.claude\session-builds\t022native (ROM at install root)
+
+------------------------------------------------------------
+  Post-Build: Copy Dev Mods
+------------------------------------------------------------
+  Dev mod 'needler' -> C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike\.claude\session-builds\t022native\mods\needler
+
+============================================================
+  BUILD SUMMARY
+============================================================
+  [PASS  ]  CLIENT       2s
+           -> C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike\.claude\session-builds\t022native\PerfectDark.exe  (69.8 MB)
+
+  Total time: 3s
+  Result: SUCCESS
+============================================================

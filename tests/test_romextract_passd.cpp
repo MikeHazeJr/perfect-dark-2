@@ -220,10 +220,10 @@ TEST_CASE("c3811: base content validates and rebuilds at startup",
 
 	const std::size_t romVerifyPos =
 		main.find("catalogCacheVerifyRom(g_RomName, NULL);");
-	const std::size_t extractFilesPos = main.find("romExtractAllFiles();");
-	const std::size_t verifyFilesPos = main.find("romExtractVerifyAll();");
-	const std::size_t extractSegsPos = main.find("romExtractAllSegments();");
-	const std::size_t verifySegsPos = main.find("romExtractVerifyAllSegments();");
+	const std::size_t extractFilesPos = main.find("romExtractAllFiles()");
+	const std::size_t verifyFilesPos = main.find("romExtractVerifyAll()");
+	const std::size_t extractSegsPos = main.find("romExtractAllSegments()");
+	const std::size_t verifySegsPos = main.find("romExtractVerifyAllSegments()");
 	const std::size_t reportPos =
 		main.find("romExtractEmitBootIntegrityReport();");
 	const std::size_t releasePos = main.find("romdataReleaseRom();");

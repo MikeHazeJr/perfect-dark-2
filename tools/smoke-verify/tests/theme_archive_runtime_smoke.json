@@ -1,0 +1,78 @@
+{
+  "scenario_name": "theme_archive_runtime_smoke",
+  "description": "T-ASSETS-030 ordinary-client proof: pack and enable the creator-facing typed example, boot with its public .pdtheme selected, load its UI/font/SFX/music dependency closure through the real catalog lifecycle, apply the strict public fields to the production menu, capture the rendered result, and exit cleanly.",
+  "tags": ["modding", "pdmod", "pdxxx", "pdtheme", "theme", "runtime", "visual", "T-ASSETS-030"],
+  "paths_of_interest": [
+    "examples/modding/typed-pdxxx-basic/themes/tri_theme.pdtheme",
+    "port/src/assetcatalog_scanner.c",
+    "port/src/assetcatalog_load.c",
+    "port/src/pdtheme_activation.c",
+    "port/fast3d/pdgui_theme_loader.cpp",
+    "port/fast3d/pdgui_audio.cpp"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 110,
+  "install_state": "prefilled",
+  "remove_paths": [
+    "mods/example_typed_pdxxx_basic.pdmod",
+    "mods/example_typed_pdxxx_basic",
+    "mods/installed/example_typed_pdxxx_basic.pdmod",
+    "mods/installed/example_typed_pdxxx_basic"
+  ],
+  "fixtures": [
+    { "src": "tools/smoke-verify/fixtures/theme_archive_source_pd.ini", "dst": "pd.ini" },
+    { "src": "tools/smoke-verify/fixtures/typed_pdxxx_basic_enabled.json", "dst": "mods-enabled.json" }
+  ],
+  "packed_fixtures": [
+    { "src": "examples/modding/typed-pdxxx-basic", "dst": "mods/installed/example_typed_pdxxx_basic.pdmod" }
+  ],
+  "boot_args": [
+    "--no-update-check",
+    "--no-net",
+    "--portable",
+    "--skip-intro"
+  ],
+  "input_sequence": [
+    { "at_ms": 0, "type": "wait", "comment": "Allow cold catalog walking, nested typed registration, selected-theme lifecycle activation, font-atlas rebuild, and main-menu rendering." },
+    { "at_ms": 70000, "type": "key", "key": "Down", "action": "tap", "comment": "Real MKB SDL event traverses the ordinary menu after the custom theme is active." },
+    { "at_ms": 72000, "type": "key", "key": "Up", "action": "tap", "comment": "Return focus while exercising the active theme's semantic focus sound path." },
+    { "at_ms": 85000, "type": "exit", "comment": "Exercise loader shutdown release and exit cleanly after visual capture." }
+  ],
+  "screenshots": [
+    { "at_ms": 76000, "name": "tri-theme-main-menu" },
+    { "at_ms": 80000, "name": "tri-theme-main-menu-focus" }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=theme_archive_runtime_smoke",
+      "modmgr: loaded mods-enabled\\.json",
+      "modmgr: parsed mod\\.json for 'example_typed_pdxxx_basic'.*archive=yes",
+      "PDTHEME\\.NESTED\\.REGISTER: owner=example:tri_theme id=example:tri_reticle type=",
+      "PDTHEME\\.NESTED\\.REGISTER: owner=example:tri_theme id=example:tri_theme_font type=",
+      "PDTHEME\\.NESTED\\.REGISTER: owner=example:tri_theme id=example:tri_click type=",
+      "PDTHEME\\.NESTED\\.REGISTER: owner=example:tri_theme id=example:tri_song type=",
+      "PDGUI theme loader: applied 'example:tri_theme' from '",
+      "SMOKE: screenshot at_ms=76000",
+      "SMOKE: screenshot at_ms=80000",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "PDTHEME\\.NESTED\\.REJECT",
+      "PDGUI theme loader: lifecycle load failed",
+      "PDGUI theme loader: parse failed",
+      "PDGUI theme loader: consumer preflight failed",
+      "ASSET\\.SOURCE_ONLY",
+      "LOUDFAIL\\.FALLBACK",
+      "ASSET\\.FALLBACK",
+      "RomProvider:filenum"
+    ],
+    "required_counts": [
+      { "pattern": "PDGUI theme loader: applied 'example:tri_theme'", "min": 1, "max": 2 }
+    ]
+  }
+}

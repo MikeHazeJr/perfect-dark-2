@@ -146,3 +146,58 @@ TEST_CASE("pdtheme supported fields reach fail-closed production consumers",
 	REQUIRE(glyphs.find("pdguiPalImU32(PDPAL_BODYBG") != std::string::npos);
 	REQUIRE(glyphs.find("pdguiImU32TitleGlow") != std::string::npos);
 }
+
+TEST_CASE("pdtheme field parser is transport invariant and rejects every public boundary",
+	"[modding][network][pdxxx][pdtheme][negative][T-ASSETS-030]")
+{
+	const std::string full = R"JSON({
+  "schema":"pd2.theme.v1","catalog_id":"example:theme_full",
+  "name":"Full","author":"Creator","version":"1",
+  "palette":{"dialog_border1":"01020304","dialog_titlebg":"11121314","title_glow":"aabbccdd"},
+  "textures":{"dialog_background":"example:ui_panel"},
+  "scanline":{"enabled":true,"alpha":0.25,"interval":8},
+  "textGlow":{"enabled":true,"intensity":4,"color":"01020304"},
+  "sounds":{"swipe":"example:sfx","open":"example:sfx2","focus":"example:sfx3","select":"example:sfx4","error":"example:sfx5","toggle_on":"example:sfx6","toggle_off":"example:sfx7","subfocus":"example:sfx8","keyboard_focus":"example:sfx9","cancel":"example:sfx10","success":"example:sfx11"},
+  "menuMusic":"example:music","menuStyle":"example:ui_panel","font":"example:font",
+  "nineslices":[{"id":"example:ui_panel","left":1,"right":2,"top":3,"bottom":4,"edgeMode":"tile","centerMode":"stretch"}],
+  "caustics":[{"elementId":"example:ui_panel","textureId":"example:ui_fx","frameCount":1024,"speed":1000,"opacity":1,"scale":100,"blendMode":"screen"}],
+  "borderEffects":[{"elementId":"example:ui_panel","maskTextureId":"example:ui_mask","opacity":1,"blendMode":"additive","tintColor":"ffffffff","scrollX":-1000,"scrollY":1000}],
+  "fontShadow":{"offsetX":-32,"offsetY":32,"color":"000000ff"},
+  "fontGlow":{"radius":32,"intensity":4,"color":"ffffffff","passes":8}
+})JSON";
+
+	/* Base, loose-folder typed archive, mounted pdmod, and network-staged
+	 * pdmod all feed these exact public bytes to the one strict parser. */
+	for (const char *transport : {"base", "local", "pdmod", "network"}) {
+		INFO(transport);
+		pdtheme_source_info_t info = {};
+		REQUIRE(parseTheme(full, "example:theme_full", &info));
+		REQUIRE(info.palette_fields == 3);
+		REQUIRE(info.texture_roles == 1);
+		REQUIRE(info.sound_roles == PDTHEME_SOURCE_MAX_SOUND_ROLES);
+		REQUIRE(info.nineslices == 1);
+		REQUIRE(info.caustics == 1);
+		REQUIRE(info.border_effects == 1);
+	}
+
+	std::string why;
+	REQUIRE_FALSE(parseTheme("", "example:theme_full", nullptr, &why));
+	REQUIRE_FALSE(parseTheme("{", "example:theme_full", nullptr, &why));
+	REQUIRE_FALSE(parseTheme(R"({"schema":"pd2.theme.v1","catalog_id":"example:theme_full","name":"X"})",
+		"example:theme_full", nullptr, &why));
+	REQUIRE_FALSE(parseTheme(R"({"schema":"pd2.theme.v1","catalog_id":"example:wrong","name":"X","version":"1"})",
+		"example:theme_full", nullptr, &why));
+	REQUIRE_FALSE(parseTheme(R"({"schema":1,"catalog_id":"example:theme_full","name":"X","version":"1"})",
+		"example:theme_full", nullptr, &why));
+	REQUIRE_FALSE(parseTheme(R"({"schema":"pd2.theme.v1","catalog_id":"example:theme_full","name":"X","version":"1","scanline":[]})",
+		"example:theme_full", nullptr, &why));
+
+	std::string tooMany = R"({"schema":"pd2.theme.v1","catalog_id":"example:theme_full","name":"X","version":"1","caustics":[)";
+	for (int i = 0; i < PDTHEME_SOURCE_MAX_EFFECTS + 1; i++) {
+		if (i) tooMany += ",";
+		tooMany += R"({"elementId":"example:ui","textureId":"example:fx","frameCount":1,"speed":1,"opacity":1,"scale":1,"blendMode":"screen"})";
+	}
+	tooMany += "]}";
+	REQUIRE_FALSE(parseTheme(tooMany, "example:theme_full", nullptr, &why));
+	REQUIRE(why.find("capacity") != std::string::npos);
+}

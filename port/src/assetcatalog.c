@@ -584,6 +584,40 @@ asset_entry_t *assetCatalogRegister(const char *id, asset_type_e type)
     return entry;
 }
 
+s32 assetCatalogUnregister(const char *id)
+{
+    s32 pool_idx = SENTINEL;
+    s32 removed = 0;
+
+    if (!id || !id[0]) return 0;
+    CATALOG_LOCK();
+    if (s_HashTable && s_EntryPool && s_HashTableSize > 0) {
+        u32 id_hash = fnv1a(id);
+        if (findSlot(id_hash, id, &pool_idx) >= 0
+                && pool_idx != SENTINEL
+                && pool_idx >= 0 && pool_idx < s_EntryPoolSize
+                && s_EntryPool[pool_idx].occupied) {
+            memset(&s_EntryPool[pool_idx], 0, sizeof(s_EntryPool[pool_idx]));
+            for (s32 i = 0; i < s_HashTableSize; i++) {
+                s_HashTable[i] = SENTINEL;
+            }
+            for (s32 i = 0; i < s_EntryPoolSize; i++) {
+                if (!s_EntryPool[i].occupied) continue;
+                u32 hash = fnv1a(s_EntryPool[i].id);
+                s32 slot = (s32)(hash & (u32)(s_HashTableSize - 1));
+                while (s_HashTable[slot] != SENTINEL) {
+                    slot = (slot + 1) & (s_HashTableSize - 1);
+                }
+                s_HashTable[slot] = i;
+            }
+            s_CatalogGeneration++;
+            removed = 1;
+        }
+    }
+    CATALOG_UNLOCK();
+    return removed;
+}
+
 asset_entry_t *assetCatalogRegisterMap(const char *id, s32 stagenum,
                                         const char *dirpath)
 {

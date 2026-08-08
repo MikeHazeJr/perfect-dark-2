@@ -21,13 +21,18 @@
 #include "boot_pool.h"
 #include "boot_progress.h"
 #include "constants.h"
+#include "catalog_readable_ids.h"
 #include "fs.h"
+#include "game/explosions.h"
+#include "game/smoke.h"
+#include "game/sparks.h"
 #include "game/stagetable.h"
 #include "modarchive.h"
+#include "pdeffect_source.h"
 #include "romextract_pd.h"
 #include "system.h"
 
-#define PDMETA_FAST_CACHE_KIND "pdmeta_table_backed_v14_scenario_briefing_authority"
+#define PDMETA_FAST_CACHE_KIND "pdmeta_table_backed_v15_source_faithful_effect_profiles"
 #define PDMETA_SCENARIO_DEP_CACHE_KIND \
 	"pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json"
 
@@ -874,20 +879,10 @@ static const char *s_effectTypeKey(s32 effect_type)
 	case EFFECT_TYPE_DARKEN:   return "darken";
 	case EFFECT_TYPE_SCREEN:   return "screen";
 	case EFFECT_TYPE_PARTICLE: return "particle";
+	case EFFECT_TYPE_EXPLOSION: return "explosion";
+	case EFFECT_TYPE_SPARK:     return "spark";
+	case EFFECT_TYPE_SMOKE:     return "smoke";
 	default:                   return "effect";
-	}
-}
-
-static const char *s_effectTargetKey(s32 target)
-{
-	switch (target) {
-	case EFFECT_TARGET_SCENE:  return "scene";
-	case EFFECT_TARGET_PLAYER: return "player";
-	case EFFECT_TARGET_CHR:    return "character";
-	case EFFECT_TARGET_PROP:   return "prop";
-	case EFFECT_TARGET_WEAPON: return "weapon";
-	case EFFECT_TARGET_LEVEL:  return "level";
-	default:                   return "target";
 	}
 }
 
@@ -1330,59 +1325,63 @@ static s32 s_emitEffect(const asset_entry_t *e, const char *out_dir,
 	}
 
 	const char *type_key = s_effectTypeKey(e->ext.effect.effect_type);
-	const char *target_key = s_effectTargetKey(e->ext.effect.target);
 	char ini[1024];
 	int ini_len = snprintf(ini, sizeof(ini),
 		"[effect]\n"
 		"catalog_id = %s\n"
 		"name = %s\n"
-		"effect_key = %s\n"
-		"target_key = %s\n"
-		"shader_id = %s\n"
-		"intensity = %.3f\n"
+		"schema = pd.effect_graph.v2\n"
+		"profile_kind = %s\n"
+		"target_policy = callsite\n"
+		"attachment_policy = callsite\n"
+		"priority_policy = callsite\n"
+		"scorch_policy = callsite\n"
 		"effect_file = effect.graph.json\n",
 		e->id, e->ext.effect.name[0] ? e->ext.effect.name : type_key,
-		type_key, target_key, e->ext.effect.shader_id,
-		e->ext.effect.intensity);
+		type_key);
 	if (ini_len <= 0 || (size_t)ini_len >= sizeof(ini)) return -1;
 
-	/* c3849 Unit 8 (B6.4): canonical effect-graph schema. Existing archives
-	 * keep the legacy "pd2.effect.graph.v1" string (the early-out above
-	 * checks entry presence only); weaponGraphCompileJson accepts both. */
-	char graph[1536];
-	int graph_len = snprintf(graph, sizeof(graph),
-		"{\n"
-		"  \"schema\": \"pd.effect_graph.v1\",\n"
-		"  \"catalog_id\": \"%s\",\n"
-		"  \"effect\": \"%s\",\n"
-		"  \"target\": \"%s\",\n"
-		"  \"nodes\": [\n"
-		"    { \"id\": \"apply\", \"kind\": \"effect.%s\", \"params\": { \"shader\": \"%s\", \"intensity\": %.3f } }\n"
-		"  ],\n"
-		"  \"edges\": []\n"
-		"}\n",
-		e->id, type_key, target_key, type_key, e->ext.effect.shader_id,
-		e->ext.effect.intensity);
-	if (graph_len <= 0 || (size_t)graph_len >= sizeof(graph)) return -1;
+	char *graph = NULL;
+	size_t graph_len = 0;
+	s32 graph_result = -1;
+	if (e->ext.effect.effect_type == EFFECT_TYPE_EXPLOSION) {
+		graph_result = pdEffectSourceBuildExplosionGraph(e->id,
+			g_ExplosionTypes, EXPLOSIONTYPE_BASE_COUNT,
+			catalogReadableSoundRefId, &graph, &graph_len);
+	} else if (e->ext.effect.effect_type == EFFECT_TYPE_SPARK) {
+		graph_result = pdEffectSourceBuildSparkGraph(e->id,
+			g_SparkTypes, SPARKTYPE_BASE_COUNT, &graph, &graph_len);
+	} else if (e->ext.effect.effect_type == EFFECT_TYPE_SMOKE) {
+		graph_result = pdEffectSourceBuildSmokeGraph(e->id,
+			g_SmokeTypes, SMOKETYPE_BASE_COUNT, &graph, &graph_len);
+	}
+	if (graph_result != 0 || !graph || graph_len == 0 || graph_len > 0xffffffffu) {
+		free(graph);
+		return -1;
+	}
 
 	char manifest[1024];
 	int manifest_len = snprintf(manifest, sizeof(manifest),
 		"{\n"
 		"  \"pd_kind\": \"effect\",\n"
-		"  \"pd_schema_version\": 1,\n"
+		"  \"pd_schema_version\": 2,\n"
 		"  \"id\": \"%s\",\n"
-		"  \"effect_file\": \"effect.graph.json\"\n"
+		"  \"effect_file\": \"effect.graph.json\",\n"
+		"  \"profile_kind\": \"%s\",\n"
+		"  \"field_provenance\": \"native_base_table_and_consumer\"\n"
 		"}\n",
-		e->id);
+		e->id, type_key);
 	if (manifest_len <= 0 || (size_t)manifest_len >= sizeof(manifest)) {
+		free(graph);
 		return -1;
 	}
 
 	mod_archive_writer_t *aw;
 	asset_archive_writer_t writer;
 	if (s_openWriter(relpath, "effect", e->id, "romextract_pdmeta",
-			"renderer_effect_defaults", e->runtime_index,
+			"native_effect_profile_tables", e->runtime_index,
 			&aw, &writer) != 0) {
+		free(graph);
 		return -1;
 	}
 	if (assetArchiveWriterAddDescriptor(&writer, "effect.ini",
@@ -1390,10 +1389,12 @@ static s32 s_emitEffect(const asset_entry_t *e, const char *out_dir,
 			assetArchiveWriterAddManifestJson(&writer,
 			manifest, (u32)manifest_len) != MODARCHIVE_OK ||
 			assetArchiveWriterAddPublicMem(&writer, "effect.graph.json",
-			graph, (u32)graph_len, "effect-graph") != MODARCHIVE_OK) {
+			graph, (u32)graph_len, "effect-profile-graph") != MODARCHIVE_OK) {
 		modArchiveAbort(aw);
+		free(graph);
 		return -1;
 	}
+	free(graph);
 	return s_finishWriter(aw, &writer, relpath);
 }
 

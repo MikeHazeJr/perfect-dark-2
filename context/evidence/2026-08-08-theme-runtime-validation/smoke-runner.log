@@ -1,0 +1,35 @@
+Build env: TEMP=C:\Users\mikeh\AppData\Local\Temp | mingw64 on PATH | ccache sloppy
+Selected 1 of 102 tests.
+  - theme_archive_runtime_smoke
+Install mode: shared (.claude/smoke-verify-install/). Firewall rule pinned to canonical path.
+
+=== theme_archive_runtime_smoke ===
+  T-ASSETS-030 ordinary-client proof: pack and enable the creator-facing typed example, boot with its public .pdtheme selected, load its UI/font/SFX/music dependency closure through the real catalog lifecycle, apply the strict public fields to the production menu, capture the rendered result, and exit cleanly.
+Prefilled cache not found at C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike\.claude\smoke-verify-cache\ntsc-final; falling back to clean state for this run.
+Add-SmokeFirewallAllowRule failed (likely needs elevation): Access is denied. . Proceeding without rule -- --no-net should mitigate.
+  install dir: C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike\.claude\smoke-verify-install
+  state: prefilled
+  removed stale: mods/installed/example_typed_pdxxx_basic.pdmod
+  removed 1 stale path(s)
+  fixture: tools/smoke-verify/fixtures/theme_archive_source_pd.ini -> pd.ini
+  fixture: tools/smoke-verify/fixtures/typed_pdxxx_basic_enabled.json -> mods-enabled.json
+  staged 2 fixture(s)
+  packed fixture: examples/modding/typed-pdxxx-basic -> mods/installed/example_typed_pdxxx_basic.pdmod
+  packed 1 fixture archive(s)
+  mem: free commit 11041 MB / 34676 MB limit; free RAM 16497 MB
+  mem: pagefile system-managed (grows on demand; currently 2048 MB) -- static floor not applied
+  target: pd (PerfectDark.exe)
+  strategy: harness
+  screenshot (glReadPixels): C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike\.claude\smoke-verify-runs\screenshots\20260808T174522-theme_archive_runtime_smoke\001-tri-theme-main-menu.bmp
+  screenshot (glReadPixels): C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike\.claude\smoke-verify-runs\screenshots\20260808T174522-theme_archive_runtime_smoke\002-tri-theme-main-menu-focus.bmp
+  log: C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike\.claude\smoke-verify-install\logs\game client\pd-client.log
+  exit code: 0
+  elapsed: 86.7s
+  PASS 24/24 assertions
+
+  Summary
+  -------
+  [PASS] theme_archive_runtime_smoke (86.7s) assertions=24/24
+
+  Total: 1 pass, 0 fail
+Results written to: C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike\.claude\smoke-verify-runs\results-20260808T214649Z.json

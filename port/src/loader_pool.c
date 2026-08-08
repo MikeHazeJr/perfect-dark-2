@@ -136,6 +136,10 @@ static s32 s_WeaponFuncsUsed;
 static s32 s_VibrationsUsed;
 static s32 s_AnimationsUsed;
 static const char *s_ParseAnimationSourcePath;
+/* Public animation commands may name catalog audio IDs. A missing selected
+ * source is an archive-chain failure, not permission to compile sound slot 0. */
+static s32 s_ParseAnimationCatalogResolveFailed;
+static s32 s_ParsingAnimationSource;
 
 static s32 s_LoaderActive;
 static s32 s_WeaponsRegistered;
@@ -662,6 +666,9 @@ static s32 s_resolveAudioCatalogOrEnumName(const char *name, s32 fallback,
 		sysLogPrintf(LOG_WARNING,
 			"LOADER.POOL.WEAPON.RESOLVE_FAIL: %s audio_id=\"%s\"",
 			site ? site : "(?)", name ? name : "");
+		if (s_ParsingAnimationSource) {
+			s_ParseAnimationCatalogResolveFailed = 1;
+		}
 		return fallback;
 	}
 	return loaderEnumResolveSfxEnum(name ? name : "", fallback);
@@ -2312,9 +2319,38 @@ s32 loaderPoolParseAnimationSourceJson(const char *json, size_t json_len,
 	s_poolEnsureMutex();
 	POOL_LOCK();
 	const char *prev_source_path = s_ParseAnimationSourcePath;
+	s32 prev_resolve_failed = s_ParseAnimationCatalogResolveFailed;
+	s32 animation_mark = s_AnimationsUsed;
+	s32 command_mark = s_GuncmdsUsed;
+	s32 fixup_mark = s_AnimFixupsUsed;
+	s32 prev_parsing_animation = s_ParsingAnimationSource;
 	s_ParseAnimationSourcePath = source_path;
+	s_ParseAnimationCatalogResolveFailed = 0;
+	s_ParsingAnimationSource = 1;
 	s32 r = s_parseOneRecord(json, json_len, parseAnimation);
+	if (s_ParseAnimationCatalogResolveFailed) {
+		/* Parsing is arena-backed. Roll every counter and written range back so
+		 * the rejected source cannot survive as a fallback-backed pool row. */
+		if (s_AnimationsUsed > animation_mark) {
+			memset(&s_Animations[animation_mark], 0,
+				(size_t)(s_AnimationsUsed - animation_mark) * sizeof(s_Animations[0]));
+		}
+		if (s_GuncmdsUsed > command_mark) {
+			memset(&s_Guncmds[command_mark], 0,
+				(size_t)(s_GuncmdsUsed - command_mark) * sizeof(s_Guncmds[0]));
+		}
+		if (s_AnimFixupsUsed > fixup_mark) {
+			memset(&s_AnimFixups[fixup_mark], 0,
+				(size_t)(s_AnimFixupsUsed - fixup_mark) * sizeof(s_AnimFixups[0]));
+		}
+		s_AnimationsUsed = animation_mark;
+		s_GuncmdsUsed = command_mark;
+		s_AnimFixupsUsed = fixup_mark;
+		r = 0;
+	}
 	s_ParseAnimationSourcePath = prev_source_path;
+	s_ParseAnimationCatalogResolveFailed = prev_resolve_failed;
+	s_ParsingAnimationSource = prev_parsing_animation;
 	POOL_UNLOCK();
 	return r;
 }

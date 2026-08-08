@@ -81,6 +81,11 @@ typedef void (*CatalogDepIterFn)(const char *dep_id, void *userdata);
 void catalogDepRegister(const char *owner_id, const char *dep_id,
                         s32 is_bundled);
 
+/* Remove one exact dependency edge. Used only by transactional archive
+ * registration rollback; returns 1 if an edge was removed. */
+s32 catalogDepUnregister(const char *owner_id, const char *dep_id);
+s32 catalogDepContains(const char *owner_id, const char *dep_id);
+
 /** Ensure capacity for additional dependency pairs without mutating graph
  * truth. Transactional composite registrars reserve before child rows become
  * visible so later edge commits cannot be dropped by allocation failure. */

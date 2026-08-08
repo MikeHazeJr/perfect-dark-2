@@ -5463,7 +5463,7 @@ TEST_CASE("external UI font and language descriptors use standard files",
 
 	std::string catalog = readFile("port/include/assetcatalog.h");
 	REQUIRE(catalog.find("ASSET_FONT") != std::string::npos);
-	REQUIRE(catalog.find("char nineslice_file[128]") != std::string::npos);
+	REQUIRE(catalog.find("char nineslice_file[FS_MAXPATH]") != std::string::npos);
 	REQUIRE(catalog.find("s32 nineslice_left") != std::string::npos);
 	REQUIRE(catalog.find("char strings_file[128]") != std::string::npos);
 	REQUIRE(catalog.find("char locale[16]") != std::string::npos);

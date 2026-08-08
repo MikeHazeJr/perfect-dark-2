@@ -6,6 +6,86 @@
 
 ---
 
+## SP-32: Archive-qualified source paths silently truncate across catalog boundaries
+
+**Severity**: CRITICAL — valid public `.pdxxx` sources can be registered under
+a shortened provider path and then fail closed or resolve the wrong member
+
+**Pattern:** Public source paths begin inside an INI value or archive envelope,
+then grow as catalog/provider code qualifies them into `archive::member` chains.
+A fixed 128-byte destination or unchecked `snprintf`/`strncpy` keeps a nonempty
+prefix, so its caller treats an incomplete path as success. The final nested
+archive/member name or extension can disappear before provider or runtime use.
+
+**2026-08-08 proof:** B-985 exposed the class in UI source paths and B-996 in
+font source paths. The propagation audit found 34 remaining 128-byte catalog
+path fields, plus unchecked path copies/joins in the catalog scanner, shared
+loader walkers, network distribution ingestion, runtime path mirrors, and
+weapon-graph archive descriptors. Workbench `T-CATALOG-003` owns the systemic
+Wave A/B/C implementation and boundary proof.
+
+**Semantic boundary:** Widen and validate only fields that carry filesystem or
+qualified archive-member paths. Do not widen IDs, names, descriptions,
+archetypes, shader IDs, voice contexts, or other bounded metadata merely
+because they also use 128-byte arrays. Do not globally change generic metadata
+copy helpers. `weapon.shared_context` is a path and is included; the currently
+rejected `theme.effect_archive` key is not evidence of a supported path.
+
+**Audit/fix:** Replace the 34 catalog path fields and all production mirrors
+with one explicit path-capacity contract. Add checked path-specific copy/join
+APIs that reject overflow and incomplete archive chains atomically, including
+provider admission. Prove exact catalog/provider/runtime equality for every
+asset family through standalone typed archives, nested `.pdmod` archives, and
+network distribution at 127, 128, maximum-supported, and over-capacity lengths.
+
+```powershell
+rg -n "\[(128|FS_MAXPATH)\]" port/include port/src
+rg -n "snprintf|strncpy|s_copy|copyStr|IniValueCopy|ArchiveMemberPath" port/src
+rg -n "archive::member|::" port/src/assetcatalog_scanner.c port/src/loader_walker_common.c port/src/net/netdistrib.c port/src/asset_runtime.c
+```
+
+**Rule:** A path copy or join succeeds only when the complete input and its NUL
+terminator fit. Nonempty truncated output is failure, and failed qualification
+must not partially register catalog, provider, dependency, or runtime state.
+
+---
+
+## SP-31: Stage diff releases typed-asset references it did not acquire
+
+**Severity**: CRITICAL — active public assets can lose dependency ownership
+across an ordinary stage transition
+
+**Pattern:** `catalogComputeStageDiff` classifies every loaded non-bundled row
+as stage-owned by inspecting only `load_state`. It does not know which owner
+acquired each reference. A transition can therefore call
+`catalogReleaseTypedAsset` for a UI, editor, menu, or other explicit lifecycle
+owner's reference.
+
+**2026-08-08 proof:** T-ASSETS-030 activated `example:tri_theme` and its UI,
+font, SFX, and music closure with one durable transaction. The ordinary client
+then logged all five rows dropping from ref `1->0` at stage transition
+(`pd-client.log` lines 4670-4674). Agent Select reapplied the same ID, loaded
+the closure from zero, and the same-ID commit released the transaction's
+phantom prior ownership back to zero. Render and playback happened to remain
+usable from copied/registered consumer state, but dependency lifetime was no
+longer truthful.
+
+**Audit:** For every caller of typed load/release, identify the owner and prove
+that only that owner can decrement its reference. Test overlapping stage,
+menu, editor, network, and explicit parent/dependency-closure ownership across
+transitions, replacement, rollback, and shutdown.
+
+```powershell
+rg -n "catalogLoadTypedAsset|catalogReleaseTypedAsset|load_state" port src
+rg -n "catalogComputeStageDiff|catalogApplyStageDiff" port src tests
+```
+
+**Rule:** Stage diff may release only references acquired by stage loading.
+Aggregate `load_state` or `ref_count` is not ownership evidence. Workbench
+`T-CATALOG-002` owns the systemic fix and blocks T-ASSETS-030 validation.
+
+---
+
 ## SP-30: Public examples can pass archive structure while using runtime-ignored fields
 
 **Severity**: HIGH — creator edits appear valid but cannot affect production
