@@ -1,5 +1,32 @@
 # Session Log (Active)
 
+## 2026-08-08 - Roadmap execution wave: weapon, character, voice, and effect truth
+
+Ran the canonical Workbench roadmap through independent Ultra weapon, Lina
+character, root voice, and read-only effect-audit lanes. Character archive IDs,
+display names, exact body/head selection, and optional authored portraits now
+reach the production room/roster path; declared portrait failures refuse the
+generated fallback. Weapon registration and loose activation now fail closed,
+unsupported settings/presentation fields reject, and the creator example no
+longer claims unsupported v1 material/grip/reticle behavior. Voice metadata now
+loads from public `voice.ini` through base/local/network catalog paths and
+matching-locale actor/transcript text reaches the production subtitle path.
+
+The integrated tree passes 28-root/52-recursive all-family conformance, the
+16-case structured conformance selftest, the native-source guard, isolated
+client/updater/test builds, and 44 focused weapon/character/voice cases with
+1,155 assertions. Character is implemented but not live-validated. Weapon and
+voice remain partial with permanent child tasks `T-ASSETS-021` through
+`T-ASSETS-025` holding every residual contract.
+
+The effect audit found only explosion-class selection and spark tint connected
+to production. Synthetic extraction, inert timeline/metadata/graph topology,
+unused renderer/audio/dependencies, native fallback, nested warning-and-continue,
+and fixed capacity limits are now explicit under `T-ASSETS-016` through
+`T-ASSETS-020`, bugs `B-977`/`B-978`, and SP-24/SP-30. Workbench scheduling and
+dependency truth were repaired, 36 deferred items moved behind the live program,
+and `T-TOOLING-003` records the durable evidence refresh.
+
 ## 2026-08-08 - Canonical Workbench authority validated
 
 Continued the Ultra/Lina handoff by closing the critical Workbench integrity

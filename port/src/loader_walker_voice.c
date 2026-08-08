@@ -15,6 +15,7 @@
 #include "fs.h"
 #include "loader_walker.h"
 #include "loader_walker_common.h"
+#include "system.h"
 
 static s32 s_register(const char *manifest, size_t manifest_len,
                       const char *pd_kind, const char *id,
@@ -46,6 +47,12 @@ static s32 s_register(const char *manifest, size_t manifest_len,
     s32 has_envelope = 0;
     char source_member[128];
     char source_path[FS_MAXPATH + 1];
+    char *voice_ini = NULL;
+    size_t voice_ini_len = 0;
+    char actor[64] = "";
+    char transcript[512] = "";
+    char language[16] = "";
+    char context[128] = "";
     loaderWalkerEnvelopeInt(manifest, manifest_len, "source_index", &source_index);
     loaderWalkerEnvelopeInt(manifest, manifest_len, "source_filenum", &source_filenum);
     loaderWalkerEnvelopeInt(manifest, manifest_len, "sample_rate_hz", &sample_rate_hz);
@@ -71,6 +78,18 @@ static s32 s_register(const char *manifest, size_t manifest_len,
                                      source_member, sizeof(source_member))) {
         strncpy(source_member, "sample.wav", sizeof(source_member) - 1);
         source_member[sizeof(source_member) - 1] = '\0';
+    }
+    if (loaderWalkerArchiveTextMember(file_path, "voice.ini",
+                                      &voice_ini, &voice_ini_len)) {
+        loaderWalkerIniValueCopy(voice_ini, voice_ini_len, "voice", "actor",
+                                 actor, sizeof(actor));
+        loaderWalkerIniValueCopy(voice_ini, voice_ini_len, "voice", "transcript",
+                                 transcript, sizeof(transcript));
+        loaderWalkerIniValueCopy(voice_ini, voice_ini_len, "voice", "language",
+                                 language, sizeof(language));
+        loaderWalkerIniValueCopy(voice_ini, voice_ini_len, "voice", "context",
+                                 context, sizeof(context));
+        sysMemFree(voice_ini);
     }
 
     asset_entry_t *e = assetCatalogRegisterAudio(
@@ -104,6 +123,14 @@ static s32 s_register(const char *manifest, size_t manifest_len,
         e->ext.audio.release_time_us = (u32)release_time_us;
         e->ext.audio.attack_volume = (s32)attack_volume;
         e->ext.audio.decay_volume = (s32)decay_volume;
+        strncpy(e->ext.audio.voice_actor, actor,
+                sizeof(e->ext.audio.voice_actor) - 1);
+        strncpy(e->ext.audio.voice_transcript, transcript,
+                sizeof(e->ext.audio.voice_transcript) - 1);
+        strncpy(e->ext.audio.voice_language, language,
+                sizeof(e->ext.audio.voice_language) - 1);
+        strncpy(e->ext.audio.voice_context, context,
+                sizeof(e->ext.audio.voice_context) - 1);
         if (loaderWalkerArchiveMemberPath(file_path, source_member,
                                           source_path, sizeof(source_path))) {
             catalogSetPrimaryFile(e, source_path);

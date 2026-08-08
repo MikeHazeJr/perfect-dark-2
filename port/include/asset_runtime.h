@@ -47,6 +47,8 @@ typedef struct asset_runtime_binding {
     char ui_nineslice_edge_mode[16];
     char ui_nineslice_center_mode[16];
     char target_id[CATALOG_ID_LEN];
+    char character_body_id[CATALOG_ID_LEN];
+    char character_head_id[CATALOG_ID_LEN];
     char shader_id[64];
     char gamemode_name[64];
     char gamemode_description[256];

@@ -26036,6 +26036,47 @@ static s32 s_aiAudioGraphReady(const char *action, s32 node_count,
 	return 1;
 }
 
+static s32 s_voiceLanguageMatchesActive(const char *language)
+{
+	if (!language || !language[0]) return 1;
+#if VERSION == VERSION_JPN_FINAL
+	return strcmp(language, "jp") == 0 || strcmp(language, "ja") == 0;
+#elif VERSION >= VERSION_PAL_BETA
+	if (g_LanguageId == LANGUAGE_PAL_FR) return strcmp(language, "fr") == 0;
+	if (g_LanguageId == LANGUAGE_PAL_DE) return strcmp(language, "de") == 0;
+	if (g_LanguageId == LANGUAGE_PAL_IT) return strcmp(language, "it") == 0;
+	if (g_LanguageId == LANGUAGE_PAL_ES) return strcmp(language, "es") == 0;
+	return strcmp(language, "en") == 0 || strcmp(language, "en-gb") == 0
+		|| strcmp(language, "en-us") == 0;
+#else
+	return strcmp(language, "en") == 0 || strcmp(language, "en-us") == 0
+		|| strcmp(language, "en-gb") == 0;
+#endif
+}
+
+static const char *s_voiceSourceSubtitle(const char *audio_catalog_id,
+	char *out_text, size_t out_text_size)
+{
+	catalog_audio_result_t audio;
+
+	if (!audio_catalog_id || !out_text || out_text_size == 0
+			|| strncmp(audio_catalog_id, "file:", 5) == 0
+			|| !catalogResolveAudio(audio_catalog_id, &audio)
+			|| audio.category != AUDIO_CAT_VOICE
+			|| !audio.voice_transcript || !audio.voice_transcript[0]
+			|| !s_voiceLanguageMatchesActive(audio.voice_language)) {
+		return NULL;
+	}
+	if (audio.voice_actor && audio.voice_actor[0]) {
+		snprintf(out_text, out_text_size, "%s: %s",
+			audio.voice_actor, audio.voice_transcript);
+	} else {
+		snprintf(out_text, out_text_size, "%s", audio.voice_transcript);
+	}
+	out_text[out_text_size - 1] = '\0';
+	return out_text;
+}
+
 s32 scenarioSourceAiGraphExecuteSpeak(struct chrdata *basechr, s32 chrnum,
 	s16 text_id, s16 audio_id, s8 channel, s32 subtitle_timer)
 {
@@ -26044,6 +26085,8 @@ s32 scenarioSourceAiGraphExecuteSpeak(struct chrdata *basechr, s32 chrnum,
 	s32 playernum;
 	u32 channelnum;
 	char *text;
+	char voice_text[640];
+	const char *voice_source_text;
 	const char *audio_source_id;
 	char audio_source_id_buf[FS_MAXPATH + 32];
 	const char *text_catalog_id;
@@ -26078,6 +26121,11 @@ s32 scenarioSourceAiGraphExecuteSpeak(struct chrdata *basechr, s32 chrnum,
 	prevplayernum = g_Vars.currentplayernum;
 	playernum = prevplayernum;
 	text = text_id >= 0 ? langGet(text_id) : NULL;
+	voice_source_text = s_voiceSourceSubtitle(audio_source_id,
+		voice_text, sizeof(voice_text));
+	if (voice_source_text) {
+		text = (char *)voice_source_text;
+	}
 	if (chr && chr->prop && chr->prop->type == PROPTYPE_PLAYER) {
 		playernum = playermgrGetPlayerNumByProp(chr->prop);
 		if (!s_aiGraphRequireRuntimePlayerSlot("speak",
@@ -26108,9 +26156,10 @@ s32 scenarioSourceAiGraphExecuteSpeak(struct chrdata *basechr, s32 chrnum,
 	g_Vars.aioffset += 9;
 	if (!s_ActiveScenarioGraphs.ai_action_speak_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action speak chr=%d chr_rows=%d target_chr=%d target_selector=%d player_checked=%d text_id=%s audio_id=%s channel=%d source=%s backend=graph.ai.action.audio+ai/ailists.json+lang",
+			"SCENARIO.GRAPH: AI action speak chr=%d chr_rows=%d target_chr=%d target_selector=%d player_checked=%d text_id=%s audio_id=%s voice_source=%d channel=%d source=%s backend=graph.ai.action.audio+ai/ailists.json+pdvoice+lang",
 			chrnum, chr_count, target_chrnum, target_selector,
-			player_checked, text_catalog_id, audio_source_id, channel,
+			player_checked, text_catalog_id, audio_source_id,
+			voice_source_text != NULL, channel,
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_speak_logged = 1;
 	}

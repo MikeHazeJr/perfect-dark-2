@@ -199,8 +199,20 @@ static s32 s_register(const char *manifest, size_t manifest_len,
         if (!full || weaponGraphRuntimeRegisterWeaponArchive(runtime_weapon_id,
                 full, err, sizeof(err)) != 0) {
             sysLogPrintf(LOG_WARNING,
-                "weapon_graph_runtime: held IR unavailable for %s (%s)",
+                "weapon_graph_runtime: refusing public weapon %s because held IR is unavailable (%s)",
                 id ? id : "<unknown>", err[0] ? err : "archive open failed");
+            weaponGraphRuntimeClearWeapon(runtime_weapon_id);
+            if (s_WeaponArchiveCatalogMutex) {
+                SDL_LockMutex(s_WeaponArchiveCatalogMutex);
+            }
+            if (e) {
+                e->enabled = 0;
+                e->load_state = ASSET_STATE_REGISTERED;
+            }
+            if (s_WeaponArchiveCatalogMutex) {
+                SDL_UnlockMutex(s_WeaponArchiveCatalogMutex);
+            }
+            return -1;
         }
     }
 

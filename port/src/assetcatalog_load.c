@@ -959,10 +959,10 @@ static s32 s_catalogActivateLooseWeaponGraphRuntime(asset_entry_t *entry)
             || !entry->ext.weapon.shared_context[0]
             || !entry->ext.weapon.settings_file[0]
             || !entry->ext.weapon.variables_file[0]) {
-        sysLogPrintf(LOG_NOTE,
-                     "CATALOG.LIFECYCLE.ACTIVATE: '%s' held graph source is incomplete; skipping held graph registration",
+        sysLogPrintf(LOG_WARNING,
+                     "CATALOG.LIFECYCLE.ACTIVATE: '%s' held graph source is incomplete; refusing selected public weapon source",
                      entry->id);
-        return 1;
+        return 0;
     }
 
     if (entry->runtime_index < 0) {

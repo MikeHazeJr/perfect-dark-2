@@ -226,6 +226,9 @@ typedef struct asset_entry {
             char music_file[FS_MAXPATH];
         } map;
         struct {
+            char body_id[CATALOG_ID_LEN];
+            char head_id[CATALOG_ID_LEN];
+            char display_name[64];
             char bodyfile[FS_MAXPATH];
             char headfile[FS_MAXPATH];
             char portrait_file[FS_MAXPATH];
@@ -416,6 +419,10 @@ typedef struct asset_entry {
             u32 release_time_us;
             s32 attack_volume;
             s32 decay_volume;
+            char voice_actor[64];
+            char voice_transcript[512];
+            char voice_language[16];
+            char voice_context[128];
             /* MUSIC tracks only: solo stage whose best-time gates this track.
              * Mirrors g_MpTracks[].unlockstage. -1 = always unlocked
              * (mod tracks default here). SFX / VOICE entries leave at 0. */
@@ -632,6 +639,12 @@ asset_entry_t *assetCatalogRegisterMap(const char *id, s32 stagenum,
 asset_entry_t *assetCatalogRegisterCharacter(const char *id,
                                              const char *bodyfile,
                                              const char *headfile);
+
+/** Resolve the enabled top-level character assembler for an exact body/head
+ * catalog-ID pair. Returns NULL when no authoritative .pdcharacter binding
+ * exists; callers must not infer a character from numeric body/head slots. */
+const asset_entry_t *assetCatalogFindCharacterByBodyHead(
+    const char *body_id, const char *head_id);
 
 /**
  * Register a skin asset.
@@ -1155,6 +1168,10 @@ typedef struct {
     s32                  sound_id;   /**< MUSIC_* enum for music, SFX index for SFX */
     s32                  category;   /**< AUDIO_CAT_SFX / AUDIO_CAT_MUSIC / AUDIO_CAT_VOICE */
     const char          *file_path;  /**< disk path for mod audio, "" for ROM-embedded */
+    const char          *voice_actor;
+    const char          *voice_transcript;
+    const char          *voice_language;
+    const char          *voice_context;
 } catalog_audio_result_t;
 
 /* ── SA-2: Resolution by catalog string ID ─────────────────────────────── */

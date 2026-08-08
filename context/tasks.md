@@ -6,6 +6,25 @@
 
 Last updated: 2026-08-08
 
+**2026-08-08 ACTIVE ROADMAP EXECUTION.** The canonical Workbench now routes
+the live asset program ahead of 36 explicitly deferred historical/manual-resume
+items. Decision `D-001` correctly gates `T-INPUT-002`; future work is
+unassigned until an exact registered session claims it; `T-TOOLING-003`
+tracks replacement of 28 deleted transient receipts with durable repo-local
+evidence. `T-ASSETS-010` and `A-ASSETS-007` are implemented with automated
+character archive, runtime, conformance, guard, and build evidence; live
+ordinary-client proof remains in `V-005`/`V-007`. `T-ASSETS-009` is a verified
+partial milestone and now depends on `T-ASSETS-022` through `T-ASSETS-025` for
+nested animation/audio registration, catalog reticles, material/grip consumers,
+and live proof. `T-ASSETS-011` is partial: public actor/transcript/language
+metadata feeds production subtitles, while `T-ASSETS-021` owns optional
+subtitle/localized-audio semantics. The effect audit changed `T-ASSETS-012` to
+partial and split its remaining extraction/schema, authoritative parsing,
+graph/timeline runtime, renderer/dependency, and fail-closed/capacity work into
+`T-ASSETS-016` through `T-ASSETS-020`. `T-ASSETS-013` through `T-ASSETS-015`,
+`V-003` through `V-008`, `P-001`, `R-001`, and aggregate
+`RM-ASSETINPUT-001` remain open exactly as recorded in Workbench.
+
 **2026-08-01 ULTRA/LINA COMPLETION HANDOFF - Workbench `T-ASSETS-001`.**
 The remaining asset program is no longer hidden in umbrella prose. Ultra owns
 overall closure plus `.pdweapon` (`T-ASSETS-009`), `.pdeffect`

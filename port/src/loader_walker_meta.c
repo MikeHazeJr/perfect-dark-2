@@ -223,12 +223,26 @@ static void s_applyTypeFields(asset_entry_t *entry,
 			sizeof(entry->ext.arena.scenario_archive));
 		break;
 	case ASSET_CHARACTER:
+		s_clearPath(entry->ext.character.body_id,
+			sizeof(entry->ext.character.body_id));
+		s_clearPath(entry->ext.character.head_id,
+			sizeof(entry->ext.character.head_id));
 		s_clearPath(entry->ext.character.bodyfile,
 			sizeof(entry->ext.character.bodyfile));
 		s_clearPath(entry->ext.character.headfile,
 			sizeof(entry->ext.character.headfile));
 		s_clearPath(entry->ext.character.portrait_file,
 			sizeof(entry->ext.character.portrait_file));
+		if (s_manifestStr(manifest, manifest_len, "body",
+				value, sizeof(value))) {
+			strncpy(entry->ext.character.body_id, value,
+				sizeof(entry->ext.character.body_id) - 1);
+		}
+		if (s_manifestStr(manifest, manifest_len, "head",
+				value, sizeof(value))) {
+			strncpy(entry->ext.character.head_id, value,
+				sizeof(entry->ext.character.head_id) - 1);
+		}
 		if (!s_copyManifestMemberPath(manifest, manifest_len, "body_archive",
 				archive_path, entry->ext.character.bodyfile,
 				sizeof(entry->ext.character.bodyfile))) {

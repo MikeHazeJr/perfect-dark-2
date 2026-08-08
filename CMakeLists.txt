@@ -896,6 +896,7 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/tests/test_catalog_provider_static.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_asset_native_source_contract.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_asset_runtime_adapters.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_character_archive_utilization_static.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_assetcatalog_deps.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_public_mods_static.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_mod_external_archive_static.cpp

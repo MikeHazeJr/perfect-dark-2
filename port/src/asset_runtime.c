@@ -537,6 +537,14 @@ s32 assetRuntimeActivateCatalogEntry(const asset_entry_t *entry,
             s_hasAnyFile(binding->authored_file, NULL, NULL, NULL));
 
     case ASSET_CHARACTER:
+		s_copy(binding->character_body_id,
+		       sizeof(binding->character_body_id),
+		       entry->ext.character.body_id);
+		s_copy(binding->character_head_id,
+		       sizeof(binding->character_head_id),
+		       entry->ext.character.head_id);
+		s_copy(binding->display_name, sizeof(binding->display_name),
+		       entry->ext.character.display_name);
         s_copy(binding->authored_file, sizeof(binding->authored_file),
                entry->ext.character.bodyfile);
         s_copy(binding->dependency_a, sizeof(binding->dependency_a),
@@ -544,7 +552,10 @@ s32 assetRuntimeActivateCatalogEntry(const asset_entry_t *entry,
         s_copy(binding->dependency_b, sizeof(binding->dependency_b),
                entry->ext.character.portrait_file);
         return s_finishFileBinding(binding,
-            s_hasAnyFile(binding->authored_file, NULL, NULL, NULL));
+            s_hasText(binding->character_body_id) &&
+            s_hasText(binding->character_head_id) &&
+            s_hasText(binding->authored_file) &&
+            s_hasText(binding->dependency_a));
 
     case ASSET_SKIN:
         s_copy(binding->authored_file, sizeof(binding->authored_file),

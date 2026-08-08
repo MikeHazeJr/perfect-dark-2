@@ -1,5 +1,18 @@
 # Modding
 
+## 2026-08-08 residual typed-archive contracts
+
+Weapon v1 now rejects unknown settings and presentation keys and refuses
+incomplete selected sources. The truthful creator example retains only
+production-backed settings/presentation and source dependencies; nested custom
+animation/audio registration, catalog reticles, weapon-level material/grip
+overrides, and live proof remain `T-ASSETS-022` through `T-ASSETS-025`.
+Character public IDs and portraits are production-connected. Voice metadata is
+production-connected, with optional localized members in `T-ASSETS-021`.
+The comprehensive effect audit split source-faithful extraction, shared public
+parsing, graph/timeline execution, renderer/dependencies, and fail-closed
+capacity work into `T-ASSETS-016` through `T-ASSETS-020`.
+
 > Component-based mod system. Typed `.pd*` content files plus `.pdmod` transport archives. JSON manifest + INI components. VFS over archive handles. Asset catalog is the single registration target. Network distribution with SHA-256 integrity. Reserved-name discipline at two layers.
 
 ---

@@ -5,6 +5,11 @@
 
 ## Highlights
 
+- Made creator `.pdcharacter` body/head identity, names, and optional portraits
+  drive the production character picker and lobby roster, with declared portrait
+  failures refusing silent generated fallback.
+- Made public `.pdvoice` actor, transcript, and language metadata feed live
+  dialogue subtitles when the authored locale matches the active language.
 - Pinned the local project Workbench to the canonical checkout, exposed its
   repository identity, and rejected linked-worktree or conflicting-port
   startups that could silently split roadmap truth.
@@ -26,6 +31,9 @@
 
 ## Added
 
+- Hardened `.pdweapon` source activation so invalid graphs, incomplete loose
+  sources, unknown settings, and unsupported presentation fields reject instead
+  of remaining enabled or being silently ignored.
 - Hardened the public asset pipeline so extractor-only startup reports every
   failed family and exits nonzero, archive updates are atomic and preserve
   untouched members/comments, descriptor editing works through catalog/VFS

@@ -1,5 +1,17 @@
 # Catalog System
 
+## 2026-08-08 typed character and voice handoff
+
+Top-level `.pdcharacter` rows now retain public body/head catalog IDs and a
+display name through scanning, base walking, and runtime binding. The room
+picker selects the exact pair, roster display consumes the character name, and
+an optional declared portrait loads through the active source path with
+fail-closed behavior. `.pdvoice` rows now retain actor, transcript, language,
+and context from public `voice.ini`; typed audio resolution exposes those
+fields and scenario dialogue uses matching-locale transcript text. Optional
+`subtitle.json` and locale-specific sample members remain partial under
+Workbench `T-ASSETS-021`.
+
 > Single source of truth for asset identity. String-keyed, namespace-scoped, hash-indexed. Every asset reference uses a human-readable catalog ID.
 
 ---

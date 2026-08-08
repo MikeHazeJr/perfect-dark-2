@@ -1731,6 +1731,9 @@ SCENARIO_RUNTIME_EXTERNAL_GLOBAL_MAX_COUNTS = {
     "g_SourceWidePadOffsets": 5,
     "g_SpecialDieAnims": 5,
     "g_GuardQuipBank": 4,
+    # T-ASSETS-011: public .pdvoice transcript text is used only when its
+    # authored locale matches the currently active language bank.
+    "g_LanguageId": 4,
     "g_SourceWidePadFile": 4,
     "g_BgNumPortalCameraCacheItems": 3,
     # B-943: scenarioSourceLoadRoomLightsForStage produces the flat struct

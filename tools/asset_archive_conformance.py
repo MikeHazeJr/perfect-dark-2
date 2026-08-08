@@ -568,16 +568,6 @@ SCHEMAS: dict[str, Schema] = {
             "behavior/variables.json",
             "behavior/shared-context.json",
         ],
-        require_one_of=[
-            [
-                ["bindings/animations.json", "bindings/audio.json"],
-                [
-                    "bindings/material-slots.json",
-                    "bindings/grip-sockets.json",
-                    "bindings/presentation.json",
-                ],
-            ],
-        ],
         allowed=[
             "weapon.ini",
             "behavior/primary.graph.json",
@@ -587,20 +577,15 @@ SCHEMAS: dict[str, Schema] = {
             "behavior/shared-context.json",
             "bindings/animations.json",
             "bindings/audio.json",
-            "bindings/material-slots.json",
-            "bindings/grip-sockets.json",
             "bindings/presentation.json",
         ],
         allowed_globs=[
             "dependencies/assets/models/*.pdmesh",
-            "dependencies/assets/materials/*.pdmaterial",
-            "dependencies/assets/textures/*.pdtexture",
             "dependencies/assets/animations/*.pdanim",
             "dependencies/assets/audio/*.pdsfx",
             "dependencies/assets/audio/*.pdvoice",
             "dependencies/assets/projectiles/*.pdprojectile",
             "dependencies/assets/entities/*.pdentity",
-            "dependencies/assets/ui/*.pdui",
         ],
         forbidden=sorted(FORBIDDEN_WEAPON_EXACT),
     ),
@@ -911,38 +896,14 @@ OPTIONAL_PUBLIC_SLOT_CONTRACT: dict[str, dict[str, SlotJustification]] = {
             "maps graph audio events to catalog sound dependencies",
             "weapon uses graph/default audio bindings",
         ),
-        "bindings/material-slots.json": slot(
-            "weapon material slot names",
-            "weapon renderer adapter and Modding Hub",
-            "binds mesh material slots to typed material dependencies",
-            "renderer uses material declarations embedded in the mesh dependency",
-        ),
-        "bindings/grip-sockets.json": slot(
-            "held-model grip and muzzle sockets",
-            "weapon presentation adapter",
-            "binds held model sockets to runtime hand and effect attachment points",
-            "presentation adapter falls back to mesh default sockets",
-        ),
         "bindings/presentation.json": slot(
-            "reticle, zoom, and presentation bindings",
+            "default crosshair, sight, and zoom presentation bindings",
             "weapon presentation adapter",
-            "loads view/HUD presentation values from authored source",
+            "loads only production-consumed v1 presentation values from authored source",
             "weapon uses graph/default presentation values",
         ),
         "dependencies/assets/models/*.pdmesh": slot(
             "held and world model dependencies",
-            "weapon catalog importer",
-            DEPENDENCY_LOADER,
-            DEPENDENCY_ABSENT,
-        ),
-        "dependencies/assets/materials/*.pdmaterial": slot(
-            "weapon material dependencies",
-            "weapon catalog importer",
-            DEPENDENCY_LOADER,
-            DEPENDENCY_ABSENT,
-        ),
-        "dependencies/assets/textures/*.pdtexture": slot(
-            "weapon texture dependencies",
             "weapon catalog importer",
             DEPENDENCY_LOADER,
             DEPENDENCY_ABSENT,
@@ -976,12 +937,6 @@ OPTIONAL_PUBLIC_SLOT_CONTRACT: dict[str, dict[str, SlotJustification]] = {
             "weapon graph importer",
             DEPENDENCY_LOADER,
             "graph must not deploy an entity unless one is embedded or declared as a base fallback",
-        ),
-        "dependencies/assets/ui/*.pdui": slot(
-            "weapon UI dependency",
-            "weapon presentation adapter",
-            DEPENDENCY_LOADER,
-            "weapon uses default HUD/presentation if no UI dependency is declared",
         ),
     },
     ".pdprojectile": {
@@ -2762,6 +2717,12 @@ def validate_character_source_contract(label: str, zf: zipfile.ZipFile,
                 f"{label} character.ini must declare {field} as one of {archives}"
             )
 
+    for field in ("body_asset", "head_asset"):
+        if not CATALOG_ID_RE.match(descriptor_values.get(field, "")):
+            errors.append(
+                f"{label} character.ini must declare catalog ID {field}"
+            )
+
     if ("portrait.png" in name_set and
             descriptor_values.get("portrait_file") != "portrait.png"):
         errors.append(
@@ -2783,6 +2744,12 @@ def validate_character_source_contract(label: str, zf: zipfile.ZipFile,
             errors.append(
                 f"{label} _meta/manifest.json must declare {field} as one of "
                 f"{archives}"
+            )
+    for field in ("body", "head"):
+        value = manifest.get(field)
+        if not isinstance(value, str) or not CATALOG_ID_RE.match(value):
+            errors.append(
+                f"{label} _meta/manifest.json must declare catalog ID {field}"
             )
     if "portrait.png" in name_set and manifest.get("portrait_file") != "portrait.png":
         errors.append(
@@ -3654,8 +3621,6 @@ def parse_wav_source_metadata(label: str, data: bytes,
 def validate_audio_source_contract(label: str, ext: str, zf: zipfile.ZipFile,
                                    name_set: set[str],
                                    errors: list[str]) -> None:
-    if "sample.wav" not in name_set:
-        return
     descriptor = "sound.ini" if ext == ".pdsfx" else "voice.ini"
     descriptor_values: dict[str, str] = {}
     manifest_values: dict[str, object] = {}
@@ -3663,6 +3628,19 @@ def validate_audio_source_contract(label: str, ext: str, zf: zipfile.ZipFile,
         descriptor_text = zf.read(descriptor).decode("utf-8", errors="replace")
         descriptor_values = parse_ini_values(descriptor_text)
         validate_audio_wav_descriptor(label, descriptor, descriptor_text, errors)
+        if ext == ".pdvoice":
+            for field in ("actor", "transcript", "language", "context"):
+                if field not in descriptor_values:
+                    errors.append(
+                        f"{label} voice.ini must declare public voice field {field}"
+                    )
+            language = descriptor_values.get("language", "").lower()
+            if language and language not in {
+                    "en", "en-us", "en-gb", "fr", "de", "it", "es",
+                    "jp", "ja"}:
+                errors.append(
+                    f"{label} voice.ini language {language!r} is unsupported"
+                )
     if "_meta/manifest.json" in name_set:
         manifest_text = zf.read("_meta/manifest.json").decode("utf-8", errors="replace")
         try:
@@ -3674,6 +3652,8 @@ def validate_audio_source_contract(label: str, ext: str, zf: zipfile.ZipFile,
             manifest_text,
             errors,
         )
+    if "sample.wav" not in name_set:
+        return
     wav_meta = parse_wav_source_metadata(label, zf.read("sample.wav"), errors)
     if wav_meta is None:
         return

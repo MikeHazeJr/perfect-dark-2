@@ -126,6 +126,20 @@ s32 loaderWalkerArchiveMemberPath(const char *archive_path,
                                   const char *member,
                                   char *out, size_t out_n);
 
+/* Load a public text member from a typed archive. The returned buffer is
+ * NUL-terminated and owned by the caller, which must release it with
+ * sysMemFree. This is the source-facing counterpart to the private manifest
+ * envelope used only for archive identity and extraction bookkeeping. */
+s32 loaderWalkerArchiveTextMember(const char *archive_path,
+                                  const char *member,
+                                  char **out_text, size_t *out_len);
+
+/* Copy one key from an INI section. The parser is intentionally small but
+ * handles whitespace, comments, section boundaries, and CRLF input. */
+s32 loaderWalkerIniValueCopy(const char *text, size_t text_len,
+                             const char *section, const char *key,
+                             char *out, size_t out_n);
+
 /* Mark a row discovered under data/<romid>/ as base extracted content. */
 void loaderWalkerMarkBaseArchiveEntry(asset_entry_t *entry);
 

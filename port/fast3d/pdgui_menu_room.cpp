@@ -48,7 +48,9 @@
 extern "C" {
 
 #include "assetcatalog.h"
+#include "asset_runtime.h"
 #include "botvariant.h"
+#include "pdgui_character_portrait.h"
 #include "pdgui_charpreview.h"
 #include "pdgui_nav.h"
 char *langGet(s32 textid);
@@ -848,6 +850,7 @@ static float s_BotPreviewRotY = 0.0f;
 
 struct LobbyPortrait {
     u32  glTex;          /* 0 = not baked */
+    s32  source;         /* 1 = public portrait, 2 = 3D bake, -1 = failed */
     char head_id[64];    /* "" = not yet captured */
     char body_id[64];
 };
@@ -1823,9 +1826,10 @@ static void optToggleInverted(const char *label, u32 flag, bool leader)
 static void lobbyPortraitsReset(void)
 {
     for (s32 i = 0; i < LOBBY_PORTRAIT_MAX; i++) {
-        if (s_LobbyPortraits[i].glTex)
+        if (s_LobbyPortraits[i].glTex && s_LobbyPortraits[i].source == 2)
             pdguiCharPreviewFreeTexture(s_LobbyPortraits[i].glTex);
     }
+    pdguiCharacterPortraitReset();
     memset(s_LobbyPortraits, 0, sizeof(s_LobbyPortraits));
     for (s32 i = 0; i < LOBBY_PORTRAIT_MAX; i++)
         s_LobbyPortraitAlpha[i] = 0.0f;
@@ -1839,10 +1843,11 @@ static void lobbyPortraitsReset(void)
 static void lobbyPortraitsSync(s32 humanCount)
 {
     for (s32 i = humanCount; i < LOBBY_PORTRAIT_MAX; i++) {
-        if (s_LobbyPortraits[i].glTex) {
+        if (s_LobbyPortraits[i].glTex && s_LobbyPortraits[i].source == 2) {
             pdguiCharPreviewFreeTexture(s_LobbyPortraits[i].glTex);
-            s_LobbyPortraits[i].glTex = 0;
         }
+        s_LobbyPortraits[i].glTex = 0;
+        s_LobbyPortraits[i].source = 0;
         s_LobbyPortraits[i].head_id[0] = '\0';
         s_LobbyPortraits[i].body_id[0] = '\0';
         if (s_LobbyPortraitPending == i) {
@@ -1860,7 +1865,7 @@ static void lobbyPortraitsSync(s32 humanCount)
                       strcmp(p.head_id, hid) == 0 &&
                       strcmp(p.body_id, bid) == 0);
         if (!match && p.glTex) {
-            pdguiCharPreviewFreeTexture(p.glTex);
+            if (p.source == 2) pdguiCharPreviewFreeTexture(p.glTex);
             p.glTex = 0;
             if (s_LobbyPortraitPending == i) {
                 s_LobbyPortraitPending   = -1;
@@ -1868,6 +1873,7 @@ static void lobbyPortraitsSync(s32 humanCount)
             }
         }
         if (!match) {
+            p.source = 0;
             p.head_id[0] = '\0';
             p.body_id[0] = '\0';
         }
@@ -1894,6 +1900,8 @@ static void lobbyPortraitsTick(s32 humanCount)
             s32 idx = s_LobbyPortraitPending;
             if (tex && idx < LOBBY_PORTRAIT_MAX)
                 s_LobbyPortraits[idx].glTex = tex;
+            if (tex && idx < LOBBY_PORTRAIT_MAX)
+                s_LobbyPortraits[idx].source = 2;
             s_LobbyPortraitPending   = -1;
             s_LobbyPortraitWaitReady = false;
         }
@@ -1902,15 +1910,29 @@ static void lobbyPortraitsTick(s32 humanCount)
 
     for (s32 i = 0; i < humanCount && i < LOBBY_PORTRAIT_MAX; i++) {
         LobbyPortrait &p = s_LobbyPortraits[i];
-        if (p.glTex) continue;
+        if (p.glTex || p.source != 0) continue;
         const char *hid = lobbyGetPlayerHeadId(i);
         const char *bid = lobbyGetPlayerBodyId(i);
         if (!hid || !hid[0] || !bid || !bid[0]) continue;
+
+        u32 portraitTex = 0;
+        s32 portraitResult = pdguiCharacterPortraitGet(
+            bid, hid, &portraitTex, NULL, NULL);
 
         strncpy(p.head_id, hid, sizeof(p.head_id) - 1);
         p.head_id[sizeof(p.head_id) - 1] = '\0';
         strncpy(p.body_id, bid, sizeof(p.body_id) - 1);
         p.body_id[sizeof(p.body_id) - 1] = '\0';
+        if (portraitResult > 0) {
+            p.glTex = portraitTex;
+            p.source = 1;
+            continue;
+        }
+        if (portraitResult < 0) {
+            p.source = -1;
+            continue;
+        }
+
         pdguiCharPreviewRequest(hid, bid);
         s_LobbyPortraitPending   = i;
         s_LobbyPortraitWaitReady = true;
@@ -2384,7 +2406,8 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
                 dl->AddImage((ImTextureID)(uintptr_t)portrait->glTex,
                              ImVec2(thumbX + 1.0f, thumbY + 1.0f),
                              ImVec2(thumbX + kThumb - 1.0f, thumbY + kThumb - 1.0f),
-                             ImVec2(0, 1), ImVec2(1, 0),
+                             portrait->source == 1 ? ImVec2(0, 0) : ImVec2(0, 1),
+                             portrait->source == 1 ? ImVec2(1, 1) : ImVec2(1, 0),
                              IM_COL32(255, 255, 255, iAlpha));
                 ImU32 borderCol;
                 if (r.isLocal) {
@@ -2479,7 +2502,14 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
             /* Line 2: body name + state label */
             {
                 const char *bodyName = "";
-                if (r.bodynum < (u8)mpGetNumBodies()) {
+                const char *bodyId = lobbyGetPlayerBodyId(r.lobbyIdx);
+                const char *headId = lobbyGetPlayerHeadId(r.lobbyIdx);
+                const asset_entry_t *character =
+                    assetCatalogFindCharacterByBodyHead(bodyId, headId);
+                if (character && character->ext.character.display_name[0]) {
+                    bodyName = character->ext.character.display_name;
+                }
+                if (!bodyName[0] && r.bodynum < (u8)mpGetNumBodies()) {
                     const char *bn = mpGetBodyName(r.bodynum);
                     if (bn && bn[0]) bodyName = bn;
                 }
@@ -2519,9 +2549,17 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
             if (rowHovered && pidx >= 0) {
                 LobbyPortrait *hp = &s_LobbyPortraits[pidx];
                 if (hp->head_id[0] && hp->body_id[0]) {
-                    pdguiCharPreviewRequest(hp->head_id, hp->body_id);
                     ImGui::BeginTooltip();
-                    if (pdguiCharPreviewIsReady()) {
+                    if (hp->source == 1 && hp->glTex) {
+                        float sz = pdguiScale(128.0f);
+                        ImGui::Image((ImTextureID)(uintptr_t)hp->glTex,
+                                     ImVec2(sz, sz));
+                    } else if (hp->source == -1) {
+                        ImGui::TextDisabled("Declared character portrait unavailable");
+                    } else {
+                        pdguiCharPreviewRequest(hp->head_id, hp->body_id);
+                    }
+                    if (hp->source == 2 && pdguiCharPreviewIsReady()) {
                         u32 liveTex = pdguiCharPreviewGetTextureId();
                         s32 pw = 0, ph = 0;
                         pdguiCharPreviewGetSize(&pw, &ph);
@@ -2529,12 +2567,12 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
                         ImGui::Image((ImTextureID)(uintptr_t)liveTex,
                                      ImVec2(pw * scale, ph * scale),
                                      ImVec2(0, 1), ImVec2(1, 0));
-                    } else if (hp->glTex) {
+                    } else if (hp->source == 2 && hp->glTex) {
                         float sz = pdguiScale(128.0f);
                         ImGui::Image((ImTextureID)(uintptr_t)hp->glTex,
                                      ImVec2(sz, sz),
                                      ImVec2(0, 1), ImVec2(1, 0));
-                    } else {
+                    } else if (hp->source == 0) {
                         ImGui::Text("%s", r.name);
                     }
                     ImGui::EndTooltip();
@@ -3078,9 +3116,12 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
             /* ---- Body list ---- */
             struct CharEntry {
                 char id[64];
+                char head_id[64];
                 const char *name;
                 s32 mp_idx;
             };
+            static CharEntry s_ModalCharacters[256];
+            static s32 s_ModalCharacterCount = 0;
             static CharEntry s_ModalBodies[256];
             static s32 s_ModalBodyCount = 0;
             static CharEntry s_ModalHeads[256];
@@ -3089,6 +3130,32 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
             /* Rebuild lists when popup first appears (catches catalog
              * unlock changes between opens). */
             if (ImGui::IsWindowAppearing()) {
+                s_ModalCharacterCount = 0;
+                struct CharacterCtx { CharEntry *out; s32 *count; };
+                CharacterCtx cctx = {
+                    s_ModalCharacters, &s_ModalCharacterCount
+                };
+                auto ccb = +[](const asset_entry_t *e, void *ud) {
+                    CharacterCtx *c = (CharacterCtx *)ud;
+                    if (*c->count >= 256) return;
+                    const asset_runtime_binding_t *binding =
+                        assetRuntimeFindByTypeAndId(ASSET_CHARACTER, e->id);
+                    if (!binding || !binding->character_body_id[0] ||
+                            !binding->character_head_id[0]) return;
+                    CharEntry *ce = &c->out[(*c->count)++];
+                    strncpy(ce->id, binding->character_body_id,
+                            sizeof(ce->id) - 1);
+                    ce->id[sizeof(ce->id) - 1] = '\0';
+                    strncpy(ce->head_id, binding->character_head_id,
+                            sizeof(ce->head_id) - 1);
+                    ce->head_id[sizeof(ce->head_id) - 1] = '\0';
+                    ce->name = binding->display_name[0]
+                        ? binding->display_name : e->id;
+                    ce->mp_idx = -1;
+                };
+                assetCatalogIterateUnlockedByType(
+                    ASSET_CHARACTER, ccb, &cctx);
+
                 s_ModalBodyCount = 0;
                 struct BodyCtx { CharEntry *out; s32 *count; };
                 BodyCtx bctx = { s_ModalBodies, &s_ModalBodyCount };
@@ -3123,6 +3190,33 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
                 };
                 assetCatalogIterateUnlockedByType(ASSET_HEAD, hcb, &hctx);
             }
+
+            ImGui::Text("Character");
+            ImGui::BeginChild("##char_character_list",
+                              ImVec2(pdguiScale(380.0f), pdguiScale(110.0f)),
+                              true);
+            for (s32 i = 0; i < s_ModalCharacterCount; i++) {
+                bool sel = strcmp(s_ModalCharacters[i].id,
+                                  s_PendingCharBodyId) == 0 &&
+                           strcmp(s_ModalCharacters[i].head_id,
+                                  s_PendingCharHeadId) == 0;
+                if (ImGui::Selectable(s_ModalCharacters[i].name, sel)) {
+                    strncpy(s_PendingCharBodyId, s_ModalCharacters[i].id,
+                            sizeof(s_PendingCharBodyId) - 1);
+                    s_PendingCharBodyId[sizeof(s_PendingCharBodyId) - 1] = '\0';
+                    strncpy(s_PendingCharHeadId,
+                            s_ModalCharacters[i].head_id,
+                            sizeof(s_PendingCharHeadId) - 1);
+                    s_PendingCharHeadId[sizeof(s_PendingCharHeadId) - 1] = '\0';
+                }
+                if (sel) ImGui::SetItemDefaultFocus();
+            }
+            if (s_ModalCharacterCount == 0) {
+                ImGui::TextDisabled("No complete public character sources loaded.");
+            }
+            ImGui::EndChild();
+
+            ImGui::TextDisabled("Advanced assembly");
 
             ImGui::Text("Body");
             ImGui::BeginChild("##char_body_list",

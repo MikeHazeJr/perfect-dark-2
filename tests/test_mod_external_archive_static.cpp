@@ -4819,6 +4819,53 @@ TEST_CASE("weapon tunables enforce explicit units and loud unresolved variables"
 		REQUIRE(std::string(err).find("unresolved weapon variable") != std::string::npos);
 	}
 
+	{
+		/* Public settings are a production contract, not an arbitrary key/value
+		 * bag. A key without a real gameplay consumer must fail registration. */
+		const std::string unsupportedSettings =
+			"{ \"schema\": \"pd.weapon_settings.v1\", \"ammo_clip\": 12 }\n";
+		TempArchive weapon = writeArchiveEntries("w5f-unsupported-setting", {
+			{ "weapon.ini", weaponIni },
+			{ "behavior/primary.graph.json", okGraphPrimary },
+			{ "behavior/secondary.graph.json", okGraphSecondary },
+			{ "behavior/shared-context.json", sharedContext },
+			{ "behavior/settings.json", unsupportedSettings },
+			{ "behavior/variables.json", emptyVariables },
+		});
+		err[0] = '\0';
+		REQUIRE(weaponGraphRuntimeRegisterWeaponArchive(72,
+			weapon.path.string().c_str(), err, sizeof(err)) != 0);
+		REQUIRE(std::string(err).find("has no production consumer") !=
+			std::string::npos);
+	}
+
+	{
+		/* presentation.v1 likewise rejects fields that the production renderer
+		 * does not consume. This prevents a creator-facing reticle path from
+		 * appearing to work while being silently ignored. */
+		const std::string presentationIni = weaponIni +
+			"presentation_file = bindings/presentation.json\n";
+		const std::string okSettings =
+			"{ \"schema\": \"pd.weapon_settings.v1\" }\n";
+		const std::string unsupportedPresentation =
+			"{ \"schema\": \"pd.weapon.presentation.v1\", "
+			"\"reticle\": \"example:tri_reticle\" }\n";
+		TempArchive weapon = writeArchiveEntries("w5f-unsupported-presentation", {
+			{ "weapon.ini", presentationIni },
+			{ "behavior/primary.graph.json", okGraphPrimary },
+			{ "behavior/secondary.graph.json", okGraphSecondary },
+			{ "behavior/shared-context.json", sharedContext },
+			{ "behavior/settings.json", okSettings },
+			{ "behavior/variables.json", emptyVariables },
+			{ "bindings/presentation.json", unsupportedPresentation },
+		});
+		err[0] = '\0';
+		REQUIRE(weaponGraphRuntimeRegisterWeaponArchive(72,
+			weapon.path.string().c_str(), err, sizeof(err)) != 0);
+		REQUIRE(std::string(err).find("has no production consumer") !=
+			std::string::npos);
+	}
+
 	weaponGraphRuntimeClearAll();
 }
 
@@ -5187,6 +5234,30 @@ TEST_CASE("presentation_file mirrors and camera clause pins stay wired",
 	REQUIRE(needler.find("pd.weapon.variables.v1") == std::string::npos);
 	REQUIRE(needler.find("spawn_id = f\"{graph_id}_spawn_projectile\"") != std::string::npos);
 	REQUIRE(needler.find("\"id\": \"spawn_projectile\"") == std::string::npos);
+}
+
+TEST_CASE("public weapon source registration fails closed",
+          "[modding][pdxxx][weapon_graph][c3842][c3844][static]") {
+	const std::string walker = readFile("port/src/loader_walker_weapon.c");
+	REQUIRE(walker.find("weaponGraphRuntimeClearWeapon(runtime_weapon_id)") !=
+		std::string::npos);
+	REQUIRE(walker.find("e->enabled = 0") != std::string::npos);
+	REQUIRE(walker.find("e->load_state = ASSET_STATE_REGISTERED") !=
+		std::string::npos);
+	REQUIRE(walker.find("return -1;") != std::string::npos);
+
+	const std::string lifecycle = readFile("port/src/assetcatalog_load.c");
+	REQUIRE(lifecycle.find(
+		"held graph source is incomplete; refusing selected public weapon source") !=
+		std::string::npos);
+	REQUIRE(lifecycle.find(
+		"held graph source is incomplete; skipping held graph registration") ==
+		std::string::npos);
+
+	const std::string runtime = readFile("port/src/weapon_graph_runtime.c");
+	REQUIRE(runtime.find("has no production consumer") != std::string::npos);
+	REQUIRE(runtime.find("has no consumer yet; stored only") == std::string::npos);
+	REQUIRE(runtime.find("has no consumer yet; ignored") == std::string::npos);
 }
 
 TEST_CASE("PC weapon switching and function HUD consume action-map state",
@@ -6508,6 +6579,12 @@ TEST_CASE("modder examples are zip-openable typed pdxxx asset archives",
 		readArchiveEntryText(weaponArchiveFullPath.c_str(), "behavior/primary.graph.json");
 	const std::string weaponSecondaryGraph =
 		readArchiveEntryText(weaponArchiveFullPath.c_str(), "behavior/secondary.graph.json");
+	const std::string weaponSettings =
+		readArchiveEntryText(weaponArchiveFullPath.c_str(), "behavior/settings.json");
+	const std::string weaponVariables =
+		readArchiveEntryText(weaponArchiveFullPath.c_str(), "behavior/variables.json");
+	const std::string weaponPresentation =
+		readArchiveEntryText(weaponArchiveFullPath.c_str(), "bindings/presentation.json");
 	REQUIRE(weapon.find("catalog_id = example:tri_weapon") != std::string::npos);
 	REQUIRE(weapon.find("model_file = dependencies/assets/models/weapon.pdmesh") != std::string::npos);
 	REQUIRE(weaponManifest.find("\"model_file\": \"dependencies/assets/models/weapon.pdmesh\"") != std::string::npos);
@@ -6521,22 +6598,21 @@ TEST_CASE("modder examples are zip-openable typed pdxxx asset archives",
 	REQUIRE(weaponManifest.find("\"variables_file\": \"behavior/variables.json\"") != std::string::npos);
 	REQUIRE(weapon.find("shared_context_file = behavior/shared-context.json") != std::string::npos);
 	REQUIRE(weaponManifest.find("\"shared_context_file\": \"behavior/shared-context.json\"") != std::string::npos);
-	REQUIRE(weapon.find("material_slots_file = bindings/material-slots.json") != std::string::npos);
-	REQUIRE(weaponManifest.find("\"material_slots_file\": \"bindings/material-slots.json\"") != std::string::npos);
-	REQUIRE(weapon.find("grip_sockets_file = bindings/grip-sockets.json") != std::string::npos);
-	REQUIRE(weaponManifest.find("\"grip_sockets_file\": \"bindings/grip-sockets.json\"") != std::string::npos);
+	REQUIRE(weapon.find("material_slots_file") == std::string::npos);
+	REQUIRE(weapon.find("grip_sockets_file") == std::string::npos);
 	REQUIRE(weapon.find("presentation_file = bindings/presentation.json") != std::string::npos);
 	REQUIRE(weaponManifest.find("\"presentation_file\": \"bindings/presentation.json\"") != std::string::npos);
 	REQUIRE(weapon.find("primary_projectile_archive = dependencies/assets/projectiles/primary.pdprojectile") != std::string::npos);
 	REQUIRE(weaponManifest.find("\"primary_projectile_archive\": \"dependencies/assets/projectiles/primary.pdprojectile\"") != std::string::npos);
 	REQUIRE(weapon.find("deployed_entity_archive = dependencies/assets/entities/deployed.pdentity") != std::string::npos);
 	REQUIRE(weaponManifest.find("\"deployed_entity_archive\": \"dependencies/assets/entities/deployed.pdentity\"") != std::string::npos);
-	REQUIRE(weapon.find("fire_sound_archive = dependencies/assets/audio/fire.pdsfx") != std::string::npos);
-	REQUIRE(weaponManifest.find("\"fire_sound_archive\": \"dependencies/assets/audio/fire.pdsfx\"") != std::string::npos);
-	REQUIRE(weapon.find("idle_animation_archive = dependencies/assets/animations/idle.pdanim") != std::string::npos);
-	REQUIRE(weaponManifest.find("\"idle_animation_archive\": \"dependencies/assets/animations/idle.pdanim\"") != std::string::npos);
-	REQUIRE(weapon.find("reticle_archive = dependencies/assets/ui/reticle.pdui") != std::string::npos);
-	REQUIRE(weaponManifest.find("\"reticle_archive\": \"dependencies/assets/ui/reticle.pdui\"") != std::string::npos);
+	REQUIRE(weapon.find("fire_sound_archive") == std::string::npos);
+	REQUIRE(weapon.find("idle_animation_archive") == std::string::npos);
+	REQUIRE(weapon.find("reticle_archive") == std::string::npos);
+	REQUIRE(weaponSettings.find("\"schema\": \"pd.weapon_settings.v1\"") != std::string::npos);
+	REQUIRE(weaponVariables.find("\"schema\": \"pd.weapon_variables.v1\"") != std::string::npos);
+	REQUIRE(weaponPresentation.find("\"crosshair\": \"default\"") != std::string::npos);
+	REQUIRE(weaponPresentation.find("\"zoom_fov\": 45.0") != std::string::npos);
 	REQUIRE(weapon.find("behavior_graph") == std::string::npos);
 	REQUIRE(weaponPrimaryGraph.find("\"schema\": \"pd.weapon_graph.v1\"") != std::string::npos);
 	REQUIRE(weaponPrimaryGraph.find("\"asset_id\": \"example:tri_weapon\"") != std::string::npos);
@@ -7048,10 +7124,8 @@ TEST_CASE("typed pdxxx example archives keep declared source refs self-contained
 			"weapon.ini",
 			{ "model_file", "primary_graph", "secondary_graph",
 			  "settings_file", "variables_file", "shared_context_file",
-			  "material_slots_file", "grip_sockets_file",
 			  "presentation_file", "primary_projectile_archive",
-			  "deployed_entity_archive", "fire_sound_archive",
-			  "idle_animation_archive", "reticle_archive" },
+			  "deployed_entity_archive" },
 			{},
 			{},
 		},

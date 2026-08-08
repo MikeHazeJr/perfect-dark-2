@@ -1998,9 +1998,10 @@ static s32 weaponGraphTunableAppend(const char *label, s32 is_variables,
 	}
 
 	if (!is_variables && !weaponGraphSettingKeyKnown(e->key)) {
-		sysLogPrintf(LOG_NOTE,
-			"WEAPONGRAPH.SETTINGS: setting '%s' has no consumer yet; stored only",
-			e->key);
+		setErr(err, err_cap,
+			"weapon %s key %s has no production consumer",
+			label, e->key);
+		return -1;
 	}
 
 	(*count)++;
@@ -2118,9 +2119,11 @@ static s32 weaponGraphParseTunablesJson(const char *json, u32 json_size,
 }
 
 /* presentation.json fold-in: sight / zoom_fov land in the SAME defaults layer
- * as settings.json rows (settings.json wins on key collision); "crosshair"
- * is a no-op for "default" and a one-time LOG_NOTE otherwise (pending the
- * .pdui reticle runtime); unknown keys are noted. */
+ * as settings.json rows (settings.json wins on key collision). The v1 schema
+ * intentionally exposes only production-consumed fields. "crosshair" may be
+ * "default" as an explicit declaration of the native renderer; custom
+ * reticles and unknown keys fail registration instead of being stored or
+ * ignored. */
 static s32 weaponGraphParsePresentationJson(const char *json, u32 json_size,
                                             weapon_graph_weapon_settings_t *table,
                                             char *err, size_t err_cap)
@@ -2138,6 +2141,16 @@ static s32 weaponGraphParsePresentationJson(const char *json, u32 json_size,
 		setErr(err, err_cap, "weapon presentation source is not a JSON object");
 		return -1;
 	}
+	{
+		char schema[64];
+		schema[0] = '\0';
+		jsonObjectString(root, "schema", schema, sizeof(schema));
+		if (strcmp(schema, "pd.weapon.presentation.v1") != 0) {
+			setErr(err, err_cap,
+				"weapon presentation schema must be pd.weapon.presentation.v1");
+			return -1;
+		}
+	}
 
 	while (jsonObjectNextMember(root, &cursor, key, sizeof(key),
 			&value, &value_type)) {
@@ -2147,15 +2160,11 @@ static s32 weaponGraphParsePresentationJson(const char *json, u32 json_size,
 		if (strcmp(key, "crosshair") == 0) {
 			char crosshair[64];
 			crosshair[0] = '\0';
-			readJsonStringSpan(value, crosshair, sizeof(crosshair));
-			if (crosshair[0] && strcmp(crosshair, "default") != 0) {
-				static s32 s_noted_crosshair = 0;
-				if (!s_noted_crosshair) {
-					s_noted_crosshair = 1;
-					sysLogPrintf(LOG_NOTE,
-						"WEAPONGRAPH.PRESENTATION: crosshair '%s' has no reticle runtime yet; ignored",
-						crosshair);
-				}
+			if (!readJsonStringSpan(value, crosshair, sizeof(crosshair)) ||
+					strcmp(crosshair, "default") != 0) {
+				setErr(err, err_cap,
+					"weapon presentation crosshair must be default until catalog reticle rendering is implemented");
+				return -1;
 			}
 			continue;
 		}
@@ -2177,9 +2186,9 @@ static s32 weaponGraphParsePresentationJson(const char *json, u32 json_size,
 			}
 			continue;
 		}
-		sysLogPrintf(LOG_NOTE,
-			"WEAPONGRAPH.PRESENTATION: key '%s' has no consumer yet; ignored",
-			key);
+		setErr(err, err_cap,
+			"weapon presentation key %s has no production consumer", key);
+		return -1;
 	}
 
 	return 0;

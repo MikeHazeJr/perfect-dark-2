@@ -171,6 +171,8 @@ def character_manifest(catalog_id: str) -> str:
         "  \"schema\": \"pd.asset_archive.manifest.v1\",\n"
         "  \"pd_kind\": \"character\",\n"
         f"  \"catalog_id\": \"{catalog_id}\",\n"
+        "  \"body\": \"example:tri_body\",\n"
+        "  \"head\": \"example:tri_head\",\n"
         "  \"body_archive\": \"dependencies/assets/body/tri_body.pdbody\",\n"
         "  \"head_archive\": \"dependencies/assets/head/tri_head.pdhead\",\n"
         "  \"portrait_file\": \"portrait.png\"\n"
@@ -576,6 +578,7 @@ def update_audio_examples() -> None:
                 "actor = example\n"
                 "transcript = triangle\n"
                 "language = en\n"
+                "context = creator example\n"
             ),
         )),
         ("sample.wav", voice_sample),
@@ -2138,6 +2141,8 @@ def update_character(head_bytes: bytes, body_bytes: bytes) -> None:
          "[character]\n"
          "catalog_id = example:tri_character\n"
          "display_name = Triangle Character\n"
+         "body_asset = example:tri_body\n"
+         "head_asset = example:tri_head\n"
          "body_archive = dependencies/assets/body/tri_body.pdbody\n"
          "head_archive = dependencies/assets/head/tri_head.pdhead\n"
          "portrait_file = portrait.png\n"
@@ -2235,13 +2240,8 @@ def update_projectile_entity() -> None:
 
 
 def update_weapon(mesh_bytes: bytes) -> None:
-    material = read_archive("materials/tri_material.pdmaterial")
-    texture = read_archive("textures/tri_texture.pdtexture")
-    anim = read_archive("animations/weapon_idle.pdanim")
-    sfx = read_archive("audio/sfx/tri_click.pdsfx")
     projectile = read_archive("projectiles/tri_projectile.pdprojectile")
     entity = read_archive("entities/tri_entity.pdentity")
-    ui = read_archive("ui/tri_reticle.pdui")
     primary_graph = (
         "{\n"
         "  \"schema\": \"pd.weapon_graph.v1\",\n"
@@ -2281,38 +2281,24 @@ def update_weapon(mesh_bytes: bytes) -> None:
          "settings_file = behavior/settings.json\n"
          "variables_file = behavior/variables.json\n"
          "shared_context_file = behavior/shared-context.json\n"
-         "material_slots_file = bindings/material-slots.json\n"
-         "grip_sockets_file = bindings/grip-sockets.json\n"
          "presentation_file = bindings/presentation.json\n"
          "primary_projectile_archive = dependencies/assets/projectiles/primary.pdprojectile\n"
          "deployed_entity_archive = dependencies/assets/entities/deployed.pdentity\n"
-         "fire_sound_archive = dependencies/assets/audio/fire.pdsfx\n"
-         "idle_animation_archive = dependencies/assets/animations/idle.pdanim\n"
-         "reticle_archive = dependencies/assets/ui/reticle.pdui\n"
          "\n[meta]\n"
          "manifest = _meta/manifest.json\n"),
         ("behavior/primary.graph.json", primary_graph),
         ("behavior/secondary.graph.json", secondary_graph),
         ("behavior/settings.json",
-         "{\n  \"schema\": \"pd.weapon.settings.v1\",\n  \"fire_cadence\": { \"value\": 25, \"unit\": \"centiseconds\" }\n}\n"),
+         "{\n  \"schema\": \"pd.weapon_settings.v1\",\n  \"fire_cadence\": { \"value\": 25, \"unit\": \"centiseconds\" }\n}\n"),
         ("behavior/variables.json",
-         "{\n  \"schema\": \"pd.weapon.variables.v1\",\n  \"ammo_clip\": 12,\n  \"ammo_reserve\": 120\n}\n"),
+         "{\n  \"schema\": \"pd.weapon_variables.v1\",\n  \"variables\": []\n}\n"),
         ("behavior/shared-context.json",
          "{\n  \"schema\": \"pd.weapon.shared_context.v1\",\n  \"contexts\": [\"owner_player\", \"owner_team\", \"weapon_instance\", \"damage_credit_player\"]\n}\n"),
-        ("bindings/material-slots.json",
-         "{\n  \"schema\": \"pd.weapon.material_slots.v1\",\n  \"slots\": [{ \"name\": \"body\", \"material\": \"dependencies/assets/materials/default.pdmaterial\" }]\n}\n"),
-        ("bindings/grip-sockets.json",
-         "{\n  \"schema\": \"pd.weapon.grip_sockets.v1\",\n  \"sockets\": [{ \"name\": \"primary_grip\", \"mesh_socket\": \"grip\" }]\n}\n"),
         ("bindings/presentation.json",
-         "{\n  \"schema\": \"pd.weapon.presentation.v1\",\n  \"reticle\": \"dependencies/assets/ui/reticle.pdui\"\n}\n"),
+         "{\n  \"schema\": \"pd.weapon.presentation.v1\",\n  \"crosshair\": \"default\",\n  \"zoom_fov\": 45.0\n}\n"),
         ("dependencies/assets/models/weapon.pdmesh", mesh_bytes),
-        ("dependencies/assets/materials/default.pdmaterial", material),
-        ("dependencies/assets/textures/body.pdtexture", texture),
-        ("dependencies/assets/animations/idle.pdanim", anim),
-        ("dependencies/assets/audio/fire.pdsfx", sfx),
         ("dependencies/assets/projectiles/primary.pdprojectile", projectile),
         ("dependencies/assets/entities/deployed.pdentity", entity),
-        ("dependencies/assets/ui/reticle.pdui", ui),
         ("_meta/manifest.json", manifest_with("weapon", "example:tri_weapon", {
             "model_file": "dependencies/assets/models/weapon.pdmesh",
             "primary_graph": "behavior/primary.graph.json",
@@ -2320,14 +2306,9 @@ def update_weapon(mesh_bytes: bytes) -> None:
             "settings_file": "behavior/settings.json",
             "variables_file": "behavior/variables.json",
             "shared_context_file": "behavior/shared-context.json",
-            "material_slots_file": "bindings/material-slots.json",
-            "grip_sockets_file": "bindings/grip-sockets.json",
             "presentation_file": "bindings/presentation.json",
             "primary_projectile_archive": "dependencies/assets/projectiles/primary.pdprojectile",
             "deployed_entity_archive": "dependencies/assets/entities/deployed.pdentity",
-            "fire_sound_archive": "dependencies/assets/audio/fire.pdsfx",
-            "idle_animation_archive": "dependencies/assets/animations/idle.pdanim",
-            "reticle_archive": "dependencies/assets/ui/reticle.pdui",
         })),
     ])
 

@@ -325,6 +325,12 @@ TEST_CASE("asset runtime adapters bind C-3838 file-backed families",
 
 	asset_entry_t character;
 	initEntry(character, ASSET_CHARACTER, "mod:character_triangle");
+	std::strncpy(character.ext.character.body_id, "mod:body_triangle",
+		sizeof(character.ext.character.body_id) - 1);
+	std::strncpy(character.ext.character.head_id, "mod:head_triangle",
+		sizeof(character.ext.character.head_id) - 1);
+	std::strncpy(character.ext.character.display_name, "Triangle Character",
+		sizeof(character.ext.character.display_name) - 1);
 	std::strncpy(character.ext.character.bodyfile,
 		"dependencies/assets/body/tri_body.pdbody",
 		sizeof(character.ext.character.bodyfile) - 1);
@@ -344,6 +350,9 @@ TEST_CASE("asset runtime adapters bind C-3838 file-backed families",
 	REQUIRE(str(characterBinding->dependency_a) ==
 		"dependencies/assets/head/tri_head.pdhead");
 	REQUIRE(str(characterBinding->dependency_b) == "portrait.png");
+	REQUIRE(str(characterBinding->character_body_id) == "mod:body_triangle");
+	REQUIRE(str(characterBinding->character_head_id) == "mod:head_triangle");
+	REQUIRE(str(characterBinding->display_name) == "Triangle Character");
 
 	asset_entry_t arena;
 	initEntry(arena, ASSET_ARENA, "mod:arena_training");

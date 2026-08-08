@@ -2103,6 +2103,14 @@ static void populateExtFromIni(asset_entry_t *e, asset_type_e type, const char *
                 iniGet(ini, "kind",
                 iniGet(ini, "category", ""))), AUDIO_CAT_SFX);
         e->ext.audio.duration_ms = iniGetInt(ini, "duration_ms", 0);
+        strncpy(e->ext.audio.voice_actor, iniGet(ini, "actor", ""),
+                sizeof(e->ext.audio.voice_actor) - 1);
+        strncpy(e->ext.audio.voice_transcript, iniGet(ini, "transcript", ""),
+                sizeof(e->ext.audio.voice_transcript) - 1);
+        strncpy(e->ext.audio.voice_language, iniGet(ini, "language", ""),
+                sizeof(e->ext.audio.voice_language) - 1);
+        strncpy(e->ext.audio.voice_context, iniGet(ini, "context", ""),
+                sizeof(e->ext.audio.voice_context) - 1);
         e->ext.audio.has_keymap = iniGetInt(ini, "has_keymap",
             iniGet(ini, "key_base", NULL) != NULL ? 1 : 0);
         e->ext.audio.key_min = iniGetInt(ini, "key_min", 0);

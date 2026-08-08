@@ -1,5 +1,16 @@
 # Menus / UI / UX
 
+## 2026-08-08 character archive utilization
+
+The room character dialog now lists complete `.pdcharacter` records before the
+advanced independent body/head assembly lists. Selection copies the exact
+catalog body/head IDs, roster labels prefer the character display name, and
+lobby portraits use an authored public portrait when declared. Missing or
+corrupt declared portraits show an unavailable state and never silently bake a
+3D replacement; an intentionally omitted portrait retains the existing 3D
+path. Ordinary-client mouse, keyboard, controller, focus, glyph, save/wire, and
+render capture remains under `V-004`, `V-005`, and `V-007`.
+
 > ImGui is the sole menu system. Three architectural layers: input ownership stack, menu pool (structural dedup by type), menu graph (named edges). Layout primitives + nav helpers + theme system. Stack debug overlay for live introspection.
 
 ---

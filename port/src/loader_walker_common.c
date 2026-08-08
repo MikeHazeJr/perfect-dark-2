@@ -165,6 +165,112 @@ s32 loaderWalkerArchiveMemberPath(const char *archive_path,
     return out[0] != '\0';
 }
 
+s32 loaderWalkerArchiveTextMember(const char *archive_path,
+                                  const char *member,
+                                  char **out_text, size_t *out_len)
+{
+    char full_buf[FS_MAXPATH + 1];
+    const char *full;
+    mod_archive_t *arc;
+    s32 index;
+    u32 raw_len = 0;
+    void *raw;
+    char *copy;
+
+    if (!out_text || !out_len) return 0;
+    *out_text = NULL;
+    *out_len = 0;
+    if (!archive_path || !archive_path[0] || !member || !member[0]) return 0;
+
+    full = fsFullPath(archive_path, full_buf, sizeof(full_buf));
+    if (!full || !full[0]) return 0;
+    arc = modArchiveOpen(full);
+    if (!arc) return 0;
+    index = modArchiveFindEntry(arc, member);
+    if (index < 0) {
+        modArchiveClose(arc);
+        return 0;
+    }
+    raw = modArchiveExtractAlloc(arc, index, &raw_len);
+    modArchiveClose(arc);
+    if (!raw) return 0;
+    copy = (char *)sysMemAlloc(raw_len + 1);
+    if (!copy) {
+        free(raw);
+        return 0;
+    }
+    memcpy(copy, raw, raw_len);
+    copy[raw_len] = '\0';
+    free(raw);
+    *out_text = copy;
+    *out_len = (size_t)raw_len;
+    return 1;
+}
+
+static const char *s_trimIniSpan(const char *start, const char *end,
+                                 const char **out_end)
+{
+    while (start < end && isspace((unsigned char)*start)) start++;
+    while (end > start && isspace((unsigned char)end[-1])) end--;
+    *out_end = end;
+    return start;
+}
+
+s32 loaderWalkerIniValueCopy(const char *text, size_t text_len,
+                             const char *section, const char *key,
+                             char *out, size_t out_n)
+{
+    const char *cursor;
+    const char *end;
+    s32 in_section = 0;
+    size_t section_len;
+    size_t key_len;
+
+    if (!out || out_n == 0) return 0;
+    out[0] = '\0';
+    if (!text || !section || !key) return 0;
+    section_len = strlen(section);
+    key_len = strlen(key);
+    cursor = text;
+    end = text + text_len;
+
+    while (cursor < end) {
+        const char *line_end = cursor;
+        const char *trim_end;
+        const char *line;
+        while (line_end < end && *line_end != '\n') line_end++;
+        line = s_trimIniSpan(cursor, line_end, &trim_end);
+        if (line < trim_end && *line != ';' && *line != '#') {
+            if (*line == '[' && trim_end > line + 2 && trim_end[-1] == ']') {
+                const char *name_end;
+                const char *name = s_trimIniSpan(line + 1, trim_end - 1, &name_end);
+                in_section = (size_t)(name_end - name) == section_len
+                    && memcmp(name, section, section_len) == 0;
+            } else if (in_section) {
+                const char *equals = line;
+                while (equals < trim_end && *equals != '=') equals++;
+                if (equals < trim_end) {
+                    const char *name_end;
+                    const char *name = s_trimIniSpan(line, equals, &name_end);
+                    if ((size_t)(name_end - name) == key_len
+                            && memcmp(name, key, key_len) == 0) {
+                        const char *value_end;
+                        const char *value = s_trimIniSpan(equals + 1, trim_end,
+                                                         &value_end);
+                        size_t copy_len = (size_t)(value_end - value);
+                        if (copy_len >= out_n) copy_len = out_n - 1;
+                        memcpy(out, value, copy_len);
+                        out[copy_len] = '\0';
+                        return 1;
+                    }
+                }
+            }
+        }
+        cursor = line_end < end ? line_end + 1 : end;
+    }
+    return 0;
+}
+
 void loaderWalkerMarkBaseArchiveEntry(asset_entry_t *entry)
 {
     if (!entry) {

@@ -184,6 +184,10 @@ static void s_fillAudioResult(const asset_entry_t *e, catalog_audio_result_t *ou
     out->sound_id  = e->ext.audio.sound_id;
     out->category  = e->ext.audio.category;
     out->file_path = e->ext.audio.file_path;
+    out->voice_actor = e->ext.audio.voice_actor;
+    out->voice_transcript = e->ext.audio.voice_transcript;
+    out->voice_language = e->ext.audio.voice_language;
+    out->voice_context = e->ext.audio.voice_context;
 }
 
 /* -------------------------------------------------------------------------

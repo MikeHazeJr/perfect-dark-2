@@ -14,6 +14,13 @@
 teach creators keys that the production parser never reads. B-971's
 `.pdtheme` `accent`/`chrome` example was the concrete instance.
 
+**2026-08-08 propagation:** B-974 through B-978 confirmed the same class in
+weapon, character, voice, and especially effect archives. Presence in a
+descriptor, catalog row, generic runtime binding, compiled-but-flattened graph,
+or conformance allow-list is not utilization. Conformance itself can also
+contradict runtime, as with timeline-only `.pdeffect` archives that validate but
+cannot activate.
+
 **Audit:** Cross-check every generated/example source key against its production
 parser and downstream consumer, not only descriptor/manifest conformance.
 

@@ -622,6 +622,32 @@ asset_entry_t *assetCatalogRegisterCharacter(const char *id,
     return entry;
 }
 
+const asset_entry_t *assetCatalogFindCharacterByBodyHead(
+    const char *body_id, const char *head_id)
+{
+    const asset_entry_t *result = NULL;
+
+    if (!body_id || !body_id[0] || !head_id || !head_id[0]) {
+        return NULL;
+    }
+
+    CATALOG_LOCK();
+    for (s32 i = 0; i < s_EntryPoolSize; i++) {
+        const asset_entry_t *entry = &s_EntryPool[i];
+        if (!entry->occupied || !entry->enabled ||
+                entry->type != ASSET_CHARACTER) {
+            continue;
+        }
+        if (strcmp(entry->ext.character.body_id, body_id) == 0 &&
+                strcmp(entry->ext.character.head_id, head_id) == 0) {
+            result = entry;
+            break;
+        }
+    }
+    CATALOG_UNLOCK();
+    return result;
+}
+
 asset_entry_t *assetCatalogRegisterSkin(const char *id,
                                         const char *target_id)
 {

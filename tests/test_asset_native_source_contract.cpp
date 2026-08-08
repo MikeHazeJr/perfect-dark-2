@@ -15736,3 +15736,27 @@ TEST_CASE("B-959 HUD material skin and vehicle public source owns production beh
 	REQUIRE(conformance.find("pd2.skin.swatches.v1") !=
 	        std::string::npos);
 }
+
+TEST_CASE("pdvoice public metadata feeds production subtitles",
+          "[modding][pdxxx][voice][t-assets-011][static]") {
+	const std::string walker = readTextFile("port/src/loader_walker_voice.c");
+	const std::string common = readTextFile("port/src/loader_walker_common.c");
+	const std::string scanner = readTextFile("port/src/assetcatalog_scanner.c");
+	const std::string distrib = readTextFile("port/src/net/netdistrib.c");
+	const std::string runtime = readTextFile("port/src/scenario_source_runtime.c");
+
+	REQUIRE(walker.find("loaderWalkerArchiveTextMember(file_path, \"voice.ini\"") !=
+	        std::string::npos);
+	REQUIRE(walker.find("loaderWalkerIniValueCopy(voice_ini") !=
+	        std::string::npos);
+	REQUIRE(common.find("modArchiveFindEntry(arc, member)") != std::string::npos);
+	REQUIRE(scanner.find("e->ext.audio.voice_transcript") != std::string::npos);
+	REQUIRE(distrib.find("e->ext.audio.voice_transcript") != std::string::npos);
+	REQUIRE(runtime.find("s_voiceSourceSubtitle(audio_source_id") !=
+	        std::string::npos);
+	REQUIRE(runtime.find("audio.voice_actor, audio.voice_transcript") !=
+	        std::string::npos);
+	REQUIRE(runtime.find("s_voiceLanguageMatchesActive(audio.voice_language)") !=
+	        std::string::npos);
+	REQUIRE(runtime.find("hudmsgCreateAsSubtitle(text") != std::string::npos);
+}
