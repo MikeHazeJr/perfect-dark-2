@@ -145,6 +145,21 @@ Events use `SDL_PushEvent` so they flow through the same path as a real user
 click -- this matters because ImGui's `IsItemHovered` / `IsItemActive` only
 fire when the press / release sequence is correct.
 
+#### `mouse_move` and `mouse_wheel` (V-004, 2026-08-08)
+
+Move the ordinary SDL mouse cursor to an absolute client coordinate, then send
+a wheel delta to the currently hovered target:
+
+```json
+{ "at_ms": 60000, "type": "mouse_move", "x": 640, "y": 400 }
+{ "at_ms": 61000, "type": "mouse_wheel", "wheel_x": 0, "wheel_y": -3 }
+```
+
+Both events use `SDL_PushEvent` and the live SDL window ID. `mouse_move`
+requires both `x` and `y`; `mouse_wheel` requires at least one supplied,
+non-zero delta. Use an explicit move before wheel input so the hover target is
+established through the same backend path as ordinary mouse use.
+
 ### Action modes
 
 For `key`, `action`, and `mouse` events the `action` field controls edge

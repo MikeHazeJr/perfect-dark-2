@@ -4001,12 +4001,11 @@ static void s_registerEmbeddedMeshDeps(const char *archive_path,
  * precedent): the weapon still registers and the effect bridges keep their
  * OG fallbacks. */
 
-#define WEAPON_GRAPH_EMBEDDED_EFFECT_MAX 8
-
 typedef struct {
-	char names[WEAPON_GRAPH_EMBEDDED_EFFECT_MAX][FS_MAXPATH];
-	s32 count;
-	s32 overflow;
+	char **names;
+	size_t count;
+	size_t capacity;
+	s32 failed;
 } embedded_effect_name_scan_t;
 
 static s32 effectSuffixMatches(const char *name)
@@ -4032,13 +4031,31 @@ static s32 s_collectEmbeddedEffectNames(const char *entryName,
 	if (!effectSuffixMatches(entryName)) {
 		return 0;
 	}
-	if (scan->count >= WEAPON_GRAPH_EMBEDDED_EFFECT_MAX) {
-		scan->overflow = 1;
-		return 0;
+	if (scan->count == scan->capacity) {
+		size_t next = scan->capacity ? scan->capacity * 2 : 8;
+		if (next < scan->count + 1 || next > (size_t)-1 / sizeof(*scan->names)) {
+			scan->failed = 1;
+			return -1;
+		}
+		char **grown = (char **)realloc(scan->names,
+			next * sizeof(*scan->names));
+		if (!grown) { scan->failed = 1; return -1; }
+		scan->names = grown;
+		scan->capacity = next;
 	}
-	copyStr(scan->names[scan->count], sizeof(scan->names[0]), entryName);
+	scan->names[scan->count] = (char *)malloc(strlen(entryName) + 1);
+	if (!scan->names[scan->count]) { scan->failed = 1; return -1; }
+	strcpy(scan->names[scan->count], entryName);
 	scan->count++;
 	return 0;
+}
+
+static void s_freeEmbeddedEffectNames(embedded_effect_name_scan_t *scan)
+{
+	if (!scan) return;
+	for (size_t i = 0; i < scan->count; i++) free(scan->names[i]);
+	free(scan->names);
+	memset(scan, 0, sizeof(*scan));
 }
 
 static s32 effectSameNamespace(const char *a, const char *b)
@@ -4059,16 +4076,14 @@ static void s_registerEmbeddedEffectDeps(const void *container_bytes,
 	embedded_effect_name_scan_t scan;
 	memset(&scan, 0, sizeof(scan));
 	if (modArchiveMemForEachEntry(container_bytes, container_size,
-			s_collectEmbeddedEffectNames, &scan) != MODARCHIVE_OK) {
+			s_collectEmbeddedEffectNames, &scan) != MODARCHIVE_OK || scan.failed) {
+		sysLogPrintf(LOG_WARNING,
+			"WEAPONGRAPH.EFFECT.SCAN: out of memory collecting embedded effects");
+		s_freeEmbeddedEffectNames(&scan);
 		return;
 	}
-	if (scan.overflow) {
-		sysLogPrintf(LOG_WARNING,
-			"WEAPONGRAPH.EFFECT.SCAN: more than %d embedded .pdeffect members; extras ignored",
-			WEAPON_GRAPH_EMBEDDED_EFFECT_MAX);
-	}
 
-	for (s32 i = 0; i < scan.count; i++) {
+	for (size_t i = 0; i < scan.count; i++) {
 		u32 effect_size = 0;
 		void *effect_bytes = modArchiveExtractMemAlloc(container_bytes,
 			container_size, scan.names[i], &effect_size);
@@ -4114,6 +4129,7 @@ static void s_registerEmbeddedEffectDeps(const void *container_bytes,
 		}
 		free(effect_bytes);
 	}
+	s_freeEmbeddedEffectNames(&scan);
 }
 
 static s32 weaponGraphRuntimeRegisterWeaponArchiveDependencies(

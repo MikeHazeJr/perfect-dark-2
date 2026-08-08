@@ -1,0 +1,25 @@
+[00:00.00] version: dev 8aaa14a1 (x86_64-windows)
+[00:00.00] save dir: C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/.claude/smoke-verify-install
+[00:00.94] input: assigned controller '0: (Xbox One Controller)' (id 0) to player 0
+[00:00.97] SMOKE: scenario=v004_input_validation_smoke timeout_ms=110000 events=16 channel_mask=0xFFFF verbose=0
+[00:50.98] SMOKE: tap-press scancode=40 at_ms=50000
+[01:02.97] SMOKE: mouse move xy=(960,350) at_ms=62000
+[01:03.97] SMOKE: mouse tap-press btn=1 xy=(960,350) at_ms=63000
+[01:10.97] SMOKE: tap-press scancode=78 at_ms=70000
+[01:11.97] SMOKE: tap-press scancode=78 at_ms=71000
+[01:12.97] SMOKE: tap-press scancode=78 at_ms=72000
+[01:18.97] SMOKE: mouse move xy=(1200,700) at_ms=78000
+[01:19.97] SMOKE: mouse wheel delta=(0,-3) at_ms=79000
+[01:28.98] SMOKE: tap-press scancode=41 at_ms=88000
+[01:34.98] SMOKE: scripted exit at_ms=94000
+[01:34.98] SMOKE: result=scripted_exit scenario=v004_input_validation_smoke elapsed_ms=94008 events_fired=16/16 code=0
+[01:34.98] shutdown
+[01:34.98] INPUTCTX: shutdown
+[01:34.98] MEMPC [shutdown]: all 5 allocations intact (39440 bytes total)
+
+Physical XInput probe, separate from the scripted smoke:
+duration=12s successful_samples=707 connected_controllers=1
+initial packet=14489458 buttons=0000 triggers=0/0 left_stick=0/0 right_stick=-182/3569
+final   packet=14489460 buttons=0000 triggers=0/0 left_stick=0/0 right_stick=-182/3569
+observed_control_transitions=0
+verdict=controller navigation/device-switch/glyph proof NOT RUN

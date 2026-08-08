@@ -61,6 +61,15 @@
  *        and produce an auto-release on the next tick. `tap` is the
  *        default.
  *
+ *   { "at_ms": N, "type": "mouse_move", "x": 640, "y": 400 }
+ *     -- inject SDL_MOUSEMOTION at an absolute client coordinate. Use this
+ *        before a mouse click or wheel event so ImGui's hover/focus target is
+ *        established through the same SDL backend used in ordinary play.
+ *
+ *   { "at_ms": N, "type": "mouse_wheel", "wheel_x": 0, "wheel_y": -1 }
+ *     -- inject SDL_MOUSEWHEEL through the ordinary ImGui/action-map event
+ *        path. The current hover target comes from the preceding mouse_move.
+ *
  *   Both `action` and `mouse` events use the same tap-release sweep
  *   path that the existing key-tap events use, so they share the
  *   one-frame auto-release timing (SMOKE_TAP_RELEASE_MS).
@@ -113,6 +122,8 @@ typedef enum {
     SMOKE_EVENT_MOUSE_PRESS,
     SMOKE_EVENT_MOUSE_RELEASE,
     SMOKE_EVENT_MOUSE_TAP,
+    SMOKE_EVENT_MOUSE_MOVE,
+    SMOKE_EVENT_MOUSE_WHEEL,
     SMOKE_EVENT_SCREENSHOT,         /* in-game glReadPixels grab -> path */
     SMOKE_EVENT_EXIT
 } SmokeEventType;
@@ -127,6 +138,8 @@ typedef struct {
     s32            mouse_x;           /* for mouse events */
     s32            mouse_y;           /* for mouse events */
     s32            mouse_button;      /* for mouse events: SDL_BUTTON_LEFT/RIGHT/MIDDLE */
+    s32            mouse_wheel_x;     /* for mouse-wheel events */
+    s32            mouse_wheel_y;     /* for mouse-wheel events */
     s32            release_at_ms;     /* for tap: scheduled release time */
     s32            released;          /* tap: 0 = press pending, 1 = release pending, 2 = done */
     char           path[SMOKE_MAX_SHOTPATH]; /* for screenshot events: output file */
@@ -462,6 +475,8 @@ static s32 smokeParseEvent(JParse *p, SmokeEvent *ev)
     ev->mouse_x = 0;
     ev->mouse_y = 0;
     ev->mouse_button = 0;
+    ev->mouse_wheel_x = 0;
+    ev->mouse_wheel_y = 0;
     ev->release_at_ms = -1;
     ev->released = 0;
 
@@ -473,6 +488,8 @@ static s32 smokeParseEvent(JParse *p, SmokeEvent *ev)
     s32  scancode = 0;
     s32  has_x = 0;
     s32  has_y = 0;
+    s32  has_wheel_x = 0;
+    s32  has_wheel_y = 0;
 
     while (t.type != JT_RBRACE && t.type != JT_EOF) {
         if (t.type != JT_STRING) { t = j_next(p); continue; }
@@ -502,6 +519,12 @@ static s32 smokeParseEvent(JParse *p, SmokeEvent *ev)
             has_y = 1;
         } else if (!strcmp(field, "button")) {
             j_tok_copy_str(&t, button_str, sizeof(button_str));
+        } else if (!strcmp(field, "wheel_x")) {
+            ev->mouse_wheel_x = (s32)j_tok_int(&t);
+            has_wheel_x = 1;
+        } else if (!strcmp(field, "wheel_y")) {
+            ev->mouse_wheel_y = (s32)j_tok_int(&t);
+            has_wheel_y = 1;
         } else {
             j_skip_value(p);
         }
@@ -588,6 +611,27 @@ static s32 smokeParseEvent(JParse *p, SmokeEvent *ev)
             ev->type = SMOKE_EVENT_MOUSE_TAP;
             ev->release_at_ms = ev->at_ms + SMOKE_TAP_RELEASE_MS;
         }
+        return 1;
+    }
+    if (!strcmp(type_str, "mouse_move")) {
+        if (!has_x || !has_y) {
+            sysLogPrintf(LOG_ERROR, "SMOKE: mouse_move event missing x/y (at_ms=%d)", ev->at_ms);
+            return 0;
+        }
+        ev->type = SMOKE_EVENT_MOUSE_MOVE;
+        return 1;
+    }
+    if (!strcmp(type_str, "mouse_wheel")) {
+        if (!has_wheel_x && !has_wheel_y) {
+            sysLogPrintf(LOG_ERROR,
+                "SMOKE: mouse_wheel event missing wheel_x/wheel_y (at_ms=%d)", ev->at_ms);
+            return 0;
+        }
+        if (ev->mouse_wheel_x == 0 && ev->mouse_wheel_y == 0) {
+            sysLogPrintf(LOG_ERROR, "SMOKE: mouse_wheel event has zero delta (at_ms=%d)", ev->at_ms);
+            return 0;
+        }
+        ev->type = SMOKE_EVENT_MOUSE_WHEEL;
         return 1;
     }
 
@@ -860,6 +904,38 @@ static void smokePushMouse(s32 x, s32 y, s32 button, s32 down)
     SDL_PushEvent(&ev);
 }
 
+static void smokePushMouseMove(s32 x, s32 y)
+{
+    SDL_Event ev;
+    SDL_zero(ev);
+    ev.type = SDL_MOUSEMOTION;
+    ev.motion.timestamp = SDL_GetTicks();
+    ev.motion.windowID = smokeResolveWindowId();
+    ev.motion.which = 0;
+    ev.motion.state = 0;
+    ev.motion.x = x;
+    ev.motion.y = y;
+    ev.motion.xrel = 0;
+    ev.motion.yrel = 0;
+    SDL_PushEvent(&ev);
+}
+
+static void smokePushMouseWheel(s32 wheel_x, s32 wheel_y)
+{
+    SDL_Event ev;
+    SDL_zero(ev);
+    ev.type = SDL_MOUSEWHEEL;
+    ev.wheel.timestamp = SDL_GetTicks();
+    ev.wheel.windowID = smokeResolveWindowId();
+    ev.wheel.which = 0;
+    ev.wheel.x = wheel_x;
+    ev.wheel.y = wheel_y;
+    ev.wheel.preciseX = (float)wheel_x;
+    ev.wheel.preciseY = (float)wheel_y;
+    ev.wheel.direction = SDL_MOUSEWHEEL_NORMAL;
+    SDL_PushEvent(&ev);
+}
+
 /* ---------------------------------------------------------------- */
 /* Public API                                                       */
 /* ---------------------------------------------------------------- */
@@ -1030,6 +1106,16 @@ void smokeHarnessTick(void)
                 ev->mouse_button, ev->mouse_x, ev->mouse_y, ev->at_ms);
             smokePushMouse(ev->mouse_x, ev->mouse_y, ev->mouse_button, 1);
             ev->released = 1;
+            break;
+        case SMOKE_EVENT_MOUSE_MOVE:
+            sysLogPrintf(LOG_NOTE, "SMOKE: mouse move xy=(%d,%d) at_ms=%d",
+                ev->mouse_x, ev->mouse_y, ev->at_ms);
+            smokePushMouseMove(ev->mouse_x, ev->mouse_y);
+            break;
+        case SMOKE_EVENT_MOUSE_WHEEL:
+            sysLogPrintf(LOG_NOTE, "SMOKE: mouse wheel delta=(%d,%d) at_ms=%d",
+                ev->mouse_wheel_x, ev->mouse_wheel_y, ev->at_ms);
+            smokePushMouseWheel(ev->mouse_wheel_x, ev->mouse_wheel_y);
             break;
         case SMOKE_EVENT_SCREENSHOT:
             sysLogPrintf(LOG_NOTE, "SMOKE: screenshot at_ms=%d -> %s", ev->at_ms, ev->path);

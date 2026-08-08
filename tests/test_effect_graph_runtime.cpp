@@ -16,6 +16,8 @@
 #include "catch.hpp"
 
 #include <chrono>
+#include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -42,6 +44,18 @@ s32 sparksTypeClonesRowExceptColors(s32 typenum, s32 base_typenum);
 /* Mirror of SPARKTYPE_BASE_COUNT (game/sparks.h); the static pin below
  * keeps the literal honest. */
 static const s32 kSparkBaseCount = 27;
+
+/* Complete the source-builder's forward declarations without including the
+ * C-only game headers. Layout matches the public native table definitions. */
+struct explosiontype {
+	float rangeh, rangev, changerateh, changeratev, innersize, blastradius,
+		damageradius;
+	int16_t duration, propagationrate;
+	float flarespeed;
+	uint8_t smoketype;
+	uint16_t sound;
+	float damage;
+};
 
 namespace {
 
@@ -142,6 +156,13 @@ void effectRuntimeTestReset() {
 	weaponGraphRuntimeSetEnabled(0);
 	weaponGraphRuntimeClearAll();
 	effectGraphRuntimeClearAll();  /* also resets the spark registry */
+}
+
+s32 collectProgramNode(const effect_graph_program_t *,
+	const weapon_graph_ir_node_t *node, s32, f32, void *user) {
+	auto *ids = static_cast<std::vector<std::string> *>(user);
+	ids->emplace_back(node->id);
+	return 0;
 }
 
 }  // namespace
@@ -517,7 +538,247 @@ TEST_CASE("effect archives register through descriptor and nested weapon walks",
 	effectRuntimeTestReset();
 }
 
-TEST_CASE("spark custom row registry is bounded, deduplicated and resettable",
+TEST_CASE("effect program retains topology policy parameters and interpolated timeline",
+		"[modding][pdxxx][effect_graph][t-assets-018]") {
+	effectRuntimeTestReset();
+	const std::string graph =
+		"{\"schema\":\"pd.effect_graph.v1\",\"asset_id\":\"modx:complete_fx\","
+		"\"shared_context\":[{\"name\":\"impact\",\"scope\":\"call\","
+		"\"source\":\"target\",\"type\":\"vec3\",\"lifetime\":\"effect\"}],"
+		"\"nodes\":["
+		"{\"id\":\"attach\",\"kind\":\"effect.glow\",\"subgraph\":\"main\","
+		"\"params\":{\"target\":\"impact\",\"attachment\":\"surface\","
+		"\"lifetime\":1.5,\"priority\":7,\"dependency\":\"modx:material_glow\","
+		"\"intensity\":0.5}},"
+		"{\"id\":\"burst\",\"kind\":\"effect.explosion\",\"subgraph\":\"main\","
+		"\"params\":{\"explosion_class\":\"small\"}},"
+		"{\"id\":\"smoke\",\"kind\":\"effect.smoke\",\"subgraph\":\"tail\","
+		"\"params\":{\"smoke_class\":\"large\"}}],"
+		"\"subgraphs\":[{\"id\":\"main\",\"entry\":\"attach\"},"
+		"{\"id\":\"tail\",\"entry\":\"smoke\"}],"
+		"\"edges\":[{\"from\":\"attach\",\"to\":\"burst\"},"
+		"{\"from\":\"burst\",\"to\":\"smoke\"}],"
+		"\"exports\":[{\"name\":\"primary\",\"node\":\"attach\"}]}";
+	const std::string timeline =
+		"{\"schema\":\"pd2.effect.timeline.v1\",\"tracks\":["
+		"{\"time\":0.0,\"property\":\"intensity\",\"value\":0.0},"
+		"{\"time\":0.25,\"property\":\"intensity\",\"value\":0.75},"
+		"{\"time\":0.0,\"property\":\"light.radius\",\"value\":2.0}]}";
+	const std::string descriptor =
+		"[effect]\n"
+		"catalog_id = modx:complete_fx\n"
+		"name = Complete FX\n"
+		"schema = pd.effect_graph.v1\n"
+		"effect_file = effect.graph.json\n"
+		"timeline_file = timeline.json\n";
+	auto archive = writeTypedArchiveEntries("effect-complete", ".pdeffect", {
+		{ "effect.ini", descriptor }, { "effect.graph.json", graph },
+		{ "timeline.json", timeline },
+	});
+	char err[256] = {};
+	INFO(err);
+	REQUIRE(effectGraphRuntimeRegisterArchive(archive.path.string().c_str(),
+		err, sizeof(err)) == 0);
+	const effect_graph_runtime_t *record = effectGraphRuntimeGet("modx:complete_fx");
+	REQUIRE(record != nullptr);
+	const effect_graph_program_t &program = record->program;
+	REQUIRE(program.kind == EFFECT_GRAPH_PROGRAM_GRAPH_TIMELINE);
+	REQUIRE(program.context_count == 1);
+	REQUIRE(std::string(program.contexts[0].lifetime) == "effect");
+	REQUIRE(program.node_count == 3);
+	REQUIRE(program.edge_count == 2);
+	REQUIRE(program.subgraph_count == 2);
+	REQUIRE(program.export_count == 1);
+	REQUIRE(program.param_count >= 7);
+	REQUIRE(program.timeline.count == 3);
+	REQUIRE(program.timeline.keys[1].authored_order == 1);
+	float sampled = -1.0f;
+	REQUIRE(effectGraphProgramSample(&program, "intensity", 0.125f, &sampled) == 1);
+	REQUIRE(sampled == Approx(0.375f));
+	REQUIRE(effectGraphProgramSample(&program, "light.radius", 100.0f, &sampled) == 1);
+	REQUIRE(sampled == Approx(2.0f));
+	std::vector<std::string> execution;
+	REQUIRE(effectGraphProgramExecute(&program, 0.125f, collectProgramNode,
+		&execution) == 3);
+	REQUIRE(execution == std::vector<std::string>{ "attach", "burst", "smoke" });
+
+	bool sawTarget = false, sawAttachment = false, sawLifetime = false;
+	bool sawPriority = false, sawDependency = false;
+	for (s32 i = 0; i < program.param_count; i++) {
+		const std::string key = program.params[i].key;
+		sawTarget |= key == "target";
+		sawAttachment |= key == "attachment";
+		sawLifetime |= key == "lifetime";
+		sawPriority |= key == "priority";
+		sawDependency |= key == "dependency";
+	}
+	REQUIRE(sawTarget);
+	REQUIRE(sawAttachment);
+	REQUIRE(sawLifetime);
+	REQUIRE(sawPriority);
+	REQUIRE(sawDependency);
+	effectRuntimeTestReset();
+}
+
+TEST_CASE("effect archive supports graph-only timeline-only and combined programs",
+		"[modding][pdxxx][effect_graph][t-assets-018]") {
+	effectRuntimeTestReset();
+	char err[256] = {};
+	const std::string graph = baseEffectGraph("pd.effect_graph.v1",
+		"modx:graph_only", "glow");
+	auto graphOnly = writeTypedArchiveEntries("effect-graph-only", ".pdeffect", {
+		{ "effect.ini", "[effect]\ncatalog_id = modx:graph_only\nname = Graph Only\n"
+			"schema = pd.effect_graph.v1\neffect_file = graph.json\n" },
+		{ "graph.json", graph },
+	});
+	REQUIRE(effectGraphRuntimeRegisterArchive(graphOnly.path.string().c_str(),
+		err, sizeof(err)) == 0);
+	REQUIRE(effectGraphRuntimeGet("modx:graph_only")->program.kind ==
+		EFFECT_GRAPH_PROGRAM_GRAPH);
+
+	const std::string timeline =
+		"{\"schema\":\"pd2.effect.timeline.v1\",\"tracks\":["
+		"{\"time\":0,\"property\":\"alpha\",\"value\":0.25},"
+		"{\"time\":1,\"property\":\"alpha\",\"value\":1}]}";
+	auto timelineOnly = writeTypedArchiveEntries("effect-timeline-only", ".pdeffect", {
+		{ "effect.ini", "[effect]\ncatalog_id = modx:timeline_only\nname = Timeline Only\n"
+			"schema = pd.effect_graph.v1\ntimeline_file = timeline.json\n" },
+		{ "timeline.json", timeline },
+	});
+	INFO(err);
+	REQUIRE(effectGraphRuntimeRegisterArchive(timelineOnly.path.string().c_str(),
+		err, sizeof(err)) == 0);
+	const auto *timelineRecord = effectGraphRuntimeGet("modx:timeline_only");
+	REQUIRE(timelineRecord != nullptr);
+	REQUIRE(timelineRecord->program.kind == EFFECT_GRAPH_PROGRAM_TIMELINE);
+	REQUIRE(timelineRecord->program.node_count == 0);
+	float value = 0;
+	REQUIRE(effectGraphProgramSample(&timelineRecord->program, "alpha", 0.5f,
+		&value) == 1);
+	REQUIRE(value == Approx(0.625f));
+	effectRuntimeTestReset();
+}
+
+TEST_CASE("effect runtime and spark registries grow beyond legacy caps",
+		"[modding][pdxxx][effect_graph][t-assets-018]") {
+	effectRuntimeTestReset();
+	char err[256] = {};
+	for (int i = 0; i < 96; i++) {
+		const std::string id = "modx:effect_" + std::to_string(i);
+		const std::string graph = baseEffectGraph("pd.effect_graph.v1", id, "glow");
+		INFO("effect index " << i << ": " << err);
+		REQUIRE(effectGraphRuntimeRegisterGraphJson(id.c_str(), graph.data(),
+			static_cast<u32>(graph.size()), err, sizeof(err)) == 0);
+	}
+	REQUIRE(effectGraphRuntimeCount() == 96);
+	REQUIRE(effectGraphRuntimeGet("modx:effect_95") != nullptr);
+
+	for (u32 i = 0; i < 48; i++) {
+		REQUIRE(sparksRegisterCustomTintedType(0x10000000u + i, 0xff000000u + i)
+			== kSparkBaseCount + static_cast<s32>(i));
+	}
+	REQUIRE(sparksCustomTypeCount() == 48);
+	effectRuntimeTestReset();
+}
+
+TEST_CASE("nested effect discovery registers every member beyond legacy eight",
+		"[modding][pdxxx][effect_graph][t-assets-018]") {
+	effectRuntimeTestReset();
+	std::vector<std::pair<std::string, std::string>> projectileEntries = {
+		{ "projectile.ini", "[projectile]\ncatalog_id = modx:carrier\n"
+			"behavior_graph = behavior.graph.json\n" },
+		{ "behavior.graph.json",
+			"{\"schema\":\"pd.projectile_graph.v1\",\"asset_id\":\"modx:carrier\","
+			"\"graph_id\":\"projectile\",\"nodes\":[{\"id\":\"m\","
+			"\"kind\":\"projectile.motion\",\"params\":{\"motion_kind\":"
+			"\"powered\",\"speed\":1}}],\"edges\":[],\"exports\":[]}" },
+	};
+	for (int i = 0; i < 12; i++) {
+		const std::string id = "modx:nested_fx_" + std::to_string(i);
+		const std::string descriptor =
+			"[effect]\ncatalog_id = " + id + "\nname = Nested FX\n"
+			"schema = pd.effect_graph.v1\neffect_file = effect.graph.json\n";
+		auto effectArchive = writeTypedArchiveEntries(
+			"nested-effect-" + std::to_string(i), ".pdeffect", {
+				{ "effect.ini", descriptor },
+				{ "effect.graph.json",
+					baseEffectGraph("pd.effect_graph.v1", id, "glow") },
+			});
+		projectileEntries.emplace_back(
+			"dependencies/assets/effects/fx" + std::to_string(i) + ".pdeffect",
+			readFile(effectArchive.path.string().c_str()));
+	}
+	auto projectileArchive = writeTypedArchiveEntries("effect-carrier",
+		".pdprojectile", projectileEntries);
+	const std::string projectileBytes = readFile(
+		projectileArchive.path.string().c_str());
+	auto weaponArchive = writeTypedArchiveEntries("effect-carrier-weapon",
+		".pdweapon", {
+			{ "weapon.ini", "[weapon]\ncatalog_id = modx:carrier_weapon\n"
+				"behavior_graph = behavior.graph.json\n" },
+			{ "behavior.graph.json",
+				"{\"schema\":\"pd.weapon_graph.v1\","
+				"\"asset_id\":\"modx:carrier_weapon\",\"graph_id\":\"held\","
+				"\"nodes\":[{\"id\":\"p\",\"kind\":\"fire.hitscan\","
+				"\"params\":{\"mode\":\"primary\"}}],\"edges\":[],"
+				"\"exports\":[{\"name\":\"primary\",\"node\":\"p\"}]}" },
+			{ "dependencies/assets/projectiles/carrier.pdprojectile",
+				projectileBytes },
+		});
+	char err[256] = {};
+	INFO(err);
+	REQUIRE(weaponGraphRuntimeRegisterWeaponArchive(80,
+		weaponArchive.path.string().c_str(), err, sizeof(err)) == 0);
+	for (int i = 0; i < 12; i++) {
+		INFO("nested effect " << i);
+		REQUIRE(effectGraphRuntimeGet(
+			("modx:nested_fx_" + std::to_string(i)).c_str()) != nullptr);
+	}
+	effectRuntimeTestReset();
+}
+
+TEST_CASE("validated v2 profile library becomes retained executable source rows",
+		"[modding][pdxxx][effect_graph][t-assets-018]") {
+	effectRuntimeTestReset();
+	explosiontype rows[26] = {};
+	rows[2] = { 20, 21, 2, 3, 30, 50, 60, 40, 2, 3, 2, 0, 0.125f };
+	char *source = nullptr;
+	size_t sourceLen = 0;
+	auto soundId = [](s32 sound, char *out, size_t cap) {
+		std::snprintf(out, cap, "base:sfx_%d", sound);
+	};
+	REQUIRE(pdEffectSourceBuildExplosionGraph("base:effect_explosion_profiles",
+		rows, 26, soundId, &source, &sourceLen) == 0);
+	const std::string graph(source, sourceLen);
+	std::free(source);
+	const std::string descriptor =
+		"[effect]\ncatalog_id = base:effect_explosion_profiles\n"
+		"name = Explosion Profiles\nschema = pd.effect_graph.v2\n"
+		"profile_kind = explosion\ntarget_policy = callsite\n"
+		"attachment_policy = callsite\npriority_policy = callsite\n"
+		"scorch_policy = callsite\neffect_file = effect.graph.json\n";
+	auto archive = writeTypedArchiveEntries("effect-profiles", ".pdeffect", {
+		{ "effect.ini", descriptor }, { "effect.graph.json", graph },
+	});
+	char err[256] = {};
+	INFO(err);
+	REQUIRE(effectGraphRuntimeRegisterArchive(archive.path.string().c_str(),
+		err, sizeof(err)) == 0);
+	const auto *record = effectGraphRuntimeGet("base:effect_explosion_profiles");
+	REQUIRE(record != nullptr);
+	REQUIRE(record->program.kind == EFFECT_GRAPH_PROGRAM_PROFILE_LIBRARY);
+	REQUIRE(record->program.profiles.kind == PD_EFFECT_PROFILE_EXPLOSION);
+	REQUIRE(record->program.profiles.count == 26);
+	const auto &eyespy = record->program.profiles.explosions[2];
+	REQUIRE(std::string(eyespy.id) == "eyespy");
+	REQUIRE(eyespy.range_h == Approx(20.0f));
+	REQUIRE(eyespy.duration_ticks == 40);
+	REQUIRE(std::string(eyespy.smoke_profile) == "mini");
+	REQUIRE(eyespy.has_audio == 0);
+	effectRuntimeTestReset();
+}
+
+TEST_CASE("spark custom row registry is growable, deduplicated and resettable",
           "[modding][pdxxx][effect_graph][c3849]") {
 	sparksResetCustomTypes();
 	REQUIRE(sparksCustomTypeCount() == 0);
@@ -527,20 +788,19 @@ TEST_CASE("spark custom row registry is bounded, deduplicated and resettable",
 	REQUIRE(sparksRegisterCustomTintedType(0xff80d9ffu, 0xffffffffu) == first);
 	REQUIRE(sparksCustomTypeCount() == 1);
 
-	/* Fill the registry (cap 16) and confirm loud-fail exhaustion. */
-	for (u32 i = 1; i < 16; i++) {
+	/* Grow well beyond the retired 16-row table. */
+	for (u32 i = 1; i < 48; i++) {
 		REQUIRE(sparksRegisterCustomTintedType(0x10000000u + i, 0xffffffffu)
 			== kSparkBaseCount + static_cast<s32>(i));
 	}
-	REQUIRE(sparksCustomTypeCount() == 16);
-	REQUIRE(sparksRegisterCustomTintedType(0x20000000u, 0xffffffffu) == -1);
+	REQUIRE(sparksCustomTypeCount() == 48);
 
 	/* Base rows stay addressable; out-of-range typenums report dead. */
 	u32 color1 = 0;
 	u32 color2 = 0;
 	REQUIRE(sparksTypeColors(SPARKTYPE_PROJECTILE, &color1, &color2) == 1);
 	REQUIRE(color1 == 0xffff80ffu);  /* OG NTSC PROJECTILE row */
-	REQUIRE(sparksTypeColors(kSparkBaseCount + 16, &color1, &color2) == 0);
+	REQUIRE(sparksTypeColors(kSparkBaseCount + 48, &color1, &color2) == 0);
 
 	sparksResetCustomTypes();
 	REQUIRE(sparksCustomTypeCount() == 0);

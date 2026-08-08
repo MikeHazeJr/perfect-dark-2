@@ -1,0 +1,20 @@
+{
+  "Name": "v004_input_validation_smoke",
+  "Category": "scenario",
+  "Passed": true,
+  "ExitCode": 0,
+  "ElapsedSeconds": 98.0335033,
+  "AssertionsTotal": 11,
+  "AssertionsMet": 11,
+  "Failures": [],
+  "EventsFired": "16/16",
+  "SourceFingerprint": "8aaa14a1",
+  "Scope": "Real SDL keyboard and mouse event delivery plus clean ordinary-client exit only",
+  "NotProven": [
+    "targeted Settings mouse behavior",
+    "Settings profile save, restart, and reload",
+    "physical controller navigation or contextual actions",
+    "keyboard/controller device switch or live controller glyph update"
+  ],
+  "OriginalIgnoredReceipt": ".claude/smoke-verify-runs/results-20260808T231805Z.json"
+}

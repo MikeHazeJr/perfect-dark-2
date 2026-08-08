@@ -16,15 +16,15 @@
  * stub. sparks.c/sparkstick.c route their three g_SparkTypes reads through
  * sparkTypeFor below.
  *
- * Lifetime: append-only between resets. sparksResetCustomTypes is wired into
+ * Lifetime: growable and append-only between resets. sparksResetCustomTypes is wired into
  * effectGraphRuntimeClearAll (the effect-record reset path), NOT into the
  * per-stage sparksReset -- registered rows are mod-lifetime data, not stage
  * state. Re-registration of an identical row is deduplicated by value, so a
  * mod reload cycle does not consume new slots; a re-tinted row does take a
- * fresh slot until the next full clear (bounded by the cap, loud on
- * exhaustion).
+ * fresh slot until the next full clear. Allocation failure is loud.
  */
 
+#include <stdlib.h>
 #include <string.h>
 #include <ultra64.h>
 #include "constants.h"
@@ -33,10 +33,9 @@
 #include "game/sparks.h"
 #include "system.h"
 
-#define SPARK_CUSTOM_TYPE_MAX 16
-
-static struct sparktype s_CustomSparkTypes[SPARK_CUSTOM_TYPE_MAX];
+static struct sparktype *s_CustomSparkTypes;
 static s32 s_NumCustomSparkTypes = 0;
+static s32 s_CustomSparkTypeCapacity = 0;
 
 struct sparktype *sparkTypeFor(s32 typenum)
 {
@@ -81,11 +80,23 @@ s32 sparksRegisterCustomType(const struct sparktype *row)
 		}
 	}
 
-	if (s_NumCustomSparkTypes >= SPARK_CUSTOM_TYPE_MAX) {
-		sysLogPrintf(LOG_WARNING,
-			"SPARK.CUSTOM_ROW_FAIL: custom spark registry exhausted (cap %d); row not registered",
-			SPARK_CUSTOM_TYPE_MAX);
-		return -1;
+	if (s_NumCustomSparkTypes == s_CustomSparkTypeCapacity) {
+		s32 next = s_CustomSparkTypeCapacity ? s_CustomSparkTypeCapacity * 2 : 16;
+		if (next <= s_CustomSparkTypeCapacity ||
+				(size_t)next > (size_t)-1 / sizeof(*s_CustomSparkTypes)) {
+			sysLogPrintf(LOG_WARNING,
+				"SPARK.CUSTOM_ROW_FAIL: custom spark registry size overflow");
+			return -1;
+		}
+		struct sparktype *grown = (struct sparktype *)realloc(
+			s_CustomSparkTypes, (size_t)next * sizeof(*s_CustomSparkTypes));
+		if (!grown) {
+			sysLogPrintf(LOG_WARNING,
+				"SPARK.CUSTOM_ROW_FAIL: out of memory growing custom spark registry");
+			return -1;
+		}
+		s_CustomSparkTypes = grown;
+		s_CustomSparkTypeCapacity = next;
 	}
 
 	s_CustomSparkTypes[s_NumCustomSparkTypes] = *row;
@@ -111,8 +122,10 @@ s32 sparksRegisterCustomTintedType(u32 color1, u32 color2)
 
 void sparksResetCustomTypes(void)
 {
-	memset(s_CustomSparkTypes, 0, sizeof(s_CustomSparkTypes));
+	free(s_CustomSparkTypes);
+	s_CustomSparkTypes = NULL;
 	s_NumCustomSparkTypes = 0;
+	s_CustomSparkTypeCapacity = 0;
 }
 
 s32 sparksCustomTypeCount(void)

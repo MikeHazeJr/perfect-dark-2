@@ -193,10 +193,10 @@ static bool parseDescriptor(const char *text,size_t len,pd_effect_source_info_t 
 	static const char *v2keys[]={"catalog_id","name","schema","profile_kind","target_policy","attachment_policy","priority_policy","scorch_policy","effect_file"};
 	static const char *v1keys[]={"catalog_id","name","schema","effect_key","target_key","effect_file","timeline_file","shader_id","intensity"};const char *const *allowed=v2?v2keys:v1keys;size_t count=v2?9:9;
 	for(const auto &p:fields){size_t i=0;for(;i<count;i++)if(p.first==allowed[i])break;if(i==count){fail(e,"effect descriptor has unknown field '%s'",p.first.c_str());return false;}}
-	std::string id=get("catalog_id"),name=get("name"),member=get("effect_file");if(!validCatalog(id)){fail(e,"catalog_id must be a valid catalog ID");return false;}if(name.empty()){fail(e,"effect name must not be empty");return false;}if(!validMember(member)){fail(e,"effect_file must be a safe relative archive member");return false;}
+	std::string id=get("catalog_id"),name=get("name"),member=get("effect_file",v2);if(!validCatalog(id)){fail(e,"catalog_id must be a valid catalog ID");return false;}if(name.empty()){fail(e,"effect name must not be empty");return false;}if(!member.empty()&&!validMember(member)){fail(e,"effect_file must be a safe relative archive member");return false;}
 	snprintf(info.catalog_id,sizeof(info.catalog_id),"%s",id.c_str());snprintf(info.name,sizeof(info.name),"%s",name.c_str());snprintf(info.effect_file,sizeof(info.effect_file),"%s",member.c_str());info.intensity=1.0f;
 	if(v2){std::string kind=get("profile_kind");if(kind=="explosion")info.profile_kind=PD_EFFECT_PROFILE_EXPLOSION;else if(kind=="spark")info.profile_kind=PD_EFFECT_PROFILE_SPARK;else if(kind=="smoke")info.profile_kind=PD_EFFECT_PROFILE_SMOKE;else{fail(e,"profile_kind is invalid");return false;}for(const char *k:{"target_policy","attachment_policy","priority_policy","scorch_policy"})if(get(k)!="callsite"){fail(e,"%s must be 'callsite'",k);return false;}info.format=PD_EFFECT_SOURCE_FORMAT_PROFILE_LIBRARY;
-	}else{info.format=PD_EFFECT_SOURCE_FORMAT_LEGACY_GRAPH;std::string effect=get("effect_key",false),target=get("target_key",false),timeline=get("timeline_file",false),shader=get("shader_id",false),intensity=get("intensity",false);if(!timeline.empty()&&!validMember(timeline)){fail(e,"timeline_file must be a safe relative archive member");return false;}snprintf(info.effect_key,sizeof(info.effect_key),"%s",effect.c_str());snprintf(info.target_key,sizeof(info.target_key),"%s",target.c_str());snprintf(info.timeline_file,sizeof(info.timeline_file),"%s",timeline.c_str());snprintf(info.shader_id,sizeof(info.shader_id),"%s",shader.c_str());if(!intensity.empty()){char *after=nullptr;double n=strtod(intensity.c_str(),&after);if(!after||*after||!std::isfinite(n)||n<0||n>1000000){fail(e,"intensity is invalid");return false;}info.intensity=(float)n;}}
+	}else{info.format=PD_EFFECT_SOURCE_FORMAT_LEGACY_GRAPH;std::string effect=get("effect_key",false),target=get("target_key",false),timeline=get("timeline_file",false),shader=get("shader_id",false),intensity=get("intensity",false);if(!timeline.empty()&&!validMember(timeline)){fail(e,"timeline_file must be a safe relative archive member");return false;}if(member.empty()&&timeline.empty()){fail(e,"legacy effect requires effect_file, timeline_file, or both");return false;}snprintf(info.effect_key,sizeof(info.effect_key),"%s",effect.c_str());snprintf(info.target_key,sizeof(info.target_key),"%s",target.c_str());snprintf(info.timeline_file,sizeof(info.timeline_file),"%s",timeline.c_str());snprintf(info.shader_id,sizeof(info.shader_id),"%s",shader.c_str());if(!intensity.empty()){char *after=nullptr;double n=strtod(intensity.c_str(),&after);if(!after||*after||!std::isfinite(n)||n<0||n>1000000){fail(e,"intensity is invalid");return false;}info.intensity=(float)n;}}
 	return !e.failed;
 }
 
@@ -212,7 +212,47 @@ static bool validateGraph(const JValue &root,const std::string &descriptor_schem
 
 static s32 parseBoth(const char *descriptor,size_t descriptor_len,const char *graph,size_t graph_len,const char *expected,pd_effect_source_info_t *out,char *error,size_t error_cap)
 {
-	if(error&&error_cap)error[0]='\0';Error e={error,error_cap,false};pd_effect_source_info_t info={};std::string descriptor_schema;if(!parseDescriptor(descriptor,descriptor_len,info,descriptor_schema,e))return 0;if(expected&&strcmp(expected,info.catalog_id)){fail(e,"catalog_id '%s' does not match expected '%s'",info.catalog_id,expected);return 0;}JValue root;if(!parseJson(graph,graph_len,root,e)||!validateGraph(root,descriptor_schema,info,e))return 0;if(out)*out=info;return 1;
+	if(error&&error_cap)error[0]='\0';Error e={error,error_cap,false};pd_effect_source_info_t info={};std::string descriptor_schema;if(!parseDescriptor(descriptor,descriptor_len,info,descriptor_schema,e))return 0;if(expected&&strcmp(expected,info.catalog_id)){fail(e,"catalog_id '%s' does not match expected '%s'",info.catalog_id,expected);return 0;}if(info.effect_file[0]){JValue root;if(!parseJson(graph,graph_len,root,e)||!validateGraph(root,descriptor_schema,info,e))return 0;}if(out)*out=info;return 1;
+}
+
+static u32 parseHexColor(const std::string &text)
+{
+	return (u32)strtoul(text.c_str() + 1, nullptr, 16);
+}
+
+static bool decodeProfiles(const JValue &root,
+	const pd_effect_source_info_t &source, pd_effect_profile_library_t &out,
+	Error &e)
+{
+	const JValue *profiles=field(root,"profiles",e,"effect graph root");
+	if(!profiles||profiles->type!=J_ARRAY)return false;
+	out.kind=source.profile_kind;out.count=profiles->array.size();
+	if(out.kind==PD_EFFECT_PROFILE_EXPLOSION){
+		out.explosions=(pd_effect_explosion_profile_t*)calloc(out.count,sizeof(*out.explosions));if(!out.explosions){fail(e,"out of memory decoding explosion profiles");return false;}
+		for(size_t i=0;i<out.count;i++){const JValue &r=profiles->array[i];const JValue *s=field(r,"stored",e,"profile");auto &d=out.explosions[i];
+			snprintf(d.id,sizeof(d.id),"%s",field(r,"id",e,"profile")->string.c_str());
+			d.range_h=(float)field(*s,"range_h",e,"stored")->number;d.range_v=(float)field(*s,"range_v",e,"stored")->number;d.change_rate_h=(float)field(*s,"change_rate_h",e,"stored")->number;d.change_rate_v=(float)field(*s,"change_rate_v",e,"stored")->number;d.inner_size=(float)field(*s,"inner_size",e,"stored")->number;d.blast_radius=(float)field(*s,"blast_radius",e,"stored")->number;d.damage_radius=(float)field(*s,"damage_radius",e,"stored")->number;d.duration_ticks=(s32)field(*s,"duration_ticks",e,"stored")->number;d.propagation_rate=(s32)field(*s,"propagation_rate",e,"stored")->number;d.flare_speed=(float)field(*s,"flare_speed",e,"stored")->number;d.damage=(float)field(*s,"damage",e,"stored")->number;
+			snprintf(d.smoke_profile,sizeof(d.smoke_profile),"%s",field(r,"smoke_profile",e,"profile")->string.c_str());const JValue *a=field(r,"audio_catalog_id",e,"profile");d.has_audio=a->type==J_STRING;if(d.has_audio)snprintf(d.audio_catalog_id,sizeof(d.audio_catalog_id),"%s",a->string.c_str());
+		}
+	}else if(out.kind==PD_EFFECT_PROFILE_SPARK){
+		out.sparks=(pd_effect_spark_profile_t*)calloc(out.count,sizeof(*out.sparks));if(!out.sparks){fail(e,"out of memory decoding spark profiles");return false;}
+		for(size_t i=0;i<out.count;i++){const JValue &r=profiles->array[i];const JValue *s=field(r,"stored",e,"profile");auto &d=out.sparks[i];snprintf(d.id,sizeof(d.id),"%s",field(r,"id",e,"profile")->string.c_str());
+			d.speed_random_range=(u32)field(*s,"speed_random_range",e,"stored")->number;d.origin_offset_scale=(s32)field(*s,"origin_offset_scale",e,"stored")->number;d.streak_width_base=(u32)field(*s,"streak_width_base",e,"stored")->number;d.streak_length_base=(u32)field(*s,"streak_length_base",e,"stored")->number;d.streak_width_growth_per_tick=(u32)field(*s,"streak_width_growth_per_tick",e,"stored")->number;d.streak_length_growth_per_tick=(u32)field(*s,"streak_length_growth_per_tick",e,"stored")->number;d.gravity_per_tick=(float)field(*s,"gravity_per_tick",e,"stored")->number;d.max_age_ticks=(u32)field(*s,"max_age_ticks",e,"stored")->number;d.fade_start_tick=(u32)field(*s,"fade_start_tick",e,"stored")->number;d.spark_count=(u32)field(*s,"spark_count",e,"stored")->number;d.flags=(u32)field(*s,"flags",e,"stored")->number;d.color_start_rgba=parseHexColor(field(*s,"color_start_rgba",e,"stored")->string);d.color_end_rgba=parseHexColor(field(*s,"color_end_rgba",e,"stored")->string);d.deceleration=(float)field(*s,"deceleration",e,"stored")->number;
+		}
+	}else if(out.kind==PD_EFFECT_PROFILE_SMOKE){
+		out.smokes=(pd_effect_smoke_profile_t*)calloc(out.count,sizeof(*out.smokes));if(!out.smokes){fail(e,"out of memory decoding smoke profiles");return false;}
+		for(size_t i=0;i<out.count;i++){const JValue &r=profiles->array[i];const JValue *s=field(r,"stored",e,"profile");auto &d=out.smokes[i];snprintf(d.id,sizeof(d.id),"%s",field(r,"id",e,"profile")->string.c_str());
+			d.duration_ticks=(s32)field(*s,"duration_ticks",e,"stored")->number;d.fade_speed=(s32)field(*s,"fade_speed",e,"stored")->number;d.spread_interval_ticks=(s32)field(*s,"spread_interval_ticks",e,"stored")->number;d.initial_size=(s32)field(*s,"initial_size",e,"stored")->number;d.background_rotation_speed=(float)field(*s,"background_rotation_speed",e,"stored")->number;u32 rgb=parseHexColor(field(*s,"color_rgb",e,"stored")->string);d.color_r=(u8)(rgb>>16);d.color_g=(u8)(rgb>>8);d.color_b=(u8)rgb;d.foreground_rotation_speed=(float)field(*s,"foreground_rotation_speed",e,"stored")->number;d.cloud_count=(s32)field(*s,"cloud_count",e,"stored")->number;d.size_growth_per_tick=(float)field(*s,"size_growth_per_tick",e,"stored")->number;d.rise_per_tick=(float)field(*s,"rise_per_tick",e,"stored")->number;d.drift_radius=(float)field(*s,"drift_radius",e,"stored")->number;
+		}
+	}else{fail(e,"profile library kind is invalid");return false;}
+	return !e.failed;
+}
+
+static bool validTimelineProperty(const std::string &value)
+{
+	if(value.empty()||value.size()>=64)return false;
+	for(unsigned char c:value)if(!(isalnum(c)||c=='_'||c=='.'||c=='-'))return false;
+	return true;
 }
 
 }
@@ -223,7 +263,7 @@ extern "C" s32 pdEffectSourceParse(const char *descriptor,size_t descriptor_len,
 extern "C" s32 pdEffectSourceParseArchiveBytes(const void *bytes,u32 size,const char *expected,pd_effect_source_info_t *out,char *error,size_t error_cap)
 {
 	if(error&&error_cap)error[0]='\0';u32 dlen=0,glen=0;const char *descriptor_name=nullptr;char *descriptor=assetArchiveExtractDescriptorMemAlloc(bytes,size,"archive.pdeffect",ASSET_ARCHIVE_VALIDATE_MIGRATION,&dlen,&descriptor_name);if(!descriptor){if(error&&error_cap)snprintf(error,error_cap,"effect archive has no unique public descriptor");return 0;}
-	pd_effect_source_info_t preliminary={};Error e={error,error_cap,false};std::string schema;if(!parseDescriptor(descriptor,dlen,preliminary,schema,e)){free(descriptor);return 0;}void *graph=modArchiveExtractMemAlloc(bytes,size,preliminary.effect_file,&glen);if(!graph||!glen){free(descriptor);free(graph);if(error&&error_cap)snprintf(error,error_cap,"effect archive is missing declared member '%s'",preliminary.effect_file);return 0;}s32 ok=parseBoth(descriptor,dlen,(const char*)graph,glen,expected,out,error,error_cap);free(descriptor);free(graph);return ok;
+	pd_effect_source_info_t preliminary={};Error e={error,error_cap,false};std::string schema;if(!parseDescriptor(descriptor,dlen,preliminary,schema,e)){free(descriptor);return 0;}void *graph=nullptr;if(preliminary.effect_file[0]){graph=modArchiveExtractMemAlloc(bytes,size,preliminary.effect_file,&glen);if(!graph||!glen){free(descriptor);free(graph);if(error&&error_cap)snprintf(error,error_cap,"effect archive is missing declared member '%s'",preliminary.effect_file);return 0;}}s32 ok=parseBoth(descriptor,dlen,(const char*)graph,glen,expected,out,error,error_cap);free(descriptor);free(graph);return ok;
 }
 
 extern "C" s32 pdEffectSourceParseArchiveFile(const char *path,const char *expected,pd_effect_source_info_t *out,char *error,size_t error_cap)
@@ -234,4 +274,30 @@ extern "C" s32 pdEffectSourceParseArchiveFile(const char *path,const char *expec
 	 * paths fall through to fsFileLoad, which understands the :: chain. */
 	if(!strstr(path,"::")){FILE *fp=fopen(path,"rb");if(fp){if(fseek(fp,0,SEEK_END)==0){long n=ftell(fp);if(n>0&&n<=64*1024*1024&&fseek(fp,0,SEEK_SET)==0){bytes=malloc((size_t)n);if(bytes&&fread(bytes,1,(size_t)n,fp)==(size_t)n)length=(u32)n;else{free(bytes);bytes=nullptr;}}}fclose(fp);}}
 	if(!bytes)bytes=fsFileLoad(path,&length);if(!bytes||!length||length>64*1024*1024){free(bytes);if(error&&error_cap)snprintf(error,error_cap,"cannot load effect archive or size is invalid");return 0;}s32 ok=pdEffectSourceParseArchiveBytes(bytes,length,expected,out,error,error_cap);free(bytes);return ok;
+}
+
+extern "C" void pdEffectSourceFreeProfileLibrary(pd_effect_profile_library_t *library)
+{
+	if(!library)return;free(library->rows);memset(library,0,sizeof(*library));
+}
+
+extern "C" s32 pdEffectSourceDecodeProfileLibrary(const char *graph,size_t graph_len,const pd_effect_source_info_t *source,pd_effect_profile_library_t *out,char *error,size_t error_cap)
+{
+	if(error&&error_cap)error[0]='\0';if(!source||!out||source->format!=PD_EFFECT_SOURCE_FORMAT_PROFILE_LIBRARY){if(error&&error_cap)snprintf(error,error_cap,"profile decoder requires validated v2 source");return 0;}memset(out,0,sizeof(*out));Error e={error,error_cap,false};JValue root;pd_effect_source_info_t checked=*source;checked.profile_count=checked.has_audio_rows=checked.silent_audio_rows=0;if(!parseJson(graph,graph_len,root,e)||!validateGraph(root,PD_EFFECT_SOURCE_SCHEMA_V2,checked,e)||!decodeProfiles(root,checked,*out,e)){pdEffectSourceFreeProfileLibrary(out);return 0;}return 1;
+}
+
+extern "C" void pdEffectTimelineFree(pd_effect_timeline_t *timeline)
+{
+	if(!timeline)return;free(timeline->keys);memset(timeline,0,sizeof(*timeline));
+}
+
+extern "C" s32 pdEffectTimelineParse(const char *json,size_t json_len,pd_effect_timeline_t *out,char *error,size_t error_cap)
+{
+	if(error&&error_cap)error[0]='\0';if(!out){if(error&&error_cap)snprintf(error,error_cap,"timeline output is null");return 0;}memset(out,0,sizeof(*out));Error e={error,error_cap,false};JValue root;if(!parseJson(json,json_len,root,e))return 0;static const char *rootKeys[]={"schema","tracks"};if(!exactObject(root,"effect timeline",rootKeys,2,e)||!stringIs(field(root,"schema",e,"effect timeline"),"pd2.effect.timeline.v1","timeline.schema",e))return 0;const JValue *tracks=field(root,"tracks",e,"effect timeline");if(!tracks||tracks->type!=J_ARRAY||tracks->array.empty()){fail(e,"timeline tracks must be a non-empty array");return 0;}out->keys=(pd_effect_timeline_key_t*)calloc(tracks->array.size(),sizeof(*out->keys));if(!out->keys){fail(e,"out of memory decoding timeline");return 0;}out->count=tracks->array.size();static const char *trackKeys[]={"time","property","value"};for(size_t i=0;i<out->count;i++){const JValue &track=tracks->array[i];if(!exactObject(track,"timeline track",trackKeys,3,e))goto fail_timeline;const JValue *time=field(track,"time",e,"timeline track"),*property=field(track,"property",e,"timeline track"),*value=field(track,"value",e,"timeline track");if(!number(time,0,1000000,false,"timeline.time",e)||!number(value,-1000000,1000000,false,"timeline.value",e)||!property||property->type!=J_STRING||!validTimelineProperty(property->string)){fail(e,"timeline property is invalid");goto fail_timeline;}for(size_t j=0;j<i;j++)if(out->keys[j].time==(float)time->number&&!strcmp(out->keys[j].property,property->string.c_str())){fail(e,"timeline has duplicate key for property '%s' at time %.9g",property->string.c_str(),time->number);goto fail_timeline;}out->keys[i].time=(float)time->number;out->keys[i].value=(float)value->number;out->keys[i].authored_order=i;snprintf(out->keys[i].property,sizeof(out->keys[i].property),"%s",property->string.c_str());}return 1;
+fail_timeline:pdEffectTimelineFree(out);return 0;
+}
+
+extern "C" s32 pdEffectTimelineSample(const pd_effect_timeline_t *timeline,const char *property,float time,float *out_value)
+{
+	if(!timeline||!property||!property[0]||!out_value||!std::isfinite(time))return 0;const pd_effect_timeline_key_t *lo=nullptr,*hi=nullptr;for(size_t i=0;i<timeline->count;i++){const auto *k=&timeline->keys[i];if(strcmp(k->property,property))continue;if(k->time<=time&&(!lo||k->time>lo->time))lo=k;if(k->time>=time&&(!hi||k->time<hi->time))hi=k;}if(!lo&&!hi)return 0;if(!lo)lo=hi;if(!hi)hi=lo;if(lo->time==hi->time){*out_value=lo->value;return 1;}float alpha=(time-lo->time)/(hi->time-lo->time);*out_value=lo->value+(hi->value-lo->value)*alpha;return 1;
 }

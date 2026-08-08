@@ -5,6 +5,8 @@
 
 ## Highlights
 
+- Preserved complete editable effect graphs, timelines, and native profile
+  libraries at game load, with growable mod-effect and custom-spark capacity.
 - Kept live keyboard/controller action hints inside themed menu panels across
   resolution, UI scale, wrapping, and custom fonts.
 - Kept stage transitions from releasing mod assets owned by active themes,

@@ -1,0 +1,64 @@
+{
+  "scenario_name": "v004_input_validation_smoke",
+  "description": "V-004 ordinary-client MKB and mouse probe. Uses SDL key, mouse motion, click, and wheel events only. Controller evidence is intentionally out of scope unless a real physical controller transition is separately observed.",
+  "tags": ["input", "menus", "mouse", "mkb", "v004"],
+  "paths_of_interest": [
+    "port/src/smoke_harness.c",
+    "port/src/actionmap.cpp",
+    "port/fast3d/pdgui_backend.cpp",
+    "port/fast3d/pdgui_menu_mainmenu.cpp"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 110,
+  "install_state": "current",
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--portable",
+    "--launch-mp-room",
+    "base:arena_mp_felicity",
+    "base:combat",
+    "4",
+    "--main-menu"
+  ],
+  "input_sequence": [
+    { "at_ms": 0, "type": "wait" },
+    { "at_ms": 50000, "type": "key", "key": "Return", "action": "tap" },
+    { "at_ms": 62000, "type": "mouse_move", "x": 960, "y": 350 },
+    { "at_ms": 63000, "type": "mouse", "x": 960, "y": 350, "button": "left", "action": "click" },
+    { "at_ms": 70000, "type": "key", "scancode": 78, "action": "tap" },
+    { "at_ms": 71000, "type": "key", "scancode": 78, "action": "tap" },
+    { "at_ms": 72000, "type": "key", "scancode": 78, "action": "tap" },
+    { "at_ms": 78000, "type": "mouse_move", "x": 1200, "y": 700 },
+    { "at_ms": 79000, "type": "mouse_wheel", "wheel_x": 0, "wheel_y": -3 },
+    { "at_ms": 88000, "type": "key", "key": "Escape", "action": "tap" },
+    { "at_ms": 94000, "type": "exit" }
+  ],
+  "screenshots": [
+    { "at_ms": 48000, "name": "agent-select" },
+    { "at_ms": 60000, "name": "main-menu" },
+    { "at_ms": 68000, "name": "after-mouse-click" },
+    { "at_ms": 76000, "name": "after-keyboard-navigation" },
+    { "at_ms": 84000, "name": "after-mouse-wheel" }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=v004_input_validation_smoke",
+      "SMOKE: tap-press scancode=40",
+      "SMOKE: mouse move xy=\\(960,350\\)",
+      "SMOKE: mouse tap-press btn=1 xy=\\(960,350\\)",
+      "SMOKE: tap-press scancode=78",
+      "SMOKE: mouse wheel delta=\\(0,-3\\)",
+      "SMOKE: tap-press scancode=41",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout"
+    ],
+    "required_counts": []
+  }
+}

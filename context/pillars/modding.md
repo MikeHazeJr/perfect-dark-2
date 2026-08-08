@@ -2,6 +2,18 @@
 
 ## 2026-08-08 residual typed-archive contracts
 
+`T-ASSETS-018` is implemented at the production registration boundary. Public
+`.pdeffect` activation retains a complete executable graph program rather than
+flattening it to scalar bridge fields, including stable order, contexts,
+subgraphs, exports, target/attachment/lifetime/priority/dependency and other
+authored parameters. Ordered timeline keys interpolate at execution time, and
+validated v2 profile libraries retain every public native row and explicit
+catalog-audio string/null state. Graph-only, timeline-only, and combined
+archives share one transactional registry path. Effect records, custom spark
+rows, and embedded-effect discovery now grow on PC beyond the retired 64/16/8
+caps. T-ASSETS-019 still owns production renderer/audio/gameplay consumers and
+T-ASSETS-020 owns selected-source fail-closed semantics.
+
 `T-ASSETS-030` automated field/transport/negative/lifecycle coverage passes,
 including 218 focused assertions, 321 `.pdtheme` assertions, the frozen
 47,986-assertion/890-case suite, strict 27-family conformance, and the native

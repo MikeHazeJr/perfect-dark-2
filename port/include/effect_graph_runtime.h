@@ -4,10 +4,9 @@
  * c3849 Unit 8: the full effect runtime behind the Unit 1b bridge seams.
  * Graphs compile through weaponGraphCompileJson(ASSET_EFFECT) into compact
  * per-asset records keyed by asset_id string (no slot allocator, no owner
- * bits). The executors stay the OG explosion/spark/smoke machinery (closure
- * rule): registration only selects existing table indices, and for tinted
- * effect.spark nodes appends a clone of the OG SPARKTYPE_PROJECTILE row to
- * the bounded custom spark registry (src/game/sparks_custom.c).
+ * bits). T-ASSETS-018 retains the complete executable graph/timeline/profile
+ * program in growable PC storage; the scalar fields remain compatibility
+ * projections for existing consumers until T-ASSETS-019.
  *
  * Bridge contract (frozen at Unit 1b, signatures unchanged): each bridge
  * returns the OG fallback verbatim unless the shared weapon graph runtime
@@ -22,14 +21,44 @@
 #include <PR/ultratypes.h>
 
 #include "assetcatalog.h"
+#include "pdeffect_source.h"
 #include "sha256.h"
+#include "weapon_graph_runtime.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-#define EFFECT_GRAPH_RUNTIME_MAX_EFFECTS 64
 #define EFFECT_GRAPH_EXPLOSION_CLASS_LEN 16
+
+typedef enum effect_graph_program_kind {
+	EFFECT_GRAPH_PROGRAM_GRAPH = 1,
+	EFFECT_GRAPH_PROGRAM_TIMELINE = 2,
+	EFFECT_GRAPH_PROGRAM_GRAPH_TIMELINE = 3,
+	EFFECT_GRAPH_PROGRAM_PROFILE_LIBRARY = 4
+} effect_graph_program_kind_t;
+
+typedef struct effect_graph_program {
+	effect_graph_program_kind_t kind;
+	weapon_graph_ir_context_t *contexts;
+	s32 context_count;
+	weapon_graph_ir_node_t *nodes;
+	s32 node_count;
+	weapon_graph_ir_edge_t *edges;
+	s32 edge_count;
+	weapon_graph_ir_export_t *exports;
+	s32 export_count;
+	weapon_graph_ir_subgraph_t *subgraphs;
+	s32 subgraph_count;
+	weapon_graph_ir_param_t *params;
+	s32 param_count;
+	/* Stable topological execution order. Equal-priority ready nodes retain
+	 * their authored node order. */
+	s32 *execution_order;
+	s32 execution_count;
+	pd_effect_timeline_t timeline;
+	pd_effect_profile_library_t profiles;
+} effect_graph_program_t;
 
 typedef struct effect_graph_runtime {
 	s32 valid;
@@ -73,7 +102,16 @@ typedef struct effect_graph_runtime {
 	 * slice, gameplay-inert. */
 	s32 has_intensity;
 	f32 intensity;
+
+	/* Complete executable source program. Scalar bridge fields above remain
+	 * compatibility projections until T-ASSETS-019 migrates consumers. */
+	effect_graph_program_t program;
 } effect_graph_runtime_t;
+
+typedef s32 (*effect_graph_program_visit_fn)(
+	const effect_graph_program_t *program,
+	const weapon_graph_ir_node_t *node,
+	s32 execution_index, f32 time, void *user);
 
 /* Registration. GraphJson takes the loose effect.graph.json source;
  * Archive/ArchiveBytes read effect.ini (effect_file member) and compile the
@@ -99,6 +137,12 @@ void effectGraphRuntimeClearAll(void);
 const effect_graph_runtime_t *effectGraphRuntimeGet(const char *asset_id);
 const effect_graph_runtime_t *effectGraphRuntimeGetForGameplay(
 	const char *asset_id);
+
+size_t effectGraphRuntimeCount(void);
+s32 effectGraphProgramSample(const effect_graph_program_t *program,
+	const char *property, f32 time, f32 *out_value);
+s32 effectGraphProgramExecute(const effect_graph_program_t *program, f32 time,
+	effect_graph_program_visit_fn visit, void *user);
 
 /* Returns the EXPLOSIONTYPE_* for effect_ref when it resolves and the
  * runtime gate is enabled; fallback_exptype otherwise. */

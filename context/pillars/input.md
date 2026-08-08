@@ -217,6 +217,13 @@ Per [constraints.md](../constraints.md):
   proof are tracked under Workbench `T-INPUT-004` and `V-004`; do not call
   this validated until profile save/reload plus MKB/controller/device-switch
   evidence exists.
+- **V-004 physical validation remains partial (2026-08-08).** The smoke tool
+  now supports real SDL mouse motion and wheel events, focused tests pass, and
+  an ordinary-client MKB/mouse delivery run passed. A connected Xbox-class
+  device produced no physical control transition during a 12-second sample,
+  so controller navigation, device switching, glyph changes, Settings profile
+  restart/reload, and contextual/modal breadth remain unvalidated. See
+  `context/evidence/2026-08-08-v004-physical-input-validation.md`.
 
 ---
 

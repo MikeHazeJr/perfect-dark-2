@@ -1,5 +1,44 @@
 # Session Log (Active)
 
+## 2026-08-08 - V-004 physical input validation partial receipt
+
+Added narrow real-SDL mouse-motion and mouse-wheel support to the smoke harness
+with a 2-case/16-assertion focused static test. The isolated `v004physical`
+all-target build passed, and an ordinary-client portable run passed 11/11
+assertions with 16/16 keyboard/mouse events dispatched and a clean exit. The
+portable run entered new-agent creation, so it proves event delivery and
+continued rendering only, not targeted Settings mouse behavior or profile
+save/restart/reload.
+
+The ordinary client enumerated an Xbox One Controller, but a read-only
+12-second XInput sample (707 successful samples) observed no button, trigger,
+or stick transition. Controller navigation, contextual actions, device switch,
+and live glyph change therefore remain not run. Full evidence and the required
+human-action handoff are recorded under Workbench `V-004` and
+`context/evidence/2026-08-08-v004-physical-input-validation.md`.
+
+## 2026-08-08 - T-CATALOG-003 Wave C path identity and PDCA atomicity
+
+Continued the path-capacity work after `8aaa14a1` and recorded B-1002. Loose
+scanner qualification now roots safe relative subdirectories; received-
+network qualification mutates the actual candidate INI before catalog
+population so catalog/provider/runtime path identity cannot drift; and PDCA
+receive validates the full envelope plus every checked destination before its
+first write. Server packaging includes hidden files and rejects the complete
+candidate on traversal overflow, unreadable/oversized content, allocation
+failure, or short reads instead of silently omitting entries. Residual scanner,
+network, and crash-recovery path joins now reject overflow.
+
+The table-driven helper-level boundary matrix covers all 34 affected field mappings for
+standalone, nested `.pdmod`, and received-network qualification at 127, 128,
+1023, and over-capacity totals, with exact accepted strings and unchanged
+stage snapshots on rejection. The final frozen client/updater/test builds pass;
+focused tests pass 3,472 assertions/5 cases and the complete suite passes
+51,902/913. Native-source guard, conformance selftest, all 27 families, and
+`git diff --check` pass. Real installed-client/FileProvider transport fixtures
+and rollback of earlier files after a later post-preflight PDCA I/O failure
+remain pending, so Workbench T-CATALOG-003 stays partial.
+
 ## 2026-08-08 - T-CATALOG-003 checked public-source path milestone
 
 Completed Wave A for all 34 audited path fields and connected a shared checked
@@ -3980,3 +4019,23 @@ row survives at `ref=1 stage_ref=0`, then five shutdown-specific pre-release
 markers and five named `1->0` frees balance the closure. Workbench
 T-CATALOG-002 is implemented and handed back to root; broader typed-family
 replacement, editor, and network-owner stress remains validation work.
+
+## 2026-08-08 - T-ASSETS-018 executable pdeffect programs
+
+Replaced the 64-row flattened effect table with growable, owned program
+records. Legacy graphs now retain complete compiled topology, contexts,
+subgraphs, exports, arbitrary policy/dependency/presentation parameters, and a
+stable topological execution order. Timeline source is ordered and
+interpolated; graph-only, timeline-only, and combined archives register through
+one transactional boundary. Strict v2 profile libraries now decode and retain
+every validated stored row instead of returning inert success. Custom spark
+rows and effects embedded inside projectile/entity archives also grow beyond
+their retired 16 and eight limits. B-1003 records the bug class.
+
+The isolated client/updater/test builds pass. Focused T018 passes 251
+assertions/5 cases and the complete legacy-plus-new effect band passes 517/13.
+Native-source guard and 27-family conformance pass. The full suite reached one
+unrelated in-flight T-CATALOG-003 path-key assertion; that lane owns the final
+combined rerun. T-ASSETS-018 is implemented, not validated. T-ASSETS-019 and
+T-ASSETS-020 remain explicit for production renderer/audio/gameplay consumers
+and selected-source fail-closed behavior.

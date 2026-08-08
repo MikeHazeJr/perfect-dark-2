@@ -274,8 +274,10 @@ static u8 *buildTypedArchiveComponent(const asset_entry_t *entry,
  * The prefix is the relative path from the component root.
  */
 static u8 *buildArchiveDir(u8 *buf, u32 *buf_len, u32 *buf_cap,
-                            const char *abspath, const char *relprefix)
+                            const char *abspath, const char *relprefix,
+                            s32 *ok)
 {
+    if (!ok || !*ok) return buf;
     DIR *d = opendir(abspath);
     if (!d) {
         return buf;
@@ -283,39 +285,53 @@ static u8 *buildArchiveDir(u8 *buf, u32 *buf_len, u32 *buf_cap,
 
     struct dirent *ent;
     while ((ent = readdir(d)) != NULL) {
-        if (ent->d_name[0] == '.') {
-            continue;  /* skip . .. and hidden files */
-        }
+        if (strcmp(ent->d_name, ".") == 0 || strcmp(ent->d_name, "..") == 0)
+            continue;
 
         char childabs[FS_MAXPATH];
         char childrel[FS_MAXPATH];
 
-        snprintf(childabs, sizeof(childabs), "%s/%s", abspath, ent->d_name);
+        if (!assetPathJoinChecked(childabs, sizeof(childabs), abspath, "/",
+                ent->d_name)) {
+            *ok = 0;
+            break;
+        }
         if (relprefix[0]) {
-            snprintf(childrel, sizeof(childrel), "%s/%s", relprefix, ent->d_name);
+            if (!assetPathJoinChecked(childrel, sizeof(childrel), relprefix,
+                    "/", ent->d_name)) {
+                *ok = 0;
+                break;
+            }
         } else {
-            snprintf(childrel, sizeof(childrel), "%s", ent->d_name);
+            if (!assetPathCopyChecked(childrel, sizeof(childrel), ent->d_name)) {
+                *ok = 0;
+                break;
+            }
         }
 
         struct stat st;
         if (stat(childabs, &st) != 0) {
-            continue;
+            *ok = 0;
+            break;
         }
 
         if (S_ISDIR(st.st_mode)) {
-            buf = buildArchiveDir(buf, buf_len, buf_cap, childabs, childrel);
+            buf = buildArchiveDir(buf, buf_len, buf_cap, childabs, childrel, ok);
+            if (!*ok) break;
             continue;
         }
 
         if (!S_ISREG(st.st_mode)) {
-            continue;
+            *ok = 0;
+            break;
         }
 
         /* Read file data */
         FILE *fp = fopen(childabs, "rb");
         if (!fp) {
             sysLogPrintf(LOG_WARNING, "DISTRIB: can't open %s", childabs);
-            continue;
+            *ok = 0;
+            break;
         }
 
         fseek(fp, 0, SEEK_END);
@@ -325,7 +341,8 @@ static u8 *buildArchiveDir(u8 *buf, u32 *buf_len, u32 *buf_cap,
         if (fsize > NET_DISTRIB_MAX_COMP) {
             sysLogPrintf(LOG_WARNING, "DISTRIB: skipping oversized file %s (%u bytes)", childabs, fsize);
             fclose(fp);
-            continue;
+            *ok = 0;
+            break;
         }
 
         /* Grow buffer: path_len(2) + path(n+1) + data_len(4) + data(fsize) */
@@ -339,6 +356,7 @@ static u8 *buildArchiveDir(u8 *buf, u32 *buf_len, u32 *buf_cap,
                 sysLogPrintf(LOG_ERROR, "DISTRIB: OOM building archive (cap=%u)", new_cap);
                 fclose(fp);
                 closedir(d);
+                *ok = 0;
                 return buf;
             }
             *buf_cap = new_cap;
@@ -353,7 +371,8 @@ static u8 *buildArchiveDir(u8 *buf, u32 *buf_len, u32 *buf_cap,
         if (fread(p, 1, fsize, fp) != fsize) {
             sysLogPrintf(LOG_WARNING, "DISTRIB: short read %s", childabs);
             fclose(fp);
-            continue;
+            *ok = 0;
+            break;
         }
         *buf_len += entry_size;
 
@@ -402,7 +421,16 @@ static u8 *buildComponentArchive(const asset_entry_t *entry, u32 *out_len)
 
     /* Re-use buf for the whole thing, starting data at offset 6 */
     /* This is a bit tricky: buildArchiveDir grows from *buf_len = 6 */
-    buf = buildArchiveDir(buf, &buf_len, &buf_cap, entry->dirpath, "");
+    s32 archive_ok = 1;
+    buf = buildArchiveDir(buf, &buf_len, &buf_cap, entry->dirpath, "",
+        &archive_ok);
+    if (!archive_ok) {
+        sysLogPrintf(LOG_WARNING,
+            "DISTRIB.ASSET.PATH.REJECT: component traversal exceeds path capacity for '%s'",
+            entry->id);
+        free(buf);
+        return NULL;
+    }
 
     /* Count files by scanning the data section */
     {
@@ -744,6 +772,30 @@ void netDistribSendKillFeed(const char *attacker, const char *victim,
  * Client: PDCA Archive Extraction
  * ======================================================================== */
 
+static s32 distribArchiveOutputPath(const char *destdir, const char *relpath,
+                                    u16 path_len, char *out, size_t out_cap)
+{
+    char resolved[FS_MAXPATH];
+    char destresolved[FS_MAXPATH];
+    size_t dest_len;
+    if (!destdir || !destdir[0] || !relpath || path_len < 2
+            || relpath[path_len - 1] != '\0'
+            || strlen(relpath) + 1 != path_len
+            || assetPathIsAbsolute(relpath)
+            || assetPathHasParentTraversal(relpath)
+            || !assetPathJoinChecked(out, out_cap, destdir, "/", relpath)) {
+        if (out && out_cap) out[0] = '\0';
+        return 0;
+    }
+    if (!_fullpath(resolved, out, sizeof(resolved))
+            || !_fullpath(destresolved, destdir, sizeof(destresolved))) return 0;
+    dest_len = strlen(destresolved);
+    if (strncmp(resolved, destresolved, dest_len) != 0
+            || (resolved[dest_len] != '\0' && resolved[dest_len] != '/'
+                && resolved[dest_len] != '\\')) return 0;
+    return 1;
+}
+
 /**
  * Parse and extract a PDCA archive to a target directory.
  * Creates directories as needed.
@@ -767,6 +819,37 @@ static s32 extractArchive(const u8 *data, u32 data_len, const char *destdir)
     const u8 *end = data + data_len;
     s32 extracted = 0;
 
+    /* Validate the complete envelope and every destination before writing the
+     * first byte. A late over-capacity member must not leave a partial
+     * received component that a later scan can mistake for a valid source. */
+    for (u16 i = 0; i < file_count; i++) {
+        u16 path_len;
+        u32 dlen;
+        char checked[FS_MAXPATH];
+        if (p + 2 > end) return 0;
+        memcpy(&path_len, p, 2);
+        path_len = PD_LE16(path_len);
+        p += 2;
+        if (path_len == 0 || p + path_len > end) return 0;
+        const char *relpath = (const char *)p;
+        p += path_len;
+        if (p + 4 > end) return 0;
+        memcpy(&dlen, p, 4);
+        dlen = PD_LE32(dlen);
+        p += 4;
+        if (p + dlen > end
+                || !distribArchiveOutputPath(destdir, relpath, path_len,
+                    checked, sizeof(checked))) {
+            sysLogPrintf(LOG_WARNING,
+                "DISTRIB.ASSET.PATH.REJECT: invalid or over-capacity received member");
+            return 0;
+        }
+        p += dlen;
+    }
+    if (p != end) return 0;
+
+    p = data + 6;
+
     for (u16 i = 0; i < file_count; i++) {
         if (p + 2 > end) break;
         u16 path_len;
@@ -788,51 +871,13 @@ static s32 extractArchive(const u8 *data, u32 data_len, const char *destdir)
         const u8 *fdata = p;
         p += dlen;
 
-        /* C-1: Sanitize relpath — strip leading '/' and '..' components to prevent
-         * path traversal attacks from a malicious server. */
-        const char *safe = relpath;
-        while (*safe == '/' || *safe == '\\') safe++;
-        {
-            const char *check = safe;
-            s32 bad = 0;
-            while (*check) {
-                if (check[0] == '.' && check[1] == '.' &&
-                    (check[2] == '/' || check[2] == '\\' || check[2] == '\0')) {
-                    bad = 1;
-                    break;
-                }
-                /* Skip to next path component */
-                while (*check && *check != '/' && *check != '\\') check++;
-                while (*check == '/' || *check == '\\') check++;
-            }
-            if (bad || safe[0] == '\0') {
-                sysLogPrintf(LOG_WARNING, "DISTRIB: path traversal blocked: '%s'", relpath);
-                continue;
-            }
-        }
-
-        /* Build full output path */
         char outpath[FS_MAXPATH];
-        snprintf(outpath, sizeof(outpath), "%s/%s", destdir, safe);
-
-        /* C-1: Verify resolved path stays within destdir */
-        {
-            char resolved[FS_MAXPATH];
-            char destresolved[FS_MAXPATH];
-            if (_fullpath(resolved, outpath, sizeof(resolved)) &&
-                _fullpath(destresolved, destdir, sizeof(destresolved))) {
-                size_t dlen_r = strlen(destresolved);
-                if (strncmp(resolved, destresolved, dlen_r) != 0) {
-                    sysLogPrintf(LOG_WARNING, "DISTRIB: path containment violation: '%s' escapes '%s'",
-                                 outpath, destdir);
-                    continue;
-                }
-            }
-        }
+        if (!distribArchiveOutputPath(destdir, relpath, path_len, outpath,
+                sizeof(outpath))) return 0;
 
         /* Create parent directory */
         char dirpath[FS_MAXPATH];
-        snprintf(dirpath, sizeof(dirpath), "%s", outpath);
+        if (!assetPathCopyChecked(dirpath, sizeof(dirpath), outpath)) return 0;
         char *slash = strrchr(dirpath, '/');
         if (slash) {
             *slash = '\0';
@@ -843,19 +888,19 @@ static s32 extractArchive(const u8 *data, u32 data_len, const char *destdir)
         FILE *fp = fopen(outpath, "wb");
         if (!fp) {
             sysLogPrintf(LOG_WARNING, "DISTRIB: can't write %s", outpath);
-            continue;
+            return 0;
         }
         if (fwrite(fdata, 1, dlen, fp) != dlen) {
             sysLogPrintf(LOG_WARNING, "DISTRIB: short write %s", outpath);
             fclose(fp);
-            continue;
+            return 0;
         }
         fclose(fp);
         extracted++;
     }
 
     sysLogPrintf(LOG_NOTE, "DISTRIB: extracted %d/%d files to %s", extracted, file_count, destdir);
-    return (extracted > 0) ? 1 : 0;
+    return extracted == file_count && extracted > 0;
 }
 
 /* ========================================================================
@@ -1846,21 +1891,18 @@ static s32 distribIniKeyIsSourcePath(const char *key)
     return assetPathKeyIsSource(key);
 }
 
-static s32 distribIniSourcePathsFit(const ini_section_t *ini,
-                                    const char *dirpath)
+static s32 distribQualifyIniSourcePaths(ini_section_t *ini,
+                                        const char *dirpath)
 {
     char checked[FS_MAXPATH];
     if (!ini) return 0;
     for (s32 i = 0; i < ini->count; i++) {
         const char *value = ini->pairs[i].value;
         if (!distribIniKeyIsSourcePath(ini->pairs[i].key) || !value[0]) continue;
-        if (value[0] != '/' && value[0] != '\\'
-                && !(value[0] && value[1] == ':') && dirpath && dirpath[0]) {
-            if (!assetPathJoinChecked(checked, sizeof(checked), dirpath, "/",
-                    value)) return 0;
-        } else if (!assetPathCopyChecked(checked, sizeof(checked), value)) {
-            return 0;
-        }
+        if (!assetPathQualifyFilesystemChecked(checked, sizeof(checked),
+                dirpath, value)
+                || !assetPathCopyChecked(ini->pairs[i].value,
+                    sizeof(ini->pairs[i].value), checked)) return 0;
         if (strcmp(ini->pairs[i].key, "mesh_archive") == 0) {
             char source_model[FS_MAXPATH];
             if (!assetPathJoinChecked(source_model, sizeof(source_model),
@@ -1871,10 +1913,10 @@ static s32 distribIniSourcePathsFit(const ini_section_t *ini,
 }
 
 static s32 populateExtFromIni(asset_entry_t *e, asset_type_e type, const char *dirpath,
-                               const ini_section_t *ini,
+                               ini_section_t *ini,
                                const asset_entry_t *preserved_entry)
 {
-    if (!e || !distribIniSourcePathsFit(ini, dirpath)) return 0;
+    if (!e || !distribQualifyIniSourcePaths(ini, dirpath)) return 0;
     switch (type) {
     case ASSET_MAP:
         e->ext.map.stagenum = distribMintCustomStagenum(e, e->id); /* c3849 */
@@ -2746,11 +2788,30 @@ void netDistribClientHandleEnd(const char *catalog_id, u8 success)
     }
     char destdir[FS_MAXPATH];
     if (slot->temporary) {
-        snprintf(destdir, sizeof(destdir), "%s/%s/%s/%s",
-                 modsdir, TEMP_SUBDIR, slot->category, slot->id);
+        char temp_root[FS_MAXPATH];
+        char category_root[FS_MAXPATH];
+        if (!assetPathJoinChecked(temp_root, sizeof(temp_root), modsdir, "/",
+                TEMP_SUBDIR)
+                || !assetPathJoinChecked(category_root, sizeof(category_root),
+                    temp_root, "/", slot->category)
+                || !assetPathJoinChecked(destdir, sizeof(destdir), category_root,
+                    "/", slot->id)) {
+            sysLogPrintf(LOG_WARNING,
+                "DISTRIB.ASSET.PATH.REJECT: received destination exceeds capacity for '%s'",
+                slot->id);
+            goto done;
+        }
     } else {
-        snprintf(destdir, sizeof(destdir), "%s/%s/%s",
-                 modsdir, slot->category, slot->id);
+        char category_root[FS_MAXPATH];
+        if (!assetPathJoinChecked(category_root, sizeof(category_root), modsdir,
+                "/", slot->category)
+                || !assetPathJoinChecked(destdir, sizeof(destdir), category_root,
+                    "/", slot->id)) {
+            sysLogPrintf(LOG_WARNING,
+                "DISTRIB.ASSET.PATH.REJECT: received destination exceeds capacity for '%s'",
+                slot->id);
+            goto done;
+        }
     }
 
     fsCreateDir(destdir);
@@ -2780,7 +2841,8 @@ void netDistribClientHandleEnd(const char *catalog_id, u8 success)
 		}
 
         for (s32 k = 0; ini_names[k] && !registered; k++) {
-            snprintf(inipath, sizeof(inipath), "%s/%s", destdir, ini_names[k]);
+            if (!assetPathJoinChecked(inipath, sizeof(inipath), destdir, "/",
+                    ini_names[k])) continue;
             if (iniParse(inipath, &ini)) {
                 /* audio.ini: preserve legacy registration while mirroring the shared audio parser. */
                 if (strcmp(ini_names[k], "audio.ini") == 0) {
@@ -2880,7 +2942,8 @@ void netDistribClientHandleEnd(const char *catalog_id, u8 success)
          * can have both an asset INI and a theme.json. */
         {
             char theme_check[FS_MAXPATH];
-            snprintf(theme_check, sizeof(theme_check), "%s/theme.json", destdir);
+            if (!assetPathJoinChecked(theme_check, sizeof(theme_check), destdir,
+                    "/", "theme.json")) goto done;
             struct stat tst;
             if (stat(theme_check, &tst) == 0 && S_ISREG(tst.st_mode)) {
                 pdguiThemeRegisterModDir(slot->id, theme_check);
@@ -3043,10 +3106,13 @@ void netDistribDeclineTransfer(s32 slot_idx)
  * Crash Recovery
  * ======================================================================== */
 
-static void getCrashStatePath(char *out, s32 maxlen)
+static s32 getCrashStatePath(char *out, s32 maxlen)
 {
     const char *modsdir = fsGetModDir();
-    snprintf(out, maxlen, "%s/%s/%s", modsdir, TEMP_SUBDIR, CRASH_STATE_FILE);
+    char tempdir[FS_MAXPATH];
+    return assetPathJoinChecked(tempdir, sizeof(tempdir), modsdir, "/",
+        TEMP_SUBDIR) && assetPathJoinChecked(out, (size_t)maxlen, tempdir, "/",
+        CRASH_STATE_FILE);
 }
 
 s32 netCrashRecoveryCheck(crash_recovery_state_t *out)
@@ -3057,7 +3123,8 @@ s32 netCrashRecoveryCheck(crash_recovery_state_t *out)
     /* Check if there are any temp components */
     const char *modsdir = fsGetModDir();
     char tempdir[FS_MAXPATH];
-    snprintf(tempdir, sizeof(tempdir), "%s/%s", modsdir, TEMP_SUBDIR);
+    if (!assetPathJoinChecked(tempdir, sizeof(tempdir), modsdir, "/",
+            TEMP_SUBDIR)) return CRASH_RECOVERY_NONE;
 
     DIR *d = opendir(tempdir);
     if (!d) {
@@ -3085,7 +3152,10 @@ s32 netCrashRecoveryCheck(crash_recovery_state_t *out)
 
     /* Read crash state file */
     char statepath[FS_MAXPATH];
-    getCrashStatePath(statepath, sizeof(statepath));
+    if (!getCrashStatePath(statepath, sizeof(statepath))) {
+        out->status = CRASH_RECOVERY_NONE;
+        return CRASH_RECOVERY_NONE;
+    }
 
     FILE *fp = fopen(statepath, "r");
     if (!fp) {
@@ -3130,7 +3200,8 @@ void netCrashRecoveryApply(s32 action)
 {
     const char *modsdir = fsGetModDir();
     char tempdir[FS_MAXPATH];
-    snprintf(tempdir, sizeof(tempdir), "%s/%s", modsdir, TEMP_SUBDIR);
+    if (!assetPathJoinChecked(tempdir, sizeof(tempdir), modsdir, "/",
+            TEMP_SUBDIR)) return;
 
     switch (action) {
         case 0: /* Keep — load normally, leave crash state as-is */
@@ -3148,7 +3219,8 @@ void netCrashRecoveryApply(s32 action)
             /* Write a .disabled marker in .temp/ */
             {
                 char markerpath[FS_MAXPATH];
-                snprintf(markerpath, sizeof(markerpath), "%s/.disabled", tempdir);
+                if (!assetPathJoinChecked(markerpath, sizeof(markerpath), tempdir,
+                        "/", ".disabled")) return;
                 FILE *fp = fopen(markerpath, "w");
                 if (fp) {
                     fprintf(fp, "disabled_by_crash_recovery\n");
@@ -3167,7 +3239,8 @@ void netCrashRecoveryApply(s32 action)
                     while ((ent = readdir(d)) != NULL) {
                         if (ent->d_name[0] == '.') continue;
                         char catdir[FS_MAXPATH];
-                        snprintf(catdir, sizeof(catdir), "%s/%s", tempdir, ent->d_name);
+                        if (!assetPathJoinChecked(catdir, sizeof(catdir), tempdir,
+                                "/", ent->d_name)) continue;
                         /* Remove component subdirs */
                         DIR *catd = opendir(catdir);
                         if (catd) {
@@ -3175,7 +3248,9 @@ void netCrashRecoveryApply(s32 action)
                             while ((comp = readdir(catd)) != NULL) {
                                 if (comp->d_name[0] == '.') continue;
                                 char compdir[FS_MAXPATH];
-                                snprintf(compdir, sizeof(compdir), "%s/%s", catdir, comp->d_name);
+                                if (!assetPathJoinChecked(compdir,
+                                        sizeof(compdir), catdir, "/",
+                                        comp->d_name)) continue;
                                 /* Remove files within component dir */
                                 DIR *compd = opendir(compdir);
                                 if (compd) {
@@ -3183,7 +3258,9 @@ void netCrashRecoveryApply(s32 action)
                                     while ((f = readdir(compd)) != NULL) {
                                         if (f->d_name[0] == '.') continue;
                                         char filepath[FS_MAXPATH];
-                                        snprintf(filepath, sizeof(filepath), "%s/%s", compdir, f->d_name);
+                                        if (!assetPathJoinChecked(filepath,
+                                                sizeof(filepath), compdir, "/",
+                                                f->d_name)) continue;
                                         remove(filepath);
                                     }
                                     closedir(compd);
@@ -3209,7 +3286,8 @@ void netCrashRecoveryMarkLaunching(void)
     /* Check if temp mods exist */
     const char *modsdir = fsGetModDir();
     char tempdir[FS_MAXPATH];
-    snprintf(tempdir, sizeof(tempdir), "%s/%s", modsdir, TEMP_SUBDIR);
+    if (!assetPathJoinChecked(tempdir, sizeof(tempdir), modsdir, "/",
+            TEMP_SUBDIR)) return;
 
     DIR *d = opendir(tempdir);
     if (!d) return;
@@ -3223,7 +3301,7 @@ void netCrashRecoveryMarkLaunching(void)
 
     /* Write/increment crash state */
     char statepath[FS_MAXPATH];
-    getCrashStatePath(statepath, sizeof(statepath));
+    if (!getCrashStatePath(statepath, sizeof(statepath))) return;
 
     /* Read existing count */
     s32 crash_count = 0;
@@ -3258,7 +3336,7 @@ void netCrashRecoveryMarkLaunching(void)
 void netCrashRecoveryMarkClean(void)
 {
     char statepath[FS_MAXPATH];
-    getCrashStatePath(statepath, sizeof(statepath));
+    if (!getCrashStatePath(statepath, sizeof(statepath))) return;
     /* Delete crash state on clean exit */
     remove(statepath);
 }

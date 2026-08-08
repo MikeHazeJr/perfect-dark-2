@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "project": "Perfect Dark 2",
-  "updated": "2026-08-08T22:59:44.278Z",
+  "updated": "2026-08-08T23:30:34.300Z",
   "items": [
     {
       "type": "task",
@@ -1264,14 +1264,26 @@
         "pd-tests [t-menus-002]: 46 assertions / 1 case PASS",
         "pd-tests [input],[menus]: 1,523 assertions / 68 cases PASS",
         ".claude/smoke-verify-runs/results-20260808T222543Z.json: default 24/24 and UI200 19/19 PASS",
-        "context/evidence/2026-08-08-menu-glyph-footer-validation.md"
+        "context/evidence/2026-08-08-menu-glyph-footer-validation.md",
+        "tests/test_smoke_input_events_static.cpp: [v004] 2 cases / 16 assertions PASS",
+        "isolated v004physical all-target build PASS",
+        ".claude/smoke-verify-runs/results-20260808T231805Z.json: 11/11 PASS, 16/16 real SDL MKB/mouse events, clean exit",
+        "12-second XInputGetState physical sample: 707 connected samples, packet 14489458->14489460, zero button/trigger/stick transition; controller proof NOT RUN",
+        "context/evidence/2026-08-08-v004-physical-input-validation.md",
+        "context/evidence/v004-input-validation-result-20260808T231805Z.json",
+        "context/evidence/v004-input-validation-client-excerpt-20260808T231805Z.log"
       ],
       "verdict": "not_run",
       "artifacts": [
         ".claude/smoke-verify-runs/screenshots/20260808T182203-theme_archive_runtime_smoke",
-        ".claude/smoke-verify-runs/screenshots/20260808T182333-theme_menu_footer_scale_smoke"
+        ".claude/smoke-verify-runs/screenshots/20260808T182333-theme_menu_footer_scale_smoke",
+        ".claude/smoke-verify-runs/results-20260808T231805Z.json",
+        ".claude/smoke-verify-runs/screenshots/20260808T191623-v004_input_validation_smoke",
+        "context/evidence/2026-08-08-v004-physical-input-validation.md",
+        "context/evidence/v004-input-validation-result-20260808T231805Z.json",
+        "context/evidence/v004-input-validation-client-excerpt-20260808T231805Z.log"
       ],
-      "detail": "Automated coverage passes for bindable actions, derived axes, generic dialogs, Forge/vehicle bindings, dynamic hints, and the T-MENUS-002 scale-safe footer matrix. Ordinary-client MKB Down/Up and custom-theme rendering now pass at 1280x720 and 1024x576/200%, with all four delayed frames fully containing live footer labels. Remaining physical proof must cover mouse focus/click/scroll/back; keyboard Settings profile save/reload; controller focus/scroll/confirm/back; vehicle and Forge contextual actions; no input loss across modal/context transitions; and a real keyboard/controller device switch with live glyph update. No physical controller button transition was observed, so enumeration/scripted input is not claimed as controller evidence.",
+      "detail": "Automated bind/action/glyph coverage remains passing. V-004 now also has focused real-SDL mouse-motion/wheel harness coverage and an ordinary-client delivery receipt (11/11, 16/16 events, clean exit). The portable run entered new-agent creation, so targeted Settings mouse behavior and profile save/restart/reload remain not run. A connected Xbox-class controller produced 707 readable XInput samples over 12 seconds but zero physical button, trigger, or stick transition; enumeration and packet change are not controller proof. Remaining: Settings mouse focus/click/scroll/back; keyboard profile save/restart/reload; real controller focus/scroll/confirm/back; Forge/vehicle contextual actions; modal/context transition breadth; and keyboard/controller switch with live glyph update.",
       "tags": [
         "workbench-key:validation-menu-input",
         "handoff:lina",
@@ -1281,7 +1293,7 @@
         "glyphs"
       ],
       "id": "V-004",
-      "updated": "2026-08-08T22:36:58.056Z",
+      "updated": "2026-08-08T23:22:00.548Z",
       "created": "2026-07-30T15:16:40.176Z"
     },
     {
@@ -3264,7 +3276,7 @@
       "deps": [
         "T-ASSETS-004"
       ],
-      "detail": "Replace flattened effect records with an executable program retaining nodes, edges, order, contexts, subgraphs, exports, target, attachment, lifetime, priority, dependencies, and presentation parameters. Parse and interpolate timeline.json. Support graph-only, timeline-only, and combined archives consistently, with growable PC registries beyond the current 8 nested, 64 effect, and 16 custom-spark limits.",
+      "detail": "Production .pdeffect activation now transactionally retains one owned executable program with complete compiled nodes, edges, stable order, shared contexts, subgraphs, exports, arbitrary authored parameters, interpolated ordered timelines, and exact validated v2 profile rows. Graph-only, timeline-only, and combined archives are consistent. Effect records, custom spark rows, and embedded-effect discovery use growable PC registries beyond retired 64/16/8 caps. T-ASSETS-019 still owns gameplay/renderer/audio consumers; T-ASSETS-020 still owns selected-source fallback and negative-path closure. Implemented, not validated: focused, family, and final combined full-suite evidence pass; live production consumer and fail-closed proof remain T-ASSETS-019/T-ASSETS-020.",
       "tags": [
         "asset-family:pdeffect",
         "graph-runtime",
@@ -3273,20 +3285,37 @@
         "handoff:ultra"
       ],
       "lane": "graph-runtime",
-      "owner": "unassigned",
+      "owner": "codex-roadmap-continuation-20260808",
       "type": "task",
       "phase": 3,
       "area": "ASSETS",
       "title": "Implement executable .pdeffect graph and timeline programs with growable registries",
-      "status": "missing",
+      "status": "implemented",
       "evidence": [
         "T-ASSETS-012 field-level audit 2026-08-08",
         "context/bugs.md:B-959",
-        "context/systemic-bugs.md:SP-24"
+        "context/systemic-bugs.md:SP-24",
+        "2026-08-08 luna-effect-executor-20260808 claimed executable graph/timeline program lane; T-ASSETS-019 production consumers and T-ASSETS-020 fallback semantics excluded.",
+        "context/bugs.md:B-1003",
+        "port/include/effect_graph_runtime.h: owned executable program and execution API",
+        "port/src/effect_graph_runtime.c: transactional growable registry, complete IR retention, timeline/profile activation",
+        "port/src/pdeffect_source_parser.cpp: timeline interpolation and exact validated v2 row decoder",
+        "src/game/sparks_custom.c: growable custom spark registry",
+        "port/src/weapon_graph_runtime.c: growable embedded pdeffect discovery",
+        "tests/test_effect_graph_runtime.cpp: topology/order/timeline/profile/96-effect/48-spark/12-nested behavioral matrix",
+        "context/evidence/2026-08-08-pdeffect-executable-program.md",
+        "isolated lunaeffect18 client/updater/tests builds PASS",
+        "pd-tests [t-assets-018]: 5 cases / 251 assertions PASS",
+        "pd-tests [effect_graph]: 13 cases / 517 assertions PASS",
+        "python tools/asset_native_source_guard.py PASS",
+        "asset_archive_conformance selftest PASS; 28 root / 52 recursive / 27 families PASS",
+        "combined Wave C final: all targets compile; pd-tests full suite 913 cases / 51,902 assertions PASS",
+        "context/evidence/2026-08-08-catalog-path-capacity-wavec-full-suite.log"
       ],
       "id": "T-ASSETS-018",
-      "updated": "2026-08-08T17:00:38.150Z",
-      "created": "2026-08-08T17:00:38.150Z"
+      "updated": "2026-08-08T23:30:34.300Z",
+      "created": "2026-08-08T17:00:38.150Z",
+      "model": "gpt-5.6-sol"
     },
     {
       "deps": [
@@ -3936,7 +3965,7 @@
       "status": "partial",
       "detail": "Propagation contract after B-985/B-996. Thirty-four remaining asset_entry source/member fields still use 128-byte storage even though all are reachable from standalone, typed-archive, nested .pdmod, or network qualification. Wave A: migrate exactly the path-bearing catalog and downstream mirror fields to the repository path contract, including weapon.shared_context and archive-member descriptor mirrors, while leaving catalog IDs and descriptive metadata at their semantic capacities. Wave B: replace silent strncpy/snprintf path handling with checked path-specific copy/join APIs across scanner qualifiers, loader walkers, network population, runtime bindings, and FileProvider admission; over-capacity or incomplete archive chains must reject atomically and fail closed. Do not globally change generic metadata-string truncation semantics. Wave C: add a table-driven boundary matrix for every affected family and ingress proving exact catalog/provider/runtime equality at 127, 128, and maximum supported lengths, plus atomic rejection beyond capacity. Acceptance requires no truncated registration, no prefix that loses the final member/extension, source-native guard and focused/full regression passes, and durable local/pdmod/network evidence. Immediate UI/font fixes remain B-985/B-996 evidence, not closure of this systemic item.",
       "type": "task",
-      "owner": "codex-roadmap-continuation-20260808",
+      "owner": "",
       "lane": "asset-path-capacity",
       "title": "Eliminate archive-qualified source path truncation across every asset family",
       "evidence": [
@@ -3950,12 +3979,20 @@
         "port/include/weapon_graph_archive.h:27",
         "tests/test_asset_path_contract.cpp",
         "context/evidence/2026-08-08-catalog-path-capacity-milestone.md",
-        "context/evidence/2026-08-08-catalog-path-capacity-full-suite.log"
+        "context/evidence/2026-08-08-catalog-path-capacity-full-suite.log",
+        "context/bugs.md:B-1002",
+        "context/evidence/2026-08-08-catalog-path-capacity-wavec.md",
+        "context/evidence/2026-08-08-catalog-path-capacity-wavec-focused.log",
+        "context/evidence/2026-08-08-catalog-path-capacity-wavec-full-suite.log",
+        "context/evidence/2026-08-08-catalog-path-capacity-wavec-conformance-selftest.log",
+        "context/evidence/2026-08-08-catalog-path-capacity-wavec-conformance-27-family.log",
+        "context/evidence/2026-08-08-catalog-path-capacity-wavec-native-source-guard.log",
+        "context/evidence/2026-08-08-catalog-path-capacity-wavec-build.log"
       ],
       "phase": 5,
       "area": "CATALOG",
       "id": "T-CATALOG-003",
-      "updated": "2026-08-08T22:58:34.717Z",
+      "updated": "2026-08-08T23:29:58.994Z",
       "created": "2026-08-08T21:45:07.213Z",
       "model": "gpt-5.6-sol"
     }

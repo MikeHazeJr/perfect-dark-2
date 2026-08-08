@@ -50,6 +50,65 @@ typedef struct pd_effect_source_info {
 	size_t silent_audio_rows;
 } pd_effect_source_info_t;
 
+/* T-ASSETS-018: decoded, validated profile-library rows. These are public
+ * source values, not renderer-owned products. Catalog audio identity stays a
+ * string until the production consumer resolves it. */
+typedef struct pd_effect_explosion_profile {
+	char id[64];
+	float range_h, range_v, change_rate_h, change_rate_v;
+	float inner_size, blast_radius, damage_radius;
+	s32 duration_ticks, propagation_rate;
+	float flare_speed, damage;
+	char smoke_profile[64];
+	s32 has_audio;
+	char audio_catalog_id[128];
+} pd_effect_explosion_profile_t;
+
+typedef struct pd_effect_spark_profile {
+	char id[64];
+	u32 speed_random_range;
+	s32 origin_offset_scale;
+	u32 streak_width_base, streak_length_base;
+	u32 streak_width_growth_per_tick, streak_length_growth_per_tick;
+	float gravity_per_tick;
+	u32 max_age_ticks, fade_start_tick, spark_count, flags;
+	u32 color_start_rgba, color_end_rgba;
+	float deceleration;
+} pd_effect_spark_profile_t;
+
+typedef struct pd_effect_smoke_profile {
+	char id[64];
+	s32 duration_ticks, fade_speed, spread_interval_ticks, initial_size;
+	float background_rotation_speed;
+	u8 color_r, color_g, color_b;
+	float foreground_rotation_speed;
+	s32 cloud_count;
+	float size_growth_per_tick, rise_per_tick, drift_radius;
+} pd_effect_smoke_profile_t;
+
+typedef struct pd_effect_profile_library {
+	pd_effect_profile_kind_t kind;
+	size_t count;
+	union {
+		pd_effect_explosion_profile_t *explosions;
+		pd_effect_spark_profile_t *sparks;
+		pd_effect_smoke_profile_t *smokes;
+		void *rows;
+	};
+} pd_effect_profile_library_t;
+
+typedef struct pd_effect_timeline_key {
+	float time;
+	char property[64];
+	float value;
+	size_t authored_order;
+} pd_effect_timeline_key_t;
+
+typedef struct pd_effect_timeline {
+	pd_effect_timeline_key_t *keys;
+	size_t count;
+} pd_effect_timeline_t;
+
 /* Authoritative public .pdeffect parser. Descriptor and graph are validated
  * together so catalog identity and the declared archive member cannot drift.
  * v2 rejects every unknown/duplicate/omitted field and profile row. v1 keeps
@@ -65,6 +124,17 @@ s32 pdEffectSourceParseArchiveFile(const char *archive_path,
 s32 pdEffectSourceParseArchiveBytes(const void *archive_bytes,
 	u32 archive_size, const char *expected_catalog_id,
 	pd_effect_source_info_t *out, char *error, size_t error_cap);
+
+s32 pdEffectSourceDecodeProfileLibrary(const char *graph, size_t graph_len,
+	const pd_effect_source_info_t *source,
+	pd_effect_profile_library_t *out, char *error, size_t error_cap);
+void pdEffectSourceFreeProfileLibrary(pd_effect_profile_library_t *library);
+
+s32 pdEffectTimelineParse(const char *json, size_t json_len,
+	pd_effect_timeline_t *out, char *error, size_t error_cap);
+void pdEffectTimelineFree(pd_effect_timeline_t *timeline);
+s32 pdEffectTimelineSample(const pd_effect_timeline_t *timeline,
+	const char *property, float time, float *out_value);
 
 /* Build the canonical public profile-graph source for the three native base
  * effect tables. The returned UTF-8 buffer is malloc-owned by the caller. */

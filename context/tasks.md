@@ -6,13 +6,29 @@
 
 Last updated: 2026-08-08
 
+`T-ASSETS-018` is implemented, but not yet validated, after B-1003. Public
+`.pdeffect` activation now retains the complete executable graph IR, stable
+topological order, ordered/interpolated timeline keys, and validated v2 native
+profile rows instead of flattening or accepting them as inert. Graph-only,
+timeline-only, and combined archives share one transactional registration
+boundary. The PC registries for effect records, custom spark rows, and embedded
+effect discovery are growable rather than capped at 64, 16, and 8. This does
+not claim T-ASSETS-019 production renderer/audio/gameplay execution or
+T-ASSETS-020 selected-source fallback closure. Focused T018 passes 5 cases / 251
+assertions; the adjacent effect-graph band passes 13 cases / 517 assertions;
+isolated client/updater/tests builds, the native-source guard, and strict
+27-family conformance pass. The final source-frozen combined suite also passes
+51,902 assertions across 913 cases.
+
 `T-ASSETS-030` now passes its automated `.pdtheme` bands and ordinary-client
 theme receipts. `T-MENUS-002` is implemented: source-frozen geometry tests,
 the adjacent input/menu suite, 24/24 default-scale smoke, and 19/19
 1024x576/200% smoke pass; all four delayed frames keep the dynamic MKB footer
 inside the themed panel after real SDL Down/Up events. `T-CATALOG-002` also
-passes its final 33/33 stage-transition/shutdown receipt. Real controller and
-keyboard/controller device-switch proof remain open under `V-004`, while
+passes its final 33/33 stage-transition/shutdown receipt. `V-004` now has
+focused mouse-event tooling tests and an ordinary-client SDL delivery receipt;
+targeted Settings mouse behavior, profile save/restart/reload, real controller,
+modal/context breadth, and keyboard/controller device-switch proof remain open, while
 restart and peer-network proof remain open for the theme validation program;
 enumeration and synthetic input are not substitutes.
 
@@ -41,6 +57,14 @@ metadata. Isolated builds, 399 focused assertions, guard, and all 27-family
 conformance pass. It remains partial until real standalone, nested `.pdmod`,
 and received-network fixtures prove each affected family at 127, 128, 1023,
 and over-capacity lengths plus a final descriptor-traversal join sweep.
+Wave C implementation now addresses B-1002: safe relative subdirectory values
+are rooted, received-network INIs retain the exact preflighted path before row
+population, complete PDCA envelopes/destinations preflight before any write,
+and scanner/network traversal joins reject overflow. A 34-field by three-
+ingress by four-boundary behavioral matrix passes. Isolated client/updater/test
+builds, focused 3,472/5, full 51,902/913, guard, and 27-family conformance pass.
+Real installed-client/FileProvider transport proof and post-preflight PDCA I/O
+rollback remain, so status is still partial.
 
 **2026-08-08 ACTIVE ROADMAP EXECUTION.** The canonical Workbench routes the
 live asset program ahead of 36 explicitly deferred historical/manual-resume

@@ -11,8 +11,9 @@
  * Closure rule: the executor IS the OG explosion/spark/smoke machinery. The
  * compiler maps class words to EXISTING table indices (and, for tinted
  * effect.spark nodes, appends a clone of the OG SPARKTYPE_PROJECTILE row to
- * the bounded registry in src/game/sparks_custom.c). No new particle or
- * render systems.
+ * the growable registry in src/game/sparks_custom.c). T-ASSETS-018 also owns
+ * complete executable graph/timeline/profile retention; production consumers
+ * remain T-ASSETS-019.
  */
 
 #include <ctype.h>
@@ -34,7 +35,9 @@
 #include "weapon_graph_archive.h"
 #include "weapon_graph_runtime.h"
 
-static effect_graph_runtime_t s_effect_runtimes[EFFECT_GRAPH_RUNTIME_MAX_EFFECTS];
+static effect_graph_runtime_t **s_effect_runtimes;
+static size_t s_effect_runtime_count;
+static size_t s_effect_runtime_cap;
 
 static void setErr(char *err, size_t err_cap, const char *fmt, ...)
 {
@@ -61,49 +64,121 @@ static void copyStr(char *dst, size_t cap, const char *src)
 static effect_graph_runtime_t *effectRuntimeFindMutable(const char *asset_id)
 {
 	if (!asset_id || !asset_id[0]) return NULL;
-	for (s32 i = 0; i < EFFECT_GRAPH_RUNTIME_MAX_EFFECTS; i++) {
-		if (s_effect_runtimes[i].valid &&
-				strcmp(s_effect_runtimes[i].asset_id, asset_id) == 0) {
-			return &s_effect_runtimes[i];
+	for (size_t i = 0; i < s_effect_runtime_count; i++) {
+		if (s_effect_runtimes[i]->valid &&
+				strcmp(s_effect_runtimes[i]->asset_id, asset_id) == 0) {
+			return s_effect_runtimes[i];
 		}
 	}
 	return NULL;
 }
 
-static effect_graph_runtime_t *effectRuntimeAlloc(const char *asset_id)
+static void effectProgramFree(effect_graph_program_t *program)
 {
-	effect_graph_runtime_t *existing = effectRuntimeFindMutable(asset_id);
-	if (existing) {
-		memset(existing, 0, sizeof(*existing));
-		return existing;
-	}
-	for (s32 i = 0; i < EFFECT_GRAPH_RUNTIME_MAX_EFFECTS; i++) {
-		if (!s_effect_runtimes[i].valid) {
-			memset(&s_effect_runtimes[i], 0, sizeof(s_effect_runtimes[i]));
-			return &s_effect_runtimes[i];
+	if (!program) return;
+	free(program->contexts);
+	free(program->nodes);
+	free(program->edges);
+	free(program->exports);
+	free(program->subgraphs);
+	free(program->params);
+	free(program->execution_order);
+	pdEffectTimelineFree(&program->timeline);
+	pdEffectSourceFreeProfileLibrary(&program->profiles);
+	memset(program, 0, sizeof(*program));
+}
+
+static void effectRuntimeFree(effect_graph_runtime_t *record)
+{
+	if (!record) return;
+	effectProgramFree(&record->program);
+	free(record);
+}
+
+static s32 effectRuntimeCommit(effect_graph_runtime_t *record,
+	char *err, size_t err_cap)
+{
+	for (size_t i = 0; i < s_effect_runtime_count; i++) {
+		if (strcmp(s_effect_runtimes[i]->asset_id, record->asset_id) == 0) {
+			effectRuntimeFree(s_effect_runtimes[i]);
+			s_effect_runtimes[i] = record;
+			return 0;
 		}
 	}
-	return NULL;
+	if (s_effect_runtime_count == s_effect_runtime_cap) {
+		size_t next = s_effect_runtime_cap ? s_effect_runtime_cap * 2 : 32;
+		if (next < s_effect_runtime_count + 1 ||
+				next > SIZE_MAX / sizeof(*s_effect_runtimes)) {
+			setErr(err, err_cap, "effect runtime registry size overflow");
+			return -1;
+		}
+		effect_graph_runtime_t **grown = (effect_graph_runtime_t **)realloc(
+			s_effect_runtimes, next * sizeof(*s_effect_runtimes));
+		if (!grown) {
+			setErr(err, err_cap, "out of memory growing effect runtime registry");
+			return -1;
+		}
+		s_effect_runtimes = grown;
+		s_effect_runtime_cap = next;
+	}
+	s_effect_runtimes[s_effect_runtime_count++] = record;
+	return 0;
 }
 
 void effectGraphRuntimeClearAsset(const char *asset_id)
 {
-	effect_graph_runtime_t *record = effectRuntimeFindMutable(asset_id);
-	if (record) {
-		/* The record's custom spark row (if any) stays in the registry until
-		 * the next full clear: the registry is append-only by design and
-		 * re-registration of the same tint deduplicates back onto the same
-		 * row, so reload cycles do not leak slots. */
-		memset(record, 0, sizeof(*record));
+	if (!asset_id || !asset_id[0]) return;
+	for (size_t i = 0; i < s_effect_runtime_count; i++) {
+		if (strcmp(s_effect_runtimes[i]->asset_id, asset_id) == 0) {
+			effectRuntimeFree(s_effect_runtimes[i]);
+			if (i + 1 < s_effect_runtime_count) {
+				memmove(&s_effect_runtimes[i], &s_effect_runtimes[i + 1],
+					(s_effect_runtime_count - i - 1) * sizeof(*s_effect_runtimes));
+			}
+			s_effect_runtime_count--;
+			return;
+		}
 	}
 }
 
 void effectGraphRuntimeClearAll(void)
 {
-	memset(s_effect_runtimes, 0, sizeof(s_effect_runtimes));
+	for (size_t i = 0; i < s_effect_runtime_count; i++) {
+		effectRuntimeFree(s_effect_runtimes[i]);
+	}
+	free(s_effect_runtimes);
+	s_effect_runtimes = NULL;
+	s_effect_runtime_count = 0;
+	s_effect_runtime_cap = 0;
 	/* Same reset path as the effect records (header contract): mod reloads
 	 * that clear every record also release the custom spark rows. */
 	sparksResetCustomTypes();
+}
+
+size_t effectGraphRuntimeCount(void)
+{
+	return s_effect_runtime_count;
+}
+
+s32 effectGraphProgramSample(const effect_graph_program_t *program,
+	const char *property, f32 time, f32 *out_value)
+{
+	return program ? pdEffectTimelineSample(&program->timeline, property, time,
+		out_value) : 0;
+}
+
+s32 effectGraphProgramExecute(const effect_graph_program_t *program, f32 time,
+	effect_graph_program_visit_fn visit, void *user)
+{
+	if (!program || !visit) return -1;
+	for (s32 i = 0; i < program->execution_count; i++) {
+		s32 node_index = program->execution_order[i];
+		if (node_index < 0 || node_index >= program->node_count ||
+				visit(program, &program->nodes[node_index], i, time, user) != 0) {
+			return -1;
+		}
+	}
+	return program->execution_count;
 }
 
 const effect_graph_runtime_t *effectGraphRuntimeGet(const char *asset_id)
@@ -395,22 +470,93 @@ static void effectRuntimeFromNode(const weapon_graph_ir_t *ir,
 	}
 }
 
-static s32 effectRuntimeRegisterIr(const weapon_graph_ir_t *ir,
-                                   char *err, size_t err_cap)
+static void *effectArrayCopy(const void *source, size_t count, size_t stride)
 {
-	effect_graph_runtime_t *record;
+	if (count == 0) return NULL;
+	if (!source || stride == 0 || count > (size_t)-1 / stride) return NULL;
+	void *copy = malloc(count * stride);
+	if (copy) memcpy(copy, source, count * stride);
+	return copy;
+}
 
+static s32 effectProgramCopyIr(effect_graph_program_t *program,
+	const weapon_graph_ir_t *ir, char *err, size_t err_cap)
+{
+	program->context_count = ir->context_count;
+	program->node_count = ir->node_count;
+	program->edge_count = ir->edge_count;
+	program->export_count = ir->export_count;
+	program->subgraph_count = ir->subgraph_count;
+	program->param_count = ir->param_count;
+	program->execution_count = ir->node_count;
+	program->contexts = (weapon_graph_ir_context_t *)effectArrayCopy(ir->contexts,
+		(size_t)ir->context_count, sizeof(ir->contexts[0]));
+	program->nodes = (weapon_graph_ir_node_t *)effectArrayCopy(ir->nodes,
+		(size_t)ir->node_count, sizeof(ir->nodes[0]));
+	program->edges = (weapon_graph_ir_edge_t *)effectArrayCopy(ir->edges,
+		(size_t)ir->edge_count, sizeof(ir->edges[0]));
+	program->exports = (weapon_graph_ir_export_t *)effectArrayCopy(ir->exports,
+		(size_t)ir->export_count, sizeof(ir->exports[0]));
+	program->subgraphs = (weapon_graph_ir_subgraph_t *)effectArrayCopy(ir->subgraphs,
+		(size_t)ir->subgraph_count, sizeof(ir->subgraphs[0]));
+	program->params = (weapon_graph_ir_param_t *)effectArrayCopy(ir->params,
+		(size_t)ir->param_count, sizeof(ir->params[0]));
+	program->execution_order = (s32 *)calloc((size_t)ir->node_count, sizeof(s32));
+	if ((ir->context_count && !program->contexts) ||
+			(ir->node_count && (!program->nodes || !program->execution_order)) ||
+			(ir->edge_count && !program->edges) ||
+			(ir->export_count && !program->exports) ||
+			(ir->subgraph_count && !program->subgraphs) ||
+			(ir->param_count && !program->params)) {
+		setErr(err, err_cap, "out of memory retaining effect graph program");
+		return -1;
+	}
+
+	/* Stable Kahn order: each pass selects the first authored node whose
+	 * predecessors are already scheduled. weaponGraphCompileJson has already
+	 * rejected cycles, so a stalled pass is corruption. */
+	u8 *scheduled = (u8 *)calloc((size_t)ir->node_count, 1);
+	if (ir->node_count && !scheduled) {
+		setErr(err, err_cap, "out of memory ordering effect graph program");
+		return -1;
+	}
+	for (s32 out = 0; out < ir->node_count; out++) {
+		s32 chosen = -1;
+		for (s32 node = 0; node < ir->node_count && chosen < 0; node++) {
+			if (scheduled[node]) continue;
+			s32 ready = 1;
+			for (s32 edge = 0; edge < ir->edge_count; edge++) {
+				if (ir->edges[edge].to == node && !scheduled[ir->edges[edge].from]) {
+					ready = 0;
+					break;
+				}
+			}
+			if (ready) chosen = node;
+		}
+		if (chosen < 0) {
+			free(scheduled);
+			setErr(err, err_cap, "effect graph execution order is cyclic");
+			return -1;
+		}
+		scheduled[chosen] = 1;
+		program->execution_order[out] = chosen;
+	}
+	free(scheduled);
+	return 0;
+}
+
+static effect_graph_runtime_t *effectRuntimeCreateIr(const weapon_graph_ir_t *ir,
+	const char *timeline, u32 timeline_size, char *err, size_t err_cap)
+{
 	if (!ir || ir->asset_type != ASSET_EFFECT || !ir->asset_id[0]) {
 		setErr(err, err_cap,
 			"effect IR registration requires an effect graph with asset_id");
-		return -1;
+		return NULL;
 	}
 
-	record = effectRuntimeAlloc(ir->asset_id);
-	if (!record) {
-		setErr(err, err_cap, "effect runtime table is full");
-		return -1;
-	}
+	effect_graph_runtime_t *record = (effect_graph_runtime_t *)calloc(1,
+		sizeof(*record));
+	if (!record) { setErr(err, err_cap, "out of memory creating effect program"); return NULL; }
 
 	record->valid = 1;
 	copyStr(record->asset_id, sizeof(record->asset_id), ir->asset_id);
@@ -420,17 +566,111 @@ static s32 effectRuntimeRegisterIr(const weapon_graph_ir_t *ir,
 	record->explosion_type = -1;
 	record->spark_type = -1;
 	record->smoke_type = -1;
+	if (effectProgramCopyIr(&record->program, ir, err, err_cap) != 0) {
+		effectRuntimeFree(record);
+		return NULL;
+	}
+	if (timeline && timeline_size) {
+		if (!pdEffectTimelineParse(timeline, timeline_size,
+				&record->program.timeline, err, err_cap)) {
+			effectRuntimeFree(record);
+			return NULL;
+		}
+		record->program.kind = EFFECT_GRAPH_PROGRAM_GRAPH_TIMELINE;
+	} else {
+		record->program.kind = EFFECT_GRAPH_PROGRAM_GRAPH;
+	}
 
 	for (s32 i = 0; i < ir->node_count; i++) {
 		effectRuntimeFromNode(ir, &ir->nodes[i], record);
 	}
 
-	return 0;
+	return record;
 }
 
 /* ---------------------------------------------------------------------------
  * Registration entry points.
  * ------------------------------------------------------------------------- */
+
+static effect_graph_runtime_t *effectRuntimeCreateTimeline(
+	const pd_effect_source_info_t *source, const char *timeline,
+	u32 timeline_size, char *err, size_t err_cap)
+{
+	effect_graph_runtime_t *record = (effect_graph_runtime_t *)calloc(1,
+		sizeof(*record));
+	if (!record) { setErr(err, err_cap, "out of memory creating effect program"); return NULL; }
+	record->valid = 1;
+	record->explosion_type = record->spark_type = record->smoke_type = -1;
+	copyStr(record->asset_id, sizeof(record->asset_id), source->catalog_id);
+	if (!pdEffectTimelineParse(timeline, timeline_size,
+			&record->program.timeline, err, err_cap)) {
+		effectRuntimeFree(record);
+		return NULL;
+	}
+	record->program.kind = EFFECT_GRAPH_PROGRAM_TIMELINE;
+	u8 digest[SHA256_DIGEST_SIZE];
+	sha256Hash(timeline, timeline_size, digest);
+	sha256ToHex(digest, record->source_sha256);
+	copyStr(record->ir_sha256, sizeof(record->ir_sha256), record->source_sha256);
+	return record;
+}
+
+static effect_graph_runtime_t *effectRuntimeCreateProfile(
+	const pd_effect_source_info_t *source, const char *graph, u32 graph_size,
+	char *err, size_t err_cap)
+{
+	effect_graph_runtime_t *record = (effect_graph_runtime_t *)calloc(1,
+		sizeof(*record));
+	if (!record) { setErr(err, err_cap, "out of memory creating profile program"); return NULL; }
+	record->valid = 1;
+	record->explosion_type = record->spark_type = record->smoke_type = -1;
+	copyStr(record->asset_id, sizeof(record->asset_id), source->catalog_id);
+	if (!pdEffectSourceDecodeProfileLibrary(graph, graph_size, source,
+			&record->program.profiles, err, err_cap)) {
+		effectRuntimeFree(record);
+		return NULL;
+	}
+	record->program.kind = EFFECT_GRAPH_PROGRAM_PROFILE_LIBRARY;
+	u8 digest[SHA256_DIGEST_SIZE];
+	sha256Hash(graph, graph_size, digest);
+	sha256ToHex(digest, record->source_sha256);
+	copyStr(record->ir_sha256, sizeof(record->ir_sha256), record->source_sha256);
+	return record;
+}
+
+static s32 effectRuntimeRegisterPublicSource(
+	const pd_effect_source_info_t *source, const char *graph, u32 graph_size,
+	const char *timeline, u32 timeline_size, char *err, size_t err_cap)
+{
+	effect_graph_runtime_t *record = NULL;
+	if (source->format == PD_EFFECT_SOURCE_FORMAT_PROFILE_LIBRARY) {
+		record = effectRuntimeCreateProfile(source, graph, graph_size, err, err_cap);
+	} else if (graph && graph_size) {
+		weapon_graph_ir_t ir;
+		if (weaponGraphCompileJson(ASSET_EFFECT, graph, graph_size, &ir,
+				err, err_cap) != 0) return -1;
+		if (ir.asset_id[0] && strcmp(ir.asset_id, source->catalog_id) != 0) {
+			setErr(err, err_cap, "effect graph asset_id %s does not match catalog %s",
+				ir.asset_id, source->catalog_id);
+			return -1;
+		}
+		if (!ir.asset_id[0]) copyStr(ir.asset_id, sizeof(ir.asset_id),
+			source->catalog_id);
+		record = effectRuntimeCreateIr(&ir, timeline, timeline_size, err, err_cap);
+	} else if (timeline && timeline_size) {
+		record = effectRuntimeCreateTimeline(source, timeline, timeline_size,
+			err, err_cap);
+	} else {
+		setErr(err, err_cap, "effect source has neither graph nor timeline");
+		return -1;
+	}
+	if (!record) return -1;
+	if (effectRuntimeCommit(record, err, err_cap) != 0) {
+		effectRuntimeFree(record);
+		return -1;
+	}
+	return 0;
+}
 
 s32 effectGraphRuntimeRegisterGraphJson(const char *asset_id,
                                         const char *json,
@@ -453,7 +693,14 @@ s32 effectGraphRuntimeRegisterGraphJson(const char *asset_id,
 			copyStr(ir.asset_id, sizeof(ir.asset_id), asset_id);
 		}
 	}
-	return effectRuntimeRegisterIr(&ir, err, err_cap);
+	effect_graph_runtime_t *record = effectRuntimeCreateIr(&ir, NULL, 0,
+		err, err_cap);
+	if (!record) return -1;
+	if (effectRuntimeCommit(record, err, err_cap) != 0) {
+		effectRuntimeFree(record);
+		return -1;
+	}
+	return 0;
 }
 
 s32 effectGraphRuntimeRegisterArchiveBytes(const void *archive_bytes,
@@ -461,9 +708,10 @@ s32 effectGraphRuntimeRegisterArchiveBytes(const void *archive_bytes,
                                            char *err, size_t err_cap)
 {
 	pd_effect_source_info_t public_source;
-	weapon_graph_archive_descriptor_t desc;
 	void *graph = NULL;
+	void *timeline = NULL;
 	u32 graph_size = 0;
+	u32 timeline_size = 0;
 	s32 result;
 
 	if (!archive_bytes || archive_size == 0) {
@@ -474,31 +722,20 @@ s32 effectGraphRuntimeRegisterArchiveBytes(const void *archive_bytes,
 			&public_source, err, err_cap)) {
 		return -1;
 	}
-	/* T-ASSETS-017 validates v2 at the real activation boundary. T-ASSETS-018
-	 * owns applying these rows to native executor tables; do not silently feed
-	 * the profile library to the legacy node compiler. */
-	if (public_source.format == PD_EFFECT_SOURCE_FORMAT_PROFILE_LIBRARY) {
-		return 0;
+	if (public_source.effect_file[0]) graph = modArchiveExtractMemAlloc(
+		archive_bytes, archive_size, public_source.effect_file, &graph_size);
+	if (public_source.timeline_file[0]) timeline = modArchiveExtractMemAlloc(
+		archive_bytes, archive_size, public_source.timeline_file, &timeline_size);
+	if ((public_source.effect_file[0] && (!graph || !graph_size)) ||
+			(public_source.timeline_file[0] && (!timeline || !timeline_size))) {
+		setErr(err, err_cap, "effect archive is missing a declared program member");
+		free(graph); free(timeline); return -1;
 	}
-	if (weaponGraphArchiveReadDescriptorBytes(archive_bytes, archive_size,
-			ASSET_EFFECT, &desc, err, err_cap) != 0) {
-		return -1;
-	}
-	if (!desc.behavior_graph[0]) {
-		setErr(err, err_cap, "effect archive declares no effect_file graph member");
-		return -1;
-	}
-	graph = modArchiveExtractMemAlloc(archive_bytes, archive_size,
-		desc.behavior_graph, &graph_size);
-	if (!graph || graph_size == 0) {
-		free(graph);
-		setErr(err, err_cap, "effect archive missing graph entry %s",
-			desc.behavior_graph);
-		return -1;
-	}
-	result = effectGraphRuntimeRegisterGraphJson(desc.catalog_id,
-		(const char *)graph, graph_size, err, err_cap);
+	result = effectRuntimeRegisterPublicSource(&public_source,
+		(const char *)graph, graph_size, (const char *)timeline, timeline_size,
+		err, err_cap);
 	free(graph);
+	free(timeline);
 	return result;
 }
 
@@ -506,9 +743,10 @@ s32 effectGraphRuntimeRegisterArchive(const char *archive_path,
                                       char *err, size_t err_cap)
 {
 	pd_effect_source_info_t public_source;
-	weapon_graph_archive_descriptor_t desc;
 	char *graph = NULL;
+	char *timeline = NULL;
 	u32 graph_size = 0;
+	u32 timeline_size = 0;
 	s32 result;
 
 	if (!archive_path || !archive_path[0]) {
@@ -519,27 +757,20 @@ s32 effectGraphRuntimeRegisterArchive(const char *archive_path,
 			err, err_cap)) {
 		return -1;
 	}
-	if (public_source.format == PD_EFFECT_SOURCE_FORMAT_PROFILE_LIBRARY) {
-		return 0;
+	if (public_source.effect_file[0] && weaponGraphArchiveReadTextFile(archive_path,
+			public_source.effect_file, &graph, &graph_size) != 0) {
+		setErr(err, err_cap, "%s missing graph entry %s", archive_path,
+			public_source.effect_file); return -1;
 	}
-	if (weaponGraphArchiveReadDescriptorFile(archive_path, ASSET_EFFECT,
-			&desc, err, err_cap) != 0) {
-		return -1;
+	if (public_source.timeline_file[0] && weaponGraphArchiveReadTextFile(archive_path,
+			public_source.timeline_file, &timeline, &timeline_size) != 0) {
+		free(graph); setErr(err, err_cap, "%s missing timeline entry %s",
+			archive_path, public_source.timeline_file); return -1;
 	}
-	if (!desc.behavior_graph[0]) {
-		setErr(err, err_cap, "%s declares no effect_file graph member",
-			archive_path);
-		return -1;
-	}
-	if (weaponGraphArchiveReadTextFile(archive_path, desc.behavior_graph,
-			&graph, &graph_size) != 0) {
-		setErr(err, err_cap, "%s missing graph entry %s",
-			archive_path, desc.behavior_graph);
-		return -1;
-	}
-	result = effectGraphRuntimeRegisterGraphJson(desc.catalog_id,
-		graph, graph_size, err, err_cap);
+	result = effectRuntimeRegisterPublicSource(&public_source, graph, graph_size,
+		timeline, timeline_size, err, err_cap);
 	free(graph);
+	free(timeline);
 	return result;
 }
 

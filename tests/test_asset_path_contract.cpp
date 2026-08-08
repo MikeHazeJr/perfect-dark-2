@@ -54,6 +54,132 @@ TEST_CASE("public asset path copy and join preserve boundaries or fail empty",
 	REQUIRE(rejected[0] == '\0');
 }
 
+struct PathIngressFixture {
+	const char *name;
+	const char *separator;
+	s32 archive;
+};
+
+static s32 qualifyFixturePath(const PathIngressFixture &fixture, char *out,
+	size_t outCap, const std::string &root, const std::string &member)
+{
+	return fixture.archive
+		? assetPathQualifyArchiveChecked(out, outCap, root.c_str(), member.c_str())
+		: assetPathQualifyFilesystemChecked(out, outCap, root.c_str(), member.c_str());
+}
+
+TEST_CASE("standalone pdmod and received-network qualification preserve exact paths",
+	"[catalog][network][pdmod][path][behavior][T-CATALOG-003]")
+{
+	const PathIngressFixture ingresses[] = {
+		{"standalone typed archive", "/", 0},
+		{"nested pdmod archive", "::", 1},
+		{"received network component", "/", 0},
+	};
+	struct FamilyPath {
+		const char *field;
+		const char *key;
+	};
+	const FamilyPath familyPaths[] = {
+		{"skin.skin_file", "skin_file"},
+		{"skin.texture_file", "texture_file"},
+		{"skin.swatches_file", "swatches_file"},
+		{"weapon.model_file", "model_file"},
+		{"weapon.behavior_graph", "behavior_graph"},
+		{"weapon.primary_graph", "primary_graph"},
+		{"weapon.secondary_graph", "secondary_graph"},
+		{"weapon.shared_context", "shared_context"},
+		{"weapon.settings_file", "settings_file"},
+		{"weapon.variables_file", "variables_file"},
+		{"weapon.presentation_file", "presentation_file"},
+		{"projectile.model_file", "model_file"},
+		{"projectile.behavior_graph", "behavior_graph"},
+		{"entity.model_file", "model_file"},
+		{"entity.behavior_graph", "behavior_graph"},
+		{"texture.file_path", "file_path"},
+		{"prop.prop_file", "prop_file"},
+		{"prop.model_file", "model_file"},
+		{"prop.behavior_graph", "behavior_graph"},
+		{"gamemode.rules_file", "rules_file"},
+		{"audio.file_path", "file_path"},
+		{"hud.texture_file", "texture_file"},
+		{"hud.layout_file", "layout_file"},
+		{"effect.effect_file", "effect_file"},
+		{"effect.timeline_file", "timeline_file"},
+		{"material.material_file", "material_file"},
+		{"vehicle.model_file", "model_file"},
+		{"vehicle.physics_file", "physics_file"},
+		{"vehicle.behavior_graph", "behavior_graph"},
+		{"mission.objectives_file", "objectives_file"},
+		{"mission.mission_graph_file", "mission_graph_file"},
+		{"theme.theme_file", "theme_file"},
+		{"lang.strings_file", "strings_file"},
+		{"bot_profile.profile_file", "profile_file"},
+	};
+	REQUIRE(sizeof(familyPaths) / sizeof(familyPaths[0]) == 34);
+
+	for (const PathIngressFixture &ingress : ingresses) {
+		for (const FamilyPath &path : familyPaths) {
+			INFO("ingress=" << ingress.name << " field=" << path.field);
+			REQUIRE(assetPathKeyIsSource(path.key) == 1);
+			for (size_t total : {size_t(127), size_t(128),
+					size_t(FS_MAXPATH - 1)}) {
+				const std::string member = "payload.bin";
+				const size_t rootLength = total - std::strlen(ingress.separator)
+					- member.size();
+				const std::string root(rootLength, ingress.archive ? 'a' : 'r');
+				const std::string expected = root + ingress.separator + member;
+				char qualified[FS_MAXPATH];
+				char catalogPath[FS_MAXPATH];
+				char providerPath[FS_MAXPATH];
+				char runtimePath[FS_MAXPATH];
+				REQUIRE(qualifyFixturePath(ingress, qualified,
+					sizeof(qualified), root, member) == 1);
+				REQUIRE(std::string(qualified) == expected);
+				/* These are the exact checked copies made by catalog field,
+				 * FileProvider admission, and runtime binding respectively. */
+				REQUIRE(assetPathCopyChecked(catalogPath, sizeof(catalogPath),
+					qualified) == 1);
+				REQUIRE(assetPathCopyChecked(providerPath, sizeof(providerPath),
+					catalogPath) == 1);
+				REQUIRE(assetPathCopyChecked(runtimePath, sizeof(runtimePath),
+					providerPath) == 1);
+				REQUIRE(std::string(catalogPath) == expected);
+				REQUIRE(std::string(providerPath) == expected);
+				REQUIRE(std::string(runtimePath) == expected);
+			}
+
+			const std::string member = "payload.bin";
+			const size_t overTotal = FS_MAXPATH;
+			const std::string root(overTotal - std::strlen(ingress.separator)
+				- member.size(), 'x');
+			char qualified[FS_MAXPATH];
+			char catalogPath[FS_MAXPATH] = "catalog-before";
+			char providerPath[FS_MAXPATH] = "provider-before";
+			char runtimePath[FS_MAXPATH] = "runtime-before";
+			REQUIRE(qualifyFixturePath(ingress, qualified, sizeof(qualified),
+				root, member) == 0);
+			REQUIRE(qualified[0] == '\0');
+			REQUIRE(std::string(catalogPath) == "catalog-before");
+			REQUIRE(std::string(providerPath) == "provider-before");
+			REQUIRE(std::string(runtimePath) == "runtime-before");
+		}
+	}
+
+	char checked[FS_MAXPATH];
+	REQUIRE(assetPathQualifyFilesystemChecked(checked, sizeof(checked),
+		"mods/component", "nested/source.bin") == 1);
+	REQUIRE(std::string(checked) == "mods/component/nested/source.bin");
+	REQUIRE(assetPathQualifyFilesystemChecked(checked, sizeof(checked),
+		"mods/component", "../escape.bin") == 0);
+	REQUIRE(assetPathQualifyArchiveChecked(checked, sizeof(checked),
+		"mods/content.pdmod::assets/item.pdmesh", "../escape.bin") == 0);
+	REQUIRE(assetPathQualifyArchiveChecked(checked, sizeof(checked),
+		"ignored", "mods/content.pdmod::../escape.bin") == 0);
+	REQUIRE(assetPathQualifyArchiveChecked(checked, sizeof(checked),
+		"ignored", "mods/content.pdmod::..\\escape.bin") == 0);
+}
+
 TEST_CASE("all 34 catalog source fields use the repository path capacity",
 	"[catalog][pdxxx][path][capacity][T-CATALOG-003]")
 {
@@ -122,8 +248,13 @@ TEST_CASE("every public ingestion boundary uses checked path-specific APIs",
 	REQUIRE(walker.find("assetPathJoinChecked") != std::string::npos);
 	REQUIRE(network.find("DISTRIB.ASSET.PATH.REJECT") != std::string::npos);
 	REQUIRE(network.find("static s32 populateExtFromIni") != std::string::npos);
-	REQUIRE(network.find("distribIniSourcePathsFit(ini, dirpath)") !=
+	REQUIRE(network.find("distribQualifyIniSourcePaths(ini, dirpath)") !=
 		std::string::npos);
+	REQUIRE(network.find("assetPathCopyChecked(ini->pairs[i].value") !=
+		std::string::npos);
+	REQUIRE(network.find("Validate the complete envelope and every destination") !=
+		std::string::npos);
+	REQUIRE(network.find("extracted == file_count") != std::string::npos);
 	REQUIRE(network.find("return assetPathKeyIsSource(key);") !=
 		std::string::npos);
 	REQUIRE(network.find("if (prior) *e = prior_entry;") != std::string::npos);

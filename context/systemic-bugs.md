@@ -34,6 +34,22 @@ Wave C still needs real per-family standalone/nested/network fixtures at all
 four boundary lengths and a final traversal-join sweep. See
 `context/evidence/2026-08-08-catalog-path-capacity-milestone.md`.
 
+**2026-08-08 Wave C propagation:** B-1002 found three fail-open variants after
+the initial capacity migration. Network ingress validated a joined path but
+stored its unqualified relative input, so catalog/provider/runtime could
+disagree without any overflow. Loose source values containing a directory
+separator were incorrectly treated as already qualified. PDCA construction
+and extraction also skipped individual hidden, unreadable, malformed, unsafe,
+or over-capacity members and could report a partial archive as success. An
+already-qualified `::` chain also bypassed parent-traversal rejection. The
+shared qualifier now roots every safe relative path, rejects traversal across
+filesystem and VFS delimiters, and network mutates the
+candidate INI before row population, complete PDCA envelopes and destinations
+preflight before writes, and traversal joins fail closed. The behavioral
+matrix now covers all 34 affected field mappings across three ingress modes;
+real installed-client transport fixtures and rollback after a post-preflight
+PDCA I/O failure remain the validation boundary.
+
 **Semantic boundary:** Widen and validate only fields that carry filesystem or
 qualified archive-member paths. Do not widen IDs, names, descriptions,
 archetypes, shader IDs, voice contexts, or other bounded metadata merely

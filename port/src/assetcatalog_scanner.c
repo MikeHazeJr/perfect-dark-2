@@ -931,15 +931,15 @@ static void pathDirnameAnySeparator(const char *path, char *out, size_t outsz)
 	out[len] = '\0';
 }
 
-static void typedPdDescriptorComponentDir(const char *descriptor_path,
-                                          char *out, size_t outsz)
+static s32 typedPdDescriptorComponentDir(const char *descriptor_path,
+                                         char *out, size_t outsz)
 {
 	if (!out || outsz == 0) {
-		return;
+		return 0;
 	}
 	out[0] = '\0';
 	if (!descriptor_path) {
-		return;
+		return 0;
 	}
 
 	char dir[FS_MAXPATH];
@@ -955,38 +955,17 @@ static void typedPdDescriptorComponentDir(const char *descriptor_path,
 	}
 
 	if (!stem[0]) {
-		snprintf(out, outsz, "%s", dir);
+		return assetPathCopyChecked(out, outsz, dir);
 	} else if (dir[0]) {
-		snprintf(out, outsz, "%s/%s", dir, stem);
+		return assetPathJoinChecked(out, outsz, dir, "/", stem);
 	} else {
-		snprintf(out, outsz, "%s", stem);
+		return assetPathCopyChecked(out, outsz, stem);
 	}
-	out[outsz - 1] = '\0';
 }
 
 /* ========================================================================
  * External Source Path Handling
  * ======================================================================== */
-
-static s32 sourcePathNeedsComponentPrefix(const char *value)
-{
-	if (!value || !value[0]) {
-		return 0;
-	}
-	if (strstr(value, "::")) {
-		return 0;
-	}
-	if (value[0] == '/' || value[0] == '\\') {
-		return 0;
-	}
-	if (isalpha((u8)value[0]) && value[1] == ':') {
-		return 0;
-	}
-	if (strchr(value, '/') || strchr(value, '\\')) {
-		return 0;
-	}
-	return 1;
-}
 
 static s32 qualifyIniSourcePath(ini_section_t *ini, const char *key,
                                  const char *component_dir)
@@ -999,37 +978,10 @@ static s32 qualifyIniSourcePath(ini_section_t *ini, const char *key,
 		if (strcmp(ini->pairs[i].key, key) != 0) {
 			continue;
 		}
-		if (!sourcePathNeedsComponentPrefix(ini->pairs[i].value)) {
-			char checked[sizeof(ini->pairs[i].value)];
-			if (!assetPathCopyChecked(checked, FS_MAXPATH,
-					ini->pairs[i].value)) return 0;
-			continue;
-		}
-
 		char full[sizeof(ini->pairs[i].value)];
-		if (!assetPathJoinChecked(full, FS_MAXPATH, component_dir, "/",
+		if (!assetPathQualifyFilesystemChecked(full, FS_MAXPATH, component_dir,
 				ini->pairs[i].value) ||
 				!assetPathCopyChecked(ini->pairs[i].value,
-					sizeof(ini->pairs[i].value), full)) return 0;
-	}
-	return 1;
-}
-
-static s32 qualifyIniNestedVoiceSourcePath(ini_section_t *ini, const char *key,
-	const char *component_dir)
-{
-	if (!ini || !key || !component_dir || !component_dir[0]) return 0;
-	for (s32 i = 0; i < ini->count; i++) {
-		const char *value = ini->pairs[i].value;
-		if (strcmp(ini->pairs[i].key, key) != 0 || !value[0]
-				|| strstr(value, "::") || value[0] == '/' || value[0] == '\\'
-				|| (isalpha((u8)value[0]) && value[1] == ':')
-				|| strstr(value, "../") || strstr(value, "..\\")) {
-			continue;
-		}
-		char full[sizeof(ini->pairs[i].value)];
-		if (!assetPathJoinChecked(full, FS_MAXPATH, component_dir, "/", value)
-				|| !assetPathCopyChecked(ini->pairs[i].value,
 					sizeof(ini->pairs[i].value), full)) return 0;
 	}
 	return 1;
@@ -1151,15 +1103,6 @@ static s32 qualifyIniSourcePaths(ini_section_t *ini, const char *component_dir)
 		if (!qualifyIniSourcePath(ini, g_AssetPathSourceKeys[i], component_dir))
 			return 0;
 	}
-	static const char *voice_keys[] = {
-		"subtitle_file", "locale_en_file", "locale_fr_file",
-		"locale_de_file", "locale_it_file", "locale_es_file",
-		"locale_ja_file", NULL
-	};
-	for (s32 i = 0; voice_keys[i]; i++) {
-		if (!qualifyIniNestedVoiceSourcePath(ini, voice_keys[i], component_dir))
-			return 0;
-	}
 	return 1;
 }
 
@@ -1202,12 +1145,8 @@ static s32 qualifyTypedArchiveSourcePath(ini_section_t *ini, const char *key,
 		if (strcmp(ini->pairs[i].key, key) != 0) {
 			continue;
 		}
-		if (!archiveInnerPathIsSafe(ini->pairs[i].value)) {
-			continue;
-		}
-
 		char full[sizeof(ini->pairs[i].value)];
-		if (!assetPathJoinChecked(full, FS_MAXPATH, archive_ref, "::",
+		if (!assetPathQualifyArchiveChecked(full, FS_MAXPATH, archive_ref,
 				ini->pairs[i].value) ||
 				!assetPathCopyChecked(ini->pairs[i].value,
 					sizeof(ini->pairs[i].value), full)) return 0;
@@ -3393,11 +3332,11 @@ static s32 findAndParseIni(const char *component_dir, ini_section_t *out,
 		s32 len = (s32)strlen(name);
 
 		if (len > 4 && strcmp(name + len - 4, ".ini") == 0) {
-			snprintf(inibuf, sizeof(inibuf), "%s/%s", component_dir, name);
+			if (!assetPathJoinChecked(inibuf, sizeof(inibuf), component_dir,
+					"/", name)) break;
 			found = iniParse(inibuf, out);
 			if (found && out_path && out_path_cap > 0) {
-				strncpy(out_path, inibuf, out_path_cap - 1);
-				out_path[out_path_cap - 1] = '\0';
+				if (!assetPathCopyChecked(out_path, out_path_cap, inibuf)) found = 0;
 			}
 			break;
 		}
@@ -3463,18 +3402,20 @@ static s32 scanExternalDescriptorChildren(const char *base_dir,
 			continue;
 		}
 
-		snprintf(component_dir, sizeof(component_dir), "%s/%s",
-			base_dir, ent->d_name);
+		if (!assetPathJoinChecked(component_dir, sizeof(component_dir), base_dir,
+				"/", ent->d_name)) continue;
 		if (!isDirectory(component_dir)) {
 			continue;
 		}
 
-		snprintf(ini_path, sizeof(ini_path), "%s/%s", component_dir, leaf);
+		if (!assetPathJoinChecked(ini_path, sizeof(ini_path), component_dir,
+				"/", leaf)) continue;
 		if (!isRegularFile(ini_path)) {
 			continue;
 		}
 
-		snprintf(label, sizeof(label), "%s/%s", ent->d_name, leaf);
+		if (!assetPathJoinChecked(label, sizeof(label), ent->d_name, "/", leaf))
+			continue;
 		count += registerComponentIniFile(component_dir, ini_path, expected,
 			label, mod_id);
 	}
@@ -3490,7 +3431,8 @@ static s32 scanExternalDescriptorPath(const char *mod_dir,
                                       const char *mod_id)
 {
 	char base_dir[FS_MAXPATH];
-	snprintf(base_dir, sizeof(base_dir), "%s/%s", mod_dir, relative_dir);
+	if (!assetPathJoinChecked(base_dir, sizeof(base_dir), mod_dir, "/",
+			relative_dir)) return 0;
 	return scanExternalDescriptorChildren(base_dir, leaf, expected, mod_id);
 }
 
@@ -3569,7 +3511,8 @@ static s32 registerTypedPdDescriptorFile(const char *descriptor_path,
 	}
 
 	char component_dir[FS_MAXPATH];
-	typedPdDescriptorComponentDir(descriptor_path, component_dir, sizeof(component_dir));
+	if (!typedPdDescriptorComponentDir(descriptor_path, component_dir,
+			sizeof(component_dir))) return 0;
 	if (!isDirectory(component_dir)) {
 		pathDirnameAnySeparator(descriptor_path, component_dir, sizeof(component_dir));
 	}
@@ -3651,11 +3594,11 @@ static s32 scanTypedPdDescriptorsRecurse(const char *root_dir,
 {
 	char abs_dir[FS_MAXPATH];
 	if (rel_dir && rel_dir[0]) {
-		snprintf(abs_dir, sizeof(abs_dir), "%s/%s", root_dir, rel_dir);
+		if (!assetPathJoinChecked(abs_dir, sizeof(abs_dir), root_dir, "/",
+				rel_dir)) return 0;
 	} else {
-		snprintf(abs_dir, sizeof(abs_dir), "%s", root_dir);
+		if (!assetPathCopyChecked(abs_dir, sizeof(abs_dir), root_dir)) return 0;
 	}
-	abs_dir[sizeof(abs_dir) - 1] = '\0';
 
 	DIR *dp = opendir(abs_dir);
 	if (!dp) {
@@ -3671,15 +3614,16 @@ static s32 scanTypedPdDescriptorsRecurse(const char *root_dir,
 
 		char child_rel[FS_MAXPATH];
 		if (rel_dir && rel_dir[0]) {
-			snprintf(child_rel, sizeof(child_rel), "%s/%s", rel_dir, ent->d_name);
+			if (!assetPathJoinChecked(child_rel, sizeof(child_rel), rel_dir, "/",
+					ent->d_name)) continue;
 		} else {
-			snprintf(child_rel, sizeof(child_rel), "%s", ent->d_name);
+			if (!assetPathCopyChecked(child_rel, sizeof(child_rel), ent->d_name))
+				continue;
 		}
-		child_rel[sizeof(child_rel) - 1] = '\0';
 
 		char child_abs[FS_MAXPATH];
-		snprintf(child_abs, sizeof(child_abs), "%s/%s", root_dir, child_rel);
-		child_abs[sizeof(child_abs) - 1] = '\0';
+		if (!assetPathJoinChecked(child_abs, sizeof(child_abs), root_dir, "/",
+				child_rel)) continue;
 
 		if (isDirectory(child_abs)) {
 			count += scanTypedPdDescriptorsRecurse(root_dir, child_rel, mod_id);
@@ -3736,7 +3680,8 @@ static s32 scanCategoryDir(const char *category_dir, const char *category_name,
 			continue;
 		}
 
-		snprintf(pathbuf, sizeof(pathbuf), "%s/%s", category_dir, ent->d_name);
+		if (!assetPathJoinChecked(pathbuf, sizeof(pathbuf), category_dir, "/",
+				ent->d_name)) continue;
 
 		if (!isDirectory(pathbuf)) {
 			continue;
@@ -3782,7 +3727,8 @@ static s32 scanCategoryDir(const char *category_dir, const char *category_name,
 static s32 scanModDir(const char *mod_dir, const char *mod_id)
 {
 	char components_dir[FS_MAXPATH];
-	snprintf(components_dir, sizeof(components_dir), "%s/_components", mod_dir);
+	if (!assetPathJoinChecked(components_dir, sizeof(components_dir), mod_dir,
+			"/", "_components")) return 0;
 
 	if (!isDirectory(components_dir)) {
 		return 0;  /* no _components/ directory -- legacy mod, skip */
@@ -3802,7 +3748,8 @@ static s32 scanModDir(const char *mod_dir, const char *mod_id)
 			continue;
 		}
 
-		snprintf(pathbuf, sizeof(pathbuf), "%s/%s", components_dir, ent->d_name);
+		if (!assetPathJoinChecked(pathbuf, sizeof(pathbuf), components_dir, "/",
+				ent->d_name)) continue;
 
 		if (!isDirectory(pathbuf)) {
 			continue;
@@ -4086,26 +4033,6 @@ static asset_type_e archiveExpectedTypeForPath(const char *entry_name)
 	return ASSET_NONE;
 }
 
-static s32 archivePathNeedsComponentPrefix(const char *value)
-{
-	if (!value || !value[0]) {
-		return 0;
-	}
-	if (strstr(value, "::")) {
-		return 0;
-	}
-	if (value[0] == '/' || value[0] == '\\') {
-		return 0;
-	}
-	if (isalpha((u8)value[0]) && value[1] == ':') {
-		return 0;
-	}
-	if (strchr(value, '/') || strchr(value, '\\')) {
-		return 0;
-	}
-	return 1;
-}
-
 static s32 qualifyArchiveIniPath(ini_section_t *ini, const char *key,
                                   const char *component_dir)
 {
@@ -4117,15 +4044,8 @@ static s32 qualifyArchiveIniPath(ini_section_t *ini, const char *key,
 		if (strcmp(ini->pairs[i].key, key) != 0) {
 			continue;
 		}
-		if (!archivePathNeedsComponentPrefix(ini->pairs[i].value)) {
-			char checked[FS_MAXPATH];
-			if (!assetPathCopyChecked(checked, sizeof(checked),
-					ini->pairs[i].value)) return 0;
-			continue;
-		}
-
 		char full[sizeof(ini->pairs[i].value)];
-		if (!assetPathJoinChecked(full, FS_MAXPATH, component_dir, "/",
+		if (!assetPathQualifyFilesystemChecked(full, FS_MAXPATH, component_dir,
 				ini->pairs[i].value) ||
 				!assetPathCopyChecked(ini->pairs[i].value,
 					sizeof(ini->pairs[i].value), full)) return 0;
@@ -4282,7 +4202,8 @@ s32 assetCatalogScanComponents(const char *modsdir)
 			continue;
 		}
 
-		snprintf(pathbuf, sizeof(pathbuf), "%s/%s", modsdir, ent->d_name);
+		if (!assetPathJoinChecked(pathbuf, sizeof(pathbuf), modsdir, "/",
+				ent->d_name)) continue;
 
 		if (!isDirectory(pathbuf)) {
 			continue;
@@ -4332,7 +4253,8 @@ s32 assetCatalogScanComponentsFromArchive(const char *mod_id, mod_archive_t *arc
 
 		char component_dir[FS_MAXPATH];
 		if (typedPdContentTypeForPath(entry_name) != ASSET_NONE) {
-			typedPdDescriptorComponentDir(entry_name, component_dir, sizeof(component_dir));
+			if (!typedPdDescriptorComponentDir(entry_name, component_dir,
+					sizeof(component_dir))) continue;
 		} else {
 			pathDirname(entry_name, component_dir, sizeof(component_dir));
 		}
@@ -4474,7 +4396,8 @@ s32 assetCatalogScanBotVariants(const char *modsdir)
 	}
 
 	char bot_variants_dir[FS_MAXPATH];
-	snprintf(bot_variants_dir, sizeof(bot_variants_dir), "%s/bot_variants", modsdir);
+	if (!assetPathJoinChecked(bot_variants_dir, sizeof(bot_variants_dir), modsdir,
+			"/", "bot_variants")) return 0;
 
 	DIR *dp = opendir(bot_variants_dir);
 	if (!dp) {
@@ -4491,7 +4414,8 @@ s32 assetCatalogScanBotVariants(const char *modsdir)
 			continue;
 		}
 
-		snprintf(pathbuf, sizeof(pathbuf), "%s/%s", bot_variants_dir, ent->d_name);
+		if (!assetPathJoinChecked(pathbuf, sizeof(pathbuf), bot_variants_dir, "/",
+				ent->d_name)) continue;
 
 		if (!isDirectory(pathbuf)) {
 			continue;
