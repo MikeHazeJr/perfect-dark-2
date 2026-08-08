@@ -584,6 +584,7 @@ SCHEMAS: dict[str, Schema] = {
             "dependencies/assets/animations/*.pdanim",
             "dependencies/assets/audio/*.pdsfx",
             "dependencies/assets/audio/*.pdvoice",
+            "dependencies/assets/ui/*.pdui",
             "dependencies/assets/projectiles/*.pdprojectile",
             "dependencies/assets/entities/*.pdentity",
         ],
@@ -830,10 +831,10 @@ SCHEMAS: dict[str, Schema] = {
         ],
     ),
     ".pdmission": schema(
-        required=["mission.ini", "mission.graph.json", "objectives.json", "briefing.json"],
+        required=["mission.ini", "mission.graph.json", "objectives.json"],
         require_any=[["dependencies/assets/scenario/*.pdscenario", "dependencies/assets/scenarios/*.pdscenario"]],
-        allowed=["mission.ini", "mission.graph.json", "objectives.json", "briefing.json"],
-        forbidden=["objectives.tsv", "briefing.tsv"],
+        allowed=["mission.ini", "mission.graph.json", "objectives.json"],
+        forbidden=["objectives.tsv", "briefing.tsv", "briefing.json"],
         allowed_globs=[
             "dependencies/assets/scenario/*.pdscenario",
             "dependencies/assets/scenarios/*.pdscenario",
@@ -897,9 +898,9 @@ OPTIONAL_PUBLIC_SLOT_CONTRACT: dict[str, dict[str, SlotJustification]] = {
             "weapon uses graph/default audio bindings",
         ),
         "bindings/presentation.json": slot(
-            "default crosshair, sight, and zoom presentation bindings",
+            "catalog reticle, sight, and zoom presentation bindings",
             "weapon presentation adapter",
-            "loads only production-consumed v1 presentation values from authored source",
+            "resolves custom crosshairs by public ASSET_UI catalog ID and loads only production-consumed v1 values",
             "weapon uses graph/default presentation values",
         ),
         "dependencies/assets/models/*.pdmesh": slot(
@@ -925,6 +926,12 @@ OPTIONAL_PUBLIC_SLOT_CONTRACT: dict[str, dict[str, SlotJustification]] = {
             "weapon graph importer",
             DEPENDENCY_LOADER,
             DEPENDENCY_ABSENT,
+        ),
+        "dependencies/assets/ui/*.pdui": slot(
+            "weapon reticle UI dependencies",
+            "weapon presentation and HUD reticle adapters",
+            DEPENDENCY_LOADER,
+            "weapon uses the native sight renderer",
         ),
         "dependencies/assets/projectiles/*.pdprojectile": slot(
             "spawned projectile dependencies",
@@ -2277,34 +2284,6 @@ def validate_vehicle_source_contract(label: str, zf: zipfile.ZipFile,
         )
 
 
-def validate_mission_briefing_json_schema(label: str, entry_name: str,
-                                          text: str) -> list[str]:
-    errors: list[str] = []
-    try:
-        parsed = json.loads(text)
-    except json.JSONDecodeError as exc:
-        return [f"{label} has unreadable JSON source {entry_name}: {exc}"]
-    if not isinstance(parsed, dict):
-        return [f"{label} {entry_name} must be a JSON object"]
-    if parsed.get("schema") != "pd2.mission.briefing.v1":
-        errors.append(
-            f"{label} {entry_name} must declare schema pd2.mission.briefing.v1"
-        )
-    sections = parsed.get("sections")
-    if not isinstance(sections, list) or not sections:
-        errors.append(f"{label} {entry_name} must contain briefing sections")
-        return errors
-    for idx, section in enumerate(sections):
-        if not isinstance(section, dict):
-            errors.append(f"{label} {entry_name} section {idx} must be an object")
-            continue
-        if not isinstance(section.get("id"), str) or not section.get("id"):
-            errors.append(f"{label} {entry_name} section {idx} missing id")
-        if not isinstance(section.get("text"), str):
-            errors.append(f"{label} {entry_name} section {idx} missing text")
-    return errors
-
-
 def validate_mission_source_contract(label: str, zf: zipfile.ZipFile,
                                      name_set: set[str],
                                      errors: list[str]) -> None:
@@ -2329,7 +2308,6 @@ def validate_mission_source_contract(label: str, zf: zipfile.ZipFile,
     for field, expected in (
         ("mission_graph_file", "mission.graph.json"),
         ("objectives_file", "objectives.json"),
-        ("briefing_file", "briefing.json"),
     ):
         if expected in name_set and descriptor_values.get(field) != expected:
             errors.append(f"{label} mission.ini must declare {field} = {expected}")
@@ -2337,6 +2315,11 @@ def validate_mission_source_contract(label: str, zf: zipfile.ZipFile,
         errors.append(
             f"{label} mission.ini must declare scenario_archive as one of "
             f"{scenario_archives}"
+        )
+    if "briefing_file" in descriptor_values:
+        errors.append(
+            f"{label} mission.ini briefing_file is retired; author briefing.kind "
+            "and briefing.text_token in the nested scenario setup.fields.json"
         )
     scenario_graph_cache = descriptor_values.get("scenario_graph_cache")
     if scenario_graph_cache != MISSION_SCENARIO_DEP_CACHE_KIND:
@@ -2356,7 +2339,6 @@ def validate_mission_source_contract(label: str, zf: zipfile.ZipFile,
             for field, expected in (
                 ("mission_graph_file", "mission.graph.json"),
                 ("objectives_file", "objectives.json"),
-                ("briefing_file", "briefing.json"),
             ):
                 if manifest.get(field) != expected:
                     errors.append(
@@ -2367,6 +2349,47 @@ def validate_mission_source_contract(label: str, zf: zipfile.ZipFile,
                     f"{label} _meta/manifest.json must declare scenario_archive as one of "
                     f"{scenario_archives}"
                 )
+            if "briefing_file" in manifest:
+                errors.append(
+                    f"{label} manifest briefing_file is retired duplicate authority"
+                )
+
+    if "briefing.json" in name_set:
+        errors.append(
+            f"{label} contains retired duplicate briefing.json; briefing authority "
+            "belongs to the nested scenario setup.fields.json"
+        )
+
+    selected_scenario = descriptor_values.get("scenario_archive", "")
+    if selected_scenario in name_set:
+        try:
+            with zipfile.ZipFile(BytesIO(zf.read(selected_scenario))) as scenario_zf:
+                setup = json.loads(
+                    scenario_zf.read("setup.fields.json").decode("utf-8")
+                )
+            rows = setup.get("rows") if isinstance(setup, dict) else None
+            briefing_fields: dict[str, set[str]] = {}
+            if isinstance(rows, list):
+                for row in rows:
+                    if not isinstance(row, dict) or row.get("kind") != "briefing":
+                        continue
+                    record_id = str(row.get("record_id", ""))
+                    briefing_fields.setdefault(record_id, set()).add(
+                        str(row.get("field", ""))
+                    )
+            if not any(
+                {"briefing.kind", "briefing.text_token"} <= fields
+                for fields in briefing_fields.values()
+            ):
+                errors.append(
+                    f"{label} nested scenario must author briefing.kind and "
+                    "briefing.text_token for one briefing record"
+                )
+        except (KeyError, UnicodeDecodeError, json.JSONDecodeError,
+                zipfile.BadZipFile) as exc:
+            errors.append(
+                f"{label} nested scenario briefing authority is unreadable: {exc}"
+            )
 
     if "mission.graph.json" in name_set:
         graph_text = zf.read("mission.graph.json").decode(
@@ -2431,15 +2454,6 @@ def validate_mission_source_contract(label: str, zf: zipfile.ZipFile,
             label, "objectives.json", objectives_text,
             MISSION_OBJECTIVES_HEADER
         ))
-    if "briefing.json" in name_set:
-        briefing_text = zf.read("briefing.json").decode(
-            "utf-8", errors="replace"
-        )
-        errors.extend(validate_mission_briefing_json_schema(
-            label, "briefing.json", briefing_text
-        ))
-
-
 def validate_scenario_source_contract(label: str, zf: zipfile.ZipFile,
                                       name_set: set[str],
                                       errors: list[str]) -> None:
@@ -3273,13 +3287,57 @@ def validate_theme_source_contract(label: str, zf: zipfile.ZipFile,
                                    name_set: set[str],
                                    errors: list[str]) -> None:
     descriptor_values: dict[str, str] = {}
+    descriptor_keys: set[str] = set()
+    allowed_descriptor = {
+        "catalog_id", "name", "theme_file", "category", "ui_archive",
+        "font_archive", "audio_archive", "music_archive", "effect_archive",
+    }
     if "theme.ini" in name_set:
         try:
-            descriptor_values = parse_ini_values(
-                zf.read("theme.ini").decode("utf-8", errors="replace")
-            )
-        except KeyError:
-            descriptor_values = {}
+            descriptor_text = zf.read("theme.ini").decode("utf-8")
+        except (KeyError, UnicodeDecodeError) as exc:
+            errors.append(f"{label} theme.ini is not valid UTF-8: {exc}")
+            descriptor_text = ""
+        section_count = 0
+        for line_no, line in enumerate(descriptor_text.splitlines(), 1):
+            stripped = line.strip()
+            if not stripped or stripped.startswith(("#", ";")):
+                continue
+            if stripped.startswith("[") and stripped.endswith("]"):
+                section_count += 1
+                if stripped != "[theme]":
+                    errors.append(
+                        f"{label} theme.ini line {line_no} must use [theme]"
+                    )
+                continue
+            match = KEY_VALUE_RE.match(line)
+            if not match:
+                errors.append(f"{label} theme.ini line {line_no} is invalid")
+                continue
+            key = normalize_key(match.group(1))
+            value = clean_value(match.group(2).split("#", 1)[0].split(";", 1)[0])
+            if key not in allowed_descriptor:
+                errors.append(f"{label} theme.ini has unknown field {key}")
+            if key in descriptor_keys:
+                errors.append(f"{label} theme.ini has duplicate field {key}")
+            descriptor_keys.add(key)
+            descriptor_values[key] = value
+        if section_count != 1:
+            errors.append(f"{label} theme.ini must contain exactly one [theme] section")
+
+    required_descriptor = {"catalog_id", "name", "theme_file"}
+    missing_descriptor = required_descriptor - descriptor_keys
+    if missing_descriptor:
+        errors.append(
+            f"{label} theme.ini missing {', '.join(sorted(missing_descriptor))}"
+        )
+    if descriptor_values.get("theme_file") != "theme.json":
+        errors.append(f"{label} theme.ini must declare theme_file = theme.json")
+    descriptor_id = descriptor_values.get("catalog_id", "")
+    if not CATALOG_ID_RE.fullmatch(descriptor_id):
+        errors.append(f"{label} theme.ini catalog_id must be a catalog ID")
+    if not descriptor_values.get("name", "").strip():
+        errors.append(f"{label} theme.ini name must not be empty")
 
     archive_groups = [
         (
@@ -3331,6 +3389,111 @@ def validate_theme_source_contract(label: str, zf: zipfile.ZipFile,
                 f"{label} theme.ini must declare {field} as one of {archives}"
             )
 
+        declared = descriptor_values.get(field, "")
+        if declared and declared not in name_set:
+            errors.append(f"{label} theme.ini {field} does not resolve: {declared}")
+
+    try:
+        theme_pairs = json.loads(
+            zf.read("theme.json").decode("utf-8"),
+            object_pairs_hook=lambda pairs: pairs,
+        )
+    except (KeyError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        errors.append(f"{label} theme.json is invalid JSON/UTF-8: {exc}")
+        theme_pairs = []
+
+    def pairs_to_unique(value: object, path: str) -> dict[str, object] | None:
+        if not isinstance(value, list) or any(
+                not isinstance(row, tuple) or len(row) != 2 for row in value):
+            errors.append(f"{label} {path} must be an object")
+            return None
+        result: dict[str, object] = {}
+        for key, child in value:
+            if key in result:
+                errors.append(f"{label} {path} has duplicate field {key}")
+            result[key] = child
+        return result
+
+    theme = pairs_to_unique(theme_pairs, "theme.json")
+    if theme is not None:
+        allowed_top = {
+            "schema", "catalog_id", "name", "author", "version", "palette",
+            "textures", "scanline", "textGlow", "soundPack", "menuStyle",
+            "font", "nineslices", "caustics", "borderEffects", "fontShadow",
+            "fontGlow",
+        }
+        unknown = set(theme) - allowed_top
+        if unknown:
+            errors.append(
+                f"{label} theme.json has unknown fields {', '.join(sorted(unknown))}"
+            )
+        required_top = {"schema", "catalog_id", "name", "version"}
+        missing_top = required_top - set(theme)
+        if missing_top:
+            errors.append(
+                f"{label} theme.json missing {', '.join(sorted(missing_top))}"
+            )
+        if theme.get("schema") != "pd2.theme.v1":
+            errors.append(f"{label} theme.json schema must be pd2.theme.v1")
+        if theme.get("catalog_id") != descriptor_id:
+            errors.append(
+                f"{label} theme.json catalog_id must match theme.ini catalog_id"
+            )
+        for field, cap in (("name", 127), ("author", 63), ("version", 31)):
+            value = theme.get(field)
+            if value is not None and (
+                    not isinstance(value, str) or not value or len(value) > cap):
+                errors.append(f"{label} theme.json {field} is invalid")
+
+        catalog_ref_fields = ("soundPack", "menuStyle", "font")
+        for field in catalog_ref_fields:
+            value = theme.get(field)
+            if value is not None and (
+                    not isinstance(value, str) or not CATALOG_ID_RE.fullmatch(value)):
+                errors.append(f"{label} theme.json {field} must be a catalog ID")
+
+        palette_names = {
+            "dialog_border1", "dialog_titlebg", "dialog_border2",
+            "dialog_titlefg", "dialog_bodybg", "unused14", "item_unfocused",
+            "item_disabled", "item_focused_inner", "checkbox_checked",
+            "item_focused_outer", "listgroup_headerbg", "listgroup_headerfg",
+            "unused34", "unused38", "toolbar_tint", "text_positive",
+            "text_warning", "button_hover", "button_active", "title_glow",
+            "tint_success", "tint_danger", "tint_info",
+        }
+        if "palette" in theme:
+            palette = pairs_to_unique(theme["palette"], "theme.json palette")
+            if palette is not None:
+                for key, value in palette.items():
+                    if key not in palette_names:
+                        errors.append(
+                            f"{label} theme.json palette has unknown field {key}"
+                        )
+                    if not isinstance(value, str) or not re.fullmatch(
+                            r"[0-9A-Fa-f]{8}", value):
+                        errors.append(
+                            f"{label} theme.json palette.{key} must be 8 hex digits"
+                        )
+
+        if "textures" in theme:
+            textures = pairs_to_unique(theme["textures"], "theme.json textures")
+            if textures is not None:
+                if len(textures) > 16:
+                    errors.append(f"{label} theme.json textures exceeds capacity 16")
+                for role, value in textures.items():
+                    if not re.fullmatch(r"[A-Za-z0-9_.-]+", role):
+                        errors.append(f"{label} theme.json texture role {role} is invalid")
+                    if not isinstance(value, str) or not CATALOG_ID_RE.fullmatch(value):
+                        errors.append(
+                            f"{label} theme.json textures.{role} must be a catalog ID"
+                        )
+
+        array_caps = {"nineslices": 16, "caustics": 8, "borderEffects": 8}
+        for field, cap in array_caps.items():
+            value = theme.get(field)
+            if value is not None and (not isinstance(value, list) or len(value) > cap):
+                errors.append(f"{label} theme.json {field} must contain at most {cap} rows")
+
     if "_meta/manifest.json" not in name_set:
         return
     try:
@@ -3341,12 +3504,18 @@ def validate_theme_source_contract(label: str, zf: zipfile.ZipFile,
         errors.append(f"{label} _meta/manifest.json is invalid JSON: {exc}")
         return
 
-    for field, archives in archive_groups:
-        if archives and manifest.get(field) not in archives:
-            errors.append(
-                f"{label} _meta/manifest.json must declare {field} as one of "
-                f"{archives}"
-            )
+    private_authority = {
+        "theme_file", "ui_archive", "font_archive", "audio_archive",
+        "music_archive", "effect_archive",
+    } & set(manifest)
+    if private_authority:
+        errors.append(
+            f"{label} _meta/manifest.json must not author theme fields: "
+            f"{', '.join(sorted(private_authority))}"
+        )
+    manifest_id = manifest.get("catalog_id", manifest.get("id"))
+    if manifest_id is not None and manifest_id != descriptor_id:
+        errors.append(f"{label} manifest identity must match public theme.ini")
 
 
 def gltf_json_from_bytes(data: bytes) -> dict[str, object]:

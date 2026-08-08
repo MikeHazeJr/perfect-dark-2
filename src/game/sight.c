@@ -21,6 +21,8 @@
 #include "types.h"
 #include <math.h>
 #include "video.h"
+#include "pdgui_weapon_reticle.h"
+#include "weapon_graph_runtime.h"
 
 #define SIGHT_COLOUR ((PLAYER_EXTCFG().crosshairhealth >= CROSSHAIR_HEALTH_ON_GREEN) ? sightGetCrosshairHealthColor(g_Vars.currentplayer->bondhealth, g_Vars.currentplayer->prop->chr->cshield * 0.125f) : PLAYER_EXTCFG().crosshaircolour)
 #define SIGHT_SCALE PLAYER_EXTCFG().crosshairsize
@@ -1549,6 +1551,7 @@ bool sightHasTargetWhileAiming(s32 sight)
  */
 Gfx *sightDraw(Gfx *gdl, bool sighton, s32 sight)
 {
+	pdguiWeaponReticleClear();
 	if (sight);
 
 	if (g_Vars.currentplayer->activemenumode != AMMODE_CLOSED) {
@@ -1587,8 +1590,17 @@ Gfx *sightDraw(Gfx *gdl, bool sighton, s32 sight)
 	}
 
 	sightTick(sighton);
+	const weapon_graph_held_function_t *held =
+		weaponGraphRuntimeGetHeldFunctionForGameplay(
+			g_Vars.currentplayer->hands[HAND_RIGHT].gset.weaponnum,
+			g_Vars.currentplayer->hands[HAND_RIGHT].gset.weaponfunc);
+	const bool customreticle = held && held->reticle_ref[0]
+		&& sighton && optionsGetSightOnScreen(
+			g_Vars.currentplayerstats->mpindex);
 
-	switch (sight) {
+	if (customreticle) {
+		pdguiWeaponReticleQueue(held->reticle_ref, crossx, crossy);
+	} else switch (sight) {
 	case SIGHT_DEFAULT:
 		gdl = sightDrawDefault(gdl, sighton && optionsGetSightOnScreen(g_Vars.currentplayerstats->mpindex), crossx, crossy);
 		break;

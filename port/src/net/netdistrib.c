@@ -2544,9 +2544,6 @@ static void populateExtFromIni(asset_entry_t *e, asset_type_e type, const char *
             strncpy(e->ext.mission.objectives_file,
                     iniGet(ini, "objectives_file", ""),
                     sizeof(e->ext.mission.objectives_file) - 1);
-            strncpy(e->ext.mission.briefing_file,
-                    iniGet(ini, "briefing_file", ""),
-                    sizeof(e->ext.mission.briefing_file) - 1);
             strncpy(e->ext.mission.mission_graph_file,
                     iniGet(ini, "mission_graph_file", iniGet(ini, "graph", "")),
                     sizeof(e->ext.mission.mission_graph_file) - 1);

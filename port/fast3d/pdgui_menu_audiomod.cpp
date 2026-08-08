@@ -24,12 +24,19 @@
 #include <stdlib.h>
 #include <sys/stat.h>
 
+#ifdef _WIN32
+#include <windows.h>
+#endif
+
 #include "imgui/imgui.h"
 #include "pdgui_style.h"
 #include "pdgui_scaling.h"
 #include "pdgui_audio.h"
 #include "pdgui_filebrowser.h"
+#include "pdgui_glyphs.h"
 #include "assetcatalog.h"
+#include "assetcatalog_scanner.h"
+#include "voice_archive_authoring.h"
 #include "fs.h"
 
 /* ========================================================================
@@ -54,6 +61,8 @@ f32  audioGetMusicVolume(void);
 void modMusicPlay(const char *file_path);
 void modMusicStop(void);
 s32  modMusicIsPlaying(void);
+s16 *modMusicLoadAudioPcm22050(const char *file_path, u32 *out_len,
+                               s32 *out_source_rate);
 
 /* fs.c */
 s32 fsCreateDir(const char *path);
@@ -61,7 +70,7 @@ s32 fsCreateDir(const char *path);
 /* netdistrib.c — re-broadcast catalog to lobby clients after import */
 void netDistribServerRebroadcastCatalog(void);
 s32 netGetMode(void);
-#define NETMODE_SERVER_AUDIOMOD 2
+#define NETMODE_SERVER_AUDIOMOD 1
 
 /* assetcatalog.c */
 asset_entry_t *assetCatalogRegisterAudio(const char *id, s32 sound_id,
@@ -153,6 +162,11 @@ static bool          s_AudioPreviewing  = false;  /* true while preview is activ
 static char s_ImportFilePath[AUDIOMOD_PATH_LEN] = "";
 static char s_ImportName[AUDIOMOD_NAME_LEN]     = "";
 static int  s_ImportCategory = 1;  /* default to Music */
+static char s_ImportVoiceActor[64] = "";
+static char s_ImportVoiceContext[128] = "";
+static char s_ImportVoiceSubtitle[512] = "";
+static int  s_ImportVoiceLocale = 0;
+static int  s_ImportVoiceFallbackLocale = 0;
 
 /* Status line + timed flash for import success */
 static char s_AudioStatusMsg[256] = "";
@@ -307,6 +321,179 @@ static bool copyFile(const char *src, const char *dst)
     return true;
 }
 
+static bool replaceFileAtomic(const char *source, const char *destination)
+{
+#ifdef _WIN32
+    return MoveFileExA(source, destination,
+                       MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != 0;
+#else
+    return rename(source, destination) == 0;
+#endif
+}
+
+static bool writeVoiceModManifest(const char *modDir, const char *modId)
+{
+    char relPath[FS_MAXPATH];
+    char tmpRelPath[FS_MAXPATH];
+    snprintf(relPath, sizeof(relPath), "%s/mod.json", modDir);
+    snprintf(tmpRelPath, sizeof(tmpRelPath), "%s/mod.json.tmp", modDir);
+
+    char absPath[FS_MAXPATH + 1];
+    char absTmpPath[FS_MAXPATH + 1];
+    const char *resolvedPath = fsFullPath(relPath, absPath, sizeof(absPath));
+    const char *resolvedTmp = fsFullPath(tmpRelPath, absTmpPath, sizeof(absTmpPath));
+    if (!resolvedPath || !resolvedPath[0] || !resolvedTmp || !resolvedTmp[0]) {
+        return false;
+    }
+
+    FILE *file = fopen(resolvedTmp, "wb");
+    if (!file) return false;
+    int written = fprintf(file,
+        "{\n"
+        "  \"id\": \"%s\",\n"
+        "  \"name\": \"%s localized voice\",\n"
+        "  \"version\": \"1.0.0\",\n"
+        "  \"author\": \"Audio Mods Voice Creator\",\n"
+        "  \"description\": \"Self-contained creator-authored .pdvoice source.\"\n"
+        "}\n", modId, modId);
+    bool writeOk = written > 0 && fflush(file) == 0;
+    if (fclose(file) != 0) writeOk = false;
+    if (!writeOk) {
+        remove(resolvedTmp);
+        return false;
+    }
+    if (!replaceFileAtomic(resolvedTmp, resolvedPath)) {
+        remove(resolvedTmp);
+        return false;
+    }
+    return true;
+}
+
+static bool importVoiceArchive(const char *filePath, const char *displayName)
+{
+    static const char *const localeTags[] = { "en", "fr", "de", "it", "es", "ja" };
+    if (!filePath || !filePath[0] || !displayName || !displayName[0]
+            || !s_ImportVoiceActor[0] || !s_ImportVoiceContext[0]
+            || !s_ImportVoiceSubtitle[0]) {
+        snprintf(s_AudioStatusMsg, sizeof(s_AudioStatusMsg),
+                 "Voice import needs a file, name, actor, context, and subtitle");
+        s_AudioStatusOk = false;
+        return false;
+    }
+
+    /* Decode before authoring. Extension/magic validation alone is not enough:
+     * this is the same standard-audio decoder used by production playback. */
+    u32 decodedSamples = 0;
+    s32 sourceRate = 0;
+    s16 *decoded = modMusicLoadAudioPcm22050(filePath, &decodedSamples, &sourceRate);
+    if (!decoded || decodedSamples == 0 || sourceRate <= 0) {
+        if (decoded) SDL_free(decoded);
+        snprintf(s_AudioStatusMsg, sizeof(s_AudioStatusMsg),
+                 "Voice import failed: select a decodable WAV or MP3 source");
+        s_AudioStatusOk = false;
+        return false;
+    }
+    SDL_free(decoded);
+    u32 durationMs = (u32)(((u64)decodedSamples * 1000u)
+                            / (2u * 22050u));
+    if (durationMs == 0) durationMs = 1;
+
+    char slug[48];
+    sanitizeDirName(displayName, slug, sizeof(slug));
+    char modId[64];
+    snprintf(modId, sizeof(modId), "mod_%s", slug);
+    char catalogId[AUDIOMOD_ID_LEN];
+    snprintf(catalogId, sizeof(catalogId), "%s:voice_line", modId);
+
+    char modDir[FS_MAXPATH];
+    char audioDir[FS_MAXPATH];
+    char voiceDir[FS_MAXPATH];
+    char archiveRelPath[FS_MAXPATH];
+    snprintf(modDir, sizeof(modDir), "mods/%s", modId);
+    snprintf(audioDir, sizeof(audioDir), "%s/audio", modDir);
+    snprintf(voiceDir, sizeof(voiceDir), "%s/voice", audioDir);
+    snprintf(archiveRelPath, sizeof(archiveRelPath), "%s/%s.pdvoice",
+             voiceDir, slug);
+    if (!fsCreateDir("mods") || !fsCreateDir(modDir)
+            || !fsCreateDir(audioDir) || !fsCreateDir(voiceDir)) {
+        snprintf(s_AudioStatusMsg, sizeof(s_AudioStatusMsg),
+                 "Voice import failed: could not create the mod archive folder");
+        s_AudioStatusOk = false;
+        return false;
+    }
+
+    char archiveAbsPath[FS_MAXPATH + 1];
+    const char *archivePath = fsFullPath(archiveRelPath, archiveAbsPath,
+                                         sizeof(archiveAbsPath));
+    if (!archivePath || !archivePath[0]) {
+        snprintf(s_AudioStatusMsg, sizeof(s_AudioStatusMsg),
+                 "Voice import failed: could not resolve archive path");
+        s_AudioStatusOk = false;
+        return false;
+    }
+
+    voice_archive_author_request_t request = {
+        archivePath,
+        catalogId,
+        displayName,
+        filePath,
+        s_ImportVoiceActor,
+        s_ImportVoiceContext,
+        s_ImportVoiceSubtitle,
+        durationMs,
+        localeTags[s_ImportVoiceLocale],
+        localeTags[s_ImportVoiceFallbackLocale]
+    };
+    char authorError[256];
+    if (!voiceArchiveAuthor(&request, authorError, sizeof(authorError))) {
+        snprintf(s_AudioStatusMsg, sizeof(s_AudioStatusMsg),
+                 "Voice import failed: %.210s", authorError);
+        s_AudioStatusOk = false;
+        return false;
+    }
+    if (!writeVoiceModManifest(modDir, modId)) {
+        snprintf(s_AudioStatusMsg, sizeof(s_AudioStatusMsg),
+                 "Voice archive saved, but its mod manifest could not be written");
+        s_AudioStatusOk = false;
+        return false;
+    }
+
+    /* Register from the same archive that persists on disk. No transient
+     * hand-built catalog row and no parallel legacy loose descriptor. */
+    s32 registered = assetCatalogScanExternalLayoutFolder(modId, modDir);
+    if (registered <= 0 || !assetCatalogHasEntry(catalogId)) {
+        snprintf(s_AudioStatusMsg, sizeof(s_AudioStatusMsg),
+                 "Voice archive saved but authoritative catalog registration failed");
+        s_AudioStatusOk = false;
+        return false;
+    }
+
+    modmgrRescanDirectory();
+    s32 regCount = modmgrGetCount();
+    for (s32 i = 0; i < regCount; i++) {
+        const char *id = modmgrGetModId(i);
+        if (id && strcmp(id, modId) == 0) {
+            modmgrSetEnabled(i, 1);
+            modmgrSaveConfig();
+            break;
+        }
+    }
+    if (netGetMode() == NETMODE_SERVER_AUDIOMOD) {
+        netDistribServerRebroadcastCatalog();
+    }
+
+    snprintf(s_AudioStatusMsg, sizeof(s_AudioStatusMsg),
+             "Authored '%s' as %s", displayName, catalogId);
+    s_AudioStatusOk = true;
+    s_AudioStatusFlashStart = SDL_GetTicks();
+    pdguiPlaySound(PDGUI_SND_SUCCESS);
+    sysLogPrintf(LOG_NOTE,
+        "AUDIOMOD.VOICE.AUTHOR: source='%s' archive='%s' catalog=%s locale=%s fallback=%s",
+        filePath, archiveRelPath, catalogId, localeTags[s_ImportVoiceLocale],
+        localeTags[s_ImportVoiceFallbackLocale]);
+    return true;
+}
+
 /**
  * Import an audio file as a new mod component.
  * Creates mods/<slug>/ directory with audio.ini + copied audio file.
@@ -315,6 +502,9 @@ static bool copyFile(const char *src, const char *dst)
 static bool importAudioFile(const char *filePath, const char *displayName,
                             int category)
 {
+    if (category == AUDIO_CAT_VOICE) {
+        return importVoiceArchive(filePath, displayName);
+    }
     if (!filePath || !filePath[0] || !displayName || !displayName[0]) {
         snprintf(s_AudioStatusMsg, sizeof(s_AudioStatusMsg),
                  "Import failed: file path and name are required");
@@ -857,7 +1047,9 @@ void pdguiAudioModRender(float contentW, float contentH, float scale)
     ImGui::TextUnformatted("IMPORT AUDIO");
     ImGui::PopStyleColor();
     ImGui::SameLine();
-    ImGui::TextDisabled("  MP3, WAV, OGG");
+    ImGui::TextDisabled(s_ImportCategory == AUDIO_CAT_VOICE
+        ? "  Voice: WAV or MP3 -> localized .pdvoice"
+        : "  MP3, WAV, OGG");
     ImGui::Spacing();
 
     /* File path + Browse button — description text ABOVE the input */
@@ -893,11 +1085,10 @@ void pdguiAudioModRender(float contentW, float contentH, float scale)
         }
     }
 
-    /* Name + Category + Import button */
+    /* Name + Category */
     {
         float nameW = contentW * 0.40f;
         float catW  = 100.0f * scale;
-        float impBtnW = 100.0f * scale;
 
         ImGui::SetNextItemWidth(nameW);
         ImGui::InputText("##aud_impname", s_ImportName, sizeof(s_ImportName));
@@ -908,21 +1099,70 @@ void pdguiAudioModRender(float contentW, float contentH, float scale)
         ImGui::SetNextItemWidth(catW);
         const char *catItems[] = { "SFX", "Music", "Voice" };
         ImGui::Combo("##aud_impcat", &s_ImportCategory, catItems, 3);
+    }
 
+    if (s_ImportCategory == AUDIO_CAT_VOICE) {
+        const char *localeItems[] = { "English", "French", "German",
+                                      "Italian", "Spanish", "Japanese" };
+        ImGui::Spacing();
+        ImGui::TextDisabled("Voice metadata and localization");
+        ImGui::SetNextItemWidth(contentW * 0.45f);
+        ImGui::InputText("Actor##aud_voice", s_ImportVoiceActor,
+                         sizeof(s_ImportVoiceActor));
+        ImGui::SetNextItemWidth(contentW * 0.70f);
+        ImGui::InputText("Context##aud_voice", s_ImportVoiceContext,
+                         sizeof(s_ImportVoiceContext));
+        ImGui::SetNextItemWidth(150.0f * scale);
+        ImGui::Combo("Audio locale##aud_voice", &s_ImportVoiceLocale,
+                     localeItems, 6);
         ImGui::SameLine();
+        ImGui::SetNextItemWidth(150.0f * scale);
+        ImGui::Combo("Fallback##aud_voice", &s_ImportVoiceFallbackLocale,
+                     localeItems, 6);
+        ImGui::TextDisabled("Subtitle (UTF-8; saved to subtitle.json)");
+        ImGui::InputTextMultiline("##aud_voice_subtitle", s_ImportVoiceSubtitle,
+                                  sizeof(s_ImportVoiceSubtitle),
+                                  ImVec2(contentW, 54.0f * scale));
+    }
 
-        bool canImport = (s_ImportFilePath[0] != '\0' && s_ImportName[0] != '\0');
+    /* Import uses ordinary ImGui navigation, which is fed by the menu action
+     * map for both MKB and controller. The visible label resolves from the
+     * same binding/glyph authority instead of hard-coding Enter or A. */
+    {
+        char acceptGlyph[24];
+        char cancelGlyph[24];
+        char importLabel[96];
+        pdguiGlyphGetActionLabel(ACTION_MENU_ACCEPT, acceptGlyph,
+                                 (s32)sizeof(acceptGlyph));
+        pdguiGlyphGetActionLabel(ACTION_MENU_CANCEL, cancelGlyph,
+                                 (s32)sizeof(cancelGlyph));
+        snprintf(importLabel, sizeof(importLabel), "Import [%s]##aud",
+                 acceptGlyph);
+
+        bool canImport = s_ImportFilePath[0] != '\0' && s_ImportName[0] != '\0';
+        if (s_ImportCategory == AUDIO_CAT_VOICE) {
+            canImport = canImport && s_ImportVoiceActor[0] != '\0'
+                && s_ImportVoiceContext[0] != '\0'
+                && s_ImportVoiceSubtitle[0] != '\0';
+        }
         if (!canImport) ImGui::BeginDisabled();
-        if (PdButtonAudio("Import##aud", ImVec2(impBtnW, 0.0f))) {
+        if (PdButtonAudio(importLabel, ImVec2(124.0f * scale, 0.0f))) {
             if (importAudioFile(s_ImportFilePath, s_ImportName, s_ImportCategory)) {
                 pdguiAudioModRefresh();
                 s_ImportFilePath[0] = '\0';
                 s_ImportName[0]     = '\0';
+                if (s_ImportCategory == AUDIO_CAT_VOICE) {
+                    s_ImportVoiceActor[0] = '\0';
+                    s_ImportVoiceContext[0] = '\0';
+                    s_ImportVoiceSubtitle[0] = '\0';
+                }
             } else {
                 pdguiPlaySound(PDGUI_SND_ERROR);
             }
         }
         if (!canImport) ImGui::EndDisabled();
+        ImGui::SameLine();
+        ImGui::TextDisabled("[%s] Activate   [%s] Back", acceptGlyph, cancelGlyph);
     }
 
     /* ---- Footer: status with flash effect ---- */

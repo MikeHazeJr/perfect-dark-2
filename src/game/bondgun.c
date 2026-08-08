@@ -33,6 +33,7 @@
 #include "game/mtxf2lbulk.h"
 #include "game/gfxmemory.h"
 #include "game/sight.h"
+#include "pdgui_weapon_reticle.h"
 #include "game/inv.h"
 #include "game/playermgr.h"
 #include "game/smoke.h"
@@ -14810,6 +14811,7 @@ void bgunSetSightVisible(u32 reason, bool visible)
 
 Gfx *bgunDrawSight(Gfx *gdl)
 {
+	pdguiWeaponReticleClear();
 	if (!assetRuntimeHudElementEnabled(HUD_ELEM_CROSSHAIR)) {
 		return gdl;
 	}

@@ -20,6 +20,7 @@
 #include <stdarg.h>
 #include <stdio.h>
 #include <stddef.h>
+#include <stdlib.h>
 #include <string.h>
 #include "platform.h"
 #include "types.h"
@@ -72,9 +73,30 @@ void configRegisterInt(const char *key, s32 *var, s32 min, s32 max)
     (void)max;
 }
 
+static const char *s_TestFsPath;
+static const void *s_TestFsBytes;
+static u32 s_TestFsSize;
+
+void testStubFsFileLoadWith(const char *path, const void *bytes, u32 size)
+{
+    s_TestFsPath = path;
+    s_TestFsBytes = bytes;
+    s_TestFsSize = size;
+}
+
 void *fsFileLoad(const char *name, u32 *outSize)
 {
-    (void)name;
+    if (name && s_TestFsPath && strcmp(name, s_TestFsPath) == 0 &&
+            s_TestFsBytes && s_TestFsSize > 0) {
+        void *copy = malloc(s_TestFsSize);
+        if (!copy) {
+            if (outSize) *outSize = 0;
+            return NULL;
+        }
+        memcpy(copy, s_TestFsBytes, s_TestFsSize);
+        if (outSize) *outSize = s_TestFsSize;
+        return copy;
+    }
     if (outSize) {
         *outSize = 0;
     }
@@ -89,10 +111,25 @@ void *fsFileLoad(const char *name, u32 *outSize)
  * and stores the id string verbatim. That's the deterministic path we
  * want under test.
  * ------------------------------------------------------------------------- */
+static const asset_entry_t *s_TestResolvedAsset;
+
+void testStubAssetCatalogResolveWith(const asset_entry_t *entry)
+{
+    s_TestResolvedAsset = entry;
+}
+
 const asset_entry_t *assetCatalogResolve(const char *id)
 {
-    (void)id;
+    if (s_TestResolvedAsset && id &&
+            strcmp(s_TestResolvedAsset->id, id) == 0) {
+        return s_TestResolvedAsset;
+    }
     return NULL;
+}
+
+void sysMemFree(void *ptr)
+{
+    free(ptr);
 }
 
 asset_entry_t *assetCatalogGetMutable(const char *id)

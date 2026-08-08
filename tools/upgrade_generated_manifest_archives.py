@@ -186,7 +186,6 @@ def update_manifest(ext: str, manifest: dict, values: dict[str, str],
             "scenario_graph_cache",
             "mission_graph_file",
             "objectives_file",
-            "briefing_file",
             "category",
         ):
             changed |= copy_string(manifest, values, key)

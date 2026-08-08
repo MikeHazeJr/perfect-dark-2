@@ -687,13 +687,10 @@ s32 assetRuntimeActivateCatalogEntry(const asset_entry_t *entry,
                entry->ext.mission.scenario_archive);
         s_copy(binding->dependency_b, sizeof(binding->dependency_b),
                entry->ext.mission.objectives_file);
-        s_copy(binding->dependency_c, sizeof(binding->dependency_c),
-               entry->ext.mission.briefing_file);
         return s_finishFileBinding(binding,
             s_hasText(binding->authored_file) &&
             s_hasText(binding->dependency_a) &&
-            s_hasText(binding->dependency_b) &&
-            s_hasText(binding->dependency_c));
+            s_hasText(binding->dependency_b));
 
     case ASSET_GAMEMODE:
         s_copy(binding->authored_file, sizeof(binding->authored_file),

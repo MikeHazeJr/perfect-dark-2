@@ -1,6 +1,6 @@
 # Catalog System
 
-## 2026-08-08 typed character and voice handoff
+## 2026-08-08 typed character, voice, and weapon-reticle handoff
 
 Top-level `.pdcharacter` rows now retain public body/head catalog IDs and a
 display name through scanning, base walking, and runtime binding. The room
@@ -17,6 +17,26 @@ loads the selected localized subtitle; and unreadable declared source refuses
 the old descriptor/native fallback. Automated conformance and source checks
 pass. Workbench `T-ASSETS-021` remains below `validated` until an ordinary-game
 edited locale sample and subtitle receipt is captured.
+
+The public subtitle JSON reader now implements the complete JSON UTF-16 escape
+contract: a valid high/low surrogate pair is combined into one non-BMP UTF-8
+code point, while lone, reversed, or mismatched surrogates reject the archive.
+The same validation applies while skipping unknown JSON string fields, so an
+ignored value cannot smuggle malformed source through registration.
+`T-ASSETS-031` is `implemented`: the coordinated source-frozen build, focused
+Unicode band, full 159-case `.pdxxx` regression, and source guard pass. Live
+localized subtitle rendering remains before validation.
+
+Weapon presentation can now name a human-readable catalog reticle ID. Nested
+`.pdui` is registered before the owning `.pdweapon`; weapon compilation
+requires an enabled UI row with a declared, readable PNG/TGA source and valid
+image header; and the production sight path resolves the held weapon record
+into the HUD renderer. Hot local/network rows are decoded lazily through the
+same catalog-backed theme texture cache. A selected missing, corrupt, disabled,
+or wrong-type row rejects the weapon instead of substituting the native
+reticle. Workbench `T-ASSETS-023` is implemented; the combined build and full
+regression pass after widening UI source fields to preserve complete nested
+archive-chain paths. Ordinary-client edited/negative/device proof is pending.
 
 > Single source of truth for asset identity. String-keyed, namespace-scoped, hash-indexed. Every asset reference uses a human-readable catalog ID.
 

@@ -182,6 +182,72 @@ static void s_clearPath(char *out, size_t out_n)
 	}
 }
 
+static s32 s_missionPublicMemberPath(const char *ini, size_t ini_len,
+	const char *archive_path, const char *key, char *out, size_t out_n)
+{
+	char member[FS_MAXPATH + 1];
+
+	if (!loaderWalkerIniValueCopy(ini, ini_len, "mission", key,
+			member, sizeof(member)) || !member[0]) {
+		return 0;
+	}
+	return loaderWalkerArchiveMemberPath(archive_path, member, out, out_n);
+}
+
+static s32 s_applyMissionPublicDescriptor(asset_entry_t *entry,
+	const char *archive_path)
+{
+	char *ini = NULL;
+	size_t ini_len = 0;
+	char catalog_id[CATALOG_ID_LEN];
+	char obsolete[FS_MAXPATH + 1];
+	char obsolete_path[FS_MAXPATH + 1];
+	s32 ok = 0;
+
+	if (!entry || !loaderWalkerArchiveTextMember(archive_path, "mission.ini",
+			&ini, &ini_len)) {
+		return 0;
+	}
+
+	catalog_id[0] = '\0';
+	obsolete[0] = '\0';
+	if (!loaderWalkerIniValueCopy(ini, ini_len, "mission", "catalog_id",
+			catalog_id, sizeof(catalog_id)) || strcmp(catalog_id, entry->id) != 0) {
+		goto done;
+	}
+	/* T-ASSETS-014: briefing records and their language tokens are already
+	 * authoritative in the embedded public scenario setup.fields.json. Refuse
+	 * the retired synthetic slot so a mission can never expose two authored
+	 * briefing sources. */
+	if (loaderWalkerIniValueCopy(ini, ini_len, "mission", "briefing_file",
+			obsolete, sizeof(obsolete))) {
+		goto done;
+	}
+	if (loaderWalkerArchiveMemberPath(archive_path, "briefing.json",
+			obsolete_path, sizeof(obsolete_path)) && fsFileSize(obsolete_path) > 0) {
+		goto done;
+	}
+	if (!s_missionPublicMemberPath(ini, ini_len, archive_path,
+			"scenario_archive", entry->ext.mission.scenario_archive,
+			sizeof(entry->ext.mission.scenario_archive)) ||
+			!s_missionPublicMemberPath(ini, ini_len, archive_path,
+			"objectives_file", entry->ext.mission.objectives_file,
+			sizeof(entry->ext.mission.objectives_file)) ||
+			!s_missionPublicMemberPath(ini, ini_len, archive_path,
+			"mission_graph_file", entry->ext.mission.mission_graph_file,
+			sizeof(entry->ext.mission.mission_graph_file)) ||
+			fsFileSize(entry->ext.mission.scenario_archive) <= 0 ||
+			fsFileSize(entry->ext.mission.objectives_file) <= 0 ||
+			fsFileSize(entry->ext.mission.mission_graph_file) <= 0) {
+		goto done;
+	}
+	ok = 1;
+
+done:
+	sysMemFree(ini);
+	return ok;
+}
+
 static asset_entry_t *s_getOrRegisterMetaEntry(const char *id, asset_type_e type)
 {
 	asset_entry_t *entry = assetCatalogGetMutable(id);
@@ -366,28 +432,8 @@ static void s_applyTypeFields(asset_entry_t *entry,
 			sizeof(entry->ext.mission.scenario_archive));
 		s_clearPath(entry->ext.mission.objectives_file,
 			sizeof(entry->ext.mission.objectives_file));
-		s_clearPath(entry->ext.mission.briefing_file,
-			sizeof(entry->ext.mission.briefing_file));
 		s_clearPath(entry->ext.mission.mission_graph_file,
 			sizeof(entry->ext.mission.mission_graph_file));
-		s_copyManifestMemberPath(manifest, manifest_len, "scenario_archive",
-			archive_path, entry->ext.mission.scenario_archive,
-			sizeof(entry->ext.mission.scenario_archive));
-		s_copyManifestMemberPath(manifest, manifest_len, "objectives_file",
-			archive_path, entry->ext.mission.objectives_file,
-			sizeof(entry->ext.mission.objectives_file));
-		s_copyManifestMemberPath(manifest, manifest_len, "briefing_file",
-			archive_path, entry->ext.mission.briefing_file,
-			sizeof(entry->ext.mission.briefing_file));
-		if (!s_copyManifestMemberPath(manifest, manifest_len,
-				"mission_graph_file", archive_path,
-				entry->ext.mission.mission_graph_file,
-				sizeof(entry->ext.mission.mission_graph_file))) {
-			strncpy(entry->ext.mission.mission_graph_file, source_path,
-				sizeof(entry->ext.mission.mission_graph_file) - 1);
-			entry->ext.mission.mission_graph_file[
-				sizeof(entry->ext.mission.mission_graph_file) - 1] = '\0';
-		}
 		break;
 	case ASSET_THEME:
 		s_clearPath(entry->ext.theme.theme_file,
@@ -402,29 +448,13 @@ static void s_applyTypeFields(asset_entry_t *entry,
 			sizeof(entry->ext.theme.music_archive));
 		s_clearPath(entry->ext.theme.effect_archive,
 			sizeof(entry->ext.theme.effect_archive));
-		if (!s_copyManifestMemberPath(manifest, manifest_len, "theme_file",
-				archive_path, entry->ext.theme.theme_file,
-				sizeof(entry->ext.theme.theme_file))) {
-			strncpy(entry->ext.theme.theme_file, source_path,
-				sizeof(entry->ext.theme.theme_file) - 1);
-			entry->ext.theme.theme_file[
-				sizeof(entry->ext.theme.theme_file) - 1] = '\0';
-		}
-		s_copyManifestMemberPath(manifest, manifest_len, "ui_archive",
-			archive_path, entry->ext.theme.ui_archive,
-			sizeof(entry->ext.theme.ui_archive));
-		s_copyManifestMemberPath(manifest, manifest_len, "font_archive",
-			archive_path, entry->ext.theme.font_archive,
-			sizeof(entry->ext.theme.font_archive));
-		s_copyManifestMemberPath(manifest, manifest_len, "audio_archive",
-			archive_path, entry->ext.theme.audio_archive,
-			sizeof(entry->ext.theme.audio_archive));
-		s_copyManifestMemberPath(manifest, manifest_len, "music_archive",
-			archive_path, entry->ext.theme.music_archive,
-			sizeof(entry->ext.theme.music_archive));
-		s_copyManifestMemberPath(manifest, manifest_len, "effect_archive",
-			archive_path, entry->ext.theme.effect_archive,
-			sizeof(entry->ext.theme.effect_archive));
+		/* T-ASSETS-026: _meta/manifest.json is compatibility/provenance only.
+		 * The public descriptor fixes theme.json as the authored source. Nested
+		 * dependency ownership is parsed from theme.ini by T-ASSETS-027; never
+		 * let private manifest fields replace public theme authority here. */
+		loaderWalkerArchiveMemberPath(archive_path, "theme.json",
+			entry->ext.theme.theme_file,
+			sizeof(entry->ext.theme.theme_file));
 		break;
 	case ASSET_HUD:
 		s_clearPath(entry->ext.hud.texture_file,
@@ -603,7 +633,13 @@ static s32 s_registerMeta(const char *manifest, size_t manifest_len,
 		return -1;
 	}
 
-	if (!s_firstManifestMember(manifest, manifest_len, meta,
+	if (meta->type == ASSET_THEME) {
+		strncpy(member, "theme.json", sizeof(member) - 1);
+		member[sizeof(member) - 1] = '\0';
+	} else if (meta->type == ASSET_MISSION) {
+		strncpy(member, "mission.graph.json", sizeof(member) - 1);
+		member[sizeof(member) - 1] = '\0';
+	} else if (!s_firstManifestMember(manifest, manifest_len, meta,
 			member, sizeof(member))) {
 		return -1;
 	}
@@ -613,9 +649,17 @@ static s32 s_registerMeta(const char *manifest, size_t manifest_len,
 		return -1;
 	}
 
+	s_applyTypeFields(entry, manifest, manifest_len, source_path, file_path);
+	if (meta->type == ASSET_MISSION &&
+			!s_applyMissionPublicDescriptor(entry, file_path)) {
+		entry->enabled = 0;
+		sysLogPrintf(LOG_ERROR,
+			"LOADER.UNIVERSAL.META: invalid public mission source '%s'",
+			file_path);
+		return -1;
+	}
 	loaderWalkerMarkBaseArchiveEntry(entry);
 	catalogSetPrimaryFile(entry, source_path);
-	s_applyTypeFields(entry, manifest, manifest_len, source_path, file_path);
 	return 1;
 }
 
@@ -627,7 +671,7 @@ static const meta_walker_desc_t s_MetaFamilies[] = {
 	{ ASSET_SKIN,        "skin",       "skins",       ".pdskin",       "skin.ini",      { "skin_file", "swatches_file", "material_archive", "texture_archive" } },
 	{ ASSET_PROP,        "prop",       "props",       ".pdprop",       "prop.ini",      { "model_file", "prop_file", "behavior_graph", NULL } },
 	{ ASSET_VEHICLE,     "vehicle",    "vehicles",    ".pdvehicle",    "vehicle.ini",   { "model_file", "behavior_graph", "physics_file", NULL } },
-	{ ASSET_MISSION,     "mission",    "missions",    ".pdmission",    "mission.ini",   { "mission_graph_file", "objectives_file", "briefing_file", "scenario_archive" } },
+	{ ASSET_MISSION,     "mission",    "missions",    ".pdmission",    "mission.ini",   { "mission_graph_file", "objectives_file", "scenario_archive", NULL } },
 	{ ASSET_GAMEMODE,    "gamemode",   "gamemodes",   ".pdgamemode",   "rules.json",    { "rules_file", NULL, NULL, NULL } },
 	{ ASSET_BOT_PROFILE, "botprofile", "botprofiles", ".pdbotprofile", "profile.json",  { "profile_file", NULL, NULL, NULL } },
 	{ ASSET_HUD,         "hud",        "hud",         ".pdhud",        "layout.json",   { "layout_file", "texture_file", NULL, NULL } },

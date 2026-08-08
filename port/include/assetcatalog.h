@@ -439,9 +439,9 @@ typedef struct asset_entry {
             char layout_file[128];     /* layout/source path for engine-rendered HUD */
         } hud;
         struct {
-            char texture_file[128];    /* public image source, usually texture.png/tga */
-            char layout_file[128];     /* optional structured layout source */
-            char nineslice_file[128];  /* optional nine-slice metadata source */
+            char texture_file[FS_MAXPATH];    /* public image source, usually texture.png/tga */
+            char layout_file[FS_MAXPATH];     /* optional structured layout source */
+            char nineslice_file[FS_MAXPATH];  /* optional nine-slice metadata source */
             char texture_name[64];     /* authored atlas/chrome slot name */
             s32 width;
             s32 height;
@@ -476,7 +476,6 @@ typedef struct asset_entry {
         struct {
             char scenario_archive[FS_MAXPATH]; /* required scenario dependency */
             char objectives_file[128];  /* mission objective authoring source */
-            char briefing_file[128];    /* briefing/localized text source */
             char mission_graph_file[128]; /* campaign flow graph source */
         } mission;
         struct {

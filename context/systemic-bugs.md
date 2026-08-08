@@ -27,6 +27,13 @@ paths without registering or consuming any of them and accepted many inert
 fields. A non-empty example and recursive typed-dependency proof are now part
 of this pattern's closure checklist.
 
+**2026-08-08 creator propagation:** B-982 exposed the creator-side equivalent:
+an in-game tool can advertise a typed family while writing a parallel legacy
+loose format and transient catalog row. Creator audits must inspect the exact
+saved artifact, restart discovery, hot registration, network distribution,
+field-level runtime consumption, and last-good-file behavior. A menu label such
+as "Voice" is not evidence that the tool writes or reloads `.pdvoice`.
+
 **Audit:** Cross-check every generated/example source key against its production
 parser and downstream consumer, not only descriptor/manifest conformance.
 

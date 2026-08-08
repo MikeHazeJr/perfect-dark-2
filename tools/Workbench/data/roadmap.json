@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "project": "Perfect Dark 2",
-  "updated": "2026-08-08T19:16:12.876Z",
+  "updated": "2026-08-08T19:51:38.906Z",
   "items": [
     {
       "type": "task",
@@ -2037,10 +2037,10 @@
       "type": "asset",
       "title": ".pdmission public source and production runtime chain",
       "area": "ASSETS",
-      "status": "partial",
+      "status": "implemented",
       "phase": 1,
       "lane": "family-audit",
-      "owner": "ultra",
+      "owner": "codex-roadmap-continuation-20260808",
       "deps": [
         "T-ASSETS-001",
         "T-ASSETS-014"
@@ -2049,17 +2049,21 @@
         "context/audits/2026/asset-pipeline-full-chain-audit-2026-07-30.md",
         "port/src/scenario_source_runtime.c",
         "src/game/setup.c:setupLoadBriefing",
-        "context/bugs.md:B-959"
+        "context/bugs.md:B-959",
+        "T-ASSETS-014 implemented with source-frozen build/test/conformance receipt",
+        "context/bugs.md:B-984",
+        "context/evidence/2026-08-08-assetwave3-verification.md"
       ],
-      "detail": "Mission graph, objective-source rows, phase transitions and parity-backend dispatch are production-consumed by scenario_source_runtime; the nested Scenario reconstructs briefing/objective setup records used by setupLoadBriefing. The remaining partial contract is the redundant placeholder briefing.json, which is not an independent runtime authority.",
+      "detail": "The public mission wrapper is production-connected without duplicate authored authority: mission graph, objectives, phases/parity, and nested .pdscenario are bound from mission.ini; nested scenario setup fields are the sole briefing source compiled and consumed by setupLoadBriefing. Automated build, full pdxxx regression, strict recursive conformance, and native-source guard pass. Live edited-source display/restart/network capture remains the validation gate.",
       "tags": [
         "asset-family",
         "asset-family:pdmission",
         "descriptor:mission.ini"
       ],
       "id": "A-ASSETS-024",
-      "updated": "2026-08-01T12:52:59.870Z",
-      "created": "2026-07-30T15:32:27.865Z"
+      "updated": "2026-08-08T19:51:38.831Z",
+      "created": "2026-07-30T15:32:27.865Z",
+      "model": "gpt-5.6"
     },
     {
       "type": "asset",
@@ -2186,24 +2190,27 @@
         "T-ASSETS-015"
       ],
       "evidence": [
-        "tools/build_typed_pdxxx_examples.py:update_theme",
-        "examples/modding/typed-pdxxx-basic/themes/tri_theme.pdtheme",
-        "port/fast3d/pdgui_theme_loader.cpp:parse_theme_json",
-        "tests/test_mod_external_archive_static.cpp: creator theme parser-schema assertions",
-        "context/bugs.md:B-971",
-        "pd-tests [modding][pdxxx]: 141 cases / 15643 assertions PASS",
-        "27-family recursive conformance PASS",
-        ".claude/smoke-verify-runs/results-20260730T185923Z.json: 58/58 PASS"
+        "T-ASSETS-026",
+        "port/include/pdtheme_source.h",
+        "port/src/pdtheme_source.cpp",
+        "port/fast3d/pdgui_theme_loader.cpp",
+        "port/src/loader_walker_meta.c",
+        "tools/asset_archive_conformance.py",
+        "tests/test_pdtheme_source.cpp:3 cases / 19 assertions PASS",
+        "strict theme conformance: 1 root / 6 recursive PASS",
+        "combined preflight: 28 root / 53 recursive / 27 families + native-source guard PASS",
+        "context/bugs.md:B-980"
       ],
-      "detail": "Theme JSON palette/style loading is production-live. B-971 corrected the creator example from ignored accent/chrome keys to the exact pd2.theme.v1 identity and named palette schema. Optional dependency ownership and missing-binding fallback remain partial.",
+      "detail": "Public theme.ini/theme.json authority and strict pd2.theme.v1 discovery/activation parsing are implemented under T-ASSETS-026, including fail-closed identity/schema/type/range/cap validation and removal of private-manifest, duplicate-palette, raw-font-path, and broken-source built-in substitution behavior. The family remains partial: T-ASSETS-027 through T-ASSETS-030 still own recursive dependency lifecycle, retained field consumers, self-contained creator output, network/restart parity, and ordinary-client MKB/controller glyph proof.",
       "tags": [
         "asset-family",
         "asset-family:pdtheme",
         "descriptor:theme.ini"
       ],
       "id": "A-ASSETS-028",
-      "updated": "2026-08-01T12:52:59.862Z",
-      "created": "2026-07-30T15:32:27.881Z"
+      "updated": "2026-08-08T19:36:10.948Z",
+      "created": "2026-07-30T15:32:27.881Z",
+      "model": "GPT-5.6"
     },
     {
       "title": "B-953: connect every pdgamemode source field to production behavior",
@@ -2853,9 +2860,9 @@
       "model": "GPT-5.6"
     },
     {
-      "status": "missing",
+      "status": "implemented",
       "phase": 3,
-      "owner": "unassigned",
+      "owner": "codex-roadmap-continuation-20260808",
       "title": "Make .pdmission briefing and wrapper source canonical and comprehensive",
       "area": "ASSETS",
       "deps": [
@@ -2865,7 +2872,21 @@
       "evidence": [
         "A-ASSETS-024",
         "port/src/scenario_source_runtime.c",
-        "src/game/setup.c:setupLoadBriefing"
+        "src/game/setup.c:setupLoadBriefing",
+        "port/src/romextract_pdmeta.c:s_emitMission emits synthetic placeholder briefing.json",
+        "port/src/romextract_pdarena.c emits real briefing.kind/text_token rows into nested scenario setup.fields.json",
+        "port/src/scenario_source_runtime.c compiles OBJTYPE_BRIEFING fields",
+        "src/game/setup.c:setupLoadBriefing consumes required scenario source handle",
+        "port/src/loader_walker_meta.c: mission.ini is authoritative and retired briefing slots fail closed",
+        "port/src/romextract_pdmeta.c: v14 extraction removes synthetic briefing and forces rebuild",
+        "tools/asset_archive_conformance.py: nested scenario briefing authority required",
+        "tests/test_asset_runtime_adapters.cpp + tests/test_asset_native_source_contract.cpp + tests/test_mod_external_archive_static.cpp",
+        "assetwave3 final client/updater/pd-tests builds PASS",
+        "pd-tests [modding][pdxxx]: 159 cases / 15847 assertions PASS",
+        "strict conformance: 28 root / 53 recursive / all 27 families PASS",
+        "tools/asset_native_source_guard.py PASS",
+        "context/bugs.md:B-984",
+        "context/evidence/2026-08-08-assetwave3-verification.md"
       ],
       "tags": [
         "handoff:ultra",
@@ -2874,11 +2895,12 @@
         "public-contract",
         "production-path"
       ],
-      "detail": "Resolve the redundant placeholder briefing.json contract so creators see exactly one truthful editable authority. Either make the member feed setupLoadBriefing and mission UI directly or remove/version it in favor of the canonical nested Scenario source; do not retain duplicate authored state. Re-extract base missions, update schemas/tools, and prove briefing, objectives, graph, phases, and parity dispatch round-trip and run from public source.",
+      "detail": "Implemented one authoritative mission briefing chain: mission.ini binds graph, objectives, and the nested public scenario; setup.fields.json briefing.kind/text_token compiles through scenario_source_runtime into the setup handle consumed by setupLoadBriefing. Synthetic briefing.json and briefing_file were removed across extraction, manifest, catalog/runtime/distribution, examples, upgrader, and conformance; legacy duplicate source fails closed; extraction cache v14 forces installed rebuild. Source-frozen client/updater/tests, 159-case pdxxx regression, strict 27-family conformance, and source guard pass. Ordinary-client edited briefing display, restart, and listen-host parity remain before validated.",
       "type": "task",
       "id": "T-ASSETS-014",
-      "updated": "2026-08-08T16:53:40.310Z",
-      "created": "2026-08-01T12:51:42.466Z"
+      "updated": "2026-08-08T19:51:38.771Z",
+      "created": "2026-08-01T12:51:42.466Z",
+      "model": "gpt-5.6"
     },
     {
       "status": "missing",
@@ -3362,14 +3384,30 @@
       "deps": [
         "T-ASSETS-004"
       ],
-      "owner": "unassigned",
+      "owner": "codex-roadmap-continuation-20260808",
       "type": "task",
       "title": "Render catalog-backed custom .pdui weapon reticles",
-      "status": "missing",
+      "status": "implemented",
       "lane": "weapon-reticle",
-      "evidence": [],
+      "evidence": [
+        "port/src/assetcatalog_scanner.c: nested .pdui is registered in the UI-first weapon dependency pass",
+        "port/src/weapon_graph_runtime.c: catalog-ID presentation binding plus strict enabled/type/declared PNG-or-TGA header validation fails weapon registration closed",
+        "src/game/sight.c + src/game/bondgun.c: selected held-weapon reticle is queued from the actual sight path and cleared on HUD suppression while target tracking remains intact",
+        "port/fast3d/pdgui_weapon_reticle.cpp + port/fast3d/pdgui_backend.cpp: HUD-space-to-live-viewport image rendering on the production overlay, with no SDL/action-map reads",
+        "port/fast3d/pdgui_theme.cpp: lazy decoding of hot local/network ASSET_UI catalog source without synthetic custom fallback",
+        "tools/build_typed_pdxxx_examples.py + examples/modding/typed-pdxxx-basic/weapons/tri_weapon.pdweapon: creator example declares, embeds, and selects example:tri_reticle",
+        "tests/test_mod_external_archive_static.cpp + tests/test_asset_native_source_contract.cpp [T-ASSETS-023]: 1 case / 27 assertions PASS",
+        "Combined archive preflight: 28 root / 53 recursive archives across all 27 families PASS",
+        "python tools/asset_native_source_guard.py: PASS in combined root preflight",
+        "Initial independent all-target client compile found missing Gfx type include in the new renderer; <ultra64.h> was added. Final source-frozen combined build remains pending under root coordination.",
+        "assetwave3 final client/updater/pd-tests builds PASS",
+        "pd-tests [reticle]: 2 cases / 36 assertions PASS",
+        "pd-tests [modding][pdxxx]: 159 cases / 15847 assertions PASS",
+        "context/bugs.md:B-985 nested UI path capacity repair",
+        "context/evidence/2026-08-08-assetwave3-verification.md"
+      ],
       "phase": 3,
-      "detail": "Define and connect a catalog-ID reticle binding from public weapon presentation to the production HUD renderer with active-device/menu safety. Fail closed on a declared missing reticle and prove an edited creator reticle in gameplay.",
+      "detail": "Public .pdweapon presentation binds a catalog-ID reticle from embedded .pdui into the real sight/HUD renderer. Nested UI registers before weapon parsing; full-length archive-chain paths are preserved; missing, corrupt, disabled, or wrong-type selected source rejects registration instead of falling back. Source-frozen client/updater/tests, reticle focus, full pdxxx regression, strict conformance, and source guard pass. Ordinary-client edited/negative long-path, aim/target, MKB/controller, and live-glyph evidence remain before validated.",
       "tags": [
         "asset-family:pdweapon",
         "handoff:ultra",
@@ -3378,8 +3416,9 @@
         "production-path"
       ],
       "id": "T-ASSETS-023",
-      "updated": "2026-08-08T17:05:35.620Z",
-      "created": "2026-08-08T17:05:35.620Z"
+      "updated": "2026-08-08T19:51:38.838Z",
+      "created": "2026-08-08T17:05:35.620Z",
+      "model": "gpt-5.6"
     },
     {
       "area": "ASSETS",
@@ -3430,17 +3469,33 @@
     },
     {
       "deps": [],
-      "status": "missing",
+      "status": "implemented",
       "title": "Make .pdtheme public source strict and authoritative",
       "area": "ASSETS",
       "type": "task",
       "lane": "runtime-utilization",
       "evidence": [
-        "T-ASSETS-015",
-        "A-ASSETS-028"
+        "port/include/pdtheme_source.h",
+        "port/src/pdtheme_source.cpp",
+        "port/fast3d/pdgui_theme_loader.cpp",
+        "port/fast3d/pdgui_style.cpp:pdguiGetBuiltinPaletteRaw",
+        "port/src/loader_walker_meta.c:ASSET_THEME public theme.json binding",
+        "tools/asset_archive_conformance.py:strict theme.ini/theme.json contract",
+        "tools/build_typed_pdxxx_examples.py:manifest compatibility-only authority",
+        "examples/modding/typed-pdxxx-basic/themes/tri_theme.pdtheme",
+        "tests/test_pdtheme_source.cpp:3 cases / 19 assertions PASS",
+        ".claude/session-builds/themeschema: pd-tests compile PASS",
+        "focused theme conformance: 1 root / 6 recursive PASS",
+        "combined archive preflight: 28 root / 53 recursive / all 27 families PASS",
+        "tools/asset_native_source_guard.py PASS (combined root receipt)",
+        "context/bugs.md:B-980 partial-fix truth",
+        "assetwave3 final client/updater/pd-tests builds PASS",
+        "pd-tests [T-ASSETS-026]: 3 cases / 19 assertions PASS",
+        "pd-tests [modding][pdxxx]: 159 cases / 15847 assertions PASS",
+        "context/evidence/2026-08-08-assetwave3-verification.md"
       ],
-      "detail": "Replace private _meta manifest and loose-theme authority with one strict theme.ini plus theme.json parser. Validate schema, catalog identity, types, ranges, duplicate fields and capacity; remove raw paths, duplicate hardcoded palette tables, unreachable duplicate font branch, and fail-open built-in fallback. Built-in extraction must be source-hashed and activation transactional.",
-      "owner": "unassigned",
+      "detail": "Implemented strict authoritative public .pdtheme source for discovery, base walking, extraction/example generation, conformance, and production activation. theme.ini owns identity/source/dependency declarations; theme.json must be pd2.theme.v1 with exact catalog identity, known fields, strict types/ranges/caps and catalog references. Duplicate fields, aliases, raw font paths, invalid numbers, private-manifest authority, duplicate palette authority, and built-in substitution for broken declared source are rejected. T-ASSETS-027 through T-ASSETS-030 remain separate for recursive dependency lifecycle, field-level consumers, creator archive workflow, network/restart parity, and live MKB/controller glyph proof.",
+      "owner": "ultra-theme-schema-20260808",
       "tags": [
         "asset-family:pdtheme",
         "parser",
@@ -3450,8 +3505,9 @@
       ],
       "phase": 3,
       "id": "T-ASSETS-026",
-      "updated": "2026-08-08T18:58:02.256Z",
-      "created": "2026-08-08T18:58:02.256Z"
+      "updated": "2026-08-08T19:51:38.844Z",
+      "created": "2026-08-08T18:58:02.256Z",
+      "model": "GPT-5.6"
     },
     {
       "deps": [],
@@ -3566,36 +3622,51 @@
       ],
       "area": "ASSETS",
       "title": "Decode JSON surrogate-pair escapes in .pdvoice subtitles",
-      "status": "missing",
+      "status": "implemented",
       "deps": [
         "T-ASSETS-021"
       ],
-      "owner": "unassigned",
-      "detail": "subtitle.json accepts UTF-8 text, but a standards-compliant JSON producer may encode non-BMP characters such as emoji as a high/low \\\\u surrogate pair. The current compact runtime parser encodes each half independently, yielding invalid UTF-8. Combine valid pairs into one code point, reject lone/mismatched surrogates, add positive microphone-emoji and negative malformed-pair tests, then rerun the focused voice/full pdxxx bands.",
+      "owner": "lina-voice-creator-20260808",
+      "detail": "Production subtitle parsing now combines valid UTF-16 surrogate pairs into one non-BMP UTF-8 code point and rejects lone, reversed, and mismatched pairs, including skipped unknown values. Source-frozen client/updater/tests and full pdxxx regression pass. Ordinary-client localized subtitle display remains validation evidence.",
       "type": "task",
       "evidence": [
-        "port/src/voice_locale_source.c:s_readString currently decodes each \\\\uXXXX independently",
-        "tests/test_voice_locale_source.cpp covers BMP escape but not a surrogate pair"
+        "port/src/voice_locale_source.c: surrogate-pair decode and strict rejection",
+        "tests/test_voice_locale_source.cpp: positive non-BMP and malformed-pair coverage",
+        "context/bugs.md B-982",
+        "assetwave3 final client/updater/pd-tests builds PASS",
+        "pd-tests [unicode]: 1 case / 5 assertions PASS",
+        "pd-tests [modding][pdxxx]: 159 cases / 15847 assertions PASS",
+        "tools/asset_native_source_guard.py PASS",
+        "context/evidence/2026-08-08-assetwave3-verification.md"
       ],
       "phase": 3,
       "id": "T-ASSETS-031",
-      "updated": "2026-08-08T19:11:21.776Z",
-      "created": "2026-08-08T19:11:21.776Z"
+      "updated": "2026-08-08T19:51:38.850Z",
+      "created": "2026-08-08T19:11:21.776Z",
+      "model": "gpt-5.6"
     },
     {
       "area": "MODDING",
-      "status": "missing",
-      "owner": "unassigned",
+      "status": "implemented",
+      "owner": "lina-voice-creator-20260808",
       "deps": [
         "T-ASSETS-021"
       ],
       "title": "Make Audio Mods voice import author a real localized .pdvoice archive",
       "lane": "creator-tools",
-      "detail": "Audio Mods currently advertises Voice import but writes the legacy loose [audio] descriptor with numeric category and directly registers a catalog row. It does not create the user-facing .pdvoice format or expose actor/context/subtitle/locales, so creator output diverges from the authoritative archive contract. Replace the Voice path with the shared typed archive writer, collect accessible voice/localization fields, validate before replacing the last good archive, immediately rescan the real archive, persist across restart, and prove MKB/controller/glyph operation plus an edited localized line/sample.",
+      "detail": "Audio Mods Voice import authors a release-validated atomic self-contained localized .pdvoice through the shared archive writer, preserves duration metadata, persists enabled mod discovery, hot-registers the typed archive, rebroadcasts in live listen-server mode, and shows action-map-derived accept/cancel glyph labels. Source-frozen build, focused creator tests, full pdxxx regression, strict conformance, and source guard pass. Ordinary-client MKB/controller author-save-restart, locale playback/subtitles, listen-host parity, device-switch glyph capture, and invalid-candidate last-good preservation remain before validated.",
       "phase": 3,
       "evidence": [
-        "port/fast3d/pdgui_menu_audiomod.cpp:importAudioFile writes mods/<slug>/audio.ini plus a loose copied file",
-        "The voice import UI exposes only name/category and cannot author actor, context, subtitle.json, fallback_locale, or locale audio members"
+        "port/include/voice_archive_authoring.h + port/src/voice_archive_authoring.c: testable staged typed archive author",
+        "port/fast3d/pdgui_menu_audiomod.cpp: accessible localized voice form, authoritative archive registration, action glyphs",
+        "tests/test_voice_archive_authoring.cpp: self-contained archive, last-good atomic rejection, and UI authority pins",
+        "context/bugs.md B-982",
+        "assetwave3 final client/updater/pd-tests builds PASS",
+        "pd-tests [creator]: 3 cases / 41 assertions PASS",
+        "pd-tests [modding][pdxxx]: 159 cases / 15847 assertions PASS",
+        "strict conformance: 28 root / 53 recursive / all 27 families PASS",
+        "tools/asset_native_source_guard.py PASS",
+        "context/evidence/2026-08-08-assetwave3-verification.md"
       ],
       "type": "task",
       "tags": [
@@ -3607,8 +3678,9 @@
         "glyphs"
       ],
       "id": "T-MODDING-007",
-      "updated": "2026-08-08T19:11:48.326Z",
-      "created": "2026-08-08T19:11:48.326Z"
+      "updated": "2026-08-08T19:51:38.906Z",
+      "created": "2026-08-08T19:11:48.326Z",
+      "model": "gpt-5.6"
     },
     {
       "area": "NETWORKING",

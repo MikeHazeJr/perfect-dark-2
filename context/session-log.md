@@ -1,5 +1,99 @@
 # Session Log (Active)
 
+## 2026-08-08 - Roadmap wave 3: mission, reticle, theme, and Voice creator
+
+Completed the third source-frozen Workbench wave. `T-ASSETS-014` removed the
+unused synthetic `.pdmission` `briefing.json` authority and made public
+`mission.ini` plus the nested `.pdscenario` setup fields the only briefing
+chain consumed by `setupLoadBriefing`. `T-ASSETS-023` connected an embedded
+catalog `.pdui` reticle to the real sight/HUD path and fails closed on broken
+declared source. `T-ASSETS-026` made public theme source strict and
+authoritative. `T-ASSETS-031` fixed non-BMP subtitle JSON, and
+`T-MODDING-007` now authors atomic localized `.pdvoice` archives with dynamic
+action glyphs.
+
+Verification found and fixed B-985: the catalog's 128-byte UI path fields
+truncated ordinary absolute nested archive chains, making a valid reticle
+unreadable. UI texture/layout/nine-slice paths now use `FS_MAXPATH`, and the
+behavior test pins the full nested source chain. The final isolated client,
+updater, and test builds pass; focused theme/creator/Unicode/reticle bands
+pass; full `[modding][pdxxx]` passes 159 cases / 15,847 assertions; strict
+conformance passes 28 root / 53 recursive archives across all 27 families;
+and the native-source guard passes. Durable receipt:
+`context/evidence/2026-08-08-assetwave3-verification.md`.
+
+The implementation items are not marked validated. Ordinary-client
+edited-source, missing/corrupt/type-mismatch, restart, listen-host/network,
+rendered output, MKB/controller, and device-switch glyph evidence remains in
+the Workbench validation gates and theme successor tasks.
+
+## 2026-08-08 - Voice JSON correctness and production archive creator
+
+Implemented the production seams for Workbench `T-ASSETS-031` and
+`T-MODDING-007` without overstating validation. Public `.pdvoice` subtitle JSON
+now decodes valid UTF-16 surrogate pairs into non-BMP UTF-8 and rejects lone,
+reversed, or mismatched surrogates, including malformed strings in skipped
+fields. Audio Mods Voice import no longer creates a loose `audio.ini`; it
+authors a self-contained localized `.pdvoice` through the shared archive
+writer, with actor/context/locale/fallback/subtitle metadata, source audio,
+decoded duration, staged release validation, atomic last-good preservation,
+exact scanner registration, persisted mod enablement, and listen-host catalog
+rebroadcast. The form retains normal ImGui navigation and resolves accept and
+cancel labels from the live action map.
+
+Focused behavioral/static coverage was added for surrogate decoding/rejection,
+archive contents and metadata, computed duration, atomic failure preservation,
+scanner wiring, rebroadcast wiring, and glyph-backed UI fields. Source was
+refrozen at `2026-08-08T15:32:33.029-04:00`; no independent build was run so it
+would not overlap the root-coordinated combined receipt. Both Workbench items
+remain `partial`. Remaining proof is the source-frozen client/updater/test
+build, focused and full archive regressions, native-source/conformance gates,
+and ordinary-client MKB/controller, restart, locale playback/subtitle,
+listen-host distribution, device-switch glyph, and invalid-last-good receipts.
+Bug `B-982` and systemic pattern `SP-30` record the propagation findings.
+
+## 2026-08-08 - Strict authoritative public theme source
+
+Implemented Workbench `T-ASSETS-026` without claiming its consumer/lifecycle
+successors. Public `.pdtheme` discovery and activation now share a strict
+`pd2.theme.v1` parser that validates exact archive identity, known fields,
+types, ranges, catalog references, and caps; rejects duplicates, aliases, raw
+font paths, malformed numbers, and oversized source; and fails closed when the
+declared public source is absent or invalid. `theme.ini` owns the public source
+and dependency declarations while `_meta/manifest.json` is compatibility
+identity/inventory only. The base walker binds `theme.json` directly, built-in
+palette emission uses the runtime's single canonical table, and the unreachable
+duplicate font parser was removed.
+
+Focused parser coverage passes 3 cases / 19 assertions and strict theme
+conformance passes 1 root / 6 recursive archives. The combined source-frozen
+archive preflight passes 28 root / 53 recursive archives across all 27 families
+plus the native-source guard. `T-ASSETS-027` through `T-ASSETS-030` remain open
+for nested dependency ownership, field-level production consumers, creator
+round-trip, network/restart parity, and ordinary-client MKB/controller glyph
+proof.
+
+## 2026-08-08 - Production catalog weapon reticles
+
+Connected public `.pdweapon` reticles to the actual sight/HUD render path.
+Nested `.pdui` now registers before weapon parsing; presentation retains a
+catalog ID; registration fails closed on missing, corrupt, disabled, or
+wrong-type selected source; and hot local/network source lazily decodes through
+the catalog-backed UI texture path. The renderer places the authored image at
+the existing reticle coordinates while preserving later target tracking and
+does not read or replace MKB/controller/action-map/glyph state.
+
+The generated creator archive declares and embeds `example:tri_reticle`.
+Focused production-seam and negative-path coverage passes 1 case / 27
+assertions, while the combined preflight passes 28-root/53-recursive strict
+conformance across all 27 families and the native-source guard. The first
+independent all-target compile exposed a missing `Gfx` type include in the new
+renderer and that source defect was corrected; per root coordination, the final
+source-frozen combined build is pending rather than being rerun independently.
+Workbench `T-ASSETS-023` is implemented, not validated; ordinary-client edited,
+missing, corrupt, type-mismatch, aim/target, MKB/controller, and live-glyph
+evidence remains under the shared validation program.
+
 ## 2026-08-08 - Roadmap execution wave: prop graphs, localized voice, and nested weapon media
 
 Continued the canonical Workbench roadmap with root, Lina, and Ultra lanes.

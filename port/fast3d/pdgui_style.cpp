@@ -1167,6 +1167,20 @@ extern "C" const void *pdguiGetActivePaletteRaw(void)
     return (const void *)s_ActivePalette;
 }
 
+extern "C" const void *pdguiGetBuiltinPaletteRaw(int index)
+{
+    switch (index) {
+        case 0: return (const void *)&s_PaletteGrey;
+        case 1: return (const void *)&s_PaletteBlue;
+        case 2: return (const void *)&s_PaletteRed;
+        case 3: return (const void *)&s_PaletteGreen;
+        case 4: return (const void *)&s_PaletteWhite;
+        case 5: return (const void *)&s_PaletteSilver;
+        case 6: return (const void *)&s_PaletteBlackGold;
+        default: return nullptr;
+    }
+}
+
 /* -----------------------------------------------------------------------
  * Palette API -- allows runtime theme switching
  * ----------------------------------------------------------------------- */

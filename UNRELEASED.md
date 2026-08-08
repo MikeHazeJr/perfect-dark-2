@@ -5,6 +5,20 @@
 
 ## Highlights
 
+- Removed the unused duplicate `.pdmission` briefing payload so creator edits
+  flow through the nested public scenario source the game actually loads.
+- Preserved full nested `.pdui` archive-chain paths so embedded weapon reticles
+  no longer fail merely because the installed game path exceeds 128 bytes.
+- Replaced Audio Mods Voice loose-file output with a validated, atomic,
+  self-contained localized `.pdvoice` creator that hot-registers through the
+  production catalog path and retains keyboard/controller action glyphs.
+- Fixed public `.pdvoice` subtitle JSON decoding for non-BMP Unicode while
+  rejecting lone, reversed, or mismatched surrogate escapes.
+- Made public `.pdtheme` files strict and authoritative, rejecting malformed,
+  mismatched, duplicate, unknown, out-of-range, or raw-path theme source instead
+  of silently substituting private metadata or built-in theme data.
+- Made creator `.pdweapon` archives render embedded `.pdui` reticles in the
+  production sight HUD, with broken or wrong-type declared sources rejected.
 - Made localized `.pdvoice` audio and subtitle JSON drive production playback
   and dialogue text, including locale fallback and fail-closed declared source.
 - Made public `.pdprop` behavior graphs execute on live Forge props instead of

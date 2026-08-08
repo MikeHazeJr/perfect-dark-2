@@ -154,6 +154,20 @@ static s32 s_readString(const char **cursor, const char *end,
 				if (p >= end || (h = s_hexValue(*p++)) < 0) return 0;
 				cp = (cp << 4) | (u32)h;
 			}
+			if (cp >= 0xd800 && cp <= 0xdbff) {
+				u32 low = 0;
+				if (end - p < 6 || p[0] != '\\' || p[1] != 'u') return 0;
+				p += 2;
+				for (s32 i = 0; i < 4; i++) {
+					s32 h = s_hexValue(*p++);
+					if (h < 0) return 0;
+					low = (low << 4) | (u32)h;
+				}
+				if (low < 0xdc00 || low > 0xdfff) return 0;
+				cp = 0x10000 + ((cp - 0xd800) << 10) + (low - 0xdc00);
+			} else if (cp >= 0xdc00 && cp <= 0xdfff) {
+				return 0;
+			}
 			if (!s_appendUtf8(out, out_size, &used, cp)) return 0;
 			break;
 		}
@@ -172,9 +186,25 @@ static const char *s_skipString(const char *p, const char *end)
 		if (*p++ == '\\') {
 			if (p >= end) return NULL;
 			if (*p == 'u') {
+				u32 cp = 0;
 				p++;
 				for (s32 i = 0; i < 4; i++) {
-					if (p >= end || s_hexValue(*p++) < 0) return NULL;
+					s32 h;
+					if (p >= end || (h = s_hexValue(*p++)) < 0) return NULL;
+					cp = (cp << 4) | (u32)h;
+				}
+				if (cp >= 0xd800 && cp <= 0xdbff) {
+					u32 low = 0;
+					if (end - p < 6 || p[0] != '\\' || p[1] != 'u') return NULL;
+					p += 2;
+					for (s32 i = 0; i < 4; i++) {
+						s32 h = s_hexValue(*p++);
+						if (h < 0) return NULL;
+						low = (low << 4) | (u32)h;
+					}
+					if (low < 0xdc00 || low > 0xdfff) return NULL;
+				} else if (cp >= 0xdc00 && cp <= 0xdfff) {
+					return NULL;
 				}
 			} else {
 				if (!strchr("\"\\/bfnrt", *p)) return NULL;

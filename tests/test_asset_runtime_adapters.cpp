@@ -677,8 +677,6 @@ TEST_CASE("asset runtime adapters bind C-3838 file-backed families",
 		sizeof(mission.ext.mission.scenario_archive) - 1);
 	std::strncpy(mission.ext.mission.objectives_file, "objectives.json",
 		sizeof(mission.ext.mission.objectives_file) - 1);
-	std::strncpy(mission.ext.mission.briefing_file, "briefing.json",
-		sizeof(mission.ext.mission.briefing_file) - 1);
 	REQUIRE(assetRuntimeActivateCatalogEntry(&mission,
 		"mods/demo/missions/rescue.pdmission::mission.graph.json") == 1);
 	const asset_runtime_binding_t *missionBinding =
@@ -688,7 +686,6 @@ TEST_CASE("asset runtime adapters bind C-3838 file-backed families",
 	REQUIRE(str(missionBinding->dependency_a) ==
 		"dependencies/assets/scenario/rescue.pdscenario");
 	REQUIRE(str(missionBinding->dependency_b) == "objectives.json");
-	REQUIRE(str(missionBinding->dependency_c) == "briefing.json");
 
 	asset_entry_t hud;
 	initEntry(hud, ASSET_HUD, "mod:hud_classic");
@@ -1328,20 +1325,21 @@ TEST_CASE("asset runtime adapters reject file-backed families without accessible
 		"mods/demo/missions/rescue.pdmission::mission.graph.json") == 0);
 	REQUIRE(assetRuntimeFind("mod:mission_graph_only") == nullptr);
 
-	asset_entry_t missingBriefingMission;
-	initEntry(missingBriefingMission, ASSET_MISSION, "mod:mission_missing_briefing");
-	std::strncpy(missingBriefingMission.ext.mission.mission_graph_file,
+	asset_entry_t canonicalMission;
+	initEntry(canonicalMission, ASSET_MISSION, "mod:mission_canonical");
+	std::strncpy(canonicalMission.ext.mission.mission_graph_file,
 		"mission.graph.json",
-		sizeof(missingBriefingMission.ext.mission.mission_graph_file) - 1);
-	std::strncpy(missingBriefingMission.ext.mission.scenario_archive,
+		sizeof(canonicalMission.ext.mission.mission_graph_file) - 1);
+	std::strncpy(canonicalMission.ext.mission.scenario_archive,
 		"dependencies/assets/scenario/rescue.pdscenario",
-		sizeof(missingBriefingMission.ext.mission.scenario_archive) - 1);
-	std::strncpy(missingBriefingMission.ext.mission.objectives_file,
+		sizeof(canonicalMission.ext.mission.scenario_archive) - 1);
+	std::strncpy(canonicalMission.ext.mission.objectives_file,
 		"objectives.json",
-		sizeof(missingBriefingMission.ext.mission.objectives_file) - 1);
-	REQUIRE(assetRuntimeActivateCatalogEntry(&missingBriefingMission,
-		"mods/demo/missions/rescue.pdmission::mission.graph.json") == 0);
-	REQUIRE(assetRuntimeFind("mod:mission_missing_briefing") == nullptr);
+		sizeof(canonicalMission.ext.mission.objectives_file) - 1);
+	REQUIRE(assetRuntimeActivateCatalogEntry(&canonicalMission,
+		"mods/demo/missions/rescue.pdmission::mission.graph.json") == 1);
+	REQUIRE(assetRuntimeFind("mod:mission_canonical") != nullptr);
+	assetRuntimeReleaseCatalogEntry("mod:mission_canonical");
 
 	asset_entry_t primaryOnlyScenario;
 	initEntry(primaryOnlyScenario, ASSET_SCENARIO, "mod:scenario_primary_only");

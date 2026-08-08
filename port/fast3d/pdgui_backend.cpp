@@ -133,6 +133,7 @@ extern "C" s32 inputMouseIsLocked(void);
 /* Resolution-independent scaling helpers */
 #include "pdgui_scaling.h"
 #include "pdgui_activemenu_radial.h"
+#include "pdgui_weapon_reticle.h"
 
 /* Logging */
 #include "system.h"
@@ -179,6 +180,9 @@ static bool pdguiAnyStandardOverlayReason(
      * in pdguiRender line 843-ish can paint scanlines regardless of whether
      * any other overlay is active. Zero cost when the toggle is off. */
     if (pdguiThemeGetScanlineEnabled()) {
+        return true;
+    }
+    if (pdguiWeaponReticleIsQueued()) {
         return true;
     }
     return pdguiActiveMenuIsOpen() != 0;
@@ -1094,6 +1098,11 @@ void pdguiRender(void)
      * No-op when no interact target is tracked.  Drawn above the HUD so the
      * player sees the prompt beside the reticle. */
     pdguiInteractPromptRender((s32)winW, (s32)winH);
+
+    /* Public .pdweapon -> catalog .pdui reticle. No input polling occurs in
+     * this overlay, so MKB/controller authority and glyph switching remain
+     * owned by the action map and existing prompt system. */
+    pdguiWeaponReticleRender((s32)winW, (s32)winH);
 
     /* Phase 2 fix #6 (input-menu pillar, 2026-05-01): interaction cast
      * debug overlay. Top-left readout of current cone angle + range,

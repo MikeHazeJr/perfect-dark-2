@@ -923,7 +923,7 @@ static s32 validateTypedPdDescriptorFile(const char *srcFolder, const char *desc
 		"swatches_file", "material_archive", "texture_archive",
 		"rules_file", "scenario_archive", "ui_archive",
 		"font_archive", "audio_archive", "music_archive", "effect_archive",
-		"objectives_file", "briefing_file",
+		"objectives_file",
 		"mission_graph_file", "graph"
 	};
 	static const char *mapOptionalKeys[] = {
@@ -1371,7 +1371,7 @@ static s32 validateExternalFolderLayout(const char *srcFolder, const char *destP
 		"swatches_file", "material_archive", "texture_archive",
 		"rules_file", "scenario_archive", "ui_archive",
 		"font_archive", "audio_archive", "music_archive", "effect_archive",
-		"objectives_file", "briefing_file",
+		"objectives_file",
 		"mission_graph_file", "graph"
 	};
 	static const char *mapOptionalKeys[] = {

@@ -2252,6 +2252,19 @@ void *pdguiThemeGetTexture(const char *catalog_id)
         return (void *)(uintptr_t)it->second;
     }
 
+    /* Hot-registered nested .pdui sources (including weapon reticles) may
+     * arrive after late init through local import or network distribution.
+     * Decode the selected catalog source lazily; never synthesize a fallback
+     * for a declared custom ID. */
+    const asset_entry_t *entry = assetCatalogResolve(catalog_id);
+    if (entry && entry->type == ASSET_UI && entry->enabled) {
+        s_applyCatalogUiAsset(entry, nullptr);
+        it = s_ThemeTexCache.find(catalog_id);
+        if (it != s_ThemeTexCache.end() && it->second) {
+            return (void *)(uintptr_t)it->second;
+        }
+    }
+
     /* Unknown or failed texture — return NULL (no assert, graceful degrade) */
     return nullptr;
 }

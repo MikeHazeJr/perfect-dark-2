@@ -84,6 +84,11 @@ void pdguiDrawButtonEdgeGlow(f32 x, f32 y, f32 w, f32 h, s32 isActive);
  * Used by pdgui_theme.cpp for theme draw functions. */
 const void *pdguiGetActivePaletteRaw(void);
 
+/* Immutable built-in palette source used by .pdtheme extraction. Returns a
+ * flat u32[15] pointer or NULL for an invalid index. This keeps extraction and
+ * runtime styling on one palette table. */
+const void *pdguiGetBuiltinPaletteRaw(s32 index);
+
 /* --- Palette field indices (matches struct pdgui_palette layout) --- */
 #define PDPAL_BORDER1        0   /* bright border (left, bottom) */
 #define PDPAL_TITLEBG        1   /* dark title bar background */

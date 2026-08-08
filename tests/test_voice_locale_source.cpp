@@ -57,6 +57,30 @@ TEST_CASE("pdvoice subtitle source decodes JSON text and rejects malformed autho
 		text, sizeof(text)) == -1);
 }
 
+TEST_CASE("pdvoice subtitle source combines non-BMP surrogate pairs and rejects broken pairs",
+	"[modding][pdxxx][pdvoice][localization][unicode][c3842][negative]")
+{
+	char text[128];
+	const char *microphone =
+		"{\"schema\":\"pd.voice_subtitle.v1\",\"en\":\"Mic \\uD83C\\uDFA4\"}";
+	const char *lone_high =
+		"{\"schema\":\"pd.voice_subtitle.v1\",\"en\":\"\\uD83C\"}";
+	const char *lone_low =
+		"{\"schema\":\"pd.voice_subtitle.v1\",\"en\":\"\\uDFA4\"}";
+	const char *mismatched =
+		"{\"schema\":\"pd.voice_subtitle.v1\",\"en\":\"\\uD83C\\u0041\"}";
+
+	REQUIRE(voiceSubtitleJsonSelect(microphone, strlen(microphone), "en", "",
+		text, sizeof(text)) == 1);
+	REQUIRE(std::string(text) == std::string("Mic \xF0\x9F\x8E\xA4"));
+	REQUIRE(voiceSubtitleJsonSelect(lone_high, strlen(lone_high), "en", "",
+		text, sizeof(text)) == -1);
+	REQUIRE(voiceSubtitleJsonSelect(lone_low, strlen(lone_low), "en", "",
+		text, sizeof(text)) == -1);
+	REQUIRE(voiceSubtitleJsonSelect(mismatched, strlen(mismatched), "en", "",
+		text, sizeof(text)) == -1);
+}
+
 TEST_CASE("pdvoice localized source is wired through every production registration path",
 	"[modding][pdxxx][pdvoice][localization][static][c3842]")
 {

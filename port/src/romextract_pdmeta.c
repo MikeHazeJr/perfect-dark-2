@@ -27,7 +27,7 @@
 #include "romextract_pd.h"
 #include "system.h"
 
-#define PDMETA_FAST_CACHE_KIND "pdmeta_table_backed_v13_hydrated_metadata_source"
+#define PDMETA_FAST_CACHE_KIND "pdmeta_table_backed_v14_scenario_briefing_authority"
 #define PDMETA_SCENARIO_DEP_CACHE_KIND \
 	"pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json"
 
@@ -1626,11 +1626,13 @@ static s32 s_emitMission(const arena_authored_record_t *a, const char *out_dir,
 		s_existingArchiveHasEntry(relpath, "mission.ini") &&
 		s_existingArchiveHasEntry(relpath, "mission.graph.json") &&
 		s_existingArchiveHasEntry(relpath, "objectives.json") &&
-		s_existingArchiveHasEntry(relpath, "briefing.json") &&
+		!s_existingArchiveHasEntry(relpath, "briefing.json") &&
 		s_existingArchiveEntryContains(relpath, "_meta/manifest.json",
 			"\"objectives_file\": \"objectives.json\"") &&
-		s_existingArchiveEntryContains(relpath, "_meta/manifest.json",
-			"\"briefing_file\": \"briefing.json\"") &&
+		!s_existingArchiveEntryContains(relpath, "_meta/manifest.json",
+			"\"briefing_file\"") &&
+		!s_existingArchiveEntryContains(relpath, "mission.ini",
+			"briefing_file") &&
 		s_existingArchiveEntryContains(relpath, "mission.graph.json",
 			"mission.phase.source") &&
 		s_existingArchiveEntryContains(relpath, "mission.graph.json",
@@ -1685,9 +1687,6 @@ static s32 s_emitMission(const arena_authored_record_t *a, const char *out_dir,
 	snprintf(entry->ext.mission.objectives_file,
 		sizeof(entry->ext.mission.objectives_file),
 		"%s/%s.pdmission::objectives.json", out_dir, mission_file);
-	snprintf(entry->ext.mission.briefing_file,
-		sizeof(entry->ext.mission.briefing_file),
-		"%s/%s.pdmission::briefing.json", out_dir, mission_file);
 	snprintf(entry->ext.mission.mission_graph_file,
 		sizeof(entry->ext.mission.mission_graph_file),
 		"%s/%s.pdmission::mission.graph.json", out_dir, mission_file);
@@ -1709,7 +1708,6 @@ static s32 s_emitMission(const arena_authored_record_t *a, const char *out_dir,
 		"scenario_graph_cache = %s\n"
 		"mission_graph_file = mission.graph.json\n"
 		"objectives_file = objectives.json\n"
-		"briefing_file = briefing.json\n"
 		"category = %s\n",
 		mission_id, scenario_id, scenario_file,
 		PDMETA_SCENARIO_DEP_CACHE_KIND, a->category);
@@ -1725,14 +1723,6 @@ static s32 s_emitMission(const arena_authored_record_t *a, const char *out_dir,
 		s_textbufFree(&objectives);
 		return -1;
 	}
-	const char *briefing =
-		"{\n"
-		"  \"schema\": \"pd2.mission.briefing.v1\",\n"
-		"  \"sections\": [\n"
-		"    { \"id\": \"summary\", \"text\": \"Original mission briefing is loaded from base language banks.\" }\n"
-		"  ]\n"
-		"}\n";
-
 	char manifest[1536];
 	int manifest_len = snprintf(manifest, sizeof(manifest),
 		"{\n"
@@ -1745,8 +1735,7 @@ static s32 s_emitMission(const arena_authored_record_t *a, const char *out_dir,
 		"  \"scenario_archive\": \"dependencies/assets/scenarios/%s.pdscenario\",\n"
 		"  \"scenario_graph_cache\": \"%s\",\n"
 		"  \"mission_graph_file\": \"mission.graph.json\",\n"
-		"  \"objectives_file\": \"objectives.json\",\n"
-		"  \"briefing_file\": \"briefing.json\"\n"
+		"  \"objectives_file\": \"objectives.json\"\n"
 		"}\n",
 		mission_id, mission_id, scenario_id, scenario_file,
 		PDMETA_SCENARIO_DEP_CACHE_KIND);
@@ -1771,8 +1760,6 @@ static s32 s_emitMission(const arena_authored_record_t *a, const char *out_dir,
 			graph.data, (u32)graph.len, "mission-graph") != MODARCHIVE_OK ||
 			assetArchiveWriterAddPublicMem(&writer, "objectives.json",
 			objectives.data, (u32)objectives.len, "objectives") != MODARCHIVE_OK ||
-			assetArchiveWriterAddPublicMem(&writer, "briefing.json",
-			briefing, (u32)strlen(briefing), "briefing") != MODARCHIVE_OK ||
 			assetArchiveWriterAddPublicDisk(&writer, dep_name,
 			scenario_rel, "scenario-dependency") != MODARCHIVE_OK) {
 		s_textbufFree(&graph);

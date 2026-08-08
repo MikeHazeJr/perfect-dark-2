@@ -149,6 +149,9 @@ typedef struct weapon_graph_setting_entry {
 
 typedef struct weapon_graph_weapon_settings {
 	s32 valid;
+	/* Public presentation binding. Empty selects the native sight renderer;
+	 * otherwise this is an authoritative ASSET_UI catalog ID. */
+	char reticle_ref[CATALOG_ID_LEN];
 	weapon_graph_setting_entry_t settings[WEAPON_GRAPH_SETTINGS_MAX];
 	s32 setting_count;
 	weapon_graph_setting_entry_t variables[WEAPON_GRAPH_SETTINGS_MAX];

@@ -26,6 +26,7 @@
 #include <PR/ultratypes.h>
 
 #include "pdgui_theme_loader.h"
+#include "pdtheme_source.h"
 #include "pdgui_theme.h"
 #include "pdgui_style.h"
 #include "pdgui_nineslice.h"
@@ -59,7 +60,7 @@
 #define THEME_CATALOG_ID_LEN  64
 #define THEME_CFG_KEY         "Theme.ActiveTheme"
 #define THEME_DEFAULT_ID      "base:theme_blue"
-#define PDTHEME_FAST_CACHE_KIND "pdtheme_builtin_v1"
+#define PDTHEME_FAST_CACHE_KIND "pdtheme_builtin_v2_strict_source"
 
 /* =========================================================================
  * Theme definition structure
@@ -368,22 +369,6 @@ static int palette_field_index(const char *name) {
         if (strcmp(name, k_PaletteFieldNames[i]) == 0)
             return i;
     }
-    /* S306 camelCase aliases for the extension fields */
-    if (strcmp(name, "toolbarTint") == 0)  return 15;
-    if (strcmp(name, "textPositive") == 0) return 16;
-    if (strcmp(name, "textWarning") == 0)  return 17;
-    if (strcmp(name, "buttonHover") == 0)  return 18;
-    if (strcmp(name, "buttonActive") == 0) return 19;
-    /* S309 camelCase aliases */
-    if (strcmp(name, "titleGlow") == 0)    return 20;
-    if (strcmp(name, "tintSuccess") == 0)  return 21;
-    if (strcmp(name, "tintDanger") == 0)   return 22;
-    if (strcmp(name, "tintInfo") == 0)     return 23;
-    /* Backwards-compat: "checkmark" / "checkMark" as alias for
-     * checkbox_checked so users editing by hand don't need to know the
-     * legacy name. */
-    if (strcmp(name, "checkmark") == 0 ||
-        strcmp(name, "checkMark") == 0) return 9;
     return -1;
 }
 
@@ -391,8 +376,14 @@ static int palette_field_index(const char *name) {
  * JSON theme parser
  * ========================================================================= */
 
-static s32 parse_theme_json(const char *src, struct theme_def *def)
+static s32 parse_theme_json(const char *src, const char *expected_catalog_id,
+                            struct theme_def *def, char *error, size_t error_cap)
 {
+    pdtheme_source_info_t source_info;
+    if (!pdthemeSourceParse(src, strlen(src), expected_catalog_id,
+            &source_info, error, error_cap)) {
+        return 0;
+    }
     memset(def, 0, sizeof(*def));
 
     JParser jp = { src };
@@ -423,7 +414,7 @@ static s32 parse_theme_json(const char *src, struct theme_def *def)
         } else if (strcmp(key, "soundPack") == 0) {
             tok = jnext(&jp);
             jstr(&tok, def->sound_pack, sizeof(def->sound_pack));
-        } else if (strcmp(key, "menuStyle") == 0 || strcmp(key, "chromeStyle") == 0) {
+        } else if (strcmp(key, "menuStyle") == 0) {
             /* S305 P4: theme bundle — "menuStyle" (user-facing name) or
              * the legacy "chromeStyle" alias references a registered
              * chrome style id (e.g. "user.MyChrome.ui-chrome") that the
@@ -692,28 +683,6 @@ static s32 parse_theme_json(const char *src, struct theme_def *def)
                 }
                 def->num_border_effects++;
             }
-        } else if (strcmp(key, "font") == 0) {
-            /* Parse font object */
-            tok = jnext(&jp);
-            if (tok.type != JT_LBRACE) { jskip_value(&jp); continue; }
-
-            def->has_font = 1;
-            def->font_size = 24.0f;
-
-            char fkey[64];
-            while (true) {
-                tok = jnext(&jp);
-                if (tok.type == JT_RBRACE || tok.type == JT_EOF) break;
-                if (tok.type == JT_COMMA) continue;
-                if (tok.type != JT_STRING) break;
-                jstr(&tok, fkey, sizeof(fkey));
-                tok = jnext(&jp); if (tok.type != JT_COLON) break;
-                tok = jnext(&jp);
-
-                if (strcmp(fkey, "name") == 0) jstr(&tok, def->font_name, sizeof(def->font_name));
-                else if (strcmp(fkey, "path") == 0) jstr(&tok, def->font_path, sizeof(def->font_path));
-                else if (strcmp(fkey, "size") == 0) def->font_size = jfloat(&tok);
-            }
         } else if (strcmp(key, "fontShadow") == 0) {
             /* Parse fontShadow object */
             tok = jnext(&jp);
@@ -926,37 +895,6 @@ static void apply_theme_def(const struct theme_def *def)
  * These must stay in sync with s_Palette* in pdgui_style.cpp.
  * ========================================================================= */
 
-static const u32 k_BuiltinPalettes[7][15] = {
-    /* 0: Grey */
-    { 0x20202000, 0x20202000, 0x20202000, 0x4f4f4f00, 0x00000000,
-      0x00000000, 0x4f4f4f00, 0x4f4f4f00, 0x4f4f4f00, 0x4f4f4f00,
-      0x00000000, 0x00000000, 0x4f4f4f00, 0x00000000, 0x00000000 },
-    /* 1: Blue */
-    { 0x0060bf7fu, 0x0000507fu, 0x00f0ff7fu, 0xffffffffu, 0x00002f9fu,
-      0x00006f7fu, 0x00ffffffu, 0x007f7fffu, 0xffffffffu, 0x8fffffffu,
-      0x000044ffu, 0x000030ffu, 0x7f7fffffu, 0xffffffffu, 0x6644ff7fu },
-    /* 2: Red */
-    { 0xbf00007fu, 0x5000007fu, 0xff00007fu, 0xffff00ffu, 0x2f00009fu,
-      0x6f00007fu, 0xff9070ffu, 0x7f0000ffu, 0xffff00ffu, 0xffa090ffu,
-      0x440000ffu, 0x003000ffu, 0xffff00ffu, 0xffffffffu, 0xff44447fu },
-    /* 3: Green */
-    { 0x00bf007fu, 0x0050007fu, 0x00ff007fu, 0xffff00ffu, 0x002f009fu,
-      0x00ff0028u, 0x55ff55ffu, 0x006f00afu, 0xffffffffu, 0x00000000u,
-      0x004400ffu, 0x003000ffu, 0xffff00ffu, 0xffffffffu, 0x44ff447fu },
-    /* 4: White */
-    { 0xffffffffu, 0xffffff7fu, 0xffffffffu, 0xffffffffu, 0xffffff9fu,
-      0xffffffffu, 0xffffffffu, 0xffffffffu, 0xffffffffu, 0xffffffffu,
-      0x00000000u, 0xffffff5fu, 0xffffffffu, 0xffffff7fu, 0xffffffffu },
-    /* 5: Silver */
-    { 0xaaaaaaffu, 0xaaaaaa7fu, 0xaaaaaaffu, 0xffffffffu, 0xffffff9fu,
-      0xffffffffu, 0xffffffffu, 0xffffffffu, 0xff8888ffu, 0xffffffffu,
-      0x00000000u, 0xffffff5fu, 0xffffffffu, 0xffffff7fu, 0xffffffffu },
-    /* 6: Black & Gold */
-    { 0xbf8f207fu, 0x1408007fu, 0xffc8407fu, 0xffd060ffu, 0x0a06009fu,
-      0x3f2a107fu, 0xdda830ffu, 0x6f5020ffu, 0xffffffffu, 0xffd060ffu,
-      0x2a1800ffu, 0x1a0e00ffu, 0xdda830ffu, 0xffffffffu, 0xbf8f207fu },
-};
-
 static const char *k_BuiltinNames[7] = {
     "PD Grey", "PD Blue", "PD Red", "PD Green",
     "PD White", "PD Silver", "PD Black & Gold"
@@ -1033,6 +971,8 @@ static bool appendf(char *out, size_t out_n, size_t *pos, const char *fmt, ...)
 static s32 build_builtin_theme_json(s32 index, char *out, size_t out_n)
 {
     if (!out || out_n == 0 || index < 0 || index >= 7) return -1;
+    const u32 *palette = (const u32 *)pdguiGetBuiltinPaletteRaw(index);
+    if (!palette) return -1;
     size_t pos = 0;
     out[0] = '\0';
 
@@ -1052,7 +992,7 @@ static s32 build_builtin_theme_json(s32 index, char *out, size_t out_n)
         if (!appendf(out, out_n, &pos,
                 "    \"%s\": \"%08x\"%s\n",
                 k_PaletteFieldNames[i],
-                (unsigned int)k_BuiltinPalettes[index][i],
+                (unsigned int)palette[i],
                 i == 14 ? "," : ",")) {
             return -1;
         }
@@ -1083,11 +1023,7 @@ static s32 emit_builtin_theme_archive(s32 index, const char *themes_dir,
 
     char path[FS_MAXPATH];
     theme_archive_abs_path(themes_dir, k_BuiltinIds[index], path, sizeof(path));
-    if (!force_rewrite && fsFileSize(path) > 0 &&
-            theme_archive_has_entry(path, "theme.ini") &&
-            theme_archive_has_entry(path, "theme.json")) {
-        return 0;
-    }
+    (void)force_rewrite;
 
     char ini[512];
     int ini_len = snprintf(ini, sizeof(ini),
@@ -1106,10 +1042,10 @@ static s32 emit_builtin_theme_archive(s32 index, const char *themes_dir,
     char manifest[512];
     int manifest_len = snprintf(manifest, sizeof(manifest),
         "{\n"
+        "  \"schema\": \"pd.asset_archive.manifest.v1\",\n"
         "  \"pd_kind\": \"theme\",\n"
         "  \"pd_schema_version\": 1,\n"
-        "  \"id\": \"%s\",\n"
-        "  \"theme_file\": \"theme.json\"\n"
+        "  \"catalog_id\": \"%s\"\n"
         "}\n",
         k_BuiltinIds[index]);
     if (manifest_len <= 0 || (size_t)manifest_len >= sizeof(manifest)) {
@@ -1653,12 +1589,26 @@ static void register_catalog_theme_entry(const asset_entry_t *entry, void *userd
         if (json) {
             memcpy(json, raw, file_size);
             json[file_size] = '\0';
-            extract_theme_name(json, display_name, sizeof(display_name), entry->id);
+            pdtheme_source_info_t source_info;
+            char error[256];
+            if (!pdthemeSourceParse(json, file_size, entry->id, &source_info,
+                    error, sizeof(error))) {
+                sysLogPrintf(LOG_WARNING,
+                    "PDGUI theme loader: rejecting catalog theme '%s': %s",
+                    entry->id, error);
+                free(json);
+                free(raw);
+                return;
+            }
+            snprintf(display_name, sizeof(display_name), "%s", source_info.name);
             free(json);
         }
         free(raw);
     } else {
-        extract_theme_name(nullptr, display_name, sizeof(display_name), entry->id);
+        sysLogPrintf(LOG_WARNING,
+            "PDGUI theme loader: rejecting catalog theme '%s': public source is unreadable",
+            entry->id);
+        return;
     }
 
     struct theme_entry *theme = add_entry(entry->id, display_name, theme_path, -1);
@@ -1779,9 +1729,8 @@ void pdguiThemeLoaderInit(void)
         add_entry(k_BuiltinIds[i], k_BuiltinNames[i], theme_path, i);
     }
 
-    /* 2026-04-11: scan mods/ for custom theme.json files (Save-as-Mod
-     * output from the theme editor, plus any user-authored mod themes). */
-    scan_mods_for_themes();
+    /* T-ASSETS-026: loose theme.json/mod.json files are not theme assets.
+     * Discover only catalog rows backed by typed .pdtheme public source. */
     scan_catalog_for_themes();
 
     sysLogPrintf(LOG_NOTE,
@@ -1832,7 +1781,6 @@ void pdguiThemeLoaderShutdown(void)
  *  Bypasses the s_LoaderInitDone gate — safe to call after init is complete. */
 void pdguiThemeRescanMods(void)
 {
-    scan_mods_for_themes();
     scan_catalog_for_themes();
 }
 
@@ -1840,19 +1788,8 @@ s32 pdguiThemeLoadFromCatalog(const char *catalog_id)
 {
     if (!catalog_id || !catalog_id[0]) return 0;
 
-    s32 palIdx = pdguiThemeIdToPaletteIndex(catalog_id);
     struct theme_entry *entry = find_entry(catalog_id);
     if (!entry || !entry->filepath[0]) {
-        if (palIdx >= 0) {
-            pdguiThemeSetPalette(palIdx);
-            pdguiThemeSetTextGlow(0.6f, k_BuiltinGlowColors[palIdx]);
-            snprintf(s_ActiveThemeId, sizeof(s_ActiveThemeId), "%s", catalog_id);
-            snprintf(s_CfgThemeId, sizeof(s_CfgThemeId), "%s", catalog_id);
-            sysLogPrintf(LOG_WARNING,
-                "PDGUI theme loader: built-in '%s' used palette fallback; archive source missing",
-                catalog_id);
-            return 1;
-        }
         sysLogPrintf(LOG_WARNING,
             "PDGUI theme loader: '%s' not found in registry", catalog_id);
         return 0;
@@ -1873,13 +1810,6 @@ s32 pdguiThemeLoadFromCatalog(const char *catalog_id)
         if (!data) {
             sysLogPrintf(LOG_WARNING,
                 "PDGUI theme loader: failed to load '%s'", entry->filepath);
-            if (palIdx >= 0) {
-                pdguiThemeSetPalette(palIdx);
-                pdguiThemeSetTextGlow(0.6f, k_BuiltinGlowColors[palIdx]);
-                snprintf(s_ActiveThemeId, sizeof(s_ActiveThemeId), "%s", catalog_id);
-                snprintf(s_CfgThemeId, sizeof(s_CfgThemeId), "%s", catalog_id);
-                return 1;
-            }
             return 0;
         }
         json = (char *)malloc(fileSize + 1);
@@ -1890,19 +1820,14 @@ s32 pdguiThemeLoadFromCatalog(const char *catalog_id)
     }
 
     struct theme_def def;
-    s32 ok = parse_theme_json(json, &def);
+    char error[256];
+    s32 ok = parse_theme_json(json, catalog_id, &def, error, sizeof(error));
     free(json);
 
     if (!ok) {
         sysLogPrintf(LOG_WARNING,
-            "PDGUI theme loader: parse failed for '%s'", entry->filepath);
-        if (palIdx >= 0) {
-            pdguiThemeSetPalette(palIdx);
-            pdguiThemeSetTextGlow(0.6f, k_BuiltinGlowColors[palIdx]);
-            snprintf(s_ActiveThemeId, sizeof(s_ActiveThemeId), "%s", catalog_id);
-            snprintf(s_CfgThemeId, sizeof(s_CfgThemeId), "%s", catalog_id);
-            return 1;
-        }
+            "PDGUI theme loader: parse failed for '%s': %s",
+            entry->filepath, error);
         return 0;
     }
 
@@ -1936,12 +1861,13 @@ s32 pdguiThemeLoadFromFile(const char *filepath)
     free(data);
 
     struct theme_def def;
-    s32 ok = parse_theme_json(json, &def);
+    char error[256];
+    s32 ok = parse_theme_json(json, nullptr, &def, error, sizeof(error));
     free(json);
 
     if (!ok) {
         sysLogPrintf(LOG_WARNING,
-            "PDGUI theme loader: parse failed for '%s'", filepath);
+            "PDGUI theme loader: parse failed for '%s': %s", filepath, error);
         return 0;
     }
 

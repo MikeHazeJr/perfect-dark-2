@@ -14,14 +14,32 @@ are production-connected with source-frozen automated evidence; ordinary-client
 edited-source and negative-path receipts remain validation work. Nested weapon
 animation/audio registration is connected but truthfully partial under
 `T-ASSETS-022` until a native lifecycle harness and live edited/corrupt-media
-proof pass. `T-ASSETS-031` owns JSON surrogate-pair correctness and
-`T-MODDING-007` owns real localized `.pdvoice` authoring. Weapon reticles,
-material/grip consumers, and live proof remain `T-ASSETS-023` through
-`T-ASSETS-025`; temporary distributed-asset crash recovery is explicit in
+proof pass. `T-ASSETS-031` now has production parser and automated coverage
+for JSON non-BMP surrogate pairs and malformed-pair rejection.
+`T-MODDING-007` now has a production-connected Audio Mods Voice creator that
+emits a validated, self-contained localized `.pdvoice`, atomically preserves
+the last good archive, hot-registers it through the catalog scanner, and
+retains action-map glyph operation. Both are `implemented` after the combined
+source-frozen build/regression receipt; ordinary-client MKB/controller,
+restart, locale playback/subtitle, listen-host, and device-switch evidence
+remain validation gates. Catalog weapon
+reticles are production-connected under `T-ASSETS-023`: the public
+`.pdweapon` embeds `.pdui`, strict runtime registration resolves it, and the
+real sight/HUD path renders it without taking input or glyph ownership. The
+source-frozen combined build is green, including the fix for truncated nested
+UI archive-chain paths. Ordinary-client edited/corrupt/type-mismatch,
+MKB/controller, target-tracking, and live-glyph proof remain. Weapon-level
+material/grip consumers and the aggregate live proof remain `T-ASSETS-024`
+and `T-ASSETS-025`; temporary distributed-asset crash recovery is explicit in
 `T-NETWORKING-009`. Effect completion remains split across `T-ASSETS-016`
-through `T-ASSETS-020`. Theme authority is missing and fully decomposed into
-strict schema, nested lifecycle, production consumers, creator output, and
-MKB/controller/glyph validation in `T-ASSETS-026` through `T-ASSETS-030`.
+through `T-ASSETS-020`. Theme public-source authority and the strict shared
+schema/parser are implemented under `T-ASSETS-026`; nested lifecycle,
+production consumers, creator output, and MKB/controller/glyph validation
+remain explicit in `T-ASSETS-027` through `T-ASSETS-030`.
+Mission briefing authority is implemented under `T-ASSETS-014`: nested public
+`.pdscenario` setup fields are the sole authored source consumed by
+`setupLoadBriefing`, and the synthetic unused `briefing.json` duplicate is
+removed and rejected. Live edited briefing/restart/listen-host proof remains.
 `V-003` through `V-008`, `P-001`, `R-001`, and aggregate
 `RM-ASSETINPUT-001` remain open exactly as recorded in Workbench.
 

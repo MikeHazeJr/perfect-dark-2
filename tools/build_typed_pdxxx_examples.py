@@ -154,13 +154,7 @@ def theme_manifest(catalog_id: str) -> str:
         "{\n"
         "  \"schema\": \"pd.asset_archive.manifest.v1\",\n"
         "  \"pd_kind\": \"theme\",\n"
-        f"  \"catalog_id\": \"{catalog_id}\",\n"
-        "  \"theme_file\": \"theme.json\",\n"
-        "  \"ui_archive\": \"dependencies/assets/ui/tri_reticle.pdui\",\n"
-        "  \"font_archive\": \"dependencies/assets/font/tri_font.pdfont\",\n"
-        "  \"audio_archive\": \"dependencies/assets/audio/tri_click.pdsfx\",\n"
-        "  \"music_archive\": \"dependencies/assets/music/tri_song.pdsong\",\n"
-        "  \"effect_archive\": \"dependencies/assets/effects/tri_effect.pdeffect\"\n"
+        f"  \"catalog_id\": \"{catalog_id}\"\n"
         "}\n"
     )
 
@@ -792,6 +786,33 @@ def update_scenario() -> bytes:
                 "field": "command.order",
                 "type": "s32",
                 "value": "0",
+                "catalog_id": "",
+                "ref_record_id": "",
+            },
+            {
+                "record_id": "briefing_0000",
+                "kind": "briefing",
+                "field": "command.order",
+                "type": "s32",
+                "value": "1",
+                "catalog_id": "",
+                "ref_record_id": "",
+            },
+            {
+                "record_id": "briefing_0000",
+                "kind": "briefing",
+                "field": "briefing.kind",
+                "type": "s32",
+                "value": "0",
+                "catalog_id": "",
+                "ref_record_id": "",
+            },
+            {
+                "record_id": "briefing_0000",
+                "kind": "briefing",
+                "field": "briefing.text_token",
+                "type": "u32_hex",
+                "value": "0x00000000",
                 "catalog_id": "",
                 "ref_record_id": "",
             },
@@ -2255,6 +2276,7 @@ def update_projectile_entity() -> None:
 def update_weapon(mesh_bytes: bytes) -> None:
     projectile = read_archive("projectiles/tri_projectile.pdprojectile")
     entity = read_archive("entities/tri_entity.pdentity")
+    reticle = read_archive("ui/tri_reticle.pdui")
     primary_graph = (
         "{\n"
         "  \"schema\": \"pd.weapon_graph.v1\",\n"
@@ -2295,6 +2317,7 @@ def update_weapon(mesh_bytes: bytes) -> None:
          "variables_file = behavior/variables.json\n"
          "shared_context_file = behavior/shared-context.json\n"
          "presentation_file = bindings/presentation.json\n"
+         "reticle_archive = dependencies/assets/ui/reticle.pdui\n"
          "primary_projectile_archive = dependencies/assets/projectiles/primary.pdprojectile\n"
          "deployed_entity_archive = dependencies/assets/entities/deployed.pdentity\n"
          "\n[meta]\n"
@@ -2308,8 +2331,9 @@ def update_weapon(mesh_bytes: bytes) -> None:
         ("behavior/shared-context.json",
          "{\n  \"schema\": \"pd.weapon.shared_context.v1\",\n  \"contexts\": [\"owner_player\", \"owner_team\", \"weapon_instance\", \"damage_credit_player\"]\n}\n"),
         ("bindings/presentation.json",
-         "{\n  \"schema\": \"pd.weapon.presentation.v1\",\n  \"crosshair\": \"default\",\n  \"zoom_fov\": 45.0\n}\n"),
+         "{\n  \"schema\": \"pd.weapon.presentation.v1\",\n  \"crosshair\": \"example:tri_reticle\",\n  \"zoom_fov\": 45.0\n}\n"),
         ("dependencies/assets/models/weapon.pdmesh", mesh_bytes),
+        ("dependencies/assets/ui/reticle.pdui", reticle),
         ("dependencies/assets/projectiles/primary.pdprojectile", projectile),
         ("dependencies/assets/entities/deployed.pdentity", entity),
         ("_meta/manifest.json", manifest_with("weapon", "example:tri_weapon", {
@@ -2320,6 +2344,7 @@ def update_weapon(mesh_bytes: bytes) -> None:
             "variables_file": "behavior/variables.json",
             "shared_context_file": "behavior/shared-context.json",
             "presentation_file": "bindings/presentation.json",
+            "reticle_archive": "dependencies/assets/ui/reticle.pdui",
             "primary_projectile_archive": "dependencies/assets/projectiles/primary.pdprojectile",
             "deployed_entity_archive": "dependencies/assets/entities/deployed.pdentity",
         })),
@@ -2855,7 +2880,6 @@ def main() -> int:
         f"scenario_graph_cache = {MISSION_SCENARIO_DEP_CACHE_KIND}\n"
         "mission_graph_file = mission.graph.json\n"
         "objectives_file = objectives.json\n"
-        "briefing_file = briefing.json\n"
         "category = example\n"
     ).encode("utf-8")
     mission_graph = (
@@ -2889,14 +2913,6 @@ def main() -> int:
         "  ]\n"
         "}\n"
     ).encode("utf-8")
-    mission_briefing = (
-        "{\n"
-        "  \"schema\": \"pd2.mission.briefing.v1\",\n"
-        "  \"sections\": [\n"
-        "    { \"id\": \"summary\", \"text\": \"Original mission briefing is loaded from base language banks.\" }\n"
-        "  ]\n"
-        "}\n"
-    ).encode("utf-8")
     mission_manifest = (
         "{\n"
         "  \"schema\": \"pd.asset_archive.manifest.v1\",\n"
@@ -2904,8 +2920,7 @@ def main() -> int:
         "  \"catalog_id\": \"example:tri_mission\",\n"
         "  \"mission_graph_file\": \"mission.graph.json\",\n"
         "  \"scenario_archive\": \"dependencies/assets/scenarios/tri_scenario.pdscenario\",\n"
-        "  \"objectives_file\": \"objectives.json\",\n"
-        "  \"briefing_file\": \"briefing.json\"\n"
+        "  \"objectives_file\": \"objectives.json\"\n"
         "}\n"
     ).encode("utf-8")
     mission_entries = [
@@ -2917,7 +2932,6 @@ def main() -> int:
     ]
     mission_entries.extend([
         ("objectives.json", mission_objectives),
-        ("briefing.json", mission_briefing),
     ])
     mission_entries.insert(4, (
         "dependencies/assets/scenarios/tri_scenario.pdscenario",

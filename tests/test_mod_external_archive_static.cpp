@@ -34,7 +34,18 @@ extern "C" {
 #include "modvfs.h"
 #include "weapon_graph_archive.h"
 #include "weapon_graph_runtime.h"
+
+void testStubAssetCatalogResolveWith(const asset_entry_t *entry);
+void testStubFsFileLoadWith(const char *path, const void *bytes, u32 size);
 }
+
+struct ScopedCatalogSourceStub {
+	~ScopedCatalogSourceStub()
+	{
+		testStubAssetCatalogResolveWith(nullptr);
+		testStubFsFileLoadWith(nullptr, nullptr, 0);
+	}
+};
 
 extern "C" const char *modiniTemplateForKind(const char *kind)
 {
@@ -2175,7 +2186,7 @@ TEST_CASE("legacy pd asset walkers remain registered during external pdmod migra
 	REQUIRE(metaWalker.find("entry->ext.vehicle.behavior_graph") != std::string::npos);
 	REQUIRE(metaWalker.find("entry->ext.mission.scenario_archive") != std::string::npos);
 	REQUIRE(metaWalker.find("entry->ext.mission.objectives_file") != std::string::npos);
-	REQUIRE(metaWalker.find("entry->ext.mission.briefing_file") != std::string::npos);
+	REQUIRE(metaWalker.find("entry->ext.mission.briefing_file") == std::string::npos);
 	REQUIRE(metaWalker.find("entry->ext.mission.mission_graph_file") != std::string::npos);
 	REQUIRE(metaWalker.find("entry->ext.hud.texture_file") != std::string::npos);
 	REQUIRE(metaWalker.find("entry->ext.hud.layout_file") != std::string::npos);
@@ -5615,7 +5626,7 @@ TEST_CASE("metadata asset families expose primary authored files through catalog
 			std::string::npos);
 		REQUIRE(missionCase.find("e->ext.mission.objectives_file[0]") ==
 			std::string::npos);
-		REQUIRE(missionCase.find("e->ext.mission.briefing_file") !=
+		REQUIRE(missionCase.find("e->ext.mission.briefing_file") ==
 			std::string::npos);
 	}
 	REQUIRE(scanner.find("catalogSetPrimaryFile(e, e->ext.hud.layout_file)") != std::string::npos);
@@ -5669,7 +5680,7 @@ TEST_CASE("metadata asset families expose primary authored files through catalog
 			std::string::npos);
 		REQUIRE(missionCase.find("e->ext.mission.objectives_file[0]") ==
 			std::string::npos);
-		REQUIRE(missionCase.find("e->ext.mission.briefing_file") !=
+		REQUIRE(missionCase.find("e->ext.mission.briefing_file") ==
 			std::string::npos);
 	}
 	REQUIRE(distrib.find("distribSetPrimaryFromFile(e, dirpath, e->ext.hud.layout_file)") != std::string::npos);
@@ -5805,7 +5816,7 @@ TEST_CASE("external models maps and animations compile from standard sources",
 	REQUIRE(conformance.find("validate_pdmesh_gltf_integer_native_boundary") != std::string::npos);
 	REQUIRE(conformance.find("validate_vehicle_source_contract") != std::string::npos);
 	REQUIRE(conformance.find("validate_mission_source_contract") != std::string::npos);
-	REQUIRE(conformance.find("validate_mission_briefing_json_schema") != std::string::npos);
+	REQUIRE(conformance.find("validate_mission_briefing_json_schema") == std::string::npos);
 	REQUIRE(conformance.find("pdmesh_gltf_json_and_bin") != std::string::npos);
 	REQUIRE(conformance.find("glTF external binary buffers are not allowed") != std::string::npos);
 	REQUIRE(conformance.find("POSITION vertex") != std::string::npos);
@@ -6502,10 +6513,26 @@ TEST_CASE("modder examples are zip-openable typed pdxxx asset archives",
 	REQUIRE(mission.find("scenario_archive = dependencies/assets/scenarios/tri_scenario.pdscenario") != std::string::npos);
 	REQUIRE(mission.find("scenario_graph_cache = pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json") != std::string::npos);
 	REQUIRE(mission.find("objectives_file = objectives.json") != std::string::npos);
-	REQUIRE(mission.find("briefing_file = briefing.json") != std::string::npos);
+	REQUIRE(mission.find("briefing_file") == std::string::npos);
 	REQUIRE(missionManifest.find("\"objectives_file\": \"objectives.json\"") != std::string::npos);
-	REQUIRE(missionManifest.find("\"briefing_file\": \"briefing.json\"") != std::string::npos);
+	REQUIRE(missionManifest.find("\"briefing_file\"") == std::string::npos);
 	REQUIRE(missionManifest.find(".tsv") == std::string::npos);
+	{
+		OpenArchive opened;
+		opened.archive = modArchiveOpen(missionArchivePath.c_str());
+		REQUIRE(opened.archive != nullptr);
+		REQUIRE_FALSE(archiveHasEntry(opened.archive, "briefing.json"));
+		const std::string setupFields = readNestedArchiveEntryText(
+			opened.archive,
+			"dependencies/assets/scenarios/tri_scenario.pdscenario",
+			"setup.fields.json");
+		REQUIRE(setupFields.find("\"kind\": \"briefing\"") !=
+			std::string::npos);
+		REQUIRE(setupFields.find("\"field\": \"briefing.kind\"") !=
+			std::string::npos);
+		REQUIRE(setupFields.find("\"field\": \"briefing.text_token\"") !=
+			std::string::npos);
+	}
 
 	const std::string gamemode = readArchiveEntryText(gamemodeArchivePath.c_str(), "gamemode.ini");
 	REQUIRE(gamemode.find("catalog_id = example:tri_gamemode") != std::string::npos);
@@ -6541,9 +6568,11 @@ TEST_CASE("modder examples are zip-openable typed pdxxx asset archives",
 	REQUIRE(theme.find("music_archive = dependencies/assets/music/tri_song.pdsong") != std::string::npos);
 	REQUIRE(theme.find("effect_archive = dependencies/assets/effects/tri_effect.pdeffect") != std::string::npos);
 	const std::string themeManifest = readArchiveEntryText(themeArchivePath.c_str(), "_meta/manifest.json");
-	REQUIRE(themeManifest.find("\"audio_archive\": \"dependencies/assets/audio/tri_click.pdsfx\"") != std::string::npos);
-	REQUIRE(themeManifest.find("\"music_archive\": \"dependencies/assets/music/tri_song.pdsong\"") != std::string::npos);
-	REQUIRE(themeManifest.find("\"effect_archive\": \"dependencies/assets/effects/tri_effect.pdeffect\"") != std::string::npos);
+	REQUIRE(themeManifest.find("\"catalog_id\": \"example:tri_theme\"") != std::string::npos);
+	REQUIRE(themeManifest.find("\"theme_file\"") == std::string::npos);
+	REQUIRE(themeManifest.find("\"audio_archive\"") == std::string::npos);
+	REQUIRE(themeManifest.find("\"music_archive\"") == std::string::npos);
+	REQUIRE(themeManifest.find("\"effect_archive\"") == std::string::npos);
 	REQUIRE(themeJson.find("\"schema\": \"pd2.theme.v1\"") != std::string::npos);
 	REQUIRE(themeJson.find("\"name\": \"Triangle Theme\"") != std::string::npos);
 	REQUIRE(themeJson.find("\"palette\"") != std::string::npos);
@@ -6608,10 +6637,11 @@ TEST_CASE("modder examples are zip-openable typed pdxxx asset archives",
 	REQUIRE(weaponManifest.find("\"deployed_entity_archive\": \"dependencies/assets/entities/deployed.pdentity\"") != std::string::npos);
 	REQUIRE(weapon.find("fire_sound_archive") == std::string::npos);
 	REQUIRE(weapon.find("idle_animation_archive") == std::string::npos);
-	REQUIRE(weapon.find("reticle_archive") == std::string::npos);
+	REQUIRE(weapon.find("reticle_archive = dependencies/assets/ui/reticle.pdui") != std::string::npos);
+	REQUIRE(weaponManifest.find("\"reticle_archive\": \"dependencies/assets/ui/reticle.pdui\"") != std::string::npos);
 	REQUIRE(weaponSettings.find("\"schema\": \"pd.weapon_settings.v1\"") != std::string::npos);
 	REQUIRE(weaponVariables.find("\"schema\": \"pd.weapon_variables.v1\"") != std::string::npos);
-	REQUIRE(weaponPresentation.find("\"crosshair\": \"default\"") != std::string::npos);
+	REQUIRE(weaponPresentation.find("\"crosshair\": \"example:tri_reticle\"") != std::string::npos);
 	REQUIRE(weaponPresentation.find("\"zoom_fov\": 45.0") != std::string::npos);
 	REQUIRE(weapon.find("behavior_graph") == std::string::npos);
 	REQUIRE(weaponPrimaryGraph.find("\"schema\": \"pd.weapon_graph.v1\"") != std::string::npos);
@@ -6640,11 +6670,29 @@ TEST_CASE("modder examples are zip-openable typed pdxxx asset archives",
 		char err[256] = {};
 		REQUIRE(weaponGraphCompileArchiveFile(weaponArchiveFullPath.c_str(),
 			ASSET_WEAPON, &weaponIr, err, sizeof(err)) == 0);
+		asset_entry_t reticle = {};
+		strncpy(reticle.id, "example:tri_reticle", sizeof(reticle.id) - 1);
+		reticle.type = ASSET_UI;
+		reticle.enabled = 1;
+		const std::string reticleTexture = weaponArchiveFullPath
+			+ "::dependencies/assets/ui/reticle.pdui::texture.png";
+		strncpy(reticle.ext.ui.texture_file, reticleTexture.c_str(),
+			sizeof(reticle.ext.ui.texture_file) - 1);
+		const u8 reticlePngHeader[24] = {
+			0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+			0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
+			0x00, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00, 0x10
+		};
+		testStubAssetCatalogResolveWith(&reticle);
+		testStubFsFileLoadWith(reticleTexture.c_str(), reticlePngHeader,
+			sizeof(reticlePngHeader));
+		ScopedCatalogSourceStub stubReset;
 		weaponGraphRuntimeClearAll();
 		weaponGraphRuntimeSetEnabled(1);
-		INFO(err);
-		REQUIRE(weaponGraphRuntimeRegisterWeaponArchive(WEAPON_CUSTOM_START,
-			weaponArchiveFullPath.c_str(), err, sizeof(err)) == 0);
+		const s32 registerResult = weaponGraphRuntimeRegisterWeaponArchive(
+			WEAPON_CUSTOM_START, weaponArchiveFullPath.c_str(), err, sizeof(err));
+		INFO(std::string(err));
+		REQUIRE(registerResult == 0);
 		const weapon_graph_held_function_t *primary =
 			weaponGraphRuntimeGetHeldFunctionForGameplay(WEAPON_CUSTOM_START, 0);
 		const weapon_graph_held_function_t *secondary =
@@ -6821,7 +6869,7 @@ TEST_CASE("typed pdxxx example archives carry the implemented asset payloads",
 			"mission",
 			".pdmission",
 			"missions/tri_mission.pdmission",
-			{ "mission.ini", "mission.graph.json", "objectives.json", "briefing.json",
+			{ "mission.ini", "mission.graph.json", "objectives.json",
 			  "dependencies/assets/scenarios/tri_scenario.pdscenario",
 			  "_meta/manifest.json" },
 		},
@@ -7071,7 +7119,7 @@ TEST_CASE("typed pdxxx example archives keep declared source refs self-contained
 		{
 			"missions/tri_mission.pdmission",
 			"mission.ini",
-			{ "mission_graph_file", "scenario_archive", "objectives_file", "briefing_file" },
+			{ "mission_graph_file", "scenario_archive", "objectives_file" },
 			{},
 			{},
 		},
@@ -9054,4 +9102,53 @@ TEST_CASE("nested weapon distribution ships parent archive and rebuilds hot inde
 	REQUIRE(nestedRegister != std::string::npos);
 	REQUIRE(weaponParse != std::string::npos);
 	REQUIRE(nestedRegister < weaponParse);
+}
+
+TEST_CASE("custom weapon reticle reaches production HUD through catalog pdui",
+		"[modding][pdxxx][weapon][pdui][reticle][T-ASSETS-023]") {
+	const std::string scanner = readFile("port/src/assetcatalog_scanner.c");
+	const std::string runtime = readFile("port/src/weapon_graph_runtime.c");
+	const std::string sight = readFile("src/game/sight.c");
+	const std::string overlay = readFile("port/fast3d/pdgui_weapon_reticle.cpp");
+	const std::string backend = readFile("port/fast3d/pdgui_backend.cpp");
+	const std::string theme = readFile("port/fast3d/pdgui_theme.cpp");
+	const std::string generator = readFile("tools/build_typed_pdxxx_examples.py");
+
+	/* Public nested source is catalog-visible before presentation validation. */
+	REQUIRE(scanner.find("type == ASSET_UI && pathEndsWithNoCase(path, \".pdui\")") !=
+		std::string::npos);
+	REQUIRE(scanner.find("pass == 0 && expected_type != ASSET_UI") !=
+		std::string::npos);
+	REQUIRE(runtime.find("table->reticle_ref") != std::string::npos);
+	REQUIRE(runtime.find("assetCatalogResolve(held->reticle_ref)") !=
+		std::string::npos);
+	REQUIRE(runtime.find("entry->type != ASSET_UI") != std::string::npos);
+	REQUIRE(runtime.find("weaponGraphReticleImageHeaderValid") !=
+		std::string::npos);
+	REQUIRE(runtime.find("missing or corrupt public image source") !=
+		std::string::npos);
+
+	/* The real sight pass replaces only the reticle and keeps target logic. */
+	REQUIRE(sight.find("pdguiWeaponReticleClear();") != std::string::npos);
+	REQUIRE(sight.find("pdguiWeaponReticleQueue(held->reticle_ref") !=
+		std::string::npos);
+	REQUIRE(sight.find("} else switch (sight)") != std::string::npos);
+	REQUIRE(sight.find("sightDrawTarget(gdl, crossx, crossy)") !=
+		std::string::npos);
+	REQUIRE(backend.find("pdguiWeaponReticleIsQueued()") != std::string::npos);
+	REQUIRE(backend.find("pdguiWeaponReticleRender((s32)winW, (s32)winH)") !=
+		std::string::npos);
+	REQUIRE(overlay.find("gfx_current_game_window_viewport") !=
+		std::string::npos);
+	REQUIRE(overlay.find("AddImage") != std::string::npos);
+	REQUIRE(overlay.find("actionmap") == std::string::npos);
+	REQUIRE(overlay.find("SDL_") == std::string::npos);
+	REQUIRE(theme.find("s_applyCatalogUiAsset(entry, nullptr)") !=
+		std::string::npos);
+
+	/* Creator example carries one authoritative catalog binding and archive. */
+	REQUIRE(generator.find("reticle_archive = dependencies/assets/ui/reticle.pdui") !=
+		std::string::npos);
+	REQUIRE(generator.find("\\\"crosshair\\\": \\\"example:tri_reticle\\\"") !=
+		std::string::npos);
 }

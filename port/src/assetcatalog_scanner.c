@@ -426,7 +426,7 @@ const char *modiniTemplateForKind(const char *kind)
 			"; scenario_archive = dependencies/assets/scenario/mission.pdscenario\n"
 			"mission_graph_file = mission.graph.json\n"
 			"; objectives_file = objectives.json\n"
-			"; briefing_file = briefing.json\n";
+			"; briefing records live in the nested scenario setup.fields.json\n";
 	}
 
 	if (strcmp(kind, "head") == 0) {
@@ -2689,9 +2689,6 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 			strncpy(e->ext.mission.objectives_file,
 				iniGet(ini, "objectives_file", ""),
 				sizeof(e->ext.mission.objectives_file) - 1);
-			strncpy(e->ext.mission.briefing_file,
-				iniGet(ini, "briefing_file", ""),
-				sizeof(e->ext.mission.briefing_file) - 1);
 			strncpy(e->ext.mission.mission_graph_file,
 				iniGet(ini, "mission_graph_file",
 				iniGet(ini, "graph", "")),
@@ -2767,6 +2764,10 @@ static s32 weaponNestedMediaType(const char *path, asset_type_e *out_type)
 	}
 	if (type == ASSET_AUDIO && (pathEndsWithNoCase(path, ".pdsfx")
 			|| pathEndsWithNoCase(path, ".pdvoice"))) {
+		if (out_type) *out_type = type;
+		return 1;
+	}
+	if (type == ASSET_UI && pathEndsWithNoCase(path, ".pdui")) {
 		if (out_type) *out_type = type;
 		return 1;
 	}
@@ -2893,10 +2894,12 @@ s32 assetCatalogRegisterWeaponNestedDependencies(const char *weapon_id,
 		return -1;
 	}
 
-	/* Audio must be catalog-visible before animation command JSON is parsed:
+	/* UI is registered first so presentation validation can resolve a declared
+	 * reticle before the owning weapon is activated. Audio must be catalog-
+	 * visible before animation command JSON is parsed:
 	 * weapon animations can name contained SFX/voice catalog IDs directly.
 	 * The second pass then resolves those IDs into their private sound slots. */
-	for (s32 pass = 0; pass < 2; pass++) {
+	for (s32 pass = 0; pass < 3; pass++) {
 	for (s32 i = 0; i < scan.count; i++) {
 		const char *entry_name = scan.entries[i];
 		asset_type_e expected_type = ASSET_NONE;
@@ -2911,8 +2914,9 @@ s32 assetCatalogRegisterWeaponNestedDependencies(const char *weapon_id,
 		char descriptor_ref[FS_MAXPATH * 2 + 132];
 
 		weaponNestedMediaType(entry_name, &expected_type);
-		if ((pass == 0 && expected_type != ASSET_AUDIO)
-				|| (pass == 1 && expected_type != ASSET_ANIMATION)) {
+		if ((pass == 0 && expected_type != ASSET_UI)
+				|| (pass == 1 && expected_type != ASSET_AUDIO)
+				|| (pass == 2 && expected_type != ASSET_ANIMATION)) {
 			continue;
 		}
 		nested = modArchiveExtractMemAlloc(weapon_bytes, weapon_size,

@@ -2,6 +2,20 @@
 
 > fast3d: N64 GBI display lists translated at runtime to OpenGL. Function-pointer-table backend abstraction (`GfxRenderingAPI` + `GfxWindowManagerAPI`). Dear ImGui v1.91.8 overlay through the same SDL2 + OpenGL context. Theme system decodes ROM textures to RGBA32 and uploads as GL textures.
 
+## 2026-08-08 catalog weapon reticles
+
+Public `.pdweapon` presentation can now select an embedded `.pdui` by catalog
+ID. The real sight render path queues the selected image at the existing
+crosshair coordinates; the ImGui overlay maps 320x240 HUD space into the live
+game viewport, clips it, and renders it without replacing later target-tracking
+work. The native reticle is suppressed only after strict weapon registration
+has proved the selected row is enabled UI with a readable PNG/TGA source and
+valid header. Hot local/network UI rows decode lazily from their catalog source;
+decode failure does not synthesize a custom fallback. The overlay reads no SDL
+or action-map input, so MKB/controller bindings and live glyph ownership remain
+with their existing systems. Workbench `T-ASSETS-023` is implemented; final
+combined compilation and ordinary-client visual/device proof remain.
+
 ---
 
 ## What it is

@@ -899,11 +899,14 @@ set(SRC_TESTS
 	${CMAKE_SOURCE_DIR}/tests/test_prop_graph_runtime.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_character_archive_utilization_static.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_voice_locale_source.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_pdtheme_source.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_voice_archive_authoring.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_assetcatalog_deps.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_public_mods_static.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_mod_external_archive_static.cpp
   ${CMAKE_SOURCE_DIR}/port/src/asset_archive_policy.c
   ${CMAKE_SOURCE_DIR}/port/src/asset_archive_writer.c
+  ${CMAKE_SOURCE_DIR}/port/src/voice_archive_authoring.c
   ${CMAKE_SOURCE_DIR}/port/src/asset_mod_utility_contract.c
   ${CMAKE_SOURCE_DIR}/port/src/asset_runtime.c
 	${CMAKE_SOURCE_DIR}/port/src/prop_graph_runtime.c
@@ -931,6 +934,7 @@ set(SRC_TESTS
   # the I8 alpha-replication case is the credits-motes solid-squares pin.
   ${CMAKE_SOURCE_DIR}/port/src/texture_decode_pure.c
   ${CMAKE_SOURCE_DIR}/port/src/voice_locale_source.c
+  ${CMAKE_SOURCE_DIR}/port/src/pdtheme_source.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_texture_decode_pure.cpp
 
   # c038 jump capsule guards (physics-collision pillar, 2026-05-18):

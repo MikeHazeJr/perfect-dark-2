@@ -783,7 +783,7 @@ TEST_CASE("stale generated metadata and weapon manifests have an offline source 
 	        std::string::npos);
 	REQUIRE(upgrader.find("WEAPON_REQUIRED_MEMBERS") != std::string::npos);
 	REQUIRE(upgrader.find("\"objectives_file\"") != std::string::npos);
-	REQUIRE(upgrader.find("\"briefing_file\"") != std::string::npos);
+	REQUIRE(upgrader.find("\"briefing_file\"") == std::string::npos);
 	REQUIRE(upgrader.find("\"type_key\"") != std::string::npos);
 	REQUIRE(upgrader.find("\"difficulty_key\"") != std::string::npos);
 	REQUIRE(upgrader.find("\"min_players\"") != std::string::npos);
@@ -9907,7 +9907,7 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 	        std::string::npos);
 	REQUIRE(lv_runtime.find("scenarioSourceLevelGraphRecordTick(\"lvTick.start\")") !=
 	        std::string::npos);
-	REQUIRE(meta_extractor.find("PDMETA_FAST_CACHE_KIND \"pdmeta_table_backed_v13_hydrated_metadata_source\"") !=
+	REQUIRE(meta_extractor.find("PDMETA_FAST_CACHE_KIND \"pdmeta_table_backed_v14_scenario_briefing_authority\"") !=
 	        std::string::npos);
 	REQUIRE(meta_extractor.find("PDMETA_SCENARIO_DEP_CACHE_KIND") !=
 	        std::string::npos);
@@ -9941,7 +9941,7 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 	        std::string::npos);
 	REQUIRE(meta_extractor.find("\\\"objectives_file\\\": \\\"objectives.json\\\"") !=
 	        std::string::npos);
-	REQUIRE(meta_extractor.find("\\\"briefing_file\\\": \\\"briefing.json\\\"") !=
+	REQUIRE(meta_extractor.find("assetArchiveWriterAddPublicMem(&writer, \"briefing.json\"") ==
 	        std::string::npos);
 	REQUIRE(meta_extractor.find("\\\"min_players\\\": %d") !=
 	        std::string::npos);
@@ -9962,11 +9962,11 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 	        std::string::npos);
 	REQUIRE(conformance.find("mission.graph.json must bind mission.objectives.source to objectives.json") !=
 	        std::string::npos);
-	REQUIRE(conformance.find("pd2.mission.briefing.v1") !=
+	REQUIRE(conformance.find("retired duplicate briefing.json") !=
 	        std::string::npos);
 	REQUIRE(conformance.find("_meta/manifest.json must declare {field} = {expected}") !=
 	        std::string::npos);
-	REQUIRE(conformance.find("(\"briefing_file\", \"briefing.json\")") !=
+	REQUIRE(conformance.find("briefing_file is retired") !=
 	        std::string::npos);
 	REQUIRE(conformance.find("level.graph.json must include exactly one {description} graph node") !=
 	        std::string::npos);
@@ -12930,6 +12930,14 @@ TEST_CASE("universal extracted archive walkers bind public source members",
 	REQUIRE(meta_walker.find("\"behavior_graph\"") != std::string::npos);
 	REQUIRE(meta_walker.find("\"timeline_file\"") != std::string::npos);
 	REQUIRE(meta_walker.find("\"mission_graph_file\"") != std::string::npos);
+	REQUIRE(meta_walker.find("s_applyMissionPublicDescriptor") !=
+	        std::string::npos);
+	REQUIRE(meta_walker.find("loaderWalkerArchiveTextMember(archive_path, \"mission.ini\"") !=
+	        std::string::npos);
+	REQUIRE(meta_walker.find("briefing records and their language tokens are already") !=
+	        std::string::npos);
+	REQUIRE(meta_walker.find("LOADER.UNIVERSAL.META: invalid public mission source") !=
+	        std::string::npos);
 	REQUIRE(meta_walker.find("{ ASSET_PROP,        \"prop\",       \"props\",       \".pdprop\",       \"prop.ini\",      { \"model_file\", \"prop_file\", \"behavior_graph\", NULL } }") !=
 	        std::string::npos);
 	REQUIRE(meta_walker.find("{ ASSET_PROP,        \"prop\",       \"props\",       \".pdprop\",       \"prop.ini\",      { \"model_file\", \"behavior_graph\", \"prop_file\", NULL } }") ==
@@ -14594,7 +14602,7 @@ TEST_CASE("c3841 scenario archives are source-first and runtime-native",
 	}
 	REQUIRE(runtime.find("entry->ext.mission.objectives_file") !=
 	        std::string::npos);
-	REQUIRE(runtime.find("entry->ext.mission.briefing_file") !=
+	REQUIRE(runtime.find("entry->ext.mission.briefing_file") ==
 	        std::string::npos);
 	{
 		const size_t mission_anchor =
@@ -14614,7 +14622,7 @@ TEST_CASE("c3841 scenario archives are source-first and runtime-native",
 		        std::string::npos);
 		REQUIRE(mission_case.find("entry->ext.mission.objectives_file") !=
 		        std::string::npos);
-		REQUIRE(mission_case.find("entry->ext.mission.briefing_file") !=
+		REQUIRE(mission_case.find("entry->ext.mission.briefing_file") ==
 		        std::string::npos);
 		REQUIRE(mission_case.find("binding->primary_path") ==
 		        std::string::npos);
@@ -14622,9 +14630,9 @@ TEST_CASE("c3841 scenario archives are source-first and runtime-native",
 		        std::string::npos);
 		REQUIRE(mission_case.find("s_hasText(binding->dependency_a) &&") !=
 		        std::string::npos);
-		REQUIRE(mission_case.find("s_hasText(binding->dependency_b) &&") !=
+		REQUIRE(mission_case.find("s_hasText(binding->dependency_b));") !=
 		        std::string::npos);
-		REQUIRE(mission_case.find("s_hasText(binding->dependency_c)") !=
+		REQUIRE(mission_case.find("s_hasText(binding->dependency_c)") ==
 		        std::string::npos);
 	}
 	REQUIRE(runtime.find("entry->ext.effect.timeline_file") !=
@@ -14743,7 +14751,7 @@ TEST_CASE("c3843 remaining base asset families emit clean native archives",
 	REQUIRE(meta.find("s_emitEffect") != std::string::npos);
 	REQUIRE(meta.find("s_emitProp") != std::string::npos);
 	REQUIRE(meta.find("s_emitVehicle") != std::string::npos);
-	REQUIRE(meta.find("PDMETA_FAST_CACHE_KIND \"pdmeta_table_backed_v13_hydrated_metadata_source\"") !=
+	REQUIRE(meta.find("PDMETA_FAST_CACHE_KIND \"pdmeta_table_backed_v14_scenario_briefing_authority\"") !=
 	        std::string::npos);
 	REQUIRE(texture_extractor.find("texture.png") != std::string::npos);
 	REQUIRE(meta.find("material.json") != std::string::npos);
@@ -14757,7 +14765,7 @@ TEST_CASE("c3843 remaining base asset families emit clean native archives",
 	        std::string::npos);
 	REQUIRE(meta.find("\\\"objectives_file\\\": \\\"objectives.json\\\"") !=
 	        std::string::npos);
-	REQUIRE(meta.find("\\\"briefing_file\\\": \\\"briefing.json\\\"") !=
+	REQUIRE(meta.find("assetArchiveWriterAddPublicMem(&writer, \"briefing.json\"") ==
 	        std::string::npos);
 	REQUIRE(meta.find("prop.json") != std::string::npos);
 	REQUIRE(meta.find("physics.json") != std::string::npos);
@@ -15765,4 +15773,23 @@ TEST_CASE("pdvoice public metadata feeds production subtitles",
 	REQUIRE(runtime.find("s_voiceLanguageMatchesActive(audio.voice_language)") !=
 	        std::string::npos);
 	REQUIRE(runtime.find("hudmsgCreateAsSubtitle(text") != std::string::npos);
+}
+
+TEST_CASE("T-ASSETS-023 declared weapon reticles fail closed without public UI source",
+		"[modding][pdxxx][c3842][weapon][reticle][static]") {
+	const std::string runtime = readTextFile("port/src/weapon_graph_runtime.c");
+	const std::string theme = readTextFile("port/fast3d/pdgui_theme.cpp");
+	const std::string reticle =
+		readTextFile("port/fast3d/pdgui_weapon_reticle.cpp");
+
+	REQUIRE(runtime.find("!entry || entry->type != ASSET_UI || !entry->enabled") !=
+		std::string::npos);
+	REQUIRE(runtime.find("fsFileLoad(entry->ext.ui.texture_file") !=
+		std::string::npos);
+	REQUIRE(runtime.find("weaponGraphRuntimeClearWeapon(weaponnum);") !=
+		std::string::npos);
+	REQUIRE(theme.find("never synthesize a fallback") != std::string::npos);
+	REQUIRE(reticle.find("PDWEAPON.RETICLE.REJECT") != std::string::npos);
+	REQUIRE(reticle.find("pdguiThemeGetTexture(s_CatalogId)") !=
+		std::string::npos);
 }

@@ -1,17 +1,31 @@
 # Menus / UI / UX
 
+## 2026-08-08 localized Voice creator
+
+Audio Mods Voice import now produces the real self-contained localized
+`.pdvoice` consumed by the catalog/runtime path. The form exposes actor,
+context, audio locale, fallback locale, and UTF-8 subtitle while retaining
+ordinary ImGui keyboard/controller navigation. Accept and cancel labels come
+from the live action-map glyph resolver, so device switching does not strand
+hardcoded controls. Save validates and atomically replaces the archive,
+hot-registers it through the authoritative scanner, persists the mod, and uses
+the actual listen-server mode when rebroadcasting. Workbench `T-MODDING-007`
+is `implemented` after the combined source-frozen build and 159-case `.pdxxx`
+regression. Physical MKB/controller, restart, locale, distribution, and
+device-switch glyph receipts remain before validation.
+
 ## 2026-08-08 theme and glyph contract audit
 
-Workbench `T-ASSETS-026` through `T-ASSETS-030` now hold the complete theme
-repair. The current `.pdtheme` retains UI, font, audio, music, and effect archive
-paths without registering or consuming them; its loader accepts permissive or
-empty source, several parsed fields are inert, and Theme Editor output is not a
-self-contained `.pdtheme`. Active themes do not scope unrelated enabled UI/font
-assets. MKB/controller action labels switch through the action map, but visible
-glyphs remain hardcoded text pills rather than theme dependency output. Theme
-status remains missing until strict parsing, typed dependency lifecycle, real
-production consumers, creator round-trip, and physical-device glyph evidence
-all pass.
+Workbench `T-ASSETS-026` through `T-ASSETS-030` hold the complete theme repair.
+`T-ASSETS-026` is implemented: public `theme.ini`/`theme.json` is authoritative,
+the shared parser strictly validates schema, identity, fields, types, ranges,
+catalog references, and caps, and malformed or missing declared source fails
+closed without private-manifest or built-in-data substitution. The remaining
+`.pdtheme` work is still explicit in `T-ASSETS-027` through `T-ASSETS-030`: typed
+dependency ownership, every retained production consumer, self-contained Theme
+Editor output, network/restart proof, and physical MKB/controller glyph evidence.
+Active themes can still fail to scope unrelated enabled UI/font assets, and
+visible glyphs remain hardcoded text pills rather than theme dependency output.
 
 ## 2026-08-08 character archive utilization
 

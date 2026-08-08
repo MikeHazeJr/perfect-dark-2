@@ -15,6 +15,7 @@
 #include "system.h"  /* B-911/B-912: sysLogPrintf for the embedded-mesh ingest (pd-tests has no PCH) */
 #include "constants.h"
 #include "effect_graph_runtime.h"  /* c3849 Unit 8: nested .pdeffect ingestion */
+#include "fs.h"
 #include "loader_enum_reverse.h"
 #include "modarchive.h"
 #include "platform.h"
@@ -2129,10 +2130,8 @@ static s32 weaponGraphParseTunablesJson(const char *json, u32 json_size,
 
 /* presentation.json fold-in: sight / zoom_fov land in the SAME defaults layer
  * as settings.json rows (settings.json wins on key collision). The v1 schema
- * intentionally exposes only production-consumed fields. "crosshair" may be
- * "default" as an explicit declaration of the native renderer; custom
- * reticles and unknown keys fail registration instead of being stored or
- * ignored. */
+ * intentionally exposes only production-consumed fields. "crosshair" is
+ * either "default" or an authoritative ASSET_UI catalog ID. */
 static s32 weaponGraphParsePresentationJson(const char *json, u32 json_size,
                                             weapon_graph_weapon_settings_t *table,
                                             char *err, size_t err_cap)
@@ -2167,13 +2166,23 @@ static s32 weaponGraphParsePresentationJson(const char *json, u32 json_size,
 			continue;
 		}
 		if (strcmp(key, "crosshair") == 0) {
-			char crosshair[64];
+			char crosshair[CATALOG_ID_LEN];
 			crosshair[0] = '\0';
-			if (!readJsonStringSpan(value, crosshair, sizeof(crosshair)) ||
-					strcmp(crosshair, "default") != 0) {
+			if (!readJsonStringSpan(value, crosshair, sizeof(crosshair))) {
 				setErr(err, err_cap,
-					"weapon presentation crosshair must be default until catalog reticle rendering is implemented");
+					"weapon presentation crosshair must be a string catalog ID or default");
 				return -1;
+			}
+			if (strcmp(crosshair, "default") == 0) {
+				table->reticle_ref[0] = '\0';
+			} else if (!strchr(crosshair, ':') || strchr(crosshair, '/')
+					|| strchr(crosshair, '\\')) {
+				setErr(err, err_cap,
+					"weapon presentation crosshair must be a catalog ID");
+				return -1;
+			} else {
+				copyStr(table->reticle_ref, sizeof(table->reticle_ref),
+					crosshair);
 			}
 			continue;
 		}
@@ -3713,7 +3722,7 @@ static void weaponGraphApplySettingsDefaults(s32 weaponnum)
 		return;
 	}
 	table = &s_weapon_settings[weaponnum];
-	if (!table->valid || table->setting_count <= 0) {
+	if (!table->valid || (table->setting_count <= 0 && !table->reticle_ref[0])) {
 		return;
 	}
 
@@ -3721,6 +3730,10 @@ static void weaponGraphApplySettingsDefaults(s32 weaponnum)
 		weapon_graph_held_function_t *held = &s_held_functions[weaponnum][func];
 		if (!held->valid) {
 			continue;
+		}
+		if (!held->reticle_ref[0] && table->reticle_ref[0]) {
+			copyStr(held->reticle_ref, sizeof(held->reticle_ref),
+				table->reticle_ref);
 		}
 		for (s32 i = 0; i < table->setting_count; i++) {
 			const weapon_graph_setting_entry_t *e = &table->settings[i];
@@ -3769,6 +3782,62 @@ static void weaponGraphApplySettingsDefaults(s32 weaponnum)
 			}
 		}
 	}
+}
+
+static s32 weaponGraphReticleImageHeaderValid(const u8 *bytes, u32 size)
+{
+	static const u8 png_signature[8] = {
+		0x89, 'P', 'N', 'G', 0x0d, 0x0a, 0x1a, 0x0a
+	};
+	if (!bytes) return 0;
+	if (size >= 24 && memcmp(bytes, png_signature, sizeof(png_signature)) == 0
+			&& memcmp(bytes + 12, "IHDR", 4) == 0) {
+		u32 width = ((u32)bytes[16] << 24) | ((u32)bytes[17] << 16)
+			| ((u32)bytes[18] << 8) | bytes[19];
+		u32 height = ((u32)bytes[20] << 24) | ((u32)bytes[21] << 16)
+			| ((u32)bytes[22] << 8) | bytes[23];
+		return width > 0 && height > 0;
+	}
+	if (size >= 18 && (bytes[2] == 2 || bytes[2] == 3
+			|| bytes[2] == 10 || bytes[2] == 11)) {
+		u32 width = (u32)bytes[12] | ((u32)bytes[13] << 8);
+		u32 height = (u32)bytes[14] | ((u32)bytes[15] << 8);
+		return width > 0 && height > 0
+			&& (bytes[16] == 8 || bytes[16] == 16
+				|| bytes[16] == 24 || bytes[16] == 32);
+	}
+	return 0;
+}
+
+static s32 weaponGraphValidateRegisteredReticles(s32 weaponnum,
+		char *err, size_t err_cap)
+{
+	for (s32 func = 0; func < WEAPON_GRAPH_RUNTIME_MAX_FUNCS; func++) {
+		const weapon_graph_held_function_t *held =
+			weaponGraphRuntimeGetHeldFunction(weaponnum, func);
+		if (!held || !held->reticle_ref[0]) continue;
+
+		const asset_entry_t *entry = assetCatalogResolve(held->reticle_ref);
+		if (!entry || entry->type != ASSET_UI || !entry->enabled
+				|| !entry->ext.ui.texture_file[0]) {
+			setErr(err, err_cap,
+				"weapon reticle %s is missing, disabled, or not ASSET_UI",
+				held->reticle_ref);
+			return -1;
+		}
+
+		u32 image_size = 0;
+		u8 *image = (u8 *)fsFileLoad(entry->ext.ui.texture_file, &image_size);
+		s32 valid = weaponGraphReticleImageHeaderValid(image, image_size);
+		sysMemFree(image);
+		if (!valid) {
+			setErr(err, err_cap,
+				"weapon reticle %s has missing or corrupt public image source",
+				held->reticle_ref);
+			return -1;
+		}
+	}
+	return 0;
 }
 
 s32 weaponGraphRuntimeRegisterHeldIr(s32 weaponnum, const weapon_graph_ir_t *ir,
@@ -4296,6 +4365,10 @@ s32 weaponGraphRuntimeRegisterWeaponArchive(s32 weaponnum,
 		s_weapon_settings[weaponnum] = tunables;
 		weaponGraphApplySettingsDefaults(weaponnum);
 	}
+	if (weaponGraphValidateRegisteredReticles(weaponnum, err, err_cap) != 0) {
+		weaponGraphRuntimeClearWeapon(weaponnum);
+		return -1;
+	}
 	if (weaponGraphRuntimeRegisterWeaponArchiveDependencies(archive_path,
 			ir.asset_id, weaponnum, err, err_cap) != 0) {
 		weaponGraphRuntimeClearWeapon(weaponnum);
@@ -4376,6 +4449,10 @@ s32 weaponGraphRuntimeRegisterWeaponSourceJson(s32 weaponnum,
 	if (heldIndexValid(weaponnum, 0)) {
 		s_weapon_settings[weaponnum] = tunables;
 		weaponGraphApplySettingsDefaults(weaponnum);
+	}
+	if (weaponGraphValidateRegisteredReticles(weaponnum, err, err_cap) != 0) {
+		weaponGraphRuntimeClearWeapon(weaponnum);
+		return -1;
 	}
 	return 0;
 }
