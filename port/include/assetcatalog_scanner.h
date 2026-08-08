@@ -14,6 +14,7 @@
 #ifndef _IN_ASSETCATALOG_SCANNER_H
 #define _IN_ASSETCATALOG_SCANNER_H
 
+#include <stddef.h>
 #include <PR/ultratypes.h>
 #include "assetcatalog.h"
 #include "modarchive.h"
@@ -147,6 +148,22 @@ s32 assetCatalogScanExternalLayoutFolder(const char *mod_id, const char *mod_dir
  * Returns the number of catalog entries registered.
  */
 s32 assetCatalogScanComponentsFromArchive(const char *mod_id, mod_archive_t *archive);
+
+/**
+ * Register .pdanim/.pdsfx/.pdvoice archives embedded directly inside a
+ * .pdweapon source archive. The nested public descriptor remains the source
+ * of truth and every registered source path is a VFS chain rooted at the
+ * parent weapon archive. Existing bundled rows are preserved; conflicting
+ * custom IDs fail closed.
+ *
+ * Returns the number of nested dependencies registered or reused, or -1 on
+ * any malformed, unresolved, colliding, or unreadable nested dependency.
+ */
+s32 assetCatalogRegisterWeaponNestedDependencies(const char *weapon_id,
+                                                  const char *weapon_archive,
+                                                  s32 bundled,
+                                                  char *err,
+                                                  size_t err_cap);
 
 /**
  * Scan the flat bot_variants/ directory directly under modsdir.

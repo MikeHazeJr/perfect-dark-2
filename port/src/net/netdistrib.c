@@ -43,6 +43,7 @@
 #include "net/netenet.h"
 #include "net/netmanifest.h"
 #include "assetcatalog.h"
+#include "asset_archive_policy.h"
 #include "assetcatalog_body_head_slots.h"
 #include "assetcatalog_weapon_slots.h"
 #include "catalog_mgr_bodies.h"
@@ -53,6 +54,7 @@
 #include "assetcatalog_stage_slots.h" /* c3849 Wave 2 */
 #include "game/stagetable.h" /* c3849 Wave 2 */
 #include "assetcatalog_deps.h"
+#include "assetcatalog_load.h"
 #include "assetcatalog_scanner.h"
 #include "loader_pool.h"
 #include "modmgr.h"
@@ -191,6 +193,80 @@ static distrib_queue_entry_t *distribAllocQueueSlot(void)
  * PDCA Archive Builder (server side)
  * ======================================================================== */
 
+static s32 distribTypedArchiveRef(const asset_entry_t *entry,
+		char *out, size_t out_cap)
+{
+	const char *separator;
+	if (!entry || !out || out_cap == 0 || !entry->descriptor_path[0]) {
+		return 0;
+	}
+	out[0] = '\0';
+	separator = strrchr(entry->descriptor_path, ':');
+	if (!separator || separator == entry->descriptor_path
+			|| separator[-1] != ':') {
+		return 0;
+	}
+	separator--;
+	size_t len = (size_t)(separator - entry->descriptor_path);
+	if (len == 0 || len >= out_cap) {
+		return 0;
+	}
+	memcpy(out, entry->descriptor_path, len);
+	out[len] = '\0';
+	return assetArchivePathIsTyped(out);
+}
+
+static u8 *buildTypedArchiveComponent(const asset_entry_t *entry,
+		const char *archive_ref, u32 *out_len)
+{
+	u32 archive_size = 0;
+	u8 *archive_bytes = (u8 *)fsFileLoad(archive_ref, &archive_size);
+	const char *leaf;
+	const char *chain;
+	u16 path_len;
+	u32 total;
+	u8 *buf;
+	u8 *p;
+
+	if (!archive_bytes || archive_size == 0) {
+		if (archive_bytes) sysMemFree(archive_bytes);
+		return NULL;
+	}
+	chain = strrchr(archive_ref, ':');
+	leaf = (chain && chain > archive_ref && chain[-1] == ':') ? chain + 1
+		: archive_ref;
+	{
+		const char *slash = strrchr(leaf, '/');
+		const char *backslash = strrchr(leaf, '\\');
+		if (backslash && (!slash || backslash > slash)) slash = backslash;
+		if (slash) leaf = slash + 1;
+	}
+	path_len = (u16)(strlen(leaf) + 1);
+	total = 6u + 2u + (u32)path_len + 4u + archive_size;
+	buf = (u8 *)malloc(total);
+	if (!buf) {
+		sysMemFree(archive_bytes);
+		return NULL;
+	}
+	p = buf;
+	{
+		u32 magic = PDCA_MAGIC;
+		u16 count = 1;
+		memcpy(p, &magic, 4); p += 4;
+		memcpy(p, &count, 2); p += 2;
+	}
+	memcpy(p, &path_len, 2); p += 2;
+	memcpy(p, leaf, path_len); p += path_len;
+	memcpy(p, &archive_size, 4); p += 4;
+	memcpy(p, archive_bytes, archive_size);
+	sysMemFree(archive_bytes);
+	*out_len = total;
+	sysLogPrintf(LOG_NOTE,
+		"DISTRIB: archive for '%s': exact typed source %s (%u bytes raw)",
+		entry->id, archive_ref, total);
+	return buf;
+}
+
 /**
  * Recursively enumerate files in a directory, appending entries to a
  * growing heap buffer. Returns the new buffer and updated size.
@@ -294,6 +370,12 @@ static u8 *buildArchiveDir(u8 *buf, u32 *buf_len, u32 *buf_cap,
  */
 static u8 *buildComponentArchive(const asset_entry_t *entry, u32 *out_len)
 {
+	char typed_archive[FS_MAXPATH * 2 + 4];
+	if (distribTypedArchiveRef(entry, typed_archive,
+			sizeof(typed_archive))) {
+		return buildTypedArchiveComponent(entry, typed_archive, out_len);
+	}
+
     /* Header: magic(4) + file_count(2) = 6 bytes */
     u32 buf_cap = 65536;
     u32 buf_len = 6;
@@ -1138,6 +1220,13 @@ static s32 distribParseAudioCategoryValue(const char *value, s32 default_categor
     return default_category;
 }
 
+static s32 distribAudioCategoryForSection(const ini_section_t *ini)
+{
+    if (ini && strcmp(ini->type, "voice") == 0) return AUDIO_CAT_VOICE;
+    if (ini && strcmp(ini->type, "music") == 0) return AUDIO_CAT_MUSIC;
+    return AUDIO_CAT_SFX;
+}
+
 static void distribLowerKey(const char *value, char *out, size_t out_n)
 {
     if (!out || out_n == 0) {
@@ -1738,8 +1827,8 @@ static s32 distribMintCustomStagenum(asset_entry_t *e, const char *mint_key)
 }
 
 static void populateExtFromIni(asset_entry_t *e, asset_type_e type, const char *dirpath,
-                                const ini_section_t *ini,
-                                const asset_entry_t *preserved_entry)
+                               const ini_section_t *ini,
+                               const asset_entry_t *preserved_entry)
 {
     switch (type) {
     case ASSET_MAP:
@@ -2101,7 +2190,8 @@ static void populateExtFromIni(asset_entry_t *e, asset_type_e type, const char *
         e->ext.audio.category = distribParseAudioCategoryValue(
             iniGet(ini, "audio_category",
                 iniGet(ini, "kind",
-                iniGet(ini, "category", ""))), AUDIO_CAT_SFX);
+                iniGet(ini, "category", ""))),
+            distribAudioCategoryForSection(ini));
         e->ext.audio.duration_ms = iniGetInt(ini, "duration_ms", 0);
         strncpy(e->ext.audio.voice_actor, iniGet(ini, "actor", ""),
                 sizeof(e->ext.audio.voice_actor) - 1);
@@ -2111,6 +2201,23 @@ static void populateExtFromIni(asset_entry_t *e, asset_type_e type, const char *
                 sizeof(e->ext.audio.voice_language) - 1);
         strncpy(e->ext.audio.voice_context, iniGet(ini, "context", ""),
                 sizeof(e->ext.audio.voice_context) - 1);
+        distribQualifyFilePath(dirpath, iniGet(ini, "subtitle_file", ""),
+                e->ext.audio.subtitle_file,
+                sizeof(e->ext.audio.subtitle_file));
+        strncpy(e->ext.audio.fallback_locale,
+                iniGet(ini, "fallback_locale", ""),
+                sizeof(e->ext.audio.fallback_locale) - 1);
+        {
+            static const char *locale_keys[6] = {
+                "locale_en_file", "locale_fr_file", "locale_de_file",
+                "locale_it_file", "locale_es_file", "locale_ja_file"
+            };
+            for (s32 i = 0; i < 6; i++) {
+                distribQualifyFilePath(dirpath, iniGet(ini, locale_keys[i], ""),
+                    e->ext.audio.locale_audio_files[i],
+                    sizeof(e->ext.audio.locale_audio_files[i]));
+            }
+        }
         e->ext.audio.has_keymap = iniGetInt(ini, "has_keymap",
             iniGet(ini, "key_base", NULL) != NULL ? 1 : 0);
         e->ext.audio.key_min = iniGetInt(ini, "key_min", 0);
@@ -2481,6 +2588,28 @@ static void populateExtFromIni(asset_entry_t *e, asset_type_e type, const char *
     }
 }
 
+static void distribMarkRegisteredTree(const char *root_dir, s32 temporary)
+{
+	if (!root_dir || !root_dir[0]) return;
+	size_t root_len = strlen(root_dir);
+	for (s32 i = 0; i < assetCatalogGetPoolSize(); i++) {
+		const asset_entry_t *entry = assetCatalogGetByIndex(i);
+		if (!entry || !entry->id[0]) continue;
+		const char *source = entry->descriptor_path[0]
+			? entry->descriptor_path : entry->dirpath;
+		if (strncmp(source, root_dir, root_len) != 0
+				|| (source[root_len] != '\0' && source[root_len] != '/'
+					&& source[root_len] != '\\')) {
+			continue;
+		}
+		asset_entry_t *mutable_entry = assetCatalogGetMutable(entry->id);
+		if (mutable_entry) {
+			mutable_entry->temporary = temporary ? 1 : 0;
+			mutable_entry->bundled = 0;
+		}
+	}
+}
+
 void netDistribClientHandleEnd(const char *catalog_id, u8 success)
 {
     if (!s_Initialized) return;
@@ -2594,7 +2723,14 @@ void netDistribClientHandleEnd(const char *catalog_id, u8 success)
                                     "sound.ini", "sfx.ini", "voice.ini", "music.ini",
                                     "ui.ini", "font.ini", "lang.ini", "theme.ini", NULL };
         ini_section_t ini;
-        s32 registered = 0;
+        /* Typed archives are transferred intact, including their nested
+         * dependency closure. Scan them before the loose-INI compatibility
+         * path so temporary lobby installs hot-register nested media too. */
+        s32 registered = assetCatalogScanExternalLayoutFolder(
+            slot->category, destdir);
+		if (registered > 0) {
+			distribMarkRegisteredTree(destdir, slot->temporary);
+		}
 
         for (s32 k = 0; ini_names[k] && !registered; k++) {
             snprintf(inipath, sizeof(inipath), "%s/%s", destdir, ini_names[k]);
@@ -2686,6 +2822,12 @@ void netDistribClientHandleEnd(const char *catalog_id, u8 success)
 
         if (!registered) {
             sysLogPrintf(LOG_WARNING, "DISTRIB: no recognized INI for '%s' -- catalog entry skipped", slot->id);
+        } else {
+            /* Hot registration happens after the boot-time reverse indexes.
+             * Rebuild them now so custom animation and sound private slots
+             * resolve on the first real weapon use, including temporary
+             * ready-gate transfers that do not trigger a mod-manager rebuild. */
+            catalogLoadInit();
         }
 
         s_ClientStatus.received_count++;

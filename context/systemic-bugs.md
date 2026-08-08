@@ -21,6 +21,12 @@ or conformance allow-list is not utilization. Conformance itself can also
 contradict runtime, as with timeline-only `.pdeffect` archives that validate but
 cannot activate.
 
+The same propagation audit found B-979 and B-980: `.pdprop` shipped an empty,
+never-executed behavior graph, while `.pdtheme` preserved five nested archive
+paths without registering or consuming any of them and accepted many inert
+fields. A non-empty example and recursive typed-dependency proof are now part
+of this pattern's closure checklist.
+
 **Audit:** Cross-check every generated/example source key against its production
 parser and downstream consumer, not only descriptor/manifest conformance.
 

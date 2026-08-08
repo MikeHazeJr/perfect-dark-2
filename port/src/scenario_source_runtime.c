@@ -14,6 +14,7 @@
 #include "asset_source_debug.h"
 #include "assetcatalog.h"
 #include "assetcatalog_load.h"
+#include "voice_locale_source.h"
 #include "bss.h"
 #include "game/bondmove.h"
 #include "game/bg.h"
@@ -26038,20 +26039,12 @@ static s32 s_aiAudioGraphReady(const char *action, s32 node_count,
 
 static s32 s_voiceLanguageMatchesActive(const char *language)
 {
+	s32 source_locale;
+	s32 active_locale;
 	if (!language || !language[0]) return 1;
-#if VERSION == VERSION_JPN_FINAL
-	return strcmp(language, "jp") == 0 || strcmp(language, "ja") == 0;
-#elif VERSION >= VERSION_PAL_BETA
-	if (g_LanguageId == LANGUAGE_PAL_FR) return strcmp(language, "fr") == 0;
-	if (g_LanguageId == LANGUAGE_PAL_DE) return strcmp(language, "de") == 0;
-	if (g_LanguageId == LANGUAGE_PAL_IT) return strcmp(language, "it") == 0;
-	if (g_LanguageId == LANGUAGE_PAL_ES) return strcmp(language, "es") == 0;
-	return strcmp(language, "en") == 0 || strcmp(language, "en-gb") == 0
-		|| strcmp(language, "en-us") == 0;
-#else
-	return strcmp(language, "en") == 0 || strcmp(language, "en-us") == 0
-		|| strcmp(language, "en-gb") == 0;
-#endif
+	source_locale = voiceLocaleIndex(language);
+	active_locale = voiceLocaleIndex(voiceLocaleActiveTag());
+	return source_locale >= 0 && source_locale == active_locale;
 }
 
 static const char *s_voiceSourceSubtitle(const char *audio_catalog_id,

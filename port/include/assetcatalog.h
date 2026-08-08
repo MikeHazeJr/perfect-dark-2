@@ -423,6 +423,9 @@ typedef struct asset_entry {
             char voice_transcript[512];
             char voice_language[16];
             char voice_context[128];
+            char subtitle_file[FS_MAXPATH];
+            char fallback_locale[16];
+            char locale_audio_files[6][FS_MAXPATH];
             /* MUSIC tracks only: solo stage whose best-time gates this track.
              * Mirrors g_MpTracks[].unlockstage. -1 = always unlocked
              * (mod tracks default here). SFX / VOICE entries leave at 0. */
@@ -1167,11 +1170,16 @@ typedef struct {
     const asset_entry_t *entry;
     s32                  sound_id;   /**< MUSIC_* enum for music, SFX index for SFX */
     s32                  category;   /**< AUDIO_CAT_SFX / AUDIO_CAT_MUSIC / AUDIO_CAT_VOICE */
-    const char          *file_path;  /**< disk path for mod audio, "" for ROM-embedded */
+    const char          *file_path;  /**< selected public source, empty for ROM */
     const char          *voice_actor;
     const char          *voice_transcript;
     const char          *voice_language;
     const char          *voice_context;
+    char                 file_path_storage[FS_MAXPATH];
+    char                 voice_actor_storage[64];
+    char                 voice_transcript_storage[512];
+    char                 voice_language_storage[16];
+    char                 voice_context_storage[128];
 } catalog_audio_result_t;
 
 /* ── SA-2: Resolution by catalog string ID ─────────────────────────────── */

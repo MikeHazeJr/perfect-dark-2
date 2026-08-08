@@ -1,5 +1,40 @@
 # Session Log (Active)
 
+## 2026-08-08 - Roadmap execution wave: prop graphs, localized voice, and nested weapon media
+
+Continued the canonical Workbench roadmap with root, Lina, and Ultra lanes.
+Public `.pdprop` behavior graphs now compile strict executable topology and bind
+to actual Forge props for spawn/tick enabled state, health, collision, and named
+channels; empty, invalid, cyclic, unreachable, or identity-mismatched source
+fails hydration. `.pdvoice` now declares and consumes localized audio and
+subtitle JSON through base, local, nested, and network paths, with active and
+fallback locale selection and no native fallback for a broken declared source.
+Nested `.pdweapon` animation, SFX, and voice dependencies are validated and
+registered audio-first before weapon parsing, included in dependency lifecycle,
+distributed through the parent archive, and hot-indexed on receipt.
+
+The source-frozen isolated wave passes client/updater/test compilation,
+`[prop_graph]` 2 cases/16 assertions, `[voice]` 6 cases/53 assertions,
+`[T-ASSETS-022]` 1 case/10 assertions, full `[modding][pdxxx]` 150 cases/15,736
+assertions, 28-root/52-recursive conformance across all 27 families, structured
+selftests, localized-audio verification, the native-source guard, and diff
+checks. `T-ASSETS-013`, `T-ASSETS-011`, and `T-ASSETS-021` are implemented but
+not live-validated; `T-ASSETS-022` remains partial because the test target does
+not link the full native catalog/scanner/loader lifecycle and live edited-media
+proof remains. New durable work records cover JSON surrogate pairs
+(`T-ASSETS-031`), real Audio Mods `.pdvoice` authoring (`T-MODDING-007`), and
+temporary distributed-asset crash recovery (`T-NETWORKING-009`).
+
+The field-level theme audit found private-manifest authority, write-only nested
+dependencies, permissive fallback, inert retained fields, duplicate palette
+authority, creator output in the wrong format, disconnected font/effect paths,
+and hardcoded glyph pills. The complete fix/proof split is recorded as
+`T-ASSETS-026` through `T-ASSETS-030`; no theme status was overstated.
+Final roadmap integrity checking also found and removed an inverted dependency
+that made `T-MODDING-004` and `T-MODDING-006` depend on each other. All 125
+permanent items now have unique IDs, existing dependency targets, and an
+acyclic dependency graph; no note remains in `new` state.
+
 ## 2026-08-08 - Roadmap execution wave: weapon, character, voice, and effect truth
 
 Ran the canonical Workbench roadmap through independent Ultra weapon, Lina

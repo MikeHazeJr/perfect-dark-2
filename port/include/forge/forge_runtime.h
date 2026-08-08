@@ -37,6 +37,7 @@ extern "C" {
 typedef struct forge_prop_handle {
     u32              forge_uid;      /* forge_object.uid this was spawned from */
     struct prop     *prop;           /* live engine prop (NULL for spawn/bot-only) */
+	struct defaultobj *obj;          /* default object backing a live prop */
     struct doorobj  *doorobj;        /* live doorobj when prop is a door (NULL otherwise) */
     u8               is_spawn_point; /* 1 = injected into spawn pool, not a prop */
     u8               is_bot;         /* 1 = spawned via botmgrAllocateBot */

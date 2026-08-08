@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "project": "Perfect Dark 2",
-  "updated": "2026-08-08T17:09:13.434Z",
+  "updated": "2026-08-08T19:16:12.876Z",
   "items": [
     {
       "type": "task",
@@ -866,7 +866,7 @@
       "status": "partial",
       "phase": 1,
       "lane": "audit",
-      "owner": "unassigned",
+      "owner": "codex-roadmap-continuation-20260808",
       "deps": [
         "T-TOOLING-001",
         "T-TOOLING-002"
@@ -887,7 +887,7 @@
         "workbench-key:asset-current-tree-audit"
       ],
       "id": "T-ASSETS-001",
-      "updated": "2026-08-08T17:09:13.434Z",
+      "updated": "2026-08-08T19:15:48.207Z",
       "created": "2026-07-30T15:16:40.119Z"
     },
     {
@@ -1945,10 +1945,10 @@
       "type": "asset",
       "title": ".pdprop public source and production runtime chain",
       "area": "ASSETS",
-      "status": "partial",
+      "status": "implemented",
       "phase": 1,
       "lane": "family-audit",
-      "owner": "ultra",
+      "owner": "codex-roadmap-continuation-20260808",
       "deps": [
         "T-ASSETS-001",
         "T-ASSETS-013"
@@ -1965,18 +1965,35 @@
         "strict source conformance: 28 root / 59 recursive archives / 27 families PASS",
         "asset native source guard PASS",
         "isolated tests build pd2assetaudit2 PASS",
-        "port/src/forge/forge_runtime.c"
+        "port/src/forge/forge_runtime.c",
+        "A-ASSETS-022",
+        "context/bugs.md:B-979",
+        "port/include/prop_graph_runtime.h",
+        "port/src/prop_graph_runtime.c",
+        "port/src/asset_runtime.c:s_hydrateProp",
+        "port/src/forge/forge_runtime.c:s_spawn_prop + forgeRuntimeTick",
+        "port/src/weapon_graph_runtime.c:ASSET_PROP graph compiler modules",
+        "tools/asset_archive_conformance.py:validate_prop_source_contract",
+        "examples/modding/typed-pdxxx-basic/props/tri_prop.pdprop",
+        "tests/test_prop_graph_runtime.cpp:2 cases / 16 assertions PASS",
+        "tests/test_asset_runtime_adapters.cpp:B-959 prop graph hydration",
+        "pd-tests [modding][pdxxx]: 150 cases / 15736 assertions PASS",
+        "asset conformance: 28 root / 52 recursive / all 27 families PASS",
+        "asset conformance selftest: 16 parity + recursion + 8 structured contracts PASS",
+        "asset-native-source guard PASS",
+        "isolated assetwave2 client/updater/pd-tests builds PASS 2026-08-08",
+        "context/evidence/2026-08-08-assetwave2-verification.md"
       ],
-      "detail": "B-959 core slice implemented: prop.json v2 owns archetype, display name, health and flags; Forge dispatch/spawn consumes hydrated values and fails closed. Strict mutation/runtime/build proof passes. Status remains partial because arbitrary behavior.graph.json execution is still open.",
+      "detail": "Prop.json v2 owns archetype, display name, health and flags; public pd.prop_behavior.v1 owns executable spawn/tick behavior. Catalog hydration validates both, Forge spawn/tick consumes both, and declared invalid graphs fail closed. Automated compiler/runtime/conformance/build proof passes. Live edited ordinary-client proof remains in V-005 before validated.",
       "tags": [
         "asset-family",
         "asset-family:pdprop",
         "descriptor:prop.ini"
       ],
       "id": "A-ASSETS-022",
-      "updated": "2026-08-01T12:52:59.866Z",
+      "updated": "2026-08-08T19:14:58.996Z",
       "created": "2026-07-30T15:32:27.822Z",
-      "model": "Codex GPT-5"
+      "model": "GPT-5.6"
     },
     {
       "type": "asset",
@@ -2246,7 +2263,6 @@
       "lane": "creator-workflow",
       "detail": "Catalog entries now retain the canonical descriptor source path, including archive::member chains. The Modding Hub resolves descriptors per entry and audio category, loads loose/standalone/nested sources through fsFileLoad without a line-count cap, rejects unsafe partial loads, preserves comments/blanks/raw lines, and atomically rewrites standalone typed archives. Transport-packaged content is explicitly clone-first/read-only. The isolated test build and focused b954 contract passed; status remains implemented until live MKB/controller editor proof passes.",
       "deps": [
-        "T-MODDING-004",
         "T-ASSETS-001"
       ],
       "type": "task",
@@ -2254,7 +2270,7 @@
       "title": "B-954: make Modding Hub edit typed archive descriptors safely",
       "area": "MODDING",
       "id": "T-MODDING-006",
-      "updated": "2026-07-30T16:05:50.845Z",
+      "updated": "2026-08-08T19:16:12.876Z",
       "created": "2026-07-30T15:41:13.497Z",
       "model": "gpt-5"
     },
@@ -2714,9 +2730,9 @@
       "model": "gpt-5"
     },
     {
-      "status": "partial",
+      "status": "implemented",
       "phase": 3,
-      "owner": "unassigned",
+      "owner": "voice-localization-20260808",
       "title": "Connect .pdvoice actor, transcript, and language metadata to dialogue and localization",
       "area": "ASSETS",
       "deps": [
@@ -2735,7 +2751,13 @@
         "asset conformance: 28 root / 52 recursive / 27 families PASS",
         "asset native source guard PASS",
         "isolated integrated client/updater/pd-tests builds PASS",
-        "context/audits/2026/asset-roadmap-wave-2026-08-08.md"
+        "context/audits/2026/asset-roadmap-wave-2026-08-08.md",
+        ".claude/session-builds/assetwave2: source-frozen client/updater build PASS; pd-tests compile PASS; [voice] 6 cases/53 assertions PASS; [modding][pdxxx] 150 cases/15736 assertions PASS",
+        "tools/asset_archive_conformance.py --selftest PASS: 16 parity + 8 structured source contracts",
+        "strict typed-example conformance PASS: 28 root / 52 recursive / 27 families",
+        "python tools/asset_native_source_guard.py PASS",
+        "Live ordinary-client edited locale audio/subtitle receipt remains under validation gates; task is implemented, not validated",
+        "context/evidence/2026-08-08-assetwave2-verification.md"
       ],
       "tags": [
         "handoff:lina",
@@ -2744,12 +2766,12 @@
         "localization",
         "production-path"
       ],
-      "detail": "Public voice.ini actor, transcript, language, and context now load from creator-editable source through base walking, local scan, network distribution, typed catalog resolution, and the production AI subtitle path. Matching-locale actor/transcript text is visible; source-native audio remains on the catalog/provider path. The family stays partial because advertised subtitle.json and localized sample members still need production consumers or an explicit format version/removal under T-ASSETS-021, followed by live edited-source proof.",
+      "detail": "Public voice.ini actor, transcript, language, context, subtitle.json, fallback locale, and localized audio declarations now flow through base walking, local/nested scan, network distribution, typed catalog resolution, normal sound playback, and the production scenario subtitle path. Descriptor section inference prevents [voice] archives without an optional category from being misclassified as SFX. Source-frozen builds, focused voice tests, full pdxxx regression, conformance, and source guard pass. Ordinary-client edited-source proof remains in the validation gates.",
       "type": "task",
       "id": "T-ASSETS-011",
-      "updated": "2026-08-08T17:08:44.281Z",
+      "updated": "2026-08-08T19:14:59.002Z",
       "created": "2026-08-01T12:51:42.449Z",
-      "model": "Codex GPT-5"
+      "model": "gpt-5"
     },
     {
       "status": "partial",
@@ -2788,9 +2810,9 @@
       "model": "Codex GPT-5"
     },
     {
-      "status": "missing",
+      "status": "implemented",
       "phase": 3,
-      "owner": "unassigned",
+      "owner": "codex-roadmap-continuation-20260808",
       "title": "Execute arbitrary .pdprop behavior graphs in production",
       "area": "ASSETS",
       "deps": [
@@ -2799,8 +2821,22 @@
       "lane": "runtime-utilization",
       "evidence": [
         "A-ASSETS-022",
-        "context/bugs.md:B-959",
-        "port/src/forge/forge_runtime.c"
+        "context/bugs.md:B-979",
+        "port/include/prop_graph_runtime.h",
+        "port/src/prop_graph_runtime.c",
+        "port/src/asset_runtime.c:s_hydrateProp",
+        "port/src/forge/forge_runtime.c:s_spawn_prop + forgeRuntimeTick",
+        "port/src/weapon_graph_runtime.c:ASSET_PROP graph compiler modules",
+        "tools/asset_archive_conformance.py:validate_prop_source_contract",
+        "examples/modding/typed-pdxxx-basic/props/tri_prop.pdprop",
+        "tests/test_prop_graph_runtime.cpp:2 cases / 16 assertions PASS",
+        "tests/test_asset_runtime_adapters.cpp:B-959 prop graph hydration",
+        "pd-tests [modding][pdxxx]: 150 cases / 15736 assertions PASS",
+        "asset conformance: 28 root / 52 recursive / all 27 families PASS",
+        "asset conformance selftest: 16 parity + recursion + 8 structured contracts PASS",
+        "asset-native-source guard PASS",
+        "isolated assetwave2 client/updater/pd-tests builds PASS 2026-08-08",
+        "context/evidence/2026-08-08-assetwave2-verification.md"
       ],
       "tags": [
         "handoff:ultra",
@@ -2809,11 +2845,12 @@
         "behavior-graph",
         "production-path"
       ],
-      "detail": "Extend the implemented prop core-state adapter so arbitrary public behavior.graph.json content is validated, catalog-resolved, instantiated, ticked, and dispatched through the production prop/Forge lifecycle. Preserve archetype, display name, health, flags and model semantics; reject unknown or invalid required nodes without silent native behavior fallback; add focused graph coverage and a live edited-behavior receipt.",
+      "detail": "Public pd.prop_behavior.v1 source now compiles through the deterministic graph compiler. Arbitrary acyclic topology is supported over the production-backed event.spawn, event.tick, condition.enabled, action.set_enabled, action.set_health, action.set_collision and action.set_channel modules. Empty, unreachable, cyclic, identity-mismatched, invalid-parameter and unknown-node graphs reject parent hydration. Forge binds compiled programs to actual spawned props, fires spawn, ticks every frame, and unbinds on exit. Prop archetype, display name, health, flags and model remain owned by prop.json/model source. Implemented is production-connected with automated proof; live edited ordinary-client receipt remains under V-005 and therefore this item is not validated.",
       "type": "task",
       "id": "T-ASSETS-013",
-      "updated": "2026-08-08T16:53:40.301Z",
-      "created": "2026-08-01T12:51:42.461Z"
+      "updated": "2026-08-08T19:14:58.989Z",
+      "created": "2026-08-01T12:51:42.461Z",
+      "model": "GPT-5.6"
     },
     {
       "status": "missing",
@@ -2850,13 +2887,18 @@
       "title": "Make .pdtheme dependencies authoritative and fail closed",
       "area": "ASSETS",
       "deps": [
-        "T-ASSETS-004"
+        "T-ASSETS-026",
+        "T-ASSETS-027",
+        "T-ASSETS-028",
+        "T-ASSETS-029",
+        "T-ASSETS-030"
       ],
       "lane": "runtime-utilization",
       "evidence": [
         "A-ASSETS-028",
         "context/bugs.md:B-971",
-        "port/fast3d/pdgui_theme_loader.cpp:parse_theme_json"
+        "port/fast3d/pdgui_theme_loader.cpp:parse_theme_json",
+        "theme-audit-20260808 field-level audit: nested archives write-only, parser fail-open, creator wrong format, inert production fields, glyph path disconnected"
       ],
       "tags": [
         "handoff:lina",
@@ -2865,10 +2907,10 @@
         "bug:B-971",
         "production-path"
       ],
-      "detail": "Connect every declared optional theme UI, font, texture, palette, chrome, and style dependency to the production theme loader through catalog IDs. Define optional versus required bindings in the public schema, eliminate silent missing-binding fallback, keep creator examples aligned with the exact parser contract, and prove edited dependencies and live device glyph surfaces render from public source.",
+      "detail": "Connect every declared optional theme UI, font, texture, palette, chrome, and style dependency to the production theme loader through catalog IDs. Define optional versus required bindings in the public schema, eliminate silent missing-binding fallback, keep creator examples aligned with the exact parser contract, and prove edited dependencies and live device glyph surfaces render from public source. Audit split into T-ASSETS-026, T-ASSETS-027, T-ASSETS-028, T-ASSETS-029, T-ASSETS-030. Keep missing until every child is production-connected and the live validation gate passes.",
       "type": "task",
       "id": "T-ASSETS-015",
-      "updated": "2026-08-08T16:53:40.317Z",
+      "updated": "2026-08-08T18:58:02.307Z",
       "created": "2026-08-01T12:51:42.471Z"
     },
     {
@@ -3249,14 +3291,29 @@
       "deps": [
         "T-ASSETS-004"
       ],
-      "owner": "unassigned",
+      "owner": "voice-localization-20260808",
       "type": "task",
       "title": "Resolve .pdvoice subtitle.json and localized sample contracts",
-      "status": "missing",
+      "status": "implemented",
       "lane": "voice-localization",
-      "evidence": [],
+      "evidence": [
+        "port/src/voice_locale_source.c: active/fallback/default public subtitle and audio selection",
+        "port/src/assetcatalog_load.c + assetcatalog_api.c: production playback/catalog consumers",
+        "port/src/loader_walker_voice.c + assetcatalog_scanner.c + net/netdistrib.c: base/local/network registration parity",
+        "tools/asset_archive_conformance.py + tools/verify_audio_sources.py: strict descriptor/member/schema/codec checks",
+        "examples/modding/typed-pdxxx-basic/audio/voice/tri_voice.pdvoice: editable en/fr creator source",
+        "tests/test_voice_locale_source.cpp: locale selection, malformed authority, and route pins",
+        ".claude/session-builds/voice-localization-20260808/source-checks.log: conformance selftest, 27-family example conformance, localized audio verification, native-source guard PASS",
+        "context/bugs.md B-976 and context/pillars/catalog.md/modding.md: durable implementation truth",
+        ".claude/session-builds/assetwave2: source-frozen client/updater build PASS; pd-tests compile PASS; [voice] 6 cases/53 assertions PASS; [modding][pdxxx] 150 cases/15736 assertions PASS",
+        "tools/asset_archive_conformance.py --selftest PASS: 16 parity + 8 structured source contracts",
+        "strict typed-example conformance PASS: 28 root / 52 recursive / 27 families",
+        "python tools/asset_native_source_guard.py PASS",
+        "Live ordinary-client edited locale audio/subtitle receipt remains under validation gates; task is implemented, not validated",
+        "context/evidence/2026-08-08-assetwave2-verification.md"
+      ],
       "phase": 3,
-      "detail": "Either connect subtitle.json and locales/*.wav|ogg|mp3 to the production subtitle, localization, catalog audio, and active-locale playback path or remove/version those advertised members. Preserve default sample behavior, reject missing selected locale sources without native fallback, update extractor/examples/conformance, and prove an edited localized line and sample in ordinary gameplay.",
+      "detail": "Public voice.ini now declares subtitle.json, fallback locale, and per-locale WAV/OGG/MP3 members. Local scanning, base walking, nested registration, and network distribution retain those public paths; normal catalog sound playback selects active/fallback locale audio; production scenario dialogue selects active/fallback/default subtitle JSON text; declared missing/invalid source refuses descriptor/native fallback. Creator example, strict conformance, localized audio verification, focused voice tests, full pdxxx regression, and source-frozen builds pass. Ordinary-client edited fr audio/subtitle and induced-missing-source receipts remain validation work.",
       "tags": [
         "asset-family:pdvoice",
         "handoff:lina",
@@ -3265,22 +3322,29 @@
         "production-path"
       ],
       "id": "T-ASSETS-021",
-      "updated": "2026-08-08T17:05:35.583Z",
-      "created": "2026-08-08T17:05:35.583Z"
+      "updated": "2026-08-08T19:14:59.008Z",
+      "created": "2026-08-08T17:05:35.583Z",
+      "model": "gpt-5"
     },
     {
       "area": "ASSETS",
       "deps": [
         "T-ASSETS-004"
       ],
-      "owner": "unassigned",
+      "owner": "codex-roadmap-continuation-20260808",
       "type": "task",
       "title": "Hot-register nested-only .pdweapon animation and audio dependencies",
-      "status": "missing",
+      "status": "partial",
       "lane": "weapon-dependencies",
-      "evidence": [],
+      "evidence": [
+        "port/src/assetcatalog_scanner.c:2858 release-validates and registers nested .pdsfx/.pdvoice before .pdanim, assigns catalog/private slots, rejects collisions, and records owner dependencies; port/src/loader_walker_weapon.c:193 invokes it before production weapon manifest parsing and disables the owner on failure.",
+        "port/src/net/netdistrib.c:219 packages the exact typed parent archive; :2591 propagates temporary lifecycle state to the registered tree; :2729 hot-scans intact typed transfers; :2830 rebuilds production load indexes. port/src/net/netmsg.c:6169 suppresses impossible standalone nested requests.",
+        "tests/test_mod_external_archive_static.cpp:9040 pins parent-archive distribution, hot typed scanning/index rebuild, nested-row suppression, and registration-before-weapon-parse: PASS 1 case / 10 assertions.",
+        "Source-frozen combined verification 2026-08-08: .claude/session-builds/assetwave2/_build-headless-20260808-150859-compile-tests.out.log pd-tests compile PASS; client/updater build PASS; full [modding][pdxxx] PASS 150 cases / 15736 assertions; tools/asset_archive_conformance.py PASS; tools/asset_native_source_guard.py PASS.",
+        "context/evidence/2026-08-08-assetwave2-verification.md"
+      ],
       "phase": 3,
-      "detail": "Make custom animation and audio archives embedded only inside a weapon archive register, resolve, load, and unload through the production catalog/provider path. Preserve extracted base self-contained dependencies, reject corrupt or unresolved selected members, and prove edited nested animation/audio behavior live.",
+      "detail": "Production implementation now discovers every nested .pdanim/.pdsfx/.pdvoice in a .pdweapon, release-validates public descriptors, registers audio before animation command parsing so catalog sound IDs resolve, records custom dependency closure for manifest load/unload, preserves matching bundled base rows, rejects foreign/colliding/corrupt members and disables the owning weapon, distributes the exact parent archive, hot-registers intact transfers, propagates temporary lifecycle state, rebuilds load indexes, and avoids standalone nested requests. Source-frozen compilation and static integration pass. Still required before implemented/validated: a native behavioral harness linked to catalog/scanner/loader runtime proving field-level nested audio+animation resolution/load/unload/fail-closed, plus ordinary-client live evidence that edited nested media changes gameplay and corrupt/unresolved selected members do not fall back.",
       "tags": [
         "asset-family:pdweapon",
         "handoff:ultra",
@@ -3289,8 +3353,9 @@
         "dependencies"
       ],
       "id": "T-ASSETS-022",
-      "updated": "2026-08-08T17:05:35.611Z",
-      "created": "2026-08-08T17:05:35.611Z"
+      "updated": "2026-08-08T19:14:59.014Z",
+      "created": "2026-08-08T17:05:35.611Z",
+      "model": "gpt-5.6-sol"
     },
     {
       "area": "ASSETS",
@@ -3362,6 +3427,214 @@
       "id": "T-ASSETS-025",
       "updated": "2026-08-08T17:05:35.637Z",
       "created": "2026-08-08T17:05:35.637Z"
+    },
+    {
+      "deps": [],
+      "status": "missing",
+      "title": "Make .pdtheme public source strict and authoritative",
+      "area": "ASSETS",
+      "type": "task",
+      "lane": "runtime-utilization",
+      "evidence": [
+        "T-ASSETS-015",
+        "A-ASSETS-028"
+      ],
+      "detail": "Replace private _meta manifest and loose-theme authority with one strict theme.ini plus theme.json parser. Validate schema, catalog identity, types, ranges, duplicate fields and capacity; remove raw paths, duplicate hardcoded palette tables, unreachable duplicate font branch, and fail-open built-in fallback. Built-in extraction must be source-hashed and activation transactional.",
+      "owner": "unassigned",
+      "tags": [
+        "asset-family:pdtheme",
+        "parser",
+        "bug:private-manifest-authority",
+        "bug:fail-open",
+        "bug:duplicate-palettes"
+      ],
+      "phase": 3,
+      "id": "T-ASSETS-026",
+      "updated": "2026-08-08T18:58:02.256Z",
+      "created": "2026-08-08T18:58:02.256Z"
+    },
+    {
+      "deps": [],
+      "status": "missing",
+      "title": "Load and own nested .pdtheme dependencies",
+      "area": "ASSETS",
+      "type": "task",
+      "lane": "runtime-utilization",
+      "evidence": [
+        "T-ASSETS-015",
+        "A-ASSETS-028"
+      ],
+      "detail": "Recursively register declared .pdui, .pdfont, .pdsfx, .pdsong and .pdeffect archives across base, local, pdmod and network paths. Resolve catalog IDs and role types, create dependency edges, retain and release them with the theme, and fail the parent transaction on missing, malformed, hash-mismatched or type-mismatched declared dependencies.",
+      "owner": "unassigned",
+      "tags": [
+        "asset-family:pdtheme",
+        "dependencies",
+        "network",
+        "fail-closed",
+        "bug:write-only-dependencies"
+      ],
+      "phase": 3,
+      "id": "T-ASSETS-027",
+      "updated": "2026-08-08T18:58:02.273Z",
+      "created": "2026-08-08T18:58:02.273Z"
+    },
+    {
+      "deps": [],
+      "status": "missing",
+      "title": "Connect every supported .pdtheme field to production menus",
+      "area": "ASSETS",
+      "type": "task",
+      "lane": "runtime-utilization",
+      "evidence": [
+        "T-ASSETS-015",
+        "A-ASSETS-028"
+      ],
+      "detail": "Wire theme textures, chrome, nineslices, font, scanline interval, sound roles, menu music and effect archives into real menu draw, audio, music and effect paths. Remove unsupported fields instead of storing them inert. Ensure theme-scoped UI and font selection, controller and MKB glyph rendering, runtime swap rollback, and no procedural or unrelated-enabled-asset fallback for declared roles.",
+      "owner": "unassigned",
+      "tags": [
+        "asset-family:pdtheme",
+        "runtime-utilization",
+        "menus",
+        "glyphs",
+        "audio",
+        "effects",
+        "bug:inert-fields"
+      ],
+      "phase": 3,
+      "id": "T-ASSETS-028",
+      "updated": "2026-08-08T18:58:02.279Z",
+      "created": "2026-08-08T18:58:02.279Z"
+    },
+    {
+      "deps": [],
+      "status": "missing",
+      "title": "Make Theme Editor create real self-contained .pdtheme archives",
+      "area": "ASSETS",
+      "type": "task",
+      "lane": "runtime-utilization",
+      "evidence": [
+        "T-ASSETS-015",
+        "A-ASSETS-028"
+      ],
+      "detail": "Replace loose mod.json plus theme.json export with validated .pdtheme authoring. Expose every supported dependency role, embed selected typed archives, emit theme.ini and manifest from the same records, validate before save, and prove save/reload roundtrip through the production parser/provider.",
+      "owner": "unassigned",
+      "tags": [
+        "asset-family:pdtheme",
+        "creator",
+        "roundtrip",
+        "bug:creator-wrong-format"
+      ],
+      "phase": 3,
+      "id": "T-ASSETS-029",
+      "updated": "2026-08-08T18:58:02.284Z",
+      "created": "2026-08-08T18:58:02.284Z"
+    },
+    {
+      "deps": [],
+      "status": "missing",
+      "title": "Validate edited .pdtheme source across devices and distribution",
+      "area": "ASSETS",
+      "type": "task",
+      "lane": "runtime-utilization",
+      "evidence": [
+        "T-ASSETS-015",
+        "A-ASSETS-028"
+      ],
+      "detail": "Add field-level base, local, pdmod and network tests for parser, dependency lifetime, transactional rollback and every production consumer. Add missing/corrupt/schema/catalog/type/hash/cap rejection. Capture ordinary-client theme swap and restart persistence with palette, UI/chrome, font, texture/nineslice, audio/music/effect, plus MKB and controller action labels and glyphs.",
+      "owner": "unassigned",
+      "tags": [
+        "asset-family:pdtheme",
+        "validation",
+        "live-proof",
+        "controller",
+        "mkb",
+        "network"
+      ],
+      "phase": 3,
+      "id": "T-ASSETS-030",
+      "updated": "2026-08-08T18:58:02.288Z",
+      "created": "2026-08-08T18:58:02.288Z"
+    },
+    {
+      "lane": "voice-localization",
+      "tags": [
+        "asset-family:pdvoice",
+        "handoff:lina",
+        "localization",
+        "unicode",
+        "parser"
+      ],
+      "area": "ASSETS",
+      "title": "Decode JSON surrogate-pair escapes in .pdvoice subtitles",
+      "status": "missing",
+      "deps": [
+        "T-ASSETS-021"
+      ],
+      "owner": "unassigned",
+      "detail": "subtitle.json accepts UTF-8 text, but a standards-compliant JSON producer may encode non-BMP characters such as emoji as a high/low \\\\u surrogate pair. The current compact runtime parser encodes each half independently, yielding invalid UTF-8. Combine valid pairs into one code point, reject lone/mismatched surrogates, add positive microphone-emoji and negative malformed-pair tests, then rerun the focused voice/full pdxxx bands.",
+      "type": "task",
+      "evidence": [
+        "port/src/voice_locale_source.c:s_readString currently decodes each \\\\uXXXX independently",
+        "tests/test_voice_locale_source.cpp covers BMP escape but not a surrogate pair"
+      ],
+      "phase": 3,
+      "id": "T-ASSETS-031",
+      "updated": "2026-08-08T19:11:21.776Z",
+      "created": "2026-08-08T19:11:21.776Z"
+    },
+    {
+      "area": "MODDING",
+      "status": "missing",
+      "owner": "unassigned",
+      "deps": [
+        "T-ASSETS-021"
+      ],
+      "title": "Make Audio Mods voice import author a real localized .pdvoice archive",
+      "lane": "creator-tools",
+      "detail": "Audio Mods currently advertises Voice import but writes the legacy loose [audio] descriptor with numeric category and directly registers a catalog row. It does not create the user-facing .pdvoice format or expose actor/context/subtitle/locales, so creator output diverges from the authoritative archive contract. Replace the Voice path with the shared typed archive writer, collect accessible voice/localization fields, validate before replacing the last good archive, immediately rescan the real archive, persist across restart, and prove MKB/controller/glyph operation plus an edited localized line/sample.",
+      "phase": 3,
+      "evidence": [
+        "port/fast3d/pdgui_menu_audiomod.cpp:importAudioFile writes mods/<slug>/audio.ini plus a loose copied file",
+        "The voice import UI exposes only name/category and cannot author actor, context, subtitle.json, fallback_locale, or locale audio members"
+      ],
+      "type": "task",
+      "tags": [
+        "asset-family:pdvoice",
+        "handoff:lina",
+        "creator-workflow",
+        "menu",
+        "input",
+        "glyphs"
+      ],
+      "id": "T-MODDING-007",
+      "updated": "2026-08-08T19:11:48.326Z",
+      "created": "2026-08-08T19:11:48.326Z"
+    },
+    {
+      "area": "NETWORKING",
+      "type": "task",
+      "status": "missing",
+      "owner": "codex-roadmap-continuation-20260808",
+      "evidence": [
+        "port/src/net/netdistrib.c:3068 Keep-but-Disable loop is an explicit no-op placeholder; discard removes temp files/directories without evicting or disabling their catalog rows/dependency state or rebuilding catalog load indexes."
+      ],
+      "tags": [
+        "distribution",
+        "temporary-assets",
+        "crash-recovery",
+        "catalog-lifecycle",
+        "handoff:ultra"
+      ],
+      "detail": "Replace netCrashRecoveryApply temporary-mod placeholders with real catalog/provider lifecycle. Keep-but-Disable must disable every temporary parent and contained nested row, unload selected dependency closure, and rebuild reverse indexes. Discard must first unload/evict catalog and dependency state, then remove only the verified temp tree, and prove no stale selected provider survives deleted files. Add native behavioral coverage for parent plus nested typed archives and crash-recovery restart.",
+      "title": "Finish temporary distributed asset disable and discard lifecycle",
+      "deps": [
+        "T-ASSETS-022"
+      ],
+      "lane": "asset-distribution",
+      "phase": 3,
+      "id": "T-NETWORKING-009",
+      "updated": "2026-08-08T19:12:23.784Z",
+      "created": "2026-08-08T19:12:23.784Z"
     }
   ]
 }

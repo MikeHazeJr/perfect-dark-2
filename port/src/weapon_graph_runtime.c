@@ -133,6 +133,14 @@ static const module_info_t s_modules[] = {
 	{ "effect.explosion", ASSET_EFFECT, WEAPON_GRAPH_OP_EFFECT_EXPLOSION },
 	{ "effect.spark", ASSET_EFFECT, WEAPON_GRAPH_OP_EFFECT_SPARK },
 	{ "effect.smoke", ASSET_EFFECT, WEAPON_GRAPH_OP_EFFECT_SMOKE },
+
+	{ "event.spawn", ASSET_PROP, WEAPON_GRAPH_OP_PROP_EVENT_SPAWN },
+	{ "event.tick", ASSET_PROP, WEAPON_GRAPH_OP_PROP_EVENT_TICK },
+	{ "condition.enabled", ASSET_PROP, WEAPON_GRAPH_OP_PROP_CONDITION_ENABLED },
+	{ "action.set_enabled", ASSET_PROP, WEAPON_GRAPH_OP_PROP_ACTION_SET_ENABLED },
+	{ "action.set_health", ASSET_PROP, WEAPON_GRAPH_OP_PROP_ACTION_SET_HEALTH },
+	{ "action.set_collision", ASSET_PROP, WEAPON_GRAPH_OP_PROP_ACTION_SET_COLLISION },
+	{ "action.set_channel", ASSET_PROP, WEAPON_GRAPH_OP_PROP_ACTION_SET_CHANNEL },
 };
 
 static const weapon_graph_parity_module_t s_parity_modules[] = {
@@ -437,6 +445,7 @@ const char *weaponGraphSchemaForType(asset_type_e type)
 	 * emitter update) is accepted in weaponGraphCompileJson with a one-time
 	 * LOG_WARNING. */
 	case ASSET_EFFECT:     return "pd.effect_graph.v1";
+	case ASSET_PROP:       return "pd.prop_behavior.v1";
 	default:               return NULL;
 	}
 }

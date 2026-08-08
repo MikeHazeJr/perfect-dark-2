@@ -53,6 +53,9 @@ static s32 s_register(const char *manifest, size_t manifest_len,
     char transcript[512] = "";
     char language[16] = "";
     char context[128] = "";
+    char subtitle_member[128] = "";
+    char fallback_locale[16] = "";
+    char locale_members[6][128] = {{0}};
     loaderWalkerEnvelopeInt(manifest, manifest_len, "source_index", &source_index);
     loaderWalkerEnvelopeInt(manifest, manifest_len, "source_filenum", &source_filenum);
     loaderWalkerEnvelopeInt(manifest, manifest_len, "sample_rate_hz", &sample_rate_hz);
@@ -89,6 +92,20 @@ static s32 s_register(const char *manifest, size_t manifest_len,
                                  language, sizeof(language));
         loaderWalkerIniValueCopy(voice_ini, voice_ini_len, "voice", "context",
                                  context, sizeof(context));
+        loaderWalkerIniValueCopy(voice_ini, voice_ini_len, "voice", "subtitle_file",
+                                 subtitle_member, sizeof(subtitle_member));
+        loaderWalkerIniValueCopy(voice_ini, voice_ini_len, "voice", "fallback_locale",
+                                 fallback_locale, sizeof(fallback_locale));
+        {
+            static const char *locale_keys[6] = {
+                "locale_en_file", "locale_fr_file", "locale_de_file",
+                "locale_it_file", "locale_es_file", "locale_ja_file"
+            };
+            for (s32 i = 0; i < 6; i++) {
+                loaderWalkerIniValueCopy(voice_ini, voice_ini_len, "voice",
+                    locale_keys[i], locale_members[i], sizeof(locale_members[i]));
+            }
+        }
         sysMemFree(voice_ini);
     }
 
@@ -131,6 +148,19 @@ static s32 s_register(const char *manifest, size_t manifest_len,
                 sizeof(e->ext.audio.voice_language) - 1);
         strncpy(e->ext.audio.voice_context, context,
                 sizeof(e->ext.audio.voice_context) - 1);
+        strncpy(e->ext.audio.fallback_locale, fallback_locale,
+                sizeof(e->ext.audio.fallback_locale) - 1);
+        if (subtitle_member[0]) {
+            loaderWalkerArchiveMemberPath(file_path, subtitle_member,
+                e->ext.audio.subtitle_file, sizeof(e->ext.audio.subtitle_file));
+        }
+        for (s32 i = 0; i < 6; i++) {
+            if (locale_members[i][0]) {
+                loaderWalkerArchiveMemberPath(file_path, locale_members[i],
+                    e->ext.audio.locale_audio_files[i],
+                    sizeof(e->ext.audio.locale_audio_files[i]));
+            }
+        }
         if (loaderWalkerArchiveMemberPath(file_path, source_member,
                                           source_path, sizeof(source_path))) {
             catalogSetPrimaryFile(e, source_path);

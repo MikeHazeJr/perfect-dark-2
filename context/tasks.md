@@ -6,22 +6,22 @@
 
 Last updated: 2026-08-08
 
-**2026-08-08 ACTIVE ROADMAP EXECUTION.** The canonical Workbench now routes
-the live asset program ahead of 36 explicitly deferred historical/manual-resume
-items. Decision `D-001` correctly gates `T-INPUT-002`; future work is
-unassigned until an exact registered session claims it; `T-TOOLING-003`
-tracks replacement of 28 deleted transient receipts with durable repo-local
-evidence. `T-ASSETS-010` and `A-ASSETS-007` are implemented with automated
-character archive, runtime, conformance, guard, and build evidence; live
-ordinary-client proof remains in `V-005`/`V-007`. `T-ASSETS-009` is a verified
-partial milestone and now depends on `T-ASSETS-022` through `T-ASSETS-025` for
-nested animation/audio registration, catalog reticles, material/grip consumers,
-and live proof. `T-ASSETS-011` is partial: public actor/transcript/language
-metadata feeds production subtitles, while `T-ASSETS-021` owns optional
-subtitle/localized-audio semantics. The effect audit changed `T-ASSETS-012` to
-partial and split its remaining extraction/schema, authoritative parsing,
-graph/timeline runtime, renderer/dependency, and fail-closed/capacity work into
-`T-ASSETS-016` through `T-ASSETS-020`. `T-ASSETS-013` through `T-ASSETS-015`,
+**2026-08-08 ACTIVE ROADMAP EXECUTION.** The canonical Workbench routes the
+live asset program ahead of 36 explicitly deferred historical/manual-resume
+items. Character (`T-ASSETS-010`), voice metadata/localization
+(`T-ASSETS-011`/`T-ASSETS-021`), and executable prop graphs (`T-ASSETS-013`)
+are production-connected with source-frozen automated evidence; ordinary-client
+edited-source and negative-path receipts remain validation work. Nested weapon
+animation/audio registration is connected but truthfully partial under
+`T-ASSETS-022` until a native lifecycle harness and live edited/corrupt-media
+proof pass. `T-ASSETS-031` owns JSON surrogate-pair correctness and
+`T-MODDING-007` owns real localized `.pdvoice` authoring. Weapon reticles,
+material/grip consumers, and live proof remain `T-ASSETS-023` through
+`T-ASSETS-025`; temporary distributed-asset crash recovery is explicit in
+`T-NETWORKING-009`. Effect completion remains split across `T-ASSETS-016`
+through `T-ASSETS-020`. Theme authority is missing and fully decomposed into
+strict schema, nested lifecycle, production consumers, creator output, and
+MKB/controller/glyph validation in `T-ASSETS-026` through `T-ASSETS-030`.
 `V-003` through `V-008`, `P-001`, `R-001`, and aggregate
 `RM-ASSETINPUT-001` remain open exactly as recorded in Workbench.
 

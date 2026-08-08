@@ -13123,7 +13123,13 @@ TEST_CASE("universal extracted archive walkers bind public source members",
 		        std::string::npos);
 		REQUIRE(character_case.find("binding->primary_path") ==
 		        std::string::npos);
-		REQUIRE(character_case.find("s_hasAnyFile(binding->authored_file, NULL, NULL, NULL)") !=
+		REQUIRE(character_case.find("s_hasText(binding->character_body_id)") !=
+		        std::string::npos);
+		REQUIRE(character_case.find("s_hasText(binding->character_head_id)") !=
+		        std::string::npos);
+		REQUIRE(character_case.find("s_hasText(binding->authored_file)") !=
+		        std::string::npos);
+		REQUIRE(character_case.find("s_hasText(binding->dependency_a)") !=
 		        std::string::npos);
 	}
 	{

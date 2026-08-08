@@ -37,6 +37,7 @@
 #include "langmanifest.h"
 #include "system.h"
 #include "fs.h"
+#include "voice_locale_source.h"
 
 /* ========================================================================
  * Array bounds (conservative limits — actual ROM counts are smaller)
@@ -419,7 +420,10 @@ CatalogResolveResult catalogResolveSound(s32 soundnum)
     r.catalog_id = idx;
     /* Phase 3 Pass B: same disk-load broadening as catalogResolveFile. */
     if (!e->bundled || e->source.primary.provider == fileProvider()) {
-        r.path           = entryGetFilePath(e);
+        r.path           = voiceLocaleSelectAudioPath(e);
+        if (!r.path) {
+            r.path = entryGetFilePath(e);
+        }
         if (r.path) {
             r.is_mod_override = 1;
         }

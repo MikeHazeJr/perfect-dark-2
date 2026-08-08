@@ -9,8 +9,14 @@ an optional declared portrait loads through the active source path with
 fail-closed behavior. `.pdvoice` rows now retain actor, transcript, language,
 and context from public `voice.ini`; typed audio resolution exposes those
 fields and scenario dialogue uses matching-locale transcript text. Optional
-`subtitle.json` and locale-specific sample members remain partial under
-Workbench `T-ASSETS-021`.
+`subtitle.json` and locale-specific WAV/OGG/MP3 members are now explicit
+public source: `voice.ini` declares the subtitle member, fallback locale, and
+per-locale audio members; scanner, base walker, and network registration retain
+those paths; catalog playback selects the active locale; scenario dialogue
+loads the selected localized subtitle; and unreadable declared source refuses
+the old descriptor/native fallback. Automated conformance and source checks
+pass. Workbench `T-ASSETS-021` remains below `validated` until an ordinary-game
+edited locale sample and subtitle receipt is captured.
 
 > Single source of truth for asset identity. String-keyed, namespace-scoped, hash-indexed. Every asset reference uses a human-readable catalog ID.
 

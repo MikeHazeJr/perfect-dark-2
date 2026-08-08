@@ -26,6 +26,7 @@
  */
 
 #include "forge/forge_runtime.h"
+#include "prop_graph_runtime.h"
 #include "forge/forge_core.h"
 
 #include <string.h>
@@ -78,6 +79,41 @@ static s32                 s_bots_spawned;   /* running forge-bot count */
 #define FORGE_PROP_POOL_SIZE 64
 static struct defaultobj *s_prop_pool;
 static s32                s_prop_count;
+
+static s32 s_propGraphIsEnabled(void *context)
+{
+	forge_prop_handle_t *h = (forge_prop_handle_t *)context;
+	return h && h->prop && (h->prop->flags & PROPFLAG_ENABLED) != 0;
+}
+
+static void s_propGraphSetEnabled(void *context, s32 enabled)
+{
+	forge_prop_handle_t *h = (forge_prop_handle_t *)context;
+	if (!h || !h->prop) return;
+	if (enabled) propEnable(h->prop);
+	else propDisable(h->prop);
+}
+
+static void s_propGraphSetHealth(void *context, f32 health)
+{
+	forge_prop_handle_t *h = (forge_prop_handle_t *)context;
+	if (h && h->obj) h->obj->maxdamage = (s32)(health * 10.0f);
+}
+
+static void s_propGraphSetCollision(void *context, s32 enabled)
+{
+	forge_prop_handle_t *h = (forge_prop_handle_t *)context;
+	if (!h || !h->prop || !h->obj) return;
+	if (enabled) meshAttachModelToProp(h->prop, h->obj->model);
+	else meshDetachFromProp(h->prop);
+}
+
+static void s_propGraphSetChannel(void *context, const char *channel,
+		s32 enabled)
+{
+	(void)context;
+	forgeChannelSet(channel, (u8)enabled);
+}
 
 /* Door pool: doorobj instances for forge-placed interactive doors.
  * Allocated once from MEMPOOL_STAGE alongside the prop pool. */
@@ -723,7 +759,23 @@ static void s_spawn_prop(const forge_object_t *o)
     setup0f0923d4(obj);
 
     forge_prop_handle_t *h = s_alloc(o->uid);
-    if (h) h->prop = prop;
+	if (h) {
+		h->prop = prop;
+		h->obj = obj;
+	}
+
+	if (source->dependency_b[0]) {
+		prop_graph_runtime_target_t target = {
+			h, s_propGraphIsEnabled, s_propGraphSetEnabled,
+			s_propGraphSetHealth, s_propGraphSetCollision,
+			s_propGraphSetChannel
+		};
+		if (!h || !propGraphRuntimeBind(o->catalog_id, o->uid, &target)) {
+		sysFatalError("ASSET.CHAIN: forge prop '%s' declared a behavior graph "
+			"but no compiled runtime program was available.", o->catalog_id);
+		return;
+		}
+	}
 
     sysLogPrintf(LOG_NOTE,
             "GRID.RUNTIME: spawned prop uid=%u '%s' at (%.0f,%.0f,%.0f)",
@@ -900,6 +952,7 @@ void forgeRuntimeExitPlay(void)
 {
     if (!s_active) return;
     s_active = 0;
+	propGraphRuntimeUnbindAll();
 
     /* Free any directly-allocated props (not bots, not spawn points). */
     s32 freed = 0;
@@ -954,6 +1007,7 @@ void forgeRuntimeExitPlay(void)
 void forgeRuntimeTick(void)
 {
     if (!s_active) return;
+	propGraphRuntimeTick();
 
     forge_bot_settings_t *bs = forgeBotSettings();
 

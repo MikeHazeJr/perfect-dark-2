@@ -1695,6 +1695,151 @@ def validate_prop_source_contract(label: str, zf: zipfile.ZipFile,
                 f"{label} prop.json flags must be a non-negative integer"
             )
 
+    if "behavior.graph.json" in name_set:
+        behavior = read_json_member(zf, "behavior.graph.json")
+        if not behavior:
+            errors.append(
+                f"{label} behavior.graph.json must be a readable JSON object"
+            )
+        else:
+            catalog_id = descriptor_values.get("catalog_id", "")
+            if behavior.get("schema") != "pd.prop_behavior.v1":
+                errors.append(
+                    f"{label} behavior.graph.json must declare schema "
+                    "pd.prop_behavior.v1"
+                )
+            if behavior.get("asset_id") != catalog_id:
+                errors.append(
+                    f"{label} behavior.graph.json asset_id must match the "
+                    f"public descriptor catalog_id {catalog_id!r}"
+                )
+            if not isinstance(behavior.get("graph_id"), str) or not behavior.get(
+                    "graph_id"):
+                errors.append(
+                    f"{label} behavior.graph.json graph_id must be non-empty"
+                )
+            nodes = behavior.get("nodes")
+            edges = behavior.get("edges")
+            allowed = {
+                "event.spawn", "event.tick", "condition.enabled",
+                "action.set_enabled", "action.set_health",
+                "action.set_collision", "action.set_channel",
+            }
+            node_ids: set[str] = set()
+            has_event = False
+            if not isinstance(nodes, list) or not nodes:
+                errors.append(
+                    f"{label} behavior.graph.json nodes must be non-empty"
+                )
+                nodes = []
+            for index, node in enumerate(nodes):
+                if not isinstance(node, dict):
+                    errors.append(
+                        f"{label} behavior.graph.json node {index} must be an object"
+                    )
+                    continue
+                node_id = node.get("id")
+                kind = node.get("kind")
+                params = node.get("params")
+                if not isinstance(node_id, str) or not node_id or node_id in node_ids:
+                    errors.append(
+                        f"{label} behavior.graph.json node IDs must be unique "
+                        "non-empty strings"
+                    )
+                else:
+                    node_ids.add(node_id)
+                if kind not in allowed:
+                    errors.append(
+                        f"{label} behavior.graph.json node kind {kind!r} is unsupported"
+                    )
+                    continue
+                if kind in {"event.spawn", "event.tick"}:
+                    has_event = True
+                if not isinstance(params, dict):
+                    errors.append(
+                        f"{label} behavior.graph.json node {node_id!r} params "
+                        "must be an object"
+                    )
+                    continue
+                if kind in {"action.set_enabled", "action.set_collision"} and not isinstance(
+                        params.get("value"), bool):
+                    errors.append(
+                        f"{label} {kind} requires boolean params.value"
+                    )
+                if kind == "action.set_health" and (
+                        not is_finite_json_number(params.get("value")) or
+                        float(params.get("value", -1.0)) < 0.0):
+                    errors.append(
+                        f"{label} action.set_health requires non-negative numeric params.value"
+                    )
+                if kind == "action.set_channel" and (
+                        not isinstance(params.get("channel"), str) or
+                        not params.get("channel") or
+                        not isinstance(params.get("value"), bool)):
+                    errors.append(
+                        f"{label} action.set_channel requires string params.channel "
+                        "and boolean params.value"
+                    )
+            if not has_event:
+                errors.append(
+                    f"{label} behavior.graph.json needs event.spawn or event.tick"
+                )
+            if not isinstance(edges, list):
+                errors.append(
+                    f"{label} behavior.graph.json edges must be an array"
+                )
+            else:
+                adjacency: dict[str, list[str]] = {
+                    node_id: [] for node_id in node_ids
+                }
+                for edge in edges:
+                    if not isinstance(edge, dict) or edge.get("from") not in node_ids or edge.get(
+                            "to") not in node_ids:
+                        errors.append(
+                            f"{label} behavior.graph.json edges must reference declared nodes"
+                        )
+                    else:
+                        adjacency[edge["from"]].append(edge["to"])
+                visiting: set[str] = set()
+                visited: set[str] = set()
+
+                def has_cycle(node_id: str) -> bool:
+                    if node_id in visiting:
+                        return True
+                    if node_id in visited:
+                        return False
+                    visiting.add(node_id)
+                    for target in adjacency[node_id]:
+                        if has_cycle(target):
+                            return True
+                    visiting.remove(node_id)
+                    visited.add(node_id)
+                    return False
+
+                if any(has_cycle(node_id) for node_id in node_ids if node_id not in visited):
+                    errors.append(
+                        f"{label} behavior.graph.json must not contain cycles"
+                    )
+                event_ids = {
+                    node.get("id") for node in nodes
+                    if isinstance(node, dict) and node.get("kind") in {
+                        "event.spawn", "event.tick"
+                    } and isinstance(node.get("id"), str)
+                }
+                reachable: set[str] = set()
+                stack = list(event_ids)
+                while stack:
+                    current = stack.pop()
+                    if current in reachable:
+                        continue
+                    reachable.add(current)
+                    stack.extend(adjacency.get(current, []))
+                if reachable != node_ids:
+                    errors.append(
+                        f"{label} behavior.graph.json nodes must be reachable "
+                        "from event.spawn or event.tick"
+                    )
+
     if "_meta/manifest.json" not in name_set:
         return
     try:
@@ -3641,6 +3786,9 @@ def validate_audio_source_contract(label: str, ext: str, zf: zipfile.ZipFile,
                 errors.append(
                     f"{label} voice.ini language {language!r} is unsupported"
                 )
+            validate_voice_locale_source_contract(
+                label, zf, name_set, descriptor_values, errors
+            )
     if "_meta/manifest.json" in name_set:
         manifest_text = zf.read("_meta/manifest.json").decode("utf-8", errors="replace")
         try:
@@ -3683,6 +3831,99 @@ def validate_audio_source_contract(label: str, ext: str, zf: zipfile.ZipFile,
         errors.append(
             f"{label} _meta/manifest.json decoded_sample_count {manifest_count} "
             f"does not match sample.wav frame count {expected_count}"
+        )
+
+
+def validate_voice_locale_source_contract(
+        label: str, zf: zipfile.ZipFile, name_set: set[str],
+        descriptor_values: dict[str, str], errors: list[str]) -> None:
+    """Pin optional .pdvoice locale members to explicit creator-facing fields."""
+    locales = ("en", "fr", "de", "it", "es", "ja")
+    locale_members: dict[str, str] = {}
+    for name in sorted(name_set):
+        match = re.fullmatch(r"locales/([^/]+)\.(wav|ogg|mp3)", name,
+                             flags=re.IGNORECASE)
+        if not match:
+            continue
+        locale = match.group(1).lower()
+        if locale not in locales:
+            errors.append(
+                f"{label} localized voice member {name!r} uses unsupported locale"
+            )
+            continue
+        if locale in locale_members:
+            errors.append(
+                f"{label} has multiple localized voice sources for {locale!r}"
+            )
+            continue
+        locale_members[locale] = name
+
+    fallback = descriptor_values.get("fallback_locale", "").lower()
+    if fallback and fallback not in locales:
+        errors.append(
+            f"{label} voice.ini fallback_locale {fallback!r} is unsupported"
+        )
+
+    for locale in locales:
+        key = f"locale_{locale}_file"
+        declared = descriptor_values.get(key, "")
+        member = locale_members.get(locale, "")
+        if declared and declared not in name_set:
+            errors.append(
+                f"{label} voice.ini {key} declares missing public source {declared!r}"
+            )
+        if declared and declared != member:
+            errors.append(
+                f"{label} voice.ini {key} must name locales/{locale}.wav, .ogg, "
+                f"or .mp3 exactly; found {declared!r}"
+            )
+        if member and not declared:
+            errors.append(
+                f"{label} localized voice source {member!r} is not declared by {key}"
+            )
+
+    subtitle_member = descriptor_values.get("subtitle_file", "")
+    if subtitle_member and subtitle_member not in name_set:
+        errors.append(
+            f"{label} voice.ini subtitle_file declares missing public source "
+            f"{subtitle_member!r}"
+        )
+    if "subtitle.json" in name_set and subtitle_member != "subtitle.json":
+        errors.append(
+            f"{label} public subtitle.json must be declared as "
+            "subtitle_file = subtitle.json"
+        )
+    if subtitle_member and subtitle_member != "subtitle.json":
+        errors.append(
+            f"{label} voice.ini subtitle_file must be subtitle.json, found "
+            f"{subtitle_member!r}"
+        )
+    if subtitle_member != "subtitle.json" or "subtitle.json" not in name_set:
+        return
+    try:
+        document = json.loads(zf.read("subtitle.json").decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        errors.append(f"{label} subtitle.json is invalid UTF-8 JSON: {exc}")
+        return
+    if not isinstance(document, dict):
+        errors.append(f"{label} subtitle.json root must be an object")
+        return
+    if document.get("schema") != "pd.voice_subtitle.v1":
+        errors.append(
+            f"{label} subtitle.json schema must be pd.voice_subtitle.v1"
+        )
+    authored = False
+    for key in ("default", *locales):
+        if key not in document:
+            continue
+        value = document[key]
+        if not isinstance(value, str):
+            errors.append(f"{label} subtitle.json {key!r} must be a string")
+        elif value:
+            authored = True
+    if not authored:
+        errors.append(
+            f"{label} subtitle.json must contain a non-empty default or locale string"
         )
 
 
@@ -7332,6 +7573,33 @@ def run_selftest() -> int:
         return errors
 
     structured_contracts = [
+        (
+            "VOICE-LOCALE",
+            lambda label, archive, names, errors: (
+                validate_voice_locale_source_contract(
+                    label, archive, names,
+                    parse_ini_values(
+                        archive.read("voice.ini").decode("utf-8")
+                    ), errors
+                )
+            ),
+            {
+                "voice.ini": (
+                    "[voice]\ncatalog_id = test:voice\n"
+                    "subtitle_file = subtitle.json\n"
+                    "fallback_locale = en\n"
+                    "locale_en_file = locales/en.wav\n"
+                ),
+                "subtitle.json": json.dumps({
+                    "schema": "pd.voice_subtitle.v1",
+                    "default": "Fallback line",
+                    "en": "English line",
+                }),
+                "locales/en.wav": "creator-audio-placeholder",
+            },
+            ("subtitle.json", "pd.voice_subtitle.v1", "pd.voice_subtitle.v2"),
+            "schema must be pd.voice_subtitle.v1",
+        ),
         (
             "HUD",
             validate_hud_source_contract,

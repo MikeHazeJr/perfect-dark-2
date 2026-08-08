@@ -6877,7 +6877,6 @@ TEST_CASE("typed pdxxx example archives carry the implemented asset payloads",
 			{ "weapon.ini", "behavior/primary.graph.json",
 			  "behavior/secondary.graph.json", "behavior/settings.json",
 			  "behavior/variables.json", "behavior/shared-context.json",
-			  "bindings/material-slots.json", "bindings/grip-sockets.json",
 			  "bindings/presentation.json",
 			  "dependencies/assets/models/weapon.pdmesh",
 			  "dependencies/assets/projectiles/primary.pdprojectile",
@@ -9035,4 +9034,24 @@ TEST_CASE("B-911 embedded mesh scan dedups by id and survives non-archives",
 		static_cast<u32>(garbage.size()), "example:weapon", found,
 		WEAPON_GRAPH_EMBEDDED_MESH_MAX);
 	REQUIRE(count == 0);
+}
+
+TEST_CASE("nested weapon distribution ships parent archive and rebuilds hot indexes",
+		"[modding][network][pdxxx][weapon][nested][T-ASSETS-022]") {
+	const std::string distrib = readFile("port/src/net/netdistrib.c");
+	const std::string netmsg = readFile("port/src/net/netmsg.c");
+	const std::string walker = readFile("port/src/loader_walker_weapon.c");
+	REQUIRE(distrib.find("buildTypedArchiveComponent(entry, typed_archive") !=
+		std::string::npos);
+	REQUIRE(distrib.find("assetCatalogScanExternalLayoutFolder(") !=
+		std::string::npos);
+	REQUIRE(distrib.find("catalogLoadInit();") != std::string::npos);
+	REQUIRE(netmsg.find("strstr(e->dirpath, \"::\") != NULL") !=
+		std::string::npos);
+	const auto nestedRegister = walker.find(
+		"assetCatalogRegisterWeaponNestedDependencies(id, file_path");
+	const auto weaponParse = walker.find("loaderPoolParseWeaponJson", nestedRegister);
+	REQUIRE(nestedRegister != std::string::npos);
+	REQUIRE(weaponParse != std::string::npos);
+	REQUIRE(nestedRegister < weaponParse);
 }

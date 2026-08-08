@@ -9,6 +9,7 @@
 
 extern "C" {
 #include "asset_runtime.h"
+#include "prop_graph_runtime.h"
 }
 
 static void initEntry(asset_entry_t &entry, asset_type_e type, const char *id)
@@ -149,11 +150,20 @@ TEST_CASE("B-959 structured metadata source hydrates production-facing state",
 		sizeof(propSource.ext.prop.model_file) - 1);
 	std::strncpy(propSource.ext.prop.prop_file, "prop.json",
 		sizeof(propSource.ext.prop.prop_file) - 1);
+	std::strncpy(propSource.ext.prop.behavior_graph, "behavior.graph.json",
+		sizeof(propSource.ext.prop.behavior_graph) - 1);
 	std::string propPath = dir.write("crate.gltf", "{}");
 	dir.write("prop.json",
 		"{\"schema\":\"pd2.prop.v2\",\"catalog_id\":\"mod:prop_crate\","
 		"\"prop_key\":\"object\",\"display_name\":\"Cobalt Crate\","
 		"\"health\":325.0,\"flags\":16}");
+	dir.write("behavior.graph.json",
+		"{\"schema\":\"pd.prop_behavior.v1\","
+		"\"asset_id\":\"mod:prop_crate\",\"graph_id\":\"runtime\","
+		"\"nodes\":[{\"id\":\"spawn\",\"kind\":\"event.spawn\","
+		"\"params\":{}},{\"id\":\"health\","
+		"\"kind\":\"action.set_health\",\"params\":{\"value\":325.0}}],"
+		"\"edges\":[{\"from\":\"spawn\",\"to\":\"health\"}]}");
 	REQUIRE(assetRuntimeActivateCatalogEntry(&propSource, propPath.c_str()) == 1);
 	REQUIRE(assetRuntimeHydrateCatalogEntry(&propSource) == 1);
 	const asset_runtime_binding_t *propBinding =
@@ -164,6 +174,26 @@ TEST_CASE("B-959 structured metadata source hydrates production-facing state",
 	REQUIRE(propBinding->prop_health == Approx(325.0f));
 	REQUIRE(propBinding->prop_flags == 16);
 	REQUIRE(str(propBinding->display_name) == "Cobalt Crate");
+	REQUIRE(propGraphRuntimeHasAsset("mod:prop_crate") == 1);
+
+	asset_entry_t brokenProp;
+	initEntry(brokenProp, ASSET_PROP, "mod:prop_broken_graph");
+	std::strncpy(brokenProp.ext.prop.model_file, "broken.gltf",
+		sizeof(brokenProp.ext.prop.model_file) - 1);
+	std::strncpy(brokenProp.ext.prop.prop_file, "broken-prop.json",
+		sizeof(brokenProp.ext.prop.prop_file) - 1);
+	std::strncpy(brokenProp.ext.prop.behavior_graph, "missing-behavior.json",
+		sizeof(brokenProp.ext.prop.behavior_graph) - 1);
+	std::string brokenPropPath = dir.write("broken.gltf", "{}");
+	dir.write("broken-prop.json",
+		"{\"schema\":\"pd2.prop.v2\","
+		"\"catalog_id\":\"mod:prop_broken_graph\","
+		"\"prop_key\":\"object\",\"display_name\":\"Broken\","
+		"\"health\":10.0,\"flags\":0}");
+	REQUIRE(assetRuntimeActivateCatalogEntry(&brokenProp,
+		brokenPropPath.c_str()) == 1);
+	REQUIRE(assetRuntimeHydrateCatalogEntry(&brokenProp) == 0);
+	REQUIRE(assetRuntimeFind("mod:prop_broken_graph") == nullptr);
 
 	asset_entry_t gameMode;
 	initEntry(gameMode, ASSET_GAMEMODE, "mod:mode_team_case");

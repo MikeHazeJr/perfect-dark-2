@@ -1,5 +1,18 @@
 # Menus / UI / UX
 
+## 2026-08-08 theme and glyph contract audit
+
+Workbench `T-ASSETS-026` through `T-ASSETS-030` now hold the complete theme
+repair. The current `.pdtheme` retains UI, font, audio, music, and effect archive
+paths without registering or consuming them; its loader accepts permissive or
+empty source, several parsed fields are inert, and Theme Editor output is not a
+self-contained `.pdtheme`. Active themes do not scope unrelated enabled UI/font
+assets. MKB/controller action labels switch through the action map, but visible
+glyphs remain hardcoded text pills rather than theme dependency output. Theme
+status remains missing until strict parsing, typed dependency lifecycle, real
+production consumers, creator round-trip, and physical-device glyph evidence
+all pass.
+
 ## 2026-08-08 character archive utilization
 
 The room character dialog now lists complete `.pdcharacter` records before the

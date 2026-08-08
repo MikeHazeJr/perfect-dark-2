@@ -90,6 +90,16 @@ typedef enum weapon_graph_opcode {
 	WEAPON_GRAPH_OP_EFFECT_EXPLOSION,
 	WEAPON_GRAPH_OP_EFFECT_SPARK,
 	WEAPON_GRAPH_OP_EFFECT_SMOKE,
+
+	/* Public .pdprop behavior graph modules. These deliberately describe
+	 * only operations that have production Forge runtime executors. */
+	WEAPON_GRAPH_OP_PROP_EVENT_SPAWN = 900,
+	WEAPON_GRAPH_OP_PROP_EVENT_TICK,
+	WEAPON_GRAPH_OP_PROP_CONDITION_ENABLED,
+	WEAPON_GRAPH_OP_PROP_ACTION_SET_ENABLED,
+	WEAPON_GRAPH_OP_PROP_ACTION_SET_HEALTH,
+	WEAPON_GRAPH_OP_PROP_ACTION_SET_COLLISION,
+	WEAPON_GRAPH_OP_PROP_ACTION_SET_CHANNEL,
 } weapon_graph_opcode_e;
 
 typedef struct weapon_graph_parity_module {

@@ -42,6 +42,7 @@
 #include "assetcatalog_scanner.h"
 #include "loader_pool.h"
 #include "modarchive.h"
+#include "weapon_graph_archive.h"
 #include "romdata.h"
 #include "system.h"
 #include "fs.h"
@@ -1006,6 +1007,25 @@ static void qualifyIniSourcePath(ini_section_t *ini, const char *key,
 	}
 }
 
+static void qualifyIniNestedVoiceSourcePath(ini_section_t *ini, const char *key,
+	const char *component_dir)
+{
+	if (!ini || !key || !component_dir || !component_dir[0]) return;
+	for (s32 i = 0; i < ini->count; i++) {
+		const char *value = ini->pairs[i].value;
+		if (strcmp(ini->pairs[i].key, key) != 0 || !value[0]
+				|| strstr(value, "::") || value[0] == '/' || value[0] == '\\'
+				|| (isalpha((u8)value[0]) && value[1] == ':')
+				|| strstr(value, "../") || strstr(value, "..\\")) {
+			continue;
+		}
+		char full[sizeof(ini->pairs[i].value)];
+		snprintf(full, sizeof(full), "%s/%s", component_dir, value);
+		strncpy(ini->pairs[i].value, full, sizeof(ini->pairs[i].value) - 1);
+		ini->pairs[i].value[sizeof(ini->pairs[i].value) - 1] = '\0';
+	}
+}
+
 static void qualifyIniSourcePaths(ini_section_t *ini, const char *component_dir)
 {
 	static const char *keys[] = {
@@ -1086,6 +1106,13 @@ static void qualifyIniSourcePaths(ini_section_t *ini, const char *component_dir)
 		"music_file",
 		"midi_file",
 		"file_path",
+		"subtitle_file",
+		"locale_en_file",
+		"locale_fr_file",
+		"locale_de_file",
+		"locale_it_file",
+		"locale_es_file",
+		"locale_ja_file",
 		"effect_file",
 		"timeline_file",
 		"theme_file",
@@ -1114,6 +1141,14 @@ static void qualifyIniSourcePaths(ini_section_t *ini, const char *component_dir)
 
 	for (s32 i = 0; keys[i]; i++) {
 		qualifyIniSourcePath(ini, keys[i], component_dir);
+	}
+	static const char *voice_keys[] = {
+		"subtitle_file", "locale_en_file", "locale_fr_file",
+		"locale_de_file", "locale_it_file", "locale_es_file",
+		"locale_ja_file", NULL
+	};
+	for (s32 i = 0; voice_keys[i]; i++) {
+		qualifyIniNestedVoiceSourcePath(ini, voice_keys[i], component_dir);
 	}
 }
 
@@ -1248,6 +1283,13 @@ static void qualifyTypedArchiveSourcePaths(ini_section_t *ini,
 		"music_file",
 		"midi_file",
 		"file_path",
+		"subtitle_file",
+		"locale_en_file",
+		"locale_fr_file",
+		"locale_de_file",
+		"locale_it_file",
+		"locale_es_file",
+		"locale_ja_file",
 		"effect_file",
 		"timeline_file",
 		"theme_file",
@@ -1318,6 +1360,13 @@ static s32 parseAudioCategoryValue(const char *value, s32 default_category)
 	}
 
 	return default_category;
+}
+
+static s32 audioCategoryForSection(const ini_section_t *ini)
+{
+	if (ini && strcmp(ini->type, "voice") == 0) return AUDIO_CAT_VOICE;
+	if (ini && strcmp(ini->type, "music") == 0) return AUDIO_CAT_MUSIC;
+	return AUDIO_CAT_SFX;
 }
 
 static void lowerKey(const char *value, char *out, size_t out_n)
@@ -1485,14 +1534,14 @@ static void registerDependencyList(const char *owner_id, const char *deps,
 	}
 }
 
-static void registerAnimationCommandSource(const char *id,
-                                           const char *source_path)
+static s32 registerAnimationCommandSource(const char *id,
+                                          const char *source_path)
 {
 	char *json;
 	u32 json_size = 0;
 
 	if (!source_path || !source_path[0]) {
-		return;
+		return 0;
 	}
 
 	json = (char *)fsFileLoad(source_path, &json_size);
@@ -1503,7 +1552,7 @@ static void registerAnimationCommandSource(const char *id,
 		sysLogPrintf(LOG_WARNING,
 			"assetcatalog_scanner: animation command source missing for '%s': %s",
 			id ? id : "", source_path);
-		return;
+		return 0;
 	}
 
 	if (!loaderPoolParseAnimationSourceJson(json, json_size, source_path)) {
@@ -1511,7 +1560,7 @@ static void registerAnimationCommandSource(const char *id,
 			"assetcatalog_scanner: animation command source rejected for '%s': %s",
 			id ? id : "", source_path);
 		free(json);
-		return;
+		return 0;
 	}
 
 	loaderPoolFinalize();
@@ -1519,6 +1568,7 @@ static void registerAnimationCommandSource(const char *id,
 		"assetcatalog_scanner: animation command source registered for '%s': %s",
 		id ? id : "", source_path);
 	free(json);
+	return 1;
 }
 
 static const char *findLastArchiveSeparator(const char *path)
@@ -2212,8 +2262,13 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 				catalogSetPrimaryFile(e, af);
 			}
 			const char *cf = iniGet(ini, "commands_file", "");
-			if (cf[0]) {
-				registerAnimationCommandSource(e->id, cf);
+			if (cf[0] && !registerAnimationCommandSource(e->id, cf)) {
+				/* The public command source is the runtime source. Keeping a
+				 * catalog row alive after it fails to parse would silently expose
+				 * an unusable animation or let a legacy pool entry win. */
+				e->enabled = 0;
+				e->load_state = ASSET_STATE_REGISTERED;
+				return 0;
 			}
 		}
 		break;
@@ -2362,7 +2417,8 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 		e->ext.audio.category = parseAudioCategoryValue(
 			iniGet(ini, "audio_category",
 				iniGet(ini, "kind",
-				iniGet(ini, "category", ""))), AUDIO_CAT_SFX);
+					iniGet(ini, "category", ""))),
+			audioCategoryForSection(ini));
 		e->ext.audio.duration_ms = iniGetInt(ini, "duration_ms", 0);
 		strncpy(e->ext.audio.voice_actor, iniGet(ini, "actor", ""),
 			sizeof(e->ext.audio.voice_actor) - 1);
@@ -2372,6 +2428,21 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 			sizeof(e->ext.audio.voice_language) - 1);
 		strncpy(e->ext.audio.voice_context, iniGet(ini, "context", ""),
 			sizeof(e->ext.audio.voice_context) - 1);
+		strncpy(e->ext.audio.subtitle_file, iniGet(ini, "subtitle_file", ""),
+			sizeof(e->ext.audio.subtitle_file) - 1);
+		strncpy(e->ext.audio.fallback_locale, iniGet(ini, "fallback_locale", ""),
+			sizeof(e->ext.audio.fallback_locale) - 1);
+		{
+			static const char *locale_keys[6] = {
+				"locale_en_file", "locale_fr_file", "locale_de_file",
+				"locale_it_file", "locale_es_file", "locale_ja_file"
+			};
+			for (s32 i = 0; i < 6; i++) {
+				strncpy(e->ext.audio.locale_audio_files[i],
+					iniGet(ini, locale_keys[i], ""),
+					sizeof(e->ext.audio.locale_audio_files[i]) - 1);
+			}
+		}
 		e->ext.audio.has_keymap = iniGetInt(ini, "has_keymap",
 			iniGet(ini, "key_base", NULL) != NULL ? 1 : 0);
 		e->ext.audio.key_min = iniGetInt(ini, "key_min", 0);
@@ -2676,6 +2747,274 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 }
 
 /* ========================================================================
+ * Nested weapon animation/audio registration
+ * ======================================================================== */
+
+#define WEAPON_NESTED_MEDIA_MAX 64
+
+typedef struct weapon_nested_media_scan {
+	char entries[WEAPON_NESTED_MEDIA_MAX][FS_MAXPATH];
+	s32 count;
+	s32 overflow;
+} weapon_nested_media_scan_t;
+
+static s32 weaponNestedMediaType(const char *path, asset_type_e *out_type)
+{
+	asset_type_e type = assetArchiveTypeForPath(path);
+	if (type == ASSET_ANIMATION) {
+		if (out_type) *out_type = type;
+		return 1;
+	}
+	if (type == ASSET_AUDIO && (pathEndsWithNoCase(path, ".pdsfx")
+			|| pathEndsWithNoCase(path, ".pdvoice"))) {
+		if (out_type) *out_type = type;
+		return 1;
+	}
+	return 0;
+}
+
+static s32 collectWeaponNestedMedia(const char *entry_name,
+		u32 uncompressed_size, void *userdata)
+{
+	weapon_nested_media_scan_t *scan = (weapon_nested_media_scan_t *)userdata;
+	asset_type_e type;
+	(void)uncompressed_size;
+	if (!scan || !weaponNestedMediaType(entry_name, &type)) {
+		return 0;
+	}
+	if (scan->count >= WEAPON_NESTED_MEDIA_MAX) {
+		scan->overflow = 1;
+		return 0;
+	}
+	strncpy(scan->entries[scan->count], entry_name,
+		sizeof(scan->entries[scan->count]) - 1);
+	scan->entries[scan->count][sizeof(scan->entries[scan->count]) - 1] = '\0';
+	scan->count++;
+	return 0;
+}
+
+static s32 catalogIdSharesNamespace(const char *parent_id, const char *child_id)
+{
+	const char *parent_colon = parent_id ? strchr(parent_id, ':') : NULL;
+	const char *child_colon = child_id ? strchr(child_id, ':') : NULL;
+	if (!parent_colon || !child_colon || parent_colon == parent_id
+			|| child_colon == child_id) {
+		return 0;
+	}
+	size_t parent_len = (size_t)(parent_colon - parent_id);
+	size_t child_len = (size_t)(child_colon - child_id);
+	return parent_len == child_len
+		&& memcmp(parent_id, child_id, parent_len) == 0;
+}
+
+static void nestedSetErr(char *err, size_t err_cap, const char *fmt,
+		const char *a, const char *b)
+{
+	if (!err || err_cap == 0) return;
+	snprintf(err, err_cap, fmt, a ? a : "", b ? b : "");
+	err[err_cap - 1] = '\0';
+}
+
+static s32 nestedContentMatchesExisting(const asset_entry_t *existing,
+		const void *nested, u32 nested_size)
+{
+	char archive_ref[sizeof(existing->descriptor_path)];
+	const char *separator;
+	u32 existing_size = 0;
+	void *existing_bytes;
+	char existing_digest[SHA256_HEX_SIZE];
+	char nested_digest[SHA256_HEX_SIZE];
+
+	if (!existing || !nested || nested_size == 0
+			|| !existing->descriptor_path[0]) {
+		return 0;
+	}
+	separator = strrchr(existing->descriptor_path, ':');
+	if (!separator || separator == existing->descriptor_path
+			|| separator[-1] != ':') {
+		return 0;
+	}
+	separator--;
+	size_t len = (size_t)(separator - existing->descriptor_path);
+	if (len == 0 || len >= sizeof(archive_ref)) {
+		return 0;
+	}
+	memcpy(archive_ref, existing->descriptor_path, len);
+	archive_ref[len] = '\0';
+	existing_bytes = fsFileLoad(archive_ref, &existing_size);
+	if (!existing_bytes || existing_size == 0) {
+		if (existing_bytes) sysMemFree(existing_bytes);
+		return 0;
+	}
+	s32 ok = weaponGraphArchiveCanonicalSha256Bytes(existing_bytes,
+		existing_size, existing_digest) == 0
+		&& weaponGraphArchiveCanonicalSha256Bytes(nested, nested_size,
+			nested_digest) == 0
+		&& strcmp(existing_digest, nested_digest) == 0;
+	sysMemFree(existing_bytes);
+	return ok;
+}
+
+s32 assetCatalogRegisterWeaponNestedDependencies(const char *weapon_id,
+		const char *weapon_archive, s32 bundled, char *err, size_t err_cap)
+{
+	u32 weapon_size = 0;
+	void *weapon_bytes = NULL;
+	weapon_nested_media_scan_t scan;
+	s32 registered = 0;
+
+	if (err && err_cap) err[0] = '\0';
+	if (!weapon_id || !weapon_id[0] || !weapon_archive || !weapon_archive[0]) {
+		nestedSetErr(err, err_cap, "nested dependency scan missing %s%s",
+			weapon_id, weapon_archive);
+		return -1;
+	}
+
+	weapon_bytes = fsFileLoad(weapon_archive, &weapon_size);
+	if (!weapon_bytes || weapon_size == 0) {
+		if (weapon_bytes) sysMemFree(weapon_bytes);
+		nestedSetErr(err, err_cap, "could not read weapon archive %s%s",
+			weapon_archive, "");
+		return -1;
+	}
+
+	memset(&scan, 0, sizeof(scan));
+	if (modArchiveMemForEachEntry(weapon_bytes, weapon_size,
+			collectWeaponNestedMedia, &scan) != MODARCHIVE_OK) {
+		sysMemFree(weapon_bytes);
+		nestedSetErr(err, err_cap, "could not enumerate weapon archive %s%s",
+			weapon_archive, "");
+		return -1;
+	}
+	if (scan.overflow) {
+		sysMemFree(weapon_bytes);
+		nestedSetErr(err, err_cap, "weapon %s exceeds nested media limit %s",
+			weapon_id, "64");
+		return -1;
+	}
+
+	/* Audio must be catalog-visible before animation command JSON is parsed:
+	 * weapon animations can name contained SFX/voice catalog IDs directly.
+	 * The second pass then resolves those IDs into their private sound slots. */
+	for (s32 pass = 0; pass < 2; pass++) {
+	for (s32 i = 0; i < scan.count; i++) {
+		const char *entry_name = scan.entries[i];
+		asset_type_e expected_type = ASSET_NONE;
+		u32 nested_size = 0;
+		void *nested = NULL;
+		u32 descriptor_size = 0;
+		const char *descriptor_leaf = NULL;
+		char *descriptor = NULL;
+		ini_section_t ini;
+		const char *catalog_id;
+		char archive_ref[FS_MAXPATH * 2 + 4];
+		char descriptor_ref[FS_MAXPATH * 2 + 132];
+
+		weaponNestedMediaType(entry_name, &expected_type);
+		if ((pass == 0 && expected_type != ASSET_AUDIO)
+				|| (pass == 1 && expected_type != ASSET_ANIMATION)) {
+			continue;
+		}
+		nested = modArchiveExtractMemAlloc(weapon_bytes, weapon_size,
+			entry_name, &nested_size);
+		if (!nested || nested_size == 0) {
+			free(nested);
+			nestedSetErr(err, err_cap, "could not read nested dependency %s%s",
+				entry_name, "");
+			goto fail;
+		}
+		if (assetArchiveValidateBytes(nested, nested_size, entry_name,
+				ASSET_ARCHIVE_VALIDATE_RELEASE, err, err_cap) != 0) {
+			free(nested);
+			goto fail;
+		}
+		descriptor = assetArchiveExtractDescriptorMemAlloc(nested, nested_size,
+			entry_name, ASSET_ARCHIVE_VALIDATE_RELEASE, &descriptor_size,
+			&descriptor_leaf);
+		if (!descriptor || !iniParseBuffer(descriptor_leaf, descriptor,
+				descriptor_size, &ini)) {
+			free(descriptor);
+			free(nested);
+			nestedSetErr(err, err_cap, "invalid public descriptor in %s%s",
+				entry_name, "");
+			goto fail;
+		}
+		free(descriptor);
+
+		if (sectionToType(ini.type) != expected_type) {
+			free(nested);
+			nestedSetErr(err, err_cap, "nested dependency type mismatch %s%s",
+				entry_name, "");
+			goto fail;
+		}
+		catalog_id = iniGet(&ini, "catalog_id", iniGet(&ini, "id", ""));
+		if (!catalog_id[0] || !catalogIdSharesNamespace(weapon_id, catalog_id)) {
+			free(nested);
+			nestedSetErr(err, err_cap,
+				"nested dependency %s has missing or foreign catalog ID %s",
+				entry_name, catalog_id);
+			goto fail;
+		}
+
+		snprintf(archive_ref, sizeof(archive_ref), "%s::%s",
+			weapon_archive, entry_name);
+		archive_ref[sizeof(archive_ref) - 1] = '\0';
+		snprintf(descriptor_ref, sizeof(descriptor_ref), "%s::%s",
+			archive_ref, descriptor_leaf ? descriptor_leaf
+				: assetArchiveDescriptorForPath(entry_name));
+		descriptor_ref[sizeof(descriptor_ref) - 1] = '\0';
+
+		const asset_entry_t *existing = assetCatalogResolve(catalog_id);
+		if (existing) {
+			if (existing->type != expected_type || (!existing->bundled
+					&& (!strstr(existing->dirpath, "::")
+						|| !nestedContentMatchesExisting(existing, nested,
+							nested_size)))) {
+				free(nested);
+				nestedSetErr(err, err_cap,
+					"nested dependency ID collision %s%s", catalog_id, "");
+				goto fail;
+			}
+		} else {
+			qualifyTypedArchiveSourcePaths(&ini, archive_ref);
+			if (!registerComponent(&ini, archive_ref,
+					bundled ? "base" : weapon_id, descriptor_ref)) {
+				free(nested);
+				nestedSetErr(err, err_cap,
+					"could not register nested dependency %s%s", catalog_id, "");
+				goto fail;
+			}
+			asset_entry_t *mutable_entry = assetCatalogGetMutable(catalog_id);
+			if (!mutable_entry) {
+				free(nested);
+				nestedSetErr(err, err_cap,
+					"nested dependency disappeared after register %s%s",
+					catalog_id, "");
+				goto fail;
+			}
+			mutable_entry->bundled = bundled ? 1 : 0;
+			mutable_entry->enabled = 1;
+			mutable_entry->temporary = 0;
+		}
+
+		catalogDepRegister(weapon_id, catalog_id, bundled ? 1 : 0);
+		sysLogPrintf(LOG_NOTE,
+			"PDWEAPON.NESTED.REGISTER: owner=%s id=%s type=%d source=%s",
+			weapon_id, catalog_id, (s32)expected_type, archive_ref);
+		registered++;
+		free(nested);
+	}
+	}
+
+	sysMemFree(weapon_bytes);
+	return registered;
+
+fail:
+	sysMemFree(weapon_bytes);
+	return -1;
+}
+
+/* ========================================================================
  * Directory Scanning
  * ======================================================================== */
 
@@ -2880,8 +3219,32 @@ static s32 registerTypedPdDescriptorFile(const char *descriptor_path,
 			descriptor_path,
 			assetArchiveDescriptorForPath(descriptor_path));
 		descriptor_ref[sizeof(descriptor_ref) - 1] = '\0';
-		return registerComponent(&ini, component_dir, mod_id,
-			descriptor_ref) ? 1 : 0;
+		if (!registerComponent(&ini, component_dir, mod_id, descriptor_ref)) {
+			return 0;
+		}
+		if (expected == ASSET_WEAPON) {
+			const char *weapon_id = iniGet(&ini, "catalog_id",
+				iniGet(&ini, "id", ""));
+			char nested_err[256];
+			nested_err[0] = '\0';
+			if (!weapon_id[0]
+					|| assetCatalogRegisterWeaponNestedDependencies(weapon_id,
+						descriptor_path, 0, nested_err,
+						sizeof(nested_err)) < 0) {
+				asset_entry_t *weapon = weapon_id[0]
+					? assetCatalogGetMutable(weapon_id) : NULL;
+				if (weapon) {
+					weapon->enabled = 0;
+					weapon->load_state = ASSET_STATE_REGISTERED;
+				}
+				sysLogPrintf(LOG_WARNING,
+					"PDWEAPON.NESTED.REJECT: owner=%s source=%s error=%s",
+					weapon_id[0] ? weapon_id : "<missing>", descriptor_path,
+					nested_err[0] ? nested_err : "nested registration failed");
+				return 0;
+			}
+		}
+		return 1;
 	}
 }
 
@@ -3443,6 +3806,13 @@ static void qualifyArchiveIniPaths(ini_section_t *ini, const char *component_dir
 		"music_file",
 		"midi_file",
 		"file_path",
+		"subtitle_file",
+		"locale_en_file",
+		"locale_fr_file",
+		"locale_de_file",
+		"locale_it_file",
+		"locale_es_file",
+		"locale_ja_file",
 		"effect_file",
 		"timeline_file",
 		"behavior_graph",

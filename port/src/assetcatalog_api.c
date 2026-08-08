@@ -44,6 +44,7 @@
 #include "asset_source_debug.h"  /* Gate 5 (c3844): source-only enforcement query for catalogAssertHealthy */
 #include "catalog_mgr_heads.h"  /* Catalog Gate 3 F2: head accessors route through manager */
 #include "catalog_mgr_bodies.h"  /* Catalog Gate 3 Bodies F2: body accessors route through manager */
+#include "voice_locale_source.h"
 #if !defined(PD_SERVER)
 #include "game/modeldef.h"
 #include "lib/rng.h"  /* P3: rngRandom for catalogPickRandomHeadIdForBody (client-only) */
@@ -177,17 +178,62 @@ static void s_fillPropResult(const asset_entry_t *e, catalog_prop_result_t *out)
     out->session_id = sessionCatalogLookupWireId(e->id);
 }
 
-static void s_fillAudioResult(const asset_entry_t *e, catalog_audio_result_t *out)
+static s32 s_fillAudioResult(const asset_entry_t *e, catalog_audio_result_t *out)
 {
+    const char *selected_audio;
+    asset_data_handle_t handle;
+    s32 subtitle_result = 0;
+
     memset(out, 0, sizeof(*out));
     out->entry     = e;
     out->sound_id  = e->ext.audio.sound_id;
     out->category  = e->ext.audio.category;
-    out->file_path = e->ext.audio.file_path;
-    out->voice_actor = e->ext.audio.voice_actor;
-    out->voice_transcript = e->ext.audio.voice_transcript;
-    out->voice_language = e->ext.audio.voice_language;
-    out->voice_context = e->ext.audio.voice_context;
+    selected_audio = voiceLocaleSelectAudioPath(e);
+    if (!selected_audio) {
+        handle = catalogEffectiveHandle(e);
+        if (handle.provider == fileProvider()) {
+            selected_audio = fileProviderPath(handle);
+        }
+    }
+    if (!selected_audio || !selected_audio[0]) {
+        selected_audio = e->ext.audio.file_path;
+    }
+    if (selected_audio) {
+        strncpy(out->file_path_storage, selected_audio,
+            sizeof(out->file_path_storage) - 1);
+    }
+    strncpy(out->voice_actor_storage, e->ext.audio.voice_actor,
+        sizeof(out->voice_actor_storage) - 1);
+    strncpy(out->voice_context_storage, e->ext.audio.voice_context,
+        sizeof(out->voice_context_storage) - 1);
+
+    if (e->ext.audio.category == AUDIO_CAT_VOICE
+            && e->ext.audio.subtitle_file[0]) {
+        subtitle_result = voiceLocaleLoadSubtitle(e,
+            out->voice_transcript_storage,
+            sizeof(out->voice_transcript_storage));
+        if (subtitle_result < 0) {
+            sysFatalError("ASSET.CHAIN: voice '%s' declares public subtitle source '%s' "
+                "but it is missing or invalid; refusing voice.ini/native text fallback.",
+                e->id, e->ext.audio.subtitle_file);
+            return 0;
+        }
+        if (subtitle_result > 0) {
+            strncpy(out->voice_language_storage, voiceLocaleActiveTag(),
+                sizeof(out->voice_language_storage) - 1);
+        }
+    } else {
+        strncpy(out->voice_transcript_storage, e->ext.audio.voice_transcript,
+            sizeof(out->voice_transcript_storage) - 1);
+        strncpy(out->voice_language_storage, e->ext.audio.voice_language,
+            sizeof(out->voice_language_storage) - 1);
+    }
+    out->file_path = out->file_path_storage;
+    out->voice_actor = out->voice_actor_storage;
+    out->voice_transcript = out->voice_transcript_storage;
+    out->voice_language = out->voice_language_storage;
+    out->voice_context = out->voice_context_storage;
+    return 1;
 }
 
 /* -------------------------------------------------------------------------
@@ -295,8 +341,7 @@ s32 catalogResolveAudio(const char *id, catalog_audio_result_t *out)
                      id ? id : "(null)");
         return 0;
     }
-    s_fillAudioResult(e, out);
-    return 1;
+    return s_fillAudioResult(e, out);
 }
 
 /* -------------------------------------------------------------------------

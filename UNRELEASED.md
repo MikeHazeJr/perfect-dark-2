@@ -5,6 +5,12 @@
 
 ## Highlights
 
+- Made localized `.pdvoice` audio and subtitle JSON drive production playback
+  and dialogue text, including locale fallback and fail-closed declared source.
+- Made public `.pdprop` behavior graphs execute on live Forge props instead of
+  being preserved but ignored.
+- Registered nested weapon animation and audio archives before production
+  weapon parsing and carried them through local and network dependency paths.
 - Made creator `.pdcharacter` body/head identity, names, and optional portraits
   drive the production character picker and lobby roster, with declared portrait
   failures refusing silent generated fallback.

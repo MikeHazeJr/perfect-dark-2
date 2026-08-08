@@ -544,6 +544,7 @@ def update_animation(rel: str, catalog_id: str, name: str, category: str) -> Non
 def update_audio_examples() -> None:
     sfx_sample = pcm16_mono_wav()
     voice_sample = pcm16_mono_wav()
+    voice_fr_sample = pcm16_mono_wav(frame_count=88)
     sfx_count = 44
     voice_count = 44
     write_archive("audio/sfx/tri_click.pdsfx", [
@@ -579,9 +580,21 @@ def update_audio_examples() -> None:
                 "transcript = triangle\n"
                 "language = en\n"
                 "context = creator example\n"
+                "subtitle_file = subtitle.json\n"
+                "fallback_locale = en\n"
+                "locale_en_file = locales/en.wav\n"
+                "locale_fr_file = locales/fr.wav\n"
             ),
         )),
         ("sample.wav", voice_sample),
+        ("locales/en.wav", voice_sample),
+        ("locales/fr.wav", voice_fr_sample),
+        ("subtitle.json", json.dumps({
+            "schema": "pd.voice_subtitle.v1",
+            "default": "Triangle voice line",
+            "en": "Localized triangle voice line",
+            "fr": "Ligne vocale triangle localisee",
+        }, indent=2, ensure_ascii=False) + "\n"),
         ("_meta/manifest.json", audio_wav_manifest(
             "voice",
             "example:tri_voice",
@@ -2468,7 +2481,27 @@ def update_theme() -> None:
 
 def update_prop() -> None:
     model = read_entry("meshes/tri_mesh.pdmesh", "model.gltf")
-    behavior = read_entry("props/tri_prop.pdprop", "behavior.graph.json")
+    behavior = (
+        "{\n"
+        "  \"schema\": \"pd.prop_behavior.v1\",\n"
+        "  \"asset_id\": \"example:tri_prop\",\n"
+        "  \"graph_id\": \"runtime\",\n"
+        "  \"nodes\": [\n"
+        "    { \"id\": \"spawn\", \"kind\": \"event.spawn\", \"params\": {} },\n"
+        "    { \"id\": \"health\", \"kind\": \"action.set_health\", \"params\": { \"value\": 125.0 } },\n"
+        "    { \"id\": \"ready\", \"kind\": \"action.set_channel\", \"params\": { \"channel\": \"tri_prop_ready\", \"value\": true } },\n"
+        "    { \"id\": \"tick\", \"kind\": \"event.tick\", \"params\": {} },\n"
+        "    { \"id\": \"enabled\", \"kind\": \"condition.enabled\", \"params\": {} },\n"
+        "    { \"id\": \"solid\", \"kind\": \"action.set_collision\", \"params\": { \"value\": true } }\n"
+        "  ],\n"
+        "  \"edges\": [\n"
+        "    { \"from\": \"spawn\", \"to\": \"health\" },\n"
+        "    { \"from\": \"health\", \"to\": \"ready\" },\n"
+        "    { \"from\": \"tick\", \"to\": \"enabled\" },\n"
+        "    { \"from\": \"enabled\", \"to\": \"solid\" }\n"
+        "  ]\n"
+        "}\n"
+    )
     prop_source = (
         "{\n"
         "  \"schema\": \"pd2.prop.v2\",\n"

@@ -15,6 +15,7 @@
 #include <PR/ultratypes.h>
 
 #include "assetcatalog.h"
+#include "assetcatalog_scanner.h"
 #include "assetcatalog_weapon_slots.h"
 #include "constants.h"
 #include "fs.h"
@@ -179,6 +180,34 @@ static s32 s_register(const char *manifest, size_t manifest_len,
 
     if (s_WeaponArchiveCatalogMutex) {
         SDL_UnlockMutex(s_WeaponArchiveCatalogMutex);
+    }
+
+    /* T-ASSETS-022: nested-only animation/audio archives must exist in the
+     * catalog and weapon-animation command pool before the manifest parser
+     * resolves catalog IDs into the production struct weapon payload. The
+     * nested public descriptors are authoritative; any corrupt member fails
+     * the owning weapon closed instead of falling through to base content. */
+    {
+        char nested_err[256];
+        nested_err[0] = '\0';
+        if (assetCatalogRegisterWeaponNestedDependencies(id, file_path,
+                /* bundled: */ 1, nested_err, sizeof(nested_err)) < 0) {
+            sysLogPrintf(LOG_WARNING,
+                "PDWEAPON.NESTED.REJECT: owner=%s source=%s error=%s",
+                id ? id : "<unknown>", file_path ? file_path : "<unknown>",
+                nested_err[0] ? nested_err : "nested registration failed");
+            if (s_WeaponArchiveCatalogMutex) {
+                SDL_LockMutex(s_WeaponArchiveCatalogMutex);
+            }
+            if (e) {
+                e->enabled = 0;
+                e->load_state = ASSET_STATE_REGISTERED;
+            }
+            if (s_WeaponArchiveCatalogMutex) {
+                SDL_UnlockMutex(s_WeaponArchiveCatalogMutex);
+            }
+            return -1;
+        }
     }
 
     /* Heavyweight pool payload (Step 5): always populate from the

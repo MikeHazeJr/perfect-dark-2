@@ -4,6 +4,7 @@
 #include <ctype.h>
 #include <sys/stat.h>
 #include "asset_runtime.h"
+#include "prop_graph_runtime.h"
 #ifndef PD_TESTS
 #include "fs.h"
 #endif
@@ -342,6 +343,7 @@ static s32 s_finishFileBinding(asset_runtime_binding_t *binding, s32 ok)
 
 void assetRuntimeReset(void)
 {
+	propGraphRuntimeReset();
     if (s_Bindings && s_BindingCapacity > 0) {
         memset(s_Bindings, 0,
                (size_t)s_BindingCapacity * sizeof(s_Bindings[0]));
@@ -1067,6 +1069,7 @@ static s32 s_hydrateProp(asset_runtime_binding_t *binding)
     s32 flags = 0;
     s32 kind;
     s32 ok;
+	char graph_err[256];
 
     if (!json) return 0;
     ok = s_jsonReadString(json, size, "schema", schema, sizeof(schema)) &&
@@ -1085,6 +1088,26 @@ static s32 s_hydrateProp(asset_runtime_binding_t *binding)
         binding->runtime_id = kind;
         binding->prop_flags = (u32)flags;
         binding->source_hydrated = 1;
+		if (binding->dependency_b[0]) {
+			u32 graph_size = 0;
+			char *graph = s_loadSourceMember(binding, binding->dependency_b,
+				&graph_size);
+			if (!graph) {
+				binding->source_hydrated = 0;
+				return 0;
+			}
+			graph_err[0] = '\0';
+			ok = propGraphRuntimeRegisterJson(binding->id, graph, graph_size,
+				graph_err, sizeof(graph_err)) == 0;
+			free(graph);
+			if (!ok) {
+#ifndef PD_TESTS
+				fprintf(stderr, "ASSET.PROP.GRAPH: %s rejected: %s\n",
+					binding->id, graph_err[0] ? graph_err : "invalid graph");
+#endif
+				binding->source_hydrated = 0;
+			}
+		}
     }
     return ok;
 }
@@ -1396,6 +1419,9 @@ void assetRuntimeReleaseCatalogEntry(const char *asset_id)
 {
     asset_runtime_binding_t *binding = s_findMutable(asset_id);
     if (binding) {
+		if (binding->type == ASSET_PROP) {
+			propGraphRuntimeClearAsset(asset_id);
+		}
         binding->active = 0;
     }
 }

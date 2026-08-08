@@ -7,8 +7,14 @@ incomplete selected sources. The truthful creator example retains only
 production-backed settings/presentation and source dependencies; nested custom
 animation/audio registration, catalog reticles, weapon-level material/grip
 overrides, and live proof remain `T-ASSETS-022` through `T-ASSETS-025`.
-Character public IDs and portraits are production-connected. Voice metadata is
-production-connected, with optional localized members in `T-ASSETS-021`.
+Character public IDs and portraits are production-connected. Voice metadata,
+`subtitle.json`, and declared `locales/<tag>.wav|ogg|mp3` are production-
+connected through local, base-walker, and network catalog paths. The active
+game locale selects both playback audio and scenario subtitle text; declared
+missing or invalid source fails closed. The checked-in `.pdvoice` creator
+example and conformance rules demonstrate `en`/`fr`, fallback locale, editable
+UTF-8 subtitle JSON, and localized audio verification. `T-ASSETS-021` still
+needs an ordinary-game edited-source receipt before validation.
 The comprehensive effect audit split source-faithful extraction, shared public
 parsing, graph/timeline execution, renderer/dependencies, and fail-closed
 capacity work into `T-ASSETS-016` through `T-ASSETS-020`.

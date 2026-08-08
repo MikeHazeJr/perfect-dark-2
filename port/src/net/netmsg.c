@@ -6162,7 +6162,11 @@ static void catalogInfoPatchU16(struct netbuf *dst, u32 pos, u16 value)
 static void catalogInfoWriteChunkCb(const asset_entry_t *e, void *ud)
 {
 	struct catalog_info_chunk_ctx *ctx = (struct catalog_info_chunk_ctx *)ud;
-	if (!ctx || !e || e->bundled || !e->enabled) {
+	/* Nested-only typed dependencies are transported by their owning archive.
+	 * Advertising their VFS-chain rows independently makes the client request
+	 * a component that has no standalone directory to package. */
+	if (!ctx || !e || e->bundled || !e->enabled
+			|| strstr(e->dirpath, "::") != NULL) {
 		return;
 	}
 

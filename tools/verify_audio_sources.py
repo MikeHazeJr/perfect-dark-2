@@ -347,6 +347,43 @@ def validate_sfx_or_voice(path: Path, archive: zipfile.ZipFile, names: set[str],
     else:
         errors.append(f"{label} unsupported SFX/voice source member {data_member}")
 
+    if ext == ".pdvoice":
+        for locale in ("en", "fr", "de", "it", "es", "ja"):
+            key = f"locale_{locale}_file"
+            member = ini.get(key, "")
+            if not member:
+                continue
+            if member not in names:
+                errors.append(f"{label} {key} declares missing audio source {member}")
+                continue
+            localized = archive.read(member)
+            localized_label = f"{label}::{member}"
+            suffix = Path(member).suffix.lower()
+            if suffix == ".wav":
+                localized_info = read_wav_info(localized, localized_label, errors)
+                if localized_info is None:
+                    continue
+                stats.wav += 1
+                stats.sample_rates[localized_info.sample_rate] += 1
+                if localized_info.channels != 1:
+                    errors.append(f"{localized_label} must be mono for native voice parity")
+                if localized_info.sample_width != 2:
+                    errors.append(f"{localized_label} must be PCM16 for native voice parity")
+            elif suffix == ".ogg":
+                localized_info = parse_ogg_info(localized, localized_label, errors)
+                if localized_info is not None:
+                    stats.ogg += 1
+                    stats.sample_rates[localized_info.sample_rate] += 1
+            elif suffix == ".mp3":
+                localized_info = parse_mp3_info(localized, localized_label, errors)
+                if localized_info is not None:
+                    stats.mp3 += 1
+                    stats.sample_rates[localized_info.sample_rate] += 1
+            else:
+                errors.append(
+                    f"{localized_label} must use a public .wav, .ogg, or .mp3 source"
+                )
+
 
 def validate_song(path: Path, archive: zipfile.ZipFile, names: set[str],
                   manifest: dict[str, object], stats: AudioStats,
