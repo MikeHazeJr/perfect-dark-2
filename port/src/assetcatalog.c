@@ -31,6 +31,9 @@
 #include "assetcatalog_scanner.h"
 #include "assetcatalog_weapon_slots.h"
 #include "effect_graph_runtime.h"
+#include "weapon_graph_runtime.h"
+#include "asset_runtime.h"
+#include "catalog_reset_plan.h"
 #include "assetcatalog_body_head_slots.h"  /* c3844 Gate 2: reset custom body/head slots on rebuild */
 #include "catalog_mgr_bodies.h"
 #include "catalog_mgr_heads.h"
@@ -306,27 +309,30 @@ static s32 getLoadFactor(void)
  * Public API: Lifecycle
  * ======================================================================== */
 
-static s32 s_typeOwnsEffectRuntime(asset_type_e type)
+/* Snapshot every selected identity/type while the catalog is stable, preflight
+ * every dependency closure, then retire outside the mutex. This is one reset
+ * transaction for all registered families, not a list of special cases. */
+static s32 s_resetPlanContains(const char *parent_id,
+        const char *dependency_id, void *userdata)
 {
-    return type == ASSET_EFFECT
-        || type == ASSET_WEAPON
-        || type == ASSET_PROJECTILE
-        || type == ASSET_ENTITY;
+    (void)userdata;
+    return catalogDepContains(parent_id, dependency_id);
 }
 
-/* Snapshot identity/type while the catalog is stable, then retire closures
- * outside the mutex because dependency planning resolves catalog rows. */
-static s32 s_retireNonBundledEffectClosures(void)
+static s32 s_retireCatalogRows(s32 include_bundled)
 {
     catalog_retire_row_t *rows = NULL;
+    catalog_reset_plan_row_t *plan_rows = NULL;
+    size_t *order = NULL;
     s32 count = 0;
     s32 write = 0;
     s32 ok = 1;
+    char plan_error[192];
 
     CATALOG_LOCK();
     for (s32 i = 0; i < s_EntryPoolSize; i++) {
-        if (s_EntryPool[i].occupied && !s_EntryPool[i].bundled
-                && s_typeOwnsEffectRuntime(s_EntryPool[i].type)) {
+        if (s_EntryPool[i].occupied
+                && (include_bundled || !s_EntryPool[i].bundled)) {
             count++;
         }
     }
@@ -335,12 +341,12 @@ static s32 s_retireNonBundledEffectClosures(void)
         if (!rows) {
             CATALOG_UNLOCK();
             sysLogPrintf(LOG_WARNING,
-                "CATALOG.LIFECYCLE.RESET: out of memory snapshotting effect closures");
+                "CATALOG.LIFECYCLE.RESET: out of memory snapshotting typed rows");
             return 0;
         }
         for (s32 i = 0; i < s_EntryPoolSize; i++) {
-            if (!s_EntryPool[i].occupied || s_EntryPool[i].bundled
-                    || !s_typeOwnsEffectRuntime(s_EntryPool[i].type)) continue;
+            if (!s_EntryPool[i].occupied
+                    || (!include_bundled && s_EntryPool[i].bundled)) continue;
             memcpy(rows[write].id, s_EntryPool[i].id, sizeof(rows[write].id));
             rows[write].id[sizeof(rows[write].id) - 1] = '\0';
             rows[write].type = s_EntryPool[i].type;
@@ -350,37 +356,66 @@ static s32 s_retireNonBundledEffectClosures(void)
     }
     CATALOG_UNLOCK();
 
+    /* Validate the entire transaction before the first family adapter is
+     * detached. A stale/mistyped/cyclic edge therefore aborts with every row
+     * and owner still intact. */
+    for (s32 i = 0; i < write; i++) {
+        if (!catalogCanDeactivateTypedAsset(rows[i].type, rows[i].id)) {
+            sysLogPrintf(LOG_WARNING,
+                "CATALOG.LIFECYCLE.RESET: typed preflight rejected '%s'; catalog unchanged",
+                rows[i].id);
+            free(rows);
+            return 0;
+        }
+    }
+
+    if (write > 0) {
+        plan_rows = (catalog_reset_plan_row_t *)malloc(
+            (size_t)write * sizeof(*plan_rows));
+        order = (size_t *)malloc((size_t)write * sizeof(*order));
+        if (!plan_rows || !order) {
+            sysLogPrintf(LOG_WARNING,
+                "CATALOG.LIFECYCLE.RESET: out of memory planning typed retirement");
+            free(plan_rows);
+            free(order);
+            free(rows);
+            return 0;
+        }
+        for (s32 i = 0; i < write; i++) {
+            plan_rows[i].id = rows[i].id;
+            plan_rows[i].type = rows[i].type;
+        }
+        plan_error[0] = '\0';
+        if (!catalogResetPlanBuild(plan_rows, (size_t)write,
+                s_resetPlanContains, NULL,
+                order, plan_error, sizeof(plan_error))) {
+            sysLogPrintf(LOG_WARNING,
+                "CATALOG.LIFECYCLE.RESET: %s; catalog unchanged",
+                plan_error[0] ? plan_error : "typed retirement plan failed");
+            free(plan_rows);
+            free(order);
+            free(rows);
+            return 0;
+        }
+    }
+
     /* Parent-first ordering matters because ref_count is aggregate, not an
      * owner ledger. Once every still-present parent edge has released, the
      * child's remaining count is exactly its direct root references. */
-    for (s32 retired = 0; retired < write; ) {
-        s32 candidate = -1;
-        for (s32 i = 0; i < write && candidate < 0; i++) {
-            s32 has_unretired_parent = 0;
-            if (rows[i].retired) continue;
-            for (s32 parent = 0; parent < write; parent++) {
-                if (parent == i || rows[parent].retired) continue;
-                if (catalogDepContains(rows[parent].id, rows[i].id)) {
-                    has_unretired_parent = 1;
-                    break;
-                }
-            }
-            if (!has_unretired_parent) candidate = i;
-        }
-        if (candidate < 0) {
-            sysLogPrintf(LOG_WARNING,
-                "CATALOG.LIFECYCLE.RESET: effect-owner dependency cycle prevents safe retirement");
-            ok = 0;
-            break;
-        }
-        if (!catalogDeactivateTypedAsset(rows[candidate].type,
-                rows[candidate].id)) {
+    for (s32 retired = 0; retired < write; retired++) {
+        s32 candidate = (s32)order[retired];
+        if (!(include_bundled
+                ? catalogDeactivateTypedAssetForReset(rows[candidate].type,
+                    rows[candidate].id)
+                : catalogDeactivateTypedAsset(rows[candidate].type,
+                    rows[candidate].id))) {
             ok = 0;
             break;
         }
         rows[candidate].retired = 1;
-        retired++;
     }
+    free(plan_rows);
+    free(order);
     free(rows);
     return ok;
 }
@@ -396,9 +431,11 @@ void assetCatalogInit(void)
     }
 
     if (s_EntryPool != NULL) {
-        if (!s_retireNonBundledEffectClosures()) {
+        if (!s_retireCatalogRows(1)) {
             return;
         }
+        assetRuntimeReset();
+        weaponGraphRuntimeClearAll();
         effectGraphRuntimeClearAll();
         catalogDepClear();
     }
@@ -452,9 +489,11 @@ u32 assetCatalogGetGeneration(void)
 
 void assetCatalogClear(void)
 {
-    if (!s_retireNonBundledEffectClosures()) {
+    if (!s_retireCatalogRows(1)) {
         return;
     }
+    assetRuntimeReset();
+    weaponGraphRuntimeClearAll();
     effectGraphRuntimeClearAll();
     catalogDepClear();
 
@@ -487,7 +526,7 @@ void assetCatalogClear(void)
 
 void assetCatalogClearMods(void)
 {
-    if (!s_retireNonBundledEffectClosures()) {
+    if (!s_retireCatalogRows(0)) {
         return;
     }
     catalogDepClearMods();
@@ -1196,9 +1235,12 @@ s32 assetCatalogGetSkinsForTarget(const char *target_id,
 
 void assetCatalogSetEnabled(const char *id, s32 enabled)
 {
-    char deactivate_id[CATALOG_ID_LEN] = {0};
-    asset_type_e deactivate_type = ASSET_NONE;
+    char selected_id[CATALOG_ID_LEN] = {0};
+    asset_type_e selected_type = ASSET_NONE;
+    s32 previous_enabled = 0;
 
+    /* Resolve and snapshot under lock, but do not publish the new state until
+     * the complete typed closure has passed preflight. */
     CATALOG_LOCK();
     if (id != NULL && s_HashTable != NULL && s_EntryPool != NULL) {
         u32 id_hash = fnv1a(id);
@@ -1208,27 +1250,63 @@ void assetCatalogSetEnabled(const char *id, s32 enabled)
         if (slot >= 0 && pool_idx != SENTINEL
                 && pool_idx >= 0 && pool_idx < s_EntryPoolSize
                 && s_EntryPool[pool_idx].occupied) {
-            s_EntryPool[pool_idx].enabled = enabled ? 1 : 0;
-            if (!enabled && s_typeOwnsEffectRuntime(s_EntryPool[pool_idx].type)) {
-                memcpy(deactivate_id, s_EntryPool[pool_idx].id,
-                    sizeof(deactivate_id));
-                deactivate_id[sizeof(deactivate_id) - 1] = '\0';
-                deactivate_type = s_EntryPool[pool_idx].type;
-            }
-            /* Advance REGISTERED → ENABLED on first enable */
-            if (enabled &&
-                s_EntryPool[pool_idx].load_state == ASSET_STATE_REGISTERED) {
-                s_EntryPool[pool_idx].load_state = ASSET_STATE_ENABLED;
-            }
+            memcpy(selected_id, s_EntryPool[pool_idx].id,
+                sizeof(selected_id));
+            selected_id[sizeof(selected_id) - 1] = '\0';
+            selected_type = s_EntryPool[pool_idx].type;
+            previous_enabled = s_EntryPool[pool_idx].enabled;
         }
     }
     CATALOG_UNLOCK();
 
-    if (deactivate_type != ASSET_NONE) {
-        /* Planning and dependency release resolve catalog entries and must not
-         * run under the catalog mutex. Disable is visible first, so selected
-         * gameplay resolution fails closed throughout retirement. */
-        (void)catalogDeactivateTypedAsset(deactivate_type, deactivate_id);
+    if (selected_type == ASSET_NONE || previous_enabled == (enabled ? 1 : 0)) {
+        return;
+    }
+
+    if (!enabled && !catalogCanDeactivateTypedAsset(selected_type, selected_id)) {
+        sysLogPrintf(LOG_WARNING,
+            "CATALOG.LIFECYCLE.DISABLE: '%s' preflight failed; enabled state unchanged",
+            selected_id);
+        return;
+    }
+
+    CATALOG_LOCK();
+    {
+        asset_entry_t *entry = (asset_entry_t *)s_resolveLocked(selected_id);
+        if (!entry || entry->type != selected_type
+                || entry->enabled != previous_enabled) {
+            CATALOG_UNLOCK();
+            sysLogPrintf(LOG_WARNING,
+                "CATALOG.LIFECYCLE.TOGGLE: '%s' changed during transaction; aborted",
+                selected_id);
+            return;
+        }
+        entry->enabled = enabled ? 1 : 0;
+        if (enabled && entry->load_state == ASSET_STATE_REGISTERED) {
+            entry->load_state = ASSET_STATE_ENABLED;
+        }
+    }
+    CATALOG_UNLOCK();
+
+    if (!enabled && !catalogDeactivateTypedAssetForReset(selected_type,
+            selected_id)) {
+        /* Preflight made this path non-failing for a stable single-threaded
+         * catalog. Preserve transactional truth if an unexpected adapter
+         * failure is nevertheless reported. */
+        CATALOG_LOCK();
+        {
+            asset_entry_t *entry = (asset_entry_t *)s_resolveLocked(selected_id);
+            if (entry && entry->type == selected_type && !entry->enabled) {
+                entry->enabled = previous_enabled;
+                if (entry->load_state == ASSET_STATE_REGISTERED) {
+                    entry->load_state = ASSET_STATE_ENABLED;
+                }
+            }
+        }
+        CATALOG_UNLOCK();
+        sysLogPrintf(LOG_WARNING,
+            "CATALOG.LIFECYCLE.DISABLE: '%s' teardown failed; toggle rolled back",
+            selected_id);
     }
 }
 

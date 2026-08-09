@@ -585,6 +585,7 @@ SCHEMAS: dict[str, Schema] = {
             "dependencies/assets/audio/*.pdsfx",
             "dependencies/assets/audio/*.pdvoice",
             "dependencies/assets/ui/*.pdui",
+            "dependencies/assets/effects/*.pdeffect",
             "dependencies/assets/projectiles/*.pdprojectile",
             "dependencies/assets/entities/*.pdentity",
         ],
@@ -931,6 +932,12 @@ OPTIONAL_PUBLIC_SLOT_CONTRACT: dict[str, dict[str, SlotJustification]] = {
             "weapon presentation and HUD reticle adapters",
             DEPENDENCY_LOADER,
             "weapon uses the native sight renderer",
+        ),
+        "dependencies/assets/effects/*.pdeffect": slot(
+            "weapon effect dependencies",
+            "weapon nested scanner and effect source executor",
+            DEPENDENCY_LOADER,
+            "weapon uses no authored effect program",
         ),
         "dependencies/assets/projectiles/*.pdprojectile": slot(
             "spawned projectile dependencies",

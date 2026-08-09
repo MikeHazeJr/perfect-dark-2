@@ -5,8 +5,14 @@
 
 ## Highlights
 
+- Added fail-closed typed scheduling for every accepted public v1 effect node,
+  rejecting incomplete schedules or missing handlers before partial execution.
+- Made asset disable and catalog reset transactional across every typed family,
+  clearing stale runtime data and rebuilding catalog-ID caches before reuse.
 - Made public `.pdeffect` explosion, spark, smoke, and typed SFX dependencies
   drive native gameplay tables, with missing selected sources failing closed.
+- Removed the 64-asset ceiling from nested weapon UI, sound, animation, and
+  effect ingestion while preserving all-or-nothing registration and rollback.
 - Made selected and nested public effects fail closed when missing, corrupt,
   disabled, wrong-type, incomplete, or conflicting instead of silently using
   a built-in explosion, spark, smoke, or sound.

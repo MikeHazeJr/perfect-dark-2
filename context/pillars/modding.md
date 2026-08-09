@@ -1185,6 +1185,20 @@ The Asset Pipeline migration, weapon graph parity lane, c3842 native-source corr
 
 ## Known gaps
 
+- **T-ASSETS-037/B-1010 nested weapon ingress capacity is implemented.** The fixed
+  64-entry `.pdweapon` nested media scanner, preflight transaction, and proof
+  collector are now growable. A deterministic creator-readable INI/JSON/WAV
+  fixture recursively conforms with 70 nested SFX archives and two individually
+  valid `.pdeffect` graphs that declare 35 disjoint typed audio dependencies
+  each, proving 72 direct nested archives and 70 aggregate effect-owned edges.
+  The strict conformance
+  schema recognizes only `dependencies/assets/effects/*.pdeffect` as the
+  additional weapon effect slot and still recursively validates typed identity.
+  The production client passes 7/7 with harness 2/2, exact 72 registration
+  rows, 70 aggregate effect edges, and late-corruption rollback. This boundary
+  does not claim over-64 SFX playback: B-992/T-ASSETS-022 still owns the
+  private custom-sound runtime pool, which logs slot failures for rows 64-69.
+
 - **c3844 final all-family regression refresh passed (2026-06-17).** The
   current tree re-sweep passed native-source guard, modder workflow validation,
   conformance across the all-family examples plus retained `Build\data`,

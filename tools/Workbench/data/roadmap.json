@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "project": "Perfect Dark 2",
-  "updated": "2026-08-09T00:48:40.641Z",
+  "updated": "2026-08-09T01:30:45.711Z",
   "items": [
     {
       "type": "task",
@@ -2853,10 +2853,10 @@
         "bug:B-959",
         "production-path"
       ],
-      "detail": "The .pdeffect program is partially production-connected. T-ASSETS-016/017/018/020 are implemented: source-faithful extraction/schema, authoritative parsing, executable graph/timeline/profile retention, and selected/nested fail-closed lifecycle. Wave8 T-ASSETS-019 adds verified v2 26/27/23 explosion/spark/smoke consumers and typed dependency admission, but remains partial. Residual generic v1 scheduler/gameplay/audio/renderer/timeline/target/lifetime work is explicit in T-ASSETS-032/034/035/036; typed reverse invalidation and ingress ownership in T-ASSETS-033; nested capacity in T-ASSETS-037; live edited and negative proof in V-009/V-005/V-006.",
+      "detail": "The .pdeffect program is partially production-connected. T-ASSETS-016/017/018/020 and T-ASSETS-037 are implemented: source-faithful extraction/schema, authoritative parsing, executable graph/timeline/profile retention, selected/nested fail-closed lifecycle, and omission-free growable nested discovery/preflight. Wave8 T-ASSETS-019 adds verified v2 26/27/23 consumers and typed dependency admission but remains partial. Residual generic v1 scheduler/gameplay/audio/renderer/timeline/target/lifetime work is T-ASSETS-032/034/035/036; reverse dependency invalidation is T-ASSETS-033; live edited and negative proof is V-009/V-005/V-006. B-992 custom runtime slot ceilings remain under T-ASSETS-022.",
       "type": "task",
       "id": "T-ASSETS-012",
-      "updated": "2026-08-09T00:47:05.009Z",
+      "updated": "2026-08-09T01:27:05.152Z",
       "created": "2026-08-01T12:51:42.454Z",
       "model": "Codex GPT-5"
     },
@@ -3352,7 +3352,7 @@
         "T-ASSETS-036",
         "T-ASSETS-037"
       ],
-      "detail": "Verified partial implementation: every v2 public profile row (26 explosion, 27 spark, 23 smoke) transactionally drives the native gameplay/render/audio tables; typed SFX/smoke/material/texture dependency admission is growable, strict, and rollback-safe across base/local/nested/mod/network paths. This does not claim all production consumers. Generic v1 scheduling and dispatch, gameplay/audio emitters, renderer/presentation, timeline/context/target/lifetime, nested ingress capacity, and ordinary-game edited-source proof remain T-ASSETS-032/034/035/036/037 and V-009.",
+      "detail": "Verified partial implementation: every v2 public profile row (26 explosion, 27 spark, 23 smoke) transactionally drives the native gameplay/render/audio tables; typed SFX/smoke/material/texture dependency admission is growable, strict, and rollback-safe across base/local/nested/mod/network paths. T-ASSETS-037 now removes nested discovery/preflight omission above 64. This does not claim all production consumers: generic v1 scheduling/dispatch, gameplay/audio emitters, renderer/presentation, timeline/context/target/lifetime, reverse child invalidation, and ordinary-game edited-source proof remain T-ASSETS-032/034/035/036, T-ASSETS-033, and V-009.",
       "tags": [
         "asset-family:pdeffect",
         "production-path",
@@ -3385,7 +3385,7 @@
         "Handoff: T019 remains partial; T-ASSETS-032/034/035/036/037 and V-009 retain every generic v1, capacity, and live edited-source residual."
       ],
       "id": "T-ASSETS-019",
-      "updated": "2026-08-09T00:45:39.708Z",
+      "updated": "2026-08-09T01:27:05.147Z",
       "created": "2026-08-08T17:00:38.156Z",
       "model": "gpt-5.6-sol"
     },
@@ -3488,7 +3488,7 @@
         "T-CATALOG-002 propagation: weapon dependencies loaded/retained per parent ref but formerly released only at parent zero; assetcatalog_load.c now balances the closure on every weapon parent decrement. Focused repeated-owner verification pending."
       ],
       "phase": 3,
-      "detail": "B-990 automated production path is implemented and native-behavior verified: nested media preflights and commits transactionally in audio-before-animation order, unresolved selected animation audio rejects with pool rollback, direct weapon load owns dependencies, and manifest/direct references balance. Status remains partial truthfully: B-992 leaves no private custom weapon slot after the complete base catalog, so the exit-after-test harness borrows AR34 indices and does not prove ordinary new-weapon allocation. Ordinary edited-media gameplay, restart, and network proof remains under T-ASSETS-025. T-CATALOG-002 propagation found and fixed a residual repeated-owner asymmetry: weapon dependency edges now decrement on every parent reference release, not only final parent free; focused overlap proof is pending.",
+      "detail": "B-990 automated production path is implemented and native-behavior verified: nested media preflights and commits transactionally in audio-before-animation order, unresolved selected animation audio rejects with pool rollback, direct weapon load owns dependencies, and manifest/direct references balance. T-ASSETS-037 now proves omission-free discovery and edge ownership for 72 nested archives and 70 effect-owned edges. Status remains partial: B-992 leaves no private custom weapon slot after the complete base catalog and the private custom-sound runtime pool remains fixed at 64, so SFX rows 64-69 register but cannot obtain playback slots. Ordinary edited-media gameplay, restart, network, and repeated-owner weapon proof remain under T-ASSETS-025.",
       "tags": [
         "asset-family:pdweapon",
         "handoff:ultra",
@@ -3497,7 +3497,7 @@
         "dependencies"
       ],
       "id": "T-ASSETS-022",
-      "updated": "2026-08-08T22:05:59.340Z",
+      "updated": "2026-08-09T01:27:05.158Z",
       "created": "2026-08-08T17:05:35.611Z",
       "model": "gpt-5.6-sol"
     },
@@ -4053,16 +4053,24 @@
       "type": "task",
       "area": "ASSETS",
       "title": "Build the v1 .pdeffect scheduler and production dispatch foundation",
-      "status": "missing",
+      "status": "partial",
       "phase": 3,
       "deps": [
         "T-ASSETS-018",
         "T-ASSETS-020",
         "D-002"
       ],
-      "owner": null,
-      "evidence": [],
-      "detail": "Under decided D-002 Option A, implement stable graph order, activation rejection, and the production dispatch API for every accepted v1 node kind. This is the scheduler/foundation only; gameplay/audio, renderer/presentation, and timeline/context/target/lifetime consumers are owned by T-ASSETS-034, T-ASSETS-035, and T-ASSETS-036. No accepted node may remain inert or be silently retired.",
+      "owner": "codex-roadmap-continuation-20260808",
+      "evidence": [
+        "port/include/effect_graph_runtime.h: permanent exact nine-slot typed dispatch transaction contract",
+        "port/src/effect_graph_runtime.c: live activation schedule/coverage validation plus fail-closed dispatch API foundation",
+        "tests/test_effect_graph_scheduler.cpp: 67 assertions/6 cases covering all-kind order, omission, rollback, activation rejection, and corrupt schedules",
+        "context/evidence/2026-08-08-t-assets-032-v1-scheduler.md: supporting source-frozen receipt; client/updater/tests, effect 638/21, full 52,718/943, conformance and guard PASS",
+        "No production invocation of effectGraphRuntimeDispatch exists yet; T-ASSETS-034/035/036 own concrete consumers and callsites",
+        ".claude/session-builds/wave9final/wave9-t032.log",
+        ".claude/session-builds/wave9final/wave9-full.log"
+      ],
+      "detail": "Under decided D-002 Option A, B-1011 has a verified partial generic v1 scheduler foundation. Every accepted opcode maps to one permanent typed slot; public activation revalidates a complete dependency-respecting schedule; dispatch preflights the complete handler set before a deterministic begin/commit/rollback transaction. The authoritative Wave9 receipt passes T032 67/6, full 52,721/943, all-target builds, all-family conformance, guard, and diff check. This is not implemented production execution: no gameplay caller invokes the dispatch API. T-ASSETS-034 owns gameplay/audio handlers and callsites, T-ASSETS-035 renderer/presentation, and T-ASSETS-036 timelines/contexts/targets/lifetime.",
       "tags": [
         "asset-family:pdeffect",
         "production-path",
@@ -4070,8 +4078,9 @@
         "handoff:ultra"
       ],
       "id": "T-ASSETS-032",
-      "updated": "2026-08-09T00:24:07.199Z",
-      "created": "2026-08-08T23:50:39.873Z"
+      "updated": "2026-08-09T01:30:45.711Z",
+      "created": "2026-08-08T23:50:39.873Z",
+      "model": "gpt-5.6-sol"
     },
     {
       "type": "task",
@@ -4249,17 +4258,27 @@
       "type": "task",
       "area": "ASSETS",
       "title": "Remove fixed 64-entry weapon nested-media ingress ceiling",
-      "status": "partial",
+      "status": "implemented",
       "phase": 3,
       "deps": [
         "T-ASSETS-022",
         "T-ASSETS-033"
       ],
-      "owner": null,
+      "owner": "codex-roadmap-continuation-20260808",
       "evidence": [
-        "port/src/assetcatalog_scanner.c still defines WEAPON_NESTED_MEDIA_MAX 64 and uses fixed scan/pending arrays; overflow rejects the entire nested closure."
+        "port/src/assetcatalog_scanner.c growable nested-media enumeration and complete preflight transaction",
+        "port/src/weapon_nested_runtime_harness.c production API aggregate-capacity and rollback modes",
+        "devtools/generate-weapon-nested-capacity-fixture.py creator-readable 70-SFX plus two-effect fixture",
+        "tests/test_weapon_nested_capacity_static.cpp: focused PASS 18 assertions / 2 cases",
+        "Recursive conformance PASS: 72 direct nested archives, 70 aggregate effect-owned edges, root_archives=1 checked_archives=73 families=.pdeffect,.pdsfx,.pdweapon",
+        ".claude/session-builds/t037fix/_build-session.out.log: isolated client/updater/tests compile PASS",
+        ".claude/smoke-verify-runs/results-20260809T011935Z.json: production client PASS 7/7, harness 2/2, exact 72 registrations, clean rollback and exit",
+        "context/evidence/2026-08-08-t-assets-037-nested-capacity.md",
+        "N-0030 hands B-992 private 64-slot custom-SFX playback residual to T-ASSETS-022",
+        ".claude/session-builds/wave9final/wave9-t037.log",
+        ".claude/session-builds/wave9final/wave9-full.log"
       ],
-      "detail": "Convert nested weapon UI/audio/animation/effect discovery and preflight to growable PC storage with transactional rollback. Prove more than 64 total nested archives and more than 64 effect dependencies without omission, truncation, or leaked rows/edges.",
+      "detail": "B-1010 implemented for omission-free weapon nested UI/audio/animation/effect discovery, complete preflight, catalog-row/direct-edge/effect-edge publication, and transactional rollback. Checked growable PC storage fails allocation/count overflow before mutation and reserves the complete edge closure. Production proof passes with 72 direct nested archives and 70 aggregate effect-owned edges across two valid effects; corrupt-late input restores the graph baseline. Boundary: this does not claim more than 64 custom SFX playback slots. The final log confirms B-992/T-ASSETS-022 still logs private custom-sound slot failures for SFX 64-69, recorded in N-0030.",
       "tags": [
         "asset-family:pdweapon",
         "asset-family:pdeffect",
@@ -4268,12 +4287,13 @@
         "handoff:ultra"
       ],
       "id": "T-ASSETS-037",
-      "updated": "2026-08-09T00:24:07.237Z",
-      "created": "2026-08-09T00:11:13.528Z"
+      "updated": "2026-08-09T01:27:05.141Z",
+      "created": "2026-08-09T00:11:13.528Z",
+      "model": "gpt-5.6-sol"
     },
     {
       "phase": 8,
-      "owner": "unassigned",
+      "owner": "codex-roadmap-continuation-20260808",
       "area": "CATALOG",
       "type": "task",
       "title": "Make catalog disable and reset a transactional typed lifecycle teardown for every family",
@@ -4285,20 +4305,32 @@
         "B-1008"
       ],
       "lane": "catalog-lifecycle",
-      "detail": "Before any typed asset is disabled, re-enabled, removed, or reused, snapshot its loaded ownership, retire or restore the complete dependency closure and family-specific runtime/provider/cache adapter outside the catalog mutex, and roll back or abort on failure. Full reset must retire all process-lifetime adapters then clear every edge; mod reset must preserve bundled rows/edges/adapters. T-ASSETS-020 owns the effect/weapon slice only. Required proof covers disable-reenable and mod/full reset for model, audio, theme, texture, animation, language, map/scenario, UI/font, tool, and every registered family, including overlapping owners, repeated refs, partial failure, restart, and no stale provider/runtime state.",
+      "detail": "Implemented across all registered families. Disable snapshots and preflights the complete typed closure before publishing state, retires outside the catalog mutex, and restores the prior toggle on unexpected failure. Mod/full reset preflight every selected root before the first mutation, use a growable parent-first shared-child-safe plan, detach provider bytes, generated model/collision/animation payloads, generic runtime bindings, weapon/effect owners, and stage ownership before identity reuse. Mod reset preserves bundled rows/edges/adapters; full reset clears process adapters, all edges, and private slots. Mod rescan rebuilds runtime-ID/body/head pointer caches. Implemented, not validated: installed-client every-family toggle/restart and concurrent screen/stage/editor/network ownership receipts remain open. Reverse invalidation/reload when an active child dependency is disabled remains T-ASSETS-033.",
       "deps": [
         "T-CATALOG-002",
         "T-ASSETS-020"
       ],
-      "status": "missing",
+      "status": "implemented",
       "evidence": [
         "context/bugs.md:B-1008",
         "port/src/assetcatalog.c:assetCatalogClearMods",
-        "Root propagation audit: assetCatalogSetEnabled has no family-generic teardown/reload transaction; cached consumers may survive dependency disable."
+        "Root propagation audit: assetCatalogSetEnabled has no family-generic teardown/reload transaction; cached consumers may survive dependency disable.",
+        "context/bugs.md:B-1009",
+        "port/src/assetcatalog.c:s_retireCatalogRows and transactional assetCatalogSetEnabled",
+        "port/src/assetcatalog_load.c:catalogCanDeactivateTypedAsset/catalogDeactivateTypedAssetForReset and family adapter teardown",
+        "port/src/catalog_reset_plan.c + tests/test_catalog_reset_plan.cpp",
+        "port/src/modmgr.c: runtime catalog pointer-cache rebuild after mod rescan",
+        "context/evidence/2026-08-08-t-catalog-004-lifecycle.md",
+        ".claude/session-builds/tcat004: client/updater/tests compile PASS; focused 198/3; full 52718/943; guard/diff/fingerprint PASS",
+        "Truth boundary: no installed-client every-family toggle/restart or concurrent editor/network owner receipt; T-ASSETS-033 remains reverse child-disable invalidation.",
+        ".claude/session-builds/wave9final/_build-session.out.log",
+        ".claude/session-builds/wave9final/wave9-catalog004.log",
+        ".claude/session-builds/wave9final/wave9-full.log"
       ],
       "id": "T-CATALOG-004",
-      "updated": "2026-08-09T00:19:51.273Z",
-      "created": "2026-08-09T00:18:47.734Z"
+      "updated": "2026-08-09T01:27:05.122Z",
+      "created": "2026-08-09T00:18:47.734Z",
+      "model": "gpt-5.6-sol"
     }
   ]
 }

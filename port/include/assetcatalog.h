@@ -555,14 +555,16 @@ typedef struct asset_entry {
 void assetCatalogInit(void);
 
 /**
- * Clear all entries and reset hash table.
- * Does not free memory (reuses for next population).
+ * Transactionally retire every typed payload/runtime adapter/dependency,
+ * then clear all entries and reset the hash table. Catalog table allocations
+ * are reused for the next population; family payload allocations are freed.
  * Call before a full catalog reload.
  */
 void assetCatalogClear(void);
 
 /**
- * Remove all entries where bundled == false.
+ * Transactionally retire and remove all entries where bundled == false.
+ * Bundled rows, dependency edges, and runtime adapters remain active.
  * Rehashes remaining entries. Increments generation counter.
  * Call when disabling/toggling mods (partial reload).
  */
@@ -994,7 +996,9 @@ s32 assetCatalogGetSkinsForTarget(const char *target_id,
  * ======================================================================== */
 
 /**
- * Set the enabled state of an asset entry by string ID.
+ * Set the enabled state of an asset entry by string ID. Disable preflights and
+ * retires the complete typed closure outside the catalog mutex; preflight or
+ * teardown failure leaves/restores the prior enabled state.
  * Does nothing if the ID is not found or the catalog is not initialized.
  * This is the only write operation exposed outside the catalog internals.
  * Note: base game (bundled) entries can be disabled via this call for

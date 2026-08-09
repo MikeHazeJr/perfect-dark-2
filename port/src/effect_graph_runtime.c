@@ -12,8 +12,9 @@
  * compiler maps class words to EXISTING table indices (and, for tinted
  * effect.spark nodes, appends a clone of the OG SPARKTYPE_PROJECTILE row to
  * the growable registry in src/game/sparks_custom.c). T-ASSETS-018 also owns
- * complete executable graph/timeline/profile retention; production consumers
- * remain T-ASSETS-019.
+ * complete executable graph/timeline/profile retention. T-ASSETS-019 connects
+ * v2 native-profile libraries; T-ASSETS-032 provides typed v1 dispatch, while
+ * T-ASSETS-034/035/036 own the concrete consumer implementations.
  */
 
 #include <ctype.h>
@@ -247,16 +248,143 @@ s32 effectGraphProgramSample(const effect_graph_program_t *program,
 		out_value) : 0;
 }
 
-s32 effectGraphProgramExecute(const effect_graph_program_t *program, f32 time,
-	effect_graph_program_visit_fn visit, void *user)
+s32 effectGraphDispatchSlotForOpcode(weapon_graph_opcode_e opcode)
 {
-	if (!program || !visit) return -1;
+	switch (opcode) {
+	case WEAPON_GRAPH_OP_EFFECT_TINT:      return EFFECT_GRAPH_DISPATCH_TINT;
+	case WEAPON_GRAPH_OP_EFFECT_GLOW:      return EFFECT_GRAPH_DISPATCH_GLOW;
+	case WEAPON_GRAPH_OP_EFFECT_SHIMMER:   return EFFECT_GRAPH_DISPATCH_SHIMMER;
+	case WEAPON_GRAPH_OP_EFFECT_DARKEN:    return EFFECT_GRAPH_DISPATCH_DARKEN;
+	case WEAPON_GRAPH_OP_EFFECT_SCREEN:    return EFFECT_GRAPH_DISPATCH_SCREEN;
+	case WEAPON_GRAPH_OP_EFFECT_PARTICLE:  return EFFECT_GRAPH_DISPATCH_PARTICLE;
+	case WEAPON_GRAPH_OP_EFFECT_EXPLOSION: return EFFECT_GRAPH_DISPATCH_EXPLOSION;
+	case WEAPON_GRAPH_OP_EFFECT_SPARK:     return EFFECT_GRAPH_DISPATCH_SPARK;
+	case WEAPON_GRAPH_OP_EFFECT_SMOKE:     return EFFECT_GRAPH_DISPATCH_SMOKE;
+	default:                               return -1;
+	}
+}
+
+static s32 effectProgramValidateSchedule(const effect_graph_program_t *program,
+	char *err, size_t err_cap)
+{
+	s32 *position;
+
+	if (!program || program->node_count <= 0 || !program->nodes ||
+			program->execution_count != program->node_count ||
+			!program->execution_order) {
+		setErr(err, err_cap, "effect graph has no complete execution schedule");
+		return -1;
+	}
+	if (program->edge_count < 0 ||
+			(program->edge_count > 0 && !program->edges)) {
+		setErr(err, err_cap, "effect graph has an invalid edge table");
+		return -1;
+	}
+	position = (s32 *)malloc((size_t)program->node_count * sizeof(*position));
+	if (!position) {
+		setErr(err, err_cap, "out of memory validating effect graph schedule");
+		return -1;
+	}
+	for (s32 i = 0; i < program->node_count; i++) position[i] = -1;
 	for (s32 i = 0; i < program->execution_count; i++) {
-		s32 node_index = program->execution_order[i];
-		if (node_index < 0 || node_index >= program->node_count ||
-				visit(program, &program->nodes[node_index], i, time, user) != 0) {
+		s32 node = program->execution_order[i];
+		if (node < 0 || node >= program->node_count || position[node] >= 0) {
+			free(position);
+			setErr(err, err_cap,
+				"effect graph execution schedule has an invalid or duplicate node");
 			return -1;
 		}
+		if (effectGraphDispatchSlotForOpcode(program->nodes[node].opcode) < 0) {
+			free(position);
+			setErr(err, err_cap, "effect node %s has no production dispatch slot",
+				program->nodes[node].kind);
+			return -1;
+		}
+		position[node] = i;
+	}
+	for (s32 i = 0; i < program->edge_count; i++) {
+		s32 from = program->edges[i].from;
+		s32 to = program->edges[i].to;
+		if (from < 0 || from >= program->node_count ||
+				to < 0 || to >= program->node_count ||
+				position[from] >= position[to]) {
+			free(position);
+			setErr(err, err_cap,
+				"effect graph execution schedule violates dependency order");
+			return -1;
+		}
+	}
+	free(position);
+	return 0;
+}
+
+s32 effectGraphRuntimeDispatch(const char *asset_id, f32 time,
+	const effect_graph_dispatch_table_t *dispatch, void *user,
+	char *err, size_t err_cap)
+{
+	const effect_graph_runtime_t *runtime;
+	const effect_graph_program_t *program;
+	effect_graph_dispatch_context_t context;
+
+	if (err && err_cap) err[0] = '\0';
+	if (!asset_id || !asset_id[0]) {
+		setErr(err, err_cap, "effect dispatch requires a catalog ID");
+		return -1;
+	}
+	runtime = effectGraphRuntimeGetForGameplay(asset_id);
+	if (!runtime) {
+		setErr(err, err_cap, "effect %s has no active public runtime", asset_id);
+		return -1;
+	}
+	program = &runtime->program;
+	if (program->kind != EFFECT_GRAPH_PROGRAM_GRAPH &&
+			program->kind != EFFECT_GRAPH_PROGRAM_GRAPH_TIMELINE) {
+		setErr(err, err_cap, "effect %s is not a v1 graph program", asset_id);
+		return -1;
+	}
+	if (effectProgramValidateSchedule(program, err, err_cap) != 0) return -1;
+	if (!dispatch || !dispatch->begin || !dispatch->commit ||
+			!dispatch->rollback) {
+		setErr(err, err_cap, "effect dispatch transaction phases are incomplete");
+		return -1;
+	}
+	/* Preflight the complete handler set before begin. A mixed graph cannot
+	 * partially execute merely because its first few kinds have consumers. */
+	for (s32 i = 0; i < program->execution_count; i++) {
+		s32 node_index = program->execution_order[i];
+		s32 slot = effectGraphDispatchSlotForOpcode(
+			program->nodes[node_index].opcode);
+		if (slot < 0 || slot >= EFFECT_GRAPH_DISPATCH_SLOT_COUNT ||
+				!dispatch->nodes[slot]) {
+			setErr(err, err_cap, "effect node kind %s has no installed handler",
+				program->nodes[node_index].kind);
+			return -1;
+		}
+	}
+
+	context.runtime = runtime;
+	context.time = time;
+	context.user = user;
+	if (dispatch->begin(&context) != 0) {
+		dispatch->rollback(&context, 0);
+		setErr(err, err_cap, "effect %s dispatch begin failed", asset_id);
+		return -1;
+	}
+	for (s32 i = 0; i < program->execution_count; i++) {
+		s32 node_index = program->execution_order[i];
+		s32 slot = effectGraphDispatchSlotForOpcode(
+			program->nodes[node_index].opcode);
+		if (dispatch->nodes[slot](&context, &program->nodes[node_index], i) != 0) {
+			dispatch->rollback(&context, i + 1);
+			setErr(err, err_cap, "effect node %s dispatch failed",
+				program->nodes[node_index].id);
+			return -1;
+		}
+	}
+	if (dispatch->commit(&context) != 0) {
+		dispatch->rollback(&context, program->execution_count);
+		setErr(err, err_cap, "effect %s dispatch commit failed", asset_id);
+		return -1;
 	}
 	return program->execution_count;
 }
@@ -544,8 +672,9 @@ static void effectRuntimeFromNode(const weapon_graph_ir_t *ir,
 	}
 
 	default:
-		/* effect.tint/glow/shimmer/darken/screen/particle: presentation
-		 * kinds, gameplay-inert (intensity/sound captured above). */
+		/* effect.tint/glow/shimmer/darken/screen/particle retain their full
+		 * typed parameters here. The T-ASSETS-032 scheduler routes them through
+		 * mandatory dispatch slots; T-ASSETS-035 owns presentation behavior. */
 		break;
 	}
 }
@@ -622,7 +751,10 @@ static s32 effectProgramCopyIr(effect_graph_program_t *program,
 		program->execution_order[out] = chosen;
 	}
 	free(scheduled);
-	return 0;
+	/* Activation is allowed only when every accepted opcode maps to the
+	 * permanent production dispatch contract and the retained schedule is a
+	 * complete dependency-respecting permutation. */
+	return effectProgramValidateSchedule(program, err, err_cap);
 }
 
 static effect_graph_runtime_t *effectRuntimeCreateIr(const weapon_graph_ir_t *ir,

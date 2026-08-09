@@ -1690,7 +1690,13 @@ static s32 s_catalogValidateTypedLifecycle(const char *op, asset_type_e expected
     return 1;
 }
 
-static void s_catalogUnloadEntryRaw(const char *assetId, asset_entry_t *entry);
+static void s_catalogUnloadEntryRawMode(const char *assetId,
+        asset_entry_t *entry, s32 force_bundled);
+
+static void s_catalogUnloadEntryRaw(const char *assetId, asset_entry_t *entry)
+{
+    s_catalogUnloadEntryRawMode(assetId, entry, 0);
+}
 
 static s32 s_catalogResolveActivationNode(const char *asset_id,
         asset_type_e *out_actual_type, void *userdata)
@@ -1726,6 +1732,7 @@ s32 catalogLoadTypedAsset(asset_type_e expected_type, const char *assetId)
     catalog_dep_activation_plan_t plan = {0};
     char error[256];
     size_t loaded = 0;
+    u8 *was_resident = NULL;
 
     if (!s_catalogValidateTypedLifecycle("LOAD", expected_type, assetId)) {
         return 0;
@@ -1737,20 +1744,55 @@ s32 catalogLoadTypedAsset(asset_type_e expected_type, const char *assetId)
             assetId, error[0] ? error : "unknown dependency error");
         return 0;
     }
-    for (; loaded < plan.count; loaded++) {
-        asset_entry_t *entry = assetCatalogGetMutable(plan.nodes[loaded].id);
-        if (!entry || !s_catalogLoadEntry(entry,
-                plan.nodes[loaded].expected_type)) break;
-    }
-    if (loaded != plan.count) {
-        catalogDepActivationPlanRollback(&plan, loaded,
-            s_catalogRollbackActivationNode, NULL);
+    was_resident = (u8 *)calloc(plan.count ? plan.count : 1, sizeof(*was_resident));
+    if (!was_resident) {
         sysLogPrintf(LOG_WARNING,
-            "CATALOG.LIFECYCLE.LOAD: '%s' activation failed at closure row %zu",
-            assetId, loaded);
+            "CATALOG.LIFECYCLE.LOAD: '%s' could not snapshot activation transaction",
+            assetId);
         catalogDepActivationPlanFree(&plan);
         return 0;
     }
+    for (; loaded < plan.count; loaded++) {
+        asset_entry_t *entry = assetCatalogGetMutable(plan.nodes[loaded].id);
+        if (entry) {
+            /* Bundled registration historically labels ROM-backed rows
+             * LOADED before any catalog-owned payload exists. Residence is
+             * therefore proven by a payload, not by that legacy state bit. */
+            was_resident[loaded] = entry->loaded_data != NULL
+                || entry->payload_kind != ASSET_PAYLOAD_NONE;
+        }
+        if (!entry || !s_catalogLoadEntry(entry,
+                plan.nodes[loaded].expected_type)) break;
+        if (entry->bundled) {
+            /* A bundled row reactivated after an explicit disable resumes its
+             * process-pinned ownership contract. */
+            entry->ref_count = ASSET_REF_BUNDLED;
+        }
+    }
+    if (loaded != plan.count) {
+        size_t failed_at = loaded;
+        while (loaded > 0) {
+            asset_entry_t *entry;
+            loaded--;
+            entry = assetCatalogGetMutable(plan.nodes[loaded].id);
+            if (!entry) continue;
+            if (entry->bundled && !was_resident[loaded]) {
+                /* A process-pinned row activated by this transaction did not
+                 * exist before it. Forced rollback restores the exact prior
+                 * empty state instead of leaking a half-published adapter. */
+                s_catalogUnloadEntryRawMode(plan.nodes[loaded].id, entry, 1);
+            } else {
+                s_catalogUnloadEntryRaw(plan.nodes[loaded].id, entry);
+            }
+        }
+        sysLogPrintf(LOG_WARNING,
+            "CATALOG.LIFECYCLE.LOAD: '%s' activation failed at closure row %zu",
+            assetId, failed_at);
+        free(was_resident);
+        catalogDepActivationPlanFree(&plan);
+        return 0;
+    }
+    free(was_resident);
     catalogDepActivationPlanFree(&plan);
     return 1;
 }
@@ -1856,17 +1898,41 @@ const void *catalogGetLoadedAnimationClip(const char *assetId,
     return payload->data;
 }
 
-static void s_catalogUnloadEntryRaw(const char *assetId, asset_entry_t *entry)
+static void s_catalogDetachRuntimeAdapters(asset_entry_t *entry,
+        const char *assetId)
+{
+    if (!entry || !assetId) return;
+    if (s_catalogTypeUsesWeaponGraphRuntime(entry->type)) {
+        s_catalogClearWeaponGraphRuntime(entry, assetId);
+    }
+    if (s_catalogTypeUsesEffectGraphRuntime(entry->type)) {
+        s_catalogClearEffectGraphRuntime(entry, assetId);
+    }
+    assetRuntimeReleaseCatalogEntry(assetId);
+}
+
+static void s_catalogUnloadEntryRawMode(const char *assetId,
+        asset_entry_t *entry, s32 force_bundled)
 {
     s32 old_ref;
     s32 new_ref;
 
     /* Never evict bundled assets — their catalog-owned source remains process-lifetime. */
-    if (entry->bundled || entry->ref_count == ASSET_REF_BUNDLED) {
+    if (!force_bundled
+            && (entry->bundled || entry->ref_count == ASSET_REF_BUNDLED)) {
         return;
     }
 
     old_ref = entry->ref_count;
+
+    if (force_bundled && (entry->bundled
+            || entry->ref_count == ASSET_REF_BUNDLED)) {
+        /* A full identity rebuild owns the process-pinned reference itself.
+         * Collapse it to one so the normal family-specific payload teardown
+         * below runs exactly once. */
+        old_ref = ASSET_REF_BUNDLED;
+        entry->ref_count = 1;
+    }
 
     if (entry->ref_count > 0) {
         entry->ref_count--;
@@ -1930,13 +1996,7 @@ static void s_catalogUnloadEntryRaw(const char *assetId, asset_entry_t *entry)
                 free(payload);
             }
         } else if (entry->payload_kind == ASSET_PAYLOAD_RUNTIME_ACTIVE) {
-            if (s_catalogTypeUsesWeaponGraphRuntime(entry->type)) {
-                s_catalogClearWeaponGraphRuntime(entry, assetId);
-            }
-            if (s_catalogTypeUsesEffectGraphRuntime(entry->type)) {
-                s_catalogClearEffectGraphRuntime(entry, assetId);
-            }
-            assetRuntimeReleaseCatalogEntry(assetId);
+            s_catalogDetachRuntimeAdapters(entry, assetId);
             /* Runtime-owned activation (for example language banks) is
              * detached from this catalog reference. The owning subsystem
              * releases its memory on its normal reset/reload path. */
@@ -1977,6 +2037,26 @@ void catalogReleaseTypedAsset(asset_type_e expected_type, const char *assetId)
     catalogDepActivationPlanFree(&plan);
 }
 
+s32 catalogCanDeactivateTypedAsset(asset_type_e expected_type, const char *assetId)
+{
+    catalog_dep_activation_plan_t plan = {0};
+    char error[256];
+
+    if (!s_catalogValidateTypedLifecycle("DEACTIVATE_PREFLIGHT",
+            expected_type, assetId)) {
+        return 0;
+    }
+    if (!catalogDepActivationPlanBuild(&plan, assetId, expected_type,
+            s_catalogResolveDeactivationNode, NULL, error, sizeof(error))) {
+        sysLogPrintf(LOG_WARNING,
+            "CATALOG.LIFECYCLE.DEACTIVATE_PREFLIGHT: '%s' dependency preflight failed: %s",
+            assetId, error[0] ? error : "unknown dependency error");
+        return 0;
+    }
+    catalogDepActivationPlanFree(&plan);
+    return 1;
+}
+
 s32 catalogDeactivateTypedAsset(asset_type_e expected_type, const char *assetId)
 {
     catalog_dep_activation_plan_t plan = {0};
@@ -1996,7 +2076,10 @@ s32 catalogDeactivateTypedAsset(asset_type_e expected_type, const char *assetId)
         /* The raw path intentionally also cleans an inconsistent payload with
          * ref_count==0; never null a pointer without running typed teardown. */
         s_catalogUnloadEntryRaw(assetId, root);
-        effectGraphRuntimeReleaseOwner(assetId);
+        /* An interrupted or legacy activation can leave a family adapter
+         * without a payload marker. Detach every adapter class, not only the
+         * effect executor owner. */
+        s_catalogDetachRuntimeAdapters(root, assetId);
         (void)catalogStageOwnershipRelease(root);
         root->load_state = root->enabled
             ? ASSET_STATE_ENABLED : ASSET_STATE_REGISTERED;
@@ -2022,12 +2105,41 @@ s32 catalogDeactivateTypedAsset(asset_type_e expected_type, const char *assetId)
 
     /* An interrupted activation can own a runtime record without a live
      * payload/ref. Owner release is idempotent and preserves other owners. */
-    effectGraphRuntimeReleaseOwner(assetId);
+    s_catalogDetachRuntimeAdapters(root, assetId);
     root->ref_count = 0;
     root->load_state = root->enabled
         ? ASSET_STATE_ENABLED : ASSET_STATE_REGISTERED;
     catalogDepActivationPlanFree(&plan);
     return 1;
+}
+
+s32 catalogDeactivateTypedAssetForReset(asset_type_e expected_type,
+                                        const char *assetId)
+{
+    asset_entry_t *root;
+
+    if (!s_catalogValidateTypedLifecycle("RESET_DEACTIVATE",
+            expected_type, assetId)) {
+        return 0;
+    }
+    root = assetCatalogGetMutable(assetId);
+    if (!root) {
+        return 0;
+    }
+    if (!root->bundled && root->ref_count != ASSET_REF_BUNDLED) {
+        return catalogDeactivateTypedAsset(expected_type, assetId);
+    }
+
+    /* Bundled dependency rows are independently represented in the reset
+     * snapshot and will each be retired exactly once. Do not reinterpret the
+     * process-pinned sentinel as an aggregate dependency count. */
+    s_catalogUnloadEntryRawMode(assetId, root, 1);
+    s_catalogDetachRuntimeAdapters(root, assetId);
+    (void)catalogStageOwnershipRelease(root);
+    root->load_state = root->enabled
+        ? ASSET_STATE_ENABLED : ASSET_STATE_REGISTERED;
+    return root->loaded_data == NULL
+        && root->payload_kind == ASSET_PAYLOAD_NONE;
 }
 
 void catalogReleaseStageAsset(asset_type_e expected_type, const char *assetId)

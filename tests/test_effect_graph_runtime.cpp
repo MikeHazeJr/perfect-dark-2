@@ -167,9 +167,13 @@ void effectRuntimeTestReset() {
 	effectGraphRuntimeClearAll();  /* also resets the spark registry */
 }
 
-s32 collectProgramNode(const effect_graph_program_t *,
-	const weapon_graph_ir_node_t *node, s32, f32, void *user) {
-	auto *ids = static_cast<std::vector<std::string> *>(user);
+s32 dispatchBegin(const effect_graph_dispatch_context_t *) { return 0; }
+s32 dispatchCommit(const effect_graph_dispatch_context_t *) { return 0; }
+void dispatchRollback(const effect_graph_dispatch_context_t *, s32) {}
+
+s32 collectProgramNode(const effect_graph_dispatch_context_t *context,
+	const weapon_graph_ir_node_t *node, s32) {
+	auto *ids = static_cast<std::vector<std::string> *>(context->user);
 	ids->emplace_back(node->id);
 	return 0;
 }
@@ -774,8 +778,16 @@ TEST_CASE("effect program retains topology policy parameters and interpolated ti
 	REQUIRE(effectGraphProgramSample(&program, "light.radius", 100.0f, &sampled) == 1);
 	REQUIRE(sampled == Approx(2.0f));
 	std::vector<std::string> execution;
-	REQUIRE(effectGraphProgramExecute(&program, 0.125f, collectProgramNode,
-		&execution) == 3);
+	effect_graph_dispatch_table_t dispatch = {};
+	dispatch.begin = dispatchBegin;
+	dispatch.commit = dispatchCommit;
+	dispatch.rollback = dispatchRollback;
+	for (s32 i = 0; i < EFFECT_GRAPH_DISPATCH_SLOT_COUNT; i++) {
+		dispatch.nodes[i] = collectProgramNode;
+	}
+	weaponGraphRuntimeSetEnabled(1);
+	REQUIRE(effectGraphRuntimeDispatch("modx:complete_fx", 0.125f, &dispatch,
+		&execution, err, sizeof(err)) == 3);
 	REQUIRE(execution == std::vector<std::string>{ "attach", "burst", "smoke" });
 
 	bool sawTarget = false, sawAttachment = false, sawLifetime = false;

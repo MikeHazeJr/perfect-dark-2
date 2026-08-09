@@ -211,6 +211,23 @@ void catalogReleaseTypedAsset(asset_type_e expected_type, const char *assetId);
 s32 catalogDeactivateTypedAsset(asset_type_e expected_type, const char *assetId);
 
 /**
+ * Preflight the complete typed dependency closure without changing any
+ * catalog, provider, or runtime state. Reset transactions use this for every
+ * selected root before retiring the first row, so a stale edge/type/cycle
+ * aborts atomically instead of leaving a partly-cleared catalog.
+ */
+s32 catalogCanDeactivateTypedAsset(asset_type_e expected_type, const char *assetId);
+
+/**
+ * Full-reset variant which also retires process-pinned bundled payloads.
+ * This is intentionally reset-only: ordinary release preserves bundled
+ * payloads, while a catalog identity rebuild must detach every old adapter
+ * before its row storage is cleared or reused.
+ */
+s32 catalogDeactivateTypedAssetForReset(asset_type_e expected_type,
+                                        const char *assetId);
+
+/**
  * Type-checked retain wrapper. Same validation rule as
  * catalogLoadTypedAsset; mismatches log and leave the asset untouched.
  */

@@ -4197,8 +4197,12 @@ TEST_CASE("effect sources activate before weapon admission with exact allocator 
 	REQUIRE(catalog.find("effectGraphRuntimeClearAll();") != std::string::npos);
 	REQUIRE(catalog.find("catalogDepClear();") != std::string::npos);
 	REQUIRE(catalog.find("catalogDepClearMods();") != std::string::npos);
-	REQUIRE(catalog.find("catalogDepContains(rows[parent].id, rows[i].id)") !=
+	REQUIRE(catalog.find("catalogResetPlanBuild") !=
 		std::string::npos);
+	REQUIRE(catalog.find("catalogCanDeactivateTypedAsset") != std::string::npos);
+	REQUIRE(catalog.find("assetRuntimeReset();") != std::string::npos);
+	REQUIRE(catalog.find("weaponGraphRuntimeClearAll();") != std::string::npos);
+	REQUIRE(catalog.find("s_typeOwnsEffectRuntime") == std::string::npos);
 	REQUIRE(catalog.find("effectGraphRuntimeClearAsset") == std::string::npos);
 	REQUIRE(deps.find("if (s_DepTable[i].is_bundled)") != std::string::npos);
 	REQUIRE(loader.find("s_catalogResolveDeactivationNode") != std::string::npos);
@@ -4211,7 +4215,10 @@ TEST_CASE("effect sources activate before weapon admission with exact allocator 
 	const std::string setEnabled = catalog.substr(setEnabledStart,
 		setEnabledEnd - setEnabledStart);
 	REQUIRE(setEnabled.find("CATALOG_UNLOCK();") <
-		setEnabled.rfind("catalogDeactivateTypedAsset"));
+		setEnabled.rfind("catalogDeactivateTypedAssetForReset"));
+	REQUIRE(setEnabled.find("preflight failed; enabled state unchanged") !=
+		std::string::npos);
+	REQUIRE(setEnabled.find("toggle rolled back") != std::string::npos);
 	REQUIRE(setEnabled.find("ASSET_STATE_ENABLED") != std::string::npos);
 }
 

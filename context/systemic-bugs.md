@@ -1139,6 +1139,15 @@ child can be considered unreachable. The effect/weapon reset slice is
 T-ASSETS-020, reverse dependency invalidation is T-ASSETS-033, and the
 all-family reset transaction is T-CATALOG-004.
 
+**2026-08-08 all-family closure (B-1009):** T-CATALOG-004 removes the
+effect-only type filter. Disable and reset snapshot every selected family,
+preflight all closures before the first mutation, retire a growable
+parent-first order, detach family adapters outside the catalog mutex, and
+rebuild pointer caches after mod rows are replaced. Mod reset preserves bundled
+rows/edges/adapters and full reset clears process adapters before identity
+reuse. This closes forward teardown; reverse-owner invalidation when a child is
+disabled remains T-ASSETS-033.
+
 **Fix strategy:**
 
 1. Inventory the native state and behavior that each advertised family owns.

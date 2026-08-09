@@ -907,6 +907,9 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/tests/test_assetcatalog_deps.cpp
 	${CMAKE_SOURCE_DIR}/port/src/catalog_dep_activation_plan.c
 	${CMAKE_SOURCE_DIR}/tests/test_catalog_dep_activation_plan.cpp
+	# T-CATALOG-004: growable parent-first all-family reset planner.
+	${CMAKE_SOURCE_DIR}/port/src/catalog_reset_plan.c
+	${CMAKE_SOURCE_DIR}/tests/test_catalog_reset_plan.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_public_mods_static.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_mod_external_archive_static.cpp
   ${CMAKE_SOURCE_DIR}/port/src/asset_archive_policy.c
@@ -933,8 +936,10 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/port/src/pdeffect_source_parser.cpp
   ${CMAKE_SOURCE_DIR}/src/game/sparks_custom.c
   ${CMAKE_SOURCE_DIR}/tests/test_effect_graph_runtime.cpp
+	${CMAKE_SOURCE_DIR}/tests/test_effect_graph_scheduler.cpp
 	${CMAKE_SOURCE_DIR}/tests/test_effect_executor.cpp
 	${CMAKE_SOURCE_DIR}/tests/test_effect_dependencies.cpp
+	${CMAKE_SOURCE_DIR}/tests/test_weapon_nested_capacity_static.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_pdeffect_source.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_pdeffect_source_parser.cpp
   ${CMAKE_SOURCE_DIR}/port/src/loader_enum_reverse.c

@@ -1,5 +1,28 @@
 # Session Log (Active)
 
+## 2026-08-08 - Wave 9 catalog lifecycle, v1 scheduler, and nested capacity
+
+Committed Wave 8 at `5adcffbe`, then completed three Workbench lanes from that
+clean boundary. `T-CATALOG-004` is implemented: every registered family now
+uses transactional disable/mod/full-reset teardown with growable parent-first
+planning, family adapter cleanup, bundled rollback, and runtime pointer-cache
+rebuild. `T-ASSETS-037` is implemented for omission-free growable nested weapon
+discovery/preflight/row-edge publication and rollback. Its ordinary-client
+capacity harness passes 7/7 with 72 nested archives and 70 effect-owned edges.
+That proof also confirms the separate B-992 custom-SFX playback pool still
+stops at 64, which remains on `T-ASSETS-022`.
+
+`T-ASSETS-032` is a verified partial foundation. All nine accepted v1 effect
+node kinds have permanent typed dispatch slots, complete schedule/handler
+preflight, and begin/commit/rollback semantics, but no production gameplay
+caller invokes the dispatch API; `T-ASSETS-034/035/036` retain those consumers.
+The final source-frozen combined receipt passes client/updater/tests builds,
+`T-CATALOG-004` 198/3, `T-ASSETS-032` 67/6, `T-ASSETS-037` 18/2, the complete
+52,721-assertion/943-case suite, conformance self-test, 28-root/52-recursive
+all-27-family conformance, native-source guard, and diff check. Raw logs are in
+`.claude/session-builds/wave9final/`; the T037 live receipt is
+`.claude/smoke-verify-runs/results-20260809T011935Z.json`.
+
 ## 2026-08-08 - V-004 physical input validation partial receipt
 
 Added narrow real-SDL mouse-motion and mouse-wheel support to the smoke harness
@@ -4116,3 +4139,81 @@ accepted v1 kind to receive a real consumer; T-ASSETS-032/034/035/036 own the
 scheduler, gameplay/audio, renderer/presentation, and timeline/target/lifetime
 work. T-ASSETS-037 owns the remaining 64-entry nested-media ingress ceiling,
 and V-009 owns ordinary-game edited-source proof.
+
+## 2026-08-08 - T-ASSETS-037 growable nested weapon ingress source freeze
+
+Removed B-1010's independent 64-row limits from production weapon nested-media
+enumeration, complete preflight, and the ordinary-client proof collector. All
+storage is checked and growable; allocation/count failures occur before row
+publication; full direct plus effect-owned edge capacity is reserved; rollback
+removes only rows and exact edges created by the transaction. The production
+harness now has explicit over-capacity accept and late-corruption rejection
+modes with dependency-count baseline checks.
+
+Added a deterministic public INI/JSON/WAV fixture generator and corrected the
+strict `.pdweapon` conformance contract to recognize only the production-owned
+`dependencies/assets/effects/*.pdeffect` slot. Recursive conformance passes one
+root, 73 checked archives, and weapon/effect/SFX families for 70 nested sounds
+plus two individually valid effects declaring 35 disjoint typed audio
+dependencies each: 72 direct nested archives and 70 aggregate effect-owned
+edges. The first live attempt used one 70-node effect and truthfully failed the
+separate per-graph compiler contract before exercising scanner capacity; the
+fixture and harness were narrowed to the two-effect aggregate proof. The final
+production-client receipt passes 7/7 with harness 2/2, exact 72 registration
+rows, clean exit, and dependency-edge baseline restoration at
+`.claude/smoke-verify-runs/results-20260809T011935Z.json`.
+
+The same receipt records, rather than hides, the existing B-992/T-ASSETS-022
+runtime boundary: custom SFX 64-69 register as catalog rows and effect edges but
+cannot obtain a private playback slot from the separate fixed 64-slot sound
+pool. T-ASSETS-037 is implemented only for omission-free discovery, preflight,
+row/edge publication, and rollback; it does not claim over-64 SFX playback.
+
+## 2026-08-08 - T-CATALOG-004 all-family lifecycle transaction
+
+B-1009 generalized Wave8's effect-only reset path to every registered asset
+family. Disable, mod reset, full reset, and catalog reinitialization now
+snapshot typed identities, preflight every dependency closure before the first
+mutation, and retire a growable parent-first order outside the catalog mutex.
+Family teardown covers provider bytes, generated modeldefs, collision meshes,
+animation clips, language/generic source bindings, weapon/effect owners, and
+stage ownership. Mod reset preserves bundled rows/edges/adapters; full reset
+clears process adapters and private slots before catalog row reuse. Mod rescan
+also rebuilds runtime-ID/body/head pointer caches instead of retaining pointers
+to removed rows. Activation rollback now restores newly activated bundled
+payloads when a later dependency fails.
+
+The source-frozen isolated client, updater, and test builds pass. Focused
+T-CATALOG-004 passes 198 assertions/3 cases; the full suite passes 52,718/943;
+native-source guard, diff check, and pre/post source fingerprint pass. Durable
+receipt: `context/evidence/2026-08-08-t-catalog-004-lifecycle.md`. The task is
+implemented, not validated: installed-client every-family toggle/restart and
+concurrent editor/network owner proof were not run. T-ASSETS-033 still owns
+reverse invalidation of active parents when a selected child is disabled.
+
+## 2026-08-08 - T-ASSETS-032 typed v1 effect scheduler foundation
+
+B-1011 replaced the retained graph's untyped visitor with an exact permanent
+nine-slot dispatch contract covering tint, glow, shimmer, darken, screen,
+particle, explosion, spark, and smoke. Activation now revalidates that the
+stored execution order is a complete dependency-respecting permutation and
+that every opcode has a dispatch slot. The public runtime dispatch API requires
+complete begin/commit/rollback phases, preflights all graph handlers before the
+first side effect, and rolls back begin, node, or commit failure.
+
+The supporting source-frozen Wave9 receipt passes client/updater/tests builds,
+T032 67 assertions/6 cases, the effect band 638/21, the complete 52,718/943
+suite, recursive conformance for 28 roots/52 archives/all 27 families, the
+native-source guard, and diff check. The client/updater interval retained source
+fingerprint
+`D42AE6EF2E36206BC1895284D43E58A7458A1B370AA544DD3AD99254F889A842`.
+This receipt is supporting, not the authoritative combined Wave9 closeout,
+because T-ASSETS-037 subsequently corrected its independent fixture and root
+owns the final rerun.
+
+T-ASSETS-032 remains partial. No production gameplay caller currently installs
+or invokes the typed handler table, so the new API alone does not execute
+creator-authored v1 effects in ordinary play. T-ASSETS-034 owns gameplay/audio,
+T-ASSETS-035 owns renderer/presentation, and T-ASSETS-036 owns timeline,
+context, target, and lifetime consumers. Durable receipt:
+`context/evidence/2026-08-08-t-assets-032-v1-scheduler.md`.

@@ -2467,6 +2467,10 @@ static void modmgrRebuildCatalogFromCurrentSelection(void)
 
 	// Rebuild reverse-index arrays after all mod entries are present.
 	catalogLoadInit();
+	/* B-1009: these caches store pointers into catalog row IDs. ClearMods
+	 * invalidates those addresses, so rebuild every runtime-to-ID cache before
+	 * any consumer can resolve a removed or reused mod row. */
+	catalogBuildRuntimeCaches();
 	sysLogPrintf(LOG_NOTE, "MOD: catalog rebuild complete — %d total entries (%d enabled mod package(s))",
 	             assetCatalogGetCount(), enabledCount);
 }

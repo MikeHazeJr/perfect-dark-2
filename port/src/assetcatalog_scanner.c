@@ -19,6 +19,7 @@
  */
 
 #include <PR/ultratypes.h>
+#include <stdint.h>
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -2730,12 +2731,11 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
  * Nested weapon animation/audio registration
  * ======================================================================== */
 
-#define WEAPON_NESTED_MEDIA_MAX 64
-
 typedef struct weapon_nested_media_scan {
-	char entries[WEAPON_NESTED_MEDIA_MAX][FS_MAXPATH];
-	s32 count;
-	s32 overflow;
+	char (*entries)[FS_MAXPATH];
+	size_t count;
+	size_t capacity;
+	s32 allocation_failed;
 } weapon_nested_media_scan_t;
 
 static s32 weaponNestedMediaType(const char *path, asset_type_e *out_type)
@@ -2770,9 +2770,21 @@ static s32 collectWeaponNestedMedia(const char *entry_name,
 	if (!scan || !weaponNestedMediaType(entry_name, &type)) {
 		return 0;
 	}
-	if (scan->count >= WEAPON_NESTED_MEDIA_MAX) {
-		scan->overflow = 1;
-		return 0;
+	if (scan->count == scan->capacity) {
+		size_t next = scan->capacity ? scan->capacity * 2 : 16;
+		if (next < scan->count + 1
+				|| next > SIZE_MAX / sizeof(*scan->entries)) {
+			scan->allocation_failed = 1;
+			return MODARCHIVE_ERR_MEM;
+		}
+		char (*grown)[FS_MAXPATH] = realloc(scan->entries,
+			next * sizeof(*scan->entries));
+		if (!grown) {
+			scan->allocation_failed = 1;
+			return MODARCHIVE_ERR_MEM;
+		}
+		scan->entries = grown;
+		scan->capacity = next;
 	}
 	strncpy(scan->entries[scan->count], entry_name,
 		sizeof(scan->entries[scan->count]) - 1);
@@ -2872,13 +2884,12 @@ s32 assetCatalogRegisterWeaponNestedDependencies(const char *weapon_id,
 	u32 weapon_size = 0;
 	void *weapon_bytes = NULL;
 	weapon_nested_media_scan_t scan;
-	weapon_nested_preflight_t pending[WEAPON_NESTED_MEDIA_MAX];
-	s32 pending_count = 0;
+	weapon_nested_preflight_t *pending = NULL;
+	size_t pending_count = 0;
 	s32 result = -1;
 
 	if (err && err_cap) err[0] = '\0';
 	memset(&scan, 0, sizeof(scan));
-	memset(pending, 0, sizeof(pending));
 	if (!weapon_id || !weapon_id[0] || !weapon_archive || !weapon_archive[0]) {
 		nestedSetErr(err, err_cap, "nested dependency scan missing %s%s",
 			weapon_id, weapon_archive);
@@ -2892,21 +2903,33 @@ s32 assetCatalogRegisterWeaponNestedDependencies(const char *weapon_id,
 	}
 	if (modArchiveMemForEachEntry(weapon_bytes, weapon_size,
 			collectWeaponNestedMedia, &scan) != MODARCHIVE_OK) {
-		nestedSetErr(err, err_cap, "could not enumerate weapon archive %s%s",
+		nestedSetErr(err, err_cap,
+			scan.allocation_failed
+				? "out of memory enumerating weapon archive %s%s"
+				: "could not enumerate weapon archive %s%s",
 			weapon_archive, "");
 		goto done;
 	}
-	if (scan.overflow) {
-		nestedSetErr(err, err_cap, "weapon %s exceeds nested media limit %s",
-			weapon_id, "64");
+	if (scan.count > (size_t)INT_MAX
+			|| scan.count > SIZE_MAX / sizeof(*pending)) {
+		nestedSetErr(err, err_cap, "weapon %s nested media count overflows %s",
+			weapon_id, "platform capacity");
 		goto done;
+	}
+	if (scan.count) {
+		pending = calloc(scan.count, sizeof(*pending));
+		if (!pending) {
+			nestedSetErr(err, err_cap,
+				"out of memory preflighting weapon %s%s", weapon_id, "");
+			goto done;
+		}
 	}
 
 	/* Preflight the complete closure without mutating catalog state. Keep the
 	 * production order explicit: UI, then audio, then animation command source.
 	 * A corrupt late animation therefore cannot leak an earlier audio row. */
 	for (s32 pass = 0; pass < 4; pass++) {
-	for (s32 i = 0; i < scan.count; i++) {
+	for (size_t i = 0; i < scan.count; i++) {
 		asset_type_e expected_type = ASSET_NONE;
 		const char *entry_name = scan.entries[i];
 		weapon_nested_preflight_t *p;
@@ -2959,7 +2982,7 @@ s32 assetCatalogRegisterWeaponNestedDependencies(const char *weapon_id,
 					catalog_id, &p->effect_deps, err, err_cap) < 0) {
 			goto rollback;
 		}
-		for (s32 prior = 0; prior < pending_count; prior++) {
+		for (size_t prior = 0; prior < pending_count; prior++) {
 			if (strcmp(pending[prior].catalog_id, catalog_id) == 0) {
 				nestedSetErr(err, err_cap, "duplicate nested dependency ID %s%s",
 					catalog_id, "");
@@ -2993,23 +3016,24 @@ s32 assetCatalogRegisterWeaponNestedDependencies(const char *weapon_id,
 	}
 	}
 	{
-		s32 edge_count = pending_count;
-		for (s32 i = 0; i < pending_count; i++) {
-			if (pending[i].effect_deps.count > (size_t)(INT_MAX - edge_count) / 2) {
+		size_t edge_count = pending_count;
+		for (size_t i = 0; i < pending_count; i++) {
+			if (pending[i].effect_deps.count > (SIZE_MAX - edge_count) / 2) {
 				nestedSetErr(err, err_cap, "nested dependency edge count overflow %s%s",
 					weapon_id, "");
 				goto rollback;
 			}
-			edge_count += (s32)(pending[i].effect_deps.count * 2);
+			edge_count += pending[i].effect_deps.count * 2;
 		}
-		if (!catalogDepReserve(edge_count)) {
+		if (edge_count > (size_t)INT_MAX
+				|| !catalogDepReserve((s32)edge_count)) {
 		nestedSetErr(err, err_cap, "could not reserve nested edges for %s%s",
 			weapon_id, "");
 		goto rollback;
 		}
 	}
 
-	for (s32 i = 0; i < pending_count; i++) {
+	for (size_t i = 0; i < pending_count; i++) {
 		weapon_nested_preflight_t *p = &pending[i];
 		if (!p->existing) {
 			if (!qualifyTypedArchiveSourcePaths(&p->ini, p->archive_ref)) {
@@ -3037,8 +3061,13 @@ s32 assetCatalogRegisterWeaponNestedDependencies(const char *weapon_id,
 			entry->temporary = 0;
 		}
 		if (!catalogDepContains(weapon_id, p->catalog_id)) {
-			catalogDepRegisterTyped(weapon_id, p->catalog_id,
-				p->expected_type, bundled ? 1 : 0);
+			if (!catalogDepRegisterTyped(weapon_id, p->catalog_id,
+					p->expected_type, bundled ? 1 : 0)) {
+				nestedSetErr(err, err_cap,
+					"could not register nested dependency edge %s%s",
+					p->catalog_id, "");
+				goto rollback;
+			}
 			p->edge_created = 1;
 		}
 		if (p->effect_deps.count) {
@@ -3078,11 +3107,11 @@ s32 assetCatalogRegisterWeaponNestedDependencies(const char *weapon_id,
 			"PDWEAPON.NESTED.REGISTER: owner=%s id=%s type=%d source=%s",
 			weapon_id, p->catalog_id, (s32)p->expected_type, p->archive_ref);
 	}
-	result = pending_count;
+	result = (s32)pending_count;
 	goto done;
 
 rollback:
-	for (s32 i = pending_count - 1; i >= 0; i--) {
+	for (size_t i = pending_count; i-- > 0; ) {
 		for (size_t j = pending[i].effect_deps.count; j-- > 0; ) {
 			if (pending[i].effect_dep_edges_created
 					&& pending[i].effect_dep_edges_created[j]) {
@@ -3103,12 +3132,14 @@ rollback:
 		}
 	}
 done:
-	for (s32 i = 0; i < WEAPON_NESTED_MEDIA_MAX; i++) {
-		free(pending[i].bytes);
-		free(pending[i].effect_dep_edges_created);
-		free(pending[i].effect_child_dep_edges_created);
-		effectDependenciesFree(&pending[i].effect_deps);
+	for (size_t i = 0; i < scan.count; i++) {
+		free(pending ? pending[i].bytes : NULL);
+		free(pending ? pending[i].effect_dep_edges_created : NULL);
+		free(pending ? pending[i].effect_child_dep_edges_created : NULL);
+		if (pending) effectDependenciesFree(&pending[i].effect_deps);
 	}
+	free(pending);
+	free(scan.entries);
 	if (weapon_bytes) sysMemFree(weapon_bytes);
 	return result;
 }

@@ -4,8 +4,9 @@
  * c3849 Unit 8: the full effect runtime behind the Unit 1b bridge seams.
  * Graphs compile through weaponGraphCompileJson(ASSET_EFFECT) into compact
  * per-asset records keyed by asset_id string (no slot allocator). T-ASSETS-018 retains the complete executable graph/timeline/profile
- * program in growable PC storage; the scalar fields remain compatibility
- * projections for existing consumers until T-ASSETS-019.
+ * program in growable PC storage. T-ASSETS-019 connects the v2 native-profile
+ * libraries; T-ASSETS-032 provides the typed v1 scheduler foundation, with
+ * concrete v1 consumers split across T-ASSETS-034/035/036.
  *
  * T-ASSETS-020 adds owner-scoped activation. Standalone catalog rows own
  * themselves; effects embedded by a weapon/projectile/entity archive are
@@ -105,7 +106,7 @@ typedef struct effect_graph_runtime {
 	f32 intensity;
 
 	/* Complete executable source program. Scalar bridge fields above remain
-	 * compatibility projections until T-ASSETS-019 migrates consumers. */
+	 * compatibility projections for legacy selected-channel callsites. */
 	effect_graph_program_t program;
 
 	/* Runtime activation owners. Multiple parents may share byte-identical
@@ -115,10 +116,45 @@ typedef struct effect_graph_runtime {
 	size_t owner_capacity;
 } effect_graph_runtime_t;
 
-typedef s32 (*effect_graph_program_visit_fn)(
-	const effect_graph_program_t *program,
-	const weapon_graph_ir_node_t *node,
-	s32 execution_index, f32 time, void *user);
+/* T-ASSETS-032: every accepted public v1 node has one permanent dispatch
+ * slot. Keep this enum and weaponGraphOpcodeForKind(ASSET_EFFECT) in exact
+ * lockstep. A graph whose opcode has no slot is rejected during activation. */
+typedef enum effect_graph_dispatch_slot {
+	EFFECT_GRAPH_DISPATCH_TINT = 0,
+	EFFECT_GRAPH_DISPATCH_GLOW,
+	EFFECT_GRAPH_DISPATCH_SHIMMER,
+	EFFECT_GRAPH_DISPATCH_DARKEN,
+	EFFECT_GRAPH_DISPATCH_SCREEN,
+	EFFECT_GRAPH_DISPATCH_PARTICLE,
+	EFFECT_GRAPH_DISPATCH_EXPLOSION,
+	EFFECT_GRAPH_DISPATCH_SPARK,
+	EFFECT_GRAPH_DISPATCH_SMOKE,
+	EFFECT_GRAPH_DISPATCH_SLOT_COUNT
+} effect_graph_dispatch_slot_t;
+
+typedef struct effect_graph_dispatch_context {
+	const effect_graph_runtime_t *runtime;
+	f32 time;
+	void *user;
+} effect_graph_dispatch_context_t;
+
+typedef s32 (*effect_graph_dispatch_node_fn)(
+	const effect_graph_dispatch_context_t *context,
+	const weapon_graph_ir_node_t *node, s32 execution_index);
+typedef s32 (*effect_graph_dispatch_phase_fn)(
+	const effect_graph_dispatch_context_t *context);
+typedef void (*effect_graph_dispatch_rollback_fn)(
+	const effect_graph_dispatch_context_t *context, s32 attempted_count);
+
+typedef struct effect_graph_dispatch_table {
+	/* Begin/commit/rollback are mandatory. Rollback receives the number of
+	 * callbacks attempted, including a callback that returned failure, so a
+	 * consumer can undo partially applied work. */
+	effect_graph_dispatch_phase_fn begin;
+	effect_graph_dispatch_phase_fn commit;
+	effect_graph_dispatch_rollback_fn rollback;
+	effect_graph_dispatch_node_fn nodes[EFFECT_GRAPH_DISPATCH_SLOT_COUNT];
+} effect_graph_dispatch_table_t;
 
 /* Registration. GraphJson takes the loose effect.graph.json source;
  * Archive/ArchiveBytes read effect.ini (effect_file member) and compile the
@@ -158,8 +194,16 @@ const effect_graph_runtime_t *effectGraphRuntimeGetForGameplay(
 size_t effectGraphRuntimeCount(void);
 s32 effectGraphProgramSample(const effect_graph_program_t *program,
 	const char *property, f32 time, f32 *out_value);
-s32 effectGraphProgramExecute(const effect_graph_program_t *program, f32 time,
-	effect_graph_program_visit_fn visit, void *user);
+
+/* Returns the permanent dispatch slot for an accepted effect opcode, or -1.
+ * RuntimeDispatch preflights the complete graph and handler table before
+ * begin, then executes in stable dependency order. Missing handlers,
+ * corrupted order/edges, phase failure, or node failure return non-zero.
+ * No node callback runs when preflight fails. */
+s32 effectGraphDispatchSlotForOpcode(weapon_graph_opcode_e opcode);
+s32 effectGraphRuntimeDispatch(const char *asset_id, f32 time,
+	const effect_graph_dispatch_table_t *dispatch, void *user,
+	char *err, size_t err_cap);
 
 /* Empty/NULL means unauthored and returns the explicit fallback. A non-empty
  * selected ref returns EFFECT_GRAPH_RESOLVE_FAILED unless the requested
