@@ -3951,8 +3951,8 @@ TEST_CASE("wave 5 unit 0 bug-fix pins stay wired",
 	REQUIRE(runtime.find("runtime->storm_delete_carrier = -1;") != std::string::npos);
 	REQUIRE(runtime.find("weaponGraphWarnTimerOverlap") != std::string::npos);
 
-	/* Wave 5 Unit 1b: the effect bridge returns the fallback verbatim unless
-	 * the toggle is on AND the explosion ref resolves. */
+	/* T-ASSETS-020: only an empty selection keeps the explicit callsite
+	 * default. Every nonempty unresolved selection fails closed. */
 	const std::string bridge = readFile("port/src/effect_graph_runtime.c");
 	REQUIRE(bridge.find("weaponGraphRuntimeEnabled()") != std::string::npos);
 	REQUIRE(bridge.find("return fallback_exptype;") != std::string::npos);
@@ -3976,12 +3976,13 @@ TEST_CASE("wave 5 unit 0 bug-fix pins stay wired",
 	REQUIRE(propobj.find("flags |= PROJECTILEFLAG_00000100") != std::string::npos);
 
 	/* Wave 5 Unit 5 (impact remainder + trail): filter-gated consume sites,
-	 * hit sound arm, spark mirror, trail cadence, and the Wave 6 effect
-	 * bridge handoff at the detonation/visual sites. */
+	 * hit sound arm, spark mirror, trail cadence, and strict selected-source
+	 * suppression at the detonation/visual sites. */
 	REQUIRE(propobj.find("impact_filter_mode") != std::string::npos);
 	REQUIRE(propobj.find("impact_hit_sound") != std::string::npos);
 	REQUIRE(propobj.find("graphtrailsmoketype") != std::string::npos);
-	REQUIRE(propobj.find("WAVE6-EFFECT-HANDOFF") != std::string::npos);
+	REQUIRE(propobj.find("WAVE6-EFFECT-HANDOFF") == std::string::npos);
+	REQUIRE(propobj.find("EFFECT_GRAPH_RESOLVE_FAILED") != std::string::npos);
 	REQUIRE(propobj.find("effectGraphResolveExplosionType") != std::string::npos);
 	REQUIRE(propobj.find("effectGraphResolveSparkType") != std::string::npos);
 
@@ -4115,18 +4116,14 @@ TEST_CASE("wave 5 unit 7 deployed-entity consumer pins stay wired",
 
 TEST_CASE("wave 5 unit 1 explosion resolver and autogun cadence are pure",
           "[modding][pdxxx][weapon_graph][c3849]") {
-	/* Canonical tokens (binding spec B2). */
-	REQUIRE(weaponGraphResolveExplosionRef("base:explosion_rocket") == EXPLOSIONTYPE_ROCKET);
-	REQUIRE(weaponGraphResolveExplosionRef("base:explosion_huge") == EXPLOSIONTYPE_HUGE17);
-	REQUIRE(weaponGraphResolveExplosionRef("base:explosion_sdgrenade") == EXPLOSIONTYPE_SDGRENADE);
-	REQUIRE(weaponGraphResolveExplosionRef("base:explosion_phoenix") == EXPLOSIONTYPE_PHOENIX);
-	REQUIRE(weaponGraphResolveExplosionRef("base:explosion_dragonbombspy") == EXPLOSIONTYPE_DRAGONBOMBSPY);
-
-	/* Deprecated aliases resolve (with a one-time warning). */
-	REQUIRE(weaponGraphResolveExplosionRef("base:explosion_small") == EXPLOSIONTYPE_PHOENIX);
-	REQUIRE(weaponGraphResolveExplosionRef("base:explosion_laptop") == EXPLOSIONTYPE_LAPTOP);
-
-	/* Empty/NULL/unknown (including mod refs) stay unresolved. */
+	/* Every selected public ID stays unresolved at parse time. The installed
+	 * public effect executor is the only source-to-native-row authority. */
+	REQUIRE(weaponGraphResolveExplosionRef("base:explosion_rocket") == -1);
+	REQUIRE(weaponGraphResolveExplosionRef("base:explosion_huge") == -1);
+	REQUIRE(weaponGraphResolveExplosionRef("base:explosion_sdgrenade") == -1);
+	REQUIRE(weaponGraphResolveExplosionRef("base:explosion_phoenix") == -1);
+	REQUIRE(weaponGraphResolveExplosionRef("base:explosion_small") == -1);
+	REQUIRE(weaponGraphResolveExplosionRef("base:explosion_laptop") == -1);
 	REQUIRE(weaponGraphResolveExplosionRef(nullptr) == -1);
 	REQUIRE(weaponGraphResolveExplosionRef("") == -1);
 	REQUIRE(weaponGraphResolveExplosionRef("needler:pink_blast") == -1);
@@ -4141,27 +4138,81 @@ TEST_CASE("wave 5 unit 1 explosion resolver and autogun cadence are pure",
 	REQUIRE(weaponGraphAutogunFireInterval(1000000.0f) == 1);
 }
 
-TEST_CASE("wave 5 unit 1b effect bridges return fallbacks until unit 8",
-          "[modding][pdxxx][weapon_graph][c3849]") {
+TEST_CASE("selected effect bridges fail closed while empty refs keep defaults",
+          "[modding][pdxxx][weapon_graph][t-assets-020][fail-closed]") {
 	const s32 prev = weaponGraphRuntimeEnabled();
 
-	/* Toggle OFF: fallback verbatim even for canonical refs. */
+	/* Toggle OFF: any authored selection is unavailable. */
 	weaponGraphRuntimeSetEnabled(0);
-	REQUIRE(effectGraphResolveExplosionType("base:explosion_rocket", 5) == 5);
+	REQUIRE(effectGraphResolveExplosionType("base:explosion_rocket", 5) ==
+		EFFECT_GRAPH_RESOLVE_FAILED);
+	REQUIRE(effectGraphResolveSparkType("base:spark_pink", 4) ==
+		EFFECT_GRAPH_RESOLVE_FAILED);
+	REQUIRE(effectGraphResolveSmokeType("base:smoke_large", 6) ==
+		EFFECT_GRAPH_RESOLVE_FAILED);
+	REQUIRE(effectGraphResolveSound("base:sfx_boom", 123) ==
+		EFFECT_GRAPH_RESOLVE_FAILED);
 	REQUIRE(effectGraphResolveExplosionType("", 7) == 7);
 
-	/* Toggle ON: canonical refs resolve; unknown refs keep the fallback. */
+	/* Toggle ON without installed public sources: selected refs still fail. */
 	weaponGraphRuntimeSetEnabled(1);
-	REQUIRE(effectGraphResolveExplosionType("base:explosion_rocket", 5) == EXPLOSIONTYPE_ROCKET);
-	REQUIRE(effectGraphResolveExplosionType("mod:unknown_boom", 5) == 5);
+	REQUIRE(effectGraphResolveExplosionType("base:explosion_rocket", 5) ==
+		EFFECT_GRAPH_RESOLVE_FAILED);
+	REQUIRE(effectGraphResolveExplosionType("mod:unknown_boom", 5) ==
+		EFFECT_GRAPH_RESOLVE_FAILED);
 	REQUIRE(effectGraphResolveExplosionType(nullptr, 9) == 9);
-
-	/* Spark/smoke/sound bridges are fallback-verbatim until Unit 8. */
-	REQUIRE(effectGraphResolveSparkType("base:spark_pink", 4) == 4);
-	REQUIRE(effectGraphResolveSmokeType("base:smoke_large", 6) == 6);
-	REQUIRE(effectGraphResolveSound("base:sfx_boom", 123) == 123);
+	REQUIRE(effectGraphResolveSparkType("base:spark_pink", 4) ==
+		EFFECT_GRAPH_RESOLVE_FAILED);
+	REQUIRE(effectGraphResolveSmokeType("base:smoke_large", 6) ==
+		EFFECT_GRAPH_RESOLVE_FAILED);
+	REQUIRE(effectGraphResolveSound("base:sfx_boom", 123) ==
+		EFFECT_GRAPH_RESOLVE_FAILED);
 
 	weaponGraphRuntimeSetEnabled(prev);
+}
+
+TEST_CASE("effect sources activate before weapon admission with exact allocator cleanup",
+	"[modding][pdxxx][effect][t-assets-020][lifecycle][static]") {
+	const std::string walker = readFile("port/src/loader_walker.c");
+	const std::string meta = readFile("port/src/loader_walker_meta.c");
+	const std::string loader = readFile("port/src/assetcatalog_load.c");
+	const std::string catalog = readFile("port/src/assetcatalog.c");
+	const std::string deps = readFile("port/src/assetcatalog_deps.c");
+	REQUIRE(walker.find("loaderWalkerScanMetadataFamilies(data_root, &mr)") <
+		walker.find("loaderWalkerScanWeapons(data_root, &kr)"));
+	REQUIRE(meta.find("effectDependenciesCollectArchiveFile") != std::string::npos);
+	REQUIRE(meta.find("catalogDepRegisterTyped") != std::string::npos);
+	REQUIRE(meta.find("catalogLoadTypedAsset(ASSET_EFFECT") != std::string::npos);
+	/* The later catalogLoadInit preload checks ACTIVE before calling preload,
+	 * so early walked activation cannot add a second parent reference. */
+	REQUIRE(loader.find("mutable_entry->load_state < ASSET_STATE_ACTIVE") !=
+		std::string::npos);
+	REQUIRE(loader.find("free(graph)") == std::string::npos);
+	REQUIRE(loader.find("free(primary)") == std::string::npos);
+	REQUIRE(loader.find("sysMemFree(graph)") != std::string::npos);
+	/* Disable/reset must retire the full owned closure before catalog IDs or
+	 * their dependency edges disappear. Full reset clears base executor state;
+	 * mod reset preserves bundled edges only. */
+	REQUIRE(catalog.find("catalogDeactivateTypedAsset") != std::string::npos);
+	REQUIRE(catalog.find("effectGraphRuntimeClearAll();") != std::string::npos);
+	REQUIRE(catalog.find("catalogDepClear();") != std::string::npos);
+	REQUIRE(catalog.find("catalogDepClearMods();") != std::string::npos);
+	REQUIRE(catalog.find("catalogDepContains(rows[parent].id, rows[i].id)") !=
+		std::string::npos);
+	REQUIRE(catalog.find("effectGraphRuntimeClearAsset") == std::string::npos);
+	REQUIRE(deps.find("if (s_DepTable[i].is_bundled)") != std::string::npos);
+	REQUIRE(loader.find("s_catalogResolveDeactivationNode") != std::string::npos);
+	REQUIRE(loader.find("root->ref_count > 0 ? root->ref_count : 0") !=
+		std::string::npos);
+	const auto setEnabledStart = catalog.find("void assetCatalogSetEnabled(");
+	const auto setEnabledEnd = catalog.find("\nvoid assetCatalogSetCategoryById", setEnabledStart);
+	REQUIRE(setEnabledStart != std::string::npos);
+	REQUIRE(setEnabledEnd != std::string::npos);
+	const std::string setEnabled = catalog.substr(setEnabledStart,
+		setEnabledEnd - setEnabledStart);
+	REQUIRE(setEnabled.find("CATALOG_UNLOCK();") <
+		setEnabled.rfind("catalogDeactivateTypedAsset"));
+	REQUIRE(setEnabled.find("ASSET_STATE_ENABLED") != std::string::npos);
 }
 
 TEST_CASE("wave 5 unit 1c latches derived projectile fields at registration",
@@ -4231,7 +4282,11 @@ TEST_CASE("wave 5 unit 1c latches derived projectile fields at registration",
 	REQUIRE(rich->wall_fall_vec[1] == Approx(2.0f));
 	REQUIRE(rich->wall_fall_vec[2] == Approx(3.0f));
 	REQUIRE(rich->impact_filter_mode == 1);
-	REQUIRE(rich->impact_exptype == EXPLOSIONTYPE_ROCKET);
+	/* Selected public IDs are retained verbatim and resolve only against the
+	 * active effect executor at the gameplay callsite. */
+	REQUIRE(rich->impact_exptype == -1);
+	REQUIRE(std::string(rich->impact_explosion_ref) ==
+		"base:explosion_rocket");
 	REQUIRE(rich->trail_smoketype == SMOKETYPE_HOMINGTAIL);
 	REQUIRE(rich->trail_interval_ticks60 == 24);
 	/* Wave 5 Unit 4 (surface): bounce-slide params + authored-false
@@ -4435,7 +4490,8 @@ TEST_CASE("wave 5 unit 1c latches derived entity modes and sentinels",
 		weaponGraphRuntimeGetEntity("base:test_derived_entity");
 	REQUIRE(rich != nullptr);
 	REQUIRE(rich->armed_damage_response_mode == 1);
-	REQUIRE(rich->armed_exptype == EXPLOSIONTYPE_PHOENIX);
+	REQUIRE(rich->armed_exptype == -1);
+	REQUIRE(std::string(rich->explosion_ref) == "base:explosion_phoenix");
 	REQUIRE(rich->proxy_on_trigger_mode == 1);
 	REQUIRE(rich->proxy_target_filter_mode == 1);
 	REQUIRE(rich->proxy_team_filter_mode == 1);
@@ -9267,8 +9323,10 @@ TEST_CASE("pdtheme nested roles register fail closed across every transport",
 
 	/* Catalog edges are the production retain/release and manifest-expansion
 	 * ownership mechanism; dependencies are not theme-loader side storage. */
-	REQUIRE(load.find("catalogDepForEach(assetId, s_catalogUnloadDepCallback") !=
-		std::string::npos);
-	REQUIRE(load.find("s_catalogCollectThemeDep") != std::string::npos);
-	REQUIRE(load.find("s_catalogRetainThemeDepCallback") != std::string::npos);
+	REQUIRE(load.find("catalogDepActivationPlanBuild") != std::string::npos);
+	REQUIRE(load.find("catalogDepActivationPlanRollback") != std::string::npos);
+	REQUIRE(load.find("s_catalogRetainEntry") != std::string::npos);
+	REQUIRE(load.find("s_catalogUnloadDepCallback") == std::string::npos);
+	REQUIRE(load.find("s_catalogCollectThemeDep") == std::string::npos);
+	REQUIRE(load.find("s_catalogRetainThemeDepCallback") == std::string::npos);
 }

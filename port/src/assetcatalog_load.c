@@ -21,6 +21,7 @@
 #include "assetcatalog_load.h"
 #include "assetcatalog_deps.h"
 #include "catalog_stage_ownership.h"
+#include "catalog_dep_activation_plan.h"
 #include "asset_source_debug.h"
 #include "asset_runtime.h"
 #include "assetprovider.h"
@@ -925,7 +926,7 @@ static s32 s_catalogLoadTextSource(const char *source_path,
     text = (char *)fsFileLoad(source_path, &size);
     if (!text || size == 0) {
         if (text) {
-            free(text);
+            sysMemFree(text);
         }
         snprintf(err, err_cap, "could not load %s", source_path);
         return 0;
@@ -994,11 +995,11 @@ static s32 s_catalogActivateLooseWeaponGraphRuntime(asset_entry_t *entry)
         sysLogPrintf(LOG_WARNING,
                      "CATALOG.LIFECYCLE.ACTIVATE: '%s' held graph source missing split graph source: %s",
                      entry->id, err[0] ? err : "unknown error");
-        free(primary);
-        free(secondary);
-        free(shared);
-        free(settings);
-        free(variables);
+        if (primary) sysMemFree(primary);
+        if (secondary) sysMemFree(secondary);
+        if (shared) sysMemFree(shared);
+        if (settings) sysMemFree(settings);
+        if (variables) sysMemFree(variables);
         return 0;
     }
     /* presentation.json is optional on the loose path (older loose mods
@@ -1009,11 +1010,11 @@ static s32 s_catalogActivateLooseWeaponGraphRuntime(asset_entry_t *entry)
         sysLogPrintf(LOG_WARNING,
                      "CATALOG.LIFECYCLE.ACTIVATE: '%s' held graph presentation source unreadable: %s",
                      entry->id, err[0] ? err : "unknown error");
-        free(primary);
-        free(secondary);
-        free(shared);
-        free(settings);
-        free(variables);
+        if (primary) sysMemFree(primary);
+        if (secondary) sysMemFree(secondary);
+        if (shared) sysMemFree(shared);
+        if (settings) sysMemFree(settings);
+        if (variables) sysMemFree(variables);
         return 0;
     }
     result = weaponGraphRuntimeRegisterWeaponSourceJson(
@@ -1021,12 +1022,12 @@ static s32 s_catalogActivateLooseWeaponGraphRuntime(asset_entry_t *entry)
         secondary, secondary_size, shared, shared_size,
         settings, settings_size, variables, variables_size,
         presentation, presentation_size, err, sizeof(err));
-    free(primary);
-    free(secondary);
-    free(shared);
-    free(settings);
-    free(variables);
-    free(presentation);
+    if (primary) sysMemFree(primary);
+    if (secondary) sysMemFree(secondary);
+    if (shared) sysMemFree(shared);
+    if (settings) sysMemFree(settings);
+    if (variables) sysMemFree(variables);
+    if (presentation) sysMemFree(presentation);
 
     if (result != 0) {
         sysLogPrintf(LOG_WARNING,
@@ -1102,7 +1103,7 @@ static s32 s_catalogActivateWeaponGraphRuntime(asset_entry_t *entry,
     graph = (char *)fsFileLoad(source_path, &graph_size);
     if (!graph || graph_size == 0) {
         if (graph) {
-            free(graph);
+            sysMemFree(graph);
         }
         sysLogPrintf(LOG_WARNING,
                      "CATALOG.LIFECYCLE.ACTIVATE: '%s' graph runtime missing %s",
@@ -1113,7 +1114,7 @@ static s32 s_catalogActivateWeaponGraphRuntime(asset_entry_t *entry,
     err[0] = '\0';
     result = weaponGraphRuntimeRegisterBehaviorGraphJson(entry->type,
         entry->id, graph, graph_size, err, sizeof(err));
-    free(graph);
+    sysMemFree(graph);
 
     if (result != 0) {
         sysLogPrintf(LOG_WARNING,
@@ -1136,12 +1137,16 @@ static void s_catalogClearWeaponGraphRuntime(asset_entry_t *entry,
         if (entry->runtime_index >= 0) {
             weaponGraphRuntimeClearWeapon(entry->runtime_index);
         }
+		/* T-ASSETS-020: nested effects are owned by the parent weapon ID and
+		 * share its catalog lifecycle rather than leaking until process exit. */
+		effectGraphRuntimeReleaseOwner(assetId);
         return;
     }
 
     if (entry->type == ASSET_PROJECTILE || entry->type == ASSET_ENTITY) {
         weaponGraphRuntimeClearAsset(assetId);
     }
+
 }
 
 /* c3849 Unit 8: ASSET_EFFECT activation. Archive primaries (.pdeffect,
@@ -1163,6 +1168,11 @@ static s32 s_catalogActivateEffectGraphRuntime(asset_entry_t *entry,
     if (!entry || !source_path || !source_path[0]) {
         return 0;
     }
+
+	/* A reload is a new selected-source transaction. Remove this catalog
+	 * owner's prior program first so a missing/corrupt edit cannot continue
+	 * using stale last-good behavior after activation is rejected. */
+	effectGraphRuntimeReleaseOwner(entry->id);
 
     if (s_catalogExtractTypedArchiveRoot(source_path, ".pdeffect",
             archive_path, sizeof(archive_path))) {
@@ -1189,7 +1199,7 @@ static s32 s_catalogActivateEffectGraphRuntime(asset_entry_t *entry,
     graph = (char *)fsFileLoad(entry->ext.effect.effect_file, &graph_size);
     if (!graph || graph_size == 0) {
         if (graph) {
-            free(graph);
+            sysMemFree(graph);
         }
         sysLogPrintf(LOG_WARNING,
                      "CATALOG.LIFECYCLE.ACTIVATE: '%s' effect graph source missing %s",
@@ -1200,7 +1210,7 @@ static s32 s_catalogActivateEffectGraphRuntime(asset_entry_t *entry,
     err[0] = '\0';
     result = effectGraphRuntimeRegisterGraphJson(entry->id, graph, graph_size,
         err, sizeof(err));
-    free(graph);
+    sysMemFree(graph);
 
     if (result != 0) {
         sysLogPrintf(LOG_WARNING,
@@ -1219,7 +1229,7 @@ static void s_catalogClearEffectGraphRuntime(asset_entry_t *entry,
     if (!entry || entry->type != ASSET_EFFECT) {
         return;
     }
-    effectGraphRuntimeClearAsset(assetId);
+    effectGraphRuntimeReleaseOwner(assetId);
 }
 
 static void s_catalogInstallAnimationClip(asset_entry_t *entry,
@@ -1680,123 +1690,69 @@ static s32 s_catalogValidateTypedLifecycle(const char *op, asset_type_e expected
     return 1;
 }
 
-typedef struct theme_dep_load {
-    char ids[4][CATALOG_ID_LEN];
-    s32 count;
-    s32 overflow;
-} theme_dep_load_t;
+static void s_catalogUnloadEntryRaw(const char *assetId, asset_entry_t *entry);
 
-static void s_catalogCollectThemeDep(const char *dep_id, void *userdata)
+static s32 s_catalogResolveActivationNode(const char *asset_id,
+        asset_type_e *out_actual_type, void *userdata)
 {
-    theme_dep_load_t *ctx = (theme_dep_load_t *)userdata;
-    if (!ctx || !dep_id || !dep_id[0]) return;
-    if (ctx->count >= 4) {
-        ctx->overflow = 1;
-        return;
-    }
-    strncpy(ctx->ids[ctx->count], dep_id, CATALOG_ID_LEN - 1);
-    ctx->ids[ctx->count][CATALOG_ID_LEN - 1] = '\0';
-    ctx->count++;
+    const asset_entry_t *entry = assetCatalogResolve(asset_id);
+    (void)userdata;
+    if (!entry || !entry->enabled) return 0;
+    if (out_actual_type) *out_actual_type = entry->type;
+    return 1;
 }
 
-typedef struct weapon_dep_load {
-    char ids[64][CATALOG_ID_LEN];
-    s32 count;
-    s32 overflow;
-} weapon_dep_load_t;
-
-static void s_catalogCollectWeaponDep(const char *dep_id, void *userdata)
+static s32 s_catalogResolveDeactivationNode(const char *asset_id,
+        asset_type_e *out_actual_type, void *userdata)
 {
-    weapon_dep_load_t *ctx = (weapon_dep_load_t *)userdata;
-    if (!ctx || !dep_id || !dep_id[0]) return;
-    if (ctx->count >= 64) {
-        ctx->overflow = 1;
-        return;
-    }
-    strncpy(ctx->ids[ctx->count], dep_id, CATALOG_ID_LEN - 1);
-    ctx->ids[ctx->count][CATALOG_ID_LEN - 1] = '\0';
-    ctx->count++;
+    const asset_entry_t *entry = assetCatalogResolve(asset_id);
+    (void)userdata;
+    if (!entry) return 0;
+    if (out_actual_type) *out_actual_type = entry->type;
+    return 1;
+}
+
+static void s_catalogRollbackActivationNode(const char *asset_id,
+        asset_type_e expected_type, void *userdata)
+{
+    asset_entry_t *entry = assetCatalogGetMutable(asset_id);
+    (void)expected_type;
+    (void)userdata;
+    if (entry) s_catalogUnloadEntryRaw(asset_id, entry);
 }
 
 s32 catalogLoadTypedAsset(asset_type_e expected_type, const char *assetId)
 {
-    asset_entry_t *entry;
+    catalog_dep_activation_plan_t plan = {0};
+    char error[256];
+    size_t loaded = 0;
 
     if (!s_catalogValidateTypedLifecycle("LOAD", expected_type, assetId)) {
         return 0;
     }
-
-    entry = assetCatalogGetMutable(assetId);
-    if (!entry) {
+    if (!catalogDepActivationPlanBuild(&plan, assetId, expected_type,
+            s_catalogResolveActivationNode, NULL, error, sizeof(error))) {
+        sysLogPrintf(LOG_WARNING,
+            "CATALOG.LIFECYCLE.LOAD: '%s' dependency preflight failed: %s",
+            assetId, error[0] ? error : "unknown dependency error");
         return 0;
     }
-
-    /* B-990 / T-ASSETS-022: direct weapon lifecycle must own the same
-     * dependency closure as manifest-driven loads. Load every registered
-     * child in scanner order (UI, audio, animation), roll back the prefix on
-     * failure, then activate the parent. Release already cascades these edges. */
-    if (entry->type == ASSET_WEAPON) {
-        weapon_dep_load_t deps = {0};
-        catalogDepForEach(assetId, s_catalogCollectWeaponDep, &deps);
-        if (deps.overflow) {
-            sysLogPrintf(LOG_WARNING,
-                "CATALOG.LIFECYCLE.LOAD: weapon '%s' exceeds dependency limit",
-                assetId);
-            return 0;
-        }
-        s32 loaded = 0;
-        for (; loaded < deps.count; loaded++) {
-            asset_entry_t *dep = assetCatalogGetMutable(deps.ids[loaded]);
-            if (!dep || !s_catalogLoadEntry(dep, dep->type)) break;
-        }
-        if (loaded != deps.count || !s_catalogLoadEntry(entry, expected_type)) {
-            while (loaded-- > 0) {
-                const asset_entry_t *dep = assetCatalogResolve(deps.ids[loaded]);
-                if (dep) catalogReleaseTypedAsset(dep->type, deps.ids[loaded]);
-            }
-            sysLogPrintf(LOG_WARNING,
-                "CATALOG.LIFECYCLE.LOAD: weapon '%s' dependency load failed",
-                assetId);
-            return 0;
-        }
-        return 1;
+    for (; loaded < plan.count; loaded++) {
+        asset_entry_t *entry = assetCatalogGetMutable(plan.nodes[loaded].id);
+        if (!entry || !s_catalogLoadEntry(entry,
+                plan.nodes[loaded].expected_type)) break;
     }
-
-    if (entry->type == ASSET_THEME) {
-        theme_dep_load_t deps = {0};
-        catalogDepForEach(assetId, s_catalogCollectThemeDep, &deps);
-        if (deps.overflow) {
-            sysLogPrintf(LOG_WARNING,
-                "CATALOG.LIFECYCLE.LOAD: theme '%s' exceeds dependency roles",
-                assetId);
-            return 0;
-        }
-        s32 loaded = 0;
-        for (; loaded < deps.count; loaded++) {
-            asset_entry_t *dep = assetCatalogGetMutable(deps.ids[loaded]);
-            if (!dep || !s_catalogLoadEntry(dep, dep->type)) break;
-        }
-        if (loaded != deps.count) {
-            while (loaded-- > 0) {
-                const asset_entry_t *dep = assetCatalogResolve(deps.ids[loaded]);
-                if (dep) catalogReleaseTypedAsset(dep->type, deps.ids[loaded]);
-            }
-            sysLogPrintf(LOG_WARNING,
-                "CATALOG.LIFECYCLE.LOAD: theme '%s' dependency load failed",
-                assetId);
-            return 0;
-        }
-        if (!s_catalogLoadEntry(entry, expected_type)) {
-            while (loaded-- > 0) {
-                const asset_entry_t *dep = assetCatalogResolve(deps.ids[loaded]);
-                if (dep) catalogReleaseTypedAsset(dep->type, deps.ids[loaded]);
-            }
-            return 0;
-        }
-        return 1;
+    if (loaded != plan.count) {
+        catalogDepActivationPlanRollback(&plan, loaded,
+            s_catalogRollbackActivationNode, NULL);
+        sysLogPrintf(LOG_WARNING,
+            "CATALOG.LIFECYCLE.LOAD: '%s' activation failed at closure row %zu",
+            assetId, loaded);
+        catalogDepActivationPlanFree(&plan);
+        return 0;
     }
-
-    return s_catalogLoadEntry(entry, expected_type);
+    catalogDepActivationPlanFree(&plan);
+    return 1;
 }
 
 s32 catalogLoadStageAsset(asset_type_e expected_type, const char *assetId)
@@ -1900,37 +1856,10 @@ const void *catalogGetLoadedAnimationClip(const char *assetId,
     return payload->data;
 }
 
-static void s_catalogUnloadEntry(const char *assetId, asset_entry_t *entry);
-
-/**
- * Dep cascade callback for typed catalog release.
- *
- * When a parent asset's ref_count hits zero and its data is freed, this
- * callback is invoked for each dependency registered under that parent.
- * Each dep's own ref_count is decremented; if it also reaches zero, the dep
- * is freed recursively.
- *
- * This handles callers that release the parent directly (outside the manifest).
- * When the manifest also lists the dep in to_unload, the direct manifest call
- * arrives after the cascade and finds loaded_data == NULL (dep already freed),
- * making it a safe no-op — no double-free can occur.
- */
-static void s_catalogUnloadDepCallback(const char *dep_id, void *userdata)
-{
-    asset_entry_t *entry;
-
-    (void)userdata;
-    entry = assetCatalogGetMutable(dep_id);
-    if (entry) {
-        s_catalogUnloadEntry(dep_id, entry);
-    }
-}
-
-static void s_catalogUnloadEntry(const char *assetId, asset_entry_t *entry)
+static void s_catalogUnloadEntryRaw(const char *assetId, asset_entry_t *entry)
 {
     s32 old_ref;
     s32 new_ref;
-    s32 per_ref_deps_released = 0;
 
     /* Never evict bundled assets — their catalog-owned source remains process-lifetime. */
     if (entry->bundled || entry->ref_count == ASSET_REF_BUNDLED) {
@@ -1945,25 +1874,7 @@ static void s_catalogUnloadEntry(const char *assetId, asset_entry_t *entry)
 
     new_ref = entry->ref_count;
 
-    /* Themes and weapons load/retain their dependency edges on every parent
-     * reference, so balance every decrement rather than waiting until the
-     * final parent payload free. Otherwise overlapping stage plus explicit
-     * ownership leaks one child reference after both parent owners release. */
-    if ((entry->type == ASSET_THEME || entry->type == ASSET_WEAPON)
-            && old_ref != new_ref) {
-        catalogDepForEach(assetId, s_catalogUnloadDepCallback, NULL);
-        per_ref_deps_released = 1;
-    }
-
     if (new_ref <= 0 && entry->loaded_data) {
-        /* ref_count reached zero — cascade to registered deps before freeing.
-         * For each dep: decrement its ref_count; free if that also hits zero.
-         * Bundled dep pairs are skipped by catalogDepForEach (they are always
-         * process-lifetime and never registered with is_bundled=0). */
-        if (!per_ref_deps_released) {
-            catalogDepForEach(assetId, s_catalogUnloadDepCallback, NULL);
-        }
-
         sysLogPrintf(LOG_NOTE,
                      "MANIFEST: unload '%s' ref=%d->%d (freed)",
                      assetId, old_ref, new_ref);
@@ -2033,7 +1944,8 @@ static void s_catalogUnloadEntry(const char *assetId, asset_entry_t *entry)
         entry->loaded_data     = NULL;
         entry->data_size_bytes = 0;
         entry->payload_kind    = ASSET_PAYLOAD_NONE;
-        entry->load_state      = ASSET_STATE_ENABLED;
+        entry->load_state      = entry->enabled
+            ? ASSET_STATE_ENABLED : ASSET_STATE_REGISTERED;
         entry->ref_count       = 0;
     } else if (old_ref != new_ref) {
         /* ref_count decremented but still > 0: asset retained by other holders. */
@@ -2046,18 +1958,76 @@ static void s_catalogUnloadEntry(const char *assetId, asset_entry_t *entry)
 
 void catalogReleaseTypedAsset(asset_type_e expected_type, const char *assetId)
 {
-    asset_entry_t *entry;
+    catalog_dep_activation_plan_t plan = {0};
+    char error[256];
 
     if (!s_catalogValidateTypedLifecycle("RELEASE", expected_type, assetId)) {
         return;
     }
 
-    entry = assetCatalogGetMutable(assetId);
-    if (!entry) {
+    if (!catalogDepActivationPlanBuild(&plan, assetId, expected_type,
+            s_catalogResolveActivationNode, NULL, error, sizeof(error))) {
+        sysLogPrintf(LOG_WARNING,
+            "CATALOG.LIFECYCLE.RELEASE: '%s' dependency preflight failed: %s",
+            assetId, error[0] ? error : "unknown dependency error");
         return;
     }
+    catalogDepActivationPlanRollback(&plan, plan.count,
+        s_catalogRollbackActivationNode, NULL);
+    catalogDepActivationPlanFree(&plan);
+}
 
-    s_catalogUnloadEntry(assetId, entry);
+s32 catalogDeactivateTypedAsset(asset_type_e expected_type, const char *assetId)
+{
+    catalog_dep_activation_plan_t plan = {0};
+    asset_entry_t *root;
+    char error[256];
+    s32 root_refs;
+
+    if (!s_catalogValidateTypedLifecycle("DEACTIVATE", expected_type, assetId)) {
+        return 0;
+    }
+    root = assetCatalogGetMutable(assetId);
+    if (!root || root->bundled || root->ref_count == ASSET_REF_BUNDLED) {
+        return root != NULL;
+    }
+    root_refs = root->ref_count > 0 ? root->ref_count : 0;
+    if (root_refs == 0) {
+        /* The raw path intentionally also cleans an inconsistent payload with
+         * ref_count==0; never null a pointer without running typed teardown. */
+        s_catalogUnloadEntryRaw(assetId, root);
+        effectGraphRuntimeReleaseOwner(assetId);
+        (void)catalogStageOwnershipRelease(root);
+        root->load_state = root->enabled
+            ? ASSET_STATE_ENABLED : ASSET_STATE_REGISTERED;
+        return 1;
+    }
+
+    if (!catalogDepActivationPlanBuild(&plan, assetId, expected_type,
+            s_catalogResolveDeactivationNode, NULL, error, sizeof(error))) {
+        sysLogPrintf(LOG_WARNING,
+            "CATALOG.LIFECYCLE.DEACTIVATE: '%s' dependency preflight failed: %s",
+            assetId, error[0] ? error : "unknown dependency error");
+        /* Never leave the selected runtime reachable merely because stale
+         * dependency metadata prevented reconstructing its old closure. */
+        effectGraphRuntimeReleaseOwner(assetId);
+        return 0;
+    }
+
+    while (root_refs-- > 0) {
+        catalogDepActivationPlanRollback(&plan, plan.count,
+            s_catalogRollbackActivationNode, NULL);
+    }
+    (void)catalogStageOwnershipRelease(root);
+
+    /* An interrupted activation can own a runtime record without a live
+     * payload/ref. Owner release is idempotent and preserves other owners. */
+    effectGraphRuntimeReleaseOwner(assetId);
+    root->ref_count = 0;
+    root->load_state = root->enabled
+        ? ASSET_STATE_ENABLED : ASSET_STATE_REGISTERED;
+    catalogDepActivationPlanFree(&plan);
+    return 1;
 }
 
 void catalogReleaseStageAsset(asset_type_e expected_type, const char *assetId)
@@ -2077,7 +2047,7 @@ void catalogReleaseStageAsset(asset_type_e expected_type, const char *assetId)
                      assetId);
         return;
     }
-    s_catalogUnloadEntry(assetId, entry);
+    catalogReleaseTypedAsset(expected_type, assetId);
 }
 
 static void s_catalogRetainEntry(asset_entry_t *entry)
@@ -2091,32 +2061,27 @@ static void s_catalogRetainEntry(asset_entry_t *entry)
     }
 }
 
-static void s_catalogRetainThemeDepCallback(const char *dep_id, void *userdata)
-{
-    asset_entry_t *dep = assetCatalogGetMutable(dep_id);
-    (void)userdata;
-    if (dep) s_catalogRetainEntry(dep);
-}
-
 void catalogRetainTypedAsset(asset_type_e expected_type, const char *assetId)
 {
-    asset_entry_t *entry;
+    catalog_dep_activation_plan_t plan = {0};
+    char error[256];
 
     if (!s_catalogValidateTypedLifecycle("RETAIN", expected_type, assetId)) {
         return;
     }
 
-    entry = assetCatalogGetMutable(assetId);
-    if (!entry) {
+    if (!catalogDepActivationPlanBuild(&plan, assetId, expected_type,
+            s_catalogResolveActivationNode, NULL, error, sizeof(error))) {
+        sysLogPrintf(LOG_WARNING,
+            "CATALOG.LIFECYCLE.RETAIN: '%s' dependency preflight failed: %s",
+            assetId, error[0] ? error : "unknown dependency error");
         return;
     }
-
-    s_catalogRetainEntry(entry);
-    if (entry->type == ASSET_THEME) {
-        catalogDepForEach(assetId, s_catalogRetainThemeDepCallback, NULL);
-    } else if (entry->type == ASSET_WEAPON) {
-        catalogDepForEach(assetId, s_catalogRetainThemeDepCallback, NULL);
+    for (size_t i = 0; i < plan.count; i++) {
+        asset_entry_t *entry = assetCatalogGetMutable(plan.nodes[i].id);
+        if (entry) s_catalogRetainEntry(entry);
     }
+    catalogDepActivationPlanFree(&plan);
 }
 
 /* ========================================================================

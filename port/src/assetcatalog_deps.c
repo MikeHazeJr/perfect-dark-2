@@ -26,6 +26,7 @@ typedef struct {
     u32  owner_hash;                    /* FNV-1a of owner_id (fast compare) */
     char owner_id[64];                  /* catalog string ID of the owning entry */
     char dep_id[64];                    /* catalog string ID of the dependency */
+    asset_type_e expected_type;         /* ASSET_NONE for legacy untyped edges */
     s32  is_bundled;                    /* 1 = base-game owner, 0 = mod owner */
 } s_DepPair;
 
@@ -83,15 +84,15 @@ s32 catalogDepReserve(s32 additional)
     return 1;
 }
 
-void catalogDepRegister(const char *owner_id, const char *dep_id,
-                        s32 is_bundled)
+s32 catalogDepRegisterTyped(const char *owner_id, const char *dep_id,
+	asset_type_e expected_type, s32 is_bundled)
 {
     s32 i;
     u32 ohash;
 
     if (!owner_id || owner_id[0] == '\0' ||
         !dep_id   || dep_id[0]   == '\0') {
-        return;
+		return 0;
     }
 
     ohash = s_fnv1a(owner_id);
@@ -101,7 +102,16 @@ void catalogDepRegister(const char *owner_id, const char *dep_id,
         if (s_DepTable[i].owner_hash == ohash &&
             strcmp(s_DepTable[i].owner_id, owner_id) == 0 &&
             strcmp(s_DepTable[i].dep_id,   dep_id)   == 0) {
-            return;
+			if (s_DepTable[i].expected_type == ASSET_NONE) {
+				s_DepTable[i].expected_type = expected_type;
+				return 1;
+			}
+			if (expected_type == ASSET_NONE
+					|| s_DepTable[i].expected_type == expected_type) return 1;
+			sysLogPrintf(LOG_WARNING,
+				"CATALOG-DEPS: conflicting typed edge '%s' -> '%s' (%d vs %d)",
+				owner_id, dep_id, s_DepTable[i].expected_type, expected_type);
+			return 0;
         }
     }
 
@@ -110,7 +120,7 @@ void catalogDepRegister(const char *owner_id, const char *dep_id,
             sysLogPrintf(LOG_WARNING,
                          "CATALOG-DEPS: realloc failed (cap=%d), dropping dep '%s' -> '%s'",
                          s_DepCap, owner_id, dep_id);
-            return;
+			return 0;
         }
     }
 
@@ -122,8 +132,16 @@ void catalogDepRegister(const char *owner_id, const char *dep_id,
             sizeof(s_DepTable[0].dep_id) - 1);
     s_DepTable[s_NumDepPairs].dep_id[sizeof(s_DepTable[0].dep_id) - 1] = '\0';
     s_DepTable[s_NumDepPairs].is_bundled = is_bundled;
+	s_DepTable[s_NumDepPairs].expected_type = expected_type;
 
     s_NumDepPairs++;
+	return 1;
+}
+
+void catalogDepRegister(const char *owner_id, const char *dep_id,
+	s32 is_bundled)
+{
+	(void)catalogDepRegisterTyped(owner_id, dep_id, ASSET_NONE, is_bundled);
 }
 
 s32 catalogDepUnregister(const char *owner_id, const char *dep_id)
@@ -157,6 +175,19 @@ s32 catalogDepContains(const char *owner_id, const char *dep_id)
     return 0;
 }
 
+asset_type_e catalogDepExpectedType(const char *owner_id, const char *dep_id)
+{
+	if (!owner_id || !owner_id[0] || !dep_id || !dep_id[0]) return ASSET_NONE;
+	u32 ohash = s_fnv1a(owner_id);
+	for (s32 i = 0; i < s_NumDepPairs; i++) {
+		if (s_DepTable[i].owner_hash == ohash
+				&& strcmp(s_DepTable[i].owner_id, owner_id) == 0
+				&& strcmp(s_DepTable[i].dep_id, dep_id) == 0)
+			return s_DepTable[i].expected_type;
+	}
+	return ASSET_NONE;
+}
+
 void catalogDepForEach(const char *owner_id,
                        CatalogDepIterFn fn, void *userdata)
 {
@@ -182,6 +213,22 @@ void catalogDepForEach(const char *owner_id,
         }
         fn(s_DepTable[i].dep_id, userdata);
     }
+}
+
+void catalogDepForEachTyped(const char *owner_id,
+	CatalogDepTypedIterFn fn, void *userdata)
+{
+	s32 i;
+	u32 ohash;
+	if (!owner_id || !owner_id[0] || !fn) return;
+	ohash = s_fnv1a(owner_id);
+	for (i = 0; i < s_NumDepPairs; i++) {
+		/* Typed lifecycle closure includes bundled edges. The legacy iterator
+		 * alone filters them for manifest expansion. */
+		if (s_DepTable[i].owner_hash != ohash
+				|| strcmp(s_DepTable[i].owner_id, owner_id) != 0) continue;
+		fn(s_DepTable[i].dep_id, s_DepTable[i].expected_type, userdata);
+	}
 }
 
 void catalogDepClearMods(void)

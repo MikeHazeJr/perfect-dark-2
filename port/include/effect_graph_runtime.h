@@ -3,16 +3,16 @@
  *
  * c3849 Unit 8: the full effect runtime behind the Unit 1b bridge seams.
  * Graphs compile through weaponGraphCompileJson(ASSET_EFFECT) into compact
- * per-asset records keyed by asset_id string (no slot allocator, no owner
- * bits). T-ASSETS-018 retains the complete executable graph/timeline/profile
+ * per-asset records keyed by asset_id string (no slot allocator). T-ASSETS-018 retains the complete executable graph/timeline/profile
  * program in growable PC storage; the scalar fields remain compatibility
  * projections for existing consumers until T-ASSETS-019.
  *
- * Bridge contract (frozen at Unit 1b, signatures unchanged): each bridge
- * returns the OG fallback verbatim unless the shared weapon graph runtime
- * gate is enabled AND the ref resolves to a registered record carrying the
- * requested field. Product builds keep the gate enabled after Wave 7; tests
- * can still disable it to prove OG fallback parity.
+ * T-ASSETS-020 adds owner-scoped activation. Standalone catalog rows own
+ * themselves; effects embedded by a weapon/projectile/entity archive are
+ * owned by the parent weapon. A selected non-empty reference that cannot
+ * resolve returns EFFECT_GRAPH_RESOLVE_FAILED instead of silently selecting
+ * an OG literal. Empty references remain unauthored and may use the explicit
+ * callsite default.
  */
 #ifndef _IN_EFFECT_GRAPH_RUNTIME_H
 #define _IN_EFFECT_GRAPH_RUNTIME_H
@@ -30,6 +30,7 @@ extern "C" {
 #endif
 
 #define EFFECT_GRAPH_EXPLOSION_CLASS_LEN 16
+#define EFFECT_GRAPH_RESOLVE_FAILED (-1)
 
 typedef enum effect_graph_program_kind {
 	EFFECT_GRAPH_PROGRAM_GRAPH = 1,
@@ -106,6 +107,12 @@ typedef struct effect_graph_runtime {
 	/* Complete executable source program. Scalar bridge fields above remain
 	 * compatibility projections until T-ASSETS-019 migrates consumers. */
 	effect_graph_program_t program;
+
+	/* Runtime activation owners. Multiple parents may share byte-identical
+	 * source; conflicting source for the same catalog ID is rejected. */
+	char (*owners)[CATALOG_ID_LEN];
+	size_t owner_count;
+	size_t owner_capacity;
 } effect_graph_runtime_t;
 
 typedef s32 (*effect_graph_program_visit_fn)(
@@ -127,7 +134,17 @@ s32 effectGraphRuntimeRegisterArchiveBytes(const void *archive_bytes,
                                            u32 archive_size,
                                            char *err, size_t err_cap);
 
-void effectGraphRuntimeClearAsset(const char *asset_id);
+/* Owner-scoped variants used by nested archive transactions. They reject a
+ * conflicting same-ID source and never replace another owner's live record. */
+s32 effectGraphRuntimeRegisterArchiveOwned(const char *archive_path,
+	const char *owner_id, char *err, size_t err_cap);
+s32 effectGraphRuntimeRegisterArchiveBytesOwned(const void *archive_bytes,
+	u32 archive_size, const char *owner_id, char *err, size_t err_cap);
+
+/* Release every effect edge owned by owner_id. Shared effects remain active
+ * until their final owner releases. */
+void effectGraphRuntimeReleaseOwner(const char *owner_id);
+
 /* ClearAll also resets the custom spark-row registry
  * (sparksResetCustomTypes), so a full mod reload cannot leak rows. */
 void effectGraphRuntimeClearAll(void);
@@ -144,8 +161,9 @@ s32 effectGraphProgramSample(const effect_graph_program_t *program,
 s32 effectGraphProgramExecute(const effect_graph_program_t *program, f32 time,
 	effect_graph_program_visit_fn visit, void *user);
 
-/* Returns the EXPLOSIONTYPE_* for effect_ref when it resolves and the
- * runtime gate is enabled; fallback_exptype otherwise. */
+/* Empty/NULL means unauthored and returns the explicit fallback. A non-empty
+ * selected ref returns EFFECT_GRAPH_RESOLVE_FAILED unless the requested
+ * channel resolves from active public source. */
 s32 effectGraphResolveExplosionType(const char *effect_ref, s32 fallback_exptype);
 
 /* Returns the SPARKTYPE_* (a custom registry row index for tinted sparks)

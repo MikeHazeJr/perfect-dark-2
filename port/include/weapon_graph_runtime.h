@@ -570,13 +570,8 @@ const weapon_graph_parity_module_t *weaponGraphParityModuleForOpcode(
 	weapon_graph_opcode_e opcode);
 const char *weaponGraphParityModuleNameForOpcode(weapon_graph_opcode_e opcode);
 
-/* c3849 Unit 1b: unified explosion ref vocabulary (binding spec B2). One
- * parse-time resolver serves impact_explosion_ref, entity explosion_ref and
- * wall_explosion_ref. Canonical base tokens map to EXPLOSIONTYPE_* values;
- * the deprecated impact-cluster spellings resolve with a one-time
- * LOG_WARNING naming the canonical token; empty/NULL/unknown return -1
- * (non-base refs are stored and resolved at detonation through the
- * effect_graph_runtime bridge instead). */
+/* ABI-compatible parse latch. Selected public effect IDs are not native
+ * literals, so resolution stays deferred to the active .pdeffect executor. */
 s32 weaponGraphResolveExplosionRef(const char *ref);
 
 /* c3849 Unit 1c: pure rpm -> autogunTickShoot fire-interval conversion.

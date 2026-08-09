@@ -1,0 +1,15 @@
+Wave 8 final source-frozen receipt
+Filter: [T-CATALOG-003]
+All tests passed (3561 assertions in 12 test cases)
+
+Combined full suite:
+All tests passed (52416 assertions in 932 test cases)
+
+Additional gates:
+- Client, updater, and pd-tests builds: PASS
+- Asset archive conformance selftest: PASS (16 parity cases, recursion, 8 structured source contracts)
+- Typed examples: PASS (28 roots, 52 recursive archives, all 27 families)
+- asset_native_source_guard.py: PASS
+- git diff --check: PASS
+
+Raw session logs: .claude/session-builds/wave8final/

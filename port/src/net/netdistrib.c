@@ -44,6 +44,7 @@
 #include "net/netmanifest.h"
 #include "assetcatalog.h"
 #include "asset_path_contract.h"
+#include "pdca_extract_transaction.h"
 #include "asset_archive_policy.h"
 #include "assetcatalog_body_head_slots.h"
 #include "assetcatalog_weapon_slots.h"
@@ -772,135 +773,24 @@ void netDistribSendKillFeed(const char *attacker, const char *victim,
  * Client: PDCA Archive Extraction
  * ======================================================================== */
 
-static s32 distribArchiveOutputPath(const char *destdir, const char *relpath,
-                                    u16 path_len, char *out, size_t out_cap)
-{
-    char resolved[FS_MAXPATH];
-    char destresolved[FS_MAXPATH];
-    size_t dest_len;
-    if (!destdir || !destdir[0] || !relpath || path_len < 2
-            || relpath[path_len - 1] != '\0'
-            || strlen(relpath) + 1 != path_len
-            || assetPathIsAbsolute(relpath)
-            || assetPathHasParentTraversal(relpath)
-            || !assetPathJoinChecked(out, out_cap, destdir, "/", relpath)) {
-        if (out && out_cap) out[0] = '\0';
-        return 0;
-    }
-    if (!_fullpath(resolved, out, sizeof(resolved))
-            || !_fullpath(destresolved, destdir, sizeof(destresolved))) return 0;
-    dest_len = strlen(destresolved);
-    if (strncmp(resolved, destresolved, dest_len) != 0
-            || (resolved[dest_len] != '\0' && resolved[dest_len] != '/'
-                && resolved[dest_len] != '\\')) return 0;
-    return 1;
-}
-
-/**
- * Parse and extract a PDCA archive to a target directory.
- * Creates directories as needed.
- * Returns 1 on success, 0 on failure.
- */
 static s32 extractArchive(const u8 *data, u32 data_len, const char *destdir)
 {
-    if (data_len < 6) return 0;
-
-    u32 magic;
-    memcpy(&magic, data, 4);
-    if (magic != PDCA_MAGIC) {
-        sysLogPrintf(LOG_ERROR, "DISTRIB: bad archive magic 0x%08x", magic);
+    pdca_extract_result_t result = pdcaExtractArchiveTransactional(data,
+        data_len, destdir, NULL);
+    if (result <= 0) {
+        sysLogPrintf(LOG_WARNING,
+            "DISTRIB: transactional extract failed result=%d destination='%s' preserved",
+            (int)result, destdir ? destdir : "");
         return 0;
     }
-
-    u16 file_count;
-    memcpy(&file_count, data + 4, 2);
-
-    const u8 *p = data + 6;
-    const u8 *end = data + data_len;
-    s32 extracted = 0;
-
-    /* Validate the complete envelope and every destination before writing the
-     * first byte. A late over-capacity member must not leave a partial
-     * received component that a later scan can mistake for a valid source. */
-    for (u16 i = 0; i < file_count; i++) {
-        u16 path_len;
-        u32 dlen;
-        char checked[FS_MAXPATH];
-        if (p + 2 > end) return 0;
-        memcpy(&path_len, p, 2);
-        path_len = PD_LE16(path_len);
-        p += 2;
-        if (path_len == 0 || p + path_len > end) return 0;
-        const char *relpath = (const char *)p;
-        p += path_len;
-        if (p + 4 > end) return 0;
-        memcpy(&dlen, p, 4);
-        dlen = PD_LE32(dlen);
-        p += 4;
-        if (p + dlen > end
-                || !distribArchiveOutputPath(destdir, relpath, path_len,
-                    checked, sizeof(checked))) {
-            sysLogPrintf(LOG_WARNING,
-                "DISTRIB.ASSET.PATH.REJECT: invalid or over-capacity received member");
-            return 0;
-        }
-        p += dlen;
+    if (result == PDCA_EXTRACT_OK_BACKUP_RETAINED) {
+        sysLogPrintf(LOG_WARNING,
+            "DISTRIB: published '%s' but retained recovery backup; future replacement requires review",
+            destdir);
     }
-    if (p != end) return 0;
-
-    p = data + 6;
-
-    for (u16 i = 0; i < file_count; i++) {
-        if (p + 2 > end) break;
-        u16 path_len;
-        memcpy(&path_len, p, 2);
-        path_len = PD_LE16(path_len); /* L-8: endian conversion for archive path_len */
-        p += 2;
-
-        if (p + path_len > end) break;
-        const char *relpath = (const char *)p;
-        p += path_len;
-
-        if (p + 4 > end) break;
-        u32 dlen;
-        memcpy(&dlen, p, 4);
-        dlen = PD_LE32(dlen); /* L-8: endian conversion for data_len */
-        p += 4;
-
-        if (p + dlen > end) break;
-        const u8 *fdata = p;
-        p += dlen;
-
-        char outpath[FS_MAXPATH];
-        if (!distribArchiveOutputPath(destdir, relpath, path_len, outpath,
-                sizeof(outpath))) return 0;
-
-        /* Create parent directory */
-        char dirpath[FS_MAXPATH];
-        if (!assetPathCopyChecked(dirpath, sizeof(dirpath), outpath)) return 0;
-        char *slash = strrchr(dirpath, '/');
-        if (slash) {
-            *slash = '\0';
-            fsCreateDir(dirpath);
-        }
-
-        /* Write file */
-        FILE *fp = fopen(outpath, "wb");
-        if (!fp) {
-            sysLogPrintf(LOG_WARNING, "DISTRIB: can't write %s", outpath);
-            return 0;
-        }
-        if (fwrite(fdata, 1, dlen, fp) != dlen) {
-            sysLogPrintf(LOG_WARNING, "DISTRIB: short write %s", outpath);
-            fclose(fp);
-            return 0;
-        }
-        fclose(fp);
-        extracted++;
-    }
-
-    sysLogPrintf(LOG_NOTE, "DISTRIB: extracted %d/%d files to %s", extracted, file_count, destdir);
-    return extracted == file_count && extracted > 0;
+    sysLogPrintf(LOG_NOTE, "DISTRIB: transactionally published archive to %s",
+        destdir);
+    return 1;
 }
 
 /* ========================================================================
@@ -2814,9 +2704,8 @@ void netDistribClientHandleEnd(const char *catalog_id, u8 success)
         }
     }
 
-    fsCreateDir(destdir);
-
-    /* Extract */
+    /* Extract into a unique sibling and publish only after every member is
+     * durable. A pre-existing component is restored on any publish failure. */
     if (extractArchive(raw, (u32)raw_len, destdir)) {
         /* Hot-register in catalog */
         char inipath[FS_MAXPATH];

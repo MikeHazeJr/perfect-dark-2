@@ -1,11 +1,33 @@
 #include "pdeffect_source.h"
 
 #include "types.h"
+#include "assetcatalog.h"
 
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+s32 pdEffectCatalogIdValid(const char *id)
+{
+	const unsigned char *p = (const unsigned char *)id;
+	size_t len;
+	#define EFFECT_ASCII_ALPHA(c) (((c) >= 'A' && (c) <= 'Z') || ((c) >= 'a' && (c) <= 'z'))
+	#define EFFECT_ASCII_ALNUM(c) (EFFECT_ASCII_ALPHA(c) || ((c) >= '0' && (c) <= '9'))
+	if (!id || !EFFECT_ASCII_ALPHA(*p)) return 0;
+	len = strlen(id);
+	if (len >= CATALOG_ID_LEN) return 0;
+	for (p++; *p && *p != ':'; p++) {
+		if (!(EFFECT_ASCII_ALNUM(*p) || *p == '_' || *p == '-' || *p == '.')) return 0;
+	}
+	if (*p != ':' || !EFFECT_ASCII_ALNUM(p[1])) return 0;
+	for (p += 2; *p; p++) {
+		if (!(EFFECT_ASCII_ALNUM(*p) || *p == '_' || *p == '-' || *p == '.')) return 0;
+	}
+	#undef EFFECT_ASCII_ALNUM
+	#undef EFFECT_ASCII_ALPHA
+	return 1;
+}
 
 typedef struct effect_textbuf {
 	char *data;

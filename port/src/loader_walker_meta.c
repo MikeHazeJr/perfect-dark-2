@@ -8,12 +8,19 @@
  */
 
 #include <stddef.h>
+#include <stdint.h>
+#include <limits.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <PR/ultratypes.h>
 
 #include "assetcatalog.h"
+#include "assetcatalog_deps.h"
+#include "assetcatalog_load.h"
 #include "assetcatalog_scanner.h"
 #include "constants.h"
+#include "effect_dependencies.h"
 #include "fs.h"
 #include "loader_walker.h"
 #include "loader_walker_common.h"
@@ -768,6 +775,70 @@ static s32 s_registerMeta(const char *manifest, size_t manifest_len,
 			return -1;
 		}
 	}
+	if (meta->type == ASSET_EFFECT) {
+		effect_dependency_list_t deps;
+		u8 *created = NULL;
+		char dep_error[256];
+		memset(&deps, 0, sizeof(deps));
+		dep_error[0] = '\0';
+		if (effectDependenciesCollectArchiveFile(file_path, id, &deps,
+				dep_error, sizeof(dep_error)) < 0) {
+			entry->enabled = 0;
+			effectDependenciesFree(&deps);
+			sysLogPrintf(LOG_ERROR,
+				"LOADER.UNIVERSAL.META: effect dependency parse failed for %s: %s",
+				id, dep_error[0] ? dep_error : "unknown dependency error");
+			return -1;
+		}
+		if (deps.count) {
+			created = (u8 *)calloc(deps.count, 1);
+			if (!created || deps.count > INT_MAX ||
+					!catalogDepReserve((s32)deps.count)) {
+				free(created);
+				effectDependenciesFree(&deps);
+				entry->enabled = 0;
+				return -1;
+			}
+		}
+		for (size_t i = 0; i < deps.count; i++) {
+			asset_type_e prior = catalogDepExpectedType(id,
+				deps.items[i].catalog_id);
+			if (catalogDepContains(id, deps.items[i].catalog_id)) {
+				if (prior != ASSET_NONE && prior != deps.items[i].type) {
+					snprintf(dep_error, sizeof(dep_error),
+						"dependency %s type conflict %d/%d",
+						deps.items[i].catalog_id, prior, deps.items[i].type);
+					goto effect_dep_fail;
+				}
+				continue;
+			}
+			if (!catalogDepRegisterTyped(id, deps.items[i].catalog_id,
+					deps.items[i].type, 1)) {
+				snprintf(dep_error, sizeof(dep_error),
+					"could not register dependency %s", deps.items[i].catalog_id);
+				goto effect_dep_fail;
+			}
+			created[i] = 1;
+		}
+		free(created);
+		effectDependenciesFree(&deps);
+		goto effect_dep_done;
+
+effect_dep_fail:
+		for (size_t i = deps.count; i-- > 0;) {
+			if (created && created[i]) {
+				catalogDepUnregister(id, deps.items[i].catalog_id);
+			}
+		}
+		free(created);
+		effectDependenciesFree(&deps);
+		entry->enabled = 0;
+		sysLogPrintf(LOG_ERROR,
+			"LOADER.UNIVERSAL.META: effect dependency registration failed for %s: %s",
+			id, dep_error[0] ? dep_error : "unknown dependency error");
+		return -1;
+effect_dep_done: ;
+	}
 	loaderWalkerMarkBaseArchiveEntry(entry);
 	catalogSetPrimaryFile(entry, source_path);
 	return 1;
@@ -791,6 +862,30 @@ static const meta_walker_desc_t s_MetaFamilies[] = {
 };
 
 static const meta_walker_desc_t *s_ActiveMeta;
+static char (*s_WalkedEffectIds)[CATALOG_ID_LEN];
+static size_t s_WalkedEffectCount;
+static size_t s_WalkedEffectCapacity;
+
+static s32 s_rememberWalkedEffect(const char *id)
+{
+	for (size_t i = 0; i < s_WalkedEffectCount; i++) {
+		if (strcmp(s_WalkedEffectIds[i], id) == 0) return 1;
+	}
+	if (s_WalkedEffectCount == s_WalkedEffectCapacity) {
+		size_t next = s_WalkedEffectCapacity ? s_WalkedEffectCapacity * 2 : 16;
+		if (next < s_WalkedEffectCount + 1 ||
+				next > SIZE_MAX / sizeof(*s_WalkedEffectIds)) return 0;
+		char (*grown)[CATALOG_ID_LEN] = (char (*)[CATALOG_ID_LEN])realloc(
+			s_WalkedEffectIds, next * sizeof(*s_WalkedEffectIds));
+		if (!grown) return 0;
+		s_WalkedEffectIds = grown;
+		s_WalkedEffectCapacity = next;
+	}
+	strncpy(s_WalkedEffectIds[s_WalkedEffectCount], id, CATALOG_ID_LEN - 1);
+	s_WalkedEffectIds[s_WalkedEffectCount][CATALOG_ID_LEN - 1] = '\0';
+	s_WalkedEffectCount++;
+	return 1;
+}
 
 static s32 s_registerActiveMeta(const char *manifest, size_t manifest_len,
 	const char *pd_kind, const char *id, const char *file_path)
@@ -798,8 +893,29 @@ static s32 s_registerActiveMeta(const char *manifest, size_t manifest_len,
 	if (!s_ActiveMeta) {
 		return -1;
 	}
-	return s_registerMeta(manifest, manifest_len, pd_kind, id, file_path,
+	/* Reserve activation tracking before the catalog row/typed edges publish.
+	 * An allocation failure therefore leaves no half-registered effect. */
+	if (s_ActiveMeta->type == ASSET_EFFECT && !s_rememberWalkedEffect(id)) {
+		sysLogPrintf(LOG_ERROR,
+			"LOADER.UNIVERSAL.META: out of memory tracking effect activation %s",
+			id);
+		return -1;
+	}
+	s32 result = s_registerMeta(manifest, manifest_len, pd_kind, id, file_path,
 		s_ActiveMeta);
+	if (result <= 0 && s_ActiveMeta->type == ASSET_EFFECT) {
+		for (size_t i = 0; i < s_WalkedEffectCount; i++) {
+			if (strcmp(s_WalkedEffectIds[i], id) == 0) {
+				if (i + 1 < s_WalkedEffectCount) {
+					memmove(&s_WalkedEffectIds[i], &s_WalkedEffectIds[i + 1],
+						(s_WalkedEffectCount - i - 1) * sizeof(*s_WalkedEffectIds));
+				}
+				s_WalkedEffectCount--;
+				break;
+			}
+		}
+	}
+	return result;
 }
 
 void loaderWalkerScanMetadataFamilies(const char *tier_dir,
@@ -808,6 +924,10 @@ void loaderWalkerScanMetadataFamilies(const char *tier_dir,
 	if (out) {
 		memset(out, 0, sizeof(*out));
 	}
+	free(s_WalkedEffectIds);
+	s_WalkedEffectIds = NULL;
+	s_WalkedEffectCount = 0;
+	s_WalkedEffectCapacity = 0;
 
 	for (size_t i = 0; i < sizeof(s_MetaFamilies) / sizeof(s_MetaFamilies[0]); i++) {
 		const meta_walker_desc_t *meta = &s_MetaFamilies[i];
@@ -831,4 +951,20 @@ void loaderWalkerScanMetadataFamilies(const char *tier_dir,
 			out->register_failures += kr.register_failures;
 		}
 	}
+
+	/* Weapons are admitted only after this function returns. Activate every
+	 * strict walked base effect now, after all metadata rows and typed edges
+	 * exist. Composite lifecycle recursively loads dependencies first. */
+	for (size_t i = 0; i < s_WalkedEffectCount; i++) {
+		if (!catalogLoadTypedAsset(ASSET_EFFECT, s_WalkedEffectIds[i])) {
+			sysLogPrintf(LOG_ERROR,
+				"LOADER.UNIVERSAL.META: effect source activation failed for %s",
+				s_WalkedEffectIds[i]);
+			if (out) out->register_failures++;
+		}
+	}
+	free(s_WalkedEffectIds);
+	s_WalkedEffectIds = NULL;
+	s_WalkedEffectCount = 0;
+	s_WalkedEffectCapacity = 0;
 }

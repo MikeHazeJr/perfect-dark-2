@@ -26,8 +26,11 @@
 #include <SDL.h>           /* Engine Phase 4: catalog mutex for parallel walker */
 #include "types.h"
 #include "assetcatalog.h"
+#include "assetcatalog_load.h"
+#include "assetcatalog_deps.h"
 #include "assetcatalog_scanner.h"
 #include "assetcatalog_weapon_slots.h"
+#include "effect_graph_runtime.h"
 #include "assetcatalog_body_head_slots.h"  /* c3844 Gate 2: reset custom body/head slots on rebuild */
 #include "catalog_mgr_bodies.h"
 #include "catalog_mgr_heads.h"
@@ -47,6 +50,12 @@
 
 #define HASH_TABLE_INITIAL  2048  /* power of 2 */
 #define ENTRY_POOL_INITIAL  512
+
+typedef struct catalog_retire_row {
+    char id[CATALOG_ID_LEN];
+    asset_type_e type;
+    s32 retired;
+} catalog_retire_row_t;
 #define SENTINEL            (-1)   /* hash table slot marker for empty */
 #define LOAD_FACTOR_LIMIT   70     /* rehash when occupied > (size * 70 / 100) */
 
@@ -297,6 +306,85 @@ static s32 getLoadFactor(void)
  * Public API: Lifecycle
  * ======================================================================== */
 
+static s32 s_typeOwnsEffectRuntime(asset_type_e type)
+{
+    return type == ASSET_EFFECT
+        || type == ASSET_WEAPON
+        || type == ASSET_PROJECTILE
+        || type == ASSET_ENTITY;
+}
+
+/* Snapshot identity/type while the catalog is stable, then retire closures
+ * outside the mutex because dependency planning resolves catalog rows. */
+static s32 s_retireNonBundledEffectClosures(void)
+{
+    catalog_retire_row_t *rows = NULL;
+    s32 count = 0;
+    s32 write = 0;
+    s32 ok = 1;
+
+    CATALOG_LOCK();
+    for (s32 i = 0; i < s_EntryPoolSize; i++) {
+        if (s_EntryPool[i].occupied && !s_EntryPool[i].bundled
+                && s_typeOwnsEffectRuntime(s_EntryPool[i].type)) {
+            count++;
+        }
+    }
+    if (count > 0) {
+        rows = (catalog_retire_row_t *)malloc((size_t)count * sizeof(*rows));
+        if (!rows) {
+            CATALOG_UNLOCK();
+            sysLogPrintf(LOG_WARNING,
+                "CATALOG.LIFECYCLE.RESET: out of memory snapshotting effect closures");
+            return 0;
+        }
+        for (s32 i = 0; i < s_EntryPoolSize; i++) {
+            if (!s_EntryPool[i].occupied || s_EntryPool[i].bundled
+                    || !s_typeOwnsEffectRuntime(s_EntryPool[i].type)) continue;
+            memcpy(rows[write].id, s_EntryPool[i].id, sizeof(rows[write].id));
+            rows[write].id[sizeof(rows[write].id) - 1] = '\0';
+            rows[write].type = s_EntryPool[i].type;
+            rows[write].retired = 0;
+            write++;
+        }
+    }
+    CATALOG_UNLOCK();
+
+    /* Parent-first ordering matters because ref_count is aggregate, not an
+     * owner ledger. Once every still-present parent edge has released, the
+     * child's remaining count is exactly its direct root references. */
+    for (s32 retired = 0; retired < write; ) {
+        s32 candidate = -1;
+        for (s32 i = 0; i < write && candidate < 0; i++) {
+            s32 has_unretired_parent = 0;
+            if (rows[i].retired) continue;
+            for (s32 parent = 0; parent < write; parent++) {
+                if (parent == i || rows[parent].retired) continue;
+                if (catalogDepContains(rows[parent].id, rows[i].id)) {
+                    has_unretired_parent = 1;
+                    break;
+                }
+            }
+            if (!has_unretired_parent) candidate = i;
+        }
+        if (candidate < 0) {
+            sysLogPrintf(LOG_WARNING,
+                "CATALOG.LIFECYCLE.RESET: effect-owner dependency cycle prevents safe retirement");
+            ok = 0;
+            break;
+        }
+        if (!catalogDeactivateTypedAsset(rows[candidate].type,
+                rows[candidate].id)) {
+            ok = 0;
+            break;
+        }
+        rows[candidate].retired = 1;
+        retired++;
+    }
+    free(rows);
+    return ok;
+}
+
 void assetCatalogInit(void)
 {
     /* Engine Phase 4: lazy-create the catalog mutex.  We do it here
@@ -305,6 +393,14 @@ void assetCatalogInit(void)
      * before SDL_Init for the mutex subsystem. */
     if (s_CatalogMutex == NULL) {
         s_CatalogMutex = SDL_CreateMutex();
+    }
+
+    if (s_EntryPool != NULL) {
+        if (!s_retireNonBundledEffectClosures()) {
+            return;
+        }
+        effectGraphRuntimeClearAll();
+        catalogDepClear();
     }
 
     CATALOG_LOCK();
@@ -356,6 +452,12 @@ u32 assetCatalogGetGeneration(void)
 
 void assetCatalogClear(void)
 {
+    if (!s_retireNonBundledEffectClosures()) {
+        return;
+    }
+    effectGraphRuntimeClearAll();
+    catalogDepClear();
+
     CATALOG_LOCK();
 
     /* Reset hash table to empty */
@@ -385,6 +487,11 @@ void assetCatalogClear(void)
 
 void assetCatalogClearMods(void)
 {
+    if (!s_retireNonBundledEffectClosures()) {
+        return;
+    }
+    catalogDepClearMods();
+
     CATALOG_LOCK();
 
     if (s_EntryPool == NULL || s_HashTable == NULL) {
@@ -1089,6 +1196,9 @@ s32 assetCatalogGetSkinsForTarget(const char *target_id,
 
 void assetCatalogSetEnabled(const char *id, s32 enabled)
 {
+    char deactivate_id[CATALOG_ID_LEN] = {0};
+    asset_type_e deactivate_type = ASSET_NONE;
+
     CATALOG_LOCK();
     if (id != NULL && s_HashTable != NULL && s_EntryPool != NULL) {
         u32 id_hash = fnv1a(id);
@@ -1099,6 +1209,12 @@ void assetCatalogSetEnabled(const char *id, s32 enabled)
                 && pool_idx >= 0 && pool_idx < s_EntryPoolSize
                 && s_EntryPool[pool_idx].occupied) {
             s_EntryPool[pool_idx].enabled = enabled ? 1 : 0;
+            if (!enabled && s_typeOwnsEffectRuntime(s_EntryPool[pool_idx].type)) {
+                memcpy(deactivate_id, s_EntryPool[pool_idx].id,
+                    sizeof(deactivate_id));
+                deactivate_id[sizeof(deactivate_id) - 1] = '\0';
+                deactivate_type = s_EntryPool[pool_idx].type;
+            }
             /* Advance REGISTERED → ENABLED on first enable */
             if (enabled &&
                 s_EntryPool[pool_idx].load_state == ASSET_STATE_REGISTERED) {
@@ -1107,6 +1223,13 @@ void assetCatalogSetEnabled(const char *id, s32 enabled)
         }
     }
     CATALOG_UNLOCK();
+
+    if (deactivate_type != ASSET_NONE) {
+        /* Planning and dependency release resolve catalog entries and must not
+         * run under the catalog mutex. Disable is visible first, so selected
+         * gameplay resolution fails closed throughout retirement. */
+        (void)catalogDeactivateTypedAsset(deactivate_type, deactivate_id);
+    }
 }
 
 void assetCatalogSetCategoryById(const char *id, const char *category)

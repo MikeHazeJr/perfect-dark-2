@@ -149,6 +149,7 @@ s32 pdEffectSourceBuildSmokeGraph(const char *catalog_id,
 const char *pdEffectSourceExplosionProfileId(size_t index);
 const char *pdEffectSourceSparkProfileId(size_t index);
 const char *pdEffectSourceSmokeProfileId(size_t index);
+s32 pdEffectCatalogIdValid(const char *catalog_id);
 
 #ifdef __cplusplus
 }

@@ -50,6 +50,17 @@ matrix now covers all 34 affected field mappings across three ingress modes;
 real installed-client transport fixtures and rollback after a post-preflight
 PDCA I/O failure remain the validation boundary.
 
+**2026-08-08 transactional receive propagation:** B-1006 proved that complete
+preflight alone was insufficient. Direct writes still exposed a partial live
+tree after a late open/write failure, and Windows path aliases could map two
+lexically different members to one file. Received PDCA extraction now stages a
+complete unique sibling tree, compares normalized Windows identities, rejects
+ADS/dot/empty/traversal aliases, and publishes by rename with backup restore.
+Crash-window backups are preserved and block ambiguous replacement rather than
+being guessed at or deleted. This closes deterministic extraction rollback but
+does not replace the remaining real installed-client catalog/provider/runtime
+fixtures required by `T-CATALOG-003`.
+
 **Semantic boundary:** Widen and validate only fields that carry filesystem or
 qualified archive-member paths. Do not widen IDs, names, descriptions,
 archetypes, shader IDs, voice contexts, or other bounded metadata merely
@@ -1098,6 +1109,35 @@ bot-profile, and prop core state now have structured source hydration, strict
 schema validation, production consumers, and focused mutation/behavior proof;
 live edited-source receipts are still required before those families are
 validated.
+
+**2026-08-08 effect propagation (B-1004):** Retaining a complete executable
+`.pdeffect` program was still only an intermediate representation. No v2 row
+fed the native effect tables and generic v1 node/timeline presentation remained
+inert. T-ASSETS-019 now routes the three complete base profile libraries into
+their real consumers and fails selected/dependent source closed; generic v1
+renderer/target/timeline execution remains an explicitly open part of the same
+pattern until it has a production consumer or is rejected at activation.
+
+**2026-08-08 selected-source propagation (B-1005):** A typed public reference
+is not optional merely because an older native default exists at its callsite.
+Missing, corrupt, disabled, wrong-type, channel-incomplete, runtime-gated, or
+conflicting selected effects must make the selection unavailable and reject
+the owning activation transaction; only an actually empty reference may use an
+explicit callsite default. Nested source registries also require durable owner
+edges, complete authored-source identity (descriptor plus every program
+member), final-owner cleanup, and growable dependency rollback. Apply this
+audit rule to every remaining public typed reference: prove both positive
+source-to-consumer behavior and negative no-fallback/no-stale-state behavior.
+
+**2026-08-08 lifecycle propagation (B-1008):** Reset truth has the same
+ordering requirement as activation truth. Retire every live typed-owner
+closure while catalog identities and dependency edges still resolve; clear
+runtime adapters next; clear mod/all dependency edges next; only then remove
+or reuse catalog IDs. Disabling a dependency also requires a reverse-owner
+walk: retire/rebuild or fail every cached parent consumer before the disabled
+child can be considered unreachable. The effect/weapon reset slice is
+T-ASSETS-020, reverse dependency invalidation is T-ASSETS-033, and the
+all-family reset transaction is T-CATALOG-004.
 
 **Fix strategy:**
 

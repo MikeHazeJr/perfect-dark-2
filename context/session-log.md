@@ -4020,6 +4020,31 @@ markers and five named `1->0` frees balance the closure. Workbench
 T-CATALOG-002 is implemented and handed back to root; broader typed-family
 replacement, editor, and network-owner stress remains validation work.
 
+## 2026-08-08 - T-ASSETS-020 selected-effect failure and lifecycle freeze
+
+The selected `.pdeffect` path now fails closed for missing, corrupt, disabled,
+wrong-type, incomplete, gated, or conflicting public sources. Empty refs alone
+retain explicit callsite defaults; every selected failure suppresses native
+explosion/spark/smoke/sound use before table indexing. Nested failures reject
+and roll back their weapon/projectile/entity parent. Runtime records carry
+growable complete-source activation owners, including descriptor, graph,
+timeline, and profile identity, so shared identical sources survive until the
+final owner while timeline-different collisions reject.
+
+Catalog dependency activation now uses a growable iterative typed closure with
+cycle/type/DAG preflight, unique-diamond semantics, ordered activation, and
+exact reverse rollback. Base public effects activate before weapon admission.
+Disable/mod/full reset retire effect-owning parents before children and before
+catalog identity destruction; full reset clears runtime plus every dependency
+edge, while mod reset preserves bundled edges. B-1008 records that dependency
+clear hooks had never been called. Workbench T-CATALOG-004 owns the propagated
+all-family reset transaction. The authoritative production builds pass, as do
+T019 129/5, T020 221/8, effect 571/15, catalog 3,561/12, full 52,416/932,
+conformance self-test plus all 27 public families, the native-source guard, and
+diff check. T-ASSETS-020 is implemented, not validated; V-006 ordinary-client
+proof remains open. T-ASSETS-033 separately owns reverse invalidation of active
+cached parents when a selected child dependency is disabled.
+
 ## 2026-08-08 - T-ASSETS-018 executable pdeffect programs
 
 Replaced the 64-row flattened effect table with growable, owned program
@@ -4039,3 +4064,55 @@ unrelated in-flight T-CATALOG-003 path-key assertion; that lane owns the final
 combined rerun. T-ASSETS-018 is implemented, not validated. T-ASSETS-019 and
 T-ASSETS-020 remain explicit for production renderer/audio/gameplay consumers
 and selected-source fail-closed behavior.
+
+## 2026-08-08 - T-CATALOG-003 transactional PDCA receive handoff
+
+B-1006 closed the deterministic post-preflight filesystem mutation gap left by
+Wave C. Network PDCA receive now extracts to a unique sibling stage, preserves
+authored member case while comparing Windows-normalized collision identities,
+rejects traversal/ADS/device/dot/empty/wildcard/alias paths, recursively creates
+staged parents, file-syncs every member, and publishes the complete tree by
+rename. Existing destinations move to a unique backup only after the stage is
+complete and are restored on open/write/publish failure. Matching abandoned
+stages are cleaned; unambiguous crash backups restore; ambiguous destination
+plus backup state blocks rather than deleting user data.
+
+The final reviewed client/updater compile passed. The transport source and
+rollback tests are frozen, but their combined pd-tests receipt is intentionally
+pending because the joint T-ASSETS-019/T-ASSETS-020 source fingerprint was
+thawed for effect dependency-order corrections. T-CATALOG-003 remains partial:
+real installed-client standalone, nested pdmod, and received-network fixtures
+must still prove exact scanner-to-catalog-to-FileProvider-to-runtime identity at
+127, 128, 1023, and over-capacity boundaries with zero rejected-state mutation.
+
+## 2026-08-08 - T-ASSETS-019 v2 production consumers and Wave8 receipt
+
+Connected validated public v2 `.pdeffect` libraries to the native production
+tables used by explosion gameplay/render/audio, spark rendering, and smoke
+creation. Every stored field in all 26 explosion, 27 spark, and 23 smoke rows
+is copied transactionally; catalog audio requires an owned SFX row, explosion
+profiles require the active public smoke library, and selected missing sources
+suppress action before a native table can be indexed. Source-active row mapping
+replaces parse-time numeric/native fallback.
+
+Added growable exact typed dependency enumeration for public effect source.
+Standalone/base/mod/network scanner admission and nested weapon preflight now
+register smoke, SFX, material, and texture edges before activation. Empty,
+null, malformed, aliased, wrong-node, wrong-type, missing, cyclic, or conflicting
+dependencies fail without partial parent publication; rollback tracks only newly
+created edges. File/VFS parsing now returns buffers through their owning
+allocator. B-1004 records the production-consumer defect and B-1007 records the
+propagated allocator mismatch.
+
+The final coordinated isolated receipt at `.claude/session-builds/wave8final/`
+passes client, updater, and tests builds; T019 129 assertions/5 cases; T020
+221/8; effect graph 571/15; T-CATALOG-003 3,561/12; and the complete 52,416
+assertions/932 cases. Conformance self-test, 28 root/52 recursive archives across
+all 27 families, native-source guard, and diff-check pass. Durable summary:
+`context/evidence/2026-08-08-wave8-pdeffect-consumers.md`.
+
+T-ASSETS-019 remains partial and is handed back to root. D-002 requires every
+accepted v1 kind to receive a real consumer; T-ASSETS-032/034/035/036 own the
+scheduler, gameplay/audio, renderer/presentation, and timeline/target/lifetime
+work. T-ASSETS-037 owns the remaining 64-entry nested-media ingress ceiling,
+and V-009 owns ordinary-game edited-source proof.

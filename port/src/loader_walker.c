@@ -77,12 +77,6 @@ s32 loaderWalkerLoadAll(loader_walker_result_t *out)
     local.total_register_failures += kr.register_failures;
 
     /* Dependency tier 2: composite entities referencing meshes / anims. */
-    loaderWalkerScanWeapons(data_root, &kr);
-    local.weapons_registered    += kr.entries_registered;
-    local.total_files_scanned   += kr.entries_scanned;
-    local.total_envelope_failures += kr.envelope_failures;
-    local.total_register_failures += kr.register_failures;
-
     loaderWalkerScanHeads(data_root, &kr);
     local.heads_registered      += kr.entries_registered;
     local.total_files_scanned   += kr.entries_scanned;
@@ -153,6 +147,15 @@ s32 loaderWalkerLoadAll(loader_walker_result_t *out)
     local.total_files_scanned    += mr.entries_scanned;
     local.total_envelope_failures += mr.envelope_failures;
     local.total_register_failures += mr.register_failures;
+
+    /* Selected weapon effect refs validate against active public source.
+     * Metadata registration/activation therefore precedes weapon admission;
+     * invalid effects cannot be hidden by native detonation defaults. */
+    loaderWalkerScanWeapons(data_root, &kr);
+    local.weapons_registered    += kr.entries_registered;
+    local.total_files_scanned   += kr.entries_scanned;
+    local.total_envelope_failures += kr.envelope_failures;
+    local.total_register_failures += kr.register_failures;
 
     s32 total_registered = local.weapons_registered + local.heads_registered
                         + local.bodies_registered + local.arenas_registered

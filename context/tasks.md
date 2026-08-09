@@ -6,6 +6,31 @@
 
 Last updated: 2026-08-08
 
+`T-ASSETS-019` has a verified partial production milestone. Public v2 profile
+libraries now apply all 26 explosion, 27 spark, and 23 smoke rows to the native
+tables read by gameplay, rendering, smoke, and audio; selected row IDs resolve
+only while their public owners are active. Strict growable dependency parsing
+registers exact typed smoke/SFX/material/texture edges before activation and
+rejects empty, null, malformed, aliased, wrong-node, or wrong-typed declarations.
+The authoritative Wave8 receipt passes client/updater/tests builds, T019 129/5,
+the effect band 571/15, and the full suite 52,416/932, plus all-family archive
+conformance and the native-source guard. T019 remains `partial` for
+`T-ASSETS-032/034/035/036/037` and `V-009`; no generic v1 renderer, gameplay,
+timeline, capacity, or ordinary-game proof is inferred from the v2 adapter.
+
+`T-ASSETS-020` is implemented, not validated, for strict selected
+and nested `.pdeffect` failure: nonempty unresolved references return failure,
+native callsites suppress the action, parent activation rolls back, runtime
+records have complete-source activation owners, and recursive typed closures
+preflight cycles/types/capacity before mutation. Disable/mod/full reset now
+retire effect/weapon closures before runtime, dependency-edge, or catalog-ID
+destruction; B-1008 records the previously missing edge-clear hooks. Production
+builds, T020 221/8, effect 571/15, catalog 3,561/12, full 52,416/932,
+conformance, guard, and diff check pass. V-006 ordinary-client proof remains
+open. Disabling an already-active SFX/material/texture child and invalidating
+its cached parent remains `T-ASSETS-033`; `T-CATALOG-004` owns transactional
+family-specific teardown for every non-effect type before mod/full reset.
+
 `T-ASSETS-018` is implemented, but not yet validated, after B-1003. Public
 `.pdeffect` activation now retains the complete executable graph IR, stable
 topological order, ordered/interpolated timeline keys, and validated v2 native
@@ -64,7 +89,14 @@ and scanner/network traversal joins reject overflow. A 34-field by three-
 ingress by four-boundary behavioral matrix passes. Isolated client/updater/test
 builds, focused 3,472/5, full 51,902/913, guard, and 27-family conformance pass.
 Real installed-client/FileProvider transport proof and post-preflight PDCA I/O
-rollback remain, so status is still partial.
+rollback were the two remaining Wave C fronts. B-1006 now source-freezes the
+rollback implementation: received archives write into a unique sibling stage,
+sync every member, preserve authored case while rejecting Windows path aliases,
+publish by rename, restore an existing destination on failure, clean only
+hash-matched abandoned stages, and block ambiguous crash backups. Combined
+tests are pending the joint T019/T020 fingerprint. Real installed-client
+catalog to FileProvider to runtime fixtures remain open, so status is still
+partial.
 
 **2026-08-08 ACTIVE ROADMAP EXECUTION.** The canonical Workbench routes the
 live asset program ahead of 36 explicitly deferred historical/manual-resume
@@ -233,9 +265,11 @@ audio semantics, validates legacy v1 identity and safe member references, and
 prevents `_meta/manifest.json` from selecting effect/timeline source fields.
 Source-frozen client/updater/test builds pass; focused T017 passes 34 assertions
 / 5 cases, the legacy/nested archive regression passes 21 / 1, the full suite
-passes 48,155 / 900, and the native-source guard passes. T-ASSETS-018 through
-T-ASSETS-020 still own execution, dependencies/fail-closed behavior, and live
-edited-source proof; v2 validation success does not yet apply profile rows.
+passes 48,155 / 900, and the native-source guard passes. T-ASSETS-018 and
+T-ASSETS-020 are now implemented, and T-ASSETS-019 has a verified partial v2
+profile/dependency milestone. Generic v1 dispatch and consumers remain explicit
+in T-ASSETS-032/034/035/036, nested ingress capacity in T-ASSETS-037, reverse
+child-dependency invalidation in T-ASSETS-033, and live proof in V-009/V-006.
 
 Final audit verification checkpoint, 2026-07-30: B-969's creator-workflow fix
 remains live-smoke validated, and the regenerated all-family package again

@@ -14,6 +14,7 @@
 #include "assetcatalog_model_slots.h"  /* B-911: custom-model private slots for embedded meshes */
 #include "system.h"  /* B-911/B-912: sysLogPrintf for the embedded-mesh ingest (pd-tests has no PCH) */
 #include "constants.h"
+#include "effect_executor.h"
 #include "effect_graph_runtime.h"  /* c3849 Unit 8: nested .pdeffect ingestion */
 #include "fs.h"
 #include "loader_enum_reverse.h"
@@ -517,56 +518,11 @@ void weaponGraphRuntimeSetEnabled(s32 enabled)
 #endif
 }
 
-/* c3849 Unit 1b (binding spec B2): single explosion-ref table. Values mirror
- * the EXPLOSIONTYPE_* constants (constants.h:919-940, included above). The
- * pdeffect class words (tiny/small/medium/...) are legal ONLY inside
- * .pdeffect graph bodies, never here. Spark refs intentionally have NO base
- * vocabulary: the OG spark table has no stable authored names worth pinning,
- * so spark refs stay runtime-resolved through effectGraphResolveSparkType
- * (fallback verbatim until the Unit 8 effect runtime lands). */
+/* ABI-compatible parse latch. Selected public IDs never resolve through
+ * native literals; the active .pdeffect executor owns source-to-row mapping. */
 s32 weaponGraphResolveExplosionRef(const char *ref)
 {
-	static s32 s_warned_alias_small = 0;
-	static s32 s_warned_alias_laptop = 0;
-
-	if (!ref || !ref[0]) {
-		return -1;
-	}
-
-	if (strcmp(ref, "base:explosion_rocket") == 0) {
-		return EXPLOSIONTYPE_ROCKET;
-	}
-	if (strcmp(ref, "base:explosion_huge") == 0) {
-		return EXPLOSIONTYPE_HUGE17;
-	}
-	if (strcmp(ref, "base:explosion_sdgrenade") == 0) {
-		return EXPLOSIONTYPE_SDGRENADE;
-	}
-	if (strcmp(ref, "base:explosion_phoenix") == 0) {
-		return EXPLOSIONTYPE_PHOENIX;
-	}
-	if (strcmp(ref, "base:explosion_dragonbombspy") == 0) {
-		return EXPLOSIONTYPE_DRAGONBOMBSPY;
-	}
-
-	/* Deprecated impact-cluster spellings: accepted, warned once. */
-	if (strcmp(ref, "base:explosion_small") == 0) {
-		if (!s_warned_alias_small) {
-			s_warned_alias_small = 1;
-			sysLogPrintf(LOG_WARNING,
-				"WEAPONGRAPH.PARSE: explosion ref 'base:explosion_small' is deprecated; use 'base:explosion_phoenix'");
-		}
-		return EXPLOSIONTYPE_PHOENIX;
-	}
-	if (strcmp(ref, "base:explosion_laptop") == 0) {
-		if (!s_warned_alias_laptop) {
-			s_warned_alias_laptop = 1;
-			sysLogPrintf(LOG_WARNING,
-				"WEAPONGRAPH.PARSE: explosion ref 'base:explosion_laptop' is deprecated; use the canonical EXPLOSIONTYPE token vocabulary");
-		}
-		return EXPLOSIONTYPE_LAPTOP;
-	}
-
+	(void)ref;
 	return -1;
 }
 
@@ -975,6 +931,8 @@ static s32 paramIsCatalogRefKey(const char *key)
 {
 	return strcmp(key, "projectile_ref") == 0 ||
 		strcmp(key, "entity_ref") == 0 ||
+		strcmp(key, "explosion_ref") == 0 ||
+		strcmp(key, "spark_ref") == 0 ||
 		strcmp(key, "payload_ref") == 0 ||
 		strcmp(key, "recover_weapon_ref") == 0 ||
 		strcmp(key, "detonator_ref") == 0;
@@ -3999,7 +3957,9 @@ static void s_registerEmbeddedMeshDeps(const char *archive_path,
  * in the effect runtime (no slot allocator), so ingestion is registration
  * only. Failures are loud but non-fatal at this depth (mesh-ingest
  * precedent): the weapon still registers and the effect bridges keep their
- * OG fallbacks. */
+ * OG fallbacks. T-ASSETS-020 makes this scan transactional: any declared
+ * embedded effect that cannot be read, validated, or registered rejects the
+ * parent archive. */
 
 typedef struct {
 	char **names;
@@ -4070,8 +4030,8 @@ static s32 effectSameNamespace(const char *a, const char *b)
 	return alen == blen && strncmp(a, b, alen) == 0;
 }
 
-static void s_registerEmbeddedEffectDeps(const void *container_bytes,
-		u32 container_size, const char *parent_id)
+static s32 s_registerEmbeddedEffectDeps(const void *container_bytes,
+		u32 container_size, const char *parent_id, char *err, size_t err_cap)
 {
 	embedded_effect_name_scan_t scan;
 	memset(&scan, 0, sizeof(scan));
@@ -4080,7 +4040,8 @@ static void s_registerEmbeddedEffectDeps(const void *container_bytes,
 		sysLogPrintf(LOG_WARNING,
 			"WEAPONGRAPH.EFFECT.SCAN: out of memory collecting embedded effects");
 		s_freeEmbeddedEffectNames(&scan);
-		return;
+		setErr(err, err_cap, "out of memory collecting embedded effects");
+		return -1;
 	}
 
 	for (size_t i = 0; i < scan.count; i++) {
@@ -4092,19 +4053,24 @@ static void s_registerEmbeddedEffectDeps(const void *container_bytes,
 			sysLogPrintf(LOG_WARNING,
 				"WEAPONGRAPH.EFFECT.SCAN: could not read embedded effect %s",
 				scan.names[i]);
-			continue;
+			setErr(err, err_cap, "could not read embedded effect %s", scan.names[i]);
+			s_freeEmbeddedEffectNames(&scan);
+			return -1;
 		}
 
 		weapon_graph_archive_descriptor_t desc;
-		char err[256];
-		err[0] = '\0';
+		char effect_err[256];
+		effect_err[0] = '\0';
 		if (weaponGraphArchiveReadDescriptorBytes(effect_bytes, effect_size,
-				ASSET_EFFECT, &desc, err, sizeof(err)) != 0) {
+				ASSET_EFFECT, &desc, effect_err, sizeof(effect_err)) != 0) {
 			free(effect_bytes);
 			sysLogPrintf(LOG_WARNING,
 				"WEAPONGRAPH.EFFECT.SCAN: embedded effect %s has a bad effect.ini; skipped: %s",
-				scan.names[i], err[0] ? err : "unknown error");
-			continue;
+				scan.names[i], effect_err[0] ? effect_err : "unknown error");
+			setErr(err, err_cap, "embedded effect %s has a bad effect.ini: %s",
+				scan.names[i], effect_err[0] ? effect_err : "unknown error");
+			s_freeEmbeddedEffectNames(&scan);
+			return -1;
 		}
 		if (desc.catalog_id[0] &&
 				!effectSameNamespace(parent_id, desc.catalog_id)) {
@@ -4112,15 +4078,24 @@ static void s_registerEmbeddedEffectDeps(const void *container_bytes,
 			sysLogPrintf(LOG_WARNING,
 				"WEAPONGRAPH.EFFECT.SCAN: embedded effect %s id %s is outside parent namespace %s; skipped",
 				scan.names[i], desc.catalog_id, parent_id);
-			continue;
+			setErr(err, err_cap,
+				"embedded effect %s id %s is outside parent namespace %s",
+				scan.names[i], desc.catalog_id, parent_id);
+			s_freeEmbeddedEffectNames(&scan);
+			return -1;
 		}
 
-		err[0] = '\0';
-		if (effectGraphRuntimeRegisterArchiveBytes(effect_bytes, effect_size,
-				err, sizeof(err)) != 0) {
+		effect_err[0] = '\0';
+		if (effectGraphRuntimeRegisterArchiveBytesOwned(effect_bytes, effect_size,
+				parent_id, effect_err, sizeof(effect_err)) != 0) {
+			free(effect_bytes);
 			sysLogPrintf(LOG_WARNING,
 				"WEAPONGRAPH.EFFECT.SCAN: embedded effect %s failed to register: %s",
-				scan.names[i], err[0] ? err : "unknown error");
+				scan.names[i], effect_err[0] ? effect_err : "unknown error");
+			setErr(err, err_cap, "embedded effect %s failed to register: %s",
+				scan.names[i], effect_err[0] ? effect_err : "unknown error");
+			s_freeEmbeddedEffectNames(&scan);
+			return -1;
 		} else {
 			sysLogPrintf(LOG_NOTE,
 				"WEAPONGRAPH.EFFECT.INGEST: id=%s source=%s",
@@ -4130,6 +4105,62 @@ static void s_registerEmbeddedEffectDeps(const void *container_bytes,
 		free(effect_bytes);
 	}
 	s_freeEmbeddedEffectNames(&scan);
+	return 0;
+}
+
+static s32 effectExplosionRefIsActive(const char *effect_ref)
+{
+	const effect_graph_runtime_t *effect;
+	if (!effect_ref || !effect_ref[0]) return 1;
+	effect = effectGraphRuntimeGet(effect_ref);
+	if (effect && effect->has_explosion && effect->explosion_type >= 0) return 1;
+	return effectExecutorResolveExplosionProfile(effect_ref) >= 0;
+}
+
+static s32 effectSparkRefIsActive(const char *effect_ref)
+{
+	const effect_graph_runtime_t *effect;
+	if (!effect_ref || !effect_ref[0]) return 1;
+	effect = effectGraphRuntimeGet(effect_ref);
+	if (effect && effect->has_spark && effect->spark_type >= 0) return 1;
+	return effectExecutorResolveSparkProfile(effect_ref) >= 0;
+}
+
+static s32 s_validateBehaviorEffectRefs(const char *asset_id,
+	char *err, size_t err_cap)
+{
+	const weapon_graph_projectile_runtime_t *projectile =
+		weaponGraphRuntimeGetProjectile(asset_id);
+	if (projectile) {
+		if (!effectExplosionRefIsActive(projectile->wall_explosion_ref)) {
+			setErr(err, err_cap,
+				"projectile %s wall explosion_ref %s has no active effect source",
+				asset_id, projectile->wall_explosion_ref);
+			return -1;
+		}
+		if (!effectExplosionRefIsActive(projectile->impact_explosion_ref)) {
+			setErr(err, err_cap,
+				"projectile %s impact explosion_ref %s has no active effect source",
+				asset_id, projectile->impact_explosion_ref);
+			return -1;
+		}
+		if (!effectSparkRefIsActive(projectile->impact_spark_ref)) {
+			setErr(err, err_cap,
+				"projectile %s impact spark_ref %s has no active effect source",
+				asset_id, projectile->impact_spark_ref);
+			return -1;
+		}
+	}
+
+	const weapon_graph_entity_runtime_t *entity =
+		weaponGraphRuntimeGetEntity(asset_id);
+	if (entity && !effectExplosionRefIsActive(entity->explosion_ref)) {
+		setErr(err, err_cap,
+			"entity %s explosion_ref %s has no active effect source",
+			asset_id, entity->explosion_ref);
+		return -1;
+	}
+	return 0;
 }
 
 static s32 weaponGraphRuntimeRegisterWeaponArchiveDependencies(
@@ -4206,12 +4237,11 @@ static s32 weaponGraphRuntimeRegisterWeaponArchiveDependencies(
 			goto fail;
 		}
 
-		/* c3849 Unit 8: a top-level nested .pdeffect is a typed payload like
-		 * projectile/entity and registers (loud-fail) into the effect runtime,
-		 * keyed by asset_id string -- no slot allocator, no owner bits. */
+		/* A top-level nested .pdeffect is a typed payload like projectile/entity
+		 * and registers into the parent-owned effect transaction. */
 		if (payload->type == ASSET_EFFECT) {
-			if (effectGraphRuntimeRegisterArchiveBytes(nested, nested_size,
-					err, err_cap) != 0) {
+			if (effectGraphRuntimeRegisterArchiveBytesOwned(nested, nested_size,
+					parent_id, err, err_cap) != 0) {
 				free(nested);
 				goto fail;
 			}
@@ -4230,10 +4260,13 @@ static s32 weaponGraphRuntimeRegisterWeaponArchiveDependencies(
 		s_registerEmbeddedMeshDeps(archive_path, payload->archive_entry,
 			nested, nested_size, parent_id, 0);
 
-		/* c3849 Unit 8: register effects embedded one level deeper (inside
-		 * the projectile/entity bytes), so the payload's impact spark and
-		 * explosion refs resolve once the toggle is on. Loud, non-fatal. */
-		s_registerEmbeddedEffectDeps(nested, nested_size, parent_id);
+		/* Register effects embedded one level deeper before compiling the
+		 * projectile/entity. Any failure rejects and rolls back the parent. */
+		if (s_registerEmbeddedEffectDeps(nested, nested_size, parent_id,
+				err, err_cap) != 0) {
+			free(nested);
+			goto fail;
+		}
 
 		weapon_graph_ir_t ir;
 		if (weaponGraphCompileArchiveBytes(nested, nested_size, payload->type,
@@ -4270,6 +4303,15 @@ static s32 weaponGraphRuntimeRegisterWeaponArchiveDependencies(
 		}
 	}
 
+	/* Resolve selected effect source only after every sibling and deep
+	 * embedded archive has been admitted, so forward references are stable.
+	 * A missing, wrong-type, corrupt, or disabled source rejects the parent. */
+	for (s32 i = 0; i < registered_count; i++) {
+		if (s_validateBehaviorEffectRefs(registered[i], err, err_cap) != 0) {
+			goto fail;
+		}
+	}
+
 	free(archive_bytes);
 	if (arc) {
 		modArchiveClose(arc);
@@ -4277,10 +4319,8 @@ static s32 weaponGraphRuntimeRegisterWeaponArchiveDependencies(
 	return 0;
 
 fail:
+	effectGraphRuntimeReleaseOwner(parent_id);
 	for (s32 i = 0; i < registered_count; i++) {
-		/* c3849 Unit 8: effect records have no owner bits; clear by id
-		 * (no-op for projectile/entity ids). */
-		effectGraphRuntimeClearAsset(registered[i]);
 		if (owner_weapon >= 0 &&
 				owner_weapon < WEAPON_GRAPH_RUNTIME_MAX_WEAPONS) {
 			s32 projectile = projectileRuntimeFindIndex(registered[i]);
@@ -4519,9 +4559,14 @@ s32 weaponGraphRuntimeRegisterWeaponArchive(s32 weaponnum,
 		weaponGraphRuntimeClearWeapon(weaponnum);
 		return -1;
 	}
+	/* A re-registration is a new selected-source transaction. Retire the prior
+	 * effect closure owned by this weapon before admitting the replacement so
+	 * a corrupt edit cannot keep stale effects alive. */
+	effectGraphRuntimeReleaseOwner(ir.asset_id);
 	if (weaponGraphRuntimeRegisterWeaponArchiveDependencies(archive_path,
 			ir.asset_id, weaponnum, err, err_cap) != 0) {
 		weaponGraphRuntimeClearWeapon(weaponnum);
+		effectGraphRuntimeReleaseOwner(ir.asset_id);
 		return -1;
 	}
 	weaponGraphWarnTimerOverlap(weaponnum);

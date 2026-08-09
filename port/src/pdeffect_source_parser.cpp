@@ -3,6 +3,7 @@
 #include "asset_archive_policy.h"
 #include "fs.h"
 #include "modarchive.h"
+#include "system.h"
 
 #include <cmath>
 #include <cctype>
@@ -119,7 +120,7 @@ static bool stringIs(const JValue *v,const char *expected,const char *where,Erro
 static bool number(const JValue *v,double lo,double hi,bool integer,const char *where,Error &e)
 { if(!v||v->type!=J_NUMBER||!std::isfinite(v->number)){fail(e,"%s must be a finite number",where);return false;}if(v->number<lo||v->number>hi||(integer&&floor(v->number)!=v->number)){fail(e,"%s is out of range",where);return false;}return true; }
 static bool validCatalog(const std::string &s)
-{ size_t c=s.find(':');if(c==0||c==std::string::npos||c+1==s.size()||s.find(':',c+1)!=std::string::npos)return false;for(unsigned char x:s)if(!(isalnum(x)||x=='_'||x=='-'||x=='.'||x==':'))return false;return true; }
+{ return pdEffectCatalogIdValid(s.c_str()) != 0; }
 static bool validMember(const std::string &s)
 { if(s.empty()||s[0]=='/'||s[0]=='\\'||s.find("::")!=std::string::npos||s.find('\\')!=std::string::npos)return false;size_t pos=0;while(pos<=s.size()){size_t n=s.find('/',pos);std::string seg=s.substr(pos,n==std::string::npos?s.size()-pos:n-pos);if(seg.empty()||seg=="."||seg=="..")return false;if(n==std::string::npos)break;pos=n+1;}return true; }
 static bool color(const JValue *v,size_t digits,const char *where,Error &e)
@@ -273,7 +274,7 @@ extern "C" s32 pdEffectSourceParseArchiveFile(const char *path,const char *expec
 	 * creator validation use them before game boot). Archive-qualified nested
 	 * paths fall through to fsFileLoad, which understands the :: chain. */
 	if(!strstr(path,"::")){FILE *fp=fopen(path,"rb");if(fp){if(fseek(fp,0,SEEK_END)==0){long n=ftell(fp);if(n>0&&n<=64*1024*1024&&fseek(fp,0,SEEK_SET)==0){bytes=malloc((size_t)n);if(bytes&&fread(bytes,1,(size_t)n,fp)==(size_t)n)length=(u32)n;else{free(bytes);bytes=nullptr;}}}fclose(fp);}}
-	if(!bytes)bytes=fsFileLoad(path,&length);if(!bytes||!length||length>64*1024*1024){free(bytes);if(error&&error_cap)snprintf(error,error_cap,"cannot load effect archive or size is invalid");return 0;}s32 ok=pdEffectSourceParseArchiveBytes(bytes,length,expected,out,error,error_cap);free(bytes);return ok;
+	bool sysmem_owned=false;if(!bytes){bytes=fsFileLoad(path,&length);sysmem_owned=bytes!=nullptr;}if(!bytes||!length||length>64*1024*1024){if(sysmem_owned)sysMemFree(bytes);else free(bytes);if(error&&error_cap)snprintf(error,error_cap,"cannot load effect archive or size is invalid");return 0;}s32 ok=pdEffectSourceParseArchiveBytes(bytes,length,expected,out,error,error_cap);if(sysmem_owned)sysMemFree(bytes);else free(bytes);return ok;
 }
 
 extern "C" void pdEffectSourceFreeProfileLibrary(pd_effect_profile_library_t *library)

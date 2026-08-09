@@ -204,6 +204,13 @@ const void *catalogGetLoadedAnimationClip(const char *assetId,
 void catalogReleaseTypedAsset(asset_type_e expected_type, const char *assetId);
 
 /**
+ * Retire every reference owned through one non-bundled root and its unique
+ * dependency closure. Used by disable and catalog-reset transactions; ignores
+ * the root enabled flag and leaves the row eligible for a clean reactivation.
+ */
+s32 catalogDeactivateTypedAsset(asset_type_e expected_type, const char *assetId);
+
+/**
  * Type-checked retain wrapper. Same validation rule as
  * catalogLoadTypedAsset; mismatches log and leave the asset untouched.
  */

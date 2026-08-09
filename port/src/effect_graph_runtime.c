@@ -3,8 +3,8 @@
  *
  * c3849 Unit 8 (full runtime behind the Unit 1b bridge seams). Mirrors the
  * weapon_graph_runtime slot-array/clear/register/accessor layout, scaled
- * down: effect records key by asset_id string only (no runtime_index slots,
- * no owner bits). Gameplay reads go through GetForGameplay/the bridges; in
+ * down: effect records key by asset_id string only (no runtime_index slots),
+ * with growable activation-owner sets. Gameplay reads go through the bridges; in
  * product builds the Wave 7 cutover keeps the shared runtime gate enabled,
  * while tests can still disable it for parity coverage.
  *
@@ -28,6 +28,7 @@
 #include "game/sparks.h"
 
 #include "constants.h"
+#include "effect_executor.h"
 #include "effect_graph_runtime.h"
 #include "modarchive.h"
 #include "pdeffect_source.h"
@@ -92,19 +93,85 @@ static void effectRuntimeFree(effect_graph_runtime_t *record)
 {
 	if (!record) return;
 	effectProgramFree(&record->program);
+	free(record->owners);
 	free(record);
 }
 
+static s32 effectRuntimeOwnerIndex(const effect_graph_runtime_t *record,
+	const char *owner_id)
+{
+	if (!record || !owner_id || !owner_id[0]) return -1;
+	for (size_t i = 0; i < record->owner_count; i++) {
+		if (strcmp(record->owners[i], owner_id) == 0) return (s32)i;
+	}
+	return -1;
+}
+
+static s32 effectRuntimeAddOwner(effect_graph_runtime_t *record,
+	const char *owner_id, char *err, size_t err_cap)
+{
+	if (!record || !owner_id || !owner_id[0]) {
+		setErr(err, err_cap, "effect runtime owner is missing");
+		return -1;
+	}
+	if (effectRuntimeOwnerIndex(record, owner_id) >= 0) return 0;
+	if (record->owner_count == record->owner_capacity) {
+		size_t next = record->owner_capacity ? record->owner_capacity * 2 : 2;
+		if (next < record->owner_count + 1 ||
+				next > SIZE_MAX / sizeof(*record->owners)) {
+			setErr(err, err_cap, "effect runtime owner table size overflow");
+			return -1;
+		}
+		char (*grown)[CATALOG_ID_LEN] = (char (*)[CATALOG_ID_LEN])realloc(
+			record->owners, next * sizeof(*record->owners));
+		if (!grown) {
+			setErr(err, err_cap, "out of memory growing effect owner table");
+			return -1;
+		}
+		record->owners = grown;
+		record->owner_capacity = next;
+	}
+	copyStr(record->owners[record->owner_count], CATALOG_ID_LEN, owner_id);
+	record->owner_count++;
+	return 0;
+}
+
 static s32 effectRuntimeCommit(effect_graph_runtime_t *record,
-	char *err, size_t err_cap)
+	const char *owner_id, char *err, size_t err_cap)
 {
 	for (size_t i = 0; i < s_effect_runtime_count; i++) {
 		if (strcmp(s_effect_runtimes[i]->asset_id, record->asset_id) == 0) {
+			effect_graph_runtime_t *existing = s_effect_runtimes[i];
+			if (strcmp(existing->source_sha256, record->source_sha256) == 0) {
+				if (effectRuntimeAddOwner(existing, owner_id, err, err_cap) != 0) {
+					return -1;
+				}
+				effectRuntimeFree(record);
+				return 0;
+			}
+			if (existing->owner_count != 1 ||
+					effectRuntimeOwnerIndex(existing, owner_id) < 0) {
+				setErr(err, err_cap,
+					"effect %s source conflicts with another active owner",
+					record->asset_id);
+				return -1;
+			}
+			if (effectRuntimeAddOwner(record, owner_id, err, err_cap) != 0) {
+				return -1;
+			}
+			if (!effectExecutorInstallProgram(record, err, err_cap)) {
+				return -1;
+			}
+			if (existing->program.kind == EFFECT_GRAPH_PROGRAM_PROFILE_LIBRARY
+					&& record->program.kind != EFFECT_GRAPH_PROGRAM_PROFILE_LIBRARY) {
+				effectExecutorRemoveProgram(existing->asset_id);
+			}
 			effectRuntimeFree(s_effect_runtimes[i]);
 			s_effect_runtimes[i] = record;
 			return 0;
 		}
 	}
+	if (effectRuntimeAddOwner(record, owner_id, err, err_cap) != 0) return -1;
 	if (s_effect_runtime_count == s_effect_runtime_cap) {
 		size_t next = s_effect_runtime_cap ? s_effect_runtime_cap * 2 : 32;
 		if (next < s_effect_runtime_count + 1 ||
@@ -119,30 +186,43 @@ static s32 effectRuntimeCommit(effect_graph_runtime_t *record,
 			return -1;
 		}
 		s_effect_runtimes = grown;
-		s_effect_runtime_cap = next;
+			s_effect_runtime_cap = next;
+	}
+	if (!effectExecutorInstallProgram(record, err, err_cap)) {
+		return -1;
 	}
 	s_effect_runtimes[s_effect_runtime_count++] = record;
 	return 0;
 }
 
-void effectGraphRuntimeClearAsset(const char *asset_id)
+void effectGraphRuntimeReleaseOwner(const char *owner_id)
 {
-	if (!asset_id || !asset_id[0]) return;
-	for (size_t i = 0; i < s_effect_runtime_count; i++) {
-		if (strcmp(s_effect_runtimes[i]->asset_id, asset_id) == 0) {
-			effectRuntimeFree(s_effect_runtimes[i]);
+	if (!owner_id || !owner_id[0]) return;
+	for (size_t i = s_effect_runtime_count; i-- > 0; ) {
+		effect_graph_runtime_t *record = s_effect_runtimes[i];
+		s32 owner_index = effectRuntimeOwnerIndex(record, owner_id);
+		if (owner_index < 0) continue;
+		if ((size_t)owner_index + 1 < record->owner_count) {
+			memmove(&record->owners[owner_index], &record->owners[owner_index + 1],
+				(record->owner_count - (size_t)owner_index - 1) *
+					sizeof(*record->owners));
+		}
+		record->owner_count--;
+		if (record->owner_count == 0) {
+			effectExecutorRemoveProgram(record->asset_id);
+			effectRuntimeFree(record);
 			if (i + 1 < s_effect_runtime_count) {
 				memmove(&s_effect_runtimes[i], &s_effect_runtimes[i + 1],
 					(s_effect_runtime_count - i - 1) * sizeof(*s_effect_runtimes));
 			}
 			s_effect_runtime_count--;
-			return;
 		}
 	}
 }
 
 void effectGraphRuntimeClearAll(void)
 {
+	effectExecutorReset();
 	for (size_t i = 0; i < s_effect_runtime_count; i++) {
 		effectRuntimeFree(s_effect_runtimes[i]);
 	}
@@ -396,7 +476,7 @@ static void effectRuntimeFromNode(const weapon_graph_ir_t *ir,
 			(s16)effectExplosionClassToType(record->explosion_class);
 		if (record->explosion_class[0] && record->explosion_type < 0) {
 			sysLogPrintf(LOG_WARNING,
-				"EFFECTGRAPH.PARSE: '%s' unknown explosion_class '%s'; detonation keeps the OG fallback",
+				"EFFECTGRAPH.PARSE: '%s' unknown explosion_class '%s'; selected channel is unavailable",
 				ir->asset_id, record->explosion_class);
 		}
 		tint_count = effectParamFloats(ir, node, "tint", tint, 4);
@@ -446,7 +526,7 @@ static void effectRuntimeFromNode(const weapon_graph_ir_t *ir,
 			record->smoke_type = effectSmokeClassToType(cls);
 			if (record->smoke_type < 0) {
 				sysLogPrintf(LOG_WARNING,
-					"EFFECTGRAPH.PARSE: '%s' unknown smoke class '%s'; smoke keeps the OG fallback",
+					"EFFECTGRAPH.PARSE: '%s' unknown smoke class '%s'; selected channel is unavailable",
 					ir->asset_id, cls);
 			}
 		} else if (effectParamInt(ir, node, "smoke_type", &ivalue)) {
@@ -456,7 +536,7 @@ static void effectRuntimeFromNode(const weapon_graph_ir_t *ir,
 				record->smoke_type = ivalue;
 			} else {
 				sysLogPrintf(LOG_WARNING,
-					"EFFECTGRAPH.PARSE: '%s' smoke_type %d outside the OG table; smoke keeps the OG fallback",
+					"EFFECTGRAPH.PARSE: '%s' smoke_type %d outside the OG table; selected channel is unavailable",
 					ir->asset_id, ivalue);
 			}
 		}
@@ -638,9 +718,59 @@ static effect_graph_runtime_t *effectRuntimeCreateProfile(
 	return record;
 }
 
-static s32 effectRuntimeRegisterPublicSource(
+static s32 effectRuntimeSetActivationDigest(effect_graph_runtime_t *record,
 	const pd_effect_source_info_t *source, const char *graph, u32 graph_size,
 	const char *timeline, u32 timeline_size, char *err, size_t err_cap)
+{
+	if (!record || !source) return -1;
+	u8 graph_digest[SHA256_DIGEST_SIZE] = {0};
+	u8 timeline_digest[SHA256_DIGEST_SIZE];
+	char descriptor[1400];
+	s32 descriptor_len;
+	u8 combined_digest[SHA256_DIGEST_SIZE];
+	u8 *identity;
+	size_t identity_size;
+
+	memset(timeline_digest, 0, sizeof(timeline_digest));
+	if (graph && graph_size) sha256Hash(graph, graph_size, graph_digest);
+	if (timeline && timeline_size) {
+		sha256Hash(timeline, timeline_size, timeline_digest);
+	}
+	descriptor_len = snprintf(descriptor, sizeof(descriptor),
+		"format=%d\nprofile_kind=%d\ncatalog_id=%s\nname=%s\n"
+		"effect_file=%s\ntimeline_file=%s\neffect_key=%s\ntarget_key=%s\n"
+		"shader_id=%s\nintensity=%.9g\nprofile_count=%zu\n"
+		"audio_rows=%zu\nsilent_audio_rows=%zu\n",
+		(s32)source->format, (s32)source->profile_kind, source->catalog_id,
+		source->name, source->effect_file, source->timeline_file,
+		source->effect_key, source->target_key, source->shader_id,
+		(double)source->intensity, source->profile_count,
+		source->has_audio_rows, source->silent_audio_rows);
+	if (descriptor_len < 0 || (size_t)descriptor_len >= sizeof(descriptor)) {
+		setErr(err, err_cap, "effect source identity exceeds canonical envelope");
+		return -1;
+	}
+	identity_size = (size_t)descriptor_len + sizeof(graph_digest) +
+		sizeof(timeline_digest);
+	identity = (u8 *)malloc(identity_size);
+	if (!identity) {
+		setErr(err, err_cap, "out of memory hashing effect source identity");
+		return -1;
+	}
+	memcpy(identity, descriptor, (size_t)descriptor_len);
+	memcpy(identity + descriptor_len, graph_digest, sizeof(graph_digest));
+	memcpy(identity + descriptor_len + sizeof(graph_digest), timeline_digest,
+		sizeof(timeline_digest));
+	sha256Hash(identity, identity_size, combined_digest);
+	free(identity);
+	sha256ToHex(combined_digest, record->source_sha256);
+	return 0;
+}
+
+static s32 effectRuntimeRegisterPublicSource(
+	const pd_effect_source_info_t *source, const char *graph, u32 graph_size,
+	const char *timeline, u32 timeline_size, const char *owner_id,
+	char *err, size_t err_cap)
 {
 	effect_graph_runtime_t *record = NULL;
 	if (source->format == PD_EFFECT_SOURCE_FORMAT_PROFILE_LIBRARY) {
@@ -665,7 +795,14 @@ static s32 effectRuntimeRegisterPublicSource(
 		return -1;
 	}
 	if (!record) return -1;
-	if (effectRuntimeCommit(record, err, err_cap) != 0) {
+	/* Owner collision/replacement uses the complete public-source identity,
+	 * including normalized descriptor semantics and both authored members. */
+	if (effectRuntimeSetActivationDigest(record, source, graph, graph_size,
+			timeline, timeline_size, err, err_cap) != 0) {
+		effectRuntimeFree(record);
+		return -1;
+	}
+	if (effectRuntimeCommit(record, owner_id, err, err_cap) != 0) {
 		effectRuntimeFree(record);
 		return -1;
 	}
@@ -696,16 +833,15 @@ s32 effectGraphRuntimeRegisterGraphJson(const char *asset_id,
 	effect_graph_runtime_t *record = effectRuntimeCreateIr(&ir, NULL, 0,
 		err, err_cap);
 	if (!record) return -1;
-	if (effectRuntimeCommit(record, err, err_cap) != 0) {
+	if (effectRuntimeCommit(record, ir.asset_id, err, err_cap) != 0) {
 		effectRuntimeFree(record);
 		return -1;
 	}
 	return 0;
 }
 
-s32 effectGraphRuntimeRegisterArchiveBytes(const void *archive_bytes,
-                                           u32 archive_size,
-                                           char *err, size_t err_cap)
+static s32 effectRuntimeRegisterArchiveBytesOwned(const void *archive_bytes,
+	u32 archive_size, const char *owner_id, char *err, size_t err_cap)
 {
 	pd_effect_source_info_t public_source;
 	void *graph = NULL;
@@ -733,14 +869,29 @@ s32 effectGraphRuntimeRegisterArchiveBytes(const void *archive_bytes,
 	}
 	result = effectRuntimeRegisterPublicSource(&public_source,
 		(const char *)graph, graph_size, (const char *)timeline, timeline_size,
+		owner_id && owner_id[0] ? owner_id : public_source.catalog_id,
 		err, err_cap);
 	free(graph);
 	free(timeline);
 	return result;
 }
 
-s32 effectGraphRuntimeRegisterArchive(const char *archive_path,
-                                      char *err, size_t err_cap)
+s32 effectGraphRuntimeRegisterArchiveBytesOwned(const void *archive_bytes,
+	u32 archive_size, const char *owner_id, char *err, size_t err_cap)
+{
+	return effectRuntimeRegisterArchiveBytesOwned(archive_bytes, archive_size,
+		owner_id, err, err_cap);
+}
+
+s32 effectGraphRuntimeRegisterArchiveBytes(const void *archive_bytes,
+	u32 archive_size, char *err, size_t err_cap)
+{
+	return effectRuntimeRegisterArchiveBytesOwned(archive_bytes, archive_size,
+		NULL, err, err_cap);
+}
+
+static s32 effectRuntimeRegisterArchiveOwned(const char *archive_path,
+	const char *owner_id, char *err, size_t err_cap)
 {
 	pd_effect_source_info_t public_source;
 	char *graph = NULL;
@@ -768,10 +919,24 @@ s32 effectGraphRuntimeRegisterArchive(const char *archive_path,
 			archive_path, public_source.timeline_file); return -1;
 	}
 	result = effectRuntimeRegisterPublicSource(&public_source, graph, graph_size,
-		timeline, timeline_size, err, err_cap);
+		timeline, timeline_size,
+		owner_id && owner_id[0] ? owner_id : public_source.catalog_id,
+		err, err_cap);
 	free(graph);
 	free(timeline);
 	return result;
+}
+
+s32 effectGraphRuntimeRegisterArchiveOwned(const char *archive_path,
+	const char *owner_id, char *err, size_t err_cap)
+{
+	return effectRuntimeRegisterArchiveOwned(archive_path, owner_id, err, err_cap);
+}
+
+s32 effectGraphRuntimeRegisterArchive(const char *archive_path,
+	char *err, size_t err_cap)
+{
+	return effectRuntimeRegisterArchiveOwned(archive_path, NULL, err, err_cap);
 }
 
 /* ---------------------------------------------------------------------------
@@ -781,28 +946,27 @@ s32 effectGraphRuntimeRegisterArchive(const char *archive_path,
 s32 effectGraphResolveExplosionType(const char *effect_ref, s32 fallback_exptype)
 {
 	const effect_graph_runtime_t *record;
-	s32 resolved;
 
 	if (!effect_ref || !effect_ref[0]) {
 		return fallback_exptype;
 	}
-	/* Test gate: with the shared runtime gate off every consumer must be
-	 * bit-identical to OG, so the fallback wins unconditionally. */
+	/* A disabled runtime cannot satisfy an authored selection. Product keeps
+	 * this gate enabled; tests may disable it, but selected refs still fail
+	 * closed rather than reviving OG behavior. */
 	if (!weaponGraphRuntimeEnabled()) {
-		return fallback_exptype;
-	}
-
-	resolved = weaponGraphResolveExplosionRef(effect_ref);
-	if (resolved >= 0) {
-		return resolved;
+		return EFFECT_GRAPH_RESOLVE_FAILED;
 	}
 
 	record = effectGraphRuntimeGetForGameplay(effect_ref);
 	if (record && record->has_explosion && record->explosion_type >= 0) {
 		return record->explosion_type;
 	}
+	{
+		s32 profile = effectExecutorResolveExplosionProfile(effect_ref);
+		if (profile >= 0) return profile;
+	}
 
-	return fallback_exptype;
+	return EFFECT_GRAPH_RESOLVE_FAILED;
 }
 
 s32 effectGraphResolveSparkType(const char *effect_ref, s32 fallback_sparktype)
@@ -812,16 +976,22 @@ s32 effectGraphResolveSparkType(const char *effect_ref, s32 fallback_sparktype)
 	if (!effect_ref || !effect_ref[0]) {
 		return fallback_sparktype;
 	}
+	if (!weaponGraphRuntimeEnabled()) {
+		return EFFECT_GRAPH_RESOLVE_FAILED;
+	}
 
-	/* GetForGameplay carries the toggle gate: NULL while off. spark_type is
-	 * the custom registry row index for tinted sparks (>= base count); an
-	 * untinted/unallocated spark record stays on the OG fallback. */
+	/* spark_type is the custom registry row index for tinted sparks. An
+	 * unallocated selected channel remains unavailable. */
 	record = effectGraphRuntimeGetForGameplay(effect_ref);
 	if (record && record->has_spark && record->spark_type >= 0) {
 		return record->spark_type;
 	}
+	{
+		s32 profile = effectExecutorResolveSparkProfile(effect_ref);
+		if (profile >= 0) return profile;
+	}
 
-	return fallback_sparktype;
+	return EFFECT_GRAPH_RESOLVE_FAILED;
 }
 
 s32 effectGraphResolveSmokeType(const char *effect_ref, s32 fallback_smoketype)
@@ -831,13 +1001,20 @@ s32 effectGraphResolveSmokeType(const char *effect_ref, s32 fallback_smoketype)
 	if (!effect_ref || !effect_ref[0]) {
 		return fallback_smoketype;
 	}
+	if (!weaponGraphRuntimeEnabled()) {
+		return EFFECT_GRAPH_RESOLVE_FAILED;
+	}
 
 	record = effectGraphRuntimeGetForGameplay(effect_ref);
 	if (record && record->has_smoke && record->smoke_type >= 0) {
 		return record->smoke_type;
 	}
+	{
+		s32 profile = effectExecutorResolveSmokeProfile(effect_ref);
+		if (profile >= 0) return profile;
+	}
 
-	return fallback_smoketype;
+	return EFFECT_GRAPH_RESOLVE_FAILED;
 }
 
 s32 effectGraphResolveSound(const char *effect_ref, s32 fallback_soundnum)
@@ -847,11 +1024,14 @@ s32 effectGraphResolveSound(const char *effect_ref, s32 fallback_soundnum)
 	if (!effect_ref || !effect_ref[0]) {
 		return fallback_soundnum;
 	}
+	if (!weaponGraphRuntimeEnabled()) {
+		return EFFECT_GRAPH_RESOLVE_FAILED;
+	}
 
 	record = effectGraphRuntimeGetForGameplay(effect_ref);
 	if (record && record->has_sound && record->soundnum > 0) {
 		return record->soundnum;
 	}
 
-	return fallback_soundnum;
+	return EFFECT_GRAPH_RESOLVE_FAILED;
 }

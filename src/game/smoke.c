@@ -1,3 +1,4 @@
+#include <string.h>
 #include <ultra64.h>
 #include "constants.h"
 #include "game/dlights.h"
@@ -87,6 +88,32 @@ struct smoketype g_SmokeTypes[] = {
 _Static_assert(ARRAYCOUNT(g_SmokeTypes) == SMOKETYPE_BASE_COUNT,
 	"g_SmokeTypes row count must match the public extraction contract");
 
+static struct smoketype s_SmokeProfileOverride[SMOKETYPE_BASE_COUNT];
+static bool s_HasSmokeProfileOverride;
+
+const struct smoketype *smokeTypeFor(s32 type)
+{
+	if (type < 0 || type >= SMOKETYPE_BASE_COUNT) {
+		type = SMOKETYPE_NONE;
+	}
+	return s_HasSmokeProfileOverride
+		? &s_SmokeProfileOverride[type] : &g_SmokeTypes[type];
+}
+
+void smokesSetProfileOverride(const struct smoketype *rows, s32 count)
+{
+	if (!rows || count != SMOKETYPE_BASE_COUNT) {
+		return;
+	}
+	memcpy(s_SmokeProfileOverride, rows, sizeof(s_SmokeProfileOverride));
+	s_HasSmokeProfileOverride = true;
+}
+
+void smokesClearProfileOverride(void)
+{
+	s_HasSmokeProfileOverride = false;
+}
+
 Gfx *smokeRenderPart(struct smoke *smoke, struct smokepart *part, Gfx *gdl, struct coord *coord, f32 size)
 {
 	Vtx *vertices = gfxAllocateVertices(4);
@@ -115,8 +142,8 @@ Gfx *smokeRenderPart(struct smoke *smoke, struct smokepart *part, Gfx *gdl, stru
 	f32 frac;
 	u32 stack;
 
-	if (g_SmokeTypes[smoke->type].fadespeed >= part->count) {
-		alpha = part->alpha / (f32) g_SmokeTypes[smoke->type].fadespeed * part->count;
+	if (smokeTypeFor(smoke->type)->fadespeed >= part->count) {
+		alpha = part->alpha / (f32) smokeTypeFor(smoke->type)->fadespeed * part->count;
 	} else {
 		alpha = part->alpha;
 	}
@@ -124,9 +151,9 @@ Gfx *smokeRenderPart(struct smoke *smoke, struct smokepart *part, Gfx *gdl, stru
 	sp78 = cosf(part->rot) * part->size;
 	sp74 = sinf(part->rot) * part->size;
 
-	sp70 = part->pos.x + 7.0f * sinf(part->offset1) * g_SmokeTypes[smoke->type].unk20;
+	sp70 = part->pos.x + 7.0f * sinf(part->offset1) * smokeTypeFor(smoke->type)->unk20;
 	sp6c = part->pos.y;
-	sp68 = part->pos.z + 7.0f * sinf(part->offset2) * g_SmokeTypes[smoke->type].unk20;
+	sp68 = part->pos.z + 7.0f * sinf(part->offset2) * smokeTypeFor(smoke->type)->unk20;
 
 	sp5c = sp70 - campos->f[0];
 	sp58 = sp6c - campos->f[1];
@@ -216,13 +243,13 @@ Gfx *smokeRenderPart(struct smoke *smoke, struct smokepart *part, Gfx *gdl, stru
 				frac = 1;
 			}
 
-			colours[0].r = (u32)(g_SmokeTypes[smoke->type].r * frac) & 0xff;
-			colours[0].g = (u32)(g_SmokeTypes[smoke->type].g * frac) & 0xff;
-			colours[0].b = (u32)(g_SmokeTypes[smoke->type].b * frac) & 0xff;
+			colours[0].r = (u32)(smokeTypeFor(smoke->type)->r * frac) & 0xff;
+			colours[0].g = (u32)(smokeTypeFor(smoke->type)->g * frac) & 0xff;
+			colours[0].b = (u32)(smokeTypeFor(smoke->type)->b * frac) & 0xff;
 		} else {
-			colours[0].r = g_SmokeTypes[smoke->type].r;
-			colours[0].g = g_SmokeTypes[smoke->type].g;
-			colours[0].b = g_SmokeTypes[smoke->type].b;
+			colours[0].r = smokeTypeFor(smoke->type)->r;
+			colours[0].g = smokeTypeFor(smoke->type)->g;
+			colours[0].b = smokeTypeFor(smoke->type)->b;
 		}
 
 		colours[0].a = alpha;
@@ -283,7 +310,7 @@ struct smoke *smokeCreate(struct coord *pos, RoomNum *rooms, s16 type)
 					&& (g_Smokes + i)->type != SMOKETYPE_ROCKETTAIL
 					&& (g_Smokes + i)->type != SMOKETYPE_HOMINGTAIL
 					&& (g_Smokes + i)->type != SMOKETYPE_GRENADETAIL) {
-				(g_Smokes + i)->age = g_SmokeTypes[(g_Smokes + i)->type].duration;
+				(g_Smokes + i)->age = smokeTypeFor((g_Smokes + i)->type)->duration;
 			}
 		} else {
 			// 1 player - if creating muzzle smoke, remove the third bullet impact smoke
@@ -292,7 +319,7 @@ struct smoke *smokeCreate(struct coord *pos, RoomNum *rooms, s16 type)
 
 				if (smoke->type == SMOKETYPE_BULLETIMPACT) {
 					if (count == 3) {
-						smoke->age = g_SmokeTypes[smoke->type].duration;
+						smoke->age = smokeTypeFor(smoke->type)->duration;
 					}
 
 					count++;
@@ -342,7 +369,7 @@ bool smokeCreateForHand(struct coord *pos, RoomNum *rooms, s16 type, s32 handnum
 				&& g_Smokes[i].type <= SMOKETYPE_MUZZLE_SHOTGUN) {
 			bool fail = false;
 
-			if (g_Smokes[i].age < g_SmokeTypes[g_Smokes[i].type].duration) {
+			if (g_Smokes[i].age < smokeTypeFor(g_Smokes[i].type)->duration) {
 				for (j = 0; j < ARRAYCOUNT(g_Smokes[i].parts); j++) {
 					if (g_Smokes[i].parts[j].size == 0) {
 						fail = true;
@@ -387,7 +414,7 @@ bool smokeCreateWithSource(void *source, struct coord *pos, RoomNum *rooms, s16 
 			if (g_Smokes[i].prop && g_Smokes[i].source == source) {
 				bool fail = false;
 
-				if (g_Smokes[i].age < g_SmokeTypes[g_Smokes[i].type].duration) {
+				if (g_Smokes[i].age < smokeTypeFor(g_Smokes[i].type)->duration) {
 					for (j = 0; j < ARRAYCOUNT(g_Smokes[i].parts); j++) {
 						if (g_Smokes[i].parts[j].size == 0) {
 							fail = true;
@@ -429,7 +456,7 @@ void smokeClearForProp(struct prop *prop)
 
 	for (i = 0; i < g_MaxSmokes; i++) {
 		if (g_Smokes[i].prop && g_Smokes[i].source == prop && g_Smokes[i].option == 0) {
-			g_Smokes[i].age = g_SmokeTypes[g_Smokes[i].type].duration;
+			g_Smokes[i].age = smokeTypeFor(g_Smokes[i].type)->duration;
 			g_Smokes[i].source = NULL;
 		}
 	}
@@ -469,14 +496,14 @@ u32 smokeTick(struct prop *prop)
 
 		for (j = 0; j < ARRAYCOUNT(smoke->parts); j++) {
 			if (part->size != 0.0f) {
-				part->pos.y += g_SmokeTypes[smoke->type].unk1c;
-				part->size += g_SmokeTypes[smoke->type].unk18;
+				part->pos.y += smokeTypeFor(smoke->type)->unk1c;
+				part->size += smokeTypeFor(smoke->type)->unk18;
 
 				if (part->size < 0.0f) {
 					part->size = 0.0f;
 				}
 
-				part->alpha -= g_SmokeTypes[smoke->type].fgrotatespeed;
+				part->alpha -= smokeTypeFor(smoke->type)->fgrotatespeed;
 				part->count++;
 				part->rot += part->deltarot;
 				part->offset1 += 0.02f + RANDOMFRAC() * 0.01f;
@@ -490,22 +517,22 @@ u32 smokeTick(struct prop *prop)
 			part++;
 		}
 
-		if (smoke->age < g_SmokeTypes[smoke->type].duration) {
-			if (smoke->age % g_SmokeTypes[smoke->type].spreadspeed == 1) {
+		if (smoke->age < smokeTypeFor(smoke->type)->duration) {
+			if (smoke->age % smokeTypeFor(smoke->type)->spreadspeed == 1) {
 				part = smoke->parts;
 
 				for (j = 0; j < ARRAYCOUNT(smoke->parts); j++) {
 					if (smoke->parts[j].size == 0.0f) {
-						if (g_SmokeTypes[smoke->type].size == 0) {
+						if (smokeTypeFor(smoke->type)->size == 0) {
 							part->size = (RANDOMFRAC() * 0.5f + 1.0f) * 0.33f;
 						} else {
-							part->size = g_SmokeTypes[smoke->type].size * (RANDOMFRAC() * 0.5f + 1.0f);
+							part->size = smokeTypeFor(smoke->type)->size * (RANDOMFRAC() * 0.5f + 1.0f);
 						}
 
 						part->alpha = (rngRandom() % 70) + 110.0f;
 						part->count = 0;
 						part->rot = RANDOMFRAC() * M_BADTAU;
-						part->deltarot = (0.5f - RANDOMFRAC()) * g_SmokeTypes[smoke->type].bgrotatespeed;
+						part->deltarot = (0.5f - RANDOMFRAC()) * smokeTypeFor(smoke->type)->bgrotatespeed;
 
 						if (smoke->type >= SMOKETYPE_MUZZLE_PISTOL && smoke->type <= SMOKETYPE_MUZZLE_SHOTGUN) {
 							part->pos.x = g_Vars.currentplayer->hands[smoke->option].muzzlepos.x;
@@ -532,8 +559,8 @@ u32 smokeTick(struct prop *prop)
 						part->offset1 = RANDOMFRAC() * 0.5f;
 						part->offset2 = RANDOMFRAC() * 0.5f;
 
-						if (smoke->age > g_SmokeTypes[smoke->type].duration - g_SmokeTypes[smoke->type].numclouds) {
-							part->alpha *= (g_SmokeTypes[smoke->type].duration - smoke->age) / (f32)g_SmokeTypes[smoke->type].numclouds;
+						if (smoke->age > smokeTypeFor(smoke->type)->duration - smokeTypeFor(smoke->type)->numclouds) {
+							part->alpha *= (smokeTypeFor(smoke->type)->duration - smoke->age) / (f32)smokeTypeFor(smoke->type)->numclouds;
 						}
 						break;
 					}
@@ -568,7 +595,7 @@ u32 smokeTick(struct prop *prop)
 
 	bgFindEnteredRooms(&bbmin, &bbmax, prop->rooms, 7, false);
 
-	if (smoke->age > g_SmokeTypes[smoke->type].spreadspeed) {
+	if (smoke->age > smokeTypeFor(smoke->type)->spreadspeed) {
 		free = true;
 
 		for (j = 0; j < ARRAYCOUNT(smoke->parts); j++) {
@@ -708,7 +735,7 @@ void smokeClearSomeTypes(void)
 					&& smoke->type != SMOKETYPE_ROCKETTAIL
 					&& smoke->type != SMOKETYPE_HOMINGTAIL
 					&& smoke->type != SMOKETYPE_GRENADETAIL) {
-				smoke->age = g_SmokeTypes[smoke->type].duration;
+				smoke->age = smokeTypeFor(smoke->type)->duration;
 			}
 		}
 	}

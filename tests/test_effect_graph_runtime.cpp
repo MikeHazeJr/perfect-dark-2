@@ -57,6 +57,15 @@ struct explosiontype {
 	float damage;
 };
 
+struct smoketype {
+	int16_t duration, fadespeed, spreadspeed, size;
+	float bgrotatespeed;
+	uint8_t r, g, b;
+	float fgrotatespeed;
+	int16_t numclouds;
+	float unk18, unk1c, unk20;
+};
+
 namespace {
 
 std::string readFile(const char *path) {
@@ -395,15 +404,18 @@ TEST_CASE("effect bridges gate on the runtime toggle and resolve registered reco
 	const s32 pinkSparkRow = pinkRecord->spark_type;
 	REQUIRE(pinkSparkRow >= kSparkBaseCount);
 
-	/* Toggle OFF: GetForGameplay is NULL and all four bridges return the
-	 * fallback verbatim, registered records or not. */
+	/* Toggle OFF: an authored selection is unavailable, so all four bridges
+	 * fail closed. Empty refs alone retain explicit callsite defaults. */
 	weaponGraphRuntimeSetEnabled(0);
 	REQUIRE(effectGraphRuntimeGetForGameplay("modx:pink_fx") == nullptr);
-	REQUIRE(effectGraphResolveExplosionType("modx:pink_fx", 13) == 13);
+	REQUIRE(effectGraphResolveExplosionType("modx:pink_fx", 13) ==
+		EFFECT_GRAPH_RESOLVE_FAILED);
 	REQUIRE(effectGraphResolveSparkType("modx:pink_fx", SPARKTYPE_PROJECTILE)
-		== SPARKTYPE_PROJECTILE);
-	REQUIRE(effectGraphResolveSmokeType("modx:boom_sound", 8) == 8);
-	REQUIRE(effectGraphResolveSound("modx:boom_sound", 123) == 123);
+		== EFFECT_GRAPH_RESOLVE_FAILED);
+	REQUIRE(effectGraphResolveSmokeType("modx:boom_sound", 8) ==
+		EFFECT_GRAPH_RESOLVE_FAILED);
+	REQUIRE(effectGraphResolveSound("modx:boom_sound", 123) ==
+		EFFECT_GRAPH_RESOLVE_FAILED);
 
 	/* Toggle ON: registered refs resolve to the record values. */
 	weaponGraphRuntimeSetEnabled(1);
@@ -415,16 +427,19 @@ TEST_CASE("effect bridges gate on the runtime toggle and resolve registered reco
 	REQUIRE(effectGraphResolveSmokeType("modx:boom_sound", 8) == SMOKETYPE_LARGE);
 	REQUIRE(effectGraphResolveSound("modx:boom_sound", 123) == 345);
 
-	/* Toggle ON, unresolved/empty refs: fallback verbatim. The base: token
-	 * path through weaponGraphResolveExplosionRef stays intact. */
-	REQUIRE(effectGraphResolveExplosionType("modx:never_registered", 13) == 13);
-	REQUIRE(effectGraphResolveExplosionType("base:explosion_rocket", 5)
-		== EXPLOSIONTYPE_ROCKET);
-	REQUIRE(effectGraphResolveSparkType("modx:never_registered", 4) == 4);
+	/* Toggle ON: unresolved selected refs and records missing the selected
+	 * channel fail closed. Empty refs remain unauthored defaults. Base profile
+	 * rows are resolved only by the installed public profile executor. */
+	REQUIRE(effectGraphResolveExplosionType("modx:never_registered", 13) ==
+		EFFECT_GRAPH_RESOLVE_FAILED);
+	REQUIRE(effectGraphResolveSparkType("modx:never_registered", 4) ==
+		EFFECT_GRAPH_RESOLVE_FAILED);
 	REQUIRE(effectGraphResolveSparkType("", 4) == 4);
 	REQUIRE(effectGraphResolveSparkType(nullptr, 4) == 4);
-	REQUIRE(effectGraphResolveSmokeType("modx:never_registered", 6) == 6);
-	REQUIRE(effectGraphResolveSound("modx:pink_fx", 123) == 123);  /* no sound param */
+	REQUIRE(effectGraphResolveSmokeType("modx:never_registered", 6) ==
+		EFFECT_GRAPH_RESOLVE_FAILED);
+	REQUIRE(effectGraphResolveSound("modx:pink_fx", 123) ==
+		EFFECT_GRAPH_RESOLVE_FAILED);  /* selected record has no sound */
 
 	/* A record whose channels are unresolved keeps the fallback even when
 	 * the record itself resolves (untinted spark, unknown smoke class). */
@@ -434,7 +449,8 @@ TEST_CASE("effect bridges gate on the runtime toggle and resolve registered reco
 		"\"edges\":[]}";
 	REQUIRE(effectGraphRuntimeRegisterGraphJson("modx:inert_spark",
 		inert.data(), static_cast<u32>(inert.size()), err, sizeof(err)) == 0);
-	REQUIRE(effectGraphResolveSparkType("modx:inert_spark", 4) == 4);
+	REQUIRE(effectGraphResolveSparkType("modx:inert_spark", 4) ==
+		EFFECT_GRAPH_RESOLVE_FAILED);
 
 	effectRuntimeTestReset();
 }
@@ -535,6 +551,166 @@ TEST_CASE("effect archives register through descriptor and nested weapon walks",
 
 	weaponGraphRuntimeSetEnabled(0);
 	weaponGraphRuntimeClearAll();
+	effectRuntimeTestReset();
+}
+
+TEST_CASE("effect activation owners are transactional and shared by source identity",
+		  "[modding][pdxxx][effect_graph][t-assets-020][fail-closed]") {
+	effectRuntimeTestReset();
+	char err[256] = {};
+	const std::string effectIni =
+		"[effect]\n"
+		"catalog_id = modx:shared_fx\n"
+		"name = Shared FX\n"
+		"schema = pd.effect_graph.v1\n"
+		"effect_file = effect.graph.json\n";
+	const std::string graph = pinkEffectGraph("modx:shared_fx");
+	auto archive = writeTypedArchiveEntries("effect-shared-owner", ".pdeffect", {
+		{ "effect.ini", effectIni }, { "effect.graph.json", graph },
+	});
+	const std::string bytes = readFile(archive.path.string().c_str());
+
+	REQUIRE(effectGraphRuntimeRegisterArchiveBytesOwned(bytes.data(),
+		static_cast<u32>(bytes.size()), "modx:weapon_a", err, sizeof(err)) == 0);
+	/* Re-registering one activation owner is idempotent, not an aggregate
+	 * catalog reference. Catalog retain/release counts live above this edge. */
+	REQUIRE(effectGraphRuntimeRegisterArchiveBytesOwned(bytes.data(),
+		static_cast<u32>(bytes.size()), "modx:weapon_a", err, sizeof(err)) == 0);
+	const effect_graph_runtime_t *record = effectGraphRuntimeGet("modx:shared_fx");
+	REQUIRE(record != nullptr);
+	REQUIRE(record->owner_count == 1);
+
+	REQUIRE(effectGraphRuntimeRegisterArchiveBytesOwned(bytes.data(),
+		static_cast<u32>(bytes.size()), "modx:weapon_b", err, sizeof(err)) == 0);
+	record = effectGraphRuntimeGet("modx:shared_fx");
+	REQUIRE(record != nullptr);
+	REQUIRE(record->owner_count == 2);
+
+	std::string conflictingGraph = graph;
+	const size_t color = conflictingGraph.find("1.0, 0.5, 0.85, 1.0");
+	REQUIRE(color != std::string::npos);
+	conflictingGraph.replace(color, std::strlen("1.0, 0.5, 0.85, 1.0"),
+		"0.1,0.2,0.3,1.0");
+	auto conflicting = writeTypedArchiveEntries("effect-shared-conflict", ".pdeffect", {
+		{ "effect.ini", effectIni }, { "effect.graph.json", conflictingGraph },
+	});
+	const std::string conflictingBytes = readFile(conflicting.path.string().c_str());
+	REQUIRE(effectGraphRuntimeRegisterArchiveBytesOwned(conflictingBytes.data(),
+		static_cast<u32>(conflictingBytes.size()), "modx:weapon_c", err,
+		sizeof(err)) != 0);
+	REQUIRE(std::string(err).find("conflicts with another active owner") !=
+		std::string::npos);
+	REQUIRE(effectGraphRuntimeGet("modx:shared_fx")->owner_count == 2);
+
+	effectGraphRuntimeReleaseOwner("modx:weapon_a");
+	REQUIRE(effectGraphRuntimeGet("modx:shared_fx") != nullptr);
+	REQUIRE(effectGraphRuntimeGet("modx:shared_fx")->owner_count == 1);
+	effectGraphRuntimeReleaseOwner("modx:weapon_b");
+	REQUIRE(effectGraphRuntimeGet("modx:shared_fx") == nullptr);
+
+	/* The activation identity includes the timeline and normalized descriptor,
+	 * not only the compiled graph digest. A second parent cannot silently
+	 * inherit the first parent's timeline. */
+	const std::string timelineIni =
+		"[effect]\ncatalog_id = modx:shared_fx\nname = Shared Timeline FX\n"
+		"schema = pd.effect_graph.v1\neffect_file = effect.graph.json\n"
+		"timeline_file = timeline.json\n";
+	const std::string timelineA =
+		"{\"schema\":\"pd2.effect.timeline.v1\",\"tracks\":["
+		"{\"time\":0,\"property\":\"alpha\",\"value\":0.25}]}";
+	const std::string timelineB =
+		"{\"schema\":\"pd2.effect.timeline.v1\",\"tracks\":["
+		"{\"time\":0,\"property\":\"alpha\",\"value\":0.75}]}";
+	auto timedA = writeTypedArchiveEntries("effect-owner-timeline-a", ".pdeffect", {
+		{ "effect.ini", timelineIni }, { "effect.graph.json", graph },
+		{ "timeline.json", timelineA },
+	});
+	auto timedB = writeTypedArchiveEntries("effect-owner-timeline-b", ".pdeffect", {
+		{ "effect.ini", timelineIni }, { "effect.graph.json", graph },
+		{ "timeline.json", timelineB },
+	});
+	const std::string timedABytes = readFile(timedA.path.string().c_str());
+	const std::string timedBBytes = readFile(timedB.path.string().c_str());
+	REQUIRE(effectGraphRuntimeRegisterArchiveBytesOwned(timedABytes.data(),
+		static_cast<u32>(timedABytes.size()), "modx:weapon_a", err,
+		sizeof(err)) == 0);
+	std::memset(err, 0, sizeof(err));
+	REQUIRE(effectGraphRuntimeRegisterArchiveBytesOwned(timedBBytes.data(),
+		static_cast<u32>(timedBBytes.size()), "modx:weapon_b", err,
+		sizeof(err)) != 0);
+	REQUIRE(std::string(err).find("conflicts with another active owner") !=
+		std::string::npos);
+	REQUIRE(effectGraphRuntimeGet("modx:shared_fx")->owner_count == 1);
+	effectGraphRuntimeReleaseOwner("modx:weapon_a");
+	effectRuntimeTestReset();
+}
+
+TEST_CASE("nested selected effect failures reject and roll back the parent archive",
+		  "[modding][pdxxx][effect_graph][t-assets-020][fail-closed]") {
+	effectRuntimeTestReset();
+	const std::string projectileGraph =
+		"{\"schema\":\"pd.projectile_graph.v1\","
+		"\"asset_id\":\"modx:strict_projectile\",\"graph_id\":\"projectile\","
+		"\"nodes\":[{\"id\":\"motion\",\"kind\":\"projectile.motion\","
+		"\"params\":{\"motion_kind\":\"ballistic\"}},"
+		"{\"id\":\"impact\",\"kind\":\"projectile.impact\","
+		"\"params\":{\"explosion_ref\":\"modx:absent_fx\","
+		"\"spark_ref\":\"modx:absent_fx\",\"consume_on_hit\":true}}],"
+		"\"edges\":[]}";
+	auto makeWeapon = [&](const std::string &suffix,
+		const std::string &projectileBytes) {
+		return writeTypedArchiveEntries("strict-effect-parent-" + suffix,
+			".pdweapon", {
+				{ "weapon.ini", "[weapon]\ncatalog_id = modx:strict_weapon\n"
+					"behavior_graph = behavior.graph.json\n" },
+				{ "behavior.graph.json",
+					"{\"schema\":\"pd.weapon_graph.v1\","
+					"\"asset_id\":\"modx:strict_weapon\",\"graph_id\":\"held\","
+					"\"nodes\":[{\"id\":\"p\",\"kind\":\"fire.hitscan\","
+					"\"params\":{\"mode\":\"primary\"}}],\"edges\":[],"
+					"\"exports\":[{\"name\":\"primary\",\"node\":\"p\"}]}" },
+				{ "dependencies/assets/projectiles/strict.pdprojectile",
+					projectileBytes },
+			});
+	};
+
+	/* A syntactically valid selected ref with no active public effect source
+	 * rejects the parent after the complete nested inventory is admitted. */
+	auto missingProjectile = writeTypedArchiveEntries("strict-effect-missing",
+		".pdprojectile", {
+			{ "projectile.ini", "[projectile]\n"
+				"catalog_id = modx:strict_projectile\n"
+				"behavior_graph = behavior.graph.json\n" },
+			{ "behavior.graph.json", projectileGraph },
+		});
+	auto missingWeapon = makeWeapon("missing",
+		readFile(missingProjectile.path.string().c_str()));
+	char err[256] = {};
+	REQUIRE(weaponGraphRuntimeRegisterWeaponArchive(80,
+		missingWeapon.path.string().c_str(), err, sizeof(err)) != 0);
+	REQUIRE(std::string(err).find("has no active effect source") !=
+		std::string::npos);
+	REQUIRE(weaponGraphRuntimeGetProjectile("modx:strict_projectile") == nullptr);
+	REQUIRE(effectGraphRuntimeCount() == 0);
+
+	/* A nested member carrying the selected .pdeffect role but corrupt bytes
+	 * is fatal too; the prior missing-source transaction cannot mask it. */
+	auto corruptProjectile = writeTypedArchiveEntries("strict-effect-corrupt",
+		".pdprojectile", {
+			{ "projectile.ini", "[projectile]\n"
+				"catalog_id = modx:strict_projectile\n"
+				"behavior_graph = behavior.graph.json\n" },
+			{ "behavior.graph.json", projectileGraph },
+			{ "dependencies/assets/effects/absent.pdeffect",
+				"not a typed archive" },
+		});
+	auto corruptWeapon = makeWeapon("corrupt",
+		readFile(corruptProjectile.path.string().c_str()));
+	std::memset(err, 0, sizeof(err));
+	REQUIRE(weaponGraphRuntimeRegisterWeaponArchive(80,
+		corruptWeapon.path.string().c_str(), err, sizeof(err)) != 0);
+	REQUIRE(weaponGraphRuntimeGetProjectile("modx:strict_projectile") == nullptr);
+	REQUIRE(effectGraphRuntimeCount() == 0);
 	effectRuntimeTestReset();
 }
 
@@ -740,6 +916,30 @@ TEST_CASE("nested effect discovery registers every member beyond legacy eight",
 TEST_CASE("validated v2 profile library becomes retained executable source rows",
 		"[modding][pdxxx][effect_graph][t-assets-018]") {
 	effectRuntimeTestReset();
+	smoketype smokeRows[23] = {};
+	char *smokeSource = nullptr;
+	size_t smokeSourceLen = 0;
+	REQUIRE(pdEffectSourceBuildSmokeGraph("base:effect_smoke_profiles",
+		smokeRows, 23, &smokeSource, &smokeSourceLen) == 0);
+	const std::string smokeGraph(smokeSource, smokeSourceLen);
+	std::free(smokeSource);
+	const std::string smokeDescriptor =
+		"[effect]\ncatalog_id = base:effect_smoke_profiles\n"
+		"name = Smoke Profiles\nschema = pd.effect_graph.v2\n"
+		"profile_kind = smoke\ntarget_policy = callsite\n"
+		"attachment_policy = callsite\npriority_policy = callsite\n"
+		"scorch_policy = callsite\neffect_file = effect.graph.json\n";
+	auto smokeArchive = writeTypedArchiveEntries("effect-smoke-profiles",
+		".pdeffect", {
+			{ "effect.ini", smokeDescriptor },
+			{ "effect.graph.json", smokeGraph },
+		});
+	char err[256] = {};
+	INFO(err);
+	REQUIRE(effectGraphRuntimeRegisterArchive(smokeArchive.path.string().c_str(),
+		err, sizeof(err)) == 0);
+	REQUIRE(effectGraphRuntimeGet("base:effect_smoke_profiles") != nullptr);
+
 	explosiontype rows[26] = {};
 	rows[2] = { 20, 21, 2, 3, 30, 50, 60, 40, 2, 3, 2, 0, 0.125f };
 	char *source = nullptr;
@@ -760,8 +960,6 @@ TEST_CASE("validated v2 profile library becomes retained executable source rows"
 	auto archive = writeTypedArchiveEntries("effect-profiles", ".pdeffect", {
 		{ "effect.ini", descriptor }, { "effect.graph.json", graph },
 	});
-	char err[256] = {};
-	INFO(err);
 	REQUIRE(effectGraphRuntimeRegisterArchive(archive.path.string().c_str(),
 		err, sizeof(err)) == 0);
 	const auto *record = effectGraphRuntimeGet("base:effect_explosion_profiles");
@@ -851,12 +1049,15 @@ TEST_CASE("unit 8 effect runtime static pins stay wired",
 	REQUIRE(lifecycle.find("s_catalogClearEffectGraphRuntime") != std::string::npos);
 	REQUIRE(lifecycle.find("effectGraphRuntimeRegisterArchive") != std::string::npos);
 	REQUIRE(lifecycle.find("effectGraphRuntimeRegisterGraphJson") != std::string::npos);
-	REQUIRE(lifecycle.find("effectGraphRuntimeClearAsset") != std::string::npos);
+	REQUIRE(lifecycle.find("effectGraphRuntimeReleaseOwner") != std::string::npos);
+	REQUIRE(lifecycle.find("catalogDeactivateTypedAsset") != std::string::npos);
+	REQUIRE(lifecycle.find("effectGraphRuntimeClearAsset") == std::string::npos);
 
 	/* The effect runtime's registry reset rides the record reset path. */
 	const std::string effectRuntime = readFile("port/src/effect_graph_runtime.c");
 	REQUIRE(effectRuntime.find("sparksResetCustomTypes()") != std::string::npos);
 	REQUIRE(effectRuntime.find("weaponGraphRuntimeEnabled()") != std::string::npos);
+	REQUIRE(effectRuntime.find("effectGraphRuntimeClearAsset") == std::string::npos);
 
 	/* The needler proving asset authors the canonical schema and the node
 	 * params this compiler consumes. */

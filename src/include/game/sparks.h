@@ -36,6 +36,8 @@ Gfx *sparksRender(Gfx *gdl);
  * registry (wired into effectGraphRuntimeClearAll so mod reloads do not
  * leak rows). */
 struct sparktype *sparkTypeFor(s32 typenum);
+void sparksSetBaseProfileOverride(const struct sparktype *rows, s32 count);
+void sparksClearBaseProfileOverride(void);
 s32 sparksRegisterCustomType(const struct sparktype *row);
 s32 sparksRegisterCustomTintedType(u32 color1, u32 color2);
 void sparksResetCustomTypes(void);

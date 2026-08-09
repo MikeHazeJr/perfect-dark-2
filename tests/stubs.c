@@ -30,6 +30,8 @@
 #include "modmgr.h"
 #include "audio.h"
 #include "game/sparks.h"
+#include "game/explosions.h"
+#include "game/smoke.h"
 
 /* -------------------------------------------------------------------------
  * c3849 Unit 8: base spark table for sparks_custom.c (the custom spark-row
@@ -43,6 +45,76 @@ struct sparktype g_SparkTypes[SPARKTYPE_BASE_COUNT] = {
     [SPARKTYPE_PROJECTILE] =
         { 50, 28, 100, 1, 0, 0, 1, 60, 30, 10, 1, 0xffff80ff, 0xffffffff, 0.02f },
 };
+
+static struct explosiontype s_TestExplosionProfiles[EXPLOSIONTYPE_BASE_COUNT];
+static struct smoketype s_TestSmokeProfiles[SMOKETYPE_BASE_COUNT];
+
+void explosionsSetProfileOverride(const struct explosiontype *rows, s32 count)
+{
+    if (rows && count == EXPLOSIONTYPE_BASE_COUNT) {
+        memcpy(s_TestExplosionProfiles, rows, sizeof(s_TestExplosionProfiles));
+    }
+}
+
+void explosionsClearProfileOverride(void)
+{
+    memset(s_TestExplosionProfiles, 0, sizeof(s_TestExplosionProfiles));
+}
+
+void smokesSetProfileOverride(const struct smoketype *rows, s32 count)
+{
+    if (rows && count == SMOKETYPE_BASE_COUNT) {
+        memcpy(s_TestSmokeProfiles, rows, sizeof(s_TestSmokeProfiles));
+    }
+}
+
+void smokesClearProfileOverride(void)
+{
+    memset(s_TestSmokeProfiles, 0, sizeof(s_TestSmokeProfiles));
+}
+
+f32 testStubEffectExplosionRangeH(s32 index)
+{
+    return index >= 0 && index < EXPLOSIONTYPE_BASE_COUNT
+        ? s_TestExplosionProfiles[index].rangeh : 0;
+}
+
+s32 testStubEffectExplosionSmokeType(s32 index)
+{
+    return index >= 0 && index < EXPLOSIONTYPE_BASE_COUNT
+        ? s_TestExplosionProfiles[index].smoketype : -1;
+}
+
+s32 testStubEffectSmokeDuration(s32 index)
+{
+    return index >= 0 && index < SMOKETYPE_BASE_COUNT
+        ? s_TestSmokeProfiles[index].duration : 0;
+}
+
+s32 testStubEffectExplosionRow(s32 index, void *out, size_t size)
+{
+    if (!out || size != sizeof(struct explosiontype)
+            || index < 0 || index >= EXPLOSIONTYPE_BASE_COUNT) return 0;
+    memcpy(out, &s_TestExplosionProfiles[index], size);
+    return 1;
+}
+
+s32 testStubEffectSparkRow(s32 index, void *out, size_t size)
+{
+    struct sparktype *row = sparkTypeFor(index);
+    if (!out || !row || size != sizeof(*row)
+            || index < 0 || index >= SPARKTYPE_BASE_COUNT) return 0;
+    memcpy(out, row, size);
+    return 1;
+}
+
+s32 testStubEffectSmokeRow(s32 index, void *out, size_t size)
+{
+    if (!out || size != sizeof(struct smoketype)
+            || index < 0 || index >= SMOKETYPE_BASE_COUNT) return 0;
+    memcpy(out, &s_TestSmokeProfiles[index], size);
+    return 1;
+}
 
 /* -------------------------------------------------------------------------
  * sysLogPrintf -- printf to stderr at debug level, drop everything else.
@@ -224,13 +296,28 @@ s32 catalogResolveModel(const char *id, catalog_model_result_t *out)
     return 0;
 }
 
+static char s_TestEffectAudioId[CATALOG_ID_LEN];
+static s32 s_TestEffectAudioCategory;
+static s32 s_TestEffectAudioSoundId;
+
+void testStubEffectAudio(const char *id, s32 category, s32 sound_id)
+{
+    snprintf(s_TestEffectAudioId, sizeof(s_TestEffectAudioId), "%s", id ? id : "");
+    s_TestEffectAudioCategory = category;
+    s_TestEffectAudioSoundId = sound_id;
+}
+
 s32 catalogResolveAudio(const char *id, catalog_audio_result_t *out)
 {
-    (void)id;
     if (out) {
         memset(out, 0, sizeof(*out));
     }
-    return 0;
+	if (!id || !out || strcmp(id, s_TestEffectAudioId) != 0) {
+		return 0;
+	}
+	out->category = s_TestEffectAudioCategory;
+	out->sound_id = s_TestEffectAudioSoundId;
+	return 1;
 }
 
 s32 catalogResolveWeapon(const char *id, catalog_weapon_result_t *out)

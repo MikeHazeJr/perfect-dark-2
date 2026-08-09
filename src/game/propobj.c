@@ -5378,31 +5378,37 @@ void weaponTick(struct prop *prop)
 			/* timer240 == 1: falling; nothing to do until the landing
 			 * collision zeroes it (projectileTick stick latch) */
 		} else if (customproj->has_wall_hugger && weapon->timer240 == 0) {
-			/* (a) wall expiry after the post-fall landing.
-			 * WAVE6-EFFECT-HANDOFF: wall_explosion_ref ships shimmed through
-			 * the fallback-returning bridge until the Unit 8 effect runtime
-			 * lands (binding spec B7). */
-			propExplode(prop, effectGraphResolveExplosionType(
+			/* (a) wall expiry after the post-fall landing. An authored selected
+			 * effect must resolve from active public source; only an empty ref
+			 * may use the explicit native default (binding spec B7). */
+			s32 explosiontype = effectGraphResolveExplosionType(
 					customproj->wall_explosion_ref,
 					(obj->flags2 & OBJFLAG2_WEAPON_HUGEEXP)
-						? EXPLOSIONTYPE_HUGE17 : EXPLOSIONTYPE_ROCKET));
+						? EXPLOSIONTYPE_HUGE17 : EXPLOSIONTYPE_ROCKET);
+
+			if (explosiontype != EFFECT_GRAPH_RESOLVE_FAILED) {
+				propExplode(prop, explosiontype);
+			}
 			obj->hidden |= OBJHFLAG_DELETING;
 		} else if (customproj->has_impact && customproj->impact_consume_on_hit
 				&& weapon->timer240 == 0) {
 			/* (b) B-912 contact-impact detonation. timer240 is zeroed by the
 			 * contact arms (prop hit / BG hit / launch collision), mirroring
-			 * the rocket arm above. Parse-derived impact_exptype wins when
-			 * set; EXPLOSIONTYPE_PHOENIX stays the HUGEEXP-aware fallback
-			 * class (Needler Q2 blast/damage parity).
-			 * WAVE6-EFFECT-HANDOFF: non-base impact_explosion_ref resolves at
-			 * detonation once the Unit 8 effect runtime lands. */
-			propExplode(prop, effectGraphResolveExplosionType(
+			 * the rocket arm above. Selected refs resolve lazily from the active
+			 * public executor; EXPLOSIONTYPE_PHOENIX stays the HUGEEXP-aware fallback
+			 * class (Needler Q2 blast/damage parity). Any authored selected ref
+			 * fails closed when its public source is inactive or unresolved. */
+			s32 explosiontype = effectGraphResolveExplosionType(
 					customproj->impact_explosion_ref[0]
 						? customproj->impact_explosion_ref : NULL,
 					customproj->impact_exptype >= 0
 						? customproj->impact_exptype
 						: ((obj->flags2 & OBJFLAG2_WEAPON_HUGEEXP)
-							? EXPLOSIONTYPE_HUGE17 : EXPLOSIONTYPE_PHOENIX)));
+							? EXPLOSIONTYPE_HUGE17 : EXPLOSIONTYPE_PHOENIX));
+
+			if (explosiontype != EFFECT_GRAPH_RESOLVE_FAILED) {
+				propExplode(prop, explosiontype);
+			}
 			obj->hidden |= OBJHFLAG_DELETING;
 		} else if (customproj->has_timer && weapon->timer240 >= 0) {
 			/* (c) fuse timer. The decrement clamps to 0 (rocket-style == 0
@@ -5865,18 +5871,21 @@ void weaponTick(struct prop *prop)
 		} else if (weapon->timer240 == 0) {
 			/* Shared detonation block, OG remote-detonation shape (failed
 			 * propExplode keeps timer240 == 0 and retries next tick).
-			 * armed_exptype is the parse-resolved entity explosion_ref;
-			 * WAVE6-EFFECT-HANDOFF: non-base explosion_ref resolves at
-			 * detonation once the Unit 8 effect runtime lands (B2). The
+			 * The authored entity explosion_ref resolves lazily from the active
+			 * public executor. Selected refs fail closed; only an empty ref uses the explicit
+			 * native default (B2). The
 			 * slayerrocket sweep mirrors the custom projectile arm: a custom
 			 * fly-by-wire weapon can be a live slayerrocket here. */
-			if (propExplode(prop, effectGraphResolveExplosionType(
+			s32 explosiontype = effectGraphResolveExplosionType(
 					entitygraph->explosion_ref[0]
 						? entitygraph->explosion_ref : NULL,
 					entitygraph->armed_exptype >= 0
 						? entitygraph->armed_exptype
 						: ((obj->flags2 & OBJFLAG2_WEAPON_HUGEEXP)
-							? EXPLOSIONTYPE_HUGE17 : EXPLOSIONTYPE_ROCKET)))) {
+							? EXPLOSIONTYPE_HUGE17 : EXPLOSIONTYPE_ROCKET));
+
+			if (explosiontype != EFFECT_GRAPH_RESOLVE_FAILED
+					&& propExplode(prop, explosiontype)) {
 				weapon->timer240 = -1;
 				obj->hidden |= OBJHFLAG_DELETING;
 
@@ -9056,10 +9065,8 @@ s32 projectileTick(struct defaultobj *obj, bool *embedded)
 									/* c3849 Wave 5: authored impact spark,
 									 * debounced by the same unk0a4 frame guard
 									 * as the hit sound; mirrors the bolt/knife
-									 * stick-arm sparksCreate.
-									 * WAVE6-EFFECT-HANDOFF: the spark bridge
-									 * returns the fallback type until the
-									 * Unit 8 spark registry lands. */
+									 * stick-arm sparksCreate. The authored selected
+									 * ref must resolve from active public source. */
 									struct coord sparkdir;
 									struct prop *sparkowner = projectile->ownerprop;
 
@@ -9069,10 +9076,17 @@ s32 projectileTick(struct defaultobj *obj, bool *embedded)
 
 									guNormalize(&sparkdir.x, &sparkdir.y, &sparkdir.z);
 
-									sparksCreate(prop->rooms[0], prop, &sp5e8, &sparkdir, &sp5f4,
-											effectGraphResolveSparkType(customproj->impact_spark_ref,
-												chrIsUsingPaintball(sparkowner ? sparkowner->chr : NULL)
-													? SPARKTYPE_PAINT : SPARKTYPE_PROJECTILE));
+									{
+										s32 sparktype = effectGraphResolveSparkType(
+											customproj->impact_spark_ref,
+											chrIsUsingPaintball(sparkowner ? sparkowner->chr : NULL)
+												? SPARKTYPE_PAINT : SPARKTYPE_PROJECTILE);
+
+										if (sparktype != EFFECT_GRAPH_RESOLVE_FAILED) {
+											sparksCreate(prop->rooms[0], prop, &sp5e8,
+												&sparkdir, &sp5f4, sparktype);
+										}
+									}
 								}
 							}
 

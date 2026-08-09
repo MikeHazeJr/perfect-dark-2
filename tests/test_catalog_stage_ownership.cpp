@@ -78,10 +78,12 @@ TEST_CASE("production stage diff uses only its owner-scoped lifecycle API",
 		std::string::npos);
 	REQUIRE(load.find("s32 catalogLoadStageAsset(") != std::string::npos);
 	REQUIRE(load.find("void catalogReleaseStageAsset(") != std::string::npos);
+	REQUIRE(load.find("catalogDepActivationPlanBuild") != std::string::npos);
+	REQUIRE(load.find("catalogDepActivationPlanRollback") != std::string::npos);
 	REQUIRE(load.find(
-		"entry->type == ASSET_THEME || entry->type == ASSET_WEAPON") !=
+		"entry->type == ASSET_THEME || entry->type == ASSET_WEAPON") ==
 		std::string::npos);
-	REQUIRE(load.find("per_ref_deps_released") != std::string::npos);
+	REQUIRE(load.find("per_ref_deps_released") == std::string::npos);
 	REQUIRE(header.find("loaded owners never enter toUnload") !=
 		std::string::npos);
 	REQUIRE(lv.find("catalogLoadStageAsset(lvCatalogAssetTypeForId") !=

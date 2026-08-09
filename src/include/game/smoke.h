@@ -8,6 +8,10 @@
 
 extern struct smoketype g_SmokeTypes[SMOKETYPE_BASE_COUNT];
 
+const struct smoketype *smokeTypeFor(s32 type);
+void smokesSetProfileOverride(const struct smoketype *rows, s32 count);
+void smokesClearProfileOverride(void);
+
 void smokesInit(void);
 
 void smokeReset(void);

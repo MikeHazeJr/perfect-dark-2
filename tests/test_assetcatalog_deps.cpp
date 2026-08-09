@@ -22,6 +22,36 @@ void collectDep(const char *dep_id, void *userdata)
 	auto *deps = static_cast<std::vector<std::string> *>(userdata);
 	deps->push_back(dep_id ? dep_id : "");
 }
+void collectTypedDepLabel(const char *dep_id, asset_type_e expected_type,
+	void *userdata)
+{
+	auto *deps = static_cast<std::vector<std::string> *>(userdata);
+	deps->push_back(std::string(dep_id ? dep_id : "") + ":" +
+		std::to_string(static_cast<int>(expected_type)));
+}
+
+struct TypedDep { std::string id; asset_type_e type; };
+void collectTypedDep(const char *dep_id, asset_type_e type, void *userdata)
+{
+	auto *deps = static_cast<std::vector<TypedDep> *>(userdata);
+	deps->push_back({dep_id ? dep_id : "", type});
+}
+}
+
+TEST_CASE("catalog dependency edges preserve expected public asset type",
+	"[modding][pdxxx][deps][t-assets-019]")
+{
+	catalogDepClear();
+	REQUIRE(catalogDepRegisterTyped("mod:fx", "mod:blast", ASSET_AUDIO, 0) == 1);
+	REQUIRE(catalogDepRegisterTyped("mod:fx", "mod:blast", ASSET_AUDIO, 0) == 1);
+	REQUIRE(catalogDepRegisterTyped("mod:fx", "mod:blast", ASSET_TEXTURE, 0) == 0);
+	REQUIRE(catalogDepExpectedType("mod:fx", "mod:blast") == ASSET_AUDIO);
+	std::vector<TypedDep> deps;
+	catalogDepForEachTyped("mod:fx", collectTypedDep, &deps);
+	REQUIRE(deps.size() == 1);
+	REQUIRE(deps[0].id == "mod:blast");
+	REQUIRE(deps[0].type == ASSET_AUDIO);
+	catalogDepClear();
 }
 
 TEST_CASE("catalog dependency graph grows past its initial allocation",
@@ -81,6 +111,16 @@ TEST_CASE("catalog dependency graph skips bundled pairs during manifest expansio
 	std::vector<std::string> bundled;
 	catalogDepForEach("base:weapon_native", collectDep, &bundled);
 	REQUIRE(bundled.empty());
+	/* Runtime lifecycle must still see bundled public-source closure. */
+	std::vector<std::string> bundledTyped;
+	catalogDepForEachTyped("base:weapon_native", collectTypedDepLabel, &bundledTyped);
+	REQUIRE(bundledTyped.size() == 1);
+	REQUIRE(bundledTyped[0] == "base:projectile_native:0");
+	std::vector<TypedDep> bundledLifecycle;
+	catalogDepForEachTyped("base:weapon_native", collectTypedDep,
+		&bundledLifecycle);
+	REQUIRE(bundledLifecycle.size() == 1);
+	REQUIRE(bundledLifecycle[0].id == "base:projectile_native");
 
 	std::vector<std::string> custom;
 	catalogDepForEach("mod:weapon_custom", collectDep, &custom);
@@ -89,6 +129,9 @@ TEST_CASE("catalog dependency graph skips bundled pairs during manifest expansio
 
 	catalogDepClearMods();
 	REQUIRE(catalogDepCount() == 1);
+	bundledTyped.clear();
+	catalogDepForEachTyped("base:weapon_native", collectTypedDepLabel, &bundledTyped);
+	REQUIRE(bundledTyped.size() == 1);
 
 	catalogDepClear();
 	REQUIRE(catalogDepCount() == 0);

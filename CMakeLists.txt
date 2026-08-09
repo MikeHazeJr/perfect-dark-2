@@ -905,6 +905,8 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/tests/test_theme_archive_authoring.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_voice_archive_authoring.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_assetcatalog_deps.cpp
+	${CMAKE_SOURCE_DIR}/port/src/catalog_dep_activation_plan.c
+	${CMAKE_SOURCE_DIR}/tests/test_catalog_dep_activation_plan.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_public_mods_static.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_mod_external_archive_static.cpp
   ${CMAKE_SOURCE_DIR}/port/src/asset_archive_policy.c
@@ -925,10 +927,14 @@ set(SRC_TESTS
   # sparks_custom.c is pure (table + constants + log); the base g_SparkTypes
   # table it indexes is provided by tests/stubs.c in this target.
   ${CMAKE_SOURCE_DIR}/port/src/effect_graph_runtime.c
+	${CMAKE_SOURCE_DIR}/port/src/effect_executor.c
+	${CMAKE_SOURCE_DIR}/port/src/effect_dependencies.c
   ${CMAKE_SOURCE_DIR}/port/src/pdeffect_source.c
   ${CMAKE_SOURCE_DIR}/port/src/pdeffect_source_parser.cpp
   ${CMAKE_SOURCE_DIR}/src/game/sparks_custom.c
   ${CMAKE_SOURCE_DIR}/tests/test_effect_graph_runtime.cpp
+	${CMAKE_SOURCE_DIR}/tests/test_effect_executor.cpp
+	${CMAKE_SOURCE_DIR}/tests/test_effect_dependencies.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_pdeffect_source.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_pdeffect_source_parser.cpp
   ${CMAKE_SOURCE_DIR}/port/src/loader_enum_reverse.c
@@ -994,6 +1000,8 @@ set(SRC_TESTS
   # independent from explicit UI/editor/manifest/typed lifecycle owners.
   ${CMAKE_SOURCE_DIR}/port/src/catalog_stage_ownership.c
   ${CMAKE_SOURCE_DIR}/tests/test_catalog_stage_ownership.cpp
+  ${CMAKE_SOURCE_DIR}/port/src/pdca_extract_transaction.c
+  ${CMAKE_SOURCE_DIR}/tests/test_pdca_extract_transaction.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_asset_path_contract.cpp
 
   # S484 F1: catalog manager for weapons (pure validators + variant spec).

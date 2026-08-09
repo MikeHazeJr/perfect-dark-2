@@ -23,6 +23,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <ctype.h>
+#include <limits.h>
 #include <dirent.h>
 #include <sys/stat.h>
 #include "types.h"
@@ -45,6 +46,7 @@
 #include "loader_pool.h"
 #include "modarchive.h"
 #include "pdeffect_source.h"
+#include "effect_dependencies.h"
 #include "weapon_graph_archive.h"
 #include "romdata.h"
 #include "system.h"
@@ -2752,6 +2754,10 @@ static s32 weaponNestedMediaType(const char *path, asset_type_e *out_type)
 		if (out_type) *out_type = type;
 		return 1;
 	}
+	if (type == ASSET_EFFECT && pathEndsWithNoCase(path, ".pdeffect")) {
+		if (out_type) *out_type = type;
+		return 1;
+	}
 	return 0;
 }
 
@@ -2855,6 +2861,9 @@ typedef struct weapon_nested_preflight {
 	s32 existing;
 	s32 created;
 	s32 edge_created;
+	effect_dependency_list_t effect_deps;
+	u8 *effect_dep_edges_created;
+	u8 *effect_child_dep_edges_created;
 } weapon_nested_preflight_t;
 
 s32 assetCatalogRegisterWeaponNestedDependencies(const char *weapon_id,
@@ -2896,7 +2905,7 @@ s32 assetCatalogRegisterWeaponNestedDependencies(const char *weapon_id,
 	/* Preflight the complete closure without mutating catalog state. Keep the
 	 * production order explicit: UI, then audio, then animation command source.
 	 * A corrupt late animation therefore cannot leak an earlier audio row. */
-	for (s32 pass = 0; pass < 3; pass++) {
+	for (s32 pass = 0; pass < 4; pass++) {
 	for (s32 i = 0; i < scan.count; i++) {
 		asset_type_e expected_type = ASSET_NONE;
 		const char *entry_name = scan.entries[i];
@@ -2909,7 +2918,8 @@ s32 assetCatalogRegisterWeaponNestedDependencies(const char *weapon_id,
 		weaponNestedMediaType(entry_name, &expected_type);
 		if ((pass == 0 && expected_type != ASSET_UI)
 				|| (pass == 1 && expected_type != ASSET_AUDIO)
-				|| (pass == 2 && expected_type != ASSET_ANIMATION)) continue;
+				|| (pass == 2 && expected_type != ASSET_ANIMATION)
+				|| (pass == 3 && expected_type != ASSET_EFFECT)) continue;
 		p = &pending[pending_count];
 		p->expected_type = expected_type;
 		p->bytes = modArchiveExtractMemAlloc(weapon_bytes, weapon_size,
@@ -2942,6 +2952,11 @@ s32 assetCatalogRegisterWeaponNestedDependencies(const char *weapon_id,
 			nestedSetErr(err, err_cap,
 				"nested dependency %s has missing or foreign catalog ID %s",
 				entry_name, catalog_id);
+			goto rollback;
+		}
+		if (expected_type == ASSET_EFFECT
+				&& effectDependenciesCollectArchiveBytes(p->bytes, p->size,
+					catalog_id, &p->effect_deps, err, err_cap) < 0) {
 			goto rollback;
 		}
 		for (s32 prior = 0; prior < pending_count; prior++) {
@@ -2977,10 +2992,21 @@ s32 assetCatalogRegisterWeaponNestedDependencies(const char *weapon_id,
 		pending_count++;
 	}
 	}
-	if (!catalogDepReserve(pending_count)) {
+	{
+		s32 edge_count = pending_count;
+		for (s32 i = 0; i < pending_count; i++) {
+			if (pending[i].effect_deps.count > (size_t)(INT_MAX - edge_count) / 2) {
+				nestedSetErr(err, err_cap, "nested dependency edge count overflow %s%s",
+					weapon_id, "");
+				goto rollback;
+			}
+			edge_count += (s32)(pending[i].effect_deps.count * 2);
+		}
+		if (!catalogDepReserve(edge_count)) {
 		nestedSetErr(err, err_cap, "could not reserve nested edges for %s%s",
 			weapon_id, "");
 		goto rollback;
+		}
 	}
 
 	for (s32 i = 0; i < pending_count; i++) {
@@ -3011,8 +3037,42 @@ s32 assetCatalogRegisterWeaponNestedDependencies(const char *weapon_id,
 			entry->temporary = 0;
 		}
 		if (!catalogDepContains(weapon_id, p->catalog_id)) {
-			catalogDepRegister(weapon_id, p->catalog_id, bundled ? 1 : 0);
+			catalogDepRegisterTyped(weapon_id, p->catalog_id,
+				p->expected_type, bundled ? 1 : 0);
 			p->edge_created = 1;
+		}
+		if (p->effect_deps.count) {
+			p->effect_dep_edges_created = (u8 *)calloc(p->effect_deps.count, 1);
+			p->effect_child_dep_edges_created = (u8 *)calloc(
+				p->effect_deps.count, 1);
+			if (!p->effect_dep_edges_created || !p->effect_child_dep_edges_created) {
+				nestedSetErr(err, err_cap, "out of memory tracking nested effect deps %s%s",
+					p->catalog_id, "");
+				goto rollback;
+			}
+			for (size_t j = 0; j < p->effect_deps.count; j++) {
+				effect_dependency_t *dep = &p->effect_deps.items[j];
+				if (!catalogDepContains(p->catalog_id, dep->catalog_id)) {
+					if (!catalogDepRegisterTyped(p->catalog_id, dep->catalog_id,
+							dep->type, bundled ? 1 : 0)) {
+						nestedSetErr(err, err_cap,
+							"could not register effect-owned dependency %s%s",
+							dep->catalog_id, "");
+						goto rollback;
+					}
+					p->effect_child_dep_edges_created[j] = 1;
+				}
+				if (!catalogDepContains(weapon_id, dep->catalog_id)) {
+					if (!catalogDepRegisterTyped(weapon_id, dep->catalog_id,
+							dep->type, bundled ? 1 : 0)) {
+						nestedSetErr(err, err_cap,
+							"could not register nested effect dependency %s%s",
+							dep->catalog_id, "");
+						goto rollback;
+					}
+					p->effect_dep_edges_created[j] = 1;
+				}
+			}
 		}
 		sysLogPrintf(LOG_NOTE,
 			"PDWEAPON.NESTED.REGISTER: owner=%s id=%s type=%d source=%s",
@@ -3023,6 +3083,18 @@ s32 assetCatalogRegisterWeaponNestedDependencies(const char *weapon_id,
 
 rollback:
 	for (s32 i = pending_count - 1; i >= 0; i--) {
+		for (size_t j = pending[i].effect_deps.count; j-- > 0; ) {
+			if (pending[i].effect_dep_edges_created
+					&& pending[i].effect_dep_edges_created[j]) {
+				catalogDepUnregister(weapon_id,
+					pending[i].effect_deps.items[j].catalog_id);
+			}
+			if (pending[i].effect_child_dep_edges_created
+					&& pending[i].effect_child_dep_edges_created[j]) {
+				catalogDepUnregister(pending[i].catalog_id,
+					pending[i].effect_deps.items[j].catalog_id);
+			}
+		}
 		if (pending[i].edge_created) {
 			catalogDepUnregister(weapon_id, pending[i].catalog_id);
 		}
@@ -3031,7 +3103,12 @@ rollback:
 		}
 	}
 done:
-	for (s32 i = 0; i < WEAPON_NESTED_MEDIA_MAX; i++) free(pending[i].bytes);
+	for (s32 i = 0; i < WEAPON_NESTED_MEDIA_MAX; i++) {
+		free(pending[i].bytes);
+		free(pending[i].effect_dep_edges_created);
+		free(pending[i].effect_child_dep_edges_created);
+		effectDependenciesFree(&pending[i].effect_deps);
+	}
 	if (weapon_bytes) sysMemFree(weapon_bytes);
 	return result;
 }
@@ -3441,7 +3518,12 @@ static s32 registerTypedPdDescriptorFile(const char *descriptor_path,
                                          const char *mod_id)
 {
 	pd_effect_source_info_t effect_source;
+	effect_dependency_list_t effect_deps;
+	asset_entry_t prior_effect;
+	u8 *effect_edges_created = NULL;
+	s32 had_prior_effect = 0;
 	s32 has_effect_source = 0;
+	memset(&effect_deps, 0, sizeof(effect_deps));
 	if (expected == ASSET_EFFECT) {
 		char effect_error[256];
 		effect_error[0] = '\0';
@@ -3519,18 +3601,67 @@ static s32 registerTypedPdDescriptorFile(const char *descriptor_path,
 	if (!component_dir[0]) {
 		return 0;
 	}
+	if (has_effect_source) {
+		char dep_error[256];
+		dep_error[0] = '\0';
+		if (effectDependenciesCollectArchiveFile(descriptor_path,
+				effect_source.catalog_id, &effect_deps, dep_error,
+				sizeof(dep_error)) < 0) {
+			sysLogPrintf(LOG_WARNING,
+				"PDEFFECT.DEPENDENCY.REJECT: owner=%s source=%s error=%s",
+				effect_source.catalog_id, descriptor_path,
+				dep_error[0] ? dep_error : "dependency parse failed");
+			effectDependenciesFree(&effect_deps);
+			return 0;
+		}
+		{
+			const asset_entry_t *prior = assetCatalogResolve(effect_source.catalog_id);
+			if (prior) {
+				prior_effect = *prior;
+				had_prior_effect = 1;
+			}
+		}
+		if (effect_deps.count) {
+			if (effect_deps.count > INT_MAX
+					|| !catalogDepReserve((s32)effect_deps.count)
+					|| !(effect_edges_created = (u8 *)calloc(effect_deps.count, 1))) {
+				effectDependenciesFree(&effect_deps);
+				return 0;
+			}
+		}
+		for (size_t i = 0; i < effect_deps.count; i++) {
+			asset_type_e prior_type = catalogDepExpectedType(
+				effect_source.catalog_id, effect_deps.items[i].catalog_id);
+			if (catalogDepContains(effect_source.catalog_id,
+					effect_deps.items[i].catalog_id)) {
+				if (prior_type != ASSET_NONE
+						&& prior_type != effect_deps.items[i].type) goto effect_precommit_fail;
+				continue;
+			}
+			if (!catalogDepRegisterTyped(effect_source.catalog_id,
+					effect_deps.items[i].catalog_id, effect_deps.items[i].type,
+					had_prior_effect && prior_effect.bundled ? 1 : 0)) {
+				goto effect_precommit_fail;
+			}
+			effect_edges_created[i] = 1;
+		}
+	}
 
 	{
 		char descriptor_ref[FS_MAXPATH];
 		if (!assetPathJoinChecked(descriptor_ref, sizeof(descriptor_ref),
 				descriptor_path, "::",
-				assetArchiveDescriptorForPath(descriptor_path))) return 0;
+				assetArchiveDescriptorForPath(descriptor_path))) {
+			goto effect_publish_fail;
+		}
 		if (!registerComponent(&ini, component_dir, mod_id, descriptor_ref)) {
-			return 0;
+			goto effect_publish_fail;
 		}
 		if (has_effect_source) {
 			asset_entry_t *effect = assetCatalogGetMutable(effect_source.catalog_id);
-			if (!effect) return 0;
+			if (!effect) {
+				goto effect_publish_fail;
+			}
 			if (effect_source.format == PD_EFFECT_SOURCE_FORMAT_PROFILE_LIBRARY) {
 				effect->ext.effect.effect_type =
 					effect_source.profile_kind == PD_EFFECT_PROFILE_EXPLOSION
@@ -3539,6 +3670,8 @@ static s32 registerTypedPdDescriptorFile(const char *descriptor_path,
 						? EFFECT_TYPE_SPARK : EFFECT_TYPE_SMOKE;
 				effect->ext.effect.target = EFFECT_TARGET_CALLSITE;
 			}
+			free(effect_edges_created);
+			effectDependenciesFree(&effect_deps);
 		}
 		if (expected == ASSET_WEAPON) {
 			const char *weapon_id = iniGet(&ini, "catalog_id",
@@ -3586,6 +3719,23 @@ static s32 registerTypedPdDescriptorFile(const char *descriptor_path,
 		}
 		return 1;
 	}
+
+effect_publish_fail:
+	if (has_effect_source) {
+		asset_entry_t *published = assetCatalogGetMutable(effect_source.catalog_id);
+		if (had_prior_effect && published) *published = prior_effect;
+		else if (!had_prior_effect && published) assetCatalogUnregister(effect_source.catalog_id);
+	}
+effect_precommit_fail:
+	for (size_t i = effect_deps.count; i-- > 0; ) {
+		if (effect_edges_created && effect_edges_created[i]) {
+			catalogDepUnregister(effect_source.catalog_id,
+				effect_deps.items[i].catalog_id);
+		}
+	}
+	free(effect_edges_created);
+	effectDependenciesFree(&effect_deps);
+	return 0;
 }
 
 static s32 scanTypedPdDescriptorsRecurse(const char *root_dir,

@@ -36,11 +36,14 @@
 static struct sparktype *s_CustomSparkTypes;
 static s32 s_NumCustomSparkTypes = 0;
 static s32 s_CustomSparkTypeCapacity = 0;
+static struct sparktype s_BaseProfileOverride[SPARKTYPE_BASE_COUNT];
+static s32 s_HasBaseProfileOverride;
 
 struct sparktype *sparkTypeFor(s32 typenum)
 {
 	if (typenum >= 0 && typenum < SPARKTYPE_BASE_COUNT) {
-		return &g_SparkTypes[typenum];
+		return s_HasBaseProfileOverride
+			? &s_BaseProfileOverride[typenum] : &g_SparkTypes[typenum];
 	}
 	if (typenum >= SPARKTYPE_BASE_COUNT &&
 			typenum < SPARKTYPE_BASE_COUNT + s_NumCustomSparkTypes) {
@@ -49,7 +52,26 @@ struct sparktype *sparkTypeFor(s32 typenum)
 	/* Stale custom index (registry cleared under a live spark group) or a
 	 * corrupt typenum: fail safe into the OG default row rather than read
 	 * out of bounds. */
-	return &g_SparkTypes[SPARKTYPE_DEFAULT];
+	return s_HasBaseProfileOverride
+		? &s_BaseProfileOverride[SPARKTYPE_DEFAULT]
+		: &g_SparkTypes[SPARKTYPE_DEFAULT];
+}
+
+void sparksSetBaseProfileOverride(const struct sparktype *rows, s32 count)
+{
+	if (!rows || count != SPARKTYPE_BASE_COUNT) {
+		sysLogPrintf(LOG_ERROR,
+			"EFFECT.PROFILE.SPARK: rejected row count %d (expected %d)",
+			count, SPARKTYPE_BASE_COUNT);
+		return;
+	}
+	memcpy(s_BaseProfileOverride, rows, sizeof(s_BaseProfileOverride));
+	s_HasBaseProfileOverride = 1;
+}
+
+void sparksClearBaseProfileOverride(void)
+{
+	s_HasBaseProfileOverride = 0;
 }
 
 /* Field compare instead of memcmp: struct sparktype carries alignment

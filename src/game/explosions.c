@@ -1,3 +1,4 @@
+#include <string.h>
 #include <ultra64.h>
 #include "constants.h"
 #include "arenapool.h"
@@ -88,6 +89,32 @@ struct explosiontype g_ExplosionTypes[] = {
 _Static_assert(ARRAYCOUNT(g_ExplosionTypes) == EXPLOSIONTYPE_BASE_COUNT,
 	"g_ExplosionTypes row count must match the public extraction contract");
 
+static struct explosiontype s_ExplosionProfileOverride[EXPLOSIONTYPE_BASE_COUNT];
+static bool s_HasExplosionProfileOverride;
+
+const struct explosiontype *explosionTypeFor(s32 type)
+{
+	if (type < 0 || type >= EXPLOSIONTYPE_BASE_COUNT) {
+		type = EXPLOSIONTYPE_NONE;
+	}
+	return s_HasExplosionProfileOverride
+		? &s_ExplosionProfileOverride[type] : &g_ExplosionTypes[type];
+}
+
+void explosionsSetProfileOverride(const struct explosiontype *rows, s32 count)
+{
+	if (!rows || count != EXPLOSIONTYPE_BASE_COUNT) {
+		return;
+	}
+	memcpy(s_ExplosionProfileOverride, rows, sizeof(s_ExplosionProfileOverride));
+	s_HasExplosionProfileOverride = true;
+}
+
+void explosionsClearProfileOverride(void)
+{
+	s_HasExplosionProfileOverride = false;
+}
+
 bool explosionCreateSimple(struct prop *prop, struct coord *pos, RoomNum *rooms, s16 type, s32 playernum)
 {
 	return explosionCreate(prop, pos, rooms, type, playernum, false, NULL, 0, NULL);
@@ -97,7 +124,7 @@ bool explosionCreateComplex(struct prop *prop, struct coord *pos, RoomNum *rooms
 {
 	struct coord sp100;
 	struct coord sp88;
-	struct explosiontype *etype;
+	const struct explosiontype *etype;
 	bool makescorch = true;
 	RoomNum room;
 	f32 y;
@@ -119,7 +146,7 @@ bool explosionCreateComplex(struct prop *prop, struct coord *pos, RoomNum *rooms
 		sp100.z = pos->z;
 	}
 
-	etype = &g_ExplosionTypes[type];
+	etype = explosionTypeFor(type);
 
 	if (collisionprop || room <= 0
 			|| !(pos->y - y <= (etype->rangev + etype->changeratev * etype->duration + etype->innersize) * 0.5f || pos->y - y <= 75)) {
@@ -131,7 +158,7 @@ bool explosionCreateComplex(struct prop *prop, struct coord *pos, RoomNum *rooms
 
 f32 explosionGetHorizontalRangeAtFrame(struct explosion *exp, s32 frame)
 {
-	struct explosiontype *type = &g_ExplosionTypes[exp->type];
+	const struct explosiontype *type = explosionTypeFor(exp->type);
 	f32 changerate = PALUPF(type->changerateh);
 	f32 result;
 
@@ -150,7 +177,7 @@ f32 explosionGetHorizontalRangeAtFrame(struct explosion *exp, s32 frame)
 
 f32 explosionGetVerticalRangeAtFrame(struct explosion *exp, s32 frame)
 {
-	struct explosiontype *type = &g_ExplosionTypes[exp->type];
+	const struct explosiontype *type = explosionTypeFor(exp->type);
 	f32 changerate = PALUPF(type->changeratev);
 	f32 result;
 
@@ -166,7 +193,7 @@ f32 explosionGetVerticalRangeAtFrame(struct explosion *exp, s32 frame)
 void explosionGetBboxAtFrame(struct coord *lower, struct coord *upper, s32 frame, struct prop *prop)
 {
 	struct explosion *exp = prop->explosion;
-	struct explosiontype *type = &g_ExplosionTypes[exp->type];
+	const struct explosiontype *type = explosionTypeFor(exp->type);
 
 	f32 rangeh = explosionGetHorizontalRangeAtFrame(exp, frame);
 	f32 rangev = explosionGetVerticalRangeAtFrame(exp, frame);
@@ -183,7 +210,7 @@ void explosionGetBboxAtFrame(struct coord *lower, struct coord *upper, s32 frame
 	upper->z = prop->pos.z + rangeh;
 }
 
-void explosionAlertChrs(f32 *radius, struct coord *noisepos)
+void explosionAlertChrs(const f32 *radius, struct coord *noisepos)
 {
 	u32 stack[2];
 	s32 *end = (s32 *)&doorDestroyGlass;
@@ -221,7 +248,7 @@ void explosionAlertChrs(f32 *radius, struct coord *noisepos)
 		}
 
 		if (checksum != CHECKSUM_PLACEHOLDER) {
-			struct explosiontype *type = &g_ExplosionTypes[0];
+			struct explosiontype *type = g_ExplosionTypes;
 			s32 i;
 
 			for (i = 0; i != ARRAYCOUNT(g_ExplosionTypes) - 1; i++) {
@@ -308,9 +335,9 @@ bool explosionCreate(struct prop *sourceprop, struct coord *exppos, RoomNum *exp
 		if (sum * lodscale * lodscale > 400 * 400) {
 			if (rngRandom() % 2 == 0) {
 				if (sourceprop) {
-					smokeCreateSimple(&sourceprop->pos, sourceprop->rooms, g_ExplosionTypes[type].smoketype);
+					smokeCreateSimple(&sourceprop->pos, sourceprop->rooms, explosionTypeFor(type)->smoketype);
 				} else {
-					smokeCreateSimple(exppos, exprooms, g_ExplosionTypes[type].smoketype);
+					smokeCreateSimple(exppos, exprooms, explosionTypeFor(type)->smoketype);
 				}
 			}
 
@@ -394,7 +421,7 @@ bool explosionCreate(struct prop *sourceprop, struct coord *exppos, RoomNum *exp
 			for (i = 0; exprooms[i] != -1 && i < ARRAYCOUNT(expprop->rooms) - 1; i++) {
 				expprop->rooms[i] = exprooms[i];
 
-				roomFlashLighting(exprooms[i], g_ExplosionTypes[type].rangeh, 255);
+				roomFlashLighting(exprooms[i], explosionTypeFor(type)->rangeh, 255);
 			}
 
 			expprop->rooms[i] = -1;
@@ -415,7 +442,7 @@ bool explosionCreate(struct prop *sourceprop, struct coord *exppos, RoomNum *exp
 
 			exproom = expprop->rooms[0];
 
-			explosionGetBboxAtFrame(&spd4, &spc8, g_ExplosionTypes[type].duration, expprop);
+			explosionGetBboxAtFrame(&spd4, &spc8, explosionTypeFor(type)->duration, expprop);
 
 			spd4.x *= mult;
 			spd4.y *= mult;
@@ -593,7 +620,7 @@ bool explosionCreate(struct prop *sourceprop, struct coord *exppos, RoomNum *exp
 			exp->parts[0].pos.x = exppos->x;
 			exp->parts[0].pos.y = exppos->y;
 			exp->parts[0].pos.z = exppos->z;
-			exp->parts[0].size = g_ExplosionTypes[type].innersize * (RANDOMFRAC() * 0.5f + 1);
+			exp->parts[0].size = explosionTypeFor(type)->innersize * (RANDOMFRAC() * 0.5f + 1);
 			exp->parts[0].rot = RANDOMFRAC() * M_BADTAU;
 			exp->parts[0].bb = 0;
 
@@ -601,7 +628,7 @@ bool explosionCreate(struct prop *sourceprop, struct coord *exppos, RoomNum *exp
 				smokeClearSomeTypes();
 			}
 
-			explosionAlertChrs(&g_ExplosionTypes[type].rangeh, exppos);
+			explosionAlertChrs(&explosionTypeFor(type)->rangeh, exppos);
 		}
 	}
 
@@ -652,7 +679,7 @@ void explosionsUpdateShake(struct coord *arg0, struct coord *arg1, struct coord 
 				dist = 0.0001f;
 			}
 
-			mult = g_ExplosionTypes[g_Explosions[i].type].innersize / dist;
+			mult = explosionTypeFor(g_Explosions[i].type)->innersize / dist;
 
 			intensity += mult * 15.0f;
 		}
@@ -723,7 +750,7 @@ void explosionInflictDamage(struct prop *expprop)
 {
 	s32 stack;
 	struct explosion *exp = expprop->explosion;
-	struct explosiontype *type = &g_ExplosionTypes[exp->type];
+	const struct explosiontype *type = explosionTypeFor(exp->type);
 	s16 *propnumptr;
 	s16 propnums[256];
 	bool isfirstframe = exp->age <= 0;
@@ -1078,7 +1105,7 @@ void explosionInflictDamage(struct prop *expprop)
 u32 explosionTick(struct prop *prop)
 {
 	struct explosion *exp = prop->explosion;
-	struct explosiontype *type = &g_ExplosionTypes[exp->type];
+	const struct explosiontype *type = explosionTypeFor(exp->type);
 	s32 i;
 	s32 j;
 	s32 k;
@@ -1423,11 +1450,11 @@ Gfx *explosionRender(struct prop *prop, Gfx *gdl, bool xlupass)
 			for (j = 0; j < ARRAYCOUNT(exp->parts); j++) {
 				if (exp->parts[j].frame > 0) {
 #if PAL
-					if (i == (s32)((f32)(exp->parts[j].frame - 1) / (g_ExplosionTypes[exp->type].flarespeed * 0.83333331346512f))) {
+					if (i == (s32)((f32)(exp->parts[j].frame - 1) / (explosionTypeFor(exp->type)->flarespeed * 0.83333331346512f))) {
 						gdl = explosionRenderPart(exp, &exp->parts[j], gdl, coord, i);
 					}
 #else
-					if (i == (s32)((f32)(exp->parts[j].frame - 1) / g_ExplosionTypes[exp->type].flarespeed)) {
+					if (i == (s32)((f32)(exp->parts[j].frame - 1) / explosionTypeFor(exp->type)->flarespeed)) {
 						gdl = explosionRenderPart(exp, &exp->parts[j], gdl, coord, i);
 					}
 #endif
@@ -1438,9 +1465,9 @@ Gfx *explosionRender(struct prop *prop, Gfx *gdl, bool xlupass)
 		gSPMatrix(gdl++, osVirtualToPhysical(camGetPerspectiveMtxL()), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_PROJECTION);
 
 #if PAL
-		tmp = (g_ExplosionTypes[exp->type].flarespeed * 15.0f) * 0.83333331346512f;
+		tmp = (explosionTypeFor(exp->type)->flarespeed * 15.0f) * 0.83333331346512f;
 #else
-		tmp = g_ExplosionTypes[exp->type].flarespeed * 15.0f;
+		tmp = explosionTypeFor(exp->type)->flarespeed * 15.0f;
 #endif
 
 		for (j = 0; j < ARRAYCOUNT(exp->parts); j++) {

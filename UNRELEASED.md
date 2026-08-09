@@ -5,6 +5,14 @@
 
 ## Highlights
 
+- Made public `.pdeffect` explosion, spark, smoke, and typed SFX dependencies
+  drive native gameplay tables, with missing selected sources failing closed.
+- Made selected and nested public effects fail closed when missing, corrupt,
+  disabled, wrong-type, incomplete, or conflicting instead of silently using
+  a built-in explosion, spark, smoke, or sound.
+- Made effect ownership and dependency teardown survive shared parents,
+  repeated references, large recursive closures, disable/re-enable, and catalog
+  reset without leaving stale effect programs or dependency edges.
 - Preserved complete editable effect graphs, timelines, and native profile
   libraries at game load, with growable mod-effect and custom-spark capacity.
 - Kept live keyboard/controller action hints inside themed menu panels across

@@ -34,6 +34,7 @@
 #define _IN_ASSETCATALOG_DEPS_H
 
 #include <PR/ultratypes.h>
+#include "assetcatalog.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -60,6 +61,8 @@ extern "C" {
  * userdata is the opaque pointer passed to catalogDepForEach().
  */
 typedef void (*CatalogDepIterFn)(const char *dep_id, void *userdata);
+typedef void (*CatalogDepTypedIterFn)(const char *dep_id,
+	asset_type_e expected_type, void *userdata);
 
 /* -------------------------------------------------------------------------
  * API
@@ -80,11 +83,14 @@ typedef void (*CatalogDepIterFn)(const char *dep_id, void *userdata);
  */
 void catalogDepRegister(const char *owner_id, const char *dep_id,
                         s32 is_bundled);
+s32 catalogDepRegisterTyped(const char *owner_id, const char *dep_id,
+	asset_type_e expected_type, s32 is_bundled);
 
 /* Remove one exact dependency edge. Used only by transactional archive
  * registration rollback; returns 1 if an edge was removed. */
 s32 catalogDepUnregister(const char *owner_id, const char *dep_id);
 s32 catalogDepContains(const char *owner_id, const char *dep_id);
+asset_type_e catalogDepExpectedType(const char *owner_id, const char *dep_id);
 
 /** Ensure capacity for additional dependency pairs without mutating graph
  * truth. Transactional composite registrars reserve before child rows become
@@ -102,6 +108,10 @@ s32 catalogDepReserve(s32 additional);
  */
 void catalogDepForEach(const char *owner_id,
                        CatalogDepIterFn fn, void *userdata);
+/* Runtime lifecycle iterator. Unlike the manifest iterator above, this emits
+ * bundled edges because public-source activation must validate them too. */
+void catalogDepForEachTyped(const char *owner_id,
+	CatalogDepTypedIterFn fn, void *userdata);
 
 /**
  * Remove all dep pairs where is_bundled == 0 (mod assets).
