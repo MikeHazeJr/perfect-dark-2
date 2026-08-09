@@ -40,6 +40,19 @@ TEST_CASE("sound slots: same id dedups, distinct ids differ",
 	REQUIRE(a != c);
 }
 
+TEST_CASE("sound slots: allocation continues beyond the former 64-slot ceiling",
+          "[catalog][sound][slots][c3849][b992]") {
+	assetCatalogResetCustomSoundSlots();
+	s32 slot = -1;
+	for (s32 i = 0; i <= 64; i++) {
+		char id[32];
+		snprintf(id, sizeof(id), "mod_many:sfx_%d", i);
+		slot = assetCatalogResolveSoundPrivateSlot(id);
+	}
+	REQUIRE(SND_CUSTOM_COUNT > 64);
+	REQUIRE(slot == SND_CUSTOM_START + 64);
+}
+
 TEST_CASE("sound slots: empty / null id rejected; exhaustion loud-fails",
           "[catalog][sound][slots][c3849]") {
 	assetCatalogResetCustomSoundSlots();
@@ -70,5 +83,5 @@ TEST_CASE("sound slots: range anchors (base adjacency + 11-bit ceiling)",
 	REQUIRE(SND_CUSTOM_END == SND_CUSTOM_START + SND_CUSTOM_COUNT);
 	/* union soundnumhack's id field is 11 bits; the custom range must never
 	 * reach the mp3priority/hasconfig bit territory. */
-	REQUIRE(SND_CUSTOM_END <= 0x800);
+	REQUIRE(SND_CUSTOM_END == 0x800);
 }

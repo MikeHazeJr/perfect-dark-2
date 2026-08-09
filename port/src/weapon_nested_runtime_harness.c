@@ -8,7 +8,12 @@
 #include "assetcatalog_load.h"
 #include "assetcatalog_deps.h"
 #include "assetcatalog_scanner.h"
+#include "assetcatalog_weapon_slots.h"
+#include "bss.h"
+#include "constants.h"
 #include "fs.h"
+#include "lib/lib_317f0.h"
+#include "lib/snd.h"
 #include "system.h"
 #include "weapon_nested_runtime_harness.h"
 
@@ -139,11 +144,26 @@ static s32 harnessCapacityAccept(const char *owner, const char *archive,
         effect_count_text ? effect_count_text : "", NULL, 10);
     const s32 dep_baseline = catalogDepCount();
     size_t effect_count = 0;
+    s32 new_runtime_weapon_id = -1;
+    s32 new_mp_weapon_id = -1;
     s32 ok = 0;
     if (expected <= 64 || expected > INT32_MAX
             || expected_effects < 2 || expected_effects > INT32_MAX
             || expected_effect_deps <= 64 || expected_effect_deps > INT32_MAX
             ) goto done;
+    /* This runs after the complete base catalog has booted. A genuinely new
+     * creator weapon must receive its own pair, rather than borrowing a donor
+     * or failing because base-only inventory rows consumed custom capacity. */
+    if (!assetCatalogResolveWeaponPrivateSlots("capacity:weapon_new", -1, 0,
+            &new_runtime_weapon_id, &new_mp_weapon_id)
+            || new_runtime_weapon_id < WEAPON_CUSTOM_START
+            || new_runtime_weapon_id >= WEAPON_CUSTOM_END
+            || new_mp_weapon_id < MPWEAPON_CUSTOM_START
+            || new_mp_weapon_id >= MPWEAPON_CUSTOM_END) goto done;
+    sysLogPrintf(LOG_NOTE,
+        "PDWEAPON.NESTED.WEAPON_SLOT: id=capacity:weapon_new runtime=%d mp=%d result=PASS",
+        new_runtime_weapon_id, new_mp_weapon_id);
+
     if (!harnessRegisterOwner(owner, archive)) goto done;
     if (assetCatalogRegisterWeaponNestedDependencies(owner, archive, 0,
             err, sizeof(err)) != (s32)expected) goto done;
@@ -157,6 +177,46 @@ static s32 harnessCapacityAccept(const char *owner, const char *archive,
             || deps.count != (size_t)expected
             || effect_count != (size_t)expected_effects
             || effect_deps.count != (size_t)expected_effect_deps) goto done;
+
+    /* Rebuild the production reverse index after dynamic registration, then
+     * play all 70 creator SFX through sndStart's normal catalog/file route. */
+    {
+        s32 high_soundnum = -1;
+        catalogLoadInit();
+        for (s32 i = 0; i < 70; i++) {
+            char sfx_id[CATALOG_ID_LEN];
+            const asset_entry_t *sfx;
+            struct sndstate *state;
+            CatalogResolveResult route;
+            snprintf(sfx_id, sizeof(sfx_id), "capacity:sfx_%03d", i);
+            sfx = assetCatalogResolve(sfx_id);
+            if (!sfx || sfx->type != ASSET_AUDIO
+                    || sfx->ext.audio.category != AUDIO_CAT_SFX
+                    || sfx->source_soundnum < SND_CUSTOM_START
+                    || sfx->source_soundnum >= SND_CUSTOM_END) goto done;
+            route = catalogResolveSound(sfx->source_soundnum);
+            if (i == 0 || i == 69) {
+                sysLogPrintf(LOG_NOTE,
+                    "PDWEAPON.NESTED.PLAYBACK_ROUTE: id=%s sound=%d disabled=%d catalog=%d override=%d blocked=%d path=%s",
+                    sfx_id, sfx->source_soundnum, sndIsDisabled() ? 1 : 0,
+                    route.catalog_id, route.is_mod_override,
+                    route.source_only_blocked,
+                    route.path ? route.path : "(null)");
+            }
+            if (sndIsDisabled() || route.catalog_id < 0
+                    || !route.is_mod_override || !route.path
+                    || route.source_only_blocked) goto done;
+            state = sndStart(var80095200, (s16)sfx->source_soundnum,
+                NULL, -1, -1, -1.0f, -1, -1);
+            if (!state) goto done;
+            audioStop(state);
+            high_soundnum = sfx->source_soundnum;
+        }
+        if (high_soundnum < SND_CUSTOM_START + 64) goto done;
+        sysLogPrintf(LOG_NOTE,
+            "PDWEAPON.NESTED.PLAYBACK: count=70 high_id=capacity:sfx_069 high_sound=%d result=PASS",
+            high_soundnum);
+    }
     ok = 1;
 done:
     if (!ok) {

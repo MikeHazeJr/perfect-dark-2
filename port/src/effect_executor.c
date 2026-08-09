@@ -75,15 +75,25 @@ s32 effectExecutorResolveSmokeProfile(const char *row_id)
 static s32 resolveSound(const pd_effect_explosion_profile_t *source,
 	u16 *sound, char *error, size_t error_cap)
 {
-	catalog_audio_result_t audio;
+	catalog_audio_result_t audio = {0};
+	union soundnumhack native_ref;
+	s32 playable_category;
+	s32 resolved;
 
 	if (!source->has_audio) {
 		*sound = 0;
 		return 1;
 	}
 
-	if (!catalogResolveAudio(source->audio_catalog_id, &audio)
-			|| audio.category != AUDIO_CAT_SFX
+	resolved = catalogResolveAudio(source->audio_catalog_id, &audio);
+	native_ref.packed = (s16)audio.sound_id;
+	/* A configured native sound may deliberately select an MP3/voice-backed
+	 * leaf while remaining a fully playable SFX token (the stock huge
+	 * explosion does this).  Keep ordinary voice lines and music out of the
+	 * effect path; only the packed hasconfig token earns this exception. */
+	playable_category = resolved && (audio.category == AUDIO_CAT_SFX
+		|| (audio.category == AUDIO_CAT_VOICE && native_ref.hasconfig));
+	if (!resolved || !playable_category
 			|| audio.sound_id <= 0 || audio.sound_id > USHRT_MAX) {
 		if (error && error_cap) {
 			snprintf(error, error_cap,

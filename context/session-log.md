@@ -1,5 +1,28 @@
 # Session Log (Active)
 
+## 2026-08-08 - Wave 10 reverse invalidation, ingress transactions, and runtime capacity
+
+Completed the three frozen Wave 10 lanes from `6945e96a`. `T-ASSETS-033` is
+implemented with an exact growable root-activation ledger, transactional reverse
+child disable/replacement invalidation, stale-edge pruning, and rollback/reload
+of overlapping owners. `T-CATALOG-003` now retains a received archive's prior
+destination until typed scanner/catalog admission commits; its installed-client
+three-ingress boundary smoke passes 24/24. B-992 is fixed under
+`T-ASSETS-022`: base-only weapons no longer consume private pairs, the custom
+weapon domain uses the remaining 23 identities inside the unchanged 64-bit save
+filter, and custom audio uses all 502 remaining 11-bit sound identities. The
+installed-client capacity smoke passes 11/11, allocates runtime weapon 86/MP 41
+after the complete base walk, and starts all 70 nested SFX.
+
+The final frozen combined receipt passes client, updater, and test compilation;
+focused T033 42/4 and T-CATALOG-003 3,576/13; the complete 53,264-assertion,
+949-case suite; conformance self-test; 28-root/52-recursive all-27-family
+conformance; native-source guard; and diff check. Raw logs are in
+`.claude/session-builds/wave10final/`. T033 is implemented but not live-stress
+validated; T-CATALOG-003 remains partial for an all-family live matrix and
+mixed-validity multi-descriptor catalog atomicity; T-ASSETS-022 remains partial
+for T-ASSETS-025 gameplay/load-release/restart/network/repeated-owner proof.
+
 ## 2026-08-08 - Wave 9 catalog lifecycle, v1 scheduler, and nested capacity
 
 Committed Wave 8 at `5adcffbe`, then completed three Workbench lanes from that
@@ -4217,3 +4240,109 @@ creator-authored v1 effects in ordinary play. T-ASSETS-034 owns gameplay/audio,
 T-ASSETS-035 owns renderer/presentation, and T-ASSETS-036 owns timeline,
 context, target, and lifetime consumers. Durable receipt:
 `context/evidence/2026-08-08-t-assets-032-v1-scheduler.md`.
+
+## 2026-08-08 - T-ASSETS-033 reverse typed dependency invalidation
+
+B-1013 replaced aggregate-child-ref inference with a growable exact typed-root
+activation ledger. Every root load, retain, release, and stage owner now has a
+durable runtime ownership row. Disabling or replacing a selected audio,
+material, texture, or effect child preflights all active root closures before
+mutation, retires exact overlapping/diamond root counts plus executor/cache
+adapters, and leaves failed parents pending and unreachable. Re-enable or
+completed replacement reloads only through the complete dependency-first
+activation transaction; failed reload rolls back and remains pending.
+
+The ingress sweep also found replacement edges were additive. Successful
+`.pdeffect` replacement now prunes stale owner edges to the exact new public
+source; rejected replacement restores and reloads the prior row and closure.
+Base, loose/local, nested pdmod/weapon, and received-network paths all converge
+on the typed scanner/activation boundary.
+
+The source-frozen isolated client, updater, and test builds pass. Focused T033
+passes 42 assertions/4 cases and the native-source guard passes. No ordinary
+installed-client child toggle/replacement, real network peer replacement, or
+concurrent editor/stage/manifest stress was run, and root owns the combined
+Wave10 full-suite receipt. T-ASSETS-033 is implemented, not validated. Durable
+receipt: `context/evidence/2026-08-08-t-assets-033-reverse-invalidation.md`.
+
+The first combined installed-client ingress run then exposed a startup
+regression before its probes: the stock huge explosion's dependency is a
+configured native sound token stored in a voice-backed public archive. Full
+closure activation loaded it correctly, but the effect executor rejected it
+solely because its category was VOICE. The narrow correction admits only a
+packed `hasconfig` token as playable in that category; ordinary voice lines
+and music still fail closed. The correction passes isolated client/updater/test
+compilation plus 123 assertions/6 focused T033 and executor cases. The failed
+receipt remains preserved at
+`.claude/smoke-verify-runs/results-20260809T020251Z.json`; a successful
+installed-client rerun is still required before validation.
+
+The authoritative rerun passes all 24 installed-client ingress assertions at
+`.claude/smoke-verify-runs/results-20260809T021712Z.json`, focused catalog
+3,576/13, the complete suite 53,264/949, all-family conformance, and the
+native-source guard. This confirms the stock configured sound now boots through
+the complete typed effect closure. T033 remains implemented rather than
+validated because no live fixture disabled/re-enabled or replaced an active
+child while overlapping gameplay/editor/stage/manifest/network owners held its
+parent, and no real peer replacement was exercised.
+
+## 2026-08-08 - T-CATALOG-003 real ingress proof and B-1012
+
+Continued the verified partial path-capacity milestone with dynamically built
+installed-client fixtures for loose typed sources, nested `.pdmod` transport,
+and raw PDCA network receive at exact 127/128/1023/1024 FileProvider source
+lengths. B-1012 exposed that received extraction committed its candidate and
+deleted the prior destination backup before typed scanner admission. The
+receive path now holds an explicit published transaction through catalog
+admission: success commits, while rejection removes the candidate, restores
+the exact prior install, and does not increment `received_count`.
+
+Isolated client/updater/tests builds and focused `[T-CATALOG-003]` automation
+pass 3,576 assertions/13 cases. The first corrected real fixture attempt is
+preserved at `.claude/smoke-verify-runs/results-20260809T020251Z.json`, but it
+never reached ingress probes: concurrent T-ASSETS-033 source made built-in
+`base:effect_explosion_profiles` fail startup activation on
+`base:sfx_unlabeled_avrr`. That owner corrected and refroze the independent
+configured-audio predicate. The authoritative rerun then passes 24/24 at
+`.claude/smoke-verify-runs/results-20260809T021712Z.json`: nine exact
+catalog/FileProvider/runtime identities, three complete 1024-byte rejections,
+and post-staging received rollback with no catalog/provider/runtime/dependency
+residue. The current isolated build, focused 3,576/13, full 53,264/949,
+native-source guard, strict 28-root/52-recursive all-family conformance, diff
+check, and unchanged source fingerprint pass. Keep T-CATALOG-003 partial for
+comprehensive live all-family coverage and catalog-atomic handling of
+mixed-validity multi-descriptor received archives. Durable detail:
+`context/evidence/2026-08-08-t-catalog-003-three-ingress.md`.
+
+## 2026-08-08 - B-992 custom weapon and sound runtime capacity
+
+Continued T-ASSETS-022 from clean commit `6945e96a` and removed two arbitrary
+PC-only runtime ceilings without changing public asset identity or save/wire
+schemas. Complete base walking had spent the ten private custom-weapon pairs on
+authored base runtime rows that were not MP-table choices. Those rows now keep
+their authored runtime identity with `mp_index = -1`. The paired custom range
+uses the 23 remaining identities in the existing 64-bit MP filter, runtime
+weapon IDs remain signed-s8 safe through 108, every catalog/loader/held-graph
+bound follows the same range, and bit 63 packing uses an unsigned mask.
+
+The private sound allocator now uses all 502 remaining identities in the
+11-bit `soundnumhack` domain instead of stopping after 64. Focused sound-slot,
+weapon-manager, random-pool, and spawn identity automation passes 4,600
+assertions / 85 cases. Installed-client smoke
+`.claude/smoke-verify-runs/results-20260809T021136Z.json` passes 11/11 with a
+genuinely new weapon allocated as runtime 86 / MP 41 after the full base walk
+and all 70 generated nested SFX resolved and started through the production
+catalog/audio route through sound identity 1615. No custom-slot failure occurs.
+
+That first live run occurred while neighboring T-ASSETS-033 was thawed and is
+retained as supporting evidence. After its refreeze, final isolated client,
+updater, and explicit test-target compilation passed with the exact 38-file
+source fingerprint
+`810b88239496848eb2ce89b5d30bcb49c860b89a3cf993a003fe080a1acd6c92`
+before and after. Focused automation again passed 4,600/85, the native-source
+guard passed, and the frozen installed-client receipt
+`.claude/smoke-verify-runs/results-20260809T022556Z.json` repeated 11/11 with
+harness 2/2 and clean exit. T-ASSETS-022 remains partial: ordinary edited
+gameplay plus load/release/restart, repeated-owner, and real network-
+distribution receipts remain T-ASSETS-025. Durable detail:
+`context/evidence/2026-08-08-b992-runtime-slot-capacity.md`.

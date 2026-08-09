@@ -163,6 +163,24 @@ s32 catalogDepUnregister(const char *owner_id, const char *dep_id)
     return 0;
 }
 
+void catalogDepPruneOwner(const char *owner_id, CatalogDepKeepFn keep,
+	void *userdata)
+{
+	if (!owner_id || !owner_id[0] || !keep) return;
+	u32 ohash = s_fnv1a(owner_id);
+	for (s32 i = s_NumDepPairs; i-- > 0;) {
+		if (s_DepTable[i].owner_hash != ohash
+				|| strcmp(s_DepTable[i].owner_id, owner_id) != 0) continue;
+		if (keep(s_DepTable[i].dep_id, s_DepTable[i].expected_type,
+				userdata)) continue;
+		if (i + 1 < s_NumDepPairs) {
+			memmove(&s_DepTable[i], &s_DepTable[i + 1],
+				(size_t)(s_NumDepPairs - i - 1) * sizeof(s_DepTable[0]));
+		}
+		s_NumDepPairs--;
+	}
+}
+
 s32 catalogDepContains(const char *owner_id, const char *dep_id)
 {
     if (!owner_id || !owner_id[0] || !dep_id || !dep_id[0]) return 0;

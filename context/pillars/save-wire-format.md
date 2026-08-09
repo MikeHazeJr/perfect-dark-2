@@ -79,6 +79,14 @@ input and applies only when the canonical field is absent. An unresolved
 nonempty catalog ID, invalid legacy weapon, or unreconstructable required bot
 rejects the entire load.
 
+B-992 capacity hardening (2026-08-08): the private paired custom-weapon domain
+now uses every remaining identity in the existing 64-bit MP random-filter
+field, indices 41 through 63. The field width and MP setup schema do not
+change. Pack/unpack now uses an unsigned `1ULL` mask so bit 63 is defined.
+Paired runtime weapon identities remain private catalog adapters and end at
+108, within legacy signed-s8 storage. Public saves and network transport still
+carry catalog IDs; no numeric custom identity was added to either format.
+
 ---
 
 ## Wire protocol

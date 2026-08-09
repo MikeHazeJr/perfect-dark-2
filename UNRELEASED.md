@@ -5,6 +5,8 @@
 
 ## Highlights
 
+- Kept received mod files transactional through catalog admission, restoring
+  the prior installed content when a typed asset is rejected after extraction.
 - Added fail-closed typed scheduling for every accepted public v1 effect node,
   rejecting incomplete schedules or missing handlers before partial execution.
 - Made asset disable and catalog reset transactional across every typed family,
@@ -13,12 +15,19 @@
   drive native gameplay tables, with missing selected sources failing closed.
 - Removed the 64-asset ceiling from nested weapon UI, sound, animation, and
   effect ingestion while preserving all-or-nothing registration and rollback.
+- Removed the separate 64-sound playback ceiling for creator content and
+  restored ordinary custom-weapon allocation after the full base catalog.
 - Made selected and nested public effects fail closed when missing, corrupt,
   disabled, wrong-type, incomplete, or conflicting instead of silently using
   a built-in explosion, spark, smoke, or sound.
 - Made effect ownership and dependency teardown survive shared parents,
   repeated references, large recursive closures, disable/re-enable, and catalog
   reset without leaving stale effect programs or dependency edges.
+- Made active effects and weapons retire immediately when a selected sound,
+  material, texture, or nested effect is disabled or replaced, then reload only
+  after the complete edited dependency closure passes again.
+- Kept configured explosion sounds playable when their editable audio source
+  is voice-backed, without allowing ordinary voice or music in effect slots.
 - Preserved complete editable effect graphs, timelines, and native profile
   libraries at game load, with growable mod-effect and custom-spark capacity.
 - Kept live keyboard/controller action hints inside themed menu panels across

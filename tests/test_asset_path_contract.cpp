@@ -252,7 +252,9 @@ TEST_CASE("every public ingestion boundary uses checked path-specific APIs",
 		std::string::npos);
 	REQUIRE(network.find("assetPathCopyChecked(ini->pairs[i].value") !=
 		std::string::npos);
-	REQUIRE(network.find("pdcaExtractArchiveTransactional") != std::string::npos);
+	REQUIRE(network.find("pdcaExtractArchiveBegin") != std::string::npos);
+	REQUIRE(network.find("pdcaExtractTransactionCommit") != std::string::npos);
+	REQUIRE(network.find("pdcaExtractTransactionRollback") != std::string::npos);
 	REQUIRE(network.find("transactional extract failed") != std::string::npos);
 	REQUIRE(network.find("destination='%s' preserved") != std::string::npos);
 	REQUIRE(network.find("return assetPathKeyIsSource(key);") !=

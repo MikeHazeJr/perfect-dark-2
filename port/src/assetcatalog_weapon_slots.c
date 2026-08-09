@@ -11,6 +11,13 @@
 
 static char s_CustomWeaponCatalogIds[MPWEAPON_CUSTOM_COUNT][CATALOG_ID_LEN];
 
+_Static_assert(MPWEAPON_CUSTOM_END == 64,
+    "MP weapon identities must fit the persisted 64-bit random-filter field");
+_Static_assert(MPWEAPON_CUSTOM_COUNT == WEAPON_CUSTOM_COUNT,
+    "private MP/runtime weapon slots must remain paired");
+_Static_assert(WEAPON_CUSTOM_END <= 0x80,
+    "runtime weapon identities must remain representable by signed s8 fields");
+
 static s32 s_runtimeWeaponIdIsBase(s32 runtime_weapon_id)
 {
     return runtime_weapon_id >= 0 && runtime_weapon_id < WEAPON_CUSTOM_START;
@@ -91,6 +98,19 @@ s32 assetCatalogResolveWeaponPrivateSlots(const char *catalog_id,
     if (has_authored_runtime_weapon_id
             && s_runtimeWeaponIdIsBase(runtime_weapon_id)) {
         mp_weapon_id = s_mpWeaponIdForRuntimeWeapon(runtime_weapon_id);
+
+        /* Many legitimate base catalog rows are inventory items or devices,
+         * not multiplayer weapon-set choices. Preserve their authored runtime
+         * identity without consuming a private custom pair. */
+        if (mp_weapon_id < 0) {
+            if (runtime_weapon_id_out) {
+                *runtime_weapon_id_out = runtime_weapon_id;
+            }
+            if (mp_weapon_id_out) {
+                *mp_weapon_id_out = -1;
+            }
+            return 1;
+        }
     }
 
     if (mp_weapon_id < 0) {

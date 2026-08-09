@@ -22,6 +22,7 @@
 #include "assetcatalog_deps.h"
 #include "catalog_stage_ownership.h"
 #include "catalog_dep_activation_plan.h"
+#include "catalog_activation_ledger.h"
 #include "asset_source_debug.h"
 #include "asset_runtime.h"
 #include "assetprovider.h"
@@ -87,6 +88,8 @@ static s32 s_catalogTypeUsesMetadataRuntimePayload(asset_type_e type);
 static s32 s_catalogTypePreloadsBundledMetadataPayload(asset_type_e type);
 static s32 s_catalogLoadEntryMetadataPayload(asset_entry_t *entry);
 static s32 s_catalogPreloadBundledMetadataPayload(asset_entry_t *entry);
+static s32 s_catalogLedgerReload(
+	const catalog_activation_root_t *root, void *userdata);
 
 /* ========================================================================
  * Initialization
@@ -160,6 +163,11 @@ void catalogLoadInit(void)
      * reloads; the boot path calls this from animsInit instead, because the
      * first catalogLoadInit runs before g_Anims exists). */
     catalogSeedCustomAnimRows();
+
+    /* Registration has now published complete source/provider metadata.
+     * Replacement-invalidated parents may re-enter production only through
+     * the same typed activation transaction used on first load. */
+    (void)catalogActivationLedgerReloadPending(s_catalogLedgerReload, NULL);
 }
 
 /* c3849 Wave 2: write the g_Anims rows for catalog-owned custom anim slots
@@ -1744,6 +1752,13 @@ s32 catalogLoadTypedAsset(asset_type_e expected_type, const char *assetId)
             assetId, error[0] ? error : "unknown dependency error");
         return 0;
     }
+    if (!catalogActivationLedgerReserve(assetId)) {
+        sysLogPrintf(LOG_WARNING,
+            "CATALOG.LIFECYCLE.LOAD: '%s' could not reserve exact root ownership",
+            assetId);
+        catalogDepActivationPlanFree(&plan);
+        return 0;
+    }
     was_resident = (u8 *)calloc(plan.count ? plan.count : 1, sizeof(*was_resident));
     if (!was_resident) {
         sysLogPrintf(LOG_WARNING,
@@ -1793,6 +1808,20 @@ s32 catalogLoadTypedAsset(asset_type_e expected_type, const char *assetId)
         return 0;
     }
     free(was_resident);
+    {
+        const asset_entry_t *root = assetCatalogResolve(assetId);
+        if (!catalogActivationLedgerRecord(assetId,
+                root ? root->type : expected_type,
+                root && root->bundled)) {
+            catalogDepActivationPlanRollback(&plan, plan.count,
+                s_catalogRollbackActivationNode, NULL);
+            sysLogPrintf(LOG_WARNING,
+                "CATALOG.LIFECYCLE.LOAD: '%s' could not publish exact root ownership",
+                assetId);
+            catalogDepActivationPlanFree(&plan);
+            return 0;
+        }
+    }
     catalogDepActivationPlanFree(&plan);
     return 1;
 }
@@ -1823,6 +1852,7 @@ s32 catalogLoadStageAsset(asset_type_e expected_type, const char *assetId)
         catalogReleaseTypedAsset(expected_type, assetId);
         return 0;
     }
+    catalogActivationLedgerSetStageOwned(assetId, 1);
     return 1;
 }
 
@@ -2034,6 +2064,7 @@ void catalogReleaseTypedAsset(asset_type_e expected_type, const char *assetId)
     }
     catalogDepActivationPlanRollback(&plan, plan.count,
         s_catalogRollbackActivationNode, NULL);
+    (void)catalogActivationLedgerRelease(assetId);
     catalogDepActivationPlanFree(&plan);
 }
 
@@ -2083,6 +2114,7 @@ s32 catalogDeactivateTypedAsset(asset_type_e expected_type, const char *assetId)
         (void)catalogStageOwnershipRelease(root);
         root->load_state = root->enabled
             ? ASSET_STATE_ENABLED : ASSET_STATE_REGISTERED;
+        catalogActivationLedgerForgetActive(assetId);
         return 1;
     }
 
@@ -2109,6 +2141,7 @@ s32 catalogDeactivateTypedAsset(asset_type_e expected_type, const char *assetId)
     root->ref_count = 0;
     root->load_state = root->enabled
         ? ASSET_STATE_ENABLED : ASSET_STATE_REGISTERED;
+    catalogActivationLedgerForgetActive(assetId);
     catalogDepActivationPlanFree(&plan);
     return 1;
 }
@@ -2138,6 +2171,7 @@ s32 catalogDeactivateTypedAssetForReset(asset_type_e expected_type,
     (void)catalogStageOwnershipRelease(root);
     root->load_state = root->enabled
         ? ASSET_STATE_ENABLED : ASSET_STATE_REGISTERED;
+    catalogActivationLedgerForgetActive(assetId);
     return root->loaded_data == NULL
         && root->payload_kind == ASSET_PAYLOAD_NONE;
 }
@@ -2159,6 +2193,7 @@ void catalogReleaseStageAsset(asset_type_e expected_type, const char *assetId)
                      assetId);
         return;
     }
+    catalogActivationLedgerSetStageOwned(assetId, 0);
     catalogReleaseTypedAsset(expected_type, assetId);
 }
 
@@ -2177,8 +2212,14 @@ void catalogRetainTypedAsset(asset_type_e expected_type, const char *assetId)
 {
     catalog_dep_activation_plan_t plan = {0};
     char error[256];
+    const asset_entry_t *root;
 
     if (!s_catalogValidateTypedLifecycle("RETAIN", expected_type, assetId)) {
+        return;
+    }
+    root = assetCatalogResolve(assetId);
+    if (!root || (root->load_state < ASSET_STATE_LOADED
+            && root->ref_count != ASSET_REF_BUNDLED)) {
         return;
     }
 
@@ -2189,11 +2230,169 @@ void catalogRetainTypedAsset(asset_type_e expected_type, const char *assetId)
             assetId, error[0] ? error : "unknown dependency error");
         return;
     }
+    if (!catalogActivationLedgerReserve(assetId)) {
+        catalogDepActivationPlanFree(&plan);
+        return;
+    }
+    for (size_t i = 0; i < plan.count; i++) {
+        const asset_entry_t *entry = assetCatalogResolve(plan.nodes[i].id);
+        if (!entry || (!entry->bundled
+                && entry->ref_count != ASSET_REF_BUNDLED
+                && (entry->load_state < ASSET_STATE_LOADED
+                    || entry->ref_count <= 0))) {
+            sysLogPrintf(LOG_WARNING,
+                "CATALOG.LIFECYCLE.RETAIN: '%s' closure row '%s' is not resident; unchanged",
+                assetId, plan.nodes[i].id);
+            catalogDepActivationPlanFree(&plan);
+            return;
+        }
+    }
     for (size_t i = 0; i < plan.count; i++) {
         asset_entry_t *entry = assetCatalogGetMutable(plan.nodes[i].id);
         if (entry) s_catalogRetainEntry(entry);
     }
+    {
+        (void)catalogActivationLedgerRecord(assetId,
+            root ? root->type : expected_type,
+            root && root->bundled);
+    }
     catalogDepActivationPlanFree(&plan);
+}
+
+static s32 s_catalogLedgerContains(
+        const catalog_activation_root_t *root, const char *dependency_id,
+        s32 *out_contains, void *userdata)
+{
+    catalog_dep_activation_plan_t plan = {0};
+    char error[256];
+    (void)userdata;
+    if (out_contains) *out_contains = 0;
+    if (!root || !dependency_id || !out_contains) return 0;
+    if (!catalogDepActivationPlanBuild(&plan, root->id, root->type,
+            s_catalogResolveDeactivationNode, NULL, error, sizeof(error))) {
+        sysLogPrintf(LOG_WARNING,
+            "CATALOG.LIFECYCLE.INVALIDATE: root '%s' preflight failed: %s",
+            root->id, error[0] ? error : "unknown dependency error");
+        return 0;
+    }
+    for (size_t i = 0; i < plan.count; i++) {
+        if (strcmp(plan.nodes[i].id, dependency_id) == 0) {
+            *out_contains = 1;
+            break;
+        }
+    }
+    catalogDepActivationPlanFree(&plan);
+    return 1;
+}
+
+static void s_catalogLedgerRetire(
+        const catalog_activation_root_t *root, void *userdata)
+{
+    catalog_dep_activation_plan_t plan = {0};
+    char error[256];
+    (void)userdata;
+    if (!root || !catalogDepActivationPlanBuild(&plan, root->id, root->type,
+            s_catalogResolveDeactivationNode, NULL, error, sizeof(error))) {
+        return; /* Complete-ledger preflight made this branch unreachable. */
+    }
+    for (s32 ref = 0; ref < root->references; ref++) {
+        for (size_t i = plan.count; i-- > 0;) {
+            asset_entry_t *entry = assetCatalogGetMutable(plan.nodes[i].id);
+            if (!entry) continue;
+            if (root->bundled && strcmp(plan.nodes[i].id, root->id) == 0) {
+                s_catalogUnloadEntryRawMode(plan.nodes[i].id, entry, 1);
+            } else {
+                s_catalogUnloadEntryRaw(plan.nodes[i].id, entry);
+            }
+        }
+    }
+    {
+        asset_entry_t *entry = assetCatalogGetMutable(root->id);
+        if (entry) {
+            s_catalogDetachRuntimeAdapters(entry, root->id);
+            (void)catalogStageOwnershipRelease(entry);
+            entry->load_state = entry->enabled
+                ? ASSET_STATE_ENABLED : ASSET_STATE_REGISTERED;
+        }
+    }
+    catalogDepActivationPlanFree(&plan);
+}
+
+static s32 s_catalogLedgerReload(
+        const catalog_activation_root_t *root, void *userdata)
+{
+    s32 loaded = 0;
+    (void)userdata;
+    if (!root || root->references <= 0) return 0;
+    for (; loaded < root->references; loaded++) {
+        if (!catalogLoadTypedAsset(root->type, root->id)) break;
+    }
+    if (loaded != root->references) {
+        while (loaded-- > 0) catalogReleaseTypedAsset(root->type, root->id);
+        return 0;
+    }
+    if (root->stage_owned) {
+        asset_entry_t *entry = assetCatalogGetMutable(root->id);
+        if (!entry || catalogStageOwnershipAcquire(entry) != 1) {
+            while (loaded-- > 0) catalogReleaseTypedAsset(root->type, root->id);
+            return 0;
+        }
+        catalogActivationLedgerSetStageOwned(root->id, 1);
+    }
+    return 1;
+}
+
+s32 catalogInvalidateTypedAssetDependents(const char *dependency_id)
+{
+    if (!dependency_id || !dependency_id[0]) return 0;
+    if (!catalogActivationLedgerInvalidateDependents(dependency_id,
+            s_catalogLedgerContains, s_catalogLedgerRetire, NULL)) {
+        sysLogPrintf(LOG_WARNING,
+            "CATALOG.LIFECYCLE.INVALIDATE: '%s' dependent transaction rejected; runtime unchanged",
+            dependency_id);
+        return 0;
+    }
+    return 1;
+}
+
+s32 catalogCanInvalidateTypedAssetDependents(const char *dependency_id)
+{
+    if (!dependency_id || !dependency_id[0]) return 0;
+    return catalogActivationLedgerCanInvalidateDependents(dependency_id,
+        s_catalogLedgerContains, NULL);
+}
+
+s32 catalogReloadInvalidatedTypedAssets(void)
+{
+    return catalogActivationLedgerReloadPending(s_catalogLedgerReload, NULL);
+}
+
+s32 catalogPrepareTypedAssetReplacement(asset_type_e replacement_type,
+        const char *asset_id)
+{
+    const asset_entry_t *prior;
+    asset_type_e prior_type;
+    (void)replacement_type;
+    if (!asset_id || !asset_id[0]) return 0;
+    prior = assetCatalogResolve(asset_id);
+    if (!prior) return 1;
+    prior_type = prior->type;
+    if (!catalogCanDeactivateTypedAsset(prior_type, asset_id)
+            || !catalogInvalidateTypedAssetDependents(asset_id)) {
+        return 0;
+    }
+    if (!catalogDeactivateTypedAssetForReset(prior_type, asset_id)) return 0;
+    return 1;
+}
+
+void catalogTypedLifecycleClearMods(void)
+{
+    catalogActivationLedgerClearMods();
+}
+
+void catalogTypedLifecycleClear(void)
+{
+    catalogActivationLedgerClear();
 }
 
 /* ========================================================================

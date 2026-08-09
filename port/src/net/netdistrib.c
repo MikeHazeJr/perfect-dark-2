@@ -773,26 +773,6 @@ void netDistribSendKillFeed(const char *attacker, const char *victim,
  * Client: PDCA Archive Extraction
  * ======================================================================== */
 
-static s32 extractArchive(const u8 *data, u32 data_len, const char *destdir)
-{
-    pdca_extract_result_t result = pdcaExtractArchiveTransactional(data,
-        data_len, destdir, NULL);
-    if (result <= 0) {
-        sysLogPrintf(LOG_WARNING,
-            "DISTRIB: transactional extract failed result=%d destination='%s' preserved",
-            (int)result, destdir ? destdir : "");
-        return 0;
-    }
-    if (result == PDCA_EXTRACT_OK_BACKUP_RETAINED) {
-        sysLogPrintf(LOG_WARNING,
-            "DISTRIB: published '%s' but retained recovery backup; future replacement requires review",
-            destdir);
-    }
-    sysLogPrintf(LOG_NOTE, "DISTRIB: transactionally published archive to %s",
-        destdir);
-    return 1;
-}
-
 /* ========================================================================
  * Client Public API
  * ======================================================================== */
@@ -2706,7 +2686,13 @@ void netDistribClientHandleEnd(const char *catalog_id, u8 success)
 
     /* Extract into a unique sibling and publish only after every member is
      * durable. A pre-existing component is restored on any publish failure. */
-    if (extractArchive(raw, (u32)raw_len, destdir)) {
+    pdca_extract_transaction_t install_transaction;
+    pdca_extract_result_t extract_result = pdcaExtractArchiveBegin(raw,
+        (u32)raw_len, destdir, NULL, &install_transaction);
+    if (extract_result > 0) {
+        sysLogPrintf(LOG_NOTE,
+            "DISTRIB: transactionally staged received archive at %s pending catalog admission",
+            destdir);
         /* Hot-register in catalog */
         char inipath[FS_MAXPATH];
         const char *ini_names[] = { "map.ini", "character.ini", "bot.ini", "prop.ini",
@@ -2831,10 +2817,10 @@ void netDistribClientHandleEnd(const char *catalog_id, u8 success)
          * can have both an asset INI and a theme.json. */
         {
             char theme_check[FS_MAXPATH];
-            if (!assetPathJoinChecked(theme_check, sizeof(theme_check), destdir,
-                    "/", "theme.json")) goto done;
             struct stat tst;
-            if (stat(theme_check, &tst) == 0 && S_ISREG(tst.st_mode)) {
+            if (assetPathJoinChecked(theme_check, sizeof(theme_check), destdir,
+                    "/", "theme.json")
+                    && stat(theme_check, &tst) == 0 && S_ISREG(tst.st_mode)) {
                 pdguiThemeRegisterModDir(slot->id, theme_check);
                 sysLogPrintf(LOG_NOTE, "DISTRIB: hot-registered theme '%s' from %s",
                              slot->id, destdir);
@@ -2844,22 +2830,42 @@ void netDistribClientHandleEnd(const char *catalog_id, u8 success)
 
         if (!registered) {
             sysLogPrintf(LOG_WARNING, "DISTRIB: no recognized INI for '%s' -- catalog entry skipped", slot->id);
+            if (!pdcaExtractTransactionRollback(&install_transaction)) {
+                sysLogPrintf(LOG_ERROR,
+                    "DISTRIB: catalog rejection rollback failed for '%s'; recovery required at %s",
+                    slot->id, destdir);
+            } else {
+                sysLogPrintf(LOG_NOTE,
+                    "DISTRIB: catalog rejected '%s'; received install rolled back with prior destination preserved",
+                    slot->id);
+            }
         } else {
             /* Hot registration happens after the boot-time reverse indexes.
              * Rebuild them now so custom animation and sound private slots
              * resolve on the first real weapon use, including temporary
              * ready-gate transfers that do not trigger a mod-manager rebuild. */
             catalogLoadInit();
-        }
 
-        s_ClientStatus.received_count++;
-        slot_completed = 1;
-        if (!slot->temporary) {
-            modmgrRescanDirectory();
-            sysLogPrintf(LOG_NOTE,
-                         "DISTRIB: refreshed mod registry after installing '%s'",
-                         slot->id);
+            pdca_extract_result_t commit_result =
+                pdcaExtractTransactionCommit(&install_transaction);
+            if (commit_result == PDCA_EXTRACT_OK_BACKUP_RETAINED) {
+                sysLogPrintf(LOG_WARNING,
+                    "DISTRIB: admitted '%s' but retained recovery backup; future replacement requires review",
+                    slot->id);
+            }
+            s_ClientStatus.received_count++;
+            slot_completed = 1;
+            if (!slot->temporary) {
+                modmgrRescanDirectory();
+                sysLogPrintf(LOG_NOTE,
+                             "DISTRIB: refreshed mod registry after installing '%s'",
+                             slot->id);
+            }
         }
+    } else {
+        sysLogPrintf(LOG_WARNING,
+            "DISTRIB: transactional extract failed result=%d destination='%s' preserved",
+            (int)extract_result, destdir);
     }
 
     free(raw);
@@ -2897,6 +2903,85 @@ done:
             manifestCheck(&g_ClientManifest);
         }
     }
+}
+
+s32 netDistribDebugReceivePdcaListForSmoke(const char *list_path)
+{
+    u32 list_size = 0;
+    char *list = (char *)fsFileLoad(list_path, &list_size);
+    s32 delivered = 0;
+    if (!list || list_size == 0) {
+        if (list) sysMemFree(list);
+        sysLogPrintf(LOG_WARNING,
+            "DISTRIB.SMOKE: could not read receive list '%s'",
+            list_path ? list_path : "");
+        return 0;
+    }
+
+    char *text = (char *)malloc((size_t)list_size + 1);
+    if (!text) {
+        sysMemFree(list);
+        return 0;
+    }
+    memcpy(text, list, list_size);
+    text[list_size] = '\0';
+    sysMemFree(list);
+    netDistribInit();
+
+    char *line = text;
+    while (line && *line) {
+        char *next = strpbrk(line, "\r\n");
+        if (next) {
+            *next++ = '\0';
+            while (*next == '\r' || *next == '\n') next++;
+        }
+        if (line[0] && line[0] != '#') {
+            char *path = line;
+            char *id = strchr(path, '|');
+            char *category = id ? strchr(id + 1, '|') : NULL;
+            char *temporary_text = category ? strchr(category + 1, '|') : NULL;
+            if (id && category && temporary_text) {
+                *id++ = '\0';
+                *category++ = '\0';
+                *temporary_text++ = '\0';
+                u32 raw_size = 0;
+                u8 *raw = (u8 *)fsFileLoad(path, &raw_size);
+                if (raw && raw_size > 0) {
+                    uLongf compressed_cap = compressBound((uLong)raw_size);
+                    u8 *compressed = (u8 *)malloc((size_t)compressed_cap);
+                    if (compressed && compress2(compressed, &compressed_cap,
+                            raw, (uLong)raw_size, Z_BEST_SPEED) == Z_OK) {
+                        u8 digest[SHA256_DIGEST_SIZE];
+                        sha256Hash(compressed, (u32)compressed_cap, digest);
+                        u32 chunks = ((u32)compressed_cap
+                            + NET_DISTRIB_CHUNK_SIZE - 1)
+                            / NET_DISTRIB_CHUNK_SIZE;
+                        netDistribClientHandleBegin(id, category, chunks,
+                            raw_size, digest, atoi(temporary_text) ? 1 : 0);
+                        for (u32 i = 0; i < chunks; i++) {
+                            u32 offset = i * NET_DISTRIB_CHUNK_SIZE;
+                            u32 remaining = (u32)compressed_cap - offset;
+                            u16 chunk_size = (u16)(remaining
+                                < NET_DISTRIB_CHUNK_SIZE ? remaining
+                                : NET_DISTRIB_CHUNK_SIZE);
+                            netDistribClientHandleChunk(id, (u16)i, 1,
+                                compressed + offset, chunk_size);
+                        }
+                        netDistribClientHandleEnd(id, 1);
+                        sysLogPrintf(LOG_NOTE,
+                            "DISTRIB.SMOKE: delivered '%s' category='%s' raw=%u compressed=%u",
+                            id, category, raw_size, (u32)compressed_cap);
+                        delivered++;
+                    }
+                    free(compressed);
+                    sysMemFree(raw);
+                }
+            }
+        }
+        line = next;
+    }
+    free(text);
+    return delivered;
 }
 
 void netDistribClientHandleKillFeed(const char *attacker, const char *victim,

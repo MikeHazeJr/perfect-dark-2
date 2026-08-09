@@ -37,10 +37,11 @@ struct invaimsettings;
 struct noisesettings;
 
 /* Range bound for private runtime weapon slots. Base weapons occupy
- * WEAPON_* 0..0x55; catalog-owned custom archives use 0x56..0x5f while
+ * WEAPON_* 0..0x55; catalog-owned custom archives use 0x56..0x6c while
  * the legacy runtime still needs integer slots. These custom slots are
- * private migration bridges, not public archive identity. */
-#define CATALOG_MGR_WEAPON_COUNT 96
+ * private migration bridges, not public archive identity. The upper bound
+ * remains within signed-s8 runtime fields. */
+#define CATALOG_MGR_WEAPON_COUNT 109
 
 /* EYESPY variant enum (S484 F5 mutator surface).
  * 0 CamSpy / 1 DrugSpy / 2 BombSpy. Per-stage spec lives in

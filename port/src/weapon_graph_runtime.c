@@ -34,7 +34,7 @@ typedef struct module_info {
 	weapon_graph_opcode_e opcode;
 } module_info_t;
 
-#define WEAPON_GRAPH_RUNTIME_MAX_WEAPONS 96
+#define WEAPON_GRAPH_RUNTIME_MAX_WEAPONS WEAPON_CUSTOM_END
 #define WEAPON_GRAPH_RUNTIME_MAX_FUNCS   2
 #define WEAPON_GRAPH_RUNTIME_MAX_PROJECTILES 128
 #define WEAPON_GRAPH_RUNTIME_MAX_ENTITIES    128

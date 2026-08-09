@@ -165,6 +165,34 @@ TEST_CASE("PDCA open write and publish failures restore the prior install",
 	}
 }
 
+TEST_CASE("PDCA published transaction waits for catalog admission",
+	"[catalog][network][pdca][rollback][T-CATALOG-003][B-1012]")
+{
+	PdcaTempRoot temp;
+	fs::path dest = temp.root / "installed-component";
+	fs::create_directories(dest);
+	std::ofstream(dest / "owned.txt") << "prior install";
+	auto archive = makePdca({{"candidate.txt", "candidate"}});
+	pdca_extract_transaction_t transaction{};
+
+	REQUIRE(pdcaExtractArchiveBegin(archive.data(), (u32)archive.size(),
+		dest.string().c_str(), nullptr, &transaction) == PDCA_EXTRACT_OK);
+	REQUIRE(transaction.active == 1);
+	REQUIRE(readFile(dest / "candidate.txt") == "candidate");
+	REQUIRE_FALSE(fs::exists(dest / "owned.txt"));
+	REQUIRE(pdcaExtractTransactionRollback(&transaction) == 1);
+	REQUIRE(readFile(dest / "owned.txt") == "prior install");
+	REQUIRE_FALSE(fs::exists(dest / "candidate.txt"));
+	REQUIRE(transactionResidueCount(temp.root) == 0);
+
+	REQUIRE(pdcaExtractArchiveBegin(archive.data(), (u32)archive.size(),
+		dest.string().c_str(), nullptr, &transaction) == PDCA_EXTRACT_OK);
+	REQUIRE(pdcaExtractTransactionCommit(&transaction) == PDCA_EXTRACT_OK);
+	REQUIRE(readFile(dest / "candidate.txt") == "candidate");
+	REQUIRE_FALSE(fs::exists(dest / "owned.txt"));
+	REQUIRE(transactionResidueCount(temp.root) == 0);
+}
+
 TEST_CASE("PDCA validation rejection leaves no installed mutation",
 	"[catalog][network][pdca][path][rollback][T-CATALOG-003]")
 {

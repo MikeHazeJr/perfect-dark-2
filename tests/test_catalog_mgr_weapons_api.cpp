@@ -12,8 +12,8 @@
  *
  * Coverage:
  *   - Bounds-check rule: in-range = ok, out-of-range = miss.
- *   - CATALOG_MGR_WEAPON_COUNT pin: 96 (base WEAPON_SUICIDEPILL + 1
- *     plus 10 catalog-owned private custom runtime slots).
+ *   - CATALOG_MGR_WEAPON_COUNT pin: 109 (base WEAPON_SUICIDEPILL + 1
+ *     plus the 23 identity-safe catalog-owned private runtime slots).
  *   - EYESPY stage-index variant rule: AIRBASE -> DrugSpy,
  *     CHICAGO|MBR -> BombSpy, default -> CamSpy.
  *   - EYESPY variant spec tuple: each variant maps to (langid,
@@ -47,7 +47,7 @@ constexpr u32 kWEAPONFLAG_DETERMINER_F_AN = 0x00400000;
 constexpr u32 kEYESPY_AN_MASK = kWEAPONFLAG_DETERMINER_S_AN | kWEAPONFLAG_DETERMINER_F_AN;
 
 constexpr s32 kWEAPON_SUICIDEPILL = 0x55;  /* src/include/constants.h:4539 */
-constexpr s32 kWEAPON_CUSTOM_COUNT = 0x0a;
+constexpr s32 kWEAPON_CUSTOM_COUNT = 64 - 0x29;
 constexpr s32 kWEAPON_CUSTOM_END = kWEAPON_SUICIDEPILL + 1 + kWEAPON_CUSTOM_COUNT;
 
 }  /* anonymous namespace */
@@ -55,7 +55,7 @@ constexpr s32 kWEAPON_CUSTOM_END = kWEAPON_SUICIDEPILL + 1 + kWEAPON_CUSTOM_COUN
 TEST_CASE("catalog-mgr-weapon: count pin includes private custom slots",
           "[catalog-mgr-weapon][s484][f1]") {
     REQUIRE(CATALOG_MGR_WEAPON_COUNT_PURE == kWEAPON_CUSTOM_END);
-    REQUIRE(CATALOG_MGR_WEAPON_COUNT_PURE == 96);
+    REQUIRE(CATALOG_MGR_WEAPON_COUNT_PURE == 109);
 }
 
 TEST_CASE("catalog-mgr-weapon: bounds-check in-range",

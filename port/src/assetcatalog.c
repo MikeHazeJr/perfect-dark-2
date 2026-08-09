@@ -367,6 +367,14 @@ static s32 s_retireCatalogRows(s32 include_bundled)
             free(rows);
             return 0;
         }
+        if (!include_bundled
+                && !catalogCanInvalidateTypedAssetDependents(rows[i].id)) {
+            sysLogPrintf(LOG_WARNING,
+                "CATALOG.LIFECYCLE.RESET: dependent preflight rejected '%s'; catalog unchanged",
+                rows[i].id);
+            free(rows);
+            return 0;
+        }
     }
 
     if (write > 0) {
@@ -404,6 +412,12 @@ static s32 s_retireCatalogRows(s32 include_bundled)
      * child's remaining count is exactly its direct root references. */
     for (s32 retired = 0; retired < write; retired++) {
         s32 candidate = (s32)order[retired];
+        if (!include_bundled
+                && !catalogInvalidateTypedAssetDependents(
+                    rows[candidate].id)) {
+            ok = 0;
+            break;
+        }
         if (!(include_bundled
                 ? catalogDeactivateTypedAssetForReset(rows[candidate].type,
                     rows[candidate].id)
@@ -437,6 +451,7 @@ void assetCatalogInit(void)
         assetRuntimeReset();
         weaponGraphRuntimeClearAll();
         effectGraphRuntimeClearAll();
+        catalogTypedLifecycleClear();
         catalogDepClear();
     }
 
@@ -495,6 +510,7 @@ void assetCatalogClear(void)
     assetRuntimeReset();
     weaponGraphRuntimeClearAll();
     effectGraphRuntimeClearAll();
+    catalogTypedLifecycleClear();
     catalogDepClear();
 
     CATALOG_LOCK();
@@ -529,6 +545,7 @@ void assetCatalogClearMods(void)
     if (!s_retireCatalogRows(0)) {
         return;
     }
+    catalogTypedLifecycleClearMods();
     catalogDepClearMods();
 
     CATALOG_LOCK();
@@ -724,6 +741,14 @@ static asset_entry_t *s_registerLocked(const char *id, asset_type_e type)
 
 asset_entry_t *assetCatalogRegister(const char *id, asset_type_e type)
 {
+    if ((type == ASSET_EFFECT || type == ASSET_MATERIAL
+            || type == ASSET_TEXTURE || type == ASSET_AUDIO)
+            && !catalogPrepareTypedAssetReplacement(type, id)) {
+        sysLogPrintf(LOG_WARNING,
+            "CATALOG.LIFECYCLE.REPLACE: '%s' could not retire active dependents",
+            id ? id : "<null>");
+        return NULL;
+    }
     CATALOG_LOCK();
     asset_entry_t *entry = s_registerLocked(id, type);
     CATALOG_UNLOCK();
@@ -736,6 +761,12 @@ s32 assetCatalogUnregister(const char *id)
     s32 removed = 0;
 
     if (!id || !id[0]) return 0;
+    {
+        const asset_entry_t *prior = assetCatalogResolve(id);
+        if (prior && !catalogPrepareTypedAssetReplacement(prior->type, id)) {
+            return 0;
+        }
+    }
     CATALOG_LOCK();
     if (s_HashTable && s_EntryPool && s_HashTableSize > 0) {
         u32 id_hash = fnv1a(id);
@@ -1269,6 +1300,12 @@ void assetCatalogSetEnabled(const char *id, s32 enabled)
             selected_id);
         return;
     }
+    if (!enabled && !catalogInvalidateTypedAssetDependents(selected_id)) {
+        sysLogPrintf(LOG_WARNING,
+            "CATALOG.LIFECYCLE.DISABLE: '%s' dependent invalidation failed; enabled state unchanged",
+            selected_id);
+        return;
+    }
 
     CATALOG_LOCK();
     {
@@ -1307,6 +1344,12 @@ void assetCatalogSetEnabled(const char *id, s32 enabled)
         sysLogPrintf(LOG_WARNING,
             "CATALOG.LIFECYCLE.DISABLE: '%s' teardown failed; toggle rolled back",
             selected_id);
+        (void)catalogReloadInvalidatedTypedAssets();
+    } else if (enabled) {
+        /* Re-enable is not a claim that the child works. Every previously
+         * active parent must pass a fresh complete typed-source transaction;
+         * failures remain pending and unreachable. */
+        (void)catalogReloadInvalidatedTypedAssets();
     }
 }
 
@@ -1463,6 +1506,7 @@ asset_entry_t *assetCatalogRegisterTexture(const char *id, s32 texture_id,
                                             s32 width, s32 height, s32 format,
                                             const char *file_path)
 {
+    if (!catalogPrepareTypedAssetReplacement(ASSET_TEXTURE, id)) return NULL;
     CATALOG_LOCK();
     asset_entry_t *entry = s_registerLocked(id, ASSET_TEXTURE);
     if (entry) {
@@ -1539,6 +1583,7 @@ asset_entry_t *assetCatalogRegisterAudio(const char *id, s32 sound_id,
                                           s32 duration_ms,
                                           const char *file_path)
 {
+    if (!catalogPrepareTypedAssetReplacement(ASSET_AUDIO, id)) return NULL;
     CATALOG_LOCK();
     asset_entry_t *entry = s_registerLocked(id, ASSET_AUDIO);
     if (entry) {

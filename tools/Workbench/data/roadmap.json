@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "project": "Perfect Dark 2",
-  "updated": "2026-08-09T01:30:45.711Z",
+  "updated": "2026-08-09T02:37:18.754Z",
   "items": [
     {
       "type": "task",
@@ -981,12 +981,12 @@
         "V-005",
         "V-006"
       ],
-      "detail": "Catalog/provider production loading and fail-closed public-source ownership are connected for implemented families, including Wave8 v2 effect consumers and selected/nested effect rejection. Runtime closure remains partial for generic v1 effect dispatch/consumers (T-ASSETS-032/034/035/036), typed reverse invalidation (T-ASSETS-033), nested ingress capacity (T-ASSETS-037), all-family lifecycle teardown (T-CATALOG-004), real transport path proof (T-CATALOG-003), and validation V-003/V-005/V-006/V-009. Runtime ROM/RomProvider fallback, native-mirror fallback, or loose-cache fallback after extraction remains an asset-chain failure.",
+      "detail": "Catalog/provider production loading and fail-closed public-source ownership are connected for implemented families, including Wave8 v2 effect consumers, selected/nested effect rejection, exact reverse dependency invalidation (T-ASSETS-033), growable nested ingress (T-ASSETS-037), and all-family teardown (T-CATALOG-004). Runtime closure remains partial for generic v1 effect dispatch/consumers (T-ASSETS-032/034/035/036), comprehensive real transport matrices (T-CATALOG-003), and validation V-003/V-005/V-006/V-009. Runtime ROM/RomProvider fallback, native-mirror fallback, or loose-cache fallback after extraction remains an asset-chain failure.",
       "tags": [
         "workbench-key:asset-native-runtime"
       ],
       "id": "T-RUNTIME-001",
-      "updated": "2026-08-09T00:48:40.641Z",
+      "updated": "2026-08-09T02:37:18.754Z",
       "created": "2026-07-30T15:16:40.133Z"
     },
     {
@@ -2722,10 +2722,10 @@
         "bug:B-959",
         "production-path"
       ],
-      "detail": "Implemented a clean partial milestone: supported v1 settings (fire_cadence, spread, zoom_fov, sight) and presentation (default crosshair, zoom_fov, sight) are production-consumed; unknown settings/presentation now reject instead of storing or ignoring; invalid archive and incomplete loose-source registration fail closed; the creator example no longer advertises ignored material, grip, custom-reticle, standalone audio, or standalone animation bindings. Remaining before completion: connect or version embedded animation/audio binding manifests for nested-only custom dependencies, implement catalog-backed custom reticle rendering before reintroducing .pdui reticle fields, decide/implement explicit weapon material/grip overrides beyond the nested .pdmesh contract, and capture a live edited-source runtime receipt. B-992 is a critical residual: after the complete base catalog loads, no private custom weapon slot remains. Implement modern non-colliding capacity and prove ordinary new-weapon allocation before claiming live custom-weapon completion or validation.",
+      "detail": "Supported weapon settings/presentation and strict archive admission are production-consumed; nested media, catalog-backed reticles, and retired material/grip claims are now handled by T-ASSETS-022/023/024. B-992 capacity is fixed and live-proven: a new custom weapon allocates after the complete base walk and all 70 nested SFX play. This umbrella remains partial for the ordinary edited gameplay/load-release/restart/network/repeated-owner receipt under T-ASSETS-025 and V-005/V-006.",
       "type": "task",
       "id": "T-ASSETS-009",
-      "updated": "2026-08-08T20:57:07.229Z",
+      "updated": "2026-08-09T02:37:18.727Z",
       "created": "2026-08-01T12:51:42.422Z",
       "model": "gpt-5.6-sol"
     },
@@ -2853,10 +2853,10 @@
         "bug:B-959",
         "production-path"
       ],
-      "detail": "The .pdeffect program is partially production-connected. T-ASSETS-016/017/018/020 and T-ASSETS-037 are implemented: source-faithful extraction/schema, authoritative parsing, executable graph/timeline/profile retention, selected/nested fail-closed lifecycle, and omission-free growable nested discovery/preflight. Wave8 T-ASSETS-019 adds verified v2 26/27/23 consumers and typed dependency admission but remains partial. Residual generic v1 scheduler/gameplay/audio/renderer/timeline/target/lifetime work is T-ASSETS-032/034/035/036; reverse dependency invalidation is T-ASSETS-033; live edited and negative proof is V-009/V-005/V-006. B-992 custom runtime slot ceilings remain under T-ASSETS-022.",
+      "detail": "The .pdeffect program is partially production-connected. T-ASSETS-016/017/018/020/033/037 are implemented: source-faithful extraction/schema, authoritative parsing, executable graph/timeline/profile retention, selected/nested fail-closed lifecycle, exact reverse dependency invalidation, and omission-free growable nested discovery/preflight. T-ASSETS-019 provides the v2 26/27/23 consumers and typed dependency admission but remains partial. Residual generic v1 production dispatch/gameplay/audio/renderer/timeline/target/lifetime work is T-ASSETS-032/034/035/036; live edited and negative proof is V-009/V-005/V-006. B-992 runtime capacity is fixed under T-ASSETS-022.",
       "type": "task",
       "id": "T-ASSETS-012",
-      "updated": "2026-08-09T01:27:05.152Z",
+      "updated": "2026-08-09T02:37:18.735Z",
       "created": "2026-08-01T12:51:42.454Z",
       "model": "Codex GPT-5"
     },
@@ -3025,7 +3025,7 @@
       "phase": 4,
       "owner": "unassigned",
       "artifacts": [],
-      "detail": "Retain separate negative-path receipts for extractor aggregate failure/nonzero exit; every typed child emitter propagating failure; missing or corrupt selected public font, texture, sequence, animation, SFX, voice, MP3/duration, and selected or nested effect source rejecting use without ROM/native/loose fallback; malformed setup JSON and invalid binary setup rejecting atomically; and staged PDCA receive rollback leaving no partial destination/catalog/provider/runtime mutation. Record commands, logs, expected signatures, exit codes, and cleanup state.",
+      "detail": "Retain separate negative-path receipts for extractor aggregate failure/nonzero exit; every typed child emitter propagating failure; missing or corrupt selected public font, texture, sequence, animation, SFX, voice, MP3/duration, and selected or nested effect source rejecting use without ROM/native/loose fallback; live child disable and corrupt replacement retiring every cached parent and leaving failed reload unreachable; malformed setup JSON and invalid binary setup rejecting atomically; and staged PDCA receive rollback leaving no partial destination/catalog/provider/runtime mutation. Record commands, logs, expected signatures, exit codes, and cleanup state.",
       "status": "missing",
       "verdict": "not_run",
       "type": "validation",
@@ -3058,7 +3058,7 @@
       "area": "RUNTIME",
       "lane": "verification",
       "id": "V-006",
-      "updated": "2026-08-09T00:24:07.252Z",
+      "updated": "2026-08-09T02:02:59.025Z",
       "created": "2026-08-01T12:52:08.433Z"
     },
     {
@@ -3352,7 +3352,7 @@
         "T-ASSETS-036",
         "T-ASSETS-037"
       ],
-      "detail": "Verified partial implementation: every v2 public profile row (26 explosion, 27 spark, 23 smoke) transactionally drives the native gameplay/render/audio tables; typed SFX/smoke/material/texture dependency admission is growable, strict, and rollback-safe across base/local/nested/mod/network paths. T-ASSETS-037 now removes nested discovery/preflight omission above 64. This does not claim all production consumers: generic v1 scheduling/dispatch, gameplay/audio emitters, renderer/presentation, timeline/context/target/lifetime, reverse child invalidation, and ordinary-game edited-source proof remain T-ASSETS-032/034/035/036, T-ASSETS-033, and V-009.",
+      "detail": "Verified partial implementation: every v2 public profile row (26 explosion, 27 spark, 23 smoke) transactionally drives native gameplay/render/audio tables. Typed SFX/smoke/material/texture admission and exact root ownership are growable, strict, rollback-safe across base/local/nested/mod/network paths; active child disable/replacement reverse-invalidates cached parents through T-ASSETS-033. T-ASSETS-037 removes nested discovery/preflight omission above 64. Remaining implementation is generic v1 production execution under T-ASSETS-032/034/035/036; live positive/negative proof remains V-009/V-006.",
       "tags": [
         "asset-family:pdeffect",
         "production-path",
@@ -3382,10 +3382,11 @@
         "Authoritative Wave8 isolated receipt PASS: client/updater/pd-tests builds; T019 129/5; T020 221/8; effect_graph 571/15; T-CATALOG-003 3,561/12; full 52,416/932.",
         "Archive conformance self-test and 28 roots/52 recursive archives across all 27 public families PASS; asset-native-source guard and git diff-check PASS.",
         "Durable receipt: context/evidence/2026-08-08-wave8-pdeffect-consumers.md and .claude/session-builds/wave8final/wave8-*-authoritative.log.",
-        "Handoff: T019 remains partial; T-ASSETS-032/034/035/036/037 and V-009 retain every generic v1, capacity, and live edited-source residual."
+        "Handoff: T019 remains partial; T-ASSETS-032/034/035/036/037 and V-009 retain every generic v1, capacity, and live edited-source residual.",
+        "T-ASSETS-033/B-1013 now implements exact cross-ingress root ownership and reverse child disable/replacement invalidation; live proof remains V-006/V-009."
       ],
       "id": "T-ASSETS-019",
-      "updated": "2026-08-09T01:27:05.147Z",
+      "updated": "2026-08-09T02:02:58.995Z",
       "created": "2026-08-08T17:00:38.156Z",
       "model": "gpt-5.6-sol"
     },
@@ -3393,7 +3394,7 @@
       "deps": [
         "T-ASSETS-004"
       ],
-      "detail": "Selected and nested .pdeffect failure is connected to production. Every nonempty missing, corrupt, disabled, wrong-type, incomplete, gated, or conflicting selected source fails instead of using an OG value; all four native callsites suppress action before table use. Nested failure rejects and rolls back its parent. Complete-source activation owners, growable recursive typed closure planning, balanced effect disable/re-enable, and identity-safe runtime/edge reset are connected. Implemented, not validated: V-006 ordinary-client negative proof remains open. Reverse child-disable invalidation is T-ASSETS-033 and family-generic teardown is T-CATALOG-004.",
+      "detail": "Selected and nested .pdeffect failure is connected to production. Every nonempty missing, corrupt, disabled, wrong-type, incomplete, gated, or conflicting selected source fails instead of using an OG value; native callsites suppress action before table use and nested failure rolls back its parent. Complete-source owners, recursive typed planning, exact reverse child-disable/replacement invalidation (T-ASSETS-033/B-1013), and identity-safe reset are implemented. Not validated: V-006 ordinary-client negative proof remains open; T-CATALOG-004 owns family-generic teardown.",
       "tags": [
         "asset-family:pdeffect",
         "fail-closed",
@@ -3418,7 +3419,7 @@
         "Scope boundary: V-006 remains validation; reverse child-disable invalidation is T-ASSETS-033; all-family reset teardown is T-CATALOG-004."
       ],
       "id": "T-ASSETS-020",
-      "updated": "2026-08-09T00:45:39.714Z",
+      "updated": "2026-08-09T02:02:59.007Z",
       "created": "2026-08-08T17:00:38.161Z",
       "model": "gpt-5.6-sol"
     },
@@ -3467,7 +3468,7 @@
       "deps": [
         "T-ASSETS-004"
       ],
-      "owner": "unassigned",
+      "owner": "codex-roadmap-continuation-20260808",
       "type": "task",
       "title": "Hot-register nested-only .pdweapon animation and audio dependencies",
       "status": "partial",
@@ -3485,10 +3486,21 @@
         ".claude/session-builds/t022native/logs/game client/pd-client.log lines 3202-3235; process exit 0.",
         "context/evidence/2026-08-08-weapon-nested-native-client.log (durable full runtime log)",
         "context/evidence/2026-08-08-weapon-nested-native-build.log (durable isolated build log)",
-        "T-CATALOG-002 propagation: weapon dependencies loaded/retained per parent ref but formerly released only at parent zero; assetcatalog_load.c now balances the closure on every weapon parent decrement. Focused repeated-owner verification pending."
+        "T-CATALOG-002 propagation: weapon dependencies loaded/retained per parent ref but formerly released only at parent zero; assetcatalog_load.c now balances the closure on every weapon parent decrement. Focused repeated-owner verification pending.",
+        "B-992 implementation 2026-08-08: src/include/constants.h derives 23 private weapon pairs from the persisted 64-bit MP filter domain and 502 private sound identities from the 11-bit sound field; port/src/assetcatalog_weapon_slots.c preserves base-only authored runtime identities without consuming custom pairs; port/src/weapon_graph_runtime.c follows WEAPON_CUSTOM_END; src/game/mplayer/mplayer.c uses unsigned masks for bit 63.",
+        "port/src/weapon_nested_runtime_harness.c and devtools/generate-weapon-nested-capacity-fixture.py require ordinary new-weapon allocation after complete base boot plus production sndStart playback of capacity:sfx_069; verification pending T-ASSETS-033 source freeze.",
+        "Supporting isolated compile 2026-08-08: updater PASS; client blocked before B-992 diagnostics by in-flight T-ASSETS-033 missing declaration in assetcatalog_scanner.c. Non-authoritative receipt: .claude/session-builds/b992slots/_build-session.out.log.",
+        "B-992 live installed-client capacity proof PASS 2026-08-08: .claude/smoke-verify-runs/results-20260809T021136Z.json, 11/11 assertions and harness 2/2; after full base boot a new owner allocates runtime 86/MP 41 and all 70 generated nested SFX resolve and start through catalogResolveSound + sndStart through sound identity 1615 with no custom-slot failure.",
+        "Focused B-992 automation PASS: 85 cases / 4,600 assertions across [catalog][sound][slots], [catalog-mgr-weapon], [random-pool], and [spawn-weapon]. Final combined frozen-source receipt pending after T-ASSETS-033 refreeze.",
+        "Final B-992 frozen receipt 2026-08-08: 38-file before/after SHA-256 810b88239496848eb2ce89b5d30bcb49c860b89a3cf993a003fe080a1acd6c92; client/updater/explicit tests target compile PASS at .claude/session-builds/b992frozen/_build-session.out.log; focused 4,600/85 and native-source guard PASS.",
+        "Final frozen installed-client capacity smoke PASS 11/11, harness 2/2, clean exit: .claude/smoke-verify-runs/results-20260809T022556Z.json. New owner allocated runtime 86/MP 41 after full base walk; all 70 public nested SFX started through production catalog/audio routing through sound 1615; no slot failures.",
+        ".claude/session-builds/wave10final/_build-session.out.log: frozen combined client/updater/tests compile PASS",
+        " .claude/session-builds/wave10final/wave10-full-final.log: complete pd-tests PASS 53,264 assertions / 949 cases",
+        ".claude/session-builds/wave10final/wave10-conformance-all-families.log: 28 root / 52 recursive / all 27 families PASS",
+        ".claude/session-builds/wave10final/wave10-native-source-guard.log: PASS"
       ],
       "phase": 3,
-      "detail": "B-990 automated production path is implemented and native-behavior verified: nested media preflights and commits transactionally in audio-before-animation order, unresolved selected animation audio rejects with pool rollback, direct weapon load owns dependencies, and manifest/direct references balance. T-ASSETS-037 now proves omission-free discovery and edge ownership for 72 nested archives and 70 effect-owned edges. Status remains partial: B-992 leaves no private custom weapon slot after the complete base catalog and the private custom-sound runtime pool remains fixed at 64, so SFX rows 64-69 register but cannot obtain playback slots. Ordinary edited-media gameplay, restart, network, and repeated-owner weapon proof remain under T-ASSETS-025.",
+      "detail": "B-990 nested dependency registration remains production-connected. B-992 is source-frozen and live-proven: base-only authored weapon rows no longer spend private pairs; the paired custom domain uses the remaining 23 identities inside the unchanged 64-bit MP filter and signed-s8 runtime range; custom SFX use all 502 remaining 11-bit identities; and every held-graph/manager bound follows that domain. Frozen client/updater/tests compile, focused 4,600/85, native-source guard, and installed-client 11/11 pass under a matching 38-file fingerprint. T-ASSETS-022 remains partial because ordinary edited gameplay, load/release/restart, network distribution, and repeated-owner proof remain T-ASSETS-025.",
       "tags": [
         "asset-family:pdweapon",
         "handoff:ultra",
@@ -3497,7 +3509,7 @@
         "dependencies"
       ],
       "id": "T-ASSETS-022",
-      "updated": "2026-08-09T01:27:05.158Z",
+      "updated": "2026-08-09T02:37:18.701Z",
       "created": "2026-08-08T17:05:35.611Z",
       "model": "gpt-5.6-sol"
     },
@@ -3595,7 +3607,7 @@
         "B-992 2026-08-08 real-client harness finding: complete base catalog exhausts private custom weapon slots; new custom owner fails CATALOG.WEAPON.CUSTOM_SLOT_FAIL. Debug dependency harness borrows AR34 indices only inside exit-after-test and is not ordinary allocation proof."
       ],
       "phase": 3,
-      "detail": "Create an edited public weapon archive and retain ordinary-gameplay evidence that settings, presentation, model, projectile/entity, nested dependencies, and failure handling affect the production path without native fallback. Feed the durable artifacts into V-005 and V-006. B-992 is a critical residual: after the complete base catalog loads, no private custom weapon slot remains. Implement modern non-colliding capacity and prove ordinary new-weapon allocation before claiming live custom-weapon completion or validation.",
+      "detail": "Create an edited public weapon archive and retain ordinary-gameplay evidence that settings, presentation, model, projectile/entity, nested dependencies, and failure handling affect the production path without native fallback. Prove load/release/restart, listen-host distribution, and repeated overlapping owners, then feed durable artifacts into V-005 and V-006. B-992 capacity is already fixed and live-proven; this item owns the remaining end-to-end weapon validation.",
       "tags": [
         "asset-family:pdweapon",
         "handoff:ultra",
@@ -3603,7 +3615,7 @@
         "production-proof"
       ],
       "id": "T-ASSETS-025",
-      "updated": "2026-08-08T20:57:07.243Z",
+      "updated": "2026-08-09T02:37:18.742Z",
       "created": "2026-08-08T17:05:35.637Z",
       "model": "gpt-5.6-sol"
     },
@@ -4011,7 +4023,7 @@
         "systemic"
       ],
       "status": "partial",
-      "detail": "B-996 found 34 remaining path-bearing asset fields at 128 bytes; Waves A/B migrated those fields and downstream mirrors to the repository path contract and introduced checked, fail-closed path copy/join across scanner, walkers, network, runtime, provider, compiler, and weapon graph. Wave C added the canonical path-key table, boundary tests, traversal rejection, network rollback, and B-1006 sibling-staged transactional PDCA extraction. The item remains partial until real installed-client standalone, nested pdmod, and received-network fixtures prove exact catalog-to-FileProvider-to-runtime equality at 127/128/1023/over and zero mutation on every reject, including cleanup after late I/O failure.",
+      "detail": "B-996/B-1002/B-1006 migrate the 34-field checked path contract, traversal rejection, behavioral boundary matrix, and staged late-I/O rollback. B-1012 now keeps received PDCA publication transactional through typed scanner/catalog admission, restoring the prior install and received_count on reject. Source-frozen client/updater/tests, focused 3,576/13, full 53,264/949, native guard, and strict all-family conformance pass. Real installed-client smoke passes 24/24: loose, nested .pdmod, and received-network gamemode sources have exact catalog/FileProvider/runtime equality at 127/128/1023; all 1024 candidates reject with no catalog/provider/runtime/dependency residue; received rejection occurs after staging and restores the prior destination. Keep partial: representative gamemode proof is not a live all-family matrix, and mixed-validity multi-descriptor received archives are not yet catalog-atomic.",
       "type": "task",
       "owner": "codex-roadmap-continuation-20260808",
       "lane": "asset-path-capacity",
@@ -4040,12 +4052,24 @@
         "port/src/pdca_extract_transaction.c",
         "tests/test_pdca_extract_transaction.cpp",
         "context/bugs.md:B-1006",
-        "context/evidence/2026-08-08-catalog-pdca-transaction.md"
+        "context/evidence/2026-08-08-catalog-pdca-transaction.md",
+        "context/bugs.md:B-1012",
+        "port/src/net/netdistrib.c",
+        "tools/smoke-verify/tests/catalog_three_ingress_boundaries_smoke.json",
+        "context/evidence/2026-08-08-t-catalog-003-three-ingress.md",
+        ".claude/smoke-verify-runs/results-20260809T020251Z.json",
+        ".claude/smoke-verify-runs/results-20260809T021712Z.json",
+        ".claude/session-builds/catalog-ingress/_build-session.out.log",
+        "source-fingerprint:516CC61D8D63FC814295E7BE56E1EEDB1FC6509D515F081474E71CB0C74A55AA",
+        ".claude/session-builds/wave10final/_build-session.out.log: frozen combined client/updater/tests compile PASS",
+        " .claude/session-builds/wave10final/wave10-full-final.log: complete pd-tests PASS 53,264 assertions / 949 cases",
+        ".claude/session-builds/wave10final/wave10-conformance-all-families.log: 28 root / 52 recursive / all 27 families PASS",
+        ".claude/session-builds/wave10final/wave10-native-source-guard.log: PASS"
       ],
       "phase": 5,
       "area": "CATALOG",
       "id": "T-CATALOG-003",
-      "updated": "2026-08-09T00:24:07.256Z",
+      "updated": "2026-08-09T02:37:18.720Z",
       "created": "2026-08-08T21:45:07.213Z",
       "model": "gpt-5.6-sol"
     },
@@ -4086,7 +4110,7 @@
       "type": "task",
       "area": "ASSETS",
       "title": "Own typed .pdeffect dependencies across every catalog ingress and lifecycle",
-      "status": "partial",
+      "status": "implemented",
       "phase": 3,
       "deps": [
         "T-ASSETS-017",
@@ -4100,9 +4124,19 @@
         "Base loader registers bundled typed edges and the generic iterative activation plan validates type/cycle/DAG closure before ordered load; typed lifecycle includes bundled while manifest iteration filters it.",
         "Direct file and archive-qualified VFS loading track malloc versus sysMem ownership.",
         "T-ASSETS-037 owns the remaining fixed 64 nested-media archive ceiling; generic v1 consumer surfaces remain T-ASSETS-034/035/036 and D-002.",
-        "Open residual from T-ASSETS-020: disabling an active SFX/material/texture dependency does not reverse-walk owners, retire cached effect executor projections, and transactionally reload or fail the parent; selected parent can remain cached until explicit teardown."
+        "B-1013: growable exact typed-root ledger records load/retain/release and stage ownership; reverse invalidation preflights every active root closure and retires exact overlapping/diamond owner counts without inferring from aggregate child refs.",
+        "Disable/replacement leaves invalid parents pending and unreachable; re-enable/completed replacement reloads only through a full dependency-first transaction, with failed reload rollback.",
+        "Successful pdeffect replacement prunes stale prior typed edges to exact current public source; rejection restores prior row/edges and reloads restored owners. Base, loose/local, nested pdmod/weapon, and received-network ingress converge on the typed scanner path.",
+        "First combined installed-client ingress receipt results-20260809T020251Z failed before probes because stock huge explosion uses a configured native playback token whose public archive is voice-backed; executor category-only gating rejected it after the complete closure loaded successfully.",
+        "Narrow correction accepts only packed hasconfig tokens in AUDIO_CAT_VOICE while ordinary voice/music remain rejected. Isolated tassets033fix client/updater/tests compile PASS; [t-assets-033],[effect_executor] PASS 123 assertions/6 cases; native-source guard and focused diff check PASS.",
+        "Authoritative source-frozen combined rerun PASS: installed-client catalog ingress 24/24 at .claude/smoke-verify-runs/results-20260809T021712Z.json; focused catalog 3,576 assertions/13 cases; complete suite 53,264/949; all-family conformance and native-source guard PASS.",
+        "Residual validation: live active-child disable/re-enable/replacement, real peer replacement, and concurrent editor/stage/manifest/network ownership stress remain open.",
+        ".claude/session-builds/wave10final/_build-session.out.log: frozen combined client/updater/tests compile PASS",
+        " .claude/session-builds/wave10final/wave10-full-final.log: complete pd-tests PASS 53,264 assertions / 949 cases",
+        ".claude/session-builds/wave10final/wave10-conformance-all-families.log: 28 root / 52 recursive / all 27 families PASS",
+        ".claude/session-builds/wave10final/wave10-native-source-guard.log: PASS"
       ],
-      "detail": "Register audio/material/texture/effect dependency edges before activation for base/local/nested-pdmod/network ingress; validate exact types; retain/release per parent reference; reject and roll back parent on missing/wrong dependency; prove balanced overlapping owners and reload. Also own reverse-dependency invalidation for active parents when any selected child is disabled, including executor/cache retirement and transactional reload/fail-closed behavior.",
+      "detail": "Typed pdeffect dependency edges are owned across base, loose/local, nested pdmod/weapon, and received-network scanner ingress. Exact root activation ownership drives reverse invalidation: disabling or replacing an active audio/material/texture/effect child retires every affected parent executor/cache transactionally, preserves failed roots as unreachable pending work, and reloads only after the complete closure passes. Successful replacement prunes stale prior edges; rejected replacement restores prior truth. A combined boot exposed configured voice-backed native sound tokens; only packed configured tokens are playable in that category, while ordinary voice/music remain fail-closed. Source-frozen installed-client boot and the complete automated suite pass. Implemented, not validated until live child toggle/replacement, real-peer, and concurrent-owner stress pass.",
       "tags": [
         "asset-family:pdeffect",
         "dependencies",
@@ -4111,7 +4145,7 @@
         "handoff:ultra"
       ],
       "id": "T-ASSETS-033",
-      "updated": "2026-08-09T00:45:39.721Z",
+      "updated": "2026-08-09T02:37:18.711Z",
       "created": "2026-08-08T23:50:40.199Z",
       "model": "gpt-5.6-sol"
     },
@@ -4123,11 +4157,12 @@
       "phase": 4,
       "deps": [
         "T-ASSETS-019",
-        "T-CATALOG-003"
+        "T-CATALOG-003",
+        "T-ASSETS-033"
       ],
       "owner": null,
       "evidence": [],
-      "detail": "Edit representative explosion, spark, smoke, SFX, material/texture, timeline, target/attachment, and postprocess fields in public archives; load through ordinary installed-client and network paths; capture durable gameplay/render/audio evidence plus clean rollback/fail-closed logs.",
+      "detail": "Edit representative explosion, spark, smoke, SFX, material/texture, timeline, target/attachment, and postprocess fields in public archives; load through ordinary installed-client and real network-peer paths; while a parent is live, disable/re-enable and replace selected children and prove exact parent executor/cache retirement, failed-reload inaccessibility, successful reload, clean rollback, and durable gameplay/render/audio change.",
       "tags": [
         "asset-family:pdeffect",
         "edited-source",
@@ -4139,7 +4174,7 @@
       "budget": null,
       "measurements": [],
       "id": "V-009",
-      "updated": "2026-08-09T00:24:07.247Z",
+      "updated": "2026-08-09T02:02:59.017Z",
       "created": "2026-08-08T23:50:40.511Z"
     },
     {
@@ -4278,7 +4313,7 @@
         ".claude/session-builds/wave9final/wave9-t037.log",
         ".claude/session-builds/wave9final/wave9-full.log"
       ],
-      "detail": "B-1010 implemented for omission-free weapon nested UI/audio/animation/effect discovery, complete preflight, catalog-row/direct-edge/effect-edge publication, and transactional rollback. Checked growable PC storage fails allocation/count overflow before mutation and reserves the complete edge closure. Production proof passes with 72 direct nested archives and 70 aggregate effect-owned edges across two valid effects; corrupt-late input restores the graph baseline. Boundary: this does not claim more than 64 custom SFX playback slots. The final log confirms B-992/T-ASSETS-022 still logs private custom-sound slot failures for SFX 64-69, recorded in N-0030.",
+      "detail": "B-1010 implemented omission-free weapon nested UI/audio/animation/effect discovery, complete preflight, catalog-row/direct-edge/effect-edge publication, and transactional rollback. Checked growable PC storage fails allocation/count overflow before mutation and reserves the complete edge closure. Production proof passes with 72 direct nested archives and 70 aggregate effect-owned edges across two valid effects; corrupt-late input restores the graph baseline. The separate B-992 runtime pool ceiling discovered by this proof is now fixed under T-ASSETS-022: all 70 nested SFX start in the installed client.",
       "tags": [
         "asset-family:pdweapon",
         "asset-family:pdeffect",
@@ -4287,7 +4322,7 @@
         "handoff:ultra"
       ],
       "id": "T-ASSETS-037",
-      "updated": "2026-08-09T01:27:05.141Z",
+      "updated": "2026-08-09T02:37:18.748Z",
       "created": "2026-08-09T00:11:13.528Z",
       "model": "gpt-5.6-sol"
     },

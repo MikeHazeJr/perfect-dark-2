@@ -4680,7 +4680,7 @@ static u64 packWeaponSetRandomFilters()
 {
 	u64 packed = 0;
 	for (int i = 0; i < NUM_MPWEAPONS; ++i) {
-		packed |= g_MpWeaponSetRandomFilters[i] != 0 ? (1LL << i) : 0;
+		packed |= g_MpWeaponSetRandomFilters[i] != 0 ? (1ULL << i) : 0;
 	}
 
 	return packed;
@@ -4689,7 +4689,7 @@ static u64 packWeaponSetRandomFilters()
 static void unpackWeaponSetRandomFilters(u64 packed)
 {
 	for (int i = 0; i < NUM_MPWEAPONS; ++i) {
-		g_MpWeaponSetRandomFilters[i] = (packed & (1LL << i)) != 0;
+		g_MpWeaponSetRandomFilters[i] = (packed & (1ULL << i)) != 0;
 	}
 }
 

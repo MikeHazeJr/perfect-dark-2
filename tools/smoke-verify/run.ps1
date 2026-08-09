@@ -307,6 +307,7 @@ $ResultsFile = ""
 
 . (Join-Path $LibDir "Test-Assertions.ps1")
 . (Join-Path $LibDir "Install-Harness.ps1")
+. (Join-Path $LibDir "Catalog-Ingress-Fixtures.ps1")
 . (Join-Path $LibDir "Test-MemorySafety.ps1")
 
 function Stop-SmokeOwnedFaultProcesses {
@@ -738,6 +739,10 @@ function Invoke-SmokeTestMultiProcess {
             Write-Info ("  packed {0} fixture archive(s)" -f $packCount)
         }
     }
+    if ($def.PSObject.Properties.Match('catalog_ingress_boundary_fixtures').Count -gt 0 `
+            -and $def.catalog_ingress_boundary_fixtures) {
+        New-CatalogIngressBoundaryFixtures -InstallDir $installInfo.InstallDir
+    }
 
     $timeoutSeconds = 30
     if ($def.PSObject.Properties.Match('timeout_seconds').Count -gt 0 -and $def.timeout_seconds) {
@@ -1150,6 +1155,10 @@ function Invoke-SmokeTest {
         if ($packCount -gt 0) {
             Write-Info ("  packed {0} fixture archive(s)" -f $packCount)
         }
+    }
+    if ($def.PSObject.Properties.Match('catalog_ingress_boundary_fixtures').Count -gt 0 `
+            -and $def.catalog_ingress_boundary_fixtures) {
+        New-CatalogIngressBoundaryFixtures -InstallDir $installInfo.InstallDir
     }
 
     # Resolve timeout

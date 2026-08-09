@@ -78,6 +78,16 @@ TEST_CASE("explosion profile audio is a typed SFX dependency",
 		REQUIRE(effectExecutorInstallProgram(&record, error, sizeof(error)) == 0);
 		REQUIRE(std::strstr(error, "non-playable audio") != nullptr);
 	}
+	/* Configured sound aliases may be backed by a .pdvoice MP3 while the
+	 * packed hasconfig token still routes through native SFX playback. */
+	testStubEffectAudio("modx:blast_sound", AUDIO_CAT_VOICE, 0x8001);
+	REQUIRE(effectExecutorInstallProgram(&record, error, sizeof(error)) == 1);
+	ExplosionRow configuredVoiceRow = {};
+	REQUIRE(testStubEffectExplosionRow(0, &configuredVoiceRow,
+		sizeof(configuredVoiceRow)) == 1);
+	REQUIRE(configuredVoiceRow.sound == 0x8001);
+	testStubEffectAudio("modx:blast_sound", AUDIO_CAT_MUSIC, 0x8001);
+	REQUIRE(effectExecutorInstallProgram(&record, error, sizeof(error)) == 0);
 	testStubEffectAudio("modx:blast_sound", AUDIO_CAT_SFX, 123);
 	REQUIRE(effectExecutorInstallProgram(&record, error, sizeof(error)) == 1);
 	ExplosionRow audioRow = {};

@@ -31,6 +31,7 @@
 #include "constants.h"
 #include "asset_archive_policy.h"
 #include "assetcatalog.h"
+#include "assetcatalog_load.h"
 #include "assetprovider.h"
 #include "assetcatalog_body_head_slots.h"
 #include "assetcatalog_weapon_slots.h"
@@ -3544,6 +3545,18 @@ static s32 scanExternalDescriptorPath(const char *mod_dir,
 	return scanExternalDescriptorChildren(base_dir, leaf, expected, mod_id);
 }
 
+static s32 keepCurrentEffectDependency(const char *dep_id,
+	asset_type_e expected_type, void *userdata)
+{
+	const effect_dependency_list_t *deps =
+		(const effect_dependency_list_t *)userdata;
+	for (size_t i = 0; deps && i < deps->count; i++) {
+		if (deps->items[i].type == expected_type
+				&& strcmp(deps->items[i].catalog_id, dep_id) == 0) return 1;
+	}
+	return 0;
+}
+
 static s32 registerTypedPdDescriptorFile(const char *descriptor_path,
                                          asset_type_e expected,
                                          const char *mod_id)
@@ -3701,6 +3714,11 @@ static s32 registerTypedPdDescriptorFile(const char *descriptor_path,
 						? EFFECT_TYPE_SPARK : EFFECT_TYPE_SMOKE;
 				effect->ext.effect.target = EFFECT_TARGET_CALLSITE;
 			}
+			/* Replacement truth is exact, not additive. Prune stale typed edges
+			 * only after the complete new public row has published so every
+			 * rejection path can preserve the prior owner closure unchanged. */
+			catalogDepPruneOwner(effect_source.catalog_id,
+				keepCurrentEffectDependency, &effect_deps);
 			free(effect_edges_created);
 			effectDependenciesFree(&effect_deps);
 		}
@@ -3766,6 +3784,12 @@ effect_precommit_fail:
 	}
 	free(effect_edges_created);
 	effectDependenciesFree(&effect_deps);
+	if (had_prior_effect) {
+		/* A rejected replacement restored the exact prior row and edge set.
+		 * Reactivate only roots that pass that complete restored closure; any
+		 * unexpected failure remains safely pending and unreachable. */
+		(void)catalogReloadInvalidatedTypedAssets();
+	}
 	return 0;
 }
 

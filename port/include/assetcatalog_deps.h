@@ -63,6 +63,8 @@ extern "C" {
 typedef void (*CatalogDepIterFn)(const char *dep_id, void *userdata);
 typedef void (*CatalogDepTypedIterFn)(const char *dep_id,
 	asset_type_e expected_type, void *userdata);
+typedef s32 (*CatalogDepKeepFn)(const char *dep_id,
+	asset_type_e expected_type, void *userdata);
 
 /* -------------------------------------------------------------------------
  * API
@@ -89,6 +91,10 @@ s32 catalogDepRegisterTyped(const char *owner_id, const char *dep_id,
 /* Remove one exact dependency edge. Used only by transactional archive
  * registration rollback; returns 1 if an edge was removed. */
 s32 catalogDepUnregister(const char *owner_id, const char *dep_id);
+/* Remove stale edges for one successfully replaced public owner. The keep
+ * callback describes the exact newly admitted typed source set. */
+void catalogDepPruneOwner(const char *owner_id, CatalogDepKeepFn keep,
+	void *userdata);
 s32 catalogDepContains(const char *owner_id, const char *dep_id);
 asset_type_e catalogDepExpectedType(const char *owner_id, const char *dep_id);
 

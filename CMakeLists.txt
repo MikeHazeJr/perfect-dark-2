@@ -907,6 +907,9 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/tests/test_assetcatalog_deps.cpp
 	${CMAKE_SOURCE_DIR}/port/src/catalog_dep_activation_plan.c
 	${CMAKE_SOURCE_DIR}/tests/test_catalog_dep_activation_plan.cpp
+	# T-ASSETS-033: exact root owners plus reverse child invalidation/reload.
+	${CMAKE_SOURCE_DIR}/port/src/catalog_activation_ledger.c
+	${CMAKE_SOURCE_DIR}/tests/test_catalog_activation_ledger.cpp
 	# T-CATALOG-004: growable parent-first all-family reset planner.
 	${CMAKE_SOURCE_DIR}/port/src/catalog_reset_plan.c
 	${CMAKE_SOURCE_DIR}/tests/test_catalog_reset_plan.cpp

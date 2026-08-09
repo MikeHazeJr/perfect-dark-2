@@ -2334,8 +2334,8 @@
  * guard in snd.c verifies the bank never overlaps the custom range.
  */
 #define SND_BASE_COUNT              0x60A
-#define SND_CUSTOM_COUNT            0x40
 #define SND_CUSTOM_START            SND_BASE_COUNT
+#define SND_CUSTOM_COUNT            (0x800 - SND_CUSTOM_START)
 #define SND_CUSTOM_END              (SND_CUSTOM_START + SND_CUSTOM_COUNT)
 
 #define MODELNODETYPE_CHRINFO      0x01
@@ -3095,7 +3095,8 @@
 #define MPWEAPON_SHIELD           0x27
 #define MPWEAPON_DISABLED         0x28
 #define MPWEAPON_CUSTOM_START     0x29
-#define MPWEAPON_CUSTOM_COUNT     0x0a
+/* The setup save format stores the MP weapon filter in one 64-bit field. */
+#define MPWEAPON_CUSTOM_COUNT     (64 - MPWEAPON_CUSTOM_START)
 #define MPWEAPON_CUSTOM_END       (MPWEAPON_CUSTOM_START + MPWEAPON_CUSTOM_COUNT)
 #define NUM_MPWEAPONS             MPWEAPON_CUSTOM_END
 
@@ -4609,7 +4610,7 @@ enum weaponnum {
 };
 
 #define WEAPON_CUSTOM_START 0x56
-#define WEAPON_CUSTOM_COUNT 0x0a
+#define WEAPON_CUSTOM_COUNT MPWEAPON_CUSTOM_COUNT
 #define WEAPON_CUSTOM_END   (WEAPON_CUSTOM_START + WEAPON_CUSTOM_COUNT)
 
 // Upper bound (inclusive) on weapon enum slots that may be dropped on death

@@ -29,6 +29,11 @@
 #include "loader_pool.h"
 #include "lang.h"
 
+_Static_assert(CATALOG_MGR_WEAPON_COUNT == WEAPON_CUSTOM_END,
+    "catalog manager weapon pool must cover every private runtime identity");
+_Static_assert(CATALOG_MGR_WEAPON_COUNT_PURE == CATALOG_MGR_WEAPON_COUNT,
+    "pure and production weapon bounds must remain identical");
+
 /* S484 F13: g_Weapons[], g_AibotWeaponPreferences[],
  * invaimsettings_default, and invnoisesettings_silent were retired in
  * favour of the loader's typed pools (port/src/loader_pool.c).

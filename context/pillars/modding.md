@@ -48,10 +48,11 @@ incomplete selected sources. The truthful creator example retains only
 production-backed settings/presentation and source dependencies. Nested custom
 animation/audio registration is connected and its production-linked native
 harness passes direct and manifest-style ownership plus unresolved/corrupt
-transactional rejection under `T-ASSETS-022`. Ordinary gameplay remains open,
-and B-992 proves a complete base catalog currently leaves no free private
-custom-weapon slot; the debug harness borrows AR34 indices only in an
-exit-after-test process and is not allocation proof. Catalog reticles are production-connected
+transactional rejection under `T-ASSETS-022`. B-992 now allocates a genuinely
+new private weapon pair after the complete base walk and starts 70 creator SFX
+through the production catalog/audio route. Ordinary edited-weapon gameplay,
+restart, lifecycle, and network distribution remain open under T-ASSETS-025.
+Catalog reticles are production-connected
 under `T-ASSETS-023`: `reticle_archive` embeds editable `.pdui`, the scanner
 registers UI before weapon parsing, presentation retains the catalog ID, and
 the actual sight/HUD path draws the selected image. Missing, corrupt, disabled,
@@ -1196,8 +1197,10 @@ The Asset Pipeline migration, weapon graph parity lane, c3842 native-source corr
   additional weapon effect slot and still recursively validates typed identity.
   The production client passes 7/7 with harness 2/2, exact 72 registration
   rows, 70 aggregate effect edges, and late-corruption rollback. This boundary
-  does not claim over-64 SFX playback: B-992/T-ASSETS-022 still owns the
-  private custom-sound runtime pool, which logs slot failures for rows 64-69.
+  originally did not claim over-64 SFX playback. B-992/T-ASSETS-022 now expands
+  the private 11-bit sound domain to all 502 remaining identities and passes an
+  11/11 production-client smoke that starts all 70 rows, including row 69 above
+  the former ceiling, with no custom-slot failure.
 
 - **c3844 final all-family regression refresh passed (2026-06-17).** The
   current tree re-sweep passed native-source guard, modder workflow validation,

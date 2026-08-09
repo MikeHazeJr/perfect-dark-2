@@ -17,6 +17,42 @@ extern "C" {
 }
 
 namespace {
+struct ExactDeps {
+	std::vector<std::pair<std::string, asset_type_e>> rows;
+};
+
+s32 keepExactDep(const char *id, asset_type_e type, void *userdata)
+{
+	auto *deps = static_cast<ExactDeps *>(userdata);
+	for (const auto &row : deps->rows) {
+		if (row.first == id && row.second == type) return 1;
+	}
+	return 0;
+}
+}
+
+TEST_CASE("effect replacement prunes stale typed owner edges only after success",
+	"[assetcatalog][deps][effect][t-assets-033][replacement]")
+{
+	catalogDepClear();
+	REQUIRE(catalogDepRegisterTyped("mod:effect", "mod:old_audio",
+		ASSET_AUDIO, 0));
+	REQUIRE(catalogDepRegisterTyped("mod:effect", "mod:shared_texture",
+		ASSET_TEXTURE, 0));
+	REQUIRE(catalogDepRegisterTyped("mod:effect", "mod:new_material",
+		ASSET_MATERIAL, 0));
+	ExactDeps current{{
+		{"mod:shared_texture", ASSET_TEXTURE},
+		{"mod:new_material", ASSET_MATERIAL},
+	}};
+	catalogDepPruneOwner("mod:effect", keepExactDep, &current);
+	REQUIRE_FALSE(catalogDepContains("mod:effect", "mod:old_audio"));
+	REQUIRE(catalogDepContains("mod:effect", "mod:shared_texture"));
+	REQUIRE(catalogDepContains("mod:effect", "mod:new_material"));
+	catalogDepClear();
+}
+
+namespace {
 void collectDep(const char *dep_id, void *userdata)
 {
 	auto *deps = static_cast<std::vector<std::string> *>(userdata);

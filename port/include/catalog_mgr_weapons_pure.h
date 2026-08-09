@@ -23,9 +23,9 @@ extern "C" {
 #endif
 
 /* Base WEAPON_* rows occupy 0..0x55. The active runtime also reserves
- * 0x56..0x5f as catalog-owned private custom weapon slots while the
+ * 0x56..0x6c as catalog-owned private custom weapon slots while the
  * legacy held-weapon runtime is still integer-indexed. */
-#define CATALOG_MGR_WEAPON_COUNT_PURE 96
+#define CATALOG_MGR_WEAPON_COUNT_PURE 109
 
 typedef enum {
     EYESPY_VARIANT_PURE_CAMSPY  = 0,

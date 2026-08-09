@@ -36,7 +36,9 @@ void assetCatalogResetCustomSoundSlots(void);
 /* Resolve a catalog-owned private soundnum for a custom SFX/VOICE row with no
  * authored sound_id. Dedups by catalog id (same id -> same slot). Returns a
  * slot in [SND_CUSTOM_START, SND_CUSTOM_END), or -1 when the private range is
- * exhausted (logs CATALOG.SOUND.CUSTOM_SLOT_FAIL). */
+ * exhausted (logs CATALOG.SOUND.CUSTOM_SLOT_FAIL). The range occupies every
+ * remaining identity in soundnumhack's 11-bit id field; it is a wire-safe
+ * runtime ceiling rather than a PC-only arbitrary reservation. */
 s32 assetCatalogResolveSoundPrivateSlot(const char *catalog_id);
 
 #ifdef __cplusplus

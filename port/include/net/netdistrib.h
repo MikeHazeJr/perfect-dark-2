@@ -223,6 +223,14 @@ void netDistribClientHandleChunk(const char *catalog_id, u16 chunk_idx,
 void netDistribClientHandleEnd(const char *catalog_id, u8 success);
 
 /**
+ * Smoke-only installed-client ingress. Each UTF-8 list line is
+ * `pdca_path|catalog_id|category|temporary`. The raw PDCA is compressed,
+ * hashed, chunked, and delivered through the same BEGIN/CHUNK/END handlers as
+ * a received network transfer. Callers must gate this behind smokeHarness.
+ */
+s32 netDistribDebugReceivePdcaListForSmoke(const char *list_path);
+
+/**
  * Client received SVC_LOBBY_KILL_FEED.
  * Adds entry to the kill feed ring buffer for UI display.
  */

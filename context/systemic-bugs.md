@@ -30,8 +30,9 @@ walkers, weapon mirrors, network hot-registration, runtime, FileProvider, and
 generated-model metadata. Network overflow restores the prior row or removes a
 new candidate before dependency commit. Isolated builds, 399 focused
 assertions, guard, and 27-family conformance pass. SP-32 remains open because
-Wave C still needs real per-family standalone/nested/network fixtures at all
-four boundary lengths and a final traversal-join sweep. See
+the new three-ingress representative client receipt does not substitute for
+live all-family coverage or mixed-validity multi-descriptor network atomicity.
+See
 `context/evidence/2026-08-08-catalog-path-capacity-milestone.md`.
 
 **2026-08-08 Wave C propagation:** B-1002 found three fail-open variants after
@@ -47,8 +48,10 @@ filesystem and VFS delimiters, and network mutates the
 candidate INI before row population, complete PDCA envelopes and destinations
 preflight before writes, and traversal joins fail closed. The behavioral
 matrix now covers all 34 affected field mappings across three ingress modes;
-real installed-client transport fixtures and rollback after a post-preflight
-PDCA I/O failure remain the validation boundary.
+the real installed-client representative transport fixture and rollback after
+post-preflight PDCA I/O/catalog rejection now pass. Comprehensive live
+all-family coverage and mixed-validity multi-descriptor receive atomicity remain
+the explicit boundary.
 
 **2026-08-08 transactional receive propagation:** B-1006 proved that complete
 preflight alone was insufficient. Direct writes still exposed a partial live
@@ -57,9 +60,18 @@ lexically different members to one file. Received PDCA extraction now stages a
 complete unique sibling tree, compares normalized Windows identities, rejects
 ADS/dot/empty/traversal aliases, and publishes by rename with backup restore.
 Crash-window backups are preserved and block ambiguous replacement rather than
-being guessed at or deleted. This closes deterministic extraction rollback but
-does not replace the remaining real installed-client catalog/provider/runtime
-fixtures required by `T-CATALOG-003`.
+being guessed at or deleted. This closes deterministic extraction rollback.
+
+**2026-08-08 catalog-admission propagation:** B-1012 proved that atomic
+filesystem publication was still too early a commit boundary. The receive path
+deleted its recovery backup before typed scanner admission, so a later catalog
+rejection could preserve rejected bytes and destroy the prior install. Received
+publication is now an explicit two-phase transaction through catalog admission:
+commit only after scanner success; otherwise remove the candidate, restore the
+exact prior tree, and leave catalog/provider/runtime/dependency/received-count
+state unchanged. A positive aggregate scanner count is not sufficient for a
+mixed-validity multi-descriptor archive; that broader catalog transaction
+remains T-CATALOG-003 residual work.
 
 **Semantic boundary:** Widen and validate only fields that carry filesystem or
 qualified archive-member paths. Do not widen IDs, names, descriptions,
@@ -1146,7 +1158,11 @@ parent-first order, detach family adapters outside the catalog mutex, and
 rebuild pointer caches after mod rows are replaced. Mod reset preserves bundled
 rows/edges/adapters and full reset clears process adapters before identity
 reuse. This closes forward teardown; reverse-owner invalidation when a child is
-disabled remains T-ASSETS-033.
+disabled is implemented by T-ASSETS-033/B-1013 with a separate exact root-owner
+ledger. Aggregate child refcounts cannot identify owners in shared diamonds.
+Every root load/retain/release must update the ledger; reverse invalidation must
+preflight every affected typed closure before mutation, retire exact root
+counts, and keep failed reloads unreachable until a complete transaction passes.
 
 **Fix strategy:**
 

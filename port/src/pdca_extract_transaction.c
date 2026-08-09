@@ -267,8 +267,9 @@ static s32 validateEnvelope(const u8 *data, u32 data_len, const char *stage,
 	return PDCA_EXTRACT_OK;
 }
 
-pdca_extract_result_t pdcaExtractArchiveTransactional(const u8 *data,
-	u32 data_len, const char *destdir, const pdca_extract_faults_t *faults)
+pdca_extract_result_t pdcaExtractArchiveBegin(const u8 *data, u32 data_len,
+	const char *destdir, const pdca_extract_faults_t *faults,
+	pdca_extract_transaction_t *transaction)
 {
 	char stage[FS_MAXPATH] = "";
 	char backup[FS_MAXPATH] = "";
@@ -277,6 +278,9 @@ pdca_extract_result_t pdcaExtractArchiveTransactional(const u8 *data,
 	s32 result = PDCA_EXTRACT_STAGE_FAILED;
 	s32 moved_destination = 0;
 	u32 hash;
+
+	if (transaction) memset(transaction, 0, sizeof(*transaction));
+	if (!transaction) return PDCA_EXTRACT_STAGE_FAILED;
 
 	if (!destdir || !destdir[0]
 			|| !assetPathCopyChecked(dest_parent, sizeof(dest_parent), destdir))
@@ -369,8 +373,14 @@ pdca_extract_result_t pdcaExtractArchiveTransactional(const u8 *data,
 		goto rollback;
 	}
 	stage[0] = '\0';
-	if (moved_destination && !removeTree(backup))
-		return PDCA_EXTRACT_OK_BACKUP_RETAINED;
+	if (!assetPathCopyChecked(transaction->destdir,
+			sizeof(transaction->destdir), destdir)
+			|| (moved_destination && !assetPathCopyChecked(transaction->backup,
+				sizeof(transaction->backup), backup))) {
+		result = PDCA_EXTRACT_STAGE_FAILED;
+		goto rollback;
+	}
+	transaction->active = 1;
 	return PDCA_EXTRACT_OK;
 
 rollback:
@@ -381,4 +391,37 @@ rollback:
 	}
 	if (stage[0]) removeTree(stage);
 	return (pdca_extract_result_t)result;
+}
+
+pdca_extract_result_t pdcaExtractTransactionCommit(
+	pdca_extract_transaction_t *transaction)
+{
+	if (!transaction || !transaction->active) return PDCA_EXTRACT_INVALID;
+	transaction->active = 0;
+	if (transaction->backup[0] && !removeTree(transaction->backup)) {
+		return PDCA_EXTRACT_OK_BACKUP_RETAINED;
+	}
+	transaction->backup[0] = '\0';
+	return PDCA_EXTRACT_OK;
+}
+
+s32 pdcaExtractTransactionRollback(pdca_extract_transaction_t *transaction)
+{
+	if (!transaction || !transaction->active) return 0;
+	if (!removeTree(transaction->destdir)) return 0;
+	if (transaction->backup[0]
+			&& rename(transaction->backup, transaction->destdir) != 0) return 0;
+	transaction->active = 0;
+	transaction->backup[0] = '\0';
+	return 1;
+}
+
+pdca_extract_result_t pdcaExtractArchiveTransactional(const u8 *data,
+	u32 data_len, const char *destdir, const pdca_extract_faults_t *faults)
+{
+	pdca_extract_transaction_t transaction;
+	pdca_extract_result_t result = pdcaExtractArchiveBegin(data, data_len,
+		destdir, faults, &transaction);
+	if (result != PDCA_EXTRACT_OK) return result;
+	return pdcaExtractTransactionCommit(&transaction);
 }

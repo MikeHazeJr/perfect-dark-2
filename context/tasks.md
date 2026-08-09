@@ -15,11 +15,11 @@ rejects empty, null, malformed, aliased, wrong-node, or wrong-typed declarations
 The authoritative Wave8 receipt passes client/updater/tests builds, T019 129/5,
 the effect band 571/15, and the full suite 52,416/932, plus all-family archive
 conformance and the native-source guard. T-ASSETS-037 now closes nested
-discovery/preflight omission above 64, while B-992/T-ASSETS-022 retains the
-separate 64-slot custom-SFX playback ceiling. T019 remains `partial` for
-`T-ASSETS-032/034/035/036`, `T-ASSETS-033`, and `V-009`; no generic v1
-renderer, gameplay, timeline, reverse-invalidation, or ordinary-game proof is
-inferred from the v2 adapter.
+discovery/preflight omission above 64, while B-992/T-ASSETS-022 now removes the
+separate 64-slot custom-SFX playback ceiling with live 70-row proof. T019 remains
+`partial` for `T-ASSETS-032/034/035/036` and `V-009`; no generic v1 renderer,
+gameplay, timeline, or ordinary-game proof is inferred from the v2 adapter.
+Exact reverse invalidation is implemented under `T-ASSETS-033`/B-1013.
 
 `T-ASSETS-032` has a verified partial scheduler foundation after B-1011.
 Every accepted v1 effect opcode now maps to one permanent typed dispatch slot;
@@ -41,8 +41,20 @@ destruction; B-1008 records the previously missing edge-clear hooks. Production
 builds, T020 221/8, effect 571/15, catalog 3,561/12, full 52,416/932,
 conformance, guard, and diff check pass. V-006 ordinary-client proof remains
 open. Disabling an already-active SFX/material/texture child and invalidating
-its cached parent remains `T-ASSETS-033`; `T-CATALOG-004` owns transactional
-family-specific teardown for every non-effect type before mod/full reset.
+its cached parent is now implemented under `T-ASSETS-033`/B-1013 with an exact
+root-owner ledger rather than inference from aggregate child refcounts. Active
+overlapping and diamond roots retire before child disable/replacement, remain
+unreachable while invalid, and reload only through complete typed activation.
+Effect replacement also prunes stale prior edges and restores prior owners on
+rejection. A combined boot exposed a stock configured sound token whose public
+sample is voice-backed; the executor now admits only that packed configured
+token and still rejects ordinary voice/music. Isolated client/updater/tests and
+123 assertions/6 focused T033/executor cases pass. The authoritative combined
+receipt also passes installed-client 24/24, focused catalog 3,576/13, full
+53,264/949, conformance, and guard. Live child toggle/replacement, real-peer,
+and concurrent-owner receipts remain pending, so T033 is not yet validated.
+`T-CATALOG-004` owns transactional family-specific teardown
+for every non-effect type before mod/full reset.
 
 `T-CATALOG-004` is implemented, not live-validated, after B-1009. Disable,
 mod reset, full reset, and catalog reinitialization now snapshot all selected
@@ -53,8 +65,9 @@ rebuild also refreshes runtime-to-ID caches after row replacement. The frozen
 receipt passes client/updater/tests compilation, focused 198/3, full
 52,721/943, native-source guard, diff check, and source fingerprint. Installed
 client every-family toggle/restart and concurrent editor/network owner proof
-remain validation work. Reverse invalidation of active parents when a child is
-disabled remains `T-ASSETS-033`.
+remain validation work. T-ASSETS-033 now supplies exact reverse invalidation
+for active typed roots; its focused/full and installed-client boot receipts pass,
+while live child-toggle/replacement and concurrent-owner stress remain validation.
 
 `T-ASSETS-018` is implemented, but not yet validated, after B-1003. Public
 `.pdeffect` activation now retains the complete executable graph IR, stable
@@ -123,6 +136,22 @@ tests are pending the joint T019/T020 fingerprint. Real installed-client
 catalog to FileProvider to runtime fixtures remain open, so status is still
 partial.
 
+The real three-ingress continuation found B-1012 in the received-network
+commit boundary. PDCA extraction now retains the prior destination backup
+until typed scanner admission commits; catalog rejection removes the candidate,
+restores the exact prior install, and does not increment `received_count`.
+Focused `[T-CATALOG-003]` automation passes 3,576 assertions/13 cases and a
+dynamic client fixture now covers exact 127/128/1023/1024 FileProvider source
+identities through loose, nested `.pdmod`, and production network receive
+handlers. The source-frozen authoritative client passes 24/24: nine exact
+FileProvider/runtime identities, three complete 1024-byte rejections, and
+post-staging network rollback with no catalog/provider/runtime/dependency
+residue. Focused 3,576/13, full 53,264/949, guard, and 28-root/52-recursive
+all-family conformance also pass. Keep T-CATALOG-003 partial: live all-family
+coverage and catalog-atomic rejection of mixed-validity, multi-descriptor
+received archives remain explicit residuals. Evidence:
+`context/evidence/2026-08-08-t-catalog-003-three-ingress.md`.
+
 **2026-08-08 ACTIVE ROADMAP EXECUTION.** The canonical Workbench routes the
 live asset program ahead of 36 explicitly deferred historical/manual-resume
 items. Character (`T-ASSETS-010`), voice metadata/localization
@@ -133,9 +162,9 @@ animation/audio registration is connected and its native production-linked
 behavioral harness passes 3/3 under `T-ASSETS-022`: direct and manifest-style
 ownership balance, unresolved selected audio rejects without numeric fallback,
 and late corruption rolls back every row and edge. The item remains truthfully
-partial because B-992 exhausts private custom-weapon slots after the complete
-base catalog and ordinary edited/corrupt-media gameplay remains under
-`T-ASSETS-025`. `T-ASSETS-031` now has production parser and automated coverage
+partial because B-992 capacity is implemented and live-proven but ordinary
+edited/corrupt-media gameplay, load/release/restart, and network distribution
+remain under `T-ASSETS-025`. `T-ASSETS-031` now has production parser and automated coverage
 for JSON non-BMP surrogate pairs and malformed-pair rejection.
 `T-MODDING-007` now has a production-connected Audio Mods Voice creator that
 emits a validated, self-contained localized `.pdvoice`, atomically preserves
@@ -297,8 +326,9 @@ in T-ASSETS-032/034/035/036. T-ASSETS-037/B-1010 has an implemented growable
 nested-ingress implementation and a recursive-conformance fixture with 70 SFX,
 two individually valid effects, 72 direct nested archives, and 70 aggregate
 effect-owned edges. The production-client capacity/rollback harness passes 2/2
-and its smoke assertions pass 7/7. This does not close B-992/T-ASSETS-022's
-separate 64-slot custom-SFX playback ceiling. Reverse
+and its original smoke assertions pass 7/7. B-992/T-ASSETS-022 now separately
+passes an 11/11 production-client capacity smoke that allocates a genuinely new
+weapon after the base walk and starts all 70 SFX through the catalog/audio route. Reverse
 child-dependency invalidation remains T-ASSETS-033, with live proof in V-009/V-006.
 
 Final audit verification checkpoint, 2026-07-30: B-969's creator-workflow fix

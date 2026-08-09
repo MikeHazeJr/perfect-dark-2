@@ -80,7 +80,7 @@ constexpr u8 kMPWEAPON_AR34     = 0x10;
 constexpr u8 kMPWEAPON_SHIELD   = 0x27;
 constexpr u8 kMPWEAPON_DISABLED = 0x28;
 constexpr u8 kMPWEAPON_CUSTOM_START = 0x29;
-constexpr u8 kMPWEAPON_CUSTOM_COUNT = 0x0a;
+constexpr u8 kMPWEAPON_CUSTOM_COUNT = 64 - kMPWEAPON_CUSTOM_START;
 
 /* Mirror of NUM_MPWEAPONS (constants.h). */
 constexpr s32 kNUM_MPWEAPONS = kMPWEAPON_CUSTOM_START + kMPWEAPON_CUSTOM_COUNT;
@@ -471,12 +471,12 @@ TEST_CASE("spawn-weapon: NUM_MPWEAPONSLOTS pin",
 
 TEST_CASE("weapon catalog identity: MP weapon table count includes private custom slots",
           "[spawn-weapon][catalog][pin]") {
-    REQUIRE(kNUM_MPWEAPONS == 0x33);
+    REQUIRE(kNUM_MPWEAPONS == 64);
     REQUIRE(kMPWEAPON_NONE == 0x00);
     REQUIRE(kMPWEAPON_SHIELD == 0x27);
     REQUIRE(kMPWEAPON_DISABLED == 0x28);
     REQUIRE(kMPWEAPON_CUSTOM_START == 0x29);
-    REQUIRE(kMPWEAPON_CUSTOM_COUNT == 0x0a);
+    REQUIRE(kMPWEAPON_CUSTOM_COUNT == 23);
 }
 
 TEST_CASE("weapon catalog identity: MP and runtime identity remain separate",

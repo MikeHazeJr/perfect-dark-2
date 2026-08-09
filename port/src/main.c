@@ -26,6 +26,8 @@
 #include "config.h"
 #include "mod.h"
 #include "modmgr.h"
+#include "modarchive.h"
+#include "modvfs.h"
 #include "modelcatalog.h"
 #include "pdgui.h"
 #include "pdgui_theme_loader.h"
@@ -36,6 +38,7 @@
 #include "console.h"
 #include "utils.h"
 #include "net/net.h"
+#include "net/netdistrib.h"
 #include "net/p2p.h"
 #include "net/group_session.h"
 #include "updater.h"
@@ -62,8 +65,11 @@
 #include "voice.h"
 #include "assetcatalog.h"
 #include "assetcatalog_scanner.h"
+#include "assetcatalog_deps.h"
 #include "assetcatalog_load.h"
 #include "assetcatalog_cache.h"
+#include "assetprovider.h"
+#include "asset_runtime.h"
 #include "weapon_nested_runtime_harness.h"
 #include "asset_source_debug.h"
 #include "modasset_compiler.h"
@@ -358,6 +364,8 @@ static s32         g_BootMatchTimeLimitSec = 0; /* 0 = unset; >0 = forced second
 static u32         g_BootDebugMpOptions   = 0;
 static bool        g_BootDebugMpOptionsSet = false;
 static const char *g_BootDebugInstallReceivedMod = NULL;
+static const char *g_BootDebugReceivePdcaList = NULL;
+static const char *g_BootDebugRejectCatalogIngressList = NULL;
 static const char *g_BootDebugSpawnWeapon = NULL;
 static const char *g_BootDebugBotBody = NULL;
 static const char *g_BootDebugBotHead = NULL;
@@ -1201,6 +1209,86 @@ static void bootApplyDebugInstallReceivedMod(void)
 	}
 }
 
+static void bootApplyDebugReceivePdcaList(void)
+{
+	if (!g_BootDebugReceivePdcaList || !g_BootDebugReceivePdcaList[0]) return;
+	if (!smokeHarnessIsActive()) {
+		sysLogPrintf(LOG_WARNING,
+			"BOOT: --debug-receive-pdca-list is smoke-only; request ignored");
+		return;
+	}
+	s32 delivered = netDistribDebugReceivePdcaListForSmoke(
+		g_BootDebugReceivePdcaList);
+	sysLogPrintf(delivered > 0 ? LOG_NOTE : LOG_WARNING,
+		"BOOT: --debug-receive-pdca-list delivered=%d list='%s'",
+		delivered, g_BootDebugReceivePdcaList);
+}
+
+static void bootCountCatalogIngressDependency(const char *dep_id,
+	asset_type_e expected_type, void *userdata)
+{
+	(void)dep_id;
+	(void)expected_type;
+	(*(s32 *)userdata)++;
+}
+
+static void bootApplyDebugRejectCatalogIngressList(void)
+{
+	if (!g_BootDebugRejectCatalogIngressList
+			|| !g_BootDebugRejectCatalogIngressList[0]) return;
+	if (!smokeHarnessIsActive()) {
+		sysLogPrintf(LOG_WARNING,
+			"BOOT: --debug-reject-catalog-ingress-list is smoke-only; request ignored");
+		return;
+	}
+	FILE *fp = fopen(g_BootDebugRejectCatalogIngressList, "rb");
+	if (!fp) {
+		sysLogPrintf(LOG_WARNING,
+			"CATALOG.INGRESS.REJECT: could not open list '%s'",
+			g_BootDebugRejectCatalogIngressList);
+		return;
+	}
+	char line[FS_MAXPATH + 256];
+	while (fgets(line, sizeof(line), fp)) {
+		line[strcspn(line, "\r\n")] = '\0';
+		char *kind = line;
+		char *path = strchr(kind, '|');
+		char *id = path ? strchr(path + 1, '|') : NULL;
+		if (!path || !id) continue;
+		*path++ = '\0';
+		*id++ = '\0';
+		s32 registered = 0;
+		if (strcmp(kind, "folder") == 0) {
+			registered = assetCatalogScanExternalLayoutFolder(
+				"catalog_ingress_reject", path);
+		} else if (strcmp(kind, "archive") == 0) {
+			mod_archive_t *archive = modArchiveOpen(path);
+			if (archive) {
+				const char *mount_id = "catalog_ingress_reject_archive";
+				if (modVfsMount(mount_id, archive)) {
+					registered = assetCatalogScanComponentsFromArchive(
+						mount_id, archive);
+					modVfsUnmount(mount_id);
+				}
+				modArchiveClose(archive);
+			}
+		}
+		s32 dependency_count = 0;
+		catalogDepForEachTyped(id, bootCountCatalogIngressDependency,
+			&dependency_count);
+		s32 catalog_absent = assetCatalogResolve(id) ? 0 : 1;
+		s32 runtime_absent = assetRuntimeFindByTypeAndId(
+			ASSET_GAMEMODE, id) ? 0 : 1;
+		sysLogPrintf(registered == 0 && catalog_absent && runtime_absent
+				&& dependency_count == 0
+				? LOG_NOTE : LOG_WARNING,
+			"CATALOG.INGRESS.REJECT: kind=%s id='%s' registered=%d catalog_absent=%d runtime_absent=%d deps=%d",
+			kind, id, registered, catalog_absent, runtime_absent,
+			dependency_count);
+	}
+	fclose(fp);
+}
+
 /* Accessor for the Room dialog's first-frame auto-start hook (consumed
  * in port/fast3d/pdgui_menu_room.cpp). Returns 1 once when set so a
  * single Start Match press fires; subsequent calls return 0. */
@@ -1669,6 +1757,16 @@ static void bootDebugLogTypedPayload(asset_type_e type, const char *asset_id, s3
 		sysLogPrintf(LOG_WARNING,
 			"BOOT: --debug-load-catalog-assets result type=%s id='%s' result=MISSING",
 			type_name, asset_id ? asset_id : "(null)");
+		if (asset_id && strncmp(asset_id, "ingress:", 8) == 0) {
+			s32 dependency_count = 0;
+			catalogDepForEachTyped(asset_id,
+				bootCountCatalogIngressDependency, &dependency_count);
+			sysLogPrintf(LOG_NOTE,
+				"CATALOG.INGRESS.REJECT.STATE: id='%s' catalog_absent=1 provider_absent=1 runtime_absent=%d deps=%d",
+				asset_id,
+				assetRuntimeFindByTypeAndId(type, asset_id) ? 0 : 1,
+				dependency_count);
+		}
 		return;
 	}
 
@@ -1680,6 +1778,22 @@ static void bootDebugLogTypedPayload(asset_type_e type, const char *asset_id, s3
 
 	if (!loaded) {
 		return;
+	}
+
+	{
+		const char *catalog_path = entry->source.primary.provider == fileProvider()
+			? fileProviderPath(entry->source.primary) : NULL;
+		const asset_runtime_binding_t *binding =
+			assetRuntimeFindByTypeAndId(type, asset_id);
+		const char *runtime_path = binding ? binding->primary_path : NULL;
+		s32 exact = catalog_path && runtime_path
+			&& strcmp(catalog_path, runtime_path) == 0;
+		sysLogPrintf(exact ? LOG_NOTE : LOG_WARNING,
+			"CATALOG.INGRESS.IDENTITY: type=%s id='%s' provider=%s length=%u exact=%d catalog='%s' runtime='%s'",
+			type_name, asset_id,
+			entry->source.primary.provider == fileProvider() ? "FileProvider" : "other",
+			catalog_path ? (u32)strlen(catalog_path) : 0, exact,
+			catalog_path ? catalog_path : "", runtime_path ? runtime_path : "");
 	}
 
 	if (type == ASSET_MODEL || type == ASSET_WEAPON || type == ASSET_BODY
@@ -2359,6 +2473,8 @@ static void bootApplyCliFastPaths(void)
 		modAssetCompilerSetGeneratedModeldefRenderAudit(1);
 	}
 	bootApplyDebugInstallReceivedMod();
+	bootApplyDebugRejectCatalogIngressList();
+	bootApplyDebugReceivePdcaList();
 	bootApplyMainMenu();
 	bootApplyLaunchCredits();
 	bootApplyLaunchScenario();
@@ -3320,6 +3436,10 @@ int main(int argc, const char **argv)
 	g_BootDebugSwarmMap       = sysArgGetString("--debug-swarm-map");
 	g_BootDebugInstallReceivedMod =
 		sysArgGetString("--debug-install-received-mod");
+	g_BootDebugReceivePdcaList =
+		sysArgGetString("--debug-receive-pdca-list");
+	g_BootDebugRejectCatalogIngressList =
+		sysArgGetString("--debug-reject-catalog-ingress-list");
 	g_BootDebugSpawnWeapon    = sysArgGetString("--debug-spawn-weapon");
 	g_BootDebugBotBody        = sysArgGetString("--debug-bot-body");
 	g_BootDebugBotHead        = sysArgGetString("--debug-bot-head");

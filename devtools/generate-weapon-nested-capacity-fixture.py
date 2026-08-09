@@ -260,14 +260,14 @@ def main() -> int:
     )
     smoke = {
         "scenario_name": "weapon_nested_capacity",
-        "description": "Production scanner accepts and fully observes a 72-archive nested weapon closure with 70 effect-owned dependencies across two valid effects, then rejects a corrupt late effect without leaked rows or edges.",
-        "tags": ["modding", "pdxxx", "weapon", "nested", "capacity", "t-assets-037"],
+        "description": "Production scanner accepts and fully observes a 72-archive nested weapon closure, allocates a new weapon after full base boot, plays all 70 custom SFX through sndStart, and rejects a corrupt late effect without leaked rows or edges.",
+        "tags": ["modding", "pdxxx", "weapon", "nested", "capacity", "t-assets-022", "t-assets-037", "b-992"],
         "log_channel_mask": "all",
         "verbose": 0,
         "timeout_seconds": 180,
         "install_state": "clean",
         "boot_args": [
-            "--no-update-check", "--no-sound", "--no-net", "--portable",
+            "--no-update-check", "--no-net", "--portable",
             "--debug-weapon-nested-harness", str(plan),
         ],
         "input_sequence": [
@@ -277,11 +277,15 @@ def main() -> int:
         "assertions": {
             "required_lines": [
                 "SMOKE: scenario=weapon_nested_capacity",
+                "PDWEAPON.NESTED.WEAPON_SLOT: id=capacity:weapon_new",
+                "PDWEAPON.NESTED.PLAYBACK: count=70 high_id=capacity:sfx_069",
                 "PDWEAPON.NESTED.HARNESS: passed=2 cases=2 result=PASS",
                 "SMOKE: result=weapon_nested_harness_pass",
             ],
             "forbidden_patterns": [
                 "PDWEAPON.NESTED.HARNESS.FAIL",
+                "CATALOG.SOUND.CUSTOM_SLOT_FAIL",
+                "CATALOG.WEAPON.CUSTOM_SLOT_FAIL",
                 "EXCEPTION_ACCESS_VIOLATION",
                 "SMOKE: result=timeout",
             ],

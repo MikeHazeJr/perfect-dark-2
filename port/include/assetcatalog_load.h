@@ -49,6 +49,17 @@ struct animtableentry;
  */
 void catalogLoadInit(void);
 
+/* Active typed roots are tracked independently from aggregate child refs.
+ * These hooks make child disable/replacement invalidate exact overlapping
+ * owners, then reload them only after the complete new closure is valid. */
+s32 catalogInvalidateTypedAssetDependents(const char *dependency_id);
+s32 catalogCanInvalidateTypedAssetDependents(const char *dependency_id);
+s32 catalogReloadInvalidatedTypedAssets(void);
+s32 catalogPrepareTypedAssetReplacement(asset_type_e replacement_type,
+	const char *asset_id);
+void catalogTypedLifecycleClearMods(void);
+void catalogTypedLifecycleClear(void);
+
 /* c3849 Wave 2: seed g_Anims rows for catalog-owned custom anim slots from
  * catalog metadata (0xffffffff data sentinel -> clip-replacement path). Called
  * at the end of catalogLoadInit (mod reloads) and from animsInit (boot). */

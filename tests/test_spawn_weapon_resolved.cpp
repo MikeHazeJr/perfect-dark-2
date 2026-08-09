@@ -154,7 +154,7 @@ bool consumer_gate_admits(s32 spawnWeaponNum)
 /* Pure mirror of the post-fix leaf bound at modelmgrreset.c:172. The leaf
  * accepts anything in [0, kArraySize) and rejects everything else with a
  * loud-fail return. We treat "admitted" as "would index the weapon pool". */
-constexpr s32 kArraySize_g_Weapons = 0x60; /* base 0x00..0x55 + custom 0x56..0x5f */
+constexpr s32 kArraySize_g_Weapons = 0x6d; /* base 0x00..0x55 + custom 0x56..0x6c */
 
 bool leaf_admits_for_indexing(s32 weaponnum)
 {
@@ -198,7 +198,7 @@ TEST_CASE("Real WEAPON_* enums pass the gate AND fit in g_Weapons[] bounds",
 TEST_CASE("Private custom weapon slots pass the gate AND fit in weapon-pool bounds",
           "[matchsetup][spawn-weapon][b263][b855]")
 {
-    for (s32 num = 0x56; num < 0x60; num++) {
+    for (s32 num = 0x56; num < kArraySize_g_Weapons; num++) {
         INFO("weaponnum = " << num);
         REQUIRE(consumer_gate_admits(num) == true);
         REQUIRE(leaf_admits_for_indexing(num) == true);
@@ -208,12 +208,12 @@ TEST_CASE("Private custom weapon slots pass the gate AND fit in weapon-pool boun
 TEST_CASE("Out-of-bounds weaponnum reaches leaf only via gate failure (defence in depth)",
           "[matchsetup][spawn-weapon][b263][s483c][defence-in-depth]")
 {
-    /* Values 0x60..0xFD are NOT reserved sentinels (so the upstream gate
+    /* Values 0x6d..0xFD are NOT reserved sentinels (so the upstream gate
      * admits them) but ARE out of bounds for the weapon pool. The leaf bound
      * is what catches these. This covers the case where a future caller
      * passes a bad value that bypassed the upstream gate logic
      * (e.g. wire-data tampering, not-yet-migrated consumer). */
-    for (s32 num = 0x60; num <= 0xFD; num++) {
+    for (s32 num = kArraySize_g_Weapons; num <= 0xFD; num++) {
         INFO("weaponnum = " << num);
         /* Upstream gate says yes (it's not a reserved sentinel) -- */
         REQUIRE(consumer_gate_admits(num) == true);
