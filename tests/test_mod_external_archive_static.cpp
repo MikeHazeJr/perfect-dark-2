@@ -159,6 +159,15 @@ std::string readFile(const char *path) {
 	return ss.str();
 }
 
+TEST_CASE("pdmod archive size clamp widens signed off_t before comparison",
+		"[modding][pdmod][static][b1026]") {
+	const std::string modmgr = readFile("port/src/modmgr.c");
+
+	REQUIRE(modmgr.find("(u64)st.st_size > 0xFFFFFFFFull") !=
+		std::string::npos);
+	REQUIRE(modmgr.find("(off_t)0xFFFFFFFFu") == std::string::npos);
+}
+
 struct TempArchive {
 	std::filesystem::path path;
 

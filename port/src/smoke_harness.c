@@ -827,7 +827,7 @@ static SDL_Keycode smokeScancodeToKeycode(s32 scancode)
  * has populated the window pointer. Returns 0 if no window resolves;
  * the caller still pushes the event so SDL-side debug consumers still
  * receive it. */
-static Uint32 smokeResolveWindowId(void)
+static SDL_Window *smokeResolveWindow(void)
 {
     SDL_Window *w = gfxGetSdlWindow();
     if (!w) {
@@ -837,9 +837,27 @@ static Uint32 smokeResolveWindowId(void)
         w = SDL_GetMouseFocus();
     }
     if (!w) {
-        return 0;
+        return NULL;
     }
-    return SDL_GetWindowID(w);
+    return w;
+}
+
+static Uint32 smokeResolveWindowId(void)
+{
+    SDL_Window *w = smokeResolveWindow();
+    return w ? SDL_GetWindowID(w) : 0;
+}
+
+/* ImGui's SDL backend may poll the OS cursor during NewFrame after consuming
+ * queued SDL_MOUSEMOTION. Keep the real window cursor and the synthetic event
+ * at the same client coordinate so hover/click hit-testing cannot snap back to
+ * the user's prior cursor position between frames. */
+static void smokeWarpMouseTo(s32 x, s32 y)
+{
+    SDL_Window *w = smokeResolveWindow();
+    if (w) {
+        SDL_WarpMouseInWindow(w, x, y);
+    }
 }
 
 static void smokePushKey(s32 scancode, s32 down)
@@ -874,6 +892,7 @@ static void smokePushMouse(s32 x, s32 y, s32 button, s32 down)
     const Uint32 ts  = SDL_GetTicks();
     const Uint32 wid = smokeResolveWindowId();
     if (down) {
+        smokeWarpMouseTo(x, y);
         /* Move-then-click so ImGui's hover hit-test lands on the right
          * widget. Only needed on the press edge; the release edge fires
          * at the same coords so no extra motion is required. */
@@ -906,6 +925,7 @@ static void smokePushMouse(s32 x, s32 y, s32 button, s32 down)
 
 static void smokePushMouseMove(s32 x, s32 y)
 {
+    smokeWarpMouseTo(x, y);
     SDL_Event ev;
     SDL_zero(ev);
     ev.type = SDL_MOUSEMOTION;

@@ -1661,7 +1661,12 @@ static s32 modmgrTryRegisterArchive(const char *archivePath, const char *display
 	/* Size for download estimation: archive file size, not uncompressed bytes. */
 	struct stat st;
 	if (stat(archivePath, &st) == 0) {
-		mod->size_bytes = (u32)((st.st_size > (off_t)0xFFFFFFFFu) ? 0xFFFFFFFFu : st.st_size);
+		/* Windows MinGW may define off_t as signed 32-bit. Casting UINT32_MAX
+		 * to off_t then comparing makes the limit -1, so every non-empty
+		 * archive is falsely reported as 4 GiB. Widen the observed size before
+		 * applying the public u32 storage boundary. */
+		mod->size_bytes = (u32)((u64)st.st_size > 0xFFFFFFFFull
+			? 0xFFFFFFFFu : (u64)st.st_size);
 	}
 
 	mod->enabled = 0;

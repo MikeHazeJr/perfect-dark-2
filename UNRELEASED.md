@@ -5,6 +5,8 @@
 
 ## Highlights
 
+- Fixed Mod Manager archive sizing on Windows and added a real same-process
+  disable/re-enable path for active custom weapon dependencies.
 - Made recursively nested weapon effects publish their editable sound,
   material, and texture dependencies atomically before gameplay activation.
 - Made keyboard aim actions steer the real gameplay aim axes and let custom

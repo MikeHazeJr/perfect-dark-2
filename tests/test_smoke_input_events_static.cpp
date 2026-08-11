@@ -31,6 +31,9 @@ TEST_CASE("smoke input events drive mouse hover and wheel through SDL",
     requireContains(source, "!strcmp(type_str, \"mouse_wheel\")");
     requireContains(source, "ev.type = SDL_MOUSEMOTION;");
     requireContains(source, "ev.type = SDL_MOUSEWHEEL;");
+    requireContains(source, "static void smokeWarpMouseTo(s32 x, s32 y)");
+    requireContains(source, "SDL_WarpMouseInWindow(w, x, y);");
+    requireContains(source, "smokeWarpMouseTo(x, y);");
     requireContains(source, "ev.motion.windowID = smokeResolveWindowId();");
     requireContains(source, "ev.wheel.windowID = smokeResolveWindowId();");
     requireContains(source, "ev.wheel.preciseY = (float)wheel_y;");

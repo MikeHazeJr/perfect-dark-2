@@ -1,0 +1,21 @@
+{
+  "Name": "needler_mod_manager_lifecycle_smoke",
+  "Category": "scenario",
+  "BugId": null,
+  "RegressionFor": null,
+  "Passed": true,
+  "ExitCode": 0,
+  "ElapsedSeconds": 112.2590593,
+  "InstallDir": "C:\\Users\\mikeh\\Perfect-Dark-2\\perfect_dark-mike\\.claude\\smoke-verify-install",
+  "Screenshots": [
+    "C:\\Users\\mikeh\\Perfect-Dark-2\\perfect_dark-mike\\.claude\\smoke-verify-runs\\screenshots\\20260811T080919-needler_mod_manager_lifecycle_smoke\\001-needler-enabled-before-disable.bmp",
+    "C:\\Users\\mikeh\\Perfect-Dark-2\\perfect_dark-mike\\.claude\\smoke-verify-runs\\screenshots\\20260811T080919-needler_mod_manager_lifecycle_smoke\\002-needler-disabled-pending-apply.bmp",
+    "C:\\Users\\mikeh\\Perfect-Dark-2\\perfect_dark-mike\\.claude\\smoke-verify-runs\\screenshots\\20260811T080919-needler_mod_manager_lifecycle_smoke\\003-needler-disable-apply-complete.bmp",
+    "C:\\Users\\mikeh\\Perfect-Dark-2\\perfect_dark-mike\\.claude\\smoke-verify-runs\\screenshots\\20260811T080919-needler_mod_manager_lifecycle_smoke\\004-needler-enabled-pending-apply.bmp",
+    "C:\\Users\\mikeh\\Perfect-Dark-2\\perfect_dark-mike\\.claude\\smoke-verify-runs\\screenshots\\20260811T080919-needler_mod_manager_lifecycle_smoke\\005-needler-enable-apply-complete.bmp",
+    "C:\\Users\\mikeh\\Perfect-Dark-2\\perfect_dark-mike\\.claude\\smoke-verify-runs\\screenshots\\20260811T080919-needler_mod_manager_lifecycle_smoke\\006-needler-enabled-final.bmp"
+  ],
+  "AssertionsTotal": 22,
+  "AssertionsMet": 22,
+  "Failures": []
+}

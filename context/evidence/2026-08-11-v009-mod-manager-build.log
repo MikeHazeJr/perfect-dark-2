@@ -1,0 +1,67 @@
+Build env: TEMP=C:\Users\mikeh\AppData\Local\Temp | mingw64 on PATH | ccache sloppy
+WARNING: ccache compiler probe failed or timed out; building without ccache launcher.
+
+  Perfect Dark PC Port  -  Headless Build
+  Target:     tests
+  Version:    0.1.102
+  Next ver:   False (-UseNextVersion)
+  Clean:      False
+  AutoCommit: False (-AutoCommit / -CommitPush)
+  Verbose:    False
+  Cores:      24
+  Generator:  Ninja
+  BuildDir:   C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike\.claude\session-builds\v009modmgr
+  ProjectDir: C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike
+
+  Auto-commit disabled (pass -AutoCommit to enable).
+
+  [smart-clean] Incremental build (no clean needed)
+
+------------------------------------------------------------
+  Configure (CMake - Ninja + ccache)
+------------------------------------------------------------
+  [step-log] stdout: C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike\.claude\session-builds\v009modmgr\_build-headless-20260811-081440-configure-cmake---ninja-ccache.out.log
+  [step-log] stderr: C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike\.claude\session-builds\v009modmgr\_build-headless-20260811-081440-configure-cmake---ninja-ccache.err.log
+  [step-log] heartbeat: C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike\.claude\session-builds\v009modmgr\_build-headless-20260811-081440-configure-cmake---ninja-ccache.heartbeat.log
+  [step-log] exit:   C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike\.claude\session-builds\v009modmgr\_build-headless-20260811-081440-configure-cmake---ninja-ccache.exit
+  [step-log] cmdline: C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike\.claude\session-builds\v009modmgr\_build-headless-20260811-081440-configure-cmake---ninja-ccache.cmdline.txt
+  [heartbeat] [2026-08-11T08:14:40] Configure (CMake - Ninja + ccache) running 0s pid=90176 stdout=347b stderr=0b ninja_log=128778b
+ +                                                                          + >>> Configure (CMake - Ninja + ccache) OK (0s) <<<
+
+------------------------------------------------------------
+  Generate Headers [pd_headers]
+------------------------------------------------------------
+  [step-log] stdout: C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike\.claude\session-builds\v009modmgr\_build-headless-20260811-081441-generate-headers-pd_headers.out.log
+  [step-log] stderr: C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike\.claude\session-builds\v009modmgr\_build-headless-20260811-081441-generate-headers-pd_headers.err.log
+  [step-log] heartbeat: C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike\.claude\session-builds\v009modmgr\_build-headless-20260811-081441-generate-headers-pd_headers.heartbeat.log
+  [step-log] exit:   C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike\.claude\session-builds\v009modmgr\_build-headless-20260811-081441-generate-headers-pd_headers.exit
+  [step-log] cmdline: C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike\.claude\session-builds\v009modmgr\_build-headless-20260811-081441-generate-headers-pd_headers.cmdline.txt
+ +                                                                          + >>> Generate Headers [pd_headers] OK (0s) <<<
+
+============================================================
+  Building: Tests  (target: pd-tests)
+  Dir:      C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike\.claude\session-builds\v009modmgr
+============================================================
+
+------------------------------------------------------------
+  Compile [Tests]
+------------------------------------------------------------
+  [step-log] stdout: C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike\.claude\session-builds\v009modmgr\_build-headless-20260811-081441-compile-tests.out.log
+  [step-log] stderr: C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike\.claude\session-builds\v009modmgr\_build-headless-20260811-081441-compile-tests.err.log
+  [step-log] heartbeat: C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike\.claude\session-builds\v009modmgr\_build-headless-20260811-081441-compile-tests.heartbeat.log
+  [step-log] exit:   C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike\.claude\session-builds\v009modmgr\_build-headless-20260811-081441-compile-tests.exit
+  [step-log] cmdline: C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike\.claude\session-builds\v009modmgr\_build-headless-20260811-081441-compile-tests.cmdline.txt
+  [heartbeat] [2026-08-11T08:14:41] Compile [Tests] running 0s pid=99632 stdout=266b stderr=0b ninja_log=128778b
+  |  Compile [Tests]  (5s)     /  Compile [Tests]  (10s)     -  Compile [Tests]  (15s)     [heartbeat] [2026-08-11T08:14:57] Compile [Tests] running 15s pid=99632 stdout=266b stderr=0b ninja_log=128778b
+  \  Compile [Tests]  (20s)     |  Compile [Tests]  (25s)     [heartbeat] [2026-08-11T08:15:12] Compile [Tests] running 30s pid=99632 stdout=266b stderr=0b ninja_log=128778b
+  /  Compile [Tests]  (32s)    +                                                                          + >>> Compile [Tests] OK (32s) <<<
+
+============================================================
+  BUILD SUMMARY
+============================================================
+  [PASS  ]  TESTS       32s
+           -> C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike\.claude\session-builds\v009modmgr\pd-tests.exe  (66.6 MB)
+
+  Total time: 33s
+  Result: SUCCESS
+============================================================

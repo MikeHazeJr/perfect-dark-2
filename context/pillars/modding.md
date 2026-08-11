@@ -80,6 +80,15 @@ distribution. Restart persistence is now green separately: a second client
 reused the exact preserved installed archive/config without fixture staging,
 passed 37/37, rebuilt and dispatched the complete closure, and left both
 hashes and timestamps unchanged.
+Same-process production lifecycle is now separately green. The 22/22 Mod
+Manager receipt activates Needler, uses real SDL mouse input for checkbox,
+Apply, and modal OK, frees the active weapon/effect/SFX closure at ref `1->0`,
+rebuilds with no enabled mods, then re-enables/remounts/rescans and persists
+Needler enabled before exit. B-1026 fixes the signed `off_t` archive-size clamp
+that falsely forced every positive `.pdmod` through a 4096 MiB warning. This
+advances but does not close V-009: active second-owner reacquisition/release,
+live replacement/rollback, real-peer transport, and edited-value A/B visual
+comparison remain open.
 Catalog reticles are production-connected
 under `T-ASSETS-023`: `reticle_archive` embeds editable `.pdui`, the scanner
 registers UI before weapon parsing, presentation retains the catalog ID, and

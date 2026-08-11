@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "project": "Perfect Dark 2",
-  "updated": "2026-08-11T11:26:07.501Z",
+  "updated": "2026-08-11T12:20:56.245Z",
   "items": [
     {
       "type": "task",
@@ -1279,7 +1279,10 @@
         "context/evidence/v004-input-validation-client-excerpt-20260808T231805Z.log",
         "B-1024",
         ".claude/smoke-verify-runs/results-20260811T101728Z.json: clean extraction, normal match and exit 0; 41/45 exposed digital ACTION_AIM_DOWN held 12s without authoritative aim-axis or gun-pitch change",
-        ".claude/smoke-verify-runs/results-20260811T110536Z.json: ACTION_AIM_DOWN drove the normal secondary projectile into world collision before 45/45 clean exit"
+        ".claude/smoke-verify-runs/results-20260811T110536Z.json: ACTION_AIM_DOWN drove the normal secondary projectile into world collision before 45/45 clean exit",
+        "port/src/smoke_harness.c: SDL mouse motion/click warps the live OS cursor before SDL_PushEvent so ImGui NewFrame preserves hover",
+        "B-1026/V-004 focused PASS 22 assertions / 3 cases",
+        ".claude/smoke-verify-runs/results-20260811T121111Z.json: real SDL mouse drove Mod Manager checkbox, Apply, and OK twice in one client, 22/22 PASS"
       ],
       "verdict": "not_run",
       "artifacts": [
@@ -1291,7 +1294,7 @@
         "context/evidence/v004-input-validation-result-20260808T231805Z.json",
         "context/evidence/v004-input-validation-client-excerpt-20260808T231805Z.log"
       ],
-      "detail": "Automated bind/action/glyph coverage remains passing. B-1024 is fixed and the 45/45 Needler installed-client receipt proves keyboard ACTION_AIM_DOWN now reaches authoritative gameplay aim strongly enough for the selected secondary projectile to collide and dispatch its effect. Earlier real-SDL mouse delivery remains proven. Still not run: targeted Settings mouse focus/click/scroll/back, keyboard profile save/restart/reload, physical controller focus/scroll/confirm/back, Forge/vehicle contextual controls, broad modal transitions, and keyboard/controller switching with live glyph updates. The connected Xbox-class controller had readable XInput samples but no observed physical control transition, so controller navigation is not claimed.",
+      "detail": "Automated bind/action/glyph coverage remains passing. B-1024 is fixed and the 45/45 Needler receipt proves keyboard digital aim reaches gameplay. Real SDL mouse delivery is now production-proven through Mod Manager checkbox, Apply, and modal OK interactions twice in one client; the harness warps the live OS cursor before SDL events so ImGui hover remains authoritative. Still not run: targeted Settings mouse focus/click/scroll/back, keyboard profile save/restart/reload, physical controller focus/scroll/confirm/back, Forge/vehicle contextual controls, broad modal transitions, and keyboard/controller switching with live glyph updates. The connected Xbox-class controller had readable XInput samples but no observed physical control transition, so controller navigation is not claimed.",
       "tags": [
         "workbench-key:validation-menu-input",
         "handoff:lina",
@@ -1301,7 +1304,7 @@
         "glyphs"
       ],
       "id": "V-004",
-      "updated": "2026-08-11T11:07:37.651Z",
+      "updated": "2026-08-11T12:17:12.508Z",
       "created": "2026-07-30T15:16:40.176Z"
     },
     {
@@ -3637,10 +3640,21 @@
         "context/evidence/2026-08-11-needler-effect-closure.md",
         "B-1023/B-1024/B-1025 production/test/tool fingerprint ede68704d400af6e2d694c0cc3ba89c2b3d2c26b600c5b0bf63fb2bce9b172ad",
         ".claude/smoke-verify-runs/results-20260811T112514Z.json: preserved-install restart PASS 37/37, exit 0",
-        "Restart reused unchanged needler.pdmod SHA256 8F256E0675AFCBDB11EA2E822A84615AED6A2579AACF4E195E391AEBD77A18F0 and mods-enabled.json SHA256 A905BAB375CBB9F806A371C5938F05E88C141DB26D1C7C594F3F7C5A270B5050; timestamps unchanged and scenario declared no remove/fixtures/packed_fixtures"
+        "Restart reused unchanged needler.pdmod SHA256 8F256E0675AFCBDB11EA2E822A84615AED6A2579AACF4E195E391AEBD77A18F0 and mods-enabled.json SHA256 A905BAB375CBB9F806A371C5938F05E88C141DB26D1C7C594F3F7C5A270B5050; timestamps unchanged and scenario declared no remove/fixtures/packed_fixtures",
+        "B-1026",
+        ".claude/smoke-verify-runs/results-20260811T120524Z.json: rejected UI receipt exposed false 4096 MiB archive size and proved active Needler weapon/effect/SFX teardown ref 1->0",
+        ".claude/smoke-verify-runs/results-20260811T121111Z.json: production Mod Manager lifecycle PASS 22/22, exit 0",
+        "Same process: active Needler closure ref 1->0 on disable; zero enabled packages; re-enable remounted/rescanned Needler; final mods-enabled.json contains needler",
+        "B-1026/V-004 focused PASS 22 assertions / 3 cases; source-gate launcher contract PASS 391 / 1",
+        "Complete pd-tests PASS 54,852 assertions / 986 cases; asset-native-source guard and diff check PASS",
+        "V-009 lifecycle production/test/scenario fingerprint 1f7a25ad07e4483e50d23c0f0c92f99f2855c25a6d009346eb04598ccb14411b",
+        "context/evidence/2026-08-11-v009-mod-manager-client-build.log",
+        "context/evidence/2026-08-11-v009-mod-manager-updater-build.log",
+        "context/evidence/2026-08-11-v009-mod-manager-build.log",
+        "context/evidence/v009-mod-manager-lifecycle-result-20260811T121111Z.json"
       ],
       "phase": 3,
-      "detail": "Partial production proof covers normal custom fire-mode selection, digital aim synthesis, secondary projectile collision, recursive public effect/audio catalog registration, effect lifecycle activation, authored explosion+spark+audio dispatch, presentation rendering, and clean process restart. The preserved-install second process reused unchanged archive/config hashes and timestamps with no fixture staging, rebuilt and activated the same closure once, dispatched it through ordinary gameplay, and exited 0 (37/37). B-1023 through B-1025 are fixed. Remaining weapon gates are live replacement/rollback, repeated-owner lifecycle inside one process, real-peer/network distribution, and clearer edited-value A/B held/effect visual fidelity.",
+      "detail": "Partial production proof now includes a clean-install, same-process production Mod Manager lifecycle receipt. The client activated the public Needler weapon/effect/SFX closure, real SDL checkbox and Apply input disabled it, and exact rows freed at ref 1->0 before a zero-mod rebuild. The same open client then re-enabled Needler through the real UI, remounted and recursively rescanned the archive, applied successfully, and exited 0 with Needler persisted enabled (22/22). B-1026 also fixes every positive pdmod being misreported as 4096 MiB. Preserved-install restart and ordinary gameplay/audio/presentation proof remain green. Still open: reacquiring and releasing a second active owner within one process, live replacement/rollback, real-peer/network distribution, and clearer edited-value A/B held/effect visual fidelity.",
       "tags": [
         "asset-family:pdweapon",
         "handoff:ultra",
@@ -3648,7 +3662,7 @@
         "production-proof"
       ],
       "id": "T-ASSETS-025",
-      "updated": "2026-08-11T11:26:07.501Z",
+      "updated": "2026-08-11T12:20:56.245Z",
       "created": "2026-08-08T17:05:35.637Z",
       "model": "gpt-5.6-sol"
     },
@@ -4241,9 +4255,20 @@
         "context/evidence/2026-08-11-needler-effect-closure.md",
         "B-1023/B-1024/B-1025 production/test/tool fingerprint ede68704d400af6e2d694c0cc3ba89c2b3d2c26b600c5b0bf63fb2bce9b172ad",
         ".claude/smoke-verify-runs/results-20260811T112514Z.json: preserved-install restart PASS 37/37, exit 0",
-        "Restart reused unchanged needler.pdmod SHA256 8F256E0675AFCBDB11EA2E822A84615AED6A2579AACF4E195E391AEBD77A18F0 and mods-enabled.json SHA256 A905BAB375CBB9F806A371C5938F05E88C141DB26D1C7C594F3F7C5A270B5050; timestamps unchanged and scenario declared no remove/fixtures/packed_fixtures"
+        "Restart reused unchanged needler.pdmod SHA256 8F256E0675AFCBDB11EA2E822A84615AED6A2579AACF4E195E391AEBD77A18F0 and mods-enabled.json SHA256 A905BAB375CBB9F806A371C5938F05E88C141DB26D1C7C594F3F7C5A270B5050; timestamps unchanged and scenario declared no remove/fixtures/packed_fixtures",
+        "B-1026",
+        ".claude/smoke-verify-runs/results-20260811T120524Z.json: rejected UI receipt exposed false 4096 MiB archive size and proved active Needler weapon/effect/SFX teardown ref 1->0",
+        ".claude/smoke-verify-runs/results-20260811T121111Z.json: production Mod Manager lifecycle PASS 22/22, exit 0",
+        "Same process: active Needler closure ref 1->0 on disable; zero enabled packages; re-enable remounted/rescanned Needler; final mods-enabled.json contains needler",
+        "B-1026/V-004 focused PASS 22 assertions / 3 cases; source-gate launcher contract PASS 391 / 1",
+        "Complete pd-tests PASS 54,852 assertions / 986 cases; asset-native-source guard and diff check PASS",
+        "V-009 lifecycle production/test/scenario fingerprint 1f7a25ad07e4483e50d23c0f0c92f99f2855c25a6d009346eb04598ccb14411b",
+        "context/evidence/2026-08-11-v009-mod-manager-client-build.log",
+        "context/evidence/2026-08-11-v009-mod-manager-updater-build.log",
+        "context/evidence/2026-08-11-v009-mod-manager-build.log",
+        "context/evidence/v009-mod-manager-lifecycle-result-20260811T121111Z.json"
       ],
-      "detail": "Partial validation now includes an authoritative preserved-install restart. After the accepted 45/45 cold run, a second client process reused the exact installed and enabled Needler archive without removal, copying, or repacking; its archive/config hashes and timestamps remained unchanged. The client rebuilt the recursive pdweapon::pdprojectile::pdeffect::pdsfx closure, reactivated weapon/effect/audio rows exactly once, selected and collided the normal secondary projectile, committed authored gameplay/audio/presentation, rendered the Needler channel, and exited 0 (37/37). B-1023 through B-1025 remain fixed. Still open: edited-value A/B visual comparison, live replacement/rollback, repeated-owner lifecycle within one process, and real-peer/network proof.",
+      "detail": "Partial production proof now includes a clean-install, same-process production Mod Manager lifecycle receipt. The client activated the public Needler weapon/effect/SFX closure, real SDL checkbox and Apply input disabled it, and exact rows freed at ref 1->0 before a zero-mod rebuild. The same open client then re-enabled Needler through the real UI, remounted and recursively rescanned the archive, applied successfully, and exited 0 with Needler persisted enabled (22/22). B-1026 also fixes every positive pdmod being misreported as 4096 MiB. Preserved-install restart and ordinary gameplay/audio/presentation proof remain green. Still open: reacquiring and releasing a second active owner within one process, live replacement/rollback, real-peer/network distribution, and clearer edited-value A/B held/effect visual fidelity.",
       "tags": [
         "asset-family:pdeffect",
         "edited-source",
@@ -4268,12 +4293,18 @@
         ".claude/smoke-verify-runs/results-20260811T101728Z.json",
         ".claude/smoke-verify-runs/results-20260811T110536Z.json",
         ".claude/smoke-verify-runs/screenshots/20260811T070338-needler_graph_runtime_visual_smoke",
-        ".claude/smoke-verify-runs/results-20260811T112514Z.json"
+        ".claude/smoke-verify-runs/results-20260811T112514Z.json",
+        ".claude/smoke-verify-runs/results-20260811T121111Z.json",
+        ".claude/smoke-verify-runs/screenshots/20260811T080919-needler_mod_manager_lifecycle_smoke",
+        "context/evidence/2026-08-11-v009-mod-manager-client-build.log",
+        "context/evidence/2026-08-11-v009-mod-manager-updater-build.log",
+        "context/evidence/2026-08-11-v009-mod-manager-build.log",
+        "context/evidence/v009-mod-manager-lifecycle-result-20260811T121111Z.json"
       ],
       "budget": null,
       "measurements": [],
       "id": "V-009",
-      "updated": "2026-08-11T11:26:07.489Z",
+      "updated": "2026-08-11T12:20:56.235Z",
       "created": "2026-08-08T23:50:40.511Z"
     },
     {

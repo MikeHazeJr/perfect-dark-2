@@ -1,5 +1,29 @@
 # Session Log (Active)
 
+## 2026-08-11 - V-009 same-process Mod Manager lifecycle and B-1026
+
+Added a narrow `--launch-modding-hub` navigation shortcut that waits for the
+ordinary hotswap menu before opening the existing production Mod Manager; it
+does not bypass checkbox or Apply behavior. Smoke mouse events now warp the
+live SDL cursor before queueing motion/button events so ImGui's OS-cursor poll
+cannot erase the intended hover. A clean 1280x720 scenario installs and
+activates Needler, then drives checkbox, Apply, and modal OK twice through the
+real UI.
+
+The first retained run exposed B-1026: signed Windows `off_t` converted
+`0xFFFFFFFFu` to `-1`, making every positive `.pdmod` appear as 4096 MiB. The
+fixed clamp widens `st_size` before the public `u32` boundary. Final receipt
+`.claude/smoke-verify-runs/results-20260811T121111Z.json` passes 22/22 and
+exits 0. The active Needler weapon/effect/SFX closure unloads at ref `1->0`,
+the zero-mod rebuild completes, and the same client re-enables, remounts,
+recursively rescans, reapplies, and persists Needler enabled. All six frames
+were captured; the disabled and re-enabled pending states were visually
+confirmed. Automated proof passes client/updater/tests build; focused 22/3 and
+391/1; complete 54,852/986; native-source guard; diff check; fingerprint
+`1f7a25ad07e4483e50d23c0f0c92f99f2855c25a6d009346eb04598ccb14411b`.
+V-009 remains partial for active second-owner reacquisition/release, live
+replacement/rollback, real-peer distribution, and edited-value A/B visuals.
+
 ## 2026-08-11 - B-1023/B-1024/B-1025 Needler live effect closure
 
 Completed the normal installed-client Needler secondary-effect slice without

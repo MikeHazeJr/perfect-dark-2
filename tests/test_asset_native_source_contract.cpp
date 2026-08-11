@@ -12068,6 +12068,7 @@ TEST_CASE("Settings Debug can force one asset family to public file source",
 	const std::string anim_c = readTextFile("src/lib/anim.c");
 	const std::string propsnd = readTextFile("src/game/propsnd.c");
 	const std::string main_c = readTextFile("port/src/main.c");
+	const std::string pdmain_runtime = readTextFile("port/src/pdmain.c");
 	const std::string texreset_c = readTextFile("src/game/texreset.c");
 	const std::string pdgui_theme = readTextFile("port/fast3d/pdgui_theme.cpp");
 	const std::string loader_ui = readTextFile("port/src/loader_walker_ui.c");
@@ -12480,6 +12481,25 @@ TEST_CASE("Settings Debug can force one asset family to public file source",
 	{
 		const std::string cli_fast_paths = functionBlock(main_c,
 			"static void bootApplyCliFastPaths");
+		REQUIRE(main_c.find("static void bootApplyLaunchModdingHub(void)") !=
+		        std::string::npos);
+		REQUIRE(main_c.find("s32 bootLaunchModdingHubTick(void)") !=
+		        std::string::npos);
+		REQUIRE(main_c.find("pdguiModdingHubShowTool(0);") !=
+		        std::string::npos);
+		REQUIRE(main_c.find("g_BootLaunchModdingHubPending = 1;") !=
+		        std::string::npos);
+		REQUIRE(main_c.find("!pdguiHotswapWasActive()") !=
+		        std::string::npos);
+		REQUIRE(pdmain_runtime.find("bootLaunchModdingHubTick();") !=
+		        std::string::npos);
+		requireTokenOrder(pdmain_runtime,
+			"smokeHarnessTick();",
+			"bootLaunchModdingHubTick();");
+		REQUIRE(main_c.find("--launch-modding-hub consumed -> production Mod Manager tool 0") !=
+		        std::string::npos);
+		REQUIRE(cli_fast_paths.find("bootApplyLaunchModdingHub();") !=
+		        std::string::npos);
 		REQUIRE(cli_fast_paths.find("bootArmDebugLoadCatalogAssets();") !=
 		        std::string::npos);
 		REQUIRE(cli_fast_paths.find("bootApplyDeferredDebugLoadCatalogAssets();") !=

@@ -156,7 +156,10 @@ a wheel delta to the currently hovered target:
 ```
 
 Both events use `SDL_PushEvent` and the live SDL window ID. `mouse_move`
-requires both `x` and `y`; `mouse_wheel` requires at least one supplied,
+also warps the real cursor to the same client coordinate before queueing the
+event, because ImGui's SDL backend polls the OS cursor during `NewFrame` and
+would otherwise overwrite a synthetic hover position before the click lands.
+`mouse_move` requires both `x` and `y`; `mouse_wheel` requires at least one supplied,
 non-zero delta. Use an explicit move before wheel input so the hover target is
 established through the same backend path as ordinary mouse use.
 

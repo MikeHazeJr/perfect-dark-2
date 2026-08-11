@@ -54,9 +54,19 @@ removal/copy/repack and passes 37/37 in
 `.claude/smoke-verify-runs/results-20260811T112514Z.json`; archive and
 enablement hashes/timestamps remain unchanged while the complete effect path
 registers, activates, dispatches, renders, and exits 0 again. Validation
-remains partial for edited-value A/B visual comparison, live child
-replacement/rollback, repeated-owner lifecycle inside one process, and
-real-peer distribution.
+now also passes the production Mod Manager lifecycle smoke 22/22 in
+`.claude/smoke-verify-runs/results-20260811T121111Z.json`. The same client
+activates Needler, disables it through real SDL checkbox/Apply/OK input, frees
+weapon/effect/SFX at ref `1->0`, rebuilds with zero enabled mods, then
+re-enables, remounts, recursively rescans, applies, and exits 0 with Needler
+persisted enabled. B-1026 fixes the signed `off_t` clamp that falsely reported
+every positive `.pdmod` as 4096 MiB. Final verification adds client/updater/
+tests build, focused 22/3 and 391/1, complete 54,852/986, native-source guard,
+diff check, and fingerprint
+`1f7a25ad07e4483e50d23c0f0c92f99f2855c25a6d009346eb04598ccb14411b`.
+Validation remains partial for edited-value A/B visual comparison, live child
+replacement/rollback, reacquiring/releasing a second active owner inside one
+process, and real-peer distribution.
 
 `T-ASSETS-020` is implemented, not validated, for strict selected
 and nested `.pdeffect` failure: nonempty unresolved references return failure,

@@ -165,6 +165,12 @@ s32 bootApplyDeferredDebugLoadCatalogAssets(void);
  *       g_PostExitMainMenuView so the main menu pops after the CI
  *       camera intro finishes.  --skip-intro is left untouched.
  *
+ *   --launch-modding-hub
+ *       Opens the production Modding Hub directly on its Mod Manager tab
+ *       after catalog initialization. This only shortcuts navigation to the
+ *       existing UI; toggles, validation, Apply Changes, catalog rebuilds,
+ *       and rollback continue through the ordinary Mod Manager path.
+ *
  *   --launch-credits
  *       After catalog init, enters the NORMAL scrolling Perfect Dark
  *       credits (NOT the alt-title path): mainChangeToStage(
@@ -307,6 +313,7 @@ s32 bootApplyDeferredDebugLoadCatalogAssets(void);
 static bool        g_BootNoNet            = false;
 static bool        g_BootExtractAssetsOnly = false;
 static bool        g_BootMainMenu         = false;
+static s32         g_BootLaunchModdingHubPending = 0;
 static SDL_atomic_t g_BootAssetChainFailures;
 /* c3844 (2026-06-23): --launch-credits one-shot. Latched at parse, consumed
  * once after catalog init (same lifecycle point the other --launch-* fast-
@@ -823,6 +830,10 @@ extern void lvSetDifficulty(s32 difficulty);
  * of truth for the seeding sequence used by BOTH this boot fast-path and the
  * ImGui main-menu Credits button. Signature must match game/credits.h. */
 extern void creditsEnterNormalScroll(void);
+/* Production Modding Hub entry point. The boot shortcut only opens tool 0;
+ * all state mutation remains owned by the ordinary Mod Manager UI. */
+extern void pdguiModdingHubShowTool(s32 tool);
+extern s32 pdguiHotswapWasActive(void);
 
 /* Map a --difficulty string to the DIFF_* constants used by g_MissionConfig
  * and lvSetDifficulty.  Returns DIFF_A on unknown / NULL input. */
@@ -898,6 +909,32 @@ static void bootApplyMainMenu(void)
 	g_PostExitMainMenuView = 0;
 	sysLogPrintf(LOG_NOTE,
 		"BOOT: --main-menu armed g_PostExitMainMenuView=0 (top-level)");
+}
+
+/* Arm the real Mod Manager after the catalog and GUI registries are ready.
+ * Agent Select is created later by the CI stage and takes focus, so opening the
+ * hub synchronously here would put it behind that menu. The main-tick hook
+ * consumes this latch only after a normal hotswap menu is active. */
+static void bootApplyLaunchModdingHub(void)
+{
+	if (!sysArgCheck("--launch-modding-hub")) {
+		return;
+	}
+	g_BootLaunchModdingHubPending = 1;
+	sysLogPrintf(LOG_NOTE,
+		"BOOT: --launch-modding-hub armed for production menu-ready open");
+}
+
+s32 bootLaunchModdingHubTick(void)
+{
+	if (!g_BootLaunchModdingHubPending || !pdguiHotswapWasActive()) {
+		return 0;
+	}
+	pdguiModdingHubShowTool(0);
+	g_BootLaunchModdingHubPending = 0;
+	sysLogPrintf(LOG_NOTE,
+		"BOOT: --launch-modding-hub consumed -> production Mod Manager tool 0");
+	return 1;
 }
 
 /* c3844 (2026-06-23): Apply --launch-credits by entering the NORMAL scrolling
@@ -2477,6 +2514,7 @@ static void bootApplyCliFastPaths(void)
 	bootApplyDebugRejectCatalogIngressList();
 	bootApplyDebugReceivePdcaList();
 	bootApplyMainMenu();
+	bootApplyLaunchModdingHub();
 	bootApplyLaunchCredits();
 	bootApplyLaunchScenario();
 	bootApplyLaunchMission();

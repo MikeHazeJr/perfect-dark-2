@@ -699,6 +699,14 @@ void mainTick(void)
 	 * input dispatch downstream picks them up this frame. */
 	smokeHarnessTick();
 
+	/* Navigation-only Mod Manager boot shortcut. Wait until the normal CI
+	 * hotswap menu owns the ImGui input context, then open the same production
+	 * hub/tool used by the main-menu Mods button. */
+	{
+		extern s32 bootLaunchModdingHubTick(void);
+		(void)bootLaunchModdingHubTick();
+	}
+
 	/* Campaign auto-runner tick (c126, 2026-05-18): force-completes
 	 * objectives, dwells through endscreen + briefing dialogs, chains
 	 * into next solo mission. Cheap no-op when --auto-campaign is
