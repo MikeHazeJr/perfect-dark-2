@@ -76,12 +76,17 @@ static s32 depParamRole(const weapon_graph_ir_node_t *node,
 	else if ((!strcmp(node->kind, "effect.tint")
 			|| !strcmp(node->kind, "effect.glow")
 			|| !strcmp(node->kind, "effect.shimmer")
-			|| !strcmp(node->kind, "effect.darken"))
+			|| !strcmp(node->kind, "effect.darken")
+			|| !strcmp(node->kind, "effect.screen")
+			|| !strcmp(node->kind, "effect.particle")
+			|| !strcmp(node->kind, "effect.explosion")
+			|| !strcmp(node->kind, "effect.spark")
+			|| !strcmp(node->kind, "effect.smoke"))
 			&& !strcmp(param->key, "material_ref")) *type = ASSET_MATERIAL;
-	else if (!strcmp(node->kind, "effect.particle")
+	else if (!strcmp(node->kind, "effect.screen")
 			&& !strcmp(param->key, "texture_ref")) *type = ASSET_TEXTURE;
 	else if (!strcmp(node->kind, "effect.particle")
-			&& !strcmp(param->key, "material_ref")) *type = ASSET_MATERIAL;
+			&& !strcmp(param->key, "texture_ref")) *type = ASSET_TEXTURE;
 	if (*type != ASSET_NONE) {
 		if (param->type != WEAPON_GRAPH_PARAM_STRING) {
 			depError(error, error_cap, "typed effect dependency must be a catalog-ID string");
@@ -164,11 +169,13 @@ s32 effectDependenciesCollectArchiveBytes(const void *bytes, u32 size,
 				s32 role = depParamRole(node, param, &type, error, error_cap);
 				if (role < 0 || (role > 0 && !depAdd(out, type, param->value,
 							error, error_cap))) {
+					weaponGraphIrFree(&ir);
 					free(graph);
 					return -1;
 				}
 			}
 		}
+		weaponGraphIrFree(&ir);
 	}
 
 	free(graph);

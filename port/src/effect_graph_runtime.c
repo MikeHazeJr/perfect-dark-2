@@ -31,6 +31,7 @@
 #include "constants.h"
 #include "effect_executor.h"
 #include "effect_graph_runtime.h"
+#include "effect_instance_runtime.h"
 #include "modarchive.h"
 #include "pdeffect_source.h"
 #include "system.h"
@@ -167,6 +168,9 @@ static s32 effectRuntimeCommit(effect_graph_runtime_t *record,
 					&& record->program.kind != EFFECT_GRAPH_PROGRAM_PROFILE_LIBRARY) {
 				effectExecutorRemoveProgram(existing->asset_id);
 			}
+			/* Retained instances may hold this exact program pointer. Retire all
+			 * committed consumer state before replacing public source. */
+			effectInstanceRuntimeCancelAsset(existing->asset_id);
 			effectRuntimeFree(s_effect_runtimes[i]);
 			s_effect_runtimes[i] = record;
 			return 0;
@@ -210,6 +214,7 @@ void effectGraphRuntimeReleaseOwner(const char *owner_id)
 		}
 		record->owner_count--;
 		if (record->owner_count == 0) {
+			effectInstanceRuntimeCancelAsset(record->asset_id);
 			effectExecutorRemoveProgram(record->asset_id);
 			effectRuntimeFree(record);
 			if (i + 1 < s_effect_runtime_count) {
@@ -223,6 +228,7 @@ void effectGraphRuntimeReleaseOwner(const char *owner_id)
 
 void effectGraphRuntimeClearAll(void)
 {
+	effectInstanceRuntimeClearAll();
 	effectExecutorReset();
 	for (size_t i = 0; i < s_effect_runtime_count; i++) {
 		effectRuntimeFree(s_effect_runtimes[i]);
@@ -758,7 +764,8 @@ static s32 effectProgramCopyIr(effect_graph_program_t *program,
 }
 
 static effect_graph_runtime_t *effectRuntimeCreateIr(const weapon_graph_ir_t *ir,
-	const char *timeline, u32 timeline_size, char *err, size_t err_cap)
+	const char *timeline, u32 timeline_size, const char *descriptor_target,
+	const char *descriptor_shader, char *err, size_t err_cap)
 {
 	if (!ir || ir->asset_type != ASSET_EFFECT || !ir->asset_id[0]) {
 		setErr(err, err_cap,
@@ -779,6 +786,12 @@ static effect_graph_runtime_t *effectRuntimeCreateIr(const weapon_graph_ir_t *ir
 	record->spark_type = -1;
 	record->smoke_type = -1;
 	if (effectProgramCopyIr(&record->program, ir, err, err_cap) != 0) {
+		effectRuntimeFree(record);
+		return NULL;
+	}
+	if (effectInstanceProgramValidate(&record->program, descriptor_target,
+			descriptor_shader,
+			err, err_cap) != 0) {
 		effectRuntimeFree(record);
 		return NULL;
 	}
@@ -803,29 +816,6 @@ static effect_graph_runtime_t *effectRuntimeCreateIr(const weapon_graph_ir_t *ir
 /* ---------------------------------------------------------------------------
  * Registration entry points.
  * ------------------------------------------------------------------------- */
-
-static effect_graph_runtime_t *effectRuntimeCreateTimeline(
-	const pd_effect_source_info_t *source, const char *timeline,
-	u32 timeline_size, char *err, size_t err_cap)
-{
-	effect_graph_runtime_t *record = (effect_graph_runtime_t *)calloc(1,
-		sizeof(*record));
-	if (!record) { setErr(err, err_cap, "out of memory creating effect program"); return NULL; }
-	record->valid = 1;
-	record->explosion_type = record->spark_type = record->smoke_type = -1;
-	copyStr(record->asset_id, sizeof(record->asset_id), source->catalog_id);
-	if (!pdEffectTimelineParse(timeline, timeline_size,
-			&record->program.timeline, err, err_cap)) {
-		effectRuntimeFree(record);
-		return NULL;
-	}
-	record->program.kind = EFFECT_GRAPH_PROGRAM_TIMELINE;
-	u8 digest[SHA256_DIGEST_SIZE];
-	sha256Hash(timeline, timeline_size, digest);
-	sha256ToHex(digest, record->source_sha256);
-	copyStr(record->ir_sha256, sizeof(record->ir_sha256), record->source_sha256);
-	return record;
-}
 
 static effect_graph_runtime_t *effectRuntimeCreateProfile(
 	const pd_effect_source_info_t *source, const char *graph, u32 graph_size,
@@ -914,19 +904,38 @@ static s32 effectRuntimeRegisterPublicSource(
 		if (ir.asset_id[0] && strcmp(ir.asset_id, source->catalog_id) != 0) {
 			setErr(err, err_cap, "effect graph asset_id %s does not match catalog %s",
 				ir.asset_id, source->catalog_id);
+			weaponGraphIrFree(&ir);
 			return -1;
 		}
 		if (!ir.asset_id[0]) copyStr(ir.asset_id, sizeof(ir.asset_id),
 			source->catalog_id);
-		record = effectRuntimeCreateIr(&ir, timeline, timeline_size, err, err_cap);
+		record = effectRuntimeCreateIr(&ir, timeline, timeline_size,
+			source->target_key, source->shader_id, err, err_cap);
+		weaponGraphIrFree(&ir);
 	} else if (timeline && timeline_size) {
-		record = effectRuntimeCreateTimeline(source, timeline, timeline_size,
-			err, err_cap);
+		/* A v1 timeline has values but no executable target without a graph.
+		 * Accepting it created a catalog-visible program that production could
+		 * never dispatch. Public source must fail closed instead. */
+		setErr(err, err_cap,
+			"v1 effect timeline requires an effect graph target");
+		return -1;
 	} else {
 		setErr(err, err_cap, "effect source has neither graph nor timeline");
 		return -1;
 	}
 	if (!record) return -1;
+	copyStr(record->effect_key, sizeof(record->effect_key), source->effect_key);
+	copyStr(record->target_key, sizeof(record->target_key), source->target_key);
+	copyStr(record->shader_id, sizeof(record->shader_id), source->shader_id);
+	record->descriptor_intensity = source->intensity;
+	if (record->program.kind == EFFECT_GRAPH_PROGRAM_GRAPH ||
+			record->program.kind == EFFECT_GRAPH_PROGRAM_GRAPH_TIMELINE) {
+		if (effectInstanceProgramValidate(&record->program, record->target_key,
+				record->shader_id, err, err_cap) != 0) {
+			effectRuntimeFree(record);
+			return -1;
+		}
+	}
 	/* Owner collision/replacement uses the complete public-source identity,
 	 * including normalized descriptor semantics and both authored members. */
 	if (effectRuntimeSetActivationDigest(record, source, graph, graph_size,
@@ -956,6 +965,7 @@ s32 effectGraphRuntimeRegisterGraphJson(const char *asset_id,
 			setErr(err, err_cap,
 				"effect graph asset_id %s does not match catalog %s",
 				ir.asset_id, asset_id);
+			weaponGraphIrFree(&ir);
 			return -1;
 		}
 		if (!ir.asset_id[0]) {
@@ -963,9 +973,10 @@ s32 effectGraphRuntimeRegisterGraphJson(const char *asset_id,
 		}
 	}
 	effect_graph_runtime_t *record = effectRuntimeCreateIr(&ir, NULL, 0,
-		err, err_cap);
+		NULL, NULL, err, err_cap);
+	weaponGraphIrFree(&ir);
 	if (!record) return -1;
-	if (effectRuntimeCommit(record, ir.asset_id, err, err_cap) != 0) {
+	if (effectRuntimeCommit(record, record->asset_id, err, err_cap) != 0) {
 		effectRuntimeFree(record);
 		return -1;
 	}

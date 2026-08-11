@@ -8,6 +8,7 @@
 #define _IN_PDGUI_WEAPON_GRAPH_NODE_EDITOR_H
 
 #include <stddef.h>
+#include <vector>
 
 #include "pdgui_gameplay_graph_editor.h"
 #include "weapon_graph_runtime.h"
@@ -63,7 +64,7 @@ struct PdWeaponGraphEditModel {
 	int edge_to;
 	int primary_export;
 	int secondary_export;
-	bool context_enabled[WEAPON_GRAPH_IR_MAX_CONTEXTS];
+	std::vector<bool> context_enabled;
 	int selected_node;
 	int selected_edge;
 	int next_editor_id;

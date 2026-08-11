@@ -1246,9 +1246,10 @@ static int weaponGraphContextCount(void)
 static void weaponGraphBuilderResetContextDefaults(void)
 {
     int count = weaponGraphContextCount();
-    for (int i = 0; i < WEAPON_GRAPH_IR_MAX_CONTEXTS; i++) {
-        s_WeaponGraphContextEnabled[i] =
-            (i < count) ? s_WeaponGraphContextDefs[i].default_enabled : false;
+	s_WeaponGraphContextEnabled.resize(count > 0 ? (size_t)count : 0);
+	for (int i = 0; i < count; i++) {
+		s_WeaponGraphContextEnabled[(size_t)i] =
+			(i < count) ? s_WeaponGraphContextDefs[i].default_enabled : false;
     }
 }
 

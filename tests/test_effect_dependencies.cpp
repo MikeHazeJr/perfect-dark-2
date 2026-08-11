@@ -70,7 +70,8 @@ TEST_CASE("effect dependency enumeration is typed deduplicated public source",
 		"{\"id\":\"p\",\"kind\":\"effect.particle\",\"params\":{"
 		"\"texture_ref\":\"modx:spark_tex\"}},"
 		"{\"id\":\"x\",\"kind\":\"effect.explosion\",\"params\":{"
-		"\"audio_catalog_id\":\"modx:blast_sfx\"}}],"
+		"\"audio_catalog_id\":\"modx:blast_sfx\","
+		"\"material_ref\":\"modx:glow_mat\"}}],"
 		"\"edges\":[{\"from\":\"g\",\"to\":\"g2\"},{\"from\":\"g2\",\"to\":\"p\"},{\"from\":\"p\",\"to\":\"x\"}]}";
 
 	mod_archive_writer_t *writer = modArchiveBegin(path.string().c_str());
@@ -127,8 +128,20 @@ TEST_CASE("effect dependency enumeration is typed deduplicated public source",
 	REQUIRE(wideDeps.capacity >= 100);
 	effectDependenciesFree(&wideDeps);
 
+	const std::string screenTexture =
+		"{\"schema\":\"pd.effect_graph.v1\",\"asset_id\":\"modx:typed_fx\","
+		"\"nodes\":[{\"id\":\"n\",\"kind\":\"effect.screen\","
+		"\"params\":{\"texture_ref\":\"modx:screen_tex\"}}]}";
+	REQUIRE(modArchiveReplaceFileMem(path.string().c_str(), "effect.graph.json",
+		screenTexture.data(), static_cast<u32>(screenTexture.size())) == MODARCHIVE_OK);
+	effect_dependency_list_t screenDeps = {};
+	REQUIRE(effectDependenciesCollectArchiveFile(path.string().c_str(),
+		"modx:typed_fx", &screenDeps, error, sizeof(error)) == 1);
+	REQUIRE(screenDeps.items[0].type == ASSET_TEXTURE);
+	REQUIRE(std::string(screenDeps.items[0].catalog_id) == "modx:screen_tex");
+	effectDependenciesFree(&screenDeps);
+
 	const std::vector<std::string> rejected = {
-		"{\"schema\":\"pd.effect_graph.v1\",\"asset_id\":\"modx:typed_fx\",\"nodes\":[{\"id\":\"n\",\"kind\":\"effect.screen\",\"params\":{\"texture_ref\":\"modx:t\"}}]}",
 		"{\"schema\":\"pd.effect_graph.v1\",\"asset_id\":\"modx:typed_fx\",\"nodes\":[{\"id\":\"n\",\"kind\":\"effect.particle\",\"params\":{\"texture_id\":\"modx:t\"}}]}",
 		"{\"schema\":\"pd.effect_graph.v1\",\"asset_id\":\"modx:typed_fx\",\"nodes\":[{\"id\":\"n\",\"kind\":\"effect.particle\",\"params\":{\"texture_ref\":7}}]}",
 		"{\"schema\":\"pd.effect_graph.v1\",\"asset_id\":\"modx:typed_fx\",\"nodes\":[{\"id\":\"n\",\"kind\":\"effect.particle\",\"params\":{\"texture_ref\":\"invalid id\"}}]}",

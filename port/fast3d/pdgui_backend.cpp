@@ -12,6 +12,7 @@
 
 #include <SDL.h>
 #include <PR/ultratypes.h>
+#include <cmath>
 #include <stdio.h>
 #include <string>
 #include <unordered_map>
@@ -134,6 +135,7 @@ extern "C" s32 inputMouseIsLocked(void);
 #include "pdgui_scaling.h"
 #include "pdgui_activemenu_radial.h"
 #include "pdgui_weapon_reticle.h"
+#include "effect_presentation_runtime.h"
 
 /* Logging */
 #include "system.h"
@@ -183,6 +185,12 @@ static bool pdguiAnyStandardOverlayReason(
         return true;
     }
     if (pdguiWeaponReticleIsQueued()) {
+        return true;
+    }
+    /* T-ASSETS-035: a committed public .pdeffect presentation is itself a
+     * renderer reason. Without this both NewFrame and Render would skip the
+     * production consumer during ordinary gameplay. */
+    if (effectPresentationRuntimeHasActive()) {
         return true;
     }
     return pdguiActiveMenuIsOpen() != 0;
@@ -804,6 +812,51 @@ static void pdguiConsoleRender(void)
     ImGui::End();
 }
 
+extern "C" void effectPresentationRuntimeRender(s32 width, s32 height)
+{
+    ImDrawList *background;
+    const size_t count = effectPresentationRuntimeSnapshotCount();
+    if (width <= 0 || height <= 0 || count == 0) return;
+    background = ImGui::GetBackgroundDrawList();
+    for (size_t i = 0; i < count; i++) {
+        effect_presentation_command_t command;
+        if (!effectPresentationRuntimeSnapshot(i, &command)) continue;
+		if (command.channel != EFFECT_PRESENTATION_CHANNEL_SCREEN ||
+			command.texture_ref[0]) continue;
+		f32 materialColor[4];
+		effectPresentationMaterialColor(command.rgba,
+			command.material_shading_model, command.material_roughness,
+			command.material_metallic, command.material_emissive, materialColor);
+		const float alpha = ImClamp(materialColor[3] * command.intensity,
+            0.0f, 1.0f);
+		const float insetX = (1.0f - command.size) * (float)width * 0.5f;
+		const float insetY = (1.0f - command.size) * (float)height * 0.5f;
+		const ImVec2 commandMin(insetX, insetY);
+		const ImVec2 commandMax((float)width - insetX,
+			(float)height - insetY);
+        const ImU32 color = ImGui::ColorConvertFloat4ToU32(ImVec4(
+            ImClamp(materialColor[0], 0.0f, 1.0f),
+            ImClamp(materialColor[1], 0.0f, 1.0f),
+            ImClamp(materialColor[2], 0.0f, 1.0f), alpha));
+        if (command.kind == EFFECT_PRESENTATION_SHIMMER) {
+            /* Authored time/speed/width drive a deterministic screen band;
+             * wall-clock UI time is deliberately not consulted. */
+            const float span = 1.0f + command.width;
+            float phase = fmodf(command.time * command.speed, span);
+            if (phase < 0.0f) phase += span;
+            const float left = (phase - command.width) * (float)width;
+            const float right = left + command.width * (float)width;
+			background->AddRectFilled(ImVec2(left, commandMin.y),
+				ImVec2(right, commandMax.y), color);
+        } else {
+            /* Tint, glow, darken and screen are intentional screen-space
+             * composites. Color and alpha are copied from public source by
+             * the transaction, never inferred from a native effect table. */
+			background->AddRectFilled(commandMin, commandMax, color);
+        }
+    }
+}
+
 void pdguiRender(void)
 {
     /* One-shot ROM texture extraction (--extract-ui-textures CLI flag).
@@ -883,6 +936,10 @@ void pdguiRender(void)
         winW = 640;
         winH = 480;
     }
+
+    /* Public .pdeffect presentation paints after the game scene and beneath
+     * menus/HUD. This is the production renderer bridge, not a preview. */
+    effectPresentationRuntimeRender((s32)winW, (s32)winH);
 
 #if defined(PD_DEV_BUILD)
     /* F12 debug menu — PD-styled, game-relative scaling */

@@ -6,6 +6,7 @@
  */
 
 #include <ctype.h>
+#include <limits.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -1164,9 +1165,25 @@ static s32 compileSharedContexts(json_span_t root, weapon_graph_ir_t *ir,
 	if (!jsonObjectArray(root, "shared_context", &contexts)) return 0;
 
 	while (jsonArrayNextObject(contexts, &cursor, &obj)) {
-		if (ir->context_count >= WEAPON_GRAPH_IR_MAX_CONTEXTS) {
-			setErr(err, err_cap, "too many graph shared contexts");
+		if (ir->context_count == INT_MAX) {
+			setErr(err, err_cap, "graph shared context count exceeds API range");
 			return -1;
+		}
+		if ((size_t)ir->context_count == ir->context_capacity) {
+			size_t next = ir->context_capacity ? ir->context_capacity * 2 : 16;
+			if (next < (size_t)ir->context_count + 1 ||
+					next > SIZE_MAX / sizeof(*ir->contexts)) {
+				setErr(err, err_cap, "graph shared context table size overflow");
+				return -1;
+			}
+			weapon_graph_ir_context_t *grown = (weapon_graph_ir_context_t *)realloc(
+				ir->contexts, next * sizeof(*ir->contexts));
+			if (!grown) {
+				setErr(err, err_cap, "out of memory growing graph shared contexts");
+				return -1;
+			}
+			ir->contexts = grown;
+			ir->context_capacity = next;
 		}
 		weapon_graph_ir_context_t *ctx = &ir->contexts[ir->context_count];
 		memset(ctx, 0, sizeof(*ctx));
@@ -1249,9 +1266,25 @@ static s32 compileSubgraphs(json_span_t root, weapon_graph_ir_t *ir,
 	if (!jsonObjectArray(root, "subgraphs", &subgraphs)) return 0;
 
 	while (jsonArrayNextObject(subgraphs, &cursor, &obj)) {
-		if (ir->subgraph_count >= WEAPON_GRAPH_IR_MAX_SUBGRAPHS) {
-			setErr(err, err_cap, "too many graph subgraphs");
+		if (ir->subgraph_count == INT_MAX) {
+			setErr(err, err_cap, "graph subgraph count exceeds API range");
 			return -1;
+		}
+		if ((size_t)ir->subgraph_count == ir->subgraph_capacity) {
+			size_t next = ir->subgraph_capacity ? ir->subgraph_capacity * 2 : 8;
+			if (next < (size_t)ir->subgraph_count + 1 ||
+					next > SIZE_MAX / sizeof(*ir->subgraphs)) {
+				setErr(err, err_cap, "graph subgraph table size overflow");
+				return -1;
+			}
+			weapon_graph_ir_subgraph_t *grown = (weapon_graph_ir_subgraph_t *)realloc(
+				ir->subgraphs, next * sizeof(*ir->subgraphs));
+			if (!grown) {
+				setErr(err, err_cap, "out of memory growing graph subgraphs");
+				return -1;
+			}
+			ir->subgraphs = grown;
+			ir->subgraph_capacity = next;
 		}
 		weapon_graph_ir_subgraph_t *subgraph =
 			&ir->subgraphs[ir->subgraph_count];
@@ -1355,9 +1388,25 @@ static s32 compileExports(json_span_t root, weapon_graph_ir_t *ir,
 
 	while (jsonArrayNextObject(exports, &cursor, &obj)) {
 		char node_id[WEAPON_GRAPH_IR_ID_LEN];
-		if (ir->export_count >= WEAPON_GRAPH_IR_MAX_EXPORTS) {
-			setErr(err, err_cap, "too many graph exports");
+		if (ir->export_count == INT_MAX) {
+			setErr(err, err_cap, "graph export count exceeds API range");
 			return -1;
+		}
+		if ((size_t)ir->export_count == ir->export_capacity) {
+			size_t next = ir->export_capacity ? ir->export_capacity * 2 : 16;
+			if (next < (size_t)ir->export_count + 1 ||
+					next > SIZE_MAX / sizeof(*ir->exports)) {
+				setErr(err, err_cap, "graph export table size overflow");
+				return -1;
+			}
+			weapon_graph_ir_export_t *grown = (weapon_graph_ir_export_t *)realloc(
+				ir->exports, next * sizeof(*ir->exports));
+			if (!grown) {
+				setErr(err, err_cap, "out of memory growing graph exports");
+				return -1;
+			}
+			ir->exports = grown;
+			ir->export_capacity = next;
 		}
 		weapon_graph_ir_export_t *ex = &ir->exports[ir->export_count];
 		memset(ex, 0, sizeof(*ex));
@@ -1516,25 +1565,48 @@ s32 weaponGraphCompileJson(asset_type_e graph_type, const char *json,
 	sha256Hash(json, json_size, digest);
 	sha256ToHex(digest, out->source_sha256);
 
-	if (compileSharedContexts(root, out, err, err_cap) != 0) return -1;
-	if (compileNodes(graph_type, root, out, err, err_cap) != 0) return -1;
-	if (compileSubgraphs(root, out, err, err_cap) != 0) return -1;
-	if (compileEdges(root, out, err, err_cap) != 0) return -1;
+	if (compileSharedContexts(root, out, err, err_cap) != 0) goto fail;
+	if (compileNodes(graph_type, root, out, err, err_cap) != 0) goto fail;
+	if (compileSubgraphs(root, out, err, err_cap) != 0) goto fail;
+	if (compileEdges(root, out, err, err_cap) != 0) goto fail;
 	if (graphHasCycle(out)) {
 		setErr(err, err_cap, "graph contains a cycle");
-		return -1;
+		goto fail;
 	}
-	if (compileExports(root, out, err, err_cap) != 0) return -1;
+	if (compileExports(root, out, err, err_cap) != 0) goto fail;
 	finalizeIrDigest(out);
 	return 0;
+
+fail:
+	weaponGraphIrFree(out);
+	return -1;
+}
+
+void weaponGraphIrFree(weapon_graph_ir_t *ir)
+{
+	if (!ir) return;
+	free(ir->contexts);
+	free(ir->exports);
+	free(ir->subgraphs);
+	ir->contexts = NULL;
+	ir->exports = NULL;
+	ir->subgraphs = NULL;
+	ir->context_count = 0;
+	ir->export_count = 0;
+	ir->subgraph_count = 0;
+	ir->context_capacity = 0;
+	ir->export_capacity = 0;
+	ir->subgraph_capacity = 0;
 }
 
 s32 weaponGraphValidateJson(asset_type_e graph_type, const char *json,
                             u32 json_size, char *err, size_t err_cap)
 {
 	weapon_graph_ir_t ir;
-	return weaponGraphCompileJson(graph_type, json, json_size, &ir,
+	s32 result = weaponGraphCompileJson(graph_type, json, json_size, &ir,
 		err, err_cap);
+	if (result == 0) weaponGraphIrFree(&ir);
+	return result;
 }
 
 typedef struct graph_source_builder {
@@ -2324,6 +2396,7 @@ s32 weaponGraphCompileArchiveFile(const char *archive_path,
 			strcmp(desc.catalog_id, out->asset_id) != 0) {
 		setErr(err, err_cap, "graph asset_id %s does not match descriptor %s",
 			out->asset_id, desc.catalog_id);
+		weaponGraphIrFree(out);
 		return -1;
 	}
 	if (result == 0 && desc.catalog_id[0] && !out->asset_id[0]) {
@@ -2371,6 +2444,7 @@ static s32 weaponGraphCompileArchiveBytes(const void *archive_bytes,
 			strcmp(desc.catalog_id, out->asset_id) != 0) {
 		setErr(err, err_cap, "graph asset_id %s does not match descriptor %s",
 			out->asset_id, desc.catalog_id);
+		weaponGraphIrFree(out);
 		return -1;
 	}
 	if (result == 0 && desc.catalog_id[0] && !out->asset_id[0]) {
@@ -4281,6 +4355,7 @@ static s32 weaponGraphRuntimeRegisterWeaponArchiveDependencies(
 			setErr(err, err_cap,
 				"nested payload %s compiled as %s, expected %s",
 				payload->archive_entry, ir.asset_id, payload->catalog_id);
+			weaponGraphIrFree(&ir);
 			goto fail;
 		}
 
@@ -4294,6 +4369,7 @@ static s32 weaponGraphRuntimeRegisterWeaponArchiveDependencies(
 				entityRuntimeFindIndex(ir.asset_id)], owner_weapon);
 		} else if (weaponGraphRuntimeRegisterBehaviorIrOwned(&ir,
 				owner_weapon, 0, err, err_cap) != 0) {
+			weaponGraphIrFree(&ir);
 			goto fail;
 		}
 		if (registered_count < WEAPON_GRAPH_ARCHIVE_MAX_NESTED_PAYLOADS &&
@@ -4301,6 +4377,7 @@ static s32 weaponGraphRuntimeRegisterWeaponArchiveDependencies(
 			copyStr(registered[registered_count++],
 				sizeof(registered[0]), ir.asset_id);
 		}
+		weaponGraphIrFree(&ir);
 	}
 
 	/* Resolve selected effect source only after every sibling and deep
@@ -4547,6 +4624,7 @@ s32 weaponGraphRuntimeRegisterWeaponArchive(s32 weaponnum,
 		return -1;
 	}
 	if (weaponGraphRuntimeRegisterHeldIr(weaponnum, &ir, err, err_cap) != 0) {
+		weaponGraphIrFree(&ir);
 		return -1;
 	}
 	/* Store AFTER RegisterHeldIr: the ClearWeapon inside it wipes the slot.
@@ -4557,6 +4635,7 @@ s32 weaponGraphRuntimeRegisterWeaponArchive(s32 weaponnum,
 	}
 	if (weaponGraphValidateRegisteredReticles(weaponnum, err, err_cap) != 0) {
 		weaponGraphRuntimeClearWeapon(weaponnum);
+		weaponGraphIrFree(&ir);
 		return -1;
 	}
 	/* A re-registration is a new selected-source transaction. Retire the prior
@@ -4567,9 +4646,11 @@ s32 weaponGraphRuntimeRegisterWeaponArchive(s32 weaponnum,
 			ir.asset_id, weaponnum, err, err_cap) != 0) {
 		weaponGraphRuntimeClearWeapon(weaponnum);
 		effectGraphRuntimeReleaseOwner(ir.asset_id);
+		weaponGraphIrFree(&ir);
 		return -1;
 	}
 	weaponGraphWarnTimerOverlap(weaponnum);
+	weaponGraphIrFree(&ir);
 	return 0;
 }
 
@@ -4589,6 +4670,7 @@ s32 weaponGraphRuntimeRegisterWeaponGraphJson(s32 weaponnum,
 		if (ir.asset_id[0] && strcmp(ir.asset_id, asset_id) != 0) {
 			setErr(err, err_cap, "graph asset_id %s does not match catalog %s",
 				ir.asset_id, asset_id);
+			weaponGraphIrFree(&ir);
 			return -1;
 		}
 		if (!ir.asset_id[0]) {
@@ -4596,7 +4678,9 @@ s32 weaponGraphRuntimeRegisterWeaponGraphJson(s32 weaponnum,
 			finalizeIrDigest(&ir);
 		}
 	}
-	return weaponGraphRuntimeRegisterHeldIr(weaponnum, &ir, err, err_cap);
+	s32 result = weaponGraphRuntimeRegisterHeldIr(weaponnum, &ir, err, err_cap);
+	weaponGraphIrFree(&ir);
+	return result;
 }
 
 s32 weaponGraphRuntimeRegisterWeaponSourceJson(s32 weaponnum,
@@ -4639,6 +4723,7 @@ s32 weaponGraphRuntimeRegisterWeaponSourceJson(s32 weaponnum,
 		return -1;
 	}
 	if (weaponGraphRuntimeRegisterHeldIr(weaponnum, &ir, err, err_cap) != 0) {
+		weaponGraphIrFree(&ir);
 		return -1;
 	}
 	if (heldIndexValid(weaponnum, 0)) {
@@ -4647,8 +4732,10 @@ s32 weaponGraphRuntimeRegisterWeaponSourceJson(s32 weaponnum,
 	}
 	if (weaponGraphValidateRegisteredReticles(weaponnum, err, err_cap) != 0) {
 		weaponGraphRuntimeClearWeapon(weaponnum);
+		weaponGraphIrFree(&ir);
 		return -1;
 	}
+	weaponGraphIrFree(&ir);
 	return 0;
 }
 
@@ -4839,6 +4926,7 @@ s32 weaponGraphRuntimeRegisterBehaviorGraphJson(asset_type_e graph_type,
 		if (ir.asset_id[0] && strcmp(ir.asset_id, asset_id) != 0) {
 			setErr(err, err_cap, "graph asset_id %s does not match catalog %s",
 				ir.asset_id, asset_id);
+			weaponGraphIrFree(&ir);
 			return -1;
 		}
 		if (!ir.asset_id[0]) {
@@ -4846,7 +4934,9 @@ s32 weaponGraphRuntimeRegisterBehaviorGraphJson(asset_type_e graph_type,
 			finalizeIrDigest(&ir);
 		}
 	}
-	return weaponGraphRuntimeRegisterBehaviorIr(&ir, err, err_cap);
+	s32 result = weaponGraphRuntimeRegisterBehaviorIr(&ir, err, err_cap);
+	weaponGraphIrFree(&ir);
+	return result;
 }
 
 s32 weaponGraphRuntimeRegisterBehaviorArchive(asset_type_e graph_type,
@@ -4862,5 +4952,7 @@ s32 weaponGraphRuntimeRegisterBehaviorArchive(asset_type_e graph_type,
 			err, err_cap) != 0) {
 		return -1;
 	}
-	return weaponGraphRuntimeRegisterBehaviorIr(&ir, err, err_cap);
+	s32 result = weaponGraphRuntimeRegisterBehaviorIr(&ir, err, err_cap);
+	weaponGraphIrFree(&ir);
+	return result;
 }

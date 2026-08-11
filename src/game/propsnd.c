@@ -49,6 +49,20 @@ u32 var8006ae54 = 999;
 #define CHANNEL_IS_AI(channel) (channel >= 0 && channel <= 7)
 #define CHANNEL_HEAP_FIRST     CHANNEL_8
 
+s32 psReserveCreateCount(s32 count)
+{
+	s32 available = 0;
+	s32 i;
+
+	if (count < 0) return 0;
+	if (count == 0) return 1;
+	if (!g_PsChannels || g_SndNumPlaying > 12) return 0;
+	for (i = CHANNEL_HEAP_FIRST; i < CHANNELCOUNT() && available < count; i++) {
+		if (g_PsChannels[i].flags & PSFLAG_FREE) available++;
+	}
+	return available >= count;
+}
+
 bool psPropHasSoundWithContext(struct prop *prop, s32 type)
 {
 	s32 i;

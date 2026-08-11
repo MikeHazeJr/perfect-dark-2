@@ -22,6 +22,9 @@ void psSetPitch(struct prop *prop, f32 targetpitch, s32 changespeed);
 void psSetVolume(struct prop *prop, s32 vol);
 void psStopOneShootChannel(struct prop *prop);
 s16 psCreate(struct pschannel *channel, struct prop *prop, s16 soundnum, s16 padnum, s32 vol, u16 flags, u16 flags2, s32 type, struct coord *pos, f32 pitch, RoomNum *rooms, s32 room, f32 dist1, f32 dist2, f32 dist3);
+/* Validate that the heap can accept count ordinary effect SFX synchronously.
+ * No channel is modified; callers must commit before returning to the loop. */
+s32 psReserveCreateCount(s32 count);
 s32 psPlayFromProp(s32 channelnum, s16 soundnum, s32 vol, struct prop *prop, s16 type, u16 flags);
 void psMuteChannel(s32 channelnum);
 bool psIsChannelFree(s32 channelnum);

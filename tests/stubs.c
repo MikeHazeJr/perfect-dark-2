@@ -32,6 +32,11 @@
 #include "game/sparks.h"
 #include "game/explosions.h"
 #include "game/smoke.h"
+#include "game/prop.h"
+#include "game/propsnd.h"
+#include "game/propobj.h"
+#include "effect_gameplay_runtime.h"
+#include "effect_presentation_runtime.h"
 
 /* -------------------------------------------------------------------------
  * c3849 Unit 8: base spark table for sparks_custom.c (the custom spark-row
@@ -48,6 +53,152 @@ struct sparktype g_SparkTypes[SPARKTYPE_BASE_COUNT] = {
 
 static struct explosiontype s_TestExplosionProfiles[EXPLOSIONTYPE_BASE_COUNT];
 static struct smoketype s_TestSmokeProfiles[SMOKETYPE_BASE_COUNT];
+
+static s32 s_TestGameplayExplosionCapacity = 1;
+static s32 s_TestGameplaySmokeCapacity = 1;
+static s32 s_TestGameplayPropCapacity = 1;
+static s32 s_TestGameplayAudioCapacity = 1;
+static s32 s_TestGameplayExplosions;
+static s32 s_TestGameplaySparks;
+static s32 s_TestGameplaySmokes;
+static s32 s_TestGameplaySounds;
+static s32 s_TestGameplayLastExplosionType;
+static s32 s_TestGameplayLastSparkType;
+static s32 s_TestGameplayLastSmokeType;
+static s32 s_TestGameplayLastSound;
+
+void testStubEffectGameplayReset(void)
+{
+    s_TestGameplayExplosionCapacity = 1;
+    s_TestGameplaySmokeCapacity = 1;
+    s_TestGameplayPropCapacity = 1;
+    s_TestGameplayAudioCapacity = 1;
+    s_TestGameplayExplosions = 0;
+    s_TestGameplaySparks = 0;
+    s_TestGameplaySmokes = 0;
+    s_TestGameplaySounds = 0;
+    s_TestGameplayLastExplosionType = -1;
+    s_TestGameplayLastSparkType = -1;
+    s_TestGameplayLastSmokeType = -1;
+    s_TestGameplayLastSound = -1;
+    s_TestExplosionProfiles[EXPLOSIONTYPE_EYESPY].sound = 321;
+}
+
+void testStubEffectGameplayCapacity(s32 explosions, s32 smokes,
+    s32 props, s32 sounds)
+{
+    s_TestGameplayExplosionCapacity = explosions;
+    s_TestGameplaySmokeCapacity = smokes;
+    s_TestGameplayPropCapacity = props;
+    s_TestGameplayAudioCapacity = sounds;
+}
+
+s32 testStubEffectGameplayCount(s32 kind)
+{
+    if (kind == 1) return s_TestGameplayExplosions;
+    if (kind == 2) return s_TestGameplaySparks;
+    if (kind == 3) return s_TestGameplaySmokes;
+    if (kind == 4) return s_TestGameplaySounds;
+    return 0;
+}
+
+s32 testStubEffectGameplayLast(s32 kind)
+{
+    if (kind == 1) return s_TestGameplayLastExplosionType;
+    if (kind == 2) return s_TestGameplayLastSparkType;
+    if (kind == 3) return s_TestGameplayLastSmokeType;
+    if (kind == 4) return s_TestGameplayLastSound;
+    return -1;
+}
+
+s32 explosionsReserveCreateCount(s32 count)
+{
+    return count <= s_TestGameplayExplosionCapacity;
+}
+
+s32 smokesReserveCreateCount(s32 count)
+{
+    return count <= s_TestGameplaySmokeCapacity;
+}
+
+s32 propsReserveCreateCount(s32 count)
+{
+    return count <= s_TestGameplayPropCapacity;
+}
+
+s32 psReserveCreateCount(s32 count)
+{
+    return count <= s_TestGameplayAudioCapacity;
+}
+
+const struct explosiontype *explosionTypeFor(s32 type)
+{
+    if (type < 0 || type >= EXPLOSIONTYPE_BASE_COUNT) type = 0;
+    return &s_TestExplosionProfiles[type];
+}
+
+bool explosionCreateComplexWithSound(struct prop *prop, struct coord *pos,
+    RoomNum *rooms, s16 type, s32 playernum, s16 soundnum)
+{
+    (void)prop; (void)pos; (void)rooms; (void)playernum; (void)soundnum;
+    s_TestGameplayExplosions++;
+    s_TestGameplayLastExplosionType = type;
+    return true;
+}
+
+void sparksCreate(s32 room, struct prop *prop, struct coord *pos,
+    struct coord *arg3, struct coord *arg4, s32 type)
+{
+    (void)room; (void)prop; (void)pos; (void)arg3; (void)arg4;
+    s_TestGameplaySparks++;
+    s_TestGameplayLastSparkType = type;
+}
+
+struct smoke *smokeCreate(struct coord *pos, RoomNum *rooms, s16 type)
+{
+    (void)pos; (void)rooms;
+    s_TestGameplaySmokes++;
+    s_TestGameplayLastSmokeType = type;
+    return (struct smoke *)&s_TestGameplaySmokes;
+}
+
+s16 psCreate(struct pschannel *channel, struct prop *prop, s16 soundnum,
+    s16 padnum, s32 vol, u16 flags, u16 flags2, s32 type,
+    struct coord *pos, f32 pitch, RoomNum *rooms, s32 room,
+    f32 dist1, f32 dist2, f32 dist3)
+{
+    (void)channel; (void)prop; (void)padnum; (void)vol; (void)flags;
+    (void)flags2; (void)type; (void)pos; (void)pitch; (void)rooms;
+    (void)room; (void)dist1; (void)dist2; (void)dist3;
+    s_TestGameplaySounds++;
+    s_TestGameplayLastSound = soundnum;
+    return 1;
+}
+
+bool propExplode(struct prop *prop, s32 explosiontype)
+{
+    (void)prop;
+    s_TestGameplayExplosions++;
+    s_TestGameplayLastExplosionType = explosiontype;
+	return true;
+}
+
+s32 propResolveExplosionSpatial(struct prop *prop, struct coord *pos,
+	RoomNum rooms[8])
+{
+	s32 i;
+	if (!prop || !pos || !rooms) return 0;
+	*pos = prop->pos;
+	for (i = 0; i < 7 && prop->rooms[i] >= 0; i++) rooms[i] = prop->rooms[i];
+	rooms[i] = -1;
+	return rooms[0] >= 0;
+}
+
+bool propExplodeWithSound(struct prop *prop, s32 explosiontype, s16 soundnum)
+{
+	(void)soundnum;
+	return propExplode(prop, explosiontype);
+}
 
 void explosionsSetProfileOverride(const struct explosiontype *rows, s32 count)
 {
@@ -402,4 +553,27 @@ const char *audioGetModPlaylistEntry(s32 idx)
 {
     (void)idx;
     return NULL;
+}
+
+/* The full GBI renderer is deliberately not linked into pd-tests. Mirror its
+ * read-only particle eligibility seam so focused runtime tests still exercise
+ * the real committed gameplay snapshots and presentation shader contract. */
+size_t effectPresentationRenderableParticleCount(void)
+{
+    size_t renderable = 0;
+    const size_t count = effectGameplayRuntimeParticleCount();
+
+    for (size_t i = 0; i < count; i++) {
+        effect_gameplay_particle_snapshot_t particle;
+
+        if (effectGameplayRuntimeParticleSnapshot(i, &particle)
+                && particle.texture_num >= 0
+                && particle.texture_id[0]
+                && effectPresentationShaderSupported("effect.particle",
+                    particle.shader_id)) {
+            renderable++;
+        }
+    }
+
+    return renderable;
 }

@@ -11,8 +11,11 @@ validated v2 profile libraries retain every public native row and explicit
 catalog-audio string/null state. Graph-only, timeline-only, and combined
 archives share one transactional registry path. Effect records, custom spark
 rows, and embedded-effect discovery now grow on PC beyond the retired 64/16/8
-caps. T-ASSETS-019 still owns production renderer/audio/gameplay consumers and
-T-ASSETS-020 owns selected-source fail-closed semantics.
+caps. T-ASSETS-019 and T-ASSETS-032/034/035/036 now connect the retained source
+to transactional production gameplay/audio, screen/world presentation,
+contexts, targets, attachments, sampled intensity, priority, lifetime, and
+cleanup. T-ASSETS-020 owns selected-source fail-closed semantics. Live edited
+installed-client and peer-network proof remains V-009.
 
 `T-ASSETS-030` automated field/transport/negative/lifecycle coverage passes,
 including 218 focused assertions, 321 `.pdtheme` assertions, the frozen

@@ -4478,6 +4478,9 @@ struct explosion {
 	/*0x3cd*/ s8 makescorch;
 	/*0x3ce*/ s8 owner;
 	/*0x3cf*/ u8 numbb;
+	/* Public v1 effect audio override: -1 uses the active profile row, 0
+	 * suppresses it, and >0 is an exact catalog-resolved SFX token. */
+	s16 effect_soundnum;
 	/*0x3d0*/ struct coord unk3d0;
 	/*0x3dc*/ struct coord unk3dc;
 	/*0x3e8*/ struct explosionbb bbs[5]; // may be smaller

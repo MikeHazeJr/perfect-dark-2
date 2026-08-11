@@ -1,5 +1,28 @@
 # Session Log (Active)
 
+## 2026-08-10 - Wave 11 generic `.pdeffect` production consumers
+
+Completed `T-ASSETS-032/034/035/036` and the `T-ASSETS-019/012` implementation
+umbrellas from clean Wave 10 commit `cfaf3e45`. Generic v1 effect programs now
+run through a growable production instance owner and one deterministic
+all-consumer transaction. Gameplay/audio output covers explosion, spark, smoke,
+source-backed particles, and typed SFX. Presentation covers screen, world
+decals, room light/additive halos, beams, and source-textured particles. Named
+contexts, targets, attachments, priority, lifetime, source/entity cancellation,
+and sampled timeline intensity are production semantics rather than retained
+metadata. Unsupported or unconsumed fields fail during activation.
+
+The final frozen receipt passes client/updater/test compilation; focused T034
+149/11, T035 184/8, and T036 525/13; the complete 54,175-assertion/980-case
+suite; archive self-test; 28-root/52-recursive all-27-family conformance;
+native-source guard; diff check; and matching pre/post production/test
+fingerprint
+`605133665c2cc3666ade86886d678c9fae4016125537c209a0818edfc0dcb47c`.
+Evidence is `context/evidence/2026-08-10-wave11-pdeffect-production-runtime.md`.
+The implementation is not live-validated: `V-009` retains edited-source
+installed-client and real-peer proof, while `V-006` retains induced negative
+transport/rollback proof.
+
 ## 2026-08-08 - Wave 10 reverse invalidation, ingress transactions, and runtime capacity
 
 Completed the three frozen Wave 10 lanes from `6945e96a`. `T-ASSETS-033` is

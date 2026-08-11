@@ -1,4 +1,5 @@
 #include <ultra64.h>
+#include "effect_instance_runtime.h"
 #include "constants.h"
 #include "system.h"
 #include "../lib/naudio/n_sndp.h"
@@ -209,6 +210,18 @@ struct prop *propAllocate(void)
 	return NULL;
 }
 
+s32 propsReserveCreateCount(s32 count)
+{
+	struct prop *prop;
+	s32 available = 0;
+
+	if (count < 0) return 0;
+	for (prop = g_Vars.freeprops; prop && available < count; prop = prop->next) {
+		available++;
+	}
+	return available >= count;
+}
+
 /**
  * Free the given prop. The prop must not be in any list prior to calling this
  * function.
@@ -217,6 +230,7 @@ struct prop *propAllocate(void)
  */
 void propFree(struct prop *prop)
 {
+	effectInstanceRuntimeCancelEntity(prop);
 	meshDetachFromProp(prop);
 
 	if (prop->type == PROPTYPE_CHR) {

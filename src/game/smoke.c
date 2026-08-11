@@ -1,6 +1,7 @@
 #include <string.h>
 #include <ultra64.h>
 #include "constants.h"
+#include "arenapool.h"
 #include "game/dlights.h"
 #include "game/gfxmemory.h"
 #include "game/prop.h"
@@ -90,6 +91,66 @@ _Static_assert(ARRAYCOUNT(g_SmokeTypes) == SMOKETYPE_BASE_COUNT,
 
 static struct smoketype s_SmokeProfileOverride[SMOKETYPE_BASE_COUNT];
 static bool s_HasSmokeProfileOverride;
+static struct arenapool s_SmokePool;
+
+static void smokeInitSlot(s32 index)
+{
+	s32 part;
+
+	g_Smokes[index].prop = NULL;
+	for (part = 0; part < ARRAYCOUNT(g_Smokes[index].parts); part++) {
+		g_Smokes[index].parts[part].size = 0;
+	}
+}
+
+void smokesSetupPool(s32 count)
+{
+	s32 i;
+
+	g_Smokes = arenaPoolSetup(&s_SmokePool, "smokes",
+		sizeof(struct smoke), 65536, 32, count);
+	if (g_Smokes) {
+		for (i = 0; i < count; i++) {
+			smokeInitSlot(i);
+		}
+	}
+}
+
+static s32 smokeGrowSlots(void)
+{
+	s32 first;
+	s32 i;
+	struct smoke *base = arenaPoolGrow(&s_SmokePool, &first);
+
+	if (!base || first < 0) {
+		return -1;
+	}
+	g_Smokes = base;
+	for (i = first; i < s_SmokePool.count; i++) {
+		smokeInitSlot(i);
+	}
+	g_MaxSmokes = s_SmokePool.count;
+	return first;
+}
+
+s32 smokesReserveCreateCount(s32 count)
+{
+	s32 freecount;
+	s32 i;
+
+	if (count < 0) return 0;
+	if (count == 0) return 1;
+	if (!g_Smokes || g_MaxSmokes < 0) return 0;
+
+	for (;;) {
+		freecount = 0;
+		for (i = 0; i < g_MaxSmokes; i++) {
+			if (g_Smokes[i].prop == NULL) freecount++;
+		}
+		if (freecount >= count) return 1;
+		if (smokeGrowSlots() < 0) return 0;
+	}
+}
 
 const struct smoketype *smokeTypeFor(s32 type)
 {
@@ -326,6 +387,13 @@ struct smoke *smokeCreate(struct coord *pos, RoomNum *rooms, s16 type)
 				}
 			}
 		}
+	}
+
+	/* Modern PC path: grow rather than silently omit a valid authored/native
+	 * emitter when the old 20-row stage pool is busy. */
+	if (!smoke) {
+		s32 first = smokeGrowSlots();
+		if (first >= 0) smoke = &g_Smokes[first];
 	}
 
 	if (smoke) {

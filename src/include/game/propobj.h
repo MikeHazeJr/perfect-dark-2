@@ -135,6 +135,9 @@ void knifeLand(struct defaultobj *obj, struct coord *arg1, struct coord *arg2);
 bool objEmbed(struct prop *prop, struct prop *parent, struct model *model, struct modelnode *node);
 void objLand(struct prop *prop, struct coord *arg1, struct coord *arg2, bool *embedded);
 bool propExplode(struct prop *prop, s32 explosiontype);
+bool propExplodeWithSound(struct prop *prop, s32 explosiontype, s16 soundnum);
+s32 propResolveExplosionSpatial(struct prop *prop, struct coord *pos,
+	RoomNum rooms[8]);
 void ammocrateTick(struct prop *ammocrate);
 void weaponTick(struct prop *weapon);
 void func0f07063c(struct prop *prop, bool fulltick);

@@ -40,6 +40,11 @@ void sparksSetBaseProfileOverride(const struct sparktype *rows, s32 count);
 void sparksClearBaseProfileOverride(void);
 s32 sparksRegisterCustomType(const struct sparktype *row);
 s32 sparksRegisterCustomTintedType(u32 color1, u32 color2);
+/* Transaction checkpoint used by v1 effect prepare/rollback. Truncation is
+ * valid only before control returns to the game loop, while no spark may have
+ * consumed a newly appended row. */
+s32 sparksCustomTypeCheckpoint(void);
+void sparksRollbackCustomTypes(s32 checkpoint);
 void sparksResetCustomTypes(void);
 s32 sparksCustomTypeCount(void);
 

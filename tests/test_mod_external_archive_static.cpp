@@ -3982,9 +3982,10 @@ TEST_CASE("wave 5 unit 0 bug-fix pins stay wired",
 	REQUIRE(propobj.find("impact_hit_sound") != std::string::npos);
 	REQUIRE(propobj.find("graphtrailsmoketype") != std::string::npos);
 	REQUIRE(propobj.find("WAVE6-EFFECT-HANDOFF") == std::string::npos);
-	REQUIRE(propobj.find("EFFECT_GRAPH_RESOLVE_FAILED") != std::string::npos);
-	REQUIRE(propobj.find("effectGraphResolveExplosionType") != std::string::npos);
-	REQUIRE(propobj.find("effectGraphResolveSparkType") != std::string::npos);
+	REQUIRE(propobj.find("effectGameplayRuntimeTriggerPropExplosion") != std::string::npos);
+	REQUIRE(propobj.find("effectGameplayRuntimeTriggerSpark") != std::string::npos);
+	REQUIRE(propobj.find("effectGraphResolveExplosionType") == std::string::npos);
+	REQUIRE(propobj.find("effectGraphResolveSparkType") == std::string::npos);
 
 	/* Wave 5 Units 4+5: struct projectile trail fields + slot-reuse reset. */
 	REQUIRE(types.find("s32 graphtrailsmoketype;") != std::string::npos);

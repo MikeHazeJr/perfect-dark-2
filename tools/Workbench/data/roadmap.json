@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "project": "Perfect Dark 2",
-  "updated": "2026-08-09T02:37:18.754Z",
+  "updated": "2026-08-11T01:31:35.486Z",
   "items": [
     {
       "type": "task",
@@ -960,7 +960,7 @@
       "status": "partial",
       "phase": 3,
       "lane": "implementation",
-      "owner": "unassigned",
+      "owner": "codex-roadmap-continuation-20260808",
       "deps": [
         "T-EXTRACTION-001",
         "T-ARCHIVES-001"
@@ -979,14 +979,19 @@
         "T-ASSETS-015",
         "V-003",
         "V-005",
-        "V-006"
+        "V-006",
+        "T-ASSETS-032",
+        "T-ASSETS-034",
+        "T-ASSETS-035",
+        "T-ASSETS-036",
+        "context/evidence/2026-08-10-wave11-pdeffect-production-runtime.md"
       ],
-      "detail": "Catalog/provider production loading and fail-closed public-source ownership are connected for implemented families, including Wave8 v2 effect consumers, selected/nested effect rejection, exact reverse dependency invalidation (T-ASSETS-033), growable nested ingress (T-ASSETS-037), and all-family teardown (T-CATALOG-004). Runtime closure remains partial for generic v1 effect dispatch/consumers (T-ASSETS-032/034/035/036), comprehensive real transport matrices (T-CATALOG-003), and validation V-003/V-005/V-006/V-009. Runtime ROM/RomProvider fallback, native-mirror fallback, or loose-cache fallback after extraction remains an asset-chain failure.",
+      "detail": "Catalog/provider production loading and fail-closed public-source ownership are connected for implemented families. Wave11 completes generic v1 effect dispatch/consumers through T-ASSETS-032/034/035/036, alongside v2 consumers, selected/nested rejection, reverse invalidation, growable nested ingress, and all-family teardown. The umbrella remains partial for other asset-family runtime gaps, comprehensive real transport matrices under T-CATALOG-003, and live validation V-003/V-005/V-006/V-009. ROM/RomProvider fallback, native-mirror fallback, or loose-cache fallback after extracted public source remains an asset-chain failure.",
       "tags": [
         "workbench-key:asset-native-runtime"
       ],
       "id": "T-RUNTIME-001",
-      "updated": "2026-08-09T02:37:18.754Z",
+      "updated": "2026-08-11T01:28:22.789Z",
       "created": "2026-07-30T15:16:40.133Z"
     },
     {
@@ -2810,7 +2815,7 @@
       "model": "gpt-5"
     },
     {
-      "status": "partial",
+      "status": "implemented",
       "phase": 3,
       "owner": "codex-roadmap-continuation-20260808",
       "title": "Complete .pdeffect shader, timeline, graph, and fallback semantics",
@@ -2824,8 +2829,6 @@
       ],
       "lane": "runtime-utilization",
       "evidence": [
-        "A-ASSETS-021",
-        "context/audits/2026/asset-pipeline-full-chain-audit-2026-07-30.md",
         "T-ASSETS-016",
         "T-ASSETS-017",
         "T-ASSETS-018",
@@ -2837,15 +2840,14 @@
         "T-ASSETS-035",
         "T-ASSETS-036",
         "T-ASSETS-037",
-        "B-1004",
-        "B-1005",
-        "B-1007",
-        "B-1008",
-        "V-009",
-        "V-005",
-        "V-006",
-        "context/evidence/2026-08-08-wave8-pdeffect-consumers.md",
-        "context/evidence/2026-08-08-wave8-effect-failclosed.md"
+        "context/evidence/2026-08-10-wave11-pdeffect-production-runtime.md",
+        ".claude/session-builds/tassets034/wave11-final2-t034-focused.log",
+        ".claude/session-builds/tassets034/wave11-final2-t035-focused.log",
+        ".claude/session-builds/tassets034/wave11-final2-t036-focused.log",
+        ".claude/session-builds/tassets034/wave11-final2-full-suite.log",
+        ".claude/session-builds/tassets034/wave11-final2-conformance-selftest.log",
+        ".claude/session-builds/tassets034/wave11-final2-conformance-27-family.log",
+        ".claude/session-builds/tassets034/wave11-final2-native-source-guard.log"
       ],
       "tags": [
         "handoff:ultra",
@@ -2853,12 +2855,12 @@
         "bug:B-959",
         "production-path"
       ],
-      "detail": "The .pdeffect program is partially production-connected. T-ASSETS-016/017/018/020/033/037 are implemented: source-faithful extraction/schema, authoritative parsing, executable graph/timeline/profile retention, selected/nested fail-closed lifecycle, exact reverse dependency invalidation, and omission-free growable nested discovery/preflight. T-ASSETS-019 provides the v2 26/27/23 consumers and typed dependency admission but remains partial. Residual generic v1 production dispatch/gameplay/audio/renderer/timeline/target/lifetime work is T-ASSETS-032/034/035/036; live edited and negative proof is V-009/V-005/V-006. B-992 runtime capacity is fixed under T-ASSETS-022.",
+      "detail": "Implemented public .pdeffect source-to-runtime semantics. T-ASSETS-016/017/018 provide source-faithful extraction, strict public parsing, complete executable graph/timeline/profile retention, and growable registries. T-ASSETS-020/033/037 provide selected/nested fail-close, exact lifecycle/reverse invalidation, and omission-free nested discovery. T-ASSETS-019 plus T-ASSETS-032/034/035/036 now connect v2 profiles and every accepted generic v1 gameplay/audio/presentation/timeline/context/target/attachment/lifetime field through production transactions. Live edited-source, peer-network, restart, and negative-path validation remain separately tracked by V-009/V-005/V-006.",
       "type": "task",
       "id": "T-ASSETS-012",
-      "updated": "2026-08-09T02:37:18.735Z",
+      "updated": "2026-08-11T01:31:35.434Z",
       "created": "2026-08-01T12:51:42.454Z",
-      "model": "Codex GPT-5"
+      "model": "gpt-5.6-sol"
     },
     {
       "status": "implemented",
@@ -3352,7 +3354,7 @@
         "T-ASSETS-036",
         "T-ASSETS-037"
       ],
-      "detail": "Verified partial implementation: every v2 public profile row (26 explosion, 27 spark, 23 smoke) transactionally drives native gameplay/render/audio tables. Typed SFX/smoke/material/texture admission and exact root ownership are growable, strict, rollback-safe across base/local/nested/mod/network paths; active child disable/replacement reverse-invalidates cached parents through T-ASSETS-033. T-ASSETS-037 removes nested discovery/preflight omission above 64. Remaining implementation is generic v1 production execution under T-ASSETS-032/034/035/036; live positive/negative proof remains V-009/V-006.",
+      "detail": "Implemented production .pdeffect execution across v2 profile libraries and generic v1 programs. V2 applies all 26 explosion, 27 spark, and 23 smoke rows with typed dependencies and exact ownership. V1 now dispatches all accepted gameplay, catalog-audio, renderer/presentation, timeline, context, target, attachment, priority, and lifetime semantics through T-ASSETS-032/034/035/036, with growable nested ingress and reverse dependency invalidation from T-ASSETS-037/033. Unsupported or incomplete source fails before publication and the global consumer transaction rolls back without partial gameplay/render/audio output. Ordinary installed-client edited-source and peer-network proof remains V-009; negative transport proof remains V-006.",
       "tags": [
         "asset-family:pdeffect",
         "production-path",
@@ -3367,26 +3369,26 @@
       "phase": 3,
       "area": "ASSETS",
       "title": "Connect .pdeffect execution to gameplay, audio, renderer, and typed dependencies",
-      "status": "partial",
+      "status": "implemented",
       "evidence": [
-        "B-1004: T018 complete programs had zero production execute/sample callsites and only four scalar gameplay bridges.",
-        "port/src/effect_executor.c applies every validated v2 field into the real 26 explosion, 27 spark, and 23 smoke engine rows; audio is SFX-typed and smoke library activation is required.",
-        "src/game/explosions.c, smoke.c, and sparks_custom.c route native gameplay/render/audio reads through public-source overrides.",
-        "src/game/propobj.c suppresses selected unresolved explosion/spark refs before native table calls.",
-        "port/src/effect_dependencies.c plus scanner integration enumerate source dependencies before activation; cross-ingress lifecycle closure remains T-ASSETS-033.",
-        "tests/test_effect_executor.cpp covers field mapping, active row resolution, gate-off failure, dependency removal rollback, missing smoke, and wrong audio category.",
-        "Residual generic v1 renderer/target/timeline work is T-ASSETS-032; edited-source live gate is V-009.",
-        "tests/test_effect_executor.cpp now asserts every stored field for distinctive explosion, spark, and smoke rows, typed SFX sound mapping, source-active gate behavior, and removal/reset rollback.",
-        "Remaining generic production consumers are split into T-ASSETS-034 gameplay/audio, T-ASSETS-035 renderer/presentation, T-ASSETS-036 timelines/targets/lifetime, with D-002 for explicit unsupported-node disposition and V-009 live edited-source proof.",
-        "T-ASSETS-037 records the fixed 64-entry nested-media ingress ceiling; no completion claim includes that residual.",
-        "Authoritative Wave8 isolated receipt PASS: client/updater/pd-tests builds; T019 129/5; T020 221/8; effect_graph 571/15; T-CATALOG-003 3,561/12; full 52,416/932.",
-        "Archive conformance self-test and 28 roots/52 recursive archives across all 27 public families PASS; asset-native-source guard and git diff-check PASS.",
-        "Durable receipt: context/evidence/2026-08-08-wave8-pdeffect-consumers.md and .claude/session-builds/wave8final/wave8-*-authoritative.log.",
-        "Handoff: T019 remains partial; T-ASSETS-032/034/035/036/037 and V-009 retain every generic v1, capacity, and live edited-source residual.",
-        "T-ASSETS-033/B-1013 now implements exact cross-ingress root ownership and reverse child disable/replacement invalidation; live proof remains V-006/V-009."
+        "T-ASSETS-032",
+        "T-ASSETS-034",
+        "T-ASSETS-035",
+        "T-ASSETS-036",
+        "B-1014",
+        "B-1015",
+        "B-1016",
+        "context/evidence/2026-08-10-wave11-pdeffect-production-runtime.md",
+        ".claude/session-builds/tassets034/wave11-final2-t034-focused.log",
+        ".claude/session-builds/tassets034/wave11-final2-t035-focused.log",
+        ".claude/session-builds/tassets034/wave11-final2-t036-focused.log",
+        ".claude/session-builds/tassets034/wave11-final2-full-suite.log",
+        ".claude/session-builds/tassets034/wave11-final2-conformance-selftest.log",
+        ".claude/session-builds/tassets034/wave11-final2-conformance-27-family.log",
+        ".claude/session-builds/tassets034/wave11-final2-native-source-guard.log"
       ],
       "id": "T-ASSETS-019",
-      "updated": "2026-08-09T02:02:58.995Z",
+      "updated": "2026-08-11T01:31:35.446Z",
       "created": "2026-08-08T17:00:38.156Z",
       "model": "gpt-5.6-sol"
     },
@@ -4077,7 +4079,7 @@
       "type": "task",
       "area": "ASSETS",
       "title": "Build the v1 .pdeffect scheduler and production dispatch foundation",
-      "status": "partial",
+      "status": "implemented",
       "phase": 3,
       "deps": [
         "T-ASSETS-018",
@@ -4086,15 +4088,19 @@
       ],
       "owner": "codex-roadmap-continuation-20260808",
       "evidence": [
-        "port/include/effect_graph_runtime.h: permanent exact nine-slot typed dispatch transaction contract",
-        "port/src/effect_graph_runtime.c: live activation schedule/coverage validation plus fail-closed dispatch API foundation",
-        "tests/test_effect_graph_scheduler.cpp: 67 assertions/6 cases covering all-kind order, omission, rollback, activation rejection, and corrupt schedules",
-        "context/evidence/2026-08-08-t-assets-032-v1-scheduler.md: supporting source-frozen receipt; client/updater/tests, effect 638/21, full 52,718/943, conformance and guard PASS",
-        "No production invocation of effectGraphRuntimeDispatch exists yet; T-ASSETS-034/035/036 own concrete consumers and callsites",
-        ".claude/session-builds/wave9final/wave9-t032.log",
-        ".claude/session-builds/wave9final/wave9-full.log"
+        "port/src/effect_graph_runtime.c",
+        "port/src/effect_instance_runtime.c",
+        "tests/test_effect_graph_scheduler.cpp",
+        "context/evidence/2026-08-10-wave11-pdeffect-production-runtime.md",
+        ".claude/session-builds/tassets034/wave11-final2-t034-focused.log",
+        ".claude/session-builds/tassets034/wave11-final2-t035-focused.log",
+        ".claude/session-builds/tassets034/wave11-final2-t036-focused.log",
+        ".claude/session-builds/tassets034/wave11-final2-full-suite.log",
+        ".claude/session-builds/tassets034/wave11-final2-conformance-selftest.log",
+        ".claude/session-builds/tassets034/wave11-final2-conformance-27-family.log",
+        ".claude/session-builds/tassets034/wave11-final2-native-source-guard.log"
       ],
-      "detail": "Under decided D-002 Option A, B-1011 has a verified partial generic v1 scheduler foundation. Every accepted opcode maps to one permanent typed slot; public activation revalidates a complete dependency-respecting schedule; dispatch preflights the complete handler set before a deterministic begin/commit/rollback transaction. The authoritative Wave9 receipt passes T032 67/6, full 52,721/943, all-target builds, all-family conformance, guard, and diff check. This is not implemented production execution: no gameplay caller invokes the dispatch API. T-ASSETS-034 owns gameplay/audio handlers and callsites, T-ASSETS-035 renderer/presentation, and T-ASSETS-036 timelines/contexts/targets/lifetime.",
+      "detail": "Implemented production v1 scheduler/dispatch foundation. Every accepted opcode maps to the strict typed schedule; activation rejects incomplete or unsupported programs; effect_instance_runtime now invokes effectGraphRuntimeDispatch from the live level tick and selected prop detonation paths through one multi-consumer begin/stage/prepare/commit transaction. T-ASSETS-034/035/036 supply all gameplay/audio/presentation/timeline/context/target/lifetime handlers. The final Wave11 receipt passes focused T034 149/11, T035 184/8, T036 525/13, full 54,175/980, client/updater/tests builds, recursive all-family conformance, native-source guard, diff check, and stable 42-file production/test fingerprint. Live edited-source proof remains V-009.",
       "tags": [
         "asset-family:pdeffect",
         "production-path",
@@ -4102,7 +4108,7 @@
         "handoff:ultra"
       ],
       "id": "T-ASSETS-032",
-      "updated": "2026-08-09T01:30:45.711Z",
+      "updated": "2026-08-11T01:31:35.460Z",
       "created": "2026-08-08T23:50:39.873Z",
       "model": "gpt-5.6-sol"
     },
@@ -4123,7 +4129,7 @@
         "Local scanner preflights/reserves edges before publishing and snapshots/restores prior catalog row; nested weapon effects register child-owned and parent-hoisted typed edges before activation.",
         "Base loader registers bundled typed edges and the generic iterative activation plan validates type/cycle/DAG closure before ordered load; typed lifecycle includes bundled while manifest iteration filters it.",
         "Direct file and archive-qualified VFS loading track malloc versus sysMem ownership.",
-        "T-ASSETS-037 owns the remaining fixed 64 nested-media archive ceiling; generic v1 consumer surfaces remain T-ASSETS-034/035/036 and D-002.",
+        "T-ASSETS-037 implements growable nested-media ingress; T-ASSETS-032/034/035/036 now implement generic v1 production consumers. V-009 retains live edited-source/peer validation.",
         "B-1013: growable exact typed-root ledger records load/retain/release and stage ownership; reverse invalidation preflights every active root closure and retires exact overlapping/diamond owner counts without inferring from aggregate child refs.",
         "Disable/replacement leaves invalid parents pending and unreachable; re-enable/completed replacement reloads only through a full dependency-first transaction, with failed reload rollback.",
         "Successful pdeffect replacement prunes stale prior typed edges to exact current public source; rejection restores prior row/edges and reloads restored owners. Base, loose/local, nested pdmod/weapon, and received-network ingress converge on the typed scanner path.",
@@ -4145,7 +4151,7 @@
         "handoff:ultra"
       ],
       "id": "T-ASSETS-033",
-      "updated": "2026-08-09T02:37:18.711Z",
+      "updated": "2026-08-11T01:27:27.230Z",
       "created": "2026-08-08T23:50:40.199Z",
       "model": "gpt-5.6-sol"
     },
@@ -4181,15 +4187,32 @@
       "type": "task",
       "area": "ASSETS",
       "title": "Dispatch v1 .pdeffect gameplay emitters and catalog audio",
-      "status": "missing",
+      "status": "implemented",
       "phase": 3,
       "deps": [
         "T-ASSETS-032",
         "T-ASSETS-033"
       ],
-      "owner": null,
-      "evidence": [],
-      "detail": "Execute supported effect.explosion, effect.spark, effect.smoke, particle/emitter and catalog-SFX nodes at real gameplay callsites. Honor stable graph order, suppress unresolved selected source, own typed dependencies, and prove no duplicate native action.",
+      "owner": "codex-roadmap-continuation-20260808",
+      "evidence": [
+        "port/include/effect_gameplay_runtime.h",
+        "port/src/effect_gameplay_runtime.c",
+        "src/game/propobj.c",
+        "src/game/explosions.c",
+        "src/game/smoke.c",
+        "src/game/sparks_custom.c",
+        "tests/test_effect_gameplay_runtime.cpp",
+        "B-1015",
+        "context/evidence/2026-08-10-wave11-pdeffect-production-runtime.md",
+        ".claude/session-builds/tassets034/wave11-final2-t034-focused.log",
+        ".claude/session-builds/tassets034/wave11-final2-t035-focused.log",
+        ".claude/session-builds/tassets034/wave11-final2-t036-focused.log",
+        ".claude/session-builds/tassets034/wave11-final2-full-suite.log",
+        ".claude/session-builds/tassets034/wave11-final2-conformance-selftest.log",
+        ".claude/session-builds/tassets034/wave11-final2-conformance-27-family.log",
+        ".claude/session-builds/tassets034/wave11-final2-native-source-guard.log"
+      ],
+      "detail": "Implemented production v1 gameplay/audio dispatch. Explosion, spark, smoke, source-backed particles, and typed catalog SFX stage through the shared instance transaction; prepare revalidates resources and aggregate native capacity; commit is synchronous; failure rolls back before any sibling lane publishes. Selected prop/projectile callsites use the facade, exact attached-parent/scorch geometry is preserved, delayed duplicate explosion audio is suppressed, particle executions remain distinct, spark reservations checkpoint/rollback, and unsupported lossy smoke aliases fail closed. Live edited-source and network behavior proof remains V-009.",
       "tags": [
         "asset-family:pdeffect",
         "gameplay",
@@ -4197,22 +4220,40 @@
         "handoff:ultra"
       ],
       "id": "T-ASSETS-034",
-      "updated": "2026-08-09T00:24:07.212Z",
-      "created": "2026-08-09T00:09:08.039Z"
+      "updated": "2026-08-11T01:31:35.470Z",
+      "created": "2026-08-09T00:09:08.039Z",
+      "model": "gpt-5.6-sol"
     },
     {
       "type": "task",
       "area": "ASSETS",
       "title": "Dispatch v1 .pdeffect renderer and presentation channels",
-      "status": "missing",
+      "status": "implemented",
       "phase": 3,
       "deps": [
         "T-ASSETS-032",
         "T-ASSETS-033"
       ],
-      "owner": null,
-      "evidence": [],
-      "detail": "Connect supported tint/glow/shimmer/darken/screen/particle outputs to real renderer targets, material/texture runtime bindings, postprocess, lights, decals and beams. Reject any node without a truthful engine consumer; edited source must visibly change production rendering.",
+      "owner": "codex-roadmap-continuation-20260808",
+      "evidence": [
+        "port/include/effect_presentation_runtime.h",
+        "port/src/effect_presentation_runtime.c",
+        "src/include/game/effect_presentation_renderer.h",
+        "src/game/effect_presentation_renderer.c",
+        "port/fast3d/pdgui_backend.cpp",
+        "src/game/lv.c",
+        "tests/test_effect_presentation_runtime.cpp",
+        "B-1014",
+        "context/evidence/2026-08-10-wave11-pdeffect-production-runtime.md",
+        ".claude/session-builds/tassets034/wave11-final2-t034-focused.log",
+        ".claude/session-builds/tassets034/wave11-final2-t035-focused.log",
+        ".claude/session-builds/tassets034/wave11-final2-t036-focused.log",
+        ".claude/session-builds/tassets034/wave11-final2-full-suite.log",
+        ".claude/session-builds/tassets034/wave11-final2-conformance-selftest.log",
+        ".claude/session-builds/tassets034/wave11-final2-conformance-27-family.log",
+        ".claude/session-builds/tassets034/wave11-final2-native-source-guard.log"
+      ],
+      "detail": "Implemented production v1 presentation dispatch. Growable immutable screen, world-decal, room-light/halo, beam, and source-textured particle commands participate in the same global transaction as gameplay/audio. Exact target/attachment/spatial/room state is copied without retaining props; material, texture, shader, tint, size, glow, speed, width, priority, timeline intensity, UV, and lifecycle fields reach real ImGui/GBI/world render paths. Missing, wrong, disabled, replaced, or unsupported resources and field combinations fail closed before commit. Live edited-source visual proof remains V-009.",
       "tags": [
         "asset-family:pdeffect",
         "renderer",
@@ -4221,22 +4262,40 @@
         "handoff:ultra"
       ],
       "id": "T-ASSETS-035",
-      "updated": "2026-08-09T00:24:07.219Z",
-      "created": "2026-08-09T00:09:08.326Z"
+      "updated": "2026-08-11T01:31:35.476Z",
+      "created": "2026-08-09T00:09:08.326Z",
+      "model": "gpt-5.6-sol"
     },
     {
       "type": "task",
       "area": "ASSETS",
       "title": "Apply v1 .pdeffect timelines contexts targets and lifetime policy",
-      "status": "missing",
+      "status": "implemented",
       "phase": 3,
       "deps": [
         "T-ASSETS-032",
         "T-ASSETS-033"
       ],
-      "owner": null,
-      "evidence": [],
-      "detail": "Drive timeline sampling and node execution with shared contexts, authored target/attachment, lifetime, priority, subgraph/export topology and cleanup. Prove target ownership and deterministic expiry across gameplay and renderer consumers.",
+      "owner": "codex-roadmap-continuation-20260808",
+      "evidence": [
+        "port/include/effect_instance_runtime.h",
+        "port/src/effect_instance_runtime.c",
+        "port/include/weapon_graph_runtime.h",
+        "port/src/weapon_graph_runtime.c",
+        "src/game/lv.c",
+        "src/game/prop.c",
+        "tests/test_effect_instance_runtime.cpp",
+        "B-1016",
+        "context/evidence/2026-08-10-wave11-pdeffect-production-runtime.md",
+        ".claude/session-builds/tassets034/wave11-final2-t034-focused.log",
+        ".claude/session-builds/tassets034/wave11-final2-t035-focused.log",
+        ".claude/session-builds/tassets034/wave11-final2-t036-focused.log",
+        ".claude/session-builds/tassets034/wave11-final2-full-suite.log",
+        ".claude/session-builds/tassets034/wave11-final2-conformance-selftest.log",
+        ".claude/session-builds/tassets034/wave11-final2-conformance-27-family.log",
+        ".claude/session-builds/tassets034/wave11-final2-native-source-guard.log"
+      ],
+      "detail": "Implemented production v1 orchestration. Growable monotonic-ID instances select topology, named contexts, subgraphs, and exports; resolve supported source/target/world/player/prop/position aliases; sample the sole consumed timeline property intensity; enforce attachment/lifetime/priority semantics; and cancel on source, stage, level, or entity teardown before pointer reuse. Public compiler/editor context, export, and subgraph storage is growable. A canonical 67-row per-opcode schema rejects unknown, mistyped, unsupported, numeric-audio, and behaviorally inert fields at activation. Live edited-source lifecycle proof remains V-009.",
       "tags": [
         "asset-family:pdeffect",
         "timeline",
@@ -4245,8 +4304,9 @@
         "handoff:ultra"
       ],
       "id": "T-ASSETS-036",
-      "updated": "2026-08-09T00:24:07.232Z",
-      "created": "2026-08-09T00:09:08.614Z"
+      "updated": "2026-08-11T01:31:35.486Z",
+      "created": "2026-08-09T00:09:08.614Z",
+      "model": "gpt-5.6-sol"
     },
     {
       "type": "decision",

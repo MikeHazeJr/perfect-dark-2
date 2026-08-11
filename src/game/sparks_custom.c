@@ -142,6 +142,18 @@ s32 sparksRegisterCustomTintedType(u32 color1, u32 color2)
 	return sparksRegisterCustomType(&row);
 }
 
+s32 sparksCustomTypeCheckpoint(void)
+{
+	return s_NumCustomSparkTypes;
+}
+
+void sparksRollbackCustomTypes(s32 checkpoint)
+{
+	if (checkpoint >= 0 && checkpoint <= s_NumCustomSparkTypes) {
+		s_NumCustomSparkTypes = checkpoint;
+	}
+}
+
 void sparksResetCustomTypes(void)
 {
 	free(s_CustomSparkTypes);

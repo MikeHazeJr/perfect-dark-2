@@ -973,14 +973,16 @@ void pdguiWeaponGraphModelReset(PdWeaponGraphEditModel *model,
 		int context_count)
 {
 	if (!model) return;
-	memset(model, 0, sizeof(*model));
+	*model = PdWeaponGraphEditModel{};
 	model->primary_export = -1;
 	model->secondary_export = -1;
 	model->selected_node = -1;
 	model->selected_edge = -1;
 	model->next_editor_id = 1;
-	for (int i = 0; i < context_count && i < WEAPON_GRAPH_IR_MAX_CONTEXTS; i++) {
-		model->context_enabled[i] = contexts ? contexts[i].default_enabled : false;
+	model->context_enabled.resize(context_count > 0 ? (size_t)context_count : 0);
+	for (int i = 0; i < context_count; i++) {
+		model->context_enabled[(size_t)i] =
+			contexts ? contexts[i].default_enabled : false;
 	}
 }
 
@@ -1010,9 +1012,8 @@ bool pdguiWeaponGraphModelLoadJson(PdWeaponGraphEditModel *model,
 		return false;
 	}
 	pdguiWeaponGraphModelReset(model, contexts, context_count);
-	for (int i = 0; i < WEAPON_GRAPH_IR_MAX_CONTEXTS; i++) {
-		model->context_enabled[i] = false;
-	}
+	model->context_enabled.assign(context_count > 0 ? (size_t)context_count : 0,
+		false);
 	if (root.contains("shared_context") && root["shared_context"].is_array()) {
 		const auto &items = root["shared_context"].get<crude_json::array>();
 		for (const auto &item : items) {
@@ -1023,7 +1024,7 @@ bool pdguiWeaponGraphModelLoadJson(PdWeaponGraphEditModel *model,
 			const std::string &name = item["name"].get<crude_json::string>();
 			for (int i = 0; i < context_count; i++) {
 				if (contexts && name == contexts[i].name) {
-					model->context_enabled[i] = true;
+					model->context_enabled[(size_t)i] = true;
 				}
 			}
 		}

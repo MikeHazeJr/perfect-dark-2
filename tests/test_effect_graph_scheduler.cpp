@@ -71,7 +71,8 @@ const std::string kAllKindsGraph =
 	"{\"id\":\"shimmer\",\"kind\":\"effect.shimmer\",\"params\":{}},"
 	"{\"id\":\"darken\",\"kind\":\"effect.darken\",\"params\":{}},"
 	"{\"id\":\"screen\",\"kind\":\"effect.screen\",\"params\":{}},"
-	"{\"id\":\"particle\",\"kind\":\"effect.particle\",\"params\":{}}],"
+	"{\"id\":\"particle\",\"kind\":\"effect.particle\","
+	"\"params\":{\"texture_ref\":\"modx:test_texture\"}}],"
 	"\"edges\":[{\"from\":\"explosion\",\"to\":\"spark\"},"
 	"{\"from\":\"spark\",\"to\":\"smoke\"}]}";
 

@@ -34,6 +34,7 @@
 #include "game/challenge.h"
 #include "game/chrmgr.h"
 #include "game/env.h"
+#include "game/effect_presentation_renderer.h"
 #include "game/gfxmemory.h"
 #include "game/gunfx.h"
 #include "game/hudmsg.h"
@@ -56,6 +57,7 @@
 #include "game/mplayer/setup.h"
 #include "game/music.h"
 #include "modmusic.h"
+#include "effect_instance_runtime.h"
 #include "pdgui_charpreview.h"
 #include "game/nbomb.h"
 #include "game/objectives.h"
@@ -425,6 +427,9 @@ void lvUpdateMiscSfx(void)
 void lvReset(s32 stagenum)
 {
 	s32 i;
+	/* Stage-lifetime public effects cannot carry target/context state across
+	 * teardown or catalog diff activation. */
+	effectInstanceRuntimeClearAll();
 
 	/* Invalid stagenum (e.g. 0x00) must never reach bg/setup/catalog paths. */
 	stagenum = stageSanitizeLoadStagenum(stagenum);
@@ -1821,11 +1826,13 @@ Gfx *lvRender(Gfx *gdl)
 
 				propsTestForPickup();
 
+				effectPresentationApplyLights();
 				gdl = bgRender(gdl);
 				chr0f028498(var80075d68 == 15 || g_AnimHostEnabled);
 				gdl = propsRenderBeams(gdl);
 				gdl = shardsRender(gdl);
 				gdl = sparksRender(gdl);
+				gdl = effectPresentationRenderWorld(gdl);
 				gdl = weatherRender(gdl);
 
 				if (g_NbombsActive) {
@@ -2870,6 +2877,9 @@ void lvTick(void)
 		casingsTick();
 		shardsTick();
 		sparksTick();
+		/* Public .pdeffect time is real gameplay time in seconds. Paused frames
+		 * naturally pass zero and do not advance retained instances. */
+		effectInstanceRuntimeTick(g_Vars.lvupdate60freal / 60.0f);
 		wallhitsTick();
 		splatsTick();
 
@@ -2979,6 +2989,7 @@ void lvTickPlayer(void)
 
 void lvStop(void)
 {
+	effectInstanceRuntimeClearAll();
 	paksStop(true);
 
 	if (g_MiscAudioHandle && sndGetState(g_MiscAudioHandle)) {

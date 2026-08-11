@@ -5,6 +5,11 @@
 
 ## Highlights
 
+- Made generic public effect graphs drive real gameplay, catalog audio, screen
+  and world presentation, timelines, targets, attachments, and cleanup through
+  one rollback-safe transaction.
+- Rejected unsupported or inert effect fields at load time instead of silently
+  retaining creator settings the game would not use.
 - Kept received mod files transactional through catalog admission, restoring
   the prior installed content when a typed asset is rejected after extraction.
 - Added fail-closed typed scheduling for every accepted public v1 effect node,

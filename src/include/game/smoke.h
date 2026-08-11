@@ -12,6 +12,11 @@ const struct smoketype *smokeTypeFor(s32 type);
 void smokesSetProfileOverride(const struct smoketype *rows, s32 count);
 void smokesClearProfileOverride(void);
 
+/* PC growable-pool setup and synchronous transaction reservation. Reservation
+ * performs allocation only; it does not publish smoke or evict a live row. */
+void smokesSetupPool(s32 count);
+s32 smokesReserveCreateCount(s32 count);
+
 void smokesInit(void);
 
 void smokeReset(void);

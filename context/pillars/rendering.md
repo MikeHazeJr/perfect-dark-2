@@ -2,6 +2,21 @@
 
 > fast3d: N64 GBI display lists translated at runtime to OpenGL. Function-pointer-table backend abstraction (`GfxRenderingAPI` + `GfxWindowManagerAPI`). Dear ImGui v1.91.8 overlay through the same SDL2 + OpenGL context. Theme system decodes ROM textures to RGBA32 and uploads as GL textures.
 
+## 2026-08-10 public `.pdeffect` presentation
+
+Generic v1 public effects now publish immutable growable presentation commands
+inside the same all-or-nothing transaction as gameplay and audio. Supported
+channels are catalog-textured screen passes, world decals, room-light plus
+additive halos, source-to-target beams, and source-textured multi-particles.
+Target, attachment, spatial/room, tint, secondary tint, material shading,
+roughness, metallic, emissive, texture/UV, fixed shader, size, glow, speed,
+width, priority, lifetime, and sampled intensity are copied into production
+renderer state. Missing, disabled, replaced, wrong-typed, or unsupported
+resources fail before commit; presentation retains no raw prop pointers.
+Automated Wave11 evidence is in
+`context/evidence/2026-08-10-wave11-pdeffect-production-runtime.md`; live
+edited-source visual proof remains Workbench `V-009`.
+
 ## 2026-08-08 catalog weapon reticles
 
 Public `.pdweapon` presentation can now select an embedded `.pdui` by catalog

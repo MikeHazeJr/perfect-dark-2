@@ -91,6 +91,10 @@ _Static_assert(ARRAYCOUNT(g_ExplosionTypes) == EXPLOSIONTYPE_BASE_COUNT,
 
 static struct explosiontype s_ExplosionProfileOverride[EXPLOSIONTYPE_BASE_COUNT];
 static bool s_HasExplosionProfileOverride;
+static bool explosionCreateInternal(struct prop *sourceprop,
+	struct coord *exppos, RoomNum *exprooms, s16 type, s32 playernum,
+	bool makescorch, struct coord *arg6, RoomNum room, struct coord *arg8,
+	s16 effect_soundnum);
 
 const struct explosiontype *explosionTypeFor(s32 type)
 {
@@ -117,10 +121,17 @@ void explosionsClearProfileOverride(void)
 
 bool explosionCreateSimple(struct prop *prop, struct coord *pos, RoomNum *rooms, s16 type, s32 playernum)
 {
-	return explosionCreate(prop, pos, rooms, type, playernum, false, NULL, 0, NULL);
+	return explosionCreateInternal(prop, pos, rooms, type, playernum, false,
+		NULL, 0, NULL, -1);
 }
 
 bool explosionCreateComplex(struct prop *prop, struct coord *pos, RoomNum *rooms, s16 type, s32 playernum)
+{
+	return explosionCreateComplexWithSound(prop, pos, rooms, type, playernum, -1);
+}
+
+bool explosionCreateComplexWithSound(struct prop *prop, struct coord *pos,
+	RoomNum *rooms, s16 type, s32 playernum, s16 soundnum)
 {
 	struct coord sp100;
 	struct coord sp88;
@@ -153,7 +164,8 @@ bool explosionCreateComplex(struct prop *prop, struct coord *pos, RoomNum *rooms
 		makescorch = false;
 	}
 
-	return explosionCreate(prop, pos, rooms, type, playernum, makescorch, &sp100, room, &sp88);
+	return explosionCreateInternal(prop, pos, rooms, type, playernum,
+		makescorch, &sp100, room, &sp88, soundnum);
 }
 
 f32 explosionGetHorizontalRangeAtFrame(struct explosion *exp, s32 frame)
@@ -312,8 +324,41 @@ static s32 explosionGrowSlots(void)
 	return first;
 }
 
-bool explosionCreate(struct prop *sourceprop, struct coord *exppos, RoomNum *exprooms,
-		s16 type, s32 playernum, bool makescorch, struct coord *arg6, RoomNum room, struct coord *arg8)
+s32 explosionsReserveCreateCount(s32 count)
+{
+	s32 freecount;
+	s32 i;
+
+	if (count < 0) {
+		return 0;
+	}
+	if (count == 0) {
+		return 1;
+	}
+	if (!g_Explosions || g_MaxExplosions < 0) {
+		return 0;
+	}
+
+	for (;;) {
+		freecount = 0;
+		for (i = 0; i < g_MaxExplosions; i++) {
+			if (g_Explosions[i].prop == NULL) {
+				freecount++;
+			}
+		}
+		if (freecount >= count) {
+			return 1;
+		}
+		if (explosionGrowSlots() < 0) {
+			return 0;
+		}
+	}
+}
+
+static bool explosionCreateInternal(struct prop *sourceprop,
+		struct coord *exppos, RoomNum *exprooms, s16 type, s32 playernum,
+		bool makescorch, struct coord *arg6, RoomNum room, struct coord *arg8,
+		s16 effect_soundnum)
 {
 	u32 stack;
 	struct explosion *exp = NULL;
@@ -435,6 +480,7 @@ bool explosionCreate(struct prop *sourceprop, struct coord *exppos, RoomNum *exp
 			exp->age = 0;
 			exp->makescorch = makescorch;
 			exp->owner = playernum;
+			exp->effect_soundnum = effect_soundnum;
 
 			if (type != EXPLOSIONTYPE_BULLETHOLE && type != EXPLOSIONTYPE_PHOENIX) {
 				propSetDangerous(expprop);
@@ -633,6 +679,23 @@ bool explosionCreate(struct prop *sourceprop, struct coord *exppos, RoomNum *exp
 	}
 
 	return exp != NULL;
+}
+
+bool explosionCreate(struct prop *sourceprop, struct coord *exppos,
+		RoomNum *exprooms, s16 type, s32 playernum, bool makescorch,
+		struct coord *arg6, RoomNum room, struct coord *arg8)
+{
+	return explosionCreateInternal(sourceprop, exppos, exprooms, type,
+		playernum, makescorch, arg6, room, arg8, -1);
+}
+
+bool explosionCreateWithSound(struct prop *sourceprop, struct coord *exppos,
+		RoomNum *exprooms, s16 type, s32 playernum, bool makescorch,
+		struct coord *scorchpos, RoomNum scorchroom, struct coord *scorchdir,
+		s16 soundnum)
+{
+	return explosionCreateInternal(sourceprop, exppos, exprooms, type,
+		playernum, makescorch, scorchpos, scorchroom, scorchdir, soundnum);
 }
 
 /**
@@ -1264,7 +1327,13 @@ u32 explosionTick(struct prop *prop)
 
 	// Play boom sound if this is the first frame
 	if (exp->age == 0) {
-		psCreate(NULL, NULL, type->sound, -1, -1, 0, 0, PSTYPE_NONE, &exp->prop->pos, -1.0f, exp->prop->rooms, -1, -1.0f, -1.0f, -1.0f);
+		s16 soundnum = exp->effect_soundnum >= 0
+			? exp->effect_soundnum : (s16)type->sound;
+		if (soundnum > 0) {
+			psCreate(NULL, NULL, soundnum, -1, -1, 0, 0, PSTYPE_NONE,
+				&exp->prop->pos, -1.0f, exp->prop->rooms, -1,
+				-1.0f, -1.0f, -1.0f);
+		}
 	}
 
 	for (k = 0; k < (s32)lvupdate; k++) {

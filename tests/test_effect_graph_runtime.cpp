@@ -123,7 +123,7 @@ std::string baseEffectGraph(const std::string &schema, const std::string &id,
 		"  \"effect\": \"" + typeKey + "\",\n"
 		"  \"target\": \"scene\",\n"
 		"  \"nodes\": [\n"
-		"    { \"id\": \"apply\", \"kind\": \"effect." + typeKey + "\", \"params\": { \"shader\": \"shader_" + typeKey + "\", \"intensity\": 0.500 } }\n"
+		"    { \"id\": \"apply\", \"kind\": \"effect." + typeKey + "\", \"params\": { \"shader\": \"classic_" + typeKey + "\", \"intensity\": 0.500 } }\n"
 		"  ],\n"
 		"  \"edges\": []\n"
 		"}\n";
@@ -351,8 +351,6 @@ TEST_CASE("effect smoke nodes map to the nearest existing SMOKETYPE row",
 		{ "small", SMOKETYPE_SMALL },    /* 4 */
 		{ "medium", SMOKETYPE_MEDIUM },  /* 5 */
 		{ "large", SMOKETYPE_LARGE },    /* 6 */
-		{ "huge", SMOKETYPE_LARGE },     /* nearest: no bigger OG row */
-		{ "massive", SMOKETYPE_LARGE },  /* nearest: no bigger OG row */
 		{ "rocket_tail", SMOKETYPE_ROCKETTAIL },
 	};
 
@@ -371,18 +369,25 @@ TEST_CASE("effect smoke nodes map to the nearest existing SMOKETYPE row",
 		REQUIRE(record->smoke_type == c.expected);
 	}
 
-	/* Unknown class words stay unresolved (-1, bridge falls back). */
+	/* Unsupported and lossy class words fail activation; they do not enter a
+	 * catalog-visible record that a later callsite could silently coerce. */
 	const std::string unknown =
 		"{\"schema\":\"pd.effect_graph.v1\",\"asset_id\":\"modx:smoke_bogus\","
 		"\"nodes\":[{\"id\":\"s\",\"kind\":\"effect.smoke\","
 		"\"params\":{\"smoke_class\":\"volcanic\"}}],\"edges\":[]}";
 	REQUIRE(effectGraphRuntimeRegisterGraphJson("modx:smoke_bogus",
-		unknown.data(), static_cast<u32>(unknown.size()), err, sizeof(err)) == 0);
-	const effect_graph_runtime_t *record =
-		effectGraphRuntimeGet("modx:smoke_bogus");
-	REQUIRE(record != nullptr);
-	REQUIRE(record->has_smoke == 1);
-	REQUIRE(record->smoke_type == -1);
+		unknown.data(), static_cast<u32>(unknown.size()), err, sizeof(err)) != 0);
+	REQUIRE(effectGraphRuntimeGet("modx:smoke_bogus") == nullptr);
+	for (const char *lossy : { "huge", "massive" }) {
+		const std::string id = std::string("modx:smoke_") + lossy;
+		const std::string graph =
+			"{\"schema\":\"pd.effect_graph.v1\",\"asset_id\":\"" + id + "\","
+			"\"nodes\":[{\"id\":\"s\",\"kind\":\"effect.smoke\","
+			"\"params\":{\"smoke_class\":\"" + lossy + "\"}}],\"edges\":[]}";
+		std::memset(err, 0, sizeof(err));
+		REQUIRE(effectGraphRuntimeRegisterGraphJson(id.c_str(), graph.data(),
+			static_cast<u32>(graph.size()), err, sizeof(err)) != 0);
+	}
 
 	effectRuntimeTestReset();
 }
@@ -395,12 +400,19 @@ TEST_CASE("effect bridges gate on the runtime toggle and resolve registered reco
 	const std::string pink = pinkEffectGraph("modx:pink_fx");
 	REQUIRE(effectGraphRuntimeRegisterGraphJson("modx:pink_fx",
 		pink.data(), static_cast<u32>(pink.size()), err, sizeof(err)) == 0);
-	const std::string sound =
+	const std::string forbiddenSound =
 		"{\"schema\":\"pd.effect_graph.v1\",\"asset_id\":\"modx:boom_sound\","
 		"\"nodes\":[{\"id\":\"s\",\"kind\":\"effect.smoke\","
 		"\"params\":{\"smoke_class\":\"large\",\"sound\":345}}],\"edges\":[]}";
 	REQUIRE(effectGraphRuntimeRegisterGraphJson("modx:boom_sound",
-		sound.data(), static_cast<u32>(sound.size()), err, sizeof(err)) == 0);
+		forbiddenSound.data(), static_cast<u32>(forbiddenSound.size()),
+		err, sizeof(err)) != 0);
+	const std::string smoke =
+		"{\"schema\":\"pd.effect_graph.v1\",\"asset_id\":\"modx:boom_smoke\","
+		"\"nodes\":[{\"id\":\"s\",\"kind\":\"effect.smoke\","
+		"\"params\":{\"smoke_class\":\"large\"}}],\"edges\":[]}";
+	REQUIRE(effectGraphRuntimeRegisterGraphJson("modx:boom_smoke",
+		smoke.data(), static_cast<u32>(smoke.size()), err, sizeof(err)) == 0);
 
 	const effect_graph_runtime_t *pinkRecord =
 		effectGraphRuntimeGet("modx:pink_fx");
@@ -416,9 +428,9 @@ TEST_CASE("effect bridges gate on the runtime toggle and resolve registered reco
 		EFFECT_GRAPH_RESOLVE_FAILED);
 	REQUIRE(effectGraphResolveSparkType("modx:pink_fx", SPARKTYPE_PROJECTILE)
 		== EFFECT_GRAPH_RESOLVE_FAILED);
-	REQUIRE(effectGraphResolveSmokeType("modx:boom_sound", 8) ==
+	REQUIRE(effectGraphResolveSmokeType("modx:boom_smoke", 8) ==
 		EFFECT_GRAPH_RESOLVE_FAILED);
-	REQUIRE(effectGraphResolveSound("modx:boom_sound", 123) ==
+	REQUIRE(effectGraphResolveSound("modx:boom_smoke", 123) ==
 		EFFECT_GRAPH_RESOLVE_FAILED);
 
 	/* Toggle ON: registered refs resolve to the record values. */
@@ -428,8 +440,9 @@ TEST_CASE("effect bridges gate on the runtime toggle and resolve registered reco
 		== EXPLOSIONTYPE_EYESPY);
 	REQUIRE(effectGraphResolveSparkType("modx:pink_fx", SPARKTYPE_PROJECTILE)
 		== pinkSparkRow);
-	REQUIRE(effectGraphResolveSmokeType("modx:boom_sound", 8) == SMOKETYPE_LARGE);
-	REQUIRE(effectGraphResolveSound("modx:boom_sound", 123) == 345);
+	REQUIRE(effectGraphResolveSmokeType("modx:boom_smoke", 8) == SMOKETYPE_LARGE);
+	REQUIRE(effectGraphResolveSound("modx:boom_smoke", 123) ==
+		EFFECT_GRAPH_RESOLVE_FAILED);
 
 	/* Toggle ON: unresolved selected refs and records missing the selected
 	 * channel fail closed. Empty refs remain unauthored defaults. Base profile
@@ -484,6 +497,9 @@ TEST_CASE("effect archives register through descriptor and nested weapon walks",
 		effectArchive.path.string().c_str(), err, sizeof(err)) == 0);
 	const effect_graph_runtime_t *record = effectGraphRuntimeGet("modx:pink_fx");
 	REQUIRE(record != nullptr);
+	REQUIRE(std::string(record->effect_key) == "explosion");
+	REQUIRE(std::string(record->target_key) == "world");
+	REQUIRE(record->descriptor_intensity == Approx(1.0f));
 	REQUIRE(record->explosion_type == EXPLOSIONTYPE_EYESPY);
 	REQUIRE(record->spark_type >= kSparkBaseCount);
 
@@ -558,6 +574,20 @@ TEST_CASE("effect archives register through descriptor and nested weapon walks",
 	effectRuntimeTestReset();
 }
 
+TEST_CASE("effect_key is wired as catalog classification on local and network ingestion",
+	"[modding][pdxxx][effect_graph][t-assets-036][descriptor]") {
+	const std::string scanner = readFile("port/src/assetcatalog_scanner.c");
+	const std::string runtime = readFile("port/src/asset_runtime.c");
+	const std::string network = readFile("port/src/net/netdistrib.c");
+	REQUIRE(scanner.find("iniGet(ini, \"effect_key\"") != std::string::npos);
+	REQUIRE(scanner.find("e->ext.effect.effect_type = parseEffectTypeKeyValue") !=
+		std::string::npos);
+	REQUIRE(runtime.find("binding->kind = entry->ext.effect.effect_type") !=
+		std::string::npos);
+	REQUIRE(network.find("e->ext.effect.effect_type =") != std::string::npos);
+	REQUIRE(network.find("iniGet(ini, \"effect_key\"") != std::string::npos);
+}
+
 TEST_CASE("effect activation owners are transactional and shared by source identity",
 		  "[modding][pdxxx][effect_graph][t-assets-020][fail-closed]") {
 	effectRuntimeTestReset();
@@ -621,10 +651,10 @@ TEST_CASE("effect activation owners are transactional and shared by source ident
 		"timeline_file = timeline.json\n";
 	const std::string timelineA =
 		"{\"schema\":\"pd2.effect.timeline.v1\",\"tracks\":["
-		"{\"time\":0,\"property\":\"alpha\",\"value\":0.25}]}";
+		"{\"time\":0,\"property\":\"intensity\",\"value\":0.25}]}";
 	const std::string timelineB =
 		"{\"schema\":\"pd2.effect.timeline.v1\",\"tracks\":["
-		"{\"time\":0,\"property\":\"alpha\",\"value\":0.75}]}";
+		"{\"time\":0,\"property\":\"intensity\",\"value\":0.75}]}";
 	auto timedA = writeTypedArchiveEntries("effect-owner-timeline-a", ".pdeffect", {
 		{ "effect.ini", timelineIni }, { "effect.graph.json", graph },
 		{ "timeline.json", timelineA },
@@ -727,8 +757,8 @@ TEST_CASE("effect program retains topology policy parameters and interpolated ti
 		"\"source\":\"target\",\"type\":\"vec3\",\"lifetime\":\"effect\"}],"
 		"\"nodes\":["
 		"{\"id\":\"attach\",\"kind\":\"effect.glow\",\"subgraph\":\"main\","
-		"\"params\":{\"target\":\"impact\",\"attachment\":\"surface\","
-		"\"lifetime\":1.5,\"priority\":7,\"dependency\":\"modx:material_glow\","
+		"\"params\":{\"target\":\"impact\",\"attachment\":\"point\","
+		"\"lifetime\":1.5,\"priority\":7,"
 		"\"intensity\":0.5}},"
 		"{\"id\":\"burst\",\"kind\":\"effect.explosion\",\"subgraph\":\"main\","
 		"\"params\":{\"explosion_class\":\"small\"}},"
@@ -742,8 +772,7 @@ TEST_CASE("effect program retains topology policy parameters and interpolated ti
 	const std::string timeline =
 		"{\"schema\":\"pd2.effect.timeline.v1\",\"tracks\":["
 		"{\"time\":0.0,\"property\":\"intensity\",\"value\":0.0},"
-		"{\"time\":0.25,\"property\":\"intensity\",\"value\":0.75},"
-		"{\"time\":0.0,\"property\":\"light.radius\",\"value\":2.0}]}";
+		"{\"time\":0.25,\"property\":\"intensity\",\"value\":0.75}]}";
 	const std::string descriptor =
 		"[effect]\n"
 		"catalog_id = modx:complete_fx\n"
@@ -770,13 +799,11 @@ TEST_CASE("effect program retains topology policy parameters and interpolated ti
 	REQUIRE(program.subgraph_count == 2);
 	REQUIRE(program.export_count == 1);
 	REQUIRE(program.param_count >= 7);
-	REQUIRE(program.timeline.count == 3);
+	REQUIRE(program.timeline.count == 2);
 	REQUIRE(program.timeline.keys[1].authored_order == 1);
 	float sampled = -1.0f;
 	REQUIRE(effectGraphProgramSample(&program, "intensity", 0.125f, &sampled) == 1);
 	REQUIRE(sampled == Approx(0.375f));
-	REQUIRE(effectGraphProgramSample(&program, "light.radius", 100.0f, &sampled) == 1);
-	REQUIRE(sampled == Approx(2.0f));
 	std::vector<std::string> execution;
 	effect_graph_dispatch_table_t dispatch = {};
 	dispatch.begin = dispatchBegin;
@@ -791,25 +818,42 @@ TEST_CASE("effect program retains topology policy parameters and interpolated ti
 	REQUIRE(execution == std::vector<std::string>{ "attach", "burst", "smoke" });
 
 	bool sawTarget = false, sawAttachment = false, sawLifetime = false;
-	bool sawPriority = false, sawDependency = false;
+	bool sawPriority = false;
 	for (s32 i = 0; i < program.param_count; i++) {
 		const std::string key = program.params[i].key;
 		sawTarget |= key == "target";
 		sawAttachment |= key == "attachment";
 		sawLifetime |= key == "lifetime";
 		sawPriority |= key == "priority";
-		sawDependency |= key == "dependency";
 	}
 	REQUIRE(sawTarget);
 	REQUIRE(sawAttachment);
 	REQUIRE(sawLifetime);
 	REQUIRE(sawPriority);
-	REQUIRE(sawDependency);
+
+	const std::string badTrackGraph =
+		"{\"schema\":\"pd.effect_graph.v1\",\"asset_id\":\"modx:bad_track\","
+		"\"nodes\":[{\"id\":\"g\",\"kind\":\"effect.glow\",\"params\":{}}],"
+		"\"edges\":[]}";
+	const std::string badTrack =
+		"{\"schema\":\"pd2.effect.timeline.v1\",\"tracks\":["
+		"{\"time\":0,\"property\":\"light.radius\",\"value\":2}]}";
+	auto badTrackArchive = writeTypedArchiveEntries("effect-bad-track", ".pdeffect", {
+		{ "effect.ini", "[effect]\ncatalog_id = modx:bad_track\nname = Bad Track\n"
+			"schema = pd.effect_graph.v1\neffect_file = effect.graph.json\n"
+			"timeline_file = timeline.json\n" },
+		{ "effect.graph.json", badTrackGraph }, { "timeline.json", badTrack },
+	});
+	std::memset(err, 0, sizeof(err));
+	REQUIRE(effectGraphRuntimeRegisterArchive(badTrackArchive.path.string().c_str(),
+		err, sizeof(err)) != 0);
+	REQUIRE(std::string(err).find("no production consumer") != std::string::npos);
+	REQUIRE(effectGraphRuntimeGet("modx:bad_track") == nullptr);
 	effectRuntimeTestReset();
 }
 
-TEST_CASE("effect archive supports graph-only timeline-only and combined programs",
-		"[modding][pdxxx][effect_graph][t-assets-018]") {
+TEST_CASE("effect archive accepts executable graph programs and rejects inert timeline-only source",
+		"[modding][pdxxx][effect_graph][t-assets-018][t-assets-036][fail-closed]") {
 	effectRuntimeTestReset();
 	char err[256] = {};
 	const std::string graph = baseEffectGraph("pd.effect_graph.v1",
@@ -835,15 +879,10 @@ TEST_CASE("effect archive supports graph-only timeline-only and combined program
 	});
 	INFO(err);
 	REQUIRE(effectGraphRuntimeRegisterArchive(timelineOnly.path.string().c_str(),
-		err, sizeof(err)) == 0);
-	const auto *timelineRecord = effectGraphRuntimeGet("modx:timeline_only");
-	REQUIRE(timelineRecord != nullptr);
-	REQUIRE(timelineRecord->program.kind == EFFECT_GRAPH_PROGRAM_TIMELINE);
-	REQUIRE(timelineRecord->program.node_count == 0);
-	float value = 0;
-	REQUIRE(effectGraphProgramSample(&timelineRecord->program, "alpha", 0.5f,
-		&value) == 1);
-	REQUIRE(value == Approx(0.625f));
+		err, sizeof(err)) != 0);
+	REQUIRE(std::string(err).find("requires an effect graph target") !=
+		std::string::npos);
+	REQUIRE(effectGraphRuntimeGet("modx:timeline_only") == nullptr);
 	effectRuntimeTestReset();
 }
 

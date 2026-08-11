@@ -17,10 +17,7 @@ extern "C" {
 
 #define WEAPON_GRAPH_IR_MAX_NODES   64
 #define WEAPON_GRAPH_IR_MAX_EDGES   128
-#define WEAPON_GRAPH_IR_MAX_EXPORTS 16
 #define WEAPON_GRAPH_IR_MAX_PARAMS  512
-#define WEAPON_GRAPH_IR_MAX_CONTEXTS 16
-#define WEAPON_GRAPH_IR_MAX_SUBGRAPHS 8
 #define WEAPON_GRAPH_IR_ID_LEN      64
 #define WEAPON_GRAPH_IR_KEY_LEN     64
 #define WEAPON_GRAPH_IR_VALUE_LEN   160
@@ -204,16 +201,19 @@ typedef struct weapon_graph_ir {
 	char source_sha256[SHA256_HEX_SIZE];
 	char ir_sha256[SHA256_HEX_SIZE];
 
-	weapon_graph_ir_context_t contexts[WEAPON_GRAPH_IR_MAX_CONTEXTS];
+	weapon_graph_ir_context_t *contexts;
 	s32 context_count;
+	size_t context_capacity;
 	weapon_graph_ir_node_t nodes[WEAPON_GRAPH_IR_MAX_NODES];
 	s32 node_count;
 	weapon_graph_ir_edge_t edges[WEAPON_GRAPH_IR_MAX_EDGES];
 	s32 edge_count;
-	weapon_graph_ir_export_t exports[WEAPON_GRAPH_IR_MAX_EXPORTS];
+	weapon_graph_ir_export_t *exports;
 	s32 export_count;
-	weapon_graph_ir_subgraph_t subgraphs[WEAPON_GRAPH_IR_MAX_SUBGRAPHS];
+	size_t export_capacity;
+	weapon_graph_ir_subgraph_t *subgraphs;
 	s32 subgraph_count;
+	size_t subgraph_capacity;
 	weapon_graph_ir_param_t params[WEAPON_GRAPH_IR_MAX_PARAMS];
 	s32 param_count;
 } weapon_graph_ir_t;
@@ -671,6 +671,7 @@ s32 weaponGraphValidateJson(asset_type_e graph_type, const char *json,
 s32 weaponGraphCompileJson(asset_type_e graph_type, const char *json,
                            u32 json_size, weapon_graph_ir_t *out,
                            char *err, size_t err_cap);
+void weaponGraphIrFree(weapon_graph_ir_t *ir);
 s32 weaponGraphCompileArchiveFile(const char *archive_path,
                                   asset_type_e graph_type,
                                   weapon_graph_ir_t *out,

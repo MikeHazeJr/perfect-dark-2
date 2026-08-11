@@ -4,32 +4,27 @@
 > [session-log.md](session-log.md). The Workbench is the durable live tracker.
 > Historical card detail remains in the retired Kanban archive and bug ledger.
 
-Last updated: 2026-08-08
+Last updated: 2026-08-10
 
-`T-ASSETS-019` has a verified partial production milestone. Public v2 profile
-libraries now apply all 26 explosion, 27 spark, and 23 smoke rows to the native
-tables read by gameplay, rendering, smoke, and audio; selected row IDs resolve
-only while their public owners are active. Strict growable dependency parsing
-registers exact typed smoke/SFX/material/texture edges before activation and
-rejects empty, null, malformed, aliased, wrong-node, or wrong-typed declarations.
-The authoritative Wave8 receipt passes client/updater/tests builds, T019 129/5,
-the effect band 571/15, and the full suite 52,416/932, plus all-family archive
-conformance and the native-source guard. T-ASSETS-037 now closes nested
-discovery/preflight omission above 64, while B-992/T-ASSETS-022 now removes the
-separate 64-slot custom-SFX playback ceiling with live 70-row proof. T019 remains
-`partial` for `T-ASSETS-032/034/035/036` and `V-009`; no generic v1 renderer,
-gameplay, timeline, or ordinary-game proof is inferred from the v2 adapter.
-Exact reverse invalidation is implemented under `T-ASSETS-033`/B-1013.
+`T-ASSETS-012/019/032/034/035/036` are implemented after the source-frozen
+Wave 11 receipt. Public v2 profile libraries still apply all 26 explosion, 27
+spark, and 23 smoke rows through exact typed ownership. Generic v1 programs now
+invoke the strict typed scheduler from production instance/prop paths and stage
+gameplay, catalog audio, screen/decal/light/beam/particle presentation, named
+contexts, targets, attachments, timeline intensity, priority, lifetime, and
+cleanup through one all-consumer transaction. Unknown, mistyped, unsupported,
+behaviorally inert, or unresolved fields reject before any lane commits.
 
-`T-ASSETS-032` has a verified partial scheduler foundation after B-1011.
-Every accepted v1 effect opcode now maps to one permanent typed dispatch slot;
-activation revalidates the complete dependency-respecting schedule, and runtime
-dispatch rejects missing handlers before a begin/commit/rollback transaction.
-The final combined Wave9 receipt passes client/updater/tests compilation,
-T032 67/6, full 52,721/943, conformance, and the native-source guard. This is
-not a production-consumer claim: no gameplay caller invokes the API yet.
-`T-ASSETS-034/035/036` still own gameplay/audio, renderer/presentation, and
-timeline/context/target/lifetime handlers and callsites.
+The final isolated receipt passes client/updater/tests compilation; T034
+149/11, T035 184/8, and T036 525/13; the complete 54,175-assertion/980-case
+suite; conformance self-test; 28-root/52-recursive all-27-family conformance;
+the native-source guard; diff check; and an unchanged 46-file fingerprint.
+`V-009` still owns ordinary installed-client edited-source and real-peer
+gameplay/render/audio/lifecycle proof, so implementation is not a validation
+claim. `V-006` retains induced negative transport/rollback proof. Exact reverse
+invalidation remains implemented under `T-ASSETS-033`/B-1013, growable nested
+ingress under `T-ASSETS-037`, and the separate runtime-capacity boundary under
+`T-ASSETS-022`/B-992.
 
 `T-ASSETS-020` is implemented, not validated, for strict selected
 and nested `.pdeffect` failure: nonempty unresolved references return failure,
@@ -75,9 +70,10 @@ topological order, ordered/interpolated timeline keys, and validated v2 native
 profile rows instead of flattening or accepting them as inert. Graph-only,
 timeline-only, and combined archives share one transactional registration
 boundary. The PC registries for effect records, custom spark rows, and embedded
-effect discovery are growable rather than capped at 64, 16, and 8. This does
-not claim T-ASSETS-019 production renderer/audio/gameplay execution or
-T-ASSETS-020 selected-source fallback closure. Focused T018 passes 5 cases / 251
+effect discovery are growable rather than capped at 64, 16, and 8. That scoped
+T018 receipt alone did not claim production consumers or selected-source
+closure; Wave8 T019/T020 and Wave11 T032/034/035/036 now provide those separate
+implementations. Focused T018 passes 5 cases / 251
 assertions; the adjacent effect-graph band passes 13 cases / 517 assertions;
 isolated client/updater/tests builds, the native-source guard, and strict
 27-family conformance pass. The final source-frozen combined suite also passes
@@ -320,9 +316,9 @@ prevents `_meta/manifest.json` from selecting effect/timeline source fields.
 Source-frozen client/updater/test builds pass; focused T017 passes 34 assertions
 / 5 cases, the legacy/nested archive regression passes 21 / 1, the full suite
 passes 48,155 / 900, and the native-source guard passes. T-ASSETS-018 and
-T-ASSETS-020 are now implemented, and T-ASSETS-019 has a verified partial v2
-profile/dependency milestone. Generic v1 dispatch and consumers remain explicit
-in T-ASSETS-032/034/035/036. T-ASSETS-037/B-1010 has an implemented growable
+T-ASSETS-020 are implemented, and T-ASSETS-019 now combines the verified v2
+profile/dependency milestone with implemented generic v1 dispatch and consumers
+from T-ASSETS-032/034/035/036. T-ASSETS-037/B-1010 has an implemented growable
 nested-ingress implementation and a recursive-conformance fixture with 70 SFX,
 two individually valid effects, 72 direct nested archives, and 70 aggregate
 effect-owned edges. The production-client capacity/rollback harness passes 2/2

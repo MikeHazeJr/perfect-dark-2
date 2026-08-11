@@ -67,6 +67,15 @@ typedef struct effect_graph_runtime {
 	char asset_id[CATALOG_ID_LEN];
 	char source_sha256[SHA256_HEX_SIZE];
 	char ir_sha256[SHA256_HEX_SIZE];
+	/* Normalized v1 descriptor semantics remain public authored metadata.
+	 * effect_key is catalog classification: scanner/network ingestion maps it
+	 * to ext.effect.effect_type and asset_runtime exposes it as binding.kind.
+	 * Executable topology remains graph-authored. target_key, shader_id, and
+	 * intensity are production defaults consumed by the instance lanes. */
+	char effect_key[64];
+	char target_key[64];
+	char shader_id[128];
+	f32 descriptor_intensity;
 
 	/* effect.explosion: class word -> existing EXPLOSIONTYPE_* index
 	 * (tiny->6, small->2, medium->11, large->13, huge->17, massive->25;

@@ -933,6 +933,9 @@ set(SRC_TESTS
   # sparks_custom.c is pure (table + constants + log); the base g_SparkTypes
   # table it indexes is provided by tests/stubs.c in this target.
   ${CMAKE_SOURCE_DIR}/port/src/effect_graph_runtime.c
+	${CMAKE_SOURCE_DIR}/port/src/effect_gameplay_runtime.c
+	${CMAKE_SOURCE_DIR}/port/src/effect_instance_runtime.c
+	${CMAKE_SOURCE_DIR}/port/src/effect_presentation_runtime.c
 	${CMAKE_SOURCE_DIR}/port/src/effect_executor.c
 	${CMAKE_SOURCE_DIR}/port/src/effect_dependencies.c
   ${CMAKE_SOURCE_DIR}/port/src/pdeffect_source.c
@@ -940,6 +943,9 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/src/game/sparks_custom.c
   ${CMAKE_SOURCE_DIR}/tests/test_effect_graph_runtime.cpp
 	${CMAKE_SOURCE_DIR}/tests/test_effect_graph_scheduler.cpp
+	${CMAKE_SOURCE_DIR}/tests/test_effect_gameplay_runtime.cpp
+	${CMAKE_SOURCE_DIR}/tests/test_effect_instance_runtime.cpp
+	${CMAKE_SOURCE_DIR}/tests/test_effect_presentation_runtime.cpp
 	${CMAKE_SOURCE_DIR}/tests/test_effect_executor.cpp
 	${CMAKE_SOURCE_DIR}/tests/test_effect_dependencies.cpp
 	${CMAKE_SOURCE_DIR}/tests/test_weapon_nested_capacity_static.cpp

@@ -1,15 +1,12 @@
 #include <ultra64.h>
 #include "constants.h"
 #include "bss.h"
-#include "lib/memp.h"
+#include "game/smoke.h"
 #include "data.h"
 #include "types.h"
 
 void smokeReset(void)
 {
-	s32 i;
-	s32 j;
-
 	g_MaxSmokes = 20;
 
 	if (STAGE_IS_SYSTEM(g_Vars.stagenum)) {
@@ -19,14 +16,7 @@ void smokeReset(void)
 	if (g_MaxSmokes == 0) {
 		g_Smokes = NULL;
 	} else {
-		g_Smokes = mempAlloc(g_MaxSmokes * sizeof(struct smoke), MEMPOOL_STAGE);
-
-		for (i = 0; i < g_MaxSmokes; i++) {
-			g_Smokes[i].prop = NULL;
-
-			for (j = 0; j < ARRAYCOUNT(g_Smokes[i].parts); j++) {
-				g_Smokes[i].parts[j].size = 0;
-			}
-		}
+		/* PC pointer-stable growable pool; initialization is owned by smoke.c. */
+		smokesSetupPool(g_MaxSmokes);
 	}
 }

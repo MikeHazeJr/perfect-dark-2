@@ -127,19 +127,25 @@ s32 propGraphRuntimeRegisterJson(const char *asset_id, const char *json,
 			err, err_cap) != 0) return -1;
 	if (!ir.asset_id[0] || strcmp(ir.asset_id, asset_id) != 0) {
 		setErr(err, err_cap, "prop graph asset_id does not match its catalog entry");
+		weaponGraphIrFree(&ir);
 		return -1;
 	}
 	if (ir.node_count == 0) {
 		setErr(err, err_cap, "prop graph must contain at least one executable node");
+		weaponGraphIrFree(&ir);
 		return -1;
 	}
 	for (s32 i = 0; i < ir.node_count; i++) {
-		if (!validateNode(&ir, &ir.nodes[i], err, err_cap)) return -1;
+		if (!validateNode(&ir, &ir.nodes[i], err, err_cap)) {
+			weaponGraphIrFree(&ir);
+			return -1;
+		}
 		if (ir.nodes[i].opcode == WEAPON_GRAPH_OP_PROP_EVENT_SPAWN ||
 				ir.nodes[i].opcode == WEAPON_GRAPH_OP_PROP_EVENT_TICK) has_event = 1;
 	}
 	if (!has_event) {
 		setErr(err, err_cap, "prop graph needs event.spawn or event.tick");
+		weaponGraphIrFree(&ir);
 		return -1;
 	}
 	for (s32 root = 0; root < ir.node_count; root++) {
@@ -165,6 +171,7 @@ s32 propGraphRuntimeRegisterJson(const char *asset_id, const char *json,
 		if (!reachable[i]) {
 			setErr(err, err_cap,
 				"prop graph contains a node unreachable from a production event");
+			weaponGraphIrFree(&ir);
 			return -1;
 		}
 	}
@@ -174,10 +181,13 @@ s32 propGraphRuntimeRegisterJson(const char *asset_id, const char *json,
 		if (!ensureCapacity((void **)&s_assets, &s_asset_capacity,
 				s_asset_count + 1, sizeof(*s_assets))) {
 			setErr(err, err_cap, "out of memory retaining prop graph");
+			weaponGraphIrFree(&ir);
 			return -1;
 		}
 		asset = &s_assets[s_asset_count++];
 		memset(asset, 0, sizeof(*asset));
+	} else {
+		weaponGraphIrFree(&asset->ir);
 	}
 	snprintf(asset->asset_id, sizeof(asset->asset_id), "%s", asset_id);
 	asset->ir = ir;
@@ -285,6 +295,7 @@ void propGraphRuntimeClearAsset(const char *asset_id)
 	if (!asset_id) return;
 	for (s32 i = 0; i < s_asset_count; i++) {
 		if (strcmp(s_assets[i].asset_id, asset_id) != 0) continue;
+		weaponGraphIrFree(&s_assets[i].ir);
 		for (s32 j = i + 1; j < s_asset_count; j++) s_assets[j - 1] = s_assets[j];
 		s_asset_count--;
 		break;
@@ -293,6 +304,7 @@ void propGraphRuntimeClearAsset(const char *asset_id)
 
 void propGraphRuntimeReset(void)
 {
+	for (s32 i = 0; i < s_asset_count; i++) weaponGraphIrFree(&s_assets[i].ir);
 	free(s_instances);
 	free(s_assets);
 	s_instances = NULL;

@@ -20,6 +20,9 @@ void propsSort(void);
 void propEnable(struct prop *prop);
 void propDisable(struct prop *prop);
 struct prop *propAllocate(void);
+/* Return whether the free-prop list can satisfy a synchronous transaction's
+ * complete aggregate demand without any mutation. */
+s32 propsReserveCreateCount(s32 count);
 void propFree(struct prop *prop);
 void propActivate(struct prop *prop);
 void propActivateThisFrame(struct prop *prop);

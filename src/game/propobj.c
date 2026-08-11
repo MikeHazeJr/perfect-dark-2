@@ -84,7 +84,7 @@
 #include "textures.h"
 #include "types.h"
 #include "weapon_graph_runtime.h"
-#include "effect_graph_runtime.h"
+#include "effect_gameplay_runtime.h"
 #include "assetcatalog.h"
 
 /* PC: persistent stats tracking */
@@ -4998,16 +4998,14 @@ void objLand(struct prop *prop, struct coord *arg1, struct coord *arg2, bool *em
 	}
 }
 
-bool propExplode(struct prop *prop, s32 exptype)
+s32 propResolveExplosionSpatial(struct prop *prop, struct coord *pos,
+		RoomNum rooms[8])
 {
-	struct defaultobj *obj = prop->obj;
-	s32 playernum = (obj->hidden & 0xf0000000) >> 28;
-	bool result;
+	if (!prop || !prop->obj || !pos || !rooms) return 0;
 
 	if (prop->parent) {
+		struct defaultobj *obj = prop->obj;
 		struct prop *parent = prop->parent;
-		struct coord pos;
-		RoomNum rooms[8];
 
 		while (parent->parent) {
 			parent = parent->parent;
@@ -5016,20 +5014,38 @@ bool propExplode(struct prop *prop, s32 exptype)
 		if (prop->flags & PROPFLAG_ONTHISSCREENTHISTICK) {
 			Mtxf *mtx = modelGetRootMtx(obj->model);
 
-			pos.x = mtx->m[3][0];
-			pos.y = mtx->m[3][1];
-			pos.z = mtx->m[3][2];
+			pos->x = mtx->m[3][0];
+			pos->y = mtx->m[3][1];
+			pos->z = mtx->m[3][2];
 
-			mtx4TransformVecInPlace(camGetProjectionMtxF(), &pos);
+			mtx4TransformVecInPlace(camGetProjectionMtxF(), pos);
 		} else {
-			pos.x = parent->pos.x;
-			pos.y = parent->pos.y;
-			pos.z = parent->pos.z;
+			*pos = parent->pos;
 		}
 
-		func0f065e74(&parent->pos, parent->rooms, &pos, rooms);
+		func0f065e74(&parent->pos, parent->rooms, pos, rooms);
+	} else {
+		s32 i;
+		*pos = prop->pos;
+		for (i = 0; i < 7 && prop->rooms[i] >= 0; i++) rooms[i] = prop->rooms[i];
+		rooms[i] = -1;
+	}
+	return rooms[0] >= 0;
+}
 
-		result = explosionCreateComplex(NULL, &pos, rooms, exptype, playernum);
+bool propExplodeWithSound(struct prop *prop, s32 exptype, s16 soundnum)
+{
+	struct defaultobj *obj = prop->obj;
+	struct coord position;
+	RoomNum rooms[8];
+	s32 playernum = (obj->hidden & 0xf0000000) >> 28;
+	bool result;
+
+	if (!propResolveExplosionSpatial(prop, &position, rooms)) return false;
+
+	if (prop->parent) {
+		result = explosionCreateComplexWithSound(NULL, &position, rooms, exptype,
+			playernum, soundnum);
 	} else if ((obj->hidden & (OBJHFLAG_EMBEDDED | OBJHFLAG_PROJECTILE | OBJHFLAG_00020000)) == OBJHFLAG_00020000) {
 		struct coord sp5c;
 		struct coord sp50;
@@ -5044,13 +5060,19 @@ bool propExplode(struct prop *prop, s32 exptype)
 		sp5c.y = prop->pos.f[1] + obj->realrot[1][1] * ymin;
 		sp5c.z = prop->pos.f[2] + obj->realrot[1][2] * ymin;
 
-		result = explosionCreate(NULL, &prop->pos, prop->rooms, exptype,
-				playernum, true, &sp5c, room, &sp50);
+		result = explosionCreateWithSound(NULL, &position, rooms, exptype,
+			playernum, true, &sp5c, room, &sp50, soundnum);
 	} else {
-		result = explosionCreateComplex(NULL, &prop->pos, prop->rooms, exptype, playernum);
+		result = explosionCreateComplexWithSound(NULL, &position, rooms,
+			exptype, playernum, soundnum);
 	}
 
 	return result;
+}
+
+bool propExplode(struct prop *prop, s32 exptype)
+{
+	return propExplodeWithSound(prop, exptype, -1);
 }
 
 void ammocrateTick(struct prop *prop)
@@ -5381,14 +5403,10 @@ void weaponTick(struct prop *prop)
 			/* (a) wall expiry after the post-fall landing. An authored selected
 			 * effect must resolve from active public source; only an empty ref
 			 * may use the explicit native default (binding spec B7). */
-			s32 explosiontype = effectGraphResolveExplosionType(
-					customproj->wall_explosion_ref,
-					(obj->flags2 & OBJFLAG2_WEAPON_HUGEEXP)
-						? EXPLOSIONTYPE_HUGE17 : EXPLOSIONTYPE_ROCKET);
-
-			if (explosiontype != EFFECT_GRAPH_RESOLVE_FAILED) {
-				propExplode(prop, explosiontype);
-			}
+			effectGameplayRuntimeTriggerPropExplosion(
+				customproj->wall_explosion_ref,
+				prop, (obj->flags2 & OBJFLAG2_WEAPON_HUGEEXP)
+					? EXPLOSIONTYPE_HUGE17 : EXPLOSIONTYPE_ROCKET);
 			obj->hidden |= OBJHFLAG_DELETING;
 		} else if (customproj->has_impact && customproj->impact_consume_on_hit
 				&& weapon->timer240 == 0) {
@@ -5398,17 +5416,13 @@ void weaponTick(struct prop *prop)
 			 * public executor; EXPLOSIONTYPE_PHOENIX stays the HUGEEXP-aware fallback
 			 * class (Needler Q2 blast/damage parity). Any authored selected ref
 			 * fails closed when its public source is inactive or unresolved. */
-			s32 explosiontype = effectGraphResolveExplosionType(
-					customproj->impact_explosion_ref[0]
-						? customproj->impact_explosion_ref : NULL,
-					customproj->impact_exptype >= 0
-						? customproj->impact_exptype
-						: ((obj->flags2 & OBJFLAG2_WEAPON_HUGEEXP)
-							? EXPLOSIONTYPE_HUGE17 : EXPLOSIONTYPE_PHOENIX));
-
-			if (explosiontype != EFFECT_GRAPH_RESOLVE_FAILED) {
-				propExplode(prop, explosiontype);
-			}
+			effectGameplayRuntimeTriggerPropExplosion(
+				customproj->impact_explosion_ref[0]
+					? customproj->impact_explosion_ref : NULL,
+				prop, customproj->impact_exptype >= 0
+					? customproj->impact_exptype
+					: ((obj->flags2 & OBJFLAG2_WEAPON_HUGEEXP)
+						? EXPLOSIONTYPE_HUGE17 : EXPLOSIONTYPE_PHOENIX));
 			obj->hidden |= OBJHFLAG_DELETING;
 		} else if (customproj->has_timer && weapon->timer240 >= 0) {
 			/* (c) fuse timer. The decrement clamps to 0 (rocket-style == 0
@@ -5876,16 +5890,13 @@ void weaponTick(struct prop *prop)
 			 * native default (B2). The
 			 * slayerrocket sweep mirrors the custom projectile arm: a custom
 			 * fly-by-wire weapon can be a live slayerrocket here. */
-			s32 explosiontype = effectGraphResolveExplosionType(
+			if (effectGameplayRuntimeTriggerPropExplosion(
 					entitygraph->explosion_ref[0]
 						? entitygraph->explosion_ref : NULL,
-					entitygraph->armed_exptype >= 0
+					prop, entitygraph->armed_exptype >= 0
 						? entitygraph->armed_exptype
 						: ((obj->flags2 & OBJFLAG2_WEAPON_HUGEEXP)
-							? EXPLOSIONTYPE_HUGE17 : EXPLOSIONTYPE_ROCKET));
-
-			if (explosiontype != EFFECT_GRAPH_RESOLVE_FAILED
-					&& propExplode(prop, explosiontype)) {
+							? EXPLOSIONTYPE_HUGE17 : EXPLOSIONTYPE_ROCKET))) {
 				weapon->timer240 = -1;
 				obj->hidden |= OBJHFLAG_DELETING;
 
@@ -9077,15 +9088,11 @@ s32 projectileTick(struct defaultobj *obj, bool *embedded)
 									guNormalize(&sparkdir.x, &sparkdir.y, &sparkdir.z);
 
 									{
-										s32 sparktype = effectGraphResolveSparkType(
+										effectGameplayRuntimeTriggerSpark(
 											customproj->impact_spark_ref,
 											chrIsUsingPaintball(sparkowner ? sparkowner->chr : NULL)
-												? SPARKTYPE_PAINT : SPARKTYPE_PROJECTILE);
-
-										if (sparktype != EFFECT_GRAPH_RESOLVE_FAILED) {
-											sparksCreate(prop->rooms[0], prop, &sp5e8,
-												&sparkdir, &sp5f4, sparktype);
-										}
+												? SPARKTYPE_PAINT : SPARKTYPE_PROJECTILE,
+											prop->rooms[0], prop, &sp5e8, &sparkdir, &sp5f4);
 									}
 								}
 							}

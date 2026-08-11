@@ -1122,13 +1122,15 @@ schema validation, production consumers, and focused mutation/behavior proof;
 live edited-source receipts are still required before those families are
 validated.
 
-**2026-08-08 effect propagation (B-1004):** Retaining a complete executable
-`.pdeffect` program was still only an intermediate representation. No v2 row
-fed the native effect tables and generic v1 node/timeline presentation remained
-inert. T-ASSETS-019 now routes the three complete base profile libraries into
-their real consumers and fails selected/dependent source closed; generic v1
-renderer/target/timeline execution remains an explicitly open part of the same
-pattern until it has a production consumer or is rejected at activation.
+**2026-08-08 through 2026-08-10 effect propagation (B-1004/B-1014/B-1015/
+B-1016):** Retaining a complete executable `.pdeffect` program was still only
+an intermediate representation. Wave8 routed the three complete base profile
+libraries into native consumers. Wave11 adds the generic v1 production owner,
+strict field schema, and all-consumer transaction: gameplay/audio,
+screen/decal/light/beam/particle presentation, topology, named contexts,
+targets, attachments, timeline intensity, priority, lifetime, and cleanup now
+either reach a production consumer or reject at activation. The remaining
+`V-009` boundary is live edited-source/peer proof, not disconnected code.
 
 **2026-08-08 selected-source propagation (B-1005):** A typed public reference
 is not optional merely because an older native default exists at its callsite.
@@ -1207,6 +1209,44 @@ file-backed SFX/voice, and MP3 source.
 **Search command:**
 
 `rg -n "assetSourceDebugIsEnabledFor|falling back|fallback to ROM|loose extracted|raw ROM bytes" port/src src/game src/lib`
+
+---
+
+## SP-33: Transaction staging mutates shared state or collapses repeated authored rows
+
+**Severity: CRITICAL — a rejected public graph can leak state, or valid
+repeated nodes can silently overwrite one another.**
+
+A nominal two-phase consumer is not transactional when its node/stage callback
+allocates a global registry row, starts output, or otherwise mutates shared
+state before every consumer has prepared. Likewise, a committed projection
+keyed only by the owning asset/instance cannot represent two valid authored
+nodes under that owner; last-write-wins storage silently omits content.
+
+**Known instances (B-1015):** v1 effect spark tint registration mutated the
+global custom-spark registry during node staging, so a later presentation-lane
+failure left a row behind. Particle snapshots keyed only by `instance_id`
+collapsed every additional particle node in the same graph. The fix reserves
+spark rows during prepare behind a rollback checkpoint and keys particle state
+by instance plus stable node/execution identity; cleanup still removes the
+complete owner set.
+
+**Fix strategy:**
+
+- Stage only lane-local, discardable descriptions.
+- Put fallible allocations/resolution in prepare; checkpoint any shared
+  reservation and restore it when any later lane fails.
+- Keep commit infallible and synchronous after every lane prepares.
+- Derive projection keys from the authored cardinality: owner plus stable child
+  identity for one-to-many records, never owner alone.
+- Test both a later-lane prepare failure with zero leaked mutation and two
+  same-kind child nodes surviving commit and owner cleanup.
+
+**Search commands:**
+
+`rg -n "stage|prepare|commit|rollback|Register|Create|Append" port/src src/game`
+
+`rg -n "instance_id ==|asset_id.*==|\[.*owner.*\]" port/src src/game`
 
 ---
 
