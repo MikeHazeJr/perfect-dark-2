@@ -5279,6 +5279,8 @@ TEST_CASE("archive-backed typed weapon sources keep transport-root chain",
 	REQUIRE(bondgun.find("bgunPathEndsWithNoCase(source_path, \".pdmesh\")") != std::string::npos);
 	REQUIRE(bondgun.find("fsFileSize(candidate) > 0") != std::string::npos);
 	REQUIRE(bondgun.find("BONDGUN.SOURCE: loaded catalog model source") != std::string::npos);
+	REQUIRE(bondgun.find("player->gunctrl.gunmodeldef == NULL") != std::string::npos);
+	REQUIRE(bondgun.find("noModel=%d") != std::string::npos);
 	REQUIRE(bondgun.find("use_static_source_matrices = gunmodeldef != NULL") != std::string::npos);
 	REQUIRE(bondgun.find("gunmodeldef->skel == NULL") != std::string::npos);
 	REQUIRE(bondgun.find("modAssetCompilerModeldefIsGenerated(gunmodeldef)") != std::string::npos);

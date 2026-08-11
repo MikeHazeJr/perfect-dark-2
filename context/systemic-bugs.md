@@ -1250,6 +1250,52 @@ complete owner set.
 
 ---
 
+## SP-34: Derived readiness flag permits a null production payload
+
+**Severity: CRITICAL — a state machine can advertise ready before its actual
+runtime object exists.**
+
+Do not use aggregate load flags, memory-owner state, or a visibility latch as
+a substitute for the pointer that the next line dereferences. Every readiness
+gate must include the exact payload it consumes and remain safely retryable
+while that payload is absent.
+
+**Known instance (B-1017):** first-person weapon rendering set
+`hand->visible` after the legacy load flags passed even though
+`gunctrl.gunmodeldef` was null, then dereferenced `modeldef->nummatrices`.
+
+**Propagation check:** search state/visibility gates immediately followed by
+pointer dereferences, especially asynchronous model, texture, audio, and
+catalog payload activation paths.
+
+`rg -n "visible = true|loaded = true|state = .*LOADED|->nummatrices|->rootnode" src port`
+
+---
+
+## SP-35: Alias inventory mistaken for the complete runtime reference domain
+
+**Severity: CRITICAL — a partial source inventory can pass extraction while
+ordinary gameplay still reaches an unrepresented public source.**
+
+Configured aliases, curated manifests, and currently observed leaf rows are
+not substitutes for enumerating every reference form accepted by production.
+For each source-only gateway, derive the complete input domain from the actual
+runtime constants/tables and prove every reachable reference resolves to a
+typed public archive and FileProvider handle.
+
+**Known instance (B-1018):** `.pdvoice` extraction covered configured MP3
+aliases but omitted direct `MP3_*` file constants. Mission scripts reached
+`MP3_0408` / file 1032 through `psGetDuration60`, where the catalog correctly
+found no public source and failed closed.
+
+**Propagation check:** compare each extractor's enumerated source set against
+all direct and aliased runtime references for that family; pin set equality,
+not one representative member.
+
+`rg -n "^#define MP3_|hasconfig|source_filenum|source_soundnum" src/include port/src`
+
+---
+
 ## How to Use
 
 - Before starting any work that touches arrays, memory allocation, or stage indexing, scan this file for relevant patterns.

@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "project": "Perfect Dark 2",
-  "updated": "2026-08-11T01:31:35.486Z",
+  "updated": "2026-08-11T01:48:48.832Z",
   "items": [
     {
       "type": "task",
@@ -4159,28 +4159,38 @@
       "type": "validation",
       "area": "ASSETS",
       "title": "Edited .pdeffect source changes live production behavior",
-      "status": "missing",
+      "status": "partial",
       "phase": 4,
       "deps": [
         "T-ASSETS-019",
         "T-CATALOG-003",
         "T-ASSETS-033"
       ],
-      "owner": null,
-      "evidence": [],
-      "detail": "Edit representative explosion, spark, smoke, SFX, material/texture, timeline, target/attachment, and postprocess fields in public archives; load through ordinary installed-client and real network-peer paths; while a parent is live, disable/re-enable and replace selected children and prove exact parent executor/cache retirement, failed-reload inaccessibility, successful reload, clean rollback, and durable gameplay/render/audio change.",
+      "owner": "codex-roadmap-continuation-20260808",
+      "evidence": [
+        "B-1017",
+        "B-1018",
+        "Initial ordinary-client crash receipt: .claude/smoke-verify-runs/results-20260811T013450Z.json",
+        "B-1017 automated PASS: isolated client/updater/tests; [archive_vfs] 61/1; full 54,177/980",
+        "Exact B-1017 rerun reached 81.96s without access violation, then rejected on direct MP3 source gap: .claude/smoke-verify-runs/results-20260811T014135Z.json",
+        "Direct-domain audit: 557 MP3_* definitions -> 547 unique FILE_A...M sources; current extraction covers 104 configured aliases"
+      ],
+      "detail": "Validation is active. B-1017 is fixed: the exact ordinary-client rerun safely held first-person rendering while gunmodeldef was null and did not reproduce the access violation. That rerun then exposed B-1018 before Needler activation: direct mission-script MP3 file references are absent from public .pdvoice extraction/catalog coverage, so Chicago MP3_0408 duration lookup correctly failed closed. Complete direct-MP3 extraction plus the same rerun are required before representative explosion/spark/smoke/SFX/material/texture/timeline/target/presentation behavior can be credited. Real peer replacement, child disable/re-enable, rollback, and restart proof remain open.",
       "tags": [
         "asset-family:pdeffect",
         "edited-source",
         "production-proof",
         "handoff:ultra"
       ],
-      "verdict": "not_run",
-      "artifacts": [],
+      "verdict": "fail",
+      "artifacts": [
+        ".claude/smoke-verify-runs/results-20260811T013450Z.json",
+        ".claude/smoke-verify-runs/results-20260811T014135Z.json"
+      ],
       "budget": null,
       "measurements": [],
       "id": "V-009",
-      "updated": "2026-08-09T02:02:59.017Z",
+      "updated": "2026-08-11T01:48:30.048Z",
       "created": "2026-08-08T23:50:40.511Z"
     },
     {
@@ -4426,6 +4436,30 @@
       "updated": "2026-08-09T01:27:05.122Z",
       "created": "2026-08-09T00:18:47.734Z",
       "model": "gpt-5.6-sol"
+    },
+    {
+      "status": "partial",
+      "area": "TOOLING",
+      "detail": "Create a repository hook that checks canonical Workbench authority, session registration, Workbench ownership/notes discipline, and actionable session guidance before code work, with tests and installation documentation.",
+      "evidence": [],
+      "deps": [
+        "T-TOOLING-001",
+        "T-TOOLING-002"
+      ],
+      "tags": [
+        "workbench",
+        "coordination",
+        "session-hook",
+        "agent-workflow"
+      ],
+      "title": "Enforce Workbench and coordination preflight for code sessions",
+      "lane": "agent-workflow",
+      "phase": 1,
+      "type": "task",
+      "owner": "codex-workbench-hook-20260810",
+      "id": "T-TOOLING-004",
+      "updated": "2026-08-11T01:48:48.832Z",
+      "created": "2026-08-11T01:48:48.832Z"
     }
   ]
 }

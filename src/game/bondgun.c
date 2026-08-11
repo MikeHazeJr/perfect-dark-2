@@ -9005,7 +9005,8 @@ void bgun0f0a5550(s32 handnum)
 					&& (hand->mode == HANDMODE_6 || hand->mode == HANDMODE_7))
 			|| !bgunIsLoaded()
 			|| hand->inuse == false
-			|| bgunGetGunMemType() == 0) {
+			|| bgunGetGunMemType() == 0
+			|| player->gunctrl.gunmodeldef == NULL) {
 		hand->visible = false;
 		/* B-246 round-3 instrumentation: log which visibility gate(s) fired
 		 * for player 0. Captured every ~120 ticks while visible-gate fires.
@@ -9019,13 +9020,14 @@ void bgun0f0a5550(s32 handnum)
 			s32 gate_notloaded = !bgunIsLoaded() ? 1 : 0;
 			s32 gate_notinuse = (hand->inuse == false) ? 1 : 0;
 			s32 gate_memtype0 = (bgunGetGunMemType() == 0) ? 1 : 0;
+			s32 gate_nomodel = (player->gunctrl.gunmodeldef == NULL) ? 1 : 0;
 			sysLogPrintf(LOG_NOTE,
 				"LOG.WPN.DIAG: visibility-gate-fail player=0 hand=%d wpn=%d frame=%d "
-				"gates: noFlag40=%d flag80=%d mode6=%d mode7=%d notLoaded=%d notInuse=%d memType0=%d "
+				"gates: noFlag40=%d flag80=%d mode6=%d mode7=%d notLoaded=%d notInuse=%d memType0=%d noModel=%d "
 				"raw: hand_mode=%d gunmemowner=%d gunmemtype=%d gunmemnew=%d masterload=%d",
 				handnum, (s32)weaponnum, g_Vars.lvframenum,
 				gate_no_flag40, gate_flag80, gate_mode6, gate_mode7,
-				gate_notloaded, gate_notinuse, gate_memtype0,
+				gate_notloaded, gate_notinuse, gate_memtype0, gate_nomodel,
 				(s32)hand->mode,
 				(s32)g_Vars.currentplayer->gunctrl.gunmemowner,
 				(s32)g_Vars.currentplayer->gunctrl.gunmemtype,
