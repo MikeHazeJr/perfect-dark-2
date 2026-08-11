@@ -75,8 +75,11 @@ The full 54,834-assertion/985-case suite, focused B-1025/V-009 band,
 conformance, source guard, and frozen fingerprint also pass. The three retained
 frames show live HUD/source-model output but are too washed out for an
 unambiguous effect-shape claim, so V-009 remains partial for edited-value A/B
-visual comparison, restart, replacement/rollback, repeated-owner, and
-real-peer distribution.
+visual comparison, replacement/rollback, repeated-owner, and real-peer
+distribution. Restart persistence is now green separately: a second client
+reused the exact preserved installed archive/config without fixture staging,
+passed 37/37, rebuilt and dispatched the complete closure, and left both
+hashes and timestamps unchanged.
 Catalog reticles are production-connected
 under `T-ASSETS-023`: `reticle_archive` embeds editable `.pdui`, the scanner
 registers UI before weapon parsing, presentation retains the catalog ID, and

@@ -49,8 +49,14 @@ The installed client passes 45/45 and exits 0 in
 `.claude/smoke-verify-runs/results-20260811T110536Z.json`. Its three 640x480
 frames show the live HUD and source-model overlay but are visually washed out;
 the effect-render claim comes from the frame audit, not an overclaimed image.
-Validation remains partial for edited-value A/B visual comparison, restart,
-child replacement/rollback, repeated-owner, and real-peer distribution.
+A second client then reuses the exact preserved install without fixture
+removal/copy/repack and passes 37/37 in
+`.claude/smoke-verify-runs/results-20260811T112514Z.json`; archive and
+enablement hashes/timestamps remain unchanged while the complete effect path
+registers, activates, dispatches, renders, and exits 0 again. Validation
+remains partial for edited-value A/B visual comparison, live child
+replacement/rollback, repeated-owner lifecycle inside one process, and
+real-peer distribution.
 
 `T-ASSETS-020` is implemented, not validated, for strict selected
 and nested `.pdeffect` failure: nonempty unresolved references return failure,

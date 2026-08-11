@@ -54,5 +54,30 @@ All three frames under
 were inspected. They show the live HUD and source-model proof overlay, but the
 640x480 scene is washed out; they are not claimed as an unambiguous visual
 shape/color proof for the effect. That remains part of the open V-009
-edited-value A/B visual gate, alongside restart, replacement/rollback,
-repeated-owner, and real-peer verification.
+edited-value A/B visual gate, alongside replacement/rollback, repeated-owner,
+and real-peer verification.
+
+## Preserved-install restart receipt
+
+The accepted cold run left the packed archive and enablement state in the
+shared install. A separate restart scenario intentionally declares no
+`remove_paths`, `fixtures`, or `packed_fixtures`, and was launched with
+`-Install .claude/smoke-verify-install` so the runner could not reseed the
+binary, archive, or configuration.
+
+`.claude/smoke-verify-runs/results-20260811T112514Z.json` passes 37/37 and
+exits 0 in the second client process. It re-registers the exact recursive
+weapon/effect/SFX chain, activates the three public owners once each, selects
+and collides the normal secondary projectile, and commits the same authored
+gameplay, audio, presentation, and renderer work. Before and after the run:
+
+- `needler.pdmod` SHA-256 remained
+  `8F256E0675AFCBDB11EA2E822A84615AED6A2579AACF4E195E391AEBD77A18F0`
+  with timestamp `2026-08-11T11:03:38.3566331Z`;
+- `mods-enabled.json` SHA-256 remained
+  `A905BAB375CBB9F806A371C5938F05E88C141DB26D1C7C594F3F7C5A270B5050`
+  with timestamp `2026-06-17T18:14:43.4619575Z`.
+
+This closes process-restart persistence. It does not substitute for live
+replacement/rollback, overlapping owners inside one process, a real network
+peer, or the still-open edited-value A/B visual comparison.

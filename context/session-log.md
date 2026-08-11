@@ -29,11 +29,19 @@ normal secondary collision, authored explosion+spark+audio commit, two-lane
 presentation, renderer consumption, and clean shutdown. All three retained
 frames were inspected; they show the live source-model/HUD overlay but are too
 washed out for an unambiguous effect-shape claim. `V-009` and `T-ASSETS-025`
-remain partial for edited-value A/B visual comparison, restart,
-replacement/rollback, repeated-owner, and real-peer proof. `V-004` remains
-partial/not-run overall because physical controller/device-switch and Settings
-persistence gates are still open, although the B-1024 keyboard aim path is now
-live-proven.
+remain partial for edited-value A/B visual comparison, replacement/rollback,
+repeated-owner, and real-peer proof. `V-004` remains partial/not-run overall
+because physical controller/device-switch and Settings persistence gates are
+still open, although the B-1024 keyboard aim path is now live-proven.
+
+Restart persistence is now separately verified. The second-process scenario
+declares no removal/copy/packing fields and runs against the exact preserved
+shared install. `.claude/smoke-verify-runs/results-20260811T112514Z.json`
+passes 37/37 and exits 0 after rebuilding the same recursive closure and
+dispatching the same ordinary effect/audio/presentation/render path. The
+packed archive and `mods-enabled.json` SHA-256 values and timestamps remained
+unchanged across the run. This does not claim same-process release/reload or
+overlapping-owner balance.
 
 ## 2026-08-10 - V-009 Needler live-output proof in progress
 

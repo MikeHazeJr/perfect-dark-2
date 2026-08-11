@@ -1,0 +1,87 @@
+{
+  "scenario_name": "needler_graph_runtime_restart_smoke",
+  "description": "Restart-only V-009 receipt: reuse an already installed and enabled Needler mod without copying, packing, removing, or replacing any fixture, then prove the second client process rebuilds the same editable weapon/effect/audio runtime closure and dispatches it through ordinary gameplay.",
+  "tags": ["modding", "pdmod", "pdxxx", "weapon", "weapon-graph", "restart", "lifecycle", "source-gate", "combat-sim", "c3842", "v009", "smoke", "pillar:modding"],
+  "paths_of_interest": [
+    "mods/installed/needler.pdmod",
+    "mods-enabled.json",
+    "port/src/assetcatalog_scanner.c",
+    "port/src/assetcatalog_load.c",
+    "port/src/weapon_graph_runtime.c",
+    "port/src/effect_instance_runtime.c",
+    "port/src/effect_gameplay_runtime.c",
+    "port/src/effect_presentation_runtime.c"
+  ],
+  "log_channel_mask": "game,catalog,render,match,combat,mods,system",
+  "verbose": 0,
+  "timeout_seconds": 130,
+  "install_state": "current",
+  "boot_args": [
+    "--no-update-check",
+    "--no-net",
+    "--portable",
+    "--debug-generated-mesh-render-audit",
+    "--debug-effect-runtime-audit",
+    "--debug-force-first-person",
+    "--launch-mp-room",
+    "base:arena_chicago",
+    "base:combat",
+    "12",
+    "--debug-spawn-weapon",
+    "mod_needler:needler",
+    "--debug-auto-start-match"
+  ],
+  "input_sequence": [
+    { "at_ms": 0, "type": "wait", "comment": "Second process starts from the preserved install; this scenario intentionally declares no fixtures, packed_fixtures, or remove_paths." },
+    { "at_ms": 60000, "type": "action", "name": "ACTION_AIM_DOWN", "action": "press", "comment": "Aim through the normal semantic action path." },
+    { "at_ms": 64000, "type": "action", "name": "ACTION_FIRE_MODE", "action": "tap", "comment": "Select the public secondary function after restart." },
+    { "at_ms": 65000, "type": "action", "name": "ACTION_FIRE_PRIMARY", "action": "tap", "comment": "Fire the selected public projectile into ordinary world collision." },
+    { "at_ms": 69000, "type": "action", "name": "ACTION_AIM_DOWN", "action": "release", "comment": "Release normal aim input after impact." },
+    { "at_ms": 95000, "type": "exit", "comment": "Leave enough time for the second-process effect, audio, presentation, and renderer receipts." }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=needler_graph_runtime_restart_smoke",
+      "modmgr: loaded mods-enabled\\.json",
+      "modmgr: parsed mod\\.json for 'needler'.*archive=yes",
+      "modmgr: discovered mod \\[\\d+\\] 'needler'.*\\[\\.pdmod\\] from 'installed' file=.*installed.*needler\\.pdmod sha256=[0-9a-f]+\\.\\.",
+      "modmgr: loading mod 'needler' from archive '.*installed.*needler\\.pdmod'",
+      "PDEFFECT\\.NESTED\\.REGISTER: owner=mod_needler:pink_burst_effect id=mod_needler:pink_burst_sfx",
+      "PDWEAPON\\.NESTED\\.REGISTER: owner=mod_needler:needler id=mod_needler:pink_burst_effect type=22 source=.*needler\\.pdweapon::.*secondary\\.pdprojectile::.*pink_burst\\.pdeffect",
+      "CATALOG\\.LIFECYCLE\\.ACTIVATE: activated audio runtime payload 'mod_needler:pink_burst_sfx'",
+      "CATALOG\\.LIFECYCLE\\.ACTIVATE: activated effect metadata payload 'mod_needler:pink_burst_effect'",
+      "CATALOG\\.LIFECYCLE\\.ACTIVATE: activated weapon metadata payload 'mod_needler:needler'",
+      "BOOT: --debug-auto-start-match consumed",
+      "BOOT: --launch-mp-room direct match start",
+      "SETUP: user-picked spawn weapon 'mod_needler:needler' num=\\d+ preserved",
+      "WEAPONGRAPH\\.EFFECT\\.INGEST: id=mod_needler:pink_burst_effect",
+      "EFFECT\\.GAMEPLAY\\.AUDIT: committed asset=mod_needler:pink_burst_effect instance=\\d+ explosion=1 spark=1 smoke=0 particle=0 audio=1 audio_id=mod_needler:pink_burst_sfx soundnum=\\d+ channel=\\d+",
+      "EFFECT\\.PRESENTATION\\.AUDIT: committed asset=mod_needler:pink_burst_effect instance=\\d+ snapshots=2",
+      "EFFECT\\.INSTANCE\\.AUDIT: committed asset=mod_needler:pink_burst_effect instance=\\d+ consumers=2 lifetime=1\\.500",
+      "EFFECT\\.PRESENTATION\\.RENDER\\.AUDIT: instance=\\d+ snapshots=[1-9]\\d* channel=2 shader=needler_pink_burst intensity=",
+      "BONDGUN\\.SOURCE: loaded catalog model source filenum=\\d+ id=mod_needler:needler_model path=.*needler\\.pdweapon::dependencies/assets/models/weapon\\.pdmesh::model\\.gltf",
+      "MODASSET\\.RENDER: generated source modeldef rendered id=mod_needler:needler_model source=.*dependencies/assets/models/weapon\\.pdmesh::model\\.gltf",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "ASSET\\.SOURCE_ONLY",
+      "LOUDFAIL\\.FALLBACK",
+      "ASSET\\.FALLBACK",
+      "RomProvider:filenum",
+      "result=FAIL",
+      "result=MISSING",
+      "CATEGORY_MISMATCH",
+      "weapon_graph_runtime: held IR unavailable for mod_needler:needler",
+      "CATALOG\\.WEAPON\\.CUSTOM_SLOT_FAIL: id=\"mod_needler"
+    ],
+    "required_counts": [
+      { "pattern": "CATALOG\\.LIFECYCLE\\.ACTIVATE: activated weapon metadata payload 'mod_needler:needler'", "min": 1, "max": 1 },
+      { "pattern": "CATALOG\\.LIFECYCLE\\.ACTIVATE: activated effect metadata payload 'mod_needler:pink_burst_effect'", "min": 1, "max": 1 },
+      { "pattern": "CATALOG\\.LIFECYCLE\\.ACTIVATE: activated audio runtime payload 'mod_needler:pink_burst_sfx'", "min": 1, "max": 1 }
+    ]
+  }
+}

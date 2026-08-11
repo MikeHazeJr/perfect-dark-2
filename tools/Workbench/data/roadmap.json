@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "project": "Perfect Dark 2",
-  "updated": "2026-08-11T11:13:38.023Z",
+  "updated": "2026-08-11T11:26:07.501Z",
   "items": [
     {
       "type": "task",
@@ -3635,10 +3635,12 @@
         ".claude/session-builds/v009effect2/b1025-final-fingerprint.txt: frozen fingerprint d3500b6bdc21f0930071ce9e8c0045d3fc83de449bc801acf293a4994d71906e",
         ".claude/smoke-verify-runs/results-20260811T110536Z.json: installed-client Needler effect/audio/presentation smoke PASS 45/45, exit 0",
         "context/evidence/2026-08-11-needler-effect-closure.md",
-        "B-1023/B-1024/B-1025 production/test/tool fingerprint ede68704d400af6e2d694c0cc3ba89c2b3d2c26b600c5b0bf63fb2bce9b172ad"
+        "B-1023/B-1024/B-1025 production/test/tool fingerprint ede68704d400af6e2d694c0cc3ba89c2b3d2c26b600c5b0bf63fb2bce9b172ad",
+        ".claude/smoke-verify-runs/results-20260811T112514Z.json: preserved-install restart PASS 37/37, exit 0",
+        "Restart reused unchanged needler.pdmod SHA256 8F256E0675AFCBDB11EA2E822A84615AED6A2579AACF4E195E391AEBD77A18F0 and mods-enabled.json SHA256 A905BAB375CBB9F806A371C5938F05E88C141DB26D1C7C594F3F7C5A270B5050; timestamps unchanged and scenario declared no remove/fixtures/packed_fixtures"
       ],
       "phase": 3,
-      "detail": "Partial production proof now covers normal custom fire-mode selection, digital aim synthesis, secondary projectile collision, recursive public effect/audio catalog registration, effect lifecycle activation, authored explosion+spark+audio dispatch, presentation rendering, and clean shutdown in the installed-client 45/45 receipt. B-1023 through B-1025 are fixed. The retained frames prove the source model/HUD but are too washed out to claim an unambiguous effect visual. Remaining weapon gates are lifecycle/restart, replacement/rollback, repeated-owner, real-peer/network, and clearer held/effect visual fidelity.",
+      "detail": "Partial production proof covers normal custom fire-mode selection, digital aim synthesis, secondary projectile collision, recursive public effect/audio catalog registration, effect lifecycle activation, authored explosion+spark+audio dispatch, presentation rendering, and clean process restart. The preserved-install second process reused unchanged archive/config hashes and timestamps with no fixture staging, rebuilt and activated the same closure once, dispatched it through ordinary gameplay, and exited 0 (37/37). B-1023 through B-1025 are fixed. Remaining weapon gates are live replacement/rollback, repeated-owner lifecycle inside one process, real-peer/network distribution, and clearer edited-value A/B held/effect visual fidelity.",
       "tags": [
         "asset-family:pdweapon",
         "handoff:ultra",
@@ -3646,7 +3648,7 @@
         "production-proof"
       ],
       "id": "T-ASSETS-025",
-      "updated": "2026-08-11T11:13:38.023Z",
+      "updated": "2026-08-11T11:26:07.501Z",
       "created": "2026-08-08T17:05:35.637Z",
       "model": "gpt-5.6-sol"
     },
@@ -4237,9 +4239,11 @@
         ".claude/session-builds/v009effect2/b1025-final-fingerprint.txt: frozen fingerprint d3500b6bdc21f0930071ce9e8c0045d3fc83de449bc801acf293a4994d71906e",
         ".claude/smoke-verify-runs/results-20260811T110536Z.json: installed-client Needler effect/audio/presentation smoke PASS 45/45, exit 0",
         "context/evidence/2026-08-11-needler-effect-closure.md",
-        "B-1023/B-1024/B-1025 production/test/tool fingerprint ede68704d400af6e2d694c0cc3ba89c2b3d2c26b600c5b0bf63fb2bce9b172ad"
+        "B-1023/B-1024/B-1025 production/test/tool fingerprint ede68704d400af6e2d694c0cc3ba89c2b3d2c26b600c5b0bf63fb2bce9b172ad",
+        ".claude/smoke-verify-runs/results-20260811T112514Z.json: preserved-install restart PASS 37/37, exit 0",
+        "Restart reused unchanged needler.pdmod SHA256 8F256E0675AFCBDB11EA2E822A84615AED6A2579AACF4E195E391AEBD77A18F0 and mods-enabled.json SHA256 A905BAB375CBB9F806A371C5938F05E88C141DB26D1C7C594F3F7C5A270B5050; timestamps unchanged and scenario declared no remove/fixtures/packed_fixtures"
       ],
-      "detail": "Partial validation now has a source-frozen ordinary-client proof for the authored Needler secondary effect. The installed .pdmod registered the exact .pdweapon::pdprojectile::pdeffect::pdsfx chain, activated the audio/effect/weapon rows, selected and collided the normal secondary projectile, committed authored explosion+spark+catalog audio and two presentation snapshots, rendered the needler_pink_burst presentation channel, and exited cleanly (45/45). B-1023, B-1024, and B-1025 are fixed. The three retained 640x480 frames show the live HUD/source-model overlay but are visually washed out; the effect render is proven by frame log, not claimed as an unambiguous capture. Still open: edited-value A/B visual comparison, restart persistence, replacement/rollback, repeated-owner, and real-peer/network proof.",
+      "detail": "Partial validation now includes an authoritative preserved-install restart. After the accepted 45/45 cold run, a second client process reused the exact installed and enabled Needler archive without removal, copying, or repacking; its archive/config hashes and timestamps remained unchanged. The client rebuilt the recursive pdweapon::pdprojectile::pdeffect::pdsfx closure, reactivated weapon/effect/audio rows exactly once, selected and collided the normal secondary projectile, committed authored gameplay/audio/presentation, rendered the Needler channel, and exited 0 (37/37). B-1023 through B-1025 remain fixed. Still open: edited-value A/B visual comparison, live replacement/rollback, repeated-owner lifecycle within one process, and real-peer/network proof.",
       "tags": [
         "asset-family:pdeffect",
         "edited-source",
@@ -4263,12 +4267,13 @@
         ".claude/smoke-verify-runs/results-20260811T034810Z.json",
         ".claude/smoke-verify-runs/results-20260811T101728Z.json",
         ".claude/smoke-verify-runs/results-20260811T110536Z.json",
-        ".claude/smoke-verify-runs/screenshots/20260811T070338-needler_graph_runtime_visual_smoke"
+        ".claude/smoke-verify-runs/screenshots/20260811T070338-needler_graph_runtime_visual_smoke",
+        ".claude/smoke-verify-runs/results-20260811T112514Z.json"
       ],
       "budget": null,
       "measurements": [],
       "id": "V-009",
-      "updated": "2026-08-11T11:13:37.987Z",
+      "updated": "2026-08-11T11:26:07.489Z",
       "created": "2026-08-08T23:50:40.511Z"
     },
     {
