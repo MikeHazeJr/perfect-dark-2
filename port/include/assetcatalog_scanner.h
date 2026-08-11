@@ -166,6 +166,22 @@ s32 assetCatalogRegisterWeaponNestedDependencies(const char *weapon_id,
                                                   size_t err_cap);
 
 /**
+ * Register typed archives embedded by a strict public .pdeffect source.
+ * The executable graph remains the dependency authority: every embedded
+ * audio/material/texture archive must match an exact typed catalog reference
+ * in that graph. The complete child set and owner edges are preflighted before
+ * catalog mutation, and any failure rolls back every row/edge created by this
+ * call. Existing identical rows may be reused; collisions fail closed.
+ *
+ * Returns the number of embedded child rows registered or reused, or -1.
+ */
+s32 assetCatalogRegisterEffectNestedDependencies(const char *effect_id,
+                                                  const char *effect_archive,
+                                                  s32 bundled,
+                                                  char *err,
+                                                  size_t err_cap);
+
+/**
  * Register the four supported optional typed dependency roles declared by a public
  * .pdtheme::theme.ini.  The parent descriptor and every declared child are
  * release-validated before catalog state is mutated.  Role extension/type,

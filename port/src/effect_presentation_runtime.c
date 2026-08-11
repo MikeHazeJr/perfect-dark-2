@@ -11,6 +11,7 @@
 
 #include "asset_runtime.h"
 #include "effect_presentation_runtime.h"
+#include "system.h"
 
 typedef struct presentation_instance {
 	u64 id;
@@ -697,6 +698,12 @@ static void presentationCommit(const effect_instance_frame_t *frame)
 	entry->staged_capacity = 0;
 	entry->transaction_active = 0;
 	entry->created_by_transaction = 0;
+	if (effectInstanceRuntimeAuditEnabled() && frame && frame->runtime) {
+		sysLogPrintf(LOG_NOTE,
+			"EFFECT.PRESENTATION.AUDIT: committed asset=%s instance=%llu snapshots=%zu",
+			frame->runtime->asset_id, (unsigned long long)frame->instance_id,
+			s_RenderCommandCount);
+	}
 }
 
 static void presentationRemoveAt(size_t index)

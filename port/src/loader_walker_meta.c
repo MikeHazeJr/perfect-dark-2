@@ -776,68 +776,16 @@ static s32 s_registerMeta(const char *manifest, size_t manifest_len,
 		}
 	}
 	if (meta->type == ASSET_EFFECT) {
-		effect_dependency_list_t deps;
-		u8 *created = NULL;
 		char dep_error[256];
-		memset(&deps, 0, sizeof(deps));
 		dep_error[0] = '\0';
-		if (effectDependenciesCollectArchiveFile(file_path, id, &deps,
+		if (assetCatalogRegisterEffectNestedDependencies(id, file_path, 1,
 				dep_error, sizeof(dep_error)) < 0) {
 			entry->enabled = 0;
-			effectDependenciesFree(&deps);
 			sysLogPrintf(LOG_ERROR,
-				"LOADER.UNIVERSAL.META: effect dependency parse failed for %s: %s",
+				"LOADER.UNIVERSAL.META: effect dependency registration failed for %s: %s",
 				id, dep_error[0] ? dep_error : "unknown dependency error");
 			return -1;
 		}
-		if (deps.count) {
-			created = (u8 *)calloc(deps.count, 1);
-			if (!created || deps.count > INT_MAX ||
-					!catalogDepReserve((s32)deps.count)) {
-				free(created);
-				effectDependenciesFree(&deps);
-				entry->enabled = 0;
-				return -1;
-			}
-		}
-		for (size_t i = 0; i < deps.count; i++) {
-			asset_type_e prior = catalogDepExpectedType(id,
-				deps.items[i].catalog_id);
-			if (catalogDepContains(id, deps.items[i].catalog_id)) {
-				if (prior != ASSET_NONE && prior != deps.items[i].type) {
-					snprintf(dep_error, sizeof(dep_error),
-						"dependency %s type conflict %d/%d",
-						deps.items[i].catalog_id, prior, deps.items[i].type);
-					goto effect_dep_fail;
-				}
-				continue;
-			}
-			if (!catalogDepRegisterTyped(id, deps.items[i].catalog_id,
-					deps.items[i].type, 1)) {
-				snprintf(dep_error, sizeof(dep_error),
-					"could not register dependency %s", deps.items[i].catalog_id);
-				goto effect_dep_fail;
-			}
-			created[i] = 1;
-		}
-		free(created);
-		effectDependenciesFree(&deps);
-		goto effect_dep_done;
-
-effect_dep_fail:
-		for (size_t i = deps.count; i-- > 0;) {
-			if (created && created[i]) {
-				catalogDepUnregister(id, deps.items[i].catalog_id);
-			}
-		}
-		free(created);
-		effectDependenciesFree(&deps);
-		entry->enabled = 0;
-		sysLogPrintf(LOG_ERROR,
-			"LOADER.UNIVERSAL.META: effect dependency registration failed for %s: %s",
-			id, dep_error[0] ? dep_error : "unknown dependency error");
-		return -1;
-effect_dep_done: ;
 	}
 	loaderWalkerMarkBaseArchiveEntry(entry);
 	catalogSetPrimaryFile(entry, source_path);

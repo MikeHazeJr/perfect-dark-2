@@ -163,6 +163,7 @@ void bgunReset(void)
 	g_Vars.currentplayer->gunctrl.fnfader = 0;
 
 	g_Vars.currentplayer->gunctrl.invertgunfunc = false;
+	g_Vars.currentplayer->gunctrl.customgunfuncs = 0;
 
 	g_Vars.currentplayer->hands[0] = hand;
 	g_Vars.currentplayer->hands[1] = hand;

@@ -63,6 +63,20 @@ through specific-spawn setup, and loads/submits its nested public held model.
 This does not close the item: the captures are not visually unambiguous, the
 scenario disables sound, and effect output, restart, replacement/rollback, and
 real-peer distribution remain open.
+The V-009 follow-up now passes 45/45 in an ordinary installed client. B-1023
+adds a runtime-only custom weapon function-selection domain without changing
+legacy save/wire bytes; B-1024 routes digital aim actions into the authoritative
+aim axes; and B-1025 publishes the recursively nested public
+`.pdweapon::pdprojectile::pdeffect::pdsfx` closure transactionally across all
+typed-effect ingress. The selected secondary projectile collides through the
+normal trigger path, starts the authored catalog sound, commits explosion and
+spark gameplay plus presentation snapshots, and reaches the world renderer.
+The full 54,834-assertion/985-case suite, focused B-1025/V-009 band,
+conformance, source guard, and frozen fingerprint also pass. The three retained
+frames show live HUD/source-model output but are too washed out for an
+unambiguous effect-shape claim, so V-009 remains partial for edited-value A/B
+visual comparison, restart, replacement/rollback, repeated-owner, and
+real-peer distribution.
 Catalog reticles are production-connected
 under `T-ASSETS-023`: `reticle_archive` embeds editable `.pdui`, the scanner
 registers UI before weapon parsing, presentation retains the catalog ID, and

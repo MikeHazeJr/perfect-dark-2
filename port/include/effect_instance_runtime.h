@@ -164,6 +164,12 @@ void effectInstanceRuntimeCancelEntity(const void *entity);
 void effectInstanceRuntimeClearAll(void);
 size_t effectInstanceRuntimeCount(void);
 
+/* Debug smoke observer only. It never creates, changes, or retains an effect;
+ * production consumers and the renderer use it solely to expose successful
+ * normal-path commits from an installed-client run. */
+void effectInstanceRuntimeSetAuditEnabled(s32 enabled);
+s32 effectInstanceRuntimeAuditEnabled(void);
+
 /* Focused orchestration tests may replace the two production builders with
  * complete deterministic consumers. Passing NULL restores production. */
 void effectInstanceRuntimeSetTestConsumers(

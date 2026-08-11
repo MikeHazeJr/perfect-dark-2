@@ -4,7 +4,7 @@
 > [session-log.md](session-log.md). The Workbench is the durable live tracker.
 > Historical card detail remains in the retired Kanban archive and bug ledger.
 
-Last updated: 2026-08-10
+Last updated: 2026-08-11
 
 `T-ASSETS-012/019/032/034/035/036` are implemented after the source-frozen
 Wave 11 receipt. Public v2 profile libraries still apply all 26 explosion, 27
@@ -26,19 +26,31 @@ invalidation remains implemented under `T-ASSETS-033`/B-1013, growable nested
 ingress under `T-ASSETS-037`, and the separate runtime-capacity boundary under
 `T-ASSETS-022`/B-992.
 
-`T-ASSETS-025` and `V-009` now have a partial installed-client edited-source
-receipt after B-1018 through B-1022. Direct mission-script MP3 references emit
-editable `.pdvoice`; strict Needler creator/conformance fields agree with the
-production parser; custom weapon activation hydrates and retires a loader-owned
-adapter from public `weapon.ini` plus held graphs; and selected match setup
-preserves the catalog row's exact runtime identity. The frozen build passes the
-complete 54,777-assertion/983-case suite, Needler and all-family conformance,
-and the source guard. The ordinary client passes 43/43 with runtime 86, model
-file 2016, public nested effect ingest, exact first-person source load, and
-300-vertex/100-triangle render submission. Validation remains partial: the two
-captures do not show an unambiguous Needler silhouette, sound is disabled, and
-actual effect gameplay/audio/presentation output, restart, child replacement,
-rollback, and real-peer distribution are not yet proved.
+`T-ASSETS-025` and `V-009` now have an authoritative partial installed-client
+edited-source receipt after B-1018 through B-1025. Custom weapon activation
+hydrates the public adapter and preserves runtime 86; the normal fire-mode
+selector reaches its authored secondary function; digital `ACTION_AIM_DOWN`
+feeds the authoritative aim axis; and the ordinary projectile collides with
+the world. The catalog now preflights and atomically publishes recursively
+nested `.pdweapon::pdprojectile::pdeffect::pdsfx` source, including exact typed
+edges and reverse rollback. The selected effect commits authored explosion,
+spark, catalog audio, timeline lifetime, presentation snapshots, and renderer
+consumption before a clean exit.
+
+The frozen receipt passes client/updater/tests compilation, B-1025/V-009 28
+assertions/2 cases, the complete 54,834-assertion/985-case suite, structured
+conformance selftest, Needler 1-root/9-recursive conformance, 28-root/
+52-recursive all-27-family conformance and native-source guard. The smoke-start
+working-set fingerprint is
+`d3500b6bdc21f0930071ce9e8c0045d3fc83de449bc801acf293a4994d71906e`;
+the final production/test/tool fingerprint is
+`ede68704d400af6e2d694c0cc3ba89c2b3d2c26b600c5b0bf63fb2bce9b172ad`.
+The installed client passes 45/45 and exits 0 in
+`.claude/smoke-verify-runs/results-20260811T110536Z.json`. Its three 640x480
+frames show the live HUD and source-model overlay but are visually washed out;
+the effect-render claim comes from the frame audit, not an overclaimed image.
+Validation remains partial for edited-value A/B visual comparison, restart,
+child replacement/rollback, repeated-owner, and real-peer distribution.
 
 `T-ASSETS-020` is implemented, not validated, for strict selected
 and nested `.pdeffect` failure: nonempty unresolved references return failure,

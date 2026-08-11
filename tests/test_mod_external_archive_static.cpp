@@ -4181,8 +4181,9 @@ TEST_CASE("effect sources activate before weapon admission with exact allocator 
 	const std::string deps = readFile("port/src/assetcatalog_deps.c");
 	REQUIRE(walker.find("loaderWalkerScanMetadataFamilies(data_root, &mr)") <
 		walker.find("loaderWalkerScanWeapons(data_root, &kr)"));
-	REQUIRE(meta.find("effectDependenciesCollectArchiveFile") != std::string::npos);
-	REQUIRE(meta.find("catalogDepRegisterTyped") != std::string::npos);
+	REQUIRE(meta.find("assetCatalogRegisterEffectNestedDependencies(id, file_path, 1") !=
+		std::string::npos);
+	REQUIRE(meta.find("effectDependenciesCollectArchiveFile") == std::string::npos);
 	REQUIRE(meta.find("catalogLoadTypedAsset(ASSET_EFFECT") != std::string::npos);
 	/* The later catalogLoadInit preload checks ACTIVE before calling preload,
 	 * so early walked activation cannot add a second parent reference. */
@@ -5267,14 +5268,30 @@ TEST_CASE("archive-backed typed weapon sources keep transport-root chain",
 	REQUIRE(smoke.find("mods/installed/needler.pdmod") != std::string::npos);
 	REQUIRE(smoke.find("needler_source_pd.ini") != std::string::npos);
 	REQUIRE(smoke.find("mod_needler:needler") != std::string::npos);
-	REQUIRE(smoke.find("--debug-force-first-person-look") != std::string::npos);
-	REQUIRE(smoke.find("--debug-force-first-person-cam-offset") != std::string::npos);
-	REQUIRE(smoke.find("BOOT: --debug-force-first-person-look active") != std::string::npos);
+	REQUIRE(smoke.find("--debug-force-first-person-look") == std::string::npos);
+	REQUIRE(smoke.find("--debug-force-first-person-cam-offset") == std::string::npos);
+	REQUIRE(smoke.find("--debug-effect-runtime-audit") != std::string::npos);
+	REQUIRE(smoke.find("ACTION_AIM_DOWN") != std::string::npos);
+	REQUIRE(smoke.find("ACTION_FIRE_MODE") != std::string::npos);
+	REQUIRE(smoke.find("ACTION_FIRE_SECONDARY") == std::string::npos);
+	REQUIRE(smoke.find("\"--no-sound\"") == std::string::npos);
+	const std::string bondgunReset = readFile("src/game/bondgunreset.c");
+	const std::string playerTypes = readFile("src/include/types.h");
+	const std::string activeMenu = readFile("src/game/activemenu.c");
+	REQUIRE(playerTypes.find("u32 customgunfuncs;") != std::string::npos);
+	REQUIRE(bondgunReset.find("gunctrl.customgunfuncs = 0") != std::string::npos);
+	REQUIRE(activeMenu.find("if (bgunIsUsingSecondaryFunction())") != std::string::npos);
+	REQUIRE(smoke.find("EFFECT\\\\.GAMEPLAY\\\\.AUDIT: committed asset=mod_needler:pink_burst_effect") != std::string::npos);
+	REQUIRE(smoke.find("EFFECT\\\\.PRESENTATION\\\\.RENDER\\\\.AUDIT") != std::string::npos);
 	REQUIRE(smoke.find("\"screenshots\"") != std::string::npos);
 	REQUIRE(smoke.find("BONDGUN\\\\.SOURCE: loaded catalog model source filenum=\\\\d+ id=mod_needler:needler_model") != std::string::npos);
 	REQUIRE(smoke.find("MODASSET\\\\.RENDER: generated source modeldef rendered id=mod_needler:needler_model") != std::string::npos);
 
 	const std::string bondgun = readFile("src/game/bondgun.c");
+	REQUIRE(bondgun.find("_Static_assert(WEAPON_CUSTOM_COUNT <= 32") != std::string::npos);
+	REQUIRE(bondgun.find("weaponnum >= WEAPON_CUSTOM_START && weaponnum < WEAPON_CUSTOM_END") != std::string::npos);
+	REQUIRE(bondgun.find("gunctrl.customgunfuncs") != std::string::npos);
+	REQUIRE(bondgun.find("bgunCanStoreFunctionSelection(g_Vars.currentplayer->gunctrl.weaponnum)") != std::string::npos);
 	REQUIRE(bondgun.find("bgunResolveCatalogModelSourcePath") != std::string::npos);
 	REQUIRE(bondgun.find("bgunPathEndsWithNoCase(source_path, \".pdmesh\")") != std::string::npos);
 	REQUIRE(bondgun.find("fsFileSize(candidate) > 0") != std::string::npos);
@@ -5369,6 +5386,9 @@ TEST_CASE("presentation_file mirrors and camera clause pins stay wired",
 	REQUIRE(needler.find("\"id\": \"spawn_projectile\"") == std::string::npos);
 	REQUIRE(needler.find("\"spark_ref\": BURST_EFFECT_ID") != std::string::npos);
 	REQUIRE(needler.find("\"spark_ref\": SPARK_TEXTURE_ID") == std::string::npos);
+	REQUIRE(needler.find("BURST_SFX_ID = cid(\"pink_burst_sfx\")") != std::string::npos);
+	REQUIRE(needler.find("\"audio_catalog_id\": BURST_SFX_ID") != std::string::npos);
+	REQUIRE(needler.find("dependencies/assets/audio/pink_burst.pdsfx") != std::string::npos);
 	REQUIRE(needler.find("track_type = rocket_launcher") != std::string::npos);
 	REQUIRE(needler.find("\"functions\":") == std::string::npos);
 	REQUIRE(needler.find("\"aimsettings\":") == std::string::npos);
@@ -9337,6 +9357,61 @@ TEST_CASE("nested weapon distribution ships parent archive and rebuilds hot inde
 	REQUIRE(nestedRegister != std::string::npos);
 	REQUIRE(weaponParse != std::string::npos);
 	REQUIRE(nestedRegister < weaponParse);
+}
+
+TEST_CASE("pdeffect embedded typed dependencies publish through every ingress",
+		"[modding][network][pdxxx][pdeffect][dependencies][b1025][v009]") {
+	const std::string header = readFile("port/include/assetcatalog_scanner.h");
+	const std::string scanner = readFile("port/src/assetcatalog_scanner.c");
+	const std::string walker = readFile("port/src/loader_walker_meta.c");
+
+	REQUIRE(header.find("assetCatalogRegisterEffectNestedDependencies") !=
+		std::string::npos);
+	REQUIRE(scanner.find("dependencies/assets/audio/") != std::string::npos);
+	REQUIRE(scanner.find("dependencies/assets/materials/") != std::string::npos);
+	REQUIRE(scanner.find("dependencies/assets/textures/") != std::string::npos);
+	REQUIRE(scanner.find("embedded effect dependency type mismatch") !=
+		std::string::npos);
+	REQUIRE(scanner.find("is not referenced by graph") != std::string::npos);
+	REQUIRE(scanner.find("embedded effect dependency ID collision") !=
+		std::string::npos);
+	REQUIRE(scanner.find("PDEFFECT.NESTED.REGISTER") != std::string::npos);
+	REQUIRE(scanner.find("effectNestedRollback(registration)") !=
+		std::string::npos);
+
+	/* Direct local typed archives and received/mounted pdmods converge on the
+	 * same registrar after strict public source parsing. */
+	REQUIRE(scanner.find("assetCatalogRegisterEffectNestedDependencies(\n\t\t\t\t\teffect_source.catalog_id, descriptor_path") !=
+		std::string::npos);
+	REQUIRE(scanner.find("typed_archive_entry && ini_type == ASSET_EFFECT") !=
+		std::string::npos);
+	REQUIRE(scanner.find("typed_archive_entry && ini_type == ASSET_WEAPON") !=
+		std::string::npos);
+	REQUIRE(scanner.find("assetCatalogRegisterWeaponNestedDependencies(weapon_id,\n\t\t\t\t\t\t\tentry_ref") !=
+		std::string::npos);
+	REQUIRE(scanner.find("assetCatalogRegisterEffectNestedDependencies(effect_id,\n\t\t\t\t\t\t\tentry_ref") !=
+		std::string::npos);
+	REQUIRE(walker.find("assetCatalogRegisterEffectNestedDependencies(id, file_path, 1") !=
+		std::string::npos);
+
+	/* Weapon-nested effects join their children to the same outer rollback
+	 * transaction; effect and weapon owners retain exact typed edges. */
+	REQUIRE(scanner.find("effectNestedPrepareBytes(&p->effect_nested") !=
+		std::string::npos);
+	REQUIRE(scanner.find("weaponNestedPrepareRecursiveEffects(&pending") !=
+		std::string::npos);
+	REQUIRE(scanner.find("collectWeaponNestedEffectContainer") !=
+		std::string::npos);
+	REQUIRE(scanner.find("collectEmbeddedEffectArchive") !=
+		std::string::npos);
+	REQUIRE(scanner.find("recursive effect archive chain exceeds capacity") !=
+		std::string::npos);
+	REQUIRE(scanner.find("effectNestedCommit(&p->effect_nested") !=
+		std::string::npos);
+	REQUIRE(scanner.find("effectNestedRollback(&pending[i].effect_nested)") !=
+		std::string::npos);
+	REQUIRE(scanner.find("catalogDepRegisterTyped(weapon_id, dep->catalog_id") !=
+		std::string::npos);
 }
 
 TEST_CASE("custom weapon reticle reaches production HUD through catalog pdui",

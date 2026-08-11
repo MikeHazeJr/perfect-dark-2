@@ -23,14 +23,24 @@ TEST_CASE("weapon nested scanner has growable transactional ingress",
 	const std::string scanner = readSource("port/src/assetcatalog_scanner.c");
 	REQUIRE(scanner.find("WEAPON_NESTED_MEDIA_MAX") == std::string::npos);
 	REQUIRE(scanner.find("char (*entries)[FS_MAXPATH]") != std::string::npos);
-	REQUIRE(scanner.find("pending = calloc(scan.count, sizeof(*pending))") !=
+	REQUIRE(scanner.find("weaponNestedPendingReserve(&pending, &pending_capacity") !=
 		std::string::npos);
 	REQUIRE(scanner.find("catalogDepReserve((s32)edge_count)") !=
 		std::string::npos);
 	REQUIRE(scanner.find("for (size_t i = pending_count; i-- > 0; )") !=
 		std::string::npos);
 	REQUIRE(scanner.find("effect_dep_edges_created") != std::string::npos);
-	REQUIRE(scanner.find("effect_child_dep_edges_created") != std::string::npos);
+	REQUIRE(scanner.find("effectNestedPrepareBytes(&p->effect_nested") !=
+		std::string::npos);
+	REQUIRE(scanner.find("effectNestedRollback(&pending[i].effect_nested)") !=
+		std::string::npos);
+	REQUIRE(scanner.find("weaponNestedPrepareRecursiveEffects") !=
+		std::string::npos);
+	REQUIRE(scanner.find("collectWeaponNestedEffectContainer") !=
+		std::string::npos);
+	REQUIRE(scanner.find("collectEmbeddedEffectArchive") !=
+		std::string::npos);
+	REQUIRE(scanner.find("effect_child_dep_edges_created") == std::string::npos);
 }
 
 TEST_CASE("weapon nested production harness proves over-64 closure and rollback",

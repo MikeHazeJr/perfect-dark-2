@@ -8,6 +8,7 @@
 #include <ultra64.h>
 
 #include "effect_gameplay_runtime.h"
+#include "effect_instance_runtime.h"
 #include "effect_presentation_runtime.h"
 #include "game/camera.h"
 #include "game/dlights.h"
@@ -17,6 +18,9 @@
 #include "lib/mtx.h"
 #include "lib/vi.h"
 #include "types.h"
+#include "system.h"
+
+static u64 s_LastAuditedEffectInstance;
 
 static u8 effectPresentationByte(f32 value)
 {
@@ -301,6 +305,15 @@ static Gfx *effectPresentationRenderCommands(Gfx *gdl)
 		if (!effectPresentationRuntimeSnapshot(i, &command) ||
 				(command.channel == EFFECT_PRESENTATION_CHANNEL_SCREEN &&
 					!command.texture_ref[0])) continue;
+		if (effectInstanceRuntimeAuditEnabled() &&
+				command.instance_id > s_LastAuditedEffectInstance) {
+			s_LastAuditedEffectInstance = command.instance_id;
+			sysLogPrintf(LOG_NOTE,
+				"EFFECT.PRESENTATION.RENDER.AUDIT: instance=%llu snapshots=%zu channel=%d shader=%s intensity=%.3f",
+				(unsigned long long)command.instance_id, count,
+				(s32)command.channel, command.shader_id,
+				(double)command.intensity);
+		}
 		if (command.channel == EFFECT_PRESENTATION_CHANNEL_SCREEN) {
 			gdl = effectPresentationRenderScreenTexture(gdl, &command);
 			continue;

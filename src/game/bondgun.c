@@ -13190,8 +13190,56 @@ void bgunSetTriggerOn(s32 handnum, bool on)
 	}
 }
 
-#define SETFUNCPRI() g_PlayerConfigsArray[g_Vars.currentplayerstats->mpindex].gunfuncs[(g_Vars.currentplayer->gunctrl.weaponnum - 1) >> 3] &= ~(1 << ((g_Vars.currentplayer->gunctrl.weaponnum - 1) & 7))
-#define SETFUNCSEC() g_PlayerConfigsArray[g_Vars.currentplayerstats->mpindex].gunfuncs[(g_Vars.currentplayer->gunctrl.weaponnum - 1) >> 3] |= 1 << ((g_Vars.currentplayer->gunctrl.weaponnum - 1) & 7)
+_Static_assert(WEAPON_CUSTOM_COUNT <= 32,
+		"custom weapon function selections must fit the runtime bitset");
+
+static bool bgunCanStoreFunctionSelection(s32 weaponnum)
+{
+	return (weaponnum >= WEAPON_UNARMED && weaponnum <= WEAPON_COMBATBOOST)
+		|| (weaponnum >= WEAPON_CUSTOM_START && weaponnum < WEAPON_CUSTOM_END);
+}
+
+static bool bgunStoredFunctionIsSecondary(s32 weaponnum)
+{
+	if (weaponnum >= WEAPON_UNARMED && weaponnum <= WEAPON_COMBATBOOST) {
+		u32 index = (u32)(weaponnum - 1);
+		return (g_PlayerConfigsArray[g_Vars.currentplayerstats->mpindex]
+			.gunfuncs[index >> 3] & (1u << (index & 7))) != 0;
+	}
+
+	if (weaponnum >= WEAPON_CUSTOM_START && weaponnum < WEAPON_CUSTOM_END) {
+		u32 index = (u32)(weaponnum - WEAPON_CUSTOM_START);
+		return (g_Vars.currentplayer->gunctrl.customgunfuncs & (1u << index)) != 0;
+	}
+
+	return false;
+}
+
+static void bgunStoreFunctionSelection(s32 weaponnum, bool secondary)
+{
+	if (weaponnum >= WEAPON_UNARMED && weaponnum <= WEAPON_COMBATBOOST) {
+		u32 index = (u32)(weaponnum - 1);
+		u8 *bits = g_PlayerConfigsArray[g_Vars.currentplayerstats->mpindex].gunfuncs;
+
+		if (secondary) {
+			bits[index >> 3] |= (u8)(1u << (index & 7));
+		} else {
+			bits[index >> 3] &= (u8)~(1u << (index & 7));
+		}
+	} else if (weaponnum >= WEAPON_CUSTOM_START && weaponnum < WEAPON_CUSTOM_END) {
+		u32 mask = 1u << (u32)(weaponnum - WEAPON_CUSTOM_START);
+
+		if (secondary) {
+			g_Vars.currentplayer->gunctrl.customgunfuncs |= mask;
+		} else {
+			g_Vars.currentplayer->gunctrl.customgunfuncs &= ~mask;
+		}
+	}
+}
+
+#define FUNCISSEC() bgunStoredFunctionIsSecondary(g_Vars.currentplayer->gunctrl.weaponnum)
+#define SETFUNCPRI() bgunStoreFunctionSelection(g_Vars.currentplayer->gunctrl.weaponnum, false)
+#define SETFUNCSEC() bgunStoreFunctionSelection(g_Vars.currentplayer->gunctrl.weaponnum, true)
 
 /**
  * This is called once B has been held for 25 ticks, or earlier if pressing B+Z.
@@ -13281,7 +13329,7 @@ s32 bgunConsiderToggleGunFunction(s32 usedowntime, bool trigpressed, bool fromac
 	case WEAPON_TIMEDMINE:
 		// These weapons disallow B+Z
 		if (!trigpressed) {
-			if (VALIDWEAPON()) {
+			if (bgunCanStoreFunctionSelection(g_Vars.currentplayer->gunctrl.weaponnum)) {
 				if (1 - FUNCISSEC()) {
 					SETFUNCSEC();
 				} else {
@@ -13297,7 +13345,7 @@ s32 bgunConsiderToggleGunFunction(s32 usedowntime, bool trigpressed, bool fromac
 		if (trigpressed) {
 			g_Vars.currentplayer->gunctrl.invertgunfunc = true;
 		} else {
-			if (VALIDWEAPON()) {
+			if (bgunCanStoreFunctionSelection(g_Vars.currentplayer->gunctrl.weaponnum)) {
 				if (!FUNCISSEC()) {
 					SETFUNCSEC();
 				} else {
@@ -13332,24 +13380,11 @@ bool bgunIsUsingSecondaryFunction(void)
 	struct player *player = g_Vars.currentplayer;
 	s32 weaponnum = player->gunctrl.weaponnum;
 
-	if (weaponnum >= WEAPON_UNARMED && weaponnum <= WEAPON_COMBATBOOST) {
-		s32 index = (weaponnum - 1) >> 3;
-		s32 value = 1 << ((weaponnum - 1) & 7);
-
-		if (g_PlayerConfigsArray[g_Vars.currentplayerstats->mpindex].gunfuncs[index] & value) {
-			if (player->gunctrl.invertgunfunc == true) {
-				return false;
-			}
-
-			return true;
-		}
+	if (bgunStoredFunctionIsSecondary(weaponnum)) {
+		return player->gunctrl.invertgunfunc == false;
 	}
 
-	if (player->gunctrl.invertgunfunc == true) {
-		return true;
-	}
-
-	return false;
+	return player->gunctrl.invertgunfunc == true;
 }
 
 /**

@@ -2863,6 +2863,458 @@ static s32 nestedContentMatchesExisting(const asset_entry_t *existing,
 	return ok;
 }
 
+/* ========================================================================
+ * Strict .pdeffect embedded dependency registration
+ * ======================================================================== */
+
+typedef struct effect_nested_member_scan {
+	char (*entries)[FS_MAXPATH + 1];
+	size_t count;
+	size_t capacity;
+	s32 allocation_failed;
+} effect_nested_member_scan_t;
+
+typedef struct effect_nested_child {
+	char catalog_id[CATALOG_ID_LEN];
+	char archive_ref[FS_MAXPATH + 1];
+	char descriptor_ref[FS_MAXPATH + 1];
+	ini_section_t ini;
+	asset_type_e expected_type;
+	s32 existing;
+	s32 created;
+} effect_nested_child_t;
+
+typedef struct effect_nested_registration {
+	char owner_id[CATALOG_ID_LEN];
+	effect_dependency_list_t deps;
+	effect_nested_child_t *children;
+	size_t child_count;
+	u8 *edge_created;
+} effect_nested_registration_t;
+
+static s32 effectNestedMemberType(const char *path, asset_type_e *out_type)
+{
+	static const char audio_prefix[] = "dependencies/assets/audio/";
+	static const char material_prefix[] = "dependencies/assets/materials/";
+	static const char texture_prefix[] = "dependencies/assets/textures/";
+	asset_type_e type = ASSET_NONE;
+
+	if (!path) return 0;
+	if (strncmp(path, audio_prefix, sizeof(audio_prefix) - 1) == 0
+			&& pathEndsWithNoCase(path, ".pdsfx")) {
+		type = ASSET_AUDIO;
+	} else if (strncmp(path, material_prefix, sizeof(material_prefix) - 1) == 0
+			&& pathEndsWithNoCase(path, ".pdmaterial")) {
+		type = ASSET_MATERIAL;
+	} else if (strncmp(path, texture_prefix, sizeof(texture_prefix) - 1) == 0
+			&& pathEndsWithNoCase(path, ".pdtexture")) {
+		type = ASSET_TEXTURE;
+	}
+	if (type == ASSET_NONE) return 0;
+	if (out_type) *out_type = type;
+	return 1;
+}
+
+static s32 collectEffectNestedMember(const char *entry_name,
+		u32 uncompressed_size, void *userdata)
+{
+	effect_nested_member_scan_t *scan =
+		(effect_nested_member_scan_t *)userdata;
+	asset_type_e type;
+	(void)uncompressed_size;
+	if (!scan || !effectNestedMemberType(entry_name, &type)) return 0;
+	if (scan->count == scan->capacity) {
+		size_t next = scan->capacity ? scan->capacity * 2 : 8;
+		if (next < scan->count + 1
+				|| next > SIZE_MAX / sizeof(*scan->entries)) {
+			scan->allocation_failed = 1;
+			return MODARCHIVE_ERR_MEM;
+		}
+		char (*grown)[FS_MAXPATH + 1] = realloc(scan->entries,
+			next * sizeof(*scan->entries));
+		if (!grown) {
+			scan->allocation_failed = 1;
+			return MODARCHIVE_ERR_MEM;
+		}
+		scan->entries = grown;
+		scan->capacity = next;
+	}
+	if (!assetPathCopyChecked(scan->entries[scan->count],
+			sizeof(scan->entries[scan->count]), entry_name)) {
+		return MODARCHIVE_ERR_FORMAT;
+	}
+	scan->count++;
+	return 0;
+}
+
+static s32 appendEffectNestedScanEntry(effect_nested_member_scan_t *scan,
+		const char *entry_name)
+{
+	if (!scan || !entry_name) return MODARCHIVE_ERR_FORMAT;
+	if (scan->count == scan->capacity) {
+		size_t next = scan->capacity ? scan->capacity * 2 : 8;
+		if (next < scan->count + 1
+				|| next > SIZE_MAX / sizeof(*scan->entries)) {
+			scan->allocation_failed = 1;
+			return MODARCHIVE_ERR_MEM;
+		}
+		char (*grown)[FS_MAXPATH + 1] = realloc(scan->entries,
+			next * sizeof(*scan->entries));
+		if (!grown) {
+			scan->allocation_failed = 1;
+			return MODARCHIVE_ERR_MEM;
+		}
+		scan->entries = grown;
+		scan->capacity = next;
+	}
+	if (!assetPathCopyChecked(scan->entries[scan->count],
+			sizeof(scan->entries[scan->count]), entry_name)) {
+		return MODARCHIVE_ERR_FORMAT;
+	}
+	scan->count++;
+	return 0;
+}
+
+static s32 collectWeaponNestedEffectContainer(const char *entry_name,
+		u32 uncompressed_size, void *userdata)
+{
+	asset_type_e type = assetArchiveTypeForPath(entry_name);
+	(void)uncompressed_size;
+	if (type != ASSET_PROJECTILE && type != ASSET_ENTITY) return 0;
+	return appendEffectNestedScanEntry(
+		(effect_nested_member_scan_t *)userdata, entry_name);
+}
+
+static s32 collectEmbeddedEffectArchive(const char *entry_name,
+		u32 uncompressed_size, void *userdata)
+{
+	(void)uncompressed_size;
+	if (assetArchiveTypeForPath(entry_name) != ASSET_EFFECT
+			|| !pathEndsWithNoCase(entry_name, ".pdeffect")) return 0;
+	return appendEffectNestedScanEntry(
+		(effect_nested_member_scan_t *)userdata, entry_name);
+}
+
+static s32 keepCurrentEffectDependency(const char *dep_id,
+	asset_type_e expected_type, void *userdata)
+{
+	const effect_dependency_list_t *deps =
+		(const effect_dependency_list_t *)userdata;
+	for (size_t i = 0; deps && i < deps->count; i++) {
+		if (deps->items[i].type == expected_type
+				&& strcmp(deps->items[i].catalog_id, dep_id) == 0) return 1;
+	}
+	return 0;
+}
+
+static s32 effectNestedDependencyDeclared(
+		const effect_nested_registration_t *registration,
+		asset_type_e type, const char *catalog_id)
+{
+	for (size_t i = 0; registration && i < registration->deps.count; i++) {
+		if (registration->deps.items[i].type == type
+				&& strcmp(registration->deps.items[i].catalog_id, catalog_id) == 0) {
+			return 1;
+		}
+	}
+	return 0;
+}
+
+static void effectNestedRollback(effect_nested_registration_t *registration)
+{
+	if (!registration) return;
+	for (size_t i = registration->deps.count; i-- > 0; ) {
+		if (registration->edge_created && registration->edge_created[i]) {
+			catalogDepUnregister(registration->owner_id,
+				registration->deps.items[i].catalog_id);
+			registration->edge_created[i] = 0;
+		}
+	}
+	for (size_t i = registration->child_count; i-- > 0; ) {
+		if (registration->children[i].created) {
+			assetCatalogUnregister(registration->children[i].catalog_id);
+			registration->children[i].created = 0;
+		}
+	}
+}
+
+static void effectNestedFree(effect_nested_registration_t *registration)
+{
+	if (!registration) return;
+	free(registration->edge_created);
+	free(registration->children);
+	effectDependenciesFree(&registration->deps);
+	memset(registration, 0, sizeof(*registration));
+}
+
+static s32 effectNestedPrepareBytes(effect_nested_registration_t *registration,
+		const char *effect_id, const char *effect_archive,
+		const void *effect_bytes, u32 effect_size, char *err, size_t err_cap)
+{
+	effect_nested_member_scan_t scan;
+	s32 enum_result;
+
+	if (!registration || !effect_id || !effect_id[0] || !effect_archive
+			|| !effect_archive[0] || !effect_bytes || effect_size == 0) {
+		nestedSetErr(err, err_cap,
+			"effect nested dependency scan missing %s%s", effect_id,
+			effect_archive);
+		return 0;
+	}
+	memset(registration, 0, sizeof(*registration));
+	memset(&scan, 0, sizeof(scan));
+	if (!assetPathCopyChecked(registration->owner_id,
+			sizeof(registration->owner_id), effect_id)) {
+		nestedSetErr(err, err_cap, "effect catalog ID exceeds capacity %s%s",
+			effect_id, "");
+		return 0;
+	}
+	if (effectDependenciesCollectArchiveBytes(effect_bytes, effect_size,
+			effect_id, &registration->deps, err, err_cap) < 0) {
+		goto fail;
+	}
+	enum_result = modArchiveMemForEachEntry(effect_bytes, effect_size,
+		collectEffectNestedMember, &scan);
+	if (enum_result != MODARCHIVE_OK) {
+		nestedSetErr(err, err_cap,
+			scan.allocation_failed
+				? "out of memory enumerating effect archive %s%s"
+				: "could not enumerate effect archive %s%s",
+			effect_archive, "");
+		goto fail;
+	}
+	if (scan.count > SIZE_MAX / sizeof(*registration->children)) {
+		nestedSetErr(err, err_cap, "effect %s nested child count overflows %s",
+			effect_id, "platform capacity");
+		goto fail;
+	}
+	if (scan.count) {
+		registration->children = calloc(scan.count,
+			sizeof(*registration->children));
+		if (!registration->children) {
+			nestedSetErr(err, err_cap,
+				"out of memory preflighting effect %s%s", effect_id, "");
+			goto fail;
+		}
+	}
+
+	for (size_t i = 0; i < scan.count; i++) {
+		effect_nested_child_t *child = &registration->children[i];
+		void *nested = NULL;
+		u32 nested_size = 0;
+		u32 descriptor_size = 0;
+		const char *descriptor_leaf = NULL;
+		char *descriptor = NULL;
+		const char *catalog_id;
+
+		effectNestedMemberType(scan.entries[i], &child->expected_type);
+		nested = modArchiveExtractMemAlloc(effect_bytes, effect_size,
+			scan.entries[i], &nested_size);
+		if (!nested || nested_size == 0) {
+			free(nested);
+			nestedSetErr(err, err_cap,
+				"could not read embedded effect dependency %s%s",
+				scan.entries[i], "");
+			goto fail;
+		}
+		if (assetArchiveValidateBytes(nested, nested_size, scan.entries[i],
+				ASSET_ARCHIVE_VALIDATE_RELEASE, err, err_cap) != 0) {
+			free(nested);
+			goto fail;
+		}
+		descriptor = assetArchiveExtractDescriptorMemAlloc(nested, nested_size,
+			scan.entries[i], ASSET_ARCHIVE_VALIDATE_RELEASE, &descriptor_size,
+			&descriptor_leaf);
+		if (!descriptor || !iniParseBuffer(descriptor_leaf, descriptor,
+				descriptor_size, &child->ini)) {
+			free(descriptor);
+			free(nested);
+			nestedSetErr(err, err_cap,
+				"invalid public descriptor in embedded effect dependency %s%s",
+				scan.entries[i], "");
+			goto fail;
+		}
+		free(descriptor);
+		if (sectionToType(child->ini.type) != child->expected_type) {
+			free(nested);
+			nestedSetErr(err, err_cap,
+				"embedded effect dependency type mismatch %s%s",
+				scan.entries[i], "");
+			goto fail;
+		}
+		catalog_id = iniGet(&child->ini, "catalog_id",
+			iniGet(&child->ini, "id", ""));
+		if (!catalog_id[0] || !pdEffectCatalogIdValid(catalog_id)
+				|| !catalogIdSharesNamespace(effect_id, catalog_id)) {
+			free(nested);
+			nestedSetErr(err, err_cap,
+				"embedded effect dependency %s has missing or foreign catalog ID %s",
+				scan.entries[i], catalog_id);
+			goto fail;
+		}
+		if (!effectNestedDependencyDeclared(registration,
+				child->expected_type, catalog_id)) {
+			free(nested);
+			nestedSetErr(err, err_cap,
+				"embedded effect dependency %s is not referenced by graph %s",
+				catalog_id, effect_id);
+			goto fail;
+		}
+		for (size_t prior = 0; prior < i; prior++) {
+			if (strcmp(registration->children[prior].catalog_id, catalog_id) == 0) {
+				free(nested);
+				nestedSetErr(err, err_cap,
+					"duplicate embedded effect dependency ID %s%s", catalog_id, "");
+				goto fail;
+			}
+		}
+		if (!assetPathCopyChecked(child->catalog_id, sizeof(child->catalog_id),
+				catalog_id)
+				|| !assetPathJoinChecked(child->archive_ref,
+					sizeof(child->archive_ref), effect_archive, "::",
+					scan.entries[i])
+				|| !assetPathJoinChecked(child->descriptor_ref,
+					sizeof(child->descriptor_ref), child->archive_ref, "::",
+					descriptor_leaf ? descriptor_leaf
+						: assetArchiveDescriptorForPath(scan.entries[i]))
+				|| !qualifyTypedArchiveSourcePaths(&child->ini,
+					child->archive_ref)) {
+			free(nested);
+			nestedSetErr(err, err_cap,
+				"embedded effect dependency path exceeds capacity %s%s",
+				scan.entries[i], "");
+			goto fail;
+		}
+		const asset_entry_t *existing = assetCatalogResolve(child->catalog_id);
+		if (existing) {
+			if (existing->type != child->expected_type || (!existing->bundled
+					&& (!strstr(existing->dirpath, "::")
+						|| !nestedContentMatchesExisting(existing, nested,
+							nested_size)))) {
+				free(nested);
+				nestedSetErr(err, err_cap,
+					"embedded effect dependency ID collision %s%s",
+					child->catalog_id, "");
+				goto fail;
+			}
+			child->existing = 1;
+		}
+		free(nested);
+		registration->child_count++;
+	}
+	free(scan.entries);
+	return 1;
+
+fail:
+	free(scan.entries);
+	effectNestedFree(registration);
+	return 0;
+}
+
+static s32 effectNestedCommit(effect_nested_registration_t *registration,
+		s32 bundled, char *err, size_t err_cap)
+{
+	if (!registration) return 0;
+	if (registration->deps.count > INT_MAX
+			|| !catalogDepReserve((s32)registration->deps.count)) {
+		nestedSetErr(err, err_cap,
+			"could not reserve embedded effect edges for %s%s",
+			registration->owner_id, "");
+		return 0;
+	}
+	if (registration->deps.count) {
+		registration->edge_created = calloc(registration->deps.count, 1);
+		if (!registration->edge_created) {
+			nestedSetErr(err, err_cap,
+				"out of memory tracking embedded effect edges %s%s",
+				registration->owner_id, "");
+			return 0;
+		}
+	}
+	for (size_t i = 0; i < registration->child_count; i++) {
+		effect_nested_child_t *child = &registration->children[i];
+		if (child->existing) continue;
+		child->created = 1;
+		if (!registerComponent(&child->ini, child->archive_ref,
+				bundled ? "base" : registration->owner_id,
+				child->descriptor_ref)) {
+			nestedSetErr(err, err_cap,
+				"could not register embedded effect dependency %s%s",
+				child->catalog_id, "");
+			goto fail;
+		}
+		asset_entry_t *entry = assetCatalogGetMutable(child->catalog_id);
+		if (!entry) {
+			nestedSetErr(err, err_cap,
+				"embedded effect dependency disappeared after register %s%s",
+				child->catalog_id, "");
+			goto fail;
+		}
+		entry->bundled = bundled ? 1 : 0;
+		entry->enabled = 1;
+		entry->temporary = 0;
+		sysLogPrintf(LOG_NOTE,
+			"PDEFFECT.NESTED.REGISTER: owner=%s id=%s type=%d source=%s",
+			registration->owner_id, child->catalog_id,
+			(s32)child->expected_type, child->archive_ref);
+	}
+	for (size_t i = 0; i < registration->deps.count; i++) {
+		effect_dependency_t *dep = &registration->deps.items[i];
+		asset_type_e prior = catalogDepExpectedType(registration->owner_id,
+			dep->catalog_id);
+		if (catalogDepContains(registration->owner_id, dep->catalog_id)) {
+			if (prior != ASSET_NONE && prior != dep->type) {
+				nestedSetErr(err, err_cap,
+					"embedded effect dependency type conflict %s%s",
+					dep->catalog_id, "");
+				goto fail;
+			}
+			continue;
+		}
+		if (!catalogDepRegisterTyped(registration->owner_id, dep->catalog_id,
+				dep->type, bundled ? 1 : 0)) {
+			nestedSetErr(err, err_cap,
+				"could not register embedded effect edge %s%s",
+				dep->catalog_id, "");
+			goto fail;
+		}
+		registration->edge_created[i] = 1;
+	}
+	return 1;
+
+fail:
+	effectNestedRollback(registration);
+	return 0;
+}
+
+s32 assetCatalogRegisterEffectNestedDependencies(const char *effect_id,
+		const char *effect_archive, s32 bundled, char *err, size_t err_cap)
+{
+	effect_nested_registration_t registration;
+	u32 effect_size = 0;
+	void *effect_bytes = NULL;
+	s32 result = -1;
+
+	if (err && err_cap) err[0] = '\0';
+	effect_bytes = effect_archive ? fsFileLoad(effect_archive, &effect_size) : NULL;
+	if (!effect_bytes || effect_size == 0) {
+		nestedSetErr(err, err_cap, "could not read effect archive %s%s",
+			effect_archive, "");
+		if (effect_bytes) sysMemFree(effect_bytes);
+		return -1;
+	}
+	if (effectNestedPrepareBytes(&registration, effect_id, effect_archive,
+			effect_bytes, effect_size, err, err_cap)
+			&& effectNestedCommit(&registration, bundled, err, err_cap)) {
+		catalogDepPruneOwner(effect_id, keepCurrentEffectDependency,
+			&registration.deps);
+		result = (s32)registration.child_count;
+	}
+	effectNestedFree(&registration);
+	sysMemFree(effect_bytes);
+	return result;
+}
+
 typedef struct weapon_nested_preflight {
 	char catalog_id[CATALOG_ID_LEN];
 	char archive_ref[FS_MAXPATH * 2 + 4];
@@ -2874,10 +3326,226 @@ typedef struct weapon_nested_preflight {
 	s32 existing;
 	s32 created;
 	s32 edge_created;
-	effect_dependency_list_t effect_deps;
+	effect_nested_registration_t effect_nested;
 	u8 *effect_dep_edges_created;
-	u8 *effect_child_dep_edges_created;
 } weapon_nested_preflight_t;
+
+static s32 weaponNestedPendingReserve(weapon_nested_preflight_t **pending,
+		size_t *capacity, size_t needed)
+{
+	weapon_nested_preflight_t *grown;
+	size_t next;
+	if (!pending || !capacity) return 0;
+	if (needed <= *capacity) return 1;
+	next = *capacity ? *capacity : 16;
+	while (next < needed) {
+		if (next > SIZE_MAX / 2) return 0;
+		next *= 2;
+	}
+	if (next > SIZE_MAX / sizeof(**pending)) return 0;
+	grown = realloc(*pending, next * sizeof(**pending));
+	if (!grown) return 0;
+	memset(grown + *capacity, 0,
+		(next - *capacity) * sizeof(*grown));
+	*pending = grown;
+	*capacity = next;
+	return 1;
+}
+
+static s32 weaponNestedPrepareRecursiveEffects(
+		weapon_nested_preflight_t **pending, size_t *pending_count,
+		size_t *pending_capacity, const char *weapon_id,
+		const char *weapon_archive, const void *weapon_bytes, u32 weapon_size,
+		char *err, size_t err_cap)
+{
+	effect_nested_member_scan_t containers;
+	s32 enum_result;
+
+	memset(&containers, 0, sizeof(containers));
+	enum_result = modArchiveMemForEachEntry(weapon_bytes, weapon_size,
+		collectWeaponNestedEffectContainer, &containers);
+	if (enum_result != MODARCHIVE_OK) {
+		nestedSetErr(err, err_cap,
+			containers.allocation_failed
+				? "out of memory enumerating weapon payloads %s%s"
+				: "could not enumerate weapon payloads %s%s",
+			weapon_archive, "");
+		free(containers.entries);
+		return 0;
+	}
+
+	for (size_t container_index = 0;
+			container_index < containers.count; container_index++) {
+		const char *container_entry = containers.entries[container_index];
+		asset_type_e container_type = assetArchiveTypeForPath(container_entry);
+		effect_nested_member_scan_t effects;
+		char container_ref[FS_MAXPATH + 1];
+		u32 container_size = 0;
+		void *container_bytes = NULL;
+
+		memset(&effects, 0, sizeof(effects));
+		container_bytes = modArchiveExtractMemAlloc(weapon_bytes, weapon_size,
+			container_entry, &container_size);
+		if (!container_bytes || container_size == 0
+				|| assetArchiveValidateBytes(container_bytes, container_size,
+					container_entry, ASSET_ARCHIVE_VALIDATE_RELEASE,
+					err, err_cap) != 0
+				|| !assetPathJoinChecked(container_ref, sizeof(container_ref),
+					weapon_archive, "::", container_entry)) {
+			if ((!err || !err[0]) && container_type != ASSET_NONE) {
+				nestedSetErr(err, err_cap,
+					"could not preflight nested weapon payload %s%s",
+					container_entry, "");
+			}
+			free(container_bytes);
+			free(containers.entries);
+			return 0;
+		}
+		enum_result = modArchiveMemForEachEntry(container_bytes, container_size,
+			collectEmbeddedEffectArchive, &effects);
+		if (enum_result != MODARCHIVE_OK) {
+			nestedSetErr(err, err_cap,
+				effects.allocation_failed
+					? "out of memory enumerating effects in %s%s"
+					: "could not enumerate effects in %s%s",
+				container_entry, "");
+			free(effects.entries);
+			free(container_bytes);
+			free(containers.entries);
+			return 0;
+		}
+
+		for (size_t effect_index = 0; effect_index < effects.count;
+				effect_index++) {
+			const char *effect_entry = effects.entries[effect_index];
+			weapon_nested_preflight_t *p;
+			u32 descriptor_size = 0;
+			const char *descriptor_leaf = NULL;
+			char *descriptor = NULL;
+			const char *catalog_id;
+
+			if (!weaponNestedPendingReserve(pending, pending_capacity,
+					*pending_count + 1)) {
+				nestedSetErr(err, err_cap,
+					"out of memory preflighting recursive effects for %s%s",
+					weapon_id, "");
+				free(effects.entries);
+				free(container_bytes);
+				free(containers.entries);
+				return 0;
+			}
+			p = &(*pending)[*pending_count];
+			p->expected_type = ASSET_EFFECT;
+			p->bytes = modArchiveExtractMemAlloc(container_bytes, container_size,
+				effect_entry, &p->size);
+			if (!p->bytes || p->size == 0
+					|| assetArchiveValidateBytes(p->bytes, p->size,
+						effect_entry, ASSET_ARCHIVE_VALIDATE_RELEASE,
+						err, err_cap) != 0) {
+				if (!err || !err[0]) {
+					nestedSetErr(err, err_cap,
+						"could not preflight recursive effect %s%s",
+						effect_entry, "");
+				}
+				free(effects.entries);
+				free(container_bytes);
+				free(containers.entries);
+				return 0;
+			}
+			descriptor = assetArchiveExtractDescriptorMemAlloc(p->bytes, p->size,
+				effect_entry, ASSET_ARCHIVE_VALIDATE_RELEASE, &descriptor_size,
+				&descriptor_leaf);
+			if (!descriptor || !iniParseBuffer(descriptor_leaf, descriptor,
+					descriptor_size, &p->ini)) {
+				free(descriptor);
+				nestedSetErr(err, err_cap,
+					"invalid public descriptor in recursive effect %s%s",
+					effect_entry, "");
+				free(effects.entries);
+				free(container_bytes);
+				free(containers.entries);
+				return 0;
+			}
+			free(descriptor);
+			if (sectionToType(p->ini.type) != ASSET_EFFECT) {
+				nestedSetErr(err, err_cap,
+					"recursive nested effect type mismatch %s%s",
+					effect_entry, "");
+				free(effects.entries);
+				free(container_bytes);
+				free(containers.entries);
+				return 0;
+			}
+			catalog_id = iniGet(&p->ini, "catalog_id",
+				iniGet(&p->ini, "id", ""));
+			if (!catalog_id[0] || !pdEffectCatalogIdValid(catalog_id)
+					|| !catalogIdSharesNamespace(weapon_id, catalog_id)) {
+				nestedSetErr(err, err_cap,
+					"recursive effect %s has missing or foreign catalog ID %s",
+					effect_entry, catalog_id);
+				free(effects.entries);
+				free(container_bytes);
+				free(containers.entries);
+				return 0;
+			}
+			for (size_t prior = 0; prior < *pending_count; prior++) {
+				if (strcmp((*pending)[prior].catalog_id, catalog_id) == 0) {
+					nestedSetErr(err, err_cap,
+						"duplicate recursive nested dependency ID %s%s",
+						catalog_id, "");
+					free(effects.entries);
+					free(container_bytes);
+					free(containers.entries);
+					return 0;
+				}
+			}
+			if (!assetPathCopyChecked(p->catalog_id, sizeof(p->catalog_id),
+					catalog_id)
+					|| !assetPathJoinChecked(p->archive_ref, FS_MAXPATH,
+						container_ref, "::", effect_entry)
+					|| !assetPathJoinChecked(p->descriptor_ref, FS_MAXPATH,
+						p->archive_ref, "::", descriptor_leaf
+							? descriptor_leaf
+							: assetArchiveDescriptorForPath(effect_entry))) {
+				nestedSetErr(err, err_cap,
+					"recursive effect archive chain exceeds capacity %s%s",
+					effect_entry, "");
+				free(effects.entries);
+				free(container_bytes);
+				free(containers.entries);
+				return 0;
+			}
+			if (!effectNestedPrepareBytes(&p->effect_nested, p->catalog_id,
+					p->archive_ref, p->bytes, p->size, err, err_cap)) {
+				free(effects.entries);
+				free(container_bytes);
+				free(containers.entries);
+				return 0;
+			}
+			const asset_entry_t *existing = assetCatalogResolve(p->catalog_id);
+			if (existing) {
+				if (existing->type != ASSET_EFFECT || (!existing->bundled
+						&& (!strstr(existing->dirpath, "::")
+							|| !nestedContentMatchesExisting(existing, p->bytes,
+								p->size)))) {
+					nestedSetErr(err, err_cap,
+						"recursive nested effect ID collision %s%s",
+						p->catalog_id, "");
+					free(effects.entries);
+					free(container_bytes);
+					free(containers.entries);
+					return 0;
+				}
+				p->existing = 1;
+			}
+			(*pending_count)++;
+		}
+		free(effects.entries);
+		free(container_bytes);
+	}
+	free(containers.entries);
+	return 1;
+}
 
 s32 assetCatalogRegisterWeaponNestedDependencies(const char *weapon_id,
 		const char *weapon_archive, s32 bundled, char *err, size_t err_cap)
@@ -2887,6 +3555,7 @@ s32 assetCatalogRegisterWeaponNestedDependencies(const char *weapon_id,
 	weapon_nested_media_scan_t scan;
 	weapon_nested_preflight_t *pending = NULL;
 	size_t pending_count = 0;
+	size_t pending_capacity = 0;
 	s32 result = -1;
 
 	if (err && err_cap) err[0] = '\0';
@@ -2918,8 +3587,8 @@ s32 assetCatalogRegisterWeaponNestedDependencies(const char *weapon_id,
 		goto done;
 	}
 	if (scan.count) {
-		pending = calloc(scan.count, sizeof(*pending));
-		if (!pending) {
+		if (!weaponNestedPendingReserve(&pending, &pending_capacity,
+				scan.count)) {
 			nestedSetErr(err, err_cap,
 				"out of memory preflighting weapon %s%s", weapon_id, "");
 			goto done;
@@ -2978,11 +3647,6 @@ s32 assetCatalogRegisterWeaponNestedDependencies(const char *weapon_id,
 				entry_name, catalog_id);
 			goto rollback;
 		}
-		if (expected_type == ASSET_EFFECT
-				&& effectDependenciesCollectArchiveBytes(p->bytes, p->size,
-					catalog_id, &p->effect_deps, err, err_cap) < 0) {
-			goto rollback;
-		}
 		for (size_t prior = 0; prior < pending_count; prior++) {
 			if (strcmp(pending[prior].catalog_id, catalog_id) == 0) {
 				nestedSetErr(err, err_cap, "duplicate nested dependency ID %s%s",
@@ -3001,6 +3665,11 @@ s32 assetCatalogRegisterWeaponNestedDependencies(const char *weapon_id,
 				entry_name, "");
 			goto rollback;
 		}
+		if (expected_type == ASSET_EFFECT
+				&& !effectNestedPrepareBytes(&p->effect_nested, p->catalog_id,
+					p->archive_ref, p->bytes, p->size, err, err_cap)) {
+			goto rollback;
+		}
 		const asset_entry_t *existing = assetCatalogResolve(p->catalog_id);
 		if (existing) {
 			if (existing->type != expected_type || (!existing->bundled
@@ -3016,15 +3685,21 @@ s32 assetCatalogRegisterWeaponNestedDependencies(const char *weapon_id,
 		pending_count++;
 	}
 	}
+	if (!weaponNestedPrepareRecursiveEffects(&pending, &pending_count,
+			&pending_capacity, weapon_id, weapon_archive, weapon_bytes,
+			weapon_size, err, err_cap)) {
+		goto rollback;
+	}
 	{
 		size_t edge_count = pending_count;
 		for (size_t i = 0; i < pending_count; i++) {
-			if (pending[i].effect_deps.count > (SIZE_MAX - edge_count) / 2) {
+			if (pending[i].effect_nested.deps.count >
+					(SIZE_MAX - edge_count) / 2) {
 				nestedSetErr(err, err_cap, "nested dependency edge count overflow %s%s",
 					weapon_id, "");
 				goto rollback;
 			}
-			edge_count += pending[i].effect_deps.count * 2;
+			edge_count += pending[i].effect_nested.deps.count * 2;
 		}
 		if (edge_count > (size_t)INT_MAX
 				|| !catalogDepReserve((s32)edge_count)) {
@@ -3061,6 +3736,10 @@ s32 assetCatalogRegisterWeaponNestedDependencies(const char *weapon_id,
 			entry->enabled = 1;
 			entry->temporary = 0;
 		}
+		if (p->expected_type == ASSET_EFFECT
+				&& !effectNestedCommit(&p->effect_nested, bundled, err, err_cap)) {
+			goto rollback;
+		}
 		if (!catalogDepContains(weapon_id, p->catalog_id)) {
 			if (!catalogDepRegisterTyped(weapon_id, p->catalog_id,
 					p->expected_type, bundled ? 1 : 0)) {
@@ -3071,27 +3750,16 @@ s32 assetCatalogRegisterWeaponNestedDependencies(const char *weapon_id,
 			}
 			p->edge_created = 1;
 		}
-		if (p->effect_deps.count) {
-			p->effect_dep_edges_created = (u8 *)calloc(p->effect_deps.count, 1);
-			p->effect_child_dep_edges_created = (u8 *)calloc(
-				p->effect_deps.count, 1);
-			if (!p->effect_dep_edges_created || !p->effect_child_dep_edges_created) {
+		if (p->effect_nested.deps.count) {
+			p->effect_dep_edges_created = (u8 *)calloc(
+				p->effect_nested.deps.count, 1);
+			if (!p->effect_dep_edges_created) {
 				nestedSetErr(err, err_cap, "out of memory tracking nested effect deps %s%s",
 					p->catalog_id, "");
 				goto rollback;
 			}
-			for (size_t j = 0; j < p->effect_deps.count; j++) {
-				effect_dependency_t *dep = &p->effect_deps.items[j];
-				if (!catalogDepContains(p->catalog_id, dep->catalog_id)) {
-					if (!catalogDepRegisterTyped(p->catalog_id, dep->catalog_id,
-							dep->type, bundled ? 1 : 0)) {
-						nestedSetErr(err, err_cap,
-							"could not register effect-owned dependency %s%s",
-							dep->catalog_id, "");
-						goto rollback;
-					}
-					p->effect_child_dep_edges_created[j] = 1;
-				}
+			for (size_t j = 0; j < p->effect_nested.deps.count; j++) {
+				effect_dependency_t *dep = &p->effect_nested.deps.items[j];
 				if (!catalogDepContains(weapon_id, dep->catalog_id)) {
 					if (!catalogDepRegisterTyped(weapon_id, dep->catalog_id,
 							dep->type, bundled ? 1 : 0)) {
@@ -3108,23 +3776,25 @@ s32 assetCatalogRegisterWeaponNestedDependencies(const char *weapon_id,
 			"PDWEAPON.NESTED.REGISTER: owner=%s id=%s type=%d source=%s",
 			weapon_id, p->catalog_id, (s32)p->expected_type, p->archive_ref);
 	}
+	for (size_t i = 0; i < pending_count; i++) {
+		if (pending[i].expected_type == ASSET_EFFECT) {
+			catalogDepPruneOwner(pending[i].catalog_id,
+				keepCurrentEffectDependency, &pending[i].effect_nested.deps);
+		}
+	}
 	result = (s32)pending_count;
 	goto done;
 
 rollback:
 	for (size_t i = pending_count; i-- > 0; ) {
-		for (size_t j = pending[i].effect_deps.count; j-- > 0; ) {
+		for (size_t j = pending[i].effect_nested.deps.count; j-- > 0; ) {
 			if (pending[i].effect_dep_edges_created
 					&& pending[i].effect_dep_edges_created[j]) {
 				catalogDepUnregister(weapon_id,
-					pending[i].effect_deps.items[j].catalog_id);
-			}
-			if (pending[i].effect_child_dep_edges_created
-					&& pending[i].effect_child_dep_edges_created[j]) {
-				catalogDepUnregister(pending[i].catalog_id,
-					pending[i].effect_deps.items[j].catalog_id);
+					pending[i].effect_nested.deps.items[j].catalog_id);
 			}
 		}
+		effectNestedRollback(&pending[i].effect_nested);
 		if (pending[i].edge_created) {
 			catalogDepUnregister(weapon_id, pending[i].catalog_id);
 		}
@@ -3133,11 +3803,10 @@ rollback:
 		}
 	}
 done:
-	for (size_t i = 0; i < scan.count; i++) {
+	for (size_t i = 0; i < pending_capacity; i++) {
 		free(pending ? pending[i].bytes : NULL);
 		free(pending ? pending[i].effect_dep_edges_created : NULL);
-		free(pending ? pending[i].effect_child_dep_edges_created : NULL);
-		if (pending) effectDependenciesFree(&pending[i].effect_deps);
+		if (pending) effectNestedFree(&pending[i].effect_nested);
 	}
 	free(pending);
 	free(scan.entries);
@@ -3545,29 +4214,14 @@ static s32 scanExternalDescriptorPath(const char *mod_dir,
 	return scanExternalDescriptorChildren(base_dir, leaf, expected, mod_id);
 }
 
-static s32 keepCurrentEffectDependency(const char *dep_id,
-	asset_type_e expected_type, void *userdata)
-{
-	const effect_dependency_list_t *deps =
-		(const effect_dependency_list_t *)userdata;
-	for (size_t i = 0; deps && i < deps->count; i++) {
-		if (deps->items[i].type == expected_type
-				&& strcmp(deps->items[i].catalog_id, dep_id) == 0) return 1;
-	}
-	return 0;
-}
-
 static s32 registerTypedPdDescriptorFile(const char *descriptor_path,
                                          asset_type_e expected,
                                          const char *mod_id)
 {
 	pd_effect_source_info_t effect_source;
-	effect_dependency_list_t effect_deps;
 	asset_entry_t prior_effect;
-	u8 *effect_edges_created = NULL;
 	s32 had_prior_effect = 0;
 	s32 has_effect_source = 0;
-	memset(&effect_deps, 0, sizeof(effect_deps));
 	if (expected == ASSET_EFFECT) {
 		char effect_error[256];
 		effect_error[0] = '\0';
@@ -3646,48 +4300,10 @@ static s32 registerTypedPdDescriptorFile(const char *descriptor_path,
 		return 0;
 	}
 	if (has_effect_source) {
-		char dep_error[256];
-		dep_error[0] = '\0';
-		if (effectDependenciesCollectArchiveFile(descriptor_path,
-				effect_source.catalog_id, &effect_deps, dep_error,
-				sizeof(dep_error)) < 0) {
-			sysLogPrintf(LOG_WARNING,
-				"PDEFFECT.DEPENDENCY.REJECT: owner=%s source=%s error=%s",
-				effect_source.catalog_id, descriptor_path,
-				dep_error[0] ? dep_error : "dependency parse failed");
-			effectDependenciesFree(&effect_deps);
-			return 0;
-		}
-		{
-			const asset_entry_t *prior = assetCatalogResolve(effect_source.catalog_id);
-			if (prior) {
-				prior_effect = *prior;
-				had_prior_effect = 1;
-			}
-		}
-		if (effect_deps.count) {
-			if (effect_deps.count > INT_MAX
-					|| !catalogDepReserve((s32)effect_deps.count)
-					|| !(effect_edges_created = (u8 *)calloc(effect_deps.count, 1))) {
-				effectDependenciesFree(&effect_deps);
-				return 0;
-			}
-		}
-		for (size_t i = 0; i < effect_deps.count; i++) {
-			asset_type_e prior_type = catalogDepExpectedType(
-				effect_source.catalog_id, effect_deps.items[i].catalog_id);
-			if (catalogDepContains(effect_source.catalog_id,
-					effect_deps.items[i].catalog_id)) {
-				if (prior_type != ASSET_NONE
-						&& prior_type != effect_deps.items[i].type) goto effect_precommit_fail;
-				continue;
-			}
-			if (!catalogDepRegisterTyped(effect_source.catalog_id,
-					effect_deps.items[i].catalog_id, effect_deps.items[i].type,
-					had_prior_effect && prior_effect.bundled ? 1 : 0)) {
-				goto effect_precommit_fail;
-			}
-			effect_edges_created[i] = 1;
+		const asset_entry_t *prior = assetCatalogResolve(effect_source.catalog_id);
+		if (prior) {
+			prior_effect = *prior;
+			had_prior_effect = 1;
 		}
 	}
 
@@ -3714,13 +4330,17 @@ static s32 registerTypedPdDescriptorFile(const char *descriptor_path,
 						? EFFECT_TYPE_SPARK : EFFECT_TYPE_SMOKE;
 				effect->ext.effect.target = EFFECT_TARGET_CALLSITE;
 			}
-			/* Replacement truth is exact, not additive. Prune stale typed edges
-			 * only after the complete new public row has published so every
-			 * rejection path can preserve the prior owner closure unchanged. */
-			catalogDepPruneOwner(effect_source.catalog_id,
-				keepCurrentEffectDependency, &effect_deps);
-			free(effect_edges_created);
-			effectDependenciesFree(&effect_deps);
+			char nested_err[256];
+			nested_err[0] = '\0';
+			if (assetCatalogRegisterEffectNestedDependencies(
+					effect_source.catalog_id, descriptor_path, 0,
+					nested_err, sizeof(nested_err)) < 0) {
+				sysLogPrintf(LOG_WARNING,
+					"PDEFFECT.NESTED.REJECT: owner=%s source=%s error=%s",
+					effect_source.catalog_id, descriptor_path,
+					nested_err[0] ? nested_err : "nested registration failed");
+				goto effect_publish_fail;
+			}
 		}
 		if (expected == ASSET_WEAPON) {
 			const char *weapon_id = iniGet(&ini, "catalog_id",
@@ -3774,21 +4394,11 @@ effect_publish_fail:
 		asset_entry_t *published = assetCatalogGetMutable(effect_source.catalog_id);
 		if (had_prior_effect && published) *published = prior_effect;
 		else if (!had_prior_effect && published) assetCatalogUnregister(effect_source.catalog_id);
-	}
-effect_precommit_fail:
-	for (size_t i = effect_deps.count; i-- > 0; ) {
-		if (effect_edges_created && effect_edges_created[i]) {
-			catalogDepUnregister(effect_source.catalog_id,
-				effect_deps.items[i].catalog_id);
+		if (had_prior_effect) {
+			/* A rejected replacement restored the exact prior row. Reactivate
+			 * only roots whose complete restored closure still passes. */
+			(void)catalogReloadInvalidatedTypedAssets();
 		}
-	}
-	free(effect_edges_created);
-	effectDependenciesFree(&effect_deps);
-	if (had_prior_effect) {
-		/* A rejected replacement restored the exact prior row and edge set.
-		 * Reactivate only roots that pass that complete restored closure; any
-		 * unexpected failure remains safely pending and unreachable. */
-		(void)catalogReloadInvalidatedTypedAssets();
 	}
 	return 0;
 }
@@ -4538,8 +5148,71 @@ s32 assetCatalogScanComponentsFromArchive(const char *mod_id, mod_archive_t *arc
 			if (!assetPathCopyChecked(descriptor_ref, FS_MAXPATH, entry_ref)) continue;
 		}
 
+		asset_entry_t prior_effect;
+		asset_entry_t prior_weapon;
+		s32 had_prior_effect = 0;
+		s32 had_prior_weapon = 0;
+		const char *effect_id = NULL;
+		const char *weapon_id = NULL;
+		if (typed_archive_entry && ini_type == ASSET_EFFECT) {
+			effect_id = iniGet(&ini, "catalog_id", iniGet(&ini, "id", ""));
+			const asset_entry_t *prior = effect_id[0]
+				? assetCatalogResolve(effect_id) : NULL;
+			if (prior) {
+				prior_effect = *prior;
+				had_prior_effect = 1;
+			}
+		}
+		if (typed_archive_entry && ini_type == ASSET_WEAPON) {
+			weapon_id = iniGet(&ini, "catalog_id", iniGet(&ini, "id", ""));
+			const asset_entry_t *prior = weapon_id[0]
+				? assetCatalogResolve(weapon_id) : NULL;
+			if (prior) {
+				prior_weapon = *prior;
+				had_prior_weapon = 1;
+			}
+		}
+
 		if (registerComponent(&ini, component_dir, mod_id, descriptor_ref)) {
 			s32 accepted = 1;
+			if (typed_archive_entry && ini_type == ASSET_WEAPON) {
+				char nested_err[256];
+				nested_err[0] = '\0';
+				if (!weapon_id || !weapon_id[0]
+						|| assetCatalogRegisterWeaponNestedDependencies(weapon_id,
+							entry_ref, 0, nested_err, sizeof(nested_err)) < 0) {
+					asset_entry_t *weapon = weapon_id && weapon_id[0]
+						? assetCatalogGetMutable(weapon_id) : NULL;
+					if (had_prior_weapon && weapon) *weapon = prior_weapon;
+					else if (!had_prior_weapon && weapon) assetCatalogUnregister(weapon_id);
+					if (had_prior_weapon) (void)catalogReloadInvalidatedTypedAssets();
+					sysLogPrintf(LOG_WARNING,
+						"PDWEAPON.NESTED.REJECT: owner=%s source=%s error=%s",
+						weapon_id && weapon_id[0] ? weapon_id : "<missing>",
+						entry_ref, nested_err[0] ? nested_err :
+							"nested registration failed");
+					accepted = 0;
+				}
+			}
+			if (typed_archive_entry && ini_type == ASSET_EFFECT) {
+				char nested_err[256];
+				nested_err[0] = '\0';
+				if (!effect_id || !effect_id[0]
+						|| assetCatalogRegisterEffectNestedDependencies(effect_id,
+							entry_ref, 0, nested_err, sizeof(nested_err)) < 0) {
+					asset_entry_t *effect = effect_id && effect_id[0]
+						? assetCatalogGetMutable(effect_id) : NULL;
+					if (had_prior_effect && effect) *effect = prior_effect;
+					else if (!had_prior_effect && effect) assetCatalogUnregister(effect_id);
+					if (had_prior_effect) (void)catalogReloadInvalidatedTypedAssets();
+					sysLogPrintf(LOG_WARNING,
+						"PDEFFECT.NESTED.REJECT: owner=%s source=%s error=%s",
+						effect_id && effect_id[0] ? effect_id : "<missing>",
+						entry_ref, nested_err[0] ? nested_err :
+							"nested registration failed");
+					accepted = 0;
+				}
+			}
 			if (typed_archive_entry && ini_type == ASSET_THEME) {
 				const char *theme_id = iniGet(&ini, "catalog_id",
 					iniGet(&ini, "id", ""));

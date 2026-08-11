@@ -377,9 +377,7 @@ void amApply(s32 slot)
 		}
 		break;
 	case 1: // Function
-		if (g_Vars.currentplayer->gunctrl.weaponnum >= WEAPON_UNARMED
-				&& g_Vars.currentplayer->gunctrl.weaponnum <= WEAPON_COMBATBOOST
-				&& g_PlayerConfigsArray[g_Vars.currentplayerstats->mpindex].gunfuncs[(g_Vars.currentplayer->gunctrl.weaponnum - 1) >> 3] & (1 << ((g_Vars.currentplayer->gunctrl.weaponnum - 1) & 7))) {
+		if (bgunIsUsingSecondaryFunction()) {
 			if (slot == 1) {
 				g_AmMenus[g_AmIndex].togglefunc = true;
 			}

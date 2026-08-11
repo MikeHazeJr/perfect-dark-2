@@ -40,6 +40,17 @@ static size_t s_instance_capacity;
 static u64 s_next_instance_id = 1;
 static effect_instance_consumer_t s_test_consumers[2];
 static s32 s_test_consumer_count;
+static s32 s_audit_enabled;
+
+void effectInstanceRuntimeSetAuditEnabled(s32 enabled)
+{
+	s_audit_enabled = enabled ? 1 : 0;
+}
+
+s32 effectInstanceRuntimeAuditEnabled(void)
+{
+	return s_audit_enabled;
+}
 
 static void setErr(char *err, size_t err_cap, const char *fmt, ...)
 {
@@ -1052,6 +1063,14 @@ static s32 compositeCommit(const effect_graph_dispatch_context_t *context)
 		state->instance->consumers[i].commit(&state->instance->frame);
 	}
 	state->instance->committed = 1;
+	if (s_audit_enabled) {
+		sysLogPrintf(LOG_NOTE,
+			"EFFECT.INSTANCE.AUDIT: committed asset=%s instance=%llu consumers=%d lifetime=%.3f",
+			state->instance->asset_id,
+			(unsigned long long)state->instance->frame.instance_id,
+			state->instance->consumer_count,
+			(double)state->instance->frame.lifetime);
+	}
 	return 0;
 }
 

@@ -186,6 +186,15 @@ void attachTimeline() {
 
 } // namespace
 
+TEST_CASE("effect runtime audit observer is explicit and opt-in",
+	"[modding][pdxxx][effect_instance][v009]") {
+	effectInstanceRuntimeSetAuditEnabled(0);
+	REQUIRE(effectInstanceRuntimeAuditEnabled() == 0);
+	effectInstanceRuntimeSetAuditEnabled(1);
+	REQUIRE(effectInstanceRuntimeAuditEnabled() == 1);
+	effectInstanceRuntimeSetAuditEnabled(0);
+}
+
 TEST_CASE("effect instances resolve contexts and replay selected topology transactionally",
 	"[modding][pdxxx][effect_instance][t-assets-036]") {
 	resetRuntime();

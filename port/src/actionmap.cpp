@@ -1323,6 +1323,7 @@ void actionmapPollFrame(void)
      * "stale axis value" and always drive the axis from digital keys.
      * (B-152: stuck WASD after menu close, 2026-04-16.) */
     s32 p0CtrlDroveAxis = 0;
+    s32 p0CtrlDroveAim = 0;
 
     for (s32 p = 0; p < ACTIONMAP_MAX_PLAYERS; p++) {
         SDL_GameController *ctrl = SDL_GameControllerFromPlayerIndex(p);
@@ -1375,8 +1376,13 @@ void actionmapPollFrame(void)
                 actionmapZeroGameplayAxes(p, 0, 1);
             }
 
-            if (p == 0 && moveAxesAllowed) {
-                p0CtrlDroveAxis = 1;
+            if (p == 0) {
+                if (moveAxesAllowed) {
+                    p0CtrlDroveAxis = 1;
+                }
+                if (aimAxesAllowed) {
+                    p0CtrlDroveAim = 1;
+                }
             }
 
             /* DIAG: Log raw and processed axis values every ~120 frames (verbose-only). */
@@ -1395,6 +1401,40 @@ void actionmapPollFrame(void)
         actionmapZeroGameplayAxes(0, !moveAxesAllowed, !aimAxesAllowed);
     }
 
+    /* B-1024: keyboard aim actions are semantic digital counterparts of the
+     * right-stick axes. They were registered and bindable, but only the
+     * controller axis pair reached bondmove, so arrow-key aim events were
+     * accepted and then ignored. Mirror the WASD synthesis contract: live
+     * digital input overrides controller aim, otherwise preserve a non-zero
+     * controller axis or clear stale digital state. Do this before the move
+     * aperture's early return because a layer may allow aim without movement. */
+    if (aimAxesAllowed) {
+        f32 ax = s_State[0][ACTION_AXIS_AIM_X].value;
+        f32 ay = s_State[0][ACTION_AXIS_AIM_Y].value;
+        bool analogAimActive = p0CtrlDroveAim && (ax != 0.0f || ay != 0.0f);
+        f32 dx = 0.0f;
+        f32 dy = 0.0f;
+
+        if (s_State[0][ACTION_AIM_RIGHT].held) dx += 1.0f;
+        if (s_State[0][ACTION_AIM_LEFT].held)  dx -= 1.0f;
+        if (s_State[0][ACTION_AIM_UP].held)    dy += 1.0f;
+        if (s_State[0][ACTION_AIM_DOWN].held)  dy -= 1.0f;
+
+        if (dx != 0.0f || dy != 0.0f || !analogAimActive) {
+            if (dx != 0.0f || dy != 0.0f) {
+                f32 len = sqrtf(dx * dx + dy * dy);
+                if (len > 1.0f) {
+                    dx /= len;
+                    dy /= len;
+                }
+            }
+            s_State[0][ACTION_AXIS_AIM_X].value = dx;
+            s_State[0][ACTION_AXIS_AIM_Y].value = dy;
+            s_State[0][ACTION_AXIS_AIM_X].held = (dx != 0.0f) ? 1 : 0;
+            s_State[0][ACTION_AXIS_AIM_Y].held = (dy != 0.0f) ? 1 : 0;
+        }
+    }
+
     if (!moveAxesAllowed) {
         /* Move axes blocked: skip player 0 keyboard synthesis too. */
         return;
@@ -1403,7 +1443,8 @@ void actionmapPollFrame(void)
     /* C-1 fix: Mouse aim is NOT routed through ACTION_AXIS_AIM.
      * Mouse aiming goes exclusively through inputMouseGetScaledDelta() →
      * movedata.freelookdx/dy in bondmove.c, exactly as the original port worked.
-     * ACTION_AXIS_AIM_X/Y are for controller right stick only. */
+     * ACTION_AXIS_AIM_X/Y are for controller right stick and the semantic
+     * digital aim synthesis above. */
 
     /* B-124 fix (Bug C): WASD→AXIS_MOVE synthesis always runs for player 0,
      * regardless of s_LastDevice. Previous code gated this on KBM device,

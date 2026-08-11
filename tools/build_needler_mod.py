@@ -75,8 +75,11 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from build_typed_pdxxx_examples import (  # noqa: E402  (after sys.path tweak)
     ZIP_TIME,
+    audio_wav_descriptor,
+    audio_wav_manifest,
     manifest_with,
     effect_manifest,
+    pcm16_mono_wav,
 )
 
 
@@ -108,6 +111,7 @@ NEEDLE_MESH_ID = cid("needle")
 HOMING_PROJECTILE_ID = cid("needler__projectile_homing")
 BURST_PROJECTILE_ID = cid("needler__projectile_burst")
 BURST_EFFECT_ID = cid("pink_burst_effect")
+BURST_SFX_ID = cid("pink_burst_sfx")
 SPARK_TEXTURE_ID = cid("pink_spark")
 HELD_WEAPON_SCALE = 14.0
 
@@ -537,7 +541,21 @@ def build_spark_texture() -> bytes:
     ])
 
 
-def build_pink_burst_effect(spark_texture: bytes) -> bytes:
+def build_pink_burst_sfx() -> bytes:
+    sample = pcm16_mono_wav(frame_count=220)
+    return build_archive_bytes([
+        ("sound.ini", audio_wav_descriptor(
+            "sfx", BURST_SFX_ID, "Pink Needle Burst", "sfx", 5,
+            len(sample), 220,
+        )),
+        ("sample.wav", sample),
+        ("_meta/manifest.json", audio_wav_manifest(
+            "sfx", BURST_SFX_ID, len(sample), 220,
+        )),
+    ])
+
+
+def build_pink_burst_effect(burst_sfx: bytes) -> bytes:
     # effect.graph.json -- small pink contact explosion. The pink tint lives in
     # the effect/texture data because the OG explosion path is hard-white with
     # no scalar tint; this custom effect carries the colour.
@@ -550,7 +568,9 @@ def build_pink_burst_effect(spark_texture: bytes) -> bytes:
         "asset_id": BURST_EFFECT_ID,
         "nodes": [
             {"id": "burst", "kind": "effect.explosion",
-             "params": {"explosion_class": "small", "tint": [1.0, 0.4, 0.8, 1.0]}},
+             "params": {"explosion_class": "small",
+                        "audio_catalog_id": BURST_SFX_ID,
+                        "tint": [1.0, 0.4, 0.8, 1.0]}},
             {"id": "spark", "kind": "effect.spark",
              "params": {"tint": [1.0, 0.5, 0.85, 1.0]}},
         ],
@@ -560,7 +580,7 @@ def build_pink_burst_effect(spark_texture: bytes) -> bytes:
         "schema": "pd2.effect.timeline.v1",
         "tracks": [
             {"time": 0.0, "property": "intensity", "value": 1.0},
-            {"time": 0.18, "property": "intensity", "value": 0.0},
+            {"time": 1.5, "property": "intensity", "value": 0.0},
         ],
     })
     return build_archive_bytes([
@@ -576,7 +596,7 @@ def build_pink_burst_effect(spark_texture: bytes) -> bytes:
          "intensity = 1.0\n"),
         ("effect.graph.json", effect_graph),
         ("timeline.json", timeline),
-        ("dependencies/assets/textures/spark.pdtexture", spark_texture),
+        ("dependencies/assets/audio/pink_burst.pdsfx", burst_sfx),
         ("_meta/manifest.json", effect_manifest(BURST_EFFECT_ID)),
     ])
 
@@ -818,7 +838,8 @@ def build() -> Path:
     held_weapon_mesh = build_held_weapon_mesh()
     needle_mesh = build_needle_mesh()
     spark_texture = build_spark_texture()
-    burst_effect = build_pink_burst_effect(spark_texture)
+    burst_sfx = build_pink_burst_sfx()
+    burst_effect = build_pink_burst_effect(burst_sfx)
 
     # Projectiles embed their own closures.
     homing_projectile = build_homing_projectile(needle_mesh)

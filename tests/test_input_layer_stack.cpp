@@ -364,6 +364,14 @@ TEST_CASE("actionmap: analog axes honor layer-declared gameplay aperture", "[inp
     REQUIRE(actionmap.find("if (!moveAxesAllowed || !aimAxesAllowed)") != std::string::npos);
     REQUIRE(actionmap.find("actionmapZeroGameplayAxes(0, !moveAxesAllowed, !aimAxesAllowed)") != std::string::npos);
     REQUIRE(actionmap.find("if (!moveAxesAllowed)") != std::string::npos);
+
+    const size_t digitalAim = actionmap.find("if (s_State[0][ACTION_AIM_DOWN].held)  dy -= 1.0f;");
+    const size_t moveEarlyReturn = actionmap.find("if (!moveAxesAllowed)", digitalAim);
+    REQUIRE(actionmap.find("s32 p0CtrlDroveAim = 0;") != std::string::npos);
+    REQUIRE(actionmap.find("bool analogAimActive = p0CtrlDroveAim") != std::string::npos);
+    REQUIRE(digitalAim != std::string::npos);
+    REQUIRE(moveEarlyReturn != std::string::npos);
+    REQUIRE(digitalAim < moveEarlyReturn);
 }
 
 TEST_CASE("actionmap: hold bookkeeping honors layer-declared gameplay aperture", "[inputlayer][actionmap][static]")

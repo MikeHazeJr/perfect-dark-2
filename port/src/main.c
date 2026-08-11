@@ -70,6 +70,7 @@
 #include "assetcatalog_cache.h"
 #include "assetprovider.h"
 #include "asset_runtime.h"
+#include "effect_instance_runtime.h"
 #include "weapon_nested_runtime_harness.h"
 #include "asset_source_debug.h"
 #include "modasset_compiler.h"
@@ -3407,6 +3408,11 @@ int main(int argc, const char **argv)
 	g_BootLaunchMpArena    = sysArgGetString("--launch-mp-room");
 	g_BootMountBike        = sysArgCheck("--debug-mount-bike") ? true : false;
 	g_BootDebugForceFirstPerson = sysArgCheck("--debug-force-first-person") ? true : false;
+	effectInstanceRuntimeSetAuditEnabled(
+		sysArgCheck("--debug-effect-runtime-audit") ? 1 : 0);
+	if (effectInstanceRuntimeAuditEnabled()) {
+		sysLogPrintf(LOG_NOTE, "BOOT: --debug-effect-runtime-audit armed");
+	}
 	bootApplyDebugForceFirstPersonLook(sysArgGetString("--debug-force-first-person-look"));
 	bootApplyDebugForceFirstPersonCamOffset(sysArgGetString("--debug-force-first-person-cam-offset"));
 

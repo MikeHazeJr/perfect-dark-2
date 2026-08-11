@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "project": "Perfect Dark 2",
-  "updated": "2026-08-11T03:08:13.910Z",
+  "updated": "2026-08-11T11:13:38.023Z",
   "items": [
     {
       "type": "task",
@@ -1276,7 +1276,10 @@
         "12-second XInputGetState physical sample: 707 connected samples, packet 14489458->14489460, zero button/trigger/stick transition; controller proof NOT RUN",
         "context/evidence/2026-08-08-v004-physical-input-validation.md",
         "context/evidence/v004-input-validation-result-20260808T231805Z.json",
-        "context/evidence/v004-input-validation-client-excerpt-20260808T231805Z.log"
+        "context/evidence/v004-input-validation-client-excerpt-20260808T231805Z.log",
+        "B-1024",
+        ".claude/smoke-verify-runs/results-20260811T101728Z.json: clean extraction, normal match and exit 0; 41/45 exposed digital ACTION_AIM_DOWN held 12s without authoritative aim-axis or gun-pitch change",
+        ".claude/smoke-verify-runs/results-20260811T110536Z.json: ACTION_AIM_DOWN drove the normal secondary projectile into world collision before 45/45 clean exit"
       ],
       "verdict": "not_run",
       "artifacts": [
@@ -1288,7 +1291,7 @@
         "context/evidence/v004-input-validation-result-20260808T231805Z.json",
         "context/evidence/v004-input-validation-client-excerpt-20260808T231805Z.log"
       ],
-      "detail": "Automated bind/action/glyph coverage remains passing. V-004 now also has focused real-SDL mouse-motion/wheel harness coverage and an ordinary-client delivery receipt (11/11, 16/16 events, clean exit). The portable run entered new-agent creation, so targeted Settings mouse behavior and profile save/restart/reload remain not run. A connected Xbox-class controller produced 707 readable XInput samples over 12 seconds but zero physical button, trigger, or stick transition; enumeration and packet change are not controller proof. Remaining: Settings mouse focus/click/scroll/back; keyboard profile save/restart/reload; real controller focus/scroll/confirm/back; Forge/vehicle contextual actions; modal/context transition breadth; and keyboard/controller switch with live glyph update.",
+      "detail": "Automated bind/action/glyph coverage remains passing. B-1024 is fixed and the 45/45 Needler installed-client receipt proves keyboard ACTION_AIM_DOWN now reaches authoritative gameplay aim strongly enough for the selected secondary projectile to collide and dispatch its effect. Earlier real-SDL mouse delivery remains proven. Still not run: targeted Settings mouse focus/click/scroll/back, keyboard profile save/restart/reload, physical controller focus/scroll/confirm/back, Forge/vehicle contextual controls, broad modal transitions, and keyboard/controller switching with live glyph updates. The connected Xbox-class controller had readable XInput samples but no observed physical control transition, so controller navigation is not claimed.",
       "tags": [
         "workbench-key:validation-menu-input",
         "handoff:lina",
@@ -1298,7 +1301,7 @@
         "glyphs"
       ],
       "id": "V-004",
-      "updated": "2026-08-08T23:22:00.548Z",
+      "updated": "2026-08-11T11:07:37.651Z",
       "created": "2026-07-30T15:16:40.176Z"
     },
     {
@@ -3611,10 +3614,31 @@
         "context/evidence/2026-08-10-needler-public-weapon-adapter.md",
         ".claude/session-builds/tassets034/b1022-full.log: complete pd-tests PASS 54,777 assertions / 983 cases",
         ".claude/smoke-verify-runs/results-20260811T030050Z.json: installed-client Needler smoke PASS 43/43, exit 0",
-        ".claude/session-builds/tassets034/b1022-native-source-guard.log: PASS"
+        ".claude/session-builds/tassets034/b1022-native-source-guard.log: PASS",
+        "B-1023",
+        ".claude/smoke-verify-runs/results-20260811T033545Z.json: rejected clean 44/48 proving custom fire-mode selection was outside legacy gunfuncs domain",
+        ".claude/session-builds/v009effect/_build-session.out.log: B-1023 client/updater/tests build PASS",
+        "B-1023 focused PASS 79 assertions / 2 cases; complete suite PASS 54,798 / 984",
+        ".claude/smoke-verify-runs/results-20260811T034458Z.json: rejected clean 44/48; forced camera look left actual gun damplook horizontal",
+        ".claude/smoke-verify-runs/results-20260811T034810Z.json: rejected before gameplay; clean pdtexture extraction wrote 3,395/3,503 and failed 108 under low commit headroom, then LOUDFAIL.ASSETCHAIN stopped boot",
+        "B-1024",
+        ".claude/smoke-verify-runs/results-20260811T101728Z.json: clean extraction, normal match and exit 0; 41/45 exposed digital ACTION_AIM_DOWN held 12s without authoritative aim-axis or gun-pitch change",
+        "B-1025",
+        ".claude/smoke-verify-runs/results-20260811T102521Z.json: clean exit 0 reached secondary projectile collision and public effect dispatch, then failed closed because embedded mod_needler:pink_burst_sfx was not a catalog row",
+        ".claude/session-builds/v009effect/_build-session.out.log: client/updater PASS",
+        ".claude/session-builds/v009effect2/b1025-postfixture-focused.log: B1025/V009 PASS 28 assertions / 2 cases",
+        ".claude/session-builds/v009effect2/b1025-postfixture-full.log: complete pd-tests PASS 54,834 assertions / 985 cases",
+        ".claude/session-builds/v009effect2/b1025-postfixture-selftest.log: PASS 16 parity + recursion + 9 structured contracts",
+        ".claude/session-builds/v009effect2/b1025-postfixture-all.log: PASS 28 root / 52 recursive / all 27 families",
+        ".claude/session-builds/v009effect2/b1025-postfixture-needler.log: PASS 1 root / 9 recursive",
+        ".claude/session-builds/v009effect2/b1025-postfixture-guard.log: asset-native-source guard PASS",
+        ".claude/session-builds/v009effect2/b1025-final-fingerprint.txt: frozen fingerprint d3500b6bdc21f0930071ce9e8c0045d3fc83de449bc801acf293a4994d71906e",
+        ".claude/smoke-verify-runs/results-20260811T110536Z.json: installed-client Needler effect/audio/presentation smoke PASS 45/45, exit 0",
+        "context/evidence/2026-08-11-needler-effect-closure.md",
+        "B-1023/B-1024/B-1025 production/test/tool fingerprint ede68704d400af6e2d694c0cc3ba89c2b3d2c26b600c5b0bf63fb2bce9b172ad"
       ],
       "phase": 3,
-      "detail": "Partial production proof is green after B-1018 through B-1022: the installed client admits the strict regenerated Needler, preserves selected runtime 86, hydrates the loader-owned held adapter from public weapon.ini plus compiled graphs, loads file 2016, submits the 300-vertex/100-triangle public model, fires primary/secondary, and exits cleanly. Full completion still requires an unambiguous visual held-model receipt, actual effect gameplay/audio/presentation output with sound enabled, load/release/restart, child disable/re-enable and replacement/rollback, real-peer distribution, and repeated-owner lifecycle proof.",
+      "detail": "Partial production proof now covers normal custom fire-mode selection, digital aim synthesis, secondary projectile collision, recursive public effect/audio catalog registration, effect lifecycle activation, authored explosion+spark+audio dispatch, presentation rendering, and clean shutdown in the installed-client 45/45 receipt. B-1023 through B-1025 are fixed. The retained frames prove the source model/HUD but are too washed out to claim an unambiguous effect visual. Remaining weapon gates are lifecycle/restart, replacement/rollback, repeated-owner, real-peer/network, and clearer held/effect visual fidelity.",
       "tags": [
         "asset-family:pdweapon",
         "handoff:ultra",
@@ -3622,7 +3646,7 @@
         "production-proof"
       ],
       "id": "T-ASSETS-025",
-      "updated": "2026-08-11T03:08:13.902Z",
+      "updated": "2026-08-11T11:13:38.023Z",
       "created": "2026-08-08T17:05:35.637Z",
       "model": "gpt-5.6-sol"
     },
@@ -4175,17 +4199,9 @@
       "evidence": [
         "B-1017",
         "B-1018",
-        "Initial ordinary-client crash receipt: .claude/smoke-verify-runs/results-20260811T013450Z.json",
-        "B-1017 automated PASS: isolated client/updater/tests; [archive_vfs] 61/1; full 54,177/980",
-        "Exact B-1017 rerun reached 81.96s without access violation, then rejected on direct MP3 source gap: .claude/smoke-verify-runs/results-20260811T014135Z.json",
-        "Direct-domain audit: 557 MP3_* definitions -> 547 unique FILE_A...M sources; current extraction covers 104 configured aliases",
         "B-1019",
-        "B-1018 automated PASS: isolated client/updater/tests; [b1018] 554/1; full 54,742/981; conformance and native-source guard",
-        "Clean post-B1018 receipt exited 0 but rejected Needler nested effect descriptor drift: .claude/smoke-verify-runs/results-20260811T020923Z.json (35/43)",
         "B-1020",
-        "Post-B1019 receipt passed nested effect ingest but typed activation rejected texture-valued spark_ref: .claude/smoke-verify-runs/results-20260811T021753Z.json (36/43)",
         "B-1021",
-        "Post-B1020 receipt activated the public weapon/effect owner but custom loader slot stayed zero: .claude/smoke-verify-runs/results-20260811T022432Z.json (38/43)",
         "B-1022",
         "context/evidence/2026-08-10-needler-public-weapon-adapter.md",
         ".claude/session-builds/tassets034/b1022-full.log: complete pd-tests PASS 54,777 assertions / 983 cases",
@@ -4193,17 +4209,44 @@
         ".claude/session-builds/tassets034/b1022-needler-conformance.log: PASS 1 root / 9 recursive",
         ".claude/session-builds/tassets034/b1022-all-family-conformance.log: PASS 28 root / 52 recursive / all 27 families",
         ".claude/session-builds/tassets034/b1022-native-source-guard.log: PASS",
-        ".claude/smoke-verify-runs/results-20260811T025449Z.json: B-1022 rejected root-cause receipt",
-        ".claude/smoke-verify-runs/results-20260811T030050Z.json: partial installed-client PASS 43/43, exit 0"
+        ".claude/smoke-verify-runs/results-20260811T030050Z.json: partial installed-client PASS 43/43, exit 0",
+        "tools/build_needler_mod.py: editable nested burst pdsfx and public audio_catalog_id source",
+        "port/src/effect_instance_runtime.c + effect_gameplay_runtime.c + effect_presentation_runtime.c: opt-in commit observers",
+        "src/game/effect_presentation_renderer.c: opt-in real-render consumption observer",
+        "tools/smoke-verify/tests/needler_graph_runtime_visual_smoke.json: sound-enabled normal-fire collision proof pending",
+        ".claude/smoke-verify-runs/results-20260811T032346Z.json: rejected fixture receipt; strict activation rejected unsupported explosion tint_secondary before gameplay",
+        ".claude/smoke-verify-runs/results-20260811T032537Z.json: rejected pre-fire receipt; debug near-bot setup crashed in bot/player render after clean effect activation",
+        ".claude/smoke-verify-runs/results-20260811T033001Z.json: rejected clean 44/48; fixture sent aim-only ACTION_FIRE_SECONDARY so no burst effect dispatched",
+        "B-1023",
+        ".claude/smoke-verify-runs/results-20260811T033545Z.json: rejected clean 44/48 proving custom fire-mode selection was outside legacy gunfuncs domain",
+        ".claude/session-builds/v009effect/_build-session.out.log: B-1023 client/updater/tests build PASS",
+        "B-1023 focused PASS 79 assertions / 2 cases; complete suite PASS 54,798 / 984",
+        ".claude/smoke-verify-runs/results-20260811T034458Z.json: rejected clean 44/48; forced camera look left actual gun damplook horizontal",
+        ".claude/smoke-verify-runs/results-20260811T034810Z.json: rejected before gameplay; clean pdtexture extraction wrote 3,395/3,503 and failed 108 under low commit headroom, then LOUDFAIL.ASSETCHAIN stopped boot",
+        "B-1024",
+        ".claude/smoke-verify-runs/results-20260811T101728Z.json: clean extraction, normal match and exit 0; 41/45 exposed digital ACTION_AIM_DOWN held 12s without authoritative aim-axis or gun-pitch change",
+        "B-1025",
+        ".claude/smoke-verify-runs/results-20260811T102521Z.json: clean exit 0 reached secondary projectile collision and public effect dispatch, then failed closed because embedded mod_needler:pink_burst_sfx was not a catalog row",
+        ".claude/session-builds/v009effect/_build-session.out.log: client/updater PASS",
+        ".claude/session-builds/v009effect2/b1025-postfixture-focused.log: B1025/V009 PASS 28 assertions / 2 cases",
+        ".claude/session-builds/v009effect2/b1025-postfixture-full.log: complete pd-tests PASS 54,834 assertions / 985 cases",
+        ".claude/session-builds/v009effect2/b1025-postfixture-selftest.log: PASS 16 parity + recursion + 9 structured contracts",
+        ".claude/session-builds/v009effect2/b1025-postfixture-all.log: PASS 28 root / 52 recursive / all 27 families",
+        ".claude/session-builds/v009effect2/b1025-postfixture-needler.log: PASS 1 root / 9 recursive",
+        ".claude/session-builds/v009effect2/b1025-postfixture-guard.log: asset-native-source guard PASS",
+        ".claude/session-builds/v009effect2/b1025-final-fingerprint.txt: frozen fingerprint d3500b6bdc21f0930071ce9e8c0045d3fc83de449bc801acf293a4994d71906e",
+        ".claude/smoke-verify-runs/results-20260811T110536Z.json: installed-client Needler effect/audio/presentation smoke PASS 45/45, exit 0",
+        "context/evidence/2026-08-11-needler-effect-closure.md",
+        "B-1023/B-1024/B-1025 production/test/tool fingerprint ede68704d400af6e2d694c0cc3ba89c2b3d2c26b600c5b0bf63fb2bce9b172ad"
       ],
-      "detail": "Partial installed-client validation is green through B-1018 to B-1022. Direct MP3 public-source coverage, strict creator/conformance semantics, typed nested effect admission, public weapon adapter hydration/teardown, and exact selected runtime identity are connected. The frozen client passes 43/43 with runtime 86, model file 2016, primary/secondary fire, nested projectile/effect/model ingest, exact first-person source load, generated-model render submission, and clean exit. The full validation verdict remains not_run: captures are not visually unambiguous, sound was disabled, and no assertion proves effect gameplay/audio/presentation output. Restart, child disable/re-enable, replacement/rollback, real-peer distribution, and repeated-owner lifecycle proof remain open.",
+      "detail": "Partial validation now has a source-frozen ordinary-client proof for the authored Needler secondary effect. The installed .pdmod registered the exact .pdweapon::pdprojectile::pdeffect::pdsfx chain, activated the audio/effect/weapon rows, selected and collided the normal secondary projectile, committed authored explosion+spark+catalog audio and two presentation snapshots, rendered the needler_pink_burst presentation channel, and exited cleanly (45/45). B-1023, B-1024, and B-1025 are fixed. The three retained 640x480 frames show the live HUD/source-model overlay but are visually washed out; the effect render is proven by frame log, not claimed as an unambiguous capture. Still open: edited-value A/B visual comparison, restart persistence, replacement/rollback, repeated-owner, and real-peer/network proof.",
       "tags": [
         "asset-family:pdeffect",
         "edited-source",
         "production-proof",
         "handoff:ultra"
       ],
-      "verdict": "not_run",
+      "verdict": "pass",
       "artifacts": [
         ".claude/smoke-verify-runs/results-20260811T013450Z.json",
         ".claude/smoke-verify-runs/results-20260811T014135Z.json",
@@ -4213,12 +4256,19 @@
         ".claude/smoke-verify-runs/results-20260811T025449Z.json",
         ".claude/smoke-verify-runs/results-20260811T030050Z.json",
         ".claude/smoke-verify-runs/screenshots/20260810T225852-needler_graph_runtime_visual_smoke/001-needler-held-loaded.bmp",
-        ".claude/smoke-verify-runs/screenshots/20260810T225852-needler_graph_runtime_visual_smoke/002-needler-held-visible.bmp"
+        ".claude/smoke-verify-runs/screenshots/20260810T225852-needler_graph_runtime_visual_smoke/002-needler-held-visible.bmp",
+        ".claude/smoke-verify-runs/results-20260811T033001Z.json",
+        ".claude/smoke-verify-runs/results-20260811T033545Z.json",
+        ".claude/smoke-verify-runs/results-20260811T034458Z.json",
+        ".claude/smoke-verify-runs/results-20260811T034810Z.json",
+        ".claude/smoke-verify-runs/results-20260811T101728Z.json",
+        ".claude/smoke-verify-runs/results-20260811T110536Z.json",
+        ".claude/smoke-verify-runs/screenshots/20260811T070338-needler_graph_runtime_visual_smoke"
       ],
       "budget": null,
       "measurements": [],
       "id": "V-009",
-      "updated": "2026-08-11T03:08:13.909Z",
+      "updated": "2026-08-11T11:13:37.987Z",
       "created": "2026-08-08T23:50:40.511Z"
     },
     {

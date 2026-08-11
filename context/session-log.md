@@ -1,5 +1,101 @@
 # Session Log (Active)
 
+## 2026-08-11 - B-1023/B-1024/B-1025 Needler live effect closure
+
+Completed the normal installed-client Needler secondary-effect slice without
+adding a validation-only trigger. B-1023 gives custom runtime weapons a
+runtime-only function-selection bitset while preserving legacy save/wire
+bytes. B-1024 synthesizes digital aim actions into the authoritative aim axes.
+B-1025 adds one shared transactional `.pdeffect` child registrar across base,
+standalone, mounted/network, direct weapon, and recursive
+`.pdweapon::pdprojectile|pdentity::pdeffect` ingress. Embedded audio, material,
+and texture rows must be graph-referenced, same-namespace, exact-type, and
+content-compatible; every row and typed edge rolls back in reverse on failure.
+
+The first recursive live run correctly rejected an unused effect-local texture
+duplicate. The editable Needler generator now omits that unowned duplicate and
+retains the projectile-owned texture plus the effect-owned catalog SFX. Final
+verification passes client/updater/tests compilation; B-1025/V-009 28/2; full
+54,834/985; conformance selftest; all 27 families at 28 roots/52 recursive;
+Needler 1 root/9 recursive; native-source guard; and diff check. The smoke-start
+working-set fingerprint is
+`d3500b6bdc21f0930071ce9e8c0045d3fc83de449bc801acf293a4994d71906e`;
+the final production/test/tool fingerprint is
+`ede68704d400af6e2d694c0cc3ba89c2b3d2c26b600c5b0bf63fb2bce9b172ad`.
+The ordinary-client receipt
+`.claude/smoke-verify-runs/results-20260811T110536Z.json` passes 45/45 and exits
+0. It proves the exact recursive source chain, effect/audio/weapon activation,
+normal secondary collision, authored explosion+spark+audio commit, two-lane
+presentation, renderer consumption, and clean shutdown. All three retained
+frames were inspected; they show the live source-model/HUD overlay but are too
+washed out for an unambiguous effect-shape claim. `V-009` and `T-ASSETS-025`
+remain partial for edited-value A/B visual comparison, restart,
+replacement/rollback, repeated-owner, and real-peer proof. `V-004` remains
+partial/not-run overall because physical controller/device-switch and Settings
+persistence gates are still open, although the B-1024 keyboard aim path is now
+live-proven.
+
+## 2026-08-10 - V-009 Needler live-output proof in progress
+
+Started the next gate after the B-1018 through B-1022 adapter milestone. The
+Needler creator now embeds an editable catalog-owned `pink_burst.pdsfx`, names
+it from the public explosion node, and retains the pink effect for 1.5 seconds
+for capture. A new opt-in `--debug-effect-runtime-audit` observer exposes
+successful instance, gameplay/audio, presentation, and renderer commits but
+does not create or alter effects. The smoke removes `--no-sound`, aims steeply
+into ordinary world collision, and still selects and fires both authored
+functions through normal action-map input. Verification is pending; the
+previous 43/43 receipt remains the latest accepted installed-client evidence.
+The first strengthened run was rejected at 40.70 seconds before gameplay:
+`effect.explosion` does not accept the authored `tint_secondary` field. Strict
+activation failed closed as designed. That fixture-only field is removed for
+the next source-frozen build; the catalog SFX and primary pink tint remain.
+The corrected-source rerun then reached clean Needler/effect activation but the
+`--debug-place-bot-near-player` validation setup crashed in bot/player render
+at 41.12 seconds, before any scripted fire. That rejected receipt is
+`.claude/smoke-verify-runs/results-20260811T032537Z.json`. The next scenario
+removes the unsafe target-placement helper and uses steep world collision;
+normal weapon input and effect consumers remain unchanged.
+That world-collision run exited cleanly and passed 44/48, but it exposed a
+fixture control error: `ACTION_FIRE_SECONDARY` is the aim/R-trigger action,
+not the weapon-function selector, so only the primary needle fired and no
+effect transaction occurred. The corrected normal path now taps
+`ACTION_FIRE_MODE` and then `ACTION_FIRE_PRIMARY`; no production behavior or
+direct effect trigger was added. The rejected receipt is
+`.claude/smoke-verify-runs/results-20260811T033001Z.json`.
+The corrected action sequence also exited cleanly at 44/48 and exposed the
+production B-1023 boundary: fire-mode input reached `bondmove`, but custom
+runtime weapon 86 is outside the legacy six-byte saved `gunfuncs` domain, so
+the authored secondary function could not be selected. The narrow fix adds a
+runtime-only per-player custom-function bitset, preserves the base save/wire
+bytes, and routes both gameplay and active-menu selection through the combined
+base/custom domain. Source-frozen verification is pending. Rejected receipt:
+`.claude/smoke-verify-runs/results-20260811T033545Z.json`.
+The B-1023 client/updater/tests build, 79 focused assertions/2 cases, and the
+complete 54,798-assertion/984-case suite pass. Its first rebuilt client run
+again exited cleanly at 44/48 and proved function selection alone was not the
+remaining impact blocker: the old forced-look helper changed the camera while
+the fire diagnostic retained horizontal `damplook=(0,0,-1)`. The fixture now
+removes forced camera look/offset and holds real `ACTION_AIM_DOWN` input across
+both trigger pulls. Rejected receipt:
+`.claude/smoke-verify-runs/results-20260811T034458Z.json`.
+The first real-aim rerun is not a V-009 behavior receipt. It stopped before
+gameplay because clean extraction exhausted commit headroom while building
+public texture archives: `pdtexture` wrote 3,395 of 3,503 rows and failed 108,
+then `LOUDFAIL.ASSETCHAIN` correctly refused boot. The run is retained as
+rejected infrastructure evidence at
+`.claude/smoke-verify-runs/results-20260811T034810Z.json`. No documented cache
+builder exists, so the next run will repeat clean extraction only after the
+machine has adequate physical and virtual memory headroom.
+The next clean run reached gameplay and exited 0 at 41/45, exposing B-1024.
+The smoke harness delivered and held the real `ACTION_AIM_DOWN` action from
+76 to 88 seconds, but the action map never synthesized registered digital aim
+actions into the authoritative `ACTION_AXIS_AIM_Y` consumed by `bondmove`.
+Gun `damplook` remained horizontal, so the selected secondary projectile did
+not reach world collision. The production action-map synthesis fix is in
+progress; rejected receipt:
+`.claude/smoke-verify-runs/results-20260811T101728Z.json`.
+
 ## 2026-08-10 - Needler edited-source adapter milestone
 
 Advanced `T-ASSETS-025` and `V-009` through five fail-closed production

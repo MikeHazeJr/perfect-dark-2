@@ -5,6 +5,12 @@
 
 ## Highlights
 
+- Made recursively nested weapon effects publish their editable sound,
+  material, and texture dependencies atomically before gameplay activation.
+- Made keyboard aim actions steer the real gameplay aim axes and let custom
+  weapons retain their selected primary or secondary function during play.
+- Added an editable catalog-backed Needler impact sound and opt-in live effect
+  transaction diagnostics for installed-client validation.
 - Made custom weapon activation hydrate the real held-weapon adapter from
   public `.pdweapon` source and preserve its catalog runtime identity in matches.
 - Emitted editable `.pdvoice` archives for direct mission MP3 references and

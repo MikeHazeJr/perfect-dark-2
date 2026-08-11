@@ -46,6 +46,8 @@ typedef struct gameplay_command {
 	u32 spark_color1;
 	u32 spark_color2;
 	s16 soundnum;
+	s16 audio_channel;
+	char audio_catalog_id[CATALOG_ID_LEN];
 	effect_gameplay_particle_snapshot_t particle;
 	f32 particle_authored_tint[4];
 	f32 particle_glow_scale;
@@ -275,10 +277,15 @@ static s32 stageAudio(const effect_instance_frame_t *frame, s16 soundnum,
 	char *err, size_t err_cap)
 {
 	gameplay_command_t *command;
+	const char *catalog_id = NULL;
 	if (soundnum <= 0) return 1;
 	command = appendCommand(frame, GAMEPLAY_COMMAND_AUDIO, err, err_cap);
 	if (!command || !copyFrameSpatial(frame, command, err, err_cap)) return 0;
 	command->soundnum = soundnum;
+	if (paramString(frame, "audio_catalog_id", &catalog_id) > 0) {
+		snprintf(command->audio_catalog_id, sizeof(command->audio_catalog_id),
+			"%s", catalog_id);
+	}
 	return 1;
 }
 
@@ -650,12 +657,20 @@ static void commitParticle(const effect_gameplay_particle_snapshot_t *particle)
 static void gameplayCommit(const effect_instance_frame_t *frame)
 {
 	size_t i;
-	(void)frame;
+	s32 explosions = 0;
+	s32 sparks = 0;
+	s32 smokes = 0;
+	s32 sounds = 0;
+	s32 particles = 0;
+	const char *audio_id = "<native-profile>";
+	s16 audio_soundnum = 0;
+	s16 audio_channel = -1;
 	if (!s_Transaction.prepared) return;
 	for (i = 0; i < s_Transaction.count; i++) {
 		gameplay_command_t *command = &s_Transaction.commands[i];
 		switch (command->kind) {
 		case GAMEPLAY_COMMAND_EXPLOSION:
+			explosions++;
 			if (command->action_mode == EFFECT_INSTANCE_ACTION_PROP_DETONATION &&
 					command->target_prop) {
 				propExplodeWithSound(command->target_prop,
@@ -667,23 +682,38 @@ static void gameplayCommit(const effect_instance_frame_t *frame)
 			}
 			break;
 		case GAMEPLAY_COMMAND_SPARK:
+			sparks++;
 			sparksCreate(command->rooms[0], command->target_prop,
 				&command->position, &command->primary_direction,
 				&command->secondary_direction, command->native_type);
 			break;
 		case GAMEPLAY_COMMAND_SMOKE:
+			smokes++;
 			smokeCreate(&command->position, command->rooms,
 				(s16)command->native_type);
 			break;
 		case GAMEPLAY_COMMAND_AUDIO:
-			psCreate(NULL, command->target_prop, command->soundnum, -1, -1,
+			command->audio_channel = psCreate(NULL, command->target_prop,
+				command->soundnum, -1, -1,
 				0, 0, PSTYPE_NONE, &command->position, -1.0f,
 				command->rooms, -1, -1.0f, -1.0f, -1.0f);
+			sounds++;
+			audio_soundnum = command->soundnum;
+			audio_channel = command->audio_channel;
+			if (command->audio_catalog_id[0]) audio_id = command->audio_catalog_id;
 			break;
 		case GAMEPLAY_COMMAND_PARTICLE:
+			particles++;
 			commitParticle(&command->particle);
 			break;
 		}
+	}
+	if (effectInstanceRuntimeAuditEnabled() && frame && frame->runtime) {
+		sysLogPrintf(LOG_NOTE,
+			"EFFECT.GAMEPLAY.AUDIT: committed asset=%s instance=%llu explosion=%d spark=%d smoke=%d particle=%d audio=%d audio_id=%s soundnum=%d channel=%d",
+			frame->runtime->asset_id, (unsigned long long)frame->instance_id,
+			explosions, sparks, smokes, particles, sounds, audio_id,
+			(s32)audio_soundnum, (s32)audio_channel);
 	}
 	s_Transaction.count = 0;
 	s_Transaction.prepared = 0;

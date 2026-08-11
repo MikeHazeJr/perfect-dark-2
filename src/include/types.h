@@ -2412,6 +2412,8 @@ struct gunctrl {
 	/*0x15f0*/ u8 guntypefader;
 	/*0x15f2*/ u16 curgunstr;
 	/*0x15f4*/ u8 paddingashdown;
+	/* PC custom-weapon function selection; runtime-only, not save/wire state. */
+	u32 customgunfuncs;
 };
 
 struct playercutscenestate {
