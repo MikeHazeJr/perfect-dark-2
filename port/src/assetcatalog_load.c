@@ -16,6 +16,7 @@
 #include <PR/ultratypes.h>
 #include <string.h>
 #include <stdlib.h>
+#include "constants.h"
 #include "types.h"
 #include "assetcatalog.h"
 #include "assetcatalog_load.h"
@@ -31,6 +32,8 @@
 #include "modasset_compiler.h"
 #include "catalog_mgr_bodies.h"
 #include "catalog_mgr_heads.h"
+#include "loader_pool.h"
+#include "weapon_graph_archive.h"
 #include "weapon_graph_runtime.h"
 #include "effect_graph_runtime.h"  /* c3849 Unit 8: ASSET_EFFECT activation/clear hooks */
 #include "data.h"
@@ -1068,6 +1071,7 @@ static s32 s_catalogActivateWeaponGraphRuntime(asset_entry_t *entry,
     char full_buf[FS_MAXPATH + 1];
     char *graph = NULL;
     const char *full;
+    const char *active_archive;
     s32 result;
 
     if (!entry || !source_path || !source_path[0]) {
@@ -1087,6 +1091,7 @@ static s32 s_catalogActivateWeaponGraphRuntime(asset_entry_t *entry,
             return 0;
         }
 
+        active_archive = archive_path;
         err[0] = '\0';
         result = weaponGraphRuntimeRegisterWeaponArchive(entry->runtime_index,
             archive_path, err, sizeof(err));
@@ -1096,6 +1101,9 @@ static s32 s_catalogActivateWeaponGraphRuntime(asset_entry_t *entry,
                 err[0] = '\0';
                 result = weaponGraphRuntimeRegisterWeaponArchive(entry->runtime_index,
                     full, err, sizeof(err));
+                if (result == 0) {
+                    active_archive = full;
+                }
             }
         }
         if (result != 0) {
@@ -1104,6 +1112,40 @@ static s32 s_catalogActivateWeaponGraphRuntime(asset_entry_t *entry,
                          entry->id, err[0] ? err : "unknown error");
             return 0;
         }
+
+		/* B-1021: graph activation alone is not enough. The legacy held-model
+		 * path enters through loader_pool's struct weapon slot, so install a
+		 * stable adapter derived only from public weapon.ini plus the compiled
+		 * public held graphs. A private manifest is never behavior authority. */
+		if (entry->runtime_index >= WEAPON_CUSTOM_START) {
+			weapon_graph_archive_descriptor_t descriptor;
+			err[0] = '\0';
+			if (weaponGraphArchiveReadDescriptorFile(active_archive, ASSET_WEAPON,
+					&descriptor, err, sizeof(err)) != 0 ||
+					strcmp(descriptor.catalog_id, entry->id) != 0) {
+				weaponGraphRuntimeClearWeapon(entry->runtime_index);
+				effectGraphRuntimeReleaseOwner(entry->id);
+				sysLogPrintf(LOG_WARNING,
+					"CATALOG.LIFECYCLE.ACTIVATE: '%s' public weapon adapter descriptor rejected: %s",
+					entry->id, err[0] ? err : "catalog identity mismatch");
+				return 0;
+			}
+			err[0] = '\0';
+			if (!loaderPoolInstallPublicWeaponAdapter(entry->runtime_index,
+					entry->id, entry->source_filenum,
+					entry->ext.weapon.dual_wieldable, &descriptor,
+					weaponGraphRuntimeGetHeldFunction(entry->runtime_index, 0),
+					weaponGraphRuntimeGetHeldFunction(entry->runtime_index, 1),
+					err, sizeof(err))) {
+				loaderPoolClearPublicWeaponAdapter(entry->runtime_index);
+				weaponGraphRuntimeClearWeapon(entry->runtime_index);
+				effectGraphRuntimeReleaseOwner(entry->id);
+				sysLogPrintf(LOG_WARNING,
+					"CATALOG.LIFECYCLE.ACTIVATE: '%s' public weapon adapter install failed: %s",
+					entry->id, err[0] ? err : "unknown error");
+				return 0;
+			}
+		}
 
         return 1;
     }
@@ -1143,6 +1185,7 @@ static void s_catalogClearWeaponGraphRuntime(asset_entry_t *entry,
 
     if (entry->type == ASSET_WEAPON) {
         if (entry->runtime_index >= 0) {
+			loaderPoolClearPublicWeaponAdapter(entry->runtime_index);
             weaponGraphRuntimeClearWeapon(entry->runtime_index);
         }
 		/* T-ASSETS-020: nested effects are owned by the parent weapon ID and

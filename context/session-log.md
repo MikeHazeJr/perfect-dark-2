@@ -1,5 +1,32 @@
 # Session Log (Active)
 
+## 2026-08-10 - Needler edited-source adapter milestone
+
+Advanced `T-ASSETS-025` and `V-009` through five fail-closed production
+findings. B-1018 added editable `.pdvoice` coverage for the complete direct
+mission `MP3_*` file-reference domain. B-1019 aligned the Needler generator and
+archive conformance with the strict effect descriptor schema. B-1020 corrected
+the burst projectile to name its executable nested effect rather than its
+texture. B-1021 installed a stable loader-owned custom weapon adapter from
+public `weapon.ini` plus compiled held graphs and paired its teardown with the
+catalog owner. B-1022 preserved the selected catalog row's exact runtime index
+through local and lobby specific-spawn setup.
+
+The final frozen receipt passes client/updater/tests compilation, B-1018
+554/1, B-1021 20/1, B-1022 10/1, the complete 54,777-assertion/983-case suite,
+structured conformance selftest, Needler 1-root/9-recursive conformance,
+28-root/52-recursive all-27-family conformance, native-source guard, and diff
+check. The installed-client Needler scenario passes 43/43 and exits 0 with
+runtime 86, model file 2016, two held functions, nested effect ingest, exact
+first-person source load, and 300-vertex/100-triangle render submission.
+
+This remains partial validation. The retained frames show the source-render
+badge but not an unambiguous Needler silhouette; the scenario disables sound
+and does not assert effect gameplay/audio/presentation output. Restart,
+replacement/rollback, child disable/re-enable, and real-peer distribution also
+remain open. Durable evidence is
+`context/evidence/2026-08-10-needler-public-weapon-adapter.md`.
+
 ## 2026-08-10 - Wave 11 generic `.pdeffect` production consumers
 
 Completed `T-ASSETS-032/034/035/036` and the `T-ASSETS-019/012` implementation

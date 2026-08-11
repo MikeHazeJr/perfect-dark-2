@@ -541,13 +541,10 @@ def build_pink_burst_effect(spark_texture: bytes) -> bytes:
     # effect.graph.json -- small pink contact explosion. The pink tint lives in
     # the effect/texture data because the OG explosion path is hard-white with
     # no scalar tint; this custom effect carries the colour.
-    # NOTE (c3849 Unit 8): effect.explosion / effect.spark are LIVE node kinds
-    # pinned to the weapon_graph_runtime.c ASSET_EFFECT module table and
-    # compiled by port/src/effect_graph_runtime.c. explosion_class "small"
-    # maps to EXPLOSIONTYPE_EYESPY (2) for blast/damage parity; the spark
-    # "tint" compiles to a custom spark-row clone of SPARKTYPE_PROJECTILE
-    # (src/game/sparks_custom.c) -- the pink is carried by the spark because
-    # explosion fireballs render hard-white (renderer tint deferred).
+    # effect.explosion / effect.spark are live node kinds compiled by the
+    # public effect runtime. explosion_class belongs to the explosion node,
+    # not the effect.ini descriptor. Wave 11 projects the authored tint and
+    # shader through the shared gameplay/presentation transaction.
     effect_graph = dumps_graph({
         "schema": "pd.effect_graph.v1",
         "asset_id": BURST_EFFECT_ID,
@@ -576,7 +573,6 @@ def build_pink_burst_effect(spark_texture: bytes) -> bytes:
          "effect_file = effect.graph.json\n"
          "timeline_file = timeline.json\n"
          "shader_id = needler_pink_burst\n"
-         "explosion_class = small\n"
          "intensity = 1.0\n"),
         ("effect.graph.json", effect_graph),
         ("timeline.json", timeline),
@@ -665,7 +661,7 @@ def build_burst_projectile(needle_mesh: bytes, burst_effect: bytes,
             {"id": "impact", "kind": "projectile.impact", "params": {
                 "impact_filter": "any",
                 "explosion_ref": BURST_EFFECT_ID,
-                "spark_ref": SPARK_TEXTURE_ID,
+                "spark_ref": BURST_EFFECT_ID,
                 "consume_on_hit": True,
                 "stick_on_hit": False}},
         ],
@@ -738,6 +734,7 @@ def build_weapon(held_weapon_mesh: bytes, homing_projectile: bytes,
          "posx = 0.0\n"
          "posy = 5.0\n"
          "posz = -18.0\n"
+         "track_type = rocket_launcher\n"
          "primary_graph = behavior/primary.graph.json\n"
          "secondary_graph = behavior/secondary.graph.json\n"
          "settings_file = behavior/settings.json\n"
@@ -775,10 +772,6 @@ def build_weapon(held_weapon_mesh: bytes, homing_projectile: bytes,
         ("dependencies/assets/projectiles/secondary.pdprojectile", burst_projectile),
         ("_meta/manifest.json", manifest_with("weapon", WEAPON_ID, {
             "model_file": "dependencies/assets/models/weapon.pdmesh",
-            "muzzlez": 3.0,
-            "posx": 0.0,
-            "posy": 5.0,
-            "posz": -18.0,
             "primary_graph": "behavior/primary.graph.json",
             "secondary_graph": "behavior/secondary.graph.json",
             "settings_file": "behavior/settings.json",
@@ -786,25 +779,6 @@ def build_weapon(held_weapon_mesh: bytes, homing_projectile: bytes,
             "shared_context_file": "behavior/shared-context.json",
             "presentation_file": "bindings/presentation.json",
             "primary_projectile_archive": "dependencies/assets/projectiles/primary.pdprojectile",
-            # Spawn-path bridge (B-912): the player fire path dispatches through
-            # the pool weapondef's static funcdef skeleton (gsetGetWeaponFunction
-            # -> bondgun INVENTORYFUNCTYPE_SHOOT_PROJECTILE gate, type 0x0201 =
-            # 513). Every ballistic value (model/scale/speed/travel/timer) is
-            # overridden by the behavior graphs at fire time; these entries are
-            # the dispatch skeleton only. ammoindex -1 = no ammo pool (laser
-            # pattern). Parsed by loader_pool.c parseWeaponFunc via the
-            # "functions" pair-array.
-            "functions": [
-                {"_struct": "weaponfunc_shootprojectile", "type": 513,
-                 "ammoindex": -1, "damage": 6.0},
-                {"_struct": "weaponfunc_shootprojectile", "type": 513,
-                 "ammoindex": -1, "damage": 5.0},
-            ],
-            # SIGHTTRACKTYPE_ROCKETLAUNCHER (3): latched lock-on like the OG
-            # launcher, so bondgun's generic targetprop assignment hands the
-            # primary needle a live homing target (B-914). The default
-            # tracktype would only track while aim-mode rests on a target.
-            "aimsettings": {"tracktype": 3},
         })),
     ])
 

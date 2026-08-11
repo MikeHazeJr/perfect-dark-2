@@ -46,6 +46,8 @@
 #include "types.h"
 #include "constants.h"
 #include "loader_pool.h"
+#include "weapon_graph_archive.h"
+#include "weapon_graph_runtime.h"
 #include "loader_enum_reverse.h"
 #include "assetcatalog.h"
 #include "assetcatalog_weapon_slots.h"
@@ -118,6 +120,12 @@ static struct invaimsettings          s_AimSettings[POOL_AIMSETTINGS];
 static struct noisesettings           s_NoiseSettings[POOL_NOISESETTINGS];
 static struct recoilsettings          s_RecoilSettings[POOL_RECOILSETTINGS];
 static weaponfunc_any_t               s_WeaponFuncs[POOL_WEAPONFUNCS];
+/* B-1021: stable, slot-indexed adapters for dynamically activated public
+ * .pdweapon sources. They are separate from the boot arena so repeated
+ * disable/re-enable and replacement cannot exhaust POOL_WEAPONFUNCS. */
+static weaponfunc_any_t               s_PublicWeaponFuncs[CATALOG_MGR_WEAPON_COUNT][2];
+static struct invaimsettings          s_PublicWeaponAim[CATALOG_MGR_WEAPON_COUNT];
+static u8                             s_PublicWeaponSlotActive[CATALOG_MGR_WEAPON_COUNT];
 static f32                            s_Vibrations[POOL_VIBRATIONS];
 static pool_anim_entry_t              s_Animations[POOL_ANIMATIONS];
 static pool_anim_fixup_t              s_AnimFixups[POOL_ANIM_FIXUPS];
@@ -231,6 +239,203 @@ const char *loaderPoolGetWeaponCatalogId(s32 idx)
 	if (idx < 0 || idx >= CATALOG_MGR_WEAPON_COUNT) return NULL;
 	if (s_WeaponCatalogIds[idx][0] == '\0') return NULL;
 	return s_WeaponCatalogIds[idx];
+}
+
+static s32 s_publicWeaponFunctionBuild(weaponfunc_any_t *out,
+		const weapon_graph_held_function_t *held,
+		char *err, size_t err_cap)
+{
+	struct weaponfunc *base;
+	s32 type;
+
+	if (!out) return 0;
+	memset(out, 0, sizeof(*out));
+	if (!held || !held->valid) return 1;
+	if (!held->has_function_type_id) {
+		if (err && err_cap) snprintf(err, err_cap,
+			"held function %s has no public function_type", held->node_id);
+		return 0;
+	}
+	type = held->function_type_id;
+	if (type != INVENTORYFUNCTYPE_SHOOT_SINGLE &&
+			type != INVENTORYFUNCTYPE_SHOOT_AUTOMATIC &&
+			type != INVENTORYFUNCTYPE_SHOOT_PROJECTILE &&
+			type != INVENTORYFUNCTYPE_THROW &&
+			type != INVENTORYFUNCTYPE_MELEE &&
+			type != INVENTORYFUNCTYPE_SPECIAL &&
+			type != INVENTORYFUNCTYPE_DEVICE) {
+		if (err && err_cap) snprintf(err, err_cap,
+			"held function %s has unsupported function_type %d",
+			held->node_id, type);
+		return 0;
+	}
+	if (held->ammo_slot < -1 || held->ammo_slot > 1) {
+		if (err && err_cap) snprintf(err, err_cap,
+			"held function %s ammo_slot %d is outside -1..1",
+			held->node_id, held->ammo_slot);
+		return 0;
+	}
+
+	base = &out->base;
+	base->type = type;
+	base->ammoindex = (s8)held->ammo_slot;
+	base->flags = held->flags;
+
+	if ((type & 0xff) == INVENTORYFUNCTYPE_SHOOT) {
+		struct weaponfunc_shoot *shoot = &out->ss.base;
+		shoot->recoverytime60 = (s8)(held->has_recoverytime_ticks60 ?
+			held->recoverytime_ticks60 : 0);
+		shoot->damage = held->has_damage ? held->damage : 0.0f;
+		shoot->spread = held->has_spread ? held->spread : 0.0f;
+		shoot->unk24 = (s8)(held->has_recoil_anim_unk24 ? held->recoil_anim_unk24 : 0);
+		shoot->unk25 = (s8)(held->has_recoil_anim_unk25 ? held->recoil_anim_unk25 : 0);
+		shoot->unk26 = (s8)(held->has_recoil_anim_unk26 ? held->recoil_anim_unk26 : 0);
+		shoot->unk27 = (s8)(held->has_recoil_anim_unk27 ? held->recoil_anim_unk27 : 0);
+		shoot->recoildist = held->has_recoildist ? held->recoildist : 0.0f;
+		shoot->recoilangle = held->has_recoilangle ? held->recoilangle : 0.0f;
+		shoot->slidemax = held->has_slidemax ? held->slidemax : 0.0f;
+		shoot->impactforce = held->has_impactforce ? held->impactforce : 0.0f;
+		shoot->duration60 = held->has_duration_ticks60 ? held->duration_ticks60 : 0;
+		shoot->shootsound = held->has_shootsound ? held->shootsound : 0;
+		shoot->penetration = held->has_penetration ? held->penetration : 0;
+	}
+
+	switch (type) {
+	case INVENTORYFUNCTYPE_SHOOT_AUTOMATIC:
+		out->sa.initialrpm = held->has_initial_rpm ? held->initial_rpm : 0.0f;
+		out->sa.maxrpm = held->has_max_rpm ? held->max_rpm : 0.0f;
+		out->sa.turretaccel = (s8)(held->has_turret_accel ? held->turret_accel : 0);
+		out->sa.turretdecel = (s8)(held->has_turret_decel ? held->turret_decel : 0);
+		break;
+	case INVENTORYFUNCTYPE_SHOOT_PROJECTILE:
+		out->sp.projectilemodelnum = held->has_projectile_modelnum ? held->projectile_modelnum : 0;
+		out->sp.scale = held->has_scale ? held->scale : 0.0f;
+		out->sp.speed = held->has_speed ? (s32)held->speed : 0;
+		out->sp.traveldist = held->has_travel_distance ? held->travel_distance : 0;
+		out->sp.timer60 = held->has_timer_ticks60 ? held->timer_ticks60 : 0;
+		out->sp.reflectangle = held->has_reflect_angle ? held->reflect_angle : 0.0f;
+		out->sp.soundnum = (s16)(held->has_soundnum ? held->soundnum : 0);
+		break;
+	case INVENTORYFUNCTYPE_THROW:
+		out->tw.projectilemodelnum = held->has_projectile_modelnum ? held->projectile_modelnum : 0;
+		out->tw.activatetime60 = (s16)(held->has_activation_time_ticks60 ? held->activation_time_ticks60 : 0);
+		out->tw.recoverytime60 = held->has_recovery_time_ticks60 ? held->recovery_time_ticks60 : 0;
+		out->tw.damage = held->has_damage ? held->damage : 0.0f;
+		break;
+	case INVENTORYFUNCTYPE_MELEE:
+		out->me.damage = held->has_damage ? held->damage : 0.0f;
+		out->me.range = held->has_range ? held->range : 0.0f;
+		break;
+	case INVENTORYFUNCTYPE_SPECIAL:
+		out->sx.specialfunc = held->has_specialfunc ? held->specialfunc : 0;
+		out->sx.recoverytime60 = held->has_recovery_time_ticks60 ? held->recovery_time_ticks60 : 0;
+		out->sx.soundnum = (u16)(held->has_soundnum ? held->soundnum : 0);
+		break;
+	case INVENTORYFUNCTYPE_DEVICE:
+		out->dv.device = held->has_device ? held->device : 0;
+		break;
+	default:
+		break;
+	}
+	return 1;
+}
+
+s32 loaderPoolInstallPublicWeaponAdapter(s32 runtime_weapon_id,
+		const char *catalog_id, s32 model_filenum, s32 dual_wieldable,
+		const weapon_graph_archive_descriptor_t *descriptor,
+		const weapon_graph_held_function_t *primary,
+		const weapon_graph_held_function_t *secondary,
+		char *err, size_t err_cap)
+{
+	weaponfunc_any_t funcs[2];
+	struct invaimsettings aim;
+	struct weapon weapon;
+	const weapon_graph_held_function_t *held[2] = { primary, secondary };
+
+	if (err && err_cap) err[0] = '\0';
+	if (runtime_weapon_id < WEAPON_CUSTOM_START ||
+			runtime_weapon_id >= CATALOG_MGR_WEAPON_COUNT ||
+			!catalog_id || !catalog_id[0] || !descriptor ||
+			model_filenum <= 0 || model_filenum > 0xffff) {
+		if (err && err_cap) snprintf(err, err_cap,
+			"public weapon adapter received invalid identity/model input");
+		return 0;
+	}
+	if (!s_publicWeaponFunctionBuild(&funcs[0], primary, err, err_cap) ||
+			!s_publicWeaponFunctionBuild(&funcs[1], secondary, err, err_cap)) {
+		return 0;
+	}
+	if ((!primary || !primary->valid) && (!secondary || !secondary->valid)) {
+		if (err && err_cap) snprintf(err, err_cap,
+			"public weapon adapter has no executable held function");
+		return 0;
+	}
+
+	memset(&weapon, 0, sizeof(weapon));
+	aim = s_DefaultAim;
+	weapon.hi_model = (u16)model_filenum;
+	weapon.aimsettings = &aim;
+	weapon.muzzlez = descriptor->has_muzzlez ? descriptor->muzzlez : 0.0f;
+	weapon.posx = descriptor->has_posx ? descriptor->posx : 0.0f;
+	weapon.posy = descriptor->has_posy ? descriptor->posy : 0.0f;
+	weapon.posz = descriptor->has_posz ? descriptor->posz : 0.0f;
+	weapon.flags = WEAPONFLAG_00000040 |
+		(dual_wieldable ? WEAPONFLAG_DUALWIELD : 0);
+	if (descriptor->has_track_type) {
+		aim.tracktype = (u32)descriptor->track_type;
+	}
+
+	s_poolEnsureMutex();
+	POOL_LOCK();
+	s_PublicWeaponFuncs[runtime_weapon_id][0] = funcs[0];
+	s_PublicWeaponFuncs[runtime_weapon_id][1] = funcs[1];
+	s_PublicWeaponAim[runtime_weapon_id] = aim;
+	weapon.functions[0] = primary && primary->valid ?
+		&s_PublicWeaponFuncs[runtime_weapon_id][0] : NULL;
+	weapon.functions[1] = secondary && secondary->valid ?
+		&s_PublicWeaponFuncs[runtime_weapon_id][1] : NULL;
+	weapon.aimsettings = &s_PublicWeaponAim[runtime_weapon_id];
+	s_Weapons[runtime_weapon_id] = weapon;
+	strncpy(s_WeaponCatalogIds[runtime_weapon_id], catalog_id,
+		sizeof(s_WeaponCatalogIds[runtime_weapon_id]) - 1);
+	s_WeaponCatalogIds[runtime_weapon_id][sizeof(s_WeaponCatalogIds[runtime_weapon_id]) - 1] = '\0';
+	if (!s_PublicWeaponSlotActive[runtime_weapon_id]) {
+		s_PublicWeaponSlotActive[runtime_weapon_id] = 1;
+		s_WeaponsRegistered++;
+	}
+	assetCatalogRefreshWeaponPrivateSlotDefaults(runtime_weapon_id,
+		&s_Weapons[runtime_weapon_id], NULL);
+	POOL_UNLOCK();
+	sysLogPrintf(LOG_NOTE,
+		"LOADER.POOL.WEAPON.PUBLIC_ADAPTER: installed id=%s runtime=%d model=%d funcs=%d track=%u",
+		catalog_id, runtime_weapon_id, model_filenum,
+		(primary && primary->valid ? 1 : 0) + (secondary && secondary->valid ? 1 : 0),
+		(u32)aim.tracktype);
+	return 1;
+}
+
+void loaderPoolClearPublicWeaponAdapter(s32 runtime_weapon_id)
+{
+	if (runtime_weapon_id < WEAPON_CUSTOM_START ||
+			runtime_weapon_id >= CATALOG_MGR_WEAPON_COUNT) {
+		return;
+	}
+	s_poolEnsureMutex();
+	POOL_LOCK();
+	if (s_PublicWeaponSlotActive[runtime_weapon_id]) {
+		memset(&s_Weapons[runtime_weapon_id], 0, sizeof(s_Weapons[runtime_weapon_id]));
+		memset(&s_PublicWeaponFuncs[runtime_weapon_id], 0,
+			sizeof(s_PublicWeaponFuncs[runtime_weapon_id]));
+		memset(&s_PublicWeaponAim[runtime_weapon_id], 0,
+			sizeof(s_PublicWeaponAim[runtime_weapon_id]));
+		s_WeaponCatalogIds[runtime_weapon_id][0] = '\0';
+		s_PublicWeaponSlotActive[runtime_weapon_id] = 0;
+		if (s_WeaponsRegistered > 0) s_WeaponsRegistered--;
+		sysLogPrintf(LOG_NOTE,
+			"LOADER.POOL.WEAPON.PUBLIC_ADAPTER: cleared runtime=%d",
+			runtime_weapon_id);
+	}
+	POOL_UNLOCK();
 }
 
 /* Catalog universality pivot Step 1: animation pool accessors.
@@ -2201,6 +2406,9 @@ void loaderPoolReset(void)
 	memset(s_NoiseSettings, 0, sizeof(s_NoiseSettings));
 	memset(s_RecoilSettings, 0, sizeof(s_RecoilSettings));
 	memset(s_WeaponFuncs, 0, sizeof(s_WeaponFuncs));
+	memset(s_PublicWeaponFuncs, 0, sizeof(s_PublicWeaponFuncs));
+	memset(s_PublicWeaponAim, 0, sizeof(s_PublicWeaponAim));
+	memset(s_PublicWeaponSlotActive, 0, sizeof(s_PublicWeaponSlotActive));
 	memset(s_Vibrations, 0, sizeof(s_Vibrations));
 	memset(s_Animations, 0, sizeof(s_Animations));
 	memset(s_AnimFixups, 0, sizeof(s_AnimFixups));

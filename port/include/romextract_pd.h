@@ -259,6 +259,7 @@ s32 romExtractAllPdanimChr(s32 force_rewrite);
  * Returns: count of files newly written; -1 on infrastructure failure
  * (segment lookup, data dir creation, etc.). */
 s32 romExtractAllPdsfx(s32 force_rewrite);
+s32 romextractPdvoiceIsDirectMp3FileSymbol(const char *symbol);
 
 /* Step 3 audio: emit one .pdvoice ZIP compound per leaf SFX entry
  * that IS classified as voice via g_AudioRussMappings +

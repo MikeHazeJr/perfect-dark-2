@@ -234,6 +234,14 @@ void catalogReadableVoiceId(s32 sfx_idx, char *out, size_t out_n)
 	snprintf(out, out_n, "base:voice_%s", slug);
 }
 
+void catalogReadableVoiceIdForFile(s32 filenum, char *out, size_t out_n)
+{
+	char slug[128];
+	s_slugFromSymbol(loaderEnumNameForFileEnum(filenum), "mp3",
+		filenum, slug, sizeof(slug));
+	snprintf(out, out_n, "base:voice_%s", slug);
+}
+
 void catalogReadableSoundRefId(s32 sound_ref, char *out, size_t out_n)
 {
 	if (!out || out_n == 0) return;

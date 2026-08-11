@@ -55,6 +55,14 @@ transactional rejection under `T-ASSETS-022`. B-992 now allocates a genuinely
 new private weapon pair after the complete base walk and starts 70 creator SFX
 through the production catalog/audio route. Ordinary edited-weapon gameplay,
 restart, lifecycle, and network distribution remain open under T-ASSETS-025.
+The first T-ASSETS-025 installed-client milestone now passes 43/43 after
+B-1018 through B-1022: the regenerated Needler conforms to the strict effect
+descriptor, names the executable nested effect, hydrates a custom loader slot
+solely from public `weapon.ini` plus compiled held graphs, preserves runtime 86
+through specific-spawn setup, and loads/submits its nested public held model.
+This does not close the item: the captures are not visually unambiguous, the
+scenario disables sound, and effect output, restart, replacement/rollback, and
+real-peer distribution remain open.
 Catalog reticles are production-connected
 under `T-ASSETS-023`: `reticle_archive` embeds editable `.pdui`, the scanner
 registers UI before weapon parsing, presentation retains the catalog ID, and

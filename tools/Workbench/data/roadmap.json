@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "project": "Perfect Dark 2",
-  "updated": "2026-08-11T01:48:48.832Z",
+  "updated": "2026-08-11T03:08:13.910Z",
   "items": [
     {
       "type": "task",
@@ -3600,16 +3600,21 @@
       "deps": [
         "T-ASSETS-004"
       ],
-      "owner": "unassigned",
+      "owner": "codex-roadmap-continuation-20260808",
       "type": "task",
       "title": "Capture live edited-source .pdweapon production proof",
-      "status": "missing",
+      "status": "partial",
       "lane": "weapon-validation",
       "evidence": [
-        "B-992 2026-08-08 real-client harness finding: complete base catalog exhausts private custom weapon slots; new custom owner fails CATALOG.WEAPON.CUSTOM_SLOT_FAIL. Debug dependency harness borrows AR34 indices only inside exit-after-test and is not ordinary allocation proof."
+        "B-992 2026-08-08 real-client harness finding: complete base catalog exhausts private custom weapon slots; new custom owner fails CATALOG.WEAPON.CUSTOM_SLOT_FAIL. Debug dependency harness borrows AR34 indices only inside exit-after-test and is not ordinary allocation proof.",
+        "B-1018 through B-1022",
+        "context/evidence/2026-08-10-needler-public-weapon-adapter.md",
+        ".claude/session-builds/tassets034/b1022-full.log: complete pd-tests PASS 54,777 assertions / 983 cases",
+        ".claude/smoke-verify-runs/results-20260811T030050Z.json: installed-client Needler smoke PASS 43/43, exit 0",
+        ".claude/session-builds/tassets034/b1022-native-source-guard.log: PASS"
       ],
       "phase": 3,
-      "detail": "Create an edited public weapon archive and retain ordinary-gameplay evidence that settings, presentation, model, projectile/entity, nested dependencies, and failure handling affect the production path without native fallback. Prove load/release/restart, listen-host distribution, and repeated overlapping owners, then feed durable artifacts into V-005 and V-006. B-992 capacity is already fixed and live-proven; this item owns the remaining end-to-end weapon validation.",
+      "detail": "Partial production proof is green after B-1018 through B-1022: the installed client admits the strict regenerated Needler, preserves selected runtime 86, hydrates the loader-owned held adapter from public weapon.ini plus compiled graphs, loads file 2016, submits the 300-vertex/100-triangle public model, fires primary/secondary, and exits cleanly. Full completion still requires an unambiguous visual held-model receipt, actual effect gameplay/audio/presentation output with sound enabled, load/release/restart, child disable/re-enable and replacement/rollback, real-peer distribution, and repeated-owner lifecycle proof.",
       "tags": [
         "asset-family:pdweapon",
         "handoff:ultra",
@@ -3617,7 +3622,7 @@
         "production-proof"
       ],
       "id": "T-ASSETS-025",
-      "updated": "2026-08-09T02:37:18.742Z",
+      "updated": "2026-08-11T03:08:13.902Z",
       "created": "2026-08-08T17:05:35.637Z",
       "model": "gpt-5.6-sol"
     },
@@ -4173,24 +4178,47 @@
         "Initial ordinary-client crash receipt: .claude/smoke-verify-runs/results-20260811T013450Z.json",
         "B-1017 automated PASS: isolated client/updater/tests; [archive_vfs] 61/1; full 54,177/980",
         "Exact B-1017 rerun reached 81.96s without access violation, then rejected on direct MP3 source gap: .claude/smoke-verify-runs/results-20260811T014135Z.json",
-        "Direct-domain audit: 557 MP3_* definitions -> 547 unique FILE_A...M sources; current extraction covers 104 configured aliases"
+        "Direct-domain audit: 557 MP3_* definitions -> 547 unique FILE_A...M sources; current extraction covers 104 configured aliases",
+        "B-1019",
+        "B-1018 automated PASS: isolated client/updater/tests; [b1018] 554/1; full 54,742/981; conformance and native-source guard",
+        "Clean post-B1018 receipt exited 0 but rejected Needler nested effect descriptor drift: .claude/smoke-verify-runs/results-20260811T020923Z.json (35/43)",
+        "B-1020",
+        "Post-B1019 receipt passed nested effect ingest but typed activation rejected texture-valued spark_ref: .claude/smoke-verify-runs/results-20260811T021753Z.json (36/43)",
+        "B-1021",
+        "Post-B1020 receipt activated the public weapon/effect owner but custom loader slot stayed zero: .claude/smoke-verify-runs/results-20260811T022432Z.json (38/43)",
+        "B-1022",
+        "context/evidence/2026-08-10-needler-public-weapon-adapter.md",
+        ".claude/session-builds/tassets034/b1022-full.log: complete pd-tests PASS 54,777 assertions / 983 cases",
+        ".claude/session-builds/tassets034/b1022-conformance-selftest.log: PASS 16 parity + recursion + 9 structured contracts",
+        ".claude/session-builds/tassets034/b1022-needler-conformance.log: PASS 1 root / 9 recursive",
+        ".claude/session-builds/tassets034/b1022-all-family-conformance.log: PASS 28 root / 52 recursive / all 27 families",
+        ".claude/session-builds/tassets034/b1022-native-source-guard.log: PASS",
+        ".claude/smoke-verify-runs/results-20260811T025449Z.json: B-1022 rejected root-cause receipt",
+        ".claude/smoke-verify-runs/results-20260811T030050Z.json: partial installed-client PASS 43/43, exit 0"
       ],
-      "detail": "Validation is active. B-1017 is fixed: the exact ordinary-client rerun safely held first-person rendering while gunmodeldef was null and did not reproduce the access violation. That rerun then exposed B-1018 before Needler activation: direct mission-script MP3 file references are absent from public .pdvoice extraction/catalog coverage, so Chicago MP3_0408 duration lookup correctly failed closed. Complete direct-MP3 extraction plus the same rerun are required before representative explosion/spark/smoke/SFX/material/texture/timeline/target/presentation behavior can be credited. Real peer replacement, child disable/re-enable, rollback, and restart proof remain open.",
+      "detail": "Partial installed-client validation is green through B-1018 to B-1022. Direct MP3 public-source coverage, strict creator/conformance semantics, typed nested effect admission, public weapon adapter hydration/teardown, and exact selected runtime identity are connected. The frozen client passes 43/43 with runtime 86, model file 2016, primary/secondary fire, nested projectile/effect/model ingest, exact first-person source load, generated-model render submission, and clean exit. The full validation verdict remains not_run: captures are not visually unambiguous, sound was disabled, and no assertion proves effect gameplay/audio/presentation output. Restart, child disable/re-enable, replacement/rollback, real-peer distribution, and repeated-owner lifecycle proof remain open.",
       "tags": [
         "asset-family:pdeffect",
         "edited-source",
         "production-proof",
         "handoff:ultra"
       ],
-      "verdict": "fail",
+      "verdict": "not_run",
       "artifacts": [
         ".claude/smoke-verify-runs/results-20260811T013450Z.json",
-        ".claude/smoke-verify-runs/results-20260811T014135Z.json"
+        ".claude/smoke-verify-runs/results-20260811T014135Z.json",
+        ".claude/smoke-verify-runs/results-20260811T020923Z.json",
+        ".claude/smoke-verify-runs/results-20260811T021753Z.json",
+        ".claude/smoke-verify-runs/results-20260811T022432Z.json",
+        ".claude/smoke-verify-runs/results-20260811T025449Z.json",
+        ".claude/smoke-verify-runs/results-20260811T030050Z.json",
+        ".claude/smoke-verify-runs/screenshots/20260810T225852-needler_graph_runtime_visual_smoke/001-needler-held-loaded.bmp",
+        ".claude/smoke-verify-runs/screenshots/20260810T225852-needler_graph_runtime_visual_smoke/002-needler-held-visible.bmp"
       ],
       "budget": null,
       "measurements": [],
       "id": "V-009",
-      "updated": "2026-08-11T01:48:30.048Z",
+      "updated": "2026-08-11T03:08:13.909Z",
       "created": "2026-08-08T23:50:40.511Z"
     },
     {

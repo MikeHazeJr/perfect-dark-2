@@ -3,6 +3,7 @@
  */
 
 #include <ctype.h>
+#include <float.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -49,6 +50,49 @@ static char *trimLocal(char *s)
 		end--;
 	}
 	return s;
+}
+
+static s32 parseDescriptorFloat(const char *value, f32 *out)
+{
+	char *end = NULL;
+	float parsed;
+
+	if (!value || !value[0] || !out) {
+		return 0;
+	}
+	parsed = strtof(value, &end);
+	if (!end || end == value || *trimLocal(end) != '\0' ||
+			parsed != parsed || parsed > FLT_MAX || parsed < -FLT_MAX) {
+		return 0;
+	}
+	*out = parsed;
+	return 1;
+}
+
+static s32 parseWeaponTrackType(const char *value, s32 *out)
+{
+	static const struct {
+		const char *name;
+		s32 value;
+	} names[] = {
+		{ "none", 0 },
+		{ "default", 1 },
+		{ "beta_scanner", 2 },
+		{ "rocket_launcher", 3 },
+		{ "follow_lock_on", 4 },
+		{ "threat_detector", 5 },
+	};
+
+	if (!value || !out) {
+		return 0;
+	}
+	for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); i++) {
+		if (strcmp(value, names[i].name) == 0) {
+			*out = names[i].value;
+			return 1;
+		}
+	}
+	return 0;
 }
 
 static char *dupStr(const char *s)
@@ -401,6 +445,41 @@ static s32 readDescriptorFromText(const char *label, const char *text, u32 size,
 			copyStr(out->model_file, sizeof(out->model_file), value);
 		} else if (strcmp(key, "model") == 0 && out->model_file[0] == '\0') {
 			copyStr(out->model_file, sizeof(out->model_file), value);
+		} else if (strcmp(key, "muzzlez") == 0) {
+			out->has_muzzlez = parseDescriptorFloat(value, &out->muzzlez);
+			if (!out->has_muzzlez) {
+				free(buf);
+				setErr(err, err_cap, "descriptor muzzlez must be a finite number");
+				return -1;
+			}
+		} else if (strcmp(key, "posx") == 0) {
+			out->has_posx = parseDescriptorFloat(value, &out->posx);
+			if (!out->has_posx) {
+				free(buf);
+				setErr(err, err_cap, "descriptor posx must be a finite number");
+				return -1;
+			}
+		} else if (strcmp(key, "posy") == 0) {
+			out->has_posy = parseDescriptorFloat(value, &out->posy);
+			if (!out->has_posy) {
+				free(buf);
+				setErr(err, err_cap, "descriptor posy must be a finite number");
+				return -1;
+			}
+		} else if (strcmp(key, "posz") == 0) {
+			out->has_posz = parseDescriptorFloat(value, &out->posz);
+			if (!out->has_posz) {
+				free(buf);
+				setErr(err, err_cap, "descriptor posz must be a finite number");
+				return -1;
+			}
+		} else if (strcmp(key, "track_type") == 0) {
+			out->has_track_type = parseWeaponTrackType(value, &out->track_type);
+			if (!out->has_track_type) {
+				free(buf);
+				setErr(err, err_cap, "descriptor track_type is unsupported");
+				return -1;
+			}
 		} else if (strcmp(key, "entity_ref") == 0) {
 			copyStr(out->entity_ref, sizeof(out->entity_ref), value);
 		} else if (strcmp(key, "transition_entity") == 0 && out->entity_ref[0] == '\0') {

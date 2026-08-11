@@ -1296,6 +1296,85 @@ not one representative member.
 
 ---
 
+## SP-36: Creator conformance is weaker than production source admission
+
+**Severity: CRITICAL — a generated public archive can pass creator checks but
+be rejected by the authoritative runtime parser.**
+
+Archive layout and required-member checks do not prove that a public
+descriptor obeys the exact runtime schema. A creator generator, conformance
+tool, and production parser must share or independently pin the same allowed
+field set, types, and version boundary. Unknown fields must fail before a
+tracked example is published, not first during an installed-client run.
+
+**Known instances (B-1019/B-1020):** the Needler generator copied node-only
+`explosion_class` into `effect.ini`, then the next gate showed its projectile
+`spark_ref` named the embedded texture identity rather than the executable
+effect identity. Layout conformance verified the declared graph/timeline
+members, while the authoritative parser and typed activation correctly
+rejected both creator defects and prevented the complete nested weapon owner
+from activating.
+
+**Propagation check:** for every typed family, compare generator descriptor
+keys and conformance validation against the authoritative scanner/parser; add
+an unknown-field mutation to conformance self-tests wherever strict production
+admission exists.
+
+`rg -n "allowed|unknown field|validate_.*source_contract|\.ini" tools/asset_archive_conformance.py port/src tools`
+
+---
+
+## SP-37: Runtime owner activates without hydrating its production adapter
+
+**Severity: CRITICAL — source validation and ownership can pass while ordinary
+gameplay still reads a zeroed or stale family-specific runtime object.**
+
+A typed asset is not production-connected merely because its graph or metadata
+runtime is active. Every legacy/engine adapter still read by normal gameplay
+must be hydrated inside the same admission boundary and retired on final owner
+release. A default-zero adapter must never masquerade as a valid payload or
+trigger a legacy shortcut.
+
+**Known instance (B-1021):** custom `.pdweapon` activation registered the held,
+projectile, and effect programs but did not build a loader-owned private weapon
+slot from public `weapon.ini` plus the compiled held graphs. `weaponGetFileNum`
+returned zero, the first-person loader declared the weapon loaded without a
+model, and the B-1017 readiness guard correctly kept it invisible. Parsing the
+private manifest would have hidden the symptom by creating a second behavior
+source, so the fix instead derives and transactionally owns the legacy adapter
+from the public source/runtime IR.
+
+**Propagation check:** compare every typed activation/clear pair with the real
+family manager, renderer, audio, collision, or gameplay object it supplies;
+test active -> adapter populated -> final release clears -> reload rebuilds.
+
+`rg -n "ACTIVATE|Register.*Runtime|Clear.*Runtime|loaderPoolParse|catalogManagerGet" port/src src/game`
+
+---
+
+## SP-38: Selected catalog identity re-derived through a secondary index domain
+
+**Severity: CRITICAL — a valid selected asset can resolve to a different
+runtime object after catalog rebuild or custom-slot allocation.**
+
+Once a catalog row has an authoritative runtime identity, consumers must not
+discard it and re-resolve through an MP slot, stage index, menu index, or other
+secondary domain. Secondary IDs remain useful for UI/wire tables, but they are
+not interchangeable with the gameplay runtime index.
+
+**Known instance (B-1022):** specific-spawn match setup resolved the Needler
+catalog row at runtime 86, then mapped its MP slot back to runtime 84. The
+correct public adapter was live, but the player equipped a different zeroed
+weapon slot.
+
+**Propagation check:** for every selected catalog ID, trace the row's typed
+runtime index to the final consumer; reject any second lookup through another
+index table unless that conversion is the explicit protocol contract.
+
+`rg -n "assetCatalogResolve.*ext\.|runtime_index|catalogGet.*Num" port/src src/game`
+
+---
+
 ## How to Use
 
 - Before starting any work that touches arrays, memory allocation, or stage indexing, scan this file for relevant patterns.

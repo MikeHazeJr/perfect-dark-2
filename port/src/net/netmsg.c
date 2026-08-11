@@ -5475,13 +5475,13 @@ u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl)
 			strncpy(g_MatchConfig.spawn_weapon_id, swid, sizeof(g_MatchConfig.spawn_weapon_id) - 1);
 			g_MatchConfig.spawn_weapon_id[sizeof(g_MatchConfig.spawn_weapon_id) - 1] = '\0';
 			const asset_entry_t *swe = assetCatalogResolve(swid);
-			if (swe && swe->type == ASSET_WEAPON) {
-				s32 mpw = swe->ext.weapon.weapon_id;
-				if (mpw > 0 && mpw < NUM_MPWEAPONS) {
-					g_MatchConfig.spawnWeaponNum = catalogGetMpWeaponNum(mpw);
-				} else {
-					g_MatchConfig.spawnWeaponNum = 0xFF;
-				}
+			if (swe && swe->type == ASSET_WEAPON &&
+					swe->runtime_index > 0 &&
+					swe->runtime_index < WEAPON_CUSTOM_END) {
+				/* B-1022: preserve the catalog row's exact gameplay identity;
+				 * the MP slot is presentation/setup metadata, not a second
+				 * authority for a selected catalog weapon. */
+				g_MatchConfig.spawnWeaponNum = (u8)swe->runtime_index;
 			} else {
 				sysLogPrintf(LOG_WARNING,
 					"NET: CLC_LOBBY_START spawn_weapon_id '%s' not in catalog — defaulting to Random", swid);

@@ -270,6 +270,23 @@ TEST_CASE("spawn-weapon: empty / all-excluded set returns 0 (caller fallback)",
     }
 }
 
+TEST_CASE("spawn-weapon: selected catalog IDs keep their authoritative runtime index",
+		"[spawn-weapon][catalog][b1022]") {
+	const std::string setup = read_text_file("port/src/net/matchsetup.c");
+	const std::string netmsg = read_text_file("port/src/net/netmsg.c");
+	const std::string setupSpecific = source_slice(setup,
+		"case SPAWNWEAPON_MODE_SPECIFIC:",
+		"/* --- Populate the participant pool");
+	const std::string lobbySpecific = source_slice(netmsg,
+		"/* B-125: read spawn_weapon_id catalog string and resolve to spawnWeaponNum.",
+		"/* U-9: per-player handicap bytes */");
+
+	REQUIRE(setupSpecific.find("swe->runtime_index") != std::string::npos);
+	REQUIRE(setupSpecific.find("catalogGetMpWeaponNum(mpw)") == std::string::npos);
+	REQUIRE(lobbySpecific.find("swe->runtime_index") != std::string::npos);
+	REQUIRE(lobbySpecific.find("catalogGetMpWeaponNum(mpw)") == std::string::npos);
+}
+
 TEST_CASE("spawn-weapon: RANDOM rolls once — every spawn returns the same weapon",
           "[spawn-weapon][random]") {
     /* The Random spec: matchStart() rolls ONCE and stores the rolled

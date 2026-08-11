@@ -83,6 +83,8 @@ struct invaimsettings;
 struct noisesettings;
 struct guncmd;
 struct aibotweaponpreference;
+struct weapon_graph_archive_descriptor;
+struct weapon_graph_held_function;
 
 const struct weapon                *loaderPoolGetWeapon(s32 idx);
 const struct invaimsettings        *loaderPoolGetDefaultAim(void);
@@ -90,6 +92,21 @@ const struct noisesettings         *loaderPoolGetDefaultNoise(void);
 const struct aibotweaponpreference *loaderPoolGetBotPref(s32 idx);
 s32         loaderPoolGetWeaponsRegistered(void);
 const char *loaderPoolGetWeaponCatalogId(s32 idx);
+
+/* B-1021: custom .pdweapon activation owns a loader-facing legacy adapter in
+ * the same runtime slot as its compiled public graphs. The descriptor and
+ * held functions are both parsed from public editable source; private
+ * _meta/manifest.json is identity/provenance only and is never accepted as a
+ * second behavior source. Install is transactional and Clear is paired with
+ * the final catalog owner release. */
+s32 loaderPoolInstallPublicWeaponAdapter(s32 runtime_weapon_id,
+                const char *catalog_id, s32 model_filenum,
+                s32 dual_wieldable,
+                const struct weapon_graph_archive_descriptor *descriptor,
+                const struct weapon_graph_held_function *primary,
+                const struct weapon_graph_held_function *secondary,
+                char *err, size_t err_cap);
+void loaderPoolClearPublicWeaponAdapter(s32 runtime_weapon_id);
 
 /* Animation-pool walking accessors used by the .pdanim / .pdweapon
  * emitters at extraction time. */

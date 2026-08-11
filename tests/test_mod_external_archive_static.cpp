@@ -5367,6 +5367,34 @@ TEST_CASE("presentation_file mirrors and camera clause pins stay wired",
 	REQUIRE(needler.find("pd.weapon.variables.v1") == std::string::npos);
 	REQUIRE(needler.find("spawn_id = f\"{graph_id}_spawn_projectile\"") != std::string::npos);
 	REQUIRE(needler.find("\"id\": \"spawn_projectile\"") == std::string::npos);
+	REQUIRE(needler.find("\"spark_ref\": BURST_EFFECT_ID") != std::string::npos);
+	REQUIRE(needler.find("\"spark_ref\": SPARK_TEXTURE_ID") == std::string::npos);
+	REQUIRE(needler.find("track_type = rocket_launcher") != std::string::npos);
+	REQUIRE(needler.find("\"functions\":") == std::string::npos);
+	REQUIRE(needler.find("\"aimsettings\":") == std::string::npos);
+}
+
+TEST_CASE("public weapon activation hydrates and clears the loader-owned runtime adapter",
+		"[modding][pdxxx][weapon][static][b1021]") {
+	const std::string load = readFile("port/src/assetcatalog_load.c");
+	const std::string pool = readFile("port/src/loader_pool.c");
+	const std::string archive = readFile("port/src/weapon_graph_archive.c");
+	const std::string weaponIni = readArchiveEntryText(
+		"dev-mods/needler/needler.pdweapon", "weapon.ini");
+	const std::string manifest = readArchiveEntryText(
+		"dev-mods/needler/needler.pdweapon", "_meta/manifest.json");
+
+	REQUIRE(load.find("loaderPoolInstallPublicWeaponAdapter") != std::string::npos);
+	REQUIRE(load.find("weaponGraphRuntimeGetHeldFunction(entry->runtime_index, 0)") != std::string::npos);
+	REQUIRE(load.find("loaderPoolClearPublicWeaponAdapter(entry->runtime_index)") != std::string::npos);
+	REQUIRE(pool.find("s_PublicWeaponSlotActive") != std::string::npos);
+	REQUIRE(pool.find("assetCatalogRefreshWeaponPrivateSlotDefaults(runtime_weapon_id") != std::string::npos);
+	REQUIRE(pool.find("LOADER.POOL.WEAPON.PUBLIC_ADAPTER: installed") != std::string::npos);
+	REQUIRE(archive.find("parseWeaponTrackType") != std::string::npos);
+	REQUIRE(weaponIni.find("track_type = rocket_launcher") != std::string::npos);
+	REQUIRE(manifest.find("\"functions\"") == std::string::npos);
+	REQUIRE(manifest.find("\"aimsettings\"") == std::string::npos);
+	REQUIRE(manifest.find("\"muzzlez\"") == std::string::npos);
 }
 
 TEST_CASE("public weapon source registration fails closed",
@@ -8563,8 +8591,25 @@ TEST_CASE("base audio extractors emit accessible wav payloads",
 	REQUIRE(audio.find("s_configuredMp3VoiceArchivesComplete") !=
 	        std::string::npos);
 	REQUIRE(audio.find("s_emitOneMp3VoiceAlias") != std::string::npos);
+	REQUIRE(audio.find("s_emitOneDirectMp3Voice") != std::string::npos);
+	REQUIRE(audio.find("s_emitDirectMp3Voices") != std::string::npos);
+	REQUIRE(audio.find("s_directMp3VoiceArchivesComplete") != std::string::npos);
+	REQUIRE(audio.find("romextractPdvoiceIsDirectMp3FileSymbol") !=
+	        std::string::npos);
+	REQUIRE(audio.find("strncmp(symbol, \"FILE_A\", 6)") !=
+	        std::string::npos);
+	REQUIRE(audio.find("symbol[len - 1] == 'M'") != std::string::npos);
+	REQUIRE(audio.find("catalogReadableVoiceIdForFile(filenum") !=
+	        std::string::npos);
+	REQUIRE(audio.find("pdvoice_b1018_direct_mp3") != std::string::npos);
+	REQUIRE(audio.find("direct MP3 file archive(s) checked") !=
+	        std::string::npos);
+	REQUIRE(audio.find("\\\"source_reference_kind\\\": \\\"%s\\\"") !=
+	        std::string::npos);
 	REQUIRE(audio.find("mapped.mp3priority != 0") != std::string::npos);
-	REQUIRE(audio.find("romExtractRelPathForFilenum((s32)mapped.id") !=
+	REQUIRE(audio.find("s_emitOneMp3VoiceSource((s32)mapped.id") !=
+	        std::string::npos);
+	REQUIRE(audio.find("romExtractRelPathForFilenum(source_filenum") !=
 	        std::string::npos);
 	REQUIRE(audio.find("assetArchiveWriterAddPublicMem(&asset_writer, \"sample.mp3\"") !=
 	        std::string::npos);
@@ -8576,9 +8621,10 @@ TEST_CASE("base audio extractors emit accessible wav payloads",
 	REQUIRE(audio.find("source_filenum = %d") == std::string::npos);
 	REQUIRE(audio.find("configured MP3 alias archive(s) checked") !=
 	        std::string::npos);
-	REQUIRE(audio.find("catalogReadableSoundRefId(packed") != std::string::npos);
+	REQUIRE(audio.find("catalogReadableSoundRefId((s32)(u16)ref.packed") !=
+	        std::string::npos);
 	REQUIRE(audio.find("loaderEnumNameForSfxEnum(packed)") != std::string::npos);
-	REQUIRE(audio.find("loaderEnumNameForFileEnum((s32)mapped.id)") !=
+	REQUIRE(audio.find("loaderEnumNameForFileEnum(source_filenum)") !=
 	        std::string::npos);
 	REQUIRE(audio.find("s_emitOneSound(leaf") != std::string::npos);
 
@@ -8587,6 +8633,60 @@ TEST_CASE("base audio extractors emit accessible wav payloads",
 	REQUIRE(audio.find("file_path = sample.bin") == std::string::npos);
 	REQUIRE(audio.find("\\\"data\\\": \\\"sample.bin\\\"") ==
 	        std::string::npos);
+}
+
+TEST_CASE("direct MP3 public voice extraction covers the complete file domain",
+		"[modding][pdxxx][base][static][b1018]") {
+	const std::string sfx = readFile("src/include/sfx.h");
+	const std::string files = readFile("src/include/files.h");
+	const std::regex mp3Define(
+		R"(^\s*#define\s+MP3_[A-Za-z0-9_]+\s+\(?(FILE_[A-Za-z0-9_]+))");
+	const std::regex fileDefine(
+		R"(^\s*#define\s+(FILE_[A-Za-z0-9_]+)\s+0x[0-9A-Fa-f]+)");
+	std::vector<std::string> mp3Files;
+	std::vector<std::string> directAudioFiles;
+	std::string line;
+	std::smatch match;
+
+	REQUIRE(!sfx.empty());
+	REQUIRE(!files.empty());
+	{
+		std::istringstream lines(sfx);
+		while (std::getline(lines, line)) {
+			if (std::regex_search(line, match, mp3Define)) {
+				mp3Files.push_back(match[1].str());
+			}
+		}
+	}
+	{
+		std::istringstream lines(files);
+		while (std::getline(lines, line)) {
+			if (std::regex_search(line, match, fileDefine)) {
+				const std::string symbol = match[1].str();
+				if (symbol.size() > 6 && symbol.rfind("FILE_A", 0) == 0 &&
+						symbol.back() == 'M') {
+					directAudioFiles.push_back(symbol);
+				}
+			}
+		}
+	}
+
+	std::sort(mp3Files.begin(), mp3Files.end());
+	mp3Files.erase(std::unique(mp3Files.begin(), mp3Files.end()), mp3Files.end());
+	std::sort(directAudioFiles.begin(), directAudioFiles.end());
+	directAudioFiles.erase(
+		std::unique(directAudioFiles.begin(), directAudioFiles.end()),
+		directAudioFiles.end());
+
+	REQUIRE(mp3Files.size() == 547);
+	REQUIRE(directAudioFiles.size() == 548);
+	for (const std::string &symbol : mp3Files) {
+		INFO(symbol);
+		REQUIRE(std::binary_search(
+			directAudioFiles.begin(), directAudioFiles.end(), symbol));
+	}
+	REQUIRE(std::binary_search(directAudioFiles.begin(), directAudioFiles.end(),
+		"FILE_ASAUCEREXP1M"));
 }
 
 TEST_CASE("base language extractor emits editable json payloads",

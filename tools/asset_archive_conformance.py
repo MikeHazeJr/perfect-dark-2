@@ -2999,13 +2999,56 @@ def validate_effect_source_contract(label: str, zf: zipfile.ZipFile,
                                     name_set: set[str],
                                     errors: list[str]) -> None:
     descriptor_values: dict[str, str] = {}
+    descriptor_keys: set[str] = set()
     if "effect.ini" in name_set:
         try:
-            descriptor_values = parse_ini_values(
-                zf.read("effect.ini").decode("utf-8", errors="replace")
+            descriptor_text = zf.read("effect.ini").decode("utf-8")
+        except (KeyError, UnicodeDecodeError) as exc:
+            errors.append(f"{label} effect.ini is not valid UTF-8: {exc}")
+            descriptor_text = ""
+        section_count = 0
+        for line_no, line in enumerate(descriptor_text.splitlines(), 1):
+            stripped = line.strip()
+            if not stripped or stripped.startswith(("#", ";")):
+                continue
+            if stripped.startswith("[") and stripped.endswith("]"):
+                section_count += 1
+                if stripped != "[effect]":
+                    errors.append(
+                        f"{label} effect.ini line {line_no} must use [effect]"
+                    )
+                continue
+            match = KEY_VALUE_RE.match(line)
+            if not match:
+                errors.append(f"{label} effect.ini line {line_no} is invalid")
+                continue
+            key = normalize_key(match.group(1))
+            value = clean_value(match.group(2).split("#", 1)[0].split(";", 1)[0])
+            if key in descriptor_keys:
+                errors.append(f"{label} effect.ini has duplicate field {key}")
+            descriptor_keys.add(key)
+            descriptor_values[key] = value
+        if section_count != 1:
+            errors.append(
+                f"{label} effect.ini must contain exactly one [effect] section"
             )
-        except KeyError:
-            descriptor_values = {}
+
+        v1_keys = {
+            "catalog_id", "name", "schema", "effect_key", "target_key",
+            "effect_file", "timeline_file", "shader_id", "intensity",
+        }
+        v2_keys = {
+            "catalog_id", "name", "schema", "profile_kind",
+            "target_policy", "attachment_policy", "priority_policy",
+            "scorch_policy", "effect_file",
+        }
+        allowed_descriptor = (
+            v2_keys
+            if descriptor_values.get("schema") == "pd.effect_graph.v2"
+            else v1_keys
+        )
+        for key in sorted(descriptor_keys - allowed_descriptor):
+            errors.append(f"{label} effect.ini has unknown field {key}")
 
     if ("effect.graph.json" in name_set and
             descriptor_values.get("effect_file") != "effect.graph.json"):
@@ -7968,6 +8011,23 @@ def run_selftest() -> int:
             },
             ("material.json", '"roughness": 0.5', '"roughness": -1.0'),
             "roughness must be a number from 0 to 1",
+        ),
+        (
+            "EFFECT",
+            validate_effect_source_contract,
+            {
+                "effect.ini": (
+                    "[effect]\ncatalog_id = test:effect\nname = Test Effect\n"
+                    "effect_key = explosion\ntarget_key = world\n"
+                    "effect_file = effect.graph.json\n"
+                    "timeline_file = timeline.json\n"
+                    "shader_id = classic_tint\nintensity = 1.0\n"
+                ),
+                "effect.graph.json": "{}",
+                "timeline.json": "{}",
+            },
+            ("effect.ini", "intensity = 1.0", "explosion_class = small"),
+            "effect.ini has unknown field explosion_class",
         ),
         (
             "PROP",

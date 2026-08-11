@@ -5,6 +5,10 @@
 
 ## Highlights
 
+- Made custom weapon activation hydrate the real held-weapon adapter from
+  public `.pdweapon` source and preserve its catalog runtime identity in matches.
+- Emitted editable `.pdvoice` archives for direct mission MP3 references and
+  aligned Needler creator effect fields with strict runtime conformance.
 - Made generic public effect graphs drive real gameplay, catalog audio, screen
   and world presentation, timelines, targets, attachments, and cleanup through
   one rollback-safe transaction.

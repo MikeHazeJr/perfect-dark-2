@@ -1048,13 +1048,13 @@ s32 matchStart(void)
 	default:
 		if (g_MatchConfig.spawn_weapon_id[0]) {
 			const asset_entry_t *swe = assetCatalogResolve(g_MatchConfig.spawn_weapon_id);
-			if (swe && swe->type == ASSET_WEAPON) {
-				s32 mpw = swe->ext.weapon.weapon_id;
-				if (mpw > 0 && mpw < NUM_MPWEAPONS) {
-					g_MatchConfig.spawnWeaponNum = catalogGetMpWeaponNum(mpw);
-				} else {
-					g_MatchConfig.spawnWeaponNum = 0xFF;
-				}
+			if (swe && swe->type == ASSET_WEAPON &&
+					swe->runtime_index > 0 &&
+					swe->runtime_index < WEAPON_CUSTOM_END) {
+				/* B-1022: runtime_index is the catalog row's authoritative
+				 * gameplay identity. Re-deriving through ext.weapon.weapon_id
+				 * can select a different custom slot after catalog rebuilds. */
+				g_MatchConfig.spawnWeaponNum = (u8)swe->runtime_index;
 			} else {
 				sysLogPrintf(LOG_WARNING,
 				    "MATCHSETUP: spawn_weapon_id '%s' not in catalog — defaulting to Random fallback",

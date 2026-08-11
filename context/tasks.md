@@ -26,6 +26,20 @@ invalidation remains implemented under `T-ASSETS-033`/B-1013, growable nested
 ingress under `T-ASSETS-037`, and the separate runtime-capacity boundary under
 `T-ASSETS-022`/B-992.
 
+`T-ASSETS-025` and `V-009` now have a partial installed-client edited-source
+receipt after B-1018 through B-1022. Direct mission-script MP3 references emit
+editable `.pdvoice`; strict Needler creator/conformance fields agree with the
+production parser; custom weapon activation hydrates and retires a loader-owned
+adapter from public `weapon.ini` plus held graphs; and selected match setup
+preserves the catalog row's exact runtime identity. The frozen build passes the
+complete 54,777-assertion/983-case suite, Needler and all-family conformance,
+and the source guard. The ordinary client passes 43/43 with runtime 86, model
+file 2016, public nested effect ingest, exact first-person source load, and
+300-vertex/100-triangle render submission. Validation remains partial: the two
+captures do not show an unambiguous Needler silhouette, sound is disabled, and
+actual effect gameplay/audio/presentation output, restart, child replacement,
+rollback, and real-peer distribution are not yet proved.
+
 `T-ASSETS-020` is implemented, not validated, for strict selected
 and nested `.pdeffect` failure: nonempty unresolved references return failure,
 native callsites suppress the action, parent activation rolls back, runtime

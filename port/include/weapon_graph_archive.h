@@ -39,6 +39,16 @@ typedef struct weapon_graph_archive_descriptor {
 	char manifest[FS_MAXPATH];
 	char nested_payloads[FS_MAXPATH];
 	char model_file[FS_MAXPATH];
+	s32 has_muzzlez;
+	f32 muzzlez;
+	s32 has_posx;
+	f32 posx;
+	s32 has_posy;
+	f32 posy;
+	s32 has_posz;
+	f32 posz;
+	s32 has_track_type;
+	s32 track_type;
 	char entity_ref[CATALOG_ID_LEN];
 	char archetype[64];
 } weapon_graph_archive_descriptor_t;
