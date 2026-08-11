@@ -1,5 +1,26 @@
 # Session Log (Active)
 
+## 2026-08-11 - V-009 edited Needler effect A/B production proof
+
+Added deterministic temporary tint/output arguments to the existing editable
+Needler generator without changing its default bytes. The opt-in production
+GBI renderer audit now reports authored, prepared, and final material RGBA.
+Two separately seeded ordinary clients followed the normal Combat Simulator
+secondary-projectile collision path. Baseline pink passed 46/46 and cyan
+passed 46/46; both exited 0. Pink reached the renderer as
+`1.000,0.400,0.800,1.000` at all three stages, while cyan reached it as
+`0.000,1.000,1.000,1.000` at all three stages. Gameplay, catalog audio,
+presentation, lifetime, and render consumption otherwise matched.
+
+Final automation passes client/updater/tests builds, focused 24/1, complete
+54,876/987, native-source guard, conformance selftest, Needler 1-root/
+9-recursive conformance, and diff check under fingerprint
+`94a0167de847d7e43b43cbde907acd27e489b8829eabc41b3951d677fd109a2e`.
+Evidence is `context/evidence/2026-08-11-v009-needler-effect-ab.md` and the two
+tracked result JSONs. All six screenshots were inspected but remain washed out,
+so V-009 stays partial for readable visual comparison, live replacement/
+rollback, active second-owner reacquisition/release, and real-peer transport.
+
 ## 2026-08-11 - V-009 same-process Mod Manager lifecycle and B-1026
 
 Added a narrow `--launch-modding-hub` navigation shortcut that waits for the

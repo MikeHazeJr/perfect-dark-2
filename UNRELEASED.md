@@ -5,6 +5,8 @@
 
 ## Highlights
 
+- Made editable Needler effect colors flow unchanged from public source through
+  gameplay/presentation staging into the production world renderer.
 - Fixed Mod Manager archive sizing on Windows and added a real same-process
   disable/re-enable path for active custom weapon dependencies.
 - Made recursively nested weapon effects publish their editable sound,

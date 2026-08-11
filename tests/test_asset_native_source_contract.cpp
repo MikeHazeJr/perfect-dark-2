@@ -15817,3 +15817,45 @@ TEST_CASE("T-ASSETS-023 declared weapon reticles fail closed without public UI s
 	REQUIRE(reticle.find("pdguiThemeGetTexture(s_CatalogId)") !=
 		std::string::npos);
 }
+
+TEST_CASE("V-009 Needler edited tint variants reach the production renderer audit",
+		"[modding][pdxxx][effect_graph][v009][needler_ab]") {
+	const std::string builder = readTextFile("tools/build_needler_mod.py");
+	const std::string renderer = readTextFile("src/game/effect_presentation_renderer.c");
+	const std::string runner = readTextFile("tools/smoke-verify/run-needler-effect-ab.ps1");
+
+	REQUIRE(builder.find("DEFAULT_BURST_TINT = (1.0, 0.4, 0.8, 1.0)") !=
+	        std::string::npos);
+	REQUIRE(builder.find("--output-dir") != std::string::npos);
+	REQUIRE(builder.find("--burst-tint") != std::string::npos);
+	REQUIRE(builder.find("--spark-tint") != std::string::npos);
+	REQUIRE(builder.find("\"tint\": list(burst_tint)") != std::string::npos);
+	REQUIRE(builder.find("\"tint\": list(spark_tint)") != std::string::npos);
+	REQUIRE(renderer.find("effectPresentationMaterialColor(command.rgba") !=
+	        std::string::npos);
+	REQUIRE(renderer.find("authored_rgba=%.3f,%.3f,%.3f,%.3f") !=
+	        std::string::npos);
+	REQUIRE(renderer.find("effective_rgba=%.3f,%.3f,%.3f,%.3f") !=
+	        std::string::npos);
+	REQUIRE(renderer.find("render_rgba=%.3f,%.3f,%.3f,%.3f") !=
+	        std::string::npos);
+	REQUIRE(runner.find("needler_effect_ab_baseline") == std::string::npos);
+	REQUIRE(runner.find("New-NeedlerVariant -Name \"baseline\"") !=
+	        std::string::npos);
+	REQUIRE(runner.find("New-NeedlerVariant -Name \"cyan\"") !=
+	        std::string::npos);
+	REQUIRE(runner.find("needler_graph_runtime_visual_smoke.json") !=
+	        std::string::npos);
+	REQUIRE(runner.find("packed_fixtures[0].src") != std::string::npos);
+	REQUIRE(runner.find("New-Object System.Text.UTF8Encoding($false)") !=
+	        std::string::npos);
+	REQUIRE(runner.find("[System.IO.File]::WriteAllText(") !=
+	        std::string::npos);
+	REQUIRE(runner.find("foreach ($name in @(\"baseline\", \"cyan\"))") !=
+	        std::string::npos);
+	REQUIRE(runner.find("\"-Test\", $name") != std::string::npos);
+	REQUIRE(runner.find("Get-Process -Name \"PerfectDark\", \"Updater\"") !=
+	        std::string::npos);
+	REQUIRE(runner.find("authored_rgba=$ExpectedRgba effective_rgba=$ExpectedRgba render_rgba=$ExpectedRgba") !=
+	        std::string::npos);
+}

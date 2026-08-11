@@ -1,0 +1,18 @@
+{
+  "Name": "baseline",
+  "Category": "scenario",
+  "BugId": null,
+  "RegressionFor": null,
+  "Passed": true,
+  "ExitCode": 0,
+  "ElapsedSeconds": 116.7083301,
+  "InstallDir": "C:\\Users\\mikeh\\Perfect-Dark-2\\perfect_dark-mike\\.claude\\smoke-verify-install",
+  "Screenshots": [
+    "C:\\Users\\mikeh\\Perfect-Dark-2\\perfect_dark-mike\\.claude\\smoke-verify-runs\\screenshots\\20260811T084202-baseline\\001-needler-effect-baseline-needler-effect-impact.bmp",
+    "C:\\Users\\mikeh\\Perfect-Dark-2\\perfect_dark-mike\\.claude\\smoke-verify-runs\\screenshots\\20260811T084202-baseline\\002-needler-effect-baseline-needler-held-loaded.bmp",
+    "C:\\Users\\mikeh\\Perfect-Dark-2\\perfect_dark-mike\\.claude\\smoke-verify-runs\\screenshots\\20260811T084202-baseline\\003-needler-effect-baseline-needler-held-visible.bmp"
+  ],
+  "AssertionsTotal": 46,
+  "AssertionsMet": 46,
+  "Failures": []
+}

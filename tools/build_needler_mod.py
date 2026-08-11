@@ -52,8 +52,10 @@ the gameplay behavior and the first-person presentation.
 
 from __future__ import annotations
 
+import argparse
 import base64
 import json
+import math
 import struct
 import sys
 import zipfile
@@ -96,6 +98,8 @@ def dumps_graph(graph: dict[str, object]) -> str:
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 MOD_DIR = REPO_ROOT / "dev-mods" / "needler"
+DEFAULT_BURST_TINT = (1.0, 0.4, 0.8, 1.0)
+DEFAULT_SPARK_TINT = (1.0, 0.5, 0.85, 1.0)
 
 NS = "mod_needler"
 
@@ -555,7 +559,11 @@ def build_pink_burst_sfx() -> bytes:
     ])
 
 
-def build_pink_burst_effect(burst_sfx: bytes) -> bytes:
+def build_pink_burst_effect(
+    burst_sfx: bytes,
+    burst_tint: tuple[float, float, float, float] = DEFAULT_BURST_TINT,
+    spark_tint: tuple[float, float, float, float] = DEFAULT_SPARK_TINT,
+) -> bytes:
     # effect.graph.json -- small pink contact explosion. The pink tint lives in
     # the effect/texture data because the OG explosion path is hard-white with
     # no scalar tint; this custom effect carries the colour.
@@ -570,9 +578,9 @@ def build_pink_burst_effect(burst_sfx: bytes) -> bytes:
             {"id": "burst", "kind": "effect.explosion",
              "params": {"explosion_class": "small",
                         "audio_catalog_id": BURST_SFX_ID,
-                        "tint": [1.0, 0.4, 0.8, 1.0]}},
+                        "tint": list(burst_tint)}},
             {"id": "spark", "kind": "effect.spark",
-             "params": {"tint": [1.0, 0.5, 0.85, 1.0]}},
+             "params": {"tint": list(spark_tint)}},
         ],
         "edges": [{"from": "burst", "to": "spark"}],
     })
@@ -715,7 +723,7 @@ def build_burst_projectile(needle_mesh: bytes, burst_effect: bytes,
 # The weapon -- adapts update_weapon member-for-member.
 # ---------------------------------------------------------------------------
 def build_weapon(held_weapon_mesh: bytes, homing_projectile: bytes,
-                 burst_projectile: bytes) -> bytes:
+                 burst_projectile: bytes, output_dir: Path = MOD_DIR) -> bytes:
     # event.trigger_pressed + spawn.fired_projectile are live weapon node kinds
     # (weapon_graph_runtime.c s_modules lines 63, 76). The spawn node reads
     # "mode", "function_type" (-> INVENTORYFUNCTYPE_SHOOT_PROJECTILE for
@@ -742,7 +750,7 @@ def build_weapon(held_weapon_mesh: bytes, homing_projectile: bytes,
         "primary", "trigger_primary", "primary", HOMING_PROJECTILE_ID)
     secondary_graph = weapon_graph(
         "secondary", "trigger_secondary", "secondary", BURST_PROJECTILE_ID)
-    return write_archive(MOD_DIR / "needler.pdweapon", [
+    return write_archive(output_dir / "needler.pdweapon", [
         ("weapon.ini",
          "; needler.pdweapon - Halo-Needler-style weapon with typed dependency closure\n"
          "[weapon]\n"
@@ -806,7 +814,7 @@ def build_weapon(held_weapon_mesh: bytes, homing_projectile: bytes,
 # ---------------------------------------------------------------------------
 # mod.json -- rewrite the reserved manifest with the real contents/asset list.
 # ---------------------------------------------------------------------------
-def write_mod_json() -> None:
+def write_mod_json(output_dir: Path = MOD_DIR) -> None:
     mod = {
         "id": "needler",
         "name": "Needler",
@@ -825,21 +833,25 @@ def write_mod_json() -> None:
             {"catalog_id": WEAPON_ID, "kind": "weapon", "archive": "needler.pdweapon"},
         ],
     }
-    (MOD_DIR / "mod.json").write_text(json.dumps(mod, indent=2) + "\n", encoding="utf-8")
+    (output_dir / "mod.json").write_text(json.dumps(mod, indent=2) + "\n", encoding="utf-8")
 
 
 # ---------------------------------------------------------------------------
 # Driver.
 # ---------------------------------------------------------------------------
-def build() -> Path:
-    MOD_DIR.mkdir(parents=True, exist_ok=True)
+def build(
+    output_dir: Path = MOD_DIR,
+    burst_tint: tuple[float, float, float, float] = DEFAULT_BURST_TINT,
+    spark_tint: tuple[float, float, float, float] = DEFAULT_SPARK_TINT,
+) -> Path:
+    output_dir.mkdir(parents=True, exist_ok=True)
 
     # Leaf dependencies first.
     held_weapon_mesh = build_held_weapon_mesh()
     needle_mesh = build_needle_mesh()
     spark_texture = build_spark_texture()
     burst_sfx = build_pink_burst_sfx()
-    burst_effect = build_pink_burst_effect(burst_sfx)
+    burst_effect = build_pink_burst_effect(burst_sfx, burst_tint, spark_tint)
 
     # Projectiles embed their own closures.
     homing_projectile = build_homing_projectile(needle_mesh)
@@ -847,17 +859,46 @@ def build() -> Path:
 
     # The weapon embeds everything.
     build_weapon(
-        held_weapon_mesh, homing_projectile, burst_projectile,
+        held_weapon_mesh, homing_projectile, burst_projectile, output_dir,
     )
 
-    write_mod_json()
-    return MOD_DIR / "needler.pdweapon"
+    write_mod_json(output_dir)
+    return output_dir / "needler.pdweapon"
+
+
+def parse_tint(value: str) -> tuple[float, float, float, float]:
+    """Parse a public effect RGBA value for deterministic validation fixtures."""
+    try:
+        values = tuple(float(part.strip()) for part in value.split(","))
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("tint must contain four numbers") from exc
+    if len(values) != 4 or any(not math.isfinite(part) or part < 0.0 or part > 1.0
+                               for part in values):
+        raise argparse.ArgumentTypeError(
+            "tint must contain exactly four finite numbers in the range 0..1"
+        )
+    return values  # type: ignore[return-value]
 
 
 def main() -> int:
-    weapon_path = build()
-    print(f"wrote {weapon_path.relative_to(REPO_ROOT)}")
-    print(f"wrote {(MOD_DIR / 'mod.json').relative_to(REPO_ROOT)}")
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--output-dir", type=Path, default=MOD_DIR,
+                        help="output mod directory (default: dev-mods/needler)")
+    parser.add_argument("--burst-tint", type=parse_tint, default=DEFAULT_BURST_TINT,
+                        help="editable explosion RGBA as r,g,b,a")
+    parser.add_argument("--spark-tint", type=parse_tint, default=DEFAULT_SPARK_TINT,
+                        help="editable spark RGBA as r,g,b,a")
+    args = parser.parse_args()
+    output_dir = args.output_dir.resolve()
+    weapon_path = build(output_dir, args.burst_tint, args.spark_tint)
+    try:
+        weapon_display = weapon_path.relative_to(REPO_ROOT)
+        manifest_display = (output_dir / "mod.json").relative_to(REPO_ROOT)
+    except ValueError:
+        weapon_display = weapon_path
+        manifest_display = output_dir / "mod.json"
+    print(f"wrote {weapon_display}")
+    print(f"wrote {manifest_display}")
     return 0
 
 

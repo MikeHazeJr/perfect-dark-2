@@ -87,8 +87,18 @@ rebuilds with no enabled mods, then re-enables/remounts/rescans and persists
 Needler enabled before exit. B-1026 fixes the signed `off_t` archive-size clamp
 that falsely forced every positive `.pdmod` through a 4096 MiB warning. This
 advances but does not close V-009: active second-owner reacquisition/release,
-live replacement/rollback, real-peer transport, and edited-value A/B visual
-comparison remain open.
+live replacement/rollback, real-peer transport, and readable visual comparison
+remain open. The edited-value source-to-render gate is independently green:
+the default generator remains byte-identical, while temporary pink and cyan
+public effect graphs each pass 46/46 through normal secondary projectile
+collision and the same gameplay/audio/presentation transaction. The real GBI
+renderer reports pink `1.000,0.400,0.800,1.000` and cyan
+`0.000,1.000,1.000,1.000` unchanged across authored, prepared, and final
+material-color stages. Automated evidence passes focused 24/1 and full
+54,876/987 plus guard/conformance under fingerprint
+`94a0167de847d7e43b43cbde907acd27e489b8829eabc41b3951d677fd109a2e`.
+All six captures remain overexposed, so pixel-level visual distinction is not
+claimed.
 Catalog reticles are production-connected
 under `T-ASSETS-023`: `reticle_archive` embeds editable `.pdui`, the scanner
 registers UI before weapon parsing, presentation retains the catalog ID, and

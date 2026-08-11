@@ -307,12 +307,25 @@ static Gfx *effectPresentationRenderCommands(Gfx *gdl)
 					!command.texture_ref[0])) continue;
 		if (effectInstanceRuntimeAuditEnabled() &&
 				command.instance_id > s_LastAuditedEffectInstance) {
+			f32 render_rgba[4];
 			s_LastAuditedEffectInstance = command.instance_id;
+			effectPresentationMaterialColor(command.rgba,
+				command.material_shading_model, command.material_roughness,
+				command.material_metallic, command.material_emissive,
+				render_rgba);
 			sysLogPrintf(LOG_NOTE,
-				"EFFECT.PRESENTATION.RENDER.AUDIT: instance=%llu snapshots=%zu channel=%d shader=%s intensity=%.3f",
+				"EFFECT.PRESENTATION.RENDER.AUDIT: instance=%llu snapshots=%zu channel=%d shader=%s intensity=%.3f authored_rgba=%.3f,%.3f,%.3f,%.3f effective_rgba=%.3f,%.3f,%.3f,%.3f render_rgba=%.3f,%.3f,%.3f,%.3f",
 				(unsigned long long)command.instance_id, count,
 				(s32)command.channel, command.shader_id,
-				(double)command.intensity);
+				(double)command.intensity,
+				(double)command.authored_tint[0],
+				(double)command.authored_tint[1],
+				(double)command.authored_tint[2],
+				(double)command.authored_tint[3],
+				(double)command.rgba[0], (double)command.rgba[1],
+				(double)command.rgba[2], (double)command.rgba[3],
+				(double)render_rgba[0], (double)render_rgba[1],
+				(double)render_rgba[2], (double)render_rgba[3]);
 		}
 		if (command.channel == EFFECT_PRESENTATION_CHANNEL_SCREEN) {
 			gdl = effectPresentationRenderScreenTexture(gdl, &command);

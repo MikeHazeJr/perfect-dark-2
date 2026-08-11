@@ -64,9 +64,19 @@ every positive `.pdmod` as 4096 MiB. Final verification adds client/updater/
 tests build, focused 22/3 and 391/1, complete 54,852/986, native-source guard,
 diff check, and fingerprint
 `1f7a25ad07e4483e50d23c0f0c92f99f2855c25a6d009346eb04598ccb14411b`.
-Validation remains partial for edited-value A/B visual comparison, live child
-replacement/rollback, reacquiring/releasing a second active owner inside one
-process, and real-peer distribution.
+Validation remains partial for live child replacement/rollback, reacquiring/
+releasing a second active owner inside one process, real-peer distribution, and
+a readable pixel-level visual comparison. The source-to-render half of the A/B
+gate is now authoritative: separately generated public pink and cyan
+`.pdeffect` variants each pass 46/46 through normal secondary projectile
+collision, audio, presentation, and renderer consumption. The renderer reports
+exact pink `1.000,0.400,0.800,1.000` versus cyan
+`0.000,1.000,1.000,1.000` at authored, prepared, and final material stages.
+Final automation passes focused 24/1, complete 54,876/987, guard, and
+conformance under fingerprint
+`94a0167de847d7e43b43cbde907acd27e489b8829eabc41b3951d677fd109a2e`.
+The retained frames are still washed out, so visual distinction is not inferred
+from renderer state.
 
 `T-ASSETS-020` is implemented, not validated, for strict selected
 and nested `.pdeffect` failure: nonempty unresolved references return failure,

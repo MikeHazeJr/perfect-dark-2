@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "project": "Perfect Dark 2",
-  "updated": "2026-08-11T12:20:56.245Z",
+  "updated": "2026-08-11T12:50:51.803Z",
   "items": [
     {
       "type": "task",
@@ -3651,10 +3651,14 @@
         "context/evidence/2026-08-11-v009-mod-manager-client-build.log",
         "context/evidence/2026-08-11-v009-mod-manager-updater-build.log",
         "context/evidence/2026-08-11-v009-mod-manager-build.log",
-        "context/evidence/v009-mod-manager-lifecycle-result-20260811T121111Z.json"
+        "context/evidence/v009-mod-manager-lifecycle-result-20260811T121111Z.json",
+        "context/evidence/2026-08-11-v009-needler-effect-ab.md",
+        ".claude/smoke-verify-runs/results-20260811T124400Z.json: baseline public tint PASS 46/46",
+        ".claude/smoke-verify-runs/results-20260811T124601Z.json: cyan public tint PASS 46/46",
+        "V-009 A/B final fingerprint 94a0167de847d7e43b43cbde907acd27e489b8829eabc41b3951d677fd109a2e"
       ],
       "phase": 3,
-      "detail": "Partial production proof now includes a clean-install, same-process production Mod Manager lifecycle receipt. The client activated the public Needler weapon/effect/SFX closure, real SDL checkbox and Apply input disabled it, and exact rows freed at ref 1->0 before a zero-mod rebuild. The same open client then re-enabled Needler through the real UI, remounted and recursively rescanned the archive, applied successfully, and exited 0 with Needler persisted enabled (22/22). B-1026 also fixes every positive pdmod being misreported as 4096 MiB. Preserved-install restart and ordinary gameplay/audio/presentation proof remain green. Still open: reacquiring and releasing a second active owner within one process, live replacement/rollback, real-peer/network distribution, and clearer edited-value A/B held/effect visual fidelity.",
+      "detail": "Create and validate edited public weapon/effect archives through ordinary production gameplay. Needler now has green installed-client proof for adapter hydration, selected secondary collision, catalog audio, gameplay/presentation/render dispatch, preserved-install restart, and real Mod Manager teardown/remount. Separately generated pink and cyan public pdeffect variants each pass 46/46 and reach the GBI renderer with exact distinct authored/effective/render RGBA. Status remains partial because screenshots are visually overexposed and active second-owner reacquisition/release, live replacement/rollback, and real-peer/network lifecycle proof remain open.",
       "tags": [
         "asset-family:pdweapon",
         "handoff:ultra",
@@ -3662,7 +3666,7 @@
         "production-proof"
       ],
       "id": "T-ASSETS-025",
-      "updated": "2026-08-11T12:20:56.245Z",
+      "updated": "2026-08-11T12:50:51.803Z",
       "created": "2026-08-08T17:05:35.637Z",
       "model": "gpt-5.6-sol"
     },
@@ -4266,9 +4270,19 @@
         "context/evidence/2026-08-11-v009-mod-manager-client-build.log",
         "context/evidence/2026-08-11-v009-mod-manager-updater-build.log",
         "context/evidence/2026-08-11-v009-mod-manager-build.log",
-        "context/evidence/v009-mod-manager-lifecycle-result-20260811T121111Z.json"
+        "context/evidence/v009-mod-manager-lifecycle-result-20260811T121111Z.json",
+        "tools/build_needler_mod.py: deterministic --output-dir/--burst-tint/--spark-tint public-source variants with byte-identical default",
+        "src/game/effect_presentation_renderer.c: opt-in authored/effective/render RGBA observation in the real GBI command loop",
+        ".claude/smoke-verify-runs/results-20260811T123348Z.json: rejected pre-game BOM fixture receipt",
+        ".claude/session-builds/v009ab/v009-ab-smoke-final.out.log: rejected combined wrapper after baseline 46/46 due shared-install binary reseed race",
+        ".claude/smoke-verify-runs/results-20260811T124400Z.json: baseline pink production PASS 46/46, exit 0",
+        ".claude/smoke-verify-runs/results-20260811T124601Z.json: cyan production PASS 46/46, exit 0",
+        "Pink 1.000,0.400,0.800,1.000 vs cyan 0.000,1.000,1.000,1.000 remained exact across authored/effective/render RGBA",
+        "V-009 A/B automated PASS: client/updater/tests builds; focused 24/1; full 54,876/987; guard; conformance",
+        "V-009 A/B final fingerprint 94a0167de847d7e43b43cbde907acd27e489b8829eabc41b3951d677fd109a2e",
+        "context/evidence/2026-08-11-v009-needler-effect-ab.md"
       ],
-      "detail": "Partial production proof now includes a clean-install, same-process production Mod Manager lifecycle receipt. The client activated the public Needler weapon/effect/SFX closure, real SDL checkbox and Apply input disabled it, and exact rows freed at ref 1->0 before a zero-mod rebuild. The same open client then re-enabled Needler through the real UI, remounted and recursively rescanned the archive, applied successfully, and exited 0 with Needler persisted enabled (22/22). B-1026 also fixes every positive pdmod being misreported as 4096 MiB. Preserved-install restart and ordinary gameplay/audio/presentation proof remain green. Still open: reacquiring and releasing a second active owner within one process, live replacement/rollback, real-peer/network distribution, and clearer edited-value A/B held/effect visual fidelity.",
+      "detail": "Partial production proof now includes ordinary gameplay/audio/presentation, preserved-install restart, production Mod Manager disable/re-enable, and an authoritative edited-value source-to-render A/B. Separately generated public pink and cyan Needler .pdeffect variants each pass 46/46 through the same normal secondary projectile collision and production GBI renderer; exact authored/effective/render RGBA changes from 1.000,0.400,0.800,1.000 to 0.000,1.000,1.000,1.000. Final automation passes 54,876/987 plus guard/conformance under fingerprint 94a0167d. All six frames remain washed out, so V-009 stays partial for a readable pixel-level visual comparison, live replacement/rollback, reacquiring/releasing a second active owner in one process, and real-peer/network distribution.",
       "tags": [
         "asset-family:pdeffect",
         "edited-source",
@@ -4299,12 +4313,19 @@
         "context/evidence/2026-08-11-v009-mod-manager-client-build.log",
         "context/evidence/2026-08-11-v009-mod-manager-updater-build.log",
         "context/evidence/2026-08-11-v009-mod-manager-build.log",
-        "context/evidence/v009-mod-manager-lifecycle-result-20260811T121111Z.json"
+        "context/evidence/v009-mod-manager-lifecycle-result-20260811T121111Z.json",
+        ".claude/smoke-verify-runs/results-20260811T124400Z.json",
+        ".claude/smoke-verify-runs/results-20260811T124601Z.json",
+        ".claude/smoke-verify-runs/screenshots/20260811T084202-baseline",
+        ".claude/smoke-verify-runs/screenshots/20260811T084402-cyan",
+        "context/evidence/2026-08-11-v009-needler-effect-ab.md",
+        "context/evidence/v009-needler-ab-baseline-result-20260811T124400Z.json",
+        "context/evidence/v009-needler-ab-cyan-result-20260811T124601Z.json"
       ],
       "budget": null,
       "measurements": [],
       "id": "V-009",
-      "updated": "2026-08-11T12:20:56.235Z",
+      "updated": "2026-08-11T12:50:51.783Z",
       "created": "2026-08-08T23:50:40.511Z"
     },
     {

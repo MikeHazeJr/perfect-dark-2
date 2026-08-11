@@ -1,0 +1,18 @@
+{
+  "Name": "cyan",
+  "Category": "scenario",
+  "BugId": null,
+  "RegressionFor": null,
+  "Passed": true,
+  "ExitCode": 0,
+  "ElapsedSeconds": 116.45912759999999,
+  "InstallDir": "C:\\Users\\mikeh\\Perfect-Dark-2\\perfect_dark-mike\\.claude\\smoke-verify-install",
+  "Screenshots": [
+    "C:\\Users\\mikeh\\Perfect-Dark-2\\perfect_dark-mike\\.claude\\smoke-verify-runs\\screenshots\\20260811T084402-cyan\\001-needler-effect-cyan-needler-effect-impact.bmp",
+    "C:\\Users\\mikeh\\Perfect-Dark-2\\perfect_dark-mike\\.claude\\smoke-verify-runs\\screenshots\\20260811T084402-cyan\\002-needler-effect-cyan-needler-held-loaded.bmp",
+    "C:\\Users\\mikeh\\Perfect-Dark-2\\perfect_dark-mike\\.claude\\smoke-verify-runs\\screenshots\\20260811T084402-cyan\\003-needler-effect-cyan-needler-held-visible.bmp"
+  ],
+  "AssertionsTotal": 46,
+  "AssertionsMet": 46,
+  "Failures": []
+}
