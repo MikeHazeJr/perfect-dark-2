@@ -37,9 +37,11 @@ random/meta propagation proof is 34/34 and publishes concrete
 Final automation passes 56,283 assertions/1,013 cases, native-source guard,
 strict recursive conformance for all 27 families, and an unchanged 37-file
 fingerprint. V-009 remains partial only for its explicit readable peer-visual
-gate and the partial T-CATALOG-003 dependency, not for production behavior.
+gate, not for production behavior; T-CATALOG-003 is now implemented with its
+complete live all-family boundary receipt.
 
-`T-ASSETS-025` and `V-009` now have an authoritative partial installed-client
+`T-ASSETS-025` is implemented, while `V-009` retains the human visual gate.
+The lane first established an authoritative installed-client
 edited-source receipt after B-1018 through B-1025. Custom weapon activation
 hydrates the public adapter and preserves runtime 86; the normal fire-mode
 selector reaches its authored secondary function; digital `ACTION_AIM_DOWN`
@@ -95,8 +97,9 @@ The final receipt passes 40/40 and exits 0 without ImGui/style-stack errors;
 B-1030 fixes the mutable-condition Push/Pop imbalance exposed by the first
 otherwise-successful run. Complete verification passes 54,992/998, guard,
 selftest, 28-root/52-recursive all-family conformance, and diff check.
-Validation remains partial only for real-peer distribution and a readable
-pixel-level visual comparison. The source-to-render half of the A/B
+The later isolated peer receipt passes 87/87 from a client with no local
+package, so validation remains partial only for a readable pixel-level visual
+comparison. The source-to-render half of the A/B
 gate is now authoritative: separately generated public pink and cyan
 `.pdeffect` variants each pass 46/46 through normal secondary projectile
 collision, audio, presentation, and renderer consumption. The renderer reports
@@ -276,10 +279,10 @@ edited-source and negative-path receipts remain validation work. Nested weapon
 animation/audio registration is connected and its native production-linked
 behavioral harness passes 3/3 under `T-ASSETS-022`: direct and manifest-style
 ownership balance, unresolved selected audio rejects without numeric fallback,
-and late corruption rolls back every row and edge. The item remains truthfully
-partial because B-992 capacity is implemented and live-proven but ordinary
-edited/corrupt-media gameplay, load/release/restart, and network distribution
-remain under `T-ASSETS-025`. `T-ASSETS-031` now has production parser and automated coverage
+and late corruption rolls back every row and edge. T-ASSETS-022 is implemented:
+B-992 capacity plus T-ASSETS-025 now live-prove ordinary edited gameplay,
+load/release/restart, repeated ownership, rollback, and real-peer distribution.
+`T-ASSETS-031` now has production parser and automated coverage
 for JSON non-BMP surrogate pairs and malformed-pair rejection.
 `T-MODDING-007` now has a production-connected Audio Mods Voice creator that
 emits a validated, self-contained localized `.pdvoice`, atomically preserves

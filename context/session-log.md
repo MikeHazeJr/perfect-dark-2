@@ -1,5 +1,19 @@
 # Session Log (Active)
 
+## 2026-08-12 - Asset implementation truth reconciliation
+
+Reconciled Workbench with the already-committed Needler production receipts.
+T-ASSETS-025, T-ASSETS-022, and the T-ASSETS-009 weapon umbrella are now
+`implemented`: ordinary edited gameplay, restart, live replacement/rollback,
+overlapping-owner balance, and isolated real-peer package lifecycle all pass.
+T-ASSETS-015 is also `implemented` now that strict theme authority, complete
+consumers/creator output, preserved restart, and 67/67 real-peer admission pass.
+
+Validation remains separate and truthful. V-009 is still partial because its
+retained A/B frames are overexposed and cannot support a readable pixel-level
+comparison. T-ASSETS-030 remains partial only for physical controller and live
+keyboard/controller device-switch glyph proof.
+
 ## 2026-08-12 - T-ASSETS-030 real-peer theme distribution
 
 Completed the source-frozen two-peer `.pdtheme` package path. A clean host

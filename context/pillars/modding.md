@@ -77,16 +77,17 @@ animation/audio registration is connected and its production-linked native
 harness passes direct and manifest-style ownership plus unresolved/corrupt
 transactional rejection under `T-ASSETS-022`. B-992 now allocates a genuinely
 new private weapon pair after the complete base walk and starts 70 creator SFX
-through the production catalog/audio route. Ordinary edited-weapon gameplay,
-restart, lifecycle, and network distribution remain open under T-ASSETS-025.
+through the production catalog/audio route. T-ASSETS-025 now implements and
+live-proves ordinary edited-weapon gameplay, restart, lifecycle, replacement
+rollback, repeated ownership, and isolated real-peer distribution.
 The first T-ASSETS-025 installed-client milestone now passes 43/43 after
 B-1018 through B-1022: the regenerated Needler conforms to the strict effect
 descriptor, names the executable nested effect, hydrates a custom loader slot
 solely from public `weapon.ini` plus compiled held graphs, preserves runtime 86
 through specific-spawn setup, and loads/submits its nested public held model.
-This does not close the item: the captures are not visually unambiguous, the
-scenario disables sound, and effect output, restart, replacement/rollback, and
-real-peer distribution remain open.
+This initial milestone did not close the item because its captures were not
+visually unambiguous and its scenario disabled sound; the later receipts below
+close those production-behavior gaps.
 The V-009 follow-up now passes 45/45 in an ordinary installed client. B-1023
 adds a runtime-only custom weapon function-selection domain without changing
 legacy save/wire bytes; B-1024 routes digital aim actions into the authoritative
@@ -98,9 +99,9 @@ spark gameplay plus presentation snapshots, and reaches the world renderer.
 The full 54,834-assertion/985-case suite, focused B-1025/V-009 band,
 conformance, source guard, and frozen fingerprint also pass. The three retained
 frames show live HUD/source-model output but are too washed out for an
-unambiguous effect-shape claim, so V-009 remains partial for edited-value A/B
-visual comparison, replacement/rollback, repeated-owner, and real-peer
-distribution. Restart persistence is now green separately: a second client
+unambiguous effect-shape claim, so V-009 remains partial only for a readable
+pixel-level visual comparison. Replacement rollback, repeated ownership, and
+real-peer distribution are green separately. Restart persistence is also green: a second client
 reused the exact preserved installed archive/config without fixture staging,
 passed 37/37, rebuilt and dispatched the complete closure, and left both
 hashes and timestamps unchanged.
@@ -110,9 +111,9 @@ Apply, and modal OK, frees the active weapon/effect/SFX closure at ref `1->0`,
 rebuilds with no enabled mods, then re-enables/remounts/rescans and persists
 Needler enabled before exit. B-1026 fixes the signed `off_t` archive-size clamp
 that falsely forced every positive `.pdmod` through a 4096 MiB warning. This
-advances but does not close V-009: active second-owner reacquisition/release,
-live replacement/rollback, real-peer transport, and readable visual comparison
-remain open. The edited-value source-to-render gate is independently green:
+advances the validation lane; active second-owner reacquisition/release, live
+replacement/rollback, and real-peer transport now pass, leaving only readable
+visual comparison open. The edited-value source-to-render gate is independently green:
 the default generator remains byte-identical, while temporary pink and cyan
 public effect graphs each pass 46/46 through normal secondary projectile
 collision and the same gameplay/audio/presentation transaction. The real GBI
