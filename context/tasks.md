@@ -19,9 +19,9 @@ The final isolated receipt passes client/updater/tests compilation; T034
 149/11, T035 184/8, and T036 525/13; the complete 54,175-assertion/980-case
 suite; conformance self-test; 28-root/52-recursive all-27-family conformance;
 the native-source guard; diff check; and an unchanged 46-file fingerprint.
-`V-009` still owns ordinary installed-client edited-source and real-peer
-gameplay/render/audio/lifecycle proof, so implementation is not a validation
-claim. `V-006` is validated for induced extraction, selected-source,
+`V-009` now validates ordinary installed-client edited-source and real-peer
+gameplay/render/audio/lifecycle behavior, including readable pink/cyan output
+and the corrected held-model view. `V-006` is validated for induced extraction, selected-source,
 transport/rollback, and persistence failure. Exact reverse
 invalidation remains implemented under `T-ASSETS-033`/B-1013, growable nested
 ingress under `T-ASSETS-037`, and the separate runtime-capacity boundary under
@@ -36,12 +36,11 @@ random/meta propagation proof is 34/34 and publishes concrete
 `base:mp_skedar` with session 1 on both peers. B-1034 through B-1042 are closed.
 Final automation passes 56,283 assertions/1,013 cases, native-source guard,
 strict recursive conformance for all 27 families, and an unchanged 37-file
-fingerprint. The readable installed-client visual gate is now also closed:
+fingerprint. The readable installed-client visual gate is also closed:
 pink and cyan edited-source variants each pass 46/46 and retain visibly
-distinct fragments without a white bloom. V-009 remains partial only because
-its Workbench dependency T-CATALOG-003 is still partial for the comprehensive
-live all-family three-ingress matrix, not because Needler production behavior
-or its readable visual output is unproven.
+distinct fragments without a white bloom. T-CATALOG-003 is implemented with
+its 27-family loose/nested/received boundary receipt, so every V-009 dependency
+and validation gate is satisfied; V-009 is validated with verdict `pass`.
 
 The player-following white obstruction in the Needler visual runs is closed as
 B-1055/B-1056. The public creator's held mesh was 14x and too near-centre, while
@@ -53,10 +52,11 @@ inspected frames show the authored-pink weapon confined to the lower-right and
 the world/crosshair unobstructed. B-1054 is also closed: source-frozen pink and
 cyan effect variants each pass 46/46, exact renderer RGBA matches their public
 source, and inspected 700/900 ms frames show distinct coloured fragments
-without a white bloom. V-009's only remaining blocker is its still-partial
-T-CATALOG-003 dependency.
+without a white bloom. T-CATALOG-003's implemented all-family three-ingress
+receipt satisfies the final dependency, so V-009 is validated/pass.
 
-`T-ASSETS-025` is implemented, while `V-009` retains the human visual gate.
+`T-ASSETS-025` is implemented, and `V-009` has now passed the human-readable
+visual gate.
 The lane first established an authoritative installed-client
 edited-source receipt after B-1018 through B-1025. Custom weapon activation
 hydrates the public adapter and preserves runtime 86; the normal fire-mode

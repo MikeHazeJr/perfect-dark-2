@@ -54,5 +54,6 @@ player-facing output.
   source contracts. All-family conformance PASS: 28 root / 52 recursive / all
   27 families. Needler conformance PASS: 1 root / 9 recursive.
 
-V-009 stays partial only because T-CATALOG-003 remains a partial dependency;
-the Needler readable-output gate itself is complete.
+T-CATALOG-003 is implemented with its complete 27-family loose/nested/received
+boundary receipt. With every dependency and readable-output gate complete,
+V-009 is validated with verdict `pass`.

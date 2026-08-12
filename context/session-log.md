@@ -20,8 +20,9 @@ records retain exact authored/effective/render RGBA, and inspected 700/900 ms
 captures show visibly distinct pink/cyan fragments without the prior white
 bloom. Together with the B-1055/B-1056 21/21 held-model receipt, the reported
 player-following obstruction and the separate effect-readability defect are
-closed. V-009 remains partial only because T-CATALOG-003 is still a partial
-Workbench dependency.
+closed. T-CATALOG-003 is already implemented with its complete 27-family
+loose/nested/received boundary receipt, so the last dependency is satisfied and
+V-009 is now validated with verdict `pass`.
 
 ## 2026-08-12 - V-009 Needler held-view obstruction and GLTF material fix
 
@@ -45,8 +46,8 @@ The dedicated ordinary-client receipt
 `.claude/smoke-verify-runs/screenshots/20260812T103519-needler_viewmodel_visibility_smoke/`
 show the authored-pink weapon confined to the lower-right with the world and
 crosshair unobstructed. The subsequent B-1054 pink/cyan receipt closes the
-separate impact-effect readability gate; V-009 now remains partial only for
-its T-CATALOG-003 dependency.
+separate impact-effect readability gate. Together with the implemented
+T-CATALOG-003 dependency, this validates V-009.
 
 ## 2026-08-12 - Asset implementation truth reconciliation
 
