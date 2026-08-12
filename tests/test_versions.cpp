@@ -18,9 +18,9 @@
  *   "Save format (MPSETUP_VERSION 1 -> 2): WAD save/load roundtrip +
  *    v1 -> v2 migration"
  *
- * Bumped 2026-07-30 to NET_PROTOCOL_VER 52 and MPSETUP_VERSION 3 so the
- * permanent public .pdbotprofile catalog ID survives network match start
- * and all multiplayer setup save formats.
+ * Bumped 2026-08-11 to NET_PROTOCOL_VER 53 so match-manifest distribution
+ * carries typed-asset versus full-package identity and manifest-authenticated
+ * temporary package admission. MPSETUP_VERSION remains 3.
  */
 
 #include "catch.hpp"
@@ -43,7 +43,7 @@ extern const u32 g_TestExpectedMpsetupVersion;
 extern const u32 g_TestLiveMpsetupVersion;
 }
 
-const u32 g_TestExpectedNetProtocolVer  = 52;
+const u32 g_TestExpectedNetProtocolVer  = 53;
 const u32 g_TestExpectedMpsetupVersion  = 3;
 
 TEST_CASE("version pin: NET_PROTOCOL_VER is the version this test was written against",
@@ -54,9 +54,9 @@ TEST_CASE("version pin: NET_PROTOCOL_VER is the version this test was written ag
      * verifying the bump is intentional, update g_TestExpectedNetProtocolVer
      * to match and re-run.
      *
-     * As of 2026-07-30 the live value is 52. v52 carries a bot-profile
-     * catalog ID/session reference in both match-start directions so custom
-     * public profiles cannot collapse back to legacy type/difficulty traits.
+     * As of 2026-08-11 the live value is 53. v53 distinguishes typed catalog
+     * assets from full mod packages during match-manifest distribution and
+     * admits temporary packages against the authoritative manifest SHA-256.
      * Prior bumps remain documented in port/include/net/net.h. */
     REQUIRE(g_TestLiveNetProtocolVer == g_TestExpectedNetProtocolVer);
 }

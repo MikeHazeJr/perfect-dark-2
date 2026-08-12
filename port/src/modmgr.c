@@ -1740,11 +1740,26 @@ static void modmgrScanDirectory(void)
 	char candidateBufs[4][512];
 	const char *candidates[4];
 
-	fsFullPath("$E/../" MODMGR_MODS_DIR, candidateBufs[0], sizeof(candidateBufs[0]));
-	strncpy(candidateBufs[1], "./" MODMGR_MODS_DIR, sizeof(candidateBufs[1]));
-	candidateBufs[1][sizeof(candidateBufs[1]) - 1] = '\0';
-	fsFullPath("$E/" MODMGR_MODS_DIR, candidateBufs[2], sizeof(candidateBufs[2]));
-	fsFullPath(MODMGR_MODS_DIR,       candidateBufs[3], sizeof(candidateBufs[3]));
+	const char *explicitModsDir = fsGetModDir();
+
+	/* B-1031: --moddir is an explicit isolation/override contract, not one
+	 * more discovery candidate. fsInit has already resolved and validated it.
+	 * The prior dynamic scanner ignored fsGetModDir() and still walked every
+	 * executable/CWD/base root, which made two canonical-executable peers see
+	 * each other's mods even with distinct base/save directories. */
+	if (explicitModsDir && explicitModsDir[0]) {
+		strncpy(candidateBufs[0], explicitModsDir, sizeof(candidateBufs[0]) - 1);
+		candidateBufs[0][sizeof(candidateBufs[0]) - 1] = '\0';
+		candidateBufs[1][0] = '\0';
+		candidateBufs[2][0] = '\0';
+		candidateBufs[3][0] = '\0';
+	} else {
+		fsFullPath("$E/../" MODMGR_MODS_DIR, candidateBufs[0], sizeof(candidateBufs[0]));
+		strncpy(candidateBufs[1], "./" MODMGR_MODS_DIR, sizeof(candidateBufs[1]));
+		candidateBufs[1][sizeof(candidateBufs[1]) - 1] = '\0';
+		fsFullPath("$E/" MODMGR_MODS_DIR, candidateBufs[2], sizeof(candidateBufs[2]));
+		fsFullPath(MODMGR_MODS_DIR,       candidateBufs[3], sizeof(candidateBufs[3]));
+	}
 	candidates[0] = candidateBufs[0];
 	candidates[1] = candidateBufs[1];
 	candidates[2] = candidateBufs[2];
@@ -1760,8 +1775,13 @@ static void modmgrScanDirectory(void)
 	}
 
 	if (!dir) {
-		sysLogPrintf(LOG_WARNING, "modmgr: could not open mods directory (tried $E/../%s, ./%s, $E/%s, base/%s)",
-			MODMGR_MODS_DIR, MODMGR_MODS_DIR, MODMGR_MODS_DIR, MODMGR_MODS_DIR);
+		if (explicitModsDir && explicitModsDir[0]) {
+			sysLogPrintf(LOG_WARNING,
+				"modmgr: could not open explicit mod directory '%s'", explicitModsDir);
+		} else {
+			sysLogPrintf(LOG_WARNING, "modmgr: could not open mods directory (tried $E/../%s, ./%s, $E/%s, base/%s)",
+				MODMGR_MODS_DIR, MODMGR_MODS_DIR, MODMGR_MODS_DIR, MODMGR_MODS_DIR);
+		}
 		return;
 	}
 
@@ -1923,7 +1943,9 @@ static void modmgrParseEnabledList(void)
 
 	// First, disable all mods
 	for (s32 i = 0; i < g_ModRegistryCount; i++) {
-		g_ModRegistry[i].enabled = false;
+		if (!g_ModRegistry[i].session_only) {
+			g_ModRegistry[i].enabled = false;
+		}
 	}
 
 	// Parse comma-separated list
@@ -1958,7 +1980,7 @@ static void modmgrBuildEnabledList(void)
 	bool first = true;
 
 	for (s32 i = 0; i < g_ModRegistryCount; i++) {
-		if (g_ModRegistry[i].enabled) {
+		if (g_ModRegistry[i].enabled && !g_ModRegistry[i].session_only) {
 			s32 idlen = (s32)strlen(g_ModRegistry[i].id);
 			s32 needed = idlen + (first ? 0 : 1); // comma + id
 			if (pos + needed >= (s32)sizeof(g_ModEnabledList) - 1) break;
@@ -1997,7 +2019,7 @@ static void modmgrSaveModsEnabledJson(void)
 	fprintf(f, "[\n");
 	bool first = true;
 	for (s32 i = 0; i < g_ModRegistryCount; i++) {
-		if (g_ModRegistry[i].enabled) {
+		if (g_ModRegistry[i].enabled && !g_ModRegistry[i].session_only) {
 			if (!first) fprintf(f, ",\n");
 			fprintf(f, "  \"%s\"", g_ModRegistry[i].id);
 			first = false;
@@ -2033,7 +2055,9 @@ static bool modmgrLoadModsEnabledJson(void)
 
 	// Disable all mods first
 	for (s32 i = 0; i < g_ModRegistryCount; i++) {
-		g_ModRegistry[i].enabled = false;
+		if (!g_ModRegistry[i].session_only) {
+			g_ModRegistry[i].enabled = false;
+		}
 	}
 
 	// Parse the JSON array
@@ -2385,6 +2409,8 @@ void modmgrRescanDirectory(void)
 		s32  enabled;
 		s32  loaded;
 	} saved[MODMGR_MAX_MODS];
+	modinfo_t sessionSaved[MODMGR_MAX_MODS];
+	s32 numSessionSaved = 0;
 	s32 numSaved = g_ModRegistryCount;
 	if (numSaved > MODMGR_MAX_MODS) numSaved = MODMGR_MAX_MODS;
 	for (s32 i = 0; i < numSaved; i++) {
@@ -2392,6 +2418,10 @@ void modmgrRescanDirectory(void)
 		saved[i].id[MODMGR_ID_LEN - 1] = '\0';
 		saved[i].enabled = g_ModRegistry[i].enabled;
 		saved[i].loaded  = g_ModRegistry[i].loaded;
+		if (g_ModRegistry[i].session_only &&
+				numSessionSaved < MODMGR_MAX_MODS) {
+			sessionSaved[numSessionSaved++] = g_ModRegistry[i];
+		}
 	}
 
 	sysLogPrintf(LOG_NOTE, "modmgr: rescanning mods/ (was %d mods)", numSaved);
@@ -2399,6 +2429,24 @@ void modmgrRescanDirectory(void)
 	// Re-scan from disk — resets g_ModRegistryCount to 0 and re-parses every
 	// mod.json / audio.ini under the mods roots.
 	modmgrScanDirectory();
+
+	/* The normal scan intentionally ignores mods/.temp. Re-append validated
+	 * ready-gate packages so an unrelated disk rescan cannot erase the active
+	 * session's manifest authority. A real installed package with the same ID
+	 * wins; the later hash check will still reject a mismatched manifest. */
+	for (s32 i = 0; i < numSessionSaved &&
+			g_ModRegistryCount < MODMGR_MAX_MODS; i++) {
+		s32 duplicate = 0;
+		for (s32 j = 0; j < g_ModRegistryCount; j++) {
+			if (strcmp(g_ModRegistry[j].id, sessionSaved[i].id) == 0) {
+				duplicate = 1;
+				break;
+			}
+		}
+		if (!duplicate) {
+			g_ModRegistry[g_ModRegistryCount++] = sessionSaved[i];
+		}
+	}
 
 	// Keep list ordering stable after rescan.
 	if (g_ModRegistryCount > 1) {
@@ -2514,6 +2562,72 @@ modinfo_t *modmgrFindMod(const char *id)
 	return NULL;
 }
 
+s32 modmgrRegisterSessionFolder(const char *dirpath, const char *expected_id,
+		const u8 expected_sha256[SHA256_DIGEST_SIZE])
+{
+	static const u8 zero_sha[SHA256_DIGEST_SIZE] = {0};
+	if (!dirpath || !dirpath[0] || !expected_id || !expected_id[0]
+			|| !expected_sha256
+			|| memcmp(expected_sha256, zero_sha, sizeof(zero_sha)) == 0) {
+		return 0;
+	}
+
+	modinfo_t *existing = modmgrFindMod(expected_id);
+	if (existing) {
+		if (existing->enabled && existing->valid && existing->has_modjson
+				&& memcmp(existing->sha256, expected_sha256,
+					SHA256_DIGEST_SIZE) == 0) {
+			return 1;
+		}
+		sysLogPrintf(LOG_WARNING,
+			"modmgr: session package '%s' conflicts with an existing registry entry",
+			expected_id);
+		return 0;
+	}
+
+	s32 prior_count = g_ModRegistryCount;
+	if (!modmgrTryRegisterModEntry(dirpath, expected_id,
+			"network-session", false)
+			|| g_ModRegistryCount != prior_count + 1) {
+		return 0;
+	}
+
+	modinfo_t *mod = &g_ModRegistry[prior_count];
+	if (!mod->valid || !mod->has_modjson
+			|| strcmp(mod->id, expected_id) != 0
+			|| memcmp(mod->sha256, expected_sha256,
+				SHA256_DIGEST_SIZE) != 0) {
+		char expected_hex[SHA256_HEX_SIZE];
+		char actual_hex[SHA256_HEX_SIZE];
+		sha256ToHex(expected_sha256, expected_hex);
+		sha256ToHex(mod->sha256, actual_hex);
+		sysLogPrintf(LOG_WARNING,
+			"modmgr: rejected session package expected=%s/%s actual=%s/%s valid=%d manifest=%d",
+			expected_id, expected_hex, mod->id, actual_hex,
+			mod->valid, mod->has_modjson);
+		memset(mod, 0, sizeof(*mod));
+		g_ModRegistryCount = prior_count;
+		return 0;
+	}
+
+	mod->session_only = 1;
+	mod->enabled = 1;
+	modmgrLoadMod(mod);
+	if (!mod->loaded) {
+		sysLogPrintf(LOG_WARNING,
+			"modmgr: session package '%s' passed identity but failed runtime loading",
+			expected_id);
+		memset(mod, 0, sizeof(*mod));
+		g_ModRegistryCount = prior_count;
+		return 0;
+	}
+
+	sysLogPrintf(LOG_NOTE,
+		"modmgr: admitted session-only package '%s' from %s",
+		expected_id, dirpath);
+	return 1;
+}
+
 // ---------------------------------------------------------------------------
 // Public API: Enable/Disable
 // ---------------------------------------------------------------------------
@@ -2521,6 +2635,9 @@ modinfo_t *modmgrFindMod(const char *id)
 void modmgrSetEnabled(s32 index, s32 enabled)
 {
 	if (index < 0 || index >= g_ModRegistryCount) return;
+	/* Session packages are owned by the active network manifest, not by the
+	 * user's persisted Mod Manager selection. */
+	if (g_ModRegistry[index].session_only) return;
 	// Cannot enable invalid mods
 	if (enabled && !g_ModRegistry[index].valid) return;
 	if (g_ModRegistry[index].enabled != enabled) {

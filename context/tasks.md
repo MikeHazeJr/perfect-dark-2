@@ -26,6 +26,18 @@ invalidation remains implemented under `T-ASSETS-033`/B-1013, growable nested
 ingress under `T-ASSETS-037`, and the separate runtime-capacity boundary under
 `T-ASSETS-022`/B-992.
 
+The isolated real-peer V-009 path now passes authentication, component/package
+transfer, SHA verification, transactional admission, READY, authoritative host
+manifest activation, exact nonzero arena-session resolution, normal weapon
+equip/fire, catalog audio/gameplay commit, renderer presentation consumption,
+and clean two-process shutdown. Final-source Needler proof is 87/87; the
+random/meta propagation proof is 34/34 and publishes concrete
+`base:mp_skedar` with session 1 on both peers. B-1034 through B-1042 are closed.
+Final automation passes 56,283 assertions/1,013 cases, native-source guard,
+strict recursive conformance for all 27 families, and an unchanged 37-file
+fingerprint. V-009 remains partial only for its explicit readable peer-visual
+gate and the partial T-CATALOG-003 dependency, not for production behavior.
+
 `T-ASSETS-025` and `V-009` now have an authoritative partial installed-client
 edited-source receipt after B-1018 through B-1025. Custom weapon activation
 hydrates the public adapter and preserves runtime 86; the normal fire-mode

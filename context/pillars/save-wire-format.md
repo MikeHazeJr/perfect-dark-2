@@ -10,7 +10,7 @@ Two persisted formats and one transient format share the same versioning discipl
 
 1. **Save format** - PC-native JSON files at known paths (`agent_<name>.json`, `player_<name>.json`, `mpsetup_<name>.json`, `system.json`). Replaces N64 EEPROM. `SAVE_VERSION = 2`.
 2. **MP setup format** - binary WAD format for MP setup blocks. `MPSETUP_VERSION = 3`.
-3. **Wire format** - ENet UDP frames. `NET_PROTOCOL_VER = 52`.
+3. **Wire format** - ENet UDP frames. `NET_PROTOCOL_VER = 53`.
 
 All three are version-pinned in headers and verified in tests; mixed-version mismatches are rejected at handshake.
 
@@ -91,7 +91,7 @@ carry catalog IDs; no numeric custom identity was added to either format.
 
 ## Wire protocol
 
-`NET_PROTOCOL_VER = 52` at [port/include/net/net.h:12](../../port/include/net/net.h:12). The 2026-07-30 bump carries bot-profile catalog identity in both match-start directions and requires the selected `.pdbotprofile` plus dependencies in the match manifest. Receivers resolve the public profile and derive type/difficulty; stale transmitted traits are diagnostic only. Mixed v51/v52 peers are rejected at auth. Earlier bumps remain documented in `net.h` and [pillars/connectivity.md](connectivity.md).
+`NET_PROTOCOL_VER = 53` at [port/include/net/net.h:12](../../port/include/net/net.h:12). The 2026-08-11 bump preserves typed-asset versus full-package identity through match-manifest distribution, authenticates temporary package admission with the manifest SHA-256, and balances multi-item completion/failure. Mixed v52/v53 peers are rejected at auth. The v52 bot-profile identity change and earlier bumps remain documented in `net.h` and [pillars/connectivity.md](connectivity.md).
 
 See [pillars/connectivity.md](connectivity.md) for the full changelog and protocol details.
 

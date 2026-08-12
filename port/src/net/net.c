@@ -988,6 +988,15 @@ void netServerStageStart(void)
 		}
 	}
 
+	/* B-1039: The listen host is a real Combat Simulator participant too.
+	 * Previously only the removed/dedicated-style branch below called
+	 * mpStartMatch(), so a listen host broadcast a valid SVC_STAGE_START while
+	 * loading Chicago as solo state (mplayerisrunning=0, one Falcon player).
+	 * Build the authoritative participant set and arm the local MP stage before
+	 * serialising it to peers.  The dedicated build resolves this symbol to its
+	 * headless stub, so one call is the correct contract for both server modes. */
+	mpStartMatch();
+
 	extern s32 g_MainChangeToStageNum;
 	sysLogPrintf(LOG_NOTE, "NET: === STAGE START === stage=0x%02x (g_StageNum=0x%02x, pending=0x%02x) scenario=%u clients=%d",
 	             (g_MainChangeToStageNum >= 0) ? (u8)g_MainChangeToStageNum : g_StageNum,
@@ -1042,13 +1051,12 @@ void netServerStageStart(void)
 			g_MpSetup.stage_id, (unsigned)g_NetMatchSeed, matchPlayers);
 	}
 
-	/* Dedicated server: allocate minimal bot stubs.  BOT_AUTHORITY is now deferred
-	 * until all clients confirm their stage is loaded via CLC_STAGE_READY, so that
-	 * the authority client's pads/spawn-points are ready before botSpawnAll() fires.
-	 * On a listen server the host runs full bot AI directly — no relay needed. */
+	/* Dedicated server: BOT_AUTHORITY is deferred until all clients confirm
+	 * their stage is loaded via CLC_STAGE_READY, so that the authority client's
+	 * pads/spawn-points are ready before botSpawnAll() fires.  mpStartMatch()
+	 * above already allocated the dedicated stub state.  On a listen server the
+	 * host runs full bot AI directly, so no relay is needed. */
 	if (g_NetDedicated) {
-		mpStartMatch(); /* server_stubs.c version: allocates stub chrdata/prop/aibot from heap */
-
 		/* Reset per-client stage-ready flags and arm the handshake deadline (5 s). */
 		for (s32 ci = 0; ci < NET_MAX_CLIENTS; ci++) {
 			g_NetClients[ci].stage_ready = false;
@@ -1290,6 +1298,12 @@ s32 netStartClient(const char *addr)
 	sysLogPrintf(LOG_NOTE, "NET: waiting for response from %s...", addr);
 
 	lobbyInit();
+	/* B-1037: distribution is a two-sided protocol.  The server has always
+	 * initialized its queue before advertising the catalog, but a joining
+	 * client also owns receive slots, transfer-set state, and trust policy.
+	 * Initialize that state for every client session before the first ENet
+	 * event can deliver SVC_CATALOG_INFO or SVC_DISTRIB_BEGIN. */
+	netDistribInit();
 
 	return 0;
 }

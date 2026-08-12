@@ -142,12 +142,23 @@ void netDistribServerSendCatalogInfo(struct netclient *cl);
  * Server received CLC_CATALOG_DIFF from a client.
  * Queues transfer of all missing components to that client.
  * v27: missing_ids are catalog ID strings, not u32 net_hash values.
- * Called by netmsgClcCatalogDiffRead() and netmsgClcManifestStatusRead().
+ * Called by netmsgClcCatalogDiffRead(). Match-manifest diffs use the typed
+ * entry-aware API below so package IDs are not mistaken for catalog rows.
  */
 void netDistribServerHandleDiff(struct netclient *cl,
                                 const char (*missing_ids)[64],
                                 u16 count,
                                 u8 temporary);
+
+/**
+ * Queue a match-manifest missing set. Each ID is resolved against the active
+ * server manifest so MANIFEST_TYPE_COMPONENT packages retain their package
+ * identity while typed assets retain catalog identity.
+ */
+void netDistribServerHandleManifestDiff(struct netclient *cl,
+                                        const char (*missing_ids)[64],
+                                        u16 count,
+                                        u8 temporary);
 
 /**
  * Tick the server distribution system (process pending transfers).
@@ -192,6 +203,13 @@ void netDistribClientHandleCatalogInfo(const char (*ids)[64],
                                        u16 count,
                                        u16 batch_offset,
                                        u16 total_count);
+
+/** Begin a match-manifest transfer set before NEED_ASSETS is sent. */
+void netDistribClientBeginManifestTransferSet(u16 missing_count);
+
+/** Return the local request policy for the current receive set (session-only
+ * by default). SVC_DISTRIB_BEGIN does not let a server choose persistence. */
+s32 netDistribClientGetTransferTemporary(void);
 
 /**
  * Client received SVC_DISTRIB_BEGIN from server.

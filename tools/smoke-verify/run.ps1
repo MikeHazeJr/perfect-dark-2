@@ -657,8 +657,11 @@ function Select-SmokeTests {
 #
 # Behaviour:
 #   - Processes share one install directory by default. Set
-#     `separate_process_installs: true` to give each process an isolated
-#     working install while still launching the one canonical executable.
+#     `separate_process_installs: true` to give each process isolated base,
+#     save, and mod directories while still launching the one canonical executable.
+#     The runner passes those directories through the game's authoritative
+#     --basedir/--savedir arguments; WorkingDirectory alone is not sufficient
+#     because --portable otherwise resolves both paths from the executable.
 #     Top-level fixtures are applied to every isolated install; process-local
 #     remove_paths, fixtures, and packed_fixtures are applied afterward.
 #   - Processes launch sequentially. After each launch, the runner polls
@@ -785,6 +788,10 @@ function Invoke-SmokeTestMultiProcess {
                 -SourceRom $processRom `
                 -ProjectRoot $ProjectRoot `
                 -Target $target
+            $processModsDir = Join-Path $processInstallInfo.InstallDir "mods"
+            if (-not (Test-Path -LiteralPath $processModsDir)) {
+                New-Item -ItemType Directory -Path $processModsDir -Force | Out-Null
+            }
             Write-Info ("  process install[{0}]: {1}" -f $pname, $processInstallInfo.InstallDir)
             Write-Info ("  process state[{0}]: {1}" -f $pname, $processInstallInfo.InstallState)
         }
@@ -910,7 +917,16 @@ function Invoke-SmokeTestMultiProcess {
         if ($env:PD_SMOKE_DISABLE_CRASH_HANDLER -eq "1") {
             $crashArgs = @("--no-crash-handler")
         }
-        $allArgs = @("--smoke", $Test.Path) + $crashArgs + $pBootArgs
+        $isolationArgs = @()
+        if ($separateProcessInstalls) {
+            $processModsDir = Join-Path $processInstallInfo.InstallDir "mods"
+            $isolationArgs = @(
+                "--basedir", [string]$processInstallInfo.InstallDir,
+                "--savedir", [string]$processInstallInfo.InstallDir,
+                "--moddir", [string]$processModsDir
+            )
+        }
+        $allArgs = @("--smoke", $Test.Path) + $crashArgs + $isolationArgs + $pBootArgs
 
         Write-Info ""
         Write-Info ("  launch[{0}]: {1}" -f $pname, ($allArgs -join ' '))

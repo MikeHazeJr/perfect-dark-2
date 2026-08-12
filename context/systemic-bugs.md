@@ -6,6 +6,103 @@
 
 ---
 
+## SP-41: A derived runtime index overwrites the authoritative catalog identity
+
+**Severity**: CRITICAL - peers can agree on content yet disagree on the session key used to admit it
+
+**Pattern:** A boundary correctly resolves a public catalog ID into a legacy runtime number, then a later initialization pass reverse-resolves that number and overwrites the original ID. The reverse mapping is not bijective: maps, arenas, scenarios, aliases, and mod rows can share a runtime stage number. The replacement may look locally valid while no longer matching the manifest, session table, save record, or peer identity that authorized the transition.
+
+**2026-08-12 proof:** B-1041 began with authoritative arena `base:arena_chicago`, derived its Chicago stagenum, then `mpStartMatch` used a map-only reverse lookup and replaced it with `base:chicago`. The server session catalog contained only the original arena identity, so stage-session serialization returned zero and the remote peer correctly failed closed.
+
+**Audit:** Search assignments from numeric/runtime values back into fields named `*_id`, especially after match start, load, reset, random selection, or migration. For each, prove the original catalog row is preserved while it still resolves to the derived value. When a random/meta token genuinely changes the value, resolve through the same asset family and record the identity change explicitly.
+
+```powershell
+rg -n "IdBy|id.*stagenum|id.*runtime|strncpy\(.*_id" port/src src/game
+rg -n "PRIMARY|DERIVED|DEPRECATED" port/include src/include
+```
+
+**Rule:** Catalog IDs are authoritative identities; numeric stage, weapon, animation, sound, and scenario values are derived runtime bindings. Never reverse-map a derived value over a still-valid public ID. If a meta selection changes the runtime value, resolve the replacement within the original typed family and fail closed when it is ambiguous or absent.
+
+---
+
+## SP-40: Fixed-window cache reads past an exact public-source allocation
+
+**Severity**: CRITICAL - a valid source-backed asset can crash only when its
+last partial cache window is consumed
+
+**Pattern:** A retained ROM-era cache API accepts a logical byte count but
+fills a larger fixed block internally. A migrated public source is loaded into
+an exact heap allocation, so clamping only the caller's logical request does
+not bound the cache's physical copy. ROM address space or oversized legacy
+segments hide the over-read; an exact file, nested archive member, received
+package, or allocator guard page exposes it at end-of-file.
+
+**2026-08-12 proof:** B-1036 found that the MP3 decoder callback correctly
+reduced its final logical read, while `admaExec` ignored that length and always
+copied a 0x400-byte cache window. `mp3Dma` also issued an unconditional 0x400
+prefetch at the current offset. The exact typed-public `.pdvoice` allocation
+therefore crashed in `memcpy` when playback reached EOF. The source boundary
+now owns one checked zeroed cache window, and both logical read and prefetch
+paths stop at EOF without signed arithmetic underflow.
+
+**Audit:** For every source-backed cache/import bridge, compare the public
+buffer's allocated capacity with the deepest physical read, not only the
+caller's requested length. Search fixed block sizes, alignment-down operations,
+read-ahead, SIMD/vector loads, codec padding assumptions, and cache fills that
+ignore a length parameter. Prove overflow-safe allocation sizing and EOF tests
+at exact, partial, and already-at-end offsets.
+
+```powershell
+rg -n "memcpy|bcopy|DMA|prefetch|CACHE|ITEM_SIZE|ALIGN" src/lib port/src
+rg -n "fsFileLoad|sysMemAlloc|sysMemRealloc" src/lib port/src
+```
+
+**Rule:** Any bridge that physically reads beyond the logical request must
+either accept the authoritative source capacity and perform a bounded fill, or
+require and verify source-owned zero padding large enough for its maximum read.
+Logical clamping alone is not memory safety.
+
+---
+
+## SP-39: Optional metadata parser overwrites a caller-owned default on failure
+
+**Severity**: CRITICAL — an absent optional field can silently become a valid
+zero identity and hijack an unrelated runtime slot
+
+**Pattern:** A parser accepts an output pointer, initializes it before proving
+the requested field exists and is valid, then returns failure. Callers that
+seed a semantic sentinel such as `-1`, a nonzero default range, or a prior
+value correctly ignore the false return for optional metadata, but the helper
+has already destroyed that state. Zero is often a valid runtime index, enum,
+volume, key range, or identity, so the failure becomes plausible production
+data rather than a loud rejection.
+
+**2026-08-11 proof:** B-1035 found `loaderWalkerEnvelopeInt` unconditionally
+writing zero before searching for the requested key. Weapon-animation
+manifests intentionally omit character `source_index`; all such command graphs
+therefore published `source_animnum=0`, and the last row hijacked character
+animation zero. The same helper also erased intended audio defaults such as
+key maximum, key base, pan, and volume when optional envelope fields were
+absent.
+
+**Audit:** Search helpers that both return success/failure and accept an output
+pointer. On every failure branch, prove the destination is unchanged unless
+the API explicitly documents a reset contract. Then audit callers for sentinel
+and nonzero defaults and distinguish sibling schemas before publishing shared
+runtime indices.
+
+```powershell
+rg -n "return 0|out_|\*out" port/src/*parser* port/src/*walker* port/src/*source*
+rg -n "= -1|= 127|= 64|EnvelopeInt" port/src/loader_walker_*.c
+```
+
+**Rule:** A fallible parse helper either succeeds and commits the complete
+value, or fails without mutating caller-owned output. Schema variants that
+produce different runtime products must not share an index merely because
+they share one catalog family enum.
+
+---
+
 ## SP-32: Archive-qualified source paths silently truncate across catalog boundaries
 
 **Severity**: CRITICAL — valid public `.pdxxx` sources can be registered under

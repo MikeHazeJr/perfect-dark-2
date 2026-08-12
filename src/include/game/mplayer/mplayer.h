@@ -6,6 +6,7 @@
 
 f32 mpHandicapToDamageScale(u8 value);
 void func0f187838(struct mpchrconfig *mpchr);
+s32 mpResolveMatchStage(void);
 void mpStartMatch(void);
 void mpReset(void);
 void mpClearRuntimeChrState(void);

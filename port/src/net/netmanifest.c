@@ -35,6 +35,7 @@
 #include "net/net.h"
 #include "net/netmsg.h"
 #include "net/netlobby.h"
+#include "net/netdistrib.h"
 #include "assetcatalog.h"
 #include "assetcatalog_load.h"
 #include "assetcatalog_deps.h"
@@ -357,6 +358,64 @@ void manifestAddEntry(match_manifest_t *m, const char *id,
     } else {
         e->id[0] = '\0';
     }
+}
+
+s32 manifestSetStageEntry(match_manifest_t *m, const char *id)
+{
+    const asset_entry_t *stage;
+    s32 first = -1;
+    s32 i;
+
+    if (!m || !id || !id[0]) {
+        return 0;
+    }
+
+    stage = assetCatalogResolve(id);
+    if (!stage || (stage->type != ASSET_ARENA && stage->type != ASSET_MAP)) {
+        sysLogPrintf(LOG_ERROR,
+                     "MANIFEST: authoritative stage '%s' is not a catalog arena/map",
+                     id);
+        return 0;
+    }
+
+    /* Keep one stage slot and remove any additional host-authored stage token.
+     * A received host manifest is advisory; the server's one-time random/meta
+     * resolution is the authoritative match identity. */
+    for (i = 0; i < (s32)m->num_entries; ) {
+        if (m->entries[i].type != MANIFEST_TYPE_STAGE) {
+            i++;
+            continue;
+        }
+        if (first < 0) {
+            first = i++;
+            continue;
+        }
+        if (i + 1 < (s32)m->num_entries) {
+            memmove(&m->entries[i], &m->entries[i + 1],
+                    ((size_t)m->num_entries - (size_t)i - 1u)
+                    * sizeof(m->entries[0]));
+        }
+        m->num_entries--;
+    }
+
+    if (first < 0) {
+        manifestAddEntry(m, id, MANIFEST_TYPE_STAGE, MANIFEST_SLOT_MATCH);
+        for (i = 0; i < (s32)m->num_entries; i++) {
+            if (m->entries[i].type == MANIFEST_TYPE_STAGE
+                    && strcmp(m->entries[i].id, id) == 0) {
+                return 1;
+            }
+        }
+        return 0;
+    }
+
+    m->entries[first].net_hash = stage->net_hash;
+    m->entries[first].type = MANIFEST_TYPE_STAGE;
+    m->entries[first].slot_index = MANIFEST_SLOT_MATCH;
+    memset(m->entries[first].sha256, 0, sizeof(m->entries[first].sha256));
+    strncpy(m->entries[first].id, id, sizeof(m->entries[first].id) - 1);
+    m->entries[first].id[sizeof(m->entries[first].id) - 1] = '\0';
+    return 1;
 }
 
 void manifestAddModEntry(match_manifest_t *m, const char *id,
@@ -2011,8 +2070,10 @@ void manifestMenuTransition(void)
 /**
  * manifestMPTransition -- apply a diff-based transition for an MP match.
  *
- * Uses g_ClientManifest (populated when SVC_MATCH_MANIFEST was received) as
- * the "needed" manifest and diffs it against g_CurrentLoadedManifest.
+ * Uses the server-built manifest on an authoritative server and the received
+ * manifest on a client. A listen host never receives its own
+ * SVC_MATCH_MANIFEST, so consulting only g_ClientManifest would silently skip
+ * the selected typed-asset lifecycle before gameplay.
  *
  * For each diff entry:
  *   to_load   -- typed catalog load (no-op for bundled; activates provider-backed payload/metadata)
@@ -2022,25 +2083,50 @@ void manifestMenuTransition(void)
  * After applying, g_CurrentLoadedManifest becomes the MP manifest, which
  * serves as the baseline for the next transition (e.g., match → SP mission).
  *
- * Call from mainChangeToStage() when g_ClientManifest is populated (MP mode).
+ * Call from mainChangeToStage() when manifestMPTransitionEntryCount() is
+ * non-zero (MP mode).
  * manifestClear(&g_ClientManifest) should be called on returning to lobby so
  * that subsequent SP missions take the SP path, not a stale MP manifest.
  */
+static const match_manifest_t *s_manifestMPTransitionNeeded(const char **source_name)
+{
+    if (g_NetMode == NETMODE_SERVER) {
+        if (source_name) {
+            *source_name = "server";
+        }
+        return &g_ServerManifest;
+    }
+
+    if (source_name) {
+        *source_name = "client";
+    }
+    return &g_ClientManifest;
+}
+
+s32 manifestMPTransitionEntryCount(void)
+{
+    return (s32)s_manifestMPTransitionNeeded(NULL)->num_entries;
+}
+
 void manifestMPTransition(void)
 {
-    if (g_ClientManifest.num_entries == 0) {
+    const char *source_name = NULL;
+    const match_manifest_t *needed = s_manifestMPTransitionNeeded(&source_name);
+
+    if (needed->num_entries == 0) {
         sysLogPrintf(LOG_WARNING,
-                     "MANIFEST-MP: no client manifest available, skipping transition");
+                     "MANIFEST-MP: no %s manifest available, skipping transition",
+                     source_name);
         return;
     }
 
     sysLogPrintf(LOG_NOTE,
-                 "MANIFEST-MP: transition — %d entries in client manifest",
-                 (int)g_ClientManifest.num_entries);
+                 "MANIFEST-MP: transition — %d entries in authoritative %s manifest",
+                 (int)needed->num_entries, source_name);
 
-    manifestDiff(&g_CurrentLoadedManifest, &g_ClientManifest, &s_SpLastDiff);
+    manifestDiff(&g_CurrentLoadedManifest, needed, &s_SpLastDiff);
     manifestValidate(&s_SpLastDiff);
-    manifestApplyDiff(&g_ClientManifest, &s_SpLastDiff);
+    manifestApplyDiff(needed, &s_SpLastDiff);
     manifestDiffFree(&s_SpLastDiff);
 }
 
@@ -2309,6 +2395,7 @@ void manifestCheck(const match_manifest_t *manifest)
         sysLogPrintf(LOG_NOTE,
                      "MANIFEST: check found %d missing component(s) of %d entries, sending NEED_ASSETS",
                      num_missing, (int)manifest->num_entries);
+		netDistribClientBeginManifestTransferSet((u16)num_missing);
     }
 
     netbufStartWrite(&g_NetMsgRel);

@@ -580,13 +580,14 @@ void lvReset(s32 stagenum)
 		s32 i;
 		s32 j;
 
-		if (g_NetMode == NETMODE_SERVER) {
-			// if we're a server, signal to clients that the level is changing
-			netServerStageStart();
-		} else if (g_NetMode == NETMODE_CLIENT) {
+		if (g_NetMode == NETMODE_CLIENT) {
 			// if we're a client, now is the time to apply the server's RNG seeds
 			netClientSyncRng();
 		}
+		/* B-1039: server stage start is emitted by the authoritative lobby/ready
+		 * transition before this deferred load begins.  Re-emitting it here made
+		 * every peer run mpStartMatch/mainChangeToStage twice and reset its freshly
+		 * loaded stage.  Co-op/anti likewise broadcast in netServerCoopStageStart. */
 		sysLogPrintf(LOG_NOTE, "LOAD: lv.c entering stage load sequence for stagenum=0x%02x", g_Vars.stagenum);
 
 		/* Gate 5 (c3844): consume any catalog miss accumulated during the prior

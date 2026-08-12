@@ -1,0 +1,210 @@
+{
+  "scenario_name": "needler_effect_real_peer_distribution_smoke",
+  "description": "V-009 real-peer proof: start a listen host whose isolated working install contains the enabled editable Needler pdmod and a client whose isolated install contains no Needler files, distribute the required public component over ENet during the manifest ready gate, hot-register the received typed weapon/effect/SFX closure, start the match, and execute the distributed effect through ordinary gameplay/render consumers.",
+  "tags": ["modding", "pdmod", "pdxxx", "weapon", "effect", "network", "manifest", "distribution", "real-peer", "listen-host", "v009", "b1031", "b1034", "b1040", "b1041", "b1042", "smoke"],
+  "paths_of_interest": [
+    "dev-mods/needler",
+    "port/src/net/netmanifest.c",
+    "port/src/net/netdistrib.c",
+    "port/src/net/netmsg.c",
+    "port/src/assetcatalog_scanner.c",
+    "port/src/assetcatalog_load.c",
+    "port/src/effect_instance_runtime.c",
+    "port/src/effect_gameplay_runtime.c",
+    "port/src/effect_presentation_runtime.c",
+    "tools/smoke-verify/run.ps1"
+  ],
+  "log_channel_mask": "game,catalog,distrib,render,match,combat,mods,system,network",
+  "verbose": 0,
+  "timeout_seconds": 240,
+  "install_state": "clean",
+  "separate_process_installs": true,
+  "remove_paths": [
+    "mods/needler.pdmod",
+    "mods/needler",
+    "mods/installed/needler.pdmod",
+    "mods/installed/needler",
+    "mods/weapons/mod_needler:needler",
+    "mods/.temp/received/needler",
+    "mods/.temp/pdmod/needler"
+  ],
+  "fixtures": [
+    { "src": "tools/smoke-verify/fixtures/needler_source_pd.ini", "dst": "pd.ini" }
+  ],
+  "processes": [
+    {
+      "name": "host",
+      "log_file": "pd-host.log",
+      "fixtures": [
+        { "src": "tools/smoke-verify/fixtures/needler_enabled.json", "dst": "mods-enabled.json" }
+      ],
+      "packed_fixtures": [
+        { "src": "dev-mods/needler", "dst": "mods/installed/needler.pdmod" }
+      ],
+      "boot_args": [
+        "--no-update-check",
+        "--portable",
+        "--debug-generated-mesh-render-audit",
+        "--debug-effect-runtime-audit",
+        "--debug-force-first-person",
+        "--host",
+        "--listen-bind",
+        "27201",
+        "--launch-mp-room",
+        "base:arena_chicago",
+        "base:combat",
+        "0",
+        "--debug-spawn-weapon",
+        "mod_needler:needler",
+        "--host-autostart",
+        "--match-timelimit-sec",
+        "180"
+      ],
+      "wait_for": "NET: created server on port 27201",
+      "wait_timeout_seconds": 140,
+      "assertions": {
+        "required_lines": [
+          "modmgr: loaded mods-enabled\\.json",
+          "modmgr: parsed mod\\.json for 'needler'.*archive=yes",
+          "modmgr: loading mod 'needler' from archive",
+          "MANIFEST-HOST: built [1-9]\\d* entries",
+          "NET: ready gate: client \\d+ NEED_ASSETS \\(\\d+ missing\\), queuing transfer",
+          "DISTRIB: sending 'mod_needler:needler' to",
+          "DISTRIB: sending package 'needler' to",
+          "NET: ready gate: client \\d+ READY",
+          "GAMELOOP\\.MANIFEST: MP transition to 0x1d \\(manifest=\\d+ netmode=1",
+          "MANIFEST-MP: transition .* entries in authoritative server manifest",
+          "LOADER\\.POOL\\.WEAPON\\.PUBLIC_ADAPTER: installed id=mod_needler:needler runtime=86",
+          "MATCH: server stage start",
+          "MATCH-START: writing SVC_STAGE_START, stage_session=[1-9]\\d*, stage_id='base:arena_chicago'",
+          "NET: mpStartMatch server activeMask=0x[0-9a-f]+ players=2 \\(dedicated=0\\)",
+          "SPAWN: summary stage=0x1d npts=1 mplay=1 normmplay=1 netmode=1",
+          "SPAWN: player 0 spawned with weapon \\d+ .*auto-equipped to right hand",
+          "EFFECT\\.GAMEPLAY\\.AUDIT: committed asset=mod_needler:pink_burst_effect",
+          "EFFECT\\.PRESENTATION\\.RENDER\\.AUDIT: instance=\\d+ snapshots=[1-9]\\d* channel=2 shader=needler_pink_burst"
+        ],
+        "forbidden_patterns": [
+          "DISTRIB: unknown catalog_id 'needler' requested",
+          "DISTRIB: transfer set failed",
+          "NET: ready gate: client \\d+ DECLINED"
+        ]
+      }
+    },
+    {
+      "name": "client",
+      "log_file": "pd-client.log",
+      "fixtures": [
+        { "src": "tools/smoke-verify/fixtures/no_mods_enabled.json", "dst": "mods-enabled.json" }
+      ],
+      "boot_args": [
+        "--no-update-check",
+        "--portable",
+        "--debug-generated-mesh-render-audit",
+        "--debug-effect-runtime-audit",
+        "--debug-force-first-person",
+        "--connect-host",
+        "127.0.0.1:27201"
+      ],
+      "assertions": {
+        "required_lines": [
+          "modmgr: loaded mods-enabled\\.json",
+          "MANIFEST: \\[\\s*\\d+\\] COMPONENT id='needler'.*MISSING",
+          "DISTRIB: missing component 'mod_needler:needler'",
+          "MANIFEST: \\[\\s*\\d+\\] WEAPON.*id='mod_needler:needler'.*OK",
+          "MANIFEST: check found 1 missing component\\(s\\).*sending NEED_ASSETS",
+          "DISTRIB: recv begin 'mod_needler:needler'",
+          "DISTRIB: SHA-256 verified for 'mod_needler:needler'",
+          "DISTRIB: transactionally staged received archive at .* pending catalog admission",
+          "DISTRIB\\.CATALOG\\.ADMISSION: id=mod_needler:needler scanner_result=[1-9]\\d*",
+          "DISTRIB: all transfers complete \\(1 received\\)",
+          "DISTRIB: recv begin 'needler' category=pdmod",
+          "DISTRIB: SHA-256 verified for 'needler'",
+          "modmgr: admitted session-only package 'needler'",
+          "DISTRIB: all transfers complete \\(1 received\\)",
+          "MANIFEST: check passed .* sending READY",
+          "MATCH: client stage start received",
+          "MATCH-START: client received SVC_STAGE_START, stage_session=[1-9]\\d*",
+          "MATCH-START: stage_session=[1-9]\\d* resolved to stagenum=0x1d",
+          "CATALOG\\.LIFECYCLE\\.ACTIVATE: activated weapon metadata payload 'mod_needler:needler'",
+          "WEAPONGRAPH\\.EFFECT\\.INGEST: id=mod_needler:pink_burst_effect",
+          "EFFECT\\.GAMEPLAY\\.AUDIT: committed asset=mod_needler:pink_burst_effect instance=\\d+ explosion=1 spark=1 smoke=0 particle=0 audio=1 audio_id=mod_needler:pink_burst_sfx",
+          "EFFECT\\.PRESENTATION\\.AUDIT: committed asset=mod_needler:pink_burst_effect instance=\\d+ snapshots=2",
+          "EFFECT\\.PRESENTATION\\.RENDER\\.AUDIT: instance=\\d+ snapshots=[1-9]\\d* channel=2 shader=needler_pink_burst"
+        ],
+        "forbidden_patterns": [
+          "DISTRIB: transfer set failed",
+          "MANIFEST: check found [1-9]\\d* missing component\\(s\\).*sending NEED_ASSETS.*sending NEED_ASSETS",
+          "weapon_graph_runtime: held IR unavailable for mod_needler:needler"
+        ]
+      }
+    }
+  ],
+  "input_sequence": [
+    { "at_ms": 0, "type": "wait", "comment": "Each process boots from a distinct clean working install. Only the host receives the packed Needler fixture; the client must request and admit it over ENet before the ready gate can start the match." },
+    { "at_ms": 65000, "type": "action", "name": "ACTION_AIM_DOWN", "action": "press", "comment": "The client starts later but reaches gameplay earlier than the host; give it a held-input window inside its real match." },
+    { "at_ms": 68000, "type": "action", "name": "ACTION_FIRE_PRIMARY", "action": "press" },
+    { "at_ms": 69000, "type": "action", "name": "ACTION_FIRE_PRIMARY", "action": "release" },
+    { "at_ms": 72000, "type": "action", "name": "ACTION_FIRE_MODE", "action": "press" },
+    { "at_ms": 73000, "type": "action", "name": "ACTION_FIRE_MODE", "action": "release" },
+    { "at_ms": 74000, "type": "action", "name": "ACTION_FIRE_PRIMARY", "action": "press", "comment": "Execute the received public burst effect/audio/presentation graph on the client." },
+    { "at_ms": 75000, "type": "action", "name": "ACTION_FIRE_PRIMARY", "action": "release" },
+    { "at_ms": 78000, "type": "action", "name": "ACTION_AIM_DOWN", "action": "release" },
+    { "at_ms": 120000, "type": "action", "name": "ACTION_AIM_DOWN", "action": "press", "comment": "The host's clean extraction makes its gameplay transition later; exercise it in a second held-input window." },
+    { "at_ms": 124000, "type": "action", "name": "ACTION_FIRE_PRIMARY", "action": "press" },
+    { "at_ms": 125000, "type": "action", "name": "ACTION_FIRE_PRIMARY", "action": "release" },
+    { "at_ms": 128000, "type": "action", "name": "ACTION_FIRE_MODE", "action": "press" },
+    { "at_ms": 129000, "type": "action", "name": "ACTION_FIRE_MODE", "action": "release" },
+    { "at_ms": 130000, "type": "action", "name": "ACTION_FIRE_PRIMARY", "action": "press", "comment": "Execute the host's authoritative public burst effect/audio/presentation graph." },
+    { "at_ms": 131000, "type": "action", "name": "ACTION_FIRE_PRIMARY", "action": "release" },
+    { "at_ms": 134000, "type": "action", "name": "ACTION_AIM_DOWN", "action": "release" },
+    { "at_ms": 175000, "type": "exit", "comment": "Leave enough post-fire time to prove both peers remain healthy after transfer, admission, gameplay dispatch, audio, and rendering." }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=needler_effect_real_peer_distribution_smoke",
+      "BOOT: --listen-bind armed: port=27201",
+      "BOOT: --connect-host armed: addr='127.0.0.1:27201'",
+      "NET: created server on port 27201",
+      "NET: connecting to 127\\.0\\.0\\.1:27201",
+      "NET: incoming connection",
+      "NET: connected to server, sending CLC_AUTH",
+      "BOOT: --host-autostart firing",
+      "NET: ready gate: client \\d+ NEED_ASSETS",
+      "DISTRIB: recv begin 'mod_needler:needler'",
+      "DISTRIB: all transfers complete",
+      "NET: ready gate: client \\d+ READY",
+      "MATCH: server stage start",
+      "MATCH: client stage start received",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "LOUDFAIL\\.ASSETCHAIN",
+      "LOUDFAIL\\.FALLBACK",
+      "ASSET\\.FALLBACK",
+      "RomProvider:filenum",
+      "DISTRIB: unknown catalog_id",
+      "DISTRIB: server signalled failure",
+      "DISTRIB: transfer set failed",
+      "DISTRIB: catalog rejected",
+      "DISTRIB\\.CATALOG\\.ROLLBACK",
+      "NET: ready gate: client \\d+ DECLINED",
+      "result=FAIL",
+      "result=MISSING",
+      "CATEGORY_MISMATCH"
+    ],
+    "required_counts": [
+      { "pattern": "SMOKE: scenario=needler_effect_real_peer_distribution_smoke", "min": 2, "max": 2 },
+      { "pattern": "SMOKE: result=scripted_exit", "min": 2, "max": 2 },
+      { "pattern": "DISTRIB: all transfers complete \\(1 received\\)", "min": 2, "max": 2 },
+      { "pattern": "MATCH: client stage start received", "min": 1, "max": 1 },
+      { "pattern": "MATCH: server stage start", "min": 1, "max": 1 },
+      { "pattern": "MATCH: player spawned slot=\\d+", "min": 2 },
+      { "pattern": "EFFECT\\.GAMEPLAY\\.AUDIT: committed asset=mod_needler:pink_burst_effect", "min": 2 },
+      { "pattern": "EFFECT\\.PRESENTATION\\.RENDER\\.AUDIT: .*shader=needler_pink_burst", "min": 2 }
+    ]
+  }
+}

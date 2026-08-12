@@ -1,0 +1,114 @@
+{
+  "scenario_name": "random_meta_real_peer_stage_smoke",
+  "description": "B-1041 real-peer proof that the listen server resolves a random arena token once before manifest/session publication and both peers load the same concrete stage through a nonzero session handle.",
+  "tags": ["network", "manifest", "session-catalog", "random-arena", "real-peer", "listen-host", "b1041", "smoke"],
+  "paths_of_interest": [
+    "src/game/mplayer/mplayer.c",
+    "port/src/net/netmanifest.c",
+    "port/src/net/netmsg.c"
+  ],
+  "log_channel_mask": "game,catalog,match,system,network",
+  "verbose": 0,
+  "timeout_seconds": 180,
+  "install_state": "clean",
+  "separate_process_installs": true,
+  "fixtures": [
+    { "src": "tools/smoke-verify/fixtures/needler_source_pd.ini", "dst": "pd.ini" }
+  ],
+  "processes": [
+    {
+      "name": "host",
+      "log_file": "pd-host.log",
+      "fixtures": [
+        { "src": "tools/smoke-verify/fixtures/no_mods_enabled.json", "dst": "mods-enabled.json" }
+      ],
+      "boot_args": [
+        "--no-update-check",
+        "--portable",
+        "--host",
+        "--listen-bind",
+        "27202",
+        "--launch-mp-room",
+        "base:arena_mp_random_multi",
+        "base:combat",
+        "0",
+        "--host-autostart",
+        "--match-timelimit-sec",
+        "120"
+      ],
+      "wait_for": "NET: created server on port 27202",
+      "wait_timeout_seconds": 140,
+      "assertions": {
+        "required_lines": [
+          "MPLAYER: resolved random/meta stage to id='base:[^']+' stagenum=0x[0-9a-f]+",
+          "MANIFEST:.*STAGE.*id='base:[^']+'",
+          "MATCH-START: writing SVC_STAGE_START, stage_session=[1-9]\\d*, stage_id='base:[^']+'",
+          "MATCH: server stage start arena='base:[^']+'",
+          "NET: mpStartMatch server activeMask=0x[0-9a-f]+ players=2 \\(dedicated=0\\)"
+        ],
+        "forbidden_patterns": [
+          "stage_session=0",
+          "authoritative stage mismatch",
+          "failed to resolve authoritative match stage",
+          "failed to publish authoritative stage"
+        ]
+      }
+    },
+    {
+      "name": "client",
+      "log_file": "pd-client.log",
+      "fixtures": [
+        { "src": "tools/smoke-verify/fixtures/no_mods_enabled.json", "dst": "mods-enabled.json" }
+      ],
+      "boot_args": [
+        "--no-update-check",
+        "--portable",
+        "--connect-host",
+        "127.0.0.1:27202"
+      ],
+      "assertions": {
+        "required_lines": [
+          "MATCH-START: client received SVC_STAGE_START, stage_session=[1-9]\\d*",
+          "MATCH-START: stage_session=[1-9]\\d* resolved to stagenum=0x[0-9a-f]+",
+          "MATCH: client stage start received"
+        ],
+        "forbidden_patterns": [
+          "stage_session=0",
+          "malformed stage start",
+          "DECLINED"
+        ]
+      }
+    }
+  ],
+  "input_sequence": [
+    { "at_ms": 0, "type": "wait", "comment": "The server must resolve the random token before it publishes the manifest and session catalog." },
+    { "at_ms": 125000, "type": "exit", "comment": "Exit after both peers have loaded the resolved concrete stage." }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=random_meta_real_peer_stage_smoke",
+      "NET: created server on port 27202",
+      "NET: connecting to 127\\.0\\.0\\.1:27202",
+      "NET: ready gate: client \\d+ READY",
+      "MATCH: server stage start",
+      "MATCH: client stage start received",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "LOUDFAIL\\.ASSETCHAIN",
+      "LOUDFAIL\\.FALLBACK",
+      "result=FAIL",
+      "result=MISSING"
+    ],
+    "required_counts": [
+      { "pattern": "SMOKE: scenario=random_meta_real_peer_stage_smoke", "min": 2, "max": 2 },
+      { "pattern": "SMOKE: result=scripted_exit", "min": 2, "max": 2 },
+      { "pattern": "MATCH: client stage start received", "min": 1, "max": 1 },
+      { "pattern": "MATCH: server stage start", "min": 1, "max": 1 }
+    ]
+  }
+}

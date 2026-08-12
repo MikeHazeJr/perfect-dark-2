@@ -112,10 +112,40 @@ TEST_CASE("multi-process smoke isolates process installs and assertions",
     requireContains(runner, "Initialize-MultiProcessSmokeInstall -Definition $def");
     requireContains(runner, "Initialize-MultiProcessSmokeInstall -Definition $plan.Definition");
     requireContains(runner, "$psi.FileName         = $exe");
+    requireContains(runner, "\"--basedir\", [string]$processInstallInfo.InstallDir");
+    requireContains(runner, "\"--savedir\", [string]$processInstallInfo.InstallDir");
+    requireContains(runner, "\"--moddir\", [string]$processModsDir");
+    requireContains(runner, "$allArgs = @(\"--smoke\", $Test.Path) + $crashArgs + $isolationArgs + $pBootArgs");
     requireContains(runner, "$psi.WorkingDirectory = $processInstallInfo.InstallDir");
     requireContains(runner, "Invoke-SmokeAssertions -LogPath $entry.LogPath");
     requireContains(runner, "retained process install for debugging");
     requireContains(runner, "cleaned process install:");
+
+    const std::string modmgr = readTextFile("port/src/modmgr.c");
+    requireContains(modmgr, "const char *explicitModsDir = fsGetModDir();");
+    requireContains(modmgr, "if (explicitModsDir && explicitModsDir[0]) {");
+    requireContains(modmgr, "candidateBufs[1][0] = '\\0';");
+    requireContains(modmgr, "modmgr: could not open explicit mod directory");
+}
+
+TEST_CASE("Needler real peer smoke starts client without the host fixture",
+    "[smoke][network][manifest][distribution][v009][b1031][static]")
+{
+    const std::string scenario = readTextFile(
+        "tools/smoke-verify/tests/needler_effect_real_peer_distribution_smoke.json");
+
+    requireContains(scenario, "\"separate_process_installs\": true");
+    requireContains(scenario, "\"name\": \"host\"");
+    requireContains(scenario, "\"name\": \"client\"");
+    requireContains(scenario, "needler_enabled.json");
+    requireContains(scenario, "no_mods_enabled.json");
+    requireContains(scenario, "mods/installed/needler.pdmod");
+    requireContains(scenario, "NET: ready gate: client \\\\d+ NEED_ASSETS");
+    requireContains(scenario, "DISTRIB: recv begin 'mod_needler:needler'");
+    requireContains(scenario, "DISTRIB\\\\.CATALOG\\\\.ADMISSION: id=mod_needler:needler");
+    requireContains(scenario, "MATCH: client stage start received");
+    requireContains(scenario, "EFFECT\\\\.GAMEPLAY\\\\.AUDIT: committed asset=mod_needler:pink_burst_effect");
+    requireContains(scenario, "EFFECT\\\\.PRESENTATION\\\\.RENDER\\\\.AUDIT:");
 }
 
 TEST_CASE("smoke can prove overlapping weapon owners through production lifecycle",

@@ -4125,7 +4125,16 @@ u8 *bgunGetGunMem(void)
 u32 bgunCalculateGunMemCapacity(void)
 {
 	if (PLAYERCOUNT() == 1) {
-		return g_BgunGunMemBaseSizeDefault + stageGetCurrent()->extragunmem;
+		struct stagetableentry *stage = stageGetCurrent();
+
+		/* B-1032: title/boot/credits are system stages and intentionally have
+		 * no stage-table row. ImGui character preview can acquire INVMENU gun
+		 * memory while a network room is rendered on STAGE_TITLE, so capacity
+		 * calculation must use the safe base allocation when no gameplay stage
+		 * owns an extragunmem adjustment. */
+		if (stage) {
+			return g_BgunGunMemBaseSizeDefault + stage->extragunmem;
+		}
 	}
 
 	return g_BgunGunMemBaseSizeDefault;

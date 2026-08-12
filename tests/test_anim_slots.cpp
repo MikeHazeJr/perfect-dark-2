@@ -69,3 +69,15 @@ TEST_CASE("anim slots: range anchors (base adjacency + override-index ceiling)",
 	/* LOAD_MAX_ANIMS bounds the animnum override reverse index. */
 	REQUIRE(ANIM_CUSTOM_END_SLOT <= 2048);
 }
+
+TEST_CASE("weapon command graphs never consume character animation slots",
+          "[catalog][anim][slots][b1035]") {
+	REQUIRE_FALSE(assetCatalogAnimationCategoryUsesCharacterClip(
+		"weapon_animation"));
+	REQUIRE(assetCatalogAnimationCategoryUsesCharacterClip(
+		"character_animation"));
+	/* Preserve legacy custom character archives that predate the category
+	 * discriminator. Command archives always carry weapon_animation. */
+	REQUIRE(assetCatalogAnimationCategoryUsesCharacterClip(""));
+	REQUIRE(assetCatalogAnimationCategoryUsesCharacterClip(nullptr));
+}

@@ -51,6 +51,8 @@ static s32 s_register(const char *manifest, size_t manifest_len,
     char source_path[FS_MAXPATH + 1] = {0};
     loaderWalkerEnvelopeStrCopy(manifest, manifest_len, "category",
                                  category, sizeof(category));
+    s32 uses_character_clip =
+        assetCatalogAnimationCategoryUsesCharacterClip(category);
     loaderWalkerEnvelopeStrCopy(manifest, manifest_len, "target_body",
                                  target_body, sizeof(target_body));
     if (!loaderWalkerEnvelopePathCopy(manifest, manifest_len, "animation",
@@ -92,7 +94,14 @@ static s32 s_register(const char *manifest, size_t manifest_len,
     e = assetCatalogGetMutable(id);
     if (e) {
         loaderWalkerMarkBaseArchiveEntry(e);
-        if (source_index >= 0) {
+        if (!uses_character_clip) {
+            /* A weapon_animation source is a loader-pool command graph. Its
+             * source_index, when present in the editable descriptor, indexes
+             * the authored command table and is not a character animnum. */
+            e->ext.anim.anim_id = -1;
+            e->source_animnum = -1;
+            e->runtime_index = -1;
+        } else if (source_index >= 0) {
             e->ext.anim.anim_id = (s32)source_index;
             e->source_animnum = (s32)source_index;
             e->runtime_index = (s32)source_index;

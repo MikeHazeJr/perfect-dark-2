@@ -729,18 +729,15 @@ u32 netmsgClcAuthRead(struct netbuf *src, struct netclient *srccl)
 			netServerKick(srccl, DISCONNECT_FILES);
 			return src->error;
 		}
-
-		if (modDir && modDir[0] == '\0') {
-			modDir = NULL;
-		}
-
-		const char *myModDir = fsGetModDir();
-		if ((!myModDir != !modDir) || (myModDir && modDir && strcasecmp(modDir, myModDir) != 0)) {
-			sysLogPrintf(LOG_WARNING, "NET: CLC_AUTH: client %u has the wrong mod, disconnecting", srccl->id);
-			netServerKick(srccl, DISCONNECT_FILES);
-			return src->error;
-		}
 	}
+
+	/* B-1033: this legacy wire field is a client-local installation hint, not
+	 * portable content identity.  Two peers may hold identical content under
+	 * different absolute paths, and a clean peer may intentionally start with
+	 * no package so the manifest/READY protocol can distribute it.  Preserve
+	 * the field for wire compatibility, but leave content agreement to the
+	 * authoritative match manifest and ready gate below the auth handshake. */
+	(void)modDir;
 
 	// zero-init client settings as a baseline (remote will send CLC_SETTINGS after CLC_AUTH)
 	if (g_NetLocalClient) {
@@ -5194,7 +5191,8 @@ void readyGateTickCountdown(void)
 		    s_ReadyGate.game_mode == NETGAMEMODE_ANTI) {
 			netServerCoopStageStart(s_ReadyGate.stagenum, s_ReadyGate.difficulty);
 		} else {
-			mainChangeToStage(s_ReadyGate.stagenum);
+			/* B-1039: netServerStageStart owns the one authoritative
+			 * mpStartMatch/mainChangeToStage transaction for a listen host. */
 			netServerStageStart();
 		}
 	} else {
@@ -5760,6 +5758,17 @@ u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl)
 		             (unsigned long long)mpParticipantsEncodeActiveMask(),
 		             pnum, clampedSims, simType);
 
+		/* B-1041: Random/meta selection must become concrete before the server
+		 * freezes and broadcasts the manifest/session catalog. netServerStageStart
+		 * calls mpStartMatch only after the ready gate, which is too late for asset
+		 * identity publication. The resolver is idempotent, so the later call does
+		 * not roll a second stage. */
+		if (!mpResolveMatchStage()) {
+			sysLogPrintf(LOG_ERROR,
+			             "NET: failed to resolve authoritative match stage before manifest publication");
+			return 1;
+		}
+
 		/* Phase D.3: receive host-built manifest from CLC_LOBBY_START payload,
 		 * then supplement with other connected players' body/head (which the
 		 * server knows from their CLC_SETTINGS but the host does not).
@@ -5805,27 +5814,39 @@ u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl)
 					}
 					supp_slot++;
 				}
-				/* D.5: extract stage catalog ID from manifest STAGE entry and
-				 * confirm it matches the stagenum resolved from the arena hash.
-				 * Log a warning on mismatch so misconfigurations are detectable. */
-				for (s32 mi = 0; mi < (s32)g_ServerManifest.num_entries; mi++) {
-					const match_manifest_entry_t *me = &g_ServerManifest.entries[mi];
-					if (me->type == MANIFEST_TYPE_STAGE) {
-						const asset_entry_t *se = assetCatalogResolve(me->id);
-						if (se) {
-							const u8 manifest_stagenum = (u8)se->ext.map.stagenum;
-							if (manifest_stagenum != g_MpSetup.stagenum) {
-								sysLogPrintf(LOG_WARNING,
-								             "NET: D.5 stage mismatch: arena ID→0x%02x, manifest→0x%02x ('%s') — using arena ID",
-								             (unsigned)g_MpSetup.stagenum, (unsigned)manifest_stagenum, me->id);
-							}
-						}
-						break;
-					}
-				}
-				manifestComputeHash(&g_ServerManifest);
 			}
 		}
+
+		/* The host payload may still contain its selected random/meta token.
+		 * Replace it with the server's concrete one-time resolution before the
+		 * manifest hash and session mapping become externally visible. */
+		if (!manifestSetStageEntry(&g_ServerManifest, g_MpSetup.stage_id)) {
+			sysLogPrintf(LOG_ERROR,
+			             "NET: failed to publish authoritative stage '%s' in manifest",
+			             g_MpSetup.stage_id);
+			return 1;
+		}
+		for (s32 mi = 0; mi < (s32)g_ServerManifest.num_entries; mi++) {
+			const match_manifest_entry_t *me = &g_ServerManifest.entries[mi];
+			if (me->type == MANIFEST_TYPE_STAGE) {
+				const asset_entry_t *se = assetCatalogResolve(me->id);
+				s32 manifest_stagenum = -1;
+				if (se && se->type == ASSET_ARENA) {
+					manifest_stagenum = se->ext.arena.stagenum;
+				} else if (se && se->type == ASSET_MAP) {
+					manifest_stagenum = se->ext.map.stagenum;
+				}
+				if (manifest_stagenum != (s32)g_MpSetup.stagenum) {
+					sysLogPrintf(LOG_ERROR,
+					             "NET: authoritative stage mismatch: setup=0x%02x manifest=0x%02x ('%s')",
+					             (unsigned)g_MpSetup.stagenum,
+					             (unsigned)manifest_stagenum, me->id);
+					return 1;
+				}
+				break;
+			}
+		}
+		manifestComputeHash(&g_ServerManifest);
 		manifestLog(&g_ServerManifest);
 
 		/* SA-1: build session catalog from manifest entries. */
@@ -6376,7 +6397,8 @@ u32 netmsgSvcDistribBeginRead(struct netbuf *src, struct netclient *srccl)
 	netDistribClientHandleBegin(catalog_id,
 	                             category ? category : "",
 	                             total_chunks, archive_bytes,
-	                             expected_sha256, 0);
+	                             expected_sha256,
+	                             netDistribClientGetTransferTemporary());
 	return src->error;
 }
 
@@ -6672,7 +6694,7 @@ u32 netmsgClcManifestStatusRead(struct netbuf *src, struct netclient *srccl)
 					sysLogPrintf(LOG_NOTE,
 					             "NET: ready gate: client %d NEED_ASSETS (%u missing), queuing transfer",
 					             ci, (unsigned)missing_count);
-					netDistribServerHandleDiff(srccl,
+					netDistribServerHandleManifestDiff(srccl,
 					                           (const char (*)[CATALOG_ID_LEN])missing_ids,
 					                           (u16)missing_count, 1);
 				}

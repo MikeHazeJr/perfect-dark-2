@@ -44,6 +44,11 @@ extern "C" {
  * rebuilt, beside the other custom-slot resets. */
 void assetCatalogResetCustomAnimSlots(void);
 
+/* Weapon-animation archives contain editable command graphs, not character
+ * clip data. They must never consume or publish a character animnum. Unknown
+ * and legacy categories retain the historical character-clip behavior. */
+s32 assetCatalogAnimationCategoryUsesCharacterClip(const char *category);
+
 /* Resolve a catalog-owned private animnum for a custom animation row with no
  * authored anim_id. Dedups by catalog id (same id -> same slot). Returns a
  * slot in [ANIM_CUSTOM_START, ANIM_CUSTOM_END_SLOT), or -1 when the private

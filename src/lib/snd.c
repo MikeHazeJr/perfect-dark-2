@@ -30,6 +30,7 @@
 #include "audio.h"
 #include "preprocess.h"
 #include "mod.h"
+#include "mp3_source_bounds.h"
 
 #define MAX_SEQ_SIZE_8MB 1024 * 18
 
@@ -2396,7 +2397,9 @@ static void sndMp3FreeSourceBuffer(void)
 static s32 sndMp3LoadPublicSourceFile(s32 filenum, uintptr_t *outaddr, u32 *outsize)
 {
 	u32 size = 0;
+	u32 allocation_size = 0;
 	void *bytes;
+	void *guarded_bytes;
 	CatalogResolveResult source;
 
 	if (!outaddr || !outsize) {
@@ -2406,7 +2409,19 @@ static s32 sndMp3LoadPublicSourceFile(s32 filenum, uintptr_t *outaddr, u32 *outs
 	source = catalogResolveFile(filenum);
 	if (source.path && source.path[0]) {
 		bytes = fsFileLoad(source.path, &size);
-		if (bytes && size > 0) {
+		if (bytes && mp3SourceAllocationSize(size, &allocation_size)) {
+			guarded_bytes = sysMemRealloc(bytes, allocation_size);
+
+			if (!guarded_bytes) {
+				sysMemFree(bytes);
+				bytes = NULL;
+			} else {
+				bytes = guarded_bytes;
+				bzero((u8 *)bytes + size, allocation_size - size);
+			}
+		}
+
+		if (bytes && size > 0 && allocation_size > size) {
 			sndMp3FreeSourceBuffer();
 			g_SndMp3SourceBytes = bytes;
 			g_SndMp3SourceSize = size;

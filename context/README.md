@@ -34,7 +34,7 @@ The canonical context source is this `context/` tree. Parent-level briefing file
 
 ## Live state at a glance
 
-- **Wire protocol**: v52 (per [constraints.md](constraints.md) and `port/include/net/net.h`).
+- **Wire protocol**: v53 (per [constraints.md](constraints.md) and `port/include/net/net.h`).
 - **Save format**: SAVE_VERSION=2, MPSETUP_VERSION=3.
 - **Build**: v0.0.175+ (per recent release tags). Build via `.\devtools\build-session.ps1 -Session <id> -Target all`; standalone `pd-server` is removed/deprecated, so use listen-host in the client.
 - **Active session range**: see [session-log.md](session-log.md).

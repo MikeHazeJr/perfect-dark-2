@@ -195,6 +195,42 @@ TEST_CASE("net auth: local player count is validated before auth state commits",
     REQUIRE(players_return < settings_commit);
 }
 
+TEST_CASE("net auth: local mod paths never replace manifest content agreement",
+          "[net][auth][manifest][static][b1033]")
+{
+    const std::string netmsg = read_text_file("port/src/net/netmsg.c");
+    const std::string read = function_block(netmsg, "u32 netmsgClcAuthRead");
+
+    const size_t path_read = read.find("const char *modDir = netbufReadStr(src)");
+    const size_t malformed_gate = read.find("if (src->error)", path_read);
+    const size_t rom_gate = read.find("romCrc != utilCrc32(g_RomName)", malformed_gate);
+    const size_t rom_kick = read.find("netServerKick(srccl, DISCONNECT_FILES)", rom_gate);
+    const size_t compatibility = read.find("(void)modDir", rom_kick);
+    const size_t auth_commit = read.find("srccl->state = CLSTATE_LOBBY", compatibility);
+    const size_t catalog_offer = read.find("netDistribServerSendCatalogInfo(srccl)", auth_commit);
+
+    REQUIRE(path_read != std::string::npos);
+    REQUIRE(malformed_gate != std::string::npos);
+    REQUIRE(rom_gate != std::string::npos);
+    REQUIRE(rom_kick != std::string::npos);
+    REQUIRE(compatibility != std::string::npos);
+    REQUIRE(auth_commit != std::string::npos);
+    REQUIRE(catalog_offer != std::string::npos);
+
+    REQUIRE(path_read < malformed_gate);
+    REQUIRE(malformed_gate < rom_gate);
+    REQUIRE(rom_gate < rom_kick);
+    REQUIRE(rom_kick < compatibility);
+    REQUIRE(compatibility < auth_commit);
+    REQUIRE(auth_commit < catalog_offer);
+
+    REQUIRE(read.find("manifest/READY protocol") != std::string::npos);
+    REQUIRE(read.find("authoritative match manifest and ready gate") != std::string::npos);
+    REQUIRE(read.find("fsGetModDir()") == std::string::npos);
+    REQUIRE(read.find("strcasecmp(modDir") == std::string::npos);
+    REQUIRE(read.find("has the wrong mod") == std::string::npos);
+}
+
 TEST_CASE("net manifest status: status and hash are validated before ready gate commits",
           "[net][lifecycle][manifest][security][static]")
 {
@@ -926,9 +962,10 @@ TEST_CASE("net manifest distribution: failed active transfer declines instead of
     const size_t done_label = end.find("done:", completed);
     const size_t completed_guard = end.find("if (!slot_completed)", done_label);
     const size_t error_state = end.find("DISTRIB_CSTATE_ERROR", completed_guard);
-    const size_t received_check = end.find("s_ClientStatus.received_count < s_ClientStatus.missing_count", error_state);
-    const size_t decline_call = end.find("netDistribClientDeclineActiveManifest", received_check);
-    const size_t manifest_recheck = end.find("manifestCheck(&g_ClientManifest)", decline_call);
+    const size_t decline_call = end.find("netDistribClientDeclineActiveManifest", error_state);
+    const size_t received_check = end.find("s_ClientStatus.received_count <", decline_call);
+    const size_t waiting = end.find("transfer set awaiting next item", received_check);
+    const size_t manifest_recheck = end.find("manifestCheck(&g_ClientManifest)", waiting);
 
     REQUIRE(completed_init != std::string::npos);
     REQUIRE(failure != std::string::npos);
@@ -939,6 +976,7 @@ TEST_CASE("net manifest distribution: failed active transfer declines instead of
     REQUIRE(completed_guard != std::string::npos);
     REQUIRE(error_state != std::string::npos);
     REQUIRE(received_check != std::string::npos);
+    REQUIRE(waiting != std::string::npos);
     REQUIRE(decline_call != std::string::npos);
     REQUIRE(manifest_recheck != std::string::npos);
 
@@ -949,9 +987,10 @@ TEST_CASE("net manifest distribution: failed active transfer declines instead of
     REQUIRE(completed < done_label);
     REQUIRE(done_label < completed_guard);
     REQUIRE(completed_guard < error_state);
-    REQUIRE(error_state < received_check);
-    REQUIRE(received_check < decline_call);
-    REQUIRE(decline_call < manifest_recheck);
+    REQUIRE(error_state < decline_call);
+    REQUIRE(decline_call < received_check);
+    REQUIRE(received_check < waiting);
+    REQUIRE(waiting < manifest_recheck);
 }
 
 TEST_CASE("net lifecycle: c3813 listen-host smoke fixtures cover live peer setup",
@@ -1033,6 +1072,251 @@ TEST_CASE("manifest component identity resolves through the mod registry",
     REQUIRE(manifest.find("localMod->enabled && localMod->valid") !=
         std::string::npos);
     REQUIRE(manifest.find("OK (mod registry)") != std::string::npos);
+}
+
+TEST_CASE("manifest distribution preserves package identity and waits for the complete set",
+          "[net][manifest][distribution][static][b1034]")
+{
+    const std::string distrib = read_text_file("port/src/net/netdistrib.c");
+    const std::string distrib_h = read_text_file("port/include/net/netdistrib.h");
+    const std::string netmsg = read_text_file("port/src/net/netmsg.c");
+    const std::string manifest = read_text_file("port/src/net/netmanifest.c");
+    const std::string modmgr = read_text_file("port/src/modmgr.c");
+    const std::string modmgr_h = read_text_file("port/include/modmgr.h");
+    const std::string net_h = read_text_file("port/include/net/net.h");
+
+    REQUIRE(netmsg.find("netDistribServerHandleManifestDiff(srccl") !=
+        std::string::npos);
+    REQUIRE(distrib_h.find("netDistribServerHandleManifestDiff") !=
+        std::string::npos);
+    REQUIRE(distrib.find("entry->type == MANIFEST_TYPE_COMPONENT") !=
+        std::string::npos);
+    REQUIRE(distrib.find("DISTRIB_QUEUE_PACKAGE") != std::string::npos);
+    REQUIRE(distrib.find("buildModPackageArchive(mod, &raw_len)") !=
+        std::string::npos);
+    REQUIRE(distrib.find("modArchiveGetEntryCount(archive)") !=
+        std::string::npos);
+    REQUIRE(distrib.find("modArchiveExtractAlloc(archive, i, &size)") !=
+        std::string::npos);
+    REQUIRE(distrib.find("DISTRIB_PACKAGE_CATEGORY \"pdmod\"") !=
+        std::string::npos);
+
+    REQUIRE(manifest.find("netDistribClientBeginManifestTransferSet((u16)num_missing)") !=
+        std::string::npos);
+    REQUIRE(distrib.find("transfer set awaiting next item") !=
+        std::string::npos);
+    REQUIRE(distrib.find("received_count <") != std::string::npos);
+    REQUIRE(distrib.find("missing_count") != std::string::npos);
+    REQUIRE(distrib.find("distribSendEnd(cl, catalog_id, 0)") !=
+        std::string::npos);
+    REQUIRE(distrib.find("sent_ok ? 1 : 0") != std::string::npos);
+
+    REQUIRE(distrib.find("distribManifestComponentSha(slot->id)") !=
+        std::string::npos);
+    REQUIRE(distrib.find("modmgrRegisterSessionFolder(destdir, slot->id, expected_sha)") !=
+        std::string::npos);
+    REQUIRE(modmgr_h.find("session_only") != std::string::npos);
+    REQUIRE(modmgr_h.find("modmgrRegisterSessionFolder") != std::string::npos);
+    REQUIRE(modmgr.find("memcmp(mod->sha256, expected_sha256") !=
+        std::string::npos);
+    REQUIRE(modmgr.find("mod->session_only = 1") != std::string::npos);
+    REQUIRE(modmgr.find("enabled && !g_ModRegistry[i].session_only") !=
+        std::string::npos);
+    REQUIRE(net_h.find("#define NET_PROTOCOL_VER 53") != std::string::npos);
+}
+
+TEST_CASE("client sessions initialize distribution before receiving server packets",
+          "[net][distribution][lifecycle][static][b1037]")
+{
+    const std::string net = read_text_file("port/src/net/net.c");
+    const std::string client = function_block(net, "s32 netStartClient(");
+    const std::string server = function_block(net, "s32 netStartServer(");
+
+    const size_t client_mode = client.find("g_NetMode = NETMODE_CLIENT");
+    const size_t client_lobby = client.find("lobbyInit()", client_mode);
+    const size_t client_distrib = client.find("netDistribInit()", client_lobby);
+    REQUIRE(client_mode != std::string::npos);
+    REQUIRE(client_lobby != std::string::npos);
+    REQUIRE(client_distrib != std::string::npos);
+    REQUIRE(client_mode < client_lobby);
+    REQUIRE(client_lobby < client_distrib);
+
+    const size_t server_lobby = server.find("lobbyInit()");
+    const size_t server_distrib = server.find("netDistribInit()", server_lobby);
+    REQUIRE(server_lobby != std::string::npos);
+    REQUIRE(server_distrib != std::string::npos);
+    REQUIRE(server_lobby < server_distrib);
+}
+
+TEST_CASE("received catalog identities use collision-free storage names and local persistence policy",
+          "[net][distribution][path][static][b1038]")
+{
+    const std::string distrib = read_text_file("port/src/net/netdistrib.c");
+    const std::string distrib_h = read_text_file("port/include/net/netdistrib.h");
+    const std::string netmsg = read_text_file("port/src/net/netmsg.c");
+
+    REQUIRE(distrib.find("static s32 distribStorageSegment(") != std::string::npos);
+    REQUIRE(distrib.find("out[i * 2] = hex[value >> 4]") != std::string::npos);
+    REQUIRE(distrib.find("out[i * 2 + 1] = hex[value & 0x0f]") != std::string::npos);
+    REQUIRE(distrib.find("temp_root, \"/\", category_segment") != std::string::npos);
+    REQUIRE(distrib.find("\"/\", id_segment") != std::string::npos);
+    REQUIRE(distrib.find("static s32 s_PendingTemporary = 1") != std::string::npos);
+    REQUIRE(distrib.find("s_PendingTemporary = 1;", distrib.find(
+        "void netDistribClientBeginManifestTransferSet")) != std::string::npos);
+    REQUIRE(distrib_h.find("netDistribClientGetTransferTemporary") != std::string::npos);
+    REQUIRE(netmsg.find("netDistribClientGetTransferTemporary()") != std::string::npos);
+    REQUIRE(netmsg.find("expected_sha256, 0") == std::string::npos);
+}
+
+TEST_CASE("listen host starts one authoritative local and remote Combat Simulator session",
+          "[net][match-start][listen-host][static][b1039]")
+{
+    const std::string net = read_text_file("port/src/net/net.c");
+    const std::string netmsg = read_text_file("port/src/net/netmsg.c");
+    const std::string lv = read_text_file("src/game/lv.c");
+    const std::string start = function_block(net, "void netServerStageStart");
+    const std::string countdown = function_block(netmsg, "void readyGateTickCountdown");
+
+    const size_t game_state = start.find("g_NetClients[ci].state = CLSTATE_GAME");
+    const size_t local_start = start.find("mpStartMatch();", game_state);
+    const size_t stage_write = start.find("netmsgSvcStageStartWrite", local_start);
+
+    REQUIRE(game_state != std::string::npos);
+    REQUIRE(local_start != std::string::npos);
+    REQUIRE(stage_write != std::string::npos);
+    REQUIRE(game_state < local_start);
+    REQUIRE(local_start < stage_write);
+    REQUIRE(start.find("if (g_NetDedicated) {\n\t\tmpStartMatch();") ==
+        std::string::npos);
+    const size_t mp_branch = countdown.find("} else {");
+    REQUIRE(mp_branch != std::string::npos);
+    REQUIRE(countdown.find("netServerStageStart();", mp_branch) != std::string::npos);
+    REQUIRE(countdown.find("mainChangeToStage(s_ReadyGate.stagenum)") ==
+        std::string::npos);
+    REQUIRE(lv.find("netServerStageStart();") == std::string::npos);
+    REQUIRE(lv.find("server stage start is emitted by the authoritative lobby/ready") !=
+        std::string::npos);
+}
+
+TEST_CASE("listen host applies its authoritative manifest before gameplay asset use",
+          "[net][manifest][listen-host][static][b1040]")
+{
+    const std::string manifest = read_text_file("port/src/net/netmanifest.c");
+    const std::string manifest_h = read_text_file("port/include/net/netmanifest.h");
+    const std::string pdmain = read_text_file("port/src/pdmain.c");
+    const std::string select = function_block(
+        manifest, "static const match_manifest_t *s_manifestMPTransitionNeeded");
+    const std::string count = function_block(
+        manifest, "s32 manifestMPTransitionEntryCount");
+    const std::string transition = function_block(manifest, "void manifestMPTransition");
+
+    REQUIRE(select.find("g_NetMode == NETMODE_SERVER") != std::string::npos);
+    REQUIRE(select.find("return &g_ServerManifest;") != std::string::npos);
+    REQUIRE(select.find("return &g_ClientManifest;") != std::string::npos);
+    REQUIRE(select.find("g_ServerManifest = g_ClientManifest") == std::string::npos);
+    REQUIRE(select.find("g_ClientManifest = g_ServerManifest") == std::string::npos);
+    REQUIRE(count.find("s_manifestMPTransitionNeeded(NULL)->num_entries") !=
+        std::string::npos);
+    REQUIRE(transition.find("const match_manifest_t *needed =") != std::string::npos);
+    REQUIRE(transition.find("manifestDiff(&g_CurrentLoadedManifest, needed") !=
+        std::string::npos);
+    REQUIRE(transition.find("manifestApplyDiff(needed") != std::string::npos);
+    REQUIRE(transition.find("&g_ClientManifest, &s_SpLastDiff") == std::string::npos);
+    REQUIRE(manifest_h.find("s32 manifestMPTransitionEntryCount(void);") !=
+        std::string::npos);
+    REQUIRE(pdmain.find("const s32 mpManifestEntries = manifestMPTransitionEntryCount();") !=
+        std::string::npos);
+    REQUIRE(pdmain.find("if (g_ClientManifest.num_entries > 0)") ==
+        std::string::npos);
+    const size_t menu_transition = pdmain.find("GAMELOOP.MANIFEST: menu transition");
+    const size_t clear_client = pdmain.find(
+        "manifestClear(&g_ClientManifest);", menu_transition);
+    const size_t clear_server = pdmain.find(
+        "manifestClear(&g_ServerManifest);", clear_client);
+    REQUIRE(menu_transition != std::string::npos);
+    REQUIRE(clear_client != std::string::npos);
+    REQUIRE(clear_server != std::string::npos);
+    REQUIRE(menu_transition < clear_client);
+    REQUIRE(clear_client < clear_server);
+}
+
+TEST_CASE("match start preserves the authoritative arena catalog identity",
+          "[net][match-start][arena-identity][static][b1041]")
+{
+    const std::string setup = read_text_file("port/src/net/matchsetup.c");
+    const std::string mplayer = read_text_file("src/game/mplayer/mplayer.c");
+    const std::string netmsg = read_text_file("port/src/net/netmsg.c");
+    const std::string manifest = read_text_file("port/src/net/netmanifest.c");
+    const std::string start = function_block(setup, "s32 matchStart");
+    const std::string mpstart = function_block(mplayer, "void mpStartMatch");
+    const std::string resolve_stage = function_block(mplayer, "s32 mpResolveMatchStage");
+    const std::string receive_start = function_block(netmsg, "u32 netmsgClcLobbyStartRead");
+    const std::string set_stage = function_block(manifest, "s32 manifestSetStageEntry");
+
+    const size_t resolve = start.find("assetCatalogResolve(g_MatchConfig.stage_id)");
+    const size_t derive = start.find("g_MpSetup.stagenum =", resolve);
+    const size_t preserve = start.find(
+        "strncpy(g_MpSetup.stage_id, g_MatchConfig.stage_id", derive);
+
+    REQUIRE(resolve != std::string::npos);
+    REQUIRE(derive != std::string::npos);
+    REQUIRE(preserve != std::string::npos);
+    REQUIRE(resolve < derive);
+    REQUIRE(derive < preserve);
+
+    REQUIRE(mpstart.find("if (!mpResolveMatchStage())") != std::string::npos);
+    REQUIRE(resolve_stage.find("assetCatalogResolve(g_MpSetup.stage_id)") !=
+        std::string::npos);
+    REQUIRE(resolve_stage.find("selected_stagenum != stagenum") != std::string::npos);
+    REQUIRE(resolve_stage.find("const char *sid = catalogStageIdByStagenum(stagenum);") !=
+        std::string::npos);
+    REQUIRE(resolve_stage.find("strncpy(g_MpSetup.stage_id, sid") != std::string::npos);
+
+    const size_t pre_manifest_resolve = receive_start.find("if (!mpResolveMatchStage())");
+    const size_t deserialize = receive_start.find("manifestDeserialize", pre_manifest_resolve);
+    const size_t authoritative_stage = receive_start.find(
+        "manifestSetStageEntry(&g_ServerManifest, g_MpSetup.stage_id)", deserialize);
+    const size_t manifest_hash = receive_start.find(
+        "manifestComputeHash(&g_ServerManifest)", authoritative_stage);
+    const size_t session_build = receive_start.find(
+        "sessionCatalogBuild(&g_ServerManifest)", manifest_hash);
+    REQUIRE(pre_manifest_resolve != std::string::npos);
+    REQUIRE(deserialize != std::string::npos);
+    REQUIRE(authoritative_stage != std::string::npos);
+    REQUIRE(manifest_hash != std::string::npos);
+    REQUIRE(session_build != std::string::npos);
+    REQUIRE(pre_manifest_resolve < deserialize);
+    REQUIRE(deserialize < authoritative_stage);
+    REQUIRE(authoritative_stage < manifest_hash);
+    REQUIRE(manifest_hash < session_build);
+
+    REQUIRE(set_stage.find("stage->type != ASSET_ARENA && stage->type != ASSET_MAP") !=
+        std::string::npos);
+    REQUIRE(set_stage.find("m->entries[i].type != MANIFEST_TYPE_STAGE") !=
+        std::string::npos);
+    REQUIRE(set_stage.find("m->num_entries--") != std::string::npos);
+}
+
+TEST_CASE("network gameplay transition releases lobby menu input ownership",
+          "[net][lifecycle][input][listen-host][static][b1042]")
+{
+    const std::string lobby = read_text_file("port/fast3d/pdgui_lobby.cpp");
+    const std::string render = function_block(lobby, "void pdguiLobbyRender");
+
+    const size_t lobby_gate = render.find("if (netLocalClientInLobby())");
+    const size_t release_lobby = render.find(
+        "menupoolRelease(MENU_TYPE_SOCIAL_LOBBY);", lobby_gate);
+    const size_t release_room = render.find(
+        "menupoolRelease(MENU_TYPE_ROOM);", release_lobby);
+    const size_t sidebar = render.find("renderInGameSidebar", release_room);
+
+    REQUIRE(lobby_gate != std::string::npos);
+    REQUIRE(release_lobby != std::string::npos);
+    REQUIRE(release_room != std::string::npos);
+    REQUIRE(sidebar != std::string::npos);
+    REQUIRE(lobby_gate < release_lobby);
+    REQUIRE(release_lobby < release_room);
+    REQUIRE(release_room < sidebar);
 }
 
 TEST_CASE("smoke PDCA ingress suppresses only the absent-peer acknowledgement",

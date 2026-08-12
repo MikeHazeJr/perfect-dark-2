@@ -9,7 +9,13 @@
 /* Forward declaration — avoids pulling enet.h into every translation unit */
 typedef struct _ENetAddress ENetAddress;
 
-#define NET_PROTOCOL_VER 52  /* v52 (2026-07-30): bot profile identity is a
+#define NET_PROTOCOL_VER 53  /* v53 (2026-08-11): match-manifest distribution
+                              * distinguishes typed catalog assets from full
+                              * mod packages, admits session packages against
+                              * the manifest SHA-256, and tracks multi-item
+                              * transfer completion. Mixed v52/v53 play is
+                              * rejected at the auth handshake.
+                              * v52 (2026-07-30): bot profile identity is a
                               * catalog ID in CLC_LOBBY_START and a session
                               * catalog ref in SVC_STAGE_START. Profile assets
                               * are included in the match manifest, and

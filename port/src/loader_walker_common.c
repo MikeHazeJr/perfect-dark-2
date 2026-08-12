@@ -129,7 +129,6 @@ s32 loaderWalkerEnvelopeInt(const char *json, size_t json_len,
                             const char *key, s64 *out_value)
 {
     if (!json || !key || !out_value) return 0;
-    *out_value = 0;
 
     const char *end = json + json_len;
     const char *after_key = s_findKey(json, json_len, key);

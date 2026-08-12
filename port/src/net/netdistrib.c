@@ -60,6 +60,7 @@
 #include "assetcatalog_scanner.h"
 #include "loader_pool.h"
 #include "modmgr.h"
+#include "modarchive.h"
 #include "pdgui_theme_loader.h"
 #include "system.h"
 #include "fs.h"
@@ -93,9 +94,14 @@
 typedef struct distrib_queue_entry {
     struct netclient *cl;        /* destination client */
     char catalog_id[64];         /* v27: component to send — catalog ID string */
+    u8   kind;                   /* DISTRIB_QUEUE_* identity domain */
     s32  active;
     s32  temporary;              /* client requested session-only */
 } distrib_queue_entry_t;
+
+#define DISTRIB_QUEUE_ASSET    0
+#define DISTRIB_QUEUE_PACKAGE  1
+#define DISTRIB_PACKAGE_CATEGORY "pdmod"
 
 static distrib_queue_entry_t *s_Queue = NULL;
 static s32 s_QueueCap = 0;
@@ -141,7 +147,7 @@ static killfeed_entry_t s_KillFeed[KILLFEED_MAX_ENTRIES];
 static s32 s_KillFeedNext = 0;  /* circular write head */
 
 /* Pending diff decision (before user confirms) */
-static s32 s_PendingTemporary = 0;
+static s32 s_PendingTemporary = 1;
 
 /* Configurable trust threshold (MB) — transfers above this need user approval.
  * Bound to Net.DistribTrustThresholdMB in pd.ini. */
@@ -173,6 +179,26 @@ static s32 distribEnsureQueueCapacity(s32 min_cap)
     memset(s_Queue + old_cap, 0,
            (size_t)(new_cap - old_cap) * sizeof(*s_Queue));
     s_QueueCap = new_cap;
+    return 1;
+}
+
+/* Catalog IDs and categories are protocol identities, not filesystem names.
+ * Encode every byte so distinct public identities remain distinct without
+ * leaking Windows-reserved punctuation (notably the namespace ':') into a
+ * receive destination. The original strings remain authoritative everywhere
+ * game-facing; this segment is storage-only. */
+static s32 distribStorageSegment(const char *identity, char *out, size_t out_n)
+{
+    static const char hex[] = "0123456789abcdef";
+    if (!identity || !identity[0] || !out || out_n == 0) return 0;
+    size_t len = strlen(identity);
+    if (len > (out_n - 1) / 2) return 0;
+    for (size_t i = 0; i < len; i++) {
+        u8 value = (u8)identity[i];
+        out[i * 2] = hex[value >> 4];
+        out[i * 2 + 1] = hex[value & 0x0f];
+    }
+    out[len * 2] = '\0';
     return 1;
 }
 
@@ -388,6 +414,125 @@ static u8 *buildArchiveDir(u8 *buf, u32 *buf_len, u32 *buf_cap,
     return buf;
 }
 
+static u8 *distribAppendArchiveFile(u8 *buf, u32 *buf_len, u32 *buf_cap,
+		const char *relative_path, const u8 *data, u32 data_len, s32 *ok)
+{
+	if (!ok || !*ok || !buf || !buf_len || !buf_cap || !relative_path
+			|| !relative_path[0] || !data) {
+		if (ok) *ok = 0;
+		return buf;
+	}
+	size_t path_bytes = strlen(relative_path) + 1;
+	if (path_bytes > 0xFFFFu) {
+		*ok = 0;
+		return buf;
+	}
+	u64 required = (u64)*buf_len + 2u + (u64)path_bytes + 4u + data_len;
+	if (required > NET_DISTRIB_MAX_COMP || required > 0xFFFFFFFFull) {
+		*ok = 0;
+		return buf;
+	}
+	while ((u64)*buf_cap < required) {
+		u32 new_cap = *buf_cap < 65536u ? 65536u : *buf_cap * 2u;
+		if (new_cap <= *buf_cap || (u64)new_cap > NET_DISTRIB_MAX_COMP) {
+			new_cap = (u32)required;
+		}
+		u8 *grown = (u8 *)realloc(buf, new_cap);
+		if (!grown) {
+			*ok = 0;
+			return buf;
+		}
+		buf = grown;
+		*buf_cap = new_cap;
+	}
+
+	u16 path_len = (u16)path_bytes;
+	u8 *p = buf + *buf_len;
+	memcpy(p, &path_len, 2); p += 2;
+	memcpy(p, relative_path, path_len); p += path_len;
+	memcpy(p, &data_len, 4); p += 4;
+	memcpy(p, data, data_len);
+	*buf_len = (u32)required;
+	return buf;
+}
+
+static u8 *buildModPackageArchive(const modinfo_t *mod, u32 *out_len)
+{
+	if (!mod || !out_len || !mod->enabled || !mod->valid
+			|| !mod->has_modjson) {
+		return NULL;
+	}
+	u32 cap = 65536;
+	u32 len = 6;
+	u16 file_count = 0;
+	s32 ok = 1;
+	u8 *buf = (u8 *)calloc(1, cap);
+	if (!buf) return NULL;
+	{
+		u32 magic = PDCA_MAGIC;
+		memcpy(buf, &magic, 4);
+	}
+
+	if (mod->is_archive) {
+		mod_archive_t *archive = modArchiveOpen(mod->archive_path);
+		if (!archive) {
+			free(buf);
+			return NULL;
+		}
+		s32 count = modArchiveGetEntryCount(archive);
+		for (s32 i = 0; i < count && ok; i++) {
+			const char *name = modArchiveGetEntryName(archive, i);
+			if (!name || !name[0]) {
+				ok = 0;
+				break;
+			}
+			size_t name_len = strlen(name);
+			if (name[name_len - 1] == '/') continue;
+			u32 size = 0;
+			u8 *data = (u8 *)modArchiveExtractAlloc(archive, i, &size);
+			if (!data) {
+				ok = 0;
+				break;
+			}
+			buf = distribAppendArchiveFile(buf, &len, &cap, name,
+				data, size, &ok);
+			free(data);
+			if (ok) file_count++;
+		}
+		modArchiveClose(archive);
+	} else {
+		buf = buildArchiveDir(buf, &len, &cap, mod->dirpath, "", &ok);
+		if (ok) {
+			u8 *p = buf + 6;
+			u8 *end = buf + len;
+			while (p < end && ok) {
+				u16 path_len;
+				u32 data_len;
+				if (p + 2 > end) { ok = 0; break; }
+				memcpy(&path_len, p, 2); p += 2;
+				if (!path_len || p + path_len > end) { ok = 0; break; }
+				p += path_len;
+				if (p + 4 > end) { ok = 0; break; }
+				memcpy(&data_len, p, 4); p += 4;
+				if (p + data_len > end) { ok = 0; break; }
+				p += data_len;
+				file_count++;
+			}
+		}
+	}
+
+	if (!ok || file_count == 0) {
+		free(buf);
+		return NULL;
+	}
+	memcpy(buf + 4, &file_count, 2);
+	*out_len = len;
+	sysLogPrintf(LOG_NOTE,
+		"DISTRIB: package archive for '%s': %u files, %u bytes raw",
+		mod->id, file_count, len);
+	return buf;
+}
+
 /**
  * Build a PDCA archive from a component directory.
  * Returns heap-allocated buffer (caller must free), or NULL on error.
@@ -469,60 +614,92 @@ static u8 *buildComponentArchive(const asset_entry_t *entry, u32 *out_len)
  * Server: Send Packets Directly (bypasses netbuf for large payloads)
  * ======================================================================== */
 
-static void distribSendPacketToPeer(ENetPeer *peer, const u8 *data, u32 len, s32 chan)
+static s32 distribSendPacketToPeer(ENetPeer *peer, const u8 *data, u32 len, s32 chan)
 {
-    if (!peer || !data || !len) return;
+    if (!peer || !data || !len) return 0;
     ENetPacket *p = enet_packet_create(data, len, ENET_PACKET_FLAG_RELIABLE);
     if (!p) {
         sysLogPrintf(LOG_ERROR, "DISTRIB: enet_packet_create failed (%u bytes)", len);
-        return;
+        return 0;
     }
     if (enet_peer_send(peer, (u8)chan, p) < 0) {
         sysLogPrintf(LOG_WARNING, "DISTRIB: enet_peer_send failed (%u bytes, chan %d)", len, chan);
         enet_packet_destroy(p);
+		return 0;
     }
+	return 1;
+}
+
+static void distribSendEnd(struct netclient *cl, const char *id, u8 success)
+{
+	if (!cl || !id || !id[0]) return;
+	netbufStartWrite(&g_NetMsgRel);
+	netmsgSvcDistribEndWrite(&g_NetMsgRel, id, success);
+	netSend(cl, &g_NetMsgRel, 1, NETCHAN_CONTROL);
 }
 
 /* ========================================================================
  * Server: Build and Stream Component to Client
  * ======================================================================== */
 
-static void streamComponentToClient(struct netclient *cl, const char *catalog_id, s32 temporary)
+static void streamComponentToClient(struct netclient *cl, const char *catalog_id,
+		u8 kind, s32 temporary)
 {
-    /* v27: resolve by catalog ID string — no net_hash. */
-    const asset_entry_t *entry = assetCatalogResolve(catalog_id);
-    if (!entry) {
-        sysLogPrintf(LOG_WARNING, "DISTRIB: unknown catalog_id '%s' requested", catalog_id);
-        return;
-    }
+	const char *id = catalog_id;
+	const char *category = NULL;
+	u32 raw_len = 0;
+	u8 *raw = NULL;
+	if (kind == DISTRIB_QUEUE_PACKAGE) {
+		modinfo_t *mod = modmgrFindMod(catalog_id);
+		if (!mod || !mod->enabled || !mod->valid || !mod->has_modjson) {
+			sysLogPrintf(LOG_WARNING,
+				"DISTRIB: unknown or unavailable package_id '%s' requested",
+				catalog_id);
+			distribSendEnd(cl, catalog_id, 0);
+			return;
+		}
+		category = DISTRIB_PACKAGE_CATEGORY;
+		raw = buildModPackageArchive(mod, &raw_len);
+		sysLogPrintf(LOG_NOTE,
+			"DISTRIB: sending package '%s' to %s (temporary=%d)",
+			id, cl->settings.name, temporary);
+	} else {
+		/* v27: typed assets resolve by catalog ID string — no net_hash. */
+		const asset_entry_t *entry = assetCatalogResolve(catalog_id);
+		if (!entry) {
+			sysLogPrintf(LOG_WARNING,
+				"DISTRIB: unknown catalog_id '%s' requested", catalog_id);
+			distribSendEnd(cl, catalog_id, 0);
+			return;
+		}
+		if (entry->bundled) {
+			sysLogPrintf(LOG_WARNING,
+				"DISTRIB: client requested bundled asset '%s' -- skipped",
+				entry->id);
+			distribSendEnd(cl, catalog_id, 0);
+			return;
+		}
+		id = entry->id;
+		category = entry->category;
+		raw = buildComponentArchive(entry, &raw_len);
+		sysLogPrintf(LOG_NOTE,
+			"DISTRIB: sending '%s' to %s (temporary=%d)",
+			id, cl->settings.name, temporary);
+	}
 
-    if (entry->bundled) {
-        sysLogPrintf(LOG_WARNING, "DISTRIB: client requested bundled asset '%s' -- skipped", entry->id);
-        return;
-    }
-
-    sysLogPrintf(LOG_NOTE, "DISTRIB: sending '%s' to %s (temporary=%d)",
-                 entry->id, cl->settings.name, temporary);
-
-    /* Build raw PDCA archive */
-    u32 raw_len = 0;
-    u8 *raw = buildComponentArchive(entry, &raw_len);
     if (!raw || !raw_len) {
-        sysLogPrintf(LOG_ERROR, "DISTRIB: failed to build archive for '%s'", entry->id);
+		sysLogPrintf(LOG_ERROR, "DISTRIB: failed to build archive for '%s'", id);
         if (raw) free(raw);
-        /* Send END with failure */
-        netbufStartWrite(&g_NetMsgRel);
-        netmsgSvcDistribEndWrite(&g_NetMsgRel, entry->id, 0);
-        netSend(cl, &g_NetMsgRel, 1, NETCHAN_CONTROL);
+		distribSendEnd(cl, id, 0);
         return;
     }
 
     if (raw_len > NET_DISTRIB_MAX_COMP) {
-        sysLogPrintf(LOG_WARNING, "DISTRIB: '%s' exceeds 50MB limit (%u bytes) -- skipped", entry->id, raw_len);
+		sysLogPrintf(LOG_WARNING,
+			"DISTRIB: '%s' exceeds transfer limit (%u bytes) -- skipped",
+			id, raw_len);
         free(raw);
-        netbufStartWrite(&g_NetMsgRel);
-        netmsgSvcDistribEndWrite(&g_NetMsgRel, entry->id, 0);
-        netSend(cl, &g_NetMsgRel, 1, NETCHAN_CONTROL);
+		distribSendEnd(cl, id, 0);
         return;
     }
 
@@ -532,6 +709,7 @@ static void streamComponentToClient(struct netclient *cl, const char *catalog_id
     if (!compressed) {
         sysLogPrintf(LOG_ERROR, "DISTRIB: OOM for compressed buffer (%lu bytes)", compressed_cap);
         free(raw);
+		distribSendEnd(cl, id, 0);
         return;
     }
 
@@ -540,11 +718,9 @@ static void streamComponentToClient(struct netclient *cl, const char *catalog_id
     free(raw);
 
     if (zret != Z_OK) {
-        sysLogPrintf(LOG_ERROR, "DISTRIB: zlib compress failed (%d) for '%s'", zret, entry->id);
+		sysLogPrintf(LOG_ERROR, "DISTRIB: zlib compress failed (%d) for '%s'", zret, id);
         free(compressed);
-        netbufStartWrite(&g_NetMsgRel);
-        netmsgSvcDistribEndWrite(&g_NetMsgRel, entry->id, 0);
-        netSend(cl, &g_NetMsgRel, 1, NETCHAN_CONTROL);
+		distribSendEnd(cl, id, 0);
         return;
     }
 
@@ -552,13 +728,14 @@ static void streamComponentToClient(struct netclient *cl, const char *catalog_id
     u32 chunk_size = NET_DISTRIB_CHUNK_SIZE;
     u32 total_chunks = (compressed_len + chunk_size - 1) / chunk_size;
     if (total_chunks > 65535) {
-        sysLogPrintf(LOG_ERROR, "DISTRIB: too many chunks (%u) for '%s'", total_chunks, entry->id);
+		sysLogPrintf(LOG_ERROR, "DISTRIB: too many chunks (%u) for '%s'", total_chunks, id);
         free(compressed);
+		distribSendEnd(cl, id, 0);
         return;
     }
 
     sysLogPrintf(LOG_NOTE, "DISTRIB: '%s' compressed %lu→%lu bytes, %u chunks",
-                 entry->id, (unsigned long)raw_len, (unsigned long)compressed_len, total_chunks);
+			 id, (unsigned long)raw_len, (unsigned long)compressed_len, total_chunks);
 
     /* v46 / SEC-5: digest the exact compressed archive bytes that cross the
      * wire. The client rejects BEGIN packets with a zero digest and verifies
@@ -568,15 +745,21 @@ static void streamComponentToClient(struct netclient *cl, const char *catalog_id
 
     /* SVC_DISTRIB_BEGIN */
     netbufStartWrite(&g_NetMsgRel);
-    netmsgSvcDistribBeginWrite(&g_NetMsgRel, entry->id, entry->category,
+	netmsgSvcDistribBeginWrite(&g_NetMsgRel, id, category,
                                total_chunks, raw_len, compressed_sha256);
+	if (g_NetMsgRel.error) {
+		free(compressed);
+		distribSendEnd(cl, id, 0);
+		return;
+	}
     netSend(cl, &g_NetMsgRel, 1, NETCHAN_CONTROL);
 
     /* SVC_DISTRIB_CHUNK × total_chunks on NETCHAN_TRANSFER.
      * v27: packet format: msgid(1) + id_str(2+idlen) + chunk_idx(2) + compression(1)
      *                   + data_len(2) + data(this_len).
      * String format mirrors netbufWriteStr: u16 length (incl. null) + bytes. */
-    u16 id_wire_len = (u16)(strlen(entry->id) + 1);   /* include null terminator */
+	u16 id_wire_len = (u16)(strlen(id) + 1);   /* include null terminator */
+	s32 sent_ok = 1;
     for (u32 i = 0; i < total_chunks; i++) {
         u32 offset = i * chunk_size;
         u16 this_len = (u16)((offset + chunk_size <= compressed_len)
@@ -587,28 +770,30 @@ static void streamComponentToClient(struct netclient *cl, const char *catalog_id
         u8 *pkt = (u8 *)malloc(pkt_len);
         if (!pkt) {
             sysLogPrintf(LOG_ERROR, "DISTRIB: OOM for chunk packet");
+			sent_ok = 0;
             break;
         }
         u8 *p = pkt;
         *p++ = SVC_DISTRIB_CHUNK;
         memcpy(p, &id_wire_len, 2);             p += 2;
-        memcpy(p, entry->id, id_wire_len);      p += id_wire_len;
+		memcpy(p, id, id_wire_len);             p += id_wire_len;
         u16 cidx = (u16)i;
         memcpy(p, &cidx, 2);                    p += 2;
         *p++ = NET_DISTRIB_COMP_DEFLATE;
         memcpy(p, &this_len, 2);                p += 2;
         memcpy(p, compressed + offset, this_len);
 
-        distribSendPacketToPeer(cl->peer, pkt, pkt_len, NETCHAN_TRANSFER);
+		if (!distribSendPacketToPeer(cl->peer, pkt, pkt_len,
+				NETCHAN_TRANSFER)) {
+			sent_ok = 0;
+		}
         free(pkt);
+		if (!sent_ok) break;
     }
 
     free(compressed);
 
-    /* SVC_DISTRIB_END */
-    netbufStartWrite(&g_NetMsgRel);
-    netmsgSvcDistribEndWrite(&g_NetMsgRel, entry->id, 1);
-    netSend(cl, &g_NetMsgRel, 1, NETCHAN_CONTROL);
+	distribSendEnd(cl, id, sent_ok ? 1 : 0);
 }
 
 /* ========================================================================
@@ -624,7 +809,9 @@ void netDistribInit(void)
     memset(&s_ClientStatus, 0, sizeof(s_ClientStatus));
     memset(s_KillFeed, 0, sizeof(s_KillFeed));
     s_KillFeedNext = 0;
-    s_PendingTemporary = 0;
+    /* D3R-9's default is session-only receive under mods/.temp. The user can
+     * still opt into a permanent catalog download before requesting it. */
+    s_PendingTemporary = 1;
     s_TrustThresholdMb = DISTRIB_TRUST_THRESHOLD_DEFAULT_MB;
     if (!s_Initialized) {
         configRegisterInt("Net.DistribTrustThresholdMB", &s_TrustThresholdMb, 16, 4096);
@@ -679,14 +866,68 @@ void netDistribServerHandleDiff(struct netclient *cl,
             sysLogPrintf(LOG_WARNING,
                          "DISTRIB: transfer queue allocation failed for '%s'",
                          missing_ids[i]);
+			distribSendEnd(cl, missing_ids[i], 0);
             continue;
         }
         slot->cl = cl;
         strncpy(slot->catalog_id, missing_ids[i], sizeof(slot->catalog_id) - 1);
         slot->catalog_id[sizeof(slot->catalog_id) - 1] = '\0';
         slot->temporary = (s32)temporary;
+		slot->kind = DISTRIB_QUEUE_ASSET;
         slot->active = 1;
     }
+}
+
+void netDistribServerHandleManifestDiff(struct netclient *cl,
+		const char (*missing_ids)[64], u16 count, u8 temporary)
+{
+	if (!s_Initialized || !cl || !count) {
+		return;
+	}
+	sysLogPrintf(LOG_NOTE,
+		"DISTRIB: client %s missing %u manifest entries (temporary=%d)",
+		cl->settings.name, count, (s32)temporary);
+
+	for (u16 i = 0; i < count; i++) {
+		u8 kind = DISTRIB_QUEUE_ASSET;
+		s32 found = 0;
+		for (u16 j = 0; j < g_ServerManifest.num_entries; j++) {
+			const match_manifest_entry_t *entry = &g_ServerManifest.entries[j];
+			if (strcmp(entry->id, missing_ids[i]) == 0) {
+				kind = entry->type == MANIFEST_TYPE_COMPONENT
+					? DISTRIB_QUEUE_PACKAGE : DISTRIB_QUEUE_ASSET;
+				found = 1;
+				break;
+			}
+		}
+		if (!found) {
+			sysLogPrintf(LOG_WARNING,
+				"DISTRIB: manifest missing id '%s' is not in the active server manifest",
+				missing_ids[i]);
+			distribSendEnd(cl, missing_ids[i], 0);
+			continue;
+		}
+
+		distrib_queue_entry_t *slot = distribAllocQueueSlot();
+		if (!slot) {
+			sysLogPrintf(LOG_WARNING,
+				"DISTRIB: transfer queue allocation failed for manifest id '%s'",
+				missing_ids[i]);
+			distribSendEnd(cl, missing_ids[i], 0);
+			continue;
+		}
+		slot->cl = cl;
+		strncpy(slot->catalog_id, missing_ids[i],
+			sizeof(slot->catalog_id) - 1);
+		slot->catalog_id[sizeof(slot->catalog_id) - 1] = '\0';
+		slot->temporary = (s32)temporary;
+		slot->kind = kind;
+		slot->active = 1;
+		sysLogPrintf(LOG_NOTE,
+			"DISTRIB: queued manifest id '%s' kind=%s",
+			slot->catalog_id,
+			kind == DISTRIB_QUEUE_PACKAGE ? "package" : "asset");
+	}
 }
 
 void netDistribServerTick(void)
@@ -702,6 +943,7 @@ void netDistribServerTick(void)
         strncpy(catalog_id, s_Queue[i].catalog_id, sizeof(catalog_id) - 1);
         catalog_id[sizeof(catalog_id) - 1] = '\0';
         s32 temporary = s_Queue[i].temporary;
+		u8 kind = s_Queue[i].kind;
 
         /* Check client is still connected */
         s32 valid = 0;
@@ -715,7 +957,7 @@ void netDistribServerTick(void)
         s_Queue[i].active = 0;  /* consume immediately */
 
         if (valid) {
-            streamComponentToClient(cl, catalog_id, temporary);
+			streamComponentToClient(cl, catalog_id, kind, temporary);
         }
 
         break;  /* one transfer per tick */
@@ -861,6 +1103,27 @@ void netDistribClientHandleCatalogInfo(const char (*ids)[64],
     free(missing_ids);
 }
 
+void netDistribClientBeginManifestTransferSet(u16 missing_count)
+{
+	if (!s_Initialized || missing_count == 0) return;
+	s_PendingTemporary = 1;
+	s_ClientStatus.missing_count = (s32)missing_count;
+	s_ClientStatus.received_count = 0;
+	s_ClientStatus.current_id[0] = '\0';
+	s_ClientStatus.current_bytes_received = 0;
+	s_ClientStatus.current_bytes_total = 0;
+	s_ClientStatus.temporary = 1;
+	s_ClientStatus.state = DISTRIB_CSTATE_DIFFING;
+	sysLogPrintf(LOG_NOTE,
+		"DISTRIB: manifest transfer set armed (%u entries)",
+		(unsigned)missing_count);
+}
+
+s32 netDistribClientGetTransferTemporary(void)
+{
+    return s_PendingTemporary ? 1 : 0;
+}
+
 void netDistribClientHandleBegin(const char *catalog_id, const char *category,
                                   u32 total_chunks, u32 archive_bytes,
                                   const u8 expected_sha256[SHA256_DIGEST_SIZE],
@@ -971,7 +1234,9 @@ void netDistribClientHandleBegin(const char *catalog_id, const char *category,
     s_ClientStatus.current_bytes_received = 0;
     s_ClientStatus.temporary = temporary;
 
-    sysLogPrintf(LOG_NOTE, "DISTRIB: recv begin '%s' (%u chunks, %u bytes)", catalog_id, total_chunks, archive_bytes);
+	sysLogPrintf(LOG_NOTE,
+		"DISTRIB: recv begin '%s' category=%s (%u chunks, %u bytes)",
+		catalog_id, category, total_chunks, archive_bytes);
 }
 
 void netDistribClientHandleChunk(const char *catalog_id, u16 chunk_idx,
@@ -2053,9 +2318,9 @@ static s32 populateExtFromIni(asset_entry_t *e, asset_type_e type, const char *d
         break;
     case ASSET_ANIMATION:
         e->ext.anim.anim_id = -1;
-        if (e->ext.anim.anim_id >= 0) {
-            e->source_animnum = e->ext.anim.anim_id;
-        } else {
+        e->source_animnum = -1;
+        e->runtime_index = -1;
+        if (assetCatalogAnimationCategoryUsesCharacterClip(e->category)) {
             /* c3849 Wave 2: mirror the scanner. */
             s32 slot = assetCatalogResolveAnimPrivateSlot(e->id);
             if (slot >= 0) {
@@ -2573,6 +2838,19 @@ static void distribMarkRegisteredTree(const char *root_dir, s32 temporary)
 	}
 }
 
+static const u8 *distribManifestComponentSha(const char *id)
+{
+	if (!id || !id[0]) return NULL;
+	for (u16 i = 0; i < g_ClientManifest.num_entries; i++) {
+		const match_manifest_entry_t *entry = &g_ClientManifest.entries[i];
+		if (entry->type == MANIFEST_TYPE_COMPONENT
+				&& strcmp(entry->id, id) == 0) {
+			return entry->sha256;
+		}
+	}
+	return NULL;
+}
+
 void netDistribClientHandleEnd(const char *catalog_id, u8 success)
 {
     if (!s_Initialized) return;
@@ -2589,6 +2867,11 @@ void netDistribClientHandleEnd(const char *catalog_id, u8 success)
 
     if (!slot) {
         sysLogPrintf(LOG_WARNING, "DISTRIB: END for unknown catalog_id '%s'", catalog_id);
+		if (!success && (s_ClientStatus.state == DISTRIB_CSTATE_DIFFING
+				|| s_ClientStatus.state == DISTRIB_CSTATE_RECEIVING)) {
+			s_ClientStatus.state = DISTRIB_CSTATE_ERROR;
+			netDistribClientDeclineActiveManifest("server transfer failure");
+		}
         return;
     }
 
@@ -2661,15 +2944,26 @@ void netDistribClientHandleEnd(const char *catalog_id, u8 success)
         goto done;
     }
     char destdir[FS_MAXPATH];
+    char category_segment[129];
+    char id_segment[129];
+    if (!distribStorageSegment(slot->category, category_segment,
+            sizeof(category_segment))
+            || !distribStorageSegment(slot->id, id_segment,
+                sizeof(id_segment))) {
+        sysLogPrintf(LOG_WARNING,
+            "DISTRIB.ASSET.PATH.REJECT: invalid received storage identity id='%s' category='%s'",
+            slot->id, slot->category);
+        goto done;
+    }
     if (slot->temporary) {
         char temp_root[FS_MAXPATH];
         char category_root[FS_MAXPATH];
         if (!assetPathJoinChecked(temp_root, sizeof(temp_root), modsdir, "/",
                 TEMP_SUBDIR)
                 || !assetPathJoinChecked(category_root, sizeof(category_root),
-                    temp_root, "/", slot->category)
+                    temp_root, "/", category_segment)
                 || !assetPathJoinChecked(destdir, sizeof(destdir), category_root,
-                    "/", slot->id)) {
+                    "/", id_segment)) {
             sysLogPrintf(LOG_WARNING,
                 "DISTRIB.ASSET.PATH.REJECT: received destination exceeds capacity for '%s'",
                 slot->id);
@@ -2678,9 +2972,9 @@ void netDistribClientHandleEnd(const char *catalog_id, u8 success)
     } else {
         char category_root[FS_MAXPATH];
         if (!assetPathJoinChecked(category_root, sizeof(category_root), modsdir,
-                "/", slot->category)
+                "/", category_segment)
                 || !assetPathJoinChecked(destdir, sizeof(destdir), category_root,
-                    "/", slot->id)) {
+                    "/", id_segment)) {
             sysLogPrintf(LOG_WARNING,
                 "DISTRIB.ASSET.PATH.REJECT: received destination exceeds capacity for '%s'",
                 slot->id);
@@ -2710,16 +3004,31 @@ void netDistribClientHandleEnd(const char *catalog_id, u8 success)
                                     "sound.ini", "sfx.ini", "voice.ini", "music.ini",
                                     "ui.ini", "font.ini", "lang.ini", "theme.ini", NULL };
         ini_section_t ini;
-        /* Typed archives are transferred intact, including their nested
-         * dependency closure. Scan them before the loose-INI compatibility
-         * path so temporary lobby installs hot-register nested media too. */
-        s32 registered = assetCatalogScanExternalLayoutFolderDeferred(
-            slot->category, destdir);
+        s32 package_transfer =
+			strcmp(slot->category, DISTRIB_PACKAGE_CATEGORY) == 0;
+		s32 registered = 0;
+		if (package_transfer) {
+			const u8 *expected_sha = distribManifestComponentSha(slot->id);
+			registered = expected_sha
+				? modmgrRegisterSessionFolder(destdir, slot->id, expected_sha)
+				: 0;
+			if (!expected_sha) {
+				sysLogPrintf(LOG_WARNING,
+					"DISTRIB: package '%s' has no component identity in the active manifest",
+					slot->id);
+			}
+		} else {
+			/* Typed archives are transferred intact, including their nested
+			 * dependency closure. Scan them before the loose-INI compatibility
+			 * path so temporary lobby installs hot-register nested media too. */
+			registered = assetCatalogScanExternalLayoutFolderDeferred(
+				slot->category, destdir);
+		}
 		if (registered > 0) {
 			distribMarkRegisteredTree(destdir, slot->temporary);
 		}
 
-        for (s32 k = 0; ini_names[k] && !registered; k++) {
+		for (s32 k = 0; !package_transfer && ini_names[k] && !registered; k++) {
             if (!assetPathJoinChecked(inipath, sizeof(inipath), destdir, "/",
                     ini_names[k])) continue;
             if (iniParse(inipath, &ini)) {
@@ -2822,7 +3131,8 @@ void netDistribClientHandleEnd(const char *catalog_id, u8 success)
         {
             char theme_check[FS_MAXPATH];
             struct stat tst;
-            if (assetPathJoinChecked(theme_check, sizeof(theme_check), destdir,
+			if (!package_transfer
+					&& assetPathJoinChecked(theme_check, sizeof(theme_check), destdir,
                     "/", "theme.json")
                     && stat(theme_check, &tst) == 0 && S_ISREG(tst.st_mode)) {
                 pdguiThemeRegisterModDir(slot->id, theme_check);
@@ -2922,15 +3232,21 @@ done:
     }
 
     if (!any_active) {
-        if (s_ClientStatus.state == DISTRIB_CSTATE_ERROR ||
-            s_ClientStatus.received_count < s_ClientStatus.missing_count) {
+		if (s_ClientStatus.state == DISTRIB_CSTATE_ERROR) {
             s_ClientStatus.state = DISTRIB_CSTATE_ERROR;
             sysLogPrintf(LOG_WARNING,
                          "DISTRIB: transfer set failed (%d/%d received)",
                          s_ClientStatus.received_count,
                          s_ClientStatus.missing_count);
             netDistribClientDeclineActiveManifest("distribution failed");
-        } else {
+		} else if (s_ClientStatus.received_count <
+				s_ClientStatus.missing_count) {
+			s_ClientStatus.state = DISTRIB_CSTATE_DIFFING;
+			sysLogPrintf(LOG_NOTE,
+				"DISTRIB: transfer set awaiting next item (%d/%d received)",
+				s_ClientStatus.received_count,
+				s_ClientStatus.missing_count);
+		} else {
             s_ClientStatus.state = DISTRIB_CSTATE_DONE;
             sysLogPrintf(LOG_NOTE, "DISTRIB: all transfers complete (%d received)",
                          s_ClientStatus.received_count);

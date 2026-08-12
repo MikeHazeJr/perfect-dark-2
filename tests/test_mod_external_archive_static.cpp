@@ -5156,11 +5156,11 @@ TEST_CASE("weapon graph MP agreement is protocol-versioned after cutover",
 	REQUIRE(net.find("weaponGraphRuntimeNetRestoreEnabled()") == std::string::npos);
 
 	const std::string netHeader = readFile("port/include/net/net.h");
-	REQUIRE(netHeader.find("#define NET_PROTOCOL_VER 52") != std::string::npos);
-	REQUIRE(netHeader.find("v51/v52") != std::string::npos);
+	REQUIRE(netHeader.find("#define NET_PROTOCOL_VER 53") != std::string::npos);
+	REQUIRE(netHeader.find("v52/v53") != std::string::npos);
 
 	const std::string versions = readFile("tests/test_versions.cpp");
-	REQUIRE(versions.find("g_TestExpectedNetProtocolVer  = 52") != std::string::npos);
+	REQUIRE(versions.find("g_TestExpectedNetProtocolVer  = 53") != std::string::npos);
 }
 
 TEST_CASE("bot-profile catalog identity reaches UI save wire manifest and runtime",
@@ -6260,7 +6260,8 @@ TEST_CASE("external models maps and animations compile from standard sources",
 	REQUIRE(scanner.find("\"runtime_source_file\"") != std::string::npos);
 	REQUIRE(scanner.find("iniGet(ini, \"rooms_file\"") != std::string::npos);
 	REQUIRE(scanner.find("iniGet(ini, \"scene_file\"") != std::string::npos);
-	REQUIRE(scanner.find("e->source_animnum = e->ext.anim.anim_id") != std::string::npos);
+	REQUIRE(scanner.find("e->source_animnum = -1") != std::string::npos);
+	REQUIRE(scanner.find("e->source_animnum = slot") != std::string::npos);
 	REQUIRE(scanner.find("#include \"loader_pool.h\"") != std::string::npos);
 	REQUIRE(scanner.find("registerAnimationCommandSource(e->id, cf)") != std::string::npos);
 	REQUIRE(scanner.find("loaderPoolParseAnimationSourceJson(json, json_size, source_path)") != std::string::npos);
@@ -9523,4 +9524,29 @@ TEST_CASE("pdtheme nested roles register fail closed across every transport",
 	REQUIRE(load.find("s_catalogUnloadDepCallback") == std::string::npos);
 	REQUIRE(load.find("s_catalogCollectThemeDep") == std::string::npos);
 	REQUIRE(load.find("s_catalogRetainThemeDepCallback") == std::string::npos);
+}
+
+TEST_CASE("weapon animation command graphs cannot hijack character animnum routing",
+		"[modding][pdxxx][animation][b1035]") {
+	const std::string common = readFile("port/src/loader_walker_common.c");
+	const std::string walker = readFile("port/src/loader_walker_anim.c");
+	const std::string scanner = readFile("port/src/assetcatalog_scanner.c");
+	const std::string distrib = readFile("port/src/net/netdistrib.c");
+
+	const auto int_start = common.find("s32 loaderWalkerEnvelopeInt(");
+	const auto int_end = common.find("s32 loaderWalkerArchiveMemberPath(",
+		int_start);
+	REQUIRE(int_start != std::string::npos);
+	REQUIRE(int_end != std::string::npos);
+	const std::string int_block = common.substr(int_start, int_end - int_start);
+	REQUIRE(int_block.find("*out_value = 0") == std::string::npos);
+	REQUIRE(int_block.find("*out_value = v * sign") != std::string::npos);
+
+	REQUIRE(walker.find("assetCatalogAnimationCategoryUsesCharacterClip(category)") !=
+		std::string::npos);
+	REQUIRE(walker.find("e->source_animnum = -1") != std::string::npos);
+	REQUIRE(scanner.find("assetCatalogAnimationCategoryUsesCharacterClip(e->category)") !=
+		std::string::npos);
+	REQUIRE(distrib.find("assetCatalogAnimationCategoryUsesCharacterClip(e->category)") !=
+		std::string::npos);
 }

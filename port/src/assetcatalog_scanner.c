@@ -2222,9 +2222,9 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 
 	case ASSET_ANIMATION:
 		e->ext.anim.anim_id = -1;
-		if (e->ext.anim.anim_id >= 0) {
-			e->source_animnum = e->ext.anim.anim_id;
-		} else {
+		e->source_animnum = -1;
+		e->runtime_index = -1;
+		if (assetCatalogAnimationCategoryUsesCharacterClip(e->category)) {
 			/* c3849 Wave 2: custom anim with no base animnum gets a
 			 * catalog-owned private slot. */
 			s32 slot = assetCatalogResolveAnimPrivateSlot(e->id);

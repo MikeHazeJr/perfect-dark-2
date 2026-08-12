@@ -1,6 +1,6 @@
 # Connectivity / Online
 
-> ENet UDP transport. Server-authoritative wire protocol at v52. 6-tier P2P NAT traversal (LAN -> DIRECT -> STUN -> UPnP -> ICE -> TURN). Connect codes hide raw IPs. Presence service (Ed25519 v3). Voice (libopus, optional). Listen-host is the current shipping target; dedicated server deferred.
+> ENet UDP transport. Server-authoritative wire protocol at v53. 6-tier P2P NAT traversal (LAN -> DIRECT -> STUN -> UPnP -> ICE -> TURN). Connect codes hide raw IPs. Presence service (Ed25519 v3). Voice (libopus, optional). Listen-host is the current shipping target; dedicated server deferred.
 
 ---
 
@@ -27,7 +27,25 @@ Code:
 
 ## Wire protocol
 
-`NET_PROTOCOL_VER 52` at [port/include/net/net.h:12](../../port/include/net/net.h:12). The header carries an in-source changelog from v27 through v52. The version is pinned by [tests/test_versions.cpp](../../tests/test_versions.cpp) (`g_TestExpectedNetProtocolVer`) which reads the live header.
+### 2026-08-12 real-peer manifest/distribution closure
+
+The final isolated listen-host/client Needler scenario passes 87/87. A client
+with no local Needler files authenticates from a different absolute install
+root, receives both the typed component and full package, verifies their
+SHA-256 identities, publishes them transactionally as session-only content,
+reaches READY, and executes the admitted weapon/effect/audio closure in
+ordinary gameplay. The shipping listen host activates its authoritative
+server manifest, initializes the real two-player MP state once, and releases
+stale lobby input ownership at gameplay entry.
+
+Random/meta stage selection is resolved before manifest hashing and session
+catalog construction. A separate 34/34 real-peer receipt publishes concrete
+`base:mp_skedar`, sends nonzero session ID 1, and resolves the same stage on the
+client. This closes the B-1034 through B-1042 transport/session chain without
+using absolute paths as content identity or copying client/server manifests.
+See `context/evidence/2026-08-12-v009-real-peer-needler-random-stage.md`.
+
+`NET_PROTOCOL_VER 53` at [port/include/net/net.h:12](../../port/include/net/net.h:12). The header carries an in-source changelog from v27 through v53. The version is pinned by [tests/test_versions.cpp](../../tests/test_versions.cpp) (`g_TestExpectedNetProtocolVer`) which reads the live header.
 
 Mixed-version play is rejected at the ENet auth handshake ([port/src/net/net.c:1560](../../port/src/net/net.c:1560) `enet_peer_disconnect(peer, DISCONNECT_VERSION)`) and at the presence-channel proto check ([port/src/group_session.c:212](../../port/src/group_session.c:212)).
 
@@ -35,6 +53,7 @@ Mixed-version play is rejected at the ENet auth handshake ([port/src/net/net.c:1
 
 | Bump | What changed |
 |------|--------------|
+| **v53 (2026-08-11)** | Match-manifest distribution preserves typed-asset versus full-package identity, temporary packages are admitted against manifest SHA-256 without persisting the peer's Mod Manager selection, and multi-item transfer sets wait for every item or fail explicitly. |
 | **v52 (2026-07-30)** | Selected bot-profile identity is a public `.pdbotprofile` catalog ID in `CLC_LOBBY_START`, a session-catalog reference in `SVC_STAGE_START`, and a required manifest entry. Receivers derive bot type/difficulty from the profile and reject missing public bindings. |
 | **v51 (2026-06-17)** | c3849 Wave 7: weapon graph runtime is product-default ON, the old user toggle plus transient stage-start option bit are retired, and mixed v50/v51 play is rejected at auth. |
 | **v50 (2026-06-08)** | `SVC_CATALOG_INFO` batches catalog advertisement with total/offset/count metadata, `CLC_CATALOG_DIFF` and `CLC_MANIFEST_STATUS` read heap-backed `u16` missing lists, and the distribution transfer queue grows so large custom typed-archive packs do not truncate during lobby or ready-gate asset sync. |

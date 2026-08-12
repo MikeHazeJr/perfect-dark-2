@@ -965,6 +965,9 @@ s32 matchStart(void)
 			    g_MatchConfig.stage_id);
 			return -1;
 		}
+		strncpy(g_MpSetup.stage_id, g_MatchConfig.stage_id,
+			sizeof(g_MpSetup.stage_id) - 1);
+		g_MpSetup.stage_id[sizeof(g_MpSetup.stage_id) - 1] = '\0';
 		sysLogPrintf(LOG_NOTE, "MATCHSETUP: stage '%s' → stagenum=0x%02x",
 		             g_MatchConfig.stage_id, g_MpSetup.stagenum);
 	}

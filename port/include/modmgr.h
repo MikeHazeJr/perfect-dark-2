@@ -105,6 +105,10 @@ typedef struct modinfo {
 	char            archive_path[FS_MAXPATH + 1];
 	mod_archive_t  *archive_handle;
 	s32             requires_restart;
+	/* Network-ready-gate packages live only under mods/.temp for the current
+	 * process. They participate in runtime lookup/loading but never enter the
+	 * user's persisted enabled-mod list. */
+	s32             session_only;
 
 	// pending_restart : runtime-only. Set by modmgrApplyChanges when this
 	// mod has requires_restart=true and the user toggled `enabled` to a
@@ -161,6 +165,15 @@ s32 modmgrInstallArchiveFile(const char *archive_path,
 s32         modmgrGetCount(void);
 modinfo_t  *modmgrGetMod(s32 index);
 modinfo_t  *modmgrFindMod(const char *id);
+
+/**
+ * Admit a received, already-published package directory for this process.
+ * The root mod.json must parse as expected_id and hash exactly to
+ * expected_sha256. On success the package is enabled and loaded without
+ * changing mods-enabled.json. Returns non-zero only after runtime loading.
+ */
+s32 modmgrRegisterSessionFolder(const char *dirpath, const char *expected_id,
+		const u8 expected_sha256[SHA256_DIGEST_SIZE]);
 
 // ---- Enable/Disable ----
 

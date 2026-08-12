@@ -34,6 +34,7 @@
 #include "pdgui_style.h"
 #include "system.h"
 #include "connectcode.h"
+#include "menupool.h"
 
 /* ========================================================================
  * Forward declarations for game symbols
@@ -514,7 +515,22 @@ void pdguiLobbyRender(s32 winW, s32 winH)
             pdguiDistribOverlayRender(winW, winH);
             /* v34: host sees per-client download status during ready gate */
             pdguiHostDistribOverlayRender(winW, winH);
-        } else if (clientCount > 0) {
+        } else {
+            /* B-1042: leaving CLSTATE_LOBBY stops calling the full-screen
+             * lobby/room renderers, so their normal ImGui close paths cannot
+             * release the menu-pool slot that owns g_CtxImGuiMenu.  A listen
+             * host consequently entered the match with the menu layer still
+             * above combat_sim and every gameplay-only action suppressed.
+             * Release both possible lobby surfaces at the state boundary;
+             * menupoolRelease is idempotent and preserves s_InRoom so the
+             * correct room UI can be reacquired after the match. */
+            menupoolRelease(MENU_TYPE_SOCIAL_LOBBY);
+            menupoolRelease(MENU_TYPE_ROOM);
+
+            if (clientCount <= 0) {
+                return;
+            }
+
             /* In game (or transitioning): show minimal sidebar overlay.
              * S221: Context gate — suppress during active combat sim.
              * The sidebar should only show during lobby/ready-gate transitions,

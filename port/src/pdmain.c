@@ -1115,11 +1115,11 @@ void mainChangeToStage(s32 stagenum)
 	/* Phase 1: diff-based asset lifecycle — build/diff/apply before the
 	 * stage is committed.
 	 *
-	 * MP path: g_ClientManifest was populated by SVC_MATCH_MANIFEST from
-	 * the server; use it directly as the "needed" manifest.
+	 * MP path: clients use g_ClientManifest populated by SVC_MATCH_MANIFEST;
+	 * authoritative listen/dedicated servers use their g_ServerManifest.
 	 *
-	 * SP path: g_ClientManifest is empty (pure SP, no active server
-	 * manifest); build the mission manifest from catalog + setup data.
+	 * SP path: the process-authoritative MP manifest is empty; build the
+	 * mission manifest from catalog + setup data.
 	 * Note: g_StageSetup.props is NULL at this point (setup files not yet
 	 * loaded).  The setup-props scan runs post-load via
 	 * manifestSPRescanSetup() called from lvInit().
@@ -1154,7 +1154,9 @@ void mainChangeToStage(s32 stagenum)
 	}
 
 	if (STAGE_IS_GAMEPLAY(stagenum)) {
-		if (g_ClientManifest.num_entries > 0) {
+		const s32 mpManifestEntries = manifestMPTransitionEntryCount();
+
+		if (mpManifestEntries > 0) {
 			/* S303: log every MP transition with its asset counts so the
 			 * playtest trail shows exactly what was diffed. If the local
 			 * session is supposed to be SP (netmode==NONE, !iscoop, !isanti)
@@ -1166,11 +1168,11 @@ void mainChangeToStage(s32 stagenum)
 			if (!looksLikeMP) {
 				sysLogPrintf(LOG_WARNING,
 					"GAMELOOP.MANIFEST: stale MP manifest (%d entries) leaked into SP transition to 0x%02x — routing via MPTransition",
-					g_ClientManifest.num_entries, (u32)stagenum);
+					mpManifestEntries, (u32)stagenum);
 			} else {
 				sysLogPrintf(LOG_NOTE,
 					"GAMELOOP.MANIFEST: MP transition to 0x%02x (manifest=%d netmode=%d iscoop=%d isanti=%d)",
-					(u32)stagenum, g_ClientManifest.num_entries,
+					(u32)stagenum, mpManifestEntries,
 					(int)g_NetMode, g_MissionConfig.iscoop, g_MissionConfig.isanti);
 			}
 			manifestMPTransition();
@@ -1182,9 +1184,11 @@ void mainChangeToStage(s32 stagenum)
 		}
 	} else {
 		sysLogPrintf(LOG_NOTE,
-			"GAMELOOP.MANIFEST: menu transition to 0x%02x — clearing manifest (%d entries)",
-			(u32)stagenum, g_ClientManifest.num_entries);
+			"GAMELOOP.MANIFEST: menu transition to 0x%02x — clearing client/server manifests (%d/%d entries)",
+			(u32)stagenum, g_ClientManifest.num_entries,
+			g_ServerManifest.num_entries);
 		manifestClear(&g_ClientManifest);
+		manifestClear(&g_ServerManifest);
 		manifestMenuTransition();
 	}
 

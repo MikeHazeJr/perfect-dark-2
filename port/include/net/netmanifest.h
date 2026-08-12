@@ -172,6 +172,11 @@ void manifestSetMaxEntries(s32 n);
 void manifestAddEntry(match_manifest_t *m, const char *id,
                       u8 type, u8 slot_index);
 
+/** Replace every advertised stage token with one authoritative concrete stage.
+ * Returns nonzero on success. The caller recomputes the manifest hash after
+ * completing any other supplements. */
+s32 manifestSetStageEntry(match_manifest_t *m, const char *id);
+
 /**
  * Add a mod component entry to the manifest, carrying the mod's SHA-256.
  * v27: deduplicates by catalog ID string comparison (not net_hash).
@@ -424,14 +429,13 @@ void manifestMenuTransition(void);
 /**
  * Apply a diff-based asset lifecycle transition for an MP match.
  *
- * Uses g_ClientManifest (populated when SVC_MATCH_MANIFEST was received from
- * the server) as the "needed" manifest and diffs it against
- * g_CurrentLoadedManifest. Typed catalog load/release calls are driven for
- * each to_load / to_unload entry respectively.
+ * Uses the authoritative g_ServerManifest for a listen/dedicated server and
+ * the received g_ClientManifest for a client. The selected manifest is
+ * diffed against g_CurrentLoadedManifest; typed catalog load/release calls
+ * are driven for each to_load / to_unload entry respectively.
  *
  * Call from mainChangeToStage() for STAGE_IS_GAMEPLAY stages in MP mode
- * (when g_ClientManifest.num_entries > 0 — i.e. the server has already sent
- * the match manifest via SVC_MATCH_MANIFEST).
+ * when manifestMPTransitionEntryCount() is non-zero.
  *
  * After returning, g_CurrentLoadedManifest reflects the MP manifest and
  * serves as the baseline for the next stage transition.
@@ -439,6 +443,11 @@ void manifestMenuTransition(void);
  * Uses module-internal static buffers — not re-entrant.
  */
 void manifestMPTransition(void);
+
+/** Number of entries in the manifest authoritative for this process's MP
+ * transition. Servers use g_ServerManifest and clients use g_ClientManifest;
+ * a server never falls back to a stale client copy. */
+s32 manifestMPTransitionEntryCount(void);
 
 /**
  * Ensure a single asset is tracked in the active SP manifest.

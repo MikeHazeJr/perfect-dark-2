@@ -1008,6 +1008,9 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/tests/test_texture_slots.cpp
   ${CMAKE_SOURCE_DIR}/port/src/assetcatalog_anim_slots.c
   ${CMAKE_SOURCE_DIR}/tests/test_anim_slots.cpp
+  # B-1036: exact typed-public MP3 buffers versus fixed 0x400-byte DMA cache.
+  ${CMAKE_SOURCE_DIR}/port/src/mp3_source_bounds.c
+  ${CMAKE_SOURCE_DIR}/tests/test_mp3_source_bounds.cpp
   ${CMAKE_SOURCE_DIR}/port/src/assetcatalog_stage_slots.c
   ${CMAKE_SOURCE_DIR}/tests/test_stage_slots.cpp
   # T-CATALOG-002: pure stage-owner ledger keeps stage diff references

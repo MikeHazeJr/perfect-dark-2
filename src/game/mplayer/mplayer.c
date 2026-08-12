@@ -233,6 +233,61 @@ void func0f187838(struct mpchrconfig *mpchr)
 	mpchr->unk40 = 0;
 }
 
+/**
+ * Resolve a random/meta multiplayer stage exactly once and publish the
+ * concrete catalog identity alongside its derived stagenum.
+ *
+ * Network servers call this before freezing the match manifest/session
+ * catalog. mpStartMatch calls it again as an idempotent offline/backstop path;
+ * once the token has become a concrete stagenum, no second random roll occurs.
+ */
+s32 mpResolveMatchStage(void)
+{
+	s32 stagenum = g_MpSetup.stagenum;
+	const asset_entry_t *selected;
+	s32 selected_stagenum = -1;
+
+	if (g_MpSetup.stagenum == STAGE_MP_RANDOM) {
+		stagenum = mpChooseRandomStage();
+	} else if (g_MpSetup.stagenum == STAGE_MP_RANDOM_MULTI) {
+		stagenum = mpChooseRandomMultiStage();
+	} else if (g_MpSetup.stagenum == STAGE_MP_RANDOM_SOLO) {
+		stagenum = mpChooseRandomSoloStage();
+	}
+
+	g_MpSetup.stagenum = (u8)stagenum;
+
+	selected = assetCatalogResolve(g_MpSetup.stage_id);
+	if (selected) {
+		if (selected->type == ASSET_ARENA) {
+			selected_stagenum = selected->ext.arena.stagenum;
+		} else if (selected->type == ASSET_MAP) {
+			selected_stagenum = selected->ext.map.stagenum;
+		}
+	}
+
+	if (selected_stagenum != stagenum) {
+		const char *sid = catalogStageIdByStagenum(stagenum);
+
+		if (!sid) {
+			s32 stIdx = bgGetStageIndex(stagenum);
+			sysLogPrintf(LOG_ERROR,
+				"MPLAYER: no map catalog entry for resolved random stagenum=0x%02x (idx=%d)",
+				stagenum, stIdx);
+			g_MpSetup.stage_id[0] = '\0';
+			return 0;
+		}
+
+		strncpy(g_MpSetup.stage_id, sid, sizeof(g_MpSetup.stage_id) - 1);
+		g_MpSetup.stage_id[sizeof(g_MpSetup.stage_id) - 1] = '\0';
+		sysLogPrintf(LOG_NOTE,
+			"MPLAYER: resolved random/meta stage to id='%s' stagenum=0x%02x",
+			g_MpSetup.stage_id, stagenum);
+	}
+
+	return 1;
+}
+
 void mpStartMatch(void)
 {
 	s32 i;
@@ -318,38 +373,10 @@ void mpStartMatch(void)
 	/* B-12 Phase 2 */
 	numplayers = mpGetActivePlayerCount();
 
+	if (!mpResolveMatchStage()) {
+		return;
+	}
 	stagenum = g_MpSetup.stagenum;
-
-	if (g_MpSetup.stagenum == STAGE_MP_RANDOM) {
-		stagenum = mpChooseRandomStage();
-	}
-	else if (g_MpSetup.stagenum == STAGE_MP_RANDOM_MULTI) {
-		stagenum = mpChooseRandomMultiStage();
-	} else if (g_MpSetup.stagenum == STAGE_MP_RANDOM_SOLO) {
-		stagenum = mpChooseRandomSoloStage();
-	}
-	/* STAGE_MP_RANDOM_GEX branch retired 2026-04-26 alongside the AllInOne /
-	 * GEX content cull -- the catalog no longer has any "GEX" arenas to pick
-	 * from, and no live UI path can set the token.  Constant survives in
-	 * constants.h for save format compatibility. */
-
-	/* BUG-SL-2 fix: update g_MpSetup.stagenum to the resolved stagenum so
-	 * any code reading it after match start gets the actual stage, not a
-	 * RANDOM token.  The log line above captures both values for history. */
-	g_MpSetup.stagenum = (u8)stagenum;
-
-	/* M0.1a: Sync stage_id (PRIMARY) from resolved stagenum. */
-	{
-		const char *sid = catalogStageIdByStagenum(stagenum);
-		if (sid) {
-			strncpy(g_MpSetup.stage_id, sid, sizeof(g_MpSetup.stage_id) - 1);
-			g_MpSetup.stage_id[sizeof(g_MpSetup.stage_id) - 1] = '\0';
-		} else {
-			s32 stIdx = bgGetStageIndex(stagenum);
-			sysLogPrintf(LOG_ERROR, "MPLAYER: no catalog entry for stagenum=0x%02x (idx=%d)", stagenum, stIdx);
-			g_MpSetup.stage_id[0] = '\0';
-		}
-	}
 
 	/* M0.1a: Set textures surfacetype based on catalog stage_id */
 	{

@@ -7,6 +7,7 @@
 #include "mp3/mp3.h"
 #include "types.h"
 #include "platform.h"
+#include "mp3_source_bounds.h"
 
 /**
  * These two ABI commands are used in this file, but the format of the data
@@ -376,8 +377,11 @@ s32 func00038ba8(s32 arg0, u8 *arg1, s32 arg2, s32 arg3)
 		g_Mp3Vars.var8009c3c4 = arg3;
 	}
 
-	if (g_Mp3Vars.var8009c3c4 + arg2 > g_Mp3Vars.filesize) {
-		arg2 = g_Mp3Vars.filesize - g_Mp3Vars.var8009c3c4;
+	arg2 = mp3SourceClampRead(g_Mp3Vars.filesize,
+			g_Mp3Vars.var8009c3c4, arg2);
+
+	if (arg2 == 0) {
+		return 0;
 	}
 
 	proc = n_syn->dma(&sp1c);
@@ -394,8 +398,16 @@ void mp3Dma(void)
 {
 	uintptr_t state;
 	ALDMAproc proc;
+	s32 length;
+
+	length = mp3SourceClampRead(g_Mp3Vars.filesize,
+			g_Mp3Vars.var8009c3c4, MP3_SOURCE_DMA_WINDOW);
+
+	if (length == 0) {
+		return;
+	}
 
 	proc = n_syn->dma(&state);
 
-	proc(g_Mp3Vars.romaddr + g_Mp3Vars.var8009c3c4, 0x400, 0);
+	proc(g_Mp3Vars.romaddr + g_Mp3Vars.var8009c3c4, length, 0);
 }

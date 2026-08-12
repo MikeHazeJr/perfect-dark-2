@@ -993,9 +993,11 @@ TEST_CASE("animation source-only refuses ROM DMA fallback after public source fa
 	        load_header.find("animDma(&g_AnimHeaderByteSlots"));
 }
 
-TEST_CASE("MP3 file use enforces source-only audio before ROM fallback", "[catalog][provider][static]")
+TEST_CASE("MP3 file use enforces bounded source-only audio before ROM fallback", "[catalog][provider][static][b1036]")
 {
 	const std::string snd = readTextFile("src/lib/snd.c");
+	const std::string mp3 = readTextFile("src/lib/mp3.c");
+	const std::string adma = readTextFile("src/lib/audiodma.c");
 	const std::string propsnd = readTextFile("src/game/propsnd.c");
 	const std::string guard = readTextFile("tools/asset_native_source_guard.py");
 	const std::string snd_start_mp3 = functionBlock(snd, "void sndStartMp3(s16");
@@ -1035,6 +1037,25 @@ TEST_CASE("MP3 file use enforces source-only audio before ROM fallback", "[catal
 		functionBlock(snd, "static s32 sndMp3LoadPublicSourceFile");
 	REQUIRE(snd_mp3_load.find("catalogResolveFile(filenum)") <
 	        snd_mp3_load.find("fsFileLoad(source.path, &size)"));
+	REQUIRE(snd_mp3_load.find("mp3SourceAllocationSize(size, &allocation_size)") !=
+	        std::string::npos);
+	REQUIRE(snd_mp3_load.find("sysMemRealloc(bytes, allocation_size)") !=
+	        std::string::npos);
+	REQUIRE(snd_mp3_load.find("bzero((u8 *)bytes + size, allocation_size - size)") !=
+	        std::string::npos);
+	const std::string mp3_read = functionBlock(mp3,
+		"s32 func00038ba8(s32 arg0, u8 *arg1, s32 arg2, s32 arg3)\n{");
+	const std::string mp3_prefetch = functionBlock(mp3, "void mp3Dma(void)");
+	REQUIRE(mp3_read.find("mp3SourceClampRead(g_Mp3Vars.filesize") !=
+	        std::string::npos);
+	REQUIRE(mp3_read.find("if (arg2 == 0)") != std::string::npos);
+	REQUIRE(mp3_prefetch.find("mp3SourceClampRead(g_Mp3Vars.filesize") !=
+	        std::string::npos);
+	REQUIRE(mp3_prefetch.find("if (length == 0)") != std::string::npos);
+	REQUIRE(mp3_prefetch.find("g_Mp3Vars.var8009c3c4, length, 0") !=
+	        std::string::npos);
+	REQUIRE(adma.find("ADMA_ITEM_SIZE 0x400") != std::string::npos);
+	REQUIRE(adma.find("foundbuffer, ADMA_ITEM_SIZE") != std::string::npos);
 	REQUIRE(propsnd.find("#include \"asset_source_debug.h\"") ==
 	        std::string::npos);
 	REQUIRE(propsnd.find("#include \"fs.h\"") != std::string::npos);

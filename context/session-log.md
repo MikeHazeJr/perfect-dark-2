@@ -1,5 +1,71 @@
 # Session Log (Active)
 
+## 2026-08-12 - V-009 final-source real-peer Needler and random-stage pass
+
+Closed the B-1034 through B-1042 real-peer chain on one final 37-file source,
+test, runner, and scenario fingerprint. The isolated Needler listen-host/client
+scenario passes 87/87: the clean peer receives and SHA-verifies the missing
+typed component and package, transactionally admits the public weapon/effect/
+SFX closure, reaches READY, joins the same nonzero arena session, equips and
+renders runtime weapon 86, fires through ordinary gameplay, commits exact
+catalog audio/gameplay output, and renders `needler_pink_burst` presentation
+snapshots before both processes exit 0.
+
+The separate random/meta propagation scenario passes 34/34. The host resolves
+the token once before manifest/session construction, publishes concrete
+`base:mp_skedar`, sends `stage_session=1`, and the client resolves the same
+identity to stagenum `0x32` without a token, zero session, fallback, mismatch,
+or fatal.
+
+Final automation passes client/updater/tests compilation, B-1040/1041/1042
+focused 73/3, manifest 163/7, complete 56,283/1,013, native-source guard,
+conformance selftest (16 parity + recursion + 9 structured), all 27 families
+at 28 roots/52 recursive archives, Needler 1 root/9 recursive, and diff check.
+The fingerprint
+`746fa68f1d49738888a64a0248b8795a126e2caa4ffd7c6600bb536ba3b6cde6`
+is unchanged across the final Needler run. Evidence:
+`context/evidence/2026-08-12-v009-real-peer-needler-random-stage.md`.
+V-009 remains partial only for its explicit readable peer-visual gate and
+partial T-CATALOG-003 dependency; production behavior itself is proven.
+
+## 2026-08-12 - V-009 B-1042 lobby-input ownership root fix in progress
+
+The source-frozen B-1040/B-1041 real-peer rerun passed 80/87 and validated its
+intended boundaries: the host selected its authoritative server manifest,
+installed the Needler public adapter at runtime 86, preserved
+`base:arena_chicago`, sent a nonzero stage-session identity, spawned two MP
+participants, and both peers equipped/rendered Needler and exited cleanly.
+
+It still recorded zero Needler effect commits. The retained logs prove B-1042:
+the listen host changed its local client to `CLSTATE_GAME`, so the lobby stopped
+rendering, but `MENU_TYPE_SOCIAL_LOBBY` continued owning `imgui_menu` above the
+combat input layer and suppressed every injected fire action. The client had a
+separate timing problem: its independently booted process entered and left the
+match earlier than the one shared late tap window. The non-lobby render boundary
+now idempotently releases both social-lobby and room pool slots. The scenario
+uses held early/client and late/host fire windows. Build and live rerun are next.
+Evidence: `.claude/smoke-verify-runs/results-20260812T053716Z.json`.
+
+## 2026-08-12 - V-009 B-1040/B-1041 root fixes source-frozen, unverified
+
+Symbolicated the listen-host crash from the rejected 68/81 real-peer receipt
+to `bgunSwivelWithDamp` dereferencing weapon 86 without a public adapter. The
+host had built a complete `g_ServerManifest`, but the stage lifecycle inspected
+only its empty client manifest and took the SP path. The client independently
+rejected `stage_session=0`: `mpStartMatch` had replaced the authoritative
+session arena ID `base:arena_chicago` with map ID `base:chicago` after the
+session catalog was locked.
+
+B-1040 now selects the server manifest for authoritative MP transitions and
+the received client manifest for clients, without copying the two identities.
+B-1041 copies the primary match arena ID into `g_MpSetup` and preserves it when
+its derived stagenum still matches; its random/meta branch remains explicitly
+open for propagation audit. Focused static regressions pin both boundaries and
+`git diff --check` passes. Per Mike's pause instruction, no build, test runner,
+or real-peer rerun has been started yet. Evidence remains the rejected result
+`.claude/smoke-verify-runs/results-20260812T051257Z.json` plus its retained host
+and client logs.
+
 ## 2026-08-11 - V-009 overlapping owner lifecycle and B-1030
 
 Added smoke-only weapon owner acquire/release events that call the production

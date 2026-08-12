@@ -5,6 +5,10 @@
 
 ## Highlights
 
+- Made real peers distribute, verify, admit, and play an editable Needler
+  package, including its gameplay effect, sound, and world presentation.
+- Kept listen-host and client stage identity exact through arena and random
+  selections, with one concrete nonzero session shared by both peers.
 - Made editable Needler effect colors flow unchanged from public source through
   gameplay/presentation staging into the production world renderer.
 - Fixed Mod Manager archive sizing on Windows and added a real same-process

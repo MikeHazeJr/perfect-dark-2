@@ -245,6 +245,22 @@ TEST_CASE("charpreview: gameplay gunmem bail applies to solo and MP",
 	REQUIRE(src.find("&& g_Vars.mplayerisrunning") == std::string::npos);
 }
 
+/* B-1032: a real network client opens character preview while still on the
+ * title system stage. System stages intentionally have no stage-table row;
+ * gun-memory capacity must fall back to the PC base allocation rather than
+ * dereferencing stageGetCurrent(). */
+TEST_CASE("charpreview: title-stage gun memory capacity is null-safe",
+          "[network][charpreview][gunmem][b1032]") {
+	const std::string src = readTextFile("src/game/bondgun.c");
+
+	REQUIRE(src.find("struct stagetableentry *stage = stageGetCurrent();")
+	        != std::string::npos);
+	REQUIRE(src.find("if (stage) {") != std::string::npos);
+	REQUIRE(src.find("stage->extragunmem") != std::string::npos);
+	REQUIRE(src.find("return g_BgunGunMemBaseSizeDefault + stageGetCurrent()->extragunmem;")
+	        == std::string::npos);
+}
+
 /* B-297 LOUDFAIL channel -- a silently-black preview FBO is a class of
  * "user reports preview is black on screen X" bugs that the warning
  * channels in `menu.c::menuRenderModel` already log per cause but that

@@ -25,6 +25,11 @@ void assetCatalogResetCustomAnimSlots(void)
     memset(s_CustomAnimCatalogIds, 0, sizeof(s_CustomAnimCatalogIds));
 }
 
+s32 assetCatalogAnimationCategoryUsesCharacterClip(const char *category)
+{
+    return !category || strcmp(category, "weapon_animation") != 0;
+}
+
 /* Dedup-or-allocate a private slot index in [0, count). Returns the local
  * index, or -1 when the range is exhausted (caller logs the loud failure). */
 static s32 s_allocate(char ids[][CATALOG_ID_LEN], s32 count,
