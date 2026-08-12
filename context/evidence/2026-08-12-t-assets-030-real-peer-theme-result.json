@@ -1,0 +1,17 @@
+{
+  "Name": "theme_archive_real_peer_distribution_smoke",
+  "Category": "scenario",
+  "BugId": null,
+  "RegressionFor": null,
+  "Passed": true,
+  "ExitCode": 0,
+  "ElapsedSeconds": 272.3294589,
+  "InstallDir": "C:\\Users\\mikeh\\Perfect-Dark-2\\perfect_dark-mike\\.claude\\smoke-verify-install",
+  "ProcessInstallDirs": [
+    "C:\\Users\\mikeh\\Perfect-Dark-2\\perfect_dark-mike\\.claude\\smoke-verify-runs\\20260812T131210Z-theme_archive_real_peer_distribution_smoke-host",
+    "C:\\Users\\mikeh\\Perfect-Dark-2\\perfect_dark-mike\\.claude\\smoke-verify-runs\\20260812T131210Z-theme_archive_real_peer_distribution_smoke-client"
+  ],
+  "AssertionsTotal": 67,
+  "AssertionsMet": 67,
+  "Failures": []
+}

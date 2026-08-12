@@ -1671,7 +1671,8 @@ TEST_CASE("folder and archive fixtures use the same external descriptor layout",
 	const auto folderScan = modmgr.find("assetCatalogScanExternalLayoutFolder(mod->id, mod->dirpath)");
 	REQUIRE(modjson != std::string::npos);
 	REQUIRE(folderScan != std::string::npos);
-	REQUIRE(modjson < folderScan);
+	REQUIRE(folderScan < modjson);
+	REQUIRE(modmgr.find("if (scan_result < 0)", folderScan) != std::string::npos);
 	REQUIRE(modmgr.find("modmgrDirHasDirectManifest") != std::string::npos);
 
 	std::string folderManifest = readFile("tests/fixtures/modpipe/external-folder/mod.json");
@@ -1751,6 +1752,28 @@ TEST_CASE("folder and archive fixtures use the same external descriptor layout",
 	REQUIRE(archiveCharacterAnim.find(".bin") == std::string::npos);
 	REQUIRE(archiveSkeletalAnim.find(".bin") == std::string::npos);
 	REQUIRE(archiveSkeletalGltf.find(".bin") == std::string::npos);
+}
+
+TEST_CASE("session package admission propagates scan rollback and exact nested sharing",
+		"[modding][network][pdxxx][b1051][b1052][T-ASSETS-030]") {
+	const std::string modmgr = readFile("port/src/modmgr.c");
+	const std::string scanner = readFile("port/src/assetcatalog_scanner.c");
+
+	REQUIRE(modmgr.find("static bool modmgrLoadMod(modinfo_t *mod)") !=
+		std::string::npos);
+	REQUIRE(modmgr.find("if (!modmgrLoadMod(mod) || !mod->loaded)") !=
+		std::string::npos);
+	REQUIRE(modmgr.find("failed transactional catalog admission") !=
+		std::string::npos);
+	REQUIRE(modmgr.find("mod->loaded = true", modmgr.find("scan_result < 0")) !=
+		std::string::npos);
+
+	REQUIRE(scanner.find("nestedContentMatchesExisting(existing, nested,") !=
+		std::string::npos);
+	REQUIRE(scanner.find("nestedContentMatchesExisting(existing, p->bytes,") !=
+		std::string::npos);
+	REQUIRE(scanner.find("!strstr(existing->dirpath, \"::\")") ==
+		std::string::npos);
 }
 
 TEST_CASE("typed pd content fixture keeps pdxxx files as content units",

@@ -46,8 +46,12 @@ cleanly (24/24 smoke). A second ordinary process reuses the unchanged installed
 package and enabled-mod state, restores the saved theme and complete nested
 closure, processes MKB navigation, and balances shutdown (31/31). The former
 stage-owner and clipped-footer blockers are implemented and live-proven under
-`T-CATALOG-002` and `T-MENUS-002`. Validation remains partial for real-peer
-package distribution plus physical controller/device-switch proof.
+`T-CATALOG-002` and `T-MENUS-002`. A clean two-peer receipt passes 67/67:
+the host distributes the typed package, the client verifies and admits it,
+the saved selection retries after hot registration, and the complete theme
+closure releases before temporary-package retirement. Validation remains
+partial only for physical controller navigation and live keyboard/controller
+device-switch glyph proof.
 
 Theme dependency ownership is implemented with source-frozen automated
 evidence under `T-ASSETS-027`. Public `theme.ini` may declare

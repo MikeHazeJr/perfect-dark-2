@@ -112,7 +112,7 @@ static void modmgrScanDirectory(void);
 static bool modmgrParseModJson(modinfo_t *mod);
 static bool modmgrParseAudioIni(modinfo_t *mod);
 static void modmgrRegisterModJsonContent(modinfo_t *mod);
-static void modmgrLoadMod(modinfo_t *mod);
+static bool modmgrLoadMod(modinfo_t *mod);
 static void modmgrUnloadAllMods(void);
 static void modmgrRebuildCatalogFromCurrentSelection(void);
 static s32  modmgrParseAudioCategoryValue(const char *value, s32 defaultCategory);
@@ -2207,10 +2207,10 @@ static void modmgrLoadAudioIni(modinfo_t *mod)
 		name, catalogId, relPath, category);
 }
 
-static void modmgrLoadMod(modinfo_t *mod)
+static bool modmgrLoadMod(modinfo_t *mod)
 {
-	if (mod->loaded) return;
-	if (!mod->valid) return; // Don't load invalid mods
+	if (mod->loaded) return true;
+	if (!mod->valid) return false; // Don't load invalid mods
 
 	if (mod->is_archive) {
 		/* Priority M / B-238: archive load path. Reopen the archive (it was
@@ -2232,7 +2232,7 @@ static void modmgrLoadMod(modinfo_t *mod)
 			sysLogPrintf(LOG_WARNING,
 				"modmgr: archive '%s' would not reopen during load (err=%d) -- mod skipped",
 				mod->archive_path, modArchiveLastError());
-			return;
+			return false;
 		}
 
 		u32 mfstSize = 0;
@@ -2255,7 +2255,7 @@ static void modmgrLoadMod(modinfo_t *mod)
 		assetCatalogScanComponentsFromArchive(mod->id, mod->archive_handle);
 
 		mod->loaded = true;
-		return;
+		return true;
 	}
 
 	sysLogPrintf(LOG_NOTE, "modmgr: loading mod '%s' from %s", mod->id, mod->dirpath);
@@ -2264,16 +2264,23 @@ static void modmgrLoadMod(modinfo_t *mod)
 		// Audio ini mod: register audio entry in catalog
 		modmgrLoadAudioIni(mod);
 	} else {
+		s32 scan_result = assetCatalogScanExternalLayoutFolder(mod->id, mod->dirpath);
+		if (scan_result < 0) {
+			sysLogPrintf(LOG_WARNING,
+				"modmgr: folder package '%s' failed transactional catalog admission (%d)",
+				mod->id, scan_result);
+			return false;
+		}
 		// D3b: Register mod.json content sections (bodies, heads, arenas) into catalog.
 		// Legacy _components content is handled by assetCatalogScanComponents().
 		modmgrRegisterModJsonContent(mod);
-		assetCatalogScanExternalLayoutFolder(mod->id, mod->dirpath);
 	}
 
 	// P2: Parse bot name overrides if this mod has them
 	modmgrParseBotNames(mod);
 
 	mod->loaded = true;
+	return true;
 }
 
 static void modmgrUnloadAllMods(void)
@@ -2612,8 +2619,7 @@ s32 modmgrRegisterSessionFolder(const char *dirpath, const char *expected_id,
 
 	mod->session_only = 1;
 	mod->enabled = 1;
-	modmgrLoadMod(mod);
-	if (!mod->loaded) {
+	if (!modmgrLoadMod(mod) || !mod->loaded) {
 		sysLogPrintf(LOG_WARNING,
 			"modmgr: session package '%s' passed identity but failed runtime loading",
 			expected_id);

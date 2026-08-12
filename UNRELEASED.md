@@ -5,6 +5,8 @@
 
 ## Highlights
 
+- Applied a joining player's saved custom theme immediately after its host
+  package arrived, including shared nested assets and balanced shutdown cleanup.
 - Restored saved custom themes and their nested UI, font, sound, and music from
   an unchanged installed mod after a full client restart.
 - Kept the last good agent, system, player, match, scenario, and binary setup

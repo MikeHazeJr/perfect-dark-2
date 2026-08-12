@@ -42,7 +42,9 @@ closed without private-manifest or built-in-data substitution. The remaining
 `.pdtheme` work stays explicit in `T-ASSETS-027` through `T-ASSETS-030`: typed
 dependency ownership, retained production consumers, self-contained Theme
 Editor output, real-peer distribution, and physical MKB/controller glyph
-evidence. Preserved-install restart passes under T-ASSETS-030.
+evidence. Preserved-install restart passes 31/31 and clean two-peer package
+distribution passes 67/67 under T-ASSETS-030; physical controller navigation
+and live keyboard/controller device-switch glyph evidence remain open.
 
 `T-ASSETS-027` is implemented with a source-frozen automated receipt: supported
 typed roles are validated and catalog-registered transactionally on every transport,

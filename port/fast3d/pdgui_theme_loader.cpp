@@ -2048,11 +2048,22 @@ s32 pdguiThemeLoaderLogActiveOwnership(const char *label)
     return ctx.count;
 }
 
-/** Issue 2/8: Rescan mods/ for new theme.json files after modmgrApplyChanges().
- *  Bypasses the s_LoaderInitDone gate — safe to call after init is complete. */
+/** Rescan the authoritative catalog after a mod or network package admission.
+ *  Bypasses the s_LoaderInitDone gate — safe to call after init is complete.
+ *  If startup preserved a saved custom choice that was not present during the
+ *  one-shot catalog-ready pass, retry it only after the row is discoverable. */
 void pdguiThemeRescanMods(void)
 {
     scan_catalog_for_themes();
+
+    if (s_ActiveThemeId[0]
+            && strcmp(s_ActivationState.active_id, s_ActiveThemeId) != 0
+            && find_entry(s_ActiveThemeId)) {
+        sysLogPrintf(LOG_NOTE,
+            "PDGUI theme loader: retrying saved theme '%s' after catalog rescan",
+            s_ActiveThemeId);
+        (void)pdguiThemeLoadFromCatalog(s_ActiveThemeId);
+    }
 }
 
 s32 pdguiThemeLoadFromCatalog(const char *catalog_id)

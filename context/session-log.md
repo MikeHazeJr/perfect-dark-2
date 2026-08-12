@@ -1,5 +1,23 @@
 # Session Log (Active)
 
+## 2026-08-12 - T-ASSETS-030 real-peer theme distribution
+
+Completed the source-frozen two-peer `.pdtheme` package path. A clean host
+distributed the editable example package to a separate clean client that had
+only its saved theme selection. The client verified and admitted the package,
+shared identical nested catalog content, retried the saved selection after hot
+registration, applied the complete UI/font/SFX/music closure before READY, and
+released all five owned rows before temporary-package retirement.
+
+The final ordinary-client receipt passes 67/67 and exits 0. Isolated
+client/updater/tests builds pass; focused B-1050 through B-1053, T-ASSETS-030,
+pdtheme, networking, and modding bands pass; the full suite passes
+56,586/1,030; native-source guard and strict all-family conformance pass.
+Evidence is
+`context/evidence/2026-08-12-t-assets-030-real-peer-theme.md`.
+T-ASSETS-030 remains partial only for physical controller navigation and live
+keyboard/controller device-switch glyph proof.
+
 ## 2026-08-12 - T-ASSETS-030 preserved-install theme restart
 
 Added a restart-only ordinary-client scenario that performs no fixture copy,

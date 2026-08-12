@@ -1,0 +1,161 @@
+{
+  "scenario_name": "theme_archive_real_peer_distribution_smoke",
+  "description": "T-ASSETS-030 real-peer proof: a listen host starts with the enabled typed-example pdmod while a clean client has only the saved example:tri_theme preference. The ready gate must transfer and admit the package over ENet, hot-register the public pdtheme plus UI/font/SFX/music closure, apply the client's local saved theme, reach READY, start the match, and shut both peers down cleanly. The older compatibility catalog sync also advertises individual package members and may reject those redundant component candidates; this receipt scopes rollback prohibitions to the authoritative example_typed_pdxxx_basic package transaction.",
+  "tags": ["modding", "pdmod", "pdxxx", "pdtheme", "theme", "network", "distribution", "real-peer", "listen-host", "t-assets-030", "smoke"],
+  "paths_of_interest": [
+    "examples/modding/typed-pdxxx-basic",
+    "port/src/net/netmanifest.c",
+    "port/src/net/netdistrib.c",
+    "port/src/modmgr.c",
+    "port/fast3d/pdgui_theme_loader.cpp",
+    "tools/smoke-verify/run.ps1"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 290,
+  "install_state": "clean",
+  "separate_process_installs": true,
+  "remove_paths": [
+    "mods/example_typed_pdxxx_basic.pdmod",
+    "mods/example_typed_pdxxx_basic",
+    "mods/installed/example_typed_pdxxx_basic.pdmod",
+    "mods/installed/example_typed_pdxxx_basic",
+    "mods/.temp/received/example_typed_pdxxx_basic",
+    "mods/.temp/pdmod/example_typed_pdxxx_basic"
+  ],
+  "fixtures": [
+    { "src": "tools/smoke-verify/fixtures/theme_archive_source_pd.ini", "dst": "pd.ini" }
+  ],
+  "processes": [
+    {
+      "name": "host",
+      "log_file": "pd-host.log",
+      "fixtures": [
+        { "src": "tools/smoke-verify/fixtures/typed_pdxxx_basic_enabled.json", "dst": "mods-enabled.json" }
+      ],
+      "packed_fixtures": [
+        { "src": "examples/modding/typed-pdxxx-basic", "dst": "mods/installed/example_typed_pdxxx_basic.pdmod" }
+      ],
+      "boot_args": [
+        "--no-update-check",
+        "--portable",
+        "--host",
+        "--listen-bind",
+        "27202",
+        "--launch-mp-room",
+        "base:arena_chicago",
+        "base:combat",
+        "0",
+        "--host-autostart",
+        "--match-timelimit-sec",
+        "180"
+      ],
+      "wait_for": "NET: created server on port 27202",
+      "wait_timeout_seconds": 140,
+      "assertions": {
+        "required_lines": [
+          "modmgr: parsed mod\\.json for 'example_typed_pdxxx_basic'.*archive=yes",
+          "PDGUI theme loader: applied 'example:tri_theme' from '",
+          "MANIFEST-HOST: built [1-9]\\d* entries",
+          "NET: ready gate: client \\d+ NEED_ASSETS \\(\\d+ missing\\), queuing transfer",
+          "DISTRIB: sending package 'example_typed_pdxxx_basic' to",
+          "NET: ready gate: client \\d+ READY",
+          "MATCH: server stage start"
+        ],
+        "forbidden_patterns": [
+          "DISTRIB: transfer set failed",
+          "NET: ready gate: client \\d+ DECLINED"
+        ]
+      }
+    },
+    {
+      "name": "client",
+      "log_file": "pd-client.log",
+      "fixtures": [
+        { "src": "tools/smoke-verify/fixtures/no_mods_enabled.json", "dst": "mods-enabled.json" }
+      ],
+      "boot_args": [
+        "--no-update-check",
+        "--portable",
+        "--connect-host",
+        "127.0.0.1:27202"
+      ],
+      "assertions": {
+        "required_lines": [
+          "PDGUI theme loader: saved theme 'example:tri_theme' not resolvable after catalog ready",
+          "MANIFEST: \\[\\s*\\d+\\] COMPONENT id='example_typed_pdxxx_basic'.*MISSING",
+          "DISTRIB: recv begin 'example_typed_pdxxx_basic' category=pdmod",
+          "DISTRIB: SHA-256 verified for 'example_typed_pdxxx_basic'",
+          "modmgr: admitted session-only package 'example_typed_pdxxx_basic'",
+          "PDGUI theme loader: retrying saved theme 'example:tri_theme' after catalog rescan",
+          "PDTHEME\\.NESTED\\.REGISTER: owner=example:tri_theme id=example:tri_reticle type=",
+          "PDTHEME\\.NESTED\\.REGISTER: owner=example:tri_theme id=example:tri_theme_font type=",
+          "PDTHEME\\.NESTED\\.REGISTER: owner=example:tri_theme id=example:tri_click type=",
+          "PDTHEME\\.NESTED\\.REGISTER: owner=example:tri_theme id=example:tri_song type=",
+          "DISTRIB: all transfers complete \\(1 received\\)",
+          "PDGUI theme loader: applied 'example:tri_theme' from '.*mods/.temp/70646d6f64/.*themes/tri_theme\\.pdtheme::theme\\.json'",
+          "PDGUI theme bundle: font='example:tri_theme_font' applied",
+          "MANIFEST: check passed .* sending READY",
+          "MATCH: client stage start received",
+          "CATALOG\\.OWNER\\.PROOF: label=shutdown_release_before id=example:tri_theme ref=1 stage_ref=0"
+        ],
+        "forbidden_patterns": [
+          "DISTRIB: catalog rejected 'example_typed_pdxxx_basic'",
+          "DISTRIB\\.CATALOG\\.ROLLBACK: id=example_typed_pdxxx_basic",
+          "NET: ready gate: client \\d+ DECLINED",
+          "PDGUI theme loader: lifecycle load failed",
+          "PDGUI theme loader: consumer preflight failed",
+          "CATALOG\\.OWNER\\.PROOF: label=shutdown_release_before id=example:tri_theme ref=-1",
+          "CATALOG\\.LIFECYCLE\\.RELEASE: 'example:tri_theme' not found"
+        ]
+      }
+    }
+  ],
+  "input_sequence": [
+    { "at_ms": 0, "type": "wait", "comment": "Only the host has the packed theme package. The client has the local saved theme ID but must receive its public source over the real ready gate before it can apply." },
+    { "at_ms": 230000, "type": "exit", "comment": "Leave enough time for two independently paced clean extraction walks, ENet package transfer/admission, theme activation, match start, and balanced two-process shutdown." }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=theme_archive_real_peer_distribution_smoke",
+      "BOOT: --listen-bind armed: port=27202",
+      "BOOT: --connect-host armed: addr='127\\.0\\.0\\.1:27202'",
+      "NET: created server on port 27202",
+      "NET: connecting to 127\\.0\\.0\\.1:27202",
+      "NET: incoming connection",
+      "NET: ready gate: client \\d+ NEED_ASSETS",
+      "DISTRIB: recv begin 'example_typed_pdxxx_basic'",
+      "DISTRIB: all transfers complete",
+      "NET: ready gate: client \\d+ READY",
+      "MATCH: server stage start",
+      "MATCH: client stage start received",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "LOUDFAIL\\.ASSETCHAIN",
+      "LOUDFAIL\\.FALLBACK",
+      "ASSET\\.FALLBACK",
+      "RomProvider:filenum",
+      "DISTRIB: unknown catalog_id",
+      "DISTRIB: server signalled failure",
+      "DISTRIB: catalog rejected 'example_typed_pdxxx_basic'",
+      "DISTRIB\\.CATALOG\\.ROLLBACK: id=example_typed_pdxxx_basic",
+      "NET: ready gate: client \\d+ DECLINED",
+      "result=FAIL",
+      "result=MISSING",
+      "CATEGORY_MISMATCH"
+    ],
+    "required_counts": [
+      { "pattern": "SMOKE: scenario=theme_archive_real_peer_distribution_smoke", "min": 2, "max": 2 },
+      { "pattern": "SMOKE: result=scripted_exit", "min": 2, "max": 2 },
+      { "pattern": "DISTRIB: all transfers complete \\(1 received\\)", "min": 1, "max": 1 },
+      { "pattern": "PDGUI theme loader: applied 'example:tri_theme'", "min": 2 },
+      { "pattern": "MATCH: client stage start received", "min": 1, "max": 1 },
+      { "pattern": "MATCH: server stage start", "min": 1, "max": 1 }
+    ]
+  }
+}

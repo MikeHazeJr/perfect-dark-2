@@ -1558,3 +1558,20 @@ TEST_CASE("temporary distribution recovery is a durable all-family lifecycle",
     REQUIRE(scanner.find("Loose theme.ini remains intentionally unsupported") !=
         std::string::npos);
 }
+
+TEST_CASE("received theme owners release before session package retirement",
+		"[net][distribution][pdtheme][b1053][T-ASSETS-030]")
+{
+	const std::string main = read_text_file("port/src/main.c");
+	const auto cleanup = main.find("static void cleanup(void)");
+	const auto theme_shutdown = main.find("pdguiShutdown();", cleanup);
+	const auto retire_session = main.find("netCrashRecoveryMarkClean();", cleanup);
+	const auto disconnect = main.find("netDisconnect();", cleanup);
+
+	REQUIRE(cleanup != std::string::npos);
+	REQUIRE(theme_shutdown != std::string::npos);
+	REQUIRE(retire_session != std::string::npos);
+	REQUIRE(disconnect != std::string::npos);
+	REQUIRE(theme_shutdown < retire_session);
+	REQUIRE(retire_session < disconnect);
+}

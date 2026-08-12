@@ -150,6 +150,26 @@ TEST_CASE("pdtheme supported fields reach fail-closed production consumers",
 	REQUIRE(glyphs.find("pdguiImU32TitleGlow") != std::string::npos);
 }
 
+TEST_CASE("peer package admission rescans themes and retries a preserved choice",
+	"[network][pdtheme][b1050][T-ASSETS-030]")
+{
+	const std::string loader = readSource("port/fast3d/pdgui_theme_loader.cpp");
+	const std::string distrib = readSource("port/src/net/netdistrib.c");
+	const size_t commit = distrib.find(
+		"pdcaExtractTransactionCommit(&install_transaction)");
+	const size_t rescan = distrib.find("pdguiThemeRescanMods();", commit);
+
+	REQUIRE(loader.find("scan_catalog_for_themes();") != std::string::npos);
+	REQUIRE(loader.find("strcmp(s_ActivationState.active_id, s_ActiveThemeId) != 0")
+		!= std::string::npos);
+	REQUIRE(loader.find("find_entry(s_ActiveThemeId)") != std::string::npos);
+	REQUIRE(loader.find("pdguiThemeLoadFromCatalog(s_ActiveThemeId)")
+		!= std::string::npos);
+	REQUIRE(commit != std::string::npos);
+	REQUIRE(rescan != std::string::npos);
+	REQUIRE(rescan > commit);
+}
+
 TEST_CASE("pdtheme field parser is transport invariant and rejects every public boundary",
 	"[modding][network][pdxxx][pdtheme][negative][T-ASSETS-030]")
 {

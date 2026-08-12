@@ -164,7 +164,12 @@ isolated client/updater/tests builds, the native-source guard, and strict
 `T-ASSETS-030` now passes its automated `.pdtheme` bands and ordinary-client
 theme receipts, including a second preserved-install process that rediscovered
 and reapplied the same nested UI/font/SFX/music closure without replacing the
-package or enabled-mod state (31/31, exit 0). `T-MENUS-002` is implemented:
+package or enabled-mod state (31/31, exit 0). A clean two-peer receipt also
+passes 67/67: the host distributes the typed package, the client verifies and
+admits it, shared identical nested content reuses the canonical rows, the
+saved theme retries after admission, and its complete closure releases before
+temporary-package retirement. Physical controller navigation and live
+keyboard/controller device-switch glyph proof remain open. `T-MENUS-002` is implemented:
 source-frozen geometry tests,
 the adjacent input/menu suite, 24/24 default-scale smoke, and 19/19
 1024x576/200% smoke pass; all four delayed frames keep the dynamic MKB footer
@@ -320,8 +325,9 @@ fallback. `T-ASSETS-029` is implemented: Theme Editor now emits and rescans a
 strict, atomic, self-contained `.pdtheme` (or embeds that archive in `.pdmod`)
 with selected production-supported typed dependencies and live action-map
 labels. Preserved-install theme restart now passes 31/31 without reseeding the
-package. Real-peer distribution plus physical controller/device-switch proof
-remains `T-ASSETS-030`.
+package, and real-peer distribution passes 67/67 from two clean installs.
+Physical controller navigation and live keyboard/controller device-switch
+glyph proof remain `T-ASSETS-030`.
 Mission briefing authority is implemented under `T-ASSETS-014`: nested public
 `.pdscenario` setup fields are the sole authored source consumed by
 `setupLoadBriefing`, and the synthetic unused `briefing.json` duplicate is

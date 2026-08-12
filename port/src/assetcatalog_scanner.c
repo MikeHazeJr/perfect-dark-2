@@ -3356,9 +3356,8 @@ static s32 effectNestedPrepareBytes(effect_nested_registration_t *registration,
 		const asset_entry_t *existing = assetCatalogResolve(child->catalog_id);
 		if (existing) {
 			if (existing->type != child->expected_type || (!existing->bundled
-					&& (!strstr(existing->dirpath, "::")
-						|| !nestedContentMatchesExisting(existing, nested,
-							nested_size)))) {
+					&& !nestedContentMatchesExisting(existing, nested,
+						nested_size))) {
 				free(nested);
 				nestedSetErr(err, err_cap,
 					"embedded effect dependency ID collision %s%s",
@@ -3693,9 +3692,8 @@ static s32 weaponNestedPrepareRecursiveEffects(
 			const asset_entry_t *existing = assetCatalogResolve(p->catalog_id);
 			if (existing) {
 				if (existing->type != ASSET_EFFECT || (!existing->bundled
-						&& (!strstr(existing->dirpath, "::")
-							|| !nestedContentMatchesExisting(existing, p->bytes,
-								p->size)))) {
+						&& !nestedContentMatchesExisting(existing, p->bytes,
+							p->size))) {
 					nestedSetErr(err, err_cap,
 						"recursive nested effect ID collision %s%s",
 						p->catalog_id, "");
@@ -3847,9 +3845,8 @@ s32 assetCatalogRegisterWeaponNestedDependencies(const char *weapon_id,
 		const asset_entry_t *existing = assetCatalogResolve(p->catalog_id);
 		if (existing) {
 			if (existing->type != expected_type || (!existing->bundled
-					&& (!strstr(existing->dirpath, "::")
-						|| !nestedContentMatchesExisting(existing, p->bytes,
-							p->size)))) {
+					&& !nestedContentMatchesExisting(existing, p->bytes,
+						p->size))) {
 				nestedSetErr(err, err_cap,
 					"nested dependency ID collision %s%s", p->catalog_id, "");
 				goto rollback;

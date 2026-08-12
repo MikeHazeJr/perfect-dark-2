@@ -786,11 +786,13 @@ static void cleanup(void)
 	sceneShutdown();
 	inputCtxShutdown();
 	updaterShutdown();
+	/* B-1053: UI consumers must release session-owned catalog references before
+	 * clean recovery retirement removes the received package rows beneath them. */
+	pdguiShutdown();
 	/* B-1044: retire and remove live session-only distribution content while
 	 * catalog/provider/runtime owners are still available. A pending recovery
 	 * decision intentionally preserves its dirty marker for the next launch. */
 	netCrashRecoveryMarkClean();
-	pdguiShutdown();
 	netDisconnect();
 	modmgrShutdown();
 	actionmapSaveBinds();

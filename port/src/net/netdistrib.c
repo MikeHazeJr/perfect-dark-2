@@ -64,6 +64,7 @@
 #include "loader_pool.h"
 #include "modmgr.h"
 #include "modarchive.h"
+#include "pdgui_theme_loader.h"
 #include "system.h"
 #include "fs.h"
 #include "config.h"
@@ -3466,6 +3467,14 @@ void netDistribClientHandleEnd(const char *catalog_id, u8 success)
                 sysLogPrintf(LOG_WARNING,
                     "DISTRIB: admitted '%s' but retained recovery backup; future replacement requires review",
                     slot->id);
+            }
+            if (package_transfer) {
+                /* B-1050: the catalog-ready theme pass is intentionally
+                 * one-shot and may have preserved a saved custom ID that did
+                 * not exist before this peer-delivered package committed.
+                 * Rescan only after catalog initialization and filesystem
+                 * publication are authoritative, then retry that saved ID. */
+                pdguiThemeRescanMods();
             }
             s_ClientStatus.received_count++;
             slot_completed = 1;

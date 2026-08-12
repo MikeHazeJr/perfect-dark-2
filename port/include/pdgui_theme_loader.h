@@ -69,9 +69,10 @@ void pdguiThemeLoaderShutdown(void);
  *  and returns the number of rows logged. This never acquires or releases. */
 s32 pdguiThemeLoaderLogActiveOwnership(const char *label);
 
-/** Rescan mods/ for new/updated theme.json files.
- *  Call after modmgrApplyChanges() so newly-installed mod themes appear
- *  without requiring a restart.  Safe to call at any time after init. */
+/** Rescan the catalog for new/updated public themes. Call after a local mod
+ *  apply or committed network-package admission so newly available themes
+ *  appear without a restart and a preserved saved choice can be retried.
+ *  Safe to call at any time after init. */
 void pdguiThemeRescanMods(void);
 
 /* -----------------------------------------------------------------------
