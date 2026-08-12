@@ -152,6 +152,15 @@ s32 catalogManagerHeadPickRandomFemale(void);
 void catalogManagerHeadInit(void);
 void catalogManagerRegisterHead(const char *id, const head_data_t *data);
 void catalogManagerUnregisterHead(const char *id);
+
+/* B-1043: exact rollback for head-manager mirrors changed during external
+ * multi-descriptor admission. */
+typedef struct catalog_manager_head_snapshot catalog_manager_head_snapshot_t;
+catalog_manager_head_snapshot_t *catalogManagerHeadSnapshotCreate(void);
+s32 catalogManagerHeadSnapshotRestore(
+		const catalog_manager_head_snapshot_t *snapshot);
+void catalogManagerHeadSnapshotDestroy(
+		catalog_manager_head_snapshot_t *snapshot);
 void catalogManagerHeadShutdown(void);
 
 #ifdef __cplusplus

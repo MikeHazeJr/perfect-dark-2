@@ -85,3 +85,16 @@ TEST_CASE("sound slots: range anchors (base adjacency + 11-bit ceiling)",
 	 * reach the mp3priority/hasconfig bit territory. */
 	REQUIRE(SND_CUSTOM_END == 0x800);
 }
+
+TEST_CASE("sound slots: admission snapshot restores reservations exactly",
+          "[catalog][sound][slots][b1043][T-CATALOG-003]") {
+	assetCatalogResetCustomSoundSlots();
+	s32 retained = assetCatalogResolveSoundPrivateSlot("mod_x:retained");
+	void *snapshot = assetCatalogSnapshotCustomSoundSlots();
+	REQUIRE(snapshot != nullptr);
+	REQUIRE(assetCatalogResolveSoundPrivateSlot("mod_x:rejected") == retained + 1);
+	REQUIRE(assetCatalogRestoreCustomSoundSlots(snapshot) == 1);
+	assetCatalogDestroyCustomSoundSlotSnapshot(snapshot);
+	REQUIRE(assetCatalogResolveSoundPrivateSlot("mod_x:replacement") == retained + 1);
+	REQUIRE(assetCatalogResolveSoundPrivateSlot("mod_x:retained") == retained);
+}

@@ -53,6 +53,20 @@ multi-descriptor
 received archive is not yet one catalog admission transaction and a single
 representative live family is not comprehensive all-family production proof.
 
+B-1043 closes the mixed-validity admission gap. One external-layout scan now
+checkpoints every state domain that descriptor registration can mutate: catalog
+rows, typed edges, FileProvider paths, private weapon/body/head/SFX/texture/
+animation/stage allocation, `g_Stages`, loader animation/body/head pools, and
+body/head manager mirrors. Recognized rejection is distinct from absence and
+latches independently of accepted siblings; rollback restores the checkpoint
+before `netdistrib` restores the prior filesystem and rebuilds indexes. The
+source-frozen automated receipt passes focused 36/6 and 3,636/19, full
+56,345/1,019, guard, structured selftest, and all-family conformance. The real
+client passes 39/39 with exact 127/128/1023 identities for all three ingress
+modes, complete 1024 rejection, and a nine-row mixed transaction restored to
+zero observable residue. T-CATALOG-003 remains partial only for comprehensive
+live all-family boundary coverage.
+
 ## 2026-08-08 stage-owner lifecycle separation
 
 Workbench `T-CATALOG-002` separates stage-category ownership from the

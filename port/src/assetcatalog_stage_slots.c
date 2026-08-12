@@ -1,4 +1,5 @@
 #include <string.h>
+#include <stdlib.h>
 
 #include <PR/ultratypes.h>
 
@@ -26,6 +27,26 @@ _Static_assert(STAGENUM_CUSTOM_END <= 0x80,
 void assetCatalogResetCustomStageSlots(void)
 {
     memset(s_CustomStageCatalogIds, 0, sizeof(s_CustomStageCatalogIds));
+}
+
+void *assetCatalogSnapshotCustomStageSlots(void)
+{
+    void *snapshot = malloc(sizeof(s_CustomStageCatalogIds));
+    if (snapshot) memcpy(snapshot, s_CustomStageCatalogIds,
+        sizeof(s_CustomStageCatalogIds));
+    return snapshot;
+}
+
+s32 assetCatalogRestoreCustomStageSlots(const void *snapshot)
+{
+    if (!snapshot) return 0;
+    memcpy(s_CustomStageCatalogIds, snapshot, sizeof(s_CustomStageCatalogIds));
+    return 1;
+}
+
+void assetCatalogDestroyCustomStageSlotSnapshot(void *snapshot)
+{
+    free(snapshot);
 }
 
 /* Dedup-or-allocate a private slot index in [0, count). Returns the local

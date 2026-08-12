@@ -1350,9 +1350,11 @@ TEST_CASE("received typed-source rejection rolls back zero and negative scanner 
         std::string::npos);
     REQUIRE(scanner.find("return rejected ? -(count + 1) : count;") !=
         std::string::npos);
-    REQUIRE(scanner.find("if (typed_result < 0) return typed_result;") !=
-        std::string::npos);
-    REQUIRE(scanner.find("had_prior_effect && !defer_reloads") !=
+	REQUIRE(scanner.find("externalScanAccumulate(scanTypedPdDescriptorsRecurse") !=
+		std::string::npos);
+	REQUIRE(scanner.find("externalScanTransactionRollback(&transaction)") !=
+		std::string::npos);
+	REQUIRE(scanner.find("if (!defer_reloads) (void)catalogReloadInvalidatedTypedAssets()") !=
         std::string::npos);
 }
 

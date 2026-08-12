@@ -625,6 +625,11 @@ asset_entry_t *assetCatalogGetMutable(const char *id);
  * must never be passed here as part of rollback. Returns 1 when removed. */
 s32 assetCatalogUnregister(const char *id);
 
+/* Scanner-transaction rollback only. Removes a row that has not acquired a
+ * payload or lifecycle reference without dependency preflight; the enclosing
+ * transaction restores the exact dependency snapshot separately. */
+s32 assetCatalogRollbackUnactivatedRegistration(const char *id);
+
 /* ========================================================================
  * Registration API
  * ======================================================================== */

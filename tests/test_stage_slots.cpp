@@ -71,3 +71,15 @@ TEST_CASE("stage slots: range anchors (logical-range + 7-bit save anchors)",
 	REQUIRE(STAGENUM_CUSTOM_START > 0x5f);
 	REQUIRE(STAGENUM_CUSTOM_END <= 0x80);
 }
+
+TEST_CASE("stage slots: admission snapshot restores reservations exactly",
+          "[catalog][stage][slots][b1043][T-CATALOG-003]") {
+	assetCatalogResetCustomStageSlots();
+	s32 retained = assetCatalogResolveStagenumPrivateSlot("mod_x:stage_retained");
+	void *snapshot = assetCatalogSnapshotCustomStageSlots();
+	REQUIRE(snapshot != nullptr);
+	REQUIRE(assetCatalogResolveStagenumPrivateSlot("mod_x:stage_rejected") == retained + 1);
+	REQUIRE(assetCatalogRestoreCustomStageSlots(snapshot) == 1);
+	assetCatalogDestroyCustomStageSlotSnapshot(snapshot);
+	REQUIRE(assetCatalogResolveStagenumPrivateSlot("mod_x:stage_replacement") == retained + 1);
+}

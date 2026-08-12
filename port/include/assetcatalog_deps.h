@@ -66,6 +66,15 @@ typedef void (*CatalogDepTypedIterFn)(const char *dep_id,
 typedef s32 (*CatalogDepKeepFn)(const char *dep_id,
 	asset_type_e expected_type, void *userdata);
 
+/* Opaque deep snapshot used by scanner-owned admission transactions. The
+ * snapshot captures every edge because a descriptor may register a reverse
+ * edge whose owner lives outside the received package (for example an
+ * animation targeting an existing body). */
+typedef struct catalog_dep_snapshot {
+	void *pairs;
+	s32 count;
+} catalog_dep_snapshot_t;
+
 /* -------------------------------------------------------------------------
  * API
  * ------------------------------------------------------------------------- */
@@ -102,6 +111,12 @@ asset_type_e catalogDepExpectedType(const char *owner_id, const char *dep_id);
  * truth. Transactional composite registrars reserve before child rows become
  * visible so later edge commits cannot be dropped by allocation failure. */
 s32 catalogDepReserve(s32 additional);
+
+/* Capture/restore the exact edge table around an all-or-nothing catalog
+ * admission. Restore consumes no source paths and does not activate assets. */
+s32 catalogDepSnapshotCreate(catalog_dep_snapshot_t *snapshot);
+s32 catalogDepSnapshotRestore(const catalog_dep_snapshot_t *snapshot);
+void catalogDepSnapshotDestroy(catalog_dep_snapshot_t *snapshot);
 
 /**
  * Iterate all deps registered for owner_id.

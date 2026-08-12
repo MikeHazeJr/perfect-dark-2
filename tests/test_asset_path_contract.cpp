@@ -241,6 +241,13 @@ TEST_CASE("every public ingestion boundary uses checked path-specific APIs",
 	const std::string runtime = pathContractRead("port/src/asset_runtime.c");
 	const std::string provider = pathContractRead("port/src/assetprovider_file.c");
 	const std::string compiler = pathContractRead("port/src/modasset_compiler.c");
+	const std::string loader_pool = pathContractRead("port/src/loader_pool.c");
+	const std::string body_manager = pathContractRead("port/src/catalog_mgr_bodies.c");
+	const std::string head_manager = pathContractRead("port/src/catalog_mgr_heads.c");
+	const std::string ingress_fixtures = pathContractRead(
+		"tools/smoke-verify/lib/Catalog-Ingress-Fixtures.ps1");
+	const std::string ingress_smoke = pathContractRead(
+		"tools/smoke-verify/tests/catalog_three_ingress_boundaries_smoke.json");
 
 	REQUIRE(scanner.find("assetPathJoinChecked") != std::string::npos);
 	REQUIRE(scanner.find("ASSET.PATH.REJECT") != std::string::npos);
@@ -255,6 +262,10 @@ TEST_CASE("every public ingestion boundary uses checked path-specific APIs",
 	REQUIRE(network.find("pdcaExtractArchiveBegin") != std::string::npos);
 	REQUIRE(network.find("pdcaExtractTransactionCommit") != std::string::npos);
 	REQUIRE(network.find("pdcaExtractTransactionRollback") != std::string::npos);
+	REQUIRE(network.find("assetCatalogScanExternalLayoutFolderDeferred") !=
+		std::string::npos);
+	REQUIRE(network.find("if (registered <= 0)") != std::string::npos);
+	REQUIRE(network.find("catalogLoadInit();") != std::string::npos);
 	REQUIRE(network.find("transactional extract failed") != std::string::npos);
 	REQUIRE(network.find("destination='%s' preserved") != std::string::npos);
 	REQUIRE(network.find("return assetPathKeyIsSource(key);") !=
@@ -268,4 +279,40 @@ TEST_CASE("every public ingestion boundary uses checked path-specific APIs",
 	REQUIRE(provider.find("rejecting over-capacity public asset path") !=
 		std::string::npos);
 	REQUIRE(compiler.find("(size_t)wrote >= out_n") != std::string::npos);
+
+	/* B-1043: accepted siblings cannot erase a recognized rejection, and the
+	 * scanner owns rollback of rows, edges, and provider-path interning before
+	 * the network layer decides whether to commit the staged filesystem tree. */
+	REQUIRE(scanner.find("external_scan_transaction_t") != std::string::npos);
+	REQUIRE(scanner.find("externalScanTransactionRollback") != std::string::npos);
+	REQUIRE(scanner.find("catalogDepSnapshotRestore") != std::string::npos);
+	REQUIRE(scanner.find("fileProviderCheckpointRestore") != std::string::npos);
+	REQUIRE(scanner.find("assetCatalogRestoreCustomWeaponSlots") !=
+		std::string::npos);
+	REQUIRE(scanner.find("stageTableSnapshotRestore") != std::string::npos);
+	REQUIRE(scanner.find("loaderPoolSnapshotRestore") != std::string::npos);
+	REQUIRE(scanner.find("catalogManagerBodySnapshotRestore") !=
+		std::string::npos);
+	REQUIRE(scanner.find("catalogManagerHeadSnapshotRestore") !=
+		std::string::npos);
+	REQUIRE(loader_pool.find("struct loader_pool_snapshot") !=
+		std::string::npos);
+	REQUIRE(loader_pool.find("memcpy(s_Guncmds, snapshot->guncmds") !=
+		std::string::npos);
+	REQUIRE(body_manager.find("struct catalog_manager_body_snapshot") !=
+		std::string::npos);
+	REQUIRE(head_manager.find("struct catalog_manager_head_snapshot") !=
+		std::string::npos);
+	REQUIRE(ingress_fixtures.find("Write-CatalogIngressPdcaEntries") !=
+		std::string::npos);
+	REQUIRE(ingress_fixtures.find("ingress:mixed_anim") !=
+		std::string::npos);
+	REQUIRE(ingress_fixtures.find("net_mixed.pdca") != std::string::npos);
+	REQUIRE(ingress_smoke.find("B-1043") != std::string::npos);
+	REQUIRE(ingress_smoke.find("loader_absent=1") != std::string::npos);
+	REQUIRE(scanner.find("return rejected ? -(count + 1) : count;") !=
+		std::string::npos);
+	REQUIRE(scanner.find("if (rejected)") != std::string::npos);
+	REQUIRE(scanner.find("CATALOG.SCAN.TRANSACTION.ROLLBACK") !=
+		std::string::npos);
 }

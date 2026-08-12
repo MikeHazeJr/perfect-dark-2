@@ -1,0 +1,66 @@
+Build env: TEMP=C:\Users\mikeh\AppData\Local\Temp | mingw64 on PATH | ccache sloppy
+WARNING: ccache compiler probe failed or timed out; building without ccache launcher.
+
+  Perfect Dark PC Port  -  Headless Build
+  Target:     tests
+  Version:    0.1.102
+  Next ver:   False (-UseNextVersion)
+  Clean:      False
+  AutoCommit: False (-AutoCommit / -CommitPush)
+  Verbose:    False
+  Cores:      24
+  Generator:  Ninja
+  BuildDir:   C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike\.claude\session-builds\tcat003atomic
+  ProjectDir: C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike
+
+  Auto-commit disabled (pass -AutoCommit to enable).
+
+  [smart-clean] Incremental build (no clean needed)
+
+------------------------------------------------------------
+  Configure (CMake - Ninja + ccache)
+------------------------------------------------------------
+  [step-log] stdout: C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike\.claude\session-builds\tcat003atomic\_build-headless-20260812-031347-configure-cmake---ninja-ccache.out.log
+  [step-log] stderr: C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike\.claude\session-builds\tcat003atomic\_build-headless-20260812-031347-configure-cmake---ninja-ccache.err.log
+  [step-log] heartbeat: C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike\.claude\session-builds\tcat003atomic\_build-headless-20260812-031347-configure-cmake---ninja-ccache.heartbeat.log
+  [step-log] exit:   C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike\.claude\session-builds\tcat003atomic\_build-headless-20260812-031347-configure-cmake---ninja-ccache.exit
+  [step-log] cmdline: C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike\.claude\session-builds\tcat003atomic\_build-headless-20260812-031347-configure-cmake---ninja-ccache.cmdline.txt
+  [heartbeat] [2026-08-12T03:13:48] Configure (CMake - Ninja + ccache) running 0s pid=5664 stdout=347b stderr=0b ninja_log=130002b
+ +                                                                          + >>> Configure (CMake - Ninja + ccache) OK (1s) <<<
+
+------------------------------------------------------------
+  Generate Headers [pd_headers]
+------------------------------------------------------------
+  [step-log] stdout: C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike\.claude\session-builds\tcat003atomic\_build-headless-20260812-031348-generate-headers-pd_headers.out.log
+  [step-log] stderr: C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike\.claude\session-builds\tcat003atomic\_build-headless-20260812-031348-generate-headers-pd_headers.err.log
+  [step-log] heartbeat: C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike\.claude\session-builds\tcat003atomic\_build-headless-20260812-031348-generate-headers-pd_headers.heartbeat.log
+  [step-log] exit:   C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike\.claude\session-builds\tcat003atomic\_build-headless-20260812-031348-generate-headers-pd_headers.exit
+  [step-log] cmdline: C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike\.claude\session-builds\tcat003atomic\_build-headless-20260812-031348-generate-headers-pd_headers.cmdline.txt
+ +                                                                          + >>> Generate Headers [pd_headers] OK (0s) <<<
+
+============================================================
+  Building: Tests  (target: pd-tests)
+  Dir:      C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike\.claude\session-builds\tcat003atomic
+============================================================
+
+------------------------------------------------------------
+  Compile [Tests]
+------------------------------------------------------------
+  [step-log] stdout: C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike\.claude\session-builds\tcat003atomic\_build-headless-20260812-031349-compile-tests.out.log
+  [step-log] stderr: C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike\.claude\session-builds\tcat003atomic\_build-headless-20260812-031349-compile-tests.err.log
+  [step-log] heartbeat: C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike\.claude\session-builds\tcat003atomic\_build-headless-20260812-031349-compile-tests.heartbeat.log
+  [step-log] exit:   C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike\.claude\session-builds\tcat003atomic\_build-headless-20260812-031349-compile-tests.exit
+  [step-log] cmdline: C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike\.claude\session-builds\tcat003atomic\_build-headless-20260812-031349-compile-tests.cmdline.txt
+  [heartbeat] [2026-08-12T03:13:49] Compile [Tests] running 0s pid=26564 stdout=272b stderr=0b ninja_log=129839b
+  |  Compile [Tests]  (6s)     /  Compile [Tests]  (11s)     [heartbeat] [2026-08-12T03:14:04] Compile [Tests] running 15s pid=26564 stdout=3990b stderr=0b ninja_log=130054b
+  -  Compile [Tests]  (18s)    +                                                                          + >>> Compile [Tests] OK (24s) <<<
+
+============================================================
+  BUILD SUMMARY
+============================================================
+  [PASS  ]  TESTS       24s
+           -> C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike\.claude\session-builds\tcat003atomic\pd-tests.exe  (67.5 MB)
+
+  Total time: 25s
+  Result: SUCCESS
+============================================================

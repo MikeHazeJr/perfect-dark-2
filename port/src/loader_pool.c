@@ -198,6 +198,34 @@ static arena_data_t s_ArenasPool[CATALOG_MGR_ARENA_COUNT];
 static s32          s_ArenasLoaderActive;
 static s32          s_ArenasRegistered;
 
+/* B-1043: external-layout admission only reaches the animation, body, and
+ * head parsers, but loaderPoolFinalize also rewrites shared animation fixups,
+ * defaults, and activation flags. Snapshot that complete mutation closure so
+ * a later rejected sibling restores byte-for-byte pool state. */
+struct loader_pool_snapshot {
+	struct guncmd guncmds[POOL_GUNCMDS];
+	pool_anim_entry_t animations[POOL_ANIMATIONS];
+	pool_anim_fixup_t anim_fixups[POOL_ANIM_FIXUPS];
+	struct invaimsettings default_aim;
+	struct noisesettings default_noise;
+	s32 guncmds_used;
+	s32 animations_used;
+	s32 anim_fixups_used;
+	const char *parse_animation_source_path;
+	s32 parse_animation_catalog_resolve_failed;
+	s32 parsing_animation_source;
+	s32 loader_active;
+	head_data_t heads[CATALOG_MGR_HEAD_TOTAL];
+	u8 heads_populated[CATALOG_MGR_HEAD_TOTAL];
+	s32 heads_loader_active;
+	s32 heads_registered;
+	body_data_t bodies[CATALOG_MGR_BODY_TOTAL];
+	u8 bodies_populated[CATALOG_MGR_BODY_TOTAL];
+	s32 bodies_loader_active;
+	s32 bodies_registered;
+	s32 arenas_loader_active;
+};
+
 /* ------------------------------------------------------------------ */
 /* Public accessors (consumed by catalog_mgr_weapons.c)               */
 /* ------------------------------------------------------------------ */
@@ -2437,6 +2465,80 @@ void loaderPoolReset(void)
 	s_ArenasLoaderActive = 0;
 	s_ArenasRegistered = 0;
 	POOL_UNLOCK();
+}
+
+loader_pool_snapshot_t *loaderPoolSnapshotCreate(void)
+{
+	loader_pool_snapshot_t *snapshot = malloc(sizeof(*snapshot));
+	if (!snapshot) return NULL;
+
+	s_poolEnsureMutex();
+	POOL_LOCK();
+	memcpy(snapshot->guncmds, s_Guncmds, sizeof(snapshot->guncmds));
+	memcpy(snapshot->animations, s_Animations, sizeof(snapshot->animations));
+	memcpy(snapshot->anim_fixups, s_AnimFixups, sizeof(snapshot->anim_fixups));
+	snapshot->default_aim = s_DefaultAim;
+	snapshot->default_noise = s_DefaultNoise;
+	snapshot->guncmds_used = s_GuncmdsUsed;
+	snapshot->animations_used = s_AnimationsUsed;
+	snapshot->anim_fixups_used = s_AnimFixupsUsed;
+	snapshot->parse_animation_source_path = s_ParseAnimationSourcePath;
+	snapshot->parse_animation_catalog_resolve_failed =
+		s_ParseAnimationCatalogResolveFailed;
+	snapshot->parsing_animation_source = s_ParsingAnimationSource;
+	snapshot->loader_active = s_LoaderActive;
+	memcpy(snapshot->heads, s_HeadsPool, sizeof(snapshot->heads));
+	memcpy(snapshot->heads_populated, s_HeadsPoolPopulated,
+		sizeof(snapshot->heads_populated));
+	snapshot->heads_loader_active = s_HeadsLoaderActive;
+	snapshot->heads_registered = s_HeadsRegistered;
+	memcpy(snapshot->bodies, s_BodiesPool, sizeof(snapshot->bodies));
+	memcpy(snapshot->bodies_populated, s_BodiesPoolPopulated,
+		sizeof(snapshot->bodies_populated));
+	snapshot->bodies_loader_active = s_BodiesLoaderActive;
+	snapshot->bodies_registered = s_BodiesRegistered;
+	snapshot->arenas_loader_active = s_ArenasLoaderActive;
+	POOL_UNLOCK();
+	return snapshot;
+}
+
+s32 loaderPoolSnapshotRestore(const loader_pool_snapshot_t *snapshot)
+{
+	if (!snapshot) return 0;
+
+	s_poolEnsureMutex();
+	POOL_LOCK();
+	memcpy(s_Guncmds, snapshot->guncmds, sizeof(s_Guncmds));
+	memcpy(s_Animations, snapshot->animations, sizeof(s_Animations));
+	memcpy(s_AnimFixups, snapshot->anim_fixups, sizeof(s_AnimFixups));
+	s_DefaultAim = snapshot->default_aim;
+	s_DefaultNoise = snapshot->default_noise;
+	s_GuncmdsUsed = snapshot->guncmds_used;
+	s_AnimationsUsed = snapshot->animations_used;
+	s_AnimFixupsUsed = snapshot->anim_fixups_used;
+	s_ParseAnimationSourcePath = snapshot->parse_animation_source_path;
+	s_ParseAnimationCatalogResolveFailed =
+		snapshot->parse_animation_catalog_resolve_failed;
+	s_ParsingAnimationSource = snapshot->parsing_animation_source;
+	s_LoaderActive = snapshot->loader_active;
+	memcpy(s_HeadsPool, snapshot->heads, sizeof(s_HeadsPool));
+	memcpy(s_HeadsPoolPopulated, snapshot->heads_populated,
+		sizeof(s_HeadsPoolPopulated));
+	s_HeadsLoaderActive = snapshot->heads_loader_active;
+	s_HeadsRegistered = snapshot->heads_registered;
+	memcpy(s_BodiesPool, snapshot->bodies, sizeof(s_BodiesPool));
+	memcpy(s_BodiesPoolPopulated, snapshot->bodies_populated,
+		sizeof(s_BodiesPoolPopulated));
+	s_BodiesLoaderActive = snapshot->bodies_loader_active;
+	s_BodiesRegistered = snapshot->bodies_registered;
+	s_ArenasLoaderActive = snapshot->arenas_loader_active;
+	POOL_UNLOCK();
+	return 1;
+}
+
+void loaderPoolSnapshotDestroy(loader_pool_snapshot_t *snapshot)
+{
+	free(snapshot);
 }
 
 s32 loaderPoolParseWeaponJson(const char *json, size_t json_len)

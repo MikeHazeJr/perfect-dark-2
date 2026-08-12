@@ -1317,7 +1317,7 @@ static void bootApplyDebugRejectCatalogIngressList(void)
 		s32 catalog_absent = assetCatalogResolve(id) ? 0 : 1;
 		s32 runtime_absent = assetRuntimeFindByTypeAndId(
 			ASSET_GAMEMODE, id) ? 0 : 1;
-		sysLogPrintf(registered == 0 && catalog_absent && runtime_absent
+		sysLogPrintf(registered <= 0 && catalog_absent && runtime_absent
 				&& dependency_count == 0
 				? LOG_NOTE : LOG_WARNING,
 			"CATALOG.INGRESS.REJECT: kind=%s id='%s' registered=%d catalog_absent=%d runtime_absent=%d deps=%d",
@@ -1797,13 +1797,26 @@ static void bootDebugLogTypedPayload(asset_type_e type, const char *asset_id, s3
 			type_name, asset_id ? asset_id : "(null)");
 		if (asset_id && strncmp(asset_id, "ingress:", 8) == 0) {
 			s32 dependency_count = 0;
+			s32 loader_absent = -1;
 			catalogDepForEachTyped(asset_id,
 				bootCountCatalogIngressDependency, &dependency_count);
+			if (type == ASSET_ANIMATION) {
+				const char *wanted = strchr(asset_id, ':');
+				wanted = wanted ? wanted + 1 : asset_id;
+				loader_absent = 1;
+				for (s32 i = 0; i < loaderPoolGetAnimationCount(); i++) {
+					const char *name = loaderPoolGetAnimationName(i);
+					if (name && strcmp(name, wanted) == 0) {
+						loader_absent = 0;
+						break;
+					}
+				}
+			}
 			sysLogPrintf(LOG_NOTE,
-				"CATALOG.INGRESS.REJECT.STATE: id='%s' catalog_absent=1 provider_absent=1 runtime_absent=%d deps=%d",
+				"CATALOG.INGRESS.REJECT.STATE: id='%s' catalog_absent=1 provider_absent=1 runtime_absent=%d deps=%d loader_absent=%d",
 				asset_id,
 				assetRuntimeFindByTypeAndId(type, asset_id) ? 0 : 1,
-				dependency_count);
+				dependency_count, loader_absent);
 		}
 		return;
 	}

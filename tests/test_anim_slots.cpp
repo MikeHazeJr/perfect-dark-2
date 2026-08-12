@@ -81,3 +81,15 @@ TEST_CASE("weapon command graphs never consume character animation slots",
 	REQUIRE(assetCatalogAnimationCategoryUsesCharacterClip(""));
 	REQUIRE(assetCatalogAnimationCategoryUsesCharacterClip(nullptr));
 }
+
+TEST_CASE("anim slots: admission snapshot restores reservations exactly",
+          "[catalog][anim][slots][b1043][T-CATALOG-003]") {
+	assetCatalogResetCustomAnimSlots();
+	s32 retained = assetCatalogResolveAnimPrivateSlot("mod_x:anim_retained");
+	void *snapshot = assetCatalogSnapshotCustomAnimSlots();
+	REQUIRE(snapshot != nullptr);
+	REQUIRE(assetCatalogResolveAnimPrivateSlot("mod_x:anim_rejected") == retained + 1);
+	REQUIRE(assetCatalogRestoreCustomAnimSlots(snapshot) == 1);
+	assetCatalogDestroyCustomAnimSlotSnapshot(snapshot);
+	REQUIRE(assetCatalogResolveAnimPrivateSlot("mod_x:anim_replacement") == retained + 1);
+}

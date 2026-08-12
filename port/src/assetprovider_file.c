@@ -19,6 +19,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "assetprovider.h"
+#include "assetprovider_internal.h"
 #include "fs.h"
 #include "system.h"
 
@@ -220,4 +221,39 @@ const char *fileProviderPath(asset_data_handle_t h)
         return NULL;
     }
     return fileProviderGetPath((s32)h.opaque[0]);
+}
+
+s32 fileProviderCheckpointCreate(file_provider_checkpoint_t *checkpoint)
+{
+    if (!checkpoint) return 0;
+    fileProviderEnsureMutex();
+    if (s_PathMutex) SDL_LockMutex(s_PathMutex);
+    checkpoint->pool_used = s_PathPoolUsed;
+    checkpoint->path_count = s_PathCount;
+    checkpoint->warned = s_Warned;
+    if (s_PathMutex) SDL_UnlockMutex(s_PathMutex);
+    return 1;
+}
+
+s32 fileProviderCheckpointRestore(const file_provider_checkpoint_t *checkpoint)
+{
+	if (!checkpoint) return 0;
+	fileProviderEnsureMutex();
+	if (s_PathMutex) SDL_LockMutex(s_PathMutex);
+	if (checkpoint->pool_used < 1 || checkpoint->pool_used > s_PathPoolUsed
+			|| checkpoint->path_count < 0
+			|| checkpoint->path_count > s_PathCount) {
+		if (s_PathMutex) SDL_UnlockMutex(s_PathMutex);
+		return 0;
+	}
+    memset(&s_PathPool[checkpoint->pool_used], 0,
+        (size_t)(s_PathPoolUsed - checkpoint->pool_used));
+    memset(&s_PathOffsets[checkpoint->path_count], 0,
+        (size_t)(s_PathCount - checkpoint->path_count)
+            * sizeof(s_PathOffsets[0]));
+    s_PathPoolUsed = checkpoint->pool_used;
+    s_PathCount = checkpoint->path_count;
+    s_Warned = checkpoint->warned;
+    if (s_PathMutex) SDL_UnlockMutex(s_PathMutex);
+    return 1;
 }

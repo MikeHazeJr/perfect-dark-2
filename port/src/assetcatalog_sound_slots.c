@@ -1,4 +1,5 @@
 #include <string.h>
+#include <stdlib.h>
 
 #include <PR/ultratypes.h>
 
@@ -25,6 +26,26 @@ _Static_assert(SND_CUSTOM_END <= 0x800,
 void assetCatalogResetCustomSoundSlots(void)
 {
     memset(s_CustomSoundCatalogIds, 0, sizeof(s_CustomSoundCatalogIds));
+}
+
+void *assetCatalogSnapshotCustomSoundSlots(void)
+{
+    void *snapshot = malloc(sizeof(s_CustomSoundCatalogIds));
+    if (snapshot) memcpy(snapshot, s_CustomSoundCatalogIds,
+        sizeof(s_CustomSoundCatalogIds));
+    return snapshot;
+}
+
+s32 assetCatalogRestoreCustomSoundSlots(const void *snapshot)
+{
+    if (!snapshot) return 0;
+    memcpy(s_CustomSoundCatalogIds, snapshot, sizeof(s_CustomSoundCatalogIds));
+    return 1;
+}
+
+void assetCatalogDestroyCustomSoundSlotSnapshot(void *snapshot)
+{
+    free(snapshot);
 }
 
 /* Dedup-or-allocate a private slot index in [0, count). Returns the local

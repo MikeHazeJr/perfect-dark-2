@@ -1,4 +1,5 @@
 #include <string.h>
+#include <stdlib.h>
 
 #include <PR/ultratypes.h>
 
@@ -10,6 +11,11 @@
 #include "system.h"
 
 static char s_CustomWeaponCatalogIds[MPWEAPON_CUSTOM_COUNT][CATALOG_ID_LEN];
+
+typedef struct weapon_slot_snapshot {
+    char ids[MPWEAPON_CUSTOM_COUNT][CATALOG_ID_LEN];
+    struct mpweapon rows[MPWEAPON_CUSTOM_COUNT];
+} weapon_slot_snapshot_t;
 
 _Static_assert(MPWEAPON_CUSTOM_END == 64,
     "MP weapon identities must fit the persisted 64-bit random-filter field");
@@ -51,6 +57,32 @@ void assetCatalogResetCustomWeaponSlots(void)
         memset(&g_MpWeapons[mp_weapon_id], 0, sizeof(g_MpWeapons[mp_weapon_id]));
         g_MpWeapons[mp_weapon_id].weaponnum = WEAPON_DISABLED;
     }
+}
+
+void *assetCatalogSnapshotCustomWeaponSlots(void)
+{
+    weapon_slot_snapshot_t *snapshot = malloc(sizeof(*snapshot));
+    if (!snapshot) return NULL;
+    memcpy(snapshot->ids, s_CustomWeaponCatalogIds, sizeof(snapshot->ids));
+    memcpy(snapshot->rows, &g_MpWeapons[MPWEAPON_CUSTOM_START],
+        sizeof(snapshot->rows));
+    return snapshot;
+}
+
+s32 assetCatalogRestoreCustomWeaponSlots(const void *opaque)
+{
+    const weapon_slot_snapshot_t *snapshot = opaque;
+    if (!snapshot) return 0;
+    memcpy(s_CustomWeaponCatalogIds, snapshot->ids,
+        sizeof(s_CustomWeaponCatalogIds));
+    memcpy(&g_MpWeapons[MPWEAPON_CUSTOM_START], snapshot->rows,
+        sizeof(snapshot->rows));
+    return 1;
+}
+
+void assetCatalogDestroyCustomWeaponSlotSnapshot(void *snapshot)
+{
+    free(snapshot);
 }
 
 static s32 s_allocateCustomWeaponSlot(const char *catalog_id)

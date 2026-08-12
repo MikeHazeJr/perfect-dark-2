@@ -120,3 +120,18 @@ TEST_CASE("body and head slot domains are independent",
 	REQUIRE(b == CATALOG_MGR_BODY_CUSTOM_START);
 	REQUIRE(h == CATALOG_MGR_HEAD_CUSTOM_START);
 }
+
+TEST_CASE("body and head admission snapshot restores both domains",
+          "[catalog][bodyhead][slots][b1043][T-CATALOG-003]") {
+	assetCatalogResetCustomBodyHeadSlots();
+	s32 body = assetCatalogResolveBodyPrivateSlot("mod_x:body_retained");
+	s32 head = assetCatalogResolveHeadPrivateSlot("mod_x:head_retained");
+	void *snapshot = assetCatalogSnapshotCustomBodyHeadSlots();
+	REQUIRE(snapshot != nullptr);
+	REQUIRE(assetCatalogResolveBodyPrivateSlot("mod_x:body_rejected") == body + 1);
+	REQUIRE(assetCatalogResolveHeadPrivateSlot("mod_x:head_rejected") == head + 1);
+	REQUIRE(assetCatalogRestoreCustomBodyHeadSlots(snapshot) == 1);
+	assetCatalogDestroyCustomBodyHeadSlotSnapshot(snapshot);
+	REQUIRE(assetCatalogResolveBodyPrivateSlot("mod_x:body_replacement") == body + 1);
+	REQUIRE(assetCatalogResolveHeadPrivateSlot("mod_x:head_replacement") == head + 1);
+}

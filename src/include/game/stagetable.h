@@ -9,6 +9,9 @@ void stageTableInit(void);
 void stageTableReset(void);
 struct stagetableentry *stageGetEntry(s32 index);
 s32 stageTableAppend(const struct stagetableentry *entry);
+void *stageTableSnapshotCreate(void);
+s32 stageTableSnapshotRestore(const void *snapshot);
+void stageTableSnapshotDestroy(void *snapshot);
 
 /* Existing lookup functions */
 struct stagetableentry *stageGetCurrent(void);

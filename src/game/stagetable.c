@@ -111,6 +111,11 @@ static const struct stagetableentry s_StagesInit[] = {
 struct stagetableentry *g_Stages = NULL;
 s32 g_NumStages = 0;
 
+typedef struct stage_table_snapshot {
+	struct stagetableentry *rows;
+	s32 count;
+} stage_table_snapshot_t;
+
 /* Phase 2: Copy static init table to heap so mod stages can be appended. */
 void stageTableInit(void)
 {
@@ -146,6 +151,50 @@ s32 stageTableAppend(const struct stagetableentry *entry)
 	g_Stages = newbuf;
 	g_Stages[g_NumStages] = *entry;
 	return g_NumStages++;
+}
+
+void *stageTableSnapshotCreate(void)
+{
+	stage_table_snapshot_t *snapshot = malloc(sizeof(*snapshot));
+	if (!snapshot) return NULL;
+	snapshot->rows = NULL;
+	snapshot->count = g_NumStages;
+	if (g_NumStages > 0) {
+		snapshot->rows = malloc((size_t)g_NumStages * sizeof(*snapshot->rows));
+		if (!snapshot->rows) {
+			free(snapshot);
+			return NULL;
+		}
+		memcpy(snapshot->rows, g_Stages,
+			(size_t)g_NumStages * sizeof(*snapshot->rows));
+	}
+	return snapshot;
+}
+
+s32 stageTableSnapshotRestore(const void *opaque)
+{
+	const stage_table_snapshot_t *snapshot = opaque;
+	struct stagetableentry *rows = NULL;
+	if (!snapshot || snapshot->count < 0
+			|| (snapshot->count > 0 && !snapshot->rows)) return 0;
+	if (snapshot->count > 0) {
+		rows = malloc((size_t)snapshot->count * sizeof(*rows));
+		if (!rows) return 0;
+		memcpy(rows, snapshot->rows,
+			(size_t)snapshot->count * sizeof(*rows));
+	}
+	free(g_Stages);
+	g_Stages = rows;
+	g_NumStages = snapshot->count;
+	return 1;
+}
+
+void stageTableSnapshotDestroy(void *opaque)
+{
+	stage_table_snapshot_t *snapshot = opaque;
+	if (!snapshot) return;
+	free(snapshot->rows);
+	free(snapshot);
 }
 
 /* Phase 2: Reset stage table to the pristine base-game state.

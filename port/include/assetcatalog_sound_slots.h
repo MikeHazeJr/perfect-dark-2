@@ -32,6 +32,9 @@ extern "C" {
 /* Reset all custom sound slot reservations. Called wherever the catalog is
  * rebuilt, beside the other custom-slot resets. */
 void assetCatalogResetCustomSoundSlots(void);
+void *assetCatalogSnapshotCustomSoundSlots(void);
+s32 assetCatalogRestoreCustomSoundSlots(const void *snapshot);
+void assetCatalogDestroyCustomSoundSlotSnapshot(void *snapshot);
 
 /* Resolve a catalog-owned private soundnum for a custom SFX/VOICE row with no
  * authored sound_id. Dedups by catalog id (same id -> same slot). Returns a

@@ -1,4 +1,5 @@
 #include <string.h>
+#include <stdlib.h>
 
 #include <PR/ultratypes.h>
 
@@ -17,10 +18,42 @@
 static char s_CustomBodyCatalogIds[CATALOG_MGR_BODY_CUSTOM_COUNT][CATALOG_ID_LEN];
 static char s_CustomHeadCatalogIds[CATALOG_MGR_HEAD_CUSTOM_COUNT][CATALOG_ID_LEN];
 
+typedef struct body_head_slot_snapshot {
+    char bodies[CATALOG_MGR_BODY_CUSTOM_COUNT][CATALOG_ID_LEN];
+    char heads[CATALOG_MGR_HEAD_CUSTOM_COUNT][CATALOG_ID_LEN];
+} body_head_slot_snapshot_t;
+
 void assetCatalogResetCustomBodyHeadSlots(void)
 {
     memset(s_CustomBodyCatalogIds, 0, sizeof(s_CustomBodyCatalogIds));
     memset(s_CustomHeadCatalogIds, 0, sizeof(s_CustomHeadCatalogIds));
+}
+
+void *assetCatalogSnapshotCustomBodyHeadSlots(void)
+{
+    body_head_slot_snapshot_t *snapshot = malloc(sizeof(*snapshot));
+    if (!snapshot) return NULL;
+    memcpy(snapshot->bodies, s_CustomBodyCatalogIds,
+        sizeof(snapshot->bodies));
+    memcpy(snapshot->heads, s_CustomHeadCatalogIds,
+        sizeof(snapshot->heads));
+    return snapshot;
+}
+
+s32 assetCatalogRestoreCustomBodyHeadSlots(const void *opaque)
+{
+    const body_head_slot_snapshot_t *snapshot = opaque;
+    if (!snapshot) return 0;
+    memcpy(s_CustomBodyCatalogIds, snapshot->bodies,
+        sizeof(s_CustomBodyCatalogIds));
+    memcpy(s_CustomHeadCatalogIds, snapshot->heads,
+        sizeof(s_CustomHeadCatalogIds));
+    return 1;
+}
+
+void assetCatalogDestroyCustomBodyHeadSlotSnapshot(void *snapshot)
+{
+    free(snapshot);
 }
 
 /* Dedup-or-allocate a private slot index in [0, count). Returns the local

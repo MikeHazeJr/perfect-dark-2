@@ -84,6 +84,45 @@ s32 catalogDepReserve(s32 additional)
     return 1;
 }
 
+s32 catalogDepSnapshotCreate(catalog_dep_snapshot_t *snapshot)
+{
+    if (!snapshot) return 0;
+    memset(snapshot, 0, sizeof(*snapshot));
+    if (s_NumDepPairs <= 0) return 1;
+    snapshot->pairs = malloc((size_t)s_NumDepPairs * sizeof(s_DepPair));
+    if (!snapshot->pairs) return 0;
+    memcpy(snapshot->pairs, s_DepTable,
+        (size_t)s_NumDepPairs * sizeof(s_DepPair));
+    snapshot->count = s_NumDepPairs;
+    return 1;
+}
+
+s32 catalogDepSnapshotRestore(const catalog_dep_snapshot_t *snapshot)
+{
+    s_DepPair *restored = NULL;
+    if (!snapshot || snapshot->count < 0
+            || (snapshot->count > 0 && !snapshot->pairs)) return 0;
+    if (snapshot->count > 0) {
+        restored = (s_DepPair *)malloc(
+            (size_t)snapshot->count * sizeof(s_DepPair));
+        if (!restored) return 0;
+        memcpy(restored, snapshot->pairs,
+            (size_t)snapshot->count * sizeof(s_DepPair));
+    }
+    free(s_DepTable);
+    s_DepTable = restored;
+    s_DepCap = snapshot->count;
+    s_NumDepPairs = snapshot->count;
+    return 1;
+}
+
+void catalogDepSnapshotDestroy(catalog_dep_snapshot_t *snapshot)
+{
+    if (!snapshot) return;
+    free(snapshot->pairs);
+    memset(snapshot, 0, sizeof(*snapshot));
+}
+
 s32 catalogDepRegisterTyped(const char *owner_id, const char *dep_id,
 	asset_type_e expected_type, s32 is_bundled)
 {

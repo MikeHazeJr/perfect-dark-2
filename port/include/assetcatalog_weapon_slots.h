@@ -11,6 +11,9 @@ extern "C" {
 #endif
 
 void assetCatalogResetCustomWeaponSlots(void);
+void *assetCatalogSnapshotCustomWeaponSlots(void);
+s32 assetCatalogRestoreCustomWeaponSlots(const void *snapshot);
+void assetCatalogDestroyCustomWeaponSlotSnapshot(void *snapshot);
 s32 assetCatalogResolveWeaponPrivateSlots(const char *catalog_id,
         s32 authored_runtime_weapon_id, s32 has_authored_runtime_weapon_id,
         s32 *runtime_weapon_id_out, s32 *mp_weapon_id_out);

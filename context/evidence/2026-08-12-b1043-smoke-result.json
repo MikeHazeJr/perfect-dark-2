@@ -1,0 +1,14 @@
+{
+  "Name": "catalog_three_ingress_boundaries_smoke",
+  "Category": "scenario",
+  "BugId": null,
+  "RegressionFor": null,
+  "Passed": true,
+  "ExitCode": 0,
+  "ElapsedSeconds": 71.7379311,
+  "InstallDir": "C:\\Users\\mikeh\\Perfect-Dark-2\\perfect_dark-mike\\.claude\\smoke-verify-install",
+  "Screenshots": [],
+  "AssertionsTotal": 39,
+  "AssertionsMet": 39,
+  "Failures": []
+}

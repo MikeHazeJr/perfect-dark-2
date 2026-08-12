@@ -19,6 +19,7 @@
 
 #include <ultra64.h>
 #include <stddef.h>
+#include <stdlib.h>
 #include <string.h>
 #include "data.h"
 #include "types.h"
@@ -55,6 +56,35 @@ _Static_assert(CATALOG_MGR_HEAD_TOTAL_PURE == CATALOG_MGR_HEAD_TOTAL,
  * [152, TOTAL) is valid storage indexable directly by the render path. */
 static head_data_t s_Heads[CATALOG_MGR_HEAD_TOTAL];
 static s32 s_HeadsInited = 0;
+
+struct catalog_manager_head_snapshot {
+	head_data_t heads[CATALOG_MGR_HEAD_TOTAL];
+	s32 inited;
+};
+
+catalog_manager_head_snapshot_t *catalogManagerHeadSnapshotCreate(void)
+{
+	catalog_manager_head_snapshot_t *snapshot = malloc(sizeof(*snapshot));
+	if (!snapshot) return NULL;
+	memcpy(snapshot->heads, s_Heads, sizeof(snapshot->heads));
+	snapshot->inited = s_HeadsInited;
+	return snapshot;
+}
+
+s32 catalogManagerHeadSnapshotRestore(
+		const catalog_manager_head_snapshot_t *snapshot)
+{
+	if (!snapshot) return 0;
+	memcpy(s_Heads, snapshot->heads, sizeof(s_Heads));
+	s_HeadsInited = snapshot->inited;
+	return 1;
+}
+
+void catalogManagerHeadSnapshotDestroy(
+		catalog_manager_head_snapshot_t *snapshot)
+{
+	free(snapshot);
+}
 
 static void s_populateFromAuthored(s32 headnum)
 {

@@ -4,7 +4,7 @@
 > [session-log.md](session-log.md). The Workbench is the durable live tracker.
 > Historical card detail remains in the retired Kanban archive and bug ledger.
 
-Last updated: 2026-08-11
+Last updated: 2026-08-12
 
 `T-ASSETS-012/019/032/034/035/036` are implemented after the source-frozen
 Wave 11 receipt. Public v2 profile libraries still apply all 26 explosion, 27
@@ -228,6 +228,20 @@ all-family conformance also pass. Keep T-CATALOG-003 partial: live all-family
 coverage and catalog-atomic rejection of mixed-validity, multi-descriptor
 received archives remain explicit residuals. Evidence:
 `context/evidence/2026-08-08-t-catalog-003-three-ingress.md`.
+
+B-1043 closes the mixed-validity residual without weakening the all-family
+boundary. External-layout admission now owns one deep checkpoint for catalog
+rows, typed edges, FileProvider paths, private weapon/body/head/SFX/texture/
+animation/stage allocators, `g_Stages`, loader pools, and body/head manager
+mirrors. Any recognized sibling rejection restores the full checkpoint and
+returns a negative aggregate before received filesystem publication can commit.
+Frozen client/updater/tests, focused 36/6 and 3,636/19, full 56,345/1,019,
+native-source guard, structured selftest, and all-27-family conformance pass.
+The installed client passes 39/39 and exits 0 with nine earlier `net_mixed`
+descriptors rolled back and every probed identity absent. Keep T-CATALOG-003
+partial only for comprehensive live all-family standalone, nested `.pdmod`,
+and received-network boundary proof. Evidence:
+`context/evidence/2026-08-12-t-catalog-003-atomic-admission.md`.
 
 **2026-08-08 ACTIVE ROADMAP EXECUTION.** The canonical Workbench routes the
 live asset program ahead of 36 explicitly deferred historical/manual-resume

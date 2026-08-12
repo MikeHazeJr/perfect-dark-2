@@ -1,0 +1,1 @@
+asset-archive conformance ok: root_archives=28 checked_archives=52 families=.pdanim, .pdarena, .pdbody, .pdbotprofile, .pdcharacter, .pdeffect, .pdentity, .pdfont, .pdgamemode, .pdhead, .pdhud, .pdlang, .pdmaterial, .pdmesh, .pdmission, .pdprojectile, .pdprop, .pdscenario, .pdsfx, .pdskin, .pdsong, .pdtexture, .pdtheme, .pdui, .pdvehicle, .pdvoice, .pdweapon

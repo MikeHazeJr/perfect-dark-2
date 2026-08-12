@@ -1765,6 +1765,8 @@ TEST_CASE("assetprovider internal header stays inside approved implementation fi
 		"port/src/assetload.c",
 		"port/src/assetcatalog.c",
 		"port/src/assetcatalog_api.c",
+		"port/src/assetcatalog_scanner.c",
+		"port/src/assetprovider_file.c",
 		"port/src/server_stubs.c",
 	};
 	std::vector<std::string> violations;

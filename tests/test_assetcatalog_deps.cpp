@@ -136,6 +136,39 @@ TEST_CASE("catalog dependency graph reservation does not mutate truth",
 	catalogDepClear();
 }
 
+TEST_CASE("catalog dependency snapshot restores mixed-descriptor admission exactly",
+		"[catalog][network][deps][b1043][T-CATALOG-003]")
+{
+	catalogDepClear();
+	REQUIRE(catalogDepRegisterTyped("prior:owner", "prior:audio",
+		ASSET_AUDIO, 0));
+	catalog_dep_snapshot_t snapshot{};
+	REQUIRE(catalogDepSnapshotCreate(&snapshot));
+
+	/* Model an earlier valid sibling, a replacement that prunes its old edge,
+	 * and a reverse edge registered by a later descriptor before rejection. */
+	REQUIRE(catalogDepRegisterTyped("candidate:valid", "candidate:texture",
+		ASSET_TEXTURE, 0));
+	REQUIRE(catalogDepRegisterTyped("existing:body", "candidate:animation",
+		ASSET_ANIMATION, 0));
+	ExactDeps replacement{{{"candidate:material", ASSET_MATERIAL}}};
+	REQUIRE(catalogDepRegisterTyped("prior:owner", "candidate:material",
+		ASSET_MATERIAL, 0));
+	catalogDepPruneOwner("prior:owner", keepExactDep, &replacement);
+	REQUIRE(catalogDepCount() == 3);
+
+	REQUIRE(catalogDepSnapshotRestore(&snapshot));
+	REQUIRE(catalogDepCount() == 1);
+	REQUIRE(catalogDepContains("prior:owner", "prior:audio"));
+	REQUIRE(catalogDepExpectedType("prior:owner", "prior:audio") == ASSET_AUDIO);
+	REQUIRE_FALSE(catalogDepContains("candidate:valid", "candidate:texture"));
+	REQUIRE_FALSE(catalogDepContains("existing:body", "candidate:animation"));
+	REQUIRE_FALSE(catalogDepContains("prior:owner", "candidate:material"));
+
+	catalogDepSnapshotDestroy(&snapshot);
+	catalogDepClear();
+}
+
 TEST_CASE("catalog dependency graph skips bundled pairs during manifest expansion",
           "[modding][pdxxx][deps][c3844][source][static]")
 {

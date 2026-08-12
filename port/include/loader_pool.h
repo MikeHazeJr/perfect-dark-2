@@ -41,6 +41,15 @@ extern "C" {
  * pool. */
 void loaderPoolReset(void);
 
+/* B-1043: external-layout admission can parse animation/body/head sources
+ * before a later sibling descriptor rejects. Preserve every loader-owned
+ * arena and activation flag so the enclosing catalog transaction can restore
+ * the exact pre-scan state instead of leaving unreachable pool records. */
+typedef struct loader_pool_snapshot loader_pool_snapshot_t;
+loader_pool_snapshot_t *loaderPoolSnapshotCreate(void);
+s32 loaderPoolSnapshotRestore(const loader_pool_snapshot_t *snapshot);
+void loaderPoolSnapshotDestroy(loader_pool_snapshot_t *snapshot);
+
 /* Per-asset JSON parsers. `json` points at NUL-terminated JSON loaded
  * by the walker scaffold (plain or extracted from a ZIP manifest). The
  * envelope's index field (`weapon_id` / `headnum` / `bodynum` /

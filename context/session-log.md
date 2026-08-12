@@ -1,5 +1,35 @@
 # Session Log (Active)
 
+## 2026-08-12 - T-CATALOG-003 B-1043 atomic mixed-descriptor admission
+
+Closed the mixed-validity received-archive residual without narrowing the
+public-source contract. External-layout scanning now distinguishes an absent
+descriptor from a recognized rejection, latches any sibling failure separately
+from the accepted count, and owns one deep transaction across catalog rows,
+typed edges, FileProvider intern paths, private weapon/body/head/SFX/texture/
+animation/stage allocators, `g_Stages`, loader animation/body/head pools, and
+body/head manager mirrors. Any rejected sibling restores the entire checkpoint;
+`netdistrib` then rolls back the published PDCA candidate, restores the prior
+filesystem, rebuilds invalidated roots, and leaves `received_count` unchanged.
+
+The first expanded client run was rejected as evidence after it exposed stale
+fixture modeling: production receive storage hex-encodes category and public ID,
+but the fixture still calculated boundary members from the retired readable
+path. Its `net_mixed` transaction nevertheless proved accepted=9 rollback with
+zero probed residue. The fixture now derives the exact production storage
+segments, so its network FileProvider paths are truly 127, 128, 1023, and 1024
+bytes. The unchanged production binary then passes 39/39 and exits 0 at
+`context/evidence/2026-08-12-b1043-smoke-result.json`.
+
+Frozen verification also passes client/updater/tests compilation, `[b1043]`
+36 assertions/6 cases, `[T-CATALOG-003]` 3,636/19, the complete 56,345/1,019
+suite, native-source guard, conformance selftest with 16 parity plus recursion
+plus 9 structured contracts, and 28-root/52-recursive all-27-family
+conformance. T-CATALOG-003 remains partial only for comprehensive live
+all-family standalone, nested `.pdmod`, and received-network boundary proof.
+Durable detail:
+`context/evidence/2026-08-12-t-catalog-003-atomic-admission.md`.
+
 ## 2026-08-12 - V-009 final-source real-peer Needler and random-stage pass
 
 Closed the B-1034 through B-1042 real-peer chain on one final 37-file source,

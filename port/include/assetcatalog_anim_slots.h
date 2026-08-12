@@ -43,6 +43,9 @@ extern "C" {
 /* Reset all custom anim slot reservations. Called wherever the catalog is
  * rebuilt, beside the other custom-slot resets. */
 void assetCatalogResetCustomAnimSlots(void);
+void *assetCatalogSnapshotCustomAnimSlots(void);
+s32 assetCatalogRestoreCustomAnimSlots(const void *snapshot);
+void assetCatalogDestroyCustomAnimSlotSnapshot(void *snapshot);
 
 /* Weapon-animation archives contain editable command graphs, not character
  * clip data. They must never consume or publish a character animnum. Unknown

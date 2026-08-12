@@ -141,6 +141,15 @@ void catalogManagerResetAllBodyModeldefs(void);
 void catalogManagerBodyInit(void);
 void catalogManagerRegisterBody(const char *id, const body_data_t *data);
 void catalogManagerUnregisterBody(const char *id);
+
+/* B-1043: exact rollback for body-manager mirrors changed during external
+ * multi-descriptor admission. */
+typedef struct catalog_manager_body_snapshot catalog_manager_body_snapshot_t;
+catalog_manager_body_snapshot_t *catalogManagerBodySnapshotCreate(void);
+s32 catalogManagerBodySnapshotRestore(
+		const catalog_manager_body_snapshot_t *snapshot);
+void catalogManagerBodySnapshotDestroy(
+		catalog_manager_body_snapshot_t *snapshot);
 void catalogManagerBodyShutdown(void);
 
 #ifdef __cplusplus

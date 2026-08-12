@@ -27,6 +27,9 @@ extern "C" {
 /* Reset all custom body/head slot reservations. Called wherever the catalog is
  * rebuilt, beside assetCatalogResetCustomWeaponSlots(). */
 void assetCatalogResetCustomBodyHeadSlots(void);
+void *assetCatalogSnapshotCustomBodyHeadSlots(void);
+s32 assetCatalogRestoreCustomBodyHeadSlots(const void *snapshot);
+void assetCatalogDestroyCustomBodyHeadSlotSnapshot(void *snapshot);
 
 /* Resolve a catalog-owned private runtime slot for a custom body with no legacy
  * bodynum. Dedups by catalog id (same id -> same slot). Returns a slot in

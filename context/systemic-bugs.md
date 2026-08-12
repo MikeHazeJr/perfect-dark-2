@@ -170,6 +170,28 @@ state unchanged. A positive aggregate scanner count is not sufficient for a
 mixed-validity multi-descriptor archive; that broader catalog transaction
 remains T-CATALOG-003 residual work.
 
+**2026-08-12 mixed-descriptor root cause:** B-1043 confirms the residual is an
+admission-result and mutation-ownership defect, not another filesystem staging
+failure. Loose descriptor rejection is represented by the same zero used for
+an absent descriptor, while successful siblings increment a shared count.
+Typed recursion preserves a negative result but does not own rollback of rows
+published by earlier sibling scans. The network boundary therefore cannot infer
+all-or-nothing catalog truth from `registered > 0`. The scanner transaction must
+latch any recognized rejection independently of accepted count and restore all
+rows and dependency edges it changed before the PDCA transaction can commit.
+
+**2026-08-12 mixed-descriptor closure:** B-1043 now gives the complete external
+layout scan one deep checkpoint spanning catalog rows, dependency edges,
+FileProvider intern paths, every private runtime allocator, `g_Stages`, loader
+animation/body/head pools, and body/head manager mirrors. A recognized sibling
+rejection latches independently of the accepted count, restores the checkpoint,
+and returns a negative result before the network layer decides whether to commit
+its filesystem transaction. The installed-client `net_mixed` fixture proves
+nine earlier registrations followed by one rejection restore all probed state;
+the corrected three-ingress receipt passes 39/39. SP-32 remains open only for
+the comprehensive live all-family boundary matrix, not mixed-descriptor
+atomicity.
+
 **Semantic boundary:** Widen and validate only fields that carry filesystem or
 qualified archive-member paths. Do not widen IDs, names, descriptions,
 archetypes, shader IDs, voice contexts, or other bounded metadata merely

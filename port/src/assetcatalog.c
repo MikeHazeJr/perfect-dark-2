@@ -755,19 +755,11 @@ asset_entry_t *assetCatalogRegister(const char *id, asset_type_e type)
     return entry;
 }
 
-s32 assetCatalogUnregister(const char *id)
+static s32 s_unregisterLocked(const char *id)
 {
     s32 pool_idx = SENTINEL;
     s32 removed = 0;
 
-    if (!id || !id[0]) return 0;
-    {
-        const asset_entry_t *prior = assetCatalogResolve(id);
-        if (prior && !catalogPrepareTypedAssetReplacement(prior->type, id)) {
-            return 0;
-        }
-    }
-    CATALOG_LOCK();
     if (s_HashTable && s_EntryPool && s_HashTableSize > 0) {
         u32 id_hash = fnv1a(id);
         if (findSlot(id_hash, id, &pool_idx) >= 0
@@ -791,6 +783,42 @@ s32 assetCatalogUnregister(const char *id)
             removed = 1;
         }
     }
+    return removed;
+}
+
+s32 assetCatalogUnregister(const char *id)
+{
+    if (!id || !id[0]) return 0;
+    {
+        const asset_entry_t *prior = assetCatalogResolve(id);
+        if (prior && !catalogPrepareTypedAssetReplacement(prior->type, id)) {
+            return 0;
+        }
+    }
+    CATALOG_LOCK();
+    s32 removed = s_unregisterLocked(id);
+    CATALOG_UNLOCK();
+    return removed;
+}
+
+s32 assetCatalogRollbackUnactivatedRegistration(const char *id)
+{
+    s32 removable = 0;
+    if (!id || !id[0]) return 0;
+    CATALOG_LOCK();
+    if (s_HashTable && s_EntryPool && s_HashTableSize > 0) {
+        s32 pool_idx = SENTINEL;
+        u32 id_hash = fnv1a(id);
+        if (findSlot(id_hash, id, &pool_idx) >= 0
+                && pool_idx != SENTINEL
+                && pool_idx >= 0 && pool_idx < s_EntryPoolSize) {
+            const asset_entry_t *entry = &s_EntryPool[pool_idx];
+            removable = entry->occupied && entry->loaded_data == NULL
+                && entry->ref_count == 0 && entry->stage_ref_count == 0
+                && entry->load_state <= ASSET_STATE_ENABLED;
+        }
+    }
+    s32 removed = removable ? s_unregisterLocked(id) : 0;
     CATALOG_UNLOCK();
     return removed;
 }

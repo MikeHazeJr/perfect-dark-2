@@ -1,4 +1,5 @@
 #include <string.h>
+#include <stdlib.h>
 
 #include <PR/ultratypes.h>
 
@@ -25,6 +26,27 @@ _Static_assert(TEXTURE_CUSTOM_END <= 4096,
 void assetCatalogResetCustomTextureSlots(void)
 {
     memset(s_CustomTextureCatalogIds, 0, sizeof(s_CustomTextureCatalogIds));
+}
+
+void *assetCatalogSnapshotCustomTextureSlots(void)
+{
+    void *snapshot = malloc(sizeof(s_CustomTextureCatalogIds));
+    if (snapshot) memcpy(snapshot, s_CustomTextureCatalogIds,
+        sizeof(s_CustomTextureCatalogIds));
+    return snapshot;
+}
+
+s32 assetCatalogRestoreCustomTextureSlots(const void *snapshot)
+{
+    if (!snapshot) return 0;
+    memcpy(s_CustomTextureCatalogIds, snapshot,
+        sizeof(s_CustomTextureCatalogIds));
+    return 1;
+}
+
+void assetCatalogDestroyCustomTextureSlotSnapshot(void *snapshot)
+{
+    free(snapshot);
 }
 
 /* Dedup-or-allocate a private slot index in [0, count). Returns the local

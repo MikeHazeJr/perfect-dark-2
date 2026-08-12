@@ -1,4 +1,5 @@
 #include <string.h>
+#include <stdlib.h>
 
 #include <PR/ultratypes.h>
 
@@ -23,6 +24,26 @@ _Static_assert(ANIM_CUSTOM_END_SLOT <= 2048,
 void assetCatalogResetCustomAnimSlots(void)
 {
     memset(s_CustomAnimCatalogIds, 0, sizeof(s_CustomAnimCatalogIds));
+}
+
+void *assetCatalogSnapshotCustomAnimSlots(void)
+{
+    void *snapshot = malloc(sizeof(s_CustomAnimCatalogIds));
+    if (snapshot) memcpy(snapshot, s_CustomAnimCatalogIds,
+        sizeof(s_CustomAnimCatalogIds));
+    return snapshot;
+}
+
+s32 assetCatalogRestoreCustomAnimSlots(const void *snapshot)
+{
+    if (!snapshot) return 0;
+    memcpy(s_CustomAnimCatalogIds, snapshot, sizeof(s_CustomAnimCatalogIds));
+    return 1;
+}
+
+void assetCatalogDestroyCustomAnimSlotSnapshot(void *snapshot)
+{
+    free(snapshot);
 }
 
 s32 assetCatalogAnimationCategoryUsesCharacterClip(const char *category)

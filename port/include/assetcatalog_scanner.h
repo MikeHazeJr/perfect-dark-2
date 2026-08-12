@@ -129,13 +129,16 @@ s32 assetCatalogScanComponents(const char *modsdir);
  * projectiles/<id>/projectile.ini, entities/<id>/entity.ini,
  * characters/heads/<id>/head.ini, maps/<id>/arena.ini, ...) remains
  * accepted for compatibility. .pdmod transport archives use the same scanner
- * contract without extracting files into the mods folder.
+ * contract without extracting files into the mods folder. Admission is one
+ * catalog transaction: any recognized sibling rejection returns a negative
+ * value and restores every row, dependency edge, and provider path changed by
+ * earlier siblings. Zero means no recognized descriptors were present.
  */
 s32 assetCatalogScanExternalLayoutFolder(const char *mod_id, const char *mod_dir);
 
 /* Network receive publishes a filesystem transaction before catalog admission.
- * This variant restores rejected catalog metadata but defers active-root reload
- * until the caller has committed or rolled back the published source bytes. */
+ * This variant performs the same all-sibling catalog rollback but defers
+ * active-root reload until the caller has restored the prior source bytes. */
 s32 assetCatalogScanExternalLayoutFolderDeferred(const char *mod_id,
 	const char *mod_dir);
 

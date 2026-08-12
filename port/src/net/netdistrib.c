@@ -3166,13 +3166,12 @@ void netDistribClientHandleEnd(const char *catalog_id, u8 success)
                 sysLogPrintf(LOG_NOTE,
                     "DISTRIB: catalog rejected '%s'; received install rolled back with prior destination preserved",
                     slot->id);
-                /* B-1027: the scanner restores the prior catalog row before
-                 * this filesystem transaction can restore its source bytes.
-                 * A same-destination replacement can therefore leave exact
-                 * active roots pending after the scanner's early reload saw
-                 * the rejected candidate. Retry only after rollback has made
-                 * the prior public source authoritative on disk again. */
+                /* B-1027/B-1043: the scanner restores the complete prior
+                 * catalog transaction before this filesystem transaction can
+                 * restore its source bytes. Retry roots and rebuild reverse
+                 * indexes only after the prior public tree is authoritative. */
                 s32 reload_result = catalogReloadInvalidatedTypedAssets();
+				catalogLoadInit();
                 sysLogPrintf(LOG_WARNING,
                     "DISTRIB.CATALOG.RELOAD: id=%s result=%d",
                     slot->id, reload_result);

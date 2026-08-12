@@ -27,6 +27,9 @@ extern "C" {
 /* Reset all custom stage slot reservations. Called wherever the catalog is
  * rebuilt, beside the other custom-slot resets. */
 void assetCatalogResetCustomStageSlots(void);
+void *assetCatalogSnapshotCustomStageSlots(void);
+s32 assetCatalogRestoreCustomStageSlots(const void *snapshot);
+void assetCatalogDestroyCustomStageSlotSnapshot(void *snapshot);
 
 /* Resolve a catalog-owned private stagenum for a custom stage component with
  * no authored stagenum. Dedups by mint key (arena keys to its scenario_id so

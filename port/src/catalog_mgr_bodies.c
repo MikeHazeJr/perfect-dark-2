@@ -19,6 +19,7 @@
 
 #include <ultra64.h>
 #include <stddef.h>
+#include <stdlib.h>
 #include <string.h>
 #include "data.h"
 #include "types.h"
@@ -55,6 +56,35 @@ _Static_assert(CATALOG_MGR_BODY_TOTAL_PURE == CATALOG_MGR_BODY_TOTAL,
  * [152, TOTAL) is valid storage indexable directly by the render path. */
 static body_data_t s_Bodies[CATALOG_MGR_BODY_TOTAL];
 static s32 s_BodiesInited = 0;
+
+struct catalog_manager_body_snapshot {
+	body_data_t bodies[CATALOG_MGR_BODY_TOTAL];
+	s32 inited;
+};
+
+catalog_manager_body_snapshot_t *catalogManagerBodySnapshotCreate(void)
+{
+	catalog_manager_body_snapshot_t *snapshot = malloc(sizeof(*snapshot));
+	if (!snapshot) return NULL;
+	memcpy(snapshot->bodies, s_Bodies, sizeof(snapshot->bodies));
+	snapshot->inited = s_BodiesInited;
+	return snapshot;
+}
+
+s32 catalogManagerBodySnapshotRestore(
+		const catalog_manager_body_snapshot_t *snapshot)
+{
+	if (!snapshot) return 0;
+	memcpy(s_Bodies, snapshot->bodies, sizeof(s_Bodies));
+	s_BodiesInited = snapshot->inited;
+	return 1;
+}
+
+void catalogManagerBodySnapshotDestroy(
+		catalog_manager_body_snapshot_t *snapshot)
+{
+	free(snapshot);
+}
 
 static void s_populateFromAuthored(s32 bodynum)
 {

@@ -1,13 +1,14 @@
 {
   "scenario_name": "catalog_three_ingress_boundaries_smoke",
-  "description": "T-CATALOG-003 real installed-client proof for loose typed archives, nested .pdmod transport, and received PDCA network ingress at exact 127, 128, 1023, and over-capacity FileProvider boundaries.",
-  "tags": ["catalog", "modding", "network", "pdxxx", "T-CATALOG-003", "B-1012", "smoke", "pillar:catalog"],
+  "description": "T-CATALOG-003 real installed-client proof for loose typed archives, nested .pdmod transport, received PDCA network ingress at exact 127, 128, 1023, and over-capacity boundaries, plus B-1043 atomic rejection of a mixed-validity multi-descriptor receive.",
+  "tags": ["catalog", "modding", "network", "pdxxx", "T-CATALOG-003", "B-1012", "B-1043", "smoke", "pillar:catalog"],
   "paths_of_interest": [
     "port/src/assetcatalog_scanner.c",
     "port/src/net/netdistrib.c",
     "port/src/pdca_extract_transaction.c",
     "port/src/assetprovider_file.c",
     "port/src/asset_runtime.c",
+    "port/src/loader_pool.c",
     "port/src/main.c",
     "tools/smoke-verify/lib/Catalog-Ingress-Fixtures.ps1",
     "tools/smoke-verify/run.ps1"
@@ -37,7 +38,7 @@
     "--debug-reject-catalog-ingress-list",
     "social/catalog-ingress/reject-list.txt",
     "--debug-load-catalog-assets",
-    "gamemode=ingress:loose_127,gamemode=ingress:loose_128,gamemode=ingress:loose_1023,gamemode=ingress:loose_over,gamemode=ingress:nested_127,gamemode=ingress:nested_128,gamemode=ingress:nested_1023,gamemode=ingress:nested_over,gamemode=ingress:network_127,gamemode=ingress:network_128,gamemode=ingress:network_1023,gamemode=ingress:network_over"
+    "gamemode=ingress:loose_127,gamemode=ingress:loose_128,gamemode=ingress:loose_1023,gamemode=ingress:loose_over,gamemode=ingress:nested_127,gamemode=ingress:nested_128,gamemode=ingress:nested_1023,gamemode=ingress:nested_over,gamemode=ingress:network_127,gamemode=ingress:network_128,gamemode=ingress:network_1023,gamemode=ingress:network_over,weapon=ingress:mixed_weapon,projectile=ingress:mixed_projectile,entity=ingress:mixed_entity,texture=ingress:mixed_texture,head=ingress:mixed_head,body=ingress:mixed_body,arena=ingress:mixed_arena,gamemode=ingress:mixed_good,audio=ingress:mixed_sound,animation=ingress:mixed_anim,gamemode=ingress:mixed_bad"
   ],
   "input_sequence": [
     { "at_ms": 0, "type": "wait", "comment": "Startup scans loose and nested sources, then the smoke-only sender delivers raw PDCA fixtures through the production BEGIN/CHUNK/END receive handlers." },
@@ -48,13 +49,28 @@
       "SMOKE: scenario=catalog_three_ingress_boundaries_smoke",
       "BOOT: --no-net set; netInit\\(\\) skipped",
       "DISTRIB: catalog rejected 'net_over'; received install rolled back with prior destination preserved",
-      "CATALOG.INGRESS.REJECT: kind=folder id='ingress:loose_over' registered=0 catalog_absent=1 runtime_absent=1 deps=0",
+      "DISTRIB: catalog rejected 'net_mixed'; received install rolled back with prior destination preserved",
+      "CATALOG.SCAN.TRANSACTION.ROLLBACK: folder=received accepted=9 result=restored",
+      "DISTRIB.CATALOG.ADMISSION: id=net_mixed scanner_result=-10",
+      "CATALOG.INGRESS.REJECT: kind=folder id='ingress:loose_over' registered=-1 catalog_absent=1 runtime_absent=1 deps=0",
       "CATALOG.INGRESS.REJECT: kind=archive id='ingress:nested_over' registered=0 catalog_absent=1 runtime_absent=1 deps=0",
-      "BOOT: --debug-receive-pdca-list delivered=4 list='social/catalog-ingress/receive-list.txt'",
+      "BOOT: --debug-receive-pdca-list delivered=5 list='social/catalog-ingress/receive-list.txt'",
       "BOOT: --debug-load-catalog-assets result type=gamemode id='ingress:loose_over' result=MISSING",
       "BOOT: --debug-load-catalog-assets result type=gamemode id='ingress:nested_over' result=MISSING",
       "BOOT: --debug-load-catalog-assets result type=gamemode id='ingress:network_over' result=MISSING",
       "CATALOG.INGRESS.REJECT.STATE: id='ingress:network_over' catalog_absent=1 provider_absent=1 runtime_absent=1 deps=0",
+      "BOOT: --debug-load-catalog-assets result type=weapon id='ingress:mixed_weapon' result=MISSING",
+      "BOOT: --debug-load-catalog-assets result type=projectile id='ingress:mixed_projectile' result=MISSING",
+      "BOOT: --debug-load-catalog-assets result type=entity id='ingress:mixed_entity' result=MISSING",
+      "BOOT: --debug-load-catalog-assets result type=texture id='ingress:mixed_texture' result=MISSING",
+      "BOOT: --debug-load-catalog-assets result type=head id='ingress:mixed_head' result=MISSING",
+      "BOOT: --debug-load-catalog-assets result type=body id='ingress:mixed_body' result=MISSING",
+      "BOOT: --debug-load-catalog-assets result type=arena id='ingress:mixed_arena' result=MISSING",
+      "BOOT: --debug-load-catalog-assets result type=gamemode id='ingress:mixed_good' result=MISSING",
+      "BOOT: --debug-load-catalog-assets result type=audio id='ingress:mixed_sound' result=MISSING",
+      "BOOT: --debug-load-catalog-assets result type=animation id='ingress:mixed_anim' result=MISSING",
+      "CATALOG.INGRESS.REJECT.STATE: id='ingress:mixed_anim' catalog_absent=1 provider_absent=1 runtime_absent=1 deps=0 loader_absent=1",
+      "BOOT: --debug-load-catalog-assets result type=gamemode id='ingress:mixed_bad' result=MISSING",
       "SMOKE: result=scripted_exit"
     ],
     "forbidden_patterns": [
@@ -64,14 +80,14 @@
       "CATALOG\\.INGRESS\\.IDENTITY:.*exact=0",
       "CATALOG\\.INGRESS\\.IDENTITY:.*_over",
       "BOOT: --debug-load-catalog-assets result type=gamemode id='ingress:.*_(127|128|1023)' result=(FAIL|MISSING)",
-      "DISTRIB: hot-registered.*network_over"
+      "DISTRIB: hot-registered.*(network_over|net_mixed)"
     ],
     "required_counts": [
       { "pattern": "CATALOG\\.INGRESS\\.IDENTITY:.*provider=FileProvider length=127 exact=1", "min": 3, "max": 3 },
       { "pattern": "CATALOG\\.INGRESS\\.IDENTITY:.*provider=FileProvider length=128 exact=1", "min": 3, "max": 3 },
       { "pattern": "CATALOG\\.INGRESS\\.IDENTITY:.*provider=FileProvider length=1023 exact=1", "min": 3, "max": 3 },
       { "pattern": "CATALOG\\.INGRESS\\.IDENTITY:.*exact=1", "min": 9, "max": 9 },
-      { "pattern": "DISTRIB: transactionally staged received archive at .* pending catalog admission", "min": 4, "max": 4 },
+      { "pattern": "DISTRIB: transactionally staged received archive at .* pending catalog admission", "min": 5, "max": 5 },
       { "pattern": "DISTRIB: refreshed mod registry after installing 'net_(127|128|1023)'", "min": 3, "max": 3 }
     ]
   }

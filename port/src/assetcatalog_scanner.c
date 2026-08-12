@@ -34,6 +34,7 @@
 #include "assetcatalog_load.h"
 #include "catalog_activation_ledger.h"
 #include "assetprovider.h"
+#include "assetprovider_internal.h"
 #include "assetcatalog_body_head_slots.h"
 #include "assetcatalog_weapon_slots.h"
 #include "catalog_mgr_bodies.h"
@@ -54,6 +55,158 @@
 #include "romdata.h"
 #include "system.h"
 #include "fs.h"
+
+typedef struct external_scan_transaction {
+	asset_entry_t *rows;
+	s32 row_count;
+	catalog_dep_snapshot_t deps;
+	file_provider_checkpoint_t provider;
+	void *weapon_slots;
+	void *body_head_slots;
+	void *sound_slots;
+	void *texture_slots;
+	void *anim_slots;
+	void *stage_slots;
+	void *stage_table;
+	loader_pool_snapshot_t *loader_pool;
+	catalog_manager_body_snapshot_t *body_manager;
+	catalog_manager_head_snapshot_t *head_manager;
+	s32 active;
+} external_scan_transaction_t;
+
+static const asset_entry_t *externalScanPriorRow(
+		const external_scan_transaction_t *transaction, const char *id)
+{
+	if (!transaction || !id || !id[0]) return NULL;
+	for (s32 i = 0; i < transaction->row_count; i++) {
+		const asset_entry_t *row = &transaction->rows[i];
+		if (row->occupied && strcmp(row->id, id) == 0) return row;
+	}
+	return NULL;
+}
+
+static s32 externalScanTransactionBegin(
+		external_scan_transaction_t *transaction)
+{
+	if (!transaction) return 0;
+	memset(transaction, 0, sizeof(*transaction));
+	transaction->row_count = assetCatalogGetPoolSize();
+	if (transaction->row_count > 0) {
+		transaction->rows = calloc((size_t)transaction->row_count,
+			sizeof(*transaction->rows));
+		if (!transaction->rows) goto fail;
+		for (s32 i = 0; i < transaction->row_count; i++) {
+			const asset_entry_t *row = assetCatalogGetByIndex(i);
+			if (row) transaction->rows[i] = *row;
+		}
+	}
+	if (!catalogDepSnapshotCreate(&transaction->deps)
+			|| !fileProviderCheckpointCreate(&transaction->provider)
+			|| !(transaction->weapon_slots =
+				assetCatalogSnapshotCustomWeaponSlots())
+			|| !(transaction->body_head_slots =
+				assetCatalogSnapshotCustomBodyHeadSlots())
+			|| !(transaction->sound_slots =
+				assetCatalogSnapshotCustomSoundSlots())
+			|| !(transaction->texture_slots =
+				assetCatalogSnapshotCustomTextureSlots())
+			|| !(transaction->anim_slots =
+				assetCatalogSnapshotCustomAnimSlots())
+			|| !(transaction->stage_slots =
+				assetCatalogSnapshotCustomStageSlots())
+			|| !(transaction->stage_table = stageTableSnapshotCreate())
+			|| !(transaction->loader_pool = loaderPoolSnapshotCreate())
+			|| !(transaction->body_manager =
+				catalogManagerBodySnapshotCreate())
+			|| !(transaction->head_manager =
+				catalogManagerHeadSnapshotCreate())) goto fail;
+	transaction->active = 1;
+	return 1;
+
+fail:
+	assetCatalogDestroyCustomWeaponSlotSnapshot(transaction->weapon_slots);
+	assetCatalogDestroyCustomBodyHeadSlotSnapshot(transaction->body_head_slots);
+	assetCatalogDestroyCustomSoundSlotSnapshot(transaction->sound_slots);
+	assetCatalogDestroyCustomTextureSlotSnapshot(transaction->texture_slots);
+	assetCatalogDestroyCustomAnimSlotSnapshot(transaction->anim_slots);
+	assetCatalogDestroyCustomStageSlotSnapshot(transaction->stage_slots);
+	stageTableSnapshotDestroy(transaction->stage_table);
+	loaderPoolSnapshotDestroy(transaction->loader_pool);
+	catalogManagerBodySnapshotDestroy(transaction->body_manager);
+	catalogManagerHeadSnapshotDestroy(transaction->head_manager);
+	catalogDepSnapshotDestroy(&transaction->deps);
+	free(transaction->rows);
+	memset(transaction, 0, sizeof(*transaction));
+	return 0;
+}
+
+static void externalScanTransactionDestroy(
+		external_scan_transaction_t *transaction)
+{
+	if (!transaction) return;
+	assetCatalogDestroyCustomWeaponSlotSnapshot(transaction->weapon_slots);
+	assetCatalogDestroyCustomBodyHeadSlotSnapshot(transaction->body_head_slots);
+	assetCatalogDestroyCustomSoundSlotSnapshot(transaction->sound_slots);
+	assetCatalogDestroyCustomTextureSlotSnapshot(transaction->texture_slots);
+	assetCatalogDestroyCustomAnimSlotSnapshot(transaction->anim_slots);
+	assetCatalogDestroyCustomStageSlotSnapshot(transaction->stage_slots);
+	stageTableSnapshotDestroy(transaction->stage_table);
+	loaderPoolSnapshotDestroy(transaction->loader_pool);
+	catalogManagerBodySnapshotDestroy(transaction->body_manager);
+	catalogManagerHeadSnapshotDestroy(transaction->head_manager);
+	catalogDepSnapshotDestroy(&transaction->deps);
+	free(transaction->rows);
+	memset(transaction, 0, sizeof(*transaction));
+}
+
+static s32 externalScanTransactionRollback(
+		external_scan_transaction_t *transaction)
+{
+	s32 ok = 1;
+	if (!transaction || !transaction->active) return 0;
+
+	/* New rows are removed in reverse pool order. Replaced or retired rows are
+	 * restored as metadata-only identities; their prior payload pointers were
+	 * already retired and must be reacquired after the filesystem rolls back. */
+	for (s32 i = assetCatalogGetPoolSize(); i-- > 0;) {
+		const asset_entry_t *current = assetCatalogGetByIndex(i);
+		asset_entry_t current_copy;
+		const asset_entry_t *prior;
+		if (!current) continue;
+		current_copy = *current;
+		prior = externalScanPriorRow(transaction, current_copy.id);
+		if (!prior) {
+			if (!assetCatalogRollbackUnactivatedRegistration(current_copy.id)) ok = 0;
+		} else if (memcmp(&current_copy, prior, sizeof(current_copy)) != 0) {
+			asset_entry_t *mutable_row = assetCatalogGetMutable(current_copy.id);
+			if (!mutable_row) ok = 0;
+			else catalogActivationLedgerRestoreRetiredSnapshot(mutable_row, prior);
+		}
+	}
+	/* Scanner registration never intentionally deletes a prior row, but restore
+	 * it defensively if a failed nested transaction did. */
+	for (s32 i = 0; i < transaction->row_count; i++) {
+		const asset_entry_t *prior = &transaction->rows[i];
+		if (!prior->occupied || assetCatalogResolve(prior->id)) continue;
+		asset_entry_t *row = assetCatalogRegister(prior->id, prior->type);
+		if (!row) ok = 0;
+		else catalogActivationLedgerRestoreRetiredSnapshot(row, prior);
+	}
+	if (!catalogDepSnapshotRestore(&transaction->deps)) ok = 0;
+	if (!fileProviderCheckpointRestore(&transaction->provider)) ok = 0;
+	if (!assetCatalogRestoreCustomWeaponSlots(transaction->weapon_slots)) ok = 0;
+	if (!assetCatalogRestoreCustomBodyHeadSlots(transaction->body_head_slots)) ok = 0;
+	if (!assetCatalogRestoreCustomSoundSlots(transaction->sound_slots)) ok = 0;
+	if (!assetCatalogRestoreCustomTextureSlots(transaction->texture_slots)) ok = 0;
+	if (!assetCatalogRestoreCustomAnimSlots(transaction->anim_slots)) ok = 0;
+	if (!assetCatalogRestoreCustomStageSlots(transaction->stage_slots)) ok = 0;
+	if (!stageTableSnapshotRestore(transaction->stage_table)) ok = 0;
+	if (!loaderPoolSnapshotRestore(transaction->loader_pool)) ok = 0;
+	if (!catalogManagerBodySnapshotRestore(transaction->body_manager)) ok = 0;
+	if (!catalogManagerHeadSnapshotRestore(transaction->head_manager)) ok = 0;
+	transaction->active = 0;
+	return ok;
+}
 
 /* ========================================================================
  * INI Parser
@@ -4142,7 +4295,7 @@ static s32 registerComponentIniFile(const char *component_dir,
 		sysLogPrintf(LOG_WARNING,
 			"assetcatalog_scanner: invalid external-layout INI '%s'",
 			ini_path);
-		return 0;
+		return -1;
 	}
 
 	asset_type_e ini_type = sectionToType(ini.type);
@@ -4151,9 +4304,10 @@ static s32 registerComponentIniFile(const char *component_dir,
 			"assetcatalog_scanner: external-layout type mismatch in '%s': "
 			"expected %d, got [%s]=%d",
 			label ? label : ini_path, expected, ini.type, ini_type);
+		return -1;
 	}
 
-	return registerComponent(&ini, component_dir, mod_id, ini_path) ? 1 : 0;
+	return registerComponent(&ini, component_dir, mod_id, ini_path) ? 1 : -1;
 }
 
 static s32 scanExternalDescriptorChildren(const char *base_dir,
@@ -4167,10 +4321,11 @@ static s32 scanExternalDescriptorChildren(const char *base_dir,
 
 	DIR *dp = opendir(base_dir);
 	if (!dp) {
-		return 0;
+		return -1;
 	}
 
 	s32 count = 0;
+	s32 rejected = 0;
 	struct dirent *ent;
 	char component_dir[FS_MAXPATH];
 	char ini_path[FS_MAXPATH];
@@ -4182,25 +4337,35 @@ static s32 scanExternalDescriptorChildren(const char *base_dir,
 		}
 
 		if (!assetPathJoinChecked(component_dir, sizeof(component_dir), base_dir,
-				"/", ent->d_name)) continue;
+				"/", ent->d_name)) {
+			rejected = 1;
+			continue;
+		}
 		if (!isDirectory(component_dir)) {
 			continue;
 		}
 
 		if (!assetPathJoinChecked(ini_path, sizeof(ini_path), component_dir,
-				"/", leaf)) continue;
+				"/", leaf)) {
+			rejected = 1;
+			continue;
+		}
 		if (!isRegularFile(ini_path)) {
 			continue;
 		}
 
-		if (!assetPathJoinChecked(label, sizeof(label), ent->d_name, "/", leaf))
+		if (!assetPathJoinChecked(label, sizeof(label), ent->d_name, "/", leaf)) {
+			rejected = 1;
 			continue;
-		count += registerComponentIniFile(component_dir, ini_path, expected,
-			label, mod_id);
+		}
+		s32 candidate_result = registerComponentIniFile(component_dir, ini_path,
+			expected, label, mod_id);
+		if (candidate_result < 0) rejected = 1;
+		else count += candidate_result;
 	}
 
 	closedir(dp);
-	return count;
+	return rejected ? -(count + 1) : count;
 }
 
 static s32 scanExternalDescriptorPath(const char *mod_dir,
@@ -4211,7 +4376,7 @@ static s32 scanExternalDescriptorPath(const char *mod_dir,
 {
 	char base_dir[FS_MAXPATH];
 	if (!assetPathJoinChecked(base_dir, sizeof(base_dir), mod_dir, "/",
-			relative_dir)) return 0;
+			relative_dir)) return -1;
 	return scanExternalDescriptorChildren(base_dir, leaf, expected, mod_id);
 }
 
@@ -4418,14 +4583,14 @@ static s32 scanTypedPdDescriptorsRecurse(const char *root_dir,
 	char abs_dir[FS_MAXPATH];
 	if (rel_dir && rel_dir[0]) {
 		if (!assetPathJoinChecked(abs_dir, sizeof(abs_dir), root_dir, "/",
-				rel_dir)) return 0;
+				rel_dir)) return -1;
 	} else {
-		if (!assetPathCopyChecked(abs_dir, sizeof(abs_dir), root_dir)) return 0;
+		if (!assetPathCopyChecked(abs_dir, sizeof(abs_dir), root_dir)) return -1;
 	}
 
 	DIR *dp = opendir(abs_dir);
 	if (!dp) {
-		return 0;
+		return -1;
 	}
 
 	s32 count = 0;
@@ -4439,15 +4604,23 @@ static s32 scanTypedPdDescriptorsRecurse(const char *root_dir,
 		char child_rel[FS_MAXPATH];
 		if (rel_dir && rel_dir[0]) {
 			if (!assetPathJoinChecked(child_rel, sizeof(child_rel), rel_dir, "/",
-					ent->d_name)) continue;
-		} else {
-			if (!assetPathCopyChecked(child_rel, sizeof(child_rel), ent->d_name))
+					ent->d_name)) {
+				rejected = 1;
 				continue;
+			}
+		} else {
+			if (!assetPathCopyChecked(child_rel, sizeof(child_rel), ent->d_name)) {
+				rejected = 1;
+				continue;
+			}
 		}
 
 		char child_abs[FS_MAXPATH];
 		if (!assetPathJoinChecked(child_abs, sizeof(child_abs), root_dir, "/",
-				child_rel)) continue;
+				child_rel)) {
+			rejected = 1;
+			continue;
+		}
 
 		if (isDirectory(child_abs)) {
 			s32 child_result = scanTypedPdDescriptorsRecurse(root_dir, child_rel,
@@ -4599,87 +4772,91 @@ static s32 scanModDir(const char *mod_dir, const char *mod_id)
 	return count;
 }
 
+typedef struct external_descriptor_spec {
+	const char *relative_dir;
+	const char *leaf;
+	asset_type_e expected;
+} external_descriptor_spec_t;
+
+static void externalScanAccumulate(s32 result, s32 *total, s32 *rejected)
+{
+	if (result < 0) {
+		if (rejected) *rejected = 1;
+		/* Recursive scanners encode the accepted sibling count as -(n + 1). */
+		if (total) *total += -result - 1;
+	} else if (total) {
+		*total += result;
+	}
+}
+
 static s32 assetCatalogScanExternalLayoutFolderInternal(const char *mod_id,
 		const char *mod_dir, s32 defer_reloads)
 {
-	if (!mod_id || !mod_id[0] || !mod_dir || !mod_dir[0]) {
-		return 0;
-	}
-
+	static const external_descriptor_spec_t specs[] = {
+		{ "weapons", "weapon.ini", ASSET_WEAPON },
+		{ "projectiles", "projectile.ini", ASSET_PROJECTILE },
+		{ "entities", "entity.ini", ASSET_ENTITY },
+		{ "materials", "material.ini", ASSET_MATERIAL },
+		{ "textures", "texture.ini", ASSET_TEXTURE },
+		{ "skins", "skin.ini", ASSET_SKIN },
+		{ "characters", "character.ini", ASSET_CHARACTER },
+		{ "characters/heads", "head.ini", ASSET_HEAD },
+		{ "characters/bodies", "body.ini", ASSET_BODY },
+		{ "maps", "arena.ini", ASSET_ARENA },
+		{ "maps", "map.ini", ASSET_MAP },
+		{ "scenarios", "scenario.ini", ASSET_SCENARIO },
+		{ "props", "prop.ini", ASSET_PROP },
+		{ "vehicles", "vehicle.ini", ASSET_VEHICLE },
+		{ "missions", "mission.ini", ASSET_MISSION },
+		{ "gamemodes", "gamemode.ini", ASSET_GAMEMODE },
+		{ "botprofiles", "botprofile.ini", ASSET_BOT_PROFILE },
+		{ "bot_profiles", "botprofile.ini", ASSET_BOT_PROFILE },
+		{ "effects", "effect.ini", ASSET_EFFECT },
+		{ "hud", "hud.ini", ASSET_HUD },
+		/* .pdtheme is the only public theme unit; loose theme.ini is rejected. */
+		{ "audio/sfx", "sound.ini", ASSET_AUDIO },
+		{ "audio/sfx", "sfx.ini", ASSET_AUDIO },
+		{ "audio/voice", "voice.ini", ASSET_AUDIO },
+		{ "audio/music", "music.ini", ASSET_AUDIO },
+		{ "ui", "ui.ini", ASSET_UI },
+		{ "ui", "texture.ini", ASSET_UI },
+		{ "fonts", "font.ini", ASSET_FONT },
+		{ "lang", "lang.ini", ASSET_LANG },
+		{ "animations", "animation.ini", ASSET_ANIMATION },
+		{ "animations/weapon", "animation.ini", ASSET_ANIMATION },
+		{ "animations/character", "animation.ini", ASSET_ANIMATION },
+	};
+	external_scan_transaction_t transaction;
 	s32 total = 0;
+	s32 rejected = 0;
 
-	total += scanExternalDescriptorPath(mod_dir, "weapons",
-		"weapon.ini", ASSET_WEAPON, mod_id);
-	total += scanExternalDescriptorPath(mod_dir, "projectiles",
-		"projectile.ini", ASSET_PROJECTILE, mod_id);
-	total += scanExternalDescriptorPath(mod_dir, "entities",
-		"entity.ini", ASSET_ENTITY, mod_id);
-	total += scanExternalDescriptorPath(mod_dir, "materials",
-		"material.ini", ASSET_MATERIAL, mod_id);
-	total += scanExternalDescriptorPath(mod_dir, "textures",
-		"texture.ini", ASSET_TEXTURE, mod_id);
-	total += scanExternalDescriptorPath(mod_dir, "skins",
-		"skin.ini", ASSET_SKIN, mod_id);
-	total += scanExternalDescriptorPath(mod_dir, "characters",
-		"character.ini", ASSET_CHARACTER, mod_id);
-	total += scanExternalDescriptorPath(mod_dir, "characters/heads",
-		"head.ini", ASSET_HEAD, mod_id);
-	total += scanExternalDescriptorPath(mod_dir, "characters/bodies",
-		"body.ini", ASSET_BODY, mod_id);
-	total += scanExternalDescriptorPath(mod_dir, "maps",
-		"arena.ini", ASSET_ARENA, mod_id);
-	total += scanExternalDescriptorPath(mod_dir, "maps",
-		"map.ini", ASSET_MAP, mod_id);
-	total += scanExternalDescriptorPath(mod_dir, "scenarios",
-		"scenario.ini", ASSET_SCENARIO, mod_id);
-	total += scanExternalDescriptorPath(mod_dir, "props",
-		"prop.ini", ASSET_PROP, mod_id);
-	total += scanExternalDescriptorPath(mod_dir, "vehicles",
-		"vehicle.ini", ASSET_VEHICLE, mod_id);
-	total += scanExternalDescriptorPath(mod_dir, "missions",
-		"mission.ini", ASSET_MISSION, mod_id);
-	total += scanExternalDescriptorPath(mod_dir, "gamemodes",
-		"gamemode.ini", ASSET_GAMEMODE, mod_id);
-	total += scanExternalDescriptorPath(mod_dir, "botprofiles",
-		"botprofile.ini", ASSET_BOT_PROFILE, mod_id);
-	total += scanExternalDescriptorPath(mod_dir, "bot_profiles",
-		"botprofile.ini", ASSET_BOT_PROFILE, mod_id);
-	total += scanExternalDescriptorPath(mod_dir, "effects",
-		"effect.ini", ASSET_EFFECT, mod_id);
-	total += scanExternalDescriptorPath(mod_dir, "hud",
-		"hud.ini", ASSET_HUD, mod_id);
-	/* .pdtheme is the only public theme content unit. A loose themes/<id>/
-	 * theme.ini bypasses archive release validation and dependency ownership,
-	 * so it is intentionally not accepted as a compatibility layout. */
-	total += scanExternalDescriptorPath(mod_dir, "audio/sfx",
-		"sound.ini", ASSET_AUDIO, mod_id);
-	total += scanExternalDescriptorPath(mod_dir, "audio/sfx",
-		"sfx.ini", ASSET_AUDIO, mod_id);
-	total += scanExternalDescriptorPath(mod_dir, "audio/voice",
-		"voice.ini", ASSET_AUDIO, mod_id);
-	total += scanExternalDescriptorPath(mod_dir, "audio/music",
-		"music.ini", ASSET_AUDIO, mod_id);
-	total += scanExternalDescriptorPath(mod_dir, "ui",
-		"ui.ini", ASSET_UI, mod_id);
-	total += scanExternalDescriptorPath(mod_dir, "ui",
-		"texture.ini", ASSET_UI, mod_id);
-	total += scanExternalDescriptorPath(mod_dir, "fonts",
-		"font.ini", ASSET_FONT, mod_id);
-	total += scanExternalDescriptorPath(mod_dir, "lang",
-		"lang.ini", ASSET_LANG, mod_id);
-	total += scanExternalDescriptorPath(mod_dir, "animations",
-		"animation.ini", ASSET_ANIMATION, mod_id);
-	total += scanExternalDescriptorPath(mod_dir, "animations/weapon",
-		"animation.ini", ASSET_ANIMATION, mod_id);
-	total += scanExternalDescriptorPath(mod_dir, "animations/character",
-		"animation.ini", ASSET_ANIMATION, mod_id);
-	{
-		s32 typed_result = scanTypedPdDescriptorsRecurse(mod_dir, "", mod_id,
-			defer_reloads);
-		if (typed_result < 0) return typed_result;
-		total += typed_result;
+	if (!mod_id || !mod_id[0] || !mod_dir || !mod_dir[0]) return 0;
+	if (!externalScanTransactionBegin(&transaction)) {
+		sysLogPrintf(LOG_ERROR,
+			"assetcatalog_scanner: could not snapshot folder admission for %s",
+			mod_id);
+		return -1;
 	}
 
+	for (size_t i = 0; i < sizeof(specs) / sizeof(specs[0]); i++) {
+		externalScanAccumulate(scanExternalDescriptorPath(mod_dir,
+			specs[i].relative_dir, specs[i].leaf, specs[i].expected, mod_id),
+			&total, &rejected);
+	}
+	externalScanAccumulate(scanTypedPdDescriptorsRecurse(mod_dir, "", mod_id,
+		defer_reloads), &total, &rejected);
+
+	if (rejected) {
+		s32 rollback_ok = externalScanTransactionRollback(&transaction);
+		sysLogPrintf(rollback_ok ? LOG_WARNING : LOG_ERROR,
+			"CATALOG.SCAN.TRANSACTION.ROLLBACK: folder=%s accepted=%d result=%s",
+			mod_id, total, rollback_ok ? "restored" : "failed");
+		externalScanTransactionDestroy(&transaction);
+		if (!defer_reloads) (void)catalogReloadInvalidatedTypedAssets();
+		return -(total + 1);
+	}
+
+	externalScanTransactionDestroy(&transaction);
 	if (total > 0) {
 		sysLogPrintf(LOG_NOTE,
 			"assetcatalog_scanner: folder %s: %d external-layout/.pd* descriptors registered",

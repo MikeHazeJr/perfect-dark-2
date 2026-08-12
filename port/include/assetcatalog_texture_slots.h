@@ -28,6 +28,9 @@ extern "C" {
 /* Reset all custom texture slot reservations. Called wherever the catalog is
  * rebuilt, beside the other custom-slot resets. */
 void assetCatalogResetCustomTextureSlots(void);
+void *assetCatalogSnapshotCustomTextureSlots(void);
+s32 assetCatalogRestoreCustomTextureSlots(const void *snapshot);
+void assetCatalogDestroyCustomTextureSlotSnapshot(void *snapshot);
 
 /* Resolve a catalog-owned private texnum for a custom texture row with no
  * authored texture_id. Dedups by catalog id (same id -> same slot). Returns a

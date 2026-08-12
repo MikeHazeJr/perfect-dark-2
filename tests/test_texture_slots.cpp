@@ -72,3 +72,15 @@ TEST_CASE("texture slots: range anchors (base adjacency + 12-bit ceiling)",
 	 * at 4096 -- a slot past that would silently alias another texture. */
 	REQUIRE(TEXTURE_CUSTOM_END <= 4096);
 }
+
+TEST_CASE("texture slots: admission snapshot restores reservations exactly",
+          "[catalog][texture][slots][b1043][T-CATALOG-003]") {
+	assetCatalogResetCustomTextureSlots();
+	s32 retained = assetCatalogResolveTexturePrivateSlot("mod_x:tex_retained");
+	void *snapshot = assetCatalogSnapshotCustomTextureSlots();
+	REQUIRE(snapshot != nullptr);
+	REQUIRE(assetCatalogResolveTexturePrivateSlot("mod_x:tex_rejected") == retained + 1);
+	REQUIRE(assetCatalogRestoreCustomTextureSlots(snapshot) == 1);
+	assetCatalogDestroyCustomTextureSlotSnapshot(snapshot);
+	REQUIRE(assetCatalogResolveTexturePrivateSlot("mod_x:tex_replacement") == retained + 1);
+}

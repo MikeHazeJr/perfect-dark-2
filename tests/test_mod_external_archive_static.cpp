@@ -1659,10 +1659,11 @@ TEST_CASE("folder and archive fixtures use the same external descriptor layout",
 	REQUIRE(scanner.find("assetCatalogScanExternalLayoutFolder") != std::string::npos);
 	REQUIRE(scanner.find("scanTypedPdDescriptorsRecurse(mod_dir") != std::string::npos);
 	REQUIRE(scanner.find("registerTypedPdDescriptorFile") != std::string::npos);
-	REQUIRE(scanner.find("scanExternalDescriptorPath(mod_dir, \"maps\"") != std::string::npos);
-	REQUIRE(scanner.find("scanExternalDescriptorPath(mod_dir, \"characters/heads\"") != std::string::npos);
-	REQUIRE(scanner.find("scanExternalDescriptorPath(mod_dir, \"animations/weapon\"") != std::string::npos);
-	REQUIRE(scanner.find("scanExternalDescriptorPath(mod_dir, \"animations/character\"") != std::string::npos);
+	REQUIRE(scanner.find("{ \"maps\", \"arena.ini\", ASSET_ARENA }") != std::string::npos);
+	REQUIRE(scanner.find("{ \"characters/heads\", \"head.ini\", ASSET_HEAD }") != std::string::npos);
+	REQUIRE(scanner.find("{ \"animations/weapon\", \"animation.ini\", ASSET_ANIMATION }") != std::string::npos);
+	REQUIRE(scanner.find("{ \"animations/character\", \"animation.ini\", ASSET_ANIMATION }") != std::string::npos);
+	REQUIRE(scanner.find("specs[i].relative_dir, specs[i].leaf, specs[i].expected") != std::string::npos);
 	REQUIRE(scanner.find("registerComponentIniFile(component_dir, ini_path") != std::string::npos);
 
 	std::string modmgr = readFile("port/src/modmgr.c");
