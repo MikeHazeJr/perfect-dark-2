@@ -102,6 +102,22 @@ TEST_CASE("smoke runner filters auxiliary pipeline output before summary",
     requireContains(runner, "$results += $resultCandidates[0]");
 }
 
+TEST_CASE("multi-process smoke isolates process installs and assertions",
+    "[smoke][tooling][network][v009][b1031][static]")
+{
+    const std::string runner = readTextFile("tools/smoke-verify/run.ps1");
+
+    requireContains(runner, "separate_process_installs");
+    requireContains(runner, "process install[{0}]: {1}");
+    requireContains(runner, "Initialize-MultiProcessSmokeInstall -Definition $def");
+    requireContains(runner, "Initialize-MultiProcessSmokeInstall -Definition $plan.Definition");
+    requireContains(runner, "$psi.FileName         = $exe");
+    requireContains(runner, "$psi.WorkingDirectory = $processInstallInfo.InstallDir");
+    requireContains(runner, "Invoke-SmokeAssertions -LogPath $entry.LogPath");
+    requireContains(runner, "retained process install for debugging");
+    requireContains(runner, "cleaned process install:");
+}
+
 TEST_CASE("smoke can prove overlapping weapon owners through production lifecycle",
     "[catalog][weapon][effect][smoke][v009][owner][static]")
 {

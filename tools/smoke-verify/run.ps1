@@ -656,11 +656,11 @@ function Select-SmokeTests {
 #   }
 #
 # Behaviour:
-#   - All processes share a single install directory (same as single-process
-#     tests). The natural log-routing in port/src/system.c::sysInit means
-#     --host writes to pd-host.log and plain client mode writes to
-#     pd-client.log, so two processes coexist in one install dir without
-#     trampling each other's log.
+#   - Processes share one install directory by default. Set
+#     `separate_process_installs: true` to give each process an isolated
+#     working install while still launching the one canonical executable.
+#     Top-level fixtures are applied to every isolated install; process-local
+#     remove_paths, fixtures, and packed_fixtures are applied afterward.
 #   - Processes launch sequentially. After each launch, the runner polls
 #     the process's log file for `wait_for` (if specified) before
 #     proceeding to the next process. Poll cadence: 200ms. If the marker
@@ -687,6 +687,11 @@ function Invoke-SmokeTestMultiProcess {
 
     $name = $Test.Name
     $def = $Test.Definition
+
+    $separateProcessInstalls = $false
+    if ($def.PSObject.Properties.Match('separate_process_installs').Count -gt 0) {
+        $separateProcessInstalls = [bool]$def.separate_process_installs
+    }
 
     $installState = "clean"
     if ($def.PSObject.Properties.Match('install_state').Count -gt 0 -and $def.install_state) {
@@ -738,33 +743,6 @@ function Invoke-SmokeTestMultiProcess {
     Write-Info ("  install dir: {0}" -f $installInfo.InstallDir)
     Write-Info ("  state: {0}" -f $installInfo.InstallState)
 
-    if ($def.PSObject.Properties.Match('remove_paths').Count -gt 0 -and $def.remove_paths) {
-        $removeCount = Remove-SmokePaths -InstallDir $installInfo.InstallDir -Paths $def.remove_paths
-        if ($removeCount -gt 0) {
-            Write-Info ("  removed {0} stale path(s)" -f $removeCount)
-        }
-    }
-    if ($def.PSObject.Properties.Match('fixtures').Count -gt 0 -and $def.fixtures) {
-        $fixCount = Copy-SmokeFixtures -ProjectRoot $ProjectRoot -InstallDir $installInfo.InstallDir -Fixtures $def.fixtures
-        if ($fixCount -gt 0) {
-            Write-Info ("  staged {0} fixture(s)" -f $fixCount)
-        }
-    }
-    if ($def.PSObject.Properties.Match('packed_fixtures').Count -gt 0 -and $def.packed_fixtures) {
-        $packCount = Pack-SmokePdmodFixtures -ProjectRoot $ProjectRoot -InstallDir $installInfo.InstallDir -Fixtures $def.packed_fixtures
-        if ($packCount -gt 0) {
-            Write-Info ("  packed {0} fixture archive(s)" -f $packCount)
-        }
-    }
-    if ($def.PSObject.Properties.Match('catalog_ingress_boundary_fixtures').Count -gt 0 `
-            -and $def.catalog_ingress_boundary_fixtures) {
-        New-CatalogIngressBoundaryFixtures -InstallDir $installInfo.InstallDir
-    }
-    if ($def.PSObject.Properties.Match('needler_effect_replacement_fixtures').Count -gt 0 `
-            -and $def.needler_effect_replacement_fixtures) {
-        New-NeedlerEffectReplacementFixtures -InstallDir $installInfo.InstallDir
-    }
-
     $timeoutSeconds = 30
     if ($def.PSObject.Properties.Match('timeout_seconds').Count -gt 0 -and $def.timeout_seconds) {
         $timeoutSeconds = [int]$def.timeout_seconds
@@ -779,6 +757,88 @@ function Invoke-SmokeTestMultiProcess {
     $exe = Join-Path $installInfo.InstallDir $exeLeaf
     if (-not (Test-Path -LiteralPath $exe)) {
         throw "$exeLeaf missing inside install dir after seeding: $exe"
+    }
+
+    $processPlans = @()
+    $processIndex = 0
+    foreach ($pdef in $def.processes) {
+        $pname = "process-{0}" -f $processIndex
+        if ($pdef.PSObject.Properties.Match('name').Count -gt 0 -and $pdef.name) {
+            $pname = [string]$pdef.name
+        }
+
+        $processInstallInfo = $installInfo
+        if ($separateProcessInstalls) {
+            $processInstallState = $installState
+            if ($pdef.PSObject.Properties.Match('install_state').Count -gt 0 -and $pdef.install_state) {
+                $processInstallState = [string]$pdef.install_state
+            }
+            $processRom = $RomOverride
+            if (-not $processRom -and $installInfo.SourceRom) {
+                $processRom = [string]$installInfo.SourceRom
+            }
+            $processInstallInfo = New-SmokeInstall `
+                -RunRoot $RunRoot `
+                -TestName ("{0}-{1}" -f $name, $pname) `
+                -InstallState $processInstallState `
+                -SourceBinary $exe `
+                -SourceRom $processRom `
+                -ProjectRoot $ProjectRoot `
+                -Target $target
+            Write-Info ("  process install[{0}]: {1}" -f $pname, $processInstallInfo.InstallDir)
+            Write-Info ("  process state[{0}]: {1}" -f $pname, $processInstallInfo.InstallState)
+        }
+
+        $processPlans += [PSCustomObject]@{
+            Name = $pname
+            Definition = $pdef
+            InstallInfo = $processInstallInfo
+        }
+        $processIndex++
+    }
+
+    function Initialize-MultiProcessSmokeInstall {
+        param(
+            [Parameter(Mandatory)] [psobject] $Definition,
+            [Parameter(Mandatory)] [string] $InstallDir,
+            [Parameter(Mandatory)] [string] $Label
+        )
+
+        if ($Definition.PSObject.Properties.Match('remove_paths').Count -gt 0 -and $Definition.remove_paths) {
+            $removeCount = Remove-SmokePaths -InstallDir $InstallDir -Paths $Definition.remove_paths
+            if ($removeCount -gt 0) {
+                Write-Info ("  removed {0} stale path(s) [{1}]" -f $removeCount, $Label)
+            }
+        }
+        if ($Definition.PSObject.Properties.Match('fixtures').Count -gt 0 -and $Definition.fixtures) {
+            $fixCount = Copy-SmokeFixtures -ProjectRoot $ProjectRoot -InstallDir $InstallDir -Fixtures $Definition.fixtures
+            if ($fixCount -gt 0) {
+                Write-Info ("  staged {0} fixture(s) [{1}]" -f $fixCount, $Label)
+            }
+        }
+        if ($Definition.PSObject.Properties.Match('packed_fixtures').Count -gt 0 -and $Definition.packed_fixtures) {
+            $packCount = Pack-SmokePdmodFixtures -ProjectRoot $ProjectRoot -InstallDir $InstallDir -Fixtures $Definition.packed_fixtures
+            if ($packCount -gt 0) {
+                Write-Info ("  packed {0} fixture archive(s) [{1}]" -f $packCount, $Label)
+            }
+        }
+        if ($Definition.PSObject.Properties.Match('catalog_ingress_boundary_fixtures').Count -gt 0 `
+                -and $Definition.catalog_ingress_boundary_fixtures) {
+            New-CatalogIngressBoundaryFixtures -InstallDir $InstallDir
+        }
+        if ($Definition.PSObject.Properties.Match('needler_effect_replacement_fixtures').Count -gt 0 `
+                -and $Definition.needler_effect_replacement_fixtures) {
+            New-NeedlerEffectReplacementFixtures -InstallDir $InstallDir
+        }
+    }
+
+    if ($separateProcessInstalls) {
+        foreach ($plan in $processPlans) {
+            Initialize-MultiProcessSmokeInstall -Definition $def -InstallDir $plan.InstallInfo.InstallDir -Label $plan.Name
+            Initialize-MultiProcessSmokeInstall -Definition $plan.Definition -InstallDir $plan.InstallInfo.InstallDir -Label $plan.Name
+        }
+    } else {
+        Initialize-MultiProcessSmokeInstall -Definition $def -InstallDir $installInfo.InstallDir -Label "shared"
     }
 
     # B-801 memory-risk control: refuse to launch a live game process when host
@@ -798,10 +858,12 @@ function Invoke-SmokeTestMultiProcess {
     # is deterministic. The shared-install harness already wipes
     # pd-client.log; ensure pd-host.log is wiped too if it exists from a
     # prior run.
-    foreach ($leaf in @("pd-client.log", "pd-host.log", "pd-server.log")) {
-        foreach ($p in (Get-SmokeLogCandidatePaths -InstallDir $installInfo.InstallDir -Leaf $leaf)) {
-            if (Test-Path -LiteralPath $p) {
-                Remove-Item -LiteralPath $p -Force -ErrorAction SilentlyContinue
+    foreach ($plan in $processPlans) {
+        foreach ($leaf in @("pd-client.log", "pd-host.log", "pd-server.log")) {
+            foreach ($p in (Get-SmokeLogCandidatePaths -InstallDir $plan.InstallInfo.InstallDir -Leaf $leaf)) {
+                if (Test-Path -LiteralPath $p) {
+                    Remove-Item -LiteralPath $p -Force -ErrorAction SilentlyContinue
+                }
             }
         }
     }
@@ -810,11 +872,10 @@ function Invoke-SmokeTestMultiProcess {
     $procs = @()  # array of @{ Name; Process; LogPath; }
     $launchFailed = $false
 
-    foreach ($pdef in $def.processes) {
-        $pname = "unknown"
-        if ($pdef.PSObject.Properties.Match('name').Count -gt 0 -and $pdef.name) {
-            $pname = [string]$pdef.name
-        }
+    foreach ($plan in $processPlans) {
+        $pdef = $plan.Definition
+        $pname = $plan.Name
+        $processInstallInfo = $plan.InstallInfo
 
         $pBootArgs = @()
         if ($pdef.PSObject.Properties.Match('boot_args').Count -gt 0 -and $pdef.boot_args) {
@@ -836,7 +897,7 @@ function Invoke-SmokeTestMultiProcess {
         if ($pdef.PSObject.Properties.Match('log_file').Count -gt 0 -and $pdef.log_file) {
             $logFile = [string]$pdef.log_file
         }
-        $logPath = Get-SmokeLogPath -InstallDir $installInfo.InstallDir -Leaf $logFile
+        $logPath = Get-SmokeLogPath -InstallDir $processInstallInfo.InstallDir -Leaf $logFile
 
         # All processes share the same --smoke <test-path> so each binary
         # loads the same scripted schedule (typically just a single exit
@@ -867,7 +928,7 @@ function Invoke-SmokeTestMultiProcess {
             }
         }
         $psi.Arguments        = ($quotedArgs -join ' ')
-        $psi.WorkingDirectory = $installInfo.InstallDir
+        $psi.WorkingDirectory = $processInstallInfo.InstallDir
         $psi.UseShellExecute  = $false
         $psi.CreateNoWindow      = $false
         $psi.RedirectStandardError  = $false
@@ -886,6 +947,8 @@ function Invoke-SmokeTestMultiProcess {
             Name = $pname
             Process = $p
             LogPath = $logPath
+            InstallDir = $processInstallInfo.InstallDir
+            Assertions = $(if ($pdef.PSObject.Properties.Match('assertions').Count -gt 0) { $pdef.assertions } else { $null })
         }
 
         # Optional barrier: poll the just-launched process's log for the
@@ -992,7 +1055,34 @@ function Invoke-SmokeTestMultiProcess {
     } else {
         $assertions = [PSCustomObject]@{}
     }
-    $assertResult = Invoke-SmokeAssertions -LogPath $aggLogPath -Assertions $assertions -VerboseAssertions:$VerboseEval
+    $aggregateResult = Invoke-SmokeAssertions -LogPath $aggLogPath -Assertions $assertions -VerboseAssertions:$VerboseEval
+    $assertResult = [PSCustomObject]@{
+        Passed = $aggregateResult.Passed
+        Total = $aggregateResult.Total
+        Met = $aggregateResult.Met
+        Failures = New-Object System.Collections.Generic.List[psobject]
+    }
+    foreach ($failure in $aggregateResult.Failures) {
+        $assertResult.Failures.Add($failure)
+    }
+
+    foreach ($entry in $procs) {
+        if ($null -eq $entry.Assertions) { continue }
+        $processResult = Invoke-SmokeAssertions -LogPath $entry.LogPath -Assertions $entry.Assertions -VerboseAssertions:$VerboseEval
+        $assertResult.Total += $processResult.Total
+        $assertResult.Met += $processResult.Met
+        if (-not $processResult.Passed) { $assertResult.Passed = $false }
+        foreach ($failure in $processResult.Failures) {
+            $scopedFailure = $failure | Select-Object *
+            $scopedFailure | Add-Member -NotePropertyName Process -NotePropertyValue $entry.Name
+            if ($scopedFailure.PSObject.Properties.Match('Pattern').Count -gt 0) {
+                $scopedFailure.Pattern = "[{0}] {1}" -f $entry.Name, $scopedFailure.Pattern
+            } elseif ($scopedFailure.PSObject.Properties.Match('Message').Count -gt 0) {
+                $scopedFailure.Message = "[{0}] {1}" -f $entry.Name, $scopedFailure.Message
+            }
+            $assertResult.Failures.Add($scopedFailure)
+        }
+    }
 
     $testOk = $assertResult.Passed -and -not $launchFailed
 
@@ -1021,6 +1111,24 @@ function Invoke-SmokeTestMultiProcess {
         } catch {}
     }
 
+    if ($separateProcessInstalls) {
+        $uniqueProcessInstallDirs = @($processPlans | ForEach-Object { $_.InstallInfo.InstallDir } | Select-Object -Unique)
+        if ($testOk -and -not $KeepOnSuccess) {
+            foreach ($processInstallDir in $uniqueProcessInstallDirs) {
+                try {
+                    Remove-Item -LiteralPath $processInstallDir -Recurse -Force -ErrorAction Stop
+                    Write-Info ("  cleaned process install: {0}" -f $processInstallDir)
+                } catch {
+                    Write-Warn ("  process cleanup skipped: {0}" -f $_.Exception.Message)
+                }
+            }
+        } elseif (-not $testOk) {
+            foreach ($processInstallDir in $uniqueProcessInstallDirs) {
+                Write-Info ("  retained process install for debugging: {0}" -f $processInstallDir)
+            }
+        }
+    }
+
     $bugId = $null
     if ($Test.PSObject.Properties.Match('BugId').Count -gt 0) { $bugId = $Test.BugId }
     $regressionFor = $null
@@ -1037,6 +1145,7 @@ function Invoke-SmokeTestMultiProcess {
         ExitCode = $(if ($testOk) { 0 } else { 1 })
         ElapsedSeconds = $elapsed
         InstallDir = $installInfo.InstallDir
+        ProcessInstallDirs = @($processPlans | ForEach-Object { $_.InstallInfo.InstallDir })
         AssertionsTotal = $assertResult.Total
         AssertionsMet = $assertResult.Met
         Failures = @($assertResult.Failures)
@@ -1177,6 +1286,7 @@ function Invoke-SmokeTest {
             Write-Info ("  packed {0} fixture archive(s)" -f $packCount)
         }
     }
+
     if ($def.PSObject.Properties.Match('catalog_ingress_boundary_fixtures').Count -gt 0 `
             -and $def.catalog_ingress_boundary_fixtures) {
         New-CatalogIngressBoundaryFixtures -InstallDir $installInfo.InstallDir
