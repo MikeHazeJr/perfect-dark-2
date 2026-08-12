@@ -131,6 +131,7 @@ typedef enum {
     MENU_TYPE_PAUSE_MENU,         /* g_CtxPauseMenu owner */
     MENU_TYPE_MODDING_HUB,
     MENU_TYPE_THEME_EDITOR,
+    MENU_TYPE_CRASH_RECOVERY,     /* startup temporary-content recovery modal */
     MENU_TYPE_STATS_PANEL,
     MENU_TYPE_DEBUG_OVERLAY,      /* g_CtxDebugOverlay owner */
     /* AUDIT-24-M5 (2026-04-25): Grid submenu (`s_MenuView == 6` inside

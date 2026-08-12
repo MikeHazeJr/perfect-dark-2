@@ -35,6 +35,10 @@
  *   { "at_ms": N, "type": "exit" }
  *     -- scripted clean exit; produces SMOKE: result=scripted_exit.
  *
+ *   { "at_ms": N, "type": "unclean_exit" }
+ *     -- validation-only process exit after flushing the log, deliberately
+ *        skipping atexit so startup crash recovery sees the dirty session.
+ *
  *   { "at_ms": N, "type": "key", "key": "Return", "action": "tap" }
  *     -- inject SDL_KEYDOWN / KEYUP for a named key or numeric scancode.
  *        `action` may be "tap" (auto-release one frame later), "press"
@@ -99,7 +103,10 @@
 #include "system.h"
 #include "actionmap.h"   /* actionmapResolveByName, actionmapInjectStateForSmoke */
 #include "assetcatalog.h"
+#include "assetcatalog_deps.h"
 #include "assetcatalog_load.h"
+#include "assetprovider.h"
+#include "asset_runtime.h"
 #include "net/netdistrib.h"
 
 /* c115 (2026-05-14): need gfxGetSdlWindow to stamp the correct windowID
@@ -141,8 +148,10 @@ typedef enum {
     SMOKE_EVENT_RECEIVE_PDCA_LIST,
     SMOKE_EVENT_CATALOG_WEAPON_ACQUIRE,
     SMOKE_EVENT_CATALOG_WEAPON_RELEASE,
+    SMOKE_EVENT_CATALOG_RECOVERY_PROBE,
     SMOKE_EVENT_SCREENSHOT,         /* in-game glReadPixels grab -> path */
-    SMOKE_EVENT_EXIT
+    SMOKE_EVENT_EXIT,
+    SMOKE_EVENT_UNCLEAN_EXIT
 } SmokeEventType;
 
 #define SMOKE_MAX_SHOTPATH 256
@@ -558,6 +567,10 @@ static s32 smokeParseEvent(JParse *p, SmokeEvent *ev)
         ev->type = SMOKE_EVENT_EXIT;
         return 1;
     }
+    if (!strcmp(type_str, "unclean_exit")) {
+        ev->type = SMOKE_EVENT_UNCLEAN_EXIT;
+        return 1;
+    }
     if (!strcmp(type_str, "screenshot")) {
         if (!ev->path[0]) {
             sysLogPrintf(LOG_ERROR, "SMOKE: screenshot event missing 'path' (at_ms=%d)", ev->at_ms);
@@ -574,6 +587,16 @@ static s32 smokeParseEvent(JParse *p, SmokeEvent *ev)
             return 0;
         }
         ev->type = SMOKE_EVENT_RECEIVE_PDCA_LIST;
+        return 1;
+    }
+    if (!strcmp(type_str, "catalog_recovery_probe")) {
+        if (!ev->path[0]) {
+            sysLogPrintf(LOG_ERROR,
+                "SMOKE: catalog_recovery_probe event missing 'path' (at_ms=%d)",
+                ev->at_ms);
+            return 0;
+        }
+        ev->type = SMOKE_EVENT_CATALOG_RECOVERY_PROBE;
         return 1;
     }
     if (!strcmp(type_str, "catalog_weapon_acquire")
@@ -1083,6 +1106,39 @@ int smokeHarnessInit(void)
     return 1;
 }
 
+static void smokeCountCatalogDependency(const char *dep_id,
+        asset_type_e expected_type, void *userdata)
+{
+    (void)dep_id;
+    (void)expected_type;
+    (*(s32 *)userdata)++;
+}
+
+static void smokeCatalogRecoveryProbe(const char *asset_id, s32 at_ms)
+{
+    const asset_entry_t *entry = assetCatalogResolve(asset_id);
+    asset_type_e type = entry ? entry->type : ASSET_NONE;
+    s32 load_result = entry && type != ASSET_NONE
+        ? catalogLoadTypedAsset(type, asset_id) : 0;
+    entry = assetCatalogResolve(asset_id);
+    const asset_runtime_binding_t *binding = entry
+        ? assetRuntimeFindByTypeAndId(entry->type, asset_id) : NULL;
+    s32 dep_count = 0;
+    if (entry) catalogDepForEachTyped(asset_id,
+        smokeCountCatalogDependency, &dep_count);
+    const s32 file_provider = entry
+        && entry->source.primary.provider == fileProvider();
+    const char *provider_path = file_provider
+        ? fileProviderPath(entry->source.primary) : NULL;
+    sysLogPrintf(entry && file_provider && binding ? LOG_NOTE : LOG_WARNING,
+        "SMOKE: catalog_recovery_probe id='%s' catalog=%d temporary=%d load=%d provider=%d runtime=%d deps=%d provider_path='%s' runtime_path='%s' at_ms=%d",
+        asset_id, entry ? 1 : 0, entry ? entry->temporary : 0, load_result,
+        file_provider, binding ? 1 : 0, dep_count,
+        provider_path ? provider_path : "",
+        binding ? binding->primary_path : "", at_ms);
+    if (load_result) catalogReleaseTypedAsset(type, asset_id);
+}
+
 void smokeHarnessTick(void)
 {
     if (!s_State.active || s_State.exited) return;
@@ -1209,6 +1265,9 @@ void smokeHarnessTick(void)
                 ev->at_ms);
             break;
         }
+        case SMOKE_EVENT_CATALOG_RECOVERY_PROBE:
+            smokeCatalogRecoveryProbe(ev->path, ev->at_ms);
+            break;
         case SMOKE_EVENT_SCREENSHOT:
             sysLogPrintf(LOG_NOTE, "SMOKE: screenshot at_ms=%d -> %s", ev->at_ms, ev->path);
             gfxRequestSmokeScreenshot(ev->path);
@@ -1219,6 +1278,16 @@ void smokeHarnessTick(void)
             s_State.events_fired++;
             smokeHarnessExit(0, "scripted_exit");
             return;
+        case SMOKE_EVENT_UNCLEAN_EXIT:
+            s_State.next_event_idx++;
+            s_State.events_fired++;
+            s_State.exited = 1;
+            sysLogPrintf(LOG_NOTE,
+                "SMOKE: result=unclean_exit scenario=%s elapsed_ms=%d events_fired=%d/%d code=0",
+                s_State.scenario_name, elapsed, s_State.events_fired,
+                s_State.event_count);
+            fflush(NULL);
+            _Exit(0);
         default:
             break;
         }

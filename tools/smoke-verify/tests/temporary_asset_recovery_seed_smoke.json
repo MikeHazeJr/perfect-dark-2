@@ -1,0 +1,44 @@
+{
+  "scenario_name": "temporary_asset_recovery_seed_smoke",
+  "description": "Focused B-1044 gate proving a temporary received typed archive writes durable dirty recovery state before an unclean exit.",
+  "tags": ["network", "catalog", "recovery", "T-NETWORKING-009", "B-1044", "smoke"],
+  "paths_of_interest": [
+    "port/src/net/netdistrib.c",
+    "port/src/smoke_harness.c"
+  ],
+  "timeout_seconds": 120,
+  "install_state": "prefilled",
+  "temporary_recovery_fixtures": true,
+  "remove_paths": ["mods/.temp", "social/temporary-recovery", "mods-enabled.json"],
+  "fixtures": [
+    { "src": "tools/smoke-verify/fixtures/temporary_recovery_pd.ini", "dst": "pd.ini" }
+  ],
+  "processes": [
+    {
+      "name": "seed",
+      "smoke_path": "tools/smoke-verify/fixtures/temporary_recovery_seed_cold.json",
+      "snapshot_log_file": "pd-recovery-seed.log",
+      "boot_args": ["--no-update-check", "--no-sound", "--no-net", "--portable", "--skip-intro", "--debug-receive-pdca-list", "social/temporary-recovery/receive-list.txt"],
+      "wait_for": "SMOKE: result=unclean_exit",
+      "wait_timeout_seconds": 145,
+      "assertions": {
+        "required_lines": [
+          "BOOT: --debug-receive-pdca-list delivered=1",
+          "DISTRIB.RECOVERY.STATE.DIRTY: crashes=1 suspect=recovery_tri_weapon",
+          "SMOKE: result=unclean_exit"
+        ],
+        "forbidden_patterns": [
+          "DISTRIB.RECOVERY.STATE.WRITE.REJECT",
+          "DISTRIB.RECOVERY.STATE.REJECT",
+          "FATAL: "
+        ]
+      }
+    }
+  ],
+  "assertions": {
+    "required_counts": [
+      { "pattern": "DISTRIB.RECOVERY.STATE.DIRTY: crashes=1 suspect=recovery_tri_weapon", "min": 1, "max": 1 },
+      { "pattern": "SMOKE: result=unclean_exit", "min": 1, "max": 1 }
+    ]
+  }
+}

@@ -28,9 +28,12 @@
 #include <stdio.h>
 #include <string.h>
 #include <ctype.h>
+#include <errno.h>
 #include <dirent.h>
 #include <sys/stat.h>
 #include <zlib.h>
+#include <io.h>
+#include <windows.h>
 
 #include "types.h"
 #include "constants.h"
@@ -61,7 +64,6 @@
 #include "loader_pool.h"
 #include "modmgr.h"
 #include "modarchive.h"
-#include "pdgui_theme_loader.h"
 #include "system.h"
 #include "fs.h"
 #include "config.h"
@@ -74,6 +76,8 @@
 #define PDCA_MAGIC       0x41434450u   /* "PDCA" little-endian */
 #define CRASH_STATE_FILE ".crash_state"
 #define TEMP_SUBDIR      ".temp"
+#define RECOVERY_RECEIPT_FILE ".pd2-recovery"
+#define RECOVERY_RECEIPT_VERSION 1
 
 /* Initial pending transfer slots. The queue grows for large mod packs. */
 #define DISTRIB_INITIAL_QUEUE 128
@@ -149,6 +153,35 @@ static s32 s_KillFeedNext = 0;  /* circular write head */
 /* Pending diff decision (before user confirms) */
 static s32 s_PendingTemporary = 1;
 
+/* B-1044: mods/.temp is quarantined across process startup. A dirty tree is
+ * admitted only after the user chooses Keep and every receive receipt still
+ * matches the editable files on disk. */
+static crash_recovery_state_t s_RecoveryPendingState;
+static s32 s_RecoveryPending;
+static s32 s_RecoveryLaunchMarked;
+static s32 s_RecoveryPreserveDisabled;
+
+typedef struct distrib_recovery_candidate {
+    char dirpath[FS_MAXPATH];
+    char category[64];
+    char id[64];
+    u8 package_sha256[SHA256_DIGEST_SIZE];
+    s32 package;
+} distrib_recovery_candidate_t;
+
+typedef struct distrib_recovery_member {
+    char path[FS_MAXPATH];
+    char key[FS_MAXPATH];
+    s32 seen;
+} distrib_recovery_member_t;
+
+static s32 distribQuarantineAndRemoveTemp(const char *tempdir);
+static s32 distribPathIsDirectory(const char *path);
+static s32 distribVerifyRecoveryTree(const char *dirpath,
+    distrib_recovery_member_t *members, s32 member_count);
+static s32 distribMarkRecoveryLaunchingAt(const char *tempdir,
+    const char *suspect_id);
+
 /* Configurable trust threshold (MB) — transfers above this need user approval.
  * Bound to Net.DistribTrustThresholdMB in pd.ini. */
 static s32 s_TrustThresholdMb = DISTRIB_TRUST_THRESHOLD_DEFAULT_MB;
@@ -200,6 +233,232 @@ static s32 distribStorageSegment(const char *identity, char *out, size_t out_n)
     }
     out[len * 2] = '\0';
     return 1;
+}
+
+static u16 distribReadLe16(const u8 *p)
+{
+    return (u16)((u16)p[0] | ((u16)p[1] << 8));
+}
+
+static u32 distribReadLe32(const u8 *p)
+{
+    return (u32)p[0] | ((u32)p[1] << 8) | ((u32)p[2] << 16)
+        | ((u32)p[3] << 24);
+}
+
+static s32 distribHexToDigest(const char *hex,
+        u8 out[SHA256_DIGEST_SIZE])
+{
+    if (!hex || strlen(hex) != SHA256_HEX_SIZE - 1 || !out) return 0;
+    for (s32 i = 0; i < SHA256_DIGEST_SIZE; i++) {
+        s32 hi = hex[i * 2];
+        s32 lo = hex[i * 2 + 1];
+        hi = hi >= '0' && hi <= '9' ? hi - '0'
+            : hi >= 'a' && hi <= 'f' ? hi - 'a' + 10 : -1;
+        lo = lo >= '0' && lo <= '9' ? lo - '0'
+            : lo >= 'a' && lo <= 'f' ? lo - 'a' + 10 : -1;
+        if (hi < 0 || lo < 0) return 0;
+        out[i] = (u8)((hi << 4) | lo);
+    }
+    return 1;
+}
+
+static s32 distribSyncFile(FILE *fp)
+{
+    return fp && fflush(fp) == 0 && _commit(_fileno(fp)) == 0;
+}
+
+/* Persist the exact public member hashes while the PDCA candidate is still a
+ * rollback-capable filesystem transaction. The receipt is hidden metadata,
+ * never a parallel authored runtime source. */
+static s32 distribWriteRecoveryReceipt(const char *destdir,
+        const distrib_recv_slot_t *slot, const u8 *archive, u32 archive_len,
+        const u8 *package_sha256)
+{
+    char receipt_path[FS_MAXPATH];
+    char receipt_stage[FS_MAXPATH];
+    FILE *fp;
+    const u8 *p;
+    const u8 *end;
+    u16 file_count;
+    char package_hex[SHA256_HEX_SIZE] = {0};
+
+    if (!destdir || !slot || !archive || archive_len < 6
+            || distribReadLe32(archive) != PDCA_MAGIC
+            || !assetPathJoinChecked(receipt_path, sizeof(receipt_path),
+                destdir, "/", RECOVERY_RECEIPT_FILE)
+            || !assetPathJoinChecked(receipt_stage, sizeof(receipt_stage),
+                destdir, "/", ".pd2-recovery.tmp")) return 0;
+    file_count = distribReadLe16(archive + 4);
+    if (file_count == 0) return 0;
+    if (package_sha256) sha256ToHex(package_sha256, package_hex);
+
+    remove(receipt_stage);
+    fp = fopen(receipt_stage, "wb");
+    if (!fp) return 0;
+    if (fprintf(fp,
+            "version=%d\nkind=%s\ncategory=%s\nid=%s\npackage_sha256=%s\nmember_count=%u\n",
+            RECOVERY_RECEIPT_VERSION,
+            strcmp(slot->category, DISTRIB_PACKAGE_CATEGORY) == 0
+                ? "package" : "asset",
+            slot->category, slot->id, package_hex,
+            (unsigned)file_count) < 0) {
+        fclose(fp);
+        remove(receipt_stage);
+        return 0;
+    }
+
+    p = archive + 6;
+    end = archive + archive_len;
+    for (u16 i = 0; i < file_count; i++) {
+        u16 path_len;
+        u32 bytes_len;
+        u8 digest[SHA256_DIGEST_SIZE];
+        char digest_hex[SHA256_HEX_SIZE];
+        const char *relpath;
+        if (p + 2 > end) goto fail;
+        path_len = distribReadLe16(p);
+        p += 2;
+        if (path_len < 2 || p + path_len + 4 > end
+                || p[path_len - 1] != '\0') goto fail;
+        relpath = (const char *)p;
+        p += path_len;
+        bytes_len = distribReadLe32(p);
+        p += 4;
+        if (p + bytes_len > end) goto fail;
+        sha256Hash(p, bytes_len, digest);
+        sha256ToHex(digest, digest_hex);
+        if (fprintf(fp, "member=%s %s\n", digest_hex, relpath) < 0) goto fail;
+        p += bytes_len;
+    }
+    s32 durable = p == end && distribSyncFile(fp);
+    if (fclose(fp) != 0) durable = 0;
+    if (!durable) {
+        remove(receipt_stage);
+        return 0;
+    }
+    if (!MoveFileExA(receipt_stage, receipt_path,
+            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+        remove(receipt_stage);
+        return 0;
+    }
+    return 1;
+
+fail:
+    fclose(fp);
+    remove(receipt_stage);
+    return 0;
+}
+
+static s32 distribValidateRecoveryReceipt(const char *dirpath,
+        distrib_recovery_candidate_t *out)
+{
+    char receipt_path[FS_MAXPATH];
+    char line[FS_MAXPATH + SHA256_HEX_SIZE + 32];
+    char kind[16] = {0};
+    char package_hex[SHA256_HEX_SIZE] = {0};
+    s32 version = 0;
+    s32 expected_members = -1;
+    s32 verified_members = 0;
+    s32 saw_version = 0;
+    s32 saw_kind = 0;
+    s32 saw_category = 0;
+    s32 saw_id = 0;
+    s32 saw_package_sha = 0;
+    s32 saw_member_count = 0;
+    distrib_recovery_member_t *members = NULL;
+    FILE *fp;
+
+    if (!dirpath || !out || !assetPathJoinChecked(receipt_path,
+            sizeof(receipt_path), dirpath, "/", RECOVERY_RECEIPT_FILE)) return 0;
+    memset(out, 0, sizeof(*out));
+    if (!assetPathCopyChecked(out->dirpath, sizeof(out->dirpath), dirpath)) return 0;
+    fp = fopen(receipt_path, "rb");
+    if (!fp) return 0;
+    while (fgets(line, sizeof(line), fp)) {
+        size_t len = strlen(line);
+        if (len == sizeof(line) - 1 && line[len - 1] != '\n' && !feof(fp))
+            goto fail;
+        while (len > 0 && (line[len - 1] == '\r' || line[len - 1] == '\n'))
+            line[--len] = '\0';
+        if (!strncmp(line, "version=", 8)) {
+            if (saw_version++) goto fail;
+            version = atoi(line + 8);
+        }
+        else if (!strncmp(line, "kind=", 5)) {
+            if (saw_kind++) goto fail;
+            if (!assetPathCopyChecked(kind, sizeof(kind), line + 5)) goto fail;
+        } else if (!strncmp(line, "category=", 9)) {
+            if (saw_category++) goto fail;
+            if (!assetPathCopyChecked(out->category, sizeof(out->category),
+                    line + 9)) goto fail;
+        } else if (!strncmp(line, "id=", 3)) {
+            if (saw_id++) goto fail;
+            if (!assetPathCopyChecked(out->id, sizeof(out->id), line + 3)) goto fail;
+        } else if (!strncmp(line, "package_sha256=", 15)) {
+            if (saw_package_sha++) goto fail;
+            if (!assetPathCopyChecked(package_hex, sizeof(package_hex),
+                    line + 15)) goto fail;
+        } else if (!strncmp(line, "member_count=", 13)) {
+            if (saw_member_count++) goto fail;
+            expected_members = atoi(line + 13);
+            if (expected_members <= 0 || expected_members > 65535) goto fail;
+            members = (distrib_recovery_member_t *)calloc(
+                (size_t)expected_members, sizeof(*members));
+            if (!members) goto fail;
+        } else if (!strncmp(line, "member=", 7)) {
+            const char *value = line + 7;
+            const char *relpath;
+            char digest_hex[SHA256_HEX_SIZE];
+            char fullpath[FS_MAXPATH];
+            if (!members || verified_members >= expected_members
+                    || strlen(value) <= SHA256_HEX_SIZE - 1
+                    || value[SHA256_HEX_SIZE - 1] != ' ') goto fail;
+            memcpy(digest_hex, value, SHA256_HEX_SIZE - 1);
+            digest_hex[SHA256_HEX_SIZE - 1] = '\0';
+            relpath = value + SHA256_HEX_SIZE;
+            if (!pdcaNormalizeMemberPath(members[verified_members].path,
+                    sizeof(members[verified_members].path),
+                    members[verified_members].key,
+                    sizeof(members[verified_members].key), relpath)
+                    || !assetPathJoinChecked(fullpath, sizeof(fullpath), dirpath,
+                        "/", relpath)) goto fail;
+            for (s32 i = 0; i < verified_members; i++) {
+                if (!strcmp(members[i].key, members[verified_members].key))
+                    goto fail;
+            }
+            if (sha256VerifyFile(fullpath, digest_hex) != 1) goto fail;
+            verified_members++;
+        } else goto fail;
+    }
+    fclose(fp);
+    fp = NULL;
+    if (version != RECOVERY_RECEIPT_VERSION || !saw_version || !saw_kind
+            || !saw_category || !saw_id || !saw_package_sha
+            || !saw_member_count || !out->category[0] || !out->id[0]
+            || expected_members <= 0 || verified_members != expected_members
+            || !distribVerifyRecoveryTree(dirpath, members, expected_members)) {
+        free(members);
+        return 0;
+    }
+    if (!strcmp(kind, "package")) {
+        out->package = 1;
+        if (strcmp(out->category, DISTRIB_PACKAGE_CATEGORY) != 0
+                || !distribHexToDigest(package_hex, out->package_sha256)) {
+            free(members);
+            return 0;
+        }
+    } else if (strcmp(kind, "asset") != 0) {
+        free(members);
+        return 0;
+    }
+    free(members);
+    return 1;
+
+fail:
+    if (fp) fclose(fp);
+    free(members);
+    return 0;
 }
 
 static distrib_queue_entry_t *distribAllocQueueSlot(void)
@@ -2937,13 +3196,24 @@ void netDistribClientHandleEnd(const char *catalog_id, u8 success)
     /* Build destination directory */
     const char *modsdir = modmgrGetModsDir();
     if (!modsdir || !modsdir[0]) {
-        modsdir = fsGetModDir();
-    }
-    if (!modsdir || !modsdir[0]) {
         sysLogPrintf(LOG_ERROR, "DISTRIB: no mods directory available for '%s'", slot->id);
         goto done;
     }
+    if (slot->temporary && s_RecoveryPreserveDisabled) {
+        char disabled_temp[FS_MAXPATH];
+        if (!assetPathJoinChecked(disabled_temp, sizeof(disabled_temp), modsdir,
+                "/", TEMP_SUBDIR)
+                || !distribQuarantineAndRemoveTemp(disabled_temp)) {
+            sysLogPrintf(LOG_WARNING,
+                "DISTRIB.RECOVERY.DISABLED.REJECT: could not retire the prior disabled quarantine");
+            goto done;
+        }
+        s_RecoveryPreserveDisabled = 0;
+        sysLogPrintf(LOG_NOTE,
+            "DISTRIB.RECOVERY.DISABLED.RETIRED: new temporary session starts from an empty quarantine");
+    }
     char destdir[FS_MAXPATH];
+    char temp_root[FS_MAXPATH] = {0};
     char category_segment[129];
     char id_segment[129];
     if (!distribStorageSegment(slot->category, category_segment,
@@ -2956,7 +3226,6 @@ void netDistribClientHandleEnd(const char *catalog_id, u8 success)
         goto done;
     }
     if (slot->temporary) {
-        char temp_root[FS_MAXPATH];
         char category_root[FS_MAXPATH];
         if (!assetPathJoinChecked(temp_root, sizeof(temp_root), modsdir, "/",
                 TEMP_SUBDIR)
@@ -3006,13 +3275,20 @@ void netDistribClientHandleEnd(const char *catalog_id, u8 success)
         ini_section_t ini;
         s32 package_transfer =
 			strcmp(slot->category, DISTRIB_PACKAGE_CATEGORY) == 0;
+		const u8 *package_sha = package_transfer
+			? distribManifestComponentSha(slot->id) : NULL;
+		s32 receipt_ok = !slot->temporary || distribWriteRecoveryReceipt(
+			destdir, slot, raw, (u32)raw_len, package_sha);
 		s32 registered = 0;
-		if (package_transfer) {
-			const u8 *expected_sha = distribManifestComponentSha(slot->id);
-			registered = expected_sha
-				? modmgrRegisterSessionFolder(destdir, slot->id, expected_sha)
+		if (!receipt_ok) {
+			sysLogPrintf(LOG_WARNING,
+				"DISTRIB.RECOVERY.RECEIPT.REJECT: could not persist verified receipt for '%s'",
+				slot->id);
+		} else if (package_transfer) {
+			registered = package_sha
+				? modmgrRegisterSessionFolder(destdir, slot->id, package_sha)
 				: 0;
-			if (!expected_sha) {
+			if (!package_sha) {
 				sysLogPrintf(LOG_WARNING,
 					"DISTRIB: package '%s' has no component identity in the active manifest",
 					slot->id);
@@ -3028,7 +3304,8 @@ void netDistribClientHandleEnd(const char *catalog_id, u8 success)
 			distribMarkRegisteredTree(destdir, slot->temporary);
 		}
 
-		for (s32 k = 0; !package_transfer && ini_names[k] && !registered; k++) {
+		for (s32 k = 0; receipt_ok && !package_transfer && ini_names[k]
+				&& !registered; k++) {
             if (!assetPathJoinChecked(inipath, sizeof(inipath), destdir, "/",
                     ini_names[k])) continue;
             if (iniParse(inipath, &ini)) {
@@ -3124,27 +3401,18 @@ void netDistribClientHandleEnd(const char *catalog_id, u8 success)
             }
         }
 
-        /* Check for theme.json — hot-register as mod theme (default-enabled
-         * policy: first-sight themes auto-apply via pdguiThemeRegisterModDir).
-         * This runs in addition to INI registration, not instead of it — a mod
-         * can have both an asset INI and a theme.json. */
-        {
-            char theme_check[FS_MAXPATH];
-            struct stat tst;
-			if (!package_transfer
-					&& assetPathJoinChecked(theme_check, sizeof(theme_check), destdir,
-                    "/", "theme.json")
-                    && stat(theme_check, &tst) == 0 && S_ISREG(tst.st_mode)) {
-                pdguiThemeRegisterModDir(slot->id, theme_check);
-                sysLogPrintf(LOG_NOTE, "DISTRIB: hot-registered theme '%s' from %s",
-                             slot->id, destdir);
-                if (!registered) registered = 1;
-            }
-        }
-
         sysLogPrintf(LOG_NOTE,
             "DISTRIB.CATALOG.ADMISSION: id=%s scanner_result=%d",
             slot->id, registered);
+
+        if (registered > 0 && slot->temporary
+                && !distribMarkRecoveryLaunchingAt(temp_root, slot->id)) {
+            sysLogPrintf(LOG_ERROR,
+                "DISTRIB.RECOVERY.STATE.REJECT: could not durably mark temporary content '%s' dirty",
+                slot->id);
+            (void)modmgrRetireSessionContent();
+            registered = 0;
+        }
 
         /* A negative scanner result means at least one recognized typed source
          * rejected after another candidate may already have been inspected.
@@ -3439,13 +3707,371 @@ void netDistribDeclineTransfer(s32 slot_idx)
  * Crash Recovery
  * ======================================================================== */
 
-static s32 getCrashStatePath(char *out, s32 maxlen)
+static const char *distribGetModsRoot(void)
 {
-    const char *modsdir = fsGetModDir();
+    const char *modsdir = modmgrGetModsDir();
+    return modsdir && modsdir[0] ? modsdir : NULL;
+}
+
+static s32 distribGetTempRoot(char *out, size_t out_cap)
+{
+    const char *modsdir = distribGetModsRoot();
+    return modsdir && assetPathJoinChecked(out, out_cap, modsdir, "/",
+        TEMP_SUBDIR);
+}
+
+static s32 getCrashStatePathAt(const char *tempdir, char *out, size_t out_cap)
+{
+    return tempdir && tempdir[0] && assetPathJoinChecked(out, out_cap,
+        tempdir, "/", CRASH_STATE_FILE);
+}
+
+static s32 getCrashStatePath(char *out, size_t out_cap)
+{
     char tempdir[FS_MAXPATH];
-    return assetPathJoinChecked(tempdir, sizeof(tempdir), modsdir, "/",
-        TEMP_SUBDIR) && assetPathJoinChecked(out, (size_t)maxlen, tempdir, "/",
-        CRASH_STATE_FILE);
+    return distribGetTempRoot(tempdir, sizeof(tempdir))
+        && getCrashStatePathAt(tempdir, out, out_cap);
+}
+
+static s32 distribWriteCrashStateAt(const char *tempdir, s32 crash_count,
+        const char *suspect, s32 disabled)
+{
+    char statepath[FS_MAXPATH];
+    char stagepath[FS_MAXPATH];
+    FILE *fp;
+    if (!getCrashStatePathAt(tempdir, statepath, sizeof(statepath))
+            || !assetPathJoinChecked(stagepath, sizeof(stagepath),
+                statepath, "", ".tmp")) {
+        sysLogPrintf(LOG_ERROR,
+            "DISTRIB.RECOVERY.STATE.WRITE.REJECT: path construction failed");
+        return 0;
+    }
+    remove(stagepath);
+    fp = fopen(stagepath, "wb");
+    if (!fp) {
+        sysLogPrintf(LOG_ERROR,
+            "DISTRIB.RECOVERY.STATE.WRITE.REJECT: open path=%s errno=%d",
+            stagepath, errno);
+        return 0;
+    }
+    s32 wrote = fprintf(fp,
+            "[crash_recovery]\nversion=1\ncrash_count=%d\ndisabled=%d\nsuspect=%s\n",
+            crash_count, disabled ? 1 : 0, suspect ? suspect : "") >= 0;
+    s32 durable = wrote && distribSyncFile(fp);
+    if (fclose(fp) != 0) durable = 0;
+    if (!durable) {
+        sysLogPrintf(LOG_ERROR,
+            "DISTRIB.RECOVERY.STATE.WRITE.REJECT: sync path=%s errno=%d",
+            stagepath, errno);
+        remove(stagepath);
+        return 0;
+    }
+    if (!MoveFileExA(stagepath, statepath,
+            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+        sysLogPrintf(LOG_ERROR,
+            "DISTRIB.RECOVERY.STATE.WRITE.REJECT: publish source=%s destination=%s winerr=%lu",
+            stagepath, statepath, (unsigned long)GetLastError());
+        remove(stagepath);
+        return 0;
+    }
+    return 1;
+}
+
+/* 1 = parsed, 0 = absent, -1 = present but invalid. */
+static s32 distribReadCrashStateAt(const char *tempdir, s32 *crash_count,
+        char *suspect, size_t suspect_cap, s32 *disabled)
+{
+    char statepath[FS_MAXPATH];
+    char line[256];
+    s32 saw_version = 0;
+    s32 saw_count = 0;
+    s32 saw_disabled = 0;
+    s32 saw_suspect = 0;
+    s32 version = 0;
+    FILE *fp;
+    if (!crash_count || !suspect || suspect_cap == 0 || !disabled
+            || !getCrashStatePathAt(tempdir, statepath, sizeof(statepath))) return -1;
+    *crash_count = 0;
+    *disabled = 0;
+    suspect[0] = '\0';
+    fp = fopen(statepath, "rb");
+    if (!fp) return 0;
+    while (fgets(line, sizeof(line), fp)) {
+        size_t len = strlen(line);
+        while (len > 0 && (line[len - 1] == '\r' || line[len - 1] == '\n'))
+            line[--len] = '\0';
+        if (!strcmp(line, "[crash_recovery]")) continue;
+        if (!strncmp(line, "version=", 8)) {
+            if (saw_version++) goto invalid;
+            version = atoi(line + 8);
+        } else if (!strncmp(line, "crash_count=", 12)) {
+            if (saw_count++) goto invalid;
+            *crash_count = atoi(line + 12);
+        } else if (!strncmp(line, "disabled=", 9)) {
+            if (saw_disabled++) goto invalid;
+            *disabled = atoi(line + 9) ? 1 : 0;
+        } else if (!strncmp(line, "suspect=", 8)) {
+            if (saw_suspect++ || !assetPathCopyChecked(suspect, suspect_cap,
+                    line + 8)) goto invalid;
+        } else goto invalid;
+    }
+    fclose(fp);
+    return version == 1 && saw_version && saw_count && saw_disabled
+        && saw_suspect && *crash_count >= 0 ? 1 : -1;
+
+invalid:
+    fclose(fp);
+    return -1;
+}
+
+static s32 distribCountRecoveryComponents(const char *tempdir)
+{
+    DIR *categories = opendir(tempdir);
+    struct dirent *category_ent;
+    s32 count = 0;
+    if (!categories) return 0;
+    while ((category_ent = readdir(categories)) != NULL) {
+        char category_dir[FS_MAXPATH];
+        DIR *components;
+        struct dirent *component_ent;
+        if (category_ent->d_name[0] == '.') continue;
+        if (!assetPathJoinChecked(category_dir, sizeof(category_dir), tempdir,
+                "/", category_ent->d_name)
+                || !distribPathIsDirectory(category_dir)) {
+            count++;
+            continue;
+        }
+        components = opendir(category_dir);
+        if (!components) {
+            count++;
+            continue;
+        }
+        while ((component_ent = readdir(components)) != NULL) {
+            if (component_ent->d_name[0] != '.') count++;
+        }
+        closedir(components);
+    }
+    closedir(categories);
+    return count;
+}
+
+static s32 distribPathIsDirectory(const char *path)
+{
+    DWORD attrs;
+    if (!path || !path[0]) return 0;
+    attrs = GetFileAttributesA(path);
+    return attrs != INVALID_FILE_ATTRIBUTES
+        && (attrs & FILE_ATTRIBUTE_DIRECTORY) != 0
+        && (attrs & FILE_ATTRIBUTE_REPARSE_POINT) == 0;
+}
+
+static s32 distribRemoveTree(const char *path)
+{
+    DWORD attrs;
+    if (!path || !path[0]) return 0;
+    attrs = GetFileAttributesA(path);
+    if (attrs == INVALID_FILE_ATTRIBUTES)
+        return GetLastError() == ERROR_FILE_NOT_FOUND
+            || GetLastError() == ERROR_PATH_NOT_FOUND;
+    /* Never follow a received junction or symlink while deleting. The exact
+     * .temp root is quarantined first, so a rejection leaves only an inert
+     * sibling for explicit inspection. */
+    if (attrs & FILE_ATTRIBUTE_REPARSE_POINT) return 0;
+    if (!(attrs & FILE_ATTRIBUTE_DIRECTORY)) return remove(path) == 0;
+    DIR *dir = opendir(path);
+    if (!dir) return 0;
+    s32 ok = 1;
+    struct dirent *ent;
+    while ((ent = readdir(dir)) != NULL) {
+        char child[FS_MAXPATH];
+        if (!strcmp(ent->d_name, ".") || !strcmp(ent->d_name, "..")) continue;
+        if (!assetPathJoinChecked(child, sizeof(child), path, "/", ent->d_name)
+                || !distribRemoveTree(child)) ok = 0;
+    }
+    closedir(dir);
+    return ok && rmdir(path) == 0;
+}
+
+static s32 distribRecoveryDirHasMemberPrefix(const char *directory_key,
+        const distrib_recovery_member_t *members, s32 member_count)
+{
+    size_t prefix_len = strlen(directory_key);
+    for (s32 i = 0; i < member_count; i++) {
+        if (!strncmp(members[i].key, directory_key, prefix_len)
+                && members[i].key[prefix_len] == '/') return 1;
+    }
+    return 0;
+}
+
+static s32 distribVerifyRecoveryTreeRecursive(const char *root,
+        const char *current, const char *prefix,
+        distrib_recovery_member_t *members, s32 member_count)
+{
+    DIR *dir = opendir(current);
+    struct dirent *ent;
+    if (!dir) return 0;
+    while ((ent = readdir(dir)) != NULL) {
+        char child[FS_MAXPATH];
+        char relative[FS_MAXPATH];
+        char normalized[FS_MAXPATH];
+        char key[FS_MAXPATH];
+        DWORD attrs;
+        s32 match = -1;
+        if (!strcmp(ent->d_name, ".") || !strcmp(ent->d_name, "..")) continue;
+        if (!assetPathJoinChecked(child, sizeof(child), current, "/",
+                ent->d_name)
+                || !(prefix && prefix[0]
+                    ? assetPathJoinChecked(relative, sizeof(relative), prefix,
+                        "/", ent->d_name)
+                    : assetPathCopyChecked(relative, sizeof(relative),
+                        ent->d_name))) {
+            closedir(dir);
+            return 0;
+        }
+        attrs = GetFileAttributesA(child);
+        if (attrs == INVALID_FILE_ATTRIBUTES
+                || (attrs & FILE_ATTRIBUTE_REPARSE_POINT)
+                || !pdcaNormalizeMemberPath(normalized, sizeof(normalized), key,
+                    sizeof(key), relative)) {
+            closedir(dir);
+            return 0;
+        }
+        if (attrs & FILE_ATTRIBUTE_DIRECTORY) {
+            if (!distribRecoveryDirHasMemberPrefix(key, members, member_count)
+                    || !distribVerifyRecoveryTreeRecursive(root, child,
+                        normalized, members, member_count)) {
+                closedir(dir);
+                return 0;
+            }
+            continue;
+        }
+        if (!strcmp(key, RECOVERY_RECEIPT_FILE)) continue;
+        for (s32 i = 0; i < member_count; i++) {
+            if (!strcmp(members[i].key, key)) {
+                match = i;
+                break;
+            }
+        }
+        if (match < 0 || members[match].seen) {
+            closedir(dir);
+            return 0;
+        }
+        members[match].seen = 1;
+    }
+    closedir(dir);
+    (void)root;
+    return 1;
+}
+
+static s32 distribVerifyRecoveryTree(const char *dirpath,
+        distrib_recovery_member_t *members, s32 member_count)
+{
+    if (!dirpath || !members || member_count <= 0
+            || !distribPathIsDirectory(dirpath)
+            || !distribVerifyRecoveryTreeRecursive(dirpath, dirpath, "",
+                members, member_count)) return 0;
+    for (s32 i = 0; i < member_count; i++) {
+        if (!members[i].seen) return 0;
+    }
+    return 1;
+}
+
+static s32 distribCollectRecoveryCandidates(const char *tempdir,
+        distrib_recovery_candidate_t **out_candidates, s32 *out_count)
+{
+    DIR *categories;
+    distrib_recovery_candidate_t *rows = NULL;
+    s32 count = 0;
+    s32 capacity = 0;
+    if (!tempdir || !out_candidates || !out_count) return 0;
+    *out_candidates = NULL;
+    *out_count = 0;
+    categories = opendir(tempdir);
+    if (!categories) return 0;
+
+    struct dirent *category_ent;
+    while ((category_ent = readdir(categories)) != NULL) {
+        char category_dir[FS_MAXPATH];
+        DIR *components;
+        if (category_ent->d_name[0] == '.') continue;
+        if (!assetPathJoinChecked(category_dir, sizeof(category_dir), tempdir,
+                "/", category_ent->d_name) || !distribPathIsDirectory(category_dir))
+            goto fail;
+        components = opendir(category_dir);
+        if (!components) goto fail;
+        struct dirent *component_ent;
+        while ((component_ent = readdir(components)) != NULL) {
+            char component_dir[FS_MAXPATH];
+            char expected_category[129];
+            char expected_id[129];
+            distrib_recovery_candidate_t candidate;
+            if (component_ent->d_name[0] == '.') continue;
+            if (!assetPathJoinChecked(component_dir, sizeof(component_dir),
+                    category_dir, "/", component_ent->d_name)
+                    || !distribPathIsDirectory(component_dir)
+                    || !distribValidateRecoveryReceipt(component_dir, &candidate)
+                    || !distribStorageSegment(candidate.category,
+                        expected_category, sizeof(expected_category))
+                    || !distribStorageSegment(candidate.id, expected_id,
+                        sizeof(expected_id))
+                    || strcmp(expected_category, category_ent->d_name) != 0
+                    || strcmp(expected_id, component_ent->d_name) != 0) {
+                closedir(components);
+                goto fail;
+            }
+            if (count == capacity) {
+                s32 next_capacity = capacity ? capacity * 2 : 8;
+                distrib_recovery_candidate_t *grown =
+                    (distrib_recovery_candidate_t *)realloc(rows,
+                        (size_t)next_capacity * sizeof(*rows));
+                if (!grown) {
+                    closedir(components);
+                    goto fail;
+                }
+                rows = grown;
+                capacity = next_capacity;
+            }
+            rows[count++] = candidate;
+        }
+        closedir(components);
+    }
+    closedir(categories);
+    if (count == 0) {
+        free(rows);
+        return 0;
+    }
+    *out_candidates = rows;
+    *out_count = count;
+    return 1;
+
+fail:
+    closedir(categories);
+    free(rows);
+    return 0;
+}
+
+static s32 distribQuarantineAndRemoveTemp(const char *tempdir)
+{
+    const char *modsdir = distribGetModsRoot();
+    char quarantine[FS_MAXPATH];
+    if (!tempdir || !modsdir || !modsdir[0] || !distribPathIsDirectory(tempdir))
+        return 1;
+    for (s32 attempt = 0; attempt < 100; attempt++) {
+        char leaf[48];
+        snprintf(leaf, sizeof(leaf), ".temp-discard-%02d", attempt);
+        if (!assetPathJoinChecked(quarantine, sizeof(quarantine), modsdir, "/",
+                leaf)) return 0;
+        struct stat st;
+        if (stat(quarantine, &st) == 0) continue;
+        if (rename(tempdir, quarantine) != 0) return 0;
+        if (!distribRemoveTree(quarantine)) {
+            sysLogPrintf(LOG_WARNING,
+                "DISTRIB.RECOVERY.DISCARD: catalog retired but quarantined cleanup remains at %s",
+                quarantine);
+        }
+        return 1;
+    }
+    return 0;
 }
 
 s32 netCrashRecoveryCheck(crash_recovery_state_t *out)
@@ -3454,27 +4080,17 @@ s32 netCrashRecoveryCheck(crash_recovery_state_t *out)
     memset(out, 0, sizeof(*out));
 
     /* Check if there are any temp components */
-    const char *modsdir = fsGetModDir();
     char tempdir[FS_MAXPATH];
-    if (!assetPathJoinChecked(tempdir, sizeof(tempdir), modsdir, "/",
-            TEMP_SUBDIR)) return CRASH_RECOVERY_NONE;
+    if (!distribGetTempRoot(tempdir, sizeof(tempdir)))
+        return CRASH_RECOVERY_NONE;
 
-    DIR *d = opendir(tempdir);
-    if (!d) {
+    if (!distribPathIsDirectory(tempdir)) {
         /* No .temp directory at all — nothing to recover */
         out->status = CRASH_RECOVERY_NONE;
         return CRASH_RECOVERY_NONE;
     }
 
-    /* Count non-hidden entries (subdirectories = category dirs) */
-    struct dirent *ent;
-    s32 component_count = 0;
-    while ((ent = readdir(d)) != NULL) {
-        if (ent->d_name[0] != '.') {
-            component_count++;
-        }
-    }
-    closedir(d);
+    s32 component_count = distribCountRecoveryComponents(tempdir);
 
     if (!component_count) {
         out->status = CRASH_RECOVERY_NONE;
@@ -3483,41 +4099,29 @@ s32 netCrashRecoveryCheck(crash_recovery_state_t *out)
 
     out->temp_component_count = component_count;
 
-    /* Read crash state file */
-    char statepath[FS_MAXPATH];
-    if (!getCrashStatePath(statepath, sizeof(statepath))) {
-        out->status = CRASH_RECOVERY_NONE;
-        return CRASH_RECOVERY_NONE;
-    }
-
-    FILE *fp = fopen(statepath, "r");
-    if (!fp) {
+    s32 crash_count = 0;
+    s32 disabled = 0;
+    char suspect[64] = "";
+    s32 state_result = distribReadCrashStateAt(tempdir, &crash_count, suspect,
+        sizeof(suspect), &disabled);
+    if (state_result == 0) {
         /* No state file — temp mods exist but no crash data. Clean exit? */
         out->status = CRASH_RECOVERY_CLEAN;
         return CRASH_RECOVERY_CLEAN;
     }
-
-    char line[256];
-    s32 crash_count = 0;
-    char suspect[64] = "";
-
-    while (fgets(line, sizeof(line), fp)) {
-        if (strncmp(line, "crash_count=", 12) == 0) {
-            crash_count = atoi(line + 12);
-        } else if (strncmp(line, "suspect=", 8) == 0) {
-            strncpy(suspect, line + 8, sizeof(suspect) - 1);
-            /* strip trailing newline */
-            s32 slen = (s32)strlen(suspect);
-            while (slen > 0 && (suspect[slen-1] == '\n' || suspect[slen-1] == '\r')) {
-                suspect[--slen] = '\0';
-            }
-        }
+    if (state_result < 0) {
+        /* Corrupt recovery metadata never downgrades a dirty tree to clean. */
+        crash_count = 1;
+        assetPathCopyChecked(suspect, sizeof(suspect), "<invalid-recovery-state>");
     }
-    fclose(fp);
 
     out->crash_count = crash_count;
     strncpy(out->suspect_id, suspect, sizeof(out->suspect_id) - 1);
 
+    if (disabled) {
+        out->status = CRASH_RECOVERY_DISABLED;
+        return CRASH_RECOVERY_DISABLED;
+    }
     if (crash_count > 0) {
         out->status = CRASH_RECOVERY_PROMPT;
         sysLogPrintf(LOG_WARNING, "DISTRIB: crash recovery needed (count=%d, suspect='%s')",
@@ -3529,147 +4133,217 @@ s32 netCrashRecoveryCheck(crash_recovery_state_t *out)
     return CRASH_RECOVERY_CLEAN;
 }
 
-void netCrashRecoveryApply(s32 action)
+s32 netCrashRecoveryApply(s32 action)
 {
-    const char *modsdir = fsGetModDir();
     char tempdir[FS_MAXPATH];
-    if (!assetPathJoinChecked(tempdir, sizeof(tempdir), modsdir, "/",
-            TEMP_SUBDIR)) return;
+    if (!distribGetTempRoot(tempdir, sizeof(tempdir))) return 0;
 
     switch (action) {
-        case 0: /* Keep — load normally, leave crash state as-is */
-            sysLogPrintf(LOG_NOTE, "DISTRIB: crash recovery: keeping temp mods");
-            break;
-
-        case 1: /* Keep but Disable — mark all temp catalog entries disabled */
-            sysLogPrintf(LOG_NOTE, "DISTRIB: crash recovery: disabling temp mods");
-            /* Iterate catalog and disable temporary entries */
-            for (s32 i = 0; i < assetCatalogGetCount(); i++) {
-                /* We can't iterate by index directly — use the global resolve path.
-                 * For now, log the action; full disable is done during catalog scan
-                 * by checking for .disabled marker file. */
+        case 0: {
+            distrib_recovery_candidate_t *candidates = NULL;
+            s32 count = 0;
+            s32 admitted = 0;
+            char suspect[64] = "";
+            sysLogPrintf(LOG_NOTE,
+                "DISTRIB.RECOVERY.KEEP: verifying and re-admitting temporary public sources");
+            if (!distribCollectRecoveryCandidates(tempdir, &candidates, &count)) {
+                sysLogPrintf(LOG_WARNING,
+                    "DISTRIB.RECOVERY.KEEP.REJECT: missing, corrupt, or identity-mismatched receipt");
+                return 0;
             }
-            /* Write a .disabled marker in .temp/ */
-            {
-                char markerpath[FS_MAXPATH];
-                if (!assetPathJoinChecked(markerpath, sizeof(markerpath), tempdir,
-                        "/", ".disabled")) return;
-                FILE *fp = fopen(markerpath, "w");
-                if (fp) {
-                    fprintf(fp, "disabled_by_crash_recovery\n");
-                    fclose(fp);
-                }
-            }
-            break;
-
-        case 2: /* Discard — delete .temp/ contents */
-            sysLogPrintf(LOG_NOTE, "DISTRIB: crash recovery: discarding temp mods");
-            {
-                /* Remove all category subdirectories */
-                DIR *d = opendir(tempdir);
-                if (d) {
-                    struct dirent *ent;
-                    while ((ent = readdir(d)) != NULL) {
-                        if (ent->d_name[0] == '.') continue;
-                        char catdir[FS_MAXPATH];
-                        if (!assetPathJoinChecked(catdir, sizeof(catdir), tempdir,
-                                "/", ent->d_name)) continue;
-                        /* Remove component subdirs */
-                        DIR *catd = opendir(catdir);
-                        if (catd) {
-                            struct dirent *comp;
-                            while ((comp = readdir(catd)) != NULL) {
-                                if (comp->d_name[0] == '.') continue;
-                                char compdir[FS_MAXPATH];
-                                if (!assetPathJoinChecked(compdir,
-                                        sizeof(compdir), catdir, "/",
-                                        comp->d_name)) continue;
-                                /* Remove files within component dir */
-                                DIR *compd = opendir(compdir);
-                                if (compd) {
-                                    struct dirent *f;
-                                    while ((f = readdir(compd)) != NULL) {
-                                        if (f->d_name[0] == '.') continue;
-                                        char filepath[FS_MAXPATH];
-                                        if (!assetPathJoinChecked(filepath,
-                                                sizeof(filepath), compdir, "/",
-                                                f->d_name)) continue;
-                                        remove(filepath);
-                                    }
-                                    closedir(compd);
-                                }
-                                rmdir(compdir);
-                            }
-                            closedir(catd);
-                        }
-                        rmdir(catdir);
+            /* Packages mount first so typed components can resolve any VFS-
+             * owned siblings. Both passes use the same verified candidate set. */
+            for (s32 pass = 0; pass < 2; pass++) {
+                for (s32 i = 0; i < count; i++) {
+                    s32 result;
+                    if (candidates[i].package != (pass == 0)) continue;
+                    if (candidates[i].package) {
+                        result = modmgrRegisterSessionFolder(candidates[i].dirpath,
+                            candidates[i].id, candidates[i].package_sha256);
+                    } else {
+                        result = assetCatalogScanExternalLayoutFolderDeferred(
+                            candidates[i].category, candidates[i].dirpath);
                     }
-                    closedir(d);
+                    if (result <= 0) {
+                        sysLogPrintf(LOG_WARNING,
+                            "DISTRIB.RECOVERY.KEEP.REJECT: id=%s result=%d",
+                            candidates[i].id, result);
+                        free(candidates);
+                        (void)modmgrRetireSessionContent();
+                        return 0;
+                    }
+                    distribMarkRegisteredTree(candidates[i].dirpath, 1);
+                    assetPathCopyChecked(suspect, sizeof(suspect),
+                        candidates[i].id);
+                    admitted++;
                 }
             }
-            break;
+            if (!distribMarkRecoveryLaunchingAt(tempdir, suspect)) {
+                sysLogPrintf(LOG_ERROR,
+                    "DISTRIB.RECOVERY.KEEP.REJECT: could not persist dirty launch state");
+                free(candidates);
+                (void)modmgrRetireSessionContent();
+                return 0;
+            }
+            free(candidates);
+            catalogLoadInit();
+            catalogBuildRuntimeCaches();
+            modmgrCatalogChanged();
+            s_RecoveryPending = 0;
+            s_RecoveryPreserveDisabled = 0;
+            sysLogPrintf(LOG_NOTE,
+                "DISTRIB.RECOVERY.KEEP.PASS: admitted=%d", admitted);
+            return 1;
+        }
+
+        case 1:
+            sysLogPrintf(LOG_NOTE,
+                "DISTRIB.RECOVERY.DISABLE: retiring live temporary closure and preserving quarantined files");
+            if (!modmgrRetireSessionContent()) return 0;
+            if (!distribWriteCrashStateAt(tempdir, 0,
+                    s_RecoveryPendingState.suspect_id, 1)) return 0;
+            s_RecoveryPending = 0;
+            s_RecoveryLaunchMarked = 0;
+            s_RecoveryPreserveDisabled = 1;
+            sysLogPrintf(LOG_NOTE,
+                "DISTRIB.RECOVERY.DISABLE.PASS: catalog retired files=preserved restart_state=disabled");
+            return 1;
+
+        case 2:
+            sysLogPrintf(LOG_NOTE,
+                "DISTRIB.RECOVERY.DISCARD: retiring temporary closure before filesystem quarantine");
+            if (!modmgrRetireSessionContent()
+                    || !distribQuarantineAndRemoveTemp(tempdir)) return 0;
+            s_RecoveryPending = 0;
+            s_RecoveryLaunchMarked = 0;
+            s_RecoveryPreserveDisabled = 0;
+            sysLogPrintf(LOG_NOTE,
+                "DISTRIB.RECOVERY.DISCARD.PASS: catalog retired temp_root=retired");
+            return 1;
 
         default:
-            break;
+            return 0;
+    }
+
+    return 0;
+}
+
+void netCrashRecoveryStartup(void)
+{
+    crash_recovery_state_t state;
+    s32 status = netCrashRecoveryCheck(&state);
+    memset(&s_RecoveryPendingState, 0, sizeof(s_RecoveryPendingState));
+    s_RecoveryPending = 0;
+    s_RecoveryPreserveDisabled = 0;
+    if (status == CRASH_RECOVERY_PROMPT) {
+        s_RecoveryPendingState = state;
+        s_RecoveryPending = 1;
+        sysLogPrintf(LOG_WARNING,
+            "DISTRIB.RECOVERY.PROMPT: components=%d crashes=%d suspect=%s",
+            state.temp_component_count, state.crash_count,
+            state.suspect_id[0] ? state.suspect_id : "<unknown>");
+    } else if (status == CRASH_RECOVERY_CLEAN) {
+        /* Session-only content surviving a clean process is stale by
+         * definition. It was never part of persistent mod selection. */
+        (void)netCrashRecoveryApply(2);
+    } else if (status == CRASH_RECOVERY_DISABLED) {
+        s_RecoveryPendingState = state;
+        s_RecoveryPreserveDisabled = 1;
+        sysLogPrintf(LOG_NOTE,
+            "DISTRIB.RECOVERY.DISABLED: temporary sources remain quarantined and unregistered");
+    } else {
+        sysLogPrintf(LOG_NOTE,
+            "DISTRIB.RECOVERY.NONE: no temporary session content is pending");
     }
 }
 
-void netCrashRecoveryMarkLaunching(void)
+s32 netCrashRecoveryPending(void)
 {
-    /* Check if temp mods exist */
-    const char *modsdir = fsGetModDir();
-    char tempdir[FS_MAXPATH];
-    if (!assetPathJoinChecked(tempdir, sizeof(tempdir), modsdir, "/",
-            TEMP_SUBDIR)) return;
+    return s_RecoveryPending;
+}
+
+s32 netCrashRecoveryGetPending(crash_recovery_state_t *out)
+{
+    if (!out || !s_RecoveryPending) return 0;
+    *out = s_RecoveryPendingState;
+    return 1;
+}
+
+static s32 distribMarkRecoveryLaunchingAt(const char *tempdir,
+        const char *suspect_id)
+{
+    if (!tempdir || !tempdir[0]) {
+        sysLogPrintf(LOG_ERROR,
+            "DISTRIB.RECOVERY.STATE.PREFLIGHT.REJECT: authoritative temp root is unavailable");
+        return 0;
+    }
 
     DIR *d = opendir(tempdir);
-    if (!d) return;
+    if (!d) {
+        sysLogPrintf(LOG_ERROR,
+            "DISTRIB.RECOVERY.STATE.PREFLIGHT.REJECT: temp root unavailable path=%s errno=%d",
+            tempdir, errno);
+        return 0;
+    }
     s32 has_temp = 0;
     struct dirent *ent;
     while ((ent = readdir(d)) != NULL) {
         if (ent->d_name[0] != '.') { has_temp = 1; break; }
     }
     closedir(d);
-    if (!has_temp) return;
+    if (!has_temp) {
+        sysLogPrintf(LOG_ERROR,
+            "DISTRIB.RECOVERY.STATE.PREFLIGHT.REJECT: temp root has no component path=%s",
+            tempdir);
+        return 0;
+    }
 
-    /* Write/increment crash state */
-    char statepath[FS_MAXPATH];
-    if (!getCrashStatePath(statepath, sizeof(statepath))) return;
-
-    /* Read existing count */
     s32 crash_count = 0;
+    s32 disabled = 0;
     char suspect[64] = "";
-    FILE *fp = fopen(statepath, "r");
-    if (fp) {
-        char line[256];
-        while (fgets(line, sizeof(line), fp)) {
-            if (strncmp(line, "crash_count=", 12) == 0)
-                crash_count = atoi(line + 12);
-            else if (strncmp(line, "suspect=", 8) == 0) {
-                strncpy(suspect, line + 8, sizeof(suspect) - 1);
-                s32 slen = (s32)strlen(suspect);
-                while (slen > 0 && (suspect[slen-1] == '\n' || suspect[slen-1] == '\r'))
-                    suspect[--slen] = '\0';
-            }
-        }
-        fclose(fp);
+    s32 read_result = distribReadCrashStateAt(tempdir, &crash_count, suspect,
+        sizeof(suspect), &disabled);
+    if (read_result < 0) crash_count = 0;
+    if (suspect_id && suspect_id[0]
+            && !assetPathCopyChecked(suspect, sizeof(suspect), suspect_id)) {
+        sysLogPrintf(LOG_ERROR,
+            "DISTRIB.RECOVERY.STATE.PREFLIGHT.REJECT: suspect identity exceeds capacity");
+        return 0;
     }
+    if (!s_RecoveryLaunchMarked) crash_count++;
+    if (!distribWriteCrashStateAt(tempdir, crash_count, suspect, 0)) return 0;
+    s_RecoveryLaunchMarked = 1;
+    s_RecoveryPreserveDisabled = 0;
+    sysLogPrintf(LOG_NOTE,
+        "DISTRIB.RECOVERY.STATE.DIRTY: crashes=%d suspect=%s",
+        crash_count, suspect[0] ? suspect : "<unknown>");
+    return 1;
+}
 
-    crash_count++;
-
-    fp = fopen(statepath, "w");
-    if (fp) {
-        fprintf(fp, "[crash_recovery]\n");
-        fprintf(fp, "crash_count=%d\n", crash_count);
-        fprintf(fp, "suspect=%s\n", suspect);
-        fclose(fp);
+s32 netCrashRecoveryMarkLaunching(const char *suspect_id)
+{
+    char tempdir[FS_MAXPATH];
+    if (!distribGetTempRoot(tempdir, sizeof(tempdir))) {
+        sysLogPrintf(LOG_ERROR,
+            "DISTRIB.RECOVERY.STATE.PREFLIGHT.REJECT: temp path construction failed");
+        return 0;
     }
+    return distribMarkRecoveryLaunchingAt(tempdir, suspect_id);
 }
 
 void netCrashRecoveryMarkClean(void)
 {
+    if (s_RecoveryPending) {
+        /* The user did not choose. Preserve the dirty marker and quarantined
+         * files so the same decision is offered next launch. */
+        return;
+    }
+    if (s_RecoveryLaunchMarked && !s_RecoveryPreserveDisabled) {
+        if (!netCrashRecoveryApply(2)) return;
+    }
+    if (s_RecoveryPreserveDisabled) return;
     char statepath[FS_MAXPATH];
     if (!getCrashStatePath(statepath, sizeof(statepath))) return;
-    /* Delete crash state on clean exit */
     remove(statepath);
+    s_RecoveryLaunchMarked = 0;
 }

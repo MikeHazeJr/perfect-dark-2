@@ -5,6 +5,8 @@
 
 ## Highlights
 
+- Added safe startup recovery for temporary peer-delivered assets, with Keep,
+  Keep Disabled, and Discard preserving complete nested lifecycle ownership.
 - Made real peers distribute, verify, admit, and play an editable Needler
   package, including its gameplay effect, sound, and world presentation.
 - Kept listen-host and client stage identity exact through arena and random

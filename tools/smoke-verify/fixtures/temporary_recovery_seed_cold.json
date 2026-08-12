@@ -1,0 +1,8 @@
+{
+  "scenario_name": "temporary_recovery_seed_cold",
+  "timeout_seconds": 125,
+  "input_sequence": [
+    { "at_ms": 0, "type": "wait" },
+    { "at_ms": 110000, "type": "unclean_exit" }
+  ]
+}

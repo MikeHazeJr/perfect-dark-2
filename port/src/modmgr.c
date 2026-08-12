@@ -2628,6 +2628,39 @@ s32 modmgrRegisterSessionFolder(const char *dirpath, const char *expected_id,
 	return 1;
 }
 
+s32 modmgrRetireSessionContent(void)
+{
+	s32 session_count = 0;
+	for (s32 i = 0; i < g_ModRegistryCount; i++) {
+		if (g_ModRegistry[i].session_only) session_count++;
+	}
+
+	/* Temporary loose/typed rows are not represented in g_ModRegistry, so the
+	 * catalog rebuild is required even when there is no session package. Drop
+	 * all VFS mounts first, compact only the session-owned registry rows, then
+	 * let the existing all-family reset transaction rebuild installed state. */
+	modmgrUnloadAllMods();
+	if (session_count > 0) {
+		s32 write = 0;
+		for (s32 read = 0; read < g_ModRegistryCount; read++) {
+			if (g_ModRegistry[read].session_only) continue;
+			if (write != read) g_ModRegistry[write] = g_ModRegistry[read];
+			write++;
+		}
+		memset(&g_ModRegistry[write], 0,
+			(size_t)(g_ModRegistryCount - write) * sizeof(g_ModRegistry[0]));
+		g_ModRegistryCount = write;
+	}
+
+	modmgrRebuildCatalogFromCurrentSelection();
+	modmgrCatalogChanged();
+	videoResetTextureCache();
+	sysLogPrintf(LOG_NOTE,
+		"modmgr: retired %d session package(s) and rebuilt installed catalog",
+		session_count);
+	return 1;
+}
+
 // ---------------------------------------------------------------------------
 // Public API: Enable/Disable
 // ---------------------------------------------------------------------------

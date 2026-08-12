@@ -40,6 +40,7 @@
 
 /* Modal scrim coalescing (pdguiPopupDarken*) */
 #include "pdgui_layout.h"
+#include "pdgui_crash_recovery.h"
 
 /* F12 debug menu */
 #include "pdgui_debugmenu.h"
@@ -191,6 +192,9 @@ static bool pdguiAnyStandardOverlayReason(
      * renderer reason. Without this both NewFrame and Render would skip the
      * production consumer during ordinary gameplay. */
     if (effectPresentationRuntimeHasActive()) {
+        return true;
+    }
+    if (pdguiCrashRecoveryIsActive()) {
         return true;
     }
     return pdguiActiveMenuIsOpen() != 0;
@@ -940,6 +944,10 @@ void pdguiRender(void)
     /* Public .pdeffect presentation paints after the game scene and beneath
      * menus/HUD. This is the production renderer bridge, not a preview. */
     effectPresentationRuntimeRender((s32)winW, (s32)winH);
+
+    /* B-1044: dirty session-only content remains unregistered until this
+     * modal owns an explicit recovery choice. */
+    pdguiCrashRecoveryRender((s32)winW, (s32)winH);
 
 #if defined(PD_DEV_BUILD)
     /* F12 debug menu — PD-styled, game-relative scaling */

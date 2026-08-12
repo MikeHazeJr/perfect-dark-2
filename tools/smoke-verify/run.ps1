@@ -308,6 +308,7 @@ $ResultsFile = ""
 . (Join-Path $LibDir "Test-Assertions.ps1")
 . (Join-Path $LibDir "Install-Harness.ps1")
 . (Join-Path $LibDir "Catalog-Ingress-Fixtures.ps1")
+. (Join-Path $LibDir "Temporary-Recovery-Fixtures.ps1")
 . (Join-Path $LibDir "Test-MemorySafety.ps1")
 
 function New-NeedlerEffectReplacementFixtures {
@@ -837,6 +838,10 @@ function Invoke-SmokeTestMultiProcess {
                 -and $Definition.needler_effect_replacement_fixtures) {
             New-NeedlerEffectReplacementFixtures -InstallDir $InstallDir
         }
+        if ($Definition.PSObject.Properties.Match('temporary_recovery_fixtures').Count -gt 0 `
+                -and $Definition.temporary_recovery_fixtures) {
+            New-TemporaryRecoveryFixtures -ProjectRoot $ProjectRoot -InstallDir $InstallDir
+        }
     }
 
     if ($separateProcessInstalls) {
@@ -926,7 +931,25 @@ function Invoke-SmokeTestMultiProcess {
                 "--moddir", [string]$processModsDir
             )
         }
-        $allArgs = @("--smoke", $Test.Path) + $crashArgs + $isolationArgs + $pBootArgs
+        $processSmokePath = $Test.Path
+        if ($pdef.PSObject.Properties.Match('smoke_path').Count -gt 0 -and $pdef.smoke_path) {
+            $processSmokePath = [string]$pdef.smoke_path
+            if (-not [System.IO.Path]::IsPathRooted($processSmokePath)) {
+                $processSmokePath = Join-Path $ProjectRoot $processSmokePath
+            }
+            $processSmokePath = [System.IO.Path]::GetFullPath($processSmokePath)
+        }
+        $allArgs = @("--smoke", $processSmokePath) + $crashArgs + $isolationArgs + $pBootArgs
+
+        # Sequential restart scenarios snapshot the previous process before
+        # reaching this launch. Remove that process's ordinary log now so the
+        # next wait_for poll cannot accept a stale marker during logger startup
+        # and then apply the post-marker exit timeout to the wrong process.
+        if ($pdef.PSObject.Properties.Match('snapshot_log_file').Count -gt 0 -and
+                $pdef.snapshot_log_file -and (Test-Path -LiteralPath $logPath)) {
+            Remove-Item -LiteralPath $logPath -Force -ErrorAction Stop
+            Write-Info ("    reset sequential log before launch: {0}" -f $logPath)
+        }
 
         Write-Info ""
         Write-Info ("  launch[{0}]: {1}" -f $pname, ($allArgs -join ' '))
@@ -983,11 +1006,6 @@ function Invoke-SmokeTestMultiProcess {
             $deadline = (Get-Date).AddSeconds($waitTimeoutSec)
             $matched = $false
             while ((Get-Date) -lt $deadline) {
-                if ($p.HasExited) {
-                    Write-Fail ("    process exited (code {0}) before emitting wait_for marker" -f $p.ExitCode)
-                    $launchFailed = $true
-                    break
-                }
                 if (Test-Path -LiteralPath $logPath) {
                     try {
                         $hit = Select-String -LiteralPath $logPath -Pattern $waitFor -SimpleMatch:$false -List -ErrorAction SilentlyContinue
@@ -997,6 +1015,11 @@ function Invoke-SmokeTestMultiProcess {
                         }
                     } catch {}
                 }
+                if ($p.HasExited) {
+                    Write-Fail ("    process exited (code {0}) before emitting wait_for marker" -f $p.ExitCode)
+                    $launchFailed = $true
+                    break
+                }
                 Start-Sleep -Milliseconds 200
             }
             if (-not $matched -and -not $launchFailed) {
@@ -1005,6 +1028,33 @@ function Invoke-SmokeTestMultiProcess {
             }
             if ($matched) {
                 Write-Info "    marker reached"
+            }
+        }
+
+        if (-not $launchFailed -and
+                $pdef.PSObject.Properties.Match('snapshot_log_file').Count -gt 0 -and
+                $pdef.snapshot_log_file) {
+            $snapshotExitTimeoutSec = 30
+            if ($pdef.PSObject.Properties.Match('snapshot_exit_timeout_seconds').Count -gt 0 -and
+                    $pdef.snapshot_exit_timeout_seconds) {
+                $snapshotExitTimeoutSec = [Math]::Max(1,
+                    [int]$pdef.snapshot_exit_timeout_seconds)
+            }
+            if (-not $p.WaitForExit($snapshotExitTimeoutSec * 1000)) {
+                Write-Fail ("    process did not exit after snapshot barrier: {0}" -f $pname)
+                $launchFailed = $true
+            } else {
+                $snapshotPath = Get-SmokeLogPath `
+                    -InstallDir $processInstallInfo.InstallDir `
+                    -Leaf ([string]$pdef.snapshot_log_file)
+                try {
+                    Copy-Item -LiteralPath $logPath -Destination $snapshotPath -Force
+                    $procs[-1].LogPath = $snapshotPath
+                    Write-Info ("    snapshotted log: {0}" -f $snapshotPath)
+                } catch {
+                    Write-Fail ("    log snapshot failed: {0}" -f $_.Exception.Message)
+                    $launchFailed = $true
+                }
             }
         }
 
@@ -1310,6 +1360,10 @@ function Invoke-SmokeTest {
     if ($def.PSObject.Properties.Match('needler_effect_replacement_fixtures').Count -gt 0 `
             -and $def.needler_effect_replacement_fixtures) {
         New-NeedlerEffectReplacementFixtures -InstallDir $installInfo.InstallDir
+    }
+    if ($def.PSObject.Properties.Match('temporary_recovery_fixtures').Count -gt 0 `
+            -and $def.temporary_recovery_fixtures) {
+        New-TemporaryRecoveryFixtures -ProjectRoot $ProjectRoot -InstallDir $installInfo.InstallDir
     }
 
     # Resolve timeout

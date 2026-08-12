@@ -777,6 +777,10 @@ static void cleanup(void)
 	sceneShutdown();
 	inputCtxShutdown();
 	updaterShutdown();
+	/* B-1044: retire and remove live session-only distribution content while
+	 * catalog/provider/runtime owners are still available. A pending recovery
+	 * decision intentionally preserves its dirty marker for the next launch. */
+	netCrashRecoveryMarkClean();
 	pdguiShutdown();
 	netDisconnect();
 	modmgrShutdown();
@@ -3703,6 +3707,12 @@ int main(int argc, const char **argv)
 			"BOOT: --extract-assets-only shutdown; gameplay/window teardown skipped");
 		return 0;
 	}
+
+	/* B-1044: normal mod/catalog population deliberately ignores mods/.temp.
+	 * Inspect it only after the worker has completed so clean stale content can
+	 * be retired immediately and a dirty tree stays quarantined behind the
+	 * first-frame recovery modal. */
+	netCrashRecoveryStartup();
 
 	/* B-994: UI initializes before the background catalog/mod walk. Resolve
 	 * and activate the persisted public .pdtheme exactly once here, on the

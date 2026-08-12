@@ -303,3 +303,23 @@ TEST_CASE("PDCA removes only matching abandoned stage residue",
 	REQUIRE(readFile(dest / "complete.txt") == "complete");
 	REQUIRE(readFile(unrelated / "owned.txt") == "other transaction");
 }
+
+TEST_CASE("PDCA recovery member normalization shares extraction identity rules",
+	"[network][recovery][pdca][t-networking-009][b1044]")
+{
+	char path[FS_MAXPATH];
+	char key[FS_MAXPATH];
+	REQUIRE(pdcaNormalizeMemberPath(path, sizeof(path), key, sizeof(key),
+		"Nested\\Mixed.TXT") == 1);
+	REQUIRE(std::string(path) == "Nested/Mixed.TXT");
+	REQUIRE(std::string(key) == "nested/mixed.txt");
+
+	for (const char *rejected : {
+		"../escape.ini", "nested::member", "a//empty", "a/./dot",
+		"CON.txt", "nested/LPT9.log", "ads.txt:stream", "trail."
+	}) {
+		INFO("path=" << rejected);
+		REQUIRE(pdcaNormalizeMemberPath(path, sizeof(path), key, sizeof(key),
+			rejected) == 0);
+	}
+}

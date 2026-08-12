@@ -1,0 +1,152 @@
+{
+  "scenario_name": "temporary_asset_crash_recovery_smoke",
+  "description": "T-NETWORKING-009 installed-client restart matrix for dirty temporary typed assets: Keep re-admits the parent and nested closure, Keep Disabled persists inert files across restart, and Discard retires catalog/provider/runtime/dependency state before removing the quarantine.",
+  "tags": ["network", "catalog", "recovery", "pdxxx", "T-NETWORKING-009", "B-1044", "smoke"],
+  "paths_of_interest": [
+    "port/src/net/netdistrib.c",
+    "port/src/modmgr.c",
+    "port/src/assetcatalog_scanner.c",
+    "port/fast3d/pdgui_crash_recovery.cpp",
+    "port/src/smoke_harness.c",
+    "tools/smoke-verify/run.ps1"
+  ],
+  "timeout_seconds": 720,
+  "install_state": "prefilled",
+  "temporary_recovery_fixtures": true,
+  "remove_paths": ["mods/.temp", "social/temporary-recovery", "mods-enabled.json"],
+  "fixtures": [
+    { "src": "tools/smoke-verify/fixtures/temporary_recovery_pd.ini", "dst": "pd.ini" }
+  ],
+  "processes": [
+    {
+      "name": "seed-keep",
+      "smoke_path": "tools/smoke-verify/fixtures/temporary_recovery_seed_cold.json",
+      "snapshot_log_file": "pd-recovery-seed-keep.log",
+      "boot_args": ["--no-update-check", "--no-sound", "--no-net", "--portable", "--skip-intro", "--debug-receive-pdca-list", "social/temporary-recovery/receive-list.txt"],
+      "wait_for": "SMOKE: result=unclean_exit",
+      "wait_timeout_seconds": 145,
+      "assertions": {
+        "required_lines": [
+          "BOOT: --debug-receive-pdca-list delivered=1",
+          "DISTRIB.RECOVERY.STATE.DIRTY: crashes=1 suspect=recovery_tri_weapon",
+          "SMOKE: result=unclean_exit"
+        ]
+      }
+    },
+    {
+      "name": "keep",
+      "smoke_path": "tools/smoke-verify/fixtures/temporary_recovery_keep.json",
+      "snapshot_log_file": "pd-recovery-keep.log",
+      "boot_args": ["--no-update-check", "--no-sound", "--no-net", "--portable", "--skip-intro"],
+      "wait_for": "SMOKE: result=scripted_exit",
+      "wait_timeout_seconds": 100,
+      "assertions": {
+        "required_lines": [
+          "DISTRIB.RECOVERY.PROMPT: components=1 crashes=1 suspect=recovery_tri_weapon",
+          "DISTRIB.RECOVERY.UI.PASS: action=0",
+          "DISTRIB.RECOVERY.KEEP.PASS: admitted=1",
+          "SMOKE: catalog_recovery_probe id='example:tri_weapon' catalog=1 temporary=1 load=1 provider=1 runtime=1 deps=4",
+          "SMOKE: catalog_recovery_probe id='example:tri_projectile' catalog=1 temporary=1 load=1 provider=1 runtime=1 deps=0",
+          "DISTRIB.RECOVERY.DISCARD.PASS: catalog retired temp_root=retired"
+        ]
+      }
+    },
+    {
+      "name": "seed-disable",
+      "smoke_path": "tools/smoke-verify/fixtures/temporary_recovery_seed.json",
+      "snapshot_log_file": "pd-recovery-seed-disable.log",
+      "boot_args": ["--no-update-check", "--no-sound", "--no-net", "--portable", "--skip-intro", "--debug-receive-pdca-list", "social/temporary-recovery/receive-list.txt"],
+      "wait_for": "SMOKE: result=unclean_exit",
+      "wait_timeout_seconds": 100,
+      "assertions": {
+        "required_lines": ["DISTRIB.RECOVERY.STATE.DIRTY: crashes=1 suspect=recovery_tri_weapon", "SMOKE: result=unclean_exit"]
+      }
+    },
+    {
+      "name": "disable",
+      "smoke_path": "tools/smoke-verify/fixtures/temporary_recovery_disable.json",
+      "snapshot_log_file": "pd-recovery-disable.log",
+      "boot_args": ["--no-update-check", "--no-sound", "--no-net", "--portable", "--skip-intro"],
+      "wait_for": "SMOKE: result=scripted_exit",
+      "wait_timeout_seconds": 100,
+      "assertions": {
+        "required_lines": [
+          "DISTRIB.RECOVERY.UI.PASS: action=1",
+          "DISTRIB.RECOVERY.DISABLE.PASS: catalog retired files=preserved restart_state=disabled",
+          "SMOKE: catalog_recovery_probe id='example:tri_weapon' catalog=0 temporary=0 load=0 provider=0 runtime=0 deps=0",
+          "SMOKE: catalog_recovery_probe id='example:tri_projectile' catalog=0 temporary=0 load=0 provider=0 runtime=0 deps=0"
+        ]
+      }
+    },
+    {
+      "name": "restart-disabled",
+      "smoke_path": "tools/smoke-verify/fixtures/temporary_recovery_idle.json",
+      "snapshot_log_file": "pd-recovery-restart-disabled.log",
+      "boot_args": ["--no-update-check", "--no-sound", "--no-net", "--portable", "--skip-intro"],
+      "wait_for": "SMOKE: result=scripted_exit",
+      "wait_timeout_seconds": 100,
+      "assertions": {
+        "required_lines": [
+          "DISTRIB.RECOVERY.DISABLED: temporary sources remain quarantined and unregistered",
+          "SMOKE: catalog_recovery_probe id='example:tri_weapon' catalog=0 temporary=0 load=0 provider=0 runtime=0 deps=0"
+        ],
+        "forbidden_patterns": ["DISTRIB.RECOVERY.PROMPT"]
+      }
+    },
+    {
+      "name": "seed-discard",
+      "smoke_path": "tools/smoke-verify/fixtures/temporary_recovery_seed.json",
+      "snapshot_log_file": "pd-recovery-seed-discard.log",
+      "boot_args": ["--no-update-check", "--no-sound", "--no-net", "--portable", "--skip-intro", "--debug-receive-pdca-list", "social/temporary-recovery/receive-list.txt"],
+      "wait_for": "SMOKE: result=unclean_exit",
+      "wait_timeout_seconds": 100,
+      "assertions": {
+        "required_lines": [
+          "DISTRIB.RECOVERY.DISABLED.RETIRED: new temporary session starts from an empty quarantine",
+          "DISTRIB.RECOVERY.STATE.DIRTY: crashes=1 suspect=recovery_tri_weapon",
+          "SMOKE: result=unclean_exit"
+        ]
+      }
+    },
+    {
+      "name": "discard",
+      "smoke_path": "tools/smoke-verify/fixtures/temporary_recovery_discard.json",
+      "snapshot_log_file": "pd-recovery-discard.log",
+      "boot_args": ["--no-update-check", "--no-sound", "--no-net", "--portable", "--skip-intro"],
+      "wait_for": "SMOKE: result=scripted_exit",
+      "wait_timeout_seconds": 100,
+      "assertions": {
+        "required_lines": [
+          "DISTRIB.RECOVERY.UI.PASS: action=2",
+          "DISTRIB.RECOVERY.DISCARD.PASS: catalog retired temp_root=retired",
+          "SMOKE: catalog_recovery_probe id='example:tri_weapon' catalog=0 temporary=0 load=0 provider=0 runtime=0 deps=0",
+          "SMOKE: catalog_recovery_probe id='example:tri_projectile' catalog=0 temporary=0 load=0 provider=0 runtime=0 deps=0"
+        ]
+      }
+    },
+    {
+      "name": "final-restart",
+      "smoke_path": "tools/smoke-verify/fixtures/temporary_recovery_idle.json",
+      "snapshot_log_file": "pd-recovery-final-restart.log",
+      "boot_args": ["--no-update-check", "--no-sound", "--no-net", "--portable", "--skip-intro"],
+      "wait_for": "SMOKE: result=scripted_exit",
+      "wait_timeout_seconds": 100,
+      "assertions": {
+        "required_lines": [
+          "DISTRIB.RECOVERY.NONE: no temporary session content is pending",
+          "SMOKE: catalog_recovery_probe id='example:tri_weapon' catalog=0 temporary=0 load=0 provider=0 runtime=0 deps=0"
+        ],
+        "forbidden_patterns": ["DISTRIB.RECOVERY.PROMPT", "DISTRIB.RECOVERY.DISABLED:"]
+      }
+    }
+  ],
+  "assertions": {
+    "required_counts": [
+      { "pattern": "SMOKE: result=unclean_exit", "min": 3, "max": 3 },
+      { "pattern": "DISTRIB.RECOVERY.UI.PASS: action=0", "min": 1, "max": 1 },
+      { "pattern": "DISTRIB.RECOVERY.UI.PASS: action=1", "min": 1, "max": 1 },
+      { "pattern": "DISTRIB.RECOVERY.UI.PASS: action=2", "min": 1, "max": 1 }
+    ],
+    "forbidden_patterns": ["EXCEPTION_ACCESS_VIOLATION", "FATAL: ", "SMOKE: result=timeout", "DISTRIB.RECOVERY.UI: action=.* failed"]
+  }
+}

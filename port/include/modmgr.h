@@ -175,6 +175,15 @@ modinfo_t  *modmgrFindMod(const char *id);
 s32 modmgrRegisterSessionFolder(const char *dirpath, const char *expected_id,
 		const u8 expected_sha256[SHA256_DIGEST_SIZE]);
 
+/**
+ * Retire every network-session package, then rebuild the installed-mod
+ * catalog and runtime caches from the user's persistent selection. This is
+ * the crash-recovery boundary for temporary distribution content: VFS mounts,
+ * catalog rows, nested typed closures, provider selection, and reverse indexes
+ * are gone before the caller quarantines or deletes mods/.temp.
+ */
+s32 modmgrRetireSessionContent(void);
+
 // ---- Enable/Disable ----
 
 void modmgrSetEnabled(s32 index, s32 enabled);

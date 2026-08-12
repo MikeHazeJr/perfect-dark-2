@@ -27,6 +27,25 @@ Code:
 
 ## Wire protocol
 
+### 2026-08-12 temporary distributed-asset crash recovery
+
+`T-NETWORKING-009` is implemented. Verified temporary receive receipts are
+stored beneath the authoritative Mod Manager root and recovered through a
+production startup modal with explicit MenuPool and input-context ownership.
+Keep revalidates and admits the complete typed parent plus nested dependency
+closure. Keep Disabled first retires catalog, provider, runtime, reverse-index,
+and dependency ownership, then preserves an inert quarantine across restart.
+Discard performs the same retirement before atomically moving the verified
+tree out of the active root and cleaning it up.
+
+The source-frozen eight-process ordinary-client scenario passes 37/37 across
+three deliberate unclean exits, all three real mouse-driven modal actions,
+disabled restart isolation, a replacement temporary session, discard, and a
+final empty restart. The Keep receipt proves the weapon plus nested UI, model,
+entity, and projectile use exact archive-qualified provider/runtime paths;
+Disable and Discard prove zero catalog/provider/runtime/dependency residue.
+See `context/evidence/2026-08-12-t-networking-009-crash-recovery.md`.
+
 ### 2026-08-12 real-peer manifest/distribution closure
 
 The final isolated listen-host/client Needler scenario passes 87/87. A client

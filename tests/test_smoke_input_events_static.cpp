@@ -115,7 +115,13 @@ TEST_CASE("multi-process smoke isolates process installs and assertions",
     requireContains(runner, "\"--basedir\", [string]$processInstallInfo.InstallDir");
     requireContains(runner, "\"--savedir\", [string]$processInstallInfo.InstallDir");
     requireContains(runner, "\"--moddir\", [string]$processModsDir");
-    requireContains(runner, "$allArgs = @(\"--smoke\", $Test.Path) + $crashArgs + $isolationArgs + $pBootArgs");
+    requireContains(runner, "$allArgs = @(\"--smoke\", $processSmokePath) + $crashArgs + $isolationArgs + $pBootArgs");
+    requireContains(runner, "Properties.Match('smoke_path').Count -gt 0");
+    requireContains(runner, "Properties.Match('snapshot_log_file').Count -gt 0");
+    requireContains(runner, "reset sequential log before launch");
+    requireContains(runner, "Remove-Item -LiteralPath $logPath -Force -ErrorAction Stop");
+    requireContains(runner, "Properties.Match('snapshot_exit_timeout_seconds').Count -gt 0");
+    requireContains(runner, "Copy-Item -LiteralPath $logPath -Destination $snapshotPath -Force");
     requireContains(runner, "$psi.WorkingDirectory = $processInstallInfo.InstallDir");
     requireContains(runner, "Invoke-SmokeAssertions -LogPath $entry.LogPath");
     requireContains(runner, "retained process install for debugging");
@@ -126,6 +132,37 @@ TEST_CASE("multi-process smoke isolates process installs and assertions",
     requireContains(modmgr, "if (explicitModsDir && explicitModsDir[0]) {");
     requireContains(modmgr, "candidateBufs[1][0] = '\\0';");
     requireContains(modmgr, "modmgr: could not open explicit mod directory");
+}
+
+TEST_CASE("temporary asset recovery smoke covers keep disable discard and restart",
+    "[smoke][tooling][network][catalog][t-networking-009][b1044][static]")
+{
+    const std::string source = readTextFile("port/src/smoke_harness.c");
+    const std::string runner = readTextFile("tools/smoke-verify/run.ps1");
+    const std::string fixture = readTextFile(
+        "tools/smoke-verify/lib/Temporary-Recovery-Fixtures.ps1");
+    const std::string scenario = readTextFile(
+        "tools/smoke-verify/tests/temporary_asset_crash_recovery_smoke.json");
+
+    requireContains(source, "SMOKE_EVENT_UNCLEAN_EXIT");
+    requireContains(source, "SMOKE_EVENT_CATALOG_RECOVERY_PROBE");
+    requireContains(source, "_Exit(0);");
+    requireContains(source, "catalogLoadTypedAsset(type, asset_id)");
+    requireContains(source, "entry->source.primary.provider == fileProvider()");
+    requireContains(source, "assetRuntimeFindByTypeAndId(entry->type, asset_id)");
+    requireContains(runner, "New-TemporaryRecoveryFixtures");
+    requireContains(fixture, "tri_weapon_recovery.pdca");
+    requireContains(fixture, "|recovery_tri_weapon|weapon|1");
+    requireContains(scenario, "\"name\": \"seed-keep\"");
+    requireContains(scenario, "\"name\": \"keep\"");
+    requireContains(scenario, "\"name\": \"disable\"");
+    requireContains(scenario, "\"name\": \"restart-disabled\"");
+    requireContains(scenario, "\"name\": \"discard\"");
+    requireContains(scenario, "\"name\": \"final-restart\"");
+    requireContains(scenario, "DISTRIB.RECOVERY.KEEP.PASS");
+    requireContains(scenario, "DISTRIB.RECOVERY.DISABLE.PASS");
+    requireContains(scenario,
+        "DISTRIB.RECOVERY.DISCARD.PASS: catalog retired temp_root=retired");
 }
 
 TEST_CASE("Needler real peer smoke starts client without the host fixture",

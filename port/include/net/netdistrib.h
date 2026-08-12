@@ -95,6 +95,7 @@ typedef struct killfeed_entry {
 #define CRASH_RECOVERY_NONE    0  /* no temp mods, nothing to do */
 #define CRASH_RECOVERY_PROMPT  1  /* temp mods present, crash detected, show prompt */
 #define CRASH_RECOVERY_CLEAN   2  /* temp mods present, clean exit last time */
+#define CRASH_RECOVERY_DISABLED 3 /* temp mods deliberately preserved but inert */
 
 typedef struct crash_recovery_state {
     s32  status;              /* CRASH_RECOVERY_* */
@@ -308,6 +309,18 @@ void netDistribDeclineTransfer(s32 slot_idx);
  */
 s32 netCrashRecoveryCheck(crash_recovery_state_t *out);
 
+/** Detect and latch recovery state for the UI. Clean stale session content is
+ * retired automatically; a dirty launch remains quarantined until the user
+ * chooses an action. Normal catalog population intentionally skips .temp, so
+ * call after the startup catalog worker joins and before ordinary UI use. */
+void netCrashRecoveryStartup(void);
+
+/** True while a dirty temporary tree is waiting for a recovery decision. */
+s32 netCrashRecoveryPending(void);
+
+/** Copy the latched recovery state. Returns zero when no decision is pending. */
+s32 netCrashRecoveryGetPending(crash_recovery_state_t *out);
+
 /**
  * Apply crash recovery action.
  * action: 0 = keep (load temp mods normally)
@@ -315,14 +328,15 @@ s32 netCrashRecoveryCheck(crash_recovery_state_t *out);
  *         2 = discard (delete mods/.temp/ contents)
  * Call after the user selects an option from the recovery prompt.
  */
-void netCrashRecoveryApply(s32 action);
+s32 netCrashRecoveryApply(s32 action);
 
 /**
  * Record a clean launch (game started successfully).
  * Increments crash counter (dirty until netCrashRecoveryMarkClean is called).
- * Call early in pdmain() after loading is complete.
+ * suspect_id is the last temporary component admitted this launch. Returns
+ * zero unless the dirty marker is durably written.
  */
-void netCrashRecoveryMarkLaunching(void);
+s32 netCrashRecoveryMarkLaunching(const char *suspect_id);
 
 /**
  * Mark a clean exit (game is about to shut down normally).

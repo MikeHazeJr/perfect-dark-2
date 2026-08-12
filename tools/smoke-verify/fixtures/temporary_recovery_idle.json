@@ -1,0 +1,9 @@
+{
+  "scenario_name": "temporary_recovery_idle",
+  "timeout_seconds": 78,
+  "input_sequence": [
+    { "at_ms": 55000, "type": "catalog_recovery_probe", "path": "example:tri_weapon" },
+    { "at_ms": 56000, "type": "catalog_recovery_probe", "path": "example:tri_projectile" },
+    { "at_ms": 65000, "type": "exit" }
+  ]
+}

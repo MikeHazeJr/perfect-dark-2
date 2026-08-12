@@ -129,7 +129,7 @@ static s32 componentIsReservedDevice(const char *key, size_t start, size_t len)
 			&& key[start + 3] >= '1' && key[start + 3] <= '9');
 }
 
-static s32 normalizeMemberPath(char *out, size_t out_cap, char *key,
+s32 pdcaNormalizeMemberPath(char *out, size_t out_cap, char *key,
 	size_t key_cap, const char *path)
 {
 	if (!out || out_cap == 0 || !key || key_cap == 0 || !path || !path[0]
@@ -242,7 +242,7 @@ static s32 validateEnvelope(const u8 *data, u32 data_len, const char *stage,
 		char stage_path[FS_MAXPATH];
 		if (!archiveMemberAt(data, end, i, &relpath, &bytes, &bytes_len))
 			return PDCA_EXTRACT_INVALID;
-		if (!normalizeMemberPath(safe_path, sizeof(safe_path), collision_key,
+		if (!pdcaNormalizeMemberPath(safe_path, sizeof(safe_path), collision_key,
 				sizeof(collision_key), relpath)
 				|| !assetPathJoinChecked(final_path, sizeof(final_path), dest, "/",
 					safe_path)
@@ -256,7 +256,7 @@ static s32 validateEnvelope(const u8 *data, u32 data_len, const char *stage,
 			u32 prior_bytes_len;
 			if (!archiveMemberAt(data, end, prior, &prior_path, &prior_bytes,
 					&prior_bytes_len)) return PDCA_EXTRACT_INVALID;
-			if (!normalizeMemberPath(prior_safe, sizeof(prior_safe), prior_key,
+			if (!pdcaNormalizeMemberPath(prior_safe, sizeof(prior_safe), prior_key,
 					sizeof(prior_key), prior_path)) return PDCA_EXTRACT_PATH_REJECTED;
 			if (!strcmp(prior_key, collision_key)) return PDCA_EXTRACT_INVALID;
 		}
@@ -316,7 +316,7 @@ pdca_extract_result_t pdcaExtractArchiveBegin(const u8 *data, u32 data_len,
 		FILE *fp;
 		if (!archiveMemberAt(data, data + data_len, i, &relpath, &bytes,
 				&bytes_len)
-				|| !normalizeMemberPath(safe_path, sizeof(safe_path), collision_key,
+				|| !pdcaNormalizeMemberPath(safe_path, sizeof(safe_path), collision_key,
 					sizeof(collision_key), relpath)
 				|| !assetPathJoinChecked(output, sizeof(output), stage, "/",
 					safe_path)

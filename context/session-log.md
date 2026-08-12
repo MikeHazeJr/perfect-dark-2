@@ -1,5 +1,26 @@
 # Session Log (Active)
 
+## 2026-08-12 - T-NETWORKING-009 B-1044 temporary asset recovery
+
+Connected the previously unreachable and lifecycle-unsafe temporary receive
+recovery path. Verified recovery receipts and state now use the authoritative
+Mod Manager root. Startup presents a centered production ImGui modal that owns
+MenuPool/input context until Keep, Keep Disabled, or Discard succeeds. Keep
+revalidates receipts and admits the complete nested typed closure. Disable and
+Discard retire catalog rows, provider paths, runtime adapters, reverse indexes,
+and dependency ownership before preserving or removing the verified tree.
+
+The scanner propagation sweep added ordered, all-or-nothing nested weapon UI,
+model, entity, and projectile registration. A full real-client rerun also
+exposed and fixed a sequential smoke-runner race where a prior process log
+could satisfy the next process marker. The final eight-process result is 37/37
+in 603 seconds at
+`context/evidence/2026-08-12-b1044-smoke-result.json`. Frozen verification
+passes client/updater/tests compilation, `[t-networking-009]` 89/3,
+`[smoke][tooling]` 53/3, full 56,456/1,022, native-source guard, conformance
+selftest, and 28-root/52-recursive all-27-family conformance. Source/test/tool
+fingerprint: `4c9cc2c4cb139b3bb4b3b354927e87b5b81d2dca2fdb49df89dba1461f202af4`.
+
 ## 2026-08-12 - T-CATALOG-003 B-1043 atomic mixed-descriptor admission
 
 Closed the mixed-validity received-archive residual without narrowing the

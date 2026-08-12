@@ -52,7 +52,7 @@ Top-level keys consumed by the harness:
 | `timeout_seconds`    | no       | Hard ceiling; default 90 s |
 | `install_state`      | no       | Runner-side hint (`"clean"`, `"upgraded"`) |
 | `boot_args`          | no       | Extra argv appended to the launch command |
-| `processes`          | no       | Multi-process launch definitions; each entry can set `name`, `log_file`, `boot_args`, `wait_for`, and `wait_timeout_seconds` |
+| `processes`          | no       | Multi-process launch definitions; each entry can set `name`, `log_file`, `smoke_path`, `snapshot_log_file`, `snapshot_exit_timeout_seconds`, `boot_args`, `wait_for`, and `wait_timeout_seconds` |
 | `input_sequence`     | yes      | Ordered list of events (see below) |
 | `assertions`         | no       | Runner-side; not consumed by the harness |
 
@@ -60,7 +60,14 @@ When `processes` is present, the runner seeds one install directory, launches
 each process in order, waits for any `wait_for` barrier before starting the
 next process, and evaluates assertions against the concatenated logs. This is
 the path used by `listen_host_peer_smoke` to prove a listen host can bind and a
-client can complete the ENet auth handshake on loopback.
+client can complete the ENet auth handshake on loopback. `smoke_path` selects a
+different input script for one process while preserving the parent test's shared
+install and aggregate assertions. `snapshot_log_file` waits for that process to
+exit and copies its log before the next sequential restart overwrites the normal
+client log. The runner removes the ordinary log after each snapshot and before
+the next launch, so a restart cannot satisfy its barrier with a stale marker.
+Its post-marker clean-exit wait defaults to 30 seconds and can be
+raised per process with `snapshot_exit_timeout_seconds`.
 
 ### Event types
 
@@ -81,6 +88,26 @@ Scripted clean exit. Produces `SMOKE: result=scripted_exit code=0`.
 
 ```json
 { "at_ms": 90000, "type": "exit" }
+```
+
+#### `unclean_exit`
+
+Flushes `SMOKE: result=unclean_exit` and terminates with `_Exit(0)`, deliberately
+skipping the normal `atexit` cleanup path. Use only for restart recovery tests
+that must leave durable dirty-session state behind.
+
+```json
+{ "at_ms": 70000, "type": "unclean_exit" }
+```
+
+#### `catalog_recovery_probe`
+
+Loads a catalog ID through the production typed lifecycle and logs whether its
+catalog row, temporary flag, FileProvider source, runtime binding, and typed
+dependency edges are present. Missing IDs log zeroes for every layer.
+
+```json
+{ "at_ms": 62000, "type": "catalog_recovery_probe", "path": "example:tri_weapon" }
 ```
 
 #### `key`

@@ -1,0 +1,10 @@
+{
+  "name": "temporary_asset_crash_recovery_smoke",
+  "passed": true,
+  "exitCode": 0,
+  "elapsedSeconds": 603.2320985,
+  "processes": 8,
+  "assertionsTotal": 37,
+  "assertionsMet": 37,
+  "failures": []
+}

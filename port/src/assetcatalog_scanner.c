@@ -2896,6 +2896,19 @@ typedef struct weapon_nested_media_scan {
 static s32 weaponNestedMediaType(const char *path, asset_type_e *out_type)
 {
 	asset_type_e type = assetArchiveTypeForPath(path);
+	if (type == ASSET_MODEL && pathEndsWithNoCase(path, ".pdmesh")) {
+		if (out_type) *out_type = type;
+		return 1;
+	}
+	if (type == ASSET_PROJECTILE
+			&& pathEndsWithNoCase(path, ".pdprojectile")) {
+		if (out_type) *out_type = type;
+		return 1;
+	}
+	if (type == ASSET_ENTITY && pathEndsWithNoCase(path, ".pdentity")) {
+		if (out_type) *out_type = type;
+		return 1;
+	}
 	if (type == ASSET_ANIMATION) {
 		if (out_type) *out_type = type;
 		return 1;
@@ -3750,9 +3763,12 @@ s32 assetCatalogRegisterWeaponNestedDependencies(const char *weapon_id,
 	}
 
 	/* Preflight the complete closure without mutating catalog state. Keep the
-	 * production order explicit: UI, then audio, then animation command source.
-	 * A corrupt late animation therefore cannot leak an earlier audio row. */
-	for (s32 pass = 0; pass < 4; pass++) {
+	 * production order explicit: UI, audio, animation, mesh, entity, projectile,
+	 * then effect. Entity precedes projectile so a directly activated projectile
+	 * never observes its embedded transition target as an unpublished sibling.
+	 * A corrupt late member still cannot leak an earlier row because publication
+	 * begins only after every pass and recursive effect dependency has passed. */
+	for (s32 pass = 0; pass < 7; pass++) {
 	for (size_t i = 0; i < scan.count; i++) {
 		asset_type_e expected_type = ASSET_NONE;
 		const char *entry_name = scan.entries[i];
@@ -3766,7 +3782,10 @@ s32 assetCatalogRegisterWeaponNestedDependencies(const char *weapon_id,
 		if ((pass == 0 && expected_type != ASSET_UI)
 				|| (pass == 1 && expected_type != ASSET_AUDIO)
 				|| (pass == 2 && expected_type != ASSET_ANIMATION)
-				|| (pass == 3 && expected_type != ASSET_EFFECT)) continue;
+				|| (pass == 3 && expected_type != ASSET_MODEL)
+				|| (pass == 4 && expected_type != ASSET_ENTITY)
+				|| (pass == 5 && expected_type != ASSET_PROJECTILE)
+				|| (pass == 6 && expected_type != ASSET_EFFECT)) continue;
 		p = &pending[pending_count];
 		p->expected_type = expected_type;
 		p->bytes = modArchiveExtractMemAlloc(weapon_bytes, weapon_size,
@@ -4792,6 +4811,35 @@ static void externalScanAccumulate(s32 result, s32 *total, s32 *rejected)
 static s32 assetCatalogScanExternalLayoutFolderInternal(const char *mod_id,
 		const char *mod_dir, s32 defer_reloads)
 {
+	static const external_descriptor_spec_t root_specs[] = {
+		{ "", "weapon.ini", ASSET_WEAPON },
+		{ "", "projectile.ini", ASSET_PROJECTILE },
+		{ "", "entity.ini", ASSET_ENTITY },
+		{ "", "material.ini", ASSET_MATERIAL },
+		{ "", "texture.ini", ASSET_TEXTURE },
+		{ "", "skin.ini", ASSET_SKIN },
+		{ "", "character.ini", ASSET_CHARACTER },
+		{ "", "head.ini", ASSET_HEAD },
+		{ "", "body.ini", ASSET_BODY },
+		{ "", "arena.ini", ASSET_ARENA },
+		{ "", "map.ini", ASSET_MAP },
+		{ "", "scenario.ini", ASSET_SCENARIO },
+		{ "", "prop.ini", ASSET_PROP },
+		{ "", "vehicle.ini", ASSET_VEHICLE },
+		{ "", "mission.ini", ASSET_MISSION },
+		{ "", "gamemode.ini", ASSET_GAMEMODE },
+		{ "", "botprofile.ini", ASSET_BOT_PROFILE },
+		{ "", "effect.ini", ASSET_EFFECT },
+		{ "", "hud.ini", ASSET_HUD },
+		{ "", "sound.ini", ASSET_AUDIO },
+		{ "", "sfx.ini", ASSET_AUDIO },
+		{ "", "voice.ini", ASSET_AUDIO },
+		{ "", "music.ini", ASSET_AUDIO },
+		{ "", "ui.ini", ASSET_UI },
+		{ "", "font.ini", ASSET_FONT },
+		{ "", "lang.ini", ASSET_LANG },
+		{ "", "animation.ini", ASSET_ANIMATION },
+	};
 	static const external_descriptor_spec_t specs[] = {
 		{ "weapons", "weapon.ini", ASSET_WEAPON },
 		{ "projectiles", "projectile.ini", ASSET_PROJECTILE },
@@ -4836,6 +4884,23 @@ static s32 assetCatalogScanExternalLayoutFolderInternal(const char *mod_id,
 			"assetcatalog_scanner: could not snapshot folder admission for %s",
 			mod_id);
 		return -1;
+	}
+
+	/* Received PDCA candidates place a single editable descriptor directly at
+	 * the component root. Route those through the same scanner transaction as
+	 * installed folder layouts so restart recovery never needs a second loose-
+	 * INI registrar. Loose theme.ini remains intentionally unsupported. */
+	for (size_t i = 0; i < sizeof(root_specs) / sizeof(root_specs[0]); i++) {
+		char descriptor[FS_MAXPATH];
+		if (!assetPathJoinChecked(descriptor, sizeof(descriptor), mod_dir, "/",
+				root_specs[i].leaf)) {
+			rejected = 1;
+			continue;
+		}
+		if (!isRegularFile(descriptor)) continue;
+		externalScanAccumulate(registerComponentIniFile(mod_dir, descriptor,
+			root_specs[i].expected, root_specs[i].leaf, mod_id),
+			&total, &rejected);
 	}
 
 	for (size_t i = 0; i < sizeof(specs) / sizeof(specs[0]); i++) {

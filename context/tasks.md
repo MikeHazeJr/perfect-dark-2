@@ -275,9 +275,15 @@ nested `.pdmesh` materials/hierarchy and existing placement fields remain the
 production source, and old declarations now fail closed across memory-backed
 and direct-file archives. Its source-frozen build, focused 12-assertion test,
 regenerated Needler recursive conformance, full 27-family suite, and source
-guard pass; the item is implemented. The aggregate live
-proof remains `T-ASSETS-025`; temporary distributed-asset crash recovery is explicit in
-`T-NETWORKING-009`. Effect completion remains split across `T-ASSETS-016`
+guard pass; the item is implemented. The aggregate live proof remains
+`T-ASSETS-025`. Temporary distributed-asset crash recovery is implemented
+under `T-NETWORKING-009`: verified temporary receipts now reach a production
+startup modal, Keep admits the complete typed parent/nested closure, Keep
+Disabled retires it and remains inert across restart, and Discard retires
+catalog state before atomically removing the active tree. The source-frozen
+eight-process installed-client matrix passes 37/37, alongside the complete
+56,456-assertion/1,022-case suite and all asset guards. Effect completion
+remains split across `T-ASSETS-016`
 through `T-ASSETS-020`. Theme public-source authority and the strict shared
 schema/parser are implemented under `T-ASSETS-026`; nested lifecycle,
 production consumers, creator output, and MKB/controller/glyph validation

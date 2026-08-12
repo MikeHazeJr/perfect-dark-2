@@ -1,0 +1,11 @@
+{
+  "scenario_name": "temporary_recovery_discard",
+  "timeout_seconds": 85,
+  "input_sequence": [
+    { "at_ms": 55000, "type": "mouse_move", "x": 820, "y": 443 },
+    { "at_ms": 56000, "type": "mouse", "x": 820, "y": 443, "button": "left", "action": "click" },
+    { "at_ms": 62000, "type": "catalog_recovery_probe", "path": "example:tri_weapon" },
+    { "at_ms": 63000, "type": "catalog_recovery_probe", "path": "example:tri_projectile" },
+    { "at_ms": 72000, "type": "exit" }
+  ]
+}

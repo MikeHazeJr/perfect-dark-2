@@ -38,6 +38,15 @@ typedef struct pdca_extract_transaction {
 } pdca_extract_transaction_t;
 
 /**
+ * Validate and normalize one public archive member path using the exact
+ * Windows collision and reserved-name contract enforced during extraction.
+ * normalized keeps authored case with '/' separators; collision_key is
+ * lowercase for alias detection.
+ */
+s32 pdcaNormalizeMemberPath(char *normalized, size_t normalized_cap,
+	char *collision_key, size_t collision_key_cap, const char *path);
+
+/**
  * Publish a complete archive while retaining any prior destination as a
  * sibling backup. The caller must explicitly commit after catalog admission,
  * or roll back to remove the candidate and restore the prior install.

@@ -1113,7 +1113,7 @@ TEST_CASE("manifest distribution preserves package identity and waits for the co
 
     REQUIRE(distrib.find("distribManifestComponentSha(slot->id)") !=
         std::string::npos);
-    REQUIRE(distrib.find("modmgrRegisterSessionFolder(destdir, slot->id, expected_sha)") !=
+    REQUIRE(distrib.find("modmgrRegisterSessionFolder(destdir, slot->id, package_sha)") !=
         std::string::npos);
     REQUIRE(modmgr_h.find("session_only") != std::string::npos);
     REQUIRE(modmgr_h.find("modmgrRegisterSessionFolder") != std::string::npos);
@@ -1471,4 +1471,90 @@ TEST_CASE("net lifecycle: reconnect restores score identity and schedules full s
     REQUIRE(stage_start < chr_resync);
     REQUIRE(chr_resync < prop_resync);
     REQUIRE(prop_resync < score_resync);
+}
+
+TEST_CASE("temporary distribution recovery is a durable all-family lifecycle",
+          "[net][distribution][recovery][static][t-networking-009][b1044]")
+{
+    const std::string distrib = read_text_file("port/src/net/netdistrib.c");
+    const std::string scanner = read_text_file("port/src/assetcatalog_scanner.c");
+    const std::string modmgr = read_text_file("port/src/modmgr.c");
+    const std::string main = read_text_file("port/src/main.c");
+    const std::string backend = read_text_file("port/fast3d/pdgui_backend.cpp");
+    const std::string modal = read_text_file("port/fast3d/pdgui_crash_recovery.cpp");
+
+    REQUIRE(main.find("netCrashRecoveryStartup();") != std::string::npos);
+    REQUIRE(main.find("netCrashRecoveryMarkClean();") != std::string::npos);
+    REQUIRE(backend.find("pdguiCrashRecoveryIsActive()") != std::string::npos);
+    REQUIRE(backend.find("pdguiCrashRecoveryRender") != std::string::npos);
+    REQUIRE(modal.find("Keep and Load") != std::string::npos);
+    REQUIRE(modal.find("Keep Disabled") != std::string::npos);
+    REQUIRE(modal.find("Discard") != std::string::npos);
+    REQUIRE(modal.find("menupoolAcquire(MENU_TYPE_CRASH_RECOVERY, NULL, &g_CtxImGuiMenu)") != std::string::npos);
+    REQUIRE(modal.find("menupoolRelease(MENU_TYPE_CRASH_RECOVERY)") != std::string::npos);
+    REQUIRE(modal.find("DISTRIB.RECOVERY.UI.LAYOUT") != std::string::npos);
+    REQUIRE(modal.find("DISTRIB.RECOVERY.UI.INPUT") != std::string::npos);
+    REQUIRE(modal.find("viewport->GetWorkCenter()") != std::string::npos);
+    REQUIRE(modal.find("ImGui::SetWindowPos") != std::string::npos);
+    REQUIRE(modal.find("!ImGui::IsPopupOpen(popup, ImGuiPopupFlags_None)") !=
+        std::string::npos);
+    REQUIRE(distrib.find("fsGetModDir()") == std::string::npos);
+    REQUIRE(read_text_file("port/src/menupool.c").find("case MENU_TYPE_CRASH_RECOVERY:") !=
+        std::string::npos);
+
+    REQUIRE(distrib.find("distribWriteRecoveryReceipt") != std::string::npos);
+    REQUIRE(distrib.find("_commit(_fileno(fp))") != std::string::npos);
+    REQUIRE(distrib.find("MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH") !=
+        std::string::npos);
+    REQUIRE(distrib.find("distribVerifyRecoveryTree") != std::string::npos);
+    REQUIRE(distrib.find("FILE_ATTRIBUTE_REPARSE_POINT") != std::string::npos);
+    REQUIRE(distrib.find("pdcaNormalizeMemberPath") != std::string::npos);
+    REQUIRE(distrib.find("pdguiThemeRegisterModDir") == std::string::npos);
+    REQUIRE(distrib.find("assetCatalogScanExternalLayoutFolderDeferred") !=
+        std::string::npos);
+    REQUIRE(distrib.find("static const char *distribGetModsRoot(void)") !=
+        std::string::npos);
+    REQUIRE(distrib.find("const char *modsdir = modmgrGetModsDir();") !=
+        std::string::npos);
+    REQUIRE(distrib.find("distribMarkRecoveryLaunchingAt(temp_root, slot->id)") !=
+        std::string::npos);
+    REQUIRE(distrib.find("distribMarkRecoveryLaunchingAt(tempdir, suspect)") !=
+        std::string::npos);
+
+    const size_t retire = distrib.find("modmgrRetireSessionContent()");
+    const size_t quarantine = distrib.find("distribQuarantineAndRemoveTemp(tempdir)", retire);
+    REQUIRE(retire != std::string::npos);
+    REQUIRE(quarantine != std::string::npos);
+    REQUIRE(retire < quarantine);
+    REQUIRE(distrib.find("CRASH_RECOVERY_DISABLED") != std::string::npos);
+    REQUIRE(distrib.find("distribWriteCrashStateAt(tempdir, 0,") !=
+        std::string::npos);
+    REQUIRE(distrib.find("s_RecoveryPreserveDisabled = 1") != std::string::npos);
+    REQUIRE(distrib.find(".disabled") == std::string::npos);
+
+    REQUIRE(modmgr.find("s32 modmgrRetireSessionContent(void)") !=
+        std::string::npos);
+    REQUIRE(modmgr.find("modmgrUnloadAllMods();") != std::string::npos);
+    REQUIRE(modmgr.find("modmgrRebuildCatalogFromCurrentSelection();") !=
+        std::string::npos);
+    REQUIRE(modmgr.find("catalogBuildRuntimeCaches();") != std::string::npos);
+    REQUIRE(modmgr.find("videoResetTextureCache();") != std::string::npos);
+
+    REQUIRE(scanner.find("static const external_descriptor_spec_t root_specs[]") !=
+        std::string::npos);
+    REQUIRE(scanner.find("registerComponentIniFile(mod_dir, descriptor") !=
+        std::string::npos);
+    REQUIRE(scanner.find("type == ASSET_MODEL && pathEndsWithNoCase(path, \".pdmesh\")") !=
+        std::string::npos);
+    REQUIRE(scanner.find("type == ASSET_PROJECTILE") != std::string::npos);
+    REQUIRE(scanner.find("pathEndsWithNoCase(path, \".pdprojectile\")") !=
+        std::string::npos);
+    REQUIRE(scanner.find("type == ASSET_ENTITY && pathEndsWithNoCase(path, \".pdentity\")") !=
+        std::string::npos);
+    REQUIRE(scanner.find("pass == 4 && expected_type != ASSET_ENTITY") !=
+        std::string::npos);
+    REQUIRE(scanner.find("pass == 5 && expected_type != ASSET_PROJECTILE") !=
+        std::string::npos);
+    REQUIRE(scanner.find("Loose theme.ini remains intentionally unsupported") !=
+        std::string::npos);
 }

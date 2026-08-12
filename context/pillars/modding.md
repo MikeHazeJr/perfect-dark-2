@@ -1,5 +1,23 @@
 # Modding
 
+## 2026-08-12 temporary distributed content recovery
+
+`T-NETWORKING-009` closes B-1044. Temporary peer-delivered typed content now
+has a verified, recoverable lifecycle rather than an unread marker and unsafe
+filesystem deletion. Recovery Keep admits only receipt-matched source and its
+complete nested closure; Keep Disabled and Discard retire selected catalog,
+FileProvider, runtime-adapter, reverse-index, and typed-edge state before files
+remain quarantined or leave the active root. Canonical `.pdweapon` nesting now
+includes UI, model, entity, and projectile members in ordered all-or-nothing
+preflight. No loose parallel source is introduced.
+
+The final installed-client sequence passes 37/37 over eight processes and
+three deliberate unclean exits. Frozen verification also passes focused
+recovery and smoke-tooling tests, the complete 56,456/1,022 suite, native
+source guard, scanner selftest, and all 27 public archive families. Durable
+evidence is in
+`context/evidence/2026-08-12-t-networking-009-crash-recovery.md`.
+
 ## 2026-08-08 residual typed-archive contracts
 
 `T-ASSETS-018` is implemented at the production registration boundary. Public
