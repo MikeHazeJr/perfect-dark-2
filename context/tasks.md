@@ -6,6 +6,16 @@
 
 Last updated: 2026-08-12
 
+`T-CATALOG-001` is implemented. Its only remaining legacy gate was live custom
+model rendering, and V-009 now proves the complete catalog-owned path in the
+ordinary client: `mod_needler:needler_model` receives private model slot 441
+and source filenum 2016, loads from the nested public
+`.pdmod::pdweapon::pdmesh::model.gltf` chain, and submits the generated
+300-vertex/100-triangle model through the first-person renderer. The dedicated
+viewmodel smoke passes 21/21 with readable inspected captures, and the final
+complete suite passes 56,611/1,031. Visible needle-ammo/reload fidelity remains
+separate T-MODDING-003 scope and does not keep the allocator task partial.
+
 `T-ASSETS-012/019/032/034/035/036` are implemented after the source-frozen
 Wave 11 receipt. Public v2 profile libraries still apply all 26 explosion, 27
 spark, and 23 smoke rows through exact typed ownership. Generic v1 programs now

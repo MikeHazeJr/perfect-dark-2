@@ -1,5 +1,19 @@
 # Catalog System
 
+## 2026-08-12 custom-model live render closure
+
+Workbench `T-CATALOG-001` is implemented. The catalog-owned private model-slot
+allocator, nested `.pdweapon` mesh ingestion, and generated-model activation
+now have their formerly missing production render proof. The ordinary-client
+Needler path assigns `mod_needler:needler_model` slot 441/source filenum 2016,
+loads the exact public
+`.pdmod::needler.pdweapon::dependencies/assets/models/weapon.pdmesh::model.gltf`
+chain, and submits the generated 300-vertex/100-triangle model through the
+first-person renderer. The dedicated smoke passes 21/21 with inspected readable
+captures; the complete current suite passes 56,611 assertions/1,031 cases.
+Visible needle-ammo and reload presentation remain T-MODDING-003 rather than an
+allocator/runtime-slot defect.
+
 ## 2026-08-08 archive-qualified path capacity milestone
 
 Workbench `T-CATALOG-003` now applies one explicit public-source path contract

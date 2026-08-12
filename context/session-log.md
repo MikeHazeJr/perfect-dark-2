@@ -1,5 +1,18 @@
 # Session Log (Active)
 
+## 2026-08-12 - T-CATALOG-001 custom-model live-proof reconciliation
+
+Promoted T-CATALOG-001 from partial to implemented using current production
+evidence rather than its stale B-801-era gate. The private custom-model slot
+allocator and embedded mesh ingest were already built and focused-tested; their
+only recorded residual was an ordinary-client render. V-009 now supplies that
+receipt: `mod_needler:needler_model` is ingested at slot 441/source filenum
+2016 from the nested public GLTF, loaded through `BONDGUN.SOURCE`, and submitted
+as a generated 300-vertex/100-triangle model. The dedicated viewmodel smoke
+passes 21/21 and its inspected frames are readable and unobstructed. The final
+complete suite also passes 56,611/1,031. T-MODDING-003 remains partial for the
+separate visible needle-ammo/reload fidelity feature.
+
 ## 2026-08-12 - V-009 readable Needler effect A/B
 
 Closed B-1054 after the held-view obstruction was separated from the impact
