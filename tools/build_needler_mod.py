@@ -117,7 +117,13 @@ BURST_PROJECTILE_ID = cid("needler__projectile_burst")
 BURST_EFFECT_ID = cid("pink_burst_effect")
 BURST_SFX_ID = cid("pink_burst_sfx")
 SPARK_TEXTURE_ID = cid("pink_spark")
-HELD_WEAPON_SCALE = 14.0
+# The first-person renderer applies another fixed 0.1 model scale.  Keep the
+# editable source comfortably inside the view frustum instead of filling the
+# screen with the nearest face of the held mesh.
+HELD_WEAPON_SCALE = 5.0
+HELD_WEAPON_POS_X = 30.0
+HELD_WEAPON_POS_Y = -18.0
+HELD_WEAPON_POS_Z = -45.0
 
 
 # ---------------------------------------------------------------------------
@@ -759,9 +765,9 @@ def build_weapon(held_weapon_mesh: bytes, homing_projectile: bytes,
          "dual_wieldable = false\n"
          "model_file = dependencies/assets/models/weapon.pdmesh\n"
          "muzzlez = 3.0\n"
-         "posx = 0.0\n"
-         "posy = 5.0\n"
-         "posz = -18.0\n"
+         f"posx = {HELD_WEAPON_POS_X:.1f}\n"
+         f"posy = {HELD_WEAPON_POS_Y:.1f}\n"
+         f"posz = {HELD_WEAPON_POS_Z:.1f}\n"
          "track_type = rocket_launcher\n"
          "primary_graph = behavior/primary.graph.json\n"
          "secondary_graph = behavior/secondary.graph.json\n"

@@ -24,7 +24,7 @@
     "mods/installed/needler"
   ],
   "fixtures": [
-    { "src": "tools/smoke-verify/fixtures/needler_source_pd.ini", "dst": "pd.ini" },
+    { "src": "tools/smoke-verify/fixtures/needler_visual_pd.ini", "dst": "pd.ini" },
     { "src": "tools/smoke-verify/fixtures/needler_enabled.json", "dst": "mods-enabled.json" }
   ],
   "packed_fixtures": [
@@ -38,7 +38,7 @@
     "--debug-effect-runtime-audit",
     "--debug-force-first-person",
     "--launch-mp-room",
-    "base:arena_chicago",
+    "base:arena_mp_felicity",
     "base:combat",
     "12",
     "--debug-spawn-weapon",
@@ -47,15 +47,20 @@
   ],
   "input_sequence": [
     { "at_ms": 0, "type": "wait", "comment": "boot, pack and enable Needler .pdmod, ingest embedded typed dependencies, seed Combat Simulator, and force the custom weapon into first-person." },
-    { "at_ms": 76000, "type": "action", "name": "ACTION_AIM_DOWN", "action": "press", "comment": "aim the real player/gun trajectory down toward ordinary world collision." },
+    { "at_ms": 76000, "type": "action", "name": "ACTION_AIM_DOWN", "action": "press", "comment": "aim the real player/gun trajectory down toward ordinary nearby world collision." },
     { "at_ms": 80000, "type": "action", "name": "ACTION_FIRE_PRIMARY", "action": "tap", "comment": "exercise default-on primary graph projectile path after cold archive loading settles." },
     { "at_ms": 84000, "type": "action", "name": "ACTION_FIRE_MODE", "action": "tap", "comment": "select the authored secondary function through the normal fire-mode control." },
-    { "at_ms": 85000, "type": "action", "name": "ACTION_FIRE_PRIMARY", "action": "tap", "comment": "fire the selected public burst projectile steeply into world collision through the normal trigger path." },
-    { "at_ms": 88000, "type": "action", "name": "ACTION_AIM_DOWN", "action": "release", "comment": "release normal aim input after the impact window." },
+    { "at_ms": 85000, "type": "action", "name": "ACTION_FIRE_PRIMARY", "action": "tap", "comment": "fire the selected public burst projectile steeply into world collision; captures bracket the measured impact and authored 1.5-second fade." },
+    { "at_ms": 88000, "type": "action", "name": "ACTION_AIM_DOWN", "action": "release", "comment": "release normal aim input after the complete impact window." },
     { "at_ms": 115000, "type": "exit", "comment": "leave time for cold archive loading, held model render, screenshot capture, projectile graph lookups, and effect dependency ingestion." }
   ],
   "screenshots": [
-    { "at_ms": 86500, "name": "needler-effect-impact" },
+    { "at_ms": 85500, "name": "needler-effect-impact-500ms" },
+    { "at_ms": 85700, "name": "needler-effect-impact-700ms" },
+    { "at_ms": 85900, "name": "needler-effect-impact-900ms" },
+    { "at_ms": 86100, "name": "needler-effect-impact-1100ms" },
+    { "at_ms": 86300, "name": "needler-effect-impact-1300ms" },
+    { "at_ms": 86500, "name": "needler-effect-impact-1500ms" },
     { "at_ms": 102000, "name": "needler-held-loaded" },
     { "at_ms": 108000, "name": "needler-held-visible" }
   ],
@@ -71,7 +76,7 @@
       "BOOT: --debug-effect-runtime-audit armed",
       "BOOT: --launch-mp-room direct match start",
       "BOOT: --debug-spawn-weapon 'mod_needler:needler' \\(SPECIFIC\\)",
-      "MATCHSTART\\.DIAG: entry stage_id='base:arena_chicago'.*spawn_weapon='mod_needler:needler'",
+      "MATCHSTART\\.DIAG: entry stage_id='base:arena_mp_felicity'.*spawn_weapon='mod_needler:needler'",
       "SETUP: user-picked spawn weapon 'mod_needler:needler' num=\\d+ preserved",
       "CATALOG\\.WEAPON\\.CUSTOM_SLOT_DEFAULTS: runtime=\\d+ mp=\\d+",
       "CATALOG\\.LIFECYCLE\\.ACTIVATE: activated weapon metadata payload 'mod_needler:needler'",
@@ -86,7 +91,7 @@
       "SPAWN\\.WEAPON: player=0 weapon=\\d+",
       "SPAWN: player 0 spawned with weapon \\d+ \\([^)]*\\) -- auto-equipped to right hand",
       "BOOT: --debug-force-first-person armed",
-      "BOOT: --debug-force-first-person active: stagenum=0x1d frame=\\d+ before=\\d+ after=0 frames=900",
+      "BOOT: --debug-force-first-person active: stagenum=0x43 frame=\\d+ before=\\d+ after=0 frames=900",
       "LOG\\.WPN\\.DIAG: playerRenderHud branch=fp_render cameramode=0",
       "LOG\\.WPN\\.DIAG: bgunRender enter player=0",
       "SMOKE: result=scripted_exit"

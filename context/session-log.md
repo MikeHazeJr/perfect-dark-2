@@ -1,5 +1,53 @@
 # Session Log (Active)
 
+## 2026-08-12 - V-009 readable Needler effect A/B
+
+Closed B-1054 after the held-view obstruction was separated from the impact
+effect. The presentation renderer now uses additive blending only for the
+Needler's secondary-tint outer flare and alpha blending for its authored-colour
+inner core. This preserves a luminous edge without saturating both pink and
+cyan source colours to white on bright geometry.
+
+The frozen client/updater/tests build and focused B-1054 test pass. The final
+complete suite passes 56,611 assertions/1,031 cases; native-source guard,
+scanner selftest, all-27-family recursive conformance, and Needler 1-root/
+9-recursive conformance also pass. Two normal
+client runs generated separate real Needler archives from public source: the
+pink baseline passes 46/46 in
+`.claude/smoke-verify-runs/results-20260812T144457Z.json`, and the cyan variant
+passes 46/46 in `results-20260812T144658Z.json`; both exit 0. Production audit
+records retain exact authored/effective/render RGBA, and inspected 700/900 ms
+captures show visibly distinct pink/cyan fragments without the prior white
+bloom. Together with the B-1055/B-1056 21/21 held-model receipt, the reported
+player-following obstruction and the separate effect-readability defect are
+closed. V-009 remains partial only because T-CATALOG-003 is still a partial
+Workbench dependency.
+
+## 2026-08-12 - V-009 Needler held-view obstruction and GLTF material fix
+
+Closed the large pale/white obstruction reported during the Needler visual
+runs. The source creator scaled the held mesh by 14 and placed it near the
+centre/camera; the production first-person path then applied its fixed 0.1
+transform, leaving a roughly 28-unit-wide face about 12 units from the camera.
+The shared GLTF parser compounded the problem by ignoring the primitive's
+standard `pbrMetallicRoughness.baseColorFactor`, so authored pink vertices
+reached the renderer as white.
+
+B-1055/B-1056 now use public-source scale 5 and first-person position
+`(30,-18,-45)`. Valid GLTF base-colour factors project into the runtime vertex
+colour table; malformed/out-of-range values reject, while omitted values keep
+the format default. The checked-in Needler archive was regenerated. Isolated
+client/updater/tests builds pass; focused Needler source/material 36/36 and
+B-1054 11/11 pass; recursive Needler conformance and native-source guard pass.
+The dedicated ordinary-client receipt
+`.claude/smoke-verify-runs/results-20260812T143544Z.json` passes 21/21 with exit
+0. Both inspected frames under
+`.claude/smoke-verify-runs/screenshots/20260812T103519-needler_viewmodel_visibility_smoke/`
+show the authored-pink weapon confined to the lower-right with the world and
+crosshair unobstructed. The subsequent B-1054 pink/cyan receipt closes the
+separate impact-effect readability gate; V-009 now remains partial only for
+its T-CATALOG-003 dependency.
+
 ## 2026-08-12 - Asset implementation truth reconciliation
 
 Reconciled Workbench with the already-committed Needler production receipts.

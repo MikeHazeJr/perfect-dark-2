@@ -5317,7 +5317,8 @@ TEST_CASE("archive-backed typed weapon sources keep transport-root chain",
 	const std::string smoke = readFile("tools/smoke-verify/tests/needler_graph_runtime_visual_smoke.json");
 	REQUIRE(smoke.find("dev-mods/needler") != std::string::npos);
 	REQUIRE(smoke.find("mods/installed/needler.pdmod") != std::string::npos);
-	REQUIRE(smoke.find("needler_source_pd.ini") != std::string::npos);
+	REQUIRE(smoke.find("needler_visual_pd.ini") != std::string::npos);
+	REQUIRE(smoke.find("needler_source_pd.ini") == std::string::npos);
 	REQUIRE(smoke.find("mod_needler:needler") != std::string::npos);
 	REQUIRE(smoke.find("--debug-force-first-person-look") == std::string::npos);
 	REQUIRE(smoke.find("--debug-force-first-person-cam-offset") == std::string::npos);

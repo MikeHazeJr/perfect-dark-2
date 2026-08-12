@@ -302,6 +302,7 @@ static Gfx *effectPresentationRenderCommands(Gfx *gdl)
 	const size_t count = effectPresentationRuntimeSnapshotCount();
 	for (size_t i = 0; i < count; i++) {
 		effect_presentation_command_t command;
+		s32 needler_pipeline;
 		if (!effectPresentationRuntimeSnapshot(i, &command) ||
 				(command.channel == EFFECT_PRESENTATION_CHANNEL_SCREEN &&
 					!command.texture_ref[0])) continue;
@@ -331,13 +332,16 @@ static Gfx *effectPresentationRenderCommands(Gfx *gdl)
 			gdl = effectPresentationRenderScreenTexture(gdl, &command);
 			continue;
 		}
+		needler_pipeline = strcmp(command.shader_id,
+			"needler_pink_burst") == 0;
 		gSPClearGeometryMode(gdl++, G_CULL_BOTH | G_FOG);
 		gDPSetCycleType(gdl++, G_CYC_1CYCLE);
 		gDPSetCombineMode(gdl++, G_CC_SHADE, G_CC_SHADE);
-		if (strcmp(command.shader_id, "needler_pink_burst") == 0 ||
+		if (!needler_pipeline &&
 				strcmp(command.material_shading_model, "classic_emissive") == 0) {
 			gDPSetRenderMode(gdl++, G_RM_ADD, G_RM_ADD2);
-		} else if (strcmp(command.material_shading_model, "classic_alpha") == 0) {
+		} else if (needler_pipeline ||
+				strcmp(command.material_shading_model, "classic_alpha") == 0) {
 			gDPSetRenderMode(gdl++, G_RM_AA_XLU_SURF, G_RM_AA_XLU_SURF2);
 		} else {
 			gDPSetRenderMode(gdl++, G_RM_AA_ZB_XLU_SURF,
@@ -355,13 +359,20 @@ static Gfx *effectPresentationRenderCommands(Gfx *gdl)
 			gdl = effectPresentationRenderColourQuad(gdl, &command, 1.0f,
 				highlight * command.glow);
 		} else if (command.channel == EFFECT_PRESENTATION_CHANNEL_DECAL) {
-			if (strcmp(command.shader_id, "needler_pink_burst") == 0) {
+			if (needler_pipeline) {
 				effect_presentation_command_t outer = command;
 				/* The Needler pipeline is intentionally distinct from classic_tint:
-				 * an additive outer flare uses the authored secondary tint. */
+				 * an additive outer flare uses the authored secondary tint, while
+				 * the inner core returns to alpha blending so its editable hue stays
+				 * readable instead of saturating to white on a bright surface. */
 				memcpy(outer.rgba, command.secondary_rgba, sizeof(outer.rgba));
+				gDPPipeSync(gdl++);
+				gDPSetRenderMode(gdl++, G_RM_ADD, G_RM_ADD2);
 				gdl = effectPresentationRenderColourQuad(gdl, &outer,
 					1.75f, 0.35f * command.glow);
+				gDPPipeSync(gdl++);
+				gDPSetRenderMode(gdl++, G_RM_AA_XLU_SURF,
+					G_RM_AA_XLU_SURF2);
 			}
 			gdl = effectPresentationRenderColourQuad(gdl, &command, 1.0f, 1.0f);
 		}

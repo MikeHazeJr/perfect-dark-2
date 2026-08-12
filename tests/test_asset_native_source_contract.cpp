@@ -15828,6 +15828,17 @@ TEST_CASE("V-009 Needler edited tint variants reach the production renderer audi
 
 	REQUIRE(builder.find("DEFAULT_BURST_TINT = (1.0, 0.4, 0.8, 1.0)") !=
 	        std::string::npos);
+	REQUIRE(builder.find("HELD_WEAPON_SCALE = 5.0") != std::string::npos);
+	REQUIRE(builder.find("HELD_WEAPON_SCALE = 14.0") == std::string::npos);
+	REQUIRE(builder.find("HELD_WEAPON_POS_X = 30.0") != std::string::npos);
+	REQUIRE(builder.find("HELD_WEAPON_POS_Y = -18.0") != std::string::npos);
+	REQUIRE(builder.find("HELD_WEAPON_POS_Z = -45.0") != std::string::npos);
+	REQUIRE(builder.find("f\"posx = {HELD_WEAPON_POS_X:.1f}\\n\"") !=
+	        std::string::npos);
+	REQUIRE(builder.find("f\"posy = {HELD_WEAPON_POS_Y:.1f}\\n\"") !=
+	        std::string::npos);
+	REQUIRE(builder.find("f\"posz = {HELD_WEAPON_POS_Z:.1f}\\n\"") !=
+	        std::string::npos);
 	REQUIRE(builder.find("--output-dir") != std::string::npos);
 	REQUIRE(builder.find("--burst-tint") != std::string::npos);
 	REQUIRE(builder.find("--spark-tint") != std::string::npos);
@@ -15840,6 +15851,12 @@ TEST_CASE("V-009 Needler edited tint variants reach the production renderer audi
 	REQUIRE(renderer.find("effective_rgba=%.3f,%.3f,%.3f,%.3f") !=
 	        std::string::npos);
 	REQUIRE(renderer.find("render_rgba=%.3f,%.3f,%.3f,%.3f") !=
+	        std::string::npos);
+	const std::string compiler = readTextFile("port/src/modasset_compiler.c");
+	REQUIRE(compiler.find("gltfApplyPrimitiveBaseColor") != std::string::npos);
+	REQUIRE(compiler.find("gltf_material_base_color_factor_invalid") !=
+	        std::string::npos);
+	REQUIRE(compiler.find("mesh->vertices[vertex_base + i].colour = colour") !=
 	        std::string::npos);
 	REQUIRE(runner.find("needler_effect_ab_baseline") == std::string::npos);
 	REQUIRE(runner.find("New-NeedlerVariant -Name \"baseline\"") !=

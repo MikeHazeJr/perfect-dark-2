@@ -5,6 +5,10 @@
 
 ## Highlights
 
+- Kept the editable Needler's luminous impact edge while making its authored
+  pink or cyan core remain visibly coloured instead of saturating to white.
+- Kept the editable Needler's pink first-person model readable in the
+  lower-right instead of rendering an oversized white obstruction.
 - Applied a joining player's saved custom theme immediately after its host
   package arrived, including shared nested assets and balanced shutdown cleanup.
 - Restored saved custom themes and their nested UI, font, sound, and music from

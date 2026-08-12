@@ -36,9 +36,25 @@ random/meta propagation proof is 34/34 and publishes concrete
 `base:mp_skedar` with session 1 on both peers. B-1034 through B-1042 are closed.
 Final automation passes 56,283 assertions/1,013 cases, native-source guard,
 strict recursive conformance for all 27 families, and an unchanged 37-file
-fingerprint. V-009 remains partial only for its explicit readable peer-visual
-gate, not for production behavior; T-CATALOG-003 is now implemented with its
-complete live all-family boundary receipt.
+fingerprint. The readable installed-client visual gate is now also closed:
+pink and cyan edited-source variants each pass 46/46 and retain visibly
+distinct fragments without a white bloom. V-009 remains partial only because
+its Workbench dependency T-CATALOG-003 is still partial for the comprehensive
+live all-family three-ingress matrix, not because Needler production behavior
+or its readable visual output is unproven.
+
+The player-following white obstruction in the Needler visual runs is closed as
+B-1055/B-1056. The public creator's held mesh was 14x and too near-centre, while
+the production GLTF parser discarded its standard pink `baseColorFactor` and
+defaulted vertices to white. The regenerated archive uses scale 5 at
+`(30,-18,-45)`, and valid GLTF base colour now reaches the runtime colour table.
+The dedicated installed-client viewmodel receipt passes 21/21 with exit 0; two
+inspected frames show the authored-pink weapon confined to the lower-right and
+the world/crosshair unobstructed. B-1054 is also closed: source-frozen pink and
+cyan effect variants each pass 46/46, exact renderer RGBA matches their public
+source, and inspected 700/900 ms frames show distinct coloured fragments
+without a white bloom. V-009's only remaining blocker is its still-partial
+T-CATALOG-003 dependency.
 
 `T-ASSETS-025` is implemented, while `V-009` retains the human visual gate.
 The lane first established an authoritative installed-client

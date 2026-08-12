@@ -1,0 +1,79 @@
+{
+  "scenario_name": "needler_viewmodel_visibility_smoke",
+  "description": "B-1055/B-1056 ordinary-client proof: the editable held Needler GLTF must render at a readable lower-right first-person scale with its authored pink base colour, leaving the world view unobstructed.",
+  "tags": ["modding", "pdxxx", "weapon", "viewmodel", "visual", "v009", "b1055", "b1056", "smoke"],
+  "paths_of_interest": [
+    "tools/build_needler_mod.py",
+    "dev-mods/needler/needler.pdweapon",
+    "port/src/modasset_compiler.c",
+    "src/game/bondgun.c"
+  ],
+  "log_channel_mask": "game,catalog,render,match,mods,system",
+  "verbose": 0,
+  "timeout_seconds": 45,
+  "install_state": "current",
+  "remove_paths": [
+    "mods/needler.pdmod",
+    "mods/needler",
+    "mods/installed/needler.pdmod",
+    "mods/installed/needler"
+  ],
+  "fixtures": [
+    { "src": "tools/smoke-verify/fixtures/needler_visual_pd.ini", "dst": "pd.ini" },
+    { "src": "tools/smoke-verify/fixtures/needler_enabled.json", "dst": "mods-enabled.json" }
+  ],
+  "packed_fixtures": [
+    { "src": "dev-mods/needler", "dst": "mods/installed/needler.pdmod" }
+  ],
+  "boot_args": [
+    "--no-update-check",
+    "--no-net",
+    "--portable",
+    "--debug-generated-mesh-render-audit",
+    "--debug-force-first-person",
+    "--launch-mp-room",
+    "base:arena_mp_felicity",
+    "base:combat",
+    "12",
+    "--debug-spawn-weapon",
+    "mod_needler:needler",
+    "--debug-auto-start-match"
+  ],
+  "input_sequence": [
+    { "at_ms": 0, "type": "wait", "comment": "load the public Needler closure and enter ordinary first-person Combat Simulator gameplay" },
+    { "at_ms": 22000, "type": "exit", "comment": "exit after two stable held-model captures" }
+  ],
+  "screenshots": [
+    { "at_ms": 15000, "name": "needler-viewmodel-readable-a" },
+    { "at_ms": 18000, "name": "needler-viewmodel-readable-b" }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=needler_viewmodel_visibility_smoke",
+      "modmgr: loading mod 'needler' from archive '.*installed.*needler\\.pdmod'",
+      "WEAPONGRAPH\\.MESH\\.INGEST: id=mod_needler:needler_model",
+      "BONDGUN\\.SOURCE: loaded catalog model source filenum=\\d+ id=mod_needler:needler_model",
+      "MODASSET\\.RENDER: generated source modeldef rendered id=mod_needler:needler_model",
+      "BOOT: --debug-force-first-person active: stagenum=0x43 frame=\\d+ before=\\d+ after=0 frames=900",
+      "LOG\\.WPN\\.DIAG: playerRenderHud branch=fp_render cameramode=0",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "ASSET\\.SOURCE_ONLY",
+      "LOUDFAIL\\.FALLBACK",
+      "ASSET\\.FALLBACK",
+      "RomProvider:filenum",
+      "result=FAIL",
+      "result=MISSING",
+      "CATEGORY_MISMATCH"
+    ],
+    "required_counts": [
+      { "pattern": "BONDGUN\\.SOURCE: loaded catalog model source filenum=\\d+ id=mod_needler:needler_model", "min": 1 },
+      { "pattern": "MODASSET\\.RENDER: generated source modeldef rendered id=mod_needler:needler_model", "min": 1 }
+    ]
+  }
+}

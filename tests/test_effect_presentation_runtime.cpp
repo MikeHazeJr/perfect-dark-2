@@ -614,8 +614,9 @@ TEST_CASE("B-1014 presentation consumer is connected to the production renderer"
 		std::string::npos);
 	REQUIRE(particle.find("command->primary_direction") != std::string::npos);
 	REQUIRE(particle.find("particle.material_roughness") != std::string::npos);
-	REQUIRE(particle.find("command.shader_id, \"needler_pink_burst\"") !=
+	REQUIRE(particle.find("needler_pipeline = strcmp(command.shader_id") !=
 		std::string::npos);
+	REQUIRE(particle.find("\"needler_pink_burst\"") != std::string::npos);
 	REQUIRE(particle.find("1.75f, 0.35f") != std::string::npos);
 	REQUIRE(particle.find("g_TexSparkConfigs") == std::string::npos);
 	REQUIRE(particle.find("g_TexSmokeConfigs") == std::string::npos);
@@ -630,4 +631,36 @@ TEST_CASE("B-1014 presentation consumer is connected to the production renderer"
 	REQUIRE(sparks != std::string::npos);
 	REQUIRE(authoredParticles != std::string::npos);
 	REQUIRE(authoredParticles > sparks);
+}
+
+TEST_CASE("B-1054 Needler keeps an additive flare and a readable colour core",
+	"[modding][pdxxx][effect][presentation][static][b1054][v009]")
+{
+	std::ifstream in("src/game/effect_presentation_renderer.c", std::ios::binary);
+	REQUIRE(in.good());
+	const std::string source((std::istreambuf_iterator<char>(in)),
+		std::istreambuf_iterator<char>());
+	const auto decal = source.find(
+		"command.channel == EFFECT_PRESENTATION_CHANNEL_DECAL");
+	const auto needler = source.find("if (needler_pipeline)", decal);
+	const auto additive = source.find(
+		"gDPSetRenderMode(gdl++, G_RM_ADD, G_RM_ADD2)", needler);
+	const auto outer = source.find(
+		"effectPresentationRenderColourQuad(gdl, &outer", additive);
+	const auto alpha = source.find(
+		"gDPSetRenderMode(gdl++, G_RM_AA_XLU_SURF,", outer);
+	const auto core = source.find(
+		"effectPresentationRenderColourQuad(gdl, &command", alpha);
+
+	REQUIRE(decal != std::string::npos);
+	REQUIRE(needler != std::string::npos);
+	REQUIRE(additive != std::string::npos);
+	REQUIRE(outer != std::string::npos);
+	REQUIRE(alpha != std::string::npos);
+	REQUIRE(core != std::string::npos);
+	REQUIRE(additive < outer);
+	REQUIRE(outer < alpha);
+	REQUIRE(alpha < core);
+	REQUIRE(source.find("saturating to white on a bright surface") !=
+		std::string::npos);
 }

@@ -1360,6 +1360,39 @@ static s32 jsonObjectFloat(json_span_t object, const char *key, f32 *out)
 	return 1;
 }
 
+static s32 jsonFloatArrayExact(json_span_t array, f32 *out, s32 count)
+{
+	const char *p = array.start;
+
+	if (!out || count <= 0) {
+		return 0;
+	}
+
+	for (s32 i = 0; i < count; i++) {
+		char *endptr;
+		double parsed;
+
+		p = jsonSkipWs(p, array.end);
+		if (p >= array.end) {
+			return 0;
+		}
+		parsed = strtod(p, &endptr);
+		if (endptr == p || endptr > array.end || parsed != parsed) {
+			return 0;
+		}
+		out[i] = (f32)parsed;
+		p = jsonSkipWs(endptr, array.end);
+		if (i + 1 < count) {
+			if (p >= array.end || *p != ',') {
+				return 0;
+			}
+			p++;
+		}
+	}
+
+	return jsonSkipWs(p, array.end) == array.end;
+}
+
 static s32 jsonObjectString(json_span_t object, const char *key,
                             char *out, size_t out_len)
 {
@@ -2353,6 +2386,62 @@ static s32 gltfAppendSequentialTriangles(obj_mesh_t *mesh,
 	return 1;
 }
 
+static s32 gltfApplyPrimitiveBaseColor(json_span_t root,
+		json_span_t primitive, obj_mesh_t *mesh, s32 vertex_base,
+		s32 vertex_count)
+{
+	json_span_t materials;
+	json_span_t material;
+	json_span_t pbr;
+	json_span_t factor_array;
+	const char *cursor = NULL;
+	s32 material_index;
+	f32 factor[4];
+	Col colour;
+
+	if (!jsonObjectInt(primitive, "material", &material_index)) {
+		return 1;
+	}
+	if (material_index < 0 || !jsonObjectArray(root, "materials", &materials)) {
+		objMeshSetError(mesh, 0, "gltf_material_index_invalid");
+		return 0;
+	}
+
+	for (s32 i = 0; i <= material_index; i++) {
+		if (!jsonArrayNextObject(materials, &cursor, &material)) {
+			objMeshSetError(mesh, 0, "gltf_material_index_invalid");
+			return 0;
+		}
+	}
+
+	if (!jsonObjectObject(material, "pbrMetallicRoughness", &pbr)
+			|| !jsonObjectArray(pbr, "baseColorFactor", &factor_array)) {
+		return 1;
+	}
+	if (!jsonFloatArrayExact(factor_array, factor, 4)) {
+		objMeshSetError(mesh, 0,
+			"gltf_material_base_color_factor_invalid");
+		return 0;
+	}
+	for (s32 i = 0; i < 4; i++) {
+		if (factor[i] < 0.0f || factor[i] > 1.0f) {
+			objMeshSetError(mesh, 0,
+				"gltf_material_base_color_factor_invalid");
+			return 0;
+		}
+	}
+
+	colour.r = (u8)floor((double)factor[0] * 255.0 + 0.5);
+	colour.g = (u8)floor((double)factor[1] * 255.0 + 0.5);
+	colour.b = (u8)floor((double)factor[2] * 255.0 + 0.5);
+	colour.a = (u8)floor((double)factor[3] * 255.0 + 0.5);
+	for (s32 i = 0; i < vertex_count; i++) {
+		mesh->vertices[vertex_base + i].colour = colour;
+		mesh->vertices[vertex_base + i].has_colour = 1;
+	}
+	return 1;
+}
+
 static s32 parseGltfMeshFromJson(const char *json,
                                  u32 json_size,
                                  const u8 *bin,
@@ -2424,6 +2513,11 @@ static s32 parseGltfMeshFromJson(const char *json,
 			if (!gltfAppendPositions(&accessors[position_accessor_index],
 					views, view_count, bin, bin_size, mesh,
 					&vertex_base, &vertex_count)) {
+				ok = 0;
+				break;
+			}
+			if (!gltfApplyPrimitiveBaseColor(root, primitive, mesh,
+					vertex_base, vertex_count)) {
 				ok = 0;
 				break;
 			}
