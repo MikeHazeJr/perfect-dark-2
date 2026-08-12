@@ -310,6 +310,23 @@ $ResultsFile = ""
 . (Join-Path $LibDir "Catalog-Ingress-Fixtures.ps1")
 . (Join-Path $LibDir "Test-MemorySafety.ps1")
 
+function New-NeedlerEffectReplacementFixtures {
+    [CmdletBinding()] param([Parameter(Mandatory)] [string] $InstallDir)
+
+    $generator = "devtools/generate-needler-effect-replacement-fixtures.py"
+    $relativeInstall = [System.IO.Path]::GetRelativePath(
+        $ProjectRoot, $InstallDir).Replace('\', '/')
+    Push-Location $ProjectRoot
+    try {
+        & python $generator --install-dir $relativeInstall
+        if ($LASTEXITCODE -ne 0) {
+            throw "Needler effect replacement fixture generation failed"
+        }
+    } finally {
+        Pop-Location
+    }
+}
+
 function Stop-SmokeOwnedFaultProcesses {
     [CmdletBinding()] param([int[]] $KnownPids = @())
 
@@ -743,6 +760,10 @@ function Invoke-SmokeTestMultiProcess {
             -and $def.catalog_ingress_boundary_fixtures) {
         New-CatalogIngressBoundaryFixtures -InstallDir $installInfo.InstallDir
     }
+    if ($def.PSObject.Properties.Match('needler_effect_replacement_fixtures').Count -gt 0 `
+            -and $def.needler_effect_replacement_fixtures) {
+        New-NeedlerEffectReplacementFixtures -InstallDir $installInfo.InstallDir
+    }
 
     $timeoutSeconds = 30
     if ($def.PSObject.Properties.Match('timeout_seconds').Count -gt 0 -and $def.timeout_seconds) {
@@ -1160,6 +1181,10 @@ function Invoke-SmokeTest {
             -and $def.catalog_ingress_boundary_fixtures) {
         New-CatalogIngressBoundaryFixtures -InstallDir $installInfo.InstallDir
     }
+    if ($def.PSObject.Properties.Match('needler_effect_replacement_fixtures').Count -gt 0 `
+            -and $def.needler_effect_replacement_fixtures) {
+        New-NeedlerEffectReplacementFixtures -InstallDir $installInfo.InstallDir
+    }
 
     # Resolve timeout
     $timeoutSeconds = 90
@@ -1525,7 +1550,11 @@ if ($useSharedInstall) {
 
 $results = @()
 foreach ($t in $selected) {
-    $r = Invoke-SmokeTest `
+    # Some native/helper calls inside Invoke-SmokeTest can write auxiliary
+    # objects to the success pipeline. Capture the complete stream, then keep
+    # exactly the typed scenario result instead of assuming every emitted
+    # object exposes Passed/Name/Assertions fields (B-1029).
+    $invokeOutput = @(Invoke-SmokeTest `
         -Test $t `
         -ExistingInstall $Install `
         -KeepOnSuccess:$Keep `
@@ -1533,8 +1562,16 @@ foreach ($t in $selected) {
         -VerboseEval:$VerboseAssertions `
         -BinaryOverride $SourceBinary `
         -RomOverride $SourceRom `
-        -Shared:$useSharedInstall
-    $results += $r
+        -Shared:$useSharedInstall)
+    $resultCandidates = @($invokeOutput | Where-Object {
+        $_ -and $_.PSObject -and
+        $_.PSObject.Properties.Match('Passed').Count -gt 0 -and
+        $_.PSObject.Properties.Match('AssertionsTotal').Count -gt 0
+    })
+    if ($resultCandidates.Count -ne 1) {
+        throw "Smoke test '$($t.Name)' emitted $($resultCandidates.Count) typed result objects; expected exactly one."
+    }
+    $results += $resultCandidates[0]
 }
 
 # ----------------------------------------------------------------

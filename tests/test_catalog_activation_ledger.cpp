@@ -1,5 +1,6 @@
 #include "catch.hpp"
 
+#include <cstring>
 #include <map>
 #include <set>
 #include <string>
@@ -134,4 +135,63 @@ TEST_CASE("failed replacement reload remains pending and resets clear exact lane
 	catalogActivationLedgerClear();
 	REQUIRE(catalogActivationLedgerActiveCount() == 0);
 	REQUIRE(catalogActivationLedgerPendingCount() == 0);
+}
+
+TEST_CASE("replacement invalidation preserves the selected root and its dependents",
+	"[catalog][effect][lifecycle][t-assets-033][b1027][replacement]")
+{
+	catalogActivationLedgerClear();
+	LedgerHarness h;
+	h.closures["mod:effect"] = {"mod:effect", "mod:audio"};
+	h.closures["mod:weapon"] = {"mod:weapon", "mod:effect", "mod:audio"};
+	REQUIRE(catalogActivationLedgerRecord("mod:effect", ASSET_EFFECT, 0));
+	REQUIRE(catalogActivationLedgerRecord("mod:weapon", ASSET_WEAPON, 0));
+
+	REQUIRE(catalogActivationLedgerInvalidateReplacementRoots("mod:effect",
+		closureContains, retireRoot, &h));
+	REQUIRE(h.retired["mod:effect"] == 1);
+	REQUIRE(h.retired["mod:weapon"] == 1);
+	REQUIRE(catalogActivationLedgerActiveCount() == 0);
+	REQUIRE(catalogActivationLedgerPendingCount() == 2);
+
+	h.reload_fail.insert("mod:effect");
+	h.reload_fail.insert("mod:weapon");
+	REQUIRE_FALSE(catalogActivationLedgerReloadPending(reloadRoot, &h));
+	REQUIRE(catalogActivationLedgerPendingCount() == 2);
+	h.reload_fail.clear();
+	REQUIRE(catalogActivationLedgerReloadPending(reloadRoot, &h));
+	REQUIRE(catalogActivationLedgerActiveCount() == 2);
+	REQUIRE(catalogActivationLedgerPendingCount() == 0);
+	catalogActivationLedgerClear();
+}
+
+TEST_CASE("rejected replacement restores metadata without stale runtime ownership",
+	"[catalog][effect][lifecycle][t-assets-033][b1027][replacement]")
+{
+	asset_entry_t snapshot{};
+	asset_entry_t restored{};
+	std::strcpy(snapshot.id, "mod:effect");
+	std::strcpy(snapshot.ext.effect.effect_file, "effects/live.pdeffect::effect.graph.json");
+	snapshot.type = ASSET_EFFECT;
+	snapshot.enabled = 1;
+	snapshot.runtime_index = 73;
+	snapshot.load_state = ASSET_STATE_ACTIVE;
+	snapshot.loaded_data = reinterpret_cast<void *>(0x1234);
+	snapshot.data_size_bytes = 4096;
+	snapshot.payload_kind = ASSET_PAYLOAD_RUNTIME_ACTIVE;
+	snapshot.ref_count = 2;
+	snapshot.stage_ref_count = 1;
+
+	catalogActivationLedgerRestoreRetiredSnapshot(&restored, &snapshot);
+	REQUIRE(std::string(restored.id) == "mod:effect");
+	REQUIRE(std::string(restored.ext.effect.effect_file) ==
+		"effects/live.pdeffect::effect.graph.json");
+	REQUIRE(restored.type == ASSET_EFFECT);
+	REQUIRE(restored.runtime_index == 73);
+	REQUIRE(restored.load_state == ASSET_STATE_ENABLED);
+	REQUIRE(restored.loaded_data == nullptr);
+	REQUIRE(restored.data_size_bytes == 0);
+	REQUIRE(restored.payload_kind == ASSET_PAYLOAD_NONE);
+	REQUIRE(restored.ref_count == 0);
+	REQUIRE(restored.stage_ref_count == 0);
 }

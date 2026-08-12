@@ -1,5 +1,26 @@
 # Session Log (Active)
 
+## 2026-08-11 - V-009 live effect replacement rollback
+
+Closed B-1027, B-1028, and B-1029 across the production received-PDCA,
+catalog, effect activation, weapon selection, presentation, and smoke-wrapper
+paths. One ordinary client rendered baseline pink Needler output, accepted and
+rendered a same-ID cyan replacement, rejected a later invalid candidate,
+rolled the published filesystem transaction back, deferred root reload until
+the accepted bytes were restored, and rendered cyan again. The rejected
+missing-SFX dependency never entered lookup or runtime state.
+
+The retained scenario result
+`.claude/smoke-verify-runs/results-20260811T143756Z.json` passes 29/29 with
+11/11 events and clean exit. Frozen verification also passes client/updater/
+tests builds, B-1027 77/6, B-1029 6/1, modding/pdxxx 18,614/241, complete
+54,972/996, native-source guard, conformance selftest, all 27 families, and
+diff check under fingerprint
+`3e57c9c1bb3b14d5faa9b11e00223074e4c928026c98e9032a95454f0e44a7b6`.
+Evidence: `context/evidence/2026-08-11-v009-live-effect-replacement.md`.
+V-009 remains partial for readable pixel-level visual comparison, a second
+overlapping active owner, and real-peer transport.
+
 ## 2026-08-11 - V-009 edited Needler effect A/B production proof
 
 Added deterministic temporary tint/output arguments to the existing editable

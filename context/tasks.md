@@ -64,9 +64,19 @@ every positive `.pdmod` as 4096 MiB. Final verification adds client/updater/
 tests build, focused 22/3 and 391/1, complete 54,852/986, native-source guard,
 diff check, and fingerprint
 `1f7a25ad07e4483e50d23c0f0c92f99f2855c25a6d009346eb04598ccb14411b`.
-Validation remains partial for live child replacement/rollback, reacquiring/
-releasing a second active owner inside one process, real-peer distribution, and
-a readable pixel-level visual comparison. The source-to-render half of the A/B
+Validation now also includes same-process live replacement/rollback through the
+production receive handler. Final
+`.claude/smoke-verify-runs/results-20260811T143756Z.json` passes 29/29 and exits
+0: baseline pink renders twice, a valid same-ID cyan replacement renders twice,
+an invalid candidate returns scanner `-1`, PDCA rollback and pending-root reload
+both return `1`, and the next ordinary projectile renders restored cyan twice
+without resolving the rejected SFX. B-1027/B-1028/B-1029 are fixed; complete
+verification passes 54,972/996, guard, selftest, 28-root/52-recursive
+all-family conformance, diff check, and fingerprint
+`3e57c9c1bb3b14d5faa9b11e00223074e4c928026c98e9032a95454f0e44a7b6`.
+Validation remains partial for reacquiring/releasing a second active owner
+inside one process, real-peer distribution, and a readable pixel-level visual
+comparison. The source-to-render half of the A/B
 gate is now authoritative: separately generated public pink and cyan
 `.pdeffect` variants each pass 46/46 through normal secondary projectile
 collision, audio, presentation, and renderer consumption. The renderer reports

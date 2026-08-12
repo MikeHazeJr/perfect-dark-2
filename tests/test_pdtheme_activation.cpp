@@ -181,7 +181,7 @@ TEST_CASE("production theme loader owns public dependency lifecycle exactly once
 		std::string::npos);
 	REQUIRE(scanner.find("typed_archive_entry && ini_type == ASSET_THEME") !=
 		std::string::npos);
-	REQUIRE(distrib.find("assetCatalogScanExternalLayoutFolder(") !=
+	REQUIRE(distrib.find("assetCatalogScanExternalLayoutFolderDeferred(") !=
 		std::string::npos);
 
 	/* Startup must preserve the configured ID until the real catalog/mod walk

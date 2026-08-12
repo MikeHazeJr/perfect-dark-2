@@ -32,6 +32,7 @@
 #include "asset_archive_policy.h"
 #include "assetcatalog.h"
 #include "assetcatalog_load.h"
+#include "catalog_activation_ledger.h"
 #include "assetprovider.h"
 #include "assetcatalog_body_head_slots.h"
 #include "assetcatalog_weapon_slots.h"
@@ -4216,11 +4217,13 @@ static s32 scanExternalDescriptorPath(const char *mod_dir,
 
 static s32 registerTypedPdDescriptorFile(const char *descriptor_path,
                                          asset_type_e expected,
-                                         const char *mod_id)
+                                         const char *mod_id,
+										 s32 defer_reloads)
 {
 	pd_effect_source_info_t effect_source;
 	asset_entry_t prior_effect;
 	s32 had_prior_effect = 0;
+	s32 published_effect_candidate = 0;
 	s32 has_effect_source = 0;
 	if (expected == ASSET_EFFECT) {
 		char effect_error[256];
@@ -4228,9 +4231,9 @@ static s32 registerTypedPdDescriptorFile(const char *descriptor_path,
 		if (!pdEffectSourceParseArchiveFile(descriptor_path, NULL, &effect_source,
 				effect_error, sizeof(effect_error))) {
 			sysLogPrintf(LOG_ERROR,
-				"assetcatalog_scanner: invalid public .pdeffect source '%s': %s",
+			"assetcatalog_scanner: invalid public .pdeffect source '%s': %s",
 				descriptor_path, effect_error);
-			return 0;
+			return -1;
 		}
 		has_effect_source = 1;
 	}
@@ -4238,7 +4241,7 @@ static s32 registerTypedPdDescriptorFile(const char *descriptor_path,
 	if (!iniParse(descriptor_path, &ini)) {
 		const char *descriptor_leaf = typedPdArchiveDescriptorLeaf(descriptor_path);
 		if (!descriptor_leaf) {
-			return 0;
+			return -1;
 		}
 
 		mod_archive_t *arc = modArchiveOpen(descriptor_path);
@@ -4246,7 +4249,7 @@ static s32 registerTypedPdDescriptorFile(const char *descriptor_path,
 			/* Legacy JSON .pd* files are still valid through their existing
 			 * loaders; this scanner consumes readable INI descriptors and
 			 * zip-openable typed asset archives. */
-			return 0;
+			return -1;
 		}
 
 		const char *found_descriptor = NULL;
@@ -4254,14 +4257,14 @@ static s32 registerTypedPdDescriptorFile(const char *descriptor_path,
 			ASSET_ARCHIVE_VALIDATE_MIGRATION, &found_descriptor);
 		if (idx < 0) {
 			modArchiveClose(arc);
-			return 0;
+			return -1;
 		}
 
 		u32 ini_size = 0;
 		char *ini_bytes = (char *)modArchiveExtractAlloc(arc, idx, &ini_size);
 		modArchiveClose(arc);
 		if (!ini_bytes) {
-			return 0;
+			return -1;
 		}
 
 		s32 ok = iniParseBuffer(found_descriptor ? found_descriptor : descriptor_leaf,
@@ -4271,14 +4274,14 @@ static s32 registerTypedPdDescriptorFile(const char *descriptor_path,
 			sysLogPrintf(LOG_WARNING,
 				"assetcatalog_scanner: invalid typed archive descriptor '%s' in '%s'",
 				descriptor_leaf, descriptor_path);
-			return 0;
+			return -1;
 		}
 
 		if (!qualifyTypedArchiveSourcePaths(&ini, descriptor_path)) {
 			sysLogPrintf(LOG_WARNING,
 				"ASSET.PATH.REJECT: typed source chain exceeds repository capacity: %s",
 				descriptor_path);
-			return 0;
+			return -1;
 		}
 	}
 
@@ -4288,16 +4291,17 @@ static s32 registerTypedPdDescriptorFile(const char *descriptor_path,
 			"assetcatalog_scanner: typed .pd* descriptor type mismatch in '%s': "
 			"expected %d, got [%s]=%d",
 			descriptor_path, expected, ini.type, ini_type);
+		return -1;
 	}
 
 	char component_dir[FS_MAXPATH];
 	if (!typedPdDescriptorComponentDir(descriptor_path, component_dir,
-			sizeof(component_dir))) return 0;
+			sizeof(component_dir))) return -1;
 	if (!isDirectory(component_dir)) {
 		pathDirnameAnySeparator(descriptor_path, component_dir, sizeof(component_dir));
 	}
 	if (!component_dir[0]) {
-		return 0;
+		return -1;
 	}
 	if (has_effect_source) {
 		const asset_entry_t *prior = assetCatalogResolve(effect_source.catalog_id);
@@ -4318,6 +4322,7 @@ static s32 registerTypedPdDescriptorFile(const char *descriptor_path,
 			goto effect_publish_fail;
 		}
 		if (has_effect_source) {
+			published_effect_candidate = 1;
 			asset_entry_t *effect = assetCatalogGetMutable(effect_source.catalog_id);
 			if (!effect) {
 				goto effect_publish_fail;
@@ -4361,7 +4366,7 @@ static s32 registerTypedPdDescriptorFile(const char *descriptor_path,
 					"PDWEAPON.NESTED.REJECT: owner=%s source=%s error=%s",
 					weapon_id[0] ? weapon_id : "<missing>", descriptor_path,
 					nested_err[0] ? nested_err : "nested registration failed");
-				return 0;
+				return -1;
 			}
 		}
 		if (expected == ASSET_THEME) {
@@ -4383,7 +4388,7 @@ static s32 registerTypedPdDescriptorFile(const char *descriptor_path,
 					"PDTHEME.NESTED.REJECT: owner=%s source=%s error=%s",
 					theme_id[0] ? theme_id : "<missing>", descriptor_path,
 					nested_err[0] ? nested_err : "nested registration failed");
-				return 0;
+				return -1;
 			}
 		}
 		return 1;
@@ -4392,20 +4397,23 @@ static s32 registerTypedPdDescriptorFile(const char *descriptor_path,
 effect_publish_fail:
 	if (has_effect_source) {
 		asset_entry_t *published = assetCatalogGetMutable(effect_source.catalog_id);
-		if (had_prior_effect && published) *published = prior_effect;
+		if (had_prior_effect && published && published_effect_candidate) {
+			catalogActivationLedgerRestoreRetiredSnapshot(published, &prior_effect);
+		}
 		else if (!had_prior_effect && published) assetCatalogUnregister(effect_source.catalog_id);
-		if (had_prior_effect) {
+		if (had_prior_effect && !defer_reloads) {
 			/* A rejected replacement restored the exact prior row. Reactivate
 			 * only roots whose complete restored closure still passes. */
 			(void)catalogReloadInvalidatedTypedAssets();
 		}
 	}
-	return 0;
+	return -1;
 }
 
 static s32 scanTypedPdDescriptorsRecurse(const char *root_dir,
                                          const char *rel_dir,
-                                         const char *mod_id)
+                                         const char *mod_id,
+										 s32 defer_reloads)
 {
 	char abs_dir[FS_MAXPATH];
 	if (rel_dir && rel_dir[0]) {
@@ -4421,6 +4429,7 @@ static s32 scanTypedPdDescriptorsRecurse(const char *root_dir,
 	}
 
 	s32 count = 0;
+	s32 rejected = 0;
 	struct dirent *ent;
 	while ((ent = readdir(dp)) != NULL) {
 		if (!ent->d_name || ent->d_name[0] == '.') {
@@ -4441,7 +4450,10 @@ static s32 scanTypedPdDescriptorsRecurse(const char *root_dir,
 				child_rel)) continue;
 
 		if (isDirectory(child_abs)) {
-			count += scanTypedPdDescriptorsRecurse(root_dir, child_rel, mod_id);
+			s32 child_result = scanTypedPdDescriptorsRecurse(root_dir, child_rel,
+				mod_id, defer_reloads);
+			if (child_result < 0) rejected = 1;
+			else count += child_result;
 			continue;
 		}
 
@@ -4454,11 +4466,16 @@ static s32 scanTypedPdDescriptorsRecurse(const char *root_dir,
 			continue;
 		}
 
-		count += registerTypedPdDescriptorFile(child_abs, expected, mod_id);
+		s32 candidate_result = registerTypedPdDescriptorFile(child_abs, expected,
+			mod_id, defer_reloads);
+		if (candidate_result < 0) rejected = 1;
+		else count += candidate_result;
 	}
 
 	closedir(dp);
-	return count;
+	/* Preserve the accepted count for ordinary scans, but never let sibling
+	 * success erase a recognized typed-source rejection. */
+	return rejected ? -(count + 1) : count;
 }
 
 /**
@@ -4582,7 +4599,8 @@ static s32 scanModDir(const char *mod_dir, const char *mod_id)
 	return count;
 }
 
-s32 assetCatalogScanExternalLayoutFolder(const char *mod_id, const char *mod_dir)
+static s32 assetCatalogScanExternalLayoutFolderInternal(const char *mod_id,
+		const char *mod_dir, s32 defer_reloads)
 {
 	if (!mod_id || !mod_id[0] || !mod_dir || !mod_dir[0]) {
 		return 0;
@@ -4655,7 +4673,12 @@ s32 assetCatalogScanExternalLayoutFolder(const char *mod_id, const char *mod_dir
 		"animation.ini", ASSET_ANIMATION, mod_id);
 	total += scanExternalDescriptorPath(mod_dir, "animations/character",
 		"animation.ini", ASSET_ANIMATION, mod_id);
-	total += scanTypedPdDescriptorsRecurse(mod_dir, "", mod_id);
+	{
+		s32 typed_result = scanTypedPdDescriptorsRecurse(mod_dir, "", mod_id,
+			defer_reloads);
+		if (typed_result < 0) return typed_result;
+		total += typed_result;
+	}
 
 	if (total > 0) {
 		sysLogPrintf(LOG_NOTE,
@@ -4663,6 +4686,18 @@ s32 assetCatalogScanExternalLayoutFolder(const char *mod_id, const char *mod_dir
 			mod_id, total);
 	}
 	return total;
+}
+
+s32 assetCatalogScanExternalLayoutFolder(const char *mod_id,
+		const char *mod_dir)
+{
+	return assetCatalogScanExternalLayoutFolderInternal(mod_id, mod_dir, 0);
+}
+
+s32 assetCatalogScanExternalLayoutFolderDeferred(const char *mod_id,
+		const char *mod_dir)
+{
+	return assetCatalogScanExternalLayoutFolderInternal(mod_id, mod_dir, 1);
 }
 
 #ifndef PD_SERVER
@@ -5202,7 +5237,9 @@ s32 assetCatalogScanComponentsFromArchive(const char *mod_id, mod_archive_t *arc
 							entry_ref, 0, nested_err, sizeof(nested_err)) < 0) {
 					asset_entry_t *effect = effect_id && effect_id[0]
 						? assetCatalogGetMutable(effect_id) : NULL;
-					if (had_prior_effect && effect) *effect = prior_effect;
+					if (had_prior_effect && effect) {
+						catalogActivationLedgerRestoreRetiredSnapshot(effect, &prior_effect);
+					}
 					else if (!had_prior_effect && effect) assetCatalogUnregister(effect_id);
 					if (had_prior_effect) (void)catalogReloadInvalidatedTypedAssets();
 					sysLogPrintf(LOG_WARNING,

@@ -1,0 +1,98 @@
+{
+  "scenario_name": "needler_effect_replacement_rollback_smoke",
+  "description": "V-009/B-1027 installed-client proof: activate the public Needler closure, receive a valid cyan same-ID effect replacement, reject an invalid second candidate at the same destination, restore the prior source bytes, reacquire the pending weapon root, and keep cyan gameplay/render behavior live.",
+  "tags": ["modding", "pdmod", "pdxxx", "weapon", "effect", "catalog", "network", "replacement", "rollback", "v009", "b1027", "smoke"],
+  "paths_of_interest": [
+    "dev-mods/needler",
+    "port/src/net/netdistrib.c",
+    "port/src/assetcatalog_scanner.c",
+    "port/src/assetcatalog_load.c",
+    "port/src/smoke_harness.c",
+    "devtools/generate-needler-effect-replacement-fixtures.py"
+  ],
+  "log_channel_mask": "game,catalog,render,match,combat,mods,system,network",
+  "verbose": 0,
+  "timeout_seconds": 180,
+  "install_state": "current",
+  "needler_effect_replacement_fixtures": true,
+  "remove_paths": [
+    "mods/needler.pdmod",
+    "mods/needler",
+    "mods/installed/needler.pdmod",
+    "mods/installed/needler",
+    "mods/.temp/received/needler_effect",
+    "social/needler-effect-replacement"
+  ],
+  "fixtures": [
+    { "src": "tools/smoke-verify/fixtures/needler_source_pd.ini", "dst": "pd.ini" },
+    { "src": "tools/smoke-verify/fixtures/needler_enabled.json", "dst": "mods-enabled.json" }
+  ],
+  "packed_fixtures": [
+    { "src": "dev-mods/needler", "dst": "mods/installed/needler.pdmod" }
+  ],
+  "boot_args": [
+    "--no-update-check",
+    "--no-net",
+    "--portable",
+    "--debug-generated-mesh-render-audit",
+    "--debug-effect-runtime-audit",
+    "--debug-force-first-person",
+    "--launch-mp-room",
+    "base:arena_chicago",
+    "base:combat",
+    "12",
+    "--debug-spawn-weapon",
+    "mod_needler:needler",
+    "--debug-auto-start-match"
+  ],
+  "input_sequence": [
+    { "at_ms": 0, "type": "wait", "comment": "Boot the ordinary Needler match and activate its complete nested public closure." },
+    { "at_ms": 26000, "type": "action", "name": "ACTION_AIM_DOWN", "action": "press" },
+    { "at_ms": 30000, "type": "action", "name": "ACTION_FIRE_PRIMARY", "action": "tap" },
+    { "at_ms": 34000, "type": "action", "name": "ACTION_FIRE_MODE", "action": "tap" },
+    { "at_ms": 35000, "type": "action", "name": "ACTION_FIRE_PRIMARY", "action": "tap", "comment": "Baseline public pink effect." },
+    { "at_ms": 42000, "type": "receive_pdca_list", "path": "social/needler-effect-replacement/valid-list.txt", "comment": "Production network receive installs a valid cyan replacement and reloads the active weapon root." },
+    { "at_ms": 50000, "type": "action", "name": "ACTION_FIRE_PRIMARY", "action": "tap", "comment": "Same gameplay path must now render cyan." },
+    { "at_ms": 57000, "type": "receive_pdca_list", "path": "social/needler-effect-replacement/invalid-list.txt", "comment": "A same-destination candidate with an unresolved public SFX must reject and roll back." },
+    { "at_ms": 66000, "type": "action", "name": "ACTION_FIRE_PRIMARY", "action": "tap", "comment": "The restored valid cyan source and active owner must still execute." },
+    { "at_ms": 70000, "type": "action", "name": "ACTION_AIM_DOWN", "action": "release" },
+    { "at_ms": 75000, "type": "exit" }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=needler_effect_replacement_rollback_smoke",
+      "CATALOG\\.LIFECYCLE\\.ACTIVATE: activated weapon metadata payload 'mod_needler:needler'",
+      "WEAPONGRAPH\\.EFFECT\\.CATALOG_SELECTED: id=mod_needler:pink_burst_effect parent=mod_needler:needler",
+      "EFFECT\\.PRESENTATION\\.RENDER\\.AUDIT: instance=\\d+ snapshots=[1-9]\\d* channel=2 shader=needler_pink_burst intensity=[0-9.]+ authored_rgba=1\\.000,0\\.400,0\\.800,1\\.000 effective_rgba=1\\.000,0\\.400,0\\.800,1\\.000 render_rgba=1\\.000,0\\.400,0\\.800,1\\.000",
+      "SMOKE: receive_pdca_list path='social/needler-effect-replacement/valid-list\\.txt' delivered=1",
+      "DISTRIB\\.SMOKE: transfer complete; peer manifest acknowledgement suppressed",
+      "EFFECT\\.PRESENTATION\\.RENDER\\.AUDIT: instance=\\d+ snapshots=[1-9]\\d* channel=2 shader=needler_pink_burst intensity=[0-9.]+ authored_rgba=0\\.000,1\\.000,1\\.000,1\\.000 effective_rgba=0\\.000,1\\.000,1\\.000,1\\.000 render_rgba=0\\.000,1\\.000,1\\.000,1\\.000",
+      "PDEFFECT\\.NESTED\\.REJECT: owner=mod_needler:pink_burst_effect .*embedded effect dependency mod_needler:pink_burst_sfx is not referenced by graph",
+      "DISTRIB\\.CATALOG\\.ROLLBACK: id=needler_effect result=1 active=0",
+      "DISTRIB\\.CATALOG\\.RELOAD: id=needler_effect result=1",
+      "SMOKE: receive_pdca_list path='social/needler-effect-replacement/invalid-list\\.txt' delivered=1",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "LOUDFAIL\\.FALLBACK",
+      "ASSET\\.FALLBACK",
+      "catalogResolveAudio: 'mod_needler:missing_replacement_sfx'",
+      "DISTRIB: prior destination restored but catalog roots remain pending",
+      "DISTRIB\\.CATALOG\\.ROLLBACK: id=needler_effect result=0",
+      "DISTRIB\\.CATALOG\\.RELOAD: id=needler_effect result=0",
+      "EFFECT\\.GAMEPLAY\\.AUDIT: rejected",
+      "weapon_graph_runtime: held IR unavailable for mod_needler:needler",
+      "MANIFEST: \\[27\\] COMPONENT  id='needler' — MISSING"
+    ],
+    "required_counts": [
+      { "pattern": "SMOKE: receive_pdca_list path=.* delivered=1", "min": 2, "max": 2 },
+      { "pattern": "EFFECT\\.PRESENTATION\\.RENDER\\.AUDIT: .*authored_rgba=1\\.000,0\\.400,0\\.800,1\\.000", "min": 2, "max": 2 },
+      { "pattern": "EFFECT\\.PRESENTATION\\.RENDER\\.AUDIT: .*authored_rgba=0\\.000,1\\.000,1\\.000,1\\.000", "min": 4, "max": 4 },
+      { "pattern": "DISTRIB\\.CATALOG\\.RELOAD: id=needler_effect result=1", "min": 1, "max": 1 }
+    ]
+  }
+}

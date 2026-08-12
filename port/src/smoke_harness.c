@@ -70,6 +70,11 @@
  *     -- inject SDL_MOUSEWHEEL through the ordinary ImGui/action-map event
  *        path. The current hover target comes from the preceding mouse_move.
  *
+ *   { "at_ms": N, "type": "receive_pdca_list", "path": "social/test/list.txt" }
+ *     -- deliver raw PDCA fixtures through the production network
+ *        BEGIN/CHUNK/END receive handlers at a deterministic live point.
+ *        The event exists only while the smoke harness is active.
+ *
  *   Both `action` and `mouse` events use the same tap-release sweep
  *   path that the existing key-tap events use, so they share the
  *   one-frame auto-release timing (SMOKE_TAP_RELEASE_MS).
@@ -87,6 +92,7 @@
 #include "smoke_harness.h"
 #include "system.h"
 #include "actionmap.h"   /* actionmapResolveByName, actionmapInjectStateForSmoke */
+#include "net/netdistrib.h"
 
 /* c115 (2026-05-14): need gfxGetSdlWindow to stamp the correct windowID
  * on synthesised SDL events. ImGui's SDL2 backend filters events whose
@@ -124,6 +130,7 @@ typedef enum {
     SMOKE_EVENT_MOUSE_TAP,
     SMOKE_EVENT_MOUSE_MOVE,
     SMOKE_EVENT_MOUSE_WHEEL,
+    SMOKE_EVENT_RECEIVE_PDCA_LIST,
     SMOKE_EVENT_SCREENSHOT,         /* in-game glReadPixels grab -> path */
     SMOKE_EVENT_EXIT
 } SmokeEventType;
@@ -547,6 +554,16 @@ static s32 smokeParseEvent(JParse *p, SmokeEvent *ev)
             return 0;
         }
         ev->type = SMOKE_EVENT_SCREENSHOT;
+        return 1;
+    }
+    if (!strcmp(type_str, "receive_pdca_list")) {
+        if (!ev->path[0]) {
+            sysLogPrintf(LOG_ERROR,
+                "SMOKE: receive_pdca_list event missing 'path' (at_ms=%d)",
+                ev->at_ms);
+            return 0;
+        }
+        ev->type = SMOKE_EVENT_RECEIVE_PDCA_LIST;
         return 1;
     }
     if (!strcmp(type_str, "key")) {
@@ -1137,6 +1154,14 @@ void smokeHarnessTick(void)
                 ev->mouse_wheel_x, ev->mouse_wheel_y, ev->at_ms);
             smokePushMouseWheel(ev->mouse_wheel_x, ev->mouse_wheel_y);
             break;
+        case SMOKE_EVENT_RECEIVE_PDCA_LIST:
+        {
+            s32 delivered = netDistribDebugReceivePdcaListForSmoke(ev->path);
+            sysLogPrintf(delivered > 0 ? LOG_NOTE : LOG_WARNING,
+                "SMOKE: receive_pdca_list path='%s' delivered=%d at_ms=%d",
+                ev->path, delivered, ev->at_ms);
+            break;
+        }
         case SMOKE_EVENT_SCREENSHOT:
             sysLogPrintf(LOG_NOTE, "SMOKE: screenshot at_ms=%d -> %s", ev->at_ms, ev->path);
             gfxRequestSmokeScreenshot(ev->path);

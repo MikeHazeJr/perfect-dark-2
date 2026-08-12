@@ -50,3 +50,54 @@ TEST_CASE("smoke mouse motion and wheel reject incomplete no-op events",
     requireContains(source, "SMOKE: mouse_wheel event missing wheel_x/wheel_y");
     requireContains(source, "SMOKE: mouse_wheel event has zero delta");
 }
+
+TEST_CASE("smoke can deliver received archives after a live owner activates",
+    "[catalog][network][smoke][v009][b1027][static]")
+{
+    const std::string source = readTextFile("port/src/smoke_harness.c");
+    const std::string network = readTextFile("port/src/net/netdistrib.c");
+
+    requireContains(source, "SMOKE_EVENT_RECEIVE_PDCA_LIST");
+    requireContains(source, "!strcmp(type_str, \"receive_pdca_list\")");
+    requireContains(source, "netDistribDebugReceivePdcaListForSmoke(ev->path)");
+    requireContains(source, "SMOKE: receive_pdca_list path='%s' delivered=%d");
+    requireContains(network, "pdcaExtractTransactionRollback(&install_transaction)");
+    requireContains(network, "catalogReloadInvalidatedTypedAssets()");
+    requireContains(network, "DISTRIB.CATALOG.RELOAD: id=%s result=%d");
+}
+
+TEST_CASE("Needler replacement smoke generates valid then invalid same-slot PDCA",
+    "[catalog][network][modding][v009][b1027][static]")
+{
+    const std::string generator = readTextFile(
+        "devtools/generate-needler-effect-replacement-fixtures.py");
+    const std::string runner = readTextFile("tools/smoke-verify/run.ps1");
+    const std::string scenario = readTextFile(
+        "tools/smoke-verify/tests/needler_effect_replacement_rollback_smoke.json");
+
+    requireContains(generator, "burst_tint=(0.0, 1.0, 1.0, 1.0)");
+    requireContains(generator, "mod_needler:missing_replacement_sfx");
+    requireContains(generator,
+        "f\"{pdca_relative}|needler_effect|received|1\\n\"");
+    requireContains(runner, "needler_effect_replacement_fixtures");
+    requireContains(runner, "New-NeedlerEffectReplacementFixtures");
+    requireContains(runner, "[System.IO.Path]::GetRelativePath(");
+    requireContains(runner,
+        "devtools/generate-needler-effect-replacement-fixtures.py");
+    requireContains(scenario, "\"type\": \"receive_pdca_list\"");
+    requireContains(scenario, "valid-list.txt");
+    requireContains(scenario, "invalid-list.txt");
+    requireContains(scenario,
+        "DISTRIB\\\\.CATALOG\\\\.RELOAD: id=needler_effect result=1");
+}
+
+TEST_CASE("smoke runner filters auxiliary pipeline output before summary",
+    "[smoke][tooling][static][b1029]")
+{
+    const std::string runner = readTextFile("tools/smoke-verify/run.ps1");
+    requireContains(runner, "$invokeOutput = @(Invoke-SmokeTest");
+    requireContains(runner, "Properties.Match('Passed').Count -gt 0");
+    requireContains(runner, "Properties.Match('AssertionsTotal').Count -gt 0");
+    requireContains(runner, "$resultCandidates.Count -ne 1");
+    requireContains(runner, "$results += $resultCandidates[0]");
+}

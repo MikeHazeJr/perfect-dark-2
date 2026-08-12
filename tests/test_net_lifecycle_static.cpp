@@ -1016,6 +1016,62 @@ TEST_CASE("net lifecycle: c3813 listen-host smoke fixtures cover live peer setup
     REQUIRE(log_printf.find("!sysWeaponDiagLoggingEnabled()") != std::string::npos);
 }
 
+TEST_CASE("manifest component identity resolves through the mod registry",
+          "[net][manifest][static][b1028]")
+{
+    const std::string manifest = read_text_file("port/src/net/netmanifest.c");
+    const size_t component = manifest.find(
+        "if (e->type == MANIFEST_TYPE_COMPONENT)",
+        manifest.find("void manifestCheck"));
+    const size_t mod_lookup = manifest.find("modmgrFindMod(e->id)", component);
+    const size_t catalog_lookup = manifest.find("assetCatalogResolve(e->id)",
+        component);
+    REQUIRE(component != std::string::npos);
+    REQUIRE(mod_lookup != std::string::npos);
+    REQUIRE(catalog_lookup != std::string::npos);
+    REQUIRE(mod_lookup < catalog_lookup);
+    REQUIRE(manifest.find("localMod->enabled && localMod->valid") !=
+        std::string::npos);
+    REQUIRE(manifest.find("OK (mod registry)") != std::string::npos);
+}
+
+TEST_CASE("smoke PDCA ingress suppresses only the absent-peer acknowledgement",
+          "[net][distribution][static][b1028]")
+{
+    const std::string distrib = read_text_file("port/src/net/netdistrib.c");
+    REQUIRE(distrib.find("s_SmokeReceiveActive = 1") != std::string::npos);
+    REQUIRE(distrib.find("s_SmokeReceiveActive = 0") != std::string::npos);
+    REQUIRE(distrib.find("peer manifest acknowledgement suppressed") !=
+        std::string::npos);
+    REQUIRE(distrib.find("pdcaExtractArchiveBegin") != std::string::npos);
+    REQUIRE(distrib.find("assetCatalogScanExternalLayoutFolderDeferred") !=
+        std::string::npos);
+}
+
+TEST_CASE("received typed-source rejection rolls back zero and negative scanner results",
+          "[net][distribution][static][b1027]")
+{
+    const std::string distrib = read_text_file("port/src/net/netdistrib.c");
+    const std::string scanner = read_text_file("port/src/assetcatalog_scanner.c");
+    REQUIRE(distrib.find("if (registered <= 0)") != std::string::npos);
+    REQUIRE(distrib.find("DISTRIB.CATALOG.ADMISSION: id=%s scanner_result=%d") !=
+        std::string::npos);
+    REQUIRE(distrib.find("pdcaExtractTransactionRollback(&install_transaction)") !=
+        std::string::npos);
+    REQUIRE(distrib.find("DISTRIB.CATALOG.ROLLBACK: id=%s result=%d active=%d") !=
+        std::string::npos);
+    REQUIRE(distrib.find("DISTRIB.CATALOG.RELOAD: id=%s result=%d") !=
+        std::string::npos);
+    REQUIRE(distrib.find("catalogReloadInvalidatedTypedAssets()") !=
+        std::string::npos);
+    REQUIRE(scanner.find("return rejected ? -(count + 1) : count;") !=
+        std::string::npos);
+    REQUIRE(scanner.find("if (typed_result < 0) return typed_result;") !=
+        std::string::npos);
+    REQUIRE(scanner.find("had_prior_effect && !defer_reloads") !=
+        std::string::npos);
+}
+
 TEST_CASE("net lifecycle: reconnect and drop-in gates preserve slots before reset",
           "[net][lifecycle][reconnect][static][c3813]")
 {

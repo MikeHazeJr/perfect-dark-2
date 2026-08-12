@@ -42,6 +42,14 @@ void catalogActivationLedgerForget(const char *root_id);
 s32 catalogActivationLedgerInvalidateDependents(const char *dependency_id,
 	catalog_activation_contains_fn contains_fn,
 	catalog_activation_retire_fn retire_fn, void *userdata);
+s32 catalogActivationLedgerInvalidateReplacementRoots(const char *dependency_id,
+	catalog_activation_contains_fn contains_fn,
+	catalog_activation_retire_fn retire_fn, void *userdata);
+/* Restore identity/source metadata after a replacement candidate was rejected.
+ * The prior payload/runtime was already retired, so stale pointers and counts
+ * from the pre-replacement snapshot must never be republished. */
+void catalogActivationLedgerRestoreRetiredSnapshot(asset_entry_t *entry,
+	const asset_entry_t *snapshot);
 s32 catalogActivationLedgerCanInvalidateDependents(const char *dependency_id,
 	catalog_activation_contains_fn contains_fn, void *userdata);
 

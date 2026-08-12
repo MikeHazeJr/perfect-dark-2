@@ -163,6 +163,17 @@ would otherwise overwrite a synthetic hover position before the click lands.
 non-zero delta. Use an explicit move before wheel input so the hover target is
 established through the same backend path as ordinary mouse use.
 
+#### `receive_pdca_list` (V-009/B-1027, 2026-08-11)
+
+```json
+{ "at_ms": 90000, "type": "receive_pdca_list", "path": "social/test/receive-list.txt" }
+```
+
+This smoke-only event delivers each raw PDCA entry through the production
+network `BEGIN`/`CHUNK`/`END` receive handlers at a deterministic live point.
+Use it for lifecycle/rollback validation after an ordinary runtime owner is
+already active; it is not a substitute for a real-peer validation receipt.
+
 ### Action modes
 
 For `key`, `action`, and `mouse` events the `action` field controls edge

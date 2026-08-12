@@ -2188,10 +2188,9 @@ s32 manifestEnsureLoaded(const char *catalog_id, s32 asset_type)
  *
  * Called client-side after SVC_MATCH_MANIFEST is parsed into *manifest.
  * Iterates all entries.  For each one:
- *   1. Try assetCatalogResolve(id) by catalog ID string (v27: sole resolution method).
- *   2. If not found:
- *      - MANIFEST_TYPE_COMPONENT → add to missing list (must be downloaded).
- *      - Other types → assume present (base game asset, always local).
+ *   1. Component IDs resolve through the mod registry and validate the package
+ *      hash; they are not asset catalog IDs.
+ *   2. Typed asset IDs resolve through assetCatalogResolve(id).
  *
  * Sends CLC_MANIFEST_STATUS to the server:
  *   MANIFEST_STATUS_READY       — all entries accounted for
@@ -2236,71 +2235,67 @@ void manifestCheck(const match_manifest_t *manifest)
         type_name = (e->type < ARRAYCOUNT(s_type_names))
                     ? s_type_names[e->type] : "?";
 
-        /* v27: resolve by catalog ID string only. */
-        local = e->id[0] ? assetCatalogResolve(e->id) : NULL;
-
-        if (local) {
-            /* D.6: for mod COMPONENT entries, validate SHA-256 against local mod. */
-            if (e->type == MANIFEST_TYPE_COMPONENT) {
-                /* Check whether local mod has matching SHA-256.
-                 * A zero sha256 in the manifest means the host didn't compute one — skip. */
-                static const u8 s_zero32[32] = {0};
-                if (memcmp(e->sha256, s_zero32, sizeof(e->sha256)) != 0) {
-                    modinfo_t *localMod = modmgrFindMod(e->id);
-                    if (localMod) {
-                        if (memcmp(localMod->sha256, e->sha256, sizeof(e->sha256)) != 0) {
-                            /* SHA-256 mismatch: we have the mod but it's the wrong version.
-                             * Report as missing so the server can redistribute the correct one. */
-                            char expected_hex[SHA256_HEX_SIZE];
-                            char local_hex[SHA256_HEX_SIZE];
-                            sha256ToHex(e->sha256, expected_hex);
-                            sha256ToHex(localMod->sha256, local_hex);
-                            sysLogPrintf(LOG_WARNING,
-                                         "MANIFEST: [%2d] COMPONENT id='%s' SHA-256 MISMATCH: want %s got %s",
-                                         i, e->id, expected_hex, local_hex);
-                            strncpy(missing_ids[num_missing], e->id, CATALOG_ID_LEN - 1);
-                            missing_ids[num_missing][CATALOG_ID_LEN - 1] = '\0';
-                            num_missing++;
-                            continue;
-                        }
-                    }
+        if (e->type == MANIFEST_TYPE_COMPONENT) {
+            static const u8 s_zero32[32] = {0};
+            modinfo_t *localMod = e->id[0] ? modmgrFindMod(e->id) : NULL;
+            if (localMod && localMod->enabled && localMod->valid &&
+                    localMod->has_modjson) {
+                if (memcmp(e->sha256, s_zero32, sizeof(e->sha256)) != 0 &&
+                        memcmp(localMod->sha256, e->sha256,
+                            sizeof(e->sha256)) != 0) {
+                    char expected_hex[SHA256_HEX_SIZE];
+                    char local_hex[SHA256_HEX_SIZE];
+                    sha256ToHex(e->sha256, expected_hex);
+                    sha256ToHex(localMod->sha256, local_hex);
+                    sysLogPrintf(LOG_WARNING,
+                        "MANIFEST: [%2d] COMPONENT id='%s' SHA-256 MISMATCH: want %s got %s",
+                        i, e->id, expected_hex, local_hex);
+                    strncpy(missing_ids[num_missing], e->id,
+                        CATALOG_ID_LEN - 1);
+                    missing_ids[num_missing][CATALOG_ID_LEN - 1] = '\0';
+                    num_missing++;
+                    continue;
                 }
+                sysLogPrintf(LOG_NOTE,
+                    "MANIFEST: [%2d] COMPONENT id='%s' — OK (mod registry)",
+                    i, e->id);
+                continue;
             }
+            sysLogPrintf(LOG_WARNING,
+                "MANIFEST: [%2d] COMPONENT id='%s' — MISSING",
+                i, e->id);
+            strncpy(missing_ids[num_missing], e->id, CATALOG_ID_LEN - 1);
+            missing_ids[num_missing][CATALOG_ID_LEN - 1] = '\0';
+            num_missing++;
+            continue;
+        }
+
+        /* v27: typed assets resolve by catalog ID string only. */
+        local = e->id[0] ? assetCatalogResolve(e->id) : NULL;
+        if (local) {
             sysLogPrintf(LOG_NOTE,
                          "MANIFEST: [%2d] %-9s id='%s' — OK",
                          i, type_name, e->id);
             continue;
         }
 
-        /* Not found.  Non-component ids in non-base namespaces are treated as
-         * missing (mod content not present/registered locally). */
-        if (e->type != MANIFEST_TYPE_COMPONENT) {
-            const char *colon = strchr(e->id, ':');
-            const s32 non_base_namespace = (colon && strncmp(e->id, "base:", 5) != 0);
-
-            if (non_base_namespace) {
-                sysLogPrintf(LOG_WARNING,
-                             "MANIFEST: [%2d] %-9s id='%s' — unresolved non-base namespace, marking MISSING",
-                             i, type_name, e->id);
-                strncpy(missing_ids[num_missing], e->id, CATALOG_ID_LEN - 1);
-                missing_ids[num_missing][CATALOG_ID_LEN - 1] = '\0';
-                num_missing++;
-                continue;
-            }
-
-            sysLogPrintf(LOG_NOTE,
-                         "MANIFEST: [%2d] %-9s id='%s' — not in catalog, assumed base game",
+        /* Non-base typed assets are missing; base IDs remain locally
+         * reproducible from the extracted catalog. */
+        const char *colon = strchr(e->id, ':');
+        const s32 non_base_namespace =
+            (colon && strncmp(e->id, "base:", 5) != 0);
+        if (non_base_namespace) {
+            sysLogPrintf(LOG_WARNING,
+                         "MANIFEST: [%2d] %-9s id='%s' — unresolved non-base namespace, marking MISSING",
                          i, type_name, e->id);
+            strncpy(missing_ids[num_missing], e->id, CATALOG_ID_LEN - 1);
+            missing_ids[num_missing][CATALOG_ID_LEN - 1] = '\0';
+            num_missing++;
             continue;
         }
-
-        /* Mod component — must be present.  Report as missing. */
-        sysLogPrintf(LOG_WARNING,
-                     "MANIFEST: [%2d] COMPONENT  id='%s' — MISSING",
-                     i, e->id);
-        strncpy(missing_ids[num_missing], e->id, CATALOG_ID_LEN - 1);
-        missing_ids[num_missing][CATALOG_ID_LEN - 1] = '\0';
-        num_missing++;
+        sysLogPrintf(LOG_NOTE,
+                     "MANIFEST: [%2d] %-9s id='%s' — not in catalog, assumed base game",
+                     i, type_name, e->id);
     }
 
     status = (num_missing == 0) ? MANIFEST_STATUS_READY

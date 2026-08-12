@@ -26,6 +26,8 @@
   retaining creator settings the game would not use.
 - Kept received mod files transactional through catalog admission, restoring
   the prior installed content when a typed asset is rejected after extraction.
+- Kept live typed-effect replacement transactional across catalog invalidation,
+  filesystem rollback, pending-owner reload, and manifest component checks.
 - Added fail-closed typed scheduling for every accepted public v1 effect node,
   rejecting incomplete schedules or missing handlers before partial execution.
 - Made asset disable and catalog reset transactional across every typed family,

@@ -131,6 +131,10 @@ static distrib_recv_slot_t s_RecvSlots[RECV_SLOTS];
 
 /* Client-visible status */
 static distrib_client_status_t s_ClientStatus;
+/* Smoke ingress drives the real receive/extract/register transaction without
+ * a remote peer. Only the final manifest protocol acknowledgement is skipped;
+ * every filesystem/catalog/runtime mutation remains production code. */
+static s32 s_SmokeReceiveActive;
 
 /* Kill feed ring buffer */
 static killfeed_entry_t s_KillFeed[KILLFEED_MAX_ENTRIES];
@@ -2709,7 +2713,7 @@ void netDistribClientHandleEnd(const char *catalog_id, u8 success)
         /* Typed archives are transferred intact, including their nested
          * dependency closure. Scan them before the loose-INI compatibility
          * path so temporary lobby installs hot-register nested media too. */
-        s32 registered = assetCatalogScanExternalLayoutFolder(
+        s32 registered = assetCatalogScanExternalLayoutFolderDeferred(
             slot->category, destdir);
 		if (registered > 0) {
 			distribMarkRegisteredTree(destdir, slot->temporary);
@@ -2828,9 +2832,23 @@ void netDistribClientHandleEnd(const char *catalog_id, u8 success)
             }
         }
 
-        if (!registered) {
+        sysLogPrintf(LOG_NOTE,
+            "DISTRIB.CATALOG.ADMISSION: id=%s scanner_result=%d",
+            slot->id, registered);
+
+        /* A negative scanner result means at least one recognized typed source
+         * rejected after another candidate may already have been inspected.
+         * Only a strictly positive result admits the published filesystem tree;
+         * zero (nothing recognized) and negative (recognized rejection) both
+         * roll the PDCA transaction back before pending roots are retried. */
+        if (registered <= 0) {
             sysLogPrintf(LOG_WARNING, "DISTRIB: no recognized INI for '%s' -- catalog entry skipped", slot->id);
-            if (!pdcaExtractTransactionRollback(&install_transaction)) {
+            s32 rollback_result =
+                pdcaExtractTransactionRollback(&install_transaction);
+            sysLogPrintf(LOG_WARNING,
+                "DISTRIB.CATALOG.ROLLBACK: id=%s result=%d active=%d",
+                slot->id, rollback_result, install_transaction.active);
+            if (!rollback_result) {
                 sysLogPrintf(LOG_ERROR,
                     "DISTRIB: catalog rejection rollback failed for '%s'; recovery required at %s",
                     slot->id, destdir);
@@ -2838,6 +2856,25 @@ void netDistribClientHandleEnd(const char *catalog_id, u8 success)
                 sysLogPrintf(LOG_NOTE,
                     "DISTRIB: catalog rejected '%s'; received install rolled back with prior destination preserved",
                     slot->id);
+                /* B-1027: the scanner restores the prior catalog row before
+                 * this filesystem transaction can restore its source bytes.
+                 * A same-destination replacement can therefore leave exact
+                 * active roots pending after the scanner's early reload saw
+                 * the rejected candidate. Retry only after rollback has made
+                 * the prior public source authoritative on disk again. */
+                s32 reload_result = catalogReloadInvalidatedTypedAssets();
+                sysLogPrintf(LOG_WARNING,
+                    "DISTRIB.CATALOG.RELOAD: id=%s result=%d",
+                    slot->id, reload_result);
+                if (reload_result) {
+                    sysLogPrintf(LOG_NOTE,
+                        "DISTRIB: restored pending catalog roots after rollback for '%s'",
+                        slot->id);
+                } else {
+                    sysLogPrintf(LOG_ERROR,
+                        "DISTRIB: prior destination restored but catalog roots remain pending for '%s'",
+                        slot->id);
+                }
             }
         } else {
             /* Hot registration happens after the boot-time reverse indexes.
@@ -2900,7 +2937,12 @@ done:
             /* Phase D→E bridge: re-check manifest now that transfers are done.
              * This sends CLC_MANIFEST_STATUS(READY) to the server so the
              * ready gate can count this client. */
-            manifestCheck(&g_ClientManifest);
+            if (s_SmokeReceiveActive) {
+                sysLogPrintf(LOG_NOTE,
+                    "DISTRIB.SMOKE: transfer complete; peer manifest acknowledgement suppressed");
+            } else {
+                manifestCheck(&g_ClientManifest);
+            }
         }
     }
 }
@@ -2927,6 +2969,7 @@ s32 netDistribDebugReceivePdcaListForSmoke(const char *list_path)
     text[list_size] = '\0';
     sysMemFree(list);
     netDistribInit();
+    s_SmokeReceiveActive = 1;
 
     char *line = text;
     while (line && *line) {
@@ -2980,6 +3023,7 @@ s32 netDistribDebugReceivePdcaListForSmoke(const char *list_path)
         }
         line = next;
     }
+    s_SmokeReceiveActive = 0;
     free(text);
     return delivered;
 }

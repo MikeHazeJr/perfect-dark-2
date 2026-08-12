@@ -371,7 +371,10 @@ void sysMemFree(void *ptr)
 
 asset_entry_t *assetCatalogGetMutable(const char *id)
 {
-    (void)id;
+    if (s_TestResolvedAsset && id &&
+            strcmp(s_TestResolvedAsset->id, id) == 0) {
+        return (asset_entry_t *)s_TestResolvedAsset;
+    }
     return NULL;
 }
 

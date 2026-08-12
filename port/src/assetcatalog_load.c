@@ -2421,7 +2421,8 @@ s32 catalogPrepareTypedAssetReplacement(asset_type_e replacement_type,
     if (!prior) return 1;
     prior_type = prior->type;
     if (!catalogCanDeactivateTypedAsset(prior_type, asset_id)
-            || !catalogInvalidateTypedAssetDependents(asset_id)) {
+            || !catalogActivationLedgerInvalidateReplacementRoots(asset_id,
+                s_catalogLedgerContains, s_catalogLedgerRetire, NULL)) {
         return 0;
     }
     if (!catalogDeactivateTypedAssetForReset(prior_type, asset_id)) return 0;

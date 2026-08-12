@@ -39,6 +39,7 @@ void sparksResetCustomTypes(void);
 s32 sparksCustomTypeCount(void);
 s32 sparksTypeColors(s32 typenum, u32 *color1, u32 *color2);
 s32 sparksTypeClonesRowExceptColors(s32 typenum, s32 base_typenum);
+void testStubAssetCatalogResolveWith(const asset_entry_t *entry);
 }
 
 /* Mirror of SPARKTYPE_BASE_COUNT (game/sparks.h); the static pin below
@@ -572,6 +573,108 @@ TEST_CASE("effect archives register through descriptor and nested weapon walks",
 	weaponGraphRuntimeSetEnabled(0);
 	weaponGraphRuntimeClearAll();
 	effectRuntimeTestReset();
+}
+
+TEST_CASE("nested weapon reload uses the active catalog-selected effect source",
+		"[modding][pdxxx][effect_graph][b1027]") {
+	effectRuntimeTestReset();
+	char err[256] = {};
+
+	const std::string effectIni =
+		"[effect]\n"
+		"catalog_id = modx:replace_fx\n"
+		"name = Replace Effect\n"
+		"effect_key = explosion\n"
+		"target_key = world\n"
+		"effect_file = effect.graph.json\n"
+		"intensity = 1.0\n";
+	const std::string baselineGraph = pinkEffectGraph("modx:replace_fx");
+	std::string selectedGraph = baselineGraph;
+	const std::string pink = "1.0, 0.5, 0.85, 1.0";
+	const size_t tint = selectedGraph.find(pink);
+	REQUIRE(tint != std::string::npos);
+	selectedGraph.replace(tint, pink.size(), "0.0, 1.0, 1.0, 1.0");
+
+	auto baselineEffect = writeTypedArchiveEntries("effect-replace-baseline",
+		".pdeffect", {
+			{ "effect.ini", effectIni },
+			{ "effect.graph.json", baselineGraph },
+		});
+	auto selectedEffect = writeTypedArchiveEntries("effect-replace-selected",
+		".pdeffect", {
+			{ "effect.ini", effectIni },
+			{ "effect.graph.json", selectedGraph },
+		});
+	const std::string baselineBytes = readFile(baselineEffect.path.string().c_str());
+	const std::string selectedBytes = readFile(selectedEffect.path.string().c_str());
+
+	asset_entry_t catalogEntry = {};
+	std::strcpy(catalogEntry.id, "modx:replace_fx");
+	catalogEntry.type = ASSET_EFFECT;
+	catalogEntry.enabled = 1;
+	catalogEntry.load_state = ASSET_STATE_ACTIVE;
+	testStubAssetCatalogResolveWith(&catalogEntry);
+	REQUIRE(effectGraphRuntimeRegisterArchiveBytes(selectedBytes.data(),
+		static_cast<u32>(selectedBytes.size()), err, sizeof(err)) == 0);
+	const std::string selectedDigest =
+		effectGraphRuntimeGet("modx:replace_fx")->source_sha256;
+
+	const std::string projectileGraph =
+		"{\"schema\":\"pd.projectile_graph.v1\","
+		"\"asset_id\":\"modx:replace_projectile\",\"graph_id\":\"projectile\","
+		"\"nodes\":[{\"id\":\"m\",\"kind\":\"projectile.motion\","
+		"\"params\":{\"motion_kind\":\"powered\",\"speed\":22.0}},"
+		"{\"id\":\"i\",\"kind\":\"projectile.impact\",\"params\":{"
+		"\"explosion_ref\":\"modx:replace_fx\",\"consume_on_hit\":true}}],"
+		"\"edges\":[{\"from\":\"m\",\"to\":\"i\"}],\"exports\":[]}";
+	auto projectile = writeTypedArchiveEntries("projectile-replace", ".pdprojectile", {
+		{ "projectile.ini",
+		  "[projectile]\n"
+		  "catalog_id = modx:replace_projectile\n"
+		  "behavior_graph = behavior.graph.json\n" },
+		{ "behavior.graph.json", projectileGraph },
+		{ "dependencies/assets/effects/replace.pdeffect", baselineBytes },
+	});
+	const std::string projectileBytes = readFile(projectile.path.string().c_str());
+	const std::string weaponGraph =
+		"{\"schema\":\"pd.weapon_graph.v1\",\"asset_id\":\"modx:replace_weapon\","
+		"\"graph_id\":\"held\",\"nodes\":[{\"id\":\"p\","
+		"\"kind\":\"fire.hitscan\",\"params\":{\"mode\":\"primary\"}}],"
+		"\"edges\":[],\"exports\":[{\"name\":\"primary\",\"node\":\"p\"}]}";
+	auto weapon = writeTypedArchiveEntries("weapon-replace", ".pdweapon", {
+		{ "weapon.ini",
+		  "[weapon]\n"
+		  "catalog_id = modx:replace_weapon\n"
+		  "behavior_graph = behavior.graph.json\n" },
+		{ "behavior.graph.json", weaponGraph },
+		{ "dependencies/assets/projectiles/replace.pdprojectile", projectileBytes },
+	});
+
+	INFO(err);
+	REQUIRE(weaponGraphRuntimeRegisterWeaponArchive(80,
+		weapon.path.string().c_str(), err, sizeof(err)) == 0);
+	const effect_graph_runtime_t *selected =
+		effectGraphRuntimeGet("modx:replace_fx");
+	REQUIRE(selected != nullptr);
+	REQUIRE(std::string(selected->source_sha256) == selectedDigest);
+	REQUIRE(selected->owner_count == 1);
+	REQUIRE(std::string(selected->owners[0]) == "modx:replace_fx");
+
+	/* A catalog row never authorizes an unrelated owner to masquerade as the
+	 * selected source. This remains a loud parent-admission failure. */
+	effectRuntimeTestReset();
+	catalogEntry.load_state = ASSET_STATE_ACTIVE;
+	REQUIRE(effectGraphRuntimeRegisterArchiveBytesOwned(selectedBytes.data(),
+		static_cast<u32>(selectedBytes.size()), "modx:foreign_owner", err,
+		sizeof(err)) == 0);
+	err[0] = '\0';
+	REQUIRE(weaponGraphRuntimeRegisterWeaponArchive(80,
+		weapon.path.string().c_str(), err, sizeof(err)) != 0);
+	REQUIRE(std::string(err).find("not owned by its selected catalog row") !=
+		std::string::npos);
+
+	effectRuntimeTestReset();
+	testStubAssetCatalogResolveWith(nullptr);
 }
 
 TEST_CASE("effect_key is wired as catalog classification on local and network ingestion",

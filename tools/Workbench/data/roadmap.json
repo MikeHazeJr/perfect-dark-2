@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "project": "Perfect Dark 2",
-  "updated": "2026-08-11T12:50:51.803Z",
+  "updated": "2026-08-11T14:40:07.964Z",
   "items": [
     {
       "type": "task",
@@ -4280,9 +4280,17 @@
         "Pink 1.000,0.400,0.800,1.000 vs cyan 0.000,1.000,1.000,1.000 remained exact across authored/effective/render RGBA",
         "V-009 A/B automated PASS: client/updater/tests builds; focused 24/1; full 54,876/987; guard; conformance",
         "V-009 A/B final fingerprint 94a0167de847d7e43b43cbde907acd27e489b8829eabc41b3951d677fd109a2e",
-        "context/evidence/2026-08-11-v009-needler-effect-ab.md"
+        "context/evidence/2026-08-11-v009-needler-effect-ab.md",
+        "context/bugs.md:B-1027",
+        "B-1027",
+        "B-1028",
+        "B-1029",
+        ".claude/smoke-verify-runs/results-20260811T143756Z.json: installed-client live replacement/rollback PASS 29/29, exit 0",
+        "B-1027 focused PASS 77 assertions / 6 cases; broad modding/pdxxx PASS 18,614 / 241",
+        "Complete pd-tests PASS 54,972 assertions / 996 cases; native-source guard; conformance selftest; 28 root / 52 recursive / all 27 families",
+        "B-1027/B-1028/B-1029 final fingerprint 3e57c9c1bb3b14d5faa9b11e00223074e4c928026c98e9032a95454f0e44a7b6"
       ],
-      "detail": "Partial production proof now includes ordinary gameplay/audio/presentation, preserved-install restart, production Mod Manager disable/re-enable, and an authoritative edited-value source-to-render A/B. Separately generated public pink and cyan Needler .pdeffect variants each pass 46/46 through the same normal secondary projectile collision and production GBI renderer; exact authored/effective/render RGBA changes from 1.000,0.400,0.800,1.000 to 0.000,1.000,1.000,1.000. Final automation passes 54,876/987 plus guard/conformance under fingerprint 94a0167d. All six frames remain washed out, so V-009 stays partial for a readable pixel-level visual comparison, live replacement/rollback, reacquiring/releasing a second active owner in one process, and real-peer/network distribution.",
+      "detail": "Partial production proof now includes ordinary gameplay/audio/presentation, preserved-install restart, production Mod Manager disable/re-enable, authoritative edited-value source-to-render A/B, and same-process live replacement rollback. The installed-client replacement gate passes 29/29: baseline pink renders twice, valid same-ID cyan replacement renders twice, invalid same-slot typed source rejects with scanner=-1, PDCA rollback and pending-root reload both return 1, and the next ordinary projectile renders restored cyan twice with no rejected SFX lookup. B-1027/B-1028/B-1029 are fixed and verified under complete automation 54,972/996 plus native-source guard and 27-family conformance. V-009 remains partial because captured frames are washed out for readable pixel-level comparison, a second overlapping active owner is not reacquired/released in one process, and real-peer/network distribution proof remains open.",
       "tags": [
         "asset-family:pdeffect",
         "edited-source",
@@ -4320,12 +4328,13 @@
         ".claude/smoke-verify-runs/screenshots/20260811T084402-cyan",
         "context/evidence/2026-08-11-v009-needler-effect-ab.md",
         "context/evidence/v009-needler-ab-baseline-result-20260811T124400Z.json",
-        "context/evidence/v009-needler-ab-cyan-result-20260811T124601Z.json"
+        "context/evidence/v009-needler-ab-cyan-result-20260811T124601Z.json",
+        ".claude/smoke-verify-runs/results-20260811T143756Z.json"
       ],
       "budget": null,
       "measurements": [],
       "id": "V-009",
-      "updated": "2026-08-11T12:50:51.783Z",
+      "updated": "2026-08-11T14:40:07.964Z",
       "created": "2026-08-08T23:50:40.511Z"
     },
     {

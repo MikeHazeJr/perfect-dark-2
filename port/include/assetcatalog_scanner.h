@@ -133,6 +133,12 @@ s32 assetCatalogScanComponents(const char *modsdir);
  */
 s32 assetCatalogScanExternalLayoutFolder(const char *mod_id, const char *mod_dir);
 
+/* Network receive publishes a filesystem transaction before catalog admission.
+ * This variant restores rejected catalog metadata but defers active-root reload
+ * until the caller has committed or rolled back the published source bytes. */
+s32 assetCatalogScanExternalLayoutFolderDeferred(const char *mod_id,
+	const char *mod_dir);
+
 /**
  * Scan component descriptors that live inside a mounted/readable .pdmod archive.
  *

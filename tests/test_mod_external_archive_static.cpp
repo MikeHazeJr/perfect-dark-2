@@ -9355,7 +9355,7 @@ TEST_CASE("nested weapon distribution ships parent archive and rebuilds hot inde
 	const std::string walker = readFile("port/src/loader_walker_weapon.c");
 	REQUIRE(distrib.find("buildTypedArchiveComponent(entry, typed_archive") !=
 		std::string::npos);
-	REQUIRE(distrib.find("assetCatalogScanExternalLayoutFolder(") !=
+	REQUIRE(distrib.find("assetCatalogScanExternalLayoutFolderDeferred(") !=
 		std::string::npos);
 	REQUIRE(distrib.find("catalogLoadInit();") != std::string::npos);
 	REQUIRE(netmsg.find("strstr(e->dirpath, \"::\") != NULL") !=
@@ -9510,7 +9510,7 @@ TEST_CASE("pdtheme nested roles register fail closed across every transport",
 	REQUIRE(walker.find("s_applyThemePublicDescriptor") != std::string::npos);
 	REQUIRE(walker.find("assetCatalogRegisterThemeNestedDependencies(id, file_path") !=
 		std::string::npos);
-	REQUIRE(distrib.find("assetCatalogScanExternalLayoutFolder(") !=
+	REQUIRE(distrib.find("assetCatalogScanExternalLayoutFolderDeferred(") !=
 		std::string::npos);
 	REQUIRE(scanner.find("typed_archive_entry && ini_type == ASSET_THEME") !=
 		std::string::npos);

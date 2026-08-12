@@ -4104,6 +4104,60 @@ static s32 effectSameNamespace(const char *a, const char *b)
 	return alen == blen && strncmp(a, b, alen) == 0;
 }
 
+/* A typed child selected by the catalog is authoritative over the parent's
+ * self-contained copy. The dependency activation plan loads children before
+ * their parent, so an enabled ACTIVE row must already own the live runtime
+ * record under its own catalog ID. This lets a received/local replacement
+ * override the embedded baseline without weakening fail-closed admission: a
+ * disabled, wrong-type, inactive, or foreign-owned row is never bypassed by
+ * silently compiling the parent's older bytes. No row means this is a direct
+ * self-contained archive load, where the embedded source remains authoritative. */
+static s32 s_useSelectedCatalogEffect(const char *effect_id,
+		const char *parent_id, char *err, size_t err_cap)
+{
+	asset_entry_t *entry;
+	const effect_graph_runtime_t *runtime;
+
+	if (!effect_id || !effect_id[0]) return 0;
+	entry = assetCatalogGetMutable(effect_id);
+	if (!entry) return 0;
+	if (entry->type != ASSET_EFFECT) {
+		setErr(err, err_cap, "embedded effect %s resolves to catalog type %d",
+			effect_id, (s32)entry->type);
+		return -1;
+	}
+	if (!entry->enabled) {
+		setErr(err, err_cap, "embedded effect %s is disabled in the catalog",
+			effect_id);
+		return -1;
+	}
+	if (entry->load_state < ASSET_STATE_ACTIVE) {
+		setErr(err, err_cap,
+			"embedded effect %s catalog source is not active before parent %s",
+			effect_id, parent_id ? parent_id : "(unknown)");
+		return -1;
+	}
+	runtime = effectGraphRuntimeGet(effect_id);
+	if (!runtime) {
+		setErr(err, err_cap,
+			"embedded effect %s catalog source has no active runtime record",
+			effect_id);
+		return -1;
+	}
+	for (size_t i = 0; i < runtime->owner_count; i++) {
+		if (strcmp(runtime->owners[i], effect_id) == 0) {
+			sysLogPrintf(LOG_NOTE,
+				"WEAPONGRAPH.EFFECT.CATALOG_SELECTED: id=%s parent=%s",
+				effect_id, parent_id ? parent_id : "(unknown)");
+			return 1;
+		}
+	}
+	setErr(err, err_cap,
+		"embedded effect %s runtime is not owned by its selected catalog row",
+		effect_id);
+	return -1;
+}
+
 static s32 s_registerEmbeddedEffectDeps(const void *container_bytes,
 		u32 container_size, const char *parent_id, char *err, size_t err_cap)
 {
@@ -4160,8 +4214,11 @@ static s32 s_registerEmbeddedEffectDeps(const void *container_bytes,
 		}
 
 		effect_err[0] = '\0';
-		if (effectGraphRuntimeRegisterArchiveBytesOwned(effect_bytes, effect_size,
-				parent_id, effect_err, sizeof(effect_err)) != 0) {
+		s32 selected = s_useSelectedCatalogEffect(desc.catalog_id, parent_id,
+			effect_err, sizeof(effect_err));
+		if (selected < 0 || (selected == 0 &&
+				effectGraphRuntimeRegisterArchiveBytesOwned(effect_bytes, effect_size,
+				parent_id, effect_err, sizeof(effect_err)) != 0)) {
 			free(effect_bytes);
 			sysLogPrintf(LOG_WARNING,
 				"WEAPONGRAPH.EFFECT.SCAN: embedded effect %s failed to register: %s",
@@ -4314,8 +4371,11 @@ static s32 weaponGraphRuntimeRegisterWeaponArchiveDependencies(
 		/* A top-level nested .pdeffect is a typed payload like projectile/entity
 		 * and registers into the parent-owned effect transaction. */
 		if (payload->type == ASSET_EFFECT) {
-			if (effectGraphRuntimeRegisterArchiveBytesOwned(nested, nested_size,
-					parent_id, err, err_cap) != 0) {
+			s32 selected = s_useSelectedCatalogEffect(payload->catalog_id,
+				parent_id, err, err_cap);
+			if (selected < 0 || (selected == 0 &&
+					effectGraphRuntimeRegisterArchiveBytesOwned(nested, nested_size,
+					parent_id, err, err_cap) != 0)) {
 				free(nested);
 				goto fail;
 			}

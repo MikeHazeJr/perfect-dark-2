@@ -125,14 +125,15 @@ void catalogActivationLedgerForget(const char *root_id)
 }
 
 static s32 preflightInvalidation(const char *dependency_id,
-	catalog_activation_contains_fn contains_fn, void *userdata,
+	s32 include_root, catalog_activation_contains_fn contains_fn, void *userdata,
 	u8 *affected, size_t *out_affected_count)
 {
 	size_t affected_count = 0;
 	if (!dependency_id || !dependency_id[0] || !contains_fn || !affected) return 0;
 	for (size_t i = 0; i < s_active.count; i++) {
 		s32 contains = 0;
-		if (strcmp(s_active.items[i].id, dependency_id) == 0) continue;
+		if (!include_root
+				&& strcmp(s_active.items[i].id, dependency_id) == 0) continue;
 		if (!contains_fn(&s_active.items[i], dependency_id, &contains, userdata)) {
 			return 0;
 		}
@@ -150,13 +151,13 @@ s32 catalogActivationLedgerCanInvalidateDependents(const char *dependency_id,
 {
 	u8 *affected = (u8 *)calloc(s_active.count ? s_active.count : 1, 1);
 	if (!affected) return 0;
-	s32 result = preflightInvalidation(dependency_id, contains_fn, userdata,
+	s32 result = preflightInvalidation(dependency_id, 0, contains_fn, userdata,
 		affected, NULL);
 	free(affected);
 	return result;
 }
 
-s32 catalogActivationLedgerInvalidateDependents(const char *dependency_id,
+static s32 invalidateRoots(const char *dependency_id, s32 include_root,
 	catalog_activation_contains_fn contains_fn,
 	catalog_activation_retire_fn retire_fn, void *userdata)
 {
@@ -166,7 +167,7 @@ s32 catalogActivationLedgerInvalidateDependents(const char *dependency_id,
 	if (!affected) return 0;
 
 	/* Complete preflight. A stale type or cycle aborts before one owner moves. */
-	if (!preflightInvalidation(dependency_id, contains_fn, userdata,
+	if (!preflightInvalidation(dependency_id, include_root, contains_fn, userdata,
 			affected, NULL)) {
 		free(affected);
 		return 0;
@@ -186,6 +187,34 @@ s32 catalogActivationLedgerInvalidateDependents(const char *dependency_id,
 	}
 	free(affected);
 	return 1;
+}
+
+s32 catalogActivationLedgerInvalidateDependents(const char *dependency_id,
+	catalog_activation_contains_fn contains_fn,
+	catalog_activation_retire_fn retire_fn, void *userdata)
+{
+	return invalidateRoots(dependency_id, 0, contains_fn, retire_fn, userdata);
+}
+
+s32 catalogActivationLedgerInvalidateReplacementRoots(const char *dependency_id,
+	catalog_activation_contains_fn contains_fn,
+	catalog_activation_retire_fn retire_fn, void *userdata)
+{
+	return invalidateRoots(dependency_id, 1, contains_fn, retire_fn, userdata);
+}
+
+void catalogActivationLedgerRestoreRetiredSnapshot(asset_entry_t *entry,
+	const asset_entry_t *snapshot)
+{
+	if (!entry || !snapshot) return;
+	*entry = *snapshot;
+	entry->load_state = entry->enabled
+		? ASSET_STATE_ENABLED : ASSET_STATE_REGISTERED;
+	entry->loaded_data = NULL;
+	entry->data_size_bytes = 0;
+	entry->payload_kind = ASSET_PAYLOAD_NONE;
+	entry->ref_count = 0;
+	entry->stage_ref_count = 0;
 }
 
 s32 catalogActivationLedgerReloadPending(
