@@ -22,6 +22,8 @@ extern "C" {
  *   - key     : SDL_KEYDOWN / KEYUP
  *   - action  : actionmap press/release injected directly (focus-independent)
  *   - mouse   : SDL_MOUSEBUTTONDOWN / UP at {x, y}
+ *   - catalog_weapon_acquire / catalog_weapon_release: smoke-only calls into
+ *                the production typed weapon lifecycle for owner-balance receipts
  *
  * Design ref: context/designs/engine/smoke-verify-gate.md.
  *

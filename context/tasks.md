@@ -74,9 +74,16 @@ without resolving the rejected SFX. B-1027/B-1028/B-1029 are fixed; complete
 verification passes 54,972/996, guard, selftest, 28-root/52-recursive
 all-family conformance, diff check, and fingerprint
 `3e57c9c1bb3b14d5faa9b11e00223074e4c928026c98e9032a95454f0e44a7b6`.
-Validation remains partial for reacquiring/releasing a second active owner
-inside one process, real-peer distribution, and a readable pixel-level visual
-comparison. The source-to-render half of the A/B
+Validation now also proves overlapping ownership in one ordinary client.
+The smoke acquires a second explicit weapon root, releases it while the Mod
+Manager owner remains, and records weapon/effect/SFX `2->1` retention before
+real checkbox/Apply input disables the package and frees all three at `1->0`.
+The final receipt passes 40/40 and exits 0 without ImGui/style-stack errors;
+B-1030 fixes the mutable-condition Push/Pop imbalance exposed by the first
+otherwise-successful run. Complete verification passes 54,992/998, guard,
+selftest, 28-root/52-recursive all-family conformance, and diff check.
+Validation remains partial only for real-peer distribution and a readable
+pixel-level visual comparison. The source-to-render half of the A/B
 gate is now authoritative: separately generated public pink and cyan
 `.pdeffect` variants each pass 46/46 through normal secondary projectile
 collision, audio, presentation, and renderer consumption. The renderer reports

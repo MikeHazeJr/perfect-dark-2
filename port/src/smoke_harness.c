@@ -75,6 +75,12 @@
  *        BEGIN/CHUNK/END receive handlers at a deterministic live point.
  *        The event exists only while the smoke harness is active.
  *
+ *   { "at_ms": N, "type": "catalog_weapon_acquire", "path": "mod:id" }
+ *   { "at_ms": N, "type": "catalog_weapon_release", "path": "mod:id" }
+ *     -- acquire or release one explicit owner through the production typed
+ *        weapon lifecycle. These smoke-only events make overlapping-owner
+ *        balance observable without replacing the lifecycle implementation.
+ *
  *   Both `action` and `mouse` events use the same tap-release sweep
  *   path that the existing key-tap events use, so they share the
  *   one-frame auto-release timing (SMOKE_TAP_RELEASE_MS).
@@ -92,6 +98,8 @@
 #include "smoke_harness.h"
 #include "system.h"
 #include "actionmap.h"   /* actionmapResolveByName, actionmapInjectStateForSmoke */
+#include "assetcatalog.h"
+#include "assetcatalog_load.h"
 #include "net/netdistrib.h"
 
 /* c115 (2026-05-14): need gfxGetSdlWindow to stamp the correct windowID
@@ -131,6 +139,8 @@ typedef enum {
     SMOKE_EVENT_MOUSE_MOVE,
     SMOKE_EVENT_MOUSE_WHEEL,
     SMOKE_EVENT_RECEIVE_PDCA_LIST,
+    SMOKE_EVENT_CATALOG_WEAPON_ACQUIRE,
+    SMOKE_EVENT_CATALOG_WEAPON_RELEASE,
     SMOKE_EVENT_SCREENSHOT,         /* in-game glReadPixels grab -> path */
     SMOKE_EVENT_EXIT
 } SmokeEventType;
@@ -564,6 +574,21 @@ static s32 smokeParseEvent(JParse *p, SmokeEvent *ev)
             return 0;
         }
         ev->type = SMOKE_EVENT_RECEIVE_PDCA_LIST;
+        return 1;
+    }
+    if (!strcmp(type_str, "catalog_weapon_acquire")
+            || !strcmp(type_str, "catalog_weapon_release")) {
+        if (!ev->path[0]) {
+            sysLogPrintf(LOG_ERROR,
+                "SMOKE: %s event missing 'path' (at_ms=%d)",
+                type_str, ev->at_ms);
+            return 0;
+        }
+        if (!strcmp(type_str, "catalog_weapon_acquire")) {
+            ev->type = SMOKE_EVENT_CATALOG_WEAPON_ACQUIRE;
+        } else {
+            ev->type = SMOKE_EVENT_CATALOG_WEAPON_RELEASE;
+        }
         return 1;
     }
     if (!strcmp(type_str, "key")) {
@@ -1160,6 +1185,28 @@ void smokeHarnessTick(void)
             sysLogPrintf(delivered > 0 ? LOG_NOTE : LOG_WARNING,
                 "SMOKE: receive_pdca_list path='%s' delivered=%d at_ms=%d",
                 ev->path, delivered, ev->at_ms);
+            break;
+        }
+        case SMOKE_EVENT_CATALOG_WEAPON_ACQUIRE:
+        case SMOKE_EVENT_CATALOG_WEAPON_RELEASE:
+        {
+            const s32 acquire = ev->type == SMOKE_EVENT_CATALOG_WEAPON_ACQUIRE;
+            const asset_entry_t *entry = assetCatalogResolve(ev->path);
+            s32 result = entry && entry->type == ASSET_WEAPON;
+
+            if (acquire) {
+                result = catalogLoadTypedAsset(ASSET_WEAPON, ev->path);
+            } else if (result) {
+                catalogReleaseTypedAsset(ASSET_WEAPON, ev->path);
+            }
+            entry = assetCatalogResolve(ev->path);
+            sysLogPrintf(result ? LOG_NOTE : LOG_WARNING,
+                "SMOKE: catalog_weapon_owner op=%s id='%s' result=%d state=%d ref=%d payload=%d at_ms=%d",
+                acquire ? "acquire" : "release", ev->path, result,
+                entry ? (s32)entry->load_state : -1,
+                entry ? entry->ref_count : -1,
+                entry ? (s32)entry->payload_kind : -1,
+                ev->at_ms);
             break;
         }
         case SMOKE_EVENT_SCREENSHOT:

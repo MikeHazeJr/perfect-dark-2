@@ -300,6 +300,26 @@ TEST_CASE("menu action helpers replace cheats and modding panel polling", "[inpu
     }
 }
 
+TEST_CASE("Mod Manager apply modal balances its success color across state transitions",
+    "[menus][modding][b1030][static]")
+{
+    const std::string source = readTextFile("port/fast3d/pdgui_menu_modmgr.cpp");
+    const std::string body = functionBlock(source, "renderModManagerBody");
+
+    REQUIRE_FALSE(body.empty());
+    REQUIRE(body.find("const bool pushedApplySuccessBg = s_ApplyFlowState >= 3;")
+        != std::string::npos);
+    REQUIRE(body.find("if (pushedApplySuccessBg) {\n"
+                      "            ImGui::PushStyleColor(ImGuiCol_WindowBg")
+        != std::string::npos);
+    REQUIRE(body.find("if (pushedApplySuccessBg) {\n"
+                      "            ImGui::PopStyleColor();")
+        != std::string::npos);
+    REQUIRE(body.find("if (s_ApplyFlowState >= 3) {\n"
+                      "            ImGui::PopStyleColor();")
+        == std::string::npos);
+}
+
 TEST_CASE("menu action helpers replace training menu polling", "[input][menu_action][static]")
 {
     const std::string source = readTextFile("port/fast3d/pdgui_menu_training.cpp");

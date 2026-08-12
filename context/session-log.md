@@ -1,5 +1,25 @@
 # Session Log (Active)
 
+## 2026-08-11 - V-009 overlapping owner lifecycle and B-1030
+
+Added smoke-only weapon owner acquire/release events that call the production
+typed lifecycle without replacing its behavior. The menu-safe installed-client
+scenario starts with the Mod Manager's active Needler root, acquires a second
+weapon owner, releases it, then uses real SDL checkbox/Apply input to disable
+the remaining owner. The final receipt passes 40/40 and exits 0: weapon,
+effect, and SFX each retain `2->1` after the explicit release and free `1->0`
+after production disable.
+
+The first otherwise-green owner run exposed B-1030: the Apply modal pushed a
+success color from one `s_ApplyFlowState` value and popped after the value had
+mutated. The modal now snapshots the push decision and balances that exact
+scope; no sibling production pattern was found. Focused owner and B-1030 tests
+pass 15/1 and 5/1. Isolated client/updater/tests builds pass, the complete suite
+passes 54,992 assertions/998 cases, and native-source guard, scanner selftest,
+28-root/52-recursive all-27-family conformance, and diff check pass. Evidence:
+`context/evidence/2026-08-11-v009-overlapping-owner-lifecycle.md`. V-009 remains
+partial only for readable pixel-level visual comparison and real-peer transport.
+
 ## 2026-08-11 - V-009 live effect replacement rollback
 
 Closed B-1027, B-1028, and B-1029 across the production received-PDCA,

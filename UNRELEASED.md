@@ -28,6 +28,8 @@
   the prior installed content when a typed asset is rejected after extraction.
 - Kept live typed-effect replacement transactional across catalog invalidation,
   filesystem rollback, pending-owner reload, and manifest component checks.
+- Balanced overlapping custom-weapon/effect/sound owners through release and
+  Mod Manager disable, and fixed the Apply modal's ImGui style-stack imbalance.
 - Added fail-closed typed scheduling for every accepted public v1 effect node,
   rejecting incomplete schedules or missing handlers before partial execution.
 - Made asset disable and catalog reset transactional across every typed family,

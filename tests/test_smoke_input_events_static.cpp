@@ -101,3 +101,25 @@ TEST_CASE("smoke runner filters auxiliary pipeline output before summary",
     requireContains(runner, "$resultCandidates.Count -ne 1");
     requireContains(runner, "$results += $resultCandidates[0]");
 }
+
+TEST_CASE("smoke can prove overlapping weapon owners through production lifecycle",
+    "[catalog][weapon][effect][smoke][v009][owner][static]")
+{
+    const std::string source = readTextFile("port/src/smoke_harness.c");
+    const std::string scenario = readTextFile(
+        "tools/smoke-verify/tests/needler_effect_overlapping_owner_smoke.json");
+
+    requireContains(source, "SMOKE_EVENT_CATALOG_WEAPON_ACQUIRE");
+    requireContains(source, "SMOKE_EVENT_CATALOG_WEAPON_RELEASE");
+    requireContains(source, "!strcmp(type_str, \"catalog_weapon_acquire\")");
+    requireContains(source, "catalogLoadTypedAsset(ASSET_WEAPON, ev->path)");
+    requireContains(source, "catalogReleaseTypedAsset(ASSET_WEAPON, ev->path)");
+    requireContains(source, "SMOKE: catalog_weapon_owner op=%s id='%s' result=%d");
+    requireContains(scenario, "\"type\": \"catalog_weapon_acquire\"");
+    requireContains(scenario, "\"type\": \"catalog_weapon_release\"");
+    requireContains(scenario, "modmgr: applying changes");
+    requireContains(scenario, "PopStyleColor\\\\(\\\\) too many times");
+    requireContains(scenario, "Missing PopStyleColor");
+    requireContains(scenario, "ref=2->1 \\\\(retained\\\\)");
+    requireContains(scenario, "ref=1->0 \\\\(freed\\\\)");
+}

@@ -1,0 +1,100 @@
+{
+  "scenario_name": "needler_effect_overlapping_owner_smoke",
+  "description": "V-009 menu-safe proof that two explicit weapon owners retain the same public effect/SFX closure, releasing the smoke-owned reference preserves the boot owner, and disabling the mod through the production Mod Manager releases the final closure.",
+  "tags": ["modding", "pdmod", "pdxxx", "weapon", "effect", "catalog", "lifecycle", "owner", "mod-manager", "mouse", "v009", "smoke"],
+  "paths_of_interest": [
+    "dev-mods/needler",
+    "port/src/assetcatalog_load.c",
+    "port/src/catalog_activation_ledger.c",
+    "port/src/smoke_harness.c",
+    "port/fast3d/pdgui_modding_hub.cpp",
+    "port/src/modmgr.c"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 120,
+  "install_state": "clean",
+  "remove_paths": [
+    "mods/needler.pdmod",
+    "mods/needler",
+    "mods/installed/needler.pdmod",
+    "mods/installed/needler"
+  ],
+  "fixtures": [
+    { "src": "tools/smoke-verify/fixtures/needler_lifecycle_pd.ini", "dst": "pd.ini" },
+    { "src": "tools/smoke-verify/fixtures/needler_enabled.json", "dst": "mods-enabled.json" }
+  ],
+  "packed_fixtures": [
+    { "src": "dev-mods/needler", "dst": "mods/installed/needler.pdmod" }
+  ],
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--portable",
+    "--skip-intro",
+    "--debug-load-catalog-assets",
+    "weapon=mod_needler:needler",
+    "--launch-modding-hub"
+  ],
+  "input_sequence": [
+    { "at_ms": 0, "type": "wait", "comment": "Cold extraction, public Needler registration, and the boot-owned typed activation complete before the production Mod Manager opens." },
+    { "at_ms": 95000, "type": "catalog_weapon_acquire", "path": "mod_needler:needler", "comment": "Acquire a second explicit weapon owner after the observed cold catalog-ready and Mod Manager open markers; weapon, effect, and SFX must reach ref=2." },
+    { "at_ms": 96000, "type": "catalog_weapon_release", "path": "mod_needler:needler", "comment": "Release only the smoke-owned reference; the boot owner and complete dependency closure must remain at ref=1." },
+    { "at_ms": 97000, "type": "mouse_move", "x": 210, "y": 338 },
+    { "at_ms": 97500, "type": "mouse", "x": 210, "y": 338, "button": "left", "action": "click", "comment": "Disable Needler through the real installed-mod checkbox." },
+    { "at_ms": 100500, "type": "mouse_move", "x": 465, "y": 548 },
+    { "at_ms": 101000, "type": "mouse", "x": 465, "y": 548, "button": "left", "action": "click", "comment": "Apply the disable through production modmgrApplyChanges; this owns the final lifecycle release." },
+    { "at_ms": 108000, "type": "mouse_move", "x": 640, "y": 365 },
+    { "at_ms": 108500, "type": "mouse", "x": 640, "y": 365, "button": "left", "action": "click", "comment": "Dismiss the production Apply complete modal." },
+    { "at_ms": 115000, "type": "exit", "comment": "Exit after the final closure teardown is visible in the ordinary-client log." }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=needler_effect_overlapping_owner_smoke",
+      "BOOT: --debug-load-catalog-assets result type=weapon id='mod_needler:needler' result=OK.*ref=1",
+      "BOOT: --launch-modding-hub consumed -> production Mod Manager tool 0",
+      "MODHUB: opened on tool 0",
+      "SMOKE: catalog_weapon_owner op=acquire id='mod_needler:needler' result=1 state=\\d+ ref=2 payload=\\d+",
+      "SMOKE: catalog_weapon_owner op=release id='mod_needler:needler' result=1 state=\\d+ ref=1 payload=\\d+",
+      "MANIFEST: unload 'mod_needler:needler' ref=2->1 \\(retained\\)",
+      "MANIFEST: unload 'mod_needler:pink_burst_effect' ref=2->1 \\(retained\\)",
+      "MANIFEST: unload 'mod_needler:pink_burst_sfx' ref=2->1 \\(retained\\)",
+      "modmgr: applying changes",
+      "modmgr: apply complete -- no stage restart",
+      "MANIFEST: unload 'mod_needler:needler' ref=1->0 \\(freed\\)",
+      "MANIFEST: unload 'mod_needler:pink_burst_effect' ref=1->0 \\(freed\\)",
+      "MANIFEST: unload 'mod_needler:pink_burst_sfx' ref=1->0 \\(freed\\)",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "ACCESS_VIOLATION",
+      "FATAL: ",
+      "\\[imgui-error\\]",
+      "PopStyleColor\\(\\) too many times",
+      "Missing PopStyleColor",
+      "SMOKE: result=timeout",
+      "LOUDFAIL\\.FALLBACK",
+      "ASSET\\.FALLBACK",
+      "SMOKE: catalog_weapon_owner .* result=0",
+      "result=FAIL",
+      "result=MISSING"
+    ],
+    "required_counts": [
+      { "pattern": "SMOKE: catalog_weapon_owner op=acquire .* result=1", "min": 1, "max": 1 },
+      { "pattern": "SMOKE: catalog_weapon_owner op=release .* result=1", "min": 1, "max": 1 },
+      { "pattern": "MANIFEST: unload 'mod_needler:needler' ref=2->1 \\(retained\\)", "min": 1, "max": 1 },
+      { "pattern": "MANIFEST: unload 'mod_needler:pink_burst_effect' ref=2->1 \\(retained\\)", "min": 1, "max": 1 },
+      { "pattern": "MANIFEST: unload 'mod_needler:pink_burst_sfx' ref=2->1 \\(retained\\)", "min": 1, "max": 1 },
+      { "pattern": "MANIFEST: unload 'mod_needler:needler' ref=1->0 \\(freed\\)", "min": 1, "max": 1 },
+      { "pattern": "MANIFEST: unload 'mod_needler:pink_burst_effect' ref=1->0 \\(freed\\)", "min": 1, "max": 1 },
+      { "pattern": "MANIFEST: unload 'mod_needler:pink_burst_sfx' ref=1->0 \\(freed\\)", "min": 1, "max": 1 },
+      { "pattern": "modmgr: applying changes", "min": 1, "max": 1 },
+      { "pattern": "modmgr: apply complete -- no stage restart", "min": 1, "max": 1 },
+      { "pattern": "SMOKE: mouse tap-press btn=1 xy=\\(210,338\\)", "min": 1, "max": 1 },
+      { "pattern": "SMOKE: mouse tap-press btn=1 xy=\\(465,548\\)", "min": 1, "max": 1 },
+      { "pattern": "SMOKE: mouse tap-press btn=1 xy=\\(640,365\\)", "min": 1, "max": 1 }
+    ]
+  }
+}

@@ -1367,8 +1367,11 @@ static void renderModManagerBody(float dialogW, float dialogH, float scale, s32 
             ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse |
             ImGuiWindowFlags_NoSavedSettings;
 
-        /* Match updater UX: neutral during work, green-tinted on success (S311 theme). */
-        if (s_ApplyFlowState >= 3) {
+        /* Match updater UX: neutral during work, green-tinted on success
+         * (S311 theme). Snapshot the scope before rendering because the apply
+         * state advances (or closes) inside this window. */
+        const bool pushedApplySuccessBg = s_ApplyFlowState >= 3;
+        if (pushedApplySuccessBg) {
             ImGui::PushStyleColor(ImGuiCol_WindowBg, pdguiVec4TintSuccess(60));
         }
 
@@ -1402,7 +1405,7 @@ static void renderModManagerBody(float dialogW, float dialogH, float scale, s32 
             }
         }
         ImGui::End();
-        if (s_ApplyFlowState >= 3) {
+        if (pushedApplySuccessBg) {
             ImGui::PopStyleColor();
         }
     }
