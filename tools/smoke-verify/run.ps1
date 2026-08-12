@@ -328,6 +328,23 @@ function New-NeedlerEffectReplacementFixtures {
     }
 }
 
+function New-V006CorruptSourceFixtures {
+    [CmdletBinding()] param([Parameter(Mandatory)] [string] $InstallDir)
+
+    $generator = "devtools/generate-v006-corrupt-source-fixtures.py"
+    $relativeInstall = [System.IO.Path]::GetRelativePath(
+        $ProjectRoot, $InstallDir).Replace('\', '/')
+    Push-Location $ProjectRoot
+    try {
+        & python $generator --install-dir $relativeInstall
+        if ($LASTEXITCODE -ne 0) {
+            throw "V-006 corrupt source fixture generation failed"
+        }
+    } finally {
+        Pop-Location
+    }
+}
+
 function Stop-SmokeOwnedFaultProcesses {
     [CmdletBinding()] param([int[]] $KnownPids = @())
 
@@ -837,6 +854,10 @@ function Invoke-SmokeTestMultiProcess {
         if ($Definition.PSObject.Properties.Match('needler_effect_replacement_fixtures').Count -gt 0 `
                 -and $Definition.needler_effect_replacement_fixtures) {
             New-NeedlerEffectReplacementFixtures -InstallDir $InstallDir
+        }
+        if ($Definition.PSObject.Properties.Match('v006_corrupt_source_fixtures').Count -gt 0 `
+                -and $Definition.v006_corrupt_source_fixtures) {
+            New-V006CorruptSourceFixtures -InstallDir $InstallDir
         }
         if ($Definition.PSObject.Properties.Match('temporary_recovery_fixtures').Count -gt 0 `
                 -and $Definition.temporary_recovery_fixtures) {
@@ -1360,6 +1381,10 @@ function Invoke-SmokeTest {
     if ($def.PSObject.Properties.Match('needler_effect_replacement_fixtures').Count -gt 0 `
             -and $def.needler_effect_replacement_fixtures) {
         New-NeedlerEffectReplacementFixtures -InstallDir $installInfo.InstallDir
+    }
+    if ($def.PSObject.Properties.Match('v006_corrupt_source_fixtures').Count -gt 0 `
+            -and $def.v006_corrupt_source_fixtures) {
+        New-V006CorruptSourceFixtures -InstallDir $installInfo.InstallDir
     }
     if ($def.PSObject.Properties.Match('temporary_recovery_fixtures').Count -gt 0 `
             -and $def.temporary_recovery_fixtures) {

@@ -1,0 +1,10 @@
+{
+  "Name": "v006_save_failclosed_smoke",
+  "Category": "scenario",
+  "Passed": true,
+  "ExitCode": 0,
+  "ElapsedSeconds": 42.6264913,
+  "AssertionsTotal": 17,
+  "AssertionsMet": 17,
+  "Failures": []
+}

@@ -5,6 +5,12 @@
 
 ## Highlights
 
+- Kept the last good agent, system, player, match, scenario, and binary setup
+  saves intact when serialization, flush, or atomic replacement fails.
+- Rejected malformed or semantically invalid match setups without partially
+  changing the live match, weapons, bots, teams, or saved setup table.
+- Made corrupt selected texture, font, animation, sound, voice, and music
+  sources fail closed through their real consumers without ROM/native fallback.
 - Added safe startup recovery for temporary peer-delivered assets, with Keep,
   Keep Disabled, and Discard preserving complete nested lifecycle ownership.
 - Made real peers distribute, verify, admit, and play an editable Needler

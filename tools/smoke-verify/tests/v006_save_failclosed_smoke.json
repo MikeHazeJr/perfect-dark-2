@@ -1,0 +1,50 @@
+{
+  "scenario_name": "v006_save_failclosed_smoke",
+  "description": "V-006/B-1046 production-client proof for atomic MP setup persistence. The post-catalog harness invokes the real JSON and binary load/save APIs, rejects malformed and semantic JSON without changing g_MpSetup/g_MatchConfig, rejects truncated and future binary files without changing g_MpSetupFile, and injects a failure after both candidates are fully written but before atomic replacement to prove exact prior destination bytes survive.",
+  "tags": ["runtime", "save", "fail-closed", "atomic", "v006", "b1046", "smoke"],
+  "paths_of_interest": [
+    "port/src/save_atomic.c",
+    "port/src/savefile.c",
+    "port/src/mpsetups.c",
+    "port/src/v006_save_harness.c",
+    "port/src/main.c"
+  ],
+  "timeout_ms": 125000,
+  "install_state": "clean",
+  "boot_args": [
+    "--no-update-check",
+    "--no-net",
+    "--no-sound",
+    "--portable",
+    "--skip-intro",
+    "--debug-v006-save-failclosed"
+  ],
+  "input_sequence": [
+    { "at_ms": 110000, "type": "exit", "comment": "Failsafe only. The harness exits immediately after the catalog-ready production transaction matrix." }
+  ],
+  "assertions": {
+    "required_lines": [
+      "V006\\.SAVE: case=json_malformed_atomic_reject result=PASS",
+      "V006\\.SAVE: case=json_semantic_atomic_reject result=PASS",
+      "V006\\.SAVE: case=json_failed_commit_preserves_file result=PASS",
+      "V006\\.SAVE: case=binary_truncated_atomic_reject result=PASS",
+      "V006\\.SAVE: case=binary_future_atomic_reject result=PASS",
+      "V006\\.SAVE: case=binary_failed_commit_preserves_file result=PASS",
+      "V006\\.SAVE: passed=6 cases=6 result=PASS",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "V006\\.SAVE: case=.* result=FAIL",
+      "V006\\.SAVE: .*result=FAIL",
+      "SMOKE: result=timeout",
+      "SMOKE: result=v006_save_failure",
+      "EXCEPTION_ACCESS_VIOLATION",
+      "SAVE\\.ATOMIC: could not replace"
+    ],
+    "required_counts": [
+      { "pattern": "V006\\.SAVE: case=.* result=PASS", "min": 6, "max": 6 },
+      { "pattern": "V006\\.SAVE: passed=6 cases=6 result=PASS", "min": 1, "max": 1 },
+      { "pattern": "SAVE\\.ATOMIC: debug failure injected before replace", "min": 2, "max": 2 }
+    ]
+  }
+}

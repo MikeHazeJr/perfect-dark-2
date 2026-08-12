@@ -46,6 +46,7 @@
 #include "assetcatalog.h"
 #include "options_forced.h" /* INV-4: matchOptionsUserView for save-clean serialization */
 #include "fs.h"
+#include "save_atomic.h"
 #include "system.h"
 
 /* g_MatchConfig is defined in matchsetup.c (the match configuration module).
@@ -246,13 +247,14 @@ s32 scenarioSave(const char *name)
     sanitizeName(name, safeName, sizeof(safeName));
 
     char filepath[SCENARIO_PATH_MAX];
+    save_atomic_file_t transaction;
     snprintf(filepath, sizeof(filepath), "%s/%s.json", scenDir, safeName);
 
-    FILE *fp = fopen(filepath, "w");
-    if (!fp) {
+    if (saveAtomicBegin(&transaction, filepath) != 0) {
         sysLogPrintf(LOG_WARNING, "SCENARIO: failed to open '%s' for writing", filepath);
         return -1;
     }
+    FILE *fp = saveAtomicStream(&transaction);
 
     /* --- Write JSON --- */
     fprintf(fp, "{\n");
@@ -343,7 +345,11 @@ s32 scenarioSave(const char *name)
     fprintf(fp, "  ]\n");
     fprintf(fp, "}\n");
 
-    fclose(fp);
+    if (saveAtomicCommit(&transaction) != 0) {
+        sysLogPrintf(LOG_WARNING,
+            "SCENARIO: failed to commit '%s'; prior file preserved", filepath);
+        return -1;
+    }
 
     sysLogPrintf(LOG_NOTE, "SCENARIO: saved '%s' → %s", name, filepath);
     return 0;

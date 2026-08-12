@@ -30,6 +30,7 @@
 #include "modvfs.h"
 #include "modelcatalog.h"
 #include "pdgui.h"
+#include "pdgui_font_mod.h"
 #include "pdgui_theme_loader.h"
 /* menumgr.h removed — P10 D5.7 OG Menu Removal */
 #include "playerstats.h"
@@ -47,6 +48,7 @@
 #include "scene.h"
 #include "savemigrate.h"
 #include "savefile.h"
+#include "v006_save_harness.h"
 #include "testscenarios.h"
 #include "net/matchsetup.h"
 #include "prefs_agent.h"
@@ -271,6 +273,13 @@ s32 bootApplyDeferredDebugLoadCatalogAssets(void);
  *       saveLoadAgent; see port/PHASE_D5_PLAN.md:89 for the intended
  *       wiring).  Name is limited to 63 chars (buffer size 64) and
  *       sanitized inside buildSavePath().  One-shot per boot.
+ *
+ *   --debug-v006-save-failclosed
+ *       Runs the production-linked V-006 setup persistence harness after the
+ *       catalog and save directory are ready.  It proves malformed/semantic
+ *       JSON and truncated/future binary loads preserve live state, then
+ *       injects a pre-replace failure through both save APIs and verifies the
+ *       prior destination bytes remain exact.  Smoke-only; exits immediately.
  *
  *   --listen-bind <port>
  *       Post-netInit hook: invokes netStartServer(port, NET_MAX_CLIENTS)
@@ -1825,6 +1834,56 @@ static void bootDebugLogTypedPayload(asset_type_e type, const char *asset_id, s3
 		return;
 	}
 
+	if (loaded && type == ASSET_TEXTURE) {
+		mod_texture_rgba32_source_t source;
+		extern s32 g_NotLoadMod;
+		s32 prior_not_load_mod = g_NotLoadMod;
+		s32 source_result;
+
+		/* The CLI probe runs during menu boot, where g_NotLoadMod normally
+		 * suppresses gameplay texture overrides.  Temporarily lift only that
+		 * presentation policy so the requested public source reaches the same
+		 * decoder used at gameplay consumption time. */
+		g_NotLoadMod = 0;
+		source_result = entry->source_texnum >= 0
+			? modTextureLoadRgba32Source((u16)entry->source_texnum, &source)
+			: -1;
+		g_NotLoadMod = prior_not_load_mod;
+		if (source_result > 0) {
+			modTextureFreeRgba32Source(&source);
+			sysLogPrintf(LOG_NOTE,
+				"BOOT: --debug-load-catalog-assets consumer type=texture id='%s' result=OK",
+				asset_id);
+		} else {
+			loaded = 0;
+			sysLogPrintf(LOG_WARNING,
+				"BOOT: --debug-load-catalog-assets consumer type=texture id='%s' result=FAIL",
+				asset_id);
+		}
+	}
+
+	if (loaded && type == ASSET_FONT) {
+		const char *path = entry->ext.font.font_file;
+		size_t len = path ? strlen(path) : 0;
+		s32 is_vector = len >= 4 &&
+			(strcmp(path + len - 4, ".ttf") == 0 ||
+			 strcmp(path + len - 4, ".otf") == 0);
+		if (is_vector) {
+			char error[192];
+			if (!pdguiFontModValidateCatalogId(asset_id, error, sizeof(error))) {
+				loaded = 0;
+				catalogReleaseTypedAsset(ASSET_FONT, asset_id);
+				sysLogPrintf(LOG_WARNING,
+					"BOOT: --debug-load-catalog-assets consumer type=font id='%s' result=FAIL reason=%s",
+					asset_id, error[0] ? error : "invalid public vector face");
+			} else {
+				sysLogPrintf(LOG_NOTE,
+					"BOOT: --debug-load-catalog-assets consumer type=font id='%s' result=OK",
+					asset_id);
+			}
+		}
+	}
+
 	sysLogPrintf(LOG_NOTE,
 		"BOOT: --debug-load-catalog-assets result type=%s id='%s' result=%s state=%d payload=%d ref=%d bytes=%u",
 		type_name, asset_id, loaded ? "OK" : "FAIL",
@@ -1996,26 +2055,29 @@ static s32 bootDebugPlayCatalogSound(const char *kind, const char *asset_id,
 static s32 bootDebugPlayCatalogSong(const char *kind, const char *asset_id,
 	const catalog_audio_result_t *audio)
 {
-	if (audio->sound_id >= 0 || (audio->entry && audio->entry->load_state >= ASSET_STATE_LOADED)) {
-		if (audio->sound_id >= 0) {
-			u32 compiled_size = 0;
-			void *compiled = modSequenceLoad((u16)audio->sound_id, &compiled_size);
-			if (!compiled) {
-				sysLogPrintf(LOG_WARNING,
-					"BOOT: --debug-play-catalog-audio result kind=%s id='%s' result=FAIL track=%d state=compile_failed",
-					kind, asset_id, audio->sound_id);
-				return 0;
-			}
-			sysMemFree(compiled);
+	s32 track = audio->sound_id;
+
+	if (track < 0) {
+		track = modSequenceVirtualTrackForCatalogId(asset_id);
+	}
+	if (track >= 0) {
+		u32 compiled_size = 0;
+		void *compiled = modSequenceLoad((u16)track, &compiled_size);
+		if (!compiled) {
+			sysLogPrintf(LOG_WARNING,
+				"BOOT: --debug-play-catalog-audio result kind=%s id='%s' result=FAIL track=%d state=compile_failed",
+				kind, asset_id, track);
+			return 0;
 		}
+		sysMemFree(compiled);
 		sysLogPrintf(LOG_NOTE,
 			"BOOT: --debug-play-catalog-audio result kind=%s id='%s' result=OK track=%d state=registered",
-			kind, asset_id, audio->sound_id);
+			kind, asset_id, track);
 		return 1;
 	}
 	sysLogPrintf(LOG_WARNING,
 		"BOOT: --debug-play-catalog-audio result kind=%s id='%s' result=FAIL track=%d state=unassigned",
-		kind, asset_id, audio->sound_id);
+		kind, asset_id, track);
 	return 0;
 }
 
@@ -2530,6 +2592,13 @@ static void bootApplyCliFastPaths(void)
 	bootApplyDebugInstallReceivedMod();
 	bootApplyDebugRejectCatalogIngressList();
 	bootApplyDebugReceivePdcaList();
+	if (sysArgCheck("--debug-v006-save-failclosed")) {
+		s32 result = v006SaveFailclosedRun();
+		if (smokeHarnessIsActive()) {
+			smokeHarnessExit(result == 0 ? 0 : 2,
+				result == 0 ? "scripted_exit" : "v006_save_failure");
+		}
+	}
 	bootApplyMainMenu();
 	bootApplyLaunchModdingHub();
 	bootApplyLaunchCredits();

@@ -10,6 +10,7 @@
 #include "fs.h"
 #include "system.h"
 #include "mpsetups.h"
+#include "save_atomic.h"
 
 /*
 MP Setup File Format
@@ -444,9 +445,11 @@ static s32 mpsetupSerialize(FILE *f, struct mpsetupfile *setupfile)
 	return 0;
 }
 
-static FILE *mpsetupOpenFile(bool write, u8 op) {
-	char filenameBuf[FS_MAXPATH + 1];
-	const char *filename = fsFullPath("$S/" MPSETUP_FILENAME ".bin", filenameBuf, sizeof(filenameBuf));
+static const char *mpsetupResolveFilename(u8 op, char *filenameBuf,
+		size_t filenameBufSize)
+{
+	const char *filename = fsFullPath("$S/" MPSETUP_FILENAME ".bin",
+		filenameBuf, filenameBufSize);
 
 	if (op == MPSETUP_OP_EXPORT) {
 		// create export directory if it doesn't exist
@@ -455,25 +458,22 @@ static FILE *mpsetupOpenFile(bool write, u8 op) {
 				return NULL;
 			}
 		}
-		filename = fsFullPath(MPSETUP_EXPORTDIR MPSETUP_FILENAME_EXP ".bin", filenameBuf, sizeof(filenameBuf));
+		filename = fsFullPath(MPSETUP_EXPORTDIR MPSETUP_FILENAME_EXP ".bin",
+			filenameBuf, filenameBufSize);
 	} else if (op == MPSETUP_OP_IMPORT) {
 		// same name as export but different folder
-		filename = fsFullPath("$S/" MPSETUP_FILENAME_EXP ".bin", filenameBuf, sizeof(filenameBuf));
+		filename = fsFullPath("$S/" MPSETUP_FILENAME_EXP ".bin", filenameBuf,
+			filenameBufSize);
 	}
+	return filename;
+}
 
-	FILE *f;
-
-	if (fsFileSize(filename) < 0) {
-		// setup file doesn't exist: create one
-		f = fsFileOpenWrite(filename);
-		fsFileFree(f);
-	}
-
-	if (write) {
-		f = fsFileOpenWrite(filename);
-	} else {
-		f = fsFileOpenRead(filename);
-	}
+static FILE *mpsetupOpenFileRead(u8 op)
+{
+	char filenameBuf[FS_MAXPATH + 1];
+	const char *filename = mpsetupResolveFilename(op, filenameBuf,
+		sizeof(filenameBuf));
+	FILE *f = filename ? fsFileOpenRead(filename) : NULL;
 
 	if (f == NULL) {
 		sysLogPrintf(LOG_ERROR, "Unable to open mp setup file");
@@ -485,59 +485,70 @@ static FILE *mpsetupOpenFile(bool write, u8 op) {
 
 static s32 mpsetupSaveFile(u8 op, struct mpsetupfile *setupfile)
 {
-	FILE *f = mpsetupOpenFile(true, op);
-	if (f == NULL) {
+	char filenameBuf[FS_MAXPATH + 1];
+	const char *filename = mpsetupResolveFilename(op, filenameBuf,
+		sizeof(filenameBuf));
+	save_atomic_file_t transaction;
+	if (!filename || saveAtomicBegin(&transaction, filename) != 0) {
 		return -1;
 	}
+	FILE *f = saveAtomicStream(&transaction);
 
 	s32 nwritten = mpsetupSerialize(f, setupfile);
 	if (nwritten < 0) {
-		fsFileFree(f);
+		saveAtomicAbort(&transaction);
 		sysLogPrintf(LOG_ERROR, "Unable to write the MP setup file");
 		snprintf(g_StatusText, sizeof(g_StatusText), "Unable to write the setup file\n");
 		return -1;
 	}
 
-	fsFileFree(f);
+	if (saveAtomicCommit(&transaction) != 0) {
+		sysLogPrintf(LOG_ERROR,
+			"MPSETUP: candidate failed; prior setup file preserved");
+		snprintf(g_StatusText, sizeof(g_StatusText),
+			"Unable to write the setup file\n");
+		return -1;
+	}
 	return 0;
 }
 
 static s32 mpsetupLoadFile(struct mpsetupfile *setupfile, u8 op)
 {
-	FILE *f = mpsetupOpenFile(false, op);
+	struct mpsetupfile candidate;
+	FILE *f = mpsetupOpenFileRead(op);
 	if (f == NULL) {
 		return -1;
 	}
 
-	if (mpsetupDeserialize(f, setupfile) < 0) {
+	if (mpsetupDeserialize(f, &candidate) < 0) {
 		fsFileFree(f);
 		return -1;
 	}
+	fsFileFree(f);
 
 	/* Upgrade every legacy block before the file version changes. Otherwise
 	 * saving one v3 setup would relabel untouched v2 blocks and corrupt them. */
-	if (setupfile->version < MPSETUP_VERSION) {
-		u8 oldversion = setupfile->version;
-		for (s32 i = 0; i < setupfile->numsetups; i++) {
+	if (candidate.version < MPSETUP_VERSION) {
+		u8 oldversion = candidate.version;
+		for (s32 i = 0; i < candidate.numsetups; i++) {
 			struct savebuffer oldbuf;
 			struct savebuffer newbuf;
 			savebufferClear(&oldbuf);
 			savebufferClear(&newbuf);
-			memcpy(oldbuf.bytes, setupfile->setups[i].bytes,
+			memcpy(oldbuf.bytes, candidate.setups[i].bytes,
 				MPSETUP_LEGACY_BLOCKSIZE);
 			mpsetupfileLoadWad(&oldbuf, oldversion);
 			mpsetupfileSaveWad(&newbuf);
-			memcpy(setupfile->setups[i].bytes, newbuf.bytes,
+			memcpy(candidate.setups[i].bytes, newbuf.bytes,
 				MPSETUP_BLOCKSIZE);
 		}
-		setupfile->version = MPSETUP_VERSION;
+		candidate.version = MPSETUP_VERSION;
 	}
 
+	*setupfile = candidate;
 	if (op == MPSETUP_OP_DEFAULT && setupfile->defaultsetup > 0) {
 		mpsetupLoadSetup(setupfile->defaultsetup - 1);
 	}
-
-	fsFileFree(f);
 
 	return 0;
 }
@@ -917,13 +928,30 @@ s32 mpsetupLoadCurrentFile(void)
 
 s32 mpsetupSaveCurrentFile(void)
 {
+	u8 priorversion = g_MpSetupFile.version;
 	g_MpSetupFile.version = MPSETUP_VERSION;
-	return mpsetupSaveFile(MPSETUP_OP_DEFAULT, &g_MpSetupFile);
+	s32 result = mpsetupSaveFile(MPSETUP_OP_DEFAULT, &g_MpSetupFile);
+	if (result != 0) {
+		g_MpSetupFile.version = priorversion;
+	}
+	return result;
 }
 
 s32 mpsetupSaveSetup(s32 slotindex, u8 savefile)
 {
 	struct savebuffer setup;
+	struct setupblock priorblock;
+	u8 priorcount = g_MpSetupFile.numsetups;
+	s16 priorcurrent = g_MpCurrentSetup;
+	s32 hadprior = slotindex >= 0 && slotindex < g_MpSetupFile.numsetups;
+
+	if (slotindex < 0 || slotindex > g_MpSetupFile.numsetups
+			|| slotindex >= MPSETUP_MAXSETUPS) {
+		return -1;
+	}
+	if (hadprior) {
+		priorblock = g_MpSetupFile.setups[slotindex];
+	}
 
 	// request to add a new setup
 	if (slotindex == g_MpSetupFile.numsetups) {
@@ -935,7 +963,18 @@ s32 mpsetupSaveSetup(s32 slotindex, u8 savefile)
 
 	memcpy(g_MpSetupFile.setups[slotindex].bytes, setup.bytes, MPSETUP_BLOCKSIZE);
 
-	return savefile ? mpsetupSaveCurrentFile() : 0;
+	if (savefile && mpsetupSaveCurrentFile() != 0) {
+		g_MpSetupFile.numsetups = priorcount;
+		g_MpCurrentSetup = priorcurrent;
+		if (hadprior) {
+			g_MpSetupFile.setups[slotindex] = priorblock;
+		} else {
+			memset(&g_MpSetupFile.setups[slotindex], 0,
+				sizeof(g_MpSetupFile.setups[slotindex]));
+		}
+		return -1;
+	}
+	return 0;
 }
 
 void mpsetupLoadSetup(s32 index)

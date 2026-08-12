@@ -21,7 +21,8 @@ suite; conformance self-test; 28-root/52-recursive all-27-family conformance;
 the native-source guard; diff check; and an unchanged 46-file fingerprint.
 `V-009` still owns ordinary installed-client edited-source and real-peer
 gameplay/render/audio/lifecycle proof, so implementation is not a validation
-claim. `V-006` retains induced negative transport/rollback proof. Exact reverse
+claim. `V-006` is validated for induced extraction, selected-source,
+transport/rollback, and persistence failure. Exact reverse
 invalidation remains implemented under `T-ASSETS-033`/B-1013, growable nested
 ingress under `T-ASSETS-037`, and the separate runtime-capacity boundary under
 `T-ASSETS-022`/B-992.
@@ -115,8 +116,8 @@ preflight cycles/types/capacity before mutation. Disable/mod/full reset now
 retire effect/weapon closures before runtime, dependency-edge, or catalog-ID
 destruction; B-1008 records the previously missing edge-clear hooks. Production
 builds, T020 221/8, effect 571/15, catalog 3,561/12, full 52,416/932,
-conformance, guard, and diff check pass. V-006 ordinary-client proof remains
-open. Disabling an already-active SFX/material/texture child and invalidating
+conformance, guard, and diff check pass. V-006 now validates the ordinary-client
+selected-source failure path. Disabling an already-active SFX/material/texture child and invalidating
 its cached parent is now implemented under `T-ASSETS-033`/B-1013 with an exact
 root-owner ledger rather than inference from aggregate child refcounts. Active
 overlapping and diamond roots retire before child disable/replacement, remain
@@ -374,8 +375,10 @@ remains before validation. The same save-path review fixed `B-964` and `B-965`:
 MP setup JSON has one catalog-native weapon identity with legacy numbers
 accepted only for migration, required bot records cannot be omitted, and
 binary setup reads/writes reject truncation, future versions, or invalid
-counts/default indices. The updated `.pdxxx` band passes 139 cases / 15,517
-assertions.
+counts/default indices. V-006 now adds production candidate/commit proof: four
+corrupt setup loads preserve live state, two injected post-write failures
+preserve exact prior files, and the final smoke passes 17/17. The complete
+current suite passes 56,544 assertions / 1,026 cases.
 
 `B-959` first implementation slice, 2026-07-30: `.pdhud`, `.pdmaterial`,
 `.pdskin`, and `.pdvehicle` no longer stop at descriptor-only activation.
@@ -426,7 +429,8 @@ effect-owned edges. The production-client capacity/rollback harness passes 2/2
 and its original smoke assertions pass 7/7. B-992/T-ASSETS-022 now separately
 passes an 11/11 production-client capacity smoke that allocates a genuinely new
 weapon after the base walk and starts all 70 SFX through the catalog/audio route. Reverse
-child-dependency invalidation remains T-ASSETS-033, with live proof in V-009/V-006.
+child-dependency invalidation remains T-ASSETS-033, with live proof in V-009 and
+the now-validated negative matrix in V-006.
 
 Final audit verification checkpoint, 2026-07-30: B-969's creator-workflow fix
 remains live-smoke validated, and the regenerated all-family package again

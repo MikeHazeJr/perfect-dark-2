@@ -6,6 +6,48 @@
 
 ---
 
+## SP-42: Persistence writes mutate the only good destination before success is known
+
+**Severity**: CRITICAL - a disk, permission, encoding, serialization, flush, or
+close failure can destroy the last valid save while the caller sees success
+
+**Pattern:** A save path opens its final destination in truncate mode and then
+streams fields directly into it. Validation, serialization, disk writes,
+flush, and close can fail after the old bytes are already gone. A matching load
+path may deserialize directly into live globals, so a rejected file can leave
+partially updated runtime state. Checking only the initial open or a final
+serializer return does not make either direction atomic.
+
+**2026-08-12 proof:** B-1046 found all four PC JSON save writers and the Combat
+Simulator scenario writer replacing their only destination before checking any
+write result. Binary MP setup save did the same before its checked serializer,
+and JSON/binary setup loads mutated live state before complete validation. A
+shared sibling-candidate transaction now owns write, durable flush, atomic
+replace, and candidate cleanup; setup loads validate into restorable or
+temporary state and commit only after the complete document succeeds. The
+production client rejects four corrupt-load cases with live state unchanged and
+injects two post-write/pre-replace failures with exact prior bytes preserved;
+the final V-006 persistence smoke passes 17/17.
+
+**Audit:** Search every persisted writer for direct `fopen(..., "w")`,
+`fopen(..., "wb")`, or `fsFileOpenWrite` against the final path. Trace every
+writer, flush, close, and rename result. For loads, find `memset` or field
+assignment to live globals before structural, version, identity, count, and
+cross-reference validation completes. Test a failure after candidate bytes are
+written, not only a failure to open the destination.
+
+```powershell
+rg -n 'fopen\([^\n]*"w|fsFileOpenWrite|fprintf|fwrite|fflush|fclose|rename' port/src src/game
+rg -n 'Load|Deserialize|memset\(&g_|g_[A-Za-z0-9_]+\.' port/src/*save* src/game/*save*
+```
+
+**Rule:** Persisted state uses candidate then commit. A write failure leaves the
+prior destination byte-for-byte intact and removes only its candidate. A load
+failure leaves prior live state intact. Success is not reported until all
+serialization, write, durable flush, close, and atomic replacement steps pass.
+
+---
+
 ## SP-41: A derived runtime index overwrites the authoritative catalog identity
 
 **Severity**: CRITICAL - peers can agree on content yet disagree on the session key used to admit it

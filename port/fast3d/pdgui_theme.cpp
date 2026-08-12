@@ -50,6 +50,7 @@
 #include "pdgui_style.h"
 #include "pdgui_nineslice.h"
 #include "pdgui_scaling.h"
+#include "pdgui_font_mod.h"
 #include "pdgui_fontmgr.h"
 #include "system.h"
 #include "asset_archive_writer.h"
@@ -1281,6 +1282,14 @@ static void s_applyCatalogUiAsset(const asset_entry_t *entry, void *userdata)
     }
 
     if (s_pathHasExt(path, ".ttf") || s_pathHasExt(path, ".otf")) {
+        char error[192];
+        if (!pdguiFontModValidateCatalogId(entry->id, error, sizeof(error))) {
+            sysLogPrintf(LOG_WARNING,
+                "PDGUI theme: skipped invalid catalog font '%s': %s",
+                entry->id, error[0] ? error : "invalid public vector face");
+            return;
+        }
+
         s32 before = pdguiFontMgrGetCount();
         if (before <= 0) {
             pdguiFontMgrInit();

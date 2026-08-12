@@ -1,5 +1,30 @@
 # Session Log (Active)
 
+## 2026-08-12 - V-006 extraction/source/save fail-closed validation
+
+Validated the complete negative-path item. Cold extraction exits `0`; an
+induced typed emitter failure exits `2`, names the failed phase, skips runtime
+cache construction, and stops boot. Seven isolated installed-client processes
+then reject corrupt texture, vector-font, animation, SFX, WAV voice, MP3 voice,
+and music source through real consumers without ROM/native/loose fallback,
+passing 47/47. B-1045 closes the malformed font-atlas admission exposed by the
+first rejected receipt.
+
+The persistence propagation sweep found B-1046/SP-42. Every PC JSON writer and
+the binary MP setup writer now serialize to a sibling candidate, check and
+durably flush it, then atomically replace the destination. MP setup loads
+preflight structure/version and publish only complete semantic candidates. The
+production client rejects malformed and semantically invalid JSON, truncated
+and future binary files, and injects JSON/binary failures after complete
+candidate writes; live state and prior bytes remain exact. The six runtime
+cases and smoke pass 17/17 with exit `0`.
+
+Final frozen verification passes client/updater/tests compilation, focused
+84/7, complete 56,544/1,026, native-source guard, conformance selftest, and
+28-root/52-recursive all-27-family conformance. The scoped fingerprint remains
+`c09c897808af837dd9db7d1c77c6d1a196e54340178a1146546ac9581fc8a385`.
+Evidence: `context/evidence/2026-08-12-v006-failclosed-validation.md`.
+
 ## 2026-08-12 - T-NETWORKING-009 B-1044 temporary asset recovery
 
 Connected the previously unreachable and lifecycle-unsafe temporary receive

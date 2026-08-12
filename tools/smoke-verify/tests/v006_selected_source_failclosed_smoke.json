@@ -1,0 +1,93 @@
+{
+  "scenario_name": "v006_selected_source_failclosed_smoke",
+  "description": "V-006 installed-client proof that corrupt selected public texture, font, animation, SFX, voice, MP3, and song payloads reject through source-only production consumers without ROM or loose-file fallback.",
+  "tags": ["runtime", "catalog", "pdxxx", "source-only", "fail-closed", "v006", "b960", "smoke"],
+  "paths_of_interest": [
+    "devtools/generate-v006-corrupt-source-fixtures.py",
+    "port/src/main.c",
+    "port/src/mod_texture_source.c",
+    "port/fast3d/pdgui_font_mod.cpp",
+    "src/lib/snd.c",
+    "src/game/propsnd.c"
+  ],
+  "log_channel_mask": "game,catalog,mods,audio,system",
+  "verbose": 0,
+  "timeout_seconds": 150,
+  "install_state": "prefilled",
+  "separate_process_installs": true,
+  "v006_corrupt_source_fixtures": true,
+  "remove_paths": [
+    "mods/v006_corrupt_sources.pdmod",
+    "mods/v006_corrupt_sources",
+    "mods/installed/v006_corrupt_sources.pdmod",
+    "mods/installed/v006_corrupt_sources"
+  ],
+  "processes": [
+    {
+      "name": "texture",
+      "boot_args": ["--no-update-check", "--no-net", "--portable", "--skip-intro", "--debug-load-catalog-assets-source-only", "--debug-load-catalog-assets", "texture=v006:corrupt_texture"],
+      "assertions": {
+        "required_lines": ["ASSET\\.SOURCE_ONLY: texture .* for texture 'v006:corrupt_texture' but the image could not be decoded; refusing ROM/static fallback"],
+        "forbidden_patterns": ["consumer type=texture id='v006:corrupt_texture' result=OK", "RomProvider:filenum", "ASSET\\.FALLBACK"]
+      }
+    },
+    {
+      "name": "font",
+      "boot_args": ["--no-update-check", "--no-net", "--portable", "--skip-intro", "--debug-exit-after-catalog-probes", "--debug-load-catalog-assets-source-only", "--debug-load-catalog-assets", "font=v006:corrupt_font"],
+      "assertions": {
+        "required_lines": ["skipped invalid catalog font 'v006:corrupt_font': theme font public source is not a valid SFNT face", "consumer type=font id='v006:corrupt_font' result=FAIL reason=theme font public source is not a valid SFNT face", "result type=font id='v006:corrupt_font' result=FAIL", "SMOKE: result=scripted_exit"],
+        "forbidden_patterns": ["fontmgr: loaded 'v006:corrupt_font'", "consumer type=font id='v006:corrupt_font' result=OK", "RomProvider:filenum", "ASSET\\.FALLBACK"]
+      }
+    },
+    {
+      "name": "animation",
+      "boot_args": ["--no-update-check", "--no-net", "--portable", "--skip-intro", "--debug-exit-after-catalog-probes", "--debug-probe-animation-source-only", "--debug-probe-animation-source", "v006:corrupt_animation"],
+      "assertions": {
+        "required_lines": ["result id='v006:corrupt_animation'.*result=LOAD_FAIL", "invalid external animation source for 'v006:corrupt_animation'", "SMOKE: result=scripted_exit"],
+        "forbidden_patterns": ["result id='v006:corrupt_animation'.*result=OK", "RomProvider:filenum", "ASSET\\.FALLBACK"]
+      }
+    },
+    {
+      "name": "sfx",
+      "boot_args": ["--no-update-check", "--no-net", "--portable", "--skip-intro", "--debug-play-catalog-audio-source-only", "--debug-play-catalog-audio", "sfx=v006:corrupt_sfx"],
+      "assertions": {
+        "required_lines": ["FATAL: ASSET\\.CHAIN: sound .* for audio 'v006:corrupt_sfx' but file playback failed; refusing native bank fallback"],
+        "forbidden_patterns": ["result kind=sfx id='v006:corrupt_sfx' result=OK", "RomProvider:filenum", "ASSET\\.FALLBACK"]
+      }
+    },
+    {
+      "name": "voice",
+      "boot_args": ["--no-update-check", "--no-net", "--portable", "--skip-intro", "--debug-play-catalog-audio-source-only", "--debug-play-catalog-audio", "voice=v006:corrupt_voice"],
+      "assertions": {
+        "required_lines": ["FATAL: ASSET\\.CHAIN: sound .* for audio 'v006:corrupt_voice' but file playback failed; refusing native bank fallback"],
+        "forbidden_patterns": ["result kind=voice id='v006:corrupt_voice' result=OK", "RomProvider:filenum", "ASSET\\.FALLBACK"]
+      }
+    },
+    {
+      "name": "mp3",
+      "boot_args": ["--no-update-check", "--no-net", "--portable", "--skip-intro", "--debug-play-catalog-audio-source-only", "--debug-play-catalog-audio", "voice=v006:corrupt_mp3"],
+      "assertions": {
+        "required_lines": ["FATAL: ASSET\\.CHAIN: MP3 file .* for v006:corrupt_mp3.*refusing loose extracted file or ROM/static file-size fallback|FATAL: ASSET\\.CHAIN: sound .* for audio 'v006:corrupt_mp3'.*refusing native bank fallback"],
+        "forbidden_patterns": ["result kind=voice id='v006:corrupt_mp3' result=OK", "RomProvider:filenum", "ASSET\\.FALLBACK"]
+      }
+    },
+    {
+      "name": "song",
+      "boot_args": ["--no-update-check", "--no-net", "--portable", "--skip-intro", "--debug-exit-after-catalog-probes", "--debug-play-catalog-audio-source-only", "--debug-play-catalog-audio", "song=v006:corrupt_song"],
+      "assertions": {
+        "required_lines": ["FATAL: ASSET\\.CHAIN: music sequence .* for audio 'v006:corrupt_song' but sequencer-native public source compile failed; refusing legacy sequence fallback"],
+        "forbidden_patterns": ["result kind=song id='v006:corrupt_song' result=OK", "RomProvider:filenum", "ASSET\\.FALLBACK"]
+      }
+    }
+  ],
+  "input_sequence": [
+    { "at_ms": 0, "type": "wait", "comment": "Each isolated process drives one corrupt selected public source through its production consumer." },
+    { "at_ms": 100000, "type": "exit" }
+  ],
+  "assertions": {
+    "required_lines": [
+      "--- texture ", "--- font ", "--- animation ", "--- sfx ", "--- voice ", "--- mp3 ", "--- song "
+    ],
+    "forbidden_patterns": ["EXCEPTION_ACCESS_VIOLATION", "ACCESS_VIOLATION", "SMOKE: result=timeout", "LOUDFAIL\\.FALLBACK", "ASSET\\.FALLBACK", "RomProvider:filenum"]
+  }
+}

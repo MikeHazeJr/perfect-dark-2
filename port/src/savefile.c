@@ -31,6 +31,7 @@
 #include "assetcatalog.h"
 #include "net/matchsetup.h"
 #include "fs.h"
+#include "save_atomic.h"
 #include "game/mplayer/mplayer.h"
 
 /* ========================================================================
@@ -85,8 +86,12 @@ static stok_t s_next(sparse_t *p)
 			if (*p->pos) p->pos++;
 		}
 		tok.len = (s32)(p->pos - tok.start);
-		tok.type = STOK_STRING;
-		if (*p->pos == '"') p->pos++;
+		if (*p->pos == '"') {
+			tok.type = STOK_STRING;
+			p->pos++;
+		} else {
+			tok.type = STOK_ERROR;
+		}
 		break;
 	}
 	default:
@@ -138,6 +143,79 @@ static void s_skip_value(sparse_t *p, s32 depth)
 		}
 	}
 	/* primitives are already consumed by s_next */
+}
+
+static s32 s_validate_json_value(sparse_t *p, s32 depth)
+{
+	stok_t tok;
+
+	if (!p || depth > S_MAX_DEPTH) {
+		return -1;
+	}
+	tok = s_next(p);
+	if (tok.type == STOK_STRING || tok.type == STOK_NUMBER
+			|| tok.type == STOK_TRUE || tok.type == STOK_FALSE
+			|| tok.type == STOK_NULL) {
+		return 0;
+	}
+	if (tok.type == STOK_LBRACE) {
+		tok = s_next(p);
+		if (tok.type == STOK_RBRACE) {
+			return 0;
+		}
+		for (;;) {
+			if (tok.type != STOK_STRING || s_next(p).type != STOK_COLON
+					|| s_validate_json_value(p, depth + 1) != 0) {
+				return -1;
+			}
+			tok = s_next(p);
+			if (tok.type == STOK_RBRACE) {
+				return 0;
+			}
+			if (tok.type != STOK_COMMA) {
+				return -1;
+			}
+			tok = s_next(p);
+		}
+	}
+	if (tok.type == STOK_LBRACKET) {
+		const char *value_start = p->pos;
+		tok = s_next(p);
+		if (tok.type == STOK_RBRACKET) {
+			return 0;
+		}
+		p->pos = value_start;
+		for (;;) {
+			if (s_validate_json_value(p, depth + 1) != 0) {
+				return -1;
+			}
+			tok = s_next(p);
+			if (tok.type == STOK_RBRACKET) {
+				return 0;
+			}
+			if (tok.type != STOK_COMMA) {
+				return -1;
+			}
+		}
+	}
+	return -1;
+}
+
+static s32 s_validate_json_document(const char *data)
+{
+	sparse_t parser;
+	stok_t tail;
+
+	if (!data || !data[0]) {
+		return -1;
+	}
+	memset(&parser, 0, sizeof(parser));
+	parser.pos = data;
+	if (s_validate_json_value(&parser, 0) != 0) {
+		return -1;
+	}
+	tail = s_next(&parser);
+	return tail.type == STOK_EOF ? 0 : -1;
 }
 
 static void s_tok_str(const stok_t *tok, char *dest, s32 maxlen)
@@ -261,6 +339,57 @@ static s32 saveCheckFileVersion(s32 fileVersion, const char *kind, const char *p
 	return 0;
 }
 
+static s32 savePreflightJson(const char *data, const char *kind,
+		const char *path)
+{
+	sparse_t parser;
+	stok_t tok;
+	s32 saw_version = 0;
+
+	if (s_validate_json_document(data) != 0) {
+		sysLogPrintf(LOG_ERROR,
+			"SAVE: refusing malformed %s JSON '%s'; live state preserved",
+			kind, path);
+		return -1;
+	}
+	memset(&parser, 0, sizeof(parser));
+	parser.pos = data;
+	if (s_next(&parser).type != STOK_LBRACE) {
+		return -1;
+	}
+	while ((tok = s_next(&parser)).type == STOK_STRING) {
+		char key[64];
+		s_tok_str(&tok, key, sizeof(key));
+		if (s_next(&parser).type != STOK_COLON) {
+			return -1;
+		}
+		if (strcmp(key, "version") == 0) {
+			tok = s_next(&parser);
+			if (tok.type != STOK_NUMBER
+					|| saveCheckFileVersion(s_tok_int(&tok), kind, path) != 0) {
+				return -1;
+			}
+			saw_version = 1;
+		} else {
+			s_skip_value(&parser, 0);
+		}
+		tok = s_next(&parser);
+		if (tok.type == STOK_RBRACE) {
+			break;
+		}
+		if (tok.type != STOK_COMMA) {
+			return -1;
+		}
+	}
+	if (!saw_version) {
+		sysLogPrintf(LOG_ERROR,
+			"SAVE: refusing %s JSON '%s' without a version; live state preserved",
+			kind, path);
+		return -1;
+	}
+	return 0;
+}
+
 static void buildSavePath(char *out, s32 maxlen, const char *prefix, const char *name, const char *ext)
 {
 	/* Sanitize name: replace non-alphanumeric chars with underscore */
@@ -327,13 +456,14 @@ const char *saveGetDir(void)
 s32 saveSaveAgent(const char *name)
 {
 	char path[512];
+	save_atomic_file_t transaction;
 	buildSavePath(path, sizeof(path), "agent", name, "json");
 
-	FILE *fp = fopen(path, "w");
-	if (!fp) {
+	if (saveAtomicBegin(&transaction, path) != 0) {
 		sysLogPrintf(LOG_WARNING, "SAVE: failed to write agent '%s' to %s", name, path);
 		return -1;
 	}
+	FILE *fp = saveAtomicStream(&transaction);
 
 	fprintf(fp, "{\n");
 	fprintf(fp, "  \"version\": %d,\n", SAVE_VERSION);
@@ -376,7 +506,11 @@ s32 saveSaveAgent(const char *name)
 	fprintf(fp, "]\n");
 
 	fprintf(fp, "}\n");
-	fclose(fp);
+	if (saveAtomicCommit(&transaction) != 0) {
+		sysLogPrintf(LOG_WARNING,
+			"SAVE: failed to commit agent '%s' to %s", name, path);
+		return -1;
+	}
 
 	sysLogPrintf(LOG_NOTE, "SAVE: agent '%s' saved to %s", name, path);
 	return 0;
@@ -391,6 +525,10 @@ s32 saveLoadAgent(const char *name)
 	char *data = readFileContents(path, &len);
 	if (!data) {
 		sysLogPrintf(LOG_WARNING, "SAVE: failed to load agent '%s' from %s", name, path);
+		return -1;
+	}
+	if (savePreflightJson(data, "agent", path) != 0) {
+		free(data);
 		return -1;
 	}
 
@@ -507,12 +645,18 @@ s32 saveCreateAgent(const char *name)
 		return -1;
 	}
 
-	/* Initialize a fresh game file */
+	/* Initialize a fresh game file, but do not publish it in memory if the
+	 * candidate cannot replace the destination. */
+	struct gamefile previous = g_GameFile;
 	memset(&g_GameFile, 0, sizeof(g_GameFile));
 	strncpy(g_GameFile.name, name, 10);
 	g_GameFile.name[10] = '\0';
 
-	return saveSaveAgent(name);
+	s32 result = saveSaveAgent(name);
+	if (result != 0) {
+		g_GameFile = previous;
+	}
+	return result;
 }
 
 s32 saveDeleteAgent(const char *name)
@@ -536,13 +680,14 @@ s32 saveDeleteAgent(const char *name)
 s32 saveSaveSystem(void)
 {
 	char path[512];
+	save_atomic_file_t transaction;
 	snprintf(path, sizeof(path), "%s/system.json", s_SaveDir);
 
-	FILE *fp = fopen(path, "w");
-	if (!fp) {
+	if (saveAtomicBegin(&transaction, path) != 0) {
 		sysLogPrintf(LOG_WARNING, "SAVE: failed to write system settings to %s", path);
 		return -1;
 	}
+	FILE *fp = saveAtomicStream(&transaction);
 
 	fprintf(fp, "{\n");
 	fprintf(fp, "  \"version\": %d,\n", SAVE_VERSION);
@@ -572,7 +717,11 @@ s32 saveSaveSystem(void)
 	        g_AltTitleEnabled ? "true" : "false");
 
 	fprintf(fp, "}\n");
-	fclose(fp);
+	if (saveAtomicCommit(&transaction) != 0) {
+		sysLogPrintf(LOG_WARNING,
+			"SAVE: failed to commit system settings to %s", path);
+		return -1;
+	}
 
 	sysLogPrintf(LOG_NOTE, "SAVE: system settings saved");
 	return 0;
@@ -587,6 +736,10 @@ s32 saveLoadSystem(void)
 	char *data = readFileContents(path, &len);
 	if (!data) {
 		sysLogPrintf(LOG_NOTE, "SAVE: no system.json found — using defaults");
+		return -1;
+	}
+	if (savePreflightJson(data, "system", path) != 0) {
+		free(data);
 		return -1;
 	}
 
@@ -661,10 +814,11 @@ s32 saveSaveMpPlayer(const char *name, s32 playernum)
 	if (playernum < 0 || playernum >= MAX_PLAYERS) return -1;
 
 	char path[512];
+	save_atomic_file_t transaction;
 	buildSavePath(path, sizeof(path), "player", name, "json");
 
-	FILE *fp = fopen(path, "w");
-	if (!fp) return -1;
+	if (saveAtomicBegin(&transaction, path) != 0) return -1;
+	FILE *fp = saveAtomicStream(&transaction);
 
 	struct mpplayerconfig *pc = &g_PlayerConfigsArray[playernum];
 
@@ -704,7 +858,9 @@ s32 saveSaveMpPlayer(const char *name, s32 playernum)
 	fprintf(fp, "  \"options\": %u\n", pc->options);
 
 	fprintf(fp, "}\n");
-	fclose(fp);
+	if (saveAtomicCommit(&transaction) != 0) {
+		return -1;
+	}
 
 	sysLogPrintf(LOG_NOTE, "SAVE: MP player '%s' (slot %d) saved", name, playernum);
 	return 0;
@@ -720,6 +876,10 @@ s32 saveLoadMpPlayer(const char *name, s32 playernum)
 	s32 len = 0;
 	char *data = readFileContents(path, &len);
 	if (!data) return -1;
+	if (savePreflightJson(data, "player", path) != 0) {
+		free(data);
+		return -1;
+	}
 
 	struct mpplayerconfig *pc = &g_PlayerConfigsArray[playernum];
 
@@ -833,13 +993,63 @@ s32 saveLoadMpPlayer(const char *name, s32 playernum)
  * MP setup save/load
  * ======================================================================== */
 
+extern s32 g_MpWeaponSetNum;
+
+struct save_mpsetup_snapshot {
+	struct mpsetup setup;
+	struct matchconfig match;
+	struct mpplayerconfig player_configs[MAX_PLAYERS];
+	s32 weapon_set;
+	s32 bondplayernum;
+	s32 coopplayernum;
+	s32 antiplayernum;
+	s32 mpquickteam;
+	u8 handicaps[MAX_PLAYERS];
+};
+
+static void saveCaptureMpSetupSnapshot(struct save_mpsetup_snapshot *snapshot)
+{
+	if (!snapshot) return;
+	snapshot->setup = g_MpSetup;
+	snapshot->match = g_MatchConfig;
+	memcpy(snapshot->player_configs, g_PlayerConfigsArray,
+		sizeof(snapshot->player_configs));
+	snapshot->weapon_set = g_MpWeaponSetNum;
+	snapshot->bondplayernum = g_Vars.bondplayernum;
+	snapshot->coopplayernum = g_Vars.coopplayernum;
+	snapshot->antiplayernum = g_Vars.antiplayernum;
+	snapshot->mpquickteam = g_Vars.mpquickteam;
+	for (s32 i = 0; i < MAX_PLAYERS; i++) {
+		snapshot->handicaps[i] = matchGetPlayerHandicap(i);
+	}
+}
+
+static void saveRestoreMpSetupSnapshot(
+		const struct save_mpsetup_snapshot *snapshot)
+{
+	if (!snapshot) return;
+	g_MpSetup = snapshot->setup;
+	g_MatchConfig = snapshot->match;
+	memcpy(g_PlayerConfigsArray, snapshot->player_configs,
+		sizeof(snapshot->player_configs));
+	g_MpWeaponSetNum = snapshot->weapon_set;
+	g_Vars.bondplayernum = snapshot->bondplayernum;
+	g_Vars.coopplayernum = snapshot->coopplayernum;
+	g_Vars.antiplayernum = snapshot->antiplayernum;
+	g_Vars.mpquickteam = snapshot->mpquickteam;
+	for (s32 i = 0; i < MAX_PLAYERS; i++) {
+		matchSetPlayerHandicap(i, snapshot->handicaps[i]);
+	}
+}
+
 s32 saveSaveMpSetup(const char *name)
 {
 	char path[512];
+	save_atomic_file_t transaction;
 	buildSavePath(path, sizeof(path), "mpsetup", name, "json");
 
-	FILE *fp = fopen(path, "w");
-	if (!fp) return -1;
+	if (saveAtomicBegin(&transaction, path) != 0) return -1;
+	FILE *fp = saveAtomicStream(&transaction);
 
 	fprintf(fp, "{\n");
 	fprintf(fp, "  \"version\": %d,\n", SAVE_VERSION);
@@ -912,7 +1122,11 @@ s32 saveSaveMpSetup(const char *name)
 	fprintf(fp, "  ]\n");
 
 	fprintf(fp, "}\n");
-	fclose(fp);
+	if (saveAtomicCommit(&transaction) != 0) {
+		sysLogPrintf(LOG_ERROR,
+			"SAVE: MP setup '%s' candidate failed; prior file preserved", name);
+		return -1;
+	}
 
 	sysLogPrintf(LOG_NOTE, "SAVE: MP setup '%s' saved", name);
 	return 0;
@@ -921,17 +1135,23 @@ s32 saveSaveMpSetup(const char *name)
 s32 saveLoadMpSetup(const char *name)
 {
 	char path[512];
+	struct save_mpsetup_snapshot snapshot;
 	buildSavePath(path, sizeof(path), "mpsetup", name, "json");
 
 	s32 len = 0;
 	char *data = readFileContents(path, &len);
 	if (!data) return -1;
+	if (savePreflightJson(data, "mpsetup", path) != 0) {
+		free(data);
+		return -1;
+	}
 
+	saveCaptureMpSetupSnapshot(&snapshot);
 	matchConfigInit();
 
 	sparse_t p = { data, { NULL, 0, STOK_NONE } };
 	stok_t tok = s_next(&p);
-	if (tok.type != STOK_LBRACE) { free(data); return -1; }
+	if (tok.type != STOK_LBRACE) goto reject;
 
 	char key[64];
 	s32 saw_weapon_ids = 0;
@@ -943,8 +1163,7 @@ s32 saveLoadMpSetup(const char *name)
 			tok = s_next(&p);
 			s32 fv = s_tok_int(&tok);
 			if (saveCheckFileVersion(fv, "mpsetup", path) != 0) {
-				free(data);
-				return -1;
+				goto reject;
 			}
 		} else if (strcmp(key, "scenario_id") == 0) {
 			/* M0.1d: PRIMARY catalog ID for scenario — resolve to integer. */
@@ -1008,8 +1227,7 @@ s32 saveLoadMpSetup(const char *name)
 							sysLogPrintf(LOG_ERROR,
 								"SAVE: MP setup weapon slot %d catalog ID '%s' "
 								"is unavailable", i, wid_buf);
-							free(data);
-							return -1;
+							goto reject;
 						}
 						strncpy(g_MatchConfig.weapon_ids[i], we->id,
 							sizeof(g_MatchConfig.weapon_ids[i]) - 1);
@@ -1043,8 +1261,7 @@ s32 saveLoadMpSetup(const char *name)
 							sysLogPrintf(LOG_ERROR,
 								"SAVE: legacy MP setup weapon slot %d value "
 								"%d is out of range", i, legacy_weapon);
-							free(data);
-							return -1;
+							goto reject;
 						}
 						const char *wid =
 							catalogWeaponIdByMpWeaponId(legacy_weapon);
@@ -1053,8 +1270,7 @@ s32 saveLoadMpSetup(const char *name)
 								"SAVE: legacy MP setup weapon slot %d value "
 								"%d has no catalog identity", i,
 								legacy_weapon);
-							free(data);
-							return -1;
+							goto reject;
 						}
 						g_MpSetup.weapons[i] = (u8)legacy_weapon;
 						strncpy(g_MatchConfig.weapon_ids[i], wid,
@@ -1145,8 +1361,7 @@ s32 saveLoadMpSetup(const char *name)
 							"SAVE: MP setup bot profile '%s' could not be "
 							"reconstructed", profile_id[0]
 								? profile_id : "(legacy traits)");
-						free(data);
-						return -1;
+						goto reject;
 					}
 				}
 			}
@@ -1161,6 +1376,13 @@ s32 saveLoadMpSetup(const char *name)
 	free(data);
 	sysLogPrintf(LOG_NOTE, "SAVE: MP setup '%s' loaded", name);
 	return 0;
+
+reject:
+	free(data);
+	saveRestoreMpSetupSnapshot(&snapshot);
+	sysLogPrintf(LOG_ERROR,
+		"SAVE: MP setup '%s' rejected; prior live setup preserved", name);
+	return -1;
 }
 
 /* ========================================================================

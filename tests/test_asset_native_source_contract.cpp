@@ -12191,10 +12191,12 @@ TEST_CASE("Settings Debug can force one asset family to public file source",
 	REQUIRE(audio.find("sequence track-change") != std::string::npos);
 	REQUIRE(mod.find("modSequencePlayAudioSource(u16 num)") !=
 	        std::string::npos);
-	REQUIRE(main_c.find("modSequenceLoad((u16)audio->sound_id, &compiled_size)") !=
+	REQUIRE(main_c.find("track = modSequenceVirtualTrackForCatalogId(asset_id)") !=
+	        std::string::npos);
+	REQUIRE(main_c.find("modSequenceLoad((u16)track, &compiled_size)") !=
 	        std::string::npos);
 	REQUIRE(main_c.find("sysMemFree(compiled)") != std::string::npos);
-	REQUIRE(main_c.find("modSequenceLoad((u16)audio->sound_id, &compiled_size)") <
+	REQUIRE(main_c.find("modSequenceLoad((u16)track, &compiled_size)") <
 	        main_c.find("BOOT: --debug-play-catalog-audio result kind=%s id='%s' result=OK track=%d state=registered"));
 	REQUIRE(mod.find("modSequencePathHasAudioExtension(r.path)") !=
 	        std::string::npos);

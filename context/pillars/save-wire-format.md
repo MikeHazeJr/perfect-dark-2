@@ -70,14 +70,26 @@ v0-v2 files are read using the historical 80-byte block size. The loader preserv
 B-965 hardening (2026-07-30): binary setup files require exact header and
 per-block reads/writes. Files with truncated data, versions newer than the
 current schema, excessive setup counts, or an invalid one-based default setup
-index are rejected with partial state cleared.
+index are rejected. B-1046 (2026-08-12) completes this boundary: the loader
+deserializes into a temporary setup table and publishes only after the entire
+file succeeds, so a rejected file preserves the prior live table.
 
 B-964 hardening (2026-07-30): JSON MP setup writers emit only canonical
 `weapon_ids`, preferring `g_MatchConfig.weapon_ids` so catalog-only creator
 weapons survive. The deprecated numeric `weapons` array is read-only migration
 input and applies only when the canonical field is absent. An unresolved
 nonempty catalog ID, invalid legacy weapon, or unreconstructable required bot
-rejects the entire load.
+rejects the entire load. B-1046 adds a complete structural/version preflight
+and restores the full live setup/match snapshot after any later semantic
+failure.
+
+All PC JSON saves and binary MP setup saves now use
+`port/src/save_atomic.c`: serialize to a sibling candidate, check write/flush/
+close, durably flush the candidate, and atomically replace the destination only
+after complete success. Agent, system, MP player, MP setup, saved-scenario, and
+binary setup writers share this rule. A failed candidate is removed and the
+last good destination remains byte-exact. V-006 production proof injects both
+JSON and binary failures after complete candidate writes and passes 17/17.
 
 B-992 capacity hardening (2026-08-08): the private paired custom-weapon domain
 now uses every remaining identity in the existing 64-bit MP random-filter

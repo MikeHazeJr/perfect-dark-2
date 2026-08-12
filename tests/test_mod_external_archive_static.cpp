@@ -5235,6 +5235,17 @@ TEST_CASE("MP setup JSON has one catalog-native weapon identity",
 	REQUIRE(save.find("is unavailable\", i, wid_buf)") !=
 	        std::string::npos);
 	REQUIRE(save.find("SAVE: MP setup bot profile") != std::string::npos);
+	REQUIRE(save.find("savePreflightJson(data, \"mpsetup\", path)") !=
+	        std::string::npos);
+	REQUIRE(save.find("saveCaptureMpSetupSnapshot(&snapshot)") !=
+	        std::string::npos);
+	REQUIRE(save.find("memcpy(snapshot->player_configs, g_PlayerConfigsArray") !=
+	        std::string::npos);
+	REQUIRE(save.find("memcpy(g_PlayerConfigsArray, snapshot->player_configs") !=
+	        std::string::npos);
+	REQUIRE(save.find("saveRestoreMpSetupSnapshot(&snapshot)") !=
+	        std::string::npos);
+	REQUIRE(save.find("saveAtomicCommit(&transaction)") != std::string::npos);
 }
 
 TEST_CASE("binary MP setup files reject partial unsupported or invalid state",
@@ -5257,6 +5268,13 @@ TEST_CASE("binary MP setup files reject partial unsupported or invalid state",
 	REQUIRE(setups.find("failed to write setup block %d of %u") !=
 	        std::string::npos);
 	REQUIRE(setups.find("if (nwritten < 0)") != std::string::npos);
+	REQUIRE(setups.find("struct mpsetupfile candidate") != std::string::npos);
+	REQUIRE(setups.find("*setupfile = candidate") != std::string::npos);
+	REQUIRE(setups.find("saveAtomicBegin(&transaction, filename)") !=
+	        std::string::npos);
+	REQUIRE(setups.find("saveAtomicAbort(&transaction)") != std::string::npos);
+	REQUIRE(setups.find("saveAtomicCommit(&transaction)") != std::string::npos);
+	REQUIRE(setups.find("prior setup file preserved") != std::string::npos);
 }
 
 TEST_CASE("archive-backed typed weapon sources keep transport-root chain",

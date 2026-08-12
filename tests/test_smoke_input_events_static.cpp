@@ -91,6 +91,54 @@ TEST_CASE("Needler replacement smoke generates valid then invalid same-slot PDCA
         "DISTRIB\\\\.CATALOG\\\\.RELOAD: id=needler_effect result=1");
 }
 
+TEST_CASE("smoke runner stages corrupt selected public source fixtures",
+    "[smoke][tooling][v006][b960][static]")
+{
+    const std::string runner = readTextFile("tools/smoke-verify/run.ps1");
+    const std::string scenario = readTextFile(
+        "tools/smoke-verify/tests/v006_selected_source_failclosed_smoke.json");
+    const std::string generator = readTextFile(
+        "devtools/generate-v006-corrupt-source-fixtures.py");
+
+    requireContains(runner, "v006_corrupt_source_fixtures");
+    requireContains(runner, "generate-v006-corrupt-source-fixtures.py");
+    requireContains(scenario, "--debug-load-catalog-assets-source-only");
+    requireContains(scenario, "--debug-probe-animation-source-only");
+    requireContains(scenario, "--debug-play-catalog-audio-source-only");
+    requireContains(scenario, "v006:corrupt_mp3");
+    requireContains(generator, "not-an-mp3-file!");
+    requireContains(generator, "not-an-sfnt-face");
+    requireContains(generator, "not-a-wave");
+    requireContains(generator, "{broken-json");
+
+    const std::string main = readTextFile("port/src/main.c");
+    requireContains(main, "modTextureLoadRgba32Source");
+    requireContains(main, "prior_not_load_mod = g_NotLoadMod");
+    requireContains(main, "modSequenceVirtualTrackForCatalogId(asset_id)");
+    requireContains(main, "pdguiFontModValidateCatalogId");
+    requireContains(main,
+        "--debug-load-catalog-assets consumer type=font id='%s' result=FAIL");
+}
+
+TEST_CASE("V006 save smoke drives exact atomic JSON and binary failure paths",
+    "[smoke][tooling][v006][b1046][static]")
+{
+    const std::string scenario = readTextFile(
+        "tools/smoke-verify/tests/v006_save_failclosed_smoke.json");
+    const std::string main = readTextFile("port/src/main.c");
+    const std::string harness = readTextFile("port/src/v006_save_harness.c");
+
+    requireContains(scenario, "--debug-v006-save-failclosed");
+    requireContains(scenario, "json_semantic_atomic_reject");
+    requireContains(scenario, "binary_truncated_atomic_reject");
+    requireContains(scenario, "binary_failed_commit_preserves_file");
+    requireContains(main, "v006SaveFailclosedRun()");
+    requireContains(harness, "saveLoadMpSetup(\"v006_atomic\")");
+    requireContains(harness, "mpsetupLoadCurrentFile()");
+    requireContains(harness, "saveAtomicDebugFailNextCommit()");
+    requireContains(harness, "memcmp(&before, &g_MpSetupFile, sizeof(before))");
+}
+
 TEST_CASE("smoke runner filters auxiliary pipeline output before summary",
     "[smoke][tooling][static][b1029]")
 {

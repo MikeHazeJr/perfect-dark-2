@@ -129,6 +129,7 @@ TEST_CASE("pdtheme supported fields reach fail-closed production consumers",
 	const std::string style = readSource("port/fast3d/pdgui_style.cpp");
 	const std::string music = readSource("src/game/music.c");
 	const std::string glyphs = readSource("port/fast3d/pdgui_glyphs.cpp");
+	const std::string theme = readSource("port/fast3d/pdgui_theme.cpp");
 	REQUIRE(loader.find("validate_theme_def_consumers") != std::string::npos);
 	REQUIRE(loader.find("pdguiAudioReplaceThemeRoles") != std::string::npos);
 	REQUIRE(loader.find("pdguiFontModValidateCatalogId") != std::string::npos);
@@ -138,6 +139,8 @@ TEST_CASE("pdtheme supported fields reach fail-closed production consumers",
 	REQUIRE(loader.find("s_ActiveEffectIds") != std::string::npos);
 	REQUIRE(audio.find("refusing native fallback") != std::string::npos);
 	REQUIRE(font.find("entry->ext.font.font_file") != std::string::npos);
+	REQUIRE(theme.find("pdguiFontModValidateCatalogId(entry->id") != std::string::npos);
+	REQUIRE(theme.find("skipped invalid catalog font") != std::string::npos);
 	REQUIRE(backend.find("AddFontFromMemoryTTF") != std::string::npos);
 	REQUIRE(style.find("declaredChromeFailed") != std::string::npos);
 	REQUIRE(style.find("pdguiEffectsDrawAll(activeChromeId") != std::string::npos);
