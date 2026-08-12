@@ -1,5 +1,22 @@
 # Session Log (Active)
 
+## 2026-08-12 - T-ASSETS-030 preserved-install theme restart
+
+Added a restart-only ordinary-client scenario that performs no fixture copy,
+pack, removal, or replacement. After the baseline selected and saved
+`example:tri_theme`, the second process rediscovered the unchanged installed
+package and rebuilt the complete UI/font/SFX/music closure. It restored the
+saved active theme, processed real SDL Down/Up events, and released the theme
+plus four dependencies from ref 1 to 0 at clean shutdown.
+
+The final restart receipt passes 31/31 with exit `0`. The package and
+`mods-enabled.json` hashes and timestamps remain exact across processes, while
+the normally rewritten `pd.ini` retains exact `ActiveTheme` and `SeenMods`
+values. Evidence is
+`context/evidence/2026-08-12-t-assets-030-theme-restart.md`. T-ASSETS-030
+remains partial for real-peer package distribution/admission, physical
+controller navigation, and live keyboard/controller device-switch glyph proof.
+
 ## 2026-08-12 - V-006 extraction/source/save fail-closed validation
 
 Validated the complete negative-path item. Cold extraction exits `0`; an

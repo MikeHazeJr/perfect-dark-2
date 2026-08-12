@@ -41,7 +41,8 @@ catalog references, and caps, and malformed or missing declared source fails
 closed without private-manifest or built-in-data substitution. The remaining
 `.pdtheme` work stays explicit in `T-ASSETS-027` through `T-ASSETS-030`: typed
 dependency ownership, retained production consumers, self-contained Theme
-Editor output, network/restart proof, and physical MKB/controller glyph evidence.
+Editor output, real-peer distribution, and physical MKB/controller glyph
+evidence. Preserved-install restart passes under T-ASSETS-030.
 
 `T-ASSETS-027` is implemented with a source-frozen automated receipt: supported
 typed roles are validated and catalog-registered transactionally on every transport,

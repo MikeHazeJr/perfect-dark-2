@@ -5,6 +5,8 @@
 
 ## Highlights
 
+- Restored saved custom themes and their nested UI, font, sound, and music from
+  an unchanged installed mod after a full client restart.
 - Kept the last good agent, system, player, match, scenario, and binary setup
   saves intact when serialization, flush, or atomic replacement fails.
 - Rejected malformed or semantically invalid match setups without partially

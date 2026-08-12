@@ -162,7 +162,10 @@ isolated client/updater/tests builds, the native-source guard, and strict
 51,902 assertions across 913 cases.
 
 `T-ASSETS-030` now passes its automated `.pdtheme` bands and ordinary-client
-theme receipts. `T-MENUS-002` is implemented: source-frozen geometry tests,
+theme receipts, including a second preserved-install process that rediscovered
+and reapplied the same nested UI/font/SFX/music closure without replacing the
+package or enabled-mod state (31/31, exit 0). `T-MENUS-002` is implemented:
+source-frozen geometry tests,
 the adjacent input/menu suite, 24/24 default-scale smoke, and 19/19
 1024x576/200% smoke pass; all four delayed frames keep the dynamic MKB footer
 inside the themed panel after real SDL Down/Up events. `T-CATALOG-002` also
@@ -170,7 +173,7 @@ passes its final 33/33 stage-transition/shutdown receipt. `V-004` now has
 focused mouse-event tooling tests and an ordinary-client SDL delivery receipt;
 targeted Settings mouse behavior, profile save/restart/reload, real controller,
 modal/context breadth, and keyboard/controller device-switch proof remain open, while
-restart and peer-network proof remain open for the theme validation program;
+real-peer distribution proof remains open for the theme validation program;
 enumeration and synthetic input are not substitutes.
 
 `T-CATALOG-002` implementation is now connected to the production stage path:
@@ -316,8 +319,9 @@ prior-theme state, and rejects broken declared roles without native/procedural
 fallback. `T-ASSETS-029` is implemented: Theme Editor now emits and rescans a
 strict, atomic, self-contained `.pdtheme` (or embeds that archive in `.pdmod`)
 with selected production-supported typed dependencies and live action-map
-labels. Ordinary-client network/restart plus physical MKB/controller/device-
-switch proof remains `T-ASSETS-030`.
+labels. Preserved-install theme restart now passes 31/31 without reseeding the
+package. Real-peer distribution plus physical controller/device-switch proof
+remains `T-ASSETS-030`.
 Mission briefing authority is implemented under `T-ASSETS-014`: nested public
 `.pdscenario` setup fields are the sole authored source consumed by
 `setupLoadBriefing`, and the synthetic unused `briefing.json` duplicate is

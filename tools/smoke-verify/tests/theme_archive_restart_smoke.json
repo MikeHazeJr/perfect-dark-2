@@ -1,0 +1,68 @@
+{
+  "scenario_name": "theme_archive_restart_smoke",
+  "description": "T-ASSETS-030 restart-only proof: reuse the installed and enabled typed-example pdmod plus the saved example:tri_theme selection without copying, packing, removing, or replacing any fixture, then rebuild and apply the same UI/font/SFX/music closure in a second ordinary client process.",
+  "tags": ["modding", "pdmod", "pdxxx", "pdtheme", "theme", "restart", "lifecycle", "T-ASSETS-030"],
+  "paths_of_interest": [
+    "mods/installed/example_typed_pdxxx_basic.pdmod",
+    "mods-enabled.json",
+    "pd.ini",
+    "port/src/assetcatalog_scanner.c",
+    "port/src/assetcatalog_load.c",
+    "port/fast3d/pdgui_theme_loader.cpp"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 105,
+  "install_state": "current",
+  "boot_args": [
+    "--no-update-check",
+    "--no-net",
+    "--portable",
+    "--skip-intro"
+  ],
+  "input_sequence": [
+    { "at_ms": 0, "type": "wait", "comment": "The second process intentionally declares no fixtures, packed_fixtures, or remove_paths; it must reuse the exact prior install and saved theme selection." },
+    { "at_ms": 60000, "type": "key", "key": "Down", "action": "tap", "comment": "Exercise the restored custom theme through a real SDL menu transition." },
+    { "at_ms": 62000, "type": "key", "key": "Up", "action": "tap" },
+    { "at_ms": 75000, "type": "exit", "comment": "Exit after restored activation, font-atlas rebuild, nested music allocation, and menu interaction are durable." }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=theme_archive_restart_smoke",
+      "modmgr: loaded mods-enabled\\.json",
+      "modmgr: parsed mod\\.json for 'example_typed_pdxxx_basic'.*archive=yes",
+      "modmgr: loading mod 'example_typed_pdxxx_basic' from archive",
+      "PDTHEME\\.NESTED\\.REGISTER: owner=example:tri_theme id=example:tri_reticle type=",
+      "PDTHEME\\.NESTED\\.REGISTER: owner=example:tri_theme id=example:tri_theme_font type=",
+      "PDTHEME\\.NESTED\\.REGISTER: owner=example:tri_theme id=example:tri_click type=",
+      "PDTHEME\\.NESTED\\.REGISTER: owner=example:tri_theme id=example:tri_song type=",
+      "PDGUI theme loader: init .* active='example:tri_theme'",
+      "CATALOG\\.LIFECYCLE\\.ACTIVATE: activated font metadata payload 'example:tri_theme_font'",
+      "CATALOG\\.LIFECYCLE\\.ACTIVATE: activated audio runtime payload 'example:tri_click'",
+      "CATALOG\\.LIFECYCLE\\.ACTIVATE: activated audio runtime payload 'example:tri_song'.*sequence\\.mid",
+      "CATALOG: music 'example:tri_song' assigned private sequence slot [1-9]\\d*",
+      "PDGUI theme bundle: font='example:tri_theme_font' applied",
+      "PDGUI theme loader: applied 'example:tri_theme' from '",
+    "SMOKE: tap-press scancode=81",
+    "SMOKE: tap-press scancode=82",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "PDTHEME\\.NESTED\\.REJECT",
+      "PDGUI theme loader: lifecycle load failed",
+      "PDGUI theme loader: parse failed",
+      "PDGUI theme loader: consumer preflight failed",
+      "ASSET\\.SOURCE_ONLY",
+      "LOUDFAIL\\.FALLBACK",
+      "ASSET\\.FALLBACK",
+      "RomProvider:filenum"
+    ],
+    "required_counts": [
+      { "pattern": "PDGUI theme loader: applied 'example:tri_theme'", "min": 1, "max": 2 }
+    ]
+  }
+}

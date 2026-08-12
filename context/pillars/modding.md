@@ -42,10 +42,12 @@ source guard. The ordinary client now discovers the saved custom theme only
 after the catalog walk, preserves nested vector-font source paths, resolves
 sequenced-music siblings after the deepest archive boundary, applies custom
 UI/font/SFX/music, renders the theme, processes MKB navigation, and exits
-cleanly (24/24 smoke). Validation remains partial: `T-CATALOG-002` must stop
-stage diff from releasing explicit lifecycle references, `T-MENUS-002` must
-repair the clipped action-label footer, and physical controller/device-switch
-plus real peer distribution/restart proof remain open.
+cleanly (24/24 smoke). A second ordinary process reuses the unchanged installed
+package and enabled-mod state, restores the saved theme and complete nested
+closure, processes MKB navigation, and balances shutdown (31/31). The former
+stage-owner and clipped-footer blockers are implemented and live-proven under
+`T-CATALOG-002` and `T-MENUS-002`. Validation remains partial for real-peer
+package distribution plus physical controller/device-switch proof.
 
 Theme dependency ownership is implemented with source-frozen automated
 evidence under `T-ASSETS-027`. Public `theme.ini` may declare
