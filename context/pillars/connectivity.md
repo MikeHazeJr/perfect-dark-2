@@ -262,6 +262,14 @@ Per [audits/infrastructure-pillars-status-2026-04-27.md](../audits/infrastructur
 
 ## Known gaps
 
+- **P2P probe endpoints are not ENet match-server routes (B-1058/D-003).**
+  LAN/direct/STUN/UPnP/ICE operate private discovery sockets, but
+  `group_session` currently formats a winning probe endpoint as the address for
+  `netStartClientWithHolePunch`. STUN/UPnP can return this client's own
+  endpoint, ICE starts from local candidates, and neither invite side first
+  establishes the elected listen host. T-NETWORKING-001/002/006 are blocked on
+  D-003; the recommended authority-first option starts one real ENet host,
+  signs its route plus candidates, and gives joiners one connection owner.
 - **ICE peer candidate exchange not wired.** [p2p_ice.c:260](../../port/src/net/p2p_ice.c:260) `p2pIceAddPeerCandidate` exists but is never called from presence or invite layer in surveyed files. Without it, ICE tier probes only local NIC + local STUN reflexive against the hint, functionally equivalent to Tier 1 with backup.
 - **STUN reflexive not transmitted to peer.** [p2p_stun.c:125-131](../../port/src/net/p2p_stun.c:125) reports success with local reflexive as endpoint but does not coordinate with remote. Real STUN-based hole punching needs both sides to know each other's reflexive. Presence packet has `listen_ipv4 / listen_port` fields but the bridge from `p2pPublishMyReflexive` to presence outbound is not visible.
 - **Authority election does not yet perform live host migration.** The kbps

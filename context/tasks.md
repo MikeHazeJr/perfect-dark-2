@@ -19,6 +19,17 @@ traffic. This closes the measurement task only; automatic host migration and
 the broader P2P-to-ENet handoff remain `T-NETWORKING-008`/
 `T-NETWORKING-006` work.
 
+`D-003` is open and blocks `T-NETWORKING-001/002/006`. The prerequisite audit
+found B-1058: the six-tier machine tests private LAN/direct/STUN/UPnP/ICE probe
+sockets, but `group_session` treats a winning probe address as the remote ENet
+match-server route. STUN and UPnP currently return this client's own endpoint,
+ICE probes local candidates, and both invite sides can enter the client
+handoff without an elected authority first starting a listen server. The
+recommended option is authority-first listen host: elect one server, start it,
+sign its actual ENet route plus candidates, and let every other peer use one
+orchestrated join path. No partial endpoint patch was applied because it would
+still connect the wrong socket.
+
 `T-CATALOG-001` is implemented. Its only remaining legacy gate was live custom
 model rendering, and V-009 now proves the complete catalog-owned path in the
 ordinary client: `mod_needler:needler_model` receives private model slot 441

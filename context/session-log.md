@@ -1,5 +1,28 @@
 # Session Log (Active)
 
+## 2026-08-12 - B-1058 P2P route-ownership audit and D-003
+
+Goal: make the six-tier P2P machine the single friend-play connection owner.
+This matters because T-NETWORKING-004 now provides useful authority evidence,
+but that evidence cannot safely drive a route whose endpoint semantics are
+ambiguous.
+
+The read-only trace found a critical prerequisite mismatch. LAN/direct/STUN/
+UPnP/ICE tiers use private discovery/probe sockets, while `group_session`
+formats a successful probe address as the remote ENet match-server endpoint.
+STUN and UPnP publish this client's own endpoint as pair success, ICE probes
+local candidates, and signed presence carries no remote candidate. Both invite
+sides can also reach the client handoff without first starting one elected
+listen host. Therefore a narrow `p2pPairGetEndpoint -> netStartClient` rewrite
+would preserve or worsen the defect.
+
+Recorded B-1058 and created Workbench decision D-003. Option A (recommended)
+elects one authority, starts its listen server, signs its real ENet route plus
+peer candidates, and sends all other peers through one orchestrated handoff.
+Option B retains the legacy ENet waterfall and uses tiers only as hints;
+Option C builds a true gameplay mesh. T-NETWORKING-001/002/006 are truthfully
+blocked pending the choice, and no production endpoint code was changed.
+
 ## 2026-08-12 - T-NETWORKING-004 passive upload measurement
 
 Goal: replace the local `0 kbps` authority placeholder with durable evidence
