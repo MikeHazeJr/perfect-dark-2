@@ -308,11 +308,32 @@ TEST_CASE("every public ingestion boundary uses checked path-specific APIs",
 	REQUIRE(ingress_fixtures.find("ingress:mixed_anim") !=
 		std::string::npos);
 	REQUIRE(ingress_fixtures.find("net_mixed.pdca") != std::string::npos);
+	REQUIRE(ingress_fixtures.find("Get-CatalogIngressFamilySpecs") !=
+		std::string::npos);
+	REQUIRE(ingress_fixtures.find("$familySpecs.Count -ne 27") !=
+		std::string::npos);
+	REQUIRE(ingress_fixtures.find("probe-list.txt") != std::string::npos);
+	REQUIRE(ingress_fixtures.find("27 families x 3 ingresses") !=
+		std::string::npos);
 	REQUIRE(ingress_smoke.find("B-1043") != std::string::npos);
 	REQUIRE(ingress_smoke.find("loader_absent=1") != std::string::npos);
+	REQUIRE(ingress_smoke.find("loaded 243 line") != std::string::npos);
 	REQUIRE(scanner.find("return rejected ? -(count + 1) : count;") !=
 		std::string::npos);
 	REQUIRE(scanner.find("if (rejected)") != std::string::npos);
 	REQUIRE(scanner.find("CATALOG.SCAN.TRANSACTION.ROLLBACK") !=
+		std::string::npos);
+
+	/* B-1049: BODY/HEAD admission must resolve an actually present public
+	 * mesh member inside the same FS_MAXPATH contract used by the catalog,
+	 * rather than preflighting a shorter assumed model.obj suffix and then
+	 * publishing a row backed by an oversized temporary path. */
+	REQUIRE(scanner.find("sourceModelPathFromMeshArchive(mesh,\n\t\t\t\tsource_probe, sizeof(source_probe))")
+		!= std::string::npos);
+	REQUIRE(scanner.find("char source_path[FS_MAXPATH + 32]") ==
+		std::string::npos);
+	REQUIRE(scanner.find("return assetPathJoinChecked(out, outsz, mesh_archive, \"::\", \"model.obj\")")
+		== std::string::npos);
+	REQUIRE(scanner.find("out[0] = '\\0';\n\treturn 0;") !=
 		std::string::npos);
 }

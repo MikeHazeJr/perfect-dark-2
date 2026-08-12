@@ -67,6 +67,17 @@ modes, complete 1024 rejection, and a nine-row mixed transaction restored to
 zero observable residue. T-CATALOG-003 remains partial only for comprehensive
 live all-family boundary coverage.
 
+That final residual is now closed. The production-installed matrix covers all
+27 public archive families through loose typed archives, nested `.pdmod`, and
+received PDCA at 128/1023/1024 bytes while retaining the 127 representative
+and mixed-descriptor rollback. It exposed and fixed B-1047 (narrow effect
+member mirrors), B-1048 (an unsupported checked-in shader), and B-1049
+(BODY/HEAD admission checked an assumed shorter member). The final client
+passes 43/43: 162 accepted loads, 171 exact catalog/provider/runtime identities,
+and 81 atomic over-cap rejections. Full/focused tests, native-source guard,
+structured selftest, and all-family recursive conformance also pass;
+T-CATALOG-003 is implemented.
+
 ## 2026-08-08 stage-owner lifecycle separation
 
 Workbench `T-CATALOG-002` separates stage-category ownership from the

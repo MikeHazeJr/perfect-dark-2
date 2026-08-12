@@ -4728,3 +4728,20 @@ harness 2/2 and clean exit. T-ASSETS-022 remains partial: ordinary edited
 gameplay plus load/release/restart, repeated-owner, and real network-
 distribution receipts remain T-ASSETS-025. Durable detail:
 `context/evidence/2026-08-08-b992-runtime-slot-capacity.md`.
+
+## 2026-08-12 - T-CATALOG-003 comprehensive all-family path boundary closure
+
+- Expanded the installed-client boundary fixture from representative assets to
+  all 27 public archive families through loose typed archives, nested `.pdmod`,
+  and received PDCA at 128, 1023, and rejected 1024-byte source lengths.
+- Fixed B-1047 by widening `.pdeffect` member mirrors to the repository path
+  contract; fixed B-1048 by regenerating the editable example with the real
+  `classic_glow` pipeline and making conformance enforce production shader
+  values; fixed B-1049 by resolving the actual BODY/HEAD mesh member before
+  catalog publication in an exact-capacity buffer.
+- Final installed-client smoke `.claude/smoke-verify-runs/results-20260812T120223Z.json`
+  passes 43/43 and exits cleanly: 162 accepted loads, 171 exact catalog to
+  FileProvider to runtime identities, and all 81 over-cap rows absent. Focused
+  path tests pass 3,654/20, long-effect-member 9/1, full tests 56,562/1,027,
+  native-source guard, selftest, and 28-root/52-recursive all-family
+  conformance pass. Workbench T-CATALOG-003 is implemented.

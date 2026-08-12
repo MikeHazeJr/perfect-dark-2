@@ -4,6 +4,7 @@
 #include <stddef.h>
 
 #include <PR/ultratypes.h>
+#include "fs.h"
 
 struct explosiontype;
 struct sparktype;
@@ -39,8 +40,11 @@ typedef struct pd_effect_source_info {
 	pd_effect_profile_kind_t profile_kind;
 	char catalog_id[128];
 	char name[128];
-	char effect_file[256];
-	char timeline_file[256];
+	/* Public archive-member paths follow the same capacity contract as every
+	 * catalog/provider path. A 256-byte mirror silently truncated otherwise
+	 * valid nested .pdeffect sources before archive lookup (B-1047). */
+	char effect_file[FS_MAXPATH];
+	char timeline_file[FS_MAXPATH];
 	char effect_key[64];
 	char target_key[64];
 	char shader_id[128];

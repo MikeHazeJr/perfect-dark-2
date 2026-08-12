@@ -1722,13 +1722,14 @@ static s32 sourceModelPathFromMeshArchive(const char *mesh_archive,
 
 	for (i = 0; i < sizeof(candidates) / sizeof(candidates[0]); i++) {
 		if (!assetPathJoinChecked(out, outsz, mesh_archive, "::",
-				candidates[i])) return 0;
+				candidates[i])) continue;
 		if (fsFileSize(out) > 0) {
 			return 1;
 		}
 	}
 
-	return assetPathJoinChecked(out, outsz, mesh_archive, "::", "model.obj");
+	out[0] = '\0';
+	return 0;
 }
 
 static s32 manifestPathFromMeshArchive(const char *mesh_archive,
@@ -1989,10 +1990,10 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 	if (type == ASSET_BODY || type == ASSET_HEAD) {
 		const char *mesh = iniGet(ini, "mesh_archive", "");
 		char source_probe[FS_MAXPATH];
-		if (mesh[0] && !assetPathJoinChecked(source_probe,
-				sizeof(source_probe), mesh, "::", "model.obj")) {
+		if (mesh[0] && !sourceModelPathFromMeshArchive(mesh,
+				source_probe, sizeof(source_probe))) {
 			sysLogPrintf(LOG_WARNING,
-				"ASSET.PATH.REJECT: mesh source chain exceeds repository capacity in %s",
+				"ASSET.PATH.REJECT: mesh source is missing or exceeds repository capacity in %s",
 				dirpath ? dirpath : "<unknown>");
 			return 0;
 		}
@@ -2205,7 +2206,7 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 			const char *mesh = iniGet(ini, "mesh_archive", "");
 			const char *hand = iniGet(ini, "hand_archive", "");
 			if (mesh[0]) {
-				char source_path[FS_MAXPATH + 32];
+				char source_path[FS_MAXPATH];
 				strncpy(e->ext.body.mesh_archive, mesh,
 					sizeof(e->ext.body.mesh_archive) - 1);
 				e->ext.body.mesh_archive[
@@ -2237,7 +2238,7 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 		{
 			const char *mesh = iniGet(ini, "mesh_archive", "");
 			if (mesh[0]) {
-				char source_path[FS_MAXPATH + 32];
+				char source_path[FS_MAXPATH];
 				strncpy(e->ext.head.mesh_archive, mesh,
 					sizeof(e->ext.head.mesh_archive) - 1);
 				e->ext.head.mesh_archive[

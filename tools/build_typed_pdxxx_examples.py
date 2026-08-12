@@ -2404,7 +2404,7 @@ def update_effect() -> None:
          "target_key = weapon\n"
          "effect_file = effect.graph.json\n"
          "timeline_file = timeline.json\n"
-         "shader_id = example_glow\n"
+         "shader_id = classic_glow\n"
          "intensity = 0.75\n"),
         ("effect.graph.json", graph),
         ("timeline.json", timeline),

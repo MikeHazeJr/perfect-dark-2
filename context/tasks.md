@@ -244,6 +244,21 @@ partial only for comprehensive live all-family standalone, nested `.pdmod`,
 and received-network boundary proof. Evidence:
 `context/evidence/2026-08-12-t-catalog-003-atomic-admission.md`.
 
+The final comprehensive T-CATALOG-003 boundary is now implemented. The live
+fixture recursively rewrites all 27 public archive families and proves loose,
+nested `.pdmod`, and received-PDCA source paths at 128 and 1023 bytes, with
+atomic 1024-byte rejection; the original 127 representative and B-1043 mixed
+rollback remain covered. The first receipt correctly exposed B-1047's narrow
+`.pdeffect` member mirrors, B-1048's unsupported checked-in effect shader, and
+B-1049's assumed BODY/HEAD `model.obj` admission suffix. All three are fixed.
+The final installed client passes 43/43 with 162 accepted loads, 171 exact
+catalog-to-provider-to-runtime identities, and all 81 over-cap rows absent.
+Focused tests pass 3,654/20 plus 9/1 for the long effect member; the complete
+suite passes 56,562/1,027; native-source guard, structured selftest, and
+28-root/52-recursive all-family conformance pass. Workbench T-CATALOG-003 is
+implemented. Evidence:
+`context/evidence/2026-08-12-t-catalog-003-all-family-boundaries.md`.
+
 **2026-08-08 ACTIVE ROADMAP EXECUTION.** The canonical Workbench routes the
 live asset program ahead of 36 explicitly deferred historical/manual-resume
 items. Character (`T-ASSETS-010`), voice metadata/localization

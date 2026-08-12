@@ -1,0 +1,10 @@
+{
+  "Name": "catalog_three_ingress_boundaries_smoke",
+  "Category": "scenario",
+  "Passed": true,
+  "ExitCode": 0,
+  "ElapsedSeconds": 113.0675097,
+  "AssertionsTotal": 43,
+  "AssertionsMet": 43,
+  "Failures": []
+}

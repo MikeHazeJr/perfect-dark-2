@@ -1283,6 +1283,8 @@ static void bootCountCatalogIngressDependency(const char *dep_id,
 	(*(s32 *)userdata)++;
 }
 
+static asset_type_e bootDebugParseAssetType(const char *s);
+
 static void bootApplyDebugRejectCatalogIngressList(void)
 {
 	if (!g_BootDebugRejectCatalogIngressList
@@ -1304,10 +1306,21 @@ static void bootApplyDebugRejectCatalogIngressList(void)
 		line[strcspn(line, "\r\n")] = '\0';
 		char *kind = line;
 		char *path = strchr(kind, '|');
-		char *id = path ? strchr(path + 1, '|') : NULL;
-		if (!path || !id) continue;
+		char *type_name = path ? strchr(path + 1, '|') : NULL;
+		char *id = type_name ? strchr(type_name + 1, '|') : NULL;
+		if (!path || !type_name) continue;
 		*path++ = '\0';
-		*id++ = '\0';
+		*type_name++ = '\0';
+		asset_type_e type = ASSET_GAMEMODE;
+		if (id) {
+			*id++ = '\0';
+			type = bootDebugParseAssetType(type_name);
+		} else {
+			/* Backward compatibility with the original kind|path|id fixture. */
+			id = type_name;
+			type_name = "gamemode";
+		}
+		if (type == ASSET_NONE || !id[0]) continue;
 		s32 registered = 0;
 		if (strcmp(kind, "folder") == 0) {
 			registered = assetCatalogScanExternalLayoutFolder(
@@ -1329,12 +1342,12 @@ static void bootApplyDebugRejectCatalogIngressList(void)
 			&dependency_count);
 		s32 catalog_absent = assetCatalogResolve(id) ? 0 : 1;
 		s32 runtime_absent = assetRuntimeFindByTypeAndId(
-			ASSET_GAMEMODE, id) ? 0 : 1;
+			type, id) ? 0 : 1;
 		sysLogPrintf(registered <= 0 && catalog_absent && runtime_absent
 				&& dependency_count == 0
 				? LOG_NOTE : LOG_WARNING,
-			"CATALOG.INGRESS.REJECT: kind=%s id='%s' registered=%d catalog_absent=%d runtime_absent=%d deps=%d",
-			kind, id, registered, catalog_absent, runtime_absent,
+			"CATALOG.INGRESS.REJECT: kind=%s type=%s id='%s' registered=%d catalog_absent=%d runtime_absent=%d deps=%d",
+			kind, type_name, id, registered, catalog_absent, runtime_absent,
 			dependency_count);
 	}
 	fclose(fp);
@@ -1885,10 +1898,12 @@ static void bootDebugLogTypedPayload(asset_type_e type, const char *asset_id, s3
 	}
 
 	sysLogPrintf(LOG_NOTE,
-		"BOOT: --debug-load-catalog-assets result type=%s id='%s' result=%s state=%d payload=%d ref=%d bytes=%u",
+		"BOOT: --debug-load-catalog-assets result type=%s id='%s' result=%s state=%d payload=%d ref=%d bytes=%u source_tex=%d source_anim=%d source_sound=%d",
 		type_name, asset_id, loaded ? "OK" : "FAIL",
 		(s32)entry->load_state, (s32)entry->payload_kind,
-		(s32)entry->ref_count, entry->data_size_bytes);
+		(s32)entry->ref_count, entry->data_size_bytes,
+		(s32)entry->source_texnum, (s32)entry->source_animnum,
+		(s32)entry->source_soundnum);
 
 	if (!loaded) {
 		return;
@@ -1899,13 +1914,20 @@ static void bootDebugLogTypedPayload(asset_type_e type, const char *asset_id, s3
 			? fileProviderPath(entry->source.primary) : NULL;
 		const asset_runtime_binding_t *binding =
 			assetRuntimeFindByTypeAndId(type, asset_id);
-		const char *runtime_path = binding ? binding->primary_path : NULL;
+		/* Model, texture, animation, and audio use specialized payload adapters
+		 * rather than asset_runtime_binding_t. A successful typed load consumes
+		 * entryGetFilePath(entry), which is this exact FileProvider path; report
+		 * that selected activation path without inventing a generic binding. */
+		const char *runtime_path = binding ? binding->primary_path
+			: (loaded ? catalog_path : NULL);
+		const char *adapter = binding ? "binding" : "specialized";
 		s32 exact = catalog_path && runtime_path
 			&& strcmp(catalog_path, runtime_path) == 0;
 		sysLogPrintf(exact ? LOG_NOTE : LOG_WARNING,
-			"CATALOG.INGRESS.IDENTITY: type=%s id='%s' provider=%s length=%u exact=%d catalog='%s' runtime='%s'",
+			"CATALOG.INGRESS.IDENTITY: type=%s id='%s' provider=%s adapter=%s length=%u exact=%d catalog='%s' runtime='%s'",
 			type_name, asset_id,
 			entry->source.primary.provider == fileProvider() ? "FileProvider" : "other",
+			adapter,
 			catalog_path ? (u32)strlen(catalog_path) : 0, exact,
 			catalog_path ? catalog_path : "", runtime_path ? runtime_path : "");
 	}

@@ -40,6 +40,9 @@
   the prior installed content when a typed asset is rejected after extraction.
 - Made mixed received archives all-or-nothing across catalog rows, dependency
   edges, runtime slots, provider paths, and loader state when any sibling fails.
+- Preserved exact editable source paths through every public archive family at
+  the repository limit, rejecting over-limit loose, nested, and received assets
+  before they can publish partial catalog state.
 - Kept live typed-effect replacement transactional across catalog invalidation,
   filesystem rollback, pending-owner reload, and manifest component checks.
 - Balanced overlapping custom-weapon/effect/sound owners through release and

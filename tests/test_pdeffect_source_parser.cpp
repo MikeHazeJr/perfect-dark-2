@@ -130,7 +130,7 @@ TEST_CASE("legacy v1 pdeffect validates exact public identity and safe members",
 		"target_key = weapon\n"
 		"effect_file = effect.graph.json\n"
 		"timeline_file = timeline.json\n"
-		"shader_id = example_glow\n"
+		"shader_id = classic_glow\n"
 		"intensity = 0.75\n";
 	const char *graph =
 		"{\"schema\":\"pd.effect_graph.v1\",\"asset_id\":"
@@ -190,5 +190,49 @@ TEST_CASE("private pdeffect manifest aliases cannot override public descriptor a
 	CHECK(std::string(info.effect_file) == "effect.graph.json");
 	CHECK(info.timeline_file[0] == '\0');
 	std::free(graph);
+	std::filesystem::remove(path, ec);
+}
+
+TEST_CASE("B-1047 pdeffect archive parser preserves a maximum-contract member name",
+	"[modding][pdxxx][pdeffect][t-assets-017][t-catalog-003][b1047]")
+{
+	/* The persistent mirror must carry every member name accepted by the
+	 * catalog/provider path contract. This name is intentionally far beyond
+	 * the retired 256-byte field while remaining below FS_MAXPATH. */
+	std::string member(900, 'r');
+	member += ".graph.json";
+	REQUIRE(member.size() < FS_MAXPATH);
+	const std::string descriptor =
+		"[effect]\n"
+		"catalog_id = test:long_effect_member\n"
+		"name = Long Effect Member\n"
+		"effect_key = glow\n"
+		"target_key = weapon\n"
+		"effect_file = " + member + "\n"
+		"shader_id = classic_glow\n"
+		"intensity = 0.75\n";
+	const char *graph =
+		"{\"schema\":\"pd.effect_graph.v1\",\"asset_id\":"
+		"\"test:long_effect_member\",\"nodes\":[],\"edges\":[]}";
+	const std::filesystem::path path = std::filesystem::temp_directory_path() /
+		"pd2_b1047_long_member.pdeffect";
+	std::error_code ec;
+	std::filesystem::remove(path, ec);
+	mod_archive_writer_t *writer = modArchiveBegin(path.string().c_str());
+	REQUIRE(writer != nullptr);
+	REQUIRE(modArchiveAddFileMem(writer, "effect.ini", descriptor.data(),
+		(u32)descriptor.size()) == MODARCHIVE_OK);
+	REQUIRE(modArchiveAddFileMem(writer, member.c_str(), graph,
+		(u32)std::strlen(graph)) == MODARCHIVE_OK);
+	REQUIRE(modArchiveFinish(writer) == MODARCHIVE_OK);
+
+	pd_effect_source_info_t info = {};
+	char error[256] = {};
+	INFO(error);
+	REQUIRE(sizeof(info.effect_file) == FS_MAXPATH);
+	REQUIRE(sizeof(info.timeline_file) == FS_MAXPATH);
+	REQUIRE(pdEffectSourceParseArchiveFile(path.string().c_str(),
+		"test:long_effect_member", &info, error, sizeof(error)) == 1);
+	CHECK(std::string(info.effect_file) == member);
 	std::filesystem::remove(path, ec);
 }

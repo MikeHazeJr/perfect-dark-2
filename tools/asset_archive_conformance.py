@@ -3050,6 +3050,30 @@ def validate_effect_source_contract(label: str, zf: zipfile.ZipFile,
         for key in sorted(descriptor_keys - allowed_descriptor):
             errors.append(f"{label} effect.ini has unknown field {key}")
 
+        # A public v1 descriptor is not conformant merely because shader_id is
+        # a string. It must select one of the fixed pipelines that the exact
+        # production node kind can execute; otherwise catalog admission only
+        # postpones an inevitable fail-closed activation (B-1048).
+        if descriptor_values.get("schema") != "pd.effect_graph.v2":
+            effect_key = descriptor_values.get("effect_key", "")
+            shader_id = descriptor_values.get("shader_id", "")
+            shader_pipelines = {
+                "tint": {"classic_tint"},
+                "glow": {"classic_glow"},
+                "shimmer": {"classic_shimmer"},
+                "darken": {"classic_darken"},
+                "screen": {"classic_screen"},
+                "particle": {"classic_particle"},
+                "explosion": {"classic_tint", "needler_pink_burst"},
+                "spark": {"classic_tint", "needler_pink_burst"},
+                "smoke": {"classic_tint", "needler_pink_burst"},
+            }
+            if shader_id and shader_id not in shader_pipelines.get(effect_key, set()):
+                errors.append(
+                    f"{label} effect.ini shader_id {shader_id} has no "
+                    f"production pipeline for effect_key {effect_key or '<missing>'}"
+                )
+
     if ("effect.graph.json" in name_set and
             descriptor_values.get("effect_file") != "effect.graph.json"):
         errors.append(
@@ -8026,8 +8050,9 @@ def run_selftest() -> int:
                 "effect.graph.json": "{}",
                 "timeline.json": "{}",
             },
-            ("effect.ini", "intensity = 1.0", "explosion_class = small"),
-            "effect.ini has unknown field explosion_class",
+            ("effect.ini", "shader_id = classic_tint",
+             "shader_id = example_glow"),
+            "shader_id example_glow has no production pipeline for effect_key explosion",
         ),
         (
             "PROP",
