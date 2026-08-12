@@ -25,7 +25,8 @@ injection would leave the production decision disconnected.
 - Client and updater build: PASS.
 - Explicit tests build: PASS.
 - `[t-networking-004]`: PASS, 37 assertions / 5 cases.
-- Complete `pd-tests`: PASS, 56,664 assertions / 1,036 cases.
+- Complete `pd-tests`: PASS, 56,664 assertions / 1,036 cases; retained log
+  `context/evidence/2026-08-12-t-networking-004-full-suite.log`.
 - Ordinary two-process listen-host/client smoke: PASS, 23/23 assertions,
   `.claude/smoke-verify-runs/results-20260812T151813Z.json`.
 - Host log: real match traffic produced `64 kbps`; host `pd.ini` persisted
