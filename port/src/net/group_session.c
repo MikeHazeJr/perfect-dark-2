@@ -13,6 +13,7 @@
  */
 
 #include "net/group_session.h"
+#include "net/net_bandwidth.h"
 #include "net/p2p.h"
 #include "net/net.h"
 #include "net/netholepunch.h"
@@ -78,6 +79,9 @@ static void enterState(group_peer_t *p, group_peer_state_t s)
 static void enterFailure(group_peer_t *p, group_fail_reason_t reason)
 {
 	if (!p) return;
+	p2pTurnRegisterRelayCandidate(p->handle, 0, 0, 0);
+	p->last_kbps = 0;
+	p->last_kbps_ms = 0;
 	p->fail = reason;
 	enterState(p, GROUP_PEER_FAILED);
 	sysLogPrintf(LOG_WARNING,
@@ -106,6 +110,9 @@ void groupSessionShutdown(void)
 		if (s_Session.peers[i].handle && s_Session.peers[i].pair_id) {
 			p2pPairCancel(s_Session.peers[i].pair_id);
 		}
+		if (s_Session.peers[i].handle) {
+			p2pTurnRegisterRelayCandidate(s_Session.peers[i].handle, 0, 0, 0);
+		}
 	}
 	memset(&s_Session, 0, sizeof(s_Session));
 	s_Initialised = 0;
@@ -130,30 +137,41 @@ void groupSessionRecomputeAuthority(void)
 {
 	if (!s_Initialised) return;
 
-	/* Candidates: local + every CONNECTED peer. Authority must be
-	 * locally-confirmed reachable. RESOLVING peers are skipped (their
-	 * kbps figure may be stale or absent). */
-	u32 best_handle = socialMyHandle();
-	u32 best_kbps   = 0;       /* placeholder for local kbps until measurement is wired */
-	u8  best_idx    = 0xFF;    /* 0xFF means "local is authority" */
-
+	/* Candidates: local + every CONNECTED peer. Remote authority must be
+	 * locally-confirmed reachable; stale speed evidence degrades to the
+	 * initiator/handle fallback instead of retaining a phantom winner. */
+	const u32 now_ms = SDL_GetTicks();
+	s_Session.local_kbps = netUploadKbpsEstimate();
+	net_authority_candidate_t candidates[GROUP_SESSION_MAX_PEERS + 1];
+	memset(candidates, 0, sizeof(candidates));
+	candidates[0].handle = socialMyHandle();
+	candidates[0].kbps = s_Session.local_kbps;
+	candidates[0].eligible = candidates[0].handle != 0;
+	candidates[0].is_local = 1;
 	for (s32 i = 0; i < GROUP_SESSION_MAX_PEERS; i++) {
 		const group_peer_t *p = &s_Session.peers[i];
-		if (p->handle == 0) continue;
-		if (p->state != GROUP_PEER_CONNECTED) continue;
-		if (p->last_kbps > best_kbps) {
-			best_kbps = p->last_kbps;
-			best_handle = p->handle;
-			best_idx = (u8)i;
-		}
+		const s32 fresh = p->last_kbps_ms != 0 &&
+			(now_ms - p->last_kbps_ms) <= GROUP_KBPS_FRESH_MS;
+		candidates[i + 1].handle = p->handle;
+		candidates[i + 1].kbps = fresh ? p->last_kbps : 0;
+		candidates[i + 1].eligible = p->handle != 0 &&
+			p->state == GROUP_PEER_CONNECTED;
 	}
+
+	net_authority_choice_t choice;
+	const s32 have_choice = netBandwidthChooseAuthority(candidates,
+		GROUP_SESSION_MAX_PEERS + 1, s_Session.initiator_handle, &choice);
+	const u32 best_handle = have_choice ? choice.handle : 0;
+	const u32 best_kbps = have_choice ? choice.kbps : 0;
+	const u8 best_idx = !have_choice || choice.is_local ? 0xFF :
+		(u8)(choice.index - 1);
 
 	const u8  prev_local = s_Session.is_local_authority;
 	const u32 prev_h     = s_Session.authority_handle;
 
 	s_Session.authority_handle    = best_handle;
 	s_Session.authority_idx       = best_idx;
-	s_Session.is_local_authority  = (best_idx == 0xFF) ? 1 : 0;
+	s_Session.is_local_authority  = have_choice && choice.is_local ? 1 : 0;
 
 	if (prev_h != s_Session.authority_handle ||
 	    prev_local != s_Session.is_local_authority) {
@@ -169,11 +187,15 @@ void groupSessionUpdateKbps(u32 handle, u32 kbps)
 {
 	group_peer_t *p = findPeer(handle);
 	if (!p) return;
-	if (p->last_kbps == kbps) return;
+	if (kbps > NET_UPLOAD_KBPS_MAX) kbps = 0;
+	const s32 changed = p->last_kbps != kbps;
 	p->last_kbps = kbps;
+	p->last_kbps_ms = SDL_GetTicks();
 	/* Feed the TURN selection too (it picks the highest reported kbps). */
-	p2pTurnRegisterRelayCandidate(handle, p->ipv4, p->port, kbps);
-	groupSessionRecomputeAuthority();
+	if (p->state == GROUP_PEER_CONNECTED && p->ipv4 != 0 && p->port != 0) {
+		p2pTurnRegisterRelayCandidate(handle, p->ipv4, p->port, kbps);
+	}
+	if (changed) groupSessionRecomputeAuthority();
 }
 
 /* -------------------------------------------------------------------------
@@ -195,6 +217,11 @@ s32 groupSessionRecordSentInvite(u32 invitee_handle)
 		p->fail = GROUP_FAIL_NONE;
 		enterState(p, GROUP_PEER_INVITED);
 	}
+	if (s_Session.initiator_handle == 0) {
+		s_Session.initiator_handle = socialMyHandle();
+	}
+	const presence_peer_t *pp = presencePeerByHandle(invitee_handle);
+	if (pp) groupSessionUpdateKbps(invitee_handle, pp->upload_kbps);
 	return 0;
 }
 
@@ -206,10 +233,14 @@ s32 groupSessionAcceptInvite(u32 inviter_handle)
 	group_peer_t *p = allocPeer(inviter_handle);
 	if (!p) return -1;
 	p->fail = GROUP_FAIL_NONE;
+	if (s_Session.initiator_handle == 0) {
+		s_Session.initiator_handle = inviter_handle;
+	}
 
 	/* Pre-flight version check: if the friend's last presence pong reported
 	 * a different protocol, trip Q14 mismatch UX without consuming a p2p slot. */
 	const presence_peer_t *pp = presencePeerByHandle(inviter_handle);
+	if (pp) groupSessionUpdateKbps(inviter_handle, pp->upload_kbps);
 	if (pp && pp->proto_version != 0 && pp->proto_version != NET_PROTOCOL_VER) {
 		p->their_proto = pp->proto_version;
 		strncpy(p->their_agent,
@@ -251,6 +282,7 @@ void groupSessionOnInviteResponse(u32 from_handle, s32 accepted)
 
 	/* Same path as accept-side: kick a p2p pair if we haven't already. */
 	const presence_peer_t *pp = presencePeerByHandle(from_handle);
+	if (pp) groupSessionUpdateKbps(from_handle, pp->upload_kbps);
 	u32 hint_ipv4 = 0; u16 hint_port = 0;
 	if (!socialFriendGetEndpoint(from_handle, &hint_ipv4, &hint_port)) {
 		if (pp && pp->cached_ipv4 != 0) {
@@ -275,7 +307,11 @@ void groupSessionDropPeer(u32 handle)
 		p2pPairCancel(p->pair_id);
 		p->pair_id = 0;
 	}
+	p2pTurnRegisterRelayCandidate(handle, 0, 0, 0);
 	memset(p, 0, sizeof(group_peer_t));
+	if (s_Session.initiator_handle == handle) {
+		s_Session.initiator_handle = 0;
+	}
 
 	/* Recount session-occupancy. */
 	s32 any = 0;
@@ -303,6 +339,11 @@ static void onPairOpen(group_peer_t *p, const p2p_endpoint_t *ep)
 	p->ipv4 = conn_ipv4;
 	p->port = conn_port;
 	enterState(p, GROUP_PEER_CONNECTED);
+	if (p->last_kbps != 0 && p->last_kbps_ms != 0 &&
+		(SDL_GetTicks() - p->last_kbps_ms) <= GROUP_KBPS_FRESH_MS) {
+		p2pTurnRegisterRelayCandidate(p->handle, p->ipv4, p->port,
+			p->last_kbps);
+	}
 
 	/* Hand off to the existing match-start flow.  Format the resolved
 	 * endpoint as "ip:port" and call the hole-punch-aware client path if we are the
@@ -338,9 +379,21 @@ void groupSessionTick(void)
 {
 	if (!s_Initialised) return;
 
+	const u32 now_ms = SDL_GetTicks();
+	const u32 previous_local_kbps = s_Session.local_kbps;
+	const u32 current_local_kbps = netUploadKbpsEstimate();
+	s32 authority_dirty = previous_local_kbps != current_local_kbps;
+
 	for (s32 i = 0; i < GROUP_SESSION_MAX_PEERS; i++) {
 		group_peer_t *p = &s_Session.peers[i];
 		if (p->handle == 0) continue;
+		if (p->last_kbps_ms != 0 &&
+			(now_ms - p->last_kbps_ms) > GROUP_KBPS_FRESH_MS) {
+			p2pTurnRegisterRelayCandidate(p->handle, 0, 0, 0);
+			p->last_kbps = 0;
+			p->last_kbps_ms = 0;
+			authority_dirty = 1;
+		}
 		if (p->state != GROUP_PEER_RESOLVING) continue;
 		if (p->pair_id == 0) continue;
 
@@ -365,6 +418,7 @@ void groupSessionTick(void)
 			p->pair_id = 0;
 		}
 	}
+	if (authority_dirty) groupSessionRecomputeAuthority();
 }
 
 /* -------------------------------------------------------------------------

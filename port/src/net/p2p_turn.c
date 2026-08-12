@@ -151,7 +151,11 @@ static relay_cand_t *bestRelayCand(void)
 	for (s32 i = 0; i < TURN_MAX_RELAY_CANDS; i++) {
 		if (!s_Cands[i].in_use) continue;
 		if (s_Cands[i].reported_kbps == 0) continue;
-		if (!best || s_Cands[i].reported_kbps > best->reported_kbps) best = &s_Cands[i];
+		if (!best || s_Cands[i].reported_kbps > best->reported_kbps ||
+			(s_Cands[i].reported_kbps == best->reported_kbps &&
+			 s_Cands[i].peer_handle < best->peer_handle)) {
+			best = &s_Cands[i];
+		}
 	}
 	return best;
 }
@@ -179,7 +183,7 @@ static turn_attempt_t *findAttemptByNonce(u32 nonce)
 void p2pTurnRegisterRelayCandidate(u32 peer_handle, u32 ipv4, u16 port, u32 kbps)
 {
 	relay_cand_t *c = findRelayCandByPeer(peer_handle);
-	if (kbps == 0) {
+	if (kbps == 0 || ipv4 == 0 || port == 0) {
 		if (c) { c->in_use = 0; }
 		return;
 	}

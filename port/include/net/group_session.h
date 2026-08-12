@@ -15,7 +15,9 @@
  *
  *   1. Highest reported_kbps wins.
  *   2. Match initiator as fallback when no kbps data is available
- *      (first session of a fresh install) or on a tie.
+ *      (first session of a fresh install) or on an exact tie.
+ *   3. Smallest public handle as the deterministic tie-break if the
+ *      initiator is no longer an eligible candidate.
  *
  * If the authority drops mid-match, quiet failover re-elects the next
  * highest-bandwidth peer in the mesh. The match continues.
@@ -61,6 +63,7 @@ typedef struct group_peer_s {
 	group_peer_state_t  state;
 	group_fail_reason_t fail;
 	u32                 last_kbps;        /* used for authority election */
+	u32                 last_kbps_ms;     /* signed presence report freshness */
 	u32                 entered_state_ms;
 	u32                 ipv4;             /* host order, valid in CONNECTED */
 	u16                 port;
@@ -76,6 +79,8 @@ typedef struct group_session_s {
 	u8           is_local_authority;
 	u8           _pad;
 	u32          authority_handle; /* mirror for read accessors */
+	u32          initiator_handle; /* tie/no-data fallback for this group */
+	u32          local_kbps;       /* fresh passive local ENet measurement */
 	group_peer_t peers[GROUP_SESSION_MAX_PEERS];
 } group_session_t;
 

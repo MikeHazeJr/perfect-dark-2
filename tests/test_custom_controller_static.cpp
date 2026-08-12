@@ -104,8 +104,8 @@ TEST_CASE("social presence carries privacy-safe input class",
 	REQUIRE(!friends.empty());
 
 	requireContains(presenceH, "input_class");
-	requireContains(presenceC, "PRESENCE_VERSION          3");
-	requireContains(presenceC, "pd-presence-v3");
+	requireContains(presenceC, "PRESENCE_VERSION          4");
+	requireContains(presenceC, "pd-presence-v4");
 	requireContains(presenceC, "actionmapGetLastInputClass");
 	requireContains(presenceC, "input_class");
 	requireContains(friends, "Input: %s");

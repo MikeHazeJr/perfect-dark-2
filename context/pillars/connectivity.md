@@ -1,6 +1,6 @@
 # Connectivity / Online
 
-> ENet UDP transport. Server-authoritative wire protocol at v53. 6-tier P2P NAT traversal (LAN -> DIRECT -> STUN -> UPnP -> ICE -> TURN). Connect codes hide raw IPs. Presence service (Ed25519 v3). Voice (libopus, optional). Listen-host is the current shipping target; dedicated server deferred.
+> ENet UDP transport. Server-authoritative wire protocol at v53. 6-tier P2P NAT traversal (LAN -> DIRECT -> STUN -> UPnP -> ICE -> TURN). Connect codes hide raw IPs. Presence service (Ed25519 v4). Voice (libopus, optional). Listen-host is the current shipping target; dedicated server deferred.
 
 ---
 
@@ -128,7 +128,7 @@ Escalation chain:
 
 ## Presence
 
-[port/src/presence.c](../../port/src/presence.c). Always-on UDP socket port 27105. 184-byte frames signed Ed25519 over first 120 bytes plus domain string `"pd-presence-v3"` (lines 64-70). v2 added pubkey + signature on 2026-04-25; v3 added the privacy-safe input class byte on 2026-05-21.
+[port/src/presence.c](../../port/src/presence.c). Always-on UDP socket port 27105. 184-byte frames signed Ed25519 over first 120 bytes plus domain string `"pd-presence-v4"`. v2 added pubkey + signature on 2026-04-25; v3 added the privacy-safe input class byte on 2026-05-21; v4 added the passive upload estimate at bytes 84-87 on 2026-08-12 while reducing the status field to 44 bytes.
 
 Ping interval 30s, online window 60s. Friends pinged via social friend list iteration. **No external presence service**; no lobby browser, no HTTPS matchmaking.
 
@@ -150,7 +150,7 @@ Connect-code UI surfaces (`pdguiFriendsStatusIndicatorRender` top-right pill) ea
 
 ### Input class presence
 
-Presence v3 uses byte 19 of the signed frame for a coarse `ACTIONMAP_INPUT_CLASS_*` category. Social UI can show MKB, Controller, Custom, Accessibility, HOTAS, or HOSAS for connected friends without exposing raw device GUIDs, vendor IDs, product names, or per-device identity. This is UI/social metadata only; gameplay input authority remains local to each client and still flows through the action map.
+Presence v4 retains byte 19 of the signed frame for a coarse `ACTIONMAP_INPUT_CLASS_*` category. Social UI can show MKB, Controller, Custom, Accessibility, HOTAS, or HOSAS for connected friends without exposing raw device GUIDs, vendor IDs, product names, or per-device identity. This is UI/social metadata only; gameplay input authority remains local to each client and still flows through the action map.
 
 ### Social invites and friend joins
 
@@ -211,7 +211,7 @@ This static-test discipline catches the "trust client byte before validating" cl
 
 Per [constraints.md](../constraints.md):
 
-- **ENet protocol version v51** must match across clients.
+- **ENet protocol version v53** must match across clients.
 - **Server is not a player.** Dedicated server sets `g_NetLocalClient = NULL` and `g_NetNumClients = 0` at startup; slot 0 free for real players. All paths that dereference `g_NetLocalClient` must NULL-guard.
 - **No raw IP in any UI surface.** Connect codes only.
 - **Connect code byte order** is host-order, not network-order.
@@ -243,6 +243,14 @@ Per [audits/infrastructure-pillars-status-2026-04-27.md](../audits/infrastructur
 - Voice gated on optional dependency with graceful no-op.
 - Presence Ed25519 signed; v2 pubkey-bound.
 - TURN selects by measured kbps from `groupSessionUpdateKbps`.
+- T-NETWORKING-004/B-1057 replaces the local zero placeholder with passive
+  cumulative ENet-byte sampling. A nonzero sample requires at least 4096 real
+  sent bytes over a completed two-second window; the best observed lower bound
+  persists for 30 days. Presence v4 signs the estimate, remote group reports
+  expire after 90 seconds, and election order is highest fresh kbps, then match
+  initiator on exact/no-data ties, then smallest public handle. The real-peer
+  receipt `results-20260812T151813Z.json` passes 23/23 and persists host/client
+  measurements of 64/32 kbps.
 
 ---
 
@@ -256,7 +264,11 @@ Per [audits/infrastructure-pillars-status-2026-04-27.md](../audits/infrastructur
 
 - **ICE peer candidate exchange not wired.** [p2p_ice.c:260](../../port/src/net/p2p_ice.c:260) `p2pIceAddPeerCandidate` exists but is never called from presence or invite layer in surveyed files. Without it, ICE tier probes only local NIC + local STUN reflexive against the hint, functionally equivalent to Tier 1 with backup.
 - **STUN reflexive not transmitted to peer.** [p2p_stun.c:125-131](../../port/src/net/p2p_stun.c:125) reports success with local reflexive as endpoint but does not coordinate with remote. Real STUN-based hole punching needs both sides to know each other's reflexive. Presence packet has `listen_ipv4 / listen_port` fields but the bridge from `p2pPublishMyReflexive` to presence outbound is not visible.
-- **kbps measurement is a placeholder.** `groupSessionRecomputeAuthority` at [group_session.c:136](../../port/src/group_session.c:136) comments `/* placeholder for local kbps until measurement is wired */`. Local kbps initialized to 0; first non-zero reporter wins authority.
+- **Authority election does not yet perform live host migration.** The kbps
+  input, signed transport, freshness, deterministic election, and TURN
+  selection are implemented under T-NETWORKING-004, but switching an active
+  listen host and unifying the P2P endpoint handoff remain
+  T-NETWORKING-008/T-NETWORKING-006 scope.
 - **UPnP only maps the ENet port.** [p2p_upnp.c:75-76](../../port/src/net/p2p_upnp.c:75) calls `netUpnpSetup(g_NetServerPort ? ... : NET_DEFAULT_PORT)`. Direct probe (27102), ICE (27103), TURN (27104) sockets remain unmapped. Tier 3 UPnP success is partial.
 - **TURN has no public fallback.** [p2p_turn.c:211-213](../../port/src/net/p2p_turn.c:211) reports "no relay available" when `s_Cands` is empty. Brand-new server with no players in group session fails at tier 5.
 - **netholepunch parallel to tier machine.** Two systems overlap. The handoff from `p2pPairGetEndpoint` to `enet_host_connect` is not visible in surveyed files. Unify.

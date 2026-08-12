@@ -5,6 +5,8 @@
 
 ## Highlights
 
+- Measured real session upload traffic passively and used fresh signed reports
+  for deterministic group authority and player-hosted relay selection.
 - Kept the editable Needler's luminous impact edge while making its authored
   pink or cyan core remain visibly coloured instead of saturating to white.
 - Kept the editable Needler's pink first-person model readable in the

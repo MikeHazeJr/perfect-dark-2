@@ -17,6 +17,7 @@
 #include "net/netupnp.h"
 #include "net/netstun.h"
 #include "net/netholepunch.h"
+#include "net/net_bandwidth.h"
 #include "identity.h"
 #include "net/netlobby.h"
 #include "net/netdistrib.h"
@@ -153,6 +154,13 @@ s32 g_NetInit = false;
 static ENetHost *g_NetHost;
 static ENetAddress g_NetLocalAddr;
 static ENetAddress g_NetRemoteAddr;
+
+/* B-1057: persisted lower-bound upload capability observed from real ENet
+ * traffic. The estimate is deliberately passive: no synthetic packet burst,
+ * third-party speed-test service, or configured-rate stand-in. */
+static u32 s_NetUploadKbps;
+static u32 s_NetUploadMeasuredAtUnix;
+static net_upload_meter_t s_NetUploadMeter;
 
 static u32 g_NetNextUpdate = 0;
 
@@ -309,6 +317,50 @@ const char *netFormatClientAddr(const struct netclient *cl)
 struct _ENetHost *netGetHost(void)
 {
 	return g_NetHost;
+}
+
+static u32 netUploadNowUnix(void)
+{
+	const time_t now = time(NULL);
+	if (now <= 0 || (u64)now > 0xffffffffu) return 0;
+	return (u32)now;
+}
+
+static void netUploadMeasurementReset(void)
+{
+	memset(&s_NetUploadMeter, 0, sizeof(s_NetUploadMeter));
+	if (g_NetHost) {
+		netUploadMeterReset(&s_NetUploadMeter, SDL_GetTicks(),
+			g_NetHost->totalSentData);
+	}
+}
+
+static void netUploadMeasurementTick(void)
+{
+	if (!g_NetHost) return;
+	const u32 observed = netUploadMeterSample(&s_NetUploadMeter,
+		SDL_GetTicks(), g_NetHost->totalSentData);
+	if (observed == 0) return;
+
+	const u32 now_unix = netUploadNowUnix();
+	if (now_unix == 0) return;
+	const u32 current = netUploadKbpsIfFresh(s_NetUploadKbps,
+		s_NetUploadMeasuredAtUnix, now_unix);
+	if (current != 0 && observed <= current) return;
+
+	s_NetUploadKbps = observed;
+	s_NetUploadMeasuredAtUnix = now_unix;
+	sysLogPrintf(LOG_NOTE,
+		"NET.BANDWIDTH: passive upload estimate=%u kbps source=enet bytes",
+		(unsigned)s_NetUploadKbps);
+}
+
+u32 netUploadKbpsEstimate(void)
+{
+	const u32 now_unix = netUploadNowUnix();
+	if (now_unix == 0) return 0;
+	return netUploadKbpsIfFresh(s_NetUploadKbps,
+		s_NetUploadMeasuredAtUnix, now_unix);
 }
 
 static inline void netClientReset(struct netclient *cl)
@@ -862,6 +914,7 @@ s32 netStartServer(u16 port, s32 maxclients)
 		sysLogPrintf(LOG_ERROR, "NET: could not create ENet host on port %u", port);
 		return -2;
 	}
+	netUploadMeasurementReset();
 
 	if (g_NetServerInfoQuery) {
 		enet_host_set_intercept_callback(g_NetHost, netServerConnectionlessPacket);
@@ -1260,6 +1313,7 @@ s32 netStartClient(const char *addr)
 		sysLogPrintf(LOG_ERROR, "NET: could not create ENet host");
 		return -3;
 	}
+	netUploadMeasurementReset();
 
 	enet_host_set_intercept_callback(g_NetHost, NULL);
 
@@ -1330,6 +1384,7 @@ s32 netDisconnect(void)
 
 	// flush pending packets
 	enet_host_flush(g_NetHost);
+	netUploadMeasurementTick();
 
 	// service for a bit just to ensure disconnect gets to peer(s)
 	enet_host_service(g_NetHost, NULL, 10);
@@ -1346,6 +1401,7 @@ s32 netDisconnect(void)
 	netHolePunchReset();
 
 	g_NetHost = NULL;
+	netUploadMeasurementReset();
 	g_NetMode = NETMODE_NONE;
 	g_NetGameMode = NETGAMEMODE_MP;
 	g_NetLocalBotAuthority = false;
@@ -2316,6 +2372,7 @@ void netEndFrame(void)
 	netFlushSendBuffers();
 
 	enet_host_flush(g_NetHost);
+	netUploadMeasurementTick();
 }
 
 u32 netSend(struct netclient *dstcl, struct netbuf *buf, const s32 reliable, const s32 chan)
@@ -2854,6 +2911,10 @@ PD_CONSTRUCTOR static void netConfigInit(void)
 	configRegisterUInt("Net.Server.Port", &g_NetServerPort, 1, 65535);
 
 	configRegisterInt("Net.Server.AllowInfoQuery", &g_NetServerInfoQuery, 0, 1);
+	configRegisterUInt("Net.UploadKbpsEstimate", &s_NetUploadKbps, 0,
+		NET_UPLOAD_KBPS_MAX);
+	configRegisterUInt("Net.UploadKbpsMeasuredAt", &s_NetUploadMeasuredAtUnix,
+		0, 0xffffffffu);
 
 	// register recent server fields for persistence
 	static char recentAddrKeys[NET_MAX_RECENT_SERVERS][32];

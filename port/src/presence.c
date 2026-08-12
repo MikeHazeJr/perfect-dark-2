@@ -7,7 +7,7 @@
  *   off len  field
  *   ----------------------------
  *    0  5    magic "PDPRS"
- *    5  1    version (3 -- input class byte added 2026-05-21)
+ *    5  1    version (4 -- signed passive upload measurement added 2026-08-12)
  *    6  1    kind  (0=ping, 1=pong, 2=invite, 3=invite-resp, 4=bye)
  *    7  1    state (presence_state_t)
  *    8  4    sender handle
@@ -17,13 +17,14 @@
  *   19  1    input_class (privacy-safe ACTIONMAP_INPUT_CLASS_*)
  *   20  4    nonce
  *   24 16    sender agent name (utf-8, null-padded)
- *   40 48    status blurb (utf-8, null-padded)
+ *   40 44    status blurb (utf-8, null-padded)
+ *   84  4    passive upload estimate (kbps; zero = unavailable)
  *   88 32    sender Ed25519 pubkey (matches legacy pubkey handle or
  *            per-agent SHA256(pubkey||agent_name) handle)
  *  120 64    Ed25519 signature over bytes[0..120) + the domain string
  *  184
  *
- * Signature domain separator: "pd-presence-v3".
+ * Signature domain separator: "pd-presence-v4".
  *
  * The 184-byte frame is well within the 1500-byte unfragmented UDP MTU.
  */
@@ -38,6 +39,7 @@
 #include "net/p2p.h"
 #include "net/net.h"
 #include "net/group_session.h"
+#include "net/net_bandwidth.h"
 #include "system.h"
 
 #include <SDL.h>
@@ -62,7 +64,7 @@
 #define PRESENCE_PORT             27105
 #define PRESENCE_MAGIC            "PDPRS"
 #define PRESENCE_MAGIC_LEN        5
-#define PRESENCE_VERSION          3  /* v3 (2026-05-21): privacy-safe input class in byte 19 */
+#define PRESENCE_VERSION          4  /* v4 (2026-08-12): signed passive upload kbps at bytes 84..87 */
 #define PRESENCE_BODY_LEN         120 /* bytes that the signature covers (0..120) */
 #define PRESENCE_PUBKEY_OFFSET    88
 #define PRESENCE_PUBKEY_LEN       32
@@ -72,9 +74,10 @@
 #define PRESENCE_AGENT_OFFSET     24
 #define PRESENCE_AGENT_LEN        SOCIAL_AGENTNAME_MAX
 #define PRESENCE_STATUS_OFFSET    (PRESENCE_AGENT_OFFSET + PRESENCE_AGENT_LEN)
+#define PRESENCE_UPLOAD_KBPS_OFFSET 84
 #define PRESENCE_BLURB_LEN        64
-#define PRESENCE_STATUS_LEN       (PRESENCE_BLURB_LEN - PRESENCE_AGENT_LEN)
-#define PRESENCE_SIG_DOMAIN       "pd-presence-v3"
+#define PRESENCE_STATUS_LEN       (PRESENCE_UPLOAD_KBPS_OFFSET - PRESENCE_STATUS_OFFSET)
+#define PRESENCE_SIG_DOMAIN       "pd-presence-v4"
 #define PRESENCE_SIG_DOMAIN_LEN   14
 #define PRESENCE_ENDPOINT_TTL_S   300 /* 5 minutes -- decision: connectivity-phase1-decisions.md */
 
@@ -320,6 +323,8 @@ static void sendFrame(u32 ipv4, u16 port, u8 kind, u32 target_handle,
 	                 socialMyAgentName());
 	writeFixedString(packet + PRESENCE_STATUS_OFFSET, PRESENCE_STATUS_LEN,
 	                 status_blurb);
+	u8 *upload_w = packet + PRESENCE_UPLOAD_KBPS_OFFSET;
+	wU32(&upload_w, netUploadKbpsEstimate());
 	memcpy(packet + PRESENCE_PUBKEY_OFFSET, mypub, PRESENCE_PUBKEY_LEN);
 
 	if (!signFrame(packet, packet + PRESENCE_SIG_OFFSET)) {
@@ -442,6 +447,7 @@ const char *presenceGetLocalBlurb(void) { return s_LocalBlurb; }
  * ------------------------------------------------------------------------- */
 
 static void recordPong(u32 handle, u8 state, u16 proto, u8 input_class,
+                        u32 upload_kbps,
                         u32 src_ipv4, u16 src_port, const char *agent,
                         const char *status_blurb)
 {
@@ -454,6 +460,7 @@ static void recordPong(u32 handle, u8 state, u16 proto, u8 input_class,
 	p->state = (presence_state_t)state;
 	p->proto_version = proto;
 	p->input_class = input_class;
+	p->upload_kbps = upload_kbps <= NET_UPLOAD_KBPS_MAX ? upload_kbps : 0;
 	p->cached_ipv4 = src_ipv4;
 	p->cached_port = src_port;
 	if (status_blurb) {
@@ -499,6 +506,7 @@ static void recordPong(u32 handle, u8 state, u16 proto, u8 input_class,
 			(void)chatHistoryAppendSystem(handle, syslog);
 		}
 	}
+	groupSessionUpdateKbps(handle, p->upload_kbps);
 }
 
 static void enqueueInvite(u32 from_handle, u8 kind, const char *agent)
@@ -568,6 +576,9 @@ static void drainReceive(void)
 		u8 invite_kind  = (u8)(input_meta & 0xff);
 		u8 input_class  = (u8)((input_meta >> 8) & 0xff);
 		u32 nonce       = rU32(&p);
+		const u8 *upload_r = packet + PRESENCE_UPLOAD_KBPS_OFFSET;
+		u32 upload_kbps = rU32(&upload_r);
+		if (upload_kbps > NET_UPLOAD_KBPS_MAX) upload_kbps = 0;
 		(void)nonce;
 		(void)to_handle;
 
@@ -616,20 +627,20 @@ static void drainReceive(void)
 		switch (kind) {
 			case PRESENCE_KIND_PING: {
 				/* Reply pong. */
-				recordPong(from_handle, state, proto, input_class, src_ipv4, src_port,
+				recordPong(from_handle, state, proto, input_class, upload_kbps, src_ipv4, src_port,
 				           agent, status_blurb);
 				sendFrame(src_ipv4, src_port, PRESENCE_KIND_PONG, from_handle,
 				          nonce, 0, s_LocalBlurb);
 				break;
 			}
 			case PRESENCE_KIND_PONG: {
-				recordPong(from_handle, state, proto, input_class, src_ipv4, src_port,
+				recordPong(from_handle, state, proto, input_class, upload_kbps, src_ipv4, src_port,
 				           agent, status_blurb);
 				break;
 			}
 			case PRESENCE_KIND_INVITE: {
 				/* Cache sender endpoint for the upcoming p2p path. */
-				recordPong(from_handle, state, proto, input_class, src_ipv4, src_port,
+				recordPong(from_handle, state, proto, input_class, upload_kbps, src_ipv4, src_port,
 				           agent, status_blurb);
 				const social_friend_t *f = socialFriendByHandle(from_handle);
 				const char *display_agent = (f && f->agent_name[0]) ? f->agent_name : agent;
@@ -637,7 +648,7 @@ static void drainReceive(void)
 				break;
 			}
 			case PRESENCE_KIND_INVITE_RESP: {
-				recordPong(from_handle, state, proto, input_class, src_ipv4, src_port,
+				recordPong(from_handle, state, proto, input_class, upload_kbps, src_ipv4, src_port,
 				           agent, status_blurb);
 				/* The low byte of input_meta encodes the response: 1 =
 				 * accepted, 0 = declined. group_session moves the peer to

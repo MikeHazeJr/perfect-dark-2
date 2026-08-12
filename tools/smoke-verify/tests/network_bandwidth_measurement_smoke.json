@@ -1,0 +1,105 @@
+{
+  "scenario_name": "network_bandwidth_measurement_smoke",
+  "description": "T-NETWORKING-004 production proof: a real listen host and client exchange normal ENet lobby/match traffic long enough for each process to produce a passive upload measurement from cumulative bytes. This proves the estimator is driven by actual transport traffic rather than a configured-rate placeholder.",
+  "tags": ["network", "bandwidth", "authority", "presence", "real-peer", "listen-host", "t-networking-004", "b1057", "smoke"],
+  "paths_of_interest": [
+    "port/src/net/net_bandwidth.c",
+    "port/src/net/net.c",
+    "port/src/net/group_session.c",
+    "port/src/presence.c",
+    "port/src/net/p2p_turn.c"
+  ],
+  "log_channel_mask": "game,match,system,network",
+  "verbose": 0,
+  "timeout_seconds": 170,
+  "install_state": "clean",
+  "separate_process_installs": true,
+  "fixtures": [
+    { "src": "tools/smoke-verify/fixtures/needler_source_pd.ini", "dst": "pd.ini" }
+  ],
+  "processes": [
+    {
+      "name": "host",
+      "log_file": "pd-host.log",
+      "fixtures": [
+        { "src": "tools/smoke-verify/fixtures/no_mods_enabled.json", "dst": "mods-enabled.json" }
+      ],
+      "boot_args": [
+        "--no-update-check",
+        "--portable",
+        "--host",
+        "--listen-bind",
+        "27204",
+        "--launch-mp-room",
+        "base:arena_chicago",
+        "base:combat",
+        "0",
+        "--host-autostart",
+        "--match-timelimit-sec",
+        "120"
+      ],
+      "wait_for": "NET: created server on port 27204",
+      "wait_timeout_seconds": 140,
+      "assertions": {
+        "required_lines": [
+          "NET: incoming connection",
+          "NET: mpStartMatch server activeMask=0x[0-9a-f]+ players=2 \\(dedicated=0\\)",
+          "NET\\.BANDWIDTH: passive upload estimate=[1-9]\\d* kbps source=enet bytes"
+        ],
+        "forbidden_patterns": [
+          "NET.BANDWIDTH: passive upload estimate=0 kbps"
+        ]
+      }
+    },
+    {
+      "name": "client",
+      "log_file": "pd-client.log",
+      "fixtures": [
+        { "src": "tools/smoke-verify/fixtures/no_mods_enabled.json", "dst": "mods-enabled.json" }
+      ],
+      "boot_args": [
+        "--no-update-check",
+        "--portable",
+        "--connect-host",
+        "127.0.0.1:27204"
+      ],
+      "assertions": {
+        "required_lines": [
+          "NET: connected to server, sending CLC_AUTH",
+          "MATCH: client stage start received",
+          "NET\\.BANDWIDTH: passive upload estimate=[1-9]\\d* kbps source=enet bytes"
+        ],
+        "forbidden_patterns": [
+          "NET.BANDWIDTH: passive upload estimate=0 kbps"
+        ]
+      }
+    }
+  ],
+  "input_sequence": [
+    { "at_ms": 0, "type": "wait", "comment": "Boot two isolated ordinary clients and let real lobby/match packets drive the passive meter." },
+    { "at_ms": 105000, "type": "exit", "comment": "Exit after both peers have sustained normal ENet traffic and saved their measured lower-bound upload estimate." }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=network_bandwidth_measurement_smoke",
+      "NET: created server on port 27204",
+      "NET: connecting to 127\\.0\\.0\\.1:27204",
+      "MATCH: server stage start",
+      "MATCH: client stage start received",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "result=FAIL",
+      "result=MISSING"
+    ],
+    "required_counts": [
+      { "pattern": "SMOKE: scenario=network_bandwidth_measurement_smoke", "min": 2, "max": 2 },
+      { "pattern": "SMOKE: result=scripted_exit", "min": 2, "max": 2 },
+      { "pattern": "NET\\.BANDWIDTH: passive upload estimate=[1-9]\\d* kbps source=enet bytes", "min": 2 }
+    ]
+  }
+}

@@ -1,5 +1,30 @@
 # Session Log (Active)
 
+## 2026-08-12 - T-NETWORKING-004 passive upload measurement
+
+Goal: replace the local `0 kbps` authority placeholder with durable evidence
+from real transport traffic so group authority and relay selection can compare
+peers without a configured-rate stand-in. This matters because an election
+algorithm cannot make a useful choice when its only production input is zero.
+
+Added a pure passive meter/election contract, sampled cumulative ENet sent
+bytes in two-second windows, and persisted the best fresh lower bound with a
+wall-clock timestamp. Signed presence v4 now carries the estimate inside its
+existing 184-byte frame. Group reports expire after 90 seconds; speed wins,
+the match initiator wins exact/no-data ties, and the smallest public handle is
+the final stable fallback. TURN candidates use the same reports and are
+removed on stale, failed, dropped, or shutdown paths.
+
+Isolated client/updater/tests compilation passes. Focused
+`[t-networking-004]` passes 37 assertions/5 cases and the complete suite passes
+56,664 assertions/1,036 cases. The ordinary listen-host/client receipt
+`.claude/smoke-verify-runs/results-20260812T151813Z.json` passes 23/23 with
+clean exits. Actual match traffic produces host 64 kbps and client 32 kbps,
+and each isolated install saves the corresponding nonzero estimate and
+measurement timestamp in `pd.ini`. Automatic host migration and the broader
+P2P-to-ENet handoff were not claimed; they remain under
+`T-NETWORKING-008`/`T-NETWORKING-006`.
+
 ## 2026-08-12 - T-CATALOG-001 custom-model live-proof reconciliation
 
 Promoted T-CATALOG-001 from partial to implemented using current production

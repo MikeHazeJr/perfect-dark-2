@@ -61,6 +61,7 @@ typedef struct presence_peer_s {
 	u16              proto_version;   /* peer's NET_PROTOCOL_VER */
 	u8               input_class;     /* ACTIONMAP_INPUT_CLASS_*; privacy-safe category */
 	u8               _pad[3];
+	u32              upload_kbps;     /* signed passive prior/current-session report */
 	char             status_blurb[64];/* "Mission: Pelagic" / "CS: Felicity" / etc. */
 } presence_peer_t;
 

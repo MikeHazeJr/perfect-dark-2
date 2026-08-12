@@ -6,6 +6,19 @@
 
 Last updated: 2026-08-12
 
+`T-NETWORKING-004` is implemented. The former hardcoded local `0 kbps`
+authority input is replaced by passive measurement of actual ENet sent bytes.
+The best fresh observed lower bound persists for 30 days, travels in the signed
+presence v4 body, expires from remote election input after 90 seconds, and
+feeds deterministic speed/initiator/handle authority and TURN selection.
+Client/updater/tests compile, focused tests pass 37/5, and the complete suite
+passes 56,664/1,036. The ordinary two-process receipt
+`.claude/smoke-verify-runs/results-20260812T151813Z.json` passes 23/23 and
+persists nonzero host/client measurements of 64/32 kbps after real match
+traffic. This closes the measurement task only; automatic host migration and
+the broader P2P-to-ENet handoff remain `T-NETWORKING-008`/
+`T-NETWORKING-006` work.
+
 `T-CATALOG-001` is implemented. Its only remaining legacy gate was live custom
 model rendering, and V-009 now proves the complete catalog-owned path in the
 ordinary client: `mod_needler:needler_model` receives private model slot 441
