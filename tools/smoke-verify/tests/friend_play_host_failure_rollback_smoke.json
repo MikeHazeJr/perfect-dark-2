@@ -1,0 +1,109 @@
+{
+  "scenario_name": "friend_play_host_failure_rollback_smoke",
+  "description": "D-003 failure proof: the invitee wins the frozen authority election, its smoke-gated listen startup fails once, the authority latch and route roll back, and neither peer retries or starts a client join.",
+  "tags": ["network", "social", "friend-play", "authority-first", "rollback", "d-003", "smoke"],
+  "paths_of_interest": [
+    "port/src/net/group_session.c",
+    "port/src/presence.c",
+    "port/src/net/net_match_route.c",
+    "tools/smoke-verify/generate_friend_play_identity.py"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 140,
+  "install_state": "prefilled",
+  "separate_process_installs": true,
+  "fixtures": [
+    { "src": "tools/smoke-verify/fixtures/needler_source_pd.ini", "dst": "pd.ini" },
+    { "src": "tools/smoke-verify/fixtures/no_mods_enabled.json", "dst": "mods-enabled.json" }
+  ],
+  "processes": [
+    {
+      "name": "invitee",
+      "friend_play_identity": "invitee",
+      "log_file": "pd-client.log",
+      "boot_args": [
+        "--no-update-check", "--portable",
+        "--launch-load-agent", "invitee",
+        "--debug-presence-port", "28106",
+        "--debug-friend-play-role", "invitee",
+        "--debug-friend-play-auto-accept",
+        "--debug-friend-play-upload-kbps", "9000",
+        "--debug-friend-play-fail-start", "host",
+        "--port", "27211"
+      ],
+      "wait_for": "FRIENDPLAY: role=invitee ready",
+      "wait_timeout_seconds": 100,
+      "assertions": {
+        "required_lines": [
+          "FRIENDPLAY: role=invitee invite accepted peer=0x[0-9a-f]+ rc=0",
+          "GROUP.SESSION: authority elected handle=0x73eb8f71 kbps=9000 local=1",
+          "GROUP.MATCH: server start attempt authority=0x73eb8f71 count=1",
+          "GROUP.MATCH: listen-host start failed rc=-90; transport rolled back",
+          "GROUP.MATCH: authority latch cleared; no retry",
+          "SMOKE: result=scripted_exit"
+        ],
+        "forbidden_patterns": [
+          "NET: created server on port 27211",
+          "GROUP.SESSION: published typed match route",
+          "GROUP.MATCH: join attempt",
+          "GROUP.MATCH: server start attempt.*count=[2-9]"
+        ]
+      }
+    },
+    {
+      "name": "initiator",
+      "friend_play_identity": "initiator",
+      "log_file": "pd-client.log",
+      "boot_args": [
+        "--no-update-check", "--portable",
+        "--launch-load-agent", "initiator",
+        "--debug-presence-port", "28105",
+        "--debug-friend-play-role", "initiator",
+        "--debug-friend-play-auto-invite",
+        "--debug-friend-play-upload-kbps", "1000",
+        "--port", "27211"
+      ],
+      "assertions": {
+        "required_lines": [
+          "FRIENDPLAY: role=initiator invite sent peer=0x[0-9a-f]+ rc=0",
+          "GROUP.SESSION: authority elected handle=0x73eb8f71 kbps=9000 local=0",
+          "SMOKE: result=scripted_exit"
+        ],
+        "forbidden_patterns": [
+          "GROUP.MATCH: server start attempt",
+          "GROUP.MATCH: join attempt",
+          "PRESENCE: accepted signed match route authority=0x73eb8f71"
+        ]
+      }
+    }
+  ],
+  "input_sequence": [
+    { "at_ms": 0, "type": "wait", "comment": "Let signed invite/accept frames freeze the same election on both peers and inject the elected invitee's listen-start failure." },
+    { "at_ms": 90000, "type": "exit", "comment": "Hold long enough to prove no implicit second transport attempt occurs." }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=friend_play_host_failure_rollback_smoke",
+      "GROUP.MATCH: listen-host start failed rc=-90; transport rolled back",
+      "GROUP.MATCH: authority latch cleared; no retry",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "GROUP.MATCH: server start attempt.*count=[2-9]",
+      "GROUP.MATCH: join attempt",
+      "NET: created server on port 27211",
+      "GROUP.SESSION: published typed match route",
+      "EXCEPTION_ACCESS_VIOLATION",
+      "ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout"
+    ],
+    "required_counts": [
+      { "pattern": "GROUP.MATCH: server start attempt authority=0x73eb8f71 count=1", "min": 1, "max": 1 },
+      { "pattern": "GROUP.MATCH: listen-host start failed rc=-90; transport rolled back", "min": 1, "max": 1 },
+      { "pattern": "GROUP.MATCH: authority latch cleared; no retry", "min": 1, "max": 1 },
+      { "pattern": "SMOKE: result=scripted_exit", "min": 2, "max": 2 }
+    ]
+  }
+}

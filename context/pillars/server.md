@@ -13,6 +13,21 @@ The server side of the multiplayer architecture. Two modes share most code:
 
 Listen-host uses `port/src/net/net.c` transport, `port/src/net/netmsg.c` protocol handlers, and `port/src/room.c` room logic inside `PerfectDark.exe`. Historical standalone server stubs remain in tree for reference but are no longer built as a product target.
 
+For friend-play, D-003 option A keeps social/group discovery peer-to-peer but
+elects exactly one accepted peer as match authority before ENet startup. The
+authority starts this same in-client listen-server path once and publishes a
+separately typed signed match-server route through presence v5. Other peers
+join that route once; probe endpoints and relay descriptors never substitute
+for the listen address. Gameplay remains server-authoritative through the
+existing ENet authentication, protocol-version, lobby, manifest, ready, and
+`SVC_*` validation paths.
+
+The final D-003 matrix uses ordinary client processes and one frozen client
+hash. Initiator authority passes 143/143, invitee authority 142/142, failed
+listen startup rollback 32/32, and failed client join rollback 38/38. The
+complete suite passes 56,774/1,040. This verifies friend-play ownership without
+claiming the separate real-NAT candidate/tier or live host-migration work.
+
 Code:
 
 - Hub + rooms: [port/include/hub.h](../../port/include/hub.h), [port/include/room.h](../../port/include/room.h), [port/src/hub.c](../../port/src/hub.c), [port/src/room.c](../../port/src/room.c).
@@ -21,7 +36,7 @@ Code:
 - Server bans: [port/src/server_bans.c](../../port/src/server_bans.c).
 - Admin RCON: in [port/src/net/netmsg.c](../../port/src/net/netmsg.c) (`CLC_ADMIN 0x15`, `SVC_ADMIN 0x68`).
 - Identity: [port/src/identity.c](../../port/src/identity.c).
-- Group session (presence/auth/voice cross-cutting): [port/src/group_session.c](../../port/src/group_session.c).
+- Group session (presence/auth/voice cross-cutting): [port/src/net/group_session.c](../../port/src/net/group_session.c).
 
 ---
 
@@ -125,6 +140,11 @@ Per [constraints.md](../constraints.md):
 - **Persistent bans live in `$S/bans.ini`** (MASTER-C2c/d).
 - **Admin RCON token is hashed, never stored as plaintext** (MASTER-C2a).
 - **Room passwords are hashed at create time** (SEC-14).
+- **One friend-play match authority, one startup action.** The accepted invite
+  freezes election inputs before transport startup. Only the elected local peer
+  may call `netStartServer`; a remote peer may join only a fresh verified
+  presence-v5 match-server route, and startup failure clears the latch without
+  implicit retry.
 
 ---
 

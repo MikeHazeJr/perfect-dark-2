@@ -10,7 +10,7 @@
   ],
   "log_channel_mask": "game,catalog,render,match,mods,system",
   "verbose": 0,
-  "timeout_seconds": 45,
+  "timeout_seconds": 60,
   "install_state": "current",
   "remove_paths": [
     "mods/needler.pdmod",
@@ -41,11 +41,11 @@
   ],
   "input_sequence": [
     { "at_ms": 0, "type": "wait", "comment": "load the public Needler closure and enter ordinary first-person Combat Simulator gameplay" },
-    { "at_ms": 22000, "type": "exit", "comment": "exit after two stable held-model captures" }
+    { "at_ms": 40000, "type": "exit", "comment": "exit after ordinary-client startup and two stable held-model captures" }
   ],
   "screenshots": [
-    { "at_ms": 15000, "name": "needler-viewmodel-readable-a" },
-    { "at_ms": 18000, "name": "needler-viewmodel-readable-b" }
+    { "at_ms": 30000, "name": "needler-viewmodel-readable-a" },
+    { "at_ms": 35000, "name": "needler-viewmodel-readable-b" }
   ],
   "assertions": {
     "required_lines": [

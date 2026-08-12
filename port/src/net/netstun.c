@@ -89,7 +89,7 @@ static volatile u16 s_StunPort    = 0;
 static char s_StunExternalIP[64] = {0};
 
 /* Local port to bind — set before launching the thread. */
-static u16  s_BindPort = 0;
+static volatile u16 s_BindPort = 0;
 
 /* -------------------------------------------------------------------------
  * STUN wire-format constants
@@ -448,6 +448,7 @@ void stunInit(void)
     s_StunNatType       = STUN_NAT_UNKNOWN;
     s_StunCancel        = 0;
     s_StunPort          = 0;
+    s_BindPort          = 0;
     s_StunExternalIP[0] = '\0';
 }
 
@@ -519,6 +520,11 @@ const char *stunGetExternalIP(void)
 u16 stunGetExternalPort(void)
 {
     return s_StunPort;
+}
+
+u16 stunGetDiscoveryPort(void)
+{
+    return s_BindPort;
 }
 
 void stunCancel(void)

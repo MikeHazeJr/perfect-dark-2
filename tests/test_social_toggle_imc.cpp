@@ -286,8 +286,11 @@ TEST_CASE("Social presence and invites use per-agent identity and stale-offline 
     REQUIRE(friends.find("Attempt even when the displayed state is stale/offline") != std::string::npos);
 
     REQUIRE(group.find("#include \"net/netholepunch.h\"") != std::string::npos);
+	REQUIRE(group.find("presencePeerMatchRoute(authority_handle, &route)") != std::string::npos);
+	REQUIRE(group.find("netMatchRouteFormat(&route, addr, sizeof(addr))") != std::string::npos);
     REQUIRE(group.find("netStartClientWithHolePunch(addr)") != std::string::npos);
     REQUIRE(group.find("netStartClient(addr)") == std::string::npos);
+	REQUIRE(group.find("handing peer") == std::string::npos);
 }
 
 TEST_CASE("ACTION_VOICE_PTT id is 85", "[actionmap][imc][voice][ptt][pin]")

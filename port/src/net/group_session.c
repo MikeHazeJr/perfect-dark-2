@@ -17,9 +17,12 @@
 #include "net/p2p.h"
 #include "net/net.h"
 #include "net/netholepunch.h"
+#include "net/netstun.h"
+#include "net/netupnp.h"
 #include "social.h"
 #include "presence.h"
 #include "system.h"
+#include "smoke_harness.h"
 #include "updateversion.h"
 
 #include <SDL.h>
@@ -29,6 +32,24 @@
 
 static group_session_t s_Session;
 static s32             s_Initialised;
+static net_match_route_t s_PublishedRoute;
+
+typedef enum debug_friend_play_role_e {
+	DEBUG_FRIEND_PLAY_NONE = 0,
+	DEBUG_FRIEND_PLAY_INITIATOR = 1,
+	DEBUG_FRIEND_PLAY_INVITEE = 2,
+} debug_friend_play_role_t;
+
+static debug_friend_play_role_t s_DebugFriendPlayRole;
+static u32 s_DebugFriendPlayPeer;
+static u32 s_DebugFriendPlayUploadKbps;
+static u32 s_DebugFriendPlayReadyMs;
+static u8 s_DebugFriendPlayUploadSet;
+static u8 s_DebugFriendPlayAutoInvite;
+static u8 s_DebugFriendPlayAutoAccept;
+static u8 s_DebugFriendPlayActionDone;
+static u8 s_DebugFriendPlayFailHost;
+static u8 s_DebugFriendPlayFailClient;
 
 /* -------------------------------------------------------------------------
  * Helpers
@@ -43,6 +64,101 @@ static group_peer_t *findPeer(u32 handle)
 		}
 	}
 	return NULL;
+}
+
+static u32 sampleLocalElectionKbps(void)
+{
+	return s_DebugFriendPlayUploadSet ? s_DebugFriendPlayUploadKbps :
+		netUploadKbpsEstimate();
+}
+
+static void debugFriendPlayInit(void)
+{
+	s_DebugFriendPlayRole = DEBUG_FRIEND_PLAY_NONE;
+	s_DebugFriendPlayPeer = 0;
+	s_DebugFriendPlayUploadKbps = 0;
+	s_DebugFriendPlayUploadSet = 0;
+	s_DebugFriendPlayAutoInvite = 0;
+	s_DebugFriendPlayAutoAccept = 0;
+	s_DebugFriendPlayActionDone = 0;
+	s_DebugFriendPlayFailHost = 0;
+	s_DebugFriendPlayFailClient = 0;
+	s_DebugFriendPlayReadyMs = SDL_GetTicks();
+
+	const char *role = sysArgGetString("--debug-friend-play-role");
+	if (!role || !role[0]) return;
+	if (!smokeHarnessIsActive()) {
+		sysLogPrintf(LOG_WARNING,
+			"FRIENDPLAY: debug controls ignored outside smoke harness");
+		return;
+	}
+	if (!strcmp(role, "initiator")) {
+		s_DebugFriendPlayRole = DEBUG_FRIEND_PLAY_INITIATOR;
+	} else if (!strcmp(role, "invitee")) {
+		s_DebugFriendPlayRole = DEBUG_FRIEND_PLAY_INVITEE;
+	} else {
+		sysLogPrintf(LOG_WARNING,
+			"FRIENDPLAY: invalid role '%s'; controls disabled", role);
+		return;
+	}
+
+	const social_friend_t *peer = socialFriendAt(0);
+	if (!peer || peer->handle == 0) {
+		sysLogPrintf(LOG_ERROR,
+			"FRIENDPLAY: role=%s has no fixture peer; controls disabled", role);
+		s_DebugFriendPlayRole = DEBUG_FRIEND_PLAY_NONE;
+		return;
+	}
+	s_DebugFriendPlayPeer = peer->handle;
+	s_DebugFriendPlayAutoInvite = sysArgCheck("--debug-friend-play-auto-invite") ? 1 : 0;
+	s_DebugFriendPlayAutoAccept = sysArgCheck("--debug-friend-play-auto-accept") ? 1 : 0;
+	const char *upload = sysArgGetString("--debug-friend-play-upload-kbps");
+	if (upload && upload[0]) {
+		char *end = NULL;
+		const unsigned long parsed = strtoul(upload, &end, 10);
+		if (end && *end == '\0' && parsed <= NET_UPLOAD_KBPS_MAX) {
+			s_DebugFriendPlayUploadKbps = (u32)parsed;
+			s_DebugFriendPlayUploadSet = 1;
+		}
+	}
+	const char *fail = sysArgGetString("--debug-friend-play-fail-start");
+	if (fail && !strcmp(fail, "host")) s_DebugFriendPlayFailHost = 1;
+	if (fail && !strcmp(fail, "client")) s_DebugFriendPlayFailClient = 1;
+	sysLogPrintf(LOG_NOTE,
+		"FRIENDPLAY: role=%s ready local=0x%08x peer=0x%08x upload_kbps=%u auto_invite=%u auto_accept=%u",
+		role, (unsigned)socialMyHandle(), (unsigned)s_DebugFriendPlayPeer,
+		(unsigned)sampleLocalElectionKbps(),
+		(unsigned)s_DebugFriendPlayAutoInvite,
+		(unsigned)s_DebugFriendPlayAutoAccept);
+}
+
+static void debugFriendPlayTick(void)
+{
+	const u32 action_delay_ms =
+		s_DebugFriendPlayRole == DEBUG_FRIEND_PLAY_INITIATOR ? 6000u : 250u;
+	if (s_DebugFriendPlayRole == DEBUG_FRIEND_PLAY_NONE ||
+		s_DebugFriendPlayActionDone ||
+		SDL_GetTicks() - s_DebugFriendPlayReadyMs < action_delay_ms) {
+		return;
+	}
+	if (s_DebugFriendPlayRole == DEBUG_FRIEND_PLAY_INITIATOR &&
+		s_DebugFriendPlayAutoInvite) {
+		const s32 rc = presenceSendInvite(s_DebugFriendPlayPeer,
+			PRESENCE_INVITE_KIND_MATCH);
+		sysLogPrintf(rc == 0 ? LOG_NOTE : LOG_ERROR,
+			"FRIENDPLAY: role=initiator invite sent peer=0x%08x rc=%d",
+			(unsigned)s_DebugFriendPlayPeer, (int)rc);
+		s_DebugFriendPlayActionDone = 1;
+	} else if (s_DebugFriendPlayRole == DEBUG_FRIEND_PLAY_INVITEE &&
+		s_DebugFriendPlayAutoAccept && presenceInviteCount() > 0) {
+		const presence_invite_t *invite = presenceInviteAt(0);
+		const u32 from = invite ? invite->from_handle : 0;
+		const s32 rc = presenceInviteAccept(0);
+		sysLogPrintf(rc == 0 ? LOG_NOTE : LOG_ERROR,
+			"FRIENDPLAY: role=invitee invite accepted peer=0x%08x rc=%d",
+			(unsigned)from, (int)rc);
+		s_DebugFriendPlayActionDone = 1;
+	}
 }
 
 static group_peer_t *allocPeer(u32 handle)
@@ -90,6 +206,71 @@ static void enterFailure(group_peer_t *p, group_fail_reason_t reason)
 	             groupFailReasonText(reason));
 }
 
+static s32 hasAcceptedPeer(void)
+{
+	for (s32 i = 0; i < GROUP_SESSION_MAX_PEERS; i++) {
+		const group_peer_state_t state = s_Session.peers[i].state;
+		if (s_Session.peers[i].handle != 0 &&
+			(state == GROUP_PEER_RESOLVING || state == GROUP_PEER_CONNECTED)) {
+			return 1;
+		}
+	}
+	return 0;
+}
+
+static s32 routeIdentityEqual(const net_match_route_t *a,
+		const net_match_route_t *b)
+{
+	return a && b && a->ipv4 == b->ipv4 && a->port == b->port &&
+		a->flags == b->flags;
+}
+
+static s32 publishLocalRoute(const net_match_route_t *route)
+{
+	if (!route) return 0;
+	if (routeIdentityEqual(route, &s_PublishedRoute)) return 1;
+	if (presenceSetLocalMatchRoute(route) != 0) {
+		sysLogPrintf(LOG_ERROR,
+			"GROUP.SESSION: failed to publish typed authority route");
+		return 0;
+	}
+	s_PublishedRoute = *route;
+	sysLogPrintf(LOG_NOTE,
+		"GROUP.SESSION: published typed match route authority=0x%08x flags=0x%02x port=%u",
+		(unsigned)s_Session.latched_authority_handle,
+		(unsigned)route->flags, (unsigned)route->port);
+	return 1;
+}
+
+static s32 refreshLocalAuthorityRoute(void)
+{
+	if (s_Session.transport_state != NET_MATCH_TRANSPORT_SERVER ||
+		s_Session.latched_authority_handle != socialMyHandle()) {
+		return 0;
+	}
+
+	net_match_route_t route;
+	memset(&route, 0, sizeof(route));
+	route.port = (u16)g_NetServerPort;
+	route.flags = NET_MATCH_ROUTE_SOURCE_DERIVED;
+
+	u32 explicit_ipv4 = 0;
+	if (netUpnpIsActive() && netUpnpGetExternalIP()[0] &&
+		netMatchRouteParseIpv4(netUpnpGetExternalIP(), &explicit_ipv4)) {
+		route.ipv4 = explicit_ipv4;
+		route.flags = NET_MATCH_ROUTE_UPNP;
+	} else if (stunGetStatus() == STUN_STATUS_SUCCESS &&
+		stunGetDiscoveryPort() == (u16)g_NetServerPort &&
+		stunGetNatType() == STUN_NAT_CONE &&
+		stunGetExternalIP()[0] && stunGetExternalPort() != 0 &&
+		netMatchRouteParseIpv4(stunGetExternalIP(), &explicit_ipv4)) {
+		route.ipv4 = explicit_ipv4;
+		route.port = stunGetExternalPort();
+		route.flags = NET_MATCH_ROUTE_STUN;
+	}
+	return publishLocalRoute(&route);
+}
+
 /* -------------------------------------------------------------------------
  * Public lifecycle
  * ------------------------------------------------------------------------- */
@@ -98,7 +279,9 @@ void groupSessionInit(void)
 {
 	if (s_Initialised) return;
 	memset(&s_Session, 0, sizeof(s_Session));
+	memset(&s_PublishedRoute, 0, sizeof(s_PublishedRoute));
 	s_Initialised = 1;
+	debugFriendPlayInit();
 	sysLogPrintf(LOG_NOTE, "GROUP.SESSION: initialised (max peers=%d)",
 	             (int)GROUP_SESSION_MAX_PEERS);
 }
@@ -114,7 +297,9 @@ void groupSessionShutdown(void)
 			p2pTurnRegisterRelayCandidate(s_Session.peers[i].handle, 0, 0, 0);
 		}
 	}
+	presenceClearLocalMatchRoute();
 	memset(&s_Session, 0, sizeof(s_Session));
+	memset(&s_PublishedRoute, 0, sizeof(s_PublishedRoute));
 	s_Initialised = 0;
 }
 
@@ -136,17 +321,26 @@ s32 groupSessionIsLocalAuthority(void) { return s_Session.is_local_authority ? 1
 void groupSessionRecomputeAuthority(void)
 {
 	if (!s_Initialised) return;
+	if (s_Session.latched_authority_handle != 0) {
+		s_Session.authority_handle = s_Session.latched_authority_handle;
+		s_Session.is_local_authority =
+			s_Session.latched_authority_handle == socialMyHandle();
+		return;
+	}
 
-	/* Candidates: local + every CONNECTED peer. Remote authority must be
-	 * locally-confirmed reachable; stale speed evidence degrades to the
-	 * initiator/handle fallback instead of retaining a phantom winner. */
+	/* Candidates: local + every peer that accepted this match invite. The
+	 * election must finish before either ENet transport starts; auxiliary
+	 * candidate-probe success is deliberately not an eligibility gate. */
 	const u32 now_ms = SDL_GetTicks();
-	s_Session.local_kbps = netUploadKbpsEstimate();
+	const s32 have_accepted_peer = hasAcceptedPeer();
+	if (!s_Session.election_input_latched) {
+		s_Session.local_kbps = sampleLocalElectionKbps();
+	}
 	net_authority_candidate_t candidates[GROUP_SESSION_MAX_PEERS + 1];
 	memset(candidates, 0, sizeof(candidates));
 	candidates[0].handle = socialMyHandle();
 	candidates[0].kbps = s_Session.local_kbps;
-	candidates[0].eligible = candidates[0].handle != 0;
+	candidates[0].eligible = candidates[0].handle != 0 && have_accepted_peer;
 	candidates[0].is_local = 1;
 	for (s32 i = 0; i < GROUP_SESSION_MAX_PEERS; i++) {
 		const group_peer_t *p = &s_Session.peers[i];
@@ -155,7 +349,8 @@ void groupSessionRecomputeAuthority(void)
 		candidates[i + 1].handle = p->handle;
 		candidates[i + 1].kbps = fresh ? p->last_kbps : 0;
 		candidates[i + 1].eligible = p->handle != 0 &&
-			p->state == GROUP_PEER_CONNECTED;
+			(p->state == GROUP_PEER_RESOLVING ||
+			 p->state == GROUP_PEER_CONNECTED);
 	}
 
 	net_authority_choice_t choice;
@@ -198,6 +393,125 @@ void groupSessionUpdateKbps(u32 handle, u32 kbps)
 	if (changed) groupSessionRecomputeAuthority();
 }
 
+u32 groupSessionLocalElectionKbps(void)
+{
+	return s_Session.election_input_latched ? s_Session.local_kbps :
+		sampleLocalElectionKbps();
+}
+
+static void recordTransportFailure(const char *action, s32 rc)
+{
+	s_Session.transport_state = NET_MATCH_TRANSPORT_NONE;
+	s_Session.transport_attempted = 1;
+	s_Session.transport_failed = 1;
+	s_Session.transport_result = (s8)rc;
+	s_Session.latched_authority_handle = 0;
+	presenceClearLocalMatchRoute();
+	memset(&s_PublishedRoute, 0, sizeof(s_PublishedRoute));
+	sysLogPrintf(LOG_ERROR,
+		"GROUP.MATCH: %s failed rc=%d; transport rolled back",
+		action ? action : "startup", (int)rc);
+	sysLogPrintf(LOG_NOTE, "GROUP.MATCH: authority latch cleared; no retry");
+}
+
+static s32 latchPreconnectAuthority(void)
+{
+	if (s_Session.latched_authority_handle != 0) {
+		return s_Session.latched_authority_handle ==
+			s_Session.authority_handle;
+	}
+	if (s_Session.authority_handle == 0) return 0;
+
+	s_Session.latched_authority_handle = s_Session.authority_handle;
+	sysLogPrintf(LOG_NOTE,
+		"GROUP.MATCH: pre-connect authority latched handle=0x%08x local=%d",
+		(unsigned)s_Session.latched_authority_handle,
+		(int)(s_Session.latched_authority_handle == socialMyHandle()));
+	return 1;
+}
+
+static void driveMatchTransport(void)
+{
+	if (!s_Initialised || !hasAcceptedPeer()) return;
+	if (s_Session.transport_state == NET_MATCH_TRANSPORT_SERVER) {
+		(void)refreshLocalAuthorityRoute();
+		return;
+	}
+	if (s_Session.transport_state == NET_MATCH_TRANSPORT_CLIENT ||
+		s_Session.transport_attempted) {
+		return;
+	}
+	if (!latchPreconnectAuthority()) return;
+
+	const u32 local_handle = socialMyHandle();
+	const u32 authority_handle = s_Session.latched_authority_handle;
+	net_match_route_t route;
+	memset(&route, 0, sizeof(route));
+	const s32 route_ready = authority_handle != 0 &&
+		authority_handle != local_handle &&
+		presencePeerMatchRoute(authority_handle, &route);
+	const net_match_action_t action = netMatchRoutePlanAction(local_handle,
+		authority_handle, s_Session.latched_authority_handle,
+		(net_match_transport_state_t)s_Session.transport_state, route_ready);
+
+	if (action == NET_MATCH_ACTION_START_SERVER) {
+		s_Session.transport_attempted = 1;
+		s_Session.transport_attempt_count++;
+		sysLogPrintf(LOG_NOTE,
+			"GROUP.MATCH: server start attempt authority=0x%08x count=%u",
+			(unsigned)authority_handle,
+			(unsigned)s_Session.transport_attempt_count);
+		const s32 rc = s_DebugFriendPlayFailHost ? -90 :
+			netStartServer((u16)g_NetServerPort, g_NetMaxClients);
+		if (rc != 0) {
+			recordTransportFailure("listen-host start", rc);
+			return;
+		}
+		s_Session.transport_state = NET_MATCH_TRANSPORT_SERVER;
+		s_Session.transport_result = 0;
+		s_Session.latched_authority_handle = authority_handle;
+		sysLogPrintf(LOG_NOTE,
+			"GROUP.MATCH: authority latched handle=0x%08x transport=listen-host",
+			(unsigned)authority_handle);
+		if (!refreshLocalAuthorityRoute()) {
+			(void)netDisconnect();
+			recordTransportFailure("signed route publication", -3);
+		}
+		return;
+	}
+
+	if (action == NET_MATCH_ACTION_START_CLIENT) {
+		char addr[64];
+		if (!netMatchRouteFormat(&route, addr, sizeof(addr))) {
+			recordTransportFailure("typed route format", -2);
+			return;
+		}
+		s_Session.transport_attempted = 1;
+		s_Session.transport_attempt_count++;
+		sysLogPrintf(LOG_NOTE,
+			"GROUP.MATCH: join attempt authority=0x%08x route_kind=match-server flags=0x%02x count=%u",
+			(unsigned)authority_handle, (unsigned)route.flags,
+			(unsigned)s_Session.transport_attempt_count);
+		const s32 rc = s_DebugFriendPlayFailClient ? -91 :
+			netStartClientWithHolePunch(addr);
+		if (rc != 0) {
+			recordTransportFailure("client join", rc);
+			return;
+		}
+		s_Session.transport_state = NET_MATCH_TRANSPORT_CLIENT;
+		s_Session.transport_result = 0;
+		s_Session.latched_authority_handle = authority_handle;
+		sysLogPrintf(LOG_NOTE,
+			"GROUP.MATCH: authority latched handle=0x%08x transport=client route_flags=0x%02x",
+			(unsigned)authority_handle, (unsigned)route.flags);
+		return;
+	}
+
+	if (action == NET_MATCH_ACTION_CONFLICT) {
+		recordTransportFailure("authority conflict", -1);
+	}
+}
+
 /* -------------------------------------------------------------------------
  * Invite hooks
  * ------------------------------------------------------------------------- */
@@ -220,6 +534,10 @@ s32 groupSessionRecordSentInvite(u32 invitee_handle)
 	if (s_Session.initiator_handle == 0) {
 		s_Session.initiator_handle = socialMyHandle();
 	}
+	if (!s_Session.election_input_latched) {
+		s_Session.local_kbps = sampleLocalElectionKbps();
+		s_Session.election_input_latched = 1;
+	}
 	const presence_peer_t *pp = presencePeerByHandle(invitee_handle);
 	if (pp) groupSessionUpdateKbps(invitee_handle, pp->upload_kbps);
 	return 0;
@@ -235,6 +553,10 @@ s32 groupSessionAcceptInvite(u32 inviter_handle)
 	p->fail = GROUP_FAIL_NONE;
 	if (s_Session.initiator_handle == 0) {
 		s_Session.initiator_handle = inviter_handle;
+	}
+	if (!s_Session.election_input_latched) {
+		s_Session.local_kbps = sampleLocalElectionKbps();
+		s_Session.election_input_latched = 1;
 	}
 
 	/* Pre-flight version check: if the friend's last presence pong reported
@@ -260,13 +582,18 @@ s32 groupSessionAcceptInvite(u32 inviter_handle)
 		}
 	}
 
+	enterState(p, GROUP_PEER_RESOLVING);
+	groupSessionRecomputeAuthority();
+	driveMatchTransport();
 	const u32 pid = p2pPairBegin(inviter_handle, hint_ipv4, hint_port);
 	if (pid == 0) {
-		enterFailure(p, GROUP_FAIL_INTERNAL);
-		return -1;
+		p->probe_failed = 1;
+		sysLogPrintf(LOG_WARNING,
+			"GROUP.SESSION: auxiliary probe could not start for peer 0x%08x",
+			(unsigned)inviter_handle);
+	} else {
+		p->pair_id = pid;
 	}
-	p->pair_id = pid;
-	enterState(p, GROUP_PEER_RESOLVING);
 	return 0;
 }
 
@@ -290,13 +617,18 @@ void groupSessionOnInviteResponse(u32 from_handle, s32 accepted)
 			hint_port = pp->cached_port;
 		}
 	}
+	enterState(p, GROUP_PEER_RESOLVING);
+	groupSessionRecomputeAuthority();
+	driveMatchTransport();
 	const u32 pid = p2pPairBegin(from_handle, hint_ipv4, hint_port);
 	if (pid == 0) {
-		enterFailure(p, GROUP_FAIL_INTERNAL);
-		return;
+		p->probe_failed = 1;
+		sysLogPrintf(LOG_WARNING,
+			"GROUP.SESSION: auxiliary probe could not start for peer 0x%08x",
+			(unsigned)from_handle);
+	} else {
+		p->pair_id = pid;
 	}
-	p->pair_id = pid;
-	enterState(p, GROUP_PEER_RESOLVING);
 }
 
 void groupSessionDropPeer(u32 handle)
@@ -322,22 +654,44 @@ void groupSessionDropPeer(u32 handle)
 	groupSessionRecomputeAuthority();
 }
 
+void groupSessionOnTransportDisconnected(void)
+{
+	if (!s_Initialised) return;
+	const u8 had_transport = s_Session.transport_state != NET_MATCH_TRANSPORT_NONE ||
+		s_Session.latched_authority_handle != 0;
+	presenceClearLocalMatchRoute();
+	memset(&s_PublishedRoute, 0, sizeof(s_PublishedRoute));
+	s_Session.latched_authority_handle = 0;
+	s_Session.transport_state = NET_MATCH_TRANSPORT_NONE;
+	/* A disconnect releases ownership but does not silently start a second
+	 * server/join transaction on the next group tick. A fresh invite/session
+	 * is the explicit retry boundary. */
+	if (had_transport) {
+		s_Session.transport_attempted = 1;
+		s_Session.transport_failed = 1;
+		s_Session.transport_result = -4;
+	}
+	groupSessionRecomputeAuthority();
+	sysLogPrintf(LOG_NOTE,
+		"GROUP.MATCH: transport ownership released; automatic retry suppressed");
+}
+
 /* -------------------------------------------------------------------------
  * Tick: drive RESOLVING peers to CONNECTED via p2p state polls
  * ------------------------------------------------------------------------- */
 
 static void onPairOpen(group_peer_t *p, const p2p_endpoint_t *ep)
 {
-	/* c-relay (A+C): a TURN/relayed endpoint reports ep->ipv4/port == 0 and carries
-	 * the relay address in ep->relay_ipv4/relay_port (flag P2P_EP_RELAYED). Connect
-	 * to the relay as the peer's proxy -- the relay forwarder rewrites src/dst and
-	 * forwards to the actual peer. Direct/reflexive endpoints use ep->ipv4/port. */
+	/* Probe endpoints belong only to auxiliary social/group reachability. They
+	 * are never formatted as ENet match-server routes. Relay descriptors remain
+	 * relay descriptors and likewise cannot enter the match handoff. */
 	const s32 relayed = (ep->flags & P2P_EP_RELAYED) != 0;
 	const u32 conn_ipv4 = relayed ? ep->relay_ipv4 : ep->ipv4;
 	const u16 conn_port = relayed ? ep->relay_port : ep->port;
 
 	p->ipv4 = conn_ipv4;
 	p->port = conn_port;
+	p->probe_failed = 0;
 	enterState(p, GROUP_PEER_CONNECTED);
 	if (p->last_kbps != 0 && p->last_kbps_ms != 0 &&
 		(SDL_GetTicks() - p->last_kbps_ms) <= GROUP_KBPS_FRESH_MS) {
@@ -345,44 +699,21 @@ static void onPairOpen(group_peer_t *p, const p2p_endpoint_t *ep)
 			p->last_kbps);
 	}
 
-	/* Hand off to the existing match-start flow.  Format the resolved
-	 * endpoint as "ip:port" and call the hole-punch-aware client path if we are the
-	 * joining peer. The joining peer is by default whichever side
-	 * accepted the invite (presence.c sets in_session = 1 just before
-	 * us). For Phase 1 we let the client handoff happen unconditionally on
-	 * the first successful pair -- the existing CLC_AUTH lobby flow
-	 * handles the rest. */
-	char addr[64];
-	snprintf(addr, sizeof(addr), "%u.%u.%u.%u:%u",
-	         (unsigned)((conn_ipv4 >> 24) & 0xFF),
-	         (unsigned)((conn_ipv4 >> 16) & 0xFF),
-	         (unsigned)((conn_ipv4 >>  8) & 0xFF),
-	         (unsigned)((conn_ipv4 >>  0) & 0xFF),
-	         (unsigned)conn_port);
-
-	/* If we are not yet talking to anyone via ENet, become the joining
-	 * peer. If a client connect is already in flight, this is harmless
-	 * (returns immediately). The actual lobby-state transitions are
-	 * owned by net.c. */
-	extern s32 g_NetMode;
-	if (g_NetMode == 0) {
-		s32 rc = netStartClientWithHolePunch(addr);
-		sysLogPrintf(LOG_NOTE,
-		             "GROUP.SESSION: handing peer 0x%08x to netStartClientWithHolePunch(%s) rc=%d",
-		             (unsigned)p->handle, addr, (int)rc);
-	}
-
+	sysLogPrintf(LOG_NOTE,
+		"GROUP.SESSION: auxiliary probe open peer=0x%08x flags=0x%02x; ENet route unchanged",
+		(unsigned)p->handle, (unsigned)ep->flags);
 	groupSessionRecomputeAuthority();
 }
 
 void groupSessionTick(void)
 {
 	if (!s_Initialised) return;
+	debugFriendPlayTick();
 
 	const u32 now_ms = SDL_GetTicks();
-	const u32 previous_local_kbps = s_Session.local_kbps;
-	const u32 current_local_kbps = netUploadKbpsEstimate();
-	s32 authority_dirty = previous_local_kbps != current_local_kbps;
+	const u32 current_local_kbps = sampleLocalElectionKbps();
+	s32 authority_dirty = !s_Session.election_input_latched &&
+		s_Session.local_kbps != current_local_kbps;
 
 	for (s32 i = 0; i < GROUP_SESSION_MAX_PEERS; i++) {
 		group_peer_t *p = &s_Session.peers[i];
@@ -402,23 +733,29 @@ void groupSessionTick(void)
 			p2p_endpoint_t ep;
 			if (p2pPairGetEndpoint(p->pair_id, &ep)) {
 				onPairOpen(p, &ep);
+				p2pPairCancel(p->pair_id);
+				p->pair_id = 0;
 			}
 		} else if (st == P2P_PAIR_FAILED) {
-			/* If presence ever showed a version mismatch, surface that
-			 * specifically; otherwise the failure is treated as
-			 * network-blocked (Section 2.4 unsolvable residue). */
+			/* Candidate-probe exhaustion does not invalidate a separately
+			 * signed ENet route. Keep the accepted peer eligible and record
+			 * only the auxiliary failure. */
 			const presence_peer_t *pp = presencePeerByHandle(p->handle);
 			if (pp && pp->proto_version != 0 && pp->proto_version != NET_PROTOCOL_VER) {
 				p->their_proto = pp->proto_version;
 				enterFailure(p, GROUP_FAIL_VERSION_MISMATCH);
 			} else {
-				enterFailure(p, GROUP_FAIL_NETWORK_BLOCKED);
+				p->probe_failed = 1;
+				sysLogPrintf(LOG_WARNING,
+					"GROUP.SESSION: auxiliary probe exhausted peer=0x%08x; waiting on typed match route",
+					(unsigned)p->handle);
 			}
 			p2pPairCancel(p->pair_id);
 			p->pair_id = 0;
 		}
 	}
 	if (authority_dirty) groupSessionRecomputeAuthority();
+	driveMatchTransport();
 }
 
 /* -------------------------------------------------------------------------

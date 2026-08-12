@@ -98,11 +98,12 @@ TEST_CASE("bandwidth evidence is wired through persistence presence aging and TU
 	REQUIRE(net.find("Net.UploadKbpsMeasuredAt") != std::string::npos);
 	REQUIRE(net.find("netUploadMeasurementTick();") != std::string::npos);
 
-	REQUIRE(presence.find("PRESENCE_VERSION          4") != std::string::npos);
-	REQUIRE(presence.find("pd-presence-v4") != std::string::npos);
+	REQUIRE(presence.find("PRESENCE_VERSION          5") != std::string::npos);
+	REQUIRE(presence.find("pd-presence-v5") != std::string::npos);
 	REQUIRE(presence.find("PRESENCE_UPLOAD_KBPS_OFFSET") != std::string::npos);
-	REQUIRE(presence.find("wU32(&upload_w, netUploadKbpsEstimate())") !=
+	REQUIRE(presence.find("groupSessionLocalElectionKbps()") !=
 		std::string::npos);
+	REQUIRE(group.find("election_input_latched") != std::string::npos);
 	REQUIRE(presence.find("groupSessionUpdateKbps(handle, p->upload_kbps)") !=
 		std::string::npos);
 

@@ -664,6 +664,25 @@ void sysGetExecutablePath(char *outPath, const u32 outLen)
 
 void sysGetHomePath(char *outPath, const u32 outLen)
 {
+	/* Multi-process production smokes need independent identity/social homes.
+	 * Keep the override unavailable to ordinary launches: the runner must pass
+	 * both --smoke and an explicit per-process path. */
+	if (sysArgCheck("--smoke")) {
+		const char *debugHome = sysArgGetString("--debug-home-path");
+		if (debugHome && debugHome[0] && outLen > 0) {
+			strncpy(outPath, debugHome, outLen - 1);
+			outPath[outLen - 1] = '\0';
+#ifdef PLATFORM_WIN32
+			for (u32 i = 0; i < outLen && outPath[i]; ++i) {
+				if (outPath[i] == '\\') {
+					outPath[i] = '/';
+				}
+			}
+#endif
+			return;
+		}
+	}
+
 	// try asking SDL
 	char *sdlPath = SDL_GetPrefPath("", "perfectdark");
 

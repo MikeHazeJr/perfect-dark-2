@@ -1,0 +1,115 @@
+{
+  "scenario_name": "friend_play_client_failure_rollback_smoke",
+  "description": "D-003 failure proof: the initiator starts the sole listen host and publishes its signed typed route, while the invitee's smoke-gated client startup fails once, clears its latch, and never retries.",
+  "tags": ["network", "social", "friend-play", "authority-first", "rollback", "d-003", "smoke"],
+  "paths_of_interest": [
+    "port/src/net/group_session.c",
+    "port/src/presence.c",
+    "port/src/net/net_match_route.c",
+    "tools/smoke-verify/generate_friend_play_identity.py"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 140,
+  "install_state": "prefilled",
+  "separate_process_installs": true,
+  "fixtures": [
+    { "src": "tools/smoke-verify/fixtures/needler_source_pd.ini", "dst": "pd.ini" },
+    { "src": "tools/smoke-verify/fixtures/no_mods_enabled.json", "dst": "mods-enabled.json" }
+  ],
+  "processes": [
+    {
+      "name": "invitee",
+      "friend_play_identity": "invitee",
+      "log_file": "pd-client.log",
+      "boot_args": [
+        "--no-update-check", "--portable",
+        "--launch-load-agent", "invitee",
+        "--debug-presence-port", "28106",
+        "--debug-friend-play-role", "invitee",
+        "--debug-friend-play-auto-accept",
+        "--debug-friend-play-upload-kbps", "1000",
+        "--debug-friend-play-fail-start", "client",
+        "--port", "27212"
+      ],
+      "wait_for": "FRIENDPLAY: role=invitee ready",
+      "wait_timeout_seconds": 100,
+      "assertions": {
+        "required_lines": [
+          "FRIENDPLAY: role=invitee invite accepted peer=0x[0-9a-f]+ rc=0",
+          "GROUP.SESSION: authority elected handle=0x07a68cc7 kbps=9000 local=0",
+          "PRESENCE: accepted signed match route authority=0x07a68cc7 flags=0x[0-9a-f]+ port=27212 fresh=1",
+          "GROUP.MATCH: join attempt authority=0x07a68cc7 route_kind=match-server flags=0x[0-9a-f]+ count=1",
+          "GROUP.MATCH: client join failed rc=-91; transport rolled back",
+          "GROUP.MATCH: authority latch cleared; no retry",
+          "SMOKE: result=scripted_exit"
+        ],
+        "forbidden_patterns": [
+          "GROUP.MATCH: server start attempt",
+          "GROUP.MATCH: join attempt.*count=[2-9]",
+          "NET: connected to server, sending CLC_AUTH"
+        ]
+      }
+    },
+    {
+      "name": "initiator",
+      "friend_play_identity": "initiator",
+      "log_file": "pd-client.log",
+      "boot_args": [
+        "--no-update-check", "--portable",
+        "--launch-load-agent", "initiator",
+        "--debug-presence-port", "28105",
+        "--debug-friend-play-role", "initiator",
+        "--debug-friend-play-auto-invite",
+        "--debug-friend-play-upload-kbps", "9000",
+        "--port", "27212"
+      ],
+      "assertions": {
+        "required_lines": [
+          "FRIENDPLAY: role=initiator invite sent peer=0x[0-9a-f]+ rc=0",
+          "GROUP.SESSION: authority elected handle=0x07a68cc7 kbps=9000 local=1",
+          "GROUP.MATCH: server start attempt authority=0x07a68cc7 count=1",
+          "NET: created server on port 27212",
+          "GROUP.SESSION: published typed match route authority=0x07a68cc7 flags=0x[0-9a-f]+ port=27212",
+          "SMOKE: result=scripted_exit"
+        ],
+        "forbidden_patterns": [
+          "GROUP.MATCH: join attempt",
+          "GROUP.MATCH: server start attempt.*count=[2-9]",
+          "NET: incoming connection"
+        ]
+      }
+    }
+  ],
+  "input_sequence": [
+    { "at_ms": 0, "type": "wait", "comment": "Let the initiator publish the signed typed route and inject the non-authority invitee's client-start failure." },
+    { "at_ms": 90000, "type": "exit", "comment": "Hold long enough to prove the failed join remains one-shot while the elected listen host stays up." }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=friend_play_client_failure_rollback_smoke",
+      "NET: created server on port 27212",
+      "PRESENCE: accepted signed match route authority=0x07a68cc7 flags=0x[0-9a-f]+ port=27212 fresh=1",
+      "GROUP.MATCH: client join failed rc=-91; transport rolled back",
+      "GROUP.MATCH: authority latch cleared; no retry",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "GROUP.MATCH: server start attempt.*count=[2-9]",
+      "GROUP.MATCH: join attempt.*count=[2-9]",
+      "NET: incoming connection",
+      "NET: connected to server, sending CLC_AUTH",
+      "EXCEPTION_ACCESS_VIOLATION",
+      "ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout"
+    ],
+    "required_counts": [
+      { "pattern": "GROUP.MATCH: server start attempt authority=0x07a68cc7 count=1", "min": 1, "max": 1 },
+      { "pattern": "GROUP.MATCH: join attempt authority=0x07a68cc7 route_kind=match-server flags=0x[0-9a-f]+ count=1", "min": 1, "max": 1 },
+      { "pattern": "GROUP.MATCH: client join failed rc=-91; transport rolled back", "min": 1, "max": 1 },
+      { "pattern": "GROUP.MATCH: authority latch cleared; no retry", "min": 1, "max": 1 },
+      { "pattern": "SMOKE: result=scripted_exit", "min": 2, "max": 2 }
+    ]
+  }
+}

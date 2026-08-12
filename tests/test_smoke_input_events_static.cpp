@@ -154,15 +154,20 @@ TEST_CASE("multi-process smoke isolates process installs and assertions",
     "[smoke][tooling][network][v009][b1031][static]")
 {
     const std::string runner = readTextFile("tools/smoke-verify/run.ps1");
+    const std::string systemSource = readTextFile("port/src/system.c");
 
     requireContains(runner, "separate_process_installs");
     requireContains(runner, "process install[{0}]: {1}");
     requireContains(runner, "Initialize-MultiProcessSmokeInstall -Definition $def");
     requireContains(runner, "Initialize-MultiProcessSmokeInstall -Definition $plan.Definition");
-    requireContains(runner, "$psi.FileName         = $exe");
+    requireContains(runner, "$processExe = Join-Path $processInstallInfo.InstallDir $exeLeaf");
+    requireContains(runner, "$psi.FileName         = $processExe");
+    requireContains(runner, "pd-identity.dat");
+    REQUIRE(runner.find("$psi.FileName         = $exe\n") == std::string::npos);
     requireContains(runner, "\"--basedir\", [string]$processInstallInfo.InstallDir");
     requireContains(runner, "\"--savedir\", [string]$processInstallInfo.InstallDir");
     requireContains(runner, "\"--moddir\", [string]$processModsDir");
+    requireContains(runner, "\"--debug-home-path\", [string]$processInstallInfo.InstallDir");
     requireContains(runner, "$allArgs = @(\"--smoke\", $processSmokePath) + $crashArgs + $isolationArgs + $pBootArgs");
     requireContains(runner, "Properties.Match('smoke_path').Count -gt 0");
     requireContains(runner, "Properties.Match('snapshot_log_file').Count -gt 0");
@@ -174,6 +179,10 @@ TEST_CASE("multi-process smoke isolates process installs and assertions",
     requireContains(runner, "Invoke-SmokeAssertions -LogPath $entry.LogPath");
     requireContains(runner, "retained process install for debugging");
     requireContains(runner, "cleaned process install:");
+
+    requireContains(systemSource, "if (sysArgCheck(\"--smoke\"))");
+    requireContains(systemSource, "sysArgGetString(\"--debug-home-path\")");
+    requireContains(systemSource, "strncpy(outPath, debugHome, outLen - 1)");
 
     const std::string modmgr = readTextFile("port/src/modmgr.c");
     requireContains(modmgr, "const char *explicitModsDir = fsGetModDir();");

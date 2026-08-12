@@ -46,6 +46,11 @@ const char *stunGetExternalIP(void);
 /* Discovered external port in host byte order. 0 if not ready. */
 u16 stunGetExternalPort(void);
 
+/* Local UDP port used by the discovery that owns the current result.
+ * D-003 route publication must match this to the ENet listen port so a later
+ * ephemeral P2P probe result cannot be mislabeled as a match-server route. */
+u16 stunGetDiscoveryPort(void);
+
 /* Signal the worker thread to stop at its next cancel-check.
    Thread is detached; it will exit on its own. */
 void stunCancel(void);

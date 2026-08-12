@@ -27,6 +27,7 @@
 #define _IN_PRESENCE_H
 
 #include <PR/ultratypes.h>
+#include "net/net_match_route.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -62,6 +63,10 @@ typedef struct presence_peer_s {
 	u8               input_class;     /* ACTIONMAP_INPUT_CLASS_*; privacy-safe category */
 	u8               _pad[3];
 	u32              upload_kbps;     /* signed passive prior/current-session report */
+	net_match_route_t match_route;     /* normalized signed ENet authority route */
+	u32              match_route_received_ms;
+	u32              match_route_latest_issued_unix_seconds;
+	u32              match_route_latest_nonce;
 	char             status_blurb[64];/* "Mission: Pelagic" / "CS: Felicity" / etc. */
 } presence_peer_t;
 
@@ -107,6 +112,19 @@ const presence_peer_t *presencePeerByHandle(u32 handle);
 
 /** Returns 1 if the friend has pong'd within the last PEER_FRESH_MS. */
 s32 presencePeerIsOnline(u32 handle);
+
+/** Return a fresh, normalized signed ENet match-server route for a peer. */
+s32 presencePeerMatchRoute(u32 handle, net_match_route_t *out_route);
+
+/**
+ * Set or clear the local authority's signed match-server route. The route is
+ * wire-typed: source-derived routes keep ipv4 zero, while STUN/UPnP routes
+ * carry their explicit server address. Setting a route publishes it
+ * immediately to cached peers; normal presence traffic provides retries.
+ */
+s32 presenceSetLocalMatchRoute(const net_match_route_t *route);
+void presenceClearLocalMatchRoute(void);
+void presencePublishMatchRoute(void);
 
 /* -------------------------------------------------------------------------
  * Pending invites (for the friend acceptance / DoS allowlist).

@@ -18,6 +18,7 @@
 #include "net/netstun.h"
 #include "net/netholepunch.h"
 #include "net/net_bandwidth.h"
+#include "net/group_session.h"
 #include "identity.h"
 #include "net/netlobby.h"
 #include "net/netdistrib.h"
@@ -1407,6 +1408,12 @@ s32 netDisconnect(void)
 	g_NetLocalBotAuthority = false;
 	g_NetPendingBotAuthority = false;
 	g_NetBotAuthorityClientId = NET_NULL_CLIENT;
+
+#if !defined(PD_SERVER)
+	/* D-003: release the per-match authority latch only after ENet ownership
+	 * is fully gone. Presence must not keep advertising a stopped server. */
+	groupSessionOnTransportDisconnected();
+#endif
 
 	/* MASTER-C3: drop the identity cookie so a fresh connect to any server
 	 * begins as a new player.  Cookies are scoped to a single session —

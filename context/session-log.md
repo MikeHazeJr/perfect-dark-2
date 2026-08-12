@@ -1,5 +1,42 @@
 # Session Log (Active)
 
+## 2026-08-12 - D-003 option A production-verified
+
+Goal: keep friend/group discovery peer-to-peer while routing each accepted
+match through exactly one elected in-client ENet authority. This matters
+because LAN/STUN/UPnP/ICE probe endpoints and relay descriptors are not
+match-server routes, and allowing either invite side to consume them preserved
+B-1058's wrong-socket and duplicate-owner failure class.
+
+Implemented a pure typed route validator/planner, presence v5 signed route
+transport and freshness cache, frozen pre-connect election, one-shot authority
+listen startup, one-shot non-authority join, and failure rollback without
+implicit retry. `group_session::onPairOpen` now records auxiliary reachability
+only; it cannot format or hand a probe endpoint to `netStartClient*`. Added
+smoke-only deterministic friend identities and role controls behind the active
+smoke harness so two ordinary client processes can exercise either authority
+role without changing the production default path.
+
+Production verification passed on the final isolated client hash
+`5ef82f3ea66af264408dab2948e18eb6fa92824e09db2c1fc4d8d07d00d58f48`.
+The ordered 24-file source/harness fingerprint is
+`061bc1fbfa4f266f9f36fb5f78ce68c3c473656bf7aa3ab5224c42f213614f93`.
+Initiator authority passes 143/143 in `results-20260812T173304Z.json`; invitee
+authority passes 142/142 in `results-20260812T174213Z.json`; failed host startup
+rolls back 32/32 in `results-20260812T174511Z.json`; and failed client join
+rolls back 38/38 in `results-20260812T174751Z.json`. The first final-hash
+invitee run was rejected at 136/142 because cold admission completed after its
+effect inputs; extending only the smoke action window produced the accepted
+receipt without changing route or protocol assertions.
+
+Final `[d-003]` tests pass 90 assertions/5 cases, the complete suite passes
+56,774/1,040, and the native-source guard passes. Final-binary V-009
+`results-20260812T174904Z.json` passes 21/21; both 1280x720 frames were inspected
+and show the magenta Needler confined to the lower-right with the corridor and
+crosshair unobstructed. B-1058 is fixed. `T-NETWORKING-001/002/006` remain
+truthfully partial for separate peer-candidate exchange, tier unification,
+real-NAT proof, and host-migration scope.
+
 ## 2026-08-12 - B-1058 P2P route-ownership audit and D-003
 
 Goal: make the six-tier P2P machine the single friend-play connection owner.

@@ -4,10 +4,9 @@
  * Owns the small state machine that bridges three things:
  *
  *   1. The presence invite from a friend ("come play with me").
- *   2. The p2p layer's tier-escalation result (an open endpoint, or
- *      a documented failure mode).
- *   3. The existing ENet match-start flow (netStartClient on the
- *      resolved "ip:port" string).
+ *   2. Auxiliary p2p candidate probing for the social/group mesh.
+ *   3. A separately typed, signed ENet match-server route published by the
+ *      elected in-client listen host.
  *
  * Phase 1 group capacity is 4 humans (mesh -- 6 edges trivially handled).
  * Within-match authority is per-match, not persistent: it is elected
@@ -19,20 +18,22 @@
  *   3. Smallest public handle as the deterministic tie-break if the
  *      initiator is no longer an eligible candidate.
  *
- * If the authority drops mid-match, quiet failover re-elects the next
- * highest-bandwidth peer in the mesh. The match continues.
+ * Authority is latched before either ENet startup action. Mid-match migration
+ * is a later explicit transaction; this module never silently re-elects while
+ * a client or listen host is active.
  *
  * This module deliberately does NOT implement the wire-protocol additions
  * for the in-match channel itself -- that's the existing
  * `port/src/net/netmsg.c` ENet pipeline. The group session sits one layer
- * above: it produces the "ip:port" string that netStartClient consumes,
- * and tracks the high-level mesh membership while a session is alive.
+ * above: it validates the signed match-server route before the sole ENet
+ * handoff and tracks high-level mesh membership while a session is alive.
  */
 
 #ifndef _IN_GROUP_SESSION_H
 #define _IN_GROUP_SESSION_H
 
 #include <PR/ultratypes.h>
+#include "net/net_match_route.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -43,8 +44,8 @@ extern "C" {
 typedef enum {
 	GROUP_PEER_UNKNOWN     = 0,
 	GROUP_PEER_INVITED     = 1,  /* invite sent, awaiting response */
-	GROUP_PEER_RESOLVING   = 2,  /* p2p tier escalation in progress */
-	GROUP_PEER_CONNECTED   = 3,  /* ENet path open (we triggered netStartClient) */
+	GROUP_PEER_RESOLVING   = 2,  /* invite accepted; auxiliary probe resolving */
+	GROUP_PEER_CONNECTED   = 3,  /* auxiliary peer probe open, not an ENet route */
 	GROUP_PEER_FAILED      = 4,  /* terminal failure (per-tier exhausted) */
 } group_peer_state_t;
 
@@ -65,9 +66,10 @@ typedef struct group_peer_s {
 	u32                 last_kbps;        /* used for authority election */
 	u32                 last_kbps_ms;     /* signed presence report freshness */
 	u32                 entered_state_ms;
-	u32                 ipv4;             /* host order, valid in CONNECTED */
-	u16                 port;
-	u16                 _pad;
+	u32                 ipv4;             /* probe-only host-order endpoint */
+	u16                 port;             /* probe-only; never passed to ENet */
+	u8                  probe_failed;
+	u8                  _pad;
 	u16                 their_proto;      /* their NET_PROTOCOL_VER for mismatch UX */
 	char                their_agent[16];
 	char                their_version[16];/* free-text "0.0.165" etc., for UX */
@@ -79,8 +81,15 @@ typedef struct group_session_s {
 	u8           is_local_authority;
 	u8           _pad;
 	u32          authority_handle; /* mirror for read accessors */
+	u32          latched_authority_handle; /* frozen before either ENet start */
 	u32          initiator_handle; /* tie/no-data fallback for this group */
-	u32          local_kbps;       /* fresh passive local ENet measurement */
+	u32          local_kbps;       /* frozen signed election claim for this group */
+	u8           election_input_latched;
+	u8           transport_state;  /* net_match_transport_state_t */
+	u8           transport_attempted;
+	u8           transport_attempt_count;
+	u8           transport_failed;
+	s8           transport_result;
 	group_peer_t peers[GROUP_SESSION_MAX_PEERS];
 } group_session_t;
 
@@ -120,6 +129,9 @@ void groupSessionOnInviteResponse(u32 from_handle, s32 accepted);
 /** Drop a peer from the mesh (presence BYE, kick, manual leave). */
 void groupSessionDropPeer(u32 handle);
 
+/** Called by netDisconnect after ENet ownership is fully released. */
+void groupSessionOnTransportDisconnected(void);
+
 /* -------------------------------------------------------------------------
  * Authority election
  * ------------------------------------------------------------------------- */
@@ -131,6 +143,9 @@ void groupSessionRecomputeAuthority(void);
 /** Refresh a peer's kbps measurement. group_session.c uses this for the
  *  highest-upload-speed election rule. */
 void groupSessionUpdateKbps(u32 handle, u32 kbps);
+
+/** Frozen local upload claim used in signed invite/accept election frames. */
+u32 groupSessionLocalElectionKbps(void);
 
 /* -------------------------------------------------------------------------
  * UX helpers

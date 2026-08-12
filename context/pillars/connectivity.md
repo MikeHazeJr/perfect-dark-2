@@ -128,7 +128,7 @@ Escalation chain:
 
 ## Presence
 
-[port/src/presence.c](../../port/src/presence.c). Always-on UDP socket port 27105. 184-byte frames signed Ed25519 over first 120 bytes plus domain string `"pd-presence-v4"`. v2 added pubkey + signature on 2026-04-25; v3 added the privacy-safe input class byte on 2026-05-21; v4 added the passive upload estimate at bytes 84-87 on 2026-08-12 while reducing the status field to 44 bytes.
+[port/src/presence.c](../../port/src/presence.c). Always-on UDP socket port 27105. 196-byte frames signed Ed25519 over the first 132 bytes plus domain string `"pd-presence-v5"`. v2 added pubkey + signature on 2026-04-25; v3 added the privacy-safe input class byte on 2026-05-21; v4 added the passive upload estimate at bytes 84-87 on 2026-08-12 while reducing the status field to 44 bytes; v5 adds the separately typed match-server route at bytes 88-99 and moves the public key/signature to offsets 100/132.
 
 Ping interval 30s, online window 60s. Friends pinged via social friend list iteration. **No external presence service**; no lobby browser, no HTTPS matchmaking.
 
@@ -150,13 +150,20 @@ Connect-code UI surfaces (`pdguiFriendsStatusIndicatorRender` top-right pill) ea
 
 ### Input class presence
 
-Presence v4 retains byte 19 of the signed frame for a coarse `ACTIONMAP_INPUT_CLASS_*` category. Social UI can show MKB, Controller, Custom, Accessibility, HOTAS, or HOSAS for connected friends without exposing raw device GUIDs, vendor IDs, product names, or per-device identity. This is UI/social metadata only; gameplay input authority remains local to each client and still flows through the action map.
+Presence v5 retains byte 19 of the signed frame for a coarse `ACTIONMAP_INPUT_CLASS_*` category. Social UI can show MKB, Controller, Custom, Accessibility, HOTAS, or HOSAS for connected friends without exposing raw device GUIDs, vendor IDs, product names, or per-device identity. This is UI/social metadata only; gameplay input authority remains local to each client and still flows through the action map.
 
 ### Social invites and friend joins
 
 Invite controls in the Social friend row and profile modal are intentionally available even when the displayed presence state says Offline. Offline can be stale while signed presence is recovering, so the button should attempt delivery and let transport/presence produce a real result instead of hiding the recovery action.
 
-Friend remote handoffs use the same NAT-aware path as player-facing connect-code joins. `group_session.c::onPairOpen()` and `spectator.c::spectatorBeginLive()` call `netStartClientWithHolePunch()` rather than raw `netStartClient()`, so invite acceptance, group-session peer open, and live-spectator join all enter the direct-connect -> hole-punch waterfall.
+Friend-play match startup is authority-first. The accepted invite freezes the
+same initiator and upload claims on both peers; deterministic election chooses
+one authority, which starts the in-client ENet listen server exactly once and
+publishes its fresh signed presence-v5 match-server route. Each non-authority
+performs one join only after that typed route validates. Probe success in
+`group_session.c::onPairOpen()` is auxiliary social/P2P state and never becomes
+an ENet address. The legacy `spectator.c::spectatorBeginLive()` direct/hole-
+punch waterfall remains separate spectator scope.
 
 ---
 
@@ -246,7 +253,7 @@ Per [audits/infrastructure-pillars-status-2026-04-27.md](../audits/infrastructur
 - T-NETWORKING-004/B-1057 replaces the local zero placeholder with passive
   cumulative ENet-byte sampling. A nonzero sample requires at least 4096 real
   sent bytes over a completed two-second window; the best observed lower bound
-  persists for 30 days. Presence v4 signs the estimate, remote group reports
+  persists for 30 days. Presence v5 signs the estimate, remote group reports
   expire after 90 seconds, and election order is highest fresh kbps, then match
   initiator on exact/no-data ties, then smallest public handle. The real-peer
   receipt `results-20260812T151813Z.json` passes 23/23 and persists host/client
@@ -262,16 +269,24 @@ Per [audits/infrastructure-pillars-status-2026-04-27.md](../audits/infrastructur
 
 ## Known gaps
 
-- **P2P probe endpoints are not ENet match-server routes (B-1058/D-003).**
-  LAN/direct/STUN/UPnP/ICE operate private discovery sockets, but
-  `group_session` currently formats a winning probe endpoint as the address for
-  `netStartClientWithHolePunch`. STUN/UPnP can return this client's own
-  endpoint, ICE starts from local candidates, and neither invite side first
-  establishes the elected listen host. T-NETWORKING-001/002/006 are blocked on
-  D-003; the recommended authority-first option starts one real ENet host,
-  signs its route plus candidates, and gives joiners one connection owner.
+- **Authority-first friend-play route is production-verified
+  (B-1058/D-003).** LAN/direct/STUN/UPnP/ICE probe endpoints and relay
+  descriptors stay out of the ENet match-route slot; one pre-connect-latched
+  authority starts the in-client listen host; presence v5 signs a separately
+  typed fresh server route; and each non-authority performs one idempotent join.
+  Frozen ordinary-client receipts pass initiator authority 143/143, invitee
+  authority 142/142, host rollback 32/32, client rollback 38/38, and final-
+  binary V-009 21/21 with unobstructed inspected frames. Focused `[d-003]`
+  passes 90/5 and the complete suite passes 56,774/1,040. This fixes B-1058 and
+  satisfies D-003 as a prerequisite; `T-NETWORKING-001/002/006` remain partial
+  for their separate candidate transport, tier unification, and real-NAT work.
 - **ICE peer candidate exchange not wired.** [p2p_ice.c:260](../../port/src/net/p2p_ice.c:260) `p2pIceAddPeerCandidate` exists but is never called from presence or invite layer in surveyed files. Without it, ICE tier probes only local NIC + local STUN reflexive against the hint, functionally equivalent to Tier 1 with backup.
-- **STUN reflexive not transmitted to peer.** [p2p_stun.c:125-131](../../port/src/net/p2p_stun.c:125) reports success with local reflexive as endpoint but does not coordinate with remote. Real STUN-based hole punching needs both sides to know each other's reflexive. Presence packet has `listen_ipv4 / listen_port` fields but the bridge from `p2pPublishMyReflexive` to presence outbound is not visible.
+- **STUN reflexive candidate not transmitted to peer.**
+  [p2p_stun.c:125-131](../../port/src/net/p2p_stun.c:125) reports success with
+  the local reflexive endpoint but does not coordinate the candidate with the
+  remote peer. Presence v5's bytes 88-99 are deliberately the typed ENet
+  match-server route, not a candidate slot; peer-candidate transport remains
+  separate T-NETWORKING-001/002 scope.
 - **Authority election does not yet perform live host migration.** The kbps
   input, signed transport, freshness, deterministic election, and TURN
   selection are implemented under T-NETWORKING-004, but switching an active

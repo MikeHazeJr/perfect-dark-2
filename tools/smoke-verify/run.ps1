@@ -863,6 +863,24 @@ function Invoke-SmokeTestMultiProcess {
                 -and $Definition.temporary_recovery_fixtures) {
             New-TemporaryRecoveryFixtures -ProjectRoot $ProjectRoot -InstallDir $InstallDir
         }
+        if ($Definition.PSObject.Properties.Match('friend_play_identity').Count -gt 0 `
+                -and $Definition.friend_play_identity) {
+            $generator = "tools/smoke-verify/generate_friend_play_identity.py"
+            $relativeInstall = [System.IO.Path]::GetRelativePath(
+                $ProjectRoot, $InstallDir).Replace('\', '/')
+            $role = [string]$Definition.friend_play_identity
+            Push-Location $ProjectRoot
+            try {
+                $fixtureJson = & python $generator --install-dir $relativeInstall --role $role
+                $fixtureExitCode = $LASTEXITCODE
+            } finally {
+                Pop-Location
+            }
+            if ($fixtureExitCode -ne 0) {
+                throw "Friend-play identity fixture generation failed for role '$role'"
+            }
+            Write-Info ("  friend-play identity [{0}]: {1}" -f $Label, ($fixtureJson -join " "))
+        }
     }
 
     if ($separateProcessInstalls) {
@@ -949,7 +967,8 @@ function Invoke-SmokeTestMultiProcess {
             $isolationArgs = @(
                 "--basedir", [string]$processInstallInfo.InstallDir,
                 "--savedir", [string]$processInstallInfo.InstallDir,
-                "--moddir", [string]$processModsDir
+                "--moddir", [string]$processModsDir,
+                "--debug-home-path", [string]$processInstallInfo.InstallDir
             )
         }
         $processSmokePath = $Test.Path
@@ -976,8 +995,16 @@ function Invoke-SmokeTestMultiProcess {
         Write-Info ("  launch[{0}]: {1}" -f $pname, ($allArgs -join ' '))
         Write-Info ("    log: {0}" -f $logPath)
 
+        # Each isolated process install owns its own portable home, including
+        # pd-identity.dat. Launching the shared seed executable would make all
+        # peers resolve the same executable-relative portable home even though
+        # their working directories, save paths, and fixtures are separate.
+        $processExe = Join-Path $processInstallInfo.InstallDir $exeLeaf
+        if (-not (Test-Path -LiteralPath $processExe)) {
+            throw "$exeLeaf missing inside process install before launch: $processExe"
+        }
         $psi = New-Object System.Diagnostics.ProcessStartInfo
-        $psi.FileName         = $exe
+        $psi.FileName         = $processExe
         $quotedArgs = foreach ($a in $allArgs) {
             if ($null -eq $a) { continue }
             $s = [string]$a

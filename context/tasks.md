@@ -8,9 +8,10 @@ Last updated: 2026-08-12
 
 `T-NETWORKING-004` is implemented. The former hardcoded local `0 kbps`
 authority input is replaced by passive measurement of actual ENet sent bytes.
-The best fresh observed lower bound persists for 30 days, travels in the signed
-presence v4 body, expires from remote election input after 90 seconds, and
-feeds deterministic speed/initiator/handle authority and TURN selection.
+The best fresh observed lower bound persists for 30 days, remains at bytes
+84-87 of the signed presence v5 body, expires from remote election input after
+90 seconds, and feeds deterministic speed/initiator/handle authority and TURN
+selection.
 Client/updater/tests compile, focused tests pass 37/5, and the complete suite
 passes 56,664/1,036. The ordinary two-process receipt
 `.claude/smoke-verify-runs/results-20260812T151813Z.json` passes 23/23 and
@@ -19,16 +20,34 @@ traffic. This closes the measurement task only; automatic host migration and
 the broader P2P-to-ENet handoff remain `T-NETWORKING-008`/
 `T-NETWORKING-006` work.
 
-`D-003` is open and blocks `T-NETWORKING-001/002/006`. The prerequisite audit
-found B-1058: the six-tier machine tests private LAN/direct/STUN/UPnP/ICE probe
-sockets, but `group_session` treats a winning probe address as the remote ENet
-match-server route. STUN and UPnP currently return this client's own endpoint,
-ICE probes local candidates, and both invite sides can enter the client
-handoff without an elected authority first starting a listen server. The
-recommended option is authority-first listen host: elect one server, start it,
-sign its actual ENet route plus candidates, and let every other peer use one
-orchestrated join path. No partial endpoint patch was applied because it would
-still connect the wrong socket.
+`D-003` option A is production-verified. The final group topology remains
+peer-to-peer for social/probe work, while each accepted invite freezes one
+shared election input, latches exactly one match authority before either ENet
+action, and gives that authority one in-client `netStartServer` attempt.
+Presence v5 transports a separately typed, signed, fresh match-server route;
+every non-authority waits for that route and performs one idempotent ENet join.
+`group_session::onPairOpen` records auxiliary probe success only and never
+hands LAN/STUN/UPnP/ICE probe endpoints or relay descriptors to
+`netStartClient*`. Startup, publication, or join failure clears the route and
+authority latch and suppresses implicit retry.
+
+The frozen client hash is
+`5ef82f3ea66af264408dab2948e18eb6fa92824e09db2c1fc4d8d07d00d58f48`.
+The ordered 24-file D-003 source/harness fingerprint is
+`061bc1fbfa4f266f9f36fb5f78ce68c3c473656bf7aa3ab5224c42f213614f93`.
+Initiator-authority `results-20260812T173304Z.json` passes 143/143;
+invitee-authority `results-20260812T174213Z.json` passes 142/142; host rollback
+`results-20260812T174511Z.json` passes 32/32; client rollback
+`results-20260812T174751Z.json` passes 38/38; and final-binary V-009
+`results-20260812T174904Z.json` passes 21/21 with both captures inspected as
+pink, lower-right, and unobstructed. Final `[d-003]` passes 90/5, the complete
+suite passes 56,774/1,040, and the asset native-source guard passes.
+
+This fixes B-1058 and satisfies the D-003 prerequisite for
+`T-NETWORKING-001/002/006`; it does not close those broader tasks. Signed peer
+candidate exchange, STUN reflexive candidate transport, remaining tier/hole-
+punch unification, real-NAT validation, and host migration remain separately
+partial.
 
 `T-CATALOG-001` is implemented. Its only remaining legacy gate was live custom
 model rendering, and V-009 now proves the complete catalog-owned path in the

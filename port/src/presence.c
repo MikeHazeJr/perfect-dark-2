@@ -2,13 +2,14 @@
  * presence.c -- Always-on peer-to-peer presence ping/pong + invite queue.
  *
  * Phase 1 of the connectivity rollout. Single connectionless UDP socket
- * on port 27105. Frame format (signed; 184 bytes total):
+ * on port 27105. Frame format (signed; 196 bytes total):
  *
  *   off len  field
  *   ----------------------------
  *    0  5    magic "PDPRS"
- *    5  1    version (4 -- signed passive upload measurement added 2026-08-12)
- *    6  1    kind  (0=ping, 1=pong, 2=invite, 3=invite-resp, 4=bye)
+ *    5  1    version (5 -- typed signed ENet match route added 2026-08-12)
+ *    6  1    kind  (0=ping, 1=pong, 2=invite, 3=invite-resp, 4=bye,
+ *                  5=match-route publish/clear)
  *    7  1    state (presence_state_t)
  *    8  4    sender handle
  *   12  4    target handle (0 = broadcast)
@@ -19,14 +20,19 @@
  *   24 16    sender agent name (utf-8, null-padded)
  *   40 44    status blurb (utf-8, null-padded)
  *   84  4    passive upload estimate (kbps; zero = unavailable)
- *   88 32    sender Ed25519 pubkey (matches legacy pubkey handle or
+ *   88  4    match-route IPv4 (host order; zero for source-derived)
+ *   92  2    match-route ENet listen port
+ *   94  1    match-route type flags
+ *   95  1    reserved zero
+ *   96  4    match-route issue time (Unix seconds)
+ *  100 32    sender Ed25519 pubkey (matches legacy pubkey handle or
  *            per-agent SHA256(pubkey||agent_name) handle)
- *  120 64    Ed25519 signature over bytes[0..120) + the domain string
- *  184
+ *  132 64    Ed25519 signature over bytes[0..132) + the domain string
+ *  196
  *
- * Signature domain separator: "pd-presence-v4".
+ * Signature domain separator: "pd-presence-v5".
  *
- * The 184-byte frame is well within the 1500-byte unfragmented UDP MTU.
+ * The 196-byte frame is well within the 1500-byte unfragmented UDP MTU.
  */
 
 #include "presence.h"
@@ -41,11 +47,13 @@
 #include "net/group_session.h"
 #include "net/net_bandwidth.h"
 #include "system.h"
+#include "smoke_harness.h"
 
 #include <SDL.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #ifdef _WIN32
   #include <winsock2.h>
@@ -64,20 +72,24 @@
 #define PRESENCE_PORT             27105
 #define PRESENCE_MAGIC            "PDPRS"
 #define PRESENCE_MAGIC_LEN        5
-#define PRESENCE_VERSION          4  /* v4 (2026-08-12): signed passive upload kbps at bytes 84..87 */
-#define PRESENCE_BODY_LEN         120 /* bytes that the signature covers (0..120) */
-#define PRESENCE_PUBKEY_OFFSET    88
+#define PRESENCE_VERSION          5  /* v5 (2026-08-12): signed typed ENet match route */
+#define PRESENCE_BODY_LEN         132 /* bytes that the signature covers (0..132) */
+#define PRESENCE_PUBKEY_OFFSET    100
 #define PRESENCE_PUBKEY_LEN       32
-#define PRESENCE_SIG_OFFSET       120
+#define PRESENCE_SIG_OFFSET       132
 #define PRESENCE_SIG_LEN          64
-#define PRESENCE_FRAME_LEN        184
+#define PRESENCE_FRAME_LEN        196
 #define PRESENCE_AGENT_OFFSET     24
 #define PRESENCE_AGENT_LEN        SOCIAL_AGENTNAME_MAX
 #define PRESENCE_STATUS_OFFSET    (PRESENCE_AGENT_OFFSET + PRESENCE_AGENT_LEN)
 #define PRESENCE_UPLOAD_KBPS_OFFSET 84
+#define PRESENCE_MATCH_ROUTE_IPV4_OFFSET 88
+#define PRESENCE_MATCH_ROUTE_PORT_OFFSET 92
+#define PRESENCE_MATCH_ROUTE_FLAGS_OFFSET 94
+#define PRESENCE_MATCH_ROUTE_ISSUED_OFFSET 96
 #define PRESENCE_BLURB_LEN        64
 #define PRESENCE_STATUS_LEN       (PRESENCE_UPLOAD_KBPS_OFFSET - PRESENCE_STATUS_OFFSET)
-#define PRESENCE_SIG_DOMAIN       "pd-presence-v4"
+#define PRESENCE_SIG_DOMAIN       "pd-presence-v5"
 #define PRESENCE_SIG_DOMAIN_LEN   14
 #define PRESENCE_ENDPOINT_TTL_S   300 /* 5 minutes -- decision: connectivity-phase1-decisions.md */
 
@@ -86,6 +98,7 @@
 #define PRESENCE_KIND_INVITE      2
 #define PRESENCE_KIND_INVITE_RESP 3
 #define PRESENCE_KIND_BYE         4
+#define PRESENCE_KIND_MATCH_ROUTE 5
 
 #define PRESENCE_PING_INTERVAL_MS 30000  /* ping each friend every 30 s */
 #define PRESENCE_PONG_FRESH_MS    60000  /* pong'd within last 60 s = online */
@@ -115,10 +128,13 @@ typedef struct {
 
 static SOCKET s_Sock = INVALID_SOCKET;
 static s32    s_SocketReady;
+static u16    s_LocalPort = PRESENCE_PORT;
+static s32    s_LocalPortRequired;
 
 static presence_state_t s_LocalState = PRESENCE_OFFLINE;
 static char   s_LocalBlurb[PRESENCE_BLURB_LEN];
 static u32    s_LocalAgentRecord_ms;
+static net_match_route_t s_LocalMatchRoute;
 
 static presence_peer_t  s_Peers[PRESENCE_PEER_CAP];
 static s32              s_NumPeers;
@@ -212,8 +228,16 @@ static SOCKET ensureSocket(void)
 	memset(&addr, 0, sizeof(addr));
 	addr.sin_family = AF_INET;
 	addr.sin_addr.s_addr = htonl(INADDR_ANY);
-	addr.sin_port = htons(PRESENCE_PORT);
+	addr.sin_port = htons(s_LocalPort);
 	if (bind(s_Sock, (struct sockaddr *)&addr, sizeof(addr)) != 0) {
+		if (s_LocalPortRequired) {
+			closesocket(s_Sock);
+			s_Sock = INVALID_SOCKET;
+			sysLogPrintf(LOG_ERROR,
+				"PRESENCE: required smoke port %u unavailable",
+				(unsigned)s_LocalPort);
+			return INVALID_SOCKET;
+		}
 		addr.sin_port = 0;
 		if (bind(s_Sock, (struct sockaddr *)&addr, sizeof(addr)) != 0) {
 			closesocket(s_Sock);
@@ -222,7 +246,7 @@ static SOCKET ensureSocket(void)
 		}
 	}
 	s_SocketReady = 1;
-	sysLogPrintf(LOG_NOTE, "PRESENCE: socket bound on UDP %u", (unsigned)PRESENCE_PORT);
+	sysLogPrintf(LOG_NOTE, "PRESENCE: socket bound on UDP %u", (unsigned)s_LocalPort);
 	return s_Sock;
 }
 
@@ -318,13 +342,43 @@ static void sendFrame(u32 ipv4, u16 port, u8 kind, u32 target_handle,
 	wU32(&w, target_handle);
 	wU16(&w, NET_PROTOCOL_VER);
 	wU16(&w, (u16)(((u16)actionmapGetLastInputClass() << 8) | invite_kind));
-	wU32(&w, nonce);
+	/* Route updates and explicit clears use the signed nonce as a monotonic
+	 * within-process sequence for same-second ordering/replay rejection. */
+	const u32 frame_nonce = s_LocalMatchRoute.port != 0 ||
+		kind == PRESENCE_KIND_MATCH_ROUTE ? SDL_GetTicks() : nonce;
+	wU32(&w, frame_nonce);
 	writeFixedString(packet + PRESENCE_AGENT_OFFSET, PRESENCE_AGENT_LEN,
 	                 socialMyAgentName());
 	writeFixedString(packet + PRESENCE_STATUS_OFFSET, PRESENCE_STATUS_LEN,
 	                 status_blurb);
 	u8 *upload_w = packet + PRESENCE_UPLOAD_KBPS_OFFSET;
-	wU32(&upload_w, netUploadKbpsEstimate());
+	/* Once a group invite freezes its election input, every subsequent signed
+	 * frame (including MATCH_ROUTE) must repeat that same claim. Otherwise a
+	 * route publication before ENet traffic exists can overwrite the peer with
+	 * a zero live estimate and split the pre-connect election. Outside an
+	 * election this accessor simply samples the current persisted estimate. */
+	const u32 upload_kbps = groupSessionLocalElectionKbps();
+	wU32(&upload_w, upload_kbps);
+	if (s_LocalMatchRoute.port != 0) {
+		net_match_route_t route = s_LocalMatchRoute;
+		const time_t now_time = time(NULL);
+		if (now_time <= 0 || (u64)now_time > 0xffffffffu) return;
+		route.issued_unix_seconds = (u32)now_time;
+		u8 *route_ipv4_w = packet + PRESENCE_MATCH_ROUTE_IPV4_OFFSET;
+		u8 *route_port_w = packet + PRESENCE_MATCH_ROUTE_PORT_OFFSET;
+		u8 *route_issued_w = packet + PRESENCE_MATCH_ROUTE_ISSUED_OFFSET;
+		wU32(&route_ipv4_w, route.ipv4);
+		wU16(&route_port_w, route.port);
+		packet[PRESENCE_MATCH_ROUTE_FLAGS_OFFSET] = route.flags;
+		wU32(&route_issued_w, route.issued_unix_seconds);
+	} else if (kind == PRESENCE_KIND_MATCH_ROUTE) {
+		/* A clear is a separately signed/fresh route update: zero route fields
+		 * plus a nonzero issue time. */
+		u8 *route_issued_w = packet + PRESENCE_MATCH_ROUTE_ISSUED_OFFSET;
+		const time_t now_time = time(NULL);
+		if (now_time <= 0 || (u64)now_time > 0xffffffffu) return;
+		wU32(&route_issued_w, (u32)now_time);
+	}
 	memcpy(packet + PRESENCE_PUBKEY_OFFSET, mypub, PRESENCE_PUBKEY_LEN);
 
 	if (!signFrame(packet, packet + PRESENCE_SIG_OFFSET)) {
@@ -356,6 +410,24 @@ static s32 s_AgentConfirmed = 0;
 
 void presenceInit(void)
 {
+	s_LocalPort = PRESENCE_PORT;
+	s_LocalPortRequired = 0;
+	const char *debug_port = sysArgGetString("--debug-presence-port");
+	if (debug_port && debug_port[0] && smokeHarnessIsActive()) {
+		char *end = NULL;
+		const long parsed = strtol(debug_port, &end, 10);
+		if (end && *end == '\0' && parsed > 0 && parsed <= 65535) {
+			s_LocalPort = (u16)parsed;
+			s_LocalPortRequired = 1;
+			sysLogPrintf(LOG_NOTE,
+				"PRESENCE: smoke-local port override=%u",
+				(unsigned)s_LocalPort);
+		} else {
+			sysLogPrintf(LOG_WARNING,
+				"PRESENCE: invalid --debug-presence-port '%s' ignored",
+				debug_port);
+		}
+	}
 	memset(s_Peers, 0, sizeof(s_Peers));
 	memset(s_RateBuckets, 0, sizeof(s_RateBuckets));
 	memset(s_Pending, 0, sizeof(s_Pending));
@@ -365,6 +437,7 @@ void presenceInit(void)
 	s_NumInbox = 0;
 	s_NumScheduled = 0;
 	s_LocalBlurb[0] = '\0';
+	memset(&s_LocalMatchRoute, 0, sizeof(s_LocalMatchRoute));
 	s_LocalState = PRESENCE_BOOTSTRAP;
 	s_AgentConfirmed = 0;
 	(void)ensureSocket();
@@ -449,7 +522,10 @@ const char *presenceGetLocalBlurb(void) { return s_LocalBlurb; }
 static void recordPong(u32 handle, u8 state, u16 proto, u8 input_class,
                         u32 upload_kbps,
                         u32 src_ipv4, u16 src_port, const char *agent,
-                        const char *status_blurb)
+                        const char *status_blurb,
+						const net_match_route_t *match_route,
+						s32 clear_match_route, u32 route_issued,
+						u32 route_nonce)
 {
 	presence_peer_t *p = touchPeer(handle);
 	if (!p) return;
@@ -463,6 +539,23 @@ static void recordPong(u32 handle, u8 state, u16 proto, u8 input_class,
 	p->upload_kbps = upload_kbps <= NET_UPLOAD_KBPS_MAX ? upload_kbps : 0;
 	p->cached_ipv4 = src_ipv4;
 	p->cached_port = src_port;
+	if (match_route || clear_match_route) {
+		const s32 newer = p->match_route_latest_issued_unix_seconds == 0 ||
+			route_issued > p->match_route_latest_issued_unix_seconds ||
+			(route_issued == p->match_route_latest_issued_unix_seconds &&
+				(s32)(route_nonce - p->match_route_latest_nonce) > 0);
+		if (newer) {
+			p->match_route_latest_issued_unix_seconds = route_issued;
+			p->match_route_latest_nonce = route_nonce;
+			if (match_route) {
+				p->match_route = *match_route;
+				p->match_route_received_ms = SDL_GetTicks();
+			} else {
+				memset(&p->match_route, 0, sizeof(p->match_route));
+				p->match_route_received_ms = 0;
+			}
+		}
+	}
 	if (status_blurb) {
 		strncpy(p->status_blurb, status_blurb, sizeof(p->status_blurb) - 1);
 		p->status_blurb[sizeof(p->status_blurb) - 1] = '\0';
@@ -579,12 +672,22 @@ static void drainReceive(void)
 		const u8 *upload_r = packet + PRESENCE_UPLOAD_KBPS_OFFSET;
 		u32 upload_kbps = rU32(&upload_r);
 		if (upload_kbps > NET_UPLOAD_KBPS_MAX) upload_kbps = 0;
-		(void)nonce;
-		(void)to_handle;
+		net_match_route_t wire_route;
+		memset(&wire_route, 0, sizeof(wire_route));
+		const u8 *route_ipv4_r = packet + PRESENCE_MATCH_ROUTE_IPV4_OFFSET;
+		const u8 *route_port_r = packet + PRESENCE_MATCH_ROUTE_PORT_OFFSET;
+		const u8 *route_issued_r = packet + PRESENCE_MATCH_ROUTE_ISSUED_OFFSET;
+		wire_route.ipv4 = rU32(&route_ipv4_r);
+		wire_route.port = rU16(&route_port_r);
+		wire_route.flags = packet[PRESENCE_MATCH_ROUTE_FLAGS_OFFSET];
+		wire_route._pad = packet[PRESENCE_MATCH_ROUTE_FLAGS_OFFSET + 1];
+		wire_route.issued_unix_seconds = rU32(&route_issued_r);
 
 		if (ver != PRESENCE_VERSION) continue;
+		if (to_handle != 0 && to_handle != socialMyHandle()) continue;
 		if (!acceptFromHandle(from_handle)) continue;
-		if (!rateLimitAllow(from_handle)) continue;
+		if ((kind == PRESENCE_KIND_PING || kind == PRESENCE_KIND_PONG) &&
+			!rateLimitAllow(from_handle)) continue;
 
 		const u8 *sender_pub = packet + PRESENCE_PUBKEY_OFFSET;
 		const u8 *sender_sig = packet + PRESENCE_SIG_OFFSET;
@@ -623,25 +726,68 @@ static void drainReceive(void)
 
 		const u32 src_ipv4 = ntohl(src.sin_addr.s_addr);
 		const u16 src_port = ntohs(src.sin_port);
+		net_match_route_t normalized_route;
+		const net_match_route_t *route_ptr = NULL;
+		const s32 route_payload_present = wire_route.ipv4 != 0 ||
+			wire_route.port != 0 || wire_route.flags != 0 ||
+			wire_route._pad != 0;
+		const s32 route_clear = kind == PRESENCE_KIND_MATCH_ROUTE &&
+			!route_payload_present && wire_route.issued_unix_seconds != 0;
+		if (route_payload_present) {
+			const time_t now_time = time(NULL);
+			if (now_time > 0 && (u64)now_time <= 0xffffffffu &&
+				netMatchRouteNormalize(&wire_route, src_ipv4,
+					(u32)now_time, &normalized_route)) {
+				route_ptr = &normalized_route;
+				sysLogPrintf(LOG_NOTE,
+					"PRESENCE: accepted signed match route authority=0x%08x flags=0x%02x port=%u fresh=1",
+					(unsigned)from_handle, (unsigned)normalized_route.flags,
+					(unsigned)normalized_route.port);
+			} else {
+				sysLogPrintf(LOG_WARNING,
+					"PRESENCE: rejected invalid signed match route from handle 0x%08x",
+					(unsigned)from_handle);
+				continue;
+			}
+		} else if (route_clear) {
+			const time_t now_time = time(NULL);
+			if (now_time <= 0 || (u64)now_time > 0xffffffffu ||
+				!netMatchRouteTimestampIsFresh(wire_route.issued_unix_seconds,
+					(u32)now_time)) {
+				sysLogPrintf(LOG_WARNING,
+					"PRESENCE: rejected stale signed match route clear from handle 0x%08x",
+					(unsigned)from_handle);
+				continue;
+			}
+		} else if (wire_route.issued_unix_seconds != 0 ||
+			kind == PRESENCE_KIND_MATCH_ROUTE) {
+			sysLogPrintf(LOG_WARNING,
+				"PRESENCE: rejected malformed signed match route update from handle 0x%08x",
+				(unsigned)from_handle);
+			continue;
+		}
 
 		switch (kind) {
 			case PRESENCE_KIND_PING: {
 				/* Reply pong. */
 				recordPong(from_handle, state, proto, input_class, upload_kbps, src_ipv4, src_port,
-				           agent, status_blurb);
+				           agent, status_blurb, route_ptr, 0,
+				           wire_route.issued_unix_seconds, nonce);
 				sendFrame(src_ipv4, src_port, PRESENCE_KIND_PONG, from_handle,
 				          nonce, 0, s_LocalBlurb);
 				break;
 			}
 			case PRESENCE_KIND_PONG: {
 				recordPong(from_handle, state, proto, input_class, upload_kbps, src_ipv4, src_port,
-				           agent, status_blurb);
+				           agent, status_blurb, route_ptr, 0,
+				           wire_route.issued_unix_seconds, nonce);
 				break;
 			}
 			case PRESENCE_KIND_INVITE: {
 				/* Cache sender endpoint for the upcoming p2p path. */
 				recordPong(from_handle, state, proto, input_class, upload_kbps, src_ipv4, src_port,
-				           agent, status_blurb);
+				           agent, status_blurb, route_ptr, 0,
+				           wire_route.issued_unix_seconds, nonce);
 				const social_friend_t *f = socialFriendByHandle(from_handle);
 				const char *display_agent = (f && f->agent_name[0]) ? f->agent_name : agent;
 				enqueueInvite(from_handle, invite_kind, display_agent);
@@ -649,11 +795,18 @@ static void drainReceive(void)
 			}
 			case PRESENCE_KIND_INVITE_RESP: {
 				recordPong(from_handle, state, proto, input_class, upload_kbps, src_ipv4, src_port,
-				           agent, status_blurb);
+				           agent, status_blurb, route_ptr, 0,
+				           wire_route.issued_unix_seconds, nonce);
 				/* The low byte of input_meta encodes the response: 1 =
 				 * accepted, 0 = declined. group_session moves the peer to
 				 * RESOLVING (kicks p2p) or FAILED (REJECTED). */
 				groupSessionOnInviteResponse(from_handle, invite_kind ? 1 : 0);
+				break;
+			}
+			case PRESENCE_KIND_MATCH_ROUTE: {
+				recordPong(from_handle, state, proto, input_class, upload_kbps,
+					src_ipv4, src_port, agent, status_blurb, route_ptr,
+					route_clear, wire_route.issued_unix_seconds, nonce);
 				break;
 			}
 			case PRESENCE_KIND_BYE: {
@@ -661,6 +814,8 @@ static void drainReceive(void)
 				if (peer) {
 					peer->state = PRESENCE_OFFLINE;
 					peer->last_pong_ms = 0;
+					memset(&peer->match_route, 0, sizeof(peer->match_route));
+					peer->match_route_received_ms = 0;
 				}
 				groupSessionDropPeer(from_handle);
 				break;
@@ -815,6 +970,77 @@ s32 presencePeerIsOnline(u32 handle)
 	return p->state != PRESENCE_OFFLINE && p->state != PRESENCE_APPEAR_OFFLINE;
 }
 
+s32 presencePeerMatchRoute(u32 handle, net_match_route_t *out_route)
+{
+	const presence_peer_t *p = findPeer(handle);
+	if (!p || !out_route || p->match_route.port == 0 ||
+		p->match_route_received_ms == 0) {
+		return 0;
+	}
+	if ((SDL_GetTicks() - p->match_route_received_ms) >
+		NET_MATCH_ROUTE_FRESH_MS) {
+		return 0;
+	}
+	const time_t now_time = time(NULL);
+	if (now_time <= 0 || (u64)now_time > 0xffffffffu ||
+		!netMatchRouteTimestampIsFresh(p->match_route.issued_unix_seconds,
+			(u32)now_time)) {
+		return 0;
+	}
+	*out_route = p->match_route;
+	return 1;
+}
+
+void presencePublishMatchRoute(void)
+{
+	if (!s_SocketReady) return;
+	for (s32 i = 0; i < s_NumPeers; i++) {
+		presence_peer_t *p = &s_Peers[i];
+		u32 ipv4 = 0;
+		u16 port = 0;
+		if (p->handle == 0 || !resolveEndpoint(p->handle, &ipv4, &port)) {
+			continue;
+		}
+		sendFrame(ipv4, port, PRESENCE_KIND_MATCH_ROUTE, p->handle,
+			(u32)SDL_GetTicks() ^ p->handle, 0, s_LocalBlurb);
+	}
+}
+
+s32 presenceSetLocalMatchRoute(const net_match_route_t *route)
+{
+	if (!route) return -1;
+	const time_t now_time = time(NULL);
+	if (now_time <= 0 || (u64)now_time > 0xffffffffu) return -1;
+
+	net_match_route_t wire = *route;
+	wire.issued_unix_seconds = (u32)now_time;
+	wire._pad = 0;
+	net_match_route_t normalized;
+	const u32 verified_source = wire.flags == NET_MATCH_ROUTE_SOURCE_DERIVED
+		? 0x7f000001u : 0;
+	if (!netMatchRouteNormalize(&wire, verified_source,
+			wire.issued_unix_seconds, &normalized)) {
+		return -1;
+	}
+	if (wire.flags == NET_MATCH_ROUTE_SOURCE_DERIVED) {
+		normalized.ipv4 = 0;
+	}
+	s_LocalMatchRoute = normalized;
+	s_LocalMatchRoute.issued_unix_seconds = wire.issued_unix_seconds;
+	presencePublishMatchRoute();
+	return 0;
+}
+
+void presenceClearLocalMatchRoute(void)
+{
+	const s32 had_route = s_LocalMatchRoute.port != 0;
+	memset(&s_LocalMatchRoute, 0, sizeof(s_LocalMatchRoute));
+	if (had_route) {
+		sysLogPrintf(LOG_NOTE, "PRESENCE: local signed match route cleared");
+		presencePublishMatchRoute();
+	}
+}
+
 /* -------------------------------------------------------------------------
  * Pending invite allowlist
  * ------------------------------------------------------------------------- */
@@ -863,14 +1089,13 @@ s32 presenceSendInvite(u32 friend_handle, u8 kind)
 	if (!resolveEndpoint(friend_handle, &ipv4, &port)) return -1;
 
 	const u32 nonce = (u32)SDL_GetTicks() ^ friend_handle;
-	sendFrame(ipv4, port, PRESENCE_KIND_INVITE, friend_handle, nonce, kind,
-	          s_LocalBlurb);
-
 	/* Track the invite in the group session.  The actual p2p pair starts
 	 * when the friend's INVITE_RESP arrives -- racing to open the pair
 	 * before they accept would burn LAN/STUN attempts on a peer who may
 	 * decline.  groupSessionOnInviteResponse owns the pair-open path. */
-	(void)groupSessionRecordSentInvite(friend_handle);
+	if (groupSessionRecordSentInvite(friend_handle) != 0) return -1;
+	sendFrame(ipv4, port, PRESENCE_KIND_INVITE, friend_handle, nonce, kind,
+	          s_LocalBlurb);
 	sysLogPrintf(LOG_NOTE,
 	             "PRESENCE: invite sent handle=0x%08x kind=%u via %u.%u.%u.%u:%u",
 	             (unsigned)friend_handle, (unsigned)kind,
@@ -897,6 +1122,13 @@ s32 presenceInviteAccept(s32 idx)
 	if (idx < 0 || idx >= s_NumInbox) return -1;
 	const presence_invite_t e = s_Inbox[idx];
 
+	/* Establish the shared initiator and perform pre-connect authority
+	 * election before sending the acceptance. If this client is elected, the
+	 * response itself can carry its freshly started signed ENet route. */
+	if (groupSessionAcceptInvite(e.from_handle) != 0) {
+		return -1;
+	}
+
 	u32 ipv4 = 0; u16 port = 0;
 	(void)resolveEndpoint(e.from_handle, &ipv4, &port);
 
@@ -905,13 +1137,6 @@ s32 presenceInviteAccept(s32 idx)
 		sendFrame(ipv4, port, PRESENCE_KIND_INVITE_RESP, e.from_handle, nonce, 1,
 		          s_LocalBlurb);
 	}
-
-	/* Hand the acceptance to the group session, which begins the p2p
-	 * pair, watches it through to OPEN, and triggers netStartClient on
-	 * success. Do NOT also call p2pPairBegin here -- the pair table is
-	 * the single writer for pair state, and group_session is now the
-	 * single writer of the invite-to-match handoff state. */
-	(void)groupSessionAcceptInvite(e.from_handle);
 
 	/* Remove from inbox. */
 	memmove(&s_Inbox[idx], &s_Inbox[idx + 1],

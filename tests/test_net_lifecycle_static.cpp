@@ -300,15 +300,64 @@ TEST_CASE("net bot authority: bot move count is validated before state writes",
     REQUIRE(authorized < apply_write);
 }
 
-TEST_CASE("net interoperability: friend remote handoffs use hole-punch-aware joins",
-          "[net][interoperability][static][c3828]")
+TEST_CASE("net interoperability: friend joins consume only typed signed match routes",
+		  "[net][interoperability][static][c3828][d-003][b1058]")
 {
-    const std::string group = read_text_file("port/src/net/group_session.c");
+	const std::string group = read_text_file("port/src/net/group_session.c");
+	const std::string presence = read_text_file("port/src/presence.c");
+	const std::string stun_h = read_text_file("port/include/net/netstun.h");
+	const std::string fixture = read_text_file(
+		"tools/smoke-verify/generate_friend_play_identity.py");
     const std::string spectator = read_text_file("port/src/spectator.c");
+	const std::string pair_open = function_block(group, "static void onPairOpen");
+	const std::string drive = function_block(group, "static void driveMatchTransport");
+	const std::string latch = function_block(group,
+		"static s32 latchPreconnectAuthority");
+	const std::string debug_init = function_block(group,
+		"static void debugFriendPlayInit");
 
     REQUIRE(group.find("#include \"net/netholepunch.h\"") != std::string::npos);
-    REQUIRE(group.find("netStartClientWithHolePunch(addr)") != std::string::npos);
+	REQUIRE(drive.find("presencePeerMatchRoute(authority_handle, &route)") != std::string::npos);
+	REQUIRE(drive.find("if (!latchPreconnectAuthority()) return;") != std::string::npos);
+	REQUIRE(drive.find("s_Session.latched_authority_handle") != std::string::npos);
+	REQUIRE(latch.find("s_Session.latched_authority_handle = s_Session.authority_handle") !=
+		std::string::npos);
+	REQUIRE(latch.find("pre-connect authority latched") != std::string::npos);
+	REQUIRE(drive.find("netMatchRouteFormat(&route, addr, sizeof(addr))") != std::string::npos);
+    REQUIRE(drive.find("netStartClientWithHolePunch(addr)") != std::string::npos);
     REQUIRE(group.find("netStartClient(addr)") == std::string::npos);
+	REQUIRE(pair_open.find("netStartClientWithHolePunch") == std::string::npos);
+	REQUIRE(pair_open.find("netStartClient(") == std::string::npos);
+	REQUIRE(pair_open.find("snprintf(addr") == std::string::npos);
+	REQUIRE(group.find("stunGetDiscoveryPort() == (u16)g_NetServerPort") !=
+		std::string::npos);
+	REQUIRE(group.find("stunGetNatType() == STUN_NAT_CONE") !=
+		std::string::npos);
+	REQUIRE(stun_h.find("u16 stunGetDiscoveryPort(void);") !=
+		std::string::npos);
+
+	REQUIRE(presence.find("PRESENCE_VERSION          5") != std::string::npos);
+	REQUIRE(presence.find("PRESENCE_BODY_LEN         132") != std::string::npos);
+	REQUIRE(presence.find("PRESENCE_FRAME_LEN        196") != std::string::npos);
+	REQUIRE(presence.find("PRESENCE_MATCH_ROUTE_IPV4_OFFSET 88") != std::string::npos);
+	REQUIRE(presence.find("PRESENCE_MATCH_ROUTE_ISSUED_OFFSET 96") != std::string::npos);
+	REQUIRE(presence.find("pd-presence-v5") != std::string::npos);
+	REQUIRE(presence.find("rejected invalid signed match route") != std::string::npos);
+	REQUIRE(presence.find("rejected stale signed match route clear") !=
+		std::string::npos);
+	REQUIRE(presence.find("match_route_latest_nonce") != std::string::npos);
+	REQUIRE(presence.find("netMatchRouteTimestampIsFresh") !=
+		std::string::npos);
+	REQUIRE(presence.find("kind == PRESENCE_KIND_PING || kind == PRESENCE_KIND_PONG") !=
+		std::string::npos);
+	REQUIRE(presence.find("const u32 upload_kbps = groupSessionLocalElectionKbps()") !=
+		std::string::npos);
+
+	REQUIRE(debug_init.find("smokeHarnessIsActive()") != std::string::npos);
+	REQUIRE(debug_init.find("controls ignored outside smoke harness") != std::string::npos);
+	REQUIRE(fixture.find("pd-identity.dat") != std::string::npos);
+	REQUIRE(fixture.find("pd-social-connect-v1\\n") != std::string::npos);
+	REQUIRE(fixture.find("0x7F000001") != std::string::npos);
 
     REQUIRE(spectator.find("#include \"net/netholepunch.h\"") != std::string::npos);
     REQUIRE(spectator.find("netStartClientWithHolePunch(addr)") != std::string::npos);

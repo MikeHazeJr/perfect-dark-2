@@ -5,6 +5,8 @@
 
 ## Highlights
 
+- Routed friend matches through one elected in-client listen authority using a
+  separately signed server route, one join per peer, and retry-free rollback.
 - Measured real session upload traffic passively and used fresh signed reports
   for deterministic group authority and player-hosted relay selection.
 - Kept the editable Needler's luminous impact edge while making its authored
